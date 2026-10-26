@@ -8,6 +8,9 @@
 // rev_<year>_pc_monthly; this year's months count once they are loaded (at
 // least 60% as many companies with a figure as the same month last year, as on
 // the ESO benchmark), so a window never compares a half-loaded month.
+//
+// A few companies alone (the customer filter, SARCLA 26.10.2026: "customer as well"): read the same way and folded the
+// same way, with the whole read's months and days - so every chart draws them as it draws everyone.
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { ownerNames } from "@/lib/integrations/erosion";
@@ -72,74 +75,85 @@ export function labelsOf(p: Record<string, string | null | undefined>, owners: M
   };
 }
 
+/** Everything a company is read with: its dimensions, the revenue (and by profit centre) and order intake months, the ERP's figures. */
+const propsOf = (years: number[]) => [...DIM_PROPS, "order_first_order_date", ...years.map((y) => `rev_${y}_pc_monthly`), ...years.flatMap((y) => MONTHS.map((m) => `oi_${y}_${m}`)), ...ERP_PROPS, "erp_rev_as_of"];
+
+/** What placing a company needs - the owners' names and teams, the SAE mapping - and what the read counts on the way. */
+type Ctx = {
+  years: number[]; owners: Map<string, string>; saeMap: Record<string, string>; teamFor: (id: string) => string;
+  labels: Record<Dim, string[]>; teams: Record<string, string>; saeTeams: Record<string, string>;
+  filled: number[][]; filledOi: number[][]; erpDays: Map<string, number>;
+};
+async function contextOf(years: number[]): Promise<Ctx> {
+  const owners = await ownerNames();
+  // a sales rep's team: the roster first, else the team HubSpot has them in (as Retain & grow's path does)
+  const hsTeam = new Map<string, string>();
+  try { for (const o of await readOwners()) if (o.team) hsTeam.set(String(o.id), o.team); } catch { /* the rosters alone */ }
+  const teamFor = (id: string) => teamOf(id) ?? (/\bTSA\b/i.test(hsTeam.get(id) ?? "") ? "TSA" : /\bESO\b/i.test(hsTeam.get(id) ?? "") ? "ESO" : "Other");
+  // the SAE -> person mapping Map assignment keeps (its saved rules, else its seed)
+  let saeMap: Record<string, string> = SEED.sae;
+  try { saeMap = (await getRules()).value.sae ?? SEED.sae; } catch { /* the seed */ }
+  return {
+    years, owners, saeMap, teamFor,
+    labels: Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>,
+    teams: {}, saeTeams: {}, filled: years.map(() => Array(12).fill(0)), filledOi: years.map(() => Array(12).fill(0)), erpDays: new Map(),
+  };
+}
+/** One company as the cube takes it. */
+function companyOf(p: Record<string, string | null>, x: Ctx): CompanyIn {
+  const index = (d: Dim, v: string) => {
+    let i = x.labels[d].indexOf(v);
+    if (i < 0) i = x.labels[d].push(v) - 1;
+    return i;
+  };
+  // the revenue by profit centre too, this year and last (the ESO Figures' Profit center tab)
+  const pcMonths: Record<string, number>[][] = [];
+  const months = x.years.map((y, yi) => {
+    const blob = parsePcMonthly(p[`rev_${y}_pc_monthly`]);
+    if (yi < 2) pcMonths.push(blob);
+    return blob.map((_, m) => {
+      const v = monthTotal(blob, m);
+      if (v) x.filled[yi][m]++;
+      return v;
+    });
+  });
+  const l = labelsOf(p, x.owners, x.saeMap);
+  if (!x.saeTeams[l.sae]) { const s = saeLabel(p.sae_performis, x.saeMap, x.owners); x.saeTeams[l.sae] = s.owner ? x.teamFor(s.owner) : /^TSA\b/i.test(l.sae) ? "TSA" : /^ESO\b/i.test(l.sae) ? "ESO" : "Other"; }
+  if (p.hubspot_owner_id && !x.teams[l.owner]) x.teams[l.owner] = x.teamFor(p.hubspot_owner_id);
+  const intake = x.years.map((y, yi) => MONTHS.map((m, mi) => { const v = num(p[`oi_${y}_${m}`]) ?? 0; if (v) x.filledOi[yi][mi]++; return v; }));
+  const erp = ERP_PROPS.map((k) => num(p[k]) ?? 0);
+  const erpDay = String(p.erp_rev_as_of ?? "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(erpDay)) x.erpDays.set(erpDay, (x.erpDays.get(erpDay) ?? 0) + 1);
+  return {
+    dims: Object.fromEntries(DIMS.map((d) => [d, index(d, l[d])])) as Record<Dim, number>,
+    potential: num(p.yearly_customer_potential), months,
+    firstMonth: firstMonthOf(p.order_first_order_date, x.years[2]),
+    intake, erp: erp.some((v) => v !== 0) ? erp : null, pcMonths,
+  };
+}
+
 async function build(): Promise<Cube> {
   const now = new Date();
   const year = now.getUTCFullYear();
   const years = [year, year - 1, year - 2];
   const monthsDone = now.getUTCMonth();
   reportProgress(KEY, "reading the owners");
-  const owners = await ownerNames();
-
+  const x = await contextOf(years);
   // order intake per month as the nightly revenue load writes it (oi_2026_jan…) - 36 names, well inside the address's 2 KB
-  const props = [...DIM_PROPS, "order_first_order_date", ...years.map((y) => `rev_${y}_pc_monthly`), ...years.flatMap((y) => MONTHS.map((m) => `oi_${y}_${m}`)), ...ERP_PROPS, "erp_rev_as_of"];
-  const teams: Record<string, string> = {};
-  // a sales rep's team: the roster first, else the team HubSpot has them in (as Retain & grow's path does)
-  const hsTeam = new Map<string, string>();
-  try { for (const o of await readOwners()) if (o.team) hsTeam.set(String(o.id), o.team); } catch { /* the rosters alone */ }
-  const teamFor = (id: string) => teamOf(id) ?? (/\bTSA\b/i.test(hsTeam.get(id) ?? "") ? "TSA" : /\bESO\b/i.test(hsTeam.get(id) ?? "") ? "ESO" : "Other");
-  const filledOi = years.map(() => Array(12).fill(0));
-  // the SAE -> person mapping Map assignment keeps (its saved rules, else its seed)
-  let saeMap: Record<string, string> = SEED.sae;
-  try { saeMap = (await getRules()).value.sae ?? SEED.sae; } catch { /* the seed */ }
-  const saeTeams: Record<string, string> = {};
-  const erpDays = new Map<string, number>();
-  const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
-  const index = (d: Dim, v: string) => {
-    let i = labels[d].indexOf(v);
-    if (i < 0) i = labels[d].push(v) - 1;
-    return i;
-  };
+  const props = propsOf(years);
   const companies: CompanyIn[] = [];
-  const filled = years.map(() => Array(12).fill(0));
 
   let after: string | undefined;
   for (;;) {
     const qs = `limit=100&archived=false&properties=${props.join(",")}${after ? `&after=${after}` : ""}`;
     const r = await hubspotFetchJson<{ results?: Obj[]; paging?: { next?: { after?: string } } }>({ path: `/crm/v3/objects/companies?${qs}` });
-    for (const o of r.results ?? []) {
-      const p = o.properties;
-      // the revenue by profit centre too, this year and last (the ESO Figures' Profit center tab)
-      const pcMonths: Record<string, number>[][] = [];
-      const months = years.map((y, yi) => {
-        const blob = parsePcMonthly(p[`rev_${y}_pc_monthly`]);
-        if (yi < 2) pcMonths.push(blob);
-        return blob.map((_, m) => {
-          const x = monthTotal(blob, m);
-          if (x) filled[yi][m]++;
-          return x;
-        });
-      });
-      const potential = num(p.yearly_customer_potential);
-      const l = labelsOf(p, owners, saeMap);
-      if (!saeTeams[l.sae]) { const s = saeLabel(p.sae_performis, saeMap, owners); saeTeams[l.sae] = s.owner ? teamFor(s.owner) : /^TSA\b/i.test(l.sae) ? "TSA" : /^ESO\b/i.test(l.sae) ? "ESO" : "Other"; }
-      if (p.hubspot_owner_id && !teams[l.owner]) teams[l.owner] = teamFor(p.hubspot_owner_id);
-      const intake = years.map((y, yi) => MONTHS.map((m, mi) => { const x = num(p[`oi_${y}_${m}`]) ?? 0; if (x) filledOi[yi][mi]++; return x; }));
-      const erp = ERP_PROPS.map((k) => num(p[k]) ?? 0);
-      const erpDay = String(p.erp_rev_as_of ?? "").slice(0, 10);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(erpDay)) erpDays.set(erpDay, (erpDays.get(erpDay) ?? 0) + 1);
-      companies.push({
-        dims: Object.fromEntries(DIMS.map((d) => [d, index(d, l[d])])) as Record<Dim, number>,
-        potential, months,
-        firstMonth: firstMonthOf(p.order_first_order_date, years[2]),
-        intake, erp: erp.some((x) => x !== 0) ? erp : null, pcMonths,
-      });
-    }
+    for (const o of r.results ?? []) companies.push(companyOf(o.properties, x));
     reportProgress(KEY, `reading companies: ${companies.length.toLocaleString("en")} so far`);
     after = r.paging?.next?.after;
     if (!after) break;
   }
 
-  const loaded = [monthsLoaded(filled[0], filled[1], monthsDone), 12, 12];
+  const loaded = [monthsLoaded(x.filled[0], x.filled[1], monthsDone), 12, 12];
   // The month in progress reaches the day of the last ERP delivery the chain ran
   // (yesterday when no delivery is on record): year to date and month to date end there.
   const day = await lastDelivery();
@@ -148,6 +162,45 @@ async function build(): Promise<Cube> {
     ? { month: monthOf(0, reach.getUTCMonth()), day: reach.getUTCDate(), days: new Date(Date.UTC(year, reach.getUTCMonth() + 1, 0)).getUTCDate() }
     : null;
   // the ERP day most companies carry (a straggler from an older file does not move it)
-  const erpDay = [...erpDays].sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]))[0]?.[0] ?? null;
-  return { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels, teams, saeTeams, erpDay, oiLoaded: monthsLoaded(filledOi[0], filledOi[1], monthsDone), ...fold(companies) };
+  const erpDay = [...x.erpDays].sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]))[0]?.[0] ?? null;
+  return { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels: x.labels, teams: x.teams, saeTeams: x.saeTeams, erpDay, oiLoaded: monthsLoaded(x.filledOi[0], x.filledOi[1], monthsDone), ...fold(companies) };
+}
+
+/**
+ * The cube of the companies chosen (at most 50): the same read and fold as everyone's, with the whole read's years,
+ * loaded months, running month and ERP day - so a chart compares them exactly as it compares everyone. Null until the
+ * whole read exists.
+ */
+export async function companiesCube(ids: string[]): Promise<Cube | null> {
+  const base = (await customersCube()).value;
+  if (!base) return null;
+  const x = await contextOf(base.years);
+  const companies: CompanyIn[] = [];
+  const props = propsOf(base.years);
+  for (let i = 0; i < ids.length; i += 50) {
+    const r = await hubspotFetchJson<{ results?: Obj[] }>({ path: "/crm/v3/objects/companies/batch/read", method: "POST", body: { properties: props, inputs: ids.slice(i, i + 50).map((id) => ({ id })) } });
+    for (const o of r.results ?? []) companies.push(companyOf(o.properties, x));
+  }
+  // its own read time: the pages keep their sums per cube by it, and these companies were read just now
+  return { ...base, generatedAt: new Date().toISOString(), labels: x.labels, teams: x.teams, saeTeams: x.saeTeams, ...fold(companies) };
+}
+
+export type CompanyHit = { id: string; name: string; country: string | null; erpId: string | null };
+/** Companies by name, or by ERP customer number - for the customer filter's search box. */
+export async function searchCompanies(q: string): Promise<CompanyHit[]> {
+  const text = q.trim().replace(/[*"]/g, "");
+  if (text.length < 2) return [];
+  const groups = [{ filters: [{ propertyName: "name", operator: "CONTAINS_TOKEN", value: `*${text}*` }] }];
+  if (/^\d{3,}$/.test(text)) groups.push({ filters: [{ propertyName: "erp_customer_id", operator: "EQ", value: text }] });
+  const r = await hubspotFetchJson<{ results?: Obj[] }>({ path: "/crm/v3/objects/companies/search", method: "POST", body: {
+    filterGroups: groups, properties: ["name", "country_custom", "erp_customer_id"], limit: 20, sorts: [{ propertyName: "name", direction: "ASCENDING" }],
+  } });
+  return (r.results ?? []).map((o) => ({ id: String(o.id), name: o.properties.name || `Company ${o.id}`, country: o.properties.country_custom ?? null, erpId: o.properties.erp_customer_id ?? null }));
+}
+
+/** The names of companies chosen (an address carries only their ids). */
+export async function companyNames(ids: string[]): Promise<CompanyHit[]> {
+  if (!ids.length) return [];
+  const r = await hubspotFetchJson<{ results?: Obj[] }>({ path: "/crm/v3/objects/companies/batch/read", method: "POST", body: { properties: ["name", "country_custom", "erp_customer_id"], inputs: ids.slice(0, 50).map((id) => ({ id })) } });
+  return (r.results ?? []).map((o) => ({ id: String(o.id), name: o.properties.name || `Company ${o.id}`, country: o.properties.country_custom ?? null, erpId: o.properties.erp_customer_id ?? null }));
 }

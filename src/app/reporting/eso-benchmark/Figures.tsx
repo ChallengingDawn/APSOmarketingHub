@@ -22,6 +22,10 @@
 // ("book to bill is not done"); the months keep their proportions at half width; a target per chart, typed in its
 // Actions ("a threshold so we can measure the rest of it") - each row's share of it, the months' line; and under ESO the
 // line managers' teams, RABE TEAM | SARCLA TEAM | FALU TEAM, as Map assignment's SAE table sets them.
+// Eleventh (SARCLA 26.10.2026): "the filter on Figures should have a time filter like quarter, month etc - this is really
+// important" - his pick: the Period of Who are our customers in Filters, everything follows; Year to date and Month to
+// date become one Performis SAE tab, every title names the period. Year and month to date stay the ERP's own figures;
+// any other period adds up each customer's months - the order intake only as far as its months are loaded.
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -54,19 +58,20 @@ import QueryStatsOutlinedIcon from "@mui/icons-material/QueryStatsOutlined";
 import DateRangeOutlinedIcon from "@mui/icons-material/DateRangeOutlined";
 import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import BalanceOutlinedIcon from "@mui/icons-material/BalanceOutlined";
+import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { GUTTER } from "@/app/analytics/Shell";
 import { Badge, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import { BEFORE, THIS } from "@/app/reporting/marketing-kpis/DimChart";
-import { DIM, FilterWindow, useCustomersCube } from "@/app/reporting/marketing-kpis/Customers";
+import { DIM, FilterWindow, useCompanyNames, useCustomersCube, type CustomerPick } from "@/app/reporting/marketing-kpis/Customers";
 import { TileActions } from "@/app/reporting/marketing-kpis/tiles/TileActions";
 import { SavedViews } from "@/app/reporting/marketing-kpis/tiles/SavedViews";
 import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tiles/SortableGrid";
 import { formatOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import {
-  DIMS, MONTH_NAMES, PRIO_ORDER, breakdown, buyersByMonthBy, byMonth, byMonthBy, chosenDims, defaultWindow, erpBy, erpTotals, lastMonth, monthOf, partial, pcBy, totals,
+  DIMS, MONTH_NAMES, PRIO_ORDER, breakdown, buyersByMonthBy, byMonthBy, chosenDims, clampWindow, erpBy, erpTotals, lastMonth, monthLabel, monthOf, partial, pcBy, presets, totals, windowLabel, yearOfMonth,
   type Cube, type Dim, type ErpAgg, type Filters, type PcMonths, type Win,
 } from "@/lib/marketingKpis/cube";
 import type { EsoFigures } from "@/lib/reporting/esoFiguresRules";
@@ -148,11 +153,14 @@ type View = "ytd" | "mtd" | Breakdown | "pc";
 const VIEW_IDS: View[] = ["ytd", "mtd", ...BREAKDOWNS, "pc"];
 const isView = (x: string | null | undefined): x is View => (VIEW_IDS as string[]).includes(x ?? "");
 const isBreakdown = (x: string | null | undefined): x is Breakdown => (BREAKDOWNS as readonly string[]).includes(x ?? "");
+// Year to date and Month to date are one tab since the period is in Filters (SARCLA 26.10.2026); "ytd" stays its id - the
+// charts sent to the BUC View and their targets are kept by it - and "mtd" (old addresses, old tiles) opens it on the
+// month to date.
 const VIEWS: { id: View; label: string }[] = [
-  { id: "ytd", label: "Year to date" }, { id: "mtd", label: "Month to date" },
+  { id: "ytd", label: "Performis SAE" },
   ...BREAKDOWNS.map((d) => ({ id: d as View, label: DIM[d].name })), { id: "pc", label: "Profit center" },
 ];
-/** The breakdown a tab is drawn by: the Performis SAE on Year to date and Month to date; none on Profit center. */
+/** The breakdown a tab is drawn by: the Performis SAE on its tab (and the old Month to date); none on Profit center. */
 const dimOf = (v: View): Dim | null => (v === "ytd" || v === "mtd" ? "sae" : v === "pc" ? null : v);
 const NOTES: Record<Breakdown, string> = {
   country: "Where the customers are",
@@ -176,7 +184,6 @@ const changeNote = (a: number, b: number) => (b ? { text: signedPct(changeOf(a, 
 type Period = "ytd" | "mtd";
 type Which = "rev" | "oi";
 const PERIOD: Record<Period, string> = { ytd: "year to date", mtd: "month to date" };
-const PERIOD_CAP: Record<Period, string> = { ytd: "Year to date", mtd: "Month to date" };
 const WHAT: Record<Which, string> = { rev: "Revenue", oi: "Order intake" };
 const WHAT_ALL: Record<Which | "b2b", string> = { ...WHAT, b2b: "Book-to-bill" };
 
@@ -204,10 +211,48 @@ const mtdWin = (cube: Cube): Win => ({ start: lastMonth(cube), end: lastMonth(cu
 /** How far the ERP's month is: its day against the month's days (the forecast of the running month, pro rata). */
 const monthShare = (cube: Cube) => { const d = erpDate(cube); return d ? d.day / new Date(Date.UTC(d.year, d.month + 1, 0)).getUTCDate() : 1; };
 
+/* ── the period every chart, table and figure follows ──────────────────── */
+
+/** Year to date (the default) or month to date - the ERP file's own figures per customer - or a month, a quarter, the
+ *  last 12 months, last year, any months: each customer's months added up. */
+export type Per = { win: Win; id: string; erp: Period | null; title: string; months: number };
+function perOf(cube: Cube, win: Win): Per {
+  const p = presets(cube).find((x) => x.win.start === win.start && x.win.end === win.end);
+  const erp = p?.id === "ytd" || p?.id === "mtd" ? p.id : null;
+  const title = erp ? PERIOD[erp] : p?.id === "12m" ? "the last 12 months" : p?.id === "ly" ? String(cube.years[1]) : p ? p.label : windowLabel(cube, win);
+  return { win, id: p?.id ?? `m${win.start}-${win.end}`, erp, title, months: win.end - win.start + 1 };
+}
+const ytdPer = (cube: Cube) => perOf(cube, ytdWin(cube));
+const mtdPer = (cube: Cube) => perOf(cube, mtdWin(cube));
+/** "1 Jan – 13 Oct 2026", "Apr–Jun 2026" - a year earlier with back = 1 */
+const perWords = (cube: Cube, per: Per, back = 0) => (per.erp ? periodWords(cube, per.erp, back) : windowLabel(cube, per.win, back));
+/** "Year to date", "Q2 2026", "The last 12 months" */
+const perCap = (per: Per) => per.title.charAt(0).toUpperCase() + per.title.slice(1);
+/** Every month of the period has each customer's order intake - the ERP's year and month to date always have it. */
+const oiOk = (cube: Cube, per: Per) => !!per.erp || per.win.end < monthOf(0, 0) + oiLoadedOf(cube);
+const oiLoadedWords = (cube: Cube) => `each customer's order intake is loaded to ${MONTH_NAMES[Math.max(0, oiLoadedOf(cube) - 1)]} ${cube.years[0]}`;
+/** What a ranking compares: "2026" against "2025, same days"; "Apr–Jun 2026" against "Apr–Jun 2025" */
+const curLabelOf = (cube: Cube, per: Per) => (per.erp ? String(cube.years[0]) : windowLabel(cube, per.win));
+const prevLabelOf = (cube: Cube, per: Per) => (per.erp ? `${cube.years[1]}, same days` : windowLabel(cube, per.win, 1));
+/** A month in the address: "2026-04" */
+const ym = (cube: Cube, k: number) => `${yearOfMonth(cube, k)}-${String((k % 12) + 1).padStart(2, "0")}`;
+const fromYm = (cube: Cube, x: string | null | undefined) => { const m = /^(\d{4})-(\d{2})$/.exec(x ?? ""); return m ? (Number(m[1]) - cube.years[2]) * 12 + Number(m[2]) - 1 : null; };
+/** A period as a chart sent to the BUC View keeps it: a ready-made one by its name, so it moves on with time; any other by its months. */
+const perFilters = (cube: Cube, per: Per): Record<string, string[]> => (presets(cube).some((p) => p.id === per.id) ? { period: [per.id] } : { from: [ym(cube, per.win.start)], to: [ym(cube, per.win.end)] });
+function perFromFilters(cube: Cube, f: Record<string, string[] | undefined> | undefined): Per | null {
+  const id = f?.period?.[0];
+  const p = id ? presets(cube).find((x) => x.id === id) : null;
+  if (p) return perOf(cube, p.win);
+  const a = fromYm(cube, f?.from?.[0]), b = fromYm(cube, f?.to?.[0]);
+  return a != null && b != null ? perOf(cube, clampWindow(cube, { start: a, end: b })) : null;
+}
+
 /* ── what every chart is drawn with ────────────────────────────────────── */
 
 export type FigCtx = {
   cube: Cube; kpi: EsoFigures | null; kpiBusy?: boolean; team: TeamKey; view: View;
+  /** the period every chart follows */
+  per: Per;
   /** the filters chosen, and with the team in them */
   filters: Filters; eff: Filters;
   /** in half a row of the BUC View */
@@ -221,14 +266,24 @@ export type FigCtx = {
   lead?: string | null; leads?: Record<string, string> | null; teams?: Team[];
   /** every chart's target, typed in its Actions window, by its key */
   targets?: Record<string, number>;
+  /** customers chosen in Filters: the cube is theirs alone */
+  picked?: number;
 };
-/** The ERP's forecast is the whole company's: on Total, nothing filtered. */
-const forecastShown = (c: FigCtx) => c.team === "total" && chosenDims(c.filters).length === 0 && !!c.kpi;
+/** The ERP's forecast is the whole company's: on Total, nothing filtered, no customer chosen. */
+const forecastShown = (c: FigCtx) => c.team === "total" && chosenDims(c.filters).length === 0 && !c.picked && !!c.kpi;
 /** The team's name - a line manager's team under ESO. */
 const teamName = (c: { team: TeamKey; lead?: string | null; teams?: Team[] }) => (c.team === "eso" && c.lead ? c.teams?.find((t) => t.id === c.lead)?.name ?? c.lead : teamWord(c.team));
-/** A chart's target, one per chart and team (a line manager's team its own): "eso-figures:ytd:ytdrev@eso-RABE". */
-const targetKey = (id: string, team: TeamKey, lead?: string | null) => `eso-figures:${id}@${team}${team === "eso" && lead ? `-${lead}` : ""}`;
-const targetFor = (c: FigCtx, id: string) => { const t = c.targets?.[targetKey(id, c.team, c.lead)]; return t != null && t > 0 ? t : null; };
+/** A chart's target, one per chart, team (a line manager's team its own) and period: "eso-figures:ytd:ytdrev@eso-RABE" -
+ *  the keys of before for the year and month to date - "eso-figures:ytd:rev~q2@eso" for Q2. The months' charts keep one
+ *  target a month, whatever the period. */
+function periodKey(id: string, per: Per) {
+  const [v, ch = ""] = id.split(":");
+  if (/^mon(rev|oi)$/.test(ch)) return id;
+  if (/^(rev|oi|b2b)$/.test(ch)) return per.erp ? `${v}:${per.erp}${ch}` : `${id}~${per.id}`;
+  return per.erp === "ytd" ? id : `${id}~${per.id}`;
+}
+const targetKey = (id: string, team: TeamKey, lead: string | null | undefined, per: Per) => `eso-figures:${periodKey(id, per)}@${team}${team === "eso" && lead ? `-${lead}` : ""}`;
+const targetFor = (c: FigCtx, id: string) => { const t = c.targets?.[targetKey(id, c.team, c.lead, c.per)]; return t != null && t > 0 ? t : null; };
 
 /** A chart's box, as DimChart's: its title and one line under it, its Actions at the right. */
 function ChartBox({ title, hint, actions, children }: { title: string; hint?: string; actions?: React.ReactNode; children: React.ReactNode }) {
@@ -253,23 +308,33 @@ const SubTitle = ({ children }: { children: React.ReactNode }) => <Typography sx
 
 /* ── a breakdown's values: the ERP's figures, the customers ────────────── */
 
-type ValueRow = { label: string; e: ErpAgg; cust: { ytd: number; ytdPy: number; mtd: number; mtdPy: number } };
+type ValueRow = { label: string; rev: number; revPy: number; oi: number | null; oiPy: number | null; cust: number; custPy: number };
 const valueCache = new WeakMap<Filters, Map<string, ValueRow[]>>();
-/** The values of a breakdown with figures - a team's own people on the Performis SAE - the largest year to date first (priority in its order). */
+/**
+ * The values of a breakdown with figures for the period - a team's own people on the Performis SAE - the largest revenue
+ * first (priority in its order). Year and month to date: the ERP's own figures; any other period: each customer's months,
+ * the order intake null where its months are not all loaded.
+ */
 function valuesOf(c: FigCtx, dim: Dim): ValueRow[] {
   let memo = valueCache.get(c.eff);
   if (!memo) { memo = new Map(); valueCache.set(c.eff, memo); }
-  const key = `${c.cube.generatedAt}|${dim}|${c.team}|${c.lead ?? ""}`;
+  const key = `${c.cube.generatedAt}|${dim}|${c.team}|${c.lead ?? ""}|${c.per.id}|${c.per.win.start}-${c.per.win.end}`;
   const hit = memo.get(key);
   if (hit) return hit;
-  const by = erpBy(c.cube, c.eff, dim);
-  const y = new Map(breakdown(c.cube, dim, c.eff, ytdWin(c.cube)).map((r) => [r.label, r]));
-  const m = new Map(breakdown(c.cube, dim, c.eff, mtdWin(c.cube)).map((r) => [r.label, r]));
+  const b = new Map(breakdown(c.cube, dim, c.eff, c.per.win).map((r) => [r.label, r]));
   const members = dim === "sae" ? membersOf(c.cube, c.team, c.lead, c.leads) : null;
-  const rows: ValueRow[] = [...by.entries()].filter(([l, e]) => (!members || members.includes(l)) && (e.revYtd || e.revYtdPy || e.oiYtd || e.oiYtdPy))
-    .map(([label, e]) => ({ label, e, cust: { ytd: y.get(label)?.bought ?? 0, ytdPy: y.get(label)?.boughtPy ?? 0, mtd: m.get(label)?.bought ?? 0, mtdPy: m.get(label)?.boughtPy ?? 0 } }));
-  if (dim === "prio") rows.sort((a, b) => ((PRIO_ORDER.indexOf(a.label) + 99) % 99) - ((PRIO_ORDER.indexOf(b.label) + 99) % 99) || a.label.localeCompare(b.label));
-  else rows.sort((a, b) => b.e.revYtd - a.e.revYtd || a.label.localeCompare(b.label));
+  let rows: ValueRow[];
+  if (c.per.erp) {
+    const p = c.per.erp;
+    rows = [...erpBy(c.cube, c.eff, dim).entries()].filter(([l, e]) => (!members || members.includes(l)) && (e.revYtd || e.revYtdPy || e.oiYtd || e.oiYtdPy))
+      .map(([label, e]) => { const [rev, revPy] = pick(e, p, "rev"), [oi, oiPy] = pick(e, p, "oi"); return { label, rev, revPy, oi, oiPy, cust: b.get(label)?.bought ?? 0, custPy: b.get(label)?.boughtPy ?? 0 }; });
+  } else {
+    const ok = oiOk(c.cube, c.per);
+    rows = [...b.values()].filter((r) => (!members || members.includes(r.label)) && (r.rev || r.revPy || r.oi || r.oiPy))
+      .map((r) => ({ label: r.label, rev: r.rev, revPy: r.revPy, oi: ok ? r.oi : null, oiPy: ok ? r.oiPy : null, cust: r.bought, custPy: r.boughtPy }));
+  }
+  if (dim === "prio") rows.sort((a, z) => ((PRIO_ORDER.indexOf(a.label) + 99) % 99) - ((PRIO_ORDER.indexOf(z.label) + 99) % 99) || a.label.localeCompare(z.label));
+  else rows.sort((a, z) => z.rev - a.rev || a.label.localeCompare(z.label));
   memo.set(key, rows);
   return rows;
 }
@@ -457,15 +522,28 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
  *  €18,658 of revenue at 109% topped ESO. €50,000 over three months or more; a month or two count less. */
 const b2bMin = (months: number) => (months >= 3 ? 50_000 : months === 2 ? 10_000 : 5_000);
 
-/** Revenue, order intake or book-to-bill, year or month to date, by a breakdown - the period in the title; under each
- *  name the customers (revenue), the book-to-bill (order intake) or the two figures it is made of (book-to-bill). */
-function ValueBars({ c, id, dim, period, which, actions }: { c: FigCtx; id: string; dim: Dim; period: Period; which: Which | "b2b"; actions?: React.ReactNode }) {
+/** A chart the period cannot fill: its order intake per customer is not loaded that far. */
+function OiMissing({ c, title, actions }: { c: FigCtx; title: string; actions?: React.ReactNode }) {
+  return (
+    <ChartBox title={title} actions={actions} hint={`${perCap(c.per)} - ${perWords(c.cube, c.per)}`}>
+      <Typography sx={{ fontSize: "0.86rem", color: MUTED, lineHeight: 1.5 }}>
+        Not for this period yet: {oiLoadedWords(c.cube)}. The ERP&apos;s year to date and month to date are complete - pick one of them under Filters &gt; Period.
+      </Typography>
+    </ChartBox>
+  );
+}
+
+/** Revenue, order intake or book-to-bill of the period, by a breakdown - the period in the title; under each name the
+ *  customers (revenue), the book-to-bill (order intake) or the two figures it is made of (book-to-bill). */
+function ValueBars({ c, id, dim, which, actions }: { c: FigCtx; id: string; dim: Dim; which: Which | "b2b"; actions?: React.ReactNode }) {
   const b2b = which === "b2b";
-  const min = b2bMin(period === "ytd" ? runOf(c.cube) + 1 : 1);
+  const title = `${WHAT_ALL[which]} ${c.per.title}, by ${lowerOf(dim)}`;
+  if (which !== "rev" && !oiOk(c.cube, c.per)) return <OiMissing c={c} title={title} actions={actions} />;
+  const min = b2bMin(c.per.months);
   const small: BoardRow[] = [];
   const rows: BoardRow[] = valuesOf(c, dim).flatMap((r) => {
-    const [o, oPy] = pick(r.e, period, "oi"), [v, vPy] = pick(r.e, period, "rev");
-    const n = Math.round(period === "ytd" ? r.cust.ytd : r.cust.mtd);
+    const o = r.oi ?? 0, oPy = r.oiPy ?? 0, v = r.rev, vPy = r.revPy;
+    const n = Math.round(r.cust);
     if (b2b) {
       if (v <= 0) return [];
       const row = { label: r.label, cur: o / v, prev: vPy ? oPy / vPy : 0, sub: `order intake ${eur(o)} · revenue ${eur(v)}` };
@@ -478,42 +556,44 @@ function ValueBars({ c, id, dim, period, which, actions }: { c: FigCtx; id: stri
     return cur || prev ? [{ label: r.label, cur, prev, sub }] : [];
   });
   return (
-    <Leaderboard key={`${period}-${which}-${dim}`} title={`${WHAT_ALL[which]} ${PERIOD[period]}, by ${lowerOf(dim)}`} rows={rows}
-      curLabel={String(c.cube.years[0])} prevLabel={`${c.cube.years[1]}, same days`} first={c.half ? 8 : 12}
+    <Leaderboard key={`${c.per.id}-${which}-${dim}`} title={title} rows={rows}
+      curLabel={curLabelOf(c.cube, c.per)} prevLabel={prevLabelOf(c.cube, c.per)} first={c.half ? 8 : 12}
       fmt={b2b ? pct : eur} ratio={b2b} target={targetFor(c, id)} unranked={b2b ? { why: `under ${eur(min)} of revenue`, rows: small } : undefined}
       selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${lowerOf(dim)}`} actions={actions} />
   );
 }
 
-/* ── the year to date month by month: the ERP's month to date for the running one ── */
+/* ── the period month by month: the ERP's month to date for the running one ── */
 
-type MonthRow = { label: string; i: number; rev: number; revPy: number; oi: number | null; oiPy: number; cust: number; custPy: number; fc: number | null; erp: boolean };
+type MonthRow = { label: string; x: string; k: number; rev: number; revPy: number; oi: number | null; oiPy: number; cust: number; custPy: number; fc: number | null; erp: boolean };
 const monthCache = new WeakMap<Filters, Map<string, MonthRow[]>>();
+/** The period's months (of two months or more) - this year's under their name, last year's with their year. */
 function monthRows(c: FigCtx): MonthRow[] {
   let memo = monthCache.get(c.eff);
   if (!memo) { memo = new Map(); monthCache.set(c.eff, memo); }
-  const key = `${c.cube.generatedAt}|${c.team}|${c.lead ?? ""}|${forecastShown(c)}`;
+  const key = `${c.cube.generatedAt}|${c.team}|${c.lead ?? ""}|${forecastShown(c)}|${c.per.win.start}-${c.per.win.end}`;
   const hit = memo.get(key);
   if (hit) return hit;
   const { cube } = c;
-  const ms = byMonth(cube, c.eff);
   const e = erpTotals(cube, c.eff);
   const d = erpDate(cube);
-  const loaded = oiLoadedOf(cube);
+  const jan = monthOf(0, 0), loaded = jan + oiLoadedOf(cube), last = lastMonth(cube);
   const fc = forecastShown(c) ? c.kpi!.total.forecast : null;
-  const rows = ms.map((m, i): MonthRow => {
+  const rows: MonthRow[] = [];
+  for (let k = c.per.win.start; k <= c.per.win.end; k++) {
     // the month the ERP's file is in: its own month to date against the same days a year earlier
-    const erp = i === ms.length - 1 && !!d && d.year === cube.years[0] && d.month === i;
-    const t = totals(cube, c.eff, { start: m.month, end: m.month });
-    return {
-      label: erp && partial(cube) ? `${MONTH_NAMES[i]} (1 – ${d!.day})` : MONTH_NAMES[i], i, erp,
-      rev: erp ? e.revMtd : m.rev, revPy: erp ? e.revMtdPy : m.revPy,
-      oi: erp ? e.oiMtd : i < loaded ? m.oi : null, oiPy: erp ? e.oiMtdPy : m.oiPy,
+    const erp = k === last && !!d && d.year === cube.years[0] && d.month === k - jan;
+    const t = totals(cube, c.eff, { start: k, end: k });
+    const x = k >= jan ? MONTH_NAMES[k - jan] : monthLabel(cube, k);
+    rows.push({
+      label: erp && partial(cube) ? `${x} (1 – ${d!.day})` : x, x, k, erp,
+      rev: erp ? e.revMtd : t.rev, revPy: erp ? e.revMtdPy : t.revPy,
+      oi: erp ? e.oiMtd : k < loaded ? t.oi : null, oiPy: erp ? e.oiMtdPy : t.oiPy,
       cust: t.bought, custPy: t.boughtPy,
-      fc: fc ? (fc[i] ?? 0) * (erp ? monthShare(cube) : 1) : null,
-    };
-  });
+      fc: fc && k >= jan ? (fc[k - jan] ?? 0) * (erp ? monthShare(cube) : 1) : null,
+    });
+  }
   memo.set(key, rows);
   return rows;
 }
@@ -532,8 +612,10 @@ function niceTop(max: number) {
  *  in Actions) as a line across. The plot keeps its proportions at any width (SARCLA 25.10.2026: "in half width it loses its ratio"). */
 function MonthColumns({ c, which, target = null }: { c: FigCtx; which: Which; target?: number | null }) {
   const rows = monthRows(c);
-  const [y0, y1] = c.cube.years;
-  const data = rows.map((r) => ({ x: MONTH_NAMES[r.i], cur: which === "rev" ? r.rev : r.oi, prev: which === "rev" ? r.revPy : r.oiPy, fc: which === "rev" ? r.fc : null, erp: r.erp }));
+  // the legend: "2026" against "2025, same month" - or, over a year end, the months shown against a year earlier
+  const ys = new Set(rows.map((r) => yearOfMonth(c.cube, r.k)));
+  const [y0, y1] = ys.size === 1 ? [String([...ys][0]), `${[...ys][0] - 1}, same month`] : ["The months shown", "A year earlier, same month"];
+  const data = rows.map((r) => ({ x: r.x, cur: which === "rev" ? r.rev : r.oi, prev: which === "rev" ? r.revPy : r.oiPy, fc: which === "rev" ? r.fc : null, erp: r.erp }));
   const top = niceTop(Math.max(1, target ?? 0, ...data.map((d) => Math.max(d.cur ?? 0, d.prev, d.fc ?? 0))));
   const ticks = [0, 0.25, 0.5, 0.75, 1];
   const withFc = data.some((d) => d.fc != null);
@@ -543,7 +625,7 @@ function MonthColumns({ c, which, target = null }: { c: FigCtx; which: Which; ta
   const goal = target ? <>Target {eur(target)} a month · <span style={{ color: reached === done.length ? GREEN : RED }}>{reached} of {done.length} months reached it</span></> : undefined;
   return (
     <Box sx={{ display: "grid", gap: 1 }}>
-      <BulletLegend cur={String(y0)} prev={`${y1}, same month`} forecast={withFc} target={goal} />
+      <BulletLegend cur={y0} prev={y1} forecast={withFc} target={goal} />
       <Box sx={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", columnGap: 1 }}>
         <Box sx={{ position: "relative", minWidth: axisWidth(top) - 10 }}>
           {ticks.map((f) => <Typography key={f} sx={{ position: "absolute", right: 0, bottom: `calc(${f * 100}% - 7px)`, fontSize: "0.7rem", color: FAINT, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", lineHeight: 1.2 }}>{eur(f * top)}</Typography>)}
@@ -553,7 +635,7 @@ function MonthColumns({ c, which, target = null }: { c: FigCtx; which: Which; ta
           {target != null && target > 0 && <Box sx={{ position: "absolute", left: 0, right: 0, bottom: `${(target / top) * 100}%`, borderTop: `2px dashed ${TARGET}`, zIndex: 1, pointerEvents: "none" }} />}
           <Box sx={{ position: "absolute", inset: 0, display: "flex" }}>
             {data.map((d) => (
-              <Box key={d.x} title={`${d.x} - ${y0}: ${d.cur == null ? "not loaded yet" : eur(d.cur)} · ${y1}: ${eur(d.prev)}${d.fc != null ? ` · forecast: ${eur(d.fc)}` : ""}${target && d.cur != null ? ` · ${pct(d.cur / target)} of the target` : ""}`}
+              <Box key={d.x} title={`${d.x}: ${d.cur == null ? "not loaded yet" : eur(d.cur)} · a year earlier: ${eur(d.prev)}${d.fc != null ? ` · forecast: ${eur(d.fc)}` : ""}${target && d.cur != null ? ` · ${pct(d.cur / target)} of the target` : ""}`}
                 sx={{ flex: 1, position: "relative", height: "100%", borderRadius: "6px", "&:hover": { bgcolor: "rgba(21,34,58,.035)" } }}>
                 {d.cur != null && <Box sx={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "52%", maxWidth: 30, height: `${(Math.max(0, d.cur) / top) * 100}%`, bgcolor: THIS, borderRadius: "4px 4px 0 0" }} />}
                 {d.prev > 0 && <Box sx={{ position: "absolute", bottom: `calc(${(d.prev / top) * 100}% - 1px)`, left: "50%", transform: "translateX(-50%)", width: "76%", maxWidth: 44, height: 2, bgcolor: INK, borderRadius: 1 }} />}
@@ -582,8 +664,8 @@ function monthColumnsHint(c: FigCtx, which: Which) {
   const rows = monthRows(c);
   const last = rows[rows.length - 1];
   const loaded = oiLoadedOf(c.cube);
-  const lag = which === "oi" && loaded <= runOf(c.cube) && loaded > 0 ? ` · each customer's order intake loaded to ${MONTH_NAMES[loaded - 1]}` : "";
-  return `The change under each month${last?.erp ? ` · ${MONTH_NAMES[last.i]}: the ERP's month to date against the same days` : ""}${lag}`;
+  const lag = which === "oi" && rows.some((r) => r.oi == null) && loaded > 0 ? ` · each customer's order intake loaded to ${MONTH_NAMES[loaded - 1]}` : "";
+  return `${perWords(c.cube, c.per)} · the change under each month${last?.erp ? ` · ${last.x}: the ERP's month to date against the same days` : ""}${lag}`;
 }
 
 /* ── month by month per value: the revenue and the customers ───────────── */
@@ -635,8 +717,9 @@ function MonthCard({ title, lines, rev, cust, on, onClick }: {
 }
 const CARDS_GRID = (half?: boolean) => ({ display: "grid", gap: 1, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: half ? "repeat(2, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))" } });
 
-function MonthCards({ c, dim, actions }: { c: FigCtx; dim: Dim; actions?: React.ReactNode }) {
+function MonthCards({ c: given, dim, actions }: { c: FigCtx; dim: Dim; actions?: React.ReactNode }) {
   const [all, setAll] = useState(false);
+  const c: FigCtx = { ...given, per: ytdPer(given.cube) };
   const rows = valuesOf(c, dim);
   const months = byMonthBy(c.cube, c.eff, dim);
   const buyers = buyersByMonthBy(c.cube, c.eff, dim);
@@ -658,8 +741,8 @@ function MonthCards({ c, dim, actions }: { c: FigCtx; dim: Dim; actions?: React.
             return (
               <MonthCard key={r.label} title={r.label} on={chosen.includes(r.label)} onClick={c.onPick ? () => c.onPick!(dim, r.label) : undefined}
                 lines={[
-                  { label: "Revenue year to date", value: eur(r.e.revYtd), ch: changeNote(r.e.revYtd, r.e.revYtdPy) },
-                  { label: "Customers year to date", value: int(r.cust.ytd), ch: changeNote(r.cust.ytd, r.cust.ytdPy) },
+                  { label: "Revenue year to date", value: eur(r.rev), ch: changeNote(r.rev, r.revPy) },
+                  { label: "Customers year to date", value: int(r.cust), ch: changeNote(r.cust, r.custPy) },
                 ]}
                 rev={ms.map((m, i) => ({ x: MONTH_NAMES[i], cy: m.rev, py: m.revPy }))}
                 cust={Array.from({ length: complete }, (_, i) => ({ x: MONTH_NAMES[i], cy: b?.cy[i] ?? 0, py: b?.py[i] ?? 0 }))} />
@@ -766,60 +849,59 @@ const withChangeCell = (text: string, a: number, b: number) => (
 const changeCell = (a: number, b: number) => <span style={{ color: tone(changeOf(a, b)), fontWeight: 700 }}>{b ? signedPct(changeOf(a, b)) : a > 0 ? "new" : "—"}</span>;
 const diffCell = (a: number, b: number) => <span style={{ color: tone(a - b) }}>{signedEur(a - b)}</span>;
 
-/** All the figures of a breakdown for one period: the year to date, or the month to date - each its own table. */
-function ValueTable({ c, dim, period }: { c: FigCtx; dim: Dim; period: Period }) {
+/** All the figures of a breakdown for the period. */
+function ValueTable({ c, dim }: { c: FigCtx; dim: Dim }) {
   const rows = valuesOf(c, dim);
-  const { cube } = c;
-  const cu = (r: ValueRow): [number, number] => (period === "ytd" ? [r.cust.ytd, r.cust.ytdPy] : [r.cust.mtd, r.cust.mtdPy]);
+  const { cube, per } = c;
+  const ok = oiOk(cube, per);
   const sum = (f: (r: ValueRow) => number) => rows.reduce((s, r) => s + f(r), 0);
-  const total: ValueRow = {
-    label: "Total",
-    e: { revMtd: sum((r) => r.e.revMtd), revMtdPy: sum((r) => r.e.revMtdPy), revYtd: sum((r) => r.e.revYtd), revYtdPy: sum((r) => r.e.revYtdPy), oiMtd: sum((r) => r.e.oiMtd), oiMtdPy: sum((r) => r.e.oiMtdPy), oiYtd: sum((r) => r.e.oiYtd), oiYtdPy: sum((r) => r.e.oiYtdPy) },
-    cust: { ytd: sum((r) => r.cust.ytd), ytdPy: sum((r) => r.cust.ytdPy), mtd: sum((r) => r.cust.mtd), mtdPy: sum((r) => r.cust.mtdPy) },
-  };
-  const sumRev = rows.reduce((s, r) => s + Math.max(0, pick(r.e, period, "rev")[0]), 0);
-  const P = PERIOD[period], y1 = cube.years[1];
+  const total: ValueRow = { label: "Total", rev: sum((r) => r.rev), revPy: sum((r) => r.revPy), oi: ok ? sum((r) => r.oi ?? 0) : null, oiPy: ok ? sum((r) => r.oiPy ?? 0) : null, cust: sum((r) => r.cust), custPy: sum((r) => r.custPy) };
+  const sumRev = rows.reduce((s, r) => s + Math.max(0, r.rev), 0);
+  const P = per.title, y1 = cube.years[1];
+  const notIn = <span style={{ color: FAINT }}>not loaded yet</span>;
   const cols: Col<ValueRow>[] = [
     ...(dim === "sae" && c.team === "total" ? [{ key: "team", head: "Team", cell: (r: ValueRow) => (r.label === "Total" ? "" : (cube.saeTeams ?? {})[r.label] ?? "—") }] : []),
-    { key: "rev", head: `Revenue ${P}`, tip: `The ERP's revenue, ${periodWords(cube, period)}`, cell: (r) => eur(pick(r.e, period, "rev")[0]), sort: (r) => pick(r.e, period, "rev")[0] },
-    { key: "revPy", head: `Same days ${y1}`, tip: periodWords(cube, period, 1), cell: (r) => eur(pick(r.e, period, "rev")[1]), sort: (r) => pick(r.e, period, "rev")[1] },
-    { key: "diff", head: "Change in €", cell: (r) => diffCell(...pick(r.e, period, "rev")), sort: (r) => pick(r.e, period, "rev")[0] - pick(r.e, period, "rev")[1] },
-    { key: "change", head: "Change in %", cell: (r) => changeCell(...pick(r.e, period, "rev")), sort: (r) => changeOf(...pick(r.e, period, "rev")) ?? -Infinity },
-    { key: "share", head: "Share of revenue", tip: "This row's part of the revenue in the table", cell: (r) => { const v = pick(r.e, period, "rev")[0]; return v > 0 && sumRev > 0 ? pct(v / sumRev) : "—"; }, sort: (r) => pick(r.e, period, "rev")[0] },
-    { key: "cust", head: `Customers ${P}`, tip: `The companies that bought, ${periodWords(cube, period)} - under it the change against the same months of ${y1}${period === "mtd" ? ` (its month pro rata)` : ""}`,
-      cell: (r) => withChangeCell(int(cu(r)[0]), ...cu(r)), sort: (r) => cu(r)[0] },
-    { key: "oi", head: `Order intake ${P}`, tip: `The ERP's order intake, ${periodWords(cube, period)} - under it the change against ${periodWords(cube, period, 1)}`,
-      cell: (r) => withChangeCell(eur(pick(r.e, period, "oi")[0]), ...pick(r.e, period, "oi")), sort: (r) => pick(r.e, period, "oi")[0] },
-    { key: "b2b", head: "Book-to-bill", tip: `Order intake against revenue, ${P}`, cell: (r) => { const [o] = pick(r.e, period, "oi"), [v] = pick(r.e, period, "rev"); return v ? `${Math.round((o / v) * 100)}%` : "—"; },
-      sort: (r) => { const [o] = pick(r.e, period, "oi"), [v] = pick(r.e, period, "rev"); return v ? o / v : -Infinity; } },
+    { key: "rev", head: `Revenue ${P}`, tip: `${per.erp ? "The ERP's revenue" : "Each customer's monthly revenue, added up"}, ${perWords(cube, per)}`, cell: (r) => eur(r.rev), sort: (r) => r.rev },
+    { key: "revPy", head: per.erp ? `Same days ${y1}` : `Same months ${y1}`, tip: perWords(cube, per, 1), cell: (r) => eur(r.revPy), sort: (r) => r.revPy },
+    { key: "diff", head: "Change in €", cell: (r) => diffCell(r.rev, r.revPy), sort: (r) => r.rev - r.revPy },
+    { key: "change", head: "Change in %", cell: (r) => changeCell(r.rev, r.revPy), sort: (r) => changeOf(r.rev, r.revPy) ?? -Infinity },
+    { key: "share", head: "Share of revenue", tip: "This row's part of the revenue in the table", cell: (r) => (r.rev > 0 && sumRev > 0 ? pct(r.rev / sumRev) : "—"), sort: (r) => r.rev },
+    { key: "cust", head: `Customers ${P}`, tip: `The companies that bought, ${perWords(cube, per)} - under it the change against the same months of ${y1}`,
+      cell: (r) => withChangeCell(int(r.cust), r.cust, r.custPy), sort: (r) => r.cust },
+    { key: "oi", head: `Order intake ${P}`, tip: ok ? `${per.erp ? "The ERP's order intake" : "Each customer's monthly order intake, added up"}, ${perWords(cube, per)} - under it the change against ${perWords(cube, per, 1)}` : `Not for this period: ${oiLoadedWords(cube)}`,
+      cell: (r) => (r.oi == null ? notIn : withChangeCell(eur(r.oi), r.oi, r.oiPy ?? 0)), sort: (r) => r.oi ?? -Infinity },
+    { key: "b2b", head: "Book-to-bill", tip: `Order intake against revenue, ${P}`, cell: (r) => (r.oi == null ? "—" : r.rev ? `${Math.round((r.oi / r.rev) * 100)}%` : "—"),
+      sort: (r) => (r.oi != null && r.rev ? r.oi / r.rev : -Infinity) },
   ];
-  return <FullTable key={`${dim}-${period}-${c.team}`} first={DIM[dim].name} cols={cols} initial="rev" rows={rows} total={total} selected={c.filters[dim]} tint={DIM[dim].tint}
+  return <FullTable key={`${dim}-${per.id}-${c.team}`} first={DIM[dim].name} cols={cols} initial="rev" rows={rows} total={total} selected={c.filters[dim]} tint={DIM[dim].tint}
     onPick={c.onPick ? (l) => c.onPick!(dim, l) : undefined} natural={dim === "prio"} find={`${/^[aeiou]/i.test(lowerOf(dim)) ? "an" : "a"} ${lowerOf(dim)}`} />;
 }
 
-/** The year to date month by month - the forecast beside the revenue on Total, the ERP's year to date at the end. */
+/** The period month by month - the forecast beside the revenue on Total, the period itself at the end (the ERP's year to date on Year to date). */
 function MonthTable({ c }: { c: FigCtx }) {
-  const { cube } = c;
+  const { cube, per } = c;
   const rows = monthRows(c);
   const e = erpTotals(cube, c.eff);
-  const yc = totals(cube, c.eff, ytdWin(cube));
+  const t = totals(cube, c.eff, per.win);
+  const ok = oiOk(cube, per);
   const withFc = rows.some((r) => r.fc != null);
   const fcSum = rows.reduce((s, r) => s + (r.fc ?? 0), 0);
-  const end: MonthRow = { label: "Year to date", i: -1, erp: true, rev: e.revYtd, revPy: e.revYtdPy, oi: e.oiYtd, oiPy: e.oiYtdPy, cust: yc.bought, custPy: yc.boughtPy, fc: withFc ? fcSum : null };
+  const [rev, revPy] = per.erp ? pick(e, per.erp, "rev") : [t.rev, t.revPy];
+  const [oi, oiPy] = per.erp ? pick(e, per.erp, "oi") : [ok ? t.oi : null, t.oiPy];
+  const end: MonthRow = { label: perCap(per), x: "", k: -1, erp: !!per.erp, rev, revPy, oi, oiPy, cust: t.bought, custPy: t.boughtPy, fc: withFc ? fcSum : null };
   const loaded = oiLoadedOf(cube);
-  const [y0, y1] = cube.years;
   const cols: Col<MonthRow>[] = [
-    { key: "rev", head: `Revenue ${y0}`, tip: `Under it the change against ${y1} - the running month and the year to date: the ERP's, against the same days`, cell: (r) => withChangeCell(eur(r.rev), r.rev, r.revPy) },
-    { key: "revPy", head: `Revenue ${y1}`, cell: (r) => eur(r.revPy) },
+    { key: "rev", head: "Revenue", tip: "Under it the change against the same month a year earlier - the running month and the year to date: the ERP's, against the same days", cell: (r) => withChangeCell(eur(r.rev), r.rev, r.revPy) },
+    { key: "revPy", head: "A year earlier", cell: (r) => eur(r.revPy) },
     { key: "diff", head: "Change in €", cell: (r) => diffCell(r.rev, r.revPy) },
     ...(withFc ? [
       { key: "fc", head: "Forecast", tip: "The ERP's forecast - the whole company (per mandant); the running month pro rata to the day", cell: (r: MonthRow) => eur(r.fc ?? 0) },
       { key: "reached", head: "Reached", tip: "Revenue against the forecast", cell: (r: MonthRow) => (r.fc ? pct(r.rev / r.fc) : "—") },
     ] : []),
-    { key: "cust", head: `Customers ${y0}`, tip: `The companies that bought in the month (the year to date: in any month) - under it the change against ${y1}`, cell: (r) => withChangeCell(int(r.cust), r.cust, r.custPy) },
-    { key: "oi", head: `Order intake ${y0}`, tip: `Each customer's order intake, loaded to ${MONTH_NAMES[Math.max(0, loaded - 1)]}; the running month and the year to date: the ERP's`,
+    { key: "cust", head: "Customers", tip: "The companies that bought in the month (the period: in any of its months) - under it the change against a year earlier", cell: (r) => withChangeCell(int(r.cust), r.cust, r.custPy) },
+    { key: "oi", head: "Order intake", tip: `Each customer's order intake, loaded to ${MONTH_NAMES[Math.max(0, loaded - 1)]}; the running month and the year to date: the ERP's`,
       cell: (r) => (r.oi == null ? <span style={{ color: FAINT }}>not loaded yet</span> : withChangeCell(eur(r.oi), r.oi, r.oiPy)) },
-    { key: "oiPy", head: `Order intake ${y1}`, cell: (r) => eur(r.oiPy) },
+    { key: "oiPy", head: "Order intake a year earlier", cell: (r) => eur(r.oiPy) },
   ];
   return <FullTable first="Month" cols={cols} rows={rows} total={end} natural />;
 }
@@ -833,16 +915,20 @@ const PC_NAME: Record<string, string> = { dt: "Sealing Technology (DT)", ft: "Fl
 const PC_COLOR: Record<string, string> = { dt: "#2d6fa8", ft: "#eb6834", kt: "#1baf7a", at: "#eda100", st: "#e87ba4", other: "#b9c0c9" };
 const pcKey = (pc: string) => ((PC_KNOWN as readonly string[]).includes(pc) ? pc : "other");
 
-type PcFig = { ytd: number; ytdPy: number; mtd: number; mtdPy: number; months: { cy: number; py: number }[] };
-/** A profit centre's year and month to date - last year's running month pro rata, as the cube compares - and its complete months. */
-function pcFig(cube: Cube, m: PcMonths): PcFig {
-  const run = runOf(cube), part = partial(cube), share = part ? part.day / part.days : 1;
-  const s = (xs: number[], to: number) => xs.slice(0, to).reduce((a, x) => a + x, 0);
-  return {
-    ytd: s(m.cy, run + 1), ytdPy: s(m.py, run) + (m.py[run] ?? 0) * share,
-    mtd: m.cy[run] ?? 0, mtdPy: (m.py[run] ?? 0) * share,
-    months: Array.from({ length: part ? run : run + 1 }, (_, i) => ({ cy: m.cy[i], py: m.py[i] })),
-  };
+type PcFig = { cur: number; prev: number | null };
+/** A profit centre's revenue in a month: this year's and last year's are read, nothing before. */
+const pcAt = (cube: Cube, m: PcMonths, k: number): number | null => { const jan = monthOf(0, 0); return k >= jan && k < jan + 12 ? m.cy[k - jan] ?? 0 : k >= jan - 12 && k < jan ? m.py[k - jan + 12] ?? 0 : null; };
+/** A profit centre's revenue in the period, against the same months a year earlier - last year's running month pro rata,
+ *  as the cube compares; none to compare when the year before last would be needed. */
+function pcFig(cube: Cube, m: PcMonths, per: Per): PcFig {
+  const part = partial(cube), share = part ? part.day / part.days : 1;
+  let cur = 0, prev: number | null = 0;
+  for (let k = per.win.start; k <= per.win.end; k++) {
+    cur += pcAt(cube, m, k) ?? 0;
+    const p = pcAt(cube, m, k - 12);
+    if (p == null) prev = null; else if (prev != null) prev += p * (part && k === part.month ? share : 1);
+  }
+  return { cur, prev };
 }
 const blankPc = (): PcMonths => ({ cy: Array(12).fill(0), py: Array(12).fill(0) });
 /** The known profit centres apart, anything else as "other". */
@@ -859,15 +945,15 @@ const hasPc = (c: FigCtx) => !!c.cube.pcRevenue;
 type PcRow = PcFig & { label: string; pc: string };
 function pcRows(c: FigCtx): PcRow[] {
   const all = foldPcs(pcBy(c.cube, c.eff).get(""));
-  return PC_ORDER.filter((pc) => all.has(pc)).map((pc) => ({ pc, label: PC_NAME[pc], ...pcFig(c.cube, all.get(pc)!) })).filter((r) => r.ytd || r.ytdPy);
+  return PC_ORDER.filter((pc) => all.has(pc)).map((pc) => ({ pc, label: PC_NAME[pc], ...pcFig(c.cube, all.get(pc)!, c.per) })).filter((r) => r.cur || r.prev);
 }
 type SplitRow = { label: string; byPc: Record<string, number>; byPcPy: Record<string, number>; total: number; totalPy: number };
 const splitCache = new WeakMap<Filters, Map<string, SplitRow[]>>();
-/** Each value of a breakdown with its year to date by profit centre, and last year's same days - a team's own people on the Performis SAE. */
+/** Each value of a breakdown with its revenue in the period by profit centre, and a year earlier - a team's own people on the Performis SAE. */
 function pcSplit(c: FigCtx, dim: Dim): SplitRow[] {
   let memo = splitCache.get(c.eff);
   if (!memo) { memo = new Map(); splitCache.set(c.eff, memo); }
-  const key = `${c.cube.generatedAt}|${dim}|${c.team}|${c.lead ?? ""}`;
+  const key = `${c.cube.generatedAt}|${dim}|${c.team}|${c.lead ?? ""}|${c.per.win.start}-${c.per.win.end}`;
   const hit = memo.get(key);
   if (hit) return hit;
   const members = dim === "sae" ? membersOf(c.cube, c.team, c.lead, c.leads) : null;
@@ -876,7 +962,7 @@ function pcSplit(c: FigCtx, dim: Dim): SplitRow[] {
     if (members && !members.includes(label)) continue;
     const byPc: Record<string, number> = {}, byPcPy: Record<string, number> = {};
     let total = 0, totalPy = 0;
-    for (const [pc, v] of foldPcs(m)) { const x = pcFig(c.cube, v); byPc[pc] = x.ytd; byPcPy[pc] = x.ytdPy; total += x.ytd; totalPy += x.ytdPy; }
+    for (const [pc, v] of foldPcs(m)) { const x = pcFig(c.cube, v, c.per); byPc[pc] = x.cur; byPcPy[pc] = x.prev ?? 0; total += x.cur; totalPy += x.prev ?? 0; }
     if (total || totalPy) rows.push({ label, byPc, byPcPy, total, totalPy });
   }
   rows.sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
@@ -894,11 +980,11 @@ function PcWaiting() {
   );
 }
 
-function PcBars({ c, id, period, actions }: { c: FigCtx; id: string; period: Period; actions?: React.ReactNode }) {
+function PcBars({ c, id, actions }: { c: FigCtx; id: string; actions?: React.ReactNode }) {
   if (!hasPc(c)) return <PcWaiting />;
-  const all = pcRows(c), sum = all.reduce((a, x) => a + (period === "ytd" ? x.ytd : x.mtd), 0);
-  const rows: BoardRow[] = all.map((r) => { const cur = period === "ytd" ? r.ytd : r.mtd; return { label: r.label, cur, prev: period === "ytd" ? r.ytdPy : r.mtdPy, sub: `${sum > 0 ? pct(cur / sum) : "—"} of the revenue` }; });
-  return <Leaderboard key={`pc-${period}`} title={`Revenue ${PERIOD[period]}, by profit center`} rows={rows} curLabel={String(c.cube.years[0])} prevLabel={`${c.cube.years[1]}, same days`} target={targetFor(c, id)} actions={actions} />;
+  const all = pcRows(c), sum = all.reduce((a, x) => a + x.cur, 0);
+  const rows: BoardRow[] = all.map((r) => ({ label: r.label, cur: r.cur, prev: r.prev ?? 0, sub: `${sum > 0 ? pct(r.cur / sum) : "—"} of the revenue` }));
+  return <Leaderboard key={`pc-${c.per.id}`} title={`Revenue ${c.per.title}, by profit center`} rows={rows} curLabel={curLabelOf(c.cube, c.per)} prevLabel={prevLabelOf(c.cube, c.per)} target={targetFor(c, id)} actions={actions} />;
 }
 
 /** One profit centre by the people or by country: each one's revenue year to date in it (SARCLA 25.10.2026: "per person
@@ -913,9 +999,9 @@ function PcDimBars({ c, id, pc, dim, actions }: { c: FigCtx; id: string; pc: str
   });
   const cur = rows.reduce((s, r) => s + r.cur, 0), prev = rows.reduce((s, r) => s + r.prev, 0), ch = changeNote(cur, prev);
   return (
-    <Leaderboard key={`pc${dim}-${pc}`} title={`${PC_NAME[pc]} - revenue year to date, by ${lowerOf(dim)}`} rows={rows}
+    <Leaderboard key={`pc${dim}-${pc}-${c.per.id}`} title={`${PC_NAME[pc]} - revenue ${c.per.title}, by ${lowerOf(dim)}`} rows={rows}
       summary={<>In all {eur(cur)} <span style={{ color: ch?.color ?? FAINT }}>{ch?.text ?? "—"} · {signedEur(cur - prev)}</span></>}
-      curLabel={String(c.cube.years[0])} prevLabel={`${c.cube.years[1]}, same days`} first={c.half ? 6 : 8} target={targetFor(c, id)}
+      curLabel={curLabelOf(c.cube, c.per)} prevLabel={prevLabelOf(c.cube, c.per)} first={c.half ? 6 : 8} target={targetFor(c, id)}
       selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${lowerOf(dim)}`} actions={actions} />
   );
@@ -946,7 +1032,7 @@ function PcSplitBars({ c, dim, actions }: { c: FigCtx; dim: Dim; actions?: React
     <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start" }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>Revenue year to date by {lowerOf(dim)}, split by profit center</Typography>
+          <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>Revenue {c.per.title} by {lowerOf(dim)}, split by profit center</Typography>
           <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{[onPick ? "Click a row to show only it" : "", p.pages > 1 ? `${p.range}, largest first` : "", `the change against the same days of ${c.cube.years[1]}`].filter(Boolean).join(" · ")}</Typography>
         </Box>
         <PagerArrows page={p.page} pages={p.pages} setPage={p.setPage} />
@@ -996,35 +1082,42 @@ function PcSplitBars({ c, dim, actions }: { c: FigCtx; dim: Dim; actions?: React
 
 function PcCards({ c, actions }: { c: FigCtx; actions?: React.ReactNode }) {
   if (!hasPc(c)) return <PcWaiting />;
-  const rows = pcRows(c);
+  // the cards of before (BUC View tiles): the year and month to date, the complete months
+  const ytd = pcRows({ ...c, per: ytdPer(c.cube) }), mtd = new Map(pcRows({ ...c, per: mtdPer(c.cube) }).map((r) => [r.pc, r]));
+  const all = foldPcs(pcBy(c.cube, c.eff).get(""));
+  const complete = runOf(c.cube) + (partial(c.cube) ? 0 : 1);
   return (
     <ChartBox title="Revenue month by month, by profit center" actions={actions}
       hint={`Each profit center · the complete months, ${c.cube.years[0]} blue, ${c.cube.years[1]} dashed · its year and month to date against the same days of ${c.cube.years[1]}`}>
       <Box sx={CARDS_GRID(c.half)}>
-        {rows.map((r) => (
-          <MonthCard key={r.pc} title={r.label}
-            lines={[{ label: "Revenue year to date", value: eur(r.ytd), ch: changeNote(r.ytd, r.ytdPy) }, { label: "Revenue month to date", value: eur(r.mtd), ch: changeNote(r.mtd, r.mtdPy) }]}
-            rev={r.months.map((m, i) => ({ x: MONTH_NAMES[i], cy: m.cy, py: m.py }))} />
-        ))}
+        {ytd.map((r) => {
+          const m = mtd.get(r.pc), pm = all.get(r.pc);
+          return (
+            <MonthCard key={r.pc} title={r.label}
+              lines={[{ label: "Revenue year to date", value: eur(r.cur), ch: changeNote(r.cur, r.prev ?? 0) }, { label: "Revenue month to date", value: eur(m?.cur ?? 0), ch: changeNote(m?.cur ?? 0, m?.prev ?? 0) }]}
+              rev={Array.from({ length: complete }, (_, i) => ({ x: MONTH_NAMES[i], cy: pm?.cy[i] ?? 0, py: pm?.py[i] ?? 0 }))} />
+          );
+        })}
       </Box>
     </ChartBox>
   );
 }
-function PcTable({ c, period }: { c: FigCtx; period: Period }) {
+function PcTable({ c }: { c: FigCtx }) {
   const rows = pcRows(c);
-  const v = (r: PcRow): [number, number] => (period === "ytd" ? [r.ytd, r.ytdPy] : [r.mtd, r.mtdPy]);
-  const sumRev = rows.reduce((s, r) => s + Math.max(0, v(r)[0]), 0);
-  const sum = (f: (r: PcRow) => number) => rows.reduce((s, r) => s + f(r), 0);
-  const total: PcRow = { pc: "", label: "Total", ytd: sum((r) => r.ytd), ytdPy: sum((r) => r.ytdPy), mtd: sum((r) => r.mtd), mtdPy: sum((r) => r.mtdPy), months: [] };
-  const P = PERIOD[period];
+  const v = (r: PcRow): [number, number] => [r.cur, r.prev ?? 0];
+  const sumRev = rows.reduce((s, r) => s + Math.max(0, r.cur), 0);
+  const noPrev = rows.some((r) => r.prev == null);
+  const total: PcRow = { pc: "", label: "Total", cur: rows.reduce((s, r) => s + r.cur, 0), prev: noPrev ? null : rows.reduce((s, r) => s + (r.prev ?? 0), 0) };
+  const P = c.per.title;
+  const prevCell = (r: PcRow, f: (a: number, b: number) => React.ReactNode) => (r.prev == null ? "—" : f(r.cur, r.prev));
   const cols: Col<PcRow>[] = [
-    { key: "rev", head: `Revenue ${P}`, tip: periodWords(c.cube, period), cell: (r) => eur(v(r)[0]), sort: (r) => v(r)[0] },
-    { key: "revPy", head: `Same days ${c.cube.years[1]}`, tip: `${periodWords(c.cube, period, 1)} - the running month pro rata`, cell: (r) => eur(v(r)[1]), sort: (r) => v(r)[1] },
-    { key: "diff", head: "Change in €", cell: (r) => diffCell(...v(r)), sort: (r) => v(r)[0] - v(r)[1] },
-    { key: "change", head: "Change in %", cell: (r) => changeCell(...v(r)), sort: (r) => changeOf(...v(r)) ?? -Infinity },
-    { key: "share", head: "Share of revenue", cell: (r) => (v(r)[0] > 0 && sumRev > 0 ? pct(v(r)[0] / sumRev) : "—"), sort: (r) => v(r)[0] },
+    { key: "rev", head: `Revenue ${P}`, tip: perWords(c.cube, c.per), cell: (r) => eur(r.cur), sort: (r) => r.cur },
+    { key: "revPy", head: c.per.erp ? `Same days ${c.cube.years[1]}` : "A year earlier", tip: `${perWords(c.cube, c.per, 1)} - the running month pro rata`, cell: (r) => (r.prev == null ? "—" : eur(r.prev)), sort: (r) => r.prev ?? -Infinity },
+    { key: "diff", head: "Change in €", cell: (r) => prevCell(r, diffCell), sort: (r) => v(r)[0] - v(r)[1] },
+    { key: "change", head: "Change in %", cell: (r) => prevCell(r, changeCell), sort: (r) => changeOf(...v(r)) ?? -Infinity },
+    { key: "share", head: "Share of revenue", cell: (r) => (r.cur > 0 && sumRev > 0 ? pct(r.cur / sumRev) : "—"), sort: (r) => r.cur },
   ];
-  return <FullTable key={`pc-${period}-${c.team}`} first="Profit center" cols={cols} initial="rev" rows={rows} total={total} />;
+  return <FullTable key={`pc-${c.per.id}-${c.team}`} first="Profit center" cols={cols} initial="rev" rows={rows} total={total} />;
 }
 /** A breakdown's values against the profit centres: each one's year to date, and the total with its change. */
 function PcSplitTable({ c, dim }: { c: FigCtx; dim: Dim }) {
@@ -1033,10 +1126,10 @@ function PcSplitTable({ c, dim }: { c: FigCtx; dim: Dim }) {
   const sumOf = (f: (r: SplitRow) => Record<string, number>) => Object.fromEntries(pcs.map((pc) => [pc, rows.reduce((s, r) => s + (f(r)[pc] ?? 0), 0)]));
   const total: SplitRow = { label: "Total", byPc: sumOf((r) => r.byPc), byPcPy: sumOf((r) => r.byPcPy), total: rows.reduce((s, r) => s + r.total, 0), totalPy: rows.reduce((s, r) => s + r.totalPy, 0) };
   const cols: Col<SplitRow>[] = [
-    ...pcs.map((pc) => ({ key: pc, head: PC_NAME[pc], tip: `${PC_NAME[pc]}, revenue year to date`, cell: (r: SplitRow) => (r.byPc[pc] ? eur(r.byPc[pc]) : "—"), sort: (r: SplitRow) => r.byPc[pc] ?? 0 })),
-    { key: "total", head: "Revenue year to date", tip: `All profit centers - under it the change against ${periodWords(c.cube, "ytd", 1)}`, cell: (r) => withChangeCell(eur(r.total), r.total, r.totalPy), sort: (r) => r.total },
+    ...pcs.map((pc) => ({ key: pc, head: PC_NAME[pc], tip: `${PC_NAME[pc]}, revenue ${c.per.title}`, cell: (r: SplitRow) => (r.byPc[pc] ? eur(r.byPc[pc]) : "—"), sort: (r: SplitRow) => r.byPc[pc] ?? 0 })),
+    { key: "total", head: `Revenue ${c.per.title}`, tip: `All profit centers - under it the change against ${perWords(c.cube, c.per, 1)}`, cell: (r) => withChangeCell(eur(r.total), r.total, r.totalPy), sort: (r) => r.total },
   ];
-  return <FullTable key={`pcsplit-${dim}-${c.team}`} first={DIM[dim].name} cols={cols} initial="total" rows={rows} total={total} selected={c.filters[dim]} tint={DIM[dim].tint}
+  return <FullTable key={`pcsplit-${dim}-${c.team}-${c.per.id}`} first={DIM[dim].name} cols={cols} initial="total" rows={rows} total={total} selected={c.filters[dim]} tint={DIM[dim].tint}
     onPick={c.onPick ? (l) => c.onPick!(dim, l) : undefined} find={`${/^[aeiou]/i.test(lowerOf(dim)) ? "an" : "a"} ${lowerOf(dim)}`} />;
 }
 
@@ -1044,43 +1137,54 @@ function PcSplitTable({ c, dim }: { c: FigCtx; dim: Dim }) {
 
 /** What a chart's target is typed in, and what it measures - shown in its Actions window. */
 type TargetOf = { unit: "eur" | "pct"; label: string };
-type Drawn = { id: string; view: View; title: (c: FigCtx) => string; draw: (c: FigCtx, actions?: React.ReactNode) => React.ReactNode; target?: (c: FigCtx) => TargetOf };
+type Drawn = {
+  /** the chart's own id - the same for an old key, so its target stays */
+  id: string; view: View; title: (c: FigCtx) => string; draw: (c: FigCtx, actions?: React.ReactNode) => React.ReactNode; target?: (c: FigCtx) => TargetOf;
+  /** an old key's period, kept: "ytd:mtdrev" is the month to date whatever the page's period */
+  fixed?: Period;
+};
 const team = (c: FigCtx) => (c.team === "total" ? "" : ` - ${teamName(c)}`);
-/** A chart by its id "<tab>:<chart>" - ytdrev, ytdoi, ytdb2b, mtdrev, mtdoi, mtdb2b, monrev, monoi, months; on Profit center also sae-<pc>. */
+/** The chart drawn on its old key's period. */
+const onPeriod = (c: FigCtx, p?: Period): FigCtx => (p ? { ...c, per: p === "ytd" ? ytdPer(c.cube) : mtdPer(c.cube) } : c);
+/** A chart by its id "<tab>:<chart>" - rev, oi, b2b (and the old ytdrev … mtdb2b), monrev, monoi, months; on Profit center also sae-<pc>, country-<pc>. */
 function drawnOf(id: string): Drawn | undefined {
-  const [v, chart = ""] = id.split(":");
-  if (!isView(v)) return undefined;
-  const bar = /^(ytd|mtd)(rev|oi|b2b)$/.exec(chart);
-  const forWhom = (c: FigCtx) => `${teamName(c)}'s target - each team its own`;
+  const [raw, chart = ""] = id.split(":");
+  if (!isView(raw)) return undefined;
+  // the old Month to date tab is the Performis SAE's, on the month to date
+  const v: View = raw === "mtd" ? "ytd" : raw;
+  const old = /^(ytd|mtd)(rev|oi|b2b)$/.exec(chart);
+  const what = old ? old[2] : /^(rev|oi|b2b)$/.test(chart) ? chart : null;
+  const fixed = old ? (old[1] as Period) : undefined;
+  const forWhom = (c: FigCtx) => `${teamName(c)}'s target for ${c.per.title} - each team and period its own`;
   if (v === "pc") {
-    if (bar && bar[2] === "rev") {
-      const p = bar[1] as Period;
-      return { id, view: v, title: (c) => `Revenue ${PERIOD[p]}, by profit center${team(c)}`, draw: (c, a) => <PcBars c={c} id={id} period={p} actions={a} />,
-        target: (c) => ({ unit: "eur", label: `Each profit center's revenue ${PERIOD[p]} is measured against it · ${forWhom(c)}.` }) };
+    if (what === "rev") {
+      const cid = "pc:rev";
+      return { id: cid, view: v, fixed, title: (c) => `Revenue ${onPeriod(c, fixed).per.title}, by profit center${team(c)}`, draw: (c, a) => <PcBars c={onPeriod(c, fixed)} id={cid} actions={a} />,
+        target: (c) => ({ unit: "eur", label: `Each profit center's revenue ${c.per.title} is measured against it · ${forWhom(c)}.` }) };
     }
     const one = /^(sae|country)-([a-z]+)$/.exec(chart);
     if (one && PC_ORDER.includes(one[2])) {
       const d = one[1] as PcDim, pc = one[2];
-      return { id, view: v, title: (c) => `${PC_NAME[pc]} - revenue year to date, by ${lowerOf(d)}${team(c)}`, draw: (c, a) => <PcDimBars c={c} id={id} pc={pc} dim={d} actions={a} />,
-        target: (c) => ({ unit: "eur", label: `Each ${d === "sae" ? "person's" : "country's"} revenue year to date in ${PC_NAME[pc]} is measured against it · ${forWhom(c)}.` }) };
+      return { id, view: v, title: (c) => `${PC_NAME[pc]} - revenue ${c.per.title}, by ${lowerOf(d)}${team(c)}`, draw: (c, a) => <PcDimBars c={c} id={id} pc={pc} dim={d} actions={a} />,
+        target: (c) => ({ unit: "eur", label: `Each ${d === "sae" ? "person's" : "country's"} revenue ${c.per.title} in ${PC_NAME[pc]} is measured against it · ${forWhom(c)}.` }) };
     }
-    if (chart === "country" || chart === "sae") { const d: Dim = chart; return { id, view: v, title: (c) => `Revenue year to date by ${lowerOf(d)}, split by profit center${team(c)}`, draw: (c, a) => <PcSplitBars c={c} dim={d} actions={a} /> }; }
+    if (chart === "country" || chart === "sae") { const d: Dim = chart; return { id, view: v, title: (c) => `Revenue ${c.per.title} by ${lowerOf(d)}, split by profit center${team(c)}`, draw: (c, a) => <PcSplitBars c={c} dim={d} actions={a} /> }; }
     if (chart === "months") return { id, view: v, title: (c) => `Revenue month by month, by profit center${team(c)}`, draw: (c, a) => <PcCards c={c} actions={a} /> };
     return undefined;
   }
   const dim = dimOf(v)!;
-  if (bar) {
-    const p = bar[1] as Period, w = bar[2] as Which | "b2b";
-    return { id, view: v, title: (c) => `${WHAT_ALL[w]} ${PERIOD[p]}, by ${lowerOf(dim)}${team(c)}`, draw: (c, a) => <ValueBars c={c} id={id} dim={dim} period={p} which={w} actions={a} />,
+  if (what) {
+    const w = what as Which | "b2b", cid = `${v}:${w}`;
+    return { id: cid, view: v, fixed, title: (c) => `${WHAT_ALL[w]} ${onPeriod(c, fixed).per.title}, by ${lowerOf(dim)}${team(c)}`, draw: (c, a) => <ValueBars c={onPeriod(c, fixed)} id={cid} dim={dim} which={w} actions={a} />,
       target: (c) => (w === "b2b"
-        ? { unit: "pct", label: `Each ${lowerOf(dim)}'s book-to-bill ${PERIOD[p]} - the order intake against the revenue - is measured against it, e.g. 100 · ${forWhom(c)}.` }
-        : { unit: "eur", label: `Each ${lowerOf(dim)}'s ${WHAT[w].toLowerCase()} ${PERIOD[p]} is measured against it · ${forWhom(c)}.` }) };
+        ? { unit: "pct", label: `Each ${lowerOf(dim)}'s book-to-bill ${c.per.title} - the order intake against the revenue - is measured against it, e.g. 100 · ${forWhom(c)}.` }
+        : { unit: "eur", label: `Each ${lowerOf(dim)}'s ${WHAT[w].toLowerCase()} ${c.per.title} is measured against it · ${forWhom(c)}.` }) };
   }
   if (v === "ytd" && (chart === "monrev" || chart === "monoi")) {
     const w: Which = chart === "monrev" ? "rev" : "oi";
-    const title = (c: FigCtx) => `${WHAT[w]} year to date, month by month${team(c)}`;
+    const title = (c: FigCtx) => `${WHAT[w]} ${c.per.title}, month by month${team(c)}`;
     return { id, view: v, title, draw: (c, a) => <ChartBox title={title(c)} hint={monthColumnsHint(c, w)} actions={a}><MonthColumns c={c} which={w} target={targetFor(c, id)} /></ChartBox>,
-      target: (c) => ({ unit: "eur", label: `Each month's ${WHAT[w].toLowerCase()} is measured against it - a line across the months; the running month is not counted · ${forWhom(c)}.` }) };
+      target: (c) => ({ unit: "eur", label: `Each month's ${WHAT[w].toLowerCase()} is measured against it - a line across the months; the running month is not counted · ${teamName(c)}'s target - each team its own.` }) };
   }
   if (chart === "months") return { id, view: v, title: (c) => `Revenue and customers month by month, by ${lowerOf(dim)}${team(c)}`, draw: (c, a) => <MonthCards c={c} dim={dim} actions={a} /> };
   return undefined;
@@ -1110,35 +1214,33 @@ type Act = (id: string, title: string, target?: TargetOf) => React.ReactNode;
 const draw = (c: FigCtx, act: Act, id: string) => { const d = drawnOf(id)!; return d.draw(c, act(id, d.title(c), d.target?.(c))); };
 
 function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.ReactNode }) {
-  const { view, cube } = c;
+  const { view, cube, per } = c;
   const card = { display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" } as const;
-  const against = (p: Period) => `${periodWords(cube, p)} against ${periodWords(cube, p, 1)}`;
+  const against = `${perWords(cube, per)} against ${perWords(cube, per, 1)}`;
+  const many = per.months >= 2;
   if (view === "ytd" || view === "mtd") {
-    const p: Period = view;
     return (
       <GlassCard sx={card}>
-        <CardTitle icon={p === "ytd" ? <DateRangeOutlinedIcon /> : <TodayOutlinedIcon />} tint="blue" title={`${teamName(c)}, ${PERIOD[p]}`}
-          note={`${against(p)} · by Performis SAE - the sales agent Performis has on the customer, as its person`} />
+        <CardTitle icon={per.months === 1 ? <TodayOutlinedIcon /> : <DateRangeOutlinedIcon />} tint="blue" title={`${teamName(c)}, ${per.title}`}
+          note={`${against} · by Performis SAE - the sales agent Performis has on the customer, as its person`} />
         <Box sx={{ ...TWO, mt: -1 }}>
-          {draw(c, act, `${p}:${p}rev`)}
-          {draw(c, act, `${p}:${p}oi`)}
+          {draw(c, act, "ytd:rev")}
+          {draw(c, act, "ytd:oi")}
         </Box>
-        {draw(c, act, `${p}:${p}b2b`)}
-        {p === "ytd" && (
-          <>
-            <Box sx={TWO}>
-              {draw(c, act, "ytd:monrev")}
-              {draw(c, act, "ytd:monoi")}
-            </Box>
-          </>
+        {draw(c, act, "ytd:b2b")}
+        {many && (
+          <Box sx={TWO}>
+            {draw(c, act, "ytd:monrev")}
+            {draw(c, act, "ytd:monoi")}
+          </Box>
         )}
         <Box>
-          <SubTitle>{PERIOD_CAP[p]}, by Performis SAE</SubTitle>
-          <ValueTable c={c} dim="sae" period={p} />
+          <SubTitle>{perCap(per)}, by Performis SAE</SubTitle>
+          <ValueTable c={c} dim="sae" />
         </Box>
-        {p === "ytd" && (
+        {many && (
           <Box>
-            <SubTitle>Year to date, month by month</SubTitle>
+            <SubTitle>{perCap(per)}, month by month</SubTitle>
             <MonthTable c={c} />
           </Box>
         )}
@@ -1148,21 +1250,21 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
   }
   if (view === "pc") return (
     <GlassCard sx={card}>
-      <CardTitle icon={<CategoryOutlinedIcon />} tint="green" title={`${teamName(c)} by profit center`}
-        note={`Each customer's monthly revenue by profit center, as the Compass connector brings it from the ERP · year to date ${periodWords(cube, "ytd")}, against the same days of ${cube.years[1]}`} />
+      <CardTitle icon={<CategoryOutlinedIcon />} tint="green" title={`${teamName(c)} by profit center, ${per.title}`}
+        note={`Each customer's monthly revenue by profit center, as the Compass connector brings it from the ERP · ${against}`} />
       {!hasPc(c) ? <PcWaiting /> : (
         <>
-          <Box sx={{ mt: -1 }}>{draw(c, act, "pc:ytdrev")}</Box>
+          <Box sx={{ mt: -1 }}>{draw(c, act, "pc:rev")}</Box>
           <Box>
-            <SubTitle>Each profit center by Performis SAE, year to date</SubTitle>
+            <SubTitle>Each profit center by Performis SAE, {per.title}</SubTitle>
             <Box sx={TWO}>{pcsOf(c).map((pc) => <Box key={pc} sx={{ display: "grid", minWidth: 0 }}>{draw(c, act, `pc:sae-${pc}`)}</Box>)}</Box>
           </Box>
           <Box>
-            <SubTitle>Each profit center by country, year to date</SubTitle>
+            <SubTitle>Each profit center by country, {per.title}</SubTitle>
             <Box sx={TWO}>{pcsOf(c, "country").map((pc) => <Box key={pc} sx={{ display: "grid", minWidth: 0 }}>{draw(c, act, `pc:country-${pc}`)}</Box>)}</Box>
           </Box>
-          <Box><SubTitle>Year to date, by profit center</SubTitle><PcTable c={c} period="ytd" /></Box>
-          <Box><SubTitle>Year to date, by Performis SAE and profit center</SubTitle><PcSplitTable c={c} dim="sae" /></Box>
+          <Box><SubTitle>{perCap(per)}, by profit center</SubTitle><PcTable c={c} /></Box>
+          <Box><SubTitle>{perCap(per)}, by Performis SAE and profit center</SubTitle><PcSplitTable c={c} dim="sae" /></Box>
         </>
       )}
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
@@ -1174,20 +1276,14 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
   const d = DIM[view];
   return (
     <GlassCard sx={card}>
-      <CardTitle icon={d.icon} tint={d.tint} title={`${teamName(c)} by ${lowerOf(view)}`}
-        note={`${NOTES[view]} · year to date ${periodWords(cube, "ytd")} and month to date ${periodWords(cube, "mtd")}, each against the same days of ${cube.years[1]}`} />
+      <CardTitle icon={d.icon} tint={d.tint} title={`${teamName(c)} by ${lowerOf(view)}, ${per.title}`}
+        note={`${NOTES[view]} · ${against}`} />
       <Box sx={{ ...TWO, mt: -1 }}>
-        {draw(c, act, `${view}:ytdrev`)}
-        {draw(c, act, `${view}:ytdoi`)}
-        {draw(c, act, `${view}:mtdrev`)}
-        {draw(c, act, `${view}:mtdoi`)}
+        {draw(c, act, `${view}:rev`)}
+        {draw(c, act, `${view}:oi`)}
       </Box>
-      <Box sx={TWO}>
-        {draw(c, act, `${view}:ytdb2b`)}
-        {draw(c, act, `${view}:mtdb2b`)}
-      </Box>
-      <Box><SubTitle>Year to date, by {lowerOf(view)}</SubTitle><ValueTable c={c} dim={view} period="ytd" /></Box>
-      <Box><SubTitle>Month to date, by {lowerOf(view)}</SubTitle><ValueTable c={c} dim={view} period="mtd" /></Box>
+      {draw(c, act, `${view}:b2b`)}
+      <Box><SubTitle>{perCap(per)}, by {lowerOf(view)}</SubTitle><ValueTable c={c} dim={view} /></Box>
       {footnote}
     </GlassCard>
   );
@@ -1195,36 +1291,55 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
 
 /* ── the figures top right: the ERP's year and month to date ───────────── */
 
-/** The revenue against the ERP's forecast to date (the running month pro rata) - the whole company. */
-function againstForecast(cube: Cube, kpi: EsoFigures | null) {
-  const d = erpDate(cube);
-  if (!kpi || !d || d.year !== cube.years[0]) return null;
-  const fc = kpi.total.forecast.slice(0, d.month).reduce((s, x) => s + x, 0) + (kpi.total.forecast[d.month] ?? 0) * monthShare(cube);
-  const rev = erpTotals(cube, {}).revYtd;
+/** The revenue against the ERP's forecast for the period (the running month pro rata) - the whole company, this year's months only. */
+function againstForecast(cube: Cube, kpi: EsoFigures | null, per: Per) {
+  const d = erpDate(cube), jan = monthOf(0, 0);
+  if (!kpi || !d || d.year !== cube.years[0] || per.win.start < jan) return null;
+  let fc = 0;
+  for (let k = per.win.start; k <= per.win.end; k++) fc += (kpi.total.forecast[k - jan] ?? 0) * (k - jan === d.month ? monthShare(cube) : 1);
+  const rev = per.erp ? pick(erpTotals(cube, {}), per.erp, "rev")[0] : totals(cube, {}, per.win).rev;
   return fc ? { fc, rev, reached: rev / fc } : null;
 }
 type Fig = { label: string; value: string; ch?: number | null; sub: string; icon: React.ReactNode; tint: Tint;
   /** the change written out (book-to-bill: in points) */
   chText?: { text: string; color: string } };
-/** Book-to-bill, year to date: the order intake against the revenue, its change in points. */
-function b2bFig(e: ErpAgg, cube: Cube): Fig {
-  const cur = e.revYtd ? e.oiYtd / e.revYtd : null, prev = e.revYtdPy ? e.oiYtdPy / e.revYtdPy : null;
-  return { label: "Book-to-bill year to date", value: pct(cur), chText: cur != null && prev != null ? { text: points(cur, prev), color: tone(cur - prev) } : undefined,
-    sub: `Order intake against revenue · ${periodWords(cube, "ytd", 1)}: ${pct(prev)}`, icon: <BalanceOutlinedIcon />, tint: "green" };
+/** Book-to-bill: the order intake against the revenue, its change in points. */
+function b2bFig(label: string, rev: [number, number], oi: [number, number] | null, was: string): Fig {
+  const cur = oi && rev[0] ? oi[0] / rev[0] : null, prev = oi && rev[1] ? oi[1] / rev[1] : null;
+  return { label, value: oi ? pct(cur) : "—", chText: cur != null && prev != null ? { text: points(cur, prev), color: tone(cur - prev) } : undefined,
+    sub: oi ? `Order intake against revenue · ${was}: ${pct(prev)}` : "Order intake not loaded for this period", icon: <BalanceOutlinedIcon />, tint: "green" };
 }
-/** A figure's change, in its colour. */
 const FigChange = ({ f, size }: { f: Fig; size: string }) => (f.chText
   ? <Typography sx={{ fontSize: size, fontWeight: 700, color: f.chText.color }}>{f.chText.text}</Typography>
   : f.ch !== undefined ? <Typography sx={{ fontSize: size, fontWeight: 700, color: tone(f.ch ?? null) }}>{signedPct(f.ch ?? null)}</Typography> : null);
+/** The BUC View's figures: the ERP's year and month to date, as they were. */
 function figuresOf(e: ErpAgg, forecast: ReturnType<typeof againstForecast>, cube: Cube): Fig[] {
   const out: Fig[] = [
     { label: "Revenue year to date", value: eur(e.revYtd), ch: changeOf(e.revYtd, e.revYtdPy), sub: `${periodWords(cube, "ytd", 1)}: ${eur(e.revYtdPy)}`, icon: <EuroOutlinedIcon />, tint: "blue" },
     { label: "Revenue month to date", value: eur(e.revMtd), ch: changeOf(e.revMtd, e.revMtdPy), sub: `${periodWords(cube, "mtd", 1)}: ${eur(e.revMtdPy)}`, icon: <TodayOutlinedIcon />, tint: "blue" },
     { label: "Order intake year to date", value: eur(e.oiYtd), ch: changeOf(e.oiYtd, e.oiYtdPy), sub: `${periodWords(cube, "ytd", 1)}: ${eur(e.oiYtdPy)}`, icon: <ShoppingBagOutlinedIcon />, tint: "purple" },
     { label: "Order intake month to date", value: eur(e.oiMtd), ch: changeOf(e.oiMtd, e.oiMtdPy), sub: `${periodWords(cube, "mtd", 1)}: ${eur(e.oiMtdPy)}`, icon: <TodayOutlinedIcon />, tint: "purple" },
-    b2bFig(e, cube),
+    b2bFig("Book-to-bill year to date", [e.revYtd, e.revYtdPy], [e.oiYtd, e.oiYtdPy], periodWords(cube, "ytd", 1)),
   ];
   if (forecast) out.push({ label: "Against forecast", value: `${(forecast.reached * 100).toFixed(1)}%`, sub: `${eur(forecast.rev)} of ${eur(forecast.fc)} to ${dayWords(cube)}`, icon: <FlagOutlinedIcon />, tint: "amber" });
+  return out;
+}
+/** The page's figures: the period's revenue, order intake, book-to-bill and customers (and the forecast on Total). */
+function periodFigures(c: FigCtx, forecast: ReturnType<typeof againstForecast>): Fig[] {
+  const { cube, per } = c;
+  const t = totals(cube, c.eff, per.win);
+  const e = per.erp ? erpTotals(cube, c.eff) : null;
+  const rev: [number, number] = e ? pick(e, per.erp!, "rev") : [t.rev, t.revPy];
+  const oi: [number, number] | null = e ? pick(e, per.erp!, "oi") : oiOk(cube, per) ? [t.oi, t.oiPy] : null;
+  const was = perWords(cube, per, 1), P = per.title;
+  const out: Fig[] = [
+    { label: `Revenue ${P}`, value: eur(rev[0]), ch: changeOf(rev[0], rev[1]), sub: `${was}: ${eur(rev[1])}`, icon: <EuroOutlinedIcon />, tint: "blue" },
+    oi ? { label: `Order intake ${P}`, value: eur(oi[0]), ch: changeOf(oi[0], oi[1]), sub: `${was}: ${eur(oi[1])}`, icon: <ShoppingBagOutlinedIcon />, tint: "purple" }
+      : { label: `Order intake ${P}`, value: "—", sub: `Not for this period: ${oiLoadedWords(cube)}`, icon: <ShoppingBagOutlinedIcon />, tint: "purple" },
+    b2bFig(`Book-to-bill ${P}`, rev, oi, was),
+    { label: `Customers ${P}`, value: int(t.bought), ch: changeOf(t.bought, t.boughtPy), sub: `The companies that bought · ${was}: ${int(t.boughtPy)}`, icon: <GroupsOutlinedIcon />, tint: "blue" },
+  ];
+  if (forecast) out.push({ label: "Against forecast", value: `${(forecast.reached * 100).toFixed(1)}%`, sub: `${eur(forecast.rev)} of ${eur(forecast.fc)} · ${perWords(cube, per)}`, icon: <FlagOutlinedIcon />, tint: "amber" });
   return out;
 }
 function FigureCards({ items }: { items: Fig[] }) {
@@ -1293,13 +1408,13 @@ function NoLeadYet({ name }: { name: string }) {
   );
 }
 
-function Waiting({ computing, progress, error }: { computing: boolean; progress?: string; error?: string }) {
+function Waiting({ computing, progress, error, picked }: { computing: boolean; progress?: string; error?: string; picked?: boolean }) {
   return (
     <GlassCard>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
         {computing && !error && <CircularProgress size={18} />}
         <Typography sx={{ fontSize: "0.9rem", color: error ? RED : MUTED }}>
-          {error ? `The figures could not be read: ${error}` : `Reading every company in HubSpot - revenue and order intake${progress ? ` · ${progress}` : ""}…`}
+          {error ? `The figures could not be read: ${error}` : `Reading ${picked ? "the customers chosen" : "every company"} in HubSpot - revenue and order intake${progress ? ` · ${progress}` : ""}…`}
         </Typography>
       </Box>
     </GlassCard>
@@ -1310,13 +1425,16 @@ const tooOld = (cube: Cube) => !cube.erp || !cube.saeTeams;
 // the company owner is not the Figures' (SARCLA 25.10.2026: "not relevant for figures, take it out")
 const FILTER_DIMS: Dim[] = ["prio", "segment", "potential", "country", "sae", "type", "apic", "mandant"];
 const H1 = { fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" }, lineHeight: 1.1 } as const;
-/** An address from an earlier version (view=year, sae, owner) opens Year to date. */
-const viewOf = (x: string | null): View => (isView(x) ? x : "ytd");
+/** An address from an earlier version (view=year, sae, owner - and mtd, now the period) opens the Performis SAE tab. */
+const viewOf = (x: string | null): View => (isView(x) && x !== "mtd" ? x : "ytd");
 
 export function FiguresExplorer() {
-  const { cube, computing, progress, error, computedAt } = useCustomersCube();
-  const { kpi, busy } = useKpiSeries();
   const params = useSearchParams();
+  // the customers chosen (SARCLA 26.10.2026: "customer as well"): the cube of those alone, each its own ?company=… in the address
+  const companies = useMemo(() => params.getAll("company").filter((x) => /^\d+$/.test(x)).slice(0, 50), [params]);
+  const { cube, computing, progress, error, computedAt } = useCustomersCube(companies);
+  const names = useCompanyNames(companies);
+  const { kpi, busy } = useKpiSeries();
   const [teamKey, setTeam] = useTeam();
   const [leadKey, setLead] = useLead();
   const lt = useLeads();
@@ -1324,13 +1442,25 @@ export function FiguresExplorer() {
   const { state: acts } = useActions("eso-figures");
   const view = viewOf(params.get("view"));
   const setView = (v: View) => setQuery((q) => { if (v === "ytd") q.delete("view"); else q.set("view", v); });
+  // the period, in the address as Who are our customers keeps it: ?from=2026-04&to=2026-06; none = year to date (an old ?view=mtd: month to date)
+  const setWin = (w: Win) => setQuery((q) => {
+    if (!cube) return;
+    if (view === "ytd" && params.get("view") === "mtd") q.delete("view");
+    const ytd = ytdWin(cube);
+    if (w.start === ytd.start && w.end === ytd.end) { q.delete("from"); q.delete("to"); } else { q.set("from", ym(cube, w.start)); q.set("to", ym(cube, w.end)); }
+  });
   const filters: Filters = useMemo(() => Object.fromEntries(DIMS.flatMap((d) => (d !== "owner" && params.getAll(d).length ? [[d, params.getAll(d)]] : []))), [params]);
   const toggle = (d: Dim, label: string) => setQuery((q) => {
     const cur = q.getAll(d), next = cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label];
     q.delete(d);
     for (const x of next) q.append(d, x);
   });
-  const clearAll = () => setQuery((q) => { for (const d of DIMS) q.delete(d); });
+  const clearAll = () => setQuery((q) => { for (const d of DIMS) q.delete(d); q.delete("company"); });
+  const pick: CustomerPick = {
+    chosen: companies.map((id) => names[id] ?? { id, name: `Company ${id}`, country: null, erpId: null }),
+    add: (co) => setQuery((q) => { if (!q.getAll("company").includes(co.id)) q.append("company", co.id); }),
+    remove: (id) => setQuery((q) => { const keep = q.getAll("company").filter((x) => x !== id); q.delete("company"); for (const x of keep) q.append("company", x); }),
+  };
   // the filters open as a window of their own, closed at first; a bar opens it on its breakdown (as Who are our customers)
   const [panel, setPanel] = useState(false);
   const [focus, setFocus] = useState<{ dim: Dim; n: number } | null>(null);
@@ -1346,28 +1476,31 @@ export function FiguresExplorer() {
     <Box sx={shell}>
       {back}
       <Typography component="h1" sx={H1}>Figures</Typography>
-      <Waiting computing={computing || (!!cube && tooOld(cube))} progress={progress} error={error} />
+      <Waiting computing={computing || (!!cube && tooOld(cube))} progress={progress} error={error} picked={companies.length > 0} />
     </Box>
   );
   const lead = leadOf(teamKey, leadKey, lt);
   const eff = withTeam(cube, filters, teamKey, lead, leads);
-  const c: FigCtx = { cube, kpi, kpiBusy: busy, team: teamKey, view, filters, eff, lead, leads, teams, targets: acts?.targets, onPick: toggle, onBar: (d, l) => { toggle(d, l); openOn(d); }, onFilter: openOn };
-  const forecast = forecastShown(c) ? againstForecast(cube, kpi) : null;
+  const a0 = fromYm(cube, params.get("from")), b0 = fromYm(cube, params.get("to"));
+  const per = a0 != null && b0 != null ? perOf(cube, clampWindow(cube, { start: a0, end: b0 })) : params.get("view") === "mtd" ? mtdPer(cube) : ytdPer(cube);
+  const c: FigCtx = { cube, kpi, kpiBusy: busy, team: teamKey, view, per, filters, eff, lead, leads, teams, targets: acts?.targets, picked: companies.length, onPick: toggle, onBar: (d, l) => { toggle(d, l); openOn(d); }, onFilter: openOn };
+  const forecast = forecastShown(c) ? againstForecast(cube, kpi, per) : null;
   const active = chosenDims(filters);
   const chosen = active.flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
   // the tile toolbar per chart, keyed "eso-figures:<tab>:<chart>"; the team and the filters in force go with it, and its target per team
   const act: Act = (id, title, target) => (
     <TileActions where="tab" start="tab" edge={2}
-      tile={{ key: `eso-figures:${id}`, page: "eso-figures", tab: view, title, summary: `${teamName(c)} · to ${dayWords(cube)}`,
-        filters: { ...Object.fromEntries(active.map((d) => [d, filters[d] ?? []])), team: [teamKey], ...(lead ? { lead: [lead] } : {}) }, kind: "card",
-        target: target ? { key: targetKey(id, teamKey, lead), ...target } : undefined }} />
+      tile={{ key: `eso-figures:${id}`, page: "eso-figures", tab: view, title, summary: `${teamName(c)} · ${perWords(cube, per)}`,
+        filters: { ...Object.fromEntries(active.map((d) => [d, filters[d] ?? []])), team: [teamKey], ...(lead ? { lead: [lead] } : {}), ...perFilters(cube, per) }, kind: "card",
+        target: target ? { key: targetKey(drawnOf(id)?.id ?? id, teamKey, lead, per), ...target } : undefined }} />
   );
   const footnote = (
     <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-      Year and month to date: the ERP file&apos;s own figures per customer, of {dayWords(cube)}, against the same days a year earlier. The months: each customer&apos;s monthly revenue and order intake, summed
+      Year and month to date: the ERP file&apos;s own figures per customer, of {dayWords(cube)}, against the same days a year earlier. Any other period, and the months: each customer&apos;s monthly revenue and order intake, summed
       {cube.oiLoaded != null ? ` (the order intake per customer loaded to ${MONTH_NAMES[Math.max(0, oiLoadedOf(cube) - 1)]})` : ""}; the running month the ERP&apos;s month to date. Customers: the companies that bought.
       {teamKey !== "total" ? ` ${teamWord(teamKey)}: the customers Performis gives its people (the SAE, as Map assignment maps it to a person) - a person's team from the rosters, else their HubSpot team.` : ""}
       {lead ? ` ${teamName(c)}: the ESO people Map assignment's SAE table puts in this team.` : ""}
+      {companies.length ? ` Customers chosen: only their figures, read from HubSpot as the page opened them.` : ""}
       {" "}The forecast: the ERP&apos;s, per mandant - the whole company only, shown on Total with nothing filtered. Read from HubSpot {computedAt ? new Date(computedAt).toLocaleString("en-GB") : ""}.
     </Typography>
   );
@@ -1379,20 +1512,28 @@ export function FiguresExplorer() {
         <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
           <Typography component="h1" sx={H1}>Figures</Typography>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-            <b style={{ color: INK }}>{teamName(c)}</b>{teamKey !== "total" ? " by Performis SAE" : ""} · year to date <b style={{ color: INK }}>{periodWords(cube, "ytd")}</b>, month to date <b style={{ color: INK }}>{periodWords(cube, "mtd")}</b> - against the same days of {cube.years[1]}{computing ? " · reading HubSpot again" : ""}
+            <b style={{ color: INK }}>{teamName(c)}</b>{teamKey !== "total" ? " by Performis SAE" : ""} · {per.title} <b style={{ color: INK }}>{perWords(cube, per)}</b> - against {perWords(cube, per, 1)}{computing ? " · reading HubSpot again" : ""}
           </Typography>
-          {chosen.length > 0 && (
+          {(chosen.length > 0 || per.id !== "ytd" || pick.chosen.length > 0) && (
             <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
+              {pick.chosen.map((co) => (
+                <Chip key={`customer:${co.id}`} size="small" label={<span><b>Customer:</b> {co.name}</span>} onDelete={() => pick.remove(co.id)}
+                  sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.slate.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.slate.fg } }} />
+              ))}
+              {per.id !== "ytd" && (
+                <Chip size="small" label={<span><b>Period:</b> {perCap(per)}</span>} onDelete={() => setWin(ytdWin(cube))} onClick={() => setPanel(true)}
+                  sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.blue.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.blue.fg } }} />
+              )}
               {chosen.map(([x, v]) => (
                 <Chip key={`${x}:${v}`} size="small" label={<span><b>{DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
                   sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
               ))}
-              <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>
+              {chosen.length + pick.chosen.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>}
             </Box>
           )}
         </Box>
         <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}>
-          <FigureCards items={figuresOf(erpTotals(cube, eff), forecast, cube)} />
+          <FigureCards items={periodFigures(c, forecast)} />
         </Box>
       </Box>
       {/* ESO | TSA | Total and, under ESO, the line managers' teams beside it - a row of their own, so the two stay side by side */}
@@ -1405,21 +1546,21 @@ export function FiguresExplorer() {
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
           <ReportTabs name="eso-figures" tab={view} onSelect={setView}
-            tabs={VIEWS.map((v) => { const d = dimOf(v.id); return { id: v.id, label: v.label, count: d && v.id !== "ytd" && v.id !== "mtd" && filters[d]?.length ? String(filters[d]!.length) : null }; })} />
+            tabs={VIEWS.map((v) => { const d = dimOf(v.id); return { id: v.id, label: v.label, count: d && filters[d]?.length ? String(filters[d]!.length) : null }; })} />
         </Box>
         <Box sx={{ flex: 1 }} />
         <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="eso-figures" /></Box>
-        <Button onClick={() => { if (panel) setPanel(false); else { const d = dimOf(view); if (d) openOn(d); else setPanel(true); } }} variant={panel || active.length ? "contained" : "outlined"} disableElevation
+        <Button onClick={() => { if (panel) setPanel(false); else { const d = dimOf(view); if (d) openOn(d); else setPanel(true); } }} variant={panel || active.length || companies.length || per.id !== "ytd" ? "contained" : "outlined"} disableElevation
           aria-expanded={panel} aria-controls="eso-figures-filters" startIcon={<TuneIcon />}
-          sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || active.length ? undefined : "#fff" }}>
-          Filters{chosen.length ? ` · ${chosen.length}` : ""}
+          sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || active.length || companies.length || per.id !== "ytd" ? undefined : "#fff" }}>
+          Filters{chosen.length + companies.length + (per.id !== "ytd" ? 1 : 0) ? ` · ${chosen.length + companies.length + (per.id !== "ytd" ? 1 : 0)}` : ""}
         </Button>
       </Box>
 
-      <TabCard key={view} c={c} act={act} footnote={footnote} />
+      <TabCard key={`${view}-${per.id}`} c={c} act={act} footnote={footnote} />
 
-      <FilterWindow id="eso-figures-filters" period={false} dims={FILTER_DIMS} open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube}
-        win={defaultWindow(cube)} setWin={() => {}} filters={filters} toggle={toggle} clearAll={clearAll} />
+      <FilterWindow id="eso-figures-filters" period dims={FILTER_DIMS} open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube}
+        win={per.win} setWin={setWin} filters={filters} toggle={toggle} customers={pick} clearAll={() => { clearAll(); setWin(ytdWin(cube)); }} />
     </Box>
   );
 }
@@ -1443,21 +1584,22 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
   const chooseLead = (l: LeadKey) => { setLeadKey(l); try { localStorage.setItem(KEPT_LEAD, l); } catch { /* here only */ } };
   const lead = leadOf(teamKey, leadKey, lt);
   const ready = cube && !tooOld(cube);
-  const c: FigCtx | null = ready ? { cube, kpi, kpiBusy: busy, team: teamKey, view: "ytd", filters: {}, eff: withTeam(cube, {}, teamKey, lead, leads), lead, leads, teams, targets: acts?.targets } : null;
+  const c: FigCtx | null = ready ? { cube, kpi, kpiBusy: busy, team: teamKey, view: "ytd", per: ytdPer(cube), filters: {}, eff: withTeam(cube, {}, teamKey, lead, leads), lead, leads, teams, targets: acts?.targets } : null;
   const items: SortItem[] = !ready ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-figures").map(({ spec }) => {
     const ch = chartOf(spec.key, spec.filters?.part?.[0]);
     const st = asTeam(spec.filters?.team?.[0] ?? null) ?? teamKey;
     const slead = leadOf(st, asLead(spec.filters?.lead?.[0] ?? null) ?? "all", lt);
     const sf: Filters = Object.fromEntries(DIMS.flatMap((d) => (d !== "owner" && spec.filters?.[d]?.length ? [[d, spec.filters[d]]] : [])));
     const fmt = formatOf(acts, spec);
-    const sc: FigCtx = { cube: cube!, kpi, kpiBusy: busy, team: st, view: ch?.view ?? "ytd", filters: sf, eff: withTeam(cube!, sf, st, slead, leads), lead: slead, leads, teams, targets: acts?.targets, half: fmt === "half" };
-    const target = ch?.target ? { key: targetKey(ch.id, st, slead), ...ch.target(sc) } : undefined;
+    const sp = ch?.fixed ? (ch.fixed === "ytd" ? ytdPer(cube!) : mtdPer(cube!)) : perFromFilters(cube!, spec.filters) ?? ytdPer(cube!);
+    const sc: FigCtx = { cube: cube!, kpi, kpiBusy: busy, team: st, view: ch?.view ?? "ytd", per: sp, filters: sf, eff: withTeam(cube!, sf, st, slead, leads), lead: slead, leads, teams, targets: acts?.targets, half: fmt === "half" };
+    const target = ch?.target ? { key: targetKey(ch.id, st, slead, sp), ...ch.target(sc) } : undefined;
     const actions = <TileActions where="nutshell" start="tab" edge={2} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, href: spec.href, kind: spec.kind, target }} />;
     return { key: spec.key, block: true, sx: fmt === "half" ? { gridColumn: { xs: "span 12", md: "span 6" } } : { gridColumn: "1 / -1" },
       node: ch ? ch.draw(sc, actions) : <GlassCard><CardTitle icon={<QueryStatsOutlinedIcon />} tint="purple" title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };
   });
   const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: "nutshell:eso-figures", keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
-  const figs = c ? figuresOf(erpTotals(c.cube, c.eff), forecastShown(c) ? againstForecast(c.cube, kpi) : null, c.cube) : [];
+  const figs = c ? figuresOf(erpTotals(c.cube, c.eff), forecastShown(c) ? againstForecast(c.cube, kpi, c.per) : null, c.cube) : [];
   return (
     <GlassCard sx={{ display: "grid", gap: 2.25 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>

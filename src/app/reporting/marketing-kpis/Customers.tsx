@@ -46,6 +46,7 @@ import DonutLargeOutlinedIcon from "@mui/icons-material/DonutLargeOutlined";
 import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
 import TuneIcon from "@mui/icons-material/Tune";
 import FactoryOutlinedIcon from "@mui/icons-material/FactoryOutlined";
+import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
 
 import { Badge, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 // the tile toolbar and saved views (9f, SARCLA 18.10: "they should be on the main one then visible on the nutshell")
@@ -63,30 +64,109 @@ import { RETRY_MS, RETRIES, everyWhileSeen, hubJson, stageHref, useSlow } from "
 import { onlineBy, onlineShare, type OnlineAgg, type OnlineCube } from "@/lib/marketingKpis/onlineShare";
 import { MovementsView, inOut, movesIn, useMovements } from "./Movements";
 import { FilterPanel, FilterSection as Section } from "./FilterPanel";
+import type { CompanyHit } from "@/lib/marketingKpis/customers";
 import { BEFORE, DimChart, THIS } from "./DimChart";
 
 /* ── the data ─────────────────────────────────────────────────────────── */
 
-export function useCustomersCube(): { cube: Cube | null; computing: boolean; progress?: string; error?: string; computedAt?: string } {
-  const [st, setSt] = useState<{ ok?: boolean; cube?: SlowState<Cube>; error?: string } | null>(null);
+/** Every company's cube - or, with companies given (the customer filter, SARCLA 26.10.2026: "customer as well"), the cube of those alone. */
+export function useCustomersCube(companies: string[] = []): { cube: Cube | null; computing: boolean; progress?: string; error?: string; computedAt?: string } {
+  const ids = companies.join(",");
+  const [st, setSt] = useState<{ ok?: boolean; cube?: SlowState<Cube>; error?: string; ids?: string } | null>(null);
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const url = `/api/reporting/marketing-kpis/customers${ids ? `?companies=${encodeURIComponent(ids)}` : ""}`;
     // a deployment's error page is a moment, not an answer: ask again, keep what is shown
-    const load = (tries = 0) => hubJson<{ ok?: boolean; cube?: SlowState<Cube>; error?: string }>("/api/reporting/marketing-kpis/customers")
-      .then((j) => { if (!alive) return; setSt(j); timer = j?.cube?.computing ? setTimeout(() => { timer = undefined; load(); }, RETRY_MS) : undefined; })
+    const load = (tries = 0) => hubJson<{ ok?: boolean; cube?: SlowState<Cube>; error?: string }>(url)
+      .then((j) => { if (!alive) return; setSt({ ...j, ids }); timer = j?.cube?.computing ? setTimeout(() => { timer = undefined; load(); }, RETRY_MS) : undefined; })
       .catch((e) => {
         if (!alive) return;
         if (tries < RETRIES) { timer = setTimeout(() => load(tries + 1), RETRY_MS); return; }
-        setSt((s) => ({ ...(s ?? {}), error: String((e as Error)?.message ?? e) }));
+        setSt((s) => ({ ...(s ?? {}), ids, error: String((e as Error)?.message ?? e) }));
       });
     load();
     // an open page moves on by itself: a newer ERP delivery shows without a reload (SARCLA 17.10)
     const stop = everyWhileSeen(() => { if (!timer) load(); });
     return () => { alive = false; stop(); if (timer) clearTimeout(timer); };
-  }, []);
-  const cube = st?.cube?.value ?? null;
-  return { cube, computing: !!st?.cube?.computing || st === null, progress: st?.cube?.progress, error: st?.error ?? st?.cube?.error, computedAt: st?.cube?.computedAt ?? cube?.generatedAt };
+  }, [ids]);
+  // a cube of other customers than the ones now chosen is not shown, even for a moment
+  const mine = st?.ids === ids ? st : null;
+  const cube = mine?.cube?.value ?? null;
+  return { cube, computing: !!mine?.cube?.computing || mine === null, progress: mine?.cube?.progress, error: mine?.error ?? mine?.cube?.error, computedAt: mine?.cube?.computedAt ?? cube?.generatedAt };
+}
+
+/** The customers chosen, by their HubSpot id: names asked once per id (an address carries only the ids). */
+export function useCompanyNames(ids: string[]): Record<string, CompanyHit> {
+  const key = ids.join(",");
+  const [names, setNames] = useState<Record<string, CompanyHit>>({});
+  useEffect(() => {
+    if (!key) return;
+    let alive = true;
+    hubJson<{ companies?: CompanyHit[] }>(`/api/reporting/marketing-kpis/companies?ids=${encodeURIComponent(key)}`)
+      .then((j) => { if (alive) setNames((n) => ({ ...n, ...Object.fromEntries((j.companies ?? []).map((c) => [c.id, c])) })); })
+      .catch(() => { /* the ids stay as they are */ });
+    return () => { alive = false; };
+  }, [key]);
+  return names;
+}
+export type { CompanyHit };
+/** The customer filter a page hands the Filters window. */
+export type CustomerPick = { chosen: CompanyHit[]; add: (c: CompanyHit) => void; remove: (id: string) => void };
+
+/** The Customer fold: a search by name or ERP number, the customers chosen as chips. */
+function CustomerSearch({ pick }: { pick: CustomerPick }) {
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<CompanyHit[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const text = q.trim();
+    if (text.length < 2) { setHits(null); setBusy(false); return; }
+    let alive = true;
+    setBusy(true);
+    const t = setTimeout(() => {
+      hubJson<{ companies?: CompanyHit[] }>(`/api/reporting/marketing-kpis/companies?q=${encodeURIComponent(text)}`)
+        .then((j) => { if (alive) setHits(j.companies ?? []); })
+        .catch(() => { if (alive) setHits([]); })
+        .finally(() => { if (alive) setBusy(false); });
+    }, 350);
+    return () => { alive = false; clearTimeout(t); };
+  }, [q]);
+  const t = TINT.slate;
+  return (
+    <Box sx={{ display: "grid", gap: 0.75 }}>
+      {pick.chosen.length > 0 && (
+        <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+          {pick.chosen.map((c) => (
+            <Chip key={c.id} size="small" label={c.name} onDelete={() => pick.remove(c.id)}
+              sx={{ height: 26, fontSize: "0.76rem", bgcolor: t.bg, color: INK, "& .MuiChip-deleteIcon": { color: t.fg } }} />
+          ))}
+        </Box>
+      )}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1, height: 34, borderRadius: "9px", bgcolor: "#fff", border: "1px solid rgba(21,34,58,.14)" }}>
+        <SearchIcon sx={{ fontSize: 16, color: MUTED }} />
+        <InputBase value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a customer - name or ERP number…" inputProps={{ "aria-label": "Find a customer by name or ERP number" }} sx={{ fontSize: "0.82rem", flex: 1 }} />
+      </Box>
+      {busy && <Typography sx={{ fontSize: "0.78rem", color: MUTED, px: 1 }}>Searching HubSpot…</Typography>}
+      {!busy && hits && (hits.length === 0 ? <Typography sx={{ fontSize: "0.78rem", color: FAINT, px: 1 }}>No company found for &quot;{q.trim()}&quot;.</Typography> : (
+        <Box sx={{ display: "grid", gap: 0.25 }}>
+          {hits.map((h) => {
+            const on = pick.chosen.some((c) => c.id === h.id);
+            return (
+              <Box key={h.id} component="button" type="button" onClick={() => (on ? pick.remove(h.id) : pick.add(h))} aria-pressed={on}
+                sx={{ display: "flex", alignItems: "center", gap: 0.75, width: "100%", border: 0, font: "inherit", textAlign: "left", cursor: "pointer", px: 1, py: 0.6, borderRadius: "9px",
+                  bgcolor: on ? t.bg : "transparent", "&:hover": { bgcolor: on ? t.bg : "rgba(21,34,58,.04)" } }}>
+                <Box sx={{ width: 16, display: "flex" }}>{on && <CheckIcon sx={{ fontSize: 16, color: t.fg }} />}</Box>
+                <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: "0.82rem", fontWeight: 600, color: INK }}>{h.name}</Typography>
+                <Typography noWrap sx={{ fontSize: "0.74rem", color: MUTED }}>{[h.country, h.erpId ? `ERP ${h.erpId}` : ""].filter(Boolean).join(" · ")}</Typography>
+              </Box>
+            );
+          })}
+        </Box>
+      ))}
+      <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: 0.5, lineHeight: 1.45 }}>Every figure on the page then shows only the customers chosen - several at once.</Typography>
+    </Box>
+  );
 }
 
 /* ── words and numbers, in full ───────────────────────────────────────── */
@@ -393,8 +473,11 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
 /* ── the page ─────────────────────────────────────────────────────────── */
 
 export function CustomersExplorer() {
-  const { cube, computing, progress, error, computedAt } = useCustomersCube();
   const params = useSearchParams();
+  // the customers chosen (SARCLA 26.10.2026: "customer as well"), each its own ?company=… in the address
+  const [companies, setCompanies] = useState<string[]>(() => params.getAll("company").filter((x) => /^\d+$/.test(x)));
+  const { cube, computing, progress, error, computedAt } = useCustomersCube(companies);
+  const names = useCompanyNames(companies);
   // several values per breakdown (SARCLA 17.10: "multi-selection, for example 2 sales reps"), each its own ?owner=… in the address
   const [filters, setFilters] = useState<Filters>(() => Object.fromEntries(DIMS.flatMap((d) => (params.getAll(d).length ? [[d, params.getAll(d)]] : []))));
   // the breakdowns, and after them the movements (KPI C08)
@@ -423,11 +506,12 @@ export function CustomersExplorer() {
     const q = new URLSearchParams();
     if (view !== "prio") q.set("view", view);
     for (const d of DIMS) for (const v of filters[d] ?? []) q.append(d, v);
+    for (const id of companies) q.append("company", id);
     const def = defaultWindow(cube);
     if (win.start !== def.start || win.end !== def.end) { q.set("from", ym(cube, win.start)); q.set("to", ym(cube, win.end)); }
     const s = q.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${s ? `?${s}` : ""}`);
-  }, [filters, win, view, cube]);
+  }, [filters, win, view, cube, companies]);
 
   const toggle = (d: Dim, label: string) => setFilters((f) => {
     const cur = f[d] ?? [], next = cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label];
@@ -439,8 +523,14 @@ export function CustomersExplorer() {
   const all = useMemo(() => (cube && win ? totals(cube, {}, win) : null), [cube, win]);
   const rows = useMemo(() => (cube && win ? breakdown(cube, dimView, filters, win) : []), [cube, dimView, filters, win]);
   const onl = useOnline();
-  const onlineGroups = useMemo(() => (onl.value && win ? onlineBy(onl.value, filters, win, dimView) : null), [onl.value, filters, win, dimView]);
-  const onlineNow = useMemo(() => (onl.value && win ? onlineBy(onl.value, filters, win).get("") ?? { all: 0, web: 0, allPy: 0, webPy: 0 } : null), [onl.value, filters, win]);
+  // the online share is everyone's: with customers chosen it is left out, not shown for the wrong companies
+  const onlineGroups = useMemo(() => (onl.value && win && !companies.length ? onlineBy(onl.value, filters, win, dimView) : null), [onl.value, filters, win, dimView, companies.length]);
+  const onlineNow = useMemo(() => (onl.value && win && !companies.length ? onlineBy(onl.value, filters, win).get("") ?? { all: 0, web: 0, allPy: 0, webPy: 0 } : null), [onl.value, filters, win, companies.length]);
+  const pick: CustomerPick = {
+    chosen: companies.map((id) => names[id] ?? { id, name: `Company ${id}`, country: null, erpId: null }),
+    add: (c) => setCompanies((x) => (x.includes(c.id) ? x : [...x, c.id].slice(0, 50))),
+    remove: (id) => setCompanies((x) => x.filter((y) => y !== id)),
+  };
 
   // the filters open as a window of their own (SARCLA 13.10), closed at first; a chart can open it on its breakdown
   const [panel, setPanel] = useState(false);
@@ -482,13 +572,17 @@ export function CustomersExplorer() {
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
             <b style={{ color: INK }}>{w}</b> against {pw}{pro ? ` (${pro})` : ""} · figures up to {upToDate(cube, win)}{computing ? " · reading HubSpot again" : ""}
           </Typography>
-          {active.length > 0 && (
+          {(active.length > 0 || pick.chosen.length > 0) && (
             <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
+              {pick.chosen.map((c) => (
+                <Chip key={`customer:${c.id}`} size="small" label={<span><b>Customer:</b> {c.name}</span>} onDelete={() => pick.remove(c.id)}
+                  sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.slate.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.slate.fg } }} />
+              ))}
               {chosen.map(([x, v]) => (
                 <Chip key={`${x}:${v}`} size="small" label={<span><b>{DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
                   sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
               ))}
-              <Button size="small" onClick={() => setFilters({})} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>
+              <Button size="small" onClick={() => { setFilters({}); setCompanies([]); }} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>
             </Box>
           )}
         </Box>
@@ -565,7 +659,7 @@ export function CustomersExplorer() {
       </GlassCard>
       )}
 
-      <FilterWindow open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube} win={win} setWin={setWin} filters={filters} toggle={toggle} clearAll={() => setFilters({})} />
+      <FilterWindow open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube} win={win} setWin={setWin} filters={filters} toggle={toggle} customers={pick} clearAll={() => { setFilters({}); setCompanies([]); }} />
     </Box>
   );
 }
@@ -612,7 +706,7 @@ function KpiCards({ cube, a, all, win, readIso, online, onlineBusy }: { cube: Cu
  * charts behind it stay live (SARCLA 13.10: "collapsable; when open it
  * overlays the graphs; it works like a separate chat").
  */
-export function FilterWindow({ id = "customers-filters", period = true, dims = ORDER, names = {}, open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
+export function FilterWindow({ id = "customers-filters", period = true, dims = ORDER, names = {}, customers, open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
   /** the breakdowns it offers - this page's, unless given (the Figures add the Performis SAE) */
   dims?: Dim[];
   /** the window's id - the Figures of the ESO reports open the same one (SARCLA 24.10.2026: "filters as in Digital Growth") */
@@ -621,16 +715,19 @@ export function FilterWindow({ id = "customers-filters", period = true, dims = O
   period?: boolean;
   /** a breakdown under another name on that page - the Figures call the sales rep "Company owner" */
   names?: Partial<Record<Dim, string>>;
+  /** the customer filter: a search by name or ERP number, the customers chosen */
+  customers?: CustomerPick;
   open: boolean; onClose: () => void; focus: { dim: Dim; n: number } | null; cube: Cube; win: Win; setWin: (w: Win) => void; filters: Filters; toggle: (d: Dim, label: string) => void; clearAll: () => void;
 }) {
   const chosen = chosenDims(filters).flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
-  const [shut, setShut] = useState<Partial<Record<Dim | "period", boolean>>>({});
+  const [shut, setShut] = useState<Partial<Record<Dim | "period" | "customer", boolean>>>({});
   // a breakdown opens by itself when it holds a choice; the first two are open to begin with
-  const isOpen = (k: Dim | "period") => {
+  const isOpen = (k: Dim | "period" | "customer") => {
     if (shut[k] !== undefined) return !shut[k];
-    return k === "period" || k === "prio" || k === "segment" || !!filters[k]?.length;
+    return k === "period" || k === "customer" || k === "prio" || k === "segment" || !!filters[k as Dim]?.length;
   };
-  const flip = (k: Dim | "period") => setShut((s) => ({ ...s, [k]: isOpen(k) }));
+  const flip = (k: Dim | "period" | "customer") => setShut((s) => ({ ...s, [k]: isOpen(k) }));
+  const picked = customers?.chosen ?? [];
   // opened from a chart: that breakdown unfolds, comes into view and lights up for a moment
   const [lit, setLit] = useState<Dim | null>(null);
   useEffect(() => {
@@ -643,12 +740,18 @@ export function FilterWindow({ id = "customers-filters", period = true, dims = O
   }, [focus]);
   return (
     <FilterPanel id={id} open={open} onClose={onClose}
-      subtitle={chosen.length ? `${chosen.length} chosen - click again to let one go` : "Click values to show only them - several at once"}
-      onClearAll={chosen.length ? clearAll : undefined}
-      chips={chosen.length > 0 ? chosen.map(([x, v]) => (
-        <Chip key={`${x}:${v}`} size="small" label={<span><b>{names[x] ?? DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
-          sx={{ height: 26, fontSize: "0.76rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
-      )) : null}>
+      subtitle={chosen.length + picked.length ? `${chosen.length + picked.length} chosen - click again to let one go` : "Click values to show only them - several at once"}
+      onClearAll={chosen.length + picked.length ? clearAll : undefined}
+      chips={chosen.length + picked.length > 0 ? [
+        ...picked.map((c) => (
+          <Chip key={`customer:${c.id}`} size="small" label={<span><b>Customer:</b> {c.name}</span>} onDelete={() => customers!.remove(c.id)}
+            sx={{ height: 26, fontSize: "0.76rem", bgcolor: TINT.slate.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.slate.fg } }} />
+        )),
+        ...chosen.map(([x, v]) => (
+          <Chip key={`${x}:${v}`} size="small" label={<span><b>{names[x] ?? DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
+            sx={{ height: 26, fontSize: "0.76rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
+        )),
+      ] : null}>
       {period && (
       <Section id="filter-period" index={0} title="Period" icon={<CalendarMonthOutlinedIcon />} tint="blue" open={isOpen("period")} onFlip={() => flip("period")}
         summary={windowLabel(cube, win)}>
@@ -658,8 +761,14 @@ export function FilterWindow({ id = "customers-filters", period = true, dims = O
         </Typography>
       </Section>
       )}
+      {customers && (
+        <Section id="filter-customer" index={1} title="Customer" icon={<StorefrontOutlinedIcon />} tint="slate" open={isOpen("customer")} onFlip={() => flip("customer")}
+          summary={!picked.length ? "All" : picked.length === 1 ? picked[0].name : `${picked.length} chosen`} chosen={picked.length > 0}>
+          <CustomerSearch pick={customers} />
+        </Section>
+      )}
       {dims.map((dim, i) => (
-        <Section key={dim} id={`filter-${dim}`} index={i + 1} lit={lit === dim} title={names[dim] ?? DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => flip(dim)} summary={!filters[dim]?.length ? "All" : filters[dim]!.length === 1 ? filters[dim]![0] : `${filters[dim]!.length} chosen`} chosen={!!filters[dim]?.length}>
+        <Section key={dim} id={`filter-${dim}`} index={i + 2} lit={lit === dim} title={names[dim] ?? DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => flip(dim)} summary={!filters[dim]?.length ? "All" : filters[dim]!.length === 1 ? filters[dim]![0] : `${filters[dim]!.length} chosen`} chosen={!!filters[dim]?.length}>
           <Facet cube={cube} dim={dim} win={win} filters={filters} onPick={(l) => toggle(dim, l)} />
         </Section>
       ))}
