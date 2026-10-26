@@ -86,3 +86,13 @@ test("a delivery carrying a real address is refused whole; coded addresses pass"
   const bad = { answers: [{ key: "k", kind: "hs", request: {}, response: { body: { note: "write to anna@customer.example" } } }] };
   assert.equal(realAddressIn(bad), "…@customer.example");
 });
+
+test("SANDBOX_PEOPLE: email|role|name; a bad entry is skipped and named", async () => {
+  const { parsePeople, publicUrl } = await import("../src/lib/sandbox/peopleList");
+  const { people, bad } = parsePeople(" diana@apsoparts.example|user|Diana Test ; boss@apsoparts.example|admin|Boss ;nope|user|X; x@y.example|owner|Z");
+  assert.deepEqual(people, [{ email: "diana@apsoparts.example", role: "user", name: "Diana Test" }, { email: "boss@apsoparts.example", role: "admin", name: "Boss" }]);
+  assert.deepEqual(bad, ["nope", "x@y.example"]);
+  assert.equal(publicUrl({ RAILWAY_PUBLIC_DOMAIN: "sandbox-x.up.railway.app" } as unknown as NodeJS.ProcessEnv), "https://sandbox-x.up.railway.app");
+  assert.equal(publicUrl({ SANDBOX_PUBLIC_URL: "http://127.0.0.1:3197/", RAILWAY_PUBLIC_DOMAIN: "a" } as unknown as NodeJS.ProcessEnv), "http://127.0.0.1:3197");
+  assert.equal(publicUrl({} as unknown as NodeJS.ProcessEnv), null);
+});

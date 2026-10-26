@@ -32,16 +32,52 @@ export const SANDBOX_JOBS: Record<string, Start> = {
   chatTopics: async () => (await import("../chat/topics")).startChatTopics(),
 };
 
+/**
+ * The sandbox copies share one Postgres on Railway, each with a database of its own (sandbox_base, sandbox_diana...),
+ * so one person's Delete all or new table never touches another's. The first boot creates it.
+ */
+async function ensureOwnDatabase(env: NodeJS.ProcessEnv): Promise<void> {
+  const url = env.DATABASE_URL;
+  if (!url) return;
+  const name = decodeURIComponent(new URL(url).pathname.slice(1));
+  if (!/^sandbox_[a-z0-9_]+$/.test(name)) return;
+  const { Client } = await import("pg");
+  const ssl = url.includes("railway") ? { rejectUnauthorized: false } : undefined;
+  const probe = new Client({ connectionString: url, ssl });
+  try {
+    await probe.connect();
+    await probe.end();
+    return;
+  } catch (e) {
+    await probe.end().catch(() => {});
+    if ((e as { code?: string }).code !== "3D000") throw e;          // only "no such database" is ours to fix
+  }
+  const server = new URL(url);
+  server.pathname = "/railway";
+  const admin = new Client({ connectionString: server.toString(), ssl });
+  await admin.connect();
+  try {
+    await admin.query(`CREATE DATABASE "${name}"`);
+    console.log(`[sandbox] created its own database ${name}`);
+  } finally {
+    await admin.end();
+  }
+}
+
 export async function startSandbox(env: NodeJS.ProcessEnv = process.env): Promise<void> {
   if (looksLikeHubDatabase(env)) {
     throw new Error("sandbox: DATABASE_URL points at the hub's own database - a sandbox only ever runs on its own");
   }
   const allowed = installSandboxGuard(env);
+  await ensureOwnDatabase(env);
   // then the pages' answers: HubSpot and database reads from what the hub sent, HubSpot writes only listed
   const { installReplay } = await import("./replay");
   installReplay();
   const { markSandboxDatabase } = await import("./store");
   await markSandboxDatabase().catch((e) => console.error("[sandbox] could not mark the database:", e));
+  // its people (SANDBOX_PEOPLE): whoever is missing is created without a password; the hub mails their link
+  const { seedPeople } = await import("./people");
+  await seedPeople(env).catch((e) => console.error("[sandbox] could not create its people:", e));
   const { on, unknown } = pickJobs(env.SANDBOX_JOBS, Object.keys(SANDBOX_JOBS));
   console.log(`[sandbox] guard on - reaches only ${[...allowed].join(", ")}; jobs on: ${on.length ? on.join(", ") : "none"}`);
   if (unknown.length) console.warn(`[sandbox] SANDBOX_JOBS names no such job: ${unknown.join(", ")}`);

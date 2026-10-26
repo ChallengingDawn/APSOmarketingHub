@@ -3,6 +3,7 @@
 
 import { hubspotKey, sqlKey } from "../sandbox/canon";
 import type { Asked, Delivery, Review } from "../sandbox/link";
+import type { PendingInvite } from "../sandbox/peopleList";
 import type { HsRequest, SqlRequest } from "../sandbox/store";
 import { codeHubspotAnswer, codeRows, kindOfPath, type CodeCtx } from "./code";
 import { moneyFactor } from "./policy";
@@ -57,6 +58,8 @@ export type FeedOptions = {
   railway?: { token: string; at: string };
   /** Mails a review to the reviewer (feeder.ts passes the hub's mailer). */
   sendReview?: (r: Review, sandboxHost: string) => Promise<void>;
+  /** Mails a new person their one-time link to the sandbox. */
+  sendInvite?: (i: PendingInvite, sandboxHost: string) => Promise<void>;
 };
 
 export async function feedOne(base: string, linkKey: string, opts: FeedOptions = {}): Promise<string> {
@@ -65,8 +68,9 @@ export async function feedOne(base: string, linkKey: string, opts: FeedOptions =
   if (!got.ok) return `${host}: the feed answered ${got.status}`;
   const asked = (await got.json()) as Asked;
   const reviews = opts.sendReview ? asked.reviews ?? [] : [];
+  const invites = opts.sendInvite ? asked.invites ?? [] : [];
   const newToken = opts.railway && (!asked.railwayTokenAt || asked.railwayTokenAt < opts.railway.at) ? opts.railway.token : undefined;
-  if (!asked.misses.length && !asked.asks.length && !reviews.length && !newToken) return `${host}: nothing asked`;
+  if (!asked.misses.length && !asked.asks.length && !reviews.length && !invites.length && !newToken) return `${host}: nothing asked`;
 
   const ctx: CodeCtx = { salt: linkKey, factor: moneyFactor(linkKey) };
   const until = Date.now() + ROUND_BUDGET_MS;
@@ -74,7 +78,7 @@ export async function feedOne(base: string, linkKey: string, opts: FeedOptions =
   let answered = 0, refused = 0, left = 0;
   const reasons = new Map<string, number>();
   const flush = async () => {
-    if (pending.answers!.length || pending.refused!.length || pending.asks!.length || pending.reviewsSent || pending.railwayToken) {
+    if (pending.answers!.length || pending.refused!.length || pending.asks!.length || pending.reviewsSent || pending.invitesSent || pending.railwayToken) {
       await post(base, linkKey, pending);
     }
     pending = { answers: [], refused: [], asks: [] };
@@ -102,9 +106,16 @@ export async function feedOne(base: string, linkKey: string, opts: FeedOptions =
     catch (e) { console.warn(`[sandbox-feed] ${host}: review ${r.id} not mailed: ${(e as Error).message.slice(0, 200)}`); }
   }
   if (sent.length) pending.reviewsSent = sent;
+  const invited: number[] = [];
+  for (const i of invites) {
+    try { await opts.sendInvite!(i, host); invited.push(i.userId); }
+    catch (e) { console.warn(`[sandbox-feed] ${host}: the link for user ${i.userId} not mailed: ${(e as Error).message.slice(0, 200)}`); }
+  }
+  if (invited.length) pending.invitesSent = invited;
   if (newToken) pending.railwayToken = newToken;
   await flush();
   const why = [...reasons].map(([r, n]) => `${n}x ${r}`).join("; ");
   return `${host}: ${answered} answered, ${refused} refused${why ? ` (${why})` : ""}${left ? `, ${left} left for the next round` : ""}`
-    + `${mailed ? `, ${mailed} review${mailed === 1 ? "" : "s"} mailed` : ""}${newToken ? ", Railway token replaced" : ""}`;
+    + `${mailed ? `, ${mailed} review${mailed === 1 ? "" : "s"} mailed` : ""}${invited.length ? `, ${invited.length} sign-up link${invited.length === 1 ? "" : "s"} mailed` : ""}`
+    + `${newToken ? ", Railway token replaced" : ""}`;
 }

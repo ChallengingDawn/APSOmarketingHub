@@ -11,6 +11,7 @@ import { feedOne } from "./feed";
 import { sandboxTargets } from "./policy";
 import { currentRailwayToken } from "./railway";
 import { sendReview } from "./review";
+import { sendInvite } from "./invite";
 
 const LOCK = 4_107_250;
 const EVERY_MS = 60_000;
@@ -36,7 +37,7 @@ async function round(targets: string[], linkKey: string): Promise<void> {
         ? await currentRailwayToken().catch((e: Error) => { console.warn(`[sandbox-feed] Railway token: ${e.message.slice(0, 200)}`); return undefined; })
         : undefined;
       for (const t of targets) {
-        const line = await feedOne(t, linkKey, { railway, sendReview })
+        const line = await feedOne(t, linkKey, { railway, sendReview, sendInvite })
           .catch((e: Error) => `${t.replace(/^https?:\/\//, "")}: ${e.message.slice(0, 200)}`);
         if (!line.endsWith("nothing asked")) console.log(`[sandbox-feed] ${line}`);
       }

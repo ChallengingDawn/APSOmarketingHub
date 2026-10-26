@@ -13,6 +13,7 @@ const PUBLIC_PREFIXES = [
   "/api/health",
   "/api/sandbox-link/", // the hub's own key, not a session; 404 anywhere but the sandbox copy
   "/api/sbx/", // the sandbox CLI: its own password + TOTP login and token; 404 anywhere but the sandbox copy
+  "/sbx.mjs", // the sandbox CLI itself, so a new person can fetch it (only the sandbox's code has it in public/)
   "/_next",
   "/favicon",
   "/icon",

@@ -128,8 +128,11 @@ walk(tmp);
   if (dir !== tmp && readdirSync(dir).length === 0) rmSync(dir, { recursive: true });
 })(tmp);
 
-// 3. the sandbox kit, from the same commit
-for (const [from, to] of [["sandbox-kit/CLAUDE.md", "CLAUDE.md"], ["sandbox-kit/.env.example", ".env.example"]]) {
+// 3. the sandbox kit, from the same commit: Claude's instructions, the settings, Railway's build (the Dockerfile, as
+// on AWS), and sbx.mjs in public/ so a new person can fetch the CLI from their sandbox before they have the code
+const KIT = [["sandbox-kit/CLAUDE.md", "CLAUDE.md"], ["sandbox-kit/.env.example", ".env.example"],
+  ["sandbox-kit/railway.json", "railway.json"], ["scripts/sbx.mjs", "public/sbx.mjs"]];
+for (const [from, to] of KIT) {
   const r = spawnSync("git", ["show", `${sha}:${from}`], { cwd: repo, maxBuffer: 16 * 1024 * 1024 });
   if (r.status === 0) writeFileSync(path.join(tmp, to), r.stdout);
   else console.warn(`note: ${from} is not in ${sha} - the snapshot has no ${to}`);

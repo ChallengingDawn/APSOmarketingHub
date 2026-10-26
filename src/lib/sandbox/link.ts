@@ -5,6 +5,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { getPool } from "../db/client";
 import { ensureSandboxTables } from "./store";
+import type { PendingInvite } from "./peopleList";
 
 /** The hub's key, checked against the hash the sandbox keeps. No hash configured = nobody gets in. */
 export function hubKeyOk(authorization: string | null, expectedSha256Hex: string | undefined): boolean {
@@ -25,6 +26,8 @@ export type Asked = {
   reviews?: Review[];
   /** When the CLI's Railway token was last replaced (null = never), so the hub knows when to replace it. */
   railwayTokenAt?: string | null;
+  /** New people's one-time links, for the hub to mail (src/lib/sandbox/people.ts). */
+  invites?: PendingInvite[];
 };
 
 /** What the hub should answer this round: the asked reads and the asked CLI requests, oldest first, bounded. */
@@ -36,11 +39,13 @@ export async function asked(limit = 200): Promise<Asked> {
   const r = await p.query(`SELECT id, by_user AS by, title, summary, base, preview_url, files, patch FROM sandbox_reviews
     WHERE state = 'new' ORDER BY id LIMIT 5`);
   const t = await p.query<{ at: string }>(`SELECT at FROM sandbox_cli WHERE k = 'railway_token'`);
+  const i = await p.query<{ v: string }>(`SELECT v FROM sandbox_cli WHERE k LIKE 'invite-mail:%' ORDER BY at`);
   return {
     misses: m.rows,
     asks: a.rows.map((x) => ({ ...x, id: Number(x.id) })),
     reviews: r.rows.map((x) => ({ ...x, id: Number(x.id) })),
     railwayTokenAt: t.rows[0]?.at ? new Date(t.rows[0].at).toISOString() : null,
+    invites: i.rows.map((x) => JSON.parse(x.v) as PendingInvite),
   };
 }
 
@@ -53,6 +58,8 @@ export type Delivery = {
   reviewsSent?: number[];
   /** The Railway token the CLI is handed from now on (the sandbox environment's only). */
   railwayToken?: string;
+  /** People whose link the hub has mailed: the link is dropped here. */
+  invitesSent?: number[];
 };
 
 // The second lock, on this side: the hub codes and leak-checks every answer, and a delivery that still carries an
@@ -90,6 +97,9 @@ export async function deliver(d: Delivery): Promise<{ answers: number; refused: 
     }
     for (const id of d.reviewsSent ?? []) {
       await client.query(`UPDATE sandbox_reviews SET state = 'sent', sent_at = now() WHERE id = $1`, [id]);
+    }
+    for (const id of d.invitesSent ?? []) {
+      await client.query(`DELETE FROM sandbox_cli WHERE k = $1`, [`invite-mail:${Number(id)}`]);
     }
     if (d.railwayToken) {
       await client.query(`INSERT INTO sandbox_cli (k, v, at) VALUES ('railway_token', $1, now())
