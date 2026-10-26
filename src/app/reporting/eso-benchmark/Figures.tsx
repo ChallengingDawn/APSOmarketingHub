@@ -69,7 +69,7 @@ import { DIM, FilterWindow, useCompanyNames, useCustomersCube, type CustomerPick
 import { TileActions } from "@/app/reporting/marketing-kpis/tiles/TileActions";
 import { SavedViews } from "@/app/reporting/marketing-kpis/tiles/SavedViews";
 import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tiles/SortableGrid";
-import { formatOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
+import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import {
   DIMS, MONTH_NAMES, PRIO_ORDER, breakdown, buyersByMonthBy, byMonthBy, chosenDims, clampWindow, erpBy, erpTotals, lastMonth, monthLabel, monthOf, partial, pcBy, presets, totals, windowLabel, yearOfMonth,
   type Cube, type Dim, type ErpAgg, type Filters, type PcMonths, type Win,
@@ -518,6 +518,29 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
   );
 }
 
+/**
+ * Book-to-bill checked against the ERP itself (SARCLA 26.10.2026: "how confident are you on book to bill?"): on Total,
+ * nothing filtered, the year to date - the customers' own ERP figures added up beside the ERP's whole-company series
+ * (the KPI series the forecast comes with), so the page shows how much of the company the customers cover.
+ */
+function b2bCheck(c: FigCtx) {
+  const d = erpDate(c.cube);
+  if (!forecastShown(c) || c.per.erp !== "ytd" || !d || d.year !== c.cube.years[0]) return null;
+  const upTo = (xs: { cy: number }[]) => xs.slice(0, d.month + 1).reduce((s, x) => s + x.cy, 0);
+  const kRev = upTo(c.kpi!.total.rev), kOi = upTo(c.kpi!.total.oi);
+  const e = erpTotals(c.cube, {});
+  return kRev > 0 && kOi > 0 ? { kRev, kOi, rev: e.revYtd, oi: e.oiYtd } : null;
+}
+function B2bCheckLine({ c }: { c: FigCtx }) {
+  const k = b2bCheck(c);
+  if (!k) return null;
+  return (
+    <span style={{ fontWeight: 500, color: MUTED }}>
+      The ERP&apos;s whole company: order intake {eur(k.kOi)} ÷ revenue {eur(k.kRev)} = <b>{pct(k.kOi / k.kRev)}</b> · the customers here add up to {pct(k.rev / k.kRev)} of its revenue and {pct(k.oi / k.kOi)} of its order intake = {pct(k.rev ? k.oi / k.rev : null)}
+    </span>
+  );
+}
+
 /** Book-to-bill ranks the books of some size only (SARCLA 26.10.2026, his pick: "leave out small books") - a person with
  *  €18,658 of revenue at 109% topped ESO. €50,000 over three months or more; a month or two count less. */
 const b2bMin = (months: number) => (months >= 3 ? 50_000 : months === 2 ? 10_000 : 5_000);
@@ -559,6 +582,7 @@ function ValueBars({ c, id, dim, which, actions }: { c: FigCtx; id: string; dim:
     <Leaderboard key={`${c.per.id}-${which}-${dim}`} title={title} rows={rows}
       curLabel={curLabelOf(c.cube, c.per)} prevLabel={prevLabelOf(c.cube, c.per)} first={c.half ? 8 : 12}
       fmt={b2b ? pct : eur} ratio={b2b} target={targetFor(c, id)} unranked={b2b ? { why: `under ${eur(min)} of revenue`, rows: small } : undefined}
+      summary={b2b && b2bCheck(c) ? <B2bCheckLine c={c} /> : undefined}
       selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${lowerOf(dim)}`} actions={actions} />
   );
@@ -1302,11 +1326,13 @@ function againstForecast(cube: Cube, kpi: EsoFigures | null, per: Per) {
 }
 type Fig = { label: string; value: string; ch?: number | null; sub: string; icon: React.ReactNode; tint: Tint;
   /** the change written out (book-to-bill: in points) */
-  chText?: { text: string; color: string } };
+  chText?: { text: string; color: string };
+  /** the BUC View's figure cards: their own key, the figure a target is held against, in euros or as a ratio */
+  id?: string; amount?: number | null; unit?: "eur" | "pct" };
 /** Book-to-bill: the order intake against the revenue, its change in points. */
 function b2bFig(label: string, rev: [number, number], oi: [number, number] | null, was: string): Fig {
   const cur = oi && rev[0] ? oi[0] / rev[0] : null, prev = oi && rev[1] ? oi[1] / rev[1] : null;
-  return { label, value: oi ? pct(cur) : "—", chText: cur != null && prev != null ? { text: points(cur, prev), color: tone(cur - prev) } : undefined,
+  return { label, value: oi ? pct(cur) : "—", amount: cur, unit: "pct", chText: cur != null && prev != null ? { text: points(cur, prev), color: tone(cur - prev) } : undefined,
     sub: oi ? `Order intake against revenue · ${was}: ${pct(prev)}` : "Order intake not loaded for this period", icon: <BalanceOutlinedIcon />, tint: "green" };
 }
 const FigChange = ({ f, size }: { f: Fig; size: string }) => (f.chText
@@ -1315,11 +1341,11 @@ const FigChange = ({ f, size }: { f: Fig; size: string }) => (f.chText
 /** The BUC View's figures: the ERP's year and month to date, as they were. */
 function figuresOf(e: ErpAgg, forecast: ReturnType<typeof againstForecast>, cube: Cube): Fig[] {
   const out: Fig[] = [
-    { label: "Revenue year to date", value: eur(e.revYtd), ch: changeOf(e.revYtd, e.revYtdPy), sub: `${periodWords(cube, "ytd", 1)}: ${eur(e.revYtdPy)}`, icon: <EuroOutlinedIcon />, tint: "blue" },
-    { label: "Revenue month to date", value: eur(e.revMtd), ch: changeOf(e.revMtd, e.revMtdPy), sub: `${periodWords(cube, "mtd", 1)}: ${eur(e.revMtdPy)}`, icon: <TodayOutlinedIcon />, tint: "blue" },
-    { label: "Order intake year to date", value: eur(e.oiYtd), ch: changeOf(e.oiYtd, e.oiYtdPy), sub: `${periodWords(cube, "ytd", 1)}: ${eur(e.oiYtdPy)}`, icon: <ShoppingBagOutlinedIcon />, tint: "purple" },
-    { label: "Order intake month to date", value: eur(e.oiMtd), ch: changeOf(e.oiMtd, e.oiMtdPy), sub: `${periodWords(cube, "mtd", 1)}: ${eur(e.oiMtdPy)}`, icon: <TodayOutlinedIcon />, tint: "purple" },
-    b2bFig("Book-to-bill year to date", [e.revYtd, e.revYtdPy], [e.oiYtd, e.oiYtdPy], periodWords(cube, "ytd", 1)),
+    { id: "fig-revytd", amount: e.revYtd, unit: "eur", label: "Revenue year to date", value: eur(e.revYtd), ch: changeOf(e.revYtd, e.revYtdPy), sub: `${periodWords(cube, "ytd", 1)}: ${eur(e.revYtdPy)}`, icon: <EuroOutlinedIcon />, tint: "blue" },
+    { id: "fig-revmtd", amount: e.revMtd, unit: "eur", label: "Revenue month to date", value: eur(e.revMtd), ch: changeOf(e.revMtd, e.revMtdPy), sub: `${periodWords(cube, "mtd", 1)}: ${eur(e.revMtdPy)}`, icon: <TodayOutlinedIcon />, tint: "blue" },
+    { id: "fig-oiytd", amount: e.oiYtd, unit: "eur", label: "Order intake year to date", value: eur(e.oiYtd), ch: changeOf(e.oiYtd, e.oiYtdPy), sub: `${periodWords(cube, "ytd", 1)}: ${eur(e.oiYtdPy)}`, icon: <ShoppingBagOutlinedIcon />, tint: "purple" },
+    { id: "fig-oimtd", amount: e.oiMtd, unit: "eur", label: "Order intake month to date", value: eur(e.oiMtd), ch: changeOf(e.oiMtd, e.oiMtdPy), sub: `${periodWords(cube, "mtd", 1)}: ${eur(e.oiMtdPy)}`, icon: <TodayOutlinedIcon />, tint: "purple" },
+    { id: "fig-b2bytd", ...b2bFig("Book-to-bill year to date", [e.revYtd, e.revYtdPy], [e.oiYtd, e.oiYtdPy], periodWords(cube, "ytd", 1)) },
   ];
   if (forecast) out.push({ label: "Against forecast", value: `${(forecast.reached * 100).toFixed(1)}%`, sub: `${eur(forecast.rev)} of ${eur(forecast.fc)} to ${dayWords(cube)}`, icon: <FlagOutlinedIcon />, tint: "amber" });
   return out;
@@ -1568,6 +1594,8 @@ export function FiguresExplorer() {
 /* ── the BUC View's first panel ────────────────────────────────────────── */
 
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
+/** The panel's own cards and month charts: their tile keys */
+const PANEL = "eso-figures:panel:";
 
 /** The figures for ESO, TSA or Total with the same toggle, the year to date month by month - and the Figures charts sent here. */
 export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
@@ -1585,10 +1613,11 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
   const lead = leadOf(teamKey, leadKey, lt);
   const ready = cube && !tooOld(cube);
   const c: FigCtx | null = ready ? { cube, kpi, kpiBusy: busy, team: teamKey, view: "ytd", per: ytdPer(cube), filters: {}, eff: withTeam(cube, {}, teamKey, lead, leads), lead, leads, teams, targets: acts?.targets } : null;
-  const items: SortItem[] = !ready ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-figures").map(({ spec }) => {
+  // every chart here follows the panel's ESO | TSA | Total and its line managers' teams (SARCLA 26.10.2026: "the toggle
+  // should work in every figures graph") - the team a chart was sent with no longer holds it; its filters and period do
+  const st = teamKey, slead = lead;
+  const items: SortItem[] = !ready ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-figures" && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
     const ch = chartOf(spec.key, spec.filters?.part?.[0]);
-    const st = asTeam(spec.filters?.team?.[0] ?? null) ?? teamKey;
-    const slead = leadOf(st, asLead(spec.filters?.lead?.[0] ?? null) ?? "all", lt);
     const sf: Filters = Object.fromEntries(DIMS.flatMap((d) => (d !== "owner" && spec.filters?.[d]?.length ? [[d, spec.filters[d]]] : [])));
     const fmt = formatOf(acts, spec);
     const sp = ch?.fixed ? (ch.fixed === "ytd" ? ytdPer(cube!) : mtdPer(cube!)) : perFromFilters(cube!, spec.filters) ?? ytdPer(cube!);
@@ -1600,6 +1629,21 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
   });
   const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: "nutshell:eso-figures", keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
   const figs = c ? figuresOf(erpTotals(c.cube, c.eff), forecastShown(c) ? againstForecast(c.cube, kpi, c.per) : null, c.cube) : [];
+  // the panel's own cards and month charts have their Actions too (SARCLA 26.10.2026: "some BUC tiles don't have actions"):
+  // tasks, a target - and taken off the BUC View there, they stay off
+  const ownKey = (id: string) => `${PANEL}${id}`;
+  const shown = (id: string) => placementOf(acts, ownKey(id), "nutshell") === "nutshell";
+  const ownActions = (id: string, title: string, kind: "kpi" | "card", target?: { key: string; unit: "eur" | "pct"; label: string }) => (
+    <TileActions where="nutshell" start="nutshell" edge={2}
+      tile={{ key: ownKey(id), page: "eso-figures", tab: "ytd", title: `${title}${c && c.team !== "total" ? ` - ${teamName(c)}` : ""}`, kind,
+        filters: { team: [teamKey], ...(lead ? { lead: [lead] } : {}), period: ["ytd"] }, href: `/reporting/eso-benchmark/figures?team=${teamKey}${lead ? `&lead=${lead}` : ""}`, target }} />
+  );
+  const cards = figs.filter((f) => !f.id || shown(f.id));
+  const figTarget = (f: Fig) => (c && f.id ? { key: targetKey(`panel:${f.id}`, teamKey, lead, c.per), unit: f.unit ?? "eur", label: `${f.label} is measured against it · ${teamName(c)}'s target - each team its own.` } : undefined);
+  const monthChart = (id: "monrev" | "monoi") => {
+    const d = drawnOf(`ytd:${id}`)!;
+    return d.draw(c!, ownActions(id, d.title({ ...c!, team: "total" }), "card", d.target ? { key: targetKey(d.id, teamKey, lead, c!.per), ...d.target(c!) } : undefined));
+  };
   return (
     <GlassCard sx={{ display: "grid", gap: 2.25 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
@@ -1616,26 +1660,37 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
       {c && lead && leads && membersOf(c.cube, "eso", lead, leads)?.length === 0 && <NoLeadYet name={teamName(c)} />}
       {!c ? <Waiting computing={computing || (!!cube && tooOld(cube))} progress={progress} error={error} /> : (
         <>
-          <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(3, minmax(0, 1fr))", xl: `repeat(${figs.length}, minmax(0, 1fr))` } }}>
-            {figs.map((f) => (
-              <Box key={f.label} sx={{ ...glass, borderRadius: "20px", p: 2.25, display: "grid", gap: 0.75, alignContent: "start", minWidth: 0 }}>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
-                  <Badge icon={f.icon} tint={f.tint} size={32} />
-                  <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED, lineHeight: 1.25 }}>{f.label}</Typography>
+          <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(3, minmax(0, 1fr))", xl: `repeat(${cards.length}, minmax(0, 1fr))` } }}>
+            {cards.map((f) => {
+              const tgt = f.id ? targetFor(c, `panel:${f.id}`) : null;
+              return (
+                <Box key={f.label} sx={{ ...glass, borderRadius: "20px", p: 2.25, display: "grid", gap: 0.75, alignContent: "start", minWidth: 0 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                    <Badge icon={f.icon} tint={f.tint} size={32} />
+                    <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.86rem", fontWeight: 600, color: MUTED, lineHeight: 1.25 }}>{f.label}</Typography>
+                    {f.id && ownActions(f.id, f.label, "kpi", figTarget(f))}
+                  </Box>
+                  <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
+                    <Typography sx={{ fontSize: "1.6rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{f.value}</Typography>
+                    <FigChange f={f} size="0.82rem" />
+                  </Box>
+                  <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{f.sub}</Typography>
+                  {tgt != null && f.amount != null && (
+                    <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: f.amount >= tgt ? GREEN : RED }}>
+                      {pct(f.amount / tgt)} of the target {f.unit === "pct" ? pct(tgt) : eur(tgt)}
+                    </Typography>
+                  )}
                 </Box>
-                <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
-                  <Typography sx={{ fontSize: "1.6rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{f.value}</Typography>
-                  <FigChange f={f} size="0.82rem" />
-                </Box>
-                <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{f.sub}</Typography>
-              </Box>
-            ))}
+              );
+            })}
           </Box>
-          {/* the year to date month by month, revenue and order intake side by side - the panel's own */}
-          <Box sx={TWO}>
-            {drawnOf("ytd:monrev")!.draw(c)}
-            {drawnOf("ytd:monoi")!.draw(c)}
-          </Box>
+          {/* the year to date month by month, revenue and order intake side by side - the panel's own, with their Actions */}
+          {(shown("monrev") || shown("monoi")) && (
+            <Box sx={TWO}>
+              {shown("monrev") && monthChart("monrev")}
+              {shown("monoi") && monthChart("monoi")}
+            </Box>
+          )}
           {items.length > 0 && <SortableGrid items={items} order={acts?.orders?.["nutshell:eso-figures"]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} />}
         </>
       )}
