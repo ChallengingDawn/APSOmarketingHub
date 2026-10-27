@@ -1,6 +1,7 @@
 // A/B TEST of the e-mail before the chat - the hub's side: the setting and the figures live on the shop chat's gateway
 // (DirectUp Gateway, chatab.ts); the hub reads and changes them through the gateway's admin API (DIRECTUP_ADMIN_KEY)
-// and works out the comparison (abStats.ts).
+// and works out the comparison (abStats.ts). The client (directup/gateway.ts) puts /api/admin in front of every path,
+// so the paths here start at /chat.
 
 import { gateway } from "@/lib/directup/gateway";
 import { compare, type AbRow, type Comparison } from "./abStats";
@@ -10,8 +11,8 @@ export type AbSetting = { on: boolean; countries: string[]; split: number; v: nu
 export type AbData = { setting: AbSetting; v: number; rows: AbRow[]; comparisons: Comparison[]; firstAt: string | null; lastAt: string | null };
 
 export async function abData(): Promise<AbData> {
-  const setting = await gateway<AbSetting>("/api/admin/chat/ab");
-  const r = await gateway<{ v: number; rows: (AbRow & { first_at: string | null; last_at: string | null })[] }>(`/api/admin/chat/ab-results?v=${setting.v}`);
+  const setting = await gateway<AbSetting>("/chat/ab");
+  const r = await gateway<{ v: number; rows: (AbRow & { first_at: string | null; last_at: string | null })[] }>(`/chat/ab-results?v=${setting.v}`);
   const rows = r.rows.map((x) => ({ ...x, visitors: Number(x.visitors), emails: Number(x.emails), emails_first: Number(x.emails_first), chats: Number(x.chats), chats_with_email: Number(x.chats_with_email), handovers: Number(x.handovers) }));
   const firsts = r.rows.map((x) => x.first_at).filter((x): x is string => !!x).sort();
   const lasts = r.rows.map((x) => x.last_at).filter((x): x is string => !!x).sort();
@@ -26,5 +27,5 @@ export async function saveAb(input: unknown, by: string): Promise<AbSetting> {
   if (typeof b.on !== "boolean") throw new Error("On or off?");
   if (!Number.isFinite(split) || split < 0 || split > 100) throw new Error("The share asked first goes from 0 to 100 %.");
   if (b.on && !countries.length) throw new Error("Pick at least one country for the test.");
-  return gateway<AbSetting>("/api/admin/chat/ab", { method: "PUT", body: { on: b.on, countries, split, restart: b.restart === true, by } });
+  return gateway<AbSetting>("/chat/ab", { method: "PUT", body: { on: b.on, countries, split, restart: b.restart === true, by } });
 }
