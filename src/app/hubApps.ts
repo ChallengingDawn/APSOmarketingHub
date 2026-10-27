@@ -225,12 +225,14 @@ export const APPS: HubApp[] = [
   },
   {
     // The copies on Railway that people build in, with coded data: what their pages and the CLI wait for is brought
-    // from here, and nowhere else (SARCLA, 26.10.2026).
+    // from here, and nowhere else (SARCLA, 26.10.2026). Not a tile: reached from Sandbox in the bar on top
+    // (SARCLA 27.10.2026: "should not appear as major app - a click on the header").
     key: "sandbox",
     href: "/sandbox",
     name: "Sandbox",
     line: "Coded data for the sandboxes, and what is built in them.",
     from: "#7c8aa5", to: "#4a5a70", wash: "rgba(124,138,165,.10)", icon: "science",
+    square: true,
     subs: [
       { name: "Sandboxes", note: "What waits, what was brought, the reviews", href: "/sandbox", icon: "science", ...PURPLE },
     ],
