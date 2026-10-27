@@ -11,6 +11,7 @@ import { sandboxTargets } from "./policy";
 import { currentRailwayToken } from "./railway";
 import { sendReview } from "./review";
 import { sendInvite } from "./invite";
+import { ensureHubPeople } from "./hubPeople";
 
 const LOCK = 4_107_250;
 const EVERY_MS = 60_000;
@@ -31,6 +32,14 @@ async function round(targets: string[], linkKey: string): Promise<void> {
     const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK]);
     if (!got.rows[0]?.ok) return;
     try {
+      // the builders' hub accounts (SANDBOX_HUB_PEOPLE), once per start of this copy - under the lock, so the two
+      // copies of the hub never both create the same account
+      if (!peopleDone) {
+        peopleDone = true;
+        for (const line of await ensureHubPeople(process.env.SANDBOX_HUB_PEOPLE).catch((e: Error) => [`hub accounts: ${e.message.slice(0, 200)}`])) {
+          console.log(`[sandbox-feed] ${line}`);
+        }
+      }
       // one Railway token a day for every sandbox (the CLI gets the same one from each); none without the workspace token
       const railway = process.env.RAILWAY_SANDBOX_TOKEN
         ? await currentRailwayToken().catch((e: Error) => { console.warn(`[sandbox-feed] Railway token: ${e.message.slice(0, 200)}`); return undefined; })
@@ -48,7 +57,7 @@ async function round(targets: string[], linkKey: string): Promise<void> {
   }
 }
 
-let started = false, running = false;
+let started = false, running = false, peopleDone = false;
 export function startSandboxFeed(): void {
   if (started || process.env.SANDBOX_FEED === "off") return;
   const targets = sandboxTargets(process.env.SANDBOX_URLS);
