@@ -12,10 +12,11 @@
 // is not read as an idle person, a user missing from HubSpot's list is away everywhere). Shadow mode compares legacy
 // with what HubSpot really did (is the copy right?) and hub with legacy (what the fixes change).
 
-export const BO = "1726786777", GQS = "1726786775";
+export const BO = "1726786777", GQS = "1726786775", ECOM = "1726786778";
 export const STAGE = {
   boNew: "2338266325", boRedirectedFromChat: "2554860732", assigned: "2338266326", resolved: "2338266328",
   cutToSizeIssue: "5948837104", chatNewBoTopic: "5166408896", gqsNewForBo: "2338266314", gqsWaitingOnApso: "2338266316",
+  ecomNew: "2338266329",
 } as const;
 /** Back Office stages the code counts as someone's workload. */
 export const BO_OPEN_STAGES = ["2338266326", "2473210048", "2726922455", "2728031473", "2338266327"];
@@ -42,6 +43,7 @@ export const PEOPLE = {
   claudia: P("76134337", "Claudia Cagnoni"), claudioG: P("1229976030", "Claudio Gabinato"), leart: P("37413486", "Leart Asllani"),
   adriana: P("76134415", "Adriana Deblander"), sara: P("30050251", "Sara Gashi"), maida: P("1207485931", "Maida Osmani"),
   vanessa: P("76134388", "Vanessa Battaglia"), rose: P("31935670", "Rose Rasteiro"), backofficeTeam: P("76164822", "Backoffice Team"),
+  daniel: P("754305239", "Daniel Wieland"),
   // helpline@apsoparts.com. The ESO/chat re-route to Back Office "Redirected from Chat/Helpline" writes this queue user as
   // the owner; MAIN ROUTING overwrote it with a person - it is a queue, not somebody's ticket (23.10.2026)
   tsaTeam: P("1202569408", "TSA Team"),
@@ -212,7 +214,14 @@ export function route(f: RouteFacts, classify: () => Classified): Route {
   const chat = f.sourceType === "CHAT" || (f.sourceType !== "EMAIL" && f.aiChatSource === "CHAT");
   if (chat) {
     r.path.push(f.sourceType === "CHAT" ? "CHAT" : "AI CHAT");
-    if (category === "Website Issue" && subs[SUB.website] === "Other Issue") { r.path.push("EXCLUDE SHOP BUG DANIEL"); return r; }
+    // the chat's shop bug to the E-Commerce team, Daniel - what workflow 3081021669 did until SARCLA switched it off
+    // (27.10.2026, "MIGRATED TO HUB"): its own pipeline's New stage, its subject, Daniel as owner
+    if (category === "Website Issue" && subs[SUB.website] === "Other Issue") {
+      r.path.push("EXCLUDE SHOP BUG DANIEL");
+      set("hs_pipeline", ECOM); set("hs_pipeline_stage", STAGE.ecomNew); set("subject", `Request from the chat | ${category} | SHOP BUG`);
+      set("hubspot_owner_id", PEOPLE.daniel.id);
+      return r;
+    }
     if (category === "Product Information" && subs[SUB.product] === "3D Model request") {
       r.path.push("EXCLUDE FORM 3D REQUESTS");
       if (f.stage === STAGE.boRedirectedFromChat && !ever(BO_WORKED)) { r.path.push("REDIRECTED VIA THE CHAT"); set("dispatch", "Send to CAD TEAM"); }

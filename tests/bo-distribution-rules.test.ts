@@ -89,6 +89,11 @@ test("a chat that comes to the Back Office is a call-back: CHAT/C2S Issue and Ge
   const bug = route(facts({ sourceType: "CHAT", category: "Website Issue", subs: { [SUB.website]: "Other Issue" } }), none);
   assert.equal(bug.assigner, null);
   assert.ok(bug.path.includes("EXCLUDE SHOP BUG DANIEL") && !bug.path.includes(CHAT_CALL_BACK));
+  // ... to the E-Commerce team, Daniel - workflow 3081021669's branch, now the hub's (the workflow is off since 27.10.2026)
+  assert.equal(bug.sets.hs_pipeline, "1726786778");
+  assert.equal(bug.sets.hs_pipeline_stage, STAGE.ecomNew);
+  assert.equal(bug.sets.hubspot_owner_id, "754305239");
+  assert.equal(bug.sets.subject, "Request from the chat | Website Issue | SHOP BUG");
   assert.equal(route(facts({ sourceType: "CHAT", category: "Product Information", subs: { [SUB.product]: "3D Model request" } }), none).assigner, null);
   // EMAIL wins over an AI chat source
   assert.equal(route(facts({ aiChatSource: "CHAT" }), none).path[0], "EMAIL");

@@ -450,6 +450,11 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
   const plan = opts.stray ? null : chatPlan(r);
   const strayStep = opts.stray && (!r.assigner || r.assigner === "75" || r.assigner === "50" || !!r.sets.hubspot_owner_id) ? "27" as const : null;
   if (!strayStep) {
+    if (r.sets.hubspot_owner_id) {
+      // a path with its own owner (the chat's shop bug -> Daniel): shown as such, written by actBo
+      const o = fixed({ id: r.sets.hubspot_owner_id, name: (await ownerNames()).get(r.sets.hubspot_owner_id) ?? r.sets.hubspot_owner_id }, "Chat shop bug to the E-Commerce team");
+      row.legacy = o; row.hub = o; return row;
+    }
     if (!r.assigner) { row.note = "no distribution on this path"; return row; }
     if (r.assigner === "75") {
       const rep = mail.latestFrom ? await ownerByEmail(mail.latestFrom) : null;
@@ -694,7 +699,7 @@ async function actBo(row: Row, settings: Settings, opts: ActOpts = {}): Promise<
     if (!opts.catchUp) await writesThisHour(1);
     // 1. the path's properties, as the workflow's "set property" actions and its classifier (#22) write them
     const props: Record<string, string> = {};
-    for (const [k, v] of Object.entries(r.sets)) if (k !== "hubspot_owner_id" && k !== "hs_pipeline_stage") props[k] = v;
+    for (const [k, v] of Object.entries(r.sets)) if (k !== "hubspot_owner_id" && k !== "hs_pipeline_stage" && k !== "hs_pipeline") props[k] = v;
     if (Object.keys(props).length) { await hs(`/crm/v3/objects/tickets/${row.ticketId}`, "PATCH", { properties: props }); done.push(Object.keys(props).join(", ")); }
 
     // 2. the code steps the hub took over
@@ -740,6 +745,8 @@ async function actBo(row: Row, settings: Settings, opts: ActOpts = {}): Promise<
     const move: Record<string, string> = {};
     if (owner) move.hubspot_owner_id = owner;
     if (stage && (owner || !pick || !free)) move.hs_pipeline_stage = stage;
+    // another pipeline's stage (the chat's shop bug -> E-Commerce Team): the pipeline goes with it, in the same PATCH
+    if (move.hs_pipeline_stage && r.sets.hs_pipeline) move.hs_pipeline = r.sets.hs_pipeline;
     if (Object.keys(move).length) await hs(`/crm/v3/objects/tickets/${row.ticketId}`, "PATCH", { properties: move });
     if (owner && row.associate) await hs(`/crm/v4/objects/tickets/${row.ticketId}/associations/default/companies/${row.associate}`, "PUT").catch(() => null);
     if (!free && pick) done.push(`kept ${names.get(cur) ?? cur} (already owned)`);
