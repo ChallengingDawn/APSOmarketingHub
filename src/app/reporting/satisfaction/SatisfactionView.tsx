@@ -5,8 +5,11 @@
 // KPI pages draw them (DimChart + All the figures), and the customers' own words. Used by Reporting > Satisfaction
 // KPIs (every survey) and by APSOassistant Chat > Satisfaction (the chats' surveys). Data: src/lib/satisfaction.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Box from "@mui/material/Box";
+import IconButton from "@mui/material/IconButton";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import Grid from "@mui/material/Grid";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
@@ -158,14 +161,39 @@ function Breakdown({ title, groups, first, note }: { title: string; groups: Grou
   );
 }
 
+/** The comments a page at a time (SARCLA 27.10.2026: "comments on satisfaction should be paginated") - the reports'
+ *  own ‹ › buttons and "1–20 of N", above and below the list. */
+const PER_PAGE = 20;
+function Pager({ page, pages, onPage }: { page: number; pages: number; onPage: (p: number) => void }) {
+  const nav = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
+  return (
+    <Box sx={{ display: "flex", gap: 0.5 }}>
+      <IconButton size="small" aria-label="The previous ones" disabled={page === 0} onClick={() => onPage(page - 1)} sx={nav}><ChevronLeftIcon sx={{ fontSize: 18 }} /></IconButton>
+      <IconButton size="small" aria-label="The next ones" disabled={page >= pages - 1} onClick={() => onPage(page + 1)} sx={nav}><ChevronRightIcon sx={{ fontSize: 18 }} /></IconButton>
+    </Box>
+  );
+}
+
 function Comments({ d }: { d: SatisfactionData }) {
+  const [page, setPage] = useState(0);
+  const pages = Math.max(1, Math.ceil(d.comments.length / PER_PAGE));
+  const at = Math.min(page, pages - 1);
+  const shown = d.comments.slice(at * PER_PAGE, (at + 1) * PER_PAGE);
+  const range = d.comments.length ? `${full(at * PER_PAGE + 1)}–${full(at * PER_PAGE + shown.length)} of ${full(d.comments.length)}` : "";
+  const top = useRef<HTMLDivElement>(null);
+  const go = (p: number) => { setPage(p); top.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); };
   return (
     <GlassCard sx={{ display: "grid", gap: 1 }}>
-      <CardTitle icon={<FormatQuoteOutlinedIcon />} tint="purple" title={`What the customers wrote: ${full(d.commentsTotal)}`}
-        note={`The unhappy first, then the newest${d.commentsTotal > d.comments.length ? ` - the first ${full(d.comments.length)} shown` : ""}. E-mail addresses and phone numbers are hidden.`} />
+      <Box ref={top} sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <CardTitle icon={<FormatQuoteOutlinedIcon />} tint="purple" title={`What the customers wrote: ${full(d.commentsTotal)}`}
+            note={`The unhappy first, then the newest${range ? ` · ${range}` : ""}${d.commentsTotal > d.comments.length ? ` (the first ${full(d.comments.length)})` : ""}. E-mail addresses and phone numbers are hidden.`} />
+        </Box>
+        {pages > 1 && <Pager page={at} pages={pages} onPage={go} />}
+      </Box>
       {!d.comments.length ? <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No comment in this period.</Typography> : (
         <Box sx={{ display: "grid", gap: 1 }}>
-          {d.comments.map((c, i) => {
+          {shown.map((c, i) => {
             const s = SENT[c.sentiment ?? c.nps ?? ""];
             return (
               <Box key={i} sx={{ display: "grid", gap: 0.5, p: 1.25, borderRadius: "12px", bgcolor: "rgba(21,34,58,.03)" }}>
@@ -179,6 +207,12 @@ function Comments({ d }: { d: SatisfactionData }) {
               </Box>
             );
           })}
+        </Box>
+      )}
+      {pages > 1 && (
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+          <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{range}</Typography>
+          <Pager page={at} pages={pages} onPage={go} />
         </Box>
       )}
     </GlassCard>

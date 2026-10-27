@@ -68,7 +68,8 @@ export async function satisfactionData(fromIso: string, touchpoints: Touchpoint[
     total: { ...total, csat: csat(total.tally), nps: nps(total.tally) },
     months: done(groups.month).map((g) => ({ ...g, label: g.key })).sort((a, b) => a.key.localeCompare(b.key)),
     byTouchpoint: done(groups.tp), byCountry: done(groups.country), byLanguage: done(groups.lang), byLocale: done(groups.locale),
-    comments: comments.slice(0, 200), commentsTotal: comments.length, noCountry,
+    // all of them (the page shows 20 at a time) - at most 3,000, ~1,600 a year
+    comments: comments.slice(0, 3000), commentsTotal: comments.length, noCountry,
     run: await lastRun(),
   };
   cache.set(ck, { at: Date.now(), d });
