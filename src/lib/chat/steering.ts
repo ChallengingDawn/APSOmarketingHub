@@ -80,13 +80,17 @@ async function openTickets(ids: string[]): Promise<Map<string, Ticket> | null> {
   }
 }
 
-export async function steeringData(fromIso: string): Promise<SteeringData> {
-  const hit = figuresCache.get(fromIso.slice(0, 13));
+/** channel: "hs" = HubSpot's chat (the shop's bubble and the www chatflow, each with a ticket), "bar" = the search
+ *  bar's AI chat (no ticket, no hand-over) - the page's master switch (SARCLA 27.10.2026). */
+export type Channel = "hs" | "bar";
+export async function steeringData(fromIso: string, channel: Channel = "hs"): Promise<SteeringData> {
+  const ck = `${channel}:${fromIso.slice(0, 13)}`;
+  const hit = figuresCache.get(ck);
   if (hit && Date.now() - hit.at < 5 * 60_000) return hit.d;
   const [steering, options] = await Promise.all([getSteering(), topicOptions()]);
   const rows = (await query<Row>(
     `SELECT category, sub1, sub2, handed, team, ticket_id, summary, last_at FROM apsomh_chat_filing
-      WHERE source = 'chat' AND started_at >= $1 ORDER BY last_at DESC NULLS LAST`, [fromIso])).rows;
+      WHERE source = $2 AND started_at >= $1 ORDER BY last_at DESC NULLS LAST`, [fromIso, channel === "bar" ? "searchbar" : "chat"])).rows;
   const handedIds = [...new Set(rows.filter((r) => r.handed && r.ticket_id && (STEERING_TOPICS as readonly string[]).includes(r.category)).map((r) => String(r.ticket_id)))].slice(0, 300);
   const [open, stages, names] = await Promise.all([
     openTickets(handedIds),
@@ -121,6 +125,6 @@ export async function steeringData(fromIso: string): Promise<SteeringData> {
     };
   });
   const d: SteeringData = { steering, options, topics, noRequest: rows.filter((r) => r.category === NO_REQUEST).length, from: fromIso, openRead: open !== null };
-  figuresCache.set(fromIso.slice(0, 13), { at: Date.now(), d });
+  figuresCache.set(ck, { at: Date.now(), d });
   return d;
 }

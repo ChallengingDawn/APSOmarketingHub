@@ -5,6 +5,8 @@
 // period, and the route its hand-overs take when the AI cannot solve them - for the topic and for each sub-category,
 // changed here by an admin (rules: src/lib/chat/steeringRules.ts, kept in the hub: src/lib/chat/steering.ts). The
 // chat does not use these routes until a topic is switched live; until then each tab shows what they would change.
+// Each tab ends with the topic's own conversations; the page's master switch picks HubSpot's chat or the search bar's
+// (which answers alone - no hand-over figures there).
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -31,6 +33,8 @@ import { CardTitle, GREEN, GlassCard, HsLink, INK, KpiTile, MUTED, Notice, bodyC
 import { ROUTE_LABEL, STEERING_TOPICS, type Route, type Steering, type SubRule } from "@/lib/chat/steeringRules";
 import type { SteeringData, TopicFigures } from "@/lib/chat/steering";
 import { pct, pill, post, when } from "./shared";
+import { TopicConversations } from "./ConversationsTab";
+import SearchBarChatTab from "./SearchBarChatTab";
 
 export type SteeringPage = SteeringData & { isAdmin: boolean };
 const TINT: Record<Route, Tint> = { tsa: "green", bo: "blue", ecom: "purple" };
@@ -59,24 +63,42 @@ function useSave(onSaved: () => void) {
 
 /* ── one topic ───────────────────────────────────────────────────────────────────────────────────── */
 
-export function TopicTab({ d, topic, label, reload }: { d: SteeringPage; topic: string; label: string; reload: () => void }) {
+/** the page's master switch: HubSpot's chat or the search bar's - every figure and list on the tabs follows it */
+export type Channel = "hs" | "bar";
+const allChats = (d: SteeringPage) => d.topics.reduce((a, t) => a + t.chats, 0) + d.noRequest;
+
+export function TopicTab({ d, topic, label, days, channel, reload }: { d: SteeringPage; topic: string; label: string; days: number; channel: Channel; reload: () => void }) {
   const f = d.topics.find((t) => t.topic === topic)!;
   const handed = f.tsa + f.bo;
+  const top = [...f.subs].filter((s) => s.level === 1 && s.chats).sort((a, b) => b.chats - a.chats)[0];
   return (
     <>
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ForumOutlinedIcon />} tint="purple" label="Chats" value={full(f.chats)} note={`${label} - filed by the hub from the whole chat`} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<SmartToyOutlinedIcon />} tint="slate" label="Solved by the AI alone" value={pct(f.aiAlone, f.chats)} note={`${full(f.aiAlone)} of ${full(f.chats)} chats`} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<SupportAgentOutlinedIcon />} tint="green" label="Handed to a person" value={full(handed)} note={`TSA ${full(f.tsa)} · Back Office ${full(f.bo)} - where the chat sent them`} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<PendingActionsOutlinedIcon />} tint="amber" label="Still open" value={d.openRead ? full(f.openTotal) : "—"} note={d.openRead ? "hand-overs whose ticket is open in HubSpot now" : "HubSpot could not be read just now"} /></Grid>
-      </Grid>
-      <RouteCard key={`${topic}-${d.steering.version}`} d={d} f={f} reload={reload} />
-      <OpenCard f={f} />
+      {channel === "hs" ? (
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ForumOutlinedIcon />} tint="purple" label="Chats" value={full(f.chats)} note={`${label} - HubSpot chat, filed by the hub from the whole chat`} /></Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<SmartToyOutlinedIcon />} tint="slate" label="Solved by the AI alone" value={pct(f.aiAlone, f.chats)} note={`${full(f.aiAlone)} of ${full(f.chats)} chats`} /></Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<SupportAgentOutlinedIcon />} tint="green" label="Handed to a person" value={full(handed)} note={`TSA ${full(f.tsa)} · Back Office ${full(f.bo)} - where the chat sent them`} /></Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<PendingActionsOutlinedIcon />} tint="amber" label="Still open" value={d.openRead ? full(f.openTotal) : "—"} note={d.openRead ? "hand-overs whose ticket is open in HubSpot now" : "HubSpot could not be read just now"} /></Grid>
+        </Grid>
+      ) : (
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, sm: 6, lg: 4 }}><KpiTile icon={<ForumOutlinedIcon />} tint="purple" label="Chats" value={full(f.chats)} note={`${label} - search bar chat, filed by the hub`} /></Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 4 }}><KpiTile icon={<SmartToyOutlinedIcon />} tint="slate" label="Of all search bar chats" value={pct(f.chats, allChats(d))} note={`${full(f.chats)} of ${full(allChats(d))} - the search bar's AI answers alone, it hands nothing over`} /></Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 4 }}><KpiTile icon={<SupportAgentOutlinedIcon />} tint="green" label="Most asked" value={top ? full(top.chats) : "–"} note={top ? top.value : "nothing filed in the period"} /></Grid>
+        </Grid>
+      )}
+      <RouteCard key={`${topic}-${d.steering.version}-${channel}`} d={d} f={f} channel={channel} reload={reload} />
+      {channel === "hs" && <OpenCard f={f} />}
+      <Box sx={{ display: "grid", gap: 1 }}>
+        <CardTitle icon={<ForumOutlinedIcon />} tint="purple" title={`Conversations about ${topic}`}
+          note={channel === "hs" ? "HubSpot's chats filed under this topic in the period - click one to read it" : "The search bar's chats filed under this topic, among its latest 200"} />
+        {channel === "hs" ? <TopicConversations key={`${topic}-${days}`} topic={topic} days={days} /> : <SearchBarChatTab key={topic} topic={topic} />}
+      </Box>
     </>
   );
 }
 
-function RouteCard({ d, f, reload }: { d: SteeringPage; f: TopicFigures; reload: () => void }) {
+function RouteCard({ d, f, channel, reload }: { d: SteeringPage; f: TopicFigures; channel: Channel; reload: () => void }) {
   const saved = d.steering.topics[f.topic];
   const [route, setRoute] = useState<Route>(saved.route);
   const [subs, setSubs] = useState<SubRule[]>(saved.subs);
@@ -116,7 +138,8 @@ function RouteCard({ d, f, reload }: { d: SteeringPage; f: TopicFigures; reload:
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small" sx={{ minWidth: 720 }}>
           <TableHead><TableRow>
-            {["Sub-category", "Chats", "AI alone", "Handed (TSA · Back Office)", "Route"].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i > 0 && i < 4 ? "right" : "left" }}>{h}</TableCell>)}
+            {(channel === "hs" ? ["Sub-category", "Chats", "AI alone", "Handed (TSA · Back Office)", "Route"] : ["Sub-category", "Chats", "Route"])
+              .map((h) => <TableCell key={h} sx={{ ...headCell, textAlign: h === "Sub-category" || h === "Route" ? "left" : "right" }}>{h}</TableCell>)}
           </TableRow></TableHead>
           <TableBody>
             {rows.map(({ level, value }) => {
@@ -129,8 +152,8 @@ function RouteCard({ d, f, reload }: { d: SteeringPage; f: TopicFigures; reload:
                     {level === 2 ? <span style={{ color: MUTED }}>↳ </span> : null}{value}
                   </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{x?.chats ? full(x.chats) : "–"}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{x?.chats ? pct(x.aiAlone, x.chats) : "–"}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{x && x.tsa + x.bo ? `${full(x.tsa)} · ${full(x.bo)}` : "–"}</TableCell>
+                  {channel === "hs" && <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{x?.chats ? pct(x.aiAlone, x.chats) : "–"}</TableCell>}
+                  {channel === "hs" && <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{x && x.tsa + x.bo ? `${full(x.tsa)} · ${full(x.bo)}` : "–"}</TableCell>}
                   <TableCell sx={{ ...bodyCell, minWidth: routes.length > 2 ? 400 : 300 }}>
                     {d.isAdmin
                       ? <Choice<Route | "same"> value={rule?.route ?? "same"} onChange={(r) => setRule(level, value, r)} options={[{ key: "same", label: "As the topic" }, ...routes]} />
@@ -200,9 +223,11 @@ function OpenCard({ f }: { f: TopicFigures }) {
 
 /* ── the Overview's summary ──────────────────────────────────────────────────────────────────────── */
 
-export function RoutesCard({ d, onOpen, reload }: { d: SteeringPage; onOpen: (topic: string) => void; reload: () => void }) {
+export function RoutesCard({ d, channel, onOpen, reload }: { d: SteeringPage; channel: Channel; onOpen: (topic: string) => void; reload: () => void }) {
   const { busy, msg, save } = useSave(reload);
   const rows = useMemo(() => STEERING_TOPICS.map((t) => ({ t, f: d.topics.find((x) => x.topic === t)!, s: d.steering.topics[t] })), [d]);
+  const hs = channel === "hs";
+  const heads = hs ? ["Topic", "Route", "Chats", "AI alone", "Handed (TSA · Back Office)", "Open", "Would go elsewhere"] : ["Topic", "Route", "Chats", "Of all search bar chats"];
   return (
     <GlassCard sx={{ display: "grid", gap: 1 }}>
       <CardTitle icon={<AltRouteOutlinedIcon />} tint="blue" title="Routes by topic"
@@ -210,7 +235,7 @@ export function RoutesCard({ d, onOpen, reload }: { d: SteeringPage; onOpen: (to
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small" sx={{ minWidth: 820 }}>
           <TableHead><TableRow>
-            {["Topic", "Route", "Chats", "AI alone", "Handed (TSA · Back Office)", "Open", "Would go elsewhere"].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i >= 2 ? "right" : "left" }}>{h}</TableCell>)}
+            {heads.map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i >= 2 ? "right" : "left" }}>{h}</TableCell>)}
           </TableRow></TableHead>
           <TableBody>
             {rows.map(({ t, f, s }) => (
@@ -218,10 +243,14 @@ export function RoutesCard({ d, onOpen, reload }: { d: SteeringPage; onOpen: (to
                 <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontWeight: 600, color: INK }}>{t}</TableCell>
                 <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><RouteChip r={s.route} />{s.subs.length ? <span style={{ fontSize: "0.74rem", color: MUTED }}> +{s.subs.length} by sub-category</span> : null}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(f.chats)}</TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{pct(f.aiAlone, f.chats)}</TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{full(f.tsa)} · {full(f.bo)}</TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{d.openRead ? full(f.openTotal) : "—"}</TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{f.tsa + f.bo ? full(f.elsewhere) : "–"}</TableCell>
+                {hs ? (
+                  <>
+                    <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{pct(f.aiAlone, f.chats)}</TableCell>
+                    <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{full(f.tsa)} · {full(f.bo)}</TableCell>
+                    <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{d.openRead ? full(f.openTotal) : "—"}</TableCell>
+                    <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{f.tsa + f.bo ? full(f.elsewhere) : "–"}</TableCell>
+                  </>
+                ) : <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{pct(f.chats, allChats(d))}</TableCell>}
               </TableRow>
             ))}
           </TableBody>
@@ -236,7 +265,7 @@ export function RoutesCard({ d, onOpen, reload }: { d: SteeringPage; onOpen: (to
         <Switch size="small" checked={d.steering.orderNumberToBo} disabled={!d.isAdmin || busy} slotProps={{ input: { "aria-label": "An order number always goes to the Back Office" } }}
           onChange={(e) => void save({ topics: d.steering.topics, orderNumberToBo: e.target.checked }, `"an order number always goes to the Back Office" ${e.target.checked ? "ON" : "OFF"}`)} />
         <Typography sx={{ fontSize: "0.82rem", color: INK }}>An order number in the chat always goes to the Back Office, whatever the topic</Typography>
-        {d.noRequest > 0 && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>· {full(d.noRequest)} chats asked nothing at all - the AI keeps those</Typography>}
+        {d.noRequest > 0 && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>· {full(d.noRequest)} {hs ? "chats" : "search bar chats"} asked nothing at all - the AI keeps those</Typography>}
         {msg && (msg.ok ? <Typography sx={{ fontSize: "0.8rem", color: GREEN }}>{msg.text}</Typography> : <Notice tone="bad">{msg.text}</Notice>)}
       </Box>
     </GlassCard>

@@ -401,12 +401,16 @@ export async function topicSummary(fromIso: string): Promise<{ rows: CategoryRow
 const CHAT_COLS = `key, source, ref, ticket_id, started_at, last_at, language, handed, team, agent_wrote, category, sub1, sub2, summary,
   service_category, by, hs_state, hs_before, hs_note`;
 
-export async function topicChats(category: string, fromIso: string, offset: number, limit: number): Promise<{ chats: FilingChat[]; total: number }> {
+/** One topic's chats, newest first - HubSpot's chats (source "chat") or the search bar's ("searchbar"), all or only
+ *  the ones handed to a person (the topic tabs' conversations and the Filing's category list). */
+export async function topicChats(category: string, fromIso: string, offset: number, limit: number,
+  opts: { source?: "chat" | "searchbar"; handedOnly?: boolean } = {}): Promise<{ chats: FilingChat[]; total: number }> {
   await ensure();
+  const where = `source = $1 AND category = $2 AND started_at >= $3${opts.handedOnly ? " AND handed" : ""}`;
+  const args = [opts.source ?? "chat", category, fromIso];
   const [rows, count] = await Promise.all([
-    query<FilingChat>(`SELECT ${CHAT_COLS} FROM ${TABLE} WHERE source = 'chat' AND category = $1 AND started_at >= $2
-      ORDER BY last_at DESC NULLS LAST LIMIT $3 OFFSET $4`, [category, fromIso, limit, offset]),
-    query<{ n: string }>(`SELECT COUNT(*) AS n FROM ${TABLE} WHERE source = 'chat' AND category = $1 AND started_at >= $2`, [category, fromIso]),
+    query<FilingChat>(`SELECT ${CHAT_COLS} FROM ${TABLE} WHERE ${where} ORDER BY last_at DESC NULLS LAST LIMIT $4 OFFSET $5`, [...args, limit, offset]),
+    query<{ n: string }>(`SELECT COUNT(*) AS n FROM ${TABLE} WHERE ${where}`, args),
   ]);
   return { chats: rows.rows, total: Number(count.rows[0]?.n ?? 0) };
 }

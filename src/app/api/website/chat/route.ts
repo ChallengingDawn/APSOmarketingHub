@@ -6,7 +6,8 @@
 //       | transcript&ticket= (the whole chat from HubSpot, hand-over included)
 //       | setup (answers without the key: the address, /health, whether the key is set)
 //       | topics&days= | topic-chats&topic=&days=&offset= (filed by the hub after each chat: src/lib/chat/topics.ts)
-//       | steering&days= (the topic tabs: each Enquiry Category's route and figures, src/lib/chat/steering.ts)
+//       | steering&days=&channel=hs|bar (the topic tabs: each Enquiry Category's route and figures, src/lib/chat/steering.ts)
+//       | topic-chats&topic=&days=&channel=hs|bar&handed=1 (one topic's chats, HubSpot's or the search bar's)
 //       | sb-conversations&archived=0|1 (the search bar's AI conversations, each with its filing)
 //       | hs-changes&state=would-write|written|kept|same|error&offset= (the HubSpot side of the filing)
 //   POST { action: "topic-set", key, category, sub1? } (anyone with Website: a person's Enquiry Category, never filed over, written to HubSpot)
@@ -53,7 +54,7 @@ export async function GET(req: NextRequest) {
     if (part === "sb-conversations") {
       // the search bar's AI conversations with their filing (summary, Enquiry Category), so its tab reads like the others
       if (!searchBarKey()) return NextResponse.json({ configured: false, missing: ["SMART_BAR_ADMIN_TOKEN"] });
-      const d = await searchBarGateway<AiConversations>(`/api/smart-bar/ai-conversations?limit=100&archived=${q.get("archived") === "1" ? 1 : 0}`);
+      const d = await searchBarGateway<AiConversations>(`/api/smart-bar/ai-conversations?limit=${int(q.get("limit"), 100, 1, 200)}&archived=${q.get("archived") === "1" ? 1 : 0}`);
       const filed = await topicsFor((d.conversations ?? []).map((c) => c.query_id)).catch(() => new Map());
       return ok({ ...d, isAdmin, conversations: (d.conversations ?? []).map((c) => {
         const f = filed.get(c.query_id);
@@ -71,13 +72,14 @@ export async function GET(req: NextRequest) {
       const from = new Date(Math.max(Date.now() - days * 86_400_000, Date.parse(`${LIVE_FROM}T00:00:00Z`))).toISOString();
       if (part === "topics") return ok({ ...(await topicSummary(from)), from, isAdmin });
       const topic = q.get("topic") || "";
-      return ok(await topicChats(topic, from, int(q.get("offset"), 0, 0, 100_000), int(q.get("limit"), 20, 1, 100)));
+      return ok(await topicChats(topic, from, int(q.get("offset"), 0, 0, 100_000), int(q.get("limit"), 20, 1, 100),
+        { source: q.get("channel") === "bar" ? "searchbar" : "chat", handedOnly: q.get("handed") === "1" }));
     }
     if (part === "steering") {
       // the topic tabs: each Enquiry Category's route when a person is needed, and its figures (steering.ts)
       const days = int(q.get("days"), 30, 1, 400);
       const from = new Date(Math.max(Date.now() - days * 86_400_000, Date.parse(`${LIVE_FROM}T00:00:00Z`))).toISOString();
-      return ok({ ...(await steeringData(from)), isAdmin });
+      return ok({ ...(await steeringData(from, q.get("channel") === "bar" ? "bar" : "hs")), isAdmin });
     }
     if (part === "setup") {
       const [setting, health] = await Promise.all([orchestratorSetting(), orchestratorHealth()]);

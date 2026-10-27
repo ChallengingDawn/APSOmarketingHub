@@ -26,15 +26,18 @@ type Setup = { switches: Switches; isAdmin: boolean };
 type BarChat = AiConversation & { topic?: string; topic_sub1?: string | null; summary?: string; by?: string; filing_key?: string };
 type BarChats = { total: number; conversations: BarChat[]; isAdmin?: boolean };
 
-export default function SearchBarChatTab() {
+/** topic: only the bar's conversations filed under that Enquiry Category (a topic tab), without the bar's switch */
+export default function SearchBarChatTab({ topic }: { topic?: string } = {}) {
   const [which, setWhich] = useState<"active" | "archived">("active");
   return (
     <>
-      <Loaded<Setup> url="/api/website/search-bar?part=setup" what="the bar's switches">
-        {(s, reload) => <ButtonSwitch s={s} reload={reload} />}
-      </Loaded>
-      <ChatLoaded<BarChats> key={which} url={`/api/website/chat?part=sb-conversations&archived=${which === "archived" ? 1 : 0}`} what="the conversations">
-        {(d, reload) => <BarInbox d={d} which={which} setWhich={setWhich} reload={reload} />}
+      {!topic && (
+        <Loaded<Setup> url="/api/website/search-bar?part=setup" what="the bar's switches">
+          {(s, reload) => <ButtonSwitch s={s} reload={reload} />}
+        </Loaded>
+      )}
+      <ChatLoaded<BarChats> key={`${which}-${topic ?? ""}`} url={`/api/website/chat?part=sb-conversations&archived=${which === "archived" ? 1 : 0}${topic ? "&limit=200" : ""}`} what="the conversations">
+        {(d, reload) => <BarInbox d={topic ? { ...d, conversations: (d.conversations ?? []).filter((c) => c.topic === topic) } : d} which={which} setWhich={setWhich} reload={reload} topic={topic} />}
       </ChatLoaded>
     </>
   );
@@ -44,8 +47,8 @@ const firstQuestion = (c: AiConversation) => c.turns.find((t) => t.role === "use
 const firstAnswer = (c: AiConversation) => c.turns.find((t) => t.role !== "user")?.text?.trim() || null;
 const langOf = (locale: string) => (locale || "").split("-")[0] || null;
 
-function BarInbox({ d, which, setWhich, reload }: {
-  d: BarChats; which: "active" | "archived"; setWhich: (w: "active" | "archived") => void; reload: () => void;
+function BarInbox({ d, which, setWhich, reload, topic }: {
+  d: BarChats; which: "active" | "archived"; setWhich: (w: "active" | "archived") => void; reload: () => void; topic?: string;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -70,7 +73,7 @@ function BarInbox({ d, which, setWhich, reload }: {
   const open = (d.conversations ?? []).find((c) => c.query_id === selected) ?? null;
   return (
     <Inbox items={items} selected={selected} onSelect={setSelected} search={search} onSearch={setSearch}
-      empty={which === "archived" ? "Nothing archived." : "No conversations yet."}
+      empty={topic ? `No search bar chat on ${topic} among the latest 200.` : which === "archived" ? "Nothing archived." : "No conversations yet."}
       toolbar={<Choice value={which} onChange={(k) => { setWhich(k); setSelected(null); }} options={[{ key: "active", label: "Current" }, { key: "archived", label: "Archived" }]} />}
       detail={open ? <BarChat key={open.query_id} c={open} archived={which === "archived"} isAdmin={!!d.isAdmin} onMoved={() => { setSelected(null); reload(); }} /> : null} />
   );

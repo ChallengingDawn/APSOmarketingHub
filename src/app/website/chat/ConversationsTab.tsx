@@ -84,6 +84,58 @@ function List({ r, search, unanswered, selected, setSelected, toolbar, page, set
   );
 }
 
+/* ── one topic's chats (the topic tabs, SARCLA 27.10.2026: "conversations should appear on each tab for each topic") ── */
+
+/** a chat as the hub filed it (src/lib/chat/topics.ts) */
+type FiledChat = {
+  key: string; ref: string; ticket_id: string | null; started_at: string | null; last_at: string | null; language: string | null;
+  handed: boolean; team: string | null; agent_wrote: boolean | null; category: string; sub1: string | null; sub2: string | null; summary: string; by: string;
+};
+/** the filed chat in the shape the open-chat view reads */
+const asConversation = (f: FiledChat): Conversation => ({
+  id: 0, session_hash: f.ref, hubspot_contact_id: null, language_code: f.language, category_code: f.category, sub_l1: f.sub1, sub_l2: f.sub2,
+  routing_team: f.team, escalated: f.handed, escalation_reason: null, hubspot_ticket_id: f.ticket_id, turns_count: 0,
+  started_at: f.started_at ?? "", last_at: f.last_at ?? undefined, topic: f.category, topic_sub1: f.sub1, summary: f.summary,
+  agent_wrote: f.agent_wrote, by: f.by, filing_key: f.key,
+});
+
+/** HubSpot's chats of one Enquiry Category in the period - all, or only the ones handed to a person. */
+export function TopicConversations({ topic, days }: { topic: string; days: number }) {
+  const [page, setPage] = useState(0);
+  const [handed, setHanded] = useState(false);
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+  const url = `/api/website/chat?part=topic-chats&channel=hs&topic=${encodeURIComponent(topic)}&days=${days}&limit=${PER}&offset=${page * PER}${handed ? "&handed=1" : ""}`;
+  return (
+    <Loaded<{ chats: FiledChat[]; total: number }> key={url} url={url} what="the conversations">
+      {(r, reload) => {
+        const q = search.trim().toLowerCase();
+        const list = r.chats.map(asConversation).filter((c) => !q || [c.summary, c.topic_sub1, c.sub_l2].some((x) => x && x.toLowerCase().includes(q)));
+        const items: InboxItem[] = list.map((c) => ({
+          id: c.session_hash, title: c.summary || categoryLabel(c.topic), at: c.last_at ?? c.started_at, lang: c.language_code,
+          flag: c.escalated && c.agent_wrote === false,
+          badges: (
+            <>
+              <HandlerChip c={c} />
+              {c.topic_sub1 && <Tag tint="amber" title={c.sub_l2 ? `${c.topic_sub1} · ${c.sub_l2}` : c.topic_sub1}>{c.topic_sub1}</Tag>}
+              {c.escalated && c.agent_wrote === false && <Chip tint="pink">No person wrote</Chip>}
+            </>
+          ),
+        }));
+        const open = list.find((c) => c.session_hash === selected) ?? null;
+        return (
+          <Inbox items={items} selected={selected} onSelect={setSelected} search={search} onSearch={setSearch}
+            total={r.total} page={page} per={PER} onPage={(p) => { setPage(p); setSelected(null); }}
+            empty={handed ? "No hand-over on this topic in the period." : "No chat on this topic in the period."}
+            toolbar={<Choice value={handed ? "handed" : "all"} onChange={(k) => { setHanded(k === "handed"); setPage(0); setSelected(null); }}
+              options={[{ key: "all", label: "All chats" }, { key: "handed", label: "Handed to a person" }]} />}
+            detail={open ? <Detail key={open.session_hash} c={open} onMoved={reload} /> : null} />
+        );
+      }}
+    </Loaded>
+  );
+}
+
 /* ── the open chat ──────────────────────────────────────────────────────────────────────────────── */
 
 const mins = (a: string | null, b: string | null) => (a && b ? (Date.parse(b) - Date.parse(a)) / 60_000 : null);
