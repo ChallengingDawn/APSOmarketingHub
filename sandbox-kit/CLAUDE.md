@@ -66,9 +66,22 @@ Read the result with `npm run sbx -- ask-status <id> --out ask-<id>.json`. It is
 | `ask`, `ask-status` | Data, see above. |
 | `review --title "..." --summary "..."` | Sends this branch's change against `base` to Claudio, with the preview link. |
 
-The sandbox has no password of its own: the browser opens it from the hub's Sandbox app (**Open**), the CLI with a
-code confirmed there. The Railway token is handed out after that login and replaced by the hub every day. It is
-never written to disk, and it never reaches production.
+The sandbox has no password of its own. **It is served by the hub**: the person opens it on the hub's own address,
+`<hub>/sandbox/run/<name>` (the Sandbox app's **Open**), behind the hub's sign-in and TOTP. The hub fetches every
+request from the Railway copy and tells it who is asking. Railway's own address answers nobody but the hub; it is
+only the relay for this CLI (code confirmed on the hub). The Railway token is handed out after that login and
+replaced by the hub every day. It is never written to disk, and it never reaches production.
+
+Because the pages run on the hub's address, under `/sandbox/run/<name>` (Next `basePath`, set at build time from
+`SANDBOX_BASE_PATH`):
+- `<Link>`, `router.push` and `redirect()` add the path themselves. Plain `fetch("/api/...")` is pinned to it by a
+  script the layout puts first, but write new code so it does not depend on that: never build absolute URLs
+  from `window.location.origin` and never hard-code `/` as the app root.
+- A request from a sandbox page to the hub itself (its API, or a page fetched by script) is refused with 403.
+  Only a link with `data-leave-sandbox` (the band's "Back to the hub") leaves.
+- The amber band, the "Sandbox" in the wordmark and the amber page tint mark every page. Keep them; a sandbox
+  page must never pass for the live hub.
+- Railway checks the copy's health at `/sandbox/run/<name>/api/health`.
 
 ## Working rhythm
 
@@ -80,8 +93,8 @@ never written to disk, and it never reaches production.
      `src/instrumentation.ts`, also run `npm run build`.
 3. Look at every changed screen yourself before saying it is done: desktop and a 390 px phone width, no
    horizontal scroll, and the main column actually wide.
-4. `npm run sbx -- up`, check it in the preview, then `npm run sbx -- review ...`. Claudio gets a mail with the
-   preview link and the patch. He merges it into the hub and releases it, and the sandbox gets the new release
+4. `npm run sbx -- up`, check it in the preview (the hub's Sandbox app, **Open**), then `npm run sbx -- review ...`.
+   Claudio gets a mail with the link to it on the hub and the patch. He merges it into the hub and releases it, and the sandbox gets the new release
    automatically.
 
 Never push to the hub's own repository and never deploy anything but the person's preview. New npm packages:

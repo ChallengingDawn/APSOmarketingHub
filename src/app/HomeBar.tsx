@@ -29,6 +29,7 @@ import { search as searchApps, type Hit } from "./hubApps";
 import { useViewAs } from "./ViewAs";
 import { AvatarFace } from "./AvatarFace";
 import { Wordmark } from "./Wordmark";
+import { useSandbox } from "./SandboxMode";
 import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
 
 const INK = "#15223a";
@@ -133,14 +134,16 @@ export function HomeBar({ on }: { on?: string }) {
   // for them. The two anchors point at the front page, so they work from any
   // page that shows the bar.
   const reads = role === "viewer";
+  const inSandbox = useSandbox();
   const NAV = [
     { name: "Home", href: "/", icon: <HomeIcon />, show: true },
     { name: "Applications", href: "/#applications", icon: <AppsIcon />, show: !reads },
     { name: "Mission Control", href: "/mission-control", icon: <DashboardOutlinedIcon />, show: openFor("marketing") },
     { name: "Live", href: "/live", icon: <SensorsIcon />, show: openFor("website") },
     { name: "Resources", href: "/#resources", icon: <MenuBookIcon />, show: !reads },
-    // the sandboxes are not a tile among the apps - this is their door (SARCLA, 27.10.2026)
-    { name: "Sandbox", href: "/sandbox", icon: <ScienceOutlinedIcon />, show: openFor("sandbox"), compact: true },
+    // the sandboxes are not a tile among the apps - this is their door (SARCLA, 27.10.2026); a sandbox has no door to
+    // sandboxes, the hub has
+    { name: "Sandbox", href: "/sandbox", icon: <ScienceOutlinedIcon />, show: openFor("sandbox") && !inSandbox, compact: true },
     { name: "Settings", href: "/settings", icon: <SettingsOutlinedIcon />, show: true },
   ].filter((n) => n.show);
   // A full bar (an admin's seven) fits on one row at 1440 only without the Sandbox label: there it is its icon, the

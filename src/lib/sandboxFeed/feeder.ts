@@ -7,7 +7,7 @@
 
 import { getPool } from "../db/client";
 import { hubChain } from "../connectors/chainStatus";
-import { feedOne } from "./feed";
+import { feedOne, nameOf } from "./feed";
 import { sandboxTargets } from "./policy";
 import { currentRailwayToken } from "./railway";
 import { sendReview } from "./review";
@@ -46,7 +46,7 @@ async function round(targets: string[], linkKey: string): Promise<void> {
         : undefined;
       for (const t of targets) {
         const line = await feedOne(t, linkKey, { railway, sendReview })
-          .catch((e: Error) => `${t.replace(/^https?:\/\//, "")}: ${e.message.slice(0, 200)}`);
+          .catch((e: Error) => `${nameOf(t)}: ${e.message.slice(0, 200)}`);
         if (!line.endsWith("nothing to do")) console.log(`[sandbox-feed] ${line}`);
       }
     } finally {

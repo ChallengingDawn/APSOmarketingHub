@@ -2,12 +2,14 @@
 // it (HubSpot stubbed with made-up "real" data, the hub's database a throwaway one), codes it, delivers it -> the page
 // answers coded, and not one real value is stored in the sandbox. Opt-in - needs a local sandbox copy and two
 // throwaway databases:
-//   SANDBOX_TEST_URL=http://127.0.0.1:3197  SANDBOX_TEST_DATABASE_URL=<the sandbox's>  SANDBOX_TEST_HUB_DATABASE_URL=<the "hub's">
+//   SANDBOX_TEST_URL=http://127.0.0.1:3197/sandbox/run/diana (the copy built with that SANDBOX_BASE_PATH)  SANDBOX_TEST_DATABASE_URL=<the sandbox's>  SANDBOX_TEST_HUB_DATABASE_URL=<the "hub's">
 //   SANDBOX_TEST_LINK_KEY=<key whose sha256 the sandbox has>  SANDBOX_TEST_SESSION_SECRET=<the sandbox's>
+//   and SANDBOX_PEOPLE="diana@apsoparts.example|user|Diana Test" on the copy
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Client } from "pg";
-import { SignJWT } from "jose";
+import { createHash } from "node:crypto";
+import { PROXY_HEADER, signProxy } from "../src/lib/sandbox/proxy";
 
 const URL_ = process.env.SANDBOX_TEST_URL;
 const SANDBOX_DB = process.env.SANDBOX_TEST_DATABASE_URL;
@@ -52,9 +54,10 @@ test("the whole loop: a miss is brought from the hub, coded, and nothing real is
     await hub.query(`TRUNCATE erp_fixture`);
     await hub.query(`INSERT INTO erp_fixture VALUES (900001, 'Zimtstern Fluidtechnik AG', 1000.50, 900, 'anna.muster@kunde-ag.example', 'Anna wants a call')`);
 
-    const token = await new SignJWT({ uid: 1, username: "tester", role: "admin", typ: "session" })
-      .setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("1h").sign(new TextEncoder().encode(SECRET));
-    const as = (p: string, init: RequestInit = {}) => original(`${URL_}${p}`, { ...init, headers: { cookie: `apsomarketinghub_session=${token}`, "content-type": "application/json" } });
+    // the sandbox's pages, as the hub forwards them: signed with who is asking (a person its SANDBOX_PEOPLE names)
+    const keySha = createHash("sha256").update(KEY!).digest("hex");
+    const as = async (p: string, init: RequestInit = {}) => original(`${URL_}${p}`, { ...init,
+      headers: { [PROXY_HEADER]: await signProxy("diana@apsoparts.example", keySha), "content-type": "application/json" } });
     await original(`${URL_}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ identifier: "x", password: "y" }) });
     await sb.query(`INSERT INTO apsomh_users (id, username, email, full_name, password_hash, totp_enrolled, role, must_change_password)
       VALUES (1, 'tester', 'tester@example.invalid', 'Tester', 'x', true, 'admin', false) ON CONFLICT (id) DO NOTHING`);
@@ -82,10 +85,10 @@ test("the whole loop: a miss is brought from the hub, coded, and nothing real is
     assert.equal(waiting.asks.length, 2);
 
     // 3. the hub's minute round never runs a read: it mails the review and hands over the token
-    const mailed: { title: string; host: string }[] = [];
+    const mailed: { title: string; sandbox: string }[] = [];
     const line = await feedOne(URL_!, KEY!, {
       railway: { token: "railway-test-token", at: new Date().toISOString() },
-      sendReview: async (r, host) => { mailed.push({ title: r.title, host }); },
+      sendReview: async (r, sandbox) => { mailed.push({ title: r.title, sandbox }); },
     });
     assert.match(line, /1 review mailed, Railway token replaced/, line);
     assert.equal(hubspotCalls.length, 0, "the round read nothing from HubSpot");

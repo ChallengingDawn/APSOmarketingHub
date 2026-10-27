@@ -35,7 +35,8 @@ const ACTION_LABEL: Record<string, string> = {
 };
 const mono = { fontFamily: "ui-monospace, Consolas, monospace", fontSize: "0.8rem" } as const;
 
-/** How to start building in this sandbox - the commands with its own address, for the CLI and Claude Code. */
+/** How to start building in this sandbox - the commands with its CLI's address (Railway relays the CLI; the pages
+ *  open here, on the hub), for the CLI and Claude Code. */
 function StartBuilding({ s }: { s: SandboxCard }) {
   const step = (n: number, body: React.ReactNode) => (
     <Box sx={{ display: "grid", gridTemplateColumns: "26px minmax(0,1fr)", gap: 1, py: 0.6 }}>
@@ -46,7 +47,7 @@ function StartBuilding({ s }: { s: SandboxCard }) {
   return (
     <Box>
       {step(1, <>On your computer: Node 22, Git, the Railway CLI (<Box component="code" sx={mono}>npm i -g @railway/cli</Box>) and Claude Code.</>)}
-      {step(2, <>In an empty folder: <Box component="code" sx={mono}>curl -O {s.url}/sbx.mjs</Box>, then <Box component="code" sx={mono}>node sbx.mjs login</Box> - it shows a link to this page; confirm the code here.</>)}
+      {step(2, <>In an empty folder: <Box component="code" sx={mono}>curl -O {s.cli}/sbx.mjs</Box>, then <Box component="code" sx={mono}>node sbx.mjs login --url {s.cli}</Box> - it shows a link to this page; confirm the code here.</>)}
       {step(3, <><Box component="code" sx={mono}>node sbx.mjs pull</Box>, <Box component="code" sx={mono}>npm install</Box>, then start Claude Code in that folder - its CLAUDE.md has the rules and the way of working.</>)}
     </Box>
   );
@@ -114,16 +115,16 @@ function Waiting({ s }: { s: SandboxCard }) {
   );
 }
 
-function Sandbox({ s, canAct, act, open, busy, result }: {
+function Sandbox({ s, canAct, act, busy, result }: {
   s: SandboxCard; canAct: boolean; busy: boolean; result: { line: string; bad: boolean } | null;
-  act: (host: string, action: Action) => void; open: (host: string) => void;
+  act: (sandbox: string, action: Action) => void;
 }) {
   const st = s.state;
   return (
     <GlassCard>
       <CardTitle icon={<ScienceOutlinedIcon />} tint="slate" title={s.title}
-        note={[s.people.filter((p) => p.role === "user").map((p) => p.name).join(", "), s.host].filter(Boolean).join(" · ")}
-        right={<Button size="small" variant="contained" disableElevation disabled={busy} onClick={() => open(s.host)}>Open</Button>} />
+        note={s.people.filter((p) => p.role === "user").map((p) => p.name).join(", ") || undefined}
+        right={<Button size="small" variant="contained" disableElevation href={`/sandbox/run/${s.slug}`} target="_blank" rel="noopener">Open</Button>} />
       {s.error ? <Notice tone="bad">This sandbox does not answer: {s.error}</Notice> : (
         <Box sx={{ display: "grid", gap: 2, minWidth: 0 }}>
           <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "repeat(2, minmax(0,1fr))", md: "repeat(4, minmax(0,1fr))" } }}>
@@ -134,20 +135,20 @@ function Sandbox({ s, canAct, act, open, busy, result }: {
           </Box>
           {canAct && (
             <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-              <Button size="small" variant="contained" disableElevation disabled={busy || !s.reads.length} onClick={() => act(s.host, "bring")}>
+              <Button size="small" variant="contained" disableElevation disabled={busy || !s.reads.length} onClick={() => act(s.slug, "bring")}>
                 {busy ? "Working…" : `Bring data${s.reads.length ? ` (${s.reads.length})` : ""}`}
               </Button>
-              <Button size="small" variant="outlined" disabled={busy || !s.asks.length} onClick={() => act(s.host, "bring-requested")}>
+              <Button size="small" variant="outlined" disabled={busy || !s.asks.length} onClick={() => act(s.slug, "bring-requested")}>
                 Bring requested data{s.asks.length ? ` (${s.asks.length})` : ""}
               </Button>
               <Button size="small" variant="outlined" color="warning" disabled={busy}
-                onClick={() => { if (confirm(`Delete all brought and test data in ${s.title}? Logins stay.`)) act(s.host, "delete-all"); }}>
+                onClick={() => { if (confirm(`Delete all brought and test data in ${s.title}? Logins stay.`)) act(s.slug, "delete-all"); }}>
                 Delete all
               </Button>
             </Box>
           )}
           {result && (result.bad ? <Notice tone="warn">{result.line}</Notice> : <Info>{result.line}</Info>)}
-          <Waiting key={s.host} s={s} />
+          <Waiting key={s.slug} s={s} />
         </Box>
       )}
     </GlassCard>
@@ -193,36 +194,26 @@ export default function SandboxPage() {
   const held = useHeld<SandboxData>(url, [url]);
   const r = held.result;
 
-  const act = useCallback(async (host: string, action: Action) => {
-    setBusy(host);
-    const j = await fetch("/api/sandboxes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ host, action }) })
+  const act = useCallback(async (sandbox: string, action: Action) => {
+    setBusy(sandbox);
+    const j = await fetch("/api/sandboxes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sandbox, action }) })
       .then((x) => x.json()).catch(() => ({ error: "The hub did not answer" }));
-    setResults((prev) => ({ ...prev, [host]: j.ok ? { line: j.line, bad: (j.refused ?? 0) > 0 } : { line: j.error ?? "Did not work", bad: true } }));
+    setResults((prev) => ({ ...prev, [sandbox]: j.ok ? { line: j.line, bad: (j.refused ?? 0) > 0 } : { line: j.error ?? "Did not work", bad: true } }));
     setBusy(null);
     setTick((n) => n + 1);
   }, []);
 
-  // Open: a one-time way in, made on the hub for the person signed in here. The tab is opened at the click (a tab
-  // opened after a fetch is a pop-up the browser blocks) and sent on once the ticket exists.
-  const openIt = useCallback(async (host: string) => {
-    const tab = window.open("about:blank", "_blank");
-    const j = await fetch("/api/sandboxes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ host, action: "open" }) })
-      .then((x) => x.json()).catch(() => ({ error: "The hub did not answer" }));
-    if (j.ok && tab) tab.location.href = j.url;
-    else { tab?.close(); setResults((prev) => ({ ...prev, [host]: { line: j.error ?? "Could not open it", bad: true } })); }
-  }, []);
-
   // `sbx login` sends people here with ?cli=<sandbox>:<code>
-  const [cli, setCli] = useState<{ host: string; code: string } | null>(null);
+  const [cli, setCli] = useState<{ sandbox: string; code: string } | null>(null);
   const [cliNote, setCliNote] = useState<{ line: string; bad: boolean } | null>(null);
   useEffect(() => {
-    // <sandbox host, a port included>:<code> - the code is always the last part
+    // <sandbox>:<code> - the code is always the last part
     const m = /^(.+):([A-Z2-9]{4}-[A-Z2-9]{4})$/.exec(new URLSearchParams(window.location.search).get("cli") ?? "");
-    if (m) setCli({ host: m[1], code: m[2] });
+    if (m) setCli({ sandbox: m[1], code: m[2] });
   }, []);
   const confirmCli = useCallback(async () => {
     if (!cli) return;
-    const j = await fetch("/api/sandboxes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ host: cli.host, action: "cli-approve", code: cli.code }) })
+    const j = await fetch("/api/sandboxes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sandbox: cli.sandbox, action: "cli-approve", code: cli.code }) })
       .then((x) => x.json()).catch(() => ({ error: "The hub did not answer" }));
     setCliNote(j.ok ? { line: j.line, bad: false } : { line: j.error ?? "Did not work", bad: true });
     if (j.ok) { window.history.replaceState(null, "", "/sandbox"); setCli(null); setTick((n) => n + 1); }
@@ -237,7 +228,7 @@ export default function SandboxPage() {
   else body = (
     <>
       {r.data.sandboxes.map((s) => (
-        <Sandbox key={s.host} s={s} canAct={r.data.canAct} act={act} open={openIt} busy={busy === s.host} result={results[s.host] ?? null} />
+        <Sandbox key={s.slug} s={s} canAct={r.data.canAct} act={act} busy={busy === s.slug} result={results[s.slug] ?? null} />
       ))}
       <Activity d={r.data} />
     </>
@@ -248,7 +239,7 @@ export default function SandboxPage() {
       {cli && (
         <GlassCard>
           <CardTitle icon={<TerminalOutlinedIcon />} tint="purple" title="Let the CLI in?"
-            note={`${r?.state === "ok" ? r.data.sandboxes.find((x) => x.host === cli.host)?.title ?? cli.host : cli.host} - code ${cli.code}`} />
+            note={`${r?.state === "ok" ? r.data.sandboxes.find((x) => x.slug === cli.sandbox)?.title ?? cli.sandbox : cli.sandbox} - code ${cli.code}`} />
           <Typography sx={{ fontSize: "0.86rem", color: MUTED, mb: 1.5 }}>Only confirm a code your own terminal shows right now.</Typography>
           <Box sx={{ display: "flex", gap: 1 }}>
             <Button size="small" variant="contained" disableElevation onClick={confirmCli}>Let the CLI in</Button>

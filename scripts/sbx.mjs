@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // sbx - the sandbox's CLI (npm run sbx -- <command>). Talks to YOUR sandbox copy on Railway, never to the hub.
 //
-//   login [--url https://sandbox-you.up.railway.app]   confirm a code on the hub's Sandbox app (its sign-in); 12 hours
+//   login [--url https://sandbox-you.up.railway.app/sandbox/run/you]   confirm a code on the hub's Sandbox app (its sign-in); 12 hours
 //   whoami                                              who is signed in, until when, on which sandbox
 //   up                                                  deploy this folder to your preview (railway up, today's token)
 //   railway <args...>                                   any Railway CLI command with today's sandbox-only token
@@ -66,7 +66,7 @@ const [cmd, ...args] = process.argv.slice(2);
 if (cmd === "login") {
   const prev = existsSync(SESSION) ? JSON.parse(readFileSync(SESSION, "utf8")) : {};
   const url = (flag(args, "--url") ?? prev.url ?? process.env.SBX_URL ?? "").replace(/\/+$/, "");
-  if (!/^https:\/\/|^http:\/\/(127\.0\.0\.1|localhost)/.test(url)) fail("which sandbox? npm run sbx -- login --url https://<your sandbox>.up.railway.app");
+  if (!/^https:\/\/|^http:\/\/(127\.0\.0\.1|localhost)/.test(url)) fail("which sandbox? npm run sbx -- login --url <the address on the hub's Sandbox app, Start building>");
   // no password here: the sandbox opens only through the hub - a code, confirmed on the hub's Sandbox app (behind the
   // hub's own sign-in and authenticator), lets this terminal in for 12 hours
   const st = await fetch(`${url}/api/sbx/login-start`, { method: "POST" });

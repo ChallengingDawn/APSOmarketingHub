@@ -29,7 +29,13 @@ const securityHeaders = [
   { key: "X-DNS-Prefetch-Control", value: "off" },
 ];
 
+// A sandbox copy is served by the hub at /sandbox/run/<name>/... (src/lib/sandbox/proxy.ts) and runs under that same
+// path, so nothing is rewritten on the way. Set at BUILD time (a Docker build arg on its Railway service); the hub
+// itself has none. Its health is then at <path>/api/health - each Railway service checks its own (not railway.json).
+const sandboxBase = process.env.SANDBOX_BASE_PATH || undefined;
+
 const nextConfig: NextConfig = {
+  basePath: sandboxBase,
   // Produce a lean, self-contained server bundle for the container image
   // (.next/standalone/server.js) — required for the AWS Fargate Dockerfile.
   output: "standalone",

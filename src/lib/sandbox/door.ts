@@ -1,14 +1,16 @@
 // THE ONLY WAY INTO A SANDBOX IS THROUGH THE HUB (SARCLA 27.10.2026: "how can we access the sandbox from outside if
-// this should be inside of the hub? ... the TOTP, we can reuse the one on the hub to not double set").
+// this should be inside of the hub? ... the TOTP, we can reuse the one on the hub to not double set"; then "it should
+// be hosted on the hub, only using Railway as a relay for the CLI").
 //
 // A sandbox has no password and no TOTP of its own. The person signs in to the hub (its TOTP), and:
-//  - the browser: the hub's Sandbox app gives this sandbox a one-time ticket over its own link (only its SHA-256), and
-//    sends the person to /sso?t=<ticket>; the ticket opens a session once, within a minute;
+//  - the browser: the hub serves the sandbox at /sandbox/run/<name>/... and signs every request it forwards with who is
+//    asking (proxy.ts) - proxiedUser() below turns that into the person's account here;
 //  - the CLI: `sbx login` gets a short code here; the person confirms it on the hub's Sandbox app, the hub tells this
 //    sandbox who confirmed it (over the link), and the CLI - polling with its own secret - gets its 12-hour token.
 // Either way the sandbox only lets in people its SANDBOX_PEOPLE names, in the role given there.
 
 import { createHash, randomBytes, randomInt } from "node:crypto";
+import { headers } from "next/headers";
 import { getPool } from "../db/client";
 import { APP_KEYS } from "../auth/access";
 import { hashPassword } from "../auth/password";
@@ -16,8 +18,8 @@ import type { UserRow } from "../db/init";
 import { ensureSchema } from "../db/init";
 import { ensureSandboxTables } from "./store";
 import { parsePeople, type Person } from "./peopleList";
+import { PROXY_HEADER, verifyProxy } from "./proxy";
 
-const TICKET_MS = 60_000;
 const CODE_MS = 10 * 60_000;
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 
@@ -63,22 +65,22 @@ export async function userFor(p: Person): Promise<UserRow> {
   return u;
 }
 
-// ---- the browser -------------------------------------------------------------------------------------------------
+// ---- the browser ---------------------------------------------------------------------------------------------------
 
-/** The hub hands over a ticket (its SHA-256 only) for a person. Refused for anyone SANDBOX_PEOPLE does not name. */
-export async function acceptTicket(hash: string, email: string): Promise<string | null> {
-  if (!/^[0-9a-f]{64}$/.test(hash)) return "not a ticket";
-  if (!personFor(email)) return "this sandbox does not name that person";
-  await put(`ticket:${hash}`, { email: email.toLowerCase(), exp: Date.now() + TICKET_MS });
-  return null;
-}
+// the account behind each address, for a minute: a page is a dozen requests, and each one asks who it is
+const held = new Map<string, { until: number; user: UserRow }>();
 
-/** /sso?t=<ticket>: once, within a minute, for a person this sandbox still names. */
-export async function useTicket(ticket: string): Promise<Person | null> {
-  if (!ticket || ticket.length < 32) return null;
-  const t = (await take(`ticket:${sha(ticket)}`)) as { email: string; exp: number } | null;
-  if (!t || Date.now() > t.exp) return null;
-  return personFor(t.email);
+/** The person the hub says is asking (its signed header), if this sandbox names them - else nobody. */
+export async function proxiedUser(): Promise<UserRow | null> {
+  const email = await verifyProxy((await headers()).get(PROXY_HEADER), process.env.SANDBOX_LINK_KEY_SHA256);
+  if (!email) return null;
+  const p = personFor(email);
+  if (!p) return null;
+  const h = held.get(p.email);
+  if (h && Date.now() < h.until) return h.user;
+  const user = await userFor(p);
+  held.set(p.email, { until: Date.now() + 60_000, user });
+  return user.is_active ? user : null;
 }
 
 // ---- the CLI ------------------------------------------------------------------------------------------------------

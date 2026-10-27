@@ -17,6 +17,7 @@
 
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import { useSandbox } from "./SandboxMode";
 
 export function Wordmark({ size = 26, subtitle = "apsoparts.com", align = "start" }: {
   size?: number;
@@ -29,6 +30,7 @@ export function Wordmark({ size = 26, subtitle = "apsoparts.com", align = "start
     fontSize: size,
     lineHeight: 1.1,
   } as const;
+  const sandbox = useSandbox();
 
   return (
     <Box sx={{ display: "grid", justifyItems: align, lineHeight: 1 }}>
@@ -43,6 +45,10 @@ export function Wordmark({ size = 26, subtitle = "apsoparts.com", align = "start
           // A painted box wider than the glyphs, or the gradient clips the b.
           display: "inline-block", paddingRight: "6px", marginRight: "-4px",
         }}>hub</Box>
+        {/* a sandbox is never the live hub, not even in its name */}
+        {sandbox && (
+          <Box component="span" sx={{ ...type, fontWeight: 600, letterSpacing: "-0.01em", color: "#a96a12", ml: "0.3em" }}>Sandbox</Box>
+        )}
       </Box>
       {subtitle && (
         <Typography sx={{

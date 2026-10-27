@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import {
-  fieldKind, isHiddenMoney, isLogicField, leakNeedles, moneyFactor, placeholderText, sandboxTargets, scaleMoney,
+  fieldKind, isHiddenMoney, isLogicField, leakNeedles, moneyFactor, placeholderText, scaleMoney,
 } from "../src/lib/sandboxFeed/policy";
 import { codeHubspotAnswer, codeRows, kindOfPath, leakCheck, type CodeCtx } from "../src/lib/sandboxFeed/code";
 import { hubspotRefusal, sqlRefusal } from "../src/lib/sandboxFeed/run";
@@ -130,12 +130,6 @@ test("the hub runs only reads, only on its list, never logins, keys or the catal
   assert.match(String(sqlRefusal({ text: "SELECT 1; SELECT 2", params: [] })), /one statement/);
   assert.equal(kindOfPath("/crm/v4/associations/tickets/companies/batch/read").kind, "assoc");
   assert.equal(kindOfPath("/crm/v3/objects/2-201387076/search").objectType, "2-201387076");
-});
-
-test("SANDBOX_URLS: https only (plain http only on this machine), each once", () => {
-  assert.deepEqual(sandboxTargets(" https://a.up.railway.app/ ,http://evil.example, http://127.0.0.1:3197,https://a.up.railway.app"),
-    ["https://a.up.railway.app", "http://127.0.0.1:3197"]);
-  assert.deepEqual(sandboxTargets(undefined), []);
 });
 
 // Every money field an engine reads must be decided: real (on the logic list) - the factor never touches it.

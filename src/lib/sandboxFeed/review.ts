@@ -8,19 +8,10 @@ import { hubPublicUrl } from "@/lib/content/shareMail";
 
 const MAX_PATCH = 4 * 1024 * 1024;
 
-/** Only a Railway or sandbox address is linked - a review's text comes from the sandbox, its link must not go anywhere else. */
-export function safePreview(url: string | null | undefined): string | null {
-  if (!url) return null;
-  try {
-    const u = new URL(url);
-    return u.protocol === "https:" && /\.up\.railway\.app$/i.test(u.hostname) ? u.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
-export function reviewMail(r: Review, sandboxHost: string, hubUrl: string) {
-  const preview = safePreview(r.preview_url) ?? `https://${sandboxHost}`;
+/** `sandbox`: its name on the hub - the link opens it there, behind the hub's sign-in (its Railway address answers
+ *  nobody but the hub, and a review's own text never chooses where the link goes). */
+export function reviewMail(r: Review, sandbox: string, hubUrl: string) {
+  const preview = `${hubUrl}/sandbox/run/${encodeURIComponent(sandbox)}`;
   const files = (Array.isArray(r.files) ? r.files : []).slice(0, 80);
   const fileRows = files.map((f) =>
     `<tr><td style="padding:3px 0;font:12px ui-monospace,Consolas,monospace;color:#15223a">${esc(String(f.path ?? ""))}</td>`
@@ -42,9 +33,9 @@ export function reviewMail(r: Review, sandboxHost: string, hubUrl: string) {
   };
 }
 
-export async function sendReview(r: Review, sandboxHost: string): Promise<void> {
+export async function sendReview(r: Review, sandbox: string): Promise<void> {
   const to = process.env.SANDBOX_REVIEW_TO;
   if (!to) throw new Error("SANDBOX_REVIEW_TO is not set");
-  const m = reviewMail(r, sandboxHost, hubPublicUrl());
+  const m = reviewMail(r, sandbox, hubPublicUrl());
   await sendHubMail({ to, subject: m.subject, html: m.html, text: m.text, attachments: m.attachments, fromName: `${r.by} via the sandbox` });
 }

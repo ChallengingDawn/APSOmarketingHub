@@ -1,8 +1,9 @@
 // The way into a sandbox and its CLI, end to end against a local sandbox copy - the real scripts/sbx.mjs, let in by a
 // code confirmed the way the hub's Sandbox app does it. Opt-in, the same settings as tests/sandbox-loop.test.ts; the copy
-// must run with SANDBOX_PEOPLE="diana@apsoparts.example|user|Diana Test".
+// must run with SANDBOX_PEOPLE="diana@apsoparts.example|user|Diana Test", under its path (SANDBOX_TEST_URL ends in it).
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,6 +11,7 @@ import { test } from "node:test";
 import { Client } from "pg";
 import { SignJWT } from "jose";
 import { APP_KEYS } from "../src/lib/auth/access";
+import { PROXY_HEADER, signProxy } from "../src/lib/sandbox/proxy";
 
 const URL_ = process.env.SANDBOX_TEST_URL;
 const SANDBOX_DB = process.env.SANDBOX_TEST_DATABASE_URL;
@@ -24,24 +26,26 @@ test("a sandbox opens only through the hub; its CLI is let in by a code confirme
   await sb.connect();
   const home = mkdtempSync(path.join(tmpdir(), "sbx-home-"));
   const work = mkdtempSync(path.join(tmpdir(), "sbx-work-"));
-  const { openSandbox, approveCli, feedOne } = await import("../src/lib/sandboxFeed/feed");
+  const { approveCli, feedOne } = await import("../src/lib/sandboxFeed/feed");
   try {
     // 1. no sign-in of its own: the password route is gone, the sign-in page points to the hub
     const pw = await fetch(`${URL_}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ identifier: DIANA, password: "x" }) });
     assert.equal(pw.status, 404, "no password sign-in on a sandbox");
     assert.match(await (await fetch(`${URL_}/signin`)).text(), /opens from the hub/);
 
-    // 2. the browser: a one-time ticket from the hub, for a person the sandbox names - once
-    await assert.rejects(openSandbox(URL_!, KEY!, "stranger@apsoparts.example"), /does not name/);
-    const way = await openSandbox(URL_!, KEY!, DIANA);
-    const first = await fetch(way, { redirect: "manual" });
-    assert.ok([302, 303, 307].includes(first.status), `the ticket lets her in (${first.status})`);
-    assert.equal(new URL(first.headers.get("location")!, URL_).pathname, "/");
-    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
-    assert.match(cookie, /^apsomarketinghub_session=/);
-    assert.equal((await fetch(`${URL_}/api/sandbox`, { headers: { cookie } })).status, 200, "and the session works");
-    const again = await fetch(way, { redirect: "manual" });
-    assert.match(again.headers.get("location") ?? "", /\/signin/, "the same ticket a second time does not");
+    // 2. the browser: only what the hub forwards, signed with who is asking - for a person the sandbox names
+    const base = new URL(URL_!).pathname.replace(/\/$/, "");
+    const page = await fetch(URL_!, { redirect: "manual" });
+    assert.ok([302, 303, 307].includes(page.status), `unsigned: sent to its sign-in (${page.status})`);
+    assert.equal(new URL(page.headers.get("location")!, URL_).pathname, `${base}/signin`);
+    const keySha = createHash("sha256").update(KEY!).digest("hex");
+    const as = async (email: string, key = keySha) => fetch(`${URL_}/api/sandbox`, { headers: { [PROXY_HEADER]: await signProxy(email, key) } });
+    assert.equal((await as("stranger@apsoparts.example")).status, 401, "a person it does not name");
+    assert.equal((await as(DIANA, createHash("sha256").update("not the key").digest("hex"))).status, 401, "another key");
+    const bar = await as(DIANA);
+    assert.equal(bar.status, 200, "a person it names");
+    assert.equal(bar.headers.get("set-cookie"), null, "and no session of its own");
+    assert.equal(((await bar.json()) as { name: string | null }).name, "Diana", "its band names whose sandbox it is");
     const diana = (await sb.query(`SELECT role, awaiting_setup, must_change_password FROM apsomh_users WHERE email = $1`, [DIANA])).rows[0];
     assert.deepEqual(diana, { role: "user", awaiting_setup: false, must_change_password: false });
     assert.equal((await sb.query(`SELECT count(*)::int AS n FROM apsomh_user_app_access ua JOIN apsomh_users u ON u.id = ua.user_id
@@ -59,7 +63,7 @@ test("a sandbox opens only through the hub; its CLI is let in by a code confirme
     for (let i = 0; i < 50 && !/Code: [A-Z2-9]{4}-[A-Z2-9]{4}/.test(out); i++) await new Promise((r) => setTimeout(r, 200));
     const code = /Code: ([A-Z2-9]{4}-[A-Z2-9]{4})/.exec(out)?.[1];
     assert.ok(code, out);
-    assert.match(out, new RegExp(`/sandbox\\?cli=127\\.0\\.0\\.1:3197:${code}`), "it shows the hub's page to confirm on, naming this sandbox as the hub knows it");
+    assert.match(out, new RegExp(`/sandbox\\?cli=${base.split("/").pop()}:${code}`), "it shows the hub's page to confirm on, naming this sandbox as the hub knows it");
     await assert.rejects(approveCli(URL_!, KEY!, code!, "stranger@apsoparts.example"), /does not name/);
     await assert.rejects(approveCli(URL_!, KEY!, "AAAA-BBBB", DIANA), /no such code/);
     await approveCli(URL_!, KEY!, code!, DIANA);

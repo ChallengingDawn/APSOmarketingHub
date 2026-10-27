@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { isSandbox } from "@/lib/sandbox/mode";
+import { parsePeople } from "@/lib/sandbox/peopleList";
 import { deleteAll, sandboxState } from "@/lib/sandbox/store";
 
 export const runtime = "nodejs";
@@ -19,10 +20,16 @@ async function gate() {
   return null;
 }
 
+/** Whose sandbox it is, for its band: the builders' first names (the base copy has none - it is nobody's). */
+function builders(): string | null {
+  const names = parsePeople(process.env.SANDBOX_PEOPLE).people.filter((p) => p.role === "user").map((p) => p.name.split(/\s+/)[0]);
+  return names.length ? names.join(" & ") : null;
+}
+
 export async function GET() {
   const refused = await gate();
   if (refused) return refused;
-  return NextResponse.json({ ...(await sandboxState()), hub: hubPage() });
+  return NextResponse.json({ ...(await sandboxState()), hub: hubPage(), name: builders() });
 }
 
 export async function POST(req: NextRequest) {

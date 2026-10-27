@@ -10,8 +10,8 @@ import { query } from "@/lib/db/client";
 import { isSandbox } from "@/lib/sandbox/mode";
 import { tablesIn } from "@/lib/sandbox/canon";
 import type { Asked } from "@/lib/sandbox/link";
-import { approveCli, bring, deleteAllIn, hostOf, openSandbox, readSandbox } from "@/lib/sandboxFeed/feed";
-import { sandboxTargets } from "@/lib/sandboxFeed/policy";
+import { approveCli, bring, deleteAllIn, readSandbox } from "@/lib/sandboxFeed/feed";
+import { sandboxTargetList } from "@/lib/sandboxFeed/policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,13 +19,14 @@ export const maxDuration = 60;
 
 export type SandboxRead = { key: string; kind: "hs" | "sql"; what: string; since: string | null; hits: number };
 export type SandboxAsk = { id: number; by: string; reason: string; what: string; at: string | null };
+/** `slug`: its name on the hub - it opens at /sandbox/run/<slug>/; `cli`: where its CLI talks (Railway, the relay). */
 export type SandboxCard = {
-  host: string; url: string; title: string; people: { name: string; email: string; role: string }[];
+  slug: string; cli: string; title: string; people: { name: string; email: string; role: string }[];
   error?: string;
   state?: { missing: number; refused: number; brought: number; wouldWrite: number; asks: number };
   reads: SandboxRead[]; asks: SandboxAsk[]; reviewsWaiting: number;
 };
-export type SandboxActivity = { at: string; who: string; action: string; host: string; line: string };
+export type SandboxActivity = { at: string; who: string; action: string; sandbox: string; line: string };
 export type SandboxData = { sandboxes: SandboxCard[]; activity: SandboxActivity[]; canAct: boolean };
 
 /** A read as a person can recognise it - never its data. */
@@ -54,7 +55,7 @@ const mayUse = (asked: Asked | null, me: { access: { role: string }; email: stri
   me.access.role === "admin" || !!asked?.people?.some((p) => p.email.toLowerCase() === me.email);
 
 function config() {
-  const targets = sandboxTargets(process.env.SANDBOX_URLS);
+  const targets = sandboxTargetList(process.env.SANDBOX_URLS);
   const key = process.env.SANDBOX_LINK_KEY;
   return targets.length && key ? { targets, key } : null;
 }
@@ -68,17 +69,16 @@ export async function GET() {
   if (!cfg) return NextResponse.json({ configured: false, missing: ["SANDBOX_URLS", "SANDBOX_LINK_KEY"] });
 
   const sandboxes: SandboxCard[] = [];
-  for (const url of cfg.targets) {
-    const host = hostOf(url);
-    const asked = await readSandbox(url, cfg.key).catch((e: Error) => ({ error: e.message }) as const);
+  for (const t of cfg.targets) {
+    const asked = await readSandbox(t.base, cfg.key).catch((e: Error) => ({ error: e.message }) as const);
     if ("error" in asked) {
-      if (me.access.role === "admin") sandboxes.push({ host, url, title: host, people: [], error: asked.error, reads: [], asks: [], reviewsWaiting: 0 });
+      if (me.access.role === "admin") sandboxes.push({ slug: t.slug, cli: t.base, title: t.slug, people: [], error: asked.error, reads: [], asks: [], reviewsWaiting: 0 });
       continue;
     }
     if (!mayUse(asked, me)) continue;
     const people = asked.people ?? [];
     sandboxes.push({
-      host, url, title: titleOf(people), people, state: asked.state,
+      slug: t.slug, cli: t.base, title: titleOf(people), people, state: asked.state,
       reads: asked.misses.map((m) => ({ key: m.key, kind: m.kind as "hs" | "sql", what: describe(m.kind, m.request), since: m.first_at ?? null, hits: Number(m.hits ?? 1) })),
       asks: asked.asks.map((a) => {
         const spec = (a.spec ?? {}) as { kind?: string; request?: unknown };
@@ -87,13 +87,15 @@ export async function GET() {
       reviewsWaiting: asked.reviews?.length ?? 0,
     });
   }
-  const hosts = new Set(sandboxes.map((s) => s.host));
-  const log = await query<{ at: string; actor: string; action: string; detail: { host?: string; line?: string } }>(
+  // the log names a sandbox by its slug (before 27.10.2026: by its Railway host)
+  const names = new Map<string, string>();
+  for (const t of cfg.targets) if (sandboxes.some((s) => s.slug === t.slug)) { names.set(t.slug, t.slug); names.set(new URL(t.origin).host, t.slug); }
+  const log = await query<{ at: string; actor: string; action: string; detail: { sandbox?: string; host?: string; line?: string } }>(
     `SELECT created_at AS at, actor, action, detail FROM apsomh_audit WHERE action LIKE 'sandbox.%' ORDER BY created_at DESC LIMIT 60`,
-  ).catch(() => ({ rows: [] as { at: string; actor: string; action: string; detail: { host?: string; line?: string } }[] }));
+  ).catch(() => ({ rows: [] as { at: string; actor: string; action: string; detail: { sandbox?: string; host?: string; line?: string } }[] }));
   const activity = log.rows
-    .map((r) => ({ at: new Date(r.at).toISOString(), who: r.actor, action: r.action.replace(/^sandbox\./, ""), host: r.detail?.host ?? "", line: r.detail?.line ?? "" }))
-    .filter((a) => hosts.has(a.host))
+    .map((r) => ({ at: new Date(r.at).toISOString(), who: r.actor, action: r.action.replace(/^sandbox\./, ""), sandbox: names.get(r.detail?.sandbox ?? r.detail?.host ?? "") ?? "", line: r.detail?.line ?? "" }))
+    .filter((a) => a.sandbox)
     .slice(0, 30);
   const data: SandboxData = { sandboxes, activity, canAct: me.access.canWrite("sandbox") };
   return NextResponse.json({ configured: true, ok: true, data });
@@ -103,33 +105,29 @@ export async function POST(req: NextRequest) {
   if (isSandbox()) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const me = await who();
   if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const b = (await req.json().catch(() => ({}))) as { host?: string; action?: string; keys?: string[]; ids?: number[]; code?: string };
-  // going in (the browser, or confirming the CLI) needs the app; letting data in or out needs Edit on it
-  const entering = b.action === "open" || b.action === "cli-approve";
+  const b = (await req.json().catch(() => ({}))) as { sandbox?: string; action?: string; keys?: string[]; ids?: number[]; code?: string };
+  // letting the CLI in needs the app; letting data in or out needs Edit on it
+  const entering = b.action === "cli-approve";
   if (!(entering ? me.access.canOpen("sandbox") : me.access.canWrite("sandbox"))) {
     return NextResponse.json({ error: entering ? "No access to the Sandbox app" : "View only - ask for Edit on the Sandbox app" }, { status: 403 });
   }
   const cfg = config();
   if (!cfg) return NextResponse.json({ error: "No sandboxes are set up on the hub" }, { status: 409 });
-  const url = cfg.targets.find((t) => hostOf(t) === b.host);
-  if (!url) return NextResponse.json({ error: "No such sandbox" }, { status: 404 });
+  const t = cfg.targets.find((x) => x.slug === b.sandbox);
+  if (!t) return NextResponse.json({ error: "No such sandbox" }, { status: 404 });
+  const url = t.base;
   const asked = await readSandbox(url, cfg.key).catch(() => null);
   if (!mayUse(asked, me)) return NextResponse.json({ error: "Not your sandbox" }, { status: 403 });
 
   const log = (action: string, detail: Record<string, unknown>) =>
-    query(`INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`, [me.username, action, JSON.stringify({ host: b.host, ...detail })])
+    query(`INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`, [me.username, action, JSON.stringify({ sandbox: t.slug, ...detail })])
       .catch(() => { /* never fail the press because the log did */ });
   try {
-    if (b.action === "open") {
-      const url2 = await openSandbox(url, cfg.key, me.email);
-      await log("sandbox.open", { line: `${b.host}: opened` });
-      return NextResponse.json({ ok: true, url: url2 });
-    }
     if (b.action === "cli-approve") {
       const code = String(b.code ?? "").trim().toUpperCase();
       if (!/^[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(code)) return NextResponse.json({ error: "Not a code from npm run sbx -- login" }, { status: 400 });
       await approveCli(url, cfg.key, code, me.email);
-      await log("sandbox.cli", { line: `${b.host}: the CLI let in (code ${code})` });
+      await log("sandbox.cli", { line: `${t.slug}: the CLI let in (code ${code})` });
       return NextResponse.json({ ok: true, line: "The CLI is in - go back to your terminal." });
     }
     if (b.action === "bring" || b.action === "bring-requested") {
@@ -142,7 +140,7 @@ export async function POST(req: NextRequest) {
     }
     if (b.action === "delete-all") {
       const r = await deleteAllIn(url, cfg.key);
-      const line = `${b.host}: everything but the logins deleted (${r.tables} tables emptied)`;
+      const line = `${t.slug}: everything but the logins deleted (${r.tables} tables emptied)`;
       await log("sandbox.delete-all", { line, tables: r.tables });
       return NextResponse.json({ ok: true, line });
     }

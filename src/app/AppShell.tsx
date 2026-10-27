@@ -6,6 +6,7 @@ import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { ViewAsProvider } from "./ViewAs";
 import { ReportingWindowProvider } from "./window/ReportingWindow";
 import SandboxBar from "./SandboxBar";
+import { SANDBOX_BASE } from "./SandboxMode";
 
 /**
  * Routes whose page owns its own outer spacing get the shell's default padding;
@@ -37,6 +38,7 @@ function isPadded(pathname: string) {
 /** `sandbox`: this copy is the Railway sandbox (the layout reads APSOHUB_SANDBOX) - every page gets its bar on top. */
 export default function AppShell({ children, sandbox = false }: { children: React.ReactNode; sandbox?: boolean }) {
   const pathname = usePathname() || "/";
+  const surface = sandbox ? SANDBOX_BASE : MESH_BASE;
   const isAuthRoute =
     pathname.startsWith("/signin") ||
     pathname.startsWith("/login") ||
@@ -57,7 +59,7 @@ export default function AppShell({ children, sandbox = false }: { children: Reac
   if (isLaunchPad) {
     return (
       <ViewAsProvider>
-        <Box sx={{ minHeight: "100vh", bgcolor: MESH_BASE }}>
+        <Box sx={{ minHeight: "100vh", bgcolor: surface }}>
           {sandbox && <SandboxBar />}
           <ReportingWindowProvider>{children}</ReportingWindowProvider>
         </Box>
@@ -77,7 +79,7 @@ export default function AppShell({ children, sandbox = false }: { children: Reac
     // door onto a grey room — and the frosted panels on top need something to
     // be glass over.
     <ViewAsProvider>
-    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: MESH_BASE, position: "relative" }}>
+    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: surface, position: "relative" }}>
       {/* Quiet here: an app screen is mostly empty below its content, so the
           wash would be the whole lower half of the window at full strength. */}
       <MeshBackground strength="quiet" />

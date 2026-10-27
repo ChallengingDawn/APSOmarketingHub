@@ -27,9 +27,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   if (action === "login-start") {
     const c = await startCli();
     const hub = hubPage();
-    // the sandbox as the hub knows it: its public address (Railway's domain), not the name the server runs under
+    // the sandbox as the hub knows it: its name, the last part of the path it is served under (/sandbox/run/<name>)
     const pub = publicUrl(process.env);
-    const self = pub ? new URL(pub).host : (req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? req.nextUrl.host);
+    const self = process.env.SANDBOX_BASE_PATH?.split("/").filter(Boolean).pop()
+      ?? (pub ? new URL(pub).host : (req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? req.nextUrl.host));
     return json({ ...c, confirmAt: hub ? `${hub}?cli=${self}:${c.code}` : null });
   }
   const u = await cliUser(req);

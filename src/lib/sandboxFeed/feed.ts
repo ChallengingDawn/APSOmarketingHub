@@ -4,11 +4,11 @@
 // pulling data - behind its login, its TOTP and its log). The minute round never runs a read.
 // The timer, the lock and the ERP-chain check are feeder.ts; this part is tested end to end (tests/sandbox-loop.test.ts).
 
-import { createHash, randomBytes } from "node:crypto";
 import { hubspotKey, sqlKey } from "../sandbox/canon";
 import type { Asked, Delivery, Review } from "../sandbox/link";
 import type { HsRequest, SqlRequest } from "../sandbox/store";
 import { codeHubspotAnswer, codeRows, kindOfPath, type CodeCtx } from "./code";
+import { targetOf } from "../sandbox/proxy";
 import { moneyFactor } from "./policy";
 import { hubspotRefusal, propertyTypes, runHubspotRead, runSqlRead, sqlRefusal } from "./run";
 
@@ -55,12 +55,13 @@ async function post(base: string, linkKey: string, d: Delivery): Promise<void> {
   if (!res.ok) throw new Error(`the sandbox refused the delivery (${res.status}): ${(await res.text()).slice(0, 200)}`);
 }
 
-export const hostOf = (base: string) => base.replace(/^https?:\/\//, "");
+/** A sandbox's name on the hub (/sandbox/run/<name>) - for the log, the mails and the Sandbox app. */
+export const nameOf = (base: string) => targetOf(base)?.slug ?? base.replace(/^https?:\/\//, "");
 
 /** What waits in a sandbox, who works there, its counts, and its errands. */
 export async function readSandbox(base: string, linkKey: string): Promise<Asked> {
   const got = await fetch(`${base}/api/sandbox-link/feed`, { headers: { authorization: `Bearer ${linkKey}` }, signal: AbortSignal.timeout(20_000) });
-  if (!got.ok) throw new Error(`${hostOf(base)} answered ${got.status}`);
+  if (!got.ok) throw new Error(`${nameOf(base)} answered ${got.status}`);
   return (await got.json()) as Asked;
 }
 
@@ -105,7 +106,7 @@ export async function bring(base: string, linkKey: string, which: "reads" | "ask
   const why = [...reasons].map(([r, n]) => `${n}x ${r}`).join("; ");
   return {
     answered, refused, left, reasons: [...reasons],
-    line: `${hostOf(base)}: ${answered} brought, ${refused} refused${why ? ` (${why})` : ""}${left ? `, ${left} still waiting` : ""}`,
+    line: `${nameOf(base)}: ${answered} brought, ${refused} refused${why ? ` (${why})` : ""}${left ? `, ${left} still waiting` : ""}`,
   };
 }
 
@@ -113,60 +114,45 @@ export type FeedOptions = {
   /** Today's Railway token for the CLI; delivered to a sandbox that holds an older one. */
   railway?: { token: string; at: string };
   /** Mails a review to the reviewer (feeder.ts passes the hub's mailer). */
-  sendReview?: (r: Review, sandboxHost: string) => Promise<void>;
+  sendReview?: (r: Review, sandbox: string) => Promise<void>;
 };
 
 /** The minute round for one sandbox: its reviews mailed, today's Railway token handed over.
  *  It never runs a read - that is bring(). Returns the line for the log. */
 export async function feedOne(base: string, linkKey: string, opts: FeedOptions = {}): Promise<string> {
-  const host = hostOf(base);
+  const name = nameOf(base);
   const asked = await readSandbox(base, linkKey).catch(() => null);
-  if (!asked) return `${host}: did not answer`;
+  if (!asked) return `${name}: did not answer`;
   const reviews = opts.sendReview ? asked.reviews ?? [] : [];
   const newToken = opts.railway && (!asked.railwayTokenAt || asked.railwayTokenAt < opts.railway.at) ? opts.railway.token : undefined;
-  if (!reviews.length && !newToken) return `${host}: nothing to do`;
+  if (!reviews.length && !newToken) return `${name}: nothing to do`;
 
   const d: Delivery = {};
   const sent: number[] = [];
   for (const r of reviews) {
-    try { await opts.sendReview!(r, host); sent.push(r.id); }
-    catch (e) { console.warn(`[sandbox-feed] ${host}: review ${r.id} not mailed: ${(e as Error).message.slice(0, 200)}`); }
+    try { await opts.sendReview!(r, name); sent.push(r.id); }
+    catch (e) { console.warn(`[sandbox-feed] ${name}: review ${r.id} not mailed: ${(e as Error).message.slice(0, 200)}`); }
   }
   if (sent.length) d.reviewsSent = sent;
   if (newToken) d.railwayToken = newToken;
   if (d.reviewsSent || d.railwayToken) await post(base, linkKey, d);
-  return `${host}: ${sent.length} review${sent.length === 1 ? "" : "s"} mailed${newToken ? ", Railway token replaced" : ""}`;
-}
-
-/**
- * Open, pressed on the hub: a one-time ticket for this person - only its SHA-256 goes to the sandbox, over the link - and
- * the address the browser opens it with (/sso?t=...), good once, for a minute. The sandbox refuses anyone it does not name.
- */
-export async function openSandbox(base: string, linkKey: string, email: string): Promise<string> {
-  const ticket = randomBytes(32).toString("base64url");
-  const res = await fetch(`${base}/api/sandbox-link/ticket`, {
-    method: "POST", headers: { authorization: `Bearer ${linkKey}`, "content-type": "application/json" },
-    body: JSON.stringify({ hash: createHash("sha256").update(ticket).digest("hex"), email }), signal: AbortSignal.timeout(15_000),
-  });
-  const j = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new Error(j.error ?? `${hostOf(base)} answered ${res.status}`);
-  return `${base}/sso?t=${ticket}`;
+  return `${name}: ${sent.length} review${sent.length === 1 ? "" : "s"} mailed${newToken ? ", Railway token replaced" : ""}`;
 }
 
 /** A CLI code confirmed on the hub: the sandbox learns who confirmed it, and the CLI collects its token there. */
 export async function approveCli(base: string, linkKey: string, code: string, email: string): Promise<void> {
-  const res = await fetch(`${base}/api/sandbox-link/ticket`, {
+  const res = await fetch(`${base}/api/sandbox-link/cli-grant`, {
     method: "POST", headers: { authorization: `Bearer ${linkKey}`, "content-type": "application/json" },
     body: JSON.stringify({ code, email }), signal: AbortSignal.timeout(15_000),
   });
   const j = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new Error(j.error ?? `${hostOf(base)} answered ${res.status}`);
+  if (!res.ok) throw new Error(j.error ?? `${nameOf(base)} answered ${res.status}`);
 }
 
 /** Delete all, pressed on the hub: the sandbox's own Delete all, through the link. */
 export async function deleteAllIn(base: string, linkKey: string): Promise<{ tables: number }> {
   const res = await fetch(`${base}/api/sandbox-link/delete-all`, { method: "POST", headers: { authorization: `Bearer ${linkKey}` }, signal: AbortSignal.timeout(30_000) });
   const j = (await res.json().catch(() => ({}))) as { tables?: number; error?: string };
-  if (!res.ok) throw new Error(j.error ?? `${hostOf(base)} answered ${res.status}`);
+  if (!res.ok) throw new Error(j.error ?? `${nameOf(base)} answered ${res.status}`);
   return { tables: j.tables ?? 0 };
 }

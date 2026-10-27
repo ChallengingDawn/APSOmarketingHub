@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import ThemeRegistry from "./ThemeRegistry";
 import AppShell from "./AppShell";
+import { SandboxMode } from "./SandboxMode";
 import { isSandbox } from "@/lib/sandbox/mode";
+import { pinScript } from "@/lib/sandbox/proxy";
 import "./globals.css";
 
 // THE FONTS LIVE IN THE REPO.
@@ -48,11 +50,18 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const sandbox = isSandbox();
+  // a sandbox is served on the hub's own address under its path (src/lib/sandbox/proxy.ts): its pages' calls are
+  // pinned to that path before any of its code runs, or fetch("/api/...") would be the real hub's
+  const base = sandbox ? process.env.SANDBOX_BASE_PATH : undefined;
   return (
     <html lang="en" className={`${inter.variable} ${outfit.variable}`}>
+      {base && <head><script dangerouslySetInnerHTML={{ __html: pinScript(base) }} /></head>}
       <body>
         <ThemeRegistry>
-          <AppShell sandbox={isSandbox()}>{children}</AppShell>
+          <SandboxMode on={sandbox}>
+            <AppShell sandbox={sandbox}>{children}</AppShell>
+          </SandboxMode>
         </ThemeRegistry>
       </body>
     </html>

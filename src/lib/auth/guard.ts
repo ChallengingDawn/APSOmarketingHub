@@ -3,8 +3,12 @@ import { query } from '@/lib/db/client';
 import type { UserRow } from '@/lib/db/init';
 import { readSession } from './session';
 import { touchSession } from './sessions';
+import { isSandbox } from '@/lib/sandbox/mode';
+import { proxiedUser } from '@/lib/sandbox/door';
 
 export async function getOptionalUser(): Promise<UserRow | null> {
+  // A sandbox copy has no sessions of its own: the hub serves it and says who is asking (src/lib/sandbox/proxy.ts).
+  if (isSandbox()) return proxiedUser();
   const sess = await readSession();
   if (!sess) return null;
   // A session that has been signed out elsewhere stops being accepted on the
