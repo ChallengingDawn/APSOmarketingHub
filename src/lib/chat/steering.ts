@@ -9,6 +9,7 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { ownerNames } from "@/lib/integrations/erosion";
 import { definitions } from "./topics";
 import { orchestrator, orchestratorKey } from "./orchestrator";
+import { adminToken as searchBarKey, gateway as searchBarGateway } from "@/lib/searchbar/gateway";
 import { NO_REQUEST } from "./shape";
 import { DEFAULT_STEERING, STEERING_TOPICS, cleanSteering, routeFor, todayRoute, type Route, type Steering } from "./steeringRules";
 
@@ -132,17 +133,113 @@ async function handedTickets(ids: string[]): Promise<Map<string, Ticket> | null>
   }
 }
 
+/* ── the search bar chat's hand-overs: its form to the team (SARCLA 27.10.2026: "search bar chat should have the same
+   KPIs, with the form submission to the teams") ─────────────────────────────────────────────────────────────────── */
+// The bar's chat hands over with a form (name, e-mail, category): the smart-bar gateway writes the contact, the team's
+// contact workflow makes the ticket, and the gateway keeps each form (/api/smart-bar/handoffs: category, sub-category,
+// the contact, no e-mail). Handed = a form HubSpot took; TSA or Back Office = the pipeline of the ticket it made (the
+// topic's route while none is found); open / closed = that ticket now.
+type Handoff = { at: string; locale: string | null; category: string | null; sub_category: string | null; hubspot_ok: boolean; contact_id: string | null };
+async function barHandoffs(fromIso: string): Promise<Handoff[] | null> {
+  if (!searchBarKey()) return null;
+  const days = Math.max(1, Math.ceil((Date.now() - Date.parse(fromIso)) / 86_400_000));
+  try {
+    const r = await searchBarGateway<{ handoffs?: Handoff[] }>(`/api/smart-bar/handoffs?days=${days}`, { timeoutMs: 10_000 });
+    return (r.handoffs ?? []).filter((h) => Date.parse(h.at) >= Date.parse(fromIso));
+  } catch {
+    return null;
+  }
+}
+const BO_PIPELINE = "1726786777";
+const pipelineRoute = (t: Ticket | undefined): Route | null => (t?.properties.hs_pipeline ? (t.properties.hs_pipeline === BO_PIPELINE ? "bo" : "tsa") : null);
+/** each form's ticket: the contact's first ticket created from the form on (within two days), as HubSpot holds it now */
+async function formTickets(handoffs: Handoff[]): Promise<Map<Handoff, Ticket> | null> {
+  const mine = handoffs.filter((h) => h.hubspot_ok && h.contact_id).slice(0, 300);
+  const out = new Map<Handoff, Ticket>();
+  if (!mine.length) return out;
+  try {
+    const contacts = [...new Set(mine.map((h) => String(h.contact_id)))];
+    const byContact = new Map<string, string[]>();
+    for (let i = 0; i < contacts.length; i += 100) {
+      const r = await hubspotFetchJson<{ results?: { from: { id: string }; to: { toObjectId: number | string }[] }[] }>({
+        path: "/crm/v4/associations/contacts/tickets/batch/read", method: "POST", body: { inputs: contacts.slice(i, i + 100).map((id) => ({ id })) },
+      });
+      for (const x of r.results ?? []) byContact.set(String(x.from.id), x.to.map((t) => String(t.toObjectId)));
+    }
+    const tickets = await handedTickets([...new Set([...byContact.values()].flat())].slice(0, 500));
+    if (!tickets) return null;
+    for (const h of mine) {
+      const at = Date.parse(h.at);
+      const t = (byContact.get(String(h.contact_id)) ?? []).map((id) => tickets.get(id)).filter((x): x is Ticket => !!x)
+        .filter((x) => { const c = Date.parse(x.properties.createdate ?? ""); return c >= at - 5 * 60_000 && c <= at + 2 * 86_400_000; })
+        .sort((a, b) => Date.parse(a.properties.createdate ?? "") - Date.parse(b.properties.createdate ?? ""))[0];
+      if (t) out.set(h, t);
+    }
+    return out;
+  } catch (e) {
+    console.warn(`[chat-steering] search bar form tickets not read: ${(e as Error).message}`);
+    return null;
+  }
+}
+
+async function barData(fromIso: string, steering: Steering, options: Record<string, { sub1: string[]; sub2: string[] }>): Promise<SteeringData> {
+  const rows = (await query<Row>(
+    `SELECT category, sub1, sub2, handed, team, ticket_id, summary, last_at FROM apsomh_chat_filing
+      WHERE source = 'searchbar' AND started_at >= $1 ORDER BY last_at DESC NULLS LAST`, [fromIso])).rows;
+  const handoffs = await barHandoffs(fromIso);
+  const [tickets, stages, names] = await Promise.all([
+    handoffs ? formTickets(handoffs) : Promise.resolve(null),
+    stageNames().catch(() => new Map<string, string>()),
+    ownerNames().catch(() => new Map<string, string>()),
+  ]);
+  const norm = (r: Route | null): Route | null => (r === "ecom" ? "bo" : r);
+  const topics: TopicFigures[] = STEERING_TOPICS.map((topic) => {
+    const chats = rows.filter((r) => r.category === topic);
+    const forms = (handoffs ?? []).filter((h) => h.hubspot_ok && h.category === topic);
+    const route = (h: Handoff) => pipelineRoute(tickets?.get(h)) ?? norm(routeFor(steering, topic, h.sub_category, null)) ?? "tsa";
+    const split = (list: Handoff[]) => ({ tsa: list.filter((h) => route(h) === "tsa").length, bo: list.filter((h) => route(h) === "bo").length });
+    const subFig = (level: 1 | 2, value: string): SubFigures => {
+      const c = chats.filter((r) => (level === 1 ? r.sub1 : r.sub2) === value).length;
+      const f = level === 1 ? forms.filter((h) => h.sub_category === value) : [];
+      return { level, value, chats: c, aiAlone: Math.max(0, c - f.length), ...split(f) };
+    };
+    const withTicket = forms.filter((h) => tickets?.has(h));
+    const openForms = withTicket.filter((h) => !tickets!.get(h)!.properties.closed_date);
+    return {
+      topic, chats: chats.length, aiAlone: Math.max(0, chats.length - forms.length), ...split(forms),
+      elsewhere: forms.filter((h) => norm(routeFor(steering, topic, h.sub_category, null)) !== route(h)).length,
+      subs: [...options[topic].sub1.map((v) => subFig(1, v)), ...options[topic].sub2.map((v) => subFig(2, v))],
+      open: openForms.slice(0, 50).map((h): OpenHandover => {
+        const t = tickets!.get(h)!;
+        return {
+          ticketId: String(t.id), summary: `Search bar form: ${h.sub_category || topic}`, handedAt: h.at,
+          owner: t.properties.hubspot_owner_id ? names.get(t.properties.hubspot_owner_id) ?? t.properties.hubspot_owner_id : null,
+          stage: t.properties.hs_pipeline_stage ? stages.get(t.properties.hs_pipeline_stage) ?? t.properties.hs_pipeline_stage : null,
+          today: route(h), steering: routeFor(steering, topic, h.sub_category, null),
+        };
+      }),
+      openTotal: openForms.length, closedTotal: withTicket.length - openForms.length,
+    };
+  });
+  return { steering, options, topics, noRequest: rows.filter((r) => r.category === NO_REQUEST).length, from: fromIso, openRead: handoffs !== null && tickets !== null };
+}
+
 /** channel: "hs" = HubSpot's chat (the shop's bubble and the www chatflow, each with a ticket), "bar" = the search
- *  bar's AI chat (no ticket, no hand-over) - the page's master switch (SARCLA 27.10.2026). */
+ *  bar's AI chat (its hand-over is the form to the team) - the page's master switch (SARCLA 27.10.2026). */
 export type Channel = "hs" | "bar";
 export async function steeringData(fromIso: string, channel: Channel = "hs"): Promise<SteeringData> {
   const ck = `${channel}:${fromIso.slice(0, 13)}`;
   const hit = figuresCache.get(ck);
   if (hit && Date.now() - hit.at < 5 * 60_000) return hit.d;
   const [steering, options] = await Promise.all([getSteering(), topicOptions()]);
+  if (channel === "bar") {
+    const d = await barData(fromIso, steering, options);
+    figuresCache.set(ck, { at: Date.now(), d });
+    return d;
+  }
   const rows = (await query<Row>(
     `SELECT category, sub1, sub2, handed, team, ticket_id, summary, last_at FROM apsomh_chat_filing
-      WHERE source = $2 AND started_at >= $1 ORDER BY last_at DESC NULLS LAST`, [fromIso, channel === "bar" ? "searchbar" : "chat"])).rows;
+      WHERE source = 'chat' AND started_at >= $1 ORDER BY last_at DESC NULLS LAST`, [fromIso])).rows;
   const handedIds = [...new Set(rows.filter((r) => r.handed && r.ticket_id && (STEERING_TOPICS as readonly string[]).includes(r.category)).map((r) => String(r.ticket_id)))].slice(0, 300);
   const hs = channel === "hs";
   const [tickets, stages, names, brain, shadowRows] = await Promise.all([

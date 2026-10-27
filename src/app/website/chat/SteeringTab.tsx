@@ -66,7 +66,6 @@ function useSave(onSaved: () => void) {
 
 /** the page's master switch: HubSpot's chat or the search bar's - every figure and list on the tabs follows it */
 export type Channel = "hs" | "bar";
-const allChats = (d: SteeringPage) => d.topics.reduce((a, t) => a + t.chats, 0) + d.noRequest;
 
 /** HubSpot chat | Search bar chat, drawn as the page's tabs (the platform's master toggle, as ESO | TSA | Total) -
  *  a click changes every figure and list of Overview, the topics and Conversations. */
@@ -103,22 +102,17 @@ export function TopicTab({ d, topic, label, days, channel, view, onView, reload 
   return (
     <>
       {inner}
-      {channel === "hs" ? (
-        <Grid container spacing={2}>
-          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ForumOutlinedIcon />} tint="purple" label="Chats" value={full(f.chats)} note={`${label} - HubSpot chat, filed by the hub from the whole chat`} /></Grid>
-          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<SmartToyOutlinedIcon />} tint="slate" label="Solved by the AI alone" value={pct(f.aiAlone, f.chats)} note={`${full(f.aiAlone)} of ${full(f.chats)} chats`} /></Grid>
-          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<SupportAgentOutlinedIcon />} tint="green" label="Handed to a person" value={full(handed)} note={`TSA ${full(f.tsa)} · Back Office ${full(f.bo)} - where the chat sent them`} /></Grid>
-          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<PendingActionsOutlinedIcon />} tint="amber" label="Still open" value={d.openRead ? full(f.openTotal) : "—"} note={d.openRead ? "hand-overs whose ticket is open in HubSpot now" : "HubSpot could not be read just now"} /></Grid>
-        </Grid>
-      ) : (
-        <Grid container spacing={2}>
-          <Grid size={{ xs: 12, sm: 6, lg: 4 }}><KpiTile icon={<ForumOutlinedIcon />} tint="purple" label="Chats" value={full(f.chats)} note={`${label} - search bar chat, filed by the hub`} /></Grid>
-          <Grid size={{ xs: 12, sm: 6, lg: 4 }}><KpiTile icon={<SmartToyOutlinedIcon />} tint="slate" label="Of all search bar chats" value={pct(f.chats, allChats(d))} note={`${full(f.chats)} of ${full(allChats(d))} - the search bar's AI answers alone, it hands nothing over`} /></Grid>
-          <Grid size={{ xs: 12, sm: 6, lg: 4 }}><KpiTile icon={<SupportAgentOutlinedIcon />} tint="green" label="Most asked" value={top ? full(top.chats) : "–"} note={top ? top.value : "nothing filed in the period"} /></Grid>
-        </Grid>
-      )}
+      {/* the same figures for both chats (SARCLA 27.10.2026): the search bar's hand-over is its form to the team */}
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ForumOutlinedIcon />} tint="purple" label="Chats" value={full(f.chats)} note={`${label} - ${channel === "hs" ? "HubSpot chat" : "search bar chat"}, filed by the hub from the whole chat`} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<SmartToyOutlinedIcon />} tint="slate" label="Solved by the AI alone" value={pct(f.aiAlone, f.chats)} note={`${full(f.aiAlone)} of ${full(f.chats)} chats${channel === "bar" && top ? ` · most asked: ${top.value}` : ""}`} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<SupportAgentOutlinedIcon />} tint="green" label="Handed to a person" value={full(handed)}
+          note={`TSA ${full(f.tsa)} · Back Office ${full(f.bo)} - ${channel === "hs" ? "where the chat sent them" : "forms sent to the team, by the ticket they made"}`} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<PendingActionsOutlinedIcon />} tint="amber" label="Still open" value={d.openRead ? full(f.openTotal) : "—"}
+          note={d.openRead ? `${channel === "hs" ? "hand-overs" : "forms"} whose ticket is open in HubSpot now · ${full(f.closedTotal)} closed` : "HubSpot or the search bar could not be read just now"} /></Grid>
+      </Grid>
       <RouteCard key={`${topic}-${d.steering.version}-${channel}`} d={d} f={f} channel={channel} reload={reload} />
-      {channel === "hs" && <OpenCard f={f} />}
+      <OpenCard f={f} channel={channel} />
     </>
   );
 }
@@ -155,10 +149,10 @@ function RouteCard({ d, f, channel, reload }: { d: SteeringPage; f: TopicFigures
           ? <Chip tint="green">The chat&apos;s brain holds these routes and logs where they would send each hand-over</Chip>
           : <Chip tint="slate">{d.brain.reachable ? "The chat's brain has not picked these routes up yet" : "The chat's brain could not be asked just now"}</Chip>)}
       </Box>
-      {channel === "hs" && (handed > 0 || f.shadow) && (
+      {(handed > 0 || f.shadow) && (
         <Box sx={{ display: "grid", gap: 0.25 }}>
           {handed > 0 && <Typography sx={{ fontSize: "0.8rem", color: f.elsewhere ? INK : MUTED }}>
-            Filed by the hub: {f.elsewhere ? `${full(f.elsewhere)} of the ${full(handed)} hand-overs of the period would have gone to another team with these routes.` : `all ${full(handed)} hand-overs of the period went where these routes send them.`}
+            {channel === "hs" ? "Filed by the hub" : "The search bar's forms"}: {f.elsewhere ? `${full(f.elsewhere)} of the ${full(handed)} hand-overs of the period would have gone to another team with these routes.` : `all ${full(handed)} hand-overs of the period went where these routes send them.`}
           </Typography>}
           {f.shadow && <Typography sx={{ fontSize: "0.8rem", color: f.shadow.elsewhere ? INK : MUTED }}>
             The brain&apos;s own log, at the moment of each hand-over: {f.shadow.handovers
@@ -175,7 +169,7 @@ function RouteCard({ d, f, channel, reload }: { d: SteeringPage; f: TopicFigures
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small" sx={{ minWidth: 720 }}>
           <TableHead><TableRow>
-            {(channel === "hs" ? ["Sub-category", "Chats", "AI alone", "Handed (TSA · Back Office)", "Route"] : ["Sub-category", "Chats", "Route"])
+            {["Sub-category", "Chats", "AI alone", channel === "hs" ? "Handed (TSA · Back Office)" : "Form to the team (TSA · Back Office)", "Route"]
               .map((h) => <TableCell key={h} sx={{ ...headCell, textAlign: h === "Sub-category" || h === "Route" ? "left" : "right" }}>{h}</TableCell>)}
           </TableRow></TableHead>
           <TableBody>
@@ -189,8 +183,8 @@ function RouteCard({ d, f, channel, reload }: { d: SteeringPage; f: TopicFigures
                     {level === 2 ? <span style={{ color: MUTED }}>↳ </span> : null}{value}
                   </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{x?.chats ? full(x.chats) : "–"}</TableCell>
-                  {channel === "hs" && <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{x?.chats ? pct(x.aiAlone, x.chats) : "–"}</TableCell>}
-                  {channel === "hs" && <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{x && x.tsa + x.bo ? `${full(x.tsa)} · ${full(x.bo)}` : "–"}</TableCell>}
+                  <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{x?.chats ? pct(x.aiAlone, x.chats) : "–"}</TableCell>
+                  <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{x && x.tsa + x.bo ? `${full(x.tsa)} · ${full(x.bo)}` : "–"}</TableCell>
                   <TableCell sx={{ ...bodyCell, minWidth: routes.length > 2 ? 400 : 300 }}>
                     {d.isAdmin
                       ? <Choice<Route | "same"> value={rule?.route ?? "same"} onChange={(r) => setRule(level, value, r)} options={[{ key: "same", label: "As the topic" }, ...routes]} />
@@ -225,11 +219,12 @@ function RouteCard({ d, f, channel, reload }: { d: SteeringPage; f: TopicFigures
   );
 }
 
-function OpenCard({ f }: { f: TopicFigures }) {
+function OpenCard({ f, channel }: { f: TopicFigures; channel: Channel }) {
   return (
     <GlassCard sx={{ display: "grid", gap: 1 }}>
       <CardTitle icon={<PendingActionsOutlinedIcon />} tint="amber" title={`Open hand-overs: ${full(f.openTotal)}`}
-        note="Chats of this topic handed to a person whose ticket is still open in HubSpot, newest first" />
+        note={channel === "hs" ? "Chats of this topic handed to a person whose ticket is still open in HubSpot, newest first"
+          : "Search bar forms of this topic whose ticket (made by the team's workflow) is still open in HubSpot, newest first"} />
       {!f.open.length ? (
         <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>None open in this period.</Typography>
       ) : (
@@ -264,7 +259,7 @@ export function RoutesCard({ d, channel, onOpen, reload }: { d: SteeringPage; ch
   const { busy, msg, save } = useSave(reload);
   const rows = useMemo(() => STEERING_TOPICS.map((t) => ({ t, f: d.topics.find((x) => x.topic === t)!, s: d.steering.topics[t] })), [d]);
   const hs = channel === "hs";
-  const heads = hs ? ["Topic", "Route", "Chats", "AI alone", "Handed (TSA · Back Office)", "Open", "Closed"] : ["Topic", "Route", "Chats", "Of all search bar chats"];
+  const heads = ["Topic", "Route", "Chats", "AI alone", hs ? "Handed (TSA · Back Office)" : "Form to the team (TSA · Back Office)", "Open", "Closed"];
   return (
     <GlassCard sx={{ display: "grid", gap: 1 }}>
       <CardTitle icon={<AltRouteOutlinedIcon />} tint="blue" title="Routes by topic"
@@ -280,14 +275,10 @@ export function RoutesCard({ d, channel, onOpen, reload }: { d: SteeringPage; ch
                 <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontWeight: 600, color: INK }}>{t}</TableCell>
                 <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><RouteChip r={s.route} />{s.subs.length ? <span style={{ fontSize: "0.74rem", color: MUTED }}> +{s.subs.length} by sub-category</span> : null}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(f.chats)}</TableCell>
-                {hs ? (
-                  <>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{pct(f.aiAlone, f.chats)}</TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{full(f.tsa)} · {full(f.bo)}</TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{d.openRead ? full(f.openTotal) : "—"}</TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{d.openRead ? full(f.closedTotal) : "—"}</TableCell>
-                  </>
-                ) : <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{pct(f.chats, allChats(d))}</TableCell>}
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{pct(f.aiAlone, f.chats)}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{full(f.tsa)} · {full(f.bo)}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{d.openRead ? full(f.openTotal) : "—"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{d.openRead ? full(f.closedTotal) : "—"}</TableCell>
               </TableRow>
             ))}
           </TableBody>
