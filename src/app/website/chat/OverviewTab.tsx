@@ -84,7 +84,7 @@ export default function OverviewTab({ d, label, onOpenConversations }: { d: Over
             ) : (
               <>
                 <CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="What the chats were about"
-                  note="The chat's own guess while it was talking - often none or Others. The hub's filing after each chat (Topics) takes over here once it has run." />
+                  note="The chat's own guess while it was talking. The hub's filing after each chat (Topics) takes over here once it has run." />
                 <PagedBars rows={s.byCategory.map((c) => ({ label: category(c.category), n: num(c.count) }))} colour="#a96a12" />
               </>
             )}

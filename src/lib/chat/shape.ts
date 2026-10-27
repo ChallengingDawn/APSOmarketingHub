@@ -99,8 +99,14 @@ export const CATEGORIES: CategoryDef[] = [
     text: "enquiry_textbox___order_cancellation" },
   // Back Office files these by hand: shown, never chosen by the AI (certificates go under Product Information)
   { value: "Certificates (ONLY FOR BO)", hint: "", aiChoice: false },
-  { value: "Others", hint: "no real request: a greeting, a test, spam, something unrelated, or only asking for a person without saying why", aiChoice: true },
+  // SARCLA 27.10.2026: "NO MORE OTHER ... REAL OPTION ONLY" - never chosen by the AI, never offered to a person
+  { value: "Others", hint: "", aiChoice: false },
 ];
+/** The options a chat can be filed under - the real ones only (no "Others"). */
+export const FILING_CATEGORIES = CATEGORIES.filter((c) => c.value !== "Others");
+/** The customer asked nothing at all (a greeting, a test, only "a person please"). Never a HubSpot value: such a chat
+ *  is not written to its ticket, which keeps what it has. */
+export const NO_REQUEST = "No request";
 export const categoryOf = (v: string | null | undefined) => CATEGORIES.find((c) => c.value === v) ?? null;
 /** "Could not be read": a chat HubSpot no longer holds, kept so it is not asked for again */
 export const categoryLabel = (v: string | null | undefined) => (v === "unreadable" ? "Could not be read" : v || "Not filed yet");

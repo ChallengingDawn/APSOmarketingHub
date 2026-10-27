@@ -33,7 +33,7 @@ import SyncOutlinedIcon from "@mui/icons-material/SyncOutlined";
 import { full } from "@/app/charts/format";
 import { Chip, Choice } from "@/app/connectors/parts";
 import { CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, HsLink, INK, KpiTile, MUTED, Notice, TRACK, bodyCell, headCell } from "@/app/uc/report/ui";
-import { CATEGORIES, categoryLabel, categoryOf, type HsState, type TopicsRun } from "@/lib/chat/shape";
+import { FILING_CATEGORIES, categoryLabel, categoryOf, type HsState, type TopicsRun } from "@/lib/chat/shape";
 import { HandlerChip, Loaded, pct, pill, post, when } from "./shared";
 
 type CategoryRow = { category: string; chats: number; handed: number; agentWrote: number; byPerson: number; subs: { sub1: string; chats: number }[] };
@@ -294,7 +294,7 @@ export function CategoryPick({ c, onMoved }: { c: { key: string; category: strin
     <Box sx={{ display: "grid", gap: 0.4 }}>
       <TextField select size="small" value={def ? c.category : ""} disabled={busy} onChange={(e) => void save(e.target.value, null)}
         slotProps={{ htmlInput: { "aria-label": "Enquiry Category" } }} sx={small}>
-        {CATEGORIES.map((x) => <MenuItem key={x.value} value={x.value} sx={{ fontSize: "0.84rem" }}>{x.value}</MenuItem>)}
+        {FILING_CATEGORIES.map((x) => <MenuItem key={x.value} value={x.value} sx={{ fontSize: "0.84rem" }}>{x.value}</MenuItem>)}
       </TextField>
       {def?.sub1 && (
         <TextField select size="small" value={c.sub1 ?? ""} disabled={busy} onChange={(e) => void save(c.category, e.target.value || null)}

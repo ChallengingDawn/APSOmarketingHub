@@ -1,7 +1,9 @@
 // CHAT FILING - what each chat was about, filed AFTER it ended from the whole conversation, in HubSpot's own terms
 // (SARCLA 18.10.2026: "this detection doesn't work really well today, we should have a different tab to keep this
 // updated always" - then: "this should be filled into the property; these definitions should be the property's ones;
-// backfill the previous ones to have a clear picture"; "Others" stays Others; preview first, then a switch).
+// backfill the previous ones to have a clear picture"; preview first, then a switch). 27.10.2026: "NO MORE OTHER ...
+// REAL OPTION ONLY" - every chat goes to the real topic it is closest to; one where the customer asked nothing at all is
+// "No request" (NO_REQUEST) in the hub and is never written to its ticket. Chats the AI filed as Others are filed again.
 //
 // While it talks, the orchestrator files a chat itself, and turns "Others" into "Product Information": 82% of the
 // 2,384 chat tickets since go-live said Product Information on 18.10.2026. Here, every 20 minutes:
@@ -23,7 +25,7 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { gateway as searchBarGateway, adminToken as searchBarKey, type AiConversations } from "@/lib/searchbar/gateway";
 import { orchestrator, orchestratorKey } from "./orchestrator";
 import { chatTranscript } from "./transcript";
-import { CATEGORIES, LIVE_FROM, type CategoryDef, type Conversation, type Conversations, type HsState, type TopicsRun } from "./shape";
+import { CATEGORIES, LIVE_FROM, NO_REQUEST, type CategoryDef, type Conversation, type Conversations, type HsState, type TopicsRun } from "./shape";
 
 const TABLE = "apsomh_chat_filing";
 const TOPICS_LOCK = 4_107_230;              // DoC 4107201 … partner stock 4107221 taken; this one is the chat filing's
@@ -126,16 +128,21 @@ function systemPrompt(defs: CategoryDef[]): string {
   return `You file customer chats of APSOparts, an industrial web shop (seals, O-rings, hoses, plastics, drive and
 vibration parts) run by Angst+Pfister, the way its HubSpot tickets are filed: the ticket property "Enquiry Category"
 and, where it has them, its sub-categories - the customer's main reason for writing. Use only the values below, written
-exactly. Then write a one-sentence English summary (max 20 words) of what the customer wanted and how it ended. The
-chat can be in any language. Certificates and conformities go under "Product Information".
+exactly. There is no "other": pick the topic the chat is closest to - if the customer asks or says anything about a
+product, a price, an order or its delivery, an invoice, a cancellation, an account or the website, it is that topic,
+even when it is said in passing (e.g. "hello, about my orders" is Delivery). Only when the customer asks nothing at all -
+just a greeting, a test, or asking for a person without saying why - answer "${NO_REQUEST}" with sub1 and sub2 "".
+Then write a one-sentence English summary (max 20 words) of what the customer wanted and how it ended. The chat can be
+in any language. Certificates and conformities go under "Product Information".
 ${lines}
+- ${JSON.stringify(NO_REQUEST)}: the customer asked nothing at all
 Answer as JSON {"category": "...", "sub1": "...", "sub2": "...", "summary": "..."}.`;
 }
 
 type Filed = { category: string; sub1: string | null; sub2: string | null; summary: string };
 
 async function ask(client: NonNullable<ReturnType<typeof getAnthropic>>, defs: CategoryDef[], chat: string): Promise<Filed> {
-  const cats = defs.filter((d) => d.aiChoice).map((d) => d.value);
+  const cats = [...defs.filter((d) => d.aiChoice).map((d) => d.value), NO_REQUEST];
   const once = async (structured: boolean) => {
     const msg = await client.messages.create({
       // the cap covers the model's thinking too: at 300, 2 answers in 15 stopped mid-sentence (18.10.2026)
@@ -160,7 +167,10 @@ async function ask(client: NonNullable<ReturnType<typeof getAnthropic>>, defs: C
     if (j) break;
   }
   if (!j) throw new Error(`no answer from the model (${last.why}): "${last.text.slice(0, 60)}"`);
-  const def = defs.find((d) => d.value === j!.category && d.aiChoice) ?? defs.find((d) => d.value === "Others")!;
+  if (j.category === NO_REQUEST) return { category: NO_REQUEST, sub1: null, sub2: null, summary: String(j.summary ?? "").slice(0, 240) };
+  // not one of the real options: not stored, the next run asks again (there is no "Others" to fall back on)
+  const def = defs.find((d) => d.value === j!.category && d.aiChoice);
+  if (!def) throw new Error(`the model answered "${String(j.category).slice(0, 40)}", not a real option`);
   const pick = (v: string | undefined, sub: CategoryDef["sub1"]) => (v && sub?.options.includes(v) ? v : null);
   return { category: def.value, sub1: pick(j.sub1, def.sub1), sub2: pick(j.sub2, def.sub2), summary: String(j.summary ?? "").slice(0, 240) };
 }
@@ -172,7 +182,7 @@ export async function classifyChat(c: Conversation, client: NonNullable<ReturnTy
   if (!t) return null;
   const lines = t.items.filter((m) => m.who !== "system")
     .map((m) => `${m.who === "customer" ? "Customer" : m.who === "ai" ? "APSOassistant" : "Agent"}: ${redact(m.text)}`);
-  if (!lines.some((l) => l.startsWith("Customer:"))) return { category: "Others", sub1: null, sub2: null, summary: "The customer wrote nothing.", agentWrote: t.agentMessages > 0 };
+  if (!lines.some((l) => l.startsWith("Customer:"))) return { category: NO_REQUEST, sub1: null, sub2: null, summary: "The customer wrote nothing.", agentWrote: t.agentMessages > 0 };
   let chat = lines.join("\n");
   if (chat.length > 9000) chat = `${chat.slice(0, 6000)}\n[…]\n${chat.slice(-2500)}`;
   return { ...(await ask(client, defs, chat)), agentWrote: t.agentMessages > 0 };
@@ -195,13 +205,14 @@ export async function fileTopics(opts: { max?: number } = {}): Promise<TopicsRun
   await ensure();
   const defs = await definitions();
   const chats = await realChats();
-  const known = new Map((await query<{ ref: string; last_at: string | null; by: string }>(
-    `SELECT ref, last_at, by FROM ${TABLE} WHERE source = 'chat'`)).rows.map((r) => [r.ref, r]));
+  const known = new Map((await query<{ ref: string; last_at: string | null; by: string; category: string }>(
+    `SELECT ref, last_at, by, category FROM ${TABLE} WHERE source = 'chat'`)).rows.map((r) => [r.ref, r]));
   const quiet = Date.now() - QUIET_MS;
   const todo = chats.filter((c) => {
     if (Date.parse(c.last_at ?? c.started_at) > quiet) return false;
     const k = known.get(c.session_hash);
     if (!k) return true;
+    if (k.by === "ai" && k.category === "Others") return true;          // filed before "Others" went: filed again
     return k.by === "ai" && !!c.last_at && (!k.last_at || Date.parse(c.last_at) > Date.parse(k.last_at) + 1000);
   });
   const max = opts.max ?? PER_RUN;
@@ -211,7 +222,8 @@ export async function fileTopics(opts: { max?: number } = {}): Promise<TopicsRun
       const r = await classifyChat(c, client, defs);
       const row = r ?? { category: "unreadable", sub1: null, sub2: null, summary: "HubSpot no longer holds this chat.", agentWrote: null };
       await query(UPSERT, [`hs:${c.session_hash}`, "chat", c.session_hash, c.hubspot_ticket_id, c.started_at, c.last_at ?? c.started_at, c.language_code,
-        !!c.escalated, c.routing_team, row.agentWrote, row.category, row.sub1, row.sub2, row.summary, c.category_code, r ? MODEL : null, r ? "pending" : null]);
+        !!c.escalated, c.routing_team, row.agentWrote, row.category, row.sub1, row.sub2, row.summary, c.category_code, r ? MODEL : null,
+        r && r.category !== NO_REQUEST ? "pending" : null]);                       // "No request" never goes to HubSpot
       if (r) filed++; else unreadable++;
     } catch (e) {
       failed++;
@@ -227,7 +239,8 @@ export async function fileTopics(opts: { max?: number } = {}): Promise<TopicsRun
 
 export async function fileSearchBar(client: NonNullable<ReturnType<typeof getAnthropic>>, defs: CategoryDef[], room: number): Promise<number> {
   const d = await searchBarGateway<AiConversations>("/api/smart-bar/ai-conversations?limit=200&archived=0");
-  const known = new Set((await query<{ ref: string }>(`SELECT ref FROM ${TABLE} WHERE source = 'searchbar'`)).rows.map((r) => r.ref));
+  const known = new Set((await query<{ ref: string }>(
+    `SELECT ref FROM ${TABLE} WHERE source = 'searchbar' AND NOT (by = 'ai' AND category = 'Others')`)).rows.map((r) => r.ref));
   let n = 0;
   for (const c of (d.conversations ?? []).filter((x) => !known.has(x.query_id)).slice(0, room)) {
     const chat = c.turns.map((t) => `${t.role === "user" ? "Customer" : "APSOassistant"}: ${redact(t.text ?? "")}`).join("\n").slice(0, 9000);
@@ -271,9 +284,11 @@ export async function syncHubSpot(opts: { max?: number } = {}): Promise<NonNulla
   const sw = await writeSwitch();
   const defs = await definitions();
   const out = { written: 0, same: 0, kept: 0, wouldWrite: 0, errors: 0, mode: sw.on ? ("write" as const) : ("preview" as const) };
+  // "Others" is never written: the AI's old Others drop out of the HubSpot lists at once and wait to be filed again
+  await query(`UPDATE ${TABLE} SET hs_state = NULL, hs_note = NULL WHERE by = 'ai' AND category IN ('Others', '${NO_REQUEST}') AND hs_state IS NOT NULL AND hs_state <> 'written'`);
   const rows = (await query<{ key: string; ticket_id: string; category: string; sub1: string | null; sub2: string | null; summary: string; by: string }>(
     `SELECT key, ticket_id, category, sub1, sub2, summary, by FROM ${TABLE}
-      WHERE source = 'chat' AND ticket_id IS NOT NULL AND category <> 'unreadable'
+      WHERE source = 'chat' AND ticket_id IS NOT NULL AND category NOT IN ('unreadable', 'Others', '${NO_REQUEST}')
         AND (hs_state = 'pending' OR (hs_state = 'would-write' AND $1::boolean)
              OR (hs_state = 'error' AND hs_note LIKE 'read failed%'))   -- a refused read is read again
       ORDER BY last_at DESC NULLS LAST LIMIT $2`, [sw.on, opts.max ?? HS_PER_RUN])).rows;
@@ -342,6 +357,7 @@ export async function setCategory(key: string, category: string, sub1: string | 
   await ensure();
   const def = (await definitions()).find((d) => d.value === category);
   if (!def) throw new Error("Not an Enquiry Category value");
+  if (def.value === "Others") throw new Error("\"Others\" is not used - pick the real topic");
   const s1 = sub1 && def.sub1?.options.includes(sub1) ? sub1 : null;
   await query(`UPDATE ${TABLE} SET category = $2, sub1 = $3, sub2 = CASE WHEN category = $2 THEN sub2 ELSE NULL END, by = $4, filed_at = now(),
       hs_state = CASE WHEN source = 'chat' THEN 'pending' ELSE NULL END WHERE key = $1`, [key, category, s1, by]);
