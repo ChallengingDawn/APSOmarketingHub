@@ -89,6 +89,8 @@ export type TopicFigures = {
   /** hand-overs the topic's routes would have sent elsewhere than the chat did */
   elsewhere: number;
   subs: SubFigures[]; open: OpenHandover[]; openTotal: number;
+  /** hand-overs whose ticket is closed in HubSpot now */
+  closedTotal: number;
   /** HubSpot chat only: the brain's own log (null = the brain could not be asked) */
   shadow?: TopicShadow | null;
 };
@@ -112,8 +114,8 @@ async function stageNames(): Promise<Map<string, string>> {
   return m;
 }
 
-/** The handed-over chats' tickets as they are in HubSpot now - the open ones (no close date). 300 at most, newest first. */
-async function openTickets(ids: string[]): Promise<Map<string, Ticket> | null> {
+/** The handed-over chats' tickets as they are in HubSpot now (open = no close date). 300 at most, newest first. */
+async function handedTickets(ids: string[]): Promise<Map<string, Ticket> | null> {
   const out = new Map<string, Ticket>();
   try {
     for (let i = 0; i < ids.length; i += 100) {
@@ -121,11 +123,11 @@ async function openTickets(ids: string[]): Promise<Map<string, Ticket> | null> {
         path: "/crm/v3/objects/tickets/batch/read", method: "POST",
         body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id", "closed_date", "createdate"] },
       });
-      for (const t of r.results ?? []) if (!t.properties.closed_date) out.set(String(t.id), t);
+      for (const t of r.results ?? []) out.set(String(t.id), t);
     }
     return out;
   } catch (e) {
-    console.warn(`[chat-steering] open tickets not read: ${(e as Error).message}`);
+    console.warn(`[chat-steering] hand-over tickets not read: ${(e as Error).message}`);
     return null;
   }
 }
@@ -143,8 +145,8 @@ export async function steeringData(fromIso: string, channel: Channel = "hs"): Pr
       WHERE source = $2 AND started_at >= $1 ORDER BY last_at DESC NULLS LAST`, [fromIso, channel === "bar" ? "searchbar" : "chat"])).rows;
   const handedIds = [...new Set(rows.filter((r) => r.handed && r.ticket_id && (STEERING_TOPICS as readonly string[]).includes(r.category)).map((r) => String(r.ticket_id)))].slice(0, 300);
   const hs = channel === "hs";
-  const [open, stages, names, brain, shadowRows] = await Promise.all([
-    openTickets(handedIds),
+  const [tickets, stages, names, brain, shadowRows] = await Promise.all([
+    handedTickets(handedIds),
     stageNames().catch(() => new Map<string, string>()),
     ownerNames().catch(() => new Map<string, string>()),
     hs ? brainState(steering) : Promise.resolve(undefined),
@@ -175,8 +177,10 @@ export async function steeringData(fromIso: string, channel: Channel = "hs"): Pr
       ...options[topic].sub1.map((value) => ({ level: 1 as const, value, ...count(mine.filter((r) => r.sub1 === value)) })),
       ...options[topic].sub2.map((value) => ({ level: 2 as const, value, ...count(mine.filter((r) => r.sub2 === value)) })),
     ];
-    const openList = mine.filter((r) => r.handed && r.ticket_id && open?.has(String(r.ticket_id))).map((r): OpenHandover => {
-      const t = open!.get(String(r.ticket_id))!;
+    const isOpen = (r: Row) => { const t = r.ticket_id ? tickets?.get(String(r.ticket_id)) : undefined; return t ? !t.properties.closed_date : null; };
+    const closedTotal = mine.filter((r) => r.handed && isOpen(r) === false).length;
+    const openList = mine.filter((r) => r.handed && isOpen(r) === true).map((r): OpenHandover => {
+      const t = tickets!.get(String(r.ticket_id))!;
       return {
         ticketId: String(r.ticket_id), summary: r.summary, handedAt: t.properties.createdate ?? r.last_at,
         owner: t.properties.hubspot_owner_id ? names.get(t.properties.hubspot_owner_id) ?? t.properties.hubspot_owner_id : null,
@@ -187,11 +191,11 @@ export async function steeringData(fromIso: string, channel: Channel = "hs"): Pr
     return {
       topic, ...count(mine),
       elsewhere: mine.filter((r) => r.handed && !same(routeFor(steering, topic, r.sub1, r.sub2), todayRoute(r.team))).length,
-      subs, open: openList.slice(0, 50), openTotal: openList.length,
+      subs, open: openList.slice(0, 50), openTotal: openList.length, closedTotal,
       ...(hs ? { shadow: shadowOf(topic) } : {}),
     };
   });
-  const d: SteeringData = { steering, options, topics, noRequest: rows.filter((r) => r.category === NO_REQUEST).length, from: fromIso, openRead: open !== null, ...(brain ? { brain } : {}) };
+  const d: SteeringData = { steering, options, topics, noRequest: rows.filter((r) => r.category === NO_REQUEST).length, from: fromIso, openRead: tickets !== null, ...(brain ? { brain } : {}) };
   figuresCache.set(ck, { at: Date.now(), d });
   return d;
 }

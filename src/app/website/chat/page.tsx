@@ -16,7 +16,6 @@ import Tooltip from "@mui/material/Tooltip";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import PageHeader from "@/app/PageHeader";
 import { GUTTER } from "@/app/analytics/Shell";
-import { Choice } from "@/app/connectors/parts";
 import { MUTED } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { WindowPicker, isoDate, spanDays, useReportingWindow } from "@/app/window/ReportingWindow";
@@ -28,7 +27,7 @@ import TestTab from "./TestTab";
 import SetupTab from "./SetupTab";
 import SearchBarChatTab from "./SearchBarChatTab";
 import TopicsTab from "./TopicsTab";
-import { RoutesCard, TopicTab, type Channel, type SteeringPage } from "./SteeringTab";
+import { ChannelTabs, RoutesCard, TopicTab, type Channel, type SteeringPage, type TopicView } from "./SteeringTab";
 
 const CHANNEL_KEY = "apsomh.chat.channel";
 
@@ -58,18 +57,24 @@ export default function ChatPage() {
   const topic = topicOfView(view);
   const steeringUrl = `/api/website/chat?part=steering&days=${days}&channel=${channel}&r=${n}`;
   const follows = view === "overview" || view === "conversations" || view === "handovers" || !!topic;
+  // inside a topic: its routes and figures or its conversations - kept while moving from topic to topic
+  const [topicView, setTopicView] = useState<TopicView>("routes");
+  /** a second row of tabs inside a tab, as the platform draws its toggles */
+  const sub = <K extends string>(name: string, tab: K, onSelect: (k: K) => void, tabs: { id: K; label: string }[]) => (
+    <Box sx={{ justifySelf: "start" }}><ReportTabs name={name} tab={tab} onSelect={onSelect} tabs={tabs.map((t) => ({ ...t, count: null }))} /></Box>
+  );
 
   // every loader in this slot has its own key: a held answer must never be drawn by another tab (search bar, 17.10)
   const panel =
     topic ? (
       <Loaded<SteeringPage> key={`steer-${view}-${channel}-${days}-${n}`} url={steeringUrl} what="the routes">
-        {(d, reload) => <TopicTab d={d} topic={topic} label={label} days={days} channel={channel} reload={reload} />}
+        {(d, reload) => <TopicTab d={d} topic={topic} label={label} days={days} channel={channel} view={topicView} onView={setTopicView} reload={reload} />}
       </Loaded>
     )
     : view === "conversations" || view === "handovers" || view === "searchbar" ? (
       channel === "bar" ? <SearchBarChatTab key={`searchbar-${n}`} /> : (
         <>
-          <Choice<View> value={view === "handovers" ? "handovers" : "conversations"} onChange={setView} options={[{ key: "conversations", label: "All chats" }, { key: "handovers", label: "Hand-overs" }]} />
+          {sub<View>("chat-conversations", view === "handovers" ? "handovers" : "conversations", setView, [{ id: "conversations", label: "All chats" }, { id: "handovers", label: "Hand-overs" }])}
           <ConversationsTab key={`${view}-${n}`} handedOnly={view === "handovers"} />
         </>
       )
@@ -77,7 +82,7 @@ export default function ChatPage() {
     : view === "test" ? <TestTab key="test" />
     : view === "setup" || view === "topics" ? (
       <>
-        <Choice<View> value={view} onChange={setView} options={[{ key: "setup", label: "How it runs" }, { key: "topics", label: "Filing" }]} />
+        {sub<View>("chat-setup", view, setView, [{ id: "setup", label: "How it runs" }, { id: "topics", label: "Filing" }])}
         {view === "topics" ? <TopicsTab key={`topics-${n}`} days={days} label={label} /> : <SetupTab key={`setup-${n}`} />}
       </>
     )
@@ -101,7 +106,6 @@ export default function ChatPage() {
         subtitle="APSOassistant on the shop: per topic, what the AI solved alone and where it hands a chat over when a person is needed - TSA for sales, the Back Office call-back for the rest"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {follows && <Choice<Channel> value={channel} onChange={setChannel} options={[{ key: "hs", label: "HubSpot chat" }, { key: "bar", label: "Search bar chat" }]} />}
             {(view === "overview" || view === "topics" || !!topic) && <WindowPicker />}
             <Tooltip title="Read again"><IconButton size="small" onClick={() => setN((x) => x + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
           </Box>
@@ -117,6 +121,7 @@ export default function ChatPage() {
         ]} />
       </Box>
       <Box id={`chat-panel-${tabOf(view)}`} role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
+        {follows && <ChannelTabs channel={channel} onChannel={setChannel} />}
         {panel}
       </Box>
     </Box>

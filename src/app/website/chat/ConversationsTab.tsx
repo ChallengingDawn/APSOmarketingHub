@@ -33,7 +33,7 @@ export default function ConversationsTab({ handedOnly }: { handedOnly: boolean }
         options={[{ key: "all", label: "All" }, ...LANGUAGES.map((l) => ({ key: l, label: l.toUpperCase() }))]} />
       {handedOnly && (
         <Choice value={unanswered ? "none" : "all"} onChange={(k) => setUnanswered(k === "none")}
-          options={[{ key: "all", label: "All hand-overs" }, { key: "none", label: "No person wrote" }]} />
+          options={[{ key: "all", label: "All hand-overs" }, { key: "none", label: "No person wrote in the chat" }]} />
       )}
     </Box>
   );
@@ -62,8 +62,9 @@ function List({ r, search, unanswered, selected, setSelected, toolbar, page, set
   }, [r.conversations, search, unanswered]);
   const items: InboxItem[] = chats.map((c) => ({
     id: c.session_hash,
-    title: c.summary || (c.category_code ? `${category(c.category_code)}${c.sub_l1 ? ` · ${c.sub_l1}` : ""}` : "Not filed yet"),
-    preview: c.summary ? null : "The hub files what it was about within the hour.",
+    // what the customer wanted (the hub's summary), else the chat's own category - never a promise of a filing to come
+    title: c.summary || (c.category_code && c.category_code !== "Others" ? `${category(c.category_code)}${c.sub_l1 ? ` · ${c.sub_l1}` : ""}` : "A chat"),
+    preview: null,
     at: c.last_at ?? c.started_at,
     lang: c.language_code,
     flag: c.escalated && c.agent_wrote === false,
@@ -71,7 +72,7 @@ function List({ r, search, unanswered, selected, setSelected, toolbar, page, set
       <>
         <HandlerChip c={c} />
         {c.topic && c.topic !== "unreadable" && <Tag tint="amber" title={c.topic_sub1 ? `${c.topic} · ${c.topic_sub1}` : c.topic}>{c.topic}{c.topic_sub1 ? ` · ${c.topic_sub1}` : ""}</Tag>}
-        {c.escalated && c.agent_wrote === false && <Chip tint="pink">No person wrote</Chip>}
+        {c.escalated && c.agent_wrote === false && <Chip tint="pink">No person wrote in the chat</Chip>}
         <Box component="span" sx={{ fontSize: "0.7rem", color: FAINT, alignSelf: "center" }}>{c.messages ?? c.turns_count} {(c.messages ?? c.turns_count) === 1 ? "message" : "messages"}</Box>
       </>
     ),
@@ -118,7 +119,7 @@ export function TopicConversations({ topic, days }: { topic: string; days: numbe
             <>
               <HandlerChip c={c} />
               {c.topic_sub1 && <Tag tint="amber" title={c.sub_l2 ? `${c.topic_sub1} · ${c.sub_l2}` : c.topic_sub1}>{c.topic_sub1}</Tag>}
-              {c.escalated && c.agent_wrote === false && <Chip tint="pink">No person wrote</Chip>}
+              {c.escalated && c.agent_wrote === false && <Chip tint="pink">No person wrote in the chat</Chip>}
             </>
           ),
         }));
@@ -152,7 +153,7 @@ function Detail({ c, onMoved }: { c: Conversation; onMoved: () => void }) {
     <Box sx={{ display: "grid", gap: 1.5 }}>
       {c.hubspot_ticket_id ? (
         <Loaded<{ transcript: Transcript | null }> url={`/api/website/chat?part=transcript&ticket=${c.hubspot_ticket_id}`} what="the chat from HubSpot">
-          {(d) => d.transcript ? <WholeChat t={d.transcript} c={c} onMoved={onMoved} /> : <FromMemory c={c} note="HubSpot no longer holds this chat." />}
+          {(d) => d.transcript ? <WholeChat t={d.transcript} c={c} onMoved={onMoved} /> : <FromMemory c={c} note="HubSpot no longer holds this chat - its ticket was deleted or merged." />}
         </Loaded>
       ) : <FromMemory c={c} note="This chat has no ticket, so HubSpot cannot be asked." />}
       <AiNotes raw={c.debug_log} />
@@ -196,7 +197,7 @@ function WholeChat({ t, c, onMoved }: { t: Transcript; c: Conversation; onMoved:
         <Box sx={{ ml: "auto", minWidth: 200 }}>
           {c.topic && c.filing_key
             ? <CategoryPick c={{ key: c.filing_key, category: c.topic, sub1: c.topic_sub1 ?? null, by: c.by ?? "ai" }} onMoved={onMoved} />
-            : <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>Enquiry Category: filed within the hour</Typography>}
+            : <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>Enquiry Category: not filed yet</Typography>}
         </Box>
       </Box>
 
@@ -223,18 +224,51 @@ function FromMemory({ c, note }: { c: Conversation; note: string }) {
 }
 
 /** What the AI noted on the chat's last turn (its debug log): folded away, for checking a decision. */
+/** No customer data on screen: e-mail addresses, phone numbers and contact ids are hidden in the AI's notes
+ *  (the review of 26.10.2026 found e-mails in the raw log). */
+const scrub = (s: string) => s
+  .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, "[e-mail]")
+  .replace(/\+\d[\d\s/-]{7,}\d/g, "[phone]").replace(/\b0\d{2}[ /]\d{3} ?\d{2} ?\d{2}\b/g, "[phone]")
+  .replace(/\bContact \d+/g, "A contact").replace(/\bcontact \d+/g, "a contact");
+
+const ROUTE_WORD: Record<string, string> = { tsa: "TSA", bo: "Back Office", ecom: "E-Commerce", none: "no topic", TSA: "TSA", BO: "Back Office", AI: "the AI alone" };
+/** What the AI's notes say about where the chat went and why, in a few words. */
+function why(notes: string[]): { label: string; value: string }[] {
+  const out: { label: string; value: string }[] = [];
+  const upd = [...notes].reverse().find((n) => /^Updating ticket .*handler=/.test(n));
+  const field = (n: string | undefined, k: string) => n?.match(new RegExp(`${k}=([^|]*)`))?.[1]?.trim() || null;
+  const cat = field(upd, "category"), sub = field(upd, "sub_l1"), handler = field(upd, "handler");
+  if (cat) out.push({ label: "Filed as", value: sub ? `${cat} · ${sub}` : cat });
+  if (handler) out.push({ label: "Went to", value: ROUTE_WORD[handler] ?? handler });
+  const order = notes.find((n) => /^Handler: BO \(order number present/.test(n));
+  if (order) out.push({ label: "Why", value: "an order number in the chat - always the Back Office" });
+  else if (handler && handler !== "AI" && field(upd, "routing_team")) out.push({ label: "Why", value: `the AI's team: ${field(upd, "routing_team")!.replace(/_/g, " ")}` });
+  const steer = notes.find((n) => /^Steering \(shadow/.test(n))?.match(/routes v(\d+)\): (\w+)/);
+  if (steer) out.push({ label: "With the topic routes", value: `${ROUTE_WORD[steer[2]] ?? steer[2]} (routes v${steer[1]}, trial)` });
+  if (notes.some((n) => /^Hand-over held: no category/.test(n))) out.push({ label: "Before handing over", value: "asked what it is about" });
+  if (notes.some((n) => /^Email check: NONE \| escalate=true/.test(n))) out.push({ label: "Before handing over", value: "asked for an e-mail address" });
+  return out;
+}
+
 function AiNotes({ raw }: { raw: string | null | undefined }) {
   const [open, setOpen] = useState(false);
-  const notes = debugNotes(raw);
+  const notes = debugNotes(raw).map(scrub);
   if (!notes.length) return null;
+  const facts = why(notes);
   return (
-    <Box sx={{ borderTop: "1px dashed rgba(21,34,58,.12)", pt: 1 }}>
+    <Box sx={{ borderTop: "1px dashed rgba(21,34,58,.12)", pt: 1, display: "grid", gap: 0.75 }}>
+      {facts.length > 0 && (
+        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em", mr: 0.5 }}>Why it went there</Typography>
+          {facts.map((f, i) => <Chip key={i} tint={f.label === "Went to" ? "blue" : f.label.startsWith("With") ? "amber" : "slate"}>{f.label}: {f.value}</Chip>)}
+        </Box>
+      )}
       <Typography component="button" onClick={() => setOpen((o) => !o)}
-        sx={{ border: 0, bgcolor: "transparent", p: 0, cursor: "pointer", fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-        {open ? "▾" : "▸"} What the AI noted on the last turn ({notes.length})
+        sx={{ border: 0, bgcolor: "transparent", p: 0, cursor: "pointer", fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em", justifySelf: "start" }}>
+        {open ? "▾" : "▸"} The AI&apos;s own notes on the last turn ({notes.length})
       </Typography>
       {open && (
-        <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5, fontSize: "0.78rem", color: MUTED, display: "grid", gap: 0.25 }}>
+        <Box component="ul" sx={{ m: 0, pl: 2.5, fontSize: "0.78rem", color: MUTED, display: "grid", gap: 0.25 }}>
           {notes.slice(0, 40).map((n, i) => <li key={i}>{n}</li>)}
         </Box>
       )}

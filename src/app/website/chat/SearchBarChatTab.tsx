@@ -108,7 +108,7 @@ function BarChat({ c, archived, isAdmin, onMoved }: { c: BarChat; archived: bool
         <Box sx={{ ml: "auto", minWidth: 200 }}>
           {c.topic && c.filing_key
             ? <CategoryPick c={{ key: c.filing_key, category: c.topic, sub1: c.topic_sub1 ?? null, by: c.by ?? "ai" }} onMoved={onMoved} />
-            : <Typography sx={{ fontSize: "0.74rem", color: "#8b97ac" }}>Enquiry Category: filed within the hour</Typography>}
+            : <Typography sx={{ fontSize: "0.74rem", color: "#8b97ac" }}>Enquiry Category: not filed yet</Typography>}
         </Box>
       </Box>
       <Bubbles items={c.turns.map((t) => ({ at: t.ts || c.ts, who: t.role === "user" ? "customer" : "ai", name: null, text: t.text }))} />

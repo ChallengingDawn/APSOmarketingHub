@@ -30,6 +30,7 @@ import PendingActionsOutlinedIcon from "@mui/icons-material/PendingActionsOutlin
 import { full } from "@/app/charts/format";
 import { Chip, Choice } from "@/app/connectors/parts";
 import { CardTitle, GREEN, GlassCard, HsLink, INK, KpiTile, MUTED, Notice, bodyCell, headCell, type Tint } from "@/app/uc/report/ui";
+import { ReportTabs } from "@/app/uc/report/Tabs";
 import { ROUTE_LABEL, STEERING_TOPICS, type Route, type Steering, type SubRule } from "@/lib/chat/steeringRules";
 import type { SteeringData, TopicFigures } from "@/lib/chat/steering";
 import { pct, pill, post, when } from "./shared";
@@ -67,12 +68,41 @@ function useSave(onSaved: () => void) {
 export type Channel = "hs" | "bar";
 const allChats = (d: SteeringPage) => d.topics.reduce((a, t) => a + t.chats, 0) + d.noRequest;
 
-export function TopicTab({ d, topic, label, days, channel, reload }: { d: SteeringPage; topic: string; label: string; days: number; channel: Channel; reload: () => void }) {
+/** HubSpot chat | Search bar chat, drawn as the page's tabs (the platform's master toggle, as ESO | TSA | Total) -
+ *  a click changes every figure and list of Overview, the topics and Conversations. */
+export function ChannelTabs({ channel, onChannel }: { channel: Channel; onChannel: (c: Channel) => void }) {
+  return (
+    <Box sx={{ justifySelf: "start" }}>
+      <ReportTabs name="chat-channel" tab={channel} onSelect={onChannel}
+        tabs={[{ id: "hs", label: "HubSpot chat", count: null }, { id: "bar", label: "Search bar chat", count: null }]} />
+    </Box>
+  );
+}
+
+/** inside a topic: its routes and figures, or its conversations */
+export type TopicView = "routes" | "conversations";
+
+export function TopicTab({ d, topic, label, days, channel, view, onView, reload }: {
+  d: SteeringPage; topic: string; label: string; days: number; channel: Channel; view: TopicView; onView: (v: TopicView) => void; reload: () => void;
+}) {
   const f = d.topics.find((t) => t.topic === topic)!;
   const handed = f.tsa + f.bo;
   const top = [...f.subs].filter((s) => s.level === 1 && s.chats).sort((a, b) => b.chats - a.chats)[0];
+  const inner = (
+    <Box sx={{ justifySelf: "start" }}>
+      <ReportTabs name="chat-topic" tab={view} onSelect={onView}
+        tabs={[{ id: "routes", label: "Routes & figures", count: null }, { id: "conversations", label: "Conversations", count: f.chats ? full(f.chats) : null }]} />
+    </Box>
+  );
+  if (view === "conversations") return (
+    <>
+      {inner}
+      {channel === "hs" ? <TopicConversations key={`${topic}-${days}`} topic={topic} days={days} /> : <SearchBarChatTab key={topic} topic={topic} />}
+    </>
+  );
   return (
     <>
+      {inner}
       {channel === "hs" ? (
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ForumOutlinedIcon />} tint="purple" label="Chats" value={full(f.chats)} note={`${label} - HubSpot chat, filed by the hub from the whole chat`} /></Grid>
@@ -89,11 +119,6 @@ export function TopicTab({ d, topic, label, days, channel, reload }: { d: Steeri
       )}
       <RouteCard key={`${topic}-${d.steering.version}-${channel}`} d={d} f={f} channel={channel} reload={reload} />
       {channel === "hs" && <OpenCard f={f} />}
-      <Box sx={{ display: "grid", gap: 1 }}>
-        <CardTitle icon={<ForumOutlinedIcon />} tint="purple" title={`Conversations about ${topic}`}
-          note={channel === "hs" ? "HubSpot's chats filed under this topic in the period - click one to read it" : "The search bar's chats filed under this topic, among its latest 200"} />
-        {channel === "hs" ? <TopicConversations key={`${topic}-${days}`} topic={topic} days={days} /> : <SearchBarChatTab key={topic} topic={topic} />}
-      </Box>
     </>
   );
 }
@@ -239,7 +264,7 @@ export function RoutesCard({ d, channel, onOpen, reload }: { d: SteeringPage; ch
   const { busy, msg, save } = useSave(reload);
   const rows = useMemo(() => STEERING_TOPICS.map((t) => ({ t, f: d.topics.find((x) => x.topic === t)!, s: d.steering.topics[t] })), [d]);
   const hs = channel === "hs";
-  const heads = hs ? ["Topic", "Route", "Chats", "AI alone", "Handed (TSA · Back Office)", "Open", "Would go elsewhere"] : ["Topic", "Route", "Chats", "Of all search bar chats"];
+  const heads = hs ? ["Topic", "Route", "Chats", "AI alone", "Handed (TSA · Back Office)", "Open", "Closed"] : ["Topic", "Route", "Chats", "Of all search bar chats"];
   return (
     <GlassCard sx={{ display: "grid", gap: 1 }}>
       <CardTitle icon={<AltRouteOutlinedIcon />} tint="blue" title="Routes by topic"
@@ -260,7 +285,7 @@ export function RoutesCard({ d, channel, onOpen, reload }: { d: SteeringPage; ch
                     <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{pct(f.aiAlone, f.chats)}</TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{full(f.tsa)} · {full(f.bo)}</TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{d.openRead ? full(f.openTotal) : "—"}</TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{f.tsa + f.bo ? full(f.elsewhere) : "–"}</TableCell>
+                    <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{d.openRead ? full(f.closedTotal) : "—"}</TableCell>
                   </>
                 ) : <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right" }}>{pct(f.chats, allChats(d))}</TableCell>}
               </TableRow>

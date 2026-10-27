@@ -16,8 +16,6 @@ import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import SupportAgentOutlinedIcon from "@mui/icons-material/SupportAgentOutlined";
 import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
 import RepeatOutlinedIcon from "@mui/icons-material/RepeatOutlined";
-import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
-import TranslateOutlinedIcon from "@mui/icons-material/TranslateOutlined";
 import MonitorHeartOutlinedIcon from "@mui/icons-material/MonitorHeartOutlined";
 import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
 import { full } from "@/app/charts/format";
@@ -25,14 +23,22 @@ import { ChartFrame } from "@/app/charts/ChartFrame";
 import { StackedColumns } from "@/app/charts/StackedColumns";
 import { Chip } from "@/app/connectors/parts";
 import { CardTitle, FAINT, GlassCard, HsLink, KpiTile, MUTED, Notice, bodyCell, headCell } from "@/app/uc/report/ui";
-import { num, categoryLabel, type Conversation, type Health, type Stats } from "@/lib/chat/shape";
-import { Bars, HandlerChip, PagedBars, category, pct, when } from "./shared";
+import { FILING_CATEGORIES, NO_REQUEST, num, type Conversation, type Health, type Stats } from "@/lib/chat/shape";
+import { DimChart } from "@/app/reporting/marketing-kpis/DimChart";
+import { HandlerChip, category, pct, when } from "./shared";
 
 export type OverviewData = {
   stats: Stats; recent: Conversation[]; health: Health | null; liveFrom?: string; cappedAtLive?: boolean;
   /** the hub's own filing (Topics), when it has filed any chat of the period */
   topics?: { rows: { topic: string; chats: number }[]; filed: number } | null;
 };
+
+type CountRow = { label: string; n: number };
+/** a topic of the chart: one of the real Enquiry Categories only (SARCLA 27.10.2026: "real option only") - "No request",
+ *  "could not be read" and Others are counted under the chart, not drawn as topics */
+const isTopic = (v: string | null | undefined) => !!v && FILING_CATEGORIES.some((c) => c.value === v);
+const LANGUAGE: Record<string, string> = { de: "German", fr: "French", it: "Italian", en: "English", nl: "Dutch", pl: "Polish" };
+const languageName = (code: string | null | undefined) => (code ? LANGUAGE[code.toLowerCase()] ?? code.toUpperCase() : "Unknown");
 
 const CHECKS: [keyof Health, string][] = [
   ["postgres", "Database"], ["redis", "Chat memory"], ["hubspot", "HubSpot"], ["claude", "AI model"], ["embedding", "Knowledge search"],
@@ -49,6 +55,17 @@ export default function OverviewTab({ d, label, onOpenConversations }: { d: Over
   const weekly = byDay.length > 62;
   const bars = weekly ? byWeek(byDay) : byDay.map((r) => ({ day: String(r.date).slice(0, 10), total: num(r.total), handed: num(r.escalated) }));
   const perMessage = s.unit === "messages";
+  // the hub's filing when it has run, by the real Enquiry Categories only ("could not be read" and Others are no topic);
+  // until then the chat's own guess, read the same way
+  const filed = d.topics && d.topics.filed > 0;
+  const topicRows: CountRow[] = filed
+    ? d.topics!.rows.filter((t) => isTopic(t.topic)).map((t) => ({ label: t.topic, n: t.chats }))
+    : s.byCategory.filter((c) => isTopic(c.category)).map((c) => ({ label: c.category as string, n: num(c.count) }));
+  const languageRows: CountRow[] = s.byLanguage.map((l) => ({ label: languageName(l.language), n: num(l.count) }));
+  const leftOut = filed ? d.topics!.rows.filter((t) => !isTopic(t.topic)) : [];
+  const noRequest = leftOut.filter((t) => t.topic === NO_REQUEST).reduce((a, t) => a + t.chats, 0);
+  const gone = leftOut.filter((t) => t.topic === "unreadable").reduce((a, t) => a + t.chats, 0);
+  const notYet = filed ? Math.max(0, total - d.topics!.filed) : 0;
   return (
     <>
       {perMessage && <Notice tone="warn">These numbers count messages, not chats: the orchestrator has not had its update yet (APSOAssistant feat/chat-dry-run). A chat of four messages counts four times, so chats look 2-3 times more and hand-overs look rarer than they are.</Notice>}
@@ -72,29 +89,21 @@ export default function OverviewTab({ d, label, onOpenConversations }: { d: Over
         </ChartFrame>
       </GlassCard>
 
+      {/* the topics and the languages drawn as the reports draw a breakdown (SARCLA 27.10.2026: "show languages as a
+          diagram as in reports"; the topics by the classification rules - the real Enquiry Categories, no Others) */}
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <GlassCard sx={{ height: "100%" }}>
-            {d.topics && d.topics.filed > 0 ? (
-              <>
-                <CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="What the chats were about"
-                  note={`Filed by the hub after each chat, from the whole chat (Topics tab) - ${full(d.topics.filed)} of ${full(total)} chats filed${d.topics.filed < total ? " so far" : ""}.`} />
-                <PagedBars rows={d.topics.rows.map((t) => ({ label: categoryLabel(t.topic), n: t.chats }))} colour="#a96a12" />
-              </>
-            ) : (
-              <>
-                <CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="What the chats were about"
-                  note="The chat's own guess while it was talking. The hub's filing after each chat (Topics) takes over here once it has run." />
-                <PagedBars rows={s.byCategory.map((c) => ({ label: category(c.category), n: num(c.count) }))} colour="#a96a12" />
-              </>
-            )}
-          </GlassCard>
+        <Grid size={{ xs: 12, md: 6 }} sx={{ display: "grid", gap: 0.75, alignContent: "start" }}>
+          <DimChart<CountRow> single title="What the chats were about" rows={topicRows} cur={(r) => r.n} prev={() => 0}
+            curLabel="Chats" prevLabel="" fmt={full} curColor="#a96a12" labelWidth={180} />
+          {(noRequest > 0 || gone > 0 || notYet > 0) && (
+            <Typography sx={{ fontSize: "0.76rem", color: MUTED, px: 1 }}>
+              The Enquiry Categories only. Not drawn: {[noRequest ? `${full(noRequest)} chats that asked nothing` : "", gone ? `${full(gone)} HubSpot no longer holds` : "", notYet ? `${full(notYet)} not filed yet` : ""].filter(Boolean).join(", ")}.
+            </Typography>
+          )}
         </Grid>
         <Grid size={{ xs: 12, md: 6 }}>
-          <GlassCard sx={{ height: "100%" }}>
-            <CardTitle icon={<TranslateOutlinedIcon />} tint="blue" title="Language" note="The language the customer wrote in" />
-            <Bars rows={s.byLanguage.map((l) => ({ label: (l.language || "?").toUpperCase(), n: num(l.count) }))} />
-          </GlassCard>
+          <DimChart<CountRow> single title="Languages" rows={languageRows} cur={(r) => r.n} prev={() => 0}
+            curLabel="Chats" prevLabel="" fmt={full} labelWidth={120} />
         </Grid>
       </Grid>
 
