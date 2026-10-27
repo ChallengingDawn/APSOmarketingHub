@@ -6,10 +6,12 @@
 //       | transcript&ticket= (the whole chat from HubSpot, hand-over included)
 //       | setup (answers without the key: the address, /health, whether the key is set)
 //       | topics&days= | topic-chats&topic=&days=&offset= (filed by the hub after each chat: src/lib/chat/topics.ts)
+//       | steering&days= (the topic tabs: each Enquiry Category's route and figures, src/lib/chat/steering.ts)
 //       | sb-conversations&archived=0|1 (the search bar's AI conversations, each with its filing)
 //       | hs-changes&state=would-write|written|kept|same|error&offset= (the HubSpot side of the filing)
 //   POST { action: "topic-set", key, category, sub1? } (anyone with Website: a person's Enquiry Category, never filed over, written to HubSpot)
 //        | { action: "topics-run" } | { action: "filing-write", on } (admins: write the filing into the tickets, or only preview)
+//        | { action: "steering-save", steering } (admins: the topics' routes; the previous ones kept in kv chat:steering:log:*)
 //        { action: "test", message, language, country, conversationId? }   anyone with Website - a test writes
 //          nothing (the orchestrator's /dashboard/test-dry, 18.10.2026); an orchestrator without that fix
 //          answers 404 and the page says so, rather than the old /dashboard/test that made real tickets
@@ -25,6 +27,7 @@ import {
 import { chatTranscript } from "@/lib/chat/transcript";
 import { fileNow, hubspotChanges, setCategory, setWriteSwitch, topicChats, topicSummary, topicsFor } from "@/lib/chat/topics";
 import type { HsState } from "@/lib/chat/shape";
+import { saveSteering, steeringData } from "@/lib/chat/steering";
 import { adminToken as searchBarKey, gateway as searchBarGateway, type AiConversations } from "@/lib/searchbar/gateway";
 
 export const runtime = "nodejs";
@@ -69,6 +72,12 @@ export async function GET(req: NextRequest) {
       if (part === "topics") return ok({ ...(await topicSummary(from)), from, isAdmin });
       const topic = q.get("topic") || "";
       return ok(await topicChats(topic, from, int(q.get("offset"), 0, 0, 100_000), int(q.get("limit"), 20, 1, 100)));
+    }
+    if (part === "steering") {
+      // the topic tabs: each Enquiry Category's route when a person is needed, and its figures (steering.ts)
+      const days = int(q.get("days"), 30, 1, 400);
+      const from = new Date(Math.max(Date.now() - days * 86_400_000, Date.parse(`${LIVE_FROM}T00:00:00Z`))).toISOString();
+      return ok({ ...(await steeringData(from)), isAdmin });
     }
     if (part === "setup") {
       const [setting, health] = await Promise.all([orchestratorSetting(), orchestratorHealth()]);
@@ -171,6 +180,13 @@ export async function POST(req: NextRequest) {
       const run = await fileNow();
       console.log(`[chat-topics] run by ${who}: ${run.filed} filed${run.error ? ` (${run.error})` : ""}`);
       return NextResponse.json({ ok: run.ok, data: run, error: run.ok ? undefined : run.error ?? undefined });
+    }
+    if (body.action === "steering-save") {
+      // admins: the topics' routes - checked against HubSpot's options, the old ones kept in the hub's log
+      if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });
+      const s = await saveSteering(body.steering, who);
+      console.log(`[chat-steering] routes saved by ${who} (version ${s.version})`);
+      return NextResponse.json({ ok: true, data: s });
     }
     if (body.action === "orchestrator") {
       if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });
