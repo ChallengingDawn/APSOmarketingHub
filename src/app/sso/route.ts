@@ -5,16 +5,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isSandbox } from "@/lib/sandbox/mode";
 import { useTicket, userFor } from "@/lib/sandbox/door";
+import { publicUrl } from "@/lib/sandbox/peopleList";
 import { beginSession } from "@/lib/auth/sessions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Where to send the browser: the sandbox's public address - on Railway req.url is the server's own 0.0.0.0:3000. */
+function here(req: NextRequest, path: string): URL {
+  const pub = publicUrl(process.env);
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  const base = pub ?? (host ? `${req.headers.get("x-forwarded-proto") ?? "https"}://${host}` : req.url);
+  return new URL(path, base);
+}
+
 export async function GET(req: NextRequest) {
   if (!isSandbox()) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const person = await useTicket(req.nextUrl.searchParams.get("t") ?? "");
-  if (!person) return NextResponse.redirect(new URL("/signin?expired=1", req.url));
+  if (!person) return NextResponse.redirect(here(req, "/signin?expired=1"));
   const u = await userFor(person);
   await beginSession(u, req);
-  return NextResponse.redirect(new URL("/", req.url));
+  return NextResponse.redirect(here(req, "/"));
 }
