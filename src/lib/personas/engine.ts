@@ -39,8 +39,11 @@ export type State = {
   /** why the unclassified ones are */
   why: Record<string, number>;
   changes: Change[]; changesTotal: number;
-  /** of every change (not only the rows kept): how many go to each persona */
+  /** of every change still to make (not only the rows kept): how many go to each persona - after the writes of the
+   *  daily pass, only what is left (SARCLA 27.10.2026: "why still numbers then?") */
   changeCounts?: Record<string, number>;
+  /** the daily pass's writes: changed, and kept because a person set the persona by hand */
+  writtenTotal?: number; keptTotal?: number;
 };
 export type RunInfo = { at: string; seconds: number; looked: number; differ: number; written: number; kept: number; full: boolean; live: boolean; error?: string };
 
@@ -150,7 +153,8 @@ async function run(): Promise<RunInfo> {
   const live = await writing();
   const startedAt = new Date().toISOString();
   const state = await kvGet<State>(KV.state);
-  const full = !state?.at || Date.now() - Date.parse(state.at) > FULL_EVERY_MS || fullAsked;
+  // a state from before writtenTotal existed (27.10.2026) is checked again once in Live, so its counts say what is left
+  const full = !state?.at || Date.now() - Date.parse(state.at) > FULL_EVERY_MS || fullAsked || (live && state.writtenTotal === undefined);
   fullAsked = false;
   let changes: Change[];
   let looked: number;
@@ -182,7 +186,15 @@ async function run(): Promise<RunInfo> {
     for (const r of go) { const e = result.get(r.id); r.done = e ? { at: now, error: e } : { at: now }; if (!e) written++; }
   }
   // the page's list: the daily pass's differences, kept up to date by the 15-minute runs
-  if (next) next.changes = changes.slice(0, KEEP_ROWS);
+  if (next) {
+    // what is left to change after the writes (none in Live, all of it when Paused)
+    const left: Record<string, number> = {};
+    for (const r of changes) if (!r.done || r.done.error) left[r.to] = (left[r.to] ?? 0) + 1;
+    next.changeCounts = left;
+    next.writtenTotal = written;
+    next.keptTotal = kept;
+    next.changes = changes.filter((r) => !r.done || r.done.error).slice(0, KEEP_ROWS);
+  }
   else if (state) {
     const byId = new Map(state.changes.map((r) => [r.id, r]));
     for (const r of changes) byId.set(r.id, r);

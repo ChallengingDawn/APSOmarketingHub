@@ -18,6 +18,7 @@ import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import RuleOutlinedIcon from "@mui/icons-material/RuleOutlined";
+import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
@@ -183,8 +184,8 @@ export default function Personas() {
 
         {s && (
           <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-            <CardTitle icon={<SwapHorizIcon />} tint="green" title={`${d.writing ? "Being changed" : "To change"} · ${full(toChange)}`}
-              note={`Contacts whose persona in HubSpot is not the rules' one${toChange > open.length ? ` - ${full(open.length)} of them listed here` : ""}`}
+            <CardTitle icon={<SwapHorizIcon />} tint="green" title={`To change · ${full(toChange)}`}
+              note={`Contacts whose persona in HubSpot is not the rules' one${toChange > open.length ? ` - ${full(open.length)} of them listed here` : ""}${s.writtenTotal ? ` · ${full(s.writtenTotal)} changed at the check of ${when(s.at)}${s.keptTotal ? `, ${full(s.keptTotal)} kept because a person set them by hand` : ""}` : ""}`}
               right={d.admin && mode !== "live" && toChange > 0 ? (
                 <Button size="small" variant="contained" disableElevation disabled={!!busy} onClick={goLive} sx={{ textTransform: "none", whiteSpace: "nowrap" }}>Change all {full(toChange)} now</Button>
               ) : undefined} />
@@ -222,17 +223,33 @@ export default function Personas() {
           <Rules />
         </GlassCard>
 
-        {d.admin && (
-          <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-            <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>Admin:</Typography>
-            <Button size="small" variant="text" disabled={!!busy} onClick={() => (mode === "live" ? void call("mode", "PUT", { mode: "shadow" }) : goLive())} sx={{ textTransform: "none" }}>{mode === "live" ? "Pause" : "Switch to Live"}</Button>
-            <Button size="small" variant="text" disabled={!!busy || mode === "off"} onClick={() => void call("run", "POST", { action: "run" })} sx={{ textTransform: "none" }}>Run now</Button>
-            <Button size="small" variant="text" disabled={!!busy || mode === "off"} onClick={() => void call("full", "POST", { action: "full" })} sx={{ textTransform: "none" }}>Check every contact now</Button>
-            {busy && <CircularProgress size={14} />}
-            {msg && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{msg}</Typography>}
-            {d.last && <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>Last run {when(d.last.at)}: {full(d.last.looked)} looked at, {full(d.last.differ)} differ, {full(d.last.written)} written{d.last.kept ? `, ${full(d.last.kept)} kept (set by hand)` : ""}{d.last.error ? ` - ${d.last.error}` : ""}.</Typography>}
+        {/* SARCLA 27.10.2026: the admin line "inside a placeholder - steer control of personas" */}
+        <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+          <CardTitle icon={<TuneOutlinedIcon />} tint="blue" title="Steering" note="How Personas runs - every 15 minutes the contacts changed since the last run, once a day every contact" />
+          <Box sx={{ display: "grid", gap: 1.5 }}>
+            <Choice<"live" | "shadow" | "off"> value={mode} onChange={(m) => {
+              if (!d.admin || m === mode) return;
+              if (m === "live") { goLive(); return; }
+              void call("mode", "PUT", { mode: m });
+            }} options={[{ key: "live", label: "Live - the hub writes" }, { key: "shadow", label: "Paused - works it out, writes nothing" }, { key: "off", label: "Off" }]} />
+            <Typography sx={{ fontSize: "0.84rem", color: INK }}>
+              {d.writing ? <>Writing{d.settings.liveFrom ? ` since ${when(d.settings.liveFrom)}` : ""}.</> : mode === "live" ? "Waiting for the HubSpot workflow “SARCLA | PERSONAS SET” to be switched off." : mode === "shadow" ? "Paused: personas are worked out, nothing is written." : "Off."}
+              {s ? ` Every contact checked ${when(s.at)}${s.writtenTotal ? ` - ${full(s.writtenTotal)} changed` : ""}.` : ""}
+              {d.last ? ` Last run ${when(d.last.at)}: ${full(d.last.looked)} looked at, ${full(d.last.differ)} different, ${full(d.last.written)} written${d.last.kept ? `, ${full(d.last.kept)} kept (set by hand)` : ""}${d.last.error ? ` - did not finish: ${d.last.error}` : ""}.` : ""}
+            </Typography>
+            <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+              Written: the contact&apos;s <b>persona</b> (hs_persona) - only what differs, never one a person set by hand, never a contact with no job and no company.
+            </Typography>
+            {d.admin && (
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+                <Button variant="outlined" size="small" disabled={!!busy || mode === "off"} onClick={() => void call("run", "POST", { action: "run" })} sx={{ textTransform: "none" }}>Run now</Button>
+                <Button variant="outlined" size="small" disabled={!!busy || mode === "off"} onClick={() => void call("full", "POST", { action: "full" })} sx={{ textTransform: "none" }}>Check every contact now</Button>
+                {busy && <CircularProgress size={14} />}
+                {msg && <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>{msg}</Typography>}
+              </Box>
+            )}
           </Box>
-        )}
+        </GlassCard>
       </>
     );
   })();
