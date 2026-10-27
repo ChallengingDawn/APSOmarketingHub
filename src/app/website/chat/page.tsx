@@ -27,6 +27,7 @@ import TestTab from "./TestTab";
 import SetupTab from "./SetupTab";
 import SearchBarChatTab from "./SearchBarChatTab";
 import TopicsTab from "./TopicsTab";
+import AbTab from "./AbTab";
 import { ChannelTabs, RoutesCard, TopicTab, type Channel, type SteeringPage, type TopicView } from "./SteeringTab";
 
 const CHANNEL_KEY = "apsomh.chat.channel";
@@ -35,7 +36,7 @@ const TOPIC_VIEWS = STEERING_TOPICS.map((t) => `t-${topicSlug(t)}`);
 type View = string;
 const VIEW_HASH: Record<View, string> = {
   overview: "#overview", ...Object.fromEntries(TOPIC_VIEWS.map((v) => [v, `#${v}`])),
-  conversations: "#conversations", handovers: "#handovers", searchbar: "#searchbar", test: "#test", setup: "#setup", topics: "#topics",
+  conversations: "#conversations", handovers: "#handovers", searchbar: "#searchbar", ab: "#ab", test: "#test", setup: "#setup", topics: "#topics",
 };
 const topicOfView = (v: View) => STEERING_TOPICS.find((t) => `t-${topicSlug(t)}` === v) ?? null;
 /** the tab a view belongs to: the hand-overs and the search bar's chat are in Conversations, the filing in Setup */
@@ -79,6 +80,7 @@ export default function ChatPage() {
         </>
       )
     )
+    : view === "ab" ? <AbTab key={`ab-${n}`} />
     : view === "test" ? <TestTab key="test" />
     : view === "setup" || view === "topics" ? (
       <>
@@ -116,6 +118,7 @@ export default function ChatPage() {
           { id: "overview", label: "Overview", count: null },
           ...STEERING_TOPICS.map((t) => ({ id: `t-${topicSlug(t)}`, label: t, count: null })),
           { id: "conversations", label: "Conversations", count: null },
+          { id: "ab", label: "A/B test", count: null },
           { id: "test", label: "Test", count: null },
           { id: "setup", label: "Setup", count: null },
         ]} />

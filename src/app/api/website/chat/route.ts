@@ -8,11 +8,13 @@
 //       | topics&days= | topic-chats&topic=&days=&offset= (filed by the hub after each chat: src/lib/chat/topics.ts)
 //       | steering&days=&channel=hs|bar (the topic tabs: each Enquiry Category's route and figures, src/lib/chat/steering.ts)
 //       | topic-chats&topic=&days=&channel=hs|bar&handed=1 (one topic's chats, HubSpot's or the search bar's)
+//       | ab (the A/B test of the e-mail before the chat: setting + figures, from the shop chat's gateway - abtest.ts)
 //       | sb-conversations&archived=0|1 (the search bar's AI conversations, each with its filing)
 //       | hs-changes&state=would-write|written|kept|same|error&offset= (the HubSpot side of the filing)
 //   POST { action: "topic-set", key, category, sub1? } (anyone with Website: a person's Enquiry Category, never filed over, written to HubSpot)
 //        | { action: "topics-run" } | { action: "filing-write", on } (admins: write the filing into the tickets, or only preview)
 //        | { action: "steering-save", steering } (admins: the topics' routes; the previous ones kept in kv chat:steering:log:*)
+//        | { action: "ab-save", ab: { on, countries, split, restart? } } (admins: the A/B test on the shop chat's gateway)
 //        { action: "test", message, language, country, conversationId? }   anyone with Website - a test writes
 //          nothing (the orchestrator's /dashboard/test-dry, 18.10.2026); an orchestrator without that fix
 //          answers 404 and the page says so, rather than the old /dashboard/test that made real tickets
@@ -29,6 +31,8 @@ import { chatTranscript } from "@/lib/chat/transcript";
 import { fileNow, hubspotChanges, setCategory, setWriteSwitch, topicChats, topicSummary, topicsFor } from "@/lib/chat/topics";
 import type { HsState } from "@/lib/chat/shape";
 import { saveSteering, steeringData } from "@/lib/chat/steering";
+import { abData, saveAb } from "@/lib/chat/abtest";
+import { adminKey as directupKey } from "@/lib/directup/gateway";
 import { adminToken as searchBarKey, gateway as searchBarGateway, type AiConversations } from "@/lib/searchbar/gateway";
 
 export const runtime = "nodejs";
@@ -74,6 +78,11 @@ export async function GET(req: NextRequest) {
       const topic = q.get("topic") || "";
       return ok(await topicChats(topic, from, int(q.get("offset"), 0, 0, 100_000), int(q.get("limit"), 20, 1, 100),
         { source: q.get("channel") === "bar" ? "searchbar" : "chat", handedOnly: q.get("handed") === "1" }));
+    }
+    if (part === "ab") {
+      // the A/B test of the e-mail before the chat: its setting and figures, from the shop chat's gateway (abtest.ts)
+      if (!directupKey()) return NextResponse.json({ configured: false, missing: ["DIRECTUP_ADMIN_KEY"] });
+      return ok({ ...(await abData()), isAdmin });
     }
     if (part === "steering") {
       // the topic tabs: each Enquiry Category's route when a person is needed, and its figures (steering.ts)
@@ -182,6 +191,13 @@ export async function POST(req: NextRequest) {
       const run = await fileNow();
       console.log(`[chat-topics] run by ${who}: ${run.filed} filed${run.error ? ` (${run.error})` : ""}`);
       return NextResponse.json({ ok: run.ok, data: run, error: run.ok ? undefined : run.error ?? undefined });
+    }
+    if (body.action === "ab-save") {
+      // admins: the A/B test's switch, countries and split on the shop chat's gateway
+      if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });
+      const s = await saveAb(body.ab, who);
+      console.log(`[chat-ab] ${s.on ? "ON" : "off"} · ${s.countries.join(",") || "no country"} · ${s.split}% e-mail first · version ${s.v} - by ${who}`);
+      return NextResponse.json({ ok: true, data: s });
     }
     if (body.action === "steering-save") {
       // admins: the topics' routes - checked against HubSpot's options, the old ones kept in the hub's log
