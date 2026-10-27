@@ -215,10 +215,12 @@ async function customerSweep(aiLeft: number): Promise<number> {
   if (st.done || !client || aiLeft <= 0) return 0;
   // the AI's answers include "Spam or advertising": wait until HubSpot has it, or those tickets would be skipped for good
   if (!(await options())?.has(TOPIC.spam)) return 0;
+  // six filters a group at most (HubSpot answers "Error validating request" to a seventh, 27.10.2026): a ticket that
+  // carries a sentiment flag is skipped below instead of filtered here
   const base = [
     { propertyName: "hs_pipeline", operator: "EQ", value: BO }, { propertyName: "hs_pipeline_stage", operator: "EQ", value: RESOLVED },
     { propertyName: "sentiment_customer_tone", operator: "HAS_PROPERTY" }, { propertyName: "sentiment_customer_tone", operator: "NEQ", value: "not_valid_email" },
-    { propertyName: "sentiment_not_valid_reason", operator: "NOT_HAS_PROPERTY" }, { propertyName: "hs_object_id", operator: "GT", value: st.cursor },
+    { propertyName: "hs_object_id", operator: "GT", value: st.cursor },
   ];
   const j = await hubspotRetry<{ results?: Obj[] }>({ path: "/crm/v3/objects/tickets/search", method: "POST", body: {
     filterGroups: [{ filters: [...base, { propertyName: "enquiry_category", operator: "EQ", value: "Others" }] }, { filters: [...base, { propertyName: "enquiry_category", operator: "NOT_HAS_PROPERTY" }] }],
@@ -231,7 +233,7 @@ async function customerSweep(aiLeft: number): Promise<number> {
   let used = 0;
   for (const t of found) {
     const p = t.properties, txt = text.get(t.id) ?? "";
-    if (!(p.subject ?? "").trim() && !txt.trim()) continue;
+    if (p.sentiment_not_valid_reason || (!(p.subject ?? "").trim() && !txt.trim())) continue;
     used++;
     const g = await aiGuess(client, p.subject, txt).catch(() => null);
     if (g) rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d: fromGuess(g, txt, p.subject) });
@@ -303,11 +305,15 @@ async function run(): Promise<RunInfo> {
     const cats = rows.filter((x) => x.d.category).map((x) => x.d.category).join(", ");
     console.log(`[ticket-close] ${todo.length} resolved on Others/empty: ${rows.filter((x) => x.d.category).length} get a category${cats ? ` (${cats})` : ""}, ${rows.filter((x) => !x.d.category).length} stay Others - ${live ? `${written} written` : "the workflow is still on: nothing written"}`);
   }
+  // the two sweeps never cost the run its record: a failing one is logged and the run still keeps what it decided
+  // (27.10.2026: a refused search ended every run before this, so the same tickets were asked again every 5 minutes)
   if (live) {
-    await flagSweep();
-    const aiKey = `ticketClose:ai:${day()}`, usedNow = (await kvGet<number>(aiKey)) ?? 0;
-    const spent = await customerSweep(AI_PER_DAY - usedNow);
-    if (spent) await kvSet(aiKey, usedNow + spent);
+    try { await flagSweep(); } catch (e) { console.warn(`[ticket-close] daily pass: ${(e as Error).message}`); }
+    try {
+      const aiKey = `ticketClose:ai:${day()}`, usedNow = (await kvGet<number>(aiKey)) ?? 0;
+      const spent = await customerSweep(AI_PER_DAY - usedNow);
+      if (spent) await kvSet(aiKey, usedNow + spent);
+    } catch (e) { console.warn(`[ticket-close] customers of the history: ${(e as Error).message}`); }
   }
   const byId = new Map(kept.map((x) => [x.id, x]));
   for (const x of rows) byId.set(x.id, x);
