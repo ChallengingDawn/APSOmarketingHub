@@ -27,7 +27,7 @@
 // date become one Performis SAE tab, every title names the period. Year and month to date stay the ERP's own figures;
 // any other period adds up each customer's months - the order intake only as far as its months are loaded.
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
@@ -1313,6 +1313,9 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
   );
 }
 
+/** A tab's card is drawn again only when what it draws from changes - a click elsewhere on the page leaves it be. */
+const TabCardKept = memo(TabCard, (a, b) => a.c === b.c);
+
 /* ── the figures top right: the ERP's year and month to date ───────────── */
 
 /** The revenue against the ERP's forecast for the period (the running month pro rata) - the whole company, this year's months only. */
@@ -1498,28 +1501,44 @@ export function FiguresExplorer() {
     </Box>
   );
   const shell = { width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.75 } as const;
-  if (!cube || tooOld(cube)) return (
+  // the work a click asks for, kept: a team, filters and period are read from the cube once, not again on every render;
+  // the tabs and toggles answer at once and the charts follow as soon as they are drawn (SARCLA 27.10.2026: "the advanced
+  // reporting clicking and feeling feels really slow" - each click held the page 0.3 to 1 s)
+  const lead = leadOf(teamKey, leadKey, lt);
+  const fromP = params.get("from"), toP = params.get("to"), oldMtd = params.get("view") === "mtd";
+  const live = cube && !tooOld(cube) ? cube : null;
+  const eff = useMemo(() => (live ? withTeam(live, filters, teamKey, lead, leads) : null), [live, filters, teamKey, lead, leads]);
+  const per = useMemo(() => {
+    if (!live) return null;
+    const a0 = fromYm(live, fromP), b0 = fromYm(live, toP);
+    return a0 != null && b0 != null ? perOf(live, clampWindow(live, { start: a0, end: b0 })) : oldMtd ? mtdPer(live) : ytdPer(live);
+  }, [live, fromP, toP, oldMtd]);
+  const want = useMemo(() => ({ view, per, eff, team: teamKey, lead, filters }), [view, per, eff, teamKey, lead, filters]);
+  const drawn = useDeferredValue(want);
+  const stale = drawn !== want;
+  const c = useMemo<FigCtx | null>(() => (live && drawn.per && drawn.eff ? {
+    cube: live, kpi, kpiBusy: busy, team: drawn.team, view: drawn.view, per: drawn.per, filters: drawn.filters, eff: drawn.eff, lead: drawn.lead, leads, teams,
+    targets: acts?.targets, picked: companies.length, onPick: toggle, onBar: (d, l) => { toggle(d, l); openOn(d); }, onFilter: openOn,
+  } : null), [live, kpi, busy, drawn, leads, teams, acts?.targets, companies.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const figs = useMemo(() => (c ? periodFigures(c, forecastShown(c) ? againstForecast(c.cube, kpi, c.per) : null) : []), [c, kpi]);
+  if (!cube || tooOld(cube) || !c || !per) return (
     <Box sx={shell}>
       {back}
       <Typography component="h1" sx={H1}>Figures</Typography>
       <Waiting computing={computing || (!!cube && tooOld(cube))} progress={progress} error={error} picked={companies.length > 0} />
     </Box>
   );
-  const lead = leadOf(teamKey, leadKey, lt);
-  const eff = withTeam(cube, filters, teamKey, lead, leads);
-  const a0 = fromYm(cube, params.get("from")), b0 = fromYm(cube, params.get("to"));
-  const per = a0 != null && b0 != null ? perOf(cube, clampWindow(cube, { start: a0, end: b0 })) : params.get("view") === "mtd" ? mtdPer(cube) : ytdPer(cube);
-  const c: FigCtx = { cube, kpi, kpiBusy: busy, team: teamKey, view, per, filters, eff, lead, leads, teams, targets: acts?.targets, picked: companies.length, onPick: toggle, onBar: (d, l) => { toggle(d, l); openOn(d); }, onFilter: openOn };
-  const forecast = forecastShown(c) ? againstForecast(cube, kpi, per) : null;
   const active = chosenDims(filters);
   const chosen = active.flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
   // the tile toolbar per chart, keyed "eso-figures:<tab>:<chart>"; the team and the filters in force go with it, and its target per team
   const act: Act = (id, title, target) => (
     <TileActions where="tab" start="tab" edge={2}
-      tile={{ key: `eso-figures:${id}`, page: "eso-figures", tab: view, title, summary: `${teamName(c)} · ${perWords(cube, per)}`,
-        filters: { ...Object.fromEntries(active.map((d) => [d, filters[d] ?? []])), team: [teamKey], ...(lead ? { lead: [lead] } : {}), ...perFilters(cube, per) }, kind: "card",
-        target: target ? { key: targetKey(drawnOf(id)?.id ?? id, teamKey, lead, per), ...target } : undefined }} />
+      tile={{ key: `eso-figures:${id}`, page: "eso-figures", tab: c.view, title, summary: `${teamName(c)} · ${perWords(cube, c.per)}`,
+        filters: { ...Object.fromEntries(chosenDims(c.filters).map((d) => [d, c.filters[d] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), ...perFilters(cube, c.per) }, kind: "card",
+        target: target ? { key: targetKey(drawnOf(id)?.id ?? id, c.team, c.lead, c.per), ...target } : undefined }} />
   );
+  // the team the toggles show now (the charts may still be drawing the one before)
+  const now = { team: teamKey, lead, teams };
   const footnote = (
     <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
       Year and month to date: the ERP file&apos;s own figures per customer, of {dayWords(cube)}, against the same days a year earlier. Any other period, and the months: each customer&apos;s monthly revenue and order intake, summed
@@ -1538,7 +1557,7 @@ export function FiguresExplorer() {
         <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
           <Typography component="h1" sx={H1}>Figures</Typography>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-            <b style={{ color: INK }}>{teamName(c)}</b>{teamKey !== "total" ? " by Performis SAE" : ""} · {per.title} <b style={{ color: INK }}>{perWords(cube, per)}</b> - against {perWords(cube, per, 1)}{computing ? " · reading HubSpot again" : ""}
+            <b style={{ color: INK }}>{teamName(now)}</b>{teamKey !== "total" ? " by Performis SAE" : ""} · {per.title} <b style={{ color: INK }}>{perWords(cube, per)}</b> - against {perWords(cube, per, 1)}{computing ? " · reading HubSpot again" : ""}
           </Typography>
           {(chosen.length > 0 || per.id !== "ytd" || pick.chosen.length > 0) && (
             <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
@@ -1559,13 +1578,13 @@ export function FiguresExplorer() {
           )}
         </Box>
         <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}>
-          <FigureCards items={periodFigures(c, forecast)} />
+          <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease" }}><FigureCards items={figs} /></Box>
         </Box>
       </Box>
       {/* ESO | TSA | Total and, under ESO, the line managers' teams beside it - a row of their own, so the two stay side by side */}
       <Box sx={{ display: "grid", gap: 0.75, mt: -0.5 }}>
         <Teams team={teamKey} onTeam={setTeam} lead={leadKey} onLead={setLead} teams={teams} />
-        {lead && leads && membersOf(cube, "eso", lead, leads)?.length === 0 && <NoLeadYet name={teamName(c)} />}
+        {lead && leads && membersOf(cube, "eso", lead, leads)?.length === 0 && <NoLeadYet name={teamName(now)} />}
       </Box>
 
       {/* the tabs, and at their right end Views and Filters - as Who are our customers */}
@@ -1583,7 +1602,9 @@ export function FiguresExplorer() {
         </Button>
       </Box>
 
-      <TabCard key={`${view}-${per.id}`} c={c} act={act} footnote={footnote} />
+      <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
+        <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} footnote={footnote} />
+      </Box>
 
       <FilterWindow id="eso-figures-filters" period dims={FILTER_DIMS} open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube}
         win={per.win} setWin={setWin} filters={filters} toggle={toggle} customers={pick} clearAll={() => { clearAll(); setWin(ytdWin(cube)); }} />
@@ -1611,24 +1632,30 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
   const choose = (t: TeamKey) => { setTeam(t); try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
   const chooseLead = (l: LeadKey) => { setLeadKey(l); try { localStorage.setItem(KEPT_LEAD, l); } catch { /* here only */ } };
   const lead = leadOf(teamKey, leadKey, lt);
-  const ready = cube && !tooOld(cube);
-  const c: FigCtx | null = ready ? { cube, kpi, kpiBusy: busy, team: teamKey, view: "ytd", per: ytdPer(cube), filters: {}, eff: withTeam(cube, {}, teamKey, lead, leads), lead, leads, teams, targets: acts?.targets } : null;
+  // the toggle answers at once, the charts follow as soon as they are drawn - and are not drawn again on every render
+  // (SARCLA 27.10.2026: "clicking feels really slow")
+  const want = useMemo(() => ({ team: teamKey, lead }), [teamKey, lead]);
+  const drawn = useDeferredValue(want);
+  const stale = drawn !== want;
+  const ready = cube && !tooOld(cube) ? cube : null;
+  const c = useMemo<FigCtx | null>(() => (ready ? { cube: ready, kpi, kpiBusy: busy, team: drawn.team, view: "ytd", per: ytdPer(ready), filters: {}, eff: withTeam(ready, {}, drawn.team, drawn.lead, leads), lead: drawn.lead, leads, teams, targets: acts?.targets } : null),
+    [ready, kpi, busy, drawn, leads, teams, acts?.targets]);
   // every chart here follows the panel's ESO | TSA | Total and its line managers' teams (SARCLA 26.10.2026: "the toggle
   // should work in every figures graph") - the team a chart was sent with no longer holds it; its filters and period do
-  const st = teamKey, slead = lead;
-  const items: SortItem[] = !ready ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-figures" && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
+  const st = drawn.team, slead = drawn.lead;
+  const items: SortItem[] = useMemo(() => !ready ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-figures" && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
     const ch = chartOf(spec.key, spec.filters?.part?.[0]);
     const sf: Filters = Object.fromEntries(DIMS.flatMap((d) => (d !== "owner" && spec.filters?.[d]?.length ? [[d, spec.filters[d]]] : [])));
     const fmt = formatOf(acts, spec);
-    const sp = ch?.fixed ? (ch.fixed === "ytd" ? ytdPer(cube!) : mtdPer(cube!)) : perFromFilters(cube!, spec.filters) ?? ytdPer(cube!);
-    const sc: FigCtx = { cube: cube!, kpi, kpiBusy: busy, team: st, view: ch?.view ?? "ytd", per: sp, filters: sf, eff: withTeam(cube!, sf, st, slead, leads), lead: slead, leads, teams, targets: acts?.targets, half: fmt === "half" };
+    const sp = ch?.fixed ? (ch.fixed === "ytd" ? ytdPer(ready) : mtdPer(ready)) : perFromFilters(ready, spec.filters) ?? ytdPer(ready);
+    const sc: FigCtx = { cube: ready, kpi, kpiBusy: busy, team: st, view: ch?.view ?? "ytd", per: sp, filters: sf, eff: withTeam(ready, sf, st, slead, leads), lead: slead, leads, teams, targets: acts?.targets, half: fmt === "half" };
     const target = ch?.target ? { key: targetKey(ch.id, st, slead, sp), ...ch.target(sc) } : undefined;
     const actions = <TileActions where="nutshell" start="tab" edge={2} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, href: spec.href, kind: spec.kind, target }} />;
     return { key: spec.key, block: true, sx: fmt === "half" ? { gridColumn: { xs: "span 12", md: "span 6" } } : { gridColumn: "1 / -1" },
       node: ch ? ch.draw(sc, actions) : <GlassCard><CardTitle icon={<QueryStatsOutlinedIcon />} tint="purple" title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };
-  });
+  }), [ready, acts, kpi, busy, st, slead, leads, teams]);
   const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: "nutshell:eso-figures", keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
-  const figs = c ? figuresOf(erpTotals(c.cube, c.eff), forecastShown(c) ? againstForecast(c.cube, kpi, c.per) : null, c.cube) : [];
+  const figs = useMemo(() => (c ? figuresOf(erpTotals(c.cube, c.eff), forecastShown(c) ? againstForecast(c.cube, kpi, c.per) : null, c.cube) : []), [c, kpi]);
   // the panel's own cards and month charts have their Actions too (SARCLA 26.10.2026: "some BUC tiles don't have actions"):
   // tasks, a target - and taken off the BUC View there, they stay off
   const ownKey = (id: string) => `${PANEL}${id}`;
@@ -1636,13 +1663,13 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
   const ownActions = (id: string, title: string, kind: "kpi" | "card", target?: { key: string; unit: "eur" | "pct"; label: string }) => (
     <TileActions where="nutshell" start="nutshell" edge={2}
       tile={{ key: ownKey(id), page: "eso-figures", tab: "ytd", title: `${title}${c && c.team !== "total" ? ` - ${teamName(c)}` : ""}`, kind,
-        filters: { team: [teamKey], ...(lead ? { lead: [lead] } : {}), period: ["ytd"] }, href: `/reporting/eso-benchmark/figures?team=${teamKey}${lead ? `&lead=${lead}` : ""}`, target }} />
+        filters: { team: [st], ...(slead ? { lead: [slead] } : {}), period: ["ytd"] }, href: `/reporting/eso-benchmark/figures?team=${st}${slead ? `&lead=${slead}` : ""}`, target }} />
   );
   const cards = figs.filter((f) => !f.id || shown(f.id));
-  const figTarget = (f: Fig) => (c && f.id ? { key: targetKey(`panel:${f.id}`, teamKey, lead, c.per), unit: f.unit ?? "eur", label: `${f.label} is measured against it · ${teamName(c)}'s target - each team its own.` } : undefined);
+  const figTarget = (f: Fig) => (c && f.id ? { key: targetKey(`panel:${f.id}`, st, slead, c.per), unit: f.unit ?? "eur", label: `${f.label} is measured against it · ${teamName(c)}'s target - each team its own.` } : undefined);
   const monthChart = (id: "monrev" | "monoi") => {
     const d = drawnOf(`ytd:${id}`)!;
-    return d.draw(c!, ownActions(id, d.title({ ...c!, team: "total" }), "card", d.target ? { key: targetKey(d.id, teamKey, lead, c!.per), ...d.target(c!) } : undefined));
+    return d.draw(c!, ownActions(id, d.title({ ...c!, team: "total" }), "card", d.target ? { key: targetKey(d.id, st, slead, c!.per), ...d.target(c!) } : undefined));
   };
   return (
     <GlassCard sx={{ display: "grid", gap: 2.25 }}>
@@ -1659,7 +1686,7 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
       </Box>
       {c && lead && leads && membersOf(c.cube, "eso", lead, leads)?.length === 0 && <NoLeadYet name={teamName(c)} />}
       {!c ? <Waiting computing={computing || (!!cube && tooOld(cube))} progress={progress} error={error} /> : (
-        <>
+        <Box sx={{ display: "grid", gap: 2.25, opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
           <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(3, minmax(0, 1fr))", xl: `repeat(${cards.length}, minmax(0, 1fr))` } }}>
             {cards.map((f) => {
               const tgt = f.id ? targetFor(c, `panel:${f.id}`) : null;
@@ -1692,7 +1719,7 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
             </Box>
           )}
           {items.length > 0 && <SortableGrid items={items} order={acts?.orders?.["nutshell:eso-figures"]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} />}
-        </>
+        </Box>
       )}
     </GlassCard>
   );

@@ -79,7 +79,13 @@ export function useCustomersCube(companies: string[] = []): { cube: Cube | null;
     const url = `/api/reporting/marketing-kpis/customers${ids ? `?companies=${encodeURIComponent(ids)}` : ""}`;
     // a deployment's error page is a moment, not an answer: ask again, keep what is shown
     const load = (tries = 0) => hubJson<{ ok?: boolean; cube?: SlowState<Cube>; error?: string }>(url)
-      .then((j) => { if (!alive) return; setSt({ ...j, ids }); timer = j?.cube?.computing ? setTimeout(() => { timer = undefined; load(); }, RETRY_MS) : undefined; })
+      .then((j) => {
+        if (!alive) return;
+        // the same read again (the page came back into view, the 10-minute look): kept as it is, so nothing is worked out
+        // or drawn again (SARCLA 27.10.2026: "clicking feels really slow" - every return to the window re-did a 5 MB cube)
+        setSt((was) => (was?.ids === ids && was?.cube?.value && j?.cube?.value && was.cube.value.generatedAt === j.cube.value.generatedAt && !!was.cube.computing === !!j.cube.computing && !j.error ? was : { ...j, ids }));
+        timer = j?.cube?.computing ? setTimeout(() => { timer = undefined; load(); }, RETRY_MS) : undefined;
+      })
       .catch((e) => {
         if (!alive) return;
         if (tries < RETRIES) { timer = setTimeout(() => load(tries + 1), RETRY_MS); return; }
@@ -728,6 +734,14 @@ export function FilterWindow({ id = "customers-filters", period = true, dims = O
   };
   const flip = (k: Dim | "period" | "customer") => setShut((s) => ({ ...s, [k]: isOpen(k) }));
   const picked = customers?.chosen ?? [];
+  // its folds exist while it is open (and a moment after, while it closes): closed, it works nothing out - before, its
+  // eight lists were counted again over the whole cube on every click of the page behind it
+  const [live, setLive] = useState(open);
+  useEffect(() => {
+    if (open) { setLive(true); return; }
+    const t = setTimeout(() => setLive(false), 320);
+    return () => clearTimeout(t);
+  }, [open]);
   // opened from a chart: that breakdown unfolds, comes into view and lights up for a moment
   const [lit, setLit] = useState<Dim | null>(null);
   useEffect(() => {
@@ -752,7 +766,7 @@ export function FilterWindow({ id = "customers-filters", period = true, dims = O
             sx={{ height: 26, fontSize: "0.76rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
         )),
       ] : null}>
-      {period && (
+      {live && period && (
       <Section id="filter-period" index={0} title="Period" icon={<CalendarMonthOutlinedIcon />} tint="blue" open={isOpen("period")} onFlip={() => flip("period")}
         summary={windowLabel(cube, win)}>
         <Period cube={cube} win={win} onChange={setWin} />
@@ -761,13 +775,13 @@ export function FilterWindow({ id = "customers-filters", period = true, dims = O
         </Typography>
       </Section>
       )}
-      {customers && (
+      {live && customers && (
         <Section id="filter-customer" index={1} title="Customer" icon={<StorefrontOutlinedIcon />} tint="slate" open={isOpen("customer")} onFlip={() => flip("customer")}
           summary={!picked.length ? "All" : picked.length === 1 ? picked[0].name : `${picked.length} chosen`} chosen={picked.length > 0}>
           <CustomerSearch pick={customers} />
         </Section>
       )}
-      {dims.map((dim, i) => (
+      {live && dims.map((dim, i) => (
         <Section key={dim} id={`filter-${dim}`} index={i + 2} lit={lit === dim} title={names[dim] ?? DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => flip(dim)} summary={!filters[dim]?.length ? "All" : filters[dim]!.length === 1 ? filters[dim]![0] : `${filters[dim]!.length} chosen`} chosen={!!filters[dim]?.length}>
           <Facet cube={cube} dim={dim} win={win} filters={filters} onPick={(l) => toggle(dim, l)} />
         </Section>
