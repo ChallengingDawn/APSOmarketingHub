@@ -4,11 +4,12 @@
 // classified that way"; "how can we improve the detection of Others?"). The workflow's keyword classifier and the improved
 // one (classifierV2.ts) side by side on every e-mail: the category, the keywords that decided it, the fixes that changed it,
 // and the category a person set afterwards - the only real measure. Then what the "Others" are, and how to shrink them.
-// The three tiles and the month by month splits (what customers asked, what was not a customer request) count every Back
-// Office ticket of the period picked on top, from HubSpot (src/lib/boDetection), beside the same number of days just
-// before it; the e-mail by e-mail part below is what the hub read itself and names its dates.
+// The three tiles and the splits (one chart, three groups: customer request, not a customer request, not decided yet;
+// a group's topics; every figure) count every Back Office ticket of the period picked on top, from HubSpot
+// (src/lib/boDetection), beside the same number of days just before it; the e-mail by e-mail part below is what the hub
+// read itself and names its dates.
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
@@ -66,69 +67,72 @@ const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct
 const monthLabel = (ym: string) => `${MON[Number(ym.slice(5, 7)) - 1]} ${ym.slice(2, 4)}`;
 
 /**
- * The two splits, month by month. Four parts a chart at most (the palette is never cycled), so the topics are grouped:
- * what customers asked, and what was not a customer request; the table under them has every topic on its own.
+ * Three groups, the same colour in every month (SARCLA 27.10.2026: "graphs still really confusing" - chose one chart,
+ * three groups, a group's topics on a click): what customers asked, what was not a customer request, and what is not
+ * decided yet (Others or no category - open tickets, decided when they close).
  */
-const CUSTOMER_PARTS: { key: string; label: string; of: (c: string) => boolean }[] = [
-  { key: "delivery", label: "Delivery", of: (c) => c === "Delivery" },
-  { key: "info", label: "Product Information", of: (c) => c === "Product Information" },
-  { key: "rest", label: "The other topics", of: (c) => isTopic(c) && !["Delivery", "Product Information"].includes(c) && !FLAG_TOPICS.includes(c) && c !== TOPIC.spam },
-  { key: "others", label: "Still Others", of: (c) => !isTopic(c) },
+type Group = "asked" | "not" | "open";
+const GROUPS: { key: Group; label: string; of: (c: string) => boolean }[] = [
+  { key: "asked", label: "Customer request", of: (c) => isTopic(c) && !notAsked(c) },
+  { key: "not", label: "Not a customer request", of: (c) => notAsked(c) },
+  { key: "open", label: "Not decided yet", of: (c) => !isTopic(c) },
 ];
-const MACHINE_PARTS: { key: string; label: string; of: (c: string) => boolean }[] = [
-  { key: "internal", label: "Internal e-mail", of: (c) => c === TOPIC.internal },
-  { key: "automatic", label: "Automatic e-mail and MS365", of: (c) => c === TOPIC.automatic || c === TOPIC.ms365 },
-  { key: "spam", label: "Spam or advertising", of: (c) => c === TOPIC.spam },
-  { key: "fae", label: "Finance, AVOR and empty e-mail", of: (c) => c === TOPIC.finance || c === TOPIC.avor || c === TOPIC.empty },
-];
+const groupOf = (c: string) => GROUPS.find((g) => g.of(c))!.key;
 
-function SplitChart({ caption, parts, months }: { caption: string; parts: typeof CUSTOMER_PARTS; months: PeriodFigures["byMonth"] }) {
-  const data = months.map((m) => {
-    const row: Record<string, number | string> = { x: m.ym };
-    for (const p of parts) row[p.key] = Object.entries(m.topics).filter(([c]) => p.of(c)).reduce((t, [, n]) => t + n, 0);
-    return row as { x: string } & Record<string, number>;
-  });
-  const total = data.reduce((t, r) => t + parts.reduce((u, p) => u + (r[p.key] as number), 0), 0);
-  const table: TableTwin = {
-    columns: ["Month", ...parts.map((p) => p.label), "Together"],
-    rows: data.map((r) => [monthLabel(r.x), ...parts.map((p) => r[p.key] as number), parts.reduce((u, p) => u + (r[p.key] as number), 0)]),
-    numeric: parts.map((_, i) => i + 1).concat(parts.length + 1),
-  };
-  return (
-    <ChartFrame caption={caption} table={table} empty={total ? null : "No ticket in this period."}>
-      <StackedColumns data={data} parts={parts.map(({ key, label }) => ({ key, label }))} format={(v) => full(v ?? 0)} xFormat={monthLabel} />
-    </ChartFrame>
-  );
-}
-
-/** What the tickets of the period are, month by month - and every topic on its own in the table. */
+/** What the tickets of the period are: month by month in three groups, a group's topics, and every figure. */
 function Splits({ f, w, label }: { f: PeriodFigures; w: Win; label: string }) {
-  const rows = Object.entries(w.topics).map(([c, hows]) => ({ c, hows, n: Object.values(hows).reduce((a, x) => a + (x ?? 0), 0) }))
-    .sort((a, b) => Number(isTopic(b.c)) - Number(isTopic(a.c)) || Number(notAsked(a.c)) - Number(notAsked(b.c)) || b.n - a.n);
+  const [group, setGroup] = useState<Group>("asked");
   const months = f.byMonth;
+  const topics = Object.entries(w.topics).map(([c, hows]) => ({ c, hows, n: Object.values(hows).reduce((a, x) => a + (x ?? 0), 0), g: groupOf(c) }))
+    .sort((a, b) => b.n - a.n);
+  const inGroup = (g: Group, m: Record<string, number>) => Object.entries(m).filter(([c]) => groupOf(c) === g).reduce((t, [, n]) => t + n, 0);
+  const groupN = (g: Group) => topics.filter((t) => t.g === g).reduce((a, t) => a + t.n, 0);
+  const data = months.map((m) => ({ x: m.ym, asked: inGroup("asked", m.topics), not: inGroup("not", m.topics), open: inGroup("open", m.topics) }));
+  const table: TableTwin = {
+    columns: ["Month", ...GROUPS.map((g) => g.label), "All Back Office tickets"],
+    rows: data.map((r) => [monthLabel(r.x), r.asked, r.not, r.open, r.asked + r.not + r.open]),
+    numeric: [1, 2, 3, 4],
+  };
+  const name = (c: string) => (c === "(empty)" ? "No category" : c);
+  const monthTotal = (ym: string, g?: Group) => Object.entries(months.find((m) => m.ym === ym)?.topics ?? {}).filter(([c]) => !g || groupOf(c) === g).reduce((t, [, n]) => t + n, 0);
+  const num = { ...bodyCell, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" };
+  const Line = ({ title, n, cells, strong, sub }: { title: string; n: number; cells: number[]; strong?: boolean; sub?: string }) => (
+    <TableRow sx={strong ? { bgcolor: "rgba(36, 89, 209, 0.04)" } : undefined}>
+      <TableCell sx={{ ...bodyCell, fontWeight: strong ? 800 : 600, whiteSpace: "nowrap", color: INK }}>{title}</TableCell>
+      {cells.map((v, i) => <TableCell key={months[i].ym} sx={{ ...num, fontWeight: strong ? 700 : 400, color: v ? INK : MUTED }}>{v ? full(v) : "—"}</TableCell>)}
+      <TableCell sx={{ ...num, fontWeight: 800 }}>{full(n)}</TableCell>
+      <TableCell sx={{ ...num, color: MUTED }}>{pct(n, w.n)}</TableCell>
+      <TableCell sx={{ ...num, color: MUTED }}>{sub ?? ""}</TableCell>
+    </TableRow>
+  );
   return (
     <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-      <CardTitle icon={<CategoryOutlinedIcon />} tint="blue" title="What the tickets are, month by month"
-        note={`Every Back Office ticket created ${label}, by the topic it has today. The first and last month count only the days inside the period`} />
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, lg: 6 }}><SplitChart caption="What customers asked" parts={CUSTOMER_PARTS} months={months} /></Grid>
-        <Grid size={{ xs: 12, lg: 6 }}><SplitChart caption="What was not a customer request" parts={MACHINE_PARTS} months={months} /></Grid>
-      </Grid>
+      <CardTitle icon={<CategoryOutlinedIcon />} tint="blue" title="What the Back Office tickets are"
+        note={`The ${full(w.n)} Back Office tickets created ${label}, by the topic they have today, month by month. The first and last month count only the days inside the period`} />
+      <ChartFrame caption="Back Office tickets per month" table={table} empty={w.n ? null : "No ticket in this period."}>
+        <StackedColumns data={data} parts={GROUPS.map(({ key, label: l }) => ({ key, label: l }))} format={(v) => full(v ?? 0)} xFormat={monthLabel} />
+      </ChartFrame>
+      <Box sx={{ mt: 2.5, mb: 1.25 }}>
+        <Choice<Group> value={group} onChange={setGroup} options={GROUPS.map((g) => ({ key: g.key, label: g.label, count: groupN(g.key) }))} />
+      </Box>
+      <BarList rows={topics.filter((t) => t.g === group).map((t) => ({ label: name(t.c), value: t.n }))} labelWidth={230} format={(v) => `${full(v ?? 0)} · ${pct(v ?? 0, w.n)}`}
+        emptyMessage={group === "open" ? "Nothing left undecided - every closed ticket has its topic." : "None in this period."} />
       <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: INK, mt: 2.5, mb: 0.75 }}>All the figures</Typography>
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small">
-          <TableHead><TableRow>{["Topic", ...months.map((m) => monthLabel(m.ym)), "Tickets", "Share", "By keywords only", "AI's unsure guess"].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i ? "right" : "left", whiteSpace: "nowrap" }}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableHead><TableRow>{["", ...months.map((m) => monthLabel(m.ym)), "Tickets", "Share", "By keywords only"].map((h, i) => <TableCell key={h || "topic"} sx={{ ...headCell, textAlign: i ? "right" : "left", whiteSpace: "nowrap" }}>{h}</TableCell>)}</TableRow></TableHead>
           <TableBody>
-            {rows.map((r) => (
-              <TableRow key={r.c}>
-                <TableCell sx={{ ...bodyCell, fontWeight: 600, whiteSpace: "nowrap", color: isTopic(r.c) ? INK : MUTED }}>{r.c === "(empty)" ? "No category" : r.c}</TableCell>
-                {months.map((m) => <TableCell key={m.ym} sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums", color: m.topics[r.c] ? INK : MUTED }}>{m.topics[r.c] ? full(m.topics[r.c]) : "—"}</TableCell>)}
-                <TableCell sx={{ ...bodyCell, textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{full(r.n)}</TableCell>
-                <TableCell sx={{ ...bodyCell, textAlign: "right", color: MUTED }}>{pct(r.n, w.n)}</TableCell>
-                <TableCell sx={{ ...bodyCell, textAlign: "right", color: MUTED }}>{r.hows.keywords ? pct(r.hows.keywords, r.n) : "—"}</TableCell>
-                <TableCell sx={{ ...bodyCell, textAlign: "right", color: r.hows.guess ? INK : MUTED }}>{r.hows.guess ? full(r.hows.guess) : "—"}</TableCell>
-              </TableRow>
-            ))}
+            {GROUPS.map((g) => {
+              const rows = topics.filter((t) => t.g === g.key);
+              if (!rows.length) return null;
+              return (
+                <Fragment key={g.key}>
+                  <Line title={g.label} n={groupN(g.key)} cells={months.map((m) => monthTotal(m.ym, g.key))} strong />
+                  {rows.map((t) => <Line key={t.c} title={`   ${name(t.c)}`} n={t.n} cells={months.map((m) => m.topics[t.c] ?? 0)} sub={t.hows.keywords ? pct(t.hows.keywords, t.n) : "—"} />)}
+                </Fragment>
+              );
+            })}
+            <Line title="All Back Office tickets" n={w.n} cells={months.map((m) => monthTotal(m.ym))} strong />
           </TableBody>
         </Table>
       </Box>

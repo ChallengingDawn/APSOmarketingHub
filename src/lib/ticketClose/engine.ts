@@ -17,7 +17,7 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { getAnthropic } from "@/lib/ai/claude";
 import { aiClassify } from "@/lib/boDistribution/aiClassify";
-import { BO, RESOLVED, WORKFLOW_ID, before, conversation, fromAi, fromGuess, isCustomer, isOpen, patchFor, type Decision, type Mail } from "./rules";
+import { BO, RESOLVED, WORKFLOW_ID, before, conversation, flagTopic, fromAi, fromGuess, isOpen, patchFor, type Decision, type Mail } from "./rules";
 import { aiGuess } from "./guess";
 import { FLAG_TOPICS, HIDDEN_TOPICS, TOPIC } from "./topics";
 
@@ -31,7 +31,7 @@ const KEEP_DAYS = 21;
 const AI_PER_DAY = 1000;
 /** customer e-mails of the history read per run, until all are done */
 const SWEEP_PER_RUN = 25;
-const KV = { rows: "ticketClose:rows", last: "ticketClose:last", sweep: "ticketClose:flagSweep", customers: "ticketClose:customerSweep", guessed: "ticketClose:guessed" };
+const KV = { rows: "ticketClose:rows", last: "ticketClose:last", sweep: "ticketClose:flagSweep", customers: "ticketClose:customerSweep", internal: "ticketClose:internalSweep", guessed: "ticketClose:guessed" };
 const TICKET_PROPS = ["subject", "content", "enquiry_category", "createdate", "source_type", "order_number", "sentiment_not_valid_reason", "sentiment_customer_tone", `hs_v2_date_entered_${RESOLVED}`];
 
 export type Written = { at: string; error?: string; skipped?: string };
@@ -132,6 +132,12 @@ async function decideAll(tickets: Obj[], text: Map<string, string>, aiMax: numbe
   for (const t of tickets) {
     const p = t.properties, txt = text.get(t.id) ?? "";
     let d = before({ subject: p.subject, text: txt, notValid: p.sentiment_not_valid_reason });
+    // one of us wrote it: what is it about (SARCLA 27.10.2026, "drill down on Internal e-mail")
+    if (d?.category === TOPIC.internal && client && ai < aiMax) {
+      ai++;
+      const g = await aiGuess(client, p.subject, txt, "internal").catch(() => null);
+      if (g) d = fromGuess(g, txt, p.subject);
+    }
     if (!d) {
       if (!client || ai >= aiMax) d = fromAi(null, txt, p.subject);
       else {
@@ -139,8 +145,8 @@ async function decideAll(tickets: Obj[], text: Map<string, string>, aiMax: numbe
         let ans = null;
         for (let i = 0; i < 2 && !ans; i++) { try { ans = await aiClassify(client, p.subject, txt); } catch { /* asked again once */ } }
         d = fromAi(ans, txt, p.subject);
-        // a customer wrote it, and nothing stays Others: the closest topic, with how sure
-        if (d.stay === "unclear" && isCustomer(p.sentiment_customer_tone) && ai < aiMax) {
+        // nothing stays Others (SARCLA 27.10.2026: "Recognise should be 100%"): the closest topic, with how sure
+        if (d.stay === "unclear" && ai < aiMax) {
           ai++;
           const g = await aiGuess(client, p.subject, txt).catch(() => null);
           if (g) d = fromGuess(g, txt, p.subject);
@@ -155,8 +161,9 @@ async function decideAll(tickets: Obj[], text: Map<string, string>, aiMax: numbe
  * What may be written over: Others or empty - or one of the hub's own hidden topics when the sentiment flag now says
  * another topic (the sweep made "one of us wrote it" more precise). Nothing a person or a classifier set.
  */
-const replaceable = (cur: string | null | undefined, cat: string | null) =>
-  isOpen(cur) || (!!cur && HIDDEN_TOPICS.includes(cur) && !!cat && FLAG_TOPICS.includes(cat) && cur !== cat);
+const replaceable = (cur: string | null | undefined, d: Decision) =>
+  isOpen(cur) || (!!cur && HIDDEN_TOPICS.includes(cur) && !!d.category && cur !== d.category
+    && (FLAG_TOPICS.includes(d.category) || (cur === TOPIC.internal && d.by === "guess")));
 
 /**
  * Only onto what is replaceable (read again just before), a flag topic only once HubSpot has it as an option; 100 a
@@ -172,7 +179,7 @@ async function writeSafe(rows: Row[]): Promise<number> {
   for (const r of rows) {
     const c = cur.get(r.id);
     if (!c) { r.written = { at: now, error: "ticket not found" }; continue; }
-    if (!replaceable(c.enquiry_category, r.d.category)) { r.written = { at: now, skipped: `has "${c.enquiry_category}" meanwhile` }; continue; }
+    if (!replaceable(c.enquiry_category, r.d)) { r.written = { at: now, skipped: `has "${c.enquiry_category}" meanwhile` }; continue; }
     if (r.d.category && FLAG_TOPICS.includes(r.d.category) && !opts?.has(r.d.category)) { r.written = { at: now, skipped: `"${r.d.category}" is not an option in HubSpot yet` }; continue; }
     const after = patchFor(r.d, c);
     if (Object.keys(after).length) todo.push({ r, before: { enquiry_category: c.enquiry_category ?? null, order_number: c.order_number ?? null }, after });
@@ -206,8 +213,9 @@ async function writeSafe(rows: Row[]): Promise<number> {
 }
 
 /**
- * Every run, while the history is not done: 25 closed tickets still on Others/empty that the sentiment sweep scored as a
- * customer get the AI's closest topic - one answer each, within the day's AI budget. Oldest first (cursor kept in kv).
+ * Every run, while the history is not done: 25 closed tickets still on Others/empty get the AI's closest topic - or
+ * Spam or advertising - one answer each, within the day's AI budget; nothing to read is Empty e-mail. A ticket whose
+ * sentiment flag gives a topic is the daily pass's. Oldest first (cursor kept in kv).
  */
 async function customerSweep(aiLeft: number): Promise<number> {
   const st = (await kvGet<{ cursor: string; done?: boolean; written?: number }>(KV.customers)) ?? { cursor: "0" };
@@ -215,34 +223,69 @@ async function customerSweep(aiLeft: number): Promise<number> {
   if (st.done || !client || aiLeft <= 0) return 0;
   // the AI's answers include "Spam or advertising": wait until HubSpot has it, or those tickets would be skipped for good
   if (!(await options())?.has(TOPIC.spam)) return 0;
-  // six filters a group at most (HubSpot answers "Error validating request" to a seventh, 27.10.2026): a ticket that
-  // carries a sentiment flag is skipped below instead of filtered here
+  // six filters a group at most (HubSpot answers "Error validating request" to a seventh, 27.10.2026)
   const base = [
     { propertyName: "hs_pipeline", operator: "EQ", value: BO }, { propertyName: "hs_pipeline_stage", operator: "EQ", value: RESOLVED },
-    { propertyName: "sentiment_customer_tone", operator: "HAS_PROPERTY" }, { propertyName: "sentiment_customer_tone", operator: "NEQ", value: "not_valid_email" },
     { propertyName: "hs_object_id", operator: "GT", value: st.cursor },
   ];
   const j = await hubspotRetry<{ results?: Obj[] }>({ path: "/crm/v3/objects/tickets/search", method: "POST", body: {
     filterGroups: [{ filters: [...base, { propertyName: "enquiry_category", operator: "EQ", value: "Others" }] }, { filters: [...base, { propertyName: "enquiry_category", operator: "NOT_HAS_PROPERTY" }] }],
     properties: TICKET_PROPS, sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: Math.min(SWEEP_PER_RUN, aiLeft),
   } });
-  const found = j.results ?? [];
-  if (!found.length) { await kvSet(KV.customers, { ...st, done: true, at: new Date().toISOString() }); return 0; }
+  const found = (j.results ?? []).filter((t) => !flagTopic(t.properties.sentiment_not_valid_reason));
+  const last = j.results?.[j.results.length - 1];
+  if (!last) { await kvSet(KV.customers, { ...st, done: true, at: new Date().toISOString() }); return 0; }
   const text = await conversations(found);
   const rows: Row[] = [];
   let used = 0;
   for (const t of found) {
     const p = t.properties, txt = text.get(t.id) ?? "";
-    if (p.sentiment_not_valid_reason || (!(p.subject ?? "").trim() && !txt.trim())) continue;
-    used++;
-    const g = await aiGuess(client, p.subject, txt).catch(() => null);
-    if (g) rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d: fromGuess(g, txt, p.subject) });
+    let d = before({ subject: p.subject, text: txt, notValid: null });
+    if (!d) {
+      used++;
+      const g = await aiGuess(client, p.subject, txt).catch(() => null);
+      if (g) d = fromGuess(g, txt, p.subject);
+    }
+    if (d?.category) rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d });
   }
   const written = rows.length ? await writeSafe(rows) : 0;
-  await kvSet(KV.customers, { cursor: String(found[found.length - 1].id), written: (st.written ?? 0) + written, at: new Date().toISOString() });
+  await kvSet(KV.customers, { cursor: String(last.id), written: (st.written ?? 0) + written, at: new Date().toISOString() });
   const sure = (k: string) => rows.filter((r) => r.d.sure === k).length;
-  console.log(`[ticket-close] customers of the history: ${found.length} read, ${written} get their closest topic (sure: high ${sure("high")}, medium ${sure("medium")}, low ${sure("low")}) - ${(st.written ?? 0) + written} so far`);
+  console.log(`[ticket-close] Others of the history: ${found.length} read, ${written} get their closest topic (sure: high ${sure("high")}, medium ${sure("medium")}, low ${sure("low")}) - ${(st.written ?? 0) + written} so far`);
   return used;
+}
+
+/**
+ * Every run, while the history is not done: 25 closed tickets on Internal e-mail are read by the AI - a request a
+ * colleague passes on gets its real topic, Finance's system mail Finance e-mail, other system reports Automatic e-mail;
+ * only internal admin stays (SARCLA 27.10.2026: "drill down on Internal e-mail" - "what they are about").
+ */
+async function internalSweep(aiLeft: number): Promise<number> {
+  const st = (await kvGet<{ cursor: string; done?: boolean; moved?: number }>(KV.internal)) ?? { cursor: "0" };
+  const client = getAnthropic();
+  if (st.done || !client || aiLeft <= 0) return 0;
+  const j = await hubspotRetry<{ results?: Obj[] }>({ path: "/crm/v3/objects/tickets/search", method: "POST", body: {
+    filterGroups: [{ filters: [
+      { propertyName: "hs_pipeline", operator: "EQ", value: BO }, { propertyName: "hs_pipeline_stage", operator: "EQ", value: RESOLVED },
+      { propertyName: "enquiry_category", operator: "EQ", value: TOPIC.internal }, { propertyName: "hs_object_id", operator: "GT", value: st.cursor },
+    ] }],
+    properties: TICKET_PROPS, sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: Math.min(SWEEP_PER_RUN, aiLeft),
+  } });
+  const found = j.results ?? [];
+  if (!found.length) { await kvSet(KV.internal, { ...st, done: true, at: new Date().toISOString() }); return 0; }
+  const text = await conversations(found);
+  const rows: Row[] = [];
+  for (const t of found) {
+    const p = t.properties, txt = text.get(t.id) ?? "";
+    const g = await aiGuess(client, p.subject, txt, "internal").catch(() => null);
+    if (g && g.category !== TOPIC.internal) rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d: fromGuess(g, txt, p.subject) });
+  }
+  const moved = rows.length ? await writeSafe(rows) : 0;
+  await kvSet(KV.internal, { cursor: String(found[found.length - 1].id), moved: (st.moved ?? 0) + moved, at: new Date().toISOString() });
+  const by: Record<string, number> = {};
+  for (const r of rows) if (r.written && !r.written.error && !r.written.skipped) by[r.d.category!] = (by[r.d.category!] ?? 0) + 1;
+  console.log(`[ticket-close] Internal e-mail of the history: ${found.length} read, ${moved} moved to their topic${moved ? ` (${Object.entries(by).map(([k, n]) => `${k} ${n}`).join(", ")})` : ""}, ${found.length - moved} stay internal - ${(st.moved ?? 0) + moved} moved so far`);
+  return found.length;
 }
 
 /**
@@ -271,9 +314,12 @@ async function flagSweep(): Promise<void> {
     ...(await search([[...base, { propertyName: "enquiry_category", operator: "EQ", value: "Others" }], [...base, { propertyName: "enquiry_category", operator: "NOT_HAS_PROPERTY" }]])),
     ...(await search([[...base, { propertyName: "enquiry_category", operator: "IN", values: [...HIDDEN_TOPICS] }]])),
   ];
+  // what the AI decided (an internal e-mail read for what it is about) is not moved back by the flag
+  const guessed = (await kvGet<Record<string, unknown>>(KV.guessed)) ?? {};
   const rows: Row[] = [];
   for (const t of found) {
     const p = t.properties, d = before({ subject: p.subject, text: "x", notValid: p.sentiment_not_valid_reason });
+    if (p.enquiry_category && guessed[String(t.id)]) continue;
     if (d?.category && d.category !== p.enquiry_category) rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d });
   }
   const written = rows.length ? await writeSafe(rows) : 0;
@@ -309,11 +355,13 @@ async function run(): Promise<RunInfo> {
   // (27.10.2026: a refused search ended every run before this, so the same tickets were asked again every 5 minutes)
   if (live) {
     try { await flagSweep(); } catch (e) { console.warn(`[ticket-close] daily pass: ${(e as Error).message}`); }
-    try {
-      const aiKey = `ticketClose:ai:${day()}`, usedNow = (await kvGet<number>(aiKey)) ?? 0;
-      const spent = await customerSweep(AI_PER_DAY - usedNow);
-      if (spent) await kvSet(aiKey, usedNow + spent);
-    } catch (e) { console.warn(`[ticket-close] customers of the history: ${(e as Error).message}`); }
+    for (const [name, sweep] of [["Others of the history", customerSweep], ["Internal e-mail of the history", internalSweep]] as const) {
+      try {
+        const aiKey = `ticketClose:ai:${day()}`, usedNow = (await kvGet<number>(aiKey)) ?? 0;
+        const spent = await sweep(AI_PER_DAY - usedNow);
+        if (spent) await kvSet(aiKey, usedNow + spent);
+      } catch (e) { console.warn(`[ticket-close] ${name}: ${(e as Error).message}`); }
+    }
   }
   const byId = new Map(kept.map((x) => [x.id, x]));
   for (const x of rows) byId.set(x.id, x);

@@ -71,3 +71,14 @@ test("a customer's e-mail nobody could place gets the AI's closest topic, never 
   assert.equal(isCustomer("not_valid_email"), false);
   assert.equal(isCustomer(null), false);
 });
+
+test("an internal e-mail is read for what it is about; Finance and system mail have their own topics", async () => {
+  const { guessParse, guessSystem } = await import("../src/lib/ticketClose/guess");
+  const sys = guessSystem("internal");
+  assert.ok(sys.includes("Finance e-mail") && sys.includes("Automatic e-mail") && sys.includes("Internal e-mail"));
+  assert.ok(!sys.includes('- "Others"'));
+  assert.equal(guessParse('{"category":"Delivery","sub":"Existing Order","sure":"high","why":"expedite"}', "internal")?.category, "Delivery");
+  assert.equal(guessParse('{"category":"Finance e-mail","sub":"","sure":"high","why":"customer blocked"}', "internal")?.category, "Finance e-mail");
+  // the outside list has no Finance e-mail: only the internal reading may give it
+  assert.equal(guessParse('{"category":"Finance e-mail","sure":"high"}', "outside"), null);
+});
