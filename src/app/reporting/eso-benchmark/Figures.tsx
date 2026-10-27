@@ -413,7 +413,8 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   const shown = all ? rows : rows.slice(0, first);
   const podium = shown.slice(0, 3), rest = shown.slice(3);
   const reached = target ? rows.filter((r) => r.cur >= target).length : 0;
-  const hint = [onPick ? "Click a name to show only it" : "", `ranked by ${curLabel}`, rows.length > first && !all ? `the first ${first} of ${rows.length}` : ""].filter(Boolean).join(" · ");
+  // in words anyone reads (SARCLA 27.10.2026: "I don't understand 'ranked by 2026 · the first 6 of 17'")
+  const hint = ["Highest first", rows.length > first && !all ? `top ${first} of ${rows.length} shown` : "", onPick ? "click one to show only it" : ""].filter(Boolean).join(" · ");
   // the change: in % and euros, or in points for a ratio
   const change = (r: BoardRow) => {
     if (noChange) return { main: "", color: FAINT, second: null as string | null };

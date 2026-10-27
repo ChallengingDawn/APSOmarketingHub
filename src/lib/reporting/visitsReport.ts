@@ -9,9 +9,10 @@ import { ownerNames } from "@/lib/integrations/erosion";
 import { teamOf } from "@/lib/datatracker/rosters";
 import { readOwners } from "@/lib/ownerRules/hubspot";
 import { categoryBand, monthTotal, parsePcMonthly, prioBand, prioOf, visitKind, CATEGORY_BANDS, PRIO_BANDS, VISIT_KINDS } from "./esoRules";
-import { ymd, type VisitsData } from "./visitsRules";
+import { bandOf, usable, ymd, POTENTIAL_BANDS, type VisitsData } from "./visitsRules";
 
-const KEY = "esoVisits:v1";
+// v2: the visit report's annual need, the potential band (placeholders over €1m left out), how each company registered
+const KEY = "esoVisits:v2";
 const TTL_MS = 60 * 60 * 1000;
 const VISIT_OBJ = "2-139767037";
 const VISIT_PIPELINE = "2904105208";
@@ -33,7 +34,7 @@ async function build(): Promise<VisitsData> {
   // 1. every visit, the list API page by page (no search cap)
   const visits: Row[] = [];
   let after: string | undefined;
-  const vProps = ["hubspot_owner_id", "meeting_date_with_time", "type_of_visit", "hs_pipeline_stage"];
+  const vProps = ["hubspot_owner_id", "meeting_date_with_time", "type_of_visit", "hs_pipeline_stage", "annual_need_in__"];
   for (let page = 0; page < 500; page++) {
     const r = await hubspotFetchJson<{ results?: Row[]; paging?: { next?: { after?: string } } }>({
       path: `/crm/v3/objects/${VISIT_OBJ}?limit=100&properties=${vProps.join(",")}${after ? `&after=${after}` : ""}`, useTicketsToken: true,
@@ -62,7 +63,7 @@ async function build(): Promise<VisitsData> {
   }
 
   // 3. those companies' facts
-  type Co = { prio: string; category: string; country: string; potential: number; registeredAfter: boolean; firstOrder: number; revenue: number };
+  type Co = { prio: string; category: string; country: string; potential: number; registeredAfter: boolean; regWay: string; firstOrder: number; revenue: number };
   const companies = new Map<string, Co>();
   const ids = [...new Set(visitCompany.values())];
   for (let i = 0; i < ids.length; i += 100) {
@@ -77,7 +78,9 @@ async function build(): Promise<VisitsData> {
       for (let m = 0; m < 12; m++) revenue += monthTotal(blob, m);
       companies.set(String(row.id), {
         prio: prioBand(prioOf(p.sales_priority)), category: categoryBand(p.apso_customer), country: p.country_custom || "Not set",
-        potential: num(p.yearly_customer_potential), registeredAfter: p.registration_details_eso__company === "Meeting before registration",
+        // a potential over €1m is a placeholder, not a figure (as the customers' cube reads it)
+        potential: usable(num(p.yearly_customer_potential)) ? num(p.yearly_customer_potential) : 0,
+        registeredAfter: p.registration_details_eso__company === "Meeting before registration", regWay: (p.registration_details_eso__company ?? "").trim(),
         firstOrder: ymd(p.order_first_order_date), revenue: Math.round(revenue),
       });
     }
@@ -98,7 +101,7 @@ async function build(): Promise<VisitsData> {
   };
 
   // 5. the rows
-  const labels: VisitsData["labels"] = { prio: [...PRIO_BANDS], category: [...CATEGORY_BANDS], kind: [...VISIT_KINDS], country: [] };
+  const labels: VisitsData["labels"] = { prio: [...PRIO_BANDS], category: [...CATEGORY_BANDS], kind: [...VISIT_KINDS], country: [], band: [...POTENTIAL_BANDS], regWay: [""] };
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const coIdx = new Map<string, number>();
   const coRows: number[][] = [];
@@ -118,13 +121,14 @@ async function build(): Promise<VisitsData> {
     let ci = -1;
     if (cid && co) {
       ci = coIdx.get(cid) ?? -1;
-      if (ci < 0) { ci = coRows.push([co.registeredAfter ? 1 : 0, co.firstOrder, co.revenue]) - 1; coIdx.set(cid, ci); }
+      if (ci < 0) { ci = coRows.push([co.registeredAfter ? 1 : 0, co.firstOrder, co.revenue, at(labels.regWay, co.regWay)]) - 1; coIdx.set(cid, ci); }
     }
     const day = ymd(when);
     rows.push([
       person(owner), y, Number(when.slice(5, 7)) - 1, Number(when.slice(8, 10)),
       at(labels.kind, visitKind(p.type_of_visit)), at(labels.prio, co?.prio ?? "No priority"), at(labels.category, co?.category ?? "Other"), at(labels.country, co?.country ?? "Not set"),
       ci, co ? (!co.firstOrder || co.firstOrder > day ? 1 : 0) : 0, co && co.potential > 0 ? Math.round(co.potential) : 0,
+      usable(num(p.annual_need_in__)) ? Math.round(num(p.annual_need_in__)) : 0, at(labels.band, bandOf(co?.potential ?? 0)),
     ]);
   }
   return {
