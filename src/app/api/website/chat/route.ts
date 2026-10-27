@@ -186,9 +186,9 @@ export async function POST(req: NextRequest) {
     if (body.action === "steering-save") {
       // admins: the topics' routes - checked against HubSpot's options, the old ones kept in the hub's log
       if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });
-      const s = await saveSteering(body.steering, who);
-      console.log(`[chat-steering] routes saved by ${who} (version ${s.version})`);
-      return NextResponse.json({ ok: true, data: s });
+      const { steering: s, pushed } = await saveSteering(body.steering, who);
+      console.log(`[chat-steering] routes saved by ${who} (version ${s.version})${pushed ? " - sent to the chat's brain" : " - the brain was not reached"}`);
+      return NextResponse.json({ ok: true, data: { ...s, pushed } });
     }
     if (body.action === "orchestrator") {
       if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });

@@ -51,11 +51,11 @@ function useSave(onSaved: () => void) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const save = async (s: Pick<Steering, "topics" | "orderNumberToBo">, what: string) => {
-    if (!confirm(`Save ${what}?\n\nThe chat does not use these routes until a topic is switched live - the page shows what they would change.`)) return;
+    if (!confirm(`Save ${what}?\n\nThe chat's brain gets them at once and logs where they would send each hand-over - it keeps routing as today until a topic is switched live.`)) return;
     setBusy(true); setMsg(null);
-    const r = await post<Steering>({ action: "steering-save", steering: s });
+    const r = await post<Steering & { pushed?: boolean }>({ action: "steering-save", steering: s });
     setBusy(false);
-    setMsg(r.ok ? { ok: true, text: "Saved." } : { ok: false, text: r.error ?? "Did not work." });
+    setMsg(r.ok ? { ok: true, text: r.data?.pushed ? "Saved - the chat's brain has them." : "Saved - the chat's brain was not reached; it gets them the next time this page is opened." } : { ok: false, text: r.error ?? "Did not work." });
     if (r.ok) onSaved();
   };
   return { busy, msg, save };
@@ -125,11 +125,23 @@ function RouteCard({ d, f, channel, reload }: { d: SteeringPage; f: TopicFigures
       <CardTitle icon={<AltRouteOutlinedIcon />} tint="blue" title="When the AI cannot solve it"
         note="The AI always tries first. Only when a person is needed does this route apply - the topic's, unless its sub-category has its own." />
       <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-        {live ? <Chip tint="green">The chat uses these routes</Chip> : <Chip tint="amber">Trial - the chat does not use these routes yet</Chip>}
-        {handed > 0 && <Typography sx={{ fontSize: "0.8rem", color: f.elsewhere ? INK : MUTED }}>
-          {f.elsewhere ? `${full(f.elsewhere)} of the ${full(handed)} hand-overs of the period would have gone to another team with these routes.` : `All ${full(handed)} hand-overs of the period went where these routes send them.`}
-        </Typography>}
+        {live ? <Chip tint="green">The chat uses these routes</Chip> : <Chip tint="amber">Trial - the chat still routes as today</Chip>}
+        {channel === "hs" && d.brain && (d.brain.held && d.brain.version === d.steering.version
+          ? <Chip tint="green">The chat&apos;s brain holds these routes and logs where they would send each hand-over</Chip>
+          : <Chip tint="slate">{d.brain.reachable ? "The chat's brain has not picked these routes up yet" : "The chat's brain could not be asked just now"}</Chip>)}
       </Box>
+      {channel === "hs" && (handed > 0 || f.shadow) && (
+        <Box sx={{ display: "grid", gap: 0.25 }}>
+          {handed > 0 && <Typography sx={{ fontSize: "0.8rem", color: f.elsewhere ? INK : MUTED }}>
+            Filed by the hub: {f.elsewhere ? `${full(f.elsewhere)} of the ${full(handed)} hand-overs of the period would have gone to another team with these routes.` : `all ${full(handed)} hand-overs of the period went where these routes send them.`}
+          </Typography>}
+          {f.shadow && <Typography sx={{ fontSize: "0.8rem", color: f.shadow.elsewhere ? INK : MUTED }}>
+            The brain&apos;s own log, at the moment of each hand-over: {f.shadow.handovers
+              ? `${full(f.shadow.elsewhere)} of ${full(f.shadow.handovers)} would have gone to another team (the routes: TSA ${full(f.shadow.would.tsa)} · Back Office ${full(f.shadow.would.bo)}${f.shadow.would.ecom ? ` · E-Commerce ${full(f.shadow.would.ecom)}` : ""}${f.shadow.would.none ? ` · no topic ${full(f.shadow.would.none)}` : ""}).`
+              : "no hand-over of this topic logged with the routes yet."}
+          </Typography>}
+        </Box>
+      )}
       <Box sx={{ display: "grid", gap: 0.5 }}>
         <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: "0.04em" }}>{f.topic}</Typography>
         {d.isAdmin ? <Choice<Route> value={route} onChange={setRoute} options={routes} /> : <Box><RouteChip r={route} /></Box>}
@@ -259,7 +271,10 @@ export function RoutesCard({ d, channel, onOpen, reload }: { d: SteeringPage; ch
       <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
         {STEERING_TOPICS.some((t) => d.steering.live[t])
           ? <Chip tint="green">The chat uses the routes of {STEERING_TOPICS.filter((t) => d.steering.live[t]).join(", ")}</Chip>
-          : <Chip tint="amber">Trial - the chat does not use these routes yet</Chip>}
+          : <Chip tint="amber">Trial - the chat still routes as today</Chip>}
+        {hs && d.brain && (d.brain.held && d.brain.version === d.steering.version
+          ? <Chip tint="green">The chat&apos;s brain holds these routes (version {d.steering.version}) and logs where they would send each hand-over</Chip>
+          : <Chip tint="slate">{d.brain.reachable ? "The chat's brain has not picked these routes up yet" : "The chat's brain could not be asked just now"}</Chip>)}
       </Box>
       <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
         <Switch size="small" checked={d.steering.orderNumberToBo} disabled={!d.isAdmin || busy} slotProps={{ input: { "aria-label": "An order number always goes to the Back Office" } }}
