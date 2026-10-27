@@ -22,6 +22,10 @@ export type SatisfactionData = {
 type Row = { id: string; created_at: string; survey_name: string | null; form_guid: string | null; value: string | null; sentiment: string | null;
   response_group: string | null; country: string | null; contact_country: string | null; submission_url: string | null; comment: string | null };
 
+/** Not customers' answers: three probes of the shop chat's survey endpoint sent by the hub's developer on 27.10.2026
+ *  19:01 UTC (no contact, comment "x") - HubSpot's survey answers cannot be deleted through its API. */
+const NOT_ANSWERS = new Set(["1420532444381", "1420706770157", "1420552270050"]);
+
 /** No e-mail address or phone number of a customer on the page, also inside a comment. */
 const scrub = (s: string) => s.replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, "[e-mail]").replace(/\+?\d[\d\s/().-]{7,}\d/g, "[phone]");
 
@@ -44,6 +48,7 @@ export async function satisfactionData(fromIso: string, touchpoints: Touchpoint[
   const comments: Comment[] = [];
   let noCountry = 0;
   for (const x of rows) {
+    if (NOT_ANSWERS.has(x.id)) continue;
     const tp = touchpointOf(x.survey_name, x.form_guid);
     if (touchpoints && !touchpoints.includes(tp)) continue;
     const r = readingOf({ surveyName: x.survey_name, sentiment: x.sentiment, value: x.value, group: x.response_group });
