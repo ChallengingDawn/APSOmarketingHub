@@ -97,6 +97,11 @@ export async function register() {
     const { startChatTopics } = await import("./lib/chat/topics");
     startChatTopics();
 
+    // Satisfaction: the hub's copy of every HubSpot survey answer, every 30 min (src/lib/satisfaction) - the Satisfaction
+    // KPI page and the chat's Satisfaction tab. SATISFACTION=off stops it. SARCLA, 27.10.2026.
+    const { startSatisfaction } = await import("./lib/satisfaction/sync");
+    startSatisfaction();
+
     // The Railway sandboxes' errands, every minute: reviews mailed, the CLI's Railway token replaced. Their data is
     // brought, and they are opened, only from the Sandbox app (src/lib/sandboxFeed).
     // Needs SANDBOX_URLS + SANDBOX_LINK_KEY; SANDBOX_FEED=off stops it. SARCLA, 26.10.2026.

@@ -32,6 +32,8 @@ import { fileNow, hubspotChanges, setCategory, setWriteSwitch, topicChats, topic
 import type { HsState } from "@/lib/chat/shape";
 import { saveSteering, steeringData } from "@/lib/chat/steering";
 import { abData, saveAb } from "@/lib/chat/abtest";
+import { satisfactionData } from "@/lib/satisfaction/figures";
+import { CHAT_TOUCHPOINTS } from "@/lib/satisfaction/rules";
 import { adminKey as directupKey } from "@/lib/directup/gateway";
 import { adminToken as searchBarKey, gateway as searchBarGateway, type AiConversations } from "@/lib/searchbar/gateway";
 
@@ -78,6 +80,11 @@ export async function GET(req: NextRequest) {
       const topic = q.get("topic") || "";
       return ok(await topicChats(topic, from, int(q.get("offset"), 0, 0, 100_000), int(q.get("limit"), 20, 1, 100),
         { source: q.get("channel") === "bar" ? "searchbar" : "chat", handedOnly: q.get("handed") === "1" }));
+    }
+    if (part === "satisfaction") {
+      // the chat's own satisfaction: the live chat's and the shop chat's survey answers (src/lib/satisfaction)
+      const days = int(q.get("days"), 30, 1, 800);
+      return ok(await satisfactionData(new Date(Date.now() - days * 86_400_000).toISOString(), CHAT_TOUCHPOINTS));
     }
     if (part === "ab") {
       // the A/B test of the e-mail before the chat: its setting and figures, from the shop chat's gateway (abtest.ts)

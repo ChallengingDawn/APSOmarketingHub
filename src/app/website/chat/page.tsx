@@ -28,6 +28,8 @@ import SetupTab from "./SetupTab";
 import SearchBarChatTab from "./SearchBarChatTab";
 import TopicsTab from "./TopicsTab";
 import AbTab from "./AbTab";
+import { SatisfactionView } from "@/app/reporting/satisfaction/SatisfactionView";
+import type { SatisfactionData } from "@/lib/satisfaction/figures";
 import { ChannelTabs, RoutesCard, TopicTab, type Channel, type SteeringPage, type TopicView } from "./SteeringTab";
 
 const CHANNEL_KEY = "apsomh.chat.channel";
@@ -36,7 +38,7 @@ const TOPIC_VIEWS = STEERING_TOPICS.map((t) => `t-${topicSlug(t)}`);
 type View = string;
 const VIEW_HASH: Record<View, string> = {
   overview: "#overview", ...Object.fromEntries(TOPIC_VIEWS.map((v) => [v, `#${v}`])),
-  conversations: "#conversations", handovers: "#handovers", searchbar: "#searchbar", ab: "#ab", test: "#test", setup: "#setup", topics: "#topics",
+  conversations: "#conversations", handovers: "#handovers", searchbar: "#searchbar", ab: "#ab", satisfaction: "#satisfaction", test: "#test", setup: "#setup", topics: "#topics",
 };
 const topicOfView = (v: View) => STEERING_TOPICS.find((t) => `t-${topicSlug(t)}` === v) ?? null;
 /** the tab a view belongs to: the hand-overs and the search bar's chat are in Conversations, the filing in Setup */
@@ -80,6 +82,11 @@ export default function ChatPage() {
         </>
       )
     )
+    : view === "satisfaction" ? (
+      <Loaded<SatisfactionData> key={`sat-${days}-${n}`} url={`/api/website/chat?part=satisfaction&days=${days}&r=${n}`} what="the survey answers">
+        {(d) => <SatisfactionView d={d} label={label} />}
+      </Loaded>
+    )
     : view === "ab" ? <AbTab key={`ab-${n}`} />
     : view === "test" ? <TestTab key="test" />
     : view === "setup" || view === "topics" ? (
@@ -108,7 +115,7 @@ export default function ChatPage() {
         subtitle="APSOassistant on the shop: per topic, what the AI solved alone and where it hands a chat over when a person is needed - TSA for sales, the Back Office call-back for the rest"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {(view === "overview" || view === "topics" || !!topic) && <WindowPicker />}
+            {(view === "overview" || view === "topics" || view === "satisfaction" || !!topic) && <WindowPicker />}
             <Tooltip title="Read again"><IconButton size="small" onClick={() => setN((x) => x + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
           </Box>
         }
@@ -118,6 +125,7 @@ export default function ChatPage() {
           { id: "overview", label: "Overview", count: null },
           ...STEERING_TOPICS.map((t) => ({ id: `t-${topicSlug(t)}`, label: t, count: null })),
           { id: "conversations", label: "Conversations", count: null },
+          { id: "satisfaction", label: "Satisfaction", count: null },
           { id: "ab", label: "A/B test", count: null },
           { id: "test", label: "Test", count: null },
           { id: "setup", label: "Setup", count: null },

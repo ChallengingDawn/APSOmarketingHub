@@ -13,7 +13,8 @@ import { CHROME, FONT, SERIES } from "./palette";
 import { ChartTip } from "./ChartTip";
 import { compact } from "./format";
 
-export type StackPart = { key: string; label: string };
+/** color: only for parts whose meaning has a colour of its own (happy / unhappy); else the categorical slot. */
+export type StackPart = { key: string; label: string; color?: string };
 export type StackRow = { x: string } & Record<string, string | number | null>;
 
 function niceCeiling(max: number): number {
@@ -42,6 +43,9 @@ export function StackedColumns({
   const shown = parts.slice(0, SERIES.length);
   const totals = data.map((d) => shown.reduce((a, p) => a + (typeof d[p.key] === "number" ? (d[p.key] as number) : 0), 0));
   const top = niceCeiling(Math.max(0, ...totals));
+  // counts under 5 get whole ticks - quarters of 1 read "0, 0, 1, 1, 1" once formatted
+  const ticks = top <= 4 && totals.every(Number.isInteger) ? Array.from({ length: top + 1 }, (_, i) => i) : [0, top / 4, top / 2, (top * 3) / 4, top];
+  const colorOf = (part: StackPart, i: number) => part.color ?? SERIES[i];
 
   return (
     <Box>
@@ -59,7 +63,7 @@ export function StackedColumns({
             />
             <YAxis
               domain={[0, top]}
-              ticks={[0, top / 4, top / 2, (top * 3) / 4, top]}
+              ticks={ticks}
               tickFormatter={(v) => format(Number(v))}
               tick={{ fontSize: 12, fill: CHROME.label }}
               axisLine={false}
@@ -84,7 +88,7 @@ export function StackedColumns({
                 dataKey={part.key}
                 name={part.label}
                 stackId="parts"
-                fill={SERIES[i]}
+                fill={colorOf(part, i)}
                 stroke={CHROME.surface}
                 strokeWidth={2}
                 radius={i === shown.length - 1 ? [4, 4, 0, 0] : 0}
@@ -99,7 +103,7 @@ export function StackedColumns({
       {shown.length > 1 && <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1, flexWrap: "wrap" }}>
         {[...shown].reverse().map((part) => (
           <Box key={part.key} sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-            <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: SERIES[shown.indexOf(part)] }} />
+            <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: colorOf(part, shown.indexOf(part)) }} />
             <Typography sx={{ fontSize: "0.76rem", color: CHROME.muted }}>{part.label}</Typography>
           </Box>
         ))}

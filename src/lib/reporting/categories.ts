@@ -119,7 +119,10 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
   },
   {
     slug: "satisfaction", name: "Satisfaction Reports", line: "What customers say about us",
-    reports: [], next: "First report: survey and feedback results once a source is chosen.",
+    reports: [
+      // every HubSpot survey answer - CSAT and NPS per country, language, locale and touchpoint (SARCLA 27.10.2026)
+      { name: "Satisfaction KPIs", href: "/reporting/satisfaction", note: "Satisfied share per country, language, locale and touchpoint", icon: "verified" },
+    ],
   },
   {
     slug: "customers", name: "Customer Reports", line: "Where customers arrive, where we lose them, what came of it",
