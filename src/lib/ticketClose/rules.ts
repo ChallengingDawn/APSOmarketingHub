@@ -9,11 +9,13 @@
 // aiClassify, unchanged) on the whole conversation. A category is only ever written onto "Others" or empty.
 
 import { PROPERTY_MAPPING, extractOrderNumbers } from "../boDistribution/classifier";
-import { FLAG_TOPIC, TOPIC } from "./topics";
+import { FLAG_TOPIC, SUPPLIER, TOPIC } from "./topics";
 
 export const WORKFLOW_ID = "4088710379";
 export const BO = "1726786777";
 export const RESOLVED = "2338266328";
+/** Back Office - Special Tasks GQS */
+export const GQS_PIPELINE = "1726786775";
 
 /** Why a ticket stays Others, in words. */
 export const STAY_TEXT: Record<string, string> = {
@@ -28,7 +30,9 @@ export const isOpen = (cat: string | null | undefined) => !cat || cat === "Other
 export type Decision = {
   category: string | null; sub: string | null; order: string | null;
   /** why: the AI's few words, the sentiment flag, or STAY_TEXT's key when it stays Others */
-  why: string; stay: string | null; by: "ai" | "flag" | "empty" | "guess";
+  why: string; stay: string | null; by: "ai" | "flag" | "empty" | "guess" | "tsr";
+  /** more properties to write with the category (a supplier registration's sub-category on the second property) */
+  extra?: Record<string, string>;
   /** how sure the AI's closest guess is (by "guess" only) */
   sure?: "high" | "medium" | "low";
 };
@@ -76,6 +80,7 @@ export const isCustomer = (tone: string | null | undefined) => !!tone && tone !=
 /** The AI's closest guess as a decision; the order number read from the text. */
 export function fromGuess(g: { category: string; sub: string | null; why: string; sure: "high" | "medium" | "low" }, text: string, subject?: string | null): Decision {
   const order = extractOrderNumbers(`${subject ?? ""} ${text}`)[0] ?? null;
+  if (g.category === SUPPLIER.topic) return { category: SUPPLIER.category, sub: null, order, why: g.why, stay: null, by: "guess", sure: g.sure, extra: { [SUPPLIER.prop]: SUPPLIER.value } };
   return { category: g.category, sub: g.sub, order, why: g.why, stay: null, by: "guess", sure: g.sure };
 }
 
@@ -86,5 +91,5 @@ export function patchFor(d: Decision, current: { order_number?: string | null })
   const subProp = PROPERTY_MAPPING.sub_categories[d.category];
   if (subProp && d.sub) p[subProp] = d.sub;
   if (d.order && !(current.order_number ?? "").trim()) p[PROPERTY_MAPPING.order_number] = d.order;
-  return p;
+  return { ...p, ...(d.extra ?? {}) };
 }

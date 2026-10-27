@@ -82,3 +82,19 @@ test("an internal e-mail is read for what it is about; Finance and system mail h
   // the outside list has no Finance e-mail: only the internal reading may give it
   assert.equal(guessParse('{"category":"Finance e-mail","sure":"high"}', "outside"), null);
 });
+
+test("a Task Status Report: its O number, the references that can find its GQS task, and its topic", async () => {
+  const { isTsr, oOf, refsOf, mergedNote } = await import("../src/lib/ticketClose/gqs");
+  const { before, patchFor, fromGuess } = await import("../src/lib/ticketClose/rules");
+  assert.equal(isTsr("BO |   Email | Task Status Report: NB/APSO/GAB/DT/708700 Glutz AG"), true);
+  assert.equal(isTsr("Statusbericht"), false);
+  assert.equal(oOf("Task Status Report: APSO/SUPPORT/BATVAN/DT/O25.16121102"), "O25.16121102");
+  assert.equal(oOf("Task Status Report: APSO110N / DT / CACL / O25.610841 /"), null); // a broken O number is not read
+  assert.deepEqual(refsOf("Task Status Report: NB/APSO/GAB/DT/708700 Glutz AG"), ["708700"]);
+  assert.deepEqual(refsOf("Update item 1220361094 / A26.667276.000 / O25.16121102"), ["1220361094"]); // order numbers are not references
+  assert.ok(mergedNote("1", "ref", "708700", "x").includes("the only GQS task with it"));
+  // a supplier registration: Product Information with the sub-category on the second property
+  const d = fromGuess({ category: "Supplier registration", sub: null, why: "CBRE supplier portal", sure: "high" }, "", "");
+  assert.deepEqual(patchFor(d, {}), { enquiry_category: "Product Information", enquiry_sub_category___product_information___2: "Self-declaration APSO for supplier creation" });
+  assert.equal(before({ subject: "x", text: "y", notValid: null }), null);
+});

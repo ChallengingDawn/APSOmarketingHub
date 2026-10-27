@@ -12,7 +12,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { AI_MODEL, aiSubs, aiText } from "../boDistribution/aiClassify";
 import { CATEGORIES } from "../boDistribution/classifier";
-import { TOPIC } from "./topics";
+import { SUPPLIER, TOPIC } from "./topics";
 
 export type Sure = "high" | "medium" | "low";
 export type Guess = { category: string; sub: string | null; why: string; sure: Sure };
@@ -20,15 +20,18 @@ export type Guess = { category: string; sub: string | null; why: string; sure: S
 export type From = "outside" | "internal";
 
 const BUSINESS = () => CATEGORIES.filter((c) => c !== "Others");
+const SUPPLIER_LINE = { topic: SUPPLIER.topic, when: "a customer asks APSOparts to register as its supplier: a supplier portal, a supplier code of conduct to sign, supplier forms" };
 const EXTRA: Record<From, { topic: string; when: string }[]> = {
   outside: [
+    SUPPLIER_LINE,
     { topic: TOPIC.spam, when: "nobody asks APSOparts anything: advertising, spam, prize draws, surveys, newsletters, job applications, IT or security notices" },
   ],
   internal: [
+    SUPPLIER_LINE,
     { topic: TOPIC.finance, when: "a message from Finance's systems: a customer blocked or released, payment reminders (Mahnung), \"bez VK\"" },
-    { topic: TOPIC.automatic, when: "any other system message or status report (Task Status Report, ERP or warehouse notices)" },
+    { topic: TOPIC.automatic, when: "any other system message (ERP or warehouse notices)" },
     { topic: TOPIC.spam, when: "advertising or spam that reached a colleague" },
-    { topic: TOPIC.internal, when: "internal admin with no customer matter: supplier registrations, codes of conduct, office, people" },
+    { topic: TOPIC.internal, when: "internal admin with no customer matter: office, people, our own suppliers" },
   ],
 };
 const allowed = (from: From) => [...BUSINESS(), ...EXTRA[from].map((x) => x.topic)];

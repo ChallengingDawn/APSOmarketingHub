@@ -17,9 +17,10 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { getAnthropic } from "@/lib/ai/claude";
 import { aiClassify } from "@/lib/boDistribution/aiClassify";
-import { BO, RESOLVED, WORKFLOW_ID, before, conversation, flagTopic, fromAi, fromGuess, isOpen, patchFor, type Decision, type Mail } from "./rules";
+import { BO, GQS_PIPELINE, RESOLVED, WORKFLOW_ID, before, conversation, flagTopic, fromAi, fromGuess, isOpen, patchFor, type Decision, type Mail } from "./rules";
 import { aiGuess } from "./guess";
 import { FLAG_TOPICS, HIDDEN_TOPICS, TOPIC } from "./topics";
+import { isTsr, mergedNote, oOf, refsOf } from "./gqs";
 
 const LOCK = 4_107_245;
 const EVERY_MS = 5 * 60_000;
@@ -31,7 +32,7 @@ const KEEP_DAYS = 21;
 const AI_PER_DAY = 1000;
 /** customer e-mails of the history read per run, until all are done */
 const SWEEP_PER_RUN = 25;
-const KV = { rows: "ticketClose:rows", last: "ticketClose:last", sweep: "ticketClose:flagSweep", customers: "ticketClose:customerSweep", internal: "ticketClose:internalSweep", guessed: "ticketClose:guessed" };
+const KV = { rows: "ticketClose:rows", last: "ticketClose:last", sweep: "ticketClose:flagSweep", customers: "ticketClose:customerSweep", internal: "ticketClose:internalSweep", guessed: "ticketClose:guessed", tsr: "ticketClose:tsrSweep", merges: "ticketClose:gqsMerges" };
 const TICKET_PROPS = ["subject", "content", "enquiry_category", "createdate", "source_type", "order_number", "sentiment_not_valid_reason", "sentiment_customer_tone", `hs_v2_date_entered_${RESOLVED}`];
 
 export type Written = { at: string; error?: string; skipped?: string };
@@ -132,6 +133,8 @@ async function decideAll(tickets: Obj[], text: Map<string, string>, aiMax: numbe
   for (const t of tickets) {
     const p = t.properties, txt = text.get(t.id) ?? "";
     let d = before({ subject: p.subject, text: txt, notValid: p.sentiment_not_valid_reason });
+    // a Task Status Report belongs to GQS: the pass below merges it into its task or files it as a GQS task update
+    if (isTsr(p.subject)) d = { category: TOPIC.gqs, sub: null, order: null, why: "Task Status Report", stay: null, by: "tsr" };
     // one of us wrote it: what is it about (SARCLA 27.10.2026, "drill down on Internal e-mail")
     if (d?.category === TOPIC.internal && client && ai < aiMax) {
       ai++;
@@ -163,7 +166,9 @@ async function decideAll(tickets: Obj[], text: Map<string, string>, aiMax: numbe
  */
 const replaceable = (cur: string | null | undefined, d: Decision) =>
   isOpen(cur) || (!!cur && HIDDEN_TOPICS.includes(cur) && !!d.category && cur !== d.category
-    && (FLAG_TOPICS.includes(d.category) || (cur === TOPIC.internal && d.by === "guess")));
+    && (FLAG_TOPICS.includes(d.category) || (cur === TOPIC.internal && d.by === "guess")))
+  // a Task Status Report is a GQS task update whatever the keywords made of it (SARCLA 27.10.2026)
+  || (d.by === "tsr" && !!d.category && cur !== d.category);
 
 /**
  * Only onto what is replaceable (read again just before), a flag topic only once HubSpot has it as an option; 100 a
@@ -180,7 +185,7 @@ async function writeSafe(rows: Row[]): Promise<number> {
     const c = cur.get(r.id);
     if (!c) { r.written = { at: now, error: "ticket not found" }; continue; }
     if (!replaceable(c.enquiry_category, r.d)) { r.written = { at: now, skipped: `has "${c.enquiry_category}" meanwhile` }; continue; }
-    if (r.d.category && FLAG_TOPICS.includes(r.d.category) && !opts?.has(r.d.category)) { r.written = { at: now, skipped: `"${r.d.category}" is not an option in HubSpot yet` }; continue; }
+    if (r.d.category && (FLAG_TOPICS.includes(r.d.category) || HIDDEN_TOPICS.includes(r.d.category)) && !opts?.has(r.d.category)) { r.written = { at: now, skipped: `"${r.d.category}" is not an option in HubSpot yet` }; continue; }
     const after = patchFor(r.d, c);
     if (Object.keys(after).length) todo.push({ r, before: { enquiry_category: c.enquiry_category ?? null, order_number: c.order_number ?? null }, after });
   }
@@ -232,7 +237,7 @@ async function customerSweep(aiLeft: number): Promise<number> {
     filterGroups: [{ filters: [...base, { propertyName: "enquiry_category", operator: "EQ", value: "Others" }] }, { filters: [...base, { propertyName: "enquiry_category", operator: "NOT_HAS_PROPERTY" }] }],
     properties: TICKET_PROPS, sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: Math.min(SWEEP_PER_RUN, aiLeft),
   } });
-  const found = (j.results ?? []).filter((t) => !flagTopic(t.properties.sentiment_not_valid_reason));
+  const found = (j.results ?? []).filter((t) => !flagTopic(t.properties.sentiment_not_valid_reason) && !isTsr(t.properties.subject));
   const last = j.results?.[j.results.length - 1];
   if (!last) { await kvSet(KV.customers, { ...st, done: true, at: new Date().toISOString() }); return 0; }
   const text = await conversations(found);
@@ -255,6 +260,71 @@ async function customerSweep(aiLeft: number): Promise<number> {
   return used;
 }
 
+/** The GQS task of a Task Status Report: its exact O number, else a reference that finds exactly one GQS task. */
+async function gqsTaskOf(subject: string): Promise<{ id: string; how: "O" | "ref"; key: string } | null> {
+  const find = (prop: string, op: string, value: string) => hubspotRetry<{ total?: number; results?: { id: string }[] }>({ path: "/crm/v3/objects/tickets/search", method: "POST", body: {
+    filterGroups: [{ filters: [{ propertyName: "hs_pipeline", operator: "EQ", value: GQS_PIPELINE }, { propertyName: prop, operator: op, value }] }], properties: ["subject"], limit: 5,
+  } });
+  const o = oOf(subject);
+  if (o) {
+    const j = await find("o_number", "EQ", o);
+    if (j.results?.length) return { id: String(j.results[0].id), how: "O", key: o };
+  }
+  const ids = new Set<string>();
+  let key = "";
+  for (const r of refsOf(subject)) {
+    const j = await find("subject", "CONTAINS_TOKEN", r);
+    if ((j.total ?? 0) > 1) return null; // several GQS tasks share it: never guess which
+    for (const g of j.results ?? []) { ids.add(String(g.id)); key = r; }
+  }
+  return ids.size === 1 ? { id: [...ids][0], how: "ref", key } : null;
+}
+
+/**
+ * Every run: the Task Status Reports in Back Office (any stage, older than an hour so routing step #50 has had its go),
+ * 25 at a time - merged into their GQS task when one is found for sure, else filed as GQS task update. The cursor
+ * keeps going, so a new report is taken an hour after it arrived.
+ */
+async function tsrSweep(): Promise<void> {
+  const st = (await kvGet<{ cursor: string; merged?: number; filed?: number }>(KV.tsr)) ?? { cursor: "0" };
+  if (!(await options())?.has(TOPIC.gqs)) return;
+  const j = await hubspotRetry<{ results?: Obj[] }>({ path: "/crm/v3/objects/tickets/search", method: "POST", body: {
+    filterGroups: [{ filters: [
+      { propertyName: "hs_pipeline", operator: "EQ", value: BO }, { propertyName: "subject", operator: "CONTAINS_TOKEN", value: "Task Status Report" },
+      { propertyName: "createdate", operator: "LT", value: String(Date.now() - 3_600_000) }, { propertyName: "hs_object_id", operator: "GT", value: st.cursor },
+    ] }],
+    properties: TICKET_PROPS, sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: SWEEP_PER_RUN,
+  } });
+  const all = j.results ?? [];
+  if (!all.length) return;
+  const merges = (await kvGet<{ at: string; bo: string; gqs: string; how: string; key: string; subject: string }[]>(KV.merges)) ?? [];
+  const rows: Row[] = [];
+  let merged = 0;
+  for (const t of all.filter((x) => isTsr(x.properties.subject))) {
+    const subject = t.properties.subject ?? "";
+    const task = await gqsTaskOf(subject).catch(() => undefined);
+    if (task === undefined) continue; // the search failed: not decided, not filed
+    if (task) {
+      try {
+        const m = await hubspotRetry<{ id?: string | number }>({ path: "/crm/v3/objects/tickets/merge", method: "POST", body: { primaryObjectId: task.id, objectIdToMerge: t.id } });
+        const into = String(m?.id ?? task.id);
+        await hubspotRetry({ path: "/crm/v3/objects/notes", method: "POST", body: {
+          properties: { hs_timestamp: new Date().toISOString(), hs_note_body: mergedNote(t.id, task.how, task.key, subject).split("\n").join("<br>") },
+          associations: [{ to: { id: into }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 228 }] }],
+        } }).catch(() => null);
+        merges.push({ at: new Date().toISOString(), bo: t.id, gqs: into, how: task.how, key: task.key, subject: subject.slice(0, 160) });
+        merged++;
+        continue;
+      } catch (e) { console.warn(`[ticket-close] Task Status Report ${t.id} not merged into GQS ${task.id}: ${(e as Error).message.slice(0, 160)}`); }
+    }
+    if (t.properties.enquiry_category !== TOPIC.gqs) rows.push({ id: t.id, subject: subject.slice(0, 140), created: t.properties.createdate ?? "", closed: t.properties[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: t.properties.enquiry_category ?? "", d: { category: TOPIC.gqs, sub: null, order: null, why: "Task Status Report, no GQS task found for sure", stay: null, by: "tsr" } });
+  }
+  if (merged) await kvSet(KV.merges, merges);
+  const filed = rows.length ? await writeSafe(rows) : 0;
+  await kvSet(KV.tsr, { cursor: String(all[all.length - 1].id), merged: (st.merged ?? 0) + merged, filed: (st.filed ?? 0) + filed, at: new Date().toISOString() });
+  if (merged || filed) console.log(`[ticket-close] Task Status Reports: ${merged} merged into their GQS task, ${filed} filed as GQS task update - ${(st.merged ?? 0) + merged} merged, ${(st.filed ?? 0) + filed} filed so far`);
+}
+
 /**
  * Every run, while the history is not done: 25 closed tickets on Internal e-mail are read by the AI - a request a
  * colleague passes on gets its real topic, Finance's system mail Finance e-mail, other system reports Automatic e-mail;
@@ -271,8 +341,9 @@ async function internalSweep(aiLeft: number): Promise<number> {
     ] }],
     properties: TICKET_PROPS, sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: Math.min(SWEEP_PER_RUN, aiLeft),
   } });
-  const found = j.results ?? [];
-  if (!found.length) { await kvSet(KV.internal, { ...st, done: true, at: new Date().toISOString() }); return 0; }
+  const all = j.results ?? [];
+  if (!all.length) { await kvSet(KV.internal, { ...st, done: true, at: new Date().toISOString() }); return 0; }
+  const found = all.filter((t) => !isTsr(t.properties.subject)); // Task Status Reports are the GQS pass's
   const text = await conversations(found);
   const rows: Row[] = [];
   for (const t of found) {
@@ -281,7 +352,7 @@ async function internalSweep(aiLeft: number): Promise<number> {
     if (g && g.category !== TOPIC.internal) rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d: fromGuess(g, txt, p.subject) });
   }
   const moved = rows.length ? await writeSafe(rows) : 0;
-  await kvSet(KV.internal, { cursor: String(found[found.length - 1].id), moved: (st.moved ?? 0) + moved, at: new Date().toISOString() });
+  await kvSet(KV.internal, { cursor: String(all[all.length - 1].id), moved: (st.moved ?? 0) + moved, at: new Date().toISOString() });
   const by: Record<string, number> = {};
   for (const r of rows) if (r.written && !r.written.error && !r.written.skipped) by[r.d.category!] = (by[r.d.category!] ?? 0) + 1;
   console.log(`[ticket-close] Internal e-mail of the history: ${found.length} read, ${moved} moved to their topic${moved ? ` (${Object.entries(by).map(([k, n]) => `${k} ${n}`).join(", ")})` : ""}, ${found.length - moved} stay internal - ${(st.moved ?? 0) + moved} moved so far`);
@@ -355,6 +426,7 @@ async function run(): Promise<RunInfo> {
   // (27.10.2026: a refused search ended every run before this, so the same tickets were asked again every 5 minutes)
   if (live) {
     try { await flagSweep(); } catch (e) { console.warn(`[ticket-close] daily pass: ${(e as Error).message}`); }
+    try { await tsrSweep(); } catch (e) { console.warn(`[ticket-close] Task Status Reports: ${(e as Error).message}`); }
     for (const [name, sweep] of [["Others of the history", customerSweep], ["Internal e-mail of the history", internalSweep]] as const) {
       try {
         const aiKey = `ticketClose:ai:${day()}`, usedNow = (await kvGet<number>(aiKey)) ?? 0;

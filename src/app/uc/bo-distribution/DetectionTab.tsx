@@ -62,7 +62,7 @@ function Answer({ cat, subCat, words, fixes, d }: { cat: string; subCat?: string
 }
 
 const isTopic = (c: string) => c !== "Others" && c !== "(empty)";
-const notAsked = (c: string) => FLAG_TOPICS.includes(c) || c === TOPIC.spam;
+const notAsked = (c: string) => FLAG_TOPICS.includes(c) || c === TOPIC.spam || c === TOPIC.gqs;
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthLabel = (ym: string) => `${MON[Number(ym.slice(5, 7)) - 1]} ${ym.slice(2, 4)}`;
 
