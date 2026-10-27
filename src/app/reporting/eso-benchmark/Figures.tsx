@@ -99,8 +99,8 @@ function useKpiSeries(): { kpi: EsoFigures | null; busy: boolean } {
 
 export type TeamKey = "eso" | "tsa" | "total";
 const TEAMS: { id: TeamKey; label: string; count: null }[] = [{ id: "eso", label: "ESO", count: null }, { id: "tsa", label: "TSA", count: null }, { id: "total", label: "Total", count: null }];
-const TEAM_OF: Record<"eso" | "tsa", string> = { eso: "ESO", tsa: "TSA" };
-const teamWord = (t: TeamKey) => (t === "total" ? "APSOparts" : TEAM_OF[t]);
+export const TEAM_OF: Record<"eso" | "tsa", string> = { eso: "ESO", tsa: "TSA" };
+export const teamWord = (t: TeamKey) => (t === "total" ? "APSOparts" : TEAM_OF[t]);
 /** ESO | TSA | Total, drawn as the pages' tabs - a click changes every figure. */
 export function TeamToggle({ team, onTeam }: { team: TeamKey; onTeam: (t: TeamKey) => void }) {
   return <Box sx={{ justifySelf: "start" }}><ReportTabs name="eso-team" tab={team} onSelect={onTeam} tabs={TEAMS} /></Box>;
@@ -109,24 +109,24 @@ export function TeamToggle({ team, onTeam }: { team: TeamKey; onTeam: (t: TeamKe
  *  TEAM, only visible on ESO") - the teams and each person's as Map assignment's SAE table keeps them, renamed, added or
  *  deleted there (26.10.2026). A team is known by its id, so a renamed team keeps its targets and its address. */
 export type LeadKey = "all" | string;
-const asLead = (x: string | null): LeadKey | null => (x === "all" || isTeamId(x) ? x : null);
-type Leads = { byName: Record<string, string>; teams: Team[] };
+export const asLead = (x: string | null): LeadKey | null => (x === "all" || isTeamId(x) ? x : null);
+export type Leads = { byName: Record<string, string>; teams: Team[]; byId: Record<string, string> };
 /** The teams, and each person's (by the name the cube carries) - read once per page. */
-function useLeads(): Leads | null {
+export function useLeads(): Leads | null {
   const [v, setV] = useState<Leads | null>(null);
   useEffect(() => {
     let alive = true;
     fetch("/api/uc/map-assignment/leads").then((r) => r.json())
-      .then((j: Partial<Leads>) => { if (alive) setV({ byName: j.byName ?? {}, teams: j.teams ?? [] }); })
-      .catch(() => { if (alive) setV({ byName: {}, teams: [] }); });
+      .then((j: Partial<Leads> & { leads?: Record<string, string> }) => { if (alive) setV({ byName: j.byName ?? {}, teams: j.teams ?? [], byId: j.leads ?? {} }); })
+      .catch(() => { if (alive) setV({ byName: {}, teams: [], byId: {} }); });
     return () => { alive = false; };
   }, []);
   return v;
 }
 /** The team shown: a line manager's under ESO, once the teams are read and it is one of them. */
-const leadOf = (team: TeamKey, key: LeadKey, lt: Leads | null) => (team === "eso" && key !== "all" && lt?.teams.some((t) => t.id === key) ? key : null);
+export const leadOf = (team: TeamKey, key: LeadKey, lt: Leads | null) => (team === "eso" && key !== "all" && lt?.teams.some((t) => t.id === key) ? key : null);
 /** ESO | TSA | Total, and beside it - under ESO only - the line managers' teams. */
-function Teams({ team, onTeam, lead, onLead, teams }: { team: TeamKey; onTeam: (t: TeamKey) => void; lead: LeadKey; onLead: (l: LeadKey) => void; teams: Team[] }) {
+export function Teams({ team, onTeam, lead, onLead, teams }: { team: TeamKey; onTeam: (t: TeamKey) => void; lead: LeadKey; onLead: (l: LeadKey) => void; teams: Team[] }) {
   const tabs: { id: LeadKey; label: string; count: null }[] = [{ id: "all", label: "All ESO", count: null }, ...teams.map((t) => ({ id: t.id, label: t.name, count: null }))];
   return (
     <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", justifySelf: "start", minWidth: 0 }}>
@@ -286,7 +286,7 @@ const targetKey = (id: string, team: TeamKey, lead: string | null | undefined, p
 const targetFor = (c: FigCtx, id: string) => { const t = c.targets?.[targetKey(id, c.team, c.lead, c.per)]; return t != null && t > 0 ? t : null; };
 
 /** A chart's box, as DimChart's: its title and one line under it, its Actions at the right. */
-function ChartBox({ title, hint, actions, children }: { title: string; hint?: string; actions?: React.ReactNode; children: React.ReactNode }) {
+export function ChartBox({ title, hint, actions, children }: { title: string; hint?: string; actions?: React.ReactNode; children: React.ReactNode }) {
   return (
     <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start" }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
@@ -300,11 +300,11 @@ function ChartBox({ title, hint, actions, children }: { title: string; hint?: st
     </Box>
   );
 }
-const TWO = { display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" } } as const;
+export const TWO = { display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" } } as const;
 const tip = { contentStyle: { fontSize: "0.8rem", borderRadius: 10, border: "1px solid rgba(21,34,58,.1)" } };
 /** A value axis as wide as its longest figure, in full. */
-const axisWidth = (max: number) => Math.max(56, eur(max).length * 7 + 10);
-const SubTitle = ({ children }: { children: React.ReactNode }) => <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, mb: 1 }}>{children}</Typography>;
+export const axisWidth = (max: number) => Math.max(56, eur(max).length * 7 + 10);
+export const SubTitle = ({ children }: { children: React.ReactNode }) => <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, mb: 1 }}>{children}</Typography>;
 
 /* ── a breakdown's values: the ERP's figures, the customers ────────────── */
 
@@ -346,7 +346,7 @@ const lowerOf = (d: Dim) => DIM[d].lower;
 
 /** The rows' columns, the same in every row of every chart: the name, the bar, the figures. */
 const ROW_COLS = { xs: "104px minmax(0, 1fr) 116px", sm: "150px minmax(0, 1fr) 128px" };
-const NAV = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
+export const NAV = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
 /** The bullets' legend: this year up or down, last year's tick (and the forecast's and the target's dashes where they are drawn). */
 function BulletLegend({ cur, prev, forecast, target }: { cur: string; prev: string; forecast?: boolean; target?: React.ReactNode }) {
   const item = (mark: React.ReactNode, text: string) => (
@@ -384,12 +384,12 @@ const changeLine = (cur: number, prev: number) => { const ch = changeNote(cur, p
 
 /* ── the leaderboard: the top three as cards, everyone else ranked under them (SARCLA 25.10.2026 picked it - number 30 - from thirty proposals) ── */
 
-type BoardRow = { label: string; cur: number; prev: number; sub?: string };
+export type BoardRow = { label: string; cur: number; prev: number; sub?: string };
 const PODIUM_BG = "rgba(45,111,168,.07)";
 /** "+1.2 pts" - a ratio's change (book-to-bill) */
 const points = (cur: number, prev: number) => `${cur - prev > 0 ? "+" : cur - prev < 0 ? "−" : "±"}${Math.abs((cur - prev) * 100).toFixed(1)} pts`;
 
-function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, selected, onPick, onFilter, filterLabel, actions, fmt = eur, ratio = false, target = null, summary, unranked }: {
+export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, selected, onPick, onFilter, filterLabel, actions, fmt = eur, ratio = false, target = null, summary, unranked, noChange = false }: {
   title: string; rows: BoardRow[]; curLabel: string; prevLabel: string;
   /** the places shown before "Show all" */
   first?: number;
@@ -404,6 +404,8 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
   summary?: React.ReactNode;
   /** rows listed under the ranking, not in it - book-to-bill's small books - and why */
   unranked?: { why: string; rows: BoardRow[] };
+  /** nothing to compare with (the visits: none recorded last year) - no change shown */
+  noChange?: boolean;
 }) {
   const rows = useMemo(() => [...given].sort((a, b) => b.cur - a.cur || b.prev - a.prev || a.label.localeCompare(b.label)), [given]);
   const [all, setAll] = useState(false);
@@ -414,6 +416,7 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
   const hint = [onPick ? "Click a name to show only it" : "", `ranked by ${curLabel}`, rows.length > first && !all ? `the first ${first} of ${rows.length}` : ""].filter(Boolean).join(" · ");
   // the change: in % and euros, or in points for a ratio
   const change = (r: BoardRow) => {
+    if (noChange) return { main: "", color: FAINT, second: null as string | null };
     if (ratio) return { main: r.prev ? points(r.cur, r.prev) : "new", color: r.prev ? tone(r.cur - r.prev) : FAINT, second: null as string | null };
     const ch = changeNote(r.cur, r.prev);
     return { main: ch?.text ?? "—", color: ch?.color ?? FAINT, second: signedEur(r.cur - r.prev) };
@@ -421,7 +424,7 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
   // how far a row is from the target: "86% of the target", in its colour
   const toTarget = (r: BoardRow) => (target ? { text: `${pct(r.cur / target)} of the target`, color: r.cur >= target ? GREEN : RED } : null);
   const pickable = (label: string) => (onPick ? { component: "button" as const, type: "button" as const, onClick: () => onPick(label) } : { component: "div" as const });
-  const tipOf = (r: BoardRow) => { const c = change(r); return `${r.label} - ${curLabel}: ${fmt(r.cur)} · ${prevLabel}: ${fmt(r.prev)} · ${c.main}${c.second ? ` · ${c.second}` : ""}${target ? ` · target ${fmt(target)}` : ""}`; };
+  const tipOf = (r: BoardRow) => { const c = change(r); return `${r.label} - ${curLabel}: ${fmt(r.cur)}${noChange ? "" : ` · ${prevLabel}: ${fmt(r.prev)} · ${c.main}${c.second ? ` · ${c.second}` : ""}`}${target ? ` · target ${fmt(target)}` : ""}`; };
   return (
     <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1.25, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start" }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
@@ -456,7 +459,7 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
                   <Typography sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontSize: "1.6rem", fontWeight: 700, color: THIS, lineHeight: 1 }}>{i + 1}</Typography>
                   <Typography noWrap sx={{ fontSize: "0.88rem", fontWeight: 600, color: INK, mt: 0.5 }}>{r.label}</Typography>
                   <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{fmt(r.cur)}</Typography>
-                  <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: c.color, fontVariantNumeric: "tabular-nums" }}>{c.main}{c.second ? ` · ${c.second}` : ""}</Typography>
+                  {!noChange && <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: c.color, fontVariantNumeric: "tabular-nums" }}>{c.main}{c.second ? ` · ${c.second}` : ""}</Typography>}
                   {t && <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: t.color }}>{t.text}</Typography>}
                   {r.sub && <Typography noWrap sx={{ fontSize: "0.72rem", color: FAINT }}>{r.sub}</Typography>}
                 </Box>
@@ -470,7 +473,7 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
                 const on = !!selected?.includes(r.label), c = change(r), t = toTarget(r);
                 return (
                   <Box key={r.label} {...pickable(r.label)} aria-pressed={onPick ? on : undefined} title={tipOf(r)}
-                    sx={{ display: "grid", gridTemplateColumns: { xs: "24px minmax(0, 1fr) auto 64px", sm: "30px minmax(0, 1fr) 128px 108px" }, columnGap: 1.25, alignItems: "center", px: 0.75, py: 0.7, width: "100%",
+                    sx={{ display: "grid", gridTemplateColumns: noChange ? { xs: "24px minmax(0, 1fr) auto", sm: "30px minmax(0, 1fr) 128px" } : { xs: "24px minmax(0, 1fr) auto 64px", sm: "30px minmax(0, 1fr) 128px 108px" }, columnGap: 1.25, alignItems: "center", px: 0.75, py: 0.7, width: "100%",
                       border: 0, borderBottom: `1px solid ${HAIRLINE}`, font: "inherit", textAlign: "left", cursor: onPick ? "pointer" : "default",
                       bgcolor: on ? TINT.blue.bg : "transparent", opacity: selected?.length && !on ? 0.5 : 1,
                       "&:hover": onPick ? { bgcolor: on ? TINT.blue.bg : "rgba(21,34,58,.035)" } : {}, "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: -2 } }}>
@@ -484,10 +487,10 @@ function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, sele
                       )}
                     </Box>
                     <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{fmt(r.cur)}</Typography>
-                    <Box sx={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    {!noChange && <Box sx={{ textAlign: "right", whiteSpace: "nowrap" }}>
                       <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: c.color, lineHeight: 1.25 }}>{c.main}</Typography>
                       {c.second && <Typography sx={{ display: { xs: "none", sm: "block" }, fontSize: "0.72rem", fontWeight: 600, color: c.color, lineHeight: 1.25, fontVariantNumeric: "tabular-nums" }}>{c.second}</Typography>}
-                    </Box>
+                    </Box>}
                   </Box>
                 );
               })}
@@ -624,9 +627,9 @@ function monthRows(c: FigCtx): MonthRow[] {
 
 const FORECAST = "#d99a2b";
 /** a chart's target, typed in its Actions */
-const TARGET = TINT.purple.fg;
+export const TARGET = TINT.purple.fg;
 /** A value axis's top: a round figure just above the largest. */
-function niceTop(max: number) {
+export function niceTop(max: number) {
   if (max <= 0) return 1;
   const mag = 10 ** Math.floor(Math.log10(max));
   for (const s of [1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10]) if (s * mag >= max) return s * mag;
@@ -654,7 +657,7 @@ function MonthColumns({ c, which, target = null }: { c: FigCtx; which: Which; ta
         <Box sx={{ position: "relative", minWidth: axisWidth(top) - 10 }}>
           {ticks.map((f) => <Typography key={f} sx={{ position: "absolute", right: 0, bottom: `calc(${f * 100}% - 7px)`, fontSize: "0.7rem", color: FAINT, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", lineHeight: 1.2 }}>{eur(f * top)}</Typography>)}
         </Box>
-        <Box sx={{ position: "relative", aspectRatio: "2.6 / 1", minHeight: 160, maxHeight: 340 }}>
+        <Box sx={{ position: "relative", width: "100%", aspectRatio: "2.6 / 1", minHeight: 160, maxHeight: 340 }}>
           {ticks.map((f) => <Box key={f} sx={{ position: "absolute", left: 0, right: 0, bottom: `${f * 100}%`, borderTop: `1px solid ${f === 0 ? "#cfd4db" : "#eef0f3"}` }} />)}
           {target != null && target > 0 && <Box sx={{ position: "absolute", left: 0, right: 0, bottom: `${(target / top) * 100}%`, borderTop: `2px dashed ${TARGET}`, zIndex: 1, pointerEvents: "none" }} />}
           <Box sx={{ position: "absolute", inset: 0, display: "flex" }}>
@@ -785,8 +788,8 @@ function MonthCards({ c: given, dim, actions }: { c: FigCtx; dim: Dim; actions?:
 
 /* ── the tables: wide, in words, any column sorts ──────────────────────── */
 
-type Col<R> = { key: string; head: string; tip?: string; cell: (r: R) => React.ReactNode; sort?: (r: R) => number };
-function FullTable<R extends { label: string }>({ first, cols, rows, total, selected, onPick, tint = "blue", natural = false, initial, find }: {
+export type Col<R> = { key: string; head: string; tip?: string; cell: (r: R) => React.ReactNode; sort?: (r: R) => number };
+export function FullTable<R extends { label: string }>({ first, cols, rows, total, selected, onPick, tint = "blue", natural = false, initial, find }: {
   first: string; cols: Col<R>[]; rows: R[]; total?: R | null; selected?: string[]; onPick?: (label: string) => void; tint?: Tint;
   /** the rows keep their own order until a header is clicked (months, priorities) */
   natural?: boolean;
@@ -1393,15 +1396,15 @@ function FigureCards({ items }: { items: Fig[] }) {
 
 /* ── the page ──────────────────────────────────────────────────────────── */
 
-const KEPT = "eso.team";
-function setQuery(mut: (q: URLSearchParams) => void) {
+export const KEPT = "eso.team";
+export function setQuery(mut: (q: URLSearchParams) => void) {
   const q = new URLSearchParams(window.location.search);
   mut(q);
   const s = q.toString();
   window.history.replaceState(null, "", s ? `${window.location.pathname}?${s}` : window.location.pathname);
 }
-const asTeam = (x: string | null): TeamKey | null => (x === "eso" || x === "tsa" || x === "total" ? x : null);
-function useTeam(): [TeamKey, (t: TeamKey) => void] {
+export const asTeam = (x: string | null): TeamKey | null => (x === "eso" || x === "tsa" || x === "total" ? x : null);
+export function useTeam(): [TeamKey, (t: TeamKey) => void] {
   const params = useSearchParams();
   const [kept, setKept] = useState<TeamKey | null>(null);
   useEffect(() => { try { setKept(asTeam(localStorage.getItem(KEPT))); } catch { /* ESO */ } }, []);
@@ -1413,9 +1416,9 @@ function useTeam(): [TeamKey, (t: TeamKey) => void] {
   };
   return [team, set];
 }
-const KEPT_LEAD = "eso.lead";
+export const KEPT_LEAD = "eso.lead";
 /** Under ESO, the line manager's team: ?lead= in the address, kept for the next visit. */
-function useLead(): [LeadKey, (l: LeadKey) => void] {
+export function useLead(): [LeadKey, (l: LeadKey) => void] {
   const params = useSearchParams();
   const [kept, setKept] = useState<LeadKey | null>(null);
   useEffect(() => { try { setKept(asLead(localStorage.getItem(KEPT_LEAD))); } catch { /* all ESO */ } }, []);
@@ -1428,7 +1431,7 @@ function useLead(): [LeadKey, (l: LeadKey) => void] {
   return [lead, set];
 }
 /** A line manager's team with nobody in it yet: where to set it. */
-function NoLeadYet({ name }: { name: string }) {
+export function NoLeadYet({ name }: { name: string }) {
   return (
     <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
       Nobody is in {name} yet - pick each ESO person&apos;s line manager in the Line manager column of{" "}
@@ -1453,7 +1456,7 @@ function Waiting({ computing, progress, error, picked }: { computing: boolean; p
 const tooOld = (cube: Cube) => !cube.erp || !cube.saeTeams;
 // the company owner is not the Figures' (SARCLA 25.10.2026: "not relevant for figures, take it out")
 const FILTER_DIMS: Dim[] = ["prio", "segment", "potential", "country", "sae", "type", "apic", "mandant"];
-const H1 = { fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" }, lineHeight: 1.1 } as const;
+export const H1 = { fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" }, lineHeight: 1.1 } as const;
 /** An address from an earlier version (view=year, sae, owner - and mtd, now the period) opens the Performis SAE tab. */
 const viewOf = (x: string | null): View => (isView(x) && x !== "mtd" ? x : "ytd");
 

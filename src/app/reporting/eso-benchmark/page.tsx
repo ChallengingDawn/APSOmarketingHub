@@ -17,6 +17,7 @@ import { formatOf, refreshActions, send, useActions, type ActionsState } from "@
 import { EsoWaiting, ctxOf, pageHref, pageKey, type EsoPageDef } from "./EsoKit";
 import { ESO_PAGES } from "./pages";
 import { FiguresPanel } from "./Figures";
+import { VisitsPanel } from "./Visits";
 import { useEso, type EsoBenchmark } from "./shared";
 
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
@@ -92,7 +93,8 @@ export default function EsoBucView() {
       <FiguresPanel acts={acts} />
       {!b ? <EsoWaiting state={state} /> : (
         <>
-          {ESO_PAGES.map((p) => <PagePanel key={p.slug} def={p} b={b} acts={acts} />)}
+          {/* Visits has its own panel since it was rebuilt like the Figures (SARCLA 27.10.2026) - its own read, its own toggle */}
+          {ESO_PAGES.map((p) => (p.slug === "visits" ? <VisitsPanel key={p.slug} acts={acts} /> : <PagePanel key={p.slug} def={p} b={b} acts={acts} />))}
           <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
             Read from HubSpot {new Date(state?.computedAt ?? b.generatedAt).toLocaleString("en-GB")} · refreshed every 12 hours · the completed months of this year against the same months of last year · a chart joins its page&apos;s panel here with Actions on the page.
           </Typography>

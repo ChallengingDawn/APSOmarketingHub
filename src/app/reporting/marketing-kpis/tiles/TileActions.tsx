@@ -24,7 +24,7 @@ export type TileInfo = {
   kind?: "kpi" | "card";
   /** a chart that can be measured against a target (SARCLA 25.10.2026: "a threshold so we can measure the rest of it"):
    *  the key it is kept under (a chart may keep one per team), what is typed - euros or a percent - and what it means */
-  target?: { key: string; unit: "eur" | "pct"; label: string };
+  target?: { key: string; unit: "eur" | "pct" | "n"; label: string };
 };
 
 type Space = number | { xs?: number; md?: number };

@@ -80,7 +80,7 @@ function TargetBox({ tile, value, canWrite }: { tile: TileInfo; value: number | 
     try { await send("/api/reporting/kpi-actions/target", "POST", { key: t.key, value: val }); await refreshActions(tile.page); }
     catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
-  const now = value == null ? "No target yet" : t.unit === "pct" ? `${(value * 100).toFixed(1)}%` : `€${Math.round(value).toLocaleString("en")}`;
+  const now = value == null ? "No target yet" : t.unit === "pct" ? `${(value * 100).toFixed(1)}%` : t.unit === "n" ? Math.round(value).toLocaleString("en") : `€${Math.round(value).toLocaleString("en")}`;
   return (
     <Box sx={{ p: 2, borderRadius: "14px", border: `1px solid ${value == null ? HAIRLINE : TINT.blue.fg}`, bgcolor: "#fff", display: "grid", gap: 1 }}>
       <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
@@ -90,8 +90,8 @@ function TargetBox({ tile, value, canWrite }: { tile: TileInfo; value: number | 
       <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{t.label}</Typography>
       {canWrite && (
         <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-          <TextField size="small" value={v} onChange={(e) => setV(e.target.value)} label={t.unit === "pct" ? "Target in %" : "Target in EUR"}
-            placeholder={t.unit === "pct" ? "100" : "500000"} sx={{ ...field, width: 200 }} slotProps={{ htmlInput: { inputMode: "decimal" } }}
+          <TextField size="small" value={v} onChange={(e) => setV(e.target.value)} label={t.unit === "pct" ? "Target in %" : t.unit === "n" ? "Target" : "Target in EUR"}
+            placeholder={t.unit === "pct" ? "100" : t.unit === "n" ? "50" : "500000"} sx={{ ...field, width: 200 }} slotProps={{ htmlInput: { inputMode: "decimal" } }}
             onKeyDown={(e) => { if (e.key === "Enter" && parsed() != null) void save(parsed()); }} />
           <Button variant="contained" disableElevation disabled={busy || parsed() == null} onClick={() => void save(parsed())} sx={cta}>Save the target</Button>
           {value != null && <Button disabled={busy} onClick={() => { setV(""); void save(null); }} sx={cta}>Clear</Button>}
