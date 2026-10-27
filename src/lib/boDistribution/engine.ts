@@ -22,8 +22,8 @@ import { getAnthropic } from "@/lib/ai/claude";
 import { hubspotToken } from "@/lib/integrations/status";
 import { NOTE_NO_O, anysealsToFolder, gqsTaskFor, mergeIntoGqs, note, noteNoMatch, oNumber, salesSplit, type Call } from "./codeSteps";
 import {
-  BO, BO_OPEN_STAGES, DEFAULT_PRIORITY, GQS, GQS_OPEN_STAGES_LEGACY, LEGACY, PEOPLE, ROSTER_LABEL, SALES_SPLIT_SENDERS, STAGE, SUB,
-  assignBo, assignGqs, chatPlan, findSalesAgent, isQueueOwner, priorityFacts, priorityFor, route,
+  BO, BO_OPEN_STAGES, BO_OPEN_STAGES_HUB, CHAT_CALL_BACK, DEFAULT_PRIORITY, GQS, GQS_OPEN_STAGES_LEGACY, LEGACY, PEOPLE, QUEUE_OWNERS, ROSTER_LABEL, SALES_SPLIT_SENDERS, STAGE, SUB,
+  assignBo, assignGqs, chatCallBackSubject, chatPlan, findSalesAgent, isQueueOwner, priorityFacts, priorityFor, route, withCallBackStage,
   type Priority, type PriorityFacts, type PrioritySettings,
   type AssignInput, type Availability, type CompanyFacts, type ContactFacts, type Mode, type Person, type Pick as RulePick, type RosterKey, type Route, type Workload, requeuedByHand,} from "./rules";
 
@@ -51,6 +51,8 @@ export type HubOptions = {
   availability: "chat" | "ooo" | "both";
   /** the stages that count as someone's open tickets */
   boStages: string[]; gqsStages: string[];
+  /** 2 = the Back Office list was saved knowing the chat's call-back stage (a list saved before gets it once, getSettings) */
+  stagesV?: number;
   /** at most this many open tickets before the least-busy step passes a person over; null = no limit */
   cap: number | null;
   /** live mode: the steps the hub takes over */
@@ -62,7 +64,7 @@ export type HubOptions = {
 };
 /** GQS counted on the real "Waiting on APSO" (6078992599) instead of the deleted 3279663337 the workflow counts. */
 export const GQS_OPEN_STAGES_FIXED = ["2338266316", "4704538856", "2964068584", "6078992599"];
-export const DEFAULT_HUB: HubOptions = { availability: "chat", boStages: BO_OPEN_STAGES, gqsStages: GQS_OPEN_STAGES_FIXED, cap: null, liveSteps: ["23", "27", "31", "42"], note: true, breaker: 40, whenNobody: "wait" };
+export const DEFAULT_HUB: HubOptions = { availability: "chat", boStages: BO_OPEN_STAGES_HUB, gqsStages: GQS_OPEN_STAGES_FIXED, cap: null, liveSteps: ["23", "27", "31", "42"], note: true, breaker: 40, whenNobody: "wait", stagesV: 2 };
 export type Answer = { ownerId: string | null; ownerName: string | null; method: string; reasons: string[] };
 export type Actual = {
   at: string; ownerId: string | null; ownerName: string | null; ownerSetBy: string | null;
@@ -113,9 +115,9 @@ export type Row = {
   /** GQS: a task with no contact and no company takes them from its linked ticket (the code's
    *  inherit_associations_from_linked_ticket) - read before deciding, written in live mode */
   inherit?: { from: string; contacts: string[]; companies: string[] } | null;
-  /** a chat ticket: the new way (rules.ts chatPlan) - its stage, the owner the distribution picks and when the call is
-   *  due (null = nobody available, the hour starts when someone gets it). Shadow: nothing of it is written. */
-  chat?: { path: string[]; today: string; stage: string; owner: Answer; callBy: string | null } | null;
+  /** a chat call-back (rules.ts chatPlan): its stage, the owner the distribution picks (= row.hub) and when the call is
+   *  due (null = nobody available, the hour starts when someone gets it). Live mode writes it (actBo). */
+  chat?: { path: string[]; stage: string; owner: Answer; callBy: string | null } | null;
   /** live mode: what the hub wrote, or why it left the ticket to the workflow */
   wrote?: { at: string; ownerId: string | null; ownerName: string | null; ok: boolean; skipped?: string; error?: string; what?: string };
   note?: string;
@@ -134,7 +136,8 @@ export async function getSettings(): Promise<Settings> {
   const x = await kvGet<Partial<Settings>>(KV.settings);
   return {
     mode: x?.mode === "off" ? "off" : "shadow", rosters: x?.rosters ?? {}, live: { bo: !!x?.live?.bo, gqs: !!x?.live?.gqs, strays: !!x?.live?.strays },
-    hub: { ...DEFAULT_HUB, ...(x?.hub ?? {}) }, priority: { ...DEFAULT_PRIORITY, ...(x?.priority ?? {}) }, by: x?.by ?? null, at: x?.at ?? null,
+    hub: { ...DEFAULT_HUB, ...(x?.hub ?? {}), boStages: withCallBackStage(x?.hub) ?? DEFAULT_HUB.boStages, stagesV: 2 },
+    priority: { ...DEFAULT_PRIORITY, ...(x?.priority ?? {}) }, by: x?.by ?? null, at: x?.at ?? null,
   };
 }
 export async function saveSettings(patch: {
@@ -157,7 +160,7 @@ export async function saveSettings(patch: {
     cap: h.cap === null || h.cap === undefined || !Number(h.cap) ? null : Math.min(500, Math.max(1, Math.round(Number(h.cap)))),
     liveSteps: (Array.isArray(h.liveSteps) ? h.liveSteps : DEFAULT_HUB.liveSteps).map(String).filter((x) => ["23", "27", "31", "42"].includes(x)),
     note: h.note !== false, breaker: Math.min(200, Math.max(1, Math.round(Number(h.breaker) || 40))),
-    whenNobody: h.whenNobody === "leastBusy" ? "leastBusy" : "wait",
+    whenNobody: h.whenNobody === "leastBusy" ? "leastBusy" : "wait", stagesV: 2,
   };
   const pr = { ...cur.priority, ...(patch.priority ?? {}) };
   const words = (a: unknown, d: string[]) => (Array.isArray(a) ? a.map((x) => String(x).trim().toLowerCase()).filter(Boolean).slice(0, 60) : d);
@@ -425,6 +428,8 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
   };
   // as the live step gets them: an empty subject or body comes as null, and the step then writes nothing
   const r = route(facts, () => classifyTicket({ subject: p.subject, content: p.content }));
+  // the chat's call-back names who to call: the account, else the person (rules.ts chatCallBackSubject)
+  if (r.path.includes(CHAT_CALL_BACK)) r.sets.subject = chatCallBackSubject(await callBackParty(companies, contacts));
   row.route = { path: r.path, assigner: r.assigner, sets: r.sets, classified: r.classified, c2sStageAfter: r.c2sStageAfter };
   if (r.classified) {
     const c2 = classifyTicketV2({ subject: p.subject, content: p.content });
@@ -443,16 +448,8 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
   row.priorityHub = priorityFor((r.sets.hs_ticket_priority as Priority | undefined) ?? null, cat ?? null, sub, row.priorityFacts, settings.priority);
   // a chat ticket: the new way beside today's (parked / Rose below) - the distribution's pick with the hub's rules
   const plan = opts.stray ? null : chatPlan(r);
-  if (plan) {
-    const owner = answer(assignBo(plan.assigner, input("saToOwnerBo"), "hub"));
-    row.chat = { path: plan.path, today: plan.today, stage: plan.stage, owner, callBy: owner.ownerId ? new Date(Date.parse(enteredAt) + plan.callWithinMin * 60_000).toISOString() : null };
-  }
   const strayStep = opts.stray && (!r.assigner || r.assigner === "75" || r.assigner === "50" || !!r.sets.hubspot_owner_id) ? "27" as const : null;
   if (!strayStep) {
-    if (r.sets.hubspot_owner_id) {
-      const rose = fixed({ id: r.sets.hubspot_owner_id, name: (await ownerNames()).get(r.sets.hubspot_owner_id) ?? r.sets.hubspot_owner_id }, "Chat request resent by TSA");
-      row.legacy = rose; row.hub = rose; return row;
-    }
     if (!r.assigner) { row.note = "no distribution on this path"; return row; }
     if (r.assigner === "75") {
       const rep = mail.latestFrom ? await ownerByEmail(mail.latestFrom) : null;
@@ -470,7 +467,25 @@ async function decide(id: string, pipeline: "bo" | "gqs", enteredAt: string, sha
   row.associate = inp.saHub?.companyToAssociate ?? inp.sa.companyToAssociate ?? null;
   row.legacy = answer(assignBo(step, inp, "legacy"));
   row.hub = answer(assignBo(step, inp, "hub"));
+  // a chat call-back: the hub's pick is the person who calls - within the hour from entry
+  if (plan) row.chat = { path: plan.path, stage: plan.stage, owner: row.hub, callBy: row.hub.ownerId ? new Date(Date.parse(enteredAt) + plan.callWithinMin * 60_000).toISOString() : null };
   return row;
+}
+
+/** Who the call-back is for: the ticket's first company that is not us; else the company of its first contact that is
+ *  not us; else that contact's name (or e-mail). null = nobody known. */
+async function callBackParty(companies: CompanyFacts[], contacts: ContactFacts[]): Promise<string | null> {
+  const ours = (s: string) => /apsoparts|angst/i.test(s);
+  const co = companies.find((c) => !ours(`${c.name} ${c.domain ?? ""} ${c.website ?? ""}`));
+  if (co) return co.name;
+  const person = contacts.find((c) => !ours(c.email ?? ""));
+  if (!person) return null;
+  if (person.companyId) {
+    const c = await hs<{ properties: Record<string, string | null> }>(`/crm/v3/objects/companies/${person.companyId}?properties=name,domain`).catch(() => null);
+    const name = c?.properties.name?.trim();
+    if (name && !ours(`${name} ${c?.properties.domain ?? ""}`)) return name;
+  }
+  return person.name || null;
 }
 
 /** Fill in what rows decided before 19.10.2026 11:30 lack: C2S, sender, the improved classifier, the priority facts. */
@@ -759,7 +774,7 @@ export type Stray = {
   ticketId: string; pipeline: "bo" | "gqs" | "eso" | "tsa"; subject: string; stage: string | null; stageLabel: string | null;
   /** in its stage since */
   since: string | null;
-  why: "no owner" | "Backoffice Team" | "TSA Team" | "deactivated owner";
+  why: "no owner" | "Backoffice Team" | "TSA Team" | "APSOAssistant" | "deactivated owner";
   /** the person who had it last (a deactivated account included) */
   was: string | null;
   hub: Answer | null;
@@ -788,7 +803,7 @@ async function strayCandidates(archived: Set<string>): Promise<{ id: string; pip
     const base = [{ propertyName: "hs_pipeline", operator: "EQ", value: pid }, { propertyName: "hs_pipeline_stage", operator: "NOT_IN", values: closed }];
     const owners: object[] = [
       { propertyName: "hubspot_owner_id", operator: "NOT_HAS_PROPERTY" },
-      ...(kind === "bo" || kind === "gqs" ? [{ propertyName: "hubspot_owner_id", operator: "IN", values: [PEOPLE.backofficeTeam.id, PEOPLE.tsaTeam.id] }] : []),
+      ...(kind === "bo" || kind === "gqs" ? [{ propertyName: "hubspot_owner_id", operator: "IN", values: [...QUEUE_OWNERS] }] : []),
       ...Array.from({ length: Math.ceil(gone.length / 100) }, (_, i) => ({ propertyName: "hubspot_owner_id", operator: "IN", values: gone.slice(i * 100, i * 100 + 100) })),
     ];
     for (const f of owners) {
@@ -859,7 +874,7 @@ async function strays(shared: Shared, started: number, signal?: AbortSignal): Pr
       ticketId: c.id, pipeline: c.pipeline, subject: c.p.subject ?? "", stage: c.p.hs_pipeline_stage ?? null,
       stageLabel: ({ bo: st.bo, gqs: st.gqs, eso: st.eso, tsa: st.tsa }[c.pipeline]).find((x) => x.id === c.p.hs_pipeline_stage)?.label ?? null,
       since: c.p.hs_v2_date_entered_current_stage ?? c.p.createdate ?? null,
-      why: !owner ? "no owner" : owner === PEOPLE.backofficeTeam.id ? "Backoffice Team" : owner === PEOPLE.tsaTeam.id ? "TSA Team" : "deactivated owner", was: null, hub: null,
+      why: !owner ? "no owner" : owner === PEOPLE.backofficeTeam.id ? "Backoffice Team" : owner === PEOPLE.tsaTeam.id ? "TSA Team" : owner === PEOPLE.apsoAssistant.id ? "APSOAssistant" : "deactivated owner", was: null, hub: null,
     };
     try {
       if (c.pipeline === "eso" || c.pipeline === "tsa") {
@@ -944,7 +959,7 @@ async function actStray(s: Stray, team: Person[] | null, settings: Settings, arc
     }
     await hs(`/crm/v3/objects/tickets/${s.ticketId}`, "PATCH", { properties: props });
     await writesThisHour(1);
-    const had = s.why === "no owner" ? "had no owner" : s.why === "Backoffice Team" ? "had only the Backoffice Team queue" : s.why === "TSA Team" ? "had only the TSA Team (helpline) queue" : `had a deactivated owner (${s.was ?? "?"})`;
+    const had = s.why === "no owner" ? "had no owner" : s.why === "Backoffice Team" ? "had only the Backoffice Team queue" : s.why === "TSA Team" ? "had only the TSA Team (helpline) queue" : s.why === "APSOAssistant" ? "had only APSOAssistant (the chat's AI)" : `had a deactivated owner (${s.was ?? "?"})`;
     const body = [
       `✅ Owner given: ${s.hub!.ownerName}`, "", `The ticket ${had}${s.since ? ` since ${s.since.slice(0, 10)}` : ""}.`, `Method: ${s.hub!.method}`,
       ...(s.hub!.reasons.length ? [`Why: ${s.hub!.reasons.join("; ")}`] : []),

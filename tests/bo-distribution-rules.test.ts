@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  LEGACY, PEOPLE, STAGE, SUB, assignBo, assignGqs, chatPlan, findSalesAgent, route,
+  BO_OPEN_STAGES, BO_OPEN_STAGES_HUB, CHAT_CALL_BACK, LEGACY, PEOPLE, STAGE, SUB, assignBo, assignGqs, chatCallBackSubject, chatPlan, findSalesAgent,
+  isQueueOwner, requeuedByHand, route, withCallBackStage,
   type AssignInput, type Availability, type Classified, type RouteFacts, type SalesAgent,
 } from "../src/lib/boDistribution/rules";
 
@@ -70,36 +71,71 @@ test("a C2S problem is Delivery / late / URGENT and ends in the Cut-to-Size stag
   assert.equal(r.c2sStageAfter, true);
 });
 
-test("chat tickets never reach a distribution step", () => {
-  assert.equal(route(facts({ sourceType: "CHAT" }), none).sets.hs_pipeline_stage, STAGE.chatNewBoTopic);
-  const resent = route(facts({ sourceType: "CHAT", stagesEver: ["1", STAGE.boNew], category: "Delivery" }), none);
-  assert.equal(resent.sets.hubspot_owner_id, PEOPLE.rose.id);
-  assert.equal(resent.sets.subject, "📍CHAT REQUEST | Delivery | ROSE");
-  assert.equal(route(facts({ sourceType: "CHAT" }), none).assigner, null);
+test("a chat that comes to the Back Office is a call-back: CHAT/C2S Issue and General Distribution, never parked, never Rose", () => {
+  const handed = route(facts({ sourceType: "CHAT", stage: STAGE.boRedirectedFromChat, stagesEver: [STAGE.boRedirectedFromChat] }), none);
+  assert.deepEqual(handed.path, ["CHAT", CHAT_CALL_BACK]);
+  assert.equal(handed.sets.hs_pipeline_stage, STAGE.cutToSizeIssue);
+  assert.equal(handed.sets.hs_pipeline_stage, "5948837104");
+  assert.equal(handed.assigner, "27");
+  assert.equal(handed.sets.hubspot_owner_id, undefined);
+  // every shop-chat ticket is created by the Help Desk in the chat pipeline's stage 1 - that is no "sent back by TSA"
+  const helpDesk = route(facts({ sourceType: null, aiChatSource: "CHAT", stage: STAGE.boRedirectedFromChat, stagesEver: ["1", "5166420212", STAGE.boRedirectedFromChat], category: "Delivery" }), none);
+  assert.deepEqual(helpDesk.path, ["AI CHAT", CHAT_CALL_BACK]);
+  assert.equal(helpDesk.sets.hubspot_owner_id, undefined, "no Rose");
+  assert.equal(helpDesk.sets.subject, undefined, "no CHAT REQUEST subject - the live step writes the call-back's");
+  assert.notEqual(helpDesk.sets.hs_pipeline_stage, STAGE.chatNewBoTopic);
+  assert.equal(helpDesk.assigner, "27");
+  // the shop bug and the 3D model request keep their own way
+  const bug = route(facts({ sourceType: "CHAT", category: "Website Issue", subs: { [SUB.website]: "Other Issue" } }), none);
+  assert.equal(bug.assigner, null);
+  assert.ok(bug.path.includes("EXCLUDE SHOP BUG DANIEL") && !bug.path.includes(CHAT_CALL_BACK));
+  assert.equal(route(facts({ sourceType: "CHAT", category: "Product Information", subs: { [SUB.product]: "3D Model request" } }), none).assigner, null);
   // EMAIL wins over an AI chat source
   assert.equal(route(facts({ aiChatSource: "CHAT" }), none).path[0], "EMAIL");
   assert.equal(route(facts({ sourceType: null, aiChatSource: "CHAT" }), none).path[0], "AI CHAT");
 });
 
-test("the chat's new way: CHAT/C2S Issue with #27 instead of parking or Rose - exclusions and other origins untouched", () => {
-  const handed = chatPlan(route(facts({ sourceType: "CHAT", stage: STAGE.boRedirectedFromChat, stagesEver: [STAGE.boRedirectedFromChat] }), none));
-  assert.equal(handed?.stage, STAGE.cutToSizeIssue);
-  assert.equal(handed?.stage, "5948837104");
-  assert.equal(handed?.assigner, "27");
-  assert.equal(handed?.callWithinMin, 60);
-  assert.equal(handed?.today, "parked in New BO Topic");
-  const resent = chatPlan(route(facts({ sourceType: null, aiChatSource: "CHAT", stagesEver: ["1", STAGE.boNew], category: "Delivery" }), none));
-  assert.equal(resent?.today, "Rose");
-  assert.equal(resent?.path[0], "AI CHAT");
-  assert.equal(resent?.path[1], "SENT BACK BY TSA");
-  // the shop bug and the 3D model request keep their own way
+test("the call-back's plan: CHAT/C2S Issue, #27, a call within the hour - only on the call-back path", () => {
+  const plan = chatPlan(route(facts({ sourceType: "CHAT", stage: STAGE.boRedirectedFromChat, stagesEver: ["1", STAGE.boRedirectedFromChat] }), none));
+  assert.equal(plan?.stage, STAGE.cutToSizeIssue);
+  assert.equal(plan?.assigner, "27");
+  assert.equal(plan?.callWithinMin, 60);
+  assert.deepEqual(plan?.path, ["CHAT", CHAT_CALL_BACK, "#27 sales agent > SA Sub > least busy", "CHAT/C2S Issue"]);
+  // the exclusions and other origins: no plan
   assert.equal(chatPlan(route(facts({ sourceType: "CHAT", category: "Website Issue", subs: { [SUB.website]: "Other Issue" } }), none)), null);
   assert.equal(chatPlan(route(facts({ sourceType: "CHAT", category: "Product Information", subs: { [SUB.product]: "3D Model request" } }), none)), null);
-  // not a chat: no plan
   assert.equal(chatPlan(route(facts(), as("Delivery", SUB.delivery, "Existing Order"))), null);
   assert.equal(chatPlan(route(facts({ sourceType: "FORM", category: "Order Cancellation" }), none)), null);
-  // today's path itself is unchanged by the plan (shadow)
-  assert.equal(route(facts({ sourceType: "CHAT" }), none).sets.hs_pipeline_stage, STAGE.chatNewBoTopic);
+});
+
+test("the call-back's subject names who to call", () => {
+  assert.equal(chatCallBackSubject("Kaufmann AG"), "PLEASE CALL CHAT CUSTOMER | 1 HOUR | Kaufmann AG");
+  assert.equal(chatCallBackSubject("  Müller   & Co  "), "PLEASE CALL CHAT CUSTOMER | 1 HOUR | Müller & Co");
+  assert.equal(chatCallBackSubject(null), "PLEASE CALL CHAT CUSTOMER | 1 HOUR | NO COMPANY");
+  assert.equal(chatCallBackSubject(""), "PLEASE CALL CHAT CUSTOMER | 1 HOUR | NO COMPANY");
+});
+
+test("APSOAssistant - the chat AI's owner - is a queue owner: the distribution assigns over it", () => {
+  assert.equal(PEOPLE.apsoAssistant.id, "29321400");
+  assert.equal(isQueueOwner("29321400"), true);
+  assert.equal(isQueueOwner(PEOPLE.backofficeTeam.id), true);
+  assert.equal(isQueueOwner(PEOPLE.tsaTeam.id), true);
+  assert.equal(isQueueOwner(PEOPLE.rose.id), false);
+  assert.equal(isQueueOwner(null), false);
+  // the brain writes it (an integration): nobody put it back by hand
+  assert.equal(requeuedByHand({ value: "29321400", sourceType: "INTEGRATION" }), false);
+});
+
+test("the hub's Back Office workload counts CHAT/C2S Issue; a list saved before gets it once, a list saved since stays", () => {
+  assert.deepEqual(BO_OPEN_STAGES_HUB, [...BO_OPEN_STAGES, STAGE.cutToSizeIssue]);
+  assert.ok(!BO_OPEN_STAGES.includes(STAGE.cutToSizeIssue), "the workflow's own list is the copy - unchanged");
+  const old = ["2338266326", "2473210048"];
+  assert.deepEqual(withCallBackStage({ boStages: old }), [...old, STAGE.cutToSizeIssue]);
+  assert.deepEqual(withCallBackStage({ boStages: old, stagesV: 1 }), [...old, STAGE.cutToSizeIssue]);
+  assert.deepEqual(withCallBackStage({ boStages: old, stagesV: 2 }), old, "saved knowing it: the person's choice");
+  assert.deepEqual(withCallBackStage({ boStages: [...old, STAGE.cutToSizeIssue] }), [...old, STAGE.cutToSizeIssue], "no double");
+  assert.equal(withCallBackStage(undefined), undefined);
+  assert.equal(withCallBackStage({}), undefined);
 });
 
 test("forms skip the classifier; API / hub tickets stop on CERTIFICATES and MAIL TO CUSTOMER", () => {

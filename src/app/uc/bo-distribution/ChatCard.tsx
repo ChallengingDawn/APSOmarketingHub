@@ -1,9 +1,9 @@
 "use client";
 
-// BACK OFFICE DISTRIBUTION - the chat's Back Office topics, the new way (SARCLA 26.10.2026: no more parking in the chat
-// pipeline's "New BO Topic", no more Rose; the stage "CHAT/C2S Issue", an owner from the distribution, a call within
-// the hour). Every chat ticket of the last 7 days with what happens to it today and what the new way would do -
-// worked out by the hub (engine.ts row.chat), written by nobody.
+// BACK OFFICE DISTRIBUTION - the chat's call-backs (SARCLA 26.10.2026: no more parking in the chat pipeline's "New BO
+// Topic", no more Rose; the stage "CHAT/C2S Issue", an owner from the distribution, a call within the hour - live since
+// 27.10.2026 with the subject "PLEASE CALL CHAT CUSTOMER | 1 HOUR | <company>"). Every chat ticket of the last 7 days
+// that came to the Back Office: who calls, by when, and what the hub wrote (engine.ts row.chat, row.wrote).
 
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -19,7 +19,7 @@ import { full } from "@/app/charts/format";
 import type { Row } from "@/lib/boDistribution/engine";
 import type { Data } from "./shared";
 
-function NewWay({ c }: { c: NonNullable<Row["chat"]> }) {
+function Caller({ c }: { c: NonNullable<Row["chat"]> }) {
   if (!c.owner.ownerId) return (
     <Box sx={{ display: "grid", gap: 0.25, justifyItems: "start" }}>
       <Chip tint="slate">Waits - nobody available</Chip>
@@ -37,17 +37,30 @@ function NewWay({ c }: { c: NonNullable<Row["chat"]> }) {
   );
 }
 
+/** what the live step did with it - or why it left it */
+function Written({ w }: { w: Row["wrote"] }) {
+  if (!w) return <Chip tint="slate">Not written - live mode off</Chip>;
+  if (w.ok) return <Chip tint="green">{w.ownerName ? `Given to ${w.ownerName}` : "Moved - waits for an owner"}</Chip>;
+  return (
+    <Box sx={{ display: "grid", gap: 0.25, justifyItems: "start" }}>
+      <Chip tint="amber">Left</Chip>
+      <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{w.skipped ?? w.error ?? ""}</Typography>
+    </Box>
+  );
+}
+
 export function ChatCard({ d }: { d: Data }) {
   const rows = d.rows.filter((r) => r.chat).sort((a, b) => b.enteredAt.localeCompare(a.enteredAt));
   const waits = rows.filter((r) => !r.chat!.owner.ownerId).length;
   return (
     <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
       <CardTitle icon={<ForumOutlinedIcon />} tint="purple"
-        title={`Chat topics for the Back Office - the new way: ${full(rows.length)}${waits ? ` · ${full(waits)} would wait for someone available` : ""}`}
-        note="Trial: worked out for every chat ticket, nothing is written - today's handling goes on until it is switched live" />
+        title={`Chat call-backs for the Back Office: ${full(rows.length)}${waits ? ` · ${full(waits)} waited for someone available` : ""}`}
+        note="Every chat ticket that came to the Back Office in these 7 days" />
       <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>
-        A chat topic the AI cannot finish and that is not about sales comes to the Back Office. The new way: the stage CHAT/C2S Issue, the
-        account&apos;s ERP sales agent (else the SA Sub, else the least busy) as owner, and a call to the customer within the hour.
+        A chat topic the AI cannot finish and that is not about sales comes to the Back Office: the stage CHAT/C2S Issue, the subject
+        &quot;PLEASE CALL CHAT CUSTOMER | 1 HOUR | company&quot;, the account&apos;s ERP sales agent (else the SA Sub, else the least busy) as
+        owner, and a call to the customer within the hour. Nobody available: it waits in CHAT/C2S Issue and gets the next one available.
       </Typography>
       {!rows.length ? (
         <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>No chat ticket has come to the Back Office in these 7 days. Each new one shows here within two minutes.</Typography>
@@ -56,7 +69,7 @@ export function ChatCard({ d }: { d: Data }) {
           <Table size="small" sx={{ minWidth: 760, "& td, & th": { borderColor: HAIRLINE, verticalAlign: "top" } }}>
             <TableHead>
               <TableRow>
-                {["Ticket", "Came in", "Today", "The new way"].map((h) => (
+                {["Ticket", "Came in", "Who calls", "Written"].map((h) => (
                   <TableCell key={h} sx={{ fontSize: "0.72rem", color: MUTED, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</TableCell>
                 ))}
               </TableRow>
@@ -69,8 +82,8 @@ export function ChatCard({ d }: { d: Data }) {
                     <Typography sx={{ fontSize: "0.74rem", color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.subject}>{r.subject || "(no subject)"}</Typography>
                   </TableCell>
                   <TableCell sx={{ fontSize: "0.78rem", color: INK, whiteSpace: "nowrap" }}>{when(r.enteredAt)}</TableCell>
-                  <TableCell><Chip tint={r.chat!.today === "Rose" ? "amber" : "slate"}>{r.chat!.today === "Rose" ? "To Rose" : "Parked in New BO Topic"}</Chip></TableCell>
-                  <TableCell><NewWay c={r.chat!} /></TableCell>
+                  <TableCell><Caller c={r.chat!} /></TableCell>
+                  <TableCell><Written w={r.wrote} /></TableCell>
                 </TableRow>
               ))}
             </TableBody>

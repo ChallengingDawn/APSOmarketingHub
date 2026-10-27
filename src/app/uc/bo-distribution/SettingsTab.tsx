@@ -23,6 +23,7 @@ import ReplayOutlinedIcon from "@mui/icons-material/ReplayOutlined";
 import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, RED } from "@/app/uc/report/ui";
 import { Chip, Choice, when } from "@/app/connectors/parts";
 import type { HubOptions } from "@/lib/boDistribution/engine";
+import { BO_OPEN_STAGES, GQS_OPEN_STAGES_LEGACY } from "@/lib/boDistribution/rules";
 import { type Data } from "./shared";
 
 const AVAIL: { key: HubOptions["availability"]; label: string; text: string }[] = [
@@ -55,7 +56,8 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   const stages = (pipe: "bo" | "gqs") => {
     const chosen = pipe === "bo" ? hub.boStages : hub.gqsStages;
-    const wf = pipe === "bo" ? d.defaults.hub.boStages : ["2338266316", "4704538856", "2964068584", "3279663337"];
+    // the stages the workflow's own code counted - the hub's list adds CHAT/C2S Issue (the chat's call-backs)
+    const wf = pipe === "bo" ? BO_OPEN_STAGES : GQS_OPEN_STAGES_LEGACY;
     return (
       <Box sx={{ display: "grid", gap: 0.25 }}>
         {(pipe === "bo" ? d.stages.bo : d.stages.gqs).map((st) => (

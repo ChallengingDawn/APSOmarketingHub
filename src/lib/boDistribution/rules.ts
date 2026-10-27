@@ -19,6 +19,16 @@ export const STAGE = {
 } as const;
 /** Back Office stages the code counts as someone's workload. */
 export const BO_OPEN_STAGES = ["2338266326", "2473210048", "2726922455", "2728031473", "2338266327"];
+/** The hub's Back Office workload: the workflow's stages and "CHAT/C2S Issue" - a chat call-back is somebody's open
+ *  ticket (SARCLA 26.10.2026: add it to the load balancer's workload stages with the chat's live path). */
+export const BO_OPEN_STAGES_HUB = [...BO_OPEN_STAGES, STAGE.cutToSizeIssue];
+/** A Back Office list saved (Settings) before the call-back stage counted gets it once; a list saved since (stagesV 2)
+ *  is the person's own choice and stays as saved. */
+export function withCallBackStage(hub: { boStages?: string[]; stagesV?: number } | undefined): string[] | undefined {
+  const saved = hub?.boStages;
+  if (!Array.isArray(saved) || !saved.length || (hub?.stagesV ?? 1) >= 2 || saved.includes(STAGE.cutToSizeIssue)) return saved;
+  return [...saved, STAGE.cutToSizeIssue];
+}
 /** GQS stages the GQS code counts: 3279663337 no longer exists and 6078992599 "Waiting on APSO" is missing (legacy). */
 export const GQS_OPEN_STAGES_LEGACY = ["2338266316", "4704538856", "2964068584", "3279663337"];
 /** Working stages for "has ever been" checks in the chat path. */
@@ -35,10 +45,14 @@ export const PEOPLE = {
   // helpline@apsoparts.com. The ESO/chat re-route to Back Office "Redirected from Chat/Helpline" writes this queue user as
   // the owner; MAIN ROUTING overwrote it with a person - it is a queue, not somebody's ticket (23.10.2026)
   tsaTeam: P("1202569408", "TSA Team"),
+  // HubSpot's own bot user: the chat's brain makes it the owner while the AI has the conversation (SARCLA 27.10.2026:
+  // "give the owner APSOassistant to the ticket while the conversation is not yet taken or escalated") - a ticket the
+  // AI hands over still carries it, and it is nobody's yet
+  apsoAssistant: P("29321400", "APSOAssistant"),
 };
 
 /** Queue users - an owner that is nobody yet: the distribution gives the ticket a person, the stray sweep picks it up. */
-export const QUEUE_OWNERS: ReadonlySet<string> = new Set([PEOPLE.backofficeTeam.id, PEOPLE.tsaTeam.id]);
+export const QUEUE_OWNERS: ReadonlySet<string> = new Set([PEOPLE.backofficeTeam.id, PEOPLE.tsaTeam.id, PEOPLE.apsoAssistant.id]);
 export const isQueueOwner = (id: string | null | undefined): boolean => !!id && QUEUE_OWNERS.has(id);
 
 /**
@@ -205,12 +219,15 @@ export function route(f: RouteFacts, classify: () => Classified): Route {
       else if (f.stage === STAGE.boNew && ever(BO_WORKED)) { r.path.push("SENT TO CUSTOMER BY CAD"); set("hs_pipeline_stage", STAGE.resolved); }
       return r;
     }
-    if (ever(["1", STAGE.chatNewBoTopic])) {
-      r.path.push("RESENT TO BO BY TSA");
-      set("hs_pipeline_stage", STAGE.boRedirectedFromChat); set("subject", `📍CHAT REQUEST | ${category ?? ""} | ROSE`); set("hubspot_owner_id", PEOPLE.rose.id);
-      return r;
-    }
-    r.path.push("parked"); set("hs_pipeline_stage", STAGE.chatNewBoTopic); return r;
+    // The chat's call-back (SARCLA 26.10.2026, live 27.10.2026: "not to the new stage and with the title PLEASE CALL
+    // CHAT CUSTOMER | 1 HOUR | COMPANY"). It used to be parked in the chat pipeline's "New BO Topic", or - when it had
+    // ever been in the chat pipeline's stage 1, read as "TSA sent it back" - put in Redirected as "📍CHAT REQUEST | ... |
+    // ROSE" with Rose as owner. The Help Desk creates EVERY shop-chat ticket in that stage 1, so every Back Office chat
+    // went to Rose. Now: the stage "CHAT/C2S Issue" and an owner from General Distribution (#27: the account's ERP sales
+    // agent, else the SA Sub, else the least busy), who calls the customer within the hour. The subject names the
+    // company, which only the live step knows (engine.ts decide, chatCallBackSubject).
+    r.path.push(CHAT_CALL_BACK); set("hs_pipeline_stage", STAGE.cutToSizeIssue); r.assigner = "27";
+    return r;
   }
   if (f.sourceType === "EMAIL") {
     r.path.push("EMAIL");
@@ -242,25 +259,25 @@ export function route(f: RouteFacts, classify: () => Classified): Route {
   return r;
 }
 
-/* ── the chat's Back Office topics, the new way (shadow) ───────────────────── */
+/* ── the chat's Back Office topics: the call-back ──────────────────────────── */
 // SARCLA 26.10.2026: the AI tries first; a chat topic it cannot finish that is NOT a sales topic goes to the Back
-// Office - no longer parked in the chat pipeline's "New BO Topic", no longer given to Rose when TSA sends it back. It
-// goes to the stage "CHAT/C2S Issue" (5948837104, renamed from "Cut-to-Size issue") with an owner from the
+// Office: the stage "CHAT/C2S Issue" (5948837104, renamed from "Cut-to-Size issue") with an owner from the
 // distribution - the account's ERP sales agent, else the SA Sub, else the least busy (#27) - and that person calls the
-// customer within the hour. Worked out beside today's path and written by nobody until it is switched live.
+// customer within the hour (route() above; written by the live step since 27.10.2026). The shop bug (Daniel) and the
+// 3D model request (the CAD team) keep their own way. "The call task is the ticket": no separate call task.
+export const CHAT_CALL_BACK = "CHAT CALL-BACK";
 export const CHAT_CALL_WITHIN_MIN = 60;
-export type ChatPlan = { path: string[]; today: string; stage: string; assigner: "27"; callWithinMin: number };
+export type ChatPlan = { path: string[]; stage: string; assigner: "27"; callWithinMin: number };
 export function chatPlan(r: Route): ChatPlan | null {
-  const origin = r.path[0];
-  if (origin !== "CHAT" && origin !== "AI CHAT") return null;
-  // the two exclusions stay as they are: the shop bug to Daniel, the 3D model request to the CAD team
-  if (r.path.includes("EXCLUDE SHOP BUG DANIEL") || r.path.includes("EXCLUDE FORM 3D REQUESTS")) return null;
-  const resent = r.path.includes("RESENT TO BO BY TSA");
+  if (!r.path.includes(CHAT_CALL_BACK)) return null;
   return {
-    path: [origin, resent ? "SENT BACK BY TSA" : "HANDED OVER BY THE CHAT", "#27 sales agent > SA Sub > least busy", "CHAT/C2S Issue"],
-    today: resent ? "Rose" : "parked in New BO Topic",
+    path: [r.path[0], CHAT_CALL_BACK, "#27 sales agent > SA Sub > least busy", "CHAT/C2S Issue"],
     stage: STAGE.cutToSizeIssue, assigner: "27", callWithinMin: CHAT_CALL_WITHIN_MIN,
   };
+}
+/** The call-back ticket's subject: who to call, at a glance in the Back Office's lists. */
+export function chatCallBackSubject(party: string | null | undefined): string {
+  return `PLEASE CALL CHAT CUSTOMER | 1 HOUR | ${String(party ?? "").replace(/\s+/g, " ").trim() || "NO COMPANY"}`;
 }
 
 /* ── the sales agent: company first, then contact ──────────────────────────── */

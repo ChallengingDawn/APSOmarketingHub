@@ -226,7 +226,8 @@ export function boWay(r: Row): BoWay | null {
     : has("EMAIL") ? "o:email" : has("FORM") ? "o:form" : has("ELSE (API / hub / UI)") ? "o:api" : "o:other";
   // rule: what caught it before (or instead of) the category router
   const rule = origin === "o:c2s" ? "r:c2s" : origin === "o:anyseals" ? "r:anyseals"
-    : origin === "o:chat" ? (has("RESENT TO BO BY TSA") ? "r:chat-rose" : has("EXCLUDE SHOP BUG DANIEL") || has("EXCLUDE FORM 3D REQUESTS") ? "r:chat-left" : "r:chat-parked")
+    : origin === "o:chat" ? (has("CHAT CALL-BACK") ? "r:chat-callback" : has("EXCLUDE SHOP BUG DANIEL") || has("EXCLUDE FORM 3D REQUESTS") ? "r:chat-left"
+      : has("RESENT TO BO BY TSA") ? "r:chat-rose" : "r:chat-parked")
     : origin === "o:email" ? (has("GQS EXCLUSION AND MAILS") ? "r:tsr" : has("CHANGES OF ACCOUNT ADDRESS") ? "r:billing" : has("Sales") ? "r:rep"
       : has("STOPPED ORDERS") ? "r:stopped" : has("ESO/TSA PIPELINE REDIRECT") ? "r:back" : has("#22 classifier") ? "r:classifier" : "r:other")
     : has("CERTIFICATES AND MAIL TO CUSTOMER") ? "r:cert" : origin === "o:other" ? "r:other" : "r:given";
@@ -244,7 +245,7 @@ function boColumns(d: Data, owners: FlowNode[]): FlowColumn[] {
     { title: "Origin", how: "One minute after entry: two checks, then the source - the first that matches wins", nodes: [
       { id: "o:c2s", label: "C2S problem", color: ROAD.special, text: "Subject has C2S PROBLEM, or a C2S order is set" },
       { id: "o:anyseals", label: "Anyseals file", short: "Anyseals", color: ROAD.stop, text: "Subject has Anyseals Stock" },
-      { id: "o:chat", label: "Chat / AI chat", short: "Chat", color: ROAD.stop, text: "Never distributed" },
+      { id: "o:chat", label: "Chat / AI chat", short: "Chat", color: ROAD.special, text: "A chat topic the AI could not finish: a call-back" },
       { id: "o:email", label: "E-mail", color: ROAD.main, text: "Through the e-mail rules" },
       { id: "o:form", label: "Form", color: ROAD.main, text: "The form's own category" },
       { id: "o:api", label: "API / hub / UI", short: "API / hub", color: ROAD.main, text: "Anything else - like a form" },
@@ -253,8 +254,9 @@ function boColumns(d: Data, owners: FlowNode[]): FlowColumn[] {
     { title: "Rule", how: "E-mails: these rules in this order, then the classifier; the rest keep their category", nodes: [
       { id: "r:c2s", label: "C2S check", color: ROAD.special, text: <>Delivery, existing order, late, <Prio p="URGENT" /> - then the router</> },
       { id: "r:anyseals", label: "Stock file", color: ROAD.stop, text: "Read by its own step, then resolved" },
-      { id: "r:chat-parked", label: "Chat parked", color: ROAD.stop, text: "Moved to New BO Topic" },
-      { id: "r:chat-rose", label: "Chat back from TSA", short: "Chat → Rose", color: ROAD.special, text: "Back to Redirected as CHAT REQUEST, owner Rose" },
+      { id: "r:chat-callback", label: "Chat call-back", short: "Call-back", color: ROAD.special, text: "CHAT/C2S Issue, PLEASE CALL CHAT CUSTOMER | 1 HOUR | company - a call within the hour" },
+      { id: "r:chat-parked", label: "Chat parked (old way)", short: "Chat parked", color: ROAD.stop, text: "Moved to New BO Topic", quiet: true },
+      { id: "r:chat-rose", label: "Chat to Rose (old way)", short: "Chat → Rose", color: ROAD.special, text: "Back to Redirected as CHAT REQUEST, owner Rose", quiet: true },
       { id: "r:chat-left", label: "Chat left alone", short: "Chat left", color: ROAD.stop, text: "Shop bug (Other issue) or 3D request: left, to CAD or resolved" },
       { id: "r:tsr", label: "Task Status Report", short: "Status report", color: ROAD.special, text: "Waits 3 minutes, then merged into its GQS task" },
       { id: "r:billing", label: "Billing / ERP export", short: "Billing / ERP", color: ROAD.special, text: <>Billing address: Website issue / Login; ERP Order Export: Delivery - <Prio p="HIGH" /></> },
@@ -284,7 +286,7 @@ function boColumns(d: Data, owners: FlowNode[]): FlowColumn[] {
       { id: "s:23", label: "Assignment System", short: "Assignment", color: ROAD.main, text: `${names(L.primary23, ", else ")} if available, else the least busy of ${names(L.team23)}` },
       { id: "s:50", label: "Task Status merge", short: "Status merge", color: ROAD.special, text: `The GQS task's owner (by its O-number); no task: least busy of ${names(L.team50)}` },
       { id: "s:75", label: "Sales split", color: ROAD.special, text: "The forwarding rep, in ESO New" },
-      { id: "s:rose", label: "Straight to Rose", short: "To Rose", color: ROAD.special, text: "Set by the chat path" },
+      { id: "s:rose", label: "Straight to Rose (old way)", short: "To Rose", color: ROAD.special, text: "Set by the chat path before the call-back", quiet: true },
       { id: "s:none", label: "No owner step", short: "No step", color: ROAD.stop, text: "Parked, resolved or left alone - nobody assigned" },
     ] },
     { title: "Owner", how: "What the step gave in HubSpot; not settled yet: the copy's pick. Least busy = fewest open Back Office tickets", nodes: [

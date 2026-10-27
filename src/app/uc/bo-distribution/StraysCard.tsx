@@ -21,7 +21,7 @@ import type { Stray } from "@/lib/boDistribution/engine";
 import type { Data } from "./shared";
 
 const PIPE = { bo: "Back Office", gqs: "GQS", eso: "ESO", tsa: "TSA" } as const;
-const WHY_TINT = { "no owner": "pink", "Backoffice Team": "amber", "TSA Team": "amber", "deactivated owner": "purple" } as const;
+const WHY_TINT = { "no owner": "pink", "Backoffice Team": "amber", "TSA Team": "amber", APSOAssistant: "amber", "deactivated owner": "purple" } as const;
 const days = (iso: string | null) => (iso ? Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 86400_000)) : null);
 
 function Outcome({ s, live }: { s: Stray; live: boolean }) {
