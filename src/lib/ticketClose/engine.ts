@@ -430,6 +430,12 @@ async function run(): Promise<RunInfo> {
     for (const [name, sweep] of [["Others of the history", customerSweep], ["Internal e-mail of the history", internalSweep]] as const) {
       try {
         const aiKey = `ticketClose:ai:${day()}`, usedNow = (await kvGet<number>(aiKey)) ?? 0;
+        // a quiet pass is a spent budget, not a broken one - say so once a day (27.10.2026: a bug spent it by noon)
+        if (usedNow >= AI_PER_DAY) {
+          const said = `ticketClose:budgetSaid:${day()}`;
+          if (!(await kvGet<boolean>(said))) { console.log(`[ticket-close] the day's ${AI_PER_DAY} AI answers are used - the history passes go on after midnight (UTC)`); await kvSet(said, true); }
+          break;
+        }
         const spent = await sweep(AI_PER_DAY - usedNow);
         if (spent) await kvSet(aiKey, usedNow + spent);
       } catch (e) { console.warn(`[ticket-close] ${name}: ${(e as Error).message}`); }
