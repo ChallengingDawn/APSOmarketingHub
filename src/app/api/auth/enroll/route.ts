@@ -8,6 +8,7 @@ import { beginSession } from '@/lib/auth/sessions';
 import { checkRateLimit, clientKey, recordFailure, recordSuccess } from '@/lib/auth/rateLimit';
 import { mfaRequired, type Role } from '@/lib/auth/access';
 import { getOptionalUser } from '@/lib/auth/guard';
+import { isSandbox } from '@/lib/sandbox/mode';
 
 /**
  * Who is enrolling: somebody in the middle of signing in, or somebody already
@@ -25,6 +26,7 @@ async function enrollingUser(): Promise<number | null> {
 export const runtime = 'nodejs';
 
 export async function GET() {
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
   const uid = await enrollingUser();
   if (!uid) return NextResponse.json({ error: 'No pending login' }, { status: 401 });
 
@@ -54,6 +56,7 @@ const PostBody = z.union([
 ]);
 
 export async function POST(req: Request) {
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
   const rlKey = clientKey(req, 'enroll');
   const rl = checkRateLimit(rlKey);
   if (!rl.ok) {

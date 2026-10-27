@@ -1,6 +1,7 @@
 // THE SANDBOXES' ERRANDS (SARCLA 26.10.2026) - the sandbox on Railway cannot reach the hub, so the hub goes to it.
 // Every minute, one copy of the hub at a time (advisory lock 4107250), for each sandbox in SANDBOX_URLS: its reviews
-// mailed to the reviewer, its new people's sign-up links mailed, the CLI's Railway token replaced once a day. It never
+// mailed to the reviewer, the CLI's Railway token replaced once a day (and, once per start, the builders' hub accounts
+// from SANDBOX_HUB_PEOPLE). It never
 // runs a read: data leaves only when somebody presses Bring data on the hub's Sandbox app (feed.ts bring()).
 // Never beside an ERP chain. Needs SANDBOX_URLS + SANDBOX_LINK_KEY; SANDBOX_FEED=off stops it.
 
@@ -10,7 +11,6 @@ import { feedOne } from "./feed";
 import { sandboxTargets } from "./policy";
 import { currentRailwayToken } from "./railway";
 import { sendReview } from "./review";
-import { sendInvite } from "./invite";
 import { ensureHubPeople } from "./hubPeople";
 
 const LOCK = 4_107_250;
@@ -45,7 +45,7 @@ async function round(targets: string[], linkKey: string): Promise<void> {
         ? await currentRailwayToken().catch((e: Error) => { console.warn(`[sandbox-feed] Railway token: ${e.message.slice(0, 200)}`); return undefined; })
         : undefined;
       for (const t of targets) {
-        const line = await feedOne(t, linkKey, { railway, sendReview, sendInvite })
+        const line = await feedOne(t, linkKey, { railway, sendReview })
           .catch((e: Error) => `${t.replace(/^https?:\/\//, "")}: ${e.message.slice(0, 200)}`);
         if (!line.endsWith("nothing to do")) console.log(`[sandbox-feed] ${line}`);
       }

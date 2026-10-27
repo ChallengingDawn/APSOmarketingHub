@@ -97,8 +97,8 @@ export async function register() {
     const { startChatTopics } = await import("./lib/chat/topics");
     startChatTopics();
 
-    // The Railway sandboxes' errands, every minute: reviews and sign-up links mailed, the CLI's Railway token replaced.
-    // Their data is brought only from the Sandbox app, when somebody presses Bring data (src/lib/sandboxFeed).
+    // The Railway sandboxes' errands, every minute: reviews mailed, the CLI's Railway token replaced. Their data is
+    // brought, and they are opened, only from the Sandbox app (src/lib/sandboxFeed).
     // Needs SANDBOX_URLS + SANDBOX_LINK_KEY; SANDBOX_FEED=off stops it. SARCLA, 26.10.2026.
     const { startSandboxFeed } = await import("./lib/sandboxFeed/feeder");
     startSandboxFeed();

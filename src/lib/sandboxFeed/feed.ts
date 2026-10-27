@@ -4,9 +4,9 @@
 // pulling data - behind its login, its TOTP and its log). The minute round never runs a read.
 // The timer, the lock and the ERP-chain check are feeder.ts; this part is tested end to end (tests/sandbox-loop.test.ts).
 
+import { createHash, randomBytes } from "node:crypto";
 import { hubspotKey, sqlKey } from "../sandbox/canon";
 import type { Asked, Delivery, Review } from "../sandbox/link";
-import type { PendingInvite } from "../sandbox/peopleList";
 import type { HsRequest, SqlRequest } from "../sandbox/store";
 import { codeHubspotAnswer, codeRows, kindOfPath, type CodeCtx } from "./code";
 import { moneyFactor } from "./policy";
@@ -114,20 +114,17 @@ export type FeedOptions = {
   railway?: { token: string; at: string };
   /** Mails a review to the reviewer (feeder.ts passes the hub's mailer). */
   sendReview?: (r: Review, sandboxHost: string) => Promise<void>;
-  /** Mails a new person their one-time link to the sandbox. */
-  sendInvite?: (i: PendingInvite, sandboxHost: string) => Promise<void>;
 };
 
-/** The minute round for one sandbox: its reviews and new people's links mailed, today's Railway token handed over.
+/** The minute round for one sandbox: its reviews mailed, today's Railway token handed over.
  *  It never runs a read - that is bring(). Returns the line for the log. */
 export async function feedOne(base: string, linkKey: string, opts: FeedOptions = {}): Promise<string> {
   const host = hostOf(base);
   const asked = await readSandbox(base, linkKey).catch(() => null);
   if (!asked) return `${host}: did not answer`;
   const reviews = opts.sendReview ? asked.reviews ?? [] : [];
-  const invites = opts.sendInvite ? asked.invites ?? [] : [];
   const newToken = opts.railway && (!asked.railwayTokenAt || asked.railwayTokenAt < opts.railway.at) ? opts.railway.token : undefined;
-  if (!reviews.length && !invites.length && !newToken) return `${host}: nothing to do`;
+  if (!reviews.length && !newToken) return `${host}: nothing to do`;
 
   const d: Delivery = {};
   const sent: number[] = [];
@@ -136,16 +133,34 @@ export async function feedOne(base: string, linkKey: string, opts: FeedOptions =
     catch (e) { console.warn(`[sandbox-feed] ${host}: review ${r.id} not mailed: ${(e as Error).message.slice(0, 200)}`); }
   }
   if (sent.length) d.reviewsSent = sent;
-  const invited: number[] = [];
-  for (const i of invites) {
-    try { await opts.sendInvite!(i, host); invited.push(i.userId); }
-    catch (e) { console.warn(`[sandbox-feed] ${host}: the link for user ${i.userId} not mailed: ${(e as Error).message.slice(0, 200)}`); }
-  }
-  if (invited.length) d.invitesSent = invited;
   if (newToken) d.railwayToken = newToken;
-  if (d.reviewsSent || d.invitesSent || d.railwayToken) await post(base, linkKey, d);
-  return `${host}: ${sent.length} review${sent.length === 1 ? "" : "s"} mailed, ${invited.length} sign-up link${invited.length === 1 ? "" : "s"} mailed`
-    + `${newToken ? ", Railway token replaced" : ""}`;
+  if (d.reviewsSent || d.railwayToken) await post(base, linkKey, d);
+  return `${host}: ${sent.length} review${sent.length === 1 ? "" : "s"} mailed${newToken ? ", Railway token replaced" : ""}`;
+}
+
+/**
+ * Open, pressed on the hub: a one-time ticket for this person - only its SHA-256 goes to the sandbox, over the link - and
+ * the address the browser opens it with (/sso?t=...), good once, for a minute. The sandbox refuses anyone it does not name.
+ */
+export async function openSandbox(base: string, linkKey: string, email: string): Promise<string> {
+  const ticket = randomBytes(32).toString("base64url");
+  const res = await fetch(`${base}/api/sandbox-link/ticket`, {
+    method: "POST", headers: { authorization: `Bearer ${linkKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ hash: createHash("sha256").update(ticket).digest("hex"), email }), signal: AbortSignal.timeout(15_000),
+  });
+  const j = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(j.error ?? `${hostOf(base)} answered ${res.status}`);
+  return `${base}/sso?t=${ticket}`;
+}
+
+/** A CLI code confirmed on the hub: the sandbox learns who confirmed it, and the CLI collects its token there. */
+export async function approveCli(base: string, linkKey: string, code: string, email: string): Promise<void> {
+  const res = await fetch(`${base}/api/sandbox-link/ticket`, {
+    method: "POST", headers: { authorization: `Bearer ${linkKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ code, email }), signal: AbortSignal.timeout(15_000),
+  });
+  const j = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(j.error ?? `${hostOf(base)} answered ${res.status}`);
 }
 
 /** Delete all, pressed on the hub: the sandbox's own Delete all, through the link. */

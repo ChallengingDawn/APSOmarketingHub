@@ -87,7 +87,7 @@ test("the whole loop: a miss is brought from the hub, coded, and nothing real is
       railway: { token: "railway-test-token", at: new Date().toISOString() },
       sendReview: async (r, host) => { mailed.push({ title: r.title, host }); },
     });
-    assert.match(line, /1 review mailed, 0 sign-up links mailed, Railway token replaced/, line);
+    assert.match(line, /1 review mailed, Railway token replaced/, line);
     assert.equal(hubspotCalls.length, 0, "the round read nothing from HubSpot");
     assert.equal((await readSandbox(URL_!, KEY!)).misses.length, 3, "and the reads still wait");
     assert.deepEqual(mailed.map((m) => m.title), ["Bar spacing"]);

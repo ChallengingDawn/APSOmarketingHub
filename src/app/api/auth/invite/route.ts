@@ -11,12 +11,14 @@ import { ensureSchema } from "@/lib/db/init";
 import { hashPassword, validatePasswordStrength } from "@/lib/auth/password";
 import { burnInvite, readInvite } from "@/lib/auth/invite";
 import { checkRateLimit, clientKey, recordFailure } from "@/lib/auth/rateLimit";
+import { isSandbox } from "@/lib/sandbox/mode";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** Who it is for, so the page can greet them rather than ask who they are. */
 export async function GET(req: NextRequest) {
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
   const token = req.nextUrl.searchParams.get("token") ?? "";
   const invite = await readInvite(token);
   if (!invite) {
@@ -36,6 +38,7 @@ const Body = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
   // Rate limited like a login: a token is a secret, and a secret that can be
   // tried endlessly is a secret with a deadline.
   const key = clientKey(req, "invite");

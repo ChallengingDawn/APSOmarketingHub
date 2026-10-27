@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // sbx - the sandbox's CLI (npm run sbx -- <command>). Talks to YOUR sandbox copy on Railway, never to the hub.
 //
-//   login [--url https://sandbox-you.up.railway.app]   password + the 6-digit code from your authenticator; 12 hours
+//   login [--url https://sandbox-you.up.railway.app]   confirm a code on the hub's Sandbox app (its sign-in); 12 hours
 //   whoami                                              who is signed in, until when, on which sandbox
 //   up                                                  deploy this folder to your preview (railway up, today's token)
 //   railway <args...>                                   any Railway CLI command with today's sandbox-only token
@@ -19,7 +19,6 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import readline from "node:readline";
 
 const DIR = path.join(homedir(), ".apsohub-sandbox");
 const SESSION = path.join(DIR, "session.json");
@@ -46,17 +45,6 @@ async function call(method, route, body) {
   return j;
 }
 
-async function prompt(q, hidden = false) {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-  if (!hidden) { const a = await new Promise((r) => rl.question(q, r)); rl.close(); return a.trim(); }
-  process.stdout.write(q);
-  rl._writeToOutput = () => {};
-  const a = await new Promise((r) => rl.question("", r));
-  rl.close();
-  process.stdout.write("\n");
-  return a;
-}
-
 function git(args, opts = {}) {
   const r = spawnSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...opts });
   if (r.status !== 0 && !opts.allowFail) fail(`git ${args.join(" ")}: ${(r.stderr || r.stdout).trim()}`);
@@ -79,13 +67,30 @@ if (cmd === "login") {
   const prev = existsSync(SESSION) ? JSON.parse(readFileSync(SESSION, "utf8")) : {};
   const url = (flag(args, "--url") ?? prev.url ?? process.env.SBX_URL ?? "").replace(/\/+$/, "");
   if (!/^https:\/\/|^http:\/\/(127\.0\.0\.1|localhost)/.test(url)) fail("which sandbox? npm run sbx -- login --url https://<your sandbox>.up.railway.app");
-  if (!process.stdin.isTTY) fail("login needs you at the keyboard (password + authenticator code) - run it in your own terminal");
-  const identifier = await prompt("User or e-mail: ");
-  const password = await prompt("Password: ", true);
-  const code = await prompt("6-digit code from your authenticator: ");
-  const res = await fetch(`${url}/api/sbx/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ identifier, password, code }) });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) fail(j.error ?? `login failed (${res.status})`);
+  // no password here: the sandbox opens only through the hub - a code, confirmed on the hub's Sandbox app (behind the
+  // hub's own sign-in and authenticator), lets this terminal in for 12 hours
+  const st = await fetch(`${url}/api/sbx/login-start`, { method: "POST" });
+  const c = await st.json().catch(() => ({}));
+  if (!st.ok) fail(c.error ?? `the sandbox answered ${st.status}`);
+  console.log(`Confirm this terminal on the hub (signed in there):
+
+  ${c.confirmAt ?? "the hub's Sandbox app"}
+
+Code: ${c.code} - waiting up to 10 minutes...`);
+  if (c.confirmAt && !args.includes("--no-browser")) {
+    const opener = process.platform === "win32" ? ["cmd", ["/c", "start", "", c.confirmAt]] : process.platform === "darwin" ? ["open", [c.confirmAt]] : ["xdg-open", [c.confirmAt]];
+    spawnSync(opener[0], opener[1], { stdio: "ignore" });
+  }
+  let j = null;
+  const until = Date.now() + 10 * 60_000;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 3000));
+    const pr = await fetch(`${url}/api/sbx/login-poll?poll=${encodeURIComponent(c.poll)}`).catch(() => null);
+    if (!pr) continue;
+    if (pr.status === 410) fail("the code ran out - run login again");
+    if (pr.status === 200) { j = await pr.json(); break; }
+  }
+  if (!j) fail("nobody confirmed the code on the hub in 10 minutes - run login again");
   mkdirSync(DIR, { recursive: true });
   writeFileSync(SESSION, JSON.stringify({ url, token: j.token, user: j.user, expiresAt: j.expiresAt }, null, 2), { mode: 0o600 });
   try { chmodSync(SESSION, 0o600); } catch { /* Windows keeps it in your profile */ }

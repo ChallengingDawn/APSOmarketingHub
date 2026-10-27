@@ -1,14 +1,12 @@
-// `npm run sbx` - the sandbox's CLI (scripts/sbx.mjs): login (password + TOTP), railway (today's token, sandbox only),
+// `npm run sbx` - the sandbox's CLI (scripts/sbx.mjs): login-start / login-poll (a code confirmed on the hub's Sandbox
+// app, behind the hub's TOTP - the sandbox has no password of its own), railway (today's token, sandbox only),
 // ask / ask?id= (Bring requested data), review (Send to review), pull (the hub's current code, scrubbed).
-// 404 anywhere but the sandbox copy. See src/lib/sandbox/cli.ts.
+// 404 anywhere but the sandbox copy. See src/lib/sandbox/cli.ts and door.ts.
 
 import { NextRequest, NextResponse } from "next/server";
 import { isSandbox } from "@/lib/sandbox/mode";
-import { getPool } from "@/lib/db/client";
-import type { UserRow } from "@/lib/db/init";
-import { verifyPassword } from "@/lib/auth/password";
-import { verifyTotp } from "@/lib/auth/totp";
-import { checkRateLimit, clientKey, recordFailure, recordSuccess } from "@/lib/auth/rateLimit";
+import { pollCli, startCli } from "@/lib/sandbox/door";
+import { publicUrl } from "@/lib/sandbox/peopleList";
 import { addAsk, addReview, askSpec, askState, cliUser, latestSnapshot, railwayFor, reviewIn, signCli } from "@/lib/sandbox/cli";
 
 export const runtime = "nodejs";
@@ -20,26 +18,20 @@ const ENVIRONMENT = "a8472f7f-7ddd-4f49-8506-53246f8dab8d";  // its "sandbox"
 type Ctx = { params: Promise<{ action: string }> };
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status });
 
-async function login(req: NextRequest) {
-  const rlKey = clientKey(req, "sbx-login");
-  const rl = checkRateLimit(rlKey);
-  if (!rl.ok) return json({ error: "Too many attempts. Try again later." }, 429);
-  const b = (await req.json().catch(() => ({}))) as { identifier?: string; password?: string; code?: string };
-  const id = (b.identifier ?? "").trim().toLowerCase();
-  const r = await getPool().query<UserRow>(`SELECT * FROM apsomh_users WHERE lower(username) = $1 OR lower(email) = $1 LIMIT 1`, [id]);
-  const u = r.rows[0];
-  const ok = !!u && u.is_active && !!b.password && (await verifyPassword(b.password, u.password_hash))
-    && !!u.totp_enrolled && !!u.totp_secret && /^\d{6}$/.test((b.code ?? "").trim()) && verifyTotp(u.totp_secret, (b.code ?? "").trim());
-  if (!ok) { recordFailure(rlKey); return json({ error: "Wrong user, password or code" }, 401); }
-  if (u.must_change_password) return json({ error: "Set your own password in the sandbox's web login first" }, 403);
-  recordSuccess(rlKey);
-  return json({ ...(await signCli(u.id)), user: u.username });
-}
+/** Where the person confirms a CLI code: the hub's Sandbox app. */
+const hubPage = () => (process.env.SANDBOX_HUB_URL ? `${process.env.SANDBOX_HUB_URL.replace(/\/+$/, "")}/sandbox` : null);
 
 export async function POST(req: NextRequest, ctx: Ctx) {
   if (!isSandbox()) return json({ error: "Not found" }, 404);
   const { action } = await ctx.params;
-  if (action === "login") return login(req);
+  if (action === "login-start") {
+    const c = await startCli();
+    const hub = hubPage();
+    // the sandbox as the hub knows it: its public address (Railway's domain), not the name the server runs under
+    const pub = publicUrl(process.env);
+    const self = pub ? new URL(pub).host : (req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? req.nextUrl.host);
+    return json({ ...c, confirmAt: hub ? `${hub}?cli=${self}:${c.code}` : null });
+  }
   const u = await cliUser(req);
   if (!u) return json({ error: "Sign in first: npm run sbx -- login" }, 401);
   const body = await req.json().catch(() => null);
@@ -61,6 +53,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 export async function GET(req: NextRequest, ctx: Ctx) {
   if (!isSandbox()) return json({ error: "Not found" }, 404);
   const { action } = await ctx.params;
+  if (action === "login-poll") {
+    const r = await pollCli(req.nextUrl.searchParams.get("poll") ?? "");
+    if (r.state !== "granted") return json(r, r.state === "expired" ? 410 : 202);
+    return json({ state: "granted", ...(await signCli(r.uid)), user: r.user });
+  }
   const u = await cliUser(req);
   if (!u) return json({ error: "Sign in first: npm run sbx -- login" }, 401);
   if (action === "railway") {

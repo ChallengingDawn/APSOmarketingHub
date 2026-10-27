@@ -1,7 +1,6 @@
 // SANDBOX_PEOPLE, read - pure, so the tests read it without the accounts code (people.ts).
 
 export type Person = { email: string; role: "admin" | "user"; name: string };
-export type PendingInvite = { userId: number; email: string; name: string; url: string };
 
 /** "email|role|name" separated by ";" - a bad entry is skipped and named in the log. */
 export function parsePeople(raw: string | undefined): { people: Person[]; bad: string[] } {

@@ -7,6 +7,7 @@ import { setPre2faCookie, signPre2fa } from '@/lib/auth/session';
 import { beginSession } from '@/lib/auth/sessions';
 import { checkRateLimit, clientKey, recordFailure, recordSuccess } from '@/lib/auth/rateLimit';
 import { mfaRequired, type Role } from '@/lib/auth/access';
+import { isSandbox } from '@/lib/sandbox/mode';
 
 export const runtime = 'nodejs';
 
@@ -18,6 +19,7 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
   const rlKey = clientKey(req, 'login');
   const rl = checkRateLimit(rlKey);
   if (!rl.ok) {

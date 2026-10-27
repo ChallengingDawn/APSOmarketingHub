@@ -32,6 +32,7 @@ import { checkRateLimit, clientKey, recordFailure } from "@/lib/auth/rateLimit";
 import { revokeInvitesFor } from "@/lib/auth/invite";
 import { grantStarterApps } from "@/lib/auth/appAccess";
 import { SELF_SIGNUP_DOMAINS, SELF_SIGNUP_ROLE, maySelfRegister } from "@/lib/auth/access";
+import { isSandbox } from "@/lib/sandbox/mode";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,6 +75,7 @@ const NO_WAY_IN =
   `Ask an admin to create yours.`;
 
 export async function POST(req: NextRequest) {
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
   const key = clientKey(req, "claim");
   const gate = checkRateLimit(key);
   if (!gate.ok) {

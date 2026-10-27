@@ -10,7 +10,7 @@ import { query } from "@/lib/db/client";
 import { isSandbox } from "@/lib/sandbox/mode";
 import { tablesIn } from "@/lib/sandbox/canon";
 import type { Asked } from "@/lib/sandbox/link";
-import { bring, deleteAllIn, hostOf, readSandbox } from "@/lib/sandboxFeed/feed";
+import { approveCli, bring, deleteAllIn, hostOf, openSandbox, readSandbox } from "@/lib/sandboxFeed/feed";
 import { sandboxTargets } from "@/lib/sandboxFeed/policy";
 
 export const runtime = "nodejs";
@@ -103,10 +103,14 @@ export async function POST(req: NextRequest) {
   if (isSandbox()) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const me = await who();
   if (!me) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!me.access.canWrite("sandbox")) return NextResponse.json({ error: "View only - ask for Edit on the Sandbox app" }, { status: 403 });
+  const b = (await req.json().catch(() => ({}))) as { host?: string; action?: string; keys?: string[]; ids?: number[]; code?: string };
+  // going in (the browser, or confirming the CLI) needs the app; letting data in or out needs Edit on it
+  const entering = b.action === "open" || b.action === "cli-approve";
+  if (!(entering ? me.access.canOpen("sandbox") : me.access.canWrite("sandbox"))) {
+    return NextResponse.json({ error: entering ? "No access to the Sandbox app" : "View only - ask for Edit on the Sandbox app" }, { status: 403 });
+  }
   const cfg = config();
   if (!cfg) return NextResponse.json({ error: "No sandboxes are set up on the hub" }, { status: 409 });
-  const b = (await req.json().catch(() => ({}))) as { host?: string; action?: string; keys?: string[]; ids?: number[] };
   const url = cfg.targets.find((t) => hostOf(t) === b.host);
   if (!url) return NextResponse.json({ error: "No such sandbox" }, { status: 404 });
   const asked = await readSandbox(url, cfg.key).catch(() => null);
@@ -116,6 +120,18 @@ export async function POST(req: NextRequest) {
     query(`INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`, [me.username, action, JSON.stringify({ host: b.host, ...detail })])
       .catch(() => { /* never fail the press because the log did */ });
   try {
+    if (b.action === "open") {
+      const url2 = await openSandbox(url, cfg.key, me.email);
+      await log("sandbox.open", { line: `${b.host}: opened` });
+      return NextResponse.json({ ok: true, url: url2 });
+    }
+    if (b.action === "cli-approve") {
+      const code = String(b.code ?? "").trim().toUpperCase();
+      if (!/^[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(code)) return NextResponse.json({ error: "Not a code from npm run sbx -- login" }, { status: 400 });
+      await approveCli(url, cfg.key, code, me.email);
+      await log("sandbox.cli", { line: `${b.host}: the CLI let in (code ${code})` });
+      return NextResponse.json({ ok: true, line: "The CLI is in - go back to your terminal." });
+    }
     if (b.action === "bring" || b.action === "bring-requested") {
       const which = b.action === "bring" ? "reads" : "asks";
       const only = Array.isArray(b.keys) ? { keys: b.keys.map(String) } : Array.isArray(b.ids) ? { ids: b.ids.map(Number) } : undefined;

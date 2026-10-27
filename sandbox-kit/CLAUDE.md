@@ -59,15 +59,16 @@ Read the result with `npm run sbx -- ask-status <id> --out ask-<id>.json`. It is
 
 | command | what |
 |---|---|
-| `login` | **The person runs it, not you**: password + authenticator code, valid 12 hours. In Claude Code ask them to type `! npm run sbx -- login`. |
+| `login` | Shows a code and a link to the hub's Sandbox app. **The person confirms it there**, signed in to the hub with their authenticator; then this terminal is in for 12 hours. You may start it; never confirm a code for them. |
 | `pull` | The hub's current release onto branch `base`. Then `git merge base` into your branch. |
 | `up` | Deploys this folder to the person's own preview service. |
 | `railway logs --service sandbox-<user>` | Build and run logs. Any `railway` command works this way, sandbox environment only. |
 | `ask`, `ask-status` | Data, see above. |
 | `review --title "..." --summary "..."` | Sends this branch's change against `base` to Claudio, with the preview link. |
 
-The Railway token is handed out after the TOTP login and replaced by the hub every day. It is never written to
-disk, and it never reaches production.
+The sandbox has no password of its own: the browser opens it from the hub's Sandbox app (**Open**), the CLI with a
+code confirmed there. The Railway token is handed out after that login and replaced by the hub every day. It is
+never written to disk, and it never reaches production.
 
 ## Working rhythm
 
