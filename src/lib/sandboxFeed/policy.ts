@@ -3,12 +3,12 @@
 // but "all that serves workflow and UC logic should be real"). Pure - the coder (code.ts) applies it, the tests pin it.
 
 import { createHmac } from "node:crypto";
-import { targetOf, type Target } from "../sandbox/proxy";
+import { targetOf, type Target } from "../sandbox/targets";
 
 // ---- which sandboxes ---------------------------------------------------------------------------------------------
 
-/** SANDBOX_URLS: the sandbox copies the hub feeds and serves, comma separated - https only (plain http only on this
- *  machine), each as its Railway address plus the path it runs under (/sandbox/run/<name>, the same path on the hub). */
+/** SANDBOX_URLS: the sandboxes' relays the hub feeds, comma separated - https only (plain http only on this machine),
+ *  each as its Railway address plus the path it runs under (/sandbox/run/<name>). */
 export function sandboxTargets(raw: string | undefined): string[] {
   return [...new Set((raw ?? "").split(",").map((s) => targetOf(s)?.base).filter((b): b is string => !!b))];
 }

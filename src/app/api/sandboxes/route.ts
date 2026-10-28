@@ -1,4 +1,4 @@
-// THE SANDBOX APP'S DATA - the Railway sandboxes, what waits in each (the reads their pages could not answer, the CLI's
+// THE SANDBOX APP'S DATA - the sandboxes' relays on Railway, what waits in each (the reads their pages could not answer, the CLI's
 // asks), and the three buttons: Bring data, Bring requested data, Delete all (SARCLA 26.10.2026: the hub is the front
 // end for pulling data). What waits is shown as WHICH read (a HubSpot path, a table), never as data. A person sees the
 // sandboxes that name them in SANDBOX_PEOPLE; an admin sees all. Every press is in the audit log.
@@ -19,7 +19,7 @@ export const maxDuration = 60;
 
 export type SandboxRead = { key: string; kind: "hs" | "sql"; what: string; since: string | null; hits: number };
 export type SandboxAsk = { id: number; by: string; reason: string; what: string; at: string | null };
-/** `slug`: its name on the hub - it opens at /sandbox/run/<slug>/; `cli`: where its CLI talks (Railway, the relay). */
+/** `slug`: its name on the hub; `cli`: its relay on Railway - where its CLI signs in and its computer pulls data. */
 export type SandboxCard = {
   slug: string; cli: string; title: string; people: { name: string; email: string; role: string }[];
   error?: string;

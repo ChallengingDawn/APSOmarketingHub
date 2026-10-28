@@ -69,6 +69,38 @@ export function isSqlRead(text: string): boolean {
 // (Google sign-in, connector keys). The hub refuses these before running anything; the sandbox keeps its own.
 export const NEVER_FROM_HUB = ["apsomh_users", "apsomh_sessions", "apsomh_user_app_access", "apsomh_kv"] as const;
 
+// The sandbox's own tables, and every table the hub refuses (logins, key store), are never replayed and never asked
+// of the hub - asking would only fill the bar with reads that can never be brought.
+export const OWN_TABLES = new RegExp(`\\b(sandbox_\\w+|${NEVER_FROM_HUB.join("|")}|pg_\\w+|information_schema)\\b`, "i");
+
+export type MissIn =
+  | { kind: "hs"; key: string; request: { method: string; url: string; body: unknown } }
+  | { kind: "sql"; key: string; request: { text: string; params: unknown[] } };
+
+/**
+ * A read a sandbox on someone's computer could not answer, as its relay writes it down for the hub: a read only, never
+ * one of the sandbox's own tables, and its key made here from the request - never taken from the computer, so a
+ * computer cannot file an answer under another read's key.
+ */
+export function missIn(kind: unknown, request: unknown): MissIn | null {
+  const r = (request ?? {}) as Record<string, unknown>;
+  if (kind === "hs") {
+    if (typeof r.method !== "string" || typeof r.url !== "string" || !r.url.startsWith("/") || r.url.length > 4000) return null;
+    if (!isHubspotRead(r.method, r.url)) return null;
+    const body = r.body ?? null;
+    if (JSON.stringify(body).length > 64_000) return null;
+    const method = r.method.toUpperCase();
+    return { kind: "hs", key: hubspotKey(method, r.url, body), request: { method, url: r.url, body } };
+  }
+  if (kind === "sql") {
+    if (typeof r.text !== "string" || r.text.length > 20_000 || !isSqlRead(r.text) || OWN_TABLES.test(r.text)) return null;
+    const params = Array.isArray(r.params) ? r.params : [];
+    if (params.length > 100 || JSON.stringify(params).length > 64_000) return null;
+    return { kind: "sql", key: sqlKey(r.text, params), request: { text: r.text, params } };
+  }
+  return null;
+}
+
 /** The tables a read names after FROM / JOIN (schema dropped, quotes dropped, lower case). */
 export function tablesIn(text: string): string[] {
   const out = new Set<string>();

@@ -50,6 +50,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "0.2.11",
     "@playwright/test": "^1.63.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/d3-delaunay": "6.0.4",

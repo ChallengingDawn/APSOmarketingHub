@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
-import { PROXY_HEADER, verifyProxy } from "@/lib/sandbox/proxy";
 
 const SESSION_COOKIE = "apsomarketinghub_session";
 const PUBLIC_PREFIXES = [
@@ -20,15 +19,6 @@ const PUBLIC_PREFIXES = [
   "/icon",
   "/dev-canvas", // E2E canvas harness — the page itself is gated on NEXT_PUBLIC_E2E=1
 ];
-
-// A sandbox is served at /sandbox/run/<name>/... on the hub's address (src/lib/sandbox/proxy.ts). Its pages keep their
-// own calls under that path; a call from one of them to the hub's own API - the real data - is refused here.
-const SANDBOX_RUN = "/sandbox/run/";
-function fromSandboxPage(req: NextRequest): boolean {
-  const ref = req.headers.get("referer");
-  if (!ref) return false;
-  try { return new URL(ref).pathname.startsWith(SANDBOX_RUN); } catch { return false; }
-}
 
 function getSecret(): Uint8Array {
   const secret = process.env.SESSION_SECRET || process.env.AUTH_SECRET;
@@ -63,24 +53,23 @@ function turnAway(req: NextRequest, pathname: string) {
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  const full = `${req.nextUrl.basePath}${pathname}`;
 
-  // the hub: nothing outside a sandbox's own path answers a sandbox page's calls - its API, or a page's data fetched
-  // by script; only following a link back to the hub (a navigation) leaves the sandbox
-  const mode = req.headers.get("sec-fetch-mode");
-  if (!full.startsWith(SANDBOX_RUN) && fromSandboxPage(req) && (pathname.startsWith("/api/") || (mode !== null && mode !== "navigate"))) {
-    return NextResponse.json({ ok: false, error: "A sandbox page cannot call the hub." }, { status: 403 });
+  // A SANDBOX (src/lib/sandbox/). On the person's own computer (`npm run sbx -- dev`) it is theirs alone: the CLI starts
+  // it on 127.0.0.1 for the one person signed in, and a request naming any other host - a web page that points a name
+  // of its own at 127.0.0.1 - is refused. On Railway it is the relay: only the CLI and the hub talk to it, no page.
+  if (process.env.APSOHUB_SANDBOX === "1") {
+    if (process.env.SANDBOX_LOCAL === "1") {
+      const host = (req.headers.get("host") ?? "").replace(/:\d+$/, "");
+      if (!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(host)) return NextResponse.json({ ok: false, error: "This sandbox answers on localhost only." }, { status: 403 });
+      return NextResponse.next();
+    }
+    if (!pathname.startsWith("/api/") && pathname !== "/sbx.mjs") {
+      return new NextResponse("This sandbox runs on your computer: npm run sbx -- dev", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
+    }
   }
 
   if (PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p))) {
     return NextResponse.next();
-  }
-
-  // a sandbox copy: the hub's signed request is the only way in (no key set - the hub itself - lets nobody in this way)
-  const proxied = req.headers.get(PROXY_HEADER);
-  if (proxied) {
-    if (await verifyProxy(proxied, process.env.SANDBOX_LINK_KEY_SHA256)) return NextResponse.next();
-    return turnAway(req, pathname);
   }
 
   const token = req.cookies.get(SESSION_COOKIE)?.value;
@@ -97,8 +86,8 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    // the front page by itself: under a sandbox's base path its address is /sandbox/run/<name> with no slash, which
-    // the pattern below (prefixed with that path) does not match - and the page opened for anybody
+    // the front page by itself: under the relay's base path its address is /sandbox/run/<name> with no slash, which
+    // the pattern below (prefixed with that path) does not match
     "/",
     "/((?!_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.svg$|.*\\.ico$).*)",
   ],

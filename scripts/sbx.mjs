@@ -1,19 +1,19 @@
 #!/usr/bin/env node
-// sbx - the sandbox's CLI (npm run sbx -- <command>). Talks to YOUR sandbox copy on Railway, never to the hub.
+// sbx - the sandbox's CLI (npm run sbx -- <command>). Talks to YOUR sandbox's relay on Railway, never to the hub.
 //
 //   login [--url https://sandbox-you.up.railway.app/sandbox/run/you]   confirm a code on the hub's Sandbox app (its sign-in); 12 hours
 //   whoami                                              who is signed in, until when, on which sandbox
-//   up                                                  deploy this folder to your preview (railway up, today's token)
-//   railway <args...>                                   any Railway CLI command with today's sandbox-only token
 //   pull                                                the hub's current release (scrubbed) onto branch "base"
+//   dev [--port 3000] [--no-browser]                    the sandbox on this computer (http://localhost:3000), its data
+//                                                       copied down from your relay while it runs
 //   ask --hs <METHOD> <path> [--body <json|@file>] --reason "<why>"
 //   ask --sql "<SELECT ...>" [--params <json>] --reason "<why>"
 //                                                       ask for data; then "Bring requested data" on the hub
 //   ask-status <id> [--out <file.json>]                 the ask's state; its coded data when answered
 //   review --title "<title>" --summary "<what and why>" send this branch's change (vs base) to review
 //
-// Railway: the token is fetched fresh for each command and handed to the `railway` CLI in RAILWAY_TOKEN - it is never
-// written to disk. It only reaches the sandbox environment, and the hub replaces it every day.
+// The sandbox runs on your computer only. Its one way out is your relay: coded data down, the reads
+// it could not answer up - they wait on the hub's Sandbox app until somebody presses Bring data there.
 
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -51,16 +51,6 @@ function git(args, opts = {}) {
   return (r.stdout ?? "").trim();
 }
 
-function railway(args) {
-  return call("GET", "railway").then((r) => {
-    const env = { ...process.env, RAILWAY_TOKEN: r.token };
-    delete env.RAILWAY_API_TOKEN;
-    const out = spawnSync("railway", args, { stdio: "inherit", env, shell: process.platform === "win32" });
-    if (out.error) fail(`could not start the Railway CLI (${out.error.message}) - install it: npm i -g @railway/cli`);
-    return { ...r, status: out.status ?? 1 };
-  });
-}
-
 const [cmd, ...args] = process.argv.slice(2);
 
 if (cmd === "login") {
@@ -92,21 +82,22 @@ Code: ${c.code} - waiting up to 10 minutes...`);
   }
   if (!j) fail("nobody confirmed the code on the hub in 10 minutes - run login again");
   mkdirSync(DIR, { recursive: true });
-  writeFileSync(SESSION, JSON.stringify({ url, token: j.token, user: j.user, expiresAt: j.expiresAt }, null, 2), { mode: 0o600 });
+  writeFileSync(SESSION, JSON.stringify({ url, token: j.token, user: j.user, hub: j.hub ?? null, expiresAt: j.expiresAt }, null, 2), { mode: 0o600 });
   try { chmodSync(SESSION, 0o600); } catch { /* Windows keeps it in your profile */ }
   console.log(`Signed in as ${j.user} on ${url} until ${new Date(j.expiresAt).toLocaleString()}.`);
 } else if (cmd === "whoami") {
   const s = session();
-  console.log(`${s.user} on ${s.url}, until ${new Date(s.expiresAt).toLocaleString()}`);
-} else if (cmd === "railway") {
-  const r = await railway(args);
-  process.exit(r.status);
-} else if (cmd === "up") {
-  const r0 = await call("GET", "railway");
-  console.log(`Deploying this folder to ${r0.service} (sandbox only)...`);
-  const r = await railway(["up", "--service", r0.service, "--detach", ...args]);
-  if (r.status === 0) console.log(`Sent. Watch it: npm run sbx -- railway logs --service ${r0.service}`);
-  process.exit(r.status);
+  const j = await call("GET", "whoami");
+  console.log(`${j.email} on ${s.url}, until ${new Date(s.expiresAt).toLocaleString()}`);
+} else if (cmd === "dev") {
+  // the runner sits next to this file in the code `pull` brings (scripts/sbx-dev.mjs) - not next to a fresh sbx.mjs
+  const runner = new URL("./sbx-dev.mjs", import.meta.url);
+  if (!existsSync(runner)) fail("pull the code first: node sbx.mjs pull, then npm install, then npm run sbx -- dev");
+  session();
+  const { startDev } = await import(runner.href);
+  const port = Number(flag(args, "--port") ?? 3000);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) fail("--port takes a number from 1024 to 65535");
+  await startDev({ session, port, openBrowser: !args.includes("--no-browser") }).catch((e) => fail(e.message));
 } else if (cmd === "ask") {
   const reason = flag(args, "--reason") ?? fail("say why: --reason \"...\"");
   let spec;
@@ -137,7 +128,7 @@ Code: ${c.code} - waiting up to 10 minutes...`);
   const files = git(["diff", "--numstat", "base...HEAD"]).split("\n").filter(Boolean).map((l) => {
     const [a, d, p] = l.split("\t"); return { path: p, added: Number(a) || 0, removed: Number(d) || 0 };
   });
-  const j = await call("POST", "review", { title, summary, base, files, patch, preview_url: session().url });
+  const j = await call("POST", "review", { title, summary, base, files, patch, preview_url: null });
   console.log(`Review ${j.id} sent: ${files.length} file(s). ${j.next}`);
 } else if (cmd === "pull") {
   if (git(["status", "--porcelain"], { allowFail: true })) fail("commit or stash your work first - pull switches branches");
@@ -160,7 +151,7 @@ Code: ${c.code} - waiting up to 10 minutes...`);
   if (fresh) git(["checkout", "-q", "-b", "work"]);
   else git(["checkout", "-q", back === "base" ? "-" : back], { allowFail: true });
   console.log(fresh
-    ? `The hub's release ${sha} is on branch base; you are on branch work. Next: npm install`
+    ? `The hub's release ${sha} is on branch base; you are on branch work. Next: npm install, then npm run sbx -- dev`
     : `Release ${sha} is on branch base. Bring it into your work: git merge base`);
 } else {
   const lines = readFileSync(new URL(import.meta.url), "utf8").split("\n").slice(1);

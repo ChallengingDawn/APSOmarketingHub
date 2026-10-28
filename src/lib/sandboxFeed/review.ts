@@ -8,10 +8,10 @@ import { hubPublicUrl } from "@/lib/content/shareMail";
 
 const MAX_PATCH = 4 * 1024 * 1024;
 
-/** `sandbox`: its name on the hub - the link opens it there, behind the hub's sign-in (its Railway address answers
- *  nobody but the hub, and a review's own text never chooses where the link goes). */
+/** `sandbox`: its name on the hub. The link opens the hub's Sandbox app (a sandbox runs on its builder's computer, and
+ *  a review's own text never chooses where the link goes); the change itself is the .patch. */
 export function reviewMail(r: Review, sandbox: string, hubUrl: string) {
-  const preview = `${hubUrl}/sandbox/run/${encodeURIComponent(sandbox)}`;
+  const app = `${hubUrl}/sandbox`;
   const files = (Array.isArray(r.files) ? r.files : []).slice(0, 80);
   const fileRows = files.map((f) =>
     `<tr><td style="padding:3px 0;font:12px ui-monospace,Consolas,monospace;color:#15223a">${esc(String(f.path ?? ""))}</td>`
@@ -25,10 +25,10 @@ export function reviewMail(r: Review, sandbox: string, hubUrl: string) {
   const slug = r.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || `review-${r.id}`;
   return {
     subject: `Sandbox review: ${r.title} (${r.by})`,
-    html: wrap({ heading: r.title, intro: `${r.by} sent this from the sandbox for review.`, rows,
-      cta: { label: "Open the sandbox", href: preview }, hubUrl,
-      footer: "Sent by the sandbox's Send to review. The change is attached as a .patch file." }),
-    text: `${r.title} - from ${r.by}\n\n${r.summary}\n\nSandbox: ${preview}\nFiles:\n${files.map((f) => `  ${f.path} +${f.added ?? 0} -${f.removed ?? 0}`).join("\n")}\n`,
+    html: wrap({ heading: r.title, intro: `${r.by} sent this from the sandbox ${sandbox} for review.`, rows,
+      cta: { label: "Open the Sandbox app", href: app }, hubUrl,
+      footer: "Sent by the sandbox's Send to review. The change is attached as a .patch file - to see it run, git apply it in a sandbox folder and npm run sbx -- dev." }),
+    text: `${r.title} - from ${r.by} (sandbox ${sandbox})\n\n${r.summary}\n\nSandbox app: ${app}\nFiles:\n${files.map((f) => `  ${f.path} +${f.added ?? 0} -${f.removed ?? 0}`).join("\n")}\n`,
     attachments: patch ? [{ filename: `${slug}.patch`, content: Buffer.from(patch, "utf8"), contentType: "text/x-diff" }] : [],
   };
 }

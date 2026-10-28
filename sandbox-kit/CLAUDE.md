@@ -1,7 +1,7 @@
 # APSOhub sandbox — how to work here
 
 You are helping Diana or Daniel build on **APSOhub**, the internal hub of the APSOparts team. This folder is a
-sandbox copy of the hub: the same code as the live release, running on Railway with **coded data only**.
+sandbox copy of the hub: the same code as the live release, running **on this computer** with **coded data only**.
 **Claudio** owns the hub, reviews every change before it goes live, and set every rule below. When you apply one,
 say so in the conversation ("Claudio's rule: KPI tiles show one unit"), and when a choice is his to make, say it
 goes to Claudio in the review. In the hub's code comments, **SARCLA** is Claudio.
@@ -12,8 +12,9 @@ empty states, tooltips). They belong in code comments and commit messages only.
 ## The one rule above all: no real data
 
 - The sandbox holds no credentials for anything real (HubSpot, the shop, the ERP, mail). Its network guard
-  refuses every connection except its own database. Do not try to work around either. If something "needs" a
-  real system, it goes to Claudio in the review.
+  refuses every connection except its own database. `npm run sbx -- dev` hands the app none of the terminal's
+  keys or tokens. Do not try to work around any of this. If something "needs" a real system, it goes to Claudio
+  in the review.
 - Data comes only from the hub, coded:
   - customers are `Company <HubSpot id>`
   - contacts are `Contact <id>` with `c<id>@example.invalid`
@@ -27,20 +28,24 @@ empty states, tooltips). They belong in code comments and commit messages only.
 
 ## How data reaches a page
 
-Data is only ever pulled **on the hub**, in its **Sandbox** app. The person signs in to the hub with their TOTP
-and presses the button there. The sandbox never asks the hub for anything; you cannot pull data from here.
+Data is only ever let out **on the hub**, in its **Sandbox** app. The person signs in to the hub with their TOTP
+and presses the button there. The hub puts the coded answers on the person's **relay** on Railway, and
+`npm run sbx -- dev` copies them down to this computer every 20 seconds. That relay is the sandbox's only way
+out; the sandbox never talks to the hub, and you cannot pull data from here.
 
 1. A page's read that the sandbox cannot answer (HubSpot or the hub's database) is noted as *waiting*. The page
    shows "Not in the sandbox yet", and the bar on top says how many reads wait, with a link to the hub.
+   `sbx dev` passes the waiting reads up to the relay (which read, never data).
 2. On the hub's Sandbox app the person sees which reads wait (a HubSpot path, a table, never data) and presses
-   **Bring data**. The hub runs them read-only, codes the answers, checks them for leaks and sends them to this
-   sandbox. Reload the page: its own code now runs on the coded data.
+   **Bring data**. The hub runs them read-only, codes the answers, checks them for leaks and puts them on the
+   relay. Within half a minute `sbx dev` copies them down. Reload the page: its own code now runs on the coded
+   data.
 3. Reads are matched by the day. Tomorrow the same page waits once more, and Bring data fetches the new day.
 4. Once the sandbox writes a database table itself, that table belongs to the sandbox.
 5. HubSpot **writes** never leave. They are answered "done" and counted as "held back" in the bar. Use that to
    check what a change *would* write.
-6. **Delete all** (in the bar, or on the hub) empties everything except logins (and your code snapshot). Use it,
-   then Bring data, to start clean.
+6. **Delete all** in the bar empties the sandbox on this computer (what the hub brought is copied down again
+   while `sbx dev` runs). **Delete all** on the hub's Sandbox app empties the relay too. Use them to start clean.
 7. The hub refuses: writes, logins and keys, the database catalogue, HubSpot paths outside its list, and any
    answer where a real value survived coding. The bar shows "refused by the hub". If you need such data, ask
    Claudio.
@@ -61,27 +66,19 @@ Read the result with `npm run sbx -- ask-status <id> --out ask-<id>.json`. It is
 |---|---|
 | `login` | Shows a code and a link to the hub's Sandbox app. **The person confirms it there**, signed in to the hub with their authenticator; then this terminal is in for 12 hours. You may start it; never confirm a code for them. |
 | `pull` | The hub's current release onto branch `base`. Then `git merge base` into your branch. |
-| `up` | Deploys this folder to the person's own preview service. |
-| `railway logs --service sandbox-<user>` | Build and run logs. Any `railway` command works this way, sandbox environment only. |
+| `dev` | The sandbox on this computer: http://localhost:3000 (`--port` for another), with its own database, and its data copied down from the relay while it runs. Ctrl+C stops it. |
 | `ask`, `ask-status` | Data, see above. |
-| `review --title "..." --summary "..."` | Sends this branch's change against `base` to Claudio, with the preview link. |
+| `review --title "..." --summary "..."` | Sends this branch's change against `base` to Claudio. |
 
-The sandbox has no password of its own. **It is served by the hub**: the person opens it on the hub's own address,
-`<hub>/sandbox/run/<name>` (the Sandbox app's **Open**), behind the hub's sign-in and TOTP. The hub fetches every
-request from the Railway copy and tells it who is asking. Railway's own address answers nobody but the hub; it is
-only the relay for this CLI (code confirmed on the hub). The Railway token is handed out after that login and
-replaced by the hub every day. It is never written to disk, and it never reaches production.
+The sandbox has no password of its own. **It runs on this computer only**: `sbx dev` starts it on 127.0.0.1 for
+the person signed in on the CLI, and it answers nobody else. Its database is PGlite (Postgres inside the `sbx dev`
+process), kept in the person's profile under `~/.apsohub-sandbox/`. The relay on Railway serves no page: it is the
+CLI's sign-in, the code `pull` hands out, and the coded data the hub puts there.
 
-Because the pages run on the hub's address, under `/sandbox/run/<name>` (Next `basePath`, set at build time from
-`SANDBOX_BASE_PATH`):
-- `<Link>`, `router.push` and `redirect()` add the path themselves. Plain `fetch("/api/...")` is pinned to it by a
-  script the layout puts first, but write new code so it does not depend on that: never build absolute URLs
-  from `window.location.origin` and never hard-code `/` as the app root.
-- A request from a sandbox page to the hub itself (its API, or a page fetched by script) is refused with 403.
-  Only a link with `data-leave-sandbox` (the band's "Back to the hub") leaves.
-- The amber band, the "Sandbox" in the wordmark and the amber page tint mark every page. Keep them; a sandbox
-  page must never pass for the live hub.
-- Railway checks the copy's health at `/sandbox/run/<name>/api/health`.
+- Keep the amber band, the "Sandbox" in the wordmark and the amber page tint on every page; a sandbox page must
+  never pass for the live hub.
+- On the hub the code runs at the hub's own address: never build absolute URLs from `window.location.origin` and
+  never hard-code a host.
 
 ## Working rhythm
 
@@ -93,12 +90,12 @@ Because the pages run on the hub's address, under `/sandbox/run/<name>` (Next `b
      `src/instrumentation.ts`, also run `npm run build`.
 3. Look at every changed screen yourself before saying it is done: desktop and a 390 px phone width, no
    horizontal scroll, and the main column actually wide.
-4. `npm run sbx -- up`, check it in the preview (the hub's Sandbox app, **Open**), then `npm run sbx -- review ...`.
-   Claudio gets a mail with the link to it on the hub and the patch. He merges it into the hub and releases it, and the sandbox gets the new release
-   automatically.
+4. Check it in the running sandbox (`npm run sbx -- dev`, http://localhost:3000), then
+   `npm run sbx -- review ...`. Claudio gets a mail with the patch. He merges it into the hub and releases it;
+   `npm run sbx -- pull` then brings the new release.
 
-Never push to the hub's own repository and never deploy anything but the person's preview. New npm packages:
-ask Claudio first (use `npm install`, never `npm ci`).
+Never push to the hub's own repository and never deploy anything anywhere: the sandbox runs on this computer
+only. New npm packages: ask Claudio first (use `npm install`, never `npm ci`).
 
 ## Claudio's coding style
 

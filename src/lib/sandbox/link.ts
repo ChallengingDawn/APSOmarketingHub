@@ -26,8 +26,6 @@ export type Asked = {
   asks: { id: number; by: string; spec: unknown; reason: string; at?: string }[];
   /** Sent to review from the CLI, not mailed yet. */
   reviews?: Review[];
-  /** When the CLI's Railway token was last replaced (null = never), so the hub knows when to replace it. */
-  railwayTokenAt?: string | null;
   /** Who works in this sandbox (SANDBOX_PEOPLE) - the hub shows it only to them, and to admins. */
   people?: { email: string; role: string; name: string }[];
   /** Its counts, for the hub's Sandbox app. */
@@ -42,12 +40,10 @@ export async function asked(limit = 200): Promise<Asked> {
   const a = await p.query(`SELECT id, by_user AS by, spec, reason, at FROM sandbox_asks WHERE state = 'new' ORDER BY id LIMIT 20`);
   const r = await p.query(`SELECT id, by_user AS by, title, summary, base, preview_url, files, patch FROM sandbox_reviews
     WHERE state = 'new' ORDER BY id LIMIT 5`);
-  const t = await p.query<{ at: string }>(`SELECT at FROM sandbox_cli WHERE k = 'railway_token'`);
   return {
     misses: m.rows,
     asks: a.rows.map((x) => ({ ...x, id: Number(x.id) })),
     reviews: r.rows.map((x) => ({ ...x, id: Number(x.id) })),
-    railwayTokenAt: t.rows[0]?.at ? new Date(t.rows[0].at).toISOString() : null,
     people: parsePeople(process.env.SANDBOX_PEOPLE).people,
     state: await sandboxState(),
   };
@@ -60,8 +56,6 @@ export type Delivery = {
   asks?: { id: number; state: "answered" | "refused"; note?: string; key?: string }[];
   /** Reviews the hub has mailed. */
   reviewsSent?: number[];
-  /** The Railway token the CLI is handed from now on (the sandbox environment's only). */
-  railwayToken?: string;
 };
 
 // The second lock, on this side: the hub codes and leak-checks every answer, and a delivery that still carries an
@@ -99,10 +93,6 @@ export async function deliver(d: Delivery): Promise<{ answers: number; refused: 
     }
     for (const id of d.reviewsSent ?? []) {
       await client.query(`UPDATE sandbox_reviews SET state = 'sent', sent_at = now() WHERE id = $1`, [id]);
-    }
-    if (d.railwayToken) {
-      await client.query(`INSERT INTO sandbox_cli (k, v, at) VALUES ('railway_token', $1, now())
-        ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, at = now()`, [d.railwayToken]);
     }
     await client.query("COMMIT");
   } catch (e) {

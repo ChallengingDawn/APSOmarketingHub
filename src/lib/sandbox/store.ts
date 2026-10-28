@@ -34,7 +34,7 @@ export function ensureSandboxTables(): Promise<void> {
     await p.query(`CREATE TABLE IF NOT EXISTS sandbox_reviews (id bigserial PRIMARY KEY, at timestamptz NOT NULL DEFAULT now(),
       by_user text NOT NULL, title text NOT NULL, summary text NOT NULL DEFAULT '', base text, preview_url text,
       files jsonb NOT NULL DEFAULT '[]', patch text NOT NULL DEFAULT '', state text NOT NULL DEFAULT 'new', sent_at timestamptz)`);
-    // what the CLI is handed after password + TOTP: the Railway token the hub replaces every day
+    // the CLI's sign-in codes, kept until the CLI collects its token
     await p.query(`CREATE TABLE IF NOT EXISTS sandbox_cli (k text PRIMARY KEY, v text NOT NULL, at timestamptz NOT NULL DEFAULT now())`);
   })().catch((e: unknown) => { ready = null; throw e; });
   return ready;
@@ -69,6 +69,40 @@ export async function noteWouldWrite(method: string, url: string, body: unknown)
     [method, url, JSON.stringify(body ?? null)]);
 }
 
+export type Replay = { key: string; kind: string; request: unknown; response: unknown };
+
+/**
+ * What the hub brought, oldest first, after a point - what the sandbox on someone's computer copies down from its relay
+ * (`npm run sbx -- dev`). The point is the last row's time, to the microsecond, and its key: one delivery writes all its
+ * rows at the same time, and an answer brought again moves to the end, so it is copied down again.
+ */
+export async function replaysAfter(after: string | null, limit = 200): Promise<{ rows: Replay[]; next: string | null; more: boolean }> {
+  await ensureSandboxTables();
+  let at = "-infinity", key = "";
+  if (after) {
+    try {
+      const p = JSON.parse(Buffer.from(after, "base64url").toString("utf8")) as unknown;
+      if (Array.isArray(p) && typeof p[0] === "string" && typeof p[1] === "string") [at, key] = p as [string, string];
+    } catch { /* an unreadable point starts from the beginning */ }
+  }
+  const r = await pool().query<Replay & { at: string }>(
+    `SELECT key, kind, request, response, to_char(brought_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS at
+     FROM sandbox_replay WHERE (brought_at, key) > ($1::timestamptz, $2) ORDER BY brought_at, key LIMIT $3`, [at, key, limit]);
+  const last = r.rows.at(-1);
+  return {
+    rows: r.rows.map(({ key: k, kind, request, response }) => ({ key: k, kind, request, response })),
+    next: last ? Buffer.from(JSON.stringify([last.at, last.key])).toString("base64url") : after,
+    more: r.rows.length === limit,
+  };
+}
+
+/** The reads the hub refused, with its reason - so a computer stops asking for them too. */
+export async function refusedMisses(): Promise<{ key: string; note: string }[]> {
+  await ensureSandboxTables();
+  const r = await pool().query<{ key: string; note: string | null }>(`SELECT key, note FROM sandbox_misses WHERE state = 'refused' ORDER BY key LIMIT 1000`);
+  return r.rows.map((x) => ({ key: x.key, note: x.note ?? "refused by the hub" }));
+}
+
 /** Once the sandbox writes a table itself, that table is the sandbox's: the hub's replayed reads of it step aside. */
 export async function dropReplaysOf(table: string): Promise<void> {
   await ensureSandboxTables();
@@ -96,7 +130,7 @@ export async function sandboxState(): Promise<SandboxState> {
 }
 
 // Delete all keeps the logins - the sandbox's own users, sessions and grants, and in the key store only their
-// invitations and recovery codes - plus the CLI's Railway token, the reviews already sent and the code `sbx pull` hands
+// invitations and recovery codes - plus the CLI's sign-in codes, the reviews already sent and the code `sbx pull` hands
 // out. Everything else in the database is the sandbox's data and goes.
 export const KEEP_TABLES = ["apsomh_users", "apsomh_sessions", "apsomh_user_app_access", "sandbox_marker", "sandbox_cli", "sandbox_reviews", "sandbox_snapshot"] as const;
 export const KEEP_KV_PREFIXES = ["invite:", "recovery:"] as const;

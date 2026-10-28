@@ -1,15 +1,13 @@
 // THE SANDBOXES' ERRANDS (SARCLA 26.10.2026) - the sandbox on Railway cannot reach the hub, so the hub goes to it.
 // Every minute, one copy of the hub at a time (advisory lock 4107250), for each sandbox in SANDBOX_URLS: its reviews
-// mailed to the reviewer, the CLI's Railway token replaced once a day (and, once per start, the builders' hub accounts
-// from SANDBOX_HUB_PEOPLE). It never
-// runs a read: data leaves only when somebody presses Bring data on the hub's Sandbox app (feed.ts bring()).
+// mailed to the reviewer (and, once per start, the builders' hub accounts from SANDBOX_HUB_PEOPLE). It never runs a
+// read: data leaves only when somebody presses Bring data on the hub's Sandbox app (feed.ts bring()).
 // Never beside an ERP chain. Needs SANDBOX_URLS + SANDBOX_LINK_KEY; SANDBOX_FEED=off stops it.
 
 import { getPool } from "../db/client";
 import { hubChain } from "../connectors/chainStatus";
 import { feedOne, nameOf } from "./feed";
 import { sandboxTargets } from "./policy";
-import { currentRailwayToken } from "./railway";
 import { sendReview } from "./review";
 import { ensureHubPeople } from "./hubPeople";
 
@@ -40,12 +38,8 @@ async function round(targets: string[], linkKey: string): Promise<void> {
           console.log(`[sandbox-feed] ${line}`);
         }
       }
-      // one Railway token a day for every sandbox (the CLI gets the same one from each); none without the workspace token
-      const railway = process.env.RAILWAY_SANDBOX_TOKEN
-        ? await currentRailwayToken().catch((e: Error) => { console.warn(`[sandbox-feed] Railway token: ${e.message.slice(0, 200)}`); return undefined; })
-        : undefined;
       for (const t of targets) {
-        const line = await feedOne(t, linkKey, { railway, sendReview })
+        const line = await feedOne(t, linkKey, { sendReview })
           .catch((e: Error) => `${nameOf(t)}: ${e.message.slice(0, 200)}`);
         if (!line.endsWith("nothing to do")) console.log(`[sandbox-feed] ${line}`);
       }

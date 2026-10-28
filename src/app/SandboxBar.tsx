@@ -1,8 +1,8 @@
 "use client";
-// THE BAND ON TOP OF EVERY SANDBOX PAGE (SARCLA 27.10.2026: a sandbox served on the hub's own address must never pass
-// for the live hub) - amber, striped, whose sandbox it is, what waits, and where to bring it: the hub's Sandbox app
-// (the decision to let data out is made on the hub, behind its login and its log). Delete all stays here - it only
-// touches the sandbox. Its links back to the hub carry data-leave-sandbox, so the sandbox's path pin lets them leave.
+// THE BAND ON TOP OF EVERY SANDBOX PAGE (SARCLA 27.10.2026: a sandbox must never pass for the live hub) - amber,
+// striped, whose sandbox it is, what waits, and where to bring it: the hub's Sandbox app (the decision to let data out
+// is made on the hub, behind its login and its log; what is brought there reaches this computer within half a minute
+// while `npm run sbx -- dev` runs). Delete all stays here - it only touches this computer's sandbox.
 // Rendered only when the layout says this copy is the sandbox; the real hub never draws it.
 
 import { useCallback, useEffect, useState } from "react";
@@ -38,7 +38,7 @@ export default function SandboxBar() {
   }, [load]);
 
   async function deleteAll() {
-    if (!confirm("Delete all brought and test data in this sandbox? Logins stay.")) return;
+    if (!confirm("Delete all test data in this sandbox on your computer? What the hub brought is copied down again while npm run sbx -- dev runs.")) return;
     setBusy(true);
     setError(null);
     try {
@@ -78,13 +78,11 @@ export default function SandboxBar() {
         {note}{extra && <Box component="span" sx={{ opacity: 0.8 }}> {extra}</Box>}
       </Typography>
       <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", ml: { xs: 0, sm: "auto" } }}>
-        <Button size="small" variant="outlined" disableElevation href={s?.hub ?? "/sandbox"} target="_blank" rel="noopener" data-leave-sandbox sx={onBand}>
-          Bring data<Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>&nbsp;on the hub</Box>{waiting > 0 ? ` (${waiting})` : ""}
-        </Button>
-        <Button size="small" variant="outlined" href={s?.hub ? s.hub.replace(/\/sandbox$/, "/") : "/"} data-leave-sandbox sx={onBand}>
-          <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>The hub</Box>
-          <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>Back to the hub</Box>
-        </Button>
+        {s?.hub && (
+          <Button size="small" variant="outlined" disableElevation href={s.hub} target="_blank" rel="noopener" sx={onBand}>
+            Bring data<Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>&nbsp;on the hub</Box>{waiting > 0 ? ` (${waiting})` : ""}
+          </Button>
+        )}
         <Button size="small" variant="outlined" disabled={busy} onClick={deleteAll} sx={onBand}>Delete all</Button>
       </Box>
     </Box>

@@ -1,8 +1,9 @@
 "use client";
 
-// SANDBOX - the hub's door to the copies on Railway that people build in (SARCLA 26.10.2026: "a sandbox they operate
-// via the hub directly as a front end for data pulling"). Each sandbox shows what waits in it - the reads its pages
-// could not answer, the asks filed from the CLI - and the three buttons: Bring data, Bring requested data, Delete all.
+// SANDBOX - the hub's door to the sandboxes people build in (SARCLA 26.10.2026: "a sandbox they operate via the hub
+// directly as a front end for data pulling"; 28.10.2026: it runs on their own computer and pulls its data from a relay
+// on Railway). Each sandbox shows what waits in its relay - the reads its pages could not answer, the asks filed from
+// the CLI - and the three buttons: Bring data, Bring requested data, Delete all.
 // Nothing leaves the hub until somebody presses here; what is brought is coded (customers by their HubSpot number,
 // colleagues as Owner <id>, customer money by a hidden factor) and leak-checked. Every press is in the log below.
 
@@ -35,8 +36,8 @@ const ACTION_LABEL: Record<string, string> = {
 };
 const mono = { fontFamily: "ui-monospace, Consolas, monospace", fontSize: "0.8rem" } as const;
 
-/** How to start building in this sandbox - the commands with its CLI's address (Railway relays the CLI; the pages
- *  open here, on the hub), for the CLI and Claude Code. */
+/** How to start building in this sandbox - on the person's own computer, with the commands for its relay's address
+ *  (Railway: the CLI's sign-in, the code, and the coded data the computer copies down). */
 function StartBuilding({ s }: { s: SandboxCard }) {
   const step = (n: number, body: React.ReactNode) => (
     <Box sx={{ display: "grid", gridTemplateColumns: "26px minmax(0,1fr)", gap: 1, py: 0.6 }}>
@@ -44,11 +45,14 @@ function StartBuilding({ s }: { s: SandboxCard }) {
       <Typography component="div" sx={{ fontSize: "0.86rem", lineHeight: 1.6, minWidth: 0, overflowWrap: "anywhere" }}>{body}</Typography>
     </Box>
   );
+  const code = (t: string) => <Box component="code" sx={mono}>{t}</Box>;
   return (
     <Box>
-      {step(1, <>On your computer: Node 22, Git, the Railway CLI (<Box component="code" sx={mono}>npm i -g @railway/cli</Box>) and Claude Code.</>)}
-      {step(2, <>In an empty folder: <Box component="code" sx={mono}>curl -O {s.cli}/sbx.mjs</Box>, then <Box component="code" sx={mono}>node sbx.mjs login --url {s.cli}</Box> - it shows a link to this page; confirm the code here.</>)}
-      {step(3, <><Box component="code" sx={mono}>node sbx.mjs pull</Box>, <Box component="code" sx={mono}>npm install</Box>, then start Claude Code in that folder - its CLAUDE.md has the rules and the way of working.</>)}
+      {step(1, <>On your computer: Node 22, Git and Claude Code.</>)}
+      {step(2, <>In an empty folder: {code(`curl -O ${s.cli}/sbx.mjs`)} (on Windows {code("curl.exe")}), then {code(`node sbx.mjs login --url ${s.cli}`)} - it shows a link to this page; confirm the code here. The sign-in lasts 12 hours.</>)}
+      {step(3, <>{code("node sbx.mjs pull")}, then {code("npm install")}.</>)}
+      {step(4, <>{code("npm run sbx -- dev")} - the sandbox opens at {code("http://localhost:3000")}. While it runs, what you bring here is copied down to it, and what its pages miss shows here as waiting reads. Start Claude Code in that folder - its CLAUDE.md has the rules.</>)}
+      {step(5, <>To send a change: commit it, then {code(`npm run sbx -- review --title "..." --summary "..."`)}.</>)}
     </Box>
   );
 }
@@ -65,7 +69,7 @@ function Waiting({ s }: { s: SandboxCard }) {
         { key: "start", label: "Start building" },
       ]} />
       {view === "start" ? <StartBuilding s={s} /> : view === "reads" ? (
-        s.reads.length === 0 ? <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Every read of this sandbox's pages is here.</Typography> : (
+        s.reads.length === 0 ? <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Every read of this sandbox's pages is brought.</Typography> : (
           <Box sx={{ overflowX: "auto" }}>
             <Table size="small">
               <TableHead><TableRow>
@@ -123,8 +127,7 @@ function Sandbox({ s, canAct, act, busy, result }: {
   return (
     <GlassCard>
       <CardTitle icon={<ScienceOutlinedIcon />} tint="slate" title={s.title}
-        note={s.people.filter((p) => p.role === "user").map((p) => p.name).join(", ") || undefined}
-        right={<Button size="small" variant="contained" disableElevation href={`/sandbox/run/${s.slug}`} target="_blank" rel="noopener">Open</Button>} />
+        note={s.people.filter((p) => p.role === "user").map((p) => p.name).join(", ") || undefined} />
       {s.error ? <Notice tone="bad">This sandbox does not answer: {s.error}</Notice> : (
         <Box sx={{ display: "grid", gap: 2, minWidth: 0 }}>
           <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "repeat(2, minmax(0,1fr))", md: "repeat(4, minmax(0,1fr))" } }}>

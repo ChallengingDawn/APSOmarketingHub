@@ -1,5 +1,5 @@
 // ONE SANDBOX - read what waits in it, BRING it (run each read here - run.ts - code it - code.ts - deliver it), and the
-// minute round's errands (mails, the CLI's Railway token). Data leaves only through bring(), which the hub's Sandbox app
+// minute round's errand (mailing reviews). Data leaves only through bring(), which the hub's Sandbox app
 // calls when a person presses Bring data or Bring requested data there (SARCLA 26.10.2026: the hub is the front end for
 // pulling data - behind its login, its TOTP and its log). The minute round never runs a read.
 // The timer, the lock and the ERP-chain check are feeder.ts; this part is tested end to end (tests/sandbox-loop.test.ts).
@@ -8,7 +8,7 @@ import { hubspotKey, sqlKey } from "../sandbox/canon";
 import type { Asked, Delivery, Review } from "../sandbox/link";
 import type { HsRequest, SqlRequest } from "../sandbox/store";
 import { codeHubspotAnswer, codeRows, kindOfPath, type CodeCtx } from "./code";
-import { targetOf } from "../sandbox/proxy";
+import { targetOf } from "../sandbox/targets";
 import { moneyFactor } from "./policy";
 import { hubspotRefusal, propertyTypes, runHubspotRead, runSqlRead, sqlRefusal } from "./run";
 
@@ -111,21 +111,18 @@ export async function bring(base: string, linkKey: string, which: "reads" | "ask
 }
 
 export type FeedOptions = {
-  /** Today's Railway token for the CLI; delivered to a sandbox that holds an older one. */
-  railway?: { token: string; at: string };
   /** Mails a review to the reviewer (feeder.ts passes the hub's mailer). */
   sendReview?: (r: Review, sandbox: string) => Promise<void>;
 };
 
-/** The minute round for one sandbox: its reviews mailed, today's Railway token handed over.
- *  It never runs a read - that is bring(). Returns the line for the log. */
+/** The minute round for one sandbox: its reviews mailed. It never runs a read - that is bring(). Returns the line for
+ *  the log. */
 export async function feedOne(base: string, linkKey: string, opts: FeedOptions = {}): Promise<string> {
   const name = nameOf(base);
   const asked = await readSandbox(base, linkKey).catch(() => null);
   if (!asked) return `${name}: did not answer`;
   const reviews = opts.sendReview ? asked.reviews ?? [] : [];
-  const newToken = opts.railway && (!asked.railwayTokenAt || asked.railwayTokenAt < opts.railway.at) ? opts.railway.token : undefined;
-  if (!reviews.length && !newToken) return `${name}: nothing to do`;
+  if (!reviews.length) return `${name}: nothing to do`;
 
   const d: Delivery = {};
   const sent: number[] = [];
@@ -134,9 +131,8 @@ export async function feedOne(base: string, linkKey: string, opts: FeedOptions =
     catch (e) { console.warn(`[sandbox-feed] ${name}: review ${r.id} not mailed: ${(e as Error).message.slice(0, 200)}`); }
   }
   if (sent.length) d.reviewsSent = sent;
-  if (newToken) d.railwayToken = newToken;
-  if (d.reviewsSent || d.railwayToken) await post(base, linkKey, d);
-  return `${name}: ${sent.length} review${sent.length === 1 ? "" : "s"} mailed${newToken ? ", Railway token replaced" : ""}`;
+  if (d.reviewsSent) await post(base, linkKey, d);
+  return `${name}: ${sent.length} review${sent.length === 1 ? "" : "s"} mailed`;
 }
 
 /** A CLI code confirmed on the hub: the sandbox learns who confirmed it, and the CLI collects its token there. */

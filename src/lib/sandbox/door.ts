@@ -1,16 +1,14 @@
-// THE ONLY WAY INTO A SANDBOX IS THROUGH THE HUB (SARCLA 27.10.2026: "how can we access the sandbox from outside if
-// this should be inside of the hub? ... the TOTP, we can reuse the one on the hub to not double set"; then "it should
-// be hosted on the hub, only using Railway as a relay for the CLI").
+// WHO IS IN A SANDBOX (SARCLA 27.10.2026: "the TOTP, we can reuse the one on the hub to not double set"; 28.10.2026:
+// the sandbox runs on the person's own computer and pulls its data from Railway).
 //
-// A sandbox has no password and no TOTP of its own. The person signs in to the hub (its TOTP), and:
-//  - the browser: the hub serves the sandbox at /sandbox/run/<name>/... and signs every request it forwards with who is
-//    asking (proxy.ts) - proxiedUser() below turns that into the person's account here;
-//  - the CLI: `sbx login` gets a short code here; the person confirms it on the hub's Sandbox app, the hub tells this
-//    sandbox who confirmed it (over the link), and the CLI - polling with its own secret - gets its 12-hour token.
-// Either way the sandbox only lets in people its SANDBOX_PEOPLE names, in the role given there.
+// A sandbox has no password and no TOTP of its own.
+//  - The relay (Railway): `sbx login` gets a short code here; the person confirms it on the hub's Sandbox app, behind
+//    the hub's sign-in and TOTP; the hub tells the relay who confirmed it (over the link), and the CLI - polling with
+//    its own secret - gets its 12-hour token. Only people its SANDBOX_PEOPLE names, in the role given there.
+//  - The person's computer: `npm run sbx -- dev` runs the sandbox there for the one person signed in on the CLI
+//    (SANDBOX_PEOPLE holds only them) - localUser() below. The relay serves no page, so it has nobody.
 
 import { createHash, randomBytes, randomInt } from "node:crypto";
-import { headers } from "next/headers";
 import { getPool } from "../db/client";
 import { APP_KEYS } from "../auth/access";
 import { hashPassword } from "../auth/password";
@@ -18,7 +16,7 @@ import type { UserRow } from "../db/init";
 import { ensureSchema } from "../db/init";
 import { ensureSandboxTables } from "./store";
 import { parsePeople, type Person } from "./peopleList";
-import { PROXY_HEADER, verifyProxy } from "./proxy";
+import { isLocalSandbox } from "./mode";
 
 const CODE_MS = 10 * 60_000;
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -65,21 +63,19 @@ export async function userFor(p: Person): Promise<UserRow> {
   return u;
 }
 
-// ---- the browser ---------------------------------------------------------------------------------------------------
+// ---- the person's computer -----------------------------------------------------------------------------------------
 
-// the account behind each address, for a minute: a page is a dozen requests, and each one asks who it is
-const held = new Map<string, { until: number; user: UserRow }>();
+// the account, for a minute: a page is a dozen requests, and each one asks who it is
+let held: { until: number; user: UserRow } | null = null;
 
-/** The person the hub says is asking (its signed header), if this sandbox names them - else nobody. */
-export async function proxiedUser(): Promise<UserRow | null> {
-  const email = await verifyProxy((await headers()).get(PROXY_HEADER), process.env.SANDBOX_LINK_KEY_SHA256);
-  if (!email) return null;
-  const p = personFor(email);
+/** On the person's own computer, the one person signed in on its CLI; on the relay, nobody - it serves no page. */
+export async function localUser(): Promise<UserRow | null> {
+  if (!isLocalSandbox()) return null;
+  const p = parsePeople(process.env.SANDBOX_PEOPLE).people[0];
   if (!p) return null;
-  const h = held.get(p.email);
-  if (h && Date.now() < h.until) return h.user;
+  if (held && Date.now() < held.until) return held.user;
   const user = await userFor(p);
-  held.set(p.email, { until: Date.now() + 60_000, user });
+  held = { until: Date.now() + 60_000, user };
   return user.is_active ? user : null;
 }
 
@@ -128,11 +124,12 @@ export async function pollCli(poll: string): Promise<{ state: "waiting" | "expir
   return { state: "granted", uid: mine.c.uid, user: mine.c.user ?? "" };
 }
 
-/** Boot: the sandbox's own sign-up links (from before it opened only through the hub) are gone. */
+/** Boot: what the sandbox no longer hands out is gone - its own sign-up links (from before it opened only through the
+ *  hub) and the Railway token its CLI once deployed with (28.10.2026: nobody deploys to Railway from a sandbox). */
 export async function dropOldLinks(): Promise<number> {
   await ensureSandboxTables();
   await ensureSchema();
   const a = await getPool().query(`DELETE FROM apsomh_kv WHERE k LIKE 'invite:%'`);
-  const b = await getPool().query(`DELETE FROM sandbox_cli WHERE k LIKE 'invite-mail:%'`);
+  const b = await getPool().query(`DELETE FROM sandbox_cli WHERE k LIKE 'invite-mail:%' OR k = 'railway_token'`);
   return (a.rowCount ?? 0) + (b.rowCount ?? 0);
 }

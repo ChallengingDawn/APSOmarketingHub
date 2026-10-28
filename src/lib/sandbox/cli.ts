@@ -1,7 +1,6 @@
-// THE SANDBOX'S CLI DOOR - what `npm run sbx` talks to (scripts/sbx.mjs). Diana and Daniel sign in on the CLI with
-// password + TOTP, the same account and the same authenticator as the sandbox's web login (SARCLA 26.10.2026: access
-// "via TOTP", also for Railway on the CLI), and get a 12-hour CLI token. It is typed "sbx-cli": the web pages never
-// take it, and a browser session never opens these routes.
+// THE RELAY'S CLI DOOR - what `npm run sbx` talks to (scripts/sbx.mjs). Diana and Daniel sign in with a code they
+// confirm on the hub's Sandbox app, behind the hub's own TOTP (door.ts), and get a 12-hour CLI token. It is typed
+// "sbx-cli": a page never takes it, and a browser session never opens these routes.
 
 import { SignJWT, jwtVerify } from "jose";
 import { getPool } from "../db/client";
@@ -101,16 +100,6 @@ export async function addReview(by: string, r: ReviewIn): Promise<number> {
     `INSERT INTO sandbox_reviews (by_user, title, summary, base, preview_url, files, patch) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
     [by, r.title, r.summary, r.base, r.preview_url, JSON.stringify(r.files), r.patch]);
   return Number(x.rows[0].id);
-}
-
-/** The Railway token the hub handed over today, and where it deploys: the person's own preview service. */
-export async function railwayFor(username: string): Promise<{ token: string; at: string; service: string } | null> {
-  await ensureSandboxTables();
-  const r = await getPool().query<{ v: string; at: string }>(`SELECT v, at FROM sandbox_cli WHERE k = 'railway_token'`);
-  if (!r.rows[0]) return null;
-  // diana.fehr@apsoparts.com deploys to sandbox-diana-fehr (people are created with their address as username)
-  const who = username.toLowerCase().split("@")[0].replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "");
-  return { token: r.rows[0].v, at: new Date(r.rows[0].at).toISOString(), service: `sandbox-${who}` };
 }
 
 // The scrubbed code of the hub's current release (the release step uploads it) - what `sbx pull` hands out.

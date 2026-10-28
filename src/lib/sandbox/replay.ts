@@ -9,17 +9,13 @@
 // Both hooks sit on globalThis: instrumentation and the routes are separate bundles, and only globalThis is shared
 // (the same reason as the HubSpot search queue).
 
-import { NEVER_FROM_HUB, hubspotKey, isHubspotRead, isSqlRead, sqlKey } from "./canon";
+import { OWN_TABLES as OWN, hubspotKey, isHubspotRead, isSqlRead, sqlKey } from "./canon";
 import { dropReplaysOf, noteMiss, noteWouldWrite, replayed } from "./store";
 
 type Rows = { rows: unknown[] };
 export type QueryHook = (text: string, params: unknown[] | undefined, run: () => Promise<Rows>) => Promise<Rows>;
 
 const HUBSPOT_HOST = "api.hubapi.com";
-
-// The sandbox's own tables, and every table the hub refuses (logins, key store), are never replayed and never asked
-// of the hub - asking would only fill the bar with reads that can never be brought.
-const OWN = new RegExp(`\\b(sandbox_\\w+|${NEVER_FROM_HUB.join("|")}|pg_\\w+|information_schema)\\b`, "i");
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });

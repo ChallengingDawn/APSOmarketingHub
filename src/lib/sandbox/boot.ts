@@ -75,11 +75,11 @@ export async function startSandbox(env: NodeJS.ProcessEnv = process.env): Promis
   installReplay();
   const { markSandboxDatabase } = await import("./store");
   await markSandboxDatabase().catch((e) => console.error("[sandbox] could not mark the database:", e));
-  // it opens only from the hub (door.ts): a person's account is made when the hub first lets them in, and the
-  // sign-up links of its own it once handed out are dropped
+  // people come in through the hub (door.ts): the sign-up links it once handed out, and the Railway token its CLI once
+  // deployed with, are dropped
   const { dropOldLinks } = await import("./door");
-  await dropOldLinks().then((n) => { if (n) console.log(`[sandbox] ${n} old sign-up link${n === 1 ? "" : "s"} dropped - it opens from the hub only`); })
-    .catch((e) => console.error("[sandbox] could not drop the old sign-up links:", e));
+  await dropOldLinks().then((n) => { if (n) console.log(`[sandbox] ${n} old link${n === 1 ? "" : "s"} or token${n === 1 ? "" : "s"} dropped - people come in through the hub`); })
+    .catch((e) => console.error("[sandbox] could not drop the old links:", e));
   const { on, unknown } = pickJobs(env.SANDBOX_JOBS, Object.keys(SANDBOX_JOBS));
   console.log(`[sandbox] guard on - reaches only ${[...allowed].join(", ")}; jobs on: ${on.length ? on.join(", ") : "none"}`);
   if (unknown.length) console.warn(`[sandbox] SANDBOX_JOBS names no such job: ${unknown.join(", ")}`);
