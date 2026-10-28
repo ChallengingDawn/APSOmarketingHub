@@ -15,6 +15,7 @@
 //        | { action: "topics-run" } | { action: "filing-write", on } (admins: write the filing into the tickets, or only preview)
 //        | { action: "steering-save", steering } (admins: the topics' routes; the previous ones kept in kv chat:steering:log:*)
 //        | { action: "ab-save", ab: { on, countries, split, restart? } } (admins: the A/B test on the shop chat's gateway)
+//        | { action: "web-mode-save", mode: off|acc|preview|live } (admins: who sees the chat window on the shop)
 //        { action: "test", message, language, country, conversationId? }   anyone with Website - a test writes
 //          nothing (the orchestrator's /dashboard/test-dry, 18.10.2026); an orchestrator without that fix
 //          answers 404 and the page says so, rather than the old /dashboard/test that made real tickets
@@ -32,6 +33,7 @@ import { fileNow, hubspotChanges, setCategory, setWriteSwitch, topicChats, topic
 import type { HsState } from "@/lib/chat/shape";
 import { saveSteering, steeringData } from "@/lib/chat/steering";
 import { abData, saveAb } from "@/lib/chat/abtest";
+import { setWebMode, webMode } from "@/lib/chat/webmode";
 import { satisfactionData } from "@/lib/satisfaction/figures";
 import { CHAT_TOUCHPOINTS } from "@/lib/satisfaction/rules";
 import { adminKey as directupKey } from "@/lib/directup/gateway";
@@ -85,6 +87,11 @@ export async function GET(req: NextRequest) {
       // the chat's own satisfaction: the live chat's and the shop chat's survey answers (src/lib/satisfaction)
       const days = int(q.get("days"), 30, 1, 800);
       return ok(await satisfactionData(new Date(Date.now() - days * 86_400_000).toISOString(), CHAT_TOUCHPOINTS));
+    }
+    if (part === "web-mode") {
+      // who sees the chat window on the shop (webmode.ts) - the gateway's switch and counters
+      if (!directupKey()) return NextResponse.json({ configured: false, missing: ["DIRECTUP_ADMIN_KEY"] });
+      return ok({ ...(await webMode()), isAdmin });
     }
     if (part === "ab") {
       // the A/B test of the e-mail before the chat: its setting and figures, from the shop chat's gateway (abtest.ts)
@@ -198,6 +205,13 @@ export async function POST(req: NextRequest) {
       const run = await fileNow();
       console.log(`[chat-topics] run by ${who}: ${run.filed} filed${run.error ? ` (${run.error})` : ""}`);
       return NextResponse.json({ ok: run.ok, data: run, error: run.ok ? undefined : run.error ?? undefined });
+    }
+    if (body.action === "web-mode-save") {
+      // admins: off / acceptance only / preview / live - SARCLA's go-live switch
+      if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });
+      const s = await setWebMode(body.mode, who);
+      console.log(`[chat-web] the chat on the shop: ${s.mode} - by ${who}`);
+      return NextResponse.json({ ok: true, data: s });
     }
     if (body.action === "ab-save") {
       // admins: the A/B test's switch, countries and split on the shop chat's gateway
