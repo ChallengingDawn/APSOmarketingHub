@@ -168,7 +168,14 @@ console.log(`Snapshot of ${sha}: ${counts.files} files (${counts.dropped} droppe
 // 6. hand it to the sandboxes
 if (args.includes("--upload")) {
   const key = process.env.SANDBOX_LINK_KEY;
-  const targets = (process.env.SANDBOX_URLS ?? "").split(",").map((s) => s.trim().replace(/\/+$/, "")).filter((u) => /^https:\/\//.test(u));
+  // a copy answers only under the path the hub serves it at - the rule of targetOf (src/lib/sandbox/proxy.ts): an
+  // entry's own path, else /sandbox/run/<its Railway host without the word "sandbox">
+  const baseOf = (raw) => {
+    const u = new URL(raw);
+    const path = u.pathname.replace(/\/+$/, "");
+    return `${u.origin}${path || `/sandbox/run/${u.hostname.split(".")[0].split("-").filter((w) => w && w !== "sandbox").join("-")}`}`;
+  };
+  const targets = (process.env.SANDBOX_URLS ?? "").split(",").map((s) => s.trim()).filter((u) => /^https:\/\//.test(u)).map(baseOf);
   if (!key || !targets.length) { console.error("--upload needs SANDBOX_URLS and SANDBOX_LINK_KEY in the environment"); process.exit(1); }
   const body = readFileSync(out);
   for (const t of targets) {
