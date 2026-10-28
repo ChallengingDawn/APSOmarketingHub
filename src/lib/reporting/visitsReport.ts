@@ -12,7 +12,8 @@ import { categoryBand, monthTotal, parsePcMonthly, prioBand, prioOf, visitKind, 
 import { bandOf, usable, ymd, POTENTIAL_BANDS, type VisitsData } from "./visitsRules";
 
 // v2: the visit report's annual need, the potential band (placeholders over €1m left out), how each company registered
-const KEY = "esoVisits:v2";
+// v3: the shop registration's day instead of the qualification's answer; an order on the visit's day counts as after it
+const KEY = "esoVisits:v3";
 const TTL_MS = 60 * 60 * 1000;
 const VISIT_OBJ = "2-139767037";
 const VISIT_PIPELINE = "2904105208";
@@ -63,13 +64,13 @@ async function build(): Promise<VisitsData> {
   }
 
   // 3. those companies' facts
-  type Co = { prio: string; category: string; country: string; potential: number; registeredAfter: boolean; regWay: string; firstOrder: number; revenue: number };
+  type Co = { prio: string; category: string; country: string; potential: number; shopSince: number; firstOrder: number; revenue: number };
   const companies = new Map<string, Co>();
   const ids = [...new Set(visitCompany.values())];
   for (let i = 0; i < ids.length; i += 100) {
     const r = await hubspotFetchJson<{ results?: Row[] }>({
       path: "/crm/v3/objects/companies/batch/read", method: "POST",
-      body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["sales_priority", "apso_customer", "country_custom", "yearly_customer_potential", "registration_details_eso__company", "order_first_order_date", `rev_${year}_pc_monthly`] },
+      body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["sales_priority", "apso_customer", "country_custom", "yearly_customer_potential", "magento_customer_since", "order_first_order_date", `rev_${year}_pc_monthly`] },
     });
     for (const row of r.results ?? []) {
       const p = row.properties ?? {};
@@ -80,7 +81,8 @@ async function build(): Promise<VisitsData> {
         prio: prioBand(prioOf(p.sales_priority)), category: categoryBand(p.apso_customer), country: p.country_custom || "Not set",
         // a potential over €1m is a placeholder, not a figure (as the customers' cube reads it)
         potential: usable(num(p.yearly_customer_potential)) ? num(p.yearly_customer_potential) : 0,
-        registeredAfter: p.registration_details_eso__company === "Meeting before registration", regWay: (p.registration_details_eso__company ?? "").trim(),
+        // the day the shop says it registered - not "Registration Details (ESO)", a qualification's answer
+        shopSince: ymd(p.magento_customer_since),
         firstOrder: ymd(p.order_first_order_date), revenue: Math.round(revenue),
       });
     }
@@ -101,7 +103,7 @@ async function build(): Promise<VisitsData> {
   };
 
   // 5. the rows
-  const labels: VisitsData["labels"] = { prio: [...PRIO_BANDS], category: [...CATEGORY_BANDS], kind: [...VISIT_KINDS], country: [], band: [...POTENTIAL_BANDS], regWay: [""] };
+  const labels: VisitsData["labels"] = { prio: [...PRIO_BANDS], category: [...CATEGORY_BANDS], kind: [...VISIT_KINDS], country: [], band: [...POTENTIAL_BANDS] };
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const coIdx = new Map<string, number>();
   const coRows: number[][] = [];
@@ -121,13 +123,13 @@ async function build(): Promise<VisitsData> {
     let ci = -1;
     if (cid && co) {
       ci = coIdx.get(cid) ?? -1;
-      if (ci < 0) { ci = coRows.push([co.registeredAfter ? 1 : 0, co.firstOrder, co.revenue, at(labels.regWay, co.regWay)]) - 1; coIdx.set(cid, ci); }
+      if (ci < 0) { ci = coRows.push([co.shopSince, co.firstOrder, co.revenue]) - 1; coIdx.set(cid, ci); }
     }
     const day = ymd(when);
     rows.push([
       person(owner), y, Number(when.slice(5, 7)) - 1, Number(when.slice(8, 10)),
       at(labels.kind, visitKind(p.type_of_visit)), at(labels.prio, co?.prio ?? "No priority"), at(labels.category, co?.category ?? "Other"), at(labels.country, co?.country ?? "Not set"),
-      ci, co ? (!co.firstOrder || co.firstOrder > day ? 1 : 0) : 0, co && co.potential > 0 ? Math.round(co.potential) : 0,
+      ci, co ? (!co.firstOrder || co.firstOrder >= day ? 1 : 0) : 0, co && co.potential > 0 ? Math.round(co.potential) : 0,
       usable(num(p.annual_need_in__)) ? Math.round(num(p.annual_need_in__)) : 0, at(labels.band, bandOf(co?.potential ?? 0)),
     ]);
   }

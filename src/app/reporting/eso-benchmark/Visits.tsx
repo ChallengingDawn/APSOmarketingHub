@@ -51,7 +51,7 @@ import { SavedViews } from "@/app/reporting/marketing-kpis/tiles/SavedViews";
 import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tiles/SortableGrid";
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
-import { POTENTIAL_BANDS, blank, labelOf, rowsOf, statsBy, type VDim, type VFilters, type VStats, type VWin, type VisitsData } from "@/lib/reporting/visitsRules";
+import { POTENTIAL_BANDS, REG_WAY, blank, labelOf, rowsOf, statsBy, type VDim, type VFilters, type VStats, type VWin, type VisitsData } from "@/lib/reporting/visitsRules";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
   ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, SubTitle, TARGET, TWO, asLead, asTeam, axisWidth, leadOf, niceTop, setQuery, useLead, useLeads, useTeam,
@@ -201,6 +201,9 @@ const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; unit
   potential: { title: "Ø yearly potential of the companies visited", fmt: eur, unit: "eur", target: "Ø yearly potential of the companies visited" },
   need: { title: "Ø annual need from the visit reports", fmt: eur, unit: "eur", target: "Ø annual need from the visit reports" },
 };
+/** Of the companies visited, the ones with revenue this year and how much - not an average over the prospects as well
+ *  (SARCLA 28.10.2026 on "Ø revenue this year €534": "figures are completely wrong"). */
+const boughtWords = (s: VStats) => (s.buyers ? `${int(s.buyers)} bought this year · ${eur(s.revenue)}` : "none bought this year");
 function boardRows(c: VCtx, dim: VDim, m: Measure): { rows: BoardRow[]; small: BoardRow[] } {
   const by = statsOf(c, dim);
   const t = totalOf(c);
@@ -209,7 +212,7 @@ function boardRows(c: VCtx, dim: VDim, m: Measure): { rows: BoardRow[]; small: B
   for (const [label, s] of by) {
     let cur: number, sub: string, ranked = true;
     if (m === "visits") { cur = s.visits; sub = dim === "person" ? `${int(s.companies)} companies · ${(s.visits / Math.max(done, 0.1)).toFixed(1)} a month` : `${pct(t.visits ? s.visits / t.visits : null)} of the visits · ${int(s.companies)} companies`; }
-    else if (m === "companies") { cur = s.companies; sub = `Ø revenue this year ${s.companies ? eur(s.revenue / s.companies) : "—"}`; }
+    else if (m === "companies") { cur = s.companies; sub = boughtWords(s); }
     else if (m === "new") { cur = s.newVisits; sub = `${int(s.newCompanies)} new customers · ${int(s.registeredAfter)} registered · ${int(s.boughtInPeriod)} bought`; }
     else if (m === "registered") { cur = s.registeredAfter; sub = `${pct(s.newCompanies ? s.registeredAfter / s.newCompanies : null)} of ${int(s.newCompanies)} new customers visited`; }
     else if (m === "bought") { cur = s.boughtInPeriod; sub = `${pct(s.newCompanies ? s.boughtInPeriod / s.newCompanies : null)} of ${int(s.newCompanies)} new customers visited`; }
@@ -278,10 +281,11 @@ function VisitMonths({ c, target }: { c: VCtx; target: number | null }) {
 }
 
 /** Registration, in his four questions (SARCLA 27.10.2026): how many visits with new customers, how many of them registered
- *  after the visit, in what way, how many of them bought in the period. */
+ *  after the visit, in what way, how many of them bought in the period - from the shop's registration day and the first
+ *  order's day against the visit's (28.10: not the qualification's answers). */
 function Answers({ c }: { c: VCtx }) {
   const t = totalOf(c);
-  const ways = Object.entries(t.regWays).sort((a, b) => b[1] - a[1]);
+  const ways = t.newCompanies ? REG_WAY.map((w) => [w, t.regWays[w] ?? 0] as const) : [];
   const maxWay = Math.max(1, ...ways.map(([, n]) => n));
   const q = (n: number, text: string) => (
     <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}><span style={{ color: FAINT, marginRight: 8 }}>{n}</span>{text}</Typography>
@@ -292,8 +296,8 @@ function Answers({ c }: { c: VCtx }) {
   const row = { display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(260px, 1fr) minmax(0, 1.4fr)" }, gap: { xs: 0.5, md: 2 }, alignItems: "start", py: 1.25, borderBottom: `1px solid ${HAIRLINE}` } as const;
   return (
     <Box sx={{ display: "grid" }}>
-      <Box sx={row}>{q(1, "How many visits with new customers?")}{a(`${int(t.newVisits)} visits`, `to ${int(t.newCompanies)} new customers - companies that had never ordered the day of the visit`)}</Box>
-      <Box sx={row}>{q(2, "How many of them registered after the visit?")}{a(int(t.registeredAfter), `${pct(t.newCompanies ? t.registeredAfter / t.newCompanies : null)} of the ${int(t.newCompanies)} new customers`)}</Box>
+      <Box sx={row}>{q(1, "How many visits with new customers?")}{a(`${int(t.newVisits)} visits`, `to ${int(t.newCompanies)} new customers - companies that had never ordered before the day of the visit`)}</Box>
+      <Box sx={row}>{q(2, "How many of them registered after the visit?")}{a(int(t.registeredAfter), `${pct(t.newCompanies ? t.registeredAfter / t.newCompanies : null)} of the ${int(t.newCompanies)} new customers - registered in the shop on the day of the visit or after it, by ${perEnd(c.d, c.per)}`)}</Box>
       <Box sx={row}>
         {q(3, "In what way?")}
         <Box sx={{ display: "grid", gap: 0.6 }}>
@@ -307,7 +311,7 @@ function Answers({ c }: { c: VCtx }) {
           ))}
         </Box>
       </Box>
-      <Box sx={{ ...row, borderBottom: 0 }}>{q(4, `How many of them bought, ${c.per.title}?`)}{a(int(t.boughtInPeriod), `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the ${int(t.newCompanies)} new customers - their first order after the visit, by ${perEnd(c.d, c.per)}`)}</Box>
+      <Box sx={{ ...row, borderBottom: 0 }}>{q(4, `How many of them bought, ${c.per.title}?`)}{a(int(t.boughtInPeriod), `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the ${int(t.newCompanies)} new customers - their first order on the day of the visit or after it, by ${perEnd(c.d, c.per)}`)}</Box>
     </Box>
   );
 }
@@ -329,7 +333,7 @@ function drawnOf(id: string): Drawn | undefined {
   }
   if (chart === "answers") {
     const title = (c: VCtx) => `New customers and registration, ${c.per.title}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · new customers: companies that had never ordered the day of the visit; registered after: as HubSpot records it`} actions={a}><Answers c={c} /></ChartBox> };
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · new customers: companies that had never ordered before the day of the visit; registered: the shop's registration date against the visit's`} actions={a}><Answers c={c} /></ChartBox> };
   }
   const [what, by] = chart.split("-");
   if (!(what in MEASURE)) return undefined;
@@ -362,9 +366,9 @@ function PeopleTable({ c }: { c: VCtx }) {
   const cols: Col<Row>[] = [
     { key: "visits", head: "Completed visits", cell: (r) => int(r.visits), sort: (r) => r.visits },
     { key: "companies", head: "Companies visited", cell: (r) => int(r.companies), sort: (r) => r.companies },
-    { key: "new", head: "New customers visited", tip: "Companies that had never ordered the day of the visit", cell: (r) => int(r.newCompanies), sort: (r) => r.newCompanies },
-    { key: "reg", head: "Registered after", tip: "Of those, registered in the shop after the visit (as HubSpot records it)", cell: (r) => int(r.registeredAfter), sort: (r) => r.registeredAfter },
-    { key: "bought", head: `Bought, ${c.per.title}`, tip: "Of those, their first order after the visit and by the end of the period", cell: (r) => int(r.boughtInPeriod), sort: (r) => r.boughtInPeriod },
+    { key: "new", head: "New customers visited", tip: "Companies that had never ordered before the day of the visit", cell: (r) => int(r.newCompanies), sort: (r) => r.newCompanies },
+    { key: "reg", head: "Registered after", tip: "Of those, registered in the shop on the day of the visit or after it (the shop's registration date)", cell: (r) => int(r.registeredAfter), sort: (r) => r.registeredAfter },
+    { key: "bought", head: `Bought, ${c.per.title}`, tip: "Of those, their first order on the day of the visit or after it, by the end of the period", cell: (r) => int(r.boughtInPeriod), sort: (r) => r.boughtInPeriod },
     { key: "rev", head: "Their revenue this year", tip: "This year's revenue of the companies visited", cell: (r) => eur(r.revenue), sort: (r) => r.revenue },
     ...(ytd ? [{ key: "open", head: "Not reported yet", tip: "This year's visits whose report is not complete - they do not count yet", cell: (r: Row) => (r.open ? int(r.open) : "—"), sort: (r: Row) => r.open ?? 0 }] : []),
   ];
@@ -469,7 +473,7 @@ function figuresOf(c: VCtx): Fig[] {
   const P = c.per.title;
   return [
     { id: "fig-visits", label: `Completed visits ${P}`, value: int(t.visits), sub: `${(t.visits / Math.max(done, 0.1)).toFixed(0)} a month${open ? ` · ${int(open)} more not reported yet` : ""}`, icon: <DirectionsCarOutlinedIcon />, tint: "green", amount: t.visits, unit: "n" },
-    { id: "fig-companies", label: `Companies visited ${P}`, value: int(t.companies), sub: `Ø revenue this year ${t.companies ? eur(t.revenue / t.companies) : "—"}`, icon: <ApartmentOutlinedIcon />, tint: "blue", amount: t.companies, unit: "n" },
+    { id: "fig-companies", label: `Companies visited ${P}`, value: int(t.companies), sub: boughtWords(t), icon: <ApartmentOutlinedIcon />, tint: "blue", amount: t.companies, unit: "n" },
     { id: "fig-new", label: "New customers visited", value: int(t.newCompanies), sub: `${int(t.newVisits)} visits - companies that had never ordered`, icon: <PersonAddAltOutlinedIcon />, tint: "amber", amount: t.newCompanies, unit: "n" },
     { id: "fig-registered", label: "Registered after the visit", value: int(t.registeredAfter), sub: `${pct(t.newCompanies ? t.registeredAfter / t.newCompanies : null)} of the new customers visited`, icon: <HowToRegOutlinedIcon />, tint: "purple", amount: t.registeredAfter, unit: "n" },
     { id: "fig-bought", label: `Bought, ${P}`, value: int(t.boughtInPeriod), sub: `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the new customers visited`, icon: <ShoppingCartCheckoutOutlinedIcon />, tint: "green", amount: t.boughtInPeriod, unit: "n" },
@@ -671,7 +675,7 @@ export function VisitsExplorer() {
     <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
       Completed visit reports only (the stage &quot;Visit and Report complete&quot;), by meeting date and by who made the visit; this year&apos;s others are counted as not reported yet. HubSpot holds visits since 2026: there is no year before to compare with.
       {" "}ESO: the ESO roster; Total: ESO, Marc Frech (the TSA person who visits) and the people outside the rosters. A line manager&apos;s team as Map assignment&apos;s SAE table sets it.
-      {" "}New customers: companies that had never ordered the day of the visit; registered after: as HubSpot records it; bought: their first order after the visit, by the end of the period. The potential: the company&apos;s yearly potential in HubSpot, a placeholder over €1m left out; averages and shares rank people with {MIN_VISITS} visits or more.
+      {" "}New customers: companies that had never ordered before the day of the visit; registered: the day the shop says the company registered (Magento &quot;customer since&quot;) against the visit&apos;s - not the qualification&apos;s answers; bought: their first order on the day of the visit or after it, by the end of the period. The potential: the company&apos;s yearly potential in HubSpot, a placeholder over €1m left out; averages and shares rank people with {MIN_VISITS} visits or more.
       {" "}{int(d.coverage.completed)} completed visits read, {int(d.coverage.withCompany)} of them linked to a company. Read from HubSpot {new Date(d.generatedAt).toLocaleString("en-GB")}, every hour.
     </Typography>
   );
