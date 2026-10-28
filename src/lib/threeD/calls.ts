@@ -7,6 +7,8 @@
 // Delta, not copy: the gateway's counters are cumulative since its start (`bootId`), so the hub keeps
 // the last numbers it saw and adds only the difference; a new bootId starts from zero.
 
+import { isSandbox } from "@/lib/sandbox/mode";
+import { doorGet } from "@/lib/sandbox/viewer";
 import { getPool, query } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { deltas, SEARCH_BAR_TAGGED_FROM, type Count } from "./counts";
@@ -22,9 +24,11 @@ const KV_STATUS = "threeD:gateway-status";
 
 /** The 3D Gateway's admin API - the new service, whatever address the shop uses meanwhile. */
 export const gatewayAdminUrl = () => (process.env.THREED_GATEWAY_URL || "https://3d-gateway-production.up.railway.app").replace(/\/+$/, "");
-export const adminKeySet = () => !!(process.env.THREED_ADMIN_KEY || "").trim();
+export const adminKeySet = () => !!((isSandbox() ? process.env.SANDBOX_VIEWER_KEY : process.env.THREED_ADMIN_KEY) || "").trim();
 
 async function gw<T>(path: string): Promise<T> {
+  // a sandbox reads through the door and holds no key (src/lib/sandbox/viewer.ts)
+  if (isSandbox()) return doorGet<T>("3d", path, { timeoutMs: 60_000 });
   const key = (process.env.THREED_ADMIN_KEY || "").trim();
   if (!key) throw new Error("THREED_ADMIN_KEY is not set on the hub");
   const res = await fetch(`${gatewayAdminUrl()}/api/admin${path}`, { headers: { "x-admin-key": key }, signal: AbortSignal.timeout(60_000), cache: "no-store" });

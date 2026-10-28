@@ -1,14 +1,16 @@
-// THE SANDBOX'S ONLY WAY OUT - every TCP connection the sandbox copy opens goes through here, and only its own database
-// (and Anthropic, while SANDBOX_AI=on) is let through. HubSpot, Magento, the SFTP server, SMTP, the connector, the
-// orchestrator: refused before a DNS lookup, so a job or a button switched on in the sandbox has no effect anywhere
-// real (SARCLA 26.10.2026: "they should be off and if turned on they should have no effect at all").
+// THE SANDBOX'S ONLY WAYS OUT - every TCP connection the sandbox opens goes through here, and only these are let
+// through: its own database, HubSpot (once the person has set their private app's token - writes are held back by
+// hubspot.ts), the read-only door to the microservices (SANDBOX_VIEWER_URL), and Anthropic while SANDBOX_AI=on.
+// Magento, the SFTP server, SMTP, the connector, the gateways themselves: refused before a DNS lookup, so a job or a
+// button switched on in the sandbox changes nothing real (SARCLA 26.10.2026: "they should be off and if turned on they
+// should have no effect at all").
 //
 // It sits on net.Socket.prototype.connect because everything ends there: fetch (Node's own undici), http/https, pg,
 // nodemailer, ssh2. A refused connection fails like a refused port - the socket is destroyed with an error, so each
 // caller takes its usual error path instead of throwing somewhere it never expected to.
 //
-// The second half of the promise is that the sandbox holds no credential for anything real (no HUBSPOT_TOKEN, no
-// MAGENTO_*, no SFTP key, no SMTP): a child process (curl) could get past this guard, but would arrive with nothing.
+// The second half of the promise is that the sandbox holds no key that can change anything: `npm run sandbox` hands
+// the app none of the terminal's, and the person's .env.local holds only a read-only HubSpot app and a viewer key.
 
 import net from "node:net";
 
@@ -20,9 +22,13 @@ function clean(host: string): string {
   return host.trim().toLowerCase().replace(/^\[|\]$/g, "");
 }
 
-/** Where the sandbox may connect: itself, its own database and - only while SANDBOX_AI=on - Anthropic. */
+/** Where the sandbox may connect: itself, its own database, HubSpot with a token set, the door, Anthropic while SANDBOX_AI=on. */
 export function allowedHosts(env: NodeJS.ProcessEnv = process.env): Set<string> {
   const hosts = new Set(["localhost", "127.0.0.1", "::1"]);
+  if ((env.HUBSPOT_TOKEN ?? "").trim()) hosts.add("api.hubapi.com");
+  if (env.SANDBOX_VIEWER_URL) {
+    try { hosts.add(clean(new URL(env.SANDBOX_VIEWER_URL).hostname)); } catch { /* an unreadable URL lets nothing extra through */ }
+  }
   const url = env.DATABASE_URL;
   if (url) {
     try { hosts.add(clean(new URL(url).hostname)); } catch { /* an unreadable URL lets nothing extra through */ }
@@ -59,7 +65,7 @@ export function installSandboxGuard(env: NodeJS.ProcessEnv = process.env): Set<s
   proto.connect = function guardedConnect(this: net.Socket, ...args: unknown[]) {
     const host = targetHost(args);
     if (host !== null && !allowed.has(host)) {
-      const err = Object.assign(new Error(`sandbox: no connection to ${host} - the sandbox only reaches its own database`), {
+      const err = Object.assign(new Error(`sandbox: no connection to ${host} - the sandbox reaches only its database, HubSpot and the door`), {
         code: SANDBOX_BLOCKED,
       });
       console.warn(`[sandbox] blocked a connection to ${host}`);

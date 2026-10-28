@@ -19,7 +19,7 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
-  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox has no sign-in of its own" }, { status: 404 });
   const rlKey = clientKey(req, 'login');
   const rl = checkRateLimit(rlKey);
   if (!rl.ok) {

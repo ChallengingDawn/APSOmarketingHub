@@ -26,7 +26,7 @@ async function enrollingUser(): Promise<number | null> {
 export const runtime = 'nodejs';
 
 export async function GET() {
-  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox has no sign-in of its own" }, { status: 404 });
   const uid = await enrollingUser();
   if (!uid) return NextResponse.json({ error: 'No pending login' }, { status: 401 });
 
@@ -56,7 +56,7 @@ const PostBody = z.union([
 ]);
 
 export async function POST(req: Request) {
-  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox has no sign-in of its own" }, { status: 404 });
   const rlKey = clientKey(req, 'enroll');
   const rl = checkRateLimit(rlKey);
   if (!rl.ok) {

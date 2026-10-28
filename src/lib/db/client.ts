@@ -52,14 +52,7 @@ export function getPool(): Pool {
   return _pool;
 }
 
-type QueryHook = (text: string, params: unknown[] | undefined, run: () => Promise<{ rows: unknown[] }>) => Promise<{ rows: unknown[] }>;
-
 export async function query<T = unknown>(text: string, params?: unknown[]): Promise<{ rows: T[] }> {
-  const run = async () => {
-    const result = await getPool().query(text, params as never[]);
-    return { rows: result.rows as T[] };
-  };
-  // Only the sandbox copy sets this (src/lib/sandbox/replay.ts): it answers reads with what the hub sent it.
-  const hook = (globalThis as { __apsoSandboxQuery?: QueryHook }).__apsoSandboxQuery;
-  return hook ? ((await hook(text, params, run)) as { rows: T[] }) : run();
+  const result = await getPool().query(text, params as never[]);
+  return { rows: result.rows as T[] };
 }

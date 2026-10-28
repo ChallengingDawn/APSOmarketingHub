@@ -8,6 +8,8 @@
 // C:\dev\secrets\directup_admin_key.txt). The address is one setting in the hub's database, like the 3D
 // gateway's; until somebody sets it, it is the Railway address.
 
+import { DOOR_KEY, isSandbox } from "@/lib/sandbox/mode";
+import { doorGet } from "@/lib/sandbox/viewer";
 import { kvGet, kvSet } from "@/lib/db/init";
 
 export const DEFAULT_GATEWAY = "https://directup-gateway-production.up.railway.app";
@@ -31,12 +33,15 @@ export async function setGateway(raw: string, by: string): Promise<GatewaySettin
 }
 
 export function adminKey(): string | null {
+  if (isSandbox()) return DOOR_KEY;
   const v = (process.env.DIRECTUP_ADMIN_KEY || "").trim();
   return v ? v : null;
 }
 
 /** One call to the gateway's admin API. Throws with the gateway's own sentence when it refuses. */
 export async function gateway<T>(path: string, init: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<T> {
+  // a sandbox reads through the door and holds no key (src/lib/sandbox/viewer.ts)
+  if (isSandbox()) return doorGet<T>("directup", path, init);
   const key = adminKey();
   if (!key) throw new Error("DIRECTUP_ADMIN_KEY is not set on the hub");
   const base = (await gatewaySetting()).url;

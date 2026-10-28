@@ -2,6 +2,8 @@
 // alone): the key travels as X-Admin-Token, the gateway's requireAdmin; a refused key is named, any other
 // refusal carries the gateway's own words.
 
+import { DOOR_KEY, isSandbox } from "../sandbox/mode";
+
 export async function callGateway<T>(base: string, key: string | null, path: string,
   init: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<T> {
   if (!key) throw new Error("SMART_BAR_ADMIN_TOKEN is not set on the hub");
@@ -24,6 +26,7 @@ export async function callGateway<T>(base: string, key: string | null, path: str
 
 /** The key from the hub's environment, or null. */
 export function adminToken(): string | null {
+  if (isSandbox()) return DOOR_KEY;
   const v = (process.env.SMART_BAR_ADMIN_TOKEN || "").trim();
   return v ? v : null;
 }

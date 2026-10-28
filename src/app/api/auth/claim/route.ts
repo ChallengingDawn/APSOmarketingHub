@@ -75,7 +75,7 @@ const NO_WAY_IN =
   `Ask an admin to create yours.`;
 
 export async function POST(req: NextRequest) {
-  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox has no sign-in of its own" }, { status: 404 });
   const key = clientKey(req, "claim");
   const gate = checkRateLimit(key);
   if (!gate.ok) {

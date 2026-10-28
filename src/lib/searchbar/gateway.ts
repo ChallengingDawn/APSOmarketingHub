@@ -8,6 +8,8 @@
 // SMART_BAR_ADMIN_TOKEN (the gateway's own, sent as X-Admin-Token; it never reaches the browser). The address
 // is one setting in the hub's database, like DirectUP's; until somebody sets it, it is the Railway address.
 
+import { isSandbox } from "@/lib/sandbox/mode";
+import { doorGet } from "@/lib/sandbox/viewer";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { adminToken, callGateway } from "./call";
 
@@ -35,6 +37,8 @@ export { adminToken };
 
 /** One call to the gateway (path from its root, e.g. "/api/smart-bar/report?days=30"). Throws with the gateway's own sentence. */
 export async function gateway<T>(path: string, init: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<T> {
+  // a sandbox reads through the door and holds no key (src/lib/sandbox/viewer.ts)
+  if (isSandbox()) return doorGet<T>("search-bar", path, init);
   const key = adminToken();
   if (!key) throw new Error("SMART_BAR_ADMIN_TOKEN is not set on the hub");
   return callGateway<T>((await gatewaySetting()).url, key, path, init);

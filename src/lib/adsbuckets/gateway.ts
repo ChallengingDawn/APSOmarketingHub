@@ -5,6 +5,8 @@
 // holds the same value), sent as X-Admin-Token, never to the browser. The address is one setting in the hub's
 // database; until somebody sets it, it is the Railway address.
 
+import { isSandbox } from "@/lib/sandbox/mode";
+import { doorGet } from "@/lib/sandbox/viewer";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { adminToken, callGateway } from "@/lib/searchbar/call";
 
@@ -30,6 +32,8 @@ export async function setAdsGateway(raw: string, by: string): Promise<AdsGateway
 export { adminToken };
 
 export async function adsGateway<T>(path: string, init: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<T> {
+  // a sandbox reads through the door and holds no key (src/lib/sandbox/viewer.ts)
+  if (isSandbox()) return doorGet<T>("ads", path, init);
   const key = adminToken();
   if (!key) throw new Error("SMART_BAR_ADMIN_TOKEN is not set on the hub");
   return callGateway<T>((await adsGatewaySetting()).url, key, path, init);

@@ -14,8 +14,3 @@ export function parsePeople(raw: string | undefined): { people: Person[]; bad: s
   return { people, bad };
 }
 
-/** The address a person's link opens on: SANDBOX_PUBLIC_URL, or the domain Railway gives the service. */
-export function publicUrl(env: NodeJS.ProcessEnv): string | null {
-  if (env.SANDBOX_PUBLIC_URL) return env.SANDBOX_PUBLIC_URL.replace(/\/+$/, "");
-  return env.RAILWAY_PUBLIC_DOMAIN ? `https://${env.RAILWAY_PUBLIC_DOMAIN}` : null;
-}

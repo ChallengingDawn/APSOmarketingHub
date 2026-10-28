@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 // THE CODE DIANA AND DANIEL GET - a released commit of the hub, scrubbed (SARCLA 26.10.2026: "absolutely no real data
-// should appear or be stored"). The release step runs it once the release is verified:
+// should appear or be stored"), for their sandbox repository on GitHub (SARCLA 28.10.2026: "another github ... we can
+// copy the project there"). The release step runs it once the release is verified:
 //
-//   node scripts/sandbox-snapshot.mjs <sha> [--out <file.tar.gz>] [--names <file>] [--upload]
+//   node scripts/sandbox-snapshot.mjs <sha> [--out <file.tar.gz>] [--names <file>] [--publish <git url> [--branch base]]
 //
 // git archive <sha> -> drop what is not the app (docs, Office and data files, .env files, the ad and geo scripts) ->
 // STOP on a real secret -> replace e-mail addresses, phone numbers and customer names (any name with a legal form -
 // AG, GmbH, SA, Sàrl, SpA, Ltd, Inc, BV, KG - except the placeholders below; --names adds names without one, one per
 // line) -> add the sandbox kit (sandbox-kit/CLAUDE.md becomes CLAUDE.md, sandbox-kit/.env.example) -> .tar.gz.
-// The report counts what was replaced and never prints a value. --upload sends it to every sandbox in SANDBOX_URLS
-// with SANDBOX_LINK_KEY (both from the environment; the key is never printed).
+// The report counts what was replaced and never prints a value. --publish puts it on the sandbox repository's branch
+// `base` (one commit "release <sha>" holding exactly that code); the builders branch from it and send pull requests.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -19,7 +20,7 @@ import path from "node:path";
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
 const sha = args.find((a) => /^[0-9a-f]{7,40}$/.test(a));
-if (!sha) { console.error("usage: node scripts/sandbox-snapshot.mjs <sha> [--out file.tar.gz] [--names file] [--upload]"); process.exit(1); }
+if (!sha) { console.error("usage: node scripts/sandbox-snapshot.mjs <sha> [--out file.tar.gz] [--names file] [--publish <git url> [--branch base]]"); process.exit(1); }
 const out = path.resolve(flag("--out") ?? `sandbox-snapshot-${sha.slice(0, 7)}.tar.gz`);
 const repo = process.cwd();
 
@@ -128,10 +129,8 @@ walk(tmp);
   if (dir !== tmp && readdirSync(dir).length === 0) rmSync(dir, { recursive: true });
 })(tmp);
 
-// 3. the sandbox kit, from the same commit: Claude's instructions, the settings, Railway's build (the Dockerfile, as
-// on AWS), and sbx.mjs in public/ so a new person can fetch the CLI from their sandbox before they have the code
-const KIT = [["sandbox-kit/CLAUDE.md", "CLAUDE.md"], ["sandbox-kit/.env.example", ".env.example"],
-  ["sandbox-kit/railway.json", "railway.json"], ["scripts/sbx.mjs", "public/sbx.mjs"]];
+// 3. the sandbox kit, from the same commit: Claude's instructions and the settings to fill in
+const KIT = [["sandbox-kit/CLAUDE.md", "CLAUDE.md"], ["sandbox-kit/.env.example", ".env.example"]];
 for (const [from, to] of KIT) {
   const r = spawnSync("git", ["show", `${sha}:${from}`], { cwd: repo, maxBuffer: 16 * 1024 * 1024 });
   if (r.status === 0) writeFileSync(path.join(tmp, to), r.stdout);
@@ -165,23 +164,30 @@ console.log(`Snapshot of ${sha}: ${counts.files} files (${counts.dropped} droppe
   + `${counts.testsLeft ? `; ${counts.testsLeft} test files with real data left on the hub` : ""}`
   + ` -> ${out} (${(statSync(out).size / 1024 / 1024).toFixed(1)} MB)`);
 
-// 6. hand it to the sandboxes
-if (args.includes("--upload")) {
-  const key = process.env.SANDBOX_LINK_KEY;
-  // a copy answers only under the path the hub serves it at - the rule of targetOf (src/lib/sandbox/proxy.ts): an
-  // entry's own path, else /sandbox/run/<its Railway host without the word "sandbox">
-  const baseOf = (raw) => {
-    const u = new URL(raw);
-    const path = u.pathname.replace(/\/+$/, "");
-    return `${u.origin}${path || `/sandbox/run/${u.hostname.split(".")[0].split("-").filter((w) => w && w !== "sandbox").join("-")}`}`;
+// 6. onto the sandbox repository: branch `base` becomes exactly this code, in one commit
+const publish = flag("--publish");
+if (publish) {
+  const branch = flag("--branch") ?? "base";
+  const dir = mkdtempSync(path.join(tmpdir(), "sandbox-publish-"));
+  const run = (cmd, a, opts = {}) => {
+    const r = spawnSync(cmd, a, { cwd: dir, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, ...opts });
+    if (r.status !== 0 && !opts.allowFail) { console.error(`${cmd} ${a[0]} failed: ${String(r.stderr || r.stdout).trim().slice(0, 400)}`); process.exit(1); }
+    return r;
   };
-  const targets = (process.env.SANDBOX_URLS ?? "").split(",").map((s) => s.trim()).filter((u) => /^https:\/\//.test(u)).map(baseOf);
-  if (!key || !targets.length) { console.error("--upload needs SANDBOX_URLS and SANDBOX_LINK_KEY in the environment"); process.exit(1); }
-  const body = readFileSync(out);
-  for (const t of targets) {
-    const res = await fetch(`${t}/api/sandbox-link/snapshot`, { method: "POST", body,
-      headers: { authorization: `Bearer ${key}`, "x-snapshot-sha": sha, "content-type": "application/gzip" } });
-    console.log(`${t}: ${res.status} ${(await res.text()).slice(0, 120)}`);
+  // the branch as it is, or a new one when the repository has none yet
+  if (run("git", ["clone", "--quiet", "--branch", branch, "--single-branch", publish, "."], { allowFail: true }).status !== 0) {
+    run("git", ["init", "--quiet", "-b", branch]);
+    run("git", ["remote", "add", "origin", publish]);
   }
+  for (const f of readdirSync(dir)) if (f !== ".git") rmSync(path.join(dir, f), { recursive: true, force: true });
+  run("tar", ["-xzf", "-"], { input: readFileSync(out), encoding: undefined });
+  run("git", ["add", "-A"]);
+  if (run("git", ["diff", "--cached", "--quiet"], { allowFail: true }).status === 0) console.log(`${branch} already holds release ${sha.slice(0, 7)}`);
+  else {
+    run("git", ["commit", "--quiet", "-m", `release ${sha.slice(0, 7)}`]);
+    run("git", ["push", "--quiet", "origin", `HEAD:${branch}`]);
+    console.log(`${publish} ${branch}: release ${sha.slice(0, 7)}`);
+  }
+  rmSync(dir, { recursive: true, force: true });
+  if (!args.includes("--out")) rmSync(out);
 }
-if (existsSync(out) && args.includes("--upload") && !args.includes("--keep")) rmSync(out);

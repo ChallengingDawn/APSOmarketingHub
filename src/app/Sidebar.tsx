@@ -308,17 +308,6 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    // The Railway sandboxes - their coded data is brought from here, and their reviews arrive here (SARCLA, 26.10.2026).
-    // The title matches the tile in hubApps.ts, which gives the panel the app's colour.
-    title: "Sandbox",
-    home: "/sandbox",
-    icon: <ScienceOutlinedIcon />,
-    color: "#4a5a70",
-    items: [
-      { label: "Sandboxes", href: "/sandbox", icon: <ScienceOutlinedIcon fontSize="small" /> },
-    ],
-  },
-  {
     // Use cases (UCx - numbers to be assigned by SARCLA) and HubSpot apps. Most
     // still live in their own repos and migrate here over time; Erosion came from
     // the APSOAssistant micro apps. DoC, from there too, moved on to Website >

@@ -18,9 +18,13 @@ test("the switch is APSOHUB_SANDBOX=1 and nothing else", () => {
   assert.equal(isSandbox(env({})), false);
 });
 
-test("the sandbox may reach itself and its own database - Anthropic only while SANDBOX_AI=on", () => {
+test("the sandbox may reach itself, its own database, HubSpot once a token is set, the door - Anthropic only while SANDBOX_AI=on", () => {
   const a = allowedHosts(SANDBOX_ENV);
   assert.deepEqual([...a].sort(), ["127.0.0.1", "::1", "localhost", "postgres.railway.internal"]);
+  assert.equal(allowedHosts({ ...SANDBOX_ENV, HUBSPOT_TOKEN: "pat-test" }).has("api.hubapi.com"), true);
+  assert.equal(allowedHosts({ ...SANDBOX_ENV, HUBSPOT_TOKEN: " " }).has("api.hubapi.com"), false);
+  assert.deepEqual([...allowedHosts({ ...SANDBOX_ENV, SANDBOX_VIEWER_URL: "https://Smart-Search.example/" })].filter((h) => h.includes("smart")), ["smart-search.example"]);
+  assert.equal(allowedHosts({ ...SANDBOX_ENV, SANDBOX_VIEWER_URL: "not a url" }).size, a.size, "an unreadable door lets nothing extra through");
   assert.equal(allowedHosts({ ...SANDBOX_ENV, SANDBOX_AI: "on" }).has("api.anthropic.com"), true);
   assert.equal(allowedHosts({ ...SANDBOX_ENV, SANDBOX_AI: "yes" }).has("api.anthropic.com"), false);
   assert.equal(allowedHosts(env({ PGHOST: "DB.Local" })).has("db.local"), true);
@@ -60,7 +64,7 @@ test("instrumentation.ts starts the hub's schedulers only outside the sandbox", 
   }
 });
 
-test("with the guard on, HubSpot, SMTP and the rest are refused; the sandbox's own server still answers", async () => {
+test("with the guard on, HubSpot without a token, SMTP and the rest are refused; the sandbox's own server still answers", async () => {
   installSandboxGuard(SANDBOX_ENV);
   installSandboxGuard(SANDBOX_ENV); // twice is harmless
 

@@ -17,7 +17,7 @@ export const runtime = 'nodejs';
 const Body = z.object({ code: z.string().trim().min(6).max(40) });
 
 export async function POST(req: Request) {
-  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox has no sign-in of its own" }, { status: 404 });
   const rlKey = clientKey(req, 'totp');
   const rl = checkRateLimit(rlKey);
   if (!rl.ok) {

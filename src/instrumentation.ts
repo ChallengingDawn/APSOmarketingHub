@@ -102,12 +102,6 @@ export async function register() {
     const { startSatisfaction } = await import("./lib/satisfaction/sync");
     startSatisfaction();
 
-    // The Railway sandboxes' errands, every minute: reviews mailed, the CLI's Railway token replaced. Their data is
-    // brought, and they are opened, only from the Sandbox app (src/lib/sandboxFeed).
-    // Needs SANDBOX_URLS + SANDBOX_LINK_KEY; SANDBOX_FEED=off stops it. SARCLA, 26.10.2026.
-    const { startSandboxFeed } = await import("./lib/sandboxFeed/feeder");
-    startSandboxFeed();
-
     // APSOassistant Chat > Setup: the orchestrator's chat log copied whole into the hub's database, every 5 min, so
     // nothing of the chat lives only on Railway (src/lib/chat/logCopy.ts). CHAT_LOG_COPY=off stops it. SARCLA, 24.10.2026.
     const { startChatLogCopy } = await import("./lib/chat/logCopy");

@@ -1,8 +1,7 @@
 "use client";
 // THE BAND ON TOP OF EVERY SANDBOX PAGE (SARCLA 27.10.2026: a sandbox must never pass for the live hub) - amber,
-// striped, whose sandbox it is, what waits, and where to bring it: the hub's Sandbox app (the decision to let data out
-// is made on the hub, behind its login and its log; what is brought there reaches this computer within half a minute
-// while `npm run sbx -- dev` runs). Delete all stays here - it only touches this computer's sandbox.
+// striped, whose sandbox it is, where its data comes from (HubSpot through the person's own app, the microservices
+// through the read-only door), the HubSpot writes it held back, and Delete all for its own database.
 // Rendered only when the layout says this copy is the sandbox; the real hub never draws it.
 
 import { useCallback, useEffect, useState } from "react";
@@ -10,7 +9,7 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 
-type State = { missing: number; refused: number; brought: number; wouldWrite: number; asks: number; hub: string | null; name: string | null };
+type State = { wouldWrite: number; name: string | null; hubspot: boolean; door: boolean };
 
 const INK = "#4a2f05";
 const STRIPES = "repeating-linear-gradient(135deg, #f8d98f 0 14px, #f4cd72 14px 28px)";
@@ -31,14 +30,12 @@ export default function SandboxBar() {
 
   useEffect(() => {
     load();
-    // again once the page has made its own reads, so their misses show without waiting for the next round
-    const settle = setTimeout(load, 3_000);
     const t = setInterval(load, 15_000);
-    return () => { clearTimeout(settle); clearInterval(t); };
+    return () => clearInterval(t);
   }, [load]);
 
   async function deleteAll() {
-    if (!confirm("Delete all test data in this sandbox on your computer? What the hub brought is copied down again while npm run sbx -- dev runs.")) return;
+    if (!confirm("Delete all test data in this sandbox? Your account stays; HubSpot and the microservices are not touched.")) return;
     setBusy(true);
     setError(null);
     try {
@@ -52,13 +49,14 @@ export default function SandboxBar() {
     }
   }
 
-  const waiting = (s?.missing ?? 0) + (s?.asks ?? 0);
+  const missing = !s ? [] : [
+    !s.hubspot ? "no HubSpot token yet (HUBSPOT_TOKEN in .env.local)" : "",
+    !s.door ? "no door to the microservices yet (SANDBOX_VIEWER_URL and SANDBOX_VIEWER_KEY)" : "",
+  ].filter(Boolean);
   const note = !s ? ""
-    : waiting > 0
-      ? `${s.missing ? `${s.missing} read${s.missing === 1 ? "" : "s"}` : ""}${s.missing && s.asks ? " and " : ""}${s.asks ? `${s.asks} request${s.asks === 1 ? "" : "s"} from the CLI` : ""} waiting - bring them on the hub.`
-      : `${s.brought} read${s.brought === 1 ? "" : "s"} brought, customers by their HubSpot number.`;
+    : missing.length ? `Set up: ${missing.join("; ")}.`
+      : "HubSpot read through your own app, the microservices through the read-only door.";
   const extra = [
-    s && s.refused > 0 ? `${s.refused} refused by the hub` : "",
     s && s.wouldWrite > 0 ? `${s.wouldWrite} HubSpot write${s.wouldWrite === 1 ? "" : "s"} held back` : "",
     error ?? "",
   ].filter(Boolean).join(" · ");
@@ -71,18 +69,13 @@ export default function SandboxBar() {
     }}>
       <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, letterSpacing: "0.02em", whiteSpace: "nowrap" }}>
         SANDBOX{s?.name ? ` · ${s.name}'s` : ""}
-        <Box component="span" sx={{ fontWeight: 500, letterSpacing: 0 }}> · coded data – not the live hub</Box>
+        <Box component="span" sx={{ fontWeight: 500, letterSpacing: 0 }}> · not the live hub</Box>
       </Typography>
-      {/* on a phone the band is two lines: the count rides on the button, the sentence waits for a wider screen */}
-      <Typography sx={{ display: { xs: "none", sm: "block" }, fontSize: "0.8rem", flex: "1 1 220px", minWidth: 0, fontWeight: waiting > 0 ? 600 : 400 }}>
+      {/* on a phone the band is two lines: the sentence waits for a wider screen */}
+      <Typography sx={{ display: { xs: "none", sm: "block" }, fontSize: "0.8rem", flex: "1 1 220px", minWidth: 0, fontWeight: missing.length ? 600 : 400 }}>
         {note}{extra && <Box component="span" sx={{ opacity: 0.8 }}> {extra}</Box>}
       </Typography>
       <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", ml: { xs: 0, sm: "auto" } }}>
-        {s?.hub && (
-          <Button size="small" variant="outlined" disableElevation href={s.hub} target="_blank" rel="noopener" sx={onBand}>
-            Bring data<Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>&nbsp;on the hub</Box>{waiting > 0 ? ` (${waiting})` : ""}
-          </Button>
-        )}
         <Button size="small" variant="outlined" disabled={busy} onClick={deleteAll} sx={onBand}>Delete all</Button>
       </Box>
     </Box>

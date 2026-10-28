@@ -22,6 +22,8 @@
 // the task as a secret — see reference_apsomh_deploy: a new task-definition revision built from the LATEST
 // one, then a hand deploy with no --task-definition.
 
+import { DOOR_KEY, isSandbox } from "@/lib/sandbox/mode";
+import { doorGet } from "@/lib/sandbox/viewer";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { slim, type Board, type RawPipeline } from "./board";
 
@@ -49,6 +51,7 @@ export async function setGateway(raw: string, by: string): Promise<GatewaySettin
 }
 
 export function adminKey(): string | null {
+  if (isSandbox()) return DOOR_KEY;
   const v = (process.env.C2S_ADMIN_KEY || "").trim();
   return v ? v : null;
 }
@@ -66,6 +69,7 @@ export function adminKey(): string | null {
    
    Kept separate from gateway() so that every write is visible as a write at the call site. */
 export async function gatewayPost<T>(path: string, body: unknown, timeoutMs = 25_000): Promise<T> {
+  if (isSandbox()) throw new Error("A sandbox only reads the microservices - this would change the live one");
   const key = adminKey();
   if (!key) throw new Error("C2S_ADMIN_KEY is not set on the hub");
   const base = (await gatewaySetting()).url;
@@ -98,6 +102,8 @@ export async function setStage(key: string, stage: string, note: string) {
 
 /** One READ of the middleware's admin API. */
 export async function gateway<T>(path: string, timeoutMs = 25_000): Promise<T> {
+  // a sandbox reads through the door and holds no key (src/lib/sandbox/viewer.ts)
+  if (isSandbox()) return doorGet<T>("directcut", path, { timeoutMs });
   const key = adminKey();
   if (!key) throw new Error("C2S_ADMIN_KEY is not set on the hub");
   const base = (await gatewaySetting()).url;

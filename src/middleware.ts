@@ -11,9 +11,6 @@ const PUBLIC_PREFIXES = [
   "/enroll",
   "/api/auth/",
   "/api/health",
-  "/api/sandbox-link/", // the hub's own key, not a session; 404 anywhere but the sandbox copy
-  "/api/sbx/", // the sandbox CLI relay: a code confirmed on the hub, then its token; 404 anywhere but the sandbox copy
-  "/sbx.mjs", // the sandbox CLI itself, so a new person can fetch it (only the sandbox's code has it in public/)
   "/_next",
   "/favicon",
   "/icon",
@@ -45,27 +42,21 @@ function turnAway(req: NextRequest, pathname: string) {
       { status: 401 },
     );
   }
-  // a sandbox copy runs under its base path (/sandbox/run/<name>): so does its sign-in page
-  const url = new URL(`${req.nextUrl.basePath}/signin`, req.url);
-  if (pathname !== "/") url.searchParams.set("next", `${req.nextUrl.basePath}${pathname}`);
+  const url = new URL("/signin", req.url);
+  if (pathname !== "/") url.searchParams.set("next", pathname);
   return NextResponse.redirect(url);
 }
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // A SANDBOX (src/lib/sandbox/). On the person's own computer (`npm run sbx -- dev`) it is theirs alone: the CLI starts
-  // it on 127.0.0.1 for the one person signed in, and a request naming any other host - a web page that points a name
-  // of its own at 127.0.0.1 - is refused. On Railway it is the relay: only the CLI and the hub talk to it, no page.
+  // A SANDBOX (src/lib/sandbox/) runs on the person's own computer and is theirs alone: `npm run sandbox` starts it on
+  // 127.0.0.1 for them, with no sign-in, and a request naming any other host - a web page that points a name of its
+  // own at 127.0.0.1 - is refused.
   if (process.env.APSOHUB_SANDBOX === "1") {
-    if (process.env.SANDBOX_LOCAL === "1") {
-      const host = (req.headers.get("host") ?? "").replace(/:\d+$/, "");
-      if (!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(host)) return NextResponse.json({ ok: false, error: "This sandbox answers on localhost only." }, { status: 403 });
-      return NextResponse.next();
-    }
-    if (!pathname.startsWith("/api/") && pathname !== "/sbx.mjs") {
-      return new NextResponse("This sandbox runs on your computer: npm run sbx -- dev", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
-    }
+    const host = (req.headers.get("host") ?? "").replace(/:\d+$/, "");
+    if (!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(host)) return NextResponse.json({ ok: false, error: "This sandbox answers on localhost only." }, { status: 403 });
+    return NextResponse.next();
   }
 
   if (PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p))) {
@@ -86,9 +77,6 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    // the front page by itself: under the relay's base path its address is /sandbox/run/<name> with no slash, which
-    // the pattern below (prefixed with that path) does not match
-    "/",
     "/((?!_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.svg$|.*\\.ico$).*)",
   ],
 };

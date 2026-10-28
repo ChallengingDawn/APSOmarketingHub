@@ -29,7 +29,7 @@ const Body = z.object({
 // reset forces a password change on next login, and can also clear TOTP
 // when the authenticator was lost too.
 export async function POST(req: Request) {
-  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox has no sign-in of its own" }, { status: 404 });
   const required = process.env.AUTH_RESET_TOKEN;
   if (!required || required.length < 24) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });

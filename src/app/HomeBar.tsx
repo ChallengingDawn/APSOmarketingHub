@@ -20,7 +20,6 @@ import SensorsIcon from "@mui/icons-material/Sensors";
 import AppsIcon from "@mui/icons-material/Apps";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
-import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import SearchIcon from "@mui/icons-material/Search";
 
@@ -29,7 +28,6 @@ import { search as searchApps, type Hit } from "./hubApps";
 import { useViewAs } from "./ViewAs";
 import { AvatarFace } from "./AvatarFace";
 import { Wordmark } from "./Wordmark";
-import { useSandbox } from "./SandboxMode";
 import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
 
 const INK = "#15223a";
@@ -134,21 +132,14 @@ export function HomeBar({ on }: { on?: string }) {
   // for them. The two anchors point at the front page, so they work from any
   // page that shows the bar.
   const reads = role === "viewer";
-  const inSandbox = useSandbox();
   const NAV = [
     { name: "Home", href: "/", icon: <HomeIcon />, show: true },
     { name: "Applications", href: "/#applications", icon: <AppsIcon />, show: !reads },
     { name: "Mission Control", href: "/mission-control", icon: <DashboardOutlinedIcon />, show: openFor("marketing") },
     { name: "Live", href: "/live", icon: <SensorsIcon />, show: openFor("website") },
     { name: "Resources", href: "/#resources", icon: <MenuBookIcon />, show: !reads },
-    // the sandboxes are not a tile among the apps - this is their door (SARCLA, 27.10.2026); a sandbox has no door to
-    // sandboxes, the hub has
-    { name: "Sandbox", href: "/sandbox", icon: <ScienceOutlinedIcon />, show: openFor("sandbox") && !inSandbox, compact: true },
     { name: "Settings", href: "/settings", icon: <SettingsOutlinedIcon />, show: true },
   ].filter((n) => n.show);
-  // A full bar (an admin's seven) fits on one row at 1440 only without the Sandbox label: there it is its icon, the
-  // word on wide screens and in its tooltip. A short bar keeps the word.
-  const crowded = NAV.length > 5;
 
   return (
     <Box sx={{
@@ -165,10 +156,9 @@ export function HomeBar({ on }: { on?: string }) {
       <Box sx={{ display: { xs: "none", md: "flex" }, alignItems: "center", gap: 0.4 }}>
         {NAV.map((n) => {
           const lit = n.name === on;
-          const iconOnly = crowded && "compact" in n && n.compact;
           return (
-            <Box key={n.name} component={Link} href={n.href} title={iconOnly ? n.name : undefined} aria-label={n.name} sx={{
-              display: "flex", alignItems: "center", gap: 0.8, px: iconOnly ? { xs: 1.1, xl: 1.6 } : 1.6, py: 1, borderRadius: "14px",
+            <Box key={n.name} component={Link} href={n.href} sx={{
+              display: "flex", alignItems: "center", gap: 0.8, px: 1.6, py: 1, borderRadius: "14px",
               textDecoration: "none", fontSize: "0.88rem", fontWeight: 600, letterSpacing: "-0.01em",
               color: lit ? ACCENT : MUTED,
               bgcolor: lit ? "rgba(59,125,246,.13)" : "transparent",
@@ -176,7 +166,7 @@ export function HomeBar({ on }: { on?: string }) {
               "& svg": { fontSize: 19 }, ...focusRing,
               "&:hover": { bgcolor: lit ? "rgba(59,125,246,.18)" : "rgba(21,34,58,.05)", color: lit ? ACCENT : INK },
               "@media (prefers-reduced-motion: reduce)": { transition: "none" },
-            }}>{n.icon}{iconOnly ? <Box component="span" sx={{ display: { xs: "none", xl: "inline" } }}>{n.name}</Box> : n.name}</Box>
+            }}>{n.icon}{n.name}</Box>
           );
         })}
       </Box>

@@ -13,10 +13,6 @@ FROM node:20-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Only a sandbox copy on Railway sets these (its service variables): pages are prerendered here, so whether this is a
-# sandbox and the path it is served under must be known at build time. The hub's build leaves both empty.
-ARG APSOHUB_SANDBOX
-ARG SANDBOX_BASE_PATH
 RUN npm run build
 
 # ---- run: minimal runtime image ----

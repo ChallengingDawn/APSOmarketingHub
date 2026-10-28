@@ -27,7 +27,7 @@ const Body = z.object({
 // callers must present it in the x-setup-token header — protects fresh deploys
 // from a race where an attacker claims the admin account before the operator.
 export async function POST(req: Request) {
-  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox has no sign-in of its own" }, { status: 404 });
   try {
     const required = process.env.SETUP_TOKEN;
     if (required) {

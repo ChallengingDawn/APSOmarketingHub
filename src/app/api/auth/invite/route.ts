@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 
 /** Who it is for, so the page can greet them rather than ask who they are. */
 export async function GET(req: NextRequest) {
-  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox has no sign-in of its own" }, { status: 404 });
   const token = req.nextUrl.searchParams.get("token") ?? "";
   const invite = await readInvite(token);
   if (!invite) {
@@ -38,7 +38,7 @@ const Body = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  if (isSandbox()) return NextResponse.json({ error: "A sandbox opens only from the hub's Sandbox app" }, { status: 404 });
+  if (isSandbox()) return NextResponse.json({ error: "A sandbox has no sign-in of its own" }, { status: 404 });
   // Rate limited like a login: a token is a secret, and a secret that can be
   // tried endlessly is a secret with a deadline.
   const key = clientKey(req, "invite");

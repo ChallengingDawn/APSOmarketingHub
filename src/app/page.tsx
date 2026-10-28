@@ -294,16 +294,13 @@ export default function FrontPage() {
 
         {visibleApps.length === 0 && (
           <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 3, md: 4 }, textAlign: "center" }}>
-            {/* someone given only the Sandbox has its door in the bar above, not a tile here */}
             <Typography sx={{ fontSize: "1.1rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em" }}>
-              {openFor("sandbox") ? "Your sandbox is in the bar above" : viewed ? `${viewed.name} has no apps yet` : "You do not have any apps yet"}
+              {viewed ? `${viewed.name} has no apps yet` : "You do not have any apps yet"}
             </Typography>
             <Typography sx={{ fontSize: "0.9rem", color: MUTED, mt: 0.75, maxWidth: "46ch", mx: "auto" }}>
-              {openFor("sandbox")
-                ? "Sandbox, at the top: it opens your sandbox and brings it data."
-                : viewed
-                  ? "Give them one on Settings → People and it appears here."
-                  : "An admin gives each person the apps they need. Ask whoever set up your account, and they will appear here."}
+              {viewed
+                ? "Give them one on Settings → People and it appears here."
+                : "An admin gives each person the apps they need. Ask whoever set up your account, and they will appear here."}
             </Typography>
           </Box>
         )}
