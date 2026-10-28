@@ -30,6 +30,11 @@ const KEEP_DAYS = 21;
  * history 25 a run (Haiku, ~1,000 tokens an answer - about USD 0.10 for a full day's 1,000).
  */
 const AI_PER_DAY = 1000;
+/**
+ * Of those, kept for the tickets closing during the day - the history passes stop before (28.10.2026: they had spent
+ * the 1,000 by 02:00 UTC, and every ticket closing after that stayed Others)
+ */
+const LIVE_RESERVE = 250;
 /** customer e-mails of the history read per run, until all are done */
 const SWEEP_PER_RUN = 25;
 const KV = { rows: "ticketClose:rows", last: "ticketClose:last", sweep: "ticketClose:flagSweep", customers: "ticketClose:customerSweep", internal: "ticketClose:internalSweep", guessed: "ticketClose:guessed", tsr: "ticketClose:tsrSweep", merges: "ticketClose:gqsMerges" };
@@ -162,10 +167,11 @@ async function decideAll(tickets: Obj[], text: Map<string, string>, aiMax: numbe
 }
 /**
  * What may be written over: Others or empty - or one of the hub's own hidden topics when the sentiment flag now says
- * another topic (the sweep made "one of us wrote it" more precise). Nothing a person or a classifier set.
+ * another topic (the sweep made "one of us wrote it" more precise). Nothing a person or a classifier set. A GQS task
+ * update is never moved by a flag (28.10.2026: the daily pass had moved 176 of them back to Internal e-mail).
  */
 const replaceable = (cur: string | null | undefined, d: Decision) =>
-  isOpen(cur) || (!!cur && HIDDEN_TOPICS.includes(cur) && !!d.category && cur !== d.category
+  isOpen(cur) || (!!cur && HIDDEN_TOPICS.includes(cur) && cur !== TOPIC.gqs && !!d.category && cur !== d.category
     && (FLAG_TOPICS.includes(d.category) || (cur === TOPIC.internal && d.by === "guess")))
   // a Task Status Report is a GQS task update whatever the keywords made of it (SARCLA 27.10.2026)
   || (d.by === "tsr" && !!d.category && cur !== d.category);
@@ -286,7 +292,9 @@ async function gqsTaskOf(subject: string): Promise<{ id: string; how: "O" | "ref
  * keeps going, so a new report is taken an hour after it arrived.
  */
 async function tsrSweep(): Promise<void> {
-  const st = (await kvGet<{ cursor: string; merged?: number; filed?: number }>(KV.tsr)) ?? { cursor: "0" };
+  const was = (await kvGet<{ cursor: string; merged?: number; filed?: number; again?: boolean }>(KV.tsr)) ?? { cursor: "0" };
+  // once more from the start: the daily pass had moved 176 filed reports back to Internal e-mail (28.10.2026)
+  const st = was.again ? was : { ...was, cursor: "0", again: true };
   if (!(await options())?.has(TOPIC.gqs)) return;
   const j = await hubspotRetry<{ results?: Obj[] }>({ path: "/crm/v3/objects/tickets/search", method: "POST", body: {
     filterGroups: [{ filters: [
@@ -321,7 +329,7 @@ async function tsrSweep(): Promise<void> {
   }
   if (merged) await kvSet(KV.merges, merges);
   const filed = rows.length ? await writeSafe(rows) : 0;
-  await kvSet(KV.tsr, { cursor: String(all[all.length - 1].id), merged: (st.merged ?? 0) + merged, filed: (st.filed ?? 0) + filed, at: new Date().toISOString() });
+  await kvSet(KV.tsr, { cursor: String(all[all.length - 1].id), merged: (st.merged ?? 0) + merged, filed: (st.filed ?? 0) + filed, again: true, at: new Date().toISOString() });
   if (merged || filed) console.log(`[ticket-close] Task Status Reports: ${merged} merged into their GQS task, ${filed} filed as GQS task update - ${(st.merged ?? 0) + merged} merged, ${(st.filed ?? 0) + filed} filed so far`);
 }
 
@@ -391,6 +399,7 @@ async function flagSweep(): Promise<void> {
   for (const t of found) {
     const p = t.properties, d = before({ subject: p.subject, text: "x", notValid: p.sentiment_not_valid_reason });
     if (p.enquiry_category && guessed[String(t.id)]) continue;
+    if (isTsr(p.subject)) continue; // the GQS pass's, whatever its flag says
     if (d?.category && d.category !== p.enquiry_category) rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d });
   }
   const written = rows.length ? await writeSafe(rows) : 0;
@@ -406,16 +415,20 @@ async function run(): Promise<RunInfo> {
   const t0 = Date.now();
   const live = (await workflowOn()) === false;
   const last = await kvGet<RunInfo>(KV.last);
-  const since = last ? Date.parse(last.at) - 15 * 60_000 : Date.now() - 2 * 86400_000;
+  const kept = ((await kvGet<Row[]>(KV.rows)) ?? []).filter((r) => Date.now() - Date.parse(r.closed ?? r.created) < KEEP_DAYS * 86400_000);
+  // a ticket the AI had no answer for (or no budget left) is looked at again, up to two days back
+  const retry = kept.filter((r) => r.d.stay === "ai_failed" && r.closed).map((r) => Date.parse(r.closed!));
+  const since = Math.min(last ? Date.parse(last.at) - 15 * 60_000 : Date.now() - 2 * 86400_000, ...retry.map((t) => Math.max(t, Date.now() - 2 * 86400_000)));
   const base = [{ propertyName: "hs_pipeline", operator: "EQ", value: BO }, { propertyName: `hs_v2_date_entered_${RESOLVED}`, operator: "GTE", value: String(since) }];
   const found = await search([[...base, { propertyName: "enquiry_category", operator: "EQ", value: "Others" }], [...base, { propertyName: "enquiry_category", operator: "NOT_HAS_PROPERTY" }]]);
-  const kept = ((await kvGet<Row[]>(KV.rows)) ?? []).filter((r) => Date.now() - Date.parse(r.closed ?? r.created) < KEEP_DAYS * 86400_000);
+  const aiKey = `ticketClose:ai:${day()}`, used = (await kvGet<number>(aiKey)) ?? 0, aiLeft = Math.max(0, AI_PER_DAY - used);
   const seen = new Set(kept.filter((r) => r.d.stay !== "ai_failed").map((r) => r.id));
-  const todo = found.filter((t) => !seen.has(t.id));
+  const failed = new Set(kept.filter((r) => r.d.stay === "ai_failed").map((r) => r.id));
+  // one that had no answer waits for the budget instead of being read again every run
+  const todo = found.filter((t) => !seen.has(t.id) && (aiLeft > 0 || !failed.has(t.id)));
   let rows: Row[] = [], written = 0;
   if (todo.length) {
-    const aiKey = `ticketClose:ai:${day()}`, used = (await kvGet<number>(aiKey)) ?? 0;
-    const r = await decideAll(todo, await conversations(todo), Math.max(0, AI_PER_DAY - used));
+    const r = await decideAll(todo, await conversations(todo), aiLeft);
     if (r.ai) await kvSet(aiKey, used + r.ai);
     rows = r.rows;
     if (live) written = await writeSafe(rows.filter((x) => x.d.category));
@@ -431,12 +444,12 @@ async function run(): Promise<RunInfo> {
       try {
         const aiKey = `ticketClose:ai:${day()}`, usedNow = (await kvGet<number>(aiKey)) ?? 0;
         // a quiet pass is a spent budget, not a broken one - say so once a day (27.10.2026: a bug spent it by noon)
-        if (usedNow >= AI_PER_DAY) {
+        if (usedNow >= AI_PER_DAY - LIVE_RESERVE) {
           const said = `ticketClose:budgetSaid:${day()}`;
-          if (!(await kvGet<boolean>(said))) { console.log(`[ticket-close] the day's ${AI_PER_DAY} AI answers are used - the history passes go on after midnight (UTC)`); await kvSet(said, true); }
+          if (!(await kvGet<boolean>(said))) { console.log(`[ticket-close] the history passes have used their ${AI_PER_DAY - LIVE_RESERVE} AI answers of the day (${LIVE_RESERVE} are kept for the tickets closing) - they go on after midnight (UTC)`); await kvSet(said, true); }
           break;
         }
-        const spent = await sweep(AI_PER_DAY - usedNow);
+        const spent = await sweep(AI_PER_DAY - LIVE_RESERVE - usedNow);
         if (spent) await kvSet(aiKey, usedNow + spent);
       } catch (e) { console.warn(`[ticket-close] ${name}: ${(e as Error).message}`); }
     }
