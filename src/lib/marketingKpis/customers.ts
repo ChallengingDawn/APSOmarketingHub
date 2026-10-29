@@ -27,6 +27,8 @@ import { SEED } from "@/lib/mapAssign/seed";
 // v9: the ERP's own month and year to date per company, the order intake months loaded, the team from HubSpot's teams
 // v10: the Performis SAE as a dimension, as its person (the Figures' split next to the company owner, 24.10.2026)
 // v11: the revenue kept apart by profit centre too (the Figures' Profit center tab, 25.10.2026)
+// (the new customers' revenue since their first order came in under the same key: a read without it is read again, the
+// last one shown meanwhile - the ESO New customers, 29.10.2026)
 const KEY = "marketingKpis:customers:v11";
 /** The ERP file's figures per company (the morning load, erpRevenue.ts), in cube.ts's ERP_FIELDS order. */
 const ERP_PROPS = ["erp_rev_mtd_cy", "erp_rev_mtd_py", "erp_rev_ytd_cy", "erp_rev_ytd_py", "erp_oi_mtd_cy", "erp_oi_mtd_py", "erp_oi_ytd_cy", "erp_oi_ytd_py"] as const;
@@ -39,7 +41,7 @@ const TTL_MS = 6 * 60 * 60 * 1000;
  */
 export async function customersCube(): Promise<SlowState<Cube>> {
   const day = await lastDelivery();
-  return slowReport(KEY, (v: Cube) => (day && v?.dataDay !== day ? 0 : TTL_MS), build);
+  return slowReport(KEY, (v: Cube) => ((day && v?.dataDay !== day) || !v?.newRevenue ? 0 : TTL_MS), build);
 }
 
 /** The day of the last ERP delivery the chain ran, or nothing when none is on record (or no database here). */

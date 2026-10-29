@@ -37,11 +37,20 @@ export type MkState = { ok?: boolean; inputs?: Inputs; live?: Live; canEdit?: bo
  * answers a request that reaches a stopping task with its own HTML page (13.10:
  * "Unexpected token '<'"): that is a moment, not an answer, so it is retried.
  */
-export async function hubJson<T>(url: string): Promise<T> {
-  const r = await fetch(url);
-  const text = await r.text();
-  try { return JSON.parse(text) as T; } catch { throw new Error(`the hub answered ${r.status} without data - it may be restarting`); }
+export function hubJson<T>(url: string): Promise<T> {
+  // the same address asked again while it is on its way shares the answer: the ESO BUC View's panels each read the
+  // customers' cube (5 MB) as they open - once is enough
+  const was = inFlight.get(url);
+  if (was) return was as Promise<T>;
+  const p = (async () => {
+    const r = await fetch(url);
+    const text = await r.text();
+    try { return JSON.parse(text) as T; } catch { throw new Error(`the hub answered ${r.status} without data - it may be restarting`); }
+  })().finally(() => inFlight.delete(url));
+  inFlight.set(url, p);
+  return p;
 }
+const inFlight = new Map<string, Promise<unknown>>();
 /** Asks again every 5 s while the hub is busy or restarting; says so only after 2 minutes of failing. */
 export const RETRY_MS = 5000, RETRIES = 24;
 

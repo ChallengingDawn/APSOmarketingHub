@@ -1,10 +1,9 @@
 "use client";
-// An ESO page, drawn as Digital Growth's are (SARCLA 21.10.2026) - what it shows is in ../pages.tsx.
+// The ESO New customers page, rebuilt like the Figures (SARCLA 29.10.2026: "rebuild like Figures/Visits") - ../NewCustomers.tsx.
 
 import { Suspense } from "react";
-import { EsoExplorer } from "../EsoKit";
-import { NEW_CUSTOMERS } from "../pages";
+import { NewCustomersExplorer } from "../NewCustomers";
 
 export default function NewCustomersPage() {
-  return <Suspense><EsoExplorer def={NEW_CUSTOMERS} /></Suspense>;
+  return <Suspense><NewCustomersExplorer /></Suspense>;
 }

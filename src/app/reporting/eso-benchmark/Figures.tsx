@@ -389,13 +389,15 @@ const PODIUM_BG = "rgba(45,111,168,.07)";
 /** "+1.2 pts" - a ratio's change (book-to-bill) */
 const points = (cur: number, prev: number) => `${cur - prev > 0 ? "+" : cur - prev < 0 ? "−" : "±"}${Math.abs((cur - prev) * 100).toFixed(1)} pts`;
 
-export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, selected, onPick, onFilter, filterLabel, actions, fmt = eur, ratio = false, target = null, summary, unranked, noChange = false }: {
+export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, selected, onPick, onFilter, filterLabel, actions, fmt = eur, diff = signedEur, ratio = false, target = null, summary, unranked, noChange = false }: {
   title: string; rows: BoardRow[]; curLabel: string; prevLabel: string;
   /** the places shown before "Show all" */
   first?: number;
   selected?: string[]; onPick?: (label: string) => void; onFilter?: () => void; filterLabel?: string; actions?: React.ReactNode;
   /** how a figure is written - euros unless given */
   fmt?: (n: number) => string;
+  /** how a change is written under its percentage - euros unless given (the New customers' counts: "+12") */
+  diff?: (n: number) => string;
   /** the figures are ratios (book-to-bill): the change in points, no change in euros */
   ratio?: boolean;
   /** the chart's target (typed in its Actions window): each row measured against it */
@@ -420,7 +422,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
     if (noChange) return { main: "", color: FAINT, second: null as string | null };
     if (ratio) return { main: r.prev ? points(r.cur, r.prev) : "new", color: r.prev ? tone(r.cur - r.prev) : FAINT, second: null as string | null };
     const ch = changeNote(r.cur, r.prev);
-    return { main: ch?.text ?? "—", color: ch?.color ?? FAINT, second: signedEur(r.cur - r.prev) };
+    return { main: ch?.text ?? "—", color: ch?.color ?? FAINT, second: diff(r.cur - r.prev) };
   };
   // how far a row is from the target: "86% of the target", in its colour
   const toTarget = (r: BoardRow) => (target ? { text: `${pct(r.cur / target)} of the target`, color: r.cur >= target ? GREEN : RED } : null);
