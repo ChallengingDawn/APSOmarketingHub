@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BEFORE, NO_COMPANY, REG_WAY, coverageOf, labelOf, lastYearOf, median, needOk, regWayOf, rowsOf, statsBy, ymd, type VisitsData } from "../src/lib/reporting/visitsRules";
+import { BEFORE, KINDS, NO_COMPANY, REG_WAY, coverageOf, kindOf, labelOf, lastYearOf, regWayOf, rowsOf, statsBy, ymd, type VisitsData } from "../src/lib/reporting/visitsRules";
 
 // two people; five companies: 0 a customer for years and still buying, 1 new, registered before the visit and bought after
 // it, 2 new and registered on the visit's day, no order, 3 new, its first order on the visit's day and registered a month
@@ -9,17 +9,17 @@ const d: VisitsData = {
   generatedAt: "2026-10-27T08:00:00Z", year: 2026, today: "2026-10-27",
   people: [{ id: "1", name: "Ana", team: "ESO" }, { id: "2", name: "Ben", team: "TSA" }],
   labels: { prio: ["Prio 1", "Prio 2", "Prio 3", "No priority", NO_COMPANY], category: ["APSOcore", "APSOgrowth", "APSOprospect", "APSOmicro", "APSOlost", NO_COMPANY],
-    kind: ["Agreed", "Cold", "Event", "Not recorded"], country: ["Switzerland", "Germany", NO_COMPANY] },
-  // person, year, month, day, kind, prio, category, country, company, isNew, need
+    kind: [...KINDS], country: ["Switzerland", "Germany", NO_COMPANY] },
+  // person, year, month, day, kind, prio, category, country, company, isNew
   visits: [
-    [0, 0, 2, 5, 0, 0, 0, 0, 0, 0, 40000],
-    [0, 0, 3, 10, 1, 2, 2, 0, 1, 1, 12000],
-    [0, 0, 5, 1, 0, 2, 2, 0, 1, 0, 0], // the second visit, after its first order (no longer new)
-    [1, 0, 3, 12, 1, 1, 3, 1, 2, 1, 2_500_000], // a need over €1m: a placeholder
-    [1, 0, 9, 2, 2, 4, 5, 2, -1, 0, 3], // no company; a need of "3": typed in thousands
-    [0, 1, 4, 4, 0, 0, 0, 0, 0, 0, 0], // last year
-    [0, 0, 6, 7, 0, 1, 2, 0, 3, 1, 0], // ordered on the visit's day: still new
-    [1, 0, 7, 20, 0, 0, 4, 1, 4, 0, 5000], // not retained: its last order before was January 2025
+    [0, 0, 2, 5, 0, 0, 0, 0, 0, 0],
+    [0, 0, 3, 10, 1, 2, 2, 0, 1, 1],
+    [0, 0, 5, 1, 0, 2, 2, 0, 1, 0], // the second visit, after its first order (no longer new)
+    [1, 0, 3, 12, 1, 1, 3, 1, 2, 1],
+    [1, 0, 9, 2, 2, 4, 5, 2, -1, 0], // no company
+    [0, 1, 4, 4, 0, 0, 0, 0, 0, 0], // last year
+    [0, 0, 6, 7, 0, 1, 2, 0, 3, 1], // ordered on the visit's day: still new
+    [1, 0, 7, 20, 0, 0, 4, 1, 4, 0], // not retained: its last order before was January 2025
   ],
   // shop registration day, first order, revenue, owner now, last order, months bought in (bit 0 = January last year)
   companies: [
@@ -58,13 +58,12 @@ test("visits: the shop registration against the visit - before, on its day, late
   assert.equal(regWayOf(0, 20260410, 20261027), REG_WAY[3]);
 });
 
-test("visits: the annual need - €100 to €1m, the middle value", () => {
-  assert.equal(needOk(99), false);
-  assert.equal(needOk(100), true);
-  assert.equal(needOk(1_000_001), false);
-  assert.equal(median([1, 3, 2]), 2);
-  assert.equal(median([1, 2, 3, 4]), 2.5);
-  assert.equal(median([]), null);
+test("visits: the type of visit as the report says - scheduled, not agreed", () => {
+  assert.equal(kindOf("SCHEDULED VISIT"), "Scheduled");
+  assert.equal(kindOf("COLD VISIT"), "Cold");
+  assert.equal(kindOf("EVENT VISIT"), "Event");
+  assert.equal(kindOf("SYNCED FROM OUTLOOK"), "Not recorded");
+  assert.equal(labelOf(d, d.visits[0], "kind"), "Scheduled");
 });
 
 test("visits: the figures - companies once each, new ones and earlier customers from their first visit", () => {
@@ -81,11 +80,7 @@ test("visits: the figures - companies once each, new ones and earlier customers 
   assert.equal(all.boughtInPeriod, 2);
   // the earlier customers: one still buying, one not retained - both ordered after the visit
   assert.deepEqual([all.oldCompanies, all.stillBuying, all.lapsed, all.stillBuyingAgain, all.lapsedAgain], [2, 1, 1, 1, 1]);
-  assert.deepEqual([all.agreed, all.cold, all.event], [4, 2, 1]);
-  // the needs: €2.5m (a placeholder) and "3" (typed in thousands) left out
-  assert.deepEqual(all.needs, [40000, 12000, 5000]);
-  assert.equal(all.needOut, 2);
-  assert.equal(median(all.needs), 12000);
+  assert.deepEqual([all.scheduled, all.cold, all.event], [4, 2, 1]);
   assert.equal(all.revenue, 125800);
   assert.equal(all.buyers, 4);
   assert.equal(all.months[3], 2);

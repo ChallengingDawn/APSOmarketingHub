@@ -5,6 +5,8 @@
 // should always have a company"); the real customer categories, no "Other"; the customers who had bought before the
 // visit - still buying or not retained - and did they buy after it; how much of each priority was visited; last year's
 // customer meetings to compare with (the visit reports start in December 2025).
+// 29.10, later: "not agreed - call it scheduled"; the type of visit as the page's own split (scheduled, cold, event); the
+// visit reports' "Yearly Customer Potential" gone with the rest of the potential (a typical entry €2,000, some in thousands).
 
 export type VisitsData = {
   generatedAt: string;
@@ -28,9 +30,8 @@ export type VisitsData = {
   coverage: { read: number; completed: number; withCompany: number; viaContact: number; lastYearRead: boolean };
 };
 /** The columns of a visit row: who, when, the visit's type, the company's priority / category / country, the company (-1:
- *  none linked, not even through the visit's contact), whether it had never ordered before that day, the annual need the
- *  visit report gives (0: none). */
-export const V = { person: 0, year: 1, month: 2, day: 3, kind: 4, prio: 5, category: 6, country: 7, company: 8, isNew: 9, need: 10 } as const;
+ *  none linked, not even through the visit's contact), whether it had never ordered before that day. */
+export const V = { person: 0, year: 1, month: 2, day: 3, kind: 4, prio: 5, category: 6, country: 7, company: 8, isNew: 9 } as const;
 /** The columns of a company row: the day it registered in the shop yyyymmdd (Magento "customer since") or 0, its first
  *  order yyyymmdd or 0, this year's revenue, its owner now (person index, -1: none), its last order yyyymmdd or 0, the
  *  months it bought in (bit 0 = January last year, bit 23 = December this year). Dates, not the qualification's answers
@@ -39,14 +40,10 @@ export const CO = { shopSince: 0, firstOrder: 1, revenue: 2, owner: 3, lastOrder
 
 /** A visit with no company in HubSpot - neither on the visit nor on its contact */
 export const NO_COMPANY = "No company on the visit";
-/** An annual need the page can use: €100 to €1m. Under it is typed in thousands ("2" for €2,000 - Katja Storm's half),
- *  over it a placeholder (Benjamin Nitschke's €500,015,000). */
-export const needOk = (v: number) => v >= 100 && v <= 1_000_000;
-/** The middle value - an average of these reports is led by a few typed €300,000s */
-export function median(xs: number[]): number | null {
-  if (!xs.length) return null;
-  const s = [...xs].sort((a, b) => a - b), m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+/** The type of visit, as the visit report says (SARCLA 29.10.2026: "not agreed - call it scheduled") */
+export const KINDS = ["Scheduled", "Cold", "Event", "Not recorded"] as const;
+export function kindOf(type: string | null | undefined): (typeof KINDS)[number] {
+  return type === "SCHEDULED VISIT" ? "Scheduled" : type === "COLD VISIT" ? "Cold" : type === "EVENT VISIT" ? "Event" : "Not recorded";
 }
 
 /** When a new customer registered in the shop, against its first visit - in the order the page shows them */
@@ -99,9 +96,8 @@ export type VStats = {
   /** companies that had bought before the visit: still buying (an order in the 12 months before) or not retained, and of
    *  each how many ordered after the visit by the period's end */
   oldCompanies: number; stillBuying: number; lapsed: number; stillBuyingAgain: number; lapsedAgain: number;
-  agreed: number; cold: number; event: number;
-  /** the visit reports' annual needs the page can use (needOk), and how many were left out */
-  needs: number[]; needOut: number;
+  /** the visits by type (KINDS) - not recorded: the rest */
+  scheduled: number; cold: number; event: number;
   /** this year's revenue of the companies visited, and how many of them have any */
   revenue: number; buyers: number;
   /** visits per month of the period, from its first */
@@ -110,7 +106,7 @@ export type VStats = {
 /** No visits: every figure zero, n months. */
 export const blank = (n: number): VStats => ({
   visits: 0, companies: 0, noCompany: 0, newVisits: 0, newCompanies: 0, registeredAfter: 0, regWays: {}, boughtInPeriod: 0, boughtAfter: 0,
-  oldCompanies: 0, stillBuying: 0, lapsed: 0, stillBuyingAgain: 0, lapsedAgain: 0, agreed: 0, cold: 0, event: 0, needs: [], needOut: 0, revenue: 0, buyers: 0, months: Array(n).fill(0),
+  oldCompanies: 0, stillBuying: 0, lapsed: 0, stillBuyingAgain: 0, lapsedAgain: 0, scheduled: 0, cold: 0, event: 0, revenue: 0, buyers: 0, months: Array(n).fill(0),
 });
 
 /** Any month bought in between two month indexes (January last year = 0), both included. */
@@ -135,9 +131,7 @@ export function statsBy(d: VisitsData, rows: number[][], win: VWin, key: (r: num
     s.months[r[V.month] - win.from]++;
     if (r[V.isNew]) s.newVisits++;
     const kind = kinds[r[V.kind]];
-    if (kind === "Agreed") s.agreed++; else if (kind === "Cold") s.cold++; else if (kind === "Event") s.event++;
-    const need = r[V.need] ?? 0;
-    if (needOk(need)) s.needs.push(need); else if (need > 0) s.needOut++;
+    if (kind === "Scheduled") s.scheduled++; else if (kind === "Cold") s.cold++; else if (kind === "Event") s.event++;
     const co = r[V.company];
     if (co < 0) { s.noCompany++; continue; }
     const day = (d.year - (r[V.year] ?? 0)) * 10000 + (r[V.month] + 1) * 100 + r[V.day];

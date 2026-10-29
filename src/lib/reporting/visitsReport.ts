@@ -8,14 +8,15 @@ import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/s
 import { ownerNames } from "@/lib/integrations/erosion";
 import { ESO_OWNERS, teamOf } from "@/lib/datatracker/rosters";
 import { readOwners } from "@/lib/ownerRules/hubspot";
-import { monthTotal, parsePcMonthly, prioBand, prioOf, visitKind, PRIO_BANDS, VISIT_KINDS } from "./esoRules";
-import { NO_COMPANY, ymd, type VisitsData } from "./visitsRules";
+import { monthTotal, parsePcMonthly, prioBand, prioOf, PRIO_BANDS } from "./esoRules";
+import { KINDS, NO_COMPANY, kindOf, ymd, type VisitsData } from "./visitsRules";
 
 // v2: the visit report's annual need, the potential band (placeholders over €1m left out), how each company registered
 // v3: the shop registration's day instead of the qualification's answer; an order on the visit's day counts as after it
 // v4 (29.10): the company through the visit's contact when the visit has none; the real customer categories; each company's
 // owner, last order and months bought in; each person's companies by priority; last year's customer meetings; no potential
-const KEY = "esoVisits:v4";
+// v5 (29.10): "Scheduled" for "Agreed"; no annual need from the visit reports
+const KEY = "esoVisits:v5";
 const TTL_MS = 60 * 60 * 1000;
 const VISIT_OBJ = "2-139767037";
 const VISIT_PIPELINE = "2904105208";
@@ -30,7 +31,6 @@ export function esoVisits(): Promise<SlowState<VisitsData>> {
 
 type Row = { id: string; properties?: Record<string, string | null> };
 type Assoc = { results?: { from?: { id?: string }; to?: { toObjectId?: number | string; associationTypes?: { typeId?: number; label?: string | null }[] }[] }[] };
-const num = (v: string | null | undefined) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
 /** from -> its first associated record of a type (the primary one when marked), 100 at a time */
 async function linked(from: string, to: string, ids: string[], tickets: boolean, step: string): Promise<Map<string, string>> {
@@ -55,7 +55,7 @@ async function build(): Promise<VisitsData> {
   // 1. every visit, the list API page by page (no search cap)
   const visits: Row[] = [];
   let after: string | undefined;
-  const vProps = ["hubspot_owner_id", "meeting_date_with_time", "type_of_visit", "hs_pipeline_stage", "annual_need_in__"];
+  const vProps = ["hubspot_owner_id", "meeting_date_with_time", "type_of_visit", "hs_pipeline_stage"];
   for (let page = 0; page < 500; page++) {
     const r = await hubspotFetchJson<{ results?: Row[]; paging?: { next?: { after?: string } } }>({
       path: `/crm/v3/objects/${VISIT_OBJ}?limit=100&properties=${vProps.join(",")}${after ? `&after=${after}` : ""}`, useTicketsToken: true,
@@ -169,7 +169,7 @@ async function build(): Promise<VisitsData> {
   } catch (e) { console.log(`[eso-visits] last year's meetings not read: ${(e as Error).message}`); }
 
   // 7. the rows
-  const labels: VisitsData["labels"] = { prio: [...PRIO_BANDS], category: ["APSOcore", "APSOgrowth", "APSOprospect", "APSOmicro", "APSOlost"], kind: [...VISIT_KINDS], country: [] };
+  const labels: VisitsData["labels"] = { prio: [...PRIO_BANDS], category: ["APSOcore", "APSOgrowth", "APSOprospect", "APSOmicro", "APSOlost"], kind: [...KINDS], country: [] };
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const coIdx = new Map<string, number>();
   const coRows: number[][] = [];
@@ -194,8 +194,8 @@ async function build(): Promise<VisitsData> {
     const day = ymd(when);
     rows.push([
       person(owner), y, Number(when.slice(5, 7)) - 1, Number(when.slice(8, 10)),
-      at(labels.kind, visitKind(p.type_of_visit)), at(labels.prio, co?.prio ?? NO_COMPANY), at(labels.category, co?.category ?? NO_COMPANY), at(labels.country, co?.country ?? NO_COMPANY),
-      ci, co ? (!co.firstOrder || co.firstOrder >= day ? 1 : 0) : 0, Math.max(0, Math.round(num(p.annual_need_in__))),
+      at(labels.kind, kindOf(p.type_of_visit)), at(labels.prio, co?.prio ?? NO_COMPANY), at(labels.category, co?.category ?? NO_COMPANY), at(labels.country, co?.country ?? NO_COMPANY),
+      ci, co ? (!co.firstOrder || co.firstOrder >= day ? 1 : 0) : 0,
     ]);
   }
   return {
