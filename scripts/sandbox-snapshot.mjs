@@ -25,7 +25,8 @@ const out = path.resolve(flag("--out") ?? `sandbox-snapshot-${sha.slice(0, 7)}.t
 const repo = process.cwd();
 
 // ---- what is not the app ----
-const DROP_DIRS = ["docs/", "scripts/geo/", "scripts/google-ads/", "scripts/microsoft-ads/", "tests/browser/", "sandbox-kit/"];
+// .github/: the hub's own CI (checks, the deploy to AWS) - nothing of it belongs in the sandbox repository
+const DROP_DIRS = ["docs/", ".github/", "scripts/geo/", "scripts/google-ads/", "scripts/microsoft-ads/", "tests/browser/", "sandbox-kit/"];
 const DROP_FILES = [/\.(pptx|ppt|xlsx|xls|csv|pdf|docx|doc|zip|7z|bak)$/i, /(^|\/)\.env[^/]*$/, /^preview-linkedin\.html$/, /^scripts\/test-aws-db\.mjs$/];
 const TEXT = /\.(ts|tsx|js|mjs|cjs|jsx|json|md|css|scss|html|txt|yml|yaml|sql|py|gs|sh|svg|xml|toml|ini)$|(^|\/)(Dockerfile|Caddyfile|entrypoint\.sh)$/i;
 
