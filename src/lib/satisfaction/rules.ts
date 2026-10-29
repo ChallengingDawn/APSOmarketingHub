@@ -14,10 +14,11 @@
 
 export type Touchpoint = "order" | "chat" | "shopchat" | "bo" | "tsa" | "nps" | "email" | "other";
 export const TOUCHPOINT_LABEL: Record<Touchpoint, string> = {
-  order: "Order success (shop)", chat: "Live chat", shopchat: "Shop chat", bo: "Back Office ticket", tsa: "TSA call",
+  order: "Order success (shop)", chat: "Live chat (chat v2)", shopchat: "Shop chat (chat v3)", bo: "Back Office ticket", tsa: "TSA call",
   nps: "NPS e-mail", email: "E-mail survey", other: "Other surveys",
 };
-/** the chat's two touchpoints - the APSOassistant Chat page's Satisfaction tab */
+/** the chat's two touchpoints - the APSOassistant Chat page's Satisfaction tab; chat v2 = HubSpot's live chat (its survey
+ *  EN_CSAT_Live_Chat_2501), chat v3 = our shop chat (survey CSAT_CHAT_V3) - SARCLA 29.10.2026: "call it also chat v2 and chat v3" */
 export const CHAT_TOUCHPOINTS: Touchpoint[] = ["chat", "shopchat"];
 
 /** The shop chat's survey (SARCLA's twin of EN_CSAT_Live_Chat_2501, a link survey answered from our own window). */
