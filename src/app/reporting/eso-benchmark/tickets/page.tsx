@@ -1,10 +1,9 @@
 "use client";
-// An ESO page, drawn as Digital Growth's are (SARCLA 21.10.2026) - what it shows is in ../pages.tsx.
+// The ESO Tickets page, rebuilt like Visits (SARCLA 29.10.2026: tickets -> orders, per person) - ../Tickets.tsx.
 
 import { Suspense } from "react";
-import { EsoExplorer } from "../EsoKit";
-import { TICKETS } from "../pages";
+import { TicketsExplorer } from "../Tickets";
 
 export default function TicketsPage() {
-  return <Suspense><EsoExplorer def={TICKETS} /></Suspense>;
+  return <Suspense><TicketsExplorer /></Suspense>;
 }
