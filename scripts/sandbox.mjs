@@ -97,7 +97,8 @@ Object.assign(env, {
   APSOHUB_SANDBOX: "1", PORT: String(port), NEXT_TELEMETRY_DISABLED: "1",
   DATABASE_URL: `postgres://postgres@127.0.0.1:${pgPort}/postgres?sslmode=disable`,
   SESSION_SECRET: sessionSecret(),
-  SANDBOX_PEOPLE: `${email}|user|${(name || email.split("@")[0]).replace(/[|;]/g, " ")}`,
+  // an admin in their own sandbox: they build admin pages too, and nothing pressed here changes anything real
+  SANDBOX_PEOPLE: `${email}|admin|${(name || email.split("@")[0]).replace(/[|;]/g, " ")}`,
 });
 const next = path.join("node_modules", "next", "dist", "bin", "next");
 const child = spawn(process.execPath, [next, "dev", "-H", "127.0.0.1", "-p", String(port)], { env, stdio: "inherit" });

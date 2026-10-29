@@ -41,7 +41,8 @@ empty states, tooltips). They belong in code comments and commit messages only.
 - The sandbox opens on http://localhost:3000 (`npm run sandbox -- --port 3001` for another port). Ctrl+C stops it.
 - Its database is PGlite (Postgres inside the `npm run sandbox` process), kept in the person's profile under
   `~/.apsohub-sandbox/`. Nothing to install.
-- It has no sign-in: it runs on 127.0.0.1 for the person in `SANDBOX_PERSON`, and answers nobody else.
+- It has no sign-in: it runs on 127.0.0.1 for the person in `SANDBOX_PERSON` - an admin in their own sandbox - and
+  answers nobody else.
 - No background job runs. `SANDBOX_JOBS=mapAssign` (names in `src/lib/sandbox/boot.ts`) switches one on to test it;
   it still changes nothing real. `SANDBOX_AI=on` with the person's own capped `ANTHROPIC_API_KEY` lets background AI
   run.
