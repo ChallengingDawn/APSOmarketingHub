@@ -11,6 +11,11 @@ empty states, tooltips). They belong in code comments and commit messages only.
 
 ## Data: real, read only, and it stays on this computer
 
+**Yes, you can pull data** — from HubSpot and from the microservices, as much as the work needs: in the running
+sandbox's pages, and from the terminal with the two commands under "Pulling data" below. Do it whenever a page,
+a rule or a question needs real records. The limits are only these: reads, never writes; and what you pull stays
+on this computer, out of the repository.
+
 - **HubSpot** is read with the person's own **private app** (its token in `.env.local`, read-only scopes). Every
   call that would change HubSpot is held back by the sandbox itself — answered "done", counted as "held back" in the
   band, never sent — whatever scopes the app has. Use that to check what a change *would* write.
@@ -20,15 +25,42 @@ empty states, tooltips). They belong in code comments and commit messages only.
   keys come with this repository in `sandbox-viewer.json` (`npm run sandbox` picks the key by `SANDBOX_PERSON`).
   Never copy those keys anywhere else - not into chats, issues, other repositories or code. The release step
   rewrites the file; leave it as it is.
-- **Nothing else is reachable.** The sandbox's network guard refuses every other connection (Magento, SFTP, mail,
-  the ERP, the gateways themselves). Do not try to work around the guard, the held-back writes or the door. If
-  something "needs" a real system, it goes to Claudio in the pull request.
+- **Nothing else is reachable from the sandbox.** Its network guard lets the running app reach only its own
+  database, HubSpot and the door; it refuses Magento, SFTP, mail, the ERP and the gateways themselves. Do not try to
+  work around the guard, the held-back writes or the door. If something "needs" another real system, it goes to
+  Claudio in the pull request.
 - **The hub's own database** (ERP orders and revenue, what the hub's background jobs collect) is not reachable from
   here: pages built on it start empty. Write made-up rows into the sandbox's own database to test them, or ask
   Claudio.
 - **Real data never goes into the repository.** No fixtures, seeds, screenshots, exports or tests with real names,
   addresses, e-mails or figures — tests use made-up values on reserved domains (`*.example`, `*.invalid`).
   `.env.local` holds the person's tokens and is never committed (it is in `.gitignore`).
+
+## Pulling data
+
+Two commands, run in this folder; both only read, and both print JSON (`--out <file>` writes it instead).
+
+```
+npm run hs -- GET /crm/v3/objects/companies?limit=5&properties=name,domain,hubspot_owner_id
+npm run hs -- GET /crm/v3/properties/tickets
+npm run hs -- POST /crm/v3/objects/tickets/search '{"limit":20,"sorts":["-createdate"]}'
+npm run hs -- POST /crm/v3/objects/contacts/batch/read @ids.json --out .sandbox-data/contacts.json
+
+npm run door -- search-bar /api/smart-bar/report?days=30
+npm run door -- directup /usage?days=30
+npm run door -- 3d /callers
+```
+
+- `npm run hs` reads HubSpot with the token in `.env.local`: any GET, and POSTs to `.../search` and
+  `.../batch/read`. Anything that would change HubSpot is refused before it is sent. Mind HubSpot's limit of about
+  5 searches a second.
+- `npm run door` reads a microservice through the door with the person's viewer key. Services: `search-bar`, `ads`,
+  `directup`, `directcut`, `3d`; the paths are the reads the hub's own pages make — find them in
+  `src/lib/searchbar/gateway.ts`, `src/lib/adsbuckets/`, `src/lib/directup/`, `src/lib/directcut/` and
+  `src/lib/threeD/calls.ts`. A path the door does not pass on answers 404.
+- Keep what you pull in `.sandbox-data/` (git ignores it) or just in the terminal. Never commit it, never paste it
+  into tests or fixtures: when a test needs data, copy the *shape* with made-up values.
+- The hub's own database (ERP orders and revenue) is the one source you cannot pull from here — ask Claudio.
 
 ## Set up once
 

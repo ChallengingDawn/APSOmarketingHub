@@ -10,7 +10,9 @@
     "test": "tsc -p tsconfig.test.json && node --test \".test-build/tests/*.test.js\"",
     "typecheck": "tsc --noEmit",
     "test:browser": "playwright test",
-    "sandbox": "node scripts/sandbox.mjs"
+    "sandbox": "node scripts/sandbox.mjs",
+    "hs": "node scripts/hs.mjs",
+    "door": "node scripts/door.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

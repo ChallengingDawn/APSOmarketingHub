@@ -8,3 +8,5 @@ tsconfig.tsbuildinfo
 .test-build/
 test-results/
 playwright-report/
+# what a sandbox pulls from HubSpot and the microservices stays on that computer (npm run hs / door --out)
+/.sandbox-data/
