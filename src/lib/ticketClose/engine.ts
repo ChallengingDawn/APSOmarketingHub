@@ -37,7 +37,7 @@ const AI_PER_DAY = 1000;
 const LIVE_RESERVE = 250;
 /** customer e-mails of the history read per run, until all are done */
 const SWEEP_PER_RUN = 25;
-const KV = { rows: "ticketClose:rows", last: "ticketClose:last", sweep: "ticketClose:flagSweep", customers: "ticketClose:customerSweep", internal: "ticketClose:internalSweep", guessed: "ticketClose:guessed", tsr: "ticketClose:tsrSweep", merges: "ticketClose:gqsMerges" };
+const KV = { rows: "ticketClose:rows", last: "ticketClose:last", sweep: "ticketClose:flagSweep", customers: "ticketClose:customerSweep", internal: "ticketClose:internalSweep", spam: "ticketClose:spamSweep", guessed: "ticketClose:guessed", tsr: "ticketClose:tsrSweep", merges: "ticketClose:gqsMerges" };
 const TICKET_PROPS = ["subject", "content", "enquiry_category", "createdate", "source_type", "order_number", "sentiment_not_valid_reason", "sentiment_customer_tone", `hs_v2_date_entered_${RESOLVED}`];
 
 export type Written = { at: string; error?: string; skipped?: string };
@@ -172,7 +172,7 @@ async function decideAll(tickets: Obj[], text: Map<string, string>, aiMax: numbe
  */
 const replaceable = (cur: string | null | undefined, d: Decision) =>
   isOpen(cur) || (!!cur && HIDDEN_TOPICS.includes(cur) && cur !== TOPIC.gqs && !!d.category && cur !== d.category
-    && (FLAG_TOPICS.includes(d.category) || (cur === TOPIC.internal && d.by === "guess")))
+    && (FLAG_TOPICS.includes(d.category) || ((cur === TOPIC.internal || cur === TOPIC.spam) && d.by === "guess")))
   // a Task Status Report is a GQS task update whatever the keywords made of it (SARCLA 27.10.2026)
   || (d.by === "tsr" && !!d.category && cur !== d.category);
 
@@ -334,36 +334,50 @@ async function tsrSweep(): Promise<void> {
 }
 
 /**
- * Every run, while the history is not done: 25 closed tickets on Internal e-mail are read by the AI - a request a
- * colleague passes on gets its real topic, Finance's system mail Finance e-mail, other system reports Automatic e-mail;
- * only internal admin stays (SARCLA 27.10.2026: "drill down on Internal e-mail" - "what they are about").
+ * Every run, while the history is not done: 25 closed tickets on one of the hub's own topics are read by the AI again,
+ * and moved when it names another one.
+ * - Internal e-mail (SARCLA 27.10.2026: "drill down on Internal e-mail" - "what they are about"): a request a colleague
+ *   passes on gets its real topic, Finance's system mail Finance e-mail, other system reports Automatic e-mail; only
+ *   internal admin stays.
+ * - Spam or advertising (28.10.2026): filed while the list for mail from outside offered nothing else - Microsoft 365
+ *   quarantine, an out-of-office, Finance's system mail and replies about an order were among them; read with the
+ *   fuller list, only adverts and spam stay.
  */
-async function internalSweep(aiLeft: number): Promise<number> {
-  const st = (await kvGet<{ cursor: string; done?: boolean; moved?: number }>(KV.internal)) ?? { cursor: "0" };
+const REREAD = {
+  internal: { key: KV.internal, topic: TOPIC.internal, name: "Internal e-mail of the history", stay: "stay internal" },
+  spam: { key: KV.spam, topic: TOPIC.spam, name: "Spam of the history", stay: "stay Spam" },
+} as const;
+async function rereadSweep(which: keyof typeof REREAD, aiLeft: number): Promise<number> {
+  const { key, topic, name, stay } = REREAD[which];
+  const st = (await kvGet<{ cursor: string; done?: boolean; moved?: number }>(key)) ?? { cursor: "0" };
   const client = getAnthropic();
   if (st.done || !client || aiLeft <= 0) return 0;
   const j = await hubspotRetry<{ results?: Obj[] }>({ path: "/crm/v3/objects/tickets/search", method: "POST", body: {
     filterGroups: [{ filters: [
       { propertyName: "hs_pipeline", operator: "EQ", value: BO }, { propertyName: "hs_pipeline_stage", operator: "EQ", value: RESOLVED },
-      { propertyName: "enquiry_category", operator: "EQ", value: TOPIC.internal }, { propertyName: "hs_object_id", operator: "GT", value: st.cursor },
+      { propertyName: "enquiry_category", operator: "EQ", value: topic }, { propertyName: "hs_object_id", operator: "GT", value: st.cursor },
     ] }],
     properties: TICKET_PROPS, sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: Math.min(SWEEP_PER_RUN, aiLeft),
   } });
   const all = j.results ?? [];
-  if (!all.length) { await kvSet(KV.internal, { ...st, done: true, at: new Date().toISOString() }); return 0; }
+  if (!all.length) { await kvSet(key, { ...st, done: true, at: new Date().toISOString() }); return 0; }
   const found = all.filter((t) => !isTsr(t.properties.subject)); // Task Status Reports are the GQS pass's
   const text = await conversations(found);
   const rows: Row[] = [];
   for (const t of found) {
     const p = t.properties, txt = text.get(t.id) ?? "";
-    const g = await aiGuess(client, p.subject, txt, "internal").catch(() => null);
-    if (g && g.category !== TOPIC.internal) rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d: fromGuess(g, txt, p.subject) });
+    const from = which === "internal" || flagTopic(p.sentiment_not_valid_reason) === TOPIC.internal ? "internal" : "outside";
+    const g = await aiGuess(client, p.subject, txt, from).catch(() => null);
+    // out of Spam into a customer's topic only when the AI is more than guessing (dry run 29.10.2026: "Parkplatz für
+    // Sonntag" -> Delivery, low)
+    const weak = which === "spam" && g?.sure === "low" && !HIDDEN_TOPICS.includes(g.category) && !FLAG_TOPICS.includes(g.category);
+    if (g && g.category !== topic && !weak) rows.push({ id: t.id, subject: (p.subject ?? "").slice(0, 140), created: p.createdate ?? "", closed: p[`hs_v2_date_entered_${RESOLVED}`] ?? null, now: p.enquiry_category ?? "", d: fromGuess(g, txt, p.subject) });
   }
   const moved = rows.length ? await writeSafe(rows) : 0;
-  await kvSet(KV.internal, { cursor: String(all[all.length - 1].id), moved: (st.moved ?? 0) + moved, at: new Date().toISOString() });
+  await kvSet(key, { cursor: String(all[all.length - 1].id), moved: (st.moved ?? 0) + moved, at: new Date().toISOString() });
   const by: Record<string, number> = {};
   for (const r of rows) if (r.written && !r.written.error && !r.written.skipped) by[r.d.category!] = (by[r.d.category!] ?? 0) + 1;
-  console.log(`[ticket-close] Internal e-mail of the history: ${found.length} read, ${moved} moved to their topic${moved ? ` (${Object.entries(by).map(([k, n]) => `${k} ${n}`).join(", ")})` : ""}, ${found.length - moved} stay internal - ${(st.moved ?? 0) + moved} moved so far`);
+  console.log(`[ticket-close] ${name}: ${found.length} read, ${moved} moved to their topic${moved ? ` (${Object.entries(by).map(([k, n]) => `${k} ${n}`).join(", ")})` : ""}, ${found.length - moved} ${stay} - ${(st.moved ?? 0) + moved} moved so far`);
   return found.length;
 }
 
@@ -440,7 +454,12 @@ async function run(): Promise<RunInfo> {
   if (live) {
     try { await flagSweep(); } catch (e) { console.warn(`[ticket-close] daily pass: ${(e as Error).message}`); }
     try { await tsrSweep(); } catch (e) { console.warn(`[ticket-close] Task Status Reports: ${(e as Error).message}`); }
-    for (const [name, sweep] of [["Others of the history", customerSweep], ["Internal e-mail of the history", internalSweep]] as const) {
+    const sweeps: [string, (aiLeft: number) => Promise<number>][] = [
+      ["Others of the history", customerSweep],
+      ["Spam of the history", (n) => rereadSweep("spam", n)],
+      ["Internal e-mail of the history", (n) => rereadSweep("internal", n)],
+    ];
+    for (const [name, sweep] of sweeps) {
       try {
         const aiKey = `ticketClose:ai:${day()}`, usedNow = (await kvGet<number>(aiKey)) ?? 0;
         // a quiet pass is a spent budget, not a broken one - say so once a day (27.10.2026: a bug spent it by noon)

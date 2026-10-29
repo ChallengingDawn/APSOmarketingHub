@@ -79,8 +79,22 @@ test("an internal e-mail is read for what it is about; Finance and system mail h
   assert.ok(!sys.includes('- "Others"'));
   assert.equal(guessParse('{"category":"Delivery","sub":"Existing Order","sure":"high","why":"expedite"}', "internal")?.category, "Delivery");
   assert.equal(guessParse('{"category":"Finance e-mail","sub":"","sure":"high","why":"customer blocked"}', "internal")?.category, "Finance e-mail");
-  // the outside list has no Finance e-mail: only the internal reading may give it
-  assert.equal(guessParse('{"category":"Finance e-mail","sure":"high"}', "outside"), null);
+  // the outside list has no Internal e-mail: only the internal reading may give it
+  assert.equal(guessParse('{"category":"Internal e-mail","sure":"high"}', "outside"), null);
+});
+
+test("a machine's mail from outside has its own topic; Spam is only adverts and spam", async () => {
+  const { guessParse, guessSystem } = await import("../src/lib/ticketClose/guess");
+  const sys = guessSystem("outside");
+  assert.ok(sys.includes("MS365") && sys.includes("Finance e-mail") && sys.includes("Automatic e-mail") && sys.includes("Spam or advertising"));
+  assert.ok(!/Spam or advertising" - [^\n]*security notices/.test(sys)); // a Microsoft 365 notice is MS365 now
+  assert.ok(sys.includes("a reply to one of our own e-mails"));
+  assert.equal(guessParse('{"category":"MS365","sure":"high","why":"quarantine notice"}', "outside")?.category, "MS365");
+  assert.equal(guessParse('{"category":"Automatic e-mail","sure":"high","why":"out of office"}', "outside")?.category, "Automatic e-mail");
+  assert.equal(guessParse('{"category":"Finance e-mail","sure":"high","why":"Firma 100"}', "outside")?.category, "Finance e-mail");
+  // a ticket that is only a name: nothing to read, from either side
+  assert.ok(sys.includes("Empty e-mail") && guessSystem("internal").includes("Empty e-mail"));
+  assert.equal(guessParse('{"category":"Empty e-mail","sure":"high","why":"only a name"}', "outside")?.category, "Empty e-mail");
 });
 
 test("a Task Status Report: its O number, the references that can find its GQS task, and its topic", async () => {
