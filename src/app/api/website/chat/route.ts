@@ -2,6 +2,7 @@
 // hand-overs to TSA and Back Office - read for the hub's page (Website's grant), and its test bench. Same three
 // answers as every integration route: not configured, upstream failed (with the reason), or the data.
 //   GET ?part=overview&days=30 | conversations&limit=&offset=&escalated=1&language=&category= | conversation&hash=
+//       overview and conversations take &env=acc: the acceptance shop's chats, counted apart from the shop's (29.10.2026)
 //       (counted per CHAT - /dashboard/chat-stats, /dashboard/chats; on an orchestrator without them, per message, marked)
 //       | transcript&ticket= (the whole chat from HubSpot, hand-over included)
 //       | setup (answers without the key: the address, /health, whether the key is set)
@@ -109,19 +110,23 @@ export async function GET(req: NextRequest) {
       return ok({ setting, health, keySet: !!orchestratorKey(), isAdmin });
     }
     if (!orchestratorKey()) return NextResponse.json({ configured: false, missing: ["CHAT_ORCHESTRATOR_KEY"] });
+    // the shop's chats, or the acceptance shop's (SARCLA 29.10.2026: "split the results via a toggle acc / production") -
+    // the orchestrator counts them apart; an orchestrator without the split ignores env and answers the shop's
+    const env = q.get("env") === "acc" ? "acc" : "production";
+    const envQ = env === "acc" ? "&env=acc" : "";
     if (part === "overview") {
       // never back past go-live: the test phase (23.03-12.04.2026, ~9,300 scripted chats) would swamp everything
       const live = Math.max(1, Math.ceil((Date.now() - Date.parse(`${LIVE_FROM}T00:00:00Z`)) / 86_400_000));
       const asked = int(q.get("days"), 30, 1, 365);
       const days = Math.min(asked, live);
       const [stats, recent, health] = await Promise.all([
-        perChat<Stats>(`/dashboard/chat-stats?days=${days}`, `/dashboard/stats?days=${days}`),
-        perChat<Conversations>("/dashboard/chats?limit=8", "/dashboard/conversations?limit=8"),
+        perChat<Stats>(`/dashboard/chat-stats?days=${days}${envQ}`, `/dashboard/stats?days=${days}${envQ}`),
+        perChat<Conversations>(`/dashboard/chats?limit=8${envQ}`, `/dashboard/conversations?limit=8${envQ}`),
         orchestratorHealth(),
       ]);
       // the hub's own filing of the same period (Topics), when it has filed any - else the page shows the chat's own guess
-      const topics = await topicSummary(new Date(Date.now() - days * 86_400_000).toISOString()).then((t) => ({ rows: t.rows.map((r) => ({ topic: r.category, chats: r.chats })), filed: t.filed })).catch(() => null);
-      return ok({ stats, recent: recent.conversations, health, liveFrom: LIVE_FROM, cappedAtLive: asked > live, topics });
+      const topics = env === "acc" ? null : await topicSummary(new Date(Date.now() - days * 86_400_000).toISOString()).then((t) => ({ rows: t.rows.map((r) => ({ topic: r.category, chats: r.chats })), filed: t.filed })).catch(() => null);
+      return ok({ stats, recent: recent.conversations, health, liveFrom: LIVE_FROM, cappedAtLive: asked > live, topics, env });
     }
     if (part === "conversations") {
       // since go-live: the orchestrator leaves the test phase out of the list and its count (one without since ignores it)
@@ -131,6 +136,7 @@ export async function GET(req: NextRequest) {
       if (LANGS.includes(lang)) p.set("language", lang);
       const cat = (q.get("category") || "").slice(0, 100);
       if (cat) p.set("category", cat);
+      if (env === "acc") p.set("env", "acc");
       const list = await perChat<Conversations>(`/dashboard/chats?${p}`, `/dashboard/conversations?${p}`);
       // the hub's filed topic and one-line summary on each chat, for the inbox list (none yet = the chat's own guess)
       const filed = await topicsFor(list.conversations.map((c) => c.session_hash)).catch(() => new Map());

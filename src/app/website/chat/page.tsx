@@ -6,7 +6,8 @@
 // Category with the route its hand-overs take and its own conversations (SteeringTab.tsx); Overview leads with the
 // routes by topic; Conversations holds all chats and the hand-overs; Setup holds how it runs and the filing. A master
 // switch "HubSpot chat | Search bar chat" sets which chat the figures and lists of Overview, the topics and
-// Conversations are about.
+// Conversations are about; beside it "Production | Acceptance shop" (29.10.2026) - the acceptance shop's chats make no
+// ticket and are counted apart, so Overview and Conversations show either the shop's chats or acc's.
 // Same kit as the search bar: the UC tab strip with the tab in the #fragment, glass cards, KPI tiles, pages of rows.
 
 import { useEffect, useState } from "react";
@@ -33,6 +34,18 @@ import type { SatisfactionData } from "@/lib/satisfaction/figures";
 import { ChannelTabs, RoutesCard, TopicTab, type Channel, type SteeringPage, type TopicView } from "./SteeringTab";
 
 const CHANNEL_KEY = "apsomh.chat.channel";
+const ENV_KEY = "apsomh.chat.env";
+type Env = "production" | "acc";
+
+/** the shop's chats or the acceptance shop's (SARCLA 29.10.2026: "split the results via a toggle acc / production") */
+function EnvTabs({ env, onEnv }: { env: Env; onEnv: (e: Env) => void }) {
+  return (
+    <Box sx={{ justifySelf: "start" }}>
+      <ReportTabs name="chat-env" tab={env} onSelect={onEnv}
+        tabs={[{ id: "production", label: "Production", count: null }, { id: "acc", label: "Acceptance shop", count: null }]} />
+    </Box>
+  );
+}
 
 const TOPIC_VIEWS = STEERING_TOPICS.map((t) => `t-${topicSlug(t)}`);
 type View = string;
@@ -55,6 +68,12 @@ export default function ChatPage() {
   const [channel, setChannelState] = useState<Channel>("hs");
   useEffect(() => { try { if (localStorage.getItem(CHANNEL_KEY) === "bar") setChannelState("bar"); } catch { /* private window */ } }, []);
   const setChannel = (c: Channel) => { setChannelState(c); try { localStorage.setItem(CHANNEL_KEY, c); } catch { /* private window */ } };
+  // the shop or the acceptance shop: Overview and Conversations of the HubSpot chat follow it; remembered in this browser
+  const [env, setEnvState] = useState<Env>("production");
+  useEffect(() => { try { if (localStorage.getItem(ENV_KEY) === "acc") setEnvState("acc"); } catch { /* private window */ } }, []);
+  const setEnv = (e: Env) => { setEnvState(e); try { localStorage.setItem(ENV_KEY, e); } catch { /* private window */ } };
+  const envApplies = channel === "hs" && (view === "overview" || view === "conversations" || view === "handovers");
+  const envQ = envApplies && env === "acc" ? "&env=acc" : "";
   // the old "Search bar chat" tab: the search bar's conversations
   useEffect(() => { if (view === "searchbar") { setChannel("bar"); setView("conversations"); } }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
   const topic = topicOfView(view);
@@ -78,7 +97,7 @@ export default function ChatPage() {
       channel === "bar" ? <SearchBarChatTab key={`searchbar-${n}`} /> : (
         <>
           {sub<View>("chat-conversations", view === "handovers" ? "handovers" : "conversations", setView, [{ id: "conversations", label: "All chats" }, { id: "handovers", label: "Hand-overs" }])}
-          <ConversationsTab key={`${view}-${n}`} handedOnly={view === "handovers"} />
+          <ConversationsTab key={`${view}-${env}-${n}`} handedOnly={view === "handovers"} env={env} />
         </>
       )
     )
@@ -97,11 +116,14 @@ export default function ChatPage() {
     )
     : (
       <>
-        <Loaded<SteeringPage> key={`routes-${channel}-${days}-${n}`} url={steeringUrl} what="the routes">
-          {(d, reload) => <RoutesCard d={d} channel={channel} reload={reload} onOpen={(t) => setView(`t-${topicSlug(t)}`)} />}
-        </Loaded>
+        {/* the routes by topic are the shop's: the hub files the shop's chats only */}
+        {!envQ && (
+          <Loaded<SteeringPage> key={`routes-${channel}-${days}-${n}`} url={steeringUrl} what="the routes">
+            {(d, reload) => <RoutesCard d={d} channel={channel} reload={reload} onOpen={(t) => setView(`t-${topicSlug(t)}`)} />}
+          </Loaded>
+        )}
         {channel === "hs" && (
-          <Loaded<OverviewData> key={`overview-${days}-${n}`} url={`/api/website/chat?part=overview&days=${days}&r=${n}`} what="the overview">
+          <Loaded<OverviewData> key={`overview-${days}-${env}-${n}`} url={`/api/website/chat?part=overview&days=${days}${envQ}&r=${n}`} what="the overview">
             {(d) => <OverviewTab d={d} label={label} onOpenConversations={() => setView("conversations")} />}
           </Loaded>
         )}
@@ -132,7 +154,12 @@ export default function ChatPage() {
         ]} />
       </Box>
       <Box id={`chat-panel-${tabOf(view)}`} role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
-        {follows && <ChannelTabs channel={channel} onChannel={setChannel} />}
+        {follows && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+            <ChannelTabs channel={channel} onChannel={setChannel} />
+            {envApplies && <EnvTabs env={env} onEnv={setEnv} />}
+          </Box>
+        )}
         {panel}
       </Box>
     </Box>

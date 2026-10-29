@@ -20,13 +20,15 @@ import { CategoryPick } from "./TopicsTab";
 
 const PER = 30;
 
-export default function ConversationsTab({ handedOnly }: { handedOnly: boolean }) {
+/** env "acc": the acceptance shop's chats (no ticket, counted apart - the page's Production | Acceptance shop switch) */
+export default function ConversationsTab({ handedOnly, env = "production" }: { handedOnly: boolean; env?: "production" | "acc" }) {
   const [page, setPage] = useState(0);
   const [lang, setLang] = useState<string>("all");
   const [unanswered, setUnanswered] = useState(false);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
-  const url = `/api/website/chat?part=conversations&limit=${PER}&offset=${page * PER}${handedOnly ? "&escalated=1" : ""}${lang !== "all" ? `&language=${lang}` : ""}`;
+  const acc = env === "acc";
+  const url = `/api/website/chat?part=conversations&limit=${PER}&offset=${page * PER}${handedOnly ? "&escalated=1" : ""}${lang !== "all" ? `&language=${lang}` : ""}${acc ? "&env=acc" : ""}`;
   const toolbar = (
     <Box sx={{ display: "grid", gap: 0.75 }}>
       <Choice value={lang} onChange={(k) => { setLang(k); setPage(0); setSelected(null); }}
@@ -43,17 +45,18 @@ export default function ConversationsTab({ handedOnly }: { handedOnly: boolean }
         <>
           {r.unit === "messages" && <Notice tone="warn">One row per message until the orchestrator has its update: a chat appears once for each of its messages.</Notice>}
           <List r={r} search={search} unanswered={unanswered} selected={selected} setSelected={setSelected} toolbar={toolbar}
-            page={page} setPage={(p) => { setPage(p); setSelected(null); }} onSearch={setSearch} reload={reload}
-            empty={handedOnly ? "No hand-overs here." : "No chats here."} />
+            page={page} setPage={(p) => { setPage(p); setSelected(null); }} onSearch={setSearch} reload={reload} acc={acc}
+            empty={acc ? (handedOnly ? "No hand-overs on the acceptance shop here." : "No acceptance-shop chats here.") : handedOnly ? "No hand-overs here." : "No chats here."} />
         </>
       )}
     </Loaded>
   );
 }
 
-function List({ r, search, unanswered, selected, setSelected, toolbar, page, setPage, onSearch, reload, empty }: {
+function List({ r, search, unanswered, selected, setSelected, toolbar, page, setPage, onSearch, reload, empty, acc = false }: {
   r: Conversations; search: string; unanswered: boolean; selected: string | null; setSelected: (s: string | null) => void;
   toolbar: React.ReactNode; page: number; setPage: (p: number) => void; onSearch: (s: string) => void; reload: () => void; empty: string;
+  acc?: boolean;
 }) {
   const chats = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -81,7 +84,7 @@ function List({ r, search, unanswered, selected, setSelected, toolbar, page, set
   return (
     <Inbox items={items} selected={selected} onSelect={setSelected} toolbar={toolbar} search={search} onSearch={onSearch}
       total={r.total} page={page} per={PER} onPage={setPage} empty={empty}
-      detail={open ? <Detail key={open.session_hash} c={open} onMoved={reload} /> : null} />
+      detail={open ? <Detail key={open.session_hash} c={open} onMoved={reload} acc={acc} /> : null} />
   );
 }
 
@@ -148,10 +151,10 @@ function span(m: number | null): string {
   return h < 48 ? `${h} h ${Math.round(m % 60)} min` : `${Math.round(h / 24)} days`;
 }
 
-function Detail({ c, onMoved }: { c: Conversation; onMoved: () => void }) {
+function Detail({ c, onMoved, acc = false }: { c: Conversation; onMoved: () => void; acc?: boolean }) {
   return (
     <Box sx={{ display: "grid", gap: 1.5 }}>
-      {c.hubspot_ticket_id ? (
+      {acc ? <FromMemory c={c} acc note="An acceptance-shop chat: it has no ticket by design." /> : c.hubspot_ticket_id ? (
         <Loaded<{ transcript: Transcript | null }> url={`/api/website/chat?part=transcript&ticket=${c.hubspot_ticket_id}`} what="the chat from HubSpot">
           {(d) => d.transcript ? <WholeChat t={d.transcript} c={c} onMoved={onMoved} /> : <FromMemory c={c} note="HubSpot no longer holds this chat - its ticket was deleted or merged." />}
         </Loaded>
@@ -206,15 +209,15 @@ function WholeChat({ t, c, onMoved }: { t: Transcript; c: Conversation; onMoved:
   );
 }
 
-function FromMemory({ c, note }: { c: Conversation; note: string }) {
+function FromMemory({ c, note, acc = false }: { c: Conversation; note: string; acc?: boolean }) {
   return (
     <Loaded<ConversationDetail> url={`/api/website/chat?part=conversation&hash=${c.session_hash}`} what="the messages">
       {(d) => {
         const turns = d.session?.turns ?? [];
-        if (!turns.length) return <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>{note} The AI&apos;s memory no longer holds it either (it keeps a chat&apos;s last 10 messages for a while).</Typography>;
+        if (!turns.length) return <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>{note} {acc ? "Its messages were not kept (an acceptance-shop chat's messages are kept 60 days)." : "The AI's memory no longer holds it either (it keeps a chat's last 10 messages for a while)."}</Typography>;
         return (
           <>
-            <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>{note} From the AI&apos;s memory - the last {turns.length} messages:</Typography>
+            <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>{note} {acc ? `Its ${turns.length} messages, as the AI kept them:` : `From the AI's memory - the last ${turns.length} messages:`}</Typography>
             <Bubbles noTimes items={turns.map((t) => ({ at: c.last_at ?? c.started_at, who: t.role === "user" ? "customer" : "ai", name: null, text: t.content ?? t.text ?? "" }))} />
           </>
         );
