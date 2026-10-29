@@ -1,10 +1,9 @@
 "use client";
-// An ESO page, drawn as Digital Growth's are (SARCLA 21.10.2026) - what it shows is in ../pages.tsx.
+// Customer development, rebuilt like Visits (SARCLA 29.10.2026) - its own read and page: ../CustomerDev.tsx.
 
 import { Suspense } from "react";
-import { EsoExplorer } from "../EsoKit";
-import { CUSTOMERS } from "../pages";
+import { CustomerDevExplorer } from "../CustomerDev";
 
 export default function CustomersPage() {
-  return <Suspense><EsoExplorer def={CUSTOMERS} /></Suspense>;
+  return <Suspense><CustomerDevExplorer /></Suspense>;
 }

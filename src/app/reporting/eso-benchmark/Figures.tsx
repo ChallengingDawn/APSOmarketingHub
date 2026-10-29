@@ -389,7 +389,7 @@ const PODIUM_BG = "rgba(45,111,168,.07)";
 /** "+1.2 pts" - a ratio's change (book-to-bill) */
 const points = (cur: number, prev: number) => `${cur - prev > 0 ? "+" : cur - prev < 0 ? "−" : "±"}${Math.abs((cur - prev) * 100).toFixed(1)} pts`;
 
-export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, selected, onPick, onFilter, filterLabel, actions, fmt = eur, diff = signedEur, ratio = false, target = null, summary, unranked, noChange = false }: {
+export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, selected, onPick, onFilter, filterLabel, actions, fmt = eur, diff = signedEur, lowerIsBetter = false, ratio = false, target = null, summary, unranked, noChange = false }: {
   title: string; rows: BoardRow[]; curLabel: string; prevLabel: string;
   /** the places shown before "Show all" */
   first?: number;
@@ -398,6 +398,8 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   fmt?: (n: number) => string;
   /** how a change is written under its percentage - euros unless given (the New customers' counts: "+12") */
   diff?: (n: number) => string;
+  /** fewer is better (lost customers, the churn rate): a rise in red, a target reached from below */
+  lowerIsBetter?: boolean;
   /** the figures are ratios (book-to-bill): the change in points, no change in euros */
   ratio?: boolean;
   /** the chart's target (typed in its Actions window): each row measured against it */
@@ -414,18 +416,20 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   const [small, setSmall] = useState(false);
   const shown = all ? rows : rows.slice(0, first);
   const podium = shown.slice(0, 3), rest = shown.slice(3);
-  const reached = target ? rows.filter((r) => r.cur >= target).length : 0;
+  const hits = (r: BoardRow) => (lowerIsBetter ? r.cur <= target! : r.cur >= target!);
+  const flip = (color: string) => (!lowerIsBetter ? color : color === GREEN ? RED : color === RED ? GREEN : color);
+  const reached = target ? rows.filter(hits).length : 0;
   // in words anyone reads (SARCLA 27.10.2026: "I don't understand 'ranked by 2026 · the first 6 of 17'")
   const hint = ["Highest first", rows.length > first && !all ? `top ${first} of ${rows.length} shown` : "", onPick ? "click one to show only it" : ""].filter(Boolean).join(" · ");
   // the change: in % and euros, or in points for a ratio
   const change = (r: BoardRow) => {
     if (noChange) return { main: "", color: FAINT, second: null as string | null };
-    if (ratio) return { main: r.prev ? points(r.cur, r.prev) : "new", color: r.prev ? tone(r.cur - r.prev) : FAINT, second: null as string | null };
+    if (ratio) return { main: r.prev ? points(r.cur, r.prev) : "new", color: r.prev ? flip(tone(r.cur - r.prev)) : FAINT, second: null as string | null };
     const ch = changeNote(r.cur, r.prev);
-    return { main: ch?.text ?? "—", color: ch?.color ?? FAINT, second: diff(r.cur - r.prev) };
+    return { main: ch?.text ?? "—", color: flip(ch?.color ?? FAINT), second: diff(r.cur - r.prev) };
   };
   // how far a row is from the target: "86% of the target", in its colour
-  const toTarget = (r: BoardRow) => (target ? { text: `${pct(r.cur / target)} of the target`, color: r.cur >= target ? GREEN : RED } : null);
+  const toTarget = (r: BoardRow) => (target ? { text: `${pct(r.cur / target)} of the target`, color: hits(r) ? GREEN : RED } : null);
   const pickable = (label: string) => (onPick ? { component: "button" as const, type: "button" as const, onClick: () => onPick(label) } : { component: "div" as const });
   const tipOf = (r: BoardRow) => { const c = change(r); return `${r.label} - ${curLabel}: ${fmt(r.cur)}${noChange ? "" : ` · ${prevLabel}: ${fmt(r.prev)} · ${c.main}${c.second ? ` · ${c.second}` : ""}`}${target ? ` · target ${fmt(target)}` : ""}`; };
   return (
