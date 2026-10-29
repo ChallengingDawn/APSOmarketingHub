@@ -199,12 +199,16 @@ const targetFor = (c: NCtx, id: string) => { const t = c.targets?.[targetKey(id,
 
 /* ── the leaderboards ──────────────────────────────────────────────────── */
 
+// every change in words (SARCLA 29.10.2026 on "−5.7% · −€63": "you have to be really explicit with text, this means nothing for me")
+const moreLess = (n: number, fmt: (x: number) => string, less: string, more: string, tail = "") => (Math.round(n) === 0 ? "no change" : `${fmt(Math.abs(n))} ${n < 0 ? less : more}${tail}`);
 type Measure = "new" | "rev" | "avg";
-const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; diff: (n: number) => string; unit: "n" | "eur"; target: string }> = {
-  new: { title: "New customers", fmt: int, diff: signedInt, unit: "n", target: "new customers" },
-  rev: { title: "Revenue of the new customers", fmt: eur, diff: signedEur, unit: "eur", target: "revenue of its new customers" },
-  avg: { title: "Ø revenue per new customer", fmt: eur, diff: signedEur, unit: "eur", target: "Ø revenue per new customer" },
+const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; diff: (n: number) => string; signed: (n: number) => string; unit: "n" | "eur"; target: string }> = {
+  new: { title: "New customers", fmt: int, diff: (n) => moreLess(n, int, "fewer", "more"), signed: signedInt, unit: "n", target: "new customers" },
+  rev: { title: "Revenue of the new customers", fmt: eur, diff: (n) => moreLess(n, eur, "less", "more"), signed: signedEur, unit: "eur", target: "revenue of its new customers" },
+  avg: { title: "Ø revenue per new customer", fmt: eur, diff: (n) => moreLess(n, eur, "less", "more", " per customer"), signed: signedEur, unit: "eur", target: "Ø revenue per new customer" },
 };
+/** What every change is against: "vs 2025" - "vs a year earlier" over a year end. */
+const vsOf = (c: NCtx) => { const a = yearOfMonth(c.cube, c.per.win.start), b = yearOfMonth(c.cube, c.per.win.end); return a === b ? `vs ${a - 1}` : "vs a year earlier"; };
 function Board({ c, id, by, m, actions }: { c: NCtx; id: string; by: By; m: Measure; actions?: React.ReactNode }) {
   const t = totalOf(c);
   const min = minNew(c.per.months);
@@ -212,15 +216,15 @@ function Board({ c, id, by, m, actions }: { c: NCtx; id: string; by: By; m: Meas
   for (const r of rowsBy(c, by)) {
     // the new customers not invoiced yet count, but have no revenue to rank (they stay in the count and the table)
     if (m !== "new" && by === "pc" && r.label === PC_NAME.none) continue;
-    if (m === "new") { if (r.n || r.nPy) rows.push({ label: r.label, cur: r.n, prev: r.nPy, sub: `${eur(r.rev)} their revenue · Ø ${r.n ? eur(avg(r)) : "—"}` }); }
-    else if (m === "rev") { if (r.rev || r.revPy) rows.push({ label: r.label, cur: r.rev, prev: r.revPy, sub: `${int(r.n)} new customer${r.n === 1 ? "" : "s"} · ${pct(t.rev ? r.rev / t.rev : null)} of their revenue` }); }
-    else if (r.n) (r.n >= min ? rows : small).push({ label: r.label, cur: avg(r), prev: avgPy(r), sub: `${int(r.n)} new customer${r.n === 1 ? "" : "s"} · ${eur(r.rev)}` });
+    if (m === "new") { if (r.n || r.nPy) rows.push({ label: r.label, cur: r.n, prev: r.nPy, sub: `${eur(r.rev)} their revenue · Ø ${r.n ? eur(avg(r)) : "—"} per customer` }); }
+    else if (m === "rev") { if (r.rev || r.revPy) rows.push({ label: r.label, cur: r.rev, prev: r.revPy, sub: `${int(r.n)} new customer${r.n === 1 ? "" : "s"} · ${pct(t.rev ? r.rev / t.rev : null)} of the total` }); }
+    else if (r.n) (r.n >= min ? rows : small).push({ label: r.label, cur: avg(r), prev: avgPy(r), sub: `${int(r.n)} new customer${r.n === 1 ? "" : "s"} · ${eur(r.rev)} their revenue` });
   }
   const M = MEASURE[m];
   const dim = by === "pc" ? null : by;
   return (
     <Leaderboard key={`${id}-${c.per.id}`} title={`${M.title} ${c.per.title}, by ${lowerOf(by)}`} rows={rows}
-      curLabel={perWords(c.cube, c.per)} prevLabel={perWords(c.cube, c.per, 1)} first={c.half ? 8 : 12} fmt={M.fmt} diff={M.diff} target={targetFor(c, id)}
+      curLabel={perWords(c.cube, c.per)} prevLabel={perWords(c.cube, c.per, 1)} first={c.half ? 8 : 12} fmt={M.fmt} diff={M.diff} vs={vsOf(c)} target={targetFor(c, id)}
       unranked={small.length ? { why: `under ${min} new customers`, rows: small } : undefined}
       selected={dim ? c.filters[dim] : undefined} onPick={dim && c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={dim && c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={dim ? `Filter by ${lowerOf(dim)}` : undefined} actions={actions} />
@@ -284,53 +288,71 @@ const monthsHint = (c: NCtx, which: "n" | "rev") =>
 
 /* ── the tables ────────────────────────────────────────────────────────── */
 
-/** A figure with its change under it, right-aligned - as the Figures' tables. */
-const withChangeCell = (text: string, a: number, b: number) => (
-  <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.25 }}>
-    {text}
-    <Box component="span" sx={{ fontSize: "0.74rem", fontWeight: 700, color: b ? tone(changeOf(a, b)) : a > 0 ? GREEN : FAINT }}>{b ? signedPct(changeOf(a, b)) : a > 0 ? "new" : "—"}</Box>
-  </Box>
+/** A change written out, in its colour: "−176", "−€66,709", "−61.3%"; "new" without a year before. */
+const ChangeText = ({ a, b, signed, asPct }: { a: number; b: number; signed: (n: number) => string; asPct?: boolean }) => (
+  <span style={{ color: b ? tone(changeOf(a, b)) : a > 0 ? GREEN : FAINT, fontWeight: 700 }}>{!b ? (a > 0 ? "new" : "—") : asPct ? signedPct(changeOf(a, b)) : signed(a - b)}</span>
 );
 const sumRows = (rows: NRow[], label: string): NRow => rows.reduce((s, r) => ({ ...s, n: s.n + r.n, nPy: s.nPy + r.nPy, rev: s.rev + r.rev, revPy: s.revPy + r.revPy }), { label, n: 0, nPy: 0, rev: 0, revPy: 0 });
+/** A measure of a row: this period and a year earlier. */
+const valOf = (m: Measure, r: NewAgg): [number, number] => (m === "new" ? [r.n, r.nPy] : m === "rev" ? [r.rev, r.revPy] : [avg(r), avgPy(r)]);
 
-/** All the figures of a breakdown for the period. */
-function ByTable({ c, by }: { c: NCtx; by: By }) {
-  const rows = rowsBy(c, by);
-  const total = sumRows(rows, "Total");
+/** One measure of a breakdown, as a report (SARCLA 29.10.2026: "split the table as real reports"): the period, the same
+ *  months a year earlier, the change in figures and in %, and its share - the one table per measure. */
+function MeasureTable({ c, by, m }: { c: NCtx; by: By; m: Measure }) {
+  const all = rowsBy(c, by);
+  const rows = m === "avg" ? all.filter((r) => r.n || r.nPy) : all;
+  const total = sumRows(all, "Total");
   const { cube, per } = c;
-  const P = per.title, was = perWords(cube, per, 1);
+  const M = MEASURE[m];
   const dim = by === "pc" ? null : by;
+  const [sumCur] = valOf(m, total);
+  // an average without its new customers is no figure
+  const has = (r: NRow, side: 0 | 1) => m !== "avg" || (side === 0 ? r.n : r.nPy) > 0;
   const cols: Col<NRow>[] = [
     ...(by === "sae" && c.team === "total" ? [{ key: "team", head: "Team", cell: (r: NRow) => (r.label === "Total" ? "" : (cube.saeTeams ?? {})[r.label] ?? "—") }] : []),
-    { key: "n", head: `New customers ${P}`, tip: `Companies whose first order ever was in ${perWords(cube, per)} - under it the change against ${was}`, cell: (r) => withChangeCell(int(r.n), r.n, r.nPy), sort: (r) => r.n },
-    { key: "nPy", head: "A year earlier", tip: `${was} - the running month pro rata`, cell: (r) => int(r.nPy), sort: (r) => r.nPy },
-    { key: "share", head: "Share of the new customers", cell: (r) => (total.n ? pct(r.n / total.n) : "—"), sort: (r) => r.n },
-    { key: "rev", head: `Their revenue ${P}`, tip: "What they bought from their first order to the end of the period - under it the change against a year earlier", cell: (r) => withChangeCell(eur(r.rev), r.rev, r.revPy), sort: (r) => r.rev },
-    { key: "revPy", head: "A year earlier", tip: `The new customers of ${was}, what they bought in it`, cell: (r) => eur(r.revPy), sort: (r) => r.revPy },
-    { key: "avg", head: "Ø per new customer", tip: "Their revenue over the new customers - under it the change against a year earlier", cell: (r) => (r.n ? withChangeCell(eur(avg(r)), avg(r), avgPy(r)) : "—"), sort: (r) => (r.n ? avg(r) : -Infinity) },
-    { key: "avgPy", head: "Ø a year earlier", cell: (r) => (r.nPy ? eur(avgPy(r)) : "—"), sort: (r) => (r.nPy ? avgPy(r) : -Infinity) },
+    { key: "cur", head: perWords(cube, per), tip: m === "new" ? "Companies whose first order ever was in the period" : m === "rev" ? "What they bought from their first order to the end of the period" : "Their revenue over the new customers", cell: (r) => (has(r, 0) ? M.fmt(valOf(m, r)[0]) : "—"), sort: (r) => (has(r, 0) ? valOf(m, r)[0] : -Infinity) },
+    { key: "prev", head: perWords(cube, per, 1), tip: "The same months a year earlier - the running month pro rata", cell: (r) => (has(r, 1) ? M.fmt(valOf(m, r)[1]) : "—"), sort: (r) => (has(r, 1) ? valOf(m, r)[1] : -Infinity) },
+    { key: "diff", head: `Change ${vsOf(c)}`, cell: (r) => (has(r, 0) && has(r, 1) ? <ChangeText a={valOf(m, r)[0]} b={valOf(m, r)[1]} signed={M.signed} /> : "—"), sort: (r) => (has(r, 0) && has(r, 1) ? valOf(m, r)[0] - valOf(m, r)[1] : -Infinity) },
+    { key: "pct", head: `Change ${vsOf(c)} in %`, cell: (r) => (has(r, 0) && has(r, 1) ? <ChangeText a={valOf(m, r)[0]} b={valOf(m, r)[1]} signed={M.signed} asPct /> : "—"), sort: (r) => (has(r, 0) && has(r, 1) ? changeOf(...valOf(m, r)) ?? -Infinity : -Infinity) },
+    m === "avg"
+      ? { key: "n", head: "New customers it is over", cell: (r) => int(r.n), sort: (r) => r.n }
+      : { key: "share", head: m === "new" ? "Share of all new customers" : "Share of all their revenue", cell: (r) => (sumCur ? pct(valOf(m, r)[0] / sumCur) : "—"), sort: (r) => valOf(m, r)[0] },
   ];
-  return <FullTable key={`${by}-${per.id}-${c.team}`} first={nameOf(by)} cols={cols} initial="n" rows={rows} total={total} selected={dim ? c.filters[dim] : undefined} tint={dim ? DIM[dim].tint : "green"}
+  return <FullTable key={`${m}-${by}-${per.id}-${c.team}`} first={nameOf(by)} cols={cols} initial="cur" rows={rows} total={total} selected={dim ? c.filters[dim] : undefined} tint={dim ? DIM[dim].tint : "green"}
     onPick={dim && c.onPick ? (l) => c.onPick!(dim, l) : undefined} natural={by === "prio" || by === "pc"} find={`${/^[aeiou]/i.test(lowerOf(by)) ? "an" : "a"} ${lowerOf(by)}`} />;
 }
+/** The three report tables of a breakdown, each under its own title. */
+function MeasureTables({ c, by }: { c: NCtx; by: By }) {
+  return (
+    <>
+      {(["new", "rev", "avg"] as const).map((m) => (
+        <Box key={m}><SubTitle>{MEASURE[m].title} {c.per.title}, by {lowerOf(by)}</SubTitle><MeasureTable c={c} by={by} m={m} /></Box>
+      ))}
+    </>
+  );
+}
 
-type MRow = NewAgg & { label: string };
-/** The period month by month, the period itself at the end. */
-function MonthTable({ c }: { c: NCtx }) {
+type MRow = { label: string; cur: number; prev: number };
+/** One measure month by month, the period itself at the end. */
+function MonthTable({ c, which }: { c: NCtx; which: "n" | "rev" }) {
   const jan = monthOf(0, 0);
   const run = partial(c.cube);
+  const M = MEASURE[which === "n" ? "new" : "rev"];
   const rows: MRow[] = monthsOf(c).map((m) => {
     const x = m.month >= jan ? MONTH_NAMES[m.month - jan] : monthLabel(c.cube, m.month);
-    return { label: run && m.month === run.month ? `${x} (1 – ${run.day})` : x, n: m.n, nPy: m.nPy, rev: m.rev, revPy: m.revPy };
+    return { label: run && m.month === run.month ? `${x} (1 – ${run.day})` : x, cur: which === "n" ? m.n : m.rev, prev: which === "n" ? m.nPy : m.revPy };
   });
   const t = totalOf(c);
+  const ys = new Set(monthsOf(c).map((m) => yearOfMonth(c.cube, m.month)));
+  const [y0, y1] = ys.size === 1 ? [String([...ys][0]), `${[...ys][0] - 1}, same month`] : ["The month", "A year earlier, same month"];
   const cols: Col<MRow>[] = [
-    { key: "n", head: "New customers", tip: "First order ever in the month - under it the change against the same month a year earlier", cell: (r) => withChangeCell(int(r.n), r.n, r.nPy) },
-    { key: "nPy", head: "A year earlier", cell: (r) => int(r.nPy) },
-    { key: "rev", head: "Their revenue", tip: "What the period's new customers so far bought in the month - the months add up to the period", cell: (r) => withChangeCell(eur(r.rev), r.rev, r.revPy) },
-    { key: "revPy", head: "A year earlier", cell: (r) => eur(r.revPy) },
+    { key: "cur", head: y0, tip: which === "n" ? "Companies whose first order ever was in the month" : "What the period's new customers so far bought in the month - the months add up to the period", cell: (r) => M.fmt(r.cur) },
+    { key: "prev", head: y1, cell: (r) => M.fmt(r.prev) },
+    { key: "diff", head: `Change ${vsOf(c)}`, cell: (r) => <ChangeText a={r.cur} b={r.prev} signed={M.signed} /> },
+    { key: "pct", head: `Change ${vsOf(c)} in %`, cell: (r) => <ChangeText a={r.cur} b={r.prev} signed={M.signed} asPct /> },
   ];
-  return <FullTable first="Month" cols={cols} rows={rows} total={{ label: perCap(c.per), ...t }} natural />;
+  const [cur, prev] = which === "n" ? [t.n, t.nPy] : [t.rev, t.revPy];
+  return <FullTable key={`months-${which}-${c.per.id}-${c.team}`} first="Month" cols={cols} rows={rows} total={{ label: perCap(c.per), cur, prev }} natural />;
 }
 
 /* ── every chart by its key: the tabs draw them, and so does the BUC View ── */
@@ -366,7 +388,7 @@ function chartOf(key: string): Drawn | undefined {
 type Act = (id: string, title: string, target?: TargetOf) => React.ReactNode;
 const draw = (c: NCtx, act: Act, id: string) => { const d = drawnOf(id)!; return d.draw(c, act(id, d.title(c), d.target?.(c))); };
 
-function TabCard({ c, act, footnote }: { c: NCtx; act: Act; footnote: React.ReactNode }) {
+function TabCard({ c, act }: { c: NCtx; act: Act }) {
   const { view, cube, per } = c;
   const card = { display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" } as const;
   const against = `${perWords(cube, per)} against ${perWords(cube, per, 1)}`;
@@ -378,9 +400,9 @@ function TabCard({ c, act, footnote }: { c: NCtx; act: Act; footnote: React.Reac
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "sae:new")}{draw(c, act, "sae:rev")}</Box>
       {draw(c, act, "sae:avg")}
       {many && <Box sx={TWO}>{draw(c, act, "sae:monnew")}{draw(c, act, "sae:monrev")}</Box>}
-      <Box><SubTitle>{perCap(per)}, by Performis SAE</SubTitle><ByTable c={c} by="sae" /></Box>
-      {many && <Box><SubTitle>{perCap(per)}, month by month</SubTitle><MonthTable c={c} /></Box>}
-      {footnote}
+      <MeasureTables c={c} by="sae" />
+      {many && <Box><SubTitle>New customers {per.title}, month by month</SubTitle><MonthTable c={c} which="n" /></Box>}
+      {many && <Box><SubTitle>Revenue of the new customers {per.title}, month by month</SubTitle><MonthTable c={c} which="rev" /></Box>}
     </GlassCard>
   );
   const by = byOf(view);
@@ -390,8 +412,7 @@ function TabCard({ c, act, footnote }: { c: NCtx; act: Act; footnote: React.Reac
       <CardTitle icon={head.icon} tint={head.tint} title={`${teamName(c)} by ${lowerOf(by)}, ${per.title}`} note={`${NOTES[view as Breakdown | "pc"]} · ${against}`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${view}:new`)}{draw(c, act, `${view}:rev`)}</Box>
       {draw(c, act, `${view}:avg`)}
-      <Box><SubTitle>{perCap(per)}, by {lowerOf(by)}</SubTitle><ByTable c={c} by={by} /></Box>
-      {footnote}
+      <MeasureTables c={c} by={by} />
     </GlassCard>
   );
 }
@@ -405,16 +426,16 @@ function figuresOf(c: NCtx): Fig[] {
   const t = totalOf(c);
   const was = perWords(c.cube, c.per, 1), P = c.per.title;
   return [
-    { id: "fig-new", label: `New customers ${P}`, value: int(t.n), ch: changeOf(t.n, t.nPy), sub: `${was}: ${int(t.nPy)}`, icon: <PersonAddAltOutlinedIcon />, tint: "blue", amount: t.n, unit: "n" },
-    { id: "fig-rev", label: `Their revenue ${P}`, value: eur(t.rev), ch: changeOf(t.rev, t.revPy), sub: `${was}: ${eur(t.revPy)}`, icon: <EuroOutlinedIcon />, tint: "purple", amount: t.rev, unit: "eur" },
-    { id: "fig-avg", label: "Ø revenue per new customer", value: t.n ? eur(avg(t)) : "—", ch: t.n && t.nPy ? changeOf(avg(t), avgPy(t)) : null, sub: `${was}: ${t.nPy ? eur(avgPy(t)) : "—"}`, icon: <PaidOutlinedIcon />, tint: "green", amount: avg(t), unit: "eur" },
+    { id: "fig-new", label: `New customers ${P}`, value: int(t.n), ch: changeOf(t.n, t.nPy), sub: `${int(t.nPy)} in ${was}`, icon: <PersonAddAltOutlinedIcon />, tint: "blue", amount: t.n, unit: "n" },
+    { id: "fig-rev", label: `Their revenue ${P}`, value: eur(t.rev), ch: changeOf(t.rev, t.revPy), sub: `${eur(t.revPy)} in ${was}`, icon: <EuroOutlinedIcon />, tint: "purple", amount: t.rev, unit: "eur" },
+    { id: "fig-avg", label: "Ø revenue per new customer", value: t.n ? eur(avg(t)) : "—", ch: t.n && t.nPy ? changeOf(avg(t), avgPy(t)) : null, sub: `${t.nPy ? `${eur(avgPy(t))} per customer` : "—"} in ${was}`, icon: <PaidOutlinedIcon />, tint: "green", amount: avg(t), unit: "eur" },
   ];
 }
 function FigureCards({ c, items, big, actions }: { c: NCtx; items: Fig[]; big?: boolean; actions?: (f: Fig) => React.ReactNode }) {
   return (
     <Box sx={big
       ? { display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: `repeat(${items.length}, minmax(0, 1fr))` }, minWidth: 0 }
-      : { display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: `repeat(${items.length}, minmax(124px, 172px))` }, flex: "0 1 auto" }}>
+      : { display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: `repeat(${items.length}, minmax(150px, 212px))` }, flex: "0 1 auto" }}>
       {items.map((f) => {
         const tgt = actions ? targetFor(c, `panel:${f.id}`) : null;
         return (
@@ -462,7 +483,7 @@ export function NewCustomersExplorer() {
   const params = useSearchParams();
   // the customers chosen: the cube of those alone, each its own ?company=… in the address (as the Figures)
   const companies = useMemo(() => params.getAll("company").filter((x) => /^\d+$/.test(x)).slice(0, 50), [params]);
-  const { cube, computing, progress, error, computedAt } = useCustomersCube(companies);
+  const { cube, computing, progress, error } = useCustomersCube(companies);
   const names = useCompanyNames(companies);
   const [teamKey, setTeam] = useTeam();
   const [leadKey, setLead] = useLead();
@@ -533,21 +554,11 @@ export function NewCustomersExplorer() {
         target: target ? { key: targetKey(id, c.team, c.lead, c.per), ...target } : undefined }} />
   );
   const now = { team: teamKey, lead, teams };
-  const footnote = (
-    <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-      A new customer: a company whose first order ever falls in the period (HubSpot&apos;s first order date). Their revenue: what they bought from their first order to the end of the period - each customer&apos;s monthly revenue as the Compass connector brings it from the ERP, the running month as far as it is loaded - against the new customers of the same months a year earlier (last year&apos;s running month pro rata).
-      {teamKey !== "total" ? ` ${teamWord(teamKey)}: the customers Performis gives its people (the SAE, as Map assignment maps it to a person) - a person's team from the rosters, else their HubSpot team.` : ""}
-      {lead ? ` ${teamName(c)}: the ESO people Map assignment's SAE table puts in this team.` : ""}
-      {` The averages rank people and values with ${minNew(per.months)} new customers or more.`}
-      {companies.length ? " Customers chosen: only their figures, read from HubSpot as the page opened them." : ""}
-      {" "}Read from HubSpot {computedAt ? new Date(computedAt).toLocaleString("en-GB") : ""}.
-    </Typography>
-  );
   const filterCount = chosen.length + companies.length + (per.id !== "ytd" ? 1 : 0);
   return (
     <Box sx={shell}>
       {back}
-      {/* the title, the team and what is shown on the left; the figures top right */}
+      {/* the title, what is shown and ESO | TSA | Total on the left; the figures top right - one block, no gap under it (SARCLA 29.10.2026: "too much top padding") */}
       <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(240px, 1fr) auto" } }}>
         <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
           <Typography component="h1" sx={H1}>New customers</Typography>
@@ -571,17 +582,15 @@ export function NewCustomersExplorer() {
               {chosen.length + pick.chosen.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>}
             </Box>
           )}
+          <Box sx={{ display: "grid", gap: 0.75, mt: 0.5 }}>
+            <Teams team={teamKey} onTeam={setTeam} lead={leadKey} onLead={setLead} teams={teams} />
+            {lead && leads && membersOf(cube, "eso", lead, leads)?.length === 0 && <NoLeadYet name={teamName(now)} />}
+          </Box>
         </Box>
         <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}>
           <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease" }}><FigureCards c={c} items={figs} /></Box>
         </Box>
       </Box>
-      {/* ESO | TSA | Total and, under ESO, the line managers' teams */}
-      <Box sx={{ display: "grid", gap: 0.75, mt: -0.5 }}>
-        <Teams team={teamKey} onTeam={setTeam} lead={leadKey} onLead={setLead} teams={teams} />
-        {lead && leads && membersOf(cube, "eso", lead, leads)?.length === 0 && <NoLeadYet name={teamName(now)} />}
-      </Box>
-
       {/* the tabs, and at their right end Views and Filters */}
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
@@ -598,7 +607,7 @@ export function NewCustomersExplorer() {
       </Box>
 
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
-        <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} footnote={footnote} />
+        <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />
       </Box>
 
       <FilterWindow id="eso-new-customers-filters" period dims={FILTER_DIMS} open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube}

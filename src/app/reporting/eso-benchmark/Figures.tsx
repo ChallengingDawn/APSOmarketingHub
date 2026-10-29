@@ -389,7 +389,7 @@ const PODIUM_BG = "rgba(45,111,168,.07)";
 /** "+1.2 pts" - a ratio's change (book-to-bill) */
 const points = (cur: number, prev: number) => `${cur - prev > 0 ? "+" : cur - prev < 0 ? "−" : "±"}${Math.abs((cur - prev) * 100).toFixed(1)} pts`;
 
-export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, selected, onPick, onFilter, filterLabel, actions, fmt = eur, diff = signedEur, lowerIsBetter = false, ratio = false, target = null, summary, unranked, noChange = false }: {
+export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, selected, onPick, onFilter, filterLabel, actions, fmt = eur, diff = signedEur, vs, lowerIsBetter = false, ratio = false, target = null, summary, unranked, noChange = false }: {
   title: string; rows: BoardRow[]; curLabel: string; prevLabel: string;
   /** the places shown before "Show all" */
   first?: number;
@@ -398,6 +398,8 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   fmt?: (n: number) => string;
   /** how a change is written under its percentage - euros unless given (the New customers' counts: "+12") */
   diff?: (n: number) => string;
+  /** what the change is against, in words beside its percentage - "vs 2025" (SARCLA 29.10.2026 on "−5.7% · −€63": "you have to be really explicit") */
+  vs?: string;
   /** fewer is better (lost customers, the churn rate): a rise in red, a target reached from below */
   lowerIsBetter?: boolean;
   /** the figures are ratios (book-to-bill): the change in points, no change in euros */
@@ -426,7 +428,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
     if (noChange) return { main: "", color: FAINT, second: null as string | null };
     if (ratio) return { main: r.prev ? points(r.cur, r.prev) : "new", color: r.prev ? flip(tone(r.cur - r.prev)) : FAINT, second: null as string | null };
     const ch = changeNote(r.cur, r.prev);
-    return { main: ch?.text ?? "—", color: flip(ch?.color ?? FAINT), second: diff(r.cur - r.prev) };
+    return { main: ch ? (vs && r.prev ? `${ch.text} ${vs}` : ch.text) : "—", color: flip(ch?.color ?? FAINT), second: diff(r.cur - r.prev) };
   };
   // how far a row is from the target: "86% of the target", in its colour
   const toTarget = (r: BoardRow) => (target ? { text: `${pct(r.cur / target)} of the target`, color: hits(r) ? GREEN : RED } : null);
@@ -466,7 +468,10 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
                   <Typography sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontSize: "1.6rem", fontWeight: 700, color: THIS, lineHeight: 1 }}>{i + 1}</Typography>
                   <Typography noWrap sx={{ fontSize: "0.88rem", fontWeight: 600, color: INK, mt: 0.5 }}>{r.label}</Typography>
                   <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{fmt(r.cur)}</Typography>
-                  {!noChange && <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: c.color, fontVariantNumeric: "tabular-nums" }}>{c.main}{c.second ? ` · ${c.second}` : ""}</Typography>}
+                  {!noChange && (vs
+                    // spelled out, the change takes two lines: "−61.3% vs 2025", then "176 fewer"
+                    ? <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: c.color, fontVariantNumeric: "tabular-nums", lineHeight: 1.35 }}>{c.main}{c.second && <><br />{c.second}</>}</Typography>
+                    : <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: c.color, fontVariantNumeric: "tabular-nums" }}>{c.main}{c.second ? ` · ${c.second}` : ""}</Typography>)}
                   {t && <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: t.color }}>{t.text}</Typography>}
                   {r.sub && <Typography noWrap sx={{ fontSize: "0.72rem", color: FAINT }}>{r.sub}</Typography>}
                 </Box>
@@ -480,7 +485,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
                 const on = !!selected?.includes(r.label), c = change(r), t = toTarget(r);
                 return (
                   <Box key={r.label} {...pickable(r.label)} aria-pressed={onPick ? on : undefined} title={tipOf(r)}
-                    sx={{ display: "grid", gridTemplateColumns: noChange ? { xs: "24px minmax(0, 1fr) auto", sm: "30px minmax(0, 1fr) 128px" } : { xs: "24px minmax(0, 1fr) auto 64px", sm: "30px minmax(0, 1fr) 128px 108px" }, columnGap: 1.25, alignItems: "center", px: 0.75, py: 0.7, width: "100%",
+                    sx={{ display: "grid", gridTemplateColumns: noChange ? { xs: "24px minmax(0, 1fr) auto", sm: "30px minmax(0, 1fr) 128px" } : { xs: `24px minmax(0, 1fr) auto ${vs ? 96 : 64}px`, sm: `30px minmax(0, 1fr) 128px ${vs ? 136 : 108}px` }, columnGap: 1.25, alignItems: "center", px: 0.75, py: 0.7, width: "100%",
                       border: 0, borderBottom: `1px solid ${HAIRLINE}`, font: "inherit", textAlign: "left", cursor: onPick ? "pointer" : "default",
                       bgcolor: on ? TINT.blue.bg : "transparent", opacity: selected?.length && !on ? 0.5 : 1,
                       "&:hover": onPick ? { bgcolor: on ? TINT.blue.bg : "rgba(21,34,58,.035)" } : {}, "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: -2 } }}>
