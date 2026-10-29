@@ -9,9 +9,10 @@
 //  2. the app: `next dev` on http://localhost:3000 (--port for another), for this computer only, as the sandbox - no
 //     job runs, and it connects to nothing but its database, HubSpot (reads only - writes are held back) and the door.
 //
-// Your settings live in .env.local (see .env.example): HUBSPOT_TOKEN, SANDBOX_VIEWER_URL, SANDBOX_VIEWER_KEY and
-// SANDBOX_PERSON ("you@apsoparts.com|Your Name" - else your git name and address). Next reads that file itself; of this
-// terminal's own environment, nothing that looks like a key reaches the app.
+// Your settings live in .env.local (see .env.example): SANDBOX_PERSON ("you@apsoparts.com|Your Name" - else your git
+// name and address) and HUBSPOT_TOKEN. The door to the microservices comes with the repository (sandbox-viewer.json,
+// your key by your address). Next reads .env.local itself; of this terminal's own environment, nothing that looks like
+// a key reaches the app.
 
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -80,6 +81,18 @@ const [email, name] = (local.SANDBOX_PERSON ?? process.env.SANDBOX_PERSON ?? `${
   .split("|").map((x) => x.trim());
 if (!email || !/@/.test(email)) fail('who are you? Put SANDBOX_PERSON="you@apsoparts.com|Your Name" in .env.local');
 
+// the door to the microservices: sandbox-viewer.json, which comes with the repository (SARCLA 29.10.2026: "viewer keys
+// should be on repo"), holds its address and one key per person; a key of your own in .env.local wins
+function door() {
+  if (local.SANDBOX_VIEWER_KEY || !existsSync("sandbox-viewer.json")) return {};
+  try {
+    const j = JSON.parse(readFileSync("sandbox-viewer.json", "utf8"));
+    const key = j.keys?.[email.toLowerCase()];
+    return j.url && key ? { SANDBOX_VIEWER_URL: j.url, SANDBOX_VIEWER_KEY: key } : {};
+  } catch { return {}; }
+}
+const viewer = door();
+
 // 1. the database
 const dataDir = path.join(DIR, "db");
 mkdirSync(dataDir, { recursive: true });
@@ -99,6 +112,7 @@ Object.assign(env, {
   SESSION_SECRET: sessionSecret(),
   // an admin in their own sandbox: they build admin pages too, and nothing pressed here changes anything real
   SANDBOX_PEOPLE: `${email}|admin|${(name || email.split("@")[0]).replace(/[|;]/g, " ")}`,
+  ...viewer,
 });
 const next = path.join("node_modules", "next", "dist", "bin", "next");
 const child = spawn(process.execPath, [next, "dev", "-H", "127.0.0.1", "-p", String(port)], { env, stdio: "inherit" });
@@ -123,7 +137,7 @@ for (let i = 0; i < 240 && !up; i++) {
   if (!up) await new Promise((r) => setTimeout(r, 1000));
 }
 if (!up) { console.error("sandbox: it did not start in 4 minutes"); await stop(1); }
-console.log(`sandbox: open on http://localhost:${port}${local.HUBSPOT_TOKEN ? "" : " - no HUBSPOT_TOKEN in .env.local yet, HubSpot pages stay empty"}${local.SANDBOX_VIEWER_KEY ? "" : " - no door to the microservices yet"}. Ctrl+C stops it.`);
+console.log(`sandbox: open on http://localhost:${port}${local.HUBSPOT_TOKEN ? "" : " - no HUBSPOT_TOKEN in .env.local yet, HubSpot pages stay empty"}${local.SANDBOX_VIEWER_KEY || viewer.SANDBOX_VIEWER_KEY ? "" : ` - no viewer key for ${email} yet, the microservice pages stay empty`}. Ctrl+C stops it.`);
 if (!args.includes("--no-browser")) {
   const url = `http://localhost:${port}`;
   const opener = process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];

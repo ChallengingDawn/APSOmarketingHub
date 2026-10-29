@@ -16,7 +16,10 @@ empty states, tooltips). They belong in code comments and commit messages only.
   band, never sent — whatever scopes the app has. Use that to check what a change *would* write.
 - **The microservices** (search bar, Google Ads buckets, DirectUP, DirectCut, 3D files) are read through the
   **read-only door** on the Smart-Search gateway with the person's viewer key. It answers reads only; a page action
-  that would change a live service gets "A sandbox only reads the microservices".
+  that would change a live service gets "A sandbox only reads the microservices". The door's address and the viewer
+  keys come with this repository in `sandbox-viewer.json` (`npm run sandbox` picks the key by `SANDBOX_PERSON`).
+  Never copy those keys anywhere else - not into chats, issues, other repositories or code. The release step
+  rewrites the file; leave it as it is.
 - **Nothing else is reachable.** The sandbox's network guard refuses every other connection (Magento, SFTP, mail,
   the ERP, the gateways themselves). Do not try to work around the guard, the held-back writes or the door. If
   something "needs" a real system, it goes to Claudio in the pull request.
@@ -31,9 +34,9 @@ empty states, tooltips). They belong in code comments and commit messages only.
 
 1. Node 22, Git and Claude Code.
 2. Clone this repository, then `npm install`.
-3. Copy `.env.example` to `.env.local` and fill it in: `SANDBOX_PERSON`, `HUBSPOT_TOKEN` (the access token of the
-   person's own HubSpot private app, read-only scopes), and `SANDBOX_VIEWER_URL` + `SANDBOX_VIEWER_KEY` (from
-   Claudio, for the microservice pages).
+3. Copy `.env.example` to `.env.local` and fill it in: `SANDBOX_PERSON` and `HUBSPOT_TOKEN` (the access token of the
+   person's own HubSpot private app, read-only scopes). The door to the microservices needs nothing: it comes with
+   the repository.
 4. `npm run sandbox`.
 
 ## Running it: `npm run sandbox`

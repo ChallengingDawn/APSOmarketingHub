@@ -3,7 +3,8 @@
 // should appear or be stored"), for their sandbox repository on GitHub (SARCLA 28.10.2026: "another github ... we can
 // copy the project there"). The release step runs it once the release is verified:
 //
-//   node scripts/sandbox-snapshot.mjs <sha> [--out <file.tar.gz>] [--names <file>] [--publish <git url> [--branch base]]
+//   node scripts/sandbox-snapshot.mjs <sha> [--out <file.tar.gz>] [--names <file>]
+//     [--publish <git url> [--branch base] [--viewer <sandbox-viewer.json>] [--title "<commit message>"]]
 //
 // git archive <sha> -> drop what is not the app (docs, Office and data files, .env files, the ad and geo scripts) ->
 // STOP on a real secret -> replace e-mail addresses, phone numbers and customer names (any name with a legal form -
@@ -11,6 +12,8 @@
 // line) -> add the sandbox kit (sandbox-kit/CLAUDE.md becomes CLAUDE.md, sandbox-kit/.env.example) -> .tar.gz.
 // The report counts what was replaced and never prints a value. --publish puts it on the sandbox repository's branch
 // `base` (one commit "release <sha>" holding exactly that code); the builders branch from it and send pull requests.
+// --viewer adds the door's address and the builders' viewer keys as sandbox-viewer.json (SARCLA 29.10.2026: "viewer
+// keys should be on repo" - the repository is private; a key only reads, and VIEWER_KEYS on the gateway retires it).
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -182,10 +185,11 @@ if (publish) {
   }
   for (const f of readdirSync(dir)) if (f !== ".git") rmSync(path.join(dir, f), { recursive: true, force: true });
   run("tar", ["-xzf", "-"], { input: readFileSync(out), encoding: undefined });
+  if (flag("--viewer")) writeFileSync(path.join(dir, "sandbox-viewer.json"), readFileSync(path.resolve(repo, flag("--viewer"))));
   run("git", ["add", "-A"]);
   if (run("git", ["diff", "--cached", "--quiet"], { allowFail: true }).status === 0) console.log(`${branch} already holds release ${sha.slice(0, 7)}`);
   else {
-    run("git", ["commit", "--quiet", "-m", `release ${sha.slice(0, 7)}`]);
+    run("git", ["commit", "--quiet", "-m", flag("--title") ?? `release ${sha.slice(0, 7)}`]);
     run("git", ["push", "--quiet", "origin", `HEAD:${branch}`]);
     console.log(`${publish} ${branch}: release ${sha.slice(0, 7)}`);
   }
