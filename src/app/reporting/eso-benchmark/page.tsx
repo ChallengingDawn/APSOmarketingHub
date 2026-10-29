@@ -20,6 +20,7 @@ import { FiguresPanel } from "./Figures";
 import { VisitsPanel } from "./Visits";
 import { NewCustomersPanel } from "./NewCustomers";
 import { CustomerDevPanel } from "./CustomerDev";
+import { ShopPanel } from "./Shop";
 import { useEso, type EsoBenchmark } from "./shared";
 
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
@@ -101,7 +102,8 @@ export default function EsoBucView() {
           {ESO_PAGES.map((p) => (p.slug === "visits" ? <VisitsPanel key={p.slug} acts={acts} />
             : p.slug === "new-customers" ? <NewCustomersPanel key={p.slug} acts={acts} />
               : p.slug === "customers" ? <CustomerDevPanel key={p.slug} acts={acts} />
-                : <PagePanel key={p.slug} def={p} b={b} acts={acts} />))}
+                : p.slug === "shop" ? <ShopPanel key={p.slug} acts={acts} />
+                  : <PagePanel key={p.slug} def={p} b={b} acts={acts} />))}
           <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
             Read from HubSpot {new Date(state?.computedAt ?? b.generatedAt).toLocaleString("en-GB")} · refreshed every 12 hours · the completed months of this year against the same months of last year · a chart joins its page&apos;s panel here with Actions on the page.
           </Typography>
