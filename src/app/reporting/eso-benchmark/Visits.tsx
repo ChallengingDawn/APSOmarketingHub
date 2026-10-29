@@ -10,6 +10,11 @@
 // annual need beside it); "month by month should also be split per sales person" (a person x month table); "never
 // ordered should become Registration" - answering: how many visits with new customers? how many of them registered after
 // the visit? in what way? how many of them bought in the period? The rows and their rules: src/lib/reporting/visitsRules.ts.
+// Third pass (29.10): no companies-visited boards and no potential ("take out the potential value"); a chart shows only what
+// is filtered ("the filter goes but they still keep on top"); a visit without a company said so; the real customer
+// categories ("no Other"); the months against last year's customer meetings; the customers who had bought before - still
+// buying or not retained - and did they buy after the visit; how much of each priority was visited (visits by priority
+// made Prio 1 look neglected); the annual need as the middle value, the not ranked shown.
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -33,7 +38,6 @@ import PersonAddAltOutlinedIcon from "@mui/icons-material/PersonAddAltOutlined";
 import HowToRegOutlinedIcon from "@mui/icons-material/HowToRegOutlined";
 import ShoppingCartCheckoutOutlinedIcon from "@mui/icons-material/ShoppingCartCheckoutOutlined";
 import HandshakeOutlinedIcon from "@mui/icons-material/HandshakeOutlined";
-import SavingsOutlinedIcon from "@mui/icons-material/SavingsOutlined";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import PublicOutlinedIcon from "@mui/icons-material/PublicOutlined";
@@ -51,7 +55,7 @@ import { SavedViews } from "@/app/reporting/marketing-kpis/tiles/SavedViews";
 import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tiles/SortableGrid";
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
-import { POTENTIAL_BANDS, REG_WAY, blank, labelOf, rowsOf, statsBy, type VDim, type VFilters, type VStats, type VWin, type VisitsData } from "@/lib/reporting/visitsRules";
+import { BEFORE, NO_COMPANY, REG_WAY, blank, coverageOf, labelOf, lastYearOf, median, rowsOf, statsBy, type VDim, type VFilters, type VStats, type VWin, type VisitsData } from "@/lib/reporting/visitsRules";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
   ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, SubTitle, TARGET, TWO, asLead, asTeam, axisWidth, leadOf, niceTop, setQuery, useLead, useLeads, useTeam,
@@ -146,7 +150,7 @@ const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (
 
 type VView = "people" | "new" | "prio" | "category" | "kind" | "country";
 const VIEWS: { id: VView; label: string }[] = [
-  { id: "people", label: "People" }, { id: "new", label: "Registration" }, { id: "prio", label: "Priority & potential" },
+  { id: "people", label: "People" }, { id: "new", label: "Registration" }, { id: "prio", label: "Priority" },
   { id: "category", label: "Customer category" }, { id: "kind", label: "Type of visit" }, { id: "country", label: "Country" },
 ];
 const isView = (x: string | null): x is VView => VIEWS.some((v) => v.id === x);
@@ -154,12 +158,14 @@ const DIM_OF: Record<VView, VDim> = { people: "person", new: "person", prio: "pr
 const DIM: Record<VDim, { name: string; lower: string; icon: React.ReactNode; tint: Tint; note: string }> = {
   person: { name: "Person", lower: "person", icon: <BadgeOutlinedIcon />, tint: "green", note: "Who made the visit - the visit's owner" },
   prio: { name: "Priority", lower: "priority", icon: <FlagOutlinedIcon />, tint: "purple", note: "The visited company's priority: Prio 1 above €25,000 potential, Prio 2 €2,500-25,000, Prio 3 €500-2,500" },
-  band: { name: "Potential", lower: "potential", icon: <SavingsOutlinedIcon />, tint: "amber", note: "The visited company's yearly potential in HubSpot, in bands - a placeholder over €1m counts as not set" },
-  category: { name: "Customer category", lower: "customer category", icon: <CategoryOutlinedIcon />, tint: "blue", note: "The visited company's APSO customer category - Other: APSOlost, APSOmicro, Growth Engine and not set" },
+  category: { name: "Customer category", lower: "customer category", icon: <CategoryOutlinedIcon />, tint: "blue", note: "The visited company's APSO customer category in HubSpot" },
   kind: { name: "Type of visit", lower: "type of visit", icon: <HandshakeOutlinedIcon />, tint: "slate", note: "Agreed in advance with the customer (a scheduled visit), cold (unannounced), or at an event - as the visit report says" },
   country: { name: "Country", lower: "country", icon: <PublicOutlinedIcon />, tint: "blue", note: "Where the visited company is" },
 };
-const ORDER: Partial<Record<VDim, readonly string[]>> = { prio: ["Prio 1", "Prio 2", "Prio 3", "No priority"], category: ["APSOcore", "APSOgrowth", "APSOprospect", "Other"], kind: ["Agreed", "Cold", "Event", "Not recorded"], band: POTENTIAL_BANDS };
+const ORDER: Partial<Record<VDim, readonly string[]>> = {
+  prio: ["Prio 1", "Prio 2", "Prio 3", "No priority", NO_COMPANY], kind: ["Agreed", "Cold", "Event", "Not recorded"],
+  category: ["APSOcore", "APSOgrowth", "APSOprospect", "APSOmicro", "APSOlost", "Growth Engine Customer", "Not set", NO_COMPANY],
+};
 
 export type VCtx = {
   d: VisitsData; per: VPer; team: TeamKey; lead: string | null; teams: Team[];
@@ -170,14 +176,15 @@ export type VCtx = {
 };
 
 const statCache = new WeakMap<VCtx, Map<string, Map<string, VStats>>>();
-/** The figures of the period by a breakdown (its own filter left out), or all together - kept per drawing. */
-function statsOf(c: VCtx, dim?: VDim): Map<string, VStats> {
+/** The figures of the period by a breakdown, or all together - kept per drawing. A chart shows only what is filtered
+ *  (SARCLA 29.10.2026: "the filter goes but they still keep on top"); the Filters window's lists (all) leave their own out. */
+function statsOf(c: VCtx, dim?: VDim, all = false): Map<string, VStats> {
   let memo = statCache.get(c);
   if (!memo) { memo = new Map(); statCache.set(c, memo); }
-  const k = dim ?? "";
+  const k = `${dim ?? ""}${all ? "*" : ""}`;
   const hit = memo.get(k);
   if (hit) return hit;
-  const rows = rowsOf(c.d, c.per.win, c.filters, c.people, dim);
+  const rows = rowsOf(c.d, c.per.win, c.filters, c.people, all ? dim : undefined);
   const out = statsBy(c.d, rows, c.per.win, dim ? (r) => labelOf(c.d, r, dim) : undefined);
   memo.set(k, out);
   return out;
@@ -190,16 +197,16 @@ const targetFor = (c: VCtx, id: string) => { const t = c.targets?.[targetKey(id,
 
 /* ── the leaderboards ──────────────────────────────────────────────────── */
 
-type Measure = "visits" | "companies" | "new" | "registered" | "bought" | "agreed" | "potential" | "need";
+type Measure = "visits" | "nocompany" | "new" | "registered" | "bought" | "again" | "agreed" | "need";
 const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; unit: "n" | "pct" | "eur"; target: string }> = {
   visits: { title: "Completed visits", fmt: int, unit: "n", target: "completed visits" },
-  companies: { title: "Companies visited", fmt: int, unit: "n", target: "companies visited" },
+  nocompany: { title: "Visits without a company", fmt: int, unit: "n", target: "visits without a company" },
   new: { title: "Visits with new customers", fmt: int, unit: "n", target: "visits with new customers" },
   registered: { title: "New customers registered after the visit", fmt: int, unit: "n", target: "new customers registered after the visit" },
   bought: { title: "New customers that bought after the visit", fmt: int, unit: "n", target: "new customers that bought after the visit" },
+  again: { title: "Not retained customers that bought again after the visit", fmt: int, unit: "n", target: "not retained customers that bought again after the visit" },
   agreed: { title: "Visits agreed in advance", fmt: (n) => pct(n), unit: "pct", target: "share of visits agreed in advance" },
-  potential: { title: "Ø yearly potential of the companies visited", fmt: eur, unit: "eur", target: "Ø yearly potential of the companies visited" },
-  need: { title: "Ø annual need from the visit reports", fmt: eur, unit: "eur", target: "Ø annual need from the visit reports" },
+  need: { title: "Annual need from the visit reports, the middle value", fmt: eur, unit: "eur", target: "middle annual need from the visit reports" },
 };
 /** Of the companies visited, the ones with revenue this year and how much - not an average over the prospects as well
  *  (SARCLA 28.10.2026 on "Ø revenue this year €534": "figures are completely wrong"). */
@@ -212,13 +219,13 @@ function boardRows(c: VCtx, dim: VDim, m: Measure): { rows: BoardRow[]; small: B
   for (const [label, s] of by) {
     let cur: number, sub: string, ranked = true;
     if (m === "visits") { cur = s.visits; sub = dim === "person" ? `${int(s.companies)} companies · ${(s.visits / Math.max(done, 0.1)).toFixed(1)} a month` : `${pct(t.visits ? s.visits / t.visits : null)} of the visits · ${int(s.companies)} companies`; }
-    else if (m === "companies") { cur = s.companies; sub = boughtWords(s); }
+    else if (m === "nocompany") { cur = s.noCompany; sub = `${pct(s.visits ? s.noCompany / s.visits : null)} of their ${int(s.visits)} visits - to link in HubSpot`; }
     else if (m === "new") { cur = s.newVisits; sub = `${int(s.newCompanies)} new customers · ${int(s.registeredAfter)} registered · ${int(s.boughtInPeriod)} bought`; }
     else if (m === "registered") { cur = s.registeredAfter; sub = `${pct(s.newCompanies ? s.registeredAfter / s.newCompanies : null)} of ${int(s.newCompanies)} new customers visited`; }
     else if (m === "bought") { cur = s.boughtInPeriod; sub = `${pct(s.newCompanies ? s.boughtInPeriod / s.newCompanies : null)} of ${int(s.newCompanies)} new customers visited`; }
+    else if (m === "again") { cur = s.lapsedAgain; sub = `${pct(s.lapsed ? s.lapsedAgain / s.lapsed : null)} of ${int(s.lapsed)} not retained customers visited`; }
     else if (m === "agreed") { cur = s.visits ? s.agreed / s.visits : 0; sub = `${int(s.agreed)} agreed in advance · ${int(s.cold)} cold · ${int(s.event)} at events`; ranked = s.visits >= MIN_VISITS; }
-    else if (m === "potential") { cur = s.potN ? s.potSum / s.potN : 0; sub = `over ${int(s.potN)} visits to companies with a potential`; ranked = s.potN >= MIN_VISITS; }
-    else { cur = s.needN ? s.needSum / s.needN : 0; sub = `over ${int(s.needN)} visit reports that give one`; ranked = s.needN >= MIN_VISITS; }
+    else { cur = median(s.needs) ?? 0; sub = `half above, half below · ${int(s.needs.length)} reports with one${s.needOut ? ` · ${int(s.needOut)} left out` : ""}`; ranked = s.needs.length >= MIN_VISITS; }
     if (!cur && m !== "agreed") continue;
     (ranked ? rows : small).push({ label, cur, prev: 0, sub });
   }
@@ -230,25 +237,39 @@ function Board({ c, id, dim, m, actions }: { c: VCtx; id: string; dim: VDim; m: 
   return (
     <Leaderboard key={`${id}-${c.per.id}`} title={`${M.title} ${c.per.title}, by ${DIM[dim].lower}`} rows={rows} noChange
       curLabel={perWords(c.d, c.per)} prevLabel="" first={c.half ? 8 : 12} fmt={M.fmt} ratio={m === "agreed"} target={targetFor(c, id)}
-      unranked={small.length ? { why: m === "potential" ? `under ${MIN_VISITS} visits to companies with a potential` : m === "need" ? `under ${MIN_VISITS} visit reports with an annual need` : `under ${MIN_VISITS} visits`, rows: small } : undefined}
+      unranked={small.length ? { why: m === "need" ? `under ${MIN_VISITS} visit reports with an annual need` : `under ${MIN_VISITS} visits`, rows: small, open: true } : undefined}
       selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${DIM[dim].lower}`} actions={actions} />
   );
 }
 
-/* ── the months: visits as columns, the target's line across ──────────── */
+/* ── the months: visits as columns, last year's meetings across, the target's line ── */
 
+/** The people a chart is about: the team's, or the persons filtered. */
+const shownPeople = (c: VCtx) => { const f = c.filters.person; if (!f?.length) return c.people; const s = new Set(f); return new Set([...c.people].filter((i) => s.has(c.d.people[i]?.name ?? ""))); };
+/** Last year can follow the team and a person, not the other filters: a meeting has no visit report. */
+const lastYearFollows = (c: VCtx) => c.d.coverage.lastYearRead && !(["prio", "category", "kind", "country"] as VDim[]).some((k) => c.filters[k]?.length);
+const signedPct = (x: number) => `${x > 0 ? "+" : x < 0 ? "−" : "±"}${Math.abs(x * 100).toFixed(1)}%`;
+
+/** This year's completed visits as columns against last year's customer meetings, a tick across each (SARCLA 29.10.2026:
+ *  "this should also compare to the previous year"). The visit reports start in December 2025 - a meeting with a company
+ *  is what became a visit; the ESO logged them from July 2025. */
 function VisitMonths({ c, target }: { c: VCtx; target: number | null }) {
   const t = totalOf(c);
-  const data = t.months.map((v, i) => ({ x: MONTHS[c.per.win.from + i], v, running: c.per.win.from + i === nowMonth(c.d) }));
-  const top = niceTop(Math.max(1, target ?? 0, ...data.map((x) => x.v)));
+  const ly = lastYearFollows(c) ? lastYearOf(c.d, c.per.win, shownPeople(c)) : null;
+  const data = t.months.map((v, i) => ({ x: MONTHS[c.per.win.from + i], v, prev: ly?.[i] ?? 0, running: c.per.win.from + i === nowMonth(c.d) }));
+  const top = niceTop(Math.max(1, target ?? 0, ...data.map((x) => Math.max(x.v, x.prev))));
   const ticks = [0, 0.25, 0.5, 0.75, 1];
   const done = data.filter((x) => !x.running);
   const reached = target ? done.filter((x) => x.v >= target).length : 0;
+  // a change only where last year has enough to compare with (before July 2025 hardly any meetings were logged: Jan +1,060%),
+  // and not for the running month - its reports are still coming in
+  const change = (x: { v: number; prev: number; running: boolean }) => (ly && !x.running && x.prev >= 10 && x.prev >= x.v / 4 ? (x.v - x.prev) / x.prev : null);
   return (
     <Box sx={{ display: "grid", gap: 1 }}>
       <Box sx={{ display: "flex", gap: 1.75, flexWrap: "wrap", fontSize: "0.74rem", color: MUTED }}>
-        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}><Box component="span" sx={{ width: 14, height: 8, borderRadius: "2px", bgcolor: THIS }} />Completed visits</Box>
+        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}><Box component="span" sx={{ width: 14, height: 8, borderRadius: "2px", bgcolor: THIS }} />{c.d.year}: completed visits</Box>
+        {ly && <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}><Box component="span" sx={{ width: 16, height: 2, borderRadius: 1, bgcolor: INK }} />{c.d.year - 1}, same month: customer meetings</Box>}
         {target && <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, color: INK, fontWeight: 600 }}><Box component="span" sx={{ width: 14, borderTop: `2px dashed ${TARGET}` }} />Target {int(target)} a month · <span style={{ color: reached === done.length ? GREEN : RED }}>{reached} of {done.length} months reached it</span></Box>}
       </Box>
       <Box sx={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", columnGap: 1 }}>
@@ -260,33 +281,84 @@ function VisitMonths({ c, target }: { c: VCtx; target: number | null }) {
           {target != null && <Box sx={{ position: "absolute", left: 0, right: 0, bottom: `${(target / top) * 100}%`, borderTop: `2px dashed ${TARGET}`, zIndex: 1, pointerEvents: "none" }} />}
           <Box sx={{ position: "absolute", inset: 0, display: "flex" }}>
             {data.map((x) => (
-              <Box key={x.x} title={`${x.x}${x.running ? " (to date)" : ""}: ${int(x.v)} completed visits${target ? ` · ${pct(x.v / target)} of the target` : ""}`} sx={{ flex: 1, position: "relative", height: "100%", "&:hover": { bgcolor: "rgba(21,34,58,.035)" }, borderRadius: "6px" }}>
+              <Box key={x.x} title={`${x.x}${x.running ? " (to date)" : ""}: ${int(x.v)} completed visits${ly ? ` · ${c.d.year - 1}: ${int(x.prev)} customer meetings` : ""}${target ? ` · ${pct(x.v / target)} of the target` : ""}`} sx={{ flex: 1, position: "relative", height: "100%", "&:hover": { bgcolor: "rgba(21,34,58,.035)" }, borderRadius: "6px" }}>
                 <Box sx={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "52%", maxWidth: 30, height: `${(x.v / top) * 100}%`, bgcolor: THIS, opacity: x.running ? 0.55 : 1, borderRadius: "4px 4px 0 0" }} />
+                {ly && x.prev > 0 && <Box sx={{ position: "absolute", bottom: `calc(${(x.prev / top) * 100}% - 1px)`, left: "50%", transform: "translateX(-50%)", width: "76%", maxWidth: 44, height: 2, bgcolor: INK, borderRadius: 1 }} />}
               </Box>
             ))}
           </Box>
         </Box>
         <Box />
         <Box sx={{ display: "flex" }}>
-          {data.map((x) => (
-            <Box key={x.x} sx={{ flex: 1, textAlign: "center", pt: 0.5, minWidth: 0 }}>
-              <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.3 }}>{x.x}</Typography>
-              <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>{int(x.v)}</Typography>
-            </Box>
-          ))}
+          {data.map((x) => {
+            const ch = change(x);
+            return (
+              <Box key={x.x} sx={{ flex: 1, textAlign: "center", pt: 0.5, minWidth: 0 }}>
+                <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.3 }}>{x.x}</Typography>
+                <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>{int(x.v)}</Typography>
+                {ly && <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: ch == null ? FAINT : ch >= 0 ? GREEN : RED, lineHeight: 1.3, whiteSpace: "nowrap" }}>{ch == null ? "—" : signedPct(ch)}</Typography>}
+              </Box>
+            );
+          })}
         </Box>
       </Box>
+    </Box>
+  );
+}
+const monthsHint = (c: VCtx) => `${perWords(c.d, c.per)} · the running month to date, lighter${lastYearFollows(c)
+  ? ` · ${c.d.year - 1}: the same people's customer meetings in HubSpot (the visit reports start in December ${c.d.year - 1}; meetings logged from July ${c.d.year - 1}) · the change where last year has a quarter of this year or more, not for the running month`
+  : c.d.coverage.lastYearRead ? ` · ${c.d.year - 1} not shown: a meeting has no priority, category, type or country to filter by` : ""} · each person's months in the table below`;
+
+/** How much of each priority the visits reached (SARCLA 29.10.2026 on the visits by priority: "P1 is undervalued - think
+ *  about another graph"): of the companies the people own now, by priority, how many had a completed visit in the period. */
+function Coverage({ c }: { c: VCtx }) {
+  const owners = shownPeople(c);
+  const chosen = c.filters.prio;
+  const rows = coverageOf(c.d, rowsOf(c.d, c.per.win, c.filters, c.people), owners).filter((x) => (!chosen?.length || chosen.includes(x.label)) && (x.owned > 0 || x.visited > 0));
+  if (!Object.keys(c.d.portfolio).length) return <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>The companies by priority could not be read from HubSpot this time.</Typography>;
+  if (!rows.length) return <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>None of these people own companies in HubSpot.</Typography>;
+  return (
+    <Box sx={{ display: "grid", gap: 1.1 }}>
+      {rows.map((r) => {
+        const share = r.owned ? r.visited / r.owned : null;
+        return (
+          <Box key={r.label} {...(c.onBar ? { component: "button" as const, type: "button" as const, onClick: () => c.onBar!("prio", r.label) } : {})}
+            sx={{ display: "grid", gridTemplateColumns: "minmax(90px, 0.6fr) minmax(80px, 1.4fr) auto", gap: 1.25, alignItems: "center", border: 0, bgcolor: chosen?.includes(r.label) ? TINT.blue.bg : "transparent", font: "inherit", textAlign: "left", cursor: c.onBar ? "pointer" : "default", borderRadius: "8px", px: 0.75, py: 0.5, "&:hover": c.onBar ? { bgcolor: "rgba(21,34,58,.04)" } : {} }}>
+            <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>{r.label}</Typography>
+            <Box sx={{ height: 12, borderRadius: 6, bgcolor: "rgba(21,34,58,.06)", overflow: "hidden" }}><Box sx={{ height: "100%", width: `${Math.min(1, share ?? 0) * 100}%`, bgcolor: THIS }} /></Box>
+            <Typography sx={{ fontSize: "0.84rem", color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}><b>{pct(share)}</b> <span style={{ color: MUTED }}>{int(r.visited)} of {int(r.owned)} companies</span></Typography>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+const coverageHint = (c: VCtx) => `${perWords(c.d, c.per)} · the companies the people own now in HubSpot, by their priority now, and how many of them had a completed visit - a visit to someone else's company is not counted here${(["category", "kind", "country"] as VDim[]).some((k) => c.filters[k]?.length) ? " · the companies owned do not follow the category, type or country filters" : ""}`;
+
+/** A few answers as bars: each one's count and its share of a base. */
+function Bars({ items, empty }: { items: { label: string; n: number; of: number }[]; empty: string }) {
+  const max = Math.max(1, ...items.map((x) => x.n));
+  if (!items.length || items.every((x) => !x.of)) return <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>{empty}</Typography>;
+  return (
+    <Box sx={{ display: "grid", gap: 0.6 }}>
+      {items.map((x) => (
+        <Box key={x.label} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(80px, 1fr) 130px", gap: 1, alignItems: "center" }}>
+          <Typography sx={{ fontSize: "0.84rem", color: INK }}>{x.label}</Typography>
+          <Box sx={{ height: 10, borderRadius: 5, bgcolor: "rgba(21,34,58,.06)", overflow: "hidden" }}><Box sx={{ height: "100%", width: `${(x.n / max) * 100}%`, bgcolor: THIS }} /></Box>
+          <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{int(x.n)} <span style={{ color: MUTED, fontWeight: 500 }}>{x.of !== x.n || items.length > 1 ? `${pct(x.of ? x.n / x.of : null)}` : ""}</span></Typography>
+        </Box>
+      ))}
     </Box>
   );
 }
 
 /** Registration, in his four questions (SARCLA 27.10.2026): how many visits with new customers, how many of them registered
  *  after the visit, in what way, how many of them bought in the period - from the shop's registration day and the first
- *  order's day against the visit's (28.10: not the qualification's answers). */
+ *  order's day against the visit's (28.10: not the qualification's answers). 29.10: "how many bought after the visit - how
+ *  many bought before, I also want to see (not retained)": the customers that had ordered before, and did they again. */
 function Answers({ c }: { c: VCtx }) {
   const t = totalOf(c);
-  const ways = t.newCompanies ? REG_WAY.map((w) => [w, t.regWays[w] ?? 0] as const) : [];
-  const maxWay = Math.max(1, ...ways.map(([, n]) => n));
+  const ways = t.newCompanies ? REG_WAY.map((w) => ({ label: w, n: t.regWays[w] ?? 0, of: t.newCompanies })) : [];
   const q = (n: number, text: string) => (
     <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}><span style={{ color: FAINT, marginRight: 8 }}>{n}</span>{text}</Typography>
   );
@@ -300,18 +372,20 @@ function Answers({ c }: { c: VCtx }) {
       <Box sx={row}>{q(2, "How many of them registered after the visit?")}{a(int(t.registeredAfter), `${pct(t.newCompanies ? t.registeredAfter / t.newCompanies : null)} of the ${int(t.newCompanies)} new customers - registered in the shop on the day of the visit or after it, by ${perEnd(c.d, c.per)}`)}</Box>
       <Box sx={row}>
         {q(3, "In what way?")}
-        <Box sx={{ display: "grid", gap: 0.6 }}>
-          {ways.length === 0 && <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>No new customer visited in this period.</Typography>}
-          {ways.map(([w, n]) => (
-            <Box key={w} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(80px, 1fr) 110px", gap: 1, alignItems: "center" }}>
-              <Typography sx={{ fontSize: "0.84rem", color: INK }}>{w}</Typography>
-              <Box sx={{ height: 10, borderRadius: 5, bgcolor: "rgba(21,34,58,.06)", overflow: "hidden" }}><Box sx={{ height: "100%", width: `${(n / maxWay) * 100}%`, bgcolor: THIS }} /></Box>
-              <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{int(n)} <span style={{ color: MUTED, fontWeight: 500 }}>{pct(t.newCompanies ? n / t.newCompanies : null)}</span></Typography>
-            </Box>
-          ))}
+        <Bars items={ways} empty="No new customer visited in this period." />
+      </Box>
+      <Box sx={row}>{q(4, "How many of them bought after the visit?")}{a(int(t.boughtInPeriod), `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the ${int(t.newCompanies)} new customers - their first order on the day of the visit or after it, by ${perEnd(c.d, c.per)}`)}</Box>
+      <Box sx={row}>
+        {q(5, "How many of the companies visited had bought before?")}
+        <Box sx={{ display: "grid", gap: 0.75 }}>
+          {a(int(t.oldCompanies), `companies that had ordered before the day of the visit`)}
+          <Bars items={BEFORE.map((label, i) => ({ label, n: i ? t.lapsed : t.stillBuying, of: t.oldCompanies }))} empty="No earlier customer visited in this period." />
         </Box>
       </Box>
-      <Box sx={{ ...row, borderBottom: 0 }}>{q(4, `How many of them bought, ${c.per.title}?`)}{a(int(t.boughtInPeriod), `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the ${int(t.newCompanies)} new customers - their first order on the day of the visit or after it, by ${perEnd(c.d, c.per)}`)}</Box>
+      <Box sx={{ ...row, borderBottom: 0 }}>
+        {q(6, "How many of them bought again after the visit?")}
+        <Bars items={[{ label: "Still buying - ordered after the visit", n: t.stillBuyingAgain, of: t.stillBuying }, { label: "Not retained - ordered again after the visit", n: t.lapsedAgain, of: t.lapsed }]} empty="No earlier customer visited in this period." />
+      </Box>
     </Box>
   );
 }
@@ -328,12 +402,21 @@ function drawnOf(id: string): Drawn | undefined {
   if (!isView(v)) return undefined;
   if (chart === "months") {
     const title = (c: VCtx) => `Completed visits ${c.per.title}, month by month${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · the running month to date, lighter · each person's months in the table below`} actions={a}><VisitMonths c={c} target={targetFor(c, id)} /></ChartBox>,
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={monthsHint(c)} actions={a}><VisitMonths c={c} target={targetFor(c, id)} /></ChartBox>,
       target: (c) => ({ unit: "n", label: `Each month's completed visits are measured against it - a line across the months; the running month is not counted · ${teamName(c)}'s target.` }) };
   }
   if (chart === "answers") {
-    const title = (c: VCtx) => `New customers and registration, ${c.per.title}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · new customers: companies that had never ordered before the day of the visit; registered: the shop's registration date against the visit's`} actions={a}><Answers c={c} /></ChartBox> };
+    const title = (c: VCtx) => `New and earlier customers visited - did they register, did they buy, ${c.per.title}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · new customers: companies that had never ordered before the day of the visit; registered: the shop's registration date against the visit's; bought: an order on the day of the visit or after it, by ${perEnd(c.d, c.per)}`} actions={a}><Answers c={c} /></ChartBox> };
+  }
+  if (chart === "coverage") {
+    const title = (c: VCtx) => `How much of each priority was visited, ${c.per.title}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={coverageHint(c)} actions={a}><Coverage c={c} /></ChartBox> };
+  }
+  if (chart === "table") {
+    const dim = DIM_OF[v];
+    const title = (c: VCtx) => `${perCap(c.per)}, by ${DIM[dim].lower}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · ${DIM[dim].note}`} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
   }
   const [what, by] = chart.split("-");
   if (!(what in MEASURE)) return undefined;
@@ -345,10 +428,15 @@ function drawnOf(id: string): Drawn | undefined {
 /** The earlier charts' keys, still in some BUC Views, by what took their place. */
 function chartOf(key: string): Drawn | undefined {
   const [, view = "", chart = ""] = key.split(":");
-  const old: Record<string, string> = { "people:agreed": "kind:agreed-person", "people:potential": "prio:potential-person", "new:funnel": "new:answers", "new:new": "new:new", "new:bought": "new:bought" };
+  const old: Record<string, string> = {
+    "people:agreed": "kind:agreed-person", "people:potential": "prio:need-person", "new:funnel": "new:answers", "new:new": "new:new", "new:bought": "new:bought",
+    // 29.10: the companies-visited boards and the potential taken out, visits by priority replaced by how much of each was visited
+    "people:companies": "people:visits", "prio:visits": "prio:coverage", "prio:visits-band": "prio:coverage", "prio:potential-person": "prio:need-person",
+  };
   const asIs = drawnOf(old[`${view}:${chart}`] ?? `${view}:${chart}`);
   if (asIs) return asIs;
-  if (view === "reps") return drawnOf(chart === "potential" ? "prio:potential-person" : chart === "months" ? "people:months" : "people:visits");
+  if (chart.startsWith("companies") && isView(view)) return drawnOf(`${view}:visits`);
+  if (view === "reps") return drawnOf(chart === "potential" ? "prio:need-person" : chart === "months" ? "people:months" : "people:visits");
   if (view === "prio" || view === "category" || view === "kind") return drawnOf(chart === "months" ? "people:months" : `${view}:visits`);
   if (view === "new") return drawnOf("new:answers");
   return undefined;
@@ -366,6 +454,7 @@ function PeopleTable({ c }: { c: VCtx }) {
   const cols: Col<Row>[] = [
     { key: "visits", head: "Completed visits", cell: (r) => int(r.visits), sort: (r) => r.visits },
     { key: "companies", head: "Companies visited", cell: (r) => int(r.companies), sort: (r) => r.companies },
+    { key: "noco", head: "Without a company", tip: "Visits with no company - neither on the visit nor on its contact: to link in HubSpot", cell: (r) => (r.noCompany ? int(r.noCompany) : "—"), sort: (r) => r.noCompany },
     { key: "new", head: "New customers visited", tip: "Companies that had never ordered before the day of the visit", cell: (r) => int(r.newCompanies), sort: (r) => r.newCompanies },
     { key: "reg", head: "Registered after", tip: "Of those, registered in the shop on the day of the visit or after it (the shop's registration date)", cell: (r) => int(r.registeredAfter), sort: (r) => r.registeredAfter },
     { key: "bought", head: `Bought, ${c.per.title}`, tip: "Of those, their first order on the day of the visit or after it, by the end of the period", cell: (r) => int(r.boughtInPeriod), sort: (r) => r.boughtInPeriod },
@@ -397,7 +486,7 @@ function DimTable({ c, dim }: { c: VCtx; dim: VDim }) {
     { key: "companies", head: "Companies visited", cell: (r) => int(r.companies), sort: (r) => r.companies },
     { key: "new", head: "New customers visited", cell: (r) => int(r.newCompanies), sort: (r) => r.newCompanies },
     { key: "bought", head: `Bought, ${c.per.title}`, cell: (r) => int(r.boughtInPeriod), sort: (r) => r.boughtInPeriod },
-    ...(dim === "prio" || dim === "band" ? [{ key: "pot", head: "Ø yearly potential", tip: "Of the visited companies with one (placeholders over €1m left out)", cell: (r: Row) => (r.potN ? eur(r.potSum / r.potN) : "—"), sort: (r: Row) => (r.potN ? r.potSum / r.potN : -1) }] : []),
+    { key: "again", head: "Not retained, bought again", tip: "Companies that had not ordered for 12 months or more before the visit and ordered after it, by the end of the period", cell: (r) => (r.lapsed ? `${int(r.lapsedAgain)} of ${int(r.lapsed)}` : "—"), sort: (r) => r.lapsedAgain },
     ...(dim === "kind" ? [] : [{ key: "agreed", head: "Agreed in advance", cell: (r: Row) => (r.visits ? pct(r.agreed / r.visits) : "—"), sort: (r: Row) => (r.visits ? r.agreed / r.visits : -1) }]),
   ];
   const sorted = order ? [...rows].sort((a, b) => order.indexOf(a.label) - order.indexOf(b.label)) : rows;
@@ -416,7 +505,7 @@ function TabCard({ c, act, footnote }: { c: VCtx; act: Act; footnote: React.Reac
   if (c.view === "people") return (
     <GlassCard sx={card}>
       <CardTitle icon={<BadgeOutlinedIcon />} tint="green" title={`${teamName(c)}, ${c.per.title}`} note={`${words} · completed visit reports only, by meeting date, by who made the visit`} />
-      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "people:visits")}{draw(c, act, "people:companies")}</Box>
+      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "people:visits")}{draw(c, act, "people:nocompany")}</Box>
       {c.per.months >= 2 && draw(c, act, "people:months")}
       {c.per.months >= 2 && <Box><SubTitle>Completed visits by person, month by month</SubTitle><PeopleMonths c={c} /></Box>}
       <Box><SubTitle>{perCap(c.per)}, by person</SubTitle><PeopleTable c={c} /></Box>
@@ -425,20 +514,18 @@ function TabCard({ c, act, footnote }: { c: VCtx; act: Act; footnote: React.Reac
   );
   if (c.view === "new") return (
     <GlassCard sx={card}>
-      <CardTitle icon={<HowToRegOutlinedIcon />} tint="amber" title={`${teamName(c)}: registration, ${c.per.title}`} note={`${words} · new customers visited - did they register, how, and did they buy`} />
+      <CardTitle icon={<HowToRegOutlinedIcon />} tint="amber" title={`${teamName(c)}: registration, ${c.per.title}`} note={`${words} · new customers visited - did they register, how, and did they buy; the earlier customers - still buying or not retained - and did they buy again`} />
       <Box sx={{ mt: -1 }}>{draw(c, act, "new:answers")}</Box>
       <Box sx={TWO}>{draw(c, act, "new:new")}{draw(c, act, "new:registered")}</Box>
-      {draw(c, act, "new:bought")}
+      <Box sx={TWO}>{draw(c, act, "new:bought")}{draw(c, act, "new:again")}</Box>
       {footnote}
     </GlassCard>
   );
   if (c.view === "prio") return (
     <GlassCard sx={card}>
-      <CardTitle icon={<FlagOutlinedIcon />} tint="purple" title={`${teamName(c)} by priority and potential, ${c.per.title}`} note={`${DIM.prio.note} · the potential: the company's yearly potential in HubSpot - a placeholder over €1m counts as not set · ${words}`} />
-      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "prio:visits")}{draw(c, act, "prio:visits-band")}</Box>
-      <Box sx={TWO}>{draw(c, act, "prio:potential-person")}{draw(c, act, "prio:need-person")}</Box>
-      <Box><SubTitle>{perCap(c.per)}, by priority</SubTitle><DimTable c={c} dim="prio" /></Box>
-      <Box><SubTitle>{perCap(c.per)}, by potential</SubTitle><DimTable c={c} dim="band" /></Box>
+      <CardTitle icon={<FlagOutlinedIcon />} tint="purple" title={`${teamName(c)} by priority, ${c.per.title}`} note={`${DIM.prio.note} · ${words}`} />
+      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "prio:coverage")}{draw(c, act, "prio:need-person")}</Box>
+      {draw(c, act, "prio:table")}
       {footnote}
     </GlassCard>
   );
@@ -454,8 +541,8 @@ function TabCard({ c, act, footnote }: { c: VCtx; act: Act; footnote: React.Reac
   return (
     <GlassCard sx={card}>
       <CardTitle icon={dd.icon} tint={dd.tint} title={`${teamName(c)} by ${dd.lower}, ${c.per.title}`} note={`${dd.note} · ${words}`} />
-      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${c.view}:visits`)}{draw(c, act, `${c.view}:companies`)}</Box>
-      <Box sx={TWO}>{draw(c, act, `${c.view}:new`)}{draw(c, act, `${c.view}:bought`)}</Box>
+      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${c.view}:visits`)}{draw(c, act, `${c.view}:new`)}</Box>
+      <Box sx={TWO}>{draw(c, act, `${c.view}:bought`)}{draw(c, act, `${c.view}:again`)}</Box>
       <Box><SubTitle>{perCap(c.per)}, by {dd.lower}</SubTitle><DimTable c={c} dim={dim} /></Box>
       {footnote}
     </GlassCard>
@@ -525,14 +612,14 @@ function VPeriod({ d, per, onPer }: { d: VisitsData; per: VPer; onPer: (w: VWin)
           {MONTHS.slice(0, m + 1).map((x, i) => <MenuItem key={x} value={i}>{x} {d.year}</MenuItem>)}
         </Select>
       </Box>
-      <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.45 }}>This year&apos;s months: HubSpot holds visits since 2026, so there is no year before to compare with.</Typography>
+      <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.45 }}>This year&apos;s months: the visit reports start in December {d.year - 1}. The months chart sets last year&apos;s customer meetings beside them.</Typography>
     </Box>
   );
 }
 function VFacet({ c, dim, onPick }: { c: VCtx; dim: VDim; onPick: (l: string) => void }) {
   const [q, setQ] = useState("");
   const [all, setAll] = useState(false);
-  const by = statsOf(c, dim);
+  const by = statsOf(c, dim, true);
   const order = ORDER[dim];
   const rows = [...by].map(([label, s]) => ({ label, n: s.visits }));
   rows.sort(order ? (a, b) => order.indexOf(a.label) - order.indexOf(b.label) : (a, b) => b.n - a.n || a.label.localeCompare(b.label));
@@ -566,7 +653,7 @@ function VFacet({ c, dim, onPick }: { c: VCtx; dim: VDim; onPick: (l: string) =>
     </Box>
   );
 }
-const FILTER_DIMS: VDim[] = ["person", "prio", "band", "category", "kind", "country"];
+const FILTER_DIMS: VDim[] = ["person", "prio", "category", "kind", "country"];
 function VFilterWindow({ c, per, open, onClose, focus, onPer, toggle, clearAll }: {
   c: VCtx; per: VPer; open: boolean; onClose: () => void; focus: { dim: VDim; n: number } | null; onPer: (w: VWin) => void; toggle: (d: VDim, l: string) => void; clearAll: () => void;
 }) {
@@ -673,10 +760,10 @@ export function VisitsExplorer() {
   const chosen = FILTER_DIMS.flatMap((k) => (filters[k] ?? []).map((v) => [k, v] as const));
   const footnote = (
     <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-      Completed visit reports only (the stage &quot;Visit and Report complete&quot;), by meeting date and by who made the visit; this year&apos;s others are counted as not reported yet. HubSpot holds visits since 2026: there is no year before to compare with.
+      Completed visit reports only (the stage &quot;Visit and Report complete&quot;), by meeting date and by who made the visit; this year&apos;s others are counted as not reported yet. The visit reports start in December {d.year - 1}: the months chart compares with {d.year - 1}&apos;s customer meetings (a meeting with a company, logged from July {d.year - 1}).
       {" "}ESO: the ESO roster; Total: ESO, Marc Frech (the TSA person who visits) and the people outside the rosters. A line manager&apos;s team as Map assignment&apos;s SAE table sets it.
-      {" "}New customers: companies that had never ordered before the day of the visit; registered: the day the shop says the company registered (Magento &quot;customer since&quot;) against the visit&apos;s - not the qualification&apos;s answers; bought: their first order on the day of the visit or after it, by the end of the period. The potential: the company&apos;s yearly potential in HubSpot, a placeholder over €1m left out; averages and shares rank people with {MIN_VISITS} visits or more.
-      {" "}{int(d.coverage.completed)} completed visits read, {int(d.coverage.withCompany)} of them linked to a company. Read from HubSpot {new Date(d.generatedAt).toLocaleString("en-GB")}, every hour.
+      {" "}New customers: companies that had never ordered before the day of the visit; registered: the day the shop says the company registered (Magento &quot;customer since&quot;) against the visit&apos;s - not the qualification&apos;s answers; bought: their first order on the day of the visit or after it, by the end of the period. Customers that had bought before: still buying with an order in the 12 months before the visit, else not retained. The annual need: the middle value of the visit reports - under €100 (typed in thousands) and over €1m (placeholders) left out; shares and the annual need rank people with {MIN_VISITS} visits or reports or more.
+      {" "}{int(d.coverage.completed)} completed visits read, {int(d.coverage.withCompany)} of them with a company ({int(d.coverage.viaContact)} through the visit&apos;s contact) - the rest show as &quot;{NO_COMPANY}&quot;. Read from HubSpot {new Date(d.generatedAt).toLocaleString("en-GB")}, every hour.
     </Typography>
   );
   return (

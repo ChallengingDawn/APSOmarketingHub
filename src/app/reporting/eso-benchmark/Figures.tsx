@@ -406,14 +406,14 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   target?: number | null;
   /** a line under the title: the chart's own total (a profit centre's) */
   summary?: React.ReactNode;
-  /** rows listed under the ranking, not in it - book-to-bill's small books - and why */
-  unranked?: { why: string; rows: BoardRow[] };
+  /** rows listed under the ranking, not in it - book-to-bill's small books - and why; open: shown from the start */
+  unranked?: { why: string; rows: BoardRow[]; open?: boolean };
   /** nothing to compare with (the visits: none recorded last year) - no change shown */
   noChange?: boolean;
 }) {
   const rows = useMemo(() => [...given].sort((a, b) => b.cur - a.cur || b.prev - a.prev || a.label.localeCompare(b.label)), [given]);
   const [all, setAll] = useState(false);
-  const [small, setSmall] = useState(false);
+  const [small, setSmall] = useState(!!unranked?.open);
   const shown = all ? rows : rows.slice(0, first);
   const podium = shown.slice(0, 3), rest = shown.slice(3);
   const hits = (r: BoardRow) => (lowerIsBetter ? r.cur <= target! : r.cur >= target!);
