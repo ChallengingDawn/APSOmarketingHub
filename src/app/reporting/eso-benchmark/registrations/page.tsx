@@ -1,10 +1,9 @@
 "use client";
-// An ESO page, drawn as Digital Growth's are (SARCLA 21.10.2026) - what it shows is in ../pages.tsx.
+// The ESO Registrations page, rebuilt like the Visits and the Figures (SARCLA 29.10.2026) - ../Registrations.tsx.
 
 import { Suspense } from "react";
-import { EsoExplorer } from "../EsoKit";
-import { REGISTRATIONS } from "../pages";
+import { RegistrationsExplorer } from "../Registrations";
 
 export default function RegistrationsPage() {
-  return <Suspense><EsoExplorer def={REGISTRATIONS} /></Suspense>;
+  return <Suspense><RegistrationsExplorer /></Suspense>;
 }
