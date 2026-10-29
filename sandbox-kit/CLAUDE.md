@@ -16,8 +16,11 @@ sandbox's pages, and from the terminal with the two commands under "Pulling data
 a rule or a question needs real records. The limits are only these: reads, never writes; and what you pull stays
 on this computer, out of the repository.
 
-- **HubSpot** is read with the person's own **private app** (its token in `.env.local`, read-only scopes). Every
-  call that would change HubSpot is held back by the sandbox itself — answered "done", counted as "held back" in the
+- **HubSpot** is read with the person's own **private app** (its token in `.env.local`, read-only scopes). **The apps
+  you build here read HubSpot live with it**: new pages, routes, rules and whole new apps call HubSpot exactly the
+  way the hub's own pages do — `hubspotFetchJson({ path, method, body })` from `src/lib/integrations/hubspot.ts`,
+  with `searchTurn()` before every search (`.../search`). No stub, no copy, no mock: real records, live. Every call
+  that would change HubSpot is held back by the sandbox itself — answered "done", counted as "held back" in the
   band, never sent — whatever scopes the app has. Use that to check what a change *would* write.
 - **The microservices** (search bar, Google Ads buckets, DirectUP, DirectCut, 3D files) are read through the
   **read-only door** on the Smart-Search gateway with the person's viewer key. It answers reads only; a page action
@@ -66,10 +69,17 @@ npm run door -- 3d /callers
 
 1. Node 22, Git and Claude Code.
 2. Clone this repository, then `npm install`.
-3. Copy `.env.example` to `.env.local` and fill it in: `SANDBOX_PERSON` and `HUBSPOT_TOKEN` (the access token of the
-   person's own HubSpot private app, read-only scopes). The door to the microservices needs nothing: it comes with
-   the repository.
-4. `npm run sandbox`.
+3. The person's own **HubSpot private app** (a HubSpot super admin creates it - ask Claudio): HubSpot → Settings →
+   Integrations → Private Apps → Create, named "Sandbox <first name>", with **read scopes only**:
+   `crm.objects.companies.read`, `crm.objects.contacts.read`, `crm.objects.deals.read`, `crm.objects.tickets.read`,
+   `crm.objects.line_items.read`, `crm.objects.orders.read`, `crm.objects.owners.read`, `crm.objects.users.read`,
+   `crm.objects.custom.read`, `crm.objects.feedback_submissions.read`, `crm.schemas.companies.read`,
+   `crm.schemas.contacts.read`, `crm.schemas.deals.read`, `crm.schemas.tickets.read`, `crm.schemas.custom.read`,
+   `crm.lists.read`, `conversations.read`, `files.read`, `sales-email-read`. Its access token is `HUBSPOT_TOKEN`.
+   A page that needs a scope the app lacks gets HubSpot's 403 - add the read scope to the app.
+4. Copy `.env.example` to `.env.local` and fill it in: `SANDBOX_PERSON` and `HUBSPOT_TOKEN`. The door to the
+   microservices needs nothing: it comes with the repository.
+5. `npm run sandbox`.
 
 ## Running it: `npm run sandbox`
 
