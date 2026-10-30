@@ -2,50 +2,42 @@
 // every shop account opened this year or last, as small rows, so the page works out any period, team, person or filter
 // itself. No HubSpot or database here, so the page and the tests read it as it is.
 //
-// The dates are the shop's own: a contact's Magento "customer since" (the day it registered), a company's first one.
-// Not the HubSpot contact's creation date - 2025 holds about 2,200 contacts created in HubSpot that registered in the
-// shop earlier - and not "Registration Details (ESO)", a qualification's answer (SARCLA 28.10.2026: "you are using
-// qualification - we are able to get this correctly").
+// The dates are the shop's own: a contact's Magento "customer since" (the day it registered), a company's first one, and
+// the shop's own first order (Magento's "oldest order date" of its accounts). Not the HubSpot contact's creation date -
+// 2025 holds about 2,200 contacts created in HubSpot that registered in the shop earlier -, not "Registration Details
+// (ESO)", a qualification's answer (SARCLA 28.10.2026: "you are using qualification - we are able to get this
+// correctly"), and not the ERP's first order, which counts orders outside the shop (SARCLA 30.10.2026 on "already
+// customers - had ordered before registering": "how can they order before creating an account? not possible").
 
 export type RegData = {
   generatedAt: string;
   /** this year; registrations are kept for it and the year before */
   year: number;
-  /** the day the read reaches, "2026-10-29" */
+  /** the day the read reaches, "2026-10-30" */
   today: string;
-  /** the companies' owners, by index - their team from the rosters, else their HubSpot team; "No company" last */
+  /** the companies' owners, by index - their team from the rosters, else their HubSpot team; "No owner" last */
   people: { id: string; name: string; team: string }[];
-  labels: { country: string[]; prio: string[]; category: string[]; type: string[]; band: string[] };
+  labels: { country: string[]; prio: string[]; category: string[]; type: string[]; apic: string[] };
   /** every company with a shop account opened this year or last - see C */
   companies: number[][];
   /** every shop account opened this year or last - see A */
   accounts: number[][];
   coverage: { accounts: number; noCompany: number; companies: number; visits: number };
 };
-/** The columns of a company row: its owner; the day its first shop account was opened yyyymmdd; its first order yyyymmdd
- *  or 0; its first completed customer visit yyyymmdd or 0; its country / priority / category / type / potential band. */
-export const C = { person: 0, reg: 1, firstOrder: 2, firstVisit: 3, country: 4, prio: 5, category: 6, type: 7, band: 8 } as const;
+/** The columns of a company row: its owner; the day its first shop account was opened yyyymmdd; its first order in the
+ *  shop yyyymmdd or 0; its first completed customer visit yyyymmdd or 0; its country / priority / category / type / APIC. */
+export const C = { person: 0, reg: 1, firstOrder: 2, firstVisit: 3, country: 4, prio: 5, category: 6, type: 7, apic: 8 } as const;
 /** The columns of an account row: its company (-1: none), the day it was opened yyyymmdd. */
 export const A = { company: 0, day: 1 } as const;
 
-/** Before registering: had the company ever ordered? */
-export const STATUS = ["Had never ordered", "Already a customer"] as const;
 /** A registered company against its first completed visit - visits are in HubSpot since 2026 */
 export const REG_VISIT = ["Registered on the day of a visit", "Registered after a visit", "Visited after registering", "Not visited"] as const;
 
-export type RDim = "person" | "status" | "visit" | "country" | "prio" | "category" | "type" | "band";
+export type RDim = "person" | "visit" | "country" | "prio" | "category" | "type" | "apic";
 export type RFilters = Partial<Record<RDim, string[]>>;
 /** A period: this year's months, 0 = January - compared with the same months of the year before (the running month to
  *  the same day). */
 export type RWin = { from: number; to: number };
-
-/** A potential the page can use: above zero and up to €1m - higher ones are placeholders (as the customers' cube). */
-export const usable = (v: number) => v > 0 && v <= 1_000_000;
-export const POTENTIAL_BANDS = ["€100,000 and more", "€25,000 – 99,999", "€2,500 – 24,999", "€500 – 2,499", "Under €500", "Not set"] as const;
-export function bandOf(v: number): string {
-  if (!usable(v)) return "Not set";
-  return v >= 100_000 ? POTENTIAL_BANDS[0] : v >= 25_000 ? POTENTIAL_BANDS[1] : v >= 2_500 ? POTENTIAL_BANDS[2] : v >= 500 ? POTENTIAL_BANDS[3] : POTENTIAL_BANDS[4];
-}
 
 /** The customer type in the words the ESO pages use (as their typeLabel). */
 const TYPE: Record<string, string> = {
@@ -69,8 +61,6 @@ export function spanOf(d: RegData, win: RWin, side: 0 | 1): { from: number; to: 
   return { from: y * 10000 + (win.from + 1) * 100 + 1, to: Math.min(y * 10000 + (win.to + 1) * 100 + last, cutOf(d, side)) };
 }
 
-/** Before registering: a first order before the day of the first shop account. An order on that day is after it. */
-export const statusOf = (co: number[]) => (co[C.firstOrder] && co[C.firstOrder] < co[C.reg] ? STATUS[1] : STATUS[0]);
 /** The registration against the company's first completed visit, as far as the side reaches. */
 export function visitOf(co: number[], cut: number): (typeof REG_VISIT)[number] {
   const v = co[C.firstVisit], r = co[C.reg];
@@ -78,11 +68,10 @@ export function visitOf(co: number[], cut: number): (typeof REG_VISIT)[number] {
   return v < r ? REG_VISIT[1] : v === r ? REG_VISIT[0] : REG_VISIT[2];
 }
 
-const COL: Record<"country" | "prio" | "category" | "type" | "band", number> = { country: C.country, prio: C.prio, category: C.category, type: C.type, band: C.band };
+const COL: Record<"country" | "prio" | "category" | "type" | "apic", number> = { country: C.country, prio: C.prio, category: C.category, type: C.type, apic: C.apic };
 /** A company's value on a breakdown, as its label (the visit as far as the side reaches). */
 export function labelOf(d: RegData, co: number[], dim: RDim, cut = cutOf(d, 0)): string {
   if (dim === "person") return d.people[co[C.person]]?.name ?? "Unknown";
-  if (dim === "status") return statusOf(co);
   if (dim === "visit") return visitOf(co, cut);
   return d.labels[dim][co[COL[dim]]] ?? "Not set";
 }
@@ -96,9 +85,7 @@ export function noCompany(d: RegData): number[] {
 export type RStats = {
   /** companies whose first shop account was opened in the period */
   companies: number;
-  /** of those: had ordered before (already a customer) / had never ordered */
-  already: number; fresh: number;
-  /** of the ones that had never ordered: the first order on the day of registering or after it, by the side's day */
+  /** of those: the first order in the shop, by the side's day */
   bought: number;
   /** the days from registering to that first order, one per company that bought */
   days: number[];
@@ -109,7 +96,7 @@ export type RStats = {
   /** companies registered per month of the period, from its first */
   months: number[];
 };
-export const blank = (n: number): RStats => ({ companies: 0, already: 0, fresh: 0, bought: 0, days: [], visit: {}, accounts: 0, more: 0, months: Array(n).fill(0) });
+export const blank = (n: number): RStats => ({ companies: 0, bought: 0, days: [], visit: {}, accounts: 0, more: 0, months: Array(n).fill(0) });
 
 /**
  * A period's figures on one side (0 this year, 1 the year before), for the people shown, under the filters - a
@@ -136,8 +123,7 @@ export function statsBy(d: RegData, win: RWin, side: 0 | 1, f: RFilters, people:
     s.months[(Math.floor(r / 100) % 100) - 1 - win.from]++;
     const v = visitOf(co, cut);
     s.visit[v] = (s.visit[v] ?? 0) + 1;
-    if (statusOf(co) === STATUS[1]) { s.already++; continue; }
-    s.fresh++;
+    // the shop's first order is on the day of registering or after it - an account comes first
     const fo = co[C.firstOrder];
     if (fo && fo >= r && fo <= cut) { s.bought++; s.days.push(daysBetween(r, fo)); }
   }

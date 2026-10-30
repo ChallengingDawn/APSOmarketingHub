@@ -1,6 +1,6 @@
 // THE ESO REGISTRATIONS PAGE'S READ - rebuilt like the Visits and the Figures: every shop account opened this year and
-// the last (the contact's Magento "customer since"), the companies they belong to with their first shop account, first
-// order and first completed visit, of everyone (ESO, TSA and the rest - the page's ESO | TSA | Total and the line
+// the last (the contact's Magento "customer since") with its first order in the shop (Magento's "oldest order date"), the
+// companies they belong to with their first shop account, first shop order and first completed visit, of everyone (ESO, TSA and the rest - the page's ESO | TSA | Total and the line
 // managers' teams, by the company's owner). The rules in ./registrationsRules.ts. Read every hour through slowReport: the
 // first visitor starts it, everyone after gets it.
 
@@ -10,9 +10,11 @@ import { ownerNames } from "@/lib/integrations/erosion";
 import { teamOf } from "@/lib/datatracker/rosters";
 import { readOwners } from "@/lib/ownerRules/hubspot";
 import { categoryBand, prioBand, prioOf, CATEGORY_BANDS, PRIO_BANDS } from "./esoRules";
-import { POTENTIAL_BANDS, bandOf, typeShort, ymd, type RegData } from "./registrationsRules";
+import { typeShort, ymd, type RegData } from "./registrationsRules";
 
-const KEY = "esoRegistrations:v1";
+// v2: the shop's own first order (the ERP's counted orders outside the shop: "already customers" that cannot be), APIC
+// instead of the potential
+const KEY = "esoRegistrations:v2";
 const TTL_MS = 60 * 60 * 1000;
 const VISIT_OBJ = "2-139767037";
 /** "Visit and Report complete": the only visits that count (SARCLA 12.10). */
@@ -23,7 +25,6 @@ export function esoRegistrations(): Promise<SlowState<RegData>> {
 }
 
 type Row = { id: string; properties?: Record<string, string | null> };
-const num = (v: string | null | undefined) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
 async function build(): Promise<RegData> {
   const now = new Date();
@@ -39,7 +40,7 @@ async function build(): Promise<RegData> {
     const r = await hubspotFetchJson<{ results?: Row[] }>({
       path: "/crm/v3/objects/contacts/search", method: "POST",
       body: {
-        limit: 200, properties: ["eyemagine_lifetime_customer_since", "associatedcompanyid"],
+        limit: 200, properties: ["eyemagine_lifetime_customer_since", "eyemagine_lifetime_first_order_date", "associatedcompanyid"],
         filterGroups: [{ filters: [
           { propertyName: "eyemagine_lifetime_customer_since", operator: "GTE", value: String(Date.UTC(year - 1, 0, 1)) },
           { propertyName: "hs_object_id", operator: "GT", value: lastId },
@@ -53,27 +54,26 @@ async function build(): Promise<RegData> {
     if (rows.length < 200) break;
     lastId = rows[rows.length - 1].id;
   }
-  const accounts = contacts.map((c) => ({ company: c.properties?.associatedcompanyid ?? "", day: ymd(c.properties?.eyemagine_lifetime_customer_since) }))
+  const accounts = contacts.map((c) => ({ company: c.properties?.associatedcompanyid ?? "", day: ymd(c.properties?.eyemagine_lifetime_customer_since), order: ymd(c.properties?.eyemagine_lifetime_first_order_date) }))
     .filter((a) => a.day && a.day <= todayN);
 
   // 2. their companies: the owner, the first shop account (the company's "customer since", or its earliest contact's if
-  // that is earlier - HubSpot copies a contact's onto the company, now and then a later one), the first order
-  type Co = { owner: string; reg: number; firstOrder: number; firstVisit: number; country: string; prio: string; category: string; type: string; band: string };
+  // that is earlier - HubSpot copies a contact's onto the company, now and then a later one), the first order in the shop
+  // (the earliest of its accounts')
+  type Co = { owner: string; reg: number; firstOrder: number; firstVisit: number; country: string; prio: string; category: string; type: string; apic: string };
   const companies = new Map<string, Co>();
   const ids = [...new Set(accounts.map((a) => a.company).filter(Boolean))];
   for (let i = 0; i < ids.length; i += 100) {
     const r = await hubspotFetchJson<{ results?: Row[] }>({
       path: "/crm/v3/objects/companies/batch/read", method: "POST",
-      body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["hubspot_owner_id", "magento_customer_since", "order_first_order_date", "country_custom", "sales_priority", "apso_customer", "customer_type", "yearly_customer_potential"] },
+      body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["hubspot_owner_id", "magento_customer_since", "country_custom", "sales_priority", "apso_customer", "customer_type", "apic_ap"] },
     });
     for (const row of r.results ?? []) {
       const p = row.properties ?? {};
       companies.set(String(row.id), {
-        owner: p.hubspot_owner_id ?? "", reg: ymd(p.magento_customer_since), firstOrder: ymd(p.order_first_order_date), firstVisit: 0,
+        owner: p.hubspot_owner_id ?? "", reg: ymd(p.magento_customer_since), firstOrder: 0, firstVisit: 0,
         country: p.country_custom || "Not set", prio: prioBand(prioOf(p.sales_priority)), category: categoryBand(p.apso_customer),
-        type: p.customer_type ? typeShort(p.customer_type) : "Not set",
-        // a potential over €1m is a placeholder, not a figure (as the customers' cube reads it)
-        band: bandOf(num(p.yearly_customer_potential)),
+        type: p.customer_type ? typeShort(p.customer_type) : "Not set", apic: p.apic_ap || "Not set",
       });
     }
     reportProgress(KEY, `reading their companies · ${Math.min(i + 100, ids.length).toLocaleString("en")}`);
@@ -81,6 +81,7 @@ async function build(): Promise<RegData> {
   for (const a of accounts) {
     const co = companies.get(a.company);
     if (co && (!co.reg || a.day < co.reg)) co.reg = a.day;
+    if (co && a.order && (!co.firstOrder || a.order < co.firstOrder)) co.firstOrder = a.order;
   }
 
   // 3. the first completed customer visit of each of those companies - visits are in HubSpot since 2026
@@ -126,13 +127,13 @@ async function build(): Promise<RegData> {
   };
 
   // 5. the rows
-  const labels: RegData["labels"] = { country: [], prio: [...PRIO_BANDS], category: [...CATEGORY_BANDS], type: [], band: [...POTENTIAL_BANDS] };
+  const labels: RegData["labels"] = { country: [], prio: [...PRIO_BANDS], category: [...CATEGORY_BANDS], type: [], apic: [] };
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const coIdx = new Map<string, number>();
   const coRows: number[][] = [];
   for (const [id, co] of companies) {
     if (!co.reg) continue;
-    coIdx.set(id, coRows.push([person(co.owner), co.reg, co.firstOrder, co.firstVisit, at(labels.country, co.country), at(labels.prio, co.prio), at(labels.category, co.category), at(labels.type, co.type), at(labels.band, co.band)]) - 1);
+    coIdx.set(id, coRows.push([person(co.owner), co.reg, co.firstOrder, co.firstVisit, at(labels.country, co.country), at(labels.prio, co.prio), at(labels.category, co.category), at(labels.type, co.type), at(labels.apic, co.apic)]) - 1);
   }
   person("");
   const accRows = accounts.map((a) => [coIdx.get(a.company) ?? -1, a.day]);
