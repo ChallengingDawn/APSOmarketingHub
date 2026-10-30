@@ -90,7 +90,9 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           { name: "New customers", href: "/reporting/eso-benchmark/new-customers", icon: "target" },
           { name: "Registrations", href: "/reporting/eso-benchmark/registrations", icon: "verified" },
           { name: "Revenue & order intake", href: "/reporting/eso-benchmark/revenue", icon: "bar" },
-          { name: "Tickets", href: "/reporting/eso-benchmark/tickets", icon: "description" },
+          // the tickets as two apps (SARCLA 30.10.2026: "split in 2 apps - Incoming Ticket and System tickets")
+          { name: "Incoming tickets", href: "/reporting/eso-benchmark/tickets", icon: "description" },
+          { name: "System tickets", href: "/reporting/eso-benchmark/system-tickets", icon: "bolt" },
           { name: "Shop behaviour", href: "/reporting/eso-benchmark/shop", icon: "inventory" },
         ],
       },

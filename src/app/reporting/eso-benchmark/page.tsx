@@ -4,6 +4,7 @@
 // for all of ESO - and the charts sent here from the pages with Actions, each as drawn there, with the reps it was
 // sent with; drag one to move it (one order for everyone). This address used to open Visits (the sub-apps, 12.10).
 
+import { Fragment } from "react";
 import Link from "next/link";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -104,7 +105,7 @@ export default function EsoBucView() {
           {ESO_PAGES.map((p) => (p.slug === "visits" ? <VisitsPanel key={p.slug} acts={acts} />
             : p.slug === "new-customers" ? <NewCustomersPanel key={p.slug} acts={acts} />
               : p.slug === "customers" ? <CustomerDevPanel key={p.slug} acts={acts} />
-                : p.slug === "tickets" ? <TicketsPanel key={p.slug} acts={acts} />
+                : p.slug === "tickets" ? <Fragment key={p.slug}><TicketsPanel acts={acts} group="incoming" /><TicketsPanel acts={acts} group="system" /></Fragment>
                   : p.slug === "shop" ? <ShopPanel key={p.slug} acts={acts} />
                     : p.slug === "registrations" ? <RegistrationsPanel key={p.slug} acts={acts} />
                     : <PagePanel key={p.slug} def={p} b={b} acts={acts} />))}

@@ -1,32 +1,40 @@
-// THE ESO TICKETS PAGE'S READ (SARCLA 29.10.2026: "work on ESO Reports > Tickets" - rebuilt like Visits, tickets ->
-// orders per person): every ticket of the ESO pipeline from January last year, of everyone who owns one, each as one
-// small row with what the page slices it by; the rules in ./ticketsRules.ts. Read every hour through slowReport: the
-// first visitor starts it, everyone after gets it.
+// THE ESO TICKETS PAGES' READ (SARCLA 29.10.2026, rebuilt like Visits; 30.10.2026: Incoming tickets and System tickets,
+// how they are handled): every ticket of the ESO pipeline from January last year, of everyone who owns one, each as one
+// small row with what the pages slice it by - and what the team did on it (the reply in the ticket, the e-mails sent, the
+// calls, meetings, notes and tasks logged on it). The rules in ./ticketsRules.ts. Read every hour through slowReport:
+// the first visitor starts it, everyone after gets it.
 
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { ownerNames } from "@/lib/integrations/erosion";
 import { teamOf } from "@/lib/datatracker/rosters";
 import { readOwners } from "@/lib/ownerRules/hubspot";
 import { UCS } from "@/lib/lifecycle/config";
-import { batchRead, searchAll, ticketStages } from "@/lib/lifecycle/read";
-import { categoryBand, prioBand, prioOf } from "./esoRules";
-import { bandOf, kindOf, startLabels, stateOf, usable, type TicketsData } from "./ticketsRules";
+import { associations, batchRead, searchAll, ticketStages } from "@/lib/lifecycle/read";
+import { workingHours } from "@/lib/marketingKpis/handoverCube";
+import { prioBand, prioOf } from "./esoRules";
+import { firstContact, kindOf, outcomeIndex, startLabels, type TicketsData } from "./ticketsRules";
 
-const KEY = "esoTickets:v1";
+// v2: incoming and system tickets, the first contact and the activities, the outcome (30.10.2026)
+const KEY = "esoTickets:v2";
 const TTL_MS = 60 * 60 * 1000;
 const ESO_PIPELINE = "1726599376";
 const PROPS = [
   "subject", "createdate", "hs_pipeline_stage", "hubspot_owner_id", "source_type", "hs_object_source", "hs_object_source_detail_1",
-  "hs_outbound_ticket", "hs_tag_ids", "ticket_resolution_eso", "sales_potential_estimate", "hs_primary_company_id",
+  "hs_outbound_ticket", "hs_tag_ids", "ticket_resolution_eso", "first_agent_reply_date", "hs_primary_company_id",
 ];
 
 export function esoTickets(): Promise<SlowState<TicketsData>> {
   return slowReport(KEY, TTL_MS, buildTickets);
 }
 
-const num = (v: string | null | undefined) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+const ms = (v: string | null | undefined): number | null => {
+  const t = (v ?? "").trim();
+  if (!t) return null;
+  const n = /^\d+$/.test(t) ? Number(t) : Date.parse(t);
+  return Number.isFinite(n) ? n : null;
+};
 
-/** The read itself (exported for a local check; the page goes through esoTickets). */
+/** The read itself (exported for a local check; the pages go through esoTickets). */
 export async function buildTickets(): Promise<TicketsData> {
   const now = new Date();
   const year = now.getUTCFullYear();
@@ -39,35 +47,53 @@ export async function buildTickets(): Promise<TicketsData> {
     [[{ propertyName: "hs_pipeline", operator: "EQ", value: ESO_PIPELINE }, { propertyName: "createdate", operator: "GTE", value: String(Date.UTC(year - 1, 0, 1)) }]],
     PROPS, (n) => reportProgress(KEY, `reading the ESO tickets · ${n.toLocaleString("en")}`));
 
-  // 2. what each is - as the Hand-over page sorts them, the pushes kept
+  // 2. what each is - as the Hand-over page sorts them, the pushes kept as system tickets
   const lifecycle: Record<string, string> = {};
   for (const u of UCS) for (const t of u.tickets) lifecycle[t.name] = u.key;
   const left: Record<string, number> = {};
-  type Kept = { p: Record<string, string | null>; kind: string; channel: string };
+  type Kept = { id: string; p: Record<string, string | null>; group: number; channel: string; newLead: boolean; created: number };
   const kept: Kept[] = [];
   for (const t of found) {
     const p = t.properties ?? {};
-    const when = p.createdate ?? "";
-    const y = Number(when.slice(0, 4));
-    if (y !== year && y !== year - 1) continue;
+    const created = ms(p.createdate);
+    const y = created == null ? 0 : new Date(created).getUTCFullYear();
+    if (created == null || (y !== year && y !== year - 1)) continue;
     const what = kindOf({ subject: p.subject, sourceType: p.source_type, objectSource: p.hs_object_source, workflow: p.hs_object_source_detail_1, outbound: p.hs_outbound_ticket, tags: p.hs_tag_ids, resolution: p.ticket_resolution_eso }, lifecycle);
     if ("skip" in what) { left[what.skip] = (left[what.skip] ?? 0) + 1; continue; }
-    kept.push({ p, kind: what.kind, channel: what.channel });
+    kept.push({ id: String(t.id), p, group: what.group === "incoming" ? 0 : 1, channel: what.channel, newLead: what.newLead, created });
   }
 
-  // 3. their companies' facts
-  type Co = { prio: string; category: string; country: string; band: string };
+  // 3. what the team did on them: the e-mails (sent ones are a contact, received ones are not), calls, meetings, notes, tasks
+  const ids = kept.map((k) => k.id);
+  const on: Record<"emails" | "calls" | "meetings" | "notes" | "tasks", Map<string, string[]>> = { emails: new Map(), calls: new Map(), meetings: new Map(), notes: new Map(), tasks: new Map() };
+  for (const to of Object.keys(on) as (keyof typeof on)[]) {
+    reportProgress(KEY, `reading the ${to} on the tickets`);
+    on[to] = await associations("tickets", to, ids);
+  }
+  const when = new Map<string, number | null>();
+  const outgoing = new Set<string>();
+  const emailIds = [...new Set([...on.emails.values()].flat())];
+  for (const e of await batchRead("emails", emailIds, ["hs_timestamp", "hs_email_direction"], [], (n) => reportProgress(KEY, `reading the e-mails, ${n.toLocaleString("en")} of ${emailIds.length.toLocaleString("en")}`))) {
+    when.set(`e${e.id}`, ms(e.properties?.hs_timestamp));
+    if ((e.properties?.hs_email_direction ?? "") !== "INCOMING_EMAIL") outgoing.add(String(e.id));
+  }
+  const callIds = [...new Set([...on.calls.values()].flat())];
+  for (const c of await batchRead("calls", callIds, ["hs_timestamp"], [], (n) => reportProgress(KEY, `reading the calls, ${n.toLocaleString("en")} of ${callIds.length.toLocaleString("en")}`))) when.set(`c${c.id}`, ms(c.properties?.hs_timestamp));
+  const meetingIds = [...new Set([...on.meetings.values()].flat())];
+  for (const m of await batchRead("meetings", meetingIds, ["hs_meeting_start_time", "hs_timestamp"])) when.set(`m${m.id}`, ms(m.properties?.hs_meeting_start_time) ?? ms(m.properties?.hs_timestamp));
+
+  // 4. their companies' facts
+  type Co = { prio: string; category: string; country: string };
   const companies = new Map<string, Co>();
-  const ids = [...new Set(kept.map((k) => k.p.hs_primary_company_id).filter((x): x is string => !!x))];
-  const recs = await batchRead("companies", ids, ["sales_priority", "apso_customer", "country_custom", "yearly_customer_potential"], [],
-    (n) => reportProgress(KEY, `reading the tickets' companies · ${n.toLocaleString("en")} of ${ids.length.toLocaleString("en")}`));
+  const coIds = [...new Set(kept.map((k) => k.p.hs_primary_company_id).filter((x): x is string => !!x))];
+  const recs = await batchRead("companies", coIds, ["sales_priority", "apso_customer", "country_custom"], [],
+    (n) => reportProgress(KEY, `reading the tickets' companies · ${n.toLocaleString("en")} of ${coIds.length.toLocaleString("en")}`));
   for (const c of recs) {
     const p = c.properties ?? {};
-    const pot = num(p.yearly_customer_potential);
-    companies.set(String(c.id), { prio: prioBand(prioOf(p.sales_priority)), category: categoryBand(p.apso_customer), country: p.country_custom || "Not set", band: bandOf(usable(pot) ? pot : 0) });
+    companies.set(String(c.id), { prio: prioBand(prioOf(p.sales_priority)), category: (p.apso_customer ?? "").trim() || "Not set", country: (p.country_custom ?? "").trim() || "Not set" });
   }
 
-  // 4. the people: their names, and their team - the rosters, else the team HubSpot has them in (as Visits)
+  // 5. the people: their names, and their team - the rosters, else the team HubSpot has them in (as Visits)
   const names = await ownerNames().catch(() => new Map<string, string>());
   const hsTeam = new Map<string, string>();
   try { for (const o of await readOwners()) if (o.team) hsTeam.set(String(o.id), o.team); } catch { /* the rosters alone */ }
@@ -80,19 +106,28 @@ export async function buildTickets(): Promise<TicketsData> {
     return i;
   };
 
-  // 5. the rows
+  // 6. the rows
   const labels = startLabels();
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const rows: number[][] = [];
-  for (const { p, kind, channel } of kept) {
-    const when = p.createdate ?? "";
+  for (const { id, p, group, channel, newLead, created } of kept) {
+    const d = new Date(created);
     const co = companies.get(p.hs_primary_company_id ?? "");
-    const value = num(p.sales_potential_estimate);
+    const emails = on.emails.get(id) ?? [], calls = on.calls.get(id) ?? [], meetings = on.meetings.get(id) ?? [];
+    const sent = emails.filter((e) => outgoing.has(e));
+    const first = firstContact(created, [
+      { at: ms(p.first_agent_reply_date), kind: 0 },
+      ...sent.map((e) => ({ at: when.get(`e${e}`) ?? null, kind: 1 })),
+      ...calls.map((c) => ({ at: when.get(`c${c}`) ?? null, kind: 2 })),
+      ...meetings.map((m) => ({ at: when.get(`m${m}`) ?? null, kind: 3 })),
+    ]);
+    const closed = !!stages.get(p.hs_pipeline_stage ?? "")?.closed;
     rows.push([
-      person(p.hubspot_owner_id ?? ""), Number(when.slice(0, 4)) === year ? 0 : 1, Number(when.slice(5, 7)) - 1, Number(when.slice(8, 10)),
-      at(labels.kind, kind), at(labels.channel, channel),
-      at(labels.prio, co?.prio ?? "No priority"), at(labels.category, co?.category ?? "Other"), at(labels.country, co?.country ?? "Not set"), at(labels.band, co?.band ?? "Not set"),
-      stateOf(!!stages.get(p.hs_pipeline_stage ?? "")?.closed, p.ticket_resolution_eso), value > 0 ? Math.round(value) : 0,
+      person(p.hubspot_owner_id ?? ""), d.getUTCFullYear() === year ? 0 : 1, d.getUTCMonth(), d.getUTCDate(), group, at(labels.channel, channel),
+      at(labels.prio, co?.prio ?? "No priority"), at(labels.category, co?.category ?? "Not set"), at(labels.country, co?.country ?? "Not set"),
+      outcomeIndex(closed, p.ticket_resolution_eso, newLead),
+      first ? Math.round(workingHours(created, first.at) * 10) : -1, first ? first.kind : -1,
+      sent.length, calls.length, meetings.length, (on.notes.get(id) ?? []).length + (on.tasks.get(id) ?? []).length,
     ]);
   }
   return {

@@ -1,9 +1,10 @@
 "use client";
-// The ESO Tickets page, rebuilt like Visits (SARCLA 29.10.2026: tickets -> orders, per person) - ../Tickets.tsx.
+// ESO Incoming tickets - the customers' requests (SARCLA 30.10.2026: "split in 2 apps - Incoming Ticket and System
+// tickets") - ../Tickets.tsx. The address stays the one the Tickets page had.
 
 import { Suspense } from "react";
 import { TicketsExplorer } from "../Tickets";
 
-export default function TicketsPage() {
-  return <Suspense><TicketsExplorer /></Suspense>;
+export default function IncomingTicketsPage() {
+  return <Suspense><TicketsExplorer group="incoming" /></Suspense>;
 }
