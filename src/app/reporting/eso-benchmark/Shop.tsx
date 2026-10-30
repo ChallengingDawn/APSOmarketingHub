@@ -6,6 +6,10 @@
 // any ERP revenue. Now a period is either the smart bar's live counters (day by day since 2 Oct 2026, against the same
 // number of days right before) or a Performis year (against the year before) - never both on one chart; ESO | TSA |
 // Total and the line managers' teams; leaderboards with targets. The rows and their rules: src/lib/reporting/shopRules.ts.
+// Second pass (SARCLA 30.10.2026, his spec: "Logins: per customer category; # without a view or shopping cart. Views:
+// per assortment; conversion rate per assortment. Orders: general & per assortment: # all, # one shots, # second,
+// # multiple" - "you're missing tabs"; assortment = the profit centre, orders = shop orders): tabs People | Logins |
+// Views | Orders | Priority | Country.
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -44,9 +48,10 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  blank, dayOf, dayWords, labelOf, liveSeries, passOf, presetsOf, shortDays, statsBy, totalsOf, yearSeries,
-  type SDim, type SFilters, type SPer, type SStats, type SWin, type Series, type ShopData,
+  blank, blankOrders, dayOf, dayWords, labelOf, liveSeries, looksBy, ordersBy, ordersCover, passOf, presetsOf, shortDays, statsBy, totalsOf, yearSeries,
+  type AStats, type OStats, type SDim, type SFilters, type SPer, type SStats, type SWin, type Series, type ShopData,
 } from "@/lib/reporting/shopRules";
+import { pcLabel } from "./shared";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
   ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, SubTitle, TARGET, TWO, Teams, asLead, asTeam, axisWidth, leadOf, niceTop, setQuery, useLead, useLeads, useTeam,
@@ -88,6 +93,10 @@ const WEEKDAY = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const MIN_COMPANIES = 10;
 /** Article views, beside the logins */
 const VIEWS = "#eb6834";
+/** The buyers' three kinds: one-shot, second, multiple (the profit centres' validated palette) */
+const MIX_COLOR = { oneShot: "#eda100", second: "#2d6fa8", multiple: "#1baf7a" } as const;
+/** Conversion ranks a profit centre from this many articles looked at. */
+const MIN_LOOKS = 50;
 
 /* ── the period ────────────────────────────────────────────────────────── */
 
@@ -121,13 +130,17 @@ const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (
 
 /* ── what every chart is drawn with ────────────────────────────────────── */
 
-type SView = "people" | "activity" | "category" | "prio" | "country";
+type SView = "people" | "logins" | "views" | "orders" | "prio" | "country";
 const VIEWS_TABS: { id: SView; label: string }[] = [
-  { id: "people", label: "People" }, { id: "activity", label: "Logins & views" },
-  { id: "category", label: "Customer category" }, { id: "prio", label: "Priority" }, { id: "country", label: "Country" },
+  { id: "people", label: "People" }, { id: "logins", label: "Logins" }, { id: "views", label: "Views" }, { id: "orders", label: "Orders" },
+  { id: "prio", label: "Priority" }, { id: "country", label: "Country" },
 ];
 const isView = (x: string | null): x is SView => VIEWS_TABS.some((v) => v.id === x);
-const DIM_OF: Record<SView, SDim> = { people: "person", activity: "person", category: "category", prio: "prio", country: "country" };
+/** The first pass's tabs, in addresses and saved views: Logins & views and Customer category are Logins now */
+const OLD_VIEW: Record<string, SView> = { activity: "logins", category: "logins" };
+const viewOf = (x: string | null): SView => (isView(x) ? x : (x && OLD_VIEW[x]) || "people");
+/** The breakdown each tab's boards and table go by (Logins: customer category, as his spec says). */
+const DIM_OF: Record<SView, SDim> = { people: "person", logins: "category", views: "person", orders: "person", prio: "prio", country: "country" };
 const DIM: Record<SDim, { name: string; lower: string; icon: React.ReactNode; tint: Tint; note: string }> = {
   person: { name: "Company owner", lower: "company owner", icon: <BadgeOutlinedIcon />, tint: "green", note: "Whose customers they are - the company's owner in HubSpot" },
   prio: { name: "Priority", lower: "priority", icon: <FlagOutlinedIcon />, tint: "purple", note: "The company's priority: Prio 1 above €25,000 potential, Prio 2 €2,500-25,000, Prio 3 €500-2,500" },
@@ -169,13 +182,50 @@ function seriesOf(c: ShCtx): Series {
   return s;
 }
 
+const pcName = (k: string) => (k === "Not assigned" ? k : pcLabel(k.toLowerCase()));
+const looksCache = new WeakMap<ShCtx, Map<string, Map<string, AStats>>>();
+/** The period's articles looked at - or the period before's - by profit centre, under the team and filters (live only). */
+function looksOf(c: ShCtx, before = false): Map<string, AStats> {
+  let memo = looksCache.get(c);
+  if (!memo) { memo = new Map(); looksCache.set(c, memo); }
+  const k = before ? "p" : "c";
+  const hit = memo.get(k);
+  if (hit) return hit;
+  const w = before ? c.per.prev : c.per.win;
+  const out = !w ? new Map<string, AStats>() : looksBy(c.d, w, passOf(c.d, c.filters, c.people));
+  memo.set(k, out);
+  return out;
+}
+const ordersCache = new WeakMap<ShCtx, Map<string, Map<string, OStats>>>();
+/** The period's shop orders - or the period before's - all together (""), by a breakdown of the company, or by profit
+ *  centre ("pc"); none where the orders read does not reach. */
+function ordersOf(c: ShCtx, by: SDim | "pc" | "" = "", before = false): Map<string, OStats> {
+  let memo = ordersCache.get(c);
+  if (!memo) { memo = new Map(); ordersCache.set(c, memo); }
+  const k = `${before ? "p" : "c"}|${by}`;
+  const hit = memo.get(k);
+  if (hit) return hit;
+  const w = before ? c.per.prev : c.per.win;
+  let out = new Map<string, OStats>();
+  if (w && ordersCover(c.d, w)) {
+    if (by === "pc") {
+      const pass = passOf(c.d, c.filters, c.people);
+      c.d.labels.pc.forEach((pc, i) => { const x = ordersBy(c.d, w, pass, undefined, i).get(""); if (x) out.set(pc, x); });
+    } else out = ordersBy(c.d, w, passOf(c.d, c.filters, c.people, by || undefined), by ? (co) => labelOf(c.d, co, by) : undefined);
+  }
+  memo.set(k, out);
+  return out;
+}
+
 /** A chart's target, one per chart, team and period: "eso-shop:people:loggedin@eso-RABE~7d" (the default period without "~"). */
 const targetKey = (id: string, team: TeamKey, lead: string | null, per: SPer) => `eso-shop:${id}@${team}${team === "eso" && lead ? `-${lead}` : ""}${/:days$/.test(id) || per.id === DEFAULT_PER ? "" : `~${per.id}`}`;
 const targetFor = (c: ShCtx, id: string) => { const t = c.targets?.[targetKey(id, c.team, c.lead, c.per)]; return t != null && t > 0 ? t : null; };
 
 /* ── the leaderboards ──────────────────────────────────────────────────── */
 
-type Measure = "loggedin" | "logins" | "views" | "ordered" | "share" | "depth" | "noview";
+type Measure = "loggedin" | "logins" | "views" | "ordered" | "share" | "depth" | "idle" | "idleshare";
+/** Logged in and did nothing: no view and no cart - a Performis year has no carts, so there it is no view. */
+const idleWords = (c: { per: SPer }) => (isLive(c.per.win) ? "Logged in, no view and no cart" : "Logged in, viewed no article");
 const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; unit: "n" | "pct"; target: string }> = {
   loggedin: { title: "Companies that logged in", fmt: int, unit: "n", target: "companies that logged in" },
   logins: { title: "Logins", fmt: int, unit: "n", target: "logins" },
@@ -183,15 +233,19 @@ const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; unit
   ordered: { title: "Logged in and ordered in the shop", fmt: int, unit: "n", target: "companies that logged in and ordered in the shop" },
   share: { title: "Share that ordered in the shop", fmt: (n) => pct(n), unit: "pct", target: "share of the companies that logged in that ordered in the shop" },
   depth: { title: "Article views per login", fmt: one, unit: "n", target: "article views per login" },
-  noview: { title: "Logged in, viewed no article", fmt: int, unit: "n", target: "companies that logged in and viewed no article" },
+  idle: { title: "Logged in, no view and no cart", fmt: int, unit: "n", target: "companies that logged in and neither viewed nor put an article in the cart" },
+  idleshare: { title: "Share with no view and no cart", fmt: (n) => pct(n), unit: "pct", target: "share of the companies that logged in with no view and no cart" },
 };
+/** A measure's name in the period's words (the idle ones say "viewed no article" on a Performis year). */
+const titleOf = (m: Measure, c: ShCtx) => (m === "idle" ? idleWords(c) : m === "idleshare" ? (isLive(c.per.win) ? MEASURE.idleshare.title : "Share that viewed no article") : MEASURE[m].title);
 /** A measure of a group's figures; and whether the group has enough behind it to be ranked on it. */
 function valueOf(m: Measure, s: SStats): { v: number; ranked: boolean } {
   if (m === "loggedin") return { v: s.companies, ranked: true };
   if (m === "logins") return { v: s.logins, ranked: true };
   if (m === "views") return { v: s.views, ranked: true };
   if (m === "ordered") return { v: s.ordered, ranked: true };
-  if (m === "noview") return { v: s.noView, ranked: true };
+  if (m === "idle") return { v: s.idle, ranked: true };
+  if (m === "idleshare") return { v: s.companies ? s.idle / s.companies : 0, ranked: s.companies >= MIN_COMPANIES };
   if (m === "share") return { v: s.companies ? s.ordered / s.companies : 0, ranked: s.companies >= MIN_COMPANIES };
   return { v: s.logins ? s.views / s.logins : 0, ranked: s.companies >= MIN_COMPANIES };
 }
@@ -200,7 +254,8 @@ function subOf(m: Measure, s: SStats, t: SStats, dim: SDim): string {
   if (m === "logins") return `${int(s.companies)} companies · ${one(s.companies ? s.logins / s.companies : NaN)} per company`;
   if (m === "views") return `${one(s.logins ? s.views / s.logins : NaN)} per login · ${int(s.companies)} companies`;
   if (m === "ordered" || m === "share") return `${int(s.ordered)} of the ${int(s.companies)} that logged in`;
-  if (m === "noview") return `${pct(s.companies ? s.noView / s.companies : null)} of the ${int(s.companies)} that logged in`;
+  if (m === "idle") return `${pct(s.companies ? s.idle / s.companies : null)} of the ${int(s.companies)} that logged in`;
+  if (m === "idleshare") return `${int(s.idle)} of the ${int(s.companies)} that logged in`;
   return `${int(s.views)} views over ${int(s.logins)} logins`;
 }
 function boardRows(c: ShCtx, dim: SDim, m: Measure): { rows: BoardRow[]; small: BoardRow[] } {
@@ -209,7 +264,7 @@ function boardRows(c: ShCtx, dim: SDim, m: Measure): { rows: BoardRow[]; small: 
   const rows: BoardRow[] = [], small: BoardRow[] = [];
   for (const [label, s] of by) {
     const { v, ranked } = valueOf(m, s);
-    if (!v && m !== "share") continue;
+    if (!v && m !== "share" && m !== "idleshare") continue;
     const p = before.get(label);
     (ranked ? rows : small).push({ label, cur: v, prev: p ? valueOf(m, p).v : 0, sub: subOf(m, s, t, dim) });
   }
@@ -218,16 +273,153 @@ function boardRows(c: ShCtx, dim: SDim, m: Measure): { rows: BoardRow[]; small: 
 function Board({ c, id, dim, m, actions }: { c: ShCtx; id: string; dim: SDim; m: Measure; actions?: React.ReactNode }) {
   const { rows, small } = boardRows(c, dim, m);
   const M = MEASURE[m];
-  // a rise in "viewed no article" is not good news - shown without a change rather than in the wrong colour
-  const noChange = !c.per.prev || m === "noview";
+  // fewer is better for the idle ones: a rise is not good news
+  const lower = m === "idle" || m === "idleshare";
   return (
-    <Leaderboard key={`${id}-${c.per.id}`} title={`${M.title}, ${c.per.title}, by ${DIM[dim].lower}`} rows={rows} noChange={noChange}
-      curLabel={perWords(c.d, c.per)} prevLabel={prevWords(c.d, c.per)} first={c.half ? 8 : 12} fmt={M.fmt} ratio={m === "share"} diff={m === "depth" ? signedOne : signedInt} target={targetFor(c, id)}
+    <Leaderboard key={`${id}-${c.per.id}`} title={`${titleOf(m, c)}, ${c.per.title}, by ${DIM[dim].lower}`} rows={rows} noChange={!c.per.prev} lowerIsBetter={lower}
+      curLabel={perWords(c.d, c.per)} prevLabel={prevWords(c.d, c.per)} first={c.half ? 8 : 12} fmt={M.fmt} ratio={m === "share" || m === "idleshare"} diff={m === "depth" ? signedOne : signedInt} target={targetFor(c, id)}
       unranked={small.length ? { why: `under ${MIN_COMPANIES} companies that logged in`, rows: small } : undefined}
       selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${DIM[dim].lower}`} actions={actions} />
   );
 }
+
+/* ── the views by profit centre ────────────────────────────────────────── */
+
+type PcMeasure = "looks" | "conversion" | "companies";
+const PC_MEASURE: Record<PcMeasure, { title: string; fmt: (n: number) => string; unit: "n" | "pct"; target: string }> = {
+  looks: { title: "Articles looked at", fmt: int, unit: "n", target: "articles looked at" },
+  conversion: { title: "Conversion - looked at, then ordered", fmt: (n) => pct(n), unit: "pct", target: "share of the articles looked at that were ordered" },
+  companies: { title: "Companies that looked", fmt: int, unit: "n", target: "companies that looked at its articles" },
+};
+const pcValue = (m: PcMeasure, s: AStats) => (m === "looks" ? s.looks : m === "companies" ? s.companies : s.looks ? s.ordered / s.looks : 0);
+function PcBoard({ c, id, m, actions }: { c: ShCtx; id: string; m: PcMeasure; actions?: React.ReactNode }) {
+  const by = looksOf(c), was = looksOf(c, true);
+  const all = [...by.values()].reduce((a, s) => a + s.looks, 0);
+  const rows: BoardRow[] = [], small: BoardRow[] = [];
+  // articles Products & Pricing does not know: mostly lines an order made, not a look - named under the title, not ranked
+  const na = by.get("Not assigned");
+  for (const [pc, s] of by) {
+    if (pc === "Not assigned") continue;
+    const p = was.get(pc);
+    const sub = m === "conversion" ? `${int(s.ordered)} of ${int(s.looks)} ordered · ${int(s.carted)} into the cart`
+      : m === "looks" ? `${pct(all ? s.looks / all : null)} of the articles looked at · ${int(s.companies)} companies` : `${int(s.looks)} articles looked at`;
+    (m !== "conversion" || s.looks >= MIN_LOOKS ? rows : small).push({ label: pcName(pc), cur: pcValue(m, s), prev: p ? pcValue(m, p) : 0, sub });
+  }
+  const M = PC_MEASURE[m];
+  return (
+    <Leaderboard key={`${id}-${c.per.id}`} title={`${M.title}, ${c.per.title}, by profit centre`} rows={rows} noChange={!c.per.prev}
+      curLabel={perWords(c.d, c.per)} prevLabel={prevWords(c.d, c.per)} first={12} fmt={M.fmt} ratio={m === "conversion"} diff={signedInt} target={targetFor(c, id)}
+      unranked={small.length ? { why: `under ${MIN_LOOKS} articles looked at`, rows: small } : undefined} actions={actions}
+      summary={na ? <span style={{ fontWeight: 500, color: MUTED }}>Not ranked: {int(na.looks)} articles Products &amp; Pricing does not know, {int(na.ordered)} of them ordered</span> : undefined} />
+  );
+}
+function PcTable({ c }: { c: ShCtx }) {
+  type PRow = AStats & { label: string };
+  const by = looksOf(c);
+  const rows: PRow[] = c.d.labels.pc.flatMap((pc) => { const s = by.get(pc); return s ? [{ label: pcName(pc), ...s }] : []; });
+  const t = rows.reduce<AStats>((a, r) => ({ looks: a.looks + r.looks, carted: a.carted + r.carted, ordered: a.ordered + r.ordered, companies: a.companies + r.companies }), { looks: 0, carted: 0, ordered: 0, companies: 0 });
+  const cols: Col<PRow>[] = [
+    { key: "looks", head: "Articles looked at", tip: "An article a company opened, put in the cart or ordered on a day, counted once that day; Not assigned: articles Products & Pricing does not know - mostly what an order brought in", cell: (r) => int(r.looks), sort: (r) => r.looks },
+    { key: "share", head: "Share of them", cell: (r) => pct(t.looks ? r.looks / t.looks : null), sort: (r) => r.looks },
+    { key: "companies", head: "Companies", tip: "Companies that looked at an article of it", cell: (r) => int(r.companies), sort: (r) => r.companies },
+    { key: "carted", head: "Into the cart", cell: (r) => int(r.carted), sort: (r) => r.carted },
+    { key: "ordered", head: "Ordered", cell: (r) => int(r.ordered), sort: (r) => r.ordered },
+    { key: "conversion", head: "Conversion", tip: "Of the articles looked at, the share ordered", cell: (r) => pct(r.looks ? r.ordered / r.looks : null), sort: (r) => (r.looks ? r.ordered / r.looks : -1) },
+  ];
+  return <FullTable key={`pc-${c.per.id}-${c.team}`} first="Profit centre" cols={cols} initial="looks" rows={rows} total={{ label: "Total", ...t, companies: looksBy(c.d, c.per.win, passOf(c.d, c.filters, c.people), () => "").get("")?.companies ?? 0 }} natural />;
+}
+
+/* ── the shop orders: all, and their buyers - one-shot, second, multiple ── */
+
+const MIX: { k: "oneShot" | "second" | "multiple"; label: string; note: string }[] = [
+  { k: "oneShot", label: "One-shot", note: "their only shop order so far" },
+  { k: "second", label: "Second", note: "their second shop order" },
+  { k: "multiple", label: "Multiple", note: "three shop orders or more" },
+];
+const repeatShare = (s: OStats) => (s.buyers ? (s.second + s.multiple) / s.buyers : null);
+/** All the period's shop orders and buyers, the buyers by kind - against the period before when the orders reach it. */
+function OrderMix({ c }: { c: ShCtx }) {
+  const t = ordersOf(c).get("") ?? blankOrders();
+  const p = c.per.prev && ordersCover(c.d, c.per.prev) ? ordersOf(c, "", true).get("") ?? blankOrders() : null;
+  const big = (label: string, v: number, was: number | null) => (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={{ fontSize: "0.76rem", fontWeight: 600, color: MUTED }}>{label}</Typography>
+      <Typography sx={{ fontSize: "1.5rem", fontWeight: 700, color: INK, lineHeight: 1.15, fontVariantNumeric: "tabular-nums" }}>{int(v)}</Typography>
+      {was != null && <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: !was ? FAINT : v >= was ? GREEN : RED }}>{was ? `${v >= was ? "+" : "−"}${Math.abs(((v - was) / was) * 100).toFixed(1)}% on ${prevWords(c.d, c.per)}` : "nothing the period before"}</Typography>}
+    </Box>
+  );
+  return (
+    <Box sx={{ display: "grid", gap: 1.5 }}>
+      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>{big("Shop orders", t.orders, p?.orders ?? null)}{big("Buyers", t.buyers, p?.buyers ?? null)}</Box>
+      <Box sx={{ display: "grid", gap: 0.75 }}>
+        {MIX.map((x) => (
+          <Box key={x.k} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1.2fr) minmax(60px, 1fr) 120px", gap: 1, alignItems: "center" }}>
+            <Typography sx={{ fontSize: "0.84rem", color: INK }}><b>{x.label}</b> <span style={{ color: MUTED }}>- {x.note}</span></Typography>
+            <Box sx={{ height: 10, borderRadius: 5, bgcolor: "rgba(21,34,58,.06)", overflow: "hidden" }}><Box sx={{ height: "100%", width: `${t.buyers ? (t[x.k] / t.buyers) * 100 : 0}%`, bgcolor: MIX_COLOR[x.k] }} /></Box>
+            <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{int(t[x.k])} <span style={{ color: MUTED, fontWeight: 500 }}>{pct(t.buyers ? t[x.k] / t.buyers : null)}</span></Typography>
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+/** Each profit centre's buyers, one-shot / second / multiple counted by their orders with a line of it. */
+function OrdersByPc({ c }: { c: ShCtx }) {
+  const by = ordersOf(c, "pc");
+  const rows = c.d.labels.pc.flatMap((pc) => { const s = by.get(pc); return s ? [[pc, s] as const] : []; });
+  const max = Math.max(1, ...rows.map(([, s]) => s.buyers));
+  return (
+    <Box sx={{ display: "grid", gap: 1 }}>
+      <Box sx={{ display: "flex", gap: 1.75, flexWrap: "wrap", fontSize: "0.74rem", color: MUTED }}>
+        {MIX.map((x) => <Box key={x.k} component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}><Box component="span" sx={{ width: 14, height: 8, borderRadius: "2px", bgcolor: MIX_COLOR[x.k] }} />{x.label}</Box>)}
+      </Box>
+      {rows.length === 0 && <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>No shop order in this period under these filters.</Typography>}
+      {rows.map(([pc, s]) => (
+        <Box key={pc} title={`${pcName(pc)}: ${int(s.orders)} shop orders · ${int(s.buyers)} buyers - ${int(s.oneShot)} one-shot, ${int(s.second)} second, ${int(s.multiple)} multiple`}
+          sx={{ display: "grid", gridTemplateColumns: "minmax(110px, 0.9fr) minmax(0, 2fr) auto", gap: 1, alignItems: "center" }}>
+          <Typography noWrap sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>{pcName(pc)}</Typography>
+          <Box sx={{ display: "flex", height: 14, borderRadius: "4px", overflow: "hidden", width: `${(s.buyers / max) * 100}%`, minWidth: "2px" }}>
+            {MIX.map((x) => <Box key={x.k} sx={{ width: `${s.buyers ? (s[x.k] / s.buyers) * 100 : 0}%`, bgcolor: MIX_COLOR[x.k] }} />)}
+          </Box>
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}><b style={{ color: INK }}>{int(s.buyers)}</b> buyers · {int(s.orders)} orders</Typography>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+function OrdersTable({ c }: { c: ShCtx }) {
+  type ORow = OStats & { label: string };
+  const by = ordersOf(c, "pc");
+  const rows: ORow[] = c.d.labels.pc.flatMap((pc) => { const s = by.get(pc); return s ? [{ label: pcName(pc), ...s }] : []; });
+  const t = ordersOf(c).get("") ?? blankOrders();
+  const cols: Col<ORow>[] = [
+    { key: "orders", head: "Shop orders", tip: "Shop orders with a line of the profit centre - an order of two counts for both", cell: (r) => int(r.orders), sort: (r) => r.orders },
+    { key: "buyers", head: "Buyers", cell: (r) => int(r.buyers), sort: (r) => r.buyers },
+    { key: "oneShot", head: "One-shot", tip: "Buyers whose only shop order of it so far is in the period", cell: (r) => int(r.oneShot), sort: (r) => r.oneShot },
+    { key: "second", head: "Second", tip: "Buyers with two shop orders of it so far", cell: (r) => int(r.second), sort: (r) => r.second },
+    { key: "multiple", head: "Multiple", tip: "Buyers with three or more", cell: (r) => int(r.multiple), sort: (r) => r.multiple },
+    { key: "repeat", head: "Came back", tip: "Second and multiple, of the buyers", cell: (r) => pct(repeatShare(r)), sort: (r) => repeatShare(r) ?? -1 },
+  ];
+  return <FullTable key={`orders-${c.per.id}-${c.team}`} first="Profit centre" cols={cols} initial="orders" rows={rows} total={{ label: "All shop orders", ...t }} natural />;
+}
+function OrdersBoard({ c, id, dim, actions }: { c: ShCtx; id: string; dim: SDim; actions?: React.ReactNode }) {
+  const by = ordersOf(c, dim), was = c.per.prev && ordersCover(c.d, c.per.prev) ? ordersOf(c, dim, true) : null;
+  const rows: BoardRow[] = [...by].map(([label, s]) => ({ label, cur: s.orders, prev: was?.get(label)?.orders ?? 0, sub: `${int(s.buyers)} buyers · ${pct(repeatShare(s))} came back` }));
+  return (
+    <Leaderboard key={`${id}-${c.per.id}`} title={`Shop orders, ${c.per.title}, by ${DIM[dim].lower}`} rows={rows} noChange={!was}
+      curLabel={perWords(c.d, c.per)} prevLabel={prevWords(c.d, c.per)} first={c.half ? 8 : 12} fmt={int} diff={signedInt} target={targetFor(c, id)}
+      selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
+      onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${DIM[dim].lower}`} actions={actions} />
+  );
+}
+/** Why a tab has nothing to draw for this period - said plainly, with what to pick instead. */
+function Unavailable({ text }: { text: string }) {
+  return <Box sx={{ ...glass, borderRadius: "18px", p: 2 }}><Typography sx={{ fontSize: "0.88rem", color: MUTED }}>{text}</Typography></Box>;
+}
+const looksMissing = (c: ShCtx) => (isLive(c.per.win) ? null : `Articles looked at, by profit centre, are counted live only - since ${dayWords(c.d.liveFrom)}. Pick a live period in Filters (the last 4 weeks, say).`);
+const ordersMissing = (c: ShCtx) => (!c.d.ordersFrom ? "Reading the shop orders in HubSpot - a few minutes; this tab fills in by itself."
+  : ordersCover(c.d, c.per.win) ? null : `The shop orders are read from ${dayWords(c.d.ordersFrom)} - pick a period from then on in Filters.`);
 
 /* ── the series: day by day (live) or year by year (Performis), columns with the target's line across ── */
 
@@ -303,12 +495,36 @@ type Drawn = { id: string; title: (c: ShCtx) => string; draw: (c: ShCtx, actions
 const teamPart = (c: ShCtx) => ` - ${teamName(c)}`;
 const forWhom = (c: ShCtx) => `${teamName(c)}'s target for ${c.per.title} - each team and period its own`;
 const stepWords = (c: ShCtx) => (!isLive(c.per.win) ? "year by year" : seriesOf(c).keys[0]?.length === 7 ? "month by month" : "day by day");
-/** A chart by its id "<tab>:<what>[-<breakdown>]": people:loggedin, people:days, activity:views, prio:share… */
+/** A chart by its id "<tab>:<what>[-<breakdown>]": people:loggedin, people:days, logins:idle, views:pc-conversion,
+ *  orders:mix, orders:orders, prio:share… */
 function drawnOf(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
+  if (chart.startsWith("pc-") && chart.slice(3) in PC_MEASURE) {
+    const m = chart.slice(3) as PcMeasure;
+    const title = (c: ShCtx) => `${PC_MEASURE[m].title}, ${c.per.title}, by profit centre${teamPart(c)}`;
+    return { id, title, draw: (c, a) => (looksMissing(c) ? <Unavailable text={looksMissing(c)!} /> : <PcBoard c={c} id={id} m={m} actions={a} />),
+      target: (c) => ({ unit: PC_MEASURE[m].unit, label: `Each profit centre's ${PC_MEASURE[m].target}, ${c.per.title}, is measured against it · ${forWhom(c)}.` }) };
+  }
+  if (chart === "mix") {
+    const title = (c: ShCtx) => `Shop orders and their buyers, ${c.per.title}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => (ordersMissing(c) ? <Unavailable text={ordersMissing(c)!} />
+      : <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · a buyer by its shop orders from ${dayWords(c.d.ordersFrom!)} to the period's end`} actions={a}><OrderMix c={c} /></ChartBox>) };
+  }
+  if (chart === "pc") {
+    const title = (c: ShCtx) => `Buyers by profit centre - one-shot, second, multiple, ${c.per.title}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => (ordersMissing(c) ? <Unavailable text={ordersMissing(c)!} />
+      : <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · an order counts for each profit centre it has a line of; a buyer by its orders of that one`} actions={a}><OrdersByPc c={c} /></ChartBox>) };
+  }
+  const [what, by] = chart.split("-");
+  if (what === "orders") {
+    const dim: SDim = by && (by in DIM) ? (by as SDim) : DIM_OF[v];
+    return { id, title: (c) => `Shop orders, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`,
+      draw: (c, a) => (ordersMissing(c) ? <Unavailable text={ordersMissing(c)!} /> : <OrdersBoard c={c} id={id} dim={dim} actions={a} />),
+      target: (c) => ({ unit: "n", label: `Each ${DIM[dim].lower}'s shop orders, ${c.per.title}, are measured against it · ${forWhom(c)}.` }) };
+  }
   if (chart === "days") {
-    const which = v === "activity" ? "activity" : "companies";
+    const which = v === "logins" ? "activity" : "companies";
     const title = (c: ShCtx) => `${which === "activity" ? "Logins and article views" : "Companies that logged in"}, ${stepWords(c)}${teamPart(c)}`;
     const hint = (c: ShCtx) => (isLive(c.per.win)
       ? `${perWords(c.d, c.per)} · ${sourceWords(c.per)} · weekends and the running day lighter`
@@ -316,17 +532,21 @@ function drawnOf(id: string): Drawn | undefined {
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={hint(c)} actions={a}><SeriesColumns c={c} which={which} target={which === "companies" ? targetFor(c, id) : null} /></ChartBox>,
       ...(which === "companies" ? { target: (c: ShCtx) => ({ unit: "n" as const, label: `Each ${isLive(c.per.win) ? "day's" : "year's"} companies that logged in are measured against it - a line across the columns; the running one is not counted · ${teamName(c)}'s target.` }) } : {}) };
   }
-  const [what, by] = chart.split("-");
   if (!(what in MEASURE)) return undefined;
   const m = what as Measure;
   const dim: SDim = by && (by in DIM) ? (by as SDim) : DIM_OF[v];
-  return { id, title: (c) => `${MEASURE[m].title}, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`, draw: (c, a) => <Board c={c} id={id} dim={dim} m={m} actions={a} />,
+  return { id, title: (c) => `${titleOf(m, c)}, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`, draw: (c, a) => <Board c={c} id={id} dim={dim} m={m} actions={a} />,
     target: (c) => ({ unit: MEASURE[m].unit, label: `Each ${DIM[dim].lower}'s ${MEASURE[m].target}, ${c.per.title}, is measured against it · ${forWhom(c)}.` }) };
 }
-/** The old page's charts, still in some BUC Views, by what took their place ("orders ever" is gone with the old page). */
+/** The earlier charts, still in some BUC Views, by what took their place: the old page's (its "orders ever" is the Orders
+ *  tab now), and the first pass's Logins & views and Customer category tabs (both Logins now). */
 function chartOf(key: string): Drawn | undefined {
   const [, view = "", chart = ""] = key.split(":");
-  const old: Record<string, string> = { "reps:loggedin": "people:loggedin", "reps:bought": "people:ordered", "category:category": "category:loggedin", "activity:activity": "activity:days" };
+  const old: Record<string, string> = {
+    "reps:loggedin": "people:loggedin", "reps:bought": "people:ordered", "category:category": "logins:loggedin", "activity:activity": "logins:days", "history:history": "orders:mix",
+    "people:noview": "people:idle", "activity:logins": "logins:logins-person", "activity:views": "views:views", "activity:days": "logins:days", "activity:depth": "views:depth",
+    "activity:noview": "logins:idle-person", "category:loggedin": "logins:loggedin", "category:ordered": "logins:ordered", "category:share": "logins:share", "category:depth": "logins:depth",
+  };
   return drawnOf(old[`${view}:${chart}`] ?? `${view}:${chart}`);
 }
 
@@ -347,7 +567,9 @@ function DimTable({ c, dim }: { c: ShCtx; dim: SDim }) {
     { key: "depth", head: "Views per login", cell: (r) => (r.logins ? one(r.views / r.logins) : "—"), sort: (r) => (r.logins ? r.views / r.logins : -1) },
     { key: "ordered", head: "Ordered in the shop", tip: "Of the companies that logged in, those that also ordered in the shop in the period", cell: (r) => int(r.ordered), sort: (r) => r.ordered },
     { key: "orderedShare", head: "Of them", tip: "The share of the companies that logged in that ordered in the shop", cell: (r) => pct(r.companies ? r.ordered / r.companies : null), sort: (r) => (r.companies ? r.ordered / r.companies : -1) },
-    { key: "noview", head: "Viewed no article", tip: "Logged in, but opened no article in the period", cell: (r) => int(r.noView), sort: (r) => r.noView },
+    isLive(c.per.win)
+      ? { key: "idle", head: "No view, no cart", tip: "Logged in, but opened no article and put none in the cart in the period", cell: (r) => int(r.idle), sort: (r) => r.idle }
+      : { key: "idle", head: "Viewed no article", tip: "Logged in, but opened no article in the year (the export has no carts)", cell: (r) => int(r.idle), sort: (r) => r.idle },
   ];
   const sorted = order ? [...rows].sort((a, b) => order.indexOf(a.label) - order.indexOf(b.label)) : rows;
   return <FullTable key={`${dim}-${c.per.id}-${c.team}`} first={DIM[dim].name} cols={cols} initial="companies" rows={sorted} total={{ label: "Total", ...t, before: totalOf(c, true).companies }} natural={!!order}
@@ -367,17 +589,44 @@ function TabCard({ c, act, footnote }: { c: ShCtx; act: Act; footnote: React.Rea
       <CardTitle icon={<BadgeOutlinedIcon />} tint="green" title={`${teamName(c)}'s customers in the shop, ${c.per.title}`} note={`${words} · by the company's owner`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "people:loggedin")}{draw(c, act, "people:ordered")}</Box>
       {draw(c, act, "people:days")}
-      <Box sx={TWO}>{draw(c, act, "people:share")}{draw(c, act, "people:noview")}</Box>
+      <Box sx={TWO}>{draw(c, act, "people:share")}{draw(c, act, "people:idle")}</Box>
       <Box><SubTitle>{perCap(c.per)}, by company owner</SubTitle><DimTable c={c} dim="person" /></Box>
       {footnote}
     </GlassCard>
   );
-  if (c.view === "activity") return (
+  if (c.view === "logins") return (
     <GlassCard sx={card}>
-      <CardTitle icon={<TouchAppOutlinedIcon />} tint="amber" title={`${teamName(c)}: logins and article views, ${c.per.title}`} note={`${words} · how often they come, and how much they look at`} />
-      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "activity:logins")}{draw(c, act, "activity:views")}</Box>
-      {draw(c, act, "activity:days")}
-      <Box sx={TWO}>{draw(c, act, "activity:depth")}{draw(c, act, "activity:noview")}</Box>
+      <CardTitle icon={<LoginOutlinedIcon />} tint="blue" title={`${teamName(c)}: logins by customer category, ${c.per.title}`} note={`${DIM.category.note} · ${words} · and who logged in without ${isLive(c.per.win) ? "a view or a cart" : "a view (the export has no carts)"}`} />
+      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "logins:loggedin")}{draw(c, act, "logins:logins")}</Box>
+      <Box sx={TWO}>{draw(c, act, "logins:idle")}{draw(c, act, "logins:idleshare")}</Box>
+      {draw(c, act, "logins:days")}
+      <Box><SubTitle>{perCap(c.per)}, by customer category</SubTitle><DimTable c={c} dim="category" /></Box>
+      {footnote}
+    </GlassCard>
+  );
+  if (c.view === "views") return (
+    <GlassCard sx={card}>
+      <CardTitle icon={<TouchAppOutlinedIcon />} tint="amber" title={`${teamName(c)}: views by profit centre, ${c.per.title}`} note={`${words} · the articles they looked at, by the profit centre Products & Pricing gives each - and how many were then ordered`} />
+      {looksMissing(c) ? <Box sx={{ mt: -1 }}><Unavailable text={looksMissing(c)!} /></Box> : (
+        <>
+          <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "views:pc-looks")}{draw(c, act, "views:pc-conversion")}</Box>
+          <Box><SubTitle>{perCap(c.per)}, by profit centre</SubTitle><PcTable c={c} /></Box>
+        </>
+      )}
+      <Box sx={TWO}>{draw(c, act, "views:views")}{draw(c, act, "views:depth")}</Box>
+      {footnote}
+    </GlassCard>
+  );
+  if (c.view === "orders") return (
+    <GlassCard sx={card}>
+      <CardTitle icon={<ShoppingCartCheckoutOutlinedIcon />} tint="purple" title={`${teamName(c)}'s customers: shop orders, ${c.per.title}`} note={`${perWords(c.d, c.per)} · every order placed in the shop, one per order number · its buyer one-shot, second or multiple by its shop orders${c.d.ordersFrom ? ` since ${dayWords(c.d.ordersFrom)}` : ""}`} />
+      {ordersMissing(c) ? <Box sx={{ mt: -1 }}><Unavailable text={ordersMissing(c)!} /></Box> : (
+        <>
+          <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "orders:mix")}{draw(c, act, "orders:pc")}</Box>
+          <Box><SubTitle>{perCap(c.per)}, by profit centre</SubTitle><OrdersTable c={c} /></Box>
+          {draw(c, act, "orders:orders")}
+        </>
+      )}
       {footnote}
     </GlassCard>
   );
@@ -386,7 +635,7 @@ function TabCard({ c, act, footnote }: { c: ShCtx; act: Act; footnote: React.Rea
     <GlassCard sx={card}>
       <CardTitle icon={dd.icon} tint={dd.tint} title={`${teamName(c)} by ${dd.lower}, ${c.per.title}`} note={`${dd.note} · ${words}`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${c.view}:loggedin`)}{draw(c, act, `${c.view}:ordered`)}</Box>
-      <Box sx={TWO}>{draw(c, act, `${c.view}:share`)}{draw(c, act, `${c.view}:depth`)}</Box>
+      <Box sx={TWO}>{draw(c, act, `${c.view}:share`)}{draw(c, act, `${c.view}:idleshare`)}</Box>
       <Box><SubTitle>{perCap(c.per)}, by {dd.lower}</SubTitle><DimTable c={c} dim={dim} /></Box>
       {footnote}
     </GlassCard>
@@ -414,7 +663,7 @@ function figuresOf(c: ShCtx): Fig[] {
     { id: "fig-logins", label: "Logins", value: int(t.logins), sub: `${one(t.companies ? t.logins / t.companies : NaN)} per company`, icon: <StorefrontOutlinedIcon />, tint: "green", amount: t.logins, unit: "n", change: changeOf(t.logins, p.logins, false, c) },
     { id: "fig-views", label: "Article views", value: int(t.views), sub: `${one(t.logins ? t.views / t.logins : NaN)} per login`, icon: <TouchAppOutlinedIcon />, tint: "amber", amount: t.views, unit: "n", change: changeOf(t.views, p.views, false, c) },
     { id: "fig-ordered", label: "Logged in and ordered in the shop", value: pct(t.companies ? share(t) : null), sub: `${int(t.ordered)} of the ${int(t.companies)} companies`, icon: <ShoppingCartCheckoutOutlinedIcon />, tint: "purple", amount: share(t), unit: "pct", change: changeOf(share(t), share(p), true, c) },
-    { id: "fig-noview", label: "Logged in, viewed no article", value: int(t.noView), sub: `${pct(t.companies ? t.noView / t.companies : null)} of those that logged in`, icon: <VisibilityOffOutlinedIcon />, tint: "slate", amount: t.noView, unit: "n", change: null },
+    { id: "fig-idle", label: idleWords(c), value: int(t.idle), sub: `${pct(t.companies ? t.idle / t.companies : null)} of those that logged in`, icon: <VisibilityOffOutlinedIcon />, tint: "slate", amount: t.idle, unit: "n", change: null },
   ];
 }
 function FigureCards({ c, items, actions }: { c: ShCtx; items: Fig[]; actions?: (f: Fig) => React.ReactNode }) {
@@ -562,7 +811,7 @@ export function ShopExplorer() {
   const lt = useLeads();
   const teams = lt?.teams ?? [];
   const { state: acts } = useActions("eso-shop");
-  const view: SView = isView(params.get("view")) ? (params.get("view") as SView) : "people";
+  const view: SView = viewOf(params.get("view"));
   const setView = (v: SView) => setQuery((q) => { if (v === "people") q.delete("view"); else q.set("view", v); });
   const filters: SFilters = useMemo(() => Object.fromEntries(FILTER_DIMS.flatMap((k) => (params.getAll(k).length ? [[k, params.getAll(k)]] : []))), [params]);
   const toggle = (k: SDim, label: string) => setQuery((q) => { const cur = q.getAll(k), next = cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label]; q.delete(k); for (const x of next) q.append(k, x); });
@@ -607,6 +856,8 @@ export function ShopExplorer() {
     <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
       Live: the smart bar&apos;s counters on the shop - each login, each article opened, each article ordered - per company and day since {dayWords(d.liveFrom)}, compared with the same number of days right before once they reach back that far.
       {" "}Performis: the E-Shop Data Tracker&apos;s export, one total per company and year, loaded into HubSpot by hand{d.dtLoaded ? ` - the last on ${dayWords(d.dtLoaded)}, so ${d.dtLoaded.slice(0, 4)} stops there` : ""}; a whole year against the year before. The two are never on one chart.
+      {" "}Views by profit centre: the articles each company opened, put in the cart or ordered (an article once a day; live only), by the profit centre Products &amp; Pricing gives the article - or its product page when no article was chosen; conversion: of them, the share ordered. Articles Products &amp; Pricing does not know are not ranked.
+      {" "}Shop orders: every order placed in the shop{d.ordersFrom ? ` since ${dayWords(d.ordersFrom)}` : ""}, one per order number, read every six hours; a buyer is one-shot, second or multiple by its shop orders from then to the period&apos;s end - per profit centre by its orders with a line of it.
       {" "}A company counts when it logged in in the period; ordered: it also ordered in the shop in the period. Whose customers: the company&apos;s owner in HubSpot - ESO and TSA by the rosters (else the owner&apos;s HubSpot team), Total every company the shop counted; a line manager&apos;s team as Map assignment&apos;s SAE table sets it. Shares and averages rank from {MIN_COMPANIES} companies that logged in. APSOparts&apos; and A+P&apos;s own companies left out.
       {" "}{int(d.coverage.companies)} companies read, {int(d.coverage.live)} of them counted live. Read {new Date(d.generatedAt).toLocaleString("en-GB")}, every hour.
     </Typography>
@@ -636,7 +887,7 @@ export function ShopExplorer() {
       </Box>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
-          <ReportTabs name="eso-shop" tab={view} onSelect={setView} tabs={VIEWS_TABS.map((v) => ({ id: v.id, label: v.label, count: v.id !== "people" && v.id !== "activity" && filters[DIM_OF[v.id]]?.length ? String(filters[DIM_OF[v.id]]!.length) : null }))} />
+          <ReportTabs name="eso-shop" tab={view} onSelect={setView} tabs={VIEWS_TABS.map((v) => ({ id: v.id, label: v.label, count: DIM_OF[v.id] !== "person" && filters[DIM_OF[v.id]]?.length ? String(filters[DIM_OF[v.id]]!.length) : null }))} />
         </Box>
         <Box sx={{ flex: 1 }} />
         <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="eso-shop" /></Box>
@@ -681,7 +932,7 @@ export function ShopPanel({ acts }: { acts: ActionsState | null }) {
     const f = spec.filters ?? {};
     const sf: SFilters = Object.fromEntries(FILTER_DIMS.flatMap((k) => (f[k]?.length ? [[k, f[k]]] : [])));
     // every chart here follows the panel's toggle (as the Figures' panel); its filters and period stay as sent
-    const sc: ShCtx = { ...c, per: f.period?.[0] ? perById(c.d, f.period[0]) : c.per, filters: sf, view: (spec.tab && isView(spec.tab) ? spec.tab : "people") as SView, half: fmt === "half" };
+    const sc: ShCtx = { ...c, per: f.period?.[0] ? perById(c.d, f.period[0]) : c.per, filters: sf, view: viewOf(spec.tab ?? null), half: fmt === "half" };
     const target = ch?.target ? { key: targetKey(ch.id, c.team, c.lead, sc.per), ...ch.target(sc) } : undefined;
     const actions = <TileActions where="nutshell" start="tab" edge={2} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, href: spec.href, kind: spec.kind, target }} />;
     return { key: spec.key, block: true, sx: fmt === "half" ? { gridColumn: { xs: "span 12", md: "span 6" } } : { gridColumn: "1 / -1" },

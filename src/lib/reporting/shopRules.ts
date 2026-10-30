@@ -7,6 +7,12 @@
 // Two sources, never on one chart: a period is either live (the smart bar's day counters, kept in the hub since they
 // started on 2 Oct 2026) or a Performis year (the desktop E-Shop Data Tracker's export, loaded into HubSpot by hand - the
 // last one on 15 Apr 2026, so 2026 stops there).
+//
+// The second pass (SARCLA 30.10.2026, his spec: "Logins: per customer category; # without a view or shopping cart.
+// Views: per assortment; conversion rate per assortment. Orders: general & per assortment: # all, # one shots,
+// # second, # multiple" - "you're missing tabs"; his picks: assortment = the profit centre, orders = shop orders):
+// the articles each company looked at, by profit centre (live only - the hub keeps them since October), and every shop
+// order since January of last year with the profit centres of its lines.
 
 export type ShopData = {
   generatedAt: string;
@@ -20,19 +26,33 @@ export type ShopData = {
   dtLoaded: string | null;
   /** the company owners, by index - their team from the rosters, else their HubSpot team */
   people: { id: string; name: string; team: string }[];
-  labels: { prio: string[]; category: string[]; country: string[] };
+  /** pc: the profit centres - DT, KT, FT, ST, AT ... and "Not assigned" */
+  labels: { prio: string[]; category: string[]; country: string[]; pc: string[] };
   /** per company index - see C */
   companies: number[][];
   /** live: one row per company and day - see D */
   days: number[][];
   /** Performis: one row per company and year - see Y */
   years: number[][];
+  /** live: the articles looked at, one row per company, day and profit centre - see L */
+  looks: number[][];
+  /** one row per shop order - see O; empty until the orders are read */
+  orders: number[][];
+  /** the first day the shop orders are read from ("2025-01-01"); null while they are still being read */
+  ordersFrom: string | null;
   coverage: { companies: number; live: number; performis: number; internal: number };
 };
 /** A company row: its owner (person index), priority, customer category, country (label indexes). */
 export const C = { person: 0, prio: 1, category: 2, country: 3 } as const;
-/** A live row: the company, the day (0 = liveFrom), logins, article views, articles ordered in the shop. */
-export const D = { company: 0, day: 1, logins: 2, views: 3, orders: 4 } as const;
+/** A live row: the company, the day (0 = liveFrom), logins, article views, articles ordered in the shop, articles put in
+ *  the cart. */
+export const D = { company: 0, day: 1, logins: 2, views: 3, orders: 4, carts: 5 } as const;
+/** A look row: the company, the day (0 = liveFrom), the profit centre (index into labels.pc), the articles it looked at
+ *  that day (an article once a day), of them put in the cart, of them ordered. */
+export const L = { company: 0, day: 1, pc: 2, looks: 3, carted: 4, ordered: 5 } as const;
+/** An order row: the company, the day it was placed (0 = liveFrom - earlier days below 0), its lines' profit centres as
+ *  bits (bit i = labels.pc[i]). */
+export const O = { company: 0, day: 1, pcs: 2 } as const;
 /** A Performis row: the company, the year (index into dtYears), logins, article views, shop orders. */
 export const Y = { company: 0, year: 1, logins: 2, views: 3, orders: 4 } as const;
 
@@ -118,16 +138,18 @@ export const spanOf = (w: SWin) => (w.kind === "live" ? w.to - w.from + 1 : 0);
 
 /* ── the figures ───────────────────────────────────────────────────────── */
 
-/** Each company's logins, article views and shop orders over a period - companies without any left out. */
-export function totalsOf(d: ShopData, w: SWin): Map<number, [number, number, number]> {
-  const out = new Map<number, [number, number, number]>();
-  const add = (co: number, l: number, v: number, o: number) => {
-    if (!l && !v && !o) return;
+export type Totals = Map<number, [number, number, number, number]>;
+/** Each company's logins, article views, shop orders and cart additions over a period - companies without any left out.
+ *  The export has no carts (0). */
+export function totalsOf(d: ShopData, w: SWin): Totals {
+  const out: Totals = new Map();
+  const add = (co: number, l: number, v: number, o: number, c: number) => {
+    if (!l && !v && !o && !c) return;
     const t = out.get(co);
-    if (t) { t[0] += l; t[1] += v; t[2] += o; } else out.set(co, [l, v, o]);
+    if (t) { t[0] += l; t[1] += v; t[2] += o; t[3] += c; } else out.set(co, [l, v, o, c]);
   };
-  if (w.kind === "live") { for (const r of d.days) if (r[D.day] >= w.from && r[D.day] <= w.to) add(r[D.company], r[D.logins], r[D.views], r[D.orders]); }
-  else for (const r of d.years) if (r[Y.year] === w.y) add(r[Y.company], r[Y.logins], r[Y.views], r[Y.orders]);
+  if (w.kind === "live") { for (const r of d.days) if (r[D.day] >= w.from && r[D.day] <= w.to) add(r[D.company], r[D.logins], r[D.views], r[D.orders], r[D.carts] ?? 0); }
+  else for (const r of d.years) if (r[Y.year] === w.y) add(r[Y.company], r[Y.logins], r[Y.views], r[Y.orders], 0);
   return out;
 }
 
@@ -153,17 +175,18 @@ export type SStats = {
   /** companies that logged in */
   companies: number;
   logins: number; views: number;
-  /** of the companies that logged in: those that also ordered in the shop, and those that never opened an article */
-  ordered: number; noView: number;
+  /** of the companies that logged in: those that also ordered in the shop, and those that neither opened an article nor
+   *  put one in the cart (a Performis year: opened no article - the export has no carts) */
+  ordered: number; idle: number;
 };
-export const blank = (): SStats => ({ companies: 0, logins: 0, views: 0, ordered: 0, noView: 0 });
+export const blank = (): SStats => ({ companies: 0, logins: 0, views: 0, ordered: 0, idle: 0 });
 
 /** The figures of a period's companies, grouped by a label (all together under ""). A company counts when it logged in
  *  in the period, with its views and shop orders; one with views or orders but no login recorded (a tab left open since
  *  the day before) is left out of every figure, so the shares stay over the same companies. */
-export function statsBy(d: ShopData, totals: Map<number, [number, number, number]>, pass: (co: number) => boolean, key: (co: number) => string = () => ""): Map<string, SStats> {
+export function statsBy(d: ShopData, totals: Totals, pass: (co: number) => boolean, key: (co: number) => string = () => ""): Map<string, SStats> {
   const out = new Map<string, SStats>();
-  for (const [co, [l, v, o]] of totals) {
+  for (const [co, [l, v, o, c]] of totals) {
     if (l <= 0 || !pass(co)) continue;
     const k = key(co);
     let s = out.get(k);
@@ -172,7 +195,7 @@ export function statsBy(d: ShopData, totals: Map<number, [number, number, number
     s.logins += l;
     s.views += v;
     if (o > 0) s.ordered++;
-    if (v <= 0) s.noView++;
+    if (v <= 0 && c <= 0) s.idle++;
   }
   return out;
 }
@@ -230,4 +253,75 @@ export function yearSeries(d: ShopData, pass: (co: number) => boolean): Series {
     s.companies[y] = t.companies; s.logins[y] = t.logins; s.views[y] = t.views; s.ordered[y] = t.ordered;
   }
   return s;
+}
+
+/* ── the period's days, for the shop orders (a Performis year as its calendar days) ── */
+
+/** The days a period spans (0 = liveFrom): a live period's own, a Performis year's calendar days - to the export's day for
+ *  the year it stops in, as the period says. */
+export function dayRange(d: ShopData, w: SWin): [number, number] {
+  if (w.kind === "live") return [w.from, w.to];
+  const y = d.dtYears[w.y];
+  const end = d.dtLoaded && Number(d.dtLoaded.slice(0, 4)) === y ? d.dtLoaded : `${y}-12-31`;
+  return [dayNo(d.liveFrom, `${y}-01-01`), dayNo(d.liveFrom, end)];
+}
+/** Whether the shop orders read reach the whole period. */
+export const ordersCover = (d: ShopData, w: SWin) => !!d.ordersFrom && dayRange(d, w)[0] >= dayNo(d.liveFrom, d.ordersFrom);
+
+/* ── the views by profit centre (live only) ────────────────────────────── */
+
+export type AStats = {
+  /** articles looked at (an article once a company and day), of them put in the cart, of them ordered */
+  looks: number; carted: number; ordered: number;
+  /** companies that looked at one */
+  companies: number;
+};
+/** A live period's looks by profit centre - or by any other label of the company (key) - under the team and filters. */
+export function looksBy(d: ShopData, w: SWin, pass: (co: number) => boolean, key: (co: number, pc: number) => string = (_c, pc) => d.labels.pc[pc] ?? "Not assigned"): Map<string, AStats> {
+  const out = new Map<string, AStats>();
+  if (w.kind !== "live") return out;
+  const seen = new Map<string, Set<number>>();
+  for (const r of d.looks) {
+    if (r[L.day] < w.from || r[L.day] > w.to || !pass(r[L.company])) continue;
+    const k = key(r[L.company], r[L.pc]);
+    let s = out.get(k);
+    if (!s) { s = { looks: 0, carted: 0, ordered: 0, companies: 0 }; out.set(k, s); seen.set(k, new Set()); }
+    s.looks += r[L.looks]; s.carted += r[L.carted]; s.ordered += r[L.ordered];
+    const set = seen.get(k)!;
+    if (!set.has(r[L.company])) { set.add(r[L.company]); s.companies++; }
+  }
+  return out;
+}
+
+/* ── the shop orders: all, and the buyers as one-shots, second and multiple ── */
+
+export type OStats = {
+  /** shop orders placed in the period, and the companies that placed them */
+  orders: number; buyers: number;
+  /** of those buyers, by their shop orders from the first day read to the period's end: one, two, three or more */
+  oneShot: number; second: number; multiple: number;
+};
+export const blankOrders = (): OStats => ({ orders: 0, buyers: 0, oneShot: 0, second: 0, multiple: 0 });
+/** A period's shop orders, grouped by a label of the company (all together under ""); with pc, only the orders with a
+ *  line of that profit centre - and the buyers counted by their orders of it. */
+export function ordersBy(d: ShopData, w: SWin, pass: (co: number) => boolean, key: (co: number) => string = () => "", pc: number | null = null): Map<string, OStats> {
+  const out = new Map<string, OStats>();
+  const [a, b] = dayRange(d, w);
+  const hist = new Map<number, [number, number]>(); // company -> [in the period, up to its end]
+  for (const r of d.orders) {
+    if (r[O.day] > b || (pc !== null && !(r[O.pcs] & (1 << pc))) || !pass(r[O.company])) continue;
+    let h = hist.get(r[O.company]);
+    if (!h) { h = [0, 0]; hist.set(r[O.company], h); }
+    h[1]++;
+    if (r[O.day] >= a) h[0]++;
+  }
+  for (const [co, [inside, upTo]] of hist) {
+    if (!inside) continue;
+    const k = key(co);
+    let s = out.get(k);
+    if (!s) { s = blankOrders(); out.set(k, s); }
+    s.orders += inside; s.buyers++;
+    if (upTo === 1) s.oneShot++; else if (upTo === 2) s.second++; else s.multiple++;
+  }
+  return out;
 }

@@ -1,6 +1,6 @@
 // THE ESO SHOP BEHAVIOUR PAGE'S READ (SARCLA 29.10.2026: "rebuild like Figures/Visits" - logins, views, logged in &
 // ordered in the shop): every company the shop counted, of everyone (ESO, TSA and the rest - the Figures' ESO | TSA |
-// Total and the line managers' teams), as small rows; the rules in ./shopRules.ts. In two parts, as they change:
+// Total and the line managers' teams), as small rows; the rules in ./shopRules.ts. In three parts, as they change:
 //
 // 1. The companies and the Performis years - every six hours, through slowReport (about 400 searches, 50,000
 //    companies): the E-Shop Data Tracker's export is one total per company and year on the company in HubSpot
@@ -9,7 +9,14 @@
 //    category and country. APSOparts' and A+P's own left out.
 // 2. The live counters - every five minutes: the smart bar's logins, article views and articles ordered per company
 //    and day, which the hub keeps in its own database (apsomh_shop_days, src/lib/shopLooks, copied every quarter of an
-//    hour) - counted since 2 Oct 2026. A company counted live but not in the export is read once and remembered.
+//    hour) - counted since 2 Oct 2026. A company counted live but not in the export is read once and remembered. With
+//    them the articles each company looked at (apsomh_shop_looks), by the profit centre Products & Pricing gives the
+//    article - or the product page, when no article was chosen (SARCLA 30.10.2026: "views per assortment", his pick:
+//    the profit centre). The map is kept in kv and grows: each six-hourly read looks up only what it has not seen.
+// 3. The shop orders - every six hours, through slowReport: every order since January of last year (the search month
+//    by month, as the online share's read), one per order number, the shop's when any of its records - or its archived
+//    web record - carries the shop's mark (onlineShare.ts), with the profit centres of its lines (order_positions_json)
+//    and its company (SARCLA 30.10.2026: "Orders: general & per assortment: # all, # one shots, # second, # multiple").
 
 import { getPool } from "@/lib/db/client";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
@@ -19,11 +26,22 @@ import { ownerNames } from "@/lib/integrations/erosion";
 import { teamOf } from "@/lib/datatracker/rosters";
 import { isInternalCompany } from "@/lib/datatracker/rules";
 import { readOwners } from "@/lib/ownerRules/hubspot";
+import { kvGet, kvSet } from "@/lib/db/init";
+import { CANCELLED } from "@/lib/connectors/steps/orderRules";
+import { splitNumber, webMark } from "@/lib/marketingKpis/onlineShare";
 import { categoryBand, prioBand, prioOf, CATEGORY_BANDS, PRIO_BANDS } from "./esoRules";
 import { dayNo, type ShopData } from "./shopRules";
 
-const BASE_KEY = "esoShop:base:v1";
+const BASE_KEY = "esoShop:base:v2"; // v2: the profit centres of the articles looked at
 const BASE_TTL_MS = 6 * 60 * 60 * 1000;
+const ORDERS_KEY = "esoShop:orders:v1";
+const ORDERS_TTL_MS = 6 * 60 * 60 * 1000;
+/** article ("a:…") or product page ("p:…") -> profit centre (null: Products & Pricing does not know it) */
+const PC_KV = "esoShop:pcMap:v1";
+const PP_OBJ = "2-200042439";
+/** The profit centres in the order the page shows them; any other comes after, "Not assigned" last. */
+export const PC_ORDER = ["DT", "KT", "FT", "ST", "AT"];
+const NO_PC = "Not assigned";
 const LIVE_TTL_MS = 5 * 60 * 1000;
 /** The first whole day the smart bar counted - it went live on 2 Oct 2026 at 09:18 UTC; a test's counts sit on 30 Sep. */
 export const LIVE_FROM = "2026-10-02";
@@ -39,11 +57,14 @@ const dtProp = (what: "n_of_logins" | "n_of_views" | "orders", y: number) => (y 
 const FACTS = ["name", "domain", "hubspot_owner_id", "sales_priority", "apso_customer", "country_custom"];
 
 /** The companies part, kept six hours: ShopData without the live days, with each company row's HubSpot id. */
-type Base = Pick<ShopData, "dtYears" | "dtLoaded" | "people" | "labels" | "companies" | "years"> & {
+type Base = Pick<ShopData, "dtYears" | "dtLoaded" | "people" | "companies" | "years"> & {
+  labels: Omit<ShopData["labels"], "pc">;
   generatedAt: string;
   ids: string[];
   /** APSOparts' and A+P's own, left out - kept so a live row of theirs is not read again */
   internal: string[];
+  /** the profit centre of each article and product page looked at so far */
+  pcMap: Record<string, string | null>;
 };
 
 /* ── the people and the company rows, shared by both parts ─────────────── */
@@ -59,7 +80,7 @@ async function teamFinder(): Promise<(id: string) => { name: string; team: strin
   });
 }
 /** Adds companies to people / labels / rows (arrays it may grow) - one row per company: owner, priority, category, country. */
-function rowMaker(people: ShopData["people"], labels: ShopData["labels"], who: (id: string) => { name: string; team: string }) {
+function rowMaker(people: ShopData["people"], labels: Omit<ShopData["labels"], "pc">, who: (id: string) => { name: string; team: string }) {
   const personIdx = new Map(people.map((p, i) => [p.id, i]));
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const person = (id: string) => {
@@ -124,7 +145,7 @@ async function buildBase(): Promise<Base> {
   } catch { /* not known: the page then names the year without its end */ }
 
   const people: ShopData["people"] = [];
-  const labels: ShopData["labels"] = { prio: [...PRIO_BANDS], category: [...CATEGORY_BANDS], country: [] };
+  const labels: Base["labels"] = { prio: [...PRIO_BANDS], category: [...CATEGORY_BANDS], country: [] };
   const row = rowMaker(people, labels, await teamFinder());
   const ids: string[] = [], companies: number[][] = [], yearRows: number[][] = [], internal: string[] = [];
   for (const [id, c] of found) {
@@ -137,7 +158,197 @@ async function buildBase(): Promise<Base> {
       if (l || v || o) yearRows.push([ci, yi, l, v, o]);
     });
   }
-  return { generatedAt: new Date().toISOString(), dtYears: years, dtLoaded, people, labels, companies, years: yearRows, ids, internal };
+  // the profit centre of every article and product page looked at so far
+  const pcMap = await pcMapFor(await lookedKeys(), 300, true, (t) => reportProgress(BASE_KEY, t));
+  return { generatedAt: new Date().toISOString(), dtYears: years, dtLoaded, people, labels, companies, years: yearRows, ids, internal, pcMap };
+}
+
+/* ── the profit centre of what was looked at ───────────────────────────── */
+
+type LookKeys = { articles: string[]; products: string[]; pairs: [string, string][] };
+/** Every article and product page looked at since the counters started, and which product each article was seen on. */
+async function lookedKeys(): Promise<LookKeys> {
+  try {
+    const r = await getPool().query<{ article: string; product: string }>(
+      `SELECT DISTINCT article, product FROM apsomh_shop_looks WHERE day >= $1::date`, [LIVE_FROM],
+    );
+    const articles = new Set<string>(), products = new Set<string>(), pairs: [string, string][] = [];
+    for (const x of r.rows) {
+      if (x.article) articles.add(x.article);
+      if (x.product) products.add(x.product);
+      if (x.article && x.product) pairs.push([x.article, x.product]);
+    }
+    return { articles: [...articles], products: [...products], pairs };
+  } catch (e) {
+    if (/does not exist/i.test(String((e as Error)?.message ?? e))) return { articles: [], products: [], pairs: [] };
+    throw e;
+  }
+}
+
+const pcSeen = new Map<string, string | null>();
+let pcLoaded = false;
+/** The profit centres of these keys - from kv and this process first, then Products & Pricing: articles 100 a search; a
+ *  product page takes its article's when one was seen on it (a product never spans two - checked 30.10.2026 on 25), else
+ *  25 a search (about 100 articles each, so one page answers most), the rest one by one up to `singles` a read. */
+async function pcMapFor(k: LookKeys, singles: number, persist: boolean, progress?: (t: string) => void): Promise<Record<string, string | null>> {
+  if (!pcLoaded) {
+    const stored = (await kvGet<Record<string, string | null>>(PC_KV).catch(() => undefined)) ?? {};
+    for (const [key, pc] of Object.entries(stored)) if (!pcSeen.has(key)) pcSeen.set(key, pc);
+    pcLoaded = true;
+  }
+  const before = pcSeen.size;
+  const search = async (prop: string, values: string[], limit: number) => {
+    const r = await hubspotFetchJson<{ results?: Row[] }>({
+      path: `/crm/v3/objects/${PP_OBJ}/search`, method: "POST",
+      body: { filterGroups: [{ filters: [{ propertyName: prop, operator: "IN", values }] }], properties: [prop, "profit_center"], limit },
+    });
+    return (r.results ?? []).map((x) => [String(x.properties?.[prop] ?? ""), String(x.properties?.profit_center ?? "").trim().toUpperCase() || null] as const);
+  };
+  const articles = k.articles.filter((a) => !pcSeen.has(`a:${a}`));
+  for (let i = 0; i < articles.length; i += 100) {
+    const part = articles.slice(i, i + 100);
+    for (const [a, pc] of await search("article_number", part, 100)) if (a) pcSeen.set(`a:${a}`, pc);
+    for (const a of part) if (!pcSeen.has(`a:${a}`)) pcSeen.set(`a:${a}`, null);
+    progress?.(`the profit centres of the articles looked at · ${Math.min(i + 100, articles.length).toLocaleString("en")} of ${articles.length.toLocaleString("en")}`);
+  }
+  for (const [a, prod] of k.pairs) { const pc = pcSeen.get(`a:${a}`); if (pc && !pcSeen.get(`p:${prod}`)) pcSeen.set(`p:${prod}`, pc); }
+  let products = k.products.filter((x) => !pcSeen.has(`p:${x}`));
+  for (let i = 0; i < products.length; i += 25) {
+    for (const [x, pc] of await search("product_number", products.slice(i, i + 25), 200)) if (x && pc && !pcSeen.get(`p:${x}`)) pcSeen.set(`p:${x}`, pc);
+    progress?.(`the profit centres of the product pages looked at · ${Math.min(i + 25, products.length).toLocaleString("en")} of ${products.length.toLocaleString("en")}`);
+  }
+  products = products.filter((x) => !pcSeen.has(`p:${x}`));
+  for (const x of products.slice(0, singles)) {
+    const [hit] = await search("product_number", [x], 1);
+    pcSeen.set(`p:${x}`, hit?.[1] ?? null);
+  }
+  // kept by the six-hourly read; the five-minute join only remembers in this process
+  if (persist && pcSeen.size > before) await kvSet(PC_KV, Object.fromEntries(pcSeen)).catch(() => { /* looked up again next time */ });
+  return Object.fromEntries(pcSeen);
+}
+
+/* ── 3. the shop orders ────────────────────────────────────────────────── */
+
+/** The shop orders since January of last year: [company id, day placed, the profit centres of its lines joined by ","], and
+ *  the facts of their companies (a buyer that never logged in is in no other part). */
+type OrdersPart = { generatedAt: string; from: string; through: string; orders: [string, string, string][]; facts: Record<string, Props>; read: { records: number; orders: number; noCompany: number } };
+
+function shopOrders(): Promise<SlowState<OrdersPart>> {
+  return slowReport(ORDERS_KEY, ORDERS_TTL_MS, buildOrders);
+}
+
+/** order_order_date is epoch millis as text, or an ISO date. */
+const dayOfOrder = (v: string | null | undefined) => {
+  if (!v) return "";
+  const d = /^\d+$/.test(v) ? new Date(Number(v)) : new Date(v);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+};
+/** The profit centres of an order record's lines. */
+const pcsOf = (json: string | null | undefined): string[] => {
+  try {
+    const lines = JSON.parse(json || "[]") as { pc?: string }[];
+    return [...new Set(lines.map((l) => String(l?.pc ?? "").trim().toUpperCase()).filter(Boolean))];
+  } catch { return []; }
+};
+
+async function buildOrders(): Promise<OrdersPart> {
+  const now = new Date();
+  const from = `${now.getUTCFullYear() - 1}-01-01`;
+  const through = now.toISOString().slice(0, 10);
+  type Page = { results?: Row[]; total?: number; paging?: { next?: { after?: string } } };
+
+  // 1. the archived web records: once the ERP's deliveries cover a web order the hub archives its .000, and the deliveries
+  //    do not carry the shop's mark (onlineShare.ts)
+  const archivedWeb = new Set<string>();
+  let after: string | undefined, archived = 0;
+  for (;;) {
+    const r = await hubspotFetchJson<Page>({ path: `/crm/v3/objects/orders?limit=100&archived=true&properties=order_order_number,hs_external_order_id,order_channel,order_web_order_number${after ? `&after=${after}` : ""}` });
+    for (const o of r.results ?? []) {
+      archived++;
+      const sn = splitNumber(o.properties?.order_order_number);
+      if (sn && webMark(o.properties ?? {})) archivedWeb.add(sn[0]);
+    }
+    if (archived % 2000 < 100) reportProgress(ORDERS_KEY, `reading the archived web orders · ${archived.toLocaleString("en")}`);
+    after = r.paging?.next?.after;
+    if (!after) break;
+  }
+
+  // 2. every order record, month by month; one order per number - the shop's when any record is
+  type Ord = { day: string; web: boolean; pcs: Set<string>; erpPick?: string; webPick?: string };
+  const byNumber = new Map<string, Ord>();
+  let records = 0;
+  const PROPS = ["order_order_number", "order_order_date", "hs_external_order_id", "order_web_order_number", "order_channel", "hs_pipeline_stage", "order_positions_json"];
+  const readRange = async (a: number, b: number): Promise<void> => {
+    const filters = [{ propertyName: "order_order_date", operator: "GTE", value: String(a) }, { propertyName: "order_order_date", operator: "LT", value: String(b) }];
+    let next: string | undefined, first = true;
+    do {
+      const r = await hubspotFetchJson<Page>({
+        path: "/crm/v3/objects/orders/search", method: "POST",
+        body: { filterGroups: [{ filters }], properties: PROPS, limit: 200, sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], ...(next ? { after: next } : {}) },
+      });
+      // the search stops at 10,000: a fuller range is read in halves
+      if (first && (r.total ?? 0) > 9_900 && b - a > 86_400_000) {
+        const mid = a + Math.floor((b - a) / 2);
+        await readRange(a, mid);
+        await readRange(mid, b);
+        return;
+      }
+      first = false;
+      for (const o of r.results ?? []) {
+        const q = o.properties ?? {};
+        records++;
+        if (q.hs_pipeline_stage === CANCELLED) continue;
+        const sn = splitNumber(q.order_order_number);
+        if (sn && sn[0].startsWith("G")) continue; // a credit note
+        // a web order the ERP has not numbered yet stands on its own
+        const key = sn ? sn[0] : `web:${o.id}`;
+        const day = dayOfOrder(q.order_order_date);
+        let x = byNumber.get(key);
+        if (!x) { x = { day, web: false, pcs: new Set() }; byNumber.set(key, x); }
+        if (day && (!x.day || day < x.day)) x.day = day;
+        if (webMark(q) || (sn && archivedWeb.has(sn[0]))) x.web = true;
+        for (const pc of pcsOf(q.order_positions_json)) x.pcs.add(pc);
+        if (sn && sn[1] !== "000") x.erpPick ??= String(o.id); else x.webPick ??= String(o.id);
+      }
+      next = r.paging?.next?.after;
+    } while (next);
+  };
+  const [fy, fm] = [Number(from.slice(0, 4)), 0];
+  for (let y = fy, m = fm; Date.UTC(y, m, 1) <= now.getTime(); m === 11 ? (y++, m = 0) : m++) {
+    reportProgress(ORDERS_KEY, `reading the orders of ${y}-${String(m + 1).padStart(2, "0")} · ${records.toLocaleString("en")} records so far`);
+    await readRange(Date.UTC(y, m, 1), Date.UTC(y, m + 1, 1));
+  }
+  const shop = [...byNumber.values()].filter((o) => o.web && o.day >= from);
+
+  // 3. each order's company - the record the online share counts it for - and those companies' facts
+  const picks = shop.map((o) => o.erpPick ?? o.webPick!).filter(Boolean);
+  const companyOf = new Map<string, string>();
+  for (let i = 0; i < picks.length; i += 1000) {
+    reportProgress(ORDERS_KEY, `finding the orders' companies · ${i.toLocaleString("en")} of ${picks.length.toLocaleString("en")}`);
+    const r = await hubspotFetchJson<{ results?: { from?: { id?: string }; to?: { toObjectId?: string | number }[] }[] }>({
+      path: "/crm/v4/associations/orders/companies/batch/read", method: "POST",
+      body: { inputs: picks.slice(i, i + 1000).map((id) => ({ id })) },
+    });
+    for (const x of r.results ?? []) { const c = x.to?.[0]?.toObjectId; if (x.from?.id != null && c != null) companyOf.set(String(x.from.id), String(c)); }
+  }
+  const orders: OrdersPart["orders"] = [];
+  let noCompany = 0;
+  for (const o of shop) {
+    const c = companyOf.get(o.erpPick ?? o.webPick!);
+    if (!c) { noCompany++; continue; }
+    orders.push([c, o.day, [...o.pcs].join(",")]);
+  }
+  const ids = [...new Set(orders.map((o) => o[0]))];
+  const facts: Record<string, Props> = {};
+  for (let i = 0; i < ids.length; i += 100) {
+    if (i % 2000 === 0) reportProgress(ORDERS_KEY, `reading the buyers · ${i.toLocaleString("en")} of ${ids.length.toLocaleString("en")}`);
+    const r = await hubspotFetchJson<{ results?: Row[] }>({
+      path: "/crm/v3/objects/companies/batch/read", method: "POST",
+      body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: FACTS },
+    });
+    for (const x of r.results ?? []) facts[String(x.id)] = Object.fromEntries(FACTS.map((f) => [f, x.properties?.[f] ?? null]));
+  }
+  return { generatedAt: new Date().toISOString(), from, through, orders, facts, read: { records, orders: orders.length, noCompany } };
 }
 
 /* ── 2. the live counters, joined to the companies ─────────────────────── */
@@ -159,29 +370,38 @@ async function liveOnlyFacts(ids: string[]): Promise<Map<string, Props | null>> 
   return new Map(ids.map((id) => [id, factsSeen.get(id)?.p ?? null]));
 }
 
-async function withLive(b: Base): Promise<ShopData> {
-  const today = new Date().toISOString().slice(0, 10);
-  let live: { company_id: string; day: string; logins: number; views: number; orders: number }[] = [];
+/** Rows of a table the first sweep makes (src/lib/shopLooks) - none yet is nothing counted yet. */
+async function rowsOf<T>(sql: string, args: unknown[]): Promise<T[]> {
   try {
-    const r = await getPool().query(
-      `SELECT company_id, to_char(day, 'YYYY-MM-DD') AS day, logins, views, orders FROM apsomh_shop_days WHERE day >= $1::date AND day <= $2::date`,
-      [LIVE_FROM, today],
-    );
-    live = r.rows;
+    return (await getPool().query(sql, args)).rows as T[];
   } catch (e) {
-    // the table is made by the first sweep (src/lib/shopLooks) - none yet is no counters yet
-    if (!/does not exist/i.test(String((e as Error)?.message ?? e))) throw e;
+    if (/does not exist/i.test(String((e as Error)?.message ?? e))) return [];
+    throw e;
   }
+}
+
+async function withLive(b: Base, o: OrdersPart | undefined): Promise<ShopData> {
+  const today = new Date().toISOString().slice(0, 10);
+  const live = await rowsOf<{ company_id: string; day: string; logins: number; views: number; orders: number; carts: number }>(
+    `SELECT company_id, to_char(day, 'YYYY-MM-DD') AS day, logins, views, orders, carts FROM apsomh_shop_days WHERE day >= $1::date AND day <= $2::date`, [LIVE_FROM, today]);
+  const looked = await rowsOf<{ company_id: string; day: string; article: string; product: string; carted: boolean; ordered: boolean }>(
+    `SELECT company_id, to_char(day, 'YYYY-MM-DD') AS day, article, product, carted, ordered FROM apsomh_shop_looks WHERE day >= $1::date AND day <= $2::date`, [LIVE_FROM, today]);
   // the companies part is shared: grown on copies, never in place
   const people = [...b.people];
   const labels = { prio: [...b.labels.prio], category: [...b.labels.category], country: [...b.labels.country] };
   const companies = [...b.companies];
   const idx = new Map(b.ids.map((id, i) => [id, i]));
   const internal = new Set(b.internal);
-  const missing = [...new Set(live.map((r) => String(r.company_id)))].filter((id) => !idx.has(id) && !internal.has(id));
+  const row = rowMaker(people, labels, await teamFinder());
+  // the buyers the other parts do not hold: their facts came with the orders
+  for (const [id, p] of Object.entries(o?.facts ?? {})) {
+    if (idx.has(id) || internal.has(id)) continue;
+    if (isInternalCompany(p.name, p.domain)) { internal.add(id); continue; }
+    idx.set(id, companies.push(row(p)) - 1);
+  }
+  const missing = [...new Set([...live, ...looked].map((r) => String(r.company_id)))].filter((id) => !idx.has(id) && !internal.has(id));
   if (missing.length) {
     const facts = await liveOnlyFacts(missing);
-    const row = rowMaker(people, labels, await teamFinder());
     for (const id of missing) {
       const p = facts.get(id);
       if (!p || isInternalCompany(p.name, p.domain)) continue;
@@ -192,37 +412,85 @@ async function withLive(b: Base): Promise<ShopData> {
   for (const r of live) {
     const ci = idx.get(String(r.company_id));
     if (ci === undefined) continue; // internal, or gone from HubSpot (merged)
-    days.push([ci, dayNo(LIVE_FROM, r.day), Number(r.logins) || 0, Number(r.views) || 0, Number(r.orders) || 0]);
+    days.push([ci, dayNo(LIVE_FROM, r.day), Number(r.logins) || 0, Number(r.views) || 0, Number(r.orders) || 0, Number(r.carts) || 0]);
+  }
+  // the profit centres: the order the page shows them in, any other after, "Not assigned" last
+  const fresh = looked.flatMap((r) => [r.article ? `a:${r.article}` : "", r.product ? `p:${r.product}` : ""]).filter((k) => k && !(k in b.pcMap) && !pcSeen.has(k));
+  const pcMap = fresh.length
+    ? await pcMapFor({ articles: [...new Set(fresh.filter((k) => k.startsWith("a:")).map((k) => k.slice(2)))], products: [...new Set(fresh.filter((k) => k.startsWith("p:")).map((k) => k.slice(2)))], pairs: looked.filter((r) => r.article && r.product).map((r) => [r.article, r.product]) }, 20, false)
+    : { ...b.pcMap, ...Object.fromEntries(pcSeen) };
+  const pcList = [...PC_ORDER];
+  const pcIdx = (pc: string | null | undefined) => {
+    const k = pc || NO_PC;
+    let i = pcList.indexOf(k);
+    if (i < 0) i = pcList.push(k) - 1;
+    return i;
+  };
+  const lookAt = new Map<string, number[]>();
+  for (const r of looked) {
+    const ci = idx.get(String(r.company_id));
+    if (ci === undefined) continue;
+    const pc = pcIdx((r.article ? pcMap[`a:${r.article}`] : null) ?? (r.product ? pcMap[`p:${r.product}`] : null));
+    const day = dayNo(LIVE_FROM, r.day);
+    const k = `${ci}|${day}|${pc}`;
+    let x = lookAt.get(k);
+    if (!x) { x = [ci, day, pc, 0, 0, 0]; lookAt.set(k, x); }
+    x[3]++; if (r.carted) x[4]++; if (r.ordered) x[5]++;
+  }
+  const orders: number[][] = [];
+  for (const [id, day, pcs] of o?.orders ?? []) {
+    const ci = idx.get(id);
+    if (ci === undefined || !day) continue;
+    let bits = 0;
+    for (const pc of pcs ? pcs.split(",") : [NO_PC]) bits |= 1 << pcIdx(pc);
+    orders.push([ci, dayNo(LIVE_FROM, day), bits]);
+  }
+  // "Not assigned" last
+  const na = pcList.indexOf(NO_PC);
+  if (na >= 0 && na !== pcList.length - 1) {
+    const last = pcList.length - 1;
+    const swap = (i: number) => (i === na ? last : i === last ? na : i);
+    for (const r of lookAt.values()) r[2] = swap(r[2]);
+    for (const r of orders) { let bits = 0; for (let i = 0; i < pcList.length; i++) if (r[2] & (1 << i)) bits |= 1 << swap(i); r[2] = bits; }
+    [pcList[na], pcList[last]] = [pcList[last], pcList[na]];
   }
   return {
     generatedAt: new Date().toISOString(), today, liveFrom: LIVE_FROM, dtYears: b.dtYears, dtLoaded: b.dtLoaded,
-    people, labels, companies, days, years: b.years,
+    people, labels: { ...labels, pc: pcList }, companies, days, years: b.years, looks: [...lookAt.values()],
+    orders, ordersFrom: o?.from ?? null,
     coverage: { companies: companies.length, live: new Set(days.map((r) => r[0])).size, performis: new Set(b.years.map((r) => r[0])).size, internal: b.internal.length },
   };
 }
 
-/** The page's read: the companies part (six hours) joined to the live counters (five minutes). While the counters are
- *  read again, the last join is answered; the first one is waited for. */
+/** The page's read: the companies part and the shop orders (six hours each) joined to the live counters (five minutes).
+ *  While the counters are read again, the last join is answered; the first one is waited for. The orders follow when
+ *  read - the page says so meanwhile. */
 type Joined = { at: number; base: string; value?: ShopData; pending?: Promise<ShopData>; error?: string };
 let joined: Joined | null = null;
 export async function esoShop(): Promise<SlowState<ShopData>> {
   const base = await shopBase();
   if (!base.value) return { computing: base.computing, progress: base.progress, error: base.error };
-  const b = base.value;
-  const same = joined?.base === b.generatedAt;
+  const ord = await shopOrders();
+  const b = base.value, o = ord.value;
+  const stamp = `${b.generatedAt}|${o?.generatedAt ?? ""}`;
+  const same = joined?.base === stamp;
   if (!joined || !same || (!joined.pending && Date.now() - joined.at > LIVE_TTL_MS)) {
-    const run: Joined = { at: Date.now(), base: b.generatedAt, value: same ? joined?.value : undefined };
-    const p = withLive(b).then((v) => { run.value = v; run.at = Date.now(); run.error = undefined; return v; });
+    // new companies or orders: waited for (a few seconds - an answer without them would say "still reading"); the
+    // five-minute refresh of the counters answers the last join meanwhile
+    const run: Joined = { at: Date.now(), base: stamp, value: same ? joined?.value : undefined };
+    const p = withLive(b, o).then((v) => { run.value = v; run.at = Date.now(); run.error = undefined; return v; });
     run.pending = p;
     // handled here, so a failed refresh behind a value already answered never goes unheard; the next look tries again
     p.catch((e) => { run.error = String((e as Error)?.message ?? e); }).finally(() => { run.pending = undefined; });
     joined = run;
   }
   const j = joined;
-  if (j.value) return { ...base, value: j.value };
+  // still reading the orders (or the companies again): the page looks again until both are in
+  const state = { computing: base.computing || ord.computing, computedAt: base.computedAt, progress: ord.computing ? ord.progress : base.progress };
+  if (j.value) return { ...state, value: j.value };
   try {
     if (!j.pending) throw new Error(j.error ?? "the shop's counters could not be read");
-    return { ...base, value: await j.pending };
+    return { ...state, value: await j.pending };
   } catch (e) {
     if (joined === j) joined = null;
     return { computing: false, error: String((e as Error)?.message ?? e) };

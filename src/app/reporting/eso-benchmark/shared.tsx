@@ -30,7 +30,9 @@ export const change = (p: Pair) => (p.py ? (p.cy - p.py) / Math.abs(p.py) : null
 export const hours = (h: number | null) => (h === null || !Number.isFinite(h) ? "—" : h < 48 ? `${h.toFixed(1)} h` : `${(h / 24).toFixed(1)} d`);
 export const days = (d: number | null) => (d === null || !Number.isFinite(d) ? "—" : `${d.toFixed(1)} d`);
 export const sumPairs = (ps: Pair[]): Pair => ps.reduce((t, p) => ({ cy: t.cy + p.cy, py: t.py + p.py }), { cy: 0, py: 0 });
-const PC: Record<string, string> = { dt: "DT · Seals", kt: "KT · Plastics", ft: "FT · Fluid", st: "ST · Silicone & rubber", at: "AT · Anti-vibration", unknown: "Not assigned", other: "Other" };
+// as the Datatracker names them (src/lib/datatracker/rules.ts PROFIT_CENTRES) - AT is drive belts (Conti Synchroflex), ST
+// anti-vibration (APSOvib); until 30.10.2026 these two read "Anti-vibration" and "Silicone & rubber"
+const PC: Record<string, string> = { dt: "DT · Sealing", kt: "KT · Plastics", ft: "FT · Hoses & fluid", at: "AT · Drive belts", st: "ST · Anti-vibration", pw: "PW · Power & electronics", unknown: "Not assigned", other: "Other" };
 export const pcLabel = (k: string) => PC[k] ?? k.toUpperCase();
 const TYPE: Record<string, string> = {
   "Original Equipment Manufacture (OEM)": "OEM", "Turning & Miling Workshop (C2S)": "C2S workshop", "Maintenance, Repair, Operations (MRO)": "MRO",
