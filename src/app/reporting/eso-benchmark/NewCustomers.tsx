@@ -40,7 +40,7 @@ import {
 } from "@/lib/marketingKpis/cube";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
-  ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, SubTitle, TARGET, TEAM_OF, TWO, Teams, asLead, asTeam, leadOf, niceTop, setQuery, teamWord,
+  ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TEAM_OF, TWO, Teams, asLead, asTeam, leadOf, niceTop, setQuery, teamWord,
   useLead, useLeads, useTeam, type BoardRow, type Col, type LeadKey, type Per, type TeamKey,
 } from "./Figures";
 
@@ -157,6 +157,8 @@ function rowsBy(c: NCtx, by: By): NRow[] {
   const merged = new Map<string, NRow>();
   for (const [raw, a] of newBy(c.cube, c.eff, c.per.win, by)) {
     if (members && !members.includes(raw)) continue;
+    // a new customer not invoiced yet has no profit centre - left out of the Profit center tab, its card says how many
+    if (by === "pc" && raw === "none") continue;
     if (!a.n && !a.nPy) continue;
     // the profit centres by name, any code the ERP adds under Other
     const label = by === "pc" ? pcName(raw) : raw;
@@ -191,6 +193,12 @@ function monthsOf(c: NCtx): NewMonth[] {
   return m;
 }
 
+/** The Profit center card's words for the new customers not invoiced yet (they have no profit centre): " · 48 not invoiced yet are left out". */
+function notInvoiced(c: NCtx) {
+  const n = newBy(c.cube, c.eff, c.per.win, "pc").get("none")?.n ?? 0;
+  return n ? ` · ${int(n)} new customer${n === 1 ? "" : "s"} with nothing invoiced yet ${n === 1 ? "is" : "are"} left out` : "";
+}
+
 /** A chart's target, one per chart, team (a line manager's team its own) and period: "eso-new-customers:sae:new@eso-RABE~q2"
  *  (the year to date without "~"); the months' charts keep one target a month, whatever the period. */
 const targetKey = (id: string, team: TeamKey, lead: string | null | undefined, per: Per) =>
@@ -215,7 +223,6 @@ function Board({ c, id, by, m, actions }: { c: NCtx; id: string; by: By; m: Meas
   const rows: BoardRow[] = [], small: BoardRow[] = [];
   for (const r of rowsBy(c, by)) {
     // the new customers not invoiced yet count, but have no revenue to rank (they stay in the count and the table)
-    if (m !== "new" && by === "pc" && r.label === PC_NAME.none) continue;
     if (m === "new") { if (r.n || r.nPy) rows.push({ label: r.label, cur: r.n, prev: r.nPy, sub: `${eur(r.rev)} their revenue · Ø ${r.n ? eur(avg(r)) : "—"} per customer` }); }
     else if (m === "rev") { if (r.rev || r.revPy) rows.push({ label: r.label, cur: r.rev, prev: r.revPy, sub: `${int(r.n)} new customer${r.n === 1 ? "" : "s"} · ${pct(t.rev ? r.rev / t.rev : null)} of the total` }); }
     else if (r.n) (r.n >= min ? rows : small).push({ label: r.label, cur: avg(r), prev: avgPy(r), sub: `${int(r.n)} new customer${r.n === 1 ? "" : "s"} · ${eur(r.rev)} their revenue` });
@@ -322,11 +329,20 @@ function MeasureTable({ c, by, m }: { c: NCtx; by: By; m: Measure }) {
     onPick={dim && c.onPick ? (l) => c.onPick!(dim, l) : undefined} natural={by === "prio" || by === "pc"} find={`${/^[aeiou]/i.test(lowerOf(by)) ? "an" : "a"} ${lowerOf(by)}`} />;
 }
 /** The three report tables of a breakdown, each under its own title. */
+const TABLE_HINT: Record<Measure, string> = {
+  new: "Companies whose first order ever was in the period, against the same months a year earlier",
+  rev: "What the new customers bought from their first order to the end of the period, against a year earlier",
+  avg: "Their revenue divided by the number of new customers, against a year earlier",
+};
+/** The three report tables of a breakdown, each in its own card as the charts are (SARCLA 29.10.2026: "split the table ...
+ *  like true graphics", "these tables should be separated"). */
 function MeasureTables({ c, by }: { c: NCtx; by: By }) {
   return (
     <>
       {(["new", "rev", "avg"] as const).map((m) => (
-        <Box key={m}><SubTitle>{MEASURE[m].title} {c.per.title}, by {lowerOf(by)}</SubTitle><MeasureTable c={c} by={by} m={m} /></Box>
+        <ChartBox key={m} title={`${MEASURE[m].title} ${c.per.title}, by ${lowerOf(by)}`} hint={`${TABLE_HINT[m]} · ${perWords(c.cube, c.per)}`}>
+          <MeasureTable c={c} by={by} m={m} />
+        </ChartBox>
       ))}
     </>
   );
@@ -401,15 +417,15 @@ function TabCard({ c, act }: { c: NCtx; act: Act }) {
       {draw(c, act, "sae:avg")}
       {many && <Box sx={TWO}>{draw(c, act, "sae:monnew")}{draw(c, act, "sae:monrev")}</Box>}
       <MeasureTables c={c} by="sae" />
-      {many && <Box><SubTitle>New customers {per.title}, month by month</SubTitle><MonthTable c={c} which="n" /></Box>}
-      {many && <Box><SubTitle>Revenue of the new customers {per.title}, month by month</SubTitle><MonthTable c={c} which="rev" /></Box>}
+      {many && <ChartBox title={`New customers ${per.title}, month by month`} hint={`Companies whose first order ever was in the month, against the same month a year earlier · ${perWords(cube, per)}`}><MonthTable c={c} which="n" /></ChartBox>}
+      {many && <ChartBox title={`Revenue of the new customers ${per.title}, month by month`} hint={`What the period's new customers bought in each month - the months add up to the period · ${perWords(cube, per)}`}><MonthTable c={c} which="rev" /></ChartBox>}
     </GlassCard>
   );
   const by = byOf(view);
   const head = by === "pc" ? { icon: <CategoryOutlinedIcon />, tint: "green" as Tint } : { icon: DIM[by].icon, tint: DIM[by].tint };
   return (
     <GlassCard sx={card}>
-      <CardTitle icon={head.icon} tint={head.tint} title={`${teamName(c)} by ${lowerOf(by)}, ${per.title}`} note={`${NOTES[view as Breakdown | "pc"]} · ${against}`} />
+      <CardTitle icon={head.icon} tint={head.tint} title={`${teamName(c)} by ${lowerOf(by)}, ${per.title}`} note={`${NOTES[view as Breakdown | "pc"]} · ${against}${by === "pc" ? notInvoiced(c) : ""}`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${view}:new`)}{draw(c, act, `${view}:rev`)}</Box>
       {draw(c, act, `${view}:avg`)}
       <MeasureTables c={c} by={by} />
