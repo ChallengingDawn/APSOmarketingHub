@@ -1,5 +1,5 @@
 // THE ESO CUSTOMER DEVELOPMENT PAGE'S READ (SARCLA 29.10.2026: "work on ESO Reports -> customer development" - rebuilt
-// like Visits): every company that bought in the last four years, of everyone (ESO, TSA and the rest - the Figures'
+// like Visits): every company that ever ordered (lost = no order for 12 months or more, however long ago), of everyone (ESO, TSA and the rest - the Figures'
 // ESO | TSA | Total and the line managers' teams), each as one small row: its Performis SAE as a person (as the Figures
 // split revenue), what the page slices it by, its revenue by month for four years (rev_<year>_pc_monthly - lost needs the
 // 24 months before last year's same day) and its orders by month for this year and the last (HubSpot's orders, counted
@@ -16,10 +16,11 @@ import { readOwners } from "@/lib/ownerRules/hubspot";
 import { getRules } from "@/lib/mapAssign/engine";
 import { SEED } from "@/lib/mapAssign/seed";
 import { saeLabel } from "@/lib/marketingKpis/cube";
-import { CATEGORY_BANDS, PRIO_BANDS, categoryBand, monthTotal, monthsLoaded, parsePcMonthly, prioBand, prioOf } from "./esoRules";
-import { CY0, FIRST_BEFORE, FIRST_NONE, POTENTIAL_BANDS, bandOf, monthNo, orderBase, usable, type CustDevData } from "./customerDevRules";
+import { monthTotal, monthsLoaded, parsePcMonthly, prioOf } from "./esoRules";
+import { CY0, FIRST_BEFORE, FIRST_NONE, PRIOS, monthNo, orderBase, prioFrom, ymd, type CustDevData } from "./customerDevRules";
 
-const KEY = "esoCustomerDev:v1";
+// v2: every company that ever ordered, APIC, the last order, the real customer categories, a priority for every company
+const KEY = "esoCustomerDev:v2";
 const TTL_MS = 12 * 60 * 60 * 1000;
 
 export async function esoCustomerDev(): Promise<SlowState<CustDevData>> {
@@ -73,54 +74,60 @@ export async function readCustomerDev(): Promise<CustDevData> {
   let saeMap: Record<string, string> = SEED.sae;
   try { saeMap = (await getRules()).value.sae ?? SEED.sae; } catch { /* the seed */ }
 
-  // 2. every company that bought in the four years: a last order since then, or revenue in one of them
-  const props = ["sae_performis", "sales_priority", "apso_customer", "customer_type", "country_custom", "yearly_customer_potential", "order_first_order_date", "name",
-    ...years.map((y) => `rev_${y}_pc_monthly`)];
+  // 2. every company that ever ordered (a first order on record), or with revenue in one of the four years
+  const props = ["sae_performis", "sales_priority", "apso_customer", "customer_type", "apic_ap", "country_custom", "yearly_customer_potential",
+    "order_first_order_date", "order_last_order_date", "name", ...years.map((y) => `rev_${y}_pc_monthly`)];
   const groups: Filter[][] = [
-    [{ propertyName: "order_last_order_date", operator: "GTE", value: ms(`${years[0]}-01-01`) }],
+    [{ propertyName: "order_first_order_date", operator: "HAS_PROPERTY" }],
     ...years.map((y) => [{ propertyName: `rev_${y}_pc_monthly`, operator: "HAS_PROPERTY" }]),
   ];
-  const rows = await searchAll("companies", groups, props, "reading the companies that bought");
+  const rows = await searchAll("companies", groups, props, "reading the companies that ever ordered");
 
   const people: CustDevData["people"] = [];
   const personIdx = new Map<string, number>();
-  const labels: CustDevData["labels"] = { prio: [...PRIO_BANDS], category: [...CATEGORY_BANDS], type: [], country: [], band: [...POTENTIAL_BANDS] };
+  const labels: CustDevData["labels"] = { prio: [...PRIOS], category: [], type: [], apic: [], country: [] };
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const filled = { cy: Array(12).fill(0), py: Array(12).fill(0) };
   const companies: number[][] = [], revenue: number[][] = [], names: string[] = [], ids: string[] = [];
   const coIdx = new Map<string, number>();
+  let prioWorkedOut = 0;
   for (const r of rows) {
     if (coIdx.has(r.id)) continue;
     const p = r.properties ?? {};
     const rev: number[] = [];
-    let bought = false;
+    let bought = false, bestYear = 0;
     years.forEach((y, yi) => {
       const blob = parsePcMonthly(p[`rev_${y}_pc_monthly`]);
+      let yearSum = 0;
       for (let m = 0; m < 12; m++) {
         const v = Math.round(monthTotal(blob, m));
         if (!v) continue;
+        yearSum += v;
         rev.push(yi * 12 + m, v);
         if (v > 0) bought = true;
         if (yi === 3) filled.cy[m]++;
         if (yi === 2) filled.py[m]++;
       }
+      bestYear = Math.max(bestYear, yearSum);
     });
     const firstDay = day(p.order_first_order_date);
     const k = monthNo(firstDay, year);
     const first = k != null ? k : firstDay && firstDay < `${years[0]}-01-01` ? FIRST_BEFORE : FIRST_NONE;
-    // kept: bought in the four years, or a first order in them not invoiced yet (a new customer all the same)
-    if (!bought && first < 0) continue;
+    // kept: every company that ordered - bought in the four years, or a first order on record (lost, however long ago)
+    if (!bought && first === FIRST_NONE) continue;
     const s = saeLabel(p.sae_performis, saeMap, owners);
     let pi = personIdx.get(s.label);
     if (pi === undefined) {
       pi = people.push({ name: s.label, team: s.owner ? teamFor(s.owner) : /^TSA\b/i.test(s.label) ? "TSA" : /^ESO\b/i.test(s.label) ? "ESO" : "Other" }) - 1;
       personIdx.set(s.label, pi);
     }
-    const pot = num(p.yearly_customer_potential);
+    // every company has a priority (SARCLA 29.10.2026): one Smart Segmentation has not reached yet gets it by its rule
+    let prio = prioOf(p.sales_priority);
+    if (prio === "Not set") { prio = prioFrom(num(p.yearly_customer_potential), bestYear); prioWorkedOut++; }
     coIdx.set(r.id, companies.length);
     companies.push([
-      pi, at(labels.prio, prioBand(prioOf(p.sales_priority))), at(labels.category, categoryBand(p.apso_customer)), at(labels.type, p.customer_type || "Not set"),
-      at(labels.country, p.country_custom || "Not set"), at(labels.band, bandOf(pot)), usable(pot) ? Math.round(pot) : 0, first,
+      pi, at(labels.prio, prio), at(labels.category, p.apso_customer || "Not set"), at(labels.type, p.customer_type || "Not set"),
+      at(labels.apic, p.apic_ap || "Not set"), at(labels.country, p.country_custom || "Not set"), first, ymd(day(p.order_last_order_date)),
     ]);
     revenue.push(rev);
     names.push(p.name ?? "");
@@ -184,6 +191,6 @@ export async function readCustomerDev(): Promise<CustDevData> {
   return {
     generatedAt: new Date().toISOString(), year, today: now.toISOString().slice(0, 10), loaded, running, dataDay: delivered ?? null, ordersFrom,
     people, labels, companies, revenue, orders, names, ids,
-    coverage: { companies: companies.length, orders: bases.size, ordersLinked: linked },
+    coverage: { companies: companies.length, orders: bases.size, ordersLinked: linked, prioWorkedOut },
   };
 }

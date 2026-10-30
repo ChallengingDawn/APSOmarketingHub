@@ -4,7 +4,11 @@
 // HubSpot's orders; lost = no order for 12 to 24 months, as Retain & grow's "stopped"). What the old page did: the company
 // owner, ESO only, the complete months only, no Ø revenue or Ø orders per status though the CrystalESO deck asks for both,
 // lost = bought last calendar year and nothing this year (right for the year to date only), paired bars, no targets.
-// The rows and their rules: src/lib/reporting/customerDevRules.ts.
+// Second pass, the same evening: "show all, don't hide the not ranked" (everyone on the list); "be more specific" on the
+// churn (the months named); the footnote out; "these are not separated graphs, they should" (every tab its own boards);
+// the potential out; every company with a priority; the real customer categories ("other" out); APIC beside the customer
+// type; lost = no order for 12 months or more, however long ago, in every figure. The rows and their rules:
+// src/lib/reporting/customerDevRules.ts.
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -27,10 +31,10 @@ import PersonAddAltOutlinedIcon from "@mui/icons-material/PersonAddAltOutlined";
 import RestartAltOutlinedIcon from "@mui/icons-material/RestartAltOutlined";
 import TrendingDownOutlinedIcon from "@mui/icons-material/TrendingDownOutlined";
 import PersonOffOutlinedIcon from "@mui/icons-material/PersonOffOutlined";
-import SavingsOutlinedIcon from "@mui/icons-material/SavingsOutlined";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import FactoryOutlinedIcon from "@mui/icons-material/FactoryOutlined";
+import StarOutlineIcon from "@mui/icons-material/StarOutline";
 import PublicOutlinedIcon from "@mui/icons-material/PublicOutlined";
 import BadgeOutlinedIcon from "@mui/icons-material/BadgeOutlined";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
@@ -47,7 +51,7 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  CY0, POTENTIAL_BANDS, blank, churn, labelOf, namedOf, rowsOf, statsBy, type CDim, type CFilters, type CStats, type CWin, type CustDevData,
+  CY0, PRIOS, blank, churn, labelOf, namedOf, rowsOf, statsBy, type CDim, type CFilters, type CStats, type CWin, type CustDevData,
 } from "@/lib/reporting/customerDevRules";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
@@ -97,10 +101,8 @@ function changeOf(cur: number, prev: number, lower = false): { text: string; col
 }
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-/** A person's or a group's average needs this many customers behind it - two customers said nothing. */
-const MIN_N = 10;
-/** The churn rate ranks those with this many customers who bought 12 to 24 months back. */
-const MIN_BASE = 20;
+/** Every row on the list (SARCLA 29.10.2026: "show all, don't hide the not ranked - put them on the list"). */
+const ALL = 9999;
 
 /* ── the period: this year's months, against the same months a year earlier ─ */
 
@@ -132,6 +134,11 @@ const ym = (d: CustDevData, m: number) => `${d.year}-${String(m + 1).padStart(2,
 const fromYm = (d: CustDevData, x: string | null) => { const m = /^(\d{4})-(\d{2})$/.exec(x ?? ""); return m && Number(m[1]) === d.year ? Number(m[2]) - 1 : null; };
 /** "Oct 2025" - a month number of the read (0 = January three years before) */
 const monthWords = (d: CustDevData, k: number) => `${MONTHS[k % 12]} ${d.year - 3 + Math.floor(k / 12)}`;
+/** the period's last day: "28 Oct 2026" while it runs, "30 Jun 2026" */
+const perEnd = (d: CustDevData, per: CPer) => `${per.win.to === runOf(d) && d.running ? d.running.day : new Date(Date.UTC(d.year, per.win.to + 1, 0)).getUTCDate()} ${MONTHS[per.win.to]} ${d.year}`;
+/** The churn rate's months, named (SARCLA: "be more specific"): who bought "Nov 2024 – Oct 2025", nothing "since" */
+const baseWords = (d: CustDevData, per: CPer) => `${monthWords(d, CY0 + per.win.to - 23)} – ${monthWords(d, CY0 + per.win.to - 12)}`;
+const sinceWords = (d: CustDevData, per: CPer) => `${monthWords(d, CY0 + per.win.to - 11)} – ${perEnd(d, per)}`;
 
 /* ── the teams: ESO | TSA | Total by the Performis SAE's people, as the Figures ── */
 
@@ -142,22 +149,24 @@ const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (
 
 /* ── what every chart is drawn with ────────────────────────────────────── */
 
-type CView = "people" | "status" | "prio" | "category" | "type" | "country";
+type CView = "people" | "status" | "prio" | "category" | "type" | "apic" | "country";
 const VIEWS: { id: CView; label: string }[] = [
-  { id: "people", label: "Performis SAE" }, { id: "status", label: "Where they stand" }, { id: "prio", label: "Priority & potential" },
-  { id: "category", label: "Customer category" }, { id: "type", label: "Customer type" }, { id: "country", label: "Country" },
+  { id: "people", label: "Performis SAE" }, { id: "status", label: "Where they stand" }, { id: "prio", label: "Priority" },
+  { id: "category", label: "Customer category" }, { id: "type", label: "Customer type" }, { id: "apic", label: "APIC" }, { id: "country", label: "Country" },
 ];
 const isView = (x: string | null): x is CView => VIEWS.some((v) => v.id === x);
-const DIM_OF: Record<CView, CDim> = { people: "person", status: "person", prio: "prio", category: "category", type: "type", country: "country" };
+const DIM_OF: Record<CView, CDim> = { people: "person", status: "person", prio: "prio", category: "category", type: "type", apic: "apic", country: "country" };
 const DIM: Record<CDim, { name: string; lower: string; icon: React.ReactNode; tint: Tint; note: string }> = {
   person: { name: "Performis SAE", lower: "Performis SAE", icon: <BadgeOutlinedIcon />, tint: "green", note: "The customer's Performis SAE as its person (Map assignment's SAE table), as the Figures split revenue" },
-  prio: { name: "Priority", lower: "priority", icon: <FlagOutlinedIcon />, tint: "purple", note: "The customer's priority: Prio 1 above €25,000 potential, Prio 2 €2,500-25,000, Prio 3 €500-2,500" },
-  band: { name: "Potential", lower: "potential", icon: <SavingsOutlinedIcon />, tint: "amber", note: "The customer's yearly potential in HubSpot, in bands - a placeholder over €1m counts as not set" },
-  category: { name: "Customer category", lower: "customer category", icon: <CategoryOutlinedIcon />, tint: "blue", note: "The customer's APSO customer category - Other: APSOlost, APSOmicro, Growth Engine and not set" },
-  type: { name: "Customer type", lower: "customer type", icon: <FactoryOutlinedIcon />, tint: "slate", note: "OEM, MRO, C2S workshop… as HubSpot has the company" },
+  prio: { name: "Priority", lower: "priority", icon: <StarOutlineIcon />, tint: "purple", note: "The customer's sales priority: Prio 1 above €25,000, Prio 2 €2,500-25,000, Prio 3 €500-2,500 - one Smart Segmentation has not set yet worked out by its rule" },
+  category: { name: "Customer category", lower: "customer category", icon: <CategoryOutlinedIcon />, tint: "blue", note: "The customer's APSO customer category as HubSpot has it" },
+  type: { name: "Customer type", lower: "customer type", icon: <FlagOutlinedIcon />, tint: "pink", note: "OEM, MRO, C2S workshop… as HubSpot has the company" },
+  apic: { name: "APIC", lower: "APIC", icon: <FactoryOutlinedIcon />, tint: "amber", note: "The customer's APIC industry code - 1.x OEM industries, down to the sub-industry" },
   country: { name: "Country", lower: "country", icon: <PublicOutlinedIcon />, tint: "blue", note: "Where the customer is" },
 };
-const ORDER: Partial<Record<CDim, readonly string[]>> = { prio: ["Prio 1", "Prio 2", "Prio 3", "No priority"], category: ["APSOcore", "APSOgrowth", "APSOprospect", "Other"], band: POTENTIAL_BANDS };
+const ORDER: Partial<Record<CDim, readonly string[]>> = { prio: PRIOS, category: ["APSOcore", "APSOgrowth", "APSOprospect", "APSOmicro", "APSOlost", "Growth Engine Customer", "Not set"] };
+/** A breakdown's own order (priorities, categories) - values it does not name after them, by size. */
+const ranked = (dim: CDim) => { const o = ORDER[dim]; return o ? (l: string) => { const i = o.indexOf(l); return i < 0 ? 999 : i; } : null; };
 
 export type CCtx = {
   d: CustDevData; per: CPer; team: TeamKey; lead: string | null; teams: Team[];
@@ -168,14 +177,15 @@ export type CCtx = {
 };
 
 const statCache = new WeakMap<CCtx, Map<string, Map<string, CStats>>>();
-/** The figures of the period by a breakdown (its own filter left out), or all together - kept per drawing. */
-function statsOf(c: CCtx, dim?: CDim): Map<string, CStats> {
+/** The figures of the period by a breakdown, or all together - only what is filtered (SARCLA 29.10.2026 on Visits: "the
+ *  filter goes but they still keep on top"); `own` leaves the breakdown's own filter out, for the Filters window's lists. */
+function statsOf(c: CCtx, dim?: CDim, own = false): Map<string, CStats> {
   let memo = statCache.get(c);
   if (!memo) { memo = new Map(); statCache.set(c, memo); }
-  const k = dim ?? "";
+  const k = `${dim ?? ""}${own ? ":all" : ""}`;
   const hit = memo.get(k);
   if (hit) return hit;
-  const out = statsBy(c.d, rowsOf(c.d, c.filters, c.people, dim), c.per.win, dim ? (r) => labelOf(c.d, r, dim) : undefined);
+  const out = statsBy(c.d, rowsOf(c.d, c.filters, c.people, own ? dim : undefined), c.per.win, dim ? (r) => labelOf(c.d, r, dim) : undefined);
   memo.set(k, out);
   return out;
 }
@@ -198,33 +208,31 @@ const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; diff
   avgrev: { title: "Ø revenue per active customer", fmt: eur, diff: signedEur, unit: "eur", target: "Ø revenue per active customer" },
   avgord: { title: "Ø orders per active customer", fmt: dec1, diff: signedDec, unit: "n", target: "Ø orders per active customer" },
 };
-/** "Lost customers - no order for 12 to 24 months": the lost one's title names its rule wherever it stands. */
-const measureTitle = (m: Measure) => (m === "lost" ? "Lost customers - no order for 12 to 24 months" : MEASURE[m].title);
-function boardRows(c: CCtx, dim: CDim, m: Measure): { rows: BoardRow[]; small: BoardRow[] } {
-  const rows: BoardRow[] = [], small: BoardRow[] = [];
+/** "Lost customers - no order for 12 months or more": the lost one's title names its rule wherever it stands. */
+const measureTitle = (m: Measure) => (m === "lost" ? "Lost customers - no order for 12 months or more" : MEASURE[m].title);
+function boardRows(c: CCtx, dim: CDim, m: Measure): BoardRow[] {
+  const rows: BoardRow[] = [];
   for (const [label, s] of statsOf(c, dim)) {
-    let cur: number, prev: number, sub: string, ranked = true;
+    let cur: number, prev: number, sub: string;
     if (m === "active") { cur = s.active.cy; prev = s.active.py; sub = `Ø ${eur(avg(s.active.rev, s.active.cy))} · Ø ${dec1(avg(s.active.ord, s.active.cy))} orders`; }
     else if (m === "new") { cur = s.new.cy; prev = s.new.py; sub = `${eur(s.new.rev)} revenue · ${int(s.new.ord)} orders`; }
     else if (m === "react") { cur = s.react.cy; prev = s.react.py; sub = `${eur(s.react.rev)} revenue · ${int(s.react.ord)} orders`; }
     else if (m === "slow") { cur = s.slow.cy; prev = s.slow.py; sub = `${eur(s.slow.rev)} now · ${eur(s.slow.revPy)} a year earlier`; }
-    else if (m === "lost") { cur = s.lost.cy; prev = s.lost.py; sub = `${eur(s.lost.rev)} in their last year · potential ${eur(s.lost.pot)}`; }
-    else if (m === "churn") { const r = churn(s); cur = r.cy ?? 0; prev = r.py ?? 0; sub = `${int(s.lost.cy)} of ${int(s.base.cy)} who bought 12 to 24 months back`; ranked = s.base.cy >= MIN_BASE; if (!s.base.cy) continue; }
-    else if (m === "avgrev") { cur = avg(s.active.rev, s.active.cy); prev = avg(s.active.revPy, s.active.py); sub = `${int(s.active.cy)} active customers`; ranked = s.active.cy >= MIN_N; }
-    else { cur = avg(s.active.ord, s.active.cy); prev = avg(s.active.ordPy, s.active.py); sub = `${int(s.active.ord)} orders · ${int(s.active.cy)} active customers`; ranked = s.active.cy >= MIN_N; }
+    else if (m === "lost") { cur = s.lost.cy; prev = s.lost.py; sub = `${int(s.churned.cy)} of them still bought ${baseWords(c.d, c.per)}`; }
+    else if (m === "churn") { const r = churn(s); cur = r.cy ?? 0; prev = r.py ?? 0; sub = `${int(s.churned.cy)} of the ${int(s.base.cy)} who bought ${baseWords(c.d, c.per)} did not order since`; if (!s.base.cy) continue; }
+    else if (m === "avgrev") { cur = avg(s.active.rev, s.active.cy); prev = avg(s.active.revPy, s.active.py); sub = `${int(s.active.cy)} active customers`; }
+    else { cur = avg(s.active.ord, s.active.cy); prev = avg(s.active.ordPy, s.active.py); sub = `${int(s.active.ord)} orders · ${int(s.active.cy)} active customers`; }
     if (!cur && !prev && m !== "churn") continue;
-    (ranked ? rows : small).push({ label, cur, prev, sub });
+    rows.push({ label, cur, prev, sub });
   }
-  return { rows, small };
+  return rows;
 }
 function Board({ c, id, dim, m, actions }: { c: CCtx; id: string; dim: CDim; m: Measure; actions?: React.ReactNode }) {
-  const { rows, small } = boardRows(c, dim, m);
   const M = MEASURE[m];
-  const why = m === "churn" ? `under ${MIN_BASE} customers who bought 12 to 24 months back` : `under ${MIN_N} active customers`;
   return (
-    <Leaderboard key={`${id}-${c.per.id}`} title={`${measureTitle(m)}, ${c.per.title}, by ${DIM[dim].lower}`} rows={rows}
-      curLabel={perWords(c.d, c.per)} prevLabel={perWords(c.d, c.per, true)} first={c.half ? 8 : 12} fmt={M.fmt} diff={M.diff} lowerIsBetter={M.lower} ratio={M.ratio}
-      target={targetFor(c, id)} unranked={small.length ? { why, rows: small } : undefined}
+    <Leaderboard key={`${id}-${c.per.id}`} title={`${measureTitle(m)}, ${c.per.title}, by ${DIM[dim].lower}`} rows={boardRows(c, dim, m)}
+      curLabel={perWords(c.d, c.per)} prevLabel={perWords(c.d, c.per, true)} first={ALL} fmt={M.fmt} diff={M.diff} lowerIsBetter={M.lower} ratio={M.ratio}
+      target={targetFor(c, id)}
       selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${DIM[dim].lower}`} actions={actions} />
   );
@@ -232,7 +240,7 @@ function Board({ c, id, dim, m, actions }: { c: CCtx; id: string; dim: CDim; m: 
 
 /* ── where they stand: the deck's questions in one table ───────────────── */
 
-type SRow = { label: string; note: string; cy: number; py: number; lower?: boolean; avgRev: number; avgRevPy: number; avgOrd: number | null; avgOrdPy: number | null };
+type SRow = { label: string; note: string; cy: number; py: number; lower?: boolean; avgRev: number | null; avgRevPy: number | null; avgOrd: number | null; avgOrdPy: number | null };
 function statusRows(t: CStats): SRow[] {
   const f = (label: string, note: string, x: CStats["active"], lower = false): SRow => ({
     label, note, cy: x.cy, py: x.py, lower, avgRev: avg(x.rev, x.cy), avgRevPy: avg(x.revPy, x.py), avgOrd: avg(x.ord, x.cy), avgOrdPy: avg(x.ordPy, x.py),
@@ -242,7 +250,7 @@ function statusRows(t: CStats): SRow[] {
     f("New", "first order ever in the period", t.new),
     f("Reactivated", "bought again after 12 months or more without", t.react),
     f("Slowing", "bought less than half of the same months a year earlier", t.slow, true),
-    { label: "Lost", note: "no order for 12 to 24 months - Ø: what they bought in their last year", cy: t.lost.cy, py: t.lost.py, lower: true, avgRev: avg(t.lost.rev, t.lost.cy), avgRevPy: avg(t.lost.revPy, t.lost.py), avgOrd: null, avgOrdPy: null },
+    { label: "Lost", note: "no order for 12 months or more at the period's end, however long ago the last one", cy: t.lost.cy, py: t.lost.py, lower: true, avgRev: null, avgRevPy: null, avgOrd: null, avgOrdPy: null },
   ];
 }
 const withChange = (text: string, cur: number, prev: number, lower = false) => {
@@ -264,19 +272,16 @@ function StatusTable({ c }: { c: CCtx }) {
         { key: "cy", head: perCap(c.per), cell: (x) => withChange(int(x.cy), x.cy, x.py, x.lower), sort: (x) => x.cy },
         { key: "py", head: "The same months last year", tip: "Last year's month matching the one in progress counts pro rata", cell: (x) => int(x.py), sort: (x) => x.py },
         { key: "diff", head: "Change", cell: (x) => <span style={{ color: changeOf(x.cy, x.py, x.lower).color, fontWeight: 700 }}>{signedInt(x.cy - x.py)}</span>, sort: (x) => x.cy - x.py },
-        { key: "rev", head: "Ø revenue per customer", tip: "Their revenue in the period, per customer", cell: (x) => withChange(eur(x.avgRev), x.avgRev, x.avgRevPy), sort: (x) => x.avgRev },
-        { key: "revPy", head: "A year earlier", cell: (x) => eur(x.avgRevPy), sort: (x) => x.avgRevPy },
+        { key: "rev", head: "Ø revenue per customer", tip: "Their revenue in the period, per customer", cell: (x) => (x.avgRev == null ? "—" : withChange(eur(x.avgRev), x.avgRev, x.avgRevPy ?? 0)), sort: (x) => x.avgRev ?? -1 },
+        { key: "revPy", head: "A year earlier", cell: (x) => (x.avgRevPy == null ? "—" : eur(x.avgRevPy)), sort: (x) => x.avgRevPy ?? -1 },
         { key: "ord", head: "Ø orders per customer", tip: "HubSpot's orders in the period, per customer - credit notes and cancelled orders left out", cell: (x) => (x.avgOrd == null ? "—" : withChange(dec1(x.avgOrd), x.avgOrd, x.avgOrdPy ?? 0)), sort: (x) => x.avgOrd ?? -1 },
         { key: "ordPy", head: "A year earlier", cell: (x) => (x.avgOrdPy == null ? "—" : dec1(x.avgOrdPy)), sort: (x) => x.avgOrdPy ?? -1 },
       ]} />
       <Box sx={{ display: "grid", gap: 0.4, px: 0.5 }}>
         {rows.map((x) => <Typography key={x.label} sx={{ fontSize: "0.76rem", color: MUTED }}><b style={{ color: INK }}>{x.label}:</b> {x.note}</Typography>)}
         <Typography sx={{ fontSize: "0.82rem", color: INK, mt: 0.5 }}>
-          <b>Churn rate {pct(r.cy)}</b> <span style={{ color: MUTED }}>- {int(t.lost.cy)} lost of the {int(t.base.cy)} who bought 12 to 24 months back · a year earlier {pct(r.py)}</span>
+          <b>Churn rate {pct(r.cy)}</b> <span style={{ color: MUTED }}>- of the {int(t.base.cy)} customers who bought {baseWords(c.d, c.per)}, {int(t.churned.cy)} did not order {sinceWords(c.d, c.per)} · a year earlier {pct(r.py)}</span>
           {r.cy != null && r.py != null && <span style={{ color: r.cy <= r.py ? GREEN : RED, fontWeight: 700 }}> · {signedDec((r.cy - r.py) * 100)} pts</span>}
-        </Typography>
-        <Typography sx={{ fontSize: "0.82rem", color: INK }}>
-          <b>Potential of the lost {eur(t.lost.pot)}</b> <span style={{ color: MUTED }}>- their yearly potential in HubSpot · they bought {eur(t.lost.rev)} in their last year · a year earlier {eur(t.lost.potPy)} potential</span>
         </Typography>
       </Box>
     </Box>
@@ -336,7 +341,15 @@ function CustMonths({ c, target }: { c: CCtx; target: number | null }) {
 
 /* ── the customers to call: the lost and the slowing by name ───────────── */
 
-type NRow = { label: string; person: string; country: string; rev: number; revPy: number; potential: number; last: number | null };
+/** "Mar 2025", or the day of an older last order "14 Jun 2019" */
+const lastWords = (d: CustDevData, r: { last: number | null; lastDay: number }) => {
+  if (r.last != null) return monthWords(d, r.last);
+  if (!r.lastDay) return "—";
+  const y = Math.floor(r.lastDay / 10000), m = Math.floor(r.lastDay / 100) % 100, day = r.lastDay % 100;
+  return `${day} ${MONTHS[m - 1]} ${y}`;
+};
+
+type NRow = { label: string; person: string; country: string; rev: number; revPy: number; last: number | null; lastDay: number };
 function NamedTable({ c, status }: { c: CCtx; status: "lost" | "slow" }) {
   const list = useMemo(() => namedOf(c.d, rowsOf(c.d, c.filters, c.people), c.per.win, status), [c, status]);
   // a name twice (two companies alike) keeps both rows apart
@@ -344,21 +357,19 @@ function NamedTable({ c, status }: { c: CCtx; status: "lost" | "slow" }) {
   const rows: NRow[] = list.map((x) => {
     const n = (seen.get(x.name) ?? 0) + 1;
     seen.set(x.name, n);
-    return { label: n > 1 ? `${x.name} (${c.d.ids[x.i]})` : x.name, person: x.person, country: x.country, rev: x.rev, revPy: x.revPy, potential: x.potential, last: x.last };
+    return { label: n > 1 ? `${x.name} (${c.d.ids[x.i]})` : x.name, person: x.person, country: x.country, rev: x.rev, revPy: x.revPy, last: x.last, lastDay: x.lastDay };
   });
   const cols: Col<NRow>[] = status === "lost" ? [
     { key: "person", head: "Performis SAE", cell: (r) => r.person },
     { key: "country", head: "Country", cell: (r) => r.country },
-    { key: "rev", head: "Bought in their last year", tip: "Their revenue in the 12 months before the last 12", cell: (r) => eur(r.rev), sort: (r) => r.rev },
-    { key: "pot", head: "Yearly potential", tip: "In HubSpot - a placeholder over €1m counts as not set", cell: (r) => (r.potential ? eur(r.potential) : "—"), sort: (r) => r.potential },
-    { key: "last", head: "Last bought", cell: (r) => (r.last == null ? "—" : monthWords(c.d, r.last)), sort: (r) => r.last ?? -1 },
+    { key: "last", head: "Last order", tip: "Their last purchase up to the period's end", cell: (r) => lastWords(c.d, r), sort: (r) => (r.last != null ? 100_000_000 + r.last : r.lastDay) },
+    { key: "rev", head: "Bought in the 12 months up to it", tip: `Their revenue in the 12 months up to their last purchase - read since January ${c.d.year - 3}`, cell: (r) => (r.last == null ? "—" : eur(r.rev)), sort: (r) => r.rev },
   ] : [
     { key: "person", head: "Performis SAE", cell: (r) => r.person },
     { key: "country", head: "Country", cell: (r) => r.country },
     { key: "rev", head: perCap(c.per), cell: (r) => eur(r.rev), sort: (r) => r.rev },
     { key: "revPy", head: "The same months last year", cell: (r) => eur(r.revPy), sort: (r) => r.revPy },
     { key: "diff", head: "Less by", cell: (r) => <span style={{ color: RED, fontWeight: 700 }}>{signedEur(r.rev - r.revPy)}</span>, sort: (r) => r.revPy - r.rev },
-    { key: "pot", head: "Yearly potential", cell: (r) => (r.potential ? eur(r.potential) : "—"), sort: (r) => r.potential },
   ];
   if (!rows.length) return <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>None under these filters.</Typography>;
   return <FullTable key={`${status}-${c.per.id}-${c.team}`} first="Customer" cols={cols} rows={rows} initial={status === "lost" ? "rev" : "diff"} find="a customer" />;
@@ -370,7 +381,7 @@ type TargetOf = { unit: "eur" | "pct" | "n"; label: string };
 type Drawn = { id: string; title: (c: CCtx) => string; draw: (c: CCtx, actions?: React.ReactNode) => React.ReactNode; target?: (c: CCtx) => TargetOf };
 const teamPart = (c: CCtx) => ` - ${teamName(c)}`;
 const forWhom = (c: CCtx) => `${teamName(c)}'s target for ${c.per.title} - each team and period its own`;
-/** A chart by its id "<tab>:<what>[-<breakdown>]": people:active, prio:lost-band, status:table, status:months, status:lost-list… */
+/** A chart by its id "<tab>:<what>[-<breakdown>]": people:active, apic:lost, status:table, status:months, status:lost-list… */
 function drawnOf(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
@@ -386,7 +397,7 @@ function drawnOf(id: string): Drawn | undefined {
   if (chart === "lost-list" || chart === "slow-list") {
     const lost = chart === "lost-list";
     const title = (c: CCtx) => `The ${lost ? "lost" : "slowing"} customers by name, ${c.per.title}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={lost ? "No order for 12 to 24 months - those who bought most in their last year first" : "Less than half of the same months a year earlier - the biggest drop first"} actions={a}><NamedTable c={c} status={lost ? "lost" : "slow"} /></ChartBox> };
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={lost ? `No order for 12 months or more at ${perEnd(c.d, c.per)} - those who bought most in their last 12 months of buying first` : "Less than half of the same months a year earlier - the biggest drop first"} actions={a}><NamedTable c={c} status={lost ? "lost" : "slow"} /></ChartBox> };
   }
   const [what, by] = chart.split("-");
   if (!(what in MEASURE)) return undefined;
@@ -403,6 +414,7 @@ function chartOf(key: string): Drawn | undefined {
   if (view === "reps") return drawnOf(chart === "lost" ? "people:lost" : "people:active");
   if (view === "status") return drawnOf("status:table");
   if (view === "category") return drawnOf("category:active");
+  if (view === "prio") return drawnOf(chart.startsWith("lost") ? "prio:lost" : "prio:active");
   return undefined;
 }
 
@@ -418,17 +430,16 @@ function dimCols(c: CCtx): Col<Row>[] {
     { key: "new", head: "New", tip: "First order ever in the period", cell: (r) => int(r.new.cy), sort: (r) => r.new.cy },
     { key: "react", head: "Reactivated", tip: "Bought again after 12 months or more without", cell: (r) => int(r.react.cy), sort: (r) => r.react.cy },
     { key: "slow", head: "Slowing", tip: "Less than half of the same months a year earlier", cell: (r) => int(r.slow.cy), sort: (r) => r.slow.cy },
-    { key: "lost", head: "Lost", tip: "No order for 12 to 24 months at the period's end", cell: (r) => withChange(int(r.lost.cy), r.lost.cy, r.lost.py, true), sort: (r) => r.lost.cy },
-    { key: "churn", head: "Churn rate", tip: "Lost of those who bought 12 to 24 months back", cell: (r) => pct(churnOf(r)), sort: (r) => churnOf(r) ?? -1 },
-    { key: "pot", head: "Potential of the lost", tip: "Their yearly potential in HubSpot", cell: (r) => eur(r.lost.pot), sort: (r) => r.lost.pot },
+    { key: "lost", head: "Lost", tip: "No order for 12 months or more at the period's end", cell: (r) => withChange(int(r.lost.cy), r.lost.cy, r.lost.py, true), sort: (r) => r.lost.cy },
+    { key: "churn", head: "Churn rate", tip: `Of the customers who bought ${baseWords(c.d, c.per)}, the share that did not order since`, cell: (r) => pct(churnOf(r)), sort: (r) => churnOf(r) ?? -1 },
   ];
 }
 function DimTable({ c, dim }: { c: CCtx; dim: CDim }) {
   const by = statsOf(c, dim);
-  const order = ORDER[dim];
+  const rank = ranked(dim);
   const rows: Row[] = [...by].map(([label, s]) => ({ label, ...s }));
-  const sorted = order ? [...rows].sort((a, b) => order.indexOf(a.label) - order.indexOf(b.label)) : rows;
-  return <FullTable key={`${dim}-${c.per.id}-${c.team}`} first={DIM[dim].name} cols={dimCols(c)} initial="active" rows={sorted} total={{ label: "Total", ...totalOf(c) }} natural={!!order}
+  const sorted = rank ? [...rows].sort((a, b) => rank(a.label) - rank(b.label) || b.active.cy - a.active.cy) : rows;
+  return <FullTable key={`${dim}-${c.per.id}-${c.team}`} first={DIM[dim].name} cols={dimCols(c)} initial="active" rows={sorted} total={{ label: "Total", ...totalOf(c) }} natural={!!rank}
     selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined} find={dim === "person" ? "a person" : `a ${DIM[dim].lower}`} />;
 }
 
@@ -437,17 +448,23 @@ function DimTable({ c, dim }: { c: CCtx; dim: CDim }) {
 type Act = (id: string, title: string, target?: TargetOf) => React.ReactNode;
 const draw = (c: CCtx, act: Act, id: string) => { const d = drawnOf(id)!; return d.draw(c, act(id, d.title(c), d.target?.(c))); };
 
-function TabCard({ c, act, footnote }: { c: CCtx; act: Act; footnote: React.ReactNode }) {
+function TabCard({ c, act }: { c: CCtx; act: Act }) {
   const card = { display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" } as const;
   const words = `${perWords(c.d, c.per)} against ${perWords(c.d, c.per, true)}`;
+  // every breakdown its own boards, a measure each (SARCLA 29.10.2026: "these are not separated graphs, they should")
+  const boards = (v: CView) => (
+    <>
+      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${v}:active`)}{draw(c, act, `${v}:lost`)}</Box>
+      <Box sx={TWO}>{draw(c, act, `${v}:new`)}{draw(c, act, `${v}:react`)}</Box>
+      <Box sx={TWO}>{draw(c, act, `${v}:slow`)}{draw(c, act, `${v}:churn`)}</Box>
+      <Box sx={TWO}>{draw(c, act, `${v}:avgrev`)}{draw(c, act, `${v}:avgord`)}</Box>
+    </>
+  );
   if (c.view === "people") return (
     <GlassCard sx={card}>
       <CardTitle icon={<BadgeOutlinedIcon />} tint="green" title={`${teamName(c)}'s customers, ${c.per.title}`} note={`${words} · by the customer's Performis SAE`} />
-      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "people:active")}{draw(c, act, "people:lost")}</Box>
-      <Box sx={TWO}>{draw(c, act, "people:react")}{draw(c, act, "people:churn")}</Box>
-      <Box sx={TWO}>{draw(c, act, "people:avgrev")}{draw(c, act, "people:avgord")}</Box>
+      {boards("people")}
       <Box><SubTitle>{perCap(c.per)}, by Performis SAE</SubTitle><DimTable c={c} dim="person" /></Box>
-      {footnote}
     </GlassCard>
   );
   if (c.view === "status") return (
@@ -457,26 +474,14 @@ function TabCard({ c, act, footnote }: { c: CCtx; act: Act; footnote: React.Reac
       {c.per.months >= 2 && draw(c, act, "status:months")}
       {draw(c, act, "status:lost-list")}
       {draw(c, act, "status:slow-list")}
-      {footnote}
-    </GlassCard>
-  );
-  if (c.view === "prio") return (
-    <GlassCard sx={card}>
-      <CardTitle icon={<FlagOutlinedIcon />} tint="purple" title={`${teamName(c)}'s customers by priority and potential, ${c.per.title}`} note={`${DIM.prio.note} · the potential: the customer's yearly potential in HubSpot, a placeholder over €1m counts as not set · ${words}`} />
-      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "prio:active")}{draw(c, act, "prio:lost")}</Box>
-      <Box sx={TWO}>{draw(c, act, "prio:active-band")}{draw(c, act, "prio:lost-band")}</Box>
-      <Box><SubTitle>{perCap(c.per)}, by priority</SubTitle><DimTable c={c} dim="prio" /></Box>
-      <Box><SubTitle>{perCap(c.per)}, by potential</SubTitle><DimTable c={c} dim="band" /></Box>
-      {footnote}
     </GlassCard>
   );
   const dim = DIM_OF[c.view], dd = DIM[dim];
   return (
     <GlassCard sx={card}>
       <CardTitle icon={dd.icon} tint={dd.tint} title={`${teamName(c)}'s customers by ${dd.lower}, ${c.per.title}`} note={`${dd.note} · ${words}`} />
-      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${c.view}:active`)}{draw(c, act, `${c.view}:lost`)}</Box>
+      {boards(c.view)}
       <Box><SubTitle>{perCap(c.per)}, by {dd.lower}</SubTitle><DimTable c={c} dim={dim} /></Box>
-      {footnote}
     </GlassCard>
   );
 }
@@ -494,7 +499,7 @@ function figuresOf(c: CCtx): Fig[] {
     { id: "fig-new", label: "New customers", value: int(t.new.cy), change: vs(t.new), sub: `Ø ${eur(avg(t.new.rev, t.new.cy))} · first order ever`, icon: <PersonAddAltOutlinedIcon />, tint: "blue", amount: t.new.cy },
     { id: "fig-react", label: "Reactivated", value: int(t.react.cy), change: vs(t.react), sub: `Ø ${eur(avg(t.react.rev, t.react.cy))} · after 12 months or more`, icon: <RestartAltOutlinedIcon />, tint: "purple", amount: t.react.cy },
     { id: "fig-slow", label: "Slowing", value: int(t.slow.cy), change: vs(t.slow, true), sub: "under half of a year earlier", icon: <TrendingDownOutlinedIcon />, tint: "amber", amount: t.slow.cy, lower: true },
-    { id: "fig-lost", label: "Lost - no order 12 to 24 months", value: int(t.lost.cy), change: vs(t.lost, true), sub: `churn ${pct(r.cy)} · potential ${eur(t.lost.pot)}`, icon: <PersonOffOutlinedIcon />, tint: "pink", amount: t.lost.cy, lower: true },
+    { id: "fig-lost", label: "Lost - no order for 12 months or more", value: int(t.lost.cy), change: vs(t.lost, true), sub: `churn ${pct(r.cy)}: ${int(t.churned.cy)} of ${int(t.base.cy)} who bought ${baseWords(c.d, c.per)}`, icon: <PersonOffOutlinedIcon />, tint: "pink", amount: t.lost.cy, lower: true },
   ];
 }
 function FigureCards({ c, items, actions }: { c: CCtx; items: Fig[]; actions?: (f: Fig) => React.ReactNode }) {
@@ -544,17 +549,17 @@ function CPeriod({ d, per, onPer }: { d: CustDevData; per: CPer; onPer: (w: CWin
           {MONTHS.slice(0, m + 1).map((x, i) => <MenuItem key={x} value={i}>{x} {d.year}</MenuItem>)}
         </Select>
       </Box>
-      <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.45 }}>This year&apos;s months, against the same months a year earlier. Lost and the churn rate look at the 24 months up to the period&apos;s end.</Typography>
+      <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.45 }}>This year&apos;s months, against the same months a year earlier. Lost: no order in the 12 months up to the period&apos;s end.</Typography>
     </Box>
   );
 }
 function CFacet({ c, dim, onPick }: { c: CCtx; dim: CDim; onPick: (l: string) => void }) {
   const [q, setQ] = useState("");
   const [all, setAll] = useState(false);
-  const by = statsOf(c, dim);
-  const order = ORDER[dim];
+  const by = statsOf(c, dim, true);
+  const rank = ranked(dim);
   const rows = [...by].map(([label, s]) => ({ label, n: s.active.cy }));
-  rows.sort(order ? (a, b) => order.indexOf(a.label) - order.indexOf(b.label) : (a, b) => b.n - a.n || a.label.localeCompare(b.label));
+  rows.sort(rank ? (a, b) => rank(a.label) - rank(b.label) || b.n - a.n : (a, b) => b.n - a.n || a.label.localeCompare(b.label));
   const sel = c.filters[dim] ?? [];
   const found = q ? rows.filter((r) => r.label.toLowerCase().includes(q.toLowerCase())) : rows;
   const LIMIT = 8;
@@ -585,7 +590,7 @@ function CFacet({ c, dim, onPick }: { c: CCtx; dim: CDim; onPick: (l: string) =>
     </Box>
   );
 }
-const FILTER_DIMS: CDim[] = ["person", "prio", "band", "category", "type", "country"];
+const FILTER_DIMS: CDim[] = ["person", "prio", "category", "type", "apic", "country"];
 function CFilterWindow({ c, per, open, onClose, focus, onPer, toggle, clearAll }: {
   c: CCtx; per: CPer; open: boolean; onClose: () => void; focus: { dim: CDim; n: number } | null; onPer: (w: CWin) => void; toggle: (d: CDim, l: string) => void; clearAll: () => void;
 }) {
@@ -634,17 +639,6 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
     </GlassCard>
   );
 }
-function Footnote({ d }: { d: CustDevData }) {
-  return (
-    <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-      Active: bought in the period (revenue in it). New: first order ever in the period - as the New customers page. Reactivated: bought in the period after 12 months or more without, having ordered before. Slowing: bought in the period less than half of the same months a year earlier. Lost: no order for 12 to 24 months at the period&apos;s end - bought in the 12 months before the last 12 and nothing since, as Retain &amp; grow&apos;s &quot;stopped&quot;; the churn rate is their share of everyone who bought in those 12 months.
-      {" "}Ø revenue: the revenue in the period per customer (the ERP&apos;s revenue by month on each company); Ø orders: HubSpot&apos;s orders by order date per customer, counted as the company&apos;s &quot;total orders&quot; - credit notes and cancelled orders left out, one order per order number. The month in progress counts as far as the last ERP delivery; last year&apos;s same month counts pro rata, as on Who are our customers.
-      {" "}A customer belongs to its Performis SAE today in both years (Map assignment&apos;s SAE table); ESO and TSA by that person&apos;s team, Total = all of APSOparts; a line manager&apos;s team as the SAE table sets it. The potential: the company&apos;s yearly potential in HubSpot, a placeholder over €1m left out; averages rank people with {MIN_N} active customers or more.
-      {" "}{int(d.coverage.companies)} companies that bought in four years, {int(d.coverage.orders)} orders since January {d.year - 1} ({int(d.coverage.ordersLinked)} linked to one of them). Read from HubSpot {new Date(d.generatedAt).toLocaleString("en-GB")}, again with each ERP delivery.
-    </Typography>
-  );
-}
-
 export function CustomerDevExplorer() {
   const params = useSearchParams();
   const { d, computing, progress, error } = useCustDev();
@@ -733,7 +727,7 @@ export function CustomerDevExplorer() {
         </Button>
       </Box>
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
-        <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} footnote={<Footnote d={d} />} />
+        <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />
       </Box>
       <CFilterWindow c={c} per={per} open={panel} onClose={() => setPanel(false)} focus={focus} onPer={setPer} toggle={toggle} clearAll={clearAll} />
     </Box>
