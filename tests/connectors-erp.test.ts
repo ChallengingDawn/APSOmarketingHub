@@ -150,6 +150,10 @@ test("plan: figures, ranks over matched companies (ties keep HubSpot's order), %
   assert.equal(a.erp_rev_rank_decline, 1); // -4: the biggest loss
   assert.equal(b.erp_rev_rank_decline, 2); // -2
   assert.equal(a.erp_rev_as_of, "2026-10-08");
+  // each customer's order intake month by month from its YTD ladder: this year to the running month (Feb) and the total,
+  // last year's months before the running one only (its running month is to the same day)
+  assert.deepEqual([a.oi_2026_jan, a.oi_2026_feb, a.oi_2026, a.oi_2025_jan, a.oi_2025_feb], [2, 1, 3, 2, undefined]);
+  assert.deepEqual([b.oi_2026_jan, b.oi_2026_feb, b.oi_2026, b.oi_2025_jan], [7, 3, 10, 1]);
   assert.equal(pct(5, 0), null);
   assert.deepEqual(figureTotals(plan.rows).ytd, 6);
   const cat = (c: string) => plan.series.find((s) => s.cat === c)!.rows;

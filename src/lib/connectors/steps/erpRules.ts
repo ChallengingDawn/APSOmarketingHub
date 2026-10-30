@@ -510,6 +510,24 @@ export function ladder(rec: Rec, tag: string, upto: readonly string[]): Map<numb
   return out;
 }
 
+/**
+ * Each customer's order intake month by month, from its YTD ladder - the oi_<y>_<mon> fields the customers' figures read
+ * (SARCLA 30.10.2026: "new loads are coming and OI is being passed to companies" - only as year and month to date: the
+ * months had stopped at the July workbook, so the ESO Figures showed July-September "not in"). This year's months up to
+ * the running one (to date) and this year's total; last year's months before the running one - the workbook carries
+ * last year's running month to the same day only, and that must not overwrite the full month.
+ */
+export function monthlyOiProps(rec: Rec | undefined, upto: readonly string[], year: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!rec || !upto.length) return out;
+  const cy = ladder(rec, TAG.oYtd, upto);
+  for (const [m, v] of cy) out[`oi_${year}_${OI_MON[m - 1]}`] = pyRound(v, 2);
+  for (const [m, v] of ladder(rec, TAG.oYtdPy, upto)) if (m < upto.length) out[`oi_${year - 1}_${OI_MON[m - 1]}`] = pyRound(v, 2);
+  if (cy.size) out[`oi_${year}`] = pyRound(last(rec, TAG.oYtd, upto), 2);
+  return out;
+}
+const OI_MON = MONTHS.map((m) => m.toLowerCase());
+
 /** _last: the LAST month carrying a value - never max(): YTD falls on a credit note. */
 export function last(rec: Rec, tag: string, upto: readonly string[]): number {
   for (let i = upto.length - 1; i >= 0; i--) {
@@ -736,7 +754,8 @@ export type ErpPlan = {
   totals: CompanyFigures;
   ranks: Ranks;
   /** one input per matched company, in HubSpot's order */
-  companies: { un: string; id: string; properties: CompanyValues }[];
+  /** the 21 ERP properties, and each customer's order intake month by month (monthlyOiProps) */
+  companies: { un: string; id: string; properties: CompanyValues & Record<string, number | string | null> }[];
   forecastYearTotal: number;
   forecastSuspect: boolean;
   /** the KPI series in the order the connector writes them */
@@ -760,7 +779,7 @@ export function planErp(parsed: ErpParsed, found: ReadonlyMap<string, FoundCompa
   const companies: ErpPlan["companies"] = [];
   for (const [un, c] of found) {
     const r = rows.get(un);
-    if (r) companies.push({ un, id: c.id, properties: companyProperties(un, r, ranks, today) });
+    if (r) companies.push({ un, id: c.id, properties: { ...companyProperties(un, r, ranks, today), ...monthlyOiProps(parsed.customers.get(un), upto, year) } });
   }
   const forecastYearTotal = pyRound(pySum(parsed.forecast.values()), 2);
   const revCy = totalsByMonth(parsed.customers, TAG.ytd, upto);

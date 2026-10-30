@@ -233,7 +233,7 @@ async function kpiUpsert(cat: string, rows: KpiRows, existing: Map<string, strin
 }
 
 /** HubSpot property values: a number stays a number; no value clears the property. */
-const companyInput = (id: string, p: CompanyValues) => ({
+const companyInput = (id: string, p: Record<string, number | string | null>) => ({
   id, properties: Object.fromEntries(Object.entries(p).map(([k, v]) => [k, v === null ? "" : v])) as Record<string, Value>,
 });
 
