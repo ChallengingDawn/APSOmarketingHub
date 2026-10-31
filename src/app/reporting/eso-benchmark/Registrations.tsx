@@ -146,14 +146,16 @@ const DIM: Record<RDim, { name: string; lower: string; icon: React.ReactNode; ti
   person: { name: "Person", lower: "person", icon: <BadgeOutlinedIcon />, tint: "pink", note: "The company's owner in HubSpot today" },
   visit: { name: "Visit and registration", lower: "visit", icon: <DirectionsCarOutlinedIcon />, tint: "green", note: "The company's first completed customer visit against the day it registered - visits are in HubSpot since 2026, so this year only" },
   country: { name: "Country", lower: "country", icon: <PublicOutlinedIcon />, tint: "blue", note: "Where the company is" },
-  prio: { name: "Priority", lower: "priority", icon: <FlagOutlinedIcon />, tint: "purple", note: "The company's priority" },
-  category: { name: "Customer category", lower: "customer category", icon: <CategoryOutlinedIcon />, tint: "blue", note: "The company's APSO customer category - Other: APSOlost, APSOmicro, Growth Engine and not set" },
+  prio: { name: "Priority", lower: "priority", icon: <FlagOutlinedIcon />, tint: "purple", note: "The company's priority today - it rises with what a company buys, so last year's registrations (a year longer to buy) are not compared" },
+  category: { name: "Customer category", lower: "customer category", icon: <CategoryOutlinedIcon />, tint: "blue", note: "The company's APSO customer category today - a company that buys moves up to APSOgrowth or APSOcore, so last year's registrations (a year longer to buy) are not compared · Other: APSOmicro, APSOlost, Growth Engine and not set" },
   type: { name: "Customer type", lower: "customer type", icon: <BusinessOutlinedIcon />, tint: "slate", note: "OEM, MRO, C2S workshop… as HubSpot has the company" },
   apic: { name: "APIC", lower: "APIC", icon: <FactoryOutlinedIcon />, tint: "amber", note: "The company's APIC industry code - 1.x OEM industries, down to the sub-industry" },
 };
 const ORDER: Partial<Record<RDim, readonly string[]>> = { visit: REG_VISIT, prio: ["Prio 1", "Prio 2", "Prio 3", "No priority"], category: ["APSOcore", "APSOgrowth", "APSOprospect", "Other"] };
-/** visits are in HubSpot since 2026: a registration against a visit has no year before to compare with */
-const thisYearOnly = (dim: RDim) => dim === "visit";
+/** No comparison with last year: visits are in HubSpot since 2026, and the category and the priority are the company's
+ *  today - last year's registrations had a year longer to buy and move up (SARCLA 31.10.2026 on APSOcore −78%: "this for
+ *  me indicates that this is an issue"). */
+const thisYearOnly = (dim: RDim) => dim === "visit" || dim === "category" || dim === "prio";
 
 export type RCtx = {
   d: RegData; per: RPer; team: TeamKey; lead: string | null; teams: Team[];
@@ -177,8 +179,8 @@ function statsOf(c: RCtx, side: 0 | 1, dim?: RDim): Map<string, RStats> {
   return out;
 }
 const totalOf = (c: RCtx, side: 0 | 1 = 0) => statsOf(c, side).get("") ?? blank(c.per.months);
-/** Nothing to compare with last year: a breakdown by the visit, or a visit chosen under Filters (no visits before 2026). */
-const noPy = (c: RCtx, dim?: RDim) => (dim ? thisYearOnly(dim) : false) || !!c.filters.visit?.length;
+/** Nothing to compare with last year: a breakdown by one of those, or one of them chosen under Filters. */
+const noPy = (c: RCtx, dim?: RDim) => (dim ? thisYearOnly(dim) : false) || !!(c.filters.visit?.length || c.filters.category?.length || c.filters.prio?.length);
 /** registered on the day of a visit or after one */
 const visitedFirst = (s: RStats) => (s.visit[REG_VISIT[0]] ?? 0) + (s.visit[REG_VISIT[1]] ?? 0);
 
@@ -193,7 +195,7 @@ const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; diff
   registered: { title: "Companies registered", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "companies registered" },
   bought: { title: "Ordered in the shop since registering", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "companies that ordered in the shop since registering" },
   conversion: { title: "Share that ordered since registering", fmt: (n) => pct(n), diff: (n) => moreLess(n, "fewer", "more"), unit: "pct", target: "share that ordered in the shop since registering" },
-  accounts: { title: "Shop accounts opened", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "shop accounts opened" },
+  accounts: { title: "Contacts who opened a shop account", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "contacts (people, not companies) who opened a shop account" },
   visited: { title: "Registered on the day of a visit or after one", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "companies registered on the day of a visit or after one" },
 };
 function boardRows(c: RCtx, dim: RDim, m: Measure): { rows: BoardRow[]; small: BoardRow[] } {
@@ -205,7 +207,7 @@ function boardRows(c: RCtx, dim: RDim, m: Measure): { rows: BoardRow[]; small: B
     if (m === "registered") { cur = s.companies; prev = p.companies; sub = `${int(s.bought)} ordered since · ${pct(share(s.bought, s.companies))} of them`; }
     else if (m === "bought") { cur = s.bought; prev = p.bought; sub = `${pct(share(s.bought, s.companies))} of ${int(s.companies)} registered · median ${days(median(s.days))}`; }
     else if (m === "conversion") { cur = share(s.bought, s.companies) ?? 0; prev = share(p.bought, p.companies) ?? 0; sub = `${int(s.bought)} of ${int(s.companies)} registered`; ranked = s.companies >= MIN_COMPANIES; }
-    else if (m === "accounts") { cur = s.accounts; prev = p.accounts; sub = `${int(s.more)} at companies already in the shop`; }
+    else if (m === "accounts") { cur = s.accounts; prev = p.accounts; sub = `people · ${int(s.more)} at companies already in the shop`; }
     else { cur = visitedFirst(s); prev = 0; sub = `${pct(share(cur, s.companies))} of ${int(s.companies)} registered · ${int(s.visit[REG_VISIT[0]] ?? 0)} on the day`; }
     if (!cur && !prev) continue;
     (ranked ? rows : small).push({ label, cur, prev, sub });
@@ -349,7 +351,7 @@ type Rep = "registered" | "bought" | "accounts";
 const REP: Record<Rep, { title: string; hint: string; val: (s: RStats) => number; share: string }> = {
   registered: { title: "Companies registered", hint: "Companies whose first shop account was opened in the period", val: (s) => s.companies, share: "Share of all registered" },
   bought: { title: "Ordered in the shop since registering", hint: "Of the companies registered, the ones whose first shop order came on the day of registering or after it - last year's counted to the same day", val: (s) => s.bought, share: "Of those registered" },
-  accounts: { title: "Shop accounts opened", hint: "Every account opened in the period, also at companies already in the shop", val: (s) => s.accounts, share: "Share of all accounts" },
+  accounts: { title: "Contacts who opened a shop account", hint: "People, not companies: every contact that opened a shop account in the period - also at companies already in the shop, which are not counted as registering again", val: (s) => s.accounts, share: "Share of all contacts" },
 };
 function rowsOf(c: RCtx, dim: RDim): Row[] {
   const by = statsOf(c, 0, dim), was = noPy(c, dim) ? new Map<string, RStats>() : statsOf(c, 1, dim);
@@ -380,11 +382,14 @@ function ReportTable({ c, dim, r }: { c: RCtx; dim: RDim; r: Rep }) {
   return <FullTable key={`${r}-${dim}-${c.per.id}-${c.team}`} first={DIM[dim].name} cols={cols} initial="cur" rows={rows} total={total} natural={!!ORDER[dim]}
     selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined} find={`${/^[aeiou]/i.test(DIM[dim].lower) ? "an" : "a"} ${DIM[dim].lower}`} tint={DIM[dim].tint} />;
 }
-function Reports({ c, dim }: { c: RCtx; dim: RDim }) {
+/** The companies' reports of a tab - and, on People only, the contacts' one, named as people (SARCLA 31.10.2026: "we must
+ *  be sure to count companies and not contacts - if it's contact level you should mention it"). */
+function Reports({ c, dim, contacts = false }: { c: RCtx; dim: RDim; contacts?: boolean }) {
   const words = noPy(c, dim) ? perWords(c.d, c.per) : `${perWords(c.d, c.per)} against ${perWords(c.d, c.per, 1)}`;
+  const reps: Rep[] = contacts ? ["registered", "bought", "accounts"] : ["registered", "bought"];
   return (
     <>
-      {(["registered", "bought", "accounts"] as const).map((r) => (
+      {reps.map((r) => (
         <ChartBox key={r} title={`${REP[r].title} ${c.per.title}, by ${DIM[dim].lower}`} hint={`${REP[r].hint} · ${words}`}>
           <ReportTable c={c} dim={dim} r={r} />
         </ChartBox>
@@ -432,8 +437,8 @@ function TabCard({ c, act }: { c: RCtx; act: Act }) {
       <CardTitle icon={<BadgeOutlinedIcon />} tint="pink" title={`${teamName(c)}, ${c.per.title}`} note={`${words} · by the company's owner`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "people:registered")}{draw(c, act, "people:bought")}</Box>
       {many && draw(c, act, "people:months")}
-      <Box sx={TWO}>{draw(c, act, "people:conversion")}{draw(c, act, "people:accounts")}</Box>
-      <Reports c={c} dim="person" />
+      <Box sx={TWO}>{draw(c, act, "people:conversion")}{draw(c, act, "people:visited")}</Box>
+      <Reports c={c} dim="person" contacts />
       {many && <ChartBox title={`Companies registered ${c.per.title}, month by month`} hint={`Each month against the same month of ${c.d.year - 1} - the running month to the same day`}><MonthTable c={c} /></ChartBox>}
       {many && <ChartBox title={`Companies registered ${c.per.title}, by person and month`} hint={perWords(c.d, c.per)}><PeopleMonths c={c} /></ChartBox>}
     </GlassCard>
@@ -449,7 +454,7 @@ function TabCard({ c, act }: { c: RCtx; act: Act }) {
   const dim = DIM_OF[c.view], dd = DIM[dim];
   return (
     <GlassCard sx={card}>
-      <CardTitle icon={dd.icon} tint={dd.tint} title={`${teamName(c)} by ${dd.lower}, ${c.per.title}`} note={`${dd.note} · ${words}`} />
+      <CardTitle icon={dd.icon} tint={dd.tint} title={`${teamName(c)} by ${dd.lower}, ${c.per.title}`} note={`${dd.note} · ${thisYearOnly(dim) ? perWords(c.d, c.per) : words}`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${c.view}:registered`)}{draw(c, act, `${c.view}:bought`)}</Box>
       <Reports c={c} dim={dim} />
     </GlassCard>
@@ -463,21 +468,22 @@ type Fig = { id: string; label: string; value: string; ch: number | null; sub: s
 function figuresOf(c: RCtx): Fig[] {
   const t = totalOf(c, 0), p = totalOf(c, 1);
   const P = c.per.title, was = perWords(c.d, c.per, 1);
-  // under a visit filter last year has nothing to compare (no visits before 2026)
+  // under a visit, category or priority filter last year is not compared (no visits before 2026; the category and the
+  // priority are today's)
   const py = !noPy(c);
   return [
-    { id: "fig-registered", label: `Companies registered ${P}`, value: int(t.companies), ch: py ? changeOf(t.companies, p.companies) : null, sub: py ? `${int(p.companies)} in ${was}` : "visits: this year only", icon: <HowToRegOutlinedIcon />, tint: "pink", amount: t.companies, unit: "n" },
+    { id: "fig-registered", label: `Companies registered ${P}`, value: int(t.companies), ch: py ? changeOf(t.companies, p.companies) : null, sub: py ? `${int(p.companies)} in ${was}` : "not compared with last year under this filter", icon: <HowToRegOutlinedIcon />, tint: "pink", amount: t.companies, unit: "n" },
     { id: "fig-bought", label: "Ordered in the shop since registering", value: int(t.bought), ch: py ? changeOf(t.bought, p.bought) : null, sub: `${pct(share(t.bought, t.companies))} of them${py ? ` · ${pct(share(p.bought, p.companies))} in ${c.d.year - 1}` : ""}`, icon: <ShoppingCartCheckoutOutlinedIcon />, tint: "green", amount: t.bought, unit: "n" },
     { id: "fig-days", label: "Median days to the first order", value: days(median(t.days)), ch: null, sub: py ? `${days(median(p.days))} in ${c.d.year - 1}` : `over ${int(t.days.length)} that ordered`, icon: <TimerOutlinedIcon />, tint: "amber", amount: median(t.days) ?? 0, unit: "n" },
     { id: "fig-visited", label: "On the day of a visit or after one", value: int(visitedFirst(t)), ch: null, sub: `${pct(share(visitedFirst(t), t.companies))} of the companies registered`, icon: <DirectionsCarOutlinedIcon />, tint: "green", amount: visitedFirst(t), unit: "n" },
-    { id: "fig-accounts", label: `Shop accounts opened ${P}`, value: int(t.accounts), ch: py ? changeOf(t.accounts, p.accounts) : null, sub: `${int(t.more)} at companies already in the shop`, icon: <PersonAddAltOutlinedIcon />, tint: "blue", amount: t.accounts, unit: "n" },
+    { id: "fig-accounts", label: `Contacts who opened a shop account ${P}`, value: int(t.accounts), ch: py ? changeOf(t.accounts, p.accounts) : null, sub: `people, not companies · ${int(t.more)} at companies already in the shop`, icon: <PersonAddAltOutlinedIcon />, tint: "blue", amount: t.accounts, unit: "n" },
   ];
 }
 function FigureCards({ c, items, big, actions }: { c: RCtx; items: Fig[]; big?: boolean; actions?: (f: Fig) => React.ReactNode }) {
   return (
     <Box sx={big
       ? { display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: `repeat(${items.length}, minmax(0, 1fr))` }, minWidth: 0 }
-      : { display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(140px, 184px))" }, minWidth: 0 }}>
+      : { display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", sm: "repeat(3, minmax(0, 1fr))", lg: `repeat(${items.length}, minmax(0, 1fr))` }, minWidth: 0 }}>
       {items.map((f) => {
         const tgt = actions ? targetFor(c, `panel:${f.id}`) : null;
         return (
@@ -671,27 +677,27 @@ export function RegistrationsExplorer() {
   return (
     <Box sx={shell}>
       {back}
-      {/* the title, what is shown and ESO | TSA | Total on the left; the figures top right, three to a row so the line
-          managers' teams keep to one line - one block (as New customers) */}
-      <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(240px, 1fr) auto" } }}>
-        <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
-          <Typography component="h1" sx={H1}>Registrations</Typography>
-          <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-            <b style={{ color: INK }}>{teamName(now)}</b> · {per.title} <b style={{ color: INK }}>{perWords(d, per)}</b> - against {perWords(d, per, 1)}{computing ? " · reading HubSpot again" : ""}
-          </Typography>
-          {(chosen.length > 0 || per.id !== "ytd") && (
-            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-              {per.id !== "ytd" && <Chip size="small" label={<span><b>Period:</b> {perCap(per)}</span>} onDelete={() => setPer(presetsOf(d)[0].win)} onClick={() => setPanel(true)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.blue.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.blue.fg } }} />}
-              {chosen.map(([k, v]) => <Chip key={`${k}:${v}`} size="small" label={<span><b>{DIM[k].name}:</b> {v}</span>} onDelete={() => toggle(k, v)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[DIM[k].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[k].tint].fg } }} />)}
-              {chosen.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>}
-            </Box>
-          )}
-          <Box sx={{ display: "grid", gap: 0.75, mt: 0.5 }}>
-            <Teams team={team} onTeam={setTeam} lead={leadKey} onLead={setLead} teams={teams} />
-            {lead && people && people.size === 0 && <NoLeadYet name={teamName(now)} />}
+      {/* the title and what is shown, ESO | TSA | Total at the right of it; the figures in one row under them - beside the
+          title they left a hole under it (SARCLA 31.10.2026: "registration is broken on top") */}
+      <Box sx={{ display: "grid", gap: 1.25, minWidth: 0 }}>
+        <Box sx={{ display: "flex", alignItems: "flex-end", gap: 2, flexWrap: "wrap", minWidth: 0 }}>
+          <Box sx={{ minWidth: 0, flex: "1 1 360px", display: "grid", gap: 0.9 }}>
+            <Typography component="h1" sx={H1}>Registrations</Typography>
+            <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
+              <b style={{ color: INK }}>{teamName(now)}</b> · {per.title} <b style={{ color: INK }}>{perWords(d, per)}</b> - against {perWords(d, per, 1)} · companies, by their first shop account{computing ? " · reading HubSpot again" : ""}
+            </Typography>
+            {(chosen.length > 0 || per.id !== "ytd") && (
+              <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
+                {per.id !== "ytd" && <Chip size="small" label={<span><b>Period:</b> {perCap(per)}</span>} onDelete={() => setPer(presetsOf(d)[0].win)} onClick={() => setPanel(true)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.blue.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.blue.fg } }} />}
+                {chosen.map(([k, v]) => <Chip key={`${k}:${v}`} size="small" label={<span><b>{DIM[k].name}:</b> {v}</span>} onDelete={() => toggle(k, v)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[DIM[k].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[k].tint].fg } }} />)}
+                {chosen.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>}
+              </Box>
+            )}
           </Box>
+          <Box sx={{ minWidth: 0 }}><Teams team={team} onTeam={setTeam} lead={leadKey} onLead={setLead} teams={teams} /></Box>
         </Box>
-        <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" }, opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }}><FigureCards c={c} items={figs} /></Box>
+        {lead && people && people.size === 0 && <NoLeadYet name={teamName(now)} />}
+        <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }}><FigureCards c={c} items={figs} /></Box>
       </Box>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
