@@ -422,6 +422,19 @@ function usePages<T>(rows: T[], size: number) {
   const at = Math.min(page, pages - 1);
   return { page: at, pages, setPage, slice: rows.slice(at * size, at * size + size), range: `${at * size + 1}–${Math.min(rows.length, (at + 1) * size)} of ${rows.length}` };
 }
+/** A long list or table goes in pages of this many (SARCLA 31.10.2026 on the Shop's 1,136 not ranked: "paginate this at 25,
+ *  otherwise the UX is bad"). */
+const LIST_PAGE = 25;
+/** Under a list in pages: which rows are shown, "26–50 of 1,136", and the two arrows. */
+function PageBar({ page, pages, setPage, from, to, of }: { page: number; pages: number; setPage: (f: (p: number) => number) => void; from: number; to: number; of: number }) {
+  if (pages <= 1) return null;
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+      <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{from.toLocaleString("en")}–{to.toLocaleString("en")} of {of.toLocaleString("en")}</Typography>
+      <PagerArrows page={page} pages={pages} setPage={setPage} />
+    </Box>
+  );
+}
 /** A row's change in its colour: in € and in %, "new" without last year. */
 const changeLine = (cur: number, prev: number) => { const ch = changeNote(cur, prev); return { text: `${signedEur(cur - prev)} · ${ch?.text ?? "—"}`, color: ch?.color ?? FAINT }; };
 
@@ -459,13 +472,17 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   const rows = useMemo(() => [...given].sort((a, b) => b.cur - a.cur || b.prev - a.prev || a.label.localeCompare(b.label)), [given]);
   const [all, setAll] = useState(false);
   const [small, setSmall] = useState(!!unranked?.open);
-  const shown = all ? rows : rows.slice(0, first);
-  const podium = shown.slice(0, 3), rest = shown.slice(3);
+  // the first three as cards, the next places under them - all of them, once asked for, in pages
+  const podium = rows.slice(0, 3);
+  const places = usePages(all ? rows.slice(3) : rows.slice(3, first), LIST_PAGE);
+  const rest = places.slice, before = 3 + places.page * LIST_PAGE;
+  const others = useMemo(() => [...(unranked?.rows ?? [])].sort((a, b) => a.label.localeCompare(b.label)), [unranked?.rows]);
+  const otherPages = usePages(others, LIST_PAGE);
   const hits = (r: BoardRow) => (lowerIsBetter ? r.cur <= target! : r.cur >= target!);
   const flip = (color: string) => (!lowerIsBetter ? color : color === GREEN ? RED : color === RED ? GREEN : color);
   const reached = target ? rows.filter(hits).length : 0;
   // in words anyone reads (SARCLA 27.10.2026: "I don't understand 'ranked by 2026 · the first 6 of 17'")
-  const hint = ["Highest first", rows.length > first && !all ? `top ${first} of ${rows.length} shown` : "", onPick ? "click one to show only it" : ""].filter(Boolean).join(" · ");
+  const hint = ["Highest first", rows.length > first && !all ? `top ${first} of ${rows.length.toLocaleString("en")} shown` : "", onPick ? "click one to show only it" : ""].filter(Boolean).join(" · ");
   // the change: in % and euros, or in points for a ratio
   const change = (r: BoardRow) => {
     if (noChange) return { main: "", color: FAINT, second: null as string | null };
@@ -533,7 +550,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
                       border: 0, borderBottom: `1px solid ${HAIRLINE}`, font: "inherit", textAlign: "left", cursor: onPick ? "pointer" : "default",
                       bgcolor: on ? TINT.blue.bg : "transparent", opacity: selected?.length && !on ? 0.5 : 1,
                       "&:hover": onPick ? { bgcolor: on ? TINT.blue.bg : "rgba(21,34,58,.035)" } : {}, "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: -2 } }}>
-                    <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: FAINT, fontVariantNumeric: "tabular-nums" }}>{i + 4}</Typography>
+                    <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: FAINT, fontVariantNumeric: "tabular-nums" }}>{before + i + 1}</Typography>
                     <Box sx={{ minWidth: 0 }}>
                       <Typography noWrap sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, lineHeight: 1.25 }}>{r.label}</Typography>
                       {(r.sub || t) && (
@@ -553,16 +570,20 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
             </Box>
           )}
           {rows.length > first && (
-            <Button size="small" onClick={() => setAll((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start" }}>{all ? `Show the first ${first}` : `Show all ${rows.length}`}</Button>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+              <Button size="small" onClick={() => setAll((x) => !x)} sx={{ textTransform: "none", fontWeight: 600 }}>{all ? `Show the first ${first}` : `Show all ${rows.length.toLocaleString("en")}`}</Button>
+              <Box sx={{ flex: 1 }} />
+              {all && <PageBar page={places.page} pages={places.pages} setPage={places.setPage} from={before + 1} to={before + rest.length} of={rows.length} />}
+            </Box>
           )}
         </>
       )}
       {unranked && unranked.rows.length > 0 && (
         <Box sx={{ display: "grid", gap: 0.5 }}>
           <Button size="small" onClick={() => setSmall((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start", color: MUTED }}>
-            {small ? "Hide" : "Show"} the {unranked.rows.length} not ranked - {unranked.why}
+            {small ? "Hide" : "Show"} the {unranked.rows.length.toLocaleString("en")} not ranked - {unranked.why}
           </Button>
-          {small && [...unranked.rows].sort((a, b) => a.label.localeCompare(b.label)).map((r) => (
+          {small && otherPages.slice.map((r) => (
             <Box key={r.label} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: 1.25, alignItems: "center", px: 0.75, py: 0.5, borderBottom: `1px solid ${HAIRLINE}` }}>
               <Box sx={{ minWidth: 0 }}>
                 <Typography noWrap sx={{ fontSize: "0.84rem", fontWeight: 600, color: MUTED }}>{r.label}</Typography>
@@ -571,6 +592,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
               <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: MUTED, fontVariantNumeric: "tabular-nums" }}>{fmt(r.cur)}</Typography>
             </Box>
           ))}
+          {small && <PageBar page={otherPages.page} pages={otherPages.pages} setPage={otherPages.setPage} from={otherPages.page * LIST_PAGE + 1} to={otherPages.page * LIST_PAGE + otherPages.slice.length} of={others.length} />}
         </Box>
       )}
     </Box>
@@ -856,13 +878,13 @@ export function FullTable<R extends { label: string }>({ first, cols, rows, tota
 }) {
   const [sort, setSort] = useState<{ key: string; desc: boolean } | null>(natural ? null : { key: initial ?? cols.find((x) => x.sort)?.key ?? "label", desc: true });
   const [q, setQ] = useState("");
-  const [open, setOpen] = useState(false);
   const col = sort ? cols.find((x) => x.key === sort.key) : null;
   const sorted = sort?.key === "label" ? [...rows].sort((a, b) => a.label.localeCompare(b.label) * (sort.desc ? -1 : 1))
     : col?.sort ? [...rows].sort((a, b) => (col.sort!(b) - col.sort!(a)) * (sort!.desc ? 1 : -1) || a.label.localeCompare(b.label)) : rows;
   const found = q ? sorted.filter((r) => r.label.toLowerCase().includes(q.toLowerCase())) : sorted;
-  const LIMIT = 25;
-  const shown = open || q ? found : found.slice(0, LIMIT);
+  // in pages, the rows found too - back to the first page on a new search or sort
+  const { page, pages, setPage, slice: shown } = usePages(found, LIST_PAGE);
+  useEffect(() => { setPage(0); }, [q, sort]);
   const by = (key: string) => setSort((s) => (s?.key === key ? { key, desc: !s.desc } : { key, desc: key !== "label" }));
   const pad = cols.length > 9 ? 0.6 : 0.75;
   const head = {
@@ -915,9 +937,7 @@ export function FullTable<R extends { label: string }>({ first, cols, rows, tota
           </TableBody>
         </Table>
       </Box>
-      {!q && found.length > LIMIT && (
-        <Button size="small" onClick={() => setOpen((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, mt: 0.75 }}>{open ? `Show the first ${LIMIT}` : `Show all ${found.length}`}</Button>
-      )}
+      {pages > 1 && <Box sx={{ mt: 0.75 }}><PageBar page={page} pages={pages} setPage={setPage} from={page * LIST_PAGE + 1} to={page * LIST_PAGE + shown.length} of={found.length} /></Box>}
     </Box>
   );
 }

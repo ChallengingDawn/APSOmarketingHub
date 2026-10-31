@@ -18,6 +18,10 @@
 // "on view we should have the top product as well, include product hierarchy"; "we should not have Not assigned"): the
 // periods as the other ESO pages - the year to date first, against the same days a year earlier - and the articles looked
 // at by their product, its main group and sub group, besides the profit centre.
+//
+// Fifth pass (SARCLA 31.10.2026: "on shop behaviour we need to drill down to article level as well"): each look keeps its
+// article - the hierarchy runs profit centre, main group, sub group, product, article - and a product is a filter, as the
+// lines above it, so a click on one shows its articles.
 
 export type ShopData = {
   generatedAt: string;
@@ -35,13 +39,15 @@ export type ShopData = {
   labels: { prio: string[]; category: string[]; country: string[]; pc: string[]; group: string[]; sub: string[] };
   /** the products looked at - see P */
   products: [string, string, number, number, number][];
+  /** the articles looked at that Products & Pricing knows - see A */
+  articles: [string, string, number][];
   /** per company index - see C */
   companies: number[][];
   /** live: one row per company and day - see D */
   days: number[][];
   /** Performis: one row per company and year - see Y */
   years: number[][];
-  /** live: the articles looked at, one row per company, day and product - see L */
+  /** live: the articles looked at, one row per company, day and article (a product page without one: per product) - see L */
   looks: number[][];
   /** one row per shop order - see O; empty until the orders are read */
   orders: number[][];
@@ -55,11 +61,14 @@ export const C = { person: 0, prio: 1, category: 2, country: 3 } as const;
  *  the cart. */
 export const D = { company: 0, day: 1, logins: 2, views: 3, orders: 4, carts: 5 } as const;
 /** A look row: the company, the day (0 = liveFrom), the product (index into products), the articles of it the company
- *  looked at that day (an article once a day), of them put in the cart, of them ordered. */
-export const L = { company: 0, day: 1, product: 2, looks: 3, carted: 4, ordered: 5 } as const;
+ *  looked at that day (an article once a day), of them put in the cart, of them ordered; the article (index into
+ *  articles - -1: the product page with none chosen, or one Products & Pricing does not know). */
+export const L = { company: 0, day: 1, product: 2, looks: 3, carted: 4, ordered: 5, article: 6 } as const;
 /** A product: its number, its name, its profit centre, main group and sub group (indexes into labels.pc / group / sub).
  *  The articles Products & Pricing does not know share one product, "Not assigned". */
 export const P = { number: 0, name: 1, pc: 2, group: 3, sub: 4 } as const;
+/** An article: its number, its description in Products & Pricing, its product (index into products). */
+export const A = { number: 0, name: 1, product: 2 } as const;
 /** An order row: the company, the day it was placed (0 = liveFrom - earlier days below 0), its lines' profit centres as
  *  bits (bit i = labels.pc[i]). */
 export const O = { company: 0, day: 1, pcs: 2 } as const;
@@ -76,8 +85,10 @@ export const dayOf = (from: string, n: number) => new Date(at(from) + n * DAY_MS
 /** A period: live days (0 = liveFrom, both ends counted) or a Performis year (index into dtYears). */
 export type SWin = { kind: "live"; from: number; to: number } | { kind: "year"; y: number };
 export type SDim = "person" | "prio" | "category" | "country";
-/** What an article looked at or an order is filtered by - its profit centre, main group, sub group (Views and Orders). */
-export type LDim = "pc" | "group" | "sub";
+/** What an article looked at or an order is filtered by - its profit centre, main group, sub group, product (by its
+ *  number) - on Views and Orders. */
+export type LDim = "pc" | "group" | "sub" | "product";
+const LINES: readonly LDim[] = ["pc", "group", "sub", "product"];
 export type SFilters = Partial<Record<SDim | LDim, string[]>>;
 const COMPANY_DIMS: readonly SDim[] = ["person", "prio", "category", "country"];
 
@@ -379,28 +390,30 @@ export type AStats = {
   /** companies that looked at one */
   companies: number;
 };
-/** A product's label on a line breakdown: its profit centre, main group or sub group. */
+/** A product's label on a line breakdown: its profit centre, main group or sub group - or its number. */
 export function lineLabel(d: ShopData, prod: number, dim: LDim): string {
   const x = d.products[prod];
   if (!x) return "Not assigned";
+  if (dim === "product") return x[P.number] || "Not assigned";
   return (dim === "pc" ? d.labels.pc[x[P.pc]] : dim === "group" ? d.labels.group[x[P.group]] : d.labels.sub[x[P.sub]]) ?? "Not assigned";
 }
 /** Whether a product is shown under the line filters - a breakdown's own left out, as the company filters. */
 export function lineOf(d: ShopData, f: SFilters, except?: LDim): (prod: number) => boolean {
-  const sets = (["pc", "group", "sub"] as const).filter((k) => k !== except && f[k]?.length).map((k) => [k, new Set(f[k])] as const);
+  const sets = LINES.filter((k) => k !== except && f[k]?.length).map((k) => [k, new Set(f[k])] as const);
   return (prod) => sets.every(([k, set]) => set.has(lineLabel(d, prod, k)));
 }
 /** The profit-centre bits an order must have one of under the filters (all bits: no profit centre chosen). */
 export const pcMask = (d: ShopData, f: SFilters) => (f.pc?.length ? d.labels.pc.reduce((m, pc, i) => (f.pc!.includes(pc) ? m | (1 << i) : m), 0) : -1);
 
-/** A live period's looks by profit centre - or by any label of the company or the product (key) - under the team and filters. */
-export function looksBy(d: ShopData, w: SWin, pass: (co: number) => boolean, key: (co: number, prod: number) => string = (_c, prod) => lineLabel(d, prod, "pc"), lines: (prod: number) => boolean = () => true): Map<string, AStats> {
+/** A live period's looks by profit centre - or by any label of the company, the product or the article (key; the article
+ *  -1 where none) - under the team and filters. */
+export function looksBy(d: ShopData, w: SWin, pass: (co: number) => boolean, key: (co: number, prod: number, art: number) => string = (_c, prod) => lineLabel(d, prod, "pc"), lines: (prod: number) => boolean = () => true): Map<string, AStats> {
   const out = new Map<string, AStats>();
   if (w.kind !== "live") return out;
   const seen = new Map<string, Set<number>>();
   for (const r of d.looks) {
     if (r[L.day] < w.from || r[L.day] > w.to || !lines(r[L.product]) || !pass(r[L.company])) continue;
-    const k = key(r[L.company], r[L.product]);
+    const k = key(r[L.company], r[L.product], r[L.article] ?? -1);
     let s = out.get(k);
     if (!s) { s = { looks: 0, carted: 0, ordered: 0, companies: 0 }; out.set(k, s); seen.set(k, new Set()); }
     s.looks += r[L.looks]; s.carted += r[L.carted]; s.ordered += r[L.ordered];

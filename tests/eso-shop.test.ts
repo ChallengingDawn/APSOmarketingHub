@@ -13,6 +13,8 @@ const d: ShopData = {
   labels: { prio: ["Prio 1", "Prio 2", "Prio 3", "No priority"], category: ["APSOcore", "APSOgrowth", "APSOprospect", "Other"], country: ["Switzerland", "Germany"], pc: ["DT", "KT", "Not assigned"], group: ["O-rings", "Plates", "Not set"], sub: ["FKM", "PA", "Not set"] },
   // number, name, profit centre, main group, sub group
   products: [["P1", "O-ring FKM", 0, 0, 0], ["P2", "PA plate", 1, 1, 1], ["", "Not assigned", 2, 2, 2]],
+  // number, description, product
+  articles: [["A1", "O-ring FKM 10 x 2", 0], ["A2", "O-ring FKM 20 x 3", 0], ["A3", "PA plate 5 mm", 1]],
   // person, prio, category, country
   companies: [[0, 0, 0, 0], [0, 1, 0, 1], [1, 2, 1, 0], [2, 3, 3, 1]],
   // company, day, logins, views, orders, carts
@@ -24,8 +26,9 @@ const d: ShopData = {
   ],
   // company, year, logins, views, orders
   years: [[0, 1, 40, 90, 3], [3, 1, 10, 0, 0], [3, 0, 12, 4, 1], [0, 2, 9, 30, 0]],
-  // company, day, product, looked at, into the cart, ordered
-  looks: [[0, 3, 0, 4, 1, 1], [0, 20, 1, 2, 0, 0], [1, 26, 2, 1, 0, 0], [2, 4, 0, 3, 0, 0]],
+  // company, day, product, looked at, into the cart, ordered, article (-1: Products & Pricing does not know it; company 2
+  // looked at P1's product page without choosing an article)
+  looks: [[0, 3, 0, 3, 1, 1, 0], [0, 3, 0, 1, 0, 0, 1], [0, 20, 1, 2, 0, 0, 2], [1, 26, 2, 1, 0, 0, -1], [2, 4, 0, 3, 0, 0, -1]],
   // company, day placed, profit centres as bits (1 DT, 2 KT): company 0 since December 2025, three orders; 1 its first; 3 in September
   orders: [[0, -300, 1], [0, 5, 3], [0, 21, 2], [1, 22, 1], [3, -10, 1]],
   ordersFrom: "2025-01-01",
@@ -260,4 +263,28 @@ test("shop: the articles looked at by product hierarchy - main group, sub group 
   // the top products
   const top = looksBy(d, w, passOf(d, {}, null), (_co, prod) => d.products[prod][1]);
   assert.equal(top.get("O-ring FKM")!.looks, 7);
+});
+
+test("shop: down to the articles - a product as a filter shows its articles; a product page without one counts for the product only", () => {
+  const w = { kind: "live" as const, from: 0, to: 27 };
+  const all = passOf(d, {}, null);
+  const byArticle = (lines?: (prod: number) => boolean) => looksBy(d, w, all, (_co, _prod, art) => (art >= 0 ? d.articles[art][0] : "none"), lines);
+  const every = byArticle();
+  assert.deepEqual(every.get("A1"), { looks: 3, carted: 1, ordered: 1, companies: 1 });
+  assert.deepEqual(every.get("A2"), { looks: 1, carted: 0, ordered: 0, companies: 1 });
+  assert.deepEqual(every.get("A3"), { looks: 2, carted: 0, ordered: 0, companies: 1 });
+  // the unknown article and P1's product page
+  assert.deepEqual(every.get("none"), { looks: 4, carted: 0, ordered: 0, companies: 2 });
+  // a product filter goes by its number; "Not assigned" has none
+  assert.equal(lineLabel(d, 0, "product"), "P1");
+  assert.equal(lineLabel(d, 2, "product"), "Not assigned");
+  const p1 = byArticle(lineOf(d, { product: ["P1"] }));
+  assert.deepEqual([...p1.keys()].sort(), ["A1", "A2", "none"]);
+  assert.equal(p1.get("none")!.looks, 3);
+  // the products' own breakdown leaves its filter out; with the profit centres it narrows
+  assert.equal(lineOf(d, { product: ["P1"] }, "product")(1), true);
+  assert.equal(lineOf(d, { pc: ["KT"], product: ["P1"] })(0), false);
+  assert.equal(lineOf(d, { pc: ["DT"], product: ["P1"] })(0), true);
+  // the product's profit centre still counts all its looks
+  assert.deepEqual(looksBy(d, w, all, undefined, lineOf(d, { product: ["P1"] })).get("DT"), { looks: 7, carted: 1, ordered: 1, companies: 2 });
 });

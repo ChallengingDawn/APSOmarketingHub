@@ -13,7 +13,8 @@
 //    them the articles each company looked at (apsomh_shop_looks), by the profit centre Products & Pricing gives the
 //    article - or the product page, when no article was chosen (SARCLA 30.10.2026: "views per assortment", his pick:
 //    the profit centre), with its product, main group and sub group (31.10.2026: "the top product as well, include
-//    product hierarchy"). The map is kept in kv and grows: each six-hourly read looks up only what it has not seen.
+//    product hierarchy") - and the article itself with its description ("drill down to article level as well"). The
+//    map is kept in kv and grows: each six-hourly read looks up only what it has not seen.
 // 3. The shop orders - every six hours, through slowReport: every order since January of last year (the search month
 //    by month, as the online share's read), one per order number, the shop's when any of its records - or its archived
 //    web record - carries the shop's mark (onlineShare.ts), with the profit centres of its lines (order_positions_json)
@@ -33,12 +34,12 @@ import { splitNumber, webMark } from "@/lib/marketingKpis/onlineShare";
 import { categoryBand, prioBand, prioOf, CATEGORY_BANDS, PRIO_BANDS } from "./esoRules";
 import { dayNo, type ShopData } from "./shopRules";
 
-const BASE_KEY = "esoShop:base:v3"; // v2: the profit centres of the articles looked at; v3: their products and groups
+const BASE_KEY = "esoShop:base:v4"; // v2: the profit centres of the articles looked at; v3: their products and groups; v4: the articles' descriptions
 const BASE_TTL_MS = 6 * 60 * 60 * 1000;
 const ORDERS_KEY = "esoShop:orders:v1";
 const ORDERS_TTL_MS = 6 * 60 * 60 * 1000;
-/** article ("a:…") or product page ("p:…") -> its product (null: Products & Pricing does not know it) */
-const PROD_KV = "esoShop:prodMap:v1";
+/** article ("a:…") or product page ("p:…") -> its product (null: Products & Pricing does not know it); v2: with the article's description */
+const PROD_KV = "esoShop:prodMap:v2";
 const PP_OBJ = "2-200042439";
 /** The profit centres in the order the page shows them; any other comes after, "Not assigned" last. */
 export const PC_ORDER = ["DT", "KT", "FT", "ST", "AT"];
@@ -58,8 +59,9 @@ const dtProp = (what: "n_of_logins" | "n_of_views" | "orders", y: number) => (y 
 const FACTS = ["name", "domain", "hubspot_owner_id", "sales_priority", "apso_customer", "country_custom"];
 
 /** The companies part, kept six hours: ShopData without the live days, with each company row's HubSpot id. */
-/** What Products & Pricing says of an article or a product page: profit centre, main group, sub group, product number, name. */
-type Prod = [string | null, string | null, string | null, string, string];
+/** What Products & Pricing says of an article or a product page: profit centre, main group, sub group, product number, name,
+ *  and the article's description (an article's only). */
+type Prod = [string | null, string | null, string | null, string, string, string?];
 type Base = Pick<ShopData, "dtYears" | "dtLoaded" | "people" | "companies" | "years"> & {
   labels: CompanyLabels;
   generatedAt: string;
@@ -191,7 +193,7 @@ async function lookedKeys(): Promise<LookKeys> {
 
 const prodSeen = new Map<string, Prod | null>();
 let prodLoaded = false;
-const PROD_PROPS = ["profit_center", "main_group_description", "sub_group_description", "product_number", "product_description"];
+const PROD_PROPS = ["profit_center", "main_group_description", "sub_group_description", "product_number", "product_description", "article_description"];
 /** The products of these keys - from kv and this process first, then Products & Pricing: articles 100 a search; a product
  *  page 25 a search (about 100 articles each, so one page answers most - a product never spans two profit centres, checked
  *  30.10.2026), the rest one by one up to `singles` a read. */
@@ -203,6 +205,8 @@ async function prodMapFor(k: LookKeys, singles: number, persist: boolean, progre
   }
   const before = prodSeen.size;
   const str = (v: string | null | undefined) => (v ?? "").trim() || null;
+  // Products & Pricing ends its descriptions with " -" ("... 7.00 mm -")
+  const text = (v: string | null | undefined) => str(v)?.replace(/\s+-$/, "") || null;
   const search = async (prop: string, values: string[], limit: number) => {
     const r = await hubspotFetchJson<{ results?: Row[] }>({
       path: `/crm/v3/objects/${PP_OBJ}/search`, method: "POST",
@@ -210,7 +214,8 @@ async function prodMapFor(k: LookKeys, singles: number, persist: boolean, progre
     });
     return (r.results ?? []).map((x) => {
       const q = x.properties ?? {};
-      const prod: Prod = [str(q.profit_center)?.toUpperCase() ?? null, str(q.main_group_description), str(q.sub_group_description), str(q.product_number) ?? "", str(q.product_description) ?? ""];
+      const prod: Prod = [str(q.profit_center)?.toUpperCase() ?? null, str(q.main_group_description), str(q.sub_group_description), str(q.product_number) ?? "", text(q.product_description) ?? ""];
+      if (prop === "article_number") prod.push(text(q.article_description) ?? "");
       return [String(q[prop] ?? ""), prod] as const;
     });
   };
@@ -450,15 +455,26 @@ async function withLive(b: Base, o: OrdersPart | undefined): Promise<ShopData> {
     }
     return i;
   };
+  // the articles Products & Pricing knows, with their description - the others count on their product only
+  const articles: ShopData["articles"] = [];
+  const artIdx = new Map<string, number>();
+  const articleOf = (a: string, prod: number) => {
+    const x = a ? prodMap[`a:${a}`] : null;
+    if (!x?.[3]) return -1;
+    let i = artIdx.get(a);
+    if (i === undefined) { i = articles.push([a, x[5] ?? "", prod]) - 1; artIdx.set(a, i); }
+    return i;
+  };
   const lookAt = new Map<string, number[]>();
   for (const r of looked) {
     const ci = idx.get(String(r.company_id));
     if (ci === undefined) continue;
     const prod = productOf(prodOf(r));
+    const art = articleOf(r.article, prod);
     const day = dayNo(LIVE_FROM, r.day);
-    const k = `${ci}|${day}|${prod}`;
+    const k = `${ci}|${day}|${prod}|${art}`;
     let x = lookAt.get(k);
-    if (!x) { x = [ci, day, prod, 0, 0, 0]; lookAt.set(k, x); }
+    if (!x) { x = [ci, day, prod, 0, 0, 0, art]; lookAt.set(k, x); }
     x[3]++; if (r.carted) x[4]++; if (r.ordered) x[5]++;
   }
   const orders: number[][] = [];
@@ -471,7 +487,7 @@ async function withLive(b: Base, o: OrdersPart | undefined): Promise<ShopData> {
   }
   return {
     generatedAt: new Date().toISOString(), today, liveFrom: LIVE_FROM, dtYears: b.dtYears, dtLoaded: b.dtLoaded,
-    people, labels: { ...labels, pc: pcList, group: groups, sub: subs }, products, companies, days, years: b.years, looks: [...lookAt.values()],
+    people, labels: { ...labels, pc: pcList, group: groups, sub: subs }, products, articles, companies, days, years: b.years, looks: [...lookAt.values()],
     orders, ordersFrom: o?.from ?? null,
     coverage: { companies: companies.length, live: new Set(days.map((r) => r[0])).size, performis: new Set(b.years.map((r) => r[0])).size, internal: b.internal.length },
   };

@@ -19,6 +19,9 @@
 // live counters once they have the days before); the long note out ("take out this text"); "on view the top product as
 // well, include product hierarchy" - profit centre, main group, sub group and the products themselves, a click on one
 // filtering the others; no "Not assigned"; the shop orders by owner before their table.
+// Fifth pass (SARCLA 31.10.2026): "drill down to article level as well" - a click on a product shows its articles, the
+// articles looked at and then ordered as boards and a table of their own; "1136 not ranked - paginate this at 25,
+// otherwise the UX is bad" - the long lists and tables in pages of 25.
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -57,7 +60,7 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  P, beforeCounters, blank, blankOrders, dayOf, dayWords, labelOf, lineLabel, lineOf, liveSeries, looksBy, ordersBy, ordersCover, passOf, pcMask, periodFor, periodOf, presetsOf, prevOf, quarterPicks, rangeWords, sameWin, shortDays, statsBy, totalsOf, yearSeries,
+  A, P, beforeCounters, blank, blankOrders, dayOf, dayWords, labelOf, lineLabel, lineOf, liveSeries, looksBy, ordersBy, ordersCover, passOf, pcMask, periodFor, periodOf, presetsOf, prevOf, quarterPicks, rangeWords, sameWin, shortDays, statsBy, totalsOf, yearSeries,
   type AStats, type LDim, type OStats, type SDim, type SFilters, type SPer, type SStats, type SWin, type Series, type ShopData,
 } from "@/lib/reporting/shopRules";
 import { pcLabel } from "./shared";
@@ -201,25 +204,39 @@ function seriesOf(c: ShCtx): Series {
 
 const NOT_SHOWN = new Set(["Not assigned", "Not set"]);
 const pcName = (k: string) => (k === "Not assigned" ? k : pcLabel(k.toLowerCase()));
-/** What the views break down by: a line of the product hierarchy, or the products themselves. */
-type LookBy = LDim | "product";
+/** What the views break down by: a level of the product hierarchy - profit centre, main group, sub group, product - or
+ *  the articles themselves. */
+type LookBy = LDim | "article";
 const BY: Record<LookBy, { name: string; lower: string }> = {
   pc: { name: "Profit centre", lower: "profit centre" }, group: { name: "Main group", lower: "main group" }, sub: { name: "Sub group", lower: "sub group" }, product: { name: "Product", lower: "product" },
+  article: { name: "Article", lower: "article" },
 };
-const nameCache = new WeakMap<ShopData, string[]>();
-/** Each product's name - with its number where two share one, so a ranking never folds them together. */
-function productNames(d: ShopData): string[] {
+type Names = { names: string[]; at: Map<string, number> };
+const nameCache = new WeakMap<ShopData, { products: Names; articles: Names }>();
+const named = (names: string[]): Names => ({ names, at: new Map(names.map((n, i) => [n, i])) });
+/** Each product's name - with its number where two share one, so a ranking never folds them together; each article as
+ *  "number · description" (the number alone where Products & Pricing has none). */
+function namesOf(d: ShopData): { products: Names; articles: Names } {
   const hit = nameCache.get(d);
   if (hit) return hit;
   const count = new Map<string, number>();
   for (const x of d.products) count.set(x[P.name], (count.get(x[P.name]) ?? 0) + 1);
-  const out = d.products.map((x) => ((count.get(x[P.name]) ?? 0) > 1 && x[P.number] ? `${x[P.name]} (${x[P.number]})` : x[P.name]));
+  const out = {
+    products: named(d.products.map((x) => ((count.get(x[P.name]) ?? 0) > 1 && x[P.number] ? `${x[P.name]} (${x[P.number]})` : x[P.name]))),
+    articles: named((d.articles ?? []).map((x) => (x[A.name] ? `${x[A.number]} · ${x[A.name]}` : x[A.number]))),
+  };
   nameCache.set(d, out);
   return out;
 }
+const productNames = (d: ShopData) => namesOf(d).products.names;
+/** A product filter's value (its number) as the page shows it - its name - and back. */
+const productShown = (d: ShopData, number: string) => { const i = d.products.findIndex((x) => x[P.number] === number); return i < 0 ? number : productNames(d)[i]; };
+const productNumber = (d: ShopData, name: string) => d.products[namesOf(d).products.at.get(name) ?? -1]?.[P.number] ?? name;
+/** An article's product (index), by the article's label - -1 when not known */
+const productOfArticle = (d: ShopData, label: string) => { const a = d.articles?.[namesOf(d).articles.at.get(label) ?? -1]; return a ? a[A.product] : -1; };
 const looksCache = new WeakMap<ShCtx, Map<string, Map<string, AStats>>>();
-/** The period's articles looked at - or the period before's - by profit centre, main group, sub group or product, under the
- *  team, the filters and the line filters (a breakdown's own left out); live only. */
+/** The period's articles looked at - or the period before's - by profit centre, main group, sub group, product or article,
+ *  under the team, the filters and the line filters (a breakdown's own left out); live only. */
 function looksOf(c: ShCtx, by: LookBy = "pc", before = false): Map<string, AStats> {
   let memo = looksCache.get(c);
   if (!memo) { memo = new Map(); looksCache.set(c, memo); }
@@ -227,9 +244,12 @@ function looksOf(c: ShCtx, by: LookBy = "pc", before = false): Map<string, AStat
   const hit = memo.get(k);
   if (hit) return hit;
   const w = before ? lp(c) : c.per.win;
-  const names = productNames(c.d);
-  const key = by === "product" ? (_co: number, prod: number) => names[prod] : (_co: number, prod: number) => lineLabel(c.d, prod, by);
-  const out = !w ? new Map<string, AStats>() : looksBy(c.d, w, passOf(c.d, c.filters, c.people), key, lineOf(c.d, c.filters, by === "product" ? undefined : by));
+  const { products, articles } = namesOf(c.d);
+  // a product page with no article chosen counts for its product, not for an article
+  const key = by === "product" ? (_co: number, prod: number) => products.names[prod]
+    : by === "article" ? (_co: number, _prod: number, art: number) => (art >= 0 ? articles.names[art] : "Not assigned")
+    : (_co: number, prod: number) => lineLabel(c.d, prod, by);
+  const out = !w ? new Map<string, AStats>() : looksBy(c.d, w, passOf(c.d, c.filters, c.people), key, lineOf(c.d, c.filters, by === "article" ? undefined : by));
   memo.set(k, out);
   return out;
 }
@@ -325,15 +345,19 @@ function Board({ c, id, dim, m, actions }: { c: ShCtx; id: string; dim: SDim; m:
 
 /* ── the views by profit centre ────────────────────────────────────────── */
 
-type PcMeasure = "looks" | "conversion" | "companies";
+type PcMeasure = "looks" | "conversion" | "ordered" | "companies";
 const PC_MEASURE: Record<PcMeasure, { title: string; fmt: (n: number) => string; unit: "n" | "pct"; target: string }> = {
   looks: { title: "Articles looked at", fmt: int, unit: "n", target: "articles looked at" },
   conversion: { title: "Conversion - looked at, then ordered", fmt: (n) => pct(n), unit: "pct", target: "share of the articles looked at that were ordered" },
+  // an article is looked at a handful of times - too few for a conversion to rank; how often it was then ordered does
+  ordered: { title: "Looked at, then ordered", fmt: int, unit: "n", target: "articles looked at, then ordered" },
   companies: { title: "Companies that looked", fmt: int, unit: "n", target: "companies that looked at its articles" },
 };
-const pcValue = (m: PcMeasure, s: AStats) => (m === "looks" ? s.looks : m === "companies" ? s.companies : s.looks ? s.ordered / s.looks : 0);
+const pcValue = (m: PcMeasure, s: AStats) => (m === "looks" ? s.looks : m === "companies" ? s.companies : m === "ordered" ? s.ordered : s.looks ? s.ordered / s.looks : 0);
 /** A line's value as the board shows it, and back: a profit centre by its name ("DT · Sealing"), the rest as they are. */
 const lineShown = (by: LookBy, k: string) => (by === "pc" ? pcName(k) : k);
+/** A line filter's value as a board or the Filtered by bar shows it: a profit centre by its name, a product by its name. */
+const filterShown = (d: ShopData, by: LDim, v: string) => (by === "pc" ? pcName(v) : by === "product" ? productShown(d, v) : v);
 function LineBoard({ c, id, by, m, actions }: { c: ShCtx; id: string; by: LookBy; m: PcMeasure; actions?: React.ReactNode }) {
   const cur = looksOf(c, by), was = looksOf(c, by, true);
   const all = [...cur.values()].reduce((a, s) => a + s.looks, 0);
@@ -345,17 +369,22 @@ function LineBoard({ c, id, by, m, actions }: { c: ShCtx; id: string; by: LookBy
     const label = lineShown(by, k);
     back.set(label, k);
     const p = was.get(k);
-    const sub = m === "conversion" ? `${int(s.ordered)} of ${int(s.looks)} ordered · ${int(s.carted)} into the cart`
-      : m === "looks" ? `${pct(all ? s.looks / all : null)} of the articles looked at · ${int(s.companies)} companies · ${int(s.ordered)} ordered` : `${int(s.looks)} articles looked at`;
+    if (m === "ordered" && !s.ordered) continue;
+    // an article under its product's name - but for the one product chosen
+    const of = by === "article" && c.filters.product?.length !== 1 ? `${productNames(c.d)[productOfArticle(c.d, k)] ?? ""} · ` : "";
+    const sub = of + (m === "conversion" ? `${int(s.ordered)} of ${int(s.looks)} ordered · ${int(s.carted)} into the cart`
+      : m === "ordered" ? `${int(s.ordered)} of ${int(s.looks)} looked at (${pct(s.ordered / s.looks)}) · ${int(s.carted)} into the cart`
+      : m === "looks" ? (by === "article" ? `${int(s.companies)} companies · ${int(s.ordered)} ordered` : `${pct(all ? s.looks / all : null)} of the articles looked at · ${int(s.companies)} companies · ${int(s.ordered)} ordered`) : `${int(s.looks)} articles looked at`);
     (m !== "conversion" || s.looks >= MIN_LOOKS ? rows : small).push({ label, cur: pcValue(m, s), prev: p ? pcValue(m, p) : 0, sub });
   }
   const M = PC_MEASURE[m];
-  const pick = by !== "product" && c.onLine ? (label: string) => c.onLine!(by, back.get(label) ?? label) : undefined;
+  // a product shows its articles; an article is the last level
+  const pick = by !== "article" && c.onLine ? (label: string) => { const k = back.get(label) ?? label; c.onLine!(by, by === "product" ? productNumber(c.d, k) : k); } : undefined;
   return (
     <Leaderboard key={`${id}-${c.per.id}`} title={`${M.title}, ${c.per.title}, by ${BY[by].lower}`} rows={rows} noChange={!lp(c)}
       curLabel={perWords(c.d, c.per)} prevLabel={prevWords(c.d, lp(c))} first={by === "pc" ? 12 : c.half ? 8 : 12} fmt={M.fmt} ratio={m === "conversion"} diff={signedInt} target={targetFor(c, id)}
       unranked={small.length ? { why: `under ${MIN_LOOKS} articles looked at`, rows: small } : undefined} actions={actions}
-      selected={by !== "product" ? (c.filters[by] ?? []).map((v) => lineShown(by, v)) : undefined} onPick={pick} />
+      selected={by !== "article" ? (c.filters[by] ?? []).map((v) => filterShown(c.d, by, v)) : undefined} onPick={pick} />
   );
 }
 type ARow = AStats & { label: string };
@@ -400,7 +429,26 @@ function ProductsTable({ c }: { c: ShCtx }) {
     { key: "sub", head: "Sub group", cell: (r) => (NOT_SHOWN.has(r.sub) ? "—" : r.sub) },
     ...(LOOK_COLS.filter((x) => x.key !== "share") as unknown as Col<PRow>[]),
   ];
-  return <FullTable key={`products-${c.per.id}-${c.team}`} first="Product" cols={cols} initial="looks" rows={rows} find="a product" />;
+  return <FullTable key={`products-${c.per.id}-${c.team}`} first="Product" cols={cols} initial="looks" rows={rows} find="a product"
+    selected={(c.filters.product ?? []).map((v) => productShown(c.d, v))} onPick={c.onLine ? (l) => c.onLine!("product", productNumber(c.d, l)) : undefined} />;
+}
+/** The articles looked at, each with its product and profit centre - the most looked at first. */
+function ArticlesTable({ c }: { c: ShCtx }) {
+  type ArtRow = ARow & { t: number; product: string; pc: string };
+  const by = looksOf(c, "article");
+  const names = productNames(c.d);
+  const rows: ArtRow[] = [];
+  for (const [label, s] of by) {
+    if (NOT_SHOWN.has(label)) continue;
+    const i = productOfArticle(c.d, label), x = c.d.products[i];
+    rows.push({ label, ...s, t: 0, product: x ? names[i] : "", pc: x ? pcName(c.d.labels.pc[x[P.pc]] ?? "") : "" });
+  }
+  const cols: Col<ArtRow>[] = [
+    { key: "product", head: "Product", cell: (r) => r.product },
+    { key: "pc", head: "Profit centre", cell: (r) => r.pc },
+    ...(LOOK_COLS.filter((x) => x.key !== "share") as unknown as Col<ArtRow>[]),
+  ];
+  return <FullTable key={`articles-${c.per.id}-${c.team}`} first="Article" cols={cols} initial="looks" rows={rows} find="an article" />;
 }
 
 /* ── the shop orders: all, and their buyers - one-shot, second, multiple ── */
@@ -574,7 +622,7 @@ const stepWords = (c: ShCtx) => (!isLive(c.per.win) ? "year by year" : seriesOf(
 function drawnOf(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
-  const line = /^(pc|group|sub|product)-(looks|conversion|companies)$/.exec(chart);
+  const line = /^(pc|group|sub|product|article)-(looks|conversion|ordered|companies)$/.exec(chart);
   if (line) {
     const by = line[1] as LookBy, m = line[2] as PcMeasure;
     const title = (c: ShCtx) => `${PC_MEASURE[m].title}, ${c.per.title}, by ${BY[by].lower}${teamPart(c)}`;
@@ -584,7 +632,12 @@ function drawnOf(id: string): Drawn | undefined {
   if (chart === "products") {
     const title = (c: ShCtx) => `The products looked at, ${c.per.title}${teamPart(c)}`;
     return { id, title, draw: (c, a) => (looksMissing(c) ? <Unavailable text={looksMissing(c)!} />
-      : <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each product's articles looked at, with its profit centre, main group and sub group in Products & Pricing - the most looked at first`} actions={a}><ProductsTable c={c} /></ChartBox>) };
+      : <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each product's articles looked at, with its profit centre, main group and sub group in Products & Pricing - the most looked at first; click one to see its articles`} actions={a}><ProductsTable c={c} /></ChartBox>) };
+  }
+  if (chart === "articles") {
+    const title = (c: ShCtx) => `The articles looked at, ${c.per.title}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => (looksMissing(c) ? <Unavailable text={looksMissing(c)!} />
+      : <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each article looked at (once a company and day), with its product and profit centre in Products & Pricing - the most looked at first; a product page left without choosing an article counts for its product only`} actions={a}><ArticlesTable c={c} /></ChartBox>) };
   }
   if (chart === "mix") {
     const title = (c: ShCtx) => `Shop orders and their buyers, ${c.per.title}${teamPart(c)}`;
@@ -701,7 +754,7 @@ function TabCard({ c, act }: { c: ShCtx; act: Act }) {
   );
   if (c.view === "views") return (
     <GlassCard sx={card}>
-      <CardTitle icon={<TouchAppOutlinedIcon />} tint="amber" title={`${teamName(c)}: views by profit centre and product, ${c.per.title}`} note={`${words} · the articles they looked at, by their place in Products & Pricing - profit centre, main group, sub group, product - and how many were then ordered; click a profit centre or a group to show only it`} />
+      <CardTitle icon={<TouchAppOutlinedIcon />} tint="amber" title={`${teamName(c)}: views by profit centre, product and article, ${c.per.title}`} note={`${words} · the articles they looked at, by their place in Products & Pricing - profit centre, main group, sub group, product, article - and how many were then ordered; click a profit centre, a group or a product to show only it`} />
       {looksMissing(c) ? <Box sx={{ mt: -1 }}><Unavailable text={looksMissing(c)!} /></Box> : (
         <>
           <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "views:pc-looks")}{draw(c, act, "views:pc-conversion")}</Box>
@@ -709,6 +762,8 @@ function TabCard({ c, act }: { c: ShCtx; act: Act }) {
           <Box sx={TWO}>{draw(c, act, "views:group-looks")}{draw(c, act, "views:sub-looks")}</Box>
           <Box sx={TWO}>{draw(c, act, "views:product-looks")}{draw(c, act, "views:product-conversion")}</Box>
           {draw(c, act, "views:products")}
+          <Box sx={TWO}>{draw(c, act, "views:article-looks")}{draw(c, act, "views:article-ordered")}</Box>
+          {draw(c, act, "views:articles")}
         </>
       )}
       <Box sx={TWO}>{draw(c, act, "views:views")}{draw(c, act, "views:depth")}</Box>
@@ -873,8 +928,9 @@ function SFacet({ c, dim, onPick }: { c: ShCtx; dim: SDim; onPick: (l: string) =
   );
 }
 const FILTER_DIMS: SDim[] = ["person", "prio", "category", "country"];
-/** The views' line filters - a profit centre, a main group, a sub group - set by a click on one, kept in the address. */
-const LINE_DIMS: LDim[] = ["pc", "group", "sub"];
+/** The views' line filters - a profit centre, a main group, a sub group, a product (its number) - set by a click on one,
+ *  kept in the address. */
+const LINE_DIMS: LDim[] = ["pc", "group", "sub", "product"];
 function SFilterWindow({ c, per, open, onClose, focus, onPer, toggle, clearAll }: {
   c: ShCtx; per: SPer; open: boolean; onClose: () => void; focus: { dim: SDim; n: number } | null; onPer: (id: string) => void; toggle: (d: SDim, l: string) => void; clearAll: () => void;
 }) {
@@ -1011,7 +1067,7 @@ export function ShopExplorer() {
       <ActiveFilters onEdit={() => setPanel(true)} onClearAll={clearAll} items={[
         ...(per.id !== DEFAULT_PER ? [{ key: "period", name: "Period", value: perPill(d, per), tint: "blue" as Tint, onRemove: () => setPer(DEFAULT_PER) }] : []),
         ...chosen.map(([k, v]): ActiveItem => ({ key: `${k}:${v}`, name: DIM[k].name, value: v, tint: DIM[k].tint, onRemove: () => toggle(k, v) })),
-        ...chosenLines.map(([k, v]): ActiveItem => ({ key: `${k}:${v}`, name: BY[k].name, value: k === "pc" ? pcName(v) : v, tint: "amber", onRemove: () => toggle(k, v) })),
+        ...chosenLines.map(([k, v]): ActiveItem => ({ key: `${k}:${v}`, name: BY[k].name, value: filterShown(d, k, v), tint: "amber", onRemove: () => toggle(k, v) })),
       ]} />
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
         <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />
@@ -1046,7 +1102,7 @@ export function ShopPanel({ acts }: { acts: ActionsState | null }) {
     const ch = chartOf(spec.key);
     const fmt = formatOf(acts, spec);
     const f = spec.filters ?? {};
-    const sf: SFilters = Object.fromEntries(FILTER_DIMS.flatMap((k) => (f[k]?.length ? [[k, f[k]]] : [])));
+    const sf: SFilters = Object.fromEntries([...FILTER_DIMS, ...LINE_DIMS].flatMap((k) => (f[k]?.length ? [[k, f[k]]] : [])));
     // every chart here follows the panel's toggle (as the Figures' panel); its filters and period stay as sent
     const sc: ShCtx = { ...c, per: f.period?.[0] ? perById(c.d, f.period[0]) : c.per, filters: sf, view: viewOf(spec.tab ?? null), half: fmt === "half" };
     const target = ch?.target ? { key: targetKey(ch.id, c.team, c.lead, sc.per), ...ch.target(sc) } : undefined;
