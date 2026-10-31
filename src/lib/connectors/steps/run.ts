@@ -17,7 +17,7 @@ import path from "node:path";
 import { getPool, query } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { connectorGet } from "@/lib/erosion/run";
-import { fetchLatest } from "../sftp";
+import { fetchFiles, fetchLatest } from "../sftp";
 import type { StepResult } from "./companyFacts";
 import { REGISTRY, STEP_KEYS, stepDef } from "./registry";
 import { stepName } from "../compass";
@@ -167,7 +167,17 @@ export async function runStepInside(key: HubStep, mode: Mode, by: string, beat: 
     let dir = opts.dir ?? null;
     if (def.file && !dir) {
       if (!sftpConfigured()) throw new Error("this step reads the ERP's files - the hub has no SFTP key yet");
-      dir = mode === "preview" ? await previewFiles(def.file) : INCOMING;
+      if (mode === "preview") dir = await previewFiles(def.file);
+      else {
+        // a copy started since the delivery has an empty folder: a live run from the page fetches its file first
+        // (31.10.2026: after a release, the ERP step's monthly order intake would have waited for Monday's delivery)
+        if (!(await stat(path.join(INCOMING, def.file)).then(() => true, () => false))) {
+          const r = await fetchFiles(INCOMING, [def.file]);
+          console.log(`[connectors] ${key}: ${def.file} was not on this copy - fetched ${r.pulled.length} file${r.pulled.length === 1 ? "" : "s"} from the ERP's folder${r.error ? ` - FAILED ${r.error}` : ""}`);
+          if (r.error) throw new Error(`fetching ${def.file} from the ERP's folder: ${r.error}`);
+        }
+        dir = INCOMING;
+      }
     }
     run.result = await def.run({ live: mode === "live", beat, full: opts.full, dir });
   } catch (e) {
