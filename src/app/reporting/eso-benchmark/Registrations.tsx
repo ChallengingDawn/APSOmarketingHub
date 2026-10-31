@@ -56,7 +56,7 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  REG_VISIT, addressOf, blank, hasDays, isoOf, median, spanOf, statsBy, winOf, type RDim, type RFilters, type RStats, type RWin, type RegData,
+  CATEGORIES, REG_VISIT, addressOf, blank, hasDays, isoOf, median, spanOf, statsBy, winOf, type RDim, type RFilters, type RStats, type RWin, type RegData,
 } from "@/lib/reporting/registrationsRules";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
@@ -179,11 +179,11 @@ const DIM: Record<RDim, { name: string; lower: string; icon: React.ReactNode; ti
   visit: { name: "Visit and registration", lower: "visit", icon: <DirectionsCarOutlinedIcon />, tint: "green", note: "The company's first completed customer visit against the day it registered - visits are in HubSpot since 2026, so this year only" },
   country: { name: "Country", lower: "country", icon: <PublicOutlinedIcon />, tint: "blue", note: "Where the company is" },
   prio: { name: "Priority", lower: "priority", icon: <FlagOutlinedIcon />, tint: "purple", note: "The company's priority today - it rises with what a company buys, so last year's registrations (a year longer to buy) are not compared" },
-  category: { name: "Customer category", lower: "customer category", icon: <CategoryOutlinedIcon />, tint: "blue", note: "The company's APSO customer category today - a company that buys moves up to APSOgrowth or APSOcore, so last year's registrations (a year longer to buy) are not compared · Other: APSOmicro, APSOlost, Growth Engine and not set" },
+  category: { name: "Customer category", lower: "customer category", icon: <CategoryOutlinedIcon />, tint: "blue", note: "The company's APSO customer category today - a company that buys moves up to APSOgrowth or APSOcore, so last year's registrations (a year longer to buy) are not compared" },
   type: { name: "Customer type", lower: "customer type", icon: <BusinessOutlinedIcon />, tint: "slate", note: "OEM, MRO, C2S workshop… as HubSpot has the company" },
   apic: { name: "APIC", lower: "APIC", icon: <FactoryOutlinedIcon />, tint: "amber", note: "The company's APIC industry code - 1.x OEM industries, down to the sub-industry" },
 };
-const ORDER: Partial<Record<RDim, readonly string[]>> = { visit: REG_VISIT, prio: ["Prio 1", "Prio 2", "Prio 3", "No priority"], category: ["APSOcore", "APSOgrowth", "APSOprospect", "Other"] };
+const ORDER: Partial<Record<RDim, readonly string[]>> = { visit: REG_VISIT, prio: ["Prio 1", "Prio 2", "Prio 3", "No priority"], category: CATEGORIES };
 /** No comparison with last year: visits are in HubSpot since 2026, and the category and the priority are the company's
  *  today - last year's registrations had a year longer to buy and move up (SARCLA 31.10.2026 on APSOcore −78%: "this for
  *  me indicates that this is an issue"). */

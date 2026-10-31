@@ -43,6 +43,11 @@ export type RWin = { from: number; to: number; d0?: number; d1?: number };
 /** A window with a day of its own on either end. */
 export const hasDays = (w: RWin) => !!(w.d0 || w.d1);
 
+/** The APSO customer categories by their own names, in this order - not folded into "Other" (SARCLA 31.10.2026 on
+ *  "Other 288": "the smart segmentation should be ... companies should be segmented" - they are: APSOmicro, APSOlost,
+ *  Growth Engine Customer; only a company without one is "Not set"). */
+export const CATEGORIES = ["APSOcore", "APSOgrowth", "APSOprospect", "APSOmicro", "APSOlost", "Growth Engine Customer", "Not set"] as const;
+
 /** The customer type in the words the ESO pages use (as their typeLabel). */
 const TYPE: Record<string, string> = {
   "Original Equipment Manufacture (OEM)": "OEM", "Turning & Miling Workshop (C2S)": "C2S workshop", "Maintenance, Repair, Operations (MRO)": "MRO",

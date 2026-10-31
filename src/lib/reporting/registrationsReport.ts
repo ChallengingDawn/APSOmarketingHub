@@ -9,12 +9,13 @@ import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/s
 import { ownerNames } from "@/lib/integrations/erosion";
 import { teamOf } from "@/lib/datatracker/rosters";
 import { readOwners } from "@/lib/ownerRules/hubspot";
-import { categoryBand, prioBand, prioOf, CATEGORY_BANDS, PRIO_BANDS } from "./esoRules";
-import { typeShort, ymd, type RegData } from "./registrationsRules";
+import { prioBand, prioOf, PRIO_BANDS } from "./esoRules";
+import { CATEGORIES, typeShort, ymd, type RegData } from "./registrationsRules";
 
 // v2: the shop's own first order (the ERP's counted orders outside the shop: "already customers" that cannot be), APIC
 // instead of the potential
-const KEY = "esoRegistrations:v2";
+// v3: each APSO customer category by its own name, no "Other"
+const KEY = "esoRegistrations:v3";
 const TTL_MS = 60 * 60 * 1000;
 const VISIT_OBJ = "2-139767037";
 /** "Visit and Report complete": the only visits that count (SARCLA 12.10). */
@@ -72,7 +73,7 @@ async function build(): Promise<RegData> {
       const p = row.properties ?? {};
       companies.set(String(row.id), {
         owner: p.hubspot_owner_id ?? "", reg: ymd(p.magento_customer_since), firstOrder: 0, firstVisit: 0,
-        country: p.country_custom || "Not set", prio: prioBand(prioOf(p.sales_priority)), category: categoryBand(p.apso_customer),
+        country: p.country_custom || "Not set", prio: prioBand(prioOf(p.sales_priority)), category: p.apso_customer || "Not set",
         type: p.customer_type ? typeShort(p.customer_type) : "Not set", apic: p.apic_ap || "Not set",
       });
     }
@@ -127,7 +128,7 @@ async function build(): Promise<RegData> {
   };
 
   // 5. the rows
-  const labels: RegData["labels"] = { country: [], prio: [...PRIO_BANDS], category: [...CATEGORY_BANDS], type: [], apic: [] };
+  const labels: RegData["labels"] = { country: [], prio: [...PRIO_BANDS], category: [...CATEGORIES], type: [], apic: [] };
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const coIdx = new Map<string, number>();
   const coRows: number[][] = [];
