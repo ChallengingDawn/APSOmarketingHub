@@ -6,7 +6,10 @@
 // - call it win rate", "all tables ... should be graphs", "the figures take out" - the potential and the figure cards -,
 // "inspire yourself on Digital Growth to bring freshness and readability"). One page per group, as Hand-over to ESO/TSA and
 // UC hand-overs are two: the path diagram first, then a tab per question, every figure a graph. The rows and their rules:
-// src/lib/reporting/ticketsRules.ts.
+// src/lib/reporting/ticketsRules.ts. 31.10.2026: e-mail and the Back Office redirects as one channel, "the breakdown by
+// resolutions" instead of won / lost / open - and by channel -, Outcomes on the resolutions (overall, per owner, the texts),
+// more graphs on Handling and no meetings among what was logged, the months drawn anew, everyone ranked - none put apart
+// ("if hidden it should be directly displayed"); the graphs of that day are in ./TicketsCharts.tsx.
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -36,9 +39,8 @@ import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
 
 import { GUTTER } from "@/app/analytics/Shell";
-import { Badge, CardTitle, FAINT, GREEN, GlassCard, INK, MUTED, RED, TINT, type Tint } from "@/app/uc/report/ui";
+import { Badge, CardTitle, GlassCard, INK, MUTED, RED, TINT, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs } from "@/app/uc/report/Tabs";
-import { THIS } from "@/app/reporting/marketing-kpis/DimChart";
 import { FilterPanel, FilterSection } from "@/app/reporting/marketing-kpis/FilterPanel";
 import { everyWhileSeen } from "@/app/reporting/marketing-kpis/data";
 import { TileActions } from "@/app/reporting/marketing-kpis/tiles/TileActions";
@@ -50,18 +52,18 @@ import { BarList } from "@/app/charts/BarList";
 import { Sankey } from "@/app/charts/Sankey";
 import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
 import type { SlowState } from "@/lib/integrations/slowReport";
-import { OUTCOMES } from "@/lib/marketingKpis/handoverCube";
 import { PRIO_BANDS } from "@/lib/reporting/esoRules";
 import {
-  CHANNEL_ORDER, FIRST, LOST_IDS, PY_MIN, SPEEDS, blank, byDays, comparable, daysIn, flowOf, inDayOf, labelOf, lostLabel, median, quietOf, rateOf, rowsOf, sameWin, statsBy,
+  CHANNEL_ORDER, EFFORT, FIRST, PY_MIN, SPEEDS, blank, byDays, comparable, daysIn, flowOf, inDayOf, labelOf, median, quietOf, rateOf, rowsOf, sameWin, statsBy,
   winDays, winFrom, winParams, type TDim, type TFilters, type TFlowNode, type TGroup, type TStats, type TWin, type TicketsData,
 } from "@/lib/reporting/ticketsRules";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
-  ChartBox, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TWO, asLead, asTeam, axisWidth, leadOf, niceTop, setQuery, useLead, useLeads, useTeam,
+  ChartBox, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TWO, asLead, asTeam, leadOf, setQuery, useLead, useLeads, useTeam,
   type BoardRow, type LeadKey, type TeamKey,
 } from "./Figures";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
+import { MonthOutcomes, MonthTrend, ResolutionBars, ResolutionPanels, ResolutionTexts } from "./TicketsCharts";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -95,8 +97,6 @@ const whours = (h: number | null) => (h == null ? "—" : h < 9 ? `${h.toFixed(1
 const signedHours = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : "±"}${Math.abs(n).toFixed(1)} h`;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-/** A rate or a median ranks a person or a group from this many tickets - two of three said nothing; the rest are listed open under it. */
-const MIN_N = 10;
 
 /* ── the two pages ─────────────────────────────────────────────────────── */
 
@@ -104,7 +104,7 @@ const GROUP: Record<TGroup, { title: string; page: string; href: string; icon: R
   incoming: {
     title: "Incoming tickets", page: "eso-tickets", href: "/reporting/eso-benchmark/tickets", icon: <ConfirmationNumberOutlinedIcon />, tint: "amber",
     from: "Channel", fromLower: "channel", fromPlural: "Channels",
-    what: "the customers' requests: a website form, the chat, an e-mail, a request the ESO typed in, one redirected from Back Office, the helpline",
+    what: "the customers' requests: a website form, the chat, an e-mail (to the ESO or redirected from Back Office), a request the ESO typed in, the helpline",
     won: "won: closed as Ordered or a one-shot order",
   },
   system: {
@@ -232,7 +232,7 @@ const targetFor = (c: TCtx, id: string) => { const t = c.targets?.[targetKey(c, 
 
 /* ── the leaderboards ──────────────────────────────────────────────────── */
 
-type Measure = "won" | "rate" | "tickets" | "inday" | "quiet" | "hours";
+type Measure = "won" | "rate" | "tickets" | "inday" | "quiet" | "hours" | "calls" | "emails";
 const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; unit: "n" | "pct" | "eur"; ratio?: boolean; lower?: boolean; diff?: (n: number) => string }> = {
   won: { title: "Tickets won", fmt: int, unit: "n", diff: signed },
   rate: { title: "Win rate", fmt: (n) => pct(n), unit: "pct", ratio: true },
@@ -240,15 +240,19 @@ const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; unit
   inday: { title: "Contacted within a working day", fmt: (n) => pct(n), unit: "pct", ratio: true },
   quiet: { title: "Closed without any activity", fmt: int, unit: "n", lower: true, diff: signed },
   hours: { title: "Time to the first contact", fmt: (n) => whours(n), unit: "n", lower: true, diff: signedHours },
+  calls: { title: "Tickets with a call", fmt: (n) => pct(n), unit: "pct", ratio: true },
+  emails: { title: "E-mails sent per ticket", fmt: (n) => n.toFixed(1), unit: "n", diff: (n) => `${n > 0 ? "+" : n < 0 ? "−" : "±"}${Math.abs(n).toFixed(1)}` },
 };
-/** A measure's value of a set of tickets, and whether it says enough to be ranked. */
-function valueOf(m: Measure, s: TStats): { v: number | null; ranked: boolean } {
-  if (m === "won") return { v: s.won, ranked: true };
-  if (m === "tickets") return { v: s.tickets, ranked: true };
-  if (m === "quiet") return { v: s.quiet, ranked: true };
-  if (m === "rate") return { v: rateOf(s), ranked: s.resolved >= MIN_N };
-  if (m === "inday") return { v: inDayOf(s), ranked: s.tickets >= MIN_N };
-  return { v: median(s.hours), ranked: s.hours.length >= MIN_N };
+/** A measure's value of a set of tickets - everyone ranked, the counts under each name say how much it rests on. */
+function valueOf(m: Measure, s: TStats): number | null {
+  if (m === "won") return s.won;
+  if (m === "tickets") return s.tickets;
+  if (m === "quiet") return s.quiet;
+  if (m === "rate") return rateOf(s);
+  if (m === "inday") return inDayOf(s);
+  if (m === "calls") return s.tickets ? s.withCalls / s.tickets : null;
+  if (m === "emails") return s.tickets ? s.emails / s.tickets : null;
+  return median(s.hours);
 }
 function subOf(m: Measure, s: TStats, t: TStats, dim: TDim): string {
   if (m === "won") return `win rate ${pct(rateOf(s))} · ${int(s.won)} of ${int(s.resolved)} closed with a resolution`;
@@ -256,30 +260,29 @@ function subOf(m: Measure, s: TStats, t: TStats, dim: TDim): string {
   if (m === "tickets") return `${dim === "person" ? "" : `${pct(t.tickets ? s.tickets / t.tickets : null)} of the tickets · `}${int(s.won)} won · ${int(s.open)} still open`;
   if (m === "inday") return `${int(s.speed[0])} of ${int(s.tickets)} tickets`;
   if (m === "quiet") return `${pct(quietOf(s))} of the ${int(s.closed)} closed`;
+  if (m === "calls") return `${int(s.withCalls)} of ${int(s.tickets)} tickets · ${int(s.calls)} calls`;
+  if (m === "emails") return `${int(s.emails)} e-mails sent on ${int(s.tickets)} tickets`;
   return `the middle of ${int(s.hours.length)} first contacts · working hours, Mon-Fri 8-17`;
 }
-function boardRows(c: TCtx, dim: TDim, m: Measure): { rows: BoardRow[]; small: BoardRow[] } {
+function boardRows(c: TCtx, dim: TDim, m: Measure): BoardRow[] {
   const by = statsOf(c, dim);
   const pyBy = pyOk(c) ? statsOf(c, dim, true) : null;
   const t = totalOf(c);
-  const rows: BoardRow[] = [], small: BoardRow[] = [];
+  const rows: BoardRow[] = [];
   for (const [label, s] of by) {
-    const { v, ranked } = valueOf(m, s);
+    const v = valueOf(m, s);
     if (v == null || (!v && (m === "won" || m === "quiet"))) continue;
     const p = pyBy?.get(label);
-    const row = { label, cur: v, prev: p ? valueOf(m, p).v ?? 0 : 0, sub: subOf(m, s, t, dim) };
-    (ranked ? rows : small).push(row);
+    rows.push({ label, cur: v, prev: p ? valueOf(m, p) ?? 0 : 0, sub: subOf(m, s, t, dim) });
   }
-  return { rows, small };
+  return rows;
 }
 function Board({ c, id, dim, m, actions }: { c: TCtx; id: string; dim: TDim; m: Measure; actions?: React.ReactNode }) {
-  const { rows, small } = boardRows(c, dim, m);
+  const rows = boardRows(c, dim, m);
   const M = MEASURE[m], D = dimOf(c.group, dim);
-  const why = m === "rate" ? `under ${MIN_N} closed with a resolution` : m === "inday" ? `under ${MIN_N} tickets` : `under ${MIN_N} first contacts`;
   return (
     <Leaderboard key={`${id}-${c.per.id}`} title={`${M.title} ${c.per.title}, by ${D.lower}`} rows={rows} noChange={!pyOk(c)}
       curLabel={perWords(c.d, c.per)} prevLabel={PREV(c)} vs={`vs ${c.d.year - 1}`} first={c.half ? 8 : 12} fmt={M.fmt} diff={M.diff} ratio={!!M.ratio} lowerIsBetter={!!M.lower} target={targetFor(c, id)}
-      unranked={small.length ? { why, rows: small, open: true } : undefined}
       selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${D.lower}`} actions={actions} />
   );
@@ -292,7 +295,7 @@ function PathChart({ c, title, actions }: { c: TCtx; title: string; actions?: Re
   const fl = flowOf(c.d, rowsOf(c.d, c.group, c.per.win, c.filters, c.people));
   const label = new Map(fl.nodes.map((n) => [n.id, n.label]));
   return (
-    <ChartBox title={title} hint={`${perWords(c.d, c.per)} · where each came from, how fast the first contact came (a reply in the ticket, an e-mail sent, a call or a meeting - working hours), what became of it, and why for the lost`} actions={actions}>
+    <ChartBox title={title} hint={`${perWords(c.d, c.per)} · where each came from, how fast the first contact came (a reply in the ticket, an e-mail sent, a call or a meeting - working hours), what became of it, and the resolution it was closed with`} actions={actions}>
       <ChartFrame table={{ columns: ["From", "To", "Tickets"], rows: fl.links.map((l) => [label.get(l.from) ?? l.from, label.get(l.to) ?? l.to, l.value]), numeric: [2] }} empty={fl.nodes.length ? null : "No tickets for this choice."}>
         <Box sx={{ overflowX: "auto", overflowY: "hidden" }}>
           <Box sx={{ minWidth: 900 }}>
@@ -315,23 +318,6 @@ function Bars({ c, title, hint, rows, fmt, actions }: { c: TCtx; title: string; 
   );
 }
 const ofAll = (n: number, all: number) => pct(all ? n / all : null);
-function outcomeRows(t: TStats) {
-  const ids = OUTCOMES.map((o) => o.id);
-  const sum = (keep: (id: string) => boolean) => t.outcomes.reduce((a, n, i) => a + (keep(ids[i]) ? n : 0), 0);
-  const lost = sum((id) => (LOST_IDS as readonly string[]).includes(id));
-  return [
-    { label: "Won", value: t.won, secondary: `${ofAll(t.won, t.tickets)} of the tickets · win rate ${pct(rateOf(t))}` },
-    { label: "Lost or disqualified", value: lost, secondary: ofAll(lost, t.tickets) },
-    { label: "Closed otherwise", value: sum((id) => id === "other"), secondary: ofAll(sum((id) => id === "other"), t.tickets) },
-    { label: "Closed without a resolution", value: sum((id) => id === "nores"), secondary: ofAll(sum((id) => id === "nores"), t.tickets) },
-    { label: "Still open", value: t.open, secondary: ofAll(t.open, t.tickets) },
-  ];
-}
-function lostRows(t: TStats) {
-  const ids = OUTCOMES.map((o) => o.id);
-  const lost = LOST_IDS.reduce((a, id) => a + t.outcomes[ids.indexOf(id)], 0);
-  return LOST_IDS.map((id) => ({ label: lostLabel(id), value: t.outcomes[ids.indexOf(id)], secondary: `${ofAll(t.outcomes[ids.indexOf(id)], lost)} of the lost` })).filter((r) => r.value > 0).sort((a, b) => b.value - a.value);
-}
 const speedRows = (t: TStats) => SPEEDS.map((s, i) => ({ label: s, value: t.speed[i], secondary: `${ofAll(t.speed[i], t.tickets)} · win rate ${pct(t.speedResolved[i] ? t.speedWon[i] / t.speedResolved[i] : null)}` }));
 function firstRows(t: TStats) {
   const none = t.speed[3], noneWon = t.speedWon[3], noneRes = t.speedResolved[3];
@@ -344,70 +330,35 @@ const activityRows = (t: TStats) => [
   { label: "E-mails sent", value: t.emails, secondary: `on ${int(t.withEmails)} tickets (${ofAll(t.withEmails, t.tickets)})` },
   { label: "Calls", value: t.calls, secondary: `on ${int(t.withCalls)} tickets (${ofAll(t.withCalls, t.tickets)})` },
   { label: "Notes and tasks", value: t.notes, secondary: `on ${int(t.withNotes)} tickets (${ofAll(t.withNotes, t.tickets)})` },
-  { label: "Meetings", value: t.meetings, secondary: `on ${int(t.withMeetings)} tickets (${ofAll(t.withMeetings, t.tickets)})` },
 ];
+/** The win rate by how much the team logged on a ticket. */
+const effortRows = (t: TStats) => EFFORT.map((e, i) => ({ label: e, value: t.effort[i], secondary: `${ofAll(t.effort[i], t.tickets)} · win rate ${pct(t.effortResolved[i] ? t.effortWon[i] / t.effortResolved[i] : null)}` }));
 
-/* ── the months: a figure per month as columns, a second figure under each ── */
+/* ── the months (SARCLA 31.10.2026: "change the graphs completely to bring state of the art") ── */
 
-type MonthWhat = "tickets" | "won" | "inday" | "quiet";
-const MONTH_WHAT: Record<MonthWhat, { title: string; legend: string; under: string; ratio?: boolean; value: (t: TStats, i: number) => number; second: (t: TStats, i: number) => string; tip: (t: TStats, i: number) => string }> = {
-  tickets: { title: "Tickets", legend: "Tickets that came in", under: "the win rate", value: (t, i) => t.months[i], second: (t, i) => pct(t.monthsResolved[i] ? t.monthsWon[i] / t.monthsResolved[i] : null), tip: (t, i) => `${int(t.months[i])} tickets · ${int(t.monthsWon[i])} won of ${int(t.monthsResolved[i])} closed with a resolution` },
-  won: { title: "Tickets won", legend: "Tickets won", under: "the win rate", value: (t, i) => t.monthsWon[i], second: (t, i) => pct(t.monthsResolved[i] ? t.monthsWon[i] / t.monthsResolved[i] : null), tip: (t, i) => `${int(t.monthsWon[i])} won of ${int(t.monthsResolved[i])} closed with a resolution · ${int(t.months[i])} tickets` },
-  inday: { title: "Contacted within a working day", legend: "Share contacted within a working day", under: "how many", ratio: true, value: (t, i) => (t.months[i] ? t.monthsInDay[i] / t.months[i] : 0), second: (t, i) => int(t.monthsInDay[i]), tip: (t, i) => `${int(t.monthsInDay[i])} of ${int(t.months[i])} tickets contacted within a working day` },
-  quiet: { title: "Closed without any activity", legend: "Closed without any activity", under: "of the closed", value: (t, i) => t.monthsQuiet[i], second: (t, i) => pct(t.monthsClosed[i] ? t.monthsQuiet[i] / t.monthsClosed[i] : null), tip: (t, i) => `${int(t.monthsQuiet[i])} of ${int(t.monthsClosed[i])} closed tickets had nothing logged on them` },
-};
-function MonthColumns({ c, what, target }: { c: TCtx; what: MonthWhat; target: number | null }) {
-  const t = totalOf(c);
-  const W = MONTH_WHAT[what];
-  const fmt = (n: number) => (W.ratio ? pct(n) : int(n));
-  // a month the dates cut is part of a month, as the running one: lighter, and never measured against a month's target
-  const w = c.per.win, last = t.months.length - 1;
+/** Each month's name as the graphs write it: the running one "(to date)", one the dates cut by its days. */
+function monthLabels(c: TCtx, n: number): string[] {
+  const w = c.per.win, last = n - 1;
   const [a, b] = winDays(c.d, w).map((x) => Number(x.slice(8, 10)));
-  const cutOf = (i: number) => (i === 0 && w.d0 != null) || (i === last && w.d1 != null);
-  const data = t.months.map((_, i) => {
-    const m = w.from + i, running = m === nowMonth(c.d), cut = cutOf(i);
-    const note = cut ? ` (${i === 0 ? a : 1}–${i === last ? b : daysIn(c.d.year, m)})` : running ? " (to date)" : "";
-    return { x: MONTHS[m], v: W.value(t, i), second: W.second(t, i), tip: W.tip(t, i), running: running || cut, note };
+  return Array.from({ length: n }, (_, i) => {
+    const m = w.from + i;
+    const cutM = (i === 0 && w.d0 != null) || (i === last && w.d1 != null);
+    return `${MONTHS[m]}${cutM ? ` (${i === 0 ? a : 1}–${i === last ? b : daysIn(c.d.year, m)})` : m === nowMonth(c.d) ? " (to date)" : ""}`;
   });
-  const top = W.ratio ? 1 : niceTop(Math.max(1, target ?? 0, ...data.map((x) => x.v)));
-  const ticks = [0, 0.25, 0.5, 0.75, 1];
-  const done = data.filter((x) => !x.running);
-  const reached = target ? done.filter((x) => (what === "quiet" ? x.v <= target : x.v >= target)).length : 0;
-  return (
-    <Box sx={{ display: "grid", gap: 1 }}>
-      <Box sx={{ display: "flex", gap: 1.75, flexWrap: "wrap", fontSize: "0.74rem", color: MUTED }}>
-        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}><Box component="span" sx={{ width: 14, height: 8, borderRadius: "2px", bgcolor: THIS }} />{W.legend}</Box>
-        <Box component="span">Under each month: {W.under}</Box>
-        {target && <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, color: INK, fontWeight: 600 }}><Box component="span" sx={{ width: 14, borderTop: `2px dashed ${TARGET}` }} />Target {fmt(target)} a month · <span style={{ color: reached === done.length ? GREEN : RED }}>{reached} of {done.length} months reached it</span></Box>}
-      </Box>
-      <Box sx={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", columnGap: 1 }}>
-        <Box sx={{ position: "relative", minWidth: Math.max(28, axisWidth(W.ratio ? 100 : top) - 40) }}>
-          {ticks.map((f) => <Typography key={f} sx={{ position: "absolute", right: 0, bottom: `calc(${f * 100}% - 7px)`, fontSize: "0.7rem", color: FAINT, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{W.ratio ? `${Math.round(f * 100)}%` : int(f * top)}</Typography>)}
-        </Box>
-        <Box sx={{ position: "relative", width: "100%", aspectRatio: "2.6 / 1", minHeight: 160, maxHeight: 320 }}>
-          {ticks.map((f) => <Box key={f} sx={{ position: "absolute", left: 0, right: 0, bottom: `${f * 100}%`, borderTop: `1px solid ${f === 0 ? "#cfd4db" : "#eef0f3"}` }} />)}
-          {target != null && <Box sx={{ position: "absolute", left: 0, right: 0, bottom: `${(Math.min(target, top) / top) * 100}%`, borderTop: `2px dashed ${TARGET}`, zIndex: 1, pointerEvents: "none" }} />}
-          <Box sx={{ position: "absolute", inset: 0, display: "flex" }}>
-            {data.map((x) => (
-              <Box key={x.x} title={`${x.x}${x.note}: ${x.tip}`} sx={{ flex: 1, position: "relative", height: "100%", "&:hover": { bgcolor: "rgba(21,34,58,.035)" }, borderRadius: "6px" }}>
-                <Box sx={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "52%", maxWidth: 30, height: `${(Math.min(x.v, top) / top) * 100}%`, bgcolor: THIS, opacity: x.running ? 0.55 : 1, borderRadius: "4px 4px 0 0" }} />
-              </Box>
-            ))}
-          </Box>
-        </Box>
-        <Box />
-        <Box sx={{ display: "flex" }}>
-          {data.map((x) => (
-            <Box key={x.x} sx={{ flex: 1, textAlign: "center", pt: 0.5, minWidth: 0 }}>
-              <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.3 }}>{x.x}</Typography>
-              <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>{fmt(x.v)}</Typography>
-              <Typography sx={{ fontSize: "0.68rem", color: FAINT, lineHeight: 1.3 }}>{x.second}</Typography>
-            </Box>
-          ))}
-        </Box>
-      </Box>
-    </Box>
-  );
+}
+type MonthWhat = "rate" | "inday" | "hours" | "quiet";
+const MONTH_WHAT: Record<MonthWhat, { title: string; label: string; unit: "pct" | "n"; fmt: (v: number | null) => string; tick?: (v: number | null) => string; of: (t: TStats, i: number) => number | null; hint: string }> = {
+  rate: { title: "Win rate", label: "Win rate", unit: "pct", fmt: (v) => pct(v), of: (t, i) => (t.monthsResolved[i] ? t.monthsWon[i] / t.monthsResolved[i] : null), hint: "won of the tickets closed with a resolution, by the month they came in" },
+  inday: { title: "Contacted within a working day", label: "Contacted within a working day", unit: "pct", fmt: (v) => pct(v), of: (t, i) => (t.months[i] ? t.monthsInDay[i] / t.months[i] : null), hint: "of each month's tickets, those with a first contact within 9 working hours" },
+  hours: { title: "Time to the first contact", label: "Middle time to the first contact", unit: "n", fmt: (v) => whours(v), tick: (v) => (v == null ? "" : `${Math.round(v)} h`), of: (t, i) => median(t.monthsHours[i]), hint: "the middle of each month's first contacts, in working hours Mon-Fri 8-17" },
+  quiet: { title: "Closed without any activity", label: "Closed without any activity", unit: "n", fmt: (v) => (v == null ? "—" : int(v)), of: (t, i) => t.monthsQuiet[i], hint: "closed with nothing logged on them at all" },
+};
+function MonthLine({ c, what, target }: { c: TCtx; what: MonthWhat; target: number | null }) {
+  const W = MONTH_WHAT[what];
+  const t = totalOf(c);
+  const py = pyOk(c) ? totalOf(c, true) : null;
+  return <MonthTrend values={t.months.map((_, i) => W.of(t, i))} compare={py ? py.months.map((_, i) => W.of(py, i)) : null}
+    labels={monthLabels(c, t.months.length)} label={W.label} compareLabel={PREV(c)} fmt={W.fmt} tick={W.tick} target={target} />;
 }
 
 /* ── every chart by its key ────────────────────────────────────────────── */
@@ -426,13 +377,27 @@ function drawnOf(id: string): Drawn | undefined {
     const title = (c: TCtx) => `What happens to the ${GROUP[c.group].title.toLowerCase()}, ${P(c)}${teamPart(c)}`;
     return { id, title, draw: (c, a) => <PathChart c={c} title={title(c)} actions={a} /> };
   }
-  if (chart === "split") {
-    const title = (c: TCtx) => `Won, lost or still open, ${P(c)}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <Bars c={c} title={title(c)} hint={`${GROUP[c.group].won} · the win rate: of the tickets closed with a resolution`} rows={outcomeRows(totalOf(c))} actions={a} /> };
+  if (chart === "resolutions" && v === "from") {
+    const title = (c: TCtx) => `How they were closed, by ${GROUP[c.group].fromLower}, ${P(c)}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each ${GROUP[c.group].fromLower}'s most used resolutions, of its closed tickets · click one to show only it`} actions={a}>
+      <ResolutionPanels d={c.d} groups={[...statsOf(c, "channel")].map(([label, s]) => ({ label, s }))} selected={c.filters.channel} onPick={c.onBar ? (l) => c.onBar!("channel", l) : undefined} /></ChartBox> };
   }
-  if (chart === "lost") {
-    const title = (c: TCtx) => `Why they were lost, ${P(c)}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <Bars c={c} title={title(c)} hint="the resolutions of the lost, in groups" rows={lostRows(totalOf(c))} actions={a} /> };
+  if (chart === "resolutions") {
+    const title = (c: TCtx) => `How they were closed - the resolutions, ${P(c)}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · the resolution set when closing, of the ${int(totalOf(c).closed)} closed · ${int(totalOf(c).open)} still open · ${GROUP[c.group].won}`} actions={a}><ResolutionBars d={c.d} s={totalOf(c)} first={c.half ? 8 : 14} /></ChartBox> };
+  }
+  if (chart === "owners") {
+    const title = (c: TCtx) => `How each owner closed them, ${P(c)}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each person's most used resolutions, of their closed tickets · click one to show only them`} actions={a}>
+      <ResolutionPanels d={c.d} groups={[...statsOf(c, "person")].map(([label, s]) => ({ label, s }))} selected={c.filters.person} onPick={c.onBar ? (l) => c.onBar!("person", l) : undefined} /></ChartBox> };
+  }
+  if (chart === "texts") {
+    const title = (c: TCtx) => `Why, in their words - the resolution texts, ${P(c)}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · "More information about the ticket resolution", as the owner wrote it when closing - the newest first`} actions={a}><ResolutionTexts d={c.d} rows={rowsOf(c.d, c.group, c.per.win, c.filters, c.people)} /></ChartBox> };
+  }
+  if (chart === "effort") {
+    const title = (c: TCtx) => `The win rate by how much was done, ${P(c)}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <Bars c={c} title={title(c)} hint="the e-mails sent, calls, notes and tasks logged on each ticket · the win rate of each" rows={effortRows(totalOf(c))} actions={a} /> };
   }
   if (chart === "speed") {
     const title = (c: TCtx) => `How fast the first contact came, ${P(c)}${teamPart(c)}`;
@@ -444,18 +409,22 @@ function drawnOf(id: string): Drawn | undefined {
   }
   if (chart === "activity") {
     const title = (c: TCtx) => `What was logged on the tickets, ${P(c)}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <Bars c={c} title={title(c)} hint={`everything the team logged · ${int(totalOf(c).quiet)} of the ${int(totalOf(c).closed)} closed had nothing at all`} rows={activityRows(totalOf(c))} actions={a} /> };
+    return { id, title, draw: (c, a) => <Bars c={c} title={title(c)} hint={`what the team logged on them · ${int(totalOf(c).quiet)} of the ${int(totalOf(c).closed)} closed had nothing at all`} rows={activityRows(totalOf(c))} actions={a} /> };
+  }
+  if (v === "months" && chart === "outcomes") {
+    const title = (c: TCtx) => `Tickets month by month, by what became of them${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · by the month the ticket came in · ${GROUP[c.group].won}`} actions={a}><MonthOutcomes s={totalOf(c)} labels={monthLabels(c, totalOf(c).months.length)} /></ChartBox> };
   }
   if (v === "months" && chart in MONTH_WHAT) {
     const w = chart as MonthWhat;
-    const title = (c: TCtx) => `${MONTH_WHAT[w].title} ${P(c)}, month by month${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · by the month the ticket came in · the running month to date${byDays(c.per.win) ? " and the months your dates cut" : ""}, lighter`} actions={a}><MonthColumns c={c} what={w} target={targetFor(c, id)} /></ChartBox>,
-      target: (c) => ({ unit: MONTH_WHAT[w].ratio ? "pct" : "n", label: `Each month is measured against it - a line across the months; the running month${byDays(c.per.win) ? " and the months your dates cut are" : " is"} not counted · ${teamName(c)}'s target.` }) };
+    const title = (c: TCtx) => `${MONTH_WHAT[w].title}, month by month${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · ${MONTH_WHAT[w].hint}${pyOk(c) ? ` · grey: ${PREV(c)}` : ""}`} actions={a}><MonthLine c={c} what={w} target={targetFor(c, id)} /></ChartBox>,
+      target: (c) => ({ unit: MONTH_WHAT[w].unit, label: `Each month is measured against it - a line across the months · ${teamName(c)}'s target.` }) };
   }
   const [what, by] = chart.split("-");
   if (!(what in MEASURE)) return undefined;
   const m = what as Measure;
-  const dim: TDim = by && ["person", "channel", "prio", "category", "country"].includes(by) ? (by as TDim) : DIM_OF[v];
+  const dim: TDim = by && ["person", "channel", "prio", "category", "country"].includes(by) ? (by as TDim) : v === "handling" ? "person" : DIM_OF[v];
   return { id, title: (c) => `${MEASURE[m].title} ${P(c)}, by ${dimOf(c.group, dim).lower}${teamPart(c)}`, draw: (c, a) => <Board c={c} id={id} dim={dim} m={m} actions={a} />,
     target: (c) => ({ unit: MEASURE[m].unit, label: `Each ${dimOf(c.group, dim).lower}'s ${MEASURE[m].title.toLowerCase()} ${c.per.title} is measured against it · ${forWhom(c)}.` }) };
 }
@@ -464,10 +433,13 @@ function chartOf(key: string): Drawn | undefined {
   const [, view = "", chart = ""] = key.split(":");
   const old: Record<string, string> = {
     // the benchmark page (until 29.10.2026)
-    "reps:created": "people:tickets", "reps:ordered": "people:won", "speed:counts": "months:tickets", "source:source": "from:won",
-    "resolution:resolution": "outcomes:split", "open:count": "outcomes:split", "open:potential": "outcomes:split",
+    "reps:created": "people:tickets", "reps:ordered": "people:won", "speed:counts": "months:outcomes", "source:source": "from:won",
+    "resolution:resolution": "outcomes:resolutions", "open:count": "outcomes:resolutions", "open:potential": "outcomes:resolutions",
     // the page of 29.10.2026, before the split
-    "people:ordered": "people:won", "people:value": "people:won", "people:months": "months:won", "people:open": "outcomes:split",
+    "people:ordered": "people:won", "people:value": "people:won", "people:months": "months:outcomes", "people:open": "outcomes:resolutions",
+    // the pages of 30.10.2026, before the resolutions (31.10)
+    "paths:split": "paths:resolutions", "outcomes:split": "outcomes:resolutions", "outcomes:lost": "outcomes:resolutions",
+    "months:tickets": "months:outcomes", "months:won": "months:outcomes",
     "kind:ordered": "from:won", "kind:rate": "from:rate", "kind:tickets": "from:tickets",
     "prio:ordered": "customers:won-prio", "prio:rate": "customers:rate-prio", "prio:ordered-band": "customers:won-prio", "prio:rate-band": "customers:rate-prio",
     "category:ordered": "customers:won-category", "category:rate": "customers:rate-category", "country:ordered": "customers:won-country", "country:rate": "customers:rate-country",
@@ -490,7 +462,7 @@ function TabCard({ c, act }: { c: TCtx; act: Act }) {
     <GlassCard sx={card}>
       {head(<AltRouteIcon />, "blue", `${G.title}: the path, ${c.per.title}`, `${G.what} · ${G.won}`)}
       <Box sx={{ mt: -1 }}>{draw(c, act, "paths:flow")}</Box>
-      {two("paths:split", "paths:speed")}
+      {two("paths:resolutions", "paths:speed")}
     </GlassCard>
   );
   if (c.view === "people") return (
@@ -505,6 +477,7 @@ function TabCard({ c, act }: { c: TCtx; act: Act }) {
     <GlassCard sx={card}>
       {head(<AltRouteIcon />, "amber", `${G.title} by ${G.fromLower}, ${c.per.title}`, `where each ticket came from · ${G.won}`)}
       {two("from:rate", "from:won", true)}
+      {draw(c, act, "from:resolutions")}
       {two("from:inday", "from:quiet")}
       {two("from:tickets", "from:hours")}
     </GlassCard>
@@ -513,22 +486,25 @@ function TabCard({ c, act }: { c: TCtx; act: Act }) {
     <GlassCard sx={card}>
       {head(<TimerOutlinedIcon />, "blue", `How the ${G.title.toLowerCase()} are handled, ${c.per.title}`, "how fast the first contact came, what it was, what was logged - and the win rate of each")}
       {two("handling:speed", "handling:first", true)}
-      {two("handling:activity", "handling:quiet-person")}
+      {two("handling:activity", "handling:effort")}
+      {two("handling:calls", "handling:emails")}
+      {two("handling:quiet-person", "handling:hours")}
     </GlassCard>
   );
   if (c.view === "outcomes") return (
     <GlassCard sx={card}>
-      {head(<FactCheckOutlinedIcon />, "purple", `What became of the ${G.title.toLowerCase()}, ${c.per.title}`, `${G.won} · the win rate: of the tickets closed with a resolution`)}
-      {two("outcomes:split", "outcomes:lost", true)}
-      {two("outcomes:rate", "outcomes:won")}
+      {head(<FactCheckOutlinedIcon />, "purple", `How the ${G.title.toLowerCase()} were closed, ${c.per.title}`, `the resolution set when closing - overall, per owner, and in their own words · ${G.won}`)}
+      <Box sx={{ mt: -1 }}>{draw(c, act, "outcomes:resolutions")}</Box>
+      {draw(c, act, "outcomes:owners")}
+      {draw(c, act, "outcomes:texts")}
     </GlassCard>
   );
   if (c.view === "months") return (
     <GlassCard sx={card}>
       {head(<TimelineOutlinedIcon />, "blue", `${G.title}, month by month`, "by the month the ticket came in")}
-      <Box sx={{ mt: -1 }}>{draw(c, act, "months:tickets")}</Box>
-      {draw(c, act, "months:won")}
-      {two("months:inday", "months:quiet")}
+      <Box sx={{ mt: -1 }}>{draw(c, act, "months:outcomes")}</Box>
+      {two("months:rate", "months:inday")}
+      {two("months:hours", "months:quiet")}
     </GlassCard>
   );
   return (
@@ -784,7 +760,7 @@ export function TicketsPanel({ acts, group }: { acts: ActionsState | null; group
   }), [c, acts, G, PANEL]);
   const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: `nutshell:${G.page}`, keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
   const shown = (id: string) => placementOf(acts, `${PANEL}${id}`, "nutshell") === "nutshell";
-  const months = drawnOf("months:won")!;
+  const months = drawnOf("months:outcomes")!;
   const own = (title: string) => (
     <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}months`, page: G.page, tab: "months", title, kind: "card",
       filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}), period: ["ytd"] }, href: `${G.href}?team=${drawn.team}${drawn.lead ? `&lead=${drawn.lead}` : ""}` }} />

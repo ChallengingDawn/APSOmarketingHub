@@ -1,10 +1,7 @@
-"use client";
-// An ESO page, drawn as Digital Growth's are (SARCLA 21.10.2026) - what it shows is in ../pages.tsx.
-
-import { Suspense } from "react";
-import { EsoExplorer } from "../EsoKit";
-import { REVENUE } from "../pages";
+// ESO Revenue & order intake is taken out (SARCLA 31.10.2026: "sub app take it out completely") - revenue and order
+// intake per person and month are on the Figures page, where an old link to this address now lands.
+import { redirect } from "next/navigation";
 
 export default function RevenuePage() {
-  return <Suspense><EsoExplorer def={REVENUE} /></Suspense>;
+  redirect("/reporting/eso-benchmark/figures");
 }

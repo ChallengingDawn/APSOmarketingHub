@@ -9,19 +9,34 @@ import { ownerNames } from "@/lib/integrations/erosion";
 import { teamOf } from "@/lib/datatracker/rosters";
 import { readOwners } from "@/lib/ownerRules/hubspot";
 import { UCS } from "@/lib/lifecycle/config";
-import { associations, batchRead, searchAll, ticketStages } from "@/lib/lifecycle/read";
+import { associations, batchRead, read, searchAll, ticketStages } from "@/lib/lifecycle/read";
 import { workingHours } from "@/lib/marketingKpis/handoverCube";
 import { prioBand, prioOf } from "./esoRules";
 import { firstContact, kindOf, outcomeIndex, startLabels, type TicketsData } from "./ticketsRules";
 
 // v2: incoming and system tickets, the first contact and the activities, the outcome (30.10.2026)
-const KEY = "esoTickets:v2";
+// v3: the resolution as set and its "more information" text; e-mail and the Back Office redirects as one channel (31.10.2026)
+const KEY = "esoTickets:v3";
 const TTL_MS = 60 * 60 * 1000;
 const ESO_PIPELINE = "1726599376";
 const PROPS = [
   "subject", "createdate", "hs_pipeline_stage", "hubspot_owner_id", "source_type", "hs_object_source", "hs_object_source_detail_1",
   "hs_outbound_ticket", "hs_tag_ids", "ticket_resolution_eso", "first_agent_reply_date", "hs_primary_company_id",
+  "more_information_about_the_ticket_resolution_eso",
 ];
+/** A resolution text is kept to this length - enough to read why, small enough for the read */
+const TEXT_MAX = 400;
+
+/** The labels people pick for the ticket resolution, by the stored value (as Hand-over reads them). */
+async function resolutionLabels(): Promise<(v: string) => string> {
+  try {
+    const p = await read<{ options?: { value: string; label: string }[] }>({ path: "/crm/v3/properties/tickets/ticket_resolution_eso", useTicketsToken: true });
+    const m = new Map((p.options ?? []).map((o) => [o.value, o.label.trim()]));
+    return (v) => m.get(v) ?? v;
+  } catch {
+    return (v) => v;
+  }
+}
 
 export function esoTickets(): Promise<SlowState<TicketsData>> {
   return slowReport(KEY, TTL_MS, buildTickets);
@@ -107,7 +122,9 @@ export async function buildTickets(): Promise<TicketsData> {
   };
 
   // 6. the rows
+  const resLabel = await resolutionLabels();
   const labels = startLabels();
+  const texts: TicketsData["texts"] = {};
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const rows: number[][] = [];
   for (const { id, p, group, channel, newLead, created } of kept) {
@@ -122,16 +139,20 @@ export async function buildTickets(): Promise<TicketsData> {
       ...meetings.map((m) => ({ at: when.get(`m${m}`) ?? null, kind: 3 })),
     ]);
     const closed = !!stages.get(p.hs_pipeline_stage ?? "")?.closed;
+    const res = closed ? (p.ticket_resolution_eso ?? "").trim() : "";
+    const text = (p.more_information_about_the_ticket_resolution_eso ?? "").replace(/\s+/g, " ").trim();
+    if (text && d.getUTCFullYear() === year) texts[String(rows.length)] = text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX - 1)}…` : text;
     rows.push([
       person(p.hubspot_owner_id ?? ""), d.getUTCFullYear() === year ? 0 : 1, d.getUTCMonth(), d.getUTCDate(), group, at(labels.channel, channel),
       at(labels.prio, co?.prio ?? "No priority"), at(labels.category, co?.category ?? "Not set"), at(labels.country, co?.country ?? "Not set"),
       outcomeIndex(closed, p.ticket_resolution_eso, newLead),
       first ? Math.round(workingHours(created, first.at) * 10) : -1, first ? first.kind : -1,
       sent.length, calls.length, meetings.length, (on.notes.get(id) ?? []).length + (on.tasks.get(id) ?? []).length,
+      res ? at(labels.resolution, resLabel(res)) : -1,
     ]);
   }
   return {
-    generatedAt: new Date().toISOString(), year, today, people, labels, tickets: rows,
+    generatedAt: new Date().toISOString(), year, today, people, labels, tickets: rows, texts,
     coverage: { read: found.length, kept: kept.length, withCompany: kept.filter((k) => companies.has(k.p.hs_primary_company_id ?? "")).length, left },
   };
 }

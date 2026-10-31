@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { OUTCOMES } from "../src/lib/marketingKpis/handoverCube";
 import {
-  CHANNEL_ORDER, PUSHES, byDays, comparable, firstContact, flowOf, inDayOf, kindOf, labelOf, median, outcomeIndex, pushOf, quietOf, rateOf, rowsOf, sameWin, speedOf, startLabels, statsBy,
+  CHANNEL_ORDER, MAIL, PUSHES, byDays, comparable, firstContact, flowOf, inDayOf, kindOf, labelOf, median, outcomeIndex, pushOf, quietOf, rateOf, rowsOf, sameWin, speedOf, startLabels, statsBy,
   winDays, winFrom, winParams,
   type TicketsData,
 } from "../src/lib/reporting/ticketsRules";
@@ -11,7 +11,7 @@ const lc = { UC15_Lost_Leads_TICKETS_2607_FEHDIA: "uc15", UC2_v2_New_Leads_Ticke
 const O = (id: string) => OUTCOMES.findIndex((o) => o.id === id);
 
 test("tickets: incoming or system - the Hand-over page's sorting, the UC hand-overs and the pushes as system tickets", () => {
-  assert.deepEqual(kindOf({ subject: "BO | Email | Anfrage 1234" }, lc), { group: "incoming", channel: "Redirected from Back Office", newLead: false });
+  assert.deepEqual(kindOf({ subject: "BO | Email | Anfrage 1234" }, lc), { group: "incoming", channel: MAIL, newLead: false });
   assert.deepEqual(kindOf({ subject: "Direct ESO request | Product Price | x" }, lc), { group: "incoming", channel: "Direct request to the ESO", newLead: false });
   assert.deepEqual(kindOf({ subject: "Lost Lead | Push for First Purchase", workflow: "UC15_Lost_Leads_TICKETS_2607_FEHDIA" }, lc), { group: "system", channel: "Lost Leads (UC15)", newLead: false });
   assert.deepEqual(kindOf({ subject: "New Registrant | x", workflow: "UC2_v2_New_Leads_Tickets_2609" }, lc), { group: "system", channel: "New registrant (UC2)", newLead: true });
@@ -48,21 +48,22 @@ test("tickets: the first contact - the earliest move after the ticket came in; h
   assert.equal(median([]), null);
 });
 
-// person, year, month, day, group, channel, prio, category, country, outcome, firstH x10, first, emails, calls, meetings, notes
+// person, year, month, day, group, channel, prio, category, country, outcome, firstH x10, first, emails, calls, meetings, notes, resolution
 const ch = (l: string) => CHANNEL_ORDER.indexOf(l);
 const d: TicketsData = {
   generatedAt: "2026-10-30T08:00:00Z", year: 2026, today: "2026-10-30",
   people: [{ id: "1", name: "Ana", team: "ESO" }, { id: "2", name: "Ben", team: "TSA" }],
-  labels: { ...startLabels(), category: ["APSOcore", "APSOprospect"], country: ["Switzerland", "Germany"] },
+  labels: { ...startLabels(), category: ["APSOcore", "APSOprospect"], country: ["Switzerland", "Germany"], resolution: ["Ordered", "Price issue", "Disqualified - Not our Focus Customer Type"] },
   tickets: [
-    [0, 0, 2, 5, 0, ch("Website form"), 0, 0, 0, O("won"), 30, 0, 1, 0, 0, 0], // replied in 3 h, won
-    [0, 0, 2, 9, 0, ch("Website form"), 0, 0, 0, O("price"), 200, 1, 2, 0, 0, 1], // e-mail after 20 h, lost on price
-    [0, 0, 3, 1, 0, ch("Redirected from Back Office"), 1, 1, 1, O("open"), -1, -1, 0, 0, 0, 0], // open, nothing yet
-    [1, 0, 3, 2, 0, ch("Helpline"), 3, 1, 1, O("nores"), -1, -1, 0, 0, 0, 0], // closed, nothing at all
-    [0, 0, 3, 4, 1, ch("Erosion"), 0, 0, 0, O("won"), 50, 2, 0, 1, 0, 0], // a system ticket, called in 5 h, won
-    [1, 0, 9, 4, 1, ch("New registrant (UC2)"), 3, 1, 1, O("disq"), -1, -1, 0, 0, 0, 2], // notes only, disqualified
-    [0, 1, 8, 4, 0, ch("Website form"), 0, 0, 0, O("won"), 10, 0, 0, 0, 0, 0], // last year
+    [0, 0, 2, 5, 0, ch("Website form"), 0, 0, 0, O("won"), 30, 0, 1, 0, 0, 0, 0], // replied in 3 h, won
+    [0, 0, 2, 9, 0, ch("Website form"), 0, 0, 0, O("price"), 200, 1, 2, 0, 0, 1, 1], // e-mail after 20 h, lost on price
+    [0, 0, 3, 1, 0, ch(MAIL), 1, 1, 1, O("open"), -1, -1, 0, 0, 0, 0, -1], // open, nothing yet
+    [1, 0, 3, 2, 0, ch("Helpline"), 3, 1, 1, O("nores"), -1, -1, 0, 0, 0, 0, -1], // closed, nothing at all
+    [0, 0, 3, 4, 1, ch("Erosion"), 0, 0, 0, O("won"), 50, 2, 0, 1, 0, 0, 0], // a system ticket, called in 5 h, won
+    [1, 0, 9, 4, 1, ch("New registrant (UC2)"), 3, 1, 1, O("disq"), -1, -1, 0, 0, 0, 2, 2], // notes only, disqualified
+    [0, 1, 8, 4, 0, ch("Website form"), 0, 0, 0, O("won"), 10, 0, 0, 0, 0, 0, 0], // last year
   ],
+  texts: {},
   coverage: { read: 9, kept: 7, withCompany: 7, left: { "not a sales topic": 2 } },
 };
 
@@ -109,9 +110,9 @@ test("tickets: the figures - win rate of those closed with a resolution, the fir
   assert.equal(rateOf(byPerson.get("Ana")!), 0.5);
 });
 
-test("tickets: the path - where they came from, how fast, the outcome, why lost", () => {
+test("tickets: the path - where they came from, how fast, the outcome, the resolution", () => {
   const fl = flowOf(d, rowsOf(d, "incoming", { from: 0, to: 11 }, {}, null));
-  assert.deepEqual(fl.columns, ["Came from", "First contact", "Outcome", "Why lost"]);
+  assert.deepEqual(fl.columns, ["Came from", "First contact", "Outcome", "Resolution"]);
   const link = (a: string, b: string) => fl.links.find((l) => l.from === a && l.to === b)?.value ?? 0;
   assert.equal(link(`c:${ch("Website form")}`, "s:0"), 1);
   assert.equal(link(`c:${ch("Website form")}`, "s:1"), 1);
@@ -119,7 +120,8 @@ test("tickets: the path - where they came from, how fast, the outcome, why lost"
   // closed without a resolution is its own node, never folded into "closed otherwise"
   assert.equal(link("s:3", "o:nores"), 1);
   assert.equal(link("s:3", "o:other"), 0);
-  assert.equal(link("o:lost", "w:price"), 1);
+  assert.equal(link("o:lost", "r:1"), 1);
+  assert.equal(link("o:won", "r:0"), 1);
   assert.equal(fl.nodes.find((n) => n.id === "o:nores")!.label, "Closed without a resolution");
 });
 

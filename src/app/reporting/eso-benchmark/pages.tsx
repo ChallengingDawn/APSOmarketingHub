@@ -288,56 +288,6 @@ export const REGISTRATIONS: EsoPageDef = {
   },
 };
 
-/* ── 5 · revenue & order intake ────────────────────────────────────────── */
-
-const perActive = (r: RepBenchmark) => P(ratio(r.revenue.ytd.cy, r.customers.active.cy) ?? 0, ratio(r.revenue.ytd.py, r.customers.active.py) ?? 0);
-const oiLast = (c: EsoCtx) => (c.b.oiMonths ? c.b.monthLabels[c.b.oiMonths - 1] : null);
-
-export const REVENUE: EsoPageDef = {
-  slug: "revenue", title: "Revenue & order intake", line: "the companies the reps own", icon: <EuroOutlinedIcon />, tint: "purple", gaps: /forecast|Order intake/i,
-  figures: (c) => {
-    const r = c.rep, avg = perActive(r), oi = oiLast(c);
-    return [
-      { label: "Revenue", icon: <EuroOutlinedIcon />, tint: "purple", value: moneyShort(r.revenue.ytd.cy), d: chg(r.revenue.ytd), sub: `${moneyShort(r.revenue.ytd.py)} last year` },
-      { label: oi ? `Order intake Jan–${oi}` : "Order intake", icon: <ShoppingBagOutlinedIcon />, tint: "blue", value: oi ? moneyShort(r.orderIntake.ytd.cy) : "—", d: oi ? chg(r.orderIntake.ytd) : null, sub: oi ? `${moneyShort(r.orderIntake.ytd.py)} last year` : "not loaded yet" },
-      { label: "Ø revenue per active customer", icon: <GroupsOutlinedIcon />, tint: "green", value: money(avg.cy), d: chg(avg), sub: `${money(avg.py)} last year` },
-      { label: "Active customers", icon: <GroupsOutlinedIcon />, tint: "amber", value: n0(r.customers.active.cy), d: chg(r.customers.active), sub: `${n0(r.customers.active.py)} last year` },
-    ];
-  },
-  tabs: [
-    { id: "months", label: "Months", icon: <CalendarMonthOutlinedIcon />, tint: "purple", title: () => "Revenue and order intake, month by month", note: (c) => `Invoiced revenue of the companies the reps own; order intake as the ERP has loaded it per company${oiLast(c) ? `, through ${oiLast(c)}` : ""}`, charts: ["revenue", "intake"],
-      table: {
-        title: "All the figures, by month",
-        draw: (c) => {
-          const L = c.b.monthLabels.slice(0, c.months);
-          return (
-            <Table head={["Month", `Revenue ${c.b.window.year}`, String(c.b.window.py), "Change", `Order intake ${c.b.window.year}`, String(c.b.window.py), "Change"]} firstWidth="minmax(90px, .8fr)" minWidth={110 + 6 * 110}
-              rows={[
-                ...L.map((m, i) => ({ key: m, cells: [m, ...cell(c.rep.revenue.months[i] ?? P(0, 0), money), ...(i < c.b.oiMonths ? cell(c.rep.orderIntake.months[i] ?? P(0, 0), money) : ["—", "—", "—"])] })),
-                { key: "total", strong: true, cells: ["Total", ...cell(c.rep.revenue.ytd, money), ...(c.b.oiMonths ? cell(c.rep.orderIntake.ytd, money) : ["—", "—", "—"])] },
-              ]} />
-          );
-        },
-      } },
-    { id: "reps", label: "Sales reps", icon: <BadgeOutlinedIcon />, tint: "purple", title: () => "Revenue and order intake per sales rep", note: () => "Each rep's companies, this year against the same months of last year", charts: ["revenue", "intake"],
-      table: {
-        title: "All the figures, by sales rep",
-        draw: (c) => <RepRows c={c} head={["Revenue", "Last year", "Change", "Order intake", "Last year", "Change", "Ø per active customer"]}
-          cells={(r) => [...cell(r.revenue.ytd, moneyShort), ...(c.b.oiMonths ? cell(r.orderIntake.ytd, moneyShort) : ["—", "—", "—"]), money(perActive(r).cy)]}
-          total={[...cell(c.rep.revenue.ytd, moneyShort), ...(c.b.oiMonths ? cell(c.rep.orderIntake.ytd, moneyShort) : ["—", "—", "—"]), money(perActive(c.rep).cy)]} />,
-      } },
-    { id: "assortment", label: "Assortment", icon: <ShoppingBagOutlinedIcon />, tint: "amber", title: () => "Revenue by assortment", note: () => "The profit centre of the invoiced revenue", charts: ["pc"],
-      table: { title: "All the figures, by assortment", draw: (c) => { const rec = c.rep.revenue.byPc; return <PairRows c={c} head="Assortment" rows={ordered(rec, []).map((k) => ({ label: pcLabel(k), p: rec[k], fmt: money }))} total={{ label: "All revenue", p: c.rep.revenue.ytd, fmt: money }} />; } } },
-  ],
-  charts: {
-    "months:revenue": { title: "Revenue month by month", draw: (c) => <MonthChart c={c} title="Revenue month by month" pairs={c.rep.revenue.months} fmt={moneyShort} /> },
-    "months:intake": { title: "Order intake month by month", draw: (c) => <MonthChart c={c} title="Order intake month by month" note={oiLast(c) ? `Loaded per company through ${oiLast(c)}` : "Not loaded yet"} pairs={c.rep.orderIntake.months.slice(0, c.b.oiMonths)} fmt={moneyShort} /> },
-    "reps:revenue": { title: "Revenue per sales rep", draw: (c) => <RepChart c={c} title="Revenue per sales rep" value={(r) => r.revenue.ytd} fmt={moneyShort} /> },
-    "reps:intake": { title: "Order intake per sales rep", draw: (c) => <RepChart c={c} title="Order intake per sales rep" value={(r) => r.orderIntake.ytd} fmt={moneyShort} /> },
-    "assortment:pc": { title: "Revenue by assortment", draw: (c) => <GroupChart c={c} title="Revenue by assortment" rec={c.rep.revenue.byPc} label={pcLabel} fmt={moneyShort} /> },
-  },
-};
-
 /* ── 6 · tickets ───────────────────────────────────────────────────────── */
 
 /** Last year's pipeline held a fraction of today's tickets: counts would only show it filling up - rates and speeds are compared. */
@@ -478,5 +428,6 @@ export const SHOP: EsoPageDef = {
 };
 
 /** The pages in the deck's order - the side panel's and the BUC View's. */
-export const ESO_PAGES: EsoPageDef[] = [VISITS, CUSTOMERS, NEW_CUSTOMERS, REGISTRATIONS, REVENUE, TICKETS, SHOP];
+// Revenue & order intake taken out (SARCLA 31.10.2026: "sub app take it out completely") - the Figures carry both
+export const ESO_PAGES: EsoPageDef[] = [VISITS, CUSTOMERS, NEW_CUSTOMERS, REGISTRATIONS, TICKETS, SHOP];
 export const esoPage = (slug: string) => ESO_PAGES.find((p) => p.slug === slug);
