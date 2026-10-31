@@ -196,6 +196,21 @@ test("writes: resolutions alias, a key on two customers gets the later, unchange
   assert.equal(queue[1].status, "resolved"); // the input is not touched
   // a pending item stays as it is
   assert.equal(mergeReviewQueue(merged.queue, plan.unmatched, 1).added, 0);
+  assert.equal(mergeReviewQueue(merged.queue, plan.unmatched, 1).settled, 0);
+});
+
+test("review queue: a waiting customer the run found its company for is done; the missing stay to do", () => {
+  const queue = [
+    { type: "revenue", un: "100-7", revenue_eur: 50, years: [2026], status: "pending", ts: 1 },
+    { type: "revenue", un: "100-8", revenue_eur: 20, years: [2026], status: "pending", ts: 1 },
+    { type: "revenue", un: "110-9", status: "resolved", resolved_un: "110-19", ts: 1 },
+  ];
+  const m = mergeReviewQueue(queue, [{ type: "revenue", un: "100-8", revenue_eur: 20, years: [2026] }], 5, new Set(["100-7", "110-9"]));
+  assert.equal(m.settled, 1);
+  assert.deepEqual(m.queue[0], { type: "revenue", un: "100-7", revenue_eur: 50, years: [2026], status: "resolved", resolved_un: "100-7", note: "found in HubSpot by the ERP load", ts: 5 });
+  assert.equal(m.queue[1].status, "pending"); // not in HubSpot: waits for a person
+  assert.equal(m.queue[2].resolved_un, "110-19"); // a person's resolution is kept
+  assert.equal(queue[0].status, "pending"); // the input is not touched
 });
 
 test("hash: the same properties in another order hash the same", () => {

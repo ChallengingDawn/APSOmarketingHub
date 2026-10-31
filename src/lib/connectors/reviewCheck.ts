@@ -7,6 +7,10 @@
 // It NEVER creates a company - one that is not in HubSpot stays waiting for a
 // person (the Orders rule). The live check is the truth here, not the
 // connector's own flag: a key that now matches is linked, whatever it says.
+// Linking needs nobody (SARCLA 31.10.2026: "the link all found on erp load should
+// be automatic ... correct it directly after detection, leave only those not in
+// hubspot"): the ERP load links what it finds on the way and writes its revenue in
+// the same run (steps/revenue.ts), and every check links what it finds.
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { kvGet, kvSet } from "@/lib/db/init";
@@ -68,6 +72,35 @@ export async function linkAll(uns: string[]): Promise<{ linked: string[]; skippe
   return { linked, skipped };
 }
 
+/**
+ * Check each key and write it at once where exactly one company should carry it - the
+ * check and the write the page's Link does. The rows as they stand after it; a write
+ * HubSpot refuses leaves the row "can_link", for the next check.
+ */
+export async function linkFound(uns: string[], beat?: () => Promise<void>): Promise<{ rows: CheckRow[]; linked: { un: string; companyId: string }[] }> {
+  const rows: CheckRow[] = [];
+  const linked: { un: string; companyId: string }[] = [];
+  for (let i = 0; i < uns.length; i++) {
+    let row: CheckRow;
+    try {
+      row = await checkOne(uns[i]);
+    } catch {
+      row = { un: uns[i], verdict: { kind: "missing" } };
+    }
+    if (row.verdict.kind === "can_link") {
+      const { companyId, name } = row.verdict;
+      try {
+        await hubspotFetchJson({ path: `/crm/v3/objects/companies/${companyId}`, method: "PATCH", body: { properties: { company_unique_number: row.un } } });
+        row = { un: row.un, verdict: { kind: "linked", companyId, name } };
+        linked.push({ un: row.un, companyId });
+      } catch { /* stays found: the next check tries again */ }
+    }
+    rows.push(row);
+    if (beat && i % 25 === 24) await beat();
+  }
+  return { rows, linked };
+}
+
 /* ── the check, kept: run in the background, read at once ──────────────── */
 
 // The check takes a few searches per customer - with HubSpot's search limit and the hub's
@@ -87,14 +120,15 @@ export function checkRunning(h: HeldCheck | null): boolean {
   return !!running || (!!h?.running && Date.now() - Date.parse(h.running) < 5 * 60_000);
 }
 
-/** Start a check of these customers in the background; a running one is not started twice. */
+/** Start a check of these customers in the background, linking what it finds; a running one is not started twice. */
 export function refreshCheck(uns: string[]): void {
   if (running) return;
   running = (async () => {
     const before = await heldCheck();
     await kvSet(KV_CHECK, { ...(before ?? { at: "", rows: [], uns: [] }), running: new Date().toISOString() });
     try {
-      const rows = await checkAll(uns);
+      const { rows, linked } = await linkFound(uns);
+      if (linked.length) console.log(`[connectors] review check linked ${linked.length} on its own: ${linked.slice(0, 10).map((l) => l.un).join(", ")}`);
       await kvSet(KV_CHECK, { at: new Date().toISOString(), rows, uns });
     } catch (e) {
       await kvSet(KV_CHECK, { ...(before ?? { at: "", rows: [], uns: [] }), error: String((e as Error).message ?? e).slice(0, 200) });

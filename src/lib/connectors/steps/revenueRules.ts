@@ -506,12 +506,24 @@ export function planRevenueWrites(
  * Hold the unmatched in the queue, as the connector does: a new key is added
  * "pending"; one a person had resolved comes back "pending" - the resolution did not
  * lead to a HubSpot company; one already pending (or anything else) is left alone.
+ * `matched`: the keys of this file that found their company - waiting ones among them are resolved.
  */
-export function mergeReviewQueue(queue: QueueItem[], unmatched: Unmatched[], nowS: number): { queue: QueueItem[]; added: number; resurfaced: number } {
+export function mergeReviewQueue(queue: QueueItem[], unmatched: Unmatched[], nowS: number, matched: Set<string> = new Set()): { queue: QueueItem[]; added: number; resurfaced: number; settled: number } {
   const q = queue.map((i) => ({ ...i }));
   const byUn = new Map<unknown, QueueItem>();
   for (const i of q) byUn.set(i.un, i);
-  let added = 0, resurfaced = 0;
+  let added = 0, resurfaced = 0, settled = 0;
+  // a waiting customer the run found its company for (linked by hand, by the check or on the way) is done - only
+  // what needs a person stays to do (SARCLA 31.10.2026: "leave only those not in hubspot")
+  for (const i of q) {
+    if (i.status !== "resolved" && i.un !== undefined && matched.has(String(i.un))) {
+      i.status = "resolved";
+      i.resolved_un = String(i.un);
+      i.note = "found in HubSpot by the ERP load";
+      i.ts = nowS;
+      settled += 1;
+    }
+  }
   for (const u of unmatched) {
     const ex = byUn.get(u.un);
     if (ex === undefined) {
@@ -524,7 +536,7 @@ export function mergeReviewQueue(queue: QueueItem[], unmatched: Unmatched[], now
       resurfaced += 1;
     }
   }
-  return { queue: q, added, resurfaced };
+  return { queue: q, added, resurfaced, settled };
 }
 
 /* ── the company-wide monthly figures (revenue_monthly) ────────────────── */

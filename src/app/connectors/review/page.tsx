@@ -1,11 +1,13 @@
 "use client";
 
 // THE REVIEW QUEUE - ERP customers whose revenue arrived but matched no HubSpot
-// company. Each one is checked automatically in the background (read-only; every 30
-// minutes, and when the page asks): most are a company that is in HubSpot with its ERP
-// id but without its customer key, and "Link" writes that key so the next revenue run
-// finds it. A customer with no company in HubSpot stays waiting for a person - nothing
-// is ever created. The page shows the last check at once and follows a running one.
+// company. Each one is checked automatically in the background (every 30 minutes, and
+// when the page asks): most are a company that is in HubSpot with its ERP id but
+// without its customer key, and the check writes that key itself - the ERP load
+// already does on the way, with the revenue in the same run (SARCLA 31.10.2026);
+// "Link" stays for one a check could not write. A customer with no company in HubSpot
+// stays waiting for a person - nothing is ever created. The page shows the last check
+// at once and follows a running one.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -108,8 +110,8 @@ function Review({ s }: { s: Snapshot }) {
         <Box sx={{ px: { xs: 2, md: 2.75 }, pb: 1.5, display: "grid", gap: 1.25 }}>
           <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
             <Typography sx={{ fontSize: "0.82rem", color: MUTED, flex: 1, minWidth: 260 }}>
-              Each customer is checked in HubSpot automatically: <b>Found</b> means the company is there but its customer key is missing - Link writes it.
-              Nothing is ever created; a customer not in HubSpot waits for a person.
+              A company that is in HubSpot with its ERP number but no customer key is linked automatically: by the ERP load, which writes its revenue in the same run, and by the check every 30 minutes.
+              What stays to do needs a person - a customer not in HubSpot (nothing is ever created), or more than one company for it.
               {data?.at ? ` Last checked ${when(data.at)}.` : ""}
             </Typography>
             {checking && <CircularProgress size={16} />}

@@ -1,6 +1,6 @@
-// The review queue's automatic check (GET, read-only) and its link (POST, writes
-// company_unique_number - only for someone who may change things in Connectors &
-// Integration). The check runs in the background and is kept (reviewCheck.ts): GET
+// The review queue's automatic check (GET - it links what it finds on its own, reviewCheck.ts)
+// and its link by hand (POST, writes company_unique_number - only for someone who may change
+// things in Connectors & Integration). The check runs in the background and is kept: GET
 // answers at once with the last result, and starts a new check when it is older than
 // 10 minutes, the queue changed, or the page asks ("Check again").
 

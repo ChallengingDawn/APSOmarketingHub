@@ -19,14 +19,16 @@
 // The customer-number -> company map (the connector's un2id.pkl, uploaded from a PC)
 // is built here from HubSpot itself - company_unique_number, first company wins, as
 // the PC built it - kept in Postgres and rebuilt when older than 20 hours; a key it
-// does not know is asked of HubSpot live before it counts as missing. NEVER creates
-// a company: the unmatched go to the review queue.
+// does not know is asked of HubSpot live before it counts as missing, then linked on
+// the way when one company has its ERP number and mandant (reviewCheck.ts). NEVER
+// creates a company: the unmatched go to the review queue.
 
 import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { connectorGet } from "@/lib/erosion/run";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { IntegrationError } from "@/lib/integrations/status";
+import { checkAll, linkFound } from "../reviewCheck";
 import type { ReviewItem } from "../snapshot";
 import type { StepResult } from "./companyFacts";
 import { readRollup } from "./revenueCsv";
@@ -286,18 +288,32 @@ export async function revenueLoad(live: boolean, beat: Beat, opts: { file: strin
     }
     if (i % 25 === 24) await beat();
   }
+  // a key no company carries yet, though exactly one company has its ERP number and mandant: linked here and now, so
+  // this run writes its revenue and the ERP workbook's step after it finds it too (SARCLA 31.10.2026: "the link all
+  // found on erp load should be automatic ... correct it directly after detection"); a preview only asks
+  const unknown = lookups.filter((k) => !map.has(k));
+  let linkedOnTheWay: { un: string; companyId: string }[] = [];
+  if (live) {
+    linkedOnTheWay = (await linkFound(unknown, beat)).linked;
+    healed.push(...linkedOnTheWay.map((l): [string, string] => [l.un, l.companyId]));
+  } else {
+    for (const r of await checkAll(unknown)) if (r.verdict.kind === "can_link") linkedOnTheWay.push({ un: r.un, companyId: r.verdict.companyId });
+  }
+  for (const l of linkedOnTheWay) map.set(l.un, l.companyId);
   await rememberHealed(healed); // a cache of what HubSpot said - kept in a preview too
   const rules = await companyPropRules();
   const plan = planRevenueWrites(roll, alias, map, oiFromCsv, rules, await loadHashes());
   const missing = [...plan.unmatched].sort((a, b) => b.revenue_eur - a.revenue_eur);
-  const merged = mergeReviewQueue(queue.items, plan.unmatched, Math.floor(Date.now() / 1000));
+  const matched = new Set([...roll.agg.keys()].filter((un) => map.has(alias.get(un) ?? un)));
+  const merged = mergeReviewQueue(queue.items, plan.unmatched, Math.floor(Date.now() / 1000), matched);
   const out: StepResult = {
     rows: roll.rows, records: roll.lines, customers: roll.agg.size,
     companies_changed: plan.ups.size, unchanged: plan.unchanged, companies_with_several_keys: plan.shared,
     map: { source: un2id.source, keys: un2id.map.size, built: new Date(un2id.state.built).toISOString(), companies_sharing_a_key: un2id.state.duplicates },
     looked_up_live: lookups.length, map_self_healed: healed.length,
+    [live ? "linked_on_the_way" : "would_link"]: linkedOnTheWay.length, linked_examples: linkedOnTheWay.slice(0, 10).map((l) => l.un),
     unmatched_held: plan.unmatched.length,
-    review_queue: { from: queue.source, ...(queue.note ? { note: queue.note } : {}), added: merged.added, resurfaced: merged.resurfaced, size: merged.queue.length },
+    review_queue: { from: queue.source, ...(queue.note ? { note: queue.note } : {}), added: merged.added, resurfaced: merged.resurfaced, settled: merged.settled, size: merged.queue.length },
     missing_companies: missing.slice(0, 20).map((u) => ({ un: u.un, revenue_eur: u.revenue_eur })),
     calculated_properties_skipped: plan.skipped.calculated.size, calculated_examples: [...plan.skipped.calculated].slice(0, 10),
     unknown_properties_skipped: plan.skipped.unknown.size, unknown_examples: [...plan.skipped.unknown].slice(0, 10),
@@ -309,7 +325,7 @@ export async function revenueLoad(live: boolean, beat: Beat, opts: { file: strin
   };
   if (live) {
     // held BEFORE the writes, as the connector does
-    if (plan.unmatched.length || queue.source !== "hub") await kvSet(KV.queue, merged.queue);
+    if (plan.unmatched.length || merged.settled || queue.source !== "hub") await kvSet(KV.queue, merged.queue);
     Object.assign(out, await writeCompanies(plan.ups, beat));
   }
   return { ...out, seconds: secs(t0) };
