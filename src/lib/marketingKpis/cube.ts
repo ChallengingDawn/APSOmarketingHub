@@ -87,6 +87,8 @@ export type Cube = {
    * counts them (SARCLA 31.10.2026: "why also not the same figures"); before, the month of its first order
    */
   newKind?: "invoice";
+  /** The first year whose revenue decided the companies with a carried-over first order (2014 and before), when it did. */
+  newHistory?: number;
 };
 
 /** The ERP's figures a cell carries, in this order. */

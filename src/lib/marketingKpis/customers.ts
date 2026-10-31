@@ -30,7 +30,8 @@ import { SEED } from "@/lib/mapAssign/seed";
 // v11: the revenue kept apart by profit centre too (the Figures' Profit center tab, 25.10.2026)
 // (the new customers' revenue since their first order came in under the same key, 29.10.2026, and on 31.10 their first
 // invoice instead of their first order, with their order intake: a read without newKind "invoice" is read again, the last
-// one shown meanwhile - the ESO New customers)
+// one shown meanwhile - the ESO New customers; a read without newHistory, from before the revenue since 2015 decided the
+// companies whose first order is the ERP's carried-over date, is read again too)
 const KEY = "marketingKpis:customers:v11";
 /** The ERP file's figures per company (the morning load, erpRevenue.ts), in cube.ts's ERP_FIELDS order. */
 const ERP_PROPS = ["erp_rev_mtd_cy", "erp_rev_mtd_py", "erp_rev_ytd_cy", "erp_rev_ytd_py", "erp_oi_mtd_cy", "erp_oi_mtd_py", "erp_oi_ytd_cy", "erp_oi_ytd_py"] as const;
@@ -46,7 +47,7 @@ export async function customersCube(): Promise<SlowState<Cube>> {
   // and as soon as the ERP morning workbook has run again on its own - "Run now" on the chain page writes each customer's
   // monthly order intake (SARCLA 31.10.2026: "I've run it" - the Figures would have waited up to 6 hours to see it)
   const erp = await lastRun("live", "erp_revenue").then((r) => (r?.finished && !r.error ? Date.parse(r.finished) : 0)).catch(() => 0);
-  return slowReport(KEY, (v: Cube) => ((day && v?.dataDay !== day) || v?.newKind !== "invoice" || (erp && Date.parse(v?.generatedAt ?? "") < erp) ? 0 : TTL_MS), build);
+  return slowReport(KEY, (v: Cube) => ((day && v?.dataDay !== day) || v?.newKind !== "invoice" || v?.newHistory !== HISTORY_FROM || (erp && Date.parse(v?.generatedAt ?? "") < erp) ? 0 : TTL_MS), build);
 }
 
 /** The day of the last ERP delivery the chain ran, or nothing when none is on record (or no database here). */
@@ -62,16 +63,35 @@ function firstMonthOf(v: string | null | undefined, firstYear: number): number |
   const k = (Number(m[1]) - firstYear) * 12 + Number(m[2]) - 1;
   return k >= 0 && k <= 35 ? k : null;
 }
+/** The first year HubSpot keeps a company's revenue for (rev_2015_pc_monthly on). */
+const HISTORY_FROM = 2015;
+/** A first order before HISTORY_FROM: the date the ERP carried the customer over with, not a purchase anyone has on record. */
+const carriedOver = (firstOrder: string | null | undefined) => { const y = /^(\d{4})/.exec(firstOrder ?? ""); return !!y && Number(y[1]) < HISTORY_FROM; };
 /**
  * A new customer's month as the BSC report counts it (SARCLA 31.10.2026: "why also not the same figures"): its first
- * invoice - the first month with revenue in the three years read - unless HubSpot has a first order before them (an old
- * customer coming back is not new). Checked against the BSC on 31.10.2026: 2025 1,626 vs 1,653, Nov/Dec 125/89 vs 127/90.
+ * invoice - the first month with revenue in the three years read - unless HubSpot has a first order from 2015 to before
+ * them (an old customer coming back is not new). A carried-over first order (2014 and before) decides nothing: the
+ * revenue since 2015 does (withoutHistory). Checked against the BSC's 1,389 new customers of 2026 one by one, 31.10.2026.
  */
 function firstInvoiceOf(months: number[][], firstOrder: string | null | undefined, firstYear: number): number | null {
   const y = /^(\d{4})/.exec(firstOrder ?? "");
-  if (y && Number(y[1]) < firstYear) return null;
+  if (y && Number(y[1]) >= HISTORY_FROM && Number(y[1]) < firstYear) return null;
   for (let k = 0; k <= 35; k++) if ((months[2 - Math.floor(k / 12)]?.[k % 12] ?? 0) > 0) return k;
   return null;
+}
+/**
+ * The companies with a carried-over first order stay new only without revenue from 2015 to before the three years: the BSC
+ * counted 25 of the 239 such companies first invoiced in 2026 - exactly those with none (SARCLA 31.10.2026: "we need to get
+ * it right on new customer"). A company HubSpot does not return is left out, as before.
+ */
+async function withoutHistory(list: { id: string; c: CompanyIn }[], firstYear: number): Promise<void> {
+  const props = Array.from({ length: firstYear - HISTORY_FROM }, (_, i) => `rev_${HISTORY_FROM + i}_pc_monthly`);
+  for (let i = 0; i < list.length; i += 100) {
+    const part = list.slice(i, i + 100);
+    const r = await hubspotFetchJson<{ results?: Obj[] }>({ path: "/crm/v3/objects/companies/batch/read", method: "POST", body: { properties: props, inputs: part.map((e) => ({ id: e.id })) } });
+    const clean = new Set((r.results ?? []).filter((o) => !props.some((k) => { const b = parsePcMonthly(o.properties[k]); return b.some((_, m) => monthTotal(b, m) > 0); })).map((o) => String(o.id)));
+    for (const e of part) if (!clean.has(e.id)) e.c.firstInvoiceMonth = null;
+  }
 }
 const num = (v: string | null | undefined) => (v == null || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
@@ -161,16 +181,23 @@ async function build(): Promise<Cube> {
   // order intake per month as the nightly revenue load writes it (oi_2026_jan…) - 36 names, well inside the address's 2 KB
   const props = propsOf(years);
   const companies: CompanyIn[] = [];
+  const carried: { id: string; c: CompanyIn }[] = [];
 
   let after: string | undefined;
   for (;;) {
     const qs = `limit=100&archived=false&properties=${props.join(",")}${after ? `&after=${after}` : ""}`;
     const r = await hubspotFetchJson<{ results?: Obj[]; paging?: { next?: { after?: string } } }>({ path: `/crm/v3/objects/companies?${qs}` });
-    for (const o of r.results ?? []) companies.push(companyOf(o.properties, x));
+    for (const o of r.results ?? []) {
+      const c = companyOf(o.properties, x);
+      companies.push(c);
+      if (c.firstInvoiceMonth != null && carriedOver(o.properties.order_first_order_date)) carried.push({ id: String(o.id), c });
+    }
     reportProgress(KEY, `reading companies: ${companies.length.toLocaleString("en")} so far`);
     after = r.paging?.next?.after;
     if (!after) break;
   }
+  reportProgress(KEY, `reading the revenue since ${HISTORY_FROM} of ${carried.length.toLocaleString("en")} customers from before it`);
+  await withoutHistory(carried, years[2]);
 
   const loaded = [monthsLoaded(x.filled[0], x.filled[1], monthsDone), 12, 12];
   // The month in progress reaches the day of the last ERP delivery the chain ran
@@ -182,7 +209,7 @@ async function build(): Promise<Cube> {
     : null;
   // the ERP day most companies carry (a straggler from an older file does not move it)
   const erpDay = [...x.erpDays].sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]))[0]?.[0] ?? null;
-  return { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels: x.labels, teams: x.teams, saeTeams: x.saeTeams, erpDay, oiLoaded: monthsLoaded(x.filledOi[0], x.filledOi[1], monthsDone), newKind: "invoice", ...fold(companies) };
+  return { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels: x.labels, teams: x.teams, saeTeams: x.saeTeams, erpDay, oiLoaded: monthsLoaded(x.filledOi[0], x.filledOi[1], monthsDone), newKind: "invoice", newHistory: HISTORY_FROM, ...fold(companies) };
 }
 
 /**
@@ -196,10 +223,16 @@ export async function companiesCube(ids: string[]): Promise<Cube | null> {
   const x = await contextOf(base.years);
   const companies: CompanyIn[] = [];
   const props = propsOf(base.years);
+  const carried: { id: string; c: CompanyIn }[] = [];
   for (let i = 0; i < ids.length; i += 50) {
     const r = await hubspotFetchJson<{ results?: Obj[] }>({ path: "/crm/v3/objects/companies/batch/read", method: "POST", body: { properties: props, inputs: ids.slice(i, i + 50).map((id) => ({ id })) } });
-    for (const o of r.results ?? []) companies.push(companyOf(o.properties, x));
+    for (const o of r.results ?? []) {
+      const c = companyOf(o.properties, x);
+      companies.push(c);
+      if (c.firstInvoiceMonth != null && carriedOver(o.properties.order_first_order_date)) carried.push({ id: String(o.id), c });
+    }
   }
+  await withoutHistory(carried, base.years[2]);
   // its own read time: the pages keep their sums per cube by it, and these companies were read just now
   return { ...base, generatedAt: new Date().toISOString(), labels: x.labels, teams: x.teams, saeTeams: x.saeTeams, ...fold(companies) };
 }
