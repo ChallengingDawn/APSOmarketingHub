@@ -175,7 +175,7 @@ const VIEWS: { id: RView; label: string }[] = [
 const isView = (x: string | null): x is RView => VIEWS.some((v) => v.id === x);
 const DIM_OF: Record<RView, RDim> = { people: "person", visit: "visit", country: "country", prio: "prio", category: "category", type: "type", apic: "apic" };
 const DIM: Record<RDim, { name: string; lower: string; icon: React.ReactNode; tint: Tint; note: string }> = {
-  person: { name: "Person", lower: "person", icon: <BadgeOutlinedIcon />, tint: "pink", note: "The company's owner in HubSpot today" },
+  person: { name: "Company owner", lower: "company owner", icon: <BadgeOutlinedIcon />, tint: "pink", note: "The company's owner in HubSpot today" },
   visit: { name: "Visit and registration", lower: "visit", icon: <DirectionsCarOutlinedIcon />, tint: "green", note: "The company's first completed customer visit against the day it registered - visits are in HubSpot since 2026, so this year only" },
   country: { name: "Country", lower: "country", icon: <PublicOutlinedIcon />, tint: "blue", note: "Where the company is" },
   prio: { name: "Priority", lower: "priority", icon: <FlagOutlinedIcon />, tint: "purple", note: "The company's priority today - it rises with what a company buys, so last year's registrations (a year longer to buy) are not compared" },
@@ -223,13 +223,18 @@ const targetFor = (c: RCtx, id: string) => { const t = c.targets?.[targetKey(id,
 /* ── the leaderboards ──────────────────────────────────────────────────── */
 
 type Measure = "registered" | "bought" | "conversion" | "accounts" | "visited";
+/** Every title says what it counts - companies, or contacts named as people - and keeps the period and the breakdown apart
+ *  (SARCLA 31.10.2026 on "Registered on the day of a visit or after one year to date, by person": "companies or contacts?
+ *  the titles are still not explanatory"). */
 const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; diff: (n: number) => string; unit: "n" | "pct"; target: string }> = {
-  registered: { title: "Companies registered", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "companies registered" },
-  bought: { title: "Ordered in the shop since registering", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "companies that ordered in the shop since registering" },
-  conversion: { title: "Share that ordered since registering", fmt: (n) => pct(n), diff: (n) => moreLess(n, "fewer", "more"), unit: "pct", target: "share that ordered in the shop since registering" },
-  accounts: { title: "Contacts who opened a shop account", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "contacts (people, not companies) who opened a shop account" },
-  visited: { title: "Registered on the day of a visit or after one", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "companies registered on the day of a visit or after one" },
+  registered: { title: "Companies registered in the shop", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "companies registered in the shop" },
+  bought: { title: "Companies registered that have ordered in the shop since", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "companies registered that have ordered in the shop since" },
+  conversion: { title: "Share of the companies registered that have ordered in the shop since", fmt: (n) => pct(n), diff: (n) => moreLess(n, "fewer", "more"), unit: "pct", target: "share of the companies registered that have ordered in the shop since" },
+  accounts: { title: "Contacts (people, not companies) who opened a shop account", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "contacts (people, not companies) who opened a shop account" },
+  visited: { title: "Companies registered on the day of a customer visit or later", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "companies registered on the day of a customer visit or later" },
 };
+/** "Companies registered in the shop · year to date · by company owner" */
+const titleOf = (what: string, per: RPer, by?: RDim) => `${what} · ${per.title}${by ? ` · by ${DIM[by].lower}` : ""}`;
 function boardRows(c: RCtx, dim: RDim, m: Measure): { rows: BoardRow[]; small: BoardRow[] } {
   const by = statsOf(c, 0, dim), was = statsOf(c, 1, dim);
   const rows: BoardRow[] = [], small: BoardRow[] = [];
@@ -250,7 +255,7 @@ function Board({ c, id, dim, m, actions }: { c: RCtx; id: string; dim: RDim; m: 
   const { rows, small } = boardRows(c, dim, m);
   const M = MEASURE[m];
   return (
-    <Leaderboard key={`${id}-${c.per.id}`} title={`${M.title} ${c.per.title}, by ${DIM[dim].lower}`} rows={rows} noChange={m === "visited" || noPy(c, dim)}
+    <Leaderboard key={`${id}-${c.per.id}`} title={titleOf(M.title, c.per, dim)} rows={rows} noChange={m === "visited" || noPy(c, dim)}
       curLabel={perWords(c.d, c.per)} prevLabel={perWords(c.d, c.per, 1)} vs={vsOf(c.d)}
       first={c.half ? 8 : 12} fmt={M.fmt} diff={M.diff} ratio={m === "conversion"} target={targetFor(c, id)}
       unranked={small.length ? { why: `under ${MIN_COMPANIES} companies registered`, rows: small } : undefined}
@@ -340,7 +345,7 @@ function VisitSplit({ c }: { c: RCtx }) {
 
 type TargetOf = { unit: "pct" | "n"; label: string };
 type Drawn = { id: string; title: (c: RCtx) => string; draw: (c: RCtx, actions?: React.ReactNode) => React.ReactNode; target?: (c: RCtx) => TargetOf };
-const teamPart = (c: RCtx) => ` - ${teamName(c)}`;
+const teamPart = (c: RCtx) => ` · ${teamName(c)}`;
 const forWhom = (c: RCtx) => `${teamName(c)}'s target for ${c.per.title} - each team and period its own`;
 /** A chart by its id "<tab>:<what>[-<breakdown>]": people:registered, people:months, visit:split, country:bought… - and
  *  the tables, each a card of its own (SARCLA 31.10.2026: "all the tables should be individual KPIs"):
@@ -349,32 +354,32 @@ function drawnOf(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
   if (chart === "months") {
-    const title = (c: RCtx) => `Companies registered ${c.per.title}, month by month${teamPart(c)}`;
+    const title = (c: RCtx) => `${titleOf(MEASURE.registered.title, c.per)} · month by month${teamPart(c)}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} against ${sameOf(c.d, c.per)}`} actions={a}><RegMonths c={c} target={targetFor(c, id)} /></ChartBox>,
       target: (c) => ({ unit: "n", label: `Each month's companies registered are measured against it - a line across the months; the running month, and a month the period has only some days of, are not counted · ${teamName(c)}'s target.` }) };
   }
   if (chart.startsWith("table-") && chart.slice(6) in REP) {
     const r = chart.slice(6) as Rep, dim = DIM_OF[v];
-    const title = (c: RCtx) => `${REP[r].title}, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`;
+    const title = (c: RCtx) => `${titleOf(MEASURE[r].title, c.per, dim)}${teamPart(c)}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${REP[r].hint} · ${repWords(c, dim)}`} actions={a}><ReportTable c={c} dim={dim} r={r} /></ChartBox> };
   }
   if (v === "people" && chart === "months-table") {
-    const title = (c: RCtx) => `Companies registered, ${c.per.title}, by month${teamPart(c)}`;
+    const title = (c: RCtx) => `${titleOf(MEASURE.registered.title, c.per)} · by month${teamPart(c)}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`Companies whose first shop account was opened, each month against ${sameOf(c.d, c.per)}`} actions={a}><MonthTable c={c} /></ChartBox> };
   }
   if (v === "people" && chart === "person-months") {
-    const title = (c: RCtx) => `Companies registered, ${c.per.title}, by person and month${teamPart(c)}`;
+    const title = (c: RCtx) => `${titleOf(MEASURE.registered.title, c.per)} · by company owner and month${teamPart(c)}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`Companies whose first shop account was opened, by the company's owner, month by month · ${perWords(c.d, c.per)}`} actions={a}><PeopleMonths c={c} /></ChartBox> };
   }
   if (chart === "split") {
-    const title = (c: RCtx) => `Registered against the first visit, ${c.per.title}${teamPart(c)}`;
+    const title = (c: RCtx) => `${titleOf(MEASURE.registered.title, c.per)} · against their first customer visit${teamPart(c)}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · the companies registered, against their first completed customer visit · a click shows only them`} actions={a}><VisitSplit c={c} /></ChartBox> };
   }
   const [what, by] = chart.split("-");
   if (!(what in MEASURE)) return undefined;
   const m = what as Measure;
   const dim: RDim = by && (by in DIM) ? (by as RDim) : DIM_OF[v];
-  return { id, title: (c) => `${MEASURE[m].title} ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`, draw: (c, a) => <Board c={c} id={id} dim={dim} m={m} actions={a} />,
+  return { id, title: (c) => `${titleOf(MEASURE[m].title, c.per, dim)}${teamPart(c)}`, draw: (c, a) => <Board c={c} id={id} dim={dim} m={m} actions={a} />,
     target: (c) => ({ unit: MEASURE[m].unit, label: `Each ${DIM[dim].lower}'s ${MEASURE[m].target} ${c.per.title} is measured against it · ${forWhom(c)}.` }) };
 }
 /** Keys placed in BUC Views earlier, by what took their place. */
@@ -397,10 +402,10 @@ const ChangeText = ({ a, b, asPct }: { a: number; b: number; asPct?: boolean }) 
 );
 type Row = { label: string; s: RStats; p: RStats };
 type Rep = "registered" | "bought" | "accounts";
-const REP: Record<Rep, { title: string; hint: string; val: (s: RStats) => number; share: string }> = {
-  registered: { title: "Companies registered", hint: "Companies whose first shop account was opened in the period", val: (s) => s.companies, share: "Share of all registered" },
-  bought: { title: "Ordered in the shop since registering", hint: "Of the companies registered, the ones whose first shop order came on the day of registering or after it - last year's counted to the same day", val: (s) => s.bought, share: "Of those registered" },
-  accounts: { title: "Contacts who opened a shop account", hint: "People, not companies: every contact that opened a shop account in the period - also at companies already in the shop, which are not counted as registering again", val: (s) => s.accounts, share: "Share of all contacts" },
+const REP: Record<Rep, { hint: string; val: (s: RStats) => number; share: string }> = {
+  registered: { hint: "Companies whose first shop account was opened in the period", val: (s) => s.companies, share: "Share of all registered" },
+  bought: { hint: "Of the companies registered, the ones whose first shop order came on the day of registering or after it - last year's counted to the same day", val: (s) => s.bought, share: "Of those registered" },
+  accounts: { hint: "People, not companies: every contact that opened a shop account in the period - also at companies already in the shop, which are not counted as registering again", val: (s) => s.accounts, share: "Share of all contacts" },
 };
 function rowsOf(c: RCtx, dim: RDim): Row[] {
   const by = statsOf(c, 0, dim), was = noPy(c, dim) ? new Map<string, RStats>() : statsOf(c, 1, dim);
@@ -463,7 +468,7 @@ function PeopleMonths({ c }: { c: RCtx }) {
     ...t.months.map((_, i) => ({ key: `m${i}`, head: parts[i]?.label ?? MONTHS[c.per.win.from + i], cell: (r: MRow) => (r.months[i] ? int(r.months[i]) : "—"), sort: (r: MRow) => r.months[i] ?? 0 })),
     { key: "companies", head: perCap(c.per), cell: (r) => <b>{int(r.companies)}</b>, sort: (r) => r.companies },
   ];
-  return <FullTable key={`pm-${c.per.id}-${c.team}`} first="Person" cols={cols} initial="companies" rows={rows} total={{ label: "Total", months: t.months, companies: t.companies }} selected={c.filters.person} onPick={c.onBar ? (l) => c.onBar!("person", l) : undefined} find="a person" tint="pink" />;
+  return <FullTable key={`pm-${c.per.id}-${c.team}`} first={DIM.person.name} cols={cols} initial="companies" rows={rows} total={{ label: "Total", months: t.months, companies: t.companies }} selected={c.filters.person} onPick={c.onBar ? (l) => c.onBar!("person", l) : undefined} find="a company owner" tint="pink" />;
 }
 
 /* ── a tab: one card that follows it ───────────────────────────────────── */
@@ -479,7 +484,7 @@ function TabCard({ c, act }: { c: RCtx; act: Act }) {
   const reports = reportsOf(c.view).map((r) => <Fragment key={r}>{draw(c, act, `${c.view}:table-${r}`)}</Fragment>);
   if (c.view === "people") return (
     <GlassCard sx={card}>
-      <CardTitle icon={<BadgeOutlinedIcon />} tint="pink" title={`${teamName(c)}, ${c.per.title}`} note={`${words} · by the company's owner`} />
+      <CardTitle icon={<BadgeOutlinedIcon />} tint="pink" title={`${teamName(c)} by company owner · ${c.per.title}`} note={`${words} · ${DIM.person.note}`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "people:registered")}{draw(c, act, "people:bought")}</Box>
       {many && draw(c, act, "people:months")}
       <Box sx={TWO}>{draw(c, act, "people:conversion")}{draw(c, act, "people:visited")}</Box>
@@ -490,7 +495,7 @@ function TabCard({ c, act }: { c: RCtx; act: Act }) {
   );
   if (c.view === "visit") return (
     <GlassCard sx={card}>
-      <CardTitle icon={<DirectionsCarOutlinedIcon />} tint="green" title={`${teamName(c)}: registered against the first visit, ${c.per.title}`} note={`${perWords(c.d, c.per)} · ${DIM.visit.note} · click a way to see who ordered of it`} />
+      <CardTitle icon={<DirectionsCarOutlinedIcon />} tint="green" title={`${teamName(c)}: companies registered in the shop against their first customer visit · ${c.per.title}`} note={`${perWords(c.d, c.per)} · ${DIM.visit.note} · click a way to see who ordered of it`} />
       <Box sx={{ mt: -1 }}>{draw(c, act, "visit:split")}</Box>
       <Box sx={TWO}>{draw(c, act, "visit:visited-person")}{draw(c, act, "visit:bought-person")}</Box>
       {reports}
@@ -499,7 +504,7 @@ function TabCard({ c, act }: { c: RCtx; act: Act }) {
   const dim = DIM_OF[c.view], dd = DIM[dim];
   return (
     <GlassCard sx={card}>
-      <CardTitle icon={dd.icon} tint={dd.tint} title={`${teamName(c)} by ${dd.lower}, ${c.per.title}`} note={`${dd.note} · ${thisYearOnly(dim) ? perWords(c.d, c.per) : words}`} />
+      <CardTitle icon={dd.icon} tint={dd.tint} title={`${teamName(c)}: companies registered in the shop by ${dd.lower} · ${c.per.title}`} note={`${dd.note} · ${thisYearOnly(dim) ? perWords(c.d, c.per) : words}`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${c.view}:registered`)}{draw(c, act, `${c.view}:bought`)}</Box>
       {reports}
     </GlassCard>
@@ -512,16 +517,16 @@ const TabCardKept = memo(TabCard, (a, b) => a.c === b.c);
 type Fig = { id: string; label: string; value: string; ch: number | null; sub: string; icon: React.ReactNode; tint: Tint; amount: number; unit: "n" | "pct" };
 function figuresOf(c: RCtx): Fig[] {
   const t = totalOf(c, 0), p = totalOf(c, 1);
-  const P = c.per.title, was = perWords(c.d, c.per, 1);
+  const was = perWords(c.d, c.per, 1);
   // under a visit, category or priority filter last year is not compared (no visits before 2026; the category and the
   // priority are today's)
   const py = !noPy(c);
   return [
-    { id: "fig-registered", label: `Companies registered ${P}`, value: int(t.companies), ch: py ? changeOf(t.companies, p.companies) : null, sub: py ? `${int(p.companies)} in ${was}` : "not compared with last year under this filter", icon: <HowToRegOutlinedIcon />, tint: "pink", amount: t.companies, unit: "n" },
-    { id: "fig-bought", label: "Ordered in the shop since registering", value: int(t.bought), ch: py ? changeOf(t.bought, p.bought) : null, sub: `${pct(share(t.bought, t.companies))} of them${py ? ` · ${pct(share(p.bought, p.companies))} in ${c.d.year - 1}` : ""}`, icon: <ShoppingCartCheckoutOutlinedIcon />, tint: "green", amount: t.bought, unit: "n" },
-    { id: "fig-days", label: "Median days to the first order", value: days(median(t.days)), ch: null, sub: py ? `${days(median(p.days))} in ${c.d.year - 1}` : `over ${int(t.days.length)} that ordered`, icon: <TimerOutlinedIcon />, tint: "amber", amount: median(t.days) ?? 0, unit: "n" },
-    { id: "fig-visited", label: "On the day of a visit or after one", value: int(visitedFirst(t)), ch: null, sub: `${pct(share(visitedFirst(t), t.companies))} of the companies registered`, icon: <DirectionsCarOutlinedIcon />, tint: "green", amount: visitedFirst(t), unit: "n" },
-    { id: "fig-accounts", label: `Contacts who opened a shop account ${P}`, value: int(t.accounts), ch: py ? changeOf(t.accounts, p.accounts) : null, sub: `people, not companies · ${int(t.more)} at companies already in the shop`, icon: <PersonAddAltOutlinedIcon />, tint: "blue", amount: t.accounts, unit: "n" },
+    { id: "fig-registered", label: MEASURE.registered.title, value: int(t.companies), ch: py ? changeOf(t.companies, p.companies) : null, sub: py ? `${int(p.companies)} in ${was}` : "not compared with last year under this filter", icon: <HowToRegOutlinedIcon />, tint: "pink", amount: t.companies, unit: "n" },
+    { id: "fig-bought", label: MEASURE.bought.title, value: int(t.bought), ch: py ? changeOf(t.bought, p.bought) : null, sub: `${pct(share(t.bought, t.companies))} of them${py ? ` · ${pct(share(p.bought, p.companies))} in ${c.d.year - 1}` : ""}`, icon: <ShoppingCartCheckoutOutlinedIcon />, tint: "green", amount: t.bought, unit: "n" },
+    { id: "fig-days", label: "Median days from registering to the company's first shop order", value: days(median(t.days)), ch: null, sub: py ? `${days(median(p.days))} in ${c.d.year - 1}` : `over ${int(t.days.length)} that ordered`, icon: <TimerOutlinedIcon />, tint: "amber", amount: median(t.days) ?? 0, unit: "n" },
+    { id: "fig-visited", label: MEASURE.visited.title, value: int(visitedFirst(t)), ch: null, sub: `${pct(share(visitedFirst(t), t.companies))} of the companies registered`, icon: <DirectionsCarOutlinedIcon />, tint: "green", amount: visitedFirst(t), unit: "n" },
+    { id: "fig-accounts", label: MEASURE.accounts.title, value: int(t.accounts), ch: py ? changeOf(t.accounts, p.accounts) : null, sub: `people, not companies · ${int(t.more)} at companies already in the shop`, icon: <PersonAddAltOutlinedIcon />, tint: "blue", amount: t.accounts, unit: "n" },
   ];
 }
 function FigureCards({ c, items, big, actions }: { c: RCtx; items: Fig[]; big?: boolean; actions?: (f: Fig) => React.ReactNode }) {
@@ -720,7 +725,7 @@ export function RegistrationsExplorer() {
           <Box sx={{ minWidth: 0, flex: "1 1 360px", display: "grid", gap: 0.9 }}>
             <Typography component="h1" sx={H1}>Registrations</Typography>
             <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-              <b style={{ color: INK }}>{teamName(now)}</b> · {per.title === perWords(d, per) ? "" : `${per.title} `}<b style={{ color: INK }}>{perWords(d, per)}</b> - against {perWords(d, per, 1)} · companies, by their first shop account{computing ? " · reading HubSpot again" : ""}
+              <b style={{ color: INK }}>{teamName(now)}</b> · {per.title === perWords(d, per) ? "" : `${per.title} `}<b style={{ color: INK }}>{perWords(d, per)}</b> - against {perWords(d, per, 1)} · counts companies: a company is registered on the day its first shop account was opened{computing ? " · reading HubSpot again" : ""}
             </Typography>
           </Box>
           <Box sx={{ minWidth: 0 }}><Teams team={team} onTeam={setTeam} lead={leadKey} onLead={setLead} teams={teams} /></Box>
@@ -814,7 +819,7 @@ export function RegistrationsPanel({ acts }: { acts: ActionsState | null }) {
       {!c ? <Waiting computing={computing} progress={progress} error={error} /> : (
         <Box sx={{ display: "grid", gap: 2.25, opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
           <FigureCards c={c} items={figs.filter((f) => shown(f.id))} big actions={(f) => own(f.id, f.label, "kpi", { key: targetKey(`panel:${f.id}`, c.team, c.lead, c.per), unit: f.unit, label: `${f.label} is measured against it · ${teamName(c)}'s target.` })} />
-          {shown("months") && months.draw(c, own("months", "Companies registered year to date, month by month", "card", months.target ? { key: targetKey(months.id, c.team, c.lead, c.per), ...months.target(c) } : undefined))}
+          {shown("months") && months.draw(c, own("months", `${titleOf(MEASURE.registered.title, c.per)} · month by month`, "card", months.target ? { key: targetKey(months.id, c.team, c.lead, c.per), ...months.target(c) } : undefined))}
           {items.length > 0 && <SortableGrid items={items} order={acts?.orders?.["nutshell:eso-registrations"]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} />}
         </Box>
       )}
