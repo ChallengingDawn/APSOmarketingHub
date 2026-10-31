@@ -41,6 +41,8 @@ function result(r: HubRun | null | undefined): { text: string; bad?: boolean } |
 
 /** Does the hub run this step right now? Switched on here, and let go by the connector. */
 const runsHere = (i: HubStepInfo | undefined) => !!i?.live && i.connectorSkips !== false;
+/** The file steps that may be run on their own from here: a live run fetches its file (steps/run.ts) */
+const RUN_WITH_FILE = new Set(["erp_revenue"]);
 
 /** The last ERP delivery and what the hub did with it. */
 function Delivery({ d, admin, busy, act }: { d: StepsData | null; admin: boolean; busy: boolean; act: (key: string, action: string) => void }) {
@@ -121,10 +123,12 @@ function StepPanel({ step, info, admin, busy, act }: { step: Step; info: HubStep
             onClick={() => { if (!info.file || confirm(`This test run downloads the ERP's files and reads ${info.file}. It writes nothing. Start now?`)) act(info.key, "preview"); }}>
             Test run
           </Button>
-          {/* a live step can be run at once, not only at its rhythm (SARCLA 17.10.2026) */}
-          {info.live && !info.file && (
+          {/* a live step can be run at once, not only at its rhythm (SARCLA 17.10.2026); of the steps that read an ERP file
+              only the morning workbook, which stands on its own - the others belong in the delivery's order (31.10.2026: each
+              customer's monthly order intake, without waiting for the next delivery) */}
+          {info.live && (!info.file || RUN_WITH_FILE.has(info.key)) && (
             <Button size="small" variant="contained" disableElevation disabled={busy}
-              onClick={() => { if (confirm(`Run "${step.name}" now? It writes to HubSpot like its regular runs.`)) act(info.key, "run"); }}>
+              onClick={() => { if (confirm(info.file ? `Run "${step.name}" now? It fetches ${info.file} from the ERP's folder and writes to HubSpot like its regular runs.` : `Run "${step.name}" now? It writes to HubSpot like its regular runs.`)) act(info.key, "run"); }}>
               Run now
             </Button>
           )}
