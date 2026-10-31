@@ -14,6 +14,11 @@
 // with a mini calendar" - the live counters' quarters and a calendar of days (the Performis years stay whole years); "the
 // filter when clicked should appear next to the tabs" - a Filtered by bar under the tab row; and every table its own card
 // with its Actions, so the BUC View can take it too.
+// Fourth pass (SARCLA 31.10.2026 on the live page): "why 4 weeks - put like the other year to date and allow filtering like
+// the others" - the year to date the default, each tab compared where its data reaches (the shop orders a year earlier, the
+// live counters once they have the days before); the long note out ("take out this text"); "on view the top product as
+// well, include product hierarchy" - profit centre, main group, sub group and the products themselves, a click on one
+// filtering the others; no "Not assigned"; the shop orders by owner before their table.
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -52,8 +57,8 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  blank, blankOrders, dayOf, dayWords, labelOf, liveSeries, looksBy, ordersBy, ordersCover, passOf, periodFor, periodOf, presetsOf, quarterPicks, rangeWords, sameWin, shortDays, statsBy, totalsOf, yearSeries,
-  type AStats, type OStats, type SDim, type SFilters, type SPer, type SStats, type SWin, type Series, type ShopData,
+  P, beforeCounters, blank, blankOrders, dayOf, dayWords, labelOf, lineLabel, lineOf, liveSeries, looksBy, ordersBy, ordersCover, passOf, pcMask, periodFor, periodOf, presetsOf, prevOf, quarterPicks, rangeWords, sameWin, shortDays, statsBy, totalsOf, yearSeries,
+  type AStats, type LDim, type OStats, type SDim, type SFilters, type SPer, type SStats, type SWin, type Series, type ShopData,
 } from "@/lib/reporting/shopRules";
 import { pcLabel } from "./shared";
 import type { Team } from "@/lib/mapAssign/leadsRules";
@@ -105,7 +110,7 @@ const MIN_LOOKS = 50;
 
 /* ── the period ────────────────────────────────────────────────────────── */
 
-const DEFAULT_PER = "28d";
+const DEFAULT_PER = "ytd";
 const perCap = (p: SPer) => p.title.charAt(0).toUpperCase() + p.title.slice(1);
 const isLive = (w: SWin): w is Extract<SWin, { kind: "live" }> => w.kind === "live";
 /** "2 – 28 Oct 2026", "28 Sep – 4 Oct 2026", "1 Jan – 15 Apr 2026", "1 Jan – 31 Dec 2025" */
@@ -120,8 +125,10 @@ function winWords(d: ShopData, w: SWin, partial = false): string {
 const perWords = (d: ShopData, p: SPer) => winWords(d, p.win, p.partial);
 /** The period in the Filtered by bar: a named one with its days, one's own days as they are, a Performis year with its source */
 const perPill = (d: ShopData, p: SPer) => (p.custom ? perWords(d, p) : isLive(p.win) ? `${perCap(p)} · ${perWords(d, p)}` : `${p.label} · the Performis export`);
-/** "the 7 days before (15 – 21 Oct 2026)", "2024" */
-const prevWords = (d: ShopData, p: SPer) => (!p.prev ? "" : p.prev.kind === "year" ? String(d.dtYears[p.prev.y]) : winWords(d, p.prev));
+/** The period before in words: "15 – 21 Oct 2026", "2024"; "" for none */
+const prevWords = (d: ShopData, w: SWin | null) => (!w ? "" : w.kind === "year" ? String(d.dtYears[w.y]) : winWords(d, w));
+/** "logins and views counted since 2 Oct 2026" - a period that begins before the live counters did */
+const sinceWords = (d: ShopData, p: SPer) => (beforeCounters(d, p.win) ? `logins and views counted since ${dayWords(d.liveFrom)}` : "");
 const sourceWords = (p: SPer) => (isLive(p.win) ? "the smart bar's live counters" : "the Performis export (E-Shop Data Tracker)");
 
 /* ── the teams: ESO | TSA | Total by the company's owner, and under ESO the line managers' teams ── */
@@ -158,7 +165,12 @@ export type ShCtx = {
   people: Set<number> | null; filters: SFilters; view: SView;
   half?: boolean; targets?: Record<string, number>;
   onBar?: (dim: SDim, label: string) => void; onFilter?: (dim: SDim) => void;
+  /** a click on a profit centre, main group or sub group: shows only it in the views (and the orders, for a profit centre) */
+  onLine?: (dim: LDim, value: string) => void;
 };
+/** The period before as the live counters have it, and as the shop orders do - null where they do not reach. */
+const lp = (c: ShCtx) => prevOf(c.d, c.per, "live");
+const op = (c: ShCtx) => prevOf(c.d, c.per, "orders");
 
 const statCache = new WeakMap<ShCtx, Map<string, Map<string, SStats>>>();
 /** The figures of the period - or of the one before it - by a breakdown (its own filter left out), or all together. */
@@ -168,7 +180,7 @@ function statsOf(c: ShCtx, dim?: SDim, before = false): Map<string, SStats> {
   const k = `${before ? "p" : "c"}|${dim ?? ""}`;
   const hit = memo.get(k);
   if (hit) return hit;
-  const w = before ? c.per.prev : c.per.win;
+  const w = before ? lp(c) : c.per.win;
   const out = !w ? new Map<string, SStats>() : statsBy(c.d, totalsOf(c.d, w), passOf(c.d, c.filters, c.people, dim), dim ? (co) => labelOf(c.d, co, dim) : undefined);
   memo.set(k, out);
   return out;
@@ -180,22 +192,44 @@ function seriesOf(c: ShCtx): Series {
   const hit = seriesCache.get(c);
   if (hit) return hit;
   const pass = passOf(c.d, c.filters, c.people);
-  const s = isLive(c.per.win) ? liveSeries(c.d, c.per.win, pass) : yearSeries(c.d, pass);
+  // from the counters' first day - a year to date would show nine empty months
+  const w = c.per.win;
+  const s = isLive(w) ? liveSeries(c.d, w.from < 0 ? { ...w, from: 0 } : w, pass) : yearSeries(c.d, pass);
   seriesCache.set(c, s);
   return s;
 }
 
+const NOT_SHOWN = new Set(["Not assigned", "Not set"]);
 const pcName = (k: string) => (k === "Not assigned" ? k : pcLabel(k.toLowerCase()));
+/** What the views break down by: a line of the product hierarchy, or the products themselves. */
+type LookBy = LDim | "product";
+const BY: Record<LookBy, { name: string; lower: string }> = {
+  pc: { name: "Profit centre", lower: "profit centre" }, group: { name: "Main group", lower: "main group" }, sub: { name: "Sub group", lower: "sub group" }, product: { name: "Product", lower: "product" },
+};
+const nameCache = new WeakMap<ShopData, string[]>();
+/** Each product's name - with its number where two share one, so a ranking never folds them together. */
+function productNames(d: ShopData): string[] {
+  const hit = nameCache.get(d);
+  if (hit) return hit;
+  const count = new Map<string, number>();
+  for (const x of d.products) count.set(x[P.name], (count.get(x[P.name]) ?? 0) + 1);
+  const out = d.products.map((x) => ((count.get(x[P.name]) ?? 0) > 1 && x[P.number] ? `${x[P.name]} (${x[P.number]})` : x[P.name]));
+  nameCache.set(d, out);
+  return out;
+}
 const looksCache = new WeakMap<ShCtx, Map<string, Map<string, AStats>>>();
-/** The period's articles looked at - or the period before's - by profit centre, under the team and filters (live only). */
-function looksOf(c: ShCtx, before = false): Map<string, AStats> {
+/** The period's articles looked at - or the period before's - by profit centre, main group, sub group or product, under the
+ *  team, the filters and the line filters (a breakdown's own left out); live only. */
+function looksOf(c: ShCtx, by: LookBy = "pc", before = false): Map<string, AStats> {
   let memo = looksCache.get(c);
   if (!memo) { memo = new Map(); looksCache.set(c, memo); }
-  const k = before ? "p" : "c";
+  const k = `${before ? "p" : "c"}|${by}`;
   const hit = memo.get(k);
   if (hit) return hit;
-  const w = before ? c.per.prev : c.per.win;
-  const out = !w ? new Map<string, AStats>() : looksBy(c.d, w, passOf(c.d, c.filters, c.people));
+  const w = before ? lp(c) : c.per.win;
+  const names = productNames(c.d);
+  const key = by === "product" ? (_co: number, prod: number) => names[prod] : (_co: number, prod: number) => lineLabel(c.d, prod, by);
+  const out = !w ? new Map<string, AStats>() : looksBy(c.d, w, passOf(c.d, c.filters, c.people), key, lineOf(c.d, c.filters, by === "product" ? undefined : by));
   memo.set(k, out);
   return out;
 }
@@ -208,13 +242,15 @@ function ordersOf(c: ShCtx, by: SDim | "pc" | "" = "", before = false): Map<stri
   const k = `${before ? "p" : "c"}|${by}`;
   const hit = memo.get(k);
   if (hit) return hit;
-  const w = before ? c.per.prev : c.per.win;
+  const w = before ? op(c) : c.per.win;
   let out = new Map<string, OStats>();
+  // a profit centre chosen in the views shows only its orders (the orders know no groups)
+  const mask = pcMask(c.d, c.filters);
   if (w && ordersCover(c.d, w)) {
     if (by === "pc") {
       const pass = passOf(c.d, c.filters, c.people);
-      c.d.labels.pc.forEach((pc, i) => { const x = ordersBy(c.d, w, pass, undefined, i).get(""); if (x) out.set(pc, x); });
-    } else out = ordersBy(c.d, w, passOf(c.d, c.filters, c.people, by || undefined), by ? (co) => labelOf(c.d, co, by) : undefined);
+      c.d.labels.pc.forEach((pc, i) => { if (mask !== -1 && !(mask & (1 << i))) return; const x = ordersBy(c.d, w, pass, undefined, 1 << i).get(""); if (x) out.set(pc, x); });
+    } else out = ordersBy(c.d, w, passOf(c.d, c.filters, c.people, by || undefined), by ? (co) => labelOf(c.d, co, by) : undefined, mask);
   }
   memo.set(k, out);
   return out;
@@ -279,8 +315,8 @@ function Board({ c, id, dim, m, actions }: { c: ShCtx; id: string; dim: SDim; m:
   // fewer is better for the idle ones: a rise is not good news
   const lower = m === "idle" || m === "idleshare";
   return (
-    <Leaderboard key={`${id}-${c.per.id}`} title={`${titleOf(m, c)}, ${c.per.title}, by ${DIM[dim].lower}`} rows={rows} noChange={!c.per.prev} lowerIsBetter={lower}
-      curLabel={perWords(c.d, c.per)} prevLabel={prevWords(c.d, c.per)} first={c.half ? 8 : 12} fmt={M.fmt} ratio={m === "share" || m === "idleshare"} diff={m === "depth" ? signedOne : signedInt} target={targetFor(c, id)}
+    <Leaderboard key={`${id}-${c.per.id}`} title={`${titleOf(m, c)}, ${c.per.title}, by ${DIM[dim].lower}`} rows={rows} noChange={!lp(c)} lowerIsBetter={lower}
+      curLabel={perWords(c.d, c.per)} prevLabel={prevWords(c.d, lp(c))} first={c.half ? 8 : 12} fmt={M.fmt} ratio={m === "share" || m === "idleshare"} diff={m === "depth" ? signedOne : signedInt} target={targetFor(c, id)}
       unranked={small.length ? { why: `under ${MIN_COMPANIES} companies that logged in`, rows: small } : undefined}
       selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${DIM[dim].lower}`} actions={actions} />
@@ -296,41 +332,75 @@ const PC_MEASURE: Record<PcMeasure, { title: string; fmt: (n: number) => string;
   companies: { title: "Companies that looked", fmt: int, unit: "n", target: "companies that looked at its articles" },
 };
 const pcValue = (m: PcMeasure, s: AStats) => (m === "looks" ? s.looks : m === "companies" ? s.companies : s.looks ? s.ordered / s.looks : 0);
-function PcBoard({ c, id, m, actions }: { c: ShCtx; id: string; m: PcMeasure; actions?: React.ReactNode }) {
-  const by = looksOf(c), was = looksOf(c, true);
-  const all = [...by.values()].reduce((a, s) => a + s.looks, 0);
+/** A line's value as the board shows it, and back: a profit centre by its name ("DT · Sealing"), the rest as they are. */
+const lineShown = (by: LookBy, k: string) => (by === "pc" ? pcName(k) : k);
+function LineBoard({ c, id, by, m, actions }: { c: ShCtx; id: string; by: LookBy; m: PcMeasure; actions?: React.ReactNode }) {
+  const cur = looksOf(c, by), was = looksOf(c, by, true);
+  const all = [...cur.values()].reduce((a, s) => a + s.looks, 0);
   const rows: BoardRow[] = [], small: BoardRow[] = [];
-  // articles Products & Pricing does not know: mostly lines an order made, not a look - named under the title, not ranked
-  const na = by.get("Not assigned");
-  for (const [pc, s] of by) {
-    if (pc === "Not assigned") continue;
-    const p = was.get(pc);
+  const back = new Map<string, string>();
+  for (const [k, s] of cur) {
+    // what Products & Pricing does not know, or no group: not shown (SARCLA 31.10.2026: "we should not have Not assigned")
+    if (NOT_SHOWN.has(k)) continue;
+    const label = lineShown(by, k);
+    back.set(label, k);
+    const p = was.get(k);
     const sub = m === "conversion" ? `${int(s.ordered)} of ${int(s.looks)} ordered · ${int(s.carted)} into the cart`
-      : m === "looks" ? `${pct(all ? s.looks / all : null)} of the articles looked at · ${int(s.companies)} companies` : `${int(s.looks)} articles looked at`;
-    (m !== "conversion" || s.looks >= MIN_LOOKS ? rows : small).push({ label: pcName(pc), cur: pcValue(m, s), prev: p ? pcValue(m, p) : 0, sub });
+      : m === "looks" ? `${pct(all ? s.looks / all : null)} of the articles looked at · ${int(s.companies)} companies · ${int(s.ordered)} ordered` : `${int(s.looks)} articles looked at`;
+    (m !== "conversion" || s.looks >= MIN_LOOKS ? rows : small).push({ label, cur: pcValue(m, s), prev: p ? pcValue(m, p) : 0, sub });
   }
   const M = PC_MEASURE[m];
+  const pick = by !== "product" && c.onLine ? (label: string) => c.onLine!(by, back.get(label) ?? label) : undefined;
   return (
-    <Leaderboard key={`${id}-${c.per.id}`} title={`${M.title}, ${c.per.title}, by profit centre`} rows={rows} noChange={!c.per.prev}
-      curLabel={perWords(c.d, c.per)} prevLabel={prevWords(c.d, c.per)} first={12} fmt={M.fmt} ratio={m === "conversion"} diff={signedInt} target={targetFor(c, id)}
+    <Leaderboard key={`${id}-${c.per.id}`} title={`${M.title}, ${c.per.title}, by ${BY[by].lower}`} rows={rows} noChange={!lp(c)}
+      curLabel={perWords(c.d, c.per)} prevLabel={prevWords(c.d, lp(c))} first={by === "pc" ? 12 : c.half ? 8 : 12} fmt={M.fmt} ratio={m === "conversion"} diff={signedInt} target={targetFor(c, id)}
       unranked={small.length ? { why: `under ${MIN_LOOKS} articles looked at`, rows: small } : undefined} actions={actions}
-      summary={na ? <span style={{ fontWeight: 500, color: MUTED }}>Not ranked: {int(na.looks)} articles Products &amp; Pricing does not know, {int(na.ordered)} of them ordered</span> : undefined} />
+      selected={by !== "product" ? (c.filters[by] ?? []).map((v) => lineShown(by, v)) : undefined} onPick={pick} />
   );
 }
+type ARow = AStats & { label: string };
+const sumLooks = (rows: AStats[]): AStats => rows.reduce<AStats>((a, r) => ({ looks: a.looks + r.looks, carted: a.carted + r.carted, ordered: a.ordered + r.ordered, companies: a.companies + r.companies }), { looks: 0, carted: 0, ordered: 0, companies: 0 });
+const LOOK_COLS: Col<ARow & { t: number }>[] = [
+  { key: "looks", head: "Articles looked at", tip: "An article a company opened, put in the cart or ordered on a day, counted once that day", cell: (r) => int(r.looks), sort: (r) => r.looks },
+  { key: "share", head: "Share of them", cell: (r) => pct(r.t ? r.looks / r.t : null), sort: (r) => r.looks },
+  { key: "companies", head: "Companies", tip: "Companies that looked at an article of it", cell: (r) => int(r.companies), sort: (r) => r.companies },
+  { key: "carted", head: "Into the cart", cell: (r) => int(r.carted), sort: (r) => r.carted },
+  { key: "ordered", head: "Ordered", cell: (r) => int(r.ordered), sort: (r) => r.ordered },
+  { key: "conversion", head: "Conversion", tip: "Of the articles looked at, the share ordered", cell: (r) => pct(r.looks ? r.ordered / r.looks : null), sort: (r) => (r.looks ? r.ordered / r.looks : -1) },
+];
 function PcTable({ c }: { c: ShCtx }) {
-  type PRow = AStats & { label: string };
   const by = looksOf(c);
-  const rows: PRow[] = c.d.labels.pc.flatMap((pc) => { const s = by.get(pc); return s ? [{ label: pcName(pc), ...s }] : []; });
-  const t = rows.reduce<AStats>((a, r) => ({ looks: a.looks + r.looks, carted: a.carted + r.carted, ordered: a.ordered + r.ordered, companies: a.companies + r.companies }), { looks: 0, carted: 0, ordered: 0, companies: 0 });
+  const shown = c.d.labels.pc.flatMap((pc) => { const s = by.get(pc); return s && !NOT_SHOWN.has(pc) ? [{ label: pcName(pc), ...s }] : []; });
+  const t = sumLooks(shown);
+  const rows = shown.map((r) => ({ ...r, t: t.looks }));
+  // the companies once, though they looked at several profit centres
+  const companies = looksBy(c.d, c.per.win, passOf(c.d, c.filters, c.people), () => "", (prod) => lineOf(c.d, c.filters, "pc")(prod) && !NOT_SHOWN.has(lineLabel(c.d, prod, "pc"))).get("")?.companies ?? 0;
+  return <FullTable key={`pc-${c.per.id}-${c.team}`} first="Profit centre" cols={LOOK_COLS} initial="looks" rows={rows} total={{ label: "Total", ...t, companies, t: t.looks }} natural
+    selected={(c.filters.pc ?? []).map(pcName)} onPick={c.onLine ? (l) => { const k = c.d.labels.pc.find((pc) => pcName(pc) === l); if (k) c.onLine!("pc", k); } : undefined} />;
+}
+/** The products looked at, each with its place in the hierarchy - the most looked at first. */
+function ProductsTable({ c }: { c: ShCtx }) {
+  type PRow = ARow & { t: number; number: string; pc: string; group: string; sub: string };
+  const by = looksOf(c, "product");
+  const names = productNames(c.d);
+  const at = new Map(names.map((n, i) => [n, i]));
+  const rows: PRow[] = [];
+  for (const [name, s] of by) {
+    const i = at.get(name);
+    const x = i === undefined ? null : c.d.products[i];
+    if (!x || !x[P.number]) continue;
+    rows.push({ label: name, ...s, t: 0, number: x[P.number], pc: c.d.labels.pc[x[P.pc]] ?? "", group: c.d.labels.group[x[P.group]] ?? "", sub: c.d.labels.sub[x[P.sub]] ?? "" });
+  }
+  const t = sumLooks(rows);
+  for (const r of rows) r.t = t.looks;
   const cols: Col<PRow>[] = [
-    { key: "looks", head: "Articles looked at", tip: "An article a company opened, put in the cart or ordered on a day, counted once that day; Not assigned: articles Products & Pricing does not know - mostly what an order brought in", cell: (r) => int(r.looks), sort: (r) => r.looks },
-    { key: "share", head: "Share of them", cell: (r) => pct(t.looks ? r.looks / t.looks : null), sort: (r) => r.looks },
-    { key: "companies", head: "Companies", tip: "Companies that looked at an article of it", cell: (r) => int(r.companies), sort: (r) => r.companies },
-    { key: "carted", head: "Into the cart", cell: (r) => int(r.carted), sort: (r) => r.carted },
-    { key: "ordered", head: "Ordered", cell: (r) => int(r.ordered), sort: (r) => r.ordered },
-    { key: "conversion", head: "Conversion", tip: "Of the articles looked at, the share ordered", cell: (r) => pct(r.looks ? r.ordered / r.looks : null), sort: (r) => (r.looks ? r.ordered / r.looks : -1) },
+    { key: "number", head: "Product", tip: "Its number in Products & Pricing", cell: (r) => r.number },
+    { key: "pc", head: "Profit centre", cell: (r) => r.pc },
+    { key: "group", head: "Main group", cell: (r) => (NOT_SHOWN.has(r.group) ? "—" : r.group) },
+    { key: "sub", head: "Sub group", cell: (r) => (NOT_SHOWN.has(r.sub) ? "—" : r.sub) },
+    ...(LOOK_COLS.filter((x) => x.key !== "share") as unknown as Col<PRow>[]),
   ];
-  return <FullTable key={`pc-${c.per.id}-${c.team}`} first="Profit centre" cols={cols} initial="looks" rows={rows} total={{ label: "Total", ...t, companies: looksBy(c.d, c.per.win, passOf(c.d, c.filters, c.people), () => "").get("")?.companies ?? 0 }} natural />;
+  return <FullTable key={`products-${c.per.id}-${c.team}`} first="Product" cols={cols} initial="looks" rows={rows} find="a product" />;
 }
 
 /* ── the shop orders: all, and their buyers - one-shot, second, multiple ── */
@@ -344,12 +414,12 @@ const repeatShare = (s: OStats) => (s.buyers ? (s.second + s.multiple) / s.buyer
 /** All the period's shop orders and buyers, the buyers by kind - against the period before when the orders reach it. */
 function OrderMix({ c }: { c: ShCtx }) {
   const t = ordersOf(c).get("") ?? blankOrders();
-  const p = c.per.prev && ordersCover(c.d, c.per.prev) ? ordersOf(c, "", true).get("") ?? blankOrders() : null;
+  const p = op(c) ? ordersOf(c, "", true).get("") ?? blankOrders() : null;
   const big = (label: string, v: number, was: number | null) => (
     <Box sx={{ minWidth: 0 }}>
       <Typography sx={{ fontSize: "0.76rem", fontWeight: 600, color: MUTED }}>{label}</Typography>
       <Typography sx={{ fontSize: "1.5rem", fontWeight: 700, color: INK, lineHeight: 1.15, fontVariantNumeric: "tabular-nums" }}>{int(v)}</Typography>
-      {was != null && <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: !was ? FAINT : v >= was ? GREEN : RED }}>{was ? `${v >= was ? "+" : "−"}${Math.abs(((v - was) / was) * 100).toFixed(1)}% on ${prevWords(c.d, c.per)}` : "nothing the period before"}</Typography>}
+      {was != null && <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: !was ? FAINT : v >= was ? GREEN : RED }}>{was ? `${v >= was ? "+" : "−"}${Math.abs(((v - was) / was) * 100).toFixed(1)}% on ${prevWords(c.d, op(c))}` : "nothing the period before"}</Typography>}
     </Box>
   );
   return (
@@ -370,7 +440,7 @@ function OrderMix({ c }: { c: ShCtx }) {
 /** Each profit centre's buyers, one-shot / second / multiple counted by their orders with a line of it. */
 function OrdersByPc({ c }: { c: ShCtx }) {
   const by = ordersOf(c, "pc");
-  const rows = c.d.labels.pc.flatMap((pc) => { const s = by.get(pc); return s ? [[pc, s] as const] : []; });
+  const rows = c.d.labels.pc.flatMap((pc) => { const s = by.get(pc); return s && !NOT_SHOWN.has(pc) ? [[pc, s] as const] : []; });
   const max = Math.max(1, ...rows.map(([, s]) => s.buyers));
   return (
     <Box sx={{ display: "grid", gap: 1 }}>
@@ -394,7 +464,7 @@ function OrdersByPc({ c }: { c: ShCtx }) {
 function OrdersTable({ c }: { c: ShCtx }) {
   type ORow = OStats & { label: string };
   const by = ordersOf(c, "pc");
-  const rows: ORow[] = c.d.labels.pc.flatMap((pc) => { const s = by.get(pc); return s ? [{ label: pcName(pc), ...s }] : []; });
+  const rows: ORow[] = c.d.labels.pc.flatMap((pc) => { const s = by.get(pc); return s && !NOT_SHOWN.has(pc) ? [{ label: pcName(pc), ...s }] : []; });
   const t = ordersOf(c).get("") ?? blankOrders();
   const cols: Col<ORow>[] = [
     { key: "orders", head: "Shop orders", tip: "Shop orders with a line of the profit centre - an order of two counts for both", cell: (r) => int(r.orders), sort: (r) => r.orders },
@@ -407,11 +477,11 @@ function OrdersTable({ c }: { c: ShCtx }) {
   return <FullTable key={`orders-${c.per.id}-${c.team}`} first="Profit centre" cols={cols} initial="orders" rows={rows} total={{ label: "All shop orders", ...t }} natural />;
 }
 function OrdersBoard({ c, id, dim, actions }: { c: ShCtx; id: string; dim: SDim; actions?: React.ReactNode }) {
-  const by = ordersOf(c, dim), was = c.per.prev && ordersCover(c.d, c.per.prev) ? ordersOf(c, dim, true) : null;
+  const by = ordersOf(c, dim), was = op(c) ? ordersOf(c, dim, true) : null;
   const rows: BoardRow[] = [...by].map(([label, s]) => ({ label, cur: s.orders, prev: was?.get(label)?.orders ?? 0, sub: `${int(s.buyers)} buyers · ${pct(repeatShare(s))} came back` }));
   return (
     <Leaderboard key={`${id}-${c.per.id}`} title={`Shop orders, ${c.per.title}, by ${DIM[dim].lower}`} rows={rows} noChange={!was}
-      curLabel={perWords(c.d, c.per)} prevLabel={prevWords(c.d, c.per)} first={c.half ? 8 : 12} fmt={int} diff={signedInt} target={targetFor(c, id)}
+      curLabel={perWords(c.d, c.per)} prevLabel={prevWords(c.d, op(c))} first={c.half ? 8 : 12} fmt={int} diff={signedInt} target={targetFor(c, id)}
       selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${DIM[dim].lower}`} actions={actions} />
   );
@@ -420,7 +490,8 @@ function OrdersBoard({ c, id, dim, actions }: { c: ShCtx; id: string; dim: SDim;
 function Unavailable({ text }: { text: string }) {
   return <Box sx={{ ...glass, borderRadius: "18px", p: 2 }}><Typography sx={{ fontSize: "0.88rem", color: MUTED }}>{text}</Typography></Box>;
 }
-const looksMissing = (c: ShCtx) => (isLive(c.per.win) ? null : `Articles looked at, by profit centre, are counted live only - since ${dayWords(c.d.liveFrom)}. Pick a live period in Filters (the last 4 weeks, say).`);
+const looksMissing = (c: ShCtx) => (!isLive(c.per.win) ? `The articles looked at are counted live only - since ${dayWords(c.d.liveFrom)}. Pick a live period in Filters (the year to date, say).`
+  : c.per.win.to < 0 ? `No live counters in this period - they start on ${dayWords(c.d.liveFrom)}.` : null);
 const ordersMissing = (c: ShCtx) => (!c.d.ordersFrom ? "Reading the shop orders in HubSpot - a few minutes; this tab fills in by itself."
   : ordersCover(c.d, c.per.win) ? null : `The shop orders are read from ${dayWords(c.d.ordersFrom)} - pick a period from then on in Filters.`);
 
@@ -444,7 +515,7 @@ function SeriesColumns({ c, which, target }: { c: ShCtx; which: "companies" | "a
   const reached = target ? done.filter((v) => v >= target).length : 0;
   const dense = s.keys.length > 16;
   // a weekday far below the others: a gap in the recording or a holiday - marked, so no one reads a drop into it
-  const short = live ? shortDays(s) : new Set<string>();
+  const short = live ? shortDays(s, c.d.today) : new Set<string>();
   const SHORT = "far below the other weekdays - a gap in the recording or a holiday";
   return (
     <Box sx={{ display: "grid", gap: 1 }}>
@@ -503,11 +574,17 @@ const stepWords = (c: ShCtx) => (!isLive(c.per.win) ? "year by year" : seriesOf(
 function drawnOf(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
-  if (chart.startsWith("pc-") && chart.slice(3) in PC_MEASURE) {
-    const m = chart.slice(3) as PcMeasure;
-    const title = (c: ShCtx) => `${PC_MEASURE[m].title}, ${c.per.title}, by profit centre${teamPart(c)}`;
-    return { id, title, draw: (c, a) => (looksMissing(c) ? <Unavailable text={looksMissing(c)!} /> : <PcBoard c={c} id={id} m={m} actions={a} />),
-      target: (c) => ({ unit: PC_MEASURE[m].unit, label: `Each profit centre's ${PC_MEASURE[m].target}, ${c.per.title}, is measured against it · ${forWhom(c)}.` }) };
+  const line = /^(pc|group|sub|product)-(looks|conversion|companies)$/.exec(chart);
+  if (line) {
+    const by = line[1] as LookBy, m = line[2] as PcMeasure;
+    const title = (c: ShCtx) => `${PC_MEASURE[m].title}, ${c.per.title}, by ${BY[by].lower}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => (looksMissing(c) ? <Unavailable text={looksMissing(c)!} /> : <LineBoard c={c} id={id} by={by} m={m} actions={a} />),
+      target: (c) => ({ unit: PC_MEASURE[m].unit, label: `Each ${BY[by].lower}'s ${PC_MEASURE[m].target}, ${c.per.title}, is measured against it · ${forWhom(c)}.` }) };
+  }
+  if (chart === "products") {
+    const title = (c: ShCtx) => `The products looked at, ${c.per.title}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => (looksMissing(c) ? <Unavailable text={looksMissing(c)!} />
+      : <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each product's articles looked at, with its profit centre, main group and sub group in Products & Pricing - the most looked at first`} actions={a}><ProductsTable c={c} /></ChartBox>) };
   }
   if (chart === "mix") {
     const title = (c: ShCtx) => `Shop orders and their buyers, ${c.per.title}${teamPart(c)}`;
@@ -533,7 +610,7 @@ function drawnOf(id: string): Drawn | undefined {
   if (chart === "figures") {
     const dim = DIM_OF[v];
     const title = (c: ShCtx) => `All the figures, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`;
-    const hint = (c: ShCtx) => `${perWords(c.d, c.per)}${c.per.prev ? ` against ${prevWords(c.d, c.per)}` : ""} · each ${DIM[dim].lower}'s companies that logged in, their logins and article views, those that ordered in the shop and those that ${isLive(c.per.win) ? "neither viewed nor put an article in the cart" : "viewed no article"}`;
+    const hint = (c: ShCtx) => `${perWords(c.d, c.per)}${lp(c) ? ` against ${prevWords(c.d, lp(c))}` : ""}${sinceWords(c.d, c.per) ? ` · ${sinceWords(c.d, c.per)}` : ""} · each ${DIM[dim].lower}'s companies that logged in, their logins and article views, those that ordered in the shop and those that ${isLive(c.per.win) ? "neither viewed nor put an article in the cart" : "viewed no article"}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={hint(c)} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
   }
   const [what, by] = chart.split("-");
@@ -547,7 +624,7 @@ function drawnOf(id: string): Drawn | undefined {
     const which = v === "logins" ? "activity" : "companies";
     const title = (c: ShCtx) => `${which === "activity" ? "Logins and article views" : "Companies that logged in"}, ${stepWords(c)}${teamPart(c)}`;
     const hint = (c: ShCtx) => (isLive(c.per.win)
-      ? `${perWords(c.d, c.per)} · ${sourceWords(c.per)} · weekends and the running day lighter`
+      ? `${beforeCounters(c.d, c.per.win) ? `${dayWords(c.d.liveFrom)} (the counters' first day) to ${dayWords(dayOf(c.d.liveFrom, c.per.win.to))}` : perWords(c.d, c.per)} · ${sourceWords(c.per)} · weekends and the running day lighter`
       : `Every year of ${sourceWords(c.per)}${c.d.dtLoaded ? ` · ${c.d.dtLoaded.slice(0, 4)} until the export of ${dayWords(c.d.dtLoaded)}, lighter` : ""}`);
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={hint(c)} actions={a}><SeriesColumns c={c} which={which} target={which === "companies" ? targetFor(c, id) : null} /></ChartBox>,
       ...(which === "companies" ? { target: (c: ShCtx) => ({ unit: "n" as const, label: `Each ${isLive(c.per.win) ? "day's" : "year's"} companies that logged in are measured against it - a line across the columns; the running one is not counted · ${teamName(c)}'s target.` }) } : {}) };
@@ -580,7 +657,7 @@ function DimTable({ c, dim }: { c: ShCtx; dim: SDim }) {
   const rows: Row[] = [...by].map(([label, s]) => ({ label, ...s, before: was.get(label)?.companies ?? 0 }));
   const cols: Col<Row>[] = [
     { key: "companies", head: "Logged in", tip: "Companies that logged in in the period", cell: (r) => int(r.companies), sort: (r) => r.companies },
-    ...(c.per.prev ? [{ key: "before", head: "The period before", tip: `Companies that logged in, ${prevWords(c.d, c.per)}`, cell: (r: Row) => int(r.before ?? 0), sort: (r: Row) => r.before ?? 0 }] : []),
+    ...(lp(c) ? [{ key: "before", head: "The period before", tip: `Companies that logged in, ${prevWords(c.d, lp(c))}`, cell: (r: Row) => int(r.before ?? 0), sort: (r: Row) => r.before ?? 0 }] : []),
     ...(dim === "person" ? [] : [{ key: "share", head: "Share of the companies", cell: (r: Row) => pct(t.companies ? r.companies / t.companies : null), sort: (r: Row) => r.companies }]),
     { key: "logins", head: "Logins", cell: (r) => int(r.logins), sort: (r) => r.logins },
     { key: "views", head: "Article views", cell: (r) => int(r.views), sort: (r) => r.views },
@@ -601,9 +678,9 @@ function DimTable({ c, dim }: { c: ShCtx; dim: SDim }) {
 type Act = (id: string, title: string, target?: TargetOf) => React.ReactNode;
 const draw = (c: ShCtx, act: Act, id: string) => { const d = drawnOf(id)!; return d.draw(c, act(id, d.title(c), d.target?.(c))); };
 
-function TabCard({ c, act, footnote }: { c: ShCtx; act: Act; footnote: React.ReactNode }) {
+function TabCard({ c, act }: { c: ShCtx; act: Act }) {
   const card = { display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" } as const;
-  const words = `${perWords(c.d, c.per)} · ${sourceWords(c.per)}`;
+  const words = `${perWords(c.d, c.per)} · ${sourceWords(c.per)}${sinceWords(c.d, c.per) ? ` · ${sinceWords(c.d, c.per)}` : ""}`;
   if (c.view === "people") return (
     <GlassCard sx={card}>
       <CardTitle icon={<BadgeOutlinedIcon />} tint="green" title={`${teamName(c)}'s customers in the shop, ${c.per.title}`} note={`${words} · by the company's owner`} />
@@ -611,7 +688,6 @@ function TabCard({ c, act, footnote }: { c: ShCtx; act: Act; footnote: React.Rea
       {draw(c, act, "people:days")}
       <Box sx={TWO}>{draw(c, act, "people:share")}{draw(c, act, "people:idle")}</Box>
       {draw(c, act, "people:figures")}
-      {footnote}
     </GlassCard>
   );
   if (c.view === "logins") return (
@@ -621,20 +697,21 @@ function TabCard({ c, act, footnote }: { c: ShCtx; act: Act; footnote: React.Rea
       <Box sx={TWO}>{draw(c, act, "logins:idle")}{draw(c, act, "logins:idleshare")}</Box>
       {draw(c, act, "logins:days")}
       {draw(c, act, "logins:figures")}
-      {footnote}
     </GlassCard>
   );
   if (c.view === "views") return (
     <GlassCard sx={card}>
-      <CardTitle icon={<TouchAppOutlinedIcon />} tint="amber" title={`${teamName(c)}: views by profit centre, ${c.per.title}`} note={`${words} · the articles they looked at, by the profit centre Products & Pricing gives each - and how many were then ordered`} />
+      <CardTitle icon={<TouchAppOutlinedIcon />} tint="amber" title={`${teamName(c)}: views by profit centre and product, ${c.per.title}`} note={`${words} · the articles they looked at, by their place in Products & Pricing - profit centre, main group, sub group, product - and how many were then ordered; click a profit centre or a group to show only it`} />
       {looksMissing(c) ? <Box sx={{ mt: -1 }}><Unavailable text={looksMissing(c)!} /></Box> : (
         <>
           <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "views:pc-looks")}{draw(c, act, "views:pc-conversion")}</Box>
           {draw(c, act, "views:figures")}
+          <Box sx={TWO}>{draw(c, act, "views:group-looks")}{draw(c, act, "views:sub-looks")}</Box>
+          <Box sx={TWO}>{draw(c, act, "views:product-looks")}{draw(c, act, "views:product-conversion")}</Box>
+          {draw(c, act, "views:products")}
         </>
       )}
       <Box sx={TWO}>{draw(c, act, "views:views")}{draw(c, act, "views:depth")}</Box>
-      {footnote}
     </GlassCard>
   );
   if (c.view === "orders") return (
@@ -643,11 +720,10 @@ function TabCard({ c, act, footnote }: { c: ShCtx; act: Act; footnote: React.Rea
       {ordersMissing(c) ? <Box sx={{ mt: -1 }}><Unavailable text={ordersMissing(c)!} /></Box> : (
         <>
           <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "orders:mix")}{draw(c, act, "orders:pc")}</Box>
-          {draw(c, act, "orders:figures")}
           {draw(c, act, "orders:orders")}
+          {draw(c, act, "orders:figures")}
         </>
       )}
-      {footnote}
     </GlassCard>
   );
   const dim = DIM_OF[c.view], dd = DIM[dim];
@@ -657,7 +733,6 @@ function TabCard({ c, act, footnote }: { c: ShCtx; act: Act; footnote: React.Rea
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${c.view}:loggedin`)}{draw(c, act, `${c.view}:ordered`)}</Box>
       <Box sx={TWO}>{draw(c, act, `${c.view}:share`)}{draw(c, act, `${c.view}:idleshare`)}</Box>
       {draw(c, act, `${c.view}:figures`)}
-      {footnote}
     </GlassCard>
   );
 }
@@ -668,8 +743,8 @@ const TabCardKept = memo(TabCard, (a, b) => a.c === b.c);
 type Fig = { id: string; label: string; value: string; sub: string; icon: React.ReactNode; tint: Tint; amount: number; unit: "n" | "pct"; change: { text: string; color: string } | null };
 /** "+12.3% on the 7 days before" - in points for a share; none without a period before */
 function changeOf(cur: number, prev: number, share: boolean, c: ShCtx): Fig["change"] {
-  if (!c.per.prev) return null;
-  const vs = isLive(c.per.win) ? "on the period before" : `on ${prevWords(c.d, c.per)}`;
+  if (!lp(c)) return null;
+  const vs = isLive(c.per.win) ? "on the period before" : `on ${prevWords(c.d, lp(c))}`;
   if (share) { const p = (cur - prev) * 100; return { text: `${p > 0.05 ? "+" : p < -0.05 ? "−" : "±"}${Math.abs(p).toFixed(1)} pts ${vs}`, color: Math.abs(p) < 0.05 ? FAINT : p > 0 ? GREEN : RED }; }
   if (!prev) return cur ? { text: `new ${vs}`, color: GREEN } : null;
   const x = (cur - prev) / prev;
@@ -750,7 +825,7 @@ function SPeriod({ d, per, onPer }: { d: ShopData; per: SPer; onPer: (id: string
         unit="day" min={d.liveFrom} max={d.today} from={dayOf(d.liveFrom, lw?.from ?? 0)} to={lw ? dayOf(d.liveFrom, lw.to) : d.today}
         onRange={(a, b) => { const id = periodFor(d, a, b); if (id) onPer(id); }}
         note={<>
-          Day by day since {dayWords(d.liveFrom)}, to today so far. A period is compared with the same number of days right before it - a month or a quarter with the one before - once the counters reach back that far.
+          Day by day since {dayWords(d.liveFrom)}, to today so far; a period that begins earlier counts them from then (the shop orders from {d.ordersFrom ? dayWords(d.ordersFrom) : "January of last year"}). The year to date, the month to date and last month are compared with the same days a year earlier - the shop orders have them, the live counters not yet; the last 7 days and 4 weeks, a quarter and days of one&apos;s own with the days right before, once the counters reach back that far.
           {early.length > 0 && <> {quarterList(early.map((q) => q.label), d.liveFrom.slice(0, 4))} greyed: no live counters before {dayWords(d.liveFrom)}.</>}
           {!lw && <> A Performis year is shown now - pick live days or a live period to see the counters instead.</>}
         </>} />
@@ -798,6 +873,8 @@ function SFacet({ c, dim, onPick }: { c: ShCtx; dim: SDim; onPick: (l: string) =
   );
 }
 const FILTER_DIMS: SDim[] = ["person", "prio", "category", "country"];
+/** The views' line filters - a profit centre, a main group, a sub group - set by a click on one, kept in the address. */
+const LINE_DIMS: LDim[] = ["pc", "group", "sub"];
 function SFilterWindow({ c, per, open, onClose, focus, onPer, toggle, clearAll }: {
   c: ShCtx; per: SPer; open: boolean; onClose: () => void; focus: { dim: SDim; n: number } | null; onPer: (id: string) => void; toggle: (d: SDim, l: string) => void; clearAll: () => void;
 }) {
@@ -860,9 +937,9 @@ export function ShopExplorer() {
   const { state: acts } = useActions("eso-shop");
   const view: SView = viewOf(params.get("view"));
   const setView = (v: SView) => setQuery((q) => { if (v === "people") q.delete("view"); else q.set("view", v); });
-  const filters: SFilters = useMemo(() => Object.fromEntries(FILTER_DIMS.flatMap((k) => (params.getAll(k).length ? [[k, params.getAll(k)]] : []))), [params]);
-  const toggle = (k: SDim, label: string) => setQuery((q) => { const cur = q.getAll(k), next = cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label]; q.delete(k); for (const x of next) q.append(k, x); });
-  const clearAll = () => setQuery((q) => { for (const k of FILTER_DIMS) q.delete(k); q.delete("per"); });
+  const filters: SFilters = useMemo(() => Object.fromEntries([...FILTER_DIMS, ...LINE_DIMS].flatMap((k) => (params.getAll(k).length ? [[k, params.getAll(k)]] : []))), [params]);
+  const toggle = (k: SDim | LDim, label: string) => setQuery((q) => { const cur = q.getAll(k), next = cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label]; q.delete(k); for (const x of next) q.append(k, x); });
+  const clearAll = () => setQuery((q) => { for (const k of [...FILTER_DIMS, ...LINE_DIMS]) q.delete(k); q.delete("per"); });
   const [panel, setPanel] = useState(false);
   const [focus, setFocus] = useState<{ dim: SDim; n: number } | null>(null);
   const openOn = (k: SDim) => { setFocus((f) => ({ dim: k, n: (f?.n ?? 0) + 1 })); setPanel(true); };
@@ -879,7 +956,7 @@ export function ShopExplorer() {
   const stale = drawn !== want;
   const c = useMemo<ShCtx | null>(() => (d && drawn.per ? {
     d, per: drawn.per, team: drawn.team, lead: drawn.lead, teams, people: drawn.people, filters: drawn.filters, view: drawn.view, targets: acts?.targets,
-    onBar: (k, l) => { toggle(k, l); openOn(k); }, onFilter: openOn,
+    onBar: (k, l) => { toggle(k, l); openOn(k); }, onFilter: openOn, onLine: (k, v) => toggle(k, v),
   } : null), [d, drawn, teams, acts?.targets]); // eslint-disable-line react-hooks/exhaustive-deps
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
 
@@ -894,21 +971,14 @@ export function ShopExplorer() {
   const act: Act = (id, title, target) => (
     <TileActions where="tab" start="tab" edge={2}
       tile={{ key: `eso-shop:${id}`, page: "eso-shop", tab: c.view, title, summary: `${teamName(c)} · ${perWords(d, c.per)}`,
-        filters: { ...Object.fromEntries(FILTER_DIMS.filter((k) => c.filters[k]?.length).map((k) => [k, c.filters[k] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), period: [c.per.id] },
+        filters: { ...Object.fromEntries([...FILTER_DIMS, ...LINE_DIMS].filter((k) => c.filters[k]?.length).map((k) => [k, c.filters[k] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), period: [c.per.id] },
         kind: "card", target: target ? { key: targetKey(id, c.team, c.lead, c.per), ...target } : undefined }} />
   );
   const now = { team, lead, teams };
   const chosen = FILTER_DIMS.flatMap((k) => (filters[k] ?? []).map((v) => [k, v] as const));
-  const footnote = (
-    <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-      Live: the smart bar&apos;s counters on the shop - each login, each article opened, each article ordered - per company and day since {dayWords(d.liveFrom)}, compared with the same number of days right before once they reach back that far.
-      {" "}Performis: the E-Shop Data Tracker&apos;s export, one total per company and year, loaded into HubSpot by hand{d.dtLoaded ? ` - the last on ${dayWords(d.dtLoaded)}, so ${d.dtLoaded.slice(0, 4)} stops there` : ""}; a whole year against the year before. The two are never on one chart.
-      {" "}Views by profit centre: the articles each company opened, put in the cart or ordered (an article once a day; live only), by the profit centre Products &amp; Pricing gives the article - or its product page when no article was chosen; conversion: of them, the share ordered. Articles Products &amp; Pricing does not know are not ranked.
-      {" "}Shop orders: every order placed in the shop{d.ordersFrom ? ` since ${dayWords(d.ordersFrom)}` : ""}, one per order number, read every six hours; a buyer is one-shot, second or multiple by its shop orders from then to the period&apos;s end - per profit centre by its orders with a line of it.
-      {" "}A company counts when it logged in in the period; ordered: it also ordered in the shop in the period. Whose customers: the company&apos;s owner in HubSpot - ESO and TSA by the rosters (else the owner&apos;s HubSpot team), Total every company the shop counted; a line manager&apos;s team as Map assignment&apos;s SAE table sets it. Shares and averages rank from {MIN_COMPANIES} companies that logged in. APSOparts&apos; and A+P&apos;s own companies left out.
-      {" "}{int(d.coverage.companies)} companies read, {int(d.coverage.live)} of them counted live. Read {new Date(d.generatedAt).toLocaleString("en-GB")}, every hour.
-    </Typography>
-  );
+  // the views' profit centres and groups - shown on the tabs they shape (a profit centre also on the orders)
+  const lines = view === "views" ? LINE_DIMS : view === "orders" ? (["pc"] as LDim[]) : [];
+  const chosenLines = lines.flatMap((k) => (filters[k] ?? []).map((v) => [k, v] as const));
   return (
     <Box sx={shell}>
       {back}
@@ -916,7 +986,7 @@ export function ShopExplorer() {
         <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
           <Typography component="h1" sx={H1}>Shop behaviour</Typography>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-            <b style={{ color: INK }}>{teamName(now)}</b>&apos;s customers · {isLive(per.win) && !per.custom ? `${per.title} ` : ""}<b style={{ color: INK }}>{perWords(d, per)}</b> · {sourceWords(per)}{per.prev ? ` · against ${prevWords(d, per)}` : ""}{computing ? " · reading again" : ""}
+            <b style={{ color: INK }}>{teamName(now)}</b>&apos;s customers · {isLive(per.win) && !per.custom ? `${per.title} ` : ""}<b style={{ color: INK }}>{perWords(d, per)}</b> · {sourceWords(per)}{sinceWords(d, per) ? ` · ${sinceWords(d, per)}` : ""}{prevOf(d, per, "live") ? ` · against ${prevWords(d, prevOf(d, per, "live"))}` : ""}{computing ? " · reading again" : ""}
           </Typography>
         </Box>
         <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" }, opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }}><FigureCards c={c} items={figs} /></Box>
@@ -941,9 +1011,10 @@ export function ShopExplorer() {
       <ActiveFilters onEdit={() => setPanel(true)} onClearAll={clearAll} items={[
         ...(per.id !== DEFAULT_PER ? [{ key: "period", name: "Period", value: perPill(d, per), tint: "blue" as Tint, onRemove: () => setPer(DEFAULT_PER) }] : []),
         ...chosen.map(([k, v]): ActiveItem => ({ key: `${k}:${v}`, name: DIM[k].name, value: v, tint: DIM[k].tint, onRemove: () => toggle(k, v) })),
+        ...chosenLines.map(([k, v]): ActiveItem => ({ key: `${k}:${v}`, name: BY[k].name, value: k === "pc" ? pcName(v) : v, tint: "amber", onRemove: () => toggle(k, v) })),
       ]} />
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
-        <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} footnote={footnote} />
+        <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />
       </Box>
       <SFilterWindow c={c} per={per} open={panel} onClose={() => setPanel(false)} focus={focus} onPer={setPer} toggle={toggle} clearAll={clearAll} />
     </Box>
@@ -955,7 +1026,7 @@ export function ShopExplorer() {
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
 const PANEL = "eso-shop:panel:";
 
-/** Shop behaviour in the BUC View: the last 4 weeks for the team the toggle shows, the days, and the Shop charts sent here. */
+/** Shop behaviour in the BUC View: the year to date for the team the toggle shows, the days, and the Shop charts sent here. */
 export function ShopPanel({ acts }: { acts: ActionsState | null }) {
   const { d, computing, progress, error } = useShop();
   const [team, setTeam] = useState<TeamKey>("eso");
@@ -1000,7 +1071,7 @@ export function ShopPanel({ acts }: { acts: ActionsState | null }) {
             <Typography sx={{ fontSize: "1.12rem", fontWeight: 650, letterSpacing: "-0.02em" }}>Shop behaviour</Typography>
             <ChevronRightIcon className="chev" sx={{ fontSize: 22, color: TINT.blue.fg, transition: "transform .15s ease" }} />
           </Box>
-          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{c ? `${teamName({ team, lead, teams })}'s customers · ${c.per.title} ${perWords(c.d, c.per)} · ${sourceWords(c.per)}` : "Logins, article views and orders in the shop"}</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{c ? `${teamName({ team, lead, teams })}'s customers · ${c.per.title} ${perWords(c.d, c.per)} · ${sourceWords(c.per)}${sinceWords(c.d, c.per) ? ` · ${sinceWords(c.d, c.per)}` : ""}` : "Logins, article views and orders in the shop"}</Typography>
         </Box>
         <Teams team={team} onTeam={choose} lead={leadKey} onLead={chooseLead} teams={teams} />
       </Box>

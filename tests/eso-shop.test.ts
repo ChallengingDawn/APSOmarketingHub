@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  dayNo, dayOf, dayRange, labelOf, liveSeries, looksBy, ordersBy, ordersCover, passOf, periodFor, periodOf, presetsOf, quarterPicks, rangeId, rangeOf, rangeWords, sameWin, shortDays, statsBy, totalsOf, yearSeries,
-  type ShopData,
+  beforeCounters, dayNo, dayOf, dayRange, labelOf, lineLabel, lineOf, liveSeries, looksBy, ordersBy, ordersCover, passOf, pcMask, periodFor, periodOf, presetsOf, prevOf,
+  quarterPicks, rangeId, rangeOf, rangeWords, sameWin, shortDays, statsBy, totalsOf, yearSeries, type ShopData,
 } from "../src/lib/reporting/shopRules";
 
 // two owners (ESO, TSA) and a company without one; four companies: 0 logs in, looks and orders; 1 logs in and looks at
@@ -10,7 +10,9 @@ import {
 const d: ShopData = {
   generatedAt: "2026-10-29T08:00:00Z", today: "2026-10-29", liveFrom: "2026-10-02", dtYears: [2024, 2025, 2026], dtLoaded: "2026-04-15",
   people: [{ id: "1", name: "Ana", team: "ESO" }, { id: "2", name: "Ben", team: "TSA" }, { id: "", name: "No owner", team: "Other" }],
-  labels: { prio: ["Prio 1", "Prio 2", "Prio 3", "No priority"], category: ["APSOcore", "APSOgrowth", "APSOprospect", "Other"], country: ["Switzerland", "Germany"], pc: ["DT", "KT", "Not assigned"] },
+  labels: { prio: ["Prio 1", "Prio 2", "Prio 3", "No priority"], category: ["APSOcore", "APSOgrowth", "APSOprospect", "Other"], country: ["Switzerland", "Germany"], pc: ["DT", "KT", "Not assigned"], group: ["O-rings", "Plates", "Not set"], sub: ["FKM", "PA", "Not set"] },
+  // number, name, profit centre, main group, sub group
+  products: [["P1", "O-ring FKM", 0, 0, 0], ["P2", "PA plate", 1, 1, 1], ["", "Not assigned", 2, 2, 2]],
   // person, prio, category, country
   companies: [[0, 0, 0, 0], [0, 1, 0, 1], [1, 2, 1, 0], [2, 3, 3, 1]],
   // company, day, logins, views, orders, carts
@@ -22,7 +24,7 @@ const d: ShopData = {
   ],
   // company, year, logins, views, orders
   years: [[0, 1, 40, 90, 3], [3, 1, 10, 0, 0], [3, 0, 12, 4, 1], [0, 2, 9, 30, 0]],
-  // company, day, profit centre, looked at, into the cart, ordered
+  // company, day, product, looked at, into the cart, ordered
   looks: [[0, 3, 0, 4, 1, 1], [0, 20, 1, 2, 0, 0], [1, 26, 2, 1, 0, 0], [2, 4, 0, 3, 0, 0]],
   // company, day placed, profit centres as bits (1 DT, 2 KT): company 0 since December 2025, three orders; 1 its first; 3 in September
   orders: [[0, -300, 1], [0, 5, 3], [0, 21, 2], [1, 22, 1], [3, -10, 1]],
@@ -36,19 +38,26 @@ test("shop: days count from the first live day", () => {
   assert.equal(dayNo("2026-10-02", "2026-10-01"), -1);
 });
 
-test("shop: the periods - live first, the last 4 weeks the default, each compared only where the counters reach back", () => {
-  const p = Object.fromEntries(presetsOf(d).map((x) => [x.id, x]));
-  // "since 2 Oct" is the month to date while the counters are in their first month - offered once it differs
-  assert.deepEqual(presetsOf(d).map((x) => x.id), ["28d", "7d", "mtd", "y2026", "y2025", "y2024"]);
-  // the last 4 weeks reach before the counters: from their first day, nothing to compare with
-  assert.deepEqual(p["28d"].win, { kind: "live", from: 0, to: 26 });
-  assert.equal(p["28d"].prev, null);
-  // the last 7 whole days, to yesterday, against the 7 before
+test("shop: the periods as the other ESO pages - the year to date first, each against the same days a year earlier", () => {
+  const all = presetsOf(d);
+  const p = Object.fromEntries(all.map((x) => [x.id, x]));
+  assert.deepEqual(all.map((x) => x.id), ["ytd", "mtd", "lm", "7d", "28d", "y2026", "y2025", "y2024"]);
+  // the year to date begins before the live counters: logins and views count from their first day
+  assert.deepEqual(p.ytd.win, { kind: "live", from: dayNo(d.liveFrom, "2026-01-01"), to: 27 });
+  assert.deepEqual(p.ytd.prev, { kind: "live", from: dayNo(d.liveFrom, "2025-01-01"), to: dayNo(d.liveFrom, "2025-10-29") });
+  assert.equal(beforeCounters(d, p.ytd.win), true);
+  assert.equal(beforeCounters(d, p["7d"].win), false);
+  // a year earlier has no live counters - only the shop orders reach it
+  assert.equal(prevOf(d, p.ytd, "live"), null);
+  assert.deepEqual(prevOf(d, p.ytd, "orders"), p.ytd.prev);
+  // last month; the month to date from the 1st (1 Oct has shop orders, no live counter)
+  assert.equal(p.lm.label, "September 2026");
+  assert.deepEqual(p.mtd.win, { kind: "live", from: -1, to: 27 });
+  // the last 7 whole days, to yesterday, against the 7 before - both counted live
   assert.deepEqual(p["7d"].win, { kind: "live", from: 20, to: 26 });
-  assert.deepEqual(p["7d"].prev, { kind: "live", from: 13, to: 19 });
-  // the month to date counts today; September has no counters
-  assert.deepEqual(p.mtd.win, { kind: "live", from: 0, to: 27 });
-  assert.equal(p.mtd.prev, null);
+  assert.deepEqual(prevOf(d, p["7d"], "live"), { kind: "live", from: 13, to: 19 });
+  // the 4 weeks before the last 4 begin before the counters: no comparison
+  assert.equal(prevOf(d, p["28d"], "live"), null);
   // the export's 2026 stops at its load: on its own; a whole year against the one before; the first has none
   assert.equal(p.y2026.partial, true);
   assert.equal(p.y2026.label, "2026 to 15 Apr");
@@ -57,18 +66,13 @@ test("shop: the periods - live first, the last 4 weeks the default, each compare
   assert.equal(p.y2024.prev, null);
 });
 
-test("shop: a finished month joins the periods; the month to date against the same days of the month before", () => {
+test("shop: the year to date by default; later in the year, last month and the month to date a year earlier", () => {
+  assert.equal(presetsOf(d)[0].id, "ytd");
   const later = { ...d, today: "2026-12-05" };
   const p = Object.fromEntries(presetsOf(later).map((x) => [x.id, x]));
-  assert.deepEqual(presetsOf(later).filter((x) => x.win.kind === "live").map((x) => x.id), ["28d", "7d", "mtd", "m2026-11", "m2026-10", "live"]);
-  // October from the counters' first day; November against October only once October is whole - it is not
-  assert.deepEqual(p["m2026-10"].win, { kind: "live", from: 0, to: 29 });
-  assert.equal(p["m2026-11"].prev, null);
-  // 1-5 December against 1-5 November
-  assert.deepEqual(p.mtd.win, { kind: "live", from: dayNo(d.liveFrom, "2026-12-01"), to: dayNo(d.liveFrom, "2026-12-05") });
-  assert.deepEqual(p.mtd.prev, { kind: "live", from: dayNo(d.liveFrom, "2026-11-01"), to: dayNo(d.liveFrom, "2026-11-05") });
-  // the 28 days before the last 4 weeks are counted by now
-  assert.deepEqual(p["28d"].prev, { kind: "live", from: dayNo(d.liveFrom, "2026-10-10"), to: dayNo(d.liveFrom, "2026-11-06") });
+  assert.equal(p.lm.label, "November 2026");
+  assert.deepEqual(p.mtd.prev, { kind: "live", from: dayNo(d.liveFrom, "2025-12-01"), to: dayNo(d.liveFrom, "2025-12-05") });
+  assert.deepEqual(prevOf(later, p["28d"], "live"), { kind: "live", from: dayNo(d.liveFrom, "2026-10-10"), to: dayNo(d.liveFrom, "2026-11-06") });
 });
 
 test("shop: one's own days - the id, cut to the counters, against the same number of days right before", () => {
@@ -115,8 +119,9 @@ test("shop: the quarters - one the counters cannot show greyed with its reason, 
   // Q4 from the counters' first day, today counted; 1 Oct has no counter, so nothing to compare with
   const q4 = q[3].per!;
   assert.deepEqual([q4.label, q4.win, q4.prev], ["Q4 2026 to date", { kind: "live", from: 0, to: 27 }, null]);
-  // in October the quarter to date is the month to date
-  assert.ok(sameWin(q4.win, presetsOf(d).find((p) => p.id === "mtd")!.win));
+  // the quarter is cut to the counters, the month to date is not (1 Oct has shop orders): not the same days
+  assert.equal(sameWin(q4.win, presetsOf(d).find((p) => p.id === "mtd")!.win), false);
+  assert.ok(sameWin(q4.win, { kind: "live", from: 0, to: 27 }));
   assert.equal(sameWin(q4.win, { kind: "year", y: 2 }), false);
   // next July: Q4 2026 whole from 2 Oct; Q1 2027 against nothing (Q4 2026 lacks 1 Oct); Q2 against Q1 whole; Q3 to date
   // against the same days of Q2; Q4 2027 not started
@@ -143,10 +148,11 @@ test("shop: a period by its id - preset, quarter or one's own days; days picked 
   assert.equal(periodOf(d, "m2026-10"), null);
   assert.equal(periodOf(d, "q2026-2"), null);
   assert.equal(periodOf(d, null), null);
-  // the last 7 whole days, the counters' first 4 weeks, the month to date (before the quarter to date - the same days)
+  // the last 7 whole days; the counters' first days to today are the quarter to date; the last 4 weeks begin on 1 Oct, so
+  // the same days from 2 Oct are days of one's own
   assert.equal(periodFor(d, "2026-10-28", "2026-10-22"), "7d");
-  assert.equal(periodFor(d, "2026-10-02", "2026-10-28"), "28d");
-  assert.equal(periodFor(d, "2026-10-02", "2026-10-29"), "mtd");
+  assert.equal(periodFor(d, "2026-10-02", "2026-10-28"), "d2026-10-02_2026-10-28");
+  assert.equal(periodFor(d, "2026-10-02", "2026-10-29"), "q2026-4");
   assert.equal(periodFor(d, "2026-10-05", "2026-10-20"), "d2026-10-05_2026-10-20");
   assert.equal(periodFor(d, "2026-09-01", "2026-09-30"), null);
 });
@@ -195,6 +201,8 @@ test("shop: a weekday far below the others is marked - weekends never", () => {
   const keys = ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-24", "2026-10-25", "2026-10-26"];
   const s = { keys, companies: [612, 712, 662, 165, 528, 26, 24, 617], logins: [], views: [], ordered: [] };
   assert.deepEqual([...shortDays(s)], ["2026-10-22"]);
+  // the running day counts so far: never marked
+  assert.deepEqual([...shortDays(s, "2026-10-22")], []);
   // four weekdays are not enough to tell
   assert.deepEqual([...shortDays({ ...s, keys: keys.slice(2, 8), companies: s.companies.slice(2, 8) })], []);
   // months are never marked
@@ -223,8 +231,11 @@ test("shop: shop orders - all, and the buyers by their orders so far: one-shot, 
   // company 0's third order (multiple), company 1's first (one-shot)
   assert.deepEqual(ordersBy(d, week, pass).get(""), { orders: 2, buyers: 2, oneShot: 1, second: 0, multiple: 1 });
   // DT: only company 1's order is of it this week; KT: company 0's second order with a KT line
-  assert.deepEqual(ordersBy(d, week, pass, undefined, 0).get(""), { orders: 1, buyers: 1, oneShot: 1, second: 0, multiple: 0 });
-  assert.deepEqual(ordersBy(d, week, pass, undefined, 1).get(""), { orders: 1, buyers: 1, oneShot: 0, second: 1, multiple: 0 });
+  assert.deepEqual(ordersBy(d, week, pass, undefined, 1).get(""), { orders: 1, buyers: 1, oneShot: 1, second: 0, multiple: 0 });
+  assert.deepEqual(ordersBy(d, week, pass, undefined, 2).get(""), { orders: 1, buyers: 1, oneShot: 0, second: 1, multiple: 0 });
+  // the profit centres chosen in the Filters, as a mask
+  assert.equal(pcMask(d, { pc: ["KT"] }), 2);
+  assert.equal(pcMask(d, {}), -1);
   // by owner
   assert.deepEqual([...ordersBy(d, week, pass, (co) => labelOf(d, co, "person")).entries()], [["Ana", { orders: 2, buyers: 2, oneShot: 1, second: 0, multiple: 1 }]]);
   // a Performis year as its calendar days: 2025 holds company 0's December order; 2024 is before the orders read
@@ -234,4 +245,19 @@ test("shop: shop orders - all, and the buyers by their orders so far: one-shot, 
   assert.deepEqual(ordersBy(d, { kind: "year", y: 1 }, pass).get(""), { orders: 1, buyers: 1, oneShot: 1, second: 0, multiple: 0 });
   // nothing read yet
   assert.equal(ordersCover({ ...d, ordersFrom: null }, week), false);
+});
+
+test("shop: the articles looked at by product hierarchy - main group, sub group - under the line filters", () => {
+  const w = { kind: "live" as const, from: 0, to: 27 };
+  const pass = passOf(d, { pc: ["DT"] }, null); // a line filter does not filter companies
+  assert.equal(pass(1), true);
+  assert.equal(lineLabel(d, 1, "group"), "Plates");
+  const byGroup = looksBy(d, w, pass, (_co, prod) => lineLabel(d, prod, "group"), lineOf(d, { pc: ["DT"] }));
+  assert.deepEqual([...byGroup.keys()], ["O-rings"]);
+  assert.deepEqual(byGroup.get("O-rings"), { looks: 7, carted: 1, ordered: 1, companies: 2 });
+  // a breakdown's own filter left out: by profit centre, the DT filter does not hide KT
+  assert.deepEqual([...looksBy(d, w, pass, undefined, lineOf(d, { pc: ["DT"] }, "pc")).keys()].sort(), ["DT", "KT", "Not assigned"]);
+  // the top products
+  const top = looksBy(d, w, passOf(d, {}, null), (_co, prod) => d.products[prod][1]);
+  assert.equal(top.get("O-ring FKM")!.looks, 7);
 });

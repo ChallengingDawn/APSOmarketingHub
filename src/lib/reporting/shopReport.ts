@@ -12,7 +12,8 @@
 //    hour) - counted since 2 Oct 2026. A company counted live but not in the export is read once and remembered. With
 //    them the articles each company looked at (apsomh_shop_looks), by the profit centre Products & Pricing gives the
 //    article - or the product page, when no article was chosen (SARCLA 30.10.2026: "views per assortment", his pick:
-//    the profit centre). The map is kept in kv and grows: each six-hourly read looks up only what it has not seen.
+//    the profit centre), with its product, main group and sub group (31.10.2026: "the top product as well, include
+//    product hierarchy"). The map is kept in kv and grows: each six-hourly read looks up only what it has not seen.
 // 3. The shop orders - every six hours, through slowReport: every order since January of last year (the search month
 //    by month, as the online share's read), one per order number, the shop's when any of its records - or its archived
 //    web record - carries the shop's mark (onlineShare.ts), with the profit centres of its lines (order_positions_json)
@@ -32,12 +33,12 @@ import { splitNumber, webMark } from "@/lib/marketingKpis/onlineShare";
 import { categoryBand, prioBand, prioOf, CATEGORY_BANDS, PRIO_BANDS } from "./esoRules";
 import { dayNo, type ShopData } from "./shopRules";
 
-const BASE_KEY = "esoShop:base:v2"; // v2: the profit centres of the articles looked at
+const BASE_KEY = "esoShop:base:v3"; // v2: the profit centres of the articles looked at; v3: their products and groups
 const BASE_TTL_MS = 6 * 60 * 60 * 1000;
 const ORDERS_KEY = "esoShop:orders:v1";
 const ORDERS_TTL_MS = 6 * 60 * 60 * 1000;
-/** article ("a:…") or product page ("p:…") -> profit centre (null: Products & Pricing does not know it) */
-const PC_KV = "esoShop:pcMap:v1";
+/** article ("a:…") or product page ("p:…") -> its product (null: Products & Pricing does not know it) */
+const PROD_KV = "esoShop:prodMap:v1";
 const PP_OBJ = "2-200042439";
 /** The profit centres in the order the page shows them; any other comes after, "Not assigned" last. */
 export const PC_ORDER = ["DT", "KT", "FT", "ST", "AT"];
@@ -57,15 +58,18 @@ const dtProp = (what: "n_of_logins" | "n_of_views" | "orders", y: number) => (y 
 const FACTS = ["name", "domain", "hubspot_owner_id", "sales_priority", "apso_customer", "country_custom"];
 
 /** The companies part, kept six hours: ShopData without the live days, with each company row's HubSpot id. */
+/** What Products & Pricing says of an article or a product page: profit centre, main group, sub group, product number, name. */
+type Prod = [string | null, string | null, string | null, string, string];
 type Base = Pick<ShopData, "dtYears" | "dtLoaded" | "people" | "companies" | "years"> & {
-  labels: Omit<ShopData["labels"], "pc">;
+  labels: CompanyLabels;
   generatedAt: string;
   ids: string[];
   /** APSOparts' and A+P's own, left out - kept so a live row of theirs is not read again */
   internal: string[];
-  /** the profit centre of each article and product page looked at so far */
-  pcMap: Record<string, string | null>;
+  /** the product of each article and product page looked at so far */
+  prodMap: Record<string, Prod | null>;
 };
+type CompanyLabels = Pick<ShopData["labels"], "prio" | "category" | "country">;
 
 /* ── the people and the company rows, shared by both parts ─────────────── */
 
@@ -80,7 +84,7 @@ async function teamFinder(): Promise<(id: string) => { name: string; team: strin
   });
 }
 /** Adds companies to people / labels / rows (arrays it may grow) - one row per company: owner, priority, category, country. */
-function rowMaker(people: ShopData["people"], labels: Omit<ShopData["labels"], "pc">, who: (id: string) => { name: string; team: string }) {
+function rowMaker(people: ShopData["people"], labels: CompanyLabels, who: (id: string) => { name: string; team: string }) {
   const personIdx = new Map(people.map((p, i) => [p.id, i]));
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const person = (id: string) => {
@@ -158,12 +162,12 @@ async function buildBase(): Promise<Base> {
       if (l || v || o) yearRows.push([ci, yi, l, v, o]);
     });
   }
-  // the profit centre of every article and product page looked at so far
-  const pcMap = await pcMapFor(await lookedKeys(), 300, true, (t) => reportProgress(BASE_KEY, t));
-  return { generatedAt: new Date().toISOString(), dtYears: years, dtLoaded, people, labels, companies, years: yearRows, ids, internal, pcMap };
+  // the product of every article and product page looked at so far
+  const prodMap = await prodMapFor(await lookedKeys(), 300, true, (t) => reportProgress(BASE_KEY, t));
+  return { generatedAt: new Date().toISOString(), dtYears: years, dtLoaded, people, labels, companies, years: yearRows, ids, internal, prodMap };
 }
 
-/* ── the profit centre of what was looked at ───────────────────────────── */
+/* ── the product of what was looked at ─────────────────────────────────── */
 
 type LookKeys = { articles: string[]; products: string[]; pairs: [string, string][] };
 /** Every article and product page looked at since the counters started, and which product each article was seen on. */
@@ -185,46 +189,53 @@ async function lookedKeys(): Promise<LookKeys> {
   }
 }
 
-const pcSeen = new Map<string, string | null>();
-let pcLoaded = false;
-/** The profit centres of these keys - from kv and this process first, then Products & Pricing: articles 100 a search; a
- *  product page takes its article's when one was seen on it (a product never spans two - checked 30.10.2026 on 25), else
- *  25 a search (about 100 articles each, so one page answers most), the rest one by one up to `singles` a read. */
-async function pcMapFor(k: LookKeys, singles: number, persist: boolean, progress?: (t: string) => void): Promise<Record<string, string | null>> {
-  if (!pcLoaded) {
-    const stored = (await kvGet<Record<string, string | null>>(PC_KV).catch(() => undefined)) ?? {};
-    for (const [key, pc] of Object.entries(stored)) if (!pcSeen.has(key)) pcSeen.set(key, pc);
-    pcLoaded = true;
+const prodSeen = new Map<string, Prod | null>();
+let prodLoaded = false;
+const PROD_PROPS = ["profit_center", "main_group_description", "sub_group_description", "product_number", "product_description"];
+/** The products of these keys - from kv and this process first, then Products & Pricing: articles 100 a search; a product
+ *  page 25 a search (about 100 articles each, so one page answers most - a product never spans two profit centres, checked
+ *  30.10.2026), the rest one by one up to `singles` a read. */
+async function prodMapFor(k: LookKeys, singles: number, persist: boolean, progress?: (t: string) => void): Promise<Record<string, Prod | null>> {
+  if (!prodLoaded) {
+    const stored = (await kvGet<Record<string, Prod | null>>(PROD_KV).catch(() => undefined)) ?? {};
+    for (const [key, x] of Object.entries(stored)) if (!prodSeen.has(key)) prodSeen.set(key, x);
+    prodLoaded = true;
   }
-  const before = pcSeen.size;
+  const before = prodSeen.size;
+  const str = (v: string | null | undefined) => (v ?? "").trim() || null;
   const search = async (prop: string, values: string[], limit: number) => {
     const r = await hubspotFetchJson<{ results?: Row[] }>({
       path: `/crm/v3/objects/${PP_OBJ}/search`, method: "POST",
-      body: { filterGroups: [{ filters: [{ propertyName: prop, operator: "IN", values }] }], properties: [prop, "profit_center"], limit },
+      body: { filterGroups: [{ filters: [{ propertyName: prop, operator: "IN", values }] }], properties: [prop, ...PROD_PROPS], limit },
     });
-    return (r.results ?? []).map((x) => [String(x.properties?.[prop] ?? ""), String(x.properties?.profit_center ?? "").trim().toUpperCase() || null] as const);
+    return (r.results ?? []).map((x) => {
+      const q = x.properties ?? {};
+      const prod: Prod = [str(q.profit_center)?.toUpperCase() ?? null, str(q.main_group_description), str(q.sub_group_description), str(q.product_number) ?? "", str(q.product_description) ?? ""];
+      return [String(q[prop] ?? ""), prod] as const;
+    });
   };
-  const articles = k.articles.filter((a) => !pcSeen.has(`a:${a}`));
+  const articles = k.articles.filter((a) => !prodSeen.has(`a:${a}`));
   for (let i = 0; i < articles.length; i += 100) {
     const part = articles.slice(i, i + 100);
-    for (const [a, pc] of await search("article_number", part, 100)) if (a) pcSeen.set(`a:${a}`, pc);
-    for (const a of part) if (!pcSeen.has(`a:${a}`)) pcSeen.set(`a:${a}`, null);
-    progress?.(`the profit centres of the articles looked at · ${Math.min(i + 100, articles.length).toLocaleString("en")} of ${articles.length.toLocaleString("en")}`);
+    for (const [a, x] of await search("article_number", part, 100)) if (a) prodSeen.set(`a:${a}`, x);
+    for (const a of part) if (!prodSeen.has(`a:${a}`)) prodSeen.set(`a:${a}`, null);
+    progress?.(`the products of the articles looked at · ${Math.min(i + 100, articles.length).toLocaleString("en")} of ${articles.length.toLocaleString("en")}`);
   }
-  for (const [a, prod] of k.pairs) { const pc = pcSeen.get(`a:${a}`); if (pc && !pcSeen.get(`p:${prod}`)) pcSeen.set(`p:${prod}`, pc); }
-  let products = k.products.filter((x) => !pcSeen.has(`p:${x}`));
+  // a product page seen with one of its articles: that article's product
+  for (const [a, prod] of k.pairs) { const x = prodSeen.get(`a:${a}`); if (x && !prodSeen.get(`p:${prod}`)) prodSeen.set(`p:${prod}`, x); }
+  let products = k.products.filter((x) => !prodSeen.has(`p:${x}`));
   for (let i = 0; i < products.length; i += 25) {
-    for (const [x, pc] of await search("product_number", products.slice(i, i + 25), 200)) if (x && pc && !pcSeen.get(`p:${x}`)) pcSeen.set(`p:${x}`, pc);
-    progress?.(`the profit centres of the product pages looked at · ${Math.min(i + 25, products.length).toLocaleString("en")} of ${products.length.toLocaleString("en")}`);
+    for (const [x, info] of await search("product_number", products.slice(i, i + 25), 200)) if (x && !prodSeen.get(`p:${x}`)) prodSeen.set(`p:${x}`, info);
+    progress?.(`the product pages looked at · ${Math.min(i + 25, products.length).toLocaleString("en")} of ${products.length.toLocaleString("en")}`);
   }
-  products = products.filter((x) => !pcSeen.has(`p:${x}`));
+  products = products.filter((x) => !prodSeen.has(`p:${x}`));
   for (const x of products.slice(0, singles)) {
     const [hit] = await search("product_number", [x], 1);
-    pcSeen.set(`p:${x}`, hit?.[1] ?? null);
+    prodSeen.set(`p:${x}`, hit?.[1] ?? null);
   }
   // kept by the six-hourly read; the five-minute join only remembers in this process
-  if (persist && pcSeen.size > before) await kvSet(PC_KV, Object.fromEntries(pcSeen)).catch(() => { /* looked up again next time */ });
-  return Object.fromEntries(pcSeen);
+  if (persist && prodSeen.size > before) await kvSet(PROD_KV, Object.fromEntries(prodSeen)).catch(() => { /* looked up again next time */ });
+  return Object.fromEntries(prodSeen);
 }
 
 /* ── 3. the shop orders ────────────────────────────────────────────────── */
@@ -414,27 +425,40 @@ async function withLive(b: Base, o: OrdersPart | undefined): Promise<ShopData> {
     if (ci === undefined) continue; // internal, or gone from HubSpot (merged)
     days.push([ci, dayNo(LIVE_FROM, r.day), Number(r.logins) || 0, Number(r.views) || 0, Number(r.orders) || 0, Number(r.carts) || 0]);
   }
-  // the profit centres: the order the page shows them in, any other after, "Not assigned" last
-  const fresh = looked.flatMap((r) => [r.article ? `a:${r.article}` : "", r.product ? `p:${r.product}` : ""]).filter((k) => k && !(k in b.pcMap) && !pcSeen.has(k));
-  const pcMap = fresh.length
-    ? await pcMapFor({ articles: [...new Set(fresh.filter((k) => k.startsWith("a:")).map((k) => k.slice(2)))], products: [...new Set(fresh.filter((k) => k.startsWith("p:")).map((k) => k.slice(2)))], pairs: looked.filter((r) => r.article && r.product).map((r) => [r.article, r.product]) }, 20, false)
-    : { ...b.pcMap, ...Object.fromEntries(pcSeen) };
-  const pcList = [...PC_ORDER];
-  const pcIdx = (pc: string | null | undefined) => {
-    const k = pc || NO_PC;
-    let i = pcList.indexOf(k);
-    if (i < 0) i = pcList.push(k) - 1;
+  // the products looked at, with their hierarchy - the new ones looked up (a few each time)
+  const fresh = looked.flatMap((r) => [r.article ? `a:${r.article}` : "", r.product ? `p:${r.product}` : ""]).filter((k) => k && !(k in b.prodMap) && !prodSeen.has(k));
+  const prodMap = fresh.length
+    ? await prodMapFor({ articles: [...new Set(fresh.filter((k) => k.startsWith("a:")).map((k) => k.slice(2)))], products: [...new Set(fresh.filter((k) => k.startsWith("p:")).map((k) => k.slice(2)))], pairs: looked.filter((r) => r.article && r.product).map((r) => [r.article, r.product]) }, 20, false)
+    : { ...b.prodMap, ...Object.fromEntries(prodSeen) };
+  const prodOf = (r: { article: string; product: string }) => (r.article ? prodMap[`a:${r.article}`] : null) ?? (r.product ? prodMap[`p:${r.product}`] : null) ?? null;
+  // the profit centres in the page's order, any other after, "Not assigned" last - fixed before any row points at one
+  const seenPc = new Set<string>();
+  for (const r of looked) seenPc.add(prodOf(r)?.[0] || NO_PC);
+  for (const [, , pcs] of o?.orders ?? []) for (const pc of pcs ? pcs.split(",") : [NO_PC]) seenPc.add(pc);
+  const pcList = [...PC_ORDER, ...[...seenPc].filter((pc) => pc !== NO_PC && !PC_ORDER.includes(pc)).sort(), NO_PC];
+  const pcIdx = (pc: string | null | undefined) => { const i = pcList.indexOf(pc || NO_PC); return i < 0 ? pcList.length - 1 : i; };
+  const groups: string[] = [], subs: string[] = [];
+  const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
+  const products: ShopData["products"] = [];
+  const prodIdx = new Map<string, number>();
+  const productOf = (x: Prod | null) => {
+    const key = x?.[3] || NO_PC;
+    let i = prodIdx.get(key);
+    if (i === undefined) {
+      i = products.push(x?.[3] ? [x[3], x[4] || x[3], pcIdx(x[0]), at(groups, x[1] || "Not set"), at(subs, x[2] || "Not set")] : ["", NO_PC, pcIdx(NO_PC), at(groups, "Not set"), at(subs, "Not set")]) - 1;
+      prodIdx.set(key, i);
+    }
     return i;
   };
   const lookAt = new Map<string, number[]>();
   for (const r of looked) {
     const ci = idx.get(String(r.company_id));
     if (ci === undefined) continue;
-    const pc = pcIdx((r.article ? pcMap[`a:${r.article}`] : null) ?? (r.product ? pcMap[`p:${r.product}`] : null));
+    const prod = productOf(prodOf(r));
     const day = dayNo(LIVE_FROM, r.day);
-    const k = `${ci}|${day}|${pc}`;
+    const k = `${ci}|${day}|${prod}`;
     let x = lookAt.get(k);
-    if (!x) { x = [ci, day, pc, 0, 0, 0]; lookAt.set(k, x); }
+    if (!x) { x = [ci, day, prod, 0, 0, 0]; lookAt.set(k, x); }
     x[3]++; if (r.carted) x[4]++; if (r.ordered) x[5]++;
   }
   const orders: number[][] = [];
@@ -445,18 +469,9 @@ async function withLive(b: Base, o: OrdersPart | undefined): Promise<ShopData> {
     for (const pc of pcs ? pcs.split(",") : [NO_PC]) bits |= 1 << pcIdx(pc);
     orders.push([ci, dayNo(LIVE_FROM, day), bits]);
   }
-  // "Not assigned" last
-  const na = pcList.indexOf(NO_PC);
-  if (na >= 0 && na !== pcList.length - 1) {
-    const last = pcList.length - 1;
-    const swap = (i: number) => (i === na ? last : i === last ? na : i);
-    for (const r of lookAt.values()) r[2] = swap(r[2]);
-    for (const r of orders) { let bits = 0; for (let i = 0; i < pcList.length; i++) if (r[2] & (1 << i)) bits |= 1 << swap(i); r[2] = bits; }
-    [pcList[na], pcList[last]] = [pcList[last], pcList[na]];
-  }
   return {
     generatedAt: new Date().toISOString(), today, liveFrom: LIVE_FROM, dtYears: b.dtYears, dtLoaded: b.dtLoaded,
-    people, labels: { ...labels, pc: pcList }, companies, days, years: b.years, looks: [...lookAt.values()],
+    people, labels: { ...labels, pc: pcList, group: groups, sub: subs }, products, companies, days, years: b.years, looks: [...lookAt.values()],
     orders, ordersFrom: o?.from ?? null,
     coverage: { companies: companies.length, live: new Set(days.map((r) => r[0])).size, performis: new Set(b.years.map((r) => r[0])).size, internal: b.internal.length },
   };
