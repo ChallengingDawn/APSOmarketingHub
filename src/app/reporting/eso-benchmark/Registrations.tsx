@@ -10,9 +10,14 @@
 // explanation under the card "take out"; the tables "use as a real report, not like this" - one report per measure in a
 // card of its own, every change in words, as New customers; the potential "I don't want this"; "customer type lacks
 // APIC" - an APIC tab. His photo of logins / views / orders went to the Shop behaviour page (his pick).
+// Third pass (SARCLA 31.10.2026, across the ESO reports): "put every quarter to be easy to select, and really custom dates
+// with a mini calendar" - every quarter (the running one to date) and a calendar by the day, as the rows hold the day; "the
+// filter when clicked should appear next to the tabs" - the "Filtered by" bar under the tab row, no chips under the
+// title; "all the tables should be individual KPIs" - every table a card of its own with its Actions, so it goes to the
+// ESO BUC View as the charts do.
 // The rows and their rules: src/lib/reporting/registrationsRules.ts.
 
-import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { Fragment, memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
@@ -21,8 +26,6 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import InputBase from "@mui/material/InputBase";
-import MenuItem from "@mui/material/MenuItem";
-import Select from "@mui/material/Select";
 import TuneIcon from "@mui/icons-material/Tune";
 import SearchIcon from "@mui/icons-material/Search";
 import CheckIcon from "@mui/icons-material/Check";
@@ -52,12 +55,15 @@ import { SavedViews } from "@/app/reporting/marketing-kpis/tiles/SavedViews";
 import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tiles/SortableGrid";
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
-import { REG_VISIT, blank, median, statsBy, type RDim, type RFilters, type RStats, type RWin, type RegData } from "@/lib/reporting/registrationsRules";
+import {
+  REG_VISIT, addressOf, blank, hasDays, isoOf, median, spanOf, statsBy, winOf, type RDim, type RFilters, type RStats, type RWin, type RegData,
+} from "@/lib/reporting/registrationsRules";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
   ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TWO, Teams, asLead, asTeam, leadOf, niceTop, setQuery, teamWord, useLead, useLeads, useTeam,
   type BoardRow, type Col, type LeadKey, type TeamKey,
 } from "./Figures";
+import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -98,7 +104,7 @@ const MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "Ju
 /** A share ranks a person or a group with this many companies registered behind it - two or three said nothing. */
 const MIN_COMPANIES = 10;
 
-/* ── the period: this year's months, against the same of last year ─────── */
+/* ── the period: this year's months or days, against the same of last year ── */
 
 type RPer = { win: RWin; id: string; title: string; months: number };
 const nowMonth = (d: RegData) => Number(d.today.slice(5, 7)) - 1;
@@ -107,16 +113,29 @@ function presetsOf(d: RegData): { id: string; label: string; win: RWin }[] {
   const m = nowMonth(d);
   const out = [{ id: "ytd", label: "Year to date", win: { from: 0, to: m } }, { id: "mtd", label: "Month to date", win: { from: m, to: m } }];
   if (m > 0) out.push({ id: "lm", label: `${MONTHS_FULL[m - 1]} ${d.year}`, win: { from: m - 1, to: m - 1 } });
-  for (let q = 0; q < 4; q++) if (q * 3 + 2 < m) out.push({ id: `q${q + 1}`, label: `Q${q + 1} ${d.year}`, win: { from: q * 3, to: q * 3 + 2 } });
+  // every quarter (SARCLA 31.10.2026: "put every quarter to be easy to select") - the running one to date: the read is
+  // taken during its day, so its month is always still running
+  for (const q of quartersOf(d.year, m, true)) if (!q.disabled) out.push({ id: q.id, label: q.label, win: { from: q.from, to: q.to } });
   return out;
 }
-function perOf(d: RegData, win: RWin): RPer {
-  const p = presetsOf(d).find((x) => x.win.from === win.from && x.win.to === win.to);
-  const title = p?.id === "ytd" ? "year to date" : p?.id === "mtd" ? "month to date" : p ? p.label : `${MONTHS[win.from]}–${MONTHS[win.to]} ${d.year}`;
-  return { win, id: p?.id ?? `m${win.from}-${win.to}`, title, months: win.to - win.from + 1 };
+/** 20260305 -> "5 Mar 2026"; two days -> "3 Mar – 17 May 2026", "3 – 17 Mar 2026" (one year always: this or the last). */
+function spanWords(a: number, b: number) {
+  const day = (n: number) => n % 100, mon = (n: number) => MONTHS[(Math.floor(n / 100) % 100) - 1], y = Math.floor(b / 10000);
+  if (a === b) return `${day(a)} ${mon(a)} ${y}`;
+  return mon(a) === mon(b) ? `${day(a)} – ${day(b)} ${mon(b)} ${y}` : `${day(a)} ${mon(a)} – ${day(b)} ${mon(b)} ${y}`;
 }
-/** "1 Jan – 29 Oct 2026", "Apr–Jun 2026" - or last year's: "1 Jan – 29 Oct 2025" */
+function perOf(d: RegData, win: RWin): RPer {
+  const days = hasDays(win), s = spanOf(d, win, 0), at = addressOf(d, win);
+  const p = days ? undefined : presetsOf(d).find((x) => x.win.from === win.from && x.win.to === win.to);
+  const title = p?.id === "ytd" ? "year to date" : p?.id === "mtd" ? "month to date" : p ? p.label
+    : days ? spanWords(s.from, s.to) : `${MONTHS[win.from]}–${MONTHS[win.to]} ${d.year}`;
+  return { win, id: p?.id ?? (days ? `d${at.from}_${at.to}` : `m${win.from}-${win.to}`), title, months: win.to - win.from + 1 };
+}
+/** A period of one's own (months "m2-4", days "d2026-03-05_2026-05-17") - not a quick pick: it goes as its from / to. */
+const ownPer = (p: RPer) => /^[md]\d/.test(p.id);
+/** "1 Jan – 29 Oct 2026", "Apr–Jun 2026", "3 Mar – 17 May 2026" - or last year's: "1 Jan – 29 Oct 2025" */
 function perWords(d: RegData, per: RPer, side: 0 | 1 = 0) {
+  if (hasDays(per.win)) { const s = spanOf(d, per.win, side); return spanWords(s.from, s.to); }
   const y = d.year - side;
   const run = per.win.to === nowMonth(d);
   if (per.win.from === per.win.to) return run ? `1 – ${todayDay(d)} ${MONTHS[per.win.to]} ${y}` : `${MONTHS_FULL[per.win.from]} ${y}`;
@@ -125,6 +144,19 @@ function perWords(d: RegData, per: RPer, side: 0 | 1 = 0) {
 const perCap = (p: RPer) => p.title.charAt(0).toUpperCase() + p.title.slice(1);
 /** What every change is against: "vs 2025" */
 const vsOf = (d: RegData) => `vs ${d.year - 1}`;
+/** What last year's side is: the same months (the running one to the same day), or for a range of days the same days. */
+const sameOf = (d: RegData, per: RPer) => (hasDays(per.win) ? `the same days of ${d.year - 1}` : `the same months of ${d.year - 1} - the running month to the same day`);
+/** The period's months, each with the days of it it has: "Mar (5 – 31)" for a part (a range's ends, the running month
+ *  to the read's day), "Apr" for a whole month. */
+function monthsOf(d: RegData, per: RPer): { m: number; label: string; part: boolean }[] {
+  const s = spanOf(d, per.win, 0);
+  return Array.from({ length: per.months }, (_, i) => {
+    const m = per.win.from + i, last = new Date(Date.UTC(d.year, m + 1, 0)).getUTCDate();
+    const lo = i === 0 ? s.from % 100 : 1, hi = i === per.months - 1 ? s.to % 100 : last;
+    const part = lo !== 1 || hi !== last || m === nowMonth(d);
+    return { m, label: part ? `${MONTHS[m]} (${lo === hi ? lo : `${lo} – ${hi}`})` : MONTHS[m], part };
+  });
+}
 
 /* ── the teams: ESO, TSA or everyone - by the company's owner ──────────── */
 
@@ -231,16 +263,18 @@ function Board({ c, id, dim, m, actions }: { c: RCtx; id: string; dim: RDim; m: 
 
 function RegMonths({ c, target }: { c: RCtx; target: number | null }) {
   const t = totalOf(c, 0), p = totalOf(c, 1);
-  const data = t.months.map((v, i) => ({ x: MONTHS[c.per.win.from + i], v, was: p.months[i] ?? 0, running: c.per.win.from + i === nowMonth(c.d) }));
+  const parts = monthsOf(c.d, c.per);
+  const data = t.months.map((v, i) => ({ x: MONTHS[c.per.win.from + i], tip: parts[i]?.label ?? MONTHS[c.per.win.from + i], v, was: p.months[i] ?? 0, part: !!parts[i]?.part }));
   const top = niceTop(Math.max(1, target ?? 0, ...data.map((x) => Math.max(x.v, x.was))));
   const ticks = [0, 0.25, 0.5, 0.75, 1];
-  const done = data.filter((x) => !x.running);
+  // a month's target is a whole month's: the running one, and a range's first and last days, are not measured
+  const done = data.filter((x) => !x.part);
   const reached = target ? done.filter((x) => x.v >= target).length : 0;
   return (
     <Box sx={{ display: "grid", gap: 1 }}>
       <Box sx={{ display: "flex", gap: 1.75, flexWrap: "wrap", fontSize: "0.74rem", color: MUTED }}>
         <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}><Box component="span" sx={{ width: 14, height: 8, borderRadius: "2px", bgcolor: THIS }} />{c.d.year}</Box>
-        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}><Box component="span" sx={{ width: 14, height: 2, bgcolor: INK, borderRadius: 1 }} />{c.d.year - 1}, same month</Box>
+        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}><Box component="span" sx={{ width: 14, height: 2, bgcolor: INK, borderRadius: 1 }} />{c.d.year - 1}, {hasDays(c.per.win) ? "the same days" : "same month"}</Box>
         {target && <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, color: INK, fontWeight: 600 }}><Box component="span" sx={{ width: 14, borderTop: `2px dashed ${TARGET}` }} />Target {int(target)} a month · <span style={{ color: reached === done.length ? GREEN : RED }}>{reached} of {done.length} months reached it</span></Box>}
       </Box>
       <Box sx={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", columnGap: 1 }}>
@@ -252,7 +286,7 @@ function RegMonths({ c, target }: { c: RCtx; target: number | null }) {
           {target != null && <Box sx={{ position: "absolute", left: 0, right: 0, bottom: `${(target / top) * 100}%`, borderTop: `2px dashed ${TARGET}`, zIndex: 1, pointerEvents: "none" }} />}
           <Box sx={{ position: "absolute", inset: 0, display: "flex" }}>
             {data.map((x) => (
-              <Box key={x.x} title={`${x.x}${x.running ? ` (1 – ${todayDay(c.d)})` : ""}: ${int(x.v)} companies registered · ${c.d.year - 1}: ${int(x.was)}${target ? ` · ${pct(x.v / target)} of the target` : ""}`}
+              <Box key={x.x} title={`${x.tip}: ${int(x.v)} companies registered · ${c.d.year - 1}: ${int(x.was)}${target ? ` · ${pct(x.v / target)} of the target` : ""}`}
                 sx={{ flex: 1, position: "relative", height: "100%", "&:hover": { bgcolor: "rgba(21,34,58,.035)" }, borderRadius: "6px" }}>
                 <Box sx={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "52%", maxWidth: 30, height: `${(x.v / top) * 100}%`, bgcolor: THIS, borderRadius: "4px 4px 0 0" }} />
                 {x.was > 0 && <Box sx={{ position: "absolute", bottom: `calc(${(x.was / top) * 100}% - 1px)`, left: "50%", transform: "translateX(-50%)", width: "76%", maxWidth: 44, height: 2, bgcolor: INK, borderRadius: 1 }} />}
@@ -308,14 +342,29 @@ type TargetOf = { unit: "pct" | "n"; label: string };
 type Drawn = { id: string; title: (c: RCtx) => string; draw: (c: RCtx, actions?: React.ReactNode) => React.ReactNode; target?: (c: RCtx) => TargetOf };
 const teamPart = (c: RCtx) => ` - ${teamName(c)}`;
 const forWhom = (c: RCtx) => `${teamName(c)}'s target for ${c.per.title} - each team and period its own`;
-/** A chart by its id "<tab>:<what>[-<breakdown>]": people:registered, people:months, visit:split, country:bought… */
+/** A chart by its id "<tab>:<what>[-<breakdown>]": people:registered, people:months, visit:split, country:bought… - and
+ *  the tables, each a card of its own (SARCLA 31.10.2026: "all the tables should be individual KPIs"):
+ *  <tab>:table-registered | table-bought | table-accounts, people:months-table, people:person-months. */
 function drawnOf(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
   if (chart === "months") {
     const title = (c: RCtx) => `Companies registered ${c.per.title}, month by month${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} against the same months of ${c.d.year - 1} - the running month to the same day`} actions={a}><RegMonths c={c} target={targetFor(c, id)} /></ChartBox>,
-      target: (c) => ({ unit: "n", label: `Each month's companies registered are measured against it - a line across the months; the running month is not counted · ${teamName(c)}'s target.` }) };
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} against ${sameOf(c.d, c.per)}`} actions={a}><RegMonths c={c} target={targetFor(c, id)} /></ChartBox>,
+      target: (c) => ({ unit: "n", label: `Each month's companies registered are measured against it - a line across the months; the running month, and a month the period has only some days of, are not counted · ${teamName(c)}'s target.` }) };
+  }
+  if (chart.startsWith("table-") && chart.slice(6) in REP) {
+    const r = chart.slice(6) as Rep, dim = DIM_OF[v];
+    const title = (c: RCtx) => `${REP[r].title}, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${REP[r].hint} · ${repWords(c, dim)}`} actions={a}><ReportTable c={c} dim={dim} r={r} /></ChartBox> };
+  }
+  if (v === "people" && chart === "months-table") {
+    const title = (c: RCtx) => `Companies registered, ${c.per.title}, by month${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`Companies whose first shop account was opened, each month against ${sameOf(c.d, c.per)}`} actions={a}><MonthTable c={c} /></ChartBox> };
+  }
+  if (v === "people" && chart === "person-months") {
+    const title = (c: RCtx) => `Companies registered, ${c.per.title}, by person and month${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`Companies whose first shop account was opened, by the company's owner, month by month · ${perWords(c.d, c.per)}`} actions={a}><PeopleMonths c={c} /></ChartBox> };
   }
   if (chart === "split") {
     const title = (c: RCtx) => `Registered against the first visit, ${c.per.title}${teamPart(c)}`;
@@ -382,29 +431,22 @@ function ReportTable({ c, dim, r }: { c: RCtx; dim: RDim; r: Rep }) {
   return <FullTable key={`${r}-${dim}-${c.per.id}-${c.team}`} first={DIM[dim].name} cols={cols} initial="cur" rows={rows} total={total} natural={!!ORDER[dim]}
     selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined} find={`${/^[aeiou]/i.test(DIM[dim].lower) ? "an" : "a"} ${DIM[dim].lower}`} tint={DIM[dim].tint} />;
 }
-/** The companies' reports of a tab - and, on People only, the contacts' one, named as people (SARCLA 31.10.2026: "we must
- *  be sure to count companies and not contacts - if it's contact level you should mention it"). */
-function Reports({ c, dim, contacts = false }: { c: RCtx; dim: RDim; contacts?: boolean }) {
-  const words = noPy(c, dim) ? perWords(c.d, c.per) : `${perWords(c.d, c.per)} against ${perWords(c.d, c.per, 1)}`;
-  const reps: Rep[] = contacts ? ["registered", "bought", "accounts"] : ["registered", "bought"];
-  return (
-    <>
-      {reps.map((r) => (
-        <ChartBox key={r} title={`${REP[r].title} ${c.per.title}, by ${DIM[dim].lower}`} hint={`${REP[r].hint} · ${words}`}>
-          <ReportTable c={c} dim={dim} r={r} />
-        </ChartBox>
-      ))}
-    </>
-  );
-}
+/** A report's period in words: this year's against last year's same days - this year's only where not compared. */
+const repWords = (c: RCtx, dim: RDim) => (noPy(c, dim) ? perWords(c.d, c.per) : `${perWords(c.d, c.per)} against ${perWords(c.d, c.per, 1)}`);
+/** A tab's reports, each a card of its own with its Actions: the companies' - and, on People only, the contacts', named as
+ *  people (SARCLA 31.10.2026: "we must be sure to count companies and not contacts - if it's contact level you should
+ *  mention it"). */
+const reportsOf = (view: RView): Rep[] => (view === "people" ? ["registered", "bought", "accounts"] : ["registered", "bought"]);
 /** Companies registered month by month, the period itself at the end. */
 function MonthTable({ c }: { c: RCtx }) {
   type MRow = { label: string; cur: number; prev: number };
   const t = totalOf(c, 0), p = totalOf(c, 1);
-  const rows: MRow[] = t.months.map((v, i) => { const m = c.per.win.from + i; return { label: m === nowMonth(c.d) ? `${MONTHS[m]} (1 – ${todayDay(c.d)})` : MONTHS[m], cur: v, prev: p.months[i] ?? 0 }; });
+  const parts = monthsOf(c.d, c.per);
+  // a month the period has only some days of says which: "Mar (5 – 31)", the running one "Oct (1 – 29)"
+  const rows: MRow[] = t.months.map((v, i) => ({ label: parts[i]?.label ?? MONTHS[c.per.win.from + i], cur: v, prev: p.months[i] ?? 0 }));
   const cols: Col<MRow>[] = [
     { key: "cur", head: String(c.d.year), cell: (x) => int(x.cur) },
-    { key: "prev", head: `${c.d.year - 1}, same month`, cell: (x) => int(x.prev) },
+    { key: "prev", head: `${c.d.year - 1}, ${hasDays(c.per.win) ? "the same days" : "same month"}`, cell: (x) => int(x.prev) },
     { key: "diff", head: `Change ${vsOf(c.d)}`, cell: (x) => <ChangeText a={x.cur} b={x.prev} /> },
     { key: "pct", head: `Change ${vsOf(c.d)} in %`, cell: (x) => <ChangeText a={x.cur} b={x.prev} asPct /> },
   ];
@@ -416,8 +458,9 @@ function PeopleMonths({ c }: { c: RCtx }) {
   type MRow = { label: string; months: number[]; companies: number };
   const rows: MRow[] = [...by].map(([label, s]) => ({ label, months: s.months, companies: s.companies })).filter((r) => r.companies);
   const t = totalOf(c);
+  const parts = monthsOf(c.d, c.per);
   const cols: Col<MRow>[] = [
-    ...t.months.map((_, i) => ({ key: `m${i}`, head: MONTHS[c.per.win.from + i], cell: (r: MRow) => (r.months[i] ? int(r.months[i]) : "—"), sort: (r: MRow) => r.months[i] ?? 0 })),
+    ...t.months.map((_, i) => ({ key: `m${i}`, head: parts[i]?.label ?? MONTHS[c.per.win.from + i], cell: (r: MRow) => (r.months[i] ? int(r.months[i]) : "—"), sort: (r: MRow) => r.months[i] ?? 0 })),
     { key: "companies", head: perCap(c.per), cell: (r) => <b>{int(r.companies)}</b>, sort: (r) => r.companies },
   ];
   return <FullTable key={`pm-${c.per.id}-${c.team}`} first="Person" cols={cols} initial="companies" rows={rows} total={{ label: "Total", months: t.months, companies: t.companies }} selected={c.filters.person} onPick={c.onBar ? (l) => c.onBar!("person", l) : undefined} find="a person" tint="pink" />;
@@ -432,15 +475,17 @@ function TabCard({ c, act }: { c: RCtx; act: Act }) {
   const card = { display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" } as const;
   const words = `${perWords(c.d, c.per)} against ${perWords(c.d, c.per, 1)}`;
   const many = c.per.months >= 2;
+  // the tab's three reports, each its own card with its Actions (SARCLA 31.10.2026: "all the tables should be individual KPIs")
+  const reports = reportsOf(c.view).map((r) => <Fragment key={r}>{draw(c, act, `${c.view}:table-${r}`)}</Fragment>);
   if (c.view === "people") return (
     <GlassCard sx={card}>
       <CardTitle icon={<BadgeOutlinedIcon />} tint="pink" title={`${teamName(c)}, ${c.per.title}`} note={`${words} · by the company's owner`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "people:registered")}{draw(c, act, "people:bought")}</Box>
       {many && draw(c, act, "people:months")}
       <Box sx={TWO}>{draw(c, act, "people:conversion")}{draw(c, act, "people:visited")}</Box>
-      <Reports c={c} dim="person" contacts />
-      {many && <ChartBox title={`Companies registered ${c.per.title}, month by month`} hint={`Each month against the same month of ${c.d.year - 1} - the running month to the same day`}><MonthTable c={c} /></ChartBox>}
-      {many && <ChartBox title={`Companies registered ${c.per.title}, by person and month`} hint={perWords(c.d, c.per)}><PeopleMonths c={c} /></ChartBox>}
+      {reports}
+      {many && draw(c, act, "people:months-table")}
+      {many && draw(c, act, "people:person-months")}
     </GlassCard>
   );
   if (c.view === "visit") return (
@@ -448,7 +493,7 @@ function TabCard({ c, act }: { c: RCtx; act: Act }) {
       <CardTitle icon={<DirectionsCarOutlinedIcon />} tint="green" title={`${teamName(c)}: registered against the first visit, ${c.per.title}`} note={`${perWords(c.d, c.per)} · ${DIM.visit.note} · click a way to see who ordered of it`} />
       <Box sx={{ mt: -1 }}>{draw(c, act, "visit:split")}</Box>
       <Box sx={TWO}>{draw(c, act, "visit:visited-person")}{draw(c, act, "visit:bought-person")}</Box>
-      <Reports c={c} dim="visit" />
+      {reports}
     </GlassCard>
   );
   const dim = DIM_OF[c.view], dd = DIM[dim];
@@ -456,7 +501,7 @@ function TabCard({ c, act }: { c: RCtx; act: Act }) {
     <GlassCard sx={card}>
       <CardTitle icon={dd.icon} tint={dd.tint} title={`${teamName(c)} by ${dd.lower}, ${c.per.title}`} note={`${dd.note} · ${thisYearOnly(dim) ? perWords(c.d, c.per) : words}`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${c.view}:registered`)}{draw(c, act, `${c.view}:bought`)}</Box>
-      <Reports c={c} dim={dim} />
+      {reports}
     </GlassCard>
   );
 }
@@ -508,29 +553,19 @@ function FigureCards({ c, items, big, actions }: { c: RCtx; items: Fig[]; big?: 
 
 /* ── the Filters window: the period and the breakdowns ─────────────────── */
 
+/** The period: year to date, month to date, last month, every quarter, and any days of this year on a calendar - the
+ *  rows hold the day the account was opened, so a range is counted to the day. */
 function RPeriod({ d, per, onPer }: { d: RegData; per: RPer; onPer: (w: RWin) => void }) {
-  const m = nowMonth(d);
-  const sel = { height: 32, fontSize: "0.82rem", fontWeight: 600, borderRadius: "9px", bgcolor: "#fff", flex: 1, "& .MuiSelect-select": { py: 0.5, pl: 1.25 } };
+  const all = presetsOf(d);
+  const preset = (id: string) => all.find((p) => p.id === id)?.win;
+  const s = spanOf(d, per.win, 0);
   return (
-    <Box sx={{ display: "grid", gap: 1 }}>
-      <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap" }}>
-        {presetsOf(d).map((p) => {
-          const on = p.win.from === per.win.from && p.win.to === per.win.to;
-          return <Chip key={p.id} label={p.label} onClick={() => onPer(p.win)} aria-pressed={on} sx={{ height: 28, fontSize: "0.78rem", fontWeight: 600, bgcolor: on ? TINT.blue.bg : "#fff", color: on ? TINT.blue.fg : INK, border: `1px solid ${on ? TINT.blue.fg : "rgba(21,34,58,.14)"}` }} />;
-        })}
-      </Box>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>From</Typography>
-        <Select size="small" value={per.win.from} onChange={(e) => { const f = Number(e.target.value); onPer({ from: f, to: Math.max(f, per.win.to) }); }} sx={sel} inputProps={{ "aria-label": "From month" }}>
-          {MONTHS.slice(0, m + 1).map((x, i) => <MenuItem key={x} value={i}>{x} {d.year}</MenuItem>)}
-        </Select>
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>to</Typography>
-        <Select size="small" value={per.win.to} onChange={(e) => { const t = Number(e.target.value); onPer({ from: Math.min(per.win.from, t), to: t }); }} sx={sel} inputProps={{ "aria-label": "To month" }}>
-          {MONTHS.slice(0, m + 1).map((x, i) => <MenuItem key={x} value={i}>{x} {d.year}</MenuItem>)}
-        </Select>
-      </Box>
-      <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.45 }}>This year&apos;s months, each against the same months of {d.year - 1} - the running month to the same day.</Typography>
-    </Box>
+    <PeriodPicker quick={all.filter((p) => !p.id.startsWith("q"))} quarters={quartersOf(d.year, nowMonth(d), true)}
+      isOn={(id) => { const w = preset(id); return !!w && !hasDays(per.win) && w.from === per.win.from && w.to === per.win.to; }}
+      onChoice={(id) => { const w = preset(id); if (w) onPer(w); }}
+      unit="day" min={`${d.year}-01-01`} max={d.today} from={isoOf(s.from)} to={isoOf(s.to)}
+      onRange={(a, b) => { const w = winOf(d, a, b); if (w) onPer(w); }}
+      note={<>This year&apos;s days, each against the same days of {d.year - 1}, up to the read&apos;s day ({todayDay(d)} {MONTHS[nowMonth(d)]}) - last year to the same day. The first shop orders are counted to that day on both sides.</>} />
   );
 }
 function RFacet({ c, dim, onPick }: { c: RCtx; dim: RDim; onPick: (l: string) => void }) {
@@ -619,8 +654,6 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
     </GlassCard>
   );
 }
-const ym = (d: RegData, m: number) => `${d.year}-${String(m + 1).padStart(2, "0")}`;
-const fromYm = (d: RegData, x: string | null) => { const m = /^(\d{4})-(\d{2})$/.exec(x ?? ""); return m && Number(m[1]) === d.year ? Number(m[2]) - 1 : null; };
 
 export function RegistrationsExplorer() {
   const params = useSearchParams();
@@ -638,16 +671,17 @@ export function RegistrationsExplorer() {
   const [panel, setPanel] = useState(false);
   const [focus, setFocus] = useState<{ dim: RDim; n: number } | null>(null);
   const openOn = (k: RDim) => { setFocus((f) => ({ dim: k, n: (f?.n ?? 0) + 1 })); setPanel(true); };
-  const setPer = (w: RWin) => setQuery((q) => { if (!d) return; const ytd = presetsOf(d)[0].win; if (w.from === ytd.from && w.to === ytd.to) { q.delete("from"); q.delete("to"); } else { q.set("from", ym(d, w.from)); q.set("to", ym(d, w.to)); } });
+  // the period in the address: ?from=2026-03&to=2026-05 for whole months as before, ?from=2026-03-05&to=2026-05-17 for days
+  const setPer = (w: RWin) => setQuery((q) => {
+    if (!d) return;
+    const ytd = presetsOf(d)[0].win, at = addressOf(d, w);
+    if (!hasDays(w) && w.from === ytd.from && w.to === ytd.to) { q.delete("from"); q.delete("to"); } else { q.set("from", at.from); q.set("to", at.to); }
+  });
 
   // the work a click asks for, kept; the tabs and toggles answer at once and the charts follow (as the Figures)
   const lead = leadOf(team, leadKey, lt);
   const fromP = params.get("from"), toP = params.get("to");
-  const per = useMemo(() => {
-    if (!d) return null;
-    const a = fromYm(d, fromP), b = fromYm(d, toP), m = nowMonth(d);
-    return a != null && b != null ? perOf(d, { from: Math.min(a, b, m), to: Math.min(Math.max(a, b), m) }) : perOf(d, presetsOf(d)[0].win);
-  }, [d, fromP, toP]);
+  const per = useMemo(() => (d ? perOf(d, winOf(d, fromP, toP) ?? presetsOf(d)[0].win) : null), [d, fromP, toP]);
   const people = useMemo(() => (d ? peopleOf(d, team, lead, lt?.byId ?? {}) : null), [d, team, lead, lt]);
   const want = useMemo(() => ({ view, per, people, team, lead, filters }), [view, per, people, team, lead, filters]);
   const drawn = useDeferredValue(want);
@@ -669,7 +703,9 @@ export function RegistrationsExplorer() {
   const act: Act = (id, title, target) => (
     <TileActions where="tab" start="tab" edge={2}
       tile={{ key: `eso-registrations:${id}`, page: "eso-registrations", tab: c.view, title, summary: `${teamName(c)} · ${perWords(d, c.per)}`,
-        filters: { ...Object.fromEntries(FILTER_DIMS.filter((k) => c.filters[k]?.length).map((k) => [k, c.filters[k] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), ...(c.per.id.startsWith("m") ? { from: [ym(d, c.per.win.from)], to: [ym(d, c.per.win.to)] } : { period: [c.per.id] }) },
+        // a quick pick goes as itself (it follows the read: "month to date" stays the running month), a period of one's own
+        // as its months or days
+        filters: { ...Object.fromEntries(FILTER_DIMS.filter((k) => c.filters[k]?.length).map((k) => [k, c.filters[k] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), ...(ownPer(c.per) ? { from: [addressOf(d, c.per.win).from], to: [addressOf(d, c.per.win).to] } : { period: [c.per.id] }) },
         kind: "card", target: target ? { key: targetKey(id, c.team, c.lead, c.per), ...target } : undefined }} />
   );
   const now = { team, lead, teams };
@@ -684,15 +720,8 @@ export function RegistrationsExplorer() {
           <Box sx={{ minWidth: 0, flex: "1 1 360px", display: "grid", gap: 0.9 }}>
             <Typography component="h1" sx={H1}>Registrations</Typography>
             <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-              <b style={{ color: INK }}>{teamName(now)}</b> · {per.title} <b style={{ color: INK }}>{perWords(d, per)}</b> - against {perWords(d, per, 1)} · companies, by their first shop account{computing ? " · reading HubSpot again" : ""}
+              <b style={{ color: INK }}>{teamName(now)}</b> · {per.title === perWords(d, per) ? "" : `${per.title} `}<b style={{ color: INK }}>{perWords(d, per)}</b> - against {perWords(d, per, 1)} · companies, by their first shop account{computing ? " · reading HubSpot again" : ""}
             </Typography>
-            {(chosen.length > 0 || per.id !== "ytd") && (
-              <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-                {per.id !== "ytd" && <Chip size="small" label={<span><b>Period:</b> {perCap(per)}</span>} onDelete={() => setPer(presetsOf(d)[0].win)} onClick={() => setPanel(true)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.blue.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.blue.fg } }} />}
-                {chosen.map(([k, v]) => <Chip key={`${k}:${v}`} size="small" label={<span><b>{DIM[k].name}:</b> {v}</span>} onDelete={() => toggle(k, v)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[DIM[k].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[k].tint].fg } }} />)}
-                {chosen.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>}
-              </Box>
-            )}
           </Box>
           <Box sx={{ minWidth: 0 }}><Teams team={team} onTeam={setTeam} lead={leadKey} onLead={setLead} teams={teams} /></Box>
         </Box>
@@ -711,6 +740,11 @@ export function RegistrationsExplorer() {
           Filters{chosen.length + (per.id !== "ytd" ? 1 : 0) ? ` · ${chosen.length + (per.id !== "ytd" ? 1 : 0)}` : ""}
         </Button>
       </Box>
+      {/* what the page is filtered by, under the tabs (SARCLA 31.10.2026: "on top it is really hard to find them and see them") */}
+      <ActiveFilters onEdit={() => setPanel(true)} onClearAll={clearAll} items={[
+        ...(per.id !== "ytd" ? [{ key: "period", name: "Period", value: per.title === perWords(d, per) ? per.title : `${perCap(per)} · ${perWords(d, per)}`, tint: "blue" as Tint, onRemove: () => setPer(presetsOf(d)[0].win) }] : []),
+        ...chosen.map(([k, v]): ActiveItem => ({ key: `${k}:${v}`, name: DIM[k].name, value: v, tint: DIM[k].tint, onRemove: () => toggle(k, v) })),
+      ]} />
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
         <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />
       </Box>
@@ -745,9 +779,10 @@ export function RegistrationsPanel({ acts }: { acts: ActionsState | null }) {
     const fmt = formatOf(acts, spec);
     const f = spec.filters ?? {};
     const sf: RFilters = Object.fromEntries(FILTER_DIMS.flatMap((k) => (f[k]?.length ? [[k, f[k]]] : [])));
+    // a quick pick by its id, a period of one's own by its months or days ("2026-03" / "2026-03-05", as the address)
     const pid = f.period?.[0], pr = pid ? presetsOf(c.d).find((p) => p.id === pid) : null;
-    const a0 = fromYm(c.d, f.from?.[0] ?? null), b0 = fromYm(c.d, f.to?.[0] ?? null);
-    const sp = pr ? perOf(c.d, pr.win) : a0 != null && b0 != null ? perOf(c.d, { from: a0, to: b0 }) : c.per;
+    const sent = winOf(c.d, f.from?.[0] ?? null, f.to?.[0] ?? null);
+    const sp = pr ? perOf(c.d, pr.win) : sent ? perOf(c.d, sent) : c.per;
     // every chart here follows the panel's toggle (as the Figures' and the Visits' panels); its filters and period stay as sent
     const sc: RCtx = { ...c, per: sp, filters: sf, view: (spec.tab && isView(spec.tab) ? spec.tab : "people") as RView, half: fmt === "half" };
     const target = ch?.target ? { key: targetKey(ch.id, c.team, c.lead, sp), ...ch.target(sc) } : undefined;

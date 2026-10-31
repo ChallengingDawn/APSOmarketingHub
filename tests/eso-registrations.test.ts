@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { REG_VISIT, cutOf, daysBetween, labelOf, median, spanOf, statsBy, visitOf, ymd, type RegData } from "../src/lib/reporting/registrationsRules";
+import { REG_VISIT, addressOf, cutOf, daysBetween, hasDays, labelOf, median, spanOf, statsBy, visitOf, winOf, ymd, type RegData } from "../src/lib/reporting/registrationsRules";
 
 // the read's day 29 Oct 2026; two owners and the "No owner" row; five companies:
 // 0 registered 5 Mar 2026, visited the same day, its first shop order 20 Mar
@@ -95,4 +95,56 @@ test("registrations: the people of a team, the filters, a breakdown's own filter
   assert.equal(mar.companies, 1);
   assert.equal(mar.accounts, 2);
   assert.deepEqual(mar.months, [1]);
+});
+
+// SARCLA 31.10.2026: "really custom dates with a mini calendar" - a range of days, against the same days a year earlier
+test("registrations: the period in the address - whole months as before, or days", () => {
+  assert.deepEqual(winOf(d, "2026-03", "2026-05"), { from: 2, to: 4 });
+  assert.deepEqual(winOf(d, "2026-05", "2026-03"), { from: 2, to: 4 });
+  assert.deepEqual(winOf(d, "2026-03-05", "2026-05-17"), { from: 2, to: 4, d0: 20260305, d1: 20260517 });
+  // either order; a month at one end, a day at the other
+  assert.deepEqual(winOf(d, "2026-05-17", "2026-03-05"), { from: 2, to: 4, d0: 20260305, d1: 20260517 });
+  assert.deepEqual(winOf(d, "2026-03-05", "2026-05"), { from: 2, to: 4, d0: 20260305 });
+  // a day on a month's edge is the whole month; the read's day as the last is "to date" - 1 Jan to it the year to date
+  assert.deepEqual(winOf(d, "2026-03-01", "2026-05-31"), { from: 2, to: 4 });
+  assert.deepEqual(winOf(d, "2026-01-01", "2026-10-29"), { from: 0, to: 9 });
+  assert.equal(hasDays(winOf(d, "2026-10-01", "2026-10-29")!), false);
+  // nothing after the read's day: the last day the read's, a first after it the running month
+  assert.deepEqual(winOf(d, "2026-09-15", "2026-12-24"), { from: 8, to: 9, d0: 20260915 });
+  assert.deepEqual(winOf(d, "2026-11", "2026-12"), { from: 9, to: 9 });
+  // not this year's, not a day, an end missing: none (the page shows the year to date)
+  assert.equal(winOf(d, "2025-03-05", "2026-05-17"), null);
+  assert.equal(winOf(d, "2026-02-30", "2026-05-17"), null);
+  assert.equal(winOf(d, null, "2026-05"), null);
+  // and back into the address
+  assert.deepEqual(addressOf(d, { from: 2, to: 4 }), { from: "2026-03", to: "2026-05" });
+  assert.deepEqual(addressOf(d, { from: 2, to: 4, d0: 20260305, d1: 20260517 }), { from: "2026-03-05", to: "2026-05-17" });
+  assert.deepEqual(addressOf(d, { from: 2, to: 4, d0: 20260305 }), { from: "2026-03-05", to: "2026-05" });
+});
+
+test("registrations: a range of days against the same days a year earlier", () => {
+  const w = winOf(d, "2026-03-06", "2026-04-12")!;
+  assert.deepEqual(spanOf(d, w, 0), { from: 20260306, to: 20260412 });
+  assert.deepEqual(spanOf(d, w, 1), { from: 20250306, to: 20250412 });
+  const s = statsBy(d, w, 0, {}, null).get("")!;
+  // company 0 registered on 5 Mar, the day before; company 1 on 12 Apr, the last day
+  assert.equal(s.companies, 1);
+  assert.deepEqual(s.months, [0, 1]);
+  // the second account at company 0 (10 Mar) is one more; company 1's its first
+  assert.equal(s.accounts, 2);
+  assert.equal(s.more, 1);
+  // last year's side takes the same days: company 2 registered on 10 Oct 2025 - in 1-10 Oct, not in 11 Oct to date
+  const early = winOf(d, "2026-10-01", "2026-10-10")!, late = winOf(d, "2026-10-11", "2026-10-29")!;
+  assert.deepEqual(early, { from: 9, to: 9, d1: 20261010 });
+  assert.deepEqual(late, { from: 9, to: 9, d0: 20261011 });
+  assert.equal(statsBy(d, early, 1, {}, null).get("")!.companies, 1);
+  assert.equal(statsBy(d, late, 1, {}, null).get(""), undefined);
+  assert.equal(statsBy(d, { from: 9, to: 9 }, 1, {}, null).get("")!.companies, 1);
+  // whole months stay as they were: the running one to the same day on both sides
+  assert.deepEqual(spanOf(d, late, 1), { from: 20251011, to: 20251029 });
+  // 29 February has no day a year earlier: its 28th
+  const leap: RegData = { ...d, year: 2028, today: "2028-10-29" };
+  const feb = winOf(leap, "2028-02-29", "2028-03-10")!;
+  assert.deepEqual(feb, { from: 1, to: 2, d0: 20280229, d1: 20280310 });
+  assert.deepEqual(spanOf(leap, feb, 1), { from: 20270228, to: 20270310 });
 });

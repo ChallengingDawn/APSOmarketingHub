@@ -36,8 +36,12 @@ export const REG_VISIT = ["Registered on the day of a visit", "Registered after 
 export type RDim = "person" | "visit" | "country" | "prio" | "category" | "type" | "apic";
 export type RFilters = Partial<Record<RDim, string[]>>;
 /** A period: this year's months, 0 = January - compared with the same months of the year before (the running month to
- *  the same day). */
-export type RWin = { from: number; to: number };
+ *  the same day). With days (SARCLA 31.10.2026: "really custom dates with a mini calendar" - the rows hold the day):
+ *  `d0` / `d1` the first / last day yyyymmdd, inside the months `from` / `to`, compared with the same days a year
+ *  earlier; left out, the whole month - so a window of whole months is read exactly as before. */
+export type RWin = { from: number; to: number; d0?: number; d1?: number };
+/** A window with a day of its own on either end. */
+export const hasDays = (w: RWin) => !!(w.d0 || w.d1);
 
 /** The customer type in the words the ESO pages use (as their typeLabel). */
 const TYPE: Record<string, string> = {
@@ -54,11 +58,63 @@ export const daysBetween = (a: number, b: number) => Math.round(dayNo(b) - dayNo
 /** The day a side's figures reach: this year the read's day, last year the same day a year earlier - so last year's
  *  registrations had exactly as long to buy as this year's. */
 export const cutOf = (d: RegData, side: 0 | 1) => ymd(d.today) - side * 10000;
-/** The first and last day of a period on a side (0 this year, 1 the year before), the running month to the same day. */
+/** The last day of a month (0 = January). */
+const lastDay = (y: number, m: number) => new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+/** A day this year, on a side: the same day a year earlier - 29 February, which the year before has not, its 28th. */
+const sameDay = (n: number, side: 0 | 1) => {
+  if (!side) return n;
+  const y = Math.floor(n / 10000) - 1, m = (Math.floor(n / 100) % 100) - 1;
+  return y * 10000 + (m + 1) * 100 + Math.min(n % 100, lastDay(y, m));
+};
+/** The first and last day of a period on a side (0 this year, 1 the year before), the running month to the same day; a
+ *  window's own days the same days a year earlier. */
 export function spanOf(d: RegData, win: RWin, side: 0 | 1): { from: number; to: number } {
   const y = d.year - side;
-  const last = new Date(Date.UTC(y, win.to + 1, 0)).getUTCDate();
-  return { from: y * 10000 + (win.from + 1) * 100 + 1, to: Math.min(y * 10000 + (win.to + 1) * 100 + last, cutOf(d, side)) };
+  const from = win.d0 ? sameDay(win.d0, side) : y * 10000 + (win.from + 1) * 100 + 1;
+  const to = win.d1 ? sameDay(win.d1, side) : y * 10000 + (win.to + 1) * 100 + lastDay(y, win.to);
+  return { from, to: Math.min(to, cutOf(d, side)) };
+}
+
+/* ── the period in the address: ?from=2026-03&to=2026-05 (whole months) or ?from=2026-03-05&to=2026-05-17 (days) ── */
+
+const ADDRESS = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/;
+/** One end of the address, this year's only: a month (0 = January), with its day yyyymmdd when it names one. */
+function endOf(d: RegData, s: string | null): { m: number; day?: number } | null {
+  const x = ADDRESS.exec(s ?? "");
+  if (!x || Number(x[1]) !== d.year) return null;
+  const m = Number(x[2]) - 1;
+  if (m < 0 || m > 11) return null;
+  if (!x[3]) return { m };
+  const day = Number(x[3]);
+  return day >= 1 && day <= lastDay(d.year, m) ? { m, day: d.year * 10000 + (m + 1) * 100 + day } : null;
+}
+/**
+ * The window an address asks for - either end a month or a day, in either order; null when an end is missing or not
+ * this year's (the page then shows the year to date, as before). Nothing after the read's day: a last day after it is
+ * the read's day, a first after it the running month's 1st. A day on a month's edge is the whole month - the 1st as the
+ * first, the month's last or the read's day as the last ("to date", as the quick picks) -, so 1 Jan to the read's day
+ * is the year to date, and a range of whole months picked by the day reads as the months.
+ */
+export function winOf(d: RegData, from: string | null, to: string | null): RWin | null {
+  let a = endOf(d, from), b = endOf(d, to);
+  if (!a || !b) return null;
+  const first = (e: { m: number; day?: number }) => e.day ?? d.year * 10000 + (e.m + 1) * 100 + 1;
+  const last = (e: { m: number; day?: number }) => e.day ?? d.year * 10000 + (e.m + 1) * 100 + lastDay(d.year, e.m);
+  if (first(a) > last(b)) [a, b] = [b, a];
+  const today = ymd(d.today), month = (n: number) => (Math.floor(n / 100) % 100) - 1;
+  let lo = first(a), hi = Math.min(last(b), today);
+  if (lo > today) lo = Math.floor(today / 100) * 100 + 1;
+  const w: RWin = { from: month(lo), to: month(hi) };
+  if (lo % 100 !== 1) w.d0 = lo;
+  if (hi !== today && hi % 100 !== lastDay(d.year, month(hi))) w.d1 = hi;
+  return w;
+}
+/** 20260305 -> "2026-03-05" */
+export const isoOf = (n: number) => `${Math.floor(n / 10000)}-${String(Math.floor(n / 100) % 100).padStart(2, "0")}-${String(n % 100).padStart(2, "0")}`;
+/** A window as the address keeps it: "2026-03" for a whole month's end, "2026-03-05" for a day's. */
+export function addressOf(d: RegData, w: RWin): { from: string; to: string } {
+  const month = (m: number) => `${d.year}-${String(m + 1).padStart(2, "0")}`;
+  return { from: w.d0 ? isoOf(w.d0) : month(w.from), to: w.d1 ? isoOf(w.d1) : month(w.to) };
 }
 
 /** The registration against the company's first completed visit, as far as the side reaches. */
