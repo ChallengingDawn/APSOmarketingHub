@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { OUTCOMES } from "../src/lib/marketingKpis/handoverCube";
 import {
-  CHANNEL_ORDER, PUSHES, comparable, firstContact, flowOf, inDayOf, kindOf, labelOf, median, outcomeIndex, pushOf, quietOf, rateOf, rowsOf, speedOf, startLabels, statsBy,
+  CHANNEL_ORDER, PUSHES, byDays, comparable, firstContact, flowOf, inDayOf, kindOf, labelOf, median, outcomeIndex, pushOf, quietOf, rateOf, rowsOf, sameWin, speedOf, startLabels, statsBy,
+  winDays, winFrom, winParams,
   type TicketsData,
 } from "../src/lib/reporting/ticketsRules";
 
@@ -128,4 +129,81 @@ test("tickets: last year beside this year only when each month held enough of th
   assert.equal(comparable(many, "system", { from: 9, to: 9 }, null), false);
   assert.equal(comparable(many, "incoming", { from: 8, to: 9 }, null), false);
   assert.equal(comparable(many, "incoming", { from: 9, to: 9 }, new Set([1])), false);
+});
+
+// one's own dates (SARCLA 31.10.2026: "really custom dates with a mini calendar"): the days of the first and the last month
+test("tickets: a window of days - each ticket on the day it came in, last year's on the same days", () => {
+  // 6 March - 2 April: the website form of 9 March, the Back Office one of 1 April, the helpline one of 2 April
+  const w = { from: 2, d0: 6, to: 3, d1: 2 };
+  assert.equal(rowsOf(d, "incoming", w, {}, null).length, 3);
+  assert.equal(rowsOf(d, "system", w, {}, null).length, 0);
+  // within one month both ends cut it: 2-4 April
+  assert.equal(rowsOf(d, "incoming", { from: 3, to: 3, d0: 2, d1: 4 }, {}, null).length, 1);
+  assert.equal(rowsOf(d, "system", { from: 3, to: 3, d0: 2, d1: 4 }, {}, null).length, 1);
+  // the same days a year earlier: 4 September last year is in from the 4th, out from the 5th
+  assert.equal(rowsOf(d, "incoming", { from: 8, to: 8, d0: 4, year: 1 }, {}, null).length, 1);
+  assert.equal(rowsOf(d, "incoming", { from: 8, to: 8, d0: 5, year: 1 }, {}, null).length, 0);
+  // the figures by month: the cut months counted on their days only
+  const s = statsBy(rowsOf(d, "incoming", w, {}, null), w).get("")!;
+  assert.deepEqual(s.months, [1, 2]);
+  assert.equal(s.won, 0);
+  // whole months: no days, as before
+  assert.equal(rowsOf(d, "incoming", { from: 2, to: 3 }, {}, null).length, 4);
+});
+
+test("tickets: a window from the address or the calendar - months or days, this year, in either order, cut at the read's day", () => {
+  assert.deepEqual(winFrom(d, "2026-03-05", "2026-05-17"), { from: 2, to: 4, d0: 5, d1: 17 });
+  assert.deepEqual(winFrom(d, "2026-05-17", "2026-03-05"), { from: 2, to: 4, d0: 5, d1: 17 });
+  assert.deepEqual(winFrom(d, "2026-04", "2026-06"), { from: 3, to: 5 });
+  assert.deepEqual(winFrom(d, "2026-06", "2026-04"), { from: 3, to: 5 });
+  // from the 1st to the month's end: whole months, the same window as the month picks
+  assert.deepEqual(winFrom(d, "2026-03-01", "2026-05-31"), { from: 2, to: 4 });
+  assert.deepEqual(winFrom(d, "2026-02-01", "2026-02-28"), { from: 1, to: 1 });
+  // past the read's day (30 October): a month to date, a day the read's day
+  assert.deepEqual(winFrom(d, "2026-10-05", "2026-12-24"), { from: 9, to: 9, d0: 5, d1: 30 });
+  assert.deepEqual(winFrom(d, "2026-09", "2026-12"), { from: 8, to: 9 });
+  // a range ending on the read's day keeps it: last year then stops on 30 October too
+  assert.deepEqual(winFrom(d, "2026-01-01", "2026-10-30"), { from: 0, to: 9, d1: 30 });
+  // last year, a day that does not exist, nonsense: none
+  assert.equal(winFrom(d, "2025-03", "2026-05"), null);
+  assert.equal(winFrom(d, "2026-02-30", "2026-03-10"), null);
+  assert.equal(winFrom(d, "2026-13", "2026-03"), null);
+  assert.equal(winFrom(d, null, "2026-03"), null);
+  assert.ok(sameWin({ from: 2, to: 4 }, winFrom(d, "2026-03-01", "2026-05-31")!));
+  assert.ok(!sameWin({ from: 2, to: 4 }, { from: 2, to: 4, d0: 2 }));
+  assert.ok(byDays({ from: 2, to: 2, d1: 9 }) && !byDays({ from: 2, to: 2 }));
+});
+
+test("tickets: a window in the address and back - whole months as before, days as days, a running end as the month", () => {
+  assert.deepEqual(winParams(d, { from: 3, to: 5 }), ["2026-04", "2026-06"]);
+  assert.deepEqual(winParams(d, { from: 2, to: 4, d0: 5, d1: 17 }), ["2026-03-05", "2026-05-17"]);
+  assert.deepEqual(winParams(d, { from: 2, to: 4, d0: 5 }), ["2026-03-05", "2026-05-31"]);
+  assert.deepEqual(winParams(d, { from: 8, to: 9, d0: 15 }), ["2026-09-15", "2026-10"]);
+  assert.deepEqual(winDays(d, { from: 8, to: 9, d0: 15 }), ["2026-09-15", "2026-10-30"]);
+  assert.deepEqual(winDays(d, { from: 1, to: 1 }), ["2026-02-01", "2026-02-28"]);
+  for (const w of [{ from: 3, to: 5 }, { from: 0, to: 9 }, { from: 2, to: 4, d0: 5, d1: 17 }, { from: 2, to: 4, d0: 5 }, { from: 8, to: 9, d0: 15 }, { from: 9, to: 9, d1: 12 }, { from: 0, to: 9, d1: 30 }]) {
+    const [a, b] = winParams(d, w);
+    assert.deepEqual(winFrom(d, a, b), w, `${a} ${b}`);
+  }
+});
+
+test("tickets: last year beside a window of days - a cut month held to its share of the 50, on the same days", () => {
+  const ly = (days: number[]) => days.map((day) => [0, 1, 9, day, 0, 0, 0, 0, 0, O("price"), -1, -1, 0, 0, 0, 0]);
+  const every = (k: number) => Array.from({ length: 31 }, (_, i) => Array(k).fill(i + 1)).flat();
+  // two a day all October last year: the month passes, and 1-10 October (20 of 50 x 10/31 = 16.1)
+  const two: TicketsData = { ...d, tickets: [...d.tickets, ...ly(every(2))] };
+  assert.equal(comparable(two, "incoming", { from: 9, to: 9 }, null), true);
+  assert.equal(comparable(two, "incoming", { from: 9, to: 9, d1: 10 }, null), true);
+  // one a day: 31 fail the month, and 10 fail 1-10 October
+  const one: TicketsData = { ...d, tickets: [...d.tickets, ...ly(every(1))] };
+  assert.equal(comparable(one, "incoming", { from: 9, to: 9 }, null), false);
+  assert.equal(comparable(one, "incoming", { from: 9, to: 9, d1: 10 }, null), false);
+  // a pipeline that began on the 20th: 60 tickets on 20-31 October pass the whole month and 20-31, not 1-15
+  const late: TicketsData = { ...d, tickets: [...d.tickets, ...ly(Array.from({ length: 60 }, (_, i) => 20 + (i % 12)))] };
+  assert.equal(comparable(late, "incoming", { from: 9, to: 9 }, null), true);
+  assert.equal(comparable(late, "incoming", { from: 9, to: 9, d0: 20 }, null), true);
+  assert.equal(comparable(late, "incoming", { from: 9, to: 9, d1: 15 }, null), false);
+  // across months: September last year held one ticket - a window into it is not comparable, from October it is
+  assert.equal(comparable(two, "incoming", { from: 8, to: 9, d0: 25, d1: 10 }, null), false);
+  assert.equal(comparable(two, "incoming", { from: 9, to: 9, d0: 25 }, null), true);
 });

@@ -712,7 +712,10 @@ function KpiCards({ cube, a, all, win, readIso, online, onlineBusy }: { cube: Cu
  * charts behind it stay live (SARCLA 13.10: "collapsable; when open it
  * overlays the graphs; it works like a separate chat").
  */
-export function FilterWindow({ id = "customers-filters", period = true, dims = ORDER, names = {}, customers, open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
+export function FilterWindow({ id = "customers-filters", period = true, periodPicker, dims = ORDER, names = {}, customers, open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
+  /** a page's own Period section in place of the ready-made windows and the two month menus - the ESO reports' every
+   *  quarter and mini calendar (SARCLA 31.10.2026) */
+  periodPicker?: React.ReactNode;
   /** the breakdowns it offers - this page's, unless given (the Figures add the Performis SAE) */
   dims?: Dim[];
   /** the window's id - the Figures of the ESO reports open the same one (SARCLA 24.10.2026: "filters as in Digital Growth") */
@@ -769,7 +772,7 @@ export function FilterWindow({ id = "customers-filters", period = true, dims = O
       {live && period && (
       <Section id="filter-period" index={0} title="Period" icon={<CalendarMonthOutlinedIcon />} tint="blue" open={isOpen("period")} onFlip={() => flip("period")}
         summary={windowLabel(cube, win)}>
-        <Period cube={cube} win={win} onChange={setWin} />
+        {periodPicker ?? <Period cube={cube} win={win} onChange={setWin} />}
         <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1, lineHeight: 1.45 }}>
           Against {windowLabel(cube, win, 1)}{proRataNote(cube, win) ? ` - ${proRataNote(cube, win)}` : ""} · figures up to {upToDate(cube, win)}
         </Typography>

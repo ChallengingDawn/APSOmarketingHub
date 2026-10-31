@@ -82,6 +82,8 @@ export type SPer = {
   prev: SWin | null;
   /** a year the export stops inside of */
   partial?: boolean;
+  /** a range of the reader's own days, picked in the calendar - its words are its days ("5 – 20 Oct 2026") */
+  custom?: boolean;
 };
 const MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -135,6 +137,92 @@ export function presetsOf(d: ShopData): SPer[] {
 
 /** The days a live period spans, or 0 for a year. */
 export const spanOf = (w: SWin) => (w.kind === "live" ? w.to - w.from + 1 : 0);
+
+/** "2026-10-05", "2026-10-20" -> "5 – 20 Oct 2026"; "28 Sep – 4 Oct 2026"; "30 Dec 2026 – 3 Jan 2027"; a single day as it is */
+export function rangeWords(a: string, b: string): string {
+  if (a === b) return dayWords(a);
+  const sameYear = a.slice(0, 4) === b.slice(0, 4), sameMonth = sameYear && a.slice(5, 7) === b.slice(5, 7);
+  const left = sameMonth ? String(Number(a.slice(8, 10))) : sameYear ? dayWords(a).replace(/ \d{4}$/, "") : dayWords(a);
+  return `${left} – ${dayWords(b)}`;
+}
+
+/* ── the quarters and the reader's own days ────────────────────────────── */
+// SARCLA 31.10.2026, across the ESO reports: "put every quarter to be easy to select, and really custom dates with a mini
+// calendar" - his pick: a calendar of days where the page's data has the day. The live counters have it, since liveFrom;
+// the Performis export has whole years only, so it gets neither.
+
+/** Whether two periods are the same days (or the same Performis year): in October the quarter to date is the month to date. */
+export const sameWin = (a: SWin, b: SWin) => (a.kind === "live" && b.kind === "live" ? a.from === b.from && a.to === b.to : a.kind === "year" && b.kind === "year" && a.y === b.y);
+
+/** "2027-01-01" for (2027, 0, 1); a month past either end rolls into the next or last year, day 0 is the month before's last */
+const utcDay = (y: number, m: number, day: number) => new Date(Date.UTC(y, m, day)).toISOString().slice(0, 10);
+
+export type SQuarter = {
+  /** "q2026-4" */
+  id: string;
+  /** "Q4 2026 to date", "Q1 2027" */
+  label: string;
+  /** the period - null when the counters cannot show it */
+  per: SPer | null;
+  /** why not: the counters started after it ended ("early" - Q1 to Q3 2026), or it has not started ("ahead") */
+  off?: "early" | "ahead";
+};
+/** Every quarter of the years the live counters have run in, oldest first - one the counters cannot show greyed with its
+ *  reason, never left out (Q1 to Q3 2026: no live counters before 2 Oct 2026). One they count is a period from liveFrom at the
+ *  earliest, the running one "to date" with today counted (as the month to date); a whole quarter against the quarter
+ *  before, the running one against the same days of it - only where the counters have the quarter before whole (as the
+ *  months: Q4 2026 lacks 1 Oct, so Q1 2027 has nothing to compare with). */
+export function quarterPicks(d: ShopData): SQuarter[] {
+  const t = dayNo(d.liveFrom, d.today);
+  const out: SQuarter[] = [];
+  for (let y = Number(d.liveFrom.slice(0, 4)); y <= Number(d.today.slice(0, 4)); y++) {
+    for (let q = 0; q < 4; q++) {
+      const start = utcDay(y, q * 3, 1), end = utcDay(y, q * 3 + 3, 0);
+      const id = `q${y}-${q + 1}`, name = `Q${q + 1} ${y}`;
+      if (end < d.liveFrom) { out.push({ id, label: name, per: null, off: "early" }); continue; }
+      if (start > d.today || t < 0) { out.push({ id, label: name, per: null, off: "ahead" }); continue; }
+      const running = end >= d.today;
+      const from = Math.max(0, dayNo(d.liveFrom, start)), to = running ? t : dayNo(d.liveFrom, end);
+      const pFrom = dayNo(d.liveFrom, utcDay(y, q * 3 - 3, 1)), pEnd = dayNo(d.liveFrom, utcDay(y, q * 3, 0));
+      const label = running ? `${name} to date` : name;
+      out.push({ id, label, per: { id, label, title: label, win: live(from, to), prev: pFrom < 0 ? null : live(pFrom, running ? Math.min(pFrom + (to - from), pEnd) : pEnd) } });
+    }
+  }
+  return out;
+}
+
+const RANGE = /^d(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})$/;
+/** A range of one's own days as a period id, both days counted: "d2026-10-05_2026-10-20". */
+export const rangeId = (from: string, to: string) => `d${from}_${to}`;
+/** A range of one's own days from its id, in either order and cut to the live counters (liveFrom to today - a day before
+ *  them has no counter); against the same number of days right before it, once the counters reach back that far. Null for
+ *  an id that is no range, a day that is none ("2026-02-31"), or a range wholly outside the counters. */
+export function rangeOf(d: ShopData, id: string): SPer | null {
+  const m = RANGE.exec(id);
+  if (!m) return null;
+  const real = (s: string) => Number.isFinite(at(s)) && dayOf(s, 0) === s;
+  if (!real(m[1]) || !real(m[2])) return null;
+  let a = dayNo(d.liveFrom, m[1]), b = dayNo(d.liveFrom, m[2]);
+  if (a > b) [a, b] = [b, a];
+  a = Math.max(0, a); b = Math.min(dayNo(d.liveFrom, d.today), b);
+  if (b < a) return null;
+  const n = b - a + 1, from = dayOf(d.liveFrom, a), to = dayOf(d.liveFrom, b), words = rangeWords(from, to);
+  return { id: rangeId(from, to), label: words, title: words, win: live(a, b), prev: a - n >= 0 ? live(a - n, a - 1) : null, custom: true };
+}
+/** A period by its id - a preset, a quarter or one's own days; null when it is none of them, or no longer offered. */
+export function periodOf(d: ShopData, id: string | null | undefined): SPer | null {
+  if (!id) return null;
+  return presetsOf(d).find((p) => p.id === id) ?? quarterPicks(d).find((q) => q.id === id)?.per ?? rangeOf(d, id);
+}
+/** The period for the days picked in the calendar: the named one when it is those very days (the last 7 days, a month, a
+ *  quarter - it keeps its own comparison and target, and its pick lights), else the days as they are; null when the
+ *  counters have none of them. */
+export function periodFor(d: ShopData, from: string, to: string): string | null {
+  const own = rangeOf(d, rangeId(from, to));
+  if (!own) return null;
+  const named = [...presetsOf(d), ...quarterPicks(d).flatMap((q) => (q.per ? [q.per] : []))].find((p) => sameWin(p.win, own.win));
+  return named?.id ?? own.id;
+}
 
 /* ── the figures ───────────────────────────────────────────────────────── */
 

@@ -10,6 +10,10 @@
 // per assortment; conversion rate per assortment. Orders: general & per assortment: # all, # one shots, # second,
 // # multiple" - "you're missing tabs"; assortment = the profit centre, orders = shop orders): tabs People | Logins |
 // Views | Orders | Priority | Country.
+// Third pass (SARCLA 31.10.2026, across the ESO reports): "put every quarter to be easy to select, and really custom dates
+// with a mini calendar" - the live counters' quarters and a calendar of days (the Performis years stay whole years); "the
+// filter when clicked should appear next to the tabs" - a Filtered by bar under the tab row; and every table its own card
+// with its Actions, so the BUC View can take it too.
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -48,15 +52,16 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  blank, blankOrders, dayOf, dayWords, labelOf, liveSeries, looksBy, ordersBy, ordersCover, passOf, presetsOf, shortDays, statsBy, totalsOf, yearSeries,
+  blank, blankOrders, dayOf, dayWords, labelOf, liveSeries, looksBy, ordersBy, ordersCover, passOf, periodFor, periodOf, presetsOf, quarterPicks, rangeWords, sameWin, shortDays, statsBy, totalsOf, yearSeries,
   type AStats, type OStats, type SDim, type SFilters, type SPer, type SStats, type SWin, type Series, type ShopData,
 } from "@/lib/reporting/shopRules";
 import { pcLabel } from "./shared";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
-  ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, SubTitle, TARGET, TWO, Teams, asLead, asTeam, axisWidth, leadOf, niceTop, setQuery, useLead, useLeads, useTeam,
+  ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TWO, Teams, asLead, asTeam, axisWidth, leadOf, niceTop, setQuery, useLead, useLeads, useTeam,
   type BoardRow, type Col, type LeadKey, type TeamKey,
 } from "./Figures";
+import { ActiveFilters, PeriodPicker, type ActiveItem, type PeriodChoice } from "./EsoFilters";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -109,14 +114,12 @@ function winWords(d: ShopData, w: SWin, partial = false): string {
     const y = d.dtYears[w.y];
     return partial && d.dtLoaded ? `1 Jan – ${dayWords(d.dtLoaded)}` : `1 Jan – 31 Dec ${y}`;
   }
-  const a = dayOf(d.liveFrom, w.from), b = dayOf(d.liveFrom, w.to);
-  const tail = b === d.today ? " (today so far)" : "";
-  if (a === b) return `${dayWords(a)}${tail}`;
-  const sameYear = a.slice(0, 4) === b.slice(0, 4), sameMonth = sameYear && a.slice(5, 7) === b.slice(5, 7);
-  const left = sameMonth ? String(Number(a.slice(8, 10))) : sameYear ? dayWords(a).replace(/ \d{4}$/, "") : dayWords(a);
-  return `${left} – ${dayWords(b)}${tail}`;
+  const b = dayOf(d.liveFrom, w.to);
+  return `${rangeWords(dayOf(d.liveFrom, w.from), b)}${b === d.today ? " (today so far)" : ""}`;
 }
 const perWords = (d: ShopData, p: SPer) => winWords(d, p.win, p.partial);
+/** The period in the Filtered by bar: a named one with its days, one's own days as they are, a Performis year with its source */
+const perPill = (d: ShopData, p: SPer) => (p.custom ? perWords(d, p) : isLive(p.win) ? `${perCap(p)} · ${perWords(d, p)}` : `${p.label} · the Performis export`);
 /** "the 7 days before (15 – 21 Oct 2026)", "2024" */
 const prevWords = (d: ShopData, p: SPer) => (!p.prev ? "" : p.prev.kind === "year" ? String(d.dtYears[p.prev.y]) : winWords(d, p.prev));
 const sourceWords = (p: SPer) => (isLive(p.win) ? "the smart bar's live counters" : "the Performis export (E-Shop Data Tracker)");
@@ -496,7 +499,7 @@ const teamPart = (c: ShCtx) => ` - ${teamName(c)}`;
 const forWhom = (c: ShCtx) => `${teamName(c)}'s target for ${c.per.title} - each team and period its own`;
 const stepWords = (c: ShCtx) => (!isLive(c.per.win) ? "year by year" : seriesOf(c).keys[0]?.length === 7 ? "month by month" : "day by day");
 /** A chart by its id "<tab>:<what>[-<breakdown>]": people:loggedin, people:days, logins:idle, views:pc-conversion,
- *  orders:mix, orders:orders, prio:share… */
+ *  orders:mix, orders:orders, prio:share… - and each tab's table, "<tab>:figures". */
 function drawnOf(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
@@ -515,6 +518,23 @@ function drawnOf(id: string): Drawn | undefined {
     const title = (c: ShCtx) => `Buyers by profit centre - one-shot, second, multiple, ${c.per.title}${teamPart(c)}`;
     return { id, title, draw: (c, a) => (ordersMissing(c) ? <Unavailable text={ordersMissing(c)!} />
       : <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · an order counts for each profit centre it has a line of; a buyer by its orders of that one`} actions={a}><OrdersByPc c={c} /></ChartBox>) };
+  }
+  // every table its own card, with its Actions (SARCLA 31.10.2026: "all the tables should be individual KPIs")
+  if (chart === "figures" && v === "views") {
+    const title = (c: ShCtx) => `Articles looked at, into the cart and ordered, ${c.per.title}, by profit centre${teamPart(c)}`;
+    return { id, title, draw: (c, a) => (looksMissing(c) ? <Unavailable text={looksMissing(c)!} />
+      : <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each profit centre's articles looked at (an article once a company and day), the companies that looked, how many went into the cart and were ordered, and the conversion`} actions={a}><PcTable c={c} /></ChartBox>) };
+  }
+  if (chart === "figures" && v === "orders") {
+    const title = (c: ShCtx) => `Shop orders and their buyers, ${c.per.title}, by profit centre${teamPart(c)}`;
+    return { id, title, draw: (c, a) => (ordersMissing(c) ? <Unavailable text={ordersMissing(c)!} />
+      : <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each profit centre's shop orders (an order counts for each it has a line of), its buyers one-shot, second or multiple, and the share that came back`} actions={a}><OrdersTable c={c} /></ChartBox>) };
+  }
+  if (chart === "figures") {
+    const dim = DIM_OF[v];
+    const title = (c: ShCtx) => `All the figures, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`;
+    const hint = (c: ShCtx) => `${perWords(c.d, c.per)}${c.per.prev ? ` against ${prevWords(c.d, c.per)}` : ""} · each ${DIM[dim].lower}'s companies that logged in, their logins and article views, those that ordered in the shop and those that ${isLive(c.per.win) ? "neither viewed nor put an article in the cart" : "viewed no article"}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={hint(c)} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
   }
   const [what, by] = chart.split("-");
   if (what === "orders") {
@@ -590,7 +610,7 @@ function TabCard({ c, act, footnote }: { c: ShCtx; act: Act; footnote: React.Rea
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "people:loggedin")}{draw(c, act, "people:ordered")}</Box>
       {draw(c, act, "people:days")}
       <Box sx={TWO}>{draw(c, act, "people:share")}{draw(c, act, "people:idle")}</Box>
-      <Box><SubTitle>{perCap(c.per)}, by company owner</SubTitle><DimTable c={c} dim="person" /></Box>
+      {draw(c, act, "people:figures")}
       {footnote}
     </GlassCard>
   );
@@ -600,7 +620,7 @@ function TabCard({ c, act, footnote }: { c: ShCtx; act: Act; footnote: React.Rea
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "logins:loggedin")}{draw(c, act, "logins:logins")}</Box>
       <Box sx={TWO}>{draw(c, act, "logins:idle")}{draw(c, act, "logins:idleshare")}</Box>
       {draw(c, act, "logins:days")}
-      <Box><SubTitle>{perCap(c.per)}, by customer category</SubTitle><DimTable c={c} dim="category" /></Box>
+      {draw(c, act, "logins:figures")}
       {footnote}
     </GlassCard>
   );
@@ -610,7 +630,7 @@ function TabCard({ c, act, footnote }: { c: ShCtx; act: Act; footnote: React.Rea
       {looksMissing(c) ? <Box sx={{ mt: -1 }}><Unavailable text={looksMissing(c)!} /></Box> : (
         <>
           <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "views:pc-looks")}{draw(c, act, "views:pc-conversion")}</Box>
-          <Box><SubTitle>{perCap(c.per)}, by profit centre</SubTitle><PcTable c={c} /></Box>
+          {draw(c, act, "views:figures")}
         </>
       )}
       <Box sx={TWO}>{draw(c, act, "views:views")}{draw(c, act, "views:depth")}</Box>
@@ -623,7 +643,7 @@ function TabCard({ c, act, footnote }: { c: ShCtx; act: Act; footnote: React.Rea
       {ordersMissing(c) ? <Box sx={{ mt: -1 }}><Unavailable text={ordersMissing(c)!} /></Box> : (
         <>
           <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "orders:mix")}{draw(c, act, "orders:pc")}</Box>
-          <Box><SubTitle>{perCap(c.per)}, by profit centre</SubTitle><OrdersTable c={c} /></Box>
+          {draw(c, act, "orders:figures")}
           {draw(c, act, "orders:orders")}
         </>
       )}
@@ -636,7 +656,7 @@ function TabCard({ c, act, footnote }: { c: ShCtx; act: Act; footnote: React.Rea
       <CardTitle icon={dd.icon} tint={dd.tint} title={`${teamName(c)} by ${dd.lower}, ${c.per.title}`} note={`${dd.note} · ${words}`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${c.view}:loggedin`)}{draw(c, act, `${c.view}:ordered`)}</Box>
       <Box sx={TWO}>{draw(c, act, `${c.view}:share`)}{draw(c, act, `${c.view}:idleshare`)}</Box>
-      <Box><SubTitle>{perCap(c.per)}, by {dd.lower}</SubTitle><DimTable c={c} dim={dim} /></Box>
+      {draw(c, act, `${c.view}:figures`)}
       {footnote}
     </GlassCard>
   );
@@ -691,26 +711,52 @@ function FigureCards({ c, items, actions }: { c: ShCtx; items: Fig[]; actions?: 
 
 /* ── the Filters window: the period and the breakdowns ─────────────────── */
 
-function SPeriod({ d, per, onPer }: { d: ShopData; per: SPer; onPer: (id: string) => void }) {
-  const all = presetsOf(d);
-  const chips = (list: SPer[]) => (
-    <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap" }}>
-      {list.map((p) => {
-        const on = p.id === per.id;
-        return <Chip key={p.id} label={p.label} onClick={() => onPer(p.id)} aria-pressed={on} sx={{ height: 28, fontSize: "0.78rem", fontWeight: 600, bgcolor: on ? TINT.blue.bg : "#fff", color: on ? TINT.blue.fg : INK, border: `1px solid ${on ? TINT.blue.fg : "rgba(21,34,58,.14)"}` }} />;
-      })}
+/** A Performis year's pick - drawn as the live picks above it (EsoFilters' Pick), so the window reads as one. */
+function YearPick({ p, on, onClick }: { p: SPer; on: boolean; onClick: () => void }) {
+  return (
+    <Box component="button" type="button" onClick={onClick} aria-pressed={on} title={p.title}
+      sx={{ height: 30, px: 1.4, borderRadius: "9px", font: "inherit", fontSize: "0.8rem", fontWeight: 650, cursor: "pointer",
+        bgcolor: on ? TINT.blue.fg : "#fff", color: on ? "#fff" : INK, border: `1px solid ${on ? TINT.blue.fg : "rgba(21,34,58,.16)"}`,
+        "&:hover": on ? {} : { borderColor: TINT.blue.fg, color: TINT.blue.fg } }}>
+      {p.label}
     </Box>
   );
+}
+/** "Q1, Q2 and Q3 2026" - quarters of one year */
+const quarterList = (labels: string[], year: string) => {
+  const q = labels.map((l) => l.replace(/ \d{4}$/, ""));
+  return `${q.length > 1 ? `${q.slice(0, -1).join(", ")} and ${q[q.length - 1]}` : q[0]} ${year}`;
+};
+/** The period, two sources apart as ever: the live counters - their periods, every quarter (one they cannot show greyed
+ *  with its reason), a calendar of days from liveFrom to today - and the Performis years, whole years only (the export
+ *  has no quarter and no day). One period for the whole page: the shop orders, read by the day, follow it. */
+function SPeriod({ d, per, onPer }: { d: ShopData; per: SPer; onPer: (id: string) => void }) {
+  const all = presetsOf(d), quarters = quarterPicks(d);
+  const lives = all.filter((p) => isLive(p.win)), years = all.filter((p) => !isLive(p.win));
+  // a pick is on when it is the days shown - two can be (in October the quarter to date is the month to date)
+  const winOf = (id: string) => (lives.find((p) => p.id === id) ?? quarters.find((q) => q.id === id)?.per)?.win;
+  const isOn = (id: string) => { const w = winOf(id); return !!w && sameWin(w, per.win); };
+  const early = quarters.filter((q) => q.off === "early");
+  const qPicks: PeriodChoice[] = quarters.map((q) => ({ id: q.id, label: q.label, disabled: !q.per,
+    title: q.per ? winWords(d, q.per.win) : q.off === "early" ? `No live counters before ${dayWords(d.liveFrom)}` : "Not started yet" }));
+  // the calendar holds the live days shown; with a Performis year, every live day (nothing of its own to show)
+  const lw = isLive(per.win) ? per.win : null;
   const head = { fontSize: "0.76rem", fontWeight: 700, color: INK } as const;
   const note = { fontSize: "0.74rem", color: MUTED, lineHeight: 1.45 } as const;
   return (
     <Box sx={{ display: "grid", gap: 1 }}>
       <Typography sx={head}>Live - the smart bar&apos;s counters</Typography>
-      {chips(all.filter((p) => isLive(p.win)))}
-      <Typography sx={note}>Day by day since {dayWords(d.liveFrom)}. A period is compared with the same number of days right before it, once the counters reach back that far.</Typography>
-      <Typography sx={{ ...head, mt: 0.5 }}>Performis - the E-Shop Data Tracker&apos;s export</Typography>
-      {chips(all.filter((p) => !isLive(p.win)))}
-      <Typography sx={note}>One total per company and year, loaded by hand{d.dtLoaded ? ` - the last on ${dayWords(d.dtLoaded)}, so ${d.dtLoaded.slice(0, 4)} stops there` : ""}. A whole year is compared with the year before.</Typography>
+      <PeriodPicker quick={lives.map((p) => ({ id: p.id, label: p.label, title: winWords(d, p.win) }))} quarters={qPicks} isOn={isOn} onChoice={onPer}
+        unit="day" min={d.liveFrom} max={d.today} from={dayOf(d.liveFrom, lw?.from ?? 0)} to={lw ? dayOf(d.liveFrom, lw.to) : d.today}
+        onRange={(a, b) => { const id = periodFor(d, a, b); if (id) onPer(id); }}
+        note={<>
+          Day by day since {dayWords(d.liveFrom)}, to today so far. A period is compared with the same number of days right before it - a month or a quarter with the one before - once the counters reach back that far.
+          {early.length > 0 && <> {quarterList(early.map((q) => q.label), d.liveFrom.slice(0, 4))} greyed: no live counters before {dayWords(d.liveFrom)}.</>}
+          {!lw && <> A Performis year is shown now - pick live days or a live period to see the counters instead.</>}
+        </>} />
+      <Typography sx={{ ...head, mt: 0.75 }}>Performis - the E-Shop Data Tracker&apos;s export</Typography>
+      <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap" }}>{years.map((p) => <YearPick key={p.id} p={p} on={p.id === per.id} onClick={() => onPer(p.id)} />)}</Box>
+      <Typography sx={note}>One total per company and year, loaded by hand{d.dtLoaded ? ` - the last on ${dayWords(d.dtLoaded)}, so ${d.dtLoaded.slice(0, 4)} stops there` : ""}. Whole years only - no quarters, no days of its own. A whole year is compared with the year before.</Typography>
     </Box>
   );
 }
@@ -800,8 +846,9 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
     </GlassCard>
   );
 }
-/** A period by its id, the default one when it is not (or no longer) offered - a month that has not ended, say. */
-const perById = (d: ShopData, id: string | null | undefined) => { const all = presetsOf(d); return all.find((p) => p.id === id) ?? all.find((p) => p.id === DEFAULT_PER) ?? all[0]; };
+/** A period by its id - a preset, a quarter ("q2026-4") or one's own days ("d2026-10-05_2026-10-20"); the default one when
+ *  it is not (or no longer) offered - a month that has not ended, say. */
+const perById = (d: ShopData, id: string | null | undefined) => { const p = periodOf(d, id); if (p) return p; const all = presetsOf(d); return all.find((x) => x.id === DEFAULT_PER) ?? all[0]; };
 
 export function ShopExplorer() {
   const params = useSearchParams();
@@ -869,15 +916,8 @@ export function ShopExplorer() {
         <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
           <Typography component="h1" sx={H1}>Shop behaviour</Typography>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-            <b style={{ color: INK }}>{teamName(now)}</b>&apos;s customers · {isLive(per.win) ? `${per.title} ` : ""}<b style={{ color: INK }}>{perWords(d, per)}</b> · {sourceWords(per)}{per.prev ? ` · against ${prevWords(d, per)}` : ""}{computing ? " · reading again" : ""}
+            <b style={{ color: INK }}>{teamName(now)}</b>&apos;s customers · {isLive(per.win) && !per.custom ? `${per.title} ` : ""}<b style={{ color: INK }}>{perWords(d, per)}</b> · {sourceWords(per)}{per.prev ? ` · against ${prevWords(d, per)}` : ""}{computing ? " · reading again" : ""}
           </Typography>
-          {(chosen.length > 0 || per.id !== DEFAULT_PER) && (
-            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-              {per.id !== DEFAULT_PER && <Chip size="small" label={<span><b>Period:</b> {per.label}</span>} onDelete={() => setPer(DEFAULT_PER)} onClick={() => setPanel(true)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.blue.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.blue.fg } }} />}
-              {chosen.map(([k, v]) => <Chip key={`${k}:${v}`} size="small" label={<span><b>{DIM[k].name}:</b> {v}</span>} onDelete={() => toggle(k, v)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[DIM[k].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[k].tint].fg } }} />)}
-              {chosen.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>}
-            </Box>
-          )}
         </Box>
         <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" }, opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }}><FigureCards c={c} items={figs} /></Box>
       </Box>
@@ -897,6 +937,11 @@ export function ShopExplorer() {
           Filters{chosen.length + (per.id !== DEFAULT_PER ? 1 : 0) ? ` · ${chosen.length + (per.id !== DEFAULT_PER ? 1 : 0)}` : ""}
         </Button>
       </Box>
+      {/* what the page is filtered by, under the tabs (SARCLA 31.10.2026: "on top it is really hard to find them and see them") */}
+      <ActiveFilters onEdit={() => setPanel(true)} onClearAll={clearAll} items={[
+        ...(per.id !== DEFAULT_PER ? [{ key: "period", name: "Period", value: perPill(d, per), tint: "blue" as Tint, onRemove: () => setPer(DEFAULT_PER) }] : []),
+        ...chosen.map(([k, v]): ActiveItem => ({ key: `${k}:${v}`, name: DIM[k].name, value: v, tint: DIM[k].tint, onRemove: () => toggle(k, v) })),
+      ]} />
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
         <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} footnote={footnote} />
       </Box>

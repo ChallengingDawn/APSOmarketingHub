@@ -30,8 +30,6 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import InputBase from "@mui/material/InputBase";
-import MenuItem from "@mui/material/MenuItem";
-import Select from "@mui/material/Select";
 import TuneIcon from "@mui/icons-material/Tune";
 import SearchIcon from "@mui/icons-material/Search";
 import CheckIcon from "@mui/icons-material/Check";
@@ -60,12 +58,16 @@ import { SavedViews } from "@/app/reporting/marketing-kpis/tiles/SavedViews";
 import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tiles/SortableGrid";
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
-import { BEFORE, KINDS, NO_COMPANY, REG_WAY, blank, coverageOf, labelOf, lastYearOf, rowsOf, statsBy, type VDim, type VFilters, type VStats, type VWin, type VisitsData } from "@/lib/reporting/visitsRules";
+import {
+  BEFORE, KINDS, NO_COMPANY, REG_WAY, blank, coverageOf, dayWin, daysIn, daysOf, isoOf, labelOf, lastYearOf, rowsOf, statsBy, ymd,
+  type VDim, type VFilters, type VStats, type VWin, type VisitsData,
+} from "@/lib/reporting/visitsRules";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
-  ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, SubTitle, TARGET, TWO, asLead, asTeam, axisWidth, leadOf, niceTop, setQuery, useLead, useLeads, useTeam,
+  ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TWO, asLead, asTeam, axisWidth, leadOf, niceTop, setQuery, useLead, useLeads, useTeam,
   type BoardRow, type Col, type LeadKey, type TeamKey,
 } from "./Figures";
+import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -97,8 +99,10 @@ const pct = (x: number | null) => (x == null || !Number.isFinite(x) ? "—" : `$
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-/* ── the period: this year's months ────────────────────────────────────── */
+/* ── the period: this year's months, or any days of it ─────────────────── */
 
+// SARCLA 31.10.2026: "put every quarter to be easy to select and really custom dates with a mini calendar" - a visit has its
+// day, so the calendar picks days; a range of days keeps them (VWin d0/d1), whole months stay the months as before.
 type VPer = { win: VWin; id: string; title: string; months: number };
 const nowMonth = (d: VisitsData) => Number(d.today.slice(5, 7)) - 1;
 const todayDay = (d: VisitsData) => Number(d.today.slice(8, 10));
@@ -106,25 +110,54 @@ function presetsOf(d: VisitsData): { id: string; label: string; win: VWin }[] {
   const m = nowMonth(d);
   const out = [{ id: "ytd", label: "Year to date", win: { from: 0, to: m } }, { id: "mtd", label: "Month to date", win: { from: m, to: m } }];
   if (m > 0) out.push({ id: "lm", label: `${MONTHS_FULL[m - 1]} ${d.year}`, win: { from: m - 1, to: m - 1 } });
-  for (let q = 0; q < 4; q++) if (q * 3 + 2 < m) out.push({ id: `q${q + 1}`, label: `Q${q + 1} ${d.year}`, win: { from: q * 3, to: q * 3 + 2 } });
+  // every quarter, the running one to date (the read runs to its day) - not only the finished ones
+  for (const q of quartersOf(d.year, m, true)) if (!q.disabled) out.push({ id: q.id, label: q.label, win: { from: q.from, to: q.to } });
   return out;
 }
+/** Days as words: "3 Mar – 17 May 2026", "3 – 17 Mar 2026", "5 Mar 2026" (yyyymmdd) */
+function rangeWords(a: number, b: number) {
+  const day = (n: number) => n % 100, mon = (n: number) => MONTHS[(Math.floor(n / 100) % 100) - 1], yr = (n: number) => Math.floor(n / 10000);
+  if (a === b) return `${day(a)} ${mon(a)} ${yr(a)}`;
+  if (Math.floor(a / 100) === Math.floor(b / 100)) return `${day(a)} – ${day(b)} ${mon(b)} ${yr(b)}`;
+  return yr(a) === yr(b) ? `${day(a)} ${mon(a)} – ${day(b)} ${mon(b)} ${yr(b)}` : `${day(a)} ${mon(a)} ${yr(a)} – ${day(b)} ${mon(b)} ${yr(b)}`;
+}
 function perOf(d: VisitsData, win: VWin): VPer {
+  if (win.d0 && win.d1) return { win, id: `d${win.d0}-${win.d1}`, title: rangeWords(win.d0, win.d1), months: win.to - win.from + 1 };
   const p = presetsOf(d).find((x) => x.win.from === win.from && x.win.to === win.to);
   const title = p?.id === "ytd" ? "year to date" : p?.id === "mtd" ? "month to date" : p ? p.label : `${MONTHS[win.from]}–${MONTHS[win.to]} ${d.year}`;
   return { win, id: p?.id ?? `m${win.from}-${win.to}`, title, months: win.to - win.from + 1 };
 }
-/** "1 Jan – 27 Oct 2026", "Apr–Jun 2026" */
+/** "1 Jan – 27 Oct 2026", "Apr–Jun 2026", a range of days as it is */
 function perWords(d: VisitsData, per: VPer) {
+  if (per.win.d0 && per.win.d1) return rangeWords(per.win.d0, per.win.d1);
   const run = per.win.to === nowMonth(d);
   if (per.win.from === per.win.to) return run ? `1 – ${todayDay(d)} ${MONTHS[per.win.to]} ${d.year}` : `${MONTHS_FULL[per.win.from]} ${d.year}`;
   return run ? `1 ${MONTHS[per.win.from]} – ${todayDay(d)} ${MONTHS[per.win.to]} ${d.year}` : `${MONTHS[per.win.from]}–${MONTHS[per.win.to]} ${d.year}`;
 }
 const perCap = (p: VPer) => p.title.charAt(0).toUpperCase() + p.title.slice(1);
-/** the period's last day: "27 Oct 2026" while it runs, "30 Jun 2026" */
-const perEnd = (d: VisitsData, per: VPer) => `${per.win.to === nowMonth(d) ? todayDay(d) : new Date(Date.UTC(d.year, per.win.to + 1, 0)).getUTCDate()} ${MONTHS[per.win.to]} ${d.year}`;
-/** the months a period spans, the running one as far as it has gone */
-const monthsDone = (d: VisitsData, per: VPer) => per.months - (per.win.to === nowMonth(d) ? 1 - todayDay(d) / new Date(Date.UTC(d.year, per.win.to + 1, 0)).getUTCDate() : 0);
+/** the period with its days, once: "Year to date · 1 Jan – 27 Oct 2026", "3 Mar – 17 May 2026" */
+const perFull = (d: VisitsData, per: VPer) => (perCap(per) === perWords(d, per) ? perCap(per) : `${perCap(per)} · ${perWords(d, per)}`);
+/** the period's last day: "27 Oct 2026" while it runs, "30 Jun 2026", a range's own */
+const perEnd = (d: VisitsData, per: VPer) => { const b = daysOf(d, per.win)[1]; return rangeWords(b, b); };
+/** the months a period spans, a month cut short - the running one, the ends of a range of days - as far as it goes */
+function monthsDone(d: VisitsData, per: VPer) {
+  const [a, b] = daysOf(d, per.win);
+  let n = 0;
+  for (let m = per.win.from; m <= per.win.to; m++) {
+    const len = daysIn(d.year, m);
+    n += ((m === per.win.to ? b % 100 : len) - (m === per.win.from ? a % 100 : 1) + 1) / len;
+  }
+  return n;
+}
+/** A month of the period as a column's head: "Mar", or the days a range of days cuts it to, "5–31 Mar" */
+function monthHead(d: VisitsData, per: VPer, i: number) {
+  const m = per.win.from + i;
+  if (!per.win.d0 || !per.win.d1) return MONTHS[m];
+  const lo = i === 0 ? per.win.d0 % 100 : 1, hi = m === per.win.to ? per.win.d1 % 100 : daysIn(d.year, m);
+  return lo === 1 && hi === daysIn(d.year, m) ? MONTHS[m] : `${lo === hi ? lo : `${lo}–${hi}`} ${MONTHS[m]}`;
+}
+/** a range of days cuts its first and last month - said under the month by month charts and table */
+const cutWords = (c: VCtx) => (c.per.win.d0 ? ` · the first and the last month cut to the days chosen` : "");
 
 /* ── the teams: ESO, or everyone who visits (SARCLA: TSA does not visit - only Marc, so his visits stay) ── */
 
@@ -253,7 +286,7 @@ const signedPct = (x: number) => `${x > 0 ? "+" : x < 0 ? "−" : "±"}${Math.ab
 function VisitMonths({ c, target }: { c: VCtx; target: number | null }) {
   const t = totalOf(c);
   const ly = lastYearFollows(c) ? lastYearOf(c.d, c.per.win, shownPeople(c)) : null;
-  const data = t.months.map((v, i) => ({ x: MONTHS[c.per.win.from + i], v, prev: ly?.[i] ?? 0, running: c.per.win.from + i === nowMonth(c.d) }));
+  const data = t.months.map((v, i) => ({ x: MONTHS[c.per.win.from + i], head: monthHead(c.d, c.per, i), v, prev: ly?.[i] ?? 0, running: c.per.win.from + i === nowMonth(c.d) }));
   const top = niceTop(Math.max(1, target ?? 0, ...data.map((x) => Math.max(x.v, x.prev))));
   const ticks = [0, 0.25, 0.5, 0.75, 1];
   const done = data.filter((x) => !x.running);
@@ -277,7 +310,7 @@ function VisitMonths({ c, target }: { c: VCtx; target: number | null }) {
           {target != null && <Box sx={{ position: "absolute", left: 0, right: 0, bottom: `${(target / top) * 100}%`, borderTop: `2px dashed ${TARGET}`, zIndex: 1, pointerEvents: "none" }} />}
           <Box sx={{ position: "absolute", inset: 0, display: "flex" }}>
             {data.map((x) => (
-              <Box key={x.x} title={`${x.x}${x.running ? " (to date)" : ""}: ${int(x.v)} completed visits${ly ? ` · ${c.d.year - 1}: ${int(x.prev)} customer meetings` : ""}${target ? ` · ${pct(x.v / target)} of the target` : ""}`} sx={{ flex: 1, position: "relative", height: "100%", "&:hover": { bgcolor: "rgba(21,34,58,.035)" }, borderRadius: "6px" }}>
+              <Box key={x.x} title={`${x.head}${x.running ? " (to date)" : ""}: ${int(x.v)} completed visits${ly ? ` · ${c.d.year - 1}: ${int(x.prev)} customer meetings` : ""}${target ? ` · ${pct(x.v / target)} of the target` : ""}`} sx={{ flex: 1, position: "relative", height: "100%", "&:hover": { bgcolor: "rgba(21,34,58,.035)" }, borderRadius: "6px" }}>
                 <Box sx={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "52%", maxWidth: 30, height: `${(x.v / top) * 100}%`, bgcolor: THIS, opacity: x.running ? 0.55 : 1, borderRadius: "4px 4px 0 0" }} />
                 {ly && x.prev > 0 && <Box sx={{ position: "absolute", bottom: `calc(${(x.prev / top) * 100}% - 1px)`, left: "50%", transform: "translateX(-50%)", width: "76%", maxWidth: 44, height: 2, bgcolor: INK, borderRadius: 1 }} />}
               </Box>
@@ -301,8 +334,8 @@ function VisitMonths({ c, target }: { c: VCtx; target: number | null }) {
     </Box>
   );
 }
-const monthsHint = (c: VCtx) => `${perWords(c.d, c.per)} · the running month to date, lighter${lastYearFollows(c)
-  ? ` · ${c.d.year - 1}: the same people's customer meetings in HubSpot (the visit reports start in December ${c.d.year - 1}; meetings logged from July ${c.d.year - 1}) · the change where last year has a quarter of this year or more, not for the running month`
+const monthsHint = (c: VCtx) => `${perWords(c.d, c.per)} · the running month to date, lighter${cutWords(c)}${lastYearFollows(c)
+  ? ` · ${c.d.year - 1}: the same people's customer meetings in HubSpot${c.per.win.d0 ? ", the same days" : ""} (the visit reports start in December ${c.d.year - 1}; meetings logged from July ${c.d.year - 1}) · the change where last year has a quarter of this year or more, not for the running month`
   : c.d.coverage.lastYearRead ? ` · ${c.d.year - 1} not shown: a meeting has no priority, category, type or country to filter by` : ""} · each person's months in the table below`;
 
 /** How much of each priority the visits reached (SARCLA 29.10.2026 on the visits by priority: "P1 is undervalued - think
@@ -372,7 +405,7 @@ function KindSplit({ c, dim }: { c: VCtx; dim: VDim }) {
 function KindMonths({ c }: { c: VCtx }) {
   const by = statsOf(c, "kind");
   const t = totalOf(c);
-  const data = t.months.map((v, i) => ({ x: MONTHS[c.per.win.from + i], v, parts: KINDS.map((k) => by.get(k)?.months[i] ?? 0), running: c.per.win.from + i === nowMonth(c.d) }));
+  const data = t.months.map((v, i) => ({ x: MONTHS[c.per.win.from + i], head: monthHead(c.d, c.per, i), v, parts: KINDS.map((k) => by.get(k)?.months[i] ?? 0), running: c.per.win.from + i === nowMonth(c.d) }));
   const top = niceTop(Math.max(1, ...data.map((x) => x.v)));
   const ticks = [0, 0.25, 0.5, 0.75, 1];
   return (
@@ -386,7 +419,7 @@ function KindMonths({ c }: { c: VCtx }) {
           {ticks.map((f) => <Box key={f} sx={{ position: "absolute", left: 0, right: 0, bottom: `${f * 100}%`, borderTop: `1px solid ${f === 0 ? "#cfd4db" : "#eef0f3"}` }} />)}
           <Box sx={{ position: "absolute", inset: 0, display: "flex" }}>
             {data.map((x) => (
-              <Box key={x.x} title={`${x.x}${x.running ? " (to date)" : ""}: ${KINDS.map((k, i) => `${k} ${int(x.parts[i])}`).join(" · ")}`} sx={{ flex: 1, position: "relative", height: "100%", "&:hover": { bgcolor: "rgba(21,34,58,.035)" }, borderRadius: "6px" }}>
+              <Box key={x.x} title={`${x.head}${x.running ? " (to date)" : ""}: ${KINDS.map((k, i) => `${k} ${int(x.parts[i])}`).join(" · ")}`} sx={{ flex: 1, position: "relative", height: "100%", "&:hover": { bgcolor: "rgba(21,34,58,.035)" }, borderRadius: "6px" }}>
                 <Box sx={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "52%", maxWidth: 30, height: `${(x.v / top) * 100}%`, display: "flex", flexDirection: "column-reverse", gap: "1px", opacity: x.running ? 0.6 : 1, borderRadius: "4px 4px 0 0", overflow: "hidden" }}>
                   {KINDS.map((k, i) => x.parts[i] > 0 && <Box key={k} sx={{ flex: `${x.parts[i]} 0 0`, bgcolor: KIND_COLOR[k] }} />)}
                 </Box>
@@ -470,7 +503,8 @@ type TargetOf = { unit: "eur" | "pct" | "n"; label: string };
 type Drawn = { id: string; title: (c: VCtx) => string; draw: (c: VCtx, actions?: React.ReactNode) => React.ReactNode; target?: (c: VCtx) => TargetOf };
 const teamPart = (c: VCtx) => ` - ${teamName(c)}`;
 const forWhom = (c: VCtx) => `${teamName(c)}'s target for ${c.per.title} - each team and period its own`;
-/** A chart by its id "<tab>:<what>[-<breakdown>]": people:visits, prio:visits-band, kind:agreed-person, new:answers, people:months… */
+/** A chart by its id "<tab>:<what>[-<breakdown>]": people:visits, prio:visits-band, kind:agreed-person, new:answers, people:months,
+ *  the tables people:table, people:months-table… */
 function drawnOf(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
@@ -489,7 +523,7 @@ function drawnOf(id: string): Drawn | undefined {
   }
   if (chart === "kindmonths") {
     const title = (c: VCtx) => `Scheduled, cold and event visits ${c.per.title}, month by month${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each month's completed visits by type, the share scheduled under it · the running month to date, lighter`} actions={a}><KindMonths c={c} /></ChartBox> };
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each month's completed visits by type, the share scheduled under it · the running month to date, lighter${cutWords(c)}`} actions={a}><KindMonths c={c} /></ChartBox> };
   }
   if (chart.startsWith("kinds")) {
     const by = chart.split("-")[1];
@@ -497,10 +531,30 @@ function drawnOf(id: string): Drawn | undefined {
     const title = (c: VCtx) => `Scheduled, cold and event visits ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each ${DIM[dim].lower}'s completed visits by type - ${DIM.kind.note.charAt(0).toLowerCase()}${DIM.kind.note.slice(1)}`} actions={a}><KindSplit c={c} dim={dim} /></ChartBox> };
   }
+  // every table its own card with its Actions, so it can go to the BUC View as any chart (SARCLA 31.10.2026: "all the tables
+  // should be individual KPIs" - "completed visits by person, month by month"): people:months-table, country:people-table,
+  // and <tab>:table - the People tab's figures by person, Type of visit's by person and type, the others by their breakdown
+  if (chart === "months-table" && v === "people") {
+    const title = (c: VCtx) => `Completed visits month by month, ${c.per.title}, by person${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each person's completed visits in each month, the running month to date${cutWords(c)}`} actions={a}><PeopleMonths c={c} /></ChartBox> };
+  }
+  if (chart === "people-table" && v === "country") {
+    const title = (c: VCtx) => `Visits by country, ${c.per.title}, by person${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each person's completed visits in the eight countries with the most visits, the other countries together - they add up to each person`} actions={a}><CountryTable c={c} /></ChartBox> };
+  }
+  if (chart === "table" && v === "people") {
+    const title = (c: VCtx) => `All the figures, ${c.per.title}, by person${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each person's completed visits, companies visited, visits without a company, new customers visited - registered after the visit, bought - and the companies' revenue this year${c.per.id === "ytd" ? ", the visits not reported yet" : ""}`} actions={a}><PeopleTable c={c} /></ChartBox> };
+  }
+  if (chart === "table" && v === "kind") {
+    const title = (c: VCtx) => `Visits by type, ${c.per.title}, by person${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each person's completed visits - scheduled, cold, at an event - and the share scheduled in advance`} actions={a}><KindTable c={c} /></ChartBox> };
+  }
   if (chart === "table") {
     const dim = DIM_OF[v];
-    const title = (c: VCtx) => `${perCap(c.per)}, by ${DIM[dim].lower}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · ${DIM[dim].note}`} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
+    const title = (c: VCtx) => `All the figures, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`;
+    const buyers = dim === "prio" || dim === "person";
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each ${DIM[dim].lower}'s completed visits and their share, companies visited${buyers ? ", new customers visited, bought and won back" : ""}, the share scheduled`} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
   }
   const [what, by] = chart.split("-");
   if (!(what in MEASURE)) return undefined;
@@ -556,7 +610,7 @@ function PeopleMonths({ c }: { c: VCtx }) {
   const rows: MRow[] = [...by].map(([label, s]) => ({ label, months: s.months, visits: s.visits }));
   const t = totalOf(c);
   const cols: Col<MRow>[] = [
-    ...t.months.map((_, i) => ({ key: `m${i}`, head: MONTHS[c.per.win.from + i], cell: (r: MRow) => (r.months[i] ? int(r.months[i]) : "—"), sort: (r: MRow) => r.months[i] ?? 0 })),
+    ...t.months.map((_, i) => ({ key: `m${i}`, head: monthHead(c.d, c.per, i), cell: (r: MRow) => (r.months[i] ? int(r.months[i]) : "—"), sort: (r: MRow) => r.months[i] ?? 0 })),
     { key: "visits", head: perCap(c.per), cell: (r) => <b>{int(r.visits)}</b>, sort: (r) => r.visits },
   ];
   return <FullTable key={`pm-${c.per.id}-${c.team}`} first="Person" cols={cols} initial="visits" rows={rows} total={{ label: "Total", months: t.months, visits: t.visits }} selected={c.filters.person} onPick={c.onBar ? (l) => c.onBar!("person", l) : undefined} find="a person" />;
@@ -634,8 +688,8 @@ function TabCard({ c, act }: { c: VCtx; act: Act }) {
       <CardTitle icon={<BadgeOutlinedIcon />} tint="green" title={`${teamName(c)}, ${c.per.title}`} note={`${words} · completed visit reports only, by meeting date, by who made the visit`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "people:visits")}{draw(c, act, "people:kinds")}</Box>
       {c.per.months >= 2 && draw(c, act, "people:months")}
-      {c.per.months >= 2 && <Box><SubTitle>Completed visits by person, month by month</SubTitle><PeopleMonths c={c} /></Box>}
-      <Box><SubTitle>{perCap(c.per)}, by person</SubTitle><PeopleTable c={c} /></Box>
+      {c.per.months >= 2 && draw(c, act, "people:months-table")}
+      {draw(c, act, "people:table")}
     </GlassCard>
   );
   if (c.view === "new") return (
@@ -658,7 +712,7 @@ function TabCard({ c, act }: { c: VCtx; act: Act }) {
       <CardTitle icon={<HandshakeOutlinedIcon />} tint="slate" title={`${teamName(c)} by type of visit, ${c.per.title}`} note={`${DIM.kind.note} · ${words}`} />
       <Box sx={{ mt: -1 }}>{draw(c, act, "kind:kinds-person")}</Box>
       {c.per.months >= 2 && draw(c, act, "kind:kindmonths")}
-      <Box><SubTitle>{perCap(c.per)}, by person and type of visit</SubTitle><KindTable c={c} /></Box>
+      {draw(c, act, "kind:table")}
     </GlassCard>
   );
   const dim = DIM_OF[c.view], dd = DIM[dim];
@@ -666,8 +720,8 @@ function TabCard({ c, act }: { c: VCtx; act: Act }) {
     <GlassCard sx={card}>
       <CardTitle icon={dd.icon} tint={dd.tint} title={`${teamName(c)} by ${dd.lower}, ${c.per.title}`} note={`${dd.note} · ${words}`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${c.view}:visits`)}{draw(c, act, `${c.view}:kinds`)}</Box>
-      {dim === "country" && <Box><SubTitle>{perCap(c.per)}, by person and country</SubTitle><CountryTable c={c} /></Box>}
-      <Box><SubTitle>{perCap(c.per)}, by {dd.lower}</SubTitle><DimTable c={c} dim={dim} /></Box>
+      {dim === "country" && draw(c, act, "country:people-table")}
+      {draw(c, act, `${c.view}:table`)}
     </GlassCard>
   );
 }
@@ -714,29 +768,19 @@ function FigureCards({ c, items, actions }: { c: VCtx; items: Fig[]; actions?: (
 
 /* ── the Filters window: the period and the breakdowns ─────────────────── */
 
+/** The quick picks, the year's four quarters and a calendar of this year's days (SARCLA 31.10.2026: "put every quarter to
+ *  be easy to select and really custom dates with a mini calendar"); a range of whole months is the months, so a quarter
+ *  picked on the calendar lights its button. */
 function VPeriod({ d, per, onPer }: { d: VisitsData; per: VPer; onPer: (w: VWin) => void }) {
-  const m = nowMonth(d);
-  const sel = { height: 32, fontSize: "0.82rem", fontWeight: 600, borderRadius: "9px", bgcolor: "#fff", flex: 1, "& .MuiSelect-select": { py: 0.5, pl: 1.25 } };
+  const all = presetsOf(d);
+  const winOf = (id: string) => all.find((p) => p.id === id)?.win;
+  const [a, b] = daysOf(d, per.win);
   return (
-    <Box sx={{ display: "grid", gap: 1 }}>
-      <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap" }}>
-        {presetsOf(d).map((p) => {
-          const on = p.win.from === per.win.from && p.win.to === per.win.to;
-          return <Chip key={p.id} label={p.label} onClick={() => onPer(p.win)} aria-pressed={on} sx={{ height: 28, fontSize: "0.78rem", fontWeight: 600, bgcolor: on ? TINT.blue.bg : "#fff", color: on ? TINT.blue.fg : INK, border: `1px solid ${on ? TINT.blue.fg : "rgba(21,34,58,.14)"}` }} />;
-        })}
-      </Box>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>From</Typography>
-        <Select size="small" value={per.win.from} onChange={(e) => { const f = Number(e.target.value); onPer({ from: f, to: Math.max(f, per.win.to) }); }} sx={sel} inputProps={{ "aria-label": "From month" }}>
-          {MONTHS.slice(0, m + 1).map((x, i) => <MenuItem key={x} value={i}>{x} {d.year}</MenuItem>)}
-        </Select>
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>to</Typography>
-        <Select size="small" value={per.win.to} onChange={(e) => { const t = Number(e.target.value); onPer({ from: Math.min(per.win.from, t), to: t }); }} sx={sel} inputProps={{ "aria-label": "To month" }}>
-          {MONTHS.slice(0, m + 1).map((x, i) => <MenuItem key={x} value={i}>{x} {d.year}</MenuItem>)}
-        </Select>
-      </Box>
-      <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.45 }}>This year&apos;s months: the visit reports start in December {d.year - 1}. The months chart sets last year&apos;s customer meetings beside them.</Typography>
-    </Box>
+    <PeriodPicker quick={all.filter((p) => !p.id.startsWith("q"))} quarters={quartersOf(d.year, nowMonth(d), true)}
+      isOn={(id) => { const w = winOf(id); return !!w && !per.win.d0 && w.from === per.win.from && w.to === per.win.to; }} onChoice={(id) => { const w = winOf(id); if (w) onPer(w); }}
+      unit="day" min={`${d.year}-01-01`} max={isoOf(ymd(d.today))} from={isoOf(a)} to={isoOf(b)}
+      onRange={(x, y) => onPer(dayWin(d, ymd(x), ymd(y)))}
+      note={<>This year&apos;s days: the visit reports start in December {d.year - 1}. The months chart sets last year&apos;s customer meetings beside them - for a range of days, the same days a year earlier.</>} />
   );
 }
 function VFacet({ c, dim, onPick }: { c: VCtx; dim: VDim; onPick: (l: string) => void }) {
@@ -827,6 +871,23 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
 }
 const ym = (d: VisitsData, m: number) => `${d.year}-${String(m + 1).padStart(2, "0")}`;
 const fromYm = (d: VisitsData, x: string | null) => { const m = /^(\d{4})-(\d{2})$/.exec(x ?? ""); return m && Number(m[1]) === d.year ? Number(m[2]) - 1 : null; };
+/** The period of an address, or of a card sent to the BUC View: ?from=2026-04&to=2026-06 whole months, as always, or
+ *  ?from=2026-03-05&to=2026-05-17 a range of days; a month beside a day, its first or last day. Another year: none (the
+ *  year to date). */
+function winOfQuery(d: VisitsData, from: string | null, to: string | null): VWin | null {
+  const a = fromYm(d, from), b = fromYm(d, to), m = nowMonth(d);
+  if (a != null && b != null) return { from: Math.min(a, b, m), to: Math.min(Math.max(a, b), m) };
+  const day = (x: string | null, last: boolean) => {
+    const k = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(x ?? ""), mo = Number(k?.[2]);
+    if (!k || Number(k[1]) !== d.year || !(mo >= 1 && mo <= 12)) return null;
+    return d.year * 10000 + mo * 100 + (k[3] ? Number(k[3]) : last ? daysIn(d.year, mo - 1) : 1);
+  };
+  const x = day(from, false), y = day(to, true);
+  return x != null && y != null ? dayWin(d, x, y) : null;
+}
+/** A period as a card's filters: the year to date, a quick pick or a quarter by its id, else its months or days. */
+const perFilters = (d: VisitsData, per: VPer): Record<string, string[]> => (per.win.d0 && per.win.d1 ? { from: [isoOf(per.win.d0)], to: [isoOf(per.win.d1)] }
+  : per.id.startsWith("m") ? { from: [ym(d, per.win.from)], to: [ym(d, per.win.to)] } : { period: [per.id] });
 
 export function VisitsExplorer() {
   const params = useSearchParams();
@@ -844,17 +905,20 @@ export function VisitsExplorer() {
   const [panel, setPanel] = useState(false);
   const [focus, setFocus] = useState<{ dim: VDim; n: number } | null>(null);
   const openOn = (k: VDim) => { setFocus((f) => ({ dim: k, n: (f?.n ?? 0) + 1 })); setPanel(true); };
-  const setPer = (w: VWin) => setQuery((q) => { if (!d) return; const ytd = presetsOf(d)[0].win; if (w.from === ytd.from && w.to === ytd.to) { q.delete("from"); q.delete("to"); } else { q.set("from", ym(d, w.from)); q.set("to", ym(d, w.to)); } });
+  // the year to date: no from/to; whole months as YYYY-MM, as before; a range of days as YYYY-MM-DD
+  const setPer = (w: VWin) => setQuery((q) => {
+    if (!d) return;
+    const ytd = presetsOf(d)[0].win;
+    if (!w.d0 && w.from === ytd.from && w.to === ytd.to) { q.delete("from"); q.delete("to"); }
+    else if (w.d0 && w.d1) { q.set("from", isoOf(w.d0)); q.set("to", isoOf(w.d1)); }
+    else { q.set("from", ym(d, w.from)); q.set("to", ym(d, w.to)); }
+  });
 
   // the work a click asks for, kept; the tabs and toggles answer at once and the charts follow (as the Figures)
   const team: TeamKey = teamKey === "eso" ? "eso" : "total";
   const lead = team === "eso" ? leadOf("eso", leadKey, lt) : null;
   const fromP = params.get("from"), toP = params.get("to");
-  const per = useMemo(() => {
-    if (!d) return null;
-    const a = fromYm(d, fromP), b = fromYm(d, toP), m = nowMonth(d);
-    return a != null && b != null ? perOf(d, { from: Math.min(a, b, m), to: Math.min(Math.max(a, b), m) }) : perOf(d, presetsOf(d)[0].win);
-  }, [d, fromP, toP]);
+  const per = useMemo(() => (d ? perOf(d, winOfQuery(d, fromP, toP) ?? presetsOf(d)[0].win) : null), [d, fromP, toP]);
   const people = useMemo(() => (d ? peopleOf(d, team, lead, lt?.byId ?? {}) : null), [d, team, lead, lt]);
   const want = useMemo(() => ({ view, per, people, team, lead, filters }), [view, per, people, team, lead, filters]);
   const drawn = useDeferredValue(want);
@@ -876,7 +940,7 @@ export function VisitsExplorer() {
   const act: Act = (id, title, target) => (
     <TileActions where="tab" start="tab" edge={2}
       tile={{ key: `eso-visits:${id}`, page: "eso-visits", tab: c.view, title, summary: `${teamName(c)} · ${perWords(d, c.per)}`,
-        filters: { ...Object.fromEntries(FILTER_DIMS.filter((k) => c.filters[k]?.length).map((k) => [k, c.filters[k] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), ...(c.per.id.startsWith("m") ? { from: [ym(d, c.per.win.from)], to: [ym(d, c.per.win.to)] } : { period: [c.per.id] }) },
+        filters: { ...Object.fromEntries(FILTER_DIMS.filter((k) => c.filters[k]?.length).map((k) => [k, c.filters[k] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), ...perFilters(d, c.per) },
         kind: "card", target: target ? { key: targetKey(id, c.team, c.lead, c.per), ...target } : undefined }} />
   );
   const now = { team, lead, teams };
@@ -888,15 +952,8 @@ export function VisitsExplorer() {
         <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
           <Typography component="h1" sx={H1}>Visits</Typography>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-            <b style={{ color: INK }}>{teamName(now)}</b> · {per.title} <b style={{ color: INK }}>{perWords(d, per)}</b> · completed visit reports{computing ? " · reading HubSpot again" : ""}
+            <b style={{ color: INK }}>{teamName(now)}</b> · {per.title === perWords(d, per) ? <b style={{ color: INK }}>{per.title}</b> : <>{per.title} <b style={{ color: INK }}>{perWords(d, per)}</b></>} · completed visit reports{computing ? " · reading HubSpot again" : ""}
           </Typography>
-          {(chosen.length > 0 || per.id !== "ytd") && (
-            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-              {per.id !== "ytd" && <Chip size="small" label={<span><b>Period:</b> {perCap(per)}</span>} onDelete={() => setPer(presetsOf(d)[0].win)} onClick={() => setPanel(true)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.blue.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.blue.fg } }} />}
-              {chosen.map(([k, v]) => <Chip key={`${k}:${v}`} size="small" label={<span><b>{DIM[k].name}:</b> {v}</span>} onDelete={() => toggle(k, v)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[DIM[k].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[k].tint].fg } }} />)}
-              {chosen.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>}
-            </Box>
-          )}
         </Box>
         <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" }, opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }}><FigureCards c={c} items={figs} /></Box>
       </Box>
@@ -916,6 +973,12 @@ export function VisitsExplorer() {
           Filters{chosen.length + (per.id !== "ytd" ? 1 : 0) ? ` · ${chosen.length + (per.id !== "ytd" ? 1 : 0)}` : ""}
         </Button>
       </Box>
+      {/* what the page is filtered by, under the tabs - no more chips under the title (SARCLA 31.10.2026: "where they appear
+          on top it is really hard to find them and see them") */}
+      <ActiveFilters onEdit={() => setPanel(true)} onClearAll={clearAll} items={[
+        ...(per.id !== "ytd" ? [{ key: "period", name: "Period", value: perFull(d, per), tint: "blue" as Tint, onRemove: () => setPer(presetsOf(d)[0].win) }] : []),
+        ...chosen.map(([k, v]): ActiveItem => ({ key: `${k}:${v}`, name: DIM[k].name, value: v, tint: DIM[k].tint, onRemove: () => toggle(k, v) })),
+      ]} />
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
         <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />
       </Box>
@@ -952,8 +1015,8 @@ export function VisitsPanel({ acts }: { acts: ActionsState | null }) {
     const f = spec.filters ?? {};
     const sf: VFilters = Object.fromEntries(FILTER_DIMS.flatMap((k) => (f[k]?.length ? [[k, f[k]]] : [])));
     const pid = f.period?.[0], pr = pid ? presetsOf(c.d).find((p) => p.id === pid) : null;
-    const a0 = fromYm(c.d, f.from?.[0] ?? null), b0 = fromYm(c.d, f.to?.[0] ?? null);
-    const sp = pr ? perOf(c.d, pr.win) : a0 != null && b0 != null ? perOf(c.d, { from: a0, to: b0 }) : c.per;
+    const qw = winOfQuery(c.d, f.from?.[0] ?? null, f.to?.[0] ?? null);
+    const sp = pr ? perOf(c.d, pr.win) : qw ? perOf(c.d, qw) : c.per;
     // every chart here follows the panel's toggle (as the Figures' panel); its filters and period stay as sent
     const sc: VCtx = { ...c, per: sp, filters: sf, view: (spec.tab && isView(spec.tab) ? spec.tab : "people") as VView, half: fmt === "half" };
     const target = ch?.target ? { key: targetKey(ch.id, c.team, c.lead, sp), ...ch.target(sc) } : undefined;

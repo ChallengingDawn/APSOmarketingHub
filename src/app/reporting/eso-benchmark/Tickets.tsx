@@ -17,8 +17,6 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import InputBase from "@mui/material/InputBase";
-import MenuItem from "@mui/material/MenuItem";
-import Select from "@mui/material/Select";
 import TuneIcon from "@mui/icons-material/Tune";
 import SearchIcon from "@mui/icons-material/Search";
 import CheckIcon from "@mui/icons-material/Check";
@@ -55,14 +53,15 @@ import type { SlowState } from "@/lib/integrations/slowReport";
 import { OUTCOMES } from "@/lib/marketingKpis/handoverCube";
 import { PRIO_BANDS } from "@/lib/reporting/esoRules";
 import {
-  CHANNEL_ORDER, FIRST, LOST_IDS, PY_MIN, SPEEDS, blank, comparable, flowOf, inDayOf, labelOf, lostLabel, median, quietOf, rateOf, rowsOf, statsBy,
-  type TDim, type TFilters, type TFlowNode, type TGroup, type TStats, type TWin, type TicketsData,
+  CHANNEL_ORDER, FIRST, LOST_IDS, PY_MIN, SPEEDS, blank, byDays, comparable, daysIn, flowOf, inDayOf, labelOf, lostLabel, median, quietOf, rateOf, rowsOf, sameWin, statsBy,
+  winDays, winFrom, winParams, type TDim, type TFilters, type TFlowNode, type TGroup, type TStats, type TWin, type TicketsData,
 } from "@/lib/reporting/ticketsRules";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
   ChartBox, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TWO, asLead, asTeam, axisWidth, leadOf, niceTop, setQuery, useLead, useLeads, useTeam,
   type BoardRow, type LeadKey, type TeamKey,
 } from "./Figures";
+import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -116,7 +115,7 @@ const GROUP: Record<TGroup, { title: string; page: string; href: string; icon: R
   },
 };
 
-/* ── the period: this year's months ────────────────────────────────────── */
+/* ── the period: this year's months, or one's own days ─────────────────── */
 
 type TPer = { win: TWin; id: string; title: string; months: number };
 const nowMonth = (d: TicketsData) => Number(d.today.slice(5, 7)) - 1;
@@ -125,21 +124,35 @@ function presetsOf(d: TicketsData): { id: string; label: string; win: TWin }[] {
   const m = nowMonth(d);
   const out = [{ id: "ytd", label: "Year to date", win: { from: 0, to: m } }, { id: "mtd", label: "Month to date", win: { from: m, to: m } }];
   if (m > 0) out.push({ id: "lm", label: `${MONTHS_FULL[m - 1]} ${d.year}`, win: { from: m - 1, to: m - 1 } });
-  for (let q = 0; q < 4; q++) if (q * 3 + 2 < m) out.push({ id: `q${q + 1}`, label: `Q${q + 1} ${d.year}`, win: { from: q * 3, to: q * 3 + 2 } });
+  // every quarter (SARCLA 31.10.2026: "put every quarter to be easy to select") - the running one to date: the read
+  // reaches today, so this month is always still going; the ones to come are greyed in the Filters window, not picks
+  for (const q of quartersOf(d.year, m, true)) if (!q.disabled) out.push({ id: q.id, label: q.label, win: { from: q.from, to: q.to } });
   return out;
 }
-function perOf(d: TicketsData, win: TWin): TPer {
-  const p = presetsOf(d).find((x) => x.win.from === win.from && x.win.to === win.to);
-  const title = p?.id === "ytd" ? "year to date" : p?.id === "mtd" ? "month to date" : p ? p.label : `${MONTHS[win.from]}–${MONTHS[win.to]} ${d.year}`;
-  return { win, id: p?.id ?? `m${win.from}-${win.to}`, title, months: win.to - win.from + 1 };
+/** "5 – 17 Mar 2026", "5 Mar – 17 May 2026": a window cut by days, by its first and its last day. */
+function dayRange(d: TicketsData, win: TWin) {
+  const [a, b] = winDays(d, win).map((x) => Number(x.slice(8, 10)));
+  return win.from === win.to ? `${a} – ${b} ${MONTHS[win.to]} ${d.year}` : `${a} ${MONTHS[win.from]} – ${b} ${MONTHS[win.to]} ${d.year}`;
 }
-/** "1 Jan – 30 Oct 2026", "Apr–Jun 2026" */
+function perOf(d: TicketsData, win: TWin): TPer {
+  const p = presetsOf(d).find((x) => sameWin(x.win, win));
+  const days = byDays(win);
+  const title = p?.id === "ytd" ? "year to date" : p?.id === "mtd" ? "month to date" : p ? p.label
+    : days ? dayRange(d, win) : win.from === win.to ? `${MONTHS_FULL[win.from]} ${d.year}` : `${MONTHS[win.from]}–${MONTHS[win.to]} ${d.year}`;
+  const [a, b] = winDays(d, win);
+  return { win, id: p?.id ?? (days ? `d${a.slice(5).replace("-", "")}-${b.slice(5).replace("-", "")}` : `m${win.from}-${win.to}`), title, months: win.to - win.from + 1 };
+}
+/** "1 Jan – 30 Oct 2026", "Apr–Jun 2026" - and one's own days as they were picked, "5 Mar – 17 May 2026" */
 function perWords(d: TicketsData, per: TPer) {
+  if (byDays(per.win)) return dayRange(d, per.win);
   const run = per.win.to === nowMonth(d);
   if (per.win.from === per.win.to) return run ? `1 – ${todayDay(d)} ${MONTHS[per.win.to]} ${d.year}` : `${MONTHS_FULL[per.win.from]} ${d.year}`;
   return run ? `1 ${MONTHS[per.win.from]} – ${todayDay(d)} ${MONTHS[per.win.to]} ${d.year}` : `${MONTHS[per.win.from]}–${MONTHS[per.win.to]} ${d.year}`;
 }
 const perCap = (p: TPer) => p.title.charAt(0).toUpperCase() + p.title.slice(1);
+/** The period in the Filtered by bar: its name and its days ("Q3 2026 · Jul–Sep 2026") - once where they are the same
+ *  ("September 2026", one's own days). */
+const perPill = (d: TicketsData, p: TPer) => { const w = perWords(d, p); return w.toLowerCase() === p.title.toLowerCase() ? w : `${perCap(p)} · ${w}`; };
 
 /* ── the teams: ESO, or everyone who owns a ticket of the ESO pipeline ─── */
 
@@ -211,7 +224,7 @@ function pyOk(c: TCtx): boolean {
   if (v === undefined) { v = comparable(c.d, c.group, c.per.win, c.people); pyCache.set(c, v); }
   return v;
 }
-const PREV = (c: TCtx) => `${c.d.year - 1}, the same months`;
+const PREV = (c: TCtx) => `${c.d.year - 1}, the same ${byDays(c.per.win) ? "days" : "months"}`;
 
 /** A chart's target, one per chart, team and period: "eso-tickets:people:won@eso-RABE~q2" (the year to date without "~"). */
 const targetKey = (c: { group: TGroup }, id: string, team: TeamKey, lead: string | null, per: TPer) => `${GROUP[c.group].page}:${id}@${team === "eso" ? "eso" : "total"}${team === "eso" && lead ? `-${lead}` : ""}${/^months:/.test(id) || per.id === "ytd" ? "" : `~${per.id}`}`;
@@ -347,7 +360,15 @@ function MonthColumns({ c, what, target }: { c: TCtx; what: MonthWhat; target: n
   const t = totalOf(c);
   const W = MONTH_WHAT[what];
   const fmt = (n: number) => (W.ratio ? pct(n) : int(n));
-  const data = t.months.map((_, i) => ({ x: MONTHS[c.per.win.from + i], v: W.value(t, i), second: W.second(t, i), tip: W.tip(t, i), running: c.per.win.from + i === nowMonth(c.d) }));
+  // a month the dates cut is part of a month, as the running one: lighter, and never measured against a month's target
+  const w = c.per.win, last = t.months.length - 1;
+  const [a, b] = winDays(c.d, w).map((x) => Number(x.slice(8, 10)));
+  const cutOf = (i: number) => (i === 0 && w.d0 != null) || (i === last && w.d1 != null);
+  const data = t.months.map((_, i) => {
+    const m = w.from + i, running = m === nowMonth(c.d), cut = cutOf(i);
+    const note = cut ? ` (${i === 0 ? a : 1}–${i === last ? b : daysIn(c.d.year, m)})` : running ? " (to date)" : "";
+    return { x: MONTHS[m], v: W.value(t, i), second: W.second(t, i), tip: W.tip(t, i), running: running || cut, note };
+  });
   const top = W.ratio ? 1 : niceTop(Math.max(1, target ?? 0, ...data.map((x) => x.v)));
   const ticks = [0, 0.25, 0.5, 0.75, 1];
   const done = data.filter((x) => !x.running);
@@ -368,7 +389,7 @@ function MonthColumns({ c, what, target }: { c: TCtx; what: MonthWhat; target: n
           {target != null && <Box sx={{ position: "absolute", left: 0, right: 0, bottom: `${(Math.min(target, top) / top) * 100}%`, borderTop: `2px dashed ${TARGET}`, zIndex: 1, pointerEvents: "none" }} />}
           <Box sx={{ position: "absolute", inset: 0, display: "flex" }}>
             {data.map((x) => (
-              <Box key={x.x} title={`${x.x}${x.running ? " (to date)" : ""}: ${x.tip}`} sx={{ flex: 1, position: "relative", height: "100%", "&:hover": { bgcolor: "rgba(21,34,58,.035)" }, borderRadius: "6px" }}>
+              <Box key={x.x} title={`${x.x}${x.note}: ${x.tip}`} sx={{ flex: 1, position: "relative", height: "100%", "&:hover": { bgcolor: "rgba(21,34,58,.035)" }, borderRadius: "6px" }}>
                 <Box sx={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "52%", maxWidth: 30, height: `${(Math.min(x.v, top) / top) * 100}%`, bgcolor: THIS, opacity: x.running ? 0.55 : 1, borderRadius: "4px 4px 0 0" }} />
               </Box>
             ))}
@@ -428,8 +449,8 @@ function drawnOf(id: string): Drawn | undefined {
   if (v === "months" && chart in MONTH_WHAT) {
     const w = chart as MonthWhat;
     const title = (c: TCtx) => `${MONTH_WHAT[w].title} ${P(c)}, month by month${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · by the month the ticket came in · the running month to date, lighter`} actions={a}><MonthColumns c={c} what={w} target={targetFor(c, id)} /></ChartBox>,
-      target: (c) => ({ unit: MONTH_WHAT[w].ratio ? "pct" : "n", label: `Each month is measured against it - a line across the months; the running month is not counted · ${teamName(c)}'s target.` }) };
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · by the month the ticket came in · the running month to date${byDays(c.per.win) ? " and the months your dates cut" : ""}, lighter`} actions={a}><MonthColumns c={c} what={w} target={targetFor(c, id)} /></ChartBox>,
+      target: (c) => ({ unit: MONTH_WHAT[w].ratio ? "pct" : "n", label: `Each month is measured against it - a line across the months; the running month${byDays(c.per.win) ? " and the months your dates cut are" : " is"} not counted · ${teamName(c)}'s target.` }) };
   }
   const [what, by] = chart.split("-");
   if (!(what in MEASURE)) return undefined;
@@ -523,29 +544,19 @@ const TabCardKept = memo(TabCard, (a, b) => a.c === b.c);
 
 /* ── the Filters window: the period and the breakdowns ─────────────────── */
 
+/** The quick picks, every quarter and a day calendar (SARCLA 31.10.2026: "every quarter to be easy to select, and really
+ *  custom dates with a mini calendar" - by the day, as every ticket has the day it came in). This year only, from 1
+ *  January to the read's day: the read keeps last year for the comparison, so a range across the years has no rows. */
 function TPeriod({ d, per, onPer }: { d: TicketsData; per: TPer; onPer: (w: TWin) => void }) {
-  const m = nowMonth(d);
-  const sel = { height: 32, fontSize: "0.82rem", fontWeight: 600, borderRadius: "9px", bgcolor: "#fff", flex: 1, "& .MuiSelect-select": { py: 0.5, pl: 1.25 } };
+  const all = presetsOf(d);
+  const winOf = (id: string) => all.find((p) => p.id === id)?.win;
+  const [from, to] = winDays(d, per.win);
   return (
-    <Box sx={{ display: "grid", gap: 1 }}>
-      <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap" }}>
-        {presetsOf(d).map((p) => {
-          const on = p.win.from === per.win.from && p.win.to === per.win.to;
-          return <Chip key={p.id} label={p.label} onClick={() => onPer(p.win)} aria-pressed={on} sx={{ height: 28, fontSize: "0.78rem", fontWeight: 600, bgcolor: on ? TINT.blue.bg : "#fff", color: on ? TINT.blue.fg : INK, border: `1px solid ${on ? TINT.blue.fg : "rgba(21,34,58,.14)"}` }} />;
-        })}
-      </Box>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>From</Typography>
-        <Select size="small" value={per.win.from} onChange={(e) => { const f = Number(e.target.value); onPer({ from: f, to: Math.max(f, per.win.to) }); }} sx={sel} inputProps={{ "aria-label": "From month" }}>
-          {MONTHS.slice(0, m + 1).map((x, i) => <MenuItem key={x} value={i}>{x} {d.year}</MenuItem>)}
-        </Select>
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>to</Typography>
-        <Select size="small" value={per.win.to} onChange={(e) => { const t = Number(e.target.value); onPer({ from: Math.min(per.win.from, t), to: t }); }} sx={sel} inputProps={{ "aria-label": "To month" }}>
-          {MONTHS.slice(0, m + 1).map((x, i) => <MenuItem key={x} value={i}>{x} {d.year}</MenuItem>)}
-        </Select>
-      </Box>
-      <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.45 }}>The graphs set last year beside this year when each month chosen held {PY_MIN} tickets or more last year - the ESO pipeline began in July {d.year - 1}.</Typography>
-    </Box>
+    <PeriodPicker quick={all.filter((p) => !/^q\d$/.test(p.id))} quarters={quartersOf(d.year, nowMonth(d), true)}
+      isOn={(id) => { const w = winOf(id); return !!w && sameWin(w, per.win); }} onChoice={(id) => { const w = winOf(id); if (w) onPer(w); }}
+      unit="day" min={`${d.year}-01-01`} max={d.today} from={from} to={to}
+      onRange={(a, b) => { const w = winFrom(d, a, b); if (w) onPer(w); }}
+      note={<>Your own dates count each ticket on the day it came in, against the same days a year earlier. The graphs set last year beside this year when each month chosen held {PY_MIN} tickets or more last year - a month your dates cut, its share of the {PY_MIN} on those days - the ESO pipeline began in July {d.year - 1}.</>} />
   );
 }
 function TFacet({ c, dim, onPick }: { c: TCtx; dim: TDim; onPick: (l: string) => void }) {
@@ -638,8 +649,9 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
     </GlassCard>
   );
 }
-const ym = (d: TicketsData, m: number) => `${d.year}-${String(m + 1).padStart(2, "0")}`;
-const fromYm = (d: TicketsData, x: string | null) => { const m = /^(\d{4})-(\d{2})$/.exec(x ?? ""); return m && Number(m[1]) === d.year ? Number(m[2]) - 1 : null; };
+/** A period of one's own, as the address and a tile sent to the BUC View keep it: ?from=2026-04&to=2026-06 for whole
+ *  months (as before), ?from=2026-03-05&to=2026-05-17 for days - both read back by winFrom. */
+const isOwn = (p: TPer) => /^[md]\d/.test(p.id);
 
 export function TicketsExplorer({ group }: { group: TGroup }) {
   const G = GROUP[group];
@@ -658,17 +670,13 @@ export function TicketsExplorer({ group }: { group: TGroup }) {
   const [panel, setPanel] = useState(false);
   const [focus, setFocus] = useState<{ dim: TDim; n: number } | null>(null);
   const openOn = (k: TDim) => { setFocus((f) => ({ dim: k, n: (f?.n ?? 0) + 1 })); setPanel(true); };
-  const setPer = (w: TWin) => setQuery((q) => { if (!d) return; const ytd = presetsOf(d)[0].win; if (w.from === ytd.from && w.to === ytd.to) { q.delete("from"); q.delete("to"); } else { q.set("from", ym(d, w.from)); q.set("to", ym(d, w.to)); } });
+  const setPer = (w: TWin) => setQuery((q) => { if (!d) return; if (sameWin(w, presetsOf(d)[0].win)) { q.delete("from"); q.delete("to"); } else { const [a, b] = winParams(d, w); q.set("from", a); q.set("to", b); } });
 
   // the work a click asks for, kept; the tabs and toggles answer at once and the charts follow (as the Figures)
   const team: TeamKey = teamKey === "eso" ? "eso" : "total";
   const lead = team === "eso" ? leadOf("eso", leadKey, lt) : null;
   const fromP = params.get("from"), toP = params.get("to");
-  const per = useMemo(() => {
-    if (!d) return null;
-    const a = fromYm(d, fromP), b = fromYm(d, toP), m = nowMonth(d);
-    return a != null && b != null ? perOf(d, { from: Math.min(a, b, m), to: Math.min(Math.max(a, b), m) }) : perOf(d, presetsOf(d)[0].win);
-  }, [d, fromP, toP]);
+  const per = useMemo(() => (d ? perOf(d, winFrom(d, fromP, toP) ?? presetsOf(d)[0].win) : null), [d, fromP, toP]);
   const people = useMemo(() => (d ? peopleOf(d, team, lead, lt?.byId ?? {}) : null), [d, team, lead, lt]);
   const want = useMemo(() => ({ view, per, people, team, lead, filters }), [view, per, people, team, lead, filters]);
   const drawn = useDeferredValue(want);
@@ -686,10 +694,12 @@ export function TicketsExplorer({ group }: { group: TGroup }) {
   const shell = { width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.75 } as const;
   if (!d || !c || !per) return (<Box sx={shell}>{back}<Typography component="h1" sx={H1}>{G.title}</Typography><Waiting computing={computing} progress={progress} error={error} /></Box>);
 
+  // a pick goes as its name (month to date keeps running in the BUC View), one's own months or days as the address has them
+  const own = isOwn(c.per) ? winParams(d, c.per.win) : null;
   const act: Act = (id, title, target) => (
     <TileActions where="tab" start="tab" edge={2}
       tile={{ key: `${G.page}:${id}`, page: G.page, tab: c.view, title, summary: `${teamName(c)} · ${perWords(d, c.per)}`,
-        filters: { ...Object.fromEntries(FILTER_DIMS.filter((k) => c.filters[k]?.length).map((k) => [k, c.filters[k] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), ...(c.per.id.startsWith("m") ? { from: [ym(d, c.per.win.from)], to: [ym(d, c.per.win.to)] } : { period: [c.per.id] }) },
+        filters: { ...Object.fromEntries(FILTER_DIMS.filter((k) => c.filters[k]?.length).map((k) => [k, c.filters[k] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), ...(own ? { from: [own[0]], to: [own[1]] } : { period: [c.per.id] }) },
         kind: "card", target: target ? { key: targetKey(c, id, c.team, c.lead, c.per), ...target } : undefined }} />
   );
   const now = { team, lead, teams };
@@ -701,15 +711,8 @@ export function TicketsExplorer({ group }: { group: TGroup }) {
       <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
         <Typography component="h1" sx={H1}>{G.title}</Typography>
         <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-          <b style={{ color: INK }}>{teamName(now)}</b> · {per.title} <b style={{ color: INK }}>{perWords(d, per)}</b> · {G.what}{computing ? " · reading HubSpot again" : ""}
+          <b style={{ color: INK }}>{teamName(now)}</b> · {per.title === perWords(d, per) ? null : <>{per.title} </>}<b style={{ color: INK }}>{perWords(d, per)}</b> · {G.what}{computing ? " · reading HubSpot again" : ""}
         </Typography>
-        {(chosen.length > 0 || per.id !== "ytd") && (
-          <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-            {per.id !== "ytd" && <Chip size="small" label={<span><b>Period:</b> {perCap(per)}</span>} onDelete={() => setPer(presetsOf(d)[0].win)} onClick={() => setPanel(true)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.blue.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.blue.fg } }} />}
-            {chosen.map(([k, v]) => <Chip key={`${k}:${v}`} size="small" label={<span><b>{dimOf(group, k).name}:</b> {v}</span>} onDelete={() => toggle(k, v)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[dimOf(group, k).tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[dimOf(group, k).tint].fg } }} />)}
-            {chosen.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>}
-          </Box>
-        )}
       </Box>
       <Box sx={{ display: "grid", gap: 0.75, mt: -0.5 }}>
         <TTeams team={team} onTeam={setTeam} lead={leadKey} onLead={setLead} teams={teams} />
@@ -727,6 +730,12 @@ export function TicketsExplorer({ group }: { group: TGroup }) {
           Filters{chosen.length + (per.id !== "ytd" ? 1 : 0) ? ` · ${chosen.length + (per.id !== "ytd" ? 1 : 0)}` : ""}
         </Button>
       </Box>
+      {/* what the page is filtered by, under the tabs (SARCLA 31.10.2026: "the filter when clicked should appear next to the
+          tabs, in a different design - where they appear on top it is really hard to find them and see them") */}
+      <ActiveFilters onEdit={() => setPanel(true)} onClearAll={clearAll} items={[
+        ...(per.id !== "ytd" ? [{ key: "period", name: "Period", value: perPill(d, per), tint: "blue" as Tint, onRemove: () => setPer(presetsOf(d)[0].win) }] : []),
+        ...chosen.map(([k, v]): ActiveItem => ({ key: `${k}:${v}`, name: dimOf(group, k).name, value: v, tint: dimOf(group, k).tint, onRemove: () => toggle(k, v) })),
+      ]} />
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
         <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />
       </Box>
@@ -764,8 +773,8 @@ export function TicketsPanel({ acts, group }: { acts: ActionsState | null; group
     const f = spec.filters ?? {};
     const sf: TFilters = Object.fromEntries(FILTER_DIMS.flatMap((k) => (f[k]?.length ? [[k, f[k]]] : [])));
     const pid = f.period?.[0], pr = pid ? presetsOf(c.d).find((p) => p.id === pid) : null;
-    const a0 = fromYm(c.d, f.from?.[0] ?? null), b0 = fromYm(c.d, f.to?.[0] ?? null);
-    const sp = pr ? perOf(c.d, pr.win) : a0 != null && b0 != null ? perOf(c.d, { from: a0, to: b0 }) : c.per;
+    const own = winFrom(c.d, f.from?.[0], f.to?.[0]);
+    const sp = pr ? perOf(c.d, pr.win) : own ? perOf(c.d, own) : c.per;
     // every chart here follows the panel's toggle (as the Figures' panel); its filters and period stay as sent
     const sc: TCtx = { ...c, per: sp, filters: sf, view: (spec.tab && isView(spec.tab) ? spec.tab : "paths") as TView, half: fmt === "half" };
     const target = ch?.target ? { key: targetKey(c, ch.id, c.team, c.lead, sp), ...ch.target(sc) } : undefined;

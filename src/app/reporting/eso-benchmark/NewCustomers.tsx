@@ -6,6 +6,9 @@
 // the Period, the customers and every breakdown in Filters, a tab per breakdown, leaderboards with a target each, all the
 // figures in a table. A new customer: a company whose first order ever (order_first_order_date) falls in the period; its
 // revenue: what it bought from then to the period's end, from each customer's monthly revenue (cube.ts newBy / newByMonth).
+// SARCLA 31.10.2026, across the ESO reports: the Period in Filters is the Figures' - every quarter, this year's and last
+// year's, and a month calendar ("put every quarter to be easy to select, and really custom dates with a mini calendar");
+// what the page is filtered by is a bar under the tabs ("on top it is really hard to find them and see them").
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -13,7 +16,6 @@ import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
-import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import TuneIcon from "@mui/icons-material/Tune";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -30,7 +32,7 @@ import { GUTTER } from "@/app/analytics/Shell";
 import { Badge, CardTitle, FAINT, GREEN, GlassCard, INK, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import { THIS } from "@/app/reporting/marketing-kpis/DimChart";
-import { DIM, FilterWindow, useCompanyNames, useCustomersCube, type CustomerPick } from "@/app/reporting/marketing-kpis/Customers";
+import { DIM, useCompanyNames, useCustomersCube, type CustomerPick } from "@/app/reporting/marketing-kpis/Customers";
 import { TileActions } from "@/app/reporting/marketing-kpis/tiles/TileActions";
 import { SavedViews } from "@/app/reporting/marketing-kpis/tiles/SavedViews";
 import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tiles/SortableGrid";
@@ -41,9 +43,10 @@ import {
 } from "@/lib/marketingKpis/cube";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
-  ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TEAM_OF, TWO, Teams, asLead, asTeam, leadOf, niceTop, setQuery, teamWord,
+  ChartBox, CubeFilterWindow, CubePeriod, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TEAM_OF, TWO, Teams, asLead, asTeam, leadOf, niceTop, periodsOf, setQuery, teamWord,
   useLead, useLeads, useTeam, type BoardRow, type Col, type LeadKey, type Per, type TeamKey,
 } from "./Figures";
+import { ActiveFilters, type ActiveItem } from "./EsoFilters";
 
 /* ── words and numbers, in full ────────────────────────────────────────── */
 
@@ -77,7 +80,8 @@ const teamName = (c: { team: TeamKey; lead?: string | null; teams?: Team[] }) =>
 
 const ytdWin = (cube: Cube): Win => presets(cube)[0].win;
 function perOf(cube: Cube, win: Win): Per {
-  const p = presets(cube).find((x) => x.win.start === win.start && x.win.end === win.end);
+  // every quarter is a period of its own - the running one "to date", last year's four (the Figures' periodsOf)
+  const p = periodsOf(cube).find((x) => x.win.start === win.start && x.win.end === win.end);
   const title = p?.id === "ytd" ? "year to date" : p?.id === "mtd" ? "month to date" : p?.id === "12m" ? "the last 12 months" : p?.id === "ly" ? String(cube.years[1]) : p ? p.label : windowLabel(cube, win);
   return { win, id: p?.id ?? `m${win.start}-${win.end}`, erp: null, title, months: win.end - win.start + 1 };
 }
@@ -87,10 +91,10 @@ const perCap = (per: Per) => per.title.charAt(0).toUpperCase() + per.title.slice
 const ym = (cube: Cube, k: number) => `${yearOfMonth(cube, k)}-${String((k % 12) + 1).padStart(2, "0")}`;
 const fromYm = (cube: Cube, x: string | null | undefined) => { const m = /^(\d{4})-(\d{2})$/.exec(x ?? ""); return m ? (Number(m[1]) - cube.years[2]) * 12 + Number(m[2]) - 1 : null; };
 /** A period as a chart sent to the BUC View keeps it: a ready-made one by its name, so it moves on with time; any other by its months. */
-const perFilters = (cube: Cube, per: Per): Record<string, string[]> => (presets(cube).some((p) => p.id === per.id) ? { period: [per.id] } : { from: [ym(cube, per.win.start)], to: [ym(cube, per.win.end)] });
+const perFilters = (cube: Cube, per: Per): Record<string, string[]> => (periodsOf(cube).some((p) => p.id === per.id) ? { period: [per.id] } : { from: [ym(cube, per.win.start)], to: [ym(cube, per.win.end)] });
 function perFromFilters(cube: Cube, f: Record<string, string[] | undefined> | undefined): Per | null {
   const id = f?.period?.[0];
-  const p = id ? presets(cube).find((x) => x.id === id) : null;
+  const p = id ? periodsOf(cube).find((x) => x.id === id) : null;
   if (p) return perOf(cube, p.win);
   const a = fromYm(cube, f?.from?.[0]), b = fromYm(cube, f?.to?.[0]);
   return a != null && b != null ? perOf(cube, clampWindow(cube, { start: a, end: b })) : null;
@@ -647,6 +651,8 @@ export function NewCustomersExplorer() {
   );
   const now = { team: teamKey, lead, teams };
   const filterCount = chosen.length + companies.length + (per.id !== "ytd" ? 1 : 0);
+  // Clear all - under the tabs and in the window: the values, the customers and the period (back to the year to date)
+  const clearEverything = () => { clearAll(); setWin(ytdWin(cube)); };
   return (
     <Box sx={shell}>
       {back}
@@ -657,23 +663,6 @@ export function NewCustomersExplorer() {
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
             <b style={{ color: INK }}>{teamName(now)}</b>{teamKey !== "total" ? " by Performis SAE" : ""} · {per.title} <b style={{ color: INK }}>{perWords(cube, per)}</b> - against {perWords(cube, per, 1)}{computing ? " · reading HubSpot again" : ""}
           </Typography>
-          {(chosen.length > 0 || per.id !== "ytd" || pick.chosen.length > 0) && (
-            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-              {pick.chosen.map((co) => (
-                <Chip key={`customer:${co.id}`} size="small" label={<span><b>Customer:</b> {co.name}</span>} onDelete={() => pick.remove(co.id)}
-                  sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.slate.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.slate.fg } }} />
-              ))}
-              {per.id !== "ytd" && (
-                <Chip size="small" label={<span><b>Period:</b> {perCap(per)}</span>} onDelete={() => setWin(ytdWin(cube))} onClick={() => setPanel(true)}
-                  sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.blue.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.blue.fg } }} />
-              )}
-              {chosen.map(([x, v]) => (
-                <Chip key={`${x}:${v}`} size="small" label={<span><b>{DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
-                  sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
-              ))}
-              {chosen.length + pick.chosen.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>}
-            </Box>
-          )}
           <Box sx={{ display: "grid", gap: 0.75, mt: 0.5 }}>
             <Teams team={teamKey} onTeam={setTeam} lead={leadKey} onLead={setLead} teams={teams} />
             {lead && leads && membersOf(cube, "eso", lead, leads)?.length === 0 && <NoLeadYet name={teamName(now)} />}
@@ -697,13 +686,22 @@ export function NewCustomersExplorer() {
           Filters{filterCount ? ` · ${filterCount}` : ""}
         </Button>
       </Box>
+      {/* what the page is filtered by, under the tabs (SARCLA 31.10.2026: "the filter when clicked should appear next to the
+          tabs" - "on top it is really hard to find them and see them"): the period first, then each customer and value chosen */}
+      <ActiveFilters onEdit={() => setPanel(true)} onClearAll={clearEverything} items={[
+        ...(per.id !== "ytd" ? [{ key: "period", name: "Period", value: perWords(cube, per) === per.title ? per.title : `${perCap(per)} · ${perWords(cube, per)}`, tint: "blue" as Tint, onRemove: () => setWin(ytdWin(cube)) }] : []),
+        ...pick.chosen.map((co): ActiveItem => ({ key: `customer:${co.id}`, name: "Customer", value: co.name, tint: "slate", onRemove: () => pick.remove(co.id) })),
+        ...chosen.map(([x, v]): ActiveItem => ({ key: `${x}:${v}`, name: DIM[x].name, value: v, tint: DIM[x].tint, onRemove: () => toggle(x, v) })),
+      ]} />
 
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
         <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />
       </Box>
 
-      <FilterWindow id="eso-new-customers-filters" period dims={FILTER_DIMS} open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube}
-        win={per.win} setWin={setWin} filters={filters} toggle={toggle} customers={pick} clearAll={() => { clearAll(); setWin(ytdWin(cube)); }} />
+      <CubeFilterWindow id="eso-new-customers-filters" period dims={FILTER_DIMS} open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube}
+        win={per.win} setWin={setWin} filters={filters} toggle={toggle} customers={pick} clearAll={clearEverything}
+        periodPicker={<CubePeriod cube={cube} win={per.win} onWin={setWin}
+          note={<>A new customer: a company whose first order ever falls in the period, against the same months a year earlier.</>} />} />
     </Box>
   );
 }

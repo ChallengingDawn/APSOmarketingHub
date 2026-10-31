@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { dayNo, dayOf, dayRange, labelOf, liveSeries, looksBy, ordersBy, ordersCover, passOf, presetsOf, shortDays, statsBy, totalsOf, yearSeries, type ShopData } from "../src/lib/reporting/shopRules";
+import {
+  dayNo, dayOf, dayRange, labelOf, liveSeries, looksBy, ordersBy, ordersCover, passOf, periodFor, periodOf, presetsOf, quarterPicks, rangeId, rangeOf, rangeWords, sameWin, shortDays, statsBy, totalsOf, yearSeries,
+  type ShopData,
+} from "../src/lib/reporting/shopRules";
 
 // two owners (ESO, TSA) and a company without one; four companies: 0 logs in, looks and orders; 1 logs in and looks at
 // nothing; 2 only looks (a tab left open - no login); 3 has the Performis years only
@@ -66,6 +69,86 @@ test("shop: a finished month joins the periods; the month to date against the sa
   assert.deepEqual(p.mtd.prev, { kind: "live", from: dayNo(d.liveFrom, "2026-11-01"), to: dayNo(d.liveFrom, "2026-11-05") });
   // the 28 days before the last 4 weeks are counted by now
   assert.deepEqual(p["28d"].prev, { kind: "live", from: dayNo(d.liveFrom, "2026-10-10"), to: dayNo(d.liveFrom, "2026-11-06") });
+});
+
+test("shop: one's own days - the id, cut to the counters, against the same number of days right before", () => {
+  // 20-26 Oct: days 18-24, against 13-19 Oct (days 11-17)
+  const r = rangeOf(d, "d2026-10-20_2026-10-26")!;
+  assert.equal(r.id, "d2026-10-20_2026-10-26");
+  assert.deepEqual(r.win, { kind: "live", from: 18, to: 24 });
+  assert.deepEqual(r.prev, { kind: "live", from: 11, to: 17 });
+  assert.equal(r.label, "20 – 26 Oct 2026");
+  assert.equal(r.title, r.label);
+  assert.equal(r.custom, true);
+  // the last day first: the same range, its id the right way round
+  assert.equal(rangeOf(d, "d2026-10-26_2026-10-20")!.id, r.id);
+  assert.equal(rangeId("2026-10-20", "2026-10-26"), r.id);
+  // 16 days from 5 Oct: the 16 before reach back before the counters - nothing to compare with
+  const early = rangeOf(d, "d2026-10-05_2026-10-20")!;
+  assert.deepEqual(early.win, { kind: "live", from: 3, to: 18 });
+  assert.equal(early.prev, null);
+  // one day, against the day before
+  const one = rangeOf(d, "d2026-10-28_2026-10-28")!;
+  assert.deepEqual([one.win, one.prev, one.label], [{ kind: "live", from: 26, to: 26 }, { kind: "live", from: 25, to: 25 }, "28 Oct 2026"]);
+  // cut to the counters: from their first day to today
+  const wide = rangeOf(d, "d2026-09-20_2026-11-15")!;
+  assert.equal(wide.id, "d2026-10-02_2026-10-29");
+  assert.deepEqual(wide.win, { kind: "live", from: 0, to: 27 });
+  assert.equal(wide.prev, null);
+  // no counter on those days, a day that is none, an id that is no range
+  assert.equal(rangeOf(d, "d2026-09-01_2026-09-30"), null);
+  assert.equal(rangeOf(d, "d2026-02-31_2026-10-05"), null);
+  assert.equal(rangeOf(d, "d2026-10-05"), null);
+  assert.equal(rangeOf(d, "7d"), null);
+  // the shop orders read by the day follow it
+  assert.equal(ordersCover(d, r.win), true);
+  assert.deepEqual(ordersBy(d, r.win, passOf(d, {}, null)).get(""), { orders: 2, buyers: 2, oneShot: 1, second: 0, multiple: 1 });
+  assert.equal(rangeWords("2026-12-30", "2027-01-03"), "30 Dec 2026 – 3 Jan 2027");
+  assert.equal(rangeWords("2026-10-28", "2026-11-04"), "28 Oct – 4 Nov 2026");
+});
+
+test("shop: the quarters - one the counters cannot show greyed with its reason, the running one to date", () => {
+  const q = quarterPicks(d);
+  assert.deepEqual(q.map((x) => x.id), ["q2026-1", "q2026-2", "q2026-3", "q2026-4"]);
+  // Q1-Q3 2026 ended before the counters started: greyed, not left out
+  assert.deepEqual(q.slice(0, 3).map((x) => [x.label, x.per, x.off]), [["Q1 2026", null, "early"], ["Q2 2026", null, "early"], ["Q3 2026", null, "early"]]);
+  // Q4 from the counters' first day, today counted; 1 Oct has no counter, so nothing to compare with
+  const q4 = q[3].per!;
+  assert.deepEqual([q4.label, q4.win, q4.prev], ["Q4 2026 to date", { kind: "live", from: 0, to: 27 }, null]);
+  // in October the quarter to date is the month to date
+  assert.ok(sameWin(q4.win, presetsOf(d).find((p) => p.id === "mtd")!.win));
+  assert.equal(sameWin(q4.win, { kind: "year", y: 2 }), false);
+  // next July: Q4 2026 whole from 2 Oct; Q1 2027 against nothing (Q4 2026 lacks 1 Oct); Q2 against Q1 whole; Q3 to date
+  // against the same days of Q2; Q4 2027 not started
+  const later = { ...d, today: "2027-07-05" };
+  const p = Object.fromEntries(quarterPicks(later).map((x) => [x.id, x]));
+  const n = (iso: string) => dayNo(d.liveFrom, iso);
+  assert.equal(quarterPicks(later).length, 8);
+  assert.deepEqual([p["q2026-4"].label, p["q2026-4"].per!.win], ["Q4 2026", { kind: "live", from: 0, to: n("2026-12-31") }]);
+  assert.equal(p["q2027-1"].per!.prev, null);
+  assert.deepEqual(p["q2027-2"].per!.win, { kind: "live", from: n("2027-04-01"), to: n("2027-06-30") });
+  assert.deepEqual(p["q2027-2"].per!.prev, { kind: "live", from: n("2027-01-01"), to: n("2027-03-31") });
+  assert.equal(p["q2027-3"].label, "Q3 2027 to date");
+  assert.deepEqual(p["q2027-3"].per!.win, { kind: "live", from: n("2027-07-01"), to: n("2027-07-05") });
+  assert.deepEqual(p["q2027-3"].per!.prev, { kind: "live", from: n("2027-04-01"), to: n("2027-04-05") });
+  assert.deepEqual([p["q2027-4"].per, p["q2027-4"].off], [null, "ahead"]);
+});
+
+test("shop: a period by its id - preset, quarter or one's own days; days picked that are a named period become it", () => {
+  assert.equal(periodOf(d, "7d")!.label, "Last 7 days");
+  assert.equal(periodOf(d, "q2026-4")!.label, "Q4 2026 to date");
+  assert.deepEqual(periodOf(d, "d2026-10-20_2026-10-26")!.win, { kind: "live", from: 18, to: 24 });
+  assert.equal(periodOf(d, "y2025")!.title, "2025");
+  // a month not ended, a quarter greyed, nothing: not a period (the page falls back to its default)
+  assert.equal(periodOf(d, "m2026-10"), null);
+  assert.equal(periodOf(d, "q2026-2"), null);
+  assert.equal(periodOf(d, null), null);
+  // the last 7 whole days, the counters' first 4 weeks, the month to date (before the quarter to date - the same days)
+  assert.equal(periodFor(d, "2026-10-28", "2026-10-22"), "7d");
+  assert.equal(periodFor(d, "2026-10-02", "2026-10-28"), "28d");
+  assert.equal(periodFor(d, "2026-10-02", "2026-10-29"), "mtd");
+  assert.equal(periodFor(d, "2026-10-05", "2026-10-20"), "d2026-10-05_2026-10-20");
+  assert.equal(periodFor(d, "2026-09-01", "2026-09-30"), null);
 });
 
 test("shop: a company counts when it logged in - with its views and shop orders", () => {

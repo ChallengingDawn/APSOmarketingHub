@@ -19,8 +19,6 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import InputBase from "@mui/material/InputBase";
-import MenuItem from "@mui/material/MenuItem";
-import Select from "@mui/material/Select";
 import TuneIcon from "@mui/icons-material/Tune";
 import SearchIcon from "@mui/icons-material/Search";
 import CheckIcon from "@mui/icons-material/Check";
@@ -55,9 +53,10 @@ import {
 } from "@/lib/reporting/customerDevRules";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
-  ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, SubTitle, TARGET, TEAM_OF, TWO, Teams, asLead, asTeam, leadOf, niceTop, setQuery, teamWord,
+  ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TEAM_OF, TWO, Teams, asLead, asTeam, leadOf, niceTop, setQuery, teamWord,
   useLead, useLeads, useTeam, type BoardRow, type Col, type LeadKey, type TeamKey,
 } from "./Figures";
+import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -114,7 +113,8 @@ function presetsOf(d: CustDevData): { id: string; label: string; win: CWin }[] {
   const m = lastOf(d), run = runOf(d) === m;
   const out = [{ id: "ytd", label: "Year to date", win: { from: 0, to: m } }, { id: "mtd", label: run ? "Month to date" : `${MONTHS_FULL[m]} ${d.year}`, win: { from: m, to: m } }];
   if (m > 0) out.push({ id: "lm", label: `${MONTHS_FULL[m - 1]} ${d.year}`, win: { from: m - 1, to: m - 1 } });
-  for (let q = 0; q < 4; q++) if (q * 3 + 2 < m || (!run && q * 3 + 2 === m)) out.push({ id: `q${q + 1}`, label: `Q${q + 1} ${d.year}`, win: { from: q * 3, to: q * 3 + 2 } });
+  // every quarter (SARCLA 31.10.2026: "put every quarter to be easy to select") - the running one to date
+  for (const q of quartersOf(d.year, m, run)) if (!q.disabled) out.push({ id: q.id, label: q.label, win: { from: q.from, to: q.to } });
   return out;
 }
 function perOf(d: CustDevData, win: CWin): CPer {
@@ -390,6 +390,11 @@ function drawnOf(id: string): Drawn | undefined {
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} against ${perWords(c.d, c.per, true)} · the running month to date, lighter, against last year's same month pro rata`} actions={a}><CustMonths c={c} target={targetFor(c, id)} /></ChartBox>,
       target: (c) => ({ unit: "n", label: `Each month's customers who bought are measured against it - a line across the months; the running month is not counted · ${teamName(c)}'s target.` }) };
   }
+  if (chart === "figures") {
+    const dim = DIM_OF[v];
+    const title = (c: CCtx) => `All the figures, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} against ${perWords(c.d, c.per, true)} · each ${DIM[dim].lower}'s active customers, Ø revenue and Ø orders, new, reactivated, slowing and lost customers, churn rate`} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
+  }
   if (chart === "table") {
     const title = (c: CCtx) => `Where the customers stand, ${c.per.title}${teamPart(c)}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} against the same months a year earlier · quantity, Ø revenue and Ø orders per customer`} actions={a}><StatusTable c={c} /></ChartBox> };
@@ -464,7 +469,7 @@ function TabCard({ c, act }: { c: CCtx; act: Act }) {
     <GlassCard sx={card}>
       <CardTitle icon={<BadgeOutlinedIcon />} tint="green" title={`${teamName(c)}'s customers, ${c.per.title}`} note={`${words} · by the customer's Performis SAE`} />
       {boards("people")}
-      <Box><SubTitle>{perCap(c.per)}, by Performis SAE</SubTitle><DimTable c={c} dim="person" /></Box>
+      {draw(c, act, "people:figures")}
     </GlassCard>
   );
   if (c.view === "status") return (
@@ -481,7 +486,7 @@ function TabCard({ c, act }: { c: CCtx; act: Act }) {
     <GlassCard sx={card}>
       <CardTitle icon={dd.icon} tint={dd.tint} title={`${teamName(c)}'s customers by ${dd.lower}, ${c.per.title}`} note={`${dd.note} · ${words}`} />
       {boards(c.view)}
-      <Box><SubTitle>{perCap(c.per)}, by {dd.lower}</SubTitle><DimTable c={c} dim={dim} /></Box>
+      {draw(c, act, `${c.view}:figures`)}
     </GlassCard>
   );
 }
@@ -530,27 +535,15 @@ function FigureCards({ c, items, actions }: { c: CCtx; items: Fig[]; actions?: (
 
 function CPeriod({ d, per, onPer }: { d: CustDevData; per: CPer; onPer: (w: CWin) => void }) {
   const m = lastOf(d);
-  const sel = { height: 32, fontSize: "0.82rem", fontWeight: 600, borderRadius: "9px", bgcolor: "#fff", flex: 1, "& .MuiSelect-select": { py: 0.5, pl: 1.25 } };
+  const all = presetsOf(d);
+  const winOf = (id: string) => all.find((p) => p.id === id)?.win;
+  const month = (k: number) => `${d.year}-${String(k + 1).padStart(2, "0")}`;
   return (
-    <Box sx={{ display: "grid", gap: 1 }}>
-      <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap" }}>
-        {presetsOf(d).map((p) => {
-          const on = p.win.from === per.win.from && p.win.to === per.win.to;
-          return <Chip key={p.id} label={p.label} onClick={() => onPer(p.win)} aria-pressed={on} sx={{ height: 28, fontSize: "0.78rem", fontWeight: 600, bgcolor: on ? TINT.blue.bg : "#fff", color: on ? TINT.blue.fg : INK, border: `1px solid ${on ? TINT.blue.fg : "rgba(21,34,58,.14)"}` }} />;
-        })}
-      </Box>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>From</Typography>
-        <Select size="small" value={per.win.from} onChange={(e) => { const f = Number(e.target.value); onPer({ from: f, to: Math.max(f, per.win.to) }); }} sx={sel} inputProps={{ "aria-label": "From month" }}>
-          {MONTHS.slice(0, m + 1).map((x, i) => <MenuItem key={x} value={i}>{x} {d.year}</MenuItem>)}
-        </Select>
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>to</Typography>
-        <Select size="small" value={per.win.to} onChange={(e) => { const t = Number(e.target.value); onPer({ from: Math.min(per.win.from, t), to: t }); }} sx={sel} inputProps={{ "aria-label": "To month" }}>
-          {MONTHS.slice(0, m + 1).map((x, i) => <MenuItem key={x} value={i}>{x} {d.year}</MenuItem>)}
-        </Select>
-      </Box>
-      <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.45 }}>This year&apos;s months, against the same months a year earlier. Lost: no order in the 12 months up to the period&apos;s end.</Typography>
-    </Box>
+    <PeriodPicker quick={all.filter((p) => !p.id.startsWith("q"))} quarters={quartersOf(d.year, m, runOf(d) === m)}
+      isOn={(id) => { const w = winOf(id); return !!w && w.from === per.win.from && w.to === per.win.to; }} onChoice={(id) => { const w = winOf(id); if (w) onPer(w); }}
+      unit="month" min={month(0)} max={month(m)} from={month(per.win.from)} to={month(per.win.to)}
+      onRange={(a, b) => onPer({ from: Number(a.slice(5, 7)) - 1, to: Number(b.slice(5, 7)) - 1 })}
+      note={<>This year&apos;s months, against the same months a year earlier. Lost: no order in the 12 months up to the period&apos;s end.</>} />
   );
 }
 function CFacet({ c, dim, onPick }: { c: CCtx; dim: CDim; onPick: (l: string) => void }) {
@@ -700,13 +693,6 @@ export function CustomerDevExplorer() {
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
             <b style={{ color: INK }}>{teamName(now)}</b> · {per.title} <b style={{ color: INK }}>{perWords(d, per)}</b> against {perWords(d, per, true)} · existing customers, by Performis SAE{computing ? " · reading HubSpot again" : ""}
           </Typography>
-          {(chosen.length > 0 || per.id !== "ytd") && (
-            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-              {per.id !== "ytd" && <Chip size="small" label={<span><b>Period:</b> {perCap(per)}</span>} onDelete={() => setPer(presetsOf(d)[0].win)} onClick={() => setPanel(true)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.blue.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.blue.fg } }} />}
-              {chosen.map(([k, v]) => <Chip key={`${k}:${v}`} size="small" label={<span><b>{DIM[k].name}:</b> {v}</span>} onDelete={() => toggle(k, v)} sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[DIM[k].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[k].tint].fg } }} />)}
-              {chosen.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>}
-            </Box>
-          )}
         </Box>
         <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" }, opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }}><FigureCards c={c} items={figs} /></Box>
       </Box>
@@ -726,6 +712,11 @@ export function CustomerDevExplorer() {
           Filters{chosen.length + (per.id !== "ytd" ? 1 : 0) ? ` · ${chosen.length + (per.id !== "ytd" ? 1 : 0)}` : ""}
         </Button>
       </Box>
+      {/* what the page is filtered by, under the tabs (SARCLA 31.10.2026: "on top it is really hard to find them and see them") */}
+      <ActiveFilters onEdit={() => setPanel(true)} onClearAll={clearAll} items={[
+        ...(per.id !== "ytd" ? [{ key: "period", name: "Period", value: `${perCap(per)} · ${perWords(d, per)}`, tint: "blue" as Tint, onRemove: () => setPer(presetsOf(d)[0].win) }] : []),
+        ...chosen.map(([k, v]): ActiveItem => ({ key: `${k}:${v}`, name: DIM[k].name, value: v, tint: DIM[k].tint, onRemove: () => toggle(k, v) })),
+      ]} />
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
         <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />
       </Box>

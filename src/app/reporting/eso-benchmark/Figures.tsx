@@ -26,6 +26,12 @@
 // important" - his pick: the Period of Who are our customers in Filters, everything follows; Year to date and Month to
 // date become one Performis SAE tab, every title names the period. Year and month to date stay the ERP's own figures;
 // any other period adds up each customer's months - the order intake only as far as its months are loaded.
+// Twelfth (SARCLA 31.10.2026, across the ESO reports): "put every quarter to be easy to select, and really custom dates
+// with a mini calendar" - the Period in Filters is the ESO reports' PeriodPicker: the ready-made periods, this year's four
+// quarters (the running one to date) and last year's, a month calendar from January last year (the cube keeps months);
+// "the filter when clicked should appear next to the tabs" - what the page is filtered by is a bar under the tabs, no
+// longer chips under the title; "all the tables should be individual KPIs" - each table its own card with its own
+// Actions, so each goes to the BUC View alone.
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -33,7 +39,6 @@ import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
-import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import InputBase from "@mui/material/InputBase";
 import IconButton from "@mui/material/IconButton";
@@ -71,11 +76,12 @@ import { SavedViews } from "@/app/reporting/marketing-kpis/tiles/SavedViews";
 import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tiles/SortableGrid";
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import {
-  DIMS, MONTH_NAMES, PRIO_ORDER, breakdown, buyersByMonthBy, byMonthBy, chosenDims, clampWindow, erpBy, erpTotals, lastMonth, monthLabel, monthOf, partial, pcBy, presets, totals, windowLabel, yearOfMonth,
+  DIMS, FIRST_MONTH, MONTH_NAMES, PRIO_ORDER, breakdown, buyersByMonthBy, byMonthBy, chosenDims, clampWindow, erpBy, erpTotals, lastMonth, monthLabel, monthOf, partial, pcBy, presets, totals, windowLabel, yearOfMonth,
   type Cube, type Dim, type ErpAgg, type Filters, type PcMonths, type Win,
 } from "@/lib/marketingKpis/cube";
 import type { EsoFigures } from "@/lib/reporting/esoFiguresRules";
 import { isTeamId, type Team } from "@/lib/mapAssign/leadsRules";
+import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem, type PeriodChoice } from "./EsoFilters";
 
 /* ── the company's own series: the forecast, the profit centres ────────── */
 
@@ -216,8 +222,25 @@ const monthShare = (cube: Cube) => { const d = erpDate(cube); return d ? d.day /
 /** Year to date (the default) or month to date - the ERP file's own figures per customer - or a month, a quarter, the
  *  last 12 months, last year, any months: each customer's months added up. */
 export type Per = { win: Win; id: string; erp: Period | null; title: string; months: number };
+/** Every quarter as a period (SARCLA 31.10.2026: "put every quarter to be easy to select"): this year's four - a finished
+ *  one as presets() has it, the running one "Q4 2026 to date" (its id stays "q4", so a target typed for it carries on into
+ *  the finished quarter), the ones to come greyed - and last year's four, all finished ("lyq1".."lyq4", moving on with the
+ *  year as "ly" does). */
+function quarterPicks(cube: Cube): (PeriodChoice & { win: Win })[] {
+  const jan = monthOf(0, 0), last = lastMonth(cube), run = partial(cube);
+  return [
+    ...quartersOf(cube.years[0], last - jan, !!run && run.month === last).map((q) => ({ id: q.id, label: q.label, disabled: q.disabled, title: q.title, win: { start: jan + q.from, end: jan + q.to } })),
+    ...[0, 1, 2, 3].map((q) => ({ id: `lyq${q + 1}`, label: `Q${q + 1} ${cube.years[1]}`, win: { start: monthOf(1, q * 3), end: monthOf(1, q * 3 + 2) } })),
+  ];
+}
+/** The periods a page on the cube names: the cube's ready-made ones - the first wins where two cover the same months (in
+ *  October "Q4 to date" is the month to date, the ERP's own) - then the quarters they lack. */
+export function periodsOf(cube: Cube): { id: string; label: string; win: Win }[] {
+  const ready = presets(cube);
+  return [...ready, ...quarterPicks(cube).filter((q) => !q.disabled && !ready.some((p) => p.id === q.id)).map(({ id, label, win }) => ({ id, label, win }))];
+}
 function perOf(cube: Cube, win: Win): Per {
-  const p = presets(cube).find((x) => x.win.start === win.start && x.win.end === win.end);
+  const p = periodsOf(cube).find((x) => x.win.start === win.start && x.win.end === win.end);
   const erp = p?.id === "ytd" || p?.id === "mtd" ? p.id : null;
   const title = erp ? PERIOD[erp] : p?.id === "12m" ? "the last 12 months" : p?.id === "ly" ? String(cube.years[1]) : p ? p.label : windowLabel(cube, win);
   return { win, id: p?.id ?? `m${win.start}-${win.end}`, erp, title, months: win.end - win.start + 1 };
@@ -238,14 +261,33 @@ const prevLabelOf = (cube: Cube, per: Per) => (per.erp ? `${cube.years[1]}, same
 const ym = (cube: Cube, k: number) => `${yearOfMonth(cube, k)}-${String((k % 12) + 1).padStart(2, "0")}`;
 const fromYm = (cube: Cube, x: string | null | undefined) => { const m = /^(\d{4})-(\d{2})$/.exec(x ?? ""); return m ? (Number(m[1]) - cube.years[2]) * 12 + Number(m[2]) - 1 : null; };
 /** A period as a chart sent to the BUC View keeps it: a ready-made one by its name, so it moves on with time; any other by its months. */
-const perFilters = (cube: Cube, per: Per): Record<string, string[]> => (presets(cube).some((p) => p.id === per.id) ? { period: [per.id] } : { from: [ym(cube, per.win.start)], to: [ym(cube, per.win.end)] });
+const perFilters = (cube: Cube, per: Per): Record<string, string[]> => (periodsOf(cube).some((p) => p.id === per.id) ? { period: [per.id] } : { from: [ym(cube, per.win.start)], to: [ym(cube, per.win.end)] });
 function perFromFilters(cube: Cube, f: Record<string, string[] | undefined> | undefined): Per | null {
   const id = f?.period?.[0];
-  const p = id ? presets(cube).find((x) => x.id === id) : null;
+  const p = id ? periodsOf(cube).find((x) => x.id === id) : null;
   if (p) return perOf(cube, p.win);
   const a = fromYm(cube, f?.from?.[0]), b = fromYm(cube, f?.to?.[0]);
   return a != null && b != null ? perOf(cube, clampWindow(cube, { start: a, end: b })) : null;
 }
+
+/**
+ * The Period section of a cube page's Filters window (SARCLA 31.10.2026: "put every quarter to be easy to select, and
+ * really custom dates with a mini calendar" - his pick: a month calendar where the data has months only): the ready-made
+ * periods, every quarter, and a calendar from January last year - the first month still held against a year earlier -
+ * to the running month. The cube keeps months, so the calendar picks whole months.
+ */
+export function CubePeriod({ cube, win, onWin, note }: { cube: Cube; win: Win; onWin: (w: Win) => void; note?: React.ReactNode }) {
+  const all = periodsOf(cube);
+  const winOf = (id: string) => all.find((p) => p.id === id)?.win;
+  const onRange = (a: string, b: string) => { const s = fromYm(cube, a), e = fromYm(cube, b); if (s != null && e != null) onWin(clampWindow(cube, { start: s, end: e })); };
+  return (
+    <PeriodPicker quick={presets(cube).filter((p) => !/^q\d$/.test(p.id))} quarters={quarterPicks(cube)}
+      isOn={(id) => { const w = winOf(id); return !!w && w.start === win.start && w.end === win.end; }} onChoice={(id) => { const w = winOf(id); if (w) onWin(w); }}
+      unit="month" min={ym(cube, FIRST_MONTH)} max={ym(cube, lastMonth(cube))} from={ym(cube, win.start)} to={ym(cube, win.end)} onRange={onRange} note={note} />
+  );
+}
+/** Who are our customers' Filters window, the ESO pages' own Period section (CubePeriod) in its `periodPicker`. */
+export const CubeFilterWindow = FilterWindow;
 
 /* ── what every chart is drawn with ────────────────────────────────────── */
 
@@ -1186,7 +1228,8 @@ type Drawn = {
 const team = (c: FigCtx) => (c.team === "total" ? "" : ` - ${teamName(c)}`);
 /** The chart drawn on its old key's period. */
 const onPeriod = (c: FigCtx, p?: Period): FigCtx => (p ? { ...c, per: p === "ytd" ? ytdPer(c.cube) : mtdPer(c.cube) } : c);
-/** A chart by its id "<tab>:<chart>" - rev, oi, b2b (and the old ytdrev … mtdb2b), monrev, monoi, months; on Profit center also sae-<pc>, country-<pc>. */
+/** A chart by its id "<tab>:<chart>" - rev, oi, b2b (and the old ytdrev … mtdb2b), monrev, monoi, months, the tables
+ *  table and months-table; on Profit center also sae-<pc>, country-<pc>, table, sae-table. */
 function drawnOf(id: string): Drawn | undefined {
   const [raw, chart = ""] = id.split(":");
   if (!isView(raw)) return undefined;
@@ -1201,6 +1244,19 @@ function drawnOf(id: string): Drawn | undefined {
       const cid = "pc:rev";
       return { id: cid, view: v, fixed, title: (c) => `Revenue ${onPeriod(c, fixed).per.title}, by profit center${team(c)}`, draw: (c, a) => <PcBars c={onPeriod(c, fixed)} id={cid} actions={a} />,
         target: (c) => ({ unit: "eur", label: `Each profit center's revenue ${c.per.title} is measured against it · ${forWhom(c)}.` }) };
+    }
+    // the tables, each its own card with its own Actions (SARCLA 31.10.2026: "all the tables should be individual KPIs")
+    if (chart === "table") {
+      const title = (c: FigCtx) => `All the figures, ${c.per.title}, by profit center${team(c)}`;
+      return { id, view: v, title, draw: (c, a) => (!hasPc(c) ? <PcWaiting /> : (
+        <ChartBox title={title(c)} actions={a} hint={`${perWords(c.cube, c.per)} against ${perWords(c.cube, c.per, 1)} · each profit center's revenue, its change in € and %, its share of the revenue`}><PcTable c={c} /></ChartBox>
+      )) };
+    }
+    if (chart === "sae-table") {
+      const title = (c: FigCtx) => `Revenue by profit center, ${c.per.title}, by Performis SAE${team(c)}`;
+      return { id, view: v, title, draw: (c, a) => (!hasPc(c) ? <PcWaiting /> : (
+        <ChartBox title={title(c)} actions={a} hint={`${perWords(c.cube, c.per)} · each person's revenue in each profit center, and all of it against ${perWords(c.cube, c.per, 1)}`}><PcSplitTable c={c} dim="sae" /></ChartBox>
+      )) };
     }
     const one = /^(sae|country)-([a-z]+)$/.exec(chart);
     if (one && PC_ORDER.includes(one[2])) {
@@ -1219,6 +1275,20 @@ function drawnOf(id: string): Drawn | undefined {
       target: (c) => (w === "b2b"
         ? { unit: "pct", label: `Each ${lowerOf(dim)}'s book-to-bill ${c.per.title} - the order intake against the revenue - is measured against it, e.g. 100 · ${forWhom(c)}.` }
         : { unit: "eur", label: `Each ${lowerOf(dim)}'s ${WHAT[w].toLowerCase()} ${c.per.title} is measured against it · ${forWhom(c)}.` }) };
+  }
+  // all the figures of a breakdown, and of the months, each its own card with its own Actions (SARCLA 31.10.2026: "all the
+  // tables should be individual KPIs" - "like 'New customers year to date, by country'")
+  if (chart === "table") {
+    const title = (c: FigCtx) => `All the figures, ${c.per.title}, by ${lowerOf(dim)}${team(c)}`;
+    const each = dim === "sae" ? "each person's" : `each ${lowerOf(dim)}'s`;
+    return { id, view: v, title, draw: (c, a) => (
+      <ChartBox title={title(c)} actions={a} hint={`${perWords(c.cube, c.per)} against ${perWords(c.cube, c.per, 1)} · ${each} revenue with its change and share, the customers who bought, the order intake and book-to-bill`}><ValueTable c={c} dim={dim} /></ChartBox>
+    ) };
+  }
+  if (v === "ytd" && chart === "months-table") {
+    const title = (c: FigCtx) => `All the figures, ${c.per.title}, month by month${team(c)}`;
+    const hint = (c: FigCtx) => `${perWords(c.cube, c.per)} · each month's revenue, customers and order intake against the same month a year earlier${monthRows(c).some((r) => r.erp) ? " - the running month the ERP's month to date, against the same days" : ""}${forecastShown(c) ? " · the ERP's forecast beside the revenue, the whole company" : ""} · the last row: ${c.per.title} in all`;
+    return { id, view: v, title, draw: (c, a) => <ChartBox title={title(c)} hint={hint(c)} actions={a}><MonthTable c={c} /></ChartBox> };
   }
   if (v === "ytd" && (chart === "monrev" || chart === "monoi")) {
     const w: Which = chart === "monrev" ? "rev" : "oi";
@@ -1274,16 +1344,8 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
             {draw(c, act, "ytd:monoi")}
           </Box>
         )}
-        <Box>
-          <SubTitle>{perCap(per)}, by Performis SAE</SubTitle>
-          <ValueTable c={c} dim="sae" />
-        </Box>
-        {many && (
-          <Box>
-            <SubTitle>{perCap(per)}, month by month</SubTitle>
-            <MonthTable c={c} />
-          </Box>
-        )}
+        {draw(c, act, "ytd:table")}
+        {many && draw(c, act, "ytd:months-table")}
         {footnote}
       </GlassCard>
     );
@@ -1303,8 +1365,8 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
             <SubTitle>Each profit center by country, {per.title}</SubTitle>
             <Box sx={TWO}>{pcsOf(c, "country").map((pc) => <Box key={pc} sx={{ display: "grid", minWidth: 0 }}>{draw(c, act, `pc:country-${pc}`)}</Box>)}</Box>
           </Box>
-          <Box><SubTitle>{perCap(per)}, by profit center</SubTitle><PcTable c={c} /></Box>
-          <Box><SubTitle>{perCap(per)}, by Performis SAE and profit center</SubTitle><PcSplitTable c={c} dim="sae" /></Box>
+          {draw(c, act, "pc:table")}
+          {draw(c, act, "pc:sae-table")}
         </>
       )}
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
@@ -1323,7 +1385,7 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
         {draw(c, act, `${view}:oi`)}
       </Box>
       {draw(c, act, `${view}:b2b`)}
-      <Box><SubTitle>{perCap(per)}, by {lowerOf(view)}</SubTitle><ValueTable c={c} dim={view} /></Box>
+      {draw(c, act, `${view}:table`)}
       {footnote}
     </GlassCard>
   );
@@ -1546,6 +1608,8 @@ export function FiguresExplorer() {
   );
   const active = chosenDims(filters);
   const chosen = active.flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
+  // Clear all - under the tabs and in the window: the values, the customers and the period (back to the year to date)
+  const clearEverything = () => { clearAll(); setWin(ytdWin(cube)); };
   // the tile toolbar per chart, keyed "eso-figures:<tab>:<chart>"; the team and the filters in force go with it, and its target per team
   const act: Act = (id, title, target) => (
     <TileActions where="tab" start="tab" edge={2}
@@ -1575,23 +1639,6 @@ export function FiguresExplorer() {
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
             <b style={{ color: INK }}>{teamName(now)}</b>{teamKey !== "total" ? " by Performis SAE" : ""} · {per.title} <b style={{ color: INK }}>{perWords(cube, per)}</b> - against {perWords(cube, per, 1)}{computing ? " · reading HubSpot again" : ""}
           </Typography>
-          {(chosen.length > 0 || per.id !== "ytd" || pick.chosen.length > 0) && (
-            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-              {pick.chosen.map((co) => (
-                <Chip key={`customer:${co.id}`} size="small" label={<span><b>Customer:</b> {co.name}</span>} onDelete={() => pick.remove(co.id)}
-                  sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.slate.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.slate.fg } }} />
-              ))}
-              {per.id !== "ytd" && (
-                <Chip size="small" label={<span><b>Period:</b> {perCap(per)}</span>} onDelete={() => setWin(ytdWin(cube))} onClick={() => setPanel(true)}
-                  sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT.blue.bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT.blue.fg } }} />
-              )}
-              {chosen.map(([x, v]) => (
-                <Chip key={`${x}:${v}`} size="small" label={<span><b>{DIM[x].name}:</b> {v}</span>} onDelete={() => toggle(x, v)}
-                  sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[DIM[x].tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[DIM[x].tint].fg } }} />
-              ))}
-              {chosen.length + pick.chosen.length > 0 && <Button size="small" onClick={clearAll} sx={{ textTransform: "none", fontWeight: 600, minWidth: 0 }}>Clear all</Button>}
-            </Box>
-          )}
         </Box>
         <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}>
           <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease" }}><FigureCards items={figs} /></Box>
@@ -1617,13 +1664,22 @@ export function FiguresExplorer() {
           Filters{chosen.length + companies.length + (per.id !== "ytd" ? 1 : 0) ? ` · ${chosen.length + companies.length + (per.id !== "ytd" ? 1 : 0)}` : ""}
         </Button>
       </Box>
+      {/* what the page is filtered by, under the tabs (SARCLA 31.10.2026: "the filter when clicked should appear next to the
+          tabs" - "on top it is really hard to find them and see them"): the period first, then each customer and value chosen */}
+      <ActiveFilters onEdit={() => setPanel(true)} onClearAll={clearEverything} items={[
+        ...(per.id !== "ytd" ? [{ key: "period", name: "Period", value: perWords(cube, per) === per.title ? per.title : `${perCap(per)} · ${perWords(cube, per)}`, tint: "blue" as Tint, onRemove: () => setWin(ytdWin(cube)) }] : []),
+        ...pick.chosen.map((co): ActiveItem => ({ key: `customer:${co.id}`, name: "Customer", value: co.name, tint: "slate", onRemove: () => pick.remove(co.id) })),
+        ...chosen.map(([x, v]): ActiveItem => ({ key: `${x}:${v}`, name: DIM[x].name, value: v, tint: DIM[x].tint, onRemove: () => toggle(x, v) })),
+      ]} />
 
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
         <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} footnote={footnote} />
       </Box>
 
-      <FilterWindow id="eso-figures-filters" period dims={FILTER_DIMS} open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube}
-        win={per.win} setWin={setWin} filters={filters} toggle={toggle} customers={pick} clearAll={() => { clearAll(); setWin(ytdWin(cube)); }} />
+      <CubeFilterWindow id="eso-figures-filters" period dims={FILTER_DIMS} open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube}
+        win={per.win} setWin={setWin} filters={filters} toggle={toggle} customers={pick} clearAll={clearEverything}
+        periodPicker={<CubePeriod cube={cube} win={per.win} onWin={setWin}
+          note={<>Year to date and month to date: the ERP&apos;s own figures, to the day. Any other period adds up the customers&apos; months - {oiLoadedWords(cube)}.</>} />} />
     </Box>
   );
 }

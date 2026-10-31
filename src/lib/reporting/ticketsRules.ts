@@ -90,10 +90,64 @@ export function firstContact(created: number, moves: { at: number | null; kind: 
 
 /* ── the rows of a period ──────────────────────────────────────────────── */
 
-/** A period: this year's months, 0 = January (or last year's with year 1). */
-export type TWin = { from: number; to: number; year?: 0 | 1 };
+/** A period: this year's months, 0 = January (or last year's with year 1) - and, for a range of one's own dates (SARCLA
+ *  31.10.2026: "really custom dates with a mini calendar"), the first day of its first month `d0` and the last day of its
+ *  last month `d1` (1-31; none: from the 1st, to the month's end). Only the two end months can be cut, so the days ride on
+ *  the months the page already counts by; last year's window is the same months with the same days. */
+export type TWin = { from: number; to: number; year?: 0 | 1; d0?: number; d1?: number };
 export type TDim = "person" | "channel" | "prio" | "category" | "country";
 export type TFilters = Partial<Record<TDim, string[]>>;
+
+/** The days of a month (0 = January). */
+export const daysIn = (year: number, m: number) => new Date(Date.UTC(year, m + 1, 0)).getUTCDate();
+/** A row on the window's days - its months are checked apart; only the first and the last month are cut. */
+const onDays = (r: number[], win: TWin) => (r[T.month] !== win.from || r[T.day] >= (win.d0 ?? 1)) && (r[T.month] !== win.to || r[T.day] <= (win.d1 ?? 31));
+/** Two windows the same - months and days. */
+export const sameWin = (a: TWin, b: TWin) => a.from === b.from && a.to === b.to && (a.year ?? 0) === (b.year ?? 0) && (a.d0 ?? 1) === (b.d0 ?? 1) && (a.d1 ?? 99) === (b.d1 ?? 99);
+/** A window cut by days - not whole months. */
+export const byDays = (win: TWin) => win.d0 != null || win.d1 != null;
+
+type Day = Pick<TicketsData, "year" | "today">;
+const p2 = (n: number) => String(n).padStart(2, "0");
+/**
+ * A window from the address or the calendar: each end a month ("2026-03") or a day ("2026-03-05"), this year only (the
+ * read keeps last year for the comparison only), in either order, cut at the read's day. A first day of the 1st and a last
+ * day at the month's end are whole months, so 1 March - 31 May is March-May exactly as the month picks have it; a range
+ * ending on the read's day keeps that day (last year's comparison then stops on the same day a year earlier).
+ */
+export function winFrom(d: Day, from: string | null | undefined, to: string | null | undefined): TWin | null {
+  const end = (x: string | null | undefined) => {
+    const m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec((x ?? "").trim());
+    if (!m || Number(m[1]) !== d.year) return null;
+    const mo = Number(m[2]) - 1, day = m[3] ? Number(m[3]) : null;
+    if (mo < 0 || mo > 11 || (day != null && (day < 1 || day > daysIn(d.year, mo)))) return null;
+    return { m: mo, day };
+  };
+  let a = end(from), b = end(to);
+  if (!a || !b) return null;
+  if (a.m * 32 + (a.day ?? 1) > b.m * 32 + (b.day ?? 31)) [a, b] = [b, a];
+  const tm = Number(d.today.slice(5, 7)) - 1, td = Number(d.today.slice(8, 10));
+  // past the read's day: a month to date, a day the read's day (as the month picks were cut at the running month)
+  const cut = (e: { m: number; day: number | null }) => (e.m > tm ? { m: tm, day: e.day == null ? null : td } : e.m === tm && e.day != null && e.day > td ? { m: tm, day: td } : e);
+  a = cut(a); b = cut(b);
+  const d0 = a.day != null && a.day > 1 ? a.day : undefined;
+  const d1 = b.day != null && b.day < daysIn(d.year, b.m) ? b.day : undefined;
+  return { from: a.m, to: b.m, ...(d0 ? { d0 } : {}), ...(d1 ? { d1 } : {}) };
+}
+/** The first and the last day a window covers, "2026-03-05" - the running month to the read's day. */
+export function winDays(d: Day, win: TWin): [string, string] {
+  const tm = Number(d.today.slice(5, 7)) - 1;
+  const last = win.d1 ?? (win.to === tm ? Number(d.today.slice(8, 10)) : daysIn(d.year, win.to));
+  return [`${d.year}-${p2(win.from + 1)}-${p2(win.d0 ?? 1)}`, `${d.year}-${p2(win.to + 1)}-${p2(last)}`];
+}
+/** A window in the address, read back by winFrom: whole months "2026-03" (as before), a window cut by days its two days
+ *  "2026-03-05" - but an end running to date stays the month, so the link keeps running with the read. */
+export function winParams(d: Day, win: TWin): [string, string] {
+  const ym = (m: number) => `${d.year}-${p2(m + 1)}`;
+  if (!byDays(win)) return [ym(win.from), ym(win.to)];
+  const [a, b] = winDays(d, win);
+  return [a, win.d1 == null && win.to === Number(d.today.slice(5, 7)) - 1 ? ym(win.to) : b];
+}
 
 const COL: Record<Exclude<TDim, "person">, number> = { channel: T.channel, prio: T.prio, category: T.category, country: T.country };
 /** A row's value on a breakdown, as its label. */
@@ -102,11 +156,13 @@ export function labelOf(d: TicketsData, row: number[], dim: TDim): string {
   return d.labels[dim][row[COL[dim]]] ?? "Not set";
 }
 
-/** A group's tickets of a period, under the filters - a breakdown's own filter left out when grouping by it. */
+/** A group's tickets of a period, under the filters - a breakdown's own filter left out when grouping by it. A window cut
+ *  by days counts each ticket on the day it came in, last year's on the same days. */
 export function rowsOf(d: TicketsData, group: TGroup, win: TWin, f: TFilters, people: Set<number> | null, except?: TDim): number[][] {
-  const y = win.year ?? 0, g = groupIndex(group);
+  const y = win.year ?? 0, g = groupIndex(group), days = byDays(win);
   const sets = (Object.keys(f) as TDim[]).filter((k) => k !== except && f[k]?.length).map((k) => [k, new Set(f[k])] as const);
   return d.tickets.filter((r) => r[T.group] === g && r[T.year] === y && r[T.month] >= win.from && r[T.month] <= win.to
+    && (!days || onDays(r, win))
     && (!people || people.has(r[T.person]))
     && sets.every(([k, s]) => s.has(labelOf(d, r, k))));
 }
@@ -199,12 +255,22 @@ export function statsBy(rows: number[][], win: TWin, key: (r: number[]) => strin
 }
 
 /** Last year's same months beside this year's only when each of them held enough of the group's tickets: the ESO pipeline
- *  began in July 2025, so a year to date against 2025's would compare a pipeline with an empty one. */
+ *  began in July 2025, so a year to date against 2025's would compare a pipeline with an empty one.
+ *  A month the dates cut (SARCLA 31.10.2026: "really custom dates") is held to its share of the 50, counted on the same
+ *  days last year - 5-17 March needs 50 x 13/31, 21 tickets on 5-17 March 2025: the same bar a day as a whole month's
+ *  (about 1.6 tickets a day). So a cut month is neither waved through on the whole month's tickets (a pipeline that began
+ *  on the 20th would compare the 1st-19th with nothing) nor held to 50 in a few days, which no week would reach. A day
+ *  this year that last year did not have (29 February) has nothing to compare with. Whole months: as before. */
 export const PY_MIN = 50;
 export function comparable(d: TicketsData, group: TGroup, win: TWin, people: Set<number> | null): boolean {
-  const per = zeros(12), g = groupIndex(group);
-  for (const r of d.tickets) if (r[T.year] === 1 && r[T.group] === g && (!people || people.has(r[T.person]))) per[r[T.month]]++;
-  for (let m = win.from; m <= win.to; m++) if (per[m] < PY_MIN) return false;
+  const per = zeros(12), g = groupIndex(group), days = byDays(win);
+  for (const r of d.tickets) if (r[T.year] === 1 && r[T.group] === g && (!people || people.has(r[T.person])) && (!days || onDays(r, win))) per[r[T.month]]++;
+  for (let m = win.from; m <= win.to; m++) {
+    const n = daysIn(d.year - 1, m);
+    const lo = m === win.from ? win.d0 ?? 1 : 1, hi = Math.min(n, m === win.to ? win.d1 ?? n : n);
+    const share = days ? Math.max(0, hi - lo + 1) / n : 1;
+    if (share <= 0 || per[m] < PY_MIN * share) return false;
+  }
   return true;
 }
 

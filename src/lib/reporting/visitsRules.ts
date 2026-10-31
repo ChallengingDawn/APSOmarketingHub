@@ -56,15 +56,42 @@ export function regWayOf(shopSince: number, visitDay: number, end: number): (typ
 /** A customer that had bought before the visit: an order in the 12 months before it, or none for 12 months and more */
 export const BEFORE = ["Still buying - an order in the 12 months before the visit", "Not retained - no order for 12 months or more"] as const;
 
-/** A period: this year's months, 0 = January (or last year's with year 1). */
-export type VWin = { from: number; to: number; year?: 0 | 1 };
+/** A period: this year's months, 0 = January (or last year's with year 1). A range of days (SARCLA 31.10.2026: "really
+ *  custom dates with a mini calendar" - a visit has its day) keeps its first and last day too, yyyymmdd: the months are the
+ *  ones it spans, the visits are cut to the days. No d0/d1: whole months, as before. */
+export type VWin = { from: number; to: number; year?: 0 | 1; d0?: number; d1?: number };
 export type VDim = "person" | "prio" | "category" | "kind" | "country";
 export type VFilters = Partial<Record<VDim, string[]>>;
 
 /** "2026-03-05" -> 20260305 */
 export const ymd = (s: string | null | undefined) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s ?? ""); return m ? Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3]) : 0; };
+/** 20260305 -> "2026-03-05" */
+export const isoOf = (day: number) => `${Math.floor(day / 10000)}-${String(Math.floor(day / 100) % 100).padStart(2, "0")}-${String(day % 100).padStart(2, "0")}`;
 /** 20260305 -> the same day a year earlier, 20250305 */
 const yearBefore = (day: number) => day - 10000;
+/** The days of a month (0 = January) */
+export const daysIn = (year: number, month: number) => new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+/** A visit row's day, yyyymmdd */
+const dayOfRow = (d: VisitsData, r: number[]) => (d.year - (r[V.year] ?? 0)) * 10000 + (r[V.month] + 1) * 100 + r[V.day];
+
+/** A range of days of this year as a period, either order, kept between the 1st of January and the read's day. Whole
+ *  months - from a 1st to a month's last day, or to the read's day - are the months alone, so the quick picks and the
+ *  quarters still light up when the calendar gives the same. */
+export function dayWin(d: VisitsData, a: number, b: number): VWin {
+  const today = ymd(d.today), first = d.year * 10000 + 101;
+  // a day past its month's end ("2026-02-31") rolls on, as a calendar would
+  const fix = (n: number) => ymd(new Date(Date.UTC(Math.floor(n / 10000), Math.floor(n / 100) % 100 - 1, n % 100)).toISOString());
+  const keep = (n: number) => (Number.isFinite(n) && n > 0 ? Math.min(Math.max(fix(n), first), today) : first);
+  const [x, y] = a <= b ? [keep(a), keep(b)] : [keep(b), keep(a)];
+  const from = Math.floor(x / 100) % 100 - 1, to = Math.floor(y / 100) % 100 - 1;
+  return x % 100 === 1 && (y === today || y % 100 === daysIn(d.year, to)) ? { from, to } : { from, to, d0: x, d1: y };
+}
+/** A period's first and last day, yyyymmdd - the last the read's day while it runs. */
+export function daysOf(d: VisitsData, win: VWin): [number, number] {
+  if (win.d0 && win.d1) return [win.d0, win.d1];
+  const yr = d.year - (win.year ?? 0);
+  return [yr * 10000 + (win.from + 1) * 100 + 1, Math.min(ymd(d.today), yr * 10000 + (win.to + 1) * 100 + daysIn(yr, win.to))];
+}
 
 const COL: Record<Exclude<VDim, "person">, number> = { prio: V.prio, category: V.category, kind: V.kind, country: V.country };
 /** A row's value on a breakdown, as its label. */
@@ -79,6 +106,7 @@ export function rowsOf(d: VisitsData, win: VWin, f: VFilters, people: Set<number
   const y = win.year ?? 0;
   const sets = (Object.keys(f) as VDim[]).filter((k) => k !== except && f[k]?.length).map((k) => [k, new Set(f[k])] as const);
   return d.visits.filter((r) => r[V.year] === y && r[V.month] >= win.from && r[V.month] <= win.to
+    && (!win.d0 || dayOfRow(d, r) >= win.d0) && (!win.d1 || dayOfRow(d, r) <= win.d1)
     && (!people || people.has(r[V.person]))
     && sets.every(([k, s]) => s.has(labelOf(d, r, k))));
 }
@@ -118,9 +146,12 @@ export function statsBy(d: VisitsData, rows: number[][], win: VWin, key: (r: num
   const first = new Map<string, Map<number, { day: number; month: number; isNew: boolean }>>();
   const today = ymd(d.today);
   const yr = d.year - (win.year ?? 0);
-  // the period's last day - the read's day while it runs - and its last month in the bought mask
-  const end = Math.min(today, yr * 10000 + (win.to + 1) * 100 + 31);
-  const endMonth = (1 - (win.year ?? 0)) * 12 + win.to;
+  // the period's last day - the read's day while it runs, a range's own last day - and its last month in the bought mask.
+  // The months bought in are kept by the month: a range that ends mid-month leaves that month out of the mask (an order in
+  // it may be after the range) - an order there counts only by the last order's day.
+  const end = Math.min(today, win.d1 ?? yr * 10000 + (win.to + 1) * 100 + 31);
+  const wholeEnd = !win.d1 || end >= today || end % 100 >= daysIn(yr, win.to);
+  const endMonth = (1 - (win.year ?? 0)) * 12 + win.to - (wholeEnd ? 0 : 1);
   const kinds = d.labels.kind;
   const n = win.to - win.from + 1;
   for (const r of rows) {
@@ -134,7 +165,7 @@ export function statsBy(d: VisitsData, rows: number[][], win: VWin, key: (r: num
     if (kind === "Scheduled") s.scheduled++; else if (kind === "Cold") s.cold++; else if (kind === "Event") s.event++;
     const co = r[V.company];
     if (co < 0) { s.noCompany++; continue; }
-    const day = (d.year - (r[V.year] ?? 0)) * 10000 + (r[V.month] + 1) * 100 + r[V.day];
+    const day = dayOfRow(d, r);
     let m = first.get(k);
     if (!m) { m = new Map(); first.set(k, m); }
     const was = m.get(co);
@@ -187,10 +218,15 @@ export function coverageOf(d: VisitsData, rows: number[][], owners: Set<number>)
   return bands.map((label, i) => ({ label, owned: owned[i], visited: visited[i] }));
 }
 
-/** Last year's customer meetings per month of the period, for the people shown - the running month to the same day. */
+/** Last year's customer meetings per month of the period, for the people shown - the running month to the same day, a
+ *  range of days to the same days a year earlier. */
 export function lastYearOf(d: VisitsData, win: VWin, people: Set<number> | null): number[] {
   const out = Array(win.to - win.from + 1).fill(0);
   const now = Number(d.today.slice(5, 7)) - 1, day = Number(d.today.slice(8, 10));
-  for (const [p, m, dd] of d.lastYear) if (m >= win.from && m <= win.to && (!people || people.has(p)) && !(m === now && dd > day)) out[m - win.from]++;
+  const lo = win.d0 ? win.d0 % 10000 : 0, hi = win.d1 ? win.d1 % 10000 : 9999;
+  for (const [p, m, dd] of d.lastYear) {
+    const md = (m + 1) * 100 + dd;
+    if (m >= win.from && m <= win.to && md >= lo && md <= hi && (!people || people.has(p)) && !(m === now && dd > day)) out[m - win.from]++;
+  }
   return out;
 }
