@@ -56,7 +56,8 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  CATEGORIES, REG_VISIT, addressOf, blank, hasDays, isoOf, median, spanOf, statsBy, winOf, type RDim, type RFilters, type RStats, type RWin, type RegData,
+  C, CATEGORIES, REG_VISIT, addressOf, blank, companiesOf, hasDays, isoOf, labelOf, median, spanOf, statsBy, winOf,
+  type RDim, type RFilters, type RStats, type RWin, type RegData, type RegList,
 } from "@/lib/reporting/registrationsRules";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
@@ -64,6 +65,7 @@ import {
   type BoardRow, type Col, type LeadKey, type TeamKey,
 } from "./Figures";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
+import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -347,10 +349,51 @@ type TargetOf = { unit: "pct" | "n"; label: string };
 type Drawn = { id: string; title: (c: RCtx) => string; draw: (c: RCtx, actions?: React.ReactNode) => React.ReactNode; target?: (c: RCtx) => TargetOf };
 const teamPart = (c: RCtx) => ` · ${teamName(c)}`;
 const forWhom = (c: RCtx) => `${teamName(c)}'s target for ${c.per.title} - each team and period its own`;
+/** A chart by its id - with the companies behind it, its "Companies" button beside its filter (SARCLA 31.10.2026: "next
+ *  to each report ... a new icon Company ... allow to see the companies, paginated by 25"). */
+function drawnOf(id: string): Drawn | undefined {
+  const d = drawnBare(id);
+  return d && { ...d, draw: (c, a) => <CompaniesFor source={listedOf(c, listOf(id))}>{d.draw(c, a)}</CompaniesFor> };
+}
+/** What a chart counts: its boards and tables by their measure; the months, the split and the share by the companies registered. */
+function listOf(id: string): RegList {
+  const chart = id.split(":")[1] ?? "";
+  const what = chart.startsWith("table-") ? chart.slice(6) : chart.split("-")[0];
+  return what === "bought" || what === "visited" || what === "accounts" ? what : "registered";
+}
+/** 20261012 -> "12 Oct 2026" */
+const dayWords = (day: number) => (day ? `${day % 100} ${MONTHS[(Math.floor(day / 100) % 100) - 1] ?? ""} ${Math.floor(day / 10000)}` : "—");
+const LIST_NOTE: Record<RegList, string> = {
+  registered: "the companies registered in the shop, the newest first",
+  bought: "the companies registered that have ordered in the shop since, the newest registration first",
+  visited: "the companies registered on the day of a customer visit or later, the newest first",
+  accounts: "the companies the contacts opened their shop accounts at, the most accounts first",
+};
+/** The companies behind a chart: its period, team and filters, as the figures count them - so the list adds up to the chart. */
+function listedOf(c: RCtx, what: RegList): CompanySource | null {
+  const ids = c.d.companyIds, names = c.d.companyNames;
+  if (!ids || !names) return null;
+  const { companies, noCompany } = companiesOf(c.d, c.per.win, c.filters, c.people, what);
+  const acc = what === "accounts";
+  return {
+    key: `registrations|${c.d.generatedAt}|${what}|${c.per.id}|${c.per.win.from}-${c.per.win.to}|${c.per.win.d0 ?? ""}-${c.per.win.d1 ?? ""}|${c.team}|${c.lead ?? ""}|${JSON.stringify(c.filters)}`,
+    head: [...(acc ? ["Shop accounts opened"] : []), "Registered", "First shop order", "Company owner", "Country", "Priority", "Customer category", "Visit and registration"],
+    left: acc ? [4, 5, 6, 7, 8] : [3, 4, 5, 6, 7],
+    note: `${perWords(c.d, c.per)} · ${LIST_NOTE[what]}${noCompany ? ` · ${int(noCompany)} account${noCompany === 1 ? "" : "s"} without a company are not on the list` : ""}`,
+    rows: companies.map(({ ci, accounts }) => {
+      const co = c.d.companies[ci];
+      return {
+        id: ids[ci] ?? null, name: names[ci] ?? `Company ${ci + 1}`,
+        // a shop order dated before the account cannot be - not shown, as the figures do not count it
+        cells: [...(acc ? [int(accounts)] : []), dayWords(co[C.reg]), dayWords(co[C.firstOrder] >= co[C.reg] ? co[C.firstOrder] : 0), labelOf(c.d, co, "person"), labelOf(c.d, co, "country"), labelOf(c.d, co, "prio"), labelOf(c.d, co, "category"), labelOf(c.d, co, "visit")],
+      };
+    }),
+  };
+}
 /** A chart by its id "<tab>:<what>[-<breakdown>]": people:registered, people:months, visit:split, country:bought… - and
  *  the tables, each a card of its own (SARCLA 31.10.2026: "all the tables should be individual KPIs"):
  *  <tab>:table-registered | table-bought | table-accounts, people:months-table, people:person-months. */
-function drawnOf(id: string): Drawn | undefined {
+function drawnBare(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
   if (chart === "months") {

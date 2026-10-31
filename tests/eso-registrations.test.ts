@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { REG_VISIT, addressOf, cutOf, daysBetween, hasDays, labelOf, median, spanOf, statsBy, visitOf, winOf, ymd, type RegData } from "../src/lib/reporting/registrationsRules";
+import { REG_VISIT, addressOf, companiesOf, cutOf, daysBetween, hasDays, labelOf, median, spanOf, statsBy, visitOf, winOf, ymd, type RegData } from "../src/lib/reporting/registrationsRules";
 
 // the read's day 29 Oct 2026; two owners and the "No owner" row; five companies:
 // 0 registered 5 Mar 2026, visited the same day, its first shop order 20 Mar
@@ -147,4 +147,25 @@ test("registrations: a range of days against the same days a year earlier", () =
   const feb = winOf(leap, "2028-02-29", "2028-03-10")!;
   assert.deepEqual(feb, { from: 1, to: 2, d0: 20280229, d1: 20280310 });
   assert.deepEqual(spanOf(leap, feb, 1), { from: 20270228, to: 20270310 });
+});
+
+// SARCLA 31.10.2026: "allow to see the companies, paginated by 25" - a chart's list is the companies its figure counts
+test("registrations: a chart's companies add up to its figure", () => {
+  const all = statsBy(d, YTD, 0, {}, null).get("")!;
+  const ids = (what: Parameters<typeof companiesOf>[4], f = {}, people: Set<number> | null = null) => companiesOf(d, YTD, f, people, what).companies.map((x) => x.ci);
+  // the newest registration first: company 3 (1 Jun), 1 (12 Apr), 0 (5 Mar) - not company 2 (last year) nor 4 (2018)
+  assert.deepEqual(ids("registered"), [3, 1, 0]);
+  assert.equal(ids("registered").length, all.companies);
+  assert.deepEqual(ids("bought"), [0]);
+  // on the day of its visit (0), after one (1) - not 3, visited after registering
+  assert.deepEqual(ids("visited"), [1, 0]);
+  // the accounts: company 0 two this year, the others one each (company 4 in the shop since 2018), the one without a company apart
+  const acc = companiesOf(d, YTD, {}, null, "accounts");
+  assert.deepEqual(acc.companies.map((x) => [x.ci, x.accounts]), [[0, 2], [3, 1], [1, 1], [4, 1]]);
+  assert.equal(acc.noCompany, 1);
+  assert.equal(acc.companies.reduce((s, x) => s + x.accounts, 0) + acc.noCompany, all.accounts);
+  // the team and the filters as the figures: Ana's, Germany's
+  assert.deepEqual(ids("registered", {}, new Set([0])), [1, 0]);
+  assert.equal(companiesOf(d, YTD, {}, new Set([0]), "accounts").noCompany, 0);
+  assert.deepEqual(ids("registered", { country: ["Germany"] }), [3, 1]);
 });

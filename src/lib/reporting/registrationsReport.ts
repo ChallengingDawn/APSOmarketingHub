@@ -15,6 +15,8 @@ import { CATEGORIES, typeShort, ymd, type RegData } from "./registrationsRules";
 // v2: the shop's own first order (the ERP's counted orders outside the shop: "already customers" that cannot be), APIC
 // instead of the potential
 // v3: each APSO customer category by its own name, no "Other"
+// (31.10: each company's HubSpot id and name too, for the charts' lists of companies - a read without them is read again,
+// the last one shown meanwhile)
 const KEY = "esoRegistrations:v3";
 const TTL_MS = 60 * 60 * 1000;
 const VISIT_OBJ = "2-139767037";
@@ -22,7 +24,7 @@ const VISIT_OBJ = "2-139767037";
 const VISIT_DONE = "3972587738";
 
 export function esoRegistrations(): Promise<SlowState<RegData>> {
-  return slowReport(KEY, TTL_MS, build);
+  return slowReport(KEY, (v: RegData) => (v?.companyIds ? TTL_MS : 0), build);
 }
 
 type Row = { id: string; properties?: Record<string, string | null> };
@@ -61,18 +63,18 @@ async function build(): Promise<RegData> {
   // 2. their companies: the owner, the first shop account (the company's "customer since", or its earliest contact's if
   // that is earlier - HubSpot copies a contact's onto the company, now and then a later one), the first order in the shop
   // (the earliest of its accounts')
-  type Co = { owner: string; reg: number; firstOrder: number; firstVisit: number; country: string; prio: string; category: string; type: string; apic: string };
+  type Co = { name: string; owner: string; reg: number; firstOrder: number; firstVisit: number; country: string; prio: string; category: string; type: string; apic: string };
   const companies = new Map<string, Co>();
   const ids = [...new Set(accounts.map((a) => a.company).filter(Boolean))];
   for (let i = 0; i < ids.length; i += 100) {
     const r = await hubspotFetchJson<{ results?: Row[] }>({
       path: "/crm/v3/objects/companies/batch/read", method: "POST",
-      body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["hubspot_owner_id", "magento_customer_since", "country_custom", "sales_priority", "apso_customer", "customer_type", "apic_ap"] },
+      body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["name", "hubspot_owner_id", "magento_customer_since", "country_custom", "sales_priority", "apso_customer", "customer_type", "apic_ap"] },
     });
     for (const row of r.results ?? []) {
       const p = row.properties ?? {};
       companies.set(String(row.id), {
-        owner: p.hubspot_owner_id ?? "", reg: ymd(p.magento_customer_since), firstOrder: 0, firstVisit: 0,
+        name: p.name || `Company ${row.id}`, owner: p.hubspot_owner_id ?? "", reg: ymd(p.magento_customer_since), firstOrder: 0, firstVisit: 0,
         country: p.country_custom || "Not set", prio: prioBand(prioOf(p.sales_priority)), category: p.apso_customer || "Not set",
         type: p.customer_type ? typeShort(p.customer_type) : "Not set", apic: p.apic_ap || "Not set",
       });
@@ -132,14 +134,16 @@ async function build(): Promise<RegData> {
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const coIdx = new Map<string, number>();
   const coRows: number[][] = [];
+  const coIds: string[] = [], coNames: string[] = [];
   for (const [id, co] of companies) {
     if (!co.reg) continue;
     coIdx.set(id, coRows.push([person(co.owner), co.reg, co.firstOrder, co.firstVisit, at(labels.country, co.country), at(labels.prio, co.prio), at(labels.category, co.category), at(labels.type, co.type), at(labels.apic, co.apic)]) - 1);
+    coIds.push(id); coNames.push(co.name);
   }
   person("");
   const accRows = accounts.map((a) => [coIdx.get(a.company) ?? -1, a.day]);
   return {
-    generatedAt: new Date().toISOString(), year, today, people, labels, companies: coRows, accounts: accRows,
+    generatedAt: new Date().toISOString(), year, today, people, labels, companies: coRows, companyIds: coIds, companyNames: coNames, accounts: accRows,
     coverage: { accounts: accRows.length, noCompany: accRows.filter((a) => a[0] < 0).length, companies: coRows.length, visits: done.length },
   };
 }

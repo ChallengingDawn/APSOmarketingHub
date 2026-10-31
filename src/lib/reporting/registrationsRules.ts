@@ -20,6 +20,9 @@ export type RegData = {
   labels: { country: string[]; prio: string[]; category: string[]; type: string[]; apic: string[] };
   /** every company with a shop account opened this year or last - see C */
   companies: number[][];
+  /** per company index: its HubSpot id and name - a chart's list of companies (SARCLA 31.10.2026); missing in a read before */
+  companyIds?: string[];
+  companyNames?: string[];
   /** every shop account opened this year or last - see A */
   accounts: number[][];
   coverage: { accounts: number; noCompany: number; companies: number; visits: number };
@@ -167,8 +170,7 @@ export function statsBy(d: RegData, win: RWin, side: 0 | 1, f: RFilters, people:
   const { from, to } = spanOf(d, win, side);
   const cut = cutOf(d, side);
   const n = win.to - win.from + 1;
-  const sets = (Object.keys(f) as RDim[]).filter((k) => k !== key && f[k]?.length).map((k) => [k, new Set(f[k])] as const);
-  const keep = (co: number[]) => (!people || people.has(co[C.person])) && sets.every(([k, s]) => s.has(labelOf(d, co, k, cut)));
+  const keep = keeper(d, f, people, cut, key);
   const out = new Map<string, RStats>();
   const at = (co: number[]) => {
     const k = key ? labelOf(d, co, key, cut) : "";
@@ -184,9 +186,7 @@ export function statsBy(d: RegData, win: RWin, side: 0 | 1, f: RFilters, people:
     s.months[(Math.floor(r / 100) % 100) - 1 - win.from]++;
     const v = visitOf(co, cut);
     s.visit[v] = (s.visit[v] ?? 0) + 1;
-    // the shop's first order is on the day of registering or after it - an account comes first
-    const fo = co[C.firstOrder];
-    if (fo && fo >= r && fo <= cut) { s.bought++; s.days.push(daysBetween(r, fo)); }
+    if (boughtBy(co, cut)) { s.bought++; s.days.push(daysBetween(r, co[C.firstOrder])); }
   }
   const none = noCompany(d);
   for (const a of d.accounts) {
@@ -199,6 +199,54 @@ export function statsBy(d: RegData, win: RWin, side: 0 | 1, f: RFilters, people:
     if (a[A.company] >= 0 && co[C.reg] < day) s.more++;
   }
   return out;
+}
+
+/** Whether a company passes the people shown and the filters on a side - a breakdown's own filter left out when grouping by it. */
+function keeper(d: RegData, f: RFilters, people: Set<number> | null, cut: number, key?: RDim) {
+  const sets = (Object.keys(f) as RDim[]).filter((k) => k !== key && f[k]?.length).map((k) => [k, new Set(f[k])] as const);
+  return (co: number[]) => (!people || people.has(co[C.person])) && sets.every(([k, s]) => s.has(labelOf(d, co, k, cut)));
+}
+/** Ordered in the shop by the side's day: the shop's first order is on the day of registering or after it - an account comes first. */
+const boughtBy = (co: number[], cut: number) => { const fo = co[C.firstOrder]; return !!fo && fo >= co[C.reg] && fo <= cut; };
+
+/** What a chart counts, so its list of companies is the same: the companies registered, of them the ones that ordered in
+ *  the shop since, the ones registered on the day of a visit or after one - or the companies the shop accounts were opened at. */
+export type RegList = "registered" | "bought" | "visited" | "accounts";
+/** A company on a chart's list: its index, and the shop accounts opened at it in the period (on "accounts"). */
+export type ListedCompany = { ci: number; accounts: number };
+/**
+ * The companies behind a chart (SARCLA 31.10.2026: "allow to see the companies, paginated by 25") - this year's side,
+ * the people shown and every filter, as the page's figures count them, so the list adds up to the chart's total: the
+ * newest registration first; on "accounts" the most accounts first, and how many accounts had no company.
+ */
+export function companiesOf(d: RegData, win: RWin, f: RFilters, people: Set<number> | null, what: RegList): { companies: ListedCompany[]; noCompany: number } {
+  const { from, to } = spanOf(d, win, 0);
+  const cut = cutOf(d, 0);
+  const keep = keeper(d, f, people, cut);
+  const reg = (ci: number) => d.companies[ci][C.reg];
+  if (what === "accounts") {
+    const by = new Map<number, number>();
+    const none = noCompany(d);
+    let without = 0;
+    for (const a of d.accounts) {
+      const day = a[A.day], ci = a[A.company];
+      if (day < from || day > to) continue;
+      if (ci < 0) { if (keep(none)) without++; continue; }
+      if (!d.companies[ci] || !keep(d.companies[ci])) continue;
+      by.set(ci, (by.get(ci) ?? 0) + 1);
+    }
+    const companies = [...by].map(([ci, accounts]) => ({ ci, accounts })).sort((a, b) => b.accounts - a.accounts || reg(b.ci) - reg(a.ci) || a.ci - b.ci);
+    return { companies, noCompany: without };
+  }
+  const companies: ListedCompany[] = [];
+  d.companies.forEach((co, ci) => {
+    const r = co[C.reg];
+    if (r < from || r > to || !keep(co)) return;
+    if (what === "bought" && !boughtBy(co, cut)) return;
+    if (what === "visited" && visitOf(co, cut) !== REG_VISIT[0] && visitOf(co, cut) !== REG_VISIT[1]) return;
+    companies.push({ ci, accounts: 0 });
+  });
+  return { companies: companies.sort((a, b) => reg(b.ci) - reg(a.ci) || a.ci - b.ci), noCompany: 0 };
 }
 
 /** The middle value, or null with nothing to take it of. */
