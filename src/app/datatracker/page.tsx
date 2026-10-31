@@ -54,6 +54,7 @@ import type { LookRecord, ShopSignals } from "@/lib/integrations/shopSignals";
 import type { Alternative } from "@/app/api/datatracker/alternatives/route";
 import type { ContactCard } from "@/app/api/datatracker/contacts/route";
 import type { OrderedLine } from "@/lib/datatracker/orderLines";
+import { xlsxBlob } from "@/lib/xlsxBrowser";
 
 /** What the alternatives route hands back for one article. */
 type AltPayload = { subGroup: string | null; group?: string | null; rows: Alternative[];
@@ -190,19 +191,11 @@ type XlsxSheet = {
   rows: (string | number | null)[][];
 };
 
-/** POST the view to the server, which writes the .xlsx, and save it. Null when it worked. */
+/** Write the view as an .xlsx here in the browser and save it. Null when it worked. It used to be POSTed to the server,
+ *  which a big table could not reach: over 8 KB the firewall answers a bare 403 (31.10.2026, best selling products). */
 async function downloadXlsx(filename: string, sheets: XlsxSheet[]): Promise<string | null> {
   try {
-    const res = await fetch("/api/datatracker/export", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename, sheets }),
-    });
-    if (!res.ok) {
-      const j = await res.json().catch(() => null);
-      return j?.error ?? `Export failed (HTTP ${res.status})`;
-    }
-    const url = URL.createObjectURL(await res.blob());
+    const url = URL.createObjectURL(await xlsxBlob(sheets));
     const a = document.createElement("a");
     a.href = url;
     a.download = filename;
