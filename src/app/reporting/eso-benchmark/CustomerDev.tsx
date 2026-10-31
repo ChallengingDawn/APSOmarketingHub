@@ -49,8 +49,10 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  CY0, PRIOS, blank, churn, labelOf, namedOf, rowsOf, statsBy, type CDim, type CFilters, type CStats, type CWin, type CustDevData,
+  CY0, PRIOS, blank, churn, customerIn, labelOf, namedOf, rowsOf, statsBy, type CDim, type CFilters, type CStats, type CWin, type CustDevData,
+  type CustomerIn,
 } from "@/lib/reporting/customerDevRules";
+import { CompaniesFor, PAGE as LIST_PAGE, type CompanyItem, type CompanySource } from "@/app/reporting/CompanyList";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
   ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TEAM_OF, TWO, Teams, asLead, asTeam, leadOf, niceTop, setQuery, teamWord,
@@ -377,29 +379,96 @@ function NamedTable({ c, status }: { c: CCtx; status: "lost" | "slow" }) {
   return <FullTable key={`${status}-${c.per.id}-${c.team}`} first="Customer" cols={cols} rows={rows} initial={status === "lost" ? "rev" : "diff"} find="a customer" />;
 }
 
+/* ── the companies behind a chart ──────────────────────────────────────── */
+
+/** Who a chart counts: the customers of one of its measures, or every customer standing somewhere (the tables). */
+type Who = Measure | "all";
+const COUNTED: Record<Measure, (s: CustomerIn) => boolean> = {
+  active: (s) => s.activeCy, avgrev: (s) => s.activeCy, avgord: (s) => s.activeCy, new: (s) => s.newCy, react: (s) => s.reactCy,
+  slow: (s) => s.slowCy, lost: (s) => s.lostCy, churn: (s) => s.churnedCy,
+};
+/** where a customer stands, in a word - the first that holds */
+const standing = (s: CustomerIn) => (s.newCy ? "New" : s.reactCy ? "Reactivated" : s.slowCy ? "Decreasing" : s.activeCy ? "Active" : s.lostCy ? "Lost" : "");
+const whoWords = (c: CCtx, who: Who) =>
+  who === "all" ? "every customer counted - active, new, reactivated, decreasing or lost"
+  : who === "lost" ? `the lost customers - no order for 12 months or more at ${perEnd(c.d, c.per)}`
+  : who === "churn" ? `the customers who bought ${baseWords(c.d, c.per)} and did not order since`
+  : who === "avgrev" || who === "avgord" ? "the active customers" : `the ${MEASURE[who].target}`;
+/** the lists worked out, by their key - a few, as the page is clicked through */
+const builtLists = new Map<string, CompanyItem[]>();
+/**
+ * The companies behind a chart, its "Companies" button beside its own filter (SARCLA 31.10.2026: "next to each report ...
+ * a new icon Company ... allows to see the companies ... paginated by 25"): the chart's period, team, people and filters,
+ * worked out only when the button is pressed - a board counts thousands - the most revenue first; the lost and the churned
+ * those who bought most in their last 12 months of buying first, as on the lists by name.
+ */
+function companiesOf(c: CCtx, id: string, who: Who, dim: CDim): CompanySource {
+  const key = `custdev|${c.d.generatedAt}|${id}|${c.per.win.from}-${c.per.win.to}|${c.team}|${c.lead ?? ""}|${c.people ? [...c.people].join(",") : "all"}|${JSON.stringify(c.filters)}`;
+  const dims = [...new Set<CDim>([dim, "person", "country"])];
+  const gone = who === "lost" || who === "churn";
+  const figures = gone ? ["Last order", "Bought in the 12 months up to it"] : [...(who === "all" ? ["Standing"] : []), perCap(c.per), "The same months last year", "Orders"];
+  const build = (): CompanyItem[] => {
+    const idx = rowsOf(c.d, c.filters, c.people);
+    const item = (i: number, cells: React.ReactNode[]): CompanyItem => ({ id: c.d.ids[i] || null, name: c.d.names[i] || `Company ${c.d.ids[i]}`, cells: [...cells, ...dims.map((x) => labelOf(c.d, c.d.companies[i], x))] });
+    if (gone) {
+      const named = namedOf(c.d, idx, c.per.win, "lost").filter((x) => who === "lost" || customerIn(c.d, x.i, c.per.win).churnedCy);
+      return named.sort((a, b) => b.rev - a.rev || b.lastDay - a.lastDay).map((x) => item(x.i, [lastWords(c.d, x), x.last == null ? "—" : eur(x.rev)]));
+    }
+    const out: { i: number; s: CustomerIn }[] = [];
+    for (const i of idx) { const s = customerIn(c.d, i, c.per.win); if (who === "all" ? !!standing(s) : COUNTED[who](s)) out.push({ i, s }); }
+    return out.sort((a, b) => b.s.revCy - a.s.revCy || b.s.revPy - a.s.revPy)
+      .map(({ i, s }) => item(i, [...(who === "all" ? [standing(s)] : []), eur(s.revCy), eur(s.revPy), int(s.ordCy)]));
+  };
+  return {
+    key, head: [...figures, ...dims.map((x) => DIM[x].name)],
+    left: [...(who === "all" ? [1] : []), ...dims.map((_, k) => figures.length + 1 + k)],
+    note: `${perWords(c.d, c.per)} · ${whoWords(c, who)} · ${gone ? "those who bought most in their last 12 months of buying first" : "the most revenue first"}`,
+    load: async (page, q) => {
+      let all = builtLists.get(key);
+      if (!all) {
+        all = build();
+        builtLists.set(key, all);
+        if (builtLists.size > 16) builtLists.delete(builtLists.keys().next().value!);
+      }
+      const found = q ? all.filter((r) => r.name.toLowerCase().includes(q)) : all;
+      return { total: found.length, rows: found.slice(page * LIST_PAGE, page * LIST_PAGE + LIST_PAGE) };
+    },
+  };
+}
+
 /* ── every chart by its key ────────────────────────────────────────────── */
 
 type TargetOf = { unit: "eur" | "pct" | "n"; label: string };
-type Drawn = { id: string; title: (c: CCtx) => string; draw: (c: CCtx, actions?: React.ReactNode) => React.ReactNode; target?: (c: CCtx) => TargetOf };
+type Drawn = {
+  id: string; title: (c: CCtx) => string; draw: (c: CCtx, actions?: React.ReactNode) => React.ReactNode; target?: (c: CCtx) => TargetOf;
+  /** the customers it counts, for its "Companies" button - none on the lists by name, which are the companies already */
+  counts?: { who: Who; dim: CDim };
+};
 const teamPart = (c: CCtx) => ` - ${teamName(c)}`;
 const forWhom = (c: CCtx) => `${teamName(c)}'s target for ${c.per.title} - each team and period its own`;
-/** A chart by its id "<tab>:<what>[-<breakdown>]": people:active, apic:lost, status:table, status:months, status:lost-list… */
+/** A chart by its id - with the customers it counts behind its "Companies" button, beside its own filter. */
 function drawnOf(id: string): Drawn | undefined {
+  const d = drawnBare(id);
+  const n = d?.counts;
+  return d && { ...d, draw: (c, a) => <CompaniesFor source={n ? companiesOf(c, id, n.who, n.dim) : null}>{d.draw(c, a)}</CompaniesFor> };
+}
+/** A chart by its id "<tab>:<what>[-<breakdown>]": people:active, apic:lost, status:table, status:months, status:lost-list… */
+function drawnBare(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
   if (chart === "months") {
     const title = (c: CCtx) => `Customers who bought, ${c.per.title}, month by month${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} against ${perWords(c.d, c.per, true)} · the running month to date, lighter, against last year's same month pro rata`} actions={a}><CustMonths c={c} target={targetFor(c, id)} /></ChartBox>,
+    return { id, title, counts: { who: "active", dim: "person" }, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} against ${perWords(c.d, c.per, true)} · the running month to date, lighter, against last year's same month pro rata`} actions={a}><CustMonths c={c} target={targetFor(c, id)} /></ChartBox>,
       target: (c) => ({ unit: "n", label: `Each month's customers who bought are measured against it - a line across the months; the running month is not counted · ${teamName(c)}'s target.` }) };
   }
   if (chart === "figures") {
     const dim = DIM_OF[v];
     const title = (c: CCtx) => `All the figures, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} against ${perWords(c.d, c.per, true)} · each ${DIM[dim].lower}'s active customers, Ø revenue and Ø orders, new, reactivated, decreasing and lost customers, churn rate`} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
+    return { id, title, counts: { who: "all", dim }, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} against ${perWords(c.d, c.per, true)} · each ${DIM[dim].lower}'s active customers, Ø revenue and Ø orders, new, reactivated, decreasing and lost customers, churn rate`} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
   }
   if (chart === "table") {
     const title = (c: CCtx) => `Where the customers stand, ${c.per.title}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} against the same months a year earlier · quantity, Ø revenue and Ø orders per customer`} actions={a}><StatusTable c={c} /></ChartBox> };
+    return { id, title, counts: { who: "all", dim: "person" }, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} against the same months a year earlier · quantity, Ø revenue and Ø orders per customer`} actions={a}><StatusTable c={c} /></ChartBox> };
   }
   if (chart === "lost-list" || chart === "slow-list") {
     const lost = chart === "lost-list";
@@ -410,7 +479,7 @@ function drawnOf(id: string): Drawn | undefined {
   if (!(what in MEASURE)) return undefined;
   const m = what as Measure;
   const dim: CDim = by && (by in DIM) ? (by as CDim) : DIM_OF[v];
-  return { id, title: (c) => `${measureTitle(m)}, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`, draw: (c, a) => <Board c={c} id={id} dim={dim} m={m} actions={a} />,
+  return { id, title: (c) => `${measureTitle(m)}, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`, counts: { who: m, dim }, draw: (c, a) => <Board c={c} id={id} dim={dim} m={m} actions={a} />,
     target: (c) => ({ unit: MEASURE[m].unit, label: `Each ${DIM[dim].lower}'s ${MEASURE[m].target} ${c.per.title} is measured against it${MEASURE[m].lower ? " - at or under it is reached" : ""} · ${forWhom(c)}.` }) };
 }
 /** The old page's keys, still in some BUC Views (the 21.10 page: reps, status, category), by what took their place. */
