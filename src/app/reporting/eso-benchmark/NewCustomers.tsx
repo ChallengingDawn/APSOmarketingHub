@@ -47,6 +47,8 @@ import {
   useLead, useLeads, useTeam, type BoardRow, type Col, type LeadKey, type Per, type TeamKey,
 } from "./Figures";
 import { ActiveFilters, type ActiveItem } from "./EsoFilters";
+import { CompaniesFor } from "@/app/reporting/CompanyList";
+import { cubeCompanies } from "@/app/reporting/marketing-kpis/cubeCompanies";
 
 /* ── words and numbers, in full ────────────────────────────────────────── */
 
@@ -417,11 +419,27 @@ const onOi = (v: View, drawIt: (c: NCtx, a?: React.ReactNode) => React.ReactNode
   return oc ? drawIt(oc, a) : <OiMissing c={c} title={title(c)} actions={a} />;
 };
 /**
+ * A chart's companies (CompanyList.tsx, SARCLA 31.10.2026: "a new icon Company appears next to the filter"): the new
+ * customers its filters and period leave, the largest first - on the order intake tab, the period that tab is drawn on.
+ */
+const companiesOf = (c: NCtx, v: View) => {
+  const cc = v === "saeoi" ? oiCtx(c) ?? c : c;
+  return cubeCompanies({
+    filters: cc.eff, win: cc.per.win, by: "new", generatedAt: cc.cube.generatedAt, period: cc.per.title,
+    note: "The new customers of the period - each one's revenue since its first invoice, the largest first",
+  });
+};
+/** A chart or table by its id (drawnBare), with its companies beside its own filter. */
+function drawnOf(id: string): Drawn | undefined {
+  const d = drawnBare(id);
+  return d && { ...d, draw: (c, a) => <CompaniesFor source={companiesOf(c, d.view)}>{d.draw(c, a)}</CompaniesFor> };
+}
+/**
  * A chart or table by its id "<tab>:<what>": new, rev, avg (oi, avgoi on the order intake tab) - the leaderboards; t<what>
  * - their table (SARCLA 31.10.2026: every table its own card, with its own Actions); mon<new|rev|oi> - the months as
  * columns, tmon<…> - as a table (the Performis SAE's tabs).
  */
-function drawnOf(id: string): Drawn | undefined {
+function drawnBare(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
   const by = byOf(v);
