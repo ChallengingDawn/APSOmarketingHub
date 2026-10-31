@@ -22,6 +22,7 @@ import PersonAddAltOutlinedIcon from "@mui/icons-material/PersonAddAltOutlined";
 import EuroOutlinedIcon from "@mui/icons-material/EuroOutlined";
 import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
 import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
+import ShoppingBagOutlinedIcon from "@mui/icons-material/ShoppingBagOutlined";
 import DateRangeOutlinedIcon from "@mui/icons-material/DateRangeOutlined";
 import TodayOutlinedIcon from "@mui/icons-material/TodayOutlined";
 
@@ -99,15 +100,15 @@ function perFromFilters(cube: Cube, f: Record<string, string[] | undefined> | un
 
 const BREAKDOWNS = ["country", "prio", "segment", "type", "apic"] as const;
 type Breakdown = (typeof BREAKDOWNS)[number];
-type View = "sae" | Breakdown | "pc";
-const VIEW_IDS: View[] = ["sae", ...BREAKDOWNS, "pc"];
+type View = "sae" | "saeoi" | Breakdown | "pc";
+const VIEW_IDS: View[] = ["sae", "saeoi", ...BREAKDOWNS, "pc"];
 const isView = (x: string | null | undefined): x is View => (VIEW_IDS as string[]).includes(x ?? "");
 const VIEWS: { id: View; label: string }[] = [
-  { id: "sae", label: "Performis SAE" }, ...BREAKDOWNS.map((d) => ({ id: d as View, label: DIM[d].name })), { id: "pc", label: "Profit center" },
+  { id: "sae", label: "Performis SAE – Revenue" }, { id: "saeoi", label: "Performis SAE – Order intake" }, ...BREAKDOWNS.map((d) => ({ id: d as View, label: DIM[d].name })), { id: "pc", label: "Profit center" },
 ];
 /** What a tab is broken down by: a cube dimension, or the profit centre the new customers bought most from. */
 type By = Dim | "pc";
-const byOf = (v: View): By => v;
+const byOf = (v: View): By => (v === "saeoi" ? "sae" : v);
 const NOTES: Record<Breakdown | "pc", string> = {
   country: "Where the new customers are",
   prio: "Which priority bands the new customers come in",
@@ -162,8 +163,8 @@ function rowsBy(c: NCtx, by: By): NRow[] {
     if (!a.n && !a.nPy) continue;
     // the profit centres by name, any code the ERP adds under Other
     const label = by === "pc" ? pcName(raw) : raw;
-    const r = merged.get(label) ?? { label, n: 0, nPy: 0, rev: 0, revPy: 0 };
-    r.n += a.n; r.nPy += a.nPy; r.rev += a.rev; r.revPy += a.revPy;
+    const r = merged.get(label) ?? { label, n: 0, nPy: 0, rev: 0, revPy: 0, oi: 0, oiPy: 0 };
+    r.n += a.n; r.nPy += a.nPy; r.rev += a.rev; r.revPy += a.revPy; r.oi += a.oi; r.oiPy += a.oiPy;
     merged.set(label, r);
   }
   const rows = [...merged.values()];
@@ -180,7 +181,7 @@ function totalOf(c: NCtx): NewAgg {
   if (!memo) { memo = new Map(); totalCache.set(c.eff, memo); }
   const key = `${c.cube.generatedAt}|${c.per.win.start}-${c.per.win.end}`;
   let t = memo.get(key);
-  if (!t) { t = newBy(c.cube, c.eff, c.per.win).get("") ?? { n: 0, nPy: 0, rev: 0, revPy: 0 }; memo.set(key, t); }
+  if (!t) { t = newBy(c.cube, c.eff, c.per.win).get("") ?? { n: 0, nPy: 0, rev: 0, revPy: 0, oi: 0, oiPy: 0 }; memo.set(key, t); }
   return t;
 }
 const monthCache = new WeakMap<Filters, Map<string, NewMonth[]>>();
@@ -209,23 +210,34 @@ const targetFor = (c: NCtx, id: string) => { const t = c.targets?.[targetKey(id,
 
 // every change in words (SARCLA 29.10.2026 on "−5.7% · −€63": "you have to be really explicit with text, this means nothing for me")
 const moreLess = (n: number, fmt: (x: number) => string, less: string, more: string, tail = "") => (Math.round(n) === 0 ? "no change" : `${fmt(Math.abs(n))} ${n < 0 ? less : more}${tail}`);
-type Measure = "new" | "rev" | "avg";
+// the order intake beside the revenue, a tab of its own (SARCLA 31.10.2026: "too many tables and graphs, we need to split between revenue and OI")
+type Measure = "new" | "rev" | "avg" | "oi" | "avgoi";
 const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; diff: (n: number) => string; signed: (n: number) => string; unit: "n" | "eur"; target: string }> = {
   new: { title: "New customers", fmt: int, diff: (n) => moreLess(n, int, "fewer", "more"), signed: signedInt, unit: "n", target: "new customers" },
   rev: { title: "Revenue of the new customers", fmt: eur, diff: (n) => moreLess(n, eur, "less", "more"), signed: signedEur, unit: "eur", target: "revenue of its new customers" },
   avg: { title: "Ø revenue per new customer", fmt: eur, diff: (n) => moreLess(n, eur, "less", "more", " per customer"), signed: signedEur, unit: "eur", target: "Ø revenue per new customer" },
+  oi: { title: "Order intake of the new customers", fmt: eur, diff: (n) => moreLess(n, eur, "less", "more"), signed: signedEur, unit: "eur", target: "order intake of its new customers" },
+  avgoi: { title: "Ø order intake per new customer", fmt: eur, diff: (n) => moreLess(n, eur, "less", "more", " per customer"), signed: signedEur, unit: "eur", target: "Ø order intake per new customer" },
 };
+const isAvg = (m: Measure) => m === "avg" || m === "avgoi";
+const avgOi = (a: NewAgg) => (a.n ? a.oi / a.n : 0);
+const avgOiPy = (a: NewAgg) => (a.nPy ? a.oiPy / a.nPy : 0);
+/** A measure of a row: this period and a year earlier. */
+const valOf = (m: Measure, r: NewAgg): [number, number] =>
+  m === "new" ? [r.n, r.nPy] : m === "rev" ? [r.rev, r.revPy] : m === "avg" ? [avg(r), avgPy(r)] : m === "oi" ? [r.oi, r.oiPy] : [avgOi(r), avgOiPy(r)];
+const customers = (n: number) => `${int(n)} new customer${Math.round(n) === 1 ? "" : "s"}`;
 /** What every change is against: "vs 2025" - "vs a year earlier" over a year end. */
 const vsOf = (c: NCtx) => { const a = yearOfMonth(c.cube, c.per.win.start), b = yearOfMonth(c.cube, c.per.win.end); return a === b ? `vs ${a - 1}` : "vs a year earlier"; };
 function Board({ c, id, by, m, actions }: { c: NCtx; id: string; by: By; m: Measure; actions?: React.ReactNode }) {
-  const t = totalOf(c);
+  const [all] = valOf(m, totalOf(c));
   const min = minNew(c.per.months);
   const rows: BoardRow[] = [], small: BoardRow[] = [];
   for (const r of rowsBy(c, by)) {
-    // the new customers not invoiced yet count, but have no revenue to rank (they stay in the count and the table)
-    if (m === "new") { if (r.n || r.nPy) rows.push({ label: r.label, cur: r.n, prev: r.nPy, sub: `${eur(r.rev)} their revenue · Ø ${r.n ? eur(avg(r)) : "—"} per customer` }); }
-    else if (m === "rev") { if (r.rev || r.revPy) rows.push({ label: r.label, cur: r.rev, prev: r.revPy, sub: `${int(r.n)} new customer${r.n === 1 ? "" : "s"} · ${pct(t.rev ? r.rev / t.rev : null)} of the total` }); }
-    else if (r.n) (r.n >= min ? rows : small).push({ label: r.label, cur: avg(r), prev: avgPy(r), sub: `${int(r.n)} new customer${r.n === 1 ? "" : "s"} · ${eur(r.rev)} their revenue` });
+    const [cur, prev] = valOf(m, r);
+    // an average ranks only over enough new customers
+    if (isAvg(m)) { if (r.n) (r.n >= min ? rows : small).push({ label: r.label, cur, prev, sub: `${customers(r.n)} · ${m === "avg" ? `${eur(r.rev)} their revenue` : `${eur(r.oi)} their order intake`}` }); continue; }
+    if (!cur && !prev) continue;
+    rows.push({ label: r.label, cur, prev, sub: m === "new" ? `${eur(r.rev)} their revenue · Ø ${r.n ? eur(avg(r)) : "—"} per customer` : `${customers(r.n)} · ${pct(all ? cur / all : null)} of the total` });
   }
   const M = MEASURE[m];
   const dim = by === "pc" ? null : by;
@@ -238,14 +250,38 @@ function Board({ c, id, by, m, actions }: { c: NCtx; id: string; by: By; m: Meas
   );
 }
 
+/* ── the order intake: loaded per customer month by month ──────────────── */
+
+/** Each customer's order intake is loaded month by month (the ERP load writes it since 30.10.2026): the period as far as it
+ *  reaches - the whole period when it is loaded, none when not a month of it is. */
+function oiCtx(c: NCtx): NCtx | null {
+  const last = monthOf(0, 0) + (c.cube.oiLoaded ?? 0) - 1;
+  if (c.per.win.end <= last) return c;
+  if (last < c.per.win.start) return null;
+  return { ...c, per: perOf(c.cube, { start: c.per.win.start, end: last }) };
+}
+const oiLoadedWords = (cube: Cube) => ((cube.oiLoaded ?? 0) > 0 ? `${MONTH_NAMES[(cube.oiLoaded ?? 1) - 1]} ${cube.years[0]}` : `no month of ${cube.years[0]} yet`);
+function OiMissing({ c, title, actions }: { c: NCtx; title: string; actions?: React.ReactNode }) {
+  return (
+    <ChartBox title={title} actions={actions} hint={perWords(c.cube, c.per)}>
+      <Typography sx={{ fontSize: "0.86rem", color: MUTED, lineHeight: 1.5 }}>
+        Not for this period yet: each customer&apos;s order intake is loaded to {oiLoadedWords(c.cube)} - the ERP load writes it month by month. Pick a period up to then under Filters &gt; Period.
+      </Typography>
+    </ChartBox>
+  );
+}
+
 /* ── the period month by month ─────────────────────────────────────────── */
 
+type Which = "n" | "rev" | "oi";
+const WHICH_MEASURE: Record<Which, Measure> = { n: "new", rev: "rev", oi: "oi" };
+const monthVal = (m: NewMonth, which: Which): [number, number] => (which === "n" ? [m.n, m.nPy] : which === "rev" ? [m.rev, m.revPy] : [m.oi, m.oiPy]);
 /** The months as columns: this year's column, last year's tick across it, the target (typed in Actions) as a line across. */
-function NewMonths({ c, which, target }: { c: NCtx; which: "n" | "rev"; target: number | null }) {
+function NewMonths({ c, which, target }: { c: NCtx; which: Which; target: number | null }) {
   const jan = monthOf(0, 0);
   const fmt = which === "n" ? int : eur;
   const run = partial(c.cube);
-  const data = monthsOf(c).map((m) => ({ x: m.month >= jan ? MONTH_NAMES[m.month - jan] : monthLabel(c.cube, m.month), cur: which === "n" ? m.n : m.rev, prev: which === "n" ? m.nPy : m.revPy, running: !!run && m.month === run.month }));
+  const data = monthsOf(c).map((m) => { const [cur, prev] = monthVal(m, which); return { x: m.month >= jan ? MONTH_NAMES[m.month - jan] : monthLabel(c.cube, m.month), cur, prev, running: !!run && m.month === run.month }; });
   const ys = new Set(monthsOf(c).map((m) => yearOfMonth(c.cube, m.month)));
   const [y0, y1] = ys.size === 1 ? [String([...ys][0]), `${[...ys][0] - 1}, same month`] : ["The months shown", "A year earlier, same month"];
   const top = niceTop(Math.max(1, target ?? 0, ...data.map((d) => Math.max(d.cur, d.prev))));
@@ -290,8 +326,13 @@ function NewMonths({ c, which, target }: { c: NCtx; which: "n" | "rev"; target: 
     </Box>
   );
 }
-const monthsHint = (c: NCtx, which: "n" | "rev") =>
-  `${perWords(c.cube, c.per)} · the change under each month${which === "rev" ? " · each month, what the period's new customers so far bought in it - the months add up to the period" : " · each month, the companies whose first order ever was in it"}`;
+/** What a month holds, in words - the new customers and their revenue as the BSC report counts them (SARCLA 31.10.2026: "why also not the same figures"). */
+const MONTH_WORDS: Record<Which, string> = {
+  n: "each month, the companies whose first invoice ever was in it",
+  rev: "each month, what that month's new customers were invoiced in it - their first month, as the BSC report counts",
+  oi: "each month, the order intake of the period's new customers in it - the months add up to the period",
+};
+const monthsHint = (c: NCtx, which: Which) => `${perWords(c.cube, c.per)} · ${MONTH_WORDS[which]} · the change under each month`;
 
 /* ── the tables ────────────────────────────────────────────────────────── */
 
@@ -299,97 +340,111 @@ const monthsHint = (c: NCtx, which: "n" | "rev") =>
 const ChangeText = ({ a, b, signed, asPct }: { a: number; b: number; signed: (n: number) => string; asPct?: boolean }) => (
   <span style={{ color: b ? tone(changeOf(a, b)) : a > 0 ? GREEN : FAINT, fontWeight: 700 }}>{!b ? (a > 0 ? "new" : "—") : asPct ? signedPct(changeOf(a, b)) : signed(a - b)}</span>
 );
-const sumRows = (rows: NRow[], label: string): NRow => rows.reduce((s, r) => ({ ...s, n: s.n + r.n, nPy: s.nPy + r.nPy, rev: s.rev + r.rev, revPy: s.revPy + r.revPy }), { label, n: 0, nPy: 0, rev: 0, revPy: 0 });
-/** A measure of a row: this period and a year earlier. */
-const valOf = (m: Measure, r: NewAgg): [number, number] => (m === "new" ? [r.n, r.nPy] : m === "rev" ? [r.rev, r.revPy] : [avg(r), avgPy(r)]);
+const sumRows = (rows: NRow[], label: string): NRow => rows.reduce((s, r) => ({ ...s, n: s.n + r.n, nPy: s.nPy + r.nPy, rev: s.rev + r.rev, revPy: s.revPy + r.revPy, oi: s.oi + r.oi, oiPy: s.oiPy + r.oiPy }), { label, n: 0, nPy: 0, rev: 0, revPy: 0, oi: 0, oiPy: 0 });
 
+/** What a table counts, under its title. */
+const TABLE_HINT: Record<Measure, string> = {
+  new: "Companies whose first invoice ever was in the period, against the same months a year earlier",
+  rev: "What the new customers were invoiced from their first invoice to the end of the period, against a year earlier",
+  avg: "Their revenue divided by the number of new customers, against a year earlier",
+  oi: "Their order intake in the period - from up to six months before the first invoice, the order comes first - against a year earlier",
+  avgoi: "Their order intake divided by the number of new customers, against a year earlier",
+};
 /** One measure of a breakdown, as a report (SARCLA 29.10.2026: "split the table as real reports"): the period, the same
- *  months a year earlier, the change in figures and in %, and its share - the one table per measure. */
+ *  months a year earlier, the change in figures and in %, and its share. */
 function MeasureTable({ c, by, m }: { c: NCtx; by: By; m: Measure }) {
   const all = rowsBy(c, by);
-  const rows = m === "avg" ? all.filter((r) => r.n || r.nPy) : all;
+  const rows = isAvg(m) ? all.filter((r) => r.n || r.nPy) : all;
   const total = sumRows(all, "Total");
   const { cube, per } = c;
   const M = MEASURE[m];
   const dim = by === "pc" ? null : by;
   const [sumCur] = valOf(m, total);
   // an average without its new customers is no figure
-  const has = (r: NRow, side: 0 | 1) => m !== "avg" || (side === 0 ? r.n : r.nPy) > 0;
+  const has = (r: NRow, side: 0 | 1) => !isAvg(m) || (side === 0 ? r.n : r.nPy) > 0;
   const cols: Col<NRow>[] = [
     ...(by === "sae" && c.team === "total" ? [{ key: "team", head: "Team", cell: (r: NRow) => (r.label === "Total" ? "" : (cube.saeTeams ?? {})[r.label] ?? "—") }] : []),
-    { key: "cur", head: perWords(cube, per), tip: m === "new" ? "Companies whose first order ever was in the period" : m === "rev" ? "What they bought from their first order to the end of the period" : "Their revenue over the new customers", cell: (r) => (has(r, 0) ? M.fmt(valOf(m, r)[0]) : "—"), sort: (r) => (has(r, 0) ? valOf(m, r)[0] : -Infinity) },
+    { key: "cur", head: perWords(cube, per), tip: TABLE_HINT[m], cell: (r) => (has(r, 0) ? M.fmt(valOf(m, r)[0]) : "—"), sort: (r) => (has(r, 0) ? valOf(m, r)[0] : -Infinity) },
     { key: "prev", head: perWords(cube, per, 1), tip: "The same months a year earlier - the running month pro rata", cell: (r) => (has(r, 1) ? M.fmt(valOf(m, r)[1]) : "—"), sort: (r) => (has(r, 1) ? valOf(m, r)[1] : -Infinity) },
     { key: "diff", head: `Change ${vsOf(c)}`, cell: (r) => (has(r, 0) && has(r, 1) ? <ChangeText a={valOf(m, r)[0]} b={valOf(m, r)[1]} signed={M.signed} /> : "—"), sort: (r) => (has(r, 0) && has(r, 1) ? valOf(m, r)[0] - valOf(m, r)[1] : -Infinity) },
     { key: "pct", head: `Change ${vsOf(c)} in %`, cell: (r) => (has(r, 0) && has(r, 1) ? <ChangeText a={valOf(m, r)[0]} b={valOf(m, r)[1]} signed={M.signed} asPct /> : "—"), sort: (r) => (has(r, 0) && has(r, 1) ? changeOf(...valOf(m, r)) ?? -Infinity : -Infinity) },
-    m === "avg"
+    isAvg(m)
       ? { key: "n", head: "New customers it is over", cell: (r) => int(r.n), sort: (r) => r.n }
-      : { key: "share", head: m === "new" ? "Share of all new customers" : "Share of all their revenue", cell: (r) => (sumCur ? pct(valOf(m, r)[0] / sumCur) : "—"), sort: (r) => valOf(m, r)[0] },
+      : { key: "share", head: m === "new" ? "Share of all new customers" : m === "rev" ? "Share of all their revenue" : "Share of all their order intake", cell: (r) => (sumCur ? pct(valOf(m, r)[0] / sumCur) : "—"), sort: (r) => valOf(m, r)[0] },
   ];
   return <FullTable key={`${m}-${by}-${per.id}-${c.team}`} first={nameOf(by)} cols={cols} initial="cur" rows={rows} total={total} selected={dim ? c.filters[dim] : undefined} tint={dim ? DIM[dim].tint : "green"}
     onPick={dim && c.onPick ? (l) => c.onPick!(dim, l) : undefined} natural={by === "prio" || by === "pc"} find={`${/^[aeiou]/i.test(lowerOf(by)) ? "an" : "a"} ${lowerOf(by)}`} />;
 }
-/** The three report tables of a breakdown, each under its own title. */
-const TABLE_HINT: Record<Measure, string> = {
-  new: "Companies whose first order ever was in the period, against the same months a year earlier",
-  rev: "What the new customers bought from their first order to the end of the period, against a year earlier",
-  avg: "Their revenue divided by the number of new customers, against a year earlier",
-};
-/** The three report tables of a breakdown, each in its own card as the charts are (SARCLA 29.10.2026: "split the table ...
- *  like true graphics", "these tables should be separated"). */
-function MeasureTables({ c, by }: { c: NCtx; by: By }) {
-  return (
-    <>
-      {(["new", "rev", "avg"] as const).map((m) => (
-        <ChartBox key={m} title={`${MEASURE[m].title} ${c.per.title}, by ${lowerOf(by)}`} hint={`${TABLE_HINT[m]} · ${perWords(c.cube, c.per)}`}>
-          <MeasureTable c={c} by={by} m={m} />
-        </ChartBox>
-      ))}
-    </>
-  );
-}
 
 type MRow = { label: string; cur: number; prev: number };
-/** One measure month by month, the period itself at the end. */
-function MonthTable({ c, which }: { c: NCtx; which: "n" | "rev" }) {
+/** One measure month by month, the period at the end (its months added up). */
+function MonthTable({ c, which }: { c: NCtx; which: Which }) {
   const jan = monthOf(0, 0);
   const run = partial(c.cube);
-  const M = MEASURE[which === "n" ? "new" : "rev"];
+  const M = MEASURE[WHICH_MEASURE[which]];
   const rows: MRow[] = monthsOf(c).map((m) => {
     const x = m.month >= jan ? MONTH_NAMES[m.month - jan] : monthLabel(c.cube, m.month);
-    return { label: run && m.month === run.month ? `${x} (1 – ${run.day})` : x, cur: which === "n" ? m.n : m.rev, prev: which === "n" ? m.nPy : m.revPy };
+    const [cur, prev] = monthVal(m, which);
+    return { label: run && m.month === run.month ? `${x} (1 – ${run.day})` : x, cur, prev };
   });
-  const t = totalOf(c);
   const ys = new Set(monthsOf(c).map((m) => yearOfMonth(c.cube, m.month)));
   const [y0, y1] = ys.size === 1 ? [String([...ys][0]), `${[...ys][0] - 1}, same month`] : ["The month", "A year earlier, same month"];
   const cols: Col<MRow>[] = [
-    { key: "cur", head: y0, tip: which === "n" ? "Companies whose first order ever was in the month" : "What the period's new customers so far bought in the month - the months add up to the period", cell: (r) => M.fmt(r.cur) },
+    { key: "cur", head: y0, tip: MONTH_WORDS[which], cell: (r) => M.fmt(r.cur) },
     { key: "prev", head: y1, cell: (r) => M.fmt(r.prev) },
     { key: "diff", head: `Change ${vsOf(c)}`, cell: (r) => <ChangeText a={r.cur} b={r.prev} signed={M.signed} /> },
     { key: "pct", head: `Change ${vsOf(c)} in %`, cell: (r) => <ChangeText a={r.cur} b={r.prev} signed={M.signed} asPct /> },
   ];
-  const [cur, prev] = which === "n" ? [t.n, t.nPy] : [t.rev, t.revPy];
-  return <FullTable key={`months-${which}-${c.per.id}-${c.team}`} first="Month" cols={cols} rows={rows} total={{ label: perCap(c.per), cur, prev }} natural />;
+  const total = { label: perCap(c.per), cur: rows.reduce((s, r) => s + r.cur, 0), prev: rows.reduce((s, r) => s + r.prev, 0) };
+  return <FullTable key={`months-${which}-${c.per.id}-${c.team}`} first="Month" cols={cols} rows={rows} total={total} natural />;
 }
 
-/* ── every chart by its key: the tabs draw them, and so does the BUC View ── */
+/* ── every chart and table by its key: the tabs draw them, and so does the BUC View ── */
 
 type TargetOf = { unit: "n" | "eur"; label: string };
 type Drawn = { id: string; view: View; title: (c: NCtx) => string; draw: (c: NCtx, actions?: React.ReactNode) => React.ReactNode; target?: (c: NCtx) => TargetOf };
 const teamPart = (c: NCtx) => (c.team === "total" ? "" : ` - ${teamName(c)}`);
 const forWhom = (c: NCtx) => `${teamName(c)}'s target for ${c.per.title} - each team and period its own`;
-/** A chart by its id "<tab>:<chart>": new, rev, avg on every tab; monnew, monrev on the Performis SAE's. */
+const WHICH_OF: Record<string, Which> = { new: "n", rev: "rev", oi: "oi" };
+/** On the order intake tab, a chart is drawn on the months the order intake is loaded for - or says it is not yet. */
+const onOi = (v: View, drawIt: (c: NCtx, a?: React.ReactNode) => React.ReactNode, title: (c: NCtx) => string) => (c: NCtx, a?: React.ReactNode) => {
+  if (v !== "saeoi") return drawIt(c, a);
+  const oc = oiCtx(c);
+  return oc ? drawIt(oc, a) : <OiMissing c={c} title={title(c)} actions={a} />;
+};
+/**
+ * A chart or table by its id "<tab>:<what>": new, rev, avg (oi, avgoi on the order intake tab) - the leaderboards; t<what>
+ * - their table (SARCLA 31.10.2026: every table its own card, with its own Actions); mon<new|rev|oi> - the months as
+ * columns, tmon<…> - as a table (the Performis SAE's tabs).
+ */
 function drawnOf(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
-  if (v === "sae" && (chart === "monnew" || chart === "monrev")) {
-    const which = chart === "monnew" ? "n" : "rev";
-    const title = (c: NCtx) => `${which === "n" ? "New customers" : "Revenue of the new customers"} ${c.per.title}, month by month${teamPart(c)}`;
-    return { id, view: v, title, draw: (c, a) => <ChartBox title={title(c)} hint={monthsHint(c, which)} actions={a}><NewMonths c={c} which={which} target={targetFor(c, id)} /></ChartBox>,
-      target: (c) => ({ unit: which === "n" ? "n" : "eur", label: `Each month's ${which === "n" ? "new customers" : "revenue of the new customers"} is measured against it - a line across the months; the running month is not counted · ${teamName(c)}'s target - each team its own.` }) };
+  const by = byOf(v);
+  const mon = /^(t?)mon(new|rev|oi)$/.exec(chart);
+  if (mon && by === "sae") {
+    const which = WHICH_OF[mon[2]], table = mon[1] === "t";
+    if ((which === "oi") !== (v === "saeoi")) return undefined;
+    const name = which === "n" ? "New customers" : which === "rev" ? "Revenue of the new customers" : "Order intake of the new customers";
+    const title = (c: NCtx) => `${name} ${c.per.title}, month by month${teamPart(c)}`;
+    const drawIt = (c: NCtx, a?: React.ReactNode) => (
+      <ChartBox title={title(c)} hint={monthsHint(c, which)} actions={a}>{table ? <MonthTable c={c} which={which} /> : <NewMonths c={c} which={which} target={targetFor(c, id)} />}</ChartBox>
+    );
+    return { id, view: v, title, draw: onOi(v, drawIt, title),
+      target: table ? undefined : (c) => ({ unit: which === "n" ? "n" : "eur", label: `Each month's ${name.toLowerCase()} is measured against it - a line across the months; the running month is not counted · ${teamName(c)}'s target - each team its own.` }) };
   }
-  if (!(chart in MEASURE)) return undefined;
-  const m = chart as Measure, by = byOf(v);
-  return { id, view: v, title: (c) => `${MEASURE[m].title} ${c.per.title}, by ${lowerOf(by)}${teamPart(c)}`, draw: (c, a) => <Board c={c} id={id} by={by} m={m} actions={a} />,
+  const tm = /^(t?)(new|rev|avg|oi|avgoi)$/.exec(chart);
+  if (!tm) return undefined;
+  const m = tm[2] as Measure, table = tm[1] === "t";
+  if ((m === "oi" || m === "avgoi") !== (v === "saeoi")) return undefined;
+  const title = (c: NCtx) => `${MEASURE[m].title} ${c.per.title}, by ${lowerOf(by)}${teamPart(c)}`;
+  if (table) {
+    const drawIt = (c: NCtx, a?: React.ReactNode) => (
+      <ChartBox title={title(c)} hint={`${TABLE_HINT[m]} · ${perWords(c.cube, c.per)}`} actions={a}><MeasureTable c={c} by={by} m={m} /></ChartBox>
+    );
+    return { id, view: v, title, draw: onOi(v, drawIt, title) };
+  }
+  return { id, view: v, title, draw: onOi(v, (c, a) => <Board c={c} id={id} by={by} m={m} actions={a} />, title),
     target: (c) => ({ unit: MEASURE[m].unit, label: `Each ${lowerOf(by)}'s ${MEASURE[m].target} ${c.per.title} is measured against it · ${forWhom(c)}.` }) };
 }
 /** The old page's keys, still in some BUC Views, by what took their place. */
@@ -401,26 +456,47 @@ function chartOf(key: string): Drawn | undefined {
 
 /* ── a tab: one card that follows it ───────────────────────────────────── */
 
-type Act = (id: string, title: string, target?: TargetOf) => React.ReactNode;
-const draw = (c: NCtx, act: Act, id: string) => { const d = drawnOf(id)!; return d.draw(c, act(id, d.title(c), d.target?.(c))); };
+/** A chart's Actions: its id and title, its target, and the period it is drawn on (the order intake's may be shorter). */
+type Act = (id: string, title: string, target?: TargetOf, per?: Per) => React.ReactNode;
+const draw = (c: NCtx, act: Act, id: string) => { const d = drawnOf(id)!; return d.draw(c, act(id, d.title(c), d.target?.(c), c.per)); };
 
 function TabCard({ c, act }: { c: NCtx; act: Act }) {
   const { view, cube, per } = c;
   const card = { display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" } as const;
   const against = `${perWords(cube, per)} against ${perWords(cube, per, 1)}`;
   const many = per.months >= 2;
+  const tables = (v: View, ms: Measure[]) => ms.map((m) => <Box key={m} sx={{ display: "grid", minWidth: 0 }}>{draw(c, act, `${v}:t${m}`)}</Box>);
   if (view === "sae") return (
     <GlassCard sx={card}>
-      <CardTitle icon={per.months === 1 ? <TodayOutlinedIcon /> : <DateRangeOutlinedIcon />} tint="blue" title={`${teamName(c)}, ${per.title}`}
-        note={`${against} · by Performis SAE - the sales agent Performis has on the customer, as its person`} />
+      <CardTitle icon={per.months === 1 ? <TodayOutlinedIcon /> : <DateRangeOutlinedIcon />} tint="blue" title={`${teamName(c)}, new customers and their revenue, ${per.title}`}
+        note={`${against} · by Performis SAE · a new customer: its first invoice ever falls in the period, as the BSC report counts`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "sae:new")}{draw(c, act, "sae:rev")}</Box>
       {draw(c, act, "sae:avg")}
       {many && <Box sx={TWO}>{draw(c, act, "sae:monnew")}{draw(c, act, "sae:monrev")}</Box>}
-      <MeasureTables c={c} by="sae" />
-      {many && <ChartBox title={`New customers ${per.title}, month by month`} hint={`Companies whose first order ever was in the month, against the same month a year earlier · ${perWords(cube, per)}`}><MonthTable c={c} which="n" /></ChartBox>}
-      {many && <ChartBox title={`Revenue of the new customers ${per.title}, month by month`} hint={`What the period's new customers bought in each month - the months add up to the period · ${perWords(cube, per)}`}><MonthTable c={c} which="rev" /></ChartBox>}
+      {tables("sae", ["new", "rev", "avg"])}
+      {many && draw(c, act, "sae:tmonnew")}
+      {many && draw(c, act, "sae:tmonrev")}
     </GlassCard>
   );
+  if (view === "saeoi") {
+    // the order intake as far as each customer's is loaded - the period cut there, said in the card's line
+    const oc = oiCtx(c);
+    const shorter = !!oc && oc !== c;
+    return (
+      <GlassCard sx={card}>
+        <CardTitle icon={<ShoppingBagOutlinedIcon />} tint="purple" title={`${teamName(c)}, order intake of the new customers, ${(oc ?? c).per.title}`}
+          note={oc ? `${perWords(cube, oc.per)} against ${perWords(cube, oc.per, 1)} · by Performis SAE${shorter ? ` · each customer's order intake is loaded to ${oiLoadedWords(cube)}, so the period ends there` : ""}` : against} />
+        {!oc ? <OiMissing c={c} title={`Order intake of the new customers ${per.title}`} /> : (
+          <>
+            <Box sx={{ ...TWO, mt: -1 }}>{draw(oc, act, "saeoi:oi")}{draw(oc, act, "saeoi:avgoi")}</Box>
+            {oc.per.months >= 2 && draw(oc, act, "saeoi:monoi")}
+            {(["oi", "avgoi"] as const).map((m) => <Box key={m} sx={{ display: "grid", minWidth: 0 }}>{draw(oc, act, `saeoi:t${m}`)}</Box>)}
+            {oc.per.months >= 2 && draw(oc, act, "saeoi:tmonoi")}
+          </>
+        )}
+      </GlassCard>
+    );
+  }
   const by = byOf(view);
   const head = by === "pc" ? { icon: <CategoryOutlinedIcon />, tint: "green" as Tint } : { icon: DIM[by].icon, tint: DIM[by].tint };
   return (
@@ -428,7 +504,7 @@ function TabCard({ c, act }: { c: NCtx; act: Act }) {
       <CardTitle icon={head.icon} tint={head.tint} title={`${teamName(c)} by ${lowerOf(by)}, ${per.title}`} note={`${NOTES[view as Breakdown | "pc"]} · ${against}${by === "pc" ? notInvoiced(c) : ""}`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${view}:new`)}{draw(c, act, `${view}:rev`)}</Box>
       {draw(c, act, `${view}:avg`)}
-      <MeasureTables c={c} by={by} />
+      {tables(view, ["new", "rev", "avg"])}
     </GlassCard>
   );
 }
@@ -491,7 +567,7 @@ function Waiting({ computing, progress, error, picked, again }: { computing: boo
   );
 }
 /** A cube read before the new customers' revenue was in it (until the first read after the deployment). */
-const tooOld = (cube: Cube) => !cube.newRevenue || !cube.saeTeams;
+const tooOld = (cube: Cube) => cube.newKind !== "invoice" || !cube.saeTeams;
 const FILTER_DIMS: Dim[] = ["prio", "segment", "potential", "country", "sae", "type", "apic", "mandant"];
 const viewOf = (x: string | null): View => (isView(x) ? x : "sae");
 
@@ -563,11 +639,11 @@ export function NewCustomersExplorer() {
   const active = chosenDims(filters);
   const chosen = active.flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
   // the tile toolbar per chart, keyed "eso-new-customers:<tab>:<chart>"; the team, filters and period go with it, its target per team and period
-  const act: Act = (id, title, target) => (
+  const act: Act = (id, title, target, per = c.per) => (
     <TileActions where="tab" start="tab" edge={2}
-      tile={{ key: `eso-new-customers:${id}`, page: "eso-new-customers", tab: c.view, title, summary: `${teamName(c)} · ${perWords(cube, c.per)}`,
-        filters: { ...Object.fromEntries(chosenDims(c.filters).map((d) => [d, c.filters[d] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), ...perFilters(cube, c.per) }, kind: "card",
-        target: target ? { key: targetKey(id, c.team, c.lead, c.per), ...target } : undefined }} />
+      tile={{ key: `eso-new-customers:${id}`, page: "eso-new-customers", tab: c.view, title, summary: `${teamName(c)} · ${perWords(cube, per)}`,
+        filters: { ...Object.fromEntries(chosenDims(c.filters).map((d) => [d, c.filters[d] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), ...perFilters(cube, per) }, kind: "card",
+        target: target ? { key: targetKey(id, c.team, c.lead, per), ...target } : undefined }} />
   );
   const now = { team: teamKey, lead, teams };
   const filterCount = chosen.length + companies.length + (per.id !== "ytd" ? 1 : 0);
@@ -611,11 +687,11 @@ export function NewCustomersExplorer() {
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
           <ReportTabs name="eso-new-customers" tab={view} onSelect={setView}
-            tabs={VIEWS.map((v) => { const d = v.id === "pc" ? null : v.id; return { id: v.id, label: v.label, count: d && filters[d]?.length ? String(filters[d]!.length) : null }; })} />
+            tabs={VIEWS.map((v) => { const b = byOf(v.id), d = b === "pc" ? null : b; return { id: v.id, label: v.label, count: d && filters[d]?.length ? String(filters[d]!.length) : null }; })} />
         </Box>
         <Box sx={{ flex: 1 }} />
         <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="eso-new-customers" /></Box>
-        <Button onClick={() => { if (panel) setPanel(false); else if (view !== "pc") openOn(view); else setPanel(true); }} variant={panel || filterCount ? "contained" : "outlined"} disableElevation
+        <Button onClick={() => { if (panel) setPanel(false); else { const b = byOf(view); if (b !== "pc") openOn(b); else setPanel(true); } }} variant={panel || filterCount ? "contained" : "outlined"} disableElevation
           aria-expanded={panel} aria-controls="eso-new-customers-filters" startIcon={<TuneIcon />}
           sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || filterCount ? undefined : "#fff" }}>
           Filters{filterCount ? ` · ${filterCount}` : ""}
@@ -664,7 +740,9 @@ export function NewCustomersPanel({ acts }: { acts: ActionsState | null }) {
     const sf: Filters = Object.fromEntries(DIMS.flatMap((d) => (d !== "owner" && spec.filters?.[d]?.length ? [[d, spec.filters[d]]] : [])));
     const sp = perFromFilters(c.cube, spec.filters) ?? c.per;
     const sc: NCtx = { ...c, view: ch?.view ?? "sae", per: sp, filters: sf, eff: withTeam(c.cube, sf, c.team, c.lead, leads), half: fmt === "half" };
-    const target = ch?.target ? { key: targetKey(ch.id, c.team, c.lead, sp), ...ch.target(sc) } : undefined;
+    // an order intake chart is drawn on the months the order intake is loaded for - its target goes by that period
+    const tp = ch?.view === "saeoi" ? oiCtx(sc)?.per ?? sp : sp;
+    const target = ch?.target ? { key: targetKey(ch.id, c.team, c.lead, tp), ...ch.target(sc) } : undefined;
     const actions = <TileActions where="nutshell" start="tab" edge={2} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, href: spec.href, kind: spec.kind, target }} />;
     return { key: spec.key, block: true, sx: fmt === "half" ? { gridColumn: { xs: "span 12", md: "span 6" } } : { gridColumn: "1 / -1" },
       node: ch ? ch.draw(sc, actions) : <GlassCard><CardTitle icon={<PersonAddAltOutlinedIcon />} tint="blue" title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };

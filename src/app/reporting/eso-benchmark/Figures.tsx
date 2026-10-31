@@ -473,7 +473,8 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
                     ? <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: c.color, fontVariantNumeric: "tabular-nums", lineHeight: 1.35 }}>{c.main}{c.second && <><br />{c.second}</>}</Typography>
                     : <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: c.color, fontVariantNumeric: "tabular-nums" }}>{c.main}{c.second ? ` · ${c.second}` : ""}</Typography>)}
                   {t && <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: t.color }}>{t.text}</Typography>}
-                  {r.sub && <Typography noWrap sx={{ fontSize: "0.72rem", color: FAINT }}>{r.sub}</Typography>}
+                  {/* readable, whole: darker and wrapping, not cut off (SARCLA 31.10.2026, all ESO reports: "the text inside the grey square in grey is not visible and legible") */}
+                  {r.sub && <Typography sx={{ fontSize: "0.76rem", color: MUTED, lineHeight: 1.35 }}>{r.sub}</Typography>}
                 </Box>
               );
             })}
@@ -493,7 +494,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
                     <Box sx={{ minWidth: 0 }}>
                       <Typography noWrap sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, lineHeight: 1.25 }}>{r.label}</Typography>
                       {(r.sub || t) && (
-                        <Typography noWrap sx={{ fontSize: "0.72rem", color: FAINT, lineHeight: 1.25 }}>
+                        <Typography noWrap sx={{ fontSize: "0.76rem", color: MUTED, lineHeight: 1.3 }}>
                           {r.sub}{r.sub && t ? " · " : ""}{t && <span style={{ color: t.color, fontWeight: 700 }}>{t.text}</span>}
                         </Typography>
                       )}
@@ -522,7 +523,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
             <Box key={r.label} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: 1.25, alignItems: "center", px: 0.75, py: 0.5, borderBottom: `1px solid ${HAIRLINE}` }}>
               <Box sx={{ minWidth: 0 }}>
                 <Typography noWrap sx={{ fontSize: "0.84rem", fontWeight: 600, color: MUTED }}>{r.label}</Typography>
-                {r.sub && <Typography noWrap sx={{ fontSize: "0.72rem", color: FAINT }}>{r.sub}</Typography>}
+                {r.sub && <Typography noWrap sx={{ fontSize: "0.76rem", color: MUTED }}>{r.sub}</Typography>}
               </Box>
               <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: MUTED, fontVariantNumeric: "tabular-nums" }}>{fmt(r.cur)}</Typography>
             </Box>

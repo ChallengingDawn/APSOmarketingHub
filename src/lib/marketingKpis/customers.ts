@@ -27,8 +27,9 @@ import { SEED } from "@/lib/mapAssign/seed";
 // v9: the ERP's own month and year to date per company, the order intake months loaded, the team from HubSpot's teams
 // v10: the Performis SAE as a dimension, as its person (the Figures' split next to the company owner, 24.10.2026)
 // v11: the revenue kept apart by profit centre too (the Figures' Profit center tab, 25.10.2026)
-// (the new customers' revenue since their first order came in under the same key: a read without it is read again, the
-// last one shown meanwhile - the ESO New customers, 29.10.2026)
+// (the new customers' revenue since their first order came in under the same key, 29.10.2026, and on 31.10 their first
+// invoice instead of their first order, with their order intake: a read without newKind "invoice" is read again, the last
+// one shown meanwhile - the ESO New customers)
 const KEY = "marketingKpis:customers:v11";
 /** The ERP file's figures per company (the morning load, erpRevenue.ts), in cube.ts's ERP_FIELDS order. */
 const ERP_PROPS = ["erp_rev_mtd_cy", "erp_rev_mtd_py", "erp_rev_ytd_cy", "erp_rev_ytd_py", "erp_oi_mtd_cy", "erp_oi_mtd_py", "erp_oi_ytd_cy", "erp_oi_ytd_py"] as const;
@@ -41,7 +42,7 @@ const TTL_MS = 6 * 60 * 60 * 1000;
  */
 export async function customersCube(): Promise<SlowState<Cube>> {
   const day = await lastDelivery();
-  return slowReport(KEY, (v: Cube) => ((day && v?.dataDay !== day) || !v?.newRevenue ? 0 : TTL_MS), build);
+  return slowReport(KEY, (v: Cube) => ((day && v?.dataDay !== day) || v?.newKind !== "invoice" ? 0 : TTL_MS), build);
 }
 
 /** The day of the last ERP delivery the chain ran, or nothing when none is on record (or no database here). */
@@ -56,6 +57,17 @@ function firstMonthOf(v: string | null | undefined, firstYear: number): number |
   if (!m) return null;
   const k = (Number(m[1]) - firstYear) * 12 + Number(m[2]) - 1;
   return k >= 0 && k <= 35 ? k : null;
+}
+/**
+ * A new customer's month as the BSC report counts it (SARCLA 31.10.2026: "why also not the same figures"): its first
+ * invoice - the first month with revenue in the three years read - unless HubSpot has a first order before them (an old
+ * customer coming back is not new). Checked against the BSC on 31.10.2026: 2025 1,626 vs 1,653, Nov/Dec 125/89 vs 127/90.
+ */
+function firstInvoiceOf(months: number[][], firstOrder: string | null | undefined, firstYear: number): number | null {
+  const y = /^(\d{4})/.exec(firstOrder ?? "");
+  if (y && Number(y[1]) < firstYear) return null;
+  for (let k = 0; k <= 35; k++) if ((months[2 - Math.floor(k / 12)]?.[k % 12] ?? 0) > 0) return k;
+  return null;
 }
 const num = (v: string | null | undefined) => (v == null || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
@@ -130,6 +142,7 @@ function companyOf(p: Record<string, string | null>, x: Ctx): CompanyIn {
     dims: Object.fromEntries(DIMS.map((d) => [d, index(d, l[d])])) as Record<Dim, number>,
     potential: num(p.yearly_customer_potential), months,
     firstMonth: firstMonthOf(p.order_first_order_date, x.years[2]),
+    firstInvoiceMonth: firstInvoiceOf(months, p.order_first_order_date, x.years[2]),
     intake, erp: erp.some((v) => v !== 0) ? erp : null, pcMonths,
   };
 }
@@ -165,7 +178,7 @@ async function build(): Promise<Cube> {
     : null;
   // the ERP day most companies carry (a straggler from an older file does not move it)
   const erpDay = [...x.erpDays].sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]))[0]?.[0] ?? null;
-  return { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels: x.labels, teams: x.teams, saeTeams: x.saeTeams, erpDay, oiLoaded: monthsLoaded(x.filledOi[0], x.filledOi[1], monthsDone), ...fold(companies) };
+  return { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels: x.labels, teams: x.teams, saeTeams: x.saeTeams, erpDay, oiLoaded: monthsLoaded(x.filledOi[0], x.filledOi[1], monthsDone), newKind: "invoice", ...fold(companies) };
 }
 
 /**

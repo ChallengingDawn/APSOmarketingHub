@@ -72,11 +72,21 @@ export type Cube = {
    */
   pcRevenue?: number[][];
   /**
-   * [cell, month number of the first order ever, profit centre index (pcLabels, -1 none), companies, their revenue month
-   * by month from that month on…] - the new customers and what they bought since (the ESO reports' New customers, SARCLA
+   * [cell, month number of the first invoice, profit centre index (pcLabels, -1 none), companies, their revenue month by
+   * month from that month on…] - the new customers and what they bought since (the ESO reports' New customers, SARCLA
    * 29.10.2026: "rebuild like Figures", their revenue and Ø per customer); the profit centre is the one they bought most from.
    */
   newRevenue?: number[][];
+  /**
+   * [cell, month number of the first invoice, the month the figures start at, their order intake month by month from it…]
+   * - the new customers' order intake, from up to six months before their first invoice (the order comes first)
+   */
+  newIntake?: number[][];
+  /**
+   * "invoice": a new customer counts in the month of its first invoice - its first month with revenue - as the BSC report
+   * counts them (SARCLA 31.10.2026: "why also not the same figures"); before, the month of its first order
+   */
+  newKind?: "invoice";
 };
 
 /** The ERP's figures a cell carries, in this order. */
@@ -141,6 +151,11 @@ export type CompanyIn = {
   months: number[][];
   /** the month number of the company's first order ever, when it falls in the three years; null otherwise */
   firstMonth?: number | null;
+  /**
+   * the month number of its first invoice - its first month with revenue - when it is a new customer of the three years
+   * (no first order before them); null when it is not. The New customers' rows go by it; without it, by firstMonth.
+   */
+  firstInvoiceMonth?: number | null;
   /** order intake per month, per year index, as `months` */
   intake?: number[][];
   /** the ERP's figures (ERP_FIELDS order), when the company is in the ERP file */
@@ -150,11 +165,11 @@ export type CompanyIn = {
 };
 
 /** Folds companies into a cube's cells, revenue and buyers. */
-export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "revenue" | "revenueNoPot" | "buyers" | "newCustomers" | "intake" | "erp" | "pcLabels" | "pcRevenue" | "newRevenue"> {
+export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "revenue" | "revenueNoPot" | "buyers" | "newCustomers" | "intake" | "erp" | "pcLabels" | "pcRevenue" | "newRevenue" | "newIntake"> {
   const cellIx = new Map<string, number>();
   const cells: number[][] = [];
   const rev = new Map<string, number[]>(), revNoPot = new Map<string, number[]>(), buyers = new Map<string, number[]>(), fresh = new Map<string, number[]>(), oi = new Map<string, number[]>();
-  const newRev = new Map<string, number[]>();
+  const newRev = new Map<string, number[]>(), newOi = new Map<string, number[]>();
   const erp = new Map<number, number[]>();
   const pcLabels: string[] = [], pcRev = new Map<string, number[]>();
   for (const c of companies) {
@@ -216,8 +231,12 @@ export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "reve
       const k = `${ci},${c.firstMonth}`;
       const f = fresh.get(k);
       if (f) f[2] += 1; else fresh.set(k, [ci, c.firstMonth, 1]);
+    }
+    // the New customers: by the month of the first invoice (the BSC report's count), else of the first order
+    const nf = c.firstInvoiceMonth !== undefined ? c.firstInvoiceMonth : c.firstMonth;
+    if (nf != null && nf >= 0 && nf <= 35) {
       // what they bought from that month on, and the profit centre they bought most from (this year's and last year's split)
-      const first = c.firstMonth;
+      const first = nf;
       const byPc: Record<string, number> = {};
       (c.pcMonths ?? []).slice(0, 2).forEach((months, y) => months.forEach((p, m) => {
         if (monthOf(y, m) < first) return;
@@ -231,17 +250,29 @@ export function fold(companies: Iterable<CompanyIn>): Pick<Cube, "cells" | "reve
       if (!r) { r = [ci, first, pi, 0]; newRev.set(nk, r); }
       r[3] += 1;
       for (let m = first; m <= 35; m++) r[4 + m - first] = (r[4 + m - first] ?? 0) + (c.months[2 - Math.floor(m / 12)]?.[m % 12] ?? 0);
+      // their order intake, from six months before the first invoice: the order comes before it
+      const at = (m: number) => c.intake?.[2 - Math.floor(m / 12)]?.[m % 12] ?? 0;
+      const from = Math.max(0, first - 6);
+      let any = false;
+      for (let m = from; m <= 35; m++) if (at(m)) { any = true; break; }
+      if (any) {
+        const ok = `${ci},${first}`;
+        let o = newOi.get(ok);
+        if (!o) { o = [ci, first, from]; newOi.set(ok, o); }
+        for (let m = from; m <= 35; m++) o[3 + m - from] = (o[3 + m - from] ?? 0) + at(m);
+      }
     }
   }
   const round = (rows: number[][]) => rows.map((r) => r.map((x, i) => (i < 2 ? x : Math.round(x))));
   // the new customers' months rounded, the zeros at the end left out
-  const trimmed = [...newRev.values()].map((r) => {
-    const out = r.map((x, i) => (i < 4 ? x : Math.round(x)));
-    while (out.length > 4 && out[out.length - 1] === 0) out.pop();
+  const trim = (rows: number[][], head: number) => rows.map((r) => {
+    const out = r.map((x, i) => (i < head ? x : Math.round(x)));
+    while (out.length > head && out[out.length - 1] === 0) out.pop();
     return out;
   });
+  const trimmed = trim([...newRev.values()], 4);
   return { cells, revenue: round([...rev.values()]), revenueNoPot: round([...revNoPot.values()]), buyers: [...buyers.values()], newCustomers: [...fresh.values()], intake: round([...oi.values()]), erp: [...erp.values()].map((r) => r.map((x, i) => (i ? Math.round(x) : x))),
-    pcLabels, pcRevenue: [...pcRev.values()].map((r) => r.map((x, i) => (i < 3 ? x : Math.round(x)))), newRevenue: trimmed };
+    pcLabels, pcRevenue: [...pcRev.values()].map((r) => r.map((x, i) => (i < 3 ? x : Math.round(x)))), newRevenue: trimmed, newIntake: trim([...newOi.values()], 3) };
 }
 
 /* ── slicing ──────────────────────────────────────────────────────────── */
@@ -608,21 +639,29 @@ export function pcBy(cube: Cube, filters: Filters, dim?: Dim): Map<string, Map<s
 
 /* ── the new customers and what they bought (the ESO reports' New customers) ── */
 
-/** New customers of a window and their revenue in it, against the same months a year earlier. */
-export type NewAgg = { n: number; nPy: number; rev: number; revPy: number };
-/** A newRevenue row's revenue from month a to b - its months start at its first order (index 4) - the month `cut` counted `share` of. */
+/** New customers of a window, their revenue and order intake in it, against the same months a year earlier. */
+export type NewAgg = { n: number; nPy: number; rev: number; revPy: number; oi: number; oiPy: number };
+const newZero = (): NewAgg => ({ n: 0, nPy: 0, rev: 0, revPy: 0, oi: 0, oiPy: 0 });
+/** A newRevenue row's revenue from month a to b - its months start at its first invoice (index 4) - the month `cut` counted `share` of. */
 function newRevIn(r: number[], a: number, b: number, cut = -99, share = 1) {
   let s = 0;
   for (let k = Math.max(a, r[1]); k <= b; k++) s += (r[4 + k - r[1]] ?? 0) * (k === cut ? share : 1);
+  return s;
+}
+/** A newIntake row's order intake from month a to b - its months start at r[2] (index 3) - the month `cut` counted `share` of. */
+function newOiIn(r: number[], a: number, b: number, cut = -99, share = 1) {
+  let s = 0;
+  for (let k = Math.max(a, r[2]); k <= b; k++) s += (r[3 + k - r[2]] ?? 0) * (k === cut ? share : 1);
   return s;
 }
 /** The profit centre a newRevenue row's companies bought most from: "dt", "kt"… or "none" without revenue. */
 const newPc = (cube: Cube, r: number[]) => (r[2] >= 0 ? cube.pcLabels?.[r[2]] ?? "other" : "none");
 
 /**
- * The new customers of the window - a first order ever in it - and what they bought in it, against the same months a
- * year earlier (last year's month in progress pro rata, as everywhere on the cube): grouped by a dimension (its own
- * filter left out, as breakdown), by the profit centre they bought most from ("pc"), or all together under "".
+ * The new customers of the window - their first invoice in it - with what they bought in it and their order intake in it,
+ * against the same months a year earlier (last year's month in progress pro rata, as everywhere on the cube): grouped by a
+ * dimension (its own filter left out, as breakdown), by the profit centre they bought most from ("pc" - no order intake
+ * there), or all together under "".
  */
 export function newBy(cube: Cube, filters: Filters, win: Win, by?: Dim | "pc"): Map<string, NewAgg> {
   const dim = by && by !== "pc" ? by : undefined;
@@ -631,39 +670,49 @@ export function newBy(cube: Cube, filters: Filters, win: Win, by?: Dim | "pc"): 
   const run = partial(cube), pyRun = run ? run.month - 12 : -99, share = run ? run.day / run.days : 1;
   const { start, end } = win, ps = start - 12, pe = end - 12;
   const out = new Map<string, NewAgg>();
+  const at = (label: string) => { let a = out.get(label); if (!a) { a = newZero(); out.set(label, a); } return a; };
+  const labelOf = (ci: number) => (gi < 0 ? "" : cube.labels[dim!][cube.cells[ci][gi]]);
   for (const r of cube.newRevenue ?? []) {
     if (!ok[r[0]]) continue;
     const cur = r[1] >= start && r[1] <= end, prev = r[1] >= ps && r[1] <= pe;
     if (!cur && !prev) continue;
-    const label = by === "pc" ? newPc(cube, r) : gi < 0 ? "" : cube.labels[dim!][cube.cells[r[0]][gi]];
-    let a = out.get(label);
-    if (!a) { a = { n: 0, nPy: 0, rev: 0, revPy: 0 }; out.set(label, a); }
+    const a = at(by === "pc" ? newPc(cube, r) : labelOf(r[0]));
     if (cur) { a.n += r[3]; a.rev += newRevIn(r, start, end); }
     if (prev) { a.nPy += r[3] * (r[1] === pyRun ? share : 1); a.revPy += newRevIn(r, ps, pe, pyRun, share); }
+  }
+  if (by !== "pc") {
+    for (const r of cube.newIntake ?? []) {
+      if (!ok[r[0]]) continue;
+      const cur = r[1] >= start && r[1] <= end, prev = r[1] >= ps && r[1] <= pe;
+      if (!cur && !prev) continue;
+      const a = at(labelOf(r[0]));
+      if (cur) a.oi += newOiIn(r, start, end);
+      if (prev) a.oiPy += newOiIn(r, ps, pe, pyRun, share);
+    }
   }
   return out;
 }
 
 export type NewMonth = NewAgg & { month: number };
 /**
- * The window month by month: the customers new in each month, and the revenue each month of the window's new customers
- * so far - so the months add up to the window's figures; a year earlier the same way.
+ * The window month by month, as the BSC report counts it (SARCLA 31.10.2026: "why also not the same figures"): the
+ * customers whose first invoice was in the month and what they were invoiced in it - their first month; the order intake
+ * of the window's new customers in each month (it adds up to the window's). A year earlier the same way.
  */
 export function newByMonth(cube: Cube, filters: Filters, win: Win): NewMonth[] {
   const ok = passes(cube, filters);
   const run = partial(cube), pyRun = run ? run.month - 12 : -99, share = run ? run.day / run.days : 1;
   const { start, end } = win, ps = start - 12, pe = end - 12;
-  const out: NewMonth[] = Array.from({ length: end - start + 1 }, (_, i) => ({ month: start + i, n: 0, nPy: 0, rev: 0, revPy: 0 }));
+  const out: NewMonth[] = Array.from({ length: end - start + 1 }, (_, i) => ({ month: start + i, ...newZero() }));
   for (const r of cube.newRevenue ?? []) {
     if (!ok[r[0]]) continue;
-    if (r[1] >= start && r[1] <= end) {
-      out[r[1] - start].n += r[3];
-      for (let k = r[1]; k <= end; k++) out[k - start].rev += r[4 + k - r[1]] ?? 0;
-    }
-    if (r[1] >= ps && r[1] <= pe) {
-      out[r[1] - ps].nPy += r[3] * (r[1] === pyRun ? share : 1);
-      for (let k = r[1]; k <= pe; k++) out[k - ps].revPy += (r[4 + k - r[1]] ?? 0) * (k === pyRun ? share : 1);
-    }
+    if (r[1] >= start && r[1] <= end) { out[r[1] - start].n += r[3]; out[r[1] - start].rev += r[4] ?? 0; }
+    if (r[1] >= ps && r[1] <= pe) { const f = r[1] === pyRun ? share : 1; out[r[1] - ps].nPy += r[3] * f; out[r[1] - ps].revPy += (r[4] ?? 0) * f; }
+  }
+  for (const r of cube.newIntake ?? []) {
+    if (!ok[r[0]]) continue;
+    if (r[1] >= start && r[1] <= end) for (let k = Math.max(r[2], start); k <= end; k++) out[k - start].oi += r[3 + k - r[2]] ?? 0;
+    if (r[1] >= ps && r[1] <= pe) for (let k = Math.max(r[2], ps); k <= pe; k++) out[k - ps].oiPy += (r[3 + k - r[2]] ?? 0) * (k === pyRun ? share : 1);
   }
   return out;
 }

@@ -35,7 +35,7 @@ const ytd = defaultWindow(cube);
 test("the new customers of the period and what they bought in it, against the same months a year earlier", () => {
   assert.deepEqual(ytd, { start: 24, end: 33 });
   const t = newBy(cube, {}, ytd).get("")!;
-  assert.deepEqual(t, { n: 2, nPy: 2, rev: 1_800, revPy: 3_700 });
+  assert.deepEqual(t, { n: 2, nPy: 2, rev: 1_800, revPy: 3_700, oi: 0, oiPy: 0 });
   // the same count as the cube's own new customers
   const a = totals(cube, {}, ytd);
   assert.equal(a.newC, t.n);
@@ -44,34 +44,31 @@ test("the new customers of the period and what they bought in it, against the sa
 
 test("by Performis SAE and by the profit centre they bought most from; a filter narrows them", () => {
   const bySae = newBy(cube, {}, ytd, "sae");
-  assert.deepEqual(bySae.get("Anna"), { n: 1, nPy: 1, rev: 1_800, revPy: 700 });
-  assert.deepEqual(bySae.get("Ben"), { n: 1, nPy: 1, rev: 0, revPy: 3_000 });
+  assert.deepEqual(bySae.get("Anna"), { n: 1, nPy: 1, rev: 1_800, revPy: 700, oi: 0, oiPy: 0 });
+  assert.deepEqual(bySae.get("Ben"), { n: 1, nPy: 1, rev: 0, revPy: 3_000, oi: 0, oiPy: 0 });
   const byPc = newBy(cube, {}, ytd, "pc");
-  assert.deepEqual(byPc.get("dt"), { n: 1, nPy: 0, rev: 1_800, revPy: 0 });
-  assert.deepEqual(byPc.get("none"), { n: 1, nPy: 0, rev: 0, revPy: 0 });
-  assert.deepEqual(byPc.get("ft"), { n: 0, nPy: 1, rev: 0, revPy: 3_000 });
-  assert.deepEqual(byPc.get("kt"), { n: 0, nPy: 1, rev: 0, revPy: 700 });
-  assert.deepEqual(newBy(cube, { sae: ["Anna"] }, ytd).get(""), { n: 1, nPy: 1, rev: 1_800, revPy: 700 });
+  assert.deepEqual(byPc.get("dt"), { n: 1, nPy: 0, rev: 1_800, revPy: 0, oi: 0, oiPy: 0 });
+  assert.deepEqual(byPc.get("none"), { n: 1, nPy: 0, rev: 0, revPy: 0, oi: 0, oiPy: 0 });
+  assert.deepEqual(byPc.get("ft"), { n: 0, nPy: 1, rev: 0, revPy: 3_000, oi: 0, oiPy: 0 });
+  assert.deepEqual(byPc.get("kt"), { n: 0, nPy: 1, rev: 0, revPy: 700, oi: 0, oiPy: 0 });
+  assert.deepEqual(newBy(cube, { sae: ["Anna"] }, ytd).get(""), { n: 1, nPy: 1, rev: 1_800, revPy: 700, oi: 0, oiPy: 0 });
   // grouped by the Performis SAE, its own filter is left out - the others stay
   assert.equal(newBy(cube, { sae: ["Anna"] }, ytd, "sae").get("Ben")?.n, 1);
 });
 
-test("month by month: new that month, and what the period's new customers bought in it - the months add up to the period", () => {
+test("month by month as the BSC report: new that month, and what they were invoiced in that month - their first month", () => {
   const ms = newByMonth(cube, {}, ytd);
   assert.equal(ms.length, 10);
   assert.deepEqual(ms.map((m) => m.n), [0, 0, 1, 0, 0, 0, 0, 0, 0, 1]);
-  assert.deepEqual(ms.map((m) => m.rev), [0, 0, 1_000, 0, 500, 0, 0, 0, 0, 300]);
+  assert.deepEqual(ms.map((m) => m.rev), [0, 0, 1_000, 0, 0, 0, 0, 0, 0, 0]);
   assert.deepEqual(ms.map((m) => m.nPy), [0, 0, 0, 1, 0, 0, 0, 0, 0, 1]);
-  assert.deepEqual(ms.map((m) => m.revPy), [0, 0, 0, 2_000, 0, 0, 1_000, 0, 0, 700]);
-  const t = newBy(cube, {}, ytd).get("")!;
-  assert.equal(ms.reduce((s, m) => s + m.rev, 0), t.rev);
-  assert.equal(ms.reduce((s, m) => s + m.revPy, 0), t.revPy);
+  assert.deepEqual(ms.map((m) => m.revPy), [0, 0, 0, 2_000, 0, 0, 0, 0, 0, 700]);
 });
 
 test("a window starting later counts only what was bought in it; last year's month in progress pro rata", () => {
   // May to October 2026: Anna's March customer is not new in it
   const w = { start: monthOf(0, 4), end: monthOf(0, 9) };
-  assert.deepEqual(newBy(cube, {}, w).get(""), { n: 1, nPy: 1, rev: 0, revPy: 700 });
+  assert.deepEqual(newBy(cube, {}, w).get(""), { n: 1, nPy: 1, rev: 0, revPy: 700, oi: 0, oiPy: 0 });
   // October 2026 runs to the 10th: October 2025's new customer and its revenue count 10/31
   const c: Cube = { ...cube, running: { month: monthOf(0, 9), day: 10, days: 31 } };
   const t = newBy(c, {}, ytd).get("")!;
@@ -86,4 +83,31 @@ test("a new customer's months are kept from its first order on, the zeros at the
   const a = rows.find((r) => r[1] === monthOf(0, 2))!;
   assert.equal(cube.pcLabels![a[2]], "dt");
   assert.deepEqual(a.slice(3), [1, 1_000, 0, 500, 0, 0, 0, 0, 300]);
+});
+
+test("a new customer counts in the month of its first invoice, its order intake from before it", () => {
+  const labels = Object.fromEntries(DIMS.map((d) => [d, [] as string[]])) as Record<Dim, string[]>;
+  const ix = (d: Dim, v: string) => { let i = labels[d].indexOf(v); if (i < 0) i = labels[d].push(v) - 1; return i; };
+  const at = (pairs: Record<number, number>) => [months(pairs), months(), months()];
+  const one = (sae: string, x: Partial<CompanyIn>): CompanyIn => ({
+    dims: Object.fromEntries(DIMS.map((d) => [d, ix(d, d === "sae" ? sae : "x")])) as Record<Dim, number>, potential: null, months: [months(), months(), months()], ...x,
+  });
+  const c: Cube = {
+    generatedAt: "", years: [2026, 2025, 2024], loaded: [10, 12, 12], running: null, labels,
+    ...fold([
+      // ordered in February, invoiced from March: new in March, its February order intake counts
+      one("Anna", { firstMonth: monthOf(0, 1), firstInvoiceMonth: monthOf(0, 2), months: at({ 2: 900, 3: 100 }), intake: at({ 1: 500, 2: 300 }) }),
+      // ordered, not invoiced yet: not a new customer yet
+      one("Ben", { firstMonth: monthOf(0, 8), firstInvoiceMonth: null, intake: at({ 8: 400 }) }),
+    ]),
+  };
+  const w = defaultWindow(c);
+  assert.deepEqual(newBy(c, {}, w).get(""), { n: 1, nPy: 0, rev: 1_000, revPy: 0, oi: 800, oiPy: 0 });
+  // the cube's own new customers keep going by the first order
+  assert.equal(totals(c, {}, w).newC, 2);
+  const ms = newByMonth(c, {}, w);
+  assert.deepEqual(ms.map((m) => m.n), [0, 0, 1, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(ms.map((m) => m.rev), [0, 0, 900, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(ms.map((m) => m.oi), [0, 500, 300, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(c.newIntake, [[c.newRevenue![0][0], monthOf(0, 2), monthOf(0, 2) - 6, 0, 0, 0, 0, 0, 500, 300]]);
 });
