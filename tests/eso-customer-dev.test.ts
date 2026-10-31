@@ -6,7 +6,7 @@ import {
 
 // months from January 2023 (0): 2024 = 12…, 2025 = 24…, 2026 = 36…; October 2026 (45) runs, to the 15th of 31
 // seven customers: 0 steady for years, 1 new this year, 2 last bought May 2025, 3 reactivated (Nov 2023, then May 2026),
-// 4 slowing (Jul 2025 €10,000, Jul 2026 €3,000), 5 bought only in October last year, 6 last ordered in 2019
+// 4 decreasing (Jul 2025 €10,000, Jul 2026 €3,000), 5 bought only in October last year, 6 last ordered in 2019
 const d: CustDevData = {
   generatedAt: "2026-10-29T08:00:00Z", year: 2026, today: "2026-10-29", loaded: 9, running: { month: 45, day: 15, days: 31 }, dataDay: "2026-10-15", ordersFrom: 24,
   people: [{ name: "Ana", team: "ESO" }, { name: "Ben", team: "TSA" }],
@@ -111,7 +111,7 @@ test("customer development: a month alone, a breakdown, the people of a team, th
   assert.deepEqual(rowsOf(d, { country: ["Germany"] }, null, "country"), all);
 });
 
-test("customer development: the lost and the slowing by name", () => {
+test("customer development: the lost and the decreasing by name", () => {
   const lost = namedOf(d, all, ytd, "lost");
   assert.deepEqual(lost.map((x) => [x.name, x.last, x.rev, x.lastDay]), [["May SA", 28, 2000, 20250520], ["October SA", 33, 800, 20251006], ["Gone AG", null, 0, 20190614]]);
   const slow = namedOf(d, all, ytd, "slow");

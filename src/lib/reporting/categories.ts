@@ -84,15 +84,17 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
         overview: "BUC View", overviewHref: "/reporting/eso-benchmark",
         children: [
           // revenue and order intake per month and per person, ESO | TSA | Total, the forecast on Total (SARCLA 24.10.2026: "first")
+          // in SARCLA's order (31.10.2026: "reorganize sub apps - Figures, Visits, Registrations, Shop behaviour, New
+          // customers, Customer development, Incoming tickets, System tickets"); the BUC View's panels follow it (pages.tsx)
           { name: "Figures", href: "/reporting/eso-benchmark/figures", icon: "bar" },
           { name: "Visits", href: "/reporting/eso-benchmark/visits", icon: "route" },
-          { name: "Customer development", href: "/reporting/eso-benchmark/customers", icon: "groups" },
-          { name: "New customers", href: "/reporting/eso-benchmark/new-customers", icon: "target" },
           { name: "Registrations", href: "/reporting/eso-benchmark/registrations", icon: "verified" },
+          { name: "Shop behaviour", href: "/reporting/eso-benchmark/shop", icon: "inventory" },
+          { name: "New customers", href: "/reporting/eso-benchmark/new-customers", icon: "target" },
+          { name: "Customer development", href: "/reporting/eso-benchmark/customers", icon: "groups" },
           // the tickets as two apps (SARCLA 30.10.2026: "split in 2 apps - Incoming Ticket and System tickets")
           { name: "Incoming tickets", href: "/reporting/eso-benchmark/tickets", icon: "description" },
           { name: "System tickets", href: "/reporting/eso-benchmark/system-tickets", icon: "bolt" },
-          { name: "Shop behaviour", href: "/reporting/eso-benchmark/shop", icon: "inventory" },
         ],
       },
     ],

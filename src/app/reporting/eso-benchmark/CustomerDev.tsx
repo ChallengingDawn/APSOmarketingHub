@@ -202,7 +202,8 @@ const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; diff
   active: { title: "Active customers", fmt: int, diff: signedInt, unit: "n", target: "active customers" },
   new: { title: "New customers", fmt: int, diff: signedInt, unit: "n", target: "new customers" },
   react: { title: "Reactivated customers", fmt: int, diff: signedInt, unit: "n", target: "reactivated customers" },
-  slow: { title: "Slowing customers", fmt: int, diff: signedInt, unit: "n", target: "slowing customers", lower: true },
+  // "Decreasing", not "Slowing" (SARCLA 31.10.2026: "call them Decreasing customers across all reports") - the key stays
+  slow: { title: "Decreasing customers", fmt: int, diff: signedInt, unit: "n", target: "decreasing customers", lower: true },
   lost: { title: "Lost customers", fmt: int, diff: signedInt, unit: "n", target: "lost customers", lower: true },
   churn: { title: "Churn rate", fmt: (n) => pct(n), diff: signedDec, unit: "pct", target: "churn rate", lower: true, ratio: true },
   avgrev: { title: "Ø revenue per active customer", fmt: eur, diff: signedEur, unit: "eur", target: "Ø revenue per active customer" },
@@ -249,7 +250,7 @@ function statusRows(t: CStats): SRow[] {
     f("Active", "bought in the period", t.active),
     f("New", "first order ever in the period", t.new),
     f("Reactivated", "bought again after 12 months or more without", t.react),
-    f("Slowing", "bought less than half of the same months a year earlier", t.slow, true),
+    f("Decreasing", "bought less than half of the same months a year earlier", t.slow, true),
     { label: "Lost", note: "no order for 12 months or more at the period's end, however long ago the last one", cy: t.lost.cy, py: t.lost.py, lower: true, avgRev: null, avgRevPy: null, avgOrd: null, avgOrdPy: null },
   ];
 }
@@ -339,7 +340,7 @@ function CustMonths({ c, target }: { c: CCtx; target: number | null }) {
   );
 }
 
-/* ── the customers to call: the lost and the slowing by name ───────────── */
+/* ── the customers to call: the lost and the decreasing by name ────────── */
 
 /** "Mar 2025", or the day of an older last order "14 Jun 2019" */
 const lastWords = (d: CustDevData, r: { last: number | null; lastDay: number }) => {
@@ -393,7 +394,7 @@ function drawnOf(id: string): Drawn | undefined {
   if (chart === "figures") {
     const dim = DIM_OF[v];
     const title = (c: CCtx) => `All the figures, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} against ${perWords(c.d, c.per, true)} · each ${DIM[dim].lower}'s active customers, Ø revenue and Ø orders, new, reactivated, slowing and lost customers, churn rate`} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} against ${perWords(c.d, c.per, true)} · each ${DIM[dim].lower}'s active customers, Ø revenue and Ø orders, new, reactivated, decreasing and lost customers, churn rate`} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
   }
   if (chart === "table") {
     const title = (c: CCtx) => `Where the customers stand, ${c.per.title}${teamPart(c)}`;
@@ -401,7 +402,7 @@ function drawnOf(id: string): Drawn | undefined {
   }
   if (chart === "lost-list" || chart === "slow-list") {
     const lost = chart === "lost-list";
-    const title = (c: CCtx) => `The ${lost ? "lost" : "slowing"} customers by name, ${c.per.title}${teamPart(c)}`;
+    const title = (c: CCtx) => `The ${lost ? "lost" : "decreasing"} customers by name, ${c.per.title}${teamPart(c)}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={lost ? `No order for 12 months or more at ${perEnd(c.d, c.per)} - those who bought most in their last 12 months of buying first` : "Less than half of the same months a year earlier - the biggest drop first"} actions={a}><NamedTable c={c} status={lost ? "lost" : "slow"} /></ChartBox> };
   }
   const [what, by] = chart.split("-");
@@ -434,7 +435,7 @@ function dimCols(c: CCtx): Col<Row>[] {
     { key: "avgord", head: "Ø orders", tip: "HubSpot's orders in the period per active customer", cell: (r) => dec1(avg(r.active.ord, r.active.cy)), sort: (r) => avg(r.active.ord, r.active.cy) },
     { key: "new", head: "New", tip: "First order ever in the period", cell: (r) => int(r.new.cy), sort: (r) => r.new.cy },
     { key: "react", head: "Reactivated", tip: "Bought again after 12 months or more without", cell: (r) => int(r.react.cy), sort: (r) => r.react.cy },
-    { key: "slow", head: "Slowing", tip: "Less than half of the same months a year earlier", cell: (r) => int(r.slow.cy), sort: (r) => r.slow.cy },
+    { key: "slow", head: "Decreasing", tip: "Less than half of the same months a year earlier", cell: (r) => int(r.slow.cy), sort: (r) => r.slow.cy },
     { key: "lost", head: "Lost", tip: "No order for 12 months or more at the period's end", cell: (r) => withChange(int(r.lost.cy), r.lost.cy, r.lost.py, true), sort: (r) => r.lost.cy },
     { key: "churn", head: "Churn rate", tip: `Of the customers who bought ${baseWords(c.d, c.per)}, the share that did not order since`, cell: (r) => pct(churnOf(r)), sort: (r) => churnOf(r) ?? -1 },
   ];
@@ -503,7 +504,7 @@ function figuresOf(c: CCtx): Fig[] {
     { id: "fig-active", label: `Active customers ${c.per.title}`, value: int(t.active.cy), change: vs(t.active), sub: `Ø ${eur(avg(t.active.rev, t.active.cy))} · Ø ${dec1(avg(t.active.ord, t.active.cy))} orders`, icon: <GroupsOutlinedIcon />, tint: "green", amount: t.active.cy },
     { id: "fig-new", label: "New customers", value: int(t.new.cy), change: vs(t.new), sub: `Ø ${eur(avg(t.new.rev, t.new.cy))} · first order ever`, icon: <PersonAddAltOutlinedIcon />, tint: "blue", amount: t.new.cy },
     { id: "fig-react", label: "Reactivated", value: int(t.react.cy), change: vs(t.react), sub: `Ø ${eur(avg(t.react.rev, t.react.cy))} · after 12 months or more`, icon: <RestartAltOutlinedIcon />, tint: "purple", amount: t.react.cy },
-    { id: "fig-slow", label: "Slowing", value: int(t.slow.cy), change: vs(t.slow, true), sub: "under half of a year earlier", icon: <TrendingDownOutlinedIcon />, tint: "amber", amount: t.slow.cy, lower: true },
+    { id: "fig-slow", label: "Decreasing", value: int(t.slow.cy), change: vs(t.slow, true), sub: "under half of a year earlier", icon: <TrendingDownOutlinedIcon />, tint: "amber", amount: t.slow.cy, lower: true },
     { id: "fig-lost", label: "Lost - no order for 12 months or more", value: int(t.lost.cy), change: vs(t.lost, true), sub: `churn ${pct(r.cy)}: ${int(t.churned.cy)} of ${int(t.base.cy)} who bought ${baseWords(c.d, c.per)}`, icon: <PersonOffOutlinedIcon />, tint: "pink", amount: t.lost.cy, lower: true },
   ];
 }

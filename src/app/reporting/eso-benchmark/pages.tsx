@@ -142,8 +142,8 @@ export const VISITS: EsoPageDef = {
 
 /* ── 2 · customer development ──────────────────────────────────────────── */
 
-const STATUS = ["Active", "New", "Reactivated", "Slowing", "Lost"] as const;
-const statusRec = (r: RepBenchmark): Record<string, Pair> => ({ Active: r.customers.active, New: r.customers.new, Reactivated: r.customers.reactivated, Slowing: r.customers.slowing, Lost: r.customers.lost });
+const STATUS = ["Active", "New", "Reactivated", "Decreasing", "Lost"] as const;
+const statusRec = (r: RepBenchmark): Record<string, Pair> => ({ Active: r.customers.active, New: r.customers.new, Reactivated: r.customers.reactivated, Decreasing: r.customers.slowing, Lost: r.customers.lost });
 const churnOf = (r: RepBenchmark) => rate(r.customers.lost, r.customers.base);
 
 export const CUSTOMERS: EsoPageDef = {
@@ -158,7 +158,7 @@ export const CUSTOMERS: EsoPageDef = {
     ];
   },
   tabs: [
-    { id: "status", label: "Where they stand", icon: <GroupsOutlinedIcon />, tint: "green", title: () => "Where the customers stand", note: () => "Active = bought in the months compared; new = first order ever; reactivated = bought again after a whole year without; slowing = less than half of the year before; lost = bought the year before, nothing since", charts: ["status"],
+    { id: "status", label: "Where they stand", icon: <GroupsOutlinedIcon />, tint: "green", title: () => "Where the customers stand", note: () => "Active = bought in the months compared; new = first order ever; reactivated = bought again after a whole year without; decreasing = less than half of the year before; lost = bought the year before, nothing since", charts: ["status"],
       table: {
         title: "All the figures",
         draw: (c) => {
@@ -167,7 +167,7 @@ export const CUSTOMERS: EsoPageDef = {
             { label: "Active", note: "bought in the months compared", p: k.active },
             { label: "New", note: "first order ever in the months compared", p: k.new },
             { label: "Reactivated", note: "bought again after a whole year without", p: k.reactivated },
-            { label: "Slowing", note: "bought less than half of the year before", p: k.slowing, goodWhenUp: false },
+            { label: "Decreasing", note: "bought less than half of the year before", p: k.slowing, goodWhenUp: false },
             { label: "Lost", note: "bought the year before, nothing since", p: k.lost, goodWhenUp: false },
             { label: "Churn rate", note: "lost of those who bought the year before", p: churnOf(c.rep), fmt: perCent, goodWhenUp: false, points: true },
             { label: "Potential of lost customers", p: k.lostPotential, fmt: money, goodWhenUp: false },
@@ -178,7 +178,7 @@ export const CUSTOMERS: EsoPageDef = {
     { id: "reps", label: "Sales reps", icon: <BadgeOutlinedIcon />, tint: "green", title: () => "Customers per sales rep", note: () => "Active and lost customers of each rep's companies - click a bar or a row to choose reps", charts: ["active", "lost"],
       table: {
         title: "All the figures, by sales rep",
-        draw: (c) => <RepRows c={c} head={["Active", "Last year", "Change", "New", "Reactivated", "Slowing", "Lost", "Churn rate"]}
+        draw: (c) => <RepRows c={c} head={["Active", "Last year", "Change", "New", "Reactivated", "Decreasing", "Lost", "Churn rate"]}
           cells={(r) => [...cell(r.customers.active), n0(r.customers.new.cy), n0(r.customers.reactivated.cy), n0(r.customers.slowing.cy), n0(r.customers.lost.cy), perCent(churnOf(r).cy)]}
           total={[...cell(c.rep.customers.active), n0(c.rep.customers.new.cy), n0(c.rep.customers.reactivated.cy), n0(c.rep.customers.slowing.cy), n0(c.rep.customers.lost.cy), perCent(churnOf(c.rep).cy)]} />,
       } },
@@ -429,5 +429,6 @@ export const SHOP: EsoPageDef = {
 
 /** The pages in the deck's order - the side panel's and the BUC View's. */
 // Revenue & order intake taken out (SARCLA 31.10.2026: "sub app take it out completely") - the Figures carry both
-export const ESO_PAGES: EsoPageDef[] = [VISITS, CUSTOMERS, NEW_CUSTOMERS, REGISTRATIONS, TICKETS, SHOP];
+// the BUC View's panels after the Figures, in the side panel's order (SARCLA 31.10.2026: "reorganize sub apps")
+export const ESO_PAGES: EsoPageDef[] = [VISITS, REGISTRATIONS, SHOP, NEW_CUSTOMERS, CUSTOMERS, TICKETS];
 export const esoPage = (slug: string) => ESO_PAGES.find((p) => p.slug === slug);
