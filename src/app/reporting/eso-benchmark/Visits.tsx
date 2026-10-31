@@ -59,7 +59,7 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  BEFORE, KINDS, NO_COMPANY, REG_WAY, blank, coverageOf, dayWin, daysIn, daysOf, isoOf, labelOf, lastYearOf, rowsOf, statsBy, ymd,
+  BEFORE, CO, KINDS, NO_COMPANY, REG_WAY, V, blank, coverageOf, dayWin, daysIn, daysOf, isoOf, labelOf, lastYearOf, rowsOf, statsBy, visitedCompanies, ymd,
   type VDim, type VFilters, type VStats, type VWin, type VisitsData,
 } from "@/lib/reporting/visitsRules";
 import type { Team } from "@/lib/mapAssign/leadsRules";
@@ -68,6 +68,7 @@ import {
   type BoardRow, type Col, type LeadKey, type TeamKey,
 } from "./Figures";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
+import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -562,9 +563,40 @@ type TargetOf = { unit: "eur" | "pct" | "n"; label: string };
 type Drawn = { id: string; title: (c: VCtx) => string; draw: (c: VCtx, actions?: React.ReactNode) => React.ReactNode; target?: (c: VCtx) => TargetOf };
 const teamPart = (c: VCtx) => ` - ${teamName(c)}`;
 const forWhom = (c: VCtx) => `${teamName(c)}'s target for ${c.per.title} - each team and period its own`;
+/** A chart by its id - with the companies its visits went to, its "Companies" button beside its filter (SARCLA 31.10.2026:
+ *  "next to each report ... a new icon Company ... allow to see the companies, paginated by 25"). */
+function drawnOf(id: string): Drawn | undefined {
+  const d = drawnBare(id);
+  return d && { ...d, draw: (c, a) => <CompaniesFor source={visitedOf(c)}>{d.draw(c, a)}</CompaniesFor> };
+}
+const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** 20261012 -> "12 Oct 2026" */
+const dayWords = (day: number) => `${day % 100} ${SHORT_MONTHS[(Math.floor(day / 100) % 100) - 1] ?? ""} ${Math.floor(day / 10000)}`;
+/** The companies the chart's visits went to: the period, team, people and filters of the chart, the most visited first. */
+function visitedOf(c: VCtx): CompanySource | null {
+  const ids = c.d.companyIds, names = c.d.companyNames;
+  if (!ids || !names) return null;
+  const rows = rowsOf(c.d, c.per.win, c.filters, c.people);
+  const { companies, noCompany } = visitedCompanies(c.d, rows);
+  const prioOf = new Map<number, string>(), countryOf = new Map<number, string>();
+  for (const r of rows) {
+    if (r[V.company] < 0) continue;
+    prioOf.set(r[V.company], labelOf(c.d, r, "prio"));
+    countryOf.set(r[V.company], labelOf(c.d, r, "country"));
+  }
+  return {
+    key: `visits|${c.d.generatedAt}|${c.per.id}|${c.per.win.from}-${c.per.win.to}|${c.per.win.d0 ?? ""}-${c.per.win.d1 ?? ""}|${[...c.people].join(",")}|${JSON.stringify(c.filters)}`,
+    head: ["Visits", "Last visit", `Revenue ${c.d.year}`, "Visited by", "Country", "Priority"], left: [4, 5, 6],
+    note: `${perWords(c.d, c.per)} · the companies visited, the most visits first${noCompany ? ` · ${noCompany.toLocaleString("en")} visit${noCompany === 1 ? "" : "s"} without a company are not on the list` : ""}`,
+    rows: companies.map((x) => ({
+      id: ids[x.ci] ?? null, name: names[x.ci] ?? `Company ${x.ci + 1}`,
+      cells: [x.visits.toLocaleString("en"), dayWords(x.last), eur(c.d.companies[x.ci]?.[CO.revenue] ?? 0), x.people.map((p) => c.d.people[p]?.name ?? "").filter(Boolean).join(", "), countryOf.get(x.ci) ?? "", prioOf.get(x.ci) ?? ""],
+    })),
+  };
+}
 /** A chart by its id "<tab>:<what>[-<breakdown>]": people:visits, prio:visits-band, kind:agreed-person, new:answers, people:months,
  *  the tables people:table, people:months-table… */
-function drawnOf(id: string): Drawn | undefined {
+function drawnBare(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
   if (chart === "months") {

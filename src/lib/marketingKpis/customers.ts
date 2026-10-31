@@ -21,6 +21,8 @@ import { MONTHS, monthTotal, monthsLoaded, parsePcMonthly, prioOf } from "@/lib/
 import { teamOf } from "@/lib/datatracker/rosters";
 import { readOwners } from "@/lib/ownerRules/hubspot";
 import { DIMS, fold, monthOf, potentialBand, saeLabel, type CompanyIn, type Cube, type Dim } from "./cube";
+import { ledgerOf, type Ledger, type LedgerIn } from "./ledger";
+import { kvGet, kvSet } from "@/lib/db/init";
 import { getRules } from "@/lib/mapAssign/engine";
 import { SEED } from "@/lib/mapAssign/seed";
 
@@ -32,7 +34,11 @@ import { SEED } from "@/lib/mapAssign/seed";
 // invoice instead of their first order, with their order intake: a read without newKind "invoice" is read again, the last
 // one shown meanwhile - the ESO New customers; a read without newHistory, from before the revenue since 2015 decided the
 // companies whose first order is the ERP's carried-over date, is read again too)
+// (each company kept beside the cube since 31.10, for the charts' lists of companies: a read without `listed` is read
+// again the same way)
 const KEY = "marketingKpis:customers:v11";
+/** The companies of the read, beside the cube (ledger.ts) - server side only. */
+const LEDGER_KEY = `${KEY}:ledger`;
 /** The ERP file's figures per company (the morning load, erpRevenue.ts), in cube.ts's ERP_FIELDS order. */
 const ERP_PROPS = ["erp_rev_mtd_cy", "erp_rev_mtd_py", "erp_rev_ytd_cy", "erp_rev_ytd_py", "erp_oi_mtd_cy", "erp_oi_mtd_py", "erp_oi_ytd_cy", "erp_oi_ytd_py"] as const;
 const TTL_MS = 6 * 60 * 60 * 1000;
@@ -47,7 +53,20 @@ export async function customersCube(): Promise<SlowState<Cube>> {
   // and as soon as the ERP morning workbook has run again on its own - "Run now" on the chain page writes each customer's
   // monthly order intake (SARCLA 31.10.2026: "I've run it" - the Figures would have waited up to 6 hours to see it)
   const erp = await lastRun("live", "erp_revenue").then((r) => (r?.finished && !r.error ? Date.parse(r.finished) : 0)).catch(() => 0);
-  return slowReport(KEY, (v: Cube) => ((day && v?.dataDay !== day) || v?.newKind !== "invoice" || v?.newHistory !== HISTORY_FROM || (erp && Date.parse(v?.generatedAt ?? "") < erp) ? 0 : TTL_MS), build);
+  return slowReport(KEY, (v: Cube) => ((day && v?.dataDay !== day) || v?.newKind !== "invoice" || v?.newHistory !== HISTORY_FROM || !v?.listed || (erp && Date.parse(v?.generatedAt ?? "") < erp) ? 0 : TTL_MS), build);
+}
+
+/**
+ * The companies the cube now served was folded from - for a chart's list of companies. Kept in memory per cube; null while
+ * the cube read has none beside it yet (one read before 31.10.2026, or another task still writing it).
+ */
+let ledgerMemo: Ledger | null = null;
+export async function customersLedger(cube: Cube): Promise<Ledger | null> {
+  if (ledgerMemo?.generatedAt === cube.generatedAt) return ledgerMemo;
+  const l = await kvGet<Ledger>(LEDGER_KEY).catch(() => undefined);
+  if (l?.generatedAt !== cube.generatedAt) return null;
+  ledgerMemo = l;
+  return l;
 }
 
 /** The day of the last ERP delivery the chain ran, or nothing when none is on record (or no database here). */
@@ -114,7 +133,7 @@ export function labelsOf(p: Record<string, string | null | undefined>, owners: M
 }
 
 /** Everything a company is read with: its dimensions, the revenue (and by profit centre) and order intake months, the ERP's figures. */
-const propsOf = (years: number[]) => [...DIM_PROPS, "order_first_order_date", ...years.map((y) => `rev_${y}_pc_monthly`), ...years.flatMap((y) => MONTHS.map((m) => `oi_${y}_${m}`)), ...ERP_PROPS, "erp_rev_as_of"];
+const propsOf = (years: number[]) => ["name", ...DIM_PROPS, "order_first_order_date", ...years.map((y) => `rev_${y}_pc_monthly`), ...years.flatMap((y) => MONTHS.map((m) => `oi_${y}_${m}`)), ...ERP_PROPS, "erp_rev_as_of"];
 
 /** What placing a company needs - the owners' names and teams, the SAE mapping - and what the read counts on the way. */
 type Ctx = {
@@ -180,7 +199,7 @@ async function build(): Promise<Cube> {
   const x = await contextOf(years);
   // order intake per month as the nightly revenue load writes it (oi_2026_jan…) - 36 names, well inside the address's 2 KB
   const props = propsOf(years);
-  const companies: CompanyIn[] = [];
+  const companies: LedgerIn[] = [];
   const carried: { id: string; c: CompanyIn }[] = [];
 
   let after: string | undefined;
@@ -188,9 +207,9 @@ async function build(): Promise<Cube> {
     const qs = `limit=100&archived=false&properties=${props.join(",")}${after ? `&after=${after}` : ""}`;
     const r = await hubspotFetchJson<{ results?: Obj[]; paging?: { next?: { after?: string } } }>({ path: `/crm/v3/objects/companies?${qs}` });
     for (const o of r.results ?? []) {
-      const c = companyOf(o.properties, x);
+      const c: LedgerIn = { ...companyOf(o.properties, x), id: String(o.id), name: o.properties.name || `Company ${o.id}` };
       companies.push(c);
-      if (c.firstInvoiceMonth != null && carriedOver(o.properties.order_first_order_date)) carried.push({ id: String(o.id), c });
+      if (c.firstInvoiceMonth != null && carriedOver(o.properties.order_first_order_date)) carried.push({ id: c.id, c });
     }
     reportProgress(KEY, `reading companies: ${companies.length.toLocaleString("en")} so far`);
     after = r.paging?.next?.after;
@@ -209,7 +228,16 @@ async function build(): Promise<Cube> {
     : null;
   // the ERP day most companies carry (a straggler from an older file does not move it)
   const erpDay = [...x.erpDays].sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]))[0]?.[0] ?? null;
-  return { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels: x.labels, teams: x.teams, saeTeams: x.saeTeams, erpDay, oiLoaded: monthsLoaded(x.filledOi[0], x.filledOi[1], monthsDone), newKind: "invoice", newHistory: HISTORY_FROM, ...fold(companies) };
+  const cube: Cube = { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels: x.labels, teams: x.teams, saeTeams: x.saeTeams, erpDay, oiLoaded: monthsLoaded(x.filledOi[0], x.filledOi[1], monthsDone), newKind: "invoice", newHistory: HISTORY_FROM, ...fold(companies) };
+  // every company beside it, before the cube is handed out - a chart's list is there as soon as the chart
+  reportProgress(KEY, "keeping the companies for the charts' lists");
+  try {
+    const ledger = ledgerOf(cube, companies);
+    await kvSet(LEDGER_KEY, ledger);
+    ledgerMemo = ledger;
+    cube.listed = true;
+  } catch { /* the charts without their lists - the next read tries again */ }
+  return cube;
 }
 
 /**

@@ -89,6 +89,8 @@ export type Cube = {
   newKind?: "invoice";
   /** The first year whose revenue decided the companies with a carried-over first order (2014 and before), when it did. */
   newHistory?: number;
+  /** its companies are kept beside it, server side (ledger.ts) - every chart can list them (SARCLA 31.10.2026) */
+  listed?: boolean;
 };
 
 /** The ERP's figures a cell carries, in this order. */
@@ -487,7 +489,8 @@ export function byMonth(cube: Cube, filters: Filters): MonthFig[] {
 
 /** The months of this year (index 0 = January) as one value per month: revenue and order intake, this year to the last month read, last year whole. */
 export type YearCurve = { rev: number[]; revPy: number[]; oi: number[]; oiPy: number[] };
-const passes = (cube: Cube, filters: Filters, except?: Dim) => {
+/** Each cell: does it pass the filters (all but `except`)? */
+export const passes = (cube: Cube, filters: Filters, except?: Dim) => {
   const f: [number, Set<number>][] = [];
   DIMS.forEach((d, i) => {
     const vs = filters[d];

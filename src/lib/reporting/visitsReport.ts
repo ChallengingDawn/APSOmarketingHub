@@ -16,6 +16,8 @@ import { KINDS, NO_COMPANY, kindOf, ymd, type VisitsData } from "./visitsRules";
 // v4 (29.10): the company through the visit's contact when the visit has none; the real customer categories; each company's
 // owner, last order and months bought in; each person's companies by priority; last year's customer meetings; no potential
 // v5 (29.10): "Scheduled" for "Agreed"; no annual need from the visit reports
+// (31.10: each visited company's HubSpot id and name too, for the charts' lists of companies - a read without them is read
+// again, the last one shown meanwhile)
 const KEY = "esoVisits:v5";
 const TTL_MS = 60 * 60 * 1000;
 const VISIT_OBJ = "2-139767037";
@@ -26,7 +28,7 @@ const VISIT_DONE = "3972587738";
 const MARC = "817497321";
 
 export function esoVisits(): Promise<SlowState<VisitsData>> {
-  return slowReport(KEY, TTL_MS, build);
+  return slowReport(KEY, (v: VisitsData) => (v?.companyIds ? TTL_MS : 0), build);
 }
 
 type Row = { id: string; properties?: Record<string, string | null> };
@@ -100,13 +102,13 @@ async function build(): Promise<VisitsData> {
   for (const id of visitors) person(id);
 
   // 4. those companies' facts
-  type Co = { prio: string; category: string; country: string; shopSince: number; firstOrder: number; lastOrder: number; revenue: number; owner: string; bought: number };
+  type Co = { name: string; prio: string; category: string; country: string; shopSince: number; firstOrder: number; lastOrder: number; revenue: number; owner: string; bought: number };
   const companies = new Map<string, Co>();
   const ids = [...new Set(visitCompany.values())];
   for (let i = 0; i < ids.length; i += 100) {
     const r = await hubspotFetchJson<{ results?: Row[] }>({
       path: "/crm/v3/objects/companies/batch/read", method: "POST",
-      body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["sales_priority", "apso_customer", "country_custom", "hubspot_owner_id", "magento_customer_since", "order_first_order_date", "order_last_order_date", `rev_${year - 1}_pc_monthly`, `rev_${year}_pc_monthly`] },
+      body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["name", "sales_priority", "apso_customer", "country_custom", "hubspot_owner_id", "magento_customer_since", "order_first_order_date", "order_last_order_date", `rev_${year - 1}_pc_monthly`, `rev_${year}_pc_monthly`] },
     });
     for (const row of r.results ?? []) {
       const p = row.properties ?? {};
@@ -119,6 +121,7 @@ async function build(): Promise<VisitsData> {
         if (b > 0) bought |= 1 << (12 + m);
       }
       companies.set(String(row.id), {
+        name: p.name || `Company ${row.id}`,
         prio: prioBand(prioOf(p.sales_priority)), category: (p.apso_customer ?? "").trim() || "Not set", country: p.country_custom || "Not set",
         // the day the shop says it registered - not "Registration Details (ESO)", a qualification's answer
         shopSince: ymd(p.magento_customer_since), firstOrder: ymd(p.order_first_order_date), lastOrder: ymd(p.order_last_order_date),
@@ -173,6 +176,7 @@ async function build(): Promise<VisitsData> {
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const coIdx = new Map<string, number>();
   const coRows: number[][] = [];
+  const coIds: string[] = [], coNames: string[] = [];
   const rows: number[][] = [];
   const open: VisitsData["open"] = {};
   for (const v of inScope) {
@@ -189,7 +193,7 @@ async function build(): Promise<VisitsData> {
     let ci = -1;
     if (cid && co) {
       ci = coIdx.get(cid) ?? -1;
-      if (ci < 0) { ci = coRows.push([co.shopSince, co.firstOrder, co.revenue, co.owner ? person(co.owner) : -1, co.lastOrder, co.bought]) - 1; coIdx.set(cid, ci); }
+      if (ci < 0) { ci = coRows.push([co.shopSince, co.firstOrder, co.revenue, co.owner ? person(co.owner) : -1, co.lastOrder, co.bought]) - 1; coIdx.set(cid, ci); coIds.push(cid); coNames.push(co.name); }
     }
     const day = ymd(when);
     rows.push([
@@ -199,7 +203,7 @@ async function build(): Promise<VisitsData> {
     ]);
   }
   return {
-    generatedAt: new Date().toISOString(), year, today, people, labels, visits: rows, companies: coRows, open, portfolio, lastYear,
+    generatedAt: new Date().toISOString(), year, today, people, labels, visits: rows, companies: coRows, companyIds: coIds, companyNames: coNames, open, portfolio, lastYear,
     coverage: { read: inScope.length, completed: completed.length, withCompany: completed.filter((v) => visitCompany.has(v.id)).length, viaContact, lastYearRead },
   };
 }

@@ -83,6 +83,8 @@ import {
 import type { EsoFigures } from "@/lib/reporting/esoFiguresRules";
 import { isTeamId, type Team } from "@/lib/mapAssign/leadsRules";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem, type PeriodChoice } from "./EsoFilters";
+import { CompaniesFor, useChartCompanies, type CompanySource } from "@/app/reporting/CompanyList";
+import { cubeCompanies } from "@/app/reporting/marketing-kpis/cubeCompanies";
 
 /* ── the company's own series: the forecast, the profit centres ────────── */
 
@@ -311,6 +313,8 @@ export type FigCtx = {
   targets?: Record<string, number>;
   /** customers chosen in Filters: the cube is theirs alone */
   picked?: number;
+  /** and their HubSpot ids - a chart's list of companies is theirs alone too */
+  pickedIds?: string[];
 };
 /** The ERP's forecast is the whole company's: on Total, nothing filtered, no customer chosen. */
 const forecastShown = (c: FigCtx) => c.team === "total" && chosenDims(c.filters).length === 0 && !c.picked && !!c.kpi;
@@ -329,17 +333,20 @@ const targetKey = (id: string, team: TeamKey, lead: string | null | undefined, p
 const targetFor = (c: FigCtx, id: string) => { const t = c.targets?.[targetKey(id, c.team, c.lead, c.per)]; return t != null && t > 0 ? t : null; };
 
 /** A chart's box, as DimChart's: its title and one line under it, its Actions at the right. */
-export function ChartBox({ title, hint, actions, children }: { title: string; hint?: string; actions?: React.ReactNode; children: React.ReactNode }) {
+export function ChartBox({ title, hint, actions, children, companies }: { title: string; hint?: string; actions?: React.ReactNode; children: React.ReactNode; companies?: CompanySource | null }) {
+  const list = useChartCompanies(companies);
   return (
-    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start" }}>
+    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start", ...list.wide }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
           {hint && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{hint}</Typography>}
         </Box>
+        {list.button}
         {actions}
       </Box>
-      {children}
+      {list.inner(children)}
+      {list.list}
     </Box>
   );
 }
@@ -445,7 +452,7 @@ const PODIUM_BG = "rgba(45,111,168,.07)";
 /** "+1.2 pts" - a ratio's change (book-to-bill) */
 const points = (cur: number, prev: number) => `${cur - prev > 0 ? "+" : cur - prev < 0 ? "−" : "±"}${Math.abs((cur - prev) * 100).toFixed(1)} pts`;
 
-export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, pageSize, selected, onPick, onFilter, filterLabel, actions, fmt = eur, diff = signedEur, vs, lowerIsBetter = false, ratio = false, target = null, summary, unranked, noChange = false }: {
+export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, pageSize, selected, onPick, onFilter, filterLabel, actions, fmt = eur, diff = signedEur, vs, lowerIsBetter = false, ratio = false, target = null, summary, unranked, noChange = false, companies }: {
   title: string; rows: BoardRow[]; curLabel: string; prevLabel: string;
   /** the places shown before "Show all" */
   first?: number;
@@ -471,7 +478,10 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   unranked?: { why: string; rows: BoardRow[]; open?: boolean };
   /** nothing to compare with (the visits: none recorded last year) - no change shown */
   noChange?: boolean;
+  /** the companies behind the board - its button beside the filter (or a <CompaniesFor> around it) */
+  companies?: CompanySource | null;
 }) {
+  const list = useChartCompanies(companies);
   const rows = useMemo(() => [...given].sort((a, b) => b.cur - a.cur || b.prev - a.prev || a.label.localeCompare(b.label)), [given]);
   const [all, setAll] = useState(false);
   const [small, setSmall] = useState(!!unranked?.open);
@@ -502,7 +512,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   const pickable = (label: string) => (onPick ? { component: "button" as const, type: "button" as const, onClick: () => onPick(label) } : { component: "div" as const });
   const tipOf = (r: BoardRow) => { const c = change(r); return `${r.label} - ${curLabel}: ${fmt(r.cur)}${noChange ? "" : ` · ${prevLabel}: ${fmt(r.prev)} · ${c.main}${c.second ? ` · ${c.second}` : ""}`}${target ? ` · target ${fmt(target)}` : ""}`; };
   return (
-    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1.25, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start" }}>
+    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1.25, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start", ...list.wide }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
@@ -519,6 +529,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
             <FilterAltOutlinedIcon sx={{ fontSize: 17 }} />
           </IconButton>
         )}
+        {list.button}
         {actions}
       </Box>
       {rows.length === 0 ? <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nothing with figures under these filters.</Typography> : (
@@ -602,6 +613,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
           {small && <PageBar page={otherPages.page} pages={otherPages.pages} setPage={otherPages.setPage} from={otherPages.page * LIST_PAGE + 1} to={otherPages.page * LIST_PAGE + otherPages.slice.length} of={others.length} />}
         </Box>
       )}
+      {list.list}
     </Box>
   );
 }
@@ -1133,19 +1145,21 @@ function PcLegend({ pcs }: { pcs: string[] }) {
 function PcSplitBars({ c, dim, actions }: { c: FigCtx; dim: Dim; actions?: React.ReactNode }) {
   const rows = hasPc(c) ? pcSplit(c, dim) : [];
   const p = usePages(rows, c.half ? 8 : 12);
+  const list = useChartCompanies();
   if (!hasPc(c)) return <PcWaiting />;
   const max = Math.max(1, ...p.slice.map((r) => r.total));
   const pcs = PC_ORDER.filter((pc) => rows.some((r) => r.byPc[pc]));
   const sel = c.filters[dim] ?? [];
   const onPick = c.onBar ? (l: string) => c.onBar!(dim, l) : undefined;
   return (
-    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start" }}>
+    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start", ...list.wide }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>Revenue {c.per.title} by {lowerOf(dim)}, split by profit center</Typography>
           <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{[onPick ? "Click a row to show only it" : "", p.pages > 1 ? `${p.range}, largest first` : "", `the change against the same days of ${c.cube.years[1]}`].filter(Boolean).join(" · ")}</Typography>
         </Box>
         <PagerArrows page={p.page} pages={p.pages} setPage={p.setPage} />
+        {list.button}
         {actions}
       </Box>
       <PcLegend pcs={pcs} />
@@ -1186,6 +1200,7 @@ function PcSplitBars({ c, dim, actions }: { c: FigCtx; dim: Dim; actions?: React
           })}
         </Box>
       )}
+      {list.list}
     </Box>
   );
 }
@@ -1256,9 +1271,29 @@ type Drawn = {
 const team = (c: FigCtx) => (c.team === "total" ? "" : ` - ${teamName(c)}`);
 /** The chart drawn on its old key's period. */
 const onPeriod = (c: FigCtx, p?: Period): FigCtx => (p ? { ...c, per: p === "ytd" ? ytdPer(c.cube) : mtdPer(c.cube) } : c);
+/** A chart by its id "<tab>:<chart>" - with the companies behind it, its "Companies" button beside its filter (SARCLA
+ *  31.10.2026: "next to each report ... a new icon Company ... allow to see the companies, paginated by 25"). */
+function drawnOf(id: string): Drawn | undefined {
+  const d = drawnBare(id);
+  return d && { ...d, draw: (c, a) => <CompaniesFor source={companiesOf(onPeriod(c, d.fixed), id)}>{d.draw(c, a)}</CompaniesFor> };
+}
+/** The companies behind a chart: its filters, team, period and customers chosen; its figure - the order intake on an
+ *  order intake chart, one profit centre's revenue on that profit centre's, the revenue otherwise; the forecast's the
+ *  whole company's. */
+function companiesOf(c: FigCtx, id: string): CompanySource {
+  const [view, chart = ""] = id.split(":");
+  const pc = /^(?:sae|country)-([a-z]+)$/.exec(chart);
+  const by = view === "pc" ? (pc ? (`pc:${pc[1]}` as const) : "rev") : /oi$/.test(chart) ? "oi" : "rev";
+  const whole = view === "forecast";
+  return cubeCompanies({
+    filters: whole ? {} : c.eff, win: c.per.win, by, erp: view === "pc" ? null : c.per.erp, ids: whole ? [] : c.pickedIds,
+    generatedAt: c.cube.generatedAt, period: c.per.title,
+    note: `${perWords(c.cube, c.per)}${c.per.erp && view !== "pc" ? " - the ERP's own figures" : ""} · each company's figure, the change against ${perWords(c.cube, c.per, 1)} under it - the largest first`,
+  });
+}
 /** A chart by its id "<tab>:<chart>" - rev, oi, b2b (and the old ytdrev … mtdb2b), monrev, monoi, months, the tables
  *  table and months-table; on Profit center also sae-<pc>, country-<pc>, table, sae-table. */
-function drawnOf(id: string): Drawn | undefined {
+function drawnBare(id: string): Drawn | undefined {
   const [raw, chart = ""] = id.split(":");
   if (!isView(raw)) return undefined;
   // the old Month to date tab is the Performis SAE's, on the month to date
@@ -1752,8 +1787,8 @@ export function FiguresExplorer() {
   const stale = drawn !== want;
   const c = useMemo<FigCtx | null>(() => (live && drawn.per && drawn.eff ? {
     cube: live, kpi, kpiBusy: busy, team: drawn.team, view: drawn.view, per: drawn.per, filters: drawn.filters, eff: drawn.eff, lead: drawn.lead, leads, teams,
-    targets: acts?.targets, picked: companies.length, onPick: toggle, onBar: (d, l) => { toggle(d, l); openOn(d); }, onFilter: openOn,
-  } : null), [live, kpi, busy, drawn, leads, teams, acts?.targets, companies.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    targets: acts?.targets, picked: companies.length, pickedIds: companies, onPick: toggle, onBar: (d, l) => { toggle(d, l); openOn(d); }, onFilter: openOn,
+  } : null), [live, kpi, busy, drawn, leads, teams, acts?.targets, companies]); // eslint-disable-line react-hooks/exhaustive-deps
   const figs = useMemo(() => (c ? periodFigures(c, forecastShown(c) ? againstForecast(c.cube, kpi, c.per) : null) : []), [c, kpi]);
   if (!cube || tooOld(cube) || !c || !per) return (
     <Box sx={shell}>

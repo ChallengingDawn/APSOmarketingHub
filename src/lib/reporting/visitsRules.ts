@@ -21,6 +21,9 @@ export type VisitsData = {
   visits: number[][];
   /** per company index - see CO */
   companies: number[][];
+  /** per company index: its HubSpot id and name - a chart's list of companies (SARCLA 31.10.2026); missing in a read before */
+  companyIds?: string[];
+  companyNames?: string[];
   /** this year's visits that do not count yet (no report): person index -> stage -> visits */
   open: Record<string, Record<string, number>>;
   /** person index -> the companies they own now, by priority in labels.prio's order (the first four) */
@@ -229,4 +232,28 @@ export function lastYearOf(d: VisitsData, win: VWin, people: Set<number> | null)
     if (m >= win.from && m <= win.to && md >= lo && md <= hi && (!people || people.has(p)) && !(m === now && dd > day)) out[m - win.from]++;
   }
   return out;
+}
+
+/** A visited company on a chart's list: its index, the visits in the rows, the last one's day, who visited it. */
+export type VisitedCompany = { ci: number; visits: number; last: number; people: number[] };
+/**
+ * The companies behind a chart (SARCLA 31.10.2026: "allow to see the companies, paginated by 25"): every company the
+ * chart's visits went to, the most visited first, then this year's revenue, then the latest visit - and how many of the
+ * visits had no company.
+ */
+export function visitedCompanies(d: VisitsData, rows: number[][]): { companies: VisitedCompany[]; noCompany: number } {
+  const by = new Map<number, VisitedCompany>();
+  let noCompany = 0;
+  for (const r of rows) {
+    const ci = r[V.company];
+    if (ci < 0) { noCompany++; continue; }
+    let x = by.get(ci);
+    if (!x) { x = { ci, visits: 0, last: 0, people: [] }; by.set(ci, x); }
+    x.visits++;
+    x.last = Math.max(x.last, dayOfRow(d, r));
+    if (!x.people.includes(r[V.person])) x.people.push(r[V.person]);
+  }
+  const rev = (ci: number) => d.companies[ci]?.[CO.revenue] ?? 0;
+  const companies = [...by.values()].sort((a, b) => b.visits - a.visits || rev(b.ci) - rev(a.ci) || b.last - a.last || a.ci - b.ci);
+  return { companies, noCompany };
 }

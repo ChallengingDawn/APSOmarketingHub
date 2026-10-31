@@ -66,6 +66,8 @@ import { MovementsView, inOut, movesIn, useMovements } from "./Movements";
 import { FilterPanel, FilterSection as Section } from "./FilterPanel";
 import type { CompanyHit } from "@/lib/marketingKpis/customers";
 import { BEFORE, DimChart, THIS } from "./DimChart";
+import { cubeCompanies } from "./cubeCompanies";
+import type { CompanyBy } from "@/lib/marketingKpis/ledger";
 
 /* ── the data ─────────────────────────────────────────────────────────── */
 
@@ -555,6 +557,9 @@ export function CustomersExplorer() {
   // a bar filters, and the filter window opens on that breakdown (SARCLA 14.10)
   const fromChart = (dim: Dim) => (label: string) => { toggle(dim, label); openOn(dim); };
   const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
+  // a chart's companies: its filters and period, the customers chosen (SARCLA 31.10.2026: "allow to see the companies")
+  const listOf = (by: CompanyBy) => cubeCompanies({ filters, win, by, ids: companies, generatedAt: cube.generatedAt, period: w,
+    note: `${w} · each company's figure, the change against ${pw} under it - the largest first` });
   const pro = proRataNote(cube, win);
   const active = chosenDims(filters);
   const chosen = active.flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
@@ -628,14 +633,14 @@ export function CustomersExplorer() {
         <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, mt: -1 }}>
           <DimChart key={`b-${dimView}`} title={`Companies that bought, by ${d.lower}`} rows={chartRows} cur={byBought} prev={(r) => r.boughtPy} pageSize={12} fixedOrder={fixedView}
             curLabel={w} prevLabel={pw} fmt={int} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`}
-            actions={act("bought", `Companies that bought, by ${d.lower}`)} />
+            actions={act("bought", `Companies that bought, by ${d.lower}`)} companies={listOf("cust")} />
           <DimChart key={`r-${dimView}`} title={`Revenue, by ${d.lower}`} rows={chartRows} cur={byRev} prev={(r) => r.revPy} pageSize={12} fixedOrder={fixedView}
             curLabel={w} prevLabel={pw} fmt={eur} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`}
-            actions={act("revenue", `Revenue, by ${d.lower}`)} />
+            actions={act("revenue", `Revenue, by ${d.lower}`)} companies={listOf("rev")} />
           {withNew && (
             <DimChart key={`n-${dimView}`} title={`New customers, by ${d.lower}`} rows={chartRows} cur={byNew} prev={(r) => r.newCPy} pageSize={12} fixedOrder={fixedView}
               curLabel={w} prevLabel={pw} fmt={int} selected={filters[dimView]} onPick={fromChart(dimView)} onFilter={() => openOn(dimView)} filterLabel={`Filter by ${d.lower}`}
-              actions={act("new", `New customers, by ${d.lower}`)} />
+              actions={act("new", `New customers, by ${d.lower}`)} companies={listOf("new")} />
           )}
           {/* KPI C06: of the orders' value, how much came through the shop - its own read, in when it is in */}
           {/* the odd chart out takes the whole row */}
@@ -1002,11 +1007,12 @@ export function CustomersPromoted({ spec, actions }: { spec: TileSpec; actions?:
   const rows = fixed ? breakdown(cube, dim, filters, win) : sortRows(breakdown(cube, dim, filters, win), "rev", dim);
   const w = windowLabel(cube, win), pw = windowLabel(cube, win, 1);
   const common = { rows, curLabel: w, prevLabel: pw, selected: filters[dim], onPick: () => undefined, pageSize: 10, fixedOrder: fixed, actions };
+  const listOf = (by: CompanyBy) => cubeCompanies({ filters, win, by, generatedAt: cube.generatedAt, period: w, note: `${w} · each company's figure, the change against ${pw} under it - the largest first` });
   switch (spec.key.split(":")[2]) {
     case "movements": return <Box sx={{ position: "relative", minWidth: 0 }}><MovementsView cube={cube} win={win} filtered={Object.values(filters).some((x) => x?.length)} />{actions && <Box sx={{ position: "absolute", top: { xs: 16, md: 22 }, right: 0, zIndex: 1, "& > button": { mr: 0 } }}>{actions}</Box>}</Box>;
-    case "bought": return <DimChart title={`Companies that bought, by ${d.lower}`} cur={byBought} prev={(r) => r.boughtPy} fmt={int} {...common} />;
-    case "revenue": return <DimChart title={`Revenue, by ${d.lower}`} cur={byRev} prev={(r) => r.revPy} fmt={eur} {...common} />;
-    case "new": return <DimChart title={`New customers, by ${d.lower}`} cur={byNew} prev={(r) => r.newCPy} fmt={int} {...common} />;
+    case "bought": return <DimChart title={`Companies that bought, by ${d.lower}`} cur={byBought} prev={(r) => r.boughtPy} fmt={int} {...common} companies={listOf("cust")} />;
+    case "revenue": return <DimChart title={`Revenue, by ${d.lower}`} cur={byRev} prev={(r) => r.revPy} fmt={eur} {...common} companies={listOf("rev")} />;
+    case "new": return <DimChart title={`New customers, by ${d.lower}`} cur={byNew} prev={(r) => r.newCPy} fmt={int} {...common} companies={listOf("new")} />;
     case "online": return onlineGroups
       ? <DimChart title={dim === "country" ? "Online share of order value, our focus markets" : `Online share of order value, by ${d.lower}`} cur={byOnline} prev={byOnlinePy} fmt={pct} {...common}
           rows={withOnline(rows, onlineGroups).filter((r) => r.online != null && (dim !== "country" || FOCUS_MARKETS.includes(r.label)))} />

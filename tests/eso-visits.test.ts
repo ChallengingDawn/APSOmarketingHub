@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BEFORE, KINDS, NO_COMPANY, REG_WAY, coverageOf, dayWin, daysOf, isoOf, kindOf, labelOf, lastYearOf, regWayOf, rowsOf, statsBy, ymd, type VisitsData } from "../src/lib/reporting/visitsRules";
+import { BEFORE, KINDS, NO_COMPANY, REG_WAY, coverageOf, dayWin, daysOf, isoOf, kindOf, labelOf, lastYearOf, regWayOf, rowsOf, statsBy, visitedCompanies, ymd, type VisitsData } from "../src/lib/reporting/visitsRules";
 
 // two people; five companies: 0 a customer for years and still buying, 1 new, registered before the visit and bought after
 // it, 2 new and registered on the visit's day, no order, 3 new, its first order on the visit's day and registered a month
@@ -171,4 +171,15 @@ test("visits: a range of days - the visits of those days, the figures by its las
   assert.equal(statsBy(d, rowsOf(d, whole, {}, null), whole).get("")!.stillBuyingAgain, 1);
   // last year's meetings: the same days a year earlier
   assert.deepEqual(lastYearOf(d, { from: 6, to: 9, d0: 20260710, d1: 20261015 }, null), [1, 0, 0, 1]);
+});
+
+test("visits: a chart's companies - the most visited first, then the revenue; the visits without a company counted apart", () => {
+  const rows = rowsOf(d, { from: 0, to: 9 }, {}, null);
+  const { companies, noCompany } = visitedCompanies(d, rows);
+  assert.equal(noCompany, 1);
+  // company 1 twice; then by this year's revenue: 0 (€120,000), 4, 3, 2
+  assert.deepEqual(companies.map((x) => x.ci), [1, 0, 4, 3, 2]);
+  assert.deepEqual(companies[0], { ci: 1, visits: 2, last: 20260601, people: [0] });
+  // a person's own: Ben's visits only
+  assert.deepEqual(visitedCompanies(d, rowsOf(d, { from: 0, to: 9 }, {}, new Set([1]))).companies.map((x) => x.ci), [4, 2]);
 });

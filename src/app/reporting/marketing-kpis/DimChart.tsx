@@ -13,6 +13,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import FilterAltOutlinedIcon from "@mui/icons-material/FilterAltOutlined";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { INK, MUTED, TINT, glass } from "@/app/uc/report/ui";
+import { useChartCompanies, type CompanySource } from "@/app/reporting/CompanyList";
 
 /** The first figure's colour, and the second's (the year before, the best year) - as on every tab. */
 export const THIS = "#2d6fa8", BEFORE = "#b9c0c9";
@@ -20,7 +21,7 @@ export const THIS = "#2d6fa8", BEFORE = "#b9c0c9";
 /** A row the chart can draw: its label (also what a click picks); revenue, when it has it, breaks ties. */
 export type ChartRow = { label: string; rev?: number };
 
-export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions, curColor = THIS, prevColor = BEFORE, single = false, curNote, labelWidth = 170 }: {
+export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions, curColor = THIS, prevColor = BEFORE, single = false, curNote, labelWidth = 170, companies }: {
   title: string; rows: T[]; cur: (r: T) => number; prev: (r: T) => number; curLabel: string; prevLabel: string;
   fmt: (n: number) => string; selected?: string[];
   /** a click on a bar picks its row - left out where the bars cannot filter (ESO's breakdowns: the read holds the reps only) */
@@ -37,7 +38,10 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
   curNote?: (r: T) => { text: string; color: string } | null;
   /** the names' column - wider for long names (the profit centres) */
   labelWidth?: number;
+  /** the companies behind the chart - its button beside the filter (or a <CompaniesFor> around it) */
+  companies?: CompanySource | null;
 }) {
+  const list = useChartCompanies(companies);
   // a chart ranks by its own figure - companies by companies, revenue by revenue (SARCLA 16.10:
   // "this should follow revenue or customer count on top depending on the value")
   const rows = useMemo(() => (fixedOrder ? given : [...given].sort((a, b) => cur(b) - cur(a) || (b.rev ?? 0) - (a.rev ?? 0) || a.label.localeCompare(b.label))), [given, fixedOrder, cur]);
@@ -52,7 +56,7 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
   const tall = Math.min(rows.length, pageSize);
   const nav = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
   return (
-    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0 }}>
+    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, ...list.wide }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
@@ -69,6 +73,7 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
             <FilterAltOutlinedIcon sx={{ fontSize: 17 }} />
           </IconButton>
         )}
+        {list.button}
         {actions}
       </Box>
       <ResponsiveContainer width="100%" height={Math.max(140, tall * 44 + 56)}>
@@ -104,6 +109,7 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
           )}
         </BarChart>
       </ResponsiveContainer>
+      {list.list}
     </Box>
   );
 }
