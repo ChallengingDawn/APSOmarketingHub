@@ -445,10 +445,13 @@ const PODIUM_BG = "rgba(45,111,168,.07)";
 /** "+1.2 pts" - a ratio's change (book-to-bill) */
 const points = (cur: number, prev: number) => `${cur - prev > 0 ? "+" : cur - prev < 0 ? "−" : "±"}${Math.abs((cur - prev) * 100).toFixed(1)} pts`;
 
-export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, selected, onPick, onFilter, filterLabel, actions, fmt = eur, diff = signedEur, vs, lowerIsBetter = false, ratio = false, target = null, summary, unranked, noChange = false }: {
+export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, pageSize, selected, onPick, onFilter, filterLabel, actions, fmt = eur, diff = signedEur, vs, lowerIsBetter = false, ratio = false, target = null, summary, unranked, noChange = false }: {
   title: string; rows: BoardRow[]; curLabel: string; prevLabel: string;
   /** the places shown before "Show all" */
   first?: number;
+  /** every place, this many a page, in place of "Show all" - the first three as cards on the first page, the ranks running
+   *  on (SARCLA 31.10.2026 on Customer development's 74 APIC codes: "paginate at 15 - it's not possible like this") */
+  pageSize?: number;
   selected?: string[]; onPick?: (label: string) => void; onFilter?: () => void; filterLabel?: string; actions?: React.ReactNode;
   /** how a figure is written - euros unless given */
   fmt?: (n: number) => string;
@@ -472,17 +475,21 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   const rows = useMemo(() => [...given].sort((a, b) => b.cur - a.cur || b.prev - a.prev || a.label.localeCompare(b.label)), [given]);
   const [all, setAll] = useState(false);
   const [small, setSmall] = useState(!!unranked?.open);
-  // the first three as cards, the next places under them - all of them, once asked for, in pages
-  const podium = rows.slice(0, 3);
+  // the first three as cards, the next places under them - all of them, once asked for, in pages; a board given pageSize:
+  // every place from the start, that many a page, the first three as cards on the first page
+  const byPage = usePages(rows, pageSize || Math.max(1, rows.length));
+  const start = pageSize ? byPage.page * pageSize : 0;
+  const podium = start === 0 ? rows.slice(0, 3) : [];
   const places = usePages(all ? rows.slice(3) : rows.slice(3, first), LIST_PAGE);
-  const rest = places.slice, before = 3 + places.page * LIST_PAGE;
+  const rest = pageSize ? byPage.slice.slice(podium.length) : places.slice;
+  const before = pageSize ? start + podium.length : 3 + places.page * LIST_PAGE;
   const others = useMemo(() => [...(unranked?.rows ?? [])].sort((a, b) => a.label.localeCompare(b.label)), [unranked?.rows]);
   const otherPages = usePages(others, LIST_PAGE);
   const hits = (r: BoardRow) => (lowerIsBetter ? r.cur <= target! : r.cur >= target!);
   const flip = (color: string) => (!lowerIsBetter ? color : color === GREEN ? RED : color === RED ? GREEN : color);
   const reached = target ? rows.filter(hits).length : 0;
   // in words anyone reads (SARCLA 27.10.2026: "I don't understand 'ranked by 2026 · the first 6 of 17'")
-  const hint = ["Highest first", rows.length > first && !all ? `top ${first} of ${rows.length.toLocaleString("en")} shown` : "", onPick ? "click one to show only it" : ""].filter(Boolean).join(" · ");
+  const hint = ["Highest first", !pageSize && rows.length > first && !all ? `top ${first} of ${rows.length.toLocaleString("en")} shown` : "", onPick ? "click one to show only it" : ""].filter(Boolean).join(" · ");
   // the change: in % and euros, or in points for a ratio
   const change = (r: BoardRow) => {
     if (noChange) return { main: "", color: FAINT, second: null as string | null };
@@ -569,7 +576,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
               })}
             </Box>
           )}
-          {rows.length > first && (
+          {pageSize ? <PageBar page={byPage.page} pages={byPage.pages} setPage={byPage.setPage} from={start + 1} to={start + byPage.slice.length} of={rows.length} /> : rows.length > first && (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
               <Button size="small" onClick={() => setAll((x) => !x)} sx={{ textTransform: "none", fontWeight: 600 }}>{all ? `Show the first ${first}` : `Show all ${rows.length.toLocaleString("en")}`}</Button>
               <Box sx={{ flex: 1 }} />

@@ -101,7 +101,8 @@ function changeOf(cur: number, prev: number, lower = false): { text: string; col
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 /** Every row on the list (SARCLA 29.10.2026: "show all, don't hide the not ranked - put them on the list"). */
-const ALL = 9999;
+// every place on the list, 15 a page (SARCLA 31.10.2026 on the APIC tab: "paginate at 15 - it's not possible like this")
+const PAGE = 15;
 
 /* ── the period: this year's months, against the same months a year earlier ─ */
 
@@ -232,7 +233,7 @@ function Board({ c, id, dim, m, actions }: { c: CCtx; id: string; dim: CDim; m: 
   const M = MEASURE[m];
   return (
     <Leaderboard key={`${id}-${c.per.id}`} title={`${measureTitle(m)}, ${c.per.title}, by ${DIM[dim].lower}`} rows={boardRows(c, dim, m)}
-      curLabel={perWords(c.d, c.per)} prevLabel={perWords(c.d, c.per, true)} first={ALL} fmt={M.fmt} diff={M.diff} lowerIsBetter={M.lower} ratio={M.ratio}
+      curLabel={perWords(c.d, c.per)} prevLabel={perWords(c.d, c.per, true)} pageSize={PAGE} fmt={M.fmt} diff={M.diff} lowerIsBetter={M.lower} ratio={M.ratio}
       target={targetFor(c, id)}
       selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${DIM[dim].lower}`} actions={actions} />
