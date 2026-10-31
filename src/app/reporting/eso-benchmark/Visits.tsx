@@ -236,9 +236,9 @@ const targetFor = (c: VCtx, id: string) => { const t = c.targets?.[targetKey(id,
 type Measure = "visits" | "new" | "registered" | "bought" | "again";
 const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; unit: "n" | "pct" | "eur"; target: string }> = {
   visits: { title: "Completed visits", fmt: int, unit: "n", target: "completed visits" },
-  new: { title: "Visits with new customers", fmt: int, unit: "n", target: "visits with new customers" },
-  registered: { title: "New customers registered after the visit", fmt: int, unit: "n", target: "new customers registered after the visit" },
-  bought: { title: "New customers that bought after the visit", fmt: int, unit: "n", target: "new customers that bought after the visit" },
+  new: { title: "Visits to prospects", fmt: int, unit: "n", target: "visits to prospects" },
+  registered: { title: "Prospects registered after the visit", fmt: int, unit: "n", target: "prospects registered after the visit" },
+  bought: { title: "Prospects that became customers after the visit", fmt: int, unit: "n", target: "prospects that became customers after the visit" },
   again: { title: "Customers won back after the visit", fmt: int, unit: "n", target: "customers won back after the visit" },
 };
 /** Of the companies visited, the ones with revenue this year and how much - not an average over the prospects as well
@@ -252,9 +252,9 @@ function boardRows(c: VCtx, dim: VDim, m: Measure): BoardRow[] {
   for (const [label, s] of by) {
     let cur: number, sub: string;
     if (m === "visits") { cur = s.visits; sub = dim === "person" ? `${int(s.companies)} companies · ${(s.visits / Math.max(done, 0.1)).toFixed(1)} a month` : `${pct(t.visits ? s.visits / t.visits : null)} of the visits · ${int(s.companies)} companies`; }
-    else if (m === "new") { cur = s.newVisits; sub = `${int(s.newCompanies)} new customers · ${int(s.registeredAfter)} registered · ${int(s.boughtInPeriod)} bought`; }
-    else if (m === "registered") { cur = s.registeredAfter; sub = `${pct(s.newCompanies ? s.registeredAfter / s.newCompanies : null)} of ${int(s.newCompanies)} new customers visited`; }
-    else if (m === "bought") { cur = s.boughtInPeriod; sub = `${pct(s.newCompanies ? s.boughtInPeriod / s.newCompanies : null)} of ${int(s.newCompanies)} new customers visited`; }
+    else if (m === "new") { cur = s.newVisits; sub = `${int(s.newCompanies)} prospects · ${int(s.registeredAfter)} registered · ${int(s.boughtInPeriod)} became customers`; }
+    else if (m === "registered") { cur = s.registeredAfter; sub = `${pct(s.newCompanies ? s.registeredAfter / s.newCompanies : null)} of ${int(s.newCompanies)} prospects visited`; }
+    else if (m === "bought") { cur = s.boughtInPeriod; sub = `${pct(s.newCompanies ? s.boughtInPeriod / s.newCompanies : null)} of ${int(s.newCompanies)} prospects visited`; }
     else { cur = s.lapsedAgain; sub = `of ${int(s.lapsed)} visited that had not ordered for 12 months or more`; }
     if (!cur) continue;
     rows.push({ label, cur, prev: 0, sub });
@@ -401,6 +401,65 @@ function KindSplit({ c, dim }: { c: VCtx; dim: VDim }) {
     </Box>
   );
 }
+/** Each part's colour in a split by priority or customer category - in the breakdown's own order */
+const PART_COLOR: Record<string, string> = {
+  "Prio 1": "#1f4e79", "Prio 2": THIS, "Prio 3": "#8fb4dc", "No priority": "#cfd4db",
+  APSOcore: THIS, APSOgrowth: TINT.green.fg, APSOprospect: TINT.amber.fg, APSOmicro: TINT.purple.fg, APSOlost: "#c0605a", "Growth Engine Customer": "#4fa79b", "Not set": "#cfd4db",
+  [NO_COMPANY]: "#e6e9ee",
+};
+/** Each person's visits split by priority or customer category (SARCLA 31.10.2026: "on Priority a graph by person by
+ *  priority; the same on Customer category") - every person's visits as one bar, the parts in the breakdown's order. */
+function PersonSplit({ c, part }: { c: VCtx; part: VDim }) {
+  const [all, setAll] = useState(false);
+  const order = ORDER[part] ?? [];
+  const by = new Map<string, Map<string, number>>();
+  const totals = new Map<string, number>();
+  for (const r of rowsOf(c.d, c.per.win, c.filters, c.people)) {
+    const who = labelOf(c.d, r, "person"), k = labelOf(c.d, r, part);
+    const m = by.get(who) ?? new Map<string, number>();
+    m.set(k, (m.get(k) ?? 0) + 1);
+    by.set(who, m);
+    totals.set(k, (totals.get(k) ?? 0) + 1);
+  }
+  const parts = [...order.filter((k) => totals.has(k)), ...[...totals.keys()].filter((k) => !order.includes(k))];
+  const total = [...totals.values()].reduce((a, b) => a + b, 0);
+  const rows = [...by].map(([label, m]) => ({ label, m, n: [...m.values()].reduce((a, b) => a + b, 0) })).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
+  const max = Math.max(1, ...rows.map((r) => r.n));
+  const first = c.half ? 8 : 12;
+  const shown = all ? rows : rows.slice(0, first);
+  const color = (k: string, i: number) => PART_COLOR[k] ?? ["#7a8aa0", "#b38b5d", "#6b9e6b", "#9a7ab8"][i % 4];
+  const lead = parts[0];
+  return (
+    <Box sx={{ display: "grid", gap: 1.1 }}>
+      <Box sx={{ display: "flex", gap: 1.75, flexWrap: "wrap" }}>
+        {parts.map((k, i) => (
+          <Box key={k} component={c.onBar ? "button" : "div"} {...(c.onBar ? { type: "button" as const, onClick: () => c.onBar!(part, k) } : {})}
+            sx={{ display: "flex", alignItems: "center", gap: 0.75, border: 0, bgcolor: "transparent", font: "inherit", p: 0, cursor: c.onBar ? "pointer" : "default" }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: color(k, i) }} />
+            <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{k} <b style={{ color: INK }}>{int(totals.get(k) ?? 0)}</b> {pct(total ? (totals.get(k) ?? 0) / total : null)}</Typography>
+          </Box>
+        ))}
+      </Box>
+      {rows.length === 0 && <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>No visits under these filters.</Typography>}
+      <Box sx={{ display: "grid", gap: 0.75 }}>
+        {shown.map((r) => (
+          <Box key={r.label} {...(c.onBar ? { component: "button" as const, type: "button" as const, onClick: () => c.onBar!("person", r.label) } : {})}
+            sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "minmax(110px, 0.9fr) minmax(40px, 2fr) auto" }, gap: { xs: 0.4, sm: 1.25 }, alignItems: "center", border: 0, bgcolor: "transparent", font: "inherit", textAlign: "left", cursor: c.onBar ? "pointer" : "default", borderRadius: "8px", px: 0.5, py: 0.25, "&:hover": c.onBar ? { bgcolor: "rgba(21,34,58,.04)" } : {} }}>
+            <Typography noWrap title={r.label} sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>{r.label}</Typography>
+            <Box sx={{ display: "flex", gap: "2px", height: 16, width: `${(r.n / max) * 100}%`, minWidth: 6 }}>
+              {parts.map((k, i) => (r.m.get(k) ?? 0) > 0 && (
+                <Box key={k} title={`${r.label} - ${k}: ${int(r.m.get(k)!)} (${pct(r.m.get(k)! / r.n)})`} sx={{ flex: `${r.m.get(k)} 0 0`, minWidth: 2, bgcolor: color(k, i), "&:first-of-type": { borderRadius: "3px 0 0 3px" }, "&:last-of-type": { borderRadius: "0 3px 3px 0" } }} />
+              ))}
+            </Box>
+            <Typography sx={{ fontSize: "0.8rem", color: INK, textAlign: { sm: "right" }, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}><b>{int(r.n)}</b>{lead && <span style={{ color: FAINT }}> · {pct((r.m.get(lead) ?? 0) / r.n)} {lead}</span>}</Typography>
+          </Box>
+        ))}
+      </Box>
+      {rows.length > first && <Button size="small" onClick={() => setAll((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start" }}>{all ? `Show the first ${first}` : `Show all ${rows.length}`}</Button>}
+    </Box>
+  );
+}
+
 /** The types of visit month by month: each month's completed visits stacked by type, the share scheduled under it. */
 function KindMonths({ c }: { c: VCtx }) {
   const by = statsOf(c, "kind");
@@ -475,13 +534,13 @@ function Answers({ c }: { c: VCtx }) {
   const row = { display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(260px, 1fr) minmax(0, 1.4fr)" }, gap: { xs: 0.5, md: 2 }, alignItems: "start", py: 1.25, borderBottom: `1px solid ${HAIRLINE}` } as const;
   return (
     <Box sx={{ display: "grid" }}>
-      <Box sx={row}>{q(1, "How many visits with new customers?")}{a(`${int(t.newVisits)} visits`, `to ${int(t.newCompanies)} new customers - companies that had never ordered before the day of the visit`)}</Box>
-      <Box sx={row}>{q(2, "How many of them registered after the visit?")}{a(int(t.registeredAfter), `${pct(t.newCompanies ? t.registeredAfter / t.newCompanies : null)} of the ${int(t.newCompanies)} new customers - registered in the shop on the day of the visit or after it, by ${perEnd(c.d, c.per)}`)}</Box>
+      <Box sx={row}>{q(1, "How many visits to prospects?")}{a(`${int(t.newVisits)} visits`, `to ${int(t.newCompanies)} prospects - companies that had never ordered before the day of the visit`)}</Box>
+      <Box sx={row}>{q(2, "How many of them registered after the visit?")}{a(int(t.registeredAfter), `${pct(t.newCompanies ? t.registeredAfter / t.newCompanies : null)} of the ${int(t.newCompanies)} prospects - registered in the shop on the day of the visit or after it, by ${perEnd(c.d, c.per)}`)}</Box>
       <Box sx={row}>
         {q(3, "In what way?")}
-        <Bars items={ways} empty="No new customer visited in this period." />
+        <Bars items={ways} empty="No prospect visited in this period." />
       </Box>
-      <Box sx={row}>{q(4, "How many of them bought after the visit?")}{a(int(t.boughtInPeriod), `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the ${int(t.newCompanies)} new customers - their first order on the day of the visit or after it, by ${perEnd(c.d, c.per)}`)}</Box>
+      <Box sx={row}>{q(4, "How many of them became customers?")}{a(int(t.boughtInPeriod), `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the ${int(t.newCompanies)} prospects - their first order on the day of the visit or after it, by ${perEnd(c.d, c.per)}`)}</Box>
       <Box sx={row}>
         {q(5, "How many of the companies visited had bought before?")}
         <Box sx={{ display: "grid", gap: 0.75 }}>
@@ -514,8 +573,8 @@ function drawnOf(id: string): Drawn | undefined {
       target: (c) => ({ unit: "n", label: `Each month's completed visits are measured against it - a line across the months; the running month is not counted · ${teamName(c)}'s target.` }) };
   }
   if (chart === "answers") {
-    const title = (c: VCtx) => `New and earlier customers visited - did they register, did they buy, ${c.per.title}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · new customers: companies that had never ordered before the day of the visit; registered: the shop's registration date against the visit's; bought: an order on the day of the visit or after it, by ${perEnd(c.d, c.per)}`} actions={a}><Answers c={c} /></ChartBox> };
+    const title = (c: VCtx) => `Prospects and customers visited - did they register, did they buy, ${c.per.title}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · prospects: companies that had never ordered before the day of the visit; registered: the shop's registration date against the visit's; became customers: a first order on the day of the visit or after it, by ${perEnd(c.d, c.per)}`} actions={a}><Answers c={c} /></ChartBox> };
   }
   if (chart === "coverage") {
     const title = (c: VCtx) => `How much of each priority was visited - of the companies they own, ${c.per.title}${teamPart(c)}`;
@@ -524,6 +583,11 @@ function drawnOf(id: string): Drawn | undefined {
   if (chart === "kindmonths") {
     const title = (c: VCtx) => `Scheduled, cold and event visits ${c.per.title}, month by month${teamPart(c)}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each month's completed visits by type, the share scheduled under it · the running month to date, lighter${cutWords(c)}`} actions={a}><KindMonths c={c} /></ChartBox> };
+  }
+  if (chart === "persons") {
+    const part = DIM_OF[v];
+    const title = (c: VCtx) => `Completed visits ${c.per.title}, by person and ${DIM[part].lower}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each person's completed visits by the visited company's ${DIM[part].lower}, the most visits first`} actions={a}><PersonSplit c={c} part={part} /></ChartBox> };
   }
   if (chart.startsWith("kinds")) {
     const by = chart.split("-")[1];
@@ -544,7 +608,7 @@ function drawnOf(id: string): Drawn | undefined {
   }
   if (chart === "table" && v === "people") {
     const title = (c: VCtx) => `All the figures, ${c.per.title}, by person${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each person's completed visits, companies visited, visits without a company, new customers visited - registered after the visit, bought - and the companies' revenue this year${c.per.id === "ytd" ? ", the visits not reported yet" : ""}`} actions={a}><PeopleTable c={c} /></ChartBox> };
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each person's completed visits, companies visited, visits without a company, prospects visited - registered after the visit, became customers - and the companies' revenue this year${c.per.id === "ytd" ? ", the visits not reported yet" : ""}`} actions={a}><PeopleTable c={c} /></ChartBox> };
   }
   if (chart === "table" && v === "kind") {
     const title = (c: VCtx) => `Visits by type, ${c.per.title}, by person${teamPart(c)}`;
@@ -554,7 +618,7 @@ function drawnOf(id: string): Drawn | undefined {
     const dim = DIM_OF[v];
     const title = (c: VCtx) => `All the figures, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`;
     const buyers = dim === "prio" || dim === "person";
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each ${DIM[dim].lower}'s completed visits and their share, companies visited${buyers ? ", new customers visited, bought and won back" : ""}, the share scheduled`} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each ${DIM[dim].lower}'s completed visits and their share, companies visited${buyers ? ", prospects visited, became customers and won back" : ""}, the share scheduled`} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
   }
   const [what, by] = chart.split("-");
   if (!(what in MEASURE)) return undefined;
@@ -595,9 +659,9 @@ function PeopleTable({ c }: { c: VCtx }) {
     { key: "visits", head: "Completed visits", cell: (r) => int(r.visits), sort: (r) => r.visits },
     { key: "companies", head: "Companies visited", cell: (r) => int(r.companies), sort: (r) => r.companies },
     { key: "noco", head: "Without a company", tip: "Visits with no company - neither on the visit nor on its contact: to link in HubSpot", cell: (r) => (r.noCompany ? int(r.noCompany) : "—"), sort: (r) => r.noCompany },
-    { key: "new", head: "New customers visited", tip: "Companies that had never ordered before the day of the visit", cell: (r) => int(r.newCompanies), sort: (r) => r.newCompanies },
+    { key: "new", head: "Prospects visited", tip: "Companies that had never ordered before the day of the visit", cell: (r) => int(r.newCompanies), sort: (r) => r.newCompanies },
     { key: "reg", head: "Registered after", tip: "Of those, registered in the shop on the day of the visit or after it (the shop's registration date)", cell: (r) => int(r.registeredAfter), sort: (r) => r.registeredAfter },
-    { key: "bought", head: `Bought, ${c.per.title}`, tip: "Of those, their first order on the day of the visit or after it, by the end of the period", cell: (r) => int(r.boughtInPeriod), sort: (r) => r.boughtInPeriod },
+    { key: "bought", head: `Became customers, ${c.per.title}`, tip: "Of those, their first order on the day of the visit or after it, by the end of the period", cell: (r) => int(r.boughtInPeriod), sort: (r) => r.boughtInPeriod },
     { key: "rev", head: "Their revenue this year", tip: "This year's revenue of the companies visited", cell: (r) => eur(r.revenue), sort: (r) => r.revenue },
     ...(ytd ? [{ key: "open", head: "Not reported yet", tip: "This year's visits whose report is not complete - they do not count yet", cell: (r: Row) => (r.open ? int(r.open) : "—"), sort: (r: Row) => r.open ?? 0 }] : []),
   ];
@@ -627,8 +691,8 @@ function DimTable({ c, dim }: { c: VCtx; dim: VDim }) {
     { key: "share", head: "Share of the visits", cell: (r) => pct(t.visits ? r.visits / t.visits : null), sort: (r) => r.visits },
     { key: "companies", head: "Companies visited", cell: (r) => int(r.companies), sort: (r) => r.companies },
     ...(buyers ? [
-      { key: "new", head: "New customers visited", cell: (r: Row) => int(r.newCompanies), sort: (r: Row) => r.newCompanies },
-      { key: "bought", head: `Bought, ${c.per.title}`, cell: (r: Row) => int(r.boughtInPeriod), sort: (r: Row) => r.boughtInPeriod },
+      { key: "new", head: "Prospects visited", cell: (r: Row) => int(r.newCompanies), sort: (r: Row) => r.newCompanies },
+      { key: "bought", head: `Became customers, ${c.per.title}`, cell: (r: Row) => int(r.boughtInPeriod), sort: (r: Row) => r.boughtInPeriod },
       { key: "again", head: "Won back", tip: "Companies that had not ordered for 12 months or more before the visit and ordered after it, by the end of the period", cell: (r: Row) => (r.lapsed ? `${int(r.lapsedAgain)} of ${int(r.lapsed)}` : "—"), sort: (r: Row) => r.lapsedAgain },
     ] : []),
     { key: "scheduled", head: "Scheduled", tip: "The share of the visits scheduled with the customer in advance", cell: (r) => (r.visits ? pct(r.scheduled / r.visits) : "—"), sort: (r) => (r.visits ? r.scheduled / r.visits : -1) },
@@ -694,7 +758,7 @@ function TabCard({ c, act }: { c: VCtx; act: Act }) {
   );
   if (c.view === "new") return (
     <GlassCard sx={card}>
-      <CardTitle icon={<HowToRegOutlinedIcon />} tint="amber" title={`${teamName(c)}: registration, ${c.per.title}`} note={`${words} · new customers visited - did they register, how, and did they buy; the earlier customers - still buying or not retained - and did they buy again`} />
+      <CardTitle icon={<HowToRegOutlinedIcon />} tint="amber" title={`${teamName(c)}: registration, ${c.per.title}`} note={`${words} · prospects visited - did they register, how, and did they become customers; the earlier customers - still buying or not retained - and did they buy again`} />
       <Box sx={{ mt: -1 }}>{draw(c, act, "new:answers")}</Box>
       <Box sx={TWO}>{draw(c, act, "new:new")}{draw(c, act, "new:registered")}</Box>
       <Box sx={TWO}>{draw(c, act, "new:bought")}{draw(c, act, "new:again")}</Box>
@@ -704,6 +768,7 @@ function TabCard({ c, act }: { c: VCtx; act: Act }) {
     <GlassCard sx={card}>
       <CardTitle icon={<FlagOutlinedIcon />} tint="purple" title={`${teamName(c)} by priority, ${c.per.title}`} note={`${DIM.prio.note} · ${words}`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "prio:coverage")}{draw(c, act, "prio:kinds")}</Box>
+      {draw(c, act, "prio:persons")}
       {draw(c, act, "prio:table")}
     </GlassCard>
   );
@@ -720,6 +785,7 @@ function TabCard({ c, act }: { c: VCtx; act: Act }) {
     <GlassCard sx={card}>
       <CardTitle icon={dd.icon} tint={dd.tint} title={`${teamName(c)} by ${dd.lower}, ${c.per.title}`} note={`${dd.note} · ${words}`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${c.view}:visits`)}{draw(c, act, `${c.view}:kinds`)}</Box>
+      {dim === "category" && draw(c, act, "category:persons")}
       {dim === "country" && draw(c, act, "country:people-table")}
       {draw(c, act, `${c.view}:table`)}
     </GlassCard>
@@ -738,9 +804,9 @@ function figuresOf(c: VCtx): Fig[] {
   return [
     { id: "fig-visits", label: `Completed visits ${P}`, value: int(t.visits), sub: `${(t.visits / Math.max(done, 0.1)).toFixed(0)} a month${open ? ` · ${int(open)} more not reported yet` : ""}`, icon: <DirectionsCarOutlinedIcon />, tint: "green", amount: t.visits, unit: "n" },
     { id: "fig-companies", label: `Companies visited ${P}`, value: int(t.companies), sub: boughtWords(t), icon: <ApartmentOutlinedIcon />, tint: "blue", amount: t.companies, unit: "n" },
-    { id: "fig-new", label: "New customers visited", value: int(t.newCompanies), sub: `${int(t.newVisits)} visits - companies that had never ordered`, icon: <PersonAddAltOutlinedIcon />, tint: "amber", amount: t.newCompanies, unit: "n" },
-    { id: "fig-registered", label: "Registered after the visit", value: int(t.registeredAfter), sub: `${pct(t.newCompanies ? t.registeredAfter / t.newCompanies : null)} of the new customers visited`, icon: <HowToRegOutlinedIcon />, tint: "purple", amount: t.registeredAfter, unit: "n" },
-    { id: "fig-bought", label: `Bought, ${P}`, value: int(t.boughtInPeriod), sub: `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the new customers visited`, icon: <ShoppingCartCheckoutOutlinedIcon />, tint: "green", amount: t.boughtInPeriod, unit: "n" },
+    { id: "fig-new", label: "Prospects visited", value: int(t.newCompanies), sub: `${int(t.newVisits)} visits - companies that had never ordered`, icon: <PersonAddAltOutlinedIcon />, tint: "amber", amount: t.newCompanies, unit: "n" },
+    { id: "fig-registered", label: "Registered after the visit", value: int(t.registeredAfter), sub: `${pct(t.newCompanies ? t.registeredAfter / t.newCompanies : null)} of the prospects visited`, icon: <HowToRegOutlinedIcon />, tint: "purple", amount: t.registeredAfter, unit: "n" },
+    { id: "fig-bought", label: `Became customers, ${P}`, value: int(t.boughtInPeriod), sub: `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the prospects visited`, icon: <ShoppingCartCheckoutOutlinedIcon />, tint: "green", amount: t.boughtInPeriod, unit: "n" },
     { id: "fig-agreed", label: "Scheduled visits", value: pct(t.visits ? t.scheduled / t.visits : null), sub: `${int(t.scheduled)} scheduled · ${int(t.cold)} cold · ${int(t.event)} at events`, icon: <HandshakeOutlinedIcon />, tint: "slate", amount: t.visits ? t.scheduled / t.visits : 0, unit: "pct" },
   ];
 }

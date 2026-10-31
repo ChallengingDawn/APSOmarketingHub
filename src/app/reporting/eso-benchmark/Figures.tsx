@@ -64,6 +64,7 @@ import DateRangeOutlinedIcon from "@mui/icons-material/DateRangeOutlined";
 import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import BalanceOutlinedIcon from "@mui/icons-material/BalanceOutlined";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
+import TrendingUpOutlinedIcon from "@mui/icons-material/TrendingUpOutlined";
 import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { GUTTER } from "@/app/analytics/Shell";
@@ -155,8 +156,8 @@ function withTeam(cube: Cube, filters: Filters, team: TeamKey, lead: string | nu
 
 const BREAKDOWNS = ["country", "prio", "segment", "type", "apic"] as const;
 type Breakdown = (typeof BREAKDOWNS)[number];
-type View = "ytd" | "mtd" | Breakdown | "pc";
-const VIEW_IDS: View[] = ["ytd", "mtd", ...BREAKDOWNS, "pc"];
+type View = "ytd" | "mtd" | Breakdown | "pc" | "forecast";
+const VIEW_IDS: View[] = ["ytd", "mtd", ...BREAKDOWNS, "pc", "forecast"];
 const isView = (x: string | null | undefined): x is View => (VIEW_IDS as string[]).includes(x ?? "");
 const isBreakdown = (x: string | null | undefined): x is Breakdown => (BREAKDOWNS as readonly string[]).includes(x ?? "");
 // Year to date and Month to date are one tab since the period is in Filters (SARCLA 26.10.2026); "ytd" stays its id - the
@@ -164,10 +165,10 @@ const isBreakdown = (x: string | null | undefined): x is Breakdown => (BREAKDOWN
 // month to date.
 const VIEWS: { id: View; label: string }[] = [
   { id: "ytd", label: "Performis SAE" },
-  ...BREAKDOWNS.map((d) => ({ id: d as View, label: DIM[d].name })), { id: "pc", label: "Profit center" },
+  ...BREAKDOWNS.map((d) => ({ id: d as View, label: DIM[d].name })), { id: "pc", label: "Profit center" }, { id: "forecast", label: "Forecast" },
 ];
 /** The breakdown a tab is drawn by: the Performis SAE on its tab (and the old Month to date); none on Profit center. */
-const dimOf = (v: View): Dim | null => (v === "ytd" || v === "mtd" ? "sae" : v === "pc" ? null : v);
+const dimOf = (v: View): Dim | null => (v === "ytd" || v === "mtd" ? "sae" : v === "pc" || v === "forecast" ? null : v);
 const NOTES: Record<Breakdown, string> = {
   country: "Where the customers are",
   prio: "Which priority bands carry the revenue",
@@ -1268,6 +1269,17 @@ function drawnOf(id: string): Drawn | undefined {
     if (chart === "months") return { id, view: v, title: (c) => `Revenue month by month, by profit center${team(c)}`, draw: (c, a) => <PcCards c={c} actions={a} /> };
     return undefined;
   }
+  if (v === "forecast") {
+    if (chart === "months") {
+      const title = (c: FigCtx) => `Revenue against the ERP's forecast, ${c.cube.years[0]} month by month - the whole company`;
+      return { id, view: v, title, draw: (c, a) => <ChartBox title={title(c)} actions={a} hint={forecastHint(c)}><ForecastColumns c={c} /></ChartBox> };
+    }
+    if (chart === "table") {
+      const title = (c: FigCtx) => `Revenue against the ERP's forecast, ${c.cube.years[0]}, month by month and to date - the whole company`;
+      return { id, view: v, title, draw: (c, a) => <ChartBox title={title(c)} actions={a} hint={forecastHint(c)}><ForecastTable c={c} /></ChartBox> };
+    }
+    return undefined;
+  }
   const dim = dimOf(v)!;
   if (what) {
     const w = what as Which | "b2b", cid = `${v}:${w}`;
@@ -1318,6 +1330,94 @@ function chartOf(key: string, part?: string): Drawn | undefined {
   return undefined;
 }
 
+/* ── the forecast: the company's revenue against the ERP's (SARCLA 31.10.2026: "the forecast tab is missing on the
+   Figures - the forecast we also bring, we should be able to report on it") ── */
+
+type FcRow = { label: string; m: number; fc: number; due: number; rev: number | null; fcCum: number; revCum: number | null; running: boolean };
+/** Each month of the year: the forecast, as much of it as is due (the running month pro rata to the ERP's day), the revenue
+ *  - the customers' months as the months table has them, the running month the ERP's month to date - and both added up from
+ *  January, the running month's total the ERP's year to date: the same figures as "Against forecast" top right. */
+function forecastOf(c: FigCtx): { rows: FcRow[]; ytd: { fc: number; rev: number }; year: number; left: number; toDate: string } | null {
+  const { cube, kpi } = c, d = erpDate(cube);
+  if (!kpi || !d || d.year !== cube.years[0] || !kpi.total.forecast.some((x) => x)) return null;
+  const run = d.month, jan = monthOf(0, 0), e = erpTotals(cube, {}), ytdRev = pick(e, "ytd", "rev")[0];
+  const rows: FcRow[] = [];
+  let fcCum = 0, revCum = 0;
+  for (let m = 0; m < 12; m++) {
+    const fc = kpi.total.forecast[m] ?? 0;
+    const running = m === run, done = m < run;
+    const due = done ? fc : running ? fc * monthShare(cube) : 0;
+    const rev = done ? totals(cube, {}, { start: jan + m, end: jan + m }).rev : running ? e.revMtd : null;
+    fcCum += due;
+    if (rev != null) revCum = running ? ytdRev : revCum + rev;
+    rows.push({ label: running ? `${MONTH_NAMES[m]} (1 – ${d.day})` : MONTH_NAMES[m], m, fc, due, rev, fcCum, revCum: rev != null ? revCum : null, running });
+  }
+  const year = kpi.total.forecast.reduce((a, x) => a + (x ?? 0), 0);
+  const left = rows.filter((r) => r.m > run).reduce((a, r) => a + r.fc, 0) + (rows[run]?.fc ?? 0) - (rows[run]?.due ?? 0);
+  return { rows, ytd: { fc: fcCum, rev: ytdRev }, year, left, toDate: `1 Jan – ${d.day} ${MONTH_NAMES[run]} ${d.year}` };
+}
+const forecastHint = (c: FigCtx) => {
+  const d = erpDate(c.cube);
+  return `${c.cube.years[0]} · the ERP's revenue against its forecast - the whole company, from the morning workbook${d ? ` · ${MONTH_NAMES[d.month]}: the month to date against the forecast pro rata to the ${d.day}${d.day === 1 ? "st" : d.day === 2 ? "nd" : d.day === 3 ? "rd" : "th"}` : ""} · the months to come: the forecast alone`;
+};
+/** The months as columns: the revenue, the forecast as a dashed line across each month, how much of it was reached under it. */
+function ForecastColumns({ c }: { c: FigCtx }) {
+  const f = forecastOf(c);
+  if (!f) return null;
+  const top = niceTop(Math.max(1, ...f.rows.map((r) => Math.max(r.rev ?? 0, r.fc))));
+  const ticks = [0, 0.25, 0.5, 0.75, 1];
+  return (
+    <Box sx={{ display: "grid", gap: 1 }}>
+      <BulletLegend cur={`${c.cube.years[0]}: revenue`} prev="" forecast />
+      <Box sx={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", columnGap: 1 }}>
+        <Box sx={{ position: "relative", minWidth: axisWidth(top) - 10 }}>
+          {ticks.map((t) => <Typography key={t} sx={{ position: "absolute", right: 0, bottom: `calc(${t * 100}% - 7px)`, fontSize: "0.7rem", color: FAINT, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", lineHeight: 1.2 }}>{eur(t * top)}</Typography>)}
+        </Box>
+        <Box sx={{ position: "relative", width: "100%", aspectRatio: "2.6 / 1", minHeight: 160, maxHeight: 340 }}>
+          {ticks.map((t) => <Box key={t} sx={{ position: "absolute", left: 0, right: 0, bottom: `${t * 100}%`, borderTop: `1px solid ${t === 0 ? "#cfd4db" : "#eef0f3"}` }} />)}
+          <Box sx={{ position: "absolute", inset: 0, display: "flex" }}>
+            {f.rows.map((r) => (
+              <Box key={r.m} title={`${r.label}: ${r.rev == null ? "to come" : eur(r.rev)} · forecast ${eur(r.fc)}${r.running ? ` (${eur(r.due)} to date)` : ""}${r.rev != null && r.due ? ` · ${pct(r.rev / r.due)} reached` : ""}`}
+                sx={{ flex: 1, position: "relative", height: "100%", borderRadius: "6px", "&:hover": { bgcolor: "rgba(21,34,58,.035)" } }}>
+                {r.rev != null && <Box sx={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "52%", maxWidth: 30, height: `${(Math.max(0, r.rev) / top) * 100}%`, bgcolor: THIS, opacity: r.running ? 0.55 : 1, borderRadius: "4px 4px 0 0" }} />}
+                {r.fc > 0 && <Box sx={{ position: "absolute", bottom: `${(r.fc / top) * 100}%`, left: "50%", transform: "translateX(-50%)", width: "76%", maxWidth: 44, borderTop: `2px dashed ${FORECAST}` }} />}
+              </Box>
+            ))}
+          </Box>
+        </Box>
+        <Box />
+        <Box sx={{ display: "flex", overflow: "hidden" }}>
+          {f.rows.map((r) => {
+            const reached = r.rev != null && r.due ? r.rev / r.due : null;
+            return (
+              <Box key={r.m} sx={{ flex: 1, textAlign: "center", pt: 0.5, minWidth: 0 }}>
+                <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.3 }}>{MONTH_NAMES[r.m]}</Typography>
+                <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: reached == null ? FAINT : reached >= 1 ? GREEN : RED, lineHeight: 1.3, whiteSpace: "nowrap" }}>{reached == null ? "—" : pct(reached)}</Typography>
+              </Box>
+            );
+          })}
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+/** Month by month and from January: the forecast, the revenue, how much of it was reached. */
+function ForecastTable({ c }: { c: FigCtx }) {
+  const f = forecastOf(c);
+  if (!f) return null;
+  const reachedCell = (rev: number | null, fc: number) => (rev == null || !fc ? "—" : <span style={{ color: rev >= fc ? GREEN : RED, fontWeight: 700 }}>{pct(rev / fc)}</span>);
+  const cols: Col<FcRow>[] = [
+    { key: "fc", head: "Forecast", tip: "The ERP's forecast for the month - the whole company", cell: (r) => eur(r.fc), sort: (r) => r.fc },
+    { key: "rev", head: "Revenue", tip: "The ERP's revenue - the running month to date", cell: (r) => (r.rev == null ? "—" : eur(r.rev)), sort: (r) => r.rev ?? -1 },
+    { key: "reached", head: "Reached", tip: "The revenue against the forecast - the running month against its share to date", cell: (r) => reachedCell(r.rev, r.due), sort: (r) => (r.rev != null && r.due ? r.rev / r.due : -1) },
+    { key: "fcCum", head: "Forecast to date", tip: "The forecast from January, the running month pro rata", cell: (r) => (r.rev == null ? "—" : eur(r.fcCum)), sort: (r) => r.fcCum },
+    { key: "revCum", head: "Revenue to date", tip: "The revenue from January - the running month's the ERP's year to date", cell: (r) => (r.revCum == null ? "—" : eur(r.revCum)), sort: (r) => r.revCum ?? -1 },
+    { key: "reachedCum", head: "Reached to date", cell: (r) => reachedCell(r.revCum, r.fcCum), sort: (r) => (r.revCum != null && r.fcCum ? r.revCum / r.fcCum : -1) },
+  ];
+  const total: FcRow = { label: `${c.cube.years[0]}`, m: 12, fc: f.year, due: f.ytd.fc, rev: f.ytd.rev, fcCum: f.ytd.fc, revCum: f.ytd.rev, running: false };
+  return <FullTable first="Month" cols={cols} rows={f.rows} total={total} natural tint="amber" />;
+}
+
 /* ── a tab: one card that follows it ───────────────────────────────────── */
 
 type Act = (id: string, title: string, target?: TargetOf) => React.ReactNode;
@@ -1347,6 +1447,35 @@ function TabCard({ c, act, footnote }: { c: FigCtx; act: Act; footnote: React.Re
         {draw(c, act, "ytd:table")}
         {many && draw(c, act, "ytd:months-table")}
         {footnote}
+      </GlassCard>
+    );
+  }
+  if (view === "forecast") {
+    const f = forecastOf(c);
+    return (
+      <GlassCard sx={card}>
+        <CardTitle icon={<TrendingUpOutlinedIcon />} tint="amber" title={`The company against the ERP's forecast, ${cube.years[0]}`}
+          note="The forecast comes with the ERP's morning workbook for the whole company (per mandant) - so this tab is the same on ESO, TSA and Total, and no filter applies to it" />
+        {!f ? <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>{c.kpiBusy ? "Reading the ERP's forecast…" : "The ERP's forecast is not loaded yet."}</Typography> : (
+          <>
+            <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(0, 1fr))" }, mt: -1 }}>
+              {[
+                { label: `Revenue, ${f.toDate}`, value: eur(f.ytd.rev), sub: `against ${eur(f.ytd.fc)} forecast to date` },
+                { label: "Reached, year to date", value: pct(f.ytd.fc ? f.ytd.rev / f.ytd.fc : null), sub: `${signedEur(f.ytd.rev - f.ytd.fc)} against the forecast`, color: f.ytd.rev >= f.ytd.fc ? GREEN : RED },
+                { label: `Forecast for ${cube.years[0]}`, value: eur(f.year), sub: `${pct(f.year ? f.ytd.rev / f.year : null)} of it reached` },
+                { label: `Still to reach in ${cube.years[0]}`, value: eur(Math.max(0, f.year - f.ytd.rev)), sub: `the forecast of the months left: ${eur(f.left)}` },
+              ].map((x) => (
+                <Box key={x.label} sx={{ ...glass, borderRadius: "16px", px: 1.5, py: 1.1, display: "grid", gap: 0.25 }}>
+                  <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: MUTED }}>{x.label}</Typography>
+                  <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: x.color ?? INK, fontVariantNumeric: "tabular-nums" }}>{x.value}</Typography>
+                  <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>{x.sub}</Typography>
+                </Box>
+              ))}
+            </Box>
+            {draw(c, act, "forecast:months")}
+            {draw(c, act, "forecast:table")}
+          </>
+        )}
       </GlassCard>
     );
   }
