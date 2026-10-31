@@ -16,6 +16,7 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { ownerNames } from "@/lib/integrations/erosion";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { chainHistory } from "@/lib/connectors/chainStatus";
+import { lastRun } from "@/lib/connectors/steps/run";
 import { MONTHS, monthTotal, monthsLoaded, parsePcMonthly, prioOf } from "@/lib/reporting/esoRules";
 import { teamOf } from "@/lib/datatracker/rosters";
 import { readOwners } from "@/lib/ownerRules/hubspot";
@@ -42,7 +43,10 @@ const TTL_MS = 6 * 60 * 60 * 1000;
  */
 export async function customersCube(): Promise<SlowState<Cube>> {
   const day = await lastDelivery();
-  return slowReport(KEY, (v: Cube) => ((day && v?.dataDay !== day) || v?.newKind !== "invoice" ? 0 : TTL_MS), build);
+  // and as soon as the ERP morning workbook has run again on its own - "Run now" on the chain page writes each customer's
+  // monthly order intake (SARCLA 31.10.2026: "I've run it" - the Figures would have waited up to 6 hours to see it)
+  const erp = await lastRun("live", "erp_revenue").then((r) => (r?.finished && !r.error ? Date.parse(r.finished) : 0)).catch(() => 0);
+  return slowReport(KEY, (v: Cube) => ((day && v?.dataDay !== day) || v?.newKind !== "invoice" || (erp && Date.parse(v?.generatedAt ?? "") < erp) ? 0 : TTL_MS), build);
 }
 
 /** The day of the last ERP delivery the chain ran, or nothing when none is on record (or no database here). */
