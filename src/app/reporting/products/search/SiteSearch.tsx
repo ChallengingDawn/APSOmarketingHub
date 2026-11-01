@@ -304,6 +304,24 @@ function SearchFunnel({ c }: { c: Ctx }) {
       stops={[{ n: t.searches - t.ok, label: "found nothing - no result, or handed to its AI", mine: true }]} />
   );
 }
+/** Under the funnel (SARCLA 01.11.2026: "it's too simple, only one graph"): the share that found something, month by month and
+ *  by store - a click on a store shows only it. */
+function SearchFunnelSplit({ c }: { c: Ctx }) {
+  const w = c.d.window;
+  if (!w) return null;
+  const months = w.byMonth.map((m) => ({ label: monthLabel(m), rate: m.searches ? m.ok / m.searches : 0 }));
+  const back = new Map<string, string>();
+  const stores = w.byStore.filter((r) => r.searches).map((r) => { const label = storeName(r.locale); back.set(label, r.locale); return { label, rate: r.ok / r.searches }; });
+  return (
+    <Box sx={TWO}>
+      <DimChart title={`Found something, of the searches, month by month, ${c.per}`} rows={months} cur={(r) => r.rate} prev={() => 0} curLabel="Found something" prevLabel="" single fixedOrder
+        fmt={(n) => pct(n)} labelWidth={110} pageSize={12} curColor={GREEN} onFilter={() => c.onFilter("period")} filterLabel="Filter by period" />
+      <DimChart title={`Found something, of each store's searches, ${c.per}`} rows={stores} cur={(r) => r.rate} prev={() => 0} curLabel="Found something" prevLabel="" single
+        fmt={(n) => pct(n)} labelWidth={190} curColor={GREEN} selected={c.stores.map(storeName)} onPick={(l) => c.onStore(back.get(l) ?? l)}
+        onFilter={() => c.onFilter("store")} filterLabel="Filter by store" />
+    </Box>
+  );
+}
 
 const CARD = { display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" } as const;
 const TAB_HEAD: Record<View, { icon: React.ReactNode; tint: Tint; title: string; note: string }> = {
@@ -318,7 +336,7 @@ function TabCard({ c, view }: { c: Ctx; view: View }) {
   return (
     <GlassCard sx={CARD}>
       <CardTitle icon={h.icon} tint={h.tint} title={`${h.title}, ${c.per}`} note={`${c.days} · ${h.note}`} />
-      {view === "funnel" ? <SearchFunnel c={c} /> : view === "months" ? <Months c={c} /> : view === "stores" ? <Stores c={c} /> : view === "terms" ? <Terms c={c} /> : <Nothing c={c} />}
+      {view === "funnel" ? <><SearchFunnel c={c} /><SearchFunnelSplit c={c} /></> : view === "months" ? <Months c={c} /> : view === "stores" ? <Stores c={c} /> : view === "terms" ? <Terms c={c} /> : <Nothing c={c} />}
     </GlassCard>
   );
 }

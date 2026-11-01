@@ -31,6 +31,7 @@ export type Ga4ReportName =
   | "signupsMonthly"
   | "signupChannelsMonthly"
   | "shopFunnelMonthly"
+  | "shopPathMonthly"
   | "purchaserTotals"
   | "conversionTotals"
   | "newChannelsDaily"
@@ -164,6 +165,16 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     dimensions: ["yearMonth", "eventName"],
     metrics: ["sessions"],
     filter: { field: "eventName", values: ["add_to_cart", "begin_checkout", "purchase"] },
+    orderBy: { dimension: "yearMonth" },
+    limit: 200,
+  },
+  // the visits that saw articles (a list or a product page), put one in the cart, began the check-out, bought - month by
+  // month: Products Reports > Views against orders' funnel (SARCLA 01.11.2026 on the products funnel: "data can't be
+  // accurate, it's too simple, only one graph"). Sessions at every step, so the shares are conversions.
+  shopPathMonthly: {
+    dimensions: ["yearMonth", "eventName"],
+    metrics: ["sessions"],
+    filter: { field: "eventName", values: ["view_item", "add_to_cart", "begin_checkout", "purchase"] },
     orderBy: { dimension: "yearMonth" },
     limit: 200,
   },

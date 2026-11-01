@@ -305,10 +305,10 @@ export function looksOf(d: KindData, w: Win | null, f: SFilters, except?: FDim):
   return d.looks.filter((l) => l[LK.day] >= w.from && l[LK.day] <= w.to && dims.every(([x, set]) => set.has(keyOf(d, l, x))));
 }
 
-/** The path's looks of a period under the filters - as looksOf. */
-export function pathOf(d: KindData, w: Win | null, f: SFilters): SPath[] {
+/** The path's looks of a period under the filters - as looksOf, one breakdown's own filter left out when `except` names it. */
+export function pathOf(d: KindData, w: Win | null, f: SFilters, except?: FDim): SPath[] {
   if (!w || !d.path) return [];
-  const dims = FDIMS.filter((x) => f[x]?.length).map((x) => [x, new Set(f[x])] as const);
+  const dims = FDIMS.filter((x) => x !== except && f[x]?.length).map((x) => [x, new Set(f[x])] as const);
   return d.path.filter((p) => p[2] >= w.from && p[2] <= w.to && dims.every(([x, set]) => set.has(keyOf(d, p, x))));
 }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { clampWin, placesOf, productPage, productsOf, rateOf, summaryOf, vFiltersOf, NONE, NO_PC } from "../src/lib/products/viewsOrders";
+import { clampWin, placesOf, productPage, productsOf, rateOf, summaryOf, vFiltersOf, visitsFunnelOf, NONE, NO_PC } from "../src/lib/products/viewsOrders";
 import type { EngageData } from "../src/lib/marketingKpis/engageCube";
 
 // SARCLA 01.11.2026 on Products Reports: "we should really create subtabs" - his pick "Views against orders": the product pages
@@ -133,4 +133,17 @@ test("the filters out of an address: known levels, each value once, the sold cho
   const q = new URLSearchParams("pc=DT&pc=DT&group=O-rings&sold=not&bogus=1");
   assert.deepEqual(vFiltersOf((d) => q.getAll(d)), { pc: ["DT"], group: ["O-rings"], sold: "not" });
   assert.deepEqual(vFiltersOf((d) => (d === "sold" ? "maybe" : [])), {});
+});
+
+test("the visits' funnel (SARCLA 01.11.2026: \"data can't be accurate, it's too simple, only one graph\"): GA4's visits at each step, the window's months, a year earlier beside", () => {
+  const visits = { "2026-01": [1000, 600, 300, 4] as [number, number, number, number], "2026-02": [800, 500, 200, 3] as [number, number, number, number], "2025-01": [900, 0, 0, 0] as [number, number, number, number] };
+  const path = { "2026-01": [400, 60, 30, 20] as [number, number, number, number], "2026-02": [300, 50, 25, 15] as [number, number, number, number], "2025-01": [350, 40, 20, 12] as [number, number, number, number] };
+  const f = visitsFunnelOf(visits, path, 2026, { start: 0, end: 1 })!;
+  assert.deepEqual(f.cy, [1800, 700, 110, 55, 35]);
+  assert.deepEqual(f.py, [900, 350, 40, 20, 12], "February 2025 read nothing: zeros, not missing");
+  assert.deepEqual(f.months.map((m) => m.month), [0, 1]);
+  assert.deepEqual(f.months[1].cy, [800, 300, 50, 25, 15]);
+  // one month only; a window GA4 gave no step for
+  assert.deepEqual(visitsFunnelOf(visits, path, 2026, { start: 1, end: 1 })!.cy, [800, 300, 50, 25, 15]);
+  assert.equal(visitsFunnelOf(visits, path, 2026, { start: 5, end: 6 }), null);
 });

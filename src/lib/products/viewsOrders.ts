@@ -251,6 +251,32 @@ export type VSummary = {
   madeToOrder: number; madeToOrderPy: number; unmapped: number;
 };
 
+/* ── the visits' funnel (SARCLA 01.11.2026: "data can't be accurate, it's too simple, only one graph") ── */
+
+/** GA4's visits per month at each step: "YYYY-MM" -> [saw articles, put one in the cart, began the check-out, bought]. */
+export type PathMonths = Record<string, [number, number, number, number]>;
+/** A month of the visits' funnel, this year and the same month a year earlier: [visits, saw, cart, check-out, bought]. */
+export type VisitMonth = { month: number; cy: number[]; py: number[] };
+export type VisitsFunnel = { months: VisitMonth[]; cy: number[]; py: number[] };
+/**
+ * The visits of the window's months at each step - the visits (Engage's engageMonthly sessions), those that saw articles, put
+ * one in the cart, began the check-out, bought - this year and the same months a year earlier. Null when GA4 gave no step.
+ */
+export function visitsFunnelOf(visits: Record<string, [number, number, number, number]>, path: PathMonths, year: number, win: VWin): VisitsFunnel | null {
+  const months: VisitMonth[] = [];
+  const cy = [0, 0, 0, 0, 0], py = [0, 0, 0, 0, 0];
+  let any = false;
+  for (let m = win.start; m <= win.end; m++) {
+    const key = (y: number) => `${y}-${String(m + 1).padStart(2, "0")}`;
+    const row = (y: number) => [visits[key(y)]?.[0] ?? 0, ...(path[key(y)] ?? [0, 0, 0, 0])];
+    const a = row(year), b = row(year - 1);
+    if (path[key(year)] || path[key(year - 1)]) any = true;
+    months.push({ month: m, cy: a, py: b });
+    for (let i = 0; i < 5; i++) { cy[i] += a[i]; py[i] += b[i]; }
+  }
+  return any ? { months, cy, py } : null;
+}
+
 /** The products of the window, with their place - for the summary and for the pages of the list. */
 export const productsOf = prodsOf;
 

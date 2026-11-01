@@ -45,12 +45,16 @@ import { DimChart } from "@/app/reporting/marketing-kpis/DimChart";
 import { CardFilterFor, ChartBox, FullTable, H1, Leaderboard, TWO, setQuery, type BoardRow, type CardFilter, type Col } from "@/app/reporting/eso-benchmark/Figures";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "@/app/reporting/eso-benchmark/EsoFilters";
 import { pcLabel } from "@/app/reporting/eso-benchmark/shared";
-import { NONE, NO_PC, VDIMS, rateOf, type PLine, type ProductPage, type Sold, type VDim, type VFilters, type VFig, type VMonth, type VRow, type VSummary, type VWin } from "@/lib/products/viewsOrders";
+import { NONE, NO_PC, VDIMS, rateOf, type PLine, type ProductPage, type Sold, type VDim, type VFilters, type VFig, type VMonth, type VRow, type VSummary, type VWin, type VisitsFunnel } from "@/lib/products/viewsOrders";
 import { Choices, Facet, FigureCards, MONTHS, MONTHS_FULL, changeOf, int, pct, plural, points, rateCell, signedInt, signedPct, textCell, tone, withChangeCell, type Fig } from "./kit";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
-type Answer = { state: { computing: boolean; progress: string | null; error: string | null }; summary: VSummary | null; filters?: VFilters; articlesBuilt?: string | null };
+type Answer = {
+  state: { computing: boolean; progress: string | null; error: string | null }; summary: VSummary | null; filters?: VFilters; articlesBuilt?: string | null;
+  /** GA4's visits at each step of the shop, the window's months (the Funnel tab) */
+  visits?: { funnel: VisitsFunnel | null; computing: boolean; error: string | null };
+};
 
 /** The filters as the address and the reads carry them: "&pc=DT&group=…&sold=not" - one level left out when `skip` names it. */
 const filterQs = (f: VFilters, skip?: VDim) => [
@@ -95,6 +99,7 @@ const FOCUS: Record<View, Focus> = { funnel: "period", pc: "pc", hierarchy: "gro
 
 type Ctx = {
   s: VSummary; filters: VFilters;
+  visits: Answer["visits"] | null;
   /** "Jan – Oct 2026", and the same months a year earlier */
   per: string; perPy: string;
   /** a bar or a row: show only it (again: let it go) */
@@ -321,20 +326,59 @@ function MonthCharts({ c }: { c: Ctx }) {
 
 /* ── the tabs: one card that follows each ──────────────────────────────── */
 
-/** From the product viewed to the order (SARCLA 01.11.2026: "a funnel diagram in each of the sub topic"): the products whose
- *  page was opened, and those of them with an article bought online in the same months - the same months a year earlier
- *  beside it. One unit, products: the page views are written under the first step. */
-function ViewsFunnel({ c }: { c: Ctx }) {
-  const f = c.s.figures;
-  if (c.filters.sold) return <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>The funnel shows both sides - clear &quot;Bought online&quot; in the Filters to see it.</Typography>;
-  if (!f.products) return <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>No product page viewed in these months under these filters.</Typography>;
+/* ── the funnel: the visits through the shop ───────────────────────────── */
+
+// SARCLA 01.11.2026 on the first funnel (151 products viewed, 89 bought): "data can't be accurate, it's too simple, only one
+// graph". Products are the wrong unit for a funnel - a product page is a family of sizes, and only an eighth of GA4's
+// view_item are product pages - so the funnel is GA4's visits at each step of the shop, the same months a year earlier beside
+// it, and under it the steps month by month and all the figures. A visit is no product's, so it follows the months only.
+const STEPS = ["Visits", "Saw articles", "Put in the cart", "Began the check-out", "Ordered"] as const;
+type FRow = { label: string; month: number; cy: number[]; py: number[] };
+const shareOf = (xs: number[], i: number) => (xs[0] ? xs[i] / xs[0] : null);
+
+function VisitsFunnelCard({ c }: { c: Ctx }) {
+  const v = c.visits, f = v?.funnel;
+  if (!f) return (
+    <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>
+      {v?.computing || !v ? "Reading GA4's visits at each step of the shop - a minute." : v.error ? `GA4's visits could not be read: ${v.error}` : "GA4 gave no visit for these months."}
+    </Typography>
+  );
+  const y = c.s.year;
+  const before = (i: number) => (f.py[0] ? { share: shareOf(f.py, i), words: `in ${y - 1}` } : null);
+  const rows: FRow[] = f.months.map((m) => ({ label: MONTHS[m.month], month: m.month, cy: m.cy, py: m.py }));
+  const narrowed = VDIMS.some((d) => c.filters[d]?.length) || !!c.filters.sold;
+  const cols: Col<FRow>[] = [
+    ...STEPS.map((name, i): Col<FRow> => ({ key: `s${i}`, head: name, cell: (r) => withChangeCell(int(r.cy[i]), r.cy[i], r.py[i]), sort: (r) => r.cy[i] })),
+    { key: "cart", head: "Saw → cart", tip: "The visits that saw articles and put one in the cart", cell: (r) => rateCell(r.cy[1] ? r.cy[2] / r.cy[1] : null, r.py[1] ? r.py[2] / r.py[1] : null), sort: (r) => (r.cy[1] ? r.cy[2] / r.cy[1] : 0) },
+    { key: "buy", head: "Cart → order", tip: "The visits that put something in the cart and ordered", cell: (r) => rateCell(r.cy[2] ? r.cy[4] / r.cy[2] : null, r.py[2] ? r.py[4] / r.py[2] : null), sort: (r) => (r.cy[2] ? r.cy[4] / r.cy[2] : 0) },
+    { key: "conv", head: "Ordered of the visits", cell: (r) => rateCell(shareOf(r.cy, 4), shareOf(r.py, 4)), sort: (r) => shareOf(r.cy, 4) ?? 0 },
+  ];
+  const rate = (i: number, of: number) => (r: FRow) => (r.cy[of] ? r.cy[i] / r.cy[of] : 0);
+  const ratePy = (i: number, of: number) => (r: FRow) => (r.py[of] ? r.py[i] / r.py[of] : 0);
+  const note = (i: number, of: number) => (r: FRow) => (r.py[of] ? { text: points(rate(i, of)(r), ratePy(i, of)(r)), color: tone(rate(i, of)(r) - ratePy(i, of)(r)) } : null);
   return (
-    <StepFunnel unit={(n) => `${int(n)} ${n === 1 ? "product" : "products"} viewed`} tag="Views against orders" top="of the products viewed"
-      steps={[
-        { label: "Viewed", n: f.products, sub: `${int(f.views)} product page views` },
-        { label: "Bought online", n: f.bought, sub: `${int(f.articles)} of their articles`, color: GREEN, before: f.productsPy ? { share: f.boughtPy / f.productsPy, words: `in ${c.perPy}` } : null },
-      ]}
-      stops={[{ n: f.notBought, label: "viewed, not bought online", mine: true }]} />
+    <>
+      {narrowed && <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: -1 }}>A visit is no product&apos;s: the funnel follows the months only, not the other filters.</Typography>}
+      <StepFunnel unit={(n) => plural(n, "visit")} tag="Views against orders" top="of the visits"
+        steps={STEPS.map((label, i) => ({ label, n: f.cy[i], sub: i === 0 ? `GA4, visitors who accepted cookies` : i === 1 ? "a list or a product page" : undefined, color: i === 4 ? GREEN : undefined, before: i ? before(i) : null }))}
+        stops={[
+          { n: f.cy[0] - f.cy[1], label: "saw no article - another page, or left" },
+          { n: f.cy[1] - f.cy[2], label: "saw articles, put none in the cart", mine: true },
+          { n: f.cy[2] - f.cy[3], label: "left the cart" },
+          { n: f.cy[3] - f.cy[4], label: "began the check-out, did not order" },
+        ]} />
+      <Box sx={TWO}>
+        <DimChart title={`Visits that saw articles and put one in the cart, month by month, ${c.per}`} rows={rows} cur={rate(2, 1)} prev={ratePy(2, 1)} curLabel={String(y)} prevLabel={`${y - 1}, same month`}
+          fmt={(n) => pct(n)} fixedOrder labelWidth={56} curNote={note(2, 1)} onFilter={() => c.onFilter("period")} filterLabel="Filter by period" pageSize={12} />
+        <DimChart title={`Visits that ordered, of all visits, month by month, ${c.per}`} rows={rows} cur={rate(4, 0)} prev={ratePy(4, 0)} curLabel={String(y)} prevLabel={`${y - 1}, same month`}
+          fmt={(n) => pct(n)} fixedOrder labelWidth={56} curNote={note(4, 0)} onFilter={() => c.onFilter("period")} filterLabel="Filter by period" pageSize={12} />
+      </Box>
+      <Wrap c={c} on="period">
+        <ChartBox title={`All the figures, month by month, ${c.per}`} hint={`Each month against the same month of ${y - 1} · GA4's visits at each step of the shop, and the share that went on`}>
+          <FullTable key="table-funnel" first="Month" cols={cols} natural rows={rows} total={{ label: "Whole period", month: -1, cy: f.cy, py: f.py }} />
+        </ChartBox>
+      </Wrap>
+    </>
   );
 }
 
@@ -343,9 +387,9 @@ function TabCard({ c, view, built }: { c: Ctx; view: View; built: string | null 
   const against = `${c.per} against ${c.perPy}`;
   if (view === "funnel") return (
     <GlassCard sx={CARD}>
-      <CardTitle icon={<FilterAltOutlinedIcon />} tint="green" title={`From the product viewed to the order, ${c.per}`}
-        note={`${against} · every product whose page was opened, and those of them with an article bought online in the same months`} />
-      <ViewsFunnel c={c} />
+      <CardTitle icon={<FilterAltOutlinedIcon />} tint="green" title={`From the visit to the order, ${c.per}`}
+        note={`${against} · GA4's visits at each step of the shop - saw articles, put one in the cart, began the check-out, ordered - then month by month`} />
+      <VisitsFunnelCard c={c} />
     </GlassCard>
   );
   if (view === "pc") return (
@@ -579,7 +623,7 @@ export function ViewsOrdersExplorer() {
   if (data?.summary) lastGood.current = data;
   const shown = lastGood.current;
   const c = useMemo<Ctx | null>(() => (shown?.summary ? {
-    s: shown.summary, filters: shown.filters ?? {}, per: perOf(shown.summary), perPy: perOf(shown.summary, 1), onPick: toggle, onFilter: openOn,
+    s: shown.summary, filters: shown.filters ?? {}, visits: shown.visits ?? null, per: perOf(shown.summary), perPy: perOf(shown.summary, 1), onPick: toggle, onFilter: openOn,
   } : null), [shown, toggle, openOn]);
   const stale = held.stale || r === null;
 

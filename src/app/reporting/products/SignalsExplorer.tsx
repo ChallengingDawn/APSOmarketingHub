@@ -50,6 +50,7 @@ import { FilterPanel, FilterSection } from "@/app/reporting/marketing-kpis/Filte
 import { Pager, Table, usePaged, type TableSort } from "@/app/reporting/marketing-kpis/ExplorerKit";
 import { everyWhileSeen } from "@/app/reporting/marketing-kpis/data";
 import { CardFilterFor, ChartBox, FullTable, H1, Leaderboard, TWO, setQuery, type BoardRow, type CardFilter, type Col } from "@/app/reporting/eso-benchmark/Figures";
+import { DimChart } from "@/app/reporting/marketing-kpis/DimChart";
 import { ActiveFilters, PeriodPicker, type ActiveItem } from "@/app/reporting/eso-benchmark/EsoFilters";
 import { pcLabel } from "@/app/reporting/eso-benchmark/shared";
 import { CompaniesFor, type CompanyItem, type CompanySource } from "@/app/reporting/CompanyList";
@@ -57,7 +58,7 @@ import type { SlowState } from "@/lib/integrations/slowReport";
 import { StepFunnel, type FunnelStep } from "./Funnel";
 import {
   AR, CO, FDIMS, LK, articleExtremes, companiesOf, dayWords, funnelOf, groupBy, looksOf, pathOf, periodById, periodsOf, prevWin, rangeWords, statsOf,
-  type FDim, type Funnel, type KindData, type SFilters, type SLook, type SPeriod, type SStats, type SignalKind, type Win,
+  keyOf, type FDim, type Funnel, type KindData, type SFilters, type SLook, type SPath, type SPeriod, type SStats, type SignalKind, type Win,
 } from "@/lib/productSignals/model";
 
 /* ── words and numbers, in full ────────────────────────────────────────── */
@@ -497,6 +498,62 @@ function Warnings({ c }: { c: Ctx }) {
 
 /* ── the funnel ────────────────────────────────────────────────────────── */
 
+// SARCLA 01.11.2026 on the funnels: "it's too simple, only one graph" - under the funnel, each profit centre: the page's own
+// stop as a share of the step it stops (the days before beside it), and every step in a table - a click shows only it.
+const STEP_OF: Record<SignalKind, { stop: keyof Funnel["stopped"]; of: (f: Funnel) => number; words: string }> = {
+  availability: { stop: "shelf", of: (f) => f.looked, words: "Stopped at the shelf, of those looked at" },
+  moq: { stop: "moq", of: (f) => f.typed, words: "Asked for fewer than the minimum, of those that typed a quantity" },
+  price: { stop: "price", of: (f) => f.minimum, words: "Saw the price and left, of those that met the minimum" },
+};
+type PRow = { label: string; key: string; f: Funnel; p: Funnel | null };
+function FunnelByPc({ c }: { c: Ctx }) {
+  const rows = useMemo(() => {
+    const split = (rows: SPath[]) => { const m = new Map<string, SPath[]>(); for (const r of rows) { const k = keyOf(c.d, r, "pc"); const a = m.get(k); if (a) a.push(r); else m.set(k, [r]); } return m; };
+    const now = split(pathOf(c.d, c.per.win, c.filters, "pc"));
+    const before = c.prev ? split(pathOf(c.d, c.prev, c.filters, "pc")) : null;
+    return [...now.entries()].map(([key, rs]): PRow => ({ key, label: labelOf(c.names, "pc", key), f: funnelOf(rs), p: before?.has(key) ? funnelOf(before.get(key)!) : before ? funnelOf([]) : null }))
+      .sort((a, b) => b.f.looked - a.f.looked);
+  }, [c]);
+  const back = new Map(rows.map((r) => [r.label, r.key]));
+  const own = STEP_OF[c.kind];
+  const ownRate = (f: Funnel | null) => { const of = f ? own.of(f) : 0; return f && of ? f.stopped[own.stop] / of : 0; };
+  const share = (n: number, f: Funnel) => (f.looked ? n / f.looked : null);
+  const rateCell = (a: number | null, b: number | null) => (
+    <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.25 }}>
+      {pct(a)}
+      {b != null && a != null && <Box component="span" sx={{ fontSize: "0.74rem", fontWeight: 700, color: Math.abs(a - b) < 0.0005 ? FAINT : a > b ? GREEN : RED }}>{`${a - b > 0 ? "+" : a - b < 0 ? "−" : "±"}${Math.abs((a - b) * 100).toFixed(1)} pts`}</Box>}
+    </Box>
+  );
+  const step = (key: string, head: string, n: (f: Funnel) => number): Col<PRow> => ({
+    key, head, tip: `Of those looked at${c.prev ? ` - under it the change in points against ${prevLine(c)}` : ""}`,
+    cell: (r) => rateCell(share(n(r.f), r.f), r.p && r.p.looked ? share(n(r.p), r.p) : null), sort: (r) => share(n(r.f), r.f) ?? 0,
+  });
+  const cols: Col<PRow>[] = [
+    { key: "looked", head: "Looked at", tip: c.prev ? `${periodLine(c)} - under it the change against ${prevLine(c)}` : periodLine(c), cell: (r) => withChangeCell(int(r.f.looked), r.f.looked, r.p ? r.p.looked : null), sort: (r) => r.f.looked },
+    step("stock", "In stock", (f) => f.inStock), step("typed", "Quantity typed", (f) => f.typed), step("minimum", "Minimum met", (f) => f.minimum),
+    step("cart", "In the cart", (f) => f.cart), step("ordered", "Ordered", (f) => f.ordered),
+    { key: "own", head: c.w.title, tip: own.words, cell: (r) => <b style={{ color: RED }}>{pct(ownRate(r.f))}</b>, sort: (r) => ownRate(r.f) },
+  ];
+  const total = funnelOf(pathOf(c.d, c.per.win, c.filters, "pc"));
+  const totalP = c.prev ? funnelOf(pathOf(c.d, c.prev, c.filters, "pc")) : null;
+  return (
+    <>
+      <Box sx={TWO}>
+        <DimChart title={`${own.words}, by profit centre`} rows={rows} cur={(r) => ownRate(r.f)} prev={(r) => ownRate(r.p)} curLabel={periodLine(c)} prevLabel={c.prev ? prevLine(c) : ""}
+          single={!c.prev} fmt={(n) => pct(n)} labelWidth={150} selected={chosenLabels(c, "pc")} onPick={(l) => c.onPick("pc", back.get(l) ?? l)}
+          onFilter={() => c.onFilter("pc")} filterLabel="Filter by profit centre" curColor={RED} />
+        <DimChart title="Ordered, of those looked at, by profit centre" rows={rows} cur={(r) => (r.f.looked ? r.f.ordered / r.f.looked : 0)} prev={(r) => (r.p && r.p.looked ? r.p.ordered / r.p.looked : 0)}
+          curLabel={periodLine(c)} prevLabel={c.prev ? prevLine(c) : ""} single={!c.prev} fmt={(n) => pct(n)} labelWidth={150} selected={chosenLabels(c, "pc")}
+          onPick={(l) => c.onPick("pc", back.get(l) ?? l)} onFilter={() => c.onFilter("pc")} filterLabel="Filter by profit centre" curColor={GREEN} />
+      </Box>
+      <ChartBox title="The funnel by profit centre" hint={`${periodLine(c)}${c.prev ? ` against ${prevLine(c)}` : ""} · each profit centre's looks and the share of them at each step - a click on a heading sorts by it, a click on a row shows only it`}>
+        <FullTable key="table-funnel" first="Profit centre" cols={cols} initial="looked" rows={rows} tint="purple" selected={chosenLabels(c, "pc")} onPick={(l) => c.onPick("pc", back.get(l) ?? l)}
+          total={{ label: "Total", key: "", f: total, p: totalP }} />
+      </ChartBox>
+    </>
+  );
+}
+
 const STOP: Record<SignalKind, keyof Funnel["stopped"]> = { availability: "shelf", price: "price", moq: "moq" };
 /** Every article a signed-in customer opened - one company, one article, one day - step by step to the order: in stock, a
  *  quantity typed, the minimum met, in the cart, ordered that day. Each stops at the first step it fails, as Engage's
@@ -538,6 +595,7 @@ function TabCard({ c, view }: { c: Ctx; view: View }) {
       <CardTitle icon={<FilterAltOutlinedIcon />} tint={c.w.tint} title="From the article opened to the order"
         note={`${against} · every article a signed-in customer opened - one company, one article, one day - step by step; each stops at the first step it fails, ${c.w.title.toLowerCase()} in red`} />
       <PathFunnel c={c} />
+      {c.d.path && <FunnelByPc c={c} />}
       <Warnings c={c} />
     </GlassCard>
   );

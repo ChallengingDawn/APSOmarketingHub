@@ -6,7 +6,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { productPlaces, viewsSource } from "@/lib/products/viewsOrdersRead";
-import { summaryOf, vFiltersOf, type VSummary } from "@/lib/products/viewsOrders";
+import { clampWin, summaryOf, vFiltersOf, visitsFunnelOf, type VSummary } from "@/lib/products/viewsOrders";
+import { visitsFunnelSource } from "@/lib/products/visitsFunnelRead";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +36,11 @@ export async function GET(req: NextRequest) {
       if (kept.size >= 40) kept.delete(kept.keys().next().value!);
       kept.set(key, summary);
     }
-    return NextResponse.json({ configured: true, ok: true, data: { state: wait, summary, filters, articlesBuilt: generated } });
+    // the visits' funnel: GA4's visits at each step of the shop, the window's months - a read of its own, never in the way
+    const vf = await visitsFunnelSource().catch((e) => ({ value: undefined, computing: false, error: String((e as Error)?.message ?? e) }));
+    const visits = vf.value ? visitsFunnelOf(d.months ?? {}, vf.value.months, d.year, clampWin(d.monthsDone, win)) : null;
+    return NextResponse.json({ configured: true, ok: true, data: { state: wait, summary, filters, articlesBuilt: generated,
+      visits: { funnel: visits, computing: !!vf.computing, error: vf.error ?? null } } });
   } catch (e) {
     return NextResponse.json({ ok: false, error: String((e as Error)?.message ?? e) }, { status: 500 });
   }
