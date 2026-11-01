@@ -47,7 +47,7 @@ export function SummitMountain({ s, width, height, labels = false }: { s: Summit
   // before the figures arrive - or if they cannot be read - the quiet range the card always had
   if (!s || !s.base) {
     return (
-      <Box aria-hidden component="svg" viewBox="0 0 260 120" sx={{ width: W, height: "auto", display: "block" }}>
+      <Box aria-hidden component="svg" viewBox="0 0 260 120" sx={{ width: "100%", maxWidth: W, height: "auto", maxHeight: H, display: "block", ml: "auto" }}>
         <defs>
           <linearGradient id={`m1${uid}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#c7b8fb" /></linearGradient>
           <linearGradient id={`m2${uid}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#7aa7f5" /><stop offset="100%" stopColor="#b9d2fa" /></linearGradient>
