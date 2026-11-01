@@ -1,8 +1,8 @@
 "use client";
 // SETTINGS > HIERARCHY - who reports to whom, and in which unit, for every HubSpot owner (SARCLA 01.11.2026: "bring another
 // sub-app to Settings to define the hierarchy - keep the existing; Back Office is under Rose, Italy is Luca as sales
-// leader, also reporting directly to Alexandre, the CEO"). Drawn as the tree it makes; each row's unit and manager set in
-// place. What is not set keeps what the hub knew before (the rosters, HubSpot's teams, Map assignment's line managers).
+// leader, also reporting directly to Alexandre, the CEO"). Drawn as a tree, top down (./OrgChart.tsx), or as a list with
+// each row's unit and manager set in place. What is not set keeps what the hub knew before (the rosters, HubSpot's teams, Map assignment's line managers).
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -17,6 +17,8 @@ import SearchIcon from "@mui/icons-material/Search";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED } from "@/app/uc/report/ui";
+import { ReportTabs } from "@/app/uc/report/Tabs";
+import { OrgChart, type Move } from "./OrgChart";
 import { effective, under, type Hierarchy } from "@/lib/hierarchy/rules";
 import type { HierarchyPerson } from "@/lib/hierarchy/store";
 
@@ -30,6 +32,8 @@ export default function HierarchyPage() {
   const [inactive, setInactive] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [newUnit, setNewUnit] = useState("");
+  // the tree, top down (SARCLA 01.11.2026: "I want to see it as a hierarchy tree ... like a top-down diagram"), or the list
+  const [view, setView] = useState<"tree" | "list">("tree");
   useEffect(() => {
     fetch("/api/settings/hierarchy").then((r) => r.json())
       .then((j: Data) => { if (j.ok) setD(j); else setError(j.error ?? "The hierarchy could not be read."); })
@@ -71,6 +75,9 @@ export default function HierarchyPage() {
     } finally { setBusy(null); }
   };
 
+  const move = (moves: Move[]) => put({ moves }, "moves");
+  const setUnit = (ownerId: string, unit: string | null | "inherit") => put({ ownerId, unit }, `${ownerId}:unit`);
+
   if (!d) {
     return (
       <Box sx={{ px: { xs: 2, sm: 2.5, md: 3, lg: 4 }, py: { xs: 2.5, md: 3 } }}>
@@ -110,6 +117,14 @@ export default function HierarchyPage() {
           </Box>
         </Box>
         {error && <Typography sx={{ fontSize: "0.82rem", color: RED }}>{error}</Typography>}
+        <Box sx={{ justifySelf: "start" }}>
+          <ReportTabs name="hierarchy-view" tab={view} onSelect={setView} tabs={[{ id: "tree", label: "Tree", count: null }, { id: "list", label: "List", count: null }]} />
+        </Box>
+        {view === "tree" && (
+          <OrgChart people={d.people.filter(shown)} placed={placed} saved={d.saved} seed={d.seed} units={units} q={q} busy={busy !== null}
+            onMove={move} onUnit={setUnit} />
+        )}
+        {view === "list" && <>
         <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 190px 240px", columnGap: 1.5, alignItems: "center" }}>
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.06em", py: 0.75 }}>Person</Typography>
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.06em" }}>Unit</Typography>
@@ -152,6 +167,7 @@ export default function HierarchyPage() {
           })}
         </Box>
         {rows.length === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Nobody matches.</Typography>}
+        </>}
         <Box><Button size="small" onClick={() => { setQ(""); setInactive(false); }} sx={{ textTransform: "none", display: q || inactive ? "inline-flex" : "none" }}>Clear</Button></Box>
       </GlassCard>
     </Box>

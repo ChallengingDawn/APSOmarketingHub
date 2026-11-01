@@ -28,12 +28,33 @@ export async function GET() {
   }
 }
 
-/** { ownerId, manager?, unit? } - an owner id or null (none), "inherit" back to what was known before; or { units }. */
+/**
+ * { ownerId, manager?, unit? } - an owner id or null (none), "inherit" back to what was known before; or { units }; or
+ * { moves: [{ ownerId, manager }] } - several people under a new manager at once (a team handed over, SARCLA 01.11.2026:
+ * "where you can change person and leader"), each checked against the tree as the moves before it left it.
+ */
 export async function PUT(req: NextRequest) {
   const gate = await admin();
   if (gate.error) return gate.error;
-  const b = (await req.json().catch(() => ({}))) as { ownerId?: unknown; manager?: unknown; unit?: unknown; units?: unknown };
+  const b = (await req.json().catch(() => ({}))) as { ownerId?: unknown; manager?: unknown; unit?: unknown; units?: unknown; moves?: unknown };
   try {
+    if (b.moves !== undefined) {
+      if (!Array.isArray(b.moves) || b.moves.length > 300) return NextResponse.json({ ok: false, error: "The moves are missing." }, { status: 400 });
+      const h = await hierarchyNow();
+      const ids = new Set(h.people.map((p) => p.id));
+      const saved = { ...h.saved }, placed = { ...h.placed };
+      for (const m of b.moves as { ownerId?: unknown; manager?: unknown }[]) {
+        const id = String(m?.ownerId ?? ""), to = m?.manager === null ? null : String(m?.manager ?? "");
+        if (!ids.has(id) || (to !== null && !ids.has(to))) return NextResponse.json({ ok: false, error: "No such HubSpot owner." }, { status: 400 });
+        if (to !== null && wouldLoop(placed, id, to)) return NextResponse.json({ ok: false, error: "That would put someone under a person who reports to them." }, { status: 400 });
+        saved[id] = { ...(saved[id] ?? {}), manager: to };
+        placed[id] = { ...(placed[id] ?? { unit: null }), manager: to };
+      }
+      await saveHierarchy(saved);
+      await query(`INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`,
+        [gate.user!.username, "hierarchy.moves", JSON.stringify(b.moves)]).catch(() => { /* never fail the change because the log did */ });
+      return NextResponse.json({ ok: true, saved });
+    }
     if (b.units !== undefined) {
       if (!Array.isArray(b.units) || !b.units.every((x) => typeof x === "string")) return NextResponse.json({ ok: false, error: "The units are missing." }, { status: 400 });
       await saveUnits(b.units as string[]);
