@@ -204,7 +204,7 @@ function Typing({ c }: { c: Ctx }) {
     <ChartBox title="Still being typed?"><Typography sx={{ fontSize: "0.86rem", color: FAINT }}>{c.d.errors.sample ? `The last searches could not be read: ${c.d.errors.sample}` : "No search read yet."}</Typography></ChartBox>
   );
   const x = sampleIn(s, c.stores);
-  const real = x.nothing - x.typing;
+  const real = x.nothing - x.typing - x.have;
   const line = (label: string, value: string, note: string, strong = false) => (
     <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: 1.25, alignItems: "baseline", py: 0.7, borderBottom: `1px solid ${HAIRLINE}` }}>
       <Box sx={{ minWidth: 0 }}>
@@ -221,6 +221,7 @@ function Typing({ c }: { c: Ctx }) {
           {line("Searches", int(x.settled), "Settled by the bar's own rule - the rule of the figures on top")}
           {line("Found nothing", `${int(x.nothing)} · ${pct(x.settled ? x.nothing / x.settled : null)}`, "By the bar's own rule - the rule of the Found nothing on top")}
           {line("Of them, still being typed", int(x.typing), "The same store, within a minute, a longer or a shorter text that starts the same - \"haltegri\" before \"haltegriff\"")}
+          {line("Of them, a product we have", int(x.have), "The same text found something at other times since the bar went live - \"pom\", \"ptfe\": not a product we miss")}
           {line("Really found nothing", `${int(real)} · ${pct(x.settled ? real / x.settled : null)}`, "A number we do not know, a word not learned, a code, pasted text - below by kind", true)}
         </Box>
       </ChartBox>
@@ -240,7 +241,8 @@ function cutLabels(rows: GapRow[]): GRow[] {
   });
 }
 function Nothing({ c }: { c: Ctx }) {
-  const terms = typedIn(c.d.terms, c.stores);
+  const never = c.d.never ?? { rows: [], from: "top" as const, have: 0, hidden: 0 };
+  const terms = typedIn(never.rows, c.stores);
   const s = c.d.sample;
   const x = s ? sampleIn(s, c.stores) : null;
   const kinds = x ? (Object.keys(SEARCH_KINDS) as SearchKind[]).map((k) => ({ label: KIND_SHORT[k], n: x.kinds[k] })) : [];
@@ -257,9 +259,9 @@ function Nothing({ c }: { c: Ctx }) {
   return (
     <>
       <Box sx={{ ...TWO, mt: -1 }}>
-        <TermBoard c={c} title={`The terms that found nothing most, ${c.per}`} rows={[...terms].sort((a, b) => b.nothing - a.nothing)} cur={(r) => r.nothing}
-          sub={(r) => `of ${plural(r.searches, "search", "searches")} · ${storesWords(r.stores)}`}
-          summary={<span style={{ fontWeight: 500, color: MUTED }}>Of the {int(c.d.terms.length)} terms searched most{c.stores.length ? " - every store's counts" : ""}</span>} />
+        <TermBoard c={c} title={`The terms that never found anything, ${c.per}`} rows={terms} cur={(r) => r.searches}
+          sub={(r) => `${KIND_SHORT[r.kind]} · ${storesWords(r.stores)}`}
+          summary={<span style={{ fontWeight: 500, color: MUTED }}>{never.from === "top" ? `Of the ${int(c.d.terms.length)} terms searched most · ` : ""}{plural(never.have, "term")} that found something at other times left out - we have {never.have === 1 ? "it" : "them"}{c.stores.length ? " · every store's counts" : ""}</span>} />
         <Typing c={c} />
       </Box>
       <Box sx={TWO}>
@@ -271,7 +273,7 @@ function Nothing({ c }: { c: Ctx }) {
       </Box>
       <Wrap c={c} on="store">
         <ChartBox title={`Passed to the AI - the bar could not place it, ${gw}`}
-          hint={`Each text the bar handed to its AI, the times and the last day it was typed${c.stores.length ? ` · typed in ${onlyStores(c)} - every store's times` : ""} · the bar keeps this list for 7 or 30 days only${c.d.gaps?.hidden ? ` · ${plural(c.d.gaps.hidden, "text")} not shown - it may be a password or an e-mail` : ""}`}>
+          hint={`Each text the bar handed to its AI, the times and the last day it was typed${c.stores.length ? ` · typed in ${onlyStores(c)} - every store's times` : ""} · the bar keeps this list for 7 or 30 days only${c.d.gaps?.have ? ` · ${plural(c.d.gaps.have, "text")} that found something at other times left out - we have it` : ""}${c.d.gaps?.hidden ? ` · ${plural(c.d.gaps.hidden, "text")} not shown - it may be a password or an e-mail` : ""}`}>
           {!c.d.gaps ? <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>{c.d.errors.gaps ? `The list could not be read: ${c.d.errors.gaps}` : "Not read."}</Typography>
             : gaps.length ? <FullTable key="gaps" first="Text as typed" cols={gapCols} initial="count" rows={gaps} tint="amber" find="a text" />
               : <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nothing passed to the AI in these stores.</Typography>}
@@ -299,7 +301,7 @@ const TAB_HEAD: Record<View, { icon: React.ReactNode; tint: Tint; title: string;
   months: { icon: <DateRangeOutlinedIcon />, tint: "blue", title: "Searches month by month", note: "each month's searches and those that found nothing, then all the figures" },
   stores: { icon: <TranslateOutlinedIcon />, tint: "green", title: "Searches by language and store", note: "each store's searches and those that found nothing - a click shows only it" },
   terms: { icon: <FormatListNumberedIcon />, tint: "purple", title: "What customers search for", note: "the words, numbers and codes searched most, then every term of the top list" },
-  nothing: { icon: <SearchOffOutlinedIcon />, tint: "pink", title: "The searches that found nothing - the products we miss", note: "the terms that found nothing most, how much of it was still being typed, what really found nothing, and the texts the bar handed to its AI" },
+  nothing: { icon: <SearchOffOutlinedIcon />, tint: "pink", title: "The searches that found nothing - the products we miss", note: "the terms that never found anything, how much was still being typed or a product we have, what really found nothing, and the texts the bar handed to its AI - a text that found something at other times is one we have, left out" },
 };
 function TabCard({ c, view }: { c: Ctx; view: View }) {
   const h = TAB_HEAD[view];

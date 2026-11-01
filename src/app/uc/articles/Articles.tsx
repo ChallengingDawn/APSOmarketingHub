@@ -404,23 +404,6 @@ function ProductTable({ c }: { c: Ctx }) {
 
 /* ── the tabs: one card that follows each ──────────────────────────────── */
 
-function Footnote({ c }: { c: Ctx }) {
-  const { meta: m } = c;
-  const twice = m.documentsBasis.totalCy - c.x.figures.revCy;
-  return (
-    <Typography sx={{ fontSize: "0.76rem", color: FAINT, lineHeight: 1.5 }}>
-      Year to date: every order from 1 January to {dm(m)} {m.cy} against the same days of {m.ly} - each order counted once, as placed or as delivered where that is more
-      {m.documentsBasis.totalCy && !Object.keys(c.filters).length ? ` (summed document by document, as the old report did, ${m.cy} would read ${eur(m.documentsBasis.totalCy)}${twice > 0 ? `, ${eur(twice)} of it counted twice` : ""})` : ""}.
-      {" "}Built {m.generated.slice(0, 16).replace("T", " ")} UTC from {int(m.ordersRead)} order documents, once a day after the night&apos;s orders.
-      {" "}Only the year to date: the report adds the year up as it goes and keeps no months, so there is no other period to pick.
-      {" "}Articles sold: articles with an order line; credit notes and fees (accounting lines) count in the revenue, not as articles.
-      {" "}Profit centre: the order line&apos;s, else Products &amp; Pricing&apos;s{m.hierarchy ? "; main group, sub group and product: Products & Pricing's - an article it does not know (made to order, an old internal id) has none" : ""}.
-      {m.buyers ? " Companies: the customer number on the order, found in HubSpot by that number - a line without one counts in the revenue, on no company." : " The companies behind each graph come with the next build of the report."}
-      {m.hierarchy ? "" : " The product hierarchy comes with the next build of the report."}
-    </Typography>
-  );
-}
-
 const CARD = { display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" } as const;
 function TabCard({ c, view }: { c: Ctx; view: View }) {
   const m = c.meta;
@@ -438,7 +421,6 @@ function TabCard({ c, view }: { c: Ctx; view: View }) {
           <BucketTable c={c} dim="pc" />
         </ChartBox>
       </Wrap>
-      <Footnote c={c} />
     </GlassCard>
   );
   if (view === "hierarchy") return (
@@ -447,7 +429,7 @@ function TabCard({ c, view }: { c: Ctx; view: View }) {
         note={`${against} · Products & Pricing's main group, sub group and product - a click on one shows only it, and the levels under it follow`} />
       {!m.hierarchy ? (
         <Typography sx={{ fontSize: "0.86rem", color: MUTED, lineHeight: 1.5 }}>
-          This report was built before it read the product hierarchy. The next build - after tonight&apos;s orders, or Rebuild now - reads every article&apos;s main group, sub group and product from Products &amp; Pricing.
+          This report was built before it read the product hierarchy. The next build reads every article&apos;s main group, sub group and product from Products &amp; Pricing - it starts by itself, or press Rebuild now.
         </Typography>
       ) : (
         <>
@@ -467,7 +449,6 @@ function TabCard({ c, view }: { c: Ctx; view: View }) {
           <ProductTable c={c} />
         </>
       )}
-      <Footnote c={c} />
     </GlassCard>
   );
   return (
@@ -479,7 +460,6 @@ function TabCard({ c, view }: { c: Ctx; view: View }) {
         <MoverBoard c={c} which="flop" />
       </Box>
       <ArticleList c={c} />
-      <Footnote c={c} />
     </GlassCard>
   );
 }

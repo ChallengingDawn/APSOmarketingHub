@@ -5,7 +5,7 @@
 import { DOOR_KEY, isSandbox } from "../sandbox/mode";
 
 export async function callGateway<T>(base: string, key: string | null, path: string,
-  init: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<T> {
+  init: { method?: string; body?: unknown; timeoutMs?: number; text?: boolean } = {}): Promise<T> {
   if (!key) throw new Error("SMART_BAR_ADMIN_TOKEN is not set on the hub");
   const res = await fetch(`${base}${path}`, {
     method: init.method ?? "GET",
@@ -21,7 +21,8 @@ export async function callGateway<T>(base: string, key: string | null, path: str
     const said = body && typeof body === "object" && "error" in body ? String((body as { error: unknown }).error) : text.slice(0, 160);
     throw Object.assign(new Error(res.status === 401 ? "The gateway refused the hub's key (SMART_BAR_ADMIN_TOKEN differs)" : `The gateway answered ${res.status}: ${said}`), { status: res.status });
   }
-  return body as T;
+  // a CSV export is read as it comes
+  return (init.text ? text : body) as T;
 }
 
 /** The key from the hub's environment, or null. */

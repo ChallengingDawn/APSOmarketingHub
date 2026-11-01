@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  foundRule, gapsOf, isPrivate, monthsOfDays, periodOf, sampleIn, settledOf, storeLabel, storesIn, termsOf, typedIn, typingSample, type LogLine,
+  foundRule, fullTermsOf, gapsOf, haveOf, isPrivate, monthsOfDays, neverOf, periodOf, sampleIn, settledOf, storeLabel, storesIn, termKey, termsOf, typedIn, typingSample, type LogLine,
 } from "../src/lib/products/siteSearch";
 
 // SARCLA 01.11.2026 on Products Reports: "we should really create subtabs" - his pick "Search": what customers search for, the
@@ -109,4 +109,39 @@ test("month by month from the report's days, a month held in part with its first
   const rows = [{ locale: "de-CH", searches: 100, ok: 80 }, { locale: "fr-CH", searches: 50, ok: 30 }];
   assert.deepEqual(storesIn(rows, []), { searches: 150, ok: 110 });
   assert.deepEqual(storesIn(rows, ["fr-CH"]), { searches: 50, ok: 30 });
+});
+
+test("we have it (SARCLA 01.11.2026: \"you should exclude the one we have and should find\"): a text that found something at other times is no product we miss", () => {
+  // the gateway's CSV export as it comes: a BOM, three lines before the columns, every field quoted, a quote doubled, a text over two lines
+  const csv = "\uFEFF" + [
+    `"Smart Bar search report";"last 120 days";"generated 2026-11-01T18:00:00Z"`, `"Settled searches";"2000";"success 80%"`, "",
+    `"query";"searches";"success_pct";"avg_results";"locales"`,
+    `"pom";"877";"96";"40";"de-CH fr-CH"`, `"stopfen";"123";"60";"12";"de-AT de-CH"`, `"gasfeder";"40";"0";"0";"de-DE"`,
+    `"pa 6";"53";"21";"5";"de-CH"`, `"2"" kugelhahn";"9";"0";"0";"de-CH"`, `"bitte\nhelfen";"2";"0";"0";"de-CH"`, `"max@firma.ch";"3";"0";"0";"de-CH"`,
+  ].join("\r\n");
+  const all = fullTermsOf(csv)!;
+  assert.deepEqual(all.map((t) => t.query), ["pom", "stopfen", "gasfeder", "pa 6", "2\" kugelhahn", "bitte\nhelfen", "max@firma.ch"]);
+  assert.equal(fullTermsOf("<html>not the list</html>"), null);
+  // since the bar went live "Dichtung" found something; in this window it did not
+  const have = haveOf([...all, { query: "Dichtung", success_pct: 4 }]);
+  const window = [...all, { query: "dichtung", searches: 35, success_pct: 0, avg_results: 0, locales: "de-CH" }];
+  const n = neverOf(window, have);
+  assert.deepEqual(n.rows.map((r) => [r.term, r.searches, r.nothing]), [["gasfeder", 40, 40], ["2\" kugelhahn", 9, 9], ["bitte helfen", 2, 2]]);
+  assert.equal(n.hidden, 1);
+  assert.equal(n.have, 4);                                   // pom, stopfen, pa 6 - and dichtung, found nothing here, something before
+  assert.equal(termKey("  PA   6 "), "pa 6");
+  // the last searches: a text we have that found nothing is counted apart, never an example
+  const s = typingSample([
+    { text: "POM", norm: "pom", locale: "de-CH", tier: "lexical", hits: 0, at: "2026-10-31T10:00:00.000Z" },
+    { text: "gasfeder", norm: "gasfeder", locale: "de-CH", tier: "lexical", hits: 0, at: "2026-10-31T10:05:00.000Z" },
+  ], (k) => have.has(k))!;
+  const x = sampleIn(s, []);
+  assert.deepEqual([x.settled, x.nothing, x.typing, x.have, x.kinds.words], [2, 2, 0, 1, 1]);
+  assert.deepEqual(s.examples.words.map((e) => e.text), ["gasfeder"]);
+  // the texts passed to the AI: those we have left out, counted
+  const g = gapsOf([
+    { query_norm: "pom", count: 2, last_seen: "2026-10-31T08:00:00Z", locale: "de-CH" },
+    { query_norm: "gasfeder 200n", count: 1, last_seen: "2026-10-31T08:00:00Z", locale: "de-CH" },
+  ], (k) => have.has(k));
+  assert.deepEqual([g.rows.map((r) => r.term), g.have], [["gasfeder 200n"], 1]);
 });

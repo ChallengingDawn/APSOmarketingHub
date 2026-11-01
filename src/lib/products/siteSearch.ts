@@ -17,6 +17,10 @@
 //     stores it was typed in, its count is every store's). The page says so where it matters.
 //   - the log carries no customer, no session, no company: nothing here can name a company.
 //   - the log can hold a password or an e-mail typed into the bar by mistake: such a text is counted, never shown (isPrivate).
+//   - WE HAVE IT (SARCLA 01.11.2026 on "The terms that found nothing most" - pom, ptfe, peek, dichtung, stopfen: "you should
+//     exclude the one we have and should find"): a text that found something at least once since the bar went live is a
+//     product we have, so a search of it that found nothing is not a product we miss - the Found nothing tab lists only the
+//     texts that never found anything, and counts the others apart (haveOf, neverOf; the gateway's full list of texts).
 
 import { searchKind, type SearchKind } from "../marketingKpis/engageCube";
 import { countryName } from "../marketingKpis/countries";
@@ -102,13 +106,13 @@ export function settledOf(lines: LogLine[]): LogLine[] {
   return out;
 }
 
-export type StoreSample = { settled: number; nothing: number; typing: number; kinds: Record<SearchKind, number> };
+export type StoreSample = { settled: number; nothing: number; typing: number; have: number; kinds: Record<SearchKind, number> };
 export type TypingSample = {
   /** the first and the last search read */
   from: string; to: string;
   /** the lines read, every keystroke */
   logged: number;
-  /** per store: the settled searches, those that found nothing, of them still being typed, and what the others were */
+  /** per store: the settled searches, those that found nothing, of them still being typed or a text we have, and what the others were */
   byStore: Record<string, StoreSample>;
   /** the texts that really found nothing most often, per kind - never a private one */
   examples: Record<SearchKind, { text: string; n: number; stores: string[] }[]>;
@@ -120,9 +124,10 @@ const kinds0 = (): Record<SearchKind, number> => ({ number: 0, code: 0, words: 0
 /**
  * The last searches one by one (SARCLA 19.10: "is 27% too high?"): of the settled searches that found nothing, those still
  * being typed - the same store, within a minute, a longer or a shorter text that starts the same (the bar's 20-second rule
- * misses a slow typist and a word corrected backwards) - are counted apart; the others are what really found nothing, by kind.
+ * misses a slow typist and a word corrected backwards) - are counted apart, and so are the texts we have (`have`: it found
+ * something at other times); the others are what really found nothing, by kind.
  */
-export function typingSample(lines: LogLine[]): TypingSample | null {
+export function typingSample(lines: LogLine[], have?: (key: string) => boolean): TypingSample | null {
   const all = lines.filter((l) => l.at && !Number.isNaN(Date.parse(l.at)));
   if (!all.length) return null;
   const isOk = foundRule(all);
@@ -135,7 +140,7 @@ export function typingSample(lines: LogLine[]): TypingSample | null {
   const seen: Record<SearchKind, Map<string, { text: string; n: number; stores: Set<string> }>> = { number: new Map(), code: new Map(), words: new Map(), long: new Map() };
   let hidden = 0;
   for (const s of settled) {
-    const st = (byStore[s.locale] ??= { settled: 0, nothing: 0, typing: 0, kinds: kinds0() });
+    const st = (byStore[s.locale] ??= { settled: 0, nothing: 0, typing: 0, have: 0, kinds: kinds0() });
     st.settled++;
     if (isOk(s)) continue;
     st.nothing++;
@@ -150,6 +155,7 @@ export function typingSample(lines: LogLine[]): TypingSample | null {
       if (b !== a && (b.startsWith(a) || a.startsWith(b))) { half = true; break; }
     }
     if (half) { st.typing++; continue; }
+    if (have?.(termKey(s.norm || s.text))) { st.have++; continue; }
     const kind = searchKind(s.text || s.norm);
     st.kinds[kind]++;
     if (isPrivate(s.text) || isPrivate(s.norm)) { hidden++; continue; }
@@ -164,11 +170,11 @@ export function typingSample(lines: LogLine[]): TypingSample | null {
 /** The sample over the stores chosen (none: every store). */
 export function sampleIn(s: TypingSample, stores: string[]): StoreSample & { stores: number } {
   const keys = stores.length ? stores : Object.keys(s.byStore);
-  const out = { settled: 0, nothing: 0, typing: 0, kinds: kinds0(), stores: 0 };
+  const out = { settled: 0, nothing: 0, typing: 0, have: 0, kinds: kinds0(), stores: 0 };
   for (const k of keys) {
     const x = s.byStore[k];
     if (!x) continue;
-    out.stores++; out.settled += x.settled; out.nothing += x.nothing; out.typing += x.typing;
+    out.stores++; out.settled += x.settled; out.nothing += x.nothing; out.typing += x.typing; out.have += x.have ?? 0;
     for (const kind of Object.keys(out.kinds) as SearchKind[]) out.kinds[kind] += x.kinds[kind];
   }
   return out;
@@ -196,19 +202,71 @@ export function termsOf(top: { query: string; searches: number; success_pct: num
   return { rows, hidden };
 }
 
-/** The gateway's gaps: the raw text as typed (the last one), the private ones out (counted). */
-export function gapsOf(gaps: { query_norm: string; count: number; last_seen: string; locales?: string[]; locale?: string; reason?: string; top_query_raw?: string }[]): { rows: GapRow[]; hidden: number } {
-  let hidden = 0;
+/** The gateway's gaps: the raw text as typed (the last one), the private ones out (counted), and those we have (counted). */
+export function gapsOf(gaps: { query_norm: string; count: number; last_seen: string; locales?: string[]; locale?: string; reason?: string; top_query_raw?: string }[], have?: (key: string) => boolean): { rows: GapRow[]; hidden: number; have: number } {
+  let hidden = 0, had = 0;
   const rows: GapRow[] = [];
   for (const g of gaps ?? []) {
     const text = String(g.top_query_raw || g.query_norm || "");
     if (isPrivate(text) || isPrivate(g.query_norm)) { hidden++; continue; }
+    if (have?.(termKey(g.query_norm || text))) { had++; continue; }
     rows.push({
       term: shown(text), count: g.count, last: String(g.last_seen ?? "").slice(0, 10),
       stores: (g.locales?.length ? g.locales : g.locale ? [g.locale] : []).filter(Boolean).sort(), kind: searchKind(text), failed: !!g.reason && g.reason !== "assistant_fallthrough",
     });
   }
-  return { rows, hidden };
+  return { rows, hidden, have: had };
+}
+
+/* ── the texts we have ─────────────────────────────────────────────────── */
+
+/** The key a text is matched on: the gateway's own (lower case, trimmed), one space between words. */
+export const termKey = (text: string) => String(text ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+
+/** A text of the gateway's full list (GET /api/smart-bar/report.csv?kind=all): every text searched in the window. */
+export type FullTerm = { query: string; searches: number; success_pct: number; avg_results: number; locales: string };
+
+/** The gateway's CSV read back - semicolons, every field quoted, a BOM and three lines before the columns. Null when it is not that list. */
+export function fullTermsOf(csv: string): FullTerm[] | null {
+  const rows = csvRows(String(csv ?? "").replace(/^\uFEFF/, ""));
+  const h = rows.findIndex((r) => r[0] === "query" && r[1] === "searches");
+  if (h < 0) return null;
+  return rows.slice(h + 1).filter((r) => r.length >= 5 && r[0])
+    .map((r) => ({ query: r[0], searches: Number(r[1]) || 0, success_pct: Number(r[2]) || 0, avg_results: Number(r[3]) || 0, locales: r[4] }));
+}
+function csvRows(s: string): string[][] {
+  const out: string[][] = [];
+  let row: string[] = [], f = "", quoted = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (quoted) {
+      if (ch !== '"') f += ch;
+      else if (s[i + 1] === '"') { f += '"'; i++; } else quoted = false;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ";") { row.push(f); f = ""; }
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && s[i + 1] === "\n") i++;
+      row.push(f); out.push(row); row = []; f = "";
+    } else f += ch;
+  }
+  if (f || row.length) { row.push(f); out.push(row); }
+  return out;
+}
+
+/** The texts that found something at least once - we have them. */
+export function haveOf(terms: { query: string; success_pct: number }[]): Set<string> {
+  return new Set(terms.filter((t) => (t.success_pct ?? 0) > 0).map((t) => termKey(t.query)));
+}
+
+/**
+ * The texts of the window that never found anything - and never did since the bar went live (`have`) - searched most first:
+ * the products we miss. `have` counts the window's texts that found nothing at times and something at others, left out.
+ */
+export function neverOf(terms: FullTerm[], have: Set<string>, max = 100): { rows: TermRow[]; hidden: number; have: number } {
+  const never = terms.filter((t) => (t.success_pct ?? 0) === 0 && !have.has(termKey(t.query))).sort((a, b) => b.searches - a.searches);
+  const had = terms.filter((t) => (t.success_pct ?? 0) < 100 && have.has(termKey(t.query))).length;
+  const { rows, hidden } = termsOf(never);
+  return { rows: rows.slice(0, max), hidden, have: had };
 }
 
 /** Month by month from the report's days: [month "YYYY-MM", first day, last day, searches, found something]. */
@@ -254,7 +312,9 @@ export type SearchData = {
     byMonth: SearchMonth[];
   } | null;
   terms: TermRow[]; termsHidden: number;
-  gaps: { window: "7d" | "30d"; rows: GapRow[]; hidden: number } | null;
+  /** the texts that never found anything (neverOf), from every text searched ("full") or only the report's top ones ("top") */
+  never: { rows: TermRow[]; from: "full" | "top"; have: number; hidden: number };
+  gaps: { window: "7d" | "30d"; rows: GapRow[]; hidden: number; have: number } | null;
   sample: TypingSample | null;
   errors: Record<string, string>;
 };

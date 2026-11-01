@@ -36,7 +36,7 @@ export async function setGateway(raw: string, by: string): Promise<GatewaySettin
 export { adminToken };
 
 /** One call to the gateway (path from its root, e.g. "/api/smart-bar/report?days=30"). Throws with the gateway's own sentence. */
-export async function gateway<T>(path: string, init: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<T> {
+export async function gateway<T>(path: string, init: { method?: string; body?: unknown; timeoutMs?: number; text?: boolean } = {}): Promise<T> {
   // a sandbox reads through the door and holds no key (src/lib/sandbox/viewer.ts)
   if (isSandbox()) return doorGet<T>("search-bar", path, init);
   const key = adminToken();

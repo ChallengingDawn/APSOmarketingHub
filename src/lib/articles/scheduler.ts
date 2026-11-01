@@ -8,6 +8,10 @@
 // A day counts as done only when a report built TODAY exists - an attempt that
 // could not take the lock or failed is tried again on the next tick, four
 // times a day at most, never lost (05.10.2026: the morning mail shared the lock id).
+//
+// A report built by older code - before the buyers and the product hierarchy - is rebuilt
+// as soon as the hub runs, chain or not (SARCLA 01.11.2026: "why this still like that ?" -
+// a Sunday has no nightly chain, and the hierarchy tab waited for Monday).
 
 import { kvGet, kvSet } from "@/lib/db/init";
 import { chainDoneToday, utcToday } from "@/lib/erosion/run";
@@ -24,11 +28,13 @@ async function tick() {
     if (report?.today === today) return; // built today
     if ((await buildStatus()).status === "running") return;
     if (report) {
-      let ready: boolean;
-      try {
-        ready = (await chainDoneToday(today)).done;
-      } catch {
-        ready = new Date().getUTCHours() >= 8;
+      let ready = !report.buyers; // built by older code
+      if (!ready) {
+        try {
+          ready = (await chainDoneToday(today)).done;
+        } catch {
+          ready = new Date().getUTCHours() >= 8;
+        }
       }
       if (!ready) return;
       // after the hub's own erosion run, never beside it: both read the same orders
