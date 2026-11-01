@@ -21,7 +21,8 @@ test("tickets: incoming or system - the Hand-over page's sorting, the UC hand-ov
   assert.deepEqual(kindOf({ subject: "BO | Email | x", resolution: "Misassigned" }, lc), { skip: "misassigned" });
   assert.equal(pushOf("SEPT PUSH | Muster"), "September push");
   assert.equal(pushOf("Win Back Action | x"), "Win back");
-  assert.equal(pushOf("Bestellung Witzig"), PUSHES[5]);
+  assert.equal(pushOf("Bestellung Witzig"), null);
+  assert.equal(PUSHES.length, 4);
   assert.ok(CHANNEL_ORDER.includes("Erosion") && CHANNEL_ORDER.includes("New registrant (UC2)"));
 });
 

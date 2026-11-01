@@ -9,7 +9,9 @@
 // src/lib/reporting/ticketsRules.ts. 31.10.2026: e-mail and the Back Office redirects as one channel, "the breakdown by
 // resolutions" instead of won / lost / open - and by channel -, Outcomes on the resolutions (overall, per owner, the texts),
 // more graphs on Handling and no meetings among what was logged, the months drawn anew, everyone ranked - none put apart
-// ("if hidden it should be directly displayed"); the graphs of that day are in ./TicketsCharts.tsx.
+// ("if hidden it should be directly displayed"); the graphs of that day are in ./TicketsCharts.tsx. Later that day: how
+// fast the first contact came drawn anew, the boards showing 25, the resolution texts in pages of 25 with a resolution
+// filter, "Bought at AP" lost, GQS with the incoming tickets, the typed-in tickets by their real reason (ticketsRules.ts).
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -54,16 +56,17 @@ import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import { PRIO_BANDS } from "@/lib/reporting/esoRules";
 import {
-  CHANNEL_ORDER, EFFORT, FIRST, PY_MIN, SPEEDS, blank, byDays, comparable, daysIn, flowOf, inDayOf, labelOf, median, quietOf, rateOf, rowsOf, sameWin, statsBy,
-  winDays, winFrom, winParams, type TDim, type TFilters, type TFlowNode, type TGroup, type TStats, type TWin, type TicketsData,
+  CHANNEL_ORDER, EFFORT, FIRST, PY_MIN, SPEEDS, T, blank, byDays, comparable, daysIn, flowOf, inDayOf, labelOf, median, outcomeGroup, quietOf, quietRow, rateOf, rowsOf,
+  sameWin, statsBy, winDays, winFrom, winParams, type TDim, type TFilters, type TFlowNode, type TGroup, type TStats, type TWin, type TicketsData,
 } from "@/lib/reporting/ticketsRules";
+import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
   ChartBox, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TWO, asLead, asTeam, leadOf, setQuery, useLead, useLeads, useTeam,
   type BoardRow, type LeadKey, type TeamKey,
 } from "./Figures";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
-import { MonthOutcomes, MonthTrend, ResolutionBars, ResolutionPanels, ResolutionTexts } from "./TicketsCharts";
+import { MonthOutcomes, MonthTrend, ResolutionBars, ResolutionPanels, ResolutionTexts, SpeedPanel } from "./TicketsCharts";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -104,13 +107,13 @@ const GROUP: Record<TGroup, { title: string; page: string; href: string; icon: R
   incoming: {
     title: "Incoming tickets", page: "eso-tickets", href: "/reporting/eso-benchmark/tickets", icon: <ConfirmationNumberOutlinedIcon />, tint: "amber",
     from: "Channel", fromLower: "channel", fromPlural: "Channels",
-    what: "the customers' requests: a website form, the chat, an e-mail (to the ESO or redirected from Back Office), a request the ESO typed in, the helpline",
+    what: "the customers' requests: a website form, the chat, an e-mail (to the ESO or redirected from Back Office), a request the ESO typed in, the helpline - and Sales' follow-ups and special requests through GQS",
     won: "won: closed as Ordered or a one-shot order",
   },
   system: {
     title: "System tickets", page: "eso-system-tickets", href: "/reporting/eso-benchmark/system-tickets", icon: <BoltOutlinedIcon />, tint: "purple",
     from: "Use case", fromLower: "use case", fromPlural: "Use cases",
-    what: "what a workflow or a push hands the ESO: new registrants, lost leads, second purchase, poor rating, abandoned cart - and erosion, win back, the September push, price checks, GQS sales follow-ups",
+    what: "what a workflow or a push hands the ESO: new registrants, the qualified ones with no order 30 days on, lost leads, second purchase, poor rating, abandoned cart - and erosion, win back, the September push, price checks",
     won: "won: closed as Ordered or a one-shot order - a new registrant closed Qualified",
   },
 };
@@ -277,12 +280,15 @@ function boardRows(c: TCtx, dim: TDim, m: Measure): BoardRow[] {
   }
   return rows;
 }
+/** The places a board shows before "Show all" - the whole team at once (SARCLA 31.10.2026 on "top 12 of 18 shown": "at 25,
+ *  to be able to show all"); a half-size tile in the BUC View keeps its 8. */
+const BOARD_FIRST = 25;
 function Board({ c, id, dim, m, actions }: { c: TCtx; id: string; dim: TDim; m: Measure; actions?: React.ReactNode }) {
   const rows = boardRows(c, dim, m);
   const M = MEASURE[m], D = dimOf(c.group, dim);
   return (
     <Leaderboard key={`${id}-${c.per.id}`} title={`${M.title} ${c.per.title}, by ${D.lower}`} rows={rows} noChange={!pyOk(c)}
-      curLabel={perWords(c.d, c.per)} prevLabel={PREV(c)} vs={`vs ${c.d.year - 1}`} first={c.half ? 8 : 12} fmt={M.fmt} diff={M.diff} ratio={!!M.ratio} lowerIsBetter={!!M.lower} target={targetFor(c, id)}
+      curLabel={perWords(c.d, c.per)} prevLabel={PREV(c)} vs={`vs ${c.d.year - 1}`} first={c.half ? 8 : BOARD_FIRST} fmt={M.fmt} diff={M.diff} ratio={!!M.ratio} lowerIsBetter={!!M.lower} target={targetFor(c, id)}
       selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined}
       onFilter={c.onFilter ? () => c.onFilter!(dim) : undefined} filterLabel={`Filter by ${D.lower}`} actions={actions} />
   );
@@ -318,7 +324,8 @@ function Bars({ c, title, hint, rows, fmt, actions }: { c: TCtx; title: string; 
   );
 }
 const ofAll = (n: number, all: number) => pct(all ? n / all : null);
-const speedRows = (t: TStats) => SPEEDS.map((s, i) => ({ label: s, value: t.speed[i], secondary: `${ofAll(t.speed[i], t.tickets)} · win rate ${pct(t.speedResolved[i] ? t.speedWon[i] / t.speedResolved[i] : null)}` }));
+/** The speeds as the graph's table: tickets, share, won, decided, win rate. */
+const speedTable = (t: TStats) => SPEEDS.map((s, i) => [s, t.speed[i], ofAll(t.speed[i], t.tickets), t.speedWon[i], t.speedResolved[i], pct(t.speedResolved[i] ? t.speedWon[i] / t.speedResolved[i] : null)]);
 function firstRows(t: TStats) {
   const none = t.speed[3], noneWon = t.speedWon[3], noneRes = t.speedResolved[3];
   return [
@@ -367,9 +374,48 @@ type TargetOf = { unit: "eur" | "pct" | "n"; label: string };
 type Drawn = { id: string; title: (c: TCtx) => string; draw: (c: TCtx, actions?: React.ReactNode) => React.ReactNode; target?: (c: TCtx) => TargetOf };
 const teamPart = (c: TCtx) => ` - ${teamName(c)}`;
 const forWhom = (c: TCtx) => `${teamName(c)}'s target for ${c.per.title} - each team and period its own`;
+/** A chart by its id - with the companies of its tickets, its "Companies" button beside its filter (SARCLA 31.10.2026: "next
+ *  to each report ... a new icon Company ... allows to see the companies, paginated by 25"). */
+function drawnOf(id: string): Drawn | undefined {
+  const d = drawnBare(id);
+  return d && { ...d, draw: (c, a) => <CompaniesFor source={companiesOf(c, id)}>{d.draw(c, a)}</CompaniesFor> };
+}
+/** The companies behind a chart: its tickets' companies, on the chart's period, team, people and filters, the most tickets
+ *  first - a chart of the tickets closed without any activity lists the companies of those alone. */
+function companiesOf(c: TCtx, id: string): CompanySource | null {
+  const ids = c.d.companyIds, names = c.d.companyNames;
+  if (!ids || !names) return null;
+  const quiet = /:quiet/.test(id);
+  const rows = rowsOf(c.d, c.group, c.per.win, c.filters, c.people).filter((r) => !quiet || quietRow(r));
+  type Co = { n: number; won: number; decided: number; open: number; last: number; people: Set<number>; country: string };
+  const by = new Map<number, Co>();
+  let none = 0;
+  for (const r of rows) {
+    const ci = r[T.company] ?? -1;
+    if (ci < 0) { none++; continue; }
+    let x = by.get(ci);
+    if (!x) { x = { n: 0, won: 0, decided: 0, open: 0, last: 0, people: new Set(), country: labelOf(c.d, r, "country") }; by.set(ci, x); }
+    const g = outcomeGroup(r[T.outcome]);
+    x.n++; x.people.add(r[T.person]); x.last = Math.max(x.last, r[T.month] * 32 + r[T.day]);
+    if (g === "open") x.open++;
+    if (g === "won" || g === "lost" || g === "other") x.decided++;
+    if (g === "won") x.won++;
+  }
+  const list = [...by].sort((a, b) => b[1].n - a[1].n || b[1].last - a[1].last);
+  return {
+    key: `${GROUP[c.group].page}|${id}|${c.d.generatedAt}|${c.per.id}|${[...c.people].join(",")}|${JSON.stringify(c.filters)}`,
+    head: ["Tickets", "Won", "Win rate", "Still open", "Last ticket", "Owner", "Country"], left: [5, 6, 7],
+    note: `${perWords(c.d, c.per)} · the companies of ${quiet ? "the tickets closed without any activity" : "the tickets on this graph"}, the most tickets first${none ? ` · ${int(none)} ticket${none === 1 ? "" : "s"} without a company not on the list` : ""}`,
+    rows: list.map(([ci, x]) => ({
+      id: ids[ci] ?? null, name: names[ci] ?? `Company ${ci + 1}`,
+      cells: [int(x.n), int(x.won), pct(x.decided ? x.won / x.decided : null), int(x.open), `${x.last % 32} ${MONTHS[Math.floor(x.last / 32)]}`,
+        [...x.people].map((p) => c.d.people[p]?.name ?? "").filter(Boolean).join(", "), x.country],
+    })),
+  };
+}
 /** A chart by its id: "paths:flow", "outcomes:split", "outcomes:lost", "handling:speed|first|activity", "months:<what>", or a
  *  board "<tab>:<measure>[-<breakdown>]" - people:rate, from:quiet, customers:rate-country… */
-function drawnOf(id: string): Drawn | undefined {
+function drawnBare(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
   const P = (c: TCtx) => c.per.title;
@@ -401,7 +447,13 @@ function drawnOf(id: string): Drawn | undefined {
   }
   if (chart === "speed") {
     const title = (c: TCtx) => `How fast the first contact came, ${P(c)}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <Bars c={c} title={title(c)} hint="working hours from the ticket coming in to the first reply, e-mail sent, call or meeting - Mon-Fri 8-17 · the win rate of each" rows={speedRows(totalOf(c))} actions={a} /> };
+    return { id, title, draw: (c, a) => (
+      <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · working hours from the ticket coming in to the first reply, e-mail sent, call or meeting, Mon-Fri 8-17 · the middle first contact ${whours(median(totalOf(c).hours))} · the win rate of each`} actions={a}>
+        <ChartFrame table={{ columns: ["First contact", "Tickets", "Share", "Won", "Closed with a resolution", "Win rate"], rows: speedTable(totalOf(c)), numeric: [1, 2, 3, 4, 5] }} empty={totalOf(c).tickets ? null : "No tickets for this choice."}>
+          <SpeedPanel s={totalOf(c)} />
+        </ChartFrame>
+      </ChartBox>
+    ) };
   }
   if (chart === "first") {
     const title = (c: TCtx) => `What the first contact was, ${P(c)}${teamPart(c)}`;
@@ -469,8 +521,10 @@ function TabCard({ c, act }: { c: TCtx; act: Act }) {
     <GlassCard sx={card}>
       {head(<BadgeOutlinedIcon />, "green", `${teamName(c)}, ${c.per.title}`, `by who owns the ticket today · ${G.won}`)}
       {two("people:rate", "people:won", true)}
-      {two("people:inday", "people:quiet")}
-      {two("people:tickets", "people:hours")}
+      {/* how fast first, then the share within a day (SARCLA 31.10.2026: "Time to the first contact should come to the left
+          of Contacted within a working day") */}
+      {two("people:hours", "people:inday")}
+      {two("people:tickets", "people:quiet")}
     </GlassCard>
   );
   if (c.view === "from") return (
@@ -478,8 +532,8 @@ function TabCard({ c, act }: { c: TCtx; act: Act }) {
       {head(<AltRouteIcon />, "amber", `${G.title} by ${G.fromLower}, ${c.per.title}`, `where each ticket came from · ${G.won}`)}
       {two("from:rate", "from:won", true)}
       {draw(c, act, "from:resolutions")}
-      {two("from:inday", "from:quiet")}
-      {two("from:tickets", "from:hours")}
+      {two("from:hours", "from:inday")}
+      {two("from:tickets", "from:quiet")}
     </GlassCard>
   );
   if (c.view === "handling") return (

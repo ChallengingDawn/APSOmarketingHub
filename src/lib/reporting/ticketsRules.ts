@@ -3,18 +3,22 @@
 // how we handle them by time and types of activity, and the win rate", "win rate per use case", "closed without any
 // activity", "call it win rate", the potential and the figures out; 31.10.2026: e-mail and the Back Office redirects as
 // one channel - "if they come per mail they come more often via the BO" -, "the breakdown by resolutions", "resolution
-// per owner and also the resolution texts", no meetings among what was logged). Every ticket of the ESO pipeline as one
-// small row, so the pages work out any period, team, person or filter themselves. No HubSpot or database here.
+// per owner and also the resolution texts", no meetings among what was logged; "Bought at AP should count as lost as
+// well", "GQS sales follow-up is not a system ticket, it's a sales ticket", "Other, typed in by hand should not exist -
+// give it the real reason"). Every ticket of the ESO pipeline as one small row, so the pages work out any period, team,
+// person or filter themselves. No HubSpot or database here.
 //
 //   incoming  the customers' requests, as Hand-over to ESO/TSA sorts them (handoverCube.classify, SARCLA 19.10): a
 //             website form, the chat, an e-mail (direct or redirected from Back Office), a request the ESO typed in, the
-//             helpline
-//   system    what a workflow or a push hands the ESO: the UC hand-overs (new registrants, lost leads, second purchase,
-//             poor rating, abandoned cart) and the pushes and campaigns typed in for the ESO (erosion, win back, the
-//             September push, price checks, GQS sales follow-ups)
-//   left out  as on Hand-over: not a sales topic, misassigned, Bisphenol, auto-logged and Finance mails, special prices
+//             helpline - and Sales' follow-ups and special requests through GQS
+//   system    what a workflow or a push hands the ESO: the UC hand-overs (new registrants, the qualified ones with no
+//             order 30 days on, lost leads, second purchase, poor rating, abandoned cart) and the pushes (erosion, win
+//             back, the September push, price checks)
+//   left out  as on Hand-over: not a sales topic, misassigned, Bisphenol, auto-logged and Finance mails, special prices;
+//             and the workflows' tests and the internal tickets (product management, reviews)
 //   won       closed as Ordered or a one-shot order - a new registrant when closed Qualified (handoverCube.outcomeOf);
-//             the win rate: of the tickets closed with a resolution
+//             the win rate: of the tickets closed with a resolution. "Bought at AP" is lost: the order went to
+//             Angst+Pfister, not to us (as on the erosion tickets since 04.10)
 //   contact   the first thing the team did towards the customer: a reply in the ticket, an e-mail sent, a call or a
 //             meeting - in working hours, Monday to Friday 8-17 Zurich, from the moment the ticket came in
 //   activity  anything the team logged on the ticket: those, and a note or a task. Closed without any activity: none.
@@ -35,13 +39,16 @@ export type TicketsData = {
   tickets: number[][];
   /** "More information about the ticket resolution" as the owner wrote it, this year's tickets: row index -> text */
   texts: Record<string, string>;
+  /** the tickets' companies by index (T.company): their HubSpot ids and names - a graph's "Companies" list */
+  companyIds?: string[]; companyNames?: string[];
   coverage: { read: number; kept: number; withCompany: number; left: Record<string, number> };
 };
 /** The columns of a ticket row: who owns it, when it came in, incoming (0) or system (1), where it came from, its
- *  company's priority / category / country, what became of it (OUTCOMES), the working hours to the first contact x10
+ *  company's priority / category / country, what became of it (TOUTCOMES), the working hours to the first contact x10
  *  (-1: none), what that contact was (FIRST, -1: none), the e-mails sent, calls, meetings, notes and tasks on it, and
- *  the resolution as set (an index into labels.resolution; -1: none or still open). */
-export const T = { person: 0, year: 1, month: 2, day: 3, group: 4, channel: 5, prio: 6, category: 7, country: 8, outcome: 9, firstH: 10, first: 11, emails: 12, calls: 13, meetings: 14, notes: 15, resolution: 16 } as const;
+ *  the resolution as set (an index into labels.resolution; -1: none or still open), its company (an index into companyIds
+ *  and companyNames; -1: none). */
+export const T = { person: 0, year: 1, month: 2, day: 3, group: 4, channel: 5, prio: 6, category: 7, country: 8, outcome: 9, firstH: 10, first: 11, emails: 12, calls: 13, meetings: 14, notes: 15, resolution: 16, company: 17 } as const;
 
 export const GROUPS = ["Incoming tickets", "System tickets"] as const;
 export type TGroup = "incoming" | "system";
@@ -53,34 +60,71 @@ export const groupIndex = (g: TGroup) => (g === "incoming" ? 0 : 1);
  *  Back Office first (SARCLA 31.10.2026). */
 export const MAIL = "E-mail, direct or via Back Office";
 const MERGED: Record<string, string> = { "E-mail": MAIL, "Redirected from Back Office": MAIL };
-/** The pushes and campaigns, by their subject - in the order the page shows them. */
-export const PUSHES = ["Erosion", "Win back", "September push", "Price check", "GQS sales follow-up", "Other, typed in by hand"] as const;
-/** Where a ticket came from, in the order the pages show them: the requests' channels, then the UC hand-overs and the pushes. */
-export const CHANNEL_ORDER: readonly string[] = [...new Set(CHANNELS.map((c) => MERGED[c.label] ?? c.label)), ...PUSHES];
+const DIRECT = "Direct request to the ESO";
+/** Sales asking the ESO to follow up an offer, or a special request, through GQS: a sales ticket - a request like the
+ *  customers', never a system one (SARCLA 31.10.2026). */
+export const FROM_SALES = "From Sales (GQS)";
+/** The UC2 workflow's second ticket: a qualified new lead with no order 30 days on ("Qualified Lead | … | No Order in the
+ *  first 30 days"). */
+export const NO_ORDER = "Qualified, no order in 30 days (UC2)";
+/** The pushes, by their subject - in the order the page shows them. */
+export const PUSHES = ["Erosion", "Win back", "September push", "Price check"] as const;
+/** Where a ticket came from, in the order the pages show them: the requests' channels and Sales, then the UC hand-overs
+ *  and the pushes. */
+export const CHANNEL_ORDER: readonly string[] = [
+  ...new Set(CHANNELS.filter((c) => c.kind === "request").map((c) => MERGED[c.label] ?? c.label)), FROM_SALES,
+  ...CHANNELS.filter((c) => c.kind !== "request").flatMap((c) => (c.id === "uc2" ? [c.label, NO_ORDER] : [c.label])), ...PUSHES,
+];
 
-/** A push or campaign by its subject ("EROSION | …", "Win Back Action | …", "SEPT PUSH | …"). */
-export function pushOf(subject: string | null | undefined): (typeof PUSHES)[number] {
+/** A push by its subject ("EROSION | …", "Win Back Action | …", "SEPT PUSH | …", "PRICE CHECK | …" and the low-margin
+ *  checks of 2025) - none: not a push. */
+export function pushOf(subject: string | null | undefined): (typeof PUSHES)[number] | null {
   const s = (subject ?? "").replace(/\s+/g, " ").trim().toUpperCase();
   if (s.includes("EROSION")) return PUSHES[0];
   if (s.startsWith("WIN BACK")) return PUSHES[1];
   if (s.includes("SEPT PUSH")) return PUSHES[2];
-  if (s.startsWith("PRICE CHECK")) return PUSHES[3];
-  if (s.startsWith("GQS SALES FOLLOW")) return PUSHES[4];
-  return PUSHES[5];
+  if (s.startsWith("PRICE CHECK") || /^LOW (MAR|PRICE)/.test(s)) return PUSHES[3];
+  return null;
+}
+
+type Kind = { group: TGroup; channel: string; newLead: boolean };
+/** What Hand-over leaves out as "a campaign or typed in by hand", by its real reason (SARCLA 31.10.2026: "should not
+ *  exist - give it the real reason"): a push by its subject; Sales through GQS; the UC2 workflow's no-order ticket (its
+ *  tests left out); a Back Office e-mail copied over; a chat; internal tickets left out - and else a customer's request
+ *  someone typed in for the ESO ("Direct Request | Rubix", "FFKM order", "Certificate PTFE …"). */
+function typedIn(t: TicketIn): Kind | { skip: string } {
+  const s = (t.subject ?? "").replace(/\s+/g, " ").trim().toUpperCase();
+  const wf = (t.workflow ?? "").trim();
+  const push = pushOf(t.subject);
+  if (push) return { group: "system", channel: push, newLead: false };
+  if (s.includes("GQS") || s.startsWith("SPECIAL REQUEST")) return { group: "incoming", channel: FROM_SALES, newLead: false };
+  if (/^TEST/i.test(wf)) return { skip: "a workflow's test" };
+  if (/UC2/i.test(wf) || s.startsWith("QUALIFIED LEAD")) return { group: "system", channel: NO_ORDER, newLead: false };
+  if (/^BO\b/i.test(wf)) return { group: "incoming", channel: MAIL, newLead: false };
+  if ((t.sourceType ?? "").toUpperCase() === "CHAT") return { group: "incoming", channel: "Chat", newLead: false };
+  if (s.startsWith("PRODUCT MANAGEMENT") || s.startsWith("REVIEW TICKET")) return { skip: "internal, not a customer's" };
+  return { group: "incoming", channel: DIRECT, newLead: false };
 }
 
 /** A ticket's group, where it came from and whether it is a new registrant to qualify - or why the pages leave it out.
  *  `lifecycle` names the workflows that make the lifecycle tickets (as the Hand-over page reads them). */
-export function kindOf(t: TicketIn, lifecycle: Record<string, string>): { group: TGroup; channel: string; newLead: boolean } | { skip: string } {
+export function kindOf(t: TicketIn, lifecycle: Record<string, string>): Kind | { skip: string } {
   const what = classify(t, lifecycle);
-  if ("skip" in what) return what.skip === "campaign or typed in by hand" ? { group: "system", channel: pushOf(t.subject), newLead: false } : { skip: what.skip };
+  if ("skip" in what) return what.skip === "campaign or typed in by hand" ? typedIn(t) : { skip: what.skip };
   const label = CHANNELS.find((c) => c.id === what.c)?.label ?? what.c;
   return { group: what.g === "request" ? "incoming" : "system", channel: MERGED[label] ?? label, newLead: what.g === "newlead" };
 }
 
-/** What became of a ticket, as an index into OUTCOMES: won, lost and why, closed otherwise, with no resolution, open. */
+/** What became of a ticket on these pages: Hand-over's outcomes, and "Bought at AP" lost - the order went to Angst+Pfister,
+ *  not to us (SARCLA 31.10.2026, as erosion's WON_RESOLUTIONS since 04.10). Hand-over itself is left as it is. */
+export type TOutcome = Outcome | "ap";
+export const TOUTCOMES: { id: TOutcome; label: string }[] = [...OUTCOMES, { id: "ap", label: "Lost - bought at Angst+Pfister" }];
+const AP = /^bought at a\+?p$/i;
+/** What became of a ticket, as an index into TOUTCOMES: won, lost and why, closed otherwise, with no resolution, open. */
 export function outcomeIndex(closed: boolean, resolution: string | null | undefined, newLead: boolean): number {
-  return OUTCOMES.findIndex((o) => o.id === outcomeOf({ g: newLead ? "newlead" : "request", x: closed ? 1 : 0, r: (resolution ?? "").trim() }));
+  const r = (resolution ?? "").trim();
+  if (closed && AP.test(r)) return TOUTCOMES.findIndex((o) => o.id === "ap");
+  return TOUTCOMES.findIndex((o) => o.id === outcomeOf({ g: newLead ? "newlead" : "request", x: closed ? 1 : 0, r }));
 }
 
 /** What the first contact was. */
@@ -183,15 +227,15 @@ export function rowsOf(d: TicketsData, group: TGroup, win: TWin, f: TFilters, pe
     && sets.every(([k, s]) => s.has(labelOf(d, r, k))));
 }
 
-const OPEN = OUTCOMES.findIndex((o) => o.id === "open");
-const NORES = OUTCOMES.findIndex((o) => o.id === "nores");
-const WON = OUTCOMES.findIndex((o) => o.id === "won");
-/** The lost: price, can't supply, delivery, only info, no reply, disqualified. */
-export const LOST_IDS: readonly Outcome[] = ["price", "supply", "delivery", "info", "noreply", "disq"];
+const OPEN = TOUTCOMES.findIndex((o) => o.id === "open");
+const NORES = TOUTCOMES.findIndex((o) => o.id === "nores");
+const WON = TOUTCOMES.findIndex((o) => o.id === "won");
+/** The lost: price, can't supply, delivery, only info, no reply, disqualified, bought at Angst+Pfister. */
+export const LOST_IDS: readonly TOutcome[] = ["price", "supply", "delivery", "info", "noreply", "disq", "ap"];
 /** Where an outcome stands: won, lost, closed otherwise, closed without a resolution, open. */
 export function outcomeGroup(o: number): "won" | "lost" | "other" | "nores" | "open" {
-  const id = OUTCOMES[o]?.id;
-  return id === "won" ? "won" : id === "open" ? "open" : id === "nores" ? "nores" : LOST_IDS.includes(id as Outcome) ? "lost" : "other";
+  const id = TOUTCOMES[o]?.id;
+  return id === "won" ? "won" : id === "open" ? "open" : id === "nores" ? "nores" : id && LOST_IDS.includes(id) ? "lost" : "other";
 }
 
 export type TStats = {
@@ -220,7 +264,7 @@ export type TStats = {
 const zeros = (n: number) => Array(n).fill(0) as number[];
 /** No tickets: every figure zero, n months. */
 export const blank = (n: number): TStats => ({
-  tickets: 0, closed: 0, resolved: 0, won: 0, open: 0, outcomes: zeros(OUTCOMES.length), res: {}, resGroup: {},
+  tickets: 0, closed: 0, resolved: 0, won: 0, open: 0, outcomes: zeros(TOUTCOMES.length), res: {}, resGroup: {},
   speed: zeros(4), speedWon: zeros(4), speedResolved: zeros(4), first: zeros(FIRST.length), firstWon: zeros(FIRST.length), firstResolved: zeros(FIRST.length),
   effort: zeros(EFFORT.length), effortWon: zeros(EFFORT.length), effortResolved: zeros(EFFORT.length), hours: [],
   quiet: 0, emails: 0, calls: 0, meetings: 0, notes: 0, withEmails: 0, withCalls: 0, withMeetings: 0, withNotes: 0,
@@ -245,6 +289,8 @@ export function median(xs: number[]): number | null {
 /** Everything logged on a row: a contact, or a note or a task. */
 const logged = (r: number[]) => r[T.emails] + r[T.calls] + r[T.meetings] + r[T.notes];
 const active = (r: number[]) => r[T.first] >= 0 || logged(r) > 0;
+/** Closed without any activity: closed, and nothing logged on it at all. */
+export const quietRow = (r: number[]) => r[T.outcome] !== OPEN && !active(r);
 
 /** The figures of a set of tickets, grouped by a label (all together under ""). */
 export function statsBy(rows: number[][], win: TWin, key: (r: number[]) => string = () => ""): Map<string, TStats> {
@@ -328,7 +374,7 @@ export type TFlow = { columns: string[]; nodes: TFlowNode[]; links: { from: stri
 /** A resolution the path names: 2% of the tickets or more - the rest are "Other resolutions" (as Hand-over: "simplify"). */
 const NAMED_SHARE = 0.02;
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
-export const lostLabel = (id: Outcome) => cap(OUTCOMES.find((o) => o.id === id)!.label.replace(/^Lost - /, ""));
+export const lostLabel = (id: TOutcome) => cap(TOUTCOMES.find((o) => o.id === id)!.label.replace(/^Lost - /, ""));
 
 export function flowOf(d: TicketsData, rows: number[][]): TFlow {
   const count = new Map<number, number>();

@@ -16,7 +16,9 @@ import { firstContact, kindOf, outcomeIndex, startLabels, type TicketsData } fro
 
 // v2: incoming and system tickets, the first contact and the activities, the outcome (30.10.2026)
 // v3: the resolution as set and its "more information" text; e-mail and the Back Office redirects as one channel (31.10.2026)
-const KEY = "esoTickets:v3";
+// v4: "Bought at AP" lost, GQS with the incoming tickets as Sales', the typed-in tickets by their real reason, each
+// ticket's company (id and name) for the graphs' "Companies" lists (31.10.2026)
+const KEY = "esoTickets:v4";
 const TTL_MS = 60 * 60 * 1000;
 const ESO_PIPELINE = "1726599376";
 const PROPS = [
@@ -62,7 +64,7 @@ export async function buildTickets(): Promise<TicketsData> {
     [[{ propertyName: "hs_pipeline", operator: "EQ", value: ESO_PIPELINE }, { propertyName: "createdate", operator: "GTE", value: String(Date.UTC(year - 1, 0, 1)) }]],
     PROPS, (n) => reportProgress(KEY, `reading the ESO tickets · ${n.toLocaleString("en")}`));
 
-  // 2. what each is - as the Hand-over page sorts them, the pushes kept as system tickets
+  // 2. what each is - as the Hand-over page sorts them; what it leaves out as typed in by hand, by its real reason
   const lifecycle: Record<string, string> = {};
   for (const u of UCS) for (const t of u.tickets) lifecycle[t.name] = u.key;
   const left: Record<string, number> = {};
@@ -98,15 +100,25 @@ export async function buildTickets(): Promise<TicketsData> {
   for (const m of await batchRead("meetings", meetingIds, ["hs_meeting_start_time", "hs_timestamp"])) when.set(`m${m.id}`, ms(m.properties?.hs_meeting_start_time) ?? ms(m.properties?.hs_timestamp));
 
   // 4. their companies' facts
-  type Co = { prio: string; category: string; country: string };
+  type Co = { prio: string; category: string; country: string; name: string };
   const companies = new Map<string, Co>();
   const coIds = [...new Set(kept.map((k) => k.p.hs_primary_company_id).filter((x): x is string => !!x))];
-  const recs = await batchRead("companies", coIds, ["sales_priority", "apso_customer", "country_custom"], [],
+  const recs = await batchRead("companies", coIds, ["name", "sales_priority", "apso_customer", "country_custom"], [],
     (n) => reportProgress(KEY, `reading the tickets' companies · ${n.toLocaleString("en")} of ${coIds.length.toLocaleString("en")}`));
   for (const c of recs) {
     const p = c.properties ?? {};
-    companies.set(String(c.id), { prio: prioBand(prioOf(p.sales_priority)), category: (p.apso_customer ?? "").trim() || "Not set", country: (p.country_custom ?? "").trim() || "Not set" });
+    companies.set(String(c.id), { prio: prioBand(prioOf(p.sales_priority)), category: (p.apso_customer ?? "").trim() || "Not set", country: (p.country_custom ?? "").trim() || "Not set", name: (p.name ?? "").trim() || `Company ${c.id}` });
   }
+  // the companies the rows point at - a graph's "Companies" list (SARCLA 31.10.2026)
+  const companyIds: string[] = [], companyNames: string[] = [];
+  const coIdx = new Map<string, number>();
+  const companyOf = (id: string | null | undefined) => {
+    const co = id ? companies.get(id) : undefined;
+    if (!id || !co) return -1;
+    let i = coIdx.get(id);
+    if (i === undefined) { i = companyIds.push(id) - 1; companyNames.push(co.name); coIdx.set(id, i); }
+    return i;
+  };
 
   // 5. the people: their names, and their team - the rosters, else the team HubSpot has them in (as Visits)
   const names = await ownerNames().catch(() => new Map<string, string>());
@@ -149,10 +161,11 @@ export async function buildTickets(): Promise<TicketsData> {
       first ? Math.round(workingHours(created, first.at) * 10) : -1, first ? first.kind : -1,
       sent.length, calls.length, meetings.length, (on.notes.get(id) ?? []).length + (on.tasks.get(id) ?? []).length,
       res ? at(labels.resolution, resLabel(res)) : -1,
+      companyOf(p.hs_primary_company_id),
     ]);
   }
   return {
-    generatedAt: new Date().toISOString(), year, today, people, labels, tickets: rows, texts,
+    generatedAt: new Date().toISOString(), year, today, people, labels, tickets: rows, texts, companyIds, companyNames,
     coverage: { read: found.length, kept: kept.length, withCompany: kept.filter((k) => companies.has(k.p.hs_primary_company_id ?? "")).length, left },
   };
 }

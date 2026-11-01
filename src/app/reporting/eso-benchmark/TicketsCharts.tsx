@@ -9,13 +9,18 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import InputBase from "@mui/material/InputBase";
+import IconButton from "@mui/material/IconButton";
+import Select from "@mui/material/Select";
+import MenuItem from "@mui/material/MenuItem";
 import SearchIcon from "@mui/icons-material/Search";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import { FAINT, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { StackedColumns } from "@/app/charts/StackedColumns";
 import { TrendChart, type TrendPoint } from "@/app/charts/TrendChart";
-import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
-import { T, labelOf, resolutionsOf, type TStats, type TicketsData } from "@/lib/reporting/ticketsRules";
+import { DEEMPHASIS, SEQUENTIAL, SERIES } from "@/app/charts/palette";
+import { SPEEDS, T, labelOf, resolutionsOf, type TStats, type TicketsData } from "@/lib/reporting/ticketsRules";
 
 const int = (n: number) => Math.round(n).toLocaleString("en");
 const pct = (x: number | null) => (x == null || !Number.isFinite(x) ? "—" : `${(x * 100).toFixed(1)}%`);
@@ -123,36 +128,119 @@ export function textsOf(d: TicketsData, rows: number[][]): { row: number[]; text
   for (const r of rows) { const t = d.texts[String(indexOf(d, r))]; if (t) out.push({ row: r, text: t }); }
   return out.sort((a, b) => b.row[T.month] - a.row[T.month] || b.row[T.day] - a.row[T.day]);
 }
+/** The texts a page holds (SARCLA 31.10.2026: "paginate at 25 to be able to show all, also filtering the resolution"). */
+const PAGE = 25;
+function Pager({ at, pages, onPage }: { at: number; pages: number; onPage: (p: number) => void }) {
+  if (pages <= 1) return null;
+  const nav = { border: `1px solid ${HAIRLINE}`, borderRadius: "8px", width: 30, height: 30 } as const;
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+      <IconButton size="small" aria-label="The previous 25" disabled={at === 0} onClick={() => onPage(at - 1)} sx={nav}><ChevronLeftIcon sx={{ fontSize: 18 }} /></IconButton>
+      <Typography sx={{ fontSize: "0.78rem", color: MUTED, minWidth: 74, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>page {at + 1} of {pages}</Typography>
+      <IconButton size="small" aria-label="The next 25" disabled={at >= pages - 1} onClick={() => onPage(at + 1)} sx={nav}><ChevronRightIcon sx={{ fontSize: 18 }} /></IconButton>
+    </Box>
+  );
+}
 export function ResolutionTexts({ d, rows }: { d: TicketsData; rows: number[][] }) {
   const [q, setQ] = useState("");
-  const [n, setN] = useState(20);
+  const [pick, setPick] = useState("");
+  const [page, setPage] = useState(0);
   const all = useMemo(() => textsOf(d, rows), [d, rows]);
-  const res = (r: number[]) => (r[T.resolution] >= 0 ? d.labels.resolution[r[T.resolution]] : "No resolution set");
-  const found = q ? all.filter((x) => `${x.text} ${res(x.row)} ${labelOf(d, x.row, "person")}`.toLowerCase().includes(q.toLowerCase())) : all;
+  const res = (r: number[]) => (r[T.resolution] >= 0 ? d.labels.resolution[r[T.resolution]] ?? "Unknown" : "No resolution set");
+  // the resolutions the texts carry, the most written first - the filter's choices
+  const choices = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const x of all) { const k = x.row[T.resolution] >= 0 ? d.labels.resolution[x.row[T.resolution]] ?? "Unknown" : "No resolution set"; m.set(k, (m.get(k) ?? 0) + 1); }
+    return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [all, d]);
+  const found = all.filter((x) => (!pick || res(x.row) === pick) && (!q || `${x.text} ${res(x.row)} ${labelOf(d, x.row, "person")}`.toLowerCase().includes(q.toLowerCase())));
+  const pages = Math.max(1, Math.ceil(found.length / PAGE));
+  const at = Math.min(page, pages - 1);
   if (!all.length) return <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>No resolution text written on these tickets.</Typography>;
   return (
     <Box sx={{ display: "grid", gap: 1 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1.25, height: 34, flex: "1 1 260px", maxWidth: 380, borderRadius: "9px", bgcolor: "#fff", border: "1px solid rgba(21,34,58,.14)" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1.25, height: 36, flex: "1 1 240px", maxWidth: 360, borderRadius: "9px", bgcolor: "#fff", border: "1px solid rgba(21,34,58,.14)" }}>
           <SearchIcon sx={{ fontSize: 18, color: MUTED }} />
-          <InputBase value={q} onChange={(e) => { setQ(e.target.value); setN(20); }} placeholder="Find a word, a resolution or a person…" inputProps={{ "aria-label": "Find in the resolution texts" }} sx={{ fontSize: "0.86rem", flex: 1 }} />
+          <InputBase value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} placeholder="Find a word or a person…" inputProps={{ "aria-label": "Find in the resolution texts" }} sx={{ fontSize: "0.86rem", flex: 1 }} />
         </Box>
-        <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{int(found.length)} of {int(rows.length)} tickets carry a text{q ? " with these words" : ""}</Typography>
+        <Select size="small" value={pick} displayEmpty onChange={(e) => { setPick(String(e.target.value)); setPage(0); }} inputProps={{ "aria-label": "Only one resolution" }}
+          sx={{ flex: "0 1 300px", minWidth: 200, height: 36, borderRadius: "9px", bgcolor: "#fff", fontSize: "0.86rem", "& .MuiOutlinedInput-notchedOutline": { borderColor: "rgba(21,34,58,.14)" } }}>
+          <MenuItem value="" sx={{ fontSize: "0.86rem" }}>Every resolution · {int(all.length)}</MenuItem>
+          {choices.map(([label, n]) => <MenuItem key={label} value={label} sx={{ fontSize: "0.86rem" }}>{label} · {int(n)}</MenuItem>)}
+        </Select>
+        <Box sx={{ flex: 1 }} />
+        <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
+          {found.length ? `${int(at * PAGE + 1)}–${int(Math.min(found.length, (at + 1) * PAGE))} of ${int(found.length)}` : "None"} {pick || q ? `of the ${int(all.length)} texts` : `texts, of ${int(rows.length)} tickets`}
+        </Typography>
+        <Pager at={at} pages={pages} onPage={setPage} />
       </Box>
       <Box sx={{ display: "grid" }}>
-        {found.slice(0, n).map(({ row, text }, i) => {
-          return (
-            <Box key={i} sx={{ display: "grid", gap: 0.35, py: 1.1, borderBottom: `1px solid ${HAIRLINE}` }}>
-              <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-                <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK }}>{res(row)}</Typography>
-                <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{labelOf(d, row, "person")} · {row[T.day]} {MONTHS[row[T.month]]} · {labelOf(d, row, "channel")}</Typography>
-              </Box>
-              <Typography sx={{ fontSize: "0.86rem", color: INK, lineHeight: 1.45 }}>{text}</Typography>
+        {found.slice(at * PAGE, (at + 1) * PAGE).map(({ row, text }, i) => (
+          <Box key={`${at}-${i}`} sx={{ display: "grid", gap: 0.35, py: 1.1, borderBottom: `1px solid ${HAIRLINE}` }}>
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+              <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK }}>{res(row)}</Typography>
+              <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{labelOf(d, row, "person")} · {row[T.day]} {MONTHS[row[T.month]]} · {labelOf(d, row, "channel")}</Typography>
+            </Box>
+            <Typography sx={{ fontSize: "0.86rem", color: INK, lineHeight: 1.45 }}>{text}</Typography>
+          </Box>
+        ))}
+        {!found.length && <Typography sx={{ fontSize: "0.86rem", color: FAINT, py: 1.5 }}>No text for this choice.</Typography>}
+      </Box>
+      {pages > 1 && <Box sx={{ justifySelf: "end" }}><Pager at={at} pages={pages} onPage={(p) => setPage(p)} /></Box>}
+    </Box>
+  );
+}
+
+/* ── how fast the first contact came (SARCLA 31.10.2026: "the layout is really bad") ── */
+
+/** The speeds' colours: the faster the darker (one hue, light to dark), no contact grey. */
+export const SPEED_COLORS = [SEQUENTIAL[5], SEQUENTIAL[3], SEQUENTIAL[1], DEEMPHASIS] as const;
+/** The split of the tickets by how fast the first contact came, as one bar in the speeds' order; then a tile per speed -
+ *  its tickets, their share, and their win rate on one 0-100% scale, all the tickets' win rate marked on each. Two
+ *  measures, two marks: never one axis for both. */
+export function SpeedPanel({ s }: { s: TStats }) {
+  const all = s.resolved ? s.won / s.resolved : null;
+  if (!s.tickets) return null;
+  return (
+    <Box sx={{ display: "grid", gap: 1.5, containerType: "inline-size" }}>
+      <Box sx={{ display: "flex", gap: "2px", height: 30, borderRadius: "6px", overflow: "hidden" }}>
+        {SPEEDS.map((l, i) => {
+          const sh = s.speed[i] / s.tickets;
+          return s.speed[i] > 0 && (
+            <Box key={l} title={`${l}: ${int(s.speed[i])} tickets · ${pct(sh)}`} sx={{ width: `${sh * 100}%`, minWidth: 3, bgcolor: SPEED_COLORS[i], display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {sh >= 0.09 && <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: i < 2 ? "#fff" : INK, whiteSpace: "nowrap" }}>{Math.round(sh * 100)}%</Typography>}
             </Box>
           );
         })}
       </Box>
-      {found.length > n && <Button size="small" onClick={() => setN((x) => x + 40)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start" }}>Show {int(Math.min(40, found.length - n))} more</Button>}
+      {/* two by two in a half-width card or on a phone, the four in a row when the card is wide - never three and one */}
+      <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: "repeat(2, minmax(0, 1fr))", "@container (min-width: 760px)": { gridTemplateColumns: "repeat(4, minmax(0, 1fr))" } }}>
+        {SPEEDS.map((l, i) => {
+          const rate = s.speedResolved[i] ? s.speedWon[i] / s.speedResolved[i] : null;
+          return (
+            <Box key={l} title={`${l}: ${int(s.speed[i])} tickets (${pct(s.speed[i] / s.tickets)}) · win rate ${pct(rate)}, ${int(s.speedWon[i])} won of ${int(s.speedResolved[i])} closed with a resolution`}
+              sx={{ border: `1px solid ${HAIRLINE}`, borderTop: `4px solid ${SPEED_COLORS[i]}`, borderRadius: "12px", bgcolor: "rgba(255,255,255,.75)", p: 1.5, display: "grid", gap: 0.35, alignContent: "start", minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: MUTED }}>{l}</Typography>
+              <Typography sx={{ fontSize: "1.55rem", fontWeight: 700, color: INK, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{int(s.speed[i])}</Typography>
+              <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{pct(s.speed[i] / s.tickets)} of the tickets</Typography>
+              <Box sx={{ mt: 0.75, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 1 }}>
+                <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Win rate</Typography>
+                <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{pct(rate)}</Typography>
+              </Box>
+              <Box sx={{ position: "relative", height: 8, borderRadius: 4, bgcolor: "rgba(21,34,58,.06)" }}>
+                <Box sx={{ height: "100%", width: `${(rate ?? 0) * 100}%`, bgcolor: STANDING.won.color, borderRadius: 4 }} />
+                {all != null && <Box sx={{ position: "absolute", top: -3, bottom: -3, left: `calc(${all * 100}% - 1px)`, width: 2, borderRadius: 1, bgcolor: INK }} />}
+              </Box>
+              <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{int(s.speedWon[i])} won of {int(s.speedResolved[i])} closed with a resolution</Typography>
+            </Box>
+          );
+        })}
+      </Box>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+        <Box sx={{ width: 2, height: 12, borderRadius: 1, bgcolor: INK }} />
+        <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>The win rate of all the tickets: {pct(all)}</Typography>
+      </Box>
     </Box>
   );
 }
