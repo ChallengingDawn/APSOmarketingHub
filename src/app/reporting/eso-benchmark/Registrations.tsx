@@ -382,10 +382,13 @@ function listedOf(c: RCtx, what: RegList): CompanySource | null {
     note: `${perWords(c.d, c.per)} · ${LIST_NOTE[what]}${noCompany ? ` · ${int(noCompany)} account${noCompany === 1 ? "" : "s"} without a company are not on the list` : ""}`,
     rows: companies.map(({ ci, accounts }) => {
       const co = c.d.companies[ci];
+      // a shop order dated before the account cannot be - not shown, as the figures do not count it
+      const fo = co[C.firstOrder] >= co[C.reg] ? co[C.firstOrder] : 0;
       return {
         id: ids[ci] ?? null, name: names[ci] ?? `Company ${ci + 1}`,
-        // a shop order dated before the account cannot be - not shown, as the figures do not count it
-        cells: [...(acc ? [int(accounts)] : []), dayWords(co[C.reg]), dayWords(co[C.firstOrder] >= co[C.reg] ? co[C.firstOrder] : 0), labelOf(c.d, co, "person"), labelOf(c.d, co, "country"), labelOf(c.d, co, "prio"), labelOf(c.d, co, "category"), labelOf(c.d, co, "visit")],
+        cells: [...(acc ? [int(accounts)] : []), dayWords(co[C.reg]), dayWords(fo), labelOf(c.d, co, "person"), labelOf(c.d, co, "country"), labelOf(c.d, co, "prio"), labelOf(c.d, co, "category"), labelOf(c.d, co, "visit")],
+        // the dates sort by the day, not the words; no shop order yet ("—") sorts last either way
+        values: [...(acc ? [accounts] : []), co[C.reg], fo || null, null, null, null, null, null],
       };
     }),
   };
