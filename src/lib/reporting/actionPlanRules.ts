@@ -427,3 +427,110 @@ export function reorder(items: PlanItem[], dragId: number, targetId: number, whe
   siblings.splice(at < 0 ? siblings.length : at, 0, drag.id);
   return { parentId, order: siblings };
 }
+
+/* ── the plan in HubSpot ───────────────────────────────────────────────────
+   SARCLA 01.11.2026: "create new properties in HubSpot to populate the action plan's main categories and sub and so
+   forth". Three ticket properties beside the agency's (group marketing_roadmap), their choices the plan's rows - the
+   value is the row's id, so a renamed row stays the same choice. actionPlanHubspot.ts keeps them in HubSpot. */
+
+export const PLAN_PROPS = [
+  { name: "mkt_plan_category", label: "Action plan - main category", kind: "topic" },
+  { name: "mkt_plan_subcategory", label: "Action plan - sub-category", kind: "group" },
+  { name: "mkt_plan_action", label: "Action plan - action", kind: "action" },
+] as const;
+export type PlanPropName = (typeof PLAN_PROPS)[number]["name"];
+export type HsOption = { value: string; label: string; displayOrder: number; hidden: boolean };
+type TreeRow = Pick<PlanItem, "id" | "parentId" | "kind" | "title" | "code" | "sort">;
+
+/** The rows in the plan's order: each one, then what is under it. */
+export function treeOrder<T extends TreeRow>(items: T[]): T[] {
+  const kids = new Map<number | null, T[]>();
+  for (const i of items) (kids.get(i.parentId) ?? kids.set(i.parentId, []).get(i.parentId)!).push(i);
+  const ids = new Set(items.map((i) => i.id));
+  const out: T[] = [];
+  const seen = new Set<number>();
+  const walk = (i: T) => {
+    if (seen.has(i.id)) return;
+    seen.add(i.id); out.push(i);
+    for (const c of (kids.get(i.id) ?? []).sort((a, b) => a.sort - b.sort || a.id - b.id)) walk(c);
+  };
+  for (const r of items.filter((i) => i.parentId == null || !ids.has(i.parentId)).sort((a, b) => a.sort - b.sort || a.id - b.id)) walk(r);
+  return out;
+}
+
+/**
+ * A property's choices: the plan's rows of its kind, in the plan's order. A row that left the plan stays as a hidden
+ * choice, so a ticket that carries it keeps its name. HubSpot takes no two choices with the same name: a second one
+ * gets its roadmap ID, else its number.
+ */
+export function planOptions(items: TreeRow[], kind: PlanKind, current: { value: string; label: string }[] = []): HsOption[] {
+  const rows = treeOrder(items).filter((i) => i.kind === kind);
+  const used = new Set<string>();
+  const out: HsOption[] = rows.map((r, k) => {
+    const base = (r.title.trim() || `Row ${r.id}`).slice(0, 200);
+    let label = base;
+    if (used.has(label.toLowerCase())) label = r.code ? `${base} (${r.code})` : `${base} #${r.id}`;
+    if (used.has(label.toLowerCase())) label = `${base} #${r.id}`;
+    used.add(label.toLowerCase());
+    return { value: String(r.id), label, displayOrder: k, hidden: false };
+  });
+  const live = new Set(out.map((o) => o.value));
+  for (const c of current) {
+    if (live.has(String(c.value))) continue;
+    let label = c.label;
+    if (used.has(label.toLowerCase())) label = `${label} #${c.value}`;
+    used.add(label.toLowerCase());
+    out.push({ value: String(c.value), label, displayOrder: out.length, hidden: true });
+  }
+  return out;
+}
+
+/** Whether HubSpot's choices already are these. */
+export function sameOptions(a: { value: string; label: string; hidden?: boolean; displayOrder?: number }[], b: HsOption[]): boolean {
+  if (a.length !== b.length) return false;
+  const byValue = new Map(a.map((o) => [String(o.value), o]));
+  return b.every((o) => {
+    const x = byValue.get(o.value);
+    return !!x && x.label === o.label && !!x.hidden === o.hidden && (x.displayOrder ?? o.displayOrder) === o.displayOrder;
+  });
+}
+
+/** Where a row sits, as the three properties say it - "" clears one (an action taken out of its sub-category). */
+export function planValuesOf(itemId: number, items: TreeRow[]): Record<PlanPropName, string> | null {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const v: Record<PlanPropName, string> = { mkt_plan_category: "", mkt_plan_subcategory: "", mkt_plan_action: "" };
+  let i = byId.get(itemId);
+  if (!i) return null;
+  for (let n = 0; i && n < 10; i = i.parentId == null ? undefined : byId.get(i.parentId), n++) {
+    const p = PLAN_PROPS.find((x) => x.kind === i!.kind);
+    if (p && !v[p.name]) v[p.name] = String(i.id);
+  }
+  return v;
+}
+
+/**
+ * A sub-action's ticket starts from its action (SARCLA 01.11.2026: "we should try to uniform everything"): its place in
+ * the plan, priority, channels, countries, agency, roadmap year, dates, KPIs, status note and report link - only the
+ * choices HubSpot offers, nothing made up. The stage stays the pipeline's first: the sub-action has not started.
+ */
+export function ticketFromAction(a: PlanItem, items: TreeRow[], options: Record<string, { value: string }[]>): Record<string, string> {
+  const offered = (prop: string, v: string[]) => {
+    const o = options[prop];
+    return (o?.length ? v.filter((x) => o.some((y) => y.value === x)) : v).join(";");
+  };
+  const v: Record<string, string> = {
+    content: [`From the action plan: "${a.title}".`, a.detail && a.detail !== a.title ? a.detail : ""].filter(Boolean).join("\n\n").slice(0, 5000),
+    hs_ticket_priority: a.priority && PRIORITIES.some((p) => p.value === a.priority) ? a.priority : "",
+    mkt_channel: offered("mkt_channel", a.channel),
+    mkt_implementation_country: offered("mkt_implementation_country", a.country),
+    mkt_agency: offered("mkt_agency", a.agency),
+    mkt_roadmap_year: a.roadmapYear ? offered("mkt_roadmap_year", [a.roadmapYear]) : "",
+    mkt_planned_date: a.start ?? "",
+    mkt_golive_date: a.due ?? "",
+    mkt_kpis: a.kpis,
+    mkt_status_note: a.statusNote,
+    mkt_report_link: a.reportLink,
+    ...(planValuesOf(a.id, items) ?? {}),
+  };
+  return Object.fromEntries(Object.entries(v).filter(([, x]) => x));
+}

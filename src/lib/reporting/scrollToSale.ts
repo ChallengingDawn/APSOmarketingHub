@@ -126,17 +126,20 @@ export async function readTickets(ids: string[]): Promise<S2sTicket[]> {
   return shape(j.results ?? []);
 }
 
+export type TicketState = "open" | "closed" | "all";
+
 /**
- * The pipeline's OPEN tickets to link (SARCLA 18.10: "only show open tickets" - not Live, Maintaining
- * Internally or Killed): by words of the name or the roadmap id, newest first; empty asks for the newest.
+ * The pipeline's tickets to link: by words of the name or the roadmap id, newest first; empty asks for the newest.
+ * Open ones first (SARCLA 18.10: "only show open tickets"), the closed ones too to trace back (01.11.2026: "allow to
+ * search for closed tickets for backtracking") - closed = Live, Maintaining Internally, Killed.
  */
-export async function searchTickets(q: string): Promise<S2sTicket[]> {
+export async function searchTickets(q: string, state: TicketState = "open"): Promise<S2sTicket[]> {
   const words = q.trim();
-  const open = (await s2sForm()).stages.filter((s) => s.open).map((s) => s.value);
+  const stages = (await s2sForm()).stages.filter((s) => state === "all" || s.open === (state === "open")).map((s) => s.value);
   const j = await hubspotFetchJson<{ results?: Ticket[] }>({
     path: "/crm/v3/objects/tickets/search", method: "POST",
     body: {
-      filterGroups: [{ filters: [{ propertyName: "hs_pipeline", operator: "EQ", value: S2S_PIPELINE }, ...(open.length ? [{ propertyName: "hs_pipeline_stage", operator: "IN", values: open }] : [])] }],
+      filterGroups: [{ filters: [{ propertyName: "hs_pipeline", operator: "EQ", value: S2S_PIPELINE }, ...(state !== "all" && stages.length ? [{ propertyName: "hs_pipeline_stage", operator: "IN", values: stages }] : [])] }],
       ...(words ? { query: words.slice(0, 100) } : {}),
       sorts: [{ propertyName: "createdate", direction: "DESCENDING" }],
       properties: TICKET_PROPS, limit: 25,

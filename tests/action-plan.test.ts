@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, codesOf, isDigitalGrowth, isLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
-  planFromSeed, priorityOfWorkbook, reorder, rollup, stageOfPercent, stageOfState, stateOf, stateOfPercent, stateOfStage, titleOf, toS2s,
+  planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
+  stateOfStage, ticketFromAction, titleOf, toS2s, treeOrder,
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
@@ -181,6 +182,42 @@ test("action plan: the workbook's words moved into the ticket's fields once, not
   assert.equal(toS2s({ ...row, state: null, status: "", result: "", priority: "To be transferred" }).statusNote, "To be transferred");
   // no status in the workbook, no stage
   assert.equal(toS2s({ ...row, state: null }).stage, null);
+});
+
+// SARCLA 01.11.2026: "create new properties in HubSpot to populate the action plan's main categories and sub and so forth"
+test("action plan: HubSpot's plan properties - the rows as choices in the plan's order, a removed one hidden, never two alike", () => {
+  const items = [
+    it(1, null, "goal"), it(2, 1, "topic", { title: "Grow", sort: 2 }), it(9, 1, "topic", { title: "Ship", sort: 1 }),
+    it(3, 2, "group", { title: "Pricing" }), it(4, 3, "action", { title: "Same name", code: "101" }), it(5, 2, "action", { title: "Same name" }),
+    it(6, 9, "action", { title: "Faster" }),
+  ];
+  assert.deepEqual(treeOrder(items).map((i) => i.id), [1, 9, 6, 2, 3, 4, 5]);
+  assert.deepEqual(planOptions(items, "topic").map((o) => [o.value, o.label, o.hidden]), [["9", "Ship", false], ["2", "Grow", false]]);
+  // a second "Same name" gets its number (no roadmap ID), the first keeps its own name
+  assert.deepEqual(planOptions(items, "action").map((o) => o.label), ["Faster", "Same name", "Same name #5"]);
+  // a row that left the plan stays, hidden, so its tickets keep a name
+  const now = planOptions(items, "group", [{ value: "3", label: "Pricing" }, { value: "77", label: "Gone" }]);
+  assert.deepEqual(now.map((o) => [o.value, o.label, o.hidden]), [["3", "Pricing", false], ["77", "Gone", true]]);
+  assert.equal(sameOptions(now, now), true);
+  assert.equal(sameOptions(now.slice(0, 1), now), false);
+  assert.equal(sameOptions([{ ...now[0], label: "Renamed" }, now[1]], now), false);
+  // where a ticket sits: an action in a sub-category, one straight in its main category (the sub-category cleared)
+  assert.deepEqual(planValuesOf(4, items), { mkt_plan_category: "2", mkt_plan_subcategory: "3", mkt_plan_action: "4" });
+  assert.deepEqual(planValuesOf(6, items), { mkt_plan_category: "9", mkt_plan_subcategory: "", mkt_plan_action: "6" });
+  assert.equal(planValuesOf(99, items), null);
+});
+
+test("action plan: a sub-action's ticket starts from its action - only what HubSpot offers, nothing made up", () => {
+  const items = [it(1, null, "goal"), it(2, 1, "topic"), it(4, 2, "action", {
+    title: "Run the spring campaign", detail: "Run the spring campaign", priority: "HIGH", channel: ["SEA", "Fax"], country: ["DE"], agency: [],
+    roadmapYear: "2027", start: "2026-11-02", due: "2026-12-15", kpis: "Clicks", statusNote: "", reportLink: "https://example.com/r",
+  })];
+  const v = ticketFromAction(items[2], items, { mkt_channel: [{ value: "SEA" }, { value: "HubSpot" }], mkt_roadmap_year: [{ value: "2026" }] });
+  assert.deepEqual(v, {
+    content: 'From the action plan: "Run the spring campaign".', hs_ticket_priority: "HIGH", mkt_channel: "SEA", mkt_implementation_country: "DE",
+    mkt_planned_date: "2026-11-02", mkt_golive_date: "2026-12-15", mkt_kpis: "Clicks", mkt_report_link: "https://example.com/r",
+    mkt_plan_category: "2", mkt_plan_action: "4",
+  });
 });
 
 test("action plan: a dragged row lands only where it may", () => {

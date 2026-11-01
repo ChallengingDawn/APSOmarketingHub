@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { TASK_STATUSES, addTask, deleteTask, taskById, tasksOf, updateTask, type KpiTask, type SharedPerson, type TaskStatus } from "@/lib/reporting/kpiActions";
 import { itemById } from "@/lib/reporting/actionPlan";
+import { queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { s2sForm } from "@/lib/reporting/scrollToSale";
 import { renderTaskMail } from "@/lib/reporting/kpiTaskMail";
 import { mailConfigured, sendHubMail } from "@/lib/notify/mailer";
@@ -103,6 +104,8 @@ export async function PATCH(req: NextRequest) {
     const shared = b.shared === undefined ? undefined : await people(b.shared);
     const t = await updateTask(b.id as number, { title: b.title, note: b.note, owner: b.owner, ownerName: b.ownerName, due: b.due, status: b.status as TaskStatus | undefined, shared, planItem: plan });
     if (!t) return fail("no such task", 404);
+    // tied to another action: its tickets take that action's place in HubSpot
+    if (plan !== undefined && plan !== before.planItem) queuePlanSync("sub-action moved");
     const added = (shared ?? []).filter((p) => !before.shared.some((x) => x.id === p.id));
     const mailed = await notify(t, w, b, b.owner !== undefined && b.owner !== before.owner, added);
     return NextResponse.json({ ok: true, task: t, mailed });

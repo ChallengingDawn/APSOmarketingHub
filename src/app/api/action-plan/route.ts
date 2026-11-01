@@ -7,8 +7,10 @@
 //   POST  {action:"add", parentId, kind, title}  a new topic, group or action
 //   POST  {action:"move", id, target, where}     drag and drop: "into" a topic or group, or "before" a row
 //   DELETE ?id=                                  a row and what is under it; its own sub-actions go too
+// Every change to the tree reaches HubSpot's three plan properties a few seconds later (actionPlanHubspot.ts).
 import { NextRequest, NextResponse } from "next/server";
 import { addItem, deleteItems, itemById, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
+import { planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { PRIORITIES, S2S_CHOICES, STAGES, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
 import { dropPlanItem, planTasks } from "@/lib/reporting/kpiActions";
 import { s2sForm } from "@/lib/reporting/scrollToSale";
@@ -53,6 +55,8 @@ export async function GET(req: NextRequest) {
       list = await people();
       // the workbook's codes become people the first time HubSpot can be read
       await matchOwnersOnce(list);
+      // and HubSpot gets the plan's three ticket properties (once per start of the hub; not waited for)
+      void planInHubspot().catch(() => undefined);
     } catch (e) {
       peopleError = String((e as Error)?.message ?? e).slice(0, 200);
     }
@@ -116,6 +120,8 @@ export async function PATCH(req: NextRequest) {
   try {
     const item = await updateItem(id, p, w.name);
     if (!item) return fail("no such row", 404);
+    // a renamed row is renamed in HubSpot's choices too
+    if (p.title !== undefined) queuePlanSync("row renamed");
     return NextResponse.json({ ok: true, item });
   } catch (e) { return fail(e); }
 }
@@ -129,12 +135,14 @@ export async function POST(req: NextRequest) {
       if (!Number.isInteger(b.parentId) || !b.title?.trim()) return fail("a new row needs where it goes and its name", 400);
       if (!["topic", "group", "action"].includes(b.kind ?? "")) return fail("kind is topic, group or action", 400);
       const item = await addItem({ parentId: b.parentId as number, kind: b.kind as PlanKind, title: b.title, by: w.name });
+      queuePlanSync("row added");
       return NextResponse.json({ ok: true, item });
     }
     if (b.action === "move") {
       if (!Number.isInteger(b.id) || !Number.isInteger(b.target)) return fail("a move needs the row and where it goes", 400);
       if (b.where !== "into" && b.where !== "before") return fail("where is into or before", 400);
       const ok = await moveItem(b.id as number, b.target as number, b.where, w.name);
+      if (ok) queuePlanSync("row moved");
       return ok ? NextResponse.json({ ok: true }) : fail("it cannot go there", 400);
     }
     return fail("action is add or move", 400);
@@ -153,6 +161,7 @@ export async function DELETE(req: NextRequest) {
     const ids = await subtree(id);
     for (const x of ids) await dropPlanItem(x);
     await deleteItems(ids);
+    queuePlanSync("row removed");
     console.log(`[action-plan] ${w.name} removed row ${id} (${ids.length} with what was under it)`);
     return NextResponse.json({ ok: true, removed: ids.length });
   } catch (e) { return fail(e); }

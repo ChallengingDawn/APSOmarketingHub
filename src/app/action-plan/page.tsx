@@ -361,9 +361,10 @@ function ActionPlan() {
       </Typography>
 
       {opened && (
-        <ItemModal item={opened} items={items} rolled={rolled.get(opened.id)} subs={subs.filter((s) => s.item === opened.id)} canWrite={!!data?.canWrite}
-          people={data?.people ?? []} peopleError={data?.peopleError ?? null} choices={data?.choices ?? S2S_CHOICES}
-          onClose={closeRow} onPatch={patch} onSubs={setSubsFor} onAdd={add} onDelete={remove} onMoveTo={moveTo} />
+        // keyed by the row: a bubble opens another row with its own view and fields
+        <ItemModal key={opened.id} item={opened} items={items} rolledAll={rolled} subs={subs.filter((s) => s.item === opened.id)} canWrite={!!data?.canWrite}
+          people={data?.people ?? []} peopleError={data?.peopleError ?? null} choices={data?.choices ?? S2S_CHOICES} colorOf={colorOf}
+          onClose={closeRow} onOpen={openRow} onPatch={patch} onSubs={setSubsFor} onAdd={add} onDelete={remove} onMoveTo={moveTo} />
       )}
       {subsFor && (
         <ActionsPanel open onClose={() => setSubsFor(null)} canWrite={!!data?.canWrite}

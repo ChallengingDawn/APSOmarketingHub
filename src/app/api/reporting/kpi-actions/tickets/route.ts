@@ -1,15 +1,20 @@
 // A tile's "From Scroll to Sale" tickets (SARCLA 18.10.2026):
 //   GET ?tile=&ctx=<json>   the linked tickets as HubSpot has them, the form and its prefill
-//   GET ?search=<words>     the pipeline's tickets to link (newest first when empty)
+//   GET ?search=<words>&state=open|closed|all   the pipeline's tickets to link (newest first when empty) - open ones,
+//                           or the closed ones too to trace back (SARCLA 01.11.2026)
 //   POST {action:"create", tile, taskId?, values}   a new ticket, linked to the tile (and its task)
 //   POST {action:"link", tile, taskId?, ids}        1..n existing open tickets linked
 // A ticket belongs to the task it is made for (SARCLA 18.10: "inside of the task").
 //   POST {action:"unlink", tile, id}
+// On an action of the plan the form also carries the plan's place (three properties the hub keeps in HubSpot,
+// actionPlanHubspot.ts) and starts from the action's own fields; a ticket made or linked there gets its place.
 import { NextRequest, NextResponse } from "next/server";
 import { linkTickets, planIdOf, taskById, ticketsOf, unlinkTicket } from "@/lib/reporting/kpiActions";
-import { itemById } from "@/lib/reporting/actionPlan";
-import { createTicket, ownerOf, readTickets, s2sForm, searchTickets, ticketUrl } from "@/lib/reporting/scrollToSale";
-import { missingRequired, prefill, type TileContext } from "@/lib/reporting/scrollToSaleRules";
+import { itemById, planItems } from "@/lib/reporting/actionPlan";
+import { flushPlanSync, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
+import { PLAN_PROPS, planOptions, ticketFromAction } from "@/lib/reporting/actionPlanRules";
+import { createTicket, ownerOf, readTickets, s2sForm, searchTickets, ticketUrl, type TicketState } from "@/lib/reporting/scrollToSale";
+import { PLAN_FIELDS, missingRequired, prefill, type TileContext } from "@/lib/reporting/scrollToSaleRules";
 import { describeIntegrationError } from "@/lib/integrations/status";
 import { fail, who, whoForTile } from "../guard";
 
@@ -25,7 +30,10 @@ export async function GET(req: NextRequest) {
   const w = sp.has("search") ? await who() : await whoForTile(sp.get("tile"));
   if (w instanceof NextResponse) return w;
   try {
-    if (sp.has("search")) return NextResponse.json({ ok: true, tickets: await searchTickets(sp.get("search") ?? "") });
+    if (sp.has("search")) {
+      const state = (["open", "closed", "all"].includes(sp.get("state") ?? "") ? sp.get("state") : "open") as TicketState;
+      return NextResponse.json({ ok: true, tickets: await searchTickets(sp.get("search") ?? "", state) });
+    }
     const tile = sp.get("tile");
     if (!tileOk(tile)) return fail("tile is missing", 400);
     let ctx: TileContext | null = null;
@@ -34,11 +42,32 @@ export async function GET(req: NextRequest) {
     const linked = await readTickets(links.map((l) => l.ticketId));
     const me = ownerOf(form, w.email);
     const options = Object.fromEntries(form.fields.filter((f) => f.options).map((f) => [f.name, f.options!]));
-    const values = ctx ? prefill({ ...ctx, page: ctx.page || tile.split(":")[0] }, { options, ownerId: me?.id, year: new Date().getFullYear(), takenRoadmapIds: form.takenRoadmapIds }) : {};
+    let values = ctx ? prefill({ ...ctx, page: ctx.page || tile.split(":")[0] }, { options, ownerId: me?.id, year: new Date().getFullYear(), takenRoadmapIds: form.takenRoadmapIds }) : {};
+    // the plan's place: on the plan's actions only, once HubSpot has the properties - their choices straight from the plan
+    let fields = form.fields.filter((f) => !PLAN_FIELDS.includes(f.name));
+    const planId = planIdOf(tile);
+    if (planId != null) {
+      const items = await planItems();
+      const action = items.find((i) => i.id === planId);
+      const ready = await planInHubspot().then(() => true, (e) => { console.error("[action-plan] HubSpot properties not ready:", (e as Error).message); return false; });
+      if (ready) {
+        fields = form.fields.map((f) => {
+          const p = PLAN_PROPS.find((x) => x.name === f.name);
+          return p ? { ...f, options: planOptions(items, p.kind).map((o) => ({ value: o.value, label: o.label })) } : f;
+        });
+      }
+      if (action) {
+        const mine = ticketFromAction(action, items, options);
+        if (!ready) for (const k of PLAN_FIELDS) delete mine[k];
+        // the way back to the action in the hub, as the KPI tiles' tickets have it
+        if (mine.content && ctx?.href) mine.content = `${mine.content}\n\nOpen it: ${ctx.href}`;
+        values = { ...values, ...mine };
+      }
+    }
     return NextResponse.json({
       ok: true, canWrite: w.canWrite,
       linked: linked.map((t) => { const l = links.find((x) => x.ticketId === t.id); return { ...t, createdHere: l?.created ?? false, taskId: l?.taskId ?? null }; }),
-      form: { fields: form.fields, stages: form.stages.map((s) => ({ value: s.value, label: s.label })), owners: form.owners.map((o) => ({ value: o.id, label: o.name })), teams: form.teams },
+      form: { fields, stages: form.stages.map((s) => ({ value: s.value, label: s.label })), owners: form.owners.map((o) => ({ value: o.id, label: o.name })), teams: form.teams },
       prefill: values, me: me ? { id: me.id, name: me.name } : null,
     });
   } catch (e) {
@@ -65,8 +94,13 @@ export async function POST(req: NextRequest) {
       // the task's shared people share the ticket too (HubSpot notifies them) - by their user ids
       const task = taskId ? await taskById(taskId) : null;
       const sharedUsers = (task?.shared ?? []).map((p) => p.userId).filter(Boolean);
-      const id = await createTicket(b.values ?? {}, sharedUsers.length ? { hs_shared_user_ids: sharedUsers.join(";") } : {});
+      // the plan's place only on the plan's actions; a choice made a moment ago reaches HubSpot first
+      const values = { ...(b.values ?? {}) };
+      if (planId == null) for (const k of PLAN_FIELDS) delete values[k];
+      else if (PLAN_FIELDS.some((k) => values[k])) await flushPlanSync();
+      const id = await createTicket(values, sharedUsers.length ? { hs_shared_user_ids: sharedUsers.join(";") } : {});
       await linkTickets(b.tile, [id], w.name, true, taskId);
+      queuePlanSync("ticket made");
       console.log(`[kpi-actions] ticket ${id} created from tile ${b.tile} by ${w.name}`);
       return NextResponse.json({ ok: true, id, url: ticketUrl(id) });
     }
@@ -76,6 +110,7 @@ export async function POST(req: NextRequest) {
       // only tickets of the pipeline: what HubSpot returns for the ids
       const found = await readTickets(ids);
       await linkTickets(b.tile, found.map((t) => t.id), w.name, false, taskId);
+      queuePlanSync("tickets linked");
       return NextResponse.json({ ok: true, linked: found.length });
     }
     if (b.action === "unlink" && b.id) {

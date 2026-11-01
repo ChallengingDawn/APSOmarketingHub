@@ -4,7 +4,9 @@
 // is shared with, and its "From Scroll to Sale" ticket inside it (none, new and prefilled, or open
 // ones linked); on the right the tile's tasks with their tickets. In the header: whether the tile
 // shows In a nutshell. The owner and the people shared with get a mail from the hub; the ticket is
-// shared with them in HubSpot too. Escape or the cross closes it.
+// shared with them in HubSpot too. Escape or the cross closes it. As wide as the action plan's window (SARCLA
+// 01.11.2026: "the modal should be wider, like the modal"); "Create with AI" fills the new task and its ticket from a
+// description; existing tickets are found open, closed (to trace back) or all.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -28,11 +30,12 @@ import LinkOffIcon from "@mui/icons-material/LinkOff";
 import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 
 import { Badge, FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { FORMAT_LABEL } from "./store";
 import type { KpiTask, Placement, TaskStatus, TileFormat } from "@/lib/reporting/kpiActions";
-import type { S2sField } from "@/lib/reporting/scrollToSaleRules";
+import type { AiFill, S2sField } from "@/lib/reporting/scrollToSaleRules";
 import { refreshActions, send } from "./store";
 import type { TileInfo } from "./TileActions";
 
@@ -50,6 +53,8 @@ const field = { "& .MuiInputBase-root": { fontSize: "0.92rem", borderRadius: "10
 const cta = { textTransform: "none", fontWeight: 700, borderRadius: "10px", fontSize: "0.9rem" } as const;
 const dmy = (d: string) => d.slice(0, 10).split("-").reverse().join(".");
 const section = { fontSize: "0.74rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
+// "Create with AI" in violet, apart from the form's blue
+const AI_INK = "#6a46c9", AI_SOFT = "rgba(106,70,201,.06)", AI_LINE = "rgba(106,70,201,.35)";
 
 /** The people a task is shared with - HubSpot owners, by name. */
 function People({ owners, value, onChange, label = "Shared with" }: { owners: Opt[]; value: string[]; onChange: (v: string[]) => void; label?: string }) {
@@ -227,7 +232,7 @@ export function ActionsPanel({ tile, open, onClose, placed, format, formats, onM
       <Box onClick={onClose} sx={{ position: "fixed", inset: 0, zIndex: 1299, bgcolor: "rgba(21,34,58,.18)" }} />
       <Box role="dialog" aria-modal="true" aria-label={`Actions for ${tile.title}`}
         sx={{
-          position: "fixed", top: 24, bottom: 24, left: "50%", transform: "translateX(-50%)", width: "min(1080px, calc(100vw - 32px))", zIndex: 1300,
+          position: "fixed", top: 16, bottom: 16, left: "50%", transform: "translateX(-50%)", width: "min(1320px, calc(100vw - 32px))", zIndex: 1300,
           display: "flex", flexDirection: "column", borderRadius: "22px", overflow: "hidden", bgcolor: "#fbfcfe",
           border: "1px solid rgba(21,34,58,.08)", boxShadow: "0 24px 60px rgba(21,34,58,.25), 0 4px 14px rgba(21,34,58,.08)",
         }}>
@@ -307,8 +312,12 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
+  // "Create with AI": the description, and what came back
+  const [ai, setAi] = useState<{ open: boolean; text: string; busy: boolean; msg: string | null; err: string | null }>({ open: false, text: "", busy: false, msg: null, err: null });
   useEffect(() => { if (t?.me && !owner) setOwner(t.me.id); }, [t, owner]);
-  useEffect(() => { if (t) setValues((v) => (Object.keys(v).length ? v : t.prefill)); }, [t]);
+  // the prefill goes under what is already typed: the task's own fields (below) are written in before HubSpot answers,
+  // so "nothing yet" cannot be told by an empty object - the prefill never reached the form (seen 01.11.2026)
+  useEffect(() => { if (t) setValues((v) => ({ ...t.prefill, ...Object.fromEntries(Object.entries(v).filter(([, x]) => String(x ?? "").trim())) })); }, [t]);
   // the ticket follows the task: the action is its name; its owner, planned date and next steps
   useEffect(() => {
     setValues((v) => ({ ...v, subject: title.trim().slice(0, 200), ...(owner ? { hubspot_owner_id: owner } : {}), ...(due ? { mkt_planned_date: due } : {}), ...(note.trim() ? { mkt_next_steps: note.trim() } : {}) }));
@@ -316,6 +325,23 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo
   const owners = t?.form.owners ?? [];
   const missing = useMemo(() => (ticket === "new" && t ? t.form.fields.filter((f) => f.required && f.name !== "subject" && !String(values[f.name] ?? "").trim()).map((f) => f.label) : []), [ticket, t, values]);
   const ready = !!title.trim() && !busy && (ticket !== "new" || !missing.length) && (ticket !== "link" || pick.length > 0);
+
+  const fill = async () => {
+    setAi((a) => ({ ...a, busy: true, msg: null, err: null }));
+    try {
+      const j = await send("/api/reporting/kpi-actions/ai", "POST", { tile: tile.key, describe: ai.text, ctx: { title: tile.title, summary: tile.summary }, values });
+      const f = j.fill as AiFill;
+      if (f.title) setTitle(f.title);
+      if (f.note) setNote(f.note);
+      if (f.due) setDue(f.due);
+      if (f.owner) setOwner(f.owner);
+      if (f.shared.length) setShared((s) => [...new Set([...s, ...f.shared])]);
+      if (f.ticket && tickets) setTicket("new");
+      if (Object.keys(f.values).length) setValues((v) => ({ ...v, ...f.values }));
+      const n = [f.title, f.note, f.due, f.owner].filter(Boolean).length + f.shared.length + (f.ticket && tickets ? Object.keys(f.values).length : 0);
+      setAi((a) => ({ ...a, busy: false, msg: `${n} field${n === 1 ? "" : "s"} filled in${f.ticket && tickets ? ", with a new ticket" : ""} - check each one before adding. Nothing is saved yet.` }));
+    } catch (e) { setAi((a) => ({ ...a, busy: false, err: (e as Error).message })); }
+  };
 
   const add = async () => {
     if (!ready) return;
@@ -338,7 +364,30 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo
 
   return (
     <Box sx={{ display: "grid", gap: 1.5 }}>
-      <Typography sx={section}>{plan ? "New sub-action" : "New task"}</Typography>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Typography sx={{ ...section, flex: 1 }}>{plan ? "New sub-action" : "New task"}</Typography>
+        <Button size="small" startIcon={<AutoAwesomeIcon sx={{ fontSize: 18 }} />} onClick={() => setAi((a) => ({ ...a, open: !a.open }))}
+          sx={{ ...cta, fontSize: "0.86rem", color: AI_INK, bgcolor: ai.open ? AI_SOFT : "transparent", "&:hover": { bgcolor: AI_SOFT } }}>
+          Create with AI
+        </Button>
+      </Box>
+      {ai.open && (
+        <Box sx={{ display: "grid", gap: 1, p: 1.5, borderRadius: "14px", border: `1px solid ${AI_LINE}`, bgcolor: AI_SOFT }}>
+          <TextField multiline minRows={3} maxRows={10} autoFocus value={ai.text} onChange={(e) => setAi((a) => ({ ...a, text: e.target.value }))}
+            label="Describe it to the AI" placeholder={`What should be done, by whom, by when${tickets ? ", for which channel and country - and whether it needs a Scroll to Sale ticket" : ""}`}
+            sx={field} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && ai.text.trim().length >= 5 && !ai.busy) void fill(); }} />
+          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+            <Typography sx={{ flex: 1, fontSize: "0.8rem", color: ai.err ? RED : ai.msg ? GREEN : FAINT, fontWeight: ai.msg ? 600 : 400 }}>
+              {ai.err ?? ai.msg ?? "The AI fills in the form below from your words - only choices the form offers, nothing made up. You check it, then add it."}
+            </Typography>
+            <Button variant="contained" disableElevation disabled={ai.busy || ai.text.trim().length < 5} onClick={() => void fill()}
+              startIcon={ai.busy ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AutoAwesomeIcon sx={{ fontSize: 18 }} />}
+              sx={{ ...cta, bgcolor: AI_INK, "&:hover": { bgcolor: "#5a3ab0" } }}>
+              {ai.busy ? "Filling in…" : "Fill in the form"}
+            </Button>
+          </Box>
+        </Box>
+      )}
       <TextField label="What will be done" value={title} onChange={(e) => setTitle(e.target.value)} sx={field} autoFocus fullWidth
         helperText={tickets ? "Written as an action - it is also the ticket's name" : "Written as an action"} />
       <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: "1fr 170px" }}>
@@ -356,7 +405,7 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo
         <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
           <ConfirmationNumberOutlinedIcon sx={{ fontSize: 20, color: FAINT }} />
           <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK, mr: 0.5 }}>Scroll to Sale ticket</Typography>
-          {([["none", "None"], ["new", "New ticket"], ["link", "Link open ones"]] as const).map(([id, label]) => (
+          {([["none", "None"], ["new", "New ticket"], ["link", "Link existing"]] as const).map(([id, label]) => (
             <Box key={id} component="button" type="button" onClick={() => setTicket(id)}
               sx={{ border: `1px solid ${ticket === id ? TINT.blue.fg : HAIRLINE}`, bgcolor: ticket === id ? TINT.blue.bg : "#fff", color: ticket === id ? TINT.blue.fg : MUTED, font: "inherit", fontSize: "0.86rem", fontWeight: ticket === id ? 700 : 600, px: 1.4, py: 0.5, borderRadius: 99, cursor: "pointer" }}>
               {label}
@@ -368,7 +417,7 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo
             : <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.86rem", color: MUTED }}>Reading the pipeline…</Typography></Box>
         )}
         {ticket === "new" && t && <TicketFields form={t.form} values={values} set={(k, x) => setValues((v) => ({ ...v, [k]: x }))} />}
-        {ticket === "link" && <OpenTickets pick={pick} setPick={setPick} already={(t?.linked ?? []).map((x) => x.id)} />}
+        {ticket === "link" && <FindTickets pick={pick} setPick={setPick} already={(t?.linked ?? []).map((x) => x.id)} />}
       </Box>}
 
       {err && <Typography sx={{ fontSize: "0.88rem", color: RED }}>{err}</Typography>}
@@ -432,27 +481,40 @@ function TicketFields({ form, values, set }: { form: Form; values: Record<string
   );
 }
 
-/** The pipeline's OPEN tickets (SARCLA 18.10: "only show open tickets"), to pick one or more. */
-function OpenTickets({ pick, setPick, already }: { pick: string[]; setPick: (f: (p: string[]) => string[]) => void; already: string[] }) {
+const TICKET_STATES = [["open", "Open"], ["closed", "Closed"], ["all", "All"]] as const;
+type TicketState = (typeof TICKET_STATES)[number][0];
+
+/** The pipeline's tickets, to pick one or more: the open ones (SARCLA 18.10: "only show open tickets"), or the closed
+ *  ones too - Live, Maintaining Internally, Killed - to trace back (01.11.2026). */
+function FindTickets({ pick, setPick, already }: { pick: string[]; setPick: (f: (p: string[]) => string[]) => void; already: string[] }) {
   const [q, setQ] = useState("");
+  const [state, setState] = useState<TicketState>("open");
   const [rows, setRows] = useState<Linked[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
+    setRows(null);
     const h = setTimeout(async () => {
       try {
-        const r = await fetch(`/api/reporting/kpi-actions/tickets?search=${encodeURIComponent(q)}`);
+        const r = await fetch(`/api/reporting/kpi-actions/tickets?search=${encodeURIComponent(q)}&state=${state}`);
         const j = await r.json();
         if (!r.ok || !j.ok) throw new Error(j.message ?? j.error ?? `the hub answered ${r.status}`);
         setRows(j.tickets); setErr(null);
       } catch (e) { setErr((e as Error).message); }
     }, q ? 350 : 0);
     return () => clearTimeout(h);
-  }, [q]);
+  }, [q, state]);
+  const which = state === "all" ? "" : `${state} `;
   return (
     <Box sx={{ display: "grid", gap: 0.75 }}>
-      <TextField size="small" label="Search the open tickets - name or roadmap ID" value={q} onChange={(e) => setQ(e.target.value)} sx={field} />
+      <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+        <TextField size="small" label={`Search the ${which}tickets - name or roadmap ID`} value={q} onChange={(e) => setQ(e.target.value)} sx={{ ...field, flex: 1 }} />
+        <ToggleButtonGroup size="small" exclusive value={state} onChange={(_, v: TicketState | null) => v && setState(v)} aria-label="Which tickets"
+          sx={{ "& .MuiToggleButton-root": { textTransform: "none", fontWeight: 600, fontSize: "0.8rem", px: 1.25, py: 0.5 } }}>
+          {TICKET_STATES.map(([v, label]) => <ToggleButton key={v} value={v}>{label}</ToggleButton>)}
+        </ToggleButtonGroup>
+      </Box>
       {err && <Typography sx={{ fontSize: "0.86rem", color: RED }}>{err}</Typography>}
-      {!rows ? <CircularProgress size={16} /> : !rows.length ? <Typography sx={{ fontSize: "0.88rem", color: FAINT }}>No open ticket found.</Typography> : (
+      {!rows ? <CircularProgress size={16} /> : !rows.length ? <Typography sx={{ fontSize: "0.88rem", color: FAINT }}>No {which}ticket found.</Typography> : (
         <Box sx={{ display: "grid", gap: 0.25, maxHeight: 320, overflowY: "auto" }}>
           {rows.map((k) => {
             const has = already.includes(k.id);
@@ -558,13 +620,13 @@ function TaskRow({ tile, k, t, tickets, canWrite, reload, setErr, plan, allowTic
       {canWrite && (
         <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
           {allowTickets && <Button size="small" startIcon={<ConfirmationNumberOutlinedIcon sx={{ fontSize: 18 }} />} onClick={() => open("new")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "new" ? TINT.blue.fg : MUTED }}>New ticket</Button>}
-          {allowTickets && <Button size="small" onClick={() => open("link")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "link" ? TINT.blue.fg : MUTED }}>Link open ones</Button>}
+          {allowTickets && <Button size="small" onClick={() => open("link")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "link" ? TINT.blue.fg : MUTED }}>Link existing</Button>}
           <Button size="small" startIcon={<PeopleOutlineIcon sx={{ fontSize: 18 }} />} onClick={() => open("share")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "share" ? TINT.blue.fg : MUTED }}>Share</Button>
           {!plan && hasPlan && fromKpi && <Button size="small" startIcon={<FlagOutlinedIcon sx={{ fontSize: 18 }} />} onClick={() => open("plan")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "plan" ? TINT.blue.fg : MUTED }}>Action plan</Button>}
         </Box>
       )}
       {adding === "new" && t && <TicketFields form={t.form} values={values} set={(key, v) => setValues((o) => ({ ...o, [key]: v }))} />}
-      {adding === "link" && <OpenTickets pick={pick} setPick={setPick} already={tickets.map((x) => x.id)} />}
+      {adding === "link" && <FindTickets pick={pick} setPick={setPick} already={tickets.map((x) => x.id)} />}
       {adding === "share" && <People owners={owners} value={shared} onChange={setShared} label="Shared with - the new ones get a mail" />}
       {adding === "plan" && <PlanPick value={planPick} onChange={setPlanPick} />}
       {adding && (

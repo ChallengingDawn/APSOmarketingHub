@@ -5,6 +5,8 @@
 // country; often team, roadmap year + id, description, planned date, next steps; sometimes go-live,
 // agency, KPIs, status note. None of the tickets is linked to a contact or a company.
 
+import { PLAN_PROPS } from "./actionPlanRules";
+
 export const S2S_PIPELINE = "4197562568";
 export const S2S_FIRST_STAGE = "6161860807"; // Idea box
 
@@ -22,6 +24,9 @@ export const S2S_FIELDS: readonly Omit<S2sField, "options">[] = [
   { name: "hs_ticket_priority", label: "Priority", kind: "select", required: true },
   { name: "hubspot_owner_id", label: "Owner", kind: "owner", required: true },
   { name: "mkt_business_goal", label: "Business goal", kind: "multi", required: true },
+  // the plan's place, three properties the hub keeps in HubSpot (SARCLA 01.11.2026: "create new properties in HubSpot to
+  // populate the action plan's main categories and sub and so forth") - on the form of the plan's sub-actions only
+  ...PLAN_PROPS.map((p) => ({ name: p.name, label: p.label, kind: "select" as const })),
   { name: "mkt_channel", label: "Marketing channel", kind: "multi", required: true },
   { name: "mkt_implementation_country", label: "Implementation country", kind: "multi", required: true },
   { name: "mkt_roadmap_year", label: "Roadmap year", kind: "select" },
@@ -32,7 +37,10 @@ export const S2S_FIELDS: readonly Omit<S2sField, "options">[] = [
   { name: "mkt_kpis", label: "KPIs", kind: "textarea" },
   { name: "mkt_next_steps", label: "Next steps / milestones", kind: "textarea" },
   { name: "mkt_status_note", label: "Status note", kind: "textarea" },
+  // in HubSpot since the agency's set-up, on no ticket yet (01.11.2026) - "all properties for creation"
+  { name: "mkt_report_link", label: "Report link", kind: "text" },
 ];
+export const PLAN_FIELDS: readonly string[] = PLAN_PROPS.map((p) => p.name);
 
 /** What the tile tells the form. */
 export type TileContext = {
@@ -147,4 +155,79 @@ export function ticketProperties(values: Record<string, string | null | undefine
 /** What is missing before a ticket can be created. */
 export function missingRequired(values: Record<string, string | null | undefined>): string[] {
   return S2S_FIELDS.filter((f) => f.required && !String(values[f.name] ?? "").trim()).map((f) => f.label);
+}
+
+/* ── "Create with AI" ──────────────────────────────────────────────────────
+   SARCLA 01.11.2026: "create with AI should be a button where you describe to the AI and the AI helps fill out the
+   form". The AI answers in this shape; what it proposes is kept only where the form allows it, and the person
+   checks every field before anything is saved. */
+
+/** What the AI filled in: the task, and its ticket's fields (by property name). */
+export type AiFill = { title: string; note: string; due: string; owner: string; shared: string[]; ticket: boolean; values: Record<string, string> };
+type Choice = { value: string; label: string };
+/** What the AI may choose from: each field's choices, the people (owner id = name) and the stages. */
+export type AiForm = { fields: S2sField[]; owners: Choice[]; stages: Choice[]; teams?: Choice[] };
+
+const isDay = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`)) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
+const choicesOf = (f: S2sField, form: AiForm): Choice[] =>
+  f.kind === "owner" ? form.owners : f.kind === "stage" ? form.stages : f.kind === "team" ? form.teams ?? [] : f.options ?? [];
+
+/** The answer's JSON schema: every choice an enum of what the field offers, "" or [] for nothing. */
+export function aiFillSchema(form: AiForm, tickets: boolean): Record<string, unknown> {
+  const people = ["", ...form.owners.map((o) => o.value)];
+  const values: Record<string, unknown> = {};
+  for (const f of form.fields) {
+    if (f.name === "subject" || f.kind === "team") continue;
+    const opts = choicesOf(f, form).map((o) => o.value);
+    values[f.name] =
+      f.kind === "multi" ? { type: "array", items: { type: "string", enum: opts.length ? opts : [""] }, description: f.label }
+        : f.kind === "select" || f.kind === "owner" || f.kind === "stage" ? { type: "string", enum: ["", ...opts], description: f.label }
+          : f.kind === "date" ? { type: "string", description: `${f.label}: YYYY-MM-DD, or "" when not said` }
+            : { type: "string", description: f.label };
+  }
+  return {
+    type: "object",
+    properties: {
+      title: { type: "string", description: "What will be done, written as an action (a verb first), at most 120 characters" },
+      note: { type: "string", description: "A short note for the person doing it - the details of the description that fit nowhere else, or \"\"" },
+      due: { type: "string", description: "By when: YYYY-MM-DD, or \"\" when the description gives no date" },
+      owner: { type: "string", enum: people, description: "Who does it: the id of a person the description names, or \"\"" },
+      shared: { type: "array", items: { type: "string", enum: people }, description: "Other people the description names, to inform" },
+      ticket: { type: "string", enum: tickets ? ["none", "new"] : ["none"], description: "\"new\" when a marketing ticket should be made for it" },
+      values: { type: "object", properties: values, required: Object.keys(values), additionalProperties: false },
+    },
+    required: ["title", "note", "due", "owner", "shared", "ticket", "values"],
+    additionalProperties: false,
+  };
+}
+
+/** What the AI proposed, kept only where the form allows it: a choice the field offers, a real date, a known person. */
+export function cleanAiFill(raw: unknown, form: AiForm, tickets: boolean): AiFill {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const arr = (v: unknown) => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
+  const people = new Set(form.owners.map((o) => o.value));
+  const due = str(r.due);
+  const owner = str(r.owner);
+  const out: AiFill = {
+    title: str(r.title).replace(/\s+/g, " ").slice(0, 200),
+    note: str(r.note).slice(0, 2000),
+    due: isDay(due) ? due : "",
+    owner: people.has(owner) ? owner : "",
+    shared: [...new Set(arr(r.shared).filter((x) => people.has(x) && x !== owner))],
+    ticket: tickets && r.ticket === "new",
+    values: {},
+  };
+  const given = (r.values && typeof r.values === "object" ? r.values : {}) as Record<string, unknown>;
+  for (const f of form.fields) {
+    if (f.name === "subject" || f.kind === "team") continue;
+    const allowed = new Set(choicesOf(f, form).map((o) => o.value));
+    let v = "";
+    if (f.kind === "multi") v = [...new Set(arr(given[f.name]).filter((x) => allowed.has(x)))].join(";");
+    else if (f.kind === "select" || f.kind === "owner" || f.kind === "stage") v = allowed.has(str(given[f.name])) ? str(given[f.name]) : "";
+    else if (f.kind === "date") v = isDay(str(given[f.name])) ? str(given[f.name]) : "";
+    else v = str(given[f.name]).slice(0, 5000);
+    if (v) out.values[f.name] = v;
+  }
+  return out;
 }

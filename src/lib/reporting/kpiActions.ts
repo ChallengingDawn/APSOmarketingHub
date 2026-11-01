@@ -251,6 +251,23 @@ export async function planTasks(): Promise<(KpiTask & { tickets: number })[]> {
   return r.rows.map((x) => ({ ...task(x), tickets: Number(x.tickets) }));
 }
 
+/**
+ * Every ticket that belongs to an action of the plan - linked on the action, or under a sub-action of it (one made on a
+ * KPI tile and tied to the action too) - with that action; the latest link wins. For the plan's properties in HubSpot.
+ */
+export async function planTicketLinks(): Promise<{ ticketId: string; item: number }[]> {
+  await ensure();
+  const r = await query<{ ticket_id: string; item: number | null }>(
+    `SELECT l.ticket_id, COALESCE(t.plan_item,
+         CASE WHEN t.tile ~ '^plan:[0-9]+$' THEN substring(t.tile from 6)::int END,
+         CASE WHEN l.tile ~ '^plan:[0-9]+$' THEN substring(l.tile from 6)::int END) AS item
+       FROM ${LINKS} l LEFT JOIN ${TASKS} t ON t.id = l.task_id ORDER BY l.linked_at`,
+  );
+  const out = new Map<string, number>();
+  for (const x of r.rows) if (x.item != null) out.set(x.ticket_id, Number(x.item));
+  return [...out.entries()].map(([ticketId, item]) => ({ ticketId, item }));
+}
+
 /** An action leaves the plan: its own sub-actions go with it (their tickets stay in HubSpot), KPI tasks only lose the link. */
 export async function dropPlanItem(id: number): Promise<void> {
   await ensure();
