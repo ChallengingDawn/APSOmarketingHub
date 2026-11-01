@@ -13,6 +13,9 @@
 //   compactSignals  the scan as small rows - one company, one article, one day each
 //   kindOf          one page's rows, the companies and articles renumbered to those it names
 //   the rest        what the pages count: a period and the one before it, the filters, the breakdowns, the companies
+//   funnelOf        the shop's path for every look (SARCLA 01.11.2026: "it would be interesting to have a funnel diagram in
+//                   each of the sub topic"): looked at, in stock, a quantity typed, the minimum met, in the cart, ordered -
+//                   each look stops at the first step it fails, as Engage's "Where we lost them" (rules.lostReason)
 
 import { typedQuantity } from "../datatracker/rules";
 
@@ -35,6 +38,12 @@ export const AR = { number: 0, description: 1, pc: 2, group: 3, sub: 4, product:
  *  (availability; null: no quantity typed), ordered later 0|1, on a price-check ticket 0|1, nothing on the shelf 0|1]. */
 export type SLook = [number, number, string, number | null, number | null, 0 | 1, 0 | 1, 0 | 1];
 export const LK = { company: 0, article: 1, day: 2, qty: 3, short: 4, later: 5, ticket: 6, empty: 7 } as const;
+/** Where a look stopped on the shop's path - in the path's order; "won": ordered that day. */
+export const PATH_STEPS = ["shelf", "looked", "moq", "price", "cart", "won"] as const;
+export type PathStepName = (typeof PATH_STEPS)[number];
+/** Every look on the shop's path: [company, article, "YYYY-MM-DD", the step it stopped at (PATH_STEPS' index)] - its
+ *  company, article and day where an SLook has them, so the filters read both alike. */
+export type SPath = [number, number, string, number];
 
 export type SignalsNotes = {
   /** companies the scan read */
@@ -59,9 +68,11 @@ export type SignalsData = {
   companies: SCompany[];
   articles: SArticle[];
   looks: Record<SignalKind, SLook[]>;
+  /** every look on the shop's path - absent from a read made before 01.11.2026 */
+  path?: SPath[];
   notes: SignalsNotes;
 };
-/** One page's part: its looks, and only the companies and articles they name. */
+/** One page's part: its looks and the path, and only the companies and articles they name. */
 export type KindData = Omit<SignalsData, "looks"> & { kind: SignalKind; looks: SLook[] };
 
 /* ── the scan, as rows ─────────────────────────────────────────────────── */
@@ -84,6 +95,7 @@ export type SignalsIn = {
   priceChecks: CheckIn[]; moq: LookIn[]; availability: LookIn[];
   articleFacts?: Record<string, FactsIn>;
   orderedLooks?: { companyId: string; day: string; article: string }[];
+  path?: (CompanyIn & { day: string; article: string; step: string })[];
   scanned: number;
   kept?: { merged: number; unknownCompany: number } | null;
   quantityHistoryError: string | null; ticketLookupError: string | null;
@@ -163,9 +175,17 @@ export function compactSignals(s: SignalsIn, o: { generatedAt: string; from: str
     }
   }
 
+  // the shop's path: every look, where it stopped
+  const path: SPath[] = [];
+  for (const p of s.path ?? []) {
+    const step = (PATH_STEPS as readonly string[]).indexOf(p.step);
+    if (step < 0 || !/^\d{4}-\d{2}-\d{2}$/.test(p.day)) continue;
+    path.push([co(p), ar(p.article, { description: null, profitCentre: null, salesUnit: null }), p.day, step]);
+  }
+
   return {
     generatedAt: o.generatedAt, from: o.from, through: o.through, companies, articles,
-    looks: { availability, price, moq },
+    looks: { availability, price, moq }, path,
     notes: {
       scanned: s.scanned, kept: s.kept ?? null, keptError: o.keptError ?? null,
       quantityHistoryError: s.quantityHistoryError, ticketLookupError: s.ticketLookupError,
@@ -178,14 +198,19 @@ export function compactSignals(s: SignalsIn, o: { generatedAt: string; from: str
 export function kindOf(d: SignalsData, kind: SignalKind): KindData {
   const companies: SCompany[] = [], articles: SArticle[] = [];
   const coAt = new Map<number, number>(), arAt = new Map<number, number>();
-  const looks = d.looks[kind].map((l): SLook => {
-    let c = coAt.get(l[LK.company]);
-    if (c === undefined) { c = companies.length; coAt.set(l[LK.company], c); companies.push(d.companies[l[LK.company]]); }
-    let a = arAt.get(l[LK.article]);
-    if (a === undefined) { a = articles.length; arAt.set(l[LK.article], a); articles.push(d.articles[l[LK.article]]); }
-    return [c, a, l[2], l[3], l[4], l[5], l[6], l[7]];
-  });
-  return { generatedAt: d.generatedAt, from: d.from, through: d.through, notes: d.notes, kind, companies, articles, looks };
+  const coOf = (i: number) => {
+    let c = coAt.get(i);
+    if (c === undefined) { c = companies.length; coAt.set(i, c); companies.push(d.companies[i]); }
+    return c;
+  };
+  const arOf = (i: number) => {
+    let a = arAt.get(i);
+    if (a === undefined) { a = articles.length; arAt.set(i, a); articles.push(d.articles[i]); }
+    return a;
+  };
+  const looks = d.looks[kind].map((l): SLook => [coOf(l[LK.company]), arOf(l[LK.article]), l[2], l[3], l[4], l[5], l[6], l[7]]);
+  const path = d.path ? d.path.map((p): SPath => [coOf(p[0]), arOf(p[1]), p[2], p[3]]) : undefined;
+  return { generatedAt: d.generatedAt, from: d.from, through: d.through, notes: d.notes, kind, companies, articles, looks, ...(path ? { path } : {}) };
 }
 
 /* ── the days ──────────────────────────────────────────────────────────── */
@@ -259,8 +284,8 @@ export type FDim = "article" | "pc" | "group" | "sub" | "product" | "country" | 
 export const FDIMS: FDim[] = ["pc", "group", "sub", "product", "article", "country", "company"];
 export type SFilters = Partial<Record<FDim, string[]>>;
 
-/** A look's value on a breakdown - "" where Products & Pricing or the company gives none. */
-export function keyOf(d: KindData, l: SLook, dim: FDim): string {
+/** A look's value on a breakdown - "" where Products & Pricing or the company gives none. A path row reads alike. */
+export function keyOf(d: KindData, l: SLook | SPath, dim: FDim): string {
   const a = d.articles[l[LK.article]], c = d.companies[l[LK.company]];
   switch (dim) {
     case "article": return a[AR.number];
@@ -278,6 +303,29 @@ export function looksOf(d: KindData, w: Win | null, f: SFilters, except?: FDim):
   if (!w) return [];
   const dims = FDIMS.filter((x) => x !== except && f[x]?.length).map((x) => [x, new Set(f[x])] as const);
   return d.looks.filter((l) => l[LK.day] >= w.from && l[LK.day] <= w.to && dims.every(([x, set]) => set.has(keyOf(d, l, x))));
+}
+
+/** The path's looks of a period under the filters - as looksOf. */
+export function pathOf(d: KindData, w: Win | null, f: SFilters): SPath[] {
+  if (!w || !d.path) return [];
+  const dims = FDIMS.filter((x) => f[x]?.length).map((x) => [x, new Set(f[x])] as const);
+  return d.path.filter((p) => p[2] >= w.from && p[2] <= w.to && dims.every(([x, set]) => set.has(keyOf(d, p, x))));
+}
+
+/** The shop's path added up: the looks at each step and those that stopped before the next - each look stops once. */
+export type Funnel = {
+  looked: number; inStock: number; typed: number; minimum: number; cart: number; ordered: number;
+  stopped: Record<Exclude<PathStepName, "won">, number>;
+  companies: number;
+};
+export function funnelOf(rows: SPath[]): Funnel {
+  const n = [0, 0, 0, 0, 0, 0];
+  const cos = new Set<number>();
+  for (const p of rows) { n[p[3]]++; cos.add(p[0]); }
+  const [shelf, looked, moq, price, cart, won] = n;
+  const all = rows.length;
+  const inStock = all - shelf, typed = inStock - looked, minimum = typed - moq, carted = minimum - price;
+  return { looked: all, inStock, typed, minimum, cart: carted, ordered: won, stopped: { shelf, looked, moq, price, cart }, companies: cos.size };
 }
 
 /** What a set of looks adds up to. `share`: the quantity asked as a part of the minimum (minimum order), summed and counted. */

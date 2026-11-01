@@ -15,7 +15,7 @@ import { fetchShopSignals, type KeptLook } from "@/lib/integrations/shopSignals"
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { SIGNALS_FROM, compactSignals, type SignalsData } from "./model";
 
-const KEY = "products:signals:v1";
+const KEY = "products:signals:v2"; // v2 (01.11.2026): the path for the funnels
 const TTL_MS = 2 * 60 * 60 * 1000;
 /** a read that could not join the kept lines is asked again sooner */
 const RETRY_MS = 20 * 60 * 1000;

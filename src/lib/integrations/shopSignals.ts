@@ -167,7 +167,27 @@ export type ShopSignals = {
   orderedLooks?: { companyId: string; day: string; article: string }[];
   /** With `kept`: the hub's lines merged in, and those of a company the scan did not reach (left out). */
   kept?: { merged: number; unknownCompany: number } | null;
+  /**
+   * With `facts` (additive, 01.11.2026 - the Products Reports' funnel): every look, one company, one article, one day, and
+   * where it stopped on the shop's path - the shelf, only looked, the minimum, the price, the cart - or "won", ordered that
+   * day. The shelf as the Products Reports read it: a stock Products & Pricing does not give is unknown, not empty.
+   */
+  path?: PathLook[];
 };
+
+export type PathStep = LostReason | "won";
+export type PathLook = { companyId: string; companyName: string | null; customerNumber: string | null; country: string | null; day: string; article: string; step: PathStep };
+
+/** Where a look stopped, as the Products Reports count (src/lib/productSignals/model.ts): rules.lostReason, with a stock
+ *  Products & Pricing does not give left as unknown - it passes the shelf - where lostReason reads it as 0. */
+export function pathStep(x: { qty: number | null; carted: boolean; stock: number | null; minimum: number | null }): LostReason {
+  const typed = typedQuantity(x.qty);
+  if (x.stock !== null && (x.stock <= 0 || (typed && x.qty! > x.stock))) return "shelf";
+  if (x.minimum != null && typed && x.qty! < x.minimum) return "moq";
+  if (x.carted) return "cart";
+  if (typed) return "price";
+  return "looked";
+}
 
 type ActivityLine = { t?: string; a?: string; q?: number; c?: number; o?: number; u?: string };
 type ActivityJson = { recent?: ActivityLine[] };
@@ -317,7 +337,7 @@ async function scan(
       // Our own companies (tests, intercompany): not on the boards, never a
       // ticket, never a morning mail - all three read this scan.
       if (isInternalCompany(p.name, p.domain)) continue;
-      if (params.kept) {
+      if (params.kept || params.facts) {
         seen.set(String(r.id ?? ""), {
           companyId: String(r.id ?? ""),
           companyName: p.name ?? null,
@@ -342,7 +362,7 @@ async function scan(
         if (from && day < from) continue;
         if (to && day > to) continue;
         // Bought it? Then none of these three screens is about them - only the count of what was won.
-        if (line.o === 1) { orderedLooks.add(`${r.id}|${day}|${a}`); orderedCompanies.add(String(r.id ?? "")); continue; }
+        if (line.o === 1) { orderedLooks.add(`${r.id}|${day}|${a}`); orderedCompanies.add(String(r.id ?? "")); if (params.facts) wanted.add(a); continue; }
 
         const key = `${r.id}|${day}`;
         let d = drafts.get(key);
@@ -394,7 +414,7 @@ async function scan(
       // our own companies are not in `seen`, nor one past the scan's guard: no name, no mandant - left out, counted
       if (!company) { unknownCompany++; continue; }
       merged++;
-      if (k.ordered) { orderedLooks.add(`${company.companyId}|${k.day}|${k.article}`); orderedCompanies.add(company.companyId); continue; }
+      if (k.ordered) { orderedLooks.add(`${company.companyId}|${k.day}|${k.article}`); orderedCompanies.add(company.companyId); if (params.facts) wanted.add(k.article); continue; }
       const key = `${company.companyId}|${k.day}`;
       let d = drafts.get(key);
       if (!d) drafts.set(key, (d = { company, day: k.day, contacts: new Set<string>(), looks: new Map() }));
@@ -473,6 +493,7 @@ async function scan(
   const lostLooks: Record<LostReason, number> = { shelf: 0, moq: 0, cart: 0, price: 0, looked: 0 };
   const lostCompanies: Record<LostReason, Set<string>> = { shelf: new Set(), moq: new Set(), cart: new Set(), price: new Set(), looked: new Set() };
   const lostAll = new Set<string>();
+  const path: PathLook[] = [];
 
   for (const d of drafts.values()) {
     // The list price is per mandant, and the customer's mandant is the one that
@@ -508,6 +529,12 @@ async function scan(
       lostLooks[why]++;
       lostCompanies[why].add(d.company.companyId);
       lostAll.add(d.company.companyId);
+      // ordered that day by another line of the property: the funnel counts it once, ordered
+      if (params.facts && !orderedLooks.has(`${d.company.companyId}|${d.day}|${x.article}`)) {
+        const c = d.company;
+        path.push({ companyId: c.companyId, companyName: c.companyName, customerNumber: c.customerNumber, country: c.country, day: d.day, article: x.article,
+          step: pathStep({ qty: x.qty, carted: x.look.carted, stock: x.pp ? exact(x.pp.stock_quantity) : null, minimum: x.minimum }) });
+      }
     }
 
     // ---- the price-check row: priced, not carted ----------------------------
@@ -640,12 +667,18 @@ async function scan(
     ordered: orderedLooks.size,
     orderedCompanies: orderedCompanies.size,
   };
+  if (params.facts) for (const o of orderedLooks) {
+    const [companyId, day, article] = o.split("|");
+    const c = seen.get(companyId);
+    path.push({ companyId, companyName: c?.companyName ?? null, customerNumber: c?.customerNumber ?? null, country: c?.country ?? null, day, article, step: "won" });
+  }
   return { priceChecks, moq, availability, lost, scanned, articlesLookedUp: spec.size,
            ticketLookupError, quantityHistoryError, generatedAt: new Date().toISOString(),
            // only for a caller that asks (`facts`): the Datatracker's answer stays the size it was
            ...(params.facts ? {
              articleFacts,
              orderedLooks: [...orderedLooks].map((k) => { const [companyId, day, article] = k.split("|"); return { companyId, day, article }; }),
+             path,
            } : {}),
            kept };
 }

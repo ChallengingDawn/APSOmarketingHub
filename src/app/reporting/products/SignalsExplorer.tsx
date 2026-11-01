@@ -11,6 +11,9 @@
 // hierarchy, country, company - each one card that follows it; the Filters window with the period, what the page is
 // filtered by under the tabs, Clear all; on every graph its own "Filter by …" and the companies behind it; the lists
 // sortable, searchable, 25 a page). No Actions and no BUC View (SARCLA: "no actions are needed here because no BUC view").
+// First the Funnel (SARCLA 01.11.2026: "it would be interesting to have a funnel diagram in each of the sub topic"): every
+// article a signed-in customer opened, step by step to the order, the page's own stop marked. No footnote (SARCLA
+// 01.11.2026 on Availability's: "take out all of this texts") - only a warning when part of the read failed.
 //
 // The read is the Datatracker's one scan, kept by the hub (src/lib/productSignals/read.ts); the counting is in
 // src/lib/productSignals/model.ts - a few thousand small rows, worked out here in the browser as the ESO Shop behaviour does.
@@ -38,6 +41,7 @@ import ProductionQuantityLimitsOutlinedIcon from "@mui/icons-material/Production
 import SellOutlinedIcon from "@mui/icons-material/SellOutlined";
 import LowPriorityOutlinedIcon from "@mui/icons-material/LowPriorityOutlined";
 import ShoppingCartCheckoutOutlinedIcon from "@mui/icons-material/ShoppingCartCheckoutOutlined";
+import FilterAltOutlinedIcon from "@mui/icons-material/FilterAltOutlined";
 
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { Badge, CardTitle, FAINT, GREEN, GlassCard, INK, MUTED, Notice, RED, TINT, TRACK, glass, type Tint } from "@/app/uc/report/ui";
@@ -50,9 +54,10 @@ import { ActiveFilters, PeriodPicker, type ActiveItem } from "@/app/reporting/es
 import { pcLabel } from "@/app/reporting/eso-benchmark/shared";
 import { CompaniesFor, type CompanyItem, type CompanySource } from "@/app/reporting/CompanyList";
 import type { SlowState } from "@/lib/integrations/slowReport";
+import { StepFunnel, type FunnelStep } from "./Funnel";
 import {
-  AR, CO, FDIMS, LK, articleExtremes, companiesOf, dayWords, groupBy, looksOf, periodById, periodsOf, prevWin, rangeWords, statsOf,
-  type FDim, type KindData, type SFilters, type SLook, type SPeriod, type SStats, type SignalKind, type Win,
+  AR, CO, FDIMS, LK, articleExtremes, companiesOf, dayWords, funnelOf, groupBy, looksOf, pathOf, periodById, periodsOf, prevWin, rangeWords, statsOf,
+  type FDim, type Funnel, type KindData, type SFilters, type SLook, type SPeriod, type SStats, type SignalKind, type Win,
 } from "@/lib/productSignals/model";
 
 /* ── words and numbers, in full ────────────────────────────────────────── */
@@ -132,17 +137,18 @@ const DIM: Record<FDim, { name: string; lower: string; tint: Tint; icon: React.R
   company: { name: "Company", lower: "company", tint: "blue", icon: <ApartmentOutlinedIcon />, none: "No company" },
 };
 
-type View = "article" | "pc" | "hierarchy" | "country" | "company";
+type View = "funnel" | "article" | "pc" | "hierarchy" | "country" | "company";
 const VIEWS: { id: View; label: string; dims: FDim[] }[] = [
+  { id: "funnel", label: "Funnel", dims: [] },
   { id: "article", label: "Article", dims: ["article"] },
   { id: "pc", label: "Profit centre", dims: ["pc"] },
   { id: "hierarchy", label: "Product hierarchy", dims: ["group", "sub", "product"] },
   { id: "country", label: "Country", dims: ["country"] },
   { id: "company", label: "Company", dims: ["company"] },
 ];
-const viewOf = (x: string | null): View => (VIEWS.some((v) => v.id === x) ? (x as View) : "article");
+const viewOf = (x: string | null): View => (VIEWS.some((v) => v.id === x) ? (x as View) : "funnel");
 /** The breakdown a tab's Filters button opens on. */
-const FOCUS: Record<View, FDim> = { article: "article", pc: "pc", hierarchy: "group", country: "country", company: "company" };
+const FOCUS: Record<View, FDim> = { funnel: "pc", article: "article", pc: "pc", hierarchy: "group", country: "country", company: "company" };
 
 /** Names for the values the looks carry: an article's and a product's, a company's - by their number. */
 type Names = { article: Map<string, string>; product: Map<string, string>; company: Map<string, string>; unit: Map<string, string>; minimum: Map<string, number | null>; stock: Map<string, number | null>; pc: Map<string, string> };
@@ -477,26 +483,49 @@ function LookList({ c }: { c: Ctx }) {
 
 /* ── the tabs: one card that follows each ──────────────────────────────── */
 
-function Footnote({ c }: { c: Ctx }) {
+/** Only when part of the read failed - the figures are then short, and the page says why. */
+function Warnings({ c }: { c: Ctx }) {
   const n = c.d.notes;
-  const read = c.d.generatedAt.slice(0, 16).replace("T", " ");
-  const what = c.kind === "availability"
-    ? "Times asked: one company, one article, one day - a look at an article with nothing on the shelf, or a quantity typed above the stock. A bare 1 is the shop's own number (it asks for 1 when the details open), so it counts as a look but not as a quantity asked."
-    : c.kind === "price"
-    ? `Prices checked: one company, one article, one day - a quantity typed on the product page, the article not put in the cart and not ordered that day. A bare 1 is the shop's own number (it asks for 1 when the details open), not a price asked for${n.bareOne.price ? ` - ${int(n.bareOne.price)} such looks are not counted` : ""}. Every profit centre; the price-check tickets (UC17) take only KT and DT, three articles a day - "on a ticket" counts the articles of a day that got one.`
-    : `Asked below the minimum: one company, one article, one day - a quantity typed under the minimum order quantity Products & Pricing gives (only where it says yes and gives a number above one). A bare 1 is the shop's own number, not a quantity asked for${n.bareOne.moq ? ` - ${int(n.bareOne.moq)} such looks are not counted` : ""}.`;
+  if (!n.keptError && !n.quantityHistoryError) return null;
   return (
-    <Typography sx={{ fontSize: "0.76rem", color: FAINT, lineHeight: 1.5 }}>
-      {what}
-      {" "}From the smart bar on the shop, signed-in customers only, since {dayWords(c.d.from)} - its first whole day; nothing earlier exists, so there is no year earlier to compare with: a change is against the same number of days right before, where they are read.
-      {c.kind === "availability" ? ` In stock: Products & Pricing's stock, in the sales unit, as it stood at the read - not on the day they asked; the hub keeps no history of the shelf, so an article restocked since is judged on today's stock.${n.unknownStock ? ` ${int(n.unknownStock)} looks at articles whose stock Products & Pricing does not give are left out - unknown is not empty.` : ""}` : ""}
-      {" "}No euros: Products &amp; Pricing keeps list prices per ERP price unit (per 1, 100 or 1,000 pieces) without saying which, so price × quantity can be 100 or 1,000 times too high - the counts are honest, an amount would not be.
-      {" "}Ordered later: the same company ordered the same article on a later day, through the shop (the smart bar&apos;s mark) - an order by mail or phone is not seen here.
-      {" "}Profit centre, main group, sub group and product: Products &amp; Pricing&apos;s, read with the scan; country: the company&apos;s in HubSpot.
-      {n.keptError ? ` The hub's own copy of the shop lines could not be read (${n.keptError}): these are the HubSpot property's lines alone, which keep a company's last 50 articles - a busy customer's earlier days are missing.` : n.kept ? ` With ${int(n.kept.merged)} lines from the hub's own copy of the shop activity - the HubSpot property keeps a company's last 50 articles only.` : ""}
-      {n.quantityHistoryError ? ` The quantities' history could not be read (${n.quantityHistoryError}): a typed quantity a later 1 overwrote may read as no quantity.` : ""}
-      {" "}Read {read} UTC from {int(n.scanned)} companies, again every two hours.
-    </Typography>
+    <Notice tone="warn">
+      {n.keptError ? `The hub's own copy of the shop lines could not be read (${n.keptError}): these are the HubSpot property's lines alone, a company's last 50 articles. ` : ""}
+      {n.quantityHistoryError ? `The quantities' history could not be read (${n.quantityHistoryError}): a typed quantity a later 1 overwrote may read as no quantity.` : ""}
+    </Notice>
+  );
+}
+
+/* ── the funnel ────────────────────────────────────────────────────────── */
+
+const STOP: Record<SignalKind, keyof Funnel["stopped"]> = { availability: "shelf", price: "price", moq: "moq" };
+/** Every article a signed-in customer opened - one company, one article, one day - step by step to the order: in stock, a
+ *  quantity typed, the minimum met, in the cart, ordered that day. Each stops at the first step it fails, as Engage's
+ *  "Where we lost them"; the page's own stop in red. Against the same number of days right before, where they are read. */
+function PathFunnel({ c }: { c: Ctx }) {
+  const f = useMemo(() => funnelOf(pathOf(c.d, c.per.win, c.filters)), [c]);
+  const p = useMemo(() => (c.prev ? funnelOf(pathOf(c.d, c.prev, c.filters)) : null), [c]);
+  if (!c.d.path) return <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>The funnel comes with the next read of the shop.</Typography>;
+  if (!f.looked) return <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>No article opened in these days under these filters.</Typography>;
+  const before = (n: number) => (p && p.looked ? { share: n / p.looked, words: "the days before" } : null);
+  const steps: FunnelStep[] = [
+    { label: "Looked at", n: f.looked, sub: `${plural(f.companies, "company", "companies")} · an article opened` },
+    { label: "In stock", n: f.inStock, sub: "the shelf could serve it", before: p ? before(p.inStock) : null },
+    { label: "Quantity typed", n: f.typed, sub: "they asked for a number", before: p ? before(p.typed) : null },
+    { label: "Minimum met", n: f.minimum, sub: "at least what we sell", before: p ? before(p.minimum) : null },
+    { label: "In the cart", n: f.cart, sub: "put in the cart", before: p ? before(p.cart) : null },
+    { label: "Ordered", n: f.ordered, sub: "ordered that day", color: GREEN, before: p ? before(p.ordered) : null },
+  ];
+  const mine = STOP[c.kind];
+  const stop = (k: keyof Funnel["stopped"], label: string) => ({ n: f.stopped[k], label, mine: k === mine });
+  return (
+    <StepFunnel steps={steps} unit={(n) => plural(n, "look")} tag={c.w.title} top="of those looked at"
+      stops={[
+        stop("shelf", "stopped at the shelf - nothing on it, or less than they asked for"),
+        stop("looked", "only looked - no quantity typed"),
+        stop("moq", "asked for fewer than the minimum we sell"),
+        stop("price", "saw the price and left"),
+        stop("cart", "left in the cart"),
+      ]} />
   );
 }
 
@@ -504,19 +533,27 @@ const CARD = { display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" } 
 function TabCard({ c, view }: { c: Ctx; view: View }) {
   const against = `${periodLine(c)}${c.prev ? ` against ${prevLine(c)}` : ""}`;
   const head = (icon: React.ReactNode, tint: Tint, by: string, note: string) => <CardTitle icon={icon} tint={tint} title={`${c.w.title}, by ${by}`} note={`${against} · ${note}`} />;
+  if (view === "funnel") return (
+    <GlassCard sx={CARD}>
+      <CardTitle icon={<FilterAltOutlinedIcon />} tint={c.w.tint} title="From the article opened to the order"
+        note={`${against} · every article a signed-in customer opened - one company, one article, one day - step by step; each stops at the first step it fails, ${c.w.title.toLowerCase()} in red`} />
+      <PathFunnel c={c} />
+      <Warnings c={c} />
+    </GlassCard>
+  );
   if (view === "article") return (
     <GlassCard sx={CARD}>
       {head(<ListAltIcon />, "slate", "article", "the articles asked most, then every one, then every time - a click on one shows only it")}
       <Breakdown c={c} dim="article" />
       <LookList c={c} />
-      <Footnote c={c} />
+      <Warnings c={c} />
     </GlassCard>
   );
   if (view === "pc") return (
     <GlassCard sx={CARD}>
       {head(<CategoryOutlinedIcon />, "purple", "profit centre", "each profit centre's figures - a click shows only it")}
       <Breakdown c={c} dim="pc" />
-      <Footnote c={c} />
+      <Warnings c={c} />
     </GlassCard>
   );
   if (view === "hierarchy") return (
@@ -528,14 +565,14 @@ function TabCard({ c, view }: { c: Ctx; view: View }) {
         <CountBoard c={c} dim="product" by="looks" />
       </Box>
       <ProductTable c={c} />
-      <Footnote c={c} />
+      <Warnings c={c} />
     </GlassCard>
   );
   if (view === "country") return (
     <GlassCard sx={CARD}>
       {head(<PublicOutlinedIcon />, "blue", "country", "the company's country in HubSpot - a click shows only it")}
       <Breakdown c={c} dim="country" />
-      <Footnote c={c} />
+      <Warnings c={c} />
     </GlassCard>
   );
   return (
@@ -543,7 +580,7 @@ function TabCard({ c, view }: { c: Ctx; view: View }) {
       {head(<ApartmentOutlinedIcon />, "blue", "company", "the companies that asked most, then every one, then every time - a click on one shows only it")}
       <Breakdown c={c} dim="company" second="articles" />
       <LookList c={c} />
-      <Footnote c={c} />
+      <Warnings c={c} />
     </GlassCard>
   );
 }
@@ -710,7 +747,7 @@ export function SignalsExplorer({ kind }: { kind: SignalKind }) {
   const w = KIND[kind];
   const params = useSearchParams();
   const view = viewOf(params.get("view"));
-  const setView = (v: View) => setQuery((q) => { if (v === "article") q.delete("view"); else q.set("view", v); });
+  const setView = (v: View) => setQuery((q) => { if (v === "funnel") q.delete("view"); else q.set("view", v); });
   const filters: SFilters = useMemo(() => Object.fromEntries(FDIMS.flatMap((d) => (params.getAll(d).length ? [[d, params.getAll(d)]] : []))), [params]);
   const periodId = params.get("period");
   const toggle = useCallback((d: FDim, key: string) => setQuery((q) => {

@@ -35,7 +35,9 @@ import DateRangeOutlinedIcon from "@mui/icons-material/DateRangeOutlined";
 
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
-import { CardTitle, FAINT, GlassCard, INK, MUTED, RED, TINT, type Tint } from "@/app/uc/report/ui";
+import FilterAltOutlinedIcon from "@mui/icons-material/FilterAltOutlined";
+import { CardTitle, FAINT, GREEN, GlassCard, INK, MUTED, RED, TINT, type Tint } from "@/app/uc/report/ui";
+import { StepFunnel } from "../Funnel";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import { FilterPanel, FilterSection } from "@/app/reporting/marketing-kpis/FilterPanel";
 import { Pager, Table, type TableSort } from "@/app/reporting/marketing-kpis/ExplorerKit";
@@ -76,17 +78,18 @@ function labelOf(d: VDim, key: string, name?: string | null): string {
   return key;
 }
 
-type View = "pc" | "hierarchy" | "products" | "months";
+type View = "funnel" | "pc" | "hierarchy" | "products" | "months";
 const VIEWS: { id: View; label: string; dims: VDim[] }[] = [
+  { id: "funnel", label: "Funnel", dims: [] },
   { id: "pc", label: "Profit centre", dims: ["pc"] },
   { id: "hierarchy", label: "Product hierarchy", dims: ["group", "sub"] },
   { id: "products", label: "Products", dims: ["product"] },
   { id: "months", label: "Month by month", dims: [] },
 ];
-const viewOf = (x: string | null): View => (VIEWS.some((v) => v.id === x) ? (x as View) : "pc");
+const viewOf = (x: string | null): View => (VIEWS.some((v) => v.id === x) ? (x as View) : "funnel");
 type Focus = VDim | "period" | "sold";
 /** The section a tab's Filters button opens on. */
-const FOCUS: Record<View, Focus> = { pc: "pc", hierarchy: "group", products: "product", months: "period" };
+const FOCUS: Record<View, Focus> = { funnel: "period", pc: "pc", hierarchy: "group", products: "product", months: "period" };
 
 /* ── what every graph is drawn with ────────────────────────────────────── */
 
@@ -318,23 +321,33 @@ function MonthCharts({ c }: { c: Ctx }) {
 
 /* ── the tabs: one card that follows each ──────────────────────────────── */
 
-function Footnote({ c, built }: { c: Ctx; built: string | null }) {
-  const s = c.s;
+/** From the product viewed to the order (SARCLA 01.11.2026: "a funnel diagram in each of the sub topic"): the products whose
+ *  page was opened, and those of them with an article bought online in the same months - the same months a year earlier
+ *  beside it. One unit, products: the page views are written under the first step. */
+function ViewsFunnel({ c }: { c: Ctx }) {
+  const f = c.s.figures;
+  if (c.filters.sold) return <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>The funnel shows both sides - clear &quot;Bought online&quot; in the Filters to see it.</Typography>;
+  if (!f.products) return <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>No product page viewed in these months under these filters.</Typography>;
   return (
-    <Typography sx={{ fontSize: "0.76rem", color: FAINT, lineHeight: 1.5 }}>
-      A view: a product page opened (GA4&apos;s view_item on a page whose address starts with the 8-digit product). GA4 also fires it on the category lists and the search results with every product listed - so those are no product views: the lists count by profit centre only{s.apart.search ? `, and the search results (${int(s.apart.search)} in ${c.per}) on no product` : ""}.
-      {" "}Bought online: an article (10 digits) in an online order (GA4&apos;s purchase), each article once a month, tied to its product by Products &amp; Pricing - GA4&apos;s quantity is pieces and its item revenue is broken, so neither is used. The view-to-order rate: of the products viewed, the share with an article in an online order in the same months.
-      {s.madeToOrder ? ` Made to order is apart: ${int(s.madeToOrder)} articles (8001…, cut pieces and special O-rings) bought online in ${c.per} belong to no product page, so a plate or rod mostly sold cut to size shows as not bought.` : ""}
-      {" "}GA4 counts only the visitors who accepted statistics cookies: every figure is a floor, and none names a company - so there is no list of companies here. A product page carries the product, not the article: the article exists once a size is chosen, so the views stop at the product.
-      {" "}Main group and sub group: Products &amp; Pricing&apos;s, from Articles CY/LY{built ? ` (built ${built.slice(0, 16).replace("T", " ")} UTC)` : ""} - a product none of whose articles was ordered since 1 January {s.year - 1} has none there.
-      {" "}Whole months only, against the same months of {s.year - 1}. Read from GA4 {s.generatedAt.slice(0, 16).replace("T", " ")} UTC, every six hours.
-    </Typography>
+    <StepFunnel unit={(n) => `${int(n)} ${n === 1 ? "product" : "products"} viewed`} tag="Views against orders" top="of the products viewed"
+      steps={[
+        { label: "Viewed", n: f.products, sub: `${int(f.views)} product page views` },
+        { label: "Bought online", n: f.bought, sub: `${int(f.articles)} of their articles`, color: GREEN, before: f.productsPy ? { share: f.boughtPy / f.productsPy, words: `in ${c.perPy}` } : null },
+      ]}
+      stops={[{ n: f.notBought, label: "viewed, not bought online", mine: true }]} />
   );
 }
 
 const CARD = { display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" } as const;
 function TabCard({ c, view, built }: { c: Ctx; view: View; built: string | null }) {
   const against = `${c.per} against ${c.perPy}`;
+  if (view === "funnel") return (
+    <GlassCard sx={CARD}>
+      <CardTitle icon={<FilterAltOutlinedIcon />} tint="green" title={`From the product viewed to the order, ${c.per}`}
+        note={`${against} · every product whose page was opened, and those of them with an article bought online in the same months`} />
+      <ViewsFunnel c={c} />
+    </GlassCard>
+  );
   if (view === "pc") return (
     <GlassCard sx={CARD}>
       <CardTitle icon={<CategoryOutlinedIcon />} tint="purple" title={`Views against orders by profit centre, ${c.per}`}
@@ -344,7 +357,6 @@ function TabCard({ c, view, built }: { c: Ctx; view: View; built: string | null 
         <NotBoughtBoard c={c} dim="pc" />
       </Box>
       <Wrap c={c} on="pc"><LevelTable c={c} dim="pc" /></Wrap>
-      <Footnote c={c} built={built} />
     </GlassCard>
   );
   if (view === "hierarchy") return (
@@ -369,7 +381,6 @@ function TabCard({ c, view, built }: { c: Ctx; view: View; built: string | null 
           <Wrap c={c} on="sub"><LevelTable c={c} dim="sub" /></Wrap>
         </>
       )}
-      <Footnote c={c} built={built} />
     </GlassCard>
   );
   if (view === "products") return (
@@ -381,7 +392,6 @@ function TabCard({ c, view, built }: { c: Ctx; view: View; built: string | null 
         <TopBoard c={c} which="bought" />
       </Box>
       <ProductList c={c} />
-      <Footnote c={c} built={built} />
     </GlassCard>
   );
   return (
@@ -389,7 +399,6 @@ function TabCard({ c, view, built }: { c: Ctx; view: View; built: string | null 
       <CardTitle icon={<DateRangeOutlinedIcon />} tint="blue" title={`Views against orders month by month, ${c.per}`}
         note={`${against} · each month's product page views and its view-to-order rate, then all the figures`} />
       <MonthCharts c={c} />
-      <Footnote c={c} built={built} />
     </GlassCard>
   );
 }
@@ -532,7 +541,7 @@ function ViewsFilterWindow({ c, open, onClose, focus, toggle, setSold, setWin, i
 export function ViewsOrdersExplorer() {
   const params = useSearchParams();
   const view = viewOf(params.get("view"));
-  const setView = (v: View) => setQuery((q) => { if (v === "pc") q.delete("view"); else q.set("view", v); });
+  const setView = (v: View) => setQuery((q) => { if (v === "funnel") q.delete("view"); else q.set("view", v); });
   const filters: VFilters = useMemo(() => {
     const f: VFilters = Object.fromEntries(VDIMS.flatMap((d) => (params.getAll(d).length ? [[d, params.getAll(d)]] : [])));
     const s = params.get("sold");

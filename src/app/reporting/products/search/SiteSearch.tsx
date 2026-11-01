@@ -30,7 +30,9 @@ import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
 
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
-import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, Notice, TINT, type Tint } from "@/app/uc/report/ui";
+import FilterAltOutlinedIcon from "@mui/icons-material/FilterAltOutlined";
+import { CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, TINT, type Tint } from "@/app/uc/report/ui";
+import { StepFunnel } from "../Funnel";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import { FilterPanel, FilterSection } from "@/app/reporting/marketing-kpis/FilterPanel";
 import { DimChart } from "@/app/reporting/marketing-kpis/DimChart";
@@ -54,14 +56,15 @@ function monthLabel(m: SearchMonth) {
   return a === 1 && b === end ? name : a === b ? `${name} (${a})` : a === 1 ? `${name} (1 – ${b})` : b === end ? `${name} (from ${a})` : `${name} (${a} – ${b})`;
 }
 
-type View = "months" | "stores" | "terms" | "nothing";
+type View = "funnel" | "months" | "stores" | "terms" | "nothing";
 const VIEWS: { id: View; label: string }[] = [
+  { id: "funnel", label: "Funnel" },
   { id: "months", label: "Month by month" },
   { id: "stores", label: "Language & store" },
   { id: "terms", label: "Top terms" },
   { id: "nothing", label: "Found nothing" },
 ];
-const viewOf = (x: string | null): View => (VIEWS.some((v) => v.id === x) ? (x as View) : "months");
+const viewOf = (x: string | null): View => (VIEWS.some((v) => v.id === x) ? (x as View) : "funnel");
 type Focus = "period" | "store";
 
 /* ── what every graph is drawn with ────────────────────────────────────── */
@@ -285,19 +288,26 @@ function Nothing({ c }: { c: Ctx }) {
 
 /* ── the tabs ──────────────────────────────────────────────────────────── */
 
-function Footnote({ c }: { c: Ctx }) {
+/** From the search to a result (SARCLA 01.11.2026: "a funnel diagram in each of the sub topic"): the settled searches and
+ *  those that found something - what found nothing in red; the Found nothing tab says what of it was still being typed. */
+function SearchFunnel({ c }: { c: Ctx }) {
+  const w = c.d.window;
+  if (!w) return <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>{c.d.errors.report ? `The search bar's report could not be read: ${c.d.errors.report}` : "Not read."}</Typography>;
+  const t = storesIn(w.byStore, c.stores);
+  if (!t.searches) return <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>No search in these days in these stores.</Typography>;
   return (
-    <Typography sx={{ fontSize: "0.76rem", color: FAINT, lineHeight: 1.5 }}>
-      The search bar&apos;s own log - every search, cookies or not. A search: the bar searches as one types and logs every pause, so a text the next one in the same store extends within 20 seconds is a keystroke and not counted ({int(c.d.window?.logged ?? 0)} keystrokes logged, {int(c.d.window?.settled ?? 0)} searches); one character is not a search, our nightly test phrases are left out.
-      {" "}Found nothing: no result shown, or the bar handed the text to its AI - a view that draws a table, a special article&apos;s quick order card and the O-ring catalogue count as found. Some of it is still typing a little slower than 20 seconds: the Found nothing tab reads the last searches one by one.
-      {" "}The report counts back from now ({c.days.charAt(0).toLowerCase()}{c.days.slice(1)}); it keeps no months and no terms per store - a store chosen narrows the figures on top and the stores exactly, the terms by where they were typed, with every store&apos;s counts. No year earlier: the bar went live on the shop on 5 Jul 2026.
-      {" "}The log keeps no customer, no session and no company - so there is no list of companies here. A text that may be a password or an e-mail typed by mistake is counted, never shown.
-    </Typography>
+    <StepFunnel unit={(n) => plural(n, "search", "searches")} tag="see Found nothing" top="of the searches"
+      steps={[
+        { label: "Searched", n: t.searches, sub: c.stores.length ? onlyStores(c) : `${int(w.logged)} keystrokes logged` },
+        { label: "Found something", n: t.ok, sub: "a result shown", color: GREEN },
+      ]}
+      stops={[{ n: t.searches - t.ok, label: "found nothing - no result, or handed to its AI", mine: true }]} />
   );
 }
 
 const CARD = { display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" } as const;
 const TAB_HEAD: Record<View, { icon: React.ReactNode; tint: Tint; title: string; note: string }> = {
+  funnel: { icon: <FilterAltOutlinedIcon />, tint: "blue", title: "From the search to a result", note: "every search, and those that found something - what found nothing in red" },
   months: { icon: <DateRangeOutlinedIcon />, tint: "blue", title: "Searches month by month", note: "each month's searches and those that found nothing, then all the figures" },
   stores: { icon: <TranslateOutlinedIcon />, tint: "green", title: "Searches by language and store", note: "each store's searches and those that found nothing - a click shows only it" },
   terms: { icon: <FormatListNumberedIcon />, tint: "purple", title: "What customers search for", note: "the words, numbers and codes searched most, then every term of the top list" },
@@ -308,8 +318,7 @@ function TabCard({ c, view }: { c: Ctx; view: View }) {
   return (
     <GlassCard sx={CARD}>
       <CardTitle icon={h.icon} tint={h.tint} title={`${h.title}, ${c.per}`} note={`${c.days} · ${h.note}`} />
-      {view === "months" ? <Months c={c} /> : view === "stores" ? <Stores c={c} /> : view === "terms" ? <Terms c={c} /> : <Nothing c={c} />}
-      <Footnote c={c} />
+      {view === "funnel" ? <SearchFunnel c={c} /> : view === "months" ? <Months c={c} /> : view === "stores" ? <Stores c={c} /> : view === "terms" ? <Terms c={c} /> : <Nothing c={c} />}
     </GlassCard>
   );
 }
@@ -375,7 +384,7 @@ function SearchFilterWindow({ c, open, onClose, focus, setPeriod, clearAll }: {
 export function SiteSearchExplorer() {
   const params = useSearchParams();
   const view = viewOf(params.get("view"));
-  const setView = (v: View) => setQuery((q) => { if (v === "months") q.delete("view"); else q.set("view", v); });
+  const setView = (v: View) => setQuery((q) => { if (v === "funnel") q.delete("view"); else q.set("view", v); });
   const period = periodOf(params.get("period"));
   const setPeriod = useCallback((p: PeriodId) => setQuery((q) => { if (p === "all") q.delete("period"); else q.set("period", p); }), []);
   const stores = useMemo(() => params.getAll("store").filter((x) => /^[A-Za-z]{2}[-_][A-Za-z]{2,3}$/.test(x)).slice(0, 30), [params]);

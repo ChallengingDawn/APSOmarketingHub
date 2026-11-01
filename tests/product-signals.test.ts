@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  AR, LK, SIGNALS_FROM, addDays, articleExtremes, companiesOf, compactSignals, groupBy, kindOf, looksOf, periodById, periodsOf, prevWin, rangeWords, statsOf,
+  AR, LK, SIGNALS_FROM, addDays, articleExtremes, companiesOf, compactSignals, funnelOf, groupBy, kindOf, looksOf, pathOf, periodById, periodsOf, prevWin, rangeWords, statsOf,
   type SignalsIn,
 } from "../src/lib/productSignals/model";
+import { pathStep } from "../src/lib/integrations/shopSignals";
 
 // two companies; four articles: A empty shelf, B 4 on the shelf, C stock unknown to Products & Pricing, D with a minimum of 50
 type Co = { companyId: string; companyName: string | null; customerNumber: string | null; country: string | null };
@@ -127,4 +128,35 @@ test("the periods: cut to the days read, the quarters before the tracker greyed,
   assert.equal(periodById(SIGNALS_FROM, "2026-11-01", "q1").id, "all", "a greyed quarter falls back");
   assert.deepEqual(periodById(SIGNALS_FROM, "2026-11-01", "d2026-09-01_2026-10-10").win, { from: "2026-10-02", to: "2026-10-10" });
   assert.equal(periodById(SIGNALS_FROM, "2026-11-01", "nonsense").id, "all");
+});
+
+test("the funnel (SARCLA 01.11.2026: \"a funnel diagram in each of the sub topic\"): every look on the shop's path, each stopped once, following the filters", () => {
+  // where a look stops: the shelf first (an unknown stock passes it), then a quantity, the minimum, the price, the cart
+  assert.equal(pathStep({ qty: 1, carted: false, stock: 0, minimum: null }), "shelf");
+  assert.equal(pathStep({ qty: 10, carted: true, stock: 4, minimum: null }), "shelf");
+  assert.equal(pathStep({ qty: 10, carted: false, stock: null, minimum: null }), "price", "an unknown stock is not an empty shelf");
+  assert.equal(pathStep({ qty: 1, carted: false, stock: 9, minimum: 50 }), "looked", "a bare 1 is no quantity");
+  assert.equal(pathStep({ qty: 10, carted: false, stock: 900, minimum: 50 }), "moq");
+  assert.equal(pathStep({ qty: 60, carted: true, stock: 900, minimum: 50 }), "cart");
+  const p = (c: Co, day: string, article: string, step: string) => ({ ...c, day, article, step });
+  const withPath = compactSignals({ ...scan, path: [
+    p(co1, "2026-10-05", "0111100001", "shelf"), p(co1, "2026-10-06", "0444400004", "moq"), p(co2, "2026-10-08", "0444400004", "cart"),
+    p(co2, "2026-10-25", "0222200002", "price"), p(co1, "2026-10-09", "0444400004", "won"), p(co1, "2026-10-20", "0222200002", "won"),
+    p(co2, "2026-10-26", "0333300003", "looked"), p(co2, "2026-10-27", "0999900009", "won"),  // an article Products & Pricing does not know
+    p(co2, "bad day", "0333300003", "looked"), p(co2, "2026-10-28", "0333300003", "lost somewhere"),
+  ] }, { generatedAt: "2026-11-01T08:00:00Z", from: SIGNALS_FROM, through: "2026-11-01" });
+  assert.equal(withPath.path!.length, 8, "a row without a day or a step is left out");
+  const k = kindOf(withPath, "moq");
+  const all = funnelOf(pathOf(k, { from: SIGNALS_FROM, to: "2026-11-01" }, {}));
+  assert.deepEqual(all, { looked: 8, inStock: 7, typed: 6, minimum: 5, cart: 4, ordered: 3, stopped: { shelf: 1, looked: 1, moq: 1, price: 1, cart: 1 }, companies: 2 });
+  // the page's filters and period: DT only, then October 6 - 9
+  assert.deepEqual(funnelOf(pathOf(k, { from: SIGNALS_FROM, to: "2026-11-01" }, { pc: ["DT"] })).stopped, { shelf: 1, looked: 0, moq: 1, price: 0, cart: 1 });
+  assert.equal(funnelOf(pathOf(k, { from: "2026-10-06", to: "2026-10-09" }, {})).looked, 3);
+  // the page's own looks keep their companies and articles: the path's are added after them
+  assert.equal(k.articles[k.looks[0][LK.article]][AR.number], "0444400004");
+  assert.ok(k.articles.some((a) => a[AR.number] === "0999900009"));
+  // a read kept from before the path (no "path" in its JSON): no funnel, no error
+  const old = { ...d, path: undefined };
+  assert.equal(kindOf(old, "price").path, undefined);
+  assert.deepEqual(pathOf(kindOf(old, "price"), { from: SIGNALS_FROM, to: "2026-11-01" }, {}), []);
 });
