@@ -414,16 +414,16 @@ function Bars({ items, empty }: { items: { label: string; n: number; of: number 
  *  TSA, TSA & ESO, where the customer had also a contact from the sales ESO"). */
 const callWords = (x: string) => x.replace(/the visit/g, "the qualified call");
 /** "Only TSA" / "TSA & ESO", said out */
-const SIDE_WORDS: Record<(typeof WITH_ESO)[number], string> = { "Only TSA": "Only TSA - no ESO visit or call", "TSA & ESO": "TSA & ESO - an ESO visit or call too" };
-/** The split as a table (SARCLA 01.11.2026: "put really like a table to be easier to analyse"): each row's companies of its
- *  base and the share, for TSA alone, with ESO too, and together. */
+const SIDE_WORDS: Record<(typeof WITH_ESO)[number], string> = { "Only TSA": "Only TSA - no ESO visit, call or e-mail", "TSA & ESO": "TSA & ESO - an ESO visit, call or e-mail too" };
+/** The split as a table (SARCLA 01.11.2026: "put really like a table to be easier to analyse"; then "the TSA & ESO share is
+ *  too complicated - should only count, the share together"): the companies for TSA alone, with ESO too and together, and
+ *  one share - together's, of the row's base. */
 type SplitRow = { label: string; cells: [number, number][] };
 function SplitTable({ rows, first }: { rows: SplitRow[]; first: string }) {
-  const sides = [...WITH_ESO, "Together"];
-  const cols: Col<SplitRow>[] = sides.flatMap((h, i) => [
-    { key: `n${i}`, head: h, tip: i < 2 ? SIDE_WORDS[WITH_ESO[i]] : "TSA alone and with ESO together", cell: (r: SplitRow) => <><b>{int(r.cells[i][0])}</b> <span style={{ color: MUTED }}>of {int(r.cells[i][1])}</span></>, sort: (r: SplitRow) => r.cells[i][0] },
-    { key: `p${i}`, head: `${h}, share`, cell: (r: SplitRow) => pct(r.cells[i][1] ? r.cells[i][0] / r.cells[i][1] : null), sort: (r: SplitRow) => (r.cells[i][1] ? r.cells[i][0] / r.cells[i][1] : -1) },
-  ]);
+  const cols: Col<SplitRow>[] = [
+    ...[...WITH_ESO, "Together"].map((h, i) => ({ key: `n${i}`, head: h, tip: i < 2 ? SIDE_WORDS[WITH_ESO[i]] : "TSA alone and with ESO together", cell: (r: SplitRow) => (i === 2 ? <b>{int(r.cells[i][0])}</b> : int(r.cells[i][0])), sort: (r: SplitRow) => r.cells[i][0] })),
+    { key: "share", head: "Share", tip: "Together, of the row's base", cell: (r: SplitRow) => <>{pct(r.cells[2][1] ? r.cells[2][0] / r.cells[2][1] : null)} <span style={{ color: MUTED }}>of {int(r.cells[2][1])}</span></>, sort: (r: SplitRow) => (r.cells[2][1] ? r.cells[2][0] / r.cells[2][1] : -1) },
+  ];
   return <FullTable first={first} cols={cols} rows={rows} natural />;
 }
 function Answers({ c }: { c: VCtx }) {
@@ -439,7 +439,8 @@ function Answers({ c }: { c: VCtx }) {
     <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{main}{rest && <span style={{ fontSize: "0.82rem", fontWeight: 500, color: MUTED }}> {rest}</span>}</Typography>
   );
   const row = { display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(260px, 1fr) minmax(0, 1.4fr)" }, gap: { xs: 0.5, md: 2 }, alignItems: "start", py: 1.25, borderBottom: `1px solid ${HAIRLINE}` } as const;
-  const eso = `Only TSA: no ESO visit or call · TSA & ESO: a completed visit by ESO or a call by someone on ESO too, ${c.d.year} to ${perEnd(c.d, c.per)}${c.d.esoRead === false ? " - ESO's visits could not be read, its calls only" : ""}`;
+  const unread = [c.d.esoRead === false ? "visits" : "", c.d.esoMailRead === false ? "e-mails" : ""].filter(Boolean).join(" and ");
+  const eso = `Only TSA: no ESO visit, call or e-mail · TSA & ESO: a completed visit by ESO, a call by someone on ESO or an e-mail between ESO and the company too, ${c.d.year} to ${perEnd(c.d, c.per)}${unread ? ` - ESO's ${unread} could not be read` : ""}`;
   // the split under its question, the full width of the card
   const wide = (rows: SplitRow[], first: string) => (
     <Box sx={{ gridColumn: "1 / -1", display: "grid", gap: 0.5, mt: 0.5 }}>

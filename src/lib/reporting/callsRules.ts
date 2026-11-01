@@ -13,14 +13,14 @@ export type CallsData = VisitsData & {
   all: number[][];
   /** the call outcomes by their HubSpot names, "No outcome" for a call without one */
   outcomes: string[];
-  /** whether ESO's visits and calls were read for CO_ESO (a read without them says no company had one) */
-  esoRead?: boolean;
+  /** whether ESO's visits, and ESO's e-mails, were read for CO_ESO (ESO's calls always are) */
+  esoRead?: boolean; esoMailRead?: boolean;
 };
 /** The columns of an all-calls row: who, the month (0 = January), the day, the outcome (index into outcomes), the company
  *  (index into companies, -1: none - neither on the call nor on its contact). */
 export const A = { person: 0, month: 1, day: 2, outcome: 3, company: 4 } as const;
 /** A company row's column after the Visits page's (CO): the first day this year ESO reached it - a completed visit by
- *  ESO, or a call by someone on ESO - yyyymmdd, or 0. */
+ *  ESO, a call by someone on ESO, or an e-mail between ESO and the company - yyyymmdd, or 0. */
 export const CO_ESO = 6;
 
 /** The call outcome that counts (SARCLA 01.11.2026: "they do qualified calls") */
@@ -65,7 +65,7 @@ export function allCallsOf(d: CallsData, win: VWin, people: Set<number>): Map<nu
 /** What TSA reached alone, and what ESO reached too (SARCLA 01.11.2026: "we need a split - only TSA, TSA & ESO: where the
  *  customer had also a contact from the sales ESO") */
 export const WITH_ESO = ["Only TSA", "TSA & ESO"] as const;
-/** A qualified call's side of that split: its company had an ESO visit or an ESO call this year by `end` (yyyymmdd) - a
+/** A qualified call's side of that split: its company had an ESO visit, call or e-mail this year by `end` (yyyymmdd) - a
  *  call without a company is TSA's alone. */
 export function esoSideOf(d: CallsData, row: number[], end: number): (typeof WITH_ESO)[number] {
   const e = d.companies[row[V.company]]?.[CO_ESO] ?? 0;

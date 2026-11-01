@@ -2,14 +2,15 @@
 // of visits a sub report for calls"): every call of this year with its company (the call's, else its contact's) - the
 // qualified ones as rows with what the page slices them by (the company's priority, category, country and orders), every
 // call with its outcome for how many were qualified and which companies several people call -, and each of those
-// companies' first contact by ESO this year (a completed visit by ESO, or a call by someone on ESO); of everyone (TSA, ESO
+// companies' first contact by ESO this year (a completed visit by ESO, a call by someone on ESO, or an e-mail between ESO and
+// the company); of everyone (TSA, ESO
 // and the rest - the page's ESO | TSA | Total and the line managers' teams). The rules in ./callsRules.ts and
 // ./visitsRules.ts. Read every hour through slowReport: the first visitor starts it, everyone after gets it.
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { ownerNames } from "@/lib/integrations/erosion";
-import { TSA_OWNERS, teamOf } from "@/lib/datatracker/rosters";
+import { ESO_OWNERS, TSA_OWNERS, teamOf } from "@/lib/datatracker/rosters";
 import { readOwners } from "@/lib/ownerRules/hubspot";
 import { associations, searchAll } from "@/lib/lifecycle/read";
 import { monthTotal, parsePcMonthly, prioBand, prioOf, PRIO_BANDS } from "./esoRules";
@@ -17,7 +18,8 @@ import { ymd } from "./visitsRules";
 import { DIRECTIONS, NO_COMPANY, OUTCOMES, QUALIFIED, directionOf, type CallsData } from "./callsRules";
 
 // v2 (01.11): every call with its company, for the companies several people call; each company's first ESO contact
-const KEY = "tsaCalls:v2";
+// v3 (01.11): ESO's e-mails count as ESO's contact too
+const KEY = "tsaCalls:v3";
 const TTL_MS = 60 * 60 * 1000;
 const VISIT_OBJ = "2-139767037";
 /** "Visit and Report complete": the only visits that count (SARCLA 12.10). */
@@ -76,7 +78,8 @@ async function build(): Promise<CallsData> {
   for (const id of callers) person(id);
 
   // 4. ESO's first contact with each company called (SARCLA 01.11.2026: "where the customer had also a contact from the
-  // sales ESO"): a completed visit by ESO, or a call by someone on ESO - this year
+  // sales ESO"; "mail ESO should also count"): a completed visit by ESO, a call by someone on ESO, or an e-mail between
+  // someone on ESO and the company (sent or received) - this year
   const esoFirst = new Map<string, number>();
   const esoAt = (cid: string, day: number) => { if (day && (!esoFirst.has(cid) || day < esoFirst.get(cid)!)) esoFirst.set(cid, day); };
   for (const c of calls) { const cid = callCompany.get(c.id); if (cid && teamFor(c.properties?.hubspot_owner_id ?? "") === "ESO") esoAt(cid, ymd(c.properties?.hs_timestamp)); }
@@ -104,6 +107,18 @@ async function build(): Promise<CallsData> {
     }
     esoRead = true;
   } catch (e) { console.log(`[tsa-calls] ESO's visits not read: ${(e as Error).message}`); }
+  let esoMailRead = false;
+  try {
+    const esoIds = [...new Set([...Object.keys(ESO_OWNERS), ...hsTeam.keys()])].filter((id) => teamFor(id) === "ESO");
+    const mails = esoIds.length ? await searchAll("emails", [[
+      { propertyName: "hubspot_owner_id", operator: "IN", values: esoIds },
+      { propertyName: "hs_timestamp", operator: "GTE", value: String(Date.UTC(year, 0, 1)) },
+    ]], ["hs_timestamp"], (n) => reportProgress(KEY, `reading ESO's e-mails · ${n.toLocaleString("en")}`)) : [];
+    const mailDay = new Map(mails.map((m) => [String(m.id), ymd(m.properties?.hs_timestamp)] as const).filter(([, day]) => day >= first && day <= todayN));
+    reportProgress(KEY, `linking ${mailDay.size.toLocaleString("en")} of ESO's e-mails to companies`);
+    for (const [id, cos] of await associations("emails", "companies", [...mailDay.keys()])) for (const cid of cos) esoAt(cid, mailDay.get(id) ?? 0);
+    esoMailRead = true;
+  } catch (e) { console.log(`[tsa-calls] ESO's e-mails not read: ${(e as Error).message}`); }
 
   // 5. the companies' facts
   type Co = { name: string; prio: string; category: string; country: string; shopSince: number; firstOrder: number; lastOrder: number; revenue: number; owner: string; bought: number };
@@ -188,7 +203,7 @@ async function build(): Promise<CallsData> {
   });
   return {
     generatedAt: new Date().toISOString(), year, today, people, labels, visits: rows, companies: coRows, companyIds: coIds, companyNames: coNames, open: {}, portfolio, lastYear: [],
-    all, outcomes, esoRead,
+    all, outcomes, esoRead, esoMailRead,
     coverage: { read: calls.length, completed: qualified.length, withCompany: qualified.filter((c) => callCompany.has(c.id)).length, viaContact, lastYearRead: false },
   };
 }
