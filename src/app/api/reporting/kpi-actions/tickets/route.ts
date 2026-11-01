@@ -6,7 +6,8 @@
 // A ticket belongs to the task it is made for (SARCLA 18.10: "inside of the task").
 //   POST {action:"unlink", tile, id}
 import { NextRequest, NextResponse } from "next/server";
-import { linkTickets, taskById, ticketsOf, unlinkTicket } from "@/lib/reporting/kpiActions";
+import { linkTickets, planIdOf, taskById, ticketsOf, unlinkTicket } from "@/lib/reporting/kpiActions";
+import { itemById } from "@/lib/reporting/actionPlan";
 import { createTicket, ownerOf, readTickets, s2sForm, searchTickets, ticketUrl } from "@/lib/reporting/scrollToSale";
 import { missingRequired, prefill, type TileContext } from "@/lib/reporting/scrollToSaleRules";
 import { describeIntegrationError } from "@/lib/integrations/status";
@@ -51,6 +52,12 @@ export async function POST(req: NextRequest) {
   if (!tileOk(b.tile)) return fail("tile is missing", 400);
   const taskId = Number.isInteger(b.taskId) ? (b.taskId as number) : null;
   try {
+    // an action of the plan takes a Scroll to Sale ticket only when Digital Growth leads it - the sales
+    // actions have no pipeline (SARCLA 31.10.2026)
+    const planId = planIdOf(b.tile);
+    if (planId != null && (b.action === "create" || b.action === "link") && !(await itemById(planId))?.dg) {
+      return fail("only an action led by Digital Growth takes a Scroll to Sale ticket", 400);
+    }
     if (b.action === "create") {
       const missing = missingRequired(b.values ?? {});
       if (missing.length) return fail(`still to fill in: ${missing.join(", ")}`, 400);

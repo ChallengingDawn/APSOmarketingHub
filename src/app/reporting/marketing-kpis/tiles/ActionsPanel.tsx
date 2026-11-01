@@ -27,6 +27,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import LinkOffIcon from "@mui/icons-material/LinkOff";
 import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
+import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 
 import { Badge, FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { FORMAT_LABEL } from "./store";
@@ -57,6 +58,49 @@ function People({ owners, value, onChange, label = "Shared with" }: { owners: Op
       getOptionLabel={(o) => o.label} isOptionEqualToValue={(a, b) => a.value === b.value}
       onChange={(_, v) => onChange(v.map((o) => o.value))} filterSelectedOptions
       renderInput={(p) => <TextField {...p} label={label} placeholder={value.length ? "" : "Colleagues to inform - they get a mail, and the ticket in HubSpot"} sx={field} />} />
+  );
+}
+
+/** The action plan's actions, read once per page visit, for the picker below. */
+type PlanOption = { id: number; title: string; code: string; topic: string; who: string };
+let planOptions: Promise<PlanOption[]> | null = null;
+function loadPlanOptions(): Promise<PlanOption[]> {
+  if (!planOptions) {
+    planOptions = fetch("/api/reporting/action-plan").then(async (r) => {
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j?.ok) throw new Error(j?.error ?? `the hub answered ${r.status}`);
+      const items = j.items as { id: number; parentId: number | null; kind: string; title: string; code: string; responsible: string }[];
+      const byId = new Map(items.map((i) => [i.id, i]));
+      const topicOf = (id: number | null): string => {
+        for (let x = id == null ? undefined : byId.get(id); x; x = x.parentId == null ? undefined : byId.get(x.parentId)) if (x.kind === "topic") return x.title;
+        return "";
+      };
+      return items.filter((i) => i.kind === "action").map((i) => ({ id: i.id, title: i.title, code: i.code, topic: topicOf(i.parentId), who: i.responsible }));
+    });
+    planOptions.catch(() => { planOptions = null; });
+  }
+  return planOptions;
+}
+
+/** A KPI tile's task as a sub-action of the action plan (SARCLA 31.10.2026: "linked and triggered from the KPI actions"). */
+function PlanPick({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
+  const [opts, setOpts] = useState<PlanOption[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { loadPlanOptions().then(setOpts, (e) => setErr((e as Error).message)); }, []);
+  if (err) return <Typography sx={{ fontSize: "0.84rem", color: RED }}>The action plan could not be read: {err}</Typography>;
+  return (
+    <Autocomplete size="small" options={opts ?? []} loading={!opts} value={(opts ?? []).find((o) => o.id === value) ?? null}
+      groupBy={(o) => o.topic} getOptionLabel={(o) => o.title} isOptionEqualToValue={(a, b) => a.id === b.id}
+      onChange={(_, v) => onChange(v?.id ?? null)}
+      renderOption={(p, o) => (
+        <li {...p} key={o.id}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontSize: "0.88rem", color: INK }}>{o.title}</Typography>
+            <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{[o.code, o.who].filter(Boolean).join(" · ")}</Typography>
+          </Box>
+        </li>
+      )}
+      renderInput={(p) => <TextField {...p} label="Part of the action plan (optional)" placeholder="The action this task moves forward" sx={field} />} />
   );
 }
 
@@ -102,11 +146,16 @@ function TargetBox({ tile, value, canWrite }: { tile: TileInfo; value: number | 
   );
 }
 
-export function ActionsPanel({ tile, open, onClose, placed, format, formats, onMove, canWrite, target = null }: {
+export function ActionsPanel({ tile, open, onClose, placed, format, formats, onMove, canWrite, target = null, plan, onChanged }: {
   tile: TileInfo; open: boolean; onClose: () => void; placed: Placement; format: TileFormat; formats: TileFormat[];
   onMove: (to: Placement, format?: TileFormat) => Promise<void>; canWrite: boolean;
   /** the chart's target now, when the chart takes one */
   target?: number | null;
+  /** an action of the action plan (tile "plan:<id>"): its tasks are its sub-actions, there is no BUC View, and a
+   *  Scroll to Sale ticket only when Digital Growth leads the action (SARCLA 31.10.2026) */
+  plan?: { tickets: boolean };
+  /** told after every change, for a page that shows the tasks too */
+  onChanged?: () => void;
 }) {
   // how big it goes to the nutshell - a small tile, half or the whole width, as the graph allows
   // (SARCLA 19.10: "propose several types"); chosen before the switch is turned on, or changed at once there
@@ -144,7 +193,8 @@ export function ActionsPanel({ tile, open, onClose, placed, format, formats, onM
     } catch (e) { setErr((e as Error).message); }
   }, [tile.key]);
   useEffect(() => { if (open) { void loadTasks(); if (!t) void loadTickets(); } }, [open, t, loadTasks, loadTickets]);
-  const reload = async () => { await Promise.all([loadTasks(), loadTickets()]); void refreshActions(tile.page); };
+  const reload = async () => { await Promise.all([loadTasks(), loadTickets()]); void refreshActions(tile.page); onChanged?.(); };
+  const tickets = plan ? plan.tickets : true;
   const move = async (to: Placement, fmt?: TileFormat) => {
     setMoving(true);
     try { await onMove(to, fmt); } catch (e) { setErr(`Could not move it: ${(e as Error).message}`); } finally { setMoving(false); }
@@ -171,17 +221,17 @@ export function ActionsPanel({ tile, open, onClose, placed, format, formats, onM
           <Badge icon={<TaskAltIcon />} tint="green" size={44} />
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography sx={{ fontSize: "1.25rem", fontWeight: 700, color: INK, lineHeight: 1.2 }}>{tile.title}</Typography>
-            <Typography sx={{ fontSize: "0.9rem", color: MUTED }}>{tile.summary || "What is done to move this KPI"}</Typography>
+            <Typography sx={{ fontSize: "0.9rem", color: MUTED }}>{tile.summary || (plan ? "The sub-actions of this action" : "What is done to move this KPI")}</Typography>
           </Box>
-          {/* promote / demote: one choice for everyone */}
-          <Box component="label" sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1.5, py: 0.75, borderRadius: "12px", border: `1px solid ${placed === "nutshell" ? TINT.blue.fg : HAIRLINE}`, bgcolor: placed === "nutshell" ? TINT.blue.bg : "#fff", cursor: canWrite ? "pointer" : "default" }}>
+          {/* promote / demote: one choice for everyone - a KPI's, not an action's */}
+          {!plan && <Box component="label" sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1.5, py: 0.75, borderRadius: "12px", border: `1px solid ${placed === "nutshell" ? TINT.blue.fg : HAIRLINE}`, bgcolor: placed === "nutshell" ? TINT.blue.bg : "#fff", cursor: canWrite ? "pointer" : "default" }}>
             <Box>
               <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: placed === "nutshell" ? TINT.blue.fg : INK }}>BUC View</Typography>
               <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{placed === "nutshell" ? "Shown there for everyone" : "Only on this page"}</Typography>
             </Box>
             <Switch checked={placed === "nutshell"} disabled={!canWrite || moving} onChange={(e) => void move(e.target.checked ? "nutshell" : "tab", e.target.checked && choose ? want : undefined)} />
-          </Box>
-          {choose && (
+          </Box>}
+          {!plan && choose && (
             <Box sx={{ display: "grid", gap: 0.35 }}>
               <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>Shown as</Typography>
               <ToggleButtonGroup size="small" exclusive value={placed === "nutshell" ? format : want} disabled={!canWrite || moving} aria-label="How it is shown in the BUC View"
@@ -197,21 +247,21 @@ export function ActionsPanel({ tile, open, onClose, placed, format, formats, onM
         <Box sx={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: canWrite ? "minmax(0, 1fr) minmax(0, 1fr)" : "minmax(0, 1fr)" } }}>
           {canWrite && (
             <Box sx={{ overflowY: "auto", px: 3, py: 2.5, borderRight: { md: `1px solid ${HAIRLINE}` } }}>
-              <AddTask tile={tile} t={t} tErr={tErr} retry={loadTickets} done={reload} />
+              <AddTask tile={tile} t={t} tErr={tErr} retry={loadTickets} done={reload} plan={!!plan} tickets={tickets} />
             </Box>
           )}
           <Box sx={{ overflowY: "auto", px: 3, py: 2.5, display: "grid", gap: 1.5, alignContent: "start" }}>
             {tile.target && <TargetBox tile={tile} value={target} canWrite={canWrite} />}
-            <Typography sx={section}>Tasks{tasks?.length ? ` · ${openCount} open of ${tasks.length}` : ""}</Typography>
-            {(err || tErr) && <Typography sx={{ fontSize: "0.88rem", color: RED }}>{err ?? `HubSpot could not be read: ${tErr}`}</Typography>}
+            <Typography sx={section}>{plan ? "Sub-actions" : "Tasks"}{tasks?.length ? ` · ${openCount} open of ${tasks.length}` : ""}</Typography>
+            {(err || (tErr && tickets)) && <Typography sx={{ fontSize: "0.88rem", color: RED }}>{err ?? `HubSpot could not be read: ${tErr}`}</Typography>}
             {!tasks ? <CircularProgress size={18} /> : !tasks.length && !loose.length ? (
               <Box sx={{ p: 2.5, borderRadius: "14px", border: `1px dashed ${HAIRLINE}`, textAlign: "center" }}>
-                <Typography sx={{ fontSize: "0.95rem", color: MUTED, fontWeight: 600 }}>No task on this KPI yet</Typography>
-                <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>{canWrite ? "Write on the left what will be done to move it." : "Nothing is being done on it yet."}</Typography>
+                <Typography sx={{ fontSize: "0.95rem", color: MUTED, fontWeight: 600 }}>{plan ? "No sub-action yet" : "No task on this KPI yet"}</Typography>
+                <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>{canWrite ? (plan ? "Write on the left the first step - or add one from a KPI tile's Actions." : "Write on the left what will be done to move it.") : "Nothing is being done on it yet."}</Typography>
               </Box>
             ) : (
               <>
-                {tasks.map((k) => <TaskRow key={k.id} tile={tile} k={k} t={t} tickets={ticketsOf(k.id)} canWrite={canWrite} reload={reload} setErr={setErr} />)}
+                {tasks.map((k) => <TaskRow key={k.id} tile={tile} k={k} t={t} tickets={ticketsOf(k.id)} canWrite={canWrite} reload={reload} setErr={setErr} plan={!!plan} allowTickets={tickets} />)}
                 {loose.length > 0 && (
                   <Box sx={{ display: "grid", gap: 0.75 }}>
                     <Typography sx={section}>Tickets without a task</Typography>
@@ -229,8 +279,10 @@ export function ActionsPanel({ tile, open, onClose, placed, format, formats, onM
 
 /* ── a new task, with its ticket ───────────────────────────────────────── */
 
-function AddTask({ tile, t, tErr, retry, done }: { tile: TileInfo; t: TicketsAnswer | null; tErr: string | null; retry: () => Promise<void>; done: () => Promise<void> }) {
+function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo; t: TicketsAnswer | null; tErr: string | null; retry: () => Promise<void>; done: () => Promise<void>; plan: boolean; tickets: boolean }) {
   const [title, setTitle] = useState("");
+  // a KPI tile's task can be a sub-action of the action plan as well
+  const [planItem, setPlanItem] = useState<number | null>(null);
   const [owner, setOwner] = useState("");
   const [due, setDue] = useState("");
   const [note, setNote] = useState("");
@@ -258,22 +310,23 @@ function AddTask({ tile, t, tErr, retry, done }: { tile: TileInfo; t: TicketsAns
       const j = await send("/api/reporting/kpi-actions/tasks", "POST", {
         tile: tile.key, page: tile.page, title, note, due: due || undefined, owner, ownerName: owners.find((o) => o.value === owner)?.label ?? "", shared,
         href: typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : undefined, kpi: tile.title, summary: tile.summary,
+        ...(!plan && planItem ? { planItem } : {}),
       });
       const taskId = (j.task as KpiTask).id;
       if (ticket === "new") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "create", tile: tile.key, taskId, values });
       if (ticket === "link") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "link", tile: tile.key, taskId, ids: pick });
       const mailed = Number(j.mailed ?? 0);
       setSent(`Added${ticket === "new" ? ", with its ticket in HubSpot" : ticket === "link" ? ", with its linked tickets" : ""}${mailed ? ` · ${mailed} mail${mailed === 1 ? "" : "s"} sent` : ""}`);
-      setTitle(""); setNote(""); setDue(""); setShared([]); setTicket("none"); setPick([]); setValues(t?.prefill ?? {});
+      setTitle(""); setNote(""); setDue(""); setShared([]); setTicket("none"); setPick([]); setValues(t?.prefill ?? {}); setPlanItem(null);
       await done();
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
 
   return (
     <Box sx={{ display: "grid", gap: 1.5 }}>
-      <Typography sx={section}>New task</Typography>
+      <Typography sx={section}>{plan ? "New sub-action" : "New task"}</Typography>
       <TextField label="What will be done" value={title} onChange={(e) => setTitle(e.target.value)} sx={field} autoFocus fullWidth
-        helperText="Written as an action - it is also the ticket's name" />
+        helperText={tickets ? "Written as an action - it is also the ticket's name" : "Written as an action"} />
       <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: "1fr 170px" }}>
         <TextField select size="small" label="Who does it" value={owners.some((o) => o.value === owner) ? owner : ""} onChange={(e) => setOwner(e.target.value)} sx={field}>
           {owners.map((o) => <MenuItem key={o.value} value={o.value} sx={{ fontSize: "0.9rem" }}>{o.label}</MenuItem>)}
@@ -282,9 +335,10 @@ function AddTask({ tile, t, tErr, retry, done }: { tile: TileInfo; t: TicketsAns
       </Box>
       <People owners={owners} value={shared} onChange={setShared} />
       <TextField size="small" label="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} sx={field} multiline minRows={2} maxRows={5} />
+      {!plan && <PlanPick value={planItem} onChange={setPlanItem} />}
 
-      {/* its Scroll to Sale ticket, inside the task */}
-      <Box sx={{ display: "grid", gap: 1, p: 1.5, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
+      {/* its Scroll to Sale ticket, inside the task - on the plan only for an action Digital Growth leads */}
+      {tickets && <Box sx={{ display: "grid", gap: 1, p: 1.5, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
         <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
           <ConfirmationNumberOutlinedIcon sx={{ fontSize: 20, color: FAINT }} />
           <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK, mr: 0.5 }}>Scroll to Sale ticket</Typography>
@@ -301,7 +355,7 @@ function AddTask({ tile, t, tErr, retry, done }: { tile: TileInfo; t: TicketsAns
         )}
         {ticket === "new" && t && <TicketFields form={t.form} values={values} set={(k, x) => setValues((v) => ({ ...v, [k]: x }))} />}
         {ticket === "link" && <OpenTickets pick={pick} setPick={setPick} already={(t?.linked ?? []).map((x) => x.id)} />}
-      </Box>
+      </Box>}
 
       {err && <Typography sx={{ fontSize: "0.88rem", color: RED }}>{err}</Typography>}
       {sent && <Typography sx={{ fontSize: "0.88rem", color: GREEN, fontWeight: 600 }}>{sent}</Typography>}
@@ -310,7 +364,7 @@ function AddTask({ tile, t, tErr, retry, done }: { tile: TileInfo; t: TicketsAns
           {missing.length ? `For the ticket, still to fill in: ${missing.join(", ")}` : shared.length ? `${shared.length} colleague${shared.length === 1 ? "" : "s"} will get a mail` : ""}
         </Typography>
         <Button variant="contained" size="large" disableElevation disabled={!ready} onClick={() => void add()} sx={cta}>
-          {busy ? "Saving…" : ticket === "new" ? "Add the task and its ticket" : ticket === "link" ? "Add the task and link" : "Add the task"}
+          {busy ? "Saving…" : ticket === "new" ? `Add the ${plan ? "sub-action" : "task"} and its ticket` : ticket === "link" ? `Add the ${plan ? "sub-action" : "task"} and link` : plan ? "Add the sub-action" : "Add the task"}
         </Button>
       </Box>
     </Box>
@@ -406,10 +460,15 @@ function OpenTickets({ pick, setPick, already }: { pick: string[]; setPick: (f: 
 
 /* ── a task, with its tickets ──────────────────────────────────────────── */
 
-function TaskRow({ tile, k, t, tickets, canWrite, reload, setErr }: {
+function TaskRow({ tile, k, t, tickets, canWrite, reload, setErr, plan, allowTickets }: {
   tile: TileInfo; k: KpiTask; t: TicketsAnswer | null; tickets: Linked[]; canWrite: boolean; reload: () => Promise<void>; setErr: (e: string | null) => void;
+  /** shown on an action of the plan; allowTickets = Digital Growth leads it */
+  plan: boolean; allowTickets: boolean;
 }) {
-  const [adding, setAdding] = useState<null | "new" | "link" | "share">(null);
+  const [adding, setAdding] = useState<null | "new" | "link" | "share" | "plan">(null);
+  const [planPick, setPlanPick] = useState<number | null>(k.planItem);
+  // a KPI tile's task: it can be linked to an action of the plan, or unlinked (one made on the plan stays with its action)
+  const fromKpi = !k.tile.startsWith("plan:");
   const [values, setValues] = useState<Record<string, string>>({});
   const [pick, setPick] = useState<string[]>([]);
   const [shared, setShared] = useState<string[]>(k.shared.map((p) => p.id));
@@ -424,9 +483,10 @@ function TaskRow({ tile, k, t, tickets, canWrite, reload, setErr }: {
     if (!confirm(tickets.length ? "Remove this task? Its tickets stay in HubSpot." : "Remove this task?")) return;
     try { await send(`/api/reporting/kpi-actions/tasks?id=${k.id}`, "DELETE"); await reload(); } catch (e) { setErr((e as Error).message); }
   };
-  const open = (mode: "new" | "link" | "share") => {
+  const open = (mode: "new" | "link" | "share" | "plan") => {
     setAdding(adding === mode ? null : mode);
     if (mode === "share") setShared(k.shared.map((p) => p.id));
+    if (mode === "plan") setPlanPick(k.planItem);
     if (t) setValues({ ...t.prefill, subject: k.title.slice(0, 200), ...(k.owner && /^\d+$/.test(k.owner) ? { hubspot_owner_id: k.owner } : {}), ...(k.due ? { mkt_planned_date: k.due } : {}), ...(k.note ? { mkt_next_steps: k.note } : {}) });
   };
   const missing = adding === "new" && t ? t.form.fields.filter((f) => f.required && !String(values[f.name] ?? "").trim()).map((f) => f.label) : [];
@@ -436,6 +496,7 @@ function TaskRow({ tile, k, t, tickets, canWrite, reload, setErr }: {
       if (adding === "new") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "create", tile: tile.key, taskId: k.id, values });
       if (adding === "link") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "link", tile: tile.key, taskId: k.id, ids: pick });
       if (adding === "share") await send("/api/reporting/kpi-actions/tasks", "PATCH", { id: k.id, shared, kpi: tile.title, summary: tile.summary });
+      if (adding === "plan") await send("/api/reporting/kpi-actions/tasks", "PATCH", { id: k.id, planItem: planPick });
       setAdding(null); setPick([]); await reload();
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
@@ -464,24 +525,37 @@ function TaskRow({ tile, k, t, tickets, canWrite, reload, setErr }: {
           <PeopleOutlineIcon sx={{ fontSize: 17, color: FAINT }} /> Shared with {k.shared.map((p) => p.name).join(", ")}
         </Typography>
       )}
+      {/* where it came from, or where it also counts */}
+      {plan && fromKpi && k.href && (
+        <Typography component="a" href={k.href} sx={{ fontSize: "0.82rem", color: TINT.blue.fg, fontWeight: 600, textDecoration: "none", display: "flex", gap: 0.5, alignItems: "center", "&:hover": { textDecoration: "underline" } }}>
+          <FlagOutlinedIcon sx={{ fontSize: 17 }} /> Made on a KPI tile - open it
+        </Typography>
+      )}
+      {!plan && k.planItem != null && (
+        <Typography component="a" href={`/reporting/action-plan?item=${k.planItem}`} sx={{ fontSize: "0.82rem", color: TINT.blue.fg, fontWeight: 600, textDecoration: "none", display: "flex", gap: 0.5, alignItems: "center", "&:hover": { textDecoration: "underline" } }}>
+          <FlagOutlinedIcon sx={{ fontSize: 17 }} /> A sub-action of the action plan - open it
+        </Typography>
+      )}
 
       {/* the task's Scroll to Sale tickets */}
       {tickets.map((x) => <TicketLine key={x.id} tile={tile} x={x} canWrite={canWrite} reload={reload} />)}
       {canWrite && (
         <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-          <Button size="small" startIcon={<ConfirmationNumberOutlinedIcon sx={{ fontSize: 18 }} />} onClick={() => open("new")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "new" ? TINT.blue.fg : MUTED }}>New ticket</Button>
-          <Button size="small" onClick={() => open("link")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "link" ? TINT.blue.fg : MUTED }}>Link open ones</Button>
+          {allowTickets && <Button size="small" startIcon={<ConfirmationNumberOutlinedIcon sx={{ fontSize: 18 }} />} onClick={() => open("new")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "new" ? TINT.blue.fg : MUTED }}>New ticket</Button>}
+          {allowTickets && <Button size="small" onClick={() => open("link")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "link" ? TINT.blue.fg : MUTED }}>Link open ones</Button>}
           <Button size="small" startIcon={<PeopleOutlineIcon sx={{ fontSize: 18 }} />} onClick={() => open("share")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "share" ? TINT.blue.fg : MUTED }}>Share</Button>
+          {!plan && fromKpi && <Button size="small" startIcon={<FlagOutlinedIcon sx={{ fontSize: 18 }} />} onClick={() => open("plan")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "plan" ? TINT.blue.fg : MUTED }}>Action plan</Button>}
         </Box>
       )}
       {adding === "new" && t && <TicketFields form={t.form} values={values} set={(key, v) => setValues((o) => ({ ...o, [key]: v }))} />}
       {adding === "link" && <OpenTickets pick={pick} setPick={setPick} already={tickets.map((x) => x.id)} />}
       {adding === "share" && <People owners={owners} value={shared} onChange={setShared} label="Shared with - the new ones get a mail" />}
+      {adding === "plan" && <PlanPick value={planPick} onChange={setPlanPick} />}
       {adding && (
         <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
           <Typography sx={{ fontSize: "0.82rem", color: missing.length ? RED : FAINT, flex: 1 }}>{missing.length ? `Still to fill in: ${missing.join(", ")}` : ""}</Typography>
           <Button variant="contained" disableElevation disabled={busy || missing.length > 0 || (adding === "link" && !pick.length)} onClick={() => void save()} sx={cta}>
-            {busy ? "Saving…" : adding === "new" ? "Create the ticket" : adding === "share" ? "Save" : pick.length > 1 ? `Link these ${pick.length}` : "Link it"}
+            {busy ? "Saving…" : adding === "new" ? "Create the ticket" : adding === "share" || adding === "plan" ? "Save" : pick.length > 1 ? `Link these ${pick.length}` : "Link it"}
           </Button>
         </Box>
       )}

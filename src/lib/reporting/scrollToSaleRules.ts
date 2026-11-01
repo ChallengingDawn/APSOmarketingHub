@@ -108,7 +108,9 @@ export function prefill(tile: TileContext, ctx: {
     // the action names the ticket - it comes from the task; the KPI goes into KPIs and the description
     subject: "",
     content: [
-      `From the Digital Growth KPIs tile "${tile.title}"${tile.tab ? ` (${tile.page}, ${tile.tab})` : ` (${tile.page})`}.`,
+      tile.page === "plan"
+        ? `From the action plan: "${tile.title}".`
+        : `From the Digital Growth KPIs tile "${tile.title}"${tile.tab ? ` (${tile.page}, ${tile.tab})` : ` (${tile.page})`}.`,
       tile.summary ? `Now: ${tile.summary}.` : "",
       Object.keys(tile.filters ?? {}).length ? `Filters: ${Object.entries(tile.filters ?? {}).filter(([, x]) => x.length).map(([k, x]) => `${k} ${x.join(", ")}`).join("; ")}.` : "",
       tile.href ? `Open it: ${tile.href}` : "",

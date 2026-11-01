@@ -3,6 +3,7 @@
 // shared with get a mail from the hub ("share inside of the hub via mail notification").
 import { NextRequest, NextResponse } from "next/server";
 import { TASK_STATUSES, addTask, deleteTask, taskById, tasksOf, updateTask, type KpiTask, type SharedPerson, type TaskStatus } from "@/lib/reporting/kpiActions";
+import { itemById } from "@/lib/reporting/actionPlan";
 import { s2sForm } from "@/lib/reporting/scrollToSale";
 import { renderTaskMail } from "@/lib/reporting/kpiTaskMail";
 import { mailConfigured, sendHubMail } from "@/lib/notify/mailer";
@@ -46,6 +47,16 @@ async function notify(t: KpiTask, w: Who, b: { kpi?: string; summary?: string },
   return sent;
 }
 
+/** The action plan's action a task is linked to: an action that exists, null to unlink, undefined to leave it. */
+async function planLink(v: unknown): Promise<number | null | undefined | false> {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  const id = Number(v);
+  if (!Number.isInteger(id) || id <= 0) return false;
+  const row = await itemById(id);
+  return row?.kind === "action" ? id : false;
+}
+
 export async function GET(req: NextRequest) {
   const w = await who();
   if (w instanceof NextResponse) return w;
@@ -57,14 +68,17 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const w = await who(true);
   if (w instanceof NextResponse) return w;
-  const b = (await req.json().catch(() => ({}))) as { tile?: string; page?: string; title?: string; note?: string; owner?: string; ownerName?: string; due?: string; shared?: string[]; href?: string; kpi?: string; summary?: string };
+  const b = (await req.json().catch(() => ({}))) as { tile?: string; page?: string; title?: string; note?: string; owner?: string; ownerName?: string; due?: string; shared?: string[]; href?: string; kpi?: string; summary?: string; planItem?: number | null };
   if (!tileOk(b.tile) || !b.page || !b.title?.trim()) return fail("a task needs its tile, its page and what to do", 400);
   if (b.due && !/^\d{4}-\d{2}-\d{2}$/.test(b.due)) return fail("due is a date (YYYY-MM-DD)", 400);
   try {
+    // a KPI tile's task can be a sub-action of the action plan too (SARCLA 31.10.2026)
+    const plan = await planLink(b.planItem);
+    if (plan === false) return fail("that action is not in the action plan", 400);
     const shared = await people(b.shared).catch(() => [] as SharedPerson[]);
     const t = await addTask({
       tile: b.tile, page: b.page, title: b.title.trim(), note: b.note, owner: b.owner || w.email || "", ownerName: b.ownerName || w.name, due: b.due || null,
-      shared, href: typeof b.href === "string" && b.href.startsWith("/reporting/") ? b.href : "", by: w.name,
+      shared, href: typeof b.href === "string" && b.href.startsWith("/reporting/") ? b.href : "", planItem: plan ?? null, by: w.name,
     });
     const mailed = await notify(t, w, b, true, shared);
     return NextResponse.json({ ok: true, task: t, mailed });
@@ -74,15 +88,19 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const w = await who(true);
   if (w instanceof NextResponse) return w;
-  const b = (await req.json().catch(() => ({}))) as { id?: number; title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: string; shared?: string[]; kpi?: string; summary?: string };
+  const b = (await req.json().catch(() => ({}))) as { id?: number; title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: string; shared?: string[]; kpi?: string; summary?: string; planItem?: number | null };
   if (!Number.isInteger(b.id)) return fail("id is missing", 400);
   if (b.status !== undefined && !(TASK_STATUSES as readonly string[]).includes(b.status)) return fail("status is open, doing or done", 400);
   if (b.due && !/^\d{4}-\d{2}-\d{2}$/.test(b.due)) return fail("due is a date (YYYY-MM-DD)", 400);
   try {
     const before = await taskById(b.id as number);
     if (!before) return fail("no such task", 404);
+    const plan = await planLink(b.planItem);
+    if (plan === false) return fail("that action is not in the action plan", 400);
+    // a sub-action made on the plan belongs to its action for good; a KPI tile's task can be linked or unlinked
+    if (plan !== undefined && before.tile.startsWith("plan:")) return fail("this sub-action was made on its action", 400);
     const shared = b.shared === undefined ? undefined : await people(b.shared);
-    const t = await updateTask(b.id as number, { title: b.title, note: b.note, owner: b.owner, ownerName: b.ownerName, due: b.due, status: b.status as TaskStatus | undefined, shared });
+    const t = await updateTask(b.id as number, { title: b.title, note: b.note, owner: b.owner, ownerName: b.ownerName, due: b.due, status: b.status as TaskStatus | undefined, shared, planItem: plan });
     if (!t) return fail("no such task", 404);
     const added = (shared ?? []).filter((p) => !before.shared.some((x) => x.id === p.id));
     const mailed = await notify(t, w, b, b.owner !== undefined && b.owner !== before.owner, added);

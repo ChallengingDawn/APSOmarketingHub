@@ -12,6 +12,9 @@
 //   target     a figure a chart is measured against (SARCLA 25.10.2026: "allow to enter a threshold so we can measure
 //              the rest of it" - his pick: a target per chart), typed in the Actions window; one for everyone
 // A tile is known by its key: "<page>:<tab>:<what>", e.g. "reach:seo:R05" or "visit::P02".
+// An action of the action plan is a tile too, "plan:<id>": its tasks are the action's sub-actions, and a
+// task made on a KPI tile can belong to an action as well (plan_item) - it then shows on both (SARCLA
+// 31.10.2026: "subactions can be linked and triggered from the KPI actions").
 // Six small tables, created on first use.
 
 import { query } from "@/lib/db/client";
@@ -31,8 +34,12 @@ export type KpiTask = {
   id: number; tile: string; page: string; title: string; note: string;
   owner: string; ownerName: string; due: string | null; status: TaskStatus;
   shared: SharedPerson[]; href: string;
+  /** The action plan's action this is a sub-action of: tile "plan:<id>", or a KPI tile's task linked to one. */
+  planItem: number | null;
   createdBy: string; createdAt: string; updatedAt: string; doneAt: string | null;
 };
+/** The action of a plan tile ("plan:12" -> 12), null for a KPI tile. */
+export const planIdOf = (tile: string): number | null => { const m = /^plan:(\d+)$/.exec(tile); return m ? Number(m[1]) : null; };
 export type Placement = "nutshell" | "tab";
 /** How big a promoted graph is in the nutshell: a small tile, half the width, or the whole width. */
 export type TileFormat = "tile" | "half" | "card";
@@ -66,6 +73,8 @@ function ensure(): Promise<void> {
       // who it is shared with, and the page it was made on - for the mail (SARCLA 18.10)
       await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS shared jsonb NOT NULL DEFAULT '[]'::jsonb`);
       await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS href text NOT NULL DEFAULT ''`);
+      // the action plan's action it belongs to (SARCLA 31.10.2026)
+      await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS plan_item integer`);
       await query(`CREATE TABLE IF NOT EXISTS ${LINKS} (
         tile text NOT NULL,
         ticket_id text NOT NULL,
@@ -116,7 +125,7 @@ function ensure(): Promise<void> {
 
 const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : d == null ? null : String(d));
 const day = (d: unknown) => (d instanceof Date ? d.toISOString().slice(0, 10) : d == null ? null : String(d).slice(0, 10));
-type TaskRow = { id: number; tile: string; page: string; title: string; note: string; owner: string; owner_name: string; due: unknown; status: string; shared: unknown; href: string | null; created_by: string; created_at: unknown; updated_at: unknown; done_at: unknown };
+type TaskRow = { id: number; tile: string; page: string; title: string; note: string; owner: string; owner_name: string; due: unknown; status: string; shared: unknown; href: string | null; plan_item?: number | null; created_by: string; created_at: unknown; updated_at: unknown; done_at: unknown };
 const sharedOf = (x: unknown): SharedPerson[] => {
   const v = typeof x === "string" ? (() => { try { return JSON.parse(x); } catch { return []; } })() : x;
   return Array.isArray(v) ? v.filter((p) => p && typeof p.id === "string") : [];
@@ -124,23 +133,26 @@ const sharedOf = (x: unknown): SharedPerson[] => {
 const task = (r: TaskRow): KpiTask => ({
   id: r.id, tile: r.tile, page: r.page, title: r.title, note: r.note, owner: r.owner, ownerName: r.owner_name,
   due: day(r.due), status: (TASK_STATUSES as readonly string[]).includes(r.status) ? (r.status as TaskStatus) : "open",
-  shared: sharedOf(r.shared), href: r.href ?? "",
+  shared: sharedOf(r.shared), href: r.href ?? "", planItem: r.plan_item ?? planIdOf(r.tile),
   createdBy: r.created_by, createdAt: iso(r.created_at) ?? "", updatedAt: iso(r.updated_at) ?? "", doneAt: iso(r.done_at),
 });
 
 /* ── tasks ─────────────────────────────────────────────────────────────── */
 
+/** The tasks a tile shows: its own, and for an action of the plan also the KPI tiles' tasks linked to it. */
+const VISIBLE = `(tile = $1 OR ($2::int IS NOT NULL AND plan_item = $2))`;
+
 export async function tasksOf(tile: string): Promise<KpiTask[]> {
   await ensure();
-  const r = await query<TaskRow>(`SELECT * FROM ${TASKS} WHERE tile = $1 ORDER BY (status = 'done'), due NULLS LAST, id`, [tile]);
+  const r = await query<TaskRow>(`SELECT * FROM ${TASKS} WHERE ${VISIBLE} ORDER BY (status = 'done'), due NULLS LAST, id`, [tile, planIdOf(tile)]);
   return r.rows.map(task);
 }
 
-export async function addTask(t: { tile: string; page: string; title: string; note?: string; owner?: string; ownerName?: string; due?: string | null; shared?: SharedPerson[]; href?: string; by: string }): Promise<KpiTask> {
+export async function addTask(t: { tile: string; page: string; title: string; note?: string; owner?: string; ownerName?: string; due?: string | null; shared?: SharedPerson[]; href?: string; planItem?: number | null; by: string }): Promise<KpiTask> {
   await ensure();
   const r = await query<TaskRow>(
-    `INSERT INTO ${TASKS} (tile, page, title, note, owner, owner_name, due, created_by, shared, href) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10) RETURNING *`,
-    [t.tile, t.page, t.title.slice(0, 300), (t.note ?? "").slice(0, 4000), t.owner ?? "", t.ownerName ?? "", t.due || null, t.by, JSON.stringify(t.shared ?? []), (t.href ?? "").slice(0, 500)],
+    `INSERT INTO ${TASKS} (tile, page, title, note, owner, owner_name, due, created_by, shared, href, plan_item) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11) RETURNING *`,
+    [t.tile, t.page, t.title.slice(0, 300), (t.note ?? "").slice(0, 4000), t.owner ?? "", t.ownerName ?? "", t.due || null, t.by, JSON.stringify(t.shared ?? []), (t.href ?? "").slice(0, 500), t.planItem ?? planIdOf(t.tile)],
   );
   return task(r.rows[0]);
 }
@@ -152,7 +164,7 @@ export async function taskById(id: number): Promise<KpiTask | null> {
   return r.rows[0] ? task(r.rows[0]) : null;
 }
 
-export async function updateTask(id: number, p: { title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: TaskStatus; shared?: SharedPerson[] }): Promise<KpiTask | null> {
+export async function updateTask(id: number, p: { title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: TaskStatus; shared?: SharedPerson[]; planItem?: number | null }): Promise<KpiTask | null> {
   await ensure();
   const sets: string[] = [];
   const vals: unknown[] = [];
@@ -162,6 +174,7 @@ export async function updateTask(id: number, p: { title?: string; note?: string;
   if (p.owner !== undefined) set("owner", p.owner);
   if (p.ownerName !== undefined) set("owner_name", p.ownerName);
   if (p.due !== undefined) set("due", p.due || null);
+  if (p.planItem !== undefined) set("plan_item", p.planItem);
   if (p.shared !== undefined) { vals.push(JSON.stringify(p.shared)); sets.push(`shared = $${vals.length}::jsonb`); }
   if (p.status !== undefined) {
     set("status", p.status);
@@ -194,15 +207,40 @@ export async function linkTickets(tile: string, ticketIds: string[], by: string,
   );
 }
 
+/** A tile's tickets: its own, and those of every task it shows (a linked KPI task's tickets show on its action too). */
+const LINKS_OF = `(tile = $1 OR task_id IN (SELECT id FROM ${TASKS} WHERE ${VISIBLE}))`;
+
 export async function unlinkTicket(tile: string, ticketId: string): Promise<void> {
   await ensure();
-  await query(`DELETE FROM ${LINKS} WHERE tile = $1 AND ticket_id = $2`, [tile, ticketId]);
+  await query(`DELETE FROM ${LINKS} WHERE ticket_id = $3 AND ${LINKS_OF}`, [tile, planIdOf(tile), ticketId]);
 }
 
 export async function ticketsOf(tile: string): Promise<{ ticketId: string; created: boolean; linkedBy: string; linkedAt: string; taskId: number | null }[]> {
   await ensure();
-  const r = await query<{ ticket_id: string; created: boolean; linked_by: string; linked_at: unknown; task_id: number | null }>(`SELECT * FROM ${LINKS} WHERE tile = $1 ORDER BY linked_at`, [tile]);
-  return r.rows.map((x) => ({ ticketId: x.ticket_id, created: x.created, linkedBy: x.linked_by, linkedAt: iso(x.linked_at) ?? "", taskId: x.task_id ?? null }));
+  const r = await query<{ ticket_id: string; created: boolean; linked_by: string; linked_at: unknown; task_id: number | null }>(`SELECT * FROM ${LINKS} WHERE ${LINKS_OF} ORDER BY linked_at`, [tile, planIdOf(tile)]);
+  // one ticket linked under two tiles is still one ticket
+  const seen = new Set<string>();
+  return r.rows
+    .filter((x) => (seen.has(x.ticket_id) ? false : (seen.add(x.ticket_id), true)))
+    .map((x) => ({ ticketId: x.ticket_id, created: x.created, linkedBy: x.linked_by, linkedAt: iso(x.linked_at) ?? "", taskId: x.task_id ?? null }));
+}
+
+/** Every sub-action of the action plan, with how many tickets each carries - one read for the whole plan. */
+export async function planTasks(): Promise<(KpiTask & { tickets: number })[]> {
+  await ensure();
+  const r = await query<TaskRow & { tickets: string }>(
+    `SELECT t.*, (SELECT count(DISTINCT l.ticket_id) FROM ${LINKS} l WHERE l.task_id = t.id)::text AS tickets
+       FROM ${TASKS} t WHERE t.tile LIKE 'plan:%' OR t.plan_item IS NOT NULL ORDER BY t.due NULLS LAST, t.id`,
+  );
+  return r.rows.map((x) => ({ ...task(x), tickets: Number(x.tickets) }));
+}
+
+/** An action leaves the plan: its own sub-actions go with it (their tickets stay in HubSpot), KPI tasks only lose the link. */
+export async function dropPlanItem(id: number): Promise<void> {
+  await ensure();
+  await query(`DELETE FROM ${LINKS} WHERE task_id IN (SELECT id FROM ${TASKS} WHERE tile = $1) OR tile = $1`, [`plan:${id}`]);
+  await query(`DELETE FROM ${TASKS} WHERE tile = $1`, [`plan:${id}`]);
+  await query(`UPDATE ${TASKS} SET plan_item = NULL WHERE plan_item = $1`, [id]);
 }
 
 /* ── placement ─────────────────────────────────────────────────────────── */

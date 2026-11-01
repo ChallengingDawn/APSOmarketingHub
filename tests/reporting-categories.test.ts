@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { REPORT_CATEGORIES, categoryBySlug, categoryEntry } from "../src/lib/reporting/categories";
 
-test("the categories stand in SARCLA's order (16.10.2026), then Customer and Products Reports; the Sales Leader View after Digital Growth (20.10.2026)", () => {
+test("the categories stand in SARCLA's order (16.10.2026), then Customer and Products Reports; the Sales Leader View after Digital Growth (20.10.2026); the Action Plan last (31.10.2026)", () => {
   assert.deepEqual(REPORT_CATEGORIES.map((c) => c.slug),
-    ["marketing", "sales-leader", "eso", "tsa", "back-office", "website", "otd", "satisfaction", "customers", "products"]);
+    ["marketing", "sales-leader", "eso", "tsa", "back-office", "website", "otd", "satisfaction", "customers", "products", "action-plan"]);
   assert.equal(categoryBySlug("marketing")?.name, "Digital Growth Reports");
   assert.equal(categoryEntry(categoryBySlug("sales-leader")!), "/reporting/sales-leader");
+  assert.equal(categoryEntry(categoryBySlug("action-plan")!), "/reporting/action-plan");
 });
 
 test("Digital Growth's side panel: the stages, then Other reports - Monthly inputs, SMEC targets, Use Cases Overview; no Sales leader view, no Efficiency (SARCLA 20-21.10.2026)", () => {

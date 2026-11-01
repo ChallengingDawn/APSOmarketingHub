@@ -33,7 +33,8 @@ export const HOME_PANELS = [
   { id: "search", name: "Search", note: "The box that finds an app or a page by name" },
   { id: "quickLinks", name: "Quick links", note: "The shop, HubSpot, and anything you add" },
   { id: "connectors", name: "Connectors", note: "Is the data flowing - shown to those with Connectors & Integration" },
-  { id: "missionControl", name: "Mission Control card", note: "The panel that leads to the content calendar" },
+  // the id stays, so a card someone hid stays hidden
+  { id: "missionControl", name: "Action plan card", note: "Where we stand on the way to 30 M€ - it leads to the action plan" },
 ] as const;
 
 type Home = { hiddenPanels: string[]; appOrder: string[] };

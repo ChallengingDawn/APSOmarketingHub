@@ -30,7 +30,8 @@ const repo = process.cwd();
 // ---- what is not the app ----
 // .github/: the hub's own CI (checks, the deploy to AWS) - nothing of it belongs in the sandbox repository
 const DROP_DIRS = ["docs/", ".github/", "scripts/geo/", "scripts/google-ads/", "scripts/microsoft-ads/", "tests/browser/", "sandbox-kit/"];
-const DROP_FILES = [/\.(pptx|ppt|xlsx|xls|csv|pdf|docx|doc|zip|7z|bak)$/i, /(^|\/)\.env[^/]*$/, /^preview-linkedin\.html$/, /^scripts\/test-aws-db\.mjs$/];
+// the action plan's workbook rows are company data too: the sandbox's plan starts empty (src/lib/reporting/actionPlan.ts)
+const DROP_FILES = [/\.(pptx|ppt|xlsx|xls|csv|pdf|docx|doc|zip|7z|bak)$/i, /(^|\/)\.env[^/]*$/, /^preview-linkedin\.html$/, /^scripts\/test-aws-db\.mjs$/, /^src\/data\/actionPlanSeed\.json$/];
 const TEXT = /\.(ts|tsx|js|mjs|cjs|jsx|json|md|css|scss|html|txt|yml|yaml|sql|py|gs|sh|svg|xml|toml|ini)$|(^|\/)(Dockerfile|Caddyfile|entrypoint\.sh)$/i;
 
 // ---- what stops the snapshot: a real secret has no place in the code, it is fixed at the source ----

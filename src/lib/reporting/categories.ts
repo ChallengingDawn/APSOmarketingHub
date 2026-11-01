@@ -149,6 +149,14 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
       { name: "Articles CY/LY", href: "/uc/articles", note: "Every article, this year against last", icon: "bar" },
     ],
   },
+  {
+    // the APSOparts Business Improvement Action Plan as a Gantt, with where we stand on the way to 30 M€ by 2031
+    // (SARCLA 31.10.2026) - the home page's Action plan card opens it too
+    slug: "action-plan", name: "Action Plan", line: "Every action toward 30 M€ by 2031, by topic, on a Gantt",
+    reports: [
+      { name: "Action plan", href: "/reporting/action-plan", note: "Topics, actions and sub-actions - who, when, how far", icon: "target" },
+    ],
+  },
 ];
 
 export const categoryBySlug = (slug: string) => REPORT_CATEGORIES.find((c) => c.slug === slug) ?? null;

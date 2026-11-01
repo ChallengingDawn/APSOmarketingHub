@@ -29,6 +29,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import HubIconGlyph from "./HubIcon";
 import QuickLinks from "./QuickLinks";
 import ConnectorsPanel from "./ConnectorsPanel";
+import ActionPlanCard from "./ActionPlanCard";
 import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { HomeBar } from "./HomeBar";
 import { APPS, HUB_TOOLS, type HubApp } from "./hubApps";
@@ -316,74 +317,9 @@ export default function FrontPage() {
 
           {panel("connectors") && openFor("connectors") && <ConnectorsPanel glass={glass} />}
 
-          {openFor("marketing") && panel("missionControl") && (
-          <Box component={Link} href="/mission-control" sx={{
-            ...glass, borderRadius: "22px", p: { xs: 2, md: 2.5 }, position: "relative", overflow: "hidden",
-            textDecoration: "none", minHeight: 170, display: "flex", flexDirection: "column", justifyContent: "center",
-            background: "linear-gradient(150deg, rgba(154,123,240,.18), rgba(91,141,239,.13) 58%, rgba(255,255,255,.72))",
-            ...focusRing,
-            transition: "transform .22s ease",
-            "&:hover": { transform: "translateY(-3px)" },
-            "&:hover .go": { transform: "translateX(4px)" },
-            "@media (prefers-reduced-motion: reduce)": { transition: "none", "&:hover": { transform: "none" } },
-          }}>
-            {/* A quiet geometric range, in the page's own hues. */}
-            <Box aria-hidden component="svg" viewBox="0 0 260 120" sx={{
-              position: "absolute", right: -10, bottom: -6, width: 230, opacity: .85, pointerEvents: "none",
-            }}>
-              <defs>
-                <linearGradient id="m1" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#c7b8fb" />
-                </linearGradient>
-                <linearGradient id="m2" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#7aa7f5" /><stop offset="100%" stopColor="#b9d2fa" />
-                </linearGradient>
-              </defs>
-              <path d="M60 120 L130 28 L200 120 Z" fill="url(#m1)" />
-              <path d="M140 120 L196 52 L252 120 Z" fill="url(#m2)" opacity=".9" />
-              <path d="M8 120 L62 60 L116 120 Z" fill="url(#m2)" opacity=".55" />
-              <path d="M130 28 L146 48 L114 48 Z" fill="#ffffff" opacity=".75" />
-              <path d="M130 28 L130 12" stroke="#ec4899" strokeWidth="2.4" strokeLinecap="round" />
-              <path d="M130 12 L148 17 L130 23 Z" fill="#ec4899" />
-            </Box>
-
-            {/* It said "Different tools. A bigger tomorrow." — a slogan where a
-                description should be. The thing it names is not built, so the
-                card says what it is meant to become and admits it is not that
-                yet. A promise drawn as a finished feature is the worst of the
-                three options. */}
-            <Box sx={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 0.6, mb: 1 }}>
-              <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "#a96a12" }} />
-              <Typography sx={{
-                fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.08em",
-                textTransform: "uppercase", color: "#a96a12",
-              }}>Not built yet</Typography>
-            </Box>
-            <Typography sx={{
-              position: "relative",
-              fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-              fontSize: "1.32rem", fontWeight: 600, color: INK, letterSpacing: "-0.03em", lineHeight: 1.18,
-            }}>
-              <Box component="span" sx={{
-                background: "linear-gradient(95deg,#3b82f6,#8b5cf6)",
-                WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
-                display: "inline-block", paddingRight: "6px", marginRight: "-4px",
-              }}>Mission Control</Box>
-            </Typography>
-            <Typography sx={{ position: "relative", fontSize: "0.86rem", color: MUTED, mt: 0.75, maxWidth: "34ch", lineHeight: 1.45 }}>
-              One screen for the whole hub: what each app is doing, what is waiting on a person, and what
-              changed overnight. Today it shows the content calendar and nothing else.
-            </Typography>
-            <Box className="go" sx={{
-              position: "absolute", right: 18, bottom: 18, width: 42, height: 42, borderRadius: "50%",
-              display: "grid", placeItems: "center",
-              background: "linear-gradient(140deg,#5b8def,#3461c9)", color: "#fff",
-              boxShadow: "0 8px 20px rgba(52,97,201,.32)", transition: "transform .18s ease",
-              "& svg": { fontSize: 22 },
-              "@media (prefers-reduced-motion: reduce)": { transition: "none" },
-            }}><ChevronRightIcon /></Box>
-          </Box>
-          )}
+          {/* the action plan, and where we stand on the climb to 30 M€ - it was "Mission Control", a promise
+              of a screen that was never built (SARCLA 31.10.2026: "change the name to Action plan") */}
+          {openFor("reporting") && panel("missionControl") && <ActionPlanCard glass={glass} focusRing={focusRing} />}
         </Box>
 
       </Box>
