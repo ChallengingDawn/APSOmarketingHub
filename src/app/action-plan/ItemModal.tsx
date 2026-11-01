@@ -590,6 +590,7 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
               </Box>
 
                 <Box sx={{ ...card, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
+                  <Typography sx={{ ...section, gridColumn: "1 / -1" }}>Details</Typography>
                   {/* the channel and the agency are marketing's: only when Digital Growth leads it (kept, not shown, otherwise) */}
                   {item.dg && <Choices label="Marketing channel" options={choices.channel} value={item.channel} canWrite={canWrite} onSave={(v) => save({ channel: v })} />}
                   <Choices label="Implementation country" options={choices.country} value={item.country} canWrite={canWrite} onSave={(v) => save({ country: v })} />
@@ -611,20 +612,17 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
             {/* ── the right: its sub-actions and its tracking ── */}
             <Box sx={{ display: "grid", gap: 2.25, minWidth: 0 }}>
                 <Box sx={card}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                  {/* the head: how many, and the switch that decides what they can carry (SARCLA 01.11.2026: "rethink this
+                      page, it would be great to see it better") */}
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
                     <TaskAltIcon sx={{ fontSize: 18, color: FAINT }} />
                     <Typography sx={{ ...section, flex: 1 }}>Sub-actions{subs.length ? ` · ${done} of ${subs.length} done` : ""}</Typography>
-                  </Box>
-                  {/* first, as it decides what the sub-actions can carry */}
-                  <Box component="label" sx={{ display: "flex", alignItems: "center", gap: 1, p: 1.25, borderRadius: "8px", border: `1px solid ${item.dg ? TINT.blue.fg : HAIRLINE}`, bgcolor: item.dg ? TINT.blue.bg : "#fff", cursor: canWrite ? "pointer" : "default" }}>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: item.dg ? TINT.blue.fg : INK }}>Led by Digital Growth</Typography>
-                      <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
-                        {item.dg ? "“From Scroll to Sale” tickets: found and linked below, or made with a sub-action - the marketing channel and the agency are on the left"
-                          : "Turn on for “From Scroll to Sale” tickets, the marketing channel and the agency - the sales actions have no pipeline"}
-                      </Typography>
-                    </Box>
-                    <Switch checked={item.dg} disabled={!canWrite} onChange={(e) => save({ dg: e.target.checked })} />
+                    <Tooltip title={item.dg ? "Its sub-actions carry “From Scroll to Sale” tickets - new or linked; the marketing channel and the agency are on the left" : "Turn on for “From Scroll to Sale” tickets, the marketing channel and the agency - a sales action has no pipeline"}>
+                      <Box component="label" sx={{ display: "flex", alignItems: "center", gap: 0.25, pl: 1, borderRadius: "999px", border: `1px solid ${item.dg ? TINT.blue.fg : HAIRLINE}`, bgcolor: item.dg ? TINT.blue.bg : "#fff", cursor: canWrite ? "pointer" : "default" }}>
+                        <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: item.dg ? TINT.blue.fg : MUTED }}>Led by Digital Growth</Typography>
+                        <Switch size="small" checked={item.dg} disabled={!canWrite} onChange={(e) => save({ dg: e.target.checked })} />
+                      </Box>
+                    </Tooltip>
                   </Box>
                   <SubActions item={item} tile={tile} canWrite={canWrite} tickets={item.dg} people={people} onChanged={onChanged} />
                 </Box>

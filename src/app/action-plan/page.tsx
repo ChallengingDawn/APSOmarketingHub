@@ -372,7 +372,9 @@ function ActionPlan() {
           onClose={closeRow} onOpen={(i) => openRow(i)} onPatch={patch} onChanged={() => void load()} onAddUnder={setAddFor} onDelete={remove} onMoveTo={moveTo} />
       )}
       {addFor && (
-        <AddDialog key={addFor.id} parent={addFor} people={data?.people ?? []} choices={data?.choices ?? S2S_CHOICES} onClose={() => setAddFor(null)}
+        // the row as the plan has it now: its Digital Growth switched in the window shows at once
+        <AddDialog key={addFor.id} parent={items.find((i) => i.id === addFor.id) ?? addFor} people={data?.people ?? []} choices={data?.choices ?? S2S_CHOICES}
+          onPatch={patch} onClose={() => setAddFor(null)}
           onDone={(s) => {
             const at = addFor;
             setAddFor(null); setSaid(s); void load();

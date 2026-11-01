@@ -6,7 +6,9 @@
 // with Digital Growth its ticket's properties at once. Under a sub-category: an action with the Gantt's boxes - status,
 // priority, assigned to, planned and go-live - and its country (with Digital Growth also the channel and the agency).
 // Under a main category: an action or a sub-category; under the goal: a main category. Nothing is made until Create:
-// no row named "New action" left behind.
+// no row named "New action" left behind. A sub-action's window carries the action's "Led by Digital Growth": turned on
+// there, the ticket - new or linked - comes at once ("on sub creation we should be able to create a ticket too - the
+// Digital Growth toggle").
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
@@ -20,7 +22,7 @@ import Autocomplete from "@mui/material/Autocomplete";
 import CloseIcon from "@mui/icons-material/Close";
 
 import { FAINT, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { IDEA, PRIORITIES, STAGES, type Opt, type PlanItem, type PlanKind, type PlanOwner } from "@/lib/reporting/actionPlanRules";
+import { IDEA, PRIORITIES, STAGES, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner } from "@/lib/reporting/actionPlanRules";
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
 import { useTileActions } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { NewSub, planTile } from "./SubActions";
@@ -157,8 +159,10 @@ function RowUnder({ parent, people, choices, onDone }: { parent: PlanItem; peopl
   );
 }
 
-export function AddDialog({ parent, people, choices, onClose, onDone }: {
+export function AddDialog({ parent, people, choices, onPatch, onClose, onDone }: {
   parent: PlanItem; people: PlanOwner[]; choices: PlanData["choices"];
+  /** the action's Digital Growth, switched from here */
+  onPatch: (id: number, p: Partial<PlanFields>) => Promise<void>;
   onClose: () => void;
   /** made: the plan reads itself again and opens the parent */
   onDone: (said: string) => void;
@@ -173,11 +177,21 @@ export function AddDialog({ parent, people, choices, onClose, onDone }: {
             {sub ? "New sub-action of" : parent.kind === "goal" ? "New main category under" : `New in this ${NAME[parent.kind]}`}
           </Typography>
           <Typography sx={{ fontSize: "1.05rem", fontWeight: 750, color: INK, lineHeight: 1.3, mt: 0.25, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{parent.title}</Typography>
-          {sub && <Typography sx={{ fontSize: "0.78rem", color: parent.dg ? TINT.blue.fg : FAINT, mt: 0.25 }}>{parent.dg ? "Led by Digital Growth - the sub-action can carry its “From Scroll to Sale” ticket" : "A sales action - no ticket (Digital Growth is off on the action)"}</Typography>}
         </Box>
         <IconButton aria-label="Close" onClick={onClose} sx={{ bgcolor: "rgba(21,34,58,.05)" }}><CloseIcon /></IconButton>
       </Box>
-      <Box sx={{ overflowY: "auto", p: 2.5 }}>
+      <Box sx={{ overflowY: "auto", p: 2.5, display: "grid", gap: 1.5 }}>
+        {sub && (
+          <Box component="label" sx={{ display: "flex", alignItems: "center", gap: 1, p: 1.1, borderRadius: "8px", border: `1px solid ${parent.dg ? TINT.blue.fg : HAIRLINE}`, bgcolor: parent.dg ? TINT.blue.bg : "#fff", cursor: "pointer" }}>
+            <Box sx={{ flex: 1 }}>
+              <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: parent.dg ? TINT.blue.fg : INK }}>Led by Digital Growth</Typography>
+              <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
+                {parent.dg ? "The sub-action can carry its “From Scroll to Sale” ticket - a new one or one linked" : "Turn on for a “From Scroll to Sale” ticket - a sales action has no pipeline. It is the action's switch"}
+              </Typography>
+            </Box>
+            <Switch checked={parent.dg} onChange={(e) => void onPatch(parent.id, { dg: e.target.checked })} />
+          </Box>
+        )}
         {sub ? <SubUnder parent={parent} people={people} onDone={onDone} /> : <RowUnder parent={parent} people={people} choices={choices} onDone={onDone} />}
       </Box>
     </Dialog>

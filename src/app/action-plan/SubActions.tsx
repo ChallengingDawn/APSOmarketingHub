@@ -7,7 +7,9 @@
 // the action a sub-action can carry a "From Scroll to Sale" ticket - its stage, priority and dates go into the ticket,
 // the form asks for the rest of the ticket's properties at once ("at this level only the ticket creation information is
 // needed if Digital Growth is on") - and the action's own tickets are found open, closed or all and linked at the bottom.
-// The + beside an action's row opens the same form in a small window of its own (AddDialog.tsx).
+// The + beside an action's row opens the same form in a small window of its own (AddDialog.tsx). A sub-action has a
+// description ("description should be part of the sub-action creation") - the ticket's own description when it has one.
+// In the action's window the form starts as one line and opens when it is used, the sub-actions under it.
 
 import { useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -101,22 +103,25 @@ function SmallFields({ v, set, owners, canWrite }: { v: Small; set: (p: Partial<
 
 /** The ticket fields a sub-action fills: its name, owner, stage, priority, dates and note are the ticket's too - the
  *  ticket's form shows only the rest. */
-const OWN = ["hubspot_owner_id", "hs_pipeline_stage", "hs_ticket_priority", "mkt_planned_date", "mkt_golive_date", "mkt_next_steps"];
+const OWN = ["hubspot_owner_id", "hs_pipeline_stage", "hs_ticket_priority", "mkt_planned_date", "mkt_golive_date", "content"];
 const restOf = (form: TicketsAnswer["form"]): TicketsAnswer["form"] => ({ ...form, fields: form.fields.filter((f) => !OWN.includes(f.name)) });
-const ticketOwn = (v: Small, note: string): Record<string, string> => ({
+const ticketOwn = (v: Small, note: string, href?: string): Record<string, string> => ({
   subject: v.title.trim().slice(0, 200),
   ...(/^\d+$/.test(v.owner) ? { hubspot_owner_id: v.owner } : {}),
   ...(v.stage ? { hs_pipeline_stage: v.stage } : {}),
   ...(v.priority ? { hs_ticket_priority: v.priority } : {}),
   ...(v.start ? { mkt_planned_date: v.start } : {}),
   ...(v.due ? { mkt_golive_date: v.due } : {}),
-  ...(note.trim() ? { mkt_next_steps: note.trim() } : {}),
+  // its description, with the way back to the action as the plan's tickets carry it
+  ...(note.trim() ? { content: `${note.trim()}${href ? `\n\nOpen it: ${href}` : ""}` } : {}),
 });
 
 /* ── a new one ─────────────────────────────────────────────────────────── */
 
-export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, done }: {
+export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, compact = false, done }: {
   item: PlanItem; tile: TileInfo; t: TicketsAnswer | null; tErr: string | null; retry: () => Promise<void>; owners: Opt[]; tickets: boolean; focus: boolean;
+  /** one line until it is used (the action's window) */
+  compact?: boolean;
   done: () => Promise<void>;
 }) {
   const blank = (): Small => ({ title: "", stage: IDEA, priority: item.priority, owner: t?.me?.id ?? "", start: "", due: "" });
@@ -134,10 +139,12 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, don
   const [sent, setSent] = useState<string | null>(null);
   const [ai, setAi] = useState<{ open: boolean; text: string; busy: boolean; msg: string | null; err: string | null }>({ open: false, text: "", busy: false, msg: null, err: null });
   const set = (p: Partial<Small>) => setV((x) => ({ ...x, ...p }));
+  const [used, setUsed] = useState(!compact);
+  const open = used || !!v.title.trim() || ai.open;
   useEffect(() => { if (t?.me) setV((x) => (x.owner ? x : { ...x, owner: t.me!.id })); }, [t]);
   // the pipeline's prefill under what is typed, the sub-action's own fields over it
   useEffect(() => { if (t) setValues((x) => ({ ...t.prefill, ...nonEmpty(x) })); }, [t]);
-  useEffect(() => { setValues((x) => ({ ...x, ...ticketOwn(v, note) })); }, [v, note]);
+  useEffect(() => { setValues((x) => ({ ...x, ...ticketOwn(v, note, tile.href) })); }, [v, note, tile.href]);
   const missing = ticket === "new" && t ? t.form.fields.filter((f) => f.required && f.name !== "subject" && !String(values[f.name] ?? "").trim()).map((f) => f.label) : [];
   const ready = !!v.title.trim() && !busy && (ticket !== "new" || !missing.length) && (ticket !== "link" || pick.length > 0);
 
@@ -176,6 +183,7 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, don
       setSent(`“${v.title.trim()}” added${ticket === "new" ? ", with its ticket in HubSpot" : ticket === "link" ? ", with its linked tickets" : ""}${mailed ? ` · ${mailed} mail${mailed === 1 ? "" : "s"} sent` : ""}`);
       setV(blank()); setNote(""); setShared([]); setTicket(first); setPick([]); setValues(t?.prefill ?? {});
       setAi((a) => ({ ...a, open: false, text: "", msg: null }));
+      if (compact) setUsed(false);
       await done();
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
@@ -206,14 +214,14 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, don
           </Box>
         </Box>
       )}
-      <TextField size="small" label="Sub-action" placeholder="What will be done - written as an action" value={v.title} onChange={(e) => set({ title: e.target.value })}
-        autoFocus={focus} sx={field} slotProps={{ inputLabel: { shrink: true } }}
+      <TextField size="small" label="Sub-action" placeholder={open ? "What will be done - written as an action" : "+ Add a sub-action - what will be done"} value={v.title} onChange={(e) => set({ title: e.target.value })}
+        onFocus={() => setUsed(true)} autoFocus={focus} sx={field} slotProps={{ inputLabel: { shrink: true } }}
         onKeyDown={(e) => { if (e.key === "Enter" && ready) void add(); }} />
+      {open && (<>
+      <TextField size="small" label="Description" placeholder="What it is about, what done looks like" value={note} onChange={(e) => setNote(e.target.value)}
+        sx={field} multiline minRows={2} maxRows={8} slotProps={{ inputLabel: { shrink: true } }} />
       <SmallFields v={v} set={set} owners={owners} canWrite />
-      <Box sx={{ display: "grid", gap: 1.1, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
-        <People owners={owners} value={shared} onChange={setShared} />
-        <TextField size="small" label="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} sx={field} multiline maxRows={5} slotProps={{ inputLabel: { shrink: true } }} />
-      </Box>
+      <People owners={owners} value={shared} onChange={setShared} />
 
       {/* its Scroll to Sale ticket - only when Digital Growth leads the action */}
       {tickets && (
@@ -239,10 +247,13 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, don
         <Typography sx={{ flex: 1, fontSize: "0.82rem", color: missing.length ? RED : sent ? GREEN : FAINT, fontWeight: sent && !missing.length ? 600 : 400 }}>
           {missing.length ? `For the ticket, still to fill in: ${missing.join(", ")}` : sent ?? (shared.length ? `${shared.length} colleague${shared.length === 1 ? "" : "s"} will get a mail` : "")}
         </Typography>
+        {compact && <Button disabled={busy} onClick={() => { setUsed(false); set({ title: "" }); setNote(""); setAi((a) => ({ ...a, open: false })); }} sx={{ ...cta, color: MUTED }}>Cancel</Button>}
         <Button variant="contained" disableElevation disabled={!ready} onClick={() => void add()} sx={{ ...cta, fontSize: "0.9rem", px: 2 }}>
           {busy ? "Saving…" : ticket === "new" ? "Add it and its ticket" : ticket === "link" ? "Add it and link" : "Add the sub-action"}
         </Button>
       </Box>
+      </>)}
+      {!open && sent && <Typography sx={{ fontSize: "0.82rem", color: GREEN, fontWeight: 600 }}>{sent}</Typography>}
     </Box>
   );
 }
@@ -288,7 +299,7 @@ function SubLine({ k, tile, t, owners, canWrite, tickets, linked, open, onToggle
   };
   const startTicket = (mode: "new" | "link") => {
     setAdding(adding === mode ? null : mode);
-    if (t) setValues({ ...t.prefill, ...ticketOwn(v, note) });
+    if (t) setValues({ ...t.prefill, ...ticketOwn(v, note, tile.href) });
   };
   const missing = adding === "new" && t ? t.form.fields.filter((f) => f.required && !String(values[f.name] ?? "").trim()).map((f) => f.label) : [];
   const saveTicket = async () => {
@@ -331,7 +342,7 @@ function SubLine({ k, tile, t, owners, canWrite, tickets, linked, open, onToggle
           <SmallFields v={v} set={set} owners={owners} canWrite={canWrite} />
           <Box sx={{ display: "grid", gap: 1.1, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
             <People owners={owners} value={k.shared.map((p) => p.id)} onChange={(ids) => void patch({ shared: ids })} label="Shared with - the new ones get a mail" />
-            <TextField size="small" label="Note" value={note} disabled={!canWrite} onChange={(e) => setNote(e.target.value)} onBlur={() => { if (note !== k.note) void patch({ note }); }}
+            <TextField size="small" label="Description" value={note} disabled={!canWrite} onChange={(e) => setNote(e.target.value)} onBlur={() => { if (note !== k.note) void patch({ note }); }}
               sx={field} multiline maxRows={5} slotProps={{ inputLabel: { shrink: true } }} />
           </Box>
           {fromKpi && k.href && (
@@ -407,7 +418,7 @@ export function SubActions({ item, tile, canWrite, tickets, people, onChanged }:
 
   return (
     <Box sx={{ display: "grid", gap: 1.25 }}>
-      {canWrite && <NewSub item={item} tile={tile} t={t} tErr={tErr} retry={loadTickets} owners={owners} tickets={tickets} focus={false} done={reload} />}
+      {canWrite && <NewSub item={item} tile={tile} t={t} tErr={tErr} retry={loadTickets} owners={owners} tickets={tickets} focus={false} compact done={reload} />}
       {(err || (tErr && tickets)) && <Typography sx={{ fontSize: "0.86rem", color: RED }}>{err ?? `HubSpot could not be read: ${tErr}`}</Typography>}
       {!tasks ? (
         <Box sx={{ display: "flex", gap: 1, alignItems: "center", minHeight: 40 }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Reading its sub-actions…</Typography></Box>
