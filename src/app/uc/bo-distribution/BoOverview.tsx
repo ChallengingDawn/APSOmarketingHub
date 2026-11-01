@@ -46,8 +46,8 @@ import { StraysCard } from "./StraysCard";
 import { ChatCard } from "./ChatCard";
 
 /** The period's figures as the route gives them: the count, and the owners' names by id. */
-type Figures = PeriodFigures & { owners: Record<string, string> };
-const useFigures = (from: string, to: string) => {
+export type Figures = PeriodFigures & { owners: Record<string, string> };
+export const useFigures = (from: string, to: string) => {
   const url = `/api/uc/bo-distribution?detection=1&from=${from}&to=${to}`;
   return useHeld<Figures>(url, [url]).result;
 };
@@ -74,59 +74,6 @@ const loading = (r: ReturnType<typeof useFigures>, what: string) =>
   r === null ? <LoadingPanel label={`Counting the Back Office tickets ${what}…`} />
     : r.state !== "ok" ? <Typography sx={{ color: RED, fontSize: "0.86rem" }}>{r.state === "error" ? r.error : "not configured"}</Typography>
     : null;
-
-/** The hub took the routing over on this day; before it the workflow's routing is back-tracked from HubSpot. */
-const HUB_SINCE = "2026-10-19";
-
-/**
- * Since the hub took over every ticket should get an owner from it (SARCLA 01.11.2026, on the back-tracked 64%: "this KPI
- * can be right because we back-track, but otherwise it should be 100%"; then "we need everything"). Measured that day: 816 of 819
- * were given one, 773 within half an hour of entering New; of the 43 later, 28 were the five hours of 22.10.2026 the hub
- * could not reach HubSpot (1,108 "Authentication credentials not found" after the key change that followed the Railway
- * breach), the rest reassigned later by the hub or a workflow, two waits for someone available; the one ticket with no
- * owner at all was a chat request closed without one. No open Back Office ticket was without an owner.
- */
-function SinceHub({ f }: { f: Figures }) {
-  // SARCLA 01.11.2026, on "43 later; 3 had none": "why still this?" - each of them opens, and the day most came on is named
-  const [show, setShow] = useState<OwnerJ | null>(null);
-  const days = f.byDay.filter((x) => x.d >= HUB_SINCE);
-  if (!days.length) return null;
-  const n = days.reduce((a, x) => a + x.n, 0);
-  const s = (k: OwnerJ) => days.reduce((a, x) => a + (x.oj[k] ?? 0), 0);
-  const quick = s("kept") + s("moved"), later = s("later"), none = s("none");
-  const whole = f.now.from >= HUB_SINCE;
-  const from = whole ? f.now.from : HUB_SINCE;
-  const top = [...days].sort((a, b) => (b.oj.later ?? 0) - (a.oj.later ?? 0))[0];
-  const topLater = top?.oj.later ?? 0;
-  const link = (k: OwnerJ, text: string) => (
-    <Box component="button" type="button" onClick={() => setShow(show === k ? null : k)} sx={{ all: "unset", cursor: "pointer", color: "#2459d1", fontWeight: 700, textDecoration: "underline", textUnderlineOffset: "2px" }}>{text}</Box>
-  );
-  return (
-    <>
-      <Typography sx={{ fontSize: "0.86rem", color: INK, mt: -0.5 }}>
-        <b>{whole ? "In this period" : "Since the hub took over on 19.10.2026"}: {full(quick + later)} of {full(n)} tickets were given an owner ({share(quick + later, n)})</b>
-        {" "}- {full(quick)} within half an hour of entering New{later ? <>, {link("later", `${full(later)} later`)}</> : ""}
-        {topLater > 1 && topLater * 2 >= later ? ` (${full(topLater)} of them on ${rangeLabel(top.d, top.d)}${INCIDENT[top.d] ? `, ${INCIDENT[top.d]}` : ""})` : ""}
-        {none ? <>; {link("none", `${full(none)} had none from the routing`)}</> : ""}. A figure opens its tickets.
-        {!whole && " The tiles count the whole period, its months before the hand-over back-tracked from HubSpot."}
-      </Typography>
-      {show && (
-        <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-          <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title={`${OJ[show].label}: since ${rangeLabel(from, from)}`} note="A row shows the hub's reasons and the owner's story in HubSpot now"
-            right={<Button size="small" onClick={() => setShow(null)} startIcon={<CloseIcon sx={{ fontSize: 16 }} />} sx={{ textTransform: "none" }}>Close</Button>} />
-          <TicketList key={show} from={from} to={f.now.to} names={f.owners} fixed={{}} start={show} />
-        </GlassCard>
-      )}
-    </>
-  );
-}
-
-/** A share that never rounds a shortfall up to 100% (885 of 888 read "100%" - SARCLA 01.11.2026). */
-const share = (a: number, b: number) => (!b ? "—" : a === b ? "100%" : `${(Math.floor((a / b) * 1000) / 10).toFixed(1)}%`);
-/** Days the routing could not work, measured - named where their tickets are counted. */
-const INCIDENT: Record<string, string> = {
-  "2026-10-22": "when the hub could not reach HubSpot for five hours after the key change",
-};
 
 /**
  * The four counts, one unit - tickets: the period's, then what became of the owner each was given (they add up). The
@@ -213,7 +160,6 @@ function OverviewBody({ f, d, label, pick, setPick }: { f: Figures; d: Data; lab
     <>
       {!!f.missing.length && <Counting missing={f.missing} />}
       <OwnerTiles f={f} label={label} />
-      <SinceHub f={f} />
       <StraysCard d={d} />
       <ChatCard d={d} />
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
@@ -274,7 +220,7 @@ function Opened({ id }: { id: string }) {
 }
 
 /** The tickets of the period narrowed to a pick: newest first, the 300 newest of any number. */
-function TicketList({ from, to, names, fixed, start }: { from: string; to: string; names: Record<string, string>; fixed: Record<string, string>; start?: OwnerJ }) {
+export function TicketList({ from, to, names, fixed, start }: { from: string; to: string; names: Record<string, string>; fixed: Record<string, string>; start?: OwnerJ }) {
   const [oj, setOj] = useState<OwnerJ | "all">(start ?? "all");
   const [q, setQ] = useState(""), [asked, setAsked] = useState("");
   const [open, setOpen] = useState<string | null>(null);
@@ -300,7 +246,7 @@ function TicketList({ from, to, names, fixed, start }: { from: string; to: strin
       {r?.state === "ok" && r.data.total > rows.length && <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>The {full(rows.length)} newest of {full(r.data.total)} - a word of the subject or a shorter period narrows them.</Typography>}
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small">
-          <TableHead><TableRow>{["Created", "Ticket", "Topic", "Given to", "Owner today", "Rule"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableHead><TableRow>{["Created", "Ticket", "Topic", "Priority", "Given to", "Owner today", "Rule"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
           <TableBody>
             {slice.map((x) => (
               <Fragment key={x.id}>
@@ -311,6 +257,10 @@ function TicketList({ from, to, names, fixed, start }: { from: string; to: strin
                     {catName(x.t)}
                     {x.i !== x.t && <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>came as {catName(x.i)}</Typography>}
                   </TableCell>
+                  <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", whiteSpace: "nowrap", color: x.p ? INK : MUTED }}>
+                    {x.p || "none"}
+                    {x.pp && <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>set by a person</Typography>}
+                  </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{name(x.o)}</TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap", color: x.oj === "kept" ? MUTED : INK, fontWeight: x.oj === "moved" ? 700 : 400 }}>
                     {x.oj === "kept" ? "the same" : name(x.n)}
@@ -318,7 +268,7 @@ function TicketList({ from, to, names, fixed, start }: { from: string; to: strin
                   </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, ...clip(220) }}>{ruleName(x.r ?? "")}</TableCell>
                 </TableRow>
-                {open === x.id && <TableRow><TableCell colSpan={6} sx={{ ...bodyCell, bgcolor: "rgba(36,89,209,.04)" }}><Opened id={x.id} /></TableCell></TableRow>}
+                {open === x.id && <TableRow><TableCell colSpan={7} sx={{ ...bodyCell, bgcolor: "rgba(36,89,209,.04)" }}><Opened id={x.id} /></TableCell></TableRow>}
               </Fragment>
             ))}
           </TableBody>
@@ -338,7 +288,7 @@ export function BoTickets({ from, to, label }: { from: string; to: string; label
   const wait = loading(r, label);
   return (
     <>
-      {wait ?? (r?.state === "ok" && <>{!!r.data.missing.length && <Counting missing={r.data.missing} />}<OwnerTiles f={r.data} label={label} /><SinceHub f={r.data} /></>)}
+      {wait ?? (r?.state === "ok" && <>{!!r.data.missing.length && <Counting missing={r.data.missing} />}<OwnerTiles f={r.data} label={label} /></>)}
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<ManageSearchOutlinedIcon />} tint="blue" title="Check a ticket" note="Any ticket number: the routing's reasons, the hub and HubSpot side by side, now - nothing stored, nothing written" />
         <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>

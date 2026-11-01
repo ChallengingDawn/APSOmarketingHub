@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
         const j = sp.get("journey"), oj = sp.get("oj");
         const opt = (k: string) => (sp.has(k) ? sp.get(k)! : undefined);
         const pick: ListPick = {
-          intake: opt("intake"), today: opt("today"), given: opt("given"), rule: opt("rule"), q: opt("q")?.slice(0, 80),
+          intake: opt("intake"), today: opt("today"), given: opt("given"), rule: opt("rule"), q: opt("q")?.slice(0, 80), prio: opt("prio"), byPerson: sp.get("byPerson") === "1",
           journey: j && (JOURNEYS as string[]).includes(j) ? (j as Journey) : undefined,
           oj: oj && (OWNER_JS as string[]).includes(oj) ? (oj as OwnerJ) : undefined,
         };

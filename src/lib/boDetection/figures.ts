@@ -57,7 +57,11 @@ export type Fact = { cat: string; person: boolean; fromOthers: boolean; how: How
  */
 /** the rule of a ticket from before the hub took the routing over (19.10.2026) - the workflow recorded none per ticket */
 export const WORKFLOW_RULE = "wf";
-export type Owned = { given: string; now: string; oj: OwnerJ; rule: string; machine: boolean; sub: string | null; c2s: boolean };
+export type Owned = {
+  given: string; now: string; oj: OwnerJ; rule: string; machine: boolean; sub: string | null; c2s: boolean;
+  /** the priority it has today ("" = none) and whether a person set it (SARCLA 01.11.2026: "priority still really confusing, redo it") */
+  prio?: string; prioByPerson?: boolean;
+};
 
 /** One day's tickets (by the day they were created, Swiss time); topics = per category, how many by each How. */
 export type DayFig = {
@@ -70,6 +74,8 @@ export type DayFig = {
    *  none recorded); the machine tickets per topic today; the Delivery tickets per sub-category, and the C2S ones */
   own?: Record<string, Partial<Record<OwnerJ, number>>>; oj?: Partial<Record<OwnerJ, number>>; ic?: Record<string, number>;
   rule?: Record<string, number>; mt?: Record<string, number>; del?: Record<string, number>; c2s?: Record<string, number>;
+  /** since version 7: per priority today ("" = none); of them set by a person; per topic and priority */
+  pr?: Record<string, number>; prp?: Record<string, number>; tpr?: Record<string, Record<string, number>>;
 };
 
 /** A period's figures. */
@@ -158,6 +164,17 @@ export function givenOf(hist: Hist[], created?: string | null): string {
 export const isC2s = (c2sTicket: string | null | undefined, problemOrder: string | null | undefined, subject: string | null | undefined) =>
   String(c2sTicket ?? "").toLowerCase() === "true" || !!problemOrder || /\b(c2s|zuschnitt|cut[- ]to[- ]size|coupe sur mesure)\b/i.test(subject ?? "");
 
+/** Whether a person set the value a property has today: the last change to it that is not an echo, in the CRM, the inbox or
+ *  the help desk's own view. */
+export function byPersonNow(now: string | null | undefined, hist: Hist[]): boolean {
+  const cur = (now ?? "").trim();
+  if (!cur) return false;
+  const asc = [...hist].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  let last: Hist | undefined;
+  asc.forEach((h, i) => { if ((h.value ?? "").trim() === cur && !isEcho(h, asc[i - 1])) last = h; });
+  return !!last && (byPerson(last) || last.sourceType === "HELP_DESK");
+}
+
 /** kept / moved / later / none - see OwnerJ. Who set the owner it has today: the last change to it that is not an echo. */
 export function ownerJourneyOf(given: string, now: string | null | undefined, hist: Hist[]): OwnerJ {
   if (!given) return "none";
@@ -213,6 +230,11 @@ export function addFact(d: DayFig, f: Fact, o?: Owned): void {
       bump((d.del ??= {}), o.sub ?? "");
       if (o.c2s) bump((d.c2s ??= {}), o.sub ?? "");
     }
+    if (o.prio !== undefined) {
+      bump((d.pr ??= {}), o.prio);
+      if (o.prioByPerson) bump((d.prp ??= {}), o.prio);
+      bump(((d.tpr ??= {})[f.cat || "(empty)"] ??= {}), o.prio);
+    }
   }
   d.n++;
   if (isEmpty(f.cat)) d.empty++;
@@ -242,7 +264,8 @@ function addDay(w: DayFig, d: DayFig): void {
   addCounts(w.pairs, d.pairs);
   for (const [k, js] of Object.entries(d.own ?? {})) addCounts(((w.own ??= {})[k] ??= {}), js);
   if (d.oj) addCounts((w.oj ??= {}), d.oj);
-  for (const k of ["ic", "rule", "mt", "del", "c2s"] as const) if (d[k]) addCounts((w[k] ??= {}), d[k]);
+  for (const k of ["ic", "rule", "mt", "del", "c2s", "pr", "prp"] as const) if (d[k]) addCounts((w[k] ??= {}), d[k]);
+  for (const [c, ps] of Object.entries(d.tpr ?? {})) addCounts(((w.tpr ??= {})[c] ??= {}), ps);
 }
 
 /**
@@ -263,7 +286,7 @@ export function sumDays(days: Record<string, DayFig>, from: string, to: string):
 }
 
 /** A month of the period: its tickets per topic, per Journey, and per OwnerJ. */
-export type MonthFig = { ym: string; topics: Record<string, number>; j: Partial<Record<Journey, number>>; oj: Partial<Record<OwnerJ, number>> };
+export type MonthFig = { ym: string; topics: Record<string, number>; j: Partial<Record<Journey, number>>; oj: Partial<Record<OwnerJ, number>>; pr: Record<string, number> };
 
 /** The tickets of from..to per month (YYYY-MM): per topic, per Journey, per OwnerJ. */
 export function monthsOf(days: Record<string, DayFig>, from: string, to: string): MonthFig[] {
@@ -271,18 +294,19 @@ export function monthsOf(days: Record<string, DayFig>, from: string, to: string)
   for (const [k, d] of Object.entries(days)) {
     if (k < from || k > to) continue;
     const ym = k.slice(0, 7);
-    const m = by.get(ym) ?? { ym, topics: {}, j: {}, oj: {} };
+    const m = by.get(ym) ?? { ym, topics: {}, j: {}, oj: {}, pr: {} };
     for (const [c, hows] of Object.entries(d.topics)) m.topics[c] = (m.topics[c] ?? 0) + Object.values(hows).reduce((a, n) => a + (n ?? 0), 0);
     addCounts(m.j, d.j);
     addCounts(m.oj, d.oj);
+    addCounts(m.pr, d.pr);
     by.set(ym, m);
   }
   return [...by.values()].sort((a, b) => a.ym.localeCompare(b.ym));
 }
 
 /** The tickets of from..to day by day, per OwnerJ - for a period short enough to be drawn by the day. */
-export function ownerDays(days: Record<string, DayFig>, from: string, to: string): { d: string; n: number; oj: Partial<Record<OwnerJ, number>> }[] {
-  return Object.entries(days).filter(([k]) => k >= from && k <= to).sort((a, b) => a[0].localeCompare(b[0])).map(([d, x]) => ({ d, n: x.n, oj: { ...(x.oj ?? {}) } }));
+export function ownerDays(days: Record<string, DayFig>, from: string, to: string): { d: string; n: number; oj: Partial<Record<OwnerJ, number>>; pr: Record<string, number> }[] {
+  return Object.entries(days).filter(([k]) => k >= from && k <= to).sort((a, b) => a[0].localeCompare(b[0])).map(([d, x]) => ({ d, n: x.n, oj: { ...(x.oj ?? {}) }, pr: { ...(x.pr ?? {}) } }));
 }
 
 const DAY_MS = 86_400_000;

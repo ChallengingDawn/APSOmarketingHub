@@ -252,7 +252,7 @@ export default function BoDistribution() {
   else if (view === "sentiment") body = <SentimentPanel key="sentiment" days={days} from={win.from} to={win.to} label={periodLabel} />;
   else if (view === "people") body = <People d={bo} onSaved={reload} pipe="bo" />;
   else if (view === "settings") body = <SettingsTab key={all.settings.at ?? "s"} d={all} onChanged={reload} pipe="bo" />;
-  else if (view === "priority") body = <PriorityTab key={all.settings.at ?? "p"} d={all} onSaved={reload} />;
+  else if (view === "priority") body = <PriorityTab key={all.settings.at ?? "p"} d={all} onSaved={reload} from={win.from} to={win.to} label={periodLabel} />;
   // GQS: Tickets and Flow from the routing's rows (GqsTab.tsx), with every open task under the tickets; People = each
   // owner's figures, the GQS team, GQS's lists
   else if (view === "gqs-tickets") body = withStore((s) => <><GqsKpis key={view} view="gqs-tickets" store={s} from={win.from} to={win.to} /><OpenNow store={s} /></>);
