@@ -20,7 +20,7 @@ import { FAINT, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { StackedColumns } from "@/app/charts/StackedColumns";
 import { TrendChart, type TrendPoint } from "@/app/charts/TrendChart";
 import { DEEMPHASIS, SEQUENTIAL, SERIES } from "@/app/charts/palette";
-import { SPEEDS, T, labelOf, resolutionsOf, type TStats, type TicketsData } from "@/lib/reporting/ticketsRules";
+import { CONFS, NO_VALUE, SPEEDS, T, VSTEPS, labelOf, resolutionsOf, sum, type TStats, type TicketsData } from "@/lib/reporting/ticketsRules";
 
 const int = (n: number) => Math.round(n).toLocaleString("en");
 const pct = (x: number | null) => (x == null || !Number.isFinite(x) ? "—" : `${(x * 100).toFixed(1)}%`);
@@ -244,6 +244,162 @@ export function SpeedPanel({ s }: { s: TStats }) {
     </Box>
   );
 }
+
+/* ── the potential (SARCLA 01.11.2026: "a tab for the potential - the ticket value funnel on the pipeline with the
+      confidence score") ── */
+
+/** How sure a potential is: one blue, darker as it gets surer - as the Ticket value app's funnel. */
+export const CONF_COLORS = [SEQUENTIAL[6], SEQUENTIAL[4], SEQUENTIAL[2]] as const;
+export const eur = (n: number) => `${int(n)} EUR`;
+
+function ConfLegend({ none }: { none?: number }) {
+  return (
+    <Box sx={{ display: "flex", gap: 1.75, flexWrap: "wrap", alignItems: "center" }}>
+      {CONFS.map((c, i) => (
+        <Box key={c} sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
+          <Box sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: CONF_COLORS[i] }} />
+          <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{c} confidence</Typography>
+        </Box>
+      ))}
+      {!!none && <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{int(none)} ticket{none === 1 ? "" : "s"} without a value - the Ticket value app found nothing to value {none === 1 ? "it" : "them"} by</Typography>}
+    </Box>
+  );
+}
+/** A bar of potential, split by how sure it is - the share of each written in it where it fits. */
+function ConfBar({ parts, width, height = 40, label }: { parts: number[]; width: number; height?: number; label: string }) {
+  const all = sum(parts.slice(0, NO_VALUE));
+  return (
+    <Box role="img" aria-label={label} sx={{ width: `${width * 100}%`, minWidth: all > 0 ? 6 : 0, height, display: "flex", gap: "2px", borderRadius: "8px", overflow: "hidden", transition: "width .3s" }}>
+      {CONFS.map((c, i) => {
+        const sh = all ? parts[i] / all : 0;
+        return parts[i] > 0 && (
+          <Box key={c} title={`${c} confidence: ${eur(parts[i])} · ${pct(sh)}`} sx={{ flex: `${parts[i]} 0 0`, minWidth: 3, bgcolor: CONF_COLORS[i], display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {sh * width >= 0.12 && <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: i < 2 ? "#fff" : INK, whiteSpace: "nowrap" }}>{Math.round(sh * 100)}%</Typography>}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+/** The potential's funnel: what came in, what was closed with a resolution, what was won - each step's EUR by how sure it
+ *  is, centred as a funnel, and its share of what came in. */
+export function PotentialFunnel({ s }: { s: TStats }) {
+  const tot = s.pot.map((p) => sum(p));
+  if (!s.tickets) return null;
+  return (
+    <Box sx={{ display: "grid", gap: 1.25, containerType: "inline-size" }}>
+      {VSTEPS.map((step, i) => {
+        const n = sum(s.potN[i]), valued = n - s.potN[i][NO_VALUE];
+        return (
+          <Box key={step} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.5, "@container (min-width: 640px)": { gridTemplateColumns: "190px minmax(0, 1fr) 150px", alignItems: "center", gap: 1.5 } }}>
+            <Box>
+              <Typography sx={{ fontSize: "0.88rem", fontWeight: 650, color: INK }}>{step}</Typography>
+              <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{int(n)} tickets · {int(valued)} with a value</Typography>
+            </Box>
+            <Box sx={{ display: "grid", justifyItems: "center", gap: 0.4 }}>
+              <ConfBar parts={s.pot[i]} width={tot[0] ? tot[i] / tot[0] : 0} label={`${step}: ${eur(tot[i])}`} />
+            </Box>
+            <Box sx={{ textAlign: "right", "@container (max-width: 639px)": { textAlign: "left" } }}>
+              <Typography sx={{ fontSize: "1.02rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{eur(tot[i])}</Typography>
+              <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{i === 0 ? "of potential came in" : `${pct(tot[0] ? tot[i] / tot[0] : null)} of what came in`}</Typography>
+            </Box>
+          </Box>
+        );
+      })}
+      <ConfLegend none={s.potN[0][NO_VALUE]} />
+    </Box>
+  );
+}
+/** The potential still open: how much, how much of it medium or high, how much high (the Ticket value app's funnel) - then
+ *  the stage each open ticket stands in, the pipeline's stages in their order. */
+export function PotentialPipeline({ d, s }: { d: TicketsData; s: TStats }) {
+  const open = sum(s.potOpen), openN = sum(s.potOpenN);
+  if (!openN) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No ticket of this choice is still open.</Typography>;
+  const steps = [
+    { label: "All still open", value: open, n: openN },
+    { label: "Medium or high confidence", value: s.potOpen[0] + s.potOpen[1], n: s.potOpenN[0] + s.potOpenN[1] },
+    { label: "High confidence", value: s.potOpen[0], n: s.potOpenN[0] },
+  ];
+  const stages = Object.keys(s.potStageN).map(Number).sort((a, b) => (a < 0 ? 1e6 : a) - (b < 0 ? 1e6 : b));
+  const max = Math.max(1, ...stages.map((k) => sum(s.potStage[k].slice(0, NO_VALUE))));
+  return (
+    <Box sx={{ display: "grid", gap: 1.75, containerType: "inline-size" }}>
+      <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: "minmax(0, 1fr)", "@container (min-width: 520px)": { gridTemplateColumns: "repeat(3, minmax(0, 1fr))" } }}>
+        {steps.map((x, i) => (
+          <Box key={x.label} sx={{ border: `1px solid ${HAIRLINE}`, borderTop: `4px solid ${i === 0 ? SEQUENTIAL[1] : CONF_COLORS[2 - i]}`, borderRadius: "12px", bgcolor: "rgba(255,255,255,.75)", p: 1.5, display: "grid", gap: 0.35, minWidth: 0 }}>
+            <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: MUTED }}>{x.label}</Typography>
+            <Typography sx={{ fontSize: "1.35rem", fontWeight: 700, color: INK, lineHeight: 1.15, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{eur(x.value)}</Typography>
+            <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{int(x.n)} open tickets{i ? ` · ${pct(open ? x.value / open : null)} of the open potential` : ""}</Typography>
+          </Box>
+        ))}
+      </Box>
+      <Box sx={{ display: "grid", gap: 1 }}>
+        <Typography sx={{ fontSize: "0.78rem", fontWeight: 650, color: MUTED }}>Where it stands in the pipeline</Typography>
+        {stages.map((k) => {
+          const v = sum(s.potStage[k].slice(0, NO_VALUE)), n = sum(s.potStageN[k]);
+          const name = k < 0 ? "Unknown stage" : d.labels.stage?.[k] ?? "Unknown stage";
+          return (
+            <Box key={k} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 165px) minmax(0, 1fr) auto", alignItems: "center", gap: 1.25 }}>
+              <Box sx={{ minWidth: 0 }}>
+                {/* the whole stage name, on two lines when long ("Waiting internally - APSO") - never cut */}
+                <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, lineHeight: 1.25 }}>{name}</Typography>
+                <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{int(n)} open tickets</Typography>
+              </Box>
+              <ConfBar parts={s.potStage[k]} width={v / max} height={26} label={`${name}: ${eur(v)}`} />
+              <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{eur(v)}</Typography>
+            </Box>
+          );
+        })}
+      </Box>
+      <ConfLegend none={s.potOpenN[NO_VALUE]} />
+    </Box>
+  );
+}
+/** How sure the potential is, and what each sureness won: high, medium, low, no value - the potential, its share, the win
+ *  rate against all the tickets' (as how fast the first contact came). */
+export function ConfPanel({ s }: { s: TStats }) {
+  const all = s.resolved ? s.won / s.resolved : null;
+  const tot = sum(s.pot[0]);
+  if (!s.tickets) return null;
+  const tiles = [...CONFS.map((c, i) => ({ label: `${c} confidence`, color: CONF_COLORS[i] as string, i })), { label: "No value", color: DEEMPHASIS as string, i: NO_VALUE }];
+  return (
+    <Box sx={{ display: "grid", gap: 1.5, containerType: "inline-size" }}>
+      <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: "repeat(2, minmax(0, 1fr))", "@container (min-width: 760px)": { gridTemplateColumns: "repeat(4, minmax(0, 1fr))" } }}>
+        {tiles.map(({ label, color, i }) => {
+          const n = s.potN[0][i], rate = s.confResolved[i] ? s.confWon[i] / s.confResolved[i] : null;
+          return (
+            <Box key={label} title={`${label}: ${int(n)} tickets · ${eur(s.pot[0][i])} · win rate ${pct(rate)}, ${int(s.confWon[i])} won of ${int(s.confResolved[i])} closed with a resolution`}
+              sx={{ border: `1px solid ${HAIRLINE}`, borderTop: `4px solid ${color}`, borderRadius: "12px", bgcolor: "rgba(255,255,255,.75)", p: 1.5, display: "grid", gap: 0.35, alignContent: "start", minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: MUTED }}>{label}</Typography>
+              <Typography sx={{ fontSize: "1.35rem", fontWeight: 700, color: INK, lineHeight: 1.15, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{int(n)}</Typography>
+              <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{i === NO_VALUE ? `tickets · ${pct(s.tickets ? n / s.tickets : null)} of them` : `tickets · ${eur(s.pot[0][i])}, ${pct(tot ? s.pot[0][i] / tot : null)} of the potential`}</Typography>
+              <Box sx={{ mt: 0.75, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 1 }}>
+                <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Win rate</Typography>
+                <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{pct(rate)}</Typography>
+              </Box>
+              <Box sx={{ position: "relative", height: 8, borderRadius: 4, bgcolor: "rgba(21,34,58,.06)" }}>
+                <Box sx={{ height: "100%", width: `${(rate ?? 0) * 100}%`, bgcolor: STANDING.won.color, borderRadius: 4 }} />
+                {all != null && <Box sx={{ position: "absolute", top: -3, bottom: -3, left: `calc(${all * 100}% - 1px)`, width: 2, borderRadius: 1, bgcolor: INK }} />}
+              </Box>
+              <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{int(s.confWon[i])} won of {int(s.confResolved[i])} closed with a resolution</Typography>
+            </Box>
+          );
+        })}
+      </Box>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+        <Box sx={{ width: 2, height: 12, borderRadius: 1, bgcolor: INK }} />
+        <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>The win rate of all the tickets: {pct(all)}</Typography>
+      </Box>
+    </Box>
+  );
+}
+/** The graphs' tables: the funnel, the open pipeline by stage, the confidences. */
+export const potentialTables = {
+  funnel: (s: TStats) => VSTEPS.map((step, i) => [step, sum(s.potN[i]), eur(sum(s.pot[i])), ...CONFS.map((_, c) => eur(s.pot[i][c])), pct(sum(s.pot[0]) ? sum(s.pot[i]) / sum(s.pot[0]) : null)]),
+  pipeline: (d: TicketsData, s: TStats) => Object.keys(s.potStageN).map(Number).sort((a, b) => (a < 0 ? 1e6 : a) - (b < 0 ? 1e6 : b))
+    .map((k) => [k < 0 ? "Unknown stage" : d.labels.stage?.[k] ?? "Unknown stage", sum(s.potStageN[k]), eur(sum(s.potStage[k])), ...CONFS.map((_, c) => eur(s.potStage[k][c]))]),
+  conf: (s: TStats) => [...CONFS.map((c, i) => [c, i] as const), ["No value", NO_VALUE] as const].map(([c, i]) => [c, s.potN[0][i], eur(s.pot[0][i]), pct(s.tickets ? s.potN[0][i] / s.tickets : null), s.confWon[i], s.confResolved[i], pct(s.confResolved[i] ? s.confWon[i] / s.confResolved[i] : null)]),
+};
 
 /* ── the months ────────────────────────────────────────────────────────── */
 

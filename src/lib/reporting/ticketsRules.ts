@@ -5,7 +5,8 @@
 // one channel - "if they come per mail they come more often via the BO" -, "the breakdown by resolutions", "resolution
 // per owner and also the resolution texts", no meetings among what was logged; "Bought at AP should count as lost as
 // well", "GQS sales follow-up is not a system ticket, it's a sales ticket", "Other, typed in by hand should not exist -
-// give it the real reason"). Every ticket of the ESO pipeline as one small row, so the pages work out any period, team,
+// give it the real reason"; 01.11.2026: the potential back as a tab of its own - "the ticket value funnel on the pipeline
+// with the confidence score"). Every ticket of the ESO pipeline as one small row, so the pages work out any period, team,
 // person or filter themselves. No HubSpot or database here.
 //
 //   incoming  the customers' requests, as Hand-over to ESO/TSA sorts them (handoverCube.classify, SARCLA 19.10): a
@@ -34,7 +35,8 @@ export type TicketsData = {
   today: string;
   /** the ticket owners, by index - their team from the rosters, else their HubSpot team */
   people: { id: string; name: string; team: string }[];
-  labels: { channel: string[]; prio: string[]; category: string[]; country: string[]; resolution: string[] };
+  /** stage: the ESO pipeline's stages in its order (reads before 01.11.2026 have none) */
+  labels: { channel: string[]; prio: string[]; category: string[]; country: string[]; resolution: string[]; stage?: string[] };
   /** one row per ticket - see T */
   tickets: number[][];
   /** "More information about the ticket resolution" as the owner wrote it, this year's tickets: row index -> text */
@@ -47,8 +49,9 @@ export type TicketsData = {
  *  company's priority / category / country, what became of it (TOUTCOMES), the working hours to the first contact x10
  *  (-1: none), what that contact was (FIRST, -1: none), the e-mails sent, calls, meetings, notes and tasks on it, and
  *  the resolution as set (an index into labels.resolution; -1: none or still open), its company (an index into companyIds
- *  and companyNames; -1: none). */
-export const T = { person: 0, year: 1, month: 2, day: 3, group: 4, channel: 5, prio: 6, category: 7, country: 8, outcome: 9, firstH: 10, first: 11, emails: 12, calls: 13, meetings: 14, notes: 15, resolution: 16, company: 17 } as const;
+ *  and companyNames; -1: none), its potential - the Sales potential estimate in whole EUR (0: none) and how sure it is
+ *  (CONFS; -1: no value) - and the stage it stands in now (labels.stage). */
+export const T = { person: 0, year: 1, month: 2, day: 3, group: 4, channel: 5, prio: 6, category: 7, country: 8, outcome: 9, firstH: 10, first: 11, emails: 12, calls: 13, meetings: 14, notes: 15, resolution: 16, company: 17, value: 18, conf: 19, stage: 20 } as const;
 
 export const GROUPS = ["Incoming tickets", "System tickets"] as const;
 export type TGroup = "incoming" | "system";
@@ -140,6 +143,15 @@ export const EFFORT = ["Nothing logged", "1 activity", "2-3 activities", "4-6 ac
 export function effortOf(n: number): number {
   return n <= 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : n <= 6 ? 3 : 4;
 }
+
+/** How sure a ticket's potential is, as the Ticket value app sets it (sales_potential_confidence), the surest first (SARCLA
+ *  01.11.2026: "a tab for the potential - the ticket value funnel on the pipeline with the confidence score"). A ticket
+ *  valued 0, or without a confidence ("unqualified": no sales topic), has no value: NO_VALUE. */
+export const CONFS = ["High", "Medium", "Low"] as const;
+export const NO_VALUE = CONFS.length;
+export const confIndex = (v: string | null | undefined) => CONFS.findIndex((c) => c.toLowerCase() === (v ?? "").trim().toLowerCase());
+/** The potential's funnel, each step inside the one before: every ticket that came in, those closed with a resolution, the won. */
+export const VSTEPS = ["Came in", "Closed with a resolution", "Won"] as const;
 
 /** The first contact of a ticket: the earliest of the team's moves towards the customer after it came in. */
 export function firstContact(created: number, moves: { at: number | null; kind: number }[]): { at: number; kind: number } | null {
@@ -260,8 +272,20 @@ export type TStats = {
   /** per month of the period, from its first */
   months: number[]; monthsWon: number[]; monthsResolved: number[]; monthsInDay: number[]; monthsQuiet: number[]; monthsClosed: number[];
   monthsLost: number[]; monthsOther: number[]; monthsNores: number[]; monthsOpen: number[]; monthsHours: number[][];
+  /** the potential (EUR) at each step of its funnel (VSTEPS) by how sure it is (CONFS, then NO_VALUE) - and the tickets */
+  pot: number[][]; potN: number[][];
+  /** the potential still open by how sure it is - and the tickets; and by the stage it stands in (labels.stage, -1: unknown) */
+  potOpen: number[]; potOpenN: number[]; potStage: Record<number, number[]>; potStageN: Record<number, number[]>;
+  /** the won and the decided by how sure the potential is */
+  confWon: number[]; confResolved: number[];
 };
 const zeros = (n: number) => Array(n).fill(0) as number[];
+const CONF_SLOTS = NO_VALUE + 1;
+export const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+/** The potential of the tickets: all of them, the open, the won. */
+export const potOf = (s: Pick<TStats, "pot">) => sum(s.pot[0]);
+export const potOpenOf = (s: Pick<TStats, "potOpen">) => sum(s.potOpen);
+export const potWonOf = (s: Pick<TStats, "pot">) => sum(s.pot[VSTEPS.length - 1]);
 /** No tickets: every figure zero, n months. */
 export const blank = (n: number): TStats => ({
   tickets: 0, closed: 0, resolved: 0, won: 0, open: 0, outcomes: zeros(TOUTCOMES.length), res: {}, resGroup: {},
@@ -270,6 +294,8 @@ export const blank = (n: number): TStats => ({
   quiet: 0, emails: 0, calls: 0, meetings: 0, notes: 0, withEmails: 0, withCalls: 0, withMeetings: 0, withNotes: 0,
   months: zeros(n), monthsWon: zeros(n), monthsResolved: zeros(n), monthsInDay: zeros(n), monthsQuiet: zeros(n), monthsClosed: zeros(n),
   monthsLost: zeros(n), monthsOther: zeros(n), monthsNores: zeros(n), monthsOpen: zeros(n), monthsHours: Array.from({ length: n }, () => [] as number[]),
+  pot: VSTEPS.map(() => zeros(CONF_SLOTS)), potN: VSTEPS.map(() => zeros(CONF_SLOTS)),
+  potOpen: zeros(CONF_SLOTS), potOpenN: zeros(CONF_SLOTS), potStage: {}, potStageN: {}, confWon: zeros(CONF_SLOTS), confResolved: zeros(CONF_SLOTS),
 });
 
 /** The win rate: won of the tickets closed with a resolution; null with none closed. */
@@ -291,6 +317,13 @@ const logged = (r: number[]) => r[T.emails] + r[T.calls] + r[T.meetings] + r[T.n
 const active = (r: number[]) => r[T.first] >= 0 || logged(r) > 0;
 /** Closed without any activity: closed, and nothing logged on it at all. */
 export const quietRow = (r: number[]) => r[T.outcome] !== OPEN && !active(r);
+
+/** A ticket's potential: its EUR and how sure it is (CONFS index, or NO_VALUE). Valued 0 - 1,007 incoming tickets "low" at
+ *  0 EUR in 2026 - or without a confidence is no value; reads before 01.11.2026 carry none. */
+export function potentialOf(r: number[]): { ci: number; v: number } {
+  const ci = (r[T.value] ?? 0) > 0 && (r[T.conf] ?? -1) >= 0 ? r[T.conf] : NO_VALUE;
+  return { ci, v: ci === NO_VALUE ? 0 : r[T.value] };
+}
 
 /** The figures of a set of tickets, grouped by a label (all together under ""). */
 export function statsBy(rows: number[][], win: TWin, key: (r: number[]) => string = () => ""): Map<string, TStats> {
@@ -327,6 +360,16 @@ export function statsBy(rows: number[][], win: TWin, key: (r: number[]) => strin
       s.resolved++; s.monthsResolved[m]++; s.speedResolved[sp]++; s.effortResolved[ef]++;
       if (r[T.first] >= 0) s.firstResolved[r[T.first]]++;
       if (won) { s.won++; s.monthsWon[m]++; s.speedWon[sp]++; s.effortWon[ef]++; if (r[T.first] >= 0) s.firstWon[r[T.first]]++; }
+    }
+    // the potential: every ticket's, the decided's, the won's - and the open's by the stage it stands in
+    const { ci, v } = potentialOf(r);
+    s.pot[0][ci] += v; s.potN[0][ci]++;
+    if (decided) { s.pot[1][ci] += v; s.potN[1][ci]++; s.confResolved[ci]++; }
+    if (won) { s.pot[2][ci] += v; s.potN[2][ci]++; s.confWon[ci]++; }
+    if (!closed) {
+      const st = r[T.stage] ?? -1;
+      s.potOpen[ci] += v; s.potOpenN[ci]++;
+      (s.potStage[st] ??= zeros(CONF_SLOTS))[ci] += v; (s.potStageN[st] ??= zeros(CONF_SLOTS))[ci]++;
     }
     s.emails += r[T.emails]; s.calls += r[T.calls]; s.meetings += r[T.meetings]; s.notes += r[T.notes];
     if (r[T.emails]) s.withEmails++;
@@ -418,4 +461,4 @@ export function flowOf(d: TicketsData, rows: number[][]): TFlow {
 }
 
 /** The labels a read starts from, in the order the pages show them; the rest are added as they come. */
-export const startLabels = (): TicketsData["labels"] => ({ channel: [...CHANNEL_ORDER], prio: [...PRIO_BANDS], category: [], country: [], resolution: [] });
+export const startLabels = (stages: string[] = []): TicketsData["labels"] => ({ channel: [...CHANNEL_ORDER], prio: [...PRIO_BANDS], category: [], country: [], resolution: [], stage: [...stages] });

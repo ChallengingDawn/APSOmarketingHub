@@ -12,6 +12,8 @@
 // ("if hidden it should be directly displayed"); the graphs of that day are in ./TicketsCharts.tsx. Later that day: how
 // fast the first contact came drawn anew, the boards showing 25, the resolution texts in pages of 25 with a resolution
 // filter, "Bought at AP" lost, GQS with the incoming tickets, the typed-in tickets by their real reason (ticketsRules.ts).
+// 01.11.2026: the potential back, as a tab of its own ("another tab for the potential - the ticket value funnel on the
+// pipeline with the confidence score").
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -39,6 +41,7 @@ import PublicOutlinedIcon from "@mui/icons-material/PublicOutlined";
 import BadgeOutlinedIcon from "@mui/icons-material/BadgeOutlined";
 import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
+import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
 
 import { GUTTER } from "@/app/analytics/Shell";
 import { Badge, CardTitle, GlassCard, INK, MUTED, RED, TINT, type Tint } from "@/app/uc/report/ui";
@@ -56,8 +59,9 @@ import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import { PRIO_BANDS } from "@/lib/reporting/esoRules";
 import {
-  CHANNEL_ORDER, EFFORT, FIRST, PY_MIN, SPEEDS, T, blank, byDays, comparable, daysIn, flowOf, inDayOf, labelOf, median, outcomeGroup, quietOf, quietRow, rateOf, rowsOf,
-  sameWin, statsBy, winDays, winFrom, winParams, type TDim, type TFilters, type TFlowNode, type TGroup, type TStats, type TWin, type TicketsData,
+  CHANNEL_ORDER, EFFORT, FIRST, NO_VALUE, PY_MIN, SPEEDS, T, blank, byDays, comparable, daysIn, flowOf, inDayOf, labelOf, median, outcomeGroup, potOf, potOpenOf, potWonOf,
+  potentialOf, quietOf, quietRow, rateOf, rowsOf, sameWin, statsBy, sum, winDays, winFrom, winParams,
+  type TDim, type TFilters, type TFlowNode, type TGroup, type TStats, type TWin, type TicketsData,
 } from "@/lib/reporting/ticketsRules";
 import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 import type { Team } from "@/lib/mapAssign/leadsRules";
@@ -66,7 +70,9 @@ import {
   type BoardRow, type LeadKey, type TeamKey,
 } from "./Figures";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
-import { MonthOutcomes, MonthTrend, ResolutionBars, ResolutionPanels, ResolutionTexts, SpeedPanel } from "./TicketsCharts";
+import {
+  ConfPanel, MonthOutcomes, MonthTrend, PotentialFunnel, PotentialPipeline, ResolutionBars, ResolutionPanels, ResolutionTexts, SpeedPanel, eur, potentialTables,
+} from "./TicketsCharts";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -179,14 +185,14 @@ const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (
 
 /* ── what every chart is drawn with ────────────────────────────────────── */
 
-type TView = "paths" | "people" | "from" | "handling" | "outcomes" | "months" | "customers";
-const VIEW_IDS: TView[] = ["paths", "people", "from", "handling", "outcomes", "months", "customers"];
+type TView = "paths" | "people" | "from" | "handling" | "outcomes" | "potential" | "months" | "customers";
+const VIEW_IDS: TView[] = ["paths", "people", "from", "handling", "outcomes", "potential", "months", "customers"];
 const viewsOf = (g: TGroup): { id: TView; label: string }[] => [
   { id: "paths", label: "Paths" }, { id: "people", label: "People" }, { id: "from", label: GROUP[g].fromPlural }, { id: "handling", label: "Handling" },
-  { id: "outcomes", label: "Outcomes" }, { id: "months", label: "Months" }, { id: "customers", label: "Customers" },
+  { id: "outcomes", label: "Outcomes" }, { id: "potential", label: "Potential" }, { id: "months", label: "Months" }, { id: "customers", label: "Customers" },
 ];
 const isView = (x: string | null | undefined): x is TView => VIEW_IDS.includes(x as TView);
-const DIM_OF: Record<TView, TDim> = { paths: "channel", people: "person", from: "channel", handling: "person", outcomes: "channel", months: "channel", customers: "prio" };
+const DIM_OF: Record<TView, TDim> = { paths: "channel", people: "person", from: "channel", handling: "person", outcomes: "channel", potential: "person", months: "channel", customers: "prio" };
 type DimInfo = { name: string; lower: string; one: string; icon: React.ReactNode; tint: Tint };
 const dimOf = (g: TGroup, dim: TDim): DimInfo => ({
   person: { name: "Person", lower: "person", one: "a person", icon: <BadgeOutlinedIcon />, tint: "green" as Tint },
@@ -235,7 +241,10 @@ const targetFor = (c: TCtx, id: string) => { const t = c.targets?.[targetKey(c, 
 
 /* ── the leaderboards ──────────────────────────────────────────────────── */
 
-type Measure = "won" | "rate" | "tickets" | "inday" | "quiet" | "hours" | "calls" | "emails";
+type Measure = "won" | "rate" | "tickets" | "inday" | "quiet" | "hours" | "calls" | "emails" | "pot" | "pipe" | "wonpot";
+const signedEur = (n: number) => `${signed(n)} EUR`;
+/** The tickets with a value, of a set. */
+const valuedOf = (s: TStats) => sum(s.potN[0]) - s.potN[0][NO_VALUE];
 const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; unit: "n" | "pct" | "eur"; ratio?: boolean; lower?: boolean; diff?: (n: number) => string }> = {
   won: { title: "Tickets won", fmt: int, unit: "n", diff: signed },
   rate: { title: "Win rate", fmt: (n) => pct(n), unit: "pct", ratio: true },
@@ -245,7 +254,11 @@ const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; unit
   hours: { title: "Time to the first contact", fmt: (n) => whours(n), unit: "n", lower: true, diff: signedHours },
   calls: { title: "Tickets with a call", fmt: (n) => pct(n), unit: "pct", ratio: true },
   emails: { title: "E-mails sent per ticket", fmt: (n) => n.toFixed(1), unit: "n", diff: (n) => `${n > 0 ? "+" : n < 0 ? "−" : "±"}${Math.abs(n).toFixed(1)}` },
+  pot: { title: "Potential", fmt: eur, unit: "eur", diff: signedEur },
+  pipe: { title: "Potential still open", fmt: eur, unit: "eur", diff: signedEur },
+  wonpot: { title: "Potential won", fmt: eur, unit: "eur", diff: signedEur },
 };
+const MONEY: readonly Measure[] = ["pot", "pipe", "wonpot"];
 /** A measure's value of a set of tickets - everyone ranked, the counts under each name say how much it rests on. */
 function valueOf(m: Measure, s: TStats): number | null {
   if (m === "won") return s.won;
@@ -255,6 +268,9 @@ function valueOf(m: Measure, s: TStats): number | null {
   if (m === "inday") return inDayOf(s);
   if (m === "calls") return s.tickets ? s.withCalls / s.tickets : null;
   if (m === "emails") return s.tickets ? s.emails / s.tickets : null;
+  if (m === "pot") return potOf(s);
+  if (m === "pipe") return potOpenOf(s);
+  if (m === "wonpot") return potWonOf(s);
   return median(s.hours);
 }
 function subOf(m: Measure, s: TStats, t: TStats, dim: TDim): string {
@@ -265,6 +281,9 @@ function subOf(m: Measure, s: TStats, t: TStats, dim: TDim): string {
   if (m === "quiet") return `${pct(quietOf(s))} of the ${int(s.closed)} closed`;
   if (m === "calls") return `${int(s.withCalls)} of ${int(s.tickets)} tickets · ${int(s.calls)} calls`;
   if (m === "emails") return `${int(s.emails)} e-mails sent on ${int(s.tickets)} tickets`;
+  if (m === "pot") return `${int(valuedOf(s))} of ${int(s.tickets)} tickets with a value · ${eur(potOpenOf(s))} still open`;
+  if (m === "pipe") return `${int(sum(s.potOpenN) - s.potOpenN[NO_VALUE])} open tickets with a value · ${eur(s.potOpen[0])} high confidence`;
+  if (m === "wonpot") return `${int(s.won)} won · win rate ${pct(rateOf(s))} · ${pct(potOf(s) ? potWonOf(s) / potOf(s) : null)} of the potential`;
   return `the middle of ${int(s.hours.length)} first contacts · working hours, Mon-Fri 8-17`;
 }
 function boardRows(c: TCtx, dim: TDim, m: Measure): BoardRow[] {
@@ -274,7 +293,7 @@ function boardRows(c: TCtx, dim: TDim, m: Measure): BoardRow[] {
   const rows: BoardRow[] = [];
   for (const [label, s] of by) {
     const v = valueOf(m, s);
-    if (v == null || (!v && (m === "won" || m === "quiet"))) continue;
+    if (v == null || (!v && (m === "won" || m === "quiet" || MONEY.includes(m)))) continue;
     const p = pyBy?.get(label);
     rows.push({ label, cur: v, prev: p ? valueOf(m, p) ?? 0 : 0, sub: subOf(m, s, t, dim) });
   }
@@ -381,37 +400,43 @@ function drawnOf(id: string): Drawn | undefined {
   return d && { ...d, draw: (c, a) => <CompaniesFor source={companiesOf(c, id)}>{d.draw(c, a)}</CompaniesFor> };
 }
 /** The companies behind a chart: its tickets' companies, on the chart's period, team, people and filters, the most tickets
- *  first - a chart of the tickets closed without any activity lists the companies of those alone. */
+ *  first - a chart of the tickets closed without any activity lists the companies of those alone. On the Potential tab the
+ *  potential leads, the largest first; the open pipeline's charts list the open tickets' companies, "Potential won" the won's. */
 function companiesOf(c: TCtx, id: string): CompanySource | null {
   const ids = c.d.companyIds, names = c.d.companyNames;
   if (!ids || !names) return null;
-  const quiet = /:quiet/.test(id);
-  const rows = rowsOf(c.d, c.group, c.per.win, c.filters, c.people).filter((r) => !quiet || quietRow(r));
-  type Co = { n: number; won: number; decided: number; open: number; last: number; people: Set<number>; country: string };
+  const quiet = /:quiet/.test(id), money = id.startsWith("potential:");
+  const only = /^potential:pipe/.test(id) ? "open" : /^potential:wonpot/.test(id) ? "won" : null;
+  const rows = rowsOf(c.d, c.group, c.per.win, c.filters, c.people)
+    .filter((r) => (!quiet || quietRow(r)) && (!only || outcomeGroup(r[T.outcome]) === only));
+  type Co = { n: number; won: number; decided: number; open: number; last: number; pot: number; potOpen: number; potWon: number; people: Set<number>; country: string };
   const by = new Map<number, Co>();
   let none = 0;
   for (const r of rows) {
     const ci = r[T.company] ?? -1;
     if (ci < 0) { none++; continue; }
     let x = by.get(ci);
-    if (!x) { x = { n: 0, won: 0, decided: 0, open: 0, last: 0, people: new Set(), country: labelOf(c.d, r, "country") }; by.set(ci, x); }
-    const g = outcomeGroup(r[T.outcome]);
-    x.n++; x.people.add(r[T.person]); x.last = Math.max(x.last, r[T.month] * 32 + r[T.day]);
-    if (g === "open") x.open++;
+    if (!x) { x = { n: 0, won: 0, decided: 0, open: 0, last: 0, pot: 0, potOpen: 0, potWon: 0, people: new Set(), country: labelOf(c.d, r, "country") }; by.set(ci, x); }
+    const g = outcomeGroup(r[T.outcome]), { v } = potentialOf(r);
+    x.n++; x.people.add(r[T.person]); x.last = Math.max(x.last, r[T.month] * 32 + r[T.day]); x.pot += v;
+    if (g === "open") { x.open++; x.potOpen += v; }
     if (g === "won" || g === "lost" || g === "other") x.decided++;
-    if (g === "won") x.won++;
+    if (g === "won") { x.won++; x.potWon += v; }
   }
-  const list = [...by].sort((a, b) => b[1].n - a[1].n || b[1].last - a[1].last);
+  const list = [...by].sort(money ? (a, b) => b[1].pot - a[1].pot || b[1].n - a[1].n : (a, b) => b[1].n - a[1].n || b[1].last - a[1].last);
+  const whose = quiet ? "the tickets closed without any activity" : only === "open" ? "the tickets still open" : only === "won" ? "the tickets won" : "the tickets on this graph";
+  const lastOf = (x: Co) => `${x.last % 32} ${MONTHS[Math.floor(x.last / 32)]}`;
+  const owners = (x: Co) => [...x.people].map((p) => c.d.people[p]?.name ?? "").filter(Boolean).join(", ");
   return {
     key: `${GROUP[c.group].page}|${id}|${c.d.generatedAt}|${c.per.id}|${[...c.people].join(",")}|${JSON.stringify(c.filters)}`,
-    head: ["Tickets", "Won", "Win rate", "Still open", "Last ticket", "Owner", "Country"], left: [5, 6, 7],
-    note: `${perWords(c.d, c.per)} · the companies of ${quiet ? "the tickets closed without any activity" : "the tickets on this graph"}, the most tickets first${none ? ` · ${int(none)} ticket${none === 1 ? "" : "s"} without a company not on the list` : ""}`,
+    head: money ? ["Tickets", "Potential", "Still open", "Won", "Last ticket", "Owner", "Country"] : ["Tickets", "Won", "Win rate", "Still open", "Last ticket", "Owner", "Country"], left: [5, 6, 7],
+    note: `${perWords(c.d, c.per)} · the companies of ${whose}, ${money ? "the largest potential first · Still open and Won in EUR" : "the most tickets first"}${none ? ` · ${int(none)} ticket${none === 1 ? "" : "s"} without a company not on the list` : ""}`,
     rows: list.map(([ci, x]) => ({
       id: ids[ci] ?? null, name: names[ci] ?? `Company ${ci + 1}`,
-      cells: [int(x.n), int(x.won), pct(x.decided ? x.won / x.decided : null), int(x.open), `${x.last % 32} ${MONTHS[Math.floor(x.last / 32)]}`,
-        [...x.people].map((p) => c.d.people[p]?.name ?? "").filter(Boolean).join(", "), x.country],
+      cells: money ? [int(x.n), eur(x.pot), eur(x.potOpen), eur(x.potWon), lastOf(x), owners(x), x.country]
+        : [int(x.n), int(x.won), pct(x.decided ? x.won / x.decided : null), int(x.open), lastOf(x), owners(x), x.country],
       // what the columns sort by (22's sortable window, 01.11.2026): the figures, the last ticket by its day; no win rate = its "—", last
-      values: [x.n, x.won, x.decided ? x.won / x.decided : null, x.open, x.last, null, null],
+      values: money ? [x.n, x.pot, x.potOpen, x.potWon, x.last, null, null] : [x.n, x.won, x.decided ? x.won / x.decided : null, x.open, x.last, null, null],
     })),
   };
 }
@@ -465,6 +490,36 @@ function drawnBare(id: string): Drawn | undefined {
     const title = (c: TCtx) => `What was logged on the tickets, ${P(c)}${teamPart(c)}`;
     return { id, title, draw: (c, a) => <Bars c={c} title={title(c)} hint={`what the team logged on them · ${int(totalOf(c).quiet)} of the ${int(totalOf(c).closed)} closed had nothing at all`} rows={activityRows(totalOf(c))} actions={a} /> };
   }
+  if (v === "potential" && chart === "funnel") {
+    const title = (c: TCtx) => `The potential, from coming in to won, ${P(c)}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => (
+      <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each ticket's Sales potential estimate (EUR) as the Ticket value app sets it, by how sure it is · what came in, what was closed with a resolution, what was won · ${GROUP[c.group].won}`} actions={a}>
+        <ChartFrame table={{ columns: ["Step", "Tickets", "Potential", "High", "Medium", "Low", "Of what came in"], rows: potentialTables.funnel(totalOf(c)), numeric: [1, 2, 3, 4, 5, 6] }} empty={totalOf(c).tickets ? null : "No tickets for this choice."}>
+          <PotentialFunnel s={totalOf(c)} />
+        </ChartFrame>
+      </ChartBox>
+    ) };
+  }
+  if (v === "potential" && chart === "pipeline") {
+    const title = (c: TCtx) => `The open pipeline, by confidence and stage, ${P(c)}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => (
+      <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · the tickets of the period still open today: their potential, how much of it is medium or high and high confidence, and the stage each stands in now`} actions={a}>
+        <ChartFrame table={{ columns: ["Stage", "Open tickets", "Potential", "High", "Medium", "Low"], rows: potentialTables.pipeline(c.d, totalOf(c)), numeric: [1, 2, 3, 4, 5] }} empty={totalOf(c).tickets ? null : "No tickets for this choice."}>
+          <PotentialPipeline d={c.d} s={totalOf(c)} />
+        </ChartFrame>
+      </ChartBox>
+    ) };
+  }
+  if (v === "potential" && chart === "confidence") {
+    const title = (c: TCtx) => `How sure the potential is - and what each won, ${P(c)}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => (
+      <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · the tickets by the confidence of their potential - a ticket valued 0 has no value · the win rate of each, against all the tickets'`} actions={a}>
+        <ChartFrame table={{ columns: ["Confidence", "Tickets", "Potential", "Share of the tickets", "Won", "Closed with a resolution", "Win rate"], rows: potentialTables.conf(totalOf(c)), numeric: [1, 2, 3, 4, 5, 6] }} empty={totalOf(c).tickets ? null : "No tickets for this choice."}>
+          <ConfPanel s={totalOf(c)} />
+        </ChartFrame>
+      </ChartBox>
+    ) };
+  }
   if (v === "months" && chart === "outcomes") {
     const title = (c: TCtx) => `Tickets month by month, by what became of them${teamPart(c)}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · by the month the ticket came in · ${GROUP[c.group].won}`} actions={a}><MonthOutcomes s={totalOf(c)} labels={monthLabels(c, totalOf(c).months.length)} /></ChartBox> };
@@ -488,9 +543,9 @@ function chartOf(key: string): Drawn | undefined {
   const old: Record<string, string> = {
     // the benchmark page (until 29.10.2026)
     "reps:created": "people:tickets", "reps:ordered": "people:won", "speed:counts": "months:outcomes", "source:source": "from:won",
-    "resolution:resolution": "outcomes:resolutions", "open:count": "outcomes:resolutions", "open:potential": "outcomes:resolutions",
-    // the page of 29.10.2026, before the split
-    "people:ordered": "people:won", "people:value": "people:won", "people:months": "months:outcomes", "people:open": "outcomes:resolutions",
+    "resolution:resolution": "outcomes:resolutions", "open:count": "outcomes:resolutions", "open:potential": "potential:pipeline",
+    // the page of 29.10.2026, before the split - its potential back on the Potential tab (01.11.2026)
+    "people:ordered": "people:won", "people:value": "potential:pot-person", "people:months": "months:outcomes", "people:open": "outcomes:resolutions",
     // the pages of 30.10.2026, before the resolutions (31.10)
     "paths:split": "paths:resolutions", "outcomes:split": "outcomes:resolutions", "outcomes:lost": "outcomes:resolutions",
     "months:tickets": "months:outcomes", "months:won": "months:outcomes",
@@ -553,6 +608,15 @@ function TabCard({ c, act }: { c: TCtx; act: Act }) {
       <Box sx={{ mt: -1 }}>{draw(c, act, "outcomes:resolutions")}</Box>
       {draw(c, act, "outcomes:owners")}
       {draw(c, act, "outcomes:texts")}
+    </GlassCard>
+  );
+  if (c.view === "potential") return (
+    <GlassCard sx={card}>
+      {head(<PaidOutlinedIcon />, "green", `The potential of the ${G.title.toLowerCase()}, ${c.per.title}`, "each ticket's Sales potential estimate (EUR) and how sure it is - high, medium, low - as the Ticket value app sets it")}
+      <Box sx={{ mt: -1 }}>{draw(c, act, "potential:funnel")}</Box>
+      {two("potential:pipeline", "potential:confidence")}
+      {two("potential:pot-person", "potential:pipe-person")}
+      {two("potential:wonpot-person", "potential:pot-channel")}
     </GlassCard>
   );
   if (c.view === "months") return (

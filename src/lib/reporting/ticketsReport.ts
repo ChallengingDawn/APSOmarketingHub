@@ -12,19 +12,20 @@ import { UCS } from "@/lib/lifecycle/config";
 import { associations, batchRead, read, searchAll, ticketStages } from "@/lib/lifecycle/read";
 import { workingHours } from "@/lib/marketingKpis/handoverCube";
 import { prioBand, prioOf } from "./esoRules";
-import { firstContact, kindOf, outcomeIndex, startLabels, type TicketsData } from "./ticketsRules";
+import { confIndex, firstContact, kindOf, outcomeIndex, startLabels, type TicketsData } from "./ticketsRules";
 
 // v2: incoming and system tickets, the first contact and the activities, the outcome (30.10.2026)
 // v3: the resolution as set and its "more information" text; e-mail and the Back Office redirects as one channel (31.10.2026)
 // v4: "Bought at AP" lost, GQS with the incoming tickets as Sales', the typed-in tickets by their real reason, each
 // ticket's company (id and name) for the graphs' "Companies" lists (31.10.2026)
-const KEY = "esoTickets:v4";
+// v5: each ticket's potential (Sales potential estimate, its confidence) and the stage it stands in (01.11.2026)
+const KEY = "esoTickets:v5";
 const TTL_MS = 60 * 60 * 1000;
 const ESO_PIPELINE = "1726599376";
 const PROPS = [
   "subject", "createdate", "hs_pipeline_stage", "hubspot_owner_id", "source_type", "hs_object_source", "hs_object_source_detail_1",
   "hs_outbound_ticket", "hs_tag_ids", "ticket_resolution_eso", "first_agent_reply_date", "hs_primary_company_id",
-  "more_information_about_the_ticket_resolution_eso",
+  "more_information_about_the_ticket_resolution_eso", "sales_potential_estimate", "sales_potential_confidence",
 ];
 /** A resolution text is kept to this length - enough to read why, small enough for the read */
 const TEXT_MAX = 400;
@@ -135,7 +136,8 @@ export async function buildTickets(): Promise<TicketsData> {
 
   // 6. the rows
   const resLabel = await resolutionLabels();
-  const labels = startLabels();
+  // the ESO pipeline's stages in its own order - the open potential stands in one of them
+  const labels = startLabels([...stages.values()].filter((s) => s.pipeline === ESO_PIPELINE).map((s) => s.label));
   const texts: TicketsData["texts"] = {};
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const rows: number[][] = [];
@@ -150,7 +152,9 @@ export async function buildTickets(): Promise<TicketsData> {
       ...calls.map((c) => ({ at: when.get(`c${c}`) ?? null, kind: 2 })),
       ...meetings.map((m) => ({ at: when.get(`m${m}`) ?? null, kind: 3 })),
     ]);
-    const closed = !!stages.get(p.hs_pipeline_stage ?? "")?.closed;
+    const stage = stages.get(p.hs_pipeline_stage ?? "");
+    const closed = !!stage?.closed;
+    const pv = Number(p.sales_potential_estimate);
     const res = closed ? (p.ticket_resolution_eso ?? "").trim() : "";
     const text = (p.more_information_about_the_ticket_resolution_eso ?? "").replace(/\s+/g, " ").trim();
     if (text && d.getUTCFullYear() === year) texts[String(rows.length)] = text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX - 1)}…` : text;
@@ -162,6 +166,8 @@ export async function buildTickets(): Promise<TicketsData> {
       sent.length, calls.length, meetings.length, (on.notes.get(id) ?? []).length + (on.tasks.get(id) ?? []).length,
       res ? at(labels.resolution, resLabel(res)) : -1,
       companyOf(p.hs_primary_company_id),
+      Number.isFinite(pv) && pv > 0 ? Math.round(pv) : 0, confIndex(p.sales_potential_confidence),
+      at(labels.stage!, stage?.label ?? "Unknown"),
     ]);
   }
   return {
