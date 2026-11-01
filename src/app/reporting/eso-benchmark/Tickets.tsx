@@ -410,6 +410,8 @@ function companiesOf(c: TCtx, id: string): CompanySource | null {
       id: ids[ci] ?? null, name: names[ci] ?? `Company ${ci + 1}`,
       cells: [int(x.n), int(x.won), pct(x.decided ? x.won / x.decided : null), int(x.open), `${x.last % 32} ${MONTHS[Math.floor(x.last / 32)]}`,
         [...x.people].map((p) => c.d.people[p]?.name ?? "").filter(Boolean).join(", "), x.country],
+      // what the columns sort by (22's sortable window, 01.11.2026): the figures, the last ticket by its day; no win rate = its "—", last
+      values: [x.n, x.won, x.decided ? x.won / x.decided : null, x.open, x.last, null, null],
     })),
   };
 }
