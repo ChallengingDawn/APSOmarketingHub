@@ -38,7 +38,7 @@ export function useReportAccess(): { canOpen: (href: string) => boolean; ready: 
       return a.specific === null || a.level !== "none";
     },
     // a failed read leaves the reports' own guards to answer, as before
-    ready: !!viewed || open !== null || failed,
+    ready: !!viewed || levels !== null || failed,
   };
 }
 
