@@ -80,8 +80,11 @@ const HUB_SINCE = "2026-10-19";
 
 /**
  * Since the hub took over every ticket should get an owner from it (SARCLA 01.11.2026, on the back-tracked 64%: "this KPI
- * can be right because we back-track, but otherwise it should be 100%"). Measured that day: 816 of 819 were given one, 43 of them
- * after half an hour because nobody on the lists was available yet - the hub waits, by its rule.
+ * can be right because we back-track, but otherwise it should be 100%"; then "we need everything"). Measured that day: 816 of 819
+ * were given one, 773 within half an hour of entering New; of the 43 later, 28 were the five hours of 22.10.2026 the hub
+ * could not reach HubSpot (1,108 "Authentication credentials not found" after the key change that followed the Railway
+ * breach), the rest reassigned later by the hub or a workflow, two waits for someone available; the one ticket with no
+ * owner at all was a chat request closed without one. No open Back Office ticket was without an owner.
  */
 function SinceHub({ f }: { f: Figures }) {
   const days = f.byDay.filter((x) => x.d >= HUB_SINCE);
@@ -93,7 +96,7 @@ function SinceHub({ f }: { f: Figures }) {
   return (
     <Typography sx={{ fontSize: "0.86rem", color: INK, mt: -0.5 }}>
       <b>{whole ? "In this period" : `Since the hub took over on 19.10.2026`}: {full(quick + later)} of {full(n)} tickets were given an owner ({pct(quick + later, n)})</b>
-      {" "}- {full(quick)} within half an hour of entering New, {full(later)} later because nobody on the lists was available yet (the hub waits for someone){none ? `, ${full(none)} without one` : ""}.
+      {" "}- {full(quick)} within half an hour of entering New, {full(later)} later{none ? `; ${full(none)} had none from the routing` : ""}. Every ticket of the period and its owner is on Tickets.
       {!whole && " The tiles count the whole period, its months before the hand-over back-tracked from HubSpot."}
     </Typography>
   );
