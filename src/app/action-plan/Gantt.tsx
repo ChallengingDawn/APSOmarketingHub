@@ -2,10 +2,10 @@
 // THE GANTT (SARCLA 31.10.2026: "I need to create a Gantt here like I showed you in the photo" - Planner's
 // Gantt chart). Left, the tree: task name, planned date, go-live date, status, % complete, assigned to - in the
 // "From Scroll to Sale" ticket's terms since 01.11.2026 - dates and % typed in the cell, every column resized by
-// its edge, the columns after the name folded away by the name's button, a + beside the handle for what goes under
-// the row - a sub-action under an action, an action or a sub-category in a category (SARCLA 01.11.2026: "next to the
-// move icon a plus to create new main, sub or other categories"; then "the plus on the left should always mean a
-// sub-action"). Right,
+// its edge, the columns after the name folded away by the name's button. Beside the handle, on an action only, a + for
+// a new sub-action (SARCLA 01.11.2026: "the plus on the left should always mean a sub-action" - a + on a category
+// that made rows named "New action" was "really confusing"; actions and categories are added in the row's window),
+// and on every row an eye to hide it ("an eye-cut symbol to hide certain rows - this should also be a filter"). Right,
 // the time line in the main category's colour: a bracket over a topic or group from its first to its last
 // date, a bar for an action with a start and a due (its done part solid), a diamond for one with only a due,
 // a square per sub-action. Rows are dragged by their handle onto another topic or group; bars are dragged to
@@ -15,11 +15,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Tooltip from "@mui/material/Tooltip";
-import Menu from "@mui/material/Menu";
-import MenuItem from "@mui/material/MenuItem";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import AddIcon from "@mui/icons-material/Add";
+import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import TaskAltIcon from "@mui/icons-material/TaskAlt";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
@@ -27,7 +27,7 @@ import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrow
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 
 import { FAINT, HAIRLINE, INK, MUTED, TINT } from "@/app/uc/report/ui";
-import type { PlanItem, PlanKind, PlanSub, Rolled } from "@/lib/reporting/actionPlanRules";
+import type { PlanItem, PlanSub, Rolled } from "@/lib/reporting/actionPlanRules";
 import { KILLED, isClosed, isLate, priorityLabel, stageOf } from "@/lib/reporting/actionPlanRules";
 import { SUMMIT } from "@/lib/reporting/summitRules";
 import { LATE, PRIORITY_COLOR, SUB_COLOR, SUMMARY, dayOf, dmy, isoOf, stageColor } from "./planUi";
@@ -44,21 +44,11 @@ export type GRow =
 
 export type Where = "into" | "before";
 
-/** The columns: the handle and +, the name (sized to what is open), and - unless folded away - planned, go-live, status, %, who. */
-const HANDLE = 44;
+/** The columns: the handle, the + and the eye, the name (sized to what is open), and - unless folded away - planned, go-live, status, %, who. */
+const HANDLE = 66;
 const DETAIL = [92, 92, 136, 84, 124];
 const HEADS = ["", "Task name", "Planned", "Go-live", "Status", "% complete", "Assigned to"];
 
-/** What the + beside a row makes: always something UNDER it - a sub-action under an action (SARCLA 01.11.2026: "2 plus
- *  is confusing - the plus on the left should always mean a sub-action"), an action or a sub-category in a category. */
-export type AddWhat = { kind: Exclude<PlanKind, "goal"> | "sub"; label: string };
-export function addChoices(kind: PlanKind): AddWhat[] {
-  if (kind === "goal") return [{ kind: "topic", label: "New main category" }];
-  if (kind === "topic") return [{ kind: "action", label: "New action in it" }, { kind: "group", label: "New sub-category in it" }];
-  if (kind === "group") return [{ kind: "action", label: "New action in it" }];
-  return [{ kind: "sub", label: "New sub-action" }];
-}
-const ADD_TITLE: Record<PlanKind, string> = { goal: "Add a main category", topic: "Add an action or a sub-category in it", group: "Add an action in it", action: "Add a sub-action" };
 /** "#3b6fe0" at a given opacity, for the lighter bars of actions not done yet. */
 const alpha = (hex: string, a: number) => `${hex}${Math.round(a * 255).toString(16).padStart(2, "0")}`;
 /** A tag: square corners (SARCLA 01.11.2026: "tags not round, square"). */
@@ -96,7 +86,7 @@ function useNameWidth(rows: GRow[], rolled: Map<number, Rolled>, today: string):
   }, [rows, rolled, today]);
 }
 
-export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onPatch, canDrop, onDrop, height, colorOf, compact, onCompact, onAdd }: {
+export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onPatch, canDrop, onDrop, height, colorOf, compact, onCompact, onAddSub, hidden, onHide }: {
   rows: GRow[]; rolled: Map<number, Rolled>; today: string; zoom: Zoom; canWrite: boolean;
   collapsed: Set<string>; toggle: (key: string) => void; selected: number | null;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void;
@@ -109,8 +99,10 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   colorOf: (item: PlanItem) => string | null;
   /** planned, go-live, status, % and who folded away, the names alone */
   compact: boolean; onCompact: () => void;
-  /** the + beside a row */
-  onAdd: (row: PlanItem, kind: AddWhat["kind"]) => void;
+  /** the + beside an action's row: a new sub-action */
+  onAddSub: (row: PlanItem) => void;
+  /** the rows this viewer hid, drawn faded when they are shown again; the eye hides or shows one */
+  hidden: Set<number>; onHide: (row: PlanItem, hide: boolean) => void;
 }) {
   const left = useRef<HTMLDivElement>(null);
   const right = useRef<HTMLDivElement>(null);
@@ -131,8 +123,6 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   const nameW = nameManual ?? autoName;
   const leftW = HANDLE + nameW + (compact ? 0 : detailW.reduce((s, w) => s + w, 0)) + 2;
   const COLS = compact ? `${HANDLE}px ${nameW}px` : `${HANDLE}px ${nameW}px ${detailW.map((w) => `${w}px`).join(" ")}`;
-  // the + menu
-  const [addAt, setAddAt] = useState<{ el: HTMLElement; item: PlanItem } | null>(null);
   const GRID_MIN = leftW;
   /** Drag a column's right edge: 0 is the name, 1-5 planned, go-live, status, % and who. */
   const startColResize = (e: React.PointerEvent, col: number) => {
@@ -284,7 +274,8 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
             ))}
           </Box>
           {rows.map((r) => (
-            <TreeRow key={r.key} r={r} cols={COLS} compact={compact} onAddMenu={canWrite && r.type === "item" ? (el) => { const c = addChoices(r.item.kind); if (c.length === 1) onAdd(r.item, c[0].kind); else setAddAt({ el, item: r.item }); } : undefined} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
+            <TreeRow key={r.key} r={r} cols={COLS} compact={compact} onAddSub={canWrite && r.type === "item" && r.item.kind === "action" ? () => onAddSub(r.item) : undefined}
+              hidden={r.type === "item" && hidden.has(r.item.id)} onHide={r.type === "item" && r.item.kind !== "goal" ? (h) => onHide(r.item, h) : undefined} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
               selected={r.type === "item" && r.item.id === selected} onOpen={onOpen} onSubs={onSubs} onPatch={onPatch}
               dragging={drag?.key === r.key} over={over?.key === r.key ? over.where : null}
               draggable={canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group")))}
@@ -306,13 +297,6 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
           {!rows.length && <Typography sx={{ p: 3, color: MUTED, fontSize: "0.9rem" }}>Nothing matches these filters.</Typography>}
         </Box>
       </Box>
-      <Menu anchorEl={addAt?.el} open={!!addAt} onClose={() => setAddAt(null)} slotProps={{ paper: { sx: { borderRadius: "8px" } } }}>
-        {addAt && addChoices(addAt.item.kind).map((c) => (
-          <MenuItem key={c.label} dense onClick={() => { const it = addAt.item; setAddAt(null); onAdd(it, c.kind); }} sx={{ fontSize: "0.86rem", gap: 1 }}>
-            <AddIcon sx={{ fontSize: 16, color: MUTED }} />{c.label}
-          </MenuItem>
-        ))}
-      </Menu>
 
       {/* the line between the halves, dragged to give one more room */}
       <Box onPointerDown={startResize} role="separator" aria-orientation="vertical" aria-label="Resize the task list"
@@ -408,8 +392,8 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
 
 /* ── a row of the tree ─────────────────────────────────────────────────── */
 
-function TreeRow({ r, cols, compact, color, onAddMenu, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onPatch, dragging, over, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
-  r: GRow; cols: string; compact: boolean; color: string | null; onAddMenu?: (el: HTMLElement) => void;
+function TreeRow({ r, cols, compact, color, onAddSub, hidden, onHide, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onPatch, dragging, over, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
+  r: GRow; cols: string; compact: boolean; color: string | null; onAddSub?: () => void; hidden: boolean; onHide?: (hide: boolean) => void;
   rolled: Map<number, Rolled>; today: string; canWrite: boolean; folded: boolean; toggle: (key: string) => void; selected: boolean;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void;
   onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent">>) => Promise<void>;
@@ -426,24 +410,30 @@ function TreeRow({ r, cols, compact, color, onAddMenu, rolled, today, canWrite, 
   );
   const base = {
     display: "grid", gridTemplateColumns: cols, height: ROW, alignItems: "center", borderBottom: "1px solid rgba(21,34,58,.06)",
-    bgcolor: selected ? "rgba(36,89,209,.06)" : over === "into" ? TINT.blue.bg : "transparent", opacity: dragging ? 0.4 : 1,
+    bgcolor: selected ? "rgba(36,89,209,.06)" : over === "into" ? TINT.blue.bg : "transparent", opacity: dragging ? 0.4 : hidden ? 0.5 : 1,
     boxShadow: over === "before" ? `inset 0 2px 0 ${TINT.blue.fg}` : "none", position: "relative",
     "&:hover": { bgcolor: selected ? "rgba(36,89,209,.08)" : "rgba(21,34,58,.025)" }, "&:hover .add": { opacity: 1 },
   } as const;
-  // the handle to drag the row, and beside it the + for what goes under it
+  // the handle to drag the row, beside it the + for a new sub-action (actions only) and the eye that hides the row
+  const small = { width: 20, height: 20, p: 0, border: `1px solid ${HAIRLINE}`, borderRadius: "4px", bgcolor: "#fff", color: MUTED, display: "grid", placeItems: "center", cursor: "pointer", transition: "opacity .15s", "&:hover, &:focus-visible": { opacity: 1, color: TINT.blue.fg, borderColor: TINT.blue.fg } } as const;
   const handle = (
-    <Box sx={{ display: "grid", gridTemplateColumns: "22px 22px", height: "100%", alignItems: "center" }}>
+    <Box sx={{ display: "grid", gridTemplateColumns: "22px 22px 22px", height: "100%", alignItems: "center" }}>
       {draggable ? (
         <Box draggable onDragStart={(e: React.DragEvent) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", r.key); onDragStart(); }} onDragEnd={onDragEnd}
           title="Drag onto another main category or sub-category" sx={{ display: "grid", placeItems: "center", color: FAINT, cursor: "grab", height: "100%" }}>
           <DragIndicatorIcon sx={{ fontSize: 17 }} />
         </Box>
       ) : <Box />}
-      {onAddMenu && r.type === "item" ? (
-        <Box component="button" type="button" className="add" aria-label={ADD_TITLE[r.item.kind]} title={ADD_TITLE[r.item.kind]}
-          onClick={(e: React.MouseEvent<HTMLElement>) => { e.stopPropagation(); onAddMenu(e.currentTarget); }}
-          sx={{ width: 20, height: 20, p: 0, border: `1px solid ${HAIRLINE}`, borderRadius: "4px", bgcolor: "#fff", color: MUTED, display: "grid", placeItems: "center", cursor: "pointer", opacity: 0.45, transition: "opacity .15s", "&:hover, &:focus-visible": { opacity: 1, color: TINT.blue.fg, borderColor: TINT.blue.fg } }}>
+      {onAddSub ? (
+        <Box component="button" type="button" className="add" aria-label="Add a sub-action" title="Add a sub-action"
+          onClick={(e: React.MouseEvent) => { e.stopPropagation(); onAddSub(); }} sx={{ ...small, opacity: 0.45 }}>
           <AddIcon sx={{ fontSize: 15 }} />
+        </Box>
+      ) : <Box />}
+      {onHide ? (
+        <Box component="button" type="button" className="add" aria-label={hidden ? "Show this row again" : "Hide this row"} title={hidden ? "Show this row again" : "Hide this row - Hidden rows brings it back"}
+          onClick={(e: React.MouseEvent) => { e.stopPropagation(); onHide(!hidden); }} sx={{ ...small, opacity: hidden ? 1 : 0.45 }}>
+          {hidden ? <VisibilityOutlinedIcon sx={{ fontSize: 14 }} /> : <VisibilityOffOutlinedIcon sx={{ fontSize: 14 }} />}
         </Box>
       ) : <Box />}
     </Box>

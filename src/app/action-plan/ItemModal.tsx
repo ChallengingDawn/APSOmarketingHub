@@ -8,10 +8,12 @@
 // left; every change lands in the tracking on the right.
 // Two views, switched at the top like Map assignment's Live | Sandbox (SARCLA 01.11.2026: "KPI should be a toggle like
 // in map assignment - this KPI will be fed by the KPI actions later"): Overview and KPI. A main category or a
-// sub-category shows everything in it as bubbles to open ("list everything like an interactive bubble").
+// sub-category shows everything in it as square tiles to open ("list everything like an interactive bubble", then
+// "improve the design and UX - square tabs").
 // The window takes the whole screen but a margin ("modal way larger"); an action's sub-actions are made, described to
 // the AI and given their tickets in it, not in a second window over it ("sub-action creation still holds the old
-// modal"). "Led by Digital Growth" opens the ticket search, the marketing channel and the agency.
+// modal"), its form open from the start ("when I click [an action] I should see creating directly a sub-action").
+// "Led by Digital Growth" opens the ticket search, the marketing channel and the agency.
 
 import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -34,7 +36,7 @@ import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 
 import { FAINT, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { KILLED, PRIORITIES, STAGES, isClosed, isLate, stageOf, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
+import { KILLED, PRIORITIES, STAGES, isClosed, isLate, priorityLabel, stageOf, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
 import { LATE, PRIORITY_COLOR, SUMMARY, dmy, stageColor, todayIso, type PlanData } from "./planUi";
 import { PlanSubActions } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import type { TileInfo } from "@/app/reporting/marketing-kpis/tiles/TileActions";
@@ -49,6 +51,10 @@ const square = (on: boolean, fg: string, bg: string, can: boolean) => ({
   fontWeight: on ? 800 : 600, px: 1.1, py: 0.45, borderRadius: "4px", cursor: can ? "pointer" : "default", whiteSpace: "nowrap" as const,
 });
 const byOrder = (a: PlanItem, b: PlanItem) => a.sort - b.sort || a.id - b.id;
+/** A tag, square as the Gantt's. */
+const TAG = { flexShrink: 0, px: 0.6, borderRadius: "3px", fontSize: "0.66rem", fontWeight: 800, lineHeight: "17px" } as const;
+/** The tiles' grid: as many columns as the window holds. */
+const TILES = { display: "grid", gap: 1, gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))" } as const;
 
 /** A text field that saves when it is left, and follows the row when someone else changed it. */
 function Field({ label, value, onSave, canWrite, multiline = false, rows, placeholder, span = true }: {
@@ -209,60 +215,79 @@ function actionsUnder(id: number, items: PlanItem[]): PlanItem[] {
   return out;
 }
 
-/** A row as a bubble: its status colour, its name, its %, late or not - hover for the details, click to open it. */
-function Bubble({ row, r, items, color, onOpen, today }: { row: PlanItem; r: Rolled | undefined; items: PlanItem[]; color: string | null; onOpen: (i: PlanItem) => void; today: string }) {
+/**
+ * A row as a square tile (SARCLA 01.11.2026: "improve the design and UX - square tabs"): its status as the left edge and
+ * a tag, its priority, its name on up to two lines, go-live and who, its % as a bar; hover for the description, click to
+ * open it. A category's tile shows how many actions it holds.
+ */
+function Tile({ row, r, items, color, onOpen, today }: { row: PlanItem; r: Rolled | undefined; items: PlanItem[]; color: string | null; onOpen: (i: PlanItem) => void; today: string }) {
   const action = row.kind === "action";
   const c = stageColor(row.stage);
-  const late = action ? isLate(row, today) : r?.late ?? 0;
+  const late = action ? (isLate(row, today) ? 1 : 0) : r?.late ?? 0;
   const n = action ? 0 : actionsUnder(row.id, items).length;
-  const tip = (
-    <Box sx={{ display: "grid", gap: 0.25, p: 0.25 }}>
-      <Typography sx={{ fontSize: "0.82rem", fontWeight: 700 }}>{row.title}</Typography>
-      <Typography sx={{ fontSize: "0.76rem" }}>
-        {[action ? stageOf(row.stage)?.label ?? "No status" : `${KIND_LABEL[row.kind]} · ${n} action${n === 1 ? "" : "s"}`,
-          r?.percent != null ? `${r.percent} % complete` : "", late ? (action ? "late" : `${late} late`) : ""].filter(Boolean).join(" · ")}
-      </Typography>
-      {action && (row.owners.length > 0 || row.due) && (
-        <Typography sx={{ fontSize: "0.76rem" }}>{[row.owners.map((o) => o.name).join(", "), row.due ? `go-live ${dmy(row.due)}` : ""].filter(Boolean).join(" · ")}</Typography>
-      )}
-    </Box>
-  );
+  const pct = r?.percent ?? (action ? row.percent ?? 0 : 0);
+  const edge = action ? c.bar : color ?? SUMMARY;
+  const prio = action ? priorityLabel(row.priority) : "";
+  const meta = action ? [row.due ? `Go-live ${dmy(row.due)}` : "", row.owners.map((o) => o.name).join(", ")].filter(Boolean) : [`${n} action${n === 1 ? "" : "s"}`];
+  const tip = row.detail && row.detail !== row.title ? <Box sx={{ whiteSpace: "pre-wrap", fontSize: "0.8rem", maxHeight: 280, overflow: "hidden" }}>{row.detail}</Box> : row.title;
   return (
-    <Tooltip title={tip} arrow placement="top" enterDelay={250}>
+    <Tooltip title={tip} placement="top" enterDelay={600} disableInteractive>
       <Box component="button" type="button" onClick={() => onOpen(row)} aria-label={`Open ${row.title}`}
         sx={{
-          all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.75, maxWidth: "100%", boxSizing: "border-box",
-          px: action ? 1.25 : 1.5, py: action ? 0.55 : 0.75, borderRadius: 999, fontSize: action ? "0.84rem" : "0.88rem", fontWeight: action ? 600 : 800, color: INK,
-          bgcolor: action ? c.soft : "#fff", border: `1px solid ${action ? "transparent" : color ?? HAIRLINE}`,
-          transition: "transform .12s, box-shadow .12s", "&:hover": { transform: "translateY(-1px)", boxShadow: "0 4px 12px rgba(21,34,58,.14)" },
+          all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gridTemplateRows: "auto 1fr auto", gap: 0.75, minWidth: 0, minHeight: 96,
+          p: 1.25, pl: 1.5, bgcolor: "#fff", borderRadius: "4px", border: `1px solid ${HAIRLINE}`, borderLeft: `4px solid ${edge}`,
+          transition: "box-shadow .12s, border-color .12s", "&:hover": { boxShadow: "0 4px 14px rgba(21,34,58,.12)", borderColor: TINT.blue.fg, borderLeftColor: edge },
           "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: 2 },
         }}>
-        <Box sx={{ width: 9, height: 9, borderRadius: "50%", flexShrink: 0, bgcolor: action ? c.bar : color ?? SUMMARY }} />
-        <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 360, textDecoration: row.stage === KILLED ? "line-through" : "none" }}>{row.title}</Box>
-        {!action && <Box component="span" sx={{ fontSize: "0.74rem", fontWeight: 700, color: MUTED }}>{n}</Box>}
-        {r?.percent != null && <Box component="span" sx={{ fontSize: "0.74rem", fontWeight: 700, color: MUTED, fontVariantNumeric: "tabular-nums" }}>{r.percent}%</Box>}
-        {late ? <Box component="span" sx={{ fontSize: "0.7rem", fontWeight: 800, color: LATE }}>{action ? "late" : `${late} late`}</Box> : null}
+        <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
+          <Box sx={{ ...TAG, bgcolor: action ? c.soft : "#eef1f6", color: action ? c.ink : MUTED }}>{action ? stageOf(row.stage)?.label ?? "No status" : KIND_LABEL[row.kind]}</Box>
+          {prio && <Box sx={{ ...TAG, bgcolor: PRIORITY_COLOR[row.priority].bg, color: PRIORITY_COLOR[row.priority].fg }}>{prio}</Box>}
+          {late > 0 && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>{action ? "LATE" : `${late} LATE`}</Box>}
+        </Box>
+        <Typography sx={{ fontSize: "0.86rem", fontWeight: action ? 600 : 800, color: INK, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", textDecoration: row.stage === KILLED ? "line-through" : "none" }}>
+          {row.title}
+        </Typography>
+        <Box sx={{ display: "grid", gap: 0.5 }}>
+          <Box sx={{ display: "flex", gap: 1, alignItems: "baseline" }}>
+            <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: "0.74rem", color: FAINT }}>{meta.join(" · ")}</Typography>
+            <Typography sx={{ fontSize: "0.74rem", fontWeight: 800, color: MUTED, fontVariantNumeric: "tabular-nums" }}>{pct} %</Typography>
+          </Box>
+          <Box sx={{ height: 3, borderRadius: "1px", bgcolor: "#eef1f6", overflow: "hidden" }}>
+            <Box sx={{ height: "100%", width: `${Math.max(0, Math.min(100, pct))}%`, bgcolor: edge }} />
+          </Box>
+        </Box>
       </Box>
     </Tooltip>
   );
 }
 
 /**
- * Everything in a main category (or a sub-category, or the goal) as bubbles (SARCLA 01.11.2026: "on main categories you
- * should list everything like an interactive bubble"): its actions, its sub-categories with theirs, each in its colour.
+ * Everything in a main category (or a sub-category, or the goal) as square tiles (SARCLA 01.11.2026: "list everything like
+ * an interactive bubble", then "square tabs"): its sub-categories as headings in their colour - a click opens them - each
+ * with its actions under it, then the actions directly in it.
  */
 function Everything({ item, items, rolledAll, colorOf, onOpen }: { item: PlanItem; items: PlanItem[]; rolledAll: Map<number, Rolled>; colorOf: (i: PlanItem) => string | null; onOpen: (i: PlanItem) => void }) {
   const today = todayIso();
   const kids = (id: number) => items.filter((i) => i.parentId === id).sort(byOrder);
-  const bubble = (row: PlanItem) => <Bubble key={row.id} row={row} r={rolledAll.get(row.id)} items={items} color={colorOf(row)} onOpen={onOpen} today={today} />;
-  const wrap = (rows: PlanItem[]) => rows.length > 0 && <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>{rows.map(bubble)}</Box>;
-  // a category under it: its bubble, then what is in it, set off by its colour
+  const grid = (rows: PlanItem[]) => rows.length > 0 && (
+    <Box sx={TILES}>{rows.map((row) => <Tile key={row.id} row={row} r={rolledAll.get(row.id)} items={items} color={colorOf(row)} onOpen={onOpen} today={today} />)}</Box>
+  );
   const cluster = (row: PlanItem, depth: number): React.ReactNode => {
     const inside = kids(row.id);
+    const r = rolledAll.get(row.id);
+    const n = actionsUnder(row.id, items).length;
     return (
-      <Box key={row.id} sx={{ display: "grid", gap: 1, pl: 1.5, borderLeft: `3px solid ${colorOf(row) ?? HAIRLINE}` }}>
-        <Box>{bubble(row)}</Box>
-        {wrap(inside.filter((i) => i.kind === "action"))}
+      <Box key={row.id} sx={{ display: "grid", gap: 1, pl: depth > 1 ? 2 : 0 }}>
+        <Box component="button" type="button" onClick={() => onOpen(row)} aria-label={`Open ${row.title}`}
+          sx={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", pb: 0.5, borderBottom: `1px solid ${HAIRLINE}`, "&:hover .t": { color: TINT.blue.fg }, "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: 2 } }}>
+          <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: colorOf(row) ?? SUMMARY, flexShrink: 0 }} />
+          <Typography className="t" sx={{ fontSize: "0.9rem", fontWeight: 800, color: INK }}>{row.title}</Typography>
+          <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
+            {n} action{n === 1 ? "" : "s"}{r?.percent != null ? ` · ${r.percent} %` : ""}
+          </Typography>
+          {(r?.late ?? 0) > 0 && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>{r!.late} LATE</Box>}
+        </Box>
+        {grid(inside.filter((i) => i.kind === "action"))}
         {depth < 2 && inside.filter((i) => i.kind !== "action").map((g) => cluster(g, depth + 1))}
         {!inside.length && <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>Nothing in it yet.</Typography>}
       </Box>
@@ -273,17 +298,17 @@ function Everything({ item, items, rolledAll, colorOf, onOpen }: { item: PlanIte
   const cats = inside.filter((i) => i.kind !== "action");
   const all = actionsUnder(item.id, items).length;
   return (
-    <Box sx={card}>
+    <Box sx={{ ...card, gap: 2 }}>
       <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
         <Typography sx={{ ...section, flex: 1 }}>Everything in it · {all} action{all === 1 ? "" : "s"}{cats.length ? ` in ${cats.length} ${item.kind === "goal" ? "main categor" : "sub-categor"}${cats.length === 1 ? "y" : "ies"}` : ""}</Typography>
-        <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>Colour = status · click one to open it</Typography>
+        <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>Left edge = status · click one to open it</Typography>
       </Box>
-      {!inside.length && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Nothing in it yet - the + beside its row or “Add under it” adds the first one.</Typography>}
+      {!inside.length && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Nothing in it yet - “Add under it” adds the first one.</Typography>}
       {cats.map((g) => cluster(g, 1))}
       {direct.length > 0 && (
         <Box sx={{ display: "grid", gap: 1 }}>
-          {cats.length > 0 && <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontWeight: 600 }}>Directly in this {KIND_LABEL[item.kind].toLowerCase()}</Typography>}
-          {wrap(direct)}
+          {cats.length > 0 && <Typography sx={{ fontSize: "0.82rem", color: MUTED, fontWeight: 700 }}>Directly in this {KIND_LABEL[item.kind].toLowerCase()}</Typography>}
+          {grid(direct)}
         </Box>
       )}
     </Box>
@@ -377,8 +402,8 @@ function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen
           <Box sx={card}>
             <Typography sx={section}>Late · {late.length}</Typography>
             {!late.length && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Nothing in it is past its go-live date.</Typography>}
-            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
-              {late.map((i) => <Bubble key={i.id} row={i} r={rolledAll.get(i.id)} items={items} color={colorOf(i)} onOpen={onOpen} today={today} />)}
+            <Box sx={TILES}>
+              {late.map((i) => <Tile key={i.id} row={i} r={rolledAll.get(i.id)} items={items} color={colorOf(i)} onOpen={onOpen} today={today} />)}
             </Box>
           </Box>
         </>
@@ -393,7 +418,7 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
   colorOf: (i: PlanItem) => string | null;
   /** opened from the + beside an action's row: its new sub-action's form open */
   start: "sub" | null;
-  /** another row, opened from a bubble */
+  /** another row, opened from a tile */
   onOpen: (item: PlanItem) => void;
   onPatch: (id: number, p: Partial<PlanFields>) => Promise<void>;
   /** a sub-action or a ticket changed: the plan reads its counts again */
@@ -551,7 +576,6 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
 
               {action ? (
                 <Box sx={{ ...card, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
-                  <Typography sx={{ ...section, gridColumn: "1 / -1" }}>As on the Scroll to Sale ticket</Typography>
                   {/* the channel and the agency are marketing's: only when Digital Growth leads it (kept, not shown, otherwise) */}
                   {item.dg && <Choices label="Marketing channel" options={choices.channel} value={item.channel} canWrite={canWrite} onSave={(v) => save({ channel: v })} />}
                   <Choices label="Implementation country" options={choices.country} value={item.country} canWrite={canWrite} onSave={(v) => save({ country: v })} />

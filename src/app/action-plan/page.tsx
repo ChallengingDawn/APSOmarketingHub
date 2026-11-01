@@ -19,12 +19,13 @@ import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import CircularProgress from "@mui/material/CircularProgress";
 import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore";
 import UnfoldLessIcon from "@mui/icons-material/UnfoldLess";
+import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
 
 import { HomeBar } from "@/app/HomeBar";
 import { FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { KILLED, PRIORITIES, S2S_CHOICES, STAGES, isClosed, isLate, reorder, rollup, type PlanFields, type PlanItem, type PlanKind } from "@/lib/reporting/actionPlanRules";
-import { Gantt, type AddWhat, type GRow, type Where, type Zoom } from "./Gantt";
-import { ItemModal, KIND_LABEL } from "./ItemModal";
+import { Gantt, type GRow, type Where, type Zoom } from "./Gantt";
+import { ItemModal } from "./ItemModal";
 import { SummitFigures, SummitMountain, useSummit } from "./Summit";
 import { LATE, PRIORITY_COLOR, PROJECT_COLORS, readPref, send, stageColor, todayIso, writePref, type PlanData } from "./planUi";
 
@@ -56,6 +57,16 @@ function ActionPlan() {
   const savedFold = useRef(readPref<string[] | null>("collapsed.v2", null));
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(savedFold.current ?? []));
   const [compact, setCompact] = useState(() => readPref<boolean>("compact", false));
+  // the rows this viewer hid with the eye beside the +, and whether "Hidden rows" shows them again, faded (SARCLA
+  // 01.11.2026: "an eye-cut symbol to allow the user to hide certain rows - this should also be a filter then")
+  const [hidden, setHidden] = useState<Set<number>>(() => new Set(readPref<number[]>("hidden.v1", [])));
+  const [showHidden, setShowHidden] = useState(false);
+  const hide = (i: PlanItem, h: boolean) => setHidden((x) => {
+    const n = new Set(x);
+    if (h) n.add(i.id); else n.delete(i.id);
+    writePref("hidden.v1", [...n]);
+    return n;
+  });
   const toggle = (key: string) => setCollapsed((c) => {
     const n = new Set(c);
     if (n.has(key)) n.delete(key); else n.add(key);
@@ -141,7 +152,7 @@ function ActionPlan() {
     const visible = (i: PlanItem): boolean => {
       if (shown.has(i.id)) return shown.get(i.id)!;
       shown.set(i.id, false);
-      const v = !filtering ? true : i.kind === "action" ? passes(i) : (kids.get(i.id) ?? []).some(visible);
+      const v = hidden.has(i.id) && !showHidden ? false : !filtering ? true : i.kind === "action" ? passes(i) : (kids.get(i.id) ?? []).some(visible);
       shown.set(i.id, v);
       return v;
     };
@@ -156,9 +167,10 @@ function ActionPlan() {
     };
     for (const root of (kids.get(null) ?? []).filter(visible)) walk(root, 0);
     return out;
-  }, [items, subs, collapsed, filtering, passes]);
+  }, [items, subs, collapsed, filtering, passes, hidden, showHidden]);
 
   const actions = items.filter((i) => i.kind === "action");
+  const hiddenN = items.filter((i) => hidden.has(i.id)).length;
   const counts = {
     all: actions.length,
     done: actions.filter((i) => isClosed(i.stage) && i.stage !== KILLED).length,
@@ -233,12 +245,6 @@ function ActionPlan() {
     const under = items.filter((x) => x.parentId === i.id).length;
     if (!confirm(under ? `Remove "${i.title}" and the ${under} row${under === 1 ? "" : "s"} under it?` : `Remove "${i.title}"?`)) return;
     try { await send(`/api/action-plan?id=${i.id}`, "DELETE"); closeRow(); await load(); } catch (e) { setNote(`Not removed: ${(e as Error).message}`); }
-  };
-  // the + beside a row: what goes under it - an action's new sub-action in its window, else a new row in it, named
-  // for now and opened to be named properly
-  const addAt = async (row: PlanItem, kind: AddWhat["kind"]) => {
-    if (kind === "sub") { openRow(row, "sub"); return; }
-    await add(row, kind, `New ${KIND_LABEL[kind].toLowerCase()}`);
   };
   const moveTo = async (i: PlanItem, parentId: number) => {
     try {
@@ -337,6 +343,13 @@ function ActionPlan() {
         <Box sx={{ width: 8 }} />
         <Box component="button" type="button" aria-pressed={lateOnly} onClick={() => setLateOnly((v) => !v)} sx={chip(lateOnly, LATE, "#fde7e7")}>Late</Box>
         <Box component="button" type="button" aria-pressed={dgOnly} onClick={() => setDgOnly((v) => !v)} sx={chip(dgOnly)}>Digital Growth</Box>
+        {hiddenN > 0 && (
+          <Box component="button" type="button" aria-pressed={showHidden} onClick={() => setShowHidden((v) => !v)} title={showHidden ? "Hide them again" : "Show the rows you hid, faded - the eye on one shows it for good"}
+            sx={{ ...chip(showHidden, MUTED, "#eef1f6"), display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+            <VisibilityOffOutlinedIcon sx={{ fontSize: 15 }} />Hidden rows · {hiddenN}
+          </Box>
+        )}
+        {showHidden && hiddenN > 0 && <Button size="small" onClick={() => { setHidden(new Set()); writePref("hidden.v1", []); setShowHidden(false); }} sx={{ textTransform: "none", fontWeight: 650 }}>Show them all again</Button>}
         {filtering && <Button size="small" onClick={() => { setQ(""); setPrios([]); setStages([]); setDgOnly(false); setLateOnly(false); setOwner(""); }} sx={{ textTransform: "none", fontWeight: 650 }}>Clear</Button>}
       </Box>
 
@@ -350,15 +363,15 @@ function ActionPlan() {
         <Gantt rows={rows} rolled={rolled} today={today} zoom={zoom} canWrite={data.canWrite} collapsed={collapsed} toggle={toggle}
           selected={openId} onOpen={(i) => openRow(i)} onSubs={(i) => openRow(i)} onPatch={patch} canDrop={canDrop} onDrop={onDrop}
           height="max(480px, calc(100vh - 150px))" colorOf={colorOf}
-          compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} onAdd={(row, kind) => void addAt(row, kind)} />
+          compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} onAddSub={(row) => openRow(row, "sub")} hidden={hidden} onHide={hide} />
       )}
       <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
-        Drag a row by its handle onto another main category or sub-category; the + beside a row adds under it - a sub-action under an action, an action or a sub-category in a category; drag a bar to move its dates, its right end to change the go-live date.
+        Drag a row by its handle onto another main category or sub-category; the + beside an action adds a sub-action, the eye hides a row (Hidden rows shows them again); a row's window adds actions and categories under it; drag a bar to move its dates, its right end to change the go-live date.
         A bar runs from the planned date to the go-live date, a diamond is an action with only a go-live date, a square a sub-action. The statuses and priorities are the &ldquo;From Scroll to Sale&rdquo; pipeline&apos;s.
       </Typography>
 
       {opened && (
-        // keyed by the row: a bubble opens another row with its own view and fields
+        // keyed by the row: a tile opens another row with its own view and fields
         <ItemModal key={opened.id} item={opened} items={items} rolledAll={rolled} subs={subs.filter((s) => s.item === opened.id)} canWrite={!!data?.canWrite}
           people={data?.people ?? []} peopleError={data?.peopleError ?? null} choices={data?.choices ?? S2S_CHOICES} colorOf={colorOf} start={openStart}
           onClose={closeRow} onOpen={(i) => openRow(i)} onPatch={patch} onChanged={() => void load()} onAdd={add} onDelete={remove} onMoveTo={moveTo} />

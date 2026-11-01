@@ -31,7 +31,6 @@ import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
-import AddIcon from "@mui/icons-material/Add";
 import SearchIcon from "@mui/icons-material/Search";
 
 import { Badge, FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
@@ -307,7 +306,8 @@ export function ActionsPanel({ tile, open, onClose, placed, format, formats, onM
 
 /**
  * The same tasks, tickets and "Create with AI" as the window above, drawn inside the action's window instead of over it
- * (SARCLA 01.11.2026: "sub-action creation still holds the old modal"; "where is the AI"). When Digital Growth leads the
+ * (SARCLA 01.11.2026: "sub-action creation still holds the old modal"; "where is the AI"), the new one's form open from
+ * the start ("when I click [an action] I should see creating directly a sub-action"). When Digital Growth leads the
  * action its Scroll to Sale tickets are here too, found open, closed or all and linked to the action ("toggle on should
  * allow the search of tickets") - the ones of a sub-action sit on its card.
  */
@@ -315,13 +315,11 @@ export function PlanSubActions({ tile, canWrite, tickets, start, onChanged }: {
   tile: TileInfo; canWrite: boolean;
   /** Digital Growth leads the action */
   tickets: boolean;
-  /** opened from the + beside its row: the new sub-action's form at once */
+  /** opened from the + beside its row: the cursor in the new sub-action's name */
   start: boolean;
   onChanged: () => void;
 }) {
   const { t, tErr, tasks, err, setErr, loadTickets, loadTasks } = useTileActions(tile, true);
-  const [form, setForm] = useState<null | "new" | "ai">(start && canWrite ? "new" : null);
-  const [said, setSaid] = useState<string | null>(null);
   const [finding, setFinding] = useState(false);
   const [pick, setPick] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -340,28 +338,17 @@ export function PlanSubActions({ tile, canWrite, tickets, start, onChanged }: {
       setPick([]); setFinding(false); await reload();
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
-  const open = (f: "new" | "ai") => { setSaid(null); setForm(f); };
 
   return (
     <Box ref={box} sx={{ display: "grid", gap: 1.25 }}>
-      {canWrite && (form ? (
-        <Box sx={{ p: 1.75, borderRadius: "12px", border: `1px solid ${form === "ai" ? AI_LINE : TINT.blue.fg}`, bgcolor: "#fbfcfe" }}>
-          <AddTask key={form} tile={tile} t={t} tErr={tErr} retry={loadTickets} done={reload} plan tickets={tickets} aiStart={form === "ai"}
-            onCancel={() => setForm(null)} onAdded={(s) => { setForm(null); setSaid(s); }} />
+      {canWrite && (
+        <Box sx={{ p: 1.75, borderRadius: "12px", border: `1px solid ${TINT.blue.fg}`, bgcolor: "#fbfcfe" }}>
+          <AddTask tile={tile} t={t} tErr={tErr} retry={loadTickets} done={reload} plan tickets={tickets} focus={start} />
         </Box>
-      ) : (
-        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
-          <Button variant="contained" disableElevation startIcon={<AddIcon />} onClick={() => open("new")} sx={cta}>New sub-action</Button>
-          <Button startIcon={<AutoAwesomeIcon sx={{ fontSize: 18 }} />} onClick={() => open("ai")}
-            sx={{ ...cta, color: AI_INK, border: `1px solid ${AI_LINE}`, "&:hover": { bgcolor: AI_SOFT } }}>
-            Create with AI
-          </Button>
-          {said && <Typography sx={{ fontSize: "0.86rem", color: GREEN, fontWeight: 600 }}>{said}</Typography>}
-        </Box>
-      ))}
+      )}
       {(err || (tErr && tickets)) && <Typography sx={{ fontSize: "0.86rem", color: RED }}>{err ?? `HubSpot could not be read: ${tErr}`}</Typography>}
       {!tasks ? <Box sx={{ display: "flex", gap: 1, alignItems: "center", minHeight: 40 }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Reading its sub-actions…</Typography></Box>
-        : !tasks.length ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>No sub-action yet{canWrite ? " - add the first step, or add one from a KPI tile's Actions" : ""}.</Typography>
+        : !tasks.length ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>No sub-action yet{canWrite ? " - write the first step above, or add one from a KPI tile's Actions" : ""}.</Typography>
           : tasks.map((k) => <TaskRow key={k.id} tile={tile} k={k} t={t} tickets={linked.filter((x) => x.taskId === k.id)} canWrite={canWrite} reload={reload} setErr={setErr} plan allowTickets={tickets} />)}
 
       {/* the action's own tickets, and the search for more */}
@@ -397,12 +384,10 @@ export function PlanSubActions({ tile, canWrite, tickets, start, onChanged }: {
 
 /* ── a new task, with its ticket ───────────────────────────────────────── */
 
-function AddTask({ tile, t, tErr, retry, done, plan, tickets, aiStart = false, onCancel, onAdded }: {
+function AddTask({ tile, t, tErr, retry, done, plan, tickets, focus = true }: {
   tile: TileInfo; t: TicketsAnswer | null; tErr: string | null; retry: () => Promise<void>; done: () => Promise<void>; plan: boolean; tickets: boolean;
-  /** opened by "Create with AI": the description first */
-  aiStart?: boolean;
-  /** inside the plan's window: the form can be put away, and closes once the sub-action is added */
-  onCancel?: () => void; onAdded?: (said: string) => void;
+  /** the cursor in the name when it shows (the plan's window: only when opened from the + beside the row) */
+  focus?: boolean;
 }) {
   const [title, setTitle] = useState("");
   // a KPI tile's task can be a sub-action of the action plan as well
@@ -418,7 +403,7 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets, aiStart = false, o
   const [err, setErr] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
   // "Create with AI": the description, and what came back
-  const [ai, setAi] = useState<{ open: boolean; text: string; busy: boolean; msg: string | null; err: string | null }>({ open: aiStart, text: "", busy: false, msg: null, err: null });
+  const [ai, setAi] = useState<{ open: boolean; text: string; busy: boolean; msg: string | null; err: string | null }>({ open: false, text: "", busy: false, msg: null, err: null });
   useEffect(() => { if (t?.me && !owner) setOwner(t.me.id); }, [t, owner]);
   // the prefill goes under what is already typed: the task's own fields (below) are written in before HubSpot answers,
   // so "nothing yet" cannot be told by an empty object - the prefill never reached the form (seen 01.11.2026)
@@ -461,11 +446,9 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets, aiStart = false, o
       if (ticket === "new") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "create", tile: tile.key, taskId, values });
       if (ticket === "link") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "link", tile: tile.key, taskId, ids: pick });
       const mailed = Number(j.mailed ?? 0);
-      const said = `“${title.trim()}” added${ticket === "new" ? ", with its ticket in HubSpot" : ticket === "link" ? ", with its linked tickets" : ""}${mailed ? ` · ${mailed} mail${mailed === 1 ? "" : "s"} sent` : ""}`;
-      setSent(said);
+      setSent(`“${title.trim()}” added${ticket === "new" ? ", with its ticket in HubSpot" : ticket === "link" ? ", with its linked tickets" : ""}${mailed ? ` · ${mailed} mail${mailed === 1 ? "" : "s"} sent` : ""}`);
       setTitle(""); setNote(""); setDue(""); setShared([]); setTicket("none"); setPick([]); setValues(t?.prefill ?? {}); setPlanItem(null);
       await done();
-      onAdded?.(said);
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
 
@@ -495,7 +478,7 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets, aiStart = false, o
           </Box>
         </Box>
       )}
-      <TextField label="What will be done" value={title} onChange={(e) => setTitle(e.target.value)} sx={field} autoFocus={!aiStart} fullWidth
+      <TextField label="What will be done" value={title} onChange={(e) => setTitle(e.target.value)} sx={field} autoFocus={focus} fullWidth
         helperText={tickets ? "Written as an action - it is also the ticket's name" : "Written as an action"} />
       <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: "1fr 170px" }}>
         <TextField select size="small" label="Who does it" value={owners.some((o) => o.value === owner) ? owner : ""} onChange={(e) => setOwner(e.target.value)} sx={field}>
@@ -533,7 +516,6 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets, aiStart = false, o
         <Typography sx={{ fontSize: "0.82rem", color: missing.length ? RED : FAINT, flex: 1 }}>
           {missing.length ? `For the ticket, still to fill in: ${missing.join(", ")}` : shared.length ? `${shared.length} colleague${shared.length === 1 ? "" : "s"} will get a mail` : ""}
         </Typography>
-        {onCancel && <Button disabled={busy} onClick={onCancel} sx={{ ...cta, color: MUTED }}>Cancel</Button>}
         <Button variant="contained" size="large" disableElevation disabled={!ready} onClick={() => void add()} sx={cta}>
           {busy ? "Saving…" : ticket === "new" ? `Add the ${plan ? "sub-action" : "task"} and its ticket` : ticket === "link" ? `Add the ${plan ? "sub-action" : "task"} and link` : plan ? "Add the sub-action" : "Add the task"}
         </Button>
