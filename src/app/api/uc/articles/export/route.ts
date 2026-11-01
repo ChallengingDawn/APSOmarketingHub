@@ -1,10 +1,12 @@
 // Articles CY/LY as a file: Excel (Summary + every article, or the top and flop
-// 20 the screen shows) or an Excel-friendly CSV.
+// 20 the screen shows) or an Excel-friendly CSV - the page's filters (profit
+// centre, main group, sub group, product, article) and its search applied.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { loadReport } from "@/lib/integrations/articleReport";
-import { filterRows, kpis, movers, type ArticleRow } from "@/lib/articles/model";
+import { kpis, movers, type ArticleRow } from "@/lib/articles/model";
+import { filtersOf, matching, searched, type ADim } from "@/lib/articles/explore";
 import { csv, xlsx, type Cell, type Column } from "@/lib/xlsx";
 
 export const runtime = "nodejs";
@@ -17,9 +19,10 @@ export async function GET(req: NextRequest) {
   if (!report) return NextResponse.json({ error: "The report has not been built yet." }, { status: 404 });
 
   const sp = req.nextUrl.searchParams;
-  const pc = sp.get("pc");
   const q = sp.get("q");
-  const rows = filterRows(report.rows, { pc, q });
+  const f = filtersOf((d) => sp.getAll(d));
+  const rows = searched(matching(report.rows, f), q);
+  const tree = !!report.hierarchy;
   const { cy, ly } = report;
   const asOf = `${report.today.slice(8, 10)}.${report.today.slice(5, 7)}`;
 
@@ -32,12 +35,16 @@ export async function GET(req: NextRequest) {
     { header: "Countries", width: 20 },
     { header: `Qty ${cy}`, width: 11, format: "int" }, { header: `Qty ${ly} to ${asOf}`, width: 12, format: "int" },
     { header: `Lines ${cy}`, width: 9, format: "int" }, { header: `Lines ${ly} to ${asOf}`, width: 11, format: "int" },
+    // Products & Pricing's place for it, on a report built with it (01.11.2026)
+    ...(tree ? [{ header: "Main group", width: 24 }, { header: "Sub group", width: 24 }, { header: "Product", width: 12 }, { header: "Product name", width: 36 }] : []),
   ];
   const line = (r: ArticleRow): Cell[] => [
     r.article, r.description, r.pc, r.revenueCy, r.revenueLyYtd, r.delta, r.deltaPct, r.revenueLy,
     r.customersCy, r.customersLyYtd, r.countries, r.qtyCy, r.qtyLyYtd, r.linesCy, r.linesLyYtd,
+    ...(tree ? [r.group ?? "", r.sub ?? "", r.product ?? "", r.productName ?? ""] : []),
   ];
-  const filterNote = [pc ? `profit centre ${pc}` : "", q ? `search "${q}"` : ""].filter(Boolean).join(" · ");
+  const WORD: Record<ADim, string> = { pc: "profit centre", group: "main group", sub: "sub group", product: "product", article: "article" };
+  const filterNote = [...(Object.keys(f) as ADim[]).map((d) => `${WORD[d]} ${f[d]!.join(", ")}`), q ? `search "${q}"` : ""].filter(Boolean).join(" · ");
   const basis = `Each order counted once (as placed, or as delivered where that is more); ${cy} to date against the same days of ${ly}. Built ${report.generated.slice(0, 16).replace("T", " ")} UTC from ${report.ordersRead} order documents.`;
   const stamp = report.today;
 

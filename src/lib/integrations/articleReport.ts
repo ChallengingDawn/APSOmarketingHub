@@ -8,6 +8,12 @@
 // Postgres advisory lock (production runs two copies of the hub) and writes
 // its progress where either copy can read it. The finished report lives in
 // the hub's kv; the server keeps the parsed copy in memory until a newer one lands.
+//
+// Since SARCLA's "Articles rebuilt like Figures" (01.11.2026) a build also reads
+// every article's place in Products & Pricing - main group, sub group, product -
+// and keeps, beside the report, who bought each article: the buyer's customer
+// number, its HubSpot company (found by that number, as the countries always
+// were) and its revenue on the article - so every graph can list its companies.
 
 import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
@@ -15,14 +21,14 @@ import { IntegrationError } from "./status";
 import { hubspotFetchJson } from "./hubspot";
 import fixmapJson from "../erosion/article_fixmap.json";
 import {
-  aggregate, fillFromCatalogue, kpis, lines, needsCatalogue, rowsOf,
-  type ArticleRow, type Doc, type FixMap, type Kpis,
+  aggregate, buyersOf, fillFromCatalogue, kpis, lines, needsCatalogue, rowsOf,
+  type ArticleRow, type BuyerCompany, type Buyers, type Doc, type FixMap, type Kpis,
 } from "../articles/model";
 
 const FIXMAP = fixmapJson as unknown as FixMap;
 const PP_OBJ = "2-200042439";
 const LOCK = 4_107_203;
-const KV = { report: "articles:report", meta: "articles:report:meta", status: "articles:build" } as const;
+const KV = { report: "articles:report", meta: "articles:report:meta", status: "articles:build", buyers: "articles:report:buyers" } as const;
 /** A "running" status older than this is a build that died with its process. */
 const STALE_MS = 45 * 60_000;
 
@@ -39,6 +45,10 @@ export type ArticleReport = {
   documentsBasis: { totalCy: number; totalLyYtd: number; totalLy: number };
   catalogueFilled: number;
   buyersWithCountry: number;
+  /** every article's main group, sub group and product read from Products & Pricing (01.11.2026) - absent before */
+  hierarchy?: boolean;
+  /** the buyers of each article kept beside it (KV.buyers, the same `generated`) - absent before 01.11.2026 */
+  buyers?: boolean;
 };
 
 export type BuildStatus = {
@@ -81,53 +91,83 @@ export async function buildStatus(): Promise<BuildStatus> {
   return s;
 }
 
+/** The buyers kept beside the report they were built with - none for a report built before them. */
+let memBuyers: Buyers | null = null;
+export async function loadBuyers(report: ArticleReport): Promise<Buyers | null> {
+  if (!report.buyers) return null;
+  if (memBuyers?.generated === report.generated) return memBuyers;
+  const b = await kvGet<Buyers>(KV.buyers);
+  if (!b || b.generated !== report.generated) return null;
+  memBuyers = b;
+  return b;
+}
+
 /* ── the build ─────────────────────────────────────────────────────────── */
 
-async function catalogue(articles: string[]): Promise<{ article: string; description: string; pc: string }[]> {
-  const out: { article: string; description: string; pc: string }[] = [];
+type Catalogued = { article: string; description: string; pc: string; group: string; sub: string; product: string; productName: string };
+/** Products & Pricing ends its descriptions with " -" ("... 7.00 mm -") - as the shop report reads them. */
+const ppText = (v: unknown) => str(v).trim().replace(/\s+-$/, "");
+
+/** Every article's description, profit centre and place in Products & Pricing - 100 article numbers a search, every page of
+ *  the answer (an article can be there more than once). */
+async function catalogue(articles: string[], progress: (done: number) => void = () => {}): Promise<Catalogued[]> {
+  const out: Catalogued[] = [];
   for (let i = 0; i < articles.length; i += 100) {
     const chunk = articles.slice(i, i + 100);
     try {
-      const r = await hubspotFetchJson<{ results?: { properties?: Record<string, string | null> }[] }>({
-        path: `/crm/v3/objects/${PP_OBJ}/search`, method: "POST", useTicketsToken: true,
-        body: {
-          filterGroups: [{ filters: [{ propertyName: "article_number", operator: "IN", values: chunk }] }],
-          properties: ["article_number", "article_description", "profit_center"], limit: 100,
-        },
-      });
-      for (const o of r.results ?? []) {
-        const p = o.properties ?? {};
-        out.push({ article: str(p.article_number).trim(), description: str(p.article_description), pc: str(p.profit_center) });
+      let after: string | undefined;
+      for (let page = 0; page < 10; page++) {
+        const r = await hubspotFetchJson<{ results?: { properties?: Record<string, string | null> }[]; paging?: { next?: { after?: string } } }>({
+          path: `/crm/v3/objects/${PP_OBJ}/search`, method: "POST", useTicketsToken: true,
+          body: {
+            filterGroups: [{ filters: [{ propertyName: "article_number", operator: "IN", values: chunk }] }],
+            properties: ["article_number", "article_description", "profit_center", "main_group_description", "sub_group_description", "product_number", "product_description"],
+            limit: 100, ...(after ? { after } : {}),
+          },
+        });
+        for (const o of r.results ?? []) {
+          const p = o.properties ?? {};
+          out.push({
+            article: str(p.article_number).trim(), description: str(p.article_description), pc: str(p.profit_center),
+            group: ppText(p.main_group_description), sub: ppText(p.sub_group_description), product: str(p.product_number).trim(), productName: ppText(p.product_description),
+          });
+        }
+        after = r.paging?.next?.after;
+        if (!after) break;
       }
     } catch (e) {
       // a page of descriptions is not worth the report - as the connector, skip it
       console.warn(`[articles] catalogue page skipped: ${(e as Error).message}`);
     }
+    progress(Math.min(i + 100, articles.length));
   }
   return out;
 }
 
-/** "100-712345" -> the company's country, searched 100 customer numbers at a time. */
-async function countries(uns: string[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+/** "100-712345" -> its HubSpot company: id, name and country, searched 100 customer numbers at a time. */
+async function companies(uns: string[], progress: (done: number) => void = () => {}): Promise<Map<string, BuyerCompany>> {
+  const out = new Map<string, BuyerCompany>();
   for (let i = 0; i < uns.length; i += 100) {
     try {
-      const r = await hubspotFetchJson<{ results?: { properties?: Record<string, string | null> }[] }>({
+      const r = await hubspotFetchJson<{ results?: { id?: string; properties?: Record<string, string | null> }[] }>({
         path: "/crm/v3/objects/companies/search", method: "POST", useTicketsToken: true,
         body: {
           filterGroups: [{ filters: [{ propertyName: "company_unique_number", operator: "IN", values: uns.slice(i, i + 100) }] }],
-          properties: ["company_unique_number", "country_custom", "country"], limit: 100,
+          properties: ["company_unique_number", "country_custom", "country", "name"], limit: 100,
         },
       });
       for (const o of r.results ?? []) {
         const un = str(o.properties?.company_unique_number).trim();
         // the Datatracker's country list is country_custom; the free-text field only when that is empty
         const c = (str(o.properties?.country_custom).trim() || str(o.properties?.country).trim());
-        if (un && c && !out.has(un)) out.set(un, c.slice(0, 24));
+        // a customer number on two companies: the first, unless only a later one has a country (as before)
+        const was = out.get(un);
+        if (un && (!was || (!was.country && c))) out.set(un, { id: str(o.id), name: str(o.properties?.name).trim(), country: c.slice(0, 24) });
       }
     } catch (e) {
-      console.warn(`[articles] country page skipped: ${(e as Error).message}`);
+      console.warn(`[articles] company page skipped: ${(e as Error).message}`);
     }
+    progress(Math.min(i + 100, uns.length));
   }
   return out;
 }
@@ -189,12 +229,13 @@ async function pullDocs(today: string, progress: (done: number, total: number, m
   return out;
 }
 
-/** Read the orders and build the report. Pure work - no lock, no status: the runner below adds those. */
+/** Read the orders and build the report - and, read with it, who bought each article. Pure work - no lock, no status: the
+ *  runner below adds those. */
 export async function computeReport(
   today = utcToday(),
   progress: (step: string, done: number, total: number) => void = () => {},
   opts: { enrich?: boolean } = {},
-): Promise<ArticleReport> {
+): Promise<{ report: ArticleReport; buyers: Buyers }> {
   const cy = Number(today.slice(0, 4));
   const ly = cy - 1;
   const docs = await pullDocs(today, (done, total, month) => progress(`reading orders - ${month}`, done, total));
@@ -204,24 +245,39 @@ export async function computeReport(
   const old = kpis(rowsOf(aggregate(docs, { ...o, basis: "documents" })));
 
   let filled = 0;
-  let byCountry = new Map<string, string>();
-  if (opts.enrich !== false) {
-    const need = needsCatalogue(agg);
-    progress("filling descriptions from the catalogue", 0, need.length);
-    const cat = await catalogue(need);
-    filled = cat.length;
+  let byCompany = new Map<string, BuyerCompany>();
+  const hier = new Map<string, Pick<Catalogued, "group" | "sub" | "product" | "productName">>();
+  const enrich = opts.enrich !== false;
+  if (enrich) {
+    // every article, not only those missing a text: the hierarchy is read for all of them
+    const need = new Set(needsCatalogue(agg));
+    const all = [...agg.keys()];
+    const step = "reading descriptions and the product hierarchy from the catalogue";
+    progress(step, 0, all.length);
+    const cat = await catalogue(all, (done) => progress(step, done, all.length));
+    filled = cat.filter((c) => need.has(c.article) || need.has(c.article.replace(/^0+/, ""))).length;
     fillFromCatalogue(agg, cat);
+    for (const c of cat) {
+      if (!c.article) continue;
+      const h = { group: c.group, sub: c.sub, product: c.product, productName: c.productName };
+      // an article listed twice: the record that names its product
+      for (const k of new Set([c.article, c.article.replace(/^0+/, "")])) if (!hier.get(k)?.product) hier.set(k, h);
+    }
     const uns = [...new Set(docs.map((d) => d.un).filter((u): u is string => !!u))];
-    progress("finding the buyers' countries", 0, uns.length);
-    byCountry = await countries(uns);
+    progress("finding the buyers' companies", 0, uns.length);
+    byCompany = await companies(uns, (done) => progress("finding the buyers' companies", done, uns.length));
   }
 
-  const rows = rowsOf(agg, (un) => byCountry.get(un) ?? null);
-  return {
-    generated: new Date().toISOString(), cy, ly, today, ordersRead: docs.length, rows, kpis: kpis(rows),
+  const generated = new Date().toISOString();
+  const rows = rowsOf(agg, (un) => byCompany.get(un)?.country || null);
+  if (enrich) for (const r of rows) Object.assign(r, { group: "", sub: "", product: "", productName: "", ...hier.get(r.article) });
+  const report: ArticleReport = {
+    generated, cy, ly, today, ordersRead: docs.length, rows, kpis: kpis(rows),
     documentsBasis: { totalCy: old.totalCy, totalLyYtd: old.totalLyYtd, totalLy: old.totalLy },
-    catalogueFilled: filled, buyersWithCountry: byCountry.size,
+    catalogueFilled: filled, buyersWithCountry: [...byCompany.values()].filter((c) => c.country).length,
+    hierarchy: enrich, buyers: true,
   };
+  return { report, buyers: buyersOf(agg, generated, (un) => byCompany.get(un)) };
 }
 
 let runningHere = false;
@@ -248,15 +304,18 @@ async function runBuild(trigger: string): Promise<void> {
       const started = new Date().toISOString();
       await kvSet(KV.status, { ...IDLE, status: "running", step: "starting", started, trigger, heartbeat: started });
       let last = 0;
-      const report = await computeReport(utcToday(), (step, done, total) => {
+      const { report, buyers } = await computeReport(utcToday(), (step, done, total) => {
         // the status row is written at most every few seconds, not on every page
         if (Date.now() - last < 3000) return;
         last = Date.now();
         void setStatus({ step, done, total });
       });
+      // the buyers first: the report's meta row is what makes a new build the one read
+      await kvSet(KV.buyers, buyers);
       await kvSet(KV.report, report);
       await kvSet(KV.meta, { generated: report.generated });
       mem = { generated: report.generated, report };
+      memBuyers = buyers;
       await setStatus({ status: "done", step: `${report.rows.length.toLocaleString("en")} articles from ${report.ordersRead.toLocaleString("en")} order documents`, finished: new Date().toISOString(), error: null });
       console.log(`[articles] report built (${trigger}): ${report.rows.length} articles, ${report.ordersRead} documents`);
     } catch (e) {

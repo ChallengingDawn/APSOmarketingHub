@@ -114,6 +114,9 @@ type Acc = {
   cuCy: Set<string>; cuLyYtd: Set<string>; cuLy: Set<string>;
   /** this year's quantity per buyer, for the split by country */
   qtyByUnCy: Map<string, number>;
+  /** each buyer's part: [1 bought this year to date + 2 bought on last year's same days, revenue this year, revenue last
+   *  year's same days] - the companies behind a figure (SARCLA 01.11.2026: "Articles rebuilt like Figures") */
+  byUn: Map<string, [number, number, number]>;
   text: string; pc: string;
 };
 
@@ -183,9 +186,23 @@ export type ArticleRow = {
    * Absent on reports built before it existed.
    */
   byCountryCy?: Record<string, [number, number]>;
+  /**
+   * Its place in Products & Pricing - main group, sub group, product number and name (SARCLA 01.11.2026: "Articles rebuilt
+   * like Figures" - by profit centre, by product hierarchy, by article). "" where the catalogue does not know the article;
+   * absent on reports built before it was read.
+   */
+  group?: string; sub?: string; product?: string; productName?: string;
 };
 
 export type ReportOptions = { cy: number; ly: number; today: string; basis: Basis };
+
+/** A buyer's line on an article: this year to date (1) or last year's same days (2). */
+function buyer(a: Acc, un: string, when: 1 | 2, rev: number) {
+  let b = a.byUn.get(un);
+  if (!b) { b = [0, 0, 0]; a.byUn.set(un, b); }
+  b[0] |= when;
+  b[when] += rev;
+}
 
 /** Aggregate the documents per article. Description/PC gaps are filled later from the catalogue. */
 export function aggregate(docs: Doc[], o: ReportOptions): Map<string, Acc> {
@@ -200,18 +217,18 @@ export function aggregate(docs: Doc[], o: ReportOptions): Map<string, Acc> {
       let a = agg.get(l.art);
       if (!a) {
         a = { cy: 0, lyYtd: 0, ly: 0, qtyCy: 0, qtyLyYtd: 0, qtyLy: 0, linesCy: 0, linesLyYtd: 0, linesLy: 0,
-          cuCy: new Set(), cuLyYtd: new Set(), cuLy: new Set(), qtyByUnCy: new Map(), text: "", pc: "" };
+          cuCy: new Set(), cuLyYtd: new Set(), cuLy: new Set(), qtyByUnCy: new Map(), byUn: new Map(), text: "", pc: "" };
         agg.set(l.art, a);
       }
       if (cur) {
         a.cy += l.rev; a.qtyCy += l.qty; a.linesCy += 1;
-        if (u.un) { a.cuCy.add(u.un); a.qtyByUnCy.set(u.un, (a.qtyByUnCy.get(u.un) ?? 0) + l.qty); }
+        if (u.un) { a.cuCy.add(u.un); a.qtyByUnCy.set(u.un, (a.qtyByUnCy.get(u.un) ?? 0) + l.qty); buyer(a, u.un, 1, l.rev); }
       } else {
         a.ly += l.rev; a.qtyLy += l.qty; a.linesLy += 1;
         if (u.un) a.cuLy.add(u.un);
         if (ytd) {
           a.lyYtd += l.rev; a.qtyLyYtd += l.qty; a.linesLyYtd += 1;
-          if (u.un) a.cuLyYtd.add(u.un);
+          if (u.un) { a.cuLyYtd.add(u.un); buyer(a, u.un, 2, l.rev); }
         }
       }
       if (!a.text) a.text = l.text;
@@ -257,6 +274,47 @@ export function rowsOf(agg: Map<string, Acc>, countryOf: (un: string) => string 
     });
   }
   return rows.sort((x, y) => y.revenueCy - x.revenueCy);
+}
+
+/* ── the buyers, kept beside the report ────────────────────────────────── */
+
+/** A buying customer number's company in HubSpot - found by its customer number (company_unique_number). */
+export type BuyerCompany = { id: string; name: string; country: string };
+
+/**
+ * Who bought each article - so a figure's companies can be listed (SARCLA 01.11.2026: the Companies button "where it is
+ * honest: the companies that bought those articles"). The order documents carry the customer number (mandant-customer); its
+ * company is the HubSpot company with that company_unique_number, the same search that gives the report its countries.
+ * Server side only: it carries every buyer's name.
+ */
+export type Buyers = {
+  /** the report it goes with */
+  generated: string;
+  /** each buyer: [customer number "100-712345", HubSpot company id, name, country] - "" where HubSpot has no company with that number */
+  companies: [string, string, string, string][];
+  /** per article, four numbers a buyer in a row: [buyer index, 1 bought this year to date + 2 bought on last year's same
+   *  days, revenue this year to date, revenue on last year's same days] */
+  byArticle: Record<string, number[]>;
+};
+
+export function buyersOf(agg: Map<string, Acc>, generated: string, companyOf: (un: string) => BuyerCompany | null | undefined = () => null): Buyers {
+  const at = new Map<string, number>();
+  const companies: Buyers["companies"] = [];
+  const byArticle: Record<string, number[]> = {};
+  for (const [art, a] of agg) {
+    const out: number[] = [];
+    for (const [un, [flags, cy, lyYtd]] of a.byUn ?? []) {
+      let i = at.get(un);
+      if (i === undefined) {
+        const c = companyOf(un);
+        i = companies.push([un, c?.id ?? "", c?.name ?? "", c?.country ?? ""]) - 1;
+        at.set(un, i);
+      }
+      out.push(i, flags, r2(cy), r2(lyYtd));
+    }
+    if (out.length) byArticle[art] = out;
+  }
+  return { generated, companies, byArticle };
 }
 
 /* ── the figures on screen ─────────────────────────────────────────────── */
