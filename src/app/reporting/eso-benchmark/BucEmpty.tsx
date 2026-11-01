@@ -2,6 +2,8 @@
 // A BUC VIEW PANEL WITH NO GRAPH YET (SARCLA 01.11.2026: "clear BUC view of all graphs, let the user promote what he wants;
 // leave the instruction simplified, with flat icons, not emojis, on the placeholder per topic"). The panel keeps its
 // figures; the graphs are the ones people send here from the page - Actions on a graph, BUC View switched on.
+// Once one graph is in a BUC View, the hint leaves all its panels (SARCLA 01.11.2026: "should disappear after the first
+// promotion per category") - ESO's and TSA's each their own.
 
 import Link from "next/link";
 import Box from "@mui/material/Box";
@@ -11,9 +13,15 @@ import LaunchOutlinedIcon from "@mui/icons-material/LaunchOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 import ToggleOnOutlinedIcon from "@mui/icons-material/ToggleOnOutlined";
 import { FAINT, HAIRLINE, INK, MUTED, TINT, type Tint } from "@/app/uc/report/ui";
+import { useActions } from "@/app/reporting/marketing-kpis/tiles/store";
 
 /** Where the graphs come from: the page's name and address. */
 export function BucEmpty({ page, href, tint = "blue" }: { page: string; href: string; tint?: Tint }) {
+  // the BUC View it is in, by its page's address: TSA's pages are keyed "tsa-…", ESO's "eso-…"
+  const { state } = useActions("nutshell");
+  const home = href.startsWith("/reporting/tsa-benchmark") ? "tsa-" : "eso-";
+  const any = (state?.placements ?? []).some((x) => x.placement === "nutshell" && x.spec.page.startsWith(home) && !x.spec.key.includes(":panel:"));
+  if (!state || any) return null;
   const steps = [
     { icon: <LaunchOutlinedIcon />, text: <>Open <Box component={Link} href={href} sx={{ color: TINT[tint].fg, fontWeight: 650, textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>{page}</Box></> },
     { icon: <TuneOutlinedIcon />, text: <>Click <b>Actions</b> on a graph</> },
