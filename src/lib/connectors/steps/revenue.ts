@@ -31,6 +31,7 @@ import { IntegrationError } from "@/lib/integrations/status";
 import { checkAll, linkFound } from "../reviewCheck";
 import type { ReviewItem } from "../snapshot";
 import type { StepResult } from "./companyFacts";
+import { ERP_ONLY_KEY, erpOnlyItems, type ErpOnly } from "./erpOnlyRules";
 import { readRollup } from "./revenueCsv";
 import {
   CAT, KPI_OBJECT, addHistoryCompany, addMonthlyCompany, aliasMap, compareYears, deltaRows, erpYearTotal,
@@ -306,13 +307,15 @@ export async function revenueLoad(live: boolean, beat: Beat, opts: { file: strin
   const missing = [...plan.unmatched].sort((a, b) => b.revenue_eur - a.revenue_eur);
   const matched = new Set([...roll.agg.keys()].filter((un) => map.has(alias.get(un) ?? un)));
   const merged = mergeReviewQueue(queue.items, plan.unmatched, Math.floor(Date.now() / 1000), matched);
+  // the customers no company carries yet, for the reports until one does (erpOnlyRules.ts)
+  const erpOnly: ErpOnly = { at: new Date().toISOString(), items: erpOnlyItems(roll.agg, plan.unmatched.map((u) => u.un)) };
   const out: StepResult = {
     rows: roll.rows, records: roll.lines, customers: roll.agg.size,
     companies_changed: plan.ups.size, unchanged: plan.unchanged, companies_with_several_keys: plan.shared,
     map: { source: un2id.source, keys: un2id.map.size, built: new Date(un2id.state.built).toISOString(), companies_sharing_a_key: un2id.state.duplicates },
     looked_up_live: lookups.length, map_self_healed: healed.length,
     [live ? "linked_on_the_way" : "would_link"]: linkedOnTheWay.length, linked_examples: linkedOnTheWay.slice(0, 10).map((l) => l.un),
-    unmatched_held: plan.unmatched.length,
+    unmatched_held: plan.unmatched.length, [live ? "kept_for_reports" : "would_keep_for_reports"]: erpOnly.items.length,
     review_queue: { from: queue.source, ...(queue.note ? { note: queue.note } : {}), added: merged.added, resurfaced: merged.resurfaced, settled: merged.settled, size: merged.queue.length },
     missing_companies: missing.slice(0, 20).map((u) => ({ un: u.un, revenue_eur: u.revenue_eur })),
     calculated_properties_skipped: plan.skipped.calculated.size, calculated_examples: [...plan.skipped.calculated].slice(0, 10),
@@ -326,6 +329,7 @@ export async function revenueLoad(live: boolean, beat: Beat, opts: { file: strin
   if (live) {
     // held BEFORE the writes, as the connector does
     if (plan.unmatched.length || merged.settled || queue.source !== "hub") await kvSet(KV.queue, merged.queue);
+    await kvSet(ERP_ONLY_KEY, erpOnly);
     Object.assign(out, await writeCompanies(plan.ups, beat));
   }
   return { ...out, seconds: secs(t0) };

@@ -10,12 +10,14 @@
 
 import { createReadStream } from "node:fs";
 import { query } from "@/lib/db/client";
+import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { IntegrationError } from "@/lib/integrations/status";
 import { magentoGet } from "@/lib/doc/magento";
 import { hubChain } from "../chainStatus";
 import { findErpNumber, yearsToTry, type Cond } from "../magento/erpNumber";
 import type { StepResult } from "./companyFacts";
+import { ERP_INFO_KEY, infoColumns, infoRow, mergeInfo, type ErpInfo, type ErpInfoStore, type InfoCols } from "./erpOnlyRules";
 import {
   BestArticles, ENUM_MAP, MagentoExportParser, PP_OBJECT, PP_PROPS, PyCsvReader,
   TWIN_CARRY, agentColumns, agentDecision, agentIndex, agentRow, articleKeys, domainProves, enumValue, matchArticle,
@@ -484,14 +486,19 @@ export async function magentoErpLink(live: boolean, beat: Beat, opts: { budgetMs
  * existing options, matched by its set of name words; a name with no option is reported,
  * never invented; an empty or junk SA ('.', 'Unknown', 'Sales-Support', ...) never clears.
  * Unlike the connector, every company carrying the key is updated (it took one at random).
+ * The rows of the keys no company carries are kept for the reports (erpOnlyRules.ts: the customer with its ERP SAE until
+ * HubSpot has it - the file brings a customer once, when it is new or changes).
  */
 export async function customerAgents(live: boolean, beat: Beat, opts: { file: string }): Promise<StepResult> {
   const t0 = Date.now();
-  const st: { header?: string[]; cols?: ReturnType<typeof agentColumns>; rows: number } = { rows: 0 };
+  const st: { header?: string[]; cols?: ReturnType<typeof agentColumns>; info?: InfoCols | null; rows: number } = { rows: 0 };
   const src = new Map<string, AgentSource>();
+  const info = new Map<string, ErpInfo>();
+  const day = new Date().toISOString().slice(0, 10);
   await eachCsvRow(opts.file, true, beat, (r) => {
-    if (!st.header) { st.header = r; st.cols = agentColumns(r); return; }
+    if (!st.header) { st.header = r; st.cols = agentColumns(r); st.info = infoColumns(r); return; }
     st.rows += 1;
+    if (st.info) { const i = infoRow(r, st.info, day); if (i) info.set(i[0], i[1]); }
     if (!st.cols) return;
     const e = agentRow(r, st.cols);
     if (e) src.set(e[0], e[1]);
@@ -534,12 +541,20 @@ export async function customerAgents(live: boolean, beat: Beat, opts: { file: st
       if (examples.length < 10) examples.push({ company: c.id, key: un, was: { sa__sales_agent: p.sa__sales_agent ?? "", sae_performis: p.sae_performis ?? "" }, now: d.props });
     });
   }
+  const notInHubSpot = [...info.keys()].filter((u) => !comp.has(u));
   const out: StepResult = {
     rows: st.rows, matched: [...src.keys()].filter((u) => comp.has(u)).length, companies, planned: inputs.length,
     junk_skipped: junk, unknown_agent_names: topUnknown(unknown), duplicate_keys: dupKeys,
     ...(st.cols.sae === null ? { note: "no SAE column - sae_performis left as it is" } : {}),
+    [live ? "kept_for_reports" : "would_keep_for_reports"]: notInHubSpot.length,
     examples,
   };
+  if (live && info.size) {
+    const prev = (await kvGet<ErpInfoStore>(ERP_INFO_KEY).catch(() => undefined))?.items ?? {};
+    const items = mergeInfo(prev, info, new Set([...info.keys()].filter((u) => comp.has(u))));
+    await kvSet(ERP_INFO_KEY, { at: new Date().toISOString(), items } satisfies ErpInfoStore);
+    out.customers_kept = Object.keys(items).length;
+  }
   if (live && inputs.length) Object.assign(out, await batchUpdate("companies", inputs));
   return { ...out, seconds: Math.round((Date.now() - t0) / 1000) };
 }

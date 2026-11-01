@@ -91,6 +91,8 @@ export type Cube = {
   newHistory?: number;
   /** its companies are kept beside it, server side (ledger.ts) - every chart can list them (SARCLA 31.10.2026) */
   listed?: boolean;
+  /** how many of the ERP's customers no company carries yet it counts as companies of their own (erpOnlyRules.ts), when it does */
+  erpOnly?: number;
 };
 
 /** The ERP's figures a cell carries, in this order. */

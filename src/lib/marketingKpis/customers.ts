@@ -23,6 +23,7 @@ import { readOwners } from "@/lib/ownerRules/hubspot";
 import { DIMS, fold, monthOf, potentialBand, saeLabel, type CompanyIn, type Cube, type Dim } from "./cube";
 import { ledgerOf, type Ledger, type LedgerIn } from "./ledger";
 import { kvGet, kvSet } from "@/lib/db/init";
+import { ERP_INFO_KEY, ERP_ONLY_ID, ERP_ONLY_KEY, canBeNew, erpOnlyProps, type ErpInfoStore, type ErpOnly } from "@/lib/connectors/steps/erpOnlyRules";
 import { getRules } from "@/lib/mapAssign/engine";
 import { SEED } from "@/lib/mapAssign/seed";
 
@@ -35,7 +36,8 @@ import { SEED } from "@/lib/mapAssign/seed";
 // one shown meanwhile - the ESO New customers; a read without newHistory, from before the revenue since 2015 decided the
 // companies whose first order is the ERP's carried-over date, is read again too)
 // (each company kept beside the cube since 31.10, for the charts' lists of companies: a read without `listed` is read
-// again the same way)
+// again the same way; and since 01.11 the ERP's customers no company carries yet, each as a company of its own with the
+// ERP's SAE - a read without `erpOnly` is read again)
 const KEY = "marketingKpis:customers:v11";
 /** The companies of the read, beside the cube (ledger.ts) - server side only. */
 const LEDGER_KEY = `${KEY}:ledger`;
@@ -53,7 +55,7 @@ export async function customersCube(): Promise<SlowState<Cube>> {
   // and as soon as the ERP morning workbook has run again on its own - "Run now" on the chain page writes each customer's
   // monthly order intake (SARCLA 31.10.2026: "I've run it" - the Figures would have waited up to 6 hours to see it)
   const erp = await lastRun("live", "erp_revenue").then((r) => (r?.finished && !r.error ? Date.parse(r.finished) : 0)).catch(() => 0);
-  return slowReport(KEY, (v: Cube) => ((day && v?.dataDay !== day) || v?.newKind !== "invoice" || v?.newHistory !== HISTORY_FROM || !v?.listed || (erp && Date.parse(v?.generatedAt ?? "") < erp) ? 0 : TTL_MS), build);
+  return slowReport(KEY, (v: Cube) => ((day && v?.dataDay !== day) || v?.newKind !== "invoice" || v?.newHistory !== HISTORY_FROM || !v?.listed || v?.erpOnly == null || (erp && Date.parse(v?.generatedAt ?? "") < erp) ? 0 : TTL_MS), build);
 }
 
 /**
@@ -190,6 +192,25 @@ function companyOf(p: Record<string, string | null>, x: Ctx): CompanyIn {
   };
 }
 
+/**
+ * The ERP's customers no company carries yet (SARCLA 01.11.2026: "on ERP we have the file also of the SAE so we can
+ * attribute them in the reports even if not in hubspot"), each a company of its own: the revenue the last ERP load could not
+ * write, the SAE, name and country of the ERP's customer file. Once a company carries the key, the next load writes its
+ * revenue there and the customer leaves this list - never counted twice.
+ */
+async function erpOnlyCompanies(x: Ctx): Promise<LedgerIn[]> {
+  const [only, info] = await Promise.all([
+    kvGet<ErpOnly>(ERP_ONLY_KEY).catch(() => undefined),
+    kvGet<ErpInfoStore>(ERP_INFO_KEY).catch(() => undefined),
+  ]);
+  return (only?.items ?? []).map((it) => {
+    const i = info?.items?.[it.un];
+    const c = companyOf(erpOnlyProps(it, i), x);
+    if (!canBeNew(it, i, x.years[2])) c.firstInvoiceMonth = null;
+    return { ...c, id: `${ERP_ONLY_ID}${it.un}`, name: i?.name ?? it.un };
+  });
+}
+
 async function build(): Promise<Cube> {
   const now = new Date();
   const year = now.getUTCFullYear();
@@ -217,6 +238,8 @@ async function build(): Promise<Cube> {
   }
   reportProgress(KEY, `reading the revenue since ${HISTORY_FROM} of ${carried.length.toLocaleString("en")} customers from before it`);
   await withoutHistory(carried, years[2]);
+  const erpOnly = await erpOnlyCompanies(x);
+  companies.push(...erpOnly);
 
   const loaded = [monthsLoaded(x.filled[0], x.filled[1], monthsDone), 12, 12];
   // The month in progress reaches the day of the last ERP delivery the chain ran
@@ -228,7 +251,7 @@ async function build(): Promise<Cube> {
     : null;
   // the ERP day most companies carry (a straggler from an older file does not move it)
   const erpDay = [...x.erpDays].sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]))[0]?.[0] ?? null;
-  const cube: Cube = { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels: x.labels, teams: x.teams, saeTeams: x.saeTeams, erpDay, oiLoaded: monthsLoaded(x.filledOi[0], x.filledOi[1], monthsDone), newKind: "invoice", newHistory: HISTORY_FROM, ...fold(companies) };
+  const cube: Cube = { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels: x.labels, teams: x.teams, saeTeams: x.saeTeams, erpDay, oiLoaded: monthsLoaded(x.filledOi[0], x.filledOi[1], monthsDone), newKind: "invoice", newHistory: HISTORY_FROM, erpOnly: erpOnly.length, ...fold(companies) };
   // every company beside it, before the cube is handed out - a chart's list is there as soon as the chart
   reportProgress(KEY, "keeping the companies for the charts' lists");
   try {

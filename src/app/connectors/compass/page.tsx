@@ -42,7 +42,7 @@ function result(r: HubRun | null | undefined): { text: string; bad?: boolean } |
 /** Does the hub run this step right now? Switched on here, and let go by the connector. */
 const runsHere = (i: HubStepInfo | undefined) => !!i?.live && i.connectorSkips !== false;
 /** The file steps that may be run on their own from here: a live run fetches its file (steps/run.ts) */
-const RUN_WITH_FILE = new Set(["erp_revenue", "revenue"]);
+const RUN_WITH_FILE = new Set(["erp_revenue", "revenue", "customer_agents"]);
 
 /** The last ERP delivery and what the hub did with it. */
 function Delivery({ d, admin, busy, act }: { d: StepsData | null; admin: boolean; busy: boolean; act: (key: string, action: string) => void }) {
@@ -127,7 +127,8 @@ function StepPanel({ step, info, admin, busy, act }: { step: Step; info: HubStep
               only the morning workbook, which stands on its own (31.10.2026: each customer's monthly order intake, without
               waiting for the next delivery), and the revenue per company (SARCLA 01.11.2026: "add the button to run
               yesterday's data" - the customers linked since the delivery get their revenue at once; the monthly KPI series
-              follows at the next delivery) - the others belong in the delivery's order */}
+              follows at the next delivery), and the sales agent from the customer file, which also keeps the customers not in
+              HubSpot yet for the reports (01.11.2026) - the others belong in the delivery's order */}
           {info.live && (!info.file || RUN_WITH_FILE.has(info.key)) && (
             <Button size="small" variant="contained" disableElevation disabled={busy}
               onClick={() => { if (confirm(info.file ? `Run "${step.name}" now? It fetches ${info.file} from the ERP's folder and writes to HubSpot like its regular runs.` : `Run "${step.name}" now? It writes to HubSpot like its regular runs.`)) act(info.key, "run"); }}>

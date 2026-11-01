@@ -114,7 +114,7 @@ export const STEPS: Step[] = [
   },
   {
     key: "revenue", name: "Revenue per company per month", group: "revenue", phase: "preview",
-    what: "Writes each company's revenue by month, quarter and profit centre from the ERP rollup. Customers it cannot match go to the review queue - it never creates a company.",
+    what: "Writes each company's revenue by month, quarter and profit centre from the ERP rollup. Customers it cannot match go to the review queue - it never creates a company - and count in the reports on their own, with the ERP's SAE, until a company carries their key.",
     when: "When a new revenue_oi_rollup.csv arrives",
     reads: "revenue_oi_rollup.csv (mandant 100/110) · the customer-number → company map",
     writes: [{
@@ -129,7 +129,7 @@ export const STEPS: Step[] = [
   },
   {
     key: "customer_agents", name: "Sales agent from the ERP", group: "company", phase: "preview",
-    what: "Sets each company's sales agent (and the SAE) from the ERP customer file, choosing only from the dropdown's existing names.",
+    what: "Sets each company's sales agent (and the SAE) from the ERP customer file, choosing only from the dropdown's existing names. The customers no company carries yet are kept - name, country, SAE - so the reports can count them before HubSpot has them.",
     when: "When a new dim_customer.csv arrives",
     reads: "dim_customer.csv (CustomerNumberUnique, SA, SAE) · the sa__sales_agent options",
     writes: [{ object: OBJECTS.company, props: ["sa__sales_agent", "sae_performis"], how: "never clears an agent, never invents a name" }],

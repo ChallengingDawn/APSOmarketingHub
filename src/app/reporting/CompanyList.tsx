@@ -200,7 +200,10 @@ export function CompanyList({ source }: { source: CompanySource }) {
               rows={shown.map((r, i) => ({
                 key: `${r.id ?? r.name}-${i}`,
                 cells: [
-                  r.id
+                  // an ERP customer no company carries yet (erpOnlyRules.ts, "erp:<key>"): nothing to open in HubSpot
+                  r.id?.startsWith("erp:")
+                    ? <>{r.name} <Box component="span" sx={{ color: FAINT, fontSize: "0.74rem" }}>· {r.id.slice(4)}, not in HubSpot yet</Box></>
+                  : r.id
                     // underlined - a link to the company in HubSpot (SARCLA 01.11.2026)
                     ? <Box component="a" href={hsCompany(r.id)} target="_blank" rel="noreferrer" title="Open in HubSpot"
                         sx={{ color: INK, textDecoration: "underline", textDecorationColor: "rgba(21,34,58,.35)", textUnderlineOffset: "3px", "&:hover": { color: TINT.blue.fg, textDecorationColor: "currentColor" } }}>{r.name}</Box>
