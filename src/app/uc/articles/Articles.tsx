@@ -99,12 +99,14 @@ const DIM: Record<ADim, { name: string; lower: string; tint: Tint; icon: React.R
 };
 const isNone = (key: string) => key === NONE || key === NO_PC || !key;
 const pcName = (key: string) => (isNone(key) ? DIM.pc.none : pcLabel(key.toLowerCase()));
-/** A value as the page shows it: a profit centre by its name, a product and an article by their name, then their number
- *  (the name reads first in a narrow card; the number keeps two of the same name apart). */
+/** A value as the page shows it: a profit centre by its name, a product by its name, then its number; an article by its
+ *  NUMBER first, then its name (SARCLA 01.11.2026: "on articles it's really important, even on the filter, to bring the
+ *  article number" - a long name cut short in a narrow card took the number with it). */
 function labelOf(d: ADim, key: string, name?: string | null): string {
   if (d === "pc") return pcName(key);
   if (isNone(key)) return DIM[d].none;
-  if (d === "product" || d === "article") return name ? `${name} · ${key}` : key;
+  if (d === "article") return name ? `${key} · ${name}` : key;
+  if (d === "product") return name ? `${name} · ${key}` : key;
   return key;
 }
 
@@ -540,7 +542,7 @@ function Facet({ c, now, dim, onPick }: { c: Ctx; now: AFilters; dim: "pc" | "gr
  *  those a search finds (a number or words). */
 function ServerFacet({ c, now, level, onPick }: { c: Ctx; now: AFilters; level: "product" | "article"; onPick: (key: string) => void }) {
   const [typed, setTyped] = useState("");
-  const [found, setFound] = useState<{ key: string; label: string; v: number }[] | null>(null);
+  const [found, setFound] = useState<{ key: string; label: string; v: number; name?: string | null }[] | null>(null);
   const qs = filterQs(now, level);
   useEffect(() => {
     const ctrl = new AbortController();
@@ -548,7 +550,7 @@ function ServerFacet({ c, now, level, onPick }: { c: Ctx; now: AFilters; level: 
       fetch(`/api/uc/articles/rows?size=8${level === "product" ? "&level=product" : ""}${typed.trim() ? `&q=${encodeURIComponent(typed.trim())}` : ""}${qs}`, { signal: ctrl.signal })
         .then((r) => r.json())
         .then((j: { data?: { rows?: (ArticleLine | Bucket)[] } }) => setFound((j?.data?.rows ?? []).map((r) => ("article" in r
-          ? { key: r.article, label: labelOf("article", r.article, r.description), v: r.revenueCy }
+          ? { key: r.article, label: labelOf("article", r.article, r.description), v: r.revenueCy, name: r.description }
           : { key: r.key, label: labelOf("product", r.key, r.name), v: r.cy }))))
         .catch(() => {});
     }, typed ? 300 : 0);
@@ -557,11 +559,17 @@ function ServerFacet({ c, now, level, onPick }: { c: Ctx; now: AFilters; level: 
   const sel = now[level] ?? [];
   const t = TINT[DIM[level].tint];
   const named = level === "product" ? c.x.names.product : c.x.names.article;
-  const row = (key: string, label: string, v: number | null, on: boolean) => (
+  // an article: its number on a line of its own, never cut; its name under it
+  const row = (key: string, label: string, v: number | null, on: boolean, name?: string | null) => (
     <Box key={key} component="button" type="button" onClick={() => onPick(key)} aria-pressed={on} title={label}
       sx={{ display: "grid", gridTemplateColumns: "18px minmax(0, 1fr) 84px", alignItems: "center", gap: 0.75, px: 1, py: 0.5, border: 0, borderRadius: "8px", font: "inherit", textAlign: "left", cursor: "pointer", bgcolor: on ? t.bg : "transparent", "&:hover": { bgcolor: on ? t.bg : "rgba(21,34,58,.04)" } }}>
       {on ? <CheckIcon sx={{ fontSize: 16, color: t.fg }} /> : <span />}
-      <Typography noWrap sx={{ fontSize: "0.82rem", fontWeight: on ? 700 : 500, color: INK }}>{label}</Typography>
+      {level === "article" ? (
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{key}</Typography>
+          {name && <Typography noWrap sx={{ fontSize: "0.74rem", color: MUTED }}>{name}</Typography>}
+        </Box>
+      ) : <Typography noWrap sx={{ fontSize: "0.82rem", fontWeight: on ? 700 : 500, color: INK }}>{label}</Typography>}
       <Typography sx={{ fontSize: "0.76rem", color: MUTED, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{v == null ? "" : eur(v)}</Typography>
     </Box>
   );
@@ -572,8 +580,8 @@ function ServerFacet({ c, now, level, onPick }: { c: Ctx; now: AFilters; level: 
         <SearchIcon sx={{ fontSize: 16, color: MUTED }} />
         <InputBase value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={`Find ${what}`} inputProps={{ "aria-label": `Find ${level === "product" ? "a product" : "an article"} to filter` }} sx={{ fontSize: "0.8rem", flex: 1 }} />
       </Box>
-      {sel.map((k) => row(k, labelOf(level, k, named[k]), null, true))}
-      {(found ?? []).filter((r) => !sel.includes(r.key)).map((r) => row(r.key, r.label, r.v, false))}
+      {sel.map((k) => row(k, labelOf(level, k, named[k]), null, true, named[k]))}
+      {(found ?? []).filter((r) => !sel.includes(r.key)).map((r) => row(r.key, r.label, r.v, false, r.name))}
       <Typography sx={{ fontSize: "0.74rem", color: FAINT, px: 1 }}>{typed.trim() ? "The eight largest that match, under the other filters" : "The eight largest under the other filters - type to find any other"}</Typography>
     </Box>
   );

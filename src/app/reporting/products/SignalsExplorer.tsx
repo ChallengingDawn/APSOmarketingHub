@@ -173,7 +173,10 @@ function namesOf(d: KindData): Names {
 function labelOf(names: Names, dim: FDim, key: string): string {
   if (!key) return DIM[dim].none;
   if (dim === "pc") return pcLabel(key.toLowerCase());
-  if (dim === "article" || dim === "product") { const n = names[dim].get(key); return n ? `${n} · ${key}` : key; }
+  // an article by its number first (SARCLA 01.11.2026 on Articles CY/LY: "it's really important, even on the filter, to bring
+  // the article number") - a long name cut short took the number with it; a product by its name, then its number
+  if (dim === "article") { const n = names.article.get(key); return n ? `${key} · ${n}` : key; }
+  if (dim === "product") { const n = names.product.get(key); return n ? `${n} · ${key}` : key; }
   if (dim === "company") return names.company.get(key) ?? key;
   return key;
 }
