@@ -92,7 +92,8 @@ export async function syncOnce(): Promise<SyncRun> {
       await sleep(PACE_MS);
     }
     contacts = await fillContactCountries();
-    companies = await fillCompanies();
+    // the answers' companies are an extra: a read that fails leaves them for the next run - the answers' run stays good
+    try { companies = await fillCompanies(); } catch (e) { console.warn(`[satisfaction] companies not read this run: ${String((e as Error).message).slice(0, 160)}`); }
     const run: SyncRun = { at, ok: true, read, contacts, companies, cursor: new Date(cursor).toISOString(), done };
     await kvSet(KV.run, run);
     return run;
