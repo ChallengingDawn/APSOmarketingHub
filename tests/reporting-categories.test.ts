@@ -31,9 +31,12 @@ test("a click on a category goes straight into its first report - the overview w
   assert.equal(categoryEntry(categoryBySlug("otd")!), "/reporting/otd");
 });
 
-test("TSA Reports: Customer development at TSA's own address, not ESO's - so the side panel stays TSA's (SARCLA 01.11.2026)", () => {
+test("TSA Reports: Customer development and Shop behaviour at TSA's own addresses, not ESO's - so the side panel stays TSA's (SARCLA 01.11.2026)", () => {
   const tsa = categoryBySlug("tsa")!;
-  assert.deepEqual(tsa.reports.map((r) => [r.name, r.href]), [["Customer development", "/reporting/tsa-benchmark/customers"]]);
+  assert.deepEqual(tsa.reports.map((r) => [r.name, r.href]), [
+    ["Customer development", "/reporting/tsa-benchmark/customers"],
+    ["Shop behaviour", "/reporting/tsa-benchmark/shop"],
+  ]);
   assert.equal(tsa.next, undefined);
   const eso = categoryBySlug("eso")!.reports[0].children!;
   assert.ok(!eso.some((k) => k.href.startsWith("/reporting/tsa-benchmark/")));

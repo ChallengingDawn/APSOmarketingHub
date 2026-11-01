@@ -106,6 +106,8 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     slug: "tsa", name: "TSA Reports", line: "The TSA team's customers - per person, this year against last",
     reports: [
       { name: "Customer development", href: "/reporting/tsa-benchmark/customers", note: "Active, new, reactivated, decreasing and lost customers, opening on TSA", icon: "groups" },
+      // SARCLA 01.11.2026: "shop behaviour is finished - move it to TSA like the other one, keeping it default on TSA"
+      { name: "Shop behaviour", href: "/reporting/tsa-benchmark/shop", note: "Logins, article views and shop orders of the customers, opening on TSA", icon: "inventory" },
     ],
   },
   {

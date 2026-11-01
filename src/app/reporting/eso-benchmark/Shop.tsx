@@ -28,6 +28,10 @@
 // looked at those articles, the orders' the buyers - each list adds up to its chart; the names read once, when a list opens.
 // Since 01.11.2026 the list opens in a window over the page (the shared CompanyList), every column sortable ("tables should
 // be sortable and allow search for a specific company"): the figures by their numbers, the buyer's kind by its orders.
+// 01.11.2026 - the period simply (SARCLA: "this filter makes no sense - we need simply day by day since October and then the
+// filter from Performis"): the live days since 2 Oct (quick picks and a calendar), then the Performis years - no quarters,
+// no long notes. And on TSA Reports too ("move it to TSA like the other one, keeping it default on TSA"): the same page at
+// /reporting/tsa-benchmark/shop, opening on TSA (ShopExplorer home="tsa").
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -66,7 +70,7 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  A, L, P, beforeCounters, blank, blankOrders, buyersOf, dayOf, dayWords, labelOf, lineLabel, lineOf, liveSeries, loggedInList, looksBy, ordersBy, ordersCover, passOf, pcMask, periodFor, periodOf, presetsOf, prevOf, quarterPicks, rangeWords, sameWin, shortDays, statsBy, totalsOf, yearSeries,
+  A, L, P, beforeCounters, blank, blankOrders, buyersOf, dayOf, dayWords, labelOf, lineLabel, lineOf, liveSeries, loggedInList, looksBy, ordersBy, ordersCover, passOf, pcMask, periodFor, periodOf, presetsOf, prevOf, rangeWords, sameWin, shortDays, statsBy, totalsOf, yearSeries,
   type AStats, type LDim, type OStats, type SDim, type SFilters, type SPer, type SStats, type SWin, type Series, type ShopData,
 } from "@/lib/reporting/shopRules";
 import { pcLabel } from "./shared";
@@ -76,7 +80,7 @@ import {
   ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TWO, Teams, asLead, asTeam, axisWidth, leadOf, niceTop, setQuery, useLead, useLeads, useTeam,
   type BoardRow, type Col, type LeadKey, type TeamKey,
 } from "./Figures";
-import { ActiveFilters, PeriodPicker, type ActiveItem, type PeriodChoice } from "./EsoFilters";
+import { ActiveFilters, PeriodPicker, type ActiveItem } from "./EsoFilters";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -146,6 +150,16 @@ const sourceWords = (p: SPer) => (isLive(p.win) ? "the smart bar's live counters
 const peopleOf = (d: ShopData, team: TeamKey, lead: string | null, byId: Record<string, string>) => (team === "total" ? null : new Set(d.people.flatMap((p, i) => (
   p.team === (team === "eso" ? "ESO" : "TSA") && (team !== "eso" || !lead || byId[p.id] === lead) ? [i] : []
 ))));
+/** Where the page sits: ESO Reports, or TSA Reports, where it opens on TSA (SARCLA 01.11.2026: "shop behaviour is
+ *  finished - move it to TSA like the other one, keeping it default on TSA") - the same page, ESO | TSA | Total still on it. */
+export type Home = "eso" | "tsa";
+/** The team shown: on ESO's page the address's, else the one kept across the ESO pages, else ESO; on TSA's the address's,
+ *  else TSA - a click there does not change what the ESO pages open on (as Customer development, 8ebde822). */
+function useHomeTeam(home: Home): [TeamKey, (t: TeamKey) => void] {
+  const params = useSearchParams();
+  const eso = useTeam();
+  return home === "eso" ? eso : [asTeam(params.get("team")) ?? "tsa", (t) => setQuery((q) => q.set("team", t))];
+}
 const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (c.team === "eso" ? (c.lead ? c.teams.find((t) => t.id === c.lead)?.name ?? c.lead : "ESO") : c.team === "tsa" ? "TSA" : "APSOparts");
 
 /* ── what every chart is drawn with ────────────────────────────────────── */
@@ -973,41 +987,28 @@ function YearPick({ p, on, onClick }: { p: SPer; on: boolean; onClick: () => voi
     </Box>
   );
 }
-/** "Q1, Q2 and Q3 2026" - quarters of one year */
-const quarterList = (labels: string[], year: string) => {
-  const q = labels.map((l) => l.replace(/ \d{4}$/, ""));
-  return `${q.length > 1 ? `${q.slice(0, -1).join(", ")} and ${q[q.length - 1]}` : q[0]} ${year}`;
-};
-/** The period, two sources apart as ever: the live counters - their periods, every quarter (one they cannot show greyed
- *  with its reason), a calendar of days from liveFrom to today - and the Performis years, whole years only (the export
- *  has no quarter and no day). One period for the whole page: the shop orders, read by the day, follow it. */
+/** The period, simply (SARCLA 01.11.2026 on the long notes and the greyed quarters: "this filter makes no sense - we need
+ *  simply day by day since October and then the filter from Performis"): the live days since liveFrom - the quick picks
+ *  and a calendar - then the Performis years. One period for the whole page: the shop orders, read by the day, follow it;
+ *  a quarter kept in an address or a saved view still opens (periodOf), it is no longer offered. */
 function SPeriod({ d, per, onPer }: { d: ShopData; per: SPer; onPer: (id: string) => void }) {
-  const all = presetsOf(d), quarters = quarterPicks(d);
+  const all = presetsOf(d);
   const lives = all.filter((p) => isLive(p.win)), years = all.filter((p) => !isLive(p.win));
-  // a pick is on when it is the days shown - two can be (in October the quarter to date is the month to date)
-  const winOf = (id: string) => (lives.find((p) => p.id === id) ?? quarters.find((q) => q.id === id)?.per)?.win;
-  const isOn = (id: string) => { const w = winOf(id); return !!w && sameWin(w, per.win); };
-  const early = quarters.filter((q) => q.off === "early");
-  const qPicks: PeriodChoice[] = quarters.map((q) => ({ id: q.id, label: q.label, disabled: !q.per,
-    title: q.per ? winWords(d, q.per.win) : q.off === "early" ? `No live counters before ${dayWords(d.liveFrom)}` : "Not started yet" }));
+  // a pick is on when it is the days shown
+  const isOn = (id: string) => { const w = lives.find((p) => p.id === id)?.win; return !!w && sameWin(w, per.win); };
   // the calendar holds the live days shown; with a Performis year, every live day (nothing of its own to show)
   const lw = isLive(per.win) ? per.win : null;
   const head = { fontSize: "0.76rem", fontWeight: 700, color: INK } as const;
   const note = { fontSize: "0.74rem", color: MUTED, lineHeight: 1.45 } as const;
   return (
     <Box sx={{ display: "grid", gap: 1 }}>
-      <Typography sx={head}>Live - the smart bar&apos;s counters</Typography>
-      <PeriodPicker quick={lives.map((p) => ({ id: p.id, label: p.label, title: winWords(d, p.win) }))} quarters={qPicks} isOn={isOn} onChoice={onPer}
+      <Typography sx={head}>Day by day - since {dayWords(d.liveFrom)}</Typography>
+      <PeriodPicker quick={lives.map((p) => ({ id: p.id, label: p.label, title: winWords(d, p.win) }))} isOn={isOn} onChoice={onPer}
         unit="day" min={d.liveFrom} max={d.today} from={dayOf(d.liveFrom, lw?.from ?? 0)} to={lw ? dayOf(d.liveFrom, lw.to) : d.today}
-        onRange={(a, b) => { const id = periodFor(d, a, b); if (id) onPer(id); }}
-        note={<>
-          Day by day since {dayWords(d.liveFrom)}, to today so far; a period that begins earlier counts them from then (the shop orders from {d.ordersFrom ? dayWords(d.ordersFrom) : "January of last year"}). The year to date, the month to date and last month are compared with the same days a year earlier - the shop orders have them, the live counters not yet; the last 7 days and 4 weeks, a quarter and days of one&apos;s own with the days right before, once the counters reach back that far.
-          {early.length > 0 && <> {quarterList(early.map((q) => q.label), d.liveFrom.slice(0, 4))} greyed: no live counters before {dayWords(d.liveFrom)}.</>}
-          {!lw && <> A Performis year is shown now - pick live days or a live period to see the counters instead.</>}
-        </>} />
-      <Typography sx={{ ...head, mt: 0.75 }}>Performis - the E-Shop Data Tracker&apos;s export</Typography>
+        onRange={(a, b) => { const id = periodFor(d, a, b); if (id) onPer(id); }} />
+      <Typography sx={{ ...head, mt: 0.75 }}>Performis - by the year</Typography>
       <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap" }}>{years.map((p) => <YearPick key={p.id} p={p} on={p.id === per.id} onClick={() => onPer(p.id)} />)}</Box>
-      <Typography sx={note}>One total per company and year, loaded by hand{d.dtLoaded ? ` - the last on ${dayWords(d.dtLoaded)}, so ${d.dtLoaded.slice(0, 4)} stops there` : ""}. Whole years only - no quarters, no days of its own. A whole year is compared with the year before.</Typography>
+      {d.dtLoaded && <Typography sx={note}>Loaded by hand, the last on {dayWords(d.dtLoaded)}.</Typography>}
     </Box>
   );
 }
@@ -1104,10 +1105,10 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
  *  it is not (or no longer) offered - a month that has not ended, say. */
 const perById = (d: ShopData, id: string | null | undefined) => { const p = periodOf(d, id); if (p) return p; const all = presetsOf(d); return all.find((x) => x.id === DEFAULT_PER) ?? all[0]; };
 
-export function ShopExplorer() {
+export function ShopExplorer({ home = "eso" }: { home?: Home }) {
   const params = useSearchParams();
   const { d, computing, progress, error } = useShop();
-  const [teamKey, setTeam] = useTeam();
+  const [teamKey, setTeam] = useHomeTeam(home);
   const [leadKey, setLead] = useLead();
   const lt = useLeads();
   const teams = lt?.teams ?? [];
@@ -1137,7 +1138,8 @@ export function ShopExplorer() {
   } : null), [d, drawn, teams, acts?.targets]); // eslint-disable-line react-hooks/exhaustive-deps
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
 
-  const back = (
+  // back to ESO's BUC View - TSA Reports has none (its side panel leads back)
+  const back = home === "tsa" ? null : (
     <Box component={Link} href="/reporting/eso-benchmark" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
