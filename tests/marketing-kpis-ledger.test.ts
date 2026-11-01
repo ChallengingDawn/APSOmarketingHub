@@ -88,3 +88,15 @@ test("the month in progress: last year's same month pro rata, as the charts", ()
   assert.equal(p.sum.revPy, Math.round(totals(run.cube, {}, w).revPy));
   assert.equal(p.sum.revPy, 1_000);
 });
+
+test("a column clicked: the list by it, either way, the graph's order among equals (SARCLA 01.11.2026: tables sortable)", () => {
+  const by = (key: "name" | "country" | "rev" | "oi", desc: boolean) => companiesOf(cube, ledger, { filters: {}, win: ytd, by: "all", sort: { key, desc } }).rows.map((r) => r.name);
+  assert.deepEqual(by("name", false), ["Alpha AG", "Beta GmbH", "Delta Ltd", "Epsilon AG", "Gamma SA"]);
+  assert.deepEqual(by("name", true), ["Gamma SA", "Epsilon AG", "Delta Ltd", "Beta GmbH", "Alpha AG"]);
+  // Germany before Switzerland; among each, the graph's order (the largest revenue first)
+  assert.deepEqual(by("country", false), ["Beta GmbH", "Delta Ltd", "Alpha AG", "Gamma SA", "Epsilon AG"]);
+  assert.deepEqual(by("rev", false), ["Delta Ltd", "Epsilon AG", "Gamma SA", "Beta GmbH", "Alpha AG"]);
+  assert.deepEqual(by("oi", true).slice(0, 2), ["Beta GmbH", "Alpha AG"]);
+  // the sums stay the graph's, whatever the order
+  assert.equal(companiesOf(cube, ledger, { filters: {}, win: ytd, by: "rev", sort: { key: "name", desc: true } }).sum.rev, totals(cube, {}, ytd).rev);
+});

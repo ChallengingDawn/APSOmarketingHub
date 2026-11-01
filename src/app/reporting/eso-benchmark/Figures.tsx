@@ -341,10 +341,10 @@ export function CardFilterFor({ filter, children }: { filter: CardFilter | null;
 }
 /** A chart's box, as DimChart's: its title and one line under it, its filter and companies, its Actions at the right. */
 export function ChartBox({ title, hint, actions, children, companies }: { title: string; hint?: string; actions?: React.ReactNode; children: React.ReactNode; companies?: CompanySource | null }) {
-  const list = useChartCompanies(companies);
+  const list = useChartCompanies(companies, title);
   const filter = useContext(FilterCtx);
   return (
-    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start", ...list.wide }}>
+    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start" }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
@@ -494,7 +494,10 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   /** the companies behind the board - its button beside the filter (or a <CompaniesFor> around it) */
   companies?: CompanySource | null;
 }) {
-  const list = useChartCompanies(companies);
+  const list = useChartCompanies(companies, title);
+  // its own filter (its breakdown), or the page's (a board of something not filtered, the profit centres)
+  const around = useContext(FilterCtx);
+  const filter: CardFilter | null = onFilter ? { open: onFilter, label: filterLabel ?? "Filter", on: !!selected?.length } : around;
   const rows = useMemo(() => [...given].sort((a, b) => b.cur - a.cur || b.prev - a.prev || a.label.localeCompare(b.label)), [given]);
   const [all, setAll] = useState(false);
   const [small, setSmall] = useState(!!unranked?.open);
@@ -525,7 +528,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   const pickable = (label: string) => (onPick ? { component: "button" as const, type: "button" as const, onClick: () => onPick(label) } : { component: "div" as const });
   const tipOf = (r: BoardRow) => { const c = change(r); return `${r.label} - ${curLabel}: ${fmt(r.cur)}${noChange ? "" : ` · ${prevLabel}: ${fmt(r.prev)} · ${c.main}${c.second ? ` · ${c.second}` : ""}`}${target ? ` · target ${fmt(target)}` : ""}`; };
   return (
-    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1.25, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start", ...list.wide }}>
+    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1.25, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start" }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
@@ -537,8 +540,8 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
             </Typography>
           )}
         </Box>
-        {onFilter && (
-          <IconButton size="small" aria-label={filterLabel ?? "Filter"} title={filterLabel} onClick={onFilter} sx={{ ...NAV, color: selected?.length ? TINT.blue.fg : MUTED, bgcolor: selected?.length ? TINT.blue.bg : "transparent" }}>
+        {filter && (
+          <IconButton size="small" aria-label={filter.label} title={filter.label} onClick={filter.open} sx={{ ...NAV, color: filter.on ? TINT.blue.fg : MUTED, bgcolor: filter.on ? TINT.blue.bg : "transparent" }}>
             <FilterAltOutlinedIcon sx={{ fontSize: 17 }} />
           </IconButton>
         )}
@@ -1158,17 +1161,18 @@ function PcLegend({ pcs }: { pcs: string[] }) {
 function PcSplitBars({ c, dim, actions }: { c: FigCtx; dim: Dim; actions?: React.ReactNode }) {
   const rows = hasPc(c) ? pcSplit(c, dim) : [];
   const p = usePages(rows, c.half ? 8 : 12);
-  const list = useChartCompanies();
+  const title = `Revenue ${c.per.title} by ${lowerOf(dim)}, split by profit center`;
+  const list = useChartCompanies(undefined, title);
   if (!hasPc(c)) return <PcWaiting />;
   const max = Math.max(1, ...p.slice.map((r) => r.total));
   const pcs = PC_ORDER.filter((pc) => rows.some((r) => r.byPc[pc]));
   const sel = c.filters[dim] ?? [];
   const onPick = c.onBar ? (l: string) => c.onBar!(dim, l) : undefined;
   return (
-    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start", ...list.wide }}>
+    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start" }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>Revenue {c.per.title} by {lowerOf(dim)}, split by profit center</Typography>
+          <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
           <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{[onPick ? "Click a row to show only it" : "", p.pages > 1 ? `${p.range}, largest first` : "", `the change against the same days of ${c.cube.years[1]}`].filter(Boolean).join(" · ")}</Typography>
         </Box>
         <PagerArrows page={p.page} pages={p.pages} setPage={p.setPage} />

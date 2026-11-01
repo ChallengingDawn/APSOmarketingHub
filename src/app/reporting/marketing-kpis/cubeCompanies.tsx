@@ -4,7 +4,7 @@
 // the ESO Figures and New customers hand their graphs these.
 
 import type { Filters, Win } from "@/lib/marketingKpis/cube";
-import type { CompanyBy, CompanyPage } from "@/lib/marketingKpis/ledger";
+import type { CompanyBy, CompanyPage, CompanySort } from "@/lib/marketingKpis/ledger";
 import type { CompanySource } from "@/app/reporting/CompanyList";
 import { change, withChange } from "./ExplorerKit";
 
@@ -33,13 +33,16 @@ export function cubeCompanies(l: CubeList): CompanySource {
   // the figures first, beside the name - a list in half a row shows them without scrolling sideways
   const head = [...(pc ? [rev] : oiFirst ? [oi, rev] : [rev, oi]), "Country", "Company owner", "Performis SAE"];
   const figs = pc ? 1 : 2;
+  // each column's sort on the server, the name first
+  const keys: CompanySort[] = ["name", ...(pc ? ["rev" as const] : oiFirst ? ["oi" as const, "rev" as const] : ["rev" as const, "oi" as const]), "country", "owner", "sae"];
   const body = { filters: l.filters, win: l.win, by: l.by, erp: l.erp ?? null, ids: l.ids ?? [] };
   return {
     key: JSON.stringify({ ...body, at: l.generatedAt }),
-    head, left: [figs + 1, figs + 2, figs + 3],
+    head, left: [figs + 1, figs + 2, figs + 3], sorts: keys.map((_, i) => i),
     note: l.note ?? "Each company's figure, the change against a year earlier under it - the largest first",
-    load: async (page, q) => {
-      const r = await fetch("/api/reporting/marketing-kpis/customers/companies", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, page, q }) });
+    load: async (page, q, sort) => {
+      const by = sort ? { key: keys[sort.col], desc: sort.desc } : null;
+      const r = await fetch("/api/reporting/marketing-kpis/customers/companies", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, page, q, sort: by }) });
       const j = (await r.json().catch(() => ({}))) as Partial<CompanyPage> & { ok?: boolean; pending?: boolean; error?: string };
       if (!r.ok || j.ok === false) throw new Error(j.error ?? `HTTP ${r.status}`);
       if (j.pending) return "pending";

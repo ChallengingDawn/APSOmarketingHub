@@ -85,8 +85,12 @@ export type CompanyQuery = {
   ids?: string[];
   /** part of a name */
   q?: string;
+  /** a column clicked in the list (SARCLA 01.11.2026: "tables should be sortable") - the graph's own order when not */
+  sort?: { key: CompanySort; desc: boolean } | null;
   page?: number; size?: number;
 };
+export const COMPANY_SORTS = ["name", "rev", "revPy", "oi", "oiPy", "country", "owner", "sae", "prio"] as const;
+export type CompanySort = (typeof COMPANY_SORTS)[number];
 export type CompanyLine = { id: string; name: string; owner: string; sae: string; country: string; prio: string; rev: number; revPy: number; oi: number; oiPy: number };
 export type CompanyPage = { total: number; page: number; size: number; rows: CompanyLine[]; sum: { rev: number; revPy: number; oi: number; oiPy: number } };
 
@@ -150,12 +154,22 @@ export function companiesOf(cube: Cube, l: Ledger, q: CompanyQuery): CompanyPage
   const zero = { rev: 0, revPy: 0, oi: 0, oiPy: 0 };
   const key = q.by === "oi" ? "oi" : "rev";
   list.sort((a, b) => ((fig.get(b) ?? zero)[key] - (fig.get(a) ?? zero)[key]) || ((fig.get(b) ?? zero).rev - (fig.get(a) ?? zero).rev) || l.names[a].localeCompare(l.names[b]));
+  const label = (ci: number, d: (typeof DIMS)[number]) => cube.labels[d][cube.cells[ci]?.[DIMS.indexOf(d)]] ?? "Not set";
+  // a column clicked: by it, the graph's order (above) among equals
+  if (q.sort) {
+    const { key: by, desc } = q.sort;
+    const at = new Map(list.map((i, k) => [i, k]));
+    const text = by === "name" ? (i: number) => l.names[i] : by === "country" || by === "owner" || by === "sae" || by === "prio" ? (i: number) => label(l.cells[i], by) : null;
+    const dir = desc ? -1 : 1;
+    list.sort(text
+      ? (a, b) => dir * text(a).localeCompare(text(b), "en", { sensitivity: "base" }) || at.get(a)! - at.get(b)!
+      : (a, b) => dir * ((fig.get(a) ?? zero)[by as "rev"] - (fig.get(b) ?? zero)[by as "rev"]) || at.get(a)! - at.get(b)!);
+  }
   const sum = { rev: 0, revPy: 0, oi: 0, oiPy: 0 };
   for (const i of list) { const f = fig.get(i); if (f) { sum.rev += f.rev; sum.revPy += f.revPy; sum.oi += f.oi; sum.oiPy += f.oiPy; } }
   const size = Math.min(100, Math.max(1, q.size ?? 25));
   const pages = Math.max(1, Math.ceil(list.length / size));
   const page = Math.min(Math.max(0, q.page ?? 0), pages - 1);
-  const label = (ci: number, d: (typeof DIMS)[number]) => cube.labels[d][cube.cells[ci]?.[DIMS.indexOf(d)]] ?? "Not set";
   const rows = list.slice(page * size, page * size + size).map((i) => {
     const f = fig.get(i) ?? zero, ci = l.cells[i];
     return { id: l.ids[i], name: l.names[i], owner: label(ci, "owner"), sae: label(ci, "sae"), country: label(ci, "country"), prio: label(ci, "prio"), rev: f.rev, revPy: Math.round(f.revPy), oi: f.oi, oiPy: Math.round(f.oiPy) };

@@ -600,6 +600,8 @@ function visitedOf(c: VCtx): CompanySource | null {
     rows: companies.map((x) => ({
       id: ids[x.ci] ?? null, name: names[x.ci] ?? `Company ${x.ci + 1}`,
       cells: [x.visits.toLocaleString("en"), dayWords(x.last), eur(c.d.companies[x.ci]?.[CO.revenue] ?? 0), x.people.map((p) => c.d.people[p]?.name ?? "").filter(Boolean).join(", "), countryOf.get(x.ci) ?? "", prioOf.get(x.ci) ?? ""],
+      // the last visit by its day, not its words
+      values: [x.visits, x.last, c.d.companies[x.ci]?.[CO.revenue] ?? 0, null, null, null],
     })),
   };
 }

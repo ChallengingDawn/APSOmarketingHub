@@ -4,13 +4,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { customersCube, customersLedger } from "@/lib/marketingKpis/customers";
-import { companiesOf, type CompanyBy, type CompanyQuery } from "@/lib/marketingKpis/ledger";
+import { COMPANY_SORTS, companiesOf, type CompanyBy, type CompanyQuery, type CompanySort } from "@/lib/marketingKpis/ledger";
 import { DIMS, type Filters } from "@/lib/marketingKpis/cube";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const BY = /^(rev|oi|cust|new|all|pc:[a-z0-9_-]{1,20})$/;
+const sortOf = (v: unknown): CompanyQuery["sort"] => {
+  const o = v as { key?: unknown; desc?: unknown } | null;
+  return o && (COMPANY_SORTS as readonly string[]).includes(String(o.key)) ? { key: o.key as CompanySort, desc: o.desc === true } : null;
+};
 const strings = (v: unknown, max: number) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, max) : []);
 
 export async function POST(req: NextRequest) {
@@ -31,6 +35,7 @@ export async function POST(req: NextRequest) {
       erp: b.erp === "ytd" || b.erp === "mtd" ? b.erp : null,
       ids: strings(b.ids, 50).filter((x) => /^\d+$/.test(x)),
       q: typeof b.q === "string" ? b.q.slice(0, 80) : "",
+      sort: sortOf(b.sort),
       page: Number.isInteger(b.page) ? Number(b.page) : 0, size: 25,
     };
     const cube = (await customersCube()).value;

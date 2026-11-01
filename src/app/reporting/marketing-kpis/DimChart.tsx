@@ -41,7 +41,7 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
   /** the companies behind the chart - its button beside the filter (or a <CompaniesFor> around it) */
   companies?: CompanySource | null;
 }) {
-  const list = useChartCompanies(companies);
+  const list = useChartCompanies(companies, title);
   // a chart ranks by its own figure - companies by companies, revenue by revenue (SARCLA 16.10:
   // "this should follow revenue or customer count on top depending on the value")
   const rows = useMemo(() => (fixedOrder ? given : [...given].sort((a, b) => cur(b) - cur(a) || (b.rev ?? 0) - (a.rev ?? 0) || a.label.localeCompare(b.label))), [given, fixedOrder, cur]);
@@ -56,7 +56,7 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
   const tall = Math.min(rows.length, pageSize);
   const nav = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
   return (
-    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, ...list.wide }}>
+    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0 }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>

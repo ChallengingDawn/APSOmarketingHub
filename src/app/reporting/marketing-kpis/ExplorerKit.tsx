@@ -9,6 +9,8 @@ import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 
 import { Badge, FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 import { fmtValue } from "@/lib/marketingKpis/measures";
@@ -53,7 +55,9 @@ export function Pager({ p }: { p: ReturnType<typeof usePaged<unknown>> }) {
 }
 
 /** A plain table, figures in full (SARCLA: no abbreviations); a row can be picked; a long one goes a page at a time. */
-export function Table({ head, rows: allRows, firstWidth = "minmax(200px, 1.6fr)", widths, minWidth, left = [], pageSize }: {
+/** A table's sorting: the column (the first is 0) and its direction. */
+export type TableSort = { col: number; desc: boolean };
+export function Table({ head, rows: allRows, firstWidth = "minmax(200px, 1.6fr)", widths, minWidth, left = [], pageSize, sortable = [], sort = null, onSort }: {
   head: string[]; rows: { key: string; cells: React.ReactNode[]; strong?: boolean; on?: boolean; onPick?: () => void }[]; firstWidth?: string;
   /** the other columns' widths, when not all the same */
   widths?: string[];
@@ -63,6 +67,9 @@ export function Table({ head, rows: allRows, firstWidth = "minmax(200px, 1.6fr)"
   left?: number[];
   /** the rows a page shows - all of them when not given */
   pageSize?: number;
+  /** the columns a click on their name sorts by (SARCLA 01.11.2026: "tables should be sortable"), the sort shown, the click -
+   *  the rows come sorted: the table only draws the arrow */
+  sortable?: number[]; sort?: TableSort | null; onSort?: (col: number) => void;
 }) {
   const paged = usePaged(allRows, pageSize);
   const rows = paged.shown;
@@ -73,7 +80,20 @@ export function Table({ head, rows: allRows, firstWidth = "minmax(200px, 1.6fr)"
       {/* the cells stretch to their row, so a row's line runs straight across */}
       <Box sx={{ display: "grid", gridTemplateColumns: cols, minWidth: minWidth ?? 220 + (head.length - 1) * 115, alignItems: "stretch" }}>
         {/* keyed by place: two columns may share a name ("A year earlier"), and same-named keys let React drop or move a cell - the grid then shifts (ESO Figures, 24.10.2026) */}
-        {head.map((h, i) => <Typography key={`${i}-${h}`} sx={{ display: "flex", alignItems: "flex-end", justifyContent: right(i) ? "flex-end" : "flex-start", fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: right(i) ? "right" : "left", pb: 0.75, px: 0.75, borderBottom: `1px solid ${HAIRLINE}` }}>{h}</Typography>)}
+        {head.map((h, i) => {
+          const sx = { display: "flex", alignItems: "flex-end", justifyContent: right(i) ? "flex-end" : "flex-start", fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: right(i) ? "right" : "left", pb: 0.75, px: 0.75, borderBottom: `1px solid ${HAIRLINE}` } as const;
+          if (!onSort || !sortable.includes(i)) return <Typography key={`${i}-${h}`} sx={sx}>{h}</Typography>;
+          const on = sort?.col === i;
+          const Arrow = on && !sort!.desc ? ArrowUpwardIcon : ArrowDownwardIcon;
+          // the arrow in the line of the name, on its inner side - beside the words when they wrap
+          const arrow = <Arrow className="sort-arrow" sx={{ fontSize: 12, verticalAlign: "-2px", mx: 0.25, opacity: on ? 1 : 0, transition: "opacity .12s" }} />;
+          return (
+            <Typography key={`${i}-${h}`} component="button" type="button" onClick={() => onSort(i)} aria-sort={on ? (sort!.desc ? "descending" : "ascending") : "none"} title={`Sort by ${h.toLowerCase()}`}
+              sx={{ ...sx, flexDirection: "column", alignItems: right(i) ? "flex-end" : "flex-start", justifyContent: "flex-end", border: 0, borderBottom: sx.borderBottom, bgcolor: "transparent", fontFamily: "inherit", cursor: "pointer", color: on ? INK : FAINT, "&:hover": { color: INK }, "&:hover .sort-arrow": { opacity: 1 } }}>
+              <span>{right(i) && arrow}{h}{!right(i) && arrow}</span>
+            </Typography>
+          );
+        })}
         {rows.map((r) => (
           <Box key={r.key} role={r.onPick ? "button" : undefined} tabIndex={r.onPick ? 0 : undefined} aria-pressed={r.onPick ? !!r.on : undefined}
             onClick={r.onPick} onKeyDown={r.onPick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); r.onPick!(); } } : undefined}
