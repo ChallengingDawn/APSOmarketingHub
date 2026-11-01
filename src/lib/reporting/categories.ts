@@ -187,9 +187,10 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     reports: [
       {
         name: "Product KPIs", href: "/uc/articles", note: "Every article, what customers looked for and did not get", icon: "bar",
+        // Articles CY/LY first - the report's own page, as Customer KPIs' Customer base; its address unchanged (it came from
+        // UC & HubSpot Apps)
+        overview: "Articles CY/LY", overviewHref: "/uc/articles",
         children: [
-          // Articles CY/LY first, its address unchanged (it came from UC & HubSpot Apps)
-          { name: "Articles CY/LY", href: "/uc/articles", icon: "bar" },
           // what the shop saw a customer try and not get (shopSignals.ts)
           { name: "Availability", href: "/reporting/products/availability", icon: "inventory" },
           { name: "Price checks", href: "/reporting/products/price-checks", icon: "tag" },

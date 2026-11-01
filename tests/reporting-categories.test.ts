@@ -95,8 +95,9 @@ test("Customer Reports: one report, Customer KPIs - Customer base its own page, 
 test("Products Reports: one report, Product KPIs - Articles CY/LY first, then a page each for what customers looked for and did not get (SARCLA 01.11.2026: \"we should really create subtabs\", \"all by sub app\")", () => {
   const products = categoryBySlug("products")!;
   assert.equal(products.reports.length, 1);
+  assert.equal(products.reports[0].overview, "Articles CY/LY");
+  assert.equal(products.reports[0].overviewHref, "/uc/articles");
   assert.deepEqual(products.reports[0].children!.map((r) => [r.name, r.href]), [
-    ["Articles CY/LY", "/uc/articles"],
     ["Availability", "/reporting/products/availability"],
     ["Price checks", "/reporting/products/price-checks"],
     ["Minimum order", "/reporting/products/minimum-order"],
