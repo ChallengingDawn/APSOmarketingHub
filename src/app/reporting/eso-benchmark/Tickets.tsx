@@ -494,7 +494,7 @@ function drawnBare(id: string): Drawn | undefined {
   if (v === "potential" && chart === "funnel") {
     const title = (c: TCtx) => `The potential, from coming in to won, ${P(c)}${teamPart(c)}`;
     return { id, title, draw: (c, a) => (
-      <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each ticket's Sales potential estimate (EUR) as the Ticket value app sets it, by how sure it is · what came in, what was closed with a resolution, what was won · ${GROUP[c.group].won}`} actions={a}>
+      <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each ticket's Sales potential estimate (EUR) as the Ticket value app sets it · what came in, how much of it is closed, how much was won - and what dropped out on the way · confidence: how sure the Ticket value app is of each step's euros · ${GROUP[c.group].won}`} actions={a}>
         <ChartFrame table={{ columns: ["Step", "Tickets", "Potential", "High", "Medium", "Low", "Of what came in"], rows: potentialTables.funnel(totalOf(c)), numeric: [1, 2, 3, 4, 5, 6] }} empty={totalOf(c).tickets ? null : "No tickets for this choice."}>
           <PotentialFunnel s={totalOf(c)} />
         </ChartFrame>

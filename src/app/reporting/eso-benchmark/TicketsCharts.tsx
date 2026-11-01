@@ -15,6 +15,7 @@ import MenuItem from "@mui/material/MenuItem";
 import SearchIcon from "@mui/icons-material/Search";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 
 import { FAINT, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { StackedColumns } from "@/app/charts/StackedColumns";
@@ -265,48 +266,89 @@ function ConfLegend({ none }: { none?: number }) {
     </Box>
   );
 }
-/** A bar of potential, split by how sure it is - the share of each written in it where it fits. */
+/** A bar of potential, split by how sure it is - no figure written in it (SARCLA 01.11.2026: a share in the bar beside a
+ *  share of something else is "not understandable"); each part's EUR on hover, the legend below names the colours. */
 function ConfBar({ parts, width, height = 40, label }: { parts: number[]; width: number; height?: number; label: string }) {
   const all = sum(parts.slice(0, NO_VALUE));
   return (
     <Box role="img" aria-label={label} sx={{ width: `${width * 100}%`, minWidth: all > 0 ? 6 : 0, height, display: "flex", gap: "2px", borderRadius: "8px", overflow: "hidden", transition: "width .3s" }}>
-      {CONFS.map((c, i) => {
-        const sh = all ? parts[i] / all : 0;
-        return parts[i] > 0 && (
-          <Box key={c} title={`${c} confidence: ${eur(parts[i])} · ${pct(sh)}`} sx={{ flex: `${parts[i]} 0 0`, minWidth: 3, bgcolor: CONF_COLORS[i], display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {sh * width >= 0.12 && <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: i < 2 ? "#fff" : INK, whiteSpace: "nowrap" }}>{Math.round(sh * 100)}%</Typography>}
-          </Box>
-        );
-      })}
+      {CONFS.map((c, i) => parts[i] > 0 && (
+        <Box key={c} title={`${c} confidence: ${eur(parts[i])} · ${pct(all ? parts[i] / all : null)}`} sx={{ flex: `${parts[i]} 0 0`, minWidth: 3, bgcolor: CONF_COLORS[i] }} />
+      ))}
     </Box>
   );
 }
-/** The potential's funnel: what came in, what was closed with a resolution, what was won - each step's EUR by how sure it
- *  is, centred as a funnel, and its share of what came in. */
-export function PotentialFunnel({ s }: { s: TStats }) {
-  const tot = s.pot.map((p) => sum(p));
-  if (!s.tickets) return null;
+/** The funnel's three steps and what leaves between them - the potential (EUR), the tickets, and how sure each step is by
+ *  confidence. Closed = every closed ticket (won, lost, closed otherwise or without a resolution); what drops out on the
+ *  way: still open, then closed without an order. */
+export function funnelSteps(s: TStats) {
+  const came = s.pot[0], won = s.pot[VSTEPS.length - 1];
+  const closed = came.map((v, c) => v - s.potOpen[c]);
+  return {
+    steps: [
+      { label: "Came in", value: sum(came), n: s.tickets, conf: came, color: SEQUENTIAL[2] },
+      { label: "Closed", value: sum(closed), n: s.closed, conf: closed, color: SEQUENTIAL[4] },
+      { label: "Won", value: sum(won), n: s.won, conf: won, color: STANDING.won.color },
+    ],
+    out: [
+      { label: "still open - in the pipeline", value: sum(s.potOpen), n: s.open },
+      { label: "closed without an order - lost, or closed otherwise", value: sum(closed) - sum(won), n: s.closed - s.won },
+    ],
+  };
+}
+/** How sure a step's potential is, in words: "High 42% · Medium 10% · Low 48%". */
+function ConfWords({ conf }: { conf: number[] }) {
+  const all = sum(conf.slice(0, NO_VALUE));
+  if (!all) return null;
   return (
-    <Box sx={{ display: "grid", gap: 1.25, containerType: "inline-size" }}>
-      {VSTEPS.map((step, i) => {
-        const n = sum(s.potN[i]), valued = n - s.potN[i][NO_VALUE];
-        return (
-          <Box key={step} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.5, "@container (min-width: 640px)": { gridTemplateColumns: "190px minmax(0, 1fr) 150px", alignItems: "center", gap: 1.5 } }}>
+    <Box sx={{ display: "flex", gap: 1.25, flexWrap: "wrap", alignItems: "center" }}>
+      <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>Confidence:</Typography>
+      {CONFS.map((c, i) => (
+        <Box key={c} title={`${c} confidence: ${eur(conf[i])}`} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: CONF_COLORS[i] }} />
+          <Typography sx={{ fontSize: "0.72rem", color: INK, fontVariantNumeric: "tabular-nums" }}>{c} {Math.round((conf[i] / all) * 100)}%</Typography>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+/** The potential's funnel (SARCLA 01.11.2026 on the first drawing: "really not understandable - present the funnel
+ *  otherwise"): came in, closed, won - one plain bar each, its EUR and tickets written beside it, its share of what came in,
+ *  what drops out between the steps, and how sure each step is in words. */
+export function PotentialFunnel({ s }: { s: TStats }) {
+  if (!s.tickets) return null;
+  const { steps, out } = funnelSteps(s);
+  const top = steps[0].value || 1;
+  return (
+    <Box sx={{ display: "grid", gap: 0.5, containerType: "inline-size" }}>
+      {steps.map((x, i) => (
+        <Box key={x.label} sx={{ display: "grid", gap: 0.5 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.75, "@container (min-width: 640px)": { gridTemplateColumns: "150px minmax(0, 1fr) 190px", alignItems: "center", gap: 1.75 } }}>
             <Box>
-              <Typography sx={{ fontSize: "0.88rem", fontWeight: 650, color: INK }}>{step}</Typography>
-              <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{int(n)} tickets · {int(valued)} with a value</Typography>
+              <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{x.label}</Typography>
+              <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{int(x.n)} tickets</Typography>
             </Box>
-            <Box sx={{ display: "grid", justifyItems: "center", gap: 0.4 }}>
-              <ConfBar parts={s.pot[i]} width={tot[0] ? tot[i] / tot[0] : 0} label={`${step}: ${eur(tot[i])}`} />
+            <Box sx={{ display: "grid", justifyItems: "center", gap: 0.6 }}>
+              <Box role="img" aria-label={`${x.label}: ${eur(x.value)}, ${int(x.n)} tickets`}
+                sx={{ width: `${Math.max(4, (x.value / top) * 100)}%`, height: 34, borderRadius: "8px", bgcolor: x.color, transition: "width .3s" }} />
+              <ConfWords conf={x.conf} />
             </Box>
             <Box sx={{ textAlign: "right", "@container (max-width: 639px)": { textAlign: "left" } }}>
-              <Typography sx={{ fontSize: "1.02rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{eur(tot[i])}</Typography>
-              <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{i === 0 ? "of potential came in" : `${pct(tot[0] ? tot[i] / tot[0] : null)} of what came in`}</Typography>
+              <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{eur(x.value)}</Typography>
+              <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{i === 0 ? "the whole potential" : `${pct(x.value / top)} of what came in`}</Typography>
             </Box>
           </Box>
-        );
-      })}
-      <ConfLegend none={s.potN[0][NO_VALUE]} />
+          {out[i] && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, py: 0.75, pl: { xs: 0, sm: 2 }, color: MUTED }}>
+              <ArrowDownwardIcon sx={{ fontSize: 16 }} />
+              <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+                <b style={{ color: INK, fontVariantNumeric: "tabular-nums" }}>{eur(out[i].value)}</b> {out[i].label} · {int(out[i].n)} tickets
+              </Typography>
+            </Box>
+          )}
+        </Box>
+      ))}
+      {!!s.potN[0][NO_VALUE] && <Typography sx={{ mt: 1, fontSize: "0.74rem", color: FAINT }}>{int(s.potN[0][NO_VALUE])} of the tickets have no value yet - counted in the tickets, not in the euros</Typography>}
     </Box>
   );
 }
@@ -395,7 +437,13 @@ export function ConfPanel({ s }: { s: TStats }) {
 }
 /** The graphs' tables: the funnel, the open pipeline by stage, the confidences. */
 export const potentialTables = {
-  funnel: (s: TStats) => VSTEPS.map((step, i) => [step, sum(s.potN[i]), eur(sum(s.pot[i])), ...CONFS.map((_, c) => eur(s.pot[i][c])), pct(sum(s.pot[0]) ? sum(s.pot[i]) / sum(s.pot[0]) : null)]),
+  funnel: (s: TStats) => {
+    const { steps, out } = funnelSteps(s), top = steps[0].value;
+    return [
+      ...steps.flatMap((x, i) => [[x.label, x.n, eur(x.value), ...CONFS.map((_, c) => eur(x.conf[c])), pct(top ? x.value / top : null)],
+        ...(out[i] ? [[`- ${out[i].label}`, out[i].n, eur(out[i].value), "", "", "", pct(top ? out[i].value / top : null)]] : [])]),
+    ];
+  },
   pipeline: (d: TicketsData, s: TStats) => Object.keys(s.potStageN).map(Number).sort((a, b) => (a < 0 ? 1e6 : a) - (b < 0 ? 1e6 : b))
     .map((k) => [k < 0 ? "Unknown stage" : d.labels.stage?.[k] ?? "Unknown stage", sum(s.potStageN[k]), eur(sum(s.potStage[k])), ...CONFS.map((_, c) => eur(s.potStage[k][c]))]),
   conf: (s: TStats) => [...CONFS.map((c, i) => [c, i] as const), ["No value", NO_VALUE] as const].map(([c, i]) => [c, s.potN[0][i], eur(s.pot[0][i]), pct(s.tickets ? s.potN[0][i] / s.tickets : null), s.confWon[i], s.confResolved[i], pct(s.confResolved[i] ? s.confWon[i] / s.confResolved[i] : null)]),
