@@ -51,6 +51,17 @@ export function summitOf(
   return { history, base, current, cagr, path, gap, progress };
 }
 
+/**
+ * Ahead, on or behind the path this year. Within 0.05 M€ either way is "on the path": a gap that rounds to
+ * 0.0 M€ read "Behind by 0.0 M€" in amber (SARCLA 01.11.2026, the live card).
+ */
+export const ON_PATH_EUR = 50_000;
+export type Standing = "ahead" | "on" | "behind";
+export function standingOf(gap: number | null): Standing | null {
+  if (gap == null) return null;
+  return Math.abs(gap) < ON_PATH_EUR ? "on" : gap > 0 ? "ahead" : "behind";
+}
+
 /** "19.4 M€" - millions with one decimal, the way the plan writes its goal. */
 export const mEur = (v: number) => `${(v / 1_000_000).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} M€`;
 export const pct1 = (f: number) => `${f >= 0 ? "+" : "−"}${Math.abs(f * 100).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;

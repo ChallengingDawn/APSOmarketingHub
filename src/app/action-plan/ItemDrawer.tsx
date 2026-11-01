@@ -117,7 +117,7 @@ export function ItemDrawer({ item, rolled, subs, canWrite, people, peopleError, 
                   const c = STATE_COLOR[s];
                   return (
                     <Box key={s} component="button" type="button" disabled={!canWrite} onClick={() => !on && save({ state: s })}
-                      sx={{ border: `1px solid ${on ? c.bar : HAIRLINE}`, bgcolor: on ? c.bar : "#fff", color: on ? "#fff" : MUTED, font: "inherit", fontSize: "0.82rem", fontWeight: 700, px: 1.3, py: 0.45, borderRadius: 99, cursor: canWrite ? "pointer" : "default" }}>
+                      sx={{ border: `1px solid ${on ? c.bar : HAIRLINE}`, bgcolor: on ? c.bar : "#fff", color: on ? "#fff" : MUTED, font: "inherit", fontSize: "0.82rem", fontWeight: 700, px: 1.3, py: 0.45, borderRadius: "4px", cursor: canWrite ? "pointer" : "default" }}>
                       {STATE_LABEL[s]}
                     </Box>
                   );
@@ -146,7 +146,7 @@ export function ItemDrawer({ item, rolled, subs, canWrite, people, peopleError, 
                 {!subs.length && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>None yet. A sub-action can be added here or from a KPI tile&apos;s Actions{item.dg ? ", with its Scroll to Sale ticket" : ""}.</Typography>}
                 {subs.map((s) => (
                   <Box key={s.id} sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>
-                    <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: SUB_COLOR[s.status].bar, flexShrink: 0 }} />
+                    <Box sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: SUB_COLOR[s.status].bar, flexShrink: 0 }} />
                     <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.86rem", color: INK, textDecoration: s.status === "done" ? "line-through" : "none" }} noWrap>{s.title}</Typography>
                     {s.kpiHref && <Box component="a" href={s.kpiHref} title="Made on a KPI tile - open it" sx={{ color: TINT.blue.fg, display: "flex" }}><FlagOutlinedIcon sx={{ fontSize: 16 }} /></Box>}
                     <Typography sx={{ fontSize: "0.76rem", color: FAINT, flexShrink: 0 }}>{[s.ownerName, dmy(s.due)].filter(Boolean).join(" · ")}</Typography>

@@ -6,7 +6,7 @@ import {
   codesOf, isDigitalGrowth, ownersFromCodes, parseDue, percentOf, planFromSeed, reorder, rollup, stateOf, stateOfPercent, titleOf,
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
-import { SUMMIT, summitOf } from "../src/lib/reporting/summitRules";
+import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
 
 // SARCLA 31.10.2026: the "APSOparts Business Improvement Action Plan" workbook's first tab as a Gantt in the hub,
 // by topic, sub-actions from the KPI tiles, Scroll to Sale tickets only for Digital Growth's actions; the home
@@ -177,4 +177,12 @@ test("summit: the climb from the last full year to 30 M€ in 2031, this year as
   // the running year's own "full year" row never becomes the base
   assert.equal(summitOf([...full, { year: 2026, value: 15_000_000 }], null, 2026).base!.year, 2025);
   assert.equal(summitOf([], null, 2026).base, null);
+});
+
+test("summit: within 0.05 M€ of the path is on it - never \"behind by 0.0 M€\"", () => {
+  assert.equal(standingOf(-40_000), "on");
+  assert.equal(standingOf(49_999), "on");
+  assert.equal(standingOf(-50_000), "behind");
+  assert.equal(standingOf(700_000), "ahead");
+  assert.equal(standingOf(null), null);
 });

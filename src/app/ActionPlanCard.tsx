@@ -12,7 +12,7 @@ import Typography from "@mui/material/Typography";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import { SummitMountain, useSummit } from "./action-plan/Summit";
-import { SUMMIT, mEur, pct1 } from "@/lib/reporting/summitRules";
+import { SUMMIT, mEur, pct1, standingOf } from "@/lib/reporting/summitRules";
 
 const INK = "#15223a";
 const FAINT = "#8b97ac";
@@ -21,8 +21,8 @@ const BLUE = "#3461c9";
 export default function ActionPlanCard({ glass, focusRing }: { glass: object; focusRing: object }) {
   const { data: s } = useSummit();
   const due = s?.current ? s.path.find((p) => p.year === s.current!.year) : undefined;
-  const ahead = s?.gap == null || s.gap >= 0;
-  const tone = !s?.current ? "#6d5bd0" : ahead ? "#1b7a55" : "#a96a12";
+  // on the path (within 0.05 M€) counts as green, like ahead
+  const tone = !s?.current ? "#6d5bd0" : standingOf(s.gap) === "behind" ? "#a96a12" : "#1b7a55";
   return (
     <Box component={Link} href="/action-plan" sx={{
       ...glass, borderRadius: "22px", p: { xs: 2, md: 2.5 }, position: "relative", overflow: "hidden",

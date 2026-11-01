@@ -1,10 +1,11 @@
 "use client";
 // THE GANTT (SARCLA 31.10.2026: "I need to create a Gantt here like I showed you in the photo" - Planner's
 // Gantt chart). Left, the tree: task name, start, due, % complete, assigned to - dates and % typed in the
-// cell. Right, the time line: a dark bracket over a topic or group from its first to its last date, a bar
-// for an action with a start and a due (its done part filled), a diamond for one with only a due, a dot
-// per sub-action. Rows are dragged by their handle onto another topic or group; bars are dragged to move
-// their dates, or by their right end to change the due. The two halves scroll together.
+// cell, every column resized by its edge, the four after the name folded away by the name's button. Right,
+// the time line in the main category's colour: a bracket over a topic or group from its first to its last
+// date, a bar for an action with a start and a due (its done part solid), a diamond for one with only a due,
+// a square per sub-action. Rows are dragged by their handle onto another topic or group; bars are dragged to
+// move their dates, or by their right end to change the due. The two halves scroll together.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -15,11 +16,14 @@ import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import AddIcon from "@mui/icons-material/Add";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
+import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
+import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 
 import { FAINT, HAIRLINE, INK, MUTED, TINT } from "@/app/uc/report/ui";
 import type { PlanItem, PlanSub, Rolled } from "@/lib/reporting/actionPlanRules";
 import { isLate } from "@/lib/reporting/actionPlanRules";
-import { LATE, STATE_COLOR, SUB_COLOR, SUMMARY, dayOf, dmy, isoOf } from "./planUi";
+import { SUMMIT } from "@/lib/reporting/summitRules";
+import { LATE, SUMMARY, dayOf, dmy, isoOf } from "./planUi";
 
 export const ROW = 34;
 const HEAD = 52;
@@ -33,32 +37,101 @@ export type GRow =
 
 export type Where = "into" | "before";
 
-const COLS = "22px minmax(300px, 1fr) 88px 88px 84px 124px";
-const GRID_MIN = 22 + 300 + 88 + 88 + 84 + 124;
+/** The columns: the handle, the name (sized to what is open), and - unless folded away - start, due, %, who. */
+const DETAIL = [88, 88, 84, 124];
+/** "#3b6fe0" at a given opacity, for the lighter bars of actions not done yet. */
+const alpha = (hex: string, a: number) => `${hex}${Math.round(a * 255).toString(16).padStart(2, "0")}`;
+/** A tag: square corners (SARCLA 01.11.2026: "tags not round, square"). */
+const TAG = { flexShrink: 0, px: 0.6, borderRadius: "3px", fontSize: "0.66rem", fontWeight: 800, lineHeight: "17px" } as const;
 
-export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onPatch, canDrop, onDrop, height }: {
+/**
+ * The width the names need, as the browser will draw them - so the table grows and shrinks with what is opened
+ * and closed (SARCLA 01.11.2026: "the table should evolve depending on collapsible, not predefined").
+ */
+function useNameWidth(rows: GRow[], rolled: Map<number, Rolled>, today: string): number {
+  return useMemo(() => {
+    if (typeof document === "undefined") return 360;
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (!ctx) return 360;
+    const family = getComputedStyle(document.body).fontFamily || "Inter, sans-serif";
+    const measure = (text: string, weight: number, size: number) => { ctx.font = `${weight} ${size}px ${family}`; return ctx.measureText(text).width; };
+    let need = 260;
+    for (const r of rows) {
+      const indent = 6 + r.depth * 18 + 24;
+      if (r.type === "sub") { need = Math.max(need, indent + 20 + 17 + measure(r.sub.title, 400, 13.4) + 50); continue; }
+      const it = r.item, ro = rolled.get(it.id);
+      // the goal's sentence is the page's headline: its row may cut it short rather than widen every row
+      if (it.kind === "goal") continue;
+      const [w, size] = it.kind === "topic" ? [800, 13.4] : it.kind === "group" ? [700, 13.8] : [500, 13.8];
+      let chips = it.kind === "topic" ? 16 : 0;
+      if (it.kind === "action" && /^\d$/.test(it.priority)) chips += 26;
+      if (it.kind === "action" && it.dg) chips += 26;
+      if (it.kind === "action" && isLate(it, today)) chips += 40;
+      if (it.kind !== "action" && (ro?.late ?? 0) > 0) chips += 52;
+      if (it.kind === "action" && (ro?.subs ?? 0) > 0) chips += 50;
+      need = Math.max(need, indent + chips + measure(it.title, w, size) + 16);
+    }
+    // never more than 40 % of the window, so the time line keeps room on a laptop
+    return Math.round(Math.min(760, Math.max(360, window.innerWidth * 0.4), need));
+  }, [rows, rolled, today]);
+}
+
+export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onPatch, canDrop, onDrop, height, colorOf, compact, onCompact }: {
   rows: GRow[]; rolled: Map<number, Rolled>; today: string; zoom: Zoom; canWrite: boolean;
   collapsed: Set<string>; toggle: (key: string) => void; selected: number | null;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void;
   onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent">>) => Promise<void>;
   canDrop: (drag: GRow, target: GRow, where: Where) => boolean;
   onDrop: (drag: GRow, target: GRow, where: Where) => Promise<void>;
+  /** the most it takes; with fewer rows open it is as tall as they are */
   height: number | string;
+  /** a main category's colour, carried by everything under it (SARCLA 01.11.2026: "Gantt colours per project"); null for the goal */
+  colorOf: (item: PlanItem) => string | null;
+  /** start, due, % and who folded away, the names alone */
+  compact: boolean; onCompact: () => void;
 }) {
   const left = useRef<HTMLDivElement>(null);
   const right = useRef<HTMLDivElement>(null);
-  // the names want the room, the time line too: the task list starts at about three fifths of the width, and
-  // the line between the halves moves (kept per viewer)
   const box = useRef<HTMLDivElement>(null);
-  const [leftW, setLeftW] = useState(760);
+  // the table takes the width its columns add up to: the name column sized to the open rows (until someone drags
+  // it, and again after the next fold or unfold), the others as wide as the viewer last dragged them (SARCLA
+  // 01.11.2026: "columns should also be resizable")
+  const autoName = useNameWidth(rows, rolled, today);
+  const [nameManual, setNameManual] = useState<number | null>(null);
+  useEffect(() => { setNameManual(null); }, [rows.length, compact]);
+  const [detailW, setDetailW] = useState<number[]>(DETAIL);
   useEffect(() => {
-    let saved = 0;
-    try { saved = Number(window.localStorage.getItem("actionPlan.leftW")); } catch { /* default */ }
-    if (saved >= 360 && saved <= 1400) setLeftW(saved);
-    else if (box.current) setLeftW(Math.round(Math.max(640, Math.min(1180, box.current.clientWidth * 0.6))));
+    try {
+      const v = JSON.parse(window.localStorage.getItem("actionPlan.cols") ?? "null");
+      if (Array.isArray(v) && v.length === DETAIL.length && v.every((n) => typeof n === "number" && n >= 48 && n <= 400)) setDetailW(v);
+    } catch { /* the defaults */ }
   }, []);
+  const nameW = nameManual ?? autoName;
+  const leftW = 22 + nameW + (compact ? 0 : detailW.reduce((s, w) => s + w, 0)) + 2;
+  const COLS = compact ? `22px ${nameW}px` : `22px ${nameW}px ${detailW.map((w) => `${w}px`).join(" ")}`;
+  const GRID_MIN = leftW;
+  /** Drag a column's right edge: 0 is the name, 1-4 start, due, % and who. */
+  const startColResize = (e: React.PointerEvent, col: number) => {
+    e.preventDefault(); e.stopPropagation();
+    const x0 = e.clientX, w0 = col === 0 ? nameW : detailW[col - 1];
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    let last = detailW;
+    const move = (ev: PointerEvent) => {
+      const w = Math.round(col === 0 ? Math.max(200, Math.min(900, w0 + ev.clientX - x0)) : Math.max(48, Math.min(400, w0 + ev.clientX - x0)));
+      if (col === 0) setNameManual(w);
+      else setDetailW((d) => { last = d.map((x, k) => (k === col - 1 ? w : x)); return last; });
+    };
+    const up = () => {
+      el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up);
+      if (col > 0) { try { window.localStorage.setItem("actionPlan.cols", JSON.stringify(last)); } catch { /* the defaults next time */ } }
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+  };
 
-  // the time line: a month before the first date to two after the last, today always on it
+  // the time line: a month before the first date, and on to the end of the goal's year at least (SARCLA
+  // 01.11.2026: "the calendar stops at 2028"), today always on it
   const span = useMemo(() => {
     const ds: number[] = [dayOf(today)];
     for (const r of rows) {
@@ -68,7 +141,8 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
     const lo = new Date(Math.min(...ds) * 86_400_000), hi = new Date(Math.max(...ds) * 86_400_000);
     const start = Math.round(Date.UTC(lo.getUTCFullYear(), lo.getUTCMonth() - 1, 1) / 86_400_000);
     const end = Math.round(Date.UTC(hi.getUTCFullYear(), hi.getUTCMonth() + 3, 0) / 86_400_000);
-    return { start, end: Math.max(end, start + 180) };
+    const goalEnd = Math.round(Date.UTC(SUMMIT.year, 11, 31) / 86_400_000);
+    return { start, end: Math.max(end, goalEnd, start + 180) };
   }, [rows, rolled, today]);
   const px = PX[zoom];
   const X = (iso: string) => (dayOf(iso) - span.start) * px;
@@ -150,37 +224,43 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
     el.addEventListener("pointerup", up);
   };
 
-  const startResize = (e: React.PointerEvent) => {
-    e.preventDefault();
-    const x0 = e.clientX, w0 = leftW;
-    const el = e.currentTarget as HTMLElement;
-    el.setPointerCapture(e.pointerId);
-    let w = w0;
-    const move = (ev: PointerEvent) => { w = Math.max(360, Math.min(1400, w0 + ev.clientX - x0)); setLeftW(w); };
-    const up = () => {
-      el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up);
-      try { window.localStorage.setItem("actionPlan.leftW", String(w)); } catch { /* default next time */ }
-    };
-    el.addEventListener("pointermove", move);
-    el.addEventListener("pointerup", up);
-  };
+  // the line between the halves widens or narrows the name column
+  const startResize = (e: React.PointerEvent) => startColResize(e, 0);
+  const heads = compact ? ["", "Task name"] : ["", "Task name", "Start", "Due", "% complete", "Assigned to"];
 
   const todayX = X(today);
   const bodyH = rows.length * ROW;
+  // as tall as the open rows (and the scroll bar), up to the screen (SARCLA 01.11.2026: "the table should evolve
+  // depending on the collapsible rows, not predefined")
+  const fitH = `min(${HEAD + Math.max(2, rows.length) * ROW + 20}px, ${typeof height === "number" ? `${height}px` : height})`;
 
   return (
-    <Box ref={box} sx={{ display: "flex", height, minHeight: 320, border: `1px solid ${HAIRLINE}`, borderRadius: "16px", overflow: "hidden", bgcolor: "#fff" }}>
+    <Box ref={box} sx={{ display: "flex", height: fitH, minHeight: HEAD + ROW * 2 + 20, border: `1px solid ${HAIRLINE}`, borderRadius: "16px", overflow: "hidden", bgcolor: "#fff" }}>
       {/* ── the tree ── */}
       <Box ref={left} onWheel={wheel}
         sx={{ width: { xs: "100%", md: leftW }, flexShrink: 0, overflowX: "scroll", overflowY: { xs: "auto", md: "hidden" } }}>
         <Box sx={{ minWidth: GRID_MIN }}>
           <Box sx={{ position: "sticky", top: 0, zIndex: 2, display: "grid", gridTemplateColumns: COLS, height: HEAD, alignItems: "end", bgcolor: "#f7f9fc", borderBottom: `1px solid ${HAIRLINE}` }}>
-            {["", "Task name", "Start", "Due", "% complete", "Assigned to"].map((h, i) => (
-              <Typography key={i} sx={{ px: 1, pb: 0.75, fontSize: "0.7rem", fontWeight: 700, lineHeight: 1.2, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", borderLeft: i > 1 ? `1px solid ${HAIRLINE}` : "none", alignSelf: "stretch", display: "flex", alignItems: "flex-end" }}>{h}</Typography>
+            {heads.map((h, i) => (
+              <Box key={i} sx={{ position: "relative", px: 1, pb: 0.75, borderLeft: i > 1 ? `1px solid ${HAIRLINE}` : "none", alignSelf: "stretch", display: "flex", alignItems: "flex-end", gap: 0.5, minWidth: 0 }}>
+                <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, lineHeight: 1.2, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", flex: 1, minWidth: 0 }}>{h}</Typography>
+                {/* fold the date, % and who columns away, or back */}
+                {i === 1 && (
+                  <Tooltip title={compact ? "Show start, due, % complete and assigned to" : "Fold away start, due, % complete and assigned to"}>
+                    <Box component="button" type="button" onClick={onCompact} aria-label={compact ? "Show the columns" : "Fold the columns away"} aria-pressed={!compact}
+                      sx={{ border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", borderRadius: "3px", width: 22, height: 20, p: 0, display: "grid", placeItems: "center", cursor: "pointer", color: MUTED, mb: "-2px" }}>
+                      {compact ? <KeyboardDoubleArrowRightIcon sx={{ fontSize: 15 }} /> : <KeyboardDoubleArrowLeftIcon sx={{ fontSize: 15 }} />}
+                    </Box>
+                  </Tooltip>
+                )}
+                {/* drag the right edge to resize the column */}
+                {i > 0 && <Box onPointerDown={(e: React.PointerEvent) => startColResize(e, i - 1)} role="separator" aria-orientation="vertical" aria-label={`Resize ${h}`}
+                  sx={{ position: "absolute", right: -4, top: 0, bottom: 0, width: 8, cursor: "col-resize", zIndex: 3, "&:hover": { bgcolor: "rgba(36,89,209,.18)" } }} />}
+              </Box>
             ))}
           </Box>
           {rows.map((r) => (
-            <TreeRow key={r.key} r={r} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
+            <TreeRow key={r.key} r={r} cols={COLS} compact={compact} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
               selected={r.type === "item" && r.item.id === selected} onOpen={onOpen} onSubs={onSubs} onPatch={onPatch}
               dragging={drag?.key === r.key} over={over?.key === r.key ? over.where : null}
               draggable={canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group")))}
@@ -233,21 +313,26 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
                 const to = rolled.get(r.item.id)?.to;
                 if (!from || !to) return null;
                 const x = X(from), w = Math.max(px, X(to) - x + px);
+                const c = colorOf(r.item) ?? SUMMARY;
                 return (
-                  <Box key={`b${r.key}`} title={`${dmy(from)} – ${dmy(to)}`} sx={{ position: "absolute", left: x, top: cy - 4, width: w, height: 6, bgcolor: SUMMARY, borderRadius: "1px", zIndex: 2,
-                    "&::before, &::after": { content: '""', position: "absolute", top: 0, borderTop: `7px solid ${SUMMARY}`, borderLeft: "4px solid transparent", borderRight: "4px solid transparent" },
+                  <Box key={`b${r.key}`} title={`${dmy(from)} – ${dmy(to)}`} sx={{ position: "absolute", left: x, top: cy - 4, width: w, height: 6, bgcolor: c, borderRadius: "1px", zIndex: 2,
+                    "&::before, &::after": { content: '""', position: "absolute", top: 0, borderTop: `7px solid ${c}`, borderLeft: "4px solid transparent", borderRight: "4px solid transparent" },
                     "&::before": { left: -4, top: 4 }, "&::after": { right: -4, top: 4 } }} />
                 );
               }
               if (r.type === "sub") {
                 if (!r.sub.due) return null;
-                const c = SUB_COLOR[r.sub.status];
-                return <Box key={`s${r.key}`} title={`${r.sub.title} · ${dmy(r.sub.due)}`} onClick={() => onSubs(r.parent)}
-                  sx={{ position: "absolute", left: X(r.sub.due) + px / 2 - 5, top: cy - 5, width: 10, height: 10, borderRadius: "50%", bgcolor: c.bar, border: "2px solid #fff", boxShadow: `0 0 0 1px ${c.bar}`, cursor: "pointer", zIndex: 2 }} />;
+                // the project's colour: filled when done, a ring while open
+                const c = colorOf(r.parent) ?? SUMMARY;
+                const done = r.sub.status === "done";
+                return <Box key={`s${r.key}`} title={`${r.sub.title} · ${dmy(r.sub.due)}${done ? " · done" : ""}`} onClick={() => onSubs(r.parent)}
+                  sx={{ position: "absolute", left: X(r.sub.due) + px / 2 - 5, top: cy - 5, width: 10, height: 10, borderRadius: "2px", bgcolor: done ? c : r.sub.status === "doing" ? alpha(c, 0.45) : "#fff", border: `2px solid ${c}`, cursor: "pointer", zIndex: 2 }} />;
               }
               const it = r.item;
               const ro = rolled.get(it.id);
-              const st = STATE_COLOR[it.state ?? "none"];
+              // the project's colour, its done part solid; on hold paler still
+              const c = colorOf(it) ?? SUMMARY;
+              const st = { bar: c, soft: alpha(c, it.state === "hold" ? 0.12 : 0.22) };
               const late = isLate(it, today);
               const dx = bar?.id === it.id ? bar.dx : 0;
               const tip = [it.title, it.start ? `${dmy(it.start)} – ${dmy(it.due)}` : it.due ? `due ${dmy(it.due)}` : "", ro?.percent != null ? `${ro.percent} %` : "", late ? "late" : ""].filter(Boolean).join(" · ");
@@ -272,7 +357,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
                   <Tooltip key={`a${r.key}`} title={tip} placement="top" disableInteractive>
                     <Box onPointerDown={(e) => startBarDrag(e, it, "due")}
                       sx={{ position: "absolute", left: X(it.due) + px / 2 - 7 + dx, top: cy - 7, width: 14, height: 14, transform: "rotate(45deg)", borderRadius: "2px",
-                        bgcolor: st.bar, border: `2px solid ${late ? LATE : "#fff"}`, boxShadow: `0 0 0 1px ${late ? LATE : st.bar}`, cursor: canWrite ? "grab" : "pointer", zIndex: 3, touchAction: "none" }} />
+                        bgcolor: it.state === "done" ? st.bar : alpha(c, 0.4), border: `2px solid ${late ? LATE : "#fff"}`, boxShadow: `0 0 0 1px ${late ? LATE : st.bar}`, cursor: canWrite ? "grab" : "pointer", zIndex: 3, touchAction: "none" }} />
                   </Tooltip>
                 );
               }
@@ -292,8 +377,9 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
 
 /* ── a row of the tree ─────────────────────────────────────────────────── */
 
-function TreeRow({ r, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onPatch, dragging, over, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
-  r: GRow; rolled: Map<number, Rolled>; today: string; canWrite: boolean; folded: boolean; toggle: (key: string) => void; selected: boolean;
+function TreeRow({ r, cols, compact, color, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onPatch, dragging, over, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
+  r: GRow; cols: string; compact: boolean; color: string | null;
+  rolled: Map<number, Rolled>; today: string; canWrite: boolean; folded: boolean; toggle: (key: string) => void; selected: boolean;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void;
   onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent">>) => Promise<void>;
   dragging: boolean; over: Where | null; draggable: boolean;
@@ -308,7 +394,7 @@ function TreeRow({ r, rolled, today, canWrite, folded, toggle, selected, onOpen,
     </Box>
   );
   const base = {
-    display: "grid", gridTemplateColumns: COLS, height: ROW, alignItems: "center", borderBottom: "1px solid rgba(21,34,58,.06)",
+    display: "grid", gridTemplateColumns: cols, height: ROW, alignItems: "center", borderBottom: "1px solid rgba(21,34,58,.06)",
     bgcolor: selected ? "rgba(36,89,209,.06)" : over === "into" ? TINT.blue.bg : "transparent", opacity: dragging ? 0.4 : 1,
     boxShadow: over === "before" ? `inset 0 2px 0 ${TINT.blue.fg}` : "none", position: "relative",
     "&:hover": { bgcolor: selected ? "rgba(36,89,209,.08)" : "rgba(21,34,58,.025)" }, "&:hover .add": { opacity: 1 },
@@ -320,24 +406,25 @@ function TreeRow({ r, rolled, today, canWrite, folded, toggle, selected, onOpen,
     </Box>
   ) : <Box />;
 
-
   if (r.type === "sub") {
     const s = r.sub;
-    const c = SUB_COLOR[s.status];
+    const c = color ?? SUMMARY;
     const late = s.status !== "done" && !!s.due && s.due < today;
     return (
       <Box sx={{ ...base, cursor: "pointer" }} onClick={() => onSubs(r.parent)}>
         <Box />
         <Box sx={{ ...cell, borderLeft: "none", pl: `${indent + 20}px`, gap: 0.75 }}>
-          <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: c.bar, flexShrink: 0 }} />
+          <Box sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: s.status === "done" ? c : s.status === "doing" ? alpha(c, 0.45) : "#fff", border: `1.5px solid ${c}`, flexShrink: 0 }} />
           <Typography noWrap sx={{ fontSize: "0.84rem", color: MUTED, textDecoration: s.status === "done" ? "line-through" : "none" }}>{s.title}</Typography>
           {s.kpiTile && <Tooltip title="Made on a KPI tile"><FlagOutlinedIcon sx={{ fontSize: 15, color: TINT.blue.fg, flexShrink: 0 }} /></Tooltip>}
           {s.tickets > 0 && <Tooltip title={`${s.tickets} Scroll to Sale ticket${s.tickets === 1 ? "" : "s"}`}><Box sx={{ display: "flex", alignItems: "center", gap: 0.25, color: TINT.amber.fg, flexShrink: 0 }}><ConfirmationNumberOutlinedIcon sx={{ fontSize: 15 }} /><Typography sx={{ fontSize: "0.72rem", fontWeight: 700 }}>{s.tickets}</Typography></Box></Tooltip>}
         </Box>
-        <Box sx={cell} />
-        <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: late ? LATE : MUTED, fontWeight: late ? 700 : 400 }}>{dmy(s.due)}</Typography></Box>
-        <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{s.status === "done" ? "100 %" : s.status === "doing" ? "50 %" : "0 %"}</Typography></Box>
-        <Box sx={cell}><Typography noWrap sx={{ fontSize: "0.8rem", color: MUTED }}>{s.ownerName}</Typography></Box>
+        {!compact && <>
+          <Box sx={cell} />
+          <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: late ? LATE : MUTED, fontWeight: late ? 700 : 400 }}>{dmy(s.due)}</Typography></Box>
+          <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{s.status === "done" ? "100 %" : s.status === "doing" ? "50 %" : "0 %"}</Typography></Box>
+          <Box sx={cell}><Typography noWrap sx={{ fontSize: "0.8rem", color: MUTED }}>{s.ownerName}</Typography></Box>
+        </>}
       </Box>
     );
   }
@@ -357,26 +444,28 @@ function TreeRow({ r, rolled, today, canWrite, folded, toggle, selected, onOpen,
       {handle}
       <Box sx={{ ...cell, borderLeft: "none", pl: `${indent}px`, gap: 0.5 }}>
         {caret(r.hasKids)}
+        {/* the project's colour, as its bars carry it */}
+        {it.kind === "topic" && color && <Box aria-hidden sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: color, flexShrink: 0, mr: 0.25 }} />}
         {it.kind === "action" && it.priority && /^\d$/.test(it.priority) && (
-          <Box sx={{ flexShrink: 0, px: 0.6, borderRadius: "6px", fontSize: "0.68rem", fontWeight: 800, lineHeight: "17px", bgcolor: it.priority === "1" ? "#fde7e7" : it.priority === "2" ? "#fdf0dc" : "#eef1f6", color: it.priority === "1" ? LATE : it.priority === "2" ? "#a96a12" : MUTED }}>P{it.priority}</Box>
+          <Box sx={{ ...TAG, fontSize: "0.68rem", bgcolor: it.priority === "1" ? "#fde7e7" : it.priority === "2" ? "#fdf0dc" : "#eef1f6", color: it.priority === "1" ? LATE : it.priority === "2" ? "#a96a12" : MUTED }}>P{it.priority}</Box>
         )}
         <Tooltip title={it.detail && it.detail !== it.title ? <Box sx={{ whiteSpace: "pre-wrap", fontSize: "0.8rem", maxHeight: 320, overflow: "hidden" }}>{it.detail}</Box> : ""} placement="bottom-start" enterDelay={600} disableInteractive>
           <Typography noWrap sx={{ ...name, minWidth: 0 }}>{it.title}</Typography>
         </Tooltip>
-        {it.kind === "action" && it.dg && <Tooltip title="Led by Digital Growth - its sub-actions can take a Scroll to Sale ticket"><Box sx={{ flexShrink: 0, px: 0.6, borderRadius: "6px", fontSize: "0.66rem", fontWeight: 800, lineHeight: "17px", bgcolor: TINT.blue.bg, color: TINT.blue.fg }}>DG</Box></Tooltip>}
-        {late && <Box sx={{ flexShrink: 0, px: 0.6, borderRadius: "6px", fontSize: "0.66rem", fontWeight: 800, lineHeight: "17px", bgcolor: "#fde7e7", color: LATE }}>LATE</Box>}
-        {summary && (ro?.late ?? 0) > 0 && <Tooltip title={`${ro!.late} action${ro!.late === 1 ? "" : "s"} past due`}><Box sx={{ flexShrink: 0, px: 0.6, borderRadius: "6px", fontSize: "0.66rem", fontWeight: 800, lineHeight: "17px", bgcolor: "#fde7e7", color: LATE }}>{ro!.late} late</Box></Tooltip>}
+        {it.kind === "action" && it.dg && <Tooltip title="Led by Digital Growth - its sub-actions can take a Scroll to Sale ticket"><Box sx={{ ...TAG, bgcolor: TINT.blue.bg, color: TINT.blue.fg }}>DG</Box></Tooltip>}
+        {late && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>LATE</Box>}
+        {summary && (ro?.late ?? 0) > 0 && <Tooltip title={`${ro!.late} action${ro!.late === 1 ? "" : "s"} past due`}><Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>{ro!.late} late</Box></Tooltip>}
         <Box sx={{ flex: 1 }} />
         {it.kind === "action" && canWrite && (
           <Tooltip title="Sub-actions">
             <Box component="button" type="button" className="add" aria-label="Sub-actions" onClick={(e: React.MouseEvent) => { e.stopPropagation(); onSubs(it); }}
-              sx={{ opacity: (ro?.subs ?? 0) > 0 ? 1 : 0, transition: "opacity .15s", flexShrink: 0, display: "flex", alignItems: "center", gap: 0.25, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", borderRadius: 99, px: 0.75, height: 22, cursor: "pointer", color: MUTED, font: "inherit", fontSize: "0.72rem", fontWeight: 700 }}>
+              sx={{ opacity: (ro?.subs ?? 0) > 0 ? 1 : 0, transition: "opacity .15s", flexShrink: 0, display: "flex", alignItems: "center", gap: 0.25, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", borderRadius: "4px", px: 0.75, height: 22, cursor: "pointer", color: MUTED, font: "inherit", fontSize: "0.72rem", fontWeight: 700 }}>
               <AddIcon sx={{ fontSize: 15 }} />{(ro?.subs ?? 0) > 0 ? `${ro!.subs - ro!.subsOpen}/${ro!.subs}` : ""}
             </Box>
           </Tooltip>
         )}
       </Box>
-      {summary ? (
+      {compact ? null : summary ? (
         <>
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: FAINT }}>{dmy(ro?.from ?? null)}</Typography></Box>
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: FAINT }}>{dmy(ro?.to ?? null)}</Typography></Box>

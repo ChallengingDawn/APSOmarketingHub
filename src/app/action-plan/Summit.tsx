@@ -9,7 +9,7 @@ import { useEffect, useId, useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 
-import { SUMMIT, mEur, pct1, type Summit } from "@/lib/reporting/summitRules";
+import { SUMMIT, mEur, pct1, standingOf, type Summit } from "@/lib/reporting/summitRules";
 
 export type SummitData = Summit & { generatedAt: string };
 
@@ -41,7 +41,8 @@ const BEHIND = "#a96a12";
 /* ── mountain 8, "Snow cap" (SARCLA 01.11.2026 picked it from 30 designs) ─────────────────────────
    A rock peak drawn from the figures: its ridge is the full years, then the path's years up to the
    summit; everything above the path's 2029 value is snow; the history drawn solid, the climb dashed;
-   the dot is this year's estimate, green ahead of the path, amber behind. */
+   the dot is this year's estimate, green on or ahead of the path, amber behind. Since 01.11.2026 the ridge starts
+   at the base year: one climb, no earlier peaks. */
 type Pt = [number, number];
 const r1 = (n: number) => Math.round(n * 10) / 10;
 const pt = (p: Pt) => `${r1(p[0])},${r1(p[1])}`;
@@ -96,20 +97,20 @@ export function SummitMountain({ s, mode }: { s: SummitData | null; mode: "card"
     );
   }
 
-  // the figures in M€: the last five full years, the path from the base year to the summit, this year
+  // the figures in M€: the path from the last full year to the summit, and this year. One climb from the base -
+  // the earlier years drew a tall narrow peak (2022) that SARCLA found obscene on the live card (01.11.2026)
   const M = 1_000_000;
-  const H = s.history.filter((h) => h.year > s.base!.year - 5).map((h) => [h.year, h.value / M] as Pt);
   const P = s.path.map((p) => [p.year, p.value / M] as Pt);
   const N: Pt = s.current ? [s.current.year, s.current.estimate / M] : [s.base.year, s.base.value / M];
-  const t0 = H[0][0], t1 = SUMMIT.year, v1 = SUMMIT.value / M;
-  const v0 = Math.max(0, Math.floor(Math.min(...H.map((h) => h[1]), ...P.map((q) => q[1])) - 5));
+  const t0 = s.base.year, t1 = SUMMIT.year, v1 = SUMMIT.value / M;
+  const v0 = Math.max(0, Math.floor(Math.min(N[1], ...P.map((q) => q[1])) - 5));
   const X = (t: number) => L.x0 + ((t - t0) * (L.x1 - L.x0)) / (t1 - t0);
   const Y = (v: number) => L.yb - ((v - v0) * (L.yb - L.yt)) / (v1 - v0);
   const XY = (q: Pt): Pt => [X(q[0]), Y(q[1])];
 
   // the ridge runs through this year's own figure, so the dot sits on the line (SARCLA 01.11.2026: "the circle is
   // not aligned with the line" - it ran through the path's value for this year); the path takes over after it
-  const data = (s.current ? [...H, N, ...P.filter((q) => q[0] > N[0])] : [...H, ...P.slice(1)]).map(XY);
+  const data = (s.current ? [P[0], N, ...P.filter((q) => q[0] > N[0])] : P).map(XY);
   const top = data[data.length - 1];
   const back: Pt[] = [[top[0] + 24, top[1] + 38], [top[0] + 44, top[1] + 62], [top[0] + 70, top[1] + 78]];
   const crest: Pt[] = [[L.x0 - 60, L.base - 2], [L.x0 - 28, L.yb - 22], ...data, ...back];
@@ -117,8 +118,7 @@ export function SummitMountain({ s, mode }: { s: SummitData | null; mode: "card"
   // solid up to where we are, dashed from there to the summit
   const xBase = X(N[0]);
   const now = XY(N);
-  const ahead = s.gap == null || s.gap >= 0;
-  const st = ahead ? GOOD : BEHIND;
+  const st = standingOf(s.gap) === "behind" ? BEHIND : GOOD;
 
   // the snow: everything above the path's value three steps before the summit (26 M€ on today's path)
   const snowV = Math.round(P[Math.max(0, P.length - 3)][1]);
@@ -128,7 +128,7 @@ export function SummitMountain({ s, mode }: { s: SummitData | null; mode: "card"
   for (let x = right - 6, j = 0; x > snowL + 6; x -= 7, j++) snow += `L${r1(x)},${r1(sy + (j % 2 ? -3 : 3.5))}`;
   snow += `L${r1(snowL)},${r1(sy)}Z`;
   const xSnow = xAtY(data, sy);
-  const ridges = ([[1, 26, 40], [6, 18, 34], [8, 14, 26], [3, 20, 30]] as const)
+  const ridges = ([[1, 26, 40], [4, 18, 34], [2, 20, 30]] as const)
     .filter(([i]) => i < data.length)
     .map(([i, dx, dy]) => `M${r1(data[i][0])},${r1(data[i][1] + 4)}q${r1(dx * 0.3)},${r1(dy * 0.5)} ${dx},${dy}`);
   const ft = top[1] - 24;
@@ -177,7 +177,7 @@ export function SummitMountain({ s, mode }: { s: SummitData | null; mode: "card"
 export function SummitFigures({ s }: { s: SummitData }) {
   if (!s.base) return null;
   const due = s.current ? s.path.find((p) => p.year === s.current!.year) : undefined;
-  const ahead = s.gap == null || s.gap >= 0;
+  const standing = standingOf(s.gap);
   const cell = (label: string, value: string, note: string, tone?: string) => (
     <Box sx={{ minWidth: 0 }}>
       <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#8b97ac" }}>{label}</Typography>
@@ -189,10 +189,10 @@ export function SummitFigures({ s }: { s: SummitData }) {
     <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(4, minmax(0, 1fr))" } }}>
       {cell(`${s.base.year}`, mEur(s.base.value), "The last full year: where the climb starts")}
       {s.current
-        ? cell(`${s.current.year}, expected`, mEur(s.current.estimate), `${s.base.year} moved by ${s.current.monthsLabel} ${pct1(s.current.change)} on last year`, ahead ? GOOD : BEHIND)
+        ? cell(`${s.current.year}, expected`, mEur(s.current.estimate), `${s.base.year} moved by ${s.current.monthsLabel} ${pct1(s.current.change)} on last year`, standing === "behind" ? BEHIND : GOOD)
         : cell("This year", "—", "No like-for-like months yet")}
       {due
-        ? cell(`On the path in ${due.year}`, mEur(due.value), s.gap == null ? "" : `${s.gap >= 0 ? "Ahead" : "Behind"} by ${mEur(Math.abs(s.gap))}`)
+        ? cell(`On the path in ${due.year}`, mEur(due.value), s.gap == null ? "" : standing === "on" ? "On the path" : `${standing === "ahead" ? "Ahead" : "Behind"} by ${mEur(Math.abs(s.gap))}`)
         : cell("On the path", "—", "")}
       {cell(`${SUMMIT.value / 1_000_000} M€ by ${SUMMIT.year}`, s.cagr == null ? "—" : pct1(s.cagr), "The growth it takes, every year")}
     </Box>

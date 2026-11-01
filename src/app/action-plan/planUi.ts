@@ -15,6 +15,12 @@ export const STATE_COLOR: Record<PlanState | "none", { bar: string; soft: string
   none: { bar: "#b9c3d3", soft: "#eef1f6", ink: "#5d6b85" },
 };
 export const SUB_COLOR = { open: STATE_COLOR.todo, doing: STATE_COLOR.doing, done: STATE_COLOR.done } as const;
+/**
+ * One colour per main category, in the workbook's order - its bracket, its actions' bars and its sub-actions all
+ * carry it (SARCLA 01.11.2026: "Gantt colours per project"). The hub's tint inks, then a teal and an orange; none
+ * is the late red.
+ */
+export const PROJECT_COLORS = ["#2459d1", "#1b7a55", "#6a46c9", "#a96a12", "#b63a76", "#0f7f8c", "#c0581f", "#4a5a70"] as const;
 export const LATE = "#c5221f";
 export const SUMMARY = "#2b3550";
 

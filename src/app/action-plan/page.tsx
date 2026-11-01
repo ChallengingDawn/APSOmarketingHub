@@ -27,12 +27,17 @@ import { STATE_LABEL, isLate, reorder, rollup, type PlanFields, type PlanItem, t
 import { Gantt, type GRow, type Where, type Zoom } from "./Gantt";
 import { ItemDrawer } from "./ItemDrawer";
 import { SummitFigures, SummitMountain, useSummit } from "./Summit";
-import { LATE, STATE_COLOR, readPref, send, todayIso, writePref, type PlanData } from "./planUi";
+import { LATE, PROJECT_COLORS, STATE_COLOR, readPref, send, todayIso, writePref, type PlanData } from "./planUi";
 
+// square, as the tags (SARCLA 01.11.2026: "tags not round, square")
 const chip = (on: boolean, color: string = TINT.blue.fg, soft: string = TINT.blue.bg) => ({
   border: `1px solid ${on ? color : HAIRLINE}`, bgcolor: on ? soft : "#fff", color: on ? color : MUTED,
-  font: "inherit", fontSize: "0.8rem", fontWeight: on ? 700 : 600, px: 1.2, py: 0.4, borderRadius: 99, cursor: "pointer", whiteSpace: "nowrap" as const,
+  font: "inherit", fontSize: "0.8rem", fontWeight: on ? 700 : 600, px: 1.2, py: 0.4, borderRadius: "4px", cursor: "pointer", whiteSpace: "nowrap" as const,
 });
+
+/** Every row closed but the goal: the main categories alone (SARCLA 01.11.2026: "default close all"). */
+const foldKeys = (items: PlanItem[], subs: { item: number }[]) =>
+  items.filter((i) => i.kind !== "goal" && (i.kind !== "action" || subs.some((s) => s.item === i.id))).map((i) => `i${i.id}`);
 
 /** The filter's choice for the actions nobody has been given to yet. */
 const NOBODY = "__nobody";
@@ -46,30 +51,32 @@ function ActionPlan() {
   const today = useMemo(() => todayIso(), []);
   const { data: summit, error: summitErr } = useSummit();
 
+  // the viewer's own settings (the page is drawn in the browser only, so they are read before the first draw).
+  // By default months and every main category closed (SARCLA 01.11.2026: "default calendar per month, default
+  // close all") - under new keys, so the weeks and the open tree saved before do not win over them
+  const [zoom, setZoom] = useState<Zoom>(() => readPref<Zoom>("zoom.v2", "month"));
+  const savedFold = useRef(readPref<string[] | null>("collapsed.v2", null));
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(savedFold.current ?? []));
+  const [compact, setCompact] = useState(() => readPref<boolean>("compact", false));
+  const toggle = (key: string) => setCollapsed((c) => {
+    const n = new Set(c);
+    if (n.has(key)) n.delete(key); else n.add(key);
+    writePref("collapsed.v2", [...n]);
+    return n;
+  });
+
   const load = useCallback(async () => {
     try {
       const r = await fetch("/api/action-plan");
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) throw new Error(j?.error ?? `the hub answered ${r.status}`);
       setData({ canWrite: !!j.canWrite, items: j.items, subs: j.subs, people: j.people ?? [], peopleError: j.peopleError ?? null });
+      // nothing saved yet: closed, in the same draw as the plan, so it never shows open first
+      if (savedFold.current == null) { savedFold.current = []; setCollapsed(new Set(foldKeys(j.items, j.subs))); }
       setError(null);
     } catch (e) { setError((e as Error).message); }
   }, []);
   useEffect(() => { void load(); }, [load]);
-
-  // the viewer's own settings
-  const [zoom, setZoom] = useState<Zoom>("week");
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    setZoom(readPref<Zoom>("zoom", "week"));
-    setCollapsed(new Set(readPref<string[]>("collapsed", [])));
-  }, []);
-  const toggle = (key: string) => setCollapsed((c) => {
-    const n = new Set(c);
-    if (n.has(key)) n.delete(key); else n.add(key);
-    writePref("collapsed", [...n]);
-    return n;
-  });
 
   // filters
   const [q, setQ] = useState("");
@@ -83,6 +90,21 @@ function ActionPlan() {
   const items = useMemo(() => data?.items ?? [], [data]);
   const subs = useMemo(() => data?.subs ?? [], [data]);
   const rolled = useMemo(() => rollup(items, subs, today), [items, subs, today]);
+  // each main category's colour, carried by everything under it; the goal has none
+  const colors = useMemo(() => {
+    const byId = new Map(items.map((i) => [i.id, i]));
+    const topics = items.filter((i) => i.kind === "topic").sort((a, b) => a.sort - b.sort || a.id - b.id);
+    const own = new Map(topics.map((t, k) => [t.id, PROJECT_COLORS[k % PROJECT_COLORS.length] as string]));
+    const out = new Map<number, string>();
+    for (const i of items) {
+      for (let p: PlanItem | undefined = i, n = 0; p && n < 12; p = p.parentId != null ? byId.get(p.parentId) : undefined, n++) {
+        const c = own.get(p.id);
+        if (c) { out.set(i.id, c); break; }
+      }
+    }
+    return out;
+  }, [items]);
+  const colorOf = useCallback((i: PlanItem) => colors.get(i.id) ?? null, [colors]);
   // the people actions are given to, for the filter
   const owners = useMemo(() => {
     const m = new Map<string, string>();
@@ -212,12 +234,9 @@ function ActionPlan() {
     try { await send(`/api/action-plan?id=${i.id}`, "DELETE"); closeRow(); await load(); } catch (e) { setNote(`Not removed: ${(e as Error).message}`); }
   };
   const foldAll = (fold: boolean) => {
-    const keys = fold
-      ? items.filter((i) => i.kind !== "goal" && (i.kind !== "action" || subs.some((s) => s.item === i.id))).map((i) => `i${i.id}`)
-      : [];
-    const n = new Set(keys);
-    writePref("collapsed", keys);
-    setCollapsed(n);
+    const keys = fold ? foldKeys(items, subs) : [];
+    writePref("collapsed.v2", keys);
+    setCollapsed(new Set(keys));
   };
 
   const goal = items.find((i) => i.kind === "goal");
@@ -228,26 +247,29 @@ function ActionPlan() {
       {/* an application of its own: the hub's bar, no panel - the whole width is the plan's */}
       <HomeBar on="Action plan" />
 
-      {/* the first statement on top (SARCLA 01.11.2026) */}
-      <Box sx={{ pt: 0.5 }}>
-        <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: FAINT }}>Action plan</Typography>
-        <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontSize: { xs: "1.5rem", md: "1.9rem" }, fontWeight: 650, letterSpacing: "-0.025em", lineHeight: 1.2, color: INK, mt: 0.5, maxWidth: "70ch" }}>
-          {statement[0] ?? "APSOparts Business Improvement Action Plan"}
-        </Typography>
-        {statement.length > 1 && (
-          <Box sx={{ display: "grid", gap: 0.6, mt: 1, maxWidth: "110ch" }}>
-            {statement.slice(1).map((l, k) => (
-              <Typography key={k} sx={{ fontSize: "0.92rem", color: MUTED, lineHeight: 1.5 }}>{l}</Typography>
-            ))}
+      {/* the goal's statement, where we stand and the climb - one block (SARCLA 01.11.2026: "this text should be
+          included on the graph, only one block") */}
+      <GlassCard sx={{ display: "grid", gap: { xs: 2, lg: 3.5 }, alignItems: "end", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 1fr) 600px" } }}>
+        <Box sx={{ minWidth: 0, display: "grid", gap: 2.25 }}>
+          <Box>
+            <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: FAINT }}>Action plan</Typography>
+            <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontSize: { xs: "1.45rem", md: "1.8rem" }, fontWeight: 650, letterSpacing: "-0.025em", lineHeight: 1.2, color: INK, mt: 0.5, maxWidth: "62ch", textWrap: "balance" }}>
+              {statement[0] ?? "APSOparts Business Improvement Action Plan"}
+            </Typography>
+            {statement.length > 1 && (
+              <Box sx={{ display: "grid", gap: 0.6, mt: 1, maxWidth: "100ch" }}>
+                {statement.slice(1).map((l, k) => (
+                  <Typography key={k} sx={{ fontSize: "0.9rem", color: MUTED, lineHeight: 1.5 }}>{l}</Typography>
+                ))}
+              </Box>
+            )}
           </Box>
-        )}
-      </Box>
-
-      {/* where we stand on the climb */}
-      <GlassCard sx={{ display: "grid", gap: 2.5, alignItems: "center", gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1fr) 600px" } }}>
-        {summit?.base ? <SummitFigures s={summit} /> : (
-          <Typography sx={{ fontSize: "0.9rem", color: summitErr ? RED : MUTED }}>{summitErr ? `The revenue could not be read: ${summitErr}` : "Reading the revenue…"}</Typography>
-        )}
+          <Box sx={{ borderTop: `1px solid ${HAIRLINE}`, pt: 2 }}>
+            {summit?.base ? <SummitFigures s={summit} /> : (
+              <Typography sx={{ fontSize: "0.9rem", color: summitErr ? RED : MUTED }}>{summitErr ? `The revenue could not be read: ${summitErr}` : "Reading the revenue…"}</Typography>
+            )}
+          </Box>
+        </Box>
         <Box sx={{ justifySelf: { lg: "end" }, width: "100%", maxWidth: 600 }}>
           <SummitMountain s={summit} mode="band" />
         </Box>
@@ -262,7 +284,7 @@ function ActionPlan() {
           <Box component="span" sx={{ color: MUTED, fontWeight: 500 }}> · {counts.undated} without a due date</Box>
         </Typography>
         <Box sx={{ flex: 1 }} />
-        <ToggleButtonGroup size="small" exclusive value={zoom} onChange={(_, v: Zoom | null) => { if (v) { setZoom(v); writePref("zoom", v); } }} aria-label="Time scale"
+        <ToggleButtonGroup size="small" exclusive value={zoom} onChange={(_, v: Zoom | null) => { if (v) { setZoom(v); writePref("zoom.v2", v); } }} aria-label="Time scale"
           sx={{ display: { xs: "none", md: "flex" }, "& .MuiToggleButton-root": { textTransform: "none", fontWeight: 650, fontSize: "0.8rem", px: 1.4, py: 0.45 } }}>
           <ToggleButton value="week">Weeks</ToggleButton>
           <ToggleButton value="month">Months</ToggleButton>
@@ -288,7 +310,7 @@ function ActionPlan() {
           const c = STATE_COLOR[s];
           return (
             <Box key={s} component="button" type="button" aria-pressed={states.includes(s)} onClick={() => setStates((x) => (x.includes(s) ? x.filter((y) => y !== s) : [...x, s]))} sx={chip(states.includes(s), c.ink, c.soft)}>
-              <Box component="span" sx={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", bgcolor: c.bar, mr: 0.6 }} />
+              <Box component="span" sx={{ display: "inline-block", width: 8, height: 8, borderRadius: "2px", bgcolor: c.bar, mr: 0.6 }} />
               {s === "none" ? "No status" : STATE_LABEL[s]}
             </Box>
           );
@@ -308,7 +330,8 @@ function ActionPlan() {
       ) : (
         <Gantt rows={rows} rolled={rolled} today={today} zoom={zoom} canWrite={data.canWrite} collapsed={collapsed} toggle={toggle}
           selected={openId} onOpen={openRow} onSubs={setSubsFor} onPatch={patch} canDrop={canDrop} onDrop={onDrop}
-          height="max(480px, calc(100vh - 150px))" />
+          height="max(480px, calc(100vh - 150px))" colorOf={colorOf}
+          compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} />
       )}
       <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
         Drag a row by its handle onto another main category or sub-category; drag a bar to move its dates, its right end to change the due.
