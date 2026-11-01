@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  beforeCounters, dayNo, dayOf, dayRange, labelOf, lineLabel, lineOf, liveSeries, looksBy, ordersBy, ordersCover, passOf, pcMask, periodFor, periodOf, presetsOf, prevOf,
+  beforeCounters, buyersOf, dayNo, dayOf, dayRange, labelOf, lineLabel, lineOf, liveSeries, loggedInList, looksBy, ordersBy, ordersCover, passOf, pcMask, periodFor, periodOf, presetsOf, prevOf,
   quarterPicks, rangeId, rangeOf, rangeWords, sameWin, shortDays, statsBy, totalsOf, yearSeries, type ShopData,
 } from "../src/lib/reporting/shopRules";
 
@@ -287,4 +287,27 @@ test("shop: down to the articles - a product as a filter shows its articles; a p
   assert.equal(lineOf(d, { pc: ["DT"], product: ["P1"] })(0), true);
   // the product's profit centre still counts all its looks
   assert.deepEqual(looksBy(d, w, all, undefined, lineOf(d, { product: ["P1"] })).get("DT"), { looks: 7, carted: 1, ordered: 1, companies: 2 });
+});
+
+test("shop: the companies behind a chart add up to its count - logged in, of them ordered or idle; the buyers by kind", () => {
+  const w = { kind: "live" as const, from: 0, to: 27 };
+  const all = passOf(d, {}, null);
+  const totals = totalsOf(d, w);
+  const s = statsBy(d, totals, all).get("")!;
+  // company 2 only looked (no login): on no list, as in no figure
+  assert.deepEqual(loggedInList(totals, all).map((r) => r.co), [0, 1]);
+  assert.equal(loggedInList(totals, all).length, s.companies);
+  assert.deepEqual(loggedInList(totals, all)[0], { co: 0, logins: 5, views: 11, orders: 1, carts: 1 });
+  assert.deepEqual(loggedInList(totals, all, "ordered").map((r) => r.co), [0]);
+  assert.equal(loggedInList(totals, all, "ordered").length, s.ordered);
+  assert.deepEqual(loggedInList(totals, all, "idle").map((r) => r.co), [1]);
+  assert.equal(loggedInList(totals, all, "idle").length, s.idle);
+  // under a filter: Germany's company 1 only
+  assert.deepEqual(loggedInList(totals, passOf(d, { country: ["Germany"] }, null)).map((r) => r.co), [1]);
+  // the week's buyers: company 0's third order (multiple), company 1's first (one-shot) - as ordersBy counts them
+  const week = { kind: "live" as const, from: 20, to: 26 };
+  assert.deepEqual(buyersOf(d, week, all), [{ co: 0, orders: 1, upTo: 3 }, { co: 1, orders: 1, upTo: 1 }]);
+  // DT only: company 0's order this week has no DT line
+  assert.deepEqual(buyersOf(d, week, all, 1), [{ co: 1, orders: 1, upTo: 1 }]);
+  assert.equal(buyersOf(d, week, all).length, ordersBy(d, week, all).get("")!.buyers);
 });

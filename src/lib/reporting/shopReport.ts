@@ -34,7 +34,7 @@ import { splitNumber, webMark } from "@/lib/marketingKpis/onlineShare";
 import { categoryBand, prioBand, prioOf, CATEGORY_BANDS, PRIO_BANDS } from "./esoRules";
 import { dayNo, type ShopData } from "./shopRules";
 
-const BASE_KEY = "esoShop:base:v4"; // v2: the profit centres of the articles looked at; v3: their products and groups; v4: the articles' descriptions
+const BASE_KEY = "esoShop:base:v5"; // v2: the profit centres of the articles looked at; v3: their products and groups; v4: the articles' descriptions; v5: the companies' names
 const BASE_TTL_MS = 6 * 60 * 60 * 1000;
 const ORDERS_KEY = "esoShop:orders:v1";
 const ORDERS_TTL_MS = 6 * 60 * 60 * 1000;
@@ -66,6 +66,8 @@ type Base = Pick<ShopData, "dtYears" | "dtLoaded" | "people" | "companies" | "ye
   labels: CompanyLabels;
   generatedAt: string;
   ids: string[];
+  /** each company row's name (the Companies lists) */
+  names: string[];
   /** APSOparts' and A+P's own, left out - kept so a live row of theirs is not read again */
   internal: string[];
   /** the product of each article and product page looked at so far */
@@ -153,12 +155,13 @@ async function buildBase(): Promise<Base> {
   const people: ShopData["people"] = [];
   const labels: Base["labels"] = { prio: [...PRIO_BANDS], category: [...CATEGORY_BANDS], country: [] };
   const row = rowMaker(people, labels, await teamFinder());
-  const ids: string[] = [], companies: number[][] = [], yearRows: number[][] = [], internal: string[] = [];
+  const ids: string[] = [], names: string[] = [], companies: number[][] = [], yearRows: number[][] = [], internal: string[] = [];
   for (const [id, c] of found) {
     const p = c.properties ?? {};
     if (isInternalCompany(p.name, p.domain)) { internal.push(id); continue; }
     const ci = companies.push(row(p)) - 1;
     ids.push(id);
+    names.push(p.name || "");
     years.forEach((y, yi) => {
       const l = num(p[dtProp("n_of_logins", y)]), v = num(p[dtProp("n_of_views", y)]), o = num(p[dtProp("orders", y)]);
       if (l || v || o) yearRows.push([ci, yi, l, v, o]);
@@ -166,7 +169,7 @@ async function buildBase(): Promise<Base> {
   }
   // the product of every article and product page looked at so far
   const prodMap = await prodMapFor(await lookedKeys(), 300, true, (t) => reportProgress(BASE_KEY, t));
-  return { generatedAt: new Date().toISOString(), dtYears: years, dtLoaded, people, labels, companies, years: yearRows, ids, internal, prodMap };
+  return { generatedAt: new Date().toISOString(), dtYears: years, dtLoaded, people, labels, companies, years: yearRows, ids, names, internal, prodMap };
 }
 
 /* ── the product of what was looked at ─────────────────────────────────── */
@@ -396,7 +399,12 @@ async function rowsOf<T>(sql: string, args: unknown[]): Promise<T[]> {
   }
 }
 
-async function withLive(b: Base, o: OrdersPart | undefined): Promise<ShopData> {
+/** The companies behind the page's rows - kept beside the join, sent only when a list opens: the rows of the companies part
+ *  and the buyers by row (the same on every server for one companiesAt), HubSpot id and name; the companies seen live only,
+ *  appended in whatever order a server read them, by their HubSpot id (the page has their ids: ShopData.tailIds). */
+export type ShopCompanies = { companiesAt: string; ids: string[]; names: string[]; tail: Record<string, string> };
+
+async function withLive(b: Base, o: OrdersPart | undefined, companiesAt: string): Promise<{ data: ShopData; who: ShopCompanies }> {
   const today = new Date().toISOString().slice(0, 10);
   const live = await rowsOf<{ company_id: string; day: string; logins: number; views: number; orders: number; carts: number }>(
     `SELECT company_id, to_char(day, 'YYYY-MM-DD') AS day, logins, views, orders, carts FROM apsomh_shop_days WHERE day >= $1::date AND day <= $2::date`, [LIVE_FROM, today]);
@@ -406,6 +414,7 @@ async function withLive(b: Base, o: OrdersPart | undefined): Promise<ShopData> {
   const people = [...b.people];
   const labels = { prio: [...b.labels.prio], category: [...b.labels.category], country: [...b.labels.country] };
   const companies = [...b.companies];
+  const ids = [...b.ids], names = [...(b.names ?? [])];
   const idx = new Map(b.ids.map((id, i) => [id, i]));
   const internal = new Set(b.internal);
   const row = rowMaker(people, labels, await teamFinder());
@@ -414,7 +423,9 @@ async function withLive(b: Base, o: OrdersPart | undefined): Promise<ShopData> {
     if (idx.has(id) || internal.has(id)) continue;
     if (isInternalCompany(p.name, p.domain)) { internal.add(id); continue; }
     idx.set(id, companies.push(row(p)) - 1);
+    ids.push(id); names.push(p.name || "");
   }
+  const head = companies.length;
   const missing = [...new Set([...live, ...looked].map((r) => String(r.company_id)))].filter((id) => !idx.has(id) && !internal.has(id));
   if (missing.length) {
     const facts = await liveOnlyFacts(missing);
@@ -422,6 +433,7 @@ async function withLive(b: Base, o: OrdersPart | undefined): Promise<ShopData> {
       const p = facts.get(id);
       if (!p || isInternalCompany(p.name, p.domain)) continue;
       idx.set(id, companies.push(row(p)) - 1);
+      ids.push(id); names.push(p.name || "");
     }
   }
   const days: number[][] = [];
@@ -485,18 +497,19 @@ async function withLive(b: Base, o: OrdersPart | undefined): Promise<ShopData> {
     for (const pc of pcs ? pcs.split(",") : [NO_PC]) bits |= 1 << pcIdx(pc);
     orders.push([ci, dayNo(LIVE_FROM, day), bits]);
   }
-  return {
-    generatedAt: new Date().toISOString(), today, liveFrom: LIVE_FROM, dtYears: b.dtYears, dtLoaded: b.dtLoaded,
+  const data: ShopData = {
+    generatedAt: new Date().toISOString(), today, liveFrom: LIVE_FROM, dtYears: b.dtYears, dtLoaded: b.dtLoaded, companiesAt, tailIds: ids.slice(head),
     people, labels: { ...labels, pc: pcList, group: groups, sub: subs }, products, articles, companies, days, years: b.years, looks: [...lookAt.values()],
     orders, ordersFrom: o?.from ?? null,
     coverage: { companies: companies.length, live: new Set(days.map((r) => r[0])).size, performis: new Set(b.years.map((r) => r[0])).size, internal: b.internal.length },
   };
+  return { data, who: { companiesAt, ids: ids.slice(0, head), names: names.slice(0, head), tail: Object.fromEntries(ids.slice(head).map((id, i) => [id, names[head + i]])) } };
 }
 
 /** The page's read: the companies part and the shop orders (six hours each) joined to the live counters (five minutes).
  *  While the counters are read again, the last join is answered; the first one is waited for. The orders follow when
  *  read - the page says so meanwhile. */
-type Joined = { at: number; base: string; value?: ShopData; pending?: Promise<ShopData>; error?: string };
+type Joined = { at: number; base: string; value?: ShopData; who?: ShopCompanies; pending?: Promise<ShopData>; error?: string };
 let joined: Joined | null = null;
 export async function esoShop(): Promise<SlowState<ShopData>> {
   const base = await shopBase();
@@ -508,8 +521,8 @@ export async function esoShop(): Promise<SlowState<ShopData>> {
   if (!joined || !same || (!joined.pending && Date.now() - joined.at > LIVE_TTL_MS)) {
     // new companies or orders: waited for (a few seconds - an answer without them would say "still reading"); the
     // five-minute refresh of the counters answers the last join meanwhile
-    const run: Joined = { at: Date.now(), base: stamp, value: same ? joined?.value : undefined };
-    const p = withLive(b, o).then((v) => { run.value = v; run.at = Date.now(); run.error = undefined; return v; });
+    const run: Joined = { at: Date.now(), base: stamp, value: same ? joined?.value : undefined, who: same ? joined?.who : undefined };
+    const p = withLive(b, o, stamp).then((v) => { run.value = v.data; run.who = v.who; run.at = Date.now(); run.error = undefined; return v.data; });
     run.pending = p;
     // handled here, so a failed refresh behind a value already answered never goes unheard; the next look tries again
     p.catch((e) => { run.error = String((e as Error)?.message ?? e); }).finally(() => { run.pending = undefined; });
@@ -526,4 +539,10 @@ export async function esoShop(): Promise<SlowState<ShopData>> {
     if (joined === j) joined = null;
     return { computing: false, error: String((e as Error)?.message ?? e) };
   }
+}
+
+/** The companies behind the rows of the last join (started here when this server has none yet) - null until there is one. */
+export async function esoShopCompanies(): Promise<ShopCompanies | null> {
+  if (!joined?.who) await esoShop().catch(() => null);
+  return joined?.who ?? null;
 }

@@ -29,6 +29,10 @@ export type ShopData = {
   today: string;
   /** the first day the live counters count, "2026-10-02" */
   liveFrom: string;
+  /** which companies part and orders the rows stand on - the Companies lists' names are read for it (shopReport.ts) */
+  companiesAt?: string;
+  /** the HubSpot ids of the last company rows - the companies seen live only, which each server appends in its own order */
+  tailIds?: string[];
   /** the Performis export's years, oldest first */
   dtYears: number[];
   /** the day the last export was loaded into HubSpot (its newest year stops there); null when not known */
@@ -313,6 +317,21 @@ export function statsBy(d: ShopData, totals: Totals, pass: (co: number) => boole
   return out;
 }
 
+/** A company behind a chart of the figures: its logins, article views, shop orders and cart additions in the period. */
+export type CoRow = { co: number; logins: number; views: number; orders: number; carts: number };
+/** The companies a chart of the figures counts - as statsBy: those that logged in, of them those that ordered in the shop
+ *  ("ordered"), or those that neither opened an article nor put one in the cart ("idle") - the most logins first. */
+export function loggedInList(totals: Totals, pass: (co: number) => boolean, which: "all" | "ordered" | "idle" = "all"): CoRow[] {
+  const out: CoRow[] = [];
+  for (const [co, [l, v, o, c]] of totals) {
+    if (l <= 0 || !pass(co)) continue;
+    if (which === "ordered" && o <= 0) continue;
+    if (which === "idle" && (v > 0 || c > 0)) continue;
+    out.push({ co, logins: l, views: v, orders: o, carts: c });
+  }
+  return out.sort((a, b) => b.logins - a.logins || b.views - a.views || a.co - b.co);
+}
+
 /* ── the series: a live period day by day (month by month past two months), the Performis years ── */
 
 export type Series = {
@@ -432,21 +451,26 @@ export type OStats = {
   oneShot: number; second: number; multiple: number;
 };
 export const blankOrders = (): OStats => ({ orders: 0, buyers: 0, oneShot: 0, second: 0, multiple: 0 });
+/** A buyer of a period: its shop orders in it, and up to its end since the first day read (1 one-shot, 2 second, 3+ multiple). */
+export type Buyer = { co: number; orders: number; upTo: number };
+/** A period's buyers - with a mask, by their orders with a line of one of those profit centres - the most orders first. */
+export function buyersOf(d: ShopData, w: SWin, pass: (co: number) => boolean, mask = -1): Buyer[] {
+  const [a, b] = dayRange(d, w);
+  const hist = new Map<number, Buyer>();
+  for (const r of d.orders) {
+    if (r[O.day] > b || (mask !== -1 && !(r[O.pcs] & mask)) || !pass(r[O.company])) continue;
+    let h = hist.get(r[O.company]);
+    if (!h) { h = { co: r[O.company], orders: 0, upTo: 0 }; hist.set(r[O.company], h); }
+    h.upTo++;
+    if (r[O.day] >= a) h.orders++;
+  }
+  return [...hist.values()].filter((h) => h.orders > 0).sort((x, y) => y.orders - x.orders || y.upTo - x.upTo || x.co - y.co);
+}
 /** A period's shop orders, grouped by a label of the company (all together under ""); with a mask, only the orders with a
  *  line of one of those profit centres (bits as O.pcs) - and the buyers counted by their orders of them. */
 export function ordersBy(d: ShopData, w: SWin, pass: (co: number) => boolean, key: (co: number) => string = () => "", mask = -1): Map<string, OStats> {
   const out = new Map<string, OStats>();
-  const [a, b] = dayRange(d, w);
-  const hist = new Map<number, [number, number]>(); // company -> [in the period, up to its end]
-  for (const r of d.orders) {
-    if (r[O.day] > b || (mask !== -1 && !(r[O.pcs] & mask)) || !pass(r[O.company])) continue;
-    let h = hist.get(r[O.company]);
-    if (!h) { h = [0, 0]; hist.set(r[O.company], h); }
-    h[1]++;
-    if (r[O.day] >= a) h[0]++;
-  }
-  for (const [co, [inside, upTo]] of hist) {
-    if (!inside) continue;
+  for (const { co, orders: inside, upTo } of buyersOf(d, w, pass, mask)) {
     const k = key(co);
     let s = out.get(k);
     if (!s) { s = blankOrders(); out.set(k, s); }

@@ -22,6 +22,10 @@
 // Fifth pass (SARCLA 31.10.2026): "drill down to article level as well" - a click on a product shows its articles, the
 // articles looked at and then ordered as boards and a table of their own; "1136 not ranked - paginate this at 25,
 // otherwise the UX is bad" - the long lists and tables in pages of 25.
+// The companies behind every chart (SARCLA 31.10.2026, every sub app: "a new icon Company appears next to the filter ... the
+// graphs expand to show the companies, paginated by 25"): the Companies button of the shared CompanyList - the logins'
+// charts list the companies that logged in (or of them those that ordered, or did nothing), the views' the companies that
+// looked at those articles, the orders' the buyers - each list adds up to its chart; the names read once, when a list opens.
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -60,10 +64,11 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  A, P, beforeCounters, blank, blankOrders, dayOf, dayWords, labelOf, lineLabel, lineOf, liveSeries, looksBy, ordersBy, ordersCover, passOf, pcMask, periodFor, periodOf, presetsOf, prevOf, quarterPicks, rangeWords, sameWin, shortDays, statsBy, totalsOf, yearSeries,
+  A, L, P, beforeCounters, blank, blankOrders, buyersOf, dayOf, dayWords, labelOf, lineLabel, lineOf, liveSeries, loggedInList, looksBy, ordersBy, ordersCover, passOf, pcMask, periodFor, periodOf, presetsOf, prevOf, quarterPicks, rangeWords, sameWin, shortDays, statsBy, totalsOf, yearSeries,
   type AStats, type LDim, type OStats, type SDim, type SFilters, type SPer, type SStats, type SWin, type Series, type ShopData,
 } from "@/lib/reporting/shopRules";
 import { pcLabel } from "./shared";
+import { CompaniesFor, PAGE, type CompanySource } from "@/app/reporting/CompanyList";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
   ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TWO, Teams, asLead, asTeam, axisWidth, leadOf, niceTop, setQuery, useLead, useLeads, useTeam,
@@ -619,7 +624,7 @@ const forWhom = (c: ShCtx) => `${teamName(c)}'s target for ${c.per.title} - each
 const stepWords = (c: ShCtx) => (!isLive(c.per.win) ? "year by year" : seriesOf(c).keys[0]?.length === 7 ? "month by month" : "day by day");
 /** A chart by its id "<tab>:<what>[-<breakdown>]": people:loggedin, people:days, logins:idle, views:pc-conversion,
  *  orders:mix, orders:orders, prio:share… - and each tab's table, "<tab>:figures". */
-function drawnOf(id: string): Drawn | undefined {
+function drawnBare(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
   const line = /^(pc|group|sub|product|article)-(looks|conversion|ordered|companies)$/.exec(chart);
@@ -688,6 +693,104 @@ function drawnOf(id: string): Drawn | undefined {
   return { id, title: (c) => `${titleOf(m, c)}, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`, draw: (c, a) => <Board c={c} id={id} dim={dim} m={m} actions={a} />,
     target: (c) => ({ unit: MEASURE[m].unit, label: `Each ${DIM[dim].lower}'s ${MEASURE[m].target}, ${c.per.title}, is measured against it · ${forWhom(c)}.` }) };
 }
+/* ── the companies behind a chart ──────────────────────────────────────── */
+
+/** HubSpot id and name of the page's company rows (the companies part and the buyers by row, the live-only ones by id) -
+ *  read once a read, when a list first opens. */
+type Who = { companiesAt: string; ids: string[]; names: string[]; tail: Record<string, string> };
+let whoRead: { at: string; p: Promise<Who | null> } | null = null;
+function whoFor(d: ShopData): Promise<Who | null> {
+  const at = d.companiesAt ?? "";
+  if (!whoRead || whoRead.at !== at) {
+    const p = fetch("/api/reporting/eso-shop/companies").then((r) => r.json())
+      .then((j: Partial<Who> & { pending?: boolean }) => (j.pending || j.companiesAt !== at ? null : (j as Who)));
+    whoRead = { at, p };
+    // nothing yet (or the companies of another read): asked again next time
+    p.then((w) => { if (!w && whoRead?.p === p) whoRead = null; }, () => { if (whoRead?.p === p) whoRead = null; });
+  }
+  return whoRead.p;
+}
+function nameOf(d: ShopData, w: Who, co: number): { id: string | null; name: string } {
+  const head = d.companies.length - (d.tailIds?.length ?? 0);
+  const id = co < head ? w.ids[co] ?? null : d.tailIds?.[co - head] ?? null;
+  const name = co < head ? w.names[co] : id ? w.tail[id] : "";
+  return { id, name: name || `Company ${co + 1}` };
+}
+type ListItem = { co: number; cells: React.ReactNode[] };
+/** A chart's companies: worked out when its button is pressed (a chart counts thousands), named a page at a time. */
+function listOf(c: ShCtx, id: string, head: string[], left: number[], note: string, make: () => ListItem[]): CompanySource {
+  let named: { id: string | null; name: string; cells: React.ReactNode[] }[] | null = null;
+  return {
+    key: `${id}|${c.d.generatedAt}|${c.per.id}|${c.team}|${c.lead ?? ""}|${c.people ? [...c.people].join(",") : "all"}|${JSON.stringify(c.filters)}`,
+    head, left, note,
+    load: async (page, q) => {
+      const w = await whoFor(c.d);
+      if (!w) return "pending";
+      named ??= make().map((x) => ({ ...nameOf(c.d, w, x.co), cells: x.cells }));
+      const found = q ? named.filter((r) => r.name.toLowerCase().includes(q)) : named;
+      return { total: found.length, rows: found.slice(page * PAGE, page * PAGE + PAGE) };
+    },
+  };
+}
+const facts = (c: ShCtx, co: number) => [labelOf(c.d, co, "person"), labelOf(c.d, co, "prio"), labelOf(c.d, co, "country")];
+/** The companies a chart of the logins counts - those that logged in, of them those that ordered, or did nothing. */
+function loggedInSource(c: ShCtx, id: string, which: "all" | "ordered" | "idle"): CompanySource {
+  const live = isLive(c.per.win);
+  const head = live ? ["Logins", "Article views", "Into the cart", "Articles ordered", "Company owner", "Priority", "Customer category", "Country"]
+    : ["Logins", "Article views", "Shop orders", "Company owner", "Priority", "Customer category", "Country"];
+  const who = which === "ordered" ? "that logged in and ordered in the shop" : which === "idle" ? `that logged in with ${live ? "no view and no cart" : "no view"}` : "that logged in";
+  return listOf(c, id, head, live ? [5, 6, 7, 8] : [4, 5, 6, 7], `${perWords(c.d, c.per)} · the companies ${who}, the most logins first`,
+    () => loggedInList(totalsOf(c.d, c.per.win), passOf(c.d, c.filters, c.people), which).map((r) => {
+      const [owner, prio, country] = facts(c, r.co);
+      return { co: r.co, cells: [int(r.logins), int(r.views), ...(live ? [int(r.carts)] : []), int(r.orders), owner, prio, labelOf(c.d, r.co, "category"), country] };
+    }));
+}
+/** The companies that looked at the articles a chart of the views counts - its line filters, what it does not show left out. */
+function lookersSource(c: ShCtx, id: string, by: LookBy): CompanySource | null {
+  const w = c.per.win;
+  if (!isLive(w)) return null;
+  return listOf(c, id, ["Articles looked at", "Into the cart", "Ordered", "Company owner", "Priority", "Country"], [4, 5, 6],
+    `${perWords(c.d, c.per)} · the companies that looked at ${by === "article" ? "these articles" : `the articles of these ${BY[by].lower}s`}, the most looked at first`,
+    () => {
+      const { products } = namesOf(c.d);
+      const line = lineOf(c.d, c.filters), pass = passOf(c.d, c.filters, c.people);
+      const shown = (prod: number) => (by === "article" ? true : by === "product" ? !NOT_SHOWN.has(products.names[prod]) : !NOT_SHOWN.has(lineLabel(c.d, prod, by)));
+      const per = new Map<number, [number, number, number]>();
+      for (const r of c.d.looks) {
+        if (r[L.day] < w.from || r[L.day] > w.to || (by === "article" && (r[L.article] ?? -1) < 0)) continue;
+        if (!line(r[L.product]) || !shown(r[L.product]) || !pass(r[L.company])) continue;
+        const t = per.get(r[L.company]);
+        if (t) { t[0] += r[L.looks]; t[1] += r[L.carted]; t[2] += r[L.ordered]; } else per.set(r[L.company], [r[L.looks], r[L.carted], r[L.ordered]]);
+      }
+      return [...per].sort((a, b) => b[1][0] - a[1][0] || b[1][2] - a[1][2] || a[0] - b[0]).map(([co, [looks, carted, ordered]]) => ({ co, cells: [int(looks), int(carted), int(ordered), ...facts(c, co)] }));
+    });
+}
+const KIND = (upTo: number) => (upTo === 1 ? "One-shot" : upTo === 2 ? "Second" : "Multiple");
+/** The buyers a chart of the orders counts - with a line of the profit centres chosen. */
+function buyersSource(c: ShCtx, id: string): CompanySource | null {
+  if (ordersMissing(c)) return null;
+  const mask = pcMask(c.d, c.filters);
+  const pcs = mask === -1 ? "" : ` with a line of ${(c.filters.pc ?? []).map(pcName).join(", ")}`;
+  return listOf(c, id, ["Shop orders", "Buyer", "Company owner", "Priority", "Country"], [2, 3, 4, 5],
+    `${perWords(c.d, c.per)} · the companies that ordered in the shop${pcs} - one-shot, second or multiple by their shop orders since ${dayWords(c.d.ordersFrom!)}, the most orders first`,
+    () => buyersOf(c.d, c.per.win, passOf(c.d, c.filters, c.people), mask).map((b) => ({ co: b.co, cells: [int(b.orders), KIND(b.upTo), ...facts(c, b.co)] })));
+}
+/** Which companies a chart counts, by its id. */
+function sourceOf(c: ShCtx, id: string): CompanySource | null {
+  const [v, chart = ""] = id.split(":");
+  const line = /^(pc|group|sub|product|article)-/.exec(chart);
+  if (line) return looksMissing(c) ? null : lookersSource(c, id, line[1] as LookBy);
+  if (v === "views" && (chart === "figures" || chart === "products" || chart === "articles")) return looksMissing(c) ? null : lookersSource(c, id, chart === "figures" ? "pc" : chart === "products" ? "product" : "article");
+  if (v === "orders" || chart.startsWith("orders-") || chart === "orders") return buyersSource(c, id);
+  const what = chart.split("-")[0];
+  return loggedInSource(c, id, what === "idle" || what === "idleshare" ? "idle" : what === "ordered" || what === "share" ? "ordered" : "all");
+}
+/** A chart by its id, with the companies behind it (its Companies button). */
+function drawnOf(id: string): Drawn | undefined {
+  const d = drawnBare(id);
+  return d && { ...d, draw: (c, a) => <CompaniesFor source={sourceOf(c, id)}>{d.draw(c, a)}</CompaniesFor> };
+}
+
 /** The earlier charts, still in some BUC Views, by what took their place: the old page's (its "orders ever" is the Orders
  *  tab now), and the first pass's Logins & views and Customer category tabs (both Logins now). */
 function chartOf(key: string): Drawn | undefined {
