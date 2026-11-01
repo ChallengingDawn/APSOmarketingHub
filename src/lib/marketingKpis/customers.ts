@@ -54,8 +54,11 @@ const TTL_MS = 6 * 60 * 60 * 1000;
 export async function customersCube(): Promise<SlowState<Cube>> {
   const day = await lastDelivery();
   // and as soon as the ERP morning workbook has run again on its own - "Run now" on the chain page writes each customer's
-  // monthly order intake (SARCLA 31.10.2026: "I've run it" - the Figures would have waited up to 6 hours to see it)
-  const erp = await lastRun("live", "erp_revenue").then((r) => (r?.finished && !r.error ? Date.parse(r.finished) : 0)).catch(() => 0);
+  // monthly order intake (SARCLA 31.10.2026: "I've run it" - the Figures would have waited up to 6 hours to see it); so too
+  // a "Run now" of the revenue or the sales agent, which change the ERP's customers not in HubSpot yet (01.11.2026: the read
+  // after the release came before them, and New customers stayed at 140) - in the chain the workbook runs after both
+  const ran = (k: "erp_revenue" | "revenue" | "customer_agents") => lastRun("live", k).then((r) => (r?.finished && !r.error && (k === "erp_revenue" || r.by.startsWith("user")) ? Date.parse(r.finished) : 0)).catch(() => 0);
+  const erp = Math.max(...(await Promise.all([ran("erp_revenue"), ran("revenue"), ran("customer_agents")])));
   return slowReport(KEY, (v: Cube) => ((day && v?.dataDay !== day) || v?.newKind !== "invoice" || v?.newHistory !== HISTORY_FROM || !v?.listed || v?.erpOnly == null || !v?.orderDays || (erp && Date.parse(v?.generatedAt ?? "") < erp) ? 0 : TTL_MS), build);
 }
 
