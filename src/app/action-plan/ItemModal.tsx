@@ -14,6 +14,8 @@
 // the AI and given their tickets in it, not in a second window over it ("sub-action creation still holds the old
 // modal"), its form open from the start ("when I click [an action] I should see creating directly a sub-action").
 // "Led by Digital Growth" opens the ticket search, the marketing channel and the agency.
+// A category's window is its tiles alone, the whole width, a + tile to add under it ("kanban is broken ... the side
+// is not needed, new action should be the +"); it moves by drag and drop in the Gantt. Its changes are in the KPI view.
 
 import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -21,12 +23,12 @@ import Dialog from "@mui/material/Dialog";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
-import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Switch from "@mui/material/Switch";
 import Tooltip from "@mui/material/Tooltip";
 import Autocomplete from "@mui/material/Autocomplete";
 import CloseIcon from "@mui/icons-material/Close";
+import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import TaskAltIcon from "@mui/icons-material/TaskAlt";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
@@ -38,8 +40,7 @@ import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import { FAINT, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { BUC_MEMBERS, KILLED, PRIORITIES, STAGES, isClosed, isLate, priorityLabel, stageOf, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
 import { LATE, PRIORITY_COLOR, SUMMARY, dmy, stageColor, todayIso, type PlanData } from "./planUi";
-import { SubActions } from "./SubActions";
-import type { TileInfo } from "@/app/reporting/marketing-kpis/tiles/TileActions";
+import { SubActions, planTile } from "./SubActions";
 
 const field = { "& .MuiInputBase-root": { fontSize: "0.9rem", borderRadius: "8px", bgcolor: "#fff" }, "& .MuiInputLabel-root": { fontSize: "0.88rem" } };
 const section = { fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
@@ -251,7 +252,7 @@ function Tile({ row, r, items, color, onOpen, today }: { row: PlanItem; r: Rolle
     <Tooltip title={tip} placement="top" enterDelay={600} disableInteractive>
       <Box component="button" type="button" onClick={() => onOpen(row)} aria-label={`Open ${row.title}`}
         sx={{
-          all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gridTemplateRows: "auto 1fr auto", gap: 0.75, minWidth: 0, minHeight: 96,
+          all: "unset", boxSizing: "border-box", cursor: "pointer", display: "grid", gridTemplateRows: "auto 1fr auto", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.75, minWidth: 0, minHeight: 96,
           p: 1.25, pl: 1.5, bgcolor: "#fff", borderRadius: "4px", border: `1px solid ${HAIRLINE}`, borderLeft: `4px solid ${edge}`,
           transition: "box-shadow .12s, border-color .12s", "&:hover": { boxShadow: "0 4px 14px rgba(21,34,58,.12)", borderColor: TINT.blue.fg, borderLeftColor: edge },
           "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: 2 },
@@ -261,7 +262,7 @@ function Tile({ row, r, items, color, onOpen, today }: { row: PlanItem; r: Rolle
           {prio && <Box sx={{ ...TAG, bgcolor: PRIORITY_COLOR[row.priority].bg, color: PRIORITY_COLOR[row.priority].fg }}>{prio}</Box>}
           {late > 0 && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>{action ? "LATE" : `${late} LATE`}</Box>}
         </Box>
-        <Typography sx={{ fontSize: "0.86rem", fontWeight: action ? 600 : 800, color: INK, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", textDecoration: row.stage === KILLED ? "line-through" : "none" }}>
+        <Typography sx={{ fontSize: "0.86rem", fontWeight: action ? 600 : 800, color: INK, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere", textDecoration: row.stage === KILLED ? "line-through" : "none" }}>
           {row.title}
         </Typography>
         <Box sx={{ display: "grid", gap: 0.5 }}>
@@ -278,16 +279,35 @@ function Tile({ row, r, items, color, onOpen, today }: { row: PlanItem; r: Rolle
   );
 }
 
+/** The + at the end of the tiles: a new action (or, in a main category, a sub-category) - its small window. */
+function AddTile({ under, onAdd }: { under: PlanItem; onAdd: (parent: PlanItem) => void }) {
+  return (
+    <Box component="button" type="button" onClick={() => onAdd(under)} aria-label={`Add in ${under.title}`}
+      sx={{ all: "unset", boxSizing: "border-box", cursor: "pointer", minHeight: 96, borderRadius: "4px", border: `1.5px dashed ${HAIRLINE}`, display: "grid", placeItems: "center", color: MUTED,
+        fontSize: "0.86rem", fontWeight: 700, transition: "border-color .12s, color .12s", "&:hover, &:focus-visible": { borderColor: TINT.blue.fg, color: TINT.blue.fg } }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}><AddIcon sx={{ fontSize: 20 }} />{under.kind === "topic" ? "New action or sub-category" : under.kind === "goal" ? "New main category" : "New action"}</Box>
+    </Box>
+  );
+}
+
 /**
  * Everything in a main category (or a sub-category, or the goal) as square tiles (SARCLA 01.11.2026: "list everything like
  * an interactive bubble", then "square tabs"): its sub-categories as headings in their colour - a click opens them - each
  * with its actions under it, then the actions directly in it.
  */
-function Everything({ item, items, rolledAll, colorOf, onOpen }: { item: PlanItem; items: PlanItem[]; rolledAll: Map<number, Rolled>; colorOf: (i: PlanItem) => string | null; onOpen: (i: PlanItem) => void }) {
+function Everything({ item, items, rolledAll, colorOf, onOpen, onAdd }: {
+  item: PlanItem; items: PlanItem[]; rolledAll: Map<number, Rolled>; colorOf: (i: PlanItem) => string | null; onOpen: (i: PlanItem) => void;
+  /** the + tile, for whoever may change the plan */
+  onAdd?: (parent: PlanItem) => void;
+}) {
   const today = todayIso();
   const kids = (id: number) => items.filter((i) => i.parentId === id).sort(byOrder);
-  const grid = (rows: PlanItem[]) => rows.length > 0 && (
-    <Box sx={TILES}>{rows.map((row) => <Tile key={row.id} row={row} r={rolledAll.get(row.id)} items={items} color={colorOf(row)} onOpen={onOpen} today={today} />)}</Box>
+  // its tiles, and the + that adds in `under`
+  const grid = (rows: PlanItem[], under?: PlanItem) => (rows.length > 0 || (under && onAdd)) && (
+    <Box sx={TILES}>
+      {rows.map((row) => <Tile key={row.id} row={row} r={rolledAll.get(row.id)} items={items} color={colorOf(row)} onOpen={onOpen} today={today} />)}
+      {under && onAdd && <AddTile under={under} onAdd={onAdd} />}
+    </Box>
   );
   const cluster = (row: PlanItem, depth: number): React.ReactNode => {
     const inside = kids(row.id);
@@ -304,9 +324,9 @@ function Everything({ item, items, rolledAll, colorOf, onOpen }: { item: PlanIte
           </Typography>
           {(r?.late ?? 0) > 0 && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>{r!.late} LATE</Box>}
         </Box>
-        {grid(inside.filter((i) => i.kind === "action"))}
+        {grid(inside.filter((i) => i.kind === "action"), row)}
         {depth < 2 && inside.filter((i) => i.kind !== "action").map((g) => cluster(g, depth + 1))}
-        {!inside.length && <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>Nothing in it yet.</Typography>}
+        {!inside.length && !onAdd && <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>Nothing in it yet.</Typography>}
       </Box>
     );
   };
@@ -320,12 +340,12 @@ function Everything({ item, items, rolledAll, colorOf, onOpen }: { item: PlanIte
         <Typography sx={{ ...section, flex: 1 }}>Everything in it · {all} action{all === 1 ? "" : "s"}{cats.length ? ` in ${cats.length} ${item.kind === "goal" ? "main categor" : "sub-categor"}${cats.length === 1 ? "y" : "ies"}` : ""}</Typography>
         <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>Left edge = status · click one to open it</Typography>
       </Box>
-      {!inside.length && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Nothing in it yet - “Add under it” adds the first one.</Typography>}
+      {!inside.length && !onAdd && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Nothing in it yet.</Typography>}
       {cats.map((g) => cluster(g, 1))}
-      {direct.length > 0 && (
+      {(direct.length > 0 || onAdd) && (
         <Box sx={{ display: "grid", gap: 1 }}>
-          {cats.length > 0 && <Typography sx={{ fontSize: "0.82rem", color: MUTED, fontWeight: 700 }}>Directly in this {KIND_LABEL[item.kind].toLowerCase()}</Typography>}
-          {grid(direct)}
+          {cats.length > 0 && <Typography sx={{ fontSize: "0.82rem", color: MUTED, fontWeight: 700 }}>{direct.length ? `Directly in this ${KIND_LABEL[item.kind].toLowerCase()}` : `Add in this ${KIND_LABEL[item.kind].toLowerCase()}`}</Typography>}
+          {grid(direct, item)}
         </Box>
       )}
     </Box>
@@ -429,18 +449,17 @@ function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen
   );
 }
 
-export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peopleError, choices, colorOf, start, onClose, onOpen, onPatch, onChanged, onAdd, onDelete, onMoveTo }: {
+export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peopleError, choices, colorOf, onClose, onOpen, onPatch, onChanged, onAddUnder, onDelete, onMoveTo }: {
   item: PlanItem; items: PlanItem[]; rolledAll: Map<number, Rolled>; subs: PlanSub[]; canWrite: boolean; onClose: () => void;
   people: PlanOwner[]; peopleError: string | null; choices: PlanData["choices"];
   colorOf: (i: PlanItem) => string | null;
-  /** opened from the + beside an action's row: its new sub-action's form open */
-  start: "sub" | null;
   /** another row, opened from a tile */
   onOpen: (item: PlanItem) => void;
   onPatch: (id: number, p: Partial<PlanFields>) => Promise<void>;
   /** a sub-action or a ticket changed: the plan reads its counts again */
   onChanged: () => void;
-  onAdd: (parent: PlanItem, kind: PlanKind, title: string) => Promise<void>;
+  /** the + tile: the small window to add under a row */
+  onAddUnder: (parent: PlanItem) => void;
   onDelete: (item: PlanItem) => Promise<void>;
   onMoveTo: (item: PlanItem, parentId: number) => Promise<void>;
 }) {
@@ -451,17 +470,10 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
   const action = item.kind === "action";
   // the action as the sub-actions' "tile" (plan:<id>), as a KPI tile's Actions knows it
   const who = item.owners.map((o) => o.name).join(", ") || item.responsible;
-  const tile = useMemo<TileInfo>(() => ({
-    key: `plan:${item.id}`, page: "plan", title: item.title,
-    summary: [item.code, who, item.due ? `due ${dmy(item.due)}` : ""].filter(Boolean).join(" · "),
-    href: `${window.location.origin}/action-plan?item=${item.id}`,
-  }), [item.id, item.title, item.code, who, item.due]);
+  const tile = useMemo(() => planTile(item), [item.id, item.title, item.code, who, item.due]); // eslint-disable-line react-hooks/exhaustive-deps
   const fromSubs = action && subs.length > 0 && !isClosed(item.stage) && item.percent !== 100;
   const [pct, setPct] = useState(item.percent == null ? "" : String(item.percent));
   useEffect(() => { setPct(item.percent == null ? "" : String(item.percent)); }, [item.percent]);
-  const [adding, setAdding] = useState<{ kind: PlanKind; title: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const kinds: PlanKind[] = item.kind === "goal" ? ["topic"] : item.kind === "topic" ? ["group", "action"] : item.kind === "group" ? ["action"] : [];
 
   // its place in the plan: the path above it, and the categories it may move to (the ticket's "business goal",
   // as a tree from the plan - SARCLA 01.11.2026: "where today I select Awareness, this should be a tree from the plan")
@@ -481,29 +493,6 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
     return out;
   }, [items, item.kind]);
   const done = subs.filter((s) => s.status === "done").length;
-
-  const addUnder = canWrite && kinds.length > 0 && (
-    <Box sx={card}>
-      <Typography sx={section}>Add under it</Typography>
-      {!adding ? (
-        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-          {kinds.map((k) => (
-            <Button key={k} variant="outlined" size="small" onClick={() => setAdding({ kind: k, title: "" })} sx={{ textTransform: "none", fontWeight: 700, borderRadius: "6px" }}>
-              New {KIND_LABEL[k].toLowerCase()}
-            </Button>
-          ))}
-        </Box>
-      ) : (
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-          <TextField size="small" autoFocus label={`The new ${KIND_LABEL[adding.kind].toLowerCase()}`} value={adding.title} onChange={(e) => setAdding({ ...adding, title: e.target.value })} sx={{ ...field, flex: 1 }}
-            onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setAdding(null); } }} />
-          <Button variant="contained" disableElevation disabled={busy || !adding.title.trim()}
-            onClick={async () => { setBusy(true); try { await onAdd(item, adding.kind, adding.title); setAdding(null); } finally { setBusy(false); } }}
-            sx={{ textTransform: "none", fontWeight: 700, borderRadius: "6px" }}>Add</Button>
-        </Box>
-      )}
-    </Box>
-  );
 
   const placeSelect = places.length > 0 && (
     <TextField select size="small" label={action ? "Business goal - its place in the plan" : "Main category"} value={item.parentId ?? ""} disabled={!canWrite}
@@ -557,15 +546,26 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
       {/* ── the body ── */}
       <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", px: { xs: 2, md: 3 }, py: 2.25 }}>
         {view === "kpi" ? (
-          <KpiView item={item} items={items} rolledAll={rolledAll} subs={subs} canWrite={canWrite} save={save} colorOf={colorOf} onOpen={onOpen} />
+          <Box sx={{ display: "grid", gap: 2.25 }}>
+            <KpiView item={item} items={items} rolledAll={rolledAll} subs={subs} canWrite={canWrite} save={save} colorOf={colorOf} onOpen={onOpen} />
+            {!action && <Tracking id={item.id} tick={tick} />}
+          </Box>
+        ) : !action ? (
+          <Box sx={{ display: "grid", gap: 2.25 }}>
+            {item.kind === "goal" && (
+              <Box sx={card}>
+                <Typography sx={section}>The goal&apos;s statement</Typography>
+                <Field label="Description" value={item.detail} canWrite={canWrite} multiline rows={3} onSave={(v) => save({ detail: v })} />
+              </Box>
+            )}
+            <Everything item={item} items={items} rolledAll={rolledAll} colorOf={colorOf} onOpen={onOpen} onAdd={canWrite ? onAddUnder : undefined} />
+          </Box>
         ) : (
           <Box sx={{ display: "grid", gap: 2.25, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 1.55fr) minmax(0, 1fr)" } }}>
             <Box sx={{ display: "grid", gap: 2.25, minWidth: 0 }}>
               <Box sx={{ ...card, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
-                <Typography sx={{ ...section, gridColumn: "1 / -1" }}>{action ? "The action" : "About it"}</Typography>
-                <Field label="Description" value={item.detail} canWrite={canWrite} multiline rows={action ? 4 : 2} onSave={(v) => save({ detail: v })} />
-                {action && (
-                  <>
+                <Typography sx={{ ...section, gridColumn: "1 / -1" }}>The action</Typography>
+                <Field label="Description" value={item.detail} canWrite={canWrite} multiline rows={4} onSave={(v) => save({ detail: v })} />
                     <Owners item={item} people={people} peopleError={peopleError} canWrite={canWrite} onSave={(owners) => save({ owners })} />
                     <Box sx={{ display: "grid", gap: 0.6, gridColumn: "1 / -1" }}>
                       <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontWeight: 600 }}>Priority</Typography>
@@ -586,12 +586,9 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
                         sx={field} slotProps={{ htmlInput: { inputMode: "numeric" }, inputLabel: { shrink: true } }} />
                     </Box>
                     {item.dueNote && <Typography sx={{ gridColumn: "1 / -1", fontSize: "0.8rem", color: FAINT, mt: -0.5 }}>Deadline in the workbook: “{item.dueNote}”</Typography>}
-                  </>
-                )}
                 {placeSelect}
               </Box>
 
-              {action ? (
                 <Box sx={{ ...card, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
                   {/* the channel and the agency are marketing's: only when Digital Growth leads it (kept, not shown, otherwise) */}
                   {item.dg && <Choices label="Marketing channel" options={choices.channel} value={item.channel} canWrite={canWrite} onSave={(v) => save({ channel: v })} />}
@@ -609,14 +606,10 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
                   <Field label="Status note" value={item.statusNote} canWrite={canWrite} multiline rows={3} onSave={(v) => save({ statusNote: v })} />
                   <Referent value={item.referent} people={people} canWrite={canWrite} onSave={(v) => save({ referent: v })} />
                 </Box>
-              ) : (
-                <Everything item={item} items={items} rolledAll={rolledAll} colorOf={colorOf} onOpen={onOpen} />
-              )}
             </Box>
 
-            {/* ── the right: its sub-actions, what can be added, its tracking ── */}
+            {/* ── the right: its sub-actions and its tracking ── */}
             <Box sx={{ display: "grid", gap: 2.25, minWidth: 0 }}>
-              {action && (
                 <Box sx={card}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
                     <TaskAltIcon sx={{ fontSize: 18, color: FAINT }} />
@@ -633,10 +626,8 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
                     </Box>
                     <Switch checked={item.dg} disabled={!canWrite} onChange={(e) => save({ dg: e.target.checked })} />
                   </Box>
-                  <SubActions item={item} tile={tile} canWrite={canWrite} tickets={item.dg} start={start === "sub"} people={people} onChanged={onChanged} />
+                  <SubActions item={item} tile={tile} canWrite={canWrite} tickets={item.dg} people={people} onChanged={onChanged} />
                 </Box>
-              )}
-              {addUnder}
               <Tracking id={item.id} tick={tick} />
             </Box>
           </Box>

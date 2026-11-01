@@ -22,10 +22,11 @@ import UnfoldLessIcon from "@mui/icons-material/UnfoldLess";
 import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
 
 import { HomeBar } from "@/app/HomeBar";
-import { FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { KILLED, PRIORITIES, S2S_CHOICES, STAGES, isClosed, isLate, reorder, rollup, type PlanFields, type PlanItem, type PlanKind } from "@/lib/reporting/actionPlanRules";
+import { FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
+import { KILLED, PRIORITIES, S2S_CHOICES, STAGES, isClosed, isLate, reorder, rollup, type PlanFields, type PlanItem } from "@/lib/reporting/actionPlanRules";
 import { Gantt, type GRow, type Where, type Zoom } from "./Gantt";
 import { ItemModal } from "./ItemModal";
+import { AddDialog } from "./AddDialog";
 import { SummitFigures, SummitMountain, useSummit } from "./Summit";
 import { LATE, PRIORITY_COLOR, PROJECT_COLORS, readPref, send, stageColor, todayIso, writePref, type PlanData } from "./planUi";
 
@@ -179,9 +180,11 @@ function ActionPlan() {
     undated: actions.filter((i) => !i.due && !isClosed(i.stage)).length,
   };
 
-  // the row opened over the Gantt - from an action's +, with its new sub-action's form open
+  // the row opened over the Gantt, and the row whose + was clicked (its small window)
   const [openId, setOpenId] = useState<number | null>(null);
-  const [openStart, setOpenStart] = useState<"sub" | null>(null);
+  const [addFor, setAddFor] = useState<PlanItem | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  useEffect(() => { if (!said) return; const h = setTimeout(() => setSaid(null), 8000); return () => clearTimeout(h); }, [said]);
   // a link to one row (?item=, as a KPI tile's task links here) opens it once - not again after every save
   const handled = useRef<number | null>(null);
   useEffect(() => {
@@ -201,13 +204,12 @@ function ActionPlan() {
   const opened = openId != null ? items.find((i) => i.id === openId) ?? null : null;
   // the address follows the row opened without asking the server for the page again (router.replace did, on every
   // open and close); Next keeps useSearchParams in step with history.replaceState
-  const openRow = (i: PlanItem, start: "sub" | null = null) => {
+  const openRow = (i: PlanItem) => {
     handled.current = i.id;
-    setOpenStart(start);
     setOpenId(i.id);
     window.history.replaceState(null, "", `/action-plan?item=${i.id}`);
   };
-  const closeRow = useCallback(() => { setOpenId(null); setOpenStart(null); window.history.replaceState(null, "", "/action-plan"); }, []);
+  const closeRow = useCallback(() => { setOpenId(null); window.history.replaceState(null, "", "/action-plan"); }, []);
 
   // changes
   const patch = async (id: number, p: Partial<PlanFields>) => {
@@ -232,14 +234,6 @@ function ActionPlan() {
       if (where === "into") setCollapsed((c) => { const n = new Set(c); n.delete(target.key); return n; });
     } catch (e) { setNote(`Not moved: ${(e as Error).message}`); }
     await load();
-  };
-  const add = async (parent: PlanItem, kind: PlanKind, title: string) => {
-    try {
-      const j = await send("/api/action-plan", "POST", { action: "add", parentId: parent.id, kind, title });
-      await load();
-      setCollapsed((c) => { const n = new Set(c); n.delete(`i${parent.id}`); return n; });
-      openRow(j.item as PlanItem);
-    } catch (e) { setNote(`Not added: ${(e as Error).message}`); }
   };
   const remove = async (i: PlanItem) => {
     const under = items.filter((x) => x.parentId === i.id).length;
@@ -354,6 +348,7 @@ function ActionPlan() {
       </Box>
 
       {note && <Typography sx={{ fontSize: "0.88rem", color: RED }}>{note}</Typography>}
+      {said && <Typography sx={{ fontSize: "0.88rem", color: GREEN, fontWeight: 600 }}>{said}</Typography>}
       {!data ? (
         <GlassCard><Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
           {!error && <CircularProgress size={18} />}
@@ -363,18 +358,27 @@ function ActionPlan() {
         <Gantt rows={rows} rolled={rolled} today={today} zoom={zoom} canWrite={data.canWrite} collapsed={collapsed} toggle={toggle}
           selected={openId} onOpen={(i) => openRow(i)} onSubs={(i) => openRow(i)} onPatch={patch} canDrop={canDrop} onDrop={onDrop}
           height="max(480px, calc(100vh - 150px))" colorOf={colorOf}
-          compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} onAddSub={(row) => openRow(row, "sub")} hidden={hidden} onHide={hide} />
+          compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} onAdd={setAddFor} hidden={hidden} onHide={hide} />
       )}
       <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
-        Drag a row by its handle onto another main category or sub-category; the + beside an action adds a sub-action, the eye hides a row (Hidden rows shows them again); a row's window adds actions and categories under it; drag a bar to move its dates, its right end to change the go-live date.
+        Drag a row by its handle onto another main category or sub-category; the + beside a row adds what goes under it - a sub-action under an action, an action in a category - and the eye hides a row (Hidden rows shows them again); drag a bar to move its dates, its right end to change the go-live date.
         A bar runs from the planned date to the go-live date, a diamond is an action with only a go-live date, a square a sub-action. The statuses and priorities are the &ldquo;From Scroll to Sale&rdquo; pipeline&apos;s.
       </Typography>
 
       {opened && (
         // keyed by the row: a tile opens another row with its own view and fields
         <ItemModal key={opened.id} item={opened} items={items} rolledAll={rolled} subs={subs.filter((s) => s.item === opened.id)} canWrite={!!data?.canWrite}
-          people={data?.people ?? []} peopleError={data?.peopleError ?? null} choices={data?.choices ?? S2S_CHOICES} colorOf={colorOf} start={openStart}
-          onClose={closeRow} onOpen={(i) => openRow(i)} onPatch={patch} onChanged={() => void load()} onAdd={add} onDelete={remove} onMoveTo={moveTo} />
+          people={data?.people ?? []} peopleError={data?.peopleError ?? null} choices={data?.choices ?? S2S_CHOICES} colorOf={colorOf}
+          onClose={closeRow} onOpen={(i) => openRow(i)} onPatch={patch} onChanged={() => void load()} onAddUnder={setAddFor} onDelete={remove} onMoveTo={moveTo} />
+      )}
+      {addFor && (
+        <AddDialog key={addFor.id} parent={addFor} people={data?.people ?? []} choices={data?.choices ?? S2S_CHOICES} onClose={() => setAddFor(null)}
+          onDone={(s) => {
+            const at = addFor;
+            setAddFor(null); setSaid(s); void load();
+            // what was made shows: its parent opens
+            setCollapsed((c) => { const n = new Set(c); n.delete(`i${at.id}`); return n; });
+          }} />
       )}
     </Box>
   );

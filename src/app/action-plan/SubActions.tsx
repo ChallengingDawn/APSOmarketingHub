@@ -4,8 +4,10 @@
 // own row with a bar under the action in the Gantt). A new one is written in the form on top, or described to the AI
 // ("Create with AI"); each one below is a line that opens into the same fields, saved as they change. They are the KPI
 // tiles' tasks (tile "plan:<id>"), so a KPI tile's task tied to this action shows here too. When Digital Growth leads
-// the action a sub-action can carry a "From Scroll to Sale" ticket - its stage, priority and dates go into the ticket -
-// and the action's own tickets are found open, closed or all and linked at the bottom.
+// the action a sub-action can carry a "From Scroll to Sale" ticket - its stage, priority and dates go into the ticket,
+// the form asks for the rest of the ticket's properties at once ("at this level only the ticket creation information is
+// needed if Digital Growth is on") - and the action's own tickets are found open, closed or all and linked at the bottom.
+// The + beside an action's row opens the same form in a small window of its own (AddDialog.tsx).
 
 import { useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -97,7 +99,10 @@ function SmallFields({ v, set, owners, canWrite }: { v: Small; set: (p: Partial<
   );
 }
 
-/** The ticket fields a sub-action fills: its name, owner, stage, priority, dates and note are the ticket's too. */
+/** The ticket fields a sub-action fills: its name, owner, stage, priority, dates and note are the ticket's too - the
+ *  ticket's form shows only the rest. */
+const OWN = ["hubspot_owner_id", "hs_pipeline_stage", "hs_ticket_priority", "mkt_planned_date", "mkt_golive_date", "mkt_next_steps"];
+const restOf = (form: TicketsAnswer["form"]): TicketsAnswer["form"] => ({ ...form, fields: form.fields.filter((f) => !OWN.includes(f.name)) });
 const ticketOwn = (v: Small, note: string): Record<string, string> => ({
   subject: v.title.trim().slice(0, 200),
   ...(/^\d+$/.test(v.owner) ? { hubspot_owner_id: v.owner } : {}),
@@ -110,7 +115,7 @@ const ticketOwn = (v: Small, note: string): Record<string, string> => ({
 
 /* ── a new one ─────────────────────────────────────────────────────────── */
 
-function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, done }: {
+export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, done }: {
   item: PlanItem; tile: TileInfo; t: TicketsAnswer | null; tErr: string | null; retry: () => Promise<void>; owners: Opt[]; tickets: boolean; focus: boolean;
   done: () => Promise<void>;
 }) {
@@ -118,7 +123,10 @@ function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, done }: {
   const [v, setV] = useState<Small>(blank);
   const [note, setNote] = useState("");
   const [shared, setShared] = useState<string[]>([]);
-  const [ticket, setTicket] = useState<"none" | "new" | "link">("none");
+  // with Digital Growth the ticket comes first: its properties are asked at once
+  const first = tickets ? "new" : "none";
+  const [ticket, setTicket] = useState<"none" | "new" | "link">(first);
+  useEffect(() => { setTicket(tickets ? "new" : "none"); }, [tickets]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [pick, setPick] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -166,7 +174,7 @@ function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, done }: {
       if (ticket === "link") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "link", tile: tile.key, taskId, ids: pick });
       const mailed = Number(j.mailed ?? 0);
       setSent(`“${v.title.trim()}” added${ticket === "new" ? ", with its ticket in HubSpot" : ticket === "link" ? ", with its linked tickets" : ""}${mailed ? ` · ${mailed} mail${mailed === 1 ? "" : "s"} sent` : ""}`);
-      setV(blank()); setNote(""); setShared([]); setTicket("none"); setPick([]); setValues(t?.prefill ?? {});
+      setV(blank()); setNote(""); setShared([]); setTicket(first); setPick([]); setValues(t?.prefill ?? {});
       setAi((a) => ({ ...a, open: false, text: "", msg: null }));
       await done();
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
@@ -221,7 +229,7 @@ function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, done }: {
             tErr ? <Typography sx={{ fontSize: "0.84rem", color: RED }}>HubSpot could not be read: {tErr} <Button size="small" onClick={() => void retry()}>Try again</Button></Typography>
               : <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Reading the pipeline…</Typography></Box>
           )}
-          {ticket === "new" && t && <TicketFields form={t.form} values={values} set={(k, x) => setValues((o) => ({ ...o, [k]: x }))} />}
+          {ticket === "new" && t && <TicketFields form={restOf(t.form)} values={values} set={(k, x) => setValues((o) => ({ ...o, [k]: x }))} />}
           {ticket === "link" && <FindTickets pick={pick} setPick={setPick} already={(t?.linked ?? []).map((x) => x.id)} />}
         </Box>
       )}
@@ -340,7 +348,7 @@ function SubLine({ k, tile, t, owners, canWrite, tickets, linked, open, onToggle
               <Button size="small" startIcon={<DeleteOutlineIcon sx={{ fontSize: 18 }} />} onClick={() => void remove()} sx={{ ...cta, color: FAINT }}>Remove</Button>
             </Box>
           )}
-          {adding === "new" && t && <TicketFields form={t.form} values={values} set={(key, x) => setValues((o) => ({ ...o, [key]: x }))} />}
+          {adding === "new" && t && <TicketFields form={restOf(t.form)} values={values} set={(key, x) => setValues((o) => ({ ...o, [key]: x }))} />}
           {adding === "link" && <FindTickets pick={pick} setPick={setPick} already={linked.map((x) => x.id)} />}
           {adding && (
             <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
@@ -356,14 +364,22 @@ function SubLine({ k, tile, t, owners, canWrite, tickets, linked, open, onToggle
   );
 }
 
+/** The action as its sub-actions' "tile" (plan:<id>), as a KPI tile's Actions knows it. */
+export function planTile(item: PlanItem): TileInfo {
+  const who = item.owners.map((o) => o.name).join(", ") || item.responsible;
+  return {
+    key: `plan:${item.id}`, page: "plan", title: item.title,
+    summary: [item.code, who, item.due ? `due ${dmy(item.due)}` : ""].filter(Boolean).join(" · "),
+    href: `${window.location.origin}/action-plan?item=${item.id}`,
+  };
+}
+
 /* ── all of it ─────────────────────────────────────────────────────────── */
 
-export function SubActions({ item, tile, canWrite, tickets, start, people, onChanged }: {
+export function SubActions({ item, tile, canWrite, tickets, people, onChanged }: {
   item: PlanItem; tile: TileInfo; canWrite: boolean;
   /** Digital Growth leads the action */
   tickets: boolean;
-  /** opened from the + beside its row: the cursor in the new one's name */
-  start: boolean;
   /** HubSpot's users, as the plan read them */
   people: PlanOwner[];
   onChanged: () => void;
@@ -374,8 +390,6 @@ export function SubActions({ item, tile, canWrite, tickets, start, people, onCha
   const [finding, setFinding] = useState(false);
   const [pick, setPick] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (start) box.current?.scrollIntoView({ block: "nearest" }); }, [start]);
   // turned on here: the ticket search opens at once
   const was = useRef(tickets);
   useEffect(() => { if (tickets && !was.current) setFinding(true); if (!tickets) setFinding(false); was.current = tickets; }, [tickets]);
@@ -392,8 +406,8 @@ export function SubActions({ item, tile, canWrite, tickets, start, people, onCha
   };
 
   return (
-    <Box ref={box} sx={{ display: "grid", gap: 1.25 }}>
-      {canWrite && <NewSub item={item} tile={tile} t={t} tErr={tErr} retry={loadTickets} owners={owners} tickets={tickets} focus={start} done={reload} />}
+    <Box sx={{ display: "grid", gap: 1.25 }}>
+      {canWrite && <NewSub item={item} tile={tile} t={t} tErr={tErr} retry={loadTickets} owners={owners} tickets={tickets} focus={false} done={reload} />}
       {(err || (tErr && tickets)) && <Typography sx={{ fontSize: "0.86rem", color: RED }}>{err ?? `HubSpot could not be read: ${tErr}`}</Typography>}
       {!tasks ? (
         <Box sx={{ display: "flex", gap: 1, alignItems: "center", minHeight: 40 }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Reading its sub-actions…</Typography></Box>
