@@ -32,9 +32,9 @@ export default function ActionPlanCard({ glass, focusRing }: { glass: object; fo
       "&:hover .go": { transform: "translateX(4px)" },
       "@media (prefers-reduced-motion: reduce)": { transition: "none", "&:hover": { transform: "none" } },
     }}>
-      {/* the range: real years, the climb still to make, the dot where we are */}
-      <Box aria-hidden sx={{ position: "absolute", right: -6, bottom: -2, width: 240, opacity: .9, pointerEvents: "none" }}>
-        <SummitMountain s={s} width={240} height={112} />
+      {/* mountain 8: real years, the climb to the summit, snow above 26 M€, the dot where we are - across the card's face */}
+      <Box aria-hidden sx={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+        <SummitMountain s={s} mode="card" />
       </Box>
 
       <Box sx={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 0.6, mb: 1 }}>

@@ -1,9 +1,9 @@
 "use client";
 // THE MOUNTAIN, DRAWN FROM THE FIGURES (SARCLA 31.10.2026: "the mountain behind should see real data and show
-// what is our position until 30 millions in 2031"). The solid range is APSOparts' revenue year by year, the
-// running year as its estimate; the pale slope behind is the climb from the last full year to the 30 M€
-// summit in 2031, at the growth a year it takes; the dot is where we are. Used on the home card (small,
-// no words) and at the top of the action plan (with its figures).
+// what is our position until 30 millions in 2031"). Design 8 of the 30 he was shown, "Snow cap" (01.11.2026):
+// the ridge is APSOparts' revenue year by year and then the path to the 30 M€ summit in 2031 at the growth a
+// year it takes, snow above the path's 2029 value, the dot where this year is heading. On the home card it
+// covers the card's face; at the top of the action plan it carries the years and sits beside the figures.
 
 import { useEffect, useId, useState } from "react";
 import Box from "@mui/material/Box";
@@ -35,86 +35,137 @@ export function useSummit(enabled = true): { data: SummitData | null; error: str
   return { data, error };
 }
 
-const GOOD = "#1f9d6b";
-const BEHIND = "#d08a1e";
+const GOOD = "#1b7a55";
+const BEHIND = "#a96a12";
 
-/** The range itself. `labels` adds the years and the three figures that matter (base, now, summit). */
-export function SummitMountain({ s, width, height, labels = false }: { s: SummitData | null; width: number; height: number; labels?: boolean }) {
+/* ── mountain 8, "Snow cap" (SARCLA 01.11.2026 picked it from 30 designs) ─────────────────────────
+   A rock peak drawn from the figures: its ridge is the full years, then the path's years up to the
+   summit; everything above the path's 2029 value is snow; the history drawn solid, the climb dashed;
+   the dot is this year's estimate, green ahead of the path, amber behind. */
+type Pt = [number, number];
+const r1 = (n: number) => Math.round(n * 10) / 10;
+const pt = (p: Pt) => `${r1(p[0])},${r1(p[1])}`;
+/** A smooth line through the points (Catmull-Rom as cubic Béziers). */
+function smooth(P: Pt[]): string {
+  let d = `M${pt(P[0])}`;
+  for (let i = 0; i < P.length - 1; i++) {
+    const p0 = P[i - 1] ?? P[i], p1 = P[i], p2 = P[i + 1], p3 = P[i + 2] ?? P[i + 1];
+    d += `C${pt([p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6])} ${pt([p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6])} ${pt(p2)}`;
+  }
+  return d;
+}
+const closeDown = (d: string, P: Pt[], y: number) => `${d}L${r1(P[P.length - 1][0])},${y}L${r1(P[0][0])},${y}Z`;
+function xAtY(P: Pt[], y: number): number | null {
+  for (let i = 0; i < P.length - 1; i++) {
+    const a = P[i], b = P[i + 1];
+    if ((a[1] - y) * (b[1] - y) <= 0 && a[1] !== b[1]) return a[0] + ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]);
+  }
+  return null;
+}
+
+/** Where things sit: the card's full face (as on the design board), or the wider band at the top of the plan. */
+const LAYOUT = {
+  card: { vw: 430, vh: 420, x0: 178, x1: 362, yb: 404, yt: 218, base: 424, years: false },
+  band: { vw: 600, vh: 226, x0: 96, x1: 470, yb: 182, yt: 48, base: 200, years: true },
+} as const;
+
+/** The mountain. In "card" it covers the card's face, anchored bottom right; in "band" it adds the years. */
+export function SummitMountain({ s, mode }: { s: SummitData | null; mode: "card" | "band" }) {
   const uid = useId().replace(/:/g, "");
-  const W = width, H = height;
-  const padL = labels ? 34 : 6, padR = labels ? 54 : 26, padT = labels ? 34 : 22, padB = labels ? 26 : 0;
+  const L = LAYOUT[mode];
+  const svgSx = mode === "card"
+    ? { position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }
+    : { width: "100%", height: "auto", display: "block" };
 
   // before the figures arrive - or if they cannot be read - the quiet range the card always had
-  if (!s || !s.base) {
+  if (!s || !s.base || !s.path.length) {
     return (
-      <Box aria-hidden component="svg" viewBox="0 0 260 120" sx={{ width: "100%", maxWidth: W, height: "auto", maxHeight: H, display: "block", ml: "auto" }}>
+      <Box aria-hidden component="svg" viewBox={`0 0 ${L.vw} ${L.vh}`} preserveAspectRatio="xMaxYMax meet" sx={svgSx}>
         <defs>
           <linearGradient id={`m1${uid}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#c7b8fb" /></linearGradient>
           <linearGradient id={`m2${uid}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#7aa7f5" /><stop offset="100%" stopColor="#b9d2fa" /></linearGradient>
         </defs>
-        <path d="M60 120 L130 28 L200 120 Z" fill={`url(#m1${uid})`} />
-        <path d="M140 120 L196 52 L252 120 Z" fill={`url(#m2${uid})`} opacity=".9" />
-        <path d="M8 120 L62 60 L116 120 Z" fill={`url(#m2${uid})`} opacity=".55" />
-        <path d="M130 28 L130 12" stroke="#ec4899" strokeWidth="2.4" strokeLinecap="round" />
-        <path d="M130 12 L148 17 L130 23 Z" fill="#ec4899" />
+        <g transform={`translate(${L.vw - 260} ${L.vh - 120})`}>
+          <path d="M60 120 L130 28 L200 120 Z" fill={`url(#m1${uid})`} />
+          <path d="M140 120 L196 52 L252 120 Z" fill={`url(#m2${uid})`} opacity=".9" />
+          <path d="M8 120 L62 60 L116 120 Z" fill={`url(#m2${uid})`} opacity=".55" />
+          <path d="M130 28 L130 12" stroke="#ec4899" strokeWidth="2.4" strokeLinecap="round" />
+          <path d="M130 12 L148 17 L130 23 Z" fill="#ec4899" />
+        </g>
       </Box>
     );
   }
 
-  const from = Math.max(s.history[0]?.year ?? s.base.year, SUMMIT.year - 10);
-  const to = SUMMIT.year;
-  const top = Math.max(SUMMIT.value, ...s.history.map((h) => h.value)) * 1.06;
-  const X = (y: number) => padL + ((y - from) / (to - from)) * (W - padL - padR);
-  const Y = (v: number) => H - padB - (v / top) * (H - padT - padB);
-  const floor = H - padB;
+  // the figures in M€: the last five full years, the path from the base year to the summit, this year
+  const M = 1_000_000;
+  const H = s.history.filter((h) => h.year > s.base!.year - 5).map((h) => [h.year, h.value / M] as Pt);
+  const P = s.path.map((p) => [p.year, p.value / M] as Pt);
+  const N: Pt = s.current ? [s.current.year, s.current.estimate / M] : [s.base.year, s.base.value / M];
+  const t0 = H[0][0], t1 = SUMMIT.year, v1 = SUMMIT.value / M;
+  const v0 = Math.max(0, Math.floor(Math.min(...H.map((h) => h[1]), ...P.map((q) => q[1])) - 5));
+  const X = (t: number) => L.x0 + ((t - t0) * (L.x1 - L.x0)) / (t1 - t0);
+  const Y = (v: number) => L.yb - ((v - v0) * (L.yb - L.yt)) / (v1 - v0);
+  const XY = (q: Pt): Pt => [X(q[0]), Y(q[1])];
 
-  const actual = s.history.filter((h) => h.year >= from).map((h) => ({ year: h.year, value: h.value }));
-  if (s.current) actual.push({ year: s.current.year, value: s.current.estimate });
-  const area = (pts: { year: number; value: number }[]) =>
-    pts.length ? `M${X(pts[0].year)},${floor} ${pts.map((p) => `L${X(p.year)},${Y(p.value)}`).join(" ")} L${X(pts[pts.length - 1].year)},${floor} Z` : "";
-  const line = (pts: { year: number; value: number }[]) => pts.map((p, i) => `${i ? "L" : "M"}${X(p.year)},${Y(p.value)}`).join(" ");
-
-  const here = s.current ? { year: s.current.year, value: s.current.estimate } : s.base;
+  const data = [...H, ...P.slice(1)].map(XY);
+  const top = data[data.length - 1];
+  const back: Pt[] = [[top[0] + 24, top[1] + 38], [top[0] + 44, top[1] + 62], [top[0] + 70, top[1] + 78]];
+  const crest: Pt[] = [[L.x0 - 60, L.base - 2], [L.x0 - 28, L.yb - 22], ...data, ...back];
+  const ridge = smooth(crest), rock = closeDown(ridge, crest, L.base);
+  const xBase = X(s.base.year);
+  const now = XY(N);
   const ahead = s.gap == null || s.gap >= 0;
-  const fx = X(SUMMIT.year), fy = Y(SUMMIT.value);
-  const num = (v: number) => (v / 1_000_000).toLocaleString("en-US", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+  const st = ahead ? GOOD : BEHIND;
+
+  // the snow: everything above the path's value three steps before the summit (26 M€ on today's path)
+  const snowV = Math.round(P[Math.max(0, P.length - 3)][1]);
+  const sy = Y(snowV);
+  const snowL = X(P[Math.min(2, P.length - 1)][0]) - 8, right = L.vw + 6;
+  let snow = `M${r1(snowL)},${r1(L.yt - 70)}L${right},${r1(L.yt - 70)}L${right},${r1(sy + 8)}`;
+  for (let x = right - 6, j = 0; x > snowL + 6; x -= 7, j++) snow += `L${r1(x)},${r1(sy + (j % 2 ? -3 : 3.5))}`;
+  snow += `L${r1(snowL)},${r1(sy)}Z`;
+  const xSnow = xAtY(P.map(XY), sy);
+  const ridges = ([[1, 26, 40], [6, 18, 34], [8, 14, 26], [3, 20, 30]] as const)
+    .filter(([i]) => i < data.length)
+    .map(([i, dx, dy]) => `M${r1(data[i][0])},${r1(data[i][1] + 4)}q${r1(dx * 0.3)},${r1(dy * 0.5)} ${dx},${dy}`);
+  const ft = top[1] - 24;
+  const label = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
 
   return (
-    <Box component="svg" viewBox={`0 0 ${W} ${H}`} role="img"
-      aria-label={`Revenue ${s.base.year}: ${mEur(s.base.value)}${s.current ? `; ${s.current.year} estimated ${mEur(s.current.estimate)}` : ""}; goal ${mEur(SUMMIT.value)} in ${SUMMIT.year}`}
-      sx={{ width: "100%", maxWidth: W, height: "auto", display: "block", overflow: "visible" }}>
+    <Box component="svg" viewBox={`0 0 ${L.vw} ${L.vh}`} preserveAspectRatio="xMaxYMax meet" role="img"
+      aria-label={`Revenue ${s.base.year}: ${mEur(s.base.value)}${s.current ? `; ${s.current.year} expected ${mEur(s.current.estimate)}` : ""}; goal ${mEur(SUMMIT.value)} in ${SUMMIT.year}`}
+      sx={svgSx}>
       <defs>
-        <linearGradient id={`a${uid}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#d9cffc" /></linearGradient>
-        <linearGradient id={`p${uid}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#7aa7f5" stopOpacity=".55" /><stop offset="100%" stopColor="#b9d2fa" stopOpacity=".25" /></linearGradient>
+        <linearGradient id={`b${uid}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#8f7cf0" /><stop offset="1" stopColor="#cbbffb" /></linearGradient>
+        <clipPath id={`a${uid}`}><path d={rock} /></clipPath>
+        <clipPath id={`p${uid}`}><rect x="0" y="0" width={r1(xBase)} height={L.vh} /></clipPath>
+        <clipPath id={`f${uid}`}><rect x={r1(xBase)} y="0" width={r1(top[0] + 0.5 - xBase)} height={L.vh} /></clipPath>
       </defs>
-      {labels && [0.25, 0.5, 0.75, 1].map((f) => (
-        <line key={f} x1={padL} x2={W - padR} y1={Y(SUMMIT.value * f)} y2={Y(SUMMIT.value * f)} stroke="rgba(21,34,58,.07)" />
-      ))}
-      {/* the climb still to make */}
-      <path d={area(s.path)} fill={`url(#p${uid})`} />
-      <path d={line(s.path)} fill="none" stroke="#6b93ec" strokeWidth={labels ? 1.6 : 1.3} strokeDasharray="4 4" />
-      {/* what was earned */}
-      <path d={area(actual)} fill={`url(#a${uid})`} />
-      <path d={line(actual)} fill="none" stroke="#8b6cf0" strokeWidth={labels ? 2 : 1.5} strokeLinejoin="round" />
-      {/* the summit */}
-      <path d={`M${fx},${fy} L${fx},${fy - 16}`} stroke="#ec4899" strokeWidth="2.4" strokeLinecap="round" />
-      <path d={`M${fx},${fy - 16} L${fx + 15},${fy - 11.5} L${fx},${fy - 7} Z`} fill="#ec4899" />
-      {/* where we are */}
-      <circle cx={X(here.year)} cy={Y(here.value)} r={labels ? 6 : 4.5} fill="#fff" stroke={ahead ? GOOD : BEHIND} strokeWidth={labels ? 3 : 2.4} />
-      {labels && (
-        <g fontFamily="var(--font-inter), sans-serif" fill="#5d6b85">
-          {Array.from({ length: to - from + 1 }, (_, k) => from + k).map((y) => (
-            <text key={y} x={X(y)} y={H - 8} fontSize="11" textAnchor="middle" fontWeight={y === here.year ? 700 : 400} fill={y === here.year ? "#15223a" : "#8b97ac"}>{y}</text>
-          ))}
-          <text x={padL - 6} y={Y(SUMMIT.value) + 4} fontSize="10" textAnchor="end" fill="#8b97ac">30</text>
-          <text x={padL - 6} y={Y(SUMMIT.value / 2) + 4} fontSize="10" textAnchor="end" fill="#8b97ac">15</text>
-          <text x={fx + 18} y={fy - 9} fontSize="12" fontWeight="700" fill="#15223a">30 M€</text>
-          <text x={X(s.base.year)} y={Y(s.base.value) - 10} fontSize="11" textAnchor="middle" fill="#5d6b85">{num(s.base.value)}</text>
-          {s.current && (
-            <text x={X(s.current.year)} y={Y(s.current.estimate) - 12} fontSize="12" fontWeight="700" textAnchor="middle" fill={ahead ? GOOD : BEHIND}>≈{num(s.current.estimate)}</text>
-          )}
-        </g>
-      )}
+      <path d={rock} fill={`url(#b${uid})`} />
+      <g clipPath={`url(#a${uid})`}>
+        {ridges.map((d, k) => <path key={k} d={d} fill="none" stroke="#4b37b0" strokeOpacity=".28" strokeWidth="1.1" strokeLinecap="round" />)}
+        <path d={snow} fill="#ffffff" />
+        <path d={`M${pt(top)}L${right},${r1(top[1] - 6)}L${right},${L.base}L${r1(top[0] - 40)},${L.base}Z`} fill="#2e1f8a" fillOpacity=".2" />
+      </g>
+      {/* where we have been, solid; the climb still to make, dashed */}
+      <path d={ridge} fill="none" stroke="#7c5cf0" strokeWidth="1.2" clipPath={`url(#p${uid})`} />
+      <path d={ridge} fill="none" stroke="#3461c9" strokeWidth="1.5" strokeDasharray="3 3" strokeLinecap="round" clipPath={`url(#f${uid})`} />
+      <line x1={r1(snowL + 8)} y1={r1(sy)} x2={r1((xSnow ?? snowL + 40) - 4)} y2={r1(sy)} stroke="#6b93ec" strokeWidth=".9" strokeDasharray="2 3" />
+      <g fontFamily="var(--font-inter), Inter, sans-serif">
+        <text x={r1(snowL + 8)} y={r1(sy - 14)} fontSize="7.5" fontWeight="600" fill="#8b97ac">snow line</text>
+        <text x={r1(snowL + 8)} y={r1(sy - 5)} fontSize="7.5" fontWeight="700" fill="#3461c9">{snowV} M€</text>
+        {/* the summit */}
+        <line x1={r1(top[0])} y1={r1(top[1])} x2={r1(top[0])} y2={r1(ft)} stroke="#3c3f74" strokeOpacity=".75" strokeWidth="1.5" strokeLinecap="round" />
+        <path d={`M${r1(top[0])} ${r1(ft)}L${r1(top[0] + 17)} ${r1(ft + 5.3)}L${r1(top[0])} ${r1(ft + 10.6)}Z`} fill="#ec4899" />
+        <text x={r1(top[0] + 4)} y={r1(top[1] - 30)} fontSize="9.5" fontWeight="700" fill="#15223a" textAnchor="middle">{`${SUMMIT.value / M} M€ · ${SUMMIT.year}`}</text>
+        {/* where we are */}
+        <circle cx={r1(now[0])} cy={r1(now[1])} r="10.2" fill={st} fillOpacity=".16" />
+        <circle cx={r1(now[0])} cy={r1(now[1])} r="5.2" fill="#ffffff" stroke={st} strokeWidth="2.6" />
+        <text x={r1(now[0] - 9)} y={r1(now[1] - 9)} fontSize="9" fontWeight="700" fill={st} textAnchor="end">{label(N[1])}</text>
+        {L.years && Array.from({ length: t1 - t0 + 1 }, (_, k) => t0 + k).map((t) => (
+          <text key={t} x={r1(X(t))} y={L.vh - 8} fontSize="10" textAnchor="middle" fontWeight={t === N[0] ? 700 : 400} fill={t === N[0] ? "#15223a" : "#8b97ac"}>{t}</text>
+        ))}
+      </g>
     </Box>
   );
 }

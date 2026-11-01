@@ -244,12 +244,12 @@ function ActionPlan() {
       </Box>
 
       {/* where we stand on the climb */}
-      <GlassCard sx={{ display: "grid", gap: 2.5, alignItems: "center", gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1fr) 560px" } }}>
+      <GlassCard sx={{ display: "grid", gap: 2.5, alignItems: "center", gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1fr) 600px" } }}>
         {summit?.base ? <SummitFigures s={summit} /> : (
           <Typography sx={{ fontSize: "0.9rem", color: summitErr ? RED : MUTED }}>{summitErr ? `The revenue could not be read: ${summitErr}` : "Reading the revenue…"}</Typography>
         )}
-        <Box sx={{ justifySelf: { lg: "end" }, width: "100%", maxWidth: 560 }}>
-          <SummitMountain s={summit} width={560} height={190} labels />
+        <Box sx={{ justifySelf: { lg: "end" }, width: "100%", maxWidth: 600 }}>
+          <SummitMountain s={summit} mode="band" />
         </Box>
       </GlassCard>
 
