@@ -27,7 +27,31 @@ const PP_PROPS = [
   "sales_unit", "moq", "moq_minimum_quantity",
   "stock_quantity", "stock_unit",
   "main_group_number", "main_group_description", "sub_group_number",
+  // the product hierarchy the Products Reports break down by (SARCLA 01.11.2026: "we should really create subtabs") - read
+  // on the same search, so no call more
+  "sub_group_description", "product_number", "product_description",
 ];
+
+/**
+ * A line the hub kept of a company's shop activity (apsomh_shop_looks, src/lib/shopLooks/store.ts). The property itself
+ * holds only a company's last 50 articles, so a period reaching further back needs the hub's copy. Additive (01.11.2026):
+ * only a caller that passes `kept` gets them merged in; the Datatracker and Engagements read the property alone, as before.
+ */
+export type KeptLook = { companyId: string; day: string; article: string; qty: number | null; carted: boolean; ordered: boolean; contact: string | null };
+
+/** What Products & Pricing says of an article looked up - for the Products Reports' breakdowns (01.11.2026). */
+export type ArticleFacts = {
+  description: string | null;
+  profitCentre: string | null;
+  mainGroup: string | null;
+  subGroup: string | null;
+  product: string | null;
+  productName: string | null;
+  salesUnit: string | null;
+  /** knownMinimum(): a minimum only when P&P says YES and gives a number above one */
+  minimum: number | null;
+  stock: number | null;
+};
 
 export type PriceCheckArticle = {
   article: string;
@@ -137,6 +161,12 @@ export type ShopSignals = {
    * the ones HubSpot holds now, where a 1 may have overwritten a typed number.
    */
   quantityHistoryError: string | null;
+  /** Each article looked up, as Products & Pricing gives it (additive, 01.11.2026 - the Products Reports). */
+  articleFacts?: Record<string, ArticleFacts>;
+  /** The looks that did end in an order, one company, one article, one day - for "ordered later" (additive, 01.11.2026). */
+  orderedLooks?: { companyId: string; day: string; article: string }[];
+  /** With `kept`: the hub's lines merged in, and those of a company the scan did not reach (left out). */
+  kept?: { merged: number; unknownCompany: number } | null;
 };
 
 type ActivityLine = { t?: string; a?: string; q?: number; c?: number; o?: number; u?: string };
@@ -218,7 +248,7 @@ async function recoverTypedQuantities(
 }
 
 export async function fetchShopSignals(
-  params: { from?: string; to?: string; today?: string; signal?: AbortSignal } = {},
+  params: { from?: string; to?: string; today?: string; signal?: AbortSignal; kept?: KeptLook[]; facts?: boolean } = {},
 ): Promise<ShopSignals> {
   // Which call failed matters more than that one did: the three reads below sit
   // behind different scopes, and an unlabelled message sends you looking in the
@@ -234,7 +264,7 @@ export async function fetchShopSignals(
 }
 
 async function scan(
-  params: { from?: string; to?: string; today?: string; signal?: AbortSignal },
+  params: { from?: string; to?: string; today?: string; signal?: AbortSignal; kept?: KeptLook[]; facts?: boolean },
   at: { step: string },
 ): Promise<ShopSignals> {
   const { from, to, signal } = params;
@@ -259,6 +289,8 @@ async function scan(
   const wanted = new Set<string>();
   const orderedLooks = new Set<string>();
   const orderedCompanies = new Set<string>();
+  /** every company the scan read (our own left out) - the kept lines join them by id */
+  const seen = new Map<string, Company>();
   let after: string | undefined;
   let scanned = 0;
 
@@ -285,6 +317,18 @@ async function scan(
       // Our own companies (tests, intercompany): not on the boards, never a
       // ticket, never a morning mail - all three read this scan.
       if (isInternalCompany(p.name, p.domain)) continue;
+      if (params.kept) {
+        seen.set(String(r.id ?? ""), {
+          companyId: String(r.id ?? ""),
+          companyName: p.name ?? null,
+          customerNumber: p.company_unique_number ?? null,
+          mandant: p.mandant ?? null,
+          country: p.country_custom ?? null,
+          ownerId: p.hubspot_owner_id ?? null,
+          apsoCustomer: p.apso_customer ?? null,
+          salesPriority: p.sales_priority ?? null,
+        });
+      }
       let parsed: ActivityJson;
       try { parsed = JSON.parse(String(p.eshop_activity ?? "")) as ActivityJson; } catch { continue; }
 
@@ -337,6 +381,41 @@ async function scan(
     if (scanned >= 3000) break;            // a guard, not a quota
   } while (after);
 
+  // ---- the lines the hub kept: the property holds the last 50 articles only (additive, 01.11.2026 - only with `kept`).
+  // A kept line is folded in as a line of the property is: the largest quantity of the day, a cart anywhere in the day.
+  let kept: ShopSignals["kept"] = null;
+  if (params.kept) {
+    let merged = 0, unknownCompany = 0;
+    for (const k of params.kept) {
+      if (!isArticle(k.article) || !/^\d{4}-\d{2}-\d{2}$/.test(k.day)) continue;
+      if (from && k.day < from) continue;
+      if (to && k.day > to) continue;
+      const company = seen.get(String(k.companyId));
+      // our own companies are not in `seen`, nor one past the scan's guard: no name, no mandant - left out, counted
+      if (!company) { unknownCompany++; continue; }
+      merged++;
+      if (k.ordered) { orderedLooks.add(`${company.companyId}|${k.day}|${k.article}`); orderedCompanies.add(company.companyId); continue; }
+      const key = `${company.companyId}|${k.day}`;
+      let d = drafts.get(key);
+      if (!d) drafts.set(key, (d = { company, day: k.day, contacts: new Set<string>(), looks: new Map() }));
+      if (k.contact) d.contacts.add(String(k.contact));
+      const q = typeof k.qty === "number" && Number.isFinite(k.qty) ? k.qty : null;
+      const was = d.looks.get(k.article);
+      d.looks.set(k.article, {
+        qty: was == null ? q : q != null && (was.qty == null || q > was.qty) ? q : was.qty,
+        carted: (was?.carted ?? false) || k.carted,
+      });
+      wanted.add(k.article);
+    }
+    // a look that ended in an order on its day is about none of the three screens, whichever copy says so
+    for (const o of orderedLooks) {
+      const [co, day, article] = o.split("|");
+      const d = drafts.get(`${co}|${day}`);
+      if (d?.looks.delete(article) && d.looks.size === 0) drafts.delete(`${co}|${day}`);
+    }
+    kept = { merged, unknownCompany };
+  }
+
   // ---- a 1 that overwrote a typed quantity: the typed one, from the history
   at.step = "quantity history";
   const quantityHistoryError = await recoverTypedQuantities(
@@ -362,6 +441,24 @@ async function scan(
       const a = r.properties?.article_number;
       if (a) spec.set(a, r.properties ?? {});
     }
+  }
+  // each article as Products & Pricing gives it (additive, 01.11.2026); P&P ends its descriptions with " -"
+  const ppText = (v: string | null | undefined) => (v ?? "").trim().replace(/\s+-$/, "") || null;
+  // a property P&P leaves empty is unknown, not 0 - num(null) is 0, which the shelf rule below reads as an empty shelf
+  const exact = (v: string | null | undefined) => (v == null || String(v).trim() === "" ? null : num(v));
+  const articleFacts: Record<string, ArticleFacts> = {};
+  if (params.facts) for (const [a, pp] of spec) {
+    articleFacts[a] = {
+      description: ppText(pp.article_description),
+      profitCentre: ppText(pp.profit_center)?.toUpperCase() ?? null,
+      mainGroup: ppText(pp.main_group_description),
+      subGroup: ppText(pp.sub_group_description),
+      product: ppText(pp.product_number),
+      productName: ppText(pp.product_description),
+      salesUnit: ppText(pp.sales_unit),
+      minimum: knownMinimum(pp.moq, exact(pp.moq_minimum_quantity)),
+      stock: exact(pp.stock_quantity),
+    };
   }
 
   // Names for the owners, from HubSpot: the roster says which team, not who.
@@ -544,5 +641,11 @@ async function scan(
     orderedCompanies: orderedCompanies.size,
   };
   return { priceChecks, moq, availability, lost, scanned, articlesLookedUp: spec.size,
-           ticketLookupError, quantityHistoryError, generatedAt: new Date().toISOString() };
+           ticketLookupError, quantityHistoryError, generatedAt: new Date().toISOString(),
+           // only for a caller that asks (`facts`): the Datatracker's answer stays the size it was
+           ...(params.facts ? {
+             articleFacts,
+             orderedLooks: [...orderedLooks].map((k) => { const [companyId, day, article] = k.split("|"); return { companyId, day, article }; }),
+           } : {}),
+           kept };
 }
