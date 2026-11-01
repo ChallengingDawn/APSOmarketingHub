@@ -717,7 +717,7 @@ function KpiCards({ cube, a, all, win, readIso, online, onlineBusy }: { cube: Cu
  * charts behind it stay live (SARCLA 13.10: "collapsable; when open it
  * overlays the graphs; it works like a separate chat").
  */
-export function FilterWindow({ id = "customers-filters", period = true, periodPicker, dims = ORDER, names = {}, customers, open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
+export function FilterWindow({ id = "customers-filters", period = true, periodPicker, dims = ORDER, names = {}, customers, extra, open, onClose, focus, cube, win, setWin, filters, toggle, clearAll }: {
   /** a page's own Period section in place of the ready-made windows and the two month menus - the ESO reports' every
    *  quarter and mini calendar (SARCLA 31.10.2026) */
   periodPicker?: React.ReactNode;
@@ -731,6 +731,8 @@ export function FilterWindow({ id = "customers-filters", period = true, periodPi
   names?: Partial<Record<Dim, string>>;
   /** the customer filter: a search by name or ERP number, the customers chosen */
   customers?: CustomerPick;
+  /** a page's own choices after the breakdowns, as FilterSections - the Customer Reports' amount "at least" (SARCLA 01.11.2026) */
+  extra?: React.ReactNode;
   open: boolean; onClose: () => void; focus: { dim: Dim; n: number } | null; cube: Cube; win: Win; setWin: (w: Win) => void; filters: Filters; toggle: (d: Dim, label: string) => void; clearAll: () => void;
 }) {
   const chosen = chosenDims(filters).flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
@@ -794,6 +796,7 @@ export function FilterWindow({ id = "customers-filters", period = true, periodPi
           <Facet cube={cube} dim={dim} win={win} filters={filters} onPick={(l) => toggle(dim, l)} />
         </Section>
       ))}
+      {live && extra}
     </FilterPanel>
   );
 }

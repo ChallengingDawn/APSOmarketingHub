@@ -150,11 +150,25 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
   },
   {
     slug: "customers", name: "Customer Reports", line: "Where customers arrive, where we lose them, what came of it",
+    // Customer KPIs, the whole company on Who are our customers' cube (SARCLA 01.11.2026: "based on what we know, think about
+    // what kind of dynamic KPI would be interesting here"): one report, its pages beneath it as ESO's - Customer base first,
+    // the report's own page - and the four reports of before under "Other reports", as Digital Growth's, their addresses
+    // and access rules unchanged
     reports: [
-      { name: "KPIs", href: "/journey/kpis", note: "Conversion, losses and what is working", icon: "bar" },
-      { name: "New customers", href: "/analytics/new-customers", note: "Who arrived this period", icon: "groups" },
-      { name: "Buying companies", href: "/analytics/buyers", note: "Who bought, and how often", icon: "tag" },
-      { name: "Contact requests", href: "/analytics/contact-requests", note: "Who asked to be contacted", icon: "description" },
+      {
+        name: "Customer KPIs", href: "/reporting/customers/base", note: "Active, new, won back and lost; concentration, cross-selling, risk, retention", icon: "groups",
+        overview: "Customer base", overviewHref: "/reporting/customers/base",
+        children: [
+          { name: "Revenue concentration", href: "/reporting/customers/concentration", icon: "bar" },
+          { name: "Cross-selling", href: "/reporting/customers/cross-selling", icon: "layers" },
+          { name: "Recency & risk", href: "/reporting/customers/recency", icon: "health" },
+          { name: "Retention", href: "/reporting/customers/retention", icon: "loop" },
+          { name: "KPIs", href: "/journey/kpis", icon: "bar", group: "Other reports" },
+          { name: "New customers", href: "/analytics/new-customers", icon: "groups", group: "Other reports" },
+          { name: "Buying companies", href: "/analytics/buyers", icon: "tag", group: "Other reports" },
+          { name: "Contact requests", href: "/analytics/contact-requests", icon: "description", group: "Other reports" },
+        ],
+      },
     ],
   },
   {

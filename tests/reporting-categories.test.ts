@@ -67,3 +67,22 @@ test("the Marketing KPIs row itself still opens on Who are our customers (SARCLA
   assert.equal(kpis.href, "/reporting/marketing-kpis/customers");
   assert.equal(kpis.overviewHref, "/reporting/marketing-kpis");
 });
+
+test("Customer Reports: one report, Customer KPIs - Customer base its own page, the four KPI pages beneath it, the four reports of before under Other reports at their old addresses (SARCLA 01.11.2026)", () => {
+  const cust = categoryBySlug("customers")!;
+  assert.equal(cust.reports.length, 1);
+  const r = cust.reports[0];
+  assert.equal(r.name, "Customer KPIs");
+  assert.equal(r.overview, "Customer base");
+  assert.equal(r.overviewHref, "/reporting/customers/base");
+  assert.equal(categoryEntry(cust), "/reporting/customers/base");
+  assert.deepEqual(r.children!.filter((k) => !k.group).map((k) => [k.name, k.href]), [
+    ["Revenue concentration", "/reporting/customers/concentration"],
+    ["Cross-selling", "/reporting/customers/cross-selling"],
+    ["Recency & risk", "/reporting/customers/recency"],
+    ["Retention", "/reporting/customers/retention"],
+  ]);
+  assert.deepEqual(r.children!.filter((k) => k.group === "Other reports").map((k) => [k.name, k.href]), [
+    ["KPIs", "/journey/kpis"], ["New customers", "/analytics/new-customers"], ["Buying companies", "/analytics/buyers"], ["Contact requests", "/analytics/contact-requests"],
+  ]);
+});
