@@ -64,8 +64,8 @@ import {
 } from "@/lib/reporting/visitsRules";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
-  ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TWO, asLead, asTeam, axisWidth, leadOf, niceTop, setQuery, useLead, useLeads, useTeam,
-  type BoardRow, type Col, type LeadKey, type TeamKey,
+  CardFilterFor, ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TWO, asLead, asTeam, axisWidth, leadOf, niceTop, setQuery, useLead, useLeads, useTeam,
+  type BoardRow, type CardFilter, type Col, type LeadKey, type TeamKey,
 } from "./Figures";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
 import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
@@ -567,7 +567,16 @@ const forWhom = (c: VCtx) => `${teamName(c)}'s target for ${c.per.title} - each 
  *  "next to each report ... a new icon Company ... allow to see the companies, paginated by 25"). */
 function drawnOf(id: string): Drawn | undefined {
   const d = drawnBare(id);
-  return d && { ...d, draw: (c, a) => <CompaniesFor source={visitedOf(c)}>{d.draw(c, a)}</CompaniesFor> };
+  return d && { ...d, draw: (c, a) => <CompaniesFor source={visitedOf(c)}><CardFilterFor filter={cardFilterOf(c, id)}>{d.draw(c, a)}</CardFilterFor></CompaniesFor> };
+}
+/** A graph's filter where it has no breakdown of its own (the months, the splits, the tables): the page's filters on the
+ *  graph's breakdown, or the tab's (SARCLA 01.11.2026: "both should be company and filter"). */
+function cardFilterOf(c: VCtx, id: string): CardFilter | null {
+  const [v, chart = ""] = id.split(":");
+  if (!c.onFilter || !isView(v)) return null;
+  const by = chart.split("-")[1];
+  const dim: VDim = chart.startsWith("kinds") && by && by in DIM ? (by as VDim) : DIM_OF[v];
+  return { open: () => c.onFilter!(dim), label: `Filter by ${DIM[dim].lower}`, on: Object.values(c.filters).some((x) => (x?.length ?? 0) > 0) };
 }
 const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 /** 20261012 -> "12 Oct 2026" */

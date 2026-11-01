@@ -33,7 +33,7 @@
 // longer chips under the title; "all the tables should be individual KPIs" - each table its own card with its own
 // Actions, so each goes to the BUC View alone.
 
-import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { createContext, memo, useContext, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
@@ -332,9 +332,17 @@ function periodKey(id: string, per: Per) {
 const targetKey = (id: string, team: TeamKey, lead: string | null | undefined, per: Per) => `eso-figures:${periodKey(id, per)}@${team}${team === "eso" && lead ? `-${lead}` : ""}`;
 const targetFor = (c: FigCtx, id: string) => { const t = c.targets?.[targetKey(id, c.team, c.lead, c.per)]; return t != null && t > 0 ? t : null; };
 
-/** A chart's box, as DimChart's: its title and one line under it, its Actions at the right. */
+/** A card's filter when the graph has no breakdown of its own to filter: the page's filters, opened on the tab's breakdown
+ *  (SARCLA 01.11.2026: "both should be company and filter") - a page sets it around its graphs, as their companies. */
+export type CardFilter = { open: () => void; label: string; on: boolean };
+const FilterCtx = createContext<CardFilter | null>(null);
+export function CardFilterFor({ filter, children }: { filter: CardFilter | null; children: React.ReactNode }) {
+  return <FilterCtx.Provider value={filter}>{children}</FilterCtx.Provider>;
+}
+/** A chart's box, as DimChart's: its title and one line under it, its filter and companies, its Actions at the right. */
 export function ChartBox({ title, hint, actions, children, companies }: { title: string; hint?: string; actions?: React.ReactNode; children: React.ReactNode; companies?: CompanySource | null }) {
   const list = useChartCompanies(companies);
+  const filter = useContext(FilterCtx);
   return (
     <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1, gridTemplateColumns: "minmax(0, 1fr)", alignContent: "start", ...list.wide }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
@@ -342,10 +350,15 @@ export function ChartBox({ title, hint, actions, children, companies }: { title:
           <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
           {hint && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{hint}</Typography>}
         </Box>
+        {filter && (
+          <IconButton size="small" aria-label={filter.label} title={filter.label} onClick={filter.open} sx={{ ...NAV, color: filter.on ? TINT.blue.fg : MUTED, bgcolor: filter.on ? TINT.blue.bg : "transparent" }}>
+            <FilterAltOutlinedIcon sx={{ fontSize: 17 }} />
+          </IconButton>
+        )}
         {list.button}
         {actions}
       </Box>
-      {list.inner(children)}
+      <FilterCtx.Provider value={null}>{list.inner(children)}</FilterCtx.Provider>
       {list.list}
     </Box>
   );
@@ -1159,6 +1172,11 @@ function PcSplitBars({ c, dim, actions }: { c: FigCtx; dim: Dim; actions?: React
           <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{[onPick ? "Click a row to show only it" : "", p.pages > 1 ? `${p.range}, largest first` : "", `the change against the same days of ${c.cube.years[1]}`].filter(Boolean).join(" · ")}</Typography>
         </Box>
         <PagerArrows page={p.page} pages={p.pages} setPage={p.setPage} />
+        {c.onFilter && (
+          <IconButton size="small" aria-label={`Filter by ${lowerOf(dim)}`} title={`Filter by ${lowerOf(dim)}`} onClick={() => c.onFilter!(dim)} sx={{ ...NAV, color: sel.length ? TINT.blue.fg : MUTED, bgcolor: sel.length ? TINT.blue.bg : "transparent" }}>
+            <FilterAltOutlinedIcon sx={{ fontSize: 17 }} />
+          </IconButton>
+        )}
         {list.button}
         {actions}
       </Box>
@@ -1275,7 +1293,15 @@ const onPeriod = (c: FigCtx, p?: Period): FigCtx => (p ? { ...c, per: p === "ytd
  *  31.10.2026: "next to each report ... a new icon Company ... allow to see the companies, paginated by 25"). */
 function drawnOf(id: string): Drawn | undefined {
   const d = drawnBare(id);
-  return d && { ...d, draw: (c, a) => <CompaniesFor source={companiesOf(onPeriod(c, d.fixed), id)}>{d.draw(c, a)}</CompaniesFor> };
+  return d && { ...d, draw: (c, a) => <CompaniesFor source={companiesOf(onPeriod(c, d.fixed), id)}><CardFilterFor filter={cardFilterOf(c, id)}>{d.draw(c, a)}</CardFilterFor></CompaniesFor> };
+}
+/** A graph's filter where it has no breakdown of its own (the months, the tables): the page's filters on the tab's breakdown -
+ *  none on the Forecast, the whole company's. */
+function cardFilterOf(c: FigCtx, id: string): CardFilter | null {
+  const view = id.split(":")[0];
+  if (!c.onFilter || !isView(view) || view === "forecast") return null;
+  const d = dimOf(view);
+  return { open: () => c.onFilter!(d ?? "sae"), label: d ? `Filter by ${lowerOf(d)}` : "Filter", on: chosenDims(c.filters).length > 0 };
 }
 /** The companies behind a chart: its filters, team, period and customers chosen; its figure - the order intake on an
  *  order intake chart, one profit centre's revenue on that profit centre's, the revenue otherwise; the forecast's the
