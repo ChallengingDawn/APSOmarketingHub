@@ -120,6 +120,8 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           { name: "Customer development", href: "/reporting/tsa-benchmark/customers", icon: "groups" },
           // SARCLA 01.11.2026: "shop behaviour is finished - move it to TSA like the other one, keeping it default on TSA"
           { name: "Shop behaviour", href: "/reporting/tsa-benchmark/shop", icon: "inventory" },
+          // SARCLA 01.11.2026: "transfer also this to TSA reports new customer"
+          { name: "New customers", href: "/reporting/tsa-benchmark/new-customers", icon: "target" },
         ],
       },
     ],

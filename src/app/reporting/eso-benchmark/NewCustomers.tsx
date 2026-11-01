@@ -9,6 +9,8 @@
 // SARCLA 31.10.2026, across the ESO reports: the Period in Filters is the Figures' - every quarter, this year's and last
 // year's, and a month calendar ("put every quarter to be easy to select, and really custom dates with a mini calendar");
 // what the page is filtered by is a bar under the tabs ("on top it is really hard to find them and see them").
+// SARCLA 01.11.2026: "transfer also this to TSA reports new customer" - the same page in TSA Reports at
+// /reporting/tsa-benchmark/new-customers, opening on TSA (NewCustomersExplorer home="tsa"), and its panel on TSA's BUC View.
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -77,7 +79,17 @@ function withTeam(cube: Cube, filters: Filters, team: TeamKey, lead: string | nu
   const chosen = filters.sae?.length ? filters.sae.filter((o) => members.includes(o)) : members;
   return { ...filters, sae: chosen.length ? chosen : ["\u0000 none"] };
 }
-const teamName = (c: { team: TeamKey; lead?: string | null; teams?: Team[] }) => (c.team === "eso" && c.lead ? c.teams?.find((t) => t.id === c.lead)?.name ?? c.lead : teamWord(c.team));
+/** Where the page sits: ESO Reports, or TSA Reports, where it opens on TSA (SARCLA 01.11.2026: "transfer also this to TSA
+ *  reports new customer") - the same page, ESO | TSA | Total still on it, as Customer development and Shop behaviour. */
+export type Home = "eso" | "tsa";
+/** The team shown: on ESO's page the address's, else the one kept across the ESO pages, else ESO; on TSA's the address's,
+ *  else TSA - a click there does not change what the ESO pages open on. */
+function useHomeTeam(home: Home): [TeamKey, (t: TeamKey) => void] {
+  const params = useSearchParams();
+  const eso = useTeam();
+  return home === "eso" ? eso : [asTeam(params.get("team")) ?? "tsa", (t) => setQuery((q) => q.set("team", t))];
+}
+const teamName =(c: { team: TeamKey; lead?: string | null; teams?: Team[] }) => (c.team === "eso" && c.lead ? c.teams?.find((t) => t.id === c.lead)?.name ?? c.lead : teamWord(c.team));
 
 /* ── the period every chart, table and figure follows ──────────────────── */
 
@@ -598,17 +610,19 @@ const tooOld = (cube: Cube) => cube.newKind !== "invoice" || !cube.saeTeams;
 const FILTER_DIMS: Dim[] = ["prio", "segment", "potential", "country", "sae", "type", "apic", "mandant"];
 const viewOf = (x: string | null): View => (isView(x) ? x : "sae");
 
-export function NewCustomersExplorer() {
+export function NewCustomersExplorer({ home = "eso" }: { home?: Home }) {
+  // the charts' Actions under the page's own key - a graph sent to the BUC View from TSA's page lands in TSA's
+  const PAGE = `${home}-new-customers`;
   const params = useSearchParams();
   // the customers chosen: the cube of those alone, each its own ?company=… in the address (as the Figures)
   const companies = useMemo(() => params.getAll("company").filter((x) => /^\d+$/.test(x)).slice(0, 50), [params]);
   const { cube, computing, progress, error } = useCustomersCube(companies);
   const names = useCompanyNames(companies);
-  const [teamKey, setTeam] = useTeam();
+  const [teamKey, setTeam] = useHomeTeam(home);
   const [leadKey, setLead] = useLead();
   const lt = useLeads();
   const leads = lt?.byName ?? null, teams = lt?.teams ?? [];
-  const { state: acts } = useActions("eso-new-customers");
+  const { state: acts } = useActions(PAGE);
   const view = viewOf(params.get("view"));
   const setView = (v: View) => setQuery((q) => { if (v === "sae") q.delete("view"); else q.set("view", v); });
   const setWin = (w: Win) => setQuery((q) => {
@@ -633,7 +647,7 @@ export function NewCustomersExplorer() {
   const openOn = (d: Dim) => { setFocus((f) => ({ dim: d, n: (f?.n ?? 0) + 1 })); setPanel(true); };
 
   const back = (
-    <Box component={Link} href="/reporting/eso-benchmark" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
+    <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
   );
@@ -665,10 +679,10 @@ export function NewCustomersExplorer() {
   );
   const active = chosenDims(filters);
   const chosen = active.flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
-  // the tile toolbar per chart, keyed "eso-new-customers:<tab>:<chart>"; the team, filters and period go with it, its target per team and period
+  // the tile toolbar per chart, keyed "<home>-new-customers:<tab>:<chart>"; the team, filters and period go with it, its target per team and period
   const act: Act = (id, title, target, per = c.per) => (
     <TileActions where="tab" start="tab" edge={2}
-      tile={{ key: `eso-new-customers:${id}`, page: "eso-new-customers", tab: c.view, title, summary: `${teamName(c)} · ${perWords(cube, per)}`,
+      tile={{ key: `${PAGE}:${id}`, page: PAGE, tab: c.view, title, summary: `${teamName(c)} · ${perWords(cube, per)}`,
         filters: { ...Object.fromEntries(chosenDims(c.filters).map((d) => [d, c.filters[d] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), ...perFilters(cube, per) }, kind: "card",
         target: target ? { key: targetKey(id, c.team, c.lead, per), ...target } : undefined }} />
   );
@@ -732,21 +746,23 @@ export function NewCustomersExplorer() {
 /* ── the BUC View's New customers panel ────────────────────────────────── */
 
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
-/** The panel's own cards and month chart: their tile keys */
-const PANEL = "eso-new-customers:panel:";
 
-/** New customers in the BUC View: the year to date for the team the toggle shows, the months, and the charts sent here. */
-export function NewCustomersPanel({ acts }: { acts: ActionsState | null }) {
+/** New customers in the BUC View (ESO's, or TSA's opening on TSA): the year to date for the team the toggle shows, and the charts sent here. */
+export function NewCustomersPanel({ acts, home = "eso" }: { acts: ActionsState | null; home?: Home }) {
+  // the panel's own cards: their tile keys; the charts sent here from this home's page only
+  const PAGE = `${home}-new-customers`, PANEL = `${PAGE}:panel:`, base = `/reporting/${home}-benchmark/new-customers`;
   const { cube, computing, progress, error } = useCustomersCube();
-  const [teamKey, setTeam] = useState<TeamKey>("eso");
+  const [teamKey, setTeam] = useState<TeamKey>(home);
   const [leadKey, setLeadKey] = useState<LeadKey>("all");
   const lt = useLeads();
   const leads = lt?.byName ?? null, teams = lt?.teams ?? [];
+  // the team kept across the ESO pages - on ESO's BUC View only; TSA's opens on TSA
   useEffect(() => {
+    if (home === "tsa") return;
     try { const x = asTeam(localStorage.getItem(KEPT)); if (x) setTeam(x); const l = asLead(localStorage.getItem(KEPT_LEAD)); if (l) setLeadKey(l); } catch { /* ESO */ }
-  }, []);
-  const choose = (t: TeamKey) => { setTeam(t); try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
-  const chooseLead = (l: LeadKey) => { setLeadKey(l); try { localStorage.setItem(KEPT_LEAD, l); } catch { /* here only */ } };
+  }, [home]);
+  const choose = (t: TeamKey) => { setTeam(t); if (home === "eso") try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
+  const chooseLead = (l: LeadKey) => { setLeadKey(l); if (home === "eso") try { localStorage.setItem(KEPT_LEAD, l); } catch { /* here only */ } };
   const lead = leadOf(teamKey, leadKey, lt);
   const want = useMemo(() => ({ team: teamKey, lead }), [teamKey, lead]);
   const drawn = useDeferredValue(want);
@@ -755,7 +771,7 @@ export function NewCustomersPanel({ acts }: { acts: ActionsState | null }) {
   const c = useMemo<NCtx | null>(() => (ready ? { cube: ready, team: drawn.team, view: "sae", per: perOf(ready, ytdWin(ready)), filters: {}, eff: withTeam(ready, {}, drawn.team, drawn.lead, leads), lead: drawn.lead, leads, teams, targets: acts?.targets } : null),
     [ready, drawn, leads, teams, acts?.targets]);
   // every chart here follows the panel's ESO | TSA | Total and its line managers' teams (as the Figures' panel); its filters and period stay as sent
-  const items: SortItem[] = useMemo(() => !c ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-new-customers" && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
+  const items: SortItem[] = useMemo(() => !c ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === PAGE && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
     const ch = chartOf(spec.key);
     const fmt = formatOf(acts, spec);
     const sf: Filters = Object.fromEntries(DIMS.flatMap((d) => (d !== "owner" && spec.filters?.[d]?.length ? [[d, spec.filters[d]]] : [])));
@@ -767,21 +783,21 @@ export function NewCustomersPanel({ acts }: { acts: ActionsState | null }) {
     const actions = <TileActions where="nutshell" start="tab" edge={2} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, href: spec.href, kind: spec.kind, target }} />;
     return { key: spec.key, block: true, sx: fmt === "half" ? { gridColumn: { xs: "span 12", md: "span 6" } } : { gridColumn: "1 / -1" },
       node: ch ? ch.draw(sc, actions) : <GlassCard><CardTitle icon={<PersonAddAltOutlinedIcon />} tint="blue" title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };
-  }), [c, acts, leads]);
-  const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: "nutshell:eso-new-customers", keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
+  }), [c, acts, leads, PAGE, PANEL]);
+  const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: `nutshell:${PAGE}`, keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
   // the panel's own cards and month chart have their Actions too: tasks, a target - and taken off the BUC View there, they stay off
   const shown = (id: string) => placementOf(acts, `${PANEL}${id}`, "nutshell") === "nutshell";
   const own = (id: string, title: string, kind: "kpi" | "card", target?: { key: string; unit: "n" | "eur"; label: string }) => (
-    <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}${id}`, page: "eso-new-customers", tab: "sae", title: `${title}${c && c.team !== "total" ? ` - ${teamName(c)}` : ""}`, kind,
-      filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}), period: ["ytd"] }, href: `/reporting/eso-benchmark/new-customers?team=${drawn.team}${drawn.lead ? `&lead=${drawn.lead}` : ""}`, target }} />
+    <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}${id}`, page: PAGE, tab: "sae", title: `${title}${c && c.team !== "total" ? ` - ${teamName(c)}` : ""}`, kind,
+      filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}), period: ["ytd"] }, href: `${base}?team=${drawn.team}${drawn.lead ? `&lead=${drawn.lead}` : ""}`, target }} />
   );
   return (
     <GlassCard sx={{ display: "grid", gap: 2.25 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
         <Badge icon={<PersonAddAltOutlinedIcon />} tint="blue" size={42} />
         <Box sx={{ flex: 1, minWidth: 200 }}>
-          <Box component={Link} href={`/reporting/eso-benchmark/new-customers?team=${teamKey}${lead ? `&lead=${lead}` : ""}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT.blue.fg } }}>
+          <Box component={Link} href={`${base}?team=${teamKey}${lead ? `&lead=${lead}` : ""}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT.blue.fg } }}>
             <Typography sx={{ fontSize: "1.12rem", fontWeight: 650, letterSpacing: "-0.02em" }}>New customers</Typography>
             <ChevronRightIcon className="chev" sx={{ fontSize: 22, color: TINT.blue.fg, transition: "transform .15s ease" }} />
           </Box>
@@ -795,7 +811,7 @@ export function NewCustomersPanel({ acts }: { acts: ActionsState | null }) {
           <FigureCards c={c} big items={figs.filter((f) => shown(f.id))}
             actions={(f) => own(f.id, f.label, "kpi", { key: targetKey(`panel:${f.id}`, c.team, c.lead, c.per), unit: f.unit, label: `${f.label} is measured against it · ${teamName(c)}'s target - each team its own.` })} />
           {/* no graph of its own any more - the ones sent here, or how to send one (SARCLA 01.11.2026) */}
-          {items.length > 0 ? <SortableGrid items={items} order={acts?.orders?.["nutshell:eso-new-customers"]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} /> : <BucEmpty page="New customers" href="/reporting/eso-benchmark/new-customers" />}
+          {items.length > 0 ? <SortableGrid items={items} order={acts?.orders?.[`nutshell:${PAGE}`]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} /> : <BucEmpty page="New customers" href={base} />}
         </Box>
       )}
     </GlassCard>

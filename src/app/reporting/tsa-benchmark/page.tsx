@@ -15,6 +15,7 @@ import { CallsPanel } from "@/app/reporting/eso-benchmark/Calls";
 import { RegistrationsPanel } from "@/app/reporting/eso-benchmark/Registrations";
 import { CustomerDevPanel } from "@/app/reporting/eso-benchmark/CustomerDev";
 import { ShopPanel } from "@/app/reporting/eso-benchmark/Shop";
+import { NewCustomersPanel } from "@/app/reporting/eso-benchmark/NewCustomers";
 
 export default function TsaBucView() {
   const { state: acts } = useActions("nutshell");
@@ -26,6 +27,7 @@ export default function TsaBucView() {
       <RegistrationsPanel acts={acts} home="tsa" />
       <CustomerDevPanel acts={acts} home="tsa" />
       <ShopPanel acts={acts} home="tsa" />
+      <NewCustomersPanel acts={acts} home="tsa" />
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
         Each panel opens on TSA · a graph joins its page&apos;s panel here with Actions on a TSA Reports page, BUC View switched on.
       </Typography>

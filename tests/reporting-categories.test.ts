@@ -31,7 +31,7 @@ test("a click on a category goes straight into its first report - the overview w
   assert.equal(categoryEntry(categoryBySlug("otd")!), "/reporting/otd");
 });
 
-test("TSA Reports as ESO's: its BUC View first, then Figures, Calls, Registrations, Customer development and Shop behaviour at TSA's own addresses, not ESO's - so the side panel stays TSA's (SARCLA 01.11.2026)", () => {
+test("TSA Reports as ESO's: its BUC View first, then Figures, Calls, Registrations, Customer development, Shop behaviour and New customers at TSA's own addresses, not ESO's - so the side panel stays TSA's (SARCLA 01.11.2026)", () => {
   const tsa = categoryBySlug("tsa")!;
   assert.equal(tsa.reports.length, 1);
   assert.equal(tsa.reports[0].overview, "BUC View");
@@ -42,6 +42,7 @@ test("TSA Reports as ESO's: its BUC View first, then Figures, Calls, Registratio
     ["Registrations", "/reporting/tsa-benchmark/registrations"],
     ["Customer development", "/reporting/tsa-benchmark/customers"],
     ["Shop behaviour", "/reporting/tsa-benchmark/shop"],
+    ["New customers", "/reporting/tsa-benchmark/new-customers"],
   ]);
   assert.equal(tsa.next, undefined);
   const eso = categoryBySlug("eso")!.reports[0].children!;
