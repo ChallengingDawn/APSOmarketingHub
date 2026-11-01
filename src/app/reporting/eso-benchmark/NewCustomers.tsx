@@ -420,13 +420,17 @@ const onOi = (v: View, drawIt: (c: NCtx, a?: React.ReactNode) => React.ReactNode
 };
 /**
  * A chart's companies (CompanyList.tsx, SARCLA 31.10.2026: "a new icon Company appears next to the filter"): the new
- * customers its filters and period leave, the largest first - on the order intake tab, the period that tab is drawn on.
+ * customers its filters and period leave, the largest first - on the order intake tab, the period that tab is drawn on and
+ * the largest order intake first.
  */
 const companiesOf = (c: NCtx, v: View) => {
-  const cc = v === "saeoi" ? oiCtx(c) ?? c : c;
+  const oi = v === "saeoi";
+  const cc = oi ? oiCtx(c) ?? c : c;
   return cubeCompanies({
     filters: cc.eff, win: cc.per.win, by: "new", generatedAt: cc.cube.generatedAt, period: cc.per.title,
-    note: "The new customers of the period - each one's revenue since its first invoice, the largest first",
+    ...(oi ? { lead: "oi" as const } : {}),
+    note: oi ? "The new customers of the period - each one's order intake in it, the largest first"
+      : "The new customers of the period - each one's revenue since its first invoice, the largest first",
   });
 };
 /** A chart or table by its id (drawnBare), with its companies beside its own filter. */

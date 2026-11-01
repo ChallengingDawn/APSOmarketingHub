@@ -22,12 +22,14 @@ export type CubeList = {
   period: string;
   /** what the figures are, under the list's title */
   note?: string;
+  /** "oi": the order intake leads - its column first, the largest first - on a graph of order intake whose list is not by "oi" (New customers' order intake tab) */
+  lead?: "oi";
 };
 
 /** The graph's companies, its figure first: the revenue (or one profit centre's), or the order intake. */
 export function cubeCompanies(l: CubeList): CompanySource {
   const pc = l.by.startsWith("pc:");
-  const oiFirst = l.by === "oi";
+  const oiFirst = l.by === "oi" || l.lead === "oi";
   const rev = pc ? `Revenue ${l.period}, this profit center` : `Revenue ${l.period}`;
   const oi = `Order intake ${l.period}`;
   // the figures first, beside the name - a list in half a row shows them without scrolling sideways
@@ -37,11 +39,12 @@ export function cubeCompanies(l: CubeList): CompanySource {
   const keys: CompanySort[] = ["name", ...(pc ? ["rev" as const] : oiFirst ? ["oi" as const, "rev" as const] : ["rev" as const, "oi" as const]), "country", "owner", "sae"];
   const body = { filters: l.filters, win: l.win, by: l.by, erp: l.erp ?? null, ids: l.ids ?? [] };
   return {
-    key: JSON.stringify({ ...body, at: l.generatedAt }),
+    key: JSON.stringify({ ...body, at: l.generatedAt, lead: l.lead ?? null }),
     head, left: [figs + 1, figs + 2, figs + 3], sorts: keys.map((_, i) => i),
     note: l.note ?? "Each company's figure, the change against a year earlier under it - the largest first",
     load: async (page, q, sort) => {
-      const by = sort ? { key: keys[sort.col], desc: sort.desc } : null;
+      // no column clicked: the list's own order - the server's by `by`, the order intake's when it leads
+      const by = sort ? { key: keys[sort.col], desc: sort.desc } : l.lead === "oi" && l.by !== "oi" ? { key: "oi" as const, desc: true } : null;
       const r = await fetch("/api/reporting/marketing-kpis/customers/companies", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, page, q, sort: by }) });
       const j = (await r.json().catch(() => ({}))) as Partial<CompanyPage> & { ok?: boolean; pending?: boolean; error?: string };
       if (!r.ok || j.ok === false) throw new Error(j.error ?? `HTTP ${r.status}`);
