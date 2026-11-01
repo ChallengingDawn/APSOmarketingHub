@@ -112,6 +112,9 @@ export type CompanyLine = { id: string; name: string; owner: string; sae: string
 export type CustomerLine = { last: string; rev12: number; before: number; pcs: string; cohort: number; drop: number };
 export type CompanyPage = { total: number; page: number; size: number; rows: CompanyLine[]; sum: { rev: number; revPy: number; oi: number; oiPy: number } };
 
+/** The profit centres bought from, in words: "DT · KT". */
+const pcsWords = (set: number) => PC_FIVE.filter((_, k) => set & (1 << k)).map((x) => x.toUpperCase()).join(" · ");
+
 /** The companies behind a chart, the largest first, a page at a time - with the sums of all of them. */
 export function companiesOf(cube: Cube, l: Ledger, q: CompanyQuery): CompanyPage {
   const ok = passes(cube, q.filters);
@@ -164,13 +167,15 @@ export function companiesOf(cube: Cube, l: Ledger, q: CompanyQuery): CompanyPage
     const firstYear = cube.years[2];
     const [kind, arg = ""] = q.by.split(":");
     const ranked = kind === "top" || kind === "first";
+    // the profit centres bought from: only the lists that ask for them (and the rows shown, below)
+    const bySet = kind === "pcs" || kind === "pcsany" || kind === "pcsmany" || kind === "pair" || kind === "single";
     list = [];
     const facts = new Map<number, Facts>();
     for (let i = 0; i < n; i++) {
       if (!keep[i]) continue;
       if (q.cohort != null && cohortOf(p, i, firstYear) !== q.cohort) continue;
       const f = factsOf(p, i, per);
-      const set = pcsIn(p, i, q.win.start, q.win.end).set;
+      const set = bySet ? pcsIn(p, i, q.win.start, q.win.end).set : 0;
       if (ranked ? !f.active : !onList(q.by, f, set, per.min)) continue;
       list.push(i);
       facts.set(i, f);
@@ -188,8 +193,7 @@ export function companiesOf(cube: Cube, l: Ledger, q: CompanyQuery): CompanyPage
         : kind === "risk" || kind === "rec" || kind === "recall" ? f.rev12
         : kind === "down" || kind === "shrank" ? drop
         : kind === "base" || kind === "gone" ? f.revPy : f.rev;
-      extra.set(i, { last: words, lastK, rev12: Math.round(f.rev12), before, drop, score,
-        pcs: PC_FIVE.filter((_, k) => set & (1 << k)).map((x) => x.toUpperCase()).join(" · "), cohort: cohortOf(p, i, firstYear) });
+      extra.set(i, { last: words, lastK, rev12: Math.round(f.rev12), before, drop, score, pcs: bySet ? pcsWords(set) : "", cohort: cohortOf(p, i, firstYear) });
     }
     // the top share or the largest few: the customers of the period by their revenue
     if (ranked) {
@@ -237,7 +241,7 @@ export function companiesOf(cube: Cube, l: Ledger, q: CompanyQuery): CompanyPage
     const f = fig.get(i) ?? zero, ci = l.cells[i];
     const line: CompanyLine = { id: l.ids[i], name: l.names[i], owner: label(ci, "owner"), sae: label(ci, "sae"), country: label(ci, "country"), prio: label(ci, "prio"), rev: f.rev, revPy: Math.round(f.revPy), oi: f.oi, oiPy: Math.round(f.oiPy) };
     const x = extra.get(i);
-    return x ? { ...line, last: x.last, rev12: x.rev12, before: x.before, pcs: x.pcs, cohort: x.cohort, drop: x.drop } : line;
+    return x ? { ...line, last: x.last, rev12: x.rev12, before: x.before, pcs: x.pcs || pcsWords(pcsIn(prepOf(l), i, q.win.start, q.win.end).set), cohort: x.cohort, drop: x.drop } : line;
   });
   return { total: list.length, page, size, rows, sum: { rev: sum.rev, revPy: Math.round(sum.revPy), oi: sum.oi, oiPy: Math.round(sum.oiPy) } };
 }

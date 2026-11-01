@@ -180,7 +180,8 @@ function baseOf(cube: Cube, l: Ledger, p: Prep, per: Per, idx: number[], facts: 
       if (wonAt(p, i, k)) m.won++;
       if (m.wonPy != null && wonAt(p, i, k - 12)) m.wonPy += w;
       if (leftAt(p, i, k)) m.left++;
-      if (m.leftPy != null && leftAt(p, i, k - 12)) m.leftPy += w;
+      // 12 months since the last order is reached at the month's end: a year earlier's whole month, no pro rata
+      if (m.leftPy != null && leftAt(p, i, k - 12)) m.leftPy++;
       if (in12(p, i, k)) m.in12++;
       if (m.in12Py != null && in12(p, i, k - 12)) m.in12Py++;
     }

@@ -113,10 +113,13 @@ export function lastBought(p: Prep, i: number, k: number): number {
 }
 /** Its revenue from month a to z - the month `cut` counted `share` of. */
 export function revIn(p: Prep, i: number, a: number, z: number, cut = -99, share = 1): number {
-  const r = p.rev.get(i);
+  return sumOf(p.rev.get(i), a, z, cut, share);
+}
+/** A company's months from a to z added up - the month `cut` counted `share` of. */
+function sumOf(r: Float64Array | undefined, a: number, z: number, cut = -99, share = 1): number {
   if (!r) return 0;
   let s = 0;
-  for (let k = Math.max(0, a); k <= Math.min(35, z); k++) s += r[k] * (k === cut ? share : 1);
+  for (let k = Math.max(0, a); k <= Math.min(35, z); k++) s += k === cut ? r[k] * share : r[k];
   return s;
 }
 /** A day yyyymmdd as a month number (negative before the three years); null without one. */
@@ -203,34 +206,46 @@ function pyWeight(p: Prep, i: number, a: number, z: number, cut: number, share: 
   return !any ? 0 : cutOnly ? share : 1;
 }
 
+/** A company that never bought nor ordered: in no figure. */
+const NOTHING: Facts = Object.freeze({
+  active: false, activePy: 0, rev: 0, revPy: 0, newC: false, newPy: 0, won: false, wonPy: 0, wonMonths: [], leftMonths: [], left: false, leftPy: 0,
+  lost: false, lostPy: false, recency: null, recencyPy: null, rev12: 0, rev12Py: 0, risk: false, riskPy: false, down: false, downPy: 0, revPy2: 0,
+}) as Facts;
+/** Whether a company has anything a figure could count: a purchase, revenue, an order. */
+export const anything = (p: Prep, i: number) => !!(p.lo[i] || p.hi[i] || p.rev.has(i) || p.orders.has(i));
+
 /** One company in a period (Facts). */
 export function factsOf(p: Prep, i: number, per: Period): Facts {
+  if (!anything(p, i)) return NOTHING;
   const { start: A, end: E } = per.win, Ap = A - 12, Ep = E - 12;
   const cut = per.run ? per.run.month - 12 : -99, share = per.run ? per.run.share : 1;
   const cut2 = cut - 12, fy = per.firstYear, reach = pyReach(per);
   const active = boughtIn(p, i, A, E);
   const activePy = pyWeight(p, i, Ap, Ep, cut, share);
-  const rev = revIn(p, i, A, E), revPy = revIn(p, i, Ap, Ep, cut, share);
+  const r = p.rev.get(i);
+  const rev = sumOf(r, A, E), revPy = sumOf(r, Ap, Ep, cut, share);
   const f = p.first[i];
   const newC = f >= A && f <= E, newPy = f >= Ap && f <= Ep ? (f === cut ? share : 1) : 0;
   const wonMonths: number[] = [], leftMonths: number[] = [];
-  for (let k = A; k <= E; k++) { if (wonAt(p, i, k)) wonMonths.push(k); if (leftAt(p, i, k)) leftMonths.push(k); }
+  const any = p.lo[i] !== 0 || p.hi[i] !== 0;
+  if (any) for (let k = A; k <= E; k++) { if (wonAt(p, i, k)) wonMonths.push(k); if (leftAt(p, i, k)) leftMonths.push(k); }
   // a year earlier: the events of those months, the running month's match its share
   let wonPy = 0, leftPy = 0;
-  if (reach.flows) {
+  if (reach.flows && any) {
     for (let k = Ap; k <= Ep; k++) {
       const w = k === cut ? share : 1;
       if (wonAt(p, i, k)) wonPy = Math.max(wonPy, w);
-      if (leftAt(p, i, k)) leftPy = Math.max(leftPy, w);
+      // reached at a month's end: no pro rata
+      if (leftAt(p, i, k)) leftPy = 1;
     }
   }
   const recency = recencyAt(p, i, E, fy), recencyPy = reach.stock ? recencyAt(p, i, Ep, fy) : null;
-  const rev12 = revIn(p, i, E - 11, E), rev12Py = revIn(p, i, Ep - 11, Ep);
+  const rev12 = sumOf(r, E - 11, E), rev12Py = sumOf(r, Ep - 11, Ep);
   const min = per.min;
   const risk = recency === 2 && rev12 > 0 && rev12 >= min;
   const riskPy = reach.stock && recencyPy === 2 && rev12Py > 0 && rev12Py >= min;
   const down = active && revPy > 0 && revPy >= min && rev <= DOWN * revPy;
-  const revPy2 = reach.flows ? revIn(p, i, Ap - 12, Ep - 12, cut2, share) : 0;
+  const revPy2 = reach.flows ? sumOf(r, Ap - 12, Ep - 12, cut2, share) : 0;
   const downPy = reach.flows && activePy > 0 && revPy2 > 0 && revPy2 >= min && revPy <= DOWN * revPy2 ? activePy : 0;
   return {
     active, activePy, rev, revPy, newC, newPy, won: wonMonths.length > 0, wonPy, wonMonths, leftMonths, left: leftMonths.length > 0, leftPy,
