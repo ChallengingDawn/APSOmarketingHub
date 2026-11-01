@@ -27,7 +27,8 @@ import {
 import { DEFAULT_PRIORITY, PEOPLE, PRIORITY_TABLE, type Person, type PrioritySettings, type RosterKey } from "@/lib/boDistribution/rules";
 import { DEFAULT_HUB, type HubOptions, type Settings } from "@/lib/boDistribution/engine";
 import { gqsStore, periodFigures, periodList, type ListPick } from "@/lib/boDetection/engine";
-import { JOURNEYS, type Journey } from "@/lib/boDetection/figures";
+import { JOURNEYS, OWNER_JS, type Journey, type OwnerJ } from "@/lib/boDetection/figures";
+import { ownerNames } from "@/lib/integrations/erosion";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,14 +47,18 @@ export async function GET(req: NextRequest) {
       const from = sp.get("from") ?? "", to = sp.get("to") ?? "";
       if (!day.test(from) || !day.test(to) || from > to) return NextResponse.json({ configured: true, ok: false, error: "from and to must be days, from first" }, { status: 400 });
       if (sp.get("detection") === "list") {
-        const j = sp.get("journey");
+        const j = sp.get("journey"), oj = sp.get("oj");
+        const opt = (k: string) => (sp.has(k) ? sp.get(k)! : undefined);
         const pick: ListPick = {
-          intake: sp.has("intake") ? sp.get("intake")! : undefined, today: sp.has("today") ? sp.get("today")! : undefined,
+          intake: opt("intake"), today: opt("today"), given: opt("given"), rule: opt("rule"), q: opt("q")?.slice(0, 80),
           journey: j && (JOURNEYS as string[]).includes(j) ? (j as Journey) : undefined,
+          oj: oj && (OWNER_JS as string[]).includes(oj) ? (oj as OwnerJ) : undefined,
         };
         return NextResponse.json({ configured: true, ok: true, data: await periodList(from, to, pick) });
       }
-      return NextResponse.json({ configured: true, ok: true, data: await periodFigures(from, to) });
+      // the owners by name, beside the figures that count them by id
+      const [figures, names] = await Promise.all([periodFigures(from, to), ownerNames().catch(() => new Map<string, string>())]);
+      return NextResponse.json({ configured: true, ok: true, data: { ...figures, owners: Object.fromEntries(names) } });
     }
     if (sp.get("gqs")) return NextResponse.json({ configured: true, ok: true, data: await gqsStore() });
     // SARCLA 25.10.2026: "back office distribution don't have the time filter on top, it limits

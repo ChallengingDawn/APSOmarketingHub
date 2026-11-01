@@ -35,8 +35,29 @@ export type Guessed = { cat: string; sure: string };
 export type Journey = "kept" | "hub" | "person" | "open";
 export const JOURNEYS: Journey[] = ["kept", "hub", "person", "open"];
 
+/**
+ * What became of the owner a ticket was given when it arrived (SARCLA 01.11.2026: "we should see the last 365 days in
+ * every report ... I know that new rules came in now, but we can back-track"). The routing's own record of each decision
+ * is kept 21 days and begins with the hub on 19.10.2026; the owner's history in HubSpot goes back to the first ticket.
+ * Measured 01.11.2026 on September and late October: a workflow puts the ticket on Backoffice Team at once, then the
+ * routing's app gives the owner within two minutes - 30109717 until 19.10.2026, the hub's 50521064 since - and HELP_DESK
+ * echoes every change. So: kept = it still has the owner it was given; moved = a person gave it to someone else; later =
+ * the routing or a workflow gave it another owner afterwards (the hub waiting for someone available, a merge); none = no
+ * owner was given in its first half hour.
+ */
+export type OwnerJ = "kept" | "moved" | "later" | "none";
+export const OWNER_JS: OwnerJ[] = ["kept", "moved", "later", "none"];
+
 /** What one ticket counts for: its category today, how it got it, and whether a person changed it to another one. */
 export type Fact = { cat: string; person: boolean; fromOthers: boolean; how: How; intake: string; journey: Journey };
+/**
+ * The rest of what a ticket counts for, from the same read: the owner it was given (an owner id, "" = none) and what
+ * became of it, the hub's rule for it ("" = no record of the hub), whether nobody outside the company wrote on it (the
+ * sentiment sweep's not_valid_email), and a Delivery's sub-category today and whether it is cut-to-size.
+ */
+/** the rule of a ticket from before the hub took the routing over (19.10.2026) - the workflow recorded none per ticket */
+export const WORKFLOW_RULE = "wf";
+export type Owned = { given: string; now: string; oj: OwnerJ; rule: string; machine: boolean; sub: string | null; c2s: boolean };
 
 /** One day's tickets (by the day they were created, Swiss time); topics = per category, how many by each How. */
 export type DayFig = {
@@ -45,6 +66,10 @@ export type DayFig = {
   j: Partial<Record<Journey, number>>; tj: Record<string, Partial<Record<Journey, number>>>;
   /** what changed after intake: pairKey(intake, today, journey) -> tickets (journeys hub and person only) */
   pairs: Record<string, number>;
+  /** since store version 5: per owner given ("" = none) and OwnerJ; per OwnerJ; per topic at intake; per hub rule ("" =
+   *  none recorded); the machine tickets per topic today; the Delivery tickets per sub-category, and the C2S ones */
+  own?: Record<string, Partial<Record<OwnerJ, number>>>; oj?: Partial<Record<OwnerJ, number>>; ic?: Record<string, number>;
+  rule?: Record<string, number>; mt?: Record<string, number>; del?: Record<string, number>; c2s?: Record<string, number>;
 };
 
 /** A period's figures. */
@@ -107,6 +132,44 @@ export function journeyOf(cat: string, intake: string, how: How): Journey {
   return how === "person" ? "person" : "hub";
 }
 
+/** The routing writes an owner as a workflow or an app; HELP_DESK repeats every change at the same moment. */
+const byRouting = (h: Hist) => h.sourceType === "AUTOMATION_PLATFORM" || h.sourceType === "INTEGRATION";
+/** HELP_DESK's copy of the change just before it - not a change of its own */
+const isEcho = (h: Hist, prev: Hist | undefined) => h.sourceType === "HELP_DESK" && !!prev && (prev.value ?? "") === (h.value ?? "");
+
+/**
+ * The owner a ticket was given when it arrived: the last one the routing (a workflow or an app) set in its first half
+ * hour - or the one the person who created it set, at the creation. "" = none.
+ */
+export function givenOf(hist: Hist[], created?: string | null): string {
+  const asc = [...hist].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const c0 = created ? Date.parse(created) : NaN;
+  if (!Number.isFinite(c0)) return (asc[0]?.value ?? "").trim();
+  let v = "";
+  for (const h of asc) {
+    const t = Date.parse(h.timestamp);
+    if (t > c0 + INTAKE_MS) break;
+    if (byRouting(h) || (byPerson(h) && t <= c0 + BY_HAND_MS)) v = (h.value ?? "").trim();
+  }
+  return v;
+}
+
+/** A cut-to-size ticket, as the routing calls one: the ticket associations' c2s_ticket, a C2S problem order, or the subject. */
+export const isC2s = (c2sTicket: string | null | undefined, problemOrder: string | null | undefined, subject: string | null | undefined) =>
+  String(c2sTicket ?? "").toLowerCase() === "true" || !!problemOrder || /\b(c2s|zuschnitt|cut[- ]to[- ]size|coupe sur mesure)\b/i.test(subject ?? "");
+
+/** kept / moved / later / none - see OwnerJ. Who set the owner it has today: the last change to it that is not an echo. */
+export function ownerJourneyOf(given: string, now: string | null | undefined, hist: Hist[]): OwnerJ {
+  if (!given) return "none";
+  const cur = (now ?? "").trim();
+  if (cur === given) return "kept";
+  const asc = [...hist].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  let last: Hist | undefined;
+  asc.forEach((h, i) => { if ((h.value ?? "").trim() === cur && !isEcho(h, asc[i - 1])) last = h; });
+  // a person in the CRM, the inbox or the help desk's own view (a HELP_DESK change that echoes nothing)
+  return last && (byPerson(last) || last.sourceType === "HELP_DESK") ? "moved" : "later";
+}
+
 /** One key per "came with -> has today -> who"; the separator never appears in a category. */
 const SEP = "\u0001";
 export const pairKey = (intake: string, today: string, j: Journey) => [intake, today, j].join(SEP);
@@ -136,7 +199,21 @@ export function factOf(current: string | null | undefined, hist: Hist[], resolve
 
 export const emptyDay = (): DayFig => ({ n: 0, others: 0, empty: 0, person: 0, fromOthers: 0, topics: {}, j: {}, tj: {}, pairs: {} });
 
-export function addFact(d: DayFig, f: Fact): void {
+const bump = (m: Record<string, number>, k: string) => { m[k] = (m[k] ?? 0) + 1; };
+
+export function addFact(d: DayFig, f: Fact, o?: Owned): void {
+  if (o) {
+    const own = ((d.own ??= {})[o.given] ??= {});
+    own[o.oj] = (own[o.oj] ?? 0) + 1;
+    (d.oj ??= {})[o.oj] = (d.oj[o.oj] ?? 0) + 1;
+    bump((d.ic ??= {}), f.intake || "(empty)");
+    bump((d.rule ??= {}), o.rule);
+    if (o.machine) bump((d.mt ??= {}), f.cat || "(empty)");
+    if (f.cat === "Delivery") {
+      bump((d.del ??= {}), o.sub ?? "");
+      if (o.c2s) bump((d.c2s ??= {}), o.sub ?? "");
+    }
+  }
   d.n++;
   if (isEmpty(f.cat)) d.empty++;
   else if (isOthers(f.cat)) d.others++;
@@ -163,6 +240,9 @@ function addDay(w: DayFig, d: DayFig): void {
   addCounts(w.j, d.j);
   for (const [c, js] of Object.entries(d.tj ?? {})) addCounts((w.tj[c] ??= {}), js);
   addCounts(w.pairs, d.pairs);
+  for (const [k, js] of Object.entries(d.own ?? {})) addCounts(((w.own ??= {})[k] ??= {}), js);
+  if (d.oj) addCounts((w.oj ??= {}), d.oj);
+  for (const k of ["ic", "rule", "mt", "del", "c2s"] as const) if (d[k]) addCounts((w[k] ??= {}), d[k]);
 }
 
 /**
@@ -182,21 +262,27 @@ export function sumDays(days: Record<string, DayFig>, from: string, to: string):
   return w;
 }
 
-/** A month of the period: its tickets per topic, and per Journey. */
-export type MonthFig = { ym: string; topics: Record<string, number>; j: Partial<Record<Journey, number>> };
+/** A month of the period: its tickets per topic, per Journey, and per OwnerJ. */
+export type MonthFig = { ym: string; topics: Record<string, number>; j: Partial<Record<Journey, number>>; oj: Partial<Record<OwnerJ, number>> };
 
-/** The tickets of from..to per month (YYYY-MM): per topic, and per Journey. */
+/** The tickets of from..to per month (YYYY-MM): per topic, per Journey, per OwnerJ. */
 export function monthsOf(days: Record<string, DayFig>, from: string, to: string): MonthFig[] {
   const by = new Map<string, MonthFig>();
   for (const [k, d] of Object.entries(days)) {
     if (k < from || k > to) continue;
     const ym = k.slice(0, 7);
-    const m = by.get(ym) ?? { ym, topics: {}, j: {} };
+    const m = by.get(ym) ?? { ym, topics: {}, j: {}, oj: {} };
     for (const [c, hows] of Object.entries(d.topics)) m.topics[c] = (m.topics[c] ?? 0) + Object.values(hows).reduce((a, n) => a + (n ?? 0), 0);
     addCounts(m.j, d.j);
+    addCounts(m.oj, d.oj);
     by.set(ym, m);
   }
   return [...by.values()].sort((a, b) => a.ym.localeCompare(b.ym));
+}
+
+/** The tickets of from..to day by day, per OwnerJ - for a period short enough to be drawn by the day. */
+export function ownerDays(days: Record<string, DayFig>, from: string, to: string): { d: string; n: number; oj: Partial<Record<OwnerJ, number>> }[] {
+  return Object.entries(days).filter(([k]) => k >= from && k <= to).sort((a, b) => a[0].localeCompare(b[0])).map(([d, x]) => ({ d, n: x.n, oj: { ...(x.oj ?? {}) } }));
 }
 
 const DAY_MS = 86_400_000;

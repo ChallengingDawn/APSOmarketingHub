@@ -9,12 +9,21 @@
 // hub's reading, a person (figures.ts Journey) - and what changed after intake; the tickets that did not keep their
 // intake topic are listed per month (kv boDetection:list:<YYYY-MM>) so a line of the page opens its tickets. The same
 // run reads every GQS task for the GQS figures (src/lib/gqsFigures, kv gqsFigures:store).
+// Since 01.11.2026 (store version 5; SARCLA: "we should see the last 365 days in every report, the time filter on top
+// should really filter it ... we can back-track") the Back Office's Overview and Tickets are counted here too, for any
+// period: the owner each ticket was given when it arrived and what became of it (its owner's history), the hub's rule
+// for it (copied from the routing's own record, kept 21 days, into kv boDetection:routed:<YYYY-MM> before it goes),
+// whether nobody outside wrote on it, a Delivery's sub-category - and EVERY ticket is on its month's list.
 
 import type { PoolClient } from "pg";
 import { getPool, query } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
-import { addFact, dayOf, emptyDay, factOf, mergeDays, monthsOf, monthsSince, previousWindow, sumDays, type DayFig, type Guessed, type Hist, type How, type Journey, type MonthFig, type Win } from "./figures";
+import { rowsOfDay } from "@/lib/boDistribution/engine";
+import {
+  WORKFLOW_RULE, addFact, dayOf, emptyDay, factOf, givenOf, isC2s, mergeDays, monthsOf, monthsSince, ownerDays, ownerJourneyOf, previousWindow, sumDays,
+  type DayFig, type Guessed, type Hist, type How, type Journey, type MonthFig, type OwnerJ, type Win,
+} from "./figures";
 import { readGqs } from "../gqsFigures/read";
 import type { GqsStore } from "../gqsFigures/figures";
 
@@ -23,15 +32,30 @@ const EVERY_MS = 30 * 60_000;
 const BO = "1726786777";
 /** The Back Office pipeline's first tickets */
 const FIRST_MONTH = "2025-03";
-const KV = { month: (ym: string) => `boDetection:month:${ym}`, list: (ym: string) => `boDetection:list:${ym}`, dirty: "boDetection:dirty", guessed: "ticketClose:guessed", gqs: "gqsFigures:store" };
+const KV = {
+  month: (ym: string) => `boDetection:month:${ym}`, list: (ym: string) => `boDetection:list:${ym}`, routed: (ym: string) => `boDetection:routed:${ym}`,
+  dirty: "boDetection:dirty", guessed: "ticketClose:guessed", gqs: "gqsFigures:store",
+};
 const RESOLVED_AT = "hs_v2_date_entered_2338266328";
+const TONE = "sentiment_customer_tone", MACHINE = "not_valid_email";
+const DELIVERY_SUB = "enquiry_sub_category___delivery___1";
 /** what a month store holds; a store of another version is counted again (2: who set the category; 3: the AI's guess;
- *  4: the journey from intake, what changed after it, the month's list) */
-const VERSION = 4;
+ *  4: the journey from intake, what changed after it, the month's list; 5: the owner, the hub's rule, machines,
+ *  deliveries - and every ticket listed) */
+const VERSION = 5;
+/** the hub took the routing over from the HubSpot workflows; before, no rule was recorded per ticket */
+const HANDOVER = "2026-10-19";
+/** the routing's own record is kept this many days (boDistribution DAYS_KEPT) */
+const ROUTED_DAYS = 21;
 
 type MonthStore = { v?: number; at: string; n: number; days: Record<string, DayFig> };
-/** A ticket that did not keep the topic it came with: its id, Swiss day, subject, intake topic, today's, how it got there. */
-export type ListItem = { id: string; d: string; s: string; i: string; t: string; j: Journey; h: How };
+/**
+ * A ticket of the month: its id, Swiss day, subject, topic at intake, today's, how it got there (j, h); the owner it was
+ * given and has today (owner ids, "" = none) and what became of the first (oj); the hub's rule ("" = none recorded).
+ */
+export type ListItem = { id: string; d: string; s: string; i: string; t: string; j: Journey; h: How; o?: string; n?: string; oj?: OwnerJ; r?: string };
+/** the hub's rule per ticket id, "-" = the hub decided and no rule gave an owner */
+type Routed = Record<string, string>;
 type Obj = { id: string; properties: Record<string, string | null>; propertiesWithHistory?: Record<string, Hist[]> };
 
 const HOUR = 3_600_000;
@@ -62,24 +86,60 @@ async function ticketsOfMonth(ym: string): Promise<Obj[]> {
   }
 }
 
+/** The month before and after - a ticket's Swiss day and the routing's day can fall either side of a month's end. */
+const nextMonth = (ym: string, by: number) => { const [y, m] = ym.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + by, 1)); return d.toISOString().slice(0, 7); };
+
+/**
+ * The hub's rule for every ticket in the routing's record, kept per month before the record drops it after 21 days -
+ * so "Which rule picked" answers for any period since the hub took over (19.10.2026).
+ */
+async function keepRouted(): Promise<void> {
+  const add = new Map<string, Routed>();
+  for (let i = 0; i < ROUTED_DAYS; i++) {
+    const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+    for (const r of await rowsOfDay(d)) {
+      const ym = dayOf(r.enteredAt).slice(0, 7);
+      const m = add.get(ym) ?? {};
+      m[String(r.ticketId)] = r.route?.assigner ?? "-";
+      add.set(ym, m);
+    }
+  }
+  for (const [ym, m] of add) {
+    const have = (await kvGet<Routed>(KV.routed(ym))) ?? {};
+    await kvSet(KV.routed(ym), { ...have, ...m });
+  }
+}
+
 async function countMonth(ym: string, guessed: Record<string, Guessed>): Promise<{ store: MonthStore; list: ListItem[] }> {
   const tickets = await ticketsOfMonth(ym);
+  const routed: Routed = {};
+  for (const x of [nextMonth(ym, -1), ym, nextMonth(ym, 1)]) Object.assign(routed, (await kvGet<Routed>(KV.routed(x))) ?? {});
   const days: Record<string, DayFig> = {};
   const list: ListItem[] = [];
   for (let i = 0; i < tickets.length; i += 50) {
     const chunk = tickets.slice(i, i + 50);
     const j = await hubspotRetry<{ results?: Obj[] }>({ path: "/crm/v3/objects/tickets/batch/read", method: "POST", body: {
-      inputs: chunk.map((t) => ({ id: t.id })), properties: ["enquiry_category", RESOLVED_AT], propertiesWithHistory: ["enquiry_category"],
+      inputs: chunk.map((t) => ({ id: t.id })),
+      properties: ["enquiry_category", RESOLVED_AT, "hubspot_owner_id", TONE, DELIVERY_SUB, "c2s_ticket", "c2s_problem_order"],
+      propertiesWithHistory: ["enquiry_category", "hubspot_owner_id"],
     } });
     const hist = new Map((j.results ?? []).map((o) => [String(o.id), o]));
     for (const t of chunk) {
       const created = t.properties.createdate;
       if (!created) continue;
-      const h = hist.get(String(t.id));
+      const id = String(t.id);
+      const h = hist.get(id);
+      const p = h?.properties ?? {};
       const k = dayOf(created);
-      const f = factOf(h?.properties.enquiry_category ?? t.properties.enquiry_category, h?.propertiesWithHistory?.enquiry_category ?? [], h?.properties[RESOLVED_AT], guessed[String(t.id)], created);
-      addFact((days[k] ??= emptyDay()), f);
-      if (f.journey !== "kept") list.push({ id: String(t.id), d: k, s: (t.properties.subject ?? "").replace(/\s+/g, " ").trim().slice(0, 110), i: f.intake, t: f.cat, j: f.journey, h: f.how });
+      const f = factOf(p.enquiry_category ?? t.properties.enquiry_category, h?.propertiesWithHistory?.enquiry_category ?? [], p[RESOLVED_AT], guessed[id], created);
+      const owners = h?.propertiesWithHistory?.hubspot_owner_id ?? [];
+      const given = givenOf(owners, created), now = (p.hubspot_owner_id ?? "").trim();
+      const o = {
+        given, now, oj: ownerJourneyOf(given, now, owners), rule: routed[id] ?? (k < HANDOVER ? WORKFLOW_RULE : ""), machine: p[TONE] === MACHINE,
+        sub: p[DELIVERY_SUB] ?? null, c2s: isC2s(p.c2s_ticket, p.c2s_problem_order, t.properties.subject),
+      };
+      addFact((days[k] ??= emptyDay()), f, o);
+      list.push({ id, d: k, s: (t.properties.subject ?? "").replace(/\s+/g, " ").trim().slice(0, 100), i: f.intake, t: f.cat, j: f.journey, h: f.how, o: given, n: now, oj: o.oj, r: o.rule });
     }
   }
   return { store: { v: VERSION, at: new Date().toISOString(), n: tickets.length, days }, list };
@@ -92,6 +152,7 @@ async function run(): Promise<void> {
   // months the ticket-close engine wrote into since their last count are counted again now, not next week
   const dirty = new Set((await kvGet<string[]>(KV.dirty)) ?? []);
   const guessed = (await kvGet<Record<string, Guessed>>(KV.guessed)) ?? {};
+  try { await keepRouted(); } catch (e) { console.warn(`[bo-detection] the routing's rules not kept: ${(e as Error).message.slice(0, 200)}`); }
   for (const ym of monthsSince(FIRST_MONTH).reverse()) {
     const have = await kvGet<MonthStore>(KV.month(ym));
     if (have?.v === VERSION && !dirty.has(ym) && Date.now() - Date.parse(have.at) < staleAfter(ym)) continue;
@@ -147,8 +208,10 @@ export function startBoDetection() {
 export type PeriodFigures = {
   now: Win;
   before: Win;
-  /** the period's tickets per month: per topic, per Journey */
+  /** the period's tickets per month: per topic, per Journey, per OwnerJ */
   byMonth: MonthFig[];
+  /** the period's tickets day by day, per OwnerJ */
+  byDay: { d: string; n: number; oj: Partial<Record<OwnerJ, number>> }[];
   /** the first day with a Back Office ticket - a period that starts earlier really starts here */
   since: string | null;
   /** months not counted yet (the first count after a deploy takes a few minutes) */
@@ -173,6 +236,7 @@ export async function periodFigures(from: string, to: string): Promise<PeriodFig
   return {
     now: sumDays(days, from, to),
     byMonth: monthsOf(days, from, to),
+    byDay: ownerDays(days, from, to),
     before: sumDays(days, prev.from, prev.to),
     since: keys[0] ?? null,
     missing: missing.filter((ym) => ym >= prev.from.slice(0, 7) && ym <= to.slice(0, 7)),
@@ -180,24 +244,35 @@ export async function periodFigures(from: string, to: string): Promise<PeriodFig
   };
 }
 
-/** Which tickets of a period to list: a "came with -> has today" line, or a journey (open = still Others / empty). */
-export type ListPick = { intake?: string; today?: string; journey?: Journey };
+/**
+ * Which tickets of a period to list: a "came with -> has today" line, a journey (open = still Others / empty), what
+ * became of the owner, the owner given, the hub's rule, a Delivery sub-category - and words of the subject or the id.
+ */
+export type ListPick = { intake?: string; today?: string; journey?: Journey; oj?: OwnerJ; /** owner ids, comma-separated */ given?: string; rule?: string; q?: string };
 const LIST_MAX = 300;
 
 /**
- * The tickets of from..to that did not keep the topic they came with, narrowed to a pick - newest first, at most 300
- * (total says how many there are). Read from the month lists, so it agrees with the figures of the same count.
+ * The tickets of from..to narrowed to a pick - newest first, at most 300 (total says how many there are), with how
+ * many of the picked are in each OwnerJ. Read from the month lists, so it agrees with the figures of the same count.
  */
-export async function periodList(from: string, to: string, pick: ListPick): Promise<{ rows: ListItem[]; total: number }> {
+export async function periodList(from: string, to: string, pick: ListPick): Promise<{ rows: ListItem[]; total: number; oj: Partial<Record<OwnerJ, number>> }> {
   const months = monthsSince(FIRST_MONTH).filter((ym) => ym >= from.slice(0, 7) && ym <= to.slice(0, 7));
   const got = await query<{ k: string; v: ListItem[] | string }>("SELECT k, v FROM apsomh_kv WHERE k = ANY($1)", [months.map(KV.list)]);
   const all = got.rows.flatMap((r) => (typeof r.v === "string" ? (JSON.parse(r.v) as ListItem[]) : r.v) ?? []);
-  const keep = all.filter((x) => x.d >= from && x.d <= to
+  const q = pick.q?.trim().toLowerCase();
+  // one person can be two HubSpot owners (01.11.2026: Leart Asllani) - the page sends every id of the name
+  const given = pick.given === undefined ? undefined : new Set(pick.given.split(","));
+  const base = all.filter((x) => x.d >= from && x.d <= to
     && (pick.journey === undefined || x.j === pick.journey)
     && (pick.intake === undefined || x.i === pick.intake)
-    && (pick.today === undefined || x.t === pick.today))
-    .sort((a, b) => b.d.localeCompare(a.d) || b.id.localeCompare(a.id));
-  return { rows: keep.slice(0, LIST_MAX), total: keep.length };
+    && (pick.today === undefined || x.t === pick.today)
+    && (given === undefined || given.has(x.o ?? ""))
+    && (pick.rule === undefined || (x.r ?? "") === pick.rule)
+    && (!q || x.id === q || x.s.toLowerCase().includes(q)));
+  const oj: Partial<Record<OwnerJ, number>> = {};
+  for (const x of base) if (x.oj) oj[x.oj] = (oj[x.oj] ?? 0) + 1;
+  const keep = (pick.oj === undefined ? base : base.filter((x) => x.oj === pick.oj)).sort((a, b) => b.d.localeCompare(a.d) || b.id.localeCompare(a.id));
+  return { rows: keep.slice(0, LIST_MAX), total: keep.length, oj };
 }
 
 /** Every GQS task as last read (null until the first run after a release, ~5 minutes). */

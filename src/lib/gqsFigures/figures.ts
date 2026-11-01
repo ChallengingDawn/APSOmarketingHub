@@ -8,7 +8,7 @@
 // and the WON / LOST outcome are kept on almost every task only from February 2026, so a period before that shows many
 // "No type" and few outcomes - said where it is shown, never filled in.
 
-import { dayOf } from "../boDetection/figures";
+import { dayOf, type OwnerJ } from "../boDetection/figures";
 
 /** The GQS pipeline's stages the figures name (Back Office - Special Tasks GQS, 1726786775). */
 export const GQS_STAGE = {
@@ -38,6 +38,17 @@ export type GqsRow = {
   /** "Reason to refuse" */
   reason: string | null;
   subject: string;
+  /**
+   * The owner the task was given when it entered New for Back-Office (the routing's pick in its first half hour, from the
+   * owner's history) and what became of it - read since 01.11.2026, so the Tickets tab answers for any period.
+   */
+  given?: string | null; givenName?: string | null; oj?: OwnerJ;
+  /**
+   * The ESO / TSA ticket the task belongs to, from its associations (SARCLA 01.11.2026: "why so many not linked?" - the
+   * routing read the link once, when the task arrived and before Sales had linked it; and ESO PIPELINE STATUS (FOR GQS),
+   * a copy, is empty on many): its pipeline, stage, whether closed, its owner - the sales team's.
+   */
+  sales?: { id: string; pipe: "ESO" | "TSA"; stage: string; closed: boolean; owner: string | null; ownerName: string | null } | null;
 };
 export type GqsStore = { at: string; rows: GqsRow[]; stages: { id: string; label: string; closed: boolean }[] };
 
@@ -50,10 +61,23 @@ export const resultOf = (r: GqsRow): "won" | "lost" | null => {
 };
 const tidy = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim();
 export const NO_TYPE = "No type";
+/** the type of request is asked on every task from January 2026 (01.11.2026: 45 of November 2025's 50 tasks have none,
+ *  7 of December's 27, one since) - a task before that is "not asked yet", not a task somebody left blank */
+export const NOT_ASKED = "Not asked yet (before 2026)";
 /** "DT -  New Business" -> "DT - New Business" (HubSpot's labels carry two spaces). */
-export const typeOf = (r: GqsRow) => tidy(r.type) || NO_TYPE;
+export const typeOf = (r: GqsRow) => tidy(r.type) || (dayOf(r.created) < "2026-01-01" ? NOT_ASKED : NO_TYPE);
 export const NOBODY = "Nobody";
 export const ownerOf = (r: GqsRow) => tidy(r.ownerName) || (r.owner ? `Owner ${r.owner}` : NOBODY);
+/** The sales ticket of a task, for a breakdown: "ESO · Offer sent", or none linked. */
+export const NO_SALES = "No ESO / TSA ticket linked";
+/** Sales link the GQS task to its ticket since March 2026 (01.11.2026: 204 of 298 tasks unlinked before, 11 of 395 since) */
+export const NOT_LINKED_THEN = "Not linked (before March 2026)";
+const noSales = (r: GqsRow) => (dayOf(r.created) < "2026-03-01" ? NOT_LINKED_THEN : NO_SALES);
+export const salesStageOf = (r: GqsRow) => (r.sales ? `${r.sales.pipe} · ${tidy(r.sales.stage) || "stage unknown"}` : noSales(r));
+/** The owner of a task's sales ticket - the sales team's person. */
+export const salesOwnerOf = (r: GqsRow) => (r.sales ? tidy(r.sales.ownerName) || (r.sales.owner ? `Owner ${r.sales.owner}` : NOBODY) : noSales(r));
+/** The owner a task was given when it arrived. */
+export const givenOf = (r: GqsRow) => tidy(r.givenName) || (r.given ? `Owner ${r.given}` : NOBODY);
 /** Who refused it, from STATUS OF GQS ("Refused by GQS"); a task in Refused with another status: just "Refused". */
 export const refusedBy = (r: GqsRow) => { const s = tidy(r.status); return /^refused by /i.test(s) ? s : "Refused"; };
 

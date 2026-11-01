@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addFact, dayOf, emptyDay, factOf, howOf, intakeOf, journeyOf, mergeDays, monthsSince, pairKey, pairOf, previousWindow, rangeLabel, sumDays, type Fact, type How } from "../src/lib/boDetection/figures";
+import { addFact, dayOf, emptyDay, factOf, givenOf, howOf, intakeOf, isC2s, journeyOf, mergeDays, monthsOf, monthsSince, ownerDays, ownerJourneyOf, pairKey, pairOf, previousWindow, rangeLabel, sumDays, type Fact, type Hist, type How, type Owned } from "../src/lib/boDetection/figures";
 
 /** a fact that kept its intake topic, unless told otherwise */
 const fact = (cat: string, how: How, more: Partial<Fact> = {}): Fact => ({ cat, person: false, fromOthers: false, how, intake: cat, journey: cat && cat !== "Others" ? "kept" : "open", ...more });
@@ -72,7 +72,7 @@ test("the AI's unsure guess counts apart, and the period splits by month", async
   assert.equal(howOf("Delivery", hub, "2026-10-05T09:00:00Z", { cat: "Product Price", sure: "low" }), "ai"); // re-filed since
   const day = (t: Record<string, Record<string, number>>, j = {}) => ({ n: 0, others: 0, empty: 0, person: 0, fromOthers: 0, topics: t, j, tj: {}, pairs: {} });
   const m = monthsOf({ "2026-09-30": day({ Delivery: { keywords: 2 } }, { kept: 2 }), "2026-10-01": day({ Delivery: { ai: 1 }, Others: { none: 3 } }, { hub: 1, open: 3 }), "2026-11-01": day({ Delivery: { keywords: 9 } }) }, "2026-09-01", "2026-10-31");
-  assert.deepEqual(m, [{ ym: "2026-09", topics: { Delivery: 2 }, j: { kept: 2 } }, { ym: "2026-10", topics: { Delivery: 1, Others: 3 }, j: { hub: 1, open: 3 } }]);
+  assert.deepEqual(m, [{ ym: "2026-09", topics: { Delivery: 2 }, j: { kept: 2 }, oj: {} }, { ym: "2026-10", topics: { Delivery: 1, Others: 3 }, j: { hub: 1, open: 3 }, oj: {} }]);
 });
 
 test("the topic a ticket came with: its first half hour, a person only at the creation", () => {
@@ -114,4 +114,57 @@ test("what changed after intake is counted by line, and the four journeys add up
   assert.deepEqual(pairOf(pairKey("", "MS365", "hub")), { intake: "", today: "MS365", journey: "hub" });
   const w = sumDays({ "2026-10-01": d, "2026-10-02": d }, "2026-10-01", "2026-10-31");
   assert.deepEqual([w.j.hub, w.pairs[pairKey("Others", "Delivery", "hub")], w.tj.Delivery.kept], [4, 4, 2]);
+});
+
+test("the owner a ticket was given: the routing's last pick in its first half hour - not the help desk's echo, not a person later", () => {
+  const c = "2026-10-27T08:00:00Z";
+  const at = (min: number) => new Date(Date.parse(c) + min * 60_000).toISOString();
+  // a workflow puts it on the team at once, the hub's app gives the owner, HELP_DESK echoes both, a person moves it next day
+  const h: Hist[] = [
+    { value: "76164822", timestamp: at(0), sourceType: "AUTOMATION_PLATFORM" }, { value: "76164822", timestamp: at(0.5), sourceType: "HELP_DESK" },
+    { value: "37413486", timestamp: at(1.5), sourceType: "INTEGRATION", sourceId: "50521064" }, { value: "37413486", timestamp: at(1.6), sourceType: "HELP_DESK" },
+    { value: "30050251", timestamp: at(1500), sourceType: "CRM_UI" }, { value: "30050251", timestamp: at(1500.1), sourceType: "HELP_DESK" },
+  ];
+  assert.equal(givenOf(h, c), "37413486");
+  assert.equal(ownerJourneyOf("37413486", "30050251", h), "moved");
+  assert.equal(ownerJourneyOf("37413486", "37413486", h), "kept");
+  // the routing gave another owner later (the hub waited for someone available) - not a person
+  const later: Hist[] = [...h.slice(0, 4), { value: "11", timestamp: at(90), sourceType: "INTEGRATION", sourceId: "50521064" }, { value: "11", timestamp: at(90.1), sourceType: "HELP_DESK" }];
+  assert.equal(ownerJourneyOf("37413486", "11", later), "later");
+  // a change made in the help desk's own view, echoing nothing, is a person
+  const desk: Hist[] = [...h.slice(0, 4), { value: "36930032", timestamp: at(45), sourceType: "HELP_DESK" }];
+  assert.equal(ownerJourneyOf("37413486", "36930032", desk), "moved");
+  // created by hand with an owner: that person; nothing in the first half hour: none
+  assert.equal(givenOf([{ value: "9", timestamp: at(0.2), sourceType: "CRM_UI" }], c), "9");
+  assert.equal(givenOf([{ value: "9", timestamp: at(45), sourceType: "INTEGRATION" }], c), "");
+  assert.equal(ownerJourneyOf("", "9", []), "none");
+});
+
+test("a day counts the owner, the rule, the machines and the deliveries - and they add up to the tickets", () => {
+  const d = emptyDay();
+  const f = (cat: string, intake = cat): Fact => ({ cat, person: false, fromOthers: false, how: "keywords", intake, journey: cat === intake ? "kept" : "hub" });
+  const o = (x: Partial<Owned>): Owned => ({ given: "1", now: "1", oj: "kept", rule: "27", machine: false, sub: null, c2s: false, ...x });
+  addFact(d, f("Delivery"), o({ sub: "Delivery date", c2s: true }));
+  addFact(d, f("Delivery"), o({ given: "2", now: "3", oj: "moved", sub: "Delivery date" }));
+  addFact(d, f("Internal e-mail", "Others"), o({ given: "", now: "", oj: "none", rule: "wf", machine: true }));
+  assert.deepEqual(d.own, { 1: { kept: 1 }, 2: { moved: 1 }, "": { none: 1 } });
+  assert.deepEqual(d.oj, { kept: 1, moved: 1, none: 1 });
+  assert.deepEqual(d.ic, { Delivery: 2, Others: 1 });
+  assert.deepEqual(d.rule, { 27: 2, wf: 1 });
+  assert.deepEqual(d.mt, { "Internal e-mail": 1 });
+  assert.deepEqual([d.del, d.c2s], [{ "Delivery date": 2 }, { "Delivery date": 1 }]);
+  const w = sumDays(mergeDays([{ "2026-10-27": d }, { "2026-10-27": d }]), "2026-10-01", "2026-10-31");
+  assert.equal(w.n, 6);
+  assert.deepEqual(w.oj, { kept: 2, moved: 2, none: 2 });
+  assert.deepEqual(monthsOf({ "2026-10-27": d }, "2026-10-01", "2026-10-31")[0].oj, { kept: 1, moved: 1, none: 1 });
+  assert.deepEqual(ownerDays({ "2026-10-27": d, "2026-09-01": emptyDay() }, "2026-10-01", "2026-10-31"), [{ d: "2026-10-27", n: 3, oj: { kept: 1, moved: 1, none: 1 } }]);
+  // a day of an older store (version 4) has none of these and still adds
+  assert.equal(sumDays({ "2026-10-28": emptyDay() }, "2026-10-01", "2026-10-31").oj, undefined);
+});
+
+test("cut-to-size, as the routing reads it", () => {
+  assert.equal(isC2s("true", null, ""), true);
+  assert.equal(isC2s(null, "12345", ""), true);
+  assert.equal(isC2s(null, null, "AW: Zuschnitt 4711"), true);
+  assert.equal(isC2s(null, null, "Lieferdatum"), false);
 });

@@ -22,7 +22,7 @@
 //   every GQS task (GqsKpis.tsx), Tickets / Flow / the team from the routing (GqsTab.tsx).
 // People and Settings are each pipeline's own ("GQS still on back office setting"): its team lists, its live switch.
 
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
@@ -41,180 +41,33 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import CloseIcon from "@mui/icons-material/Close";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
-import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
-import PersonOutlineOutlinedIcon from "@mui/icons-material/PersonOutlineOutlined";
-import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined";
-import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
-import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
-import AltRouteOutlinedIcon from "@mui/icons-material/AltRouteOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
-import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
-import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
-import PriorityHighOutlinedIcon from "@mui/icons-material/PriorityHighOutlined";
-import ReportProblemOutlinedIcon from "@mui/icons-material/ReportProblemOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import { BarList } from "@/app/charts/BarList";
-import { StackedColumns } from "@/app/charts/StackedColumns";
-import { CardTitle, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, bodyCell, clip, headCell, hsTicket } from "@/app/uc/report/ui";
+import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, RED, bodyCell, headCell } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
-import { Chip, Choice, usePaged, when } from "@/app/connectors/parts";
-import type { PersonRow, Row, RunInfo, Settings } from "@/lib/boDistribution/engine";
-import type { Classification } from "@/lib/boDistribution/classifier";
+import { Chip, when } from "@/app/connectors/parts";
 import type { Person, RosterKey } from "@/lib/boDistribution/rules";
 
 import {
-  CHAT_LABEL, Detail, GQS_KPI_VIEWS, GQS_ROSTERS, PIPE_OF, STEP, TicketTable, VIEW_HASH, count, fixesDiffer, gave, movedAfterUs, pct,
+  CHAT_LABEL, GQS_KPI_VIEWS, GQS_ROSTERS, PIPE_OF, VIEW_HASH, gave,
   type Data, type PeopleData, type Pipe, type View,
 } from "./shared";
 import type { GqsStore } from "@/lib/gqsFigures/figures";
 import { dayOf, rangeLabel } from "@/lib/boDetection/figures";
-import { DEEMPHASIS } from "@/app/charts/palette";
 import { FlowTab } from "./FlowTab";
-import { GqsFlow, GqsTeam, GqsTickets } from "./GqsTab";
+import { GqsFlow, GqsTeam } from "./GqsTab";
 import { GqsKpis, OpenNow, openCount, type GqsView } from "./GqsKpis";
 import { PriorityTab } from "./PriorityTab";
 import { SettingsTab } from "./SettingsTab";
 import { DetectionTab } from "./DetectionTab";
-import { SentimentTab, type SentimentData } from "./SentimentTab";
-import { StraysCard } from "./StraysCard";
-import { ChatCard } from "./ChatCard";
-/* ── Overview ── */
-
-/**
- * What the routing did with the period's Back Office tickets (SARCLA 01.11.2026, "figures don't match"): the tiles are
- * the Tickets tab's four counts - so the two tabs never disagree - and every line compares the hub with what it wrote,
- * never with the old rules' pick ("Owner left as chosen" compared the owner with the rules as they stood before the
- * hand-over, while the hub writes its corrected ones). The categories here are the ones the ticket came with, which is
- * what routing works with: the engine reads a ticket's category once, ten minutes after it arrives - the topic it has
- * today is Detection's.
- */
-function Overview({ d, asked }: { d: Data; asked: number }) {
-  const rows = d.rows;
-  // the routing keeps its tickets 21 days: name the days the figures really cover, never the period asked for
-  const entered = rows.map((r) => r.enteredAt).sort();
-  const label = entered.length ? rangeLabel(dayOf(entered[0]), dayOf(entered[entered.length - 1])) : "in the period";
-  const capped = asked > ROWS_KEPT_DAYS ? ` (the routing keeps its tickets ${ROWS_KEPT_DAYS} days - the topics of any period are on Detection)` : "";
-  const given = rows.filter((r) => r.wrote?.ok);
-  const moved = rows.filter(movedAfterUs);
-  const fixes = rows.filter(fixesDiffer);
-  const days = useMemo(() => {
-    const by = new Map<string, { kept: number; moved: number; none: number }>();
-    for (const r of rows) {
-      const k = r.enteredAt.slice(0, 10);
-      const b = by.get(k) ?? { kept: 0, moved: 0, none: 0 };
-      if (!r.wrote?.ok) b.none++; else if (movedAfterUs(r)) b.moved++; else b.kept++;
-      by.set(k, b);
-    }
-    return [...by].sort((a, b) => a[0].localeCompare(b[0])).map(([x, v]) => ({ x: x.slice(8, 10) + "." + x.slice(5, 7), ...v }));
-  }, [rows]);
-  const kpis = [
-    { label: "Back Office tickets", value: full(rows.length), note: `Entered New ${label}${capped}${d.backfill && !d.backfill.done ? " - replay still running" : ""}`, icon: <ConfirmationNumberOutlinedIcon />, tint: "blue" as const },
-    { label: "Given an owner by the hub", value: full(given.length), note: `${pct(given.length, rows.length)} of them; the rest came with an owner, had none to give on their path (chat, exclusions) or waited for someone available`, icon: <PersonOutlineOutlinedIcon />, tint: "green" as const },
-    { label: "Moved after the hub gave it", value: full(moved.length), note: given.length ? `${pct(moved.length, given.length)} of the ones the hub gave - a person gave them to someone else afterwards` : "Nothing given yet", icon: <CompareArrowsOutlinedIcon />, tint: "amber" as const },
-    { label: "A fix changed the owner", value: full(fixes.length), note: "Tickets where the corrected rules pick someone else than the rules before the hand-over would have", icon: <AltRouteOutlinedIcon />, tint: "purple" as const },
-  ];
-  const owners = count(rows.filter((r) => r.actual), (r) => gave(r)!.name);
-  const steps = count(rows.filter((r) => r.route?.assigner), (r) => STEP[r.route!.assigner!]);
-  const intake = (r: Row) => r.route?.sets.enquiry_category ?? r.actual?.category ?? "No category";
-  const cats = count(rows, intake);
-  const [cat, setCat] = useState<string | null>(null);
-  // deliveries, and how many of them are cut-to-size (SARCLA 19.10.2026: "from deliveries, how many C2S")
-  const deliveries = rows.filter((r) => intake(r) === "Delivery");
-  const c2s = deliveries.filter((r) => r.c2s);
-  const delSub = (r: Row) => r.route?.sets.enquiry_sub_category___delivery___1 ?? r.actual?.subCategory ?? "No sub-category";
-  const delSubs = count(deliveries, delSub).map((x) => ({ ...x, secondary: `${full(deliveries.filter((r) => delSub(r) === x.label && r.c2s).length)} C2S` }));
-  const inCat = !cat ? [] : cat.startsWith("Delivery: ") ? deliveries.filter((r) => delSub(r) === cat.slice(10)) : rows.filter((r) => intake(r) === cat);
-  return (
-    <>
-      <Grid container spacing={2}>
-        {kpis.map((k) => <Grid key={k.label} size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={k.icon} tint={k.tint} label={k.label} value={k.value} note={k.note} /></Grid>)}
-      </Grid>
-      <StraysCard d={d} />
-      <ChatCard d={d} />
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<InsightsOutlinedIcon />} tint="blue" title="Day by day" note="Each day's Back Office tickets: the owner the hub gave is still theirs, a person moved it afterwards, or the hub gave none" />
-        <StackedColumns data={days} parts={[{ key: "kept", label: "Kept the hub's owner" }, { key: "moved", label: "Moved afterwards" }, { key: "none", label: "No owner from the hub", color: DEEMPHASIS }]} format={(v) => full(v ?? 0)} />
-      </GlassCard>
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<PersonOutlineOutlinedIcon />} tint="green" title="Who got them" note="What the distribution step gave" /><BarList rows={owners} labelWidth={150} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
-        <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<AltRouteOutlinedIcon />} tint="purple" title="Which rule picked" note="The rule that chose the owner on each ticket's path" /><BarList rows={steps} labelWidth={170} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
-        <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="Category at intake" note="What the routing filed each ticket as when it arrived - the topic it has today is on Detection. Click one for its tickets" /><BarList rows={cats} labelWidth={150} format={(v) => full(v ?? 0)} onSelect={(l) => setCat(cat === l ? null : l)} selectedLabel={cat} /></GlassCard></Grid>
-      </Grid>
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<CategoryOutlinedIcon />} tint="pink" title={`Deliveries at intake: ${full(deliveries.length)}, of which cut-to-size (C2S): ${full(c2s.length)} (${pct(c2s.length, deliveries.length)})`}
-          note="C2S = flagged by the ticket associations (c2s_ticket), a C2S problem order, or C2S / Zuschnitt in the subject. Second figure: the C2S ones" />
-        <BarList rows={delSubs} labelWidth={200} format={(v) => full(v ?? 0)} onSelect={(l) => setCat(cat === `Delivery: ${l}` ? null : `Delivery: ${l}`)} />
-      </GlassCard>
-      {cat && (
-        <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-          <CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title={`${cat} at intake - ${full(inCat.length)} tickets`}
-            note={cat === "Others" ? "Others at intake = the keywords recognised nothing in the e-mail, so the ticket went to whoever was least busy. Two hours later the hub reads it and gives it its topic - Detection shows what they became." : "Click the category again to close"} />
-          <TicketTable rows={inCat} empty="No ticket." />
-        </GlassCard>
-      )}
-    </>
-  );
-}
-
-function Tickets({ d }: { d: Data }) {
-  const [filter, setFilter] = useState<"all" | "wrote" | "moved" | "fixes" | "error">("all");
-  const [id, setId] = useState("");
-  const [check, setCheck] = useState<string | null>(null);
-  const checked = useHeld<Row>(check ? `/api/uc/bo-distribution?ticket=${check}` : null, [check]);
-  const keep = (r: Row) =>
-    filter === "all" ? true
-      : filter === "wrote" ? !!r.wrote?.ok
-      : filter === "moved" ? movedAfterUs(r)
-      : filter === "fixes" ? fixesDiffer(r)
-      : !!r.error;
-  const rows = d.rows.filter(keep);
-  const inPipe = d.rows;
-  const given = inPipe.filter((r) => r.wrote?.ok).length;
-  const moved = inPipe.filter(movedAfterUs).length;
-  return (
-    <>
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<ManageSearchOutlinedIcon />} tint="blue" title="Check a ticket" note="Any ticket number: the copy, the hub and HubSpot side by side, now - nothing stored, nothing written" />
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-          <TextField size="small" placeholder="ticket number" value={id} onChange={(e) => setId(e.target.value.replace(/\D/g, ""))} sx={{ width: 220 }} />
-          <Button variant="outlined" size="small" disabled={!id} onClick={() => setCheck(id)} sx={{ textTransform: "none" }}>Check</Button>
-          {check && checked.result === null && <CircularProgress size={14} />}
-        </Box>
-        {check && checked.result?.state === "ok" && <Box sx={{ mt: 1.5 }}><Detail r={checked.result.data} /></Box>}
-        {check && checked.result && checked.result.state !== "ok" && <Typography sx={{ mt: 1, fontSize: "0.82rem", color: RED }}>{checked.result.state === "error" ? checked.result.error : "not configured"}</Typography>}
-      </GlassCard>
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Ticket by ticket" note={d.last ? `Last look ${when(d.last.at)}: ${full(d.last.read)} read, ${full(d.last.decided)} new, ${full(d.last.checked)} checked${d.last.error ? ` - ${d.last.error}` : ""}` : "Not run yet"} />
-        {/* How many tickets the hub has actually handled, which is what the tab is for. */}
-        <Grid container spacing={1.5} sx={{ mb: 2, mt: 0.5 }}>
-          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<ConfirmationNumberOutlinedIcon />} tint="slate" label="Tickets seen" value={full(inPipe.length)} note="Back Office - GQS's are on GQS > Tickets" /></Grid>
-          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<PersonOutlineOutlinedIcon />} tint="green" label="Given an owner by the hub" value={full(given)} note={`${pct(given, inPipe.length)} of them`} /></Grid>
-          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="amber" label="Moved after we gave it" value={full(moved)} note={given ? `${pct(moved, given)} of the ones we gave` : "nothing given yet"} /></Grid>
-          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<AltRouteOutlinedIcon />} tint="pink" label="A fix changed the owner" value={full(inPipe.filter(fixesDiffer).length)} note="rules in fixes.ts" /></Grid>
-        </Grid>
-        <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 1.5 }}>
-          {/* What the hub DID, not how it compares with a workflow that has not run since 19.10.2026.
-              "HubSpot did otherwise" measured the live owner against a replay of that dead workflow,
-              and "Seen live (not replayed)" was cut-over vocabulary. */}
-          <Choice<"all" | "wrote" | "moved" | "fixes" | "error"> value={filter} onChange={setFilter} options={[
-            { key: "all", label: "All", count: inPipe.length },
-            { key: "wrote", label: "Given an owner by the hub", count: given },
-            { key: "moved", label: "Moved after we gave it", count: moved },
-            { key: "fixes", label: "A fix changed the owner", count: inPipe.filter(fixesDiffer).length },
-            { key: "error", label: "Could not be read", count: inPipe.filter((r) => !!r.error).length },
-          ]} />
-        </Box>
-        <TicketTable rows={rows} empty={`Nothing yet - tickets appear within ${d.everyMinutes} minutes of entering the stage; the replay fills the last 7 days.`} />
-      </GlassCard>
-    </>
-  );
-}
-
+import { SentimentTab, type MachineTopics, type SentimentData } from "./SentimentTab";
+import type { PeriodFigures } from "@/lib/boDetection/engine";
+import { BoOverview, BoTickets } from "./BoOverview";
 /* ── People ── */
 
 function RosterEditor({ k, d, owners, onSaved }: { k: RosterKey; d: Data; owners: Person[]; onSaved: () => void }) {
@@ -320,12 +173,16 @@ function SentimentPanel({ days, from, to, label }: { days: number; from: string;
   const url = `/api/uc/bo-sentiment?days=${days}&from=${from}&to=${to}${n ? `&n=${n}` : ""}`;
   const held = useHeld<SentimentData>(url, [url]);
   const r = held.result;
+  // the machine tickets by their topic, from the Detection count of the same period
+  const durl = `/api/uc/bo-distribution?detection=1&from=${from}&to=${to}`;
+  const det = useHeld<PeriodFigures>(durl, [durl]).result;
+  const topics: MachineTopics = det?.state === "ok" && det.data.now.mt ? { now: det.data.now.mt, before: det.data.before.mt ?? {} } : null;
   if (r === null) return <LoadingPanel label="Reading the tone of the Back Office tickets…" />;
   if (r.state !== "ok") {
     return <UpstreamPanel source="Back Office sentiment" error={r.state === "error" ? r.error : "not configured"}
       status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
   }
-  return <SentimentTab d={r.data} periodLabel={label} onChanged={() => setN((x) => x + 1)} />;
+  return <SentimentTab d={r.data} periodLabel={label} onChanged={() => setN((x) => x + 1)} topics={topics} />;
 }
 
 /**
@@ -337,8 +194,15 @@ function SentimentPanel({ days, from, to, label }: { days: number; from: string;
  */
 // keep in step with DAYS_KEPT in src/lib/boSentiment/engine.ts and DETAIL_DAYS in the route
 const STORE_DAYS = 90;
-/** what the route answers at most (route.ts: the routing's rows are kept 21 days) */
-const ROWS_KEPT_DAYS = 21;
+
+/** What the Flow tabs can and cannot reach - said above them, where it matters. */
+const FLOW_NOTE = (
+  <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+    The flow is the hub&rsquo;s own record of each decision: it decides since 19.10.2026 and keeps each record 21 days, so the
+    flow shows the period&rsquo;s days within those. Who got the tickets, what they are about and what became of the owner are
+    counted for any period on Overview and Tickets.
+  </Typography>
+);
 
 /** Back Office | GQS - the page's main toggle (SARCLA 01.11.2026), drawn as the ESO reports draw ESO | TSA | Total. */
 const PIPES: { id: Pipe; label: string; count: null }[] = [{ id: "bo", label: "Back Office", count: null }, { id: "gqs", label: "GQS", count: null }];
@@ -363,7 +227,9 @@ export default function BoDistribution() {
   const all = r?.state === "ok" ? r.data : null;
   // the Back Office tabs see the Back Office's tickets; GQS's are on GQS > Tickets
   const bo = useMemo(() => (all ? { ...all, rows: all.rows.filter((x) => x.pipeline === "bo") } : null), [all]);
-  const gqsRows = all ? all.rows.filter((x) => x.pipeline === "gqs") : [];
+  // the Flow tabs draw the routing's own record of each decision - the period's days of it (it begins 19.10.2026 and is kept 21 days)
+  const inWin = (x: Data): Data => ({ ...x, rows: x.rows.filter((r) => { const k = dayOf(r.enteredAt); return k >= win.from && k <= win.to; }) });
+  const gqsRows = all ? inWin(all).rows.filter((x) => x.pipeline === "gqs") : [];
   // the days the routing's rows cover, named - never the period asked for (they are kept 21 days)
   const span = (() => { const e = gqsRows.map((x) => x.enteredAt).sort(); return e.length ? rangeLabel(dayOf(e[0]), dayOf(e[e.length - 1])) : "in these days"; })();
   /** a part drawn from every GQS task (the 30-minute read) */
@@ -380,8 +246,8 @@ export default function BoDistribution() {
       ? <UpstreamPanel source="Back Office distribution" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={reload} />
       : <LoadingPanel label="Reading the Back Office tickets…" />;
   }
-  else if (view === "tickets") body = <Tickets d={bo} />;
-  else if (view === "flow") body = <FlowTab d={all} />;
+  else if (view === "tickets") body = <BoTickets from={win.from} to={win.to} label={periodLabel} />;
+  else if (view === "flow") body = <>{FLOW_NOTE}<FlowTab d={inWin(all)} /></>;
   else if (view === "detection") body = <DetectionTab d={all} from={win.from} to={win.to} />;
   else if (view === "sentiment") body = <SentimentPanel key="sentiment" days={days} from={win.from} to={win.to} label={periodLabel} />;
   else if (view === "people") body = <People d={bo} onSaved={reload} pipe="bo" />;
@@ -389,11 +255,11 @@ export default function BoDistribution() {
   else if (view === "priority") body = <PriorityTab key={all.settings.at ?? "p"} d={all} onSaved={reload} />;
   // GQS: Tickets and Flow from the routing's rows (GqsTab.tsx), with every open task under the tickets; People = each
   // owner's figures, the GQS team, GQS's lists
-  else if (view === "gqs-tickets") body = <><GqsTickets d={all} span={span} />{withStore((s) => <OpenNow store={s} />)}</>;
-  else if (view === "gqs-flow") body = <GqsFlow d={all} span={span} />;
+  else if (view === "gqs-tickets") body = withStore((s) => <><GqsKpis key={view} view="gqs-tickets" store={s} from={win.from} to={win.to} /><OpenNow store={s} /></>);
+  else if (view === "gqs-flow") body = <>{FLOW_NOTE}<GqsFlow d={inWin(all)} span={span} /></>;
   else if (view === "gqs-people") body = <>{withStore((s) => <GqsKpis key={view} view="gqs-people" store={s} from={win.from} to={win.to} />)}<GqsTeam d={all} /><People d={all} onSaved={reload} pipe="gqs" /></>;
   else if (view === "gqs-settings") body = <SettingsTab key={`g${all.settings.at ?? "s"}`} d={all} onChanged={reload} pipe="gqs" />;
-  else body = <Overview d={bo} asked={askedDays} />;
+  else body = <BoOverview d={bo} from={win.from} to={win.to} label={periodLabel} />;
   const open = openCount(store);
   const tabs: { id: View; label: string; count: string | null }[] = pipe === "gqs" ? [
     { id: "gqs", label: "Overview", count: null },
@@ -406,7 +272,7 @@ export default function BoDistribution() {
     { id: "gqs-settings", label: "Settings", count: null },
   ] : [
     { id: "overview", label: "Overview", count: null },
-    { id: "tickets", label: "Tickets", count: bo?.rows.length ? full(bo.rows.length) : null },
+    { id: "tickets", label: "Tickets", count: null },
     { id: "flow", label: "Flow", count: null },
     { id: "detection", label: "Detection", count: null },
     { id: "sentiment", label: "Sentiment", count: null },

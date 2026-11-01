@@ -312,15 +312,22 @@ function CheckOne() {
   );
 }
 
-export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; periodLabel: string; onChanged: () => void }) {
+/** The first day of the Back Office pipeline. */
+const BO_BEGAN = "2025-03-01";
+
+/** The machine tickets by the topic each has today, this period and the days before - from the Detection count. */
+export type MachineTopics = { now: Record<string, number>; before: Record<string, number> } | null;
+
+export function SentimentTab({ d, periodLabel, onChanged, topics }: { d: SentimentData; periodLabel: string; onChanged: () => void; topics: MachineTopics }) {
   const s = d.summary;
   const f = d.figures;
   // every figure on this card counts the same thing: the tickets in the period, and of those the
   // ones a customer was talking on. Three denominators on one card is what made it unreadable.
   const machine = f?.tone.not_valid_email ?? 0;
   const customers = f ? f.total - machine : 0;
-  // the same span immediately before, counted the same way - every chart on this card draws it
-  const b = d.before;
+  // the same span immediately before, counted the same way - every chart on this card draws it; never a span from before
+  // the Back Office pipeline began (March 2025), which holds part of its days only and reads as growth (01.11.2026: +283.7%)
+  const b = d.before && d.before.from.slice(0, 10) >= BO_BEGAN ? d.before : null;
   const beforeMachine = b ? b.tone.not_valid_email ?? 0 : 0;
   const beforeCustomers = b ? b.total - beforeMachine : 0;
   // "The same days before" meant nothing to anybody reading it, so the charts and the table
@@ -408,14 +415,17 @@ export function SentimentTab({ d, periodLabel, onChanged }: { d: SentimentData; 
             <CardTitle icon={<BlockIcon />} tint="slate" title="What the machine tickets are"
               note={`${periodLabel} · the ${f ? full(machine) : "—"} tickets nobody was talking on, by what they are`} />
             <Box sx={{ mt: 1.5 }}>
-              <MachineReasons now={f?.reasons ?? []} before={b ? b.reasons : null} total={machine} beforeLabel={beforeLabel} />
+              {/* by the Enquiry Category each has, as every other ticket (SARCLA 01.11.2026: "this should follow the same
+                  enquiry category as the real one") - the sweep's own reasons were a second list of names for the same thing */}
+              <MachineReasons now={topics ? Object.entries(topics.now).map(([value, n]) => ({ value, n })).sort((x, y) => y.n - x.n) : f?.reasons ?? []}
+                before={!b ? null : topics ? Object.entries(topics.before).map(([value, n]) => ({ value, n })) : b.reasons} total={machine} beforeLabel={beforeLabel} />
               <Typography sx={{ color: MUTED, fontSize: "0.8rem", mt: 1.5 }}>
-                All of these mean the same thing in the end - mail arrived on the ticket, but nobody outside the
-                company wrote a word, so there is no customer to have a tone. They are kept apart because they are
-                different problems. <b>PERFORMIS</b>, <b>AVOR</b>, <b>LVS</b>, <b>PDM</b> and <b>Finance</b> are our own
-                systems writing in; <b>Microsoft 365 quarantine notice</b> is not Back Office work at all;
-                <b>a colleague wrote it</b> is a real person on our side raising a ticket, and that one is still the
-                largest - 201 different people, one of whom accounts for a third of it.
+                Each by its Enquiry Category, the same as every other ticket&rsquo;s. Mail arrived on them, but nobody outside
+                the company wrote a word, so there is no customer to have a tone. <b>Internal e-mail</b> is a colleague or
+                one of our shared mailboxes; <b>Automatic e-mail</b> is our own systems (PERFORMIS, LVS, PDM) and robots;
+                <b> Finance e-mail</b> and <b>AVOR e-mail</b> are those teams&rsquo; templated mail; <b>MS365</b> is a
+                quarantine notice. Where a machine&rsquo;s mail still asks for something - an order confirmation - it has the
+                topic it asks about, a Delivery.
               </Typography>
             </Box>
           </GlassCard>

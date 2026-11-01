@@ -5,9 +5,12 @@
 // Office's tabs (SARCLA 01.11.2026: "keep the same then to GQS the same tab, but instead of sentiment resolution for win
 // or lost"): Overview, Tickets, Flow, Type of request (Detection's place), Resolution (Sentiment's), Speed (Priority's),
 // People, Settings. The figure tabs are here, each drawn the same way: the period's tasks against the same number of
-// days just before (DimChart, blue this period, grey before), then "All the figures" with the same columns everywhere;
-// Open now is on Tickets. Who gets a task, and by which rule, is GqsTab.tsx (Tickets, Flow, the team on People). Every
-// task of the GQS pipeline is read every 30 minutes (src/lib/gqsFigures).
+// days just before (DimChart, blue this period, grey before), then "All the figures" in cards of their own, as advanced
+// reporting draws them; Open now is under Tickets. The rule each task was given by is GqsTab.tsx (Flow, the team on
+// People). Every task of the GQS pipeline is read every 30 minutes (src/lib/gqsFigures) - with, since 01.11.2026, the
+// owner each was given when it arrived and the ESO / TSA ticket it belongs to, read from its links (SARCLA: "why so many
+// not linked?", "it would be great to see also the ticket owner of the sales team"), so Tickets answers for any period
+// ("the time filter on top should really filter it").
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -18,7 +21,8 @@ import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
-import TableSortLabel from "@mui/material/TableSortLabel";
+import Tooltip from "@mui/material/Tooltip";
+import CloseIcon from "@mui/icons-material/Close";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
 import DoNotDisturbOnOutlinedIcon from "@mui/icons-material/DoNotDisturbOnOutlined";
@@ -27,30 +31,42 @@ import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
 import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
 import PendingActionsOutlinedIcon from "@mui/icons-material/PendingActionsOutlined";
 import HourglassEmptyOutlinedIcon from "@mui/icons-material/HourglassEmptyOutlined";
+import PersonOutlineOutlinedIcon from "@mui/icons-material/PersonOutlineOutlined";
+import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined";
+import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
+import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import { full } from "@/app/charts/format";
 import { BarList } from "@/app/charts/BarList";
 import { ChartFrame, type TableTwin } from "@/app/charts/ChartFrame";
 import { StackedColumns } from "@/app/charts/StackedColumns";
 import { DimChart } from "@/app/reporting/marketing-kpis/DimChart";
+import { ChartBox, FullTable, TWO, type Col } from "@/app/reporting/eso-benchmark/Figures";
 import { DEEMPHASIS, DELTA, SERIES } from "@/app/charts/palette";
 import { CardTitle, GlassCard, INK, KpiTile, MUTED, bodyCell, clip, headCell, hsTicket } from "@/app/uc/report/ui";
 import { Choice, usePaged } from "@/app/connectors/parts";
-import { dayOf, previousWindow, rangeLabel } from "@/lib/boDetection/figures";
+import { dayOf, previousWindow, rangeLabel, type OwnerJ } from "@/lib/boDetection/figures";
 import {
-  GQS_STAGE, WORK_STAGES, ageDays, byKey, byMonth, daysToOffer, inPeriod, median, outcomeOf, ownerOf, refusedBy, resultOf, sentIn, stageTimes, sumOf, typeOf, wonShare,
-  type GqsRow, type GqsStore, type Sum,
+  GQS_STAGE, NOT_ASKED, WORK_STAGES, ageDays, byKey, byMonth, daysToOffer, givenOf, inPeriod, median, outcomeOf, ownerOf, refusedBy, resultOf, salesOwnerOf, salesStageOf,
+  sentIn, stageTimes, sumOf, typeOf, wonShare, type GqsRow, type GqsStore, type Sum,
 } from "@/lib/gqsFigures/figures";
 import { pct } from "./shared";
+import { OJ } from "./BoOverview";
 
-/** GQS's figure tabs: Overview, Type of request (Detection's place), Resolution (Sentiment's), Speed (Priority's), People's figures. */
-export type GqsView = "gqs" | "gqs-type" | "gqs-resolution" | "gqs-speed" | "gqs-people";
+/** GQS's figure tabs: Overview, Tickets, Type of request (Detection's place), Resolution (Sentiment's), Speed (Priority's), People's figures. */
+export type GqsView = "gqs" | "gqs-tickets" | "gqs-type" | "gqs-resolution" | "gqs-speed" | "gqs-people";
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthLabel = (ym: string) => `${MON[Number(ym.slice(5, 7)) - 1]} ${ym.slice(2, 4)}`;
 const days = (d: number | null) => (d === null ? "—" : d * 24 < 1 ? "under an hour" : d < 1 ? `${Math.round(d * 24)} hours` : `${d < 10 ? d.toFixed(1) : Math.round(d)} days`);
 const num = { ...bodyCell, textAlign: "right" as const, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const };
+const tidy = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim();
 /** The change of a count against the days before, for a tile. */
 const delta = (now: number, was: number | null, versus: string, goodWhenUp = true) => (was ? { ratio: now / was - 1, versus, goodWhenUp } : undefined);
+const link = (r: GqsRow, w = 320) => (
+  <Box component="a" href={hsTicket(r.id)} target="_blank" rel="noopener" sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(w) }}>{r.subject || r.id}</Box>
+);
+const small = { ...bodyCell, fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap" as const };
+const dateCell = (r: GqsRow) => <TableCell sx={small}>{rangeLabel(dayOf(r.created), dayOf(r.created))}</TableCell>;
 
 /** The period and the same number of days just before it, with their tasks. */
 function usePeriod(store: GqsStore, from: string, to: string) {
@@ -62,15 +78,16 @@ function usePeriod(store: GqsStore, from: string, to: string) {
       // the offers sent in the period and in the days before - like-for-like, whatever the day they were asked for
       sentNow: sentIn(store.rows, from, to), sentBefore: sentIn(store.rows, prev.from, prev.to),
       label: rangeLabel(first > from ? first : from, to), beforeLabel: rangeLabel(prev.from, prev.to),
-      // a period before the first task has nothing to compare with
-      hasBefore: prev.to >= first,
+      // a period before the first task (July 2025) has nothing, or only part, to compare with
+      hasBefore: prev.from >= first,
     };
   }, [store, from, to]);
 }
+type Period = ReturnType<typeof usePeriod>;
 
 /** The columns every breakdown shows, in one order. */
-type Col = { key: string; label: string; v: (s: Sum) => number | null; show: (s: Sum) => string; tip?: string };
-const COLS: Col[] = [
+type ColDef = { key: string; label: string; v: (s: Sum) => number | null; show: (s: Sum) => string; tip?: string };
+const COLS: ColDef[] = [
   { key: "n", label: "Requests", v: (s) => s.n, show: (s) => full(s.n) },
   { key: "offer", label: "Offers sent", v: (s) => s.offer, show: (s) => `${full(s.offer)} · ${pct(s.offer, s.n)}` },
   { key: "refused", label: "Refused", v: (s) => s.refused, show: (s) => (s.refused ? `${full(s.refused)} · ${pct(s.refused, s.n)}` : "—") },
@@ -82,7 +99,7 @@ const COLS: Col[] = [
 ];
 
 /** Resolution's columns: what came of the offers. */
-const RES_COLS: Col[] = [
+const RES_COLS: ColDef[] = [
   { key: "n", label: "Requests", v: (s) => s.n, show: (s) => full(s.n) },
   { key: "offer", label: "Offers sent", v: (s) => s.offer, show: (s) => (s.offer ? full(s.offer) : "—") },
   { key: "won", label: "Won", v: (s) => s.won, show: (s) => (s.won ? full(s.won) : "—") },
@@ -91,74 +108,36 @@ const RES_COLS: Col[] = [
   COLS.find((c) => c.key === "share")!,
 ];
 
-/** "All the figures, by X": every column, sortable by its header, a total line, the first 25 then all. */
-function FiguresTable({ title, rows, total, first, extra, cols = COLS }: {
-  title: string; rows: { label: string; s: Sum }[]; total: Sum; first: string;
-  extra?: { label: string; v: (label: string) => number; tip?: string }; cols?: Col[];
+type SumRow = { label: string; s: Sum };
+const TOTAL = "All GQS requests";
+
+/**
+ * "All the figures, by X" - a card of its own, as advanced reporting draws it (SARCLA 01.11.2026: "this table should be
+ * separated - All the figures, by month as in advanced reporting"): every column sorts by its header, a total line,
+ * twenty-five rows a page.
+ */
+function FiguresTable({ title, hint, rows, total, first, extra, cols = COLS, natural = false }: {
+  title: string; hint: string; rows: SumRow[]; total: Sum; first: string; natural?: boolean;
+  extra?: { label: string; v: (label: string) => number; tip?: string }; cols?: ColDef[];
 }) {
-  const COLS = cols;
-  const [by, setBy] = useState<string>("n");
-  const [asc, setAsc] = useState(false);
-  const [all, setAll] = useState(false);
-  const col = COLS.find((c) => c.key === by);
-  const val = (r: { label: string; s: Sum }) => (by === "label" ? null : by === "extra" ? extra?.v(r.label) ?? 0 : col?.v(r.s) ?? null);
-  const sorted = [...rows].sort((a, b) => {
-    if (by === "label") return asc ? a.label.localeCompare(b.label) : b.label.localeCompare(a.label);
-    const x = val(a), y = val(b);
-    if (x === y) return b.s.n - a.s.n;
-    if (x === null) return 1;
-    if (y === null) return -1;
-    return asc ? x - y : y - x;
-  });
-  const shown = all ? sorted : sorted.slice(0, 25);
-  const sort = (k: string) => { if (by === k) setAsc((x) => !x); else { setBy(k); setAsc(k === "label"); } };
-  const head = (k: string, label: string, right: boolean, tip?: string) => (
-    <TableCell key={k} sx={{ ...headCell, textAlign: right ? "right" : "left" }} title={tip}>
-      <TableSortLabel active={by === k} direction={by === k && asc ? "asc" : "desc"} onClick={() => sort(k)}>{label}</TableSortLabel>
-    </TableCell>
-  );
+  const extraTotal = extra ? rows.reduce((a, r) => a + extra.v(r.label), 0) : 0;
+  const all: Col<SumRow>[] = [
+    ...cols.map((c): Col<SumRow> => ({ key: c.key, head: c.label, tip: c.tip, cell: (r) => <span style={{ color: c.v(r.s) ? INK : MUTED }}>{c.show(r.s)}</span>, sort: (r) => c.v(r.s) ?? -1 })),
+    ...(extra ? [{ key: "extra", head: extra.label, tip: extra.tip, cell: (r: SumRow) => { const v = r.label === TOTAL ? extraTotal : extra.v(r.label); return v ? full(v) : "—"; }, sort: (r: SumRow) => extra.v(r.label) }] : []),
+  ];
   return (
-    <>
-      <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: INK, mt: 2.5, mb: 0.75 }}>{title}</Typography>
-      <Box sx={{ overflowX: "auto" }}>
-        <Table size="small">
-          <TableHead><TableRow>
-            {head("label", first, false)}
-            {COLS.map((c) => head(c.key, c.label, true, c.tip))}
-            {extra && head("extra", extra.label, true, extra.tip)}
-          </TableRow></TableHead>
-          <TableBody>
-            {shown.map((r) => (
-              <TableRow key={r.label}>
-                <TableCell sx={{ ...bodyCell, fontWeight: 600, color: INK, ...clip(260) }}>{r.label}</TableCell>
-                {COLS.map((c) => <TableCell key={c.key} sx={{ ...num, color: c.v(r.s) ? INK : MUTED }}>{c.show(r.s)}</TableCell>)}
-                {extra && <TableCell sx={num}>{extra.v(r.label) ? full(extra.v(r.label)) : "—"}</TableCell>}
-              </TableRow>
-            ))}
-            <TableRow sx={{ bgcolor: "rgba(36, 89, 209, 0.04)" }}>
-              <TableCell sx={{ ...bodyCell, fontWeight: 800, color: INK, whiteSpace: "nowrap" }}>All GQS requests</TableCell>
-              {COLS.map((c) => <TableCell key={c.key} sx={{ ...num, fontWeight: 700 }}>{c.show(total)}</TableCell>)}
-              {extra && <TableCell sx={{ ...num, fontWeight: 700 }}>{full(rows.reduce((a, r) => a + extra.v(r.label), 0))}</TableCell>}
-            </TableRow>
-          </TableBody>
-        </Table>
-      </Box>
-      {rows.length > 25 && (
-        <Box component="button" type="button" onClick={() => setAll((x) => !x)} sx={{ all: "unset", cursor: "pointer", color: "#2459d1", fontSize: "0.8rem", fontWeight: 600, mt: 0.75 }}>
-          {all ? "Show the first 25" : `Show all ${full(rows.length)}`}
-        </Box>
-      )}
-    </>
+    <ChartBox title={title} hint={hint}>
+      <FullTable first={first} cols={all} rows={rows} total={{ label: TOTAL, s: total }} natural={natural} find={rows.length > 12 ? first.toLowerCase() : undefined} />
+    </ChartBox>
   );
 }
+const monthRows = (rows: GqsRow[]): SumRow[] => byMonth(rows).map((m) => ({ label: monthLabel(m.label), s: m.s }));
 
 /**
  * The four counts. Requests and offers sent count by their own day, so they compare with the days before; refused and
  * won are what came of the period's requests so far - a young period has had less time, so they carry no comparison.
  */
-function Tiles({ now, before, sentNow, sentBefore, label, beforeLabel, hasBefore }: {
-  now: GqsRow[]; before: GqsRow[]; sentNow: GqsRow[]; sentBefore: GqsRow[]; label: string; beforeLabel: string; hasBefore: boolean;
-}) {
+function Tiles({ now, before, sentNow, sentBefore, label, beforeLabel, hasBefore }: Period) {
   const s = sumOf(now);
   const w = wonShare(s);
   return (
@@ -193,9 +172,9 @@ function Overview({ store, from, to }: { store: GqsStore; from: string; to: stri
         <ChartFrame caption="GQS requests per month" table={table} empty={p.now.length ? null : "No GQS request in this period."}>
           <StackedColumns data={data} parts={[{ key: "offer", label: "Offer sent" }, { key: "refused", label: "Refused" }, { key: "open", label: "Still open", color: DEEMPHASIS }]} format={(v) => full(v ?? 0)} xFormat={monthLabel} />
         </ChartFrame>
-        <FiguresTable title="All the figures, by month" first="Month" rows={months.map((m) => ({ label: monthLabel(m.label), s: m.s }))} total={sumOf(p.now)} />
-        <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1 }}>WON and LOST are kept in STATUS OF GQS on almost every offer since February 2026; an earlier period shows few outcomes.</Typography>
       </GlassCard>
+      <FiguresTable title={`All the figures, month by month, ${p.label}`} hint="Each month's requests and what came of them so far - WON and LOST are kept in STATUS OF GQS on almost every offer since February 2026; an earlier month shows few outcomes"
+        first="Month" rows={monthRows(p.now)} total={sumOf(p.now)} natural />
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<DoNotDisturbOnOutlinedIcon />} tint="amber" title={`Refused, and why: ${full(refused.length)}`} note={`The requests created ${p.label} that ended in Refused - who refused them and the reason given, newest first`} />
         {refused.length ? (
@@ -206,12 +185,12 @@ function Overview({ store, from, to }: { store: GqsStore; from: string; to: stri
                 <TableBody>
                   {slice.map((r) => (
                     <TableRow key={r.id} sx={{ verticalAlign: "top" }}>
-                      <TableCell sx={{ ...bodyCell, color: MUTED, fontSize: "0.78rem", whiteSpace: "nowrap" }}>{rangeLabel(r.created.slice(0, 10), r.created.slice(0, 10))}</TableCell>
-                      <TableCell sx={bodyCell}><Box component="a" href={hsTicket(r.id)} target="_blank" rel="noopener" sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(300) }}>{r.subject || r.id}</Box></TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap" }}>{typeOf(r)}</TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap" }}>{refusedBy(r)}</TableCell>
+                      {dateCell(r)}
+                      <TableCell sx={bodyCell}>{link(r, 300)}</TableCell>
+                      <TableCell sx={small}>{typeOf(r)}</TableCell>
+                      <TableCell sx={small}>{refusedBy(r)}</TableCell>
                       <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: r.reason ? INK : MUTED, minWidth: 220 }}>{r.reason ?? "no reason given"}</TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap" }}>{ownerOf(r)}</TableCell>
+                      <TableCell sx={small}>{ownerOf(r)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -225,10 +204,11 @@ function Overview({ store, from, to }: { store: GqsStore; from: string; to: stri
   );
 }
 
-/** A breakdown tab: the tiles, this period against the days before by X, and every figure by X. */
-function Breakdown({ store, from, to, by, title, first, note, extra }: {
+/** A breakdown tab: the tiles, this period against the days before by X, and every figure by X (and by a second X). */
+function Breakdown({ store, from, to, by, title, first, note, extra, also }: {
   store: GqsStore; from: string; to: string; by: (r: GqsRow) => string; title: string; first: string; note: string;
   extra?: { label: string; v: (label: string) => number; tip?: string };
+  also?: { by: (r: GqsRow) => string; title: string; first: string; hint: string };
 }) {
   const p = usePeriod(store, from, to);
   const rows = byKey(p.now, by);
@@ -241,14 +221,12 @@ function Breakdown({ store, from, to, by, title, first, note, extra }: {
   return (
     <>
       <Tiles {...p} />
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<InsightsOutlinedIcon />} tint="blue" title={`GQS requests created ${p.label}, by ${title}`} note={note} />
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2 }}>
-          <DimChart title={`Requests, by ${title}`} rows={chart} cur={(r) => r.now} prev={(r) => r.before} curLabel={p.label} prevLabel={p.beforeLabel} fmt={full} single={!p.hasBefore} labelWidth={190} />
-          <DimChart title={`Offers sent to Sales ${p.label}, by ${title}`} rows={offers} cur={(r) => r.now} prev={(r) => r.before} curLabel={p.label} prevLabel={p.beforeLabel} fmt={full} single={!p.hasBefore} labelWidth={190} fixedOrder />
-        </Box>
-        <FiguresTable title={`All the figures, by ${title}`} first={first} rows={rows} total={sumOf(p.now)} extra={extra} />
-      </GlassCard>
+      <Box sx={TWO}>
+        <DimChart title={`Requests created ${p.label}, by ${title}`} rows={chart} cur={(r) => r.now} prev={(r) => r.before} curLabel={p.label} prevLabel={p.beforeLabel} fmt={full} single={!p.hasBefore} labelWidth={190} />
+        <DimChart title={`Offers sent to Sales ${p.label}, by ${title}`} rows={offers} cur={(r) => r.now} prev={(r) => r.before} curLabel={p.label} prevLabel={p.beforeLabel} fmt={full} single={!p.hasBefore} labelWidth={190} fixedOrder />
+      </Box>
+      <FiguresTable title={`All the figures, ${p.label}, by ${title}`} hint={note} first={first} rows={rows} total={sumOf(p.now)} extra={extra} />
+      {also && <FiguresTable title={`All the figures, ${p.label}, ${also.title}`} hint={also.hint} first={also.first} rows={byKey(p.now, also.by)} total={sumOf(p.now)} />}
     </>
   );
 }
@@ -267,8 +245,26 @@ function Speed({ store, from, to }: { store: GqsStore; from: string; to: string 
     const x = at(st), y = was.get(st);
     return <KpiTile icon={icon} tint="slate" label={name} value={days(x?.days ?? null)} note={`The median of the ${full(x?.tasks ?? 0)} offers that were there.${p.hasBefore && y?.days != null ? ` ${p.beforeLabel}: ${days(y.days)}.` : ""}`} />;
   };
-  const byType = byKey(p.sentNow, typeOf).filter((x) => x.s.days.length);
   const b = p.hasBefore ? toOffer(p.sentBefore) : null;
+  // the days from the request to the offer, by type: this period's offers against the days before's, the median of each
+  const speedBy = (key: (r: GqsRow) => string) => {
+    const before = new Map(byKey(p.sentBefore, key).map((x) => [x.label, x.s]));
+    return byKey(p.sentNow, key).filter((x) => x.s.days.length).map((x) => ({ label: x.label, now: median(x.s.days) ?? 0, before: median(before.get(x.label)?.days ?? []) ?? 0, n: x.s.days.length, nb: before.get(x.label)?.days.length ?? 0 }));
+  };
+  const types = speedBy(typeOf);
+  const sales = speedBy(salesOwnerOf);
+  type SpeedRow = { label: string; now: number; before: number; n: number; nb: number };
+  const speedCols: Col<SpeedRow>[] = [
+    { key: "n", head: "Offers sent", cell: (x) => full(x.n), sort: (x) => x.n },
+    { key: "now", head: "Median, request to offer", cell: (x) => days(x.now), sort: (x) => x.now },
+    ...(p.hasBefore ? [
+      { key: "nb", head: `Offers, ${p.beforeLabel}`, cell: (x: SpeedRow) => (x.nb ? full(x.nb) : "—"), sort: (x: SpeedRow) => x.nb },
+      { key: "before", head: `Median, ${p.beforeLabel}`, cell: (x: SpeedRow) => (x.nb ? days(x.before) : "—"), sort: (x: SpeedRow) => x.before },
+    ] : []),
+  ];
+  const allNow = median(p.sentNow.map(daysToOffer).filter((d): d is number => d !== null)), allB = median(p.sentBefore.map(daysToOffer).filter((d): d is number => d !== null));
+  const total: SpeedRow = { label: "All offers sent", now: allNow ?? 0, before: allB ?? 0, n: p.sentNow.length, nb: p.sentBefore.length };
+  const months = byKey(p.sentNow, (r) => dayOf(r.offerAt!).slice(0, 7)).sort((x, y) => x.label.localeCompare(y.label)).map((m) => ({ label: monthLabel(m.label), now: median(m.s.days) ?? 0, before: 0, n: m.s.days.length, nb: 0 }));
   return (
     <>
       <Grid container spacing={2}>
@@ -278,6 +274,18 @@ function Speed({ store, from, to }: { store: GqsStore; from: string; to: string 
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>{tile(GQS_STAGE.waitingGqs, <HourglassEmptyOutlinedIcon />, "Waiting on GQS")}</Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>{tile(GQS_STAGE.waitingCustomer, <HourglassEmptyOutlinedIcon />, "Waiting on Customer")}</Grid>
       </Grid>
+      <Box sx={TWO}>
+        <DimChart title={`Request to offer, by type of request - the median, ${p.label}`} rows={types} cur={(x) => x.now} prev={(x) => x.before} curLabel={p.label} prevLabel={p.beforeLabel}
+          fmt={(v) => days(v)} single={!p.hasBefore} labelWidth={190} curNote={(x) => ({ text: `${full(x.n)} offers`, color: MUTED })} />
+        <DimChart title={`Request to offer, by the sales ticket's owner - the median, ${p.label}`} rows={sales} cur={(x) => x.now} prev={(x) => x.before} curLabel={p.label} prevLabel={p.beforeLabel}
+          fmt={(v) => days(v)} single={!p.hasBefore} labelWidth={190} curNote={(x) => ({ text: `${full(x.n)} offers`, color: MUTED })} />
+      </Box>
+      <ChartBox title={`All the figures, month by month, ${p.label}`} hint="The offers sent each month and the median days from their request - by the month the offer was sent">
+        <FullTable first="Month" cols={speedCols.filter((c) => c.key === "n" || c.key === "now")} rows={months} total={total} natural />
+      </ChartBox>
+      <ChartBox title={`All the figures, ${p.label}, by type of request`} hint={`The offers sent and the median days from their request${p.hasBefore ? ` - against ${p.beforeLabel}` : ""}`}>
+        <FullTable first="Type of request" cols={speedCols} rows={types} total={total} />
+      </ChartBox>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<ScheduleOutlinedIcon />} tint="blue" title="Where the time went" note={`The offers sent ${p.label}: the median time in each stage, of those that were there at all - all the times they were there`} />
         <Box sx={{ overflowX: "auto" }}>
@@ -295,8 +303,6 @@ function Speed({ store, from, to }: { store: GqsStore; from: string; to: string 
             </TableBody>
           </Table>
         </Box>
-        <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: INK, mt: 2.5, mb: 0.75 }}>Request to offer, by type of request</Typography>
-        <BarList rows={byType.map((x) => ({ label: x.label, value: median(x.s.days) ?? 0, secondary: `${full(x.s.days.length)} offers` }))} labelWidth={190} format={(v) => days(v ?? null)} emptyMessage="No offer sent in this period." />
       </GlassCard>
     </>
   );
@@ -313,9 +319,9 @@ const RES: Record<Res, { label: string; color: string }> = {
 /**
  * Resolution - what came of the offers (SARCLA 01.11.2026: GQS has Back Office's tabs, "but instead of sentiment,
  * resolution for win or lost"). The period's requests: won, lost, an offer waiting for its outcome, no offer; month by
- * month; by type and by owner; where the sales ticket of an offer still waiting stands; and the requests themselves.
- * STATUS OF GQS carries WON / LOST, with no date - so this is what came of the period's requests so far, never compared
- * with the days before (they have had longer).
+ * month; by type, by GQS owner and by the sales ticket's owner, each in a card of its own; where the sales tickets stand
+ * - of the offers waiting, won or lost ("can't I see the won also"); and the requests themselves. STATUS OF GQS carries
+ * WON / LOST, with no date - so this is what came of the period's requests so far, never compared with the days before.
  */
 function Resolution({ store, from, to }: { store: GqsStore; from: string; to: string }) {
   const p = usePeriod(store, from, to);
@@ -326,7 +332,9 @@ function Resolution({ store, from, to }: { store: GqsStore; from: string; to: st
   const data = months.map((m) => { const rows = p.now.filter((r) => dayOf(r.created).startsWith(m.label)); return { x: m.label, won: per(rows, "won"), lost: per(rows, "lost"), waiting: per(rows, "waiting"), none: per(rows, "none") }; });
   const keys: Res[] = ["won", "lost", "waiting", "none"];
   const table: TableTwin = { columns: ["Month", ...keys.map((k) => RES[k].label)], rows: data.map((r) => [monthLabel(r.x), r.won, r.lost, r.waiting, r.none]), numeric: [1, 2, 3, 4] };
-  const waiting = p.now.filter((r) => resOf(r) === "waiting");
+  const [stand, setStand] = useState<Res | "offers">("waiting");
+  const offers = p.now.filter((r) => (stand === "offers" ? resOf(r) !== "none" : resOf(r) === stand));
+  const standRows = byKey(offers, salesStageOf).map((x) => ({ label: x.label, n: x.s.n }));
   const [show, setShow] = useState<Res>("won");
   const list = p.now.filter((r) => resOf(r) === show).sort((a, b) => b.created.localeCompare(a.created));
   const { slice, pager } = usePaged(list, 10);
@@ -336,6 +344,7 @@ function Resolution({ store, from, to }: { store: GqsStore; from: string; to: st
     { k: "waiting", icon: <HourglassEmptyOutlinedIcon />, tint: "blue", note: `Offers sent to Sales with no WON or LOST in STATUS OF GQS yet - ${pct(s.waiting, s.offer)} of the offers.` },
     { k: "none", icon: <PendingActionsOutlinedIcon />, tint: "slate", note: `No offer and no outcome: ${full(p.now.filter((r) => resOf(r) === "none" && outcomeOf(r) === "refused").length)} refused, ${full(p.now.filter((r) => resOf(r) === "none" && outcomeOf(r) === "open").length)} still open.` },
   ];
+  const hint = "WON and LOST are kept in STATUS OF GQS on almost every offer since February 2026";
   return (
     <>
       <Grid container spacing={2}>
@@ -343,18 +352,26 @@ function Resolution({ store, from, to }: { store: GqsStore; from: string; to: st
       </Grid>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<EmojiEventsOutlinedIcon />} tint="green" title="Won and lost, month by month"
-          note={`The ${full(s.n)} GQS requests created ${p.label}, by what came of them so far. WON and LOST are kept in STATUS OF GQS on almost every offer since February 2026`} />
+          note={`The ${full(s.n)} GQS requests created ${p.label}, by what came of them so far. ${hint}`} />
         <ChartFrame caption="GQS requests per month, by outcome" table={table} empty={p.now.length ? null : "No GQS request in this period."}>
           <StackedColumns data={data} parts={keys.map((k) => ({ key: k, label: RES[k].label, color: RES[k].color }))} format={(v) => full(v ?? 0)} xFormat={monthLabel} />
         </ChartFrame>
-        <FiguresTable title="All the figures, by month" first="Month" rows={months.map((m) => ({ label: monthLabel(m.label), s: m.s }))} total={s} cols={RES_COLS} />
-        <FiguresTable title="By type of request" first="Type of request" rows={byKey(p.now, typeOf)} total={s} cols={RES_COLS} />
-        <FiguresTable title="By owner" first="Owner" rows={byKey(p.now, ownerOf)} total={s} cols={RES_COLS} />
       </GlassCard>
+      <FiguresTable title={`All the figures, month by month, ${p.label}`} hint={`Each month's requests and what came of their offers so far - ${hint}`} first="Month" rows={monthRows(p.now)} total={s} cols={RES_COLS} natural />
+      <FiguresTable title={`All the figures, ${p.label}, by the sales ticket's owner`} hint="The owner of the ESO / TSA ticket each request belongs to - the sales team's person who takes the offer to the customer"
+        first="Sales ticket owner" rows={byKey(p.now, salesOwnerOf)} total={s} cols={RES_COLS} />
+      <FiguresTable title={`All the figures, ${p.label}, by type of request`} hint="Running Business, or New Business by profit centre" first="Type of request" rows={byKey(p.now, typeOf)} total={s} cols={RES_COLS} />
+      <FiguresTable title={`All the figures, ${p.label}, by GQS owner`} hint="The GQS task's owner in HubSpot today" first="GQS owner" rows={byKey(p.now, ownerOf)} total={s} cols={RES_COLS} />
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<HourglassEmptyOutlinedIcon />} tint="blue" title={`Offers waiting for their outcome: ${full(waiting.length)}`}
-          note="Where the sales ticket of each stands now (ESO PIPELINE STATUS (FOR GQS)) - a closed sales ticket with no WON or LOST is an outcome nobody wrote down" />
-        <BarList rows={byKey(waiting, (r) => r.eso ?? "No sales ticket status").map((x) => ({ label: x.label, value: x.s.n }))} labelWidth={220} format={(v) => full(v ?? 0)} emptyMessage="None waiting." />
+        <CardTitle icon={<FlagOutlinedIcon />} tint="blue" title="Where the sales tickets stand"
+          note="The stage of the ESO / TSA ticket each offer belongs to, read from its link - a closed sales ticket on an offer still waiting is an outcome nobody wrote down" />
+        <Box sx={{ mb: 1.5 }}>
+          <Choice<Res | "offers"> value={stand} onChange={setStand} options={[
+            { key: "waiting", label: RES.waiting.label, count: per(p.now, "waiting") }, { key: "won", label: "Won", count: per(p.now, "won") },
+            { key: "lost", label: "Lost", count: per(p.now, "lost") }, { key: "offers", label: "Every offer", count: p.now.filter((r) => resOf(r) !== "none").length },
+          ]} />
+        </Box>
+        <BarList rows={standRows.map((x) => ({ label: x.label, value: x.n }))} labelWidth={240} format={(v) => full(v ?? 0)} emptyMessage="None in this period." />
       </GlassCard>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<ConfirmationNumberOutlinedIcon />} tint="slate" title="The requests" note={`Created ${p.label}, newest first`} />
@@ -365,15 +382,16 @@ function Resolution({ store, from, to }: { store: GqsStore; from: string; to: st
           <>
             <Box sx={{ overflowX: "auto" }}>
               <Table size="small">
-                <TableHead><TableRow>{["Created", "Request", "Owner", "STATUS OF GQS", "Sales ticket", "Days to offer"].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i === 5 ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
+                <TableHead><TableRow>{["Created", "Request", "GQS owner", "STATUS OF GQS", "Sales ticket", "Sales ticket owner", "Days to offer"].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i === 6 ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
                 <TableBody>
                   {slice.map((r) => (
                     <TableRow key={r.id}>
-                      <TableCell sx={{ ...bodyCell, color: MUTED, fontSize: "0.78rem", whiteSpace: "nowrap" }}>{rangeLabel(r.created.slice(0, 10), r.created.slice(0, 10))}</TableCell>
-                      <TableCell sx={bodyCell}><Box component="a" href={hsTicket(r.id)} target="_blank" rel="noopener" sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(340) }}>{r.subject || r.id}</Box></TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap" }}>{ownerOf(r)}</TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap" }}>{r.status ?? "—"}</TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap" }}>{r.eso ?? "—"}</TableCell>
+                      {dateCell(r)}
+                      <TableCell sx={bodyCell}>{link(r, 320)}</TableCell>
+                      <TableCell sx={small}>{ownerOf(r)}</TableCell>
+                      <TableCell sx={small}>{r.status ?? "—"}</TableCell>
+                      <TableCell sx={small}>{r.sales ? <Box component="a" href={hsTicket(r.sales.id)} target="_blank" rel="noopener" sx={{ color: "inherit" }}>{salesStageOf(r)}</Box> : salesStageOf(r)}</TableCell>
+                      <TableCell sx={small}>{r.sales ? salesOwnerOf(r) : "—"}</TableCell>
                       <TableCell sx={num}>{daysToOffer(r) === null ? "—" : days(daysToOffer(r))}</TableCell>
                     </TableRow>
                   ))}
@@ -384,6 +402,118 @@ function Resolution({ store, from, to }: { store: GqsStore; from: string; to: st
           </>
         ) : <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>None in this period.</Typography>}
       </GlassCard>
+    </>
+  );
+}
+
+/* ── Tickets: every GQS task of the period, where it stands now ── */
+
+/** Where a task stands now: open, its offer waiting for an outcome, won, lost, refused. */
+type Now = "open" | "waiting" | "won" | "lost" | "refused";
+const NOWS: Now[] = ["won", "lost", "waiting", "refused", "open"];
+const nowOf = (r: GqsRow): Now => resultOf(r) ?? (outcomeOf(r) === "offer" ? "waiting" : outcomeOf(r) === "refused" ? "refused" : "open");
+const NOW: Record<Now, { label: string; color: string }> = {
+  won: { label: "Won", color: DELTA.good }, lost: { label: "Lost", color: DELTA.bad }, waiting: { label: "Offer waiting for its outcome", color: SERIES[0] },
+  refused: { label: "Refused", color: SERIES[3] }, open: { label: "Still open", color: DEEMPHASIS },
+};
+/** A bar a person picked to narrow the list: which breakdown, which value. */
+type Narrow = { by: "sales" | "salesOwner" | "status" | "given"; label: string };
+const NARROW: Record<Narrow["by"], { name: string; of: (r: GqsRow) => string }> = {
+  sales: { name: "Sales ticket", of: salesStageOf }, salesOwner: { name: "Sales ticket owner", of: salesOwnerOf },
+  status: { name: "GQS status", of: (r) => tidy(r.status) || "No status" }, given: { name: "Given to", of: givenOf },
+};
+
+/**
+ * Tickets: every GQS task created in the period (SARCLA 01.11.2026, on "Entered New for Back-Office 15 Oct - 1 Nov"
+ * under a 365-day period: "the time filter on top should really filter it"): what became of the owner each was given,
+ * where each stands now - won and lost among them - its sales ticket and that ticket's owner, then the tasks.
+ */
+function Tickets({ store, from, to }: { store: GqsStore; from: string; to: string }) {
+  const p = usePeriod(store, from, to);
+  const [state, setState] = useState<Now | "all">("all");
+  const [narrow, setNarrow] = useState<Narrow | null>(null);
+  const rows = p.now;
+  const oj = (k: OwnerJ) => rows.filter((r) => r.oj === k).length;
+  const given = oj("kept") + oj("moved") + oj("later");
+  const by: Record<Now, number> = { won: 0, lost: 0, waiting: 0, refused: 0, open: 0 };
+  for (const r of rows) by[nowOf(r)]++;
+  const inState = state === "all" ? rows : rows.filter((r) => nowOf(r) === state);
+  const pick = (k: Narrow["by"]) => (l: string) => {
+    setNarrow(narrow?.by === k && narrow.label === l ? null : { by: k, label: l });
+    if (typeof document !== "undefined") setTimeout(() => document.getElementById("gqs-task-list")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+  const shown = (narrow ? inState.filter((r) => NARROW[narrow.by].of(r) === narrow.label) : inState).sort((a, b) => b.created.localeCompare(a.created));
+  const { slice, pager } = usePaged(shown, 15);
+  const bars = (k: Narrow["by"]) => byKey(inState, NARROW[k].of).map((x) => ({ label: x.label, n: x.s.n }));
+  const sel = (k: Narrow["by"]) => (narrow?.by === k ? [narrow.label] : undefined);
+  const stateWord = state === "all" ? "" : ` - ${NOW[state].label.toLowerCase()}`;
+  return (
+    <>
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ConfirmationNumberOutlinedIcon />} tint="blue" label="Requests" value={full(rows.length)}
+          delta={p.hasBefore ? delta(rows.length, p.before.length, p.beforeLabel) : undefined} note={`GQS tasks created ${p.label}${p.hasBefore ? `; ${full(p.before.length)} the days before` : ""}.`} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<PersonOutlineOutlinedIcon />} tint="green" label={OJ.kept.label} value={full(oj("kept"))}
+          note={`${pct(oj("kept"), given)} of the ${full(given)} given an owner on entering New for Back-Office - they still have that owner.`} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="amber" label={OJ.moved.label} value={full(oj("moved"))}
+          note={`${pct(oj("moved"), given)} of those given an owner - a person gave them to someone else afterwards.`} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ScheduleOutlinedIcon />} tint="slate" label="Given later, or not at all" value={full(oj("later") + oj("none"))}
+          note={`${full(oj("later"))} got another owner from the routing later; ${full(oj("none"))} had none in their first half hour.`} /></Grid>
+      </Grid>
+      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+        <CardTitle icon={<FlagOutlinedIcon />} tint="green" title="Where they stand now"
+          note={`The ${full(rows.length)} GQS tasks created ${p.label}: won and lost (STATUS OF GQS), an offer waiting for its outcome, refused, still open - a part picks them`} />
+        {rows.length ? (
+          <Box role="img" aria-label={NOWS.map((k) => `${NOW[k].label} ${by[k]}`).join(", ")} sx={{ display: "flex", gap: "2px", height: 14, borderRadius: "7px", overflow: "hidden", bgcolor: "rgba(21,34,58,.06)", mb: 1.25 }}>
+            {NOWS.filter((k) => by[k]).map((k) => (
+              <Tooltip key={k} title={`${NOW[k].label}: ${full(by[k])} (${pct(by[k], rows.length)})`}>
+                <Box onClick={() => setState(state === k ? "all" : k)} sx={{ flex: `${by[k]} 1 0`, minWidth: 4, bgcolor: NOW[k].color, cursor: "pointer", opacity: state === "all" || state === k ? 1 : 0.35 }} />
+              </Tooltip>
+            ))}
+          </Box>
+        ) : null}
+        <Choice<Now | "all"> value={state} onChange={setState} options={[{ key: "all", label: "All", count: rows.length }, ...NOWS.map((k) => ({ key: k, label: NOW[k].label, count: by[k] }))]} />
+      </GlassCard>
+      <Box sx={TWO}>
+        <DimChart title={`The sales ticket now${stateWord}`} rows={bars("sales")} cur={(x) => x.n} prev={() => 0} curLabel="Tasks" prevLabel="" single fmt={full} labelWidth={230} selected={sel("sales")} onPick={pick("sales")} />
+        <DimChart title={`The sales ticket's owner${stateWord}`} rows={bars("salesOwner")} cur={(x) => x.n} prev={() => 0} curLabel="Tasks" prevLabel="" single fmt={full} labelWidth={190} selected={sel("salesOwner")} onPick={pick("salesOwner")} />
+      </Box>
+      <Box sx={TWO}>
+        <DimChart title={`Who got them${stateWord}`} rows={bars("given")} cur={(x) => x.n} prev={() => 0} curLabel="Tasks" prevLabel="" single fmt={full} labelWidth={190} selected={sel("given")} onPick={pick("given")} />
+        <DimChart title={`The GQS status now${stateWord}`} rows={bars("status")} cur={(x) => x.n} prev={() => 0} curLabel="Tasks" prevLabel="" single fmt={full} labelWidth={230} selected={sel("status")} onPick={pick("status")} />
+      </Box>
+      <Box id="gqs-task-list" sx={{ scrollMarginTop: 16, minWidth: 0 }}>
+        <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+          <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="GQS tickets" note={`${full(shown.length)} of ${full(rows.length)} created ${p.label}, newest first`}
+            right={narrow ? (
+              <Box component="button" type="button" onClick={() => setNarrow(null)} sx={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.5, pl: 1.25, pr: 0.75, py: 0.5, borderRadius: "999px", border: "1px solid #2459d1", bgcolor: "rgba(36,89,209,.08)", color: "#2459d1", fontSize: "0.8rem", fontWeight: 600 }}>
+                {NARROW[narrow.by].name}: {narrow.label}<CloseIcon sx={{ fontSize: 14 }} />
+              </Box>
+            ) : undefined} />
+          {shown.length ? (
+            <>
+              <Box sx={{ overflowX: "auto" }}>
+                <Table size="small">
+                  <TableHead><TableRow>{["Created", "Request", "Given to", "Owner today", "Now", "Sales ticket", "Sales ticket owner"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+                  <TableBody>
+                    {slice.map((r) => (
+                      <TableRow key={r.id}>
+                        {dateCell(r)}
+                        <TableCell sx={bodyCell}>{link(r, 300)}</TableCell>
+                        <TableCell sx={small}>{givenOf(r)}</TableCell>
+                        <TableCell sx={{ ...small, color: r.oj === "moved" ? INK : MUTED, fontWeight: r.oj === "moved" ? 700 : 400 }}>{r.oj === "kept" ? "the same" : ownerOf(r)}</TableCell>
+                        <TableCell sx={{ ...small, color: NOW[nowOf(r)].color === DEEMPHASIS ? MUTED : NOW[nowOf(r)].color, fontWeight: 600 }}>{NOW[nowOf(r)].label}</TableCell>
+                        <TableCell sx={small}>{r.sales ? <Box component="a" href={hsTicket(r.sales.id)} target="_blank" rel="noopener" sx={{ color: "inherit" }}>{salesStageOf(r)}</Box> : salesStageOf(r)}</TableCell>
+                        <TableCell sx={small}>{r.sales ? salesOwnerOf(r) : "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+              {pager}
+            </>
+          ) : <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No GQS task here.</Typography>}
+        </GlassCard>
+      </Box>
     </>
   );
 }
@@ -400,7 +530,7 @@ export function OpenNow({ store }: { store: GqsStore }) {
   const ended = open.filter((r) => resultOf(r) || /^offer sent/i.test((r.status ?? "").trim())).length;
   return (
     <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-      <CardTitle icon={<PendingActionsOutlinedIcon />} tint="amber" title={`Open now: ${full(open.length)}`}
+      <CardTitle icon={<PendingActionsOutlinedIcon />} tint="amber" title={`Open now, whenever created: ${full(open.length)}`}
         note={`Every GQS task not in Offer Sent to Sales or Refused, today - ${full(old)} of them created more than 30 days ago${ended ? `; ${full(ended)} already have their outcome in STATUS OF GQS (Offer Sent to Sales, WON or LOST) but were never moved to a closed stage` : ""}. Click a stage to see only its tasks`} />
       <BarList rows={byKey(open, (r) => label(r.stage)).map((x) => ({ label: x.label, value: x.s.n }))} labelWidth={190} format={(v) => full(v ?? 0)}
         onSelect={(l) => setStage(stage === l ? null : l)} selectedLabel={stage} emptyMessage="Nothing open." />
@@ -411,13 +541,13 @@ export function OpenNow({ store }: { store: GqsStore }) {
             <TableBody>
               {slice.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell sx={{ ...bodyCell, color: MUTED, fontSize: "0.78rem", whiteSpace: "nowrap" }}>{rangeLabel(r.created.slice(0, 10), r.created.slice(0, 10))}</TableCell>
+                  {dateCell(r)}
                   <TableCell sx={{ ...num, fontWeight: 700, color: ageDays(r) > 30 ? "#a96a12" : INK }}>{days(ageDays(r))}</TableCell>
-                  <TableCell sx={bodyCell}><Box component="a" href={hsTicket(r.id)} target="_blank" rel="noopener" sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(320) }}>{r.subject || r.id}</Box></TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap" }}>{ownerOf(r)}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: INK, whiteSpace: "nowrap" }}>{label(r.stage)}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap" }}>{r.status ?? "—"}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap" }}>{r.eso ?? "—"}</TableCell>
+                  <TableCell sx={bodyCell}>{link(r, 320)}</TableCell>
+                  <TableCell sx={small}>{ownerOf(r)}</TableCell>
+                  <TableCell sx={{ ...small, color: INK }}>{label(r.stage)}</TableCell>
+                  <TableCell sx={small}>{r.status ?? "—"}</TableCell>
+                  <TableCell sx={small}>{salesStageOf(r)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -436,13 +566,15 @@ export function GqsKpis({ view, store, from, to }: { view: GqsView; store: GqsSt
     for (const r of store.rows) if (outcomeOf(r) === "open") m.set(ownerOf(r), (m.get(ownerOf(r)) ?? 0) + 1);
     return m;
   }, [store]);
+  if (view === "gqs-tickets") return <Tickets store={store} from={from} to={to} />;
   if (view === "gqs-type") {
     return <Breakdown store={store} from={from} to={to} by={typeOf} title="type of request" first="Type of request"
-      note="Running Business, or New Business by profit centre (DT, KT, AT, ST, FT) - against the same number of days just before. The type is set on almost every request since February 2026; earlier ones are mostly No type" />;
+      note={`Running Business, or New Business by profit centre (DT, KT, AT, ST, FT) - against the same number of days just before. The type is asked on every request since January 2026; one before that is "${NOT_ASKED}"`} />;
   }
   if (view === "gqs-people") {
-    return <Breakdown store={store} from={from} to={to} by={ownerOf} title="owner" first="Owner"
-      note="The task's owner in HubSpot today - against the same number of days just before" extra={{ label: "Open now", v: (l) => openBy.get(l) ?? 0, tip: "Open GQS tasks the person owns today, whenever they were created" }} />;
+    return <Breakdown store={store} from={from} to={to} by={ownerOf} title="GQS owner" first="GQS owner"
+      note="The task's owner in HubSpot today - against the same number of days just before" extra={{ label: "Open now", v: (l) => openBy.get(l) ?? 0, tip: "Open GQS tasks the person owns today, whenever they were created" }}
+      also={{ by: salesOwnerOf, title: "by the sales ticket's owner", first: "Sales ticket owner", hint: "The owner of the ESO / TSA ticket each request belongs to - the sales team's person" }} />;
   }
   if (view === "gqs-speed") return <Speed store={store} from={from} to={to} />;
   if (view === "gqs-resolution") return <Resolution store={store} from={from} to={to} />;

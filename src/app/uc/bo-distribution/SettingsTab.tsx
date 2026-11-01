@@ -134,17 +134,8 @@ export function SettingsTab({ d, onChanged, pipe: only }: { d: Data; onChanged: 
             </Box>
           </Grid>
         </Grid>
+        {/* the hand-over of 19.10.2026 and its way back were said here until SARCLA, 01.11.2026: "this text is not needed anymore" */}
         <Grid container spacing={2} sx={{ mt: 0.5 }}>
-          <Grid size={{ xs: 12, md: 6 }}>
-            <Box sx={box}>
-              <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>Both pipelines were handed over on 19.10.2026</Typography>
-              <Typography component="ol" sx={{ fontSize: "0.8rem", color: INK, m: 0, pl: 2.25, display: "grid", gap: 0.4 }}>
-                <li>Back Office and GQS are handed out from here. Their HubSpot workflows are switched off.</li>
-                <li>The way back, if ever needed: switch the pipeline&apos;s workflow on again in HubSpot. The hub stops writing that pipeline at once, by itself, with no deploy - it checks before every write.</li>
-                <li>Switching a pipeline off here WITHOUT switching its workflow back on leaves nobody handing those tickets out. They sit on Backoffice Team until a person picks them up.</li>
-              </Typography>
-            </Box>
-          </Grid>
           <Grid size={{ xs: 12, md: 6 }}>
             <Box sx={{ ...box, display: "grid", gap: 1.25 }}>
               <TextField size="small" type="number" label="Writes per hour, at most" value={hub.breaker} disabled={!d.admin} onChange={(e) => setHub({ ...hub, breaker: Number(e.target.value) })}

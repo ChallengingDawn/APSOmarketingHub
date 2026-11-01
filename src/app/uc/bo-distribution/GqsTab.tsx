@@ -22,27 +22,21 @@ import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import CircularProgress from "@mui/material/CircularProgress";
-import CloseIcon from "@mui/icons-material/Close";
-import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
-import PersonOutlineOutlinedIcon from "@mui/icons-material/PersonOutlineOutlined";
-import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined";
-import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import AltRouteOutlinedIcon from "@mui/icons-material/AltRouteOutlined";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import RuleOutlinedIcon from "@mui/icons-material/RuleOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { full } from "@/app/charts/format";
-import { BarList } from "@/app/charts/BarList";
 import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
 import {
-  ACCENT, AMBER, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, TINT, TRACK, bodyCell, clip, headCell, hsTicket, type Tint,
+  ACCENT, AMBER, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT, bodyCell, clip, headCell, hsTicket, type Tint,
 } from "@/app/uc/report/ui";
 import { Chip, Choice, usePaged, when } from "@/app/connectors/parts";
 import type { Answer, PersonRow, Row } from "@/lib/boDistribution/engine";
 import { GQS_OPEN_STAGES_LEGACY, STAGE, type Person, type RosterKey } from "@/lib/boDistribution/rules";
 
-import { CHAT_LABEL, Detail, Verdict, count, fixesDiffer, gave, movedAfterUs, pct, type Data, type PeopleData } from "./shared";
+import { CHAT_LABEL, Detail, Verdict, count, fixesDiffer, gave, type Data, type PeopleData } from "./shared";
 import {
   FlowCard, NOBODY, ROAD, narrowOptions, narrowRows, ownerName, peopleColumn, through, useFlowChoice,
   type FlowColumn, type FlowNode, type Narrow, type Way,
@@ -56,9 +50,14 @@ const NUM = { fontVariantNumeric: "tabular-nums" as const };
 const tidy = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim();
 /** The code's own test: "DT" and "NEW BUSINESS" in the type, spaces folded. */
 const isDt = (t: string) => { const u = t.toUpperCase(); return u.includes("DT") && u.includes("NEW BUSINESS"); };
+/**
+ * The status a task entered New for Back-Office with: the two approvals, else the status itself - named, never "Other
+ * status" (SARCLA 01.11.2026: "what does this mean, Other status 9 · 27%").
+ */
 export function gqsEntry(r: Row) {
-  const s = tidy(r.gqsStatus).toLowerCase();
-  return s === "automatically approved" ? "g:auto" : s === "approved by line manager" ? "g:lm" : "g:other";
+  const s = tidy(r.gqsStatus);
+  const l = s.toLowerCase();
+  return l === "automatically approved" ? "g:auto" : l === "approved by line manager" ? "g:lm" : s ? `g:s:${s}` : "g:none";
 }
 /** The rule that picked, from an answer's method ("Sales Agent (company: …)", "DT New Business priority", "Least busy"). */
 const ruleOf = (a: Answer | null | undefined) => {
@@ -74,12 +73,13 @@ const ids = (ps: Person[] | undefined) => (ps ?? []).map((p) => String(p.id));
 const ord = (i: number) => ["1st", "2nd", "3rd"][i] ?? `${i + 1}th`;
 const list = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 
-function gqsColumns(d: Data, types: FlowNode[], owners: FlowNode[]): FlowColumn[] {
+function gqsColumns(d: Data, types: FlowNode[], owners: FlowNode[], entries: FlowNode[]): FlowColumn[] {
   return [
     { title: "Entry", how: "On New for Back-Office (2338266314), every time it enters", nodes: [
       { id: "g:auto", label: "Automatically approved", short: "Auto-approved", color: ROAD.main, text: "No review needed" },
       { id: "g:lm", label: "Approved by line manager", short: "Line manager", color: ROAD.main, text: "Reviewed, then approved" },
-      { id: "g:other", label: "Other status", color: ROAD.fallback, text: "Approved by Line Manager is set first" },
+      ...entries,
+      { id: "g:none", label: "No status yet", color: ROAD.fallback, text: "STATUS OF GQS was empty when it arrived" },
     ] },
     { title: "Type", how: "The type of request; only DT - New Business has a rule of its own", nodes: types },
     { title: "Rule", how: "In this order; available = the green dot of HubSpot chat", nodes: [
@@ -106,13 +106,8 @@ const GQS_ROADS = [
 
 type Gqs = NonNullable<NonNullable<Row["actual"]>["gqs"]>;
 const nowOf = (r: Row): Gqs | null => r.actual?.gqs ?? null;
-type Show = "all" | "open" | "closed" | "unread";
-type State = Exclude<Show, "all">;
-const stateOf = (r: Row): State => { const g = nowOf(r); return !g ? "unread" : g.closed ? "closed" : "open"; };
-const NO_STATUS = "No status", NO_STAGE = "No stage", NO_LINK = "No linked ESO / TSA ticket";
-const statusOf = (r: Row) => { const g = nowOf(r); return g ? tidy(g.status) || NO_STATUS : null; };
-const stageOf = (r: Row) => { const g = nowOf(r); return g ? tidy(g.stage) || NO_STAGE : null; };
-const linkOf = (r: Row) => { const g = nowOf(r); return !g ? null : g.parent ? `${g.parent.pipeline} · ${tidy(g.parent.stage) || "stage unknown"}` : NO_LINK; };
+type State = "open" | "closed" | "unread";
+const NO_STATUS = "No status", NO_STAGE = "No stage";
 /** Open / closed / not read: the first two categorical slots in their fixed order, "not read" the de-emphasis grey. */
 const STATE: Record<State, { label: string; color: string }> = {
   open: { label: "Open", color: SERIES[0] }, closed: { label: "Closed", color: SERIES[1] }, unread: { label: "Not read yet", color: DEEMPHASIS },
@@ -128,75 +123,6 @@ function statusTint(s: string | null | undefined): Tint {
   return "purple";
 }
 
-/** What the tickets table shows: open / closed, a status, a task stage, a linked ticket's stage. */
-type NowPick = { show: Show; status: string | null; stage: string | null; link: string | null };
-const NO_PICK: NowPick = { show: "all", status: null, stage: null, link: null };
-const keep = (r: Row, f: NowPick, skip?: keyof NowPick) =>
-  (skip === "show" || f.show === "all" || stateOf(r) === f.show)
-  && (skip === "status" || !f.status || statusOf(r) === f.status)
-  && (skip === "stage" || !f.stage || stageOf(r) === f.stage)
-  && (skip === "link" || !f.link || linkOf(r) === f.link);
-
-function Outcome({ rows, pick, onPick }: { rows: Row[]; pick: NowPick; onPick: (k: keyof NowPick, v: string) => void }) {
-  const read = rows.filter((r) => nowOf(r));
-  const by: Record<State, number> = { open: 0, closed: 0, unread: 0 };
-  for (const r of rows) by[stateOf(r)]++;
-  const failed = rows.filter((r) => r.actual && r.actual.gqs === null).length;
-  const latest = read.reduce((m, r) => Math.max(m, Date.parse(r.actual?.at ?? "") || 0), 0);
-  const lists: { key: "status" | "stage" | "link"; title: string; hint: string; rows: { label: string; value: number }[] }[] = [
-    { key: "status", title: "GQS status now", hint: "The task's status of GQS in HubSpot today", rows: count(read, statusOf) },
-    { key: "stage", title: "The task's stage now", hint: "Where the GQS task is in its pipeline", rows: count(read, stageOf) },
-    { key: "link", title: "The linked ESO / TSA ticket", hint: "The stage of the sales ticket the task belongs to", rows: count(read, linkOf) },
-  ];
-  const states = (["open", "closed", "unread"] as const);
-  return (
-    <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-      <CardTitle icon={<FlagOutlinedIcon />} tint="green" title="Where the GQS tickets stand now"
-        note="Open or closed, the GQS status, the task's stage and the linked ESO / TSA ticket - click a bar to see its tickets" />
-      {rows.length ? (
-        <Box role="img" aria-label={states.map((k) => `${STATE[k].label} ${by[k]}`).join(", ")}
-          sx={{ display: "flex", gap: "2px", height: 14, borderRadius: "7px", overflow: "hidden", bgcolor: TRACK }}>
-          {states.filter((k) => by[k]).map((k) => (
-            <Tooltip key={k} title={`${STATE[k].label}: ${full(by[k])} (${pct(by[k], rows.length)})`}>
-              <Box onClick={() => onPick("show", k)} sx={{ flex: `${by[k]} 1 0`, minWidth: 4, bgcolor: STATE[k].color, cursor: "pointer", opacity: pick.show === "all" || pick.show === k ? 1 : 0.35, transition: "opacity 120ms ease" }} />
-            </Tooltip>
-          ))}
-        </Box>
-      ) : null}
-      <Box sx={{ display: "flex", gap: { xs: 0.5, md: 1.5 }, flexWrap: "wrap", mt: rows.length ? 1 : 0, mx: -1 }}>
-        {states.map((k) => {
-          const on = pick.show === k;
-          return (
-            <Box key={k} component="button" type="button" disabled={!by[k] && !on} onClick={() => onPick("show", k)} aria-pressed={on} sx={{
-              all: "unset", boxSizing: "border-box", display: "inline-flex", alignItems: "baseline", gap: 0.75, px: 1, py: 0.5, borderRadius: "10px",
-              cursor: by[k] || on ? "pointer" : "default", border: `1px solid ${on ? ACCENT : "transparent"}`, bgcolor: on ? "rgba(36,89,209,.07)" : "transparent",
-              "&:hover": by[k] ? { bgcolor: on ? "rgba(36,89,209,.1)" : "rgba(21,34,58,.04)" } : {}, "&:focus-visible": { outline: `2px solid ${ACCENT}`, outlineOffset: 1 },
-            }}>
-              <Box component="span" sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: STATE[k].color, alignSelf: "center" }} />
-              <Box component="span" sx={{ fontSize: "0.82rem", fontWeight: 600, color: MUTED }}>{STATE[k].label}</Box>
-              <Box component="span" sx={{ fontSize: "1.1rem", fontWeight: 700, color: by[k] ? INK : FAINT, ...NUM }}>{full(by[k])}</Box>
-              <Box component="span" sx={{ fontSize: "0.76rem", color: FAINT, ...NUM }}>{pct(by[k], rows.length)}</Box>
-            </Box>
-          );
-        })}
-      </Box>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(2, minmax(0, 1fr))", lg: "repeat(3, minmax(0, 1fr))" }, gap: { xs: 2.5, lg: 3 }, mt: 2, pt: 2.25, borderTop: `1px solid ${HAIRLINE}` }}>
-        {lists.map((l) => (
-          <Box key={l.key} sx={{ minWidth: 0 }}>
-            <Typography sx={KICK}>{l.title}</Typography>
-            <Typography sx={{ fontSize: "0.74rem", color: MUTED, mb: 1 }}>{l.hint}</Typography>
-            <BarList rows={l.rows} format={full} labelWidth={156} maxLabel={30} onSelect={(label) => onPick(l.key, label)} selectedLabel={pick[l.key]}
-              emptyMessage={rows.length ? "Not read yet - the next runs read them." : "No GQS ticket in these days yet."} />
-          </Box>
-        ))}
-      </Box>
-      <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 2, lineHeight: 1.5 }}>
-        Read from HubSpot every 6 hours for 14 days{latest ? `, last ${when(new Date(latest).toISOString())}` : ""}.
-        {by.unread ? ` Not read yet: ${full(by.unread)} - a task is first read 10 minutes after it enters; older ones get it over the next runs${failed ? `, and ${full(failed)} that could not be read are tried again` : ""}.` : ""}
-      </Typography>
-    </GlassCard>
-  );
-}
 
 /* ── the team: one table ── */
 
@@ -581,19 +507,9 @@ function GqsTable({ rows }: { rows: Row[] }) {
   );
 }
 
-function FilterRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "64px minmax(0, 1fr)" }, columnGap: 1.5, rowGap: 0.5, alignItems: "center" }}>
-      <Typography sx={KICK}>{label}</Typography>
-      {children}
-    </Box>
-  );
-}
 
 /* ── the tabs: Tickets, Flow and the team on People (SARCLA 01.11.2026: GQS has Back Office's tabs - "we should keep the
    same then to GQS the same tab") ── */
-
-const ANY = "~any";
 
 /** The flow's columns and each ticket's way through them. */
 function useRoutes(d: Data, rows: Row[]) {
@@ -607,84 +523,12 @@ function useRoutes(d: Data, rows: Row[]) {
     { id: "t:~none", label: "No type", color: ROAD.fallback, quiet: true },
   ];
   const owners = peopleColumn(rows.map(ownerName).filter((x): x is string => !!x));
-  const columns = gqsColumns(d, types, owners.nodes);
+  // every other status a task arrived with, by its own name
+  const entries: FlowNode[] = count(rows, (r) => { const id = gqsEntry(r); return id.startsWith("g:s:") ? id.slice(4) : null; })
+    .map((x) => ({ id: `g:s:${x.label}`, label: x.label, short: x.label.length > 22 ? `${x.label.slice(0, 21)}…` : undefined, color: ROAD.fallback, text: "The status it arrived with" }));
+  const columns = gqsColumns(d, types, owners.nodes, entries);
   const ways: Way[] = rows.map((r) => ({ row: r, way: [gqsEntry(r), typeId(r), gqsRule(r), owners.id(ownerName(r))] }));
   return { columns, ways };
-}
-
-/**
- * Tickets: Back Office's four counts - so the two pipelines read alike, and never against the rules before the
- * hand-over, which the hub no longer writes ("Owner left as chosen" did) - where the tickets stand now, and every ticket
- * with its filters.
- */
-export function GqsTickets({ d, span }: { d: Data; span: string }) {
-  const rows = d.rows.filter((r) => r.pipeline === "gqs");
-  const given = rows.filter((r) => r.wrote?.ok).length;
-  const moved = rows.filter(movedAfterUs).length;
-  const fixes = rows.filter(fixesDiffer).length;
-  const [narrow, setNarrow] = useState<Narrow>("all");
-  const [now, setNow] = useState<NowPick>(NO_PICK);
-  // a bar or a part of the outcome card: choose it (again: take it away) and go to the tickets
-  const pickNow = (k: keyof NowPick, v: string) => {
-    const on = now[k] === v;
-    const next: NowPick = { ...now };
-    if (k === "show") next.show = on ? "all" : (v as Show); else next[k] = on ? null : v;
-    setNow(next);
-    if (!on && typeof document !== "undefined") document.getElementById("gqs-tickets")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-  // each group of filters counts with the other groups applied
-  const forShow = narrowRows(rows.filter((r) => keep(r, now, "show")), narrow);
-  const showOptions = (["all", "open", "closed", "unread"] as const).map((k) => ({ key: k, label: k === "all" ? "All" : STATE[k].label, count: k === "all" ? forShow.length : forShow.filter((r) => stateOf(r) === k).length }));
-  const forStatus = narrowRows(rows.filter((r) => keep(r, now, "status")), narrow);
-  const statuses = count(forStatus, statusOf);
-  if (now.status && !statuses.some((x) => x.label === now.status)) statuses.push({ label: now.status, value: 0 });
-  const statusOptions = [{ key: ANY, label: "Any", count: forStatus.length }, ...statuses.map((x) => ({ key: x.label, label: x.label, count: x.value }))];
-  const nowKept = rows.filter((r) => keep(r, now));
-  const shown = narrowRows(nowKept, narrow);
-  const also = ([["stage", "Task stage"], ["link", "Linked ticket"]] as const).filter(([k]) => now[k]);
-  const kpis = [
-    { label: "Tickets seen", value: full(rows.length), note: `Entered New for Back-Office ${span}`, icon: <ConfirmationNumberOutlinedIcon />, tint: "slate" as const },
-    { label: "Given an owner by the hub", value: full(given), note: `${pct(given, rows.length)} of them`, icon: <PersonOutlineOutlinedIcon />, tint: "green" as const },
-    { label: "Moved after the hub gave it", value: full(moved), note: given ? `${pct(moved, given)} of the ones the hub gave - a person gave them to someone else afterwards` : "Nothing given yet", icon: <CompareArrowsOutlinedIcon />, tint: "amber" as const },
-    { label: "A fix changed the owner", value: full(fixes), note: "Deactivated people, failed counts, the stages counted - where the corrected rules pick someone else than the rules before the hand-over", icon: <AltRouteOutlinedIcon />, tint: "pink" as const },
-  ];
-  return (
-    <>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(4, minmax(0, 1fr))" }, gap: 2 }}>
-        {kpis.map((x) => <KpiTile key={x.label} icon={x.icon} tint={x.tint} label={x.label} value={x.value} note={x.note} />)}
-      </Box>
-      <Outcome rows={rows} pick={now} onPick={pickNow} />
-      <Box id="gqs-tickets" sx={{ scrollMarginTop: 16, minWidth: 0 }}>
-        <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-          <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="GQS tickets"
-            note={`${full(shown.length)} of ${full(rows.length)}. A bar above narrows them; a row opens its reasons`} />
-          <Box sx={{ display: "grid", gap: 1.25, mb: 2 }}>
-            <FilterRow label="Now"><Choice<Show> value={now.show} onChange={(v) => setNow({ ...now, show: v })} options={showOptions} /></FilterRow>
-            {statuses.length > 0 && (
-              <FilterRow label="Status"><Choice<string> value={now.status ?? ANY} onChange={(v) => setNow({ ...now, status: v === ANY ? null : v })} options={statusOptions} /></FilterRow>
-            )}
-            <FilterRow label="Owner"><Choice<Narrow> value={narrow} onChange={setNarrow} options={narrowOptions(nowKept)} /></FilterRow>
-            {!!also.length && (
-              <FilterRow label="Also">
-                <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
-                  {also.map(([key, label]) => (
-                    <Box key={key} component="button" type="button" onClick={() => setNow({ ...now, [key]: null })} aria-label={`Remove ${label}`} sx={{
-                      all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.5, pl: 1.25, pr: 0.75, py: 0.5, borderRadius: "999px",
-                      border: `1px solid ${ACCENT}`, bgcolor: "rgba(36,89,209,.08)", color: ACCENT, fontSize: "0.8rem", fontWeight: 600,
-                      "&:focus-visible": { outline: `2px solid ${ACCENT}`, outlineOffset: 2 },
-                    }}>
-                      {label}: {now[key]}<CloseIcon sx={{ fontSize: 14 }} />
-                    </Box>
-                  ))}
-                </Box>
-              </FilterRow>
-            )}
-          </Box>
-          <GqsTable rows={shown} />
-        </GlassCard>
-      </Box>
-    </>
-  );
 }
 
 /** Flow: from the approval to the owner, as Back Office's Flow tab - a box clicked shows its tickets; how it decides last. */

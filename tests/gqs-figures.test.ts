@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  GQS_STAGE, byKey, byMonth, daysToOffer, inPeriod, median, outcomeOf, ownerOf, refusedBy, resultOf, sentIn, stageTimes, sumOf, typeOf, wonShare, type GqsRow,
+  GQS_STAGE, NOT_ASKED, NO_SALES, byKey, byMonth, daysToOffer, inPeriod, median, outcomeOf, ownerOf, refusedBy, resultOf, sentIn, stageTimes, salesOwnerOf, salesStageOf, sumOf, typeOf, wonShare, type GqsRow,
 } from "../src/lib/gqsFigures/figures";
 
 const DAY = 86_400_000;
@@ -24,6 +24,8 @@ test("where a GQS task ended, and what came of the offer", () => {
 test("HubSpot's labels are tidied, and nobody or no type is named", () => {
   assert.equal(typeOf(row({ type: "DT -  New Business" })), "DT - New Business");
   assert.equal(typeOf(row()), "No type");
+  // before January 2026 the type was not asked yet
+  assert.equal(typeOf(row({ created: "2025-11-12T09:00:00Z" })), NOT_ASKED);
   assert.equal(ownerOf(row({ owner: "7", ownerName: "Sara" })), "Sara");
   assert.equal(ownerOf(row({ owner: "7" })), "Owner 7");
   assert.equal(ownerOf(row()), "Nobody");
@@ -67,4 +69,13 @@ test("the time in each stage: the median over the tasks that were there", () => 
   assert.deepEqual(t.find((x) => x.stage === GQS_STAGE.open), { stage: GQS_STAGE.open, tasks: 2, days: 4 });
   assert.deepEqual(t.find((x) => x.stage === GQS_STAGE.waitingGqs), { stage: GQS_STAGE.waitingGqs, tasks: 1, days: 1 });
   assert.deepEqual(t.find((x) => x.stage === GQS_STAGE.remind), { stage: GQS_STAGE.remind, tasks: 0, days: null });
+});
+
+test("the sales ticket a task belongs to, and its owner", () => {
+  const sales = { id: "9", pipe: "ESO" as const, stage: "Offer  sent", closed: false, owner: "5", ownerName: "Nancy Pielock" };
+  assert.equal(salesStageOf(row({ sales })), "ESO · Offer sent");
+  assert.equal(salesOwnerOf(row({ sales })), "Nancy Pielock");
+  assert.equal(salesOwnerOf(row({ sales: { ...sales, ownerName: null } })), "Owner 5");
+  assert.equal(salesStageOf(row()), NO_SALES);
+  assert.equal(salesOwnerOf(row({ sales: null })), NO_SALES);
 });
