@@ -100,8 +100,13 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     ],
   },
   {
-    slug: "tsa", name: "TSA Reports", line: "The TSA team's tickets, calls and response times",
-    reports: [], next: "First report: first-reply time against the Swiss SLA, per person.",
+    // ESO's sub-apps, each at its own address under /reporting/tsa-benchmark (so the side panel stays TSA's) and
+    // opening on TSA (SARCLA 01.11.2026: "migrate to TSA now the customer development, but instead of default ESO,
+    // default is TSA")
+    slug: "tsa", name: "TSA Reports", line: "The TSA team's customers - per person, this year against last",
+    reports: [
+      { name: "Customer development", href: "/reporting/tsa-benchmark/customers", note: "Active, new, reactivated, decreasing and lost customers, opening on TSA", icon: "groups" },
+    ],
   },
   {
     slug: "back-office", name: "Back-Office Reports", line: "What the Back Office handles, and how fast",

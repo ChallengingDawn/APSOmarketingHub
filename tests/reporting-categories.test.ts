@@ -25,8 +25,18 @@ test("a click on a category goes straight into its first report - the overview w
   assert.equal(categoryEntry(categoryBySlug("website")!), "/website/overview");
   // Articles CY/LY moved in from UC & HubSpot Apps, its address unchanged
   assert.equal(categoryEntry(categoryBySlug("products")!), "/uc/articles");
+  // TSA: Customer development, moved in from ESO (SARCLA 01.11.2026)
+  assert.equal(categoryEntry(categoryBySlug("tsa")!), "/reporting/tsa-benchmark/customers");
   // nothing in it yet: the category's own page, which names what comes first
-  assert.equal(categoryEntry(categoryBySlug("tsa")!), "/reporting/tsa");
+  assert.equal(categoryEntry(categoryBySlug("otd")!), "/reporting/otd");
+});
+
+test("TSA Reports: Customer development at TSA's own address, not ESO's - so the side panel stays TSA's (SARCLA 01.11.2026)", () => {
+  const tsa = categoryBySlug("tsa")!;
+  assert.deepEqual(tsa.reports.map((r) => [r.name, r.href]), [["Customer development", "/reporting/tsa-benchmark/customers"]]);
+  assert.equal(tsa.next, undefined);
+  const eso = categoryBySlug("eso")!.reports[0].children!;
+  assert.ok(!eso.some((k) => k.href.startsWith("/reporting/tsa-benchmark/")));
 });
 
 test("ESO's side panel as Digital Growth's: one report, BUC View first, then the sub-apps in SARCLA's order - the tickets as two, incoming and system, no Revenue & order intake (SARCLA 21-24.10, 30-31.10.2026)", () => {
