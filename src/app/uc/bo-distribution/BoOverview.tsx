@@ -259,7 +259,7 @@ export function TicketList({ from, to, names, fixed, start }: { from: string; to
                   </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", whiteSpace: "nowrap", color: x.p ? INK : MUTED }}>
                     {x.p || "none"}
-                    {x.pp && <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>set by a person</Typography>}
+                    {(x.ps === "person" || x.ps === "default") && <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{x.ps === "person" ? "set by a person" : "the inbox's default"}</Typography>}
                   </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{name(x.o)}</TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap", color: x.oj === "kept" ? MUTED : INK, fontWeight: x.oj === "moved" ? 700 : 400 }}>

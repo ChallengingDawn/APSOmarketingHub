@@ -21,8 +21,8 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { rowsOfDay } from "@/lib/boDistribution/engine";
 import {
-  WORKFLOW_RULE, addFact, byPersonNow, dayOf, emptyDay, factOf, givenOf, isC2s, mergeDays, monthsOf, monthsSince, ownerDays, ownerJourneyOf, previousWindow, sumDays,
-  type DayFig, type Guessed, type Hist, type How, type Journey, type MonthFig, type OwnerJ, type Win,
+  WORKFLOW_RULE, addFact, dayOf, setterOf, emptyDay, factOf, givenOf, isC2s, mergeDays, monthsOf, monthsSince, ownerDays, ownerJourneyOf, previousWindow, sumDays,
+  type DayFig, type Guessed, type Hist, type How, type Journey, type MonthFig, type OwnerJ, type PrioBy, type Win,
 } from "./figures";
 import { readGqs } from "../gqsFigures/read";
 import type { GqsStore } from "../gqsFigures/figures";
@@ -56,7 +56,7 @@ type MonthStore = { v?: number; at: string; n: number; days: Record<string, DayF
  * A ticket of the month: its id, Swiss day, subject, topic at intake, today's, how it got there (j, h); the owner it was
  * given and has today (owner ids, "" = none) and what became of the first (oj); the hub's rule ("" = none recorded).
  */
-export type ListItem = { id: string; d: string; s: string; i: string; t: string; j: Journey; h: How; o?: string; n?: string; oj?: OwnerJ; r?: string; p?: string; pp?: boolean };
+export type ListItem = { id: string; d: string; s: string; i: string; t: string; j: Journey; h: How; o?: string; n?: string; oj?: OwnerJ; r?: string; p?: string; ps?: PrioBy };
 /** the hub's rule per ticket id, "-" = the hub decided and no rule gave an owner */
 type Routed = Record<string, string>;
 type Obj = { id: string; properties: Record<string, string | null>; propertiesWithHistory?: Record<string, Hist[]> };
@@ -140,10 +140,10 @@ async function countMonth(ym: string, guessed: Record<string, Guessed>): Promise
       const o = {
         given, now, oj: ownerJourneyOf(given, now, owners), rule: routed[id] ?? (k < HANDOVER ? WORKFLOW_RULE : ""), machine: p[TONE] === MACHINE,
         sub: p[DELIVERY_SUB] ?? null, c2s: isC2s(p.c2s_ticket, p.c2s_problem_order, t.properties.subject),
-        prio: (p.hs_ticket_priority ?? "").trim(), prioByPerson: byPersonNow(p.hs_ticket_priority, h?.propertiesWithHistory?.hs_ticket_priority ?? []),
+        prio: (p.hs_ticket_priority ?? "").trim(), prioBy: setterOf(p.hs_ticket_priority, h?.propertiesWithHistory?.hs_ticket_priority ?? [], created),
       };
       addFact((days[k] ??= emptyDay()), f, o);
-      list.push({ id, d: k, s: (t.properties.subject ?? "").replace(/\s+/g, " ").trim().slice(0, 100), i: f.intake, t: f.cat, j: f.journey, h: f.how, o: given, n: now, oj: o.oj, r: o.rule, p: o.prio, pp: o.prioByPerson || undefined });
+      list.push({ id, d: k, s: (t.properties.subject ?? "").replace(/\s+/g, " ").trim().slice(0, 100), i: f.intake, t: f.cat, j: f.journey, h: f.how, o: given, n: now, oj: o.oj, r: o.rule, p: o.prio, ps: o.prioBy });
     }
   }
   return { store: { v: VERSION, at: new Date().toISOString(), n: tickets.length, days }, list };
@@ -252,7 +252,7 @@ export async function periodFigures(from: string, to: string): Promise<PeriodFig
  * Which tickets of a period to list: a "came with -> has today" line, a journey (open = still Others / empty), what
  * became of the owner, the owner given, the hub's rule, a Delivery sub-category - and words of the subject or the id.
  */
-export type ListPick = { intake?: string; today?: string; journey?: Journey; oj?: OwnerJ; /** owner ids, comma-separated */ given?: string; rule?: string; q?: string; prio?: string; byPerson?: boolean };
+export type ListPick = { intake?: string; today?: string; journey?: Journey; oj?: OwnerJ; /** owner ids, comma-separated */ given?: string; rule?: string; q?: string; prio?: string; prioBy?: PrioBy };
 const LIST_MAX = 300;
 
 /**
@@ -273,7 +273,7 @@ export async function periodList(from: string, to: string, pick: ListPick): Prom
     && (given === undefined || given.has(x.o ?? ""))
     && (pick.rule === undefined || (x.r ?? "") === pick.rule)
     && (pick.prio === undefined || (x.p ?? "") === pick.prio)
-    && (!pick.byPerson || !!x.pp)
+    && (pick.prioBy === undefined || x.ps === pick.prioBy)
     && (!q || x.id === q || x.s.toLowerCase().includes(q)));
   const oj: Partial<Record<OwnerJ, number>> = {};
   for (const x of base) if (x.oj) oj[x.oj] = (oj[x.oj] ?? 0) + 1;

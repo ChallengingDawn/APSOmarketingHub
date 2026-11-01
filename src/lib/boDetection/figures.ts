@@ -59,8 +59,8 @@ export type Fact = { cat: string; person: boolean; fromOthers: boolean; how: How
 export const WORKFLOW_RULE = "wf";
 export type Owned = {
   given: string; now: string; oj: OwnerJ; rule: string; machine: boolean; sub: string | null; c2s: boolean;
-  /** the priority it has today ("" = none) and whether a person set it (SARCLA 01.11.2026: "priority still really confusing, redo it") */
-  prio?: string; prioByPerson?: boolean;
+  /** the priority it has today ("" = none) and who set it (SARCLA 01.11.2026: "priority still really confusing, redo it") */
+  prio?: string; prioBy?: PrioBy;
 };
 
 /** One day's tickets (by the day they were created, Swiss time); topics = per category, how many by each How. */
@@ -74,8 +74,9 @@ export type DayFig = {
    *  none recorded); the machine tickets per topic today; the Delivery tickets per sub-category, and the C2S ones */
   own?: Record<string, Partial<Record<OwnerJ, number>>>; oj?: Partial<Record<OwnerJ, number>>; ic?: Record<string, number>;
   rule?: Record<string, number>; mt?: Record<string, number>; del?: Record<string, number>; c2s?: Record<string, number>;
-  /** since version 7: per priority today ("" = none); of them set by a person; per topic and priority */
-  pr?: Record<string, number>; prp?: Record<string, number>; tpr?: Record<string, Record<string, number>>;
+  /** since version 7: per priority today ("" = none); of them set by a person, of them left at the inbox's default; per
+   *  PrioBy; per topic and priority */
+  pr?: Record<string, number>; prp?: Record<string, number>; prd?: Record<string, number>; prs?: Record<string, number>; tpr?: Record<string, Record<string, number>>;
 };
 
 /** A period's figures. */
@@ -164,15 +165,26 @@ export function givenOf(hist: Hist[], created?: string | null): string {
 export const isC2s = (c2sTicket: string | null | undefined, problemOrder: string | null | undefined, subject: string | null | undefined) =>
   String(c2sTicket ?? "").toLowerCase() === "true" || !!problemOrder || /\b(c2s|zuschnitt|cut[- ]to[- ]size|coupe sur mesure)\b/i.test(subject ?? "");
 
-/** Whether a person set the value a property has today: the last change to it that is not an echo, in the CRM, the inbox or
- *  the help desk's own view. */
-export function byPersonNow(now: string | null | undefined, hist: Hist[]): boolean {
+/**
+ * Who set the priority a ticket has today. Measured 01.11.2026: the inbox gives every new ticket MEDIUM the moment it is
+ * created (CONVERSATIONS), the routing's rules change it (an app or a workflow), a person in the CRM - or in the inbox or
+ * the help desk's view later on. Until February 2026 nothing changed the inbox's MEDIUM; in late October 21 of 50 kept it.
+ * A merge or the help desk's echo repeats a value, it does not set it.
+ */
+export type PrioBy = "rule" | "default" | "person" | "none";
+export const PRIO_BYS: PrioBy[] = ["rule", "default", "person", "none"];
+export function setterOf(now: string | null | undefined, hist: Hist[], created?: string | null): PrioBy {
   const cur = (now ?? "").trim();
-  if (!cur) return false;
+  if (!cur) return "none";
   const asc = [...hist].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
   let last: Hist | undefined;
-  asc.forEach((h, i) => { if ((h.value ?? "").trim() === cur && !isEcho(h, asc[i - 1])) last = h; });
-  return !!last && (byPerson(last) || last.sourceType === "HELP_DESK");
+  asc.forEach((h, i) => { if ((h.value ?? "").trim() === cur && !isEcho(h, asc[i - 1]) && h.sourceType !== "MERGE_OBJECTS") last = h; });
+  if (!last) return "default";
+  if (last.sourceType === "CRM_UI" || /^MOBILE/.test(last.sourceType ?? "")) return "person";
+  if (byRouting(last)) return "rule";
+  if (last.sourceType === "BOT") return "default";
+  const c0 = created ? Date.parse(created) : NaN;
+  return Number.isFinite(c0) && Date.parse(last.timestamp) <= c0 + BY_HAND_MS ? "default" : "person";
 }
 
 /** kept / moved / later / none - see OwnerJ. Who set the owner it has today: the last change to it that is not an echo. */
@@ -232,7 +244,9 @@ export function addFact(d: DayFig, f: Fact, o?: Owned): void {
     }
     if (o.prio !== undefined) {
       bump((d.pr ??= {}), o.prio);
-      if (o.prioByPerson) bump((d.prp ??= {}), o.prio);
+      if (o.prioBy === "person") bump((d.prp ??= {}), o.prio);
+      if (o.prioBy === "default") bump((d.prd ??= {}), o.prio);
+      if (o.prioBy) bump((d.prs ??= {}), o.prioBy);
       bump(((d.tpr ??= {})[f.cat || "(empty)"] ??= {}), o.prio);
     }
   }
@@ -264,7 +278,7 @@ function addDay(w: DayFig, d: DayFig): void {
   addCounts(w.pairs, d.pairs);
   for (const [k, js] of Object.entries(d.own ?? {})) addCounts(((w.own ??= {})[k] ??= {}), js);
   if (d.oj) addCounts((w.oj ??= {}), d.oj);
-  for (const k of ["ic", "rule", "mt", "del", "c2s", "pr", "prp"] as const) if (d[k]) addCounts((w[k] ??= {}), d[k]);
+  for (const k of ["ic", "rule", "mt", "del", "c2s", "pr", "prp", "prd", "prs"] as const) if (d[k]) addCounts((w[k] ??= {}), d[k]);
   for (const [c, ps] of Object.entries(d.tpr ?? {})) addCounts(((w.tpr ??= {})[c] ??= {}), ps);
 }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addFact, dayOf, emptyDay, factOf, byPersonNow, givenOf, howOf, intakeOf, isC2s, journeyOf, mergeDays, monthsOf, monthsSince, ownerDays, ownerJourneyOf, pairKey, pairOf, previousWindow, rangeLabel, sumDays, type Fact, type Hist, type How, type Owned } from "../src/lib/boDetection/figures";
+import { addFact, dayOf, emptyDay, factOf, givenOf, howOf, intakeOf, setterOf, isC2s, journeyOf, mergeDays, monthsOf, monthsSince, ownerDays, ownerJourneyOf, pairKey, pairOf, previousWindow, rangeLabel, sumDays, type Fact, type Hist, type How, type Owned } from "../src/lib/boDetection/figures";
 
 /** a fact that kept its intake topic, unless told otherwise */
 const fact = (cat: string, how: How, more: Partial<Fact> = {}): Fact => ({ cat, person: false, fromOthers: false, how, intake: cat, journey: cat && cat !== "Others" ? "kept" : "open", ...more });
@@ -138,11 +138,15 @@ test("the owner a ticket was given: the routing's last pick in its first half ho
   assert.equal(givenOf([{ value: "9", timestamp: at(0.2), sourceType: "CRM_UI" }], c), "9");
   assert.equal(givenOf([{ value: "9", timestamp: at(45), sourceType: "INTEGRATION" }], c), "");
   assert.equal(ownerJourneyOf("", "9", []), "none");
-  // who set the value a property has today: a person in the CRM or the help desk's own view - not the routing, not an echo
-  assert.equal(byPersonNow("30050251", h), true);
-  assert.equal(byPersonNow("37413486", h), false);
-  assert.equal(byPersonNow("36930032", desk), true);
-  assert.equal(byPersonNow("", h), false);
+  // who set the priority: the inbox's MEDIUM at the creation, the routing's app, a person in the CRM or later in the inbox
+  const pr = (value: string, min: number, sourceType: string) => ({ value, timestamp: at(min), sourceType });
+  assert.equal(setterOf("MEDIUM", [pr("MEDIUM", 0, "CONVERSATIONS")], c), "default");
+  assert.equal(setterOf("HIGH", [pr("MEDIUM", 0, "CONVERSATIONS"), pr("HIGH", 1.5, "INTEGRATION")], c), "rule");
+  assert.equal(setterOf("URGENT", [pr("MEDIUM", 0, "CONVERSATIONS"), pr("URGENT", 300, "CRM_UI")], c), "person");
+  assert.equal(setterOf("LOW", [pr("MEDIUM", 0, "CONVERSATIONS"), pr("LOW", 90, "CONVERSATIONS")], c), "person");
+  assert.equal(setterOf("MEDIUM", [pr("MEDIUM", 0, "CONVERSATIONS"), pr("MEDIUM", 50, "MERGE_OBJECTS")], c), "default");
+  assert.equal(setterOf("MEDIUM", [], c), "default");
+  assert.equal(setterOf("", [], c), "none");
 });
 
 test("a day counts the owner, the rule, the machines and the deliveries - and they add up to the tickets", () => {
@@ -164,11 +168,12 @@ test("a day counts the owner, the rule, the machines and the deliveries - and th
   assert.deepEqual(monthsOf({ "2026-10-27": d }, "2026-10-01", "2026-10-31")[0].oj, { kept: 1, moved: 1, none: 1 });
   // the priority: per value, of them set by a person, per topic
   const e = emptyDay();
-  addFact(e, f("Delivery"), o({ prio: "HIGH" }));
-  addFact(e, f("Delivery"), o({ prio: "URGENT", prioByPerson: true }));
-  addFact(e, f("Product Price"), o({ prio: "" }));
-  assert.deepEqual([e.pr, e.prp, e.tpr], [{ HIGH: 1, URGENT: 1, "": 1 }, { URGENT: 1 }, { Delivery: { HIGH: 1, URGENT: 1 }, "Product Price": { "": 1 } }]);
-  assert.deepEqual(monthsOf({ "2026-10-27": e }, "2026-10-01", "2026-10-31")[0].pr, { HIGH: 1, URGENT: 1, "": 1 });
+  addFact(e, f("Delivery"), o({ prio: "HIGH", prioBy: "rule" }));
+  addFact(e, f("Delivery"), o({ prio: "URGENT", prioBy: "person" }));
+  addFact(e, f("Product Price"), o({ prio: "MEDIUM", prioBy: "default" }));
+  assert.deepEqual([e.pr, e.prp, e.prd, e.prs], [{ HIGH: 1, URGENT: 1, MEDIUM: 1 }, { URGENT: 1 }, { MEDIUM: 1 }, { rule: 1, person: 1, default: 1 }]);
+  assert.deepEqual(e.tpr, { Delivery: { HIGH: 1, URGENT: 1 }, "Product Price": { MEDIUM: 1 } });
+  assert.deepEqual(monthsOf({ "2026-10-27": e }, "2026-10-01", "2026-10-31")[0].pr, { HIGH: 1, URGENT: 1, MEDIUM: 1 });
   assert.deepEqual(ownerDays({ "2026-10-27": d, "2026-09-01": emptyDay() }, "2026-10-01", "2026-10-31"), [{ d: "2026-10-27", n: 3, oj: { kept: 1, moved: 1, none: 1 }, pr: {} }]);
   // a day of an older store (version 4) has none of these and still adds
   assert.equal(sumDays({ "2026-10-28": emptyDay() }, "2026-10-01", "2026-10-31").oj, undefined);

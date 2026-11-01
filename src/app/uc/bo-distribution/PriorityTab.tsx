@@ -44,7 +44,7 @@ import { CardTitle, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, bodyCell, cli
 import { Chip, usePaged, when } from "@/app/connectors/parts";
 import { PRIORITIES, SUB, priorityFor, type Priority, type PrioritySettings } from "@/lib/boDistribution/rules";
 import type { Row } from "@/lib/boDistribution/engine";
-import { previousWindow, rangeLabel } from "@/lib/boDetection/figures";
+import { previousWindow, rangeLabel, type PrioBy } from "@/lib/boDetection/figures";
 import { pct, type Data } from "./shared";
 import { TicketList, useFigures, type Figures } from "./BoOverview";
 
@@ -60,7 +60,9 @@ const sum = (m: Record<string, number> | undefined) => Object.values(m ?? {}).re
 
 /* ── 1. the period's tickets by their priority ── */
 
-type Pick = { kind: "prio" | "today" | "person"; key: string; label: string };
+type Pick = { kind: "prio" | "today" | "by"; key: string; label: string };
+/** Who set a ticket's priority (figures.ts setterOf) - the inbox gives every new ticket MEDIUM */
+const BY: Record<Exclude<PrioBy, "none">, string> = { rule: "The routing's rules", default: "As created (the inbox's default)", person: "A person" };
 
 /** The days before are all inside the Back Office's history - else a comparison reads a partial year as growth. */
 const comparable = (f: Figures) => !!f.since && previousWindow(f.now.from, f.now.to).from >= f.since;
@@ -70,7 +72,7 @@ function Figures_({ f, label }: { f: Figures; label: string }) {
   const prev = previousWindow(f.now.from, f.now.to);
   const before = rangeLabel(prev.from, prev.to);
   const single = !comparable(f);
-  const pr = f.now.pr ?? {}, prB = f.before.pr ?? {}, prp = f.now.prp ?? {}, prpB = f.before.prp ?? {};
+  const pr = f.now.pr ?? {}, prB = f.before.pr ?? {}, prp = f.now.prp ?? {}, prd = f.now.prd ?? {}, prs = f.now.prs ?? {}, prsB = f.before.prs ?? {};
   const n = f.now.n;
   const none = pr[""] ?? 0;
   const byDay = f.byDay.length <= 62;
@@ -80,7 +82,8 @@ function Figures_({ f, label }: { f: Figures; label: string }) {
   const tpr = f.now.tpr ?? {}, tprB = f.before.tpr ?? {};
   const topics = [...new Set([...Object.keys(tpr), ...Object.keys(tprB)])].map((c) => ({ id: c, label: catName(c), n: sum(tpr[c]), b: sum(tprB[c]), p: tpr[c] ?? {}, hot: (tpr[c]?.URGENT ?? 0) + (tpr[c]?.HIGH ?? 0), hotB: (tprB[c]?.URGENT ?? 0) + (tprB[c]?.HIGH ?? 0) }))
     .filter((x) => x.n || x.b);
-  const persons = ORDER.map((k) => ({ id: k, label: k, n: prp[k] ?? 0, b: prpB[k] ?? 0 })).filter((x) => x.n || x.b);
+  const setters = (Object.keys(BY) as (keyof typeof BY)[]).map((k) => ({ id: k, label: BY[k], n: prs[k] ?? 0, b: prsB[k] ?? 0 })).filter((x) => x.n || x.b);
+  const withPrio = n - (pr[""] ?? 0);
   const choose = (kind: Pick["kind"], key: string, l: string) => {
     setPick(pick?.kind === kind && pick.key === key ? null : { kind, key, label: l });
     if (typeof document !== "undefined") setTimeout(() => document.getElementById("bo-priority-tickets")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
@@ -93,7 +96,7 @@ function Figures_({ f, label }: { f: Figures; label: string }) {
     ...(none ? [{ key: "none", head: "No priority", cell: (x: T) => cell(x.p[""] ?? 0, x.n), sort: (x: T) => x.p[""] ?? 0 }] : []),
   ];
   const total: T = { id: "", label: "All Back Office tickets", n, b: f.before.n, p: pr, hot: (pr.URGENT ?? 0) + (pr.HIGH ?? 0), hotB: 0 };
-  const listFixed: Record<string, string> = !pick ? {} : pick.kind === "prio" ? { prio: pick.key } : pick.kind === "today" ? { today: pick.key } : { prio: pick.key, byPerson: "1" };
+  const listFixed: Record<string, string> = !pick ? {} : pick.kind === "prio" ? { prio: pick.key } : pick.kind === "today" ? { today: pick.key } : { prioBy: pick.key };
   return (
     <>
       <Grid container spacing={2}>
@@ -102,14 +105,14 @@ function Figures_({ f, label }: { f: Figures; label: string }) {
             <Box component="button" type="button" onClick={() => choose("prio", k, k)} sx={{ all: "unset", display: "block", width: "100%", cursor: "pointer", borderRadius: "18px", outline: pick?.kind === "prio" && pick.key === k ? "2px solid #2459d1" : "none" }}>
               <KpiTile icon={ICON[k]} tint={TINT[k]} label={k} value={full(pr[k] ?? 0)}
                 delta={!single && prB[k] ? { ratio: (pr[k] ?? 0) / prB[k] - 1, versus: before, goodWhenUp: k === "LOW" || k === "MEDIUM" } : undefined}
-                note={`${pct(pr[k] ?? 0, n)} of the ${full(n)} tickets created ${label}${prp[k] ? `; ${full(prp[k])} set by a person` : ""}${k === "LOW" && none ? `. ${full(none)} have no priority` : ""}.`} />
+                note={`${pct(pr[k] ?? 0, n)} of the ${full(n)} tickets created ${label}${prd[k] ? `; ${full(prd[k])} ${k === "MEDIUM" ? "only the inbox's MEDIUM, nothing changed it" : "as the ticket was created"}` : ""}${prp[k] ? `; ${full(prp[k])} set by a person` : ""}${k === "LOW" && none ? `. ${full(none)} have no priority` : ""}.`} />
             </Box>
           </Grid>
         ))}
       </Grid>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<InsightsOutlinedIcon />} tint="blue" title={byDay ? "Day by day" : "Month by month"}
-          note={`The ${full(n)} Back Office tickets created ${label}, by the priority each has in HubSpot today${byDay ? "" : ". The first and last month count only the days inside the period"}`} />
+          note={`The ${full(n)} Back Office tickets created ${label}, by the priority each has in HubSpot today. The inbox gives every new ticket MEDIUM - until February 2026 nothing changed it${byDay ? "" : ". The first and last month count only the days inside the period"}`} />
         <StackedColumns data={data} parts={ORDER.map((k) => ({ key: k, label: k, color: COLOR[k] }))} format={(v) => full(v ?? 0)}
           xFormat={byDay ? (x) => `${x.slice(8, 10)}.${x.slice(5, 7)}` : monthLabel} />
       </GlassCard>
@@ -117,9 +120,9 @@ function Figures_({ f, label }: { f: Figures; label: string }) {
         <DimChart title={`URGENT and HIGH, by topic, ${label}`} rows={topics.filter((x) => x.hot || x.hotB)} cur={(x) => x.hot} prev={(x) => x.hotB} curLabel={label} prevLabel={before}
           fmt={full} labelWidth={190} single={single} curNote={(x) => (x.n ? { text: `${pct(x.hot, x.n)} of its ${full(x.n)}`, color: MUTED } : null)}
           selected={pick?.kind === "today" ? [pick.label] : undefined} onPick={(l) => { const x = topics.find((y) => y.label === l); if (x) choose("today", x.id, l); }} />
-        <DimChart title={`Set by a person, by the priority they gave, ${label}`} rows={persons} cur={(x) => x.n} prev={(x) => x.b} curLabel={label} prevLabel={before}
-          fmt={full} labelWidth={110} single={single} fixedOrder curNote={(x) => ({ text: `${pct(x.n, pr[x.id] ?? 0)} of the ${x.id}`, color: MUTED })}
-          selected={pick?.kind === "person" ? [pick.label] : undefined} onPick={(l) => choose("person", l, l)} />
+        <DimChart title={`Who set the priority, ${label}`} rows={setters} cur={(x) => x.n} prev={(x) => x.b} curLabel={label} prevLabel={before}
+          fmt={full} labelWidth={190} single={single} fixedOrder curNote={(x) => ({ text: `${pct(x.n, withPrio)}`, color: MUTED })}
+          selected={pick?.kind === "by" ? [pick.label] : undefined} onPick={(l) => { const x = setters.find((y) => y.label === l); if (x) choose("by", x.id, l); }} />
       </Box>
       <ChartBox title={`All the figures, ${label}, by topic`} hint="Each topic's tickets by the priority they have in HubSpot today - a click on a row lists its tickets">
         <FullTable first="Topic" cols={cols} rows={topics} total={total} onPick={(l) => { const x = topics.find((y) => y.label === l); if (x) choose("today", x.id, l); }}
@@ -128,7 +131,7 @@ function Figures_({ f, label }: { f: Figures; label: string }) {
       {pick && (
         <Box id="bo-priority-tickets" sx={{ scrollMarginTop: 16, minWidth: 0 }}>
           <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-            <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title={pick.kind === "prio" ? `${pick.label} tickets` : pick.kind === "person" ? `${pick.label}, set by a person` : `Topic: ${pick.label}`}
+            <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title={pick.kind === "prio" ? `${pick.label} tickets` : pick.kind === "by" ? `Priority set by: ${pick.label}` : `Topic: ${pick.label}`}
               note={`Created ${label}, newest first - a row shows the hub's reasons and HubSpot now`}
               right={<Button size="small" onClick={() => setPick(null)} startIcon={<CloseIcon sx={{ fontSize: 16 }} />} sx={{ textTransform: "none" }}>Close</Button>} />
             <TicketList key={JSON.stringify(listFixed)} from={f.now.from} to={f.now.to} names={f.owners} fixed={listFixed} />
@@ -150,6 +153,7 @@ const lineOf = (r: Row, table: Data["priorityTable"]) => {
   return table.find((l) => l.category === c && l.sub === s) ?? table.find((l) => l.category === c && l.sub === null) ?? null;
 };
 const words = (s: string) => s.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+const glassBox = { boxShadow: "0 1px 2px rgba(21,34,58,.04)" } as const;
 const step = { fontSize: "0.86rem", color: INK, display: "grid", gridTemplateColumns: "26px minmax(0, 1fr)", gap: 0.75, alignItems: "start" } as const;
 const num = (i: number) => <Box sx={{ width: 22, height: 22, borderRadius: "50%", bgcolor: "rgba(36,89,209,.1)", color: "#2459d1", fontSize: "0.76rem", fontWeight: 800, display: "grid", placeItems: "center" }}>{i}</Box>;
 
@@ -184,7 +188,7 @@ function Rules({ d, onSaved }: { d: Data; onSaved: () => void }) {
   };
   const count = (line: Data["priorityTable"][number]) => rows.filter((r) => lineOf(r, d.priorityTable)?.key === line.key).length;
   const signal = (id: string, on: boolean, set: (v: boolean) => void, title: string, text: string, matches: Row[], why: (r: Row) => string, field: React.ReactNode) => (
-    <Box sx={{ border: `1px solid ${on ? "#1b7a55" : HAIRLINE}`, bgcolor: on ? "rgba(27,122,85,.05)" : "transparent", borderRadius: "14px", p: 1.75, display: "grid", gap: 1, height: "100%", alignContent: "start" }}>
+    <Box sx={{ ...glassBox, border: `1px solid ${on ? "#1b7a55" : HAIRLINE}`, bgcolor: on ? "rgba(236,247,241,.9)" : "rgba(255,255,255,.7)", borderRadius: "18px", p: 2, display: "grid", gap: 1, alignContent: "start" }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 1 }}>
         <Box>
           <Typography sx={{ fontWeight: 800, fontSize: "0.9rem", color: INK }}>{title}</Typography>
@@ -218,9 +222,7 @@ function Rules({ d, onSaved }: { d: Data; onSaved: () => void }) {
           <Box sx={step}>{num(3)}<span><b>Three signals, each only when switched on:</b> urgent words and key customers raise it one level, a newsletter or advertising sets it LOW.</span></Box>
         </Box>
       </GlassCard>
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, lg: 6 }}>
-          <GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}>
+      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
             <CardTitle icon={<TuneOutlinedIcon />} tint="purple" title="1. Priority by topic" note="'any other' is the rest of the topic; the tickets are the last 7 days'" />
             <Box sx={{ overflowX: "auto" }}>
               <Table size="small">
@@ -230,7 +232,7 @@ function Rules({ d, onSaved }: { d: Data; onSaved: () => void }) {
                     const v = p.overrides[l.key] ?? l.priority;
                     return (
                       <TableRow key={l.key}>
-                        <TableCell sx={{ ...bodyCell, fontWeight: 700 }}>{l.category}</TableCell>
+                        <TableCell sx={{ ...bodyCell, fontWeight: 700, whiteSpace: "nowrap" }}>{l.category}</TableCell>
                         <TableCell sx={{ ...bodyCell, color: l.sub ? INK : MUTED }}>{l.sub ?? "any other"}</TableCell>
                         <TableCell sx={bodyCell}>
                           {d.admin ? (
@@ -248,19 +250,15 @@ function Rules({ d, onSaved }: { d: Data; onSaved: () => void }) {
                 </TableBody>
               </Table>
             </Box>
-          </GlassCard>
-        </Grid>
-        <Grid size={{ xs: 12, lg: 6 }}>
-          <Box sx={{ display: "grid", gap: 2, height: "100%" }}>
+      </GlassCard>
+      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(3, minmax(0, 1fr))" }, alignItems: "start" }}>
             {signal("urgent", p.raiseOnUrgentWords, (v) => setP({ ...p, raiseOnUrgentWords: v }), "3a. Urgent words: one level up", "The subject or the e-mail says it is urgent, in any of the six languages.", hit.urgent, (r) => `“${r.priorityFacts!.urgentHits[0]}” · ${base(r)} → one level up`,
               <TextField size="small" multiline minRows={2} fullWidth value={urgent} onChange={(e) => setUrgent(e.target.value)} disabled={!d.admin} helperText="Comma-separated" />)}
             {signal("key", p.raiseKeyCustomers, (v) => setP({ ...p, raiseKeyCustomers: v }), "3b. Key customers: one level up", "The ticket's company has one of these sales priorities (Smart Segmentation).", hit.key, (r) => `${r.company?.name ?? "company"} · ${r.priorityFacts!.salesPriority}`,
               <TextField size="small" fullWidth value={keys} onChange={(e) => setKeys(e.target.value)} disabled={!d.admin} helperText="e.g. P1, P2" />)}
             {signal("news", p.lowerNewsletters, (v) => setP({ ...p, lowerNewsletters: v }), "3c. Newsletters and advertising: LOW", "A newsletter, an unsubscribe link or a webinar invitation never needs HIGH.", hit.news, (r) => `“${r.priorityFacts!.newsletterHits[0]}” · ${base(r)} → LOW`,
               <TextField size="small" multiline minRows={2} fullWidth value={news} onChange={(e) => setNews(e.target.value)} disabled={!d.admin} helperText="Comma-separated" />)}
-          </Box>
-        </Grid>
-      </Grid>
+      </Box>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<CompareArrowsOutlinedIcon />} tint="amber" title="Before you save: the last 7 days with these rules"
           note={`The rules as they stand on this page${dirty ? ", with your changes" : " - the ones in use"}, tried on the ${full(rows.length)} Back Office tickets of the last 7 days`} />

@@ -27,7 +27,7 @@ import {
 import { DEFAULT_PRIORITY, PEOPLE, PRIORITY_TABLE, type Person, type PrioritySettings, type RosterKey } from "@/lib/boDistribution/rules";
 import { DEFAULT_HUB, type HubOptions, type Settings } from "@/lib/boDistribution/engine";
 import { gqsStore, periodFigures, periodList, type ListPick } from "@/lib/boDetection/engine";
-import { JOURNEYS, OWNER_JS, type Journey, type OwnerJ } from "@/lib/boDetection/figures";
+import { JOURNEYS, OWNER_JS, PRIO_BYS, type Journey, type OwnerJ, type PrioBy } from "@/lib/boDetection/figures";
 import { ownerNames } from "@/lib/integrations/erosion";
 
 export const runtime = "nodejs";
@@ -50,7 +50,8 @@ export async function GET(req: NextRequest) {
         const j = sp.get("journey"), oj = sp.get("oj");
         const opt = (k: string) => (sp.has(k) ? sp.get(k)! : undefined);
         const pick: ListPick = {
-          intake: opt("intake"), today: opt("today"), given: opt("given"), rule: opt("rule"), q: opt("q")?.slice(0, 80), prio: opt("prio"), byPerson: sp.get("byPerson") === "1",
+          intake: opt("intake"), today: opt("today"), given: opt("given"), rule: opt("rule"), q: opt("q")?.slice(0, 80), prio: opt("prio"),
+          prioBy: (PRIO_BYS as string[]).includes(sp.get("prioBy") ?? "") ? (sp.get("prioBy") as PrioBy) : undefined,
           journey: j && (JOURNEYS as string[]).includes(j) ? (j as Journey) : undefined,
           oj: oj && (OWNER_JS as string[]).includes(oj) ? (oj as OwnerJ) : undefined,
         };
