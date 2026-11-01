@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DIRECTIONS, QUALIFIED, WITH_ESO, allCallsOf, directionOf, esoBy, esoSideOf, overlapOf, type CallsData } from "../src/lib/reporting/callsRules";
+import { DIRECTIONS, QUALIFIED, WITH_ESO, allCallsOf, directionOf, esoBy, esoSideOf, overlapOf, sameDayOf, type CallsData } from "../src/lib/reporting/callsRules";
 import { V, labelOf, rowsOf, statsBy, visitedCompanies } from "../src/lib/reporting/visitsRules";
 
 // the read's day 29 Oct 2026; Tom (TSA) and Eva (ESO); three qualified calls - two by Tom to a prospect (company 0) that
@@ -104,4 +104,16 @@ test("calls: only TSA, or ESO too - ESO's first contact by the period's end", ()
   assert.equal(esoBy(o, 1, 20260602), true);
   // a read before ESO's contacts (six columns) has none
   assert.equal(esoBy(d, 0, 20261029), false);
+});
+
+test("calls: the same company on the same day, by person - again, or as a colleague, qualified or not", () => {
+  // Ana called company 1 on 2 and 3 May - not the same day
+  assert.deepEqual(sameDayOf(o, YTD, new Set([0, 1, 2])).get(2), { calls: 3, again: 0, againQ: 0, colleague: 0, colleagueQ: 0 });
+  // 2 May: Ana calls company 1 a second time (no answer), and Eva calls it too, qualified
+  const o2: CallsData = { ...o, all: [...o.all, [2, 4, 2, 1, 1], [1, 4, 2, 0, 1]] };
+  const x = sameDayOf(o2, YTD, new Set([0, 1, 2]));
+  assert.deepEqual(x.get(2), { calls: 4, again: 2, againQ: 0, colleague: 2, colleagueQ: 0 });
+  assert.deepEqual(x.get(1), { calls: 3, again: 0, againQ: 0, colleague: 1, colleagueQ: 1 });
+  // only the people shown count as colleagues
+  assert.equal(sameDayOf(o2, YTD, new Set([0, 2])).get(2)!.colleague, 0);
 });

@@ -130,3 +130,41 @@ export function overlapOf(d: CallsData, win: VWin, people: Set<number>): Overlap
   shared.sort((p, q) => q.by.size - p.by.size || q.calls - p.calls || rev(q.ci) - rev(p.ci) || p.ci - q.ci);
   return { bands, persons, pairs, shared, noCompany };
 }
+
+export type SameDay = {
+  /** calls logged on a company */
+  calls: number;
+  /** calls to a company the person called more than once that day - of them qualified (the customer reached) */
+  again: number; againQ: number;
+  /** calls to a company someone else shown called the same day too - of them qualified */
+  colleague: number; colleagueQ: number;
+};
+/**
+ * The same company called on the same day (SARCLA 01.11.2026: "put also the number of calls on the same day by person, and
+ * the outcome - qualified, or simply not qualified: did it reach the customer"), per person shown: the calls to a company
+ * they called more than once that day, and the calls to a company someone else shown called that day as well - each with
+ * how many were qualified. Every call logged with a company, whatever its outcome, as the overlap.
+ */
+export function sameDayOf(d: CallsData, win: VWin, people: Set<number>): Map<number, SameDay> {
+  const [a, b] = daysOf(d, win);
+  const q = d.outcomes.indexOf(QUALIFIED);
+  const rows = d.all.filter((r) => { const day = dayOf(d, r); return day >= a && day <= b && people.has(r[A.person]) && (r[A.company] ?? -1) >= 0; });
+  const own = new Map<string, number>(), who = new Map<string, Set<number>>();
+  for (const r of rows) {
+    const k = `${r[A.company]}|${dayOf(d, r)}`;
+    own.set(`${r[A.person]}|${k}`, (own.get(`${r[A.person]}|${k}`) ?? 0) + 1);
+    const s = who.get(k) ?? new Set<number>();
+    s.add(r[A.person]);
+    who.set(k, s);
+  }
+  const out = new Map<number, SameDay>();
+  for (const r of rows) {
+    const p = r[A.person], k = `${r[A.company]}|${dayOf(d, r)}`, qualified = r[A.outcome] === q;
+    const x = out.get(p) ?? { calls: 0, again: 0, againQ: 0, colleague: 0, colleagueQ: 0 };
+    x.calls++;
+    if ((own.get(`${p}|${k}`) ?? 0) > 1) { x.again++; if (qualified) x.againQ++; }
+    if ((who.get(k)?.size ?? 0) > 1) { x.colleague++; if (qualified) x.colleagueQ++; }
+    out.set(p, x);
+  }
+  return out;
+}

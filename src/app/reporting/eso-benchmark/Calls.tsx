@@ -10,7 +10,9 @@
 // (every title says which); "became customers / had bought before / bought again: we need a split - only TSA, TSA & ESO,
 // where the customer had also a contact from the sales ESO"; the Direction tab replaced by Overlapping ("how many companies
 // get overlapped by user - I want to see it as a diagram and a specialized tab"); and "on calls, when you switch to ESO the
-// visits should appear and vice versa - the only one that swaps" (CallsOrVisits, at the end).
+// visits should appear and vice versa - the only one that swaps" (CallsOrVisits, at the end). Third pass: the split "really
+// like a table to be easier to analyse"; the overlap's diagram "too short" - the card's width now; "the number of calls on
+// the same day by person, and the outcome - qualified, or simply not qualified (did it reach the customer)".
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -55,7 +57,7 @@ import {
   BEFORE, CO, REG_WAY, V, blank, coverageOf, dayWin, daysIn, daysOf, isoOf, labelOf, rowsOf, statsBy, visitedCompanies, ymd,
   type VDim, type VFilters, type VStats, type VWin,
 } from "@/lib/reporting/visitsRules";
-import { NO_COMPANY, WITH_ESO, allCallsOf, esoSideOf, overlapOf, type CallsData } from "@/lib/reporting/callsRules";
+import { NO_COMPANY, WITH_ESO, allCallsOf, esoSideOf, overlapOf, sameDayOf, type CallsData } from "@/lib/reporting/callsRules";
 import { VisitsExplorer } from "./Visits";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
@@ -413,26 +415,16 @@ function Bars({ items, empty }: { items: { label: string; n: number; of: number 
 const callWords = (x: string) => x.replace(/the visit/g, "the qualified call");
 /** "Only TSA" / "TSA & ESO", said out */
 const SIDE_WORDS: Record<(typeof WITH_ESO)[number], string> = { "Only TSA": "Only TSA - no ESO visit or call", "TSA & ESO": "TSA & ESO - an ESO visit or call too" };
-/** A few figures side by side: each row's count of its base, per side and together. */
-function SplitTable({ rows, base }: { rows: { label: string; cells: [number, number][] }[]; base: string }) {
-  const cols = [...WITH_ESO, "Together"];
-  return (
-    <Box sx={{ display: "grid", gap: 0.4, overflowX: "auto" }}>
-      <Box sx={{ display: "grid", gridTemplateColumns: "minmax(170px, 1.4fr) repeat(3, minmax(108px, 1fr))", gap: 1, minWidth: 520 }}>
-        <span />
-        {cols.map((h) => <Typography key={h} sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "right" }}>{h}</Typography>)}
-        {rows.map((r) => [
-          <Typography key={`${r.label}-l`} sx={{ fontSize: "0.84rem", color: INK }}>{r.label}</Typography>,
-          ...r.cells.map(([n, of], i) => (
-            <Typography key={`${r.label}-${i}`} sx={{ fontSize: "0.84rem", color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-              <b>{int(n)}</b> <span style={{ color: MUTED }}>of {int(of)} · {pct(of ? n / of : null)}</span>
-            </Typography>
-          )),
-        ])}
-      </Box>
-      <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{base}</Typography>
-    </Box>
-  );
+/** The split as a table (SARCLA 01.11.2026: "put really like a table to be easier to analyse"): each row's companies of its
+ *  base and the share, for TSA alone, with ESO too, and together. */
+type SplitRow = { label: string; cells: [number, number][] };
+function SplitTable({ rows, first }: { rows: SplitRow[]; first: string }) {
+  const sides = [...WITH_ESO, "Together"];
+  const cols: Col<SplitRow>[] = sides.flatMap((h, i) => [
+    { key: `n${i}`, head: h, tip: i < 2 ? SIDE_WORDS[WITH_ESO[i]] : "TSA alone and with ESO together", cell: (r: SplitRow) => <><b>{int(r.cells[i][0])}</b> <span style={{ color: MUTED }}>of {int(r.cells[i][1])}</span></>, sort: (r: SplitRow) => r.cells[i][0] },
+    { key: `p${i}`, head: `${h}, share`, cell: (r: SplitRow) => pct(r.cells[i][1] ? r.cells[i][0] / r.cells[i][1] : null), sort: (r: SplitRow) => (r.cells[i][1] ? r.cells[i][0] / r.cells[i][1] : -1) },
+  ]);
+  return <FullTable first={first} cols={cols} rows={rows} natural />;
 }
 function Answers({ c }: { c: VCtx }) {
   const t = totalOf(c);
@@ -447,7 +439,14 @@ function Answers({ c }: { c: VCtx }) {
     <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{main}{rest && <span style={{ fontSize: "0.82rem", fontWeight: 500, color: MUTED }}> {rest}</span>}</Typography>
   );
   const row = { display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(260px, 1fr) minmax(0, 1.4fr)" }, gap: { xs: 0.5, md: 2 }, alignItems: "start", py: 1.25, borderBottom: `1px solid ${HAIRLINE}` } as const;
-  const eso = `ESO: a completed visit by ESO or a call by someone on ESO, ${c.d.year} to ${perEnd(c.d, c.per)}${c.d.esoRead === false ? " - ESO's visits could not be read, its calls only" : ""}`;
+  const eso = `Only TSA: no ESO visit or call · TSA & ESO: a completed visit by ESO or a call by someone on ESO too, ${c.d.year} to ${perEnd(c.d, c.per)}${c.d.esoRead === false ? " - ESO's visits could not be read, its calls only" : ""}`;
+  // the split under its question, the full width of the card
+  const wide = (rows: SplitRow[], first: string) => (
+    <Box sx={{ gridColumn: "1 / -1", display: "grid", gap: 0.5, mt: 0.5 }}>
+      <SplitTable rows={rows} first={first} />
+      <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{eso}</Typography>
+    </Box>
+  );
   return (
     <Box sx={{ display: "grid" }}>
       <Box sx={row}>{q(1, "How many qualified calls to prospects?")}{a(`${int(t.newVisits)} qualified calls`, `to ${int(t.newCompanies)} prospects - companies that had never ordered before the day of the qualified call`)}</Box>
@@ -458,28 +457,29 @@ function Answers({ c }: { c: VCtx }) {
       </Box>
       <Box sx={row}>
         {q(4, "How many of them became customers?")}
-        <Box sx={{ display: "grid", gap: 0.75 }}>
-          {a(int(t.boughtInPeriod), `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the ${int(t.newCompanies)} prospects - their first order on the day of the qualified call or after it, by ${perEnd(c.d, c.per)}`)}
-          <Bars items={WITH_ESO.map((k, i) => ({ label: `${SIDE_WORDS[k]} · of ${int(sides[i].newCompanies)} prospects`, n: sides[i].boughtInPeriod, of: sides[i].newCompanies }))} empty="No prospect reached by a qualified call in this period." />
-          <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{eso}</Typography>
-        </Box>
+        {a(int(t.boughtInPeriod), `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the ${int(t.newCompanies)} prospects - their first order on the day of the qualified call or after it, by ${perEnd(c.d, c.per)}`)}
+        {wide([
+          { label: "Prospects reached by a qualified call", cells: [...sides.map((s) => [s.newCompanies, t.newCompanies] as [number, number]), [t.newCompanies, t.newCompanies] as [number, number]] },
+          { label: "Became customers", cells: [...sides.map((s) => [s.boughtInPeriod, s.newCompanies] as [number, number]), [t.boughtInPeriod, t.newCompanies] as [number, number]] },
+        ], "Prospects")}
       </Box>
       <Box sx={row}>
         {q(5, "How many of the companies reached by a qualified call had bought before?")}
         <Box sx={{ display: "grid", gap: 0.75 }}>
           {a(int(t.oldCompanies), `companies that had ordered before the day of the qualified call`)}
-          <SplitTable base={eso} rows={[
-            { label: "Had bought before", cells: [[sides[0].oldCompanies, t.oldCompanies], [sides[1].oldCompanies, t.oldCompanies], [t.oldCompanies, t.oldCompanies]] },
-            ...BEFORE.map((label, i) => ({ label: callWords(label), cells: [...sides.map((s) => [i ? s.lapsed : s.stillBuying, s.oldCompanies] as [number, number]), [i ? t.lapsed : t.stillBuying, t.oldCompanies] as [number, number]] })),
-          ]} />
         </Box>
+        {wide([
+          { label: "Had bought before", cells: [[sides[0].oldCompanies, t.oldCompanies], [sides[1].oldCompanies, t.oldCompanies], [t.oldCompanies, t.oldCompanies]] },
+          ...BEFORE.map((label, i) => ({ label: callWords(label), cells: [...sides.map((s) => [i ? s.lapsed : s.stillBuying, s.oldCompanies] as [number, number]), [i ? t.lapsed : t.stillBuying, t.oldCompanies] as [number, number]] })),
+        ], "Companies that had bought before")}
       </Box>
       <Box sx={{ ...row, borderBottom: 0 }}>
         {q(6, "How many of them bought again after the qualified call?")}
-        <SplitTable base={eso} rows={[
-          { label: "Still buying - ordered after the qualified call", cells: [...sides.map((s) => [s.stillBuyingAgain, s.stillBuying] as [number, number]), [t.stillBuyingAgain, t.stillBuying]] },
-          { label: "Not retained - won back, ordered again after the qualified call", cells: [...sides.map((s) => [s.lapsedAgain, s.lapsed] as [number, number]), [t.lapsedAgain, t.lapsed]] },
-        ]} />
+        {a(int(t.stillBuyingAgain + t.lapsedAgain), `of the ${int(t.oldCompanies)} ordered again after the qualified call, by ${perEnd(c.d, c.per)}`)}
+        {wide([
+          { label: "Still buying - ordered after the qualified call", cells: [...sides.map((s) => [s.stillBuyingAgain, s.stillBuying] as [number, number]), [t.stillBuyingAgain, t.stillBuying] as [number, number]] },
+          { label: "Not retained - won back, ordered again after the qualified call", cells: [...sides.map((s) => [s.lapsedAgain, s.lapsed] as [number, number]), [t.lapsedAgain, t.lapsed] as [number, number]] },
+        ], "Companies that had bought before")}
       </Box>
     </Box>
   );
@@ -508,23 +508,24 @@ function OverlapMatrix({ c }: { c: VCtx }) {
   const both = (a: number, b: number) => (a === b ? o.persons.get(a)?.companies ?? 0 : o.pairs.get(a < b ? `${a}|${b}` : `${b}|${a}`) ?? 0);
   const max = Math.max(1, ...who.flatMap((a) => who.filter((b) => b !== a).map((b) => both(a, b))));
   if (!who.length) return <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>No calls with a company under these filters.</Typography>;
-  const cell = 64;
+  // the card's width (SARCLA 01.11.2026: "this graph is too short") - a cell at least 64px, the rest shared; scrolls inside
+  // its card on a phone
   return (
     <Box sx={{ display: "grid", gap: 1 }}>
       <Box sx={{ overflowX: "auto" }}>
-        <Box sx={{ display: "grid", gridTemplateColumns: `minmax(130px, 170px) repeat(${who.length}, ${cell}px)`, gap: "3px", alignItems: "stretch", width: "max-content" }}>
+        <Box sx={{ display: "grid", gridTemplateColumns: `minmax(150px, 220px) repeat(${who.length}, minmax(64px, 1fr))`, gap: "4px", alignItems: "stretch", width: "100%", minWidth: 150 + who.length * 68 }}>
           <span />
-          {who.map((b) => <Typography key={`h${b}`} title={name(b)} sx={{ fontSize: "0.7rem", fontWeight: 600, color: MUTED, textAlign: "center", lineHeight: 1.2, alignSelf: "end", pb: 0.5, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{name(b)}</Typography>)}
+          {who.map((b) => <Typography key={`h${b}`} title={name(b)} sx={{ fontSize: "0.76rem", fontWeight: 650, color: MUTED, textAlign: "center", lineHeight: 1.25, alignSelf: "end", pb: 0.5, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{name(b)}</Typography>)}
           {who.map((a) => [
-            <Typography key={`r${a}`} noWrap title={name(a)} sx={{ fontSize: "0.8rem", fontWeight: 600, color: INK, alignSelf: "center", pr: 1 }}>{name(a)}</Typography>,
+            <Typography key={`r${a}`} noWrap title={name(a)} sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, alignSelf: "center", pr: 1 }}>{name(a)}</Typography>,
             ...who.map((b) => {
               const n = both(a, b), self = a === b;
               const share = self ? 0 : n / max;
               return (
                 <Box key={`${a}-${b}`} title={self ? `${name(a)} called ${int(n)} companies` : `${name(a)} and ${name(b)} both called ${int(n)} companies`}
-                  sx={{ height: 40, borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", border: self ? `1px solid ${HAIRLINE}` : 0,
+                  sx={{ height: 52, borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", border: self ? `1px solid ${HAIRLINE}` : 0,
                     bgcolor: self ? "#fff" : n ? `rgba(192, 57, 43, ${0.08 + share * 0.82})` : "rgba(21,34,58,.03)" }}>
-                  <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: self ? MUTED : share > 0.55 ? "#fff" : n ? INK : FAINT }}>{n ? int(n) : "—"}</Typography>
+                  <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: self ? MUTED : share > 0.55 ? "#fff" : n ? INK : FAINT }}>{n ? int(n) : "—"}</Typography>
                 </Box>
               );
             }),
@@ -550,6 +551,26 @@ function OverlapTable({ c }: { c: VCtx }) {
     { key: "sharedCalls", head: "Calls on those companies", tip: "The person's calls to companies someone else called too", cell: (r) => int(r.sharedCalls), sort: (r) => r.sharedCalls },
   ];
   return <FullTable key={`ov-${c.per.id}-${c.team}`} first="Person" cols={cols} initial="shared" rows={rows} total={total} selected={c.filters.person} onPick={c.onBar ? (l) => c.onBar!("person", l) : undefined} find="a person" />;
+}
+/** The same company on the same day, by person (SARCLA 01.11.2026: "the number of calls on the same day by person, and the
+ *  outcome - qualified, or simply not qualified: did it reach the customer"). */
+function SameDayTable({ c }: { c: VCtx }) {
+  const by = sameDayOf(c.d, c.per.win, shownPeople(c));
+  type SRow = { label: string; calls: number; again: number; againQ: number; colleague: number; colleagueQ: number };
+  const rows: SRow[] = [...by].map(([p, x]) => ({ label: c.d.people[p]?.name ?? "Unknown", ...x }));
+  const sum = (k: keyof Omit<SRow, "label">) => rows.reduce((a, r) => a + r[k], 0);
+  const total: SRow = { label: "Total", calls: sum("calls"), again: sum("again"), againQ: sum("againQ"), colleague: sum("colleague"), colleagueQ: sum("colleagueQ") };
+  const share = (n: number, of: number) => <>{int(n)} <span style={{ color: MUTED }}>{pct(of ? n / of : null)}</span></>;
+  const cols: Col<SRow>[] = [
+    { key: "calls", head: "Calls logged on a company", tip: "Every call the person logged with a company, whatever its outcome", cell: (r) => int(r.calls), sort: (r) => r.calls },
+    { key: "again", head: "Again the same day", tip: "Calls to a company the person called more than once that day - all of that day's calls to it", cell: (r) => share(r.again, r.calls), sort: (r) => r.again },
+    { key: "againQ", head: "…qualified", tip: "Of those, the calls with the outcome \"TSA Qualified Calls\" - the customer reached", cell: (r) => share(r.againQ, r.again), sort: (r) => r.againQ },
+    { key: "againN", head: "…not qualified", tip: "Of those, every other outcome - no answer, voicemail, busy, connected without qualifying, none", cell: (r) => share(r.again - r.againQ, r.again), sort: (r) => r.again - r.againQ },
+    { key: "colleague", head: "Same day as a colleague", tip: "Calls to a company someone else shown called on the same day too", cell: (r) => share(r.colleague, r.calls), sort: (r) => r.colleague },
+    { key: "colleagueQ", head: "…qualified", tip: "Of those, the calls with the outcome \"TSA Qualified Calls\" - the customer reached", cell: (r) => share(r.colleagueQ, r.colleague), sort: (r) => r.colleagueQ },
+    { key: "colleagueN", head: "…not qualified", tip: "Of those, every other outcome", cell: (r) => share(r.colleague - r.colleagueQ, r.colleague), sort: (r) => r.colleague - r.colleagueQ },
+  ];
+  return <FullTable key={`sd-${c.per.id}-${c.team}`} first="Person" cols={cols} initial="again" rows={rows} total={total} selected={c.filters.person} onPick={c.onBar ? (l) => c.onBar!("person", l) : undefined} find="a person" />;
 }
 /** The companies behind the overlap: called by two people or more, the most people first - who called it how often. */
 function overlapListOf(c: VCtx): CompanySource | null {
@@ -642,6 +663,10 @@ function drawnBare(id: string): Drawn | undefined {
   if (chart === "matrix") {
     const title = (c: VCtx) => `Who overlaps with whom - the companies both people called, ${c.per.title}${teamPart(c)}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · every call logged with a company, whatever its outcome · the companies called by both people of a pair`} actions={a}><OverlapMatrix c={c} /></ChartBox> };
+  }
+  if (chart === "sameday") {
+    const title = (c: VCtx) => `The same company called on the same day, ${c.per.title}, by person${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · every call logged with a company, whatever its outcome · again the same day: the person called the company more than once that day; same day as a colleague: someone else shown called it that day too · qualified: the outcome "TSA Qualified Calls", the customer reached`} actions={a}><SameDayTable c={c} /></ChartBox> };
   }
   if (chart === "overlap-table") {
     const title = (c: VCtx) => `Overlapping, ${c.per.title}, by person${teamPart(c)}`;
@@ -821,6 +846,7 @@ function TabCard({ c, act }: { c: VCtx; act: Act }) {
       <CardTitle icon={<JoinInnerOutlinedIcon />} tint="pink" title={`${teamName(c)}: the same company called by several people, ${c.per.title}`} note={`${words} · every call logged with a company, whatever its outcome - not only the qualified ones (as the TSA calls report of September) · "Companies" lists the companies two people or more called`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "overlap:bands")}{draw(c, act, "overlap:overlap-table")}</Box>
       {draw(c, act, "overlap:matrix")}
+      {draw(c, act, "overlap:sameday")}
     </GlassCard>
   );
   const dim = DIM_OF[c.view], dd = DIM[dim];
