@@ -1,8 +1,10 @@
 "use client";
 // THE HOME PAGE'S ACTION PLAN CARD - it was "Mission Control" (SARCLA 31.10.2026: "change the name to Action
 // plan; the mountain behind should see real data and show what is our position until 30 millions in 2031").
-// The range behind the words is APSOparts' revenue year by year and the climb to the summit; the words say
-// where this year is heading against the path. It opens the plan.
+// The range behind the words is APSOparts' revenue year by year and the climb to the summit (mountain 8, "Snow
+// cap"); the words are text design 4, "Headline line" (SARCLA 01.11.2026, both picked of 30): the sentence is
+// the headline with its three amounts in colour, the name a small label above, the goal and the year-on-year
+// note under it. It opens the plan, admins only.
 
 import Link from "next/link";
 import Box from "@mui/material/Box";
@@ -13,8 +15,8 @@ import { SummitMountain, useSummit } from "./action-plan/Summit";
 import { SUMMIT, mEur, pct1 } from "@/lib/reporting/summitRules";
 
 const INK = "#15223a";
-const MUTED = "#5d6b85";
 const FAINT = "#8b97ac";
+const BLUE = "#3461c9";
 
 export default function ActionPlanCard({ glass, focusRing }: { glass: object; focusRing: object }) {
   const { data: s } = useSummit();
@@ -37,35 +39,34 @@ export default function ActionPlanCard({ glass, focusRing }: { glass: object; fo
         <SummitMountain s={s} mode="card" />
       </Box>
 
-      <Box sx={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 0.6, mb: 1 }}>
-        <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: tone }} />
-        <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: tone }}>
-          {SUMMIT.value / 1_000_000} M€ by {SUMMIT.year}
+      {/* text design 4: the name a label, the sentence the headline, the goal and the note under it */}
+      <Box sx={{ position: "relative", maxWidth: 262 }}>
+        <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: FAINT }}>
+          Action plan
         </Typography>
+        <Typography sx={{
+          fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
+          fontSize: "1.22rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em", lineHeight: 1.22, mt: 0.75,
+          "& b": { fontWeight: 600 },
+        }}>
+          {s?.current && due
+            ? <>{s.current.year} heads for <b style={{ color: tone }}>{mEur(s.current.estimate)}</b> against <b style={{ color: BLUE }}>{mEur(due.value)}</b> on the path to <b>{SUMMIT.value / 1_000_000} M€</b>.</>
+            : s?.base
+              ? <>{s.base.year} closed at <b style={{ color: BLUE }}>{mEur(s.base.value)}</b>; {SUMMIT.value / 1_000_000} M€ by {SUMMIT.year} takes {s.cagr != null ? pct1(s.cagr) : "—"} a year.</>
+              : <>Every action of the business improvement plan, with who owns it and when it is due.</>}
+        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, mt: 1.25 }}>
+          <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: tone, flexShrink: 0 }} />
+          <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: tone }}>
+            {SUMMIT.value / 1_000_000} M€ by {SUMMIT.year}
+          </Typography>
+        </Box>
+        {s?.current && (
+          <Typography sx={{ fontSize: "0.72rem", color: FAINT, mt: 0.5, lineHeight: 1.4 }}>
+            {s.current.monthsLabel} {pct1(s.current.change)} on last year
+          </Typography>
+        )}
       </Box>
-      <Typography sx={{
-        position: "relative",
-        fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-        fontSize: "1.32rem", fontWeight: 600, color: INK, letterSpacing: "-0.03em", lineHeight: 1.18,
-      }}>
-        <Box component="span" sx={{
-          background: "linear-gradient(95deg,#3b82f6,#8b5cf6)",
-          WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
-          display: "inline-block", paddingRight: "6px", marginRight: "-4px",
-        }}>Action plan</Box>
-      </Typography>
-      <Typography sx={{ position: "relative", fontSize: "0.86rem", color: MUTED, mt: 0.75, maxWidth: "30ch", lineHeight: 1.45 }}>
-        {s?.current && due
-          ? <>{s.current.year} heads for <b style={{ color: INK }}>{mEur(s.current.estimate)}</b> against {mEur(due.value)} on the path to {SUMMIT.value / 1_000_000} M€.</>
-          : s?.base
-            ? <>{s.base.year} closed at <b style={{ color: INK }}>{mEur(s.base.value)}</b>; {SUMMIT.value / 1_000_000} M€ by {SUMMIT.year} takes {s.cagr != null ? pct1(s.cagr) : "—"} a year.</>
-            : <>Every action of the business improvement plan by topic - who owns it, when it is due, how far it is.</>}
-      </Typography>
-      {s?.current && (
-        <Typography sx={{ position: "relative", fontSize: "0.74rem", color: FAINT, mt: 0.5, maxWidth: "34ch" }}>
-          {s.current.monthsLabel} {pct1(s.current.change)} on last year
-        </Typography>
-      )}
       <Box className="go" sx={{
         position: "absolute", right: 18, bottom: 18, width: 42, height: 42, borderRadius: "50%",
         display: "grid", placeItems: "center",

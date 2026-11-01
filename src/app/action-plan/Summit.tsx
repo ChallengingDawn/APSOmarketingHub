@@ -107,12 +107,15 @@ export function SummitMountain({ s, mode }: { s: SummitData | null; mode: "card"
   const Y = (v: number) => L.yb - ((v - v0) * (L.yb - L.yt)) / (v1 - v0);
   const XY = (q: Pt): Pt => [X(q[0]), Y(q[1])];
 
-  const data = [...H, ...P.slice(1)].map(XY);
+  // the ridge runs through this year's own figure, so the dot sits on the line (SARCLA 01.11.2026: "the circle is
+  // not aligned with the line" - it ran through the path's value for this year); the path takes over after it
+  const data = (s.current ? [...H, N, ...P.filter((q) => q[0] > N[0])] : [...H, ...P.slice(1)]).map(XY);
   const top = data[data.length - 1];
   const back: Pt[] = [[top[0] + 24, top[1] + 38], [top[0] + 44, top[1] + 62], [top[0] + 70, top[1] + 78]];
   const crest: Pt[] = [[L.x0 - 60, L.base - 2], [L.x0 - 28, L.yb - 22], ...data, ...back];
   const ridge = smooth(crest), rock = closeDown(ridge, crest, L.base);
-  const xBase = X(s.base.year);
+  // solid up to where we are, dashed from there to the summit
+  const xBase = X(N[0]);
   const now = XY(N);
   const ahead = s.gap == null || s.gap >= 0;
   const st = ahead ? GOOD : BEHIND;
@@ -124,7 +127,7 @@ export function SummitMountain({ s, mode }: { s: SummitData | null; mode: "card"
   let snow = `M${r1(snowL)},${r1(L.yt - 70)}L${right},${r1(L.yt - 70)}L${right},${r1(sy + 8)}`;
   for (let x = right - 6, j = 0; x > snowL + 6; x -= 7, j++) snow += `L${r1(x)},${r1(sy + (j % 2 ? -3 : 3.5))}`;
   snow += `L${r1(snowL)},${r1(sy)}Z`;
-  const xSnow = xAtY(P.map(XY), sy);
+  const xSnow = xAtY(data, sy);
   const ridges = ([[1, 26, 40], [6, 18, 34], [8, 14, 26], [3, 20, 30]] as const)
     .filter(([i]) => i < data.length)
     .map(([i, dx, dy]) => `M${r1(data[i][0])},${r1(data[i][1] + 4)}q${r1(dx * 0.3)},${r1(dy * 0.5)} ${dx},${dy}`);
