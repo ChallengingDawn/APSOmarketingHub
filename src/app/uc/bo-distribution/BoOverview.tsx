@@ -87,20 +87,46 @@ const HUB_SINCE = "2026-10-19";
  * owner at all was a chat request closed without one. No open Back Office ticket was without an owner.
  */
 function SinceHub({ f }: { f: Figures }) {
+  // SARCLA 01.11.2026, on "43 later; 3 had none": "why still this?" - each of them opens, and the day most came on is named
+  const [show, setShow] = useState<OwnerJ | null>(null);
   const days = f.byDay.filter((x) => x.d >= HUB_SINCE);
   if (!days.length) return null;
   const n = days.reduce((a, x) => a + x.n, 0);
   const s = (k: OwnerJ) => days.reduce((a, x) => a + (x.oj[k] ?? 0), 0);
   const quick = s("kept") + s("moved"), later = s("later"), none = s("none");
   const whole = f.now.from >= HUB_SINCE;
+  const from = whole ? f.now.from : HUB_SINCE;
+  const top = [...days].sort((a, b) => (b.oj.later ?? 0) - (a.oj.later ?? 0))[0];
+  const topLater = top?.oj.later ?? 0;
+  const link = (k: OwnerJ, text: string) => (
+    <Box component="button" type="button" onClick={() => setShow(show === k ? null : k)} sx={{ all: "unset", cursor: "pointer", color: "#2459d1", fontWeight: 700, textDecoration: "underline", textUnderlineOffset: "2px" }}>{text}</Box>
+  );
   return (
-    <Typography sx={{ fontSize: "0.86rem", color: INK, mt: -0.5 }}>
-      <b>{whole ? "In this period" : `Since the hub took over on 19.10.2026`}: {full(quick + later)} of {full(n)} tickets were given an owner ({pct(quick + later, n)})</b>
-      {" "}- {full(quick)} within half an hour of entering New, {full(later)} later{none ? `; ${full(none)} had none from the routing` : ""}. Every ticket of the period and its owner is on Tickets.
-      {!whole && " The tiles count the whole period, its months before the hand-over back-tracked from HubSpot."}
-    </Typography>
+    <>
+      <Typography sx={{ fontSize: "0.86rem", color: INK, mt: -0.5 }}>
+        <b>{whole ? "In this period" : "Since the hub took over on 19.10.2026"}: {full(quick + later)} of {full(n)} tickets were given an owner ({share(quick + later, n)})</b>
+        {" "}- {full(quick)} within half an hour of entering New{later ? <>, {link("later", `${full(later)} later`)}</> : ""}
+        {topLater > 1 && topLater * 2 >= later ? ` (${full(topLater)} of them on ${rangeLabel(top.d, top.d)}${INCIDENT[top.d] ? `, ${INCIDENT[top.d]}` : ""})` : ""}
+        {none ? <>; {link("none", `${full(none)} had none from the routing`)}</> : ""}. A figure opens its tickets.
+        {!whole && " The tiles count the whole period, its months before the hand-over back-tracked from HubSpot."}
+      </Typography>
+      {show && (
+        <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+          <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title={`${OJ[show].label}: since ${rangeLabel(from, from)}`} note="A row shows the hub's reasons and the owner's story in HubSpot now"
+            right={<Button size="small" onClick={() => setShow(null)} startIcon={<CloseIcon sx={{ fontSize: 16 }} />} sx={{ textTransform: "none" }}>Close</Button>} />
+          <TicketList key={show} from={from} to={f.now.to} names={f.owners} fixed={{}} start={show} />
+        </GlassCard>
+      )}
+    </>
   );
 }
+
+/** A share that never rounds a shortfall up to 100% (885 of 888 read "100%" - SARCLA 01.11.2026). */
+const share = (a: number, b: number) => (!b ? "—" : a === b ? "100%" : `${(Math.floor((a / b) * 1000) / 10).toFixed(1)}%`);
+/** Days the routing could not work, measured - named where their tickets are counted. */
+const INCIDENT: Record<string, string> = {
+  "2026-10-22": "when the hub could not reach HubSpot for five hours after the key change",
+};
 
 /**
  * The four counts, one unit - tickets: the period's, then what became of the owner each was given (they add up). The
@@ -248,8 +274,8 @@ function Opened({ id }: { id: string }) {
 }
 
 /** The tickets of the period narrowed to a pick: newest first, the 300 newest of any number. */
-function TicketList({ from, to, names, fixed }: { from: string; to: string; names: Record<string, string>; fixed: Record<string, string> }) {
-  const [oj, setOj] = useState<OwnerJ | "all">("all");
+function TicketList({ from, to, names, fixed, start }: { from: string; to: string; names: Record<string, string>; fixed: Record<string, string>; start?: OwnerJ }) {
+  const [oj, setOj] = useState<OwnerJ | "all">(start ?? "all");
   const [q, setQ] = useState(""), [asked, setAsked] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const params = new URLSearchParams({ detection: "list", from, to, ...fixed, ...(oj !== "all" ? { oj } : {}), ...(asked ? { q: asked } : {}) });
