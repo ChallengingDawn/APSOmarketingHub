@@ -93,6 +93,11 @@ export type Cube = {
   listed?: boolean;
   /** how many of the ERP's customers no company carries yet it counts as companies of their own (erpOnlyRules.ts), when it does */
   erpOnly?: number;
+  /**
+   * its ledger keeps each company's first and last order ever (order_first_order_date / _last_order_date) - the Customer
+   * Reports' lost customers reach back past the three years read (SARCLA 01.11.2026, Customer Reports)
+   */
+  orderDays?: boolean;
 };
 
 /** The ERP's figures a cell carries, in this order. */
@@ -168,6 +173,8 @@ export type CompanyIn = {
   erp?: number[] | null;
   /** revenue per month by profit centre, per year index (this year, last) - the parsed rev_<y>_pc_monthly */
   pcMonths?: Record<string, number>[][];
+  /** its first and last order ever, yyyymmdd (0: not known) - kept in the ledger only, the cube does not fold them */
+  orders?: [number, number] | null;
 };
 
 /** Folds companies into a cube's cells, revenue and buyers. */

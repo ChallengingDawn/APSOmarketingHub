@@ -7,6 +7,7 @@
 // Server side only: it carries every company's name.
 
 import { CELL, DIMS, ERP_FIELDS, masks, monthOf, partial, passes, type CompanyIn, type Cube, type Filters, type Win } from "./cube";
+import { PC_FIVE, cohortOf, factsOf, isCustomerBy, lastBought, onList, pcsIn, periodOf, prepOf, revIn, topCount, type Facts } from "./customerRules";
 
 export type Ledger = {
   /** the cube's own read time - a list only goes with the cube it was read with */
@@ -29,6 +30,9 @@ export type Ledger = {
   pcLabels: string[];
   /** [company, year index (0 this year, 1 last), profit centre, revenue Jan…Dec] */
   pc: number[][];
+  /** [company, first order ever yyyymmdd, last order ever yyyymmdd] (0 not known) - the Customer Reports' lost customers
+   *  however long ago (SARCLA 01.11.2026); missing in a ledger read before */
+  orders?: number[][];
 };
 
 /** A company as the read hands it to the ledger: its id, name and what the cube folded. */
@@ -39,7 +43,7 @@ const euros = (x: number) => Math.round(x || 0);
 /** Keeps every company of the read beside the cube it was folded into. */
 export function ledgerOf(cube: Pick<Cube, "generatedAt" | "cells">, companies: LedgerIn[]): Ledger {
   const cellIx = new Map(cube.cells.map((c, i) => [c.slice(0, DIMS.length).join(","), i]));
-  const l: Ledger = { generatedAt: cube.generatedAt, ids: [], names: [], cells: [], rev: [], bought: [], oi: [], erp: [], firsts: [], pcLabels: [], pc: [] };
+  const l: Ledger = { generatedAt: cube.generatedAt, ids: [], names: [], cells: [], rev: [], bought: [], oi: [], erp: [], firsts: [], pcLabels: [], pc: [], orders: [] };
   companies.forEach((c, i) => {
     l.ids.push(c.id);
     l.names.push(c.name);
@@ -57,6 +61,7 @@ export function ledgerOf(cube: Pick<Cube, "generatedAt" | "cells">, companies: L
     (c.intake ?? []).forEach((months, y) => { if (months.some((x) => x !== 0)) l.oi.push([i, y, ...months.map(euros)]); });
     if (c.erp?.some((x) => x !== 0)) l.erp.push([i, ...c.erp.map(euros)]);
     if (c.firstInvoiceMonth != null) l.firsts.push([i, c.firstInvoiceMonth]);
+    if (c.orders && (c.orders[0] || c.orders[1])) l.orders!.push([i, c.orders[0], c.orders[1]]);
     (c.pcMonths ?? []).forEach((months, y) => {
       const pcs = new Set(months.flatMap((m) => Object.keys(m)));
       for (const pc of pcs) {
@@ -73,9 +78,12 @@ export function ledgerOf(cube: Pick<Cube, "generatedAt" | "cells">, companies: L
 
 /**
  * What a list follows: "rev" the revenue, "oi" the order intake, "cust" the companies that bought in the window, "new"
- * those whose first invoice falls in it, "all" every company the filters leave, "pc:dt" one profit centre's revenue.
+ * those whose first invoice falls in it, "all" every company the filters leave, "pc:dt" one profit centre's revenue - and
+ * the Customer Reports' own lists (customerRules.ts CUSTOMER_BY: won back, lost, at risk, the top 10% … - SARCLA 01.11.2026).
  */
-export type CompanyBy = "rev" | "oi" | "cust" | "new" | "all" | `pc:${string}`;
+export type CompanyBy = "rev" | "oi" | "cust" | "new" | "all" | `pc:${string}`
+  | "won" | "lost" | "left" | "moved" | "custlost" | "recall" | "risk" | "down" | "pcsany" | "pcsmany" | "single" | "base" | "kept" | "gone" | "grew" | "shrank"
+  | `${"rec" | "band" | "top" | "first" | "pcs" | "pair" | "single"}:${string}`;
 export type CompanyQuery = {
   filters: Filters; win: Win;
   /** the ERP's own year or month to date - as the charts on those periods */
@@ -88,10 +96,20 @@ export type CompanyQuery = {
   /** a column clicked in the list (SARCLA 01.11.2026: "tables should be sortable") - the graph's own order when not */
   sort?: { key: CompanySort; desc: boolean } | null;
   page?: number; size?: number;
+  /** the Customer Reports' lists: at risk, decreasing and cross-sell targets from this amount (euros) */
+  min?: number;
+  /** the Customer Reports' retention by cohort: the year of the first invoice, 0 a customer from before the three years */
+  cohort?: number | null;
 };
-export const COMPANY_SORTS = ["name", "rev", "revPy", "oi", "oiPy", "country", "owner", "sae", "prio"] as const;
+export const COMPANY_SORTS = ["name", "rev", "revPy", "oi", "oiPy", "country", "owner", "sae", "prio", "last", "rev12", "before", "pcs", "drop"] as const;
 export type CompanySort = (typeof COMPANY_SORTS)[number];
-export type CompanyLine = { id: string; name: string; owner: string; sae: string; country: string; prio: string; rev: number; revPy: number; oi: number; oiPy: number };
+export type CompanyLine = { id: string; name: string; owner: string; sae: string; country: string; prio: string; rev: number; revPy: number; oi: number; oiPy: number } & Partial<CustomerLine>;
+/**
+ * What the Customer Reports' lists add: the last purchase ("2025-03", or the last order day "2019-03-14" before the three
+ * years), the revenue in the 12 months to the period's end and in the 12 months to the last purchase, the profit centres
+ * bought from in the period ("DT · KT"), the year of the first invoice (0 before the three years).
+ */
+export type CustomerLine = { last: string; rev12: number; before: number; pcs: string; cohort: number; drop: number };
 export type CompanyPage = { total: number; page: number; size: number; rows: CompanyLine[]; sum: { rev: number; revPy: number; oi: number; oiPy: number } };
 
 /** The companies behind a chart, the largest first, a page at a time - with the sums of all of them. */
@@ -139,7 +157,46 @@ export function companiesOf(cube: Cube, l: Ledger, q: CompanyQuery): CompanyPage
   }
   // who is on the list
   let list: number[];
-  if (q.by === "cust") {
+  // the Customer Reports' lists: each company by the rule its figure counts (customerRules.ts)
+  const extra = new Map<number, CustomerLine & { lastK: number; score: number }>();
+  if (isCustomerBy(q.by)) {
+    const p = prepOf(l), per = periodOf(cube, q.win, q.min ?? 0);
+    const firstYear = cube.years[2];
+    const [kind, arg = ""] = q.by.split(":");
+    const ranked = kind === "top" || kind === "first";
+    list = [];
+    const facts = new Map<number, Facts>();
+    for (let i = 0; i < n; i++) {
+      if (!keep[i]) continue;
+      if (q.cohort != null && cohortOf(p, i, firstYear) !== q.cohort) continue;
+      const f = factsOf(p, i, per);
+      const set = pcsIn(p, i, q.win.start, q.win.end).set;
+      if (ranked ? !f.active : !onList(q.by, f, set, per.min)) continue;
+      list.push(i);
+      facts.set(i, f);
+      // the last purchase in the three years, else the last order HubSpot (or the ERP) has
+      const last = lastBought(p, i, q.win.end);
+      const o = p.orders.get(i);
+      const lastDay = o?.[1] || o?.[0] || 0;
+      const words = last >= 0 ? `${firstYear + Math.floor(last / 12)}-${String((last % 12) + 1).padStart(2, "0")}`
+        : lastDay ? `${Math.floor(lastDay / 10000)}-${String(Math.floor(lastDay / 100) % 100).padStart(2, "0")}-${String(lastDay % 100).padStart(2, "0")}` : "";
+      const before = last >= 0 ? Math.round(revIn(p, i, last - 11, last)) : 0;
+      const drop = Math.round(f.revPy - f.rev);
+      const lastK = last >= 0 ? (firstYear + Math.floor(last / 12)) * 10000 + ((last % 12) + 1) * 100 : lastDay;
+      // each list's own order: the latest losses first, the most at stake first, the largest drop first …
+      const score = kind === "lost" || kind === "left" || q.by === "rec:3" ? lastK * 1e3 + Math.max(0, before) / 1e6
+        : kind === "risk" || kind === "rec" || kind === "recall" ? f.rev12
+        : kind === "down" || kind === "shrank" ? drop
+        : kind === "base" || kind === "gone" ? f.revPy : f.rev;
+      extra.set(i, { last: words, lastK, rev12: Math.round(f.rev12), before, drop, score,
+        pcs: PC_FIVE.filter((_, k) => set & (1 << k)).map((x) => x.toUpperCase()).join(" · "), cohort: cohortOf(p, i, firstYear) });
+    }
+    // the top share or the largest few: the customers of the period by their revenue
+    if (ranked) {
+      list.sort((a, b) => (facts.get(b)!.rev - facts.get(a)!.rev) || l.names[a].localeCompare(l.names[b]));
+      list = list.slice(0, kind === "top" ? topCount(list.length, Number(arg)) : Math.max(0, Number(arg)));
+    }
+  } else if (q.by === "cust") {
     const [wl, wh] = masks(start, end);
     list = l.bought.filter((b) => keep[b[0]] && ((b[1] & wl) || (b[2] & wh))).map((b) => b[0]);
   } else if (q.by === "new") {
@@ -153,7 +210,8 @@ export function companiesOf(cube: Cube, l: Ledger, q: CompanyQuery): CompanyPage
   }
   const zero = { rev: 0, revPy: 0, oi: 0, oiPy: 0 };
   const key = q.by === "oi" ? "oi" : "rev";
-  list.sort((a, b) => ((fig.get(b) ?? zero)[key] - (fig.get(a) ?? zero)[key]) || ((fig.get(b) ?? zero).rev - (fig.get(a) ?? zero).rev) || l.names[a].localeCompare(l.names[b]));
+  if (extra.size) list.sort((a, b) => (extra.get(b)!.score - extra.get(a)!.score) || ((fig.get(b) ?? zero).rev - (fig.get(a) ?? zero).rev) || l.names[a].localeCompare(l.names[b]));
+  else list.sort((a, b) => ((fig.get(b) ?? zero)[key] - (fig.get(a) ?? zero)[key]) || ((fig.get(b) ?? zero).rev - (fig.get(a) ?? zero).rev) || l.names[a].localeCompare(l.names[b]));
   const label = (ci: number, d: (typeof DIMS)[number]) => cube.labels[d][cube.cells[ci]?.[DIMS.indexOf(d)]] ?? "Not set";
   // a column clicked: by it, the graph's order (above) among equals
   if (q.sort) {
@@ -161,7 +219,12 @@ export function companiesOf(cube: Cube, l: Ledger, q: CompanyQuery): CompanyPage
     const at = new Map(list.map((i, k) => [i, k]));
     const text = by === "name" ? (i: number) => l.names[i] : by === "country" || by === "owner" || by === "sae" || by === "prio" ? (i: number) => label(l.cells[i], by) : null;
     const dir = desc ? -1 : 1;
-    list.sort(text
+    // the Customer Reports' own columns
+    const own = by === "last" ? (i: number) => extra.get(i)?.lastK ?? 0 : by === "rev12" ? (i: number) => extra.get(i)?.rev12 ?? 0
+      : by === "before" ? (i: number) => extra.get(i)?.before ?? 0 : by === "drop" ? (i: number) => extra.get(i)?.drop ?? 0
+      : by === "pcs" ? (i: number) => (extra.get(i)?.pcs ? extra.get(i)!.pcs.split(" · ").length : 0) : null;
+    if (own) list.sort((a, b) => dir * (own(a) - own(b)) || at.get(a)! - at.get(b)!);
+    else list.sort(text
       ? (a, b) => dir * text(a).localeCompare(text(b), "en", { sensitivity: "base" }) || at.get(a)! - at.get(b)!
       : (a, b) => dir * ((fig.get(a) ?? zero)[by as "rev"] - (fig.get(b) ?? zero)[by as "rev"]) || at.get(a)! - at.get(b)!);
   }
@@ -172,7 +235,9 @@ export function companiesOf(cube: Cube, l: Ledger, q: CompanyQuery): CompanyPage
   const page = Math.min(Math.max(0, q.page ?? 0), pages - 1);
   const rows = list.slice(page * size, page * size + size).map((i) => {
     const f = fig.get(i) ?? zero, ci = l.cells[i];
-    return { id: l.ids[i], name: l.names[i], owner: label(ci, "owner"), sae: label(ci, "sae"), country: label(ci, "country"), prio: label(ci, "prio"), rev: f.rev, revPy: Math.round(f.revPy), oi: f.oi, oiPy: Math.round(f.oiPy) };
+    const line: CompanyLine = { id: l.ids[i], name: l.names[i], owner: label(ci, "owner"), sae: label(ci, "sae"), country: label(ci, "country"), prio: label(ci, "prio"), rev: f.rev, revPy: Math.round(f.revPy), oi: f.oi, oiPy: Math.round(f.oiPy) };
+    const x = extra.get(i);
+    return x ? { ...line, last: x.last, rev12: x.rev12, before: x.before, pcs: x.pcs, cohort: x.cohort, drop: x.drop } : line;
   });
   return { total: list.length, page, size, rows, sum: { rev: sum.rev, revPy: Math.round(sum.revPy), oi: sum.oi, oiPy: Math.round(sum.oiPy) } };
 }

@@ -37,7 +37,8 @@ import { SEED } from "@/lib/mapAssign/seed";
 // companies whose first order is the ERP's carried-over date, is read again too)
 // (each company kept beside the cube since 31.10, for the charts' lists of companies: a read without `listed` is read
 // again the same way; and since 01.11 the ERP's customers no company carries yet, each as a company of its own with the
-// ERP's SAE - a read without `erpOnly` is read again)
+// ERP's SAE - a read without `erpOnly` is read again; and the same day each company's first and last order ever in the
+// ledger, for the Customer Reports' lost customers however long ago - a read without `orderDays` is read again)
 const KEY = "marketingKpis:customers:v11";
 /** The companies of the read, beside the cube (ledger.ts) - server side only. */
 const LEDGER_KEY = `${KEY}:ledger`;
@@ -55,7 +56,7 @@ export async function customersCube(): Promise<SlowState<Cube>> {
   // and as soon as the ERP morning workbook has run again on its own - "Run now" on the chain page writes each customer's
   // monthly order intake (SARCLA 31.10.2026: "I've run it" - the Figures would have waited up to 6 hours to see it)
   const erp = await lastRun("live", "erp_revenue").then((r) => (r?.finished && !r.error ? Date.parse(r.finished) : 0)).catch(() => 0);
-  return slowReport(KEY, (v: Cube) => ((day && v?.dataDay !== day) || v?.newKind !== "invoice" || v?.newHistory !== HISTORY_FROM || !v?.listed || v?.erpOnly == null || (erp && Date.parse(v?.generatedAt ?? "") < erp) ? 0 : TTL_MS), build);
+  return slowReport(KEY, (v: Cube) => ((day && v?.dataDay !== day) || v?.newKind !== "invoice" || v?.newHistory !== HISTORY_FROM || !v?.listed || v?.erpOnly == null || !v?.orderDays || (erp && Date.parse(v?.generatedAt ?? "") < erp) ? 0 : TTL_MS), build);
 }
 
 /**
@@ -115,6 +116,13 @@ async function withoutHistory(list: { id: string; c: CompanyIn }[], firstYear: n
   }
 }
 const num = (v: string | null | undefined) => (v == null || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+/** "2026-03-05…" -> 20260305; 0 without a day. */
+const ymdOf = (v: string | null | undefined) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v ?? ""); return m ? Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3]) : 0; };
+/** A company's first and last order ever as HubSpot has them (the Customer Reports' lost customers, SARCLA 01.11.2026). */
+const ordersOf = (first: string | null | undefined, last: string | null | undefined): [number, number] | null => {
+  const f = ymdOf(first), l = ymdOf(last);
+  return f || l ? [f, l] : null;
+};
 
 /** The company properties that place a company in the cube. */
 export const DIM_PROPS = ["sales_priority", "apso_customer", "customer_type", "apic_ap", "country_custom", "mandant", "hubspot_owner_id", "yearly_customer_potential", "sae_performis"];
@@ -135,7 +143,7 @@ export function labelsOf(p: Record<string, string | null | undefined>, owners: M
 }
 
 /** Everything a company is read with: its dimensions, the revenue (and by profit centre) and order intake months, the ERP's figures. */
-const propsOf = (years: number[]) => ["name", ...DIM_PROPS, "order_first_order_date", ...years.map((y) => `rev_${y}_pc_monthly`), ...years.flatMap((y) => MONTHS.map((m) => `oi_${y}_${m}`)), ...ERP_PROPS, "erp_rev_as_of"];
+const propsOf = (years: number[]) => ["name", ...DIM_PROPS, "order_first_order_date", "order_last_order_date", ...years.map((y) => `rev_${y}_pc_monthly`), ...years.flatMap((y) => MONTHS.map((m) => `oi_${y}_${m}`)), ...ERP_PROPS, "erp_rev_as_of"];
 
 /** What placing a company needs - the owners' names and teams, the SAE mapping - and what the read counts on the way. */
 type Ctx = {
@@ -189,6 +197,7 @@ function companyOf(p: Record<string, string | null>, x: Ctx): CompanyIn {
     firstMonth: firstMonthOf(p.order_first_order_date, x.years[2]),
     firstInvoiceMonth: firstInvoiceOf(months, p.order_first_order_date, x.years[2]),
     intake, erp: erp.some((v) => v !== 0) ? erp : null, pcMonths,
+    orders: ordersOf(p.order_first_order_date, p.order_last_order_date),
   };
 }
 
@@ -207,8 +216,25 @@ async function erpOnlyCompanies(x: Ctx): Promise<LedgerIn[]> {
     const i = info?.items?.[it.un];
     const c = companyOf(erpOnlyProps(it, i), x);
     if (!canBeNew(it, i, x.years[2])) c.firstInvoiceMonth = null;
+    c.orders = erpOnlyOrders(it, i);
     return { ...c, id: `${ERP_ONLY_ID}${it.un}`, name: i?.name ?? it.un };
   });
+}
+
+/** Such a customer's first and last order as the ERP knows them: the first order year of its customer file, the months with
+ *  revenue (each the 1st of its month) - as a company's order_first_order_date / _last_order_date (SARCLA 01.11.2026). */
+function erpOnlyOrders(item: ErpOnly["items"][number], info: ErpInfoStore["items"][string] | undefined): [number, number] | null {
+  let first = info?.firstOrderYear ? info.firstOrderYear * 10000 + 101 : 0, last = 0;
+  for (const [y, blob] of Object.entries(item.months)) {
+    const b = parsePcMonthly(blob);
+    b.forEach((_, m) => {
+      if (!(monthTotal(b, m) > 0)) return;
+      const d = Number(y) * 10000 + (m + 1) * 100 + 1;
+      if (!first || d < first) first = d;
+      if (d > last) last = d;
+    });
+  }
+  return first || last ? [first, last] : null;
 }
 
 async function build(): Promise<Cube> {
@@ -251,7 +277,7 @@ async function build(): Promise<Cube> {
     : null;
   // the ERP day most companies carry (a straggler from an older file does not move it)
   const erpDay = [...x.erpDays].sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]))[0]?.[0] ?? null;
-  const cube: Cube = { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels: x.labels, teams: x.teams, saeTeams: x.saeTeams, erpDay, oiLoaded: monthsLoaded(x.filledOi[0], x.filledOi[1], monthsDone), newKind: "invoice", newHistory: HISTORY_FROM, erpOnly: erpOnly.length, ...fold(companies) };
+  const cube: Cube = { generatedAt: new Date().toISOString(), years, loaded, running, dataDay: day ?? null, labels: x.labels, teams: x.teams, saeTeams: x.saeTeams, erpDay, oiLoaded: monthsLoaded(x.filledOi[0], x.filledOi[1], monthsDone), newKind: "invoice", newHistory: HISTORY_FROM, erpOnly: erpOnly.length, orderDays: true, ...fold(companies) };
   // every company beside it, before the cube is handed out - a chart's list is there as soon as the chart
   reportProgress(KEY, "keeping the companies for the charts' lists");
   try {
