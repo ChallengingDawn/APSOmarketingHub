@@ -11,8 +11,7 @@ import { itemById } from "@/lib/reporting/actionPlan";
 import { createTicket, ownerOf, readTickets, s2sForm, searchTickets, ticketUrl } from "@/lib/reporting/scrollToSale";
 import { missingRequired, prefill, type TileContext } from "@/lib/reporting/scrollToSaleRules";
 import { describeIntegrationError } from "@/lib/integrations/status";
-import { fail, whoForTile } from "../guard";
-import { planWho } from "../../../action-plan/guard";
+import { fail, who, whoForTile } from "../guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,8 +21,8 @@ const hsFail = (e: unknown) => NextResponse.json({ ok: false, ...describeIntegra
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
-  // the open tickets to link are asked from a KPI tile or from an action of the plan: either rule lets you search
-  const w = sp.has("search") ? await planWho() : await whoForTile(sp.get("tile"));
+  // the open tickets to link: Advanced reporting's rule (an admin, the only one on the plan, passes it too)
+  const w = sp.has("search") ? await who() : await whoForTile(sp.get("tile"));
   if (w instanceof NextResponse) return w;
   try {
     if (sp.has("search")) return NextResponse.json({ ok: true, tickets: await searchTickets(sp.get("search") ?? "") });

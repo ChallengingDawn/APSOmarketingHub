@@ -176,10 +176,9 @@ const navSections: NavSection[] = [
     icon: <DashboardIcon />,
     color: "#274e64",
     items: [
-      // Mission Control's place is the action plan (SARCLA 01.11.2026); what Mission Control showed, the
-      // content calendar, keeps its address under its own name
+      // Mission Control's place is the action plan, admins only (ADMIN_PATHS) - an application of its own with no
+      // panel; the content calendar Mission Control showed belongs to Marketing, which has its own (SARCLA 01.11.2026)
       { label: "Action plan", href: "/action-plan", icon: <DashboardIcon fontSize="small" /> },
-      { label: "Content calendar", href: "/mission-control", icon: <DashboardIcon fontSize="small" /> },
     ],
   },
   {

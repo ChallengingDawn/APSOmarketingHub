@@ -61,12 +61,16 @@ function People({ owners, value, onChange, label = "Shared with" }: { owners: Op
   );
 }
 
-/** The action plan's actions, read once per page visit, for the picker below. */
+/**
+ * The action plan's actions, read once per page visit, for the picker below - or null when the plan is not
+ * this person's (admins only, SARCLA 01.11.2026): then nothing of the plan shows on the tile.
+ */
 type PlanOption = { id: number; title: string; code: string; topic: string; who: string };
-let planOptions: Promise<PlanOption[]> | null = null;
-function loadPlanOptions(): Promise<PlanOption[]> {
+let planOptions: Promise<PlanOption[] | null> | null = null;
+function loadPlanOptions(): Promise<PlanOption[] | null> {
   if (!planOptions) {
     planOptions = fetch("/api/action-plan").then(async (r) => {
+      if (r.status === 401 || r.status === 403) return null;
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) throw new Error(j?.error ?? `the hub answered ${r.status}`);
       const items = j.items as { id: number; parentId: number | null; kind: string; title: string; code: string; responsible: string }[];
@@ -82,11 +86,20 @@ function loadPlanOptions(): Promise<PlanOption[]> {
   return planOptions;
 }
 
+/** Whether this person has the action plan (null while asking). */
+function usePlanAccess(): boolean | null {
+  const [ok, setOk] = useState<boolean | null>(null);
+  useEffect(() => { loadPlanOptions().then((o) => setOk(!!o), () => setOk(false)); }, []);
+  return ok;
+}
+
 /** A KPI tile's task as a sub-action of the action plan (SARCLA 31.10.2026: "linked and triggered from the KPI actions"). */
 function PlanPick({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
   const [opts, setOpts] = useState<PlanOption[] | null>(null);
+  const [denied, setDenied] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  useEffect(() => { loadPlanOptions().then(setOpts, (e) => setErr((e as Error).message)); }, []);
+  useEffect(() => { loadPlanOptions().then((o) => (o ? setOpts(o) : setDenied(true)), (e) => setErr((e as Error).message)); }, []);
+  if (denied) return null;
   if (err) return <Typography sx={{ fontSize: "0.84rem", color: RED }}>The action plan could not be read: {err}</Typography>;
   return (
     <Autocomplete size="small" options={opts ?? []} loading={!opts} value={(opts ?? []).find((o) => o.id === value) ?? null}
@@ -466,6 +479,8 @@ function TaskRow({ tile, k, t, tickets, canWrite, reload, setErr, plan, allowTic
   /** shown on an action of the plan; allowTickets = Digital Growth leads it */
   plan: boolean; allowTickets: boolean;
 }) {
+  // on a KPI tile, the plan's link and button only for whoever has the plan (admins)
+  const hasPlan = usePlanAccess() === true;
   const [adding, setAdding] = useState<null | "new" | "link" | "share" | "plan">(null);
   const [planPick, setPlanPick] = useState<number | null>(k.planItem);
   // a KPI tile's task: it can be linked to an action of the plan, or unlinked (one made on the plan stays with its action)
@@ -532,7 +547,7 @@ function TaskRow({ tile, k, t, tickets, canWrite, reload, setErr, plan, allowTic
           <FlagOutlinedIcon sx={{ fontSize: 17 }} /> Made on a KPI tile - open it
         </Typography>
       )}
-      {!plan && k.planItem != null && (
+      {!plan && hasPlan && k.planItem != null && (
         <Typography component="a" href={`/action-plan?item=${k.planItem}`} sx={{ fontSize: "0.82rem", color: TINT.blue.fg, fontWeight: 600, textDecoration: "none", display: "flex", gap: 0.5, alignItems: "center", "&:hover": { textDecoration: "underline" } }}>
           <FlagOutlinedIcon sx={{ fontSize: 17 }} /> A sub-action of the action plan - open it
         </Typography>
@@ -545,7 +560,7 @@ function TaskRow({ tile, k, t, tickets, canWrite, reload, setErr, plan, allowTic
           {allowTickets && <Button size="small" startIcon={<ConfirmationNumberOutlinedIcon sx={{ fontSize: 18 }} />} onClick={() => open("new")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "new" ? TINT.blue.fg : MUTED }}>New ticket</Button>}
           {allowTickets && <Button size="small" onClick={() => open("link")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "link" ? TINT.blue.fg : MUTED }}>Link open ones</Button>}
           <Button size="small" startIcon={<PeopleOutlineIcon sx={{ fontSize: 18 }} />} onClick={() => open("share")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "share" ? TINT.blue.fg : MUTED }}>Share</Button>
-          {!plan && fromKpi && <Button size="small" startIcon={<FlagOutlinedIcon sx={{ fontSize: 18 }} />} onClick={() => open("plan")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "plan" ? TINT.blue.fg : MUTED }}>Action plan</Button>}
+          {!plan && hasPlan && fromKpi && <Button size="small" startIcon={<FlagOutlinedIcon sx={{ fontSize: 18 }} />} onClick={() => open("plan")} sx={{ ...cta, fontSize: "0.84rem", color: adding === "plan" ? TINT.blue.fg : MUTED }}>Action plan</Button>}
         </Box>
       )}
       {adding === "new" && t && <TicketFields form={t.form} values={values} set={(key, v) => setValues((o) => ({ ...o, [key]: v }))} />}

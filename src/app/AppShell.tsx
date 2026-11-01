@@ -73,6 +73,9 @@ export default function AppShell({ children, sandbox = false }: { children: Reac
   // navigation sitting on top of the work's own (SARCLA, 18.10.2026).
   const isCanvas = matchPrefix(pathname, "/editor");
   const isFullBleed = pathname === "/personality" || isCanvas;
+  // The action plan is an application of its own and wants the whole width for its Gantt (SARCLA 01.11.2026: "full
+  // width to see everything"; "its own application, different from the others"): no panel, the hub's bar on top.
+  const isPlan = matchPrefix(pathname, "/action-plan");
 
   return (
     // The same mesh as the front page. One surface rather than a colourful
@@ -85,7 +88,7 @@ export default function AppShell({ children, sandbox = false }: { children: Reac
       <MeshBackground strength="quiet" />
       {/* Advanced reporting's front page is a door like the launch pad: no
           panel until you are in a category or a report (SARCLA, 11.10.2026). */}
-      {pathname !== "/reporting" && !isCanvas && <Sidebar />}
+      {pathname !== "/reporting" && !isCanvas && !isPlan && <Sidebar />}
       <Box
         component="main"
         sx={{

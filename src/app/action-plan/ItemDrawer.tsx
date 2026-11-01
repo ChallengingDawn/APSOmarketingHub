@@ -180,19 +180,29 @@ export function ItemDrawer({ item, rolled, subs, canWrite, people, peopleError, 
             <Field label="Action and description of main steps" value={item.detail} canWrite={canWrite} multiline rows={4} onSave={(v) => save({ detail: v })} />
             {action && (
               <>
-                <Field half label="BUC referent / challenger" value={item.referent} canWrite={canWrite} onSave={(v) => save({ referent: v })} />
                 <Field half label="Priority" value={item.priority} canWrite={canWrite} onSave={(v) => save({ priority: v })} />
-                <Field half label="Main topic" value={item.mainTopic} canWrite={canWrite} onSave={(v) => save({ mainTopic: v })} />
+                <Field half label="BUC referent / challenger" value={item.referent} canWrite={canWrite} onSave={(v) => save({ referent: v })} />
+              </>
+            )}
+          </Box>
+          {/* the columns the workbook keeps hidden (its tab shows Priority, Topic, Sub task, Action, Responsible, Deadline
+              and BUC referent): kept, folded away - never a category of the plan (SARCLA 01.11.2026: "you read wrong main
+              categories") */}
+          {action && (
+            <Box component="details" sx={{ "& > summary": { cursor: "pointer", listStyle: "revert" } }}>
+              <Typography component="summary" sx={{ ...section, py: 0.5 }}>Hidden columns of the workbook</Typography>
+              <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: "1fr 1fr", pt: 1 }}>
                 <Field label="Status of action" value={item.status} canWrite={canWrite} multiline onSave={(v) => save({ status: v })} />
                 <Field label="Result of action" value={item.result} canWrite={canWrite} multiline onSave={(v) => save({ result: v })} />
                 <Field label="Expected result" value={item.expected} canWrite={canWrite} multiline onSave={(v) => save({ expected: v })} />
+                <Field half label="Main topic" value={item.mainTopic} canWrite={canWrite} onSave={(v) => save({ mainTopic: v })} />
                 <Field half label="Perimeter" value={item.perimeter} canWrite={canWrite} onSave={(v) => save({ perimeter: v })} />
                 <Field half label="Impact of code freeze?" value={item.codeFreeze} canWrite={canWrite} onSave={(v) => save({ codeFreeze: v })} />
                 <Field half label="Complexity" value={item.complexity} canWrite={canWrite} onSave={(v) => save({ complexity: v })} />
                 <Field half label="Planned release" value={item.release} canWrite={canWrite} onSave={(v) => save({ release: v })} />
-              </>
-            )}
-          </Box>
+              </Box>
+            </Box>
+          )}
 
           {canWrite && kinds.length > 0 && (
             <Box sx={{ display: "grid", gap: 1, mt: 0.5 }}>

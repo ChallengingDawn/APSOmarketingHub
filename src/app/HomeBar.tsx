@@ -135,8 +135,8 @@ export function HomeBar({ on }: { on?: string }) {
   const NAV = [
     { name: "Home", href: "/", icon: <HomeIcon />, show: true },
     { name: "Applications", href: "/#applications", icon: <AppsIcon />, show: !reads },
-    // where Mission Control was: the action plan (SARCLA 01.11.2026) - for Marketing or Advanced reporting, as its page
-    { name: "Action plan", href: "/action-plan", icon: <DashboardOutlinedIcon />, show: openFor("marketing") || openFor("reporting") },
+    // where Mission Control was: the action plan, for admins only (SARCLA 01.11.2026)
+    { name: "Action plan", href: "/action-plan", icon: <DashboardOutlinedIcon />, show: role === "admin" },
     { name: "Live", href: "/live", icon: <SensorsIcon />, show: openFor("website") },
     { name: "Resources", href: "/#resources", icon: <MenuBookIcon />, show: !reads },
     { name: "Settings", href: "/settings", icon: <SettingsOutlinedIcon />, show: true },

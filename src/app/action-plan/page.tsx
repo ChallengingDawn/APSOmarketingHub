@@ -1,9 +1,11 @@
 "use client";
 // THE ACTION PLAN (SARCLA 31.10.2026): "APSOparts Business Improvement Action Plan" as a Gantt, the way
-// Planner draws one - by topic, opened and closed level by level, a row dragged to another topic or group
-// (or, grouped by main topic, to another main topic). Sub-actions are added on an action, or on any KPI
-// tile's Actions and linked to it; only actions Digital Growth leads take a "From Scroll to Sale" ticket.
-// At the top, where APSOparts stands on the climb to 30 M€ by 2031.
+// Planner draws one - the workbook's tree as its first tab shows it: the goal on top, the main categories (the
+// bold rows), their sub-categories (the green rows), the actions; opened and closed level by level, a row dragged
+// to another category. Sub-actions are added on an action, or on any KPI tile's Actions and linked to it; only
+// actions Digital Growth leads take a "From Scroll to Sale" ticket.
+// An application of its own, admins only, the whole width (SARCLA 01.11.2026): the hub's bar on top, the goal's
+// statement first, where APSOparts stands on the climb to 30 M€ by 2031, then the Gantt.
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -18,18 +20,15 @@ import CircularProgress from "@mui/material/CircularProgress";
 import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore";
 import UnfoldLessIcon from "@mui/icons-material/UnfoldLess";
 
-import PageHeader from "@/app/PageHeader";
-import { GUTTER } from "@/app/analytics/Shell";
+import { HomeBar } from "@/app/HomeBar";
 import { FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { ActionsPanel } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
-import { STATE_LABEL, isLate, reorder, rollup, type PlanFields, type PlanItem, type PlanKind, type PlanState, type Rolled } from "@/lib/reporting/actionPlanRules";
+import { STATE_LABEL, isLate, reorder, rollup, type PlanFields, type PlanItem, type PlanKind, type PlanState } from "@/lib/reporting/actionPlanRules";
 import { Gantt, type GRow, type Where, type Zoom } from "./Gantt";
 import { ItemDrawer } from "./ItemDrawer";
 import { SummitFigures, SummitMountain, useSummit } from "./Summit";
 import { LATE, STATE_COLOR, readPref, send, todayIso, writePref, type PlanData } from "./planUi";
 
-type Mode = "topic" | "main";
-const NO_MAIN = "No main topic";
 const chip = (on: boolean, color: string = TINT.blue.fg, soft: string = TINT.blue.bg) => ({
   border: `1px solid ${on ? color : HAIRLINE}`, bgcolor: on ? soft : "#fff", color: on ? color : MUTED,
   font: "inherit", fontSize: "0.8rem", fontWeight: on ? 700 : 600, px: 1.2, py: 0.4, borderRadius: 99, cursor: "pointer", whiteSpace: "nowrap" as const,
@@ -60,11 +59,9 @@ function ActionPlan() {
 
   // the viewer's own settings
   const [zoom, setZoom] = useState<Zoom>("week");
-  const [mode, setMode] = useState<Mode>("topic");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   useEffect(() => {
     setZoom(readPref<Zoom>("zoom", "week"));
-    setMode(readPref<Mode>("mode", "topic"));
     setCollapsed(new Set(readPref<string[]>("collapsed", [])));
   }, []);
   const toggle = (key: string) => setCollapsed((c) => {
@@ -118,33 +115,8 @@ function ActionPlan() {
     for (const s of subs) (subsOf.get(s.item) ?? subsOf.set(s.item, []).get(s.item)!).push(s);
     const out: GRow[] = [];
 
-    if (mode === "main") {
-      const buckets = new Map<string, PlanItem[]>();
-      for (const i of items) if (i.kind === "action" && (!filtering || passes(i))) {
-        const k = i.mainTopic.trim() || NO_MAIN;
-        (buckets.get(k) ?? buckets.set(k, []).get(k)!).push(i);
-      }
-      const names = [...buckets.keys()].sort((a, b) => (a === NO_MAIN ? 1 : b === NO_MAIN ? -1 : a.localeCompare(b)));
-      for (const name of names) {
-        const list = buckets.get(name)!;
-        const rs = list.map((i) => rolled.get(i.id)).filter(Boolean) as Rolled[];
-        const pcts = rs.map((r) => r.percent).filter((p): p is number => p != null);
-        const froms = rs.map((r) => r.from).filter(Boolean) as string[], tos = rs.map((r) => r.to).filter(Boolean) as string[];
-        const key = `b${name}`;
-        out.push({ key, type: "bucket", label: name, value: name === NO_MAIN ? "" : name, depth: 0, hasKids: true, count: list.length,
-          from: froms.length ? froms.sort()[0] : null, to: tos.length ? tos.sort()[tos.length - 1] : null,
-          percent: pcts.length ? Math.round(pcts.reduce((s, x) => s + x, 0) / pcts.length) : null });
-        if (collapsed.has(key)) continue;
-        for (const i of list) {
-          const mine = subsOf.get(i.id) ?? [];
-          out.push({ key: `i${i.id}`, type: "item", item: i, depth: 1, hasKids: mine.length > 0 });
-          if (!collapsed.has(`i${i.id}`)) for (const s of mine) out.push({ key: `s${s.id}`, type: "sub", sub: s, parent: i, depth: 2 });
-        }
-      }
-      return out;
-    }
-
-    // by topic: a row shows when it passes the filters or something under it does
+    // the workbook's own tree - the goal first, its main categories (the bold rows), their sub-categories (the green
+    // rows), the actions; a row shows when it passes the filters or something under it does
     const shown = new Map<number, boolean>();
     const visible = (i: PlanItem): boolean => {
       if (shown.has(i.id)) return shown.get(i.id)!;
@@ -164,7 +136,7 @@ function ActionPlan() {
     };
     for (const root of (kids.get(null) ?? []).filter(visible)) walk(root, 0);
     return out;
-  }, [items, subs, rolled, mode, collapsed, filtering, passes]);
+  }, [items, subs, collapsed, filtering, passes]);
 
   const actions = items.filter((i) => i.kind === "action");
   const counts = {
@@ -215,21 +187,10 @@ function ActionPlan() {
   };
   const canDrop = (drag: GRow, target: GRow, where: Where) => {
     if (!data?.canWrite || drag.type !== "item" || drag.key === target.key) return false;
-    if (mode === "main") {
-      if (drag.item.kind !== "action") return false;
-      const to = target.type === "bucket" ? target.value : target.type === "item" ? target.item.mainTopic.trim() : null;
-      return to != null && to !== drag.item.mainTopic.trim();
-    }
     return target.type === "item" && reorder(items, drag.item.id, target.item.id, where) != null;
   };
   const onDrop = async (drag: GRow, target: GRow, where: Where) => {
-    if (drag.type !== "item") return;
-    if (mode === "main") {
-      const to = target.type === "bucket" ? target.value : target.type === "item" ? target.item.mainTopic.trim() : "";
-      await patch(drag.item.id, { mainTopic: to });
-      return;
-    }
-    if (target.type !== "item") return;
+    if (drag.type !== "item" || target.type !== "item") return;
     try {
       await send("/api/action-plan", "POST", { action: "move", id: drag.item.id, target: target.item.id, where });
       setNote(null);
@@ -252,7 +213,7 @@ function ActionPlan() {
   };
   const foldAll = (fold: boolean) => {
     const keys = fold
-      ? [...items.filter((i) => i.kind !== "goal" && (i.kind !== "action" || subs.some((s) => s.item === i.id))).map((i) => `i${i.id}`), ...rows.filter((r) => r.type === "bucket").map((r) => r.key)]
+      ? items.filter((i) => i.kind !== "goal" && (i.kind !== "action" || subs.some((s) => s.item === i.id))).map((i) => `i${i.id}`)
       : [];
     const n = new Set(keys);
     writePref("collapsed", keys);
@@ -260,9 +221,27 @@ function ActionPlan() {
   };
 
   const goal = items.find((i) => i.kind === "goal");
+  // the goal's statement as the workbook writes it: its first line the headline, the rest the why
+  const statement = goal ? goal.detail.split("\n").map((l) => l.trim()).filter(Boolean) : [];
   return (
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2 }}>
-      <PageHeader title="Action plan" subtitle={goal ? goal.title : "APSOparts Business Improvement Action Plan"} />
+    <Box sx={{ width: "100%", minWidth: 0, px: { xs: 2, md: 3 }, py: { xs: 2, md: 2.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2 }}>
+      {/* an application of its own: the hub's bar, no panel - the whole width is the plan's */}
+      <HomeBar on="Action plan" />
+
+      {/* the first statement on top (SARCLA 01.11.2026) */}
+      <Box sx={{ pt: 0.5 }}>
+        <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: FAINT }}>Action plan</Typography>
+        <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontSize: { xs: "1.5rem", md: "1.9rem" }, fontWeight: 650, letterSpacing: "-0.025em", lineHeight: 1.2, color: INK, mt: 0.5, maxWidth: "70ch" }}>
+          {statement[0] ?? "APSOparts Business Improvement Action Plan"}
+        </Typography>
+        {statement.length > 1 && (
+          <Box sx={{ display: "grid", gap: 0.6, mt: 1, maxWidth: "110ch" }}>
+            {statement.slice(1).map((l, k) => (
+              <Typography key={k} sx={{ fontSize: "0.92rem", color: MUTED, lineHeight: 1.5 }}>{l}</Typography>
+            ))}
+          </Box>
+        )}
+      </Box>
 
       {/* where we stand on the climb */}
       <GlassCard sx={{ display: "grid", gap: 2.5, alignItems: "center", gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1fr) 560px" } }}>
@@ -283,11 +262,6 @@ function ActionPlan() {
           <Box component="span" sx={{ color: MUTED, fontWeight: 500 }}> · {counts.undated} without a due date</Box>
         </Typography>
         <Box sx={{ flex: 1 }} />
-        <ToggleButtonGroup size="small" exclusive value={mode} onChange={(_, v: Mode | null) => { if (v) { setMode(v); writePref("mode", v); } }} aria-label="Group by"
-          sx={{ "& .MuiToggleButton-root": { textTransform: "none", fontWeight: 650, fontSize: "0.8rem", px: 1.4, py: 0.45 } }}>
-          <ToggleButton value="topic">By topic</ToggleButton>
-          <ToggleButton value="main">By main topic</ToggleButton>
-        </ToggleButtonGroup>
         <ToggleButtonGroup size="small" exclusive value={zoom} onChange={(_, v: Zoom | null) => { if (v) { setZoom(v); writePref("zoom", v); } }} aria-label="Time scale"
           sx={{ display: { xs: "none", md: "flex" }, "& .MuiToggleButton-root": { textTransform: "none", fontWeight: 650, fontSize: "0.8rem", px: 1.4, py: 0.45 } }}>
           <ToggleButton value="week">Weeks</ToggleButton>
@@ -337,7 +311,7 @@ function ActionPlan() {
           height="max(480px, calc(100vh - 150px))" />
       )}
       <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
-        Drag a row by its handle onto another {mode === "main" ? "main topic" : "topic or group"}; drag a bar to move its dates, its right end to change the due.
+        Drag a row by its handle onto another main category or sub-category; drag a bar to move its dates, its right end to change the due.
         A diamond is an action with only a due date; a dot is a sub-action. Sub-actions come from the action itself or from a KPI tile&apos;s Actions.
       </Typography>
 

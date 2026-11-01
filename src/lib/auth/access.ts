@@ -213,6 +213,9 @@ const ADMIN_PATHS = [
   "/settings/audit",
   "/audit",
   "/admin",
+  // the action plan, an application of its own where Mission Control was (SARCLA 01.11.2026: "this should be only
+  // visible to admin")
+  "/action-plan",
 ];
 
 export function adminOnlyPath(pathname: string): boolean {

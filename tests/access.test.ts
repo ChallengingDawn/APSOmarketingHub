@@ -153,6 +153,10 @@ test("the governance pages are an admin's, app or no app", () => {
   assert.equal(adminOnlyPath("/settings/you"), false);
   assert.equal(adminOnlyPath("/settings/security"), false);
   assert.equal(adminOnlyPath("/docs"), false);
+  // the action plan, an application of its own for admins only (SARCLA 01.11.2026)
+  assert.equal(adminOnlyPath("/action-plan"), true);
+  assert.equal(adminOnlyPath("/action-plan?item=12"), true);
+  assert.equal(adminOnlyPath("/action-planner"), false);
   // A near-miss must not match.
   assert.equal(adminOnlyPath("/settings/people-ish"), false);
 });

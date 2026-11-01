@@ -29,9 +29,7 @@ const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "O
 
 export type GRow =
   | { key: string; type: "item"; item: PlanItem; depth: number; hasKids: boolean }
-  | { key: string; type: "sub"; sub: PlanSub; parent: PlanItem; depth: number }
-  /** a "Main topic" heading when the plan is grouped that way - a value, not a row of the plan */
-  | { key: string; type: "bucket"; label: string; value: string; depth: number; hasKids: boolean; from: string | null; to: string | null; percent: number | null; count: number };
+  | { key: string; type: "sub"; sub: PlanSub; parent: PlanItem; depth: number };
 
 export type Where = "into" | "before";
 
@@ -57,7 +55,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
     let saved = 0;
     try { saved = Number(window.localStorage.getItem("actionPlan.leftW")); } catch { /* default */ }
     if (saved >= 360 && saved <= 1400) setLeftW(saved);
-    else if (box.current) setLeftW(Math.round(Math.max(640, Math.min(980, box.current.clientWidth * 0.62))));
+    else if (box.current) setLeftW(Math.round(Math.max(640, Math.min(1180, box.current.clientWidth * 0.6))));
   }, []);
 
   // the time line: a month before the first date to two after the last, today always on it
@@ -66,7 +64,6 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
     for (const r of rows) {
       if (r.type === "item") { const x = rolled.get(r.item.id); for (const d of [r.item.start, r.item.due, x?.from, x?.to]) if (d) ds.push(dayOf(d)); }
       if (r.type === "sub" && r.sub.due) ds.push(dayOf(r.sub.due));
-      if (r.type === "bucket") for (const d of [r.from, r.to]) if (d) ds.push(dayOf(d));
     }
     const lo = new Date(Math.min(...ds) * 86_400_000), hi = new Date(Math.max(...ds) * 86_400_000);
     const start = Math.round(Date.UTC(lo.getUTCFullYear(), lo.getUTCMonth() - 1, 1) / 86_400_000);
@@ -122,7 +119,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
 
   const [drag, setDrag] = useState<GRow | null>(null);
   const [over, setOver] = useState<{ key: string; where: Where } | null>(null);
-  const whereFor = (r: GRow): Where => (r.type === "bucket" || (r.type === "item" && r.item.kind !== "action") ? "into" : "before");
+  const whereFor = (r: GRow): Where => (r.type === "item" && r.item.kind !== "action" ? "into" : "before");
 
   // a bar being dragged: how far, and whether it moves or stretches
   const [bar, setBar] = useState<{ id: number; mode: "move" | "end" | "due"; dx: number } | null>(null);
@@ -231,9 +228,9 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
             <Box sx={{ position: "absolute", left: todayX + px / 2, top: 0, bottom: 0, width: 2, bgcolor: LATE, opacity: 0.55, zIndex: 1 }} />
             {rows.map((r, i) => {
               const cy = i * ROW + ROW / 2;
-              if (r.type === "bucket" || (r.type === "item" && r.item.kind !== "action")) {
-                const from = r.type === "bucket" ? r.from : rolled.get(r.item.id)?.from;
-                const to = r.type === "bucket" ? r.to : rolled.get(r.item.id)?.to;
+              if (r.type === "item" && r.item.kind !== "action") {
+                const from = rolled.get(r.item.id)?.from;
+                const to = rolled.get(r.item.id)?.to;
                 if (!from || !to) return null;
                 const x = X(from), w = Math.max(px, X(to) - x + px);
                 return (
@@ -323,22 +320,6 @@ function TreeRow({ r, rolled, today, canWrite, folded, toggle, selected, onOpen,
     </Box>
   ) : <Box />;
 
-  if (r.type === "bucket") {
-    return (
-      <Box sx={base} onDragOver={onDragOver} onDrop={onDrop}>
-        <Box />
-        <Box sx={{ ...cell, borderLeft: "none", pl: `${indent}px` }}>
-          {caret(r.hasKids)}
-          <Typography noWrap sx={{ fontSize: "0.86rem", fontWeight: 750, color: INK }}>{r.label}</Typography>
-          <Typography sx={{ ml: 1, fontSize: "0.74rem", color: FAINT, flexShrink: 0 }}>{r.count}</Typography>
-        </Box>
-        <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: FAINT }}>{dmy(r.from)}</Typography></Box>
-        <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: FAINT }}>{dmy(r.to)}</Typography></Box>
-        <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: FAINT }}>{r.percent == null ? "" : `${r.percent} %`}</Typography></Box>
-        <Box sx={cell} />
-      </Box>
-    );
-  }
 
   if (r.type === "sub") {
     const s = r.sub;
