@@ -82,8 +82,9 @@ export function CompaniesButton({ open, onClick }: { open: boolean; onClick: () 
 export function CompanyDialog({ source, title, onClose }: { source: CompanySource; title?: string; onClose: () => void }) {
   const id = useId();
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="lg" aria-labelledby={id}
-      slotProps={{ paper: { sx: { borderRadius: { xs: 0, sm: "18px" }, height: { xs: "100%", sm: "auto" }, maxHeight: { xs: "100%", sm: "88vh" }, m: { xs: 0, sm: 2 }, width: { xs: "100%", sm: undefined } } } }}>
+    // wide (SARCLA 01.11.2026: "make the modal wider so the table can fit perfectly") - the screen less a margin, up to 1600px
+    <Dialog open onClose={onClose} maxWidth={false} aria-labelledby={id}
+      slotProps={{ paper: { sx: { borderRadius: { xs: 0, sm: "18px" }, height: { xs: "100%", sm: "auto" }, maxHeight: { xs: "100%", sm: "90vh" }, m: { xs: 0, sm: 2 }, width: { xs: "100%", sm: "min(1600px, calc(100vw - 32px))" }, maxWidth: "100%" } } }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, px: { xs: 2, sm: 2.5 }, pt: 2, pb: 1 }}>
         <Box id={id} sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>The companies</Typography>
@@ -200,7 +201,9 @@ export function CompanyList({ source }: { source: CompanySource }) {
                 key: `${r.id ?? r.name}-${i}`,
                 cells: [
                   r.id
-                    ? <Box component="a" href={hsCompany(r.id)} target="_blank" rel="noreferrer" sx={{ color: INK, textDecoration: "none", "&:hover": { color: TINT.blue.fg, textDecoration: "underline" } }}>{r.name}</Box>
+                    // underlined - a link to the company in HubSpot (SARCLA 01.11.2026)
+                    ? <Box component="a" href={hsCompany(r.id)} target="_blank" rel="noreferrer" title="Open in HubSpot"
+                        sx={{ color: INK, textDecoration: "underline", textDecorationColor: "rgba(21,34,58,.35)", textUnderlineOffset: "3px", "&:hover": { color: TINT.blue.fg, textDecorationColor: "currentColor" } }}>{r.name}</Box>
                     : r.name,
                   ...r.cells,
                 ],
