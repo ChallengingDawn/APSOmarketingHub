@@ -17,11 +17,12 @@
 // A main toggle, Back Office | GQS (SARCLA 01.11.2026: "GQS should have its own KPI subdivided like we do in advanced
 // reporting - create a main toggle in between pipelines"), and each pipeline its own tabs:
 //   Back Office - Overview, Tickets, Flow, Detection, Sentiment, Priority, People, Settings;
-//   GQS - Overview, Type of request, By person, Speed, Open now (GqsKpis.tsx, every GQS task), Distribution (who gets
-//   each, GqsTab.tsx - the old GQS tab), People, Settings.
-// People and Settings hold both pipelines' lists and switches, so they are under both.
+//   GQS - the same eight (SARCLA 01.11.2026: "keep the same then to GQS the same tab, but instead of sentiment resolution
+//   for win or lost"): Overview, Tickets, Flow, Type of request, Resolution, Speed, People, Settings - the figures from
+//   every GQS task (GqsKpis.tsx), Tickets / Flow / the team from the routing (GqsTab.tsx).
+// People and Settings are each pipeline's own ("GQS still on back office setting"): its team lists, its live switch.
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
@@ -67,15 +68,15 @@ import type { Classification } from "@/lib/boDistribution/classifier";
 import type { Person, RosterKey } from "@/lib/boDistribution/rules";
 
 import {
-  CHAT_LABEL, Detail, GQS_KPI_VIEWS, PIPE_OF, STEP, TicketTable, VIEW_HASH, count, fixesDiffer, gave, movedAfterUs, pct,
+  CHAT_LABEL, Detail, GQS_KPI_VIEWS, GQS_ROSTERS, PIPE_OF, STEP, TicketTable, VIEW_HASH, count, fixesDiffer, gave, movedAfterUs, pct,
   type Data, type PeopleData, type Pipe, type View,
 } from "./shared";
 import type { GqsStore } from "@/lib/gqsFigures/figures";
 import { dayOf, rangeLabel } from "@/lib/boDetection/figures";
 import { DEEMPHASIS } from "@/app/charts/palette";
 import { FlowTab } from "./FlowTab";
-import { GqsTab } from "./GqsTab";
-import { GqsKpis, openCount, type GqsView } from "./GqsKpis";
+import { GqsFlow, GqsTeam, GqsTickets } from "./GqsTab";
+import { GqsKpis, OpenNow, openCount, type GqsView } from "./GqsKpis";
 import { PriorityTab } from "./PriorityTab";
 import { SettingsTab } from "./SettingsTab";
 import { DetectionTab } from "./DetectionTab";
@@ -191,7 +192,7 @@ function Tickets({ d }: { d: Data }) {
         <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Ticket by ticket" note={d.last ? `Last look ${when(d.last.at)}: ${full(d.last.read)} read, ${full(d.last.decided)} new, ${full(d.last.checked)} checked${d.last.error ? ` - ${d.last.error}` : ""}` : "Not run yet"} />
         {/* How many tickets the hub has actually handled, which is what the tab is for. */}
         <Grid container spacing={1.5} sx={{ mb: 2, mt: 0.5 }}>
-          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<ConfirmationNumberOutlinedIcon />} tint="slate" label="Tickets seen" value={full(inPipe.length)} note="Back Office - GQS's are on GQS > Distribution" /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<ConfirmationNumberOutlinedIcon />} tint="slate" label="Tickets seen" value={full(inPipe.length)} note="Back Office - GQS's are on GQS > Tickets" /></Grid>
           <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<PersonOutlineOutlinedIcon />} tint="green" label="Given an owner by the hub" value={full(given)} note={`${pct(given, inPipe.length)} of them`} /></Grid>
           <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="amber" label="Moved after we gave it" value={full(moved)} note={given ? `${pct(moved, given)} of the ones we gave` : "nothing given yet"} /></Grid>
           <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<AltRouteOutlinedIcon />} tint="pink" label="A fix changed the owner" value={full(inPipe.filter(fixesDiffer).length)} note="rules in fixes.ts" /></Grid>
@@ -258,7 +259,11 @@ function RosterEditor({ k, d, owners, onSaved }: { k: RosterKey; d: Data; owners
     </Box>
   );
 }
-function People({ d, onSaved }: { d: Data; onSaved: () => void }) {
+/**
+ * People, per pipeline (01.11.2026): Back Office's people and its team lists; on GQS only GQS's lists - the GQS team
+ * table (GqsTeam) and each owner's figures stand above them there.
+ */
+function People({ d, onSaved, pipe }: { d: Data; onSaved: () => void; pipe: Pipe }) {
   const [n, setN] = useState(0);
   const held = useHeld<PeopleData>(`/api/uc/bo-distribution?people=1&n=${n}`, [n]);
   const r = held.result;
@@ -268,35 +273,37 @@ function People({ d, onSaved }: { d: Data; onSaved: () => void }) {
   const got = (id: string) => d.rows.filter((x) => x.actual && gave(x)!.id === id).length;
   const copy = (id: string) => d.rows.filter((x) => x.legacy?.ownerId === id).length;
   const hub = (id: string) => d.rows.filter((x) => x.hub?.ownerId === id).length;
+  const keys = (Object.keys(d.labels) as RosterKey[]).filter((k) => GQS_ROSTERS.includes(k) === (pipe === "gqs"));
   return (
     <>
+      {pipe === "bo" && (
+        <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+          <CardTitle icon={<GroupsOutlinedIcon />} tint="green" title="The people" note={`Everyone in a team - chat status and open Back Office tickets now (${when(p.at)}); the tickets of the days the routing keeps`} />
+          <Box sx={{ overflowX: "auto" }}>
+            <Table size="small">
+              <TableHead><TableRow>{["Person", "Status", "Open Back Office", "Got", "Old rules", "Hub gives", "Teams"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+              <TableBody>
+                {[...p.people].sort((a, b) => Number(a.deactivated) - Number(b.deactivated) || a.name.localeCompare(b.name)).map((x) => (
+                  <TableRow key={x.id}>
+                    <TableCell sx={{ ...bodyCell, fontWeight: 700, color: x.deactivated ? RED : INK }}>{x.name}</TableCell>
+                    <TableCell sx={bodyCell}>{x.deactivated ? <Chip tint="pink">deactivated</Chip> : x.chat === "available" ? <Chip tint="green">available</Chip> : <Chip tint="slate">{x.chat ? CHAT_LABEL[x.chat] ?? x.chat : "no status"}</Chip>}</TableCell>
+                    <TableCell sx={bodyCell}>{x.boOpen ?? "—"}</TableCell>
+                    <TableCell sx={bodyCell}>{got(x.id) || ""}</TableCell>
+                    <TableCell sx={bodyCell}>{copy(x.id) || ""}</TableCell>
+                    <TableCell sx={bodyCell}>{hub(x.id) || ""}</TableCell>
+                    <TableCell sx={{ ...bodyCell, fontSize: "0.72rem", color: MUTED }}>{x.lists.length} list{x.lists.length === 1 ? "" : "s"}{x.inWorkflow.length !== x.lists.length ? " (changed here)" : ""}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+          <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1 }}>&quot;Available&quot; is the green dot of HubSpot chat. Old rules = what the rules before the hand-over would have given; Hub gives = the rules in use.</Typography>
+        </GlassCard>
+      )}
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<GroupsOutlinedIcon />} tint="green" title="The people" note={`Everyone in a team - chat status and open tickets now (${when(p.at)}); tickets of the last 7 days`} />
-        <Box sx={{ overflowX: "auto" }}>
-          <Table size="small">
-            <TableHead><TableRow>{["Person", "Status", "Open Back Office", "Open GQS", "Got (HubSpot)", "Copy gives", "Hub gives", "Teams"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
-            <TableBody>
-              {[...p.people].sort((a, b) => Number(a.deactivated) - Number(b.deactivated) || a.name.localeCompare(b.name)).map((x) => (
-                <TableRow key={x.id}>
-                  <TableCell sx={{ ...bodyCell, fontWeight: 700, color: x.deactivated ? RED : INK }}>{x.name}</TableCell>
-                  <TableCell sx={bodyCell}>{x.deactivated ? <Chip tint="pink">deactivated</Chip> : x.chat === "available" ? <Chip tint="green">available</Chip> : <Chip tint="slate">{x.chat ? CHAT_LABEL[x.chat] ?? x.chat : "no status"}</Chip>}</TableCell>
-                  <TableCell sx={bodyCell}>{x.boOpen ?? "—"}</TableCell>
-                  <TableCell sx={bodyCell}>{x.gqsOpen ?? "—"}{x.gqsOpenFixed !== null && x.gqsOpenFixed !== x.gqsOpen ? <Tooltip title="Counting the real 'Waiting on APSO' stage instead of the deleted one the workflow counts"><span style={{ color: MUTED }}> ({x.gqsOpenFixed})</span></Tooltip> : null}</TableCell>
-                  <TableCell sx={bodyCell}>{got(x.id) || ""}</TableCell>
-                  <TableCell sx={bodyCell}>{copy(x.id) || ""}</TableCell>
-                  <TableCell sx={bodyCell}>{hub(x.id) || ""}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.72rem", color: MUTED }}>{x.lists.length} list{x.lists.length === 1 ? "" : "s"}{x.inWorkflow.length !== x.lists.length ? " (changed here)" : ""}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Box>
-        <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1 }}>&quot;Available&quot; is the green dot of HubSpot chat. In brackets: GQS open tickets counted with the right &quot;Waiting on APSO&quot; stage.</Typography>
-      </GlassCard>
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<TuneOutlinedIcon />} tint="purple" title="The teams - change them here, not in code" note="These are the lists tickets are handed out from. Order matters: it breaks ties and sets who is tried first" />
+        <CardTitle icon={<TuneOutlinedIcon />} tint="purple" title={`The ${pipe === "gqs" ? "GQS" : "Back Office"} teams - change them here, not in code`} note="These are the lists tickets are handed out from. Order matters: it breaks ties and sets who is tried first" />
         <Grid container spacing={2}>
-          {(Object.keys(d.labels) as RosterKey[]).map((k) => <Grid key={k} size={{ xs: 12, md: 6, xl: 4 }}><RosterEditor k={k} d={d} owners={p.owners} onSaved={() => { onSaved(); setN((x) => x + 1); }} /></Grid>)}
+          {keys.map((k) => <Grid key={k} size={{ xs: 12, md: 6, xl: 4 }}><RosterEditor k={k} d={d} owners={p.owners} onSaved={() => { onSaved(); setN((x) => x + 1); }} /></Grid>)}
         </Grid>
       </GlassCard>
     </>
@@ -338,11 +345,9 @@ const PIPES: { id: Pipe; label: string; count: null }[] = [{ id: "bo", label: "B
 
 export default function BoDistribution() {
   const [view, setView] = useHashTab<View>(VIEW_HASH, "overview");
-  // People and Settings serve both pipelines and keep the one picked; every other tab belongs to one, so an address
-  // naming it (an old #gqs) opens its pipeline
-  const [pipe, setPipe] = useState<Pipe>("bo");
-  useEffect(() => { const p = PIPE_OF[view]; if (p && p !== pipe) setPipe(p); }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
-  const choosePipe = (p: Pipe) => { setPipe(p); setView(p === "gqs" ? "gqs" : "overview"); };
+  // every tab belongs to one pipeline, so the toggle follows the tab (an old #gqs opens GQS)
+  const pipe = PIPE_OF(view);
+  const choosePipe = (p: Pipe) => setView(p === "gqs" ? "gqs" : "overview");
   const [n, setN] = useState(0);
   const { window: win, days: askedDays, label: periodLabel } = useReportingWindow();
   const days = Math.min(STORE_DAYS, Math.max(1, askedDays));
@@ -356,15 +361,20 @@ export default function BoDistribution() {
   const store = g?.state === "ok" ? g.data : null;
   const reload = () => setN((x) => x + 1);
   const all = r?.state === "ok" ? r.data : null;
-  // the Back Office tabs see the Back Office's tickets; GQS's are on GQS > Distribution
+  // the Back Office tabs see the Back Office's tickets; GQS's are on GQS > Tickets
   const bo = useMemo(() => (all ? { ...all, rows: all.rows.filter((x) => x.pipeline === "bo") } : null), [all]);
-  const gqsRows = all ? all.rows.filter((x) => x.pipeline === "gqs").length : 0;
+  const gqsRows = all ? all.rows.filter((x) => x.pipeline === "gqs") : [];
+  // the days the routing's rows cover, named - never the period asked for (they are kept 21 days)
+  const span = (() => { const e = gqsRows.map((x) => x.enteredAt).sort(); return e.length ? rangeLabel(dayOf(e[0]), dayOf(e[e.length - 1])) : "in these days"; })();
+  /** a part drawn from every GQS task (the 30-minute read) */
+  const withStore = (draw: (s: GqsStore) => React.ReactNode): React.ReactNode =>
+    g === null ? <LoadingPanel label="Reading the GQS tasks…" />
+      : g.state !== "ok" ? <UpstreamPanel source="GQS figures" error={g.state === "error" ? g.error : "not configured"} status={g.state === "error" ? g.status : null} onRetry={reload} />
+      : !store ? <LoadingPanel label="The GQS tasks are read every 30 minutes - the first read after a release takes about five minutes" />
+      : draw(store);
   let body: React.ReactNode;
   if (GQS_KPI_VIEWS.includes(view)) {
-    if (g === null) body = <LoadingPanel label="Reading the GQS tasks…" />;
-    else if (g.state !== "ok") body = <UpstreamPanel source="GQS figures" error={g.state === "error" ? g.error : "not configured"} status={g.state === "error" ? g.status : null} onRetry={reload} />;
-    else if (!store) body = <LoadingPanel label="The GQS tasks are read every 30 minutes - the first read after a release takes about five minutes" />;
-    else body = <GqsKpis key={view} view={view as GqsView} store={store} from={win.from} to={win.to} />;
+    body = withStore((s) => <GqsKpis key={view} view={view as GqsView} store={s} from={win.from} to={win.to} />);
   } else if (r === null || !all || !bo) {
     body = r !== null && r.state !== "ok"
       ? <UpstreamPanel source="Back Office distribution" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={reload} />
@@ -374,21 +384,26 @@ export default function BoDistribution() {
   else if (view === "flow") body = <FlowTab d={all} />;
   else if (view === "detection") body = <DetectionTab d={all} from={win.from} to={win.to} />;
   else if (view === "sentiment") body = <SentimentPanel key="sentiment" days={days} from={win.from} to={win.to} label={periodLabel} />;
-  else if (view === "people") body = <People d={all} onSaved={reload} />;
-  else if (view === "gqs-routing") body = <GqsTab d={all} />;
-  else if (view === "settings") body = <SettingsTab key={all.settings.at ?? "s"} d={all} onChanged={reload} />;
+  else if (view === "people") body = <People d={bo} onSaved={reload} pipe="bo" />;
+  else if (view === "settings") body = <SettingsTab key={all.settings.at ?? "s"} d={all} onChanged={reload} pipe="bo" />;
   else if (view === "priority") body = <PriorityTab key={all.settings.at ?? "p"} d={all} onSaved={reload} />;
+  // GQS: Tickets and Flow from the routing's rows (GqsTab.tsx), with every open task under the tickets; People = each
+  // owner's figures, the GQS team, GQS's lists
+  else if (view === "gqs-tickets") body = <><GqsTickets d={all} span={span} />{withStore((s) => <OpenNow store={s} />)}</>;
+  else if (view === "gqs-flow") body = <GqsFlow d={all} span={span} />;
+  else if (view === "gqs-people") body = <>{withStore((s) => <GqsKpis key={view} view="gqs-people" store={s} from={win.from} to={win.to} />)}<GqsTeam d={all} /><People d={all} onSaved={reload} pipe="gqs" /></>;
+  else if (view === "gqs-settings") body = <SettingsTab key={`g${all.settings.at ?? "s"}`} d={all} onChanged={reload} pipe="gqs" />;
   else body = <Overview d={bo} asked={askedDays} />;
   const open = openCount(store);
   const tabs: { id: View; label: string; count: string | null }[] = pipe === "gqs" ? [
     { id: "gqs", label: "Overview", count: null },
+    { id: "gqs-tickets", label: "Tickets", count: open ? full(open) : null },
+    { id: "gqs-flow", label: "Flow", count: null },
     { id: "gqs-type", label: "Type of request", count: null },
-    { id: "gqs-people", label: "By person", count: null },
+    { id: "gqs-resolution", label: "Resolution", count: null },
     { id: "gqs-speed", label: "Speed", count: null },
-    { id: "gqs-open", label: "Open now", count: open ? full(open) : null },
-    { id: "gqs-routing", label: "Distribution", count: gqsRows ? full(gqsRows) : null },
-    { id: "people", label: "People", count: null },
-    { id: "settings", label: "Settings", count: null },
+    { id: "gqs-people", label: "People", count: null },
+    { id: "gqs-settings", label: "Settings", count: null },
   ] : [
     { id: "overview", label: "Overview", count: null },
     { id: "tickets", label: "Tickets", count: bo?.rows.length ? full(bo.rows.length) : null },

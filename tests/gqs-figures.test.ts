@@ -39,7 +39,10 @@ test("a set of tasks summed up: the outcomes, the won share of the known ones, t
     row(),
   ];
   const s = sumOf(rows);
-  assert.deepEqual([s.n, s.offer, s.refused, s.open, s.won, s.lost], [5, 3, 1, 1, 1, 1]);
+  assert.deepEqual([s.n, s.offer, s.refused, s.open, s.won, s.lost, s.waiting], [5, 3, 1, 1, 1, 1, 1]);
+  // WON on a task whose stage was never moved counts as won, not as waiting
+  const t = sumOf([row({ stage: GQS_STAGE.waitingGqs, status: "WON" })]);
+  assert.deepEqual([t.won, t.open, t.waiting], [1, 1, 0]);
   assert.equal(wonShare(s), 0.5);
   assert.equal(median(s.days), 10);
   assert.equal(wonShare(sumOf([row()])), null);

@@ -57,22 +57,26 @@ export type Data = {
   defaults: { hub: Settings["hub"]; priority: Settings["priority"] };
 };
 export type PeopleData = { people: PersonRow[]; owners: Person[]; at: string };
+/**
+ * Each pipeline its own tabs, the same eight (SARCLA 01.11.2026: "keep the same then to GQS the same tab, but instead of
+ * sentiment resolution for win or lost"): Overview, Tickets, Flow, Detection / Type of request, Sentiment / Resolution,
+ * Priority / Speed, People, Settings.
+ */
 export type View = "overview" | "tickets" | "flow" | "detection" | "sentiment" | "priority" | "people" | "settings"
-  | "gqs" | "gqs-type" | "gqs-people" | "gqs-speed" | "gqs-open" | "gqs-routing";
-/** #gqs was the GQS tab (now GQS > Distribution, #gqs-distribution); it opens GQS's own figures. */
+  | "gqs" | "gqs-tickets" | "gqs-flow" | "gqs-type" | "gqs-resolution" | "gqs-speed" | "gqs-people" | "gqs-settings";
+/** #gqs was the one GQS tab; it opens GQS's Overview. */
 export const VIEW_HASH: Record<View, string> = {
   overview: "#overview", tickets: "#tickets", flow: "#flow", detection: "#detection", sentiment: "#sentiment", priority: "#priority", people: "#people", settings: "#settings",
-  gqs: "#gqs", "gqs-type": "#gqs-type", "gqs-people": "#gqs-people", "gqs-speed": "#gqs-speed", "gqs-open": "#gqs-open", "gqs-routing": "#gqs-distribution",
+  gqs: "#gqs", "gqs-tickets": "#gqs-tickets", "gqs-flow": "#gqs-flow", "gqs-type": "#gqs-type", "gqs-resolution": "#gqs-resolution", "gqs-speed": "#gqs-speed",
+  "gqs-people": "#gqs-people", "gqs-settings": "#gqs-settings",
 };
 /** The page's main toggle (SARCLA 01.11.2026: "create a main toggle in between pipelines"). */
 export type Pipe = "bo" | "gqs";
-/** The pipeline a tab belongs to; null = both (People and Settings hold both pipelines' lists and switches). */
-export const PIPE_OF: Record<View, Pipe | null> = {
-  overview: "bo", tickets: "bo", flow: "bo", detection: "bo", sentiment: "bo", priority: "bo", people: null, settings: null,
-  gqs: "gqs", "gqs-type": "gqs", "gqs-people": "gqs", "gqs-speed": "gqs", "gqs-open": "gqs", "gqs-routing": "gqs",
-};
-/** GQS's own figures (GqsKpis.tsx) - drawn from every GQS task, not from the distribution's rows. */
-export const GQS_KPI_VIEWS: readonly View[] = ["gqs", "gqs-type", "gqs-people", "gqs-speed", "gqs-open"];
+export const PIPE_OF = (v: View): Pipe => (v.startsWith("gqs") ? "gqs" : "bo");
+/** GQS's figure tabs (GqsKpis.tsx) - drawn from every GQS task, not from the distribution's rows. */
+export const GQS_KPI_VIEWS: readonly View[] = ["gqs", "gqs-type", "gqs-resolution", "gqs-speed"];
+/** The team lists GQS's routing uses - on GQS's People tab; the rest are Back Office's. */
+export const GQS_ROSTERS: readonly RosterKey[] = ["gqsTeam", "gqsDt", "saToOwnerGqs"];
 export const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "—");
 export const STEP: Record<string, string> = {
   "23": "Assignment System - Maida, Sara, team", "27": "General Distribution", "42": "General Distribution, then ESO/TSA",

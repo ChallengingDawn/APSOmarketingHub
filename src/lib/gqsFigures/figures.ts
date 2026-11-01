@@ -74,14 +74,19 @@ export function median(xs: number[]): number | null {
   return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
 }
 
-/** A set of tasks summed up. days = days to the offer of each offer sent. */
-export type Sum = { n: number; offer: number; refused: number; open: number; won: number; lost: number; days: number[] };
-export const emptySum = (): Sum => ({ n: 0, offer: 0, refused: 0, open: 0, won: 0, lost: 0, days: [] });
+/**
+ * A set of tasks summed up. won / lost = STATUS OF GQS, whatever the stage (a task can say WON while its stage was never
+ * moved); waiting = in Offer Sent to Sales with no outcome yet; days = days to the offer of each offer sent.
+ */
+export type Sum = { n: number; offer: number; refused: number; open: number; won: number; lost: number; waiting: number; days: number[] };
+export const emptySum = (): Sum => ({ n: 0, offer: 0, refused: 0, open: 0, won: 0, lost: 0, waiting: 0, days: [] });
 export function addRow(s: Sum, r: GqsRow): Sum {
   s.n++;
-  s[outcomeOf(r)]++;
+  const o = outcomeOf(r);
+  s[o]++;
   const res = resultOf(r);
   if (res) s[res]++;
+  else if (o === "offer") s.waiting++;
   const d = daysToOffer(r);
   if (d !== null) s.days.push(d);
   return s;

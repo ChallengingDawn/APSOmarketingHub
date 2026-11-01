@@ -4,6 +4,9 @@
 // (shadow / off), LIVE MODE per pipeline (the hub writes the owner; the HubSpot workflow's safety net takes over if it
 // does not), and the hub's own rules: who counts as available, which stages count as workload, a limit per person.
 // The copy of the workflows never uses these - only the hub's answer, and the hub's writes once live.
+// One tab per pipeline since 01.11.2026 (SARCLA, on GQS > Settings showing Back Office's switch: "GQS still on back office
+// setting"): the live switch and the workload stages are the pipeline's own; who counts as available, the limits, the
+// waiting tickets and how it runs serve both pipelines, and say so.
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
@@ -24,7 +27,7 @@ import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, RED } from "@/app/uc/report
 import { Chip, Choice, when } from "@/app/connectors/parts";
 import type { HubOptions } from "@/lib/boDistribution/engine";
 import { BO_OPEN_STAGES, GQS_OPEN_STAGES_LEGACY } from "@/lib/boDistribution/rules";
-import { type Data } from "./shared";
+import { type Data, type Pipe } from "./shared";
 
 const AVAIL: { key: HubOptions["availability"]; label: string; text: string }[] = [
   { key: "chat", label: "Chat dot", text: "Available = the green dot of HubSpot chat. People who never open chat look away all day." },
@@ -32,7 +35,7 @@ const AVAIL: { key: HubOptions["availability"]; label: string; text: string }[] 
   { key: "both", label: "Both", text: "Available only with the green dot AND not out of office." },
 ];
 
-export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
+export function SettingsTab({ d, onChanged, pipe: only }: { d: Data; onChanged: () => void; pipe: Pipe }) {
   const [hub, setHub] = useState<HubOptions>(d.settings.hub);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -80,9 +83,9 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
     <>
       {msg && <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>{msg}</Typography>}
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<BoltOutlinedIcon />} tint="pink" title="Live mode - the hub writes the owner" note="Per pipeline. Off means nobody hands these tickets out - switch the pipeline's HubSpot workflow back on first" />
+        <CardTitle icon={<BoltOutlinedIcon />} tint="pink" title="Live mode - the hub writes the owner" note={`${only === "gqs" ? "GQS" : "Back Office"}. Off means nobody hands these tickets out - switch the pipeline's HubSpot workflow back on first`} />
         <Grid container spacing={2}>
-          {(["gqs", "bo"] as const).map((pipe) => (
+          {[only].map((pipe) => (
             <Grid key={pipe} size={{ xs: 12, md: 6 }}>
               <Box sx={{ ...box, borderColor: d.settings.live[pipe] ? RED : HAIRLINE }}>
                 <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -115,7 +118,7 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
               </Box>
             </Grid>
           ))}
-          <Grid size={{ xs: 12 }}>
+          <Grid size={{ xs: 12, md: 6 }}>
             <Box sx={{ ...box, borderColor: d.settings.live.strays ? RED : HAIRLINE }}>
               <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
                 <Typography sx={{ fontWeight: 800, color: INK }}>Waiting for an owner - Back Office and GQS{d.strays ? ` (${d.strays.total} now)` : ""}</Typography>
@@ -126,7 +129,7 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
               </Box>
               <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.5 }}>
                 Open tickets with no owner, only Backoffice Team or an owner who has left, 15 minutes in their stage: the owner (never the stage) goes to the person
-                who had it when on the lists and available, else the distribution&apos;s pick; nobody available = it waits. (ESO / TSA: the Wrong owners page.) Independent of the two switches above. The Overview lists them.
+                who had it when on the lists and available, else the distribution&apos;s pick; nobody available = it waits. (ESO / TSA: the Wrong owners page.) One switch for both pipelines, independent of their live switches. Back Office&apos;s Overview lists them.
               </Typography>
             </Box>
           </Grid>
@@ -156,7 +159,7 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, lg: 6 }}>
           <GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}>
-            <CardTitle icon={<PersonSearchOutlinedIcon />} tint="green" title="Who counts as available" note="For the Sales Agent, the SA Sub and the least-busy step - the hub only" />
+            <CardTitle icon={<PersonSearchOutlinedIcon />} tint="green" title="Who counts as available" note="For the Sales Agent, the SA Sub and the least-busy step - Back Office and GQS alike" />
             <Box sx={{ display: "grid", gap: 1 }}>
               {AVAIL.map((a) => (
                 <Box key={a.key} component="button" type="button" disabled={!d.admin} onClick={() => setHub({ ...hub, availability: a.key })}
@@ -182,13 +185,10 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
         </Grid>
         <Grid size={{ xs: 12, lg: 6 }}>
           <GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}>
-            <CardTitle icon={<WorkOutlineOutlinedIcon />} tint="amber" title="What counts as workload" note="The least-busy step counts a person's open tickets in these stages - the hub only" />
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 12, md: 6 }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 700, mb: 0.5 }}>Back Office</Typography>{stages("bo")}</Grid>
-              <Grid size={{ xs: 12, md: 6 }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 700, mb: 0.5 }}>GQS</Typography>{stages("gqs")}</Grid>
-            </Grid>
+            <CardTitle icon={<WorkOutlineOutlinedIcon />} tint="amber" title="What counts as workload" note={`The least-busy step counts a person's open ${only === "gqs" ? "GQS tasks" : "Back Office tickets"} in these stages`} />
+            {stages(only)}
             <TextField size="small" type="number" label="Open tickets per person, at most" value={hub.cap ?? ""} disabled={!d.admin} sx={{ mt: 1.5, maxWidth: 300 }}
-              onChange={(e) => setHub({ ...hub, cap: e.target.value ? Number(e.target.value) : null })} helperText="Empty = no limit, which is what the old routing had. Past it, the least-busy rule passes the person over." />
+              onChange={(e) => setHub({ ...hub, cap: e.target.value ? Number(e.target.value) : null })} helperText="Back Office and GQS alike. Empty = no limit, which is what the old routing had. Past it, the least-busy rule passes the person over." />
             {save("load")}
           </GlassCard>
         </Grid>

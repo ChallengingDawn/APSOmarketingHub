@@ -1,11 +1,13 @@
 "use client";
 
 // BACK OFFICE DISTRIBUTION - GQS's own figures (SARCLA 01.11.2026: "GQS should have its own KPI subdivided like we do in
-// advanced reporting - create a main toggle in between pipelines"). With GQS picked on the page's toggle, a tab per
-// breakdown as in Advanced reporting - the figures, the type of request, the person, the time it takes, what is open
-// now - each drawn the same way: the period's tasks against the same number of days just before (DimChart, blue this
-// period, grey before), then "All the figures" with the same columns everywhere. Who gets a task, and by which rule,
-// stays on Distribution (GqsTab.tsx). Every task of the GQS pipeline is read every 30 minutes (src/lib/gqsFigures).
+// advanced reporting - create a main toggle in between pipelines"). With GQS picked on the page's toggle, GQS has Back
+// Office's tabs (SARCLA 01.11.2026: "keep the same then to GQS the same tab, but instead of sentiment resolution for win
+// or lost"): Overview, Tickets, Flow, Type of request (Detection's place), Resolution (Sentiment's), Speed (Priority's),
+// People, Settings. The figure tabs are here, each drawn the same way: the period's tasks against the same number of
+// days just before (DimChart, blue this period, grey before), then "All the figures" with the same columns everywhere;
+// Open now is on Tickets. Who gets a task, and by which rule, is GqsTab.tsx (Tickets, Flow, the team on People). Every
+// task of the GQS pipeline is read every 30 minutes (src/lib/gqsFigures).
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -30,17 +32,18 @@ import { BarList } from "@/app/charts/BarList";
 import { ChartFrame, type TableTwin } from "@/app/charts/ChartFrame";
 import { StackedColumns } from "@/app/charts/StackedColumns";
 import { DimChart } from "@/app/reporting/marketing-kpis/DimChart";
-import { DEEMPHASIS } from "@/app/charts/palette";
+import { DEEMPHASIS, DELTA, SERIES } from "@/app/charts/palette";
 import { CardTitle, GlassCard, INK, KpiTile, MUTED, bodyCell, clip, headCell, hsTicket } from "@/app/uc/report/ui";
-import { usePaged } from "@/app/connectors/parts";
-import { previousWindow, rangeLabel } from "@/lib/boDetection/figures";
+import { Choice, usePaged } from "@/app/connectors/parts";
+import { dayOf, previousWindow, rangeLabel } from "@/lib/boDetection/figures";
 import {
   GQS_STAGE, WORK_STAGES, ageDays, byKey, byMonth, daysToOffer, inPeriod, median, outcomeOf, ownerOf, refusedBy, resultOf, sentIn, stageTimes, sumOf, typeOf, wonShare,
   type GqsRow, type GqsStore, type Sum,
 } from "@/lib/gqsFigures/figures";
 import { pct } from "./shared";
 
-export type GqsView = "gqs" | "gqs-type" | "gqs-people" | "gqs-speed" | "gqs-open";
+/** GQS's figure tabs: Overview, Type of request (Detection's place), Resolution (Sentiment's), Speed (Priority's), People's figures. */
+export type GqsView = "gqs" | "gqs-type" | "gqs-resolution" | "gqs-speed" | "gqs-people";
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthLabel = (ym: string) => `${MON[Number(ym.slice(5, 7)) - 1]} ${ym.slice(2, 4)}`;
@@ -78,11 +81,22 @@ const COLS: Col[] = [
   { key: "days", label: "Days to offer", v: (s) => median(s.days), show: (s) => { const d = median(s.days); return d === null ? "—" : d < 1 ? "< 1" : d.toFixed(1); }, tip: "The median days from the request to Offer Sent to Sales, of those that have it" },
 ];
 
+/** Resolution's columns: what came of the offers. */
+const RES_COLS: Col[] = [
+  { key: "n", label: "Requests", v: (s) => s.n, show: (s) => full(s.n) },
+  { key: "offer", label: "Offers sent", v: (s) => s.offer, show: (s) => (s.offer ? full(s.offer) : "—") },
+  { key: "won", label: "Won", v: (s) => s.won, show: (s) => (s.won ? full(s.won) : "—") },
+  { key: "lost", label: "Lost", v: (s) => s.lost, show: (s) => (s.lost ? full(s.lost) : "—") },
+  { key: "wait", label: "Waiting", v: (s) => s.waiting, show: (s) => (s.waiting ? full(s.waiting) : "—"), tip: "Offers sent whose outcome is not in STATUS OF GQS yet" },
+  COLS.find((c) => c.key === "share")!,
+];
+
 /** "All the figures, by X": every column, sortable by its header, a total line, the first 25 then all. */
-function FiguresTable({ title, rows, total, first, extra }: {
+function FiguresTable({ title, rows, total, first, extra, cols = COLS }: {
   title: string; rows: { label: string; s: Sum }[]; total: Sum; first: string;
-  extra?: { label: string; v: (label: string) => number; tip?: string };
+  extra?: { label: string; v: (label: string) => number; tip?: string }; cols?: Col[];
 }) {
+  const COLS = cols;
   const [by, setBy] = useState<string>("n");
   const [asc, setAsc] = useState(false);
   const [all, setAll] = useState(false);
@@ -157,7 +171,7 @@ function Tiles({ now, before, sentNow, sentBefore, label, beforeLabel, hasBefore
       <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<DoNotDisturbOnOutlinedIcon />} tint="amber" label="Refused" value={full(s.refused)}
         note={`${pct(s.refused, s.n)} of the ${full(s.n)} requests created ${label} - so far.`} /></Grid>
       <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<EmojiEventsOutlinedIcon />} tint="purple" label="Won" value={full(s.won)}
-        note={`Of the period's requests: ${full(s.won)} won, ${full(s.lost)} lost${w === null ? "" : ` (${Math.round(w * 100)}% won)`}; ${full(s.offer - s.won - s.lost)} offers wait for their outcome.`} /></Grid>
+        note={`Of the period's requests: ${full(s.won)} won, ${full(s.lost)} lost${w === null ? "" : ` (${Math.round(w * 100)}% won)`}; ${full(s.waiting)} offers wait for their outcome.`} /></Grid>
     </Grid>
   );
 }
@@ -288,8 +302,94 @@ function Speed({ store, from, to }: { store: GqsStore; from: string; to: string 
   );
 }
 
+type Res = "won" | "lost" | "waiting" | "none";
+/** What came of a request: WON / LOST, an offer waiting for its outcome, or no offer (refused or still open). */
+const resOf = (r: GqsRow): Res => resultOf(r) ?? (outcomeOf(r) === "offer" ? "waiting" : "none");
+const RES: Record<Res, { label: string; color: string }> = {
+  won: { label: "Won", color: DELTA.good }, lost: { label: "Lost", color: DELTA.bad },
+  waiting: { label: "Waiting for the outcome", color: SERIES[0] }, none: { label: "No offer (refused or open)", color: DEEMPHASIS },
+};
+
+/**
+ * Resolution - what came of the offers (SARCLA 01.11.2026: GQS has Back Office's tabs, "but instead of sentiment,
+ * resolution for win or lost"). The period's requests: won, lost, an offer waiting for its outcome, no offer; month by
+ * month; by type and by owner; where the sales ticket of an offer still waiting stands; and the requests themselves.
+ * STATUS OF GQS carries WON / LOST, with no date - so this is what came of the period's requests so far, never compared
+ * with the days before (they have had longer).
+ */
+function Resolution({ store, from, to }: { store: GqsStore; from: string; to: string }) {
+  const p = usePeriod(store, from, to);
+  const s = sumOf(p.now);
+  const w = wonShare(s);
+  const months = byMonth(p.now);
+  const per = (rows: GqsRow[], k: Res) => rows.filter((r) => resOf(r) === k).length;
+  const data = months.map((m) => { const rows = p.now.filter((r) => dayOf(r.created).startsWith(m.label)); return { x: m.label, won: per(rows, "won"), lost: per(rows, "lost"), waiting: per(rows, "waiting"), none: per(rows, "none") }; });
+  const keys: Res[] = ["won", "lost", "waiting", "none"];
+  const table: TableTwin = { columns: ["Month", ...keys.map((k) => RES[k].label)], rows: data.map((r) => [monthLabel(r.x), r.won, r.lost, r.waiting, r.none]), numeric: [1, 2, 3, 4] };
+  const waiting = p.now.filter((r) => resOf(r) === "waiting");
+  const [show, setShow] = useState<Res>("won");
+  const list = p.now.filter((r) => resOf(r) === show).sort((a, b) => b.created.localeCompare(a.created));
+  const { slice, pager } = usePaged(list, 10);
+  const tiles: { k: Res; icon: React.ReactNode; tint: "green" | "pink" | "blue" | "slate"; note: string }[] = [
+    { k: "won", icon: <EmojiEventsOutlinedIcon />, tint: "green", note: `${pct(s.won, s.n)} of the ${full(s.n)} requests created ${p.label}${w === null ? "" : ` - ${Math.round(w * 100)}% of the offers whose outcome is known`}.` },
+    { k: "lost", icon: <DoNotDisturbOnOutlinedIcon />, tint: "pink", note: `${pct(s.lost, s.n)} of the requests.` },
+    { k: "waiting", icon: <HourglassEmptyOutlinedIcon />, tint: "blue", note: `Offers sent to Sales with no WON or LOST in STATUS OF GQS yet - ${pct(s.waiting, s.offer)} of the offers.` },
+    { k: "none", icon: <PendingActionsOutlinedIcon />, tint: "slate", note: `No offer and no outcome: ${full(p.now.filter((r) => resOf(r) === "none" && outcomeOf(r) === "refused").length)} refused, ${full(p.now.filter((r) => resOf(r) === "none" && outcomeOf(r) === "open").length)} still open.` },
+  ];
+  return (
+    <>
+      <Grid container spacing={2}>
+        {tiles.map((t) => <Grid key={t.k} size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={t.icon} tint={t.tint} label={RES[t.k].label} value={full(per(p.now, t.k))} note={t.note} /></Grid>)}
+      </Grid>
+      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+        <CardTitle icon={<EmojiEventsOutlinedIcon />} tint="green" title="Won and lost, month by month"
+          note={`The ${full(s.n)} GQS requests created ${p.label}, by what came of them so far. WON and LOST are kept in STATUS OF GQS on almost every offer since February 2026`} />
+        <ChartFrame caption="GQS requests per month, by outcome" table={table} empty={p.now.length ? null : "No GQS request in this period."}>
+          <StackedColumns data={data} parts={keys.map((k) => ({ key: k, label: RES[k].label, color: RES[k].color }))} format={(v) => full(v ?? 0)} xFormat={monthLabel} />
+        </ChartFrame>
+        <FiguresTable title="All the figures, by month" first="Month" rows={months.map((m) => ({ label: monthLabel(m.label), s: m.s }))} total={s} cols={RES_COLS} />
+        <FiguresTable title="By type of request" first="Type of request" rows={byKey(p.now, typeOf)} total={s} cols={RES_COLS} />
+        <FiguresTable title="By owner" first="Owner" rows={byKey(p.now, ownerOf)} total={s} cols={RES_COLS} />
+      </GlassCard>
+      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+        <CardTitle icon={<HourglassEmptyOutlinedIcon />} tint="blue" title={`Offers waiting for their outcome: ${full(waiting.length)}`}
+          note="Where the sales ticket of each stands now (ESO PIPELINE STATUS (FOR GQS)) - a closed sales ticket with no WON or LOST is an outcome nobody wrote down" />
+        <BarList rows={byKey(waiting, (r) => r.eso ?? "No sales ticket status").map((x) => ({ label: x.label, value: x.s.n }))} labelWidth={220} format={(v) => full(v ?? 0)} emptyMessage="None waiting." />
+      </GlassCard>
+      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+        <CardTitle icon={<ConfirmationNumberOutlinedIcon />} tint="slate" title="The requests" note={`Created ${p.label}, newest first`} />
+        <Box sx={{ mb: 1.5 }}>
+          <Choice<Res> value={show} onChange={setShow} options={keys.map((k) => ({ key: k, label: RES[k].label, count: per(p.now, k) }))} />
+        </Box>
+        {list.length ? (
+          <>
+            <Box sx={{ overflowX: "auto" }}>
+              <Table size="small">
+                <TableHead><TableRow>{["Created", "Request", "Owner", "STATUS OF GQS", "Sales ticket", "Days to offer"].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i === 5 ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
+                <TableBody>
+                  {slice.map((r) => (
+                    <TableRow key={r.id}>
+                      <TableCell sx={{ ...bodyCell, color: MUTED, fontSize: "0.78rem", whiteSpace: "nowrap" }}>{rangeLabel(r.created.slice(0, 10), r.created.slice(0, 10))}</TableCell>
+                      <TableCell sx={bodyCell}><Box component="a" href={hsTicket(r.id)} target="_blank" rel="noopener" sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(340) }}>{r.subject || r.id}</Box></TableCell>
+                      <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap" }}>{ownerOf(r)}</TableCell>
+                      <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap" }}>{r.status ?? "—"}</TableCell>
+                      <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap" }}>{r.eso ?? "—"}</TableCell>
+                      <TableCell sx={num}>{daysToOffer(r) === null ? "—" : days(daysToOffer(r))}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
+            {pager}
+          </>
+        ) : <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>None in this period.</Typography>}
+      </GlassCard>
+    </>
+  );
+}
+
 /** Open now: every GQS task not in Offer Sent or Refused, whatever the period - by stage, then the list, oldest first. */
-function OpenNow({ store }: { store: GqsStore }) {
+export function OpenNow({ store }: { store: GqsStore }) {
   const label = (id: string) => store.stages.find((s) => s.id === id)?.label ?? id;
   const open = store.rows.filter((r) => outcomeOf(r) === "open").sort((a, b) => a.created.localeCompare(b.created));
   const [stage, setStage] = useState<string | null>(null);
@@ -345,7 +445,7 @@ export function GqsKpis({ view, store, from, to }: { view: GqsView; store: GqsSt
       note="The task's owner in HubSpot today - against the same number of days just before" extra={{ label: "Open now", v: (l) => openBy.get(l) ?? 0, tip: "Open GQS tasks the person owns today, whenever they were created" }} />;
   }
   if (view === "gqs-speed") return <Speed store={store} from={from} to={to} />;
-  if (view === "gqs-open") return <OpenNow store={store} />;
+  if (view === "gqs-resolution") return <Resolution store={store} from={from} to={to} />;
   return <Overview store={store} from={from} to={to} />;
 }
 

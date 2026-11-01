@@ -7,6 +7,9 @@
 // every 6 hours for 14 days); the flow from the approval to the owner; the GQS team as one table; the rules, the
 // workflow's beside the hub's corrected ones; the tickets. A bar, a box of the diagram or a line of its key narrows the
 // tickets below.
+// Since 01.11.2026 GQS has Back Office's tabs (the page's Back Office | GQS toggle), so the one tab is three parts:
+// GqsTickets (the counts, where they stand now, the tickets), GqsFlow (the diagram, a box's tickets, the rules) and
+// GqsTeam (on GQS's People tab).
 
 import { Fragment, useState } from "react";
 import Box from "@mui/material/Box";
@@ -21,11 +24,8 @@ import TableRow from "@mui/material/TableRow";
 import CircularProgress from "@mui/material/CircularProgress";
 import CloseIcon from "@mui/icons-material/Close";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
-import PendingActionsOutlinedIcon from "@mui/icons-material/PendingActionsOutlined";
-import TaskAltOutlinedIcon from "@mui/icons-material/TaskAltOutlined";
 import PersonOutlineOutlinedIcon from "@mui/icons-material/PersonOutlineOutlined";
 import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined";
-import EditNoteOutlinedIcon from "@mui/icons-material/EditNoteOutlined";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import AltRouteOutlinedIcon from "@mui/icons-material/AltRouteOutlined";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
@@ -42,7 +42,7 @@ import { Chip, Choice, usePaged, when } from "@/app/connectors/parts";
 import type { Answer, PersonRow, Row } from "@/lib/boDistribution/engine";
 import { GQS_OPEN_STAGES_LEGACY, STAGE, type Person, type RosterKey } from "@/lib/boDistribution/rules";
 
-import { CHAT_LABEL, Detail, Verdict, count, fixesDiffer, gave, pct, sameOwner, type Data, type PeopleData } from "./shared";
+import { CHAT_LABEL, Detail, Verdict, count, fixesDiffer, gave, movedAfterUs, pct, type Data, type PeopleData } from "./shared";
 import {
   FlowCard, NOBODY, ROAD, narrowOptions, narrowRows, ownerName, peopleColumn, through, useFlowChoice,
   type FlowColumn, type FlowNode, type Narrow, type Way,
@@ -186,7 +186,7 @@ function Outcome({ rows, pick, onPick }: { rows: Row[]; pick: NowPick; onPick: (
             <Typography sx={KICK}>{l.title}</Typography>
             <Typography sx={{ fontSize: "0.74rem", color: MUTED, mb: 1 }}>{l.hint}</Typography>
             <BarList rows={l.rows} format={full} labelWidth={156} maxLabel={30} onSelect={(label) => onPick(l.key, label)} selectedLabel={pick[l.key]}
-              emptyMessage={rows.length ? "Not read yet - the next runs read them." : "No GQS ticket in the last 7 days yet."} />
+              emptyMessage={rows.length ? "Not read yet - the next runs read them." : "No GQS ticket in these days yet."} />
           </Box>
         ))}
       </Box>
@@ -311,7 +311,7 @@ function Team({ d, rows }: { d: Data; rows: Row[] }) {
   return (
     <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
       <CardTitle icon={<GroupsOutlinedIcon />} tint="green" title="The GQS team"
-        note={`Chat status and open GQS tasks now${r?.state === "ok" ? ` (${when(r.data.at)})` : ""}; the tickets of the last 7 days - who got them, and who would`} />
+        note={`Chat status and open GQS tasks now${r?.state === "ok" ? ` (${when(r.data.at)})` : ""}; the tickets of the days the routing keeps - who got them, and who would`} />
       {r === null && (
         <Box sx={{ display: "flex", gap: 1, alignItems: "center", mb: 1.5 }}>
           <CircularProgress size={14} /><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Reading everyone&apos;s chat status and open GQS tasks…</Typography>
@@ -330,7 +330,7 @@ function Team({ d, rows }: { d: Data; rows: Row[] }) {
               <Head label="Person" />
               <Head label="Chat status" tip={`The green dot of HubSpot chat.${availability !== "chat" ? ` The hub reads ${AVAIL_WORDS[availability]} (Settings).` : ""}`} />
               <Head label="Open GQS tasks" tip={`Open now on the right stages - with "Waiting on APSO". Where the old routing counted differently, the line under it says what it saw.`} />
-              <Head label="Got · 7 days" align="right" tip="What the person was actually given in the last 7 days" />
+              <Head label="Got" align="right" tip="What the person was actually given, in the days the routing keeps" />
               <Head label="Old rules" align="right" tip="The rules as they stood before the hand-over, on the same tickets" />
               <Head label="Hub would give" align="right" tip="The same tickets with the corrected rules (How it decides, at the end of this page); the small figure is the change against the old ones" />
               <Head label="Lists" tip="DT New Business order and the GQS team - the old lists and the ones in use (People tab); amber where they differ" />
@@ -464,7 +464,7 @@ function Rules({ d, rows }: { d: Data; rows: Row[] }) {
         ))}
       </Box>
       <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 2, lineHeight: 1.5 }}>
-        The figures: the last 7 days&apos; {full(rows.length)} tickets - on the left as the rules stood before the hand-over, on the right as they are now. Change the hub&apos;s rules on the Settings and People tabs.
+        The figures: the {full(rows.length)} tickets of the days the routing keeps - on the left as the rules stood before the hand-over, on the right as they are now. Change the hub&apos;s rules on the Settings and People tabs.
       </Typography>
     </GlassCard>
   );
@@ -590,23 +590,13 @@ function FilterRow({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-/* ── the tab ── */
+/* ── the tabs: Tickets, Flow and the team on People (SARCLA 01.11.2026: GQS has Back Office's tabs - "we should keep the
+   same then to GQS the same tab") ── */
 
 const ANY = "~any";
 
-export function GqsTab({ d }: { d: Data }) {
-  const rows = d.rows.filter((r) => r.pipeline === "gqs");
-  const settled = rows.filter((r) => r.legacy?.ownerId && r.actual);
-  const live = settled.filter((r) => !r.approx);
-  const same = settled.filter(sameOwner).length;
-  const writes = rows.filter((r) => r.wrote);
-  const wrote = writes.filter((r) => r.wrote!.ok).length, failed = writes.filter((r) => r.wrote!.error).length, left = writes.filter((r) => r.wrote!.skipped).length;
-  const liveOn = !!d.settings.live?.gqs;
-  const read = rows.filter((r) => nowOf(r));
-  const openRows = read.filter((r) => !nowOf(r)!.closed), closedRows = read.filter((r) => nowOf(r)!.closed);
-  const topOpen = count(openRows, stageOf).find((x) => x.label !== NO_STAGE);
-  const closedBy = count(closedRows, statusOf).slice(0, 2);
-
+/** The flow's columns and each ticket's way through them. */
+function useRoutes(d: Data, rows: Row[]) {
   // the diagram's columns: the types as they come (small ones together), the people who got them
   const typeCounts = count(rows, (r) => tidy(r.gqsType) || null);
   const keepTypes = new Set((typeCounts.length > 7 ? typeCounts.slice(0, 6) : typeCounts).map((x) => x.label));
@@ -619,12 +609,21 @@ export function GqsTab({ d }: { d: Data }) {
   const owners = peopleColumn(rows.map(ownerName).filter((x): x is string => !!x));
   const columns = gqsColumns(d, types, owners.nodes);
   const ways: Way[] = rows.map((r) => ({ row: r, way: [gqsEntry(r), typeId(r), gqsRule(r), owners.id(ownerName(r))] }));
-  const { sel, pick, clear } = useFlowChoice(columns.length);
+  return { columns, ways };
+}
+
+/**
+ * Tickets: Back Office's four counts - so the two pipelines read alike, and never against the rules before the
+ * hand-over, which the hub no longer writes ("Owner left as chosen" did) - where the tickets stand now, and every ticket
+ * with its filters.
+ */
+export function GqsTickets({ d, span }: { d: Data; span: string }) {
+  const rows = d.rows.filter((r) => r.pipeline === "gqs");
+  const given = rows.filter((r) => r.wrote?.ok).length;
+  const moved = rows.filter(movedAfterUs).length;
+  const fixes = rows.filter(fixesDiffer).length;
   const [narrow, setNarrow] = useState<Narrow>("all");
   const [now, setNow] = useState<NowPick>(NO_PICK);
-  const picked = through(ways, sel).map((w) => w.row);
-  const chosen = sel.map((s, c) => columns[c].nodes.find((x) => x.id === s)?.label).filter(Boolean);
-
   // a bar or a part of the outcome card: choose it (again: take it away) and go to the tickets
   const pickNow = (k: keyof NowPick, v: string) => {
     const on = now[k] === v;
@@ -634,41 +633,31 @@ export function GqsTab({ d }: { d: Data }) {
     if (!on && typeof document !== "undefined") document.getElementById("gqs-tickets")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   // each group of filters counts with the other groups applied
-  const forShow = narrowRows(picked.filter((r) => keep(r, now, "show")), narrow);
+  const forShow = narrowRows(rows.filter((r) => keep(r, now, "show")), narrow);
   const showOptions = (["all", "open", "closed", "unread"] as const).map((k) => ({ key: k, label: k === "all" ? "All" : STATE[k].label, count: k === "all" ? forShow.length : forShow.filter((r) => stateOf(r) === k).length }));
-  const forStatus = narrowRows(picked.filter((r) => keep(r, now, "status")), narrow);
+  const forStatus = narrowRows(rows.filter((r) => keep(r, now, "status")), narrow);
   const statuses = count(forStatus, statusOf);
   if (now.status && !statuses.some((x) => x.label === now.status)) statuses.push({ label: now.status, value: 0 });
   const statusOptions = [{ key: ANY, label: "Any", count: forStatus.length }, ...statuses.map((x) => ({ key: x.label, label: x.label, count: x.value }))];
-  const nowKept = picked.filter((r) => keep(r, now));
+  const nowKept = rows.filter((r) => keep(r, now));
   const shown = narrowRows(nowKept, narrow);
   const also = ([["stage", "Task stage"], ["link", "Linked ticket"]] as const).filter(([k]) => now[k]);
-
   const kpis = [
-    { label: "GQS tickets, 7 days", value: full(rows.length), note: `Entered New for Back-Office${rows.some((r) => r.approx) ? ` - ${full(rows.filter((r) => r.approx).length)} replayed` : ""}`, icon: <ConfirmationNumberOutlinedIcon />, tint: "purple" as const },
-    { label: "Still open", value: read.length ? full(openRows.length) : "—", note: read.length ? `${pct(openRows.length, read.length)} of the ${full(read.length)} read${topOpen ? ` - most in ${topOpen.label}` : ""}` : "Not read yet", icon: <PendingActionsOutlinedIcon />, tint: "blue" as const },
-    { label: "Closed", value: read.length ? full(closedRows.length) : "—", note: closedBy.length ? closedBy.map((x) => `${x.label} ${full(x.value)}`).join(" · ") : read.length ? "None yet" : "Not read yet", icon: <TaskAltOutlinedIcon />, tint: "green" as const },
-    { label: "Owner left as chosen", value: pct(same, settled.length), note: `${full(same)} of ${full(settled.length)} settled${live.length ? `; live ${pct(live.filter(sameOwner).length, live.length)}` : ""}`, icon: <PersonOutlineOutlinedIcon />, tint: "slate" as const },
-    { label: "Corrections change the owner", value: full(rows.filter(fixesDiffer).length), note: "Deactivated people, failed counts, the stages counted - where the corrected rules differ from the old routing", icon: <CompareArrowsOutlinedIcon />, tint: "amber" as const },
-    ...(liveOn || writes.length ? [{ label: "Written by the hub", value: full(wrote), note: liveOn ? `Live for GQS${left ? ` - ${full(left)} left alone` : ""}${failed ? `, ${full(failed)} failed` : ""}` : "Live mode is off for GQS now", icon: <EditNoteOutlinedIcon />, tint: "pink" as const }] : []),
+    { label: "Tickets seen", value: full(rows.length), note: `Entered New for Back-Office ${span}`, icon: <ConfirmationNumberOutlinedIcon />, tint: "slate" as const },
+    { label: "Given an owner by the hub", value: full(given), note: `${pct(given, rows.length)} of them`, icon: <PersonOutlineOutlinedIcon />, tint: "green" as const },
+    { label: "Moved after the hub gave it", value: full(moved), note: given ? `${pct(moved, given)} of the ones the hub gave - a person gave them to someone else afterwards` : "Nothing given yet", icon: <CompareArrowsOutlinedIcon />, tint: "amber" as const },
+    { label: "A fix changed the owner", value: full(fixes), note: "Deactivated people, failed counts, the stages counted - where the corrected rules pick someone else than the rules before the hand-over", icon: <AltRouteOutlinedIcon />, tint: "pink" as const },
   ];
-  const k = kpis.length;
   return (
     <>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(0, 1fr))", lg: `repeat(${k > 5 ? 3 : k}, minmax(0, 1fr))`, xl: `repeat(${k}, minmax(0, 1fr))` }, gap: 2 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(4, minmax(0, 1fr))" }, gap: 2 }}>
         {kpis.map((x) => <KpiTile key={x.label} icon={x.icon} tint={x.tint} label={x.label} value={x.value} note={x.note} />)}
       </Box>
       <Outcome rows={rows} pick={now} onPick={pickNow} />
-      <FlowCard
-        icon={<AltRouteOutlinedIcon />} tint="purple" title="How the GQS tickets were given out"
-        note={`The last 7 days: from the approval to the owner - ${full(rows.length)} tickets`}
-        columns={columns} ways={ways} sel={sel} onPick={pick} onClear={clear} roads={GQS_ROADS}
-      />
-      <Team d={d} rows={rows} />
       <Box id="gqs-tickets" sx={{ scrollMarginTop: 16, minWidth: 0 }}>
         <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
           <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="GQS tickets"
-            note={`${full(shown.length)} of ${full(rows.length)}${chosen.length ? ` - through ${chosen.join(" › ")}` : ""}. A box of the diagram or a bar above narrows them; a row opens its reasons`} />
+            note={`${full(shown.length)} of ${full(rows.length)}. A bar above narrows them; a row opens its reasons`} />
           <Box sx={{ display: "grid", gap: 1.25, mb: 2 }}>
             <FilterRow label="Now"><Choice<Show> value={now.show} onChange={(v) => setNow({ ...now, show: v })} options={showOptions} /></FilterRow>
             {statuses.length > 0 && (
@@ -694,8 +683,39 @@ export function GqsTab({ d }: { d: Data }) {
           <GqsTable rows={shown} />
         </GlassCard>
       </Box>
+    </>
+  );
+}
+
+/** Flow: from the approval to the owner, as Back Office's Flow tab - a box clicked shows its tickets; how it decides last. */
+export function GqsFlow({ d, span }: { d: Data; span: string }) {
+  const rows = d.rows.filter((r) => r.pipeline === "gqs");
+  const { columns, ways } = useRoutes(d, rows);
+  const { sel, pick, clear } = useFlowChoice(columns.length);
+  const [narrow, setNarrow] = useState<Narrow>("all");
+  const picked = through(ways, sel).map((w) => w.row);
+  const chosen = sel.map((s, c) => columns[c].nodes.find((x) => x.id === s)?.label).filter(Boolean);
+  return (
+    <>
+      <FlowCard
+        icon={<AltRouteOutlinedIcon />} tint="purple" title="How the GQS tickets were given out"
+        note={`From the approval to the owner - the ${full(rows.length)} GQS tickets that entered New for Back-Office ${span}`}
+        columns={columns} ways={ways} sel={sel} onPick={pick} onClear={clear} roads={GQS_ROADS}
+      />
+      {chosen.length ? (
+        <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+          <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="The tickets" note={`Through ${chosen.join(" › ")} - click a row for its reasons`}
+            right={<Choice<Narrow> value={narrow} onChange={setNarrow} options={narrowOptions(picked)} />} />
+          <GqsTable rows={narrowRows(picked, narrow)} />
+        </GlassCard>
+      ) : null}
       {/* how it works, after what happened - reference, not a figure */}
       <Rules d={d} rows={rows} />
     </>
   );
+}
+
+/** The GQS team, for GQS's People tab: chat status, open GQS tasks, what each got and would get. */
+export function GqsTeam({ d }: { d: Data }) {
+  return <Team d={d} rows={d.rows.filter((r) => r.pipeline === "gqs")} />;
 }
