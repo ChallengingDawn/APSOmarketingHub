@@ -38,11 +38,13 @@ test("a unit's reports, and the unit known before: the rosters, else HubSpot's t
   assert.equal(seedUnit(null, null), null);
 });
 
-test("the switch: Adem sees his own, all ESO and all; a TSA person all TSA; a manager also their team (SARCLA 01.11.2026)", () => {
+test("the switch: Adem sees his own, his team, all ESO and all; a TSA person all TSA (SARCLA 01.11.2026)", () => {
   const adem = { me: { id: ADEM, name: "Adem" }, subject: { id: ADEM, name: "Adem" }, reports: "eso" as const, team: [] };
-  assert.deepEqual(viewsOf(adem).map((v) => v.label), ["Mine", "All ESO", "All (ESO + TSA)"]);
+  assert.deepEqual(viewsOf(adem).map((v) => v.label), ["Mine", "My team", "All ESO", "All (ESO + TSA)"]);
   const tsa = { ...adem, reports: "tsa" as const };
-  assert.deepEqual(viewsOf(tsa).map((v) => v.label), ["Mine", "All TSA", "All (ESO + TSA)"]);
+  assert.deepEqual(viewsOf(tsa).map((v) => v.label), ["Mine", "My team", "All TSA", "All (ESO + TSA)"]);
+  // a team not set up yet shows nobody, never the person alone
+  assert.deepEqual(scopeOf(adem, "team").leads.byId, {});
   const luca = { me: { id: LUCA, name: "Luca" }, subject: { id: LUCA, name: "Luca" }, reports: "eso" as const, team: [{ id: LUCA, name: "Luca" }, { id: IT, name: "Ita" }] };
   assert.deepEqual(viewsOf(luca).map((v) => v.id), ["me", "team", "unit", "all"]);
   // Back Office: no unit's reports - their own, their team, all

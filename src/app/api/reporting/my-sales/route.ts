@@ -15,6 +15,7 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { query } from "@/lib/db/client";
 import { hierarchyNow } from "@/lib/hierarchy/store";
 import { reportsOfUnit, under } from "@/lib/hierarchy/rules";
+import { getLeads, getTeams } from "@/lib/mapAssign/leads";
 import { checkTarget, cleanAll, isTargetId, type PersonTargets } from "@/lib/reporting/mySalesRules";
 
 export const runtime = "nodejs";
@@ -62,7 +63,15 @@ export async function GET(req: NextRequest) {
     // their team: a leader's is them and everyone under them, at any depth; anyone else's is their leader's - the leader
     // and everyone under the leader (SARCLA 01.11.2026, on Adem's page: "missing a my team KPI overall")
     const leader = subject ? (under(h.placed, subject.id).length ? subject.id : placed?.manager ?? null) : null;
-    const team = leader ? [leader, ...under(h.placed, leader)].map((id) => byId.get(id)).filter((p): p is NonNullable<typeof p> => !!p).map((p) => ({ id: p.id, name: p.name })) : [];
+    let ids = leader ? [leader, ...under(h.placed, leader)] : [];
+    // nobody placed them yet: Map assignment's line manager's team, as the ESO reports have it (SARCLA 01.11.2026: "still
+    // missing my team")
+    if (!ids.length && subject) {
+      const leads = await getLeads(await getTeams());
+      const mine = leads[subject.id];
+      if (mine) ids = Object.keys(leads).filter((id) => leads[id] === mine);
+    }
+    const team = ids.map((id) => byId.get(id)).filter((p): p is NonNullable<typeof p> => !!p).map((p) => ({ id: p.id, name: p.name }));
     const showTargets = PAGES.slice(0, 1).some((p) => opens(access, p)) && !!subject;
     return NextResponse.json({
       ok: true, year, me, subject, canPick, previewing: who.previewing,

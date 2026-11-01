@@ -833,7 +833,7 @@ export function RegistrationsExplorer({ home = "eso" }: { home?: Home }) {
       </Box>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
-          {!scoped && <ReportTabs name="eso-registrations" tab={view} onSelect={setView} tabs={viewsOf(touch).map((v) => ({ id: v.id, label: v.label, count: v.id !== "people" && filters[DIM_OF[v.id]]?.length ? String(filters[DIM_OF[v.id]]!.length) : null }))} />}
+          {scoped ? scoped.bar : <ReportTabs name="eso-registrations" tab={view} onSelect={setView} tabs={viewsOf(touch).map((v) => ({ id: v.id, label: v.label, count: v.id !== "people" && filters[DIM_OF[v.id]]?.length ? String(filters[DIM_OF[v.id]]!.length) : null }))} />}
         </Box>
         <Box sx={{ flex: 1 }} />
         <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="eso-registrations" /></Box>

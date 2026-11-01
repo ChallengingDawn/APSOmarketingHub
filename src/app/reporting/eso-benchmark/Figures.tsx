@@ -140,9 +140,9 @@ export function useLeads(): Leads | null {
 export const leadOf = (team: TeamKey, key: LeadKey, lt: Leads | null) => (key === SCOPE_LEAD ? SCOPE_LEAD : team === "eso" && key !== "all" && lt?.teams.some((t) => t.id === key) ? key : null);
 /** ESO | TSA | Total, and beside it - under ESO only - the line managers' teams. */
 export function Teams({ team, onTeam, lead, onLead, teams }: { team: TeamKey; onTeam: (t: TeamKey) => void; lead: LeadKey; onLead: (l: LeadKey) => void; teams: Team[] }) {
-  // inside My Sales Reports its own switch stands here
+  // inside My Sales Reports its own switch stands in the tabs' row instead
   const scope = useScoped();
-  if (scope) return <>{scope.bar}</>;
+  if (scope) return null;
   const tabs: { id: LeadKey; label: string; count: null }[] = [{ id: "all", label: "All ESO", count: null }, ...teams.map((t) => ({ id: t.id, label: t.name, count: null }))];
   return (
     <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", justifySelf: "start", minWidth: 0 }}>
@@ -502,6 +502,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   companies?: CompanySource | null;
 }) {
   const list = useChartCompanies(companies, title);
+  const scoped = useScoped();
   // its own filter (its breakdown), or the page's (a board of something not filtered, the profit centres)
   const around = useContext(FilterCtx);
   const filter: CardFilter | null = onFilter ? { open: onFilter, label: filterLabel ?? "Filter", on: !!selected?.length } : around;
@@ -555,7 +556,10 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
         {list.button}
         {actions}
       </Box>
-      {rows.length === 0 ? <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nothing with figures under these filters.</Typography> : (
+      {rows.length === 0 ? <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nothing with figures under these filters.</Typography> : scoped ? (
+        <BoardBars rows={rows} curLabel={curLabel} prevLabel={prevLabel} fmt={fmt} change={change} noChange={noChange} ratio={ratio} target={target}
+          selected={selected} pickable={pickable} tipOf={tipOf} />
+      ) : (
         <>
           {/* the first three as cards */}
           <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(3, minmax(0, 1fr))" } }}>
@@ -619,7 +623,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
           )}
         </>
       )}
-      {unranked && unranked.rows.length > 0 && (
+      {!scoped && unranked && unranked.rows.length > 0 && (
         <Box sx={{ display: "grid", gap: 0.5 }}>
           <Button size="small" onClick={() => setSmall((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start", color: MUTED }}>
             {small ? "Hide" : "Show"} the {unranked.rows.length.toLocaleString("en")} not ranked - {unranked.why}
@@ -637,6 +641,50 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
         </Box>
       )}
       {list.list}
+    </Box>
+  );
+}
+
+/** A board as one bar chart: a bar per row, longest first, last year's figure a tick on it, the change beside it. */
+function BoardBars({ rows, curLabel, prevLabel, fmt, change, noChange, ratio, target, selected, pickable, tipOf }: {
+  rows: BoardRow[]; curLabel: string; prevLabel: string; fmt: (n: number) => string;
+  change: (r: BoardRow) => { main: string; color: string; second: string | null }; noChange: boolean; ratio: boolean; target: number | null;
+  selected?: string[]; pickable: (label: string) => object; tipOf: (r: BoardRow) => string;
+}) {
+  const top = Math.max(...rows.map((r) => Math.max(r.cur, noChange ? 0 : r.prev)), target ?? 0, ratio ? 1 : 0) || 1;
+  const at = (v: number) => `${Math.max(0, Math.min(100, (v / top) * 100))}%`;
+  const tall = rows.length > 14;
+  return (
+    <Box sx={{ display: "grid", gap: 0.75 }}>
+      <Box sx={{ display: "flex", gap: 1.75, flexWrap: "wrap", fontSize: "0.74rem", color: MUTED }}>
+        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}><Box component="span" sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: THIS }} />{curLabel}</Box>
+        {!noChange && <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}><Box component="span" sx={{ width: 2, height: 12, bgcolor: INK }} />{prevLabel}</Box>}
+        {ratio && <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}><Box component="span" sx={{ width: 12, borderTop: `2px dashed ${FAINT}` }} />100%</Box>}
+        {target != null && target > 0 && <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}><Box component="span" sx={{ width: 12, borderTop: `2px dashed ${TARGET}` }} />target {fmt(target)}</Box>}
+      </Box>
+      <Box sx={{ display: "grid", gap: 0.25, ...(tall ? { maxHeight: 14 * 30, overflowY: "auto", pr: 0.5 } : {}) }}>
+        {rows.map((r) => {
+          const on = !!selected?.includes(r.label), c = change(r);
+          return (
+            <Box key={r.label} {...pickable(r.label)} aria-pressed={selected ? on : undefined} title={tipOf(r)}
+              sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 110px) minmax(0, 1fr) auto", sm: "minmax(0, 170px) minmax(0, 1fr) 150px" }, columnGap: 1.25, alignItems: "center",
+                px: 0.5, py: 0.35, width: "100%", border: 0, borderRadius: "8px", font: "inherit", textAlign: "left", bgcolor: on ? TINT.blue.bg : "transparent",
+                opacity: selected?.length && !on ? 0.5 : 1, cursor: "inherit", "&:hover": { bgcolor: on ? TINT.blue.bg : "rgba(21,34,58,.035)" } }}>
+              <Typography noWrap sx={{ fontSize: "0.8rem", fontWeight: 600, color: INK }}>{r.label}</Typography>
+              <Box sx={{ position: "relative", height: 18 }}>
+                <Box sx={{ position: "absolute", left: 0, top: 3, height: 12, width: at(r.cur), bgcolor: THIS, borderRadius: "4px" }} />
+                {!noChange && r.prev > 0 && <Box sx={{ position: "absolute", top: 0, height: 18, left: `calc(${at(r.prev)} - 1px)`, width: 2, bgcolor: INK, opacity: 0.75 }} />}
+                {ratio && <Box sx={{ position: "absolute", top: -2, bottom: -2, left: at(1), borderLeft: `2px dashed ${FAINT}` }} />}
+                {target != null && target > 0 && <Box sx={{ position: "absolute", top: -2, bottom: -2, left: at(target), borderLeft: `2px dashed ${TARGET}` }} />}
+              </Box>
+              <Box sx={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                <Typography component="span" sx={{ fontSize: "0.82rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{fmt(r.cur)}</Typography>
+                {!noChange && <Typography component="span" sx={{ fontSize: "0.74rem", fontWeight: 700, color: c.color, ml: 0.75 }}>{c.main}</Typography>}
+              </Box>
+            </Box>
+          );
+        })}
+      </Box>
     </Box>
   );
 }
@@ -1895,7 +1943,7 @@ export function FiguresExplorer({ home = "eso" }: { home?: Home }) {
       {/* the tabs, and at their right end Views and Filters - as Who are our customers */}
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
-          {!scoped && <ReportTabs name="eso-figures" tab={view} onSelect={setView}
+          {scoped ? scoped.bar : <ReportTabs name="eso-figures" tab={view} onSelect={setView}
             tabs={VIEWS.map((v) => { const d = dimOf(v.id); return { id: v.id, label: v.label, count: d && filters[d]?.length ? String(filters[d]!.length) : null }; })} />}
         </Box>
         <Box sx={{ flex: 1 }} />

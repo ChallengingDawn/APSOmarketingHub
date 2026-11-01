@@ -24,11 +24,14 @@ export type Standing = { me: Person | null; subject: Person | null; reports: "es
 export type View = "me" | "team" | "unit" | "all";
 const UNIT_WORD: Record<"eso" | "tsa", string> = { eso: "ESO", tsa: "TSA" };
 
-/** The switch's tabs for this person: My team only with people under them, their unit's only for ESO or TSA. */
+/**
+ * The switch's tabs for this person: their own, their team (always - their leader's, or theirs; empty until the
+ * hierarchy or Map assignment puts them in one), their unit's only for ESO or TSA, all.
+ */
 export function viewsOf(st: Standing | null): { id: View; label: string }[] {
   const other = !!(st?.subject && st.me && st.subject.id !== st.me.id);
   const out: { id: View; label: string }[] = [{ id: "me", label: other ? st!.subject!.name : "Mine" }];
-  if (st?.team.length) out.push({ id: "team", label: other ? `${st.subject!.name}'s team` : "My team" });
+  out.push({ id: "team", label: other ? `${st!.subject!.name}'s team` : "My team" });
   if (st?.reports) out.push({ id: "unit", label: `All ${UNIT_WORD[st.reports]}` });
   out.push({ id: "all", label: "All (ESO + TSA)" });
   return out;
@@ -39,7 +42,8 @@ export function scopeOf(st: Standing, view: View): ScopeOf {
   const none: ScopeLeads = { byName: {}, byId: {}, teams: [] };
   if (view === "all") return { team: "total", lead: null, leads: none };
   if (view === "unit" && st.reports) return { team: st.reports, lead: null, leads: none };
-  const people = view === "team" && st.team.length ? st.team : st.subject ? [st.subject] : [];
+  // a team not set up yet shows nobody - never the person alone under the name of a team
+  const people = view === "team" ? st.team : st.subject ? [st.subject] : [];
   const name = view === "team" ? viewsOf(st).find((v) => v.id === "team")?.label ?? "My team" : st.subject?.name ?? "You";
   return {
     team: st.reports ?? "eso", lead: SCOPE_LEAD,

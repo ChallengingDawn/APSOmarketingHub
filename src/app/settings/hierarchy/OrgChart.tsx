@@ -78,17 +78,18 @@ export function OrgChart({ people, placed, saved, seed, units, q, busy, onMove, 
 
   // a card may go under anyone but itself and those under it; NONE = to the top
   const canDrop = (target: string) => !!drag && drag !== target && (target === NONE || !under(placed, drag).includes(target));
-  const dropOn = (target: string) => {
-    const who = drag;
+  const dropOn = (target: string, who: string | null) => {
     setDrag(null); setOver(null);
-    if (!who || !canDrop(target)) return;
+    if (!who || who === target || (target !== NONE && under(placed, who).includes(target))) return;
     if ((placed[who]?.manager ?? null) === (target === NONE ? null : target)) return;
     void onMove([{ ownerId: who, manager: target === NONE ? null : target }]);
   };
+  // the innermost zone answers alone: a card in the tray must not hand its drop on to the tray (the top) as well - that
+  // put everyone dropped there straight back at the top (SARCLA 01.11.2026: "I'm dragging but nothing happens")
   const dropZone = (target: string) => ({
-    onDragOver: (e: React.DragEvent) => { if (canDrop(target)) { e.preventDefault(); setOver(target); } },
+    onDragOver: (e: React.DragEvent) => { if (canDrop(target)) { e.preventDefault(); e.stopPropagation(); setOver(target); } },
     onDragLeave: () => setOver((o) => (o === target ? null : o)),
-    onDrop: (e: React.DragEvent) => { e.preventDefault(); dropOn(target); },
+    onDrop: (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); dropOn(target, drag ?? (e.dataTransfer.getData("text/plain") || null)); },
   });
 
   const card = (p: HierarchyPerson, compact = false) => {
@@ -99,7 +100,8 @@ export function OrgChart({ people, placed, saved, seed, units, q, busy, onMove, 
     const isFolded = folded.has(p.id);
     return (
       <Box key={p.id} draggable={!busy}
-        onDragStart={(e) => { e.dataTransfer.setData("text/plain", p.id); e.dataTransfer.effectAllowed = "move"; setDrag(p.id); }}
+        // the card dims a moment later - Chrome can drop a drag whose card changes while it starts
+        onDragStart={(e) => { e.dataTransfer.setData("text/plain", p.id); e.dataTransfer.effectAllowed = "move"; const id = p.id; setTimeout(() => setDrag(id), 0); }}
         onDragEnd={() => { setDrag(null); setOver(null); }}
         {...dropZone(p.id)}
         onClick={(e) => setOpen({ id: p.id, el: e.currentTarget })}

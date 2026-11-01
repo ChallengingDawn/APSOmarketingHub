@@ -714,7 +714,7 @@ export function NewCustomersExplorer({ home = "eso" }: { home?: Home }) {
       {/* the tabs, and at their right end Views and Filters */}
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
-          {!scoped && <ReportTabs name="eso-new-customers" tab={view} onSelect={setView}
+          {scoped ? scoped.bar : <ReportTabs name="eso-new-customers" tab={view} onSelect={setView}
             tabs={VIEWS.map((v) => { const b = byOf(v.id), d = b === "pc" ? null : b; return { id: v.id, label: v.label, count: d && filters[d]?.length ? String(filters[d]!.length) : null }; })} />}
         </Box>
         <Box sx={{ flex: 1 }} />

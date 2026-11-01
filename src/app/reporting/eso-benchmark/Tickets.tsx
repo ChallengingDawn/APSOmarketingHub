@@ -177,9 +177,9 @@ const TTEAMS: { id: TeamKey; label: string; count: null }[] = [{ id: "eso", labe
 /** ESO | TSA | Total on both pages - ESO's and TSA Reports' (SARCLA 01.11.2026: "all for all in ESO as well") - and under
  *  ESO the line managers' teams. */
 function TTeams({ team, onTeam, lead, onLead, teams }: { team: TeamKey; onTeam: (t: TeamKey) => void; lead: LeadKey; onLead: (l: LeadKey) => void; teams: Team[] }) {
-  // inside My Sales Reports its own switch stands here
+  // inside My Sales Reports its own switch stands in the tabs' row instead
   const scope = useScoped();
-  if (scope) return <>{scope.bar}</>;
+  if (scope) return null;
   const tabs: { id: LeadKey; label: string; count: null }[] = [{ id: "all", label: "All ESO", count: null }, ...teams.map((x) => ({ id: x.id, label: x.name, count: null }))];
   return (
     <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", justifySelf: "start", minWidth: 0 }}>
@@ -837,7 +837,7 @@ export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?:
       </Box>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
-          {!scoped && <ReportTabs name={G.page} tab={view} onSelect={setView} tabs={views.map((v) => ({ id: v.id, label: v.label, count: null }))} />}
+          {scoped ? scoped.bar : <ReportTabs name={G.page} tab={view} onSelect={setView} tabs={views.map((v) => ({ id: v.id, label: v.label, count: null }))} />}
         </Box>
         <Box sx={{ flex: 1 }} />
         <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page={G.page} /></Box>

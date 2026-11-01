@@ -173,9 +173,9 @@ const VTEAMS: { id: TeamKey; label: string; count: null }[] = [{ id: "eso", labe
 const VTEAMS_TSA: { id: TeamKey; label: string; count: null }[] = [VTEAMS[0], { id: "tsa", label: "TSA", count: null }, VTEAMS[1]];
 /** ESO | Total - and TSA, which swaps to the Calls -, under ESO the line managers' teams (TSA does not visit). */
 function VTeams({ team, onTeam, lead, onLead, teams, withTsa }: { team: TeamKey; onTeam: (t: TeamKey) => void; lead: LeadKey; onLead: (l: LeadKey) => void; teams: Team[]; withTsa?: boolean }) {
-  // inside My Sales Reports its own switch stands here
+  // inside My Sales Reports its own switch stands in the tabs' row instead
   const scope = useScoped();
-  if (scope) return <>{scope.bar}</>;
+  if (scope) return null;
   const t: TeamKey = team === "eso" ? "eso" : team === "tsa" && withTsa ? "tsa" : "total";
   const tabs: { id: LeadKey; label: string; count: null }[] = [{ id: "all", label: "All ESO", count: null }, ...teams.map((x) => ({ id: x.id, label: x.name, count: null }))];
   return (
@@ -1086,7 +1086,7 @@ export function VisitsExplorer({ team: given, setTeam: giveTeam, home = "eso" }:
       </Box>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
-          {!scoped && <ReportTabs name="eso-visits" tab={view} onSelect={setView} tabs={VIEWS.map((v) => ({ id: v.id, label: v.label, count: v.id !== "people" && v.id !== "new" && filters[DIM_OF[v.id]]?.length ? String(filters[DIM_OF[v.id]]!.length) : null }))} />}
+          {scoped ? scoped.bar : <ReportTabs name="eso-visits" tab={view} onSelect={setView} tabs={VIEWS.map((v) => ({ id: v.id, label: v.label, count: v.id !== "people" && v.id !== "new" && filters[DIM_OF[v.id]]?.length ? String(filters[DIM_OF[v.id]]!.length) : null }))} />}
         </Box>
         <Box sx={{ flex: 1 }} />
         <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="eso-visits" /></Box>
