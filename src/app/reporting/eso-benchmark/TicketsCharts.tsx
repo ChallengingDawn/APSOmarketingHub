@@ -296,17 +296,20 @@ export function funnelSteps(s: TStats) {
     ],
   };
 }
-/** How sure a step's potential is, in words: "High 42% · Medium 10% · Low 48%". */
+/** How sure a step's potential is, in words - the EUR of each confidence and its share (SARCLA 01.11.2026: "beside the
+ *  percentage I want to see the value by confidence"): "High 2,179,922 EUR (42%) · Medium … · Low …". */
 function ConfWords({ conf }: { conf: number[] }) {
   const all = sum(conf.slice(0, NO_VALUE));
   if (!all) return null;
   return (
-    <Box sx={{ display: "flex", gap: 1.25, flexWrap: "wrap", alignItems: "center" }}>
+    <Box sx={{ display: "flex", columnGap: 1.5, rowGap: 0.25, flexWrap: "wrap", alignItems: "center", justifyContent: "center" }}>
       <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>Confidence:</Typography>
       {CONFS.map((c, i) => (
-        <Box key={c} title={`${c} confidence: ${eur(conf[i])}`} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+        <Box key={c} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
           <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: CONF_COLORS[i] }} />
-          <Typography sx={{ fontSize: "0.72rem", color: INK, fontVariantNumeric: "tabular-nums" }}>{c} {Math.round((conf[i] / all) * 100)}%</Typography>
+          <Typography sx={{ fontSize: "0.72rem", color: INK, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+            {c} <b>{eur(conf[i])}</b> <span style={{ color: MUTED }}>({Math.round((conf[i] / all) * 100)}%)</span>
+          </Typography>
         </Box>
       ))}
     </Box>
