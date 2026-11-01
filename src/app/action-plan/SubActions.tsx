@@ -118,10 +118,12 @@ const ticketOwn = (v: Small, note: string, href?: string): Record<string, string
 
 /* ── a new one ─────────────────────────────────────────────────────────── */
 
-export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, compact = false, done }: {
+export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, compact = false, wide = false, done }: {
   item: PlanItem; tile: TileInfo; t: TicketsAnswer | null; tErr: string | null; retry: () => Promise<void>; owners: Opt[]; tickets: boolean; focus: boolean;
   /** one line until it is used (the action's window) */
   compact?: boolean;
+  /** the + window opened wide: the ticket beside the sub-action */
+  wide?: boolean;
   done: () => Promise<void>;
 }) {
   const blank = (): Small => ({ title: "", stage: IDEA, priority: item.priority, owner: t?.me?.id ?? "", start: "", due: "" });
@@ -214,44 +216,50 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, com
           </Box>
         </Box>
       )}
-      <TextField size="small" label="Sub-action" placeholder={open ? "What will be done - written as an action" : "+ Add a sub-action - what will be done"} value={v.title} onChange={(e) => set({ title: e.target.value })}
-        onFocus={() => setUsed(true)} autoFocus={focus} sx={field} slotProps={{ inputLabel: { shrink: true } }}
-        onKeyDown={(e) => { if (e.key === "Enter" && ready) void add(); }} />
-      {open && (<>
-      <TextField size="small" label="Description" placeholder="What it is about, what done looks like" value={note} onChange={(e) => setNote(e.target.value)}
-        sx={field} multiline minRows={2} maxRows={8} slotProps={{ inputLabel: { shrink: true } }} />
-      <SmallFields v={v} set={set} owners={owners} canWrite />
-      <People owners={owners} value={shared} onChange={setShared} />
-
-      {/* its Scroll to Sale ticket - only when Digital Growth leads the action */}
-      {tickets && (
-        <Box sx={{ display: "grid", gap: 1, p: 1.25, borderRadius: "8px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
-          <Box sx={{ display: "flex", gap: 0.6, alignItems: "center", flexWrap: "wrap" }}>
-            <ConfirmationNumberOutlinedIcon sx={{ fontSize: 19, color: FAINT }} />
-            <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, mr: 0.5 }}>Scroll to Sale ticket</Typography>
-            {([["none", "None"], ["new", "New ticket"], ["link", "Link existing"]] as const).map(([id, l]) => (
-              <Box key={id} component="button" type="button" onClick={() => setTicket(id)} sx={square(ticket === id, TINT.blue.fg, TINT.blue.bg, true)}>{l}</Box>
-            ))}
-          </Box>
-          {ticket !== "none" && !t && (
-            tErr ? <Typography sx={{ fontSize: "0.84rem", color: RED }}>HubSpot could not be read: {tErr} <Button size="small" onClick={() => void retry()}>Try again</Button></Typography>
-              : <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Reading the pipeline…</Typography></Box>
-          )}
-          {ticket === "new" && t && <TicketFields form={restOf(t.form)} values={values} set={(k, x) => setValues((o) => ({ ...o, [k]: x }))} />}
-          {ticket === "link" && <FindTickets pick={pick} setPick={setPick} already={(t?.linked ?? []).map((x) => x.id)} />}
+      {/* side by side when the window is wide and a ticket is to be filled (SARCLA 01.11.2026: "with Digital Growth the
+          window should expand to display everything correctly") */}
+      <Box sx={{ display: "grid", gap: 1.75, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: wide && tickets && open ? "minmax(0, 1fr) minmax(0, 1.15fr)" : "minmax(0, 1fr)" } }}>
+        <Box sx={{ display: "grid", gap: 1.25, minWidth: 0 }}>
+          <TextField size="small" label="Sub-action" placeholder={open ? "What will be done - written as an action" : "+ Add a sub-action - what will be done"} value={v.title} onChange={(e) => set({ title: e.target.value })}
+            onFocus={() => setUsed(true)} autoFocus={focus} sx={field} slotProps={{ inputLabel: { shrink: true } }}
+            onKeyDown={(e) => { if (e.key === "Enter" && ready) void add(); }} />
+          {open && (<>
+            <TextField size="small" label="Description" placeholder="What it is about, what done looks like" value={note} onChange={(e) => setNote(e.target.value)}
+              sx={field} multiline minRows={2} maxRows={8} slotProps={{ inputLabel: { shrink: true } }} />
+            <SmallFields v={v} set={set} owners={owners} canWrite />
+            <People owners={owners} value={shared} onChange={setShared} />
+          </>)}
         </Box>
-      )}
-
-      {err && <Typography sx={{ fontSize: "0.86rem", color: RED }}>{err}</Typography>}
-      <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-        <Typography sx={{ flex: 1, fontSize: "0.82rem", color: missing.length ? RED : sent ? GREEN : FAINT, fontWeight: sent && !missing.length ? 600 : 400 }}>
-          {missing.length ? `For the ticket, still to fill in: ${missing.join(", ")}` : sent ?? (shared.length ? `${shared.length} colleague${shared.length === 1 ? "" : "s"} will get a mail` : "")}
-        </Typography>
-        {compact && <Button disabled={busy} onClick={() => { setUsed(false); set({ title: "" }); setNote(""); setAi((a) => ({ ...a, open: false })); }} sx={{ ...cta, color: MUTED }}>Cancel</Button>}
-        <Button variant="contained" disableElevation disabled={!ready} onClick={() => void add()} sx={{ ...cta, fontSize: "0.9rem", px: 2 }}>
-          {busy ? "Saving…" : ticket === "new" ? "Add it and its ticket" : ticket === "link" ? "Add it and link" : "Add the sub-action"}
-        </Button>
+        {/* its Scroll to Sale ticket - only when Digital Growth leads the action */}
+        {open && tickets && (
+          <Box sx={{ display: "grid", gap: 1, p: 1.25, borderRadius: "8px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
+            <Box sx={{ display: "flex", gap: 0.6, alignItems: "center", flexWrap: "wrap" }}>
+              <ConfirmationNumberOutlinedIcon sx={{ fontSize: 19, color: FAINT }} />
+              <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, mr: 0.5 }}>Scroll to Sale ticket</Typography>
+              {([["none", "None"], ["new", "New ticket"], ["link", "Link existing"]] as const).map(([id, l]) => (
+                <Box key={id} component="button" type="button" onClick={() => setTicket(id)} sx={square(ticket === id, TINT.blue.fg, TINT.blue.bg, true)}>{l}</Box>
+              ))}
+            </Box>
+            {ticket !== "none" && !t && (
+              tErr ? <Typography sx={{ fontSize: "0.84rem", color: RED }}>HubSpot could not be read: {tErr} <Button size="small" onClick={() => void retry()}>Try again</Button></Typography>
+                : <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Reading the pipeline…</Typography></Box>
+            )}
+            {ticket === "new" && t && <TicketFields form={restOf(t.form)} values={values} set={(k, x) => setValues((o) => ({ ...o, [k]: x }))} />}
+            {ticket === "link" && <FindTickets pick={pick} setPick={setPick} already={(t?.linked ?? []).map((x) => x.id)} />}
+          </Box>
+        )}
       </Box>
+      {open && (<>
+        {err && <Typography sx={{ fontSize: "0.86rem", color: RED }}>{err}</Typography>}
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+          <Typography sx={{ flex: 1, fontSize: "0.82rem", color: missing.length ? RED : sent ? GREEN : FAINT, fontWeight: sent && !missing.length ? 600 : 400 }}>
+            {missing.length ? `For the ticket, still to fill in: ${missing.join(", ")}` : sent ?? (shared.length ? `${shared.length} colleague${shared.length === 1 ? "" : "s"} will get a mail` : "")}
+          </Typography>
+          {compact && <Button disabled={busy} onClick={() => { setUsed(false); set({ title: "" }); setNote(""); setAi((a) => ({ ...a, open: false })); }} sx={{ ...cta, color: MUTED }}>Cancel</Button>}
+          <Button variant="contained" disableElevation disabled={!ready} onClick={() => void add()} sx={{ ...cta, fontSize: "0.9rem", px: 2 }}>
+            {busy ? "Saving…" : ticket === "new" ? "Add it and its ticket" : ticket === "link" ? "Add it and link" : "Add the sub-action"}
+          </Button>
+        </Box>
       </>)}
       {!open && sent && <Typography sx={{ fontSize: "0.82rem", color: GREEN, fontWeight: 600 }}>{sent}</Typography>}
     </Box>

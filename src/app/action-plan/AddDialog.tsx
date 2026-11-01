@@ -8,9 +8,11 @@
 // Under a main category: an action or a sub-category; under the goal: a main category. Nothing is made until Create:
 // no row named "New action" left behind. A sub-action's window carries the action's "Led by Digital Growth": turned on
 // there, the ticket - new or linked - comes at once ("on sub creation we should be able to create a ticket too - the
-// Digital Growth toggle").
+// Digital Growth toggle"). A new action under a sub-category behaves the same ("even on sub-category it should allow to
+// create or associate the ticket"); under a main category there is no Digital Growth to pick. With Digital Growth on the
+// window widens, the ticket beside the rest ("the window should expand to display everything correctly").
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Dialog from "@mui/material/Dialog";
 import Typography from "@mui/material/Typography";
@@ -19,12 +21,14 @@ import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Switch from "@mui/material/Switch";
 import Autocomplete from "@mui/material/Autocomplete";
+import CircularProgress from "@mui/material/CircularProgress";
 import CloseIcon from "@mui/icons-material/Close";
+import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 
 import { FAINT, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { IDEA, PRIORITIES, STAGES, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner } from "@/lib/reporting/actionPlanRules";
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
-import { useTileActions } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
+import { FindTickets, TicketFields, useTileActions } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { NewSub, planTile } from "./SubActions";
 import { PRIORITY_COLOR, stageColor, type PlanData } from "./planUi";
 
@@ -36,6 +40,11 @@ const square = (on: boolean, fg: string, bg: string) => ({
   fontWeight: on ? 800 : 600, px: 1, py: 0.4, borderRadius: "4px", cursor: "pointer", whiteSpace: "nowrap" as const,
 });
 const NAME: Record<PlanKind, string> = { goal: "the goal", topic: "main category", group: "sub-category", action: "action" };
+/** The ticket fields the new action gives itself (and the plan's place, written by the hub once it is made). */
+const GIVEN = ["subject", "content", "hs_pipeline_stage", "hs_ticket_priority", "hubspot_owner_id", "mkt_planned_date", "mkt_golive_date",
+  "mkt_implementation_country", "mkt_channel", "mkt_agency", "mkt_plan_category", "mkt_plan_subcategory", "mkt_plan_action"];
+const PLACE = ["mkt_plan_category", "mkt_plan_subcategory", "mkt_plan_action"];
+const without = (v: Record<string, string>, keys: string[]) => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
 
 /** Several square choices (country, channel, agency). */
 function Pick({ title, options, value, set }: { title: string; options: Opt[]; value: string[]; set: (v: string[]) => void }) {
@@ -52,16 +61,32 @@ function Pick({ title, options, value, set }: { title: string; options: Opt[]; v
   );
 }
 
+/** "Led by Digital Growth", one switch: the action's in a sub-action's window, the new action's in its own. */
+function DgSwitch({ on, set, hint }: { on: boolean; set: (on: boolean) => void; hint: string }) {
+  return (
+    <Box component="label" sx={{ display: "flex", alignItems: "center", gap: 1, p: 1.1, borderRadius: "8px", border: `1px solid ${on ? TINT.blue.fg : HAIRLINE}`, bgcolor: on ? TINT.blue.bg : "#fff", cursor: "pointer" }}>
+      <Box sx={{ flex: 1 }}>
+        <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: on ? TINT.blue.fg : INK }}>Led by Digital Growth</Typography>
+        <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{hint}</Typography>
+      </Box>
+      <Switch checked={on} onChange={(e) => set(e.target.checked)} />
+    </Box>
+  );
+}
+
 /** A sub-action under an action: its form, with the action's tickets. */
-function SubUnder({ parent, people, onDone }: { parent: PlanItem; people: PlanOwner[]; onDone: (said: string) => void }) {
+function SubUnder({ parent, people, wide, onDone }: { parent: PlanItem; people: PlanOwner[]; wide: boolean; onDone: (said: string) => void }) {
   const [tile] = useState(() => planTile(parent));
   const { t, tErr, loadTickets } = useTileActions(tile, true);
   const owners: Opt[] = people.length ? people.map((p) => ({ value: p.id, label: p.name })) : t?.form.owners ?? [];
-  return <NewSub item={parent} tile={tile} t={t} tErr={tErr} retry={loadTickets} owners={owners} tickets={parent.dg} focus done={async () => onDone(`Sub-action added under “${parent.title}”`)} />;
+  return <NewSub item={parent} tile={tile} t={t} tErr={tErr} retry={loadTickets} owners={owners} tickets={parent.dg} focus wide={wide} done={async () => onDone(`Sub-action added under “${parent.title}”`)} />;
 }
 
-/** An action (or a category) under a category: its name and, for an action, the Gantt's boxes. */
-function RowUnder({ parent, people, choices, onDone }: { parent: PlanItem; people: PlanOwner[]; choices: PlanData["choices"]; onDone: (said: string) => void }) {
+/** An action (or a category) under a category: its name and, for an action, the Gantt's boxes - and, under a
+ *  sub-category with Digital Growth, its ticket made or linked with it. */
+function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
+  parent: PlanItem; people: PlanOwner[]; choices: PlanData["choices"]; dg: boolean; setDg: (on: boolean) => void; onDone: (said: string) => void;
+}) {
   const can: PlanKind[] = parent.kind === "goal" ? ["topic"] : parent.kind === "topic" ? ["action", "group"] : ["action"];
   const [kind, setKind] = useState<PlanKind>(can[0]);
   const [title, setTitle] = useState("");
@@ -72,13 +97,30 @@ function RowUnder({ parent, people, choices, onDone }: { parent: PlanItem; peopl
   const [start, setStart] = useState("");
   const [due, setDue] = useState("");
   const [country, setCountry] = useState<string[]>([]);
-  const [dg, setDg] = useState(false);
   const [channel, setChannel] = useState<string[]>([]);
   const [agency, setAgency] = useState<string[]>([]);
+  const [ticket, setTicket] = useState<"none" | "new" | "link">("new");
+  const [extra, setExtra] = useState<Record<string, string>>({});
+  const [pick, setPick] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const action = kind === "action";
-  const ready = !!title.trim() && !busy && (!start || !due || start <= due);
+  // Digital Growth only for an action under a sub-category (none to pick under a main category)
+  const dgOk = action && parent.kind === "group";
+  const withTicket = dgOk && dg;
+  // the ticket's form, read only when a ticket is on the way
+  const [tile] = useState(() => planTile(parent));
+  const { t, tErr, loadTickets } = useTileActions(tile, withTicket);
+  const values = useMemo(() => ({
+    ...without(t?.prefill ?? {}, [...PLACE, "content"]), ...extra,
+    subject: title.trim().slice(0, 200), content: detail.trim() || title.trim(),
+    ...(stage ? { hs_pipeline_stage: stage } : {}), ...(priority ? { hs_ticket_priority: priority } : {}),
+    ...(owners[0] ? { hubspot_owner_id: owners[0].id } : {}), ...(start ? { mkt_planned_date: start } : {}), ...(due ? { mkt_golive_date: due } : {}),
+    ...(country.length ? { mkt_implementation_country: country.join(";") } : {}), ...(channel.length ? { mkt_channel: channel.join(";") } : {}),
+    ...(agency.length ? { mkt_agency: agency.join(";") } : {}),
+  }) as Record<string, string>, [t, extra, title, detail, stage, priority, owners, start, due, country, channel, agency]);
+  const missing = withTicket && ticket === "new" && t ? t.form.fields.filter((f) => f.required && !String(values[f.name] ?? "").trim()).map((f) => f.label) : [];
+  const ready = !!title.trim() && !busy && (!start || !due || start <= due) && (!withTicket || ticket === "none" || (ticket === "new" ? !!t && !missing.length : pick.length > 0));
 
   const create = async () => {
     if (!ready) return;
@@ -92,9 +134,17 @@ function RowUnder({ parent, people, choices, onDone }: { parent: PlanItem; peopl
         try {
           await send("/api/action-plan", "PATCH", {
             id: made.id, detail: detail.trim() || title.trim(), stage, priority, start: start || null, due: due || null,
-            country, dg, ...(dg ? { channel, agency } : {}), ...(owners.length ? { owners: owners.map((o) => o.id) } : {}),
+            country, dg: withTicket, ...(withTicket ? { channel, agency } : {}), ...(owners.length ? { owners: owners.map((o) => o.id) } : {}),
           });
         } catch (e) { onDone(`${said} - but its details were not saved (${(e as Error).message}); open it to fill them in`); return; }
+        if (withTicket && ticket !== "none") {
+          try {
+            if (ticket === "new") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "create", tile: `plan:${made.id}`, values: without(values, PLACE) });
+            else await send("/api/reporting/kpi-actions/tickets", "POST", { action: "link", tile: `plan:${made.id}`, ids: pick });
+          } catch (e) { onDone(`${said} - but its ticket was not ${ticket === "new" ? "made" : "linked"} (${(e as Error).message}); open it to try again`); return; }
+          onDone(`${said}, ${ticket === "new" ? "with its ticket in HubSpot" : "with its linked tickets"}`);
+          return;
+        }
       }
       onDone(said);
     } catch (e) { setErr((e as Error).message); setBusy(false); }
@@ -107,53 +157,73 @@ function RowUnder({ parent, people, choices, onDone }: { parent: PlanItem; peopl
           {can.map((k) => <Box key={k} component="button" type="button" aria-pressed={kind === k} onClick={() => setKind(k)} sx={{ ...square(kind === k, TINT.blue.fg, TINT.blue.bg), fontSize: "0.84rem", px: 1.4, py: 0.6 }}>New {NAME[k]}</Box>)}
         </Box>
       )}
-      <TextField size="small" autoFocus label={action ? "Action" : `The ${NAME[kind]}'s name`} placeholder={action ? "What will be done - written as an action" : ""} value={title}
-        onChange={(e) => setTitle(e.target.value)} sx={field} slotProps={{ inputLabel: { shrink: true } }} onKeyDown={(e) => { if (e.key === "Enter" && !action && ready) void create(); }} />
-      {action && (
-        <>
-          <TextField size="small" label="Description (optional)" value={detail} onChange={(e) => setDetail(e.target.value)} multiline minRows={2} maxRows={6} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
-          <Box sx={{ display: "grid", gap: 0.5 }}>
-            <Typography sx={label}>Status</Typography>
-            <Box role="radiogroup" aria-label="Status" sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-              {STAGES.map((s) => {
-                const on = stage === s.id;
-                const c = stageColor(s.id);
-                return <Box key={s.id} component="button" type="button" role="radio" aria-checked={on} onClick={() => setStage(s.id)} sx={{ ...square(on, c.ink, c.soft), ...(on ? { bgcolor: c.bar, color: "#fff", borderColor: c.bar } : {}) }}>{s.label}</Box>;
-              })}
+      {dgOk && <DgSwitch on={dg} set={setDg} hint={dg ? "The action and its sub-actions carry “From Scroll to Sale” tickets - make one or link one now" : "Turn on for a “From Scroll to Sale” ticket, the marketing channel and the agency"} />}
+      <Box sx={{ display: "grid", gap: 1.75, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: withTicket ? "minmax(0, 1fr) minmax(0, 1.15fr)" : "minmax(0, 1fr)" } }}>
+        <Box sx={{ display: "grid", gap: 1.4, minWidth: 0 }}>
+          <TextField size="small" autoFocus label={action ? "Action" : `The ${NAME[kind]}'s name`} placeholder={action ? "What will be done - written as an action" : ""} value={title}
+            onChange={(e) => setTitle(e.target.value)} sx={field} slotProps={{ inputLabel: { shrink: true } }} onKeyDown={(e) => { if (e.key === "Enter" && !action && ready) void create(); }} />
+          {action && (
+            <>
+              <TextField size="small" label="Description" value={detail} onChange={(e) => setDetail(e.target.value)} multiline minRows={2} maxRows={6} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
+              <Box sx={{ display: "grid", gap: 0.5 }}>
+                <Typography sx={label}>Status</Typography>
+                <Box role="radiogroup" aria-label="Status" sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                  {STAGES.map((s) => {
+                    const on = stage === s.id;
+                    const c = stageColor(s.id);
+                    return <Box key={s.id} component="button" type="button" role="radio" aria-checked={on} onClick={() => setStage(s.id)} sx={{ ...square(on, c.ink, c.soft), ...(on ? { bgcolor: c.bar, color: "#fff", borderColor: c.bar } : {}) }}>{s.label}</Box>;
+                  })}
+                </Box>
+              </Box>
+              <Box sx={{ display: "grid", gap: 0.5 }}>
+                <Typography sx={label}>Priority</Typography>
+                <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                  {[...PRIORITIES].reverse().map((p) => {
+                    const on = priority === p.value;
+                    const c = PRIORITY_COLOR[p.value];
+                    return <Box key={p.value} component="button" type="button" aria-pressed={on} onClick={() => setPriority(on ? "" : p.value)} sx={square(on, c.fg, c.bg)}>{p.label}</Box>;
+                  })}
+                </Box>
+              </Box>
+              <Box sx={{ display: "grid", gap: 1.2, gridTemplateColumns: { xs: "1fr", sm: "1.6fr 1fr 1fr" } }}>
+                <Autocomplete multiple size="small" options={people} value={owners} getOptionLabel={(o) => o.name} isOptionEqualToValue={(a, b) => a.id === b.id} filterSelectedOptions
+                  onChange={(_, v) => setOwners(v)} renderInput={(p) => <TextField {...p} label="Assigned to" placeholder={owners.length ? "" : "HubSpot users"} sx={field} />} />
+                <TextField size="small" type="date" label="Planned date" value={start} onChange={(e) => setStart(e.target.value)} sx={field} slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: due || undefined } }} />
+                <TextField size="small" type="date" label="Go-live date" value={due} onChange={(e) => setDue(e.target.value)} sx={field} slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: start || undefined } }} />
+              </Box>
+              <Pick title="Implementation country" options={choices.country} value={country} set={setCountry} />
+              {withTicket && <Pick title="Marketing channel" options={choices.channel} value={channel} set={setChannel} />}
+              {withTicket && <Pick title="Agency" options={choices.agency} value={agency} set={setAgency} />}
+            </>
+          )}
+        </Box>
+        {/* its Scroll to Sale ticket, made or linked with it */}
+        {withTicket && (
+          <Box sx={{ display: "grid", gap: 1, p: 1.25, borderRadius: "8px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
+            <Box sx={{ display: "flex", gap: 0.6, alignItems: "center", flexWrap: "wrap" }}>
+              <ConfirmationNumberOutlinedIcon sx={{ fontSize: 19, color: FAINT }} />
+              <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, mr: 0.5 }}>Scroll to Sale ticket</Typography>
+              {([["none", "None"], ["new", "New ticket"], ["link", "Link existing"]] as const).map(([id, l]) => (
+                <Box key={id} component="button" type="button" onClick={() => setTicket(id)} sx={square(ticket === id, TINT.blue.fg, TINT.blue.bg)}>{l}</Box>
+              ))}
             </Box>
+            {ticket !== "none" && !t && (
+              tErr ? <Typography sx={{ fontSize: "0.84rem", color: RED }}>HubSpot could not be read: {tErr} <Button size="small" onClick={() => void loadTickets()}>Try again</Button></Typography>
+                : <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Reading the pipeline…</Typography></Box>
+            )}
+            {ticket === "new" && t && <TicketFields form={{ ...t.form, fields: t.form.fields.filter((f) => !GIVEN.includes(f.name)) }} values={values} set={(k, x) => setExtra((o) => ({ ...o, [k]: x }))} />}
+            {ticket === "link" && <FindTickets pick={pick} setPick={setPick} already={[]} />}
           </Box>
-          <Box sx={{ display: "grid", gap: 0.5 }}>
-            <Typography sx={label}>Priority</Typography>
-            <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-              {[...PRIORITIES].reverse().map((p) => {
-                const on = priority === p.value;
-                const c = PRIORITY_COLOR[p.value];
-                return <Box key={p.value} component="button" type="button" aria-pressed={on} onClick={() => setPriority(on ? "" : p.value)} sx={square(on, c.fg, c.bg)}>{p.label}</Box>;
-              })}
-            </Box>
-          </Box>
-          <Box sx={{ display: "grid", gap: 1.2, gridTemplateColumns: { xs: "1fr", sm: "1.6fr 1fr 1fr" } }}>
-            <Autocomplete multiple size="small" options={people} value={owners} getOptionLabel={(o) => o.name} isOptionEqualToValue={(a, b) => a.id === b.id} filterSelectedOptions
-              onChange={(_, v) => setOwners(v)} renderInput={(p) => <TextField {...p} label="Assigned to" placeholder={owners.length ? "" : "HubSpot users"} sx={field} />} />
-            <TextField size="small" type="date" label="Planned date" value={start} onChange={(e) => setStart(e.target.value)} sx={field} slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: due || undefined } }} />
-            <TextField size="small" type="date" label="Go-live date" value={due} onChange={(e) => setDue(e.target.value)} sx={field} slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: start || undefined } }} />
-          </Box>
-          <Pick title="Implementation country" options={choices.country} value={country} set={setCountry} />
-          <Box component="label" sx={{ display: "flex", alignItems: "center", gap: 1, p: 1, borderRadius: "8px", border: `1px solid ${dg ? TINT.blue.fg : HAIRLINE}`, bgcolor: dg ? TINT.blue.bg : "#fff", cursor: "pointer" }}>
-            <Box sx={{ flex: 1 }}>
-              <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: dg ? TINT.blue.fg : INK }}>Led by Digital Growth</Typography>
-              <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Its sub-actions take “From Scroll to Sale” tickets; the marketing channel and the agency</Typography>
-            </Box>
-            <Switch checked={dg} onChange={(e) => setDg(e.target.checked)} />
-          </Box>
-          {dg && <Pick title="Marketing channel" options={choices.channel} value={channel} set={setChannel} />}
-          {dg && <Pick title="Agency" options={choices.agency} value={agency} set={setAgency} />}
-        </>
-      )}
+        )}
+      </Box>
       {err && <Typography sx={{ fontSize: "0.86rem", color: RED }}>{err}</Typography>}
       <Box sx={{ display: "flex", gap: 1, alignItems: "center", justifyContent: "flex-end" }}>
-        {start && due && start > due && <Typography sx={{ flex: 1, fontSize: "0.82rem", color: RED }}>The go-live date comes before the planned date</Typography>}
-        <Button variant="contained" disableElevation disabled={!ready} onClick={() => void create()} sx={{ ...cta, px: 2.5 }}>{busy ? "Creating…" : `Create the ${NAME[kind]}`}</Button>
+        <Typography sx={{ flex: 1, fontSize: "0.82rem", color: RED }}>
+          {start && due && start > due ? "The go-live date comes before the planned date" : missing.length ? `For the ticket, still to fill in: ${missing.join(", ")}` : ""}
+        </Typography>
+        <Button variant="contained" disableElevation disabled={!ready} onClick={() => void create()} sx={{ ...cta, px: 2.5 }}>
+          {busy ? "Creating…" : withTicket && ticket === "new" ? "Create it and its ticket" : withTicket && ticket === "link" ? "Create it and link" : `Create the ${NAME[kind]}`}
+        </Button>
       </Box>
     </Box>
   );
@@ -168,9 +238,12 @@ export function AddDialog({ parent, people, choices, onPatch, onClose, onDone }:
   onDone: (said: string) => void;
 }) {
   const sub = parent.kind === "action";
+  // a new action's own Digital Growth, before it exists
+  const [rowDg, setRowDg] = useState(false);
+  const wide = sub ? parent.dg : rowDg && parent.kind === "group";
   return (
     <Dialog open onClose={onClose} maxWidth={false} scroll="paper" aria-label={sub ? "New sub-action" : "Add under it"}
-      slotProps={{ paper: { sx: { width: "min(880px, calc(100vw - 32px))", maxHeight: "calc(100vh - 48px)", m: 2, borderRadius: "16px", bgcolor: "#f7f9fc" } } }}>
+      slotProps={{ paper: { sx: { width: wide ? "min(1400px, calc(100vw - 32px))" : "min(880px, calc(100vw - 32px))", maxHeight: "calc(100vh - 48px)", m: 2, borderRadius: "16px", bgcolor: "#f7f9fc", transition: "width .2s" } } }}>
       <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", px: 2.5, pt: 2, pb: 1.5, bgcolor: "#fff", borderBottom: `1px solid ${HAIRLINE}` }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" }}>
@@ -182,17 +255,10 @@ export function AddDialog({ parent, people, choices, onPatch, onClose, onDone }:
       </Box>
       <Box sx={{ overflowY: "auto", p: 2.5, display: "grid", gap: 1.5 }}>
         {sub && (
-          <Box component="label" sx={{ display: "flex", alignItems: "center", gap: 1, p: 1.1, borderRadius: "8px", border: `1px solid ${parent.dg ? TINT.blue.fg : HAIRLINE}`, bgcolor: parent.dg ? TINT.blue.bg : "#fff", cursor: "pointer" }}>
-            <Box sx={{ flex: 1 }}>
-              <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: parent.dg ? TINT.blue.fg : INK }}>Led by Digital Growth</Typography>
-              <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
-                {parent.dg ? "The sub-action can carry its “From Scroll to Sale” ticket - a new one or one linked" : "Turn on for a “From Scroll to Sale” ticket - a sales action has no pipeline. It is the action's switch"}
-              </Typography>
-            </Box>
-            <Switch checked={parent.dg} onChange={(e) => void onPatch(parent.id, { dg: e.target.checked })} />
-          </Box>
+          <DgSwitch on={parent.dg} set={(on) => void onPatch(parent.id, { dg: on })}
+            hint={parent.dg ? "The sub-action can carry its “From Scroll to Sale” ticket - a new one or one linked" : "Turn on for a “From Scroll to Sale” ticket - a sales action has no pipeline. It is the action's switch"} />
         )}
-        {sub ? <SubUnder parent={parent} people={people} onDone={onDone} /> : <RowUnder parent={parent} people={people} choices={choices} onDone={onDone} />}
+        {sub ? <SubUnder parent={parent} people={people} wide={wide} onDone={onDone} /> : <RowUnder parent={parent} people={people} choices={choices} dg={rowDg} setDg={setRowDg} onDone={onDone} />}
       </Box>
     </Dialog>
   );

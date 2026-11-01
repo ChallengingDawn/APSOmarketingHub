@@ -439,7 +439,8 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo
   );
 }
 
-/** Every field of the pipeline but the name (the action is the name), prefilled - check and change what is wrong. */
+/** Every field of the pipeline but the name (the action is the name), prefilled - check and change what is wrong. Its
+ *  choices are square tags (SARCLA 01.11.2026: "all only square tags"). */
 export function TicketFields({ form, values, set }: { form: Form; values: Record<string, string>; set: (k: string, v: string) => void }) {
   const optionsOf = (f: S2sField): Opt[] => f.kind === "stage" ? form.stages : f.kind === "owner" ? form.owners : f.kind === "team" ? form.teams : f.options ?? [];
   return (
@@ -457,7 +458,7 @@ export function TicketFields({ form, values, set }: { form: Form; values: Record
                   const on = chosen.includes(o.value);
                   return (
                     <Box key={o.value} component="button" type="button" onClick={() => set(f.name, (on ? chosen.filter((x) => x !== o.value) : [...chosen, o.value]).join(";"))}
-                      sx={{ border: `1px solid ${on ? TINT.blue.fg : HAIRLINE}`, bgcolor: on ? TINT.blue.bg : "#fff", color: on ? TINT.blue.fg : MUTED, font: "inherit", fontSize: "0.84rem", fontWeight: on ? 700 : 500, px: 1.1, py: 0.4, borderRadius: 99, cursor: "pointer" }}>
+                      sx={{ border: `1px solid ${on ? TINT.blue.fg : HAIRLINE}`, bgcolor: on ? TINT.blue.bg : "#fff", color: on ? TINT.blue.fg : MUTED, font: "inherit", fontSize: "0.84rem", fontWeight: on ? 700 : 500, px: 1.1, py: 0.4, borderRadius: "4px", cursor: "pointer" }}>
                       {o.label}
                     </Box>
                   );
