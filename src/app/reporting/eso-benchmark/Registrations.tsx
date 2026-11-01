@@ -168,10 +168,11 @@ function monthsOf(d: RegData, per: RPer): { m: number; label: string; part: bool
 const peopleOf = (d: RegData, team: TeamKey, lead: string | null, byId: Record<string, string>): Set<number> | null => (team === "total" ? null
   : new Set(d.people.flatMap((p, i) => (team === "eso" ? (p.team === "ESO" && (!lead || byId[p.id] === lead) ? [i] : []) : p.team === "TSA" ? [i] : []))));
 const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (c.team === "eso" && c.lead ? c.teams.find((t) => t.id === c.lead)?.name ?? c.lead : teamWord(c.team));
-/** How the team shown reaches its companies: TSA calls - its registrations against the first qualified call (SARCLA
- *  01.11.2026: "measuring visits here it's not fair - TSA don't do visits, they call, they do qualified calls") -, ESO and
- *  everyone together against the first visit, as before. */
-const touchOf = (c: { team: TeamKey }): Touch => (c.team === "tsa" ? "call" : "visit");
+/** The first contact the page measures, by where it sits - not by the team shown: TSA Reports against the first qualified
+ *  call (SARCLA 01.11.2026: "TSA don't do visits, they call, they do qualified calls"; later: "on registration you are
+ *  still measuring visits, it should measure calls" - only the Calls and Visits pages swap with the team), ESO's against
+ *  the first visit, as before. */
+const touchOf = (c: { touch: Touch }) => c.touch;
 /** Where the page sits: ESO Reports, or TSA Reports, where it opens on TSA (SARCLA 01.11.2026: "bring the default TSA to
  *  TSA reports") - the same page, ESO | TSA | Total still on it. */
 export type Home = "eso" | "tsa";
@@ -214,6 +215,8 @@ const thisYearOnly = (dim: RDim) => dim === "visit" || dim === "call" || dim ===
 
 export type RCtx = {
   d: RegData; per: RPer; team: TeamKey; lead: string | null; teams: Team[];
+  /** the first contact measured: the visit (ESO Reports) or the qualified call (TSA Reports) */
+  touch: Touch;
   /** the people shown (indexes), null: everyone */
   people: Set<number> | null; filters: RFilters; view: RView;
   half?: boolean; targets?: Record<string, number>;
@@ -757,7 +760,7 @@ export function RegistrationsExplorer({ home = "eso" }: { home?: Home }) {
   const lt = useLeads();
   const teams = lt?.teams ?? [];
   const { state: acts } = useActions(PAGE);
-  const touch = touchOf({ team });
+  const touch: Touch = home === "tsa" ? "call" : "visit";
   const view: RView = ownView(isView(params.get("view")) ? (params.get("view") as RView) : "people", touch);
   const setView = (v: RView) => setQuery((q) => { if (v === "people") q.delete("view"); else q.set("view", v); });
   const filters: RFilters = useMemo(() => Object.fromEntries(FILTER_DIMS.flatMap((k) => (params.getAll(k).length ? [[k, params.getAll(k)]] : []))), [params]);
@@ -782,9 +785,9 @@ export function RegistrationsExplorer({ home = "eso" }: { home?: Home }) {
   const drawn = useDeferredValue(want);
   const stale = drawn !== want;
   const c = useMemo<RCtx | null>(() => (d && drawn.per ? {
-    d, per: drawn.per, team: drawn.team, lead: drawn.lead, teams, people: drawn.people, filters: drawn.filters, view: drawn.view, targets: acts?.targets,
+    d, per: drawn.per, team: drawn.team, lead: drawn.lead, teams, touch, people: drawn.people, filters: drawn.filters, view: drawn.view, targets: acts?.targets,
     onBar: (k, l) => { toggle(k, l); openOn(k); }, onFilter: openOn,
-  } : null), [d, drawn, teams, acts?.targets]); // eslint-disable-line react-hooks/exhaustive-deps
+  } : null), [d, drawn, teams, touch, acts?.targets]); // eslint-disable-line react-hooks/exhaustive-deps
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
 
   // TSA Reports has no BUC View to go back to (as ef's Customer development)
@@ -869,8 +872,8 @@ export function RegistrationsPanel({ acts, home = "eso" }: { acts: ActionsState 
   const want = useMemo(() => ({ team, lead }), [team, lead]);
   const drawn = useDeferredValue(want);
   const stale = drawn !== want;
-  const c = useMemo<RCtx | null>(() => (d ? { d, per: perOf(d, presetsOf(d)[0].win), team: drawn.team, lead: drawn.lead, teams, people: peopleOf(d, drawn.team, drawn.lead, lt?.byId ?? {}), filters: {}, view: "people", targets: acts?.targets } : null),
-    [d, drawn, teams, lt, acts?.targets]);
+  const c = useMemo<RCtx | null>(() => (d ? { d, per: perOf(d, presetsOf(d)[0].win), team: drawn.team, lead: drawn.lead, teams, touch: home === "tsa" ? "call" : "visit", people: peopleOf(d, drawn.team, drawn.lead, lt?.byId ?? {}), filters: {}, view: "people", targets: acts?.targets } : null),
+    [d, drawn, teams, lt, home, acts?.targets]);
   const items: SortItem[] = useMemo(() => !c ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === PAGE && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
     const ch = chartOf(spec.key);
     const fmt = formatOf(acts, spec);

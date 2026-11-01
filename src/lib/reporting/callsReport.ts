@@ -1,9 +1,10 @@
 // THE TSA CALLS PAGE'S READ (SARCLA 01.11.2026: "TSA don't do visits, they call, they do qualified calls ... build instead
-// of visits a sub report for calls"): every call of this year - the qualified ones as rows with what the page slices them
-// by (the company, else the company of the call's contact; its priority, category, country and orders), every call with its
-// outcome for how many were qualified; of everyone (TSA, ESO and the rest - the page's ESO | TSA | Total and the line
-// managers' teams). The rules in ./callsRules.ts and ./visitsRules.ts. Read every hour through slowReport: the first
-// visitor starts it, everyone after gets it.
+// of visits a sub report for calls"): every call of this year with its company (the call's, else its contact's) - the
+// qualified ones as rows with what the page slices them by (the company's priority, category, country and orders), every
+// call with its outcome for how many were qualified and which companies several people call -, and each of those
+// companies' first contact by ESO this year (a completed visit by ESO, or a call by someone on ESO); of everyone (TSA, ESO
+// and the rest - the page's ESO | TSA | Total and the line managers' teams). The rules in ./callsRules.ts and
+// ./visitsRules.ts. Read every hour through slowReport: the first visitor starts it, everyone after gets it.
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
@@ -15,8 +16,12 @@ import { monthTotal, parsePcMonthly, prioBand, prioOf, PRIO_BANDS } from "./esoR
 import { ymd } from "./visitsRules";
 import { DIRECTIONS, NO_COMPANY, OUTCOMES, QUALIFIED, directionOf, type CallsData } from "./callsRules";
 
-const KEY = "tsaCalls:v1";
+// v2 (01.11): every call with its company, for the companies several people call; each company's first ESO contact
+const KEY = "tsaCalls:v2";
 const TTL_MS = 60 * 60 * 1000;
+const VISIT_OBJ = "2-139767037";
+/** "Visit and Report complete": the only visits that count (SARCLA 12.10). */
+const VISIT_DONE = "3972587738";
 
 export function tsaCalls(): Promise<SlowState<CallsData>> {
   return slowReport(KEY, TTL_MS, build);
@@ -29,27 +34,29 @@ async function build(): Promise<CallsData> {
   const year = now.getUTCFullYear();
   const today = now.toISOString().slice(0, 10);
   const todayN = ymd(today);
+  const first = year * 10000 + 101;
 
   // 1. every call of this year - qualified calls are in HubSpot since January 2026, so last year has none to compare with
   const read = await searchAll("calls", [[{ propertyName: "hs_timestamp", operator: "GTE", value: String(Date.UTC(year, 0, 1)) }]],
     ["hubspot_owner_id", "hs_timestamp", "hs_call_disposition", "hs_call_direction"], (n) => reportProgress(KEY, `reading this year's calls · ${n.toLocaleString("en")}`));
-  const calls = read.filter((c) => { const day = ymd(c.properties?.hs_timestamp); return day >= year * 10000 + 101 && day <= todayN; });
+  const calls = read.filter((c) => { const day = ymd(c.properties?.hs_timestamp); return day >= first && day <= todayN; });
   const qualifiedId = Object.keys(OUTCOMES).find((k) => OUTCOMES[k] === QUALIFIED)!;
   const qualified = calls.filter((c) => c.properties?.hs_call_disposition === qualifiedId);
 
-  // 2. the company of each qualified call - else the company of its contact (as a visit's)
-  reportProgress(KEY, `linking ${qualified.length.toLocaleString("en")} qualified calls to companies`);
+  // 2. the company of each call - else the company of its contact (as a visit's)
+  reportProgress(KEY, `linking ${calls.length.toLocaleString("en")} calls to companies`);
   const callCompany = new Map<string, string>();
-  for (const [id, cos] of await associations("calls", "companies", qualified.map((c) => c.id))) if (cos[0]) callCompany.set(id, cos[0]);
+  for (const [id, cos] of await associations("calls", "companies", calls.map((c) => c.id))) if (cos[0]) callCompany.set(id, cos[0]);
   let viaContact = 0;
   try {
-    const bare = qualified.filter((c) => !callCompany.has(c.id)).map((c) => c.id);
+    const bare = calls.filter((c) => !callCompany.has(c.id)).map((c) => c.id);
     reportProgress(KEY, `the contacts of ${bare.length.toLocaleString("en")} calls without a company`);
     const callContact = new Map<string, string>();
     for (const [id, cts] of await associations("calls", "contacts", bare)) if (cts[0]) callContact.set(id, cts[0]);
     const contactCompany = new Map<string, string>();
     for (const [id, cos] of await associations("contacts", "companies", [...new Set(callContact.values())])) if (cos[0]) contactCompany.set(id, cos[0]);
-    for (const [call, ct] of callContact) { const co = contactCompany.get(ct); if (co) { callCompany.set(call, co); viaContact++; } }
+    const isQualified = new Set(qualified.map((q) => q.id));
+    for (const [call, ct] of callContact) { const co = contactCompany.get(ct); if (co) { callCompany.set(call, co); if (isQualified.has(call)) viaContact++; } }
   } catch (e) { console.log(`[tsa-calls] the calls' contacts not read: ${(e as Error).message}`); }
 
   // 3. the people: their names, and their team - the rosters, else the team HubSpot has them in
@@ -68,7 +75,37 @@ async function build(): Promise<CallsData> {
   const callers = [...new Set([...qualified.map((c) => c.properties?.hubspot_owner_id ?? ""), ...Object.keys(TSA_OWNERS)].filter(Boolean))];
   for (const id of callers) person(id);
 
-  // 4. those companies' facts
+  // 4. ESO's first contact with each company called (SARCLA 01.11.2026: "where the customer had also a contact from the
+  // sales ESO"): a completed visit by ESO, or a call by someone on ESO - this year
+  const esoFirst = new Map<string, number>();
+  const esoAt = (cid: string, day: number) => { if (day && (!esoFirst.has(cid) || day < esoFirst.get(cid)!)) esoFirst.set(cid, day); };
+  for (const c of calls) { const cid = callCompany.get(c.id); if (cid && teamFor(c.properties?.hubspot_owner_id ?? "") === "ESO") esoAt(cid, ymd(c.properties?.hs_timestamp)); }
+  let esoRead = false;
+  try {
+    const visits: Row[] = [];
+    let after: string | undefined;
+    for (let page = 0; page < 500; page++) {
+      const r = await hubspotFetchJson<{ results?: Row[]; paging?: { next?: { after?: string } } }>({
+        path: `/crm/v3/objects/${VISIT_OBJ}?limit=100&properties=meeting_date_with_time,hs_pipeline_stage,hubspot_owner_id${after ? `&after=${after}` : ""}`, useTicketsToken: true,
+      });
+      visits.push(...(r.results ?? []));
+      reportProgress(KEY, `reading ESO's visits · ${visits.length.toLocaleString("en")}`);
+      after = r.paging?.next?.after;
+      if (!after) break;
+    }
+    const done = visits.filter((v) => { const day = ymd(v.properties?.meeting_date_with_time); return v.properties?.hs_pipeline_stage === VISIT_DONE && day >= first && day <= todayN && teamFor(v.properties?.hubspot_owner_id ?? "") === "ESO"; });
+    const dayOf = new Map(done.map((v) => [v.id, ymd(v.properties?.meeting_date_with_time)]));
+    for (let i = 0; i < done.length; i += 100) {
+      const r = await hubspotFetchJson<{ results?: { from?: { id?: string }; to?: { toObjectId?: number | string }[] }[] }>({
+        path: `/crm/v4/associations/${VISIT_OBJ}/companies/batch/read`, method: "POST", useTicketsToken: true,
+        body: { inputs: done.slice(i, i + 100).map((v) => ({ id: v.id })) },
+      });
+      for (const row of r.results ?? []) for (const to of row.to ?? []) esoAt(String(to.toObjectId), dayOf.get(String(row.from?.id ?? "")) ?? 0);
+    }
+    esoRead = true;
+  } catch (e) { console.log(`[tsa-calls] ESO's visits not read: ${(e as Error).message}`); }
+
+  // 5. the companies' facts
   type Co = { name: string; prio: string; category: string; country: string; shopSince: number; firstOrder: number; lastOrder: number; revenue: number; owner: string; bought: number };
   const companies = new Map<string, Co>();
   const ids = [...new Set(callCompany.values())];
@@ -98,7 +135,7 @@ async function build(): Promise<CallsData> {
     reportProgress(KEY, `reading the companies called · ${Math.min(i + 100, ids.length).toLocaleString("en")}`);
   }
 
-  // 5. each caller's companies now, by priority - how much of each priority the qualified calls reach
+  // 6. each caller's companies now, by priority - how much of each priority the qualified calls reach
   const portfolio: CallsData["portfolio"] = {};
   const prioOpts = await hubspotFetchJson<{ options?: { value: string }[] }>({ path: "/crm/v3/properties/companies/sales_priority" }).then((x) => x.options ?? []).catch(() => [] as { value: string }[]);
   const count = async (filters: Record<string, unknown>[]) =>
@@ -114,23 +151,27 @@ async function build(): Promise<CallsData> {
     }
   } catch (e) { console.log(`[tsa-calls] companies by priority not read: ${(e as Error).message}`); }
 
-  // 6. the rows: each qualified call as a visit row, the direction in the visit type's place; every call with its outcome
+  // 7. the rows: each qualified call as a visit row, the direction in the visit type's place; every call with its outcome
+  // and company
   const labels: CallsData["labels"] = { prio: [...PRIO_BANDS], category: ["APSOcore", "APSOgrowth", "APSOprospect", "APSOmicro", "APSOlost"], kind: [...DIRECTIONS], country: [] };
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const coIdx = new Map<string, number>();
   const coRows: number[][] = [];
   const coIds: string[] = [], coNames: string[] = [];
+  const indexOf = (cid: string | undefined) => {
+    const co = cid ? companies.get(cid) : undefined;
+    if (!cid || !co) return -1;
+    let ci = coIdx.get(cid);
+    if (ci === undefined) { ci = coRows.push([co.shopSince, co.firstOrder, co.revenue, co.owner ? person(co.owner) : -1, co.lastOrder, co.bought, esoFirst.get(cid) ?? 0]) - 1; coIdx.set(cid, ci); coIds.push(cid); coNames.push(co.name); }
+    return ci;
+  };
   const rows: number[][] = [];
   for (const call of qualified) {
     const p = call.properties ?? {};
     const when = p.hs_timestamp ?? "";
     const cid = callCompany.get(call.id);
     const co = cid ? companies.get(cid) : undefined;
-    let ci = -1;
-    if (cid && co) {
-      ci = coIdx.get(cid) ?? -1;
-      if (ci < 0) { ci = coRows.push([co.shopSince, co.firstOrder, co.revenue, co.owner ? person(co.owner) : -1, co.lastOrder, co.bought]) - 1; coIdx.set(cid, ci); coIds.push(cid); coNames.push(co.name); }
-    }
+    const ci = indexOf(cid);
     const day = ymd(when);
     rows.push([
       person(p.hubspot_owner_id ?? ""), 0, Number(when.slice(5, 7)) - 1, Number(when.slice(8, 10)),
@@ -143,11 +184,11 @@ async function build(): Promise<CallsData> {
     const p = c.properties ?? {};
     const when = p.hs_timestamp ?? "";
     const o = p.hs_call_disposition ? OUTCOMES[p.hs_call_disposition] ?? "Other outcome" : "No outcome";
-    return [person(p.hubspot_owner_id ?? ""), Number(when.slice(5, 7)) - 1, Number(when.slice(8, 10)), at(outcomes, o)];
+    return [person(p.hubspot_owner_id ?? ""), Number(when.slice(5, 7)) - 1, Number(when.slice(8, 10)), at(outcomes, o), indexOf(callCompany.get(c.id))];
   });
   return {
     generatedAt: new Date().toISOString(), year, today, people, labels, visits: rows, companies: coRows, companyIds: coIds, companyNames: coNames, open: {}, portfolio, lastYear: [],
-    all, outcomes,
+    all, outcomes, esoRead,
     coverage: { read: calls.length, completed: qualified.length, withCompany: qualified.filter((c) => callCompany.has(c.id)).length, viaContact, lastYearRead: false },
   };
 }

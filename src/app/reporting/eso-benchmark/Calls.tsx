@@ -6,6 +6,11 @@
 // called and did they buy again; the direction of the call (outbound / inbound) in the visit type's place; and how many of
 // a person's calls were qualified. Qualified calls are in HubSpot since January 2026: nothing to compare with last year.
 // The rows and their rules: src/lib/reporting/callsRules.ts and visitsRules.ts; the read: callsReport.ts.
+// Second pass (01.11): "is this qualified calls or all calls? call it qualified calls - we really need the distinction"
+// (every title says which); "became customers / had bought before / bought again: we need a split - only TSA, TSA & ESO,
+// where the customer had also a contact from the sales ESO"; the Direction tab replaced by Overlapping ("how many companies
+// get overlapped by user - I want to see it as a diagram and a specialized tab"); and "on calls, when you switch to ESO the
+// visits should appear and vice versa - the only one that swaps" (CallsOrVisits, at the end).
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -22,6 +27,8 @@ import CheckIcon from "@mui/icons-material/Check";
 import PhoneInTalkOutlinedIcon from "@mui/icons-material/PhoneInTalkOutlined";
 import CallMadeOutlinedIcon from "@mui/icons-material/CallMadeOutlined";
 import PercentOutlinedIcon from "@mui/icons-material/PercentOutlined";
+import JoinInnerOutlinedIcon from "@mui/icons-material/JoinInnerOutlined";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
 import PersonAddAltOutlinedIcon from "@mui/icons-material/PersonAddAltOutlined";
 import HowToRegOutlinedIcon from "@mui/icons-material/HowToRegOutlined";
@@ -48,10 +55,11 @@ import {
   BEFORE, CO, REG_WAY, V, blank, coverageOf, dayWin, daysIn, daysOf, isoOf, labelOf, rowsOf, statsBy, visitedCompanies, ymd,
   type VDim, type VFilters, type VStats, type VWin,
 } from "@/lib/reporting/visitsRules";
-import { DIRECTIONS, NO_COMPANY, allCallsOf, type CallsData } from "@/lib/reporting/callsRules";
+import { NO_COMPANY, WITH_ESO, allCallsOf, esoSideOf, overlapOf, type CallsData } from "@/lib/reporting/callsRules";
+import { VisitsExplorer } from "./Visits";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
-  CardFilterFor, ChartBox, FullTable, H1, Leaderboard, NoLeadYet, TARGET, TWO, Teams, asTeam, axisWidth, leadOf, niceTop, setQuery, teamWord, useLead, useLeads,
+  CardFilterFor, ChartBox, FullTable, H1, Leaderboard, NoLeadYet, TARGET, TWO, Teams, asTeam, axisWidth, leadOf, niceTop, setQuery, teamWord, useLead, useLeads, useTeam,
   type BoardRow, type CardFilter, type Col, type LeadKey, type TeamKey,
 } from "./Figures";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
@@ -155,21 +163,18 @@ const peopleOf = (d: CallsData, team: TeamKey, lead: string | null, byId: Record
   team === "total" ? [i] : team === "eso" ? (p.team === "ESO" && (!lead || byId[p.id] === lead) ? [i] : []) : p.team === "TSA" ? [i] : []
 )));
 const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (c.team === "eso" && c.lead ? c.teams.find((t) => t.id === c.lead)?.name ?? c.lead : teamWord(c.team));
-/** The team shown: the address's, else TSA - the page is TSA's; a click here does not change what the ESO pages open on. */
-function useHomeTeam(): [TeamKey, (t: TeamKey) => void] {
-  const params = useSearchParams();
-  return [asTeam(params.get("team")) ?? "tsa", (t) => setQuery((q) => q.set("team", t))];
-}
+/** Where the page sits: ESO Reports (the Visits page's address, under TSA) or TSA Reports (its own, opening on TSA). */
+export type Home = "eso" | "tsa";
 
 /* ── what every chart is drawn with ────────────────────────────────────── */
 
-type VView = "people" | "new" | "prio" | "category" | "kind" | "country";
+type VView = "people" | "new" | "prio" | "category" | "overlap" | "country";
 const VIEWS: { id: VView; label: string }[] = [
   { id: "people", label: "People" }, { id: "new", label: "Registration" }, { id: "prio", label: "Priority" },
-  { id: "category", label: "Customer category" }, { id: "kind", label: "Direction" }, { id: "country", label: "Country" },
+  { id: "category", label: "Customer category" }, { id: "overlap", label: "Overlapping" }, { id: "country", label: "Country" },
 ];
 const isView = (x: string | null): x is VView => VIEWS.some((v) => v.id === x);
-const DIM_OF: Record<VView, VDim> = { people: "person", new: "person", prio: "prio", category: "category", kind: "kind", country: "country" };
+const DIM_OF: Record<VView, VDim> = { people: "person", new: "person", prio: "prio", category: "category", overlap: "person", country: "country" };
 const DIM: Record<VDim, { name: string; lower: string; icon: React.ReactNode; tint: Tint; note: string }> = {
   person: { name: "Person", lower: "person", icon: <BadgeOutlinedIcon />, tint: "green", note: "Who made the call - the call's owner" },
   prio: { name: "Priority", lower: "priority", icon: <FlagOutlinedIcon />, tint: "purple", note: "The called company's priority: Prio 1 above €25,000 potential, Prio 2 €2,500-25,000, Prio 3 €500-2,500" },
@@ -178,7 +183,7 @@ const DIM: Record<VDim, { name: string; lower: string; icon: React.ReactNode; ti
   country: { name: "Country", lower: "country", icon: <PublicOutlinedIcon />, tint: "blue", note: "Where the called company is" },
 };
 const ORDER: Partial<Record<VDim, readonly string[]>> = {
-  prio: ["Prio 1", "Prio 2", "Prio 3", "No priority", NO_COMPANY], kind: DIRECTIONS,
+  prio: ["Prio 1", "Prio 2", "Prio 3", "No priority", NO_COMPANY],
   category: ["APSOcore", "APSOgrowth", "APSOprospect", "APSOmicro", "APSOlost", "Growth Engine Customer", "Not set", NO_COMPANY],
 };
 
@@ -216,9 +221,9 @@ type Measure = "visits" | "new" | "registered" | "bought" | "again";
 const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; unit: "n" | "pct" | "eur"; target: string }> = {
   visits: { title: "Qualified calls", fmt: int, unit: "n", target: "qualified calls" },
   new: { title: "Qualified calls to prospects", fmt: int, unit: "n", target: "qualified calls to prospects" },
-  registered: { title: "Prospects registered after the call", fmt: int, unit: "n", target: "prospects registered after the call" },
-  bought: { title: "Prospects that became customers after the call", fmt: int, unit: "n", target: "prospects that became customers after the call" },
-  again: { title: "Customers won back after the call", fmt: int, unit: "n", target: "customers won back after the call" },
+  registered: { title: "Prospects registered after the qualified call", fmt: int, unit: "n", target: "prospects registered after the qualified call" },
+  bought: { title: "Prospects that became customers after the qualified call", fmt: int, unit: "n", target: "prospects that became customers after the qualified call" },
+  again: { title: "Customers won back after the qualified call", fmt: int, unit: "n", target: "customers won back after the qualified call" },
 };
 /** Of the companies called, the ones with revenue this year and how much - not an average over the prospects as well
  *  (SARCLA 28.10.2026 on "Ø revenue this year €534": "figures are completely wrong"). */
@@ -231,10 +236,10 @@ function boardRows(c: VCtx, dim: VDim, m: Measure): BoardRow[] {
   for (const [label, s] of by) {
     let cur: number, sub: string;
     if (m === "visits") { cur = s.visits; sub = dim === "person" ? `${int(s.companies)} companies · ${(s.visits / Math.max(done, 0.1)).toFixed(1)} a month` : `${pct(t.visits ? s.visits / t.visits : null)} of the qualified calls · ${int(s.companies)} companies`; }
-    else if (m === "new") { cur = s.newVisits; sub = `${int(s.newCompanies)} prospects · ${int(s.registeredAfter)} registered · ${int(s.boughtInPeriod)} became customers`; }
-    else if (m === "registered") { cur = s.registeredAfter; sub = `${pct(s.newCompanies ? s.registeredAfter / s.newCompanies : null)} of ${int(s.newCompanies)} prospects called`; }
-    else if (m === "bought") { cur = s.boughtInPeriod; sub = `${pct(s.newCompanies ? s.boughtInPeriod / s.newCompanies : null)} of ${int(s.newCompanies)} prospects called`; }
-    else { cur = s.lapsedAgain; sub = `of ${int(s.lapsed)} called that had not ordered for 12 months or more`; }
+    else if (m === "new") { cur = s.newVisits; sub = `${int(s.newCompanies)} prospects reached · ${int(s.registeredAfter)} registered · ${int(s.boughtInPeriod)} became customers`; }
+    else if (m === "registered") { cur = s.registeredAfter; sub = `${pct(s.newCompanies ? s.registeredAfter / s.newCompanies : null)} of ${int(s.newCompanies)} prospects reached by a qualified call`; }
+    else if (m === "bought") { cur = s.boughtInPeriod; sub = `${pct(s.newCompanies ? s.boughtInPeriod / s.newCompanies : null)} of ${int(s.newCompanies)} prospects reached by a qualified call`; }
+    else { cur = s.lapsedAgain; sub = `of ${int(s.lapsed)} reached by a qualified call that had not ordered for 12 months or more`; }
     if (!cur) continue;
     rows.push({ label, cur, prev: 0, sub });
   }
@@ -324,63 +329,6 @@ function CoverageChart({ c, title, actions }: { c: VCtx; title: string; actions?
   );
 }
 
-/** The directions and their colours */
-const DIR_COLOR: Record<string, string> = { Outbound: THIS, Inbound: TINT.green.fg, "Not recorded": "#cfd4db" };
-/** The qualified calls by direction, per label of a breakdown (all together under "") - from the rows the charts show. */
-function directionsOf(c: VCtx, dim?: VDim): Map<string, number[]> {
-  const out = new Map<string, number[]>();
-  for (const r of rowsOf(c.d, c.per.win, c.filters, c.people)) {
-    const k = dim ? labelOf(c.d, r, dim) : "", i = Math.max(0, DIRECTIONS.indexOf(labelOf(c.d, r, "kind") as (typeof DIRECTIONS)[number]));
-    const n = out.get(k) ?? DIRECTIONS.map(() => 0);
-    n[i]++;
-    out.set(k, n);
-  }
-  return out;
-}
-function DirLegend({ n }: { n: number[] }) {
-  const all = n.reduce((a, b) => a + b, 0);
-  return (
-    <Box sx={{ display: "flex", gap: 1.75, flexWrap: "wrap" }}>
-      {DIRECTIONS.map((k, i) => (n[i] > 0 || i < 2) && (
-        <Box key={k} sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-          <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: DIR_COLOR[k] }} />
-          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{k} <b style={{ color: INK }}>{int(n[i])}</b> {pct(all ? n[i] / all : null)}</Typography>
-        </Box>
-      ))}
-    </Box>
-  );
-}
-/** Outbound and inbound qualified calls per person (or priority, category, country): each one's calls split by direction. */
-function DirSplit({ c, dim }: { c: VCtx; dim: VDim }) {
-  const [all, setAll] = useState(false);
-  const order = ORDER[dim];
-  const rows = [...directionsOf(c, dim)].map(([label, n]) => ({ label, n, calls: n.reduce((a, b) => a + b, 0) }));
-  rows.sort(order ? (a, b) => order.indexOf(a.label) - order.indexOf(b.label) : (a, b) => b.calls - a.calls || a.label.localeCompare(b.label));
-  const max = Math.max(1, ...rows.map((r) => r.calls));
-  const first = c.half ? 8 : 12;
-  const shown = all ? rows : rows.slice(0, first);
-  return (
-    <Box sx={{ display: "grid", gap: 1.1 }}>
-      <DirLegend n={directionsOf(c).get("") ?? DIRECTIONS.map(() => 0)} />
-      {rows.length === 0 && <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>No qualified calls under these filters.</Typography>}
-      <Box sx={{ display: "grid", gap: 0.75 }}>
-        {shown.map((r) => (
-          <Box key={r.label} {...(c.onBar ? { component: "button" as const, type: "button" as const, onClick: () => c.onBar!(dim, r.label) } : {})}
-            sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "minmax(110px, 0.9fr) minmax(40px, 2fr) auto" }, gap: { xs: 0.4, sm: 1.25 }, alignItems: "center", border: 0, bgcolor: "transparent", font: "inherit", textAlign: "left", cursor: c.onBar ? "pointer" : "default", borderRadius: "8px", px: 0.5, py: 0.25, "&:hover": c.onBar ? { bgcolor: "rgba(21,34,58,.04)" } : {} }}>
-            <Typography noWrap title={r.label} sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>{r.label}</Typography>
-            <Box sx={{ display: "flex", gap: "2px", height: 16, width: `${(r.calls / max) * 100}%`, minWidth: 6 }}>
-              {DIRECTIONS.map((k, i) => r.n[i] > 0 && (
-                <Box key={k} title={`${r.label} - ${k}: ${int(r.n[i])} (${pct(r.n[i] / r.calls)})`} sx={{ flex: `${r.n[i]} 0 0`, minWidth: 2, bgcolor: DIR_COLOR[k], "&:first-of-type": { borderRadius: "3px 0 0 3px" }, "&:last-of-type": { borderRadius: "0 3px 3px 0" } }} />
-              ))}
-            </Box>
-            <Typography sx={{ fontSize: "0.8rem", color: INK, textAlign: { sm: "right" }, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}><b>{int(r.calls)}</b> <span style={{ color: FAINT }}>· {pct(r.calls ? r.n[0] / r.calls : null)} outbound</span></Typography>
-          </Box>
-        ))}
-      </Box>
-      {rows.length > first && <Button size="small" onClick={() => setAll((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start" }}>{all ? `Show the first ${first}` : `Show all ${rows.length}`}</Button>}
-    </Box>
-  );
-}
 /** Each part's colour in a split by priority or customer category - in the breakdown's own order */
 const PART_COLOR: Record<string, string> = {
   "Prio 1": "#1f4e79", "Prio 2": THIS, "Prio 3": "#8fb4dc", "No priority": "#cfd4db",
@@ -440,47 +388,6 @@ function PersonSplit({ c, part }: { c: VCtx; part: VDim }) {
   );
 }
 
-/** The directions month by month: each month's qualified calls stacked by direction, the share outbound under it. */
-function DirMonths({ c }: { c: VCtx }) {
-  const by = statsOf(c, "kind");
-  const t = totalOf(c);
-  const data = t.months.map((v, i) => ({ x: MONTHS[c.per.win.from + i], head: monthHead(c.d, c.per, i), v, parts: DIRECTIONS.map((k) => by.get(k)?.months[i] ?? 0), running: c.per.win.from + i === nowMonth(c.d) }));
-  const top = niceTop(Math.max(1, ...data.map((x) => x.v)));
-  const ticks = [0, 0.25, 0.5, 0.75, 1];
-  return (
-    <Box sx={{ display: "grid", gap: 1 }}>
-      <DirLegend n={directionsOf(c).get("") ?? DIRECTIONS.map(() => 0)} />
-      <Box sx={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", columnGap: 1 }}>
-        <Box sx={{ position: "relative", minWidth: Math.max(28, axisWidth(top) - 40) }}>
-          {ticks.map((f) => <Typography key={f} sx={{ position: "absolute", right: 0, bottom: `calc(${f * 100}% - 7px)`, fontSize: "0.7rem", color: FAINT, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{int(f * top)}</Typography>)}
-        </Box>
-        <Box sx={{ position: "relative", width: "100%", aspectRatio: "2.6 / 1", minHeight: 160, maxHeight: 340 }}>
-          {ticks.map((f) => <Box key={f} sx={{ position: "absolute", left: 0, right: 0, bottom: `${f * 100}%`, borderTop: `1px solid ${f === 0 ? "#cfd4db" : "#eef0f3"}` }} />)}
-          <Box sx={{ position: "absolute", inset: 0, display: "flex" }}>
-            {data.map((x) => (
-              <Box key={x.x} title={`${x.head}${x.running ? " (to date)" : ""}: ${DIRECTIONS.map((k, i) => `${k} ${int(x.parts[i])}`).join(" · ")}`} sx={{ flex: 1, position: "relative", height: "100%", "&:hover": { bgcolor: "rgba(21,34,58,.035)" }, borderRadius: "6px" }}>
-                <Box sx={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "52%", maxWidth: 30, height: `${(x.v / top) * 100}%`, display: "flex", flexDirection: "column-reverse", gap: "1px", opacity: x.running ? 0.6 : 1, borderRadius: "4px 4px 0 0", overflow: "hidden" }}>
-                  {DIRECTIONS.map((k, i) => x.parts[i] > 0 && <Box key={k} sx={{ flex: `${x.parts[i]} 0 0`, bgcolor: DIR_COLOR[k] }} />)}
-                </Box>
-              </Box>
-            ))}
-          </Box>
-        </Box>
-        <Box />
-        <Box sx={{ display: "flex" }}>
-          {data.map((x) => (
-            <Box key={x.x} sx={{ flex: 1, textAlign: "center", pt: 0.5, minWidth: 0 }}>
-              <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.3 }}>{x.x}</Typography>
-              <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>{int(x.v)}</Typography>
-              <Typography sx={{ fontSize: "0.66rem", color: FAINT, lineHeight: 1.3, whiteSpace: "nowrap" }}>{pct(x.v ? x.parts[0] / x.v : null)}</Typography>
-            </Box>
-          ))}
-        </Box>
-      </Box>
-    </Box>
-  );
-}
-
 /** A few answers as bars: each one's count and its share of a base. */
 function Bars({ items, empty }: { items: { label: string; n: number; of: number }[]; empty: string }) {
   const max = Math.max(1, ...items.map((x) => x.n));
@@ -499,11 +406,39 @@ function Bars({ items, empty }: { items: { label: string; n: number; of: number 
 }
 
 /** Registration, in the Visits page's questions (SARCLA 27.10.2026) for the qualified calls: how many to prospects, how many
- *  of them registered after the call, in what way, how many became customers - from the shop's registration day and the first
- *  order's day against the call's; the customers that had ordered before - still buying or not retained - and did they again. */
-const callWords = (x: string) => x.replace(/the visit/g, "the call");
+ *  of them registered after the qualified call, in what way, how many became customers - from the shop's registration day
+ *  and the first order's day against the call's; the customers that had ordered before - still buying or not retained - and
+ *  did they again. The last three split by whether ESO reached the company too (SARCLA 01.11.2026: "we need a split - only
+ *  TSA, TSA & ESO, where the customer had also a contact from the sales ESO"). */
+const callWords = (x: string) => x.replace(/the visit/g, "the qualified call");
+/** "Only TSA" / "TSA & ESO", said out */
+const SIDE_WORDS: Record<(typeof WITH_ESO)[number], string> = { "Only TSA": "Only TSA - no ESO visit or call", "TSA & ESO": "TSA & ESO - an ESO visit or call too" };
+/** A few figures side by side: each row's count of its base, per side and together. */
+function SplitTable({ rows, base }: { rows: { label: string; cells: [number, number][] }[]; base: string }) {
+  const cols = [...WITH_ESO, "Together"];
+  return (
+    <Box sx={{ display: "grid", gap: 0.4, overflowX: "auto" }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: "minmax(170px, 1.4fr) repeat(3, minmax(108px, 1fr))", gap: 1, minWidth: 520 }}>
+        <span />
+        {cols.map((h) => <Typography key={h} sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "right" }}>{h}</Typography>)}
+        {rows.map((r) => [
+          <Typography key={`${r.label}-l`} sx={{ fontSize: "0.84rem", color: INK }}>{r.label}</Typography>,
+          ...r.cells.map(([n, of], i) => (
+            <Typography key={`${r.label}-${i}`} sx={{ fontSize: "0.84rem", color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+              <b>{int(n)}</b> <span style={{ color: MUTED }}>of {int(of)} · {pct(of ? n / of : null)}</span>
+            </Typography>
+          )),
+        ])}
+      </Box>
+      <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{base}</Typography>
+    </Box>
+  );
+}
 function Answers({ c }: { c: VCtx }) {
   const t = totalOf(c);
+  const end = daysOf(c.d, c.per.win)[1];
+  const split = statsBy(c.d, rowsOf(c.d, c.per.win, c.filters, c.people), c.per.win, (r) => esoSideOf(c.d, r, end));
+  const sides = WITH_ESO.map((k) => split.get(k) ?? blank(c.per.months));
   const ways = t.newCompanies ? REG_WAY.map((w) => ({ label: callWords(w), n: t.regWays[w] ?? 0, of: t.newCompanies })) : [];
   const q = (n: number, text: string) => (
     <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}><span style={{ color: FAINT, marginRight: 8 }}>{n}</span>{text}</Typography>
@@ -512,28 +447,125 @@ function Answers({ c }: { c: VCtx }) {
     <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{main}{rest && <span style={{ fontSize: "0.82rem", fontWeight: 500, color: MUTED }}> {rest}</span>}</Typography>
   );
   const row = { display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(260px, 1fr) minmax(0, 1.4fr)" }, gap: { xs: 0.5, md: 2 }, alignItems: "start", py: 1.25, borderBottom: `1px solid ${HAIRLINE}` } as const;
+  const eso = `ESO: a completed visit by ESO or a call by someone on ESO, ${c.d.year} to ${perEnd(c.d, c.per)}${c.d.esoRead === false ? " - ESO's visits could not be read, its calls only" : ""}`;
   return (
     <Box sx={{ display: "grid" }}>
-      <Box sx={row}>{q(1, "How many qualified calls to prospects?")}{a(`${int(t.newVisits)} calls`, `to ${int(t.newCompanies)} prospects - companies that had never ordered before the day of the call`)}</Box>
-      <Box sx={row}>{q(2, "How many of them registered after the call?")}{a(int(t.registeredAfter), `${pct(t.newCompanies ? t.registeredAfter / t.newCompanies : null)} of the ${int(t.newCompanies)} prospects - registered in the shop on the day of the call or after it, by ${perEnd(c.d, c.per)}`)}</Box>
+      <Box sx={row}>{q(1, "How many qualified calls to prospects?")}{a(`${int(t.newVisits)} qualified calls`, `to ${int(t.newCompanies)} prospects - companies that had never ordered before the day of the qualified call`)}</Box>
+      <Box sx={row}>{q(2, "How many of them registered after the qualified call?")}{a(int(t.registeredAfter), `${pct(t.newCompanies ? t.registeredAfter / t.newCompanies : null)} of the ${int(t.newCompanies)} prospects - registered in the shop on the day of the qualified call or after it, by ${perEnd(c.d, c.per)}`)}</Box>
       <Box sx={row}>
         {q(3, "In what way?")}
-        <Bars items={ways} empty="No prospect called in this period." />
+        <Bars items={ways} empty="No prospect reached by a qualified call in this period." />
       </Box>
-      <Box sx={row}>{q(4, "How many of them became customers?")}{a(int(t.boughtInPeriod), `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the ${int(t.newCompanies)} prospects - their first order on the day of the call or after it, by ${perEnd(c.d, c.per)}`)}</Box>
       <Box sx={row}>
-        {q(5, "How many of the companies called had bought before?")}
+        {q(4, "How many of them became customers?")}
         <Box sx={{ display: "grid", gap: 0.75 }}>
-          {a(int(t.oldCompanies), `companies that had ordered before the day of the call`)}
-          <Bars items={BEFORE.map((label, i) => ({ label: callWords(label), n: i ? t.lapsed : t.stillBuying, of: t.oldCompanies }))} empty="No earlier customer called in this period." />
+          {a(int(t.boughtInPeriod), `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the ${int(t.newCompanies)} prospects - their first order on the day of the qualified call or after it, by ${perEnd(c.d, c.per)}`)}
+          <Bars items={WITH_ESO.map((k, i) => ({ label: `${SIDE_WORDS[k]} · of ${int(sides[i].newCompanies)} prospects`, n: sides[i].boughtInPeriod, of: sides[i].newCompanies }))} empty="No prospect reached by a qualified call in this period." />
+          <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{eso}</Typography>
+        </Box>
+      </Box>
+      <Box sx={row}>
+        {q(5, "How many of the companies reached by a qualified call had bought before?")}
+        <Box sx={{ display: "grid", gap: 0.75 }}>
+          {a(int(t.oldCompanies), `companies that had ordered before the day of the qualified call`)}
+          <SplitTable base={eso} rows={[
+            { label: "Had bought before", cells: [[sides[0].oldCompanies, t.oldCompanies], [sides[1].oldCompanies, t.oldCompanies], [t.oldCompanies, t.oldCompanies]] },
+            ...BEFORE.map((label, i) => ({ label: callWords(label), cells: [...sides.map((s) => [i ? s.lapsed : s.stillBuying, s.oldCompanies] as [number, number]), [i ? t.lapsed : t.stillBuying, t.oldCompanies] as [number, number]] })),
+          ]} />
         </Box>
       </Box>
       <Box sx={{ ...row, borderBottom: 0 }}>
-        {q(6, "How many of them bought again after the call?")}
-        <Bars items={[{ label: "Still buying - ordered after the call", n: t.stillBuyingAgain, of: t.stillBuying }, { label: "Not retained - won back, ordered again after the call", n: t.lapsedAgain, of: t.lapsed }]} empty="No earlier customer called in this period." />
+        {q(6, "How many of them bought again after the qualified call?")}
+        <SplitTable base={eso} rows={[
+          { label: "Still buying - ordered after the qualified call", cells: [...sides.map((s) => [s.stillBuyingAgain, s.stillBuying] as [number, number]), [t.stillBuyingAgain, t.stillBuying]] },
+          { label: "Not retained - won back, ordered again after the qualified call", cells: [...sides.map((s) => [s.lapsedAgain, s.lapsed] as [number, number]), [t.lapsedAgain, t.lapsed]] },
+        ]} />
       </Box>
     </Box>
   );
+}
+
+/* ── overlapping: the same company called by several people ───────────── */
+
+/** The companies called by one, two, three or more of the people shown - every call logged with a company. */
+function OverlapBands({ c }: { c: VCtx }) {
+  const o = overlapOf(c.d, c.per.win, shownPeople(c));
+  const all = o.bands.reduce((x, b) => x + b.companies, 0);
+  const label = (n: number) => (n === 1 ? "Called by one person" : n === 2 ? "Called by two people" : "Called by three people or more");
+  return (
+    <Box sx={{ display: "grid", gap: 0.9 }}>
+      <Bars items={o.bands.map((b) => ({ label: `${label(b.people)} · ${int(b.calls)} calls`, n: b.companies, of: all }))} empty="No calls with a company under these filters." />
+      <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{int(all)} companies called{o.noCompany ? ` · ${int(o.noCompany)} calls without a company cannot overlap` : ""}</Typography>
+    </Box>
+  );
+}
+/** Who overlaps with whom, as a diagram: each pair of people and the companies both called - the darker, the more; on the
+ *  diagonal each person's own companies. */
+function OverlapMatrix({ c }: { c: VCtx }) {
+  const o = overlapOf(c.d, c.per.win, shownPeople(c));
+  const who = [...o.persons].sort((a, b) => b[1].companies - a[1].companies).map(([p]) => p);
+  const name = (p: number) => c.d.people[p]?.name ?? "Unknown";
+  const both = (a: number, b: number) => (a === b ? o.persons.get(a)?.companies ?? 0 : o.pairs.get(a < b ? `${a}|${b}` : `${b}|${a}`) ?? 0);
+  const max = Math.max(1, ...who.flatMap((a) => who.filter((b) => b !== a).map((b) => both(a, b))));
+  if (!who.length) return <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>No calls with a company under these filters.</Typography>;
+  const cell = 64;
+  return (
+    <Box sx={{ display: "grid", gap: 1 }}>
+      <Box sx={{ overflowX: "auto" }}>
+        <Box sx={{ display: "grid", gridTemplateColumns: `minmax(130px, 170px) repeat(${who.length}, ${cell}px)`, gap: "3px", alignItems: "stretch", width: "max-content" }}>
+          <span />
+          {who.map((b) => <Typography key={`h${b}`} title={name(b)} sx={{ fontSize: "0.7rem", fontWeight: 600, color: MUTED, textAlign: "center", lineHeight: 1.2, alignSelf: "end", pb: 0.5, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{name(b)}</Typography>)}
+          {who.map((a) => [
+            <Typography key={`r${a}`} noWrap title={name(a)} sx={{ fontSize: "0.8rem", fontWeight: 600, color: INK, alignSelf: "center", pr: 1 }}>{name(a)}</Typography>,
+            ...who.map((b) => {
+              const n = both(a, b), self = a === b;
+              const share = self ? 0 : n / max;
+              return (
+                <Box key={`${a}-${b}`} title={self ? `${name(a)} called ${int(n)} companies` : `${name(a)} and ${name(b)} both called ${int(n)} companies`}
+                  sx={{ height: 40, borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", border: self ? `1px solid ${HAIRLINE}` : 0,
+                    bgcolor: self ? "#fff" : n ? `rgba(192, 57, 43, ${0.08 + share * 0.82})` : "rgba(21,34,58,.03)" }}>
+                  <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: self ? MUTED : share > 0.55 ? "#fff" : n ? INK : FAINT }}>{n ? int(n) : "—"}</Typography>
+                </Box>
+              );
+            }),
+          ])}
+        </Box>
+      </Box>
+      <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>Each cell: the companies both people called in the period - the darker, the more. On the diagonal, in white: the companies the person called.</Typography>
+    </Box>
+  );
+}
+/** Per person: how much of the calling lands on companies another person shown called too. */
+function OverlapTable({ c }: { c: VCtx }) {
+  const o = overlapOf(c.d, c.per.win, shownPeople(c));
+  type ORow = { label: string; calls: number; companies: number; shared: number; sharedCalls: number };
+  const rows: ORow[] = [...o.persons].map(([p, x]) => ({ label: c.d.people[p]?.name ?? "Unknown", ...x }));
+  const all = o.bands.reduce((x, b) => x + b.companies, 0), sharedCos = o.bands[1].companies + o.bands[2].companies;
+  const total: ORow = { label: "Total", calls: rows.reduce((x, r) => x + r.calls, 0), companies: all, shared: sharedCos, sharedCalls: o.bands[1].calls + o.bands[2].calls };
+  const cols: Col<ORow>[] = [
+    { key: "calls", head: "Calls logged on a company", tip: "Every call the person logged with a company, whatever its outcome", cell: (r) => int(r.calls), sort: (r) => r.calls },
+    { key: "companies", head: "Companies called", cell: (r) => int(r.companies), sort: (r) => r.companies },
+    { key: "shared", head: "Also called by another", tip: "Of them, companies someone else shown called too in the period", cell: (r) => int(r.shared), sort: (r) => r.shared },
+    { key: "share", head: "Share overlapping", cell: (r) => pct(r.companies ? r.shared / r.companies : null), sort: (r) => (r.companies ? r.shared / r.companies : -1) },
+    { key: "sharedCalls", head: "Calls on those companies", tip: "The person's calls to companies someone else called too", cell: (r) => int(r.sharedCalls), sort: (r) => r.sharedCalls },
+  ];
+  return <FullTable key={`ov-${c.per.id}-${c.team}`} first="Person" cols={cols} initial="shared" rows={rows} total={total} selected={c.filters.person} onPick={c.onBar ? (l) => c.onBar!("person", l) : undefined} find="a person" />;
+}
+/** The companies behind the overlap: called by two people or more, the most people first - who called it how often. */
+function overlapListOf(c: VCtx): CompanySource | null {
+  const ids = c.d.companyIds, names = c.d.companyNames;
+  if (!ids || !names) return null;
+  const o = overlapOf(c.d, c.per.win, shownPeople(c));
+  return {
+    key: `calls-overlap|${c.d.generatedAt}|${c.per.id}|${c.per.win.from}-${c.per.win.to}|${c.per.win.d0 ?? ""}-${c.per.win.d1 ?? ""}|${[...shownPeople(c)].join(",")}`,
+    head: ["People", "Calls", "Called by", "Last call", `Revenue ${c.d.year}`], left: [3],
+    note: `${perWords(c.d, c.per)} · the companies called by two people or more - every call logged, whatever its outcome - the most people first`,
+    rows: o.shared.map((x) => ({
+      id: ids[x.ci] ?? null, name: names[x.ci] ?? `Company ${x.ci + 1}`,
+      cells: [int(x.by.size), int(x.calls), [...x.by].sort((a, b) => b[1] - a[1]).map(([p, n]) => `${c.d.people[p]?.name ?? "Unknown"} (${n})`).join(", "), dayWords(x.last), eur(c.d.companies[x.ci]?.[CO.revenue] ?? 0)],
+      values: [x.by.size, x.calls, null, x.last, c.d.companies[x.ci]?.[CO.revenue] ?? 0],
+    })),
+  };
 }
 
 /* ── every chart by its key ────────────────────────────────────────────── */
@@ -546,15 +578,16 @@ const forWhom = (c: VCtx) => `${teamName(c)}'s target for ${c.per.title} - each 
  *  31.10.2026: "next to each report ... a new icon Company ... allow to see the companies, paginated by 25"). */
 function drawnOf(id: string): Drawn | undefined {
   const d = drawnBare(id);
-  return d && { ...d, draw: (c, a) => <CompaniesFor source={calledOf(c)}><CardFilterFor filter={cardFilterOf(c, id)}>{d.draw(c, a)}</CardFilterFor></CompaniesFor> };
+  // the overlap's charts list the companies several people called; every other chart the companies its qualified calls reached
+  const list = id.startsWith("overlap:") ? overlapListOf : calledOf;
+  return d && { ...d, draw: (c, a) => <CompaniesFor source={list(c)}><CardFilterFor filter={cardFilterOf(c, id)}>{d.draw(c, a)}</CardFilterFor></CompaniesFor> };
 }
 /** A graph's filter where it has no breakdown of its own (the months, the splits, the tables): the page's filters on the
  *  graph's breakdown, or the tab's (SARCLA 01.11.2026: "both should be company and filter"). */
 function cardFilterOf(c: VCtx, id: string): CardFilter | null {
   const [v, chart = ""] = id.split(":");
   if (!c.onFilter || !isView(v)) return null;
-  const by = chart.split("-")[1];
-  const dim: VDim = chart.startsWith("kinds") && by && by in DIM ? (by as VDim) : DIM_OF[v];
+  const dim: VDim = DIM_OF[v];
   return { open: () => c.onFilter!(dim), label: `Filter by ${DIM[dim].lower}`, on: Object.values(c.filters).some((x) => (x?.length ?? 0) > 0) };
 }
 const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -595,31 +628,33 @@ function drawnBare(id: string): Drawn | undefined {
       target: (c) => ({ unit: "n", label: `Each month's qualified calls are measured against it - a line across the months; the running month is not counted · ${teamName(c)}'s target.` }) };
   }
   if (chart === "answers") {
-    const title = (c: VCtx) => `Prospects and customers called - did they register, did they buy, ${c.per.title}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · prospects: companies that had never ordered before the day of the qualified call; registered: the shop's registration date against the call's; became customers: a first order on the day of the call or after it, by ${perEnd(c.d, c.per)}`} actions={a}><Answers c={c} /></ChartBox> };
+    const title = (c: VCtx) => `Prospects and customers reached by a qualified call - did they register, did they buy, ${c.per.title}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · qualified calls only (the outcome "TSA Qualified Calls") · prospects: companies that had never ordered before the day of the qualified call; registered: the shop's registration date against the qualified call's; became customers: a first order on the day of the qualified call or after it, by ${perEnd(c.d, c.per)} · split by whether ESO reached the company too`} actions={a}><Answers c={c} /></ChartBox> };
   }
   if (chart === "coverage") {
     const title = (c: VCtx) => `How much of each priority was reached by a qualified call - of the companies they own, ${c.per.title}${teamPart(c)}`;
     return { id, title, draw: (c, a) => <CoverageChart c={c} title={title(c)} actions={a} /> };
   }
-  if (chart === "kindmonths") {
-    const title = (c: VCtx) => `Outbound and inbound qualified calls ${c.per.title}, month by month${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each month's qualified calls by direction, the share outbound under it · the running month to date, lighter${cutWords(c)}`} actions={a}><DirMonths c={c} /></ChartBox> };
+  if (chart === "bands") {
+    const title = (c: VCtx) => `Companies called by one, two, three or more people, ${c.per.title}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · every call logged with a company, whatever its outcome - not only the qualified ones (as the TSA calls report of September) · by the people shown`} actions={a}><OverlapBands c={c} /></ChartBox> };
+  }
+  if (chart === "matrix") {
+    const title = (c: VCtx) => `Who overlaps with whom - the companies both people called, ${c.per.title}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · every call logged with a company, whatever its outcome · the companies called by both people of a pair`} actions={a}><OverlapMatrix c={c} /></ChartBox> };
+  }
+  if (chart === "overlap-table") {
+    const title = (c: VCtx) => `Overlapping, ${c.per.title}, by person${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each person's calls logged with a company, the companies called, how many someone else shown called too, and the calls on those`} actions={a}><OverlapTable c={c} /></ChartBox> };
   }
   if (chart === "persons") {
     const part = DIM_OF[v];
     const title = (c: VCtx) => `Qualified calls ${c.per.title}, by person and ${DIM[part].lower}${teamPart(c)}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each person's qualified calls by the called company's ${DIM[part].lower}, the most calls first`} actions={a}><PersonSplit c={c} part={part} /></ChartBox> };
   }
-  if (chart.startsWith("kinds")) {
-    const by = chart.split("-")[1];
-    const dim: VDim = by && by in DIM ? (by as VDim) : DIM_OF[v] === "kind" ? "person" : DIM_OF[v];
-    const title = (c: VCtx) => `Outbound and inbound qualified calls ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each ${DIM[dim].lower}'s qualified calls by direction - ${DIM.kind.note.charAt(0).toLowerCase()}${DIM.kind.note.slice(1)}`} actions={a}><DirSplit c={c} dim={dim} /></ChartBox> };
-  }
   // every table its own card with its Actions (SARCLA 31.10.2026: "all the tables should be individual KPIs"):
-  // people:months-table, country:people-table, and <tab>:table - the People tab's figures by person, Direction's by person
-  // and direction, the others by their breakdown
+  // people:months-table, country:people-table, and <tab>:table - the People tab's figures by person, the others by their
+  // breakdown
   if (chart === "months-table" && v === "people") {
     const title = (c: VCtx) => `Qualified calls month by month, ${c.per.title}, by person${teamPart(c)}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each person's qualified calls in each month, the running month to date${cutWords(c)}`} actions={a}><PeopleMonths c={c} /></ChartBox> };
@@ -630,17 +665,17 @@ function drawnBare(id: string): Drawn | undefined {
   }
   if (chart === "table" && v === "people") {
     const title = (c: VCtx) => `All the figures, ${c.per.title}, by person${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each person's qualified calls, all calls logged and the share qualified, companies reached, calls without a company, prospects called - registered after the call, became customers - and the companies' revenue this year`} actions={a}><PeopleTable c={c} /></ChartBox> };
-  }
-  if (chart === "table" && v === "kind") {
-    const title = (c: VCtx) => `Qualified calls by direction, ${c.per.title}, by person${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each person's qualified calls - outbound, inbound - and the share outbound`} actions={a}><KindTable c={c} /></ChartBox> };
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each person's qualified calls, all calls logged (whatever the outcome) and the share qualified, companies reached, qualified calls without a company, prospects reached - registered after the qualified call, became customers - and the companies' revenue this year`} actions={a}><PeopleTable c={c} /></ChartBox> };
   }
   if (chart === "table") {
     const dim = DIM_OF[v];
     const title = (c: VCtx) => `All the figures, ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`;
     const buyers = dim === "prio" || dim === "person";
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each ${DIM[dim].lower}'s qualified calls and their share, companies reached${buyers ? ", prospects called, became customers and won back" : ""}, the share outbound`} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · each ${DIM[dim].lower}'s qualified calls and their share, companies reached${buyers ? ", prospects reached, became customers and won back" : ""}`} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
+  }
+  if (chart === "share" && v === "people") {
+    return { id, title: (c) => `Share of all calls logged that were qualified ${c.per.title}, by person${teamPart(c)}`, draw: (c, a) => <ShareBoard c={c} id={id} actions={a} />,
+      target: (c) => ({ unit: "pct", label: `Each person's share of calls qualified ${c.per.title} is measured against it · ${forWhom(c)}.` }) };
   }
   const [what, by] = chart.split("-");
   if (!(what in MEASURE)) return undefined;
@@ -649,6 +684,21 @@ function drawnBare(id: string): Drawn | undefined {
   return { id, title: (c) => `${MEASURE[m].title} ${c.per.title}, by ${DIM[dim].lower}${teamPart(c)}`, draw: (c, a) => <Board c={c} id={id} dim={dim} m={m} actions={a} />,
     target: (c) => ({ unit: MEASURE[m].unit, label: `Each ${DIM[dim].lower}'s ${MEASURE[m].target} ${c.per.title} is measured against it · ${forWhom(c)}.` }) };
 }
+/** How many of each person's calls were qualified (SARCLA 01.11.2026: "is this qualified calls or all calls? we really need
+ *  the distinction") - by the person and the period only. */
+function ShareBoard({ c, id, actions }: { c: VCtx; id: string; actions?: React.ReactNode }) {
+  const all = allCallsOf(c.d, c.per.win, shownPeople(c));
+  const rows: BoardRow[] = [], small: BoardRow[] = [];
+  for (const [p, x] of all) (x.calls >= 20 ? rows : small).push({ label: c.d.people[p]?.name ?? "Unknown", cur: x.calls ? x.qualified / x.calls : 0, prev: 0, sub: `${int(x.qualified)} qualified of ${int(x.calls)} calls logged` });
+  return (
+    <Leaderboard key={`${id}-${c.per.id}`} title={`Share of all calls logged that were qualified ${c.per.title}, by person`} rows={rows} noChange ratio
+      curLabel={perWords(c.d, c.per)} prevLabel="" first={c.half ? 8 : 12} fmt={(n) => pct(n)} target={targetFor(c, id)}
+      unranked={small.length ? { why: "under 20 calls logged", rows: small } : undefined}
+      selected={c.filters.person} onPick={c.onBar ? (l) => c.onBar!("person", l) : undefined}
+      onFilter={c.onFilter ? () => c.onFilter!("person") : undefined} filterLabel="Filter by person" actions={actions} />
+  );
+}
+
 /* ── the tables ────────────────────────────────────────────────────────── */
 
 type Row = VStats & { label: string; all?: number; qualified?: number };
@@ -663,13 +713,13 @@ function PeopleTable({ c }: { c: VCtx }) {
   const total: Row = { label: "Total", ...t, all: sum.calls, qualified: sum.qualified };
   const cols: Col<Row>[] = [
     { key: "visits", head: "Qualified calls", cell: (r) => int(r.visits), sort: (r) => r.visits },
-    { key: "all", head: "All calls logged", tip: "Every call the person logged in the period, whatever its outcome", cell: (r) => int(r.all ?? 0), sort: (r) => r.all ?? 0 },
+    { key: "all", head: "All calls logged", tip: "Every call the person logged in the period, whatever its outcome - qualified or not", cell: (r) => int(r.all ?? 0), sort: (r) => r.all ?? 0 },
     { key: "share", head: "Qualified", tip: "The share of the person's calls with the outcome \"TSA Qualified Calls\"", cell: (r) => pct(r.all ? (r.qualified ?? 0) / r.all : null), sort: (r) => (r.all ? (r.qualified ?? 0) / r.all : -1) },
     { key: "companies", head: "Companies reached", cell: (r) => int(r.companies), sort: (r) => r.companies },
-    { key: "noco", head: "Without a company", tip: "Qualified calls with no company - neither on the call nor on its contact: to link in HubSpot", cell: (r) => (r.noCompany ? int(r.noCompany) : "—"), sort: (r) => r.noCompany },
-    { key: "new", head: "Prospects called", tip: "Companies that had never ordered before the day of the call", cell: (r) => int(r.newCompanies), sort: (r) => r.newCompanies },
-    { key: "reg", head: "Registered after", tip: "Of those, registered in the shop on the day of the call or after it (the shop's registration date)", cell: (r) => int(r.registeredAfter), sort: (r) => r.registeredAfter },
-    { key: "bought", head: `Became customers, ${c.per.title}`, tip: "Of those, their first order on the day of the call or after it, by the end of the period", cell: (r) => int(r.boughtInPeriod), sort: (r) => r.boughtInPeriod },
+    { key: "noco", head: "Qualified, without a company", tip: "Qualified calls with no company - neither on the call nor on its contact: to link in HubSpot", cell: (r) => (r.noCompany ? int(r.noCompany) : "—"), sort: (r) => r.noCompany },
+    { key: "new", head: "Prospects reached", tip: "Companies that had never ordered before the day of the qualified call", cell: (r) => int(r.newCompanies), sort: (r) => r.newCompanies },
+    { key: "reg", head: "Registered after", tip: "Of those, registered in the shop on the day of the qualified call or after it (the shop's registration date)", cell: (r) => int(r.registeredAfter), sort: (r) => r.registeredAfter },
+    { key: "bought", head: `Became customers, ${c.per.title}`, tip: "Of those, their first order on the day of the qualified call or after it, by the end of the period", cell: (r) => int(r.boughtInPeriod), sort: (r) => r.boughtInPeriod },
     { key: "rev", head: "Their revenue this year", tip: "This year's revenue of the companies reached", cell: (r) => eur(r.revenue), sort: (r) => r.revenue },
   ];
   return <FullTable key={`people-${c.per.id}-${c.team}`} first="Person" cols={cols} initial="visits" rows={rows} total={total} selected={c.filters.person} onPick={c.onBar ? (l) => c.onBar!("person", l) : undefined} find="a person" />;
@@ -691,7 +741,6 @@ function DimTable({ c, dim }: { c: VCtx; dim: VDim }) {
   const t = totalOf(c);
   const order = ORDER[dim];
   const rows: Row[] = [...by].map(([label, s]) => ({ label, ...s }));
-  const dirs = directionsOf(c, dim);
   // the new customers by priority, not by category (SARCLA 29.10.2026: "a new customer should not be APSOcore") or country
   const buyers = dim === "prio" || dim === "person";
   const cols: Col<Row>[] = [
@@ -699,29 +748,16 @@ function DimTable({ c, dim }: { c: VCtx; dim: VDim }) {
     { key: "share", head: "Share of the qualified calls", cell: (r) => pct(t.visits ? r.visits / t.visits : null), sort: (r) => r.visits },
     { key: "companies", head: "Companies reached", cell: (r) => int(r.companies), sort: (r) => r.companies },
     ...(buyers ? [
-      { key: "new", head: "Prospects called", cell: (r: Row) => int(r.newCompanies), sort: (r: Row) => r.newCompanies },
+      { key: "new", head: "Prospects reached", cell: (r: Row) => int(r.newCompanies), sort: (r: Row) => r.newCompanies },
       { key: "bought", head: `Became customers, ${c.per.title}`, cell: (r: Row) => int(r.boughtInPeriod), sort: (r: Row) => r.boughtInPeriod },
-      { key: "again", head: "Won back", tip: "Companies that had not ordered for 12 months or more before the call and ordered after it, by the end of the period", cell: (r: Row) => (r.lapsed ? `${int(r.lapsedAgain)} of ${int(r.lapsed)}` : "—"), sort: (r: Row) => r.lapsedAgain },
+      { key: "again", head: "Won back", tip: "Companies that had not ordered for 12 months or more before the qualified call and ordered after it, by the end of the period", cell: (r: Row) => (r.lapsed ? `${int(r.lapsedAgain)} of ${int(r.lapsed)}` : "—"), sort: (r: Row) => r.lapsedAgain },
     ] : []),
-    { key: "out", head: "Outbound", tip: "The share of the qualified calls the person made - not the customer's", cell: (r) => { const n = dirs.get(r.label); return n && r.visits ? pct(n[0] / r.visits) : "—"; }, sort: (r) => { const n = dirs.get(r.label); return n && r.visits ? n[0] / r.visits : -1; } },
   ];
   const sorted = order ? [...rows].sort((a, b) => order.indexOf(a.label) - order.indexOf(b.label)) : rows;
   return <FullTable key={`${dim}-${c.per.id}-${c.team}`} first={DIM[dim].name} cols={cols} initial="visits" rows={sorted} total={{ label: "Total", ...t }} natural={!!order}
     selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined} find={`a ${DIM[dim].lower}`} />;
 }
 
-/** Each person's qualified calls by direction. */
-function KindTable({ c }: { c: VCtx }) {
-  type KRow = { label: string; n: number[]; visits: number };
-  const rows: KRow[] = [...directionsOf(c, "person")].map(([label, n]) => ({ label, n, visits: n.reduce((a, b) => a + b, 0) }));
-  const t = directionsOf(c).get("") ?? DIRECTIONS.map(() => 0);
-  const cols: Col<KRow>[] = [
-    ...DIRECTIONS.map((k, i) => ({ key: k, head: k, cell: (r: KRow) => (r.n[i] ? int(r.n[i]) : "—"), sort: (r: KRow) => r.n[i] })).filter((_, i) => i < 2 || t[2] > 0),
-    { key: "visits", head: "Qualified calls", cell: (r) => <b>{int(r.visits)}</b>, sort: (r) => r.visits },
-    { key: "share", head: "Outbound", tip: "The share of the person's qualified calls made by them - not the customer's", cell: (r) => pct(r.visits ? r.n[0] / r.visits : null), sort: (r) => (r.visits ? r.n[0] / r.visits : -1) },
-  ];
-  return <FullTable key={`kt-${c.per.id}-${c.team}`} first="Person" cols={cols} initial="visits" rows={rows} total={{ label: "Total", n: t, visits: t.reduce((a, b) => a + b, 0) }} selected={c.filters.person} onPick={c.onBar ? (l) => c.onBar!("person", l) : undefined} find="a person" />;
-}
 /** Each person's qualified calls by country - the countries add up to each person (as the Visits page's): the eight with
  *  the most calls as columns, the rest together. */
 function CountryTable({ c }: { c: VCtx }) {
@@ -758,7 +794,7 @@ function TabCard({ c, act }: { c: VCtx; act: Act }) {
   if (c.view === "people") return (
     <GlassCard sx={card}>
       <CardTitle icon={<BadgeOutlinedIcon />} tint="green" title={`${teamName(c)}, ${c.per.title}`} note={`${words} · qualified calls only (the outcome "TSA Qualified Calls"), by the call's day, by who made the call`} />
-      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "people:visits")}{draw(c, act, "people:kinds")}</Box>
+      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "people:visits")}{draw(c, act, "people:share")}</Box>
       {c.per.months >= 2 && draw(c, act, "people:months")}
       {c.per.months >= 2 && draw(c, act, "people:months-table")}
       {draw(c, act, "people:table")}
@@ -766,7 +802,7 @@ function TabCard({ c, act }: { c: VCtx; act: Act }) {
   );
   if (c.view === "new") return (
     <GlassCard sx={card}>
-      <CardTitle icon={<HowToRegOutlinedIcon />} tint="amber" title={`${teamName(c)}: registration, ${c.per.title}`} note={`${words} · prospects called - did they register, how, and did they become customers; the earlier customers - still buying or not retained - and did they buy again`} />
+      <CardTitle icon={<HowToRegOutlinedIcon />} tint="amber" title={`${teamName(c)}: registration, ${c.per.title}`} note={`${words} · qualified calls only · prospects reached - did they register, how, and did they become customers; the earlier customers - still buying or not retained - and did they buy again; each split by whether ESO reached the company too`} />
       <Box sx={{ mt: -1 }}>{draw(c, act, "new:answers")}</Box>
       <Box sx={TWO}>{draw(c, act, "new:new")}{draw(c, act, "new:registered")}</Box>
       <Box sx={TWO}>{draw(c, act, "new:bought")}{draw(c, act, "new:again")}</Box>
@@ -775,24 +811,23 @@ function TabCard({ c, act }: { c: VCtx; act: Act }) {
   if (c.view === "prio") return (
     <GlassCard sx={card}>
       <CardTitle icon={<FlagOutlinedIcon />} tint="purple" title={`${teamName(c)} by priority, ${c.per.title}`} note={`${DIM.prio.note} · ${words}`} />
-      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "prio:coverage")}{draw(c, act, "prio:kinds")}</Box>
+      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "prio:coverage")}{draw(c, act, "prio:visits")}</Box>
       {draw(c, act, "prio:persons")}
       {draw(c, act, "prio:table")}
     </GlassCard>
   );
-  if (c.view === "kind") return (
+  if (c.view === "overlap") return (
     <GlassCard sx={card}>
-      <CardTitle icon={<CallMadeOutlinedIcon />} tint="slate" title={`${teamName(c)} by direction, ${c.per.title}`} note={`${DIM.kind.note} · ${words}`} />
-      <Box sx={{ mt: -1 }}>{draw(c, act, "kind:kinds-person")}</Box>
-      {c.per.months >= 2 && draw(c, act, "kind:kindmonths")}
-      {draw(c, act, "kind:table")}
+      <CardTitle icon={<JoinInnerOutlinedIcon />} tint="pink" title={`${teamName(c)}: the same company called by several people, ${c.per.title}`} note={`${words} · every call logged with a company, whatever its outcome - not only the qualified ones (as the TSA calls report of September) · "Companies" lists the companies two people or more called`} />
+      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "overlap:bands")}{draw(c, act, "overlap:overlap-table")}</Box>
+      {draw(c, act, "overlap:matrix")}
     </GlassCard>
   );
   const dim = DIM_OF[c.view], dd = DIM[dim];
   return (
     <GlassCard sx={card}>
       <CardTitle icon={dd.icon} tint={dd.tint} title={`${teamName(c)} by ${dd.lower}, ${c.per.title}`} note={`${dd.note} · ${words}`} />
-      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${c.view}:visits`)}{draw(c, act, `${c.view}:kinds`)}</Box>
+      <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${c.view}:visits`)}{draw(c, act, `${c.view}:new`)}</Box>
       {dim === "category" && draw(c, act, "category:persons")}
       {dim === "country" && draw(c, act, "country:people-table")}
       {draw(c, act, `${c.view}:table`)}
@@ -813,11 +848,11 @@ function figuresOf(c: VCtx): Fig[] {
   const all = [...allCallsOf(c.d, c.per.win, shownPeople(c)).values()].reduce((a, x) => ({ calls: a.calls + x.calls, qualified: a.qualified + x.qualified }), { calls: 0, qualified: 0 });
   return [
     { id: "fig-visits", label: `Qualified calls ${P}`, value: int(t.visits), sub: `${(t.visits / Math.max(done, 0.1)).toFixed(0)} a month`, icon: <PhoneInTalkOutlinedIcon />, tint: "green", amount: t.visits, unit: "n" },
-    { id: "fig-share", label: "Share of all calls qualified", value: plain ? pct(all.calls ? all.qualified / all.calls : null) : "—", sub: plain ? `${int(all.qualified)} of ${int(all.calls)} calls logged` : "by person and period only - not under these filters", icon: <PercentOutlinedIcon />, tint: "slate", amount: all.calls ? all.qualified / all.calls : 0, unit: "pct" },
+    { id: "fig-share", label: "Share of all calls logged that were qualified", value: plain ? pct(all.calls ? all.qualified / all.calls : null) : "—", sub: plain ? `${int(all.qualified)} of ${int(all.calls)} calls logged` : "by person and period only - not under these filters", icon: <PercentOutlinedIcon />, tint: "slate", amount: all.calls ? all.qualified / all.calls : 0, unit: "pct" },
     { id: "fig-companies", label: `Companies reached ${P}`, value: int(t.companies), sub: boughtWords(t), icon: <ApartmentOutlinedIcon />, tint: "blue", amount: t.companies, unit: "n" },
-    { id: "fig-new", label: "Prospects called", value: int(t.newCompanies), sub: `${int(t.newVisits)} qualified calls - companies that had never ordered`, icon: <PersonAddAltOutlinedIcon />, tint: "amber", amount: t.newCompanies, unit: "n" },
-    { id: "fig-registered", label: "Registered after the call", value: int(t.registeredAfter), sub: `${pct(t.newCompanies ? t.registeredAfter / t.newCompanies : null)} of the prospects called`, icon: <HowToRegOutlinedIcon />, tint: "purple", amount: t.registeredAfter, unit: "n" },
-    { id: "fig-bought", label: `Became customers, ${P}`, value: int(t.boughtInPeriod), sub: `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the prospects called`, icon: <ShoppingCartCheckoutOutlinedIcon />, tint: "green", amount: t.boughtInPeriod, unit: "n" },
+    { id: "fig-new", label: "Prospects reached by a qualified call", value: int(t.newCompanies), sub: `${int(t.newVisits)} qualified calls - companies that had never ordered`, icon: <PersonAddAltOutlinedIcon />, tint: "amber", amount: t.newCompanies, unit: "n" },
+    { id: "fig-registered", label: "Registered after the qualified call", value: int(t.registeredAfter), sub: `${pct(t.newCompanies ? t.registeredAfter / t.newCompanies : null)} of the prospects reached by a qualified call`, icon: <HowToRegOutlinedIcon />, tint: "purple", amount: t.registeredAfter, unit: "n" },
+    { id: "fig-bought", label: `Became customers, ${P}`, value: int(t.boughtInPeriod), sub: `${pct(t.newCompanies ? t.boughtInPeriod / t.newCompanies : null)} of the prospects reached by a qualified call`, icon: <ShoppingCartCheckoutOutlinedIcon />, tint: "green", amount: t.boughtInPeriod, unit: "n" },
   ];
 }
 function FigureCards({ c, items, actions }: { c: VCtx; items: Fig[]; actions?: (f: Fig) => React.ReactNode }) {
@@ -896,7 +931,7 @@ function VFacet({ c, dim, onPick }: { c: VCtx; dim: VDim; onPick: (l: string) =>
     </Box>
   );
 }
-const FILTER_DIMS: VDim[] = ["person", "prio", "category", "kind", "country"];
+const FILTER_DIMS: VDim[] = ["person", "prio", "category", "country"];
 function VFilterWindow({ c, per, open, onClose, focus, onPer, toggle, clearAll }: {
   c: VCtx; per: VPer; open: boolean; onClose: () => void; focus: { dim: VDim; n: number } | null; onPer: (w: VWin) => void; toggle: (d: VDim, l: string) => void; clearAll: () => void;
 }) {
@@ -965,10 +1000,9 @@ function winOfQuery(d: CallsData, from: string | null, to: string | null): VWin 
 const perFilters = (d: CallsData, per: VPer): Record<string, string[]> => (per.win.d0 && per.win.d1 ? { from: [isoOf(per.win.d0)], to: [isoOf(per.win.d1)] }
   : per.id.startsWith("m") ? { from: [ym(d, per.win.from)], to: [ym(d, per.win.to)] } : { period: [per.id] });
 
-export function CallsExplorer() {
+export function CallsExplorer({ team, setTeam, home = "tsa" }: { team: TeamKey; setTeam: (t: TeamKey) => void; home?: Home }) {
   const params = useSearchParams();
   const { d, computing, progress, error } = useCalls();
-  const [team, setTeam] = useHomeTeam();
   const [leadKey, setLead] = useLead();
   const lt = useLeads();
   const teams = lt?.teams ?? [];
@@ -1004,8 +1038,14 @@ export function CallsExplorer() {
   } : null), [d, drawn, teams, acts?.targets]); // eslint-disable-line react-hooks/exhaustive-deps
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
 
+  // back to the BUC View of where the page sits: TSA's, or ESO's (the Visits page's address)
+  const back = (
+    <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
+      <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
+    </Box>
+  );
   const shell = { width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.75 } as const;
-  if (!d || !c || !per) return (<Box sx={shell}><Typography component="h1" sx={H1}>Calls</Typography><Waiting computing={computing} progress={progress} error={error} /></Box>);
+  if (!d || !c || !per) return (<Box sx={shell}>{back}<Typography component="h1" sx={H1}>Calls</Typography><Waiting computing={computing} progress={progress} error={error} /></Box>);
 
   const act: Act = (id, title, target) => (
     <TileActions where="tab" start="tab" edge={2}
@@ -1017,6 +1057,7 @@ export function CallsExplorer() {
   const chosen = FILTER_DIMS.flatMap((k) => (filters[k] ?? []).map((v) => [k, v] as const));
   return (
     <Box sx={shell}>
+      {back}
       <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(240px, 1fr) auto" } }}>
         <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
           <Typography component="h1" sx={H1}>Calls</Typography>
@@ -1120,4 +1161,17 @@ export function CallsPanel({ acts }: { acts: ActionsState | null }) {
       )}
     </GlassCard>
   );
+}
+
+/* ── the Calls and the Visits: one switch ──────────────────────────────── */
+
+/** The Calls and the Visits swap with the team (SARCLA 01.11.2026: "on calls, when you switch to ESO the visits should
+ *  appear and vice versa - this is the only one where we swap the reports"): ESO's visits, TSA's qualified calls; Total
+ *  stays the page's own. On TSA Reports the address's team, else TSA; on ESO Reports the one kept across the ESO pages. */
+export function CallsOrVisits({ home }: { home: Home }) {
+  const params = useSearchParams();
+  const kept = useTeam();
+  const [team, setTeam]: [TeamKey, (t: TeamKey) => void] = home === "eso" ? kept : [asTeam(params.get("team")) ?? "tsa", (t) => setQuery((q) => q.set("team", t))];
+  const calls = team === "tsa" || (team === "total" && home === "tsa");
+  return calls ? <CallsExplorer team={team} setTeam={setTeam} home={home} /> : <VisitsExplorer team={team} setTeam={setTeam} home={home} />;
 }

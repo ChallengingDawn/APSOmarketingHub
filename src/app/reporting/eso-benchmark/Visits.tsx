@@ -167,13 +167,16 @@ const cutWords = (c: VCtx) => (c.per.win.d0 ? ` · the first and the last month 
 const MARC = "817497321";
 const visitsAt = (p: { id: string; team: string }) => p.team !== "TSA" || p.id === MARC;
 const VTEAMS: { id: TeamKey; label: string; count: null }[] = [{ id: "eso", label: "ESO", count: null }, { id: "total", label: "Total", count: null }];
-/** ESO | Total, and under ESO the line managers' teams (no TSA here: TSA does not visit). */
-function VTeams({ team, onTeam, lead, onLead, teams }: { team: TeamKey; onTeam: (t: TeamKey) => void; lead: LeadKey; onLead: (l: LeadKey) => void; teams: Team[] }) {
-  const t: TeamKey = team === "eso" ? "eso" : "total";
+/** On the page, TSA too - it opens TSA's Calls (SARCLA 01.11.2026: "when you switch to ESO the visits should appear and vice
+ *  versa"); not in the BUC View's panel, which shows the visits only. */
+const VTEAMS_TSA: { id: TeamKey; label: string; count: null }[] = [VTEAMS[0], { id: "tsa", label: "TSA", count: null }, VTEAMS[1]];
+/** ESO | Total - and TSA, which swaps to the Calls -, under ESO the line managers' teams (TSA does not visit). */
+function VTeams({ team, onTeam, lead, onLead, teams, withTsa }: { team: TeamKey; onTeam: (t: TeamKey) => void; lead: LeadKey; onLead: (l: LeadKey) => void; teams: Team[]; withTsa?: boolean }) {
+  const t: TeamKey = team === "eso" ? "eso" : team === "tsa" && withTsa ? "tsa" : "total";
   const tabs: { id: LeadKey; label: string; count: null }[] = [{ id: "all", label: "All ESO", count: null }, ...teams.map((x) => ({ id: x.id, label: x.name, count: null }))];
   return (
     <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", justifySelf: "start", minWidth: 0 }}>
-      <ReportTabs name="eso-team" tab={t} onSelect={onTeam} tabs={VTEAMS} />
+      <ReportTabs name="eso-team" tab={t} onSelect={onTeam} tabs={withTsa ? VTEAMS_TSA : VTEAMS} />
       {t === "eso" && teams.length > 0 && <ReportTabs name="eso-lead" tab={teams.some((x) => x.id === lead) ? lead : "all"} onSelect={onLead} tabs={tabs} />}
     </Box>
   );
@@ -999,10 +1002,12 @@ function winOfQuery(d: VisitsData, from: string | null, to: string | null): VWin
 const perFilters = (d: VisitsData, per: VPer): Record<string, string[]> => (per.win.d0 && per.win.d1 ? { from: [isoOf(per.win.d0)], to: [isoOf(per.win.d1)] }
   : per.id.startsWith("m") ? { from: [ym(d, per.win.from)], to: [ym(d, per.win.to)] } : { period: [per.id] });
 
-export function VisitsExplorer() {
+/** The Visits page - given its team by the switch it shares with TSA's Calls (Calls.tsx CallsOrVisits), else its own. */
+export function VisitsExplorer({ team: given, setTeam: giveTeam, home = "eso" }: { team?: TeamKey; setTeam?: (t: TeamKey) => void; home?: "eso" | "tsa" } = {}) {
   const params = useSearchParams();
   const { d, computing, progress, error } = useVisits();
-  const [teamKey, setTeam] = useTeam();
+  const own = useTeam();
+  const [teamKey, setTeam] = given && giveTeam ? [given, giveTeam] : own;
   const [leadKey, setLead] = useLead();
   const lt = useLeads();
   const teams = lt?.teams ?? [];
@@ -1039,8 +1044,9 @@ export function VisitsExplorer() {
   } : null), [d, drawn, teams, acts?.targets]); // eslint-disable-line react-hooks/exhaustive-deps
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
 
+  // back to the BUC View of where the page sits: ESO's, or TSA's (its Calls under ESO)
   const back = (
-    <Box component={Link} href="/reporting/eso-benchmark" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
+    <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
   );
@@ -1068,7 +1074,7 @@ export function VisitsExplorer() {
         <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" }, opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }}><FigureCards c={c} items={figs} /></Box>
       </Box>
       <Box sx={{ display: "grid", gap: 0.75, mt: -0.5 }}>
-        <VTeams team={team} onTeam={setTeam} lead={leadKey} onLead={setLead} teams={teams} />
+        <VTeams team={team} onTeam={setTeam} lead={leadKey} onLead={setLead} teams={teams} withTsa />
         {lead && people && people.size === 0 && <NoLeadYet name={teamName(now)} />}
       </Box>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
