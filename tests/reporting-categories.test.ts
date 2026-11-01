@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { REPORT_CATEGORIES, categoryBySlug, categoryEntry } from "../src/lib/reporting/categories";
 
-test("the categories stand in SARCLA's order (16.10.2026), then Customer and Products Reports; the Sales Leader View after Digital Growth (20.10.2026)", () => {
+test("the categories stand in SARCLA's order (16.10.2026), then Customer and Products Reports; Sales Leader Reports and My Sales Reports at the bottom (01.11.2026)", () => {
   assert.deepEqual(REPORT_CATEGORIES.map((c) => c.slug),
-    ["marketing", "sales-leader", "eso", "tsa", "back-office", "website", "otd", "satisfaction", "customers", "products"]);
+    ["marketing", "eso", "tsa", "back-office", "website", "otd", "satisfaction", "customers", "products", "sales-leader", "my-sales"]);
   assert.equal(categoryBySlug("marketing")?.name, "Digital Growth Reports");
   assert.equal(categoryEntry(categoryBySlug("sales-leader")!), "/reporting/sales-leader");
 });

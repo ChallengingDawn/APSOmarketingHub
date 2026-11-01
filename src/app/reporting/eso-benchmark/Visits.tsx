@@ -73,7 +73,7 @@ import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
-function useVisits(): { d: VisitsData | null; computing: boolean; progress?: string; error?: string } {
+export function useVisits(): { d: VisitsData | null; computing: boolean; progress?: string; error?: string } {
   const [st, setSt] = useState<{ state?: SlowState<VisitsData>; error?: string } | null>(null);
   useEffect(() => {
     let alive = true;
@@ -108,7 +108,7 @@ const MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "Ju
 type VPer = { win: VWin; id: string; title: string; months: number };
 const nowMonth = (d: VisitsData) => Number(d.today.slice(5, 7)) - 1;
 const todayDay = (d: VisitsData) => Number(d.today.slice(8, 10));
-function presetsOf(d: VisitsData): { id: string; label: string; win: VWin }[] {
+export function presetsOf(d: VisitsData): { id: string; label: string; win: VWin }[] {
   const m = nowMonth(d);
   const out = [{ id: "ytd", label: "Year to date", win: { from: 0, to: m } }, { id: "mtd", label: "Month to date", win: { from: m, to: m } }];
   if (m > 0) out.push({ id: "lm", label: `${MONTHS_FULL[m - 1]} ${d.year}`, win: { from: m - 1, to: m - 1 } });
@@ -123,7 +123,7 @@ function rangeWords(a: number, b: number) {
   if (Math.floor(a / 100) === Math.floor(b / 100)) return `${day(a)} – ${day(b)} ${mon(b)} ${yr(b)}`;
   return yr(a) === yr(b) ? `${day(a)} ${mon(a)} – ${day(b)} ${mon(b)} ${yr(b)}` : `${day(a)} ${mon(a)} ${yr(a)} – ${day(b)} ${mon(b)} ${yr(b)}`;
 }
-function perOf(d: VisitsData, win: VWin): VPer {
+export function perOf(d: VisitsData, win: VWin): VPer {
   if (win.d0 && win.d1) return { win, id: `d${win.d0}-${win.d1}`, title: rangeWords(win.d0, win.d1), months: win.to - win.from + 1 };
   const p = presetsOf(d).find((x) => x.win.from === win.from && x.win.to === win.to);
   const title = p?.id === "ytd" ? "year to date" : p?.id === "mtd" ? "month to date" : p ? p.label : `${MONTHS[win.from]}–${MONTHS[win.to]} ${d.year}`;
@@ -182,7 +182,7 @@ function VTeams({ team, onTeam, lead, onLead, teams, withTsa }: { team: TeamKey;
   );
 }
 /** The people shown: ESO's (a line manager's team's), or everyone who visits - ESO, Marc Frech and those outside the rosters. */
-const peopleOf = (d: VisitsData, team: TeamKey, lead: string | null, byId: Record<string, string>) => new Set(d.people.flatMap((p, i) => (
+export const peopleOf = (d: VisitsData, team: TeamKey, lead: string | null, byId: Record<string, string>) => new Set(d.people.flatMap((p, i) => (
   team === "eso" ? (p.team === "ESO" && (!lead || byId[p.id] === lead) ? [i] : []) : visitsAt(p) ? [i] : []
 )));
 const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (c.team === "eso" ? (c.lead ? c.teams.find((t) => t.id === c.lead)?.name ?? c.lead : "ESO") : "ESO and Marc Frech");
@@ -569,7 +569,7 @@ const teamPart = (c: VCtx) => ` - ${teamName(c)}`;
 const forWhom = (c: VCtx) => `${teamName(c)}'s target for ${c.per.title} - each team and period its own`;
 /** A chart by its id - with the companies its visits went to, its "Companies" button beside its filter (SARCLA 31.10.2026:
  *  "next to each report ... a new icon Company ... allow to see the companies, paginated by 25"). */
-function drawnOf(id: string): Drawn | undefined {
+export function drawnOf(id: string): Drawn | undefined {
   const d = drawnBare(id);
   return d && { ...d, draw: (c, a) => <CompaniesFor source={visitedOf(c)}><CardFilterFor filter={cardFilterOf(c, id)}>{d.draw(c, a)}</CardFilterFor></CompaniesFor> };
 }
@@ -972,7 +972,7 @@ function VFilterWindow({ c, per, open, onClose, focus, onPer, toggle, clearAll }
 
 /* ── the page ──────────────────────────────────────────────────────────── */
 
-function Waiting({ computing, progress, error }: { computing: boolean; progress?: string; error?: string }) {
+export function Waiting({ computing, progress, error }: { computing: boolean; progress?: string; error?: string }) {
   return (
     <GlassCard>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>

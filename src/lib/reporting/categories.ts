@@ -39,7 +39,7 @@ export type ReportCategory = {
 // The order is SARCLA's (16.10.2026): Digital Growth - the former Marketing
 // Reports, renamed - then ESO, TSA, Back-Office, Website, OTD and Satisfaction;
 // Customer Reports, not named in that list, after them; Products Reports (added
-// the same day) last.
+// the same day), then Sales Leader Reports and My Sales Reports (01.11.2026).
 export const REPORT_CATEGORIES: ReportCategory[] = [
   {
     slug: "marketing", name: "Digital Growth Reports", line: "What marketing set out to do, and where it stands",
@@ -62,14 +62,6 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           { name: "Use Cases Overview", href: "/uc/lifecycle", icon: "loop", group: "Other reports" },
         ],
       },
-    ],
-  },
-  {
-    // The Sales leader view leaves Digital Growth for a tile of its own (SARCLA 20.10.2026: "a full advanced
-    // report with its own tile - will be changed later")
-    slug: "sales-leader", name: "Sales Leader View", line: "The KPIs the sales leader follows",
-    reports: [
-      { name: "Sales leader view", href: "/reporting/sales-leader", note: "The KPIs tagged for the sales leader, stage by stage", icon: "verified" },
     ],
   },
   {
@@ -198,6 +190,31 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           // what customers looked at and searched for
           { name: "Views against orders", href: "/reporting/products/views", icon: "route" },
           { name: "Search", href: "/reporting/products/search", icon: "search" },
+        ],
+      },
+    ],
+  },
+  {
+    // The Sales leader view leaves Digital Growth for a tile of its own (SARCLA 20.10.2026: "a full advanced
+    // report with its own tile - will be changed later"); renamed and moved to the bottom, after Products Reports
+    // (SARCLA 01.11.2026: "Sales Leader View becomes Sales Leader Reports and comes before this new one")
+    slug: "sales-leader", name: "Sales Leader Reports", line: "The KPIs the sales leader follows",
+    reports: [
+      { name: "Sales leader view", href: "/reporting/sales-leader", note: "The KPIs tagged for the sales leader, stage by stage", icon: "verified" },
+    ],
+  },
+  {
+    // Each salesperson's own figures, by the email they sign in with (SARCLA 01.11.2026: "display the figures based on
+    // user email so it only shows each one's sales"): their targets - set by themselves, as the VPP sheet reckons them -
+    // and the most important ESO KPIs, each page with My | My team | All ESO
+    slug: "my-sales", name: "My Sales Reports", line: "Your own targets and figures, then your team's and all ESO's",
+    reports: [
+      {
+        name: "My sales KPIs", href: "/reporting/my-sales/targets", note: "Your targets, your figures and your visits", icon: "target",
+        children: [
+          { name: "Targets", href: "/reporting/my-sales/targets", icon: "target" },
+          { name: "Figures", href: "/reporting/my-sales/figures", icon: "bar" },
+          { name: "Visits", href: "/reporting/my-sales/visits", icon: "route" },
         ],
       },
     ],

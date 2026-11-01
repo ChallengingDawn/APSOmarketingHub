@@ -90,7 +90,7 @@ import { cubeCompanies } from "@/app/reporting/marketing-kpis/cubeCompanies";
 /* ── the company's own series: the forecast, the profit centres ────────── */
 
 type KpiState = { ok?: boolean; value?: EsoFigures; computing?: boolean; error?: string };
-function useKpiSeries(): { kpi: EsoFigures | null; busy: boolean } {
+export function useKpiSeries(): { kpi: EsoFigures | null; busy: boolean } {
   const [v, setV] = useState<EsoFigures | null>(null);
   const [busy, setBusy] = useState(true);
   useEffect(() => {
@@ -146,9 +146,9 @@ export function Teams({ team, onTeam, lead, onLead, teams }: { team: TeamKey; on
   );
 }
 /** A team's Performis SAE people (the SAE as its person); null for Total - under ESO, a line manager's team only. */
-const membersOf = (cube: Cube, team: TeamKey, lead: string | null = null, leads: Record<string, string> | null = null) => (team === "total" ? null
+export const membersOf = (cube: Cube, team: TeamKey, lead: string | null = null, leads: Record<string, string> | null = null) => (team === "total" ? null
   : cube.labels.sae.filter((l) => (cube.saeTeams ?? {})[l] === TEAM_OF[team] && (team !== "eso" || !lead || leads?.[l] === lead)));
-function withTeam(cube: Cube, filters: Filters, team: TeamKey, lead: string | null = null, leads: Record<string, string> | null = null): Filters {
+export function withTeam(cube: Cube, filters: Filters, team: TeamKey, lead: string | null = null, leads: Record<string, string> | null = null): Filters {
   const members = membersOf(cube, team, lead, leads);
   if (!members) return filters;
   const chosen = filters.sae?.length ? filters.sae.filter((o) => members.includes(o)) : members;
@@ -249,7 +249,7 @@ function perOf(cube: Cube, win: Win): Per {
   const title = erp ? PERIOD[erp] : p?.id === "12m" ? "the last 12 months" : p?.id === "ly" ? String(cube.years[1]) : p ? p.label : windowLabel(cube, win);
   return { win, id: p?.id ?? `m${win.start}-${win.end}`, erp, title, months: win.end - win.start + 1 };
 }
-const ytdPer = (cube: Cube) => perOf(cube, ytdWin(cube));
+export const ytdPer = (cube: Cube) => perOf(cube, ytdWin(cube));
 const mtdPer = (cube: Cube) => perOf(cube, mtdWin(cube));
 /** "1 Jan – 13 Oct 2026", "Apr–Jun 2026" - a year earlier with back = 1 */
 const perWords = (cube: Cube, per: Per, back = 0) => (per.erp ? periodWords(cube, per.erp, back) : windowLabel(cube, per.win, back));
@@ -1296,7 +1296,7 @@ const team = (c: FigCtx) => (c.team === "total" ? "" : ` - ${teamName(c)}`);
 const onPeriod = (c: FigCtx, p?: Period): FigCtx => (p ? { ...c, per: p === "ytd" ? ytdPer(c.cube) : mtdPer(c.cube) } : c);
 /** A chart by its id "<tab>:<chart>" - with the companies behind it, its "Companies" button beside its filter (SARCLA
  *  31.10.2026: "next to each report ... a new icon Company ... allow to see the companies, paginated by 25"). */
-function drawnOf(id: string): Drawn | undefined {
+export function drawnOf(id: string): Drawn | undefined {
   const d = drawnBare(id);
   return d && { ...d, draw: (c, a) => <CompaniesFor source={companiesOf(onPeriod(c, d.fixed), id)}><CardFilterFor filter={cardFilterOf(c, id)}>{d.draw(c, a)}</CardFilterFor></CompaniesFor> };
 }
@@ -1743,7 +1743,7 @@ export function NoLeadYet({ name }: { name: string }) {
   );
 }
 
-function Waiting({ computing, progress, error, picked }: { computing: boolean; progress?: string; error?: string; picked?: boolean }) {
+export function Waiting({ computing, progress, error, picked }: { computing: boolean; progress?: string; error?: string; picked?: boolean }) {
   return (
     <GlassCard>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
@@ -1756,7 +1756,7 @@ function Waiting({ computing, progress, error, picked }: { computing: boolean; p
   );
 }
 /** The cube read before the ERP's figures were in it (until the first new read after a deployment). */
-const tooOld = (cube: Cube) => !cube.erp || !cube.saeTeams;
+export const tooOld = (cube: Cube) => !cube.erp || !cube.saeTeams;
 // the company owner is not the Figures' (SARCLA 25.10.2026: "not relevant for figures, take it out")
 const FILTER_DIMS: Dim[] = ["prio", "segment", "potential", "country", "sae", "type", "apic", "mandant"];
 export const H1 = { fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#1a1d21", letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.9rem" }, lineHeight: 1.1 } as const;
