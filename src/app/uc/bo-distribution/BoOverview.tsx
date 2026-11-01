@@ -75,6 +75,30 @@ const loading = (r: ReturnType<typeof useFigures>, what: string) =>
     : r.state !== "ok" ? <Typography sx={{ color: RED, fontSize: "0.86rem" }}>{r.state === "error" ? r.error : "not configured"}</Typography>
     : null;
 
+/** The hub took the routing over on this day; before it the workflow's routing is back-tracked from HubSpot. */
+const HUB_SINCE = "2026-10-19";
+
+/**
+ * Since the hub took over every ticket should get an owner from it (SARCLA 01.11.2026, on the back-tracked 64%: "this KPI
+ * can be right because we back-track, but otherwise it should be 100%"). Measured that day: 816 of 819 were given one, 43 of them
+ * after half an hour because nobody on the lists was available yet - the hub waits, by its rule.
+ */
+function SinceHub({ f }: { f: Figures }) {
+  const days = f.byDay.filter((x) => x.d >= HUB_SINCE);
+  if (!days.length) return null;
+  const n = days.reduce((a, x) => a + x.n, 0);
+  const s = (k: OwnerJ) => days.reduce((a, x) => a + (x.oj[k] ?? 0), 0);
+  const quick = s("kept") + s("moved"), later = s("later"), none = s("none");
+  const whole = f.now.from >= HUB_SINCE;
+  return (
+    <Typography sx={{ fontSize: "0.86rem", color: INK, mt: -0.5 }}>
+      <b>{whole ? "In this period" : `Since the hub took over on 19.10.2026`}: {full(quick + later)} of {full(n)} tickets were given an owner ({pct(quick + later, n)})</b>
+      {" "}- {full(quick)} within half an hour of entering New, {full(later)} later because nobody on the lists was available yet (the hub waits for someone){none ? `, ${full(none)} without one` : ""}.
+      {!whole && " The tiles count the whole period, its months before the hand-over back-tracked from HubSpot."}
+    </Typography>
+  );
+}
+
 /**
  * The four counts, one unit - tickets: the period's, then what became of the owner each was given (they add up). The
  * tickets compare with the days before; what became of the owner does not - an older ticket has had longer to be moved.
@@ -91,11 +115,11 @@ function OwnerTiles({ f, label }: { f: Figures; label: string }) {
       <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ConfirmationNumberOutlinedIcon />} tint="blue" label="Back Office tickets" value={full(n)}
         delta={was ? { ratio: n / was - 1, versus: rangeLabel(prev.from, prev.to), goodWhenUp: true } : undefined} note={`Created ${label}${was ? `; ${full(was)} the days before` : ""}.`} /></Grid>
       <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<PersonOutlineOutlinedIcon />} tint="green" label={OJ.kept.label} value={full(kept)}
-        note={`${pct(kept, given)} of the ${full(given)} given an owner when they arrived - they still have that owner.`} /></Grid>
+        note={`${pct(kept, given)} of the ${full(given)} given an owner when they entered New - they still have that owner.`} /></Grid>
       <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="amber" label={OJ.moved.label} value={full(moved)}
         note={`${pct(moved, given)} of those given an owner - a person gave them to someone else afterwards.`} /></Grid>
       <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ScheduleOutlinedIcon />} tint="slate" label="Given later, or not at all" value={full(later + none)}
-        note={`${full(later)} got another owner from the routing or a workflow later (waiting for someone available, a merge); ${full(none)} had no owner in their first half hour.`} /></Grid>
+        note={`${full(later)} got their owner from the routing or a workflow later (waiting for someone available, a merge); ${full(none)} had none in their first half hour in New.`} /></Grid>
     </Grid>
   );
 }
@@ -160,6 +184,7 @@ function OverviewBody({ f, d, label, pick, setPick }: { f: Figures; d: Data; lab
     <>
       {!!f.missing.length && <Counting missing={f.missing} />}
       <OwnerTiles f={f} label={label} />
+      <SinceHub f={f} />
       <StraysCard d={d} />
       <ChatCard d={d} />
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
@@ -284,7 +309,7 @@ export function BoTickets({ from, to, label }: { from: string; to: string; label
   const wait = loading(r, label);
   return (
     <>
-      {wait ?? (r?.state === "ok" && <>{!!r.data.missing.length && <Counting missing={r.data.missing} />}<OwnerTiles f={r.data} label={label} /></>)}
+      {wait ?? (r?.state === "ok" && <>{!!r.data.missing.length && <Counting missing={r.data.missing} />}<OwnerTiles f={r.data} label={label} /><SinceHub f={r.data} /></>)}
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<ManageSearchOutlinedIcon />} tint="blue" title="Check a ticket" note="Any ticket number: the routing's reasons, the hub and HubSpot side by side, now - nothing stored, nothing written" />
         <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>

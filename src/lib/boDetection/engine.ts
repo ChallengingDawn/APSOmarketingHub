@@ -39,10 +39,12 @@ const KV = {
 const RESOLVED_AT = "hs_v2_date_entered_2338266328";
 const TONE = "sentiment_customer_tone", MACHINE = "not_valid_email";
 const DELIVERY_SUB = "enquiry_sub_category___delivery___1";
+/** where the routing picks the owner: New, or Redirected from chat */
+const ENTERED_NEW = "hs_v2_date_entered_2338266325", ENTERED_REDIRECTED = "hs_v2_date_entered_2554860732";
 /** what a month store holds; a store of another version is counted again (2: who set the category; 3: the AI's guess;
  *  4: the journey from intake, what changed after it, the month's list; 5: the owner, the hub's rule, machines,
- *  deliveries - and every ticket listed) */
-const VERSION = 5;
+ *  deliveries - and every ticket listed; 6: the owner given counted from entering New, not from the creation) */
+const VERSION = 6;
 /** the hub took the routing over from the HubSpot workflows; before, no rule was recorded per ticket */
 const HANDOVER = "2026-10-19";
 /** the routing's own record is kept this many days (boDistribution DAYS_KEPT) */
@@ -120,7 +122,7 @@ async function countMonth(ym: string, guessed: Record<string, Guessed>): Promise
     const chunk = tickets.slice(i, i + 50);
     const j = await hubspotRetry<{ results?: Obj[] }>({ path: "/crm/v3/objects/tickets/batch/read", method: "POST", body: {
       inputs: chunk.map((t) => ({ id: t.id })),
-      properties: ["enquiry_category", RESOLVED_AT, "hubspot_owner_id", TONE, DELIVERY_SUB, "c2s_ticket", "c2s_problem_order"],
+      properties: ["enquiry_category", RESOLVED_AT, "hubspot_owner_id", TONE, DELIVERY_SUB, "c2s_ticket", "c2s_problem_order", ENTERED_NEW, ENTERED_REDIRECTED],
       propertiesWithHistory: ["enquiry_category", "hubspot_owner_id"],
     } });
     const hist = new Map((j.results ?? []).map((o) => [String(o.id), o]));
@@ -133,7 +135,7 @@ async function countMonth(ym: string, guessed: Record<string, Guessed>): Promise
       const k = dayOf(created);
       const f = factOf(p.enquiry_category ?? t.properties.enquiry_category, h?.propertiesWithHistory?.enquiry_category ?? [], p[RESOLVED_AT], guessed[id], created);
       const owners = h?.propertiesWithHistory?.hubspot_owner_id ?? [];
-      const given = givenOf(owners, created), now = (p.hubspot_owner_id ?? "").trim();
+      const given = givenOf(owners, p[ENTERED_NEW] ?? p[ENTERED_REDIRECTED] ?? created), now = (p.hubspot_owner_id ?? "").trim();
       const o = {
         given, now, oj: ownerJourneyOf(given, now, owners), rule: routed[id] ?? (k < HANDOVER ? WORKFLOW_RULE : ""), machine: p[TONE] === MACHINE,
         sub: p[DELIVERY_SUB] ?? null, c2s: isC2s(p.c2s_ticket, p.c2s_problem_order, t.properties.subject),
