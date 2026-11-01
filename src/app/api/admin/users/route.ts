@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { hashPassword, validatePasswordStrength } from '@/lib/auth/password';
 import { createInvite, INVITE_HOURS } from '@/lib/auth/invite';
 import { grantStarterApps } from '@/lib/auth/appAccess';
+import { asRole } from '@/lib/auth/access';
 
 export const runtime = 'nodejs';
 
@@ -15,7 +16,8 @@ const Body = z.object({
   email: z.string().email().optional(),
   /** Omitted when the person is to set their own from an invitation link. */
   initialPassword: z.string().min(10).optional(),
-  role: z.enum(['admin', 'user', 'viewer']).optional(),
+  // 'viewer' is the user of before 01.11.2026, still understood
+  role: z.enum(['admin', 'sales_leader', 'user', 'viewer']).transform(asRole).optional(),
   /**
    * The person sets their own password at first sign-in, from a one-time link.
    * This is the one to use for a new ADMIN: an admin who knows your password is

@@ -43,7 +43,7 @@ const glass = {
   boxShadow: "0 1px 2px rgba(31,45,78,.04), 0 12px 32px rgba(31,45,78,.07)",
 };
 
-type Me = { username: string; role: Role; totp_enrolled: boolean; last_login: string | null };
+type Me = { username: string; role: Role; totp_enrolled: boolean; last_login: string | null; mfa_required?: boolean };
 type Device = {
   id: string; sid: string; label: string; ip: string | null;
   since: string; lastSeen: string; current: boolean;
@@ -119,7 +119,7 @@ export default function Security() {
     }
   };
 
-  const must = me ? mfaRequired(me.role) : false;
+  const must = me ? (me.mfa_required ?? mfaRequired(me.role)) : false;
 
   return (
     <Box sx={{ px: { xs: 2, sm: 2.5, md: 3, lg: 4 }, py: { xs: 2.5, md: 3 }, display: "grid", gap: 2.5, maxWidth: 820 }}>

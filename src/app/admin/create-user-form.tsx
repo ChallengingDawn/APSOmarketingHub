@@ -13,7 +13,7 @@ export function CreateUserForm() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
-  const [role, setRole] = useState<"admin" | "user" | "viewer">("user");
+  const [role, setRole] = useState<"admin" | "sales_leader" | "user">("user");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,10 +52,10 @@ export function CreateUserForm() {
         onChange={(e) => setPw(e.target.value)} required
         helperText="≥10 chars, upper + lower + digit. Forced change on first login." />
       <TextField select label="Role" size="small" value={role}
-        onChange={(e) => setRole(e.target.value as "admin" | "user" | "viewer")}>
-        <MenuItem value="user">User — standard access</MenuItem>
+        onChange={(e) => setRole(e.target.value as "admin" | "sales_leader" | "user")}>
+        <MenuItem value="user">User — the Datatracker, and what is given</MenuItem>
+        <MenuItem value="sales_leader">Sales leader — every app, view only</MenuItem>
         <MenuItem value="admin">Admin — full access</MenuItem>
-        <MenuItem value="viewer">Viewer — read-only</MenuItem>
       </TextField>
       <Box />
       {error && <Alert severity="error" sx={{ gridColumn: "1 / -1", fontSize: "0.8rem" }}>{error}</Alert>}

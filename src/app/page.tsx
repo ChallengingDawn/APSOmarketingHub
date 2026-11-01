@@ -34,7 +34,8 @@ import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { HomeBar } from "./HomeBar";
 import { APPS, HUB_TOOLS, type HubApp } from "./hubApps";
 import { useViewAs } from "./ViewAs";
-import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
+import { adminOnlyPath, asRole, type Level, type Role } from "@/lib/auth/access";
+import { accessAt } from "@/lib/auth/tree";
 
 const INK = "#15223a";
 const MUTED = "#5d6b85";
@@ -76,18 +77,23 @@ export default function FrontPage() {
   // While previewing somebody, the wall shows what THEY would get: the apps
   // they can open, and the rest locked rather than hidden, so you can see both
   // what they have and what they are missing.
-  const { viewed, canOpen } = useViewAs();
+  const { viewed, canOpen, canOpenPath } = useViewAs();
   // Your OWN access, so the wall is honest before you click. The guard on each
   // app's layout is what actually refuses; this only saves the trip.
   const [mine, setMine] = useState<Record<string, boolean> | null>(null);
   const [myRole, setMyRole] = useState<Role | null>(null);
+  // every app and sub-app as it comes to for you (src/lib/auth/tree.ts), and where a tile leads when only a sub-app is yours
+  const [myLevels, setMyLevels] = useState<Record<string, Level> | null>(null);
+  const [first, setFirst] = useState<Record<string, string>>({});
   useEffect(() => {
     fetch("/api/me/access")
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (!j?.ok) return;
         setMine(j.open as Record<string, boolean>);
-        setMyRole(j.role as Role);
+        setMyRole(asRole(j.role));
+        setMyLevels((j.levels ?? null) as Record<string, Level> | null);
+        setFirst((j.first ?? {}) as Record<string, string>);
       })
       .catch(() => {});
   }, []);
@@ -139,9 +145,14 @@ export default function FrontPage() {
     const path = href.split("?")[0];
     if (!path.startsWith("/")) return true; // the shop, HubSpot — not ours to gate
     if (adminOnlyPath(path) && role !== "admin") return false;
-    const key = appForPath(path);
-    return !key || openFor(key);
+    // the page's own sub-app decides, else its app; a page of no app is everybody's
+    if (viewed) return canOpenPath(path);
+    if (!myLevels) return true;
+    const a = accessAt(path, myLevels);
+    return a.specific === null || a.level !== "none";
   };
+  /** Where an app's tile leads: its front page, or the first of its sub-apps that is yours when only those are. */
+  const entry = (a: HubApp) => (!viewed && first[a.key]) || a.href;
 
   // One or two apps should not stretch across the window; three or more share it.
   const wide = visibleApps.length < 3 ? "minmax(0, 340px)" : "minmax(0, 1fr)";
@@ -198,7 +209,9 @@ export default function FrontPage() {
         }}>
           {visibleApps.map((a, i) => {
             const open = !!expanded[a.key];
-            const shown = open ? a.subs : a.subs.slice(0, 3);
+            // only the sub-apps that are theirs
+            const subs = a.subs.filter((x) => mayOpen(x.href));
+            const shown = open ? subs : subs.slice(0, 3);
             return (
               <Box key={a.key} sx={{
                 ...glass, borderRadius: "22px", p: { xs: 2, md: 2.1 },
@@ -219,7 +232,7 @@ export default function FrontPage() {
 
 
                 <Box>
-                  <Box component={Link} href={a.href} sx={{
+                  <Box component={Link} href={entry(a)} sx={{
                     display: "inline-flex", alignItems: "center", gap: 0.4, textDecoration: "none",
                     color: INK, ...focusRing,
                     "&:hover .chev": { transform: "translateX(4px)" },
@@ -262,13 +275,13 @@ export default function FrontPage() {
 
                   {/* An app can be empty on purpose. Saying so beats a card
                       that trails off into white space. */}
-                  {a.subs.length === 0 && (
+                  {subs.length === 0 && (
                     <Typography sx={{ fontSize: "0.82rem", color: FAINT, lineHeight: 1.5, py: 0.5 }}>
                       Nothing in it yet — open it to see what it is for.
                     </Typography>
                   )}
 
-                  {a.subs.length > 3 && (
+                  {subs.length > 3 && (
                     <Box
                       component="button"
                       onClick={() => setExpanded((e) => ({ ...e, [a.key]: !e[a.key] }))}
@@ -280,7 +293,7 @@ export default function FrontPage() {
                         "&:hover": { bgcolor: "rgba(255,255,255,.6)" },
                       }}
                     >
-                      {open ? "Show less" : `View all ${a.subs.length}`}
+                      {open ? "Show less" : `View all ${subs.length}`}
                       <ExpandMoreIcon sx={{
                         fontSize: 17, transform: open ? "rotate(180deg)" : "none", transition: "transform .18s ease",
                         "@media (prefers-reduced-motion: reduce)": { transition: "none" },

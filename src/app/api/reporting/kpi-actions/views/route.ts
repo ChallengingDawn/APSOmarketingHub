@@ -1,5 +1,6 @@
 // Saved views - a named set of a page's filters (its URL query), personal unless shared (SARCLA 18.10.2026).
 import { NextRequest, NextResponse } from "next/server";
+import { reportPathOfPage } from "@/lib/auth/tree";
 import { deleteView, saveView, updateView, viewsOf } from "@/lib/reporting/kpiActions";
 import { fail, who } from "../guard";
 
@@ -18,9 +19,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const w = await who(true);
-  if (w instanceof NextResponse) return w;
   const b = (await req.json().catch(() => ({}))) as { page?: string; name?: string; query?: string; shared?: boolean };
+  const w = await who(true, reportPathOfPage(b.page));
+  if (w instanceof NextResponse) return w;
   if (!b.page || !b.name?.trim()) return fail("a view needs its page and a name", 400);
   try {
     const id = await saveView({ page: b.page.slice(0, 40), name: b.name.trim(), query: cleanQuery(b.query), shared: !!b.shared, ownerId: w.userId, ownerName: w.name });
@@ -28,8 +29,9 @@ export async function POST(req: NextRequest) {
   } catch (e) { return fail(e); }
 }
 
+// a view is its owner's alone to change: Edit anywhere in Advanced reporting is enough
 export async function PATCH(req: NextRequest) {
-  const w = await who(true);
+  const w = await who(true, "*");
   if (w instanceof NextResponse) return w;
   const b = (await req.json().catch(() => ({}))) as { id?: number; name?: string; shared?: boolean; query?: string };
   if (!Number.isInteger(b.id)) return fail("id is missing", 400);
@@ -40,7 +42,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const w = await who(true);
+  const w = await who(true, "*");
   if (w instanceof NextResponse) return w;
   const id = Number(req.nextUrl.searchParams.get("id"));
   if (!Number.isInteger(id) || id <= 0) return fail("id is missing", 400);

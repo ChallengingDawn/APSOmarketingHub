@@ -9,7 +9,8 @@ import { z } from "zod";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { ensureSchema } from "@/lib/db/init";
 import { query } from "@/lib/db/client";
-import { APP_KEYS, type Level, type Role } from "@/lib/auth/access";
+import { asRole, type Level, type Role } from "@/lib/auth/access";
+import { isNodeKey, nodeByKey } from "@/lib/auth/tree";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,14 +58,15 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
-    people: people.rows.map((p) => ({ ...p, access: byUser.get(p.id) ?? {} })),
+    people: people.rows.map((p) => ({ ...p, role: asRole(p.role), access: byUser.get(p.id) ?? {} })),
   });
 }
 
+// an app or a sub-app of the access tree (src/lib/auth/tree.ts); "inherit": take the parent's again
 const Change = z.object({
   userId: z.number().int().positive(),
-  appKey: z.enum(APP_KEYS),
-  level: z.enum(["none", "read", "write"]),
+  appKey: z.string().max(200).refine(isNodeKey, "no such app or sub-app"),
+  level: z.enum(["none", "read", "write", "inherit"]),
 });
 
 export async function PUT(req: NextRequest) {
@@ -78,18 +80,30 @@ export async function PUT(req: NextRequest) {
   const { userId, appKey, level } = parsed.data;
   await ensureSchema();
 
-  const target = await query<{ role: Role }>(`SELECT role FROM apsomh_users WHERE id = $1`, [userId]);
+  const target = await query<{ role: string }>(`SELECT role FROM apsomh_users WHERE id = $1`, [userId]);
   if (!target.rows[0]) return NextResponse.json({ ok: false, error: "No such person." }, { status: 404 });
+  const role: Role = asRole(target.rows[0].role);
+  const node = nodeByKey(appKey)!;
   // An admin already has every app; a grant would be a row that means nothing
   // and a UI that implies it could be taken away one app at a time.
-  if (target.rows[0].role === "admin") {
+  if (role === "admin") {
     return NextResponse.json({
       ok: false,
       error: "An admin already has every app. Change the role instead.",
     }, { status: 400 });
   }
+  // A sales leader views everything: what can be given is Edit, in Advanced reporting (SARCLA 01.11.2026)
+  if (role === "sales_leader" && (node.app !== "reporting" || level === "none")) {
+    return NextResponse.json({
+      ok: false,
+      error: "A sales leader views every app. Only Edit on Advanced reporting can be given.",
+    }, { status: 400 });
+  }
 
-  if (level === "none") {
+  // No row: the parent's level - for an app, the role's (nothing, for a user). "No access" on a sub-app is a row of
+  // its own, so it holds against an app given.
+  const clear = level === "inherit" || (level === "none" && node.parent === null);
+  if (clear) {
     await query(`DELETE FROM apsomh_user_app_access WHERE user_id = $1 AND app_key = $2`, [userId, appKey]);
   } else {
     await query(
@@ -107,5 +121,5 @@ export async function PUT(req: NextRequest) {
     [gate.user!.username, "access.change", JSON.stringify({ userId, appKey, level })],
   ).catch(() => { /* never fail the change because the log did */ });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, kept: clear ? null : level });
 }

@@ -25,8 +25,12 @@ export const contentPatchSchema = z.object({
 
 export type ContentEdit = z.infer<typeof contentPatchSchema>;
 
-export function canEditContent(role: string): boolean {
-  return role === "admin" || role === "user";
+/**
+ * May this person change the library's content? An admin, or a user given Edit on Marketing & Content - since the
+ * roles of 01.11.2026 a user is no longer an editor by role: the viewer of before is a user too, and only views.
+ */
+export function canEditContent(role: string, marketing: "none" | "read" | "write" = "none"): boolean {
+  return role === "admin" || (role === "user" && marketing === "write");
 }
 
 export function changesCreative(patch: Omit<ContentEdit, "expectedRevision">): boolean {

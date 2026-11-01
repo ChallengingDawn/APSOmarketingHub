@@ -205,7 +205,7 @@ function SignInForm() {
             {busy ? <CircularProgress size={18} sx={{ color: "#fff" }} />
               : step === "create" ? "Create my account" : "Set my password"}
           </Button>
-          {who?.role && who.role !== "viewer" && (
+          {(who?.role === "admin" || who?.role === "sales_leader") && (
             <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
               Your role also needs an authenticator app. You will be asked to set one up straight after.
             </Typography>

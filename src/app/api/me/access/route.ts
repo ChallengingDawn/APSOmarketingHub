@@ -7,6 +7,7 @@
 import { NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { APP_KEYS } from "@/lib/auth/access";
+import { appOpen, firstOpenPage } from "@/lib/auth/tree";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,11 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     role: access.role,
-    open: Object.fromEntries(APP_KEYS.map((k) => [k, access.canOpen(k)])),
+    // an app is open when anything in it is - its front page or one sub-app
+    open: Object.fromEntries(APP_KEYS.map((k) => [k, appOpen(k, access.levels)])),
+    // every app and sub-app (src/lib/auth/tree.ts), so the side panel and the report lists hide what is not theirs
+    levels: access.levels,
+    // where an app's tile leads when its front page is not theirs but a sub-app is
+    first: Object.fromEntries(APP_KEYS.map((k) => [k, firstOpenPage(k, access.levels)]).filter(([, v]) => v)),
   });
 }

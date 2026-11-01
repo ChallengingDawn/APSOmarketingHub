@@ -1,6 +1,7 @@
 // Promote a tile to "In a nutshell" or demote it to its tab - one choice for everyone (SARCLA 18.10.2026);
 // a KPI there as a small tile or as its page's full card (format, 19.10).
 import { NextRequest, NextResponse } from "next/server";
+import { reportPathOfPage } from "@/lib/auth/tree";
 import { setPlacement, type Placement, type TileFormat, type TileSpec } from "@/lib/reporting/kpiActions";
 import { fail, who } from "../guard";
 
@@ -8,9 +9,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const w = await who(true);
-  if (w instanceof NextResponse) return w;
   const b = (await req.json().catch(() => ({}))) as { spec?: TileSpec; placement?: Placement; format?: TileFormat };
+  const w = await who(true, typeof b.spec?.page === "string" ? reportPathOfPage(b.spec.page) : null);
+  if (w instanceof NextResponse) return w;
   const s = b.spec;
   if (!s || typeof s.key !== "string" || !/^[a-z0-9-]+:/i.test(s.key) || typeof s.page !== "string" || !s.title) return fail("the tile is missing", 400);
   if (b.placement !== "nutshell" && b.placement !== "tab") return fail("placement is nutshell or tab", 400);

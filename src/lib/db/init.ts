@@ -345,6 +345,40 @@ export function ensureSchema(): Promise<void> {
       // eslint-disable-next-line no-console
       console.log('[db] app access seeded for existing accounts (once)');
     }
+
+    // THE ROLES OF 01.11.2026: admin, sales leader, user (SARCLA: "the current viewer becomes user").
+    //
+    // A grant now sits on a sub-app too, keyed by its address ("reporting:/reporting/tsa-benchmark/system-tickets"),
+    // so the key outgrows its 48 characters. And the viewer becomes a user, keeping exactly what it could do: its
+    // grants were never more than View whatever the row said, so a row saying Edit is brought down to View first -
+    // a user's Edit is honoured. The editor ("user") was a user already. Once, behind a flag, raw queries (the
+    // self-await trap above).
+    const keyLen = await query<{ n: number | null }>(
+      `SELECT character_maximum_length AS n FROM information_schema.columns
+        WHERE table_name = 'apsomh_user_app_access' AND column_name = 'app_key' LIMIT 1`,
+    );
+    if ((keyLen.rows[0]?.n ?? 200) < 200) {
+      await query(`ALTER TABLE apsomh_user_app_access ALTER COLUMN app_key TYPE VARCHAR(200)`);
+    }
+    const roles2 = await query<{ k: string }>(
+      `SELECT k FROM apsomh_kv WHERE k = 'access:roles-2026-11' LIMIT 1`,
+    );
+    if (roles2.rows.length === 0) {
+      const capped = await query(`
+        UPDATE apsomh_user_app_access a SET level = 'read', updated_at = NOW()
+          FROM apsomh_users u
+         WHERE u.id = a.user_id AND u.role = 'viewer' AND a.level = 'write'
+        RETURNING a.user_id
+      `);
+      const moved = await query(`UPDATE apsomh_users SET role = 'user', updated_at = NOW() WHERE role = 'viewer' RETURNING id`);
+      await query(
+        `INSERT INTO apsomh_kv (k, v, updated_at) VALUES ('access:roles-2026-11', $1, NOW())
+         ON CONFLICT (k) DO NOTHING`,
+        [JSON.stringify({ at: new Date().toISOString(), viewersToUsers: moved.rows.length, grantsCappedToView: capped.rows.length })],
+      );
+      // eslint-disable-next-line no-console
+      console.log(`[db] roles of 01.11.2026: ${moved.rows.length} viewer(s) now user(s), ${capped.rows.length} grant(s) brought to View (once)`);
+    }
     // eslint-disable-next-line no-console
     console.log('[db] apsomh schema ready (users, kv, content, audit, app access)');
   })().catch((err) => {
@@ -394,7 +428,8 @@ export type UserRow = {
   password_hash: string;
   totp_secret: string | null;
   totp_enrolled: boolean;
-  role: 'admin' | 'user' | 'viewer';
+  /** 'viewer' only before the roles of 01.11.2026 ran; read it with asRole (src/lib/auth/access.ts). */
+  role: 'admin' | 'sales_leader' | 'user' | 'viewer';
   is_active: boolean;
   must_change_password: boolean;
   awaiting_setup: boolean;

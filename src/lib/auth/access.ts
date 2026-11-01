@@ -2,19 +2,32 @@
 //
 // Two things, kept apart:
 //
-//   the ROLE says HOW MUCH a person may do — read, or write, or everything;
-//   the GRANT says WHICH apps they may do it in.
+//   the ROLE says HOW MUCH a person may do — and where they start;
+//   the GRANT says WHICH apps and sub-apps they may do it in (src/lib/auth/tree.ts).
 //
 // Keeping them separate is what stops the usual drift, where "editor" quietly
 // comes to mean "editor of whatever editors happen to have" and nobody can say
 // who can see revenue. A promotion changes the role and no grant is touched; a
 // demotion is the same in reverse.
 //
+// The three roles (SARCLA, 01.11.2026: "we have to have more roles"):
+//   admin         every app and every sub-app, and the parts of Settings that govern other people;
+//   sales_leader  every app and every sub-app, view only - and edit on the Advanced reports given to them;
+//   user          the Datatracker to start with; any other app or sub-app given to them, to view or to edit.
+// The viewer and the editor of before are both users now: what they could open and change is kept, grant by grant.
+//
 // Pure functions, no database — so the rule can be tested, and so the screen
 // that draws it and the guard that enforces it cannot disagree.
 
-/** The role as stored. `user` is the editor tier; it predates the name. */
-export type Role = "admin" | "user" | "viewer";
+/** The role as stored. */
+export type Role = "admin" | "sales_leader" | "user";
+
+export const ROLES: Role[] = ["user", "sales_leader", "admin"];
+
+/** A role as stored before 01.11.2026, read as today's: the viewer and the editor ("user") are both users. */
+export function asRole(stored: string | null | undefined): Role {
+  return stored === "admin" || stored === "sales_leader" ? stored : "user";
+}
 
 /** What a person may do in an app they have been granted. */
 export type Level = "none" | "read" | "write";
@@ -22,17 +35,17 @@ export type Level = "none" | "read" | "write";
 export const APP_KEYS = ["datatracker", "website", "reporting", "marketing", "journey", "uc", "connectors"] as const;
 export type AppKey = (typeof APP_KEYS)[number];
 
-/** What each role is called on screen. `user` has always meant editor. */
+/** What each role is called on screen. */
 export const ROLE_LABEL: Record<Role, string> = {
   admin: "Admin",
-  user: "Editor",
-  viewer: "Viewer",
+  sales_leader: "Sales leader",
+  user: "User",
 };
 
 export const ROLE_NOTE: Record<Role, string> = {
-  admin: "Every app, and the parts of Settings that govern other people.",
-  user: "Can change things in the apps they are given.",
-  viewer: "Read-only, in the apps they are given.",
+  admin: "Every app and sub-app, and the parts of Settings that govern other people.",
+  sales_leader: "Every app and sub-app, view only - and edit on the Advanced reports given to them.",
+  user: "The Datatracker to start with; any other app or sub-app given to them, to view or to edit.",
 };
 
 /**
@@ -45,7 +58,15 @@ export const ROLE_NOTE: Record<Role, string> = {
 export function ceiling(role: Role): Level {
   if (role === "admin") return "write";
   if (role === "user") return "write";
+  // a sales leader edits only in Advanced reporting, and only there where given (tree.ts)
   return "read";
+}
+
+/** What a role has where nothing was granted: a sales leader views everything, a user nothing. */
+export function roleDefault(role: Role): Level {
+  if (role === "admin") return "write";
+  if (role === "sales_leader") return "read";
+  return "none";
 }
 
 const ORDER: Record<Level, number> = { none: 0, read: 1, write: 2 };
@@ -63,6 +84,7 @@ export function cap(level: Level, limit: Level): Level {
  */
 export function effectiveLevel(role: Role, granted: Level | undefined): Level {
   if (role === "admin") return "write";
+  if (role === "sales_leader") return granted === "write" ? "write" : "read";
   if (!granted || granted === "none") return "none";
   return cap(granted, ceiling(role));
 }
@@ -78,12 +100,13 @@ export function canWrite(role: Role, granted: Level | undefined): boolean {
 /**
  * Must this person carry a second factor?
  *
- * Anyone who can change something must. A viewer may go without — they still
- * see customer names and order values, so it is a real trade, taken knowingly:
- * the sign-in nudges them, and an admin can require it per person.
+ * Anyone who can change something must, and a sales leader, who sees every app.
+ * A user who only views may go without — they still see customer names and
+ * order values, so it is a real trade, taken knowingly: the sign-in nudges
+ * them, and an admin can require it per person.
  */
-export function mfaRequired(role: Role, requiredForPerson = false): boolean {
-  return requiredForPerson || role === "admin" || role === "user";
+export function mfaRequired(role: Role, requiredForPerson = false, editsSomewhere = false): boolean {
+  return requiredForPerson || role === "admin" || role === "sales_leader" || editsSomewhere;
 }
 
 /**
@@ -98,8 +121,8 @@ export function mfaRequired(role: Role, requiredForPerson = false): boolean {
  */
 export const SELF_SIGNUP_DOMAINS = ["apsoparts.com", "angst-pfister.com"] as const;
 
-/** What a self-registered account starts as. */
-export const SELF_SIGNUP_ROLE: Role = "viewer";
+/** What a self-registered account starts as: a user, with the Datatracker. */
+export const SELF_SIGNUP_ROLE: Role = "user";
 
 /**
  * What any new account that is not an admin starts with.
@@ -136,10 +159,14 @@ export const LEVELS: { value: Level; label: string }[] = [
   { value: "write", label: "Edit" },
 ];
 
-/** What a role may be offered, so a viewer is never shown "Edit". */
-export function levelsFor(role: Role): { value: Level; label: string }[] {
-  const limit = ORDER[ceiling(role)];
-  return LEVELS.filter((l) => ORDER[l.value] <= limit);
+/**
+ * What a role may be offered on an app or a sub-app: a user anything, a sales leader View or Edit in Advanced
+ * reporting (they view everything else, and nothing is taken from them), an admin nothing (they have it all).
+ */
+export function levelsFor(role: Role, app?: string): { value: Level; label: string }[] {
+  if (role === "admin") return [];
+  if (role === "sales_leader") return app === "reporting" ? LEVELS.filter((l) => l.value !== "none") : [];
+  return LEVELS;
 }
 
 /**

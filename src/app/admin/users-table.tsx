@@ -28,13 +28,13 @@ interface Row {
   username: string;
   full_name: string;
   email: string | null;
-  role: "admin" | "user" | "viewer";
+  role: "admin" | "sales_leader" | "user";
   is_active: boolean;
   totp_enrolled: boolean;
 }
 
 const roleColor: Record<Row["role"], string> = {
-  admin: "#ed1b2f", user: "#274e64", viewer: "#5f6368",
+  admin: "#ed1b2f", sales_leader: "#a96a12", user: "#274e64",
 };
 
 export function UsersTable({ users }: { users: Row[] }) {
@@ -162,8 +162,8 @@ function EditDialog({ row, onClose, onSaved }: { row: Row; onClose: () => void; 
         <TextField label="Email" size="small" value={email} onChange={(e) => setEmail(e.target.value)} />
         <TextField select label="Role" size="small" value={role} onChange={(e) => setRole(e.target.value as Row["role"])}>
           <MenuItem value="admin">Admin</MenuItem>
+          <MenuItem value="sales_leader">Sales leader</MenuItem>
           <MenuItem value="user">User</MenuItem>
-          <MenuItem value="viewer">Viewer</MenuItem>
         </TextField>
         {error && <Box sx={{ color: "#ed1b2f", fontSize: "0.8rem" }}>{error}</Box>}
       </DialogContent>

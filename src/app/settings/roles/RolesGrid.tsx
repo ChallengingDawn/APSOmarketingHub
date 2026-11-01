@@ -19,7 +19,8 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
 import { APPS } from "@/app/hubApps";
-import { ROLE_LABEL, ROLE_NOTE, effectiveLevel, mfaRequired, type Level, type Role } from "@/lib/auth/access";
+import { ROLES, ROLE_LABEL, ROLE_NOTE, mfaRequired, type AppKey, type Level, type Role } from "@/lib/auth/access";
+import { appOpen, levelsOf } from "@/lib/auth/tree";
 
 const INK = "#15223a";
 const MUTED = "#5d6b85";
@@ -35,15 +36,24 @@ const glass = {
 
 const ROLE_TINT: Record<Role, { bg: string; fg: string }> = {
   admin: { bg: "#efe8fd", fg: "#5a3fa0" },
+  sales_leader: { bg: "#fdf0e3", fg: "#a96a12" },
   user: { bg: "#e6edfd", fg: "#2459d1" },
-  viewer: { bg: "#e9eef5", fg: "#4a5a70" },
 };
 
-const CELL: Record<Level, { label: string; bg: string; fg: string }> = {
+const CELL: Record<Level | "some", { label: string; bg: string; fg: string }> = {
   none: { label: "—", bg: "transparent", fg: "#c2cad6" },
+  // only some of the app's sub-apps (src/lib/auth/tree.ts) - People shows which
+  some: { label: "Some", bg: "#f3f0fb", fg: "#6a46c9" },
   read: { label: "View", bg: "#eef2f7", fg: "#4a5a70" },
   write: { label: "Edit", bg: "#e6f4ec", fg: "#0f7b4f" },
 };
+
+/** An app as it comes to for one person: the app as such, or only some of its sub-apps. */
+function appCell(p: { role: Role; access: Record<string, Level> }, app: string): Level | "some" {
+  const lv = levelsOf(p.role, p.access);
+  const own = lv[app] ?? "none";
+  return own === "none" && appOpen(app as AppKey, lv) ? "some" : own;
+}
 
 type Person = {
   id: number; username: string; full_name: string; email: string | null;
@@ -65,7 +75,7 @@ export default function RolesGrid() {
   const perApp = useMemo(() => {
     const m: Record<string, number> = {};
     for (const a of APPS) {
-      m[a.key] = (people ?? []).filter((p) => p.is_active && effectiveLevel(p.role, p.access[a.key]) !== "none").length;
+      m[a.key] = (people ?? []).filter((p) => p.is_active && appCell(p, a.key) !== "none").length;
     }
     return m;
   }, [people]);
@@ -76,7 +86,7 @@ export default function RolesGrid() {
 
       {/* What each role means, since the grid below is meaningless without it. */}
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "repeat(3, 1fr)" } }}>
-        {(["admin", "user", "viewer"] as Role[]).map((r) => (
+        {[...ROLES].reverse().map((r) => (
           <Box key={r} sx={{ ...glass, borderRadius: "20px", p: 2.25 }}>
             <Chip size="small" label={ROLE_LABEL[r]} sx={{
               height: 22, fontSize: "0.72rem", fontWeight: 700,
@@ -84,7 +94,7 @@ export default function RolesGrid() {
             }} />
             <Typography sx={{ fontSize: "0.85rem", color: MUTED, lineHeight: 1.5 }}>{ROLE_NOTE[r]}</Typography>
             <Typography sx={{ fontSize: "0.78rem", color: mfaRequired(r) ? "#0f7b4f" : "#b26a00", mt: 1, fontWeight: 600 }}>
-              {mfaRequired(r) ? "Two-factor required" : "Two-factor optional"}
+              {mfaRequired(r) ? "Two-factor required" : "Two-factor required once they can edit something"}
             </Typography>
             {r === "admin" && (
               <Typography sx={{ fontSize: "0.76rem", color: FAINT, mt: 0.75, lineHeight: 1.45 }}>
@@ -163,7 +173,7 @@ export default function RolesGrid() {
                       </Box>
                     </Box>
                     {APPS.map((a) => {
-                      const lvl = effectiveLevel(p.role, p.access[a.key]);
+                      const lvl = appCell(p, a.key);
                       const c = CELL[lvl];
                       return (
                         <Box component="td" key={a.key} sx={{

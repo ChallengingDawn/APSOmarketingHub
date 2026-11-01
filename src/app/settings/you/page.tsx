@@ -35,8 +35,8 @@ const glass = {
 
 const ROLE_TINT: Record<Role, { bg: string; fg: string }> = {
   admin: { bg: "#efe8fd", fg: "#5a3fa0" },
+  sales_leader: { bg: "#fdf0e3", fg: "#a96a12" },
   user: { bg: "#e6edfd", fg: "#2459d1" },
-  viewer: { bg: "#e9eef5", fg: "#4a5a70" },
 };
 
 type Me = {

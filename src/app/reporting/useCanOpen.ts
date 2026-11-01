@@ -9,12 +9,13 @@
 // first report, and must not send you into one you cannot open).
 
 import { useEffect, useState } from "react";
-import { appForPath } from "@/lib/auth/access";
+import type { Level } from "@/lib/auth/access";
+import { accessAt } from "@/lib/auth/tree";
 import { useViewAs } from "@/app/ViewAs";
 
 export function useReportAccess(): { canOpen: (href: string) => boolean; ready: boolean } {
-  const { viewed, canOpen } = useViewAs();
-  const [open, setOpen] = useState<Record<string, boolean> | null>(null);
+  const { viewed, canOpenPath } = useViewAs();
+  const [levels, setLevels] = useState<Record<string, Level> | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let alive = true;
@@ -22,18 +23,19 @@ export function useReportAccess(): { canOpen: (href: string) => boolean; ready: 
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (!alive) return;
-        if (j?.ok) setOpen(j.open as Record<string, boolean>);
+        if (j?.ok && j.levels) setLevels(j.levels as Record<string, Level>);
         else setFailed(true);
       })
       .catch(() => { if (alive) setFailed(true); });
     return () => { alive = false; };
   }, []);
   return {
+    // the report's own sub-app decides, else its app (src/lib/auth/tree.ts): a person given TSA Reports alone sees TSA's
     canOpen: (href: string) => {
-      const app = appForPath(href.split("?")[0]);
-      if (!app) return true;
-      if (viewed) return canOpen(app);
-      return !open || !!open[app];
+      if (viewed) return canOpenPath(href);
+      if (!levels) return true;
+      const a = accessAt(href, levels);
+      return a.specific === null || a.level !== "none";
     },
     // a failed read leaves the reports' own guards to answer, as before
     ready: !!viewed || open !== null || failed,

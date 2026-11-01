@@ -6,6 +6,7 @@ import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { ViewAsProvider } from "./ViewAs";
 import { ReportingWindowProvider } from "./window/ReportingWindow";
 import SandboxBar from "./SandboxBar";
+import PathGuard from "./PathGuard";
 import { SANDBOX_BASE } from "./SandboxMode";
 
 /**
@@ -102,7 +103,7 @@ export default function AppShell({ children, sandbox = false }: { children: Reac
         }}
       >
         {sandbox && <SandboxBar />}
-        <ReportingWindowProvider>{children}</ReportingWindowProvider>
+        <ReportingWindowProvider>{sandbox ? children : <PathGuard>{children}</PathGuard>}</ReportingWindowProvider>
       </Box>
     </Box>
     </ViewAsProvider>

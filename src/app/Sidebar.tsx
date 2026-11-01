@@ -104,7 +104,8 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
 import Link from "next/link";
 
-import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
+import { adminOnlyPath, asRole, type Level, type Role } from "@/lib/auth/access";
+import { accessAt } from "@/lib/auth/tree";
 import { pickActiveSection } from "@/lib/nav/activeSection";
 import { useViewAs } from "@/app/ViewAs";
 import { Wordmark } from "@/app/Wordmark";
@@ -586,13 +587,13 @@ export default function Sidebar() {
   // While previewing somebody, the panel is theirs: same rule, their role and
   // their grants, so "view as" shows the hub they actually get rather than
   // yours with a banner on top.
-  const { viewed, canOpen: canOpenAs } = useViewAs();
-  const [acc, setAcc] = useState<{ role: Role; open: Record<string, boolean> } | null>(null);
+  const { viewed, canOpenPath: canOpenAs } = useViewAs();
+  const [acc, setAcc] = useState<{ role: Role; levels: Record<string, Level> } | null>(null);
   useEffect(() => {
     let alive = true;
     fetch("/api/me/access")
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (alive && j?.ok) setAcc({ role: j.role as Role, open: j.open as Record<string, boolean> }); })
+      .then((j) => { if (alive && j?.ok) setAcc({ role: asRole(j.role), levels: (j.levels ?? {}) as Record<string, Level> }); })
       .catch(() => {});
     return () => { alive = false; };
   }, []);
@@ -602,11 +603,12 @@ export default function Sidebar() {
     // The flag says so, or the path does. Two ways to spell the same rule, so a
     // governance page added later is covered without anyone remembering to.
     if ((item.adminOnly || adminOnlyPath(item.href)) && role !== "admin") return false;
-    // The Datatracker's rows carry a tab in the query; the route map reads paths.
-    const app = appForPath(item.href.split("?")[0]);
-    if (!app) return true;
-    if (viewed) return canOpenAs(app);
-    return !acc || acc.open[app];
+    // Each row its own sub-app's rule (src/lib/auth/tree.ts), else its app's; a page of no app is everybody's.
+    // The Datatracker's rows carry a tab in the query; the tree reads paths.
+    if (viewed) return canOpenAs(item.href);
+    if (!acc) return true;
+    const a = accessAt(item.href, acc.levels);
+    return a.specific === null || a.level !== "none";
   };
   const visibleItems = (s: NavSection) => s.items.filter(allowed);
 

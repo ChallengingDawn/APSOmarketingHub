@@ -70,7 +70,11 @@ test("document validation rejects unsupported versions, duplicate IDs and transi
 
 test("only existing editor roles may write shared content", () => {
   assert.equal(canEditContent("admin"), true);
-  assert.equal(canEditContent("user"), true);
+  // a user edits with Edit on Marketing & Content, not by role (the roles of 01.11.2026)
+  assert.equal(canEditContent("user", "write"), true);
+  assert.equal(canEditContent("user", "read"), false);
+  assert.equal(canEditContent("user"), false);
+  assert.equal(canEditContent("sales_leader", "write"), false);
   assert.equal(canEditContent("viewer"), false);
   assert.equal(canEditContent("unknown"), false);
 });

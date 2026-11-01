@@ -3,13 +3,18 @@
 // ?page=<slug>, or "nutshell".
 import { NextRequest, NextResponse } from "next/server";
 import { orders, pageCounts, placements, targets, viewsOf } from "@/lib/reporting/kpiActions";
+import { reportPathOfPage } from "@/lib/auth/tree";
 import { fail, who } from "./guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const w = await who();
+  const page0 = (req.nextUrl.searchParams.get("page") ?? "").trim();
+  // whether the toolbar offers its edits: that page's report - for a BUC View ("nutshell"), the one it is drawn on
+  // (ESO's and TSA's say so in the address they are read from; a hint for the screen, every write asks again)
+  const from = (() => { try { return new URL(req.headers.get("referer") ?? "").pathname; } catch { return ""; } })();
+  const w = await who(false, page0 === "nutshell" ? (from.startsWith("/reporting/") ? from : "/reporting/marketing-kpis") : reportPathOfPage(page0));
   if (w instanceof NextResponse) return w;
   const page = (req.nextUrl.searchParams.get("page") ?? "").trim();
   if (!page) return fail("page is missing", 400);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  effectiveLevel, canOpen, canWrite, ceiling, mfaRequired, levelsFor,
+  effectiveLevel, canOpen, canWrite, ceiling, mfaRequired, levelsFor, asRole, roleDefault,
   maySelfRegister, SELF_SIGNUP_ROLE, STARTER_GRANTS, appForPath, adminOnlyPath,
 } from "../src/lib/auth/access";
 
@@ -12,50 +12,53 @@ test("an admin needs no grant", () => {
   assert.equal(canOpen("admin", undefined), true);
 });
 
-test("no grant means no access, for everybody else", () => {
+test("no grant means no access, for a user", () => {
   assert.equal(effectiveLevel("user", undefined), "none");
-  assert.equal(effectiveLevel("viewer", undefined), "none");
-  assert.equal(canOpen("viewer", undefined), false);
+  assert.equal(canOpen("user", undefined), false);
   // An account created by mistake can see nothing until somebody grants it.
   assert.equal(effectiveLevel("user", "none"), "none");
 });
 
-test("a viewer's grant never resolves above read, whatever the row says", () => {
-  assert.equal(effectiveLevel("viewer", "write"), "read");
-  assert.equal(canWrite("viewer", "write"), false);
-  assert.equal(canOpen("viewer", "write"), true);
-});
-
-test("an editor's grant is honoured up to write", () => {
+test("a user's grant is honoured up to write - the viewer and the editor of before are both users (SARCLA 01.11.2026)", () => {
   assert.equal(effectiveLevel("user", "read"), "read");
   assert.equal(effectiveLevel("user", "write"), "write");
   assert.equal(canWrite("user", "read"), false);
+  assert.equal(asRole("viewer"), "user");
+  assert.equal(asRole("user"), "user");
+  assert.equal(asRole("sales_leader"), "sales_leader");
+  assert.equal(asRole(undefined), "user");
 });
 
-test("a promotion needs no grant rewritten", () => {
-  // The same stored row, read under two roles.
-  const stored = "write" as const;
-  assert.equal(effectiveLevel("viewer", stored), "read");
-  assert.equal(effectiveLevel("user", stored), "write");
+test("a sales leader views every app without a grant, and edits only where given", () => {
+  assert.equal(effectiveLevel("sales_leader", undefined), "read");
+  assert.equal(effectiveLevel("sales_leader", "none"), "read");
+  assert.equal(effectiveLevel("sales_leader", "write"), "write");
+  assert.equal(roleDefault("sales_leader"), "read");
+  assert.equal(roleDefault("user"), "none");
 });
 
 test("ceiling is the role's own limit", () => {
   assert.equal(ceiling("admin"), "write");
   assert.equal(ceiling("user"), "write");
-  assert.equal(ceiling("viewer"), "read");
+  assert.equal(ceiling("sales_leader"), "read");
 });
 
-test("anyone who can change something carries a second factor", () => {
+test("anyone who can change something carries a second factor, and a sales leader", () => {
   assert.equal(mfaRequired("admin"), true);
-  assert.equal(mfaRequired("user"), true);
-  assert.equal(mfaRequired("viewer"), false);
+  assert.equal(mfaRequired("sales_leader"), true);
+  // a user who only views may go without; one given Edit somewhere may not
+  assert.equal(mfaRequired("user"), false);
+  assert.equal(mfaRequired("user", false, true), true);
   // Unless an admin asked for it on that person.
-  assert.equal(mfaRequired("viewer", true), true);
+  assert.equal(mfaRequired("user", true), true);
 });
 
-test("a viewer is never offered Edit", () => {
-  assert.deepEqual(levelsFor("viewer").map((l) => l.value), ["none", "read"]);
-  assert.deepEqual(levelsFor("user").map((l) => l.value), ["none", "read", "write"]);
+test("what each role is offered on an app or a sub-app", () => {
+  assert.deepEqual(levelsFor("user", "uc").map((l) => l.value), ["none", "read", "write"]);
+  // a sales leader: Edit on Advanced reporting, nothing to give elsewhere (they view it all)
+  assert.deepEqual(levelsFor("sales_leader", "reporting").map((l) => l.value), ["read", "write"]);
+  assert.deepEqual(levelsFor("sales_leader", "uc"), []);
+  assert.deepEqual(levelsFor("admin", "reporting"), []);
 });
 
 // SARCLA, 04.10.2026: these two domains may self-register, nobody else.
@@ -79,9 +82,10 @@ test("only the two company domains may self-register", () => {
   assert.equal(maySelfRegister("  first.last@angst-pfister.com  "), true);
 });
 
-test("a self-registered account starts as a viewer with nothing granted", () => {
-  assert.equal(SELF_SIGNUP_ROLE, "viewer");
+test("a self-registered account starts as a user with nothing granted beyond the Datatracker", () => {
+  assert.equal(SELF_SIGNUP_ROLE, "user");
   assert.equal(effectiveLevel(SELF_SIGNUP_ROLE, undefined), "none");
+  assert.deepEqual(STARTER_GRANTS, { datatracker: "read" });
 });
 
 // A sub-page that belongs to no app is exactly how somebody walks around the

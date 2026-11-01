@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
+import { myAccess } from "@/lib/auth/appAccess";
 import { ITEM_KINDS, ITEM_STATUS, type JourneyItem, type JourneyItemKind, type JourneyItemStatus } from "@/lib/journey/model";
 import { loadJourney, saveJourney } from "@/lib/journey/store";
 
@@ -33,7 +34,8 @@ type Body = {
 export async function POST(req: NextRequest) {
   const user = await getOptionalUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (user.role === "viewer") {
+  // a user who views the journey, or a sales leader: Edit on Customer Journey is what changes it
+  if (!(await myAccess())?.canWrite("journey")) {
     return NextResponse.json({ ok: false, error: "Your account can read the journey but not change it." }, { status: 403 });
   }
 

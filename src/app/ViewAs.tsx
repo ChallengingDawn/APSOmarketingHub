@@ -19,7 +19,8 @@ import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 
-import { effectiveLevel, type Level, type Role } from "@/lib/auth/access";
+import { asRole, type AppKey, type Level, type Role } from "@/lib/auth/access";
+import { accessAt, appOpen, levelsOf } from "@/lib/auth/tree";
 
 const KEY = "apsohub:view-as";
 
@@ -30,11 +31,13 @@ type Ctx = {
   /** How the hub should behave for the person you are previewing — or for you. */
   roleInView: Role | null;
   canOpen: (appKey: string) => boolean;
+  /** May the person previewed open this page - an app's or a sub-app's (src/lib/auth/tree.ts)? */
+  canOpenPath: (href: string) => boolean;
   setViewed: (v: Viewed | null) => void;
 };
 
 const ViewAsContext = createContext<Ctx>({
-  viewed: null, roleInView: null, canOpen: () => true, setViewed: () => {},
+  viewed: null, roleInView: null, canOpen: () => true, canOpenPath: () => true, setViewed: () => {},
 });
 
 export function useViewAs() {
@@ -59,13 +62,20 @@ export function ViewAsProvider({ children }: { children: React.ReactNode }) {
     } catch { /* it still applies for this page */ }
   }, []);
 
-  const value = useMemo<Ctx>(() => ({
-    viewed,
-    roleInView: viewed?.role ?? null,
-    canOpen: (appKey: string) =>
-      !viewed || effectiveLevel(viewed.role, viewed.access[appKey]) !== "none",
-    setViewed,
-  }), [viewed, setViewed]);
+  const value = useMemo<Ctx>(() => {
+    const levels = viewed ? levelsOf(asRole(viewed.role), viewed.access) : null;
+    return {
+      viewed: viewed ? { ...viewed, role: asRole(viewed.role) } : null,
+      roleInView: viewed ? asRole(viewed.role) : null,
+      canOpen: (appKey: string) => !levels || appOpen(appKey as AppKey, levels),
+      canOpenPath: (href: string) => {
+        if (!levels) return true;
+        const a = accessAt(href, levels);
+        return a.specific === null || a.level !== "none";
+      },
+      setViewed,
+    };
+  }, [viewed, setViewed]);
 
   return (
     <ViewAsContext.Provider value={value}>

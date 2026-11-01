@@ -2,8 +2,8 @@
 // PEOPLE & ACCESS.
 //
 // The one screen where access is given, so it is the one place to look when
-// somebody asks why they cannot see something: people down the side, apps
-// across, a dropdown in the cell.
+// somebody asks why they cannot see something: people down the side, and for
+// the one chosen, every app and sub-app with what it comes to (AccessTree).
 //
 // Everything here is real. The accounts come out of apsomh_users and the grants
 // out of apsomh_user_app_access; changing a dropdown writes the row and records
@@ -41,8 +41,10 @@ import { APPS } from "@/app/hubApps";
 import { useViewAs } from "@/app/ViewAs";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, Kicker, MUTED, glass } from "@/app/uc/report/ui";
 import {
-  ROLE_LABEL, ROLE_NOTE, effectiveLevel, levelsFor, type Level, type Role,
+  ROLES, ROLE_LABEL, ROLE_NOTE, mfaRequired, type AppKey, type Level, type Role,
 } from "@/lib/auth/access";
+import { appOpen, levelsOf } from "@/lib/auth/tree";
+import AccessTree, { type Choice } from "./AccessTree";
 
 type Person = {
   id: number; username: string; full_name: string; email: string | null;
@@ -52,8 +54,8 @@ type Person = {
 
 const ROLE_TINT: Record<Role, { bg: string; fg: string }> = {
   admin: { bg: "#efe8fd", fg: "#5a3fa0" },
+  sales_leader: { bg: "#fdf0e3", fg: "#a96a12" },
   user: { bg: "#e6edfd", fg: "#2459d1" },
-  viewer: { bg: "#e9eef5", fg: "#4a5a70" },
 };
 
 /** One list, so the headings and the cells cannot drift out of step. */
@@ -204,7 +206,8 @@ export default function PeopleAccess() {
 
   const person = (people ?? []).find((p) => p.id === selected) ?? visible[0] ?? null;
 
-  const setLevel = async (p: Person, appKey: string, level: Level) => {
+  // an app or a sub-app (src/lib/auth/tree.ts): a level, or its parent's ("inherit") - the server says what it kept
+  const setLevel = async (p: Person, appKey: string, level: Choice) => {
     setSaving(`${p.id}:${appKey}`);
     setError(null);
     try {
@@ -215,10 +218,11 @@ export default function PeopleAccess() {
       });
       const j = await r.json();
       if (!j?.ok) { setError(j?.error ?? "That change was refused."); return; }
+      const kept = (j.kept ?? null) as Level | null;
       setPeople((cur) => (cur ?? []).map((x) => x.id === p.id
-        ? { ...x, access: level === "none"
+        ? { ...x, access: kept === null
             ? Object.fromEntries(Object.entries(x.access).filter(([k]) => k !== appKey))
-            : { ...x.access, [appKey]: level } }
+            : { ...x.access, [appKey]: kept } }
         : x));
     } catch (e) {
       setError(String(e));
@@ -257,12 +261,12 @@ export default function PeopleAccess() {
               pushed the sentence into two ragged lines on anything narrow. */}
           <CardTitle
             icon={<PeopleIcon />} title="People &amp; access"
-            note="Who may open which app. The role sets how far they go; the grant sets where."
+            note="Who may open which app and sub-app. The role sets where they start and how far they go; the grants set the rest."
             right={
               <Button
                 size="small" variant="contained" startIcon={<PersonAddAlt1Icon />}
                 onClick={() => setInvite({
-                  fullName: "", username: "", email: "", role: "viewer",
+                  fullName: "", username: "", email: "", role: "user",
                   how: "self", password: newPassword(), createdAs: null, busy: false,
                 })}
                 sx={{ textTransform: "none", borderRadius: "12px", flexShrink: 0 }}
@@ -277,9 +281,7 @@ export default function PeopleAccess() {
             <Select size="small" value={role} onChange={(e) => setRole(e.target.value as typeof role)}
               sx={{ width: 140, flexShrink: 0 }}>
               <MenuItem value="all">All roles</MenuItem>
-              <MenuItem value="admin">Admin</MenuItem>
-              <MenuItem value="user">Editor</MenuItem>
-              <MenuItem value="viewer">Viewer</MenuItem>
+              {[...ROLES].reverse().map((r) => <MenuItem key={r} value={r}>{ROLE_LABEL[r]}</MenuItem>)}
             </Select>
             <Select size="small" value={status} onChange={(e) => setStatus(e.target.value as typeof status)}
               sx={{ width: 140, flexShrink: 0 }}>
@@ -357,7 +359,7 @@ export default function PeopleAccess() {
                               "& .MuiSelect-select": { py: 0.35 },
                             }}
                           >
-                            {(["admin", "user", "viewer"] as Role[]).map((r) => (
+                            {[...ROLES].reverse().map((r) => (
                               <MenuItem key={r} value={r} sx={{ fontSize: "0.85rem" }}>{ROLE_LABEL[r]}</MenuItem>
                             ))}
                           </Select>
@@ -376,19 +378,26 @@ export default function PeopleAccess() {
                       </Box>
                       <Box component="td" sx={{ ...cell }}>
                         <Box sx={{ display: "flex", gap: 0.5 }}>
-                          {APPS.map((a) => {
-                            const lvl = effectiveLevel(p.role, p.access[a.key]);
-                            const on = lvl !== "none";
-                            return (
-                              <Tooltip key={a.key} title={`${a.name} · ${on ? (lvl === "write" ? "Edit" : "View") : "No access"}`}>
-                                <Box sx={{
-                                  width: 22, height: 22, borderRadius: "7px",
-                                  background: on ? `linear-gradient(140deg, ${a.from}, ${a.to})` : "rgba(21,34,58,.07)",
-                                  opacity: on ? 1 : 0.9,
-                                }} />
-                              </Tooltip>
-                            );
-                          })}
+                          {(() => {
+                            const lv = levelsOf(p.role, p.access);
+                            return APPS.map((a) => {
+                              const lvl = lv[a.key] ?? "none";
+                              // the whole app, or only some of its sub-apps
+                              const some = lvl === "none" && appOpen(a.key as AppKey, lv);
+                              const on = lvl !== "none" || some;
+                              const edits = Object.entries(lv).some(([k, l]) => l === "write" && (k === a.key || k.startsWith(`${a.key}:`) || k.startsWith(`${a.key}#`)));
+                              const what = some ? "Some sub-apps" : lvl === "write" ? "Edit" : lvl === "read" ? (edits ? "View, edit in some" : "View") : "No access";
+                              return (
+                                <Tooltip key={a.key} title={`${a.name} · ${what}`}>
+                                  <Box sx={{
+                                    width: 22, height: 22, borderRadius: "7px",
+                                    background: on ? `linear-gradient(140deg, ${a.from}, ${a.to})` : "rgba(21,34,58,.07)",
+                                    opacity: some ? 0.45 : 1,
+                                  }} />
+                                </Tooltip>
+                              );
+                            });
+                          })()}
                         </Box>
                       </Box>
                       <Box component="td" sx={{
@@ -458,37 +467,20 @@ export default function PeopleAccess() {
 
               {person.role === "admin" ? (
                 <Typography sx={{ fontSize: "0.85rem", color: MUTED, lineHeight: 1.5 }}>
-                  An admin has every app. There is nothing to grant here — change the role if that is not what
-                  you meant.
+                  An admin has every app and every sub-app. There is nothing to grant here — change the role if
+                  that is not what you meant.
                 </Typography>
               ) : (
-                <Box sx={{ display: "grid", gap: 1 }}>
-                  {APPS.map((a) => (
-                    <Box key={a.key} sx={{
-                      display: "flex", alignItems: "center", gap: 1.25, minHeight: 40,
-                    }}>
-                      <Box sx={{
-                        width: 26, height: 26, borderRadius: "8px", flexShrink: 0,
-                        background: `linear-gradient(140deg, ${a.from}, ${a.to})`,
-                      }} />
-                      <Typography sx={{
-                        fontSize: "0.85rem", color: INK, flex: 1, minWidth: 0,
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      }}>{a.name}</Typography>
-                      <Select
-                        size="small"
-                        value={person.access[a.key] ?? "none"}
-                        disabled={saving === `${person.id}:${a.key}`}
-                        onChange={(e) => setLevel(person, a.key, e.target.value as Level)}
-                        sx={{ width: 124, flexShrink: 0, fontSize: "0.82rem", borderRadius: "10px" }}
-                      >
-                        {levelsFor(person.role).map((l) => (
-                          <MenuItem key={l.value} value={l.value} sx={{ fontSize: "0.85rem" }}>{l.label}</MenuItem>
-                        ))}
-                      </Select>
-                    </Box>
-                  ))}
-                </Box>
+                <>
+                  <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.5, mb: 1 }}>
+                    {person.role === "sales_leader"
+                      ? "A sales leader views every app and sub-app. Edit can be given on Advanced reporting - all of it, a team's reports, or one report."
+                      : "Open an app to set its sub-apps one by one. A sub-app not set takes its app's access."}
+                  </Typography>
+                  <AccessTree role={person.role} access={person.access}
+                    busy={saving?.startsWith(`${person.id}:`) ? saving.slice(String(person.id).length + 1) : null}
+                    onSet={(key, choice) => setLevel(person, key, choice)} />
+                </>
               )}
             </Box>
 
@@ -563,10 +555,10 @@ export default function PeopleAccess() {
                   color: person.totp_enrolled ? "#1e7e45" : "#b26a00",
                 }}>{person.totp_enrolled ? "Enabled" : "Off"}</Typography>
               </Box>
-              {!person.totp_enrolled && person.role !== "viewer" && (
+              {!person.totp_enrolled && mfaRequired(person.role, false, Object.values(person.access).includes("write")) && (
                 <Typography sx={{ fontSize: "0.78rem", color: "#b26a00", mt: 0.75, lineHeight: 1.45 }}>
-                  This role can change things, so it should carry a second factor. They enrol it themselves at
-                  the next sign-in; it cannot be set for them.
+                  {person.role === "user" ? "They can change things" : "This role sees every app"}, so they should carry a second
+                  factor. They enrol it themselves at the next sign-in; it cannot be set for them.
                 </Typography>
               )}
             </Box>
@@ -604,12 +596,12 @@ export default function PeopleAccess() {
                 onChange={(e) => setInvite({ ...invite, email: e.target.value })} />
               <Select size="small" value={invite.role}
                 onChange={(e) => setInvite({ ...invite, role: e.target.value as Role })}>
-                {(["viewer", "user", "admin"] as Role[]).map((r) => (
+                {ROLES.map((r) => (
                   <MenuItem key={r} value={r} sx={{ fontSize: "0.85rem" }}>{ROLE_LABEL[r]}</MenuItem>
                 ))}
               </Select>
               <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: -1 }}>
-                {ROLE_NOTE[invite.role]} They start with no apps until you grant some.
+                {ROLE_NOTE[invite.role]}{invite.role === "user" ? " Anything beyond the Datatracker you give them after." : ""}
               </Typography>
 
               <RadioGroup value={invite.how}

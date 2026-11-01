@@ -4,12 +4,15 @@ import { query } from '@/lib/db/client';
 import { requireAdmin } from '@/lib/auth/guard';
 import { hashPassword, validatePasswordStrength } from '@/lib/auth/password';
 import { whyNotDelete } from './delete';
+import { asRole } from '@/lib/auth/access';
+import { grantStarterApps } from '@/lib/auth/appAccess';
 
 export const runtime = 'nodejs';
 
 const Patch = z.object({
   isActive: z.boolean().optional(),
-  role: z.enum(['admin', 'user', 'viewer']).optional(),
+  // 'viewer' is the user of before 01.11.2026, still understood
+  role: z.enum(['admin', 'sales_leader', 'user', 'viewer']).transform(asRole).optional(),
   fullName: z.string().min(1).max(128).optional(),
   email: z.string().email().nullable().optional(),
   resetPassword: z.string().min(10).optional(),
@@ -71,6 +74,12 @@ export async function PATCH(
   const sql = `UPDATE apsomh_users SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING id`;
   const r = await query<{ id: number }>(sql, vals);
   if (r.rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  // made a user with nothing granted (an admin or a sales leader of before needed no rows): the Datatracker, as every
+  // new user starts - never over a grant already there, nor back onto one taken away
+  if (b.role === 'user') {
+    const any = await query(`SELECT 1 FROM apsomh_user_app_access WHERE user_id = $1 LIMIT 1`, [userId]);
+    if (any.rows.length === 0) await grantStarterApps(userId, 'user');
+  }
 
   // Who changed whose role, who reset whose password — exactly what an audit
   // log is for, and this endpoint was writing none of it. The new password is

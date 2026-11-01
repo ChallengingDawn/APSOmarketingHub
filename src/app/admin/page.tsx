@@ -15,7 +15,7 @@ interface UserSummary {
   username: string;
   full_name: string;
   email: string | null;
-  role: 'admin' | 'user' | 'viewer';
+  role: 'admin' | 'sales_leader' | 'user';
   is_active: boolean;
   totp_enrolled: boolean;
 }

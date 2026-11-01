@@ -47,6 +47,17 @@ function turnAway(req: NextRequest, pathname: string) {
   return NextResponse.redirect(url);
 }
 
+/**
+ * Letting somebody through - with the address they asked for, so the guards behind (src/lib/auth/appAccess.ts) know
+ * which sub-app answers for it. Set here, never taken from the browser: a header of the same name sent along is
+ * overwritten.
+ */
+function pass(req: NextRequest) {
+  const headers = new Headers(req.headers);
+  headers.set("x-hub-path", req.nextUrl.pathname);
+  return NextResponse.next({ request: { headers } });
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -56,11 +67,11 @@ export async function middleware(req: NextRequest) {
   if (process.env.APSOHUB_SANDBOX === "1") {
     const host = (req.headers.get("host") ?? "").replace(/:\d+$/, "");
     if (!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(host)) return NextResponse.json({ ok: false, error: "This sandbox answers on localhost only." }, { status: 403 });
-    return NextResponse.next();
+    return pass(req);
   }
 
   if (PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p))) {
-    return NextResponse.next();
+    return pass(req);
   }
 
   const token = req.cookies.get(SESSION_COOKIE)?.value;
@@ -69,7 +80,7 @@ export async function middleware(req: NextRequest) {
   try {
     const { payload } = await jwtVerify(token, getSecret(), { algorithms: ['HS256'] });
     if (payload.typ !== "session") throw new Error("wrong type");
-    return NextResponse.next();
+    return pass(req);
   } catch {
     return turnAway(req, pathname);
   }

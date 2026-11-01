@@ -9,7 +9,7 @@ const PRE_2FA_TTL_SECONDS = 5 * 60;
 export interface SessionPayload {
   uid: number;
   username: string;
-  role: 'admin' | 'user' | 'viewer';
+  role: 'admin' | 'sales_leader' | 'user' | 'viewer';
   /**
    * Which session this is, so it can be listed and revoked. Optional because a
    * token minted before the sessions table existed does not carry one; those are

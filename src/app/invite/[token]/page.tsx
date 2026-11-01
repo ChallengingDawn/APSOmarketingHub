@@ -138,7 +138,7 @@ export default function AcceptInvite({ params }: { params: Promise<{ token: stri
                 sx={{ textTransform: "none", borderRadius: "12px" }}>
                 {busy ? "Saving…" : "Set my password"}
               </Button>
-              {who.role !== "viewer" && (
+              {(who.role === "admin" || who.role === "sales_leader") && (
                 <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
                   Your role also needs an authenticator app. You will be asked to set one up straight after
                   signing in.

@@ -28,7 +28,8 @@ import { search as searchApps, type Hit } from "./hubApps";
 import { useViewAs } from "./ViewAs";
 import { AvatarFace } from "./AvatarFace";
 import { Wordmark } from "./Wordmark";
-import { adminOnlyPath, appForPath, type Role } from "@/lib/auth/access";
+import { APP_KEYS, adminOnlyPath, asRole, type Level, type Role } from "@/lib/auth/access";
+import { accessAt } from "@/lib/auth/tree";
 
 const INK = "#15223a";
 const MUTED = "#5d6b85";
@@ -58,17 +59,19 @@ const focusRing = {
  */
 export function HomeBar({ on }: { on?: string }) {
   const router = useRouter();
-  const { viewed, canOpen } = useViewAs();
+  const { viewed, canOpen, canOpenPath } = useViewAs();
 
   const [mine, setMine] = useState<Record<string, boolean> | null>(null);
   const [myRole, setMyRole] = useState<Role | null>(null);
+  const [myLevels, setMyLevels] = useState<Record<string, Level> | null>(null);
   useEffect(() => {
     fetch("/api/me/access")
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (!j?.ok) return;
         setMine(j.open as Record<string, boolean>);
-        setMyRole(j.role as Role);
+        setMyRole(asRole(j.role));
+        setMyLevels((j.levels ?? null) as Record<string, Level> | null);
       })
       .catch(() => {});
   }, []);
@@ -108,8 +111,11 @@ export function HomeBar({ on }: { on?: string }) {
     const path = href.split("?")[0];
     if (!path.startsWith("/")) return true; // the shop, HubSpot - not ours to gate
     if (adminOnlyPath(path) && role !== "admin") return false;
-    const key = appForPath(path);
-    return !key || openFor(key);
+    // the page's own sub-app decides, else its app (src/lib/auth/tree.ts); a page of no app is everybody's
+    if (viewed) return canOpenPath(path);
+    if (!myLevels) return true;
+    const a = accessAt(path, myLevels);
+    return a.specific === null || a.level !== "none";
   };
 
   const [q, setQ] = useState("");
@@ -128,16 +134,16 @@ export function HomeBar({ on }: { on?: string }) {
     return () => document.removeEventListener("mousedown", away);
   }, []);
 
-  // One row. A viewer's hub is one app: Home and Settings is the honest header
-  // for them. The two anchors point at the front page, so they work from any
-  // page that shows the bar.
-  const reads = role === "viewer";
+  // One row. Somebody whose hub is one app - a user with the Datatracker alone -
+  // gets Home and Settings, the honest header for them. The two anchors point at
+  // the front page, so they work from any page that shows the bar.
+  const reads = APP_KEYS.filter((k) => openFor(k)).length <= 1;
   const NAV = [
     { name: "Home", href: "/", icon: <HomeIcon />, show: true },
     { name: "Applications", href: "/#applications", icon: <AppsIcon />, show: !reads },
     // where Mission Control was: the action plan, for admins only (SARCLA 01.11.2026)
     { name: "Action plan", href: "/action-plan", icon: <DashboardOutlinedIcon />, show: role === "admin" },
-    { name: "Live", href: "/live", icon: <SensorsIcon />, show: openFor("website") },
+    { name: "Live", href: "/live", icon: <SensorsIcon />, show: mayOpen("/live") },
     { name: "Resources", href: "/#resources", icon: <MenuBookIcon />, show: !reads },
     { name: "Settings", href: "/settings", icon: <SettingsOutlinedIcon />, show: true },
   ].filter((n) => n.show);
