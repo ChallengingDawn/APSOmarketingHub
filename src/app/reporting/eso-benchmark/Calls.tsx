@@ -8,6 +8,7 @@
 // The rows and their rules: src/lib/reporting/callsRules.ts and visitsRules.ts; the read: callsReport.ts.
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -30,6 +31,7 @@ import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import PublicOutlinedIcon from "@mui/icons-material/PublicOutlined";
 import BadgeOutlinedIcon from "@mui/icons-material/BadgeOutlined";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import { GUTTER } from "@/app/analytics/Shell";
 import { Badge, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT, glass, type Tint } from "@/app/uc/report/ui";
@@ -39,7 +41,8 @@ import { FilterPanel, FilterSection } from "@/app/reporting/marketing-kpis/Filte
 import { everyWhileSeen } from "@/app/reporting/marketing-kpis/data";
 import { TileActions } from "@/app/reporting/marketing-kpis/tiles/TileActions";
 import { SavedViews } from "@/app/reporting/marketing-kpis/tiles/SavedViews";
-import { useActions } from "@/app/reporting/marketing-kpis/tiles/store";
+import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
+import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tiles/SortableGrid";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
   BEFORE, CO, REG_WAY, V, blank, coverageOf, dayWin, daysIn, daysOf, isoOf, labelOf, rowsOf, statsBy, visitedCompanies, ymd,
@@ -49,10 +52,11 @@ import { DIRECTIONS, NO_COMPANY, allCallsOf, type CallsData } from "@/lib/report
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
   CardFilterFor, ChartBox, FullTable, H1, Leaderboard, NoLeadYet, TARGET, TWO, Teams, asTeam, axisWidth, leadOf, niceTop, setQuery, teamWord, useLead, useLeads,
-  type BoardRow, type CardFilter, type Col, type TeamKey,
+  type BoardRow, type CardFilter, type Col, type LeadKey, type TeamKey,
 } from "./Figures";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
 import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
+import { BucEmpty } from "./BucEmpty";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -1049,5 +1053,71 @@ export function CallsExplorer() {
       </Box>
       <VFilterWindow c={c} per={per} open={panel} onClose={() => setPanel(false)} focus={focus} onPer={setPer} toggle={toggle} clearAll={clearAll} />
     </Box>
+  );
+}
+
+/* ── TSA's BUC View: the Calls panel ───────────────────────────────────── */
+
+const PANEL = "tsa-calls:panel:";
+const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
+
+/** Calls in TSA's BUC View (SARCLA 01.11.2026: "move the BUC View with the same principle to TSA reports"): the year to
+ *  date for the team the toggle shows, and the Calls charts sent here - no graph of its own, as ESO's panels. */
+export function CallsPanel({ acts }: { acts: ActionsState | null }) {
+  const { d, computing, progress, error } = useCalls();
+  const [team, setTeam] = useState<TeamKey>("tsa");
+  const [leadKey, setLeadKey] = useState<LeadKey>("all");
+  const lt = useLeads();
+  const teams = lt?.teams ?? [];
+  const lead = leadOf(team, leadKey, lt);
+  const want = useMemo(() => ({ team, lead }), [team, lead]);
+  const drawn = useDeferredValue(want);
+  const stale = drawn !== want;
+  const c = useMemo<VCtx | null>(() => (d ? { d, per: perOf(d, presetsOf(d)[0].win), team: drawn.team, lead: drawn.lead, teams, people: peopleOf(d, drawn.team, drawn.lead, lt?.byId ?? {}), filters: {}, view: "people", targets: acts?.targets } : null),
+    [d, drawn, teams, lt, acts?.targets]);
+  const items: SortItem[] = useMemo(() => !c ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "tsa-calls" && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
+    const [, tab = "", chart = ""] = spec.key.split(":");
+    const ch = drawnOf(`${tab}:${chart}`);
+    const fmt = formatOf(acts, spec);
+    const f = spec.filters ?? {};
+    const sf: VFilters = Object.fromEntries(FILTER_DIMS.flatMap((k) => (f[k]?.length ? [[k, f[k]]] : [])));
+    const pid = f.period?.[0], pr = pid ? presetsOf(c.d).find((p) => p.id === pid) : null;
+    const qw = winOfQuery(c.d, f.from?.[0] ?? null, f.to?.[0] ?? null);
+    const sp = pr ? perOf(c.d, pr.win) : qw ? perOf(c.d, qw) : c.per;
+    // every chart here follows the panel's toggle (as the Figures' panel); its filters and period stay as sent
+    const sc: VCtx = { ...c, per: sp, filters: sf, view: (spec.tab && isView(spec.tab) ? spec.tab : "people") as VView, half: fmt === "half" };
+    const target = ch?.target ? { key: targetKey(ch.id, c.team, c.lead, sp), ...ch.target(sc) } : undefined;
+    const actions = <TileActions where="nutshell" start="tab" edge={2} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, href: spec.href, kind: spec.kind, target }} />;
+    return { key: spec.key, block: true, sx: fmt === "half" ? { gridColumn: { xs: "span 12", md: "span 6" } } : { gridColumn: "1 / -1" },
+      node: ch ? ch.draw(sc, actions) : <GlassCard><CardTitle icon={<PhoneInTalkOutlinedIcon />} tint="green" title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };
+  }), [c, acts]);
+  const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: "nutshell:tsa-calls", keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
+  const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
+  const shown = (id: string) => placementOf(acts, `${PANEL}${id}`, "nutshell") === "nutshell";
+  const href = `/reporting/tsa-benchmark/calls?team=${team}${lead ? `&lead=${lead}` : ""}`;
+  const own = (id: string, title: string, target?: { key: string; unit: "eur" | "pct" | "n"; label: string }) => (
+    <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}${id}`, page: "tsa-calls", tab: "people", title: `${title} - ${c ? teamName(c) : "TSA"}`, kind: "kpi",
+      filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}), period: ["ytd"] }, href, target }} />
+  );
+  return (
+    <GlassCard sx={{ display: "grid", gap: 2.25 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+        <Badge icon={<PhoneInTalkOutlinedIcon />} tint="green" size={42} />
+        <Box sx={{ flex: 1, minWidth: 200 }}>
+          <Box component={Link} href={href} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT.green.fg } }}>
+            <Typography sx={{ fontSize: "1.12rem", fontWeight: 650, letterSpacing: "-0.02em" }}>Calls</Typography>
+            <ChevronRightIcon className="chev" sx={{ fontSize: 22, color: TINT.green.fg, transition: "transform .15s ease" }} />
+          </Box>
+          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{c ? `${teamName({ team, lead, teams })} · year to date ${perWords(c.d, c.per)} · qualified calls` : "Qualified calls"}</Typography>
+        </Box>
+        <Teams team={team} onTeam={setTeam} lead={leadKey} onLead={setLeadKey} teams={teams} />
+      </Box>
+      {!c ? <Waiting computing={computing} progress={progress} error={error} /> : (
+        <Box sx={{ display: "grid", gap: 2.25, opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
+          <FigureCards c={c} items={figs.filter((f) => shown(f.id))} actions={(f) => own(f.id, f.label, { key: targetKey(`panel:${f.id}`, c.team, c.lead, c.per), unit: f.unit, label: `${f.label} is measured against it · ${teamName(c)}'s target - each team its own.` })} />
+          {items.length > 0 ? <SortableGrid items={items} order={acts?.orders?.["nutshell:tsa-calls"]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} /> : <BucEmpty page="Calls" href="/reporting/tsa-benchmark/calls" />}
+        </Box>
+      )}
+    </GlassCard>
   );
 }

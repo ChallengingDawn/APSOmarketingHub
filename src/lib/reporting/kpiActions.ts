@@ -15,7 +15,7 @@
 // An action of the action plan is a tile too, "plan:<id>": its tasks are the action's sub-actions, and a
 // task made on a KPI tile can belong to an action as well (plan_item) - it then shows on both (SARCLA
 // 31.10.2026: "subactions can be linked and triggered from the KPI actions").
-// Six small tables, created on first use.
+// Six small tables, created on first use - and a seventh that records a one-off reset of the placements.
 
 import { query } from "@/lib/db/client";
 
@@ -25,6 +25,8 @@ const PLACE = "apsomh_kpi_tile_placement";
 const VIEWS = "apsomh_kpi_views";
 const ORDER = "apsomh_kpi_tile_order";
 const TARGET = "apsomh_kpi_tile_target";
+/** one-off resets of the placements, each with the tiles it moved */
+const RESETS = "apsomh_kpi_resets";
 
 export type TaskStatus = "open" | "doing" | "done";
 export const TASK_STATUSES: readonly TaskStatus[] = ["open", "doing", "done"];
@@ -93,6 +95,20 @@ function ensure(): Promise<void> {
         at timestamptz NOT NULL DEFAULT now()
       )`);
       await query(`ALTER TABLE ${PLACE} ADD COLUMN IF NOT EXISTS format text`);
+      // the ESO BUC View emptied of its graphs, once (SARCLA 01.11.2026: "clear BUC view of all graphs, let the user
+      // promote what he wants"): every ESO chart sent there goes back to its page - the panels' own figures stay. The
+      // tiles it took off are kept with the reset (RESETS), so it can be undone; it never runs again.
+      await query(`CREATE TABLE IF NOT EXISTS ${RESETS} (name text PRIMARY KEY, keys jsonb NOT NULL DEFAULT '[]'::jsonb, at timestamptz NOT NULL DEFAULT now())`);
+      await query(
+        `WITH cleared AS (
+           UPDATE ${PLACE} SET placement = 'tab', by_name = 'BUC View cleared 01.11.2026', at = now()
+            WHERE placement = 'nutshell' AND spec->>'page' LIKE 'eso-%' AND tile NOT LIKE '%:panel:%'
+              AND NOT EXISTS (SELECT 1 FROM ${RESETS} WHERE name = $1)
+           RETURNING tile)
+         INSERT INTO ${RESETS} (name, keys) SELECT $1, COALESCE(jsonb_agg(tile), '[]'::jsonb) FROM cleared
+         ON CONFLICT (name) DO NOTHING`,
+        ["eso-buc-graphs-2026-11-01"],
+      );
       await query(`CREATE TABLE IF NOT EXISTS ${VIEWS} (
         id serial PRIMARY KEY,
         page text NOT NULL,

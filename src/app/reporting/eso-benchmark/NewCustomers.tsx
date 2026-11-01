@@ -46,6 +46,7 @@ import {
   ChartBox, CubeFilterWindow, CubePeriod, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TEAM_OF, TWO, Teams, asLead, asTeam, leadOf, niceTop, periodsOf, setQuery, teamWord,
   useLead, useLeads, useTeam, type BoardRow, type Col, type LeadKey, type Per, type TeamKey,
 } from "./Figures";
+import { BucEmpty } from "./BucEmpty";
 import { ActiveFilters, type ActiveItem } from "./EsoFilters";
 import { CompaniesFor } from "@/app/reporting/CompanyList";
 import { cubeCompanies } from "@/app/reporting/marketing-kpis/cubeCompanies";
@@ -775,7 +776,6 @@ export function NewCustomersPanel({ acts }: { acts: ActionsState | null }) {
     <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}${id}`, page: "eso-new-customers", tab: "sae", title: `${title}${c && c.team !== "total" ? ` - ${teamName(c)}` : ""}`, kind,
       filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}), period: ["ytd"] }, href: `/reporting/eso-benchmark/new-customers?team=${drawn.team}${drawn.lead ? `&lead=${drawn.lead}` : ""}`, target }} />
   );
-  const months = drawnOf("sae:monnew")!;
   return (
     <GlassCard sx={{ display: "grid", gap: 2.25 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
@@ -794,8 +794,8 @@ export function NewCustomersPanel({ acts }: { acts: ActionsState | null }) {
         <Box sx={{ display: "grid", gap: 2.25, opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
           <FigureCards c={c} big items={figs.filter((f) => shown(f.id))}
             actions={(f) => own(f.id, f.label, "kpi", { key: targetKey(`panel:${f.id}`, c.team, c.lead, c.per), unit: f.unit, label: `${f.label} is measured against it · ${teamName(c)}'s target - each team its own.` })} />
-          {shown("monnew") && months.draw(c, own("monnew", "New customers year to date, month by month", "card", months.target ? { key: targetKey(months.id, c.team, c.lead, c.per), ...months.target(c) } : undefined))}
-          {items.length > 0 && <SortableGrid items={items} order={acts?.orders?.["nutshell:eso-new-customers"]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} />}
+          {/* no graph of its own any more - the ones sent here, or how to send one (SARCLA 01.11.2026) */}
+          {items.length > 0 ? <SortableGrid items={items} order={acts?.orders?.["nutshell:eso-new-customers"]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} /> : <BucEmpty page="New customers" href="/reporting/eso-benchmark/new-customers" />}
         </Box>
       )}
     </GlassCard>

@@ -104,14 +104,24 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     // opening on TSA (SARCLA 01.11.2026: "migrate to TSA now the customer development, but instead of default ESO,
     // default is TSA")
     slug: "tsa", name: "TSA Reports", line: "The TSA team's customers - per person, this year against last",
+    // built as ESO's (SARCLA 01.11.2026: "move BUC view with the same principle to TSA reports and the figures also to
+    // TSA with TSA default"): one report, its BUC View first, the pages beneath it under a heading
     reports: [
-      // first, where ESO has its Visits: TSA calls (SARCLA 01.11.2026: "build instead of visits on TSA a sub report for calls")
-      { name: "Calls", href: "/reporting/tsa-benchmark/calls", note: "Qualified calls per person - the companies reached, the prospects called and did they register and buy", icon: "chat" },
-      // against the first qualified call, not the visit: TSA calls (SARCLA 01.11.2026: "measuring visits here it's not fair")
-      { name: "Registrations", href: "/reporting/tsa-benchmark/registrations", note: "Companies registered in the shop, against their first qualified call, opening on TSA", icon: "verified" },
-      { name: "Customer development", href: "/reporting/tsa-benchmark/customers", note: "Active, new, reactivated, decreasing and lost customers, opening on TSA", icon: "groups" },
-      // SARCLA 01.11.2026: "shop behaviour is finished - move it to TSA like the other one, keeping it default on TSA"
-      { name: "Shop behaviour", href: "/reporting/tsa-benchmark/shop", note: "Logins, article views and shop orders of the customers, opening on TSA", icon: "inventory" },
+      {
+        name: "TSA KPIs", href: "/reporting/tsa-benchmark/calls", note: "The TSA team, page by page, opening on TSA", icon: "chat",
+        overview: "BUC View", overviewHref: "/reporting/tsa-benchmark",
+        children: [
+          // revenue and order intake per month and per person, opening on TSA - first, as on ESO
+          { name: "Figures", href: "/reporting/tsa-benchmark/figures", icon: "bar" },
+          // where ESO has its Visits: TSA calls (SARCLA 01.11.2026: "build instead of visits on TSA a sub report for calls")
+          { name: "Calls", href: "/reporting/tsa-benchmark/calls", icon: "chat" },
+          // against the first qualified call, not the visit: TSA calls (SARCLA 01.11.2026: "measuring visits here it's not fair")
+          { name: "Registrations", href: "/reporting/tsa-benchmark/registrations", icon: "verified" },
+          { name: "Customer development", href: "/reporting/tsa-benchmark/customers", icon: "groups" },
+          // SARCLA 01.11.2026: "shop behaviour is finished - move it to TSA like the other one, keeping it default on TSA"
+          { name: "Shop behaviour", href: "/reporting/tsa-benchmark/shop", icon: "inventory" },
+        ],
+      },
     ],
   },
   {

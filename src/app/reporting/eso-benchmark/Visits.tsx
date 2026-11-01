@@ -67,6 +67,7 @@ import {
   CardFilterFor, ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TWO, asLead, asTeam, axisWidth, leadOf, niceTop, setQuery, useLead, useLeads, useTeam,
   type BoardRow, type CardFilter, type Col, type LeadKey, type TeamKey,
 } from "./Figures";
+import { BucEmpty } from "./BucEmpty";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
 import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 
@@ -1140,7 +1141,6 @@ export function VisitsPanel({ acts }: { acts: ActionsState | null }) {
     <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}${id}`, page: "eso-visits", tab: "people", title: `${title} - ${c ? teamName(c) : "ESO"}`, kind,
       filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}), period: ["ytd"] }, href: `/reporting/eso-benchmark/visits?team=${drawn.team}${drawn.lead ? `&lead=${drawn.lead}` : ""}`, target }} />
   );
-  const months = drawnOf("people:months")!;
   return (
     <GlassCard sx={{ display: "grid", gap: 2.25 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
@@ -1157,8 +1157,8 @@ export function VisitsPanel({ acts }: { acts: ActionsState | null }) {
       {!c ? <Waiting computing={computing} progress={progress} error={error} /> : (
         <Box sx={{ display: "grid", gap: 2.25, opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
           <FigureCards c={c} items={figs.filter((f) => shown(f.id))} actions={(f) => own(f.id, f.label, "kpi", { key: targetKey(`panel:${f.id}`, c.team, c.lead, c.per), unit: f.unit, label: `${f.label} is measured against it · ${teamName(c)}'s target.` })} />
-          {shown("months") && months.draw(c, own("months", "Completed visits year to date, month by month", "card", months.target ? { key: targetKey(months.id, c.team, c.lead, c.per), ...months.target(c) } : undefined))}
-          {items.length > 0 && <SortableGrid items={items} order={acts?.orders?.["nutshell:eso-visits"]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} />}
+          {/* no graph of its own any more - the ones sent here, or how to send one (SARCLA 01.11.2026) */}
+          {items.length > 0 ? <SortableGrid items={items} order={acts?.orders?.["nutshell:eso-visits"]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} /> : <BucEmpty page="Visits" href="/reporting/eso-benchmark/visits" />}
         </Box>
       )}
     </GlassCard>

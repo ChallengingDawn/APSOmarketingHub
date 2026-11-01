@@ -73,6 +73,7 @@ import {
   A, L, P, beforeCounters, blank, blankOrders, buyersOf, dayOf, dayWords, labelOf, lineLabel, lineOf, liveSeries, loggedInList, looksBy, ordersBy, ordersCover, passOf, pcMask, periodFor, periodOf, presetsOf, prevOf, rangeWords, sameWin, shortDays, statsBy, totalsOf, yearSeries,
   type AStats, type LDim, type OStats, type SDim, type SFilters, type SPer, type SStats, type SWin, type Series, type ShopData,
 } from "@/lib/reporting/shopRules";
+import { BucEmpty } from "./BucEmpty";
 import { pcLabel } from "./shared";
 import { CompaniesFor, PAGE, type CompanySource } from "@/app/reporting/CompanyList";
 import type { Team } from "@/lib/mapAssign/leadsRules";
@@ -1106,13 +1107,15 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
 const perById = (d: ShopData, id: string | null | undefined) => { const p = periodOf(d, id); if (p) return p; const all = presetsOf(d); return all.find((x) => x.id === DEFAULT_PER) ?? all[0]; };
 
 export function ShopExplorer({ home = "eso" }: { home?: Home }) {
+  // its charts to the BUC View of the reports it is in: "eso-shop:…", or "tsa-shop:…" on TSA Reports (SARCLA 01.11.2026)
+  const PAGE = `${home}-shop`;
   const params = useSearchParams();
   const { d, computing, progress, error } = useShop();
   const [teamKey, setTeam] = useHomeTeam(home);
   const [leadKey, setLead] = useLead();
   const lt = useLeads();
   const teams = lt?.teams ?? [];
-  const { state: acts } = useActions("eso-shop");
+  const { state: acts } = useActions(PAGE);
   const view: SView = viewOf(params.get("view"));
   const setView = (v: SView) => setQuery((q) => { if (v === "people") q.delete("view"); else q.set("view", v); });
   const filters: SFilters = useMemo(() => Object.fromEntries([...FILTER_DIMS, ...LINE_DIMS].flatMap((k) => (params.getAll(k).length ? [[k, params.getAll(k)]] : []))), [params]);
@@ -1139,8 +1142,8 @@ export function ShopExplorer({ home = "eso" }: { home?: Home }) {
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
 
   // back to ESO's BUC View - TSA Reports has none (its side panel leads back)
-  const back = home === "tsa" ? null : (
-    <Box component={Link} href="/reporting/eso-benchmark" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
+  const back = (
+    <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
   );
@@ -1149,7 +1152,7 @@ export function ShopExplorer({ home = "eso" }: { home?: Home }) {
 
   const act: Act = (id, title, target) => (
     <TileActions where="tab" start="tab" edge={2}
-      tile={{ key: `eso-shop:${id}`, page: "eso-shop", tab: c.view, title, summary: `${teamName(c)} · ${perWords(d, c.per)}`,
+      tile={{ key: `${PAGE}:${id}`, page: PAGE, tab: c.view, title, summary: `${teamName(c)} · ${perWords(d, c.per)}`,
         filters: { ...Object.fromEntries([...FILTER_DIMS, ...LINE_DIMS].filter((k) => c.filters[k]?.length).map((k) => [k, c.filters[k] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), period: [c.per.id] },
         kind: "card", target: target ? { key: targetKey(id, c.team, c.lead, c.per), ...target } : undefined }} />
   );
@@ -1203,17 +1206,18 @@ export function ShopExplorer({ home = "eso" }: { home?: Home }) {
 /* ── the BUC View's Shop panel ─────────────────────────────────────────── */
 
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
-const PANEL = "eso-shop:panel:";
 
 /** Shop behaviour in the BUC View: the year to date for the team the toggle shows, the days, and the Shop charts sent here. */
-export function ShopPanel({ acts }: { acts: ActionsState | null }) {
+export function ShopPanel({ acts, home = "eso" }: { acts: ActionsState | null; home?: Home }) {
+  // ESO's BUC View or TSA's (SARCLA 01.11.2026: "move the BUC View with the same principle to TSA reports")
+  const PAGE = `${home}-shop`, PANEL = `${PAGE}:panel:`, base = `/reporting/${home}-benchmark/shop`;
   const { d, computing, progress, error } = useShop();
-  const [team, setTeam] = useState<TeamKey>("eso");
+  const [team, setTeam] = useState<TeamKey>(home);
   const [leadKey, setLeadKey] = useState<LeadKey>("all");
   const lt = useLeads();
   const teams = lt?.teams ?? [];
-  useEffect(() => { try { const x = asTeam(localStorage.getItem(KEPT)); if (x) setTeam(x); const l = asLead(localStorage.getItem(KEPT_LEAD)); if (l) setLeadKey(l); } catch { /* ESO */ } }, []);
-  const choose = (t: TeamKey) => { setTeam(t); try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
+  useEffect(() => { if (home === "tsa") return; try { const x = asTeam(localStorage.getItem(KEPT)); if (x) setTeam(x); const l = asLead(localStorage.getItem(KEPT_LEAD)); if (l) setLeadKey(l); } catch { /* ESO */ } }, [home]);
+  const choose = (t: TeamKey) => { setTeam(t); if (home === "eso") try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
   const chooseLead = (l: LeadKey) => { setLeadKey(l); try { localStorage.setItem(KEPT_LEAD, l); } catch { /* here only */ } };
   const lead = leadOf(team, leadKey, lt);
   const want = useMemo(() => ({ team, lead }), [team, lead]);
@@ -1221,7 +1225,7 @@ export function ShopPanel({ acts }: { acts: ActionsState | null }) {
   const stale = drawn !== want;
   const c = useMemo<ShCtx | null>(() => (d ? { d, per: perById(d, DEFAULT_PER), team: drawn.team, lead: drawn.lead, teams, people: peopleOf(d, drawn.team, drawn.lead, lt?.byId ?? {}), filters: {}, view: "people", targets: acts?.targets } : null),
     [d, drawn, teams, lt, acts?.targets]);
-  const items: SortItem[] = useMemo(() => !c ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-shop" && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
+  const items: SortItem[] = useMemo(() => !c ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === PAGE && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
     const ch = chartOf(spec.key);
     const fmt = formatOf(acts, spec);
     const f = spec.filters ?? {};
@@ -1233,20 +1237,19 @@ export function ShopPanel({ acts }: { acts: ActionsState | null }) {
     return { key: spec.key, block: true, sx: fmt === "half" ? { gridColumn: { xs: "span 12", md: "span 6" } } : { gridColumn: "1 / -1" },
       node: ch ? ch.draw(sc, actions) : <GlassCard><CardTitle icon={<StorefrontOutlinedIcon />} tint="blue" title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };
   }), [c, acts]);
-  const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: "nutshell:eso-shop", keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
+  const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: `nutshell:${PAGE}`, keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
   const shown = (id: string) => placementOf(acts, `${PANEL}${id}`, "nutshell") === "nutshell";
   const own = (id: string, title: string, kind: "kpi" | "card", target?: { key: string; unit: "eur" | "pct" | "n"; label: string }) => (
-    <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}${id}`, page: "eso-shop", tab: "people", title: `${title} - ${c ? teamName(c) : "ESO"}`, kind,
-      filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}), period: [DEFAULT_PER] }, href: `/reporting/eso-benchmark/shop?team=${drawn.team}${drawn.lead ? `&lead=${drawn.lead}` : ""}`, target }} />
+    <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}${id}`, page: PAGE, tab: "people", title: `${title} - ${c ? teamName(c) : "ESO"}`, kind,
+      filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}), period: [DEFAULT_PER] }, href: `${base}?team=${drawn.team}${drawn.lead ? `&lead=${drawn.lead}` : ""}`, target }} />
   );
-  const days = drawnOf("people:days")!;
   return (
     <GlassCard sx={{ display: "grid", gap: 2.25 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
         <Badge icon={<StorefrontOutlinedIcon />} tint="blue" size={42} />
         <Box sx={{ flex: 1, minWidth: 200 }}>
-          <Box component={Link} href={`/reporting/eso-benchmark/shop?team=${team}${lead ? `&lead=${lead}` : ""}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT.blue.fg } }}>
+          <Box component={Link} href={`${base}?team=${team}${lead ? `&lead=${lead}` : ""}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT.blue.fg } }}>
             <Typography sx={{ fontSize: "1.12rem", fontWeight: 650, letterSpacing: "-0.02em" }}>Shop behaviour</Typography>
             <ChevronRightIcon className="chev" sx={{ fontSize: 22, color: TINT.blue.fg, transition: "transform .15s ease" }} />
           </Box>
@@ -1257,8 +1260,8 @@ export function ShopPanel({ acts }: { acts: ActionsState | null }) {
       {!c ? <Waiting computing={computing} progress={progress} error={error} /> : (
         <Box sx={{ display: "grid", gap: 2.25, opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
           <FigureCards c={c} items={figs.filter((f) => shown(f.id))} actions={(f) => own(f.id, f.label, "kpi", { key: targetKey(`panel:${f.id}`, c.team, c.lead, c.per), unit: f.unit, label: `${f.label} is measured against it · ${teamName(c)}'s target.` })} />
-          {shown("days") && days.draw(c, own("days", "Companies that logged in, day by day", "card", days.target ? { key: targetKey(days.id, c.team, c.lead, c.per), ...days.target(c) } : undefined))}
-          {items.length > 0 && <SortableGrid items={items} order={acts?.orders?.["nutshell:eso-shop"]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} />}
+          {/* no graph of its own any more - the ones sent here, or how to send one (SARCLA 01.11.2026) */}
+          {items.length > 0 ? <SortableGrid items={items} order={acts?.orders?.[`nutshell:${PAGE}`]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} /> : <BucEmpty page="Shop behaviour" href={base} />}
         </Box>
       )}
     </GlassCard>

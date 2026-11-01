@@ -69,6 +69,7 @@ import {
   ChartBox, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TWO, asLead, asTeam, leadOf, setQuery, useLead, useLeads, useTeam,
   type BoardRow, type LeadKey, type TeamKey,
 } from "./Figures";
+import { BucEmpty } from "./BucEmpty";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
 import {
   ConfPanel, MonthOutcomes, MonthTrend, PotentialFunnel, PotentialPipeline, ResolutionBars, ResolutionPanels, ResolutionTexts, SpeedPanel, eur, potentialTables,
@@ -879,12 +880,6 @@ export function TicketsPanel({ acts, group }: { acts: ActionsState | null; group
       node: ch ? ch.draw(sc, actions) : <GlassCard><CardTitle icon={G.icon} tint={G.tint} title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };
   }), [c, acts, G, PANEL]);
   const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: `nutshell:${G.page}`, keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
-  const shown = (id: string) => placementOf(acts, `${PANEL}${id}`, "nutshell") === "nutshell";
-  const months = drawnOf("months:outcomes")!;
-  const own = (title: string) => (
-    <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}months`, page: G.page, tab: "months", title, kind: "card",
-      filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}), period: ["ytd"] }, href: `${G.href}?team=${drawn.team}${drawn.lead ? `&lead=${drawn.lead}` : ""}` }} />
-  );
   return (
     <GlassCard sx={{ display: "grid", gap: 2.25 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
@@ -900,8 +895,8 @@ export function TicketsPanel({ acts, group }: { acts: ActionsState | null; group
       </Box>
       {!c ? <Waiting computing={computing} progress={progress} error={error} /> : (
         <Box sx={{ display: "grid", gap: 2.25, opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
-          {shown("months") && months.draw(c, own(months.title(c)))}
-          {items.length > 0 && <SortableGrid items={items} order={acts?.orders?.[`nutshell:${G.page}`]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} />}
+          {/* no graph of its own any more - the ones sent here, or how to send one (SARCLA 01.11.2026) */}
+          {items.length > 0 ? <SortableGrid items={items} order={acts?.orders?.[`nutshell:${G.page}`]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} /> : <BucEmpty page={G.title} href={G.href} />}
         </Box>
       )}
     </GlassCard>

@@ -84,6 +84,7 @@ import type { EsoFigures } from "@/lib/reporting/esoFiguresRules";
 import { isTeamId, type Team } from "@/lib/mapAssign/leadsRules";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem, type PeriodChoice } from "./EsoFilters";
 import { CompaniesFor, useChartCompanies, type CompanySource } from "@/app/reporting/CompanyList";
+import { BucEmpty } from "./BucEmpty";
 import { cubeCompanies } from "@/app/reporting/marketing-kpis/cubeCompanies";
 
 /* ── the company's own series: the forecast, the profit centres ────────── */
@@ -1700,13 +1701,19 @@ export function setQuery(mut: (q: URLSearchParams) => void) {
   window.history.replaceState(null, "", s ? `${window.location.pathname}?${s}` : window.location.pathname);
 }
 export const asTeam = (x: string | null): TeamKey | null => (x === "eso" || x === "tsa" || x === "total" ? x : null);
-export function useTeam(): [TeamKey, (t: TeamKey) => void] {
+/** Which reports a page opens in: ESO's, or TSA's (its own address, opening on TSA - SARCLA 01.11.2026). */
+export type Home = "eso" | "tsa";
+/** A tile's page key under the reports it is in: "eso-figures", "tsa-figures" - TSA's charts go to TSA's BUC View. */
+export const homePage = (home: Home, page: string) => `${home}-${page}`;
+export function useTeam(home: Home = "eso"): [TeamKey, (t: TeamKey) => void] {
   const params = useSearchParams();
   const [kept, setKept] = useState<TeamKey | null>(null);
   useEffect(() => { try { setKept(asTeam(localStorage.getItem(KEPT))); } catch { /* ESO */ } }, []);
-  const team: TeamKey = asTeam(params.get("team")) ?? kept ?? "eso";
+  // TSA Reports open on TSA, and a team picked there stays in the address only (ESO's kept team is ESO's)
+  const team: TeamKey = asTeam(params.get("team")) ?? (home === "tsa" ? "tsa" : kept ?? "eso");
   const set = (t: TeamKey) => {
     setQuery((q) => q.set("team", t));
+    if (home === "tsa") return;
     setKept(t);
     try { localStorage.setItem(KEPT, t); } catch { /* still applies here */ }
   };
@@ -1756,18 +1763,19 @@ export const H1 = { fontFamily: "var(--font-outfit), var(--font-inter), sans-ser
 /** An address from an earlier version (view=year, sae, owner - and mtd, now the period) opens the Performis SAE tab. */
 const viewOf = (x: string | null): View => (isView(x) && x !== "mtd" ? x : "ytd");
 
-export function FiguresExplorer() {
+export function FiguresExplorer({ home = "eso" }: { home?: Home }) {
+  const PAGE = homePage(home, "figures");
   const params = useSearchParams();
   // the customers chosen (SARCLA 26.10.2026: "customer as well"): the cube of those alone, each its own ?company=… in the address
   const companies = useMemo(() => params.getAll("company").filter((x) => /^\d+$/.test(x)).slice(0, 50), [params]);
   const { cube, computing, progress, error, computedAt } = useCustomersCube(companies);
   const names = useCompanyNames(companies);
   const { kpi, busy } = useKpiSeries();
-  const [teamKey, setTeam] = useTeam();
+  const [teamKey, setTeam] = useTeam(home);
   const [leadKey, setLead] = useLead();
   const lt = useLeads();
   const leads = lt?.byName ?? null, teams = lt?.teams ?? [];
-  const { state: acts } = useActions("eso-figures");
+  const { state: acts } = useActions(PAGE);
   const view = viewOf(params.get("view"));
   const setView = (v: View) => setQuery((q) => { if (v === "ytd") q.delete("view"); else q.set("view", v); });
   // the period, in the address as Who are our customers keeps it: ?from=2026-04&to=2026-06; none = year to date (an old ?view=mtd: month to date)
@@ -1794,8 +1802,9 @@ export function FiguresExplorer() {
   const [focus, setFocus] = useState<{ dim: Dim; n: number } | null>(null);
   const openOn = (d: Dim) => { setFocus((f) => ({ dim: d, n: (f?.n ?? 0) + 1 })); setPanel(true); };
 
+  // back to the BUC View of the reports it is in
   const back = (
-    <Box component={Link} href="/reporting/eso-benchmark" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
+    <Box component={Link} href={home === "tsa" ? "/reporting/tsa-benchmark" : "/reporting/eso-benchmark"} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
   );
@@ -1831,10 +1840,10 @@ export function FiguresExplorer() {
   const chosen = active.flatMap((x) => (filters[x] ?? []).map((v) => [x, v] as const));
   // Clear all - under the tabs and in the window: the values, the customers and the period (back to the year to date)
   const clearEverything = () => { clearAll(); setWin(ytdWin(cube)); };
-  // the tile toolbar per chart, keyed "eso-figures:<tab>:<chart>"; the team and the filters in force go with it, and its target per team
+  // the tile toolbar per chart, keyed "eso-figures:<tab>:<chart>" ("tsa-figures:…" on TSA Reports); the team and the filters in force go with it, and its target per team (one for both)
   const act: Act = (id, title, target) => (
     <TileActions where="tab" start="tab" edge={2}
-      tile={{ key: `eso-figures:${id}`, page: "eso-figures", tab: c.view, title, summary: `${teamName(c)} · ${perWords(cube, c.per)}`,
+      tile={{ key: `${PAGE}:${id}`, page: PAGE, tab: c.view, title, summary: `${teamName(c)} · ${perWords(cube, c.per)}`,
         filters: { ...Object.fromEntries(chosenDims(c.filters).map((d) => [d, c.filters[d] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), ...perFilters(cube, c.per) }, kind: "card",
         target: target ? { key: targetKey(drawnOf(id)?.id ?? id, c.team, c.lead, c.per), ...target } : undefined }} />
   );
@@ -1909,20 +1918,22 @@ export function FiguresExplorer() {
 
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
 /** The panel's own cards and month charts: their tile keys */
-const PANEL = "eso-figures:panel:";
 
 /** The figures for ESO, TSA or Total with the same toggle, the year to date month by month - and the Figures charts sent here. */
-export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
+export function FiguresPanel({ acts, home = "eso" }: { acts: ActionsState | null; home?: Home }) {
+  // ESO's BUC View or TSA's (SARCLA 01.11.2026: "move the BUC View with the same principle to TSA reports"): its charts, its team
+  const PAGE = homePage(home, "figures"), PANEL = `${PAGE}:panel:`, base = `/reporting/${home}-benchmark/figures`;
   const { cube, computing, progress, error } = useCustomersCube();
   const { kpi, busy } = useKpiSeries();
-  const [teamKey, setTeam] = useState<TeamKey>("eso");
+  const [teamKey, setTeam] = useState<TeamKey>(home);
   const [leadKey, setLeadKey] = useState<LeadKey>("all");
   const lt = useLeads();
   const leads = lt?.byName ?? null, teams = lt?.teams ?? [];
   useEffect(() => {
+    if (home === "tsa") return;
     try { const x = asTeam(localStorage.getItem(KEPT)); if (x) setTeam(x); const l = asLead(localStorage.getItem(KEPT_LEAD)); if (l) setLeadKey(l); } catch { /* ESO */ }
-  }, []);
-  const choose = (t: TeamKey) => { setTeam(t); try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
+  }, [home]);
+  const choose = (t: TeamKey) => { setTeam(t); if (home === "eso") try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
   const chooseLead = (l: LeadKey) => { setLeadKey(l); try { localStorage.setItem(KEPT_LEAD, l); } catch { /* here only */ } };
   const lead = leadOf(teamKey, leadKey, lt);
   // the toggle answers at once, the charts follow as soon as they are drawn - and are not drawn again on every render
@@ -1936,7 +1947,7 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
   // every chart here follows the panel's ESO | TSA | Total and its line managers' teams (SARCLA 26.10.2026: "the toggle
   // should work in every figures graph") - the team a chart was sent with no longer holds it; its filters and period do
   const st = drawn.team, slead = drawn.lead;
-  const items: SortItem[] = useMemo(() => !ready ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-figures" && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
+  const items: SortItem[] = useMemo(() => !ready ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === PAGE && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
     const ch = chartOf(spec.key, spec.filters?.part?.[0]);
     const sf: Filters = Object.fromEntries(DIMS.flatMap((d) => (d !== "owner" && spec.filters?.[d]?.length ? [[d, spec.filters[d]]] : [])));
     const fmt = formatOf(acts, spec);
@@ -1946,8 +1957,8 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
     const actions = <TileActions where="nutshell" start="tab" edge={2} tile={{ key: spec.key, page: spec.page, tab: spec.tab, title: spec.title, filters: spec.filters, href: spec.href, kind: spec.kind, target }} />;
     return { key: spec.key, block: true, sx: fmt === "half" ? { gridColumn: { xs: "span 12", md: "span 6" } } : { gridColumn: "1 / -1" },
       node: ch ? ch.draw(sc, actions) : <GlassCard><CardTitle icon={<QueryStatsOutlinedIcon />} tint="purple" title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };
-  }), [ready, acts, kpi, busy, st, slead, leads, teams]);
-  const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: "nutshell:eso-figures", keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
+  }), [ready, acts, kpi, busy, st, slead, leads, teams, PAGE, PANEL]);
+  const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: `nutshell:${PAGE}`, keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
   const figs = useMemo(() => (c ? figuresOf(erpTotals(c.cube, c.eff), forecastShown(c) ? againstForecast(c.cube, kpi, c.per) : null, c.cube) : []), [c, kpi]);
   // the panel's own cards and month charts have their Actions too (SARCLA 26.10.2026: "some BUC tiles don't have actions"):
   // tasks, a target - and taken off the BUC View there, they stay off
@@ -1955,21 +1966,17 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
   const shown = (id: string) => placementOf(acts, ownKey(id), "nutshell") === "nutshell";
   const ownActions = (id: string, title: string, kind: "kpi" | "card", target?: { key: string; unit: "eur" | "pct"; label: string }) => (
     <TileActions where="nutshell" start="nutshell" edge={2}
-      tile={{ key: ownKey(id), page: "eso-figures", tab: "ytd", title: `${title}${c && c.team !== "total" ? ` - ${teamName(c)}` : ""}`, kind,
-        filters: { team: [st], ...(slead ? { lead: [slead] } : {}), period: ["ytd"] }, href: `/reporting/eso-benchmark/figures?team=${st}${slead ? `&lead=${slead}` : ""}`, target }} />
+      tile={{ key: ownKey(id), page: PAGE, tab: "ytd", title: `${title}${c && c.team !== "total" ? ` - ${teamName(c)}` : ""}`, kind,
+        filters: { team: [st], ...(slead ? { lead: [slead] } : {}), period: ["ytd"] }, href: `${base}?team=${st}${slead ? `&lead=${slead}` : ""}`, target }} />
   );
   const cards = figs.filter((f) => !f.id || shown(f.id));
   const figTarget = (f: Fig) => (c && f.id ? { key: targetKey(`panel:${f.id}`, st, slead, c.per), unit: f.unit ?? "eur", label: `${f.label} is measured against it · ${teamName(c)}'s target - each team its own.` } : undefined);
-  const monthChart = (id: "monrev" | "monoi") => {
-    const d = drawnOf(`ytd:${id}`)!;
-    return d.draw(c!, ownActions(id, d.title({ ...c!, team: "total" }), "card", d.target ? { key: targetKey(d.id, st, slead, c!.per), ...d.target(c!) } : undefined));
-  };
   return (
     <GlassCard sx={{ display: "grid", gap: 2.25 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
         <Badge icon={<QueryStatsOutlinedIcon />} tint="purple" size={42} />
         <Box sx={{ flex: 1, minWidth: 200 }}>
-          <Box component={Link} href={`/reporting/eso-benchmark/figures?team=${teamKey}${lead ? `&lead=${lead}` : ""}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT.purple.fg } }}>
+          <Box component={Link} href={`${base}?team=${teamKey}${lead ? `&lead=${lead}` : ""}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT.purple.fg } }}>
             <Typography sx={{ fontSize: "1.12rem", fontWeight: 650, letterSpacing: "-0.02em" }}>Figures</Typography>
             <ChevronRightIcon className="chev" sx={{ fontSize: 22, color: TINT.purple.fg, transition: "transform .15s ease" }} />
           </Box>
@@ -2004,14 +2011,8 @@ export function FiguresPanel({ acts }: { acts: ActionsState | null }) {
               );
             })}
           </Box>
-          {/* the year to date month by month, revenue and order intake side by side - the panel's own, with their Actions */}
-          {(shown("monrev") || shown("monoi")) && (
-            <Box sx={TWO}>
-              {shown("monrev") && monthChart("monrev")}
-              {shown("monoi") && monthChart("monoi")}
-            </Box>
-          )}
-          {items.length > 0 && <SortableGrid items={items} order={acts?.orders?.["nutshell:eso-figures"]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} />}
+          {/* no graph of its own any more - the ones sent here, or how to send one (SARCLA 01.11.2026) */}
+          {items.length > 0 ? <SortableGrid items={items} order={acts?.orders?.[`nutshell:${PAGE}`]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} /> : <BucEmpty page="Figures" href={base} />}
         </Box>
       )}
     </GlassCard>

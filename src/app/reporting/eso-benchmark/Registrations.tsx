@@ -65,6 +65,7 @@ import {
   ChartBox, FullTable, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TARGET, TWO, Teams, asLead, asTeam, leadOf, niceTop, setQuery, teamWord, useLead, useLeads, useTeam,
   type BoardRow, type Col, type LeadKey, type TeamKey,
 } from "./Figures";
+import { BucEmpty } from "./BucEmpty";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
 import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 
@@ -747,13 +748,15 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
 }
 
 export function RegistrationsExplorer({ home = "eso" }: { home?: Home }) {
+  // its charts to the BUC View of the reports it is in: "eso-registrations:…", or "tsa-registrations:…" on TSA Reports (SARCLA 01.11.2026)
+  const PAGE = `${home}-registrations`;
   const params = useSearchParams();
   const { d, computing, progress, error } = useRegistrations();
   const [team, setTeam] = useHomeTeam(home);
   const [leadKey, setLead] = useLead();
   const lt = useLeads();
   const teams = lt?.teams ?? [];
-  const { state: acts } = useActions("eso-registrations");
+  const { state: acts } = useActions(PAGE);
   const touch = touchOf({ team });
   const view: RView = ownView(isView(params.get("view")) ? (params.get("view") as RView) : "people", touch);
   const setView = (v: RView) => setQuery((q) => { if (v === "people") q.delete("view"); else q.set("view", v); });
@@ -785,8 +788,8 @@ export function RegistrationsExplorer({ home = "eso" }: { home?: Home }) {
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
 
   // TSA Reports has no BUC View to go back to (as ef's Customer development)
-  const back = home === "tsa" ? null : (
-    <Box component={Link} href="/reporting/eso-benchmark" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
+  const back = (
+    <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
   );
@@ -795,7 +798,7 @@ export function RegistrationsExplorer({ home = "eso" }: { home?: Home }) {
 
   const act: Act = (id, title, target) => (
     <TileActions where="tab" start="tab" edge={2}
-      tile={{ key: `eso-registrations:${id}`, page: "eso-registrations", tab: c.view, title, summary: `${teamName(c)} · ${perWords(d, c.per)}`,
+      tile={{ key: `${PAGE}:${id}`, page: PAGE, tab: c.view, title, summary: `${teamName(c)} · ${perWords(d, c.per)}`,
         // a quick pick goes as itself (it follows the read: "month to date" stays the running month), a period of one's own
         // as its months or days
         filters: { ...Object.fromEntries(FILTER_DIMS.filter((k) => c.filters[k]?.length).map((k) => [k, c.filters[k] ?? []])), team: [c.team], ...(c.lead ? { lead: [c.lead] } : {}), ...(ownPer(c.per) ? { from: [addressOf(d, c.per.win).from], to: [addressOf(d, c.per.win).to] } : { period: [c.per.id] }) },
@@ -849,17 +852,18 @@ export function RegistrationsExplorer({ home = "eso" }: { home?: Home }) {
 /* ── the BUC View's Registrations panel ────────────────────────────────── */
 
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
-const PANEL = "eso-registrations:panel:";
 
 /** Registrations in the BUC View: the year to date for the team the toggle shows, the months, and the charts sent here. */
-export function RegistrationsPanel({ acts }: { acts: ActionsState | null }) {
+export function RegistrationsPanel({ acts, home = "eso" }: { acts: ActionsState | null; home?: Home }) {
+  // ESO's BUC View or TSA's (SARCLA 01.11.2026: "move the BUC View with the same principle to TSA reports")
+  const PAGE = `${home}-registrations`, PANEL = `${PAGE}:panel:`, base = `/reporting/${home}-benchmark/registrations`;
   const { d, computing, progress, error } = useRegistrations();
-  const [team, setTeamKey] = useState<TeamKey>("eso");
+  const [team, setTeamKey] = useState<TeamKey>(home);
   const [leadKey, setLeadKey] = useState<LeadKey>("all");
   const lt = useLeads();
   const teams = lt?.teams ?? [];
-  useEffect(() => { try { const x = asTeam(localStorage.getItem(KEPT)); if (x) setTeamKey(x); const l = asLead(localStorage.getItem(KEPT_LEAD)); if (l) setLeadKey(l); } catch { /* ESO */ } }, []);
-  const choose = (t: TeamKey) => { setTeamKey(t); try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
+  useEffect(() => { if (home === "tsa") return; try { const x = asTeam(localStorage.getItem(KEPT)); if (x) setTeamKey(x); const l = asLead(localStorage.getItem(KEPT_LEAD)); if (l) setLeadKey(l); } catch { /* ESO */ } }, [home]);
+  const choose = (t: TeamKey) => { setTeamKey(t); if (home === "eso") try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
   const chooseLead = (l: LeadKey) => { setLeadKey(l); try { localStorage.setItem(KEPT_LEAD, l); } catch { /* here only */ } };
   const lead = leadOf(team, leadKey, lt);
   const want = useMemo(() => ({ team, lead }), [team, lead]);
@@ -867,7 +871,7 @@ export function RegistrationsPanel({ acts }: { acts: ActionsState | null }) {
   const stale = drawn !== want;
   const c = useMemo<RCtx | null>(() => (d ? { d, per: perOf(d, presetsOf(d)[0].win), team: drawn.team, lead: drawn.lead, teams, people: peopleOf(d, drawn.team, drawn.lead, lt?.byId ?? {}), filters: {}, view: "people", targets: acts?.targets } : null),
     [d, drawn, teams, lt, acts?.targets]);
-  const items: SortItem[] = useMemo(() => !c ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === "eso-registrations" && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
+  const items: SortItem[] = useMemo(() => !c ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === PAGE && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
     const ch = chartOf(spec.key);
     const fmt = formatOf(acts, spec);
     const f = spec.filters ?? {};
@@ -883,20 +887,19 @@ export function RegistrationsPanel({ acts }: { acts: ActionsState | null }) {
     return { key: spec.key, block: true, sx: fmt === "half" ? { gridColumn: { xs: "span 12", md: "span 6" } } : { gridColumn: "1 / -1" },
       node: ch ? ch.draw(sc, actions) : <GlassCard><CardTitle icon={<HowToRegOutlinedIcon />} tint="pink" title={spec.title} note="This card is no longer on its page - Actions takes it off here." right={actions} /></GlassCard> };
   }), [c, acts]);
-  const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: "nutshell:eso-registrations", keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
+  const save = (keys: string[]) => { void send("/api/reporting/kpi-actions/order", "POST", { scope: `nutshell:${PAGE}`, keys }).catch(() => {}).finally(() => { void refreshActions(); }); };
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
   const shown = (id: string) => placementOf(acts, `${PANEL}${id}`, "nutshell") === "nutshell";
   const own = (id: string, title: string, kind: "kpi" | "card", target?: { key: string; unit: "pct" | "n"; label: string }) => (
-    <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}${id}`, page: "eso-registrations", tab: "people", title: `${title} - ${c ? teamName(c) : "ESO"}`, kind,
-      filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}), period: ["ytd"] }, href: `/reporting/eso-benchmark/registrations?team=${drawn.team}${drawn.lead ? `&lead=${drawn.lead}` : ""}`, target }} />
+    <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}${id}`, page: PAGE, tab: "people", title: `${title} - ${c ? teamName(c) : "ESO"}`, kind,
+      filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}), period: ["ytd"] }, href: `${base}?team=${drawn.team}${drawn.lead ? `&lead=${drawn.lead}` : ""}`, target }} />
   );
-  const months = drawnOf("people:months")!;
   return (
     <GlassCard sx={{ display: "grid", gap: 2.25 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
         <Badge icon={<HowToRegOutlinedIcon />} tint="pink" size={42} />
         <Box sx={{ flex: 1, minWidth: 200 }}>
-          <Box component={Link} href={`/reporting/eso-benchmark/registrations?team=${team}${lead ? `&lead=${lead}` : ""}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT.pink.fg } }}>
+          <Box component={Link} href={`${base}?team=${team}${lead ? `&lead=${lead}` : ""}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT.pink.fg } }}>
             <Typography sx={{ fontSize: "1.12rem", fontWeight: 650, letterSpacing: "-0.02em" }}>Registrations</Typography>
             <ChevronRightIcon className="chev" sx={{ fontSize: 22, color: TINT.pink.fg, transition: "transform .15s ease" }} />
           </Box>
@@ -907,8 +910,8 @@ export function RegistrationsPanel({ acts }: { acts: ActionsState | null }) {
       {!c ? <Waiting computing={computing} progress={progress} error={error} /> : (
         <Box sx={{ display: "grid", gap: 2.25, opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
           <FigureCards c={c} items={figs.filter((f) => shown(f.id))} big actions={(f) => own(f.id, f.label, "kpi", { key: targetKey(`panel:${f.id}`, c.team, c.lead, c.per), unit: f.unit, label: `${f.label} is measured against it · ${teamName(c)}'s target.` })} />
-          {shown("months") && months.draw(c, own("months", `${titleOf(MEASURE.registered.title, c.per)} · month by month`, "card", months.target ? { key: targetKey(months.id, c.team, c.lead, c.per), ...months.target(c) } : undefined))}
-          {items.length > 0 && <SortableGrid items={items} order={acts?.orders?.["nutshell:eso-registrations"]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} />}
+          {/* no graph of its own any more - the ones sent here, or how to send one (SARCLA 01.11.2026) */}
+          {items.length > 0 ? <SortableGrid items={items} order={acts?.orders?.[`nutshell:${PAGE}`]} canMove={!!acts?.canWrite} onMove={save} sx={GRID} /> : <BucEmpty page="Registrations" href={base} />}
         </Box>
       )}
     </GlassCard>

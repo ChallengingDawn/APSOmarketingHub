@@ -25,15 +25,19 @@ test("a click on a category goes straight into its first report - the overview w
   assert.equal(categoryEntry(categoryBySlug("website")!), "/website/overview");
   // Articles CY/LY moved in from UC & HubSpot Apps, its address unchanged
   assert.equal(categoryEntry(categoryBySlug("products")!), "/uc/articles");
-  // TSA: Calls first, where ESO has its Visits; Registrations and the others moved in from ESO (SARCLA 01.11.2026)
-  assert.equal(categoryEntry(categoryBySlug("tsa")!), "/reporting/tsa-benchmark/calls");
+  // TSA, built as ESO (SARCLA 01.11.2026: "move BUC view with the same principle to TSA reports"): its BUC View first
+  assert.equal(categoryEntry(categoryBySlug("tsa")!), "/reporting/tsa-benchmark");
   // nothing in it yet: the category's own page, which names what comes first
   assert.equal(categoryEntry(categoryBySlug("otd")!), "/reporting/otd");
 });
 
-test("TSA Reports: Calls, Registrations, Customer development and Shop behaviour at TSA's own addresses, not ESO's - so the side panel stays TSA's (SARCLA 01.11.2026)", () => {
+test("TSA Reports as ESO's: its BUC View first, then Figures, Calls, Registrations, Customer development and Shop behaviour at TSA's own addresses, not ESO's - so the side panel stays TSA's (SARCLA 01.11.2026)", () => {
   const tsa = categoryBySlug("tsa")!;
-  assert.deepEqual(tsa.reports.map((r) => [r.name, r.href]), [
+  assert.equal(tsa.reports.length, 1);
+  assert.equal(tsa.reports[0].overview, "BUC View");
+  assert.equal(tsa.reports[0].overviewHref, "/reporting/tsa-benchmark");
+  assert.deepEqual(tsa.reports[0].children!.map((r) => [r.name, r.href]), [
+    ["Figures", "/reporting/tsa-benchmark/figures"],
     ["Calls", "/reporting/tsa-benchmark/calls"],
     ["Registrations", "/reporting/tsa-benchmark/registrations"],
     ["Customer development", "/reporting/tsa-benchmark/customers"],
