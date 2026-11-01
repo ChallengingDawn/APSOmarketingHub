@@ -86,7 +86,7 @@ import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem, type PeriodCh
 import { CompaniesFor, useChartCompanies, type CompanySource } from "@/app/reporting/CompanyList";
 import { BucEmpty } from "./BucEmpty";
 import { cubeCompanies } from "@/app/reporting/marketing-kpis/cubeCompanies";
-import { SCOPE_LEAD, useScoped } from "@/app/reporting/scope";
+import { SCOPE_LEAD, useScoped, KeyCharts } from "@/app/reporting/scope";
 
 /* ── the company's own series: the forecast, the profit centres ────────── */
 
@@ -665,8 +665,9 @@ function B2bCheckLine({ c }: { c: FigCtx }) {
 }
 
 /** Book-to-bill ranks the books of some size only (SARCLA 26.10.2026, his pick: "leave out small books") - a person with
- *  €18,658 of revenue at 109% topped ESO. €50,000 over three months or more; a month or two count less. */
-const b2bMin = (months: number) => (months >= 3 ? 50_000 : months === 2 ? 10_000 : 5_000);
+ *  €18,658 of revenue at 109% topped ESO. €10,000 over three months or more, a month or two less (SARCLA 01.11.2026: "under
+ *  50k of revenue is too much to hide - decrease to 10k"; it was €50,000). */
+const b2bMin = (months: number) => (months >= 3 ? 10_000 : months === 2 ? 5_000 : 2_500);
 
 /** A chart the period cannot fill: its order intake per customer is not loaded that far. */
 function OiMissing({ c, title, actions }: { c: FigCtx; title: string; actions?: React.ReactNode }) {
@@ -1812,7 +1813,8 @@ export function FiguresExplorer({ home = "eso" }: { home?: Home }) {
   const openOn = (d: Dim) => { setFocus((f) => ({ dim: d, n: (f?.n ?? 0) + 1 })); setPanel(true); };
 
   // back to the BUC View of the reports it is in
-  const back = useScoped() ? null : (
+  const scoped = useScoped();
+  const back = scoped ? null : (
     <Box component={Link} href={home === "tsa" ? "/reporting/tsa-benchmark" : "/reporting/eso-benchmark"} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
@@ -1858,7 +1860,8 @@ export function FiguresExplorer({ home = "eso" }: { home?: Home }) {
   );
   // the team the toggles show now (the charts may still be drawing the one before)
   const now = { team: teamKey, lead, teams };
-  const footnote = (
+  // no note under the charts inside My Sales Reports (SARCLA 01.11.2026: "take out also these messages")
+  const footnote = scoped ? null : (
     <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
       Year and month to date: the ERP file&apos;s own figures per customer, of {dayWords(cube)}, against the same days a year earlier. Any other period, and the months: each customer&apos;s monthly revenue and order intake, summed
       {cube.oiLoaded != null ? ` (the order intake per customer loaded to ${MONTH_NAMES[Math.max(0, oiLoadedOf(cube) - 1)]})` : ""}; the running month the ERP&apos;s month to date. Customers: the companies that bought.
@@ -1892,8 +1895,8 @@ export function FiguresExplorer({ home = "eso" }: { home?: Home }) {
       {/* the tabs, and at their right end Views and Filters - as Who are our customers */}
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
-          <ReportTabs name="eso-figures" tab={view} onSelect={setView}
-            tabs={VIEWS.map((v) => { const d = dimOf(v.id); return { id: v.id, label: v.label, count: d && filters[d]?.length ? String(filters[d]!.length) : null }; })} />
+          {!scoped && <ReportTabs name="eso-figures" tab={view} onSelect={setView}
+            tabs={VIEWS.map((v) => { const d = dimOf(v.id); return { id: v.id, label: v.label, count: d && filters[d]?.length ? String(filters[d]!.length) : null }; })} />}
         </Box>
         <Box sx={{ flex: 1 }} />
         <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="eso-figures" /></Box>
@@ -1912,7 +1915,9 @@ export function FiguresExplorer({ home = "eso" }: { home?: Home }) {
       ]} />
 
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
-        <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} footnote={footnote} />
+        {scoped
+          ? <KeyCharts ids={["ytd:rev", "ytd:oi", "ytd:b2b", "prio:rev", "prio:oi", "pc:rev"]} draw={(id) => { const ch = drawnOf(id); return ch ? ch.draw({ ...c, view: id.split(":")[0] } as typeof c) : null; }} />
+          : <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} footnote={footnote} />}
       </Box>
 
       <CubeFilterWindow id="eso-figures-filters" period dims={FILTER_DIMS} open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube}

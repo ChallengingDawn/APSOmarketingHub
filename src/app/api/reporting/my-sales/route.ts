@@ -59,9 +59,10 @@ export async function GET(req: NextRequest) {
     const subject = pick ? { id: pick.id, name: pick.name } : me;
     const placed = subject ? h.placed[subject.id] : undefined;
     const unit = placed?.unit ?? null;
-    // everyone under them in the hierarchy, at any depth - their team, with them in it
-    const below = subject ? under(h.placed, subject.id).map((id) => byId.get(id)).filter((p): p is NonNullable<typeof p> => !!p) : [];
-    const team = below.length ? [subject!, ...below.map((p) => ({ id: p.id, name: p.name }))] : [];
+    // their team: a leader's is them and everyone under them, at any depth; anyone else's is their leader's - the leader
+    // and everyone under the leader (SARCLA 01.11.2026, on Adem's page: "missing a my team KPI overall")
+    const leader = subject ? (under(h.placed, subject.id).length ? subject.id : placed?.manager ?? null) : null;
+    const team = leader ? [leader, ...under(h.placed, leader)].map((id) => byId.get(id)).filter((p): p is NonNullable<typeof p> => !!p).map((p) => ({ id: p.id, name: p.name })) : [];
     const showTargets = PAGES.slice(0, 1).some((p) => opens(access, p)) && !!subject;
     return NextResponse.json({
       ok: true, year, me, subject, canPick, previewing: who.previewing,

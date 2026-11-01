@@ -211,10 +211,12 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     reports: [
       {
         name: "My sales KPIs", href: "/reporting/my-sales/targets", note: "Your targets, and every ESO report for you, your team, your unit", icon: "target",
+        // Targets is the report's own first page, not a second entry for the same page (SARCLA 01.11.2026: "my sales KPIs
+        // are also the targets - cannibalisation"), as Product KPIs' Articles CY/LY
+        overview: "Targets", overviewHref: "/reporting/my-sales/targets",
         // the targets, then ESO's own pages in ESO's order, each whole - tabs, Filters, saved views (SARCLA 01.11.2026: "the
         // other sub-reports on ESO should be brought to give value to the sales - all with filtering and saving views")
         children: [
-          { name: "Targets", href: "/reporting/my-sales/targets", icon: "target" },
           { name: "Figures", href: "/reporting/my-sales/figures", icon: "bar" },
           { name: "Visits", href: "/reporting/my-sales/visits", icon: "route" },
           { name: "Registrations", href: "/reporting/my-sales/registrations", icon: "verified" },

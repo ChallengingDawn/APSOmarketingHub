@@ -74,7 +74,7 @@ import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoF
 import {
   ConfPanel, MonthOutcomes, MonthTrend, PotentialFunnel, PotentialPipeline, ResolutionBars, ResolutionPanels, ResolutionTexts, SpeedPanel, eur, potentialTables,
 } from "./TicketsCharts";
-import { SCOPE_LEAD, scopedPeople, useScoped } from "@/app/reporting/scope";
+import { SCOPE_LEAD, scopedPeople, useScoped, KeyCharts } from "@/app/reporting/scope";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -802,7 +802,8 @@ export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?:
     onBar: (k, l) => { toggle(k, l); openOn(k); }, onFilter: openOn,
   } : null), [d, group, home, drawn, teams, acts?.targets]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const back = useScoped() ? null : (
+  const scoped = useScoped();
+  const back = scoped ? null : (
     <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
@@ -836,7 +837,7 @@ export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?:
       </Box>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
-          <ReportTabs name={G.page} tab={view} onSelect={setView} tabs={views.map((v) => ({ id: v.id, label: v.label, count: null }))} />
+          {!scoped && <ReportTabs name={G.page} tab={view} onSelect={setView} tabs={views.map((v) => ({ id: v.id, label: v.label, count: null }))} />}
         </Box>
         <Box sx={{ flex: 1 }} />
         <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page={G.page} /></Box>
@@ -853,7 +854,9 @@ export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?:
         ...chosen.map(([k, v]): ActiveItem => ({ key: `${k}:${v}`, name: dimOf(group, k).name, value: v, tint: dimOf(group, k).tint, onRemove: () => toggle(k, v) })),
       ]} />
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
-        <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />
+        {scoped
+          ? <KeyCharts ids={["outcomes:resolutions", "outcomes:owners", "months:outcomes"]} draw={(id) => { const ch = drawnOf(id); return ch ? ch.draw({ ...c, view: id.split(":")[0] } as typeof c) : null; }} />
+          : <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />}
       </Box>
       <TFilterWindow c={c} per={per} open={panel} onClose={() => setPanel(false)} focus={focus} onPer={setPer} toggle={toggle} clearAll={clearAll} />
     </Box>

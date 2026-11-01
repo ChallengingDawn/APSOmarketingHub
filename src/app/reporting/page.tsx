@@ -18,11 +18,16 @@ import Typography from "@mui/material/Typography";
 
 import { HomeBar } from "@/app/HomeBar";
 import { REPORT_CATEGORIES } from "@/lib/reporting/categories";
-import { useCanOpen } from "./useCanOpen";
+import { useReportAccess } from "./useCanOpen";
 import { CategoryTile, INK, riseKeyframes } from "./ui";
 
 export default function AdvancedReporting() {
-  const canOpen = useCanOpen();
+  const { canOpen, ready } = useReportAccess();
+  // only what is theirs (SARCLA 01.11.2026, viewing as a salesperson given My Sales Reports alone: "he still sees every
+  // app"): a category with a report they may open - or, with none yet, one they may open itself - and nothing until
+  // their access is read, so nothing flashes past
+  const shown = ready ? REPORT_CATEGORIES.map((c) => ({ c, reports: c.reports.filter((r) => canOpen(r.href)) }))
+    .filter((x) => x.reports.length > 0 || (x.c.reports.length === 0 && canOpen(`/reporting/${x.c.slug}`))) : [];
   return (
     <Box sx={{ maxWidth: 1480, mx: "auto", px: { xs: 2, md: 3 }, py: { xs: 2, md: 2.5 }, ...riseKeyframes }}>
       <HomeBar />
@@ -42,8 +47,8 @@ export default function AdvancedReporting() {
         gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(3, minmax(0, 1fr))" },
         gridAutoRows: "1fr",
       }}>
-        {REPORT_CATEGORIES.map((c, i) => (
-          <CategoryTile key={c.slug} c={c} reports={c.reports.filter((r) => canOpen(r.href))} i={i} />
+        {shown.map(({ c, reports }, i) => (
+          <CategoryTile key={c.slug} c={c} reports={reports} i={i} />
         ))}
       </Box>
     </Box>

@@ -10,22 +10,20 @@ import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import InputBase from "@mui/material/InputBase";
 import Typography from "@mui/material/Typography";
-import { Bar, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-import { FAINT, GREEN, INK, MUTED, RED, glass } from "@/app/uc/report/ui";
-import { BEFORE, THIS } from "@/app/reporting/marketing-kpis/DimChart";
+import { FAINT, GREEN, INK, MUTED, RED } from "@/app/uc/report/ui";
 import { useCustomersCube } from "@/app/reporting/marketing-kpis/Customers";
-import { ChartBox, FullTable, H1, TARGET, TWO, Waiting, membersOf, tooOld, type Col } from "@/app/reporting/eso-benchmark/Figures";
+import { ChartBox, FullTable, H1, Waiting, membersOf, tooOld, type Col } from "@/app/reporting/eso-benchmark/Figures";
 import { useVisits } from "@/app/reporting/eso-benchmark/Visits";
 import { SCOPE_LEAD, scopedPeople } from "@/app/reporting/scope";
 import { MONTH_NAMES } from "@/lib/marketingKpis/cube";
 import {
-  TARGETS, checkTarget, quarterTargets, yearTarget, type PersonTargets, type TargetDef, type TargetId,
+  MAX_SHARE, QUARTER_WEIGHT, TARGETS, checkTarget, quarterTargets, yearTarget, type PersonTargets, type TargetDef, type TargetId,
 } from "@/lib/reporting/mySalesRules";
 import {
   cubeReach, dueToDate, revenueByPerson, revenueMeasures, visitsByPerson, visitsMeasure, visitsReach, type Measured, type PersonFig, type Reach,
 } from "@/lib/reporting/mySalesFigures";
-import { Note, footnoteSx, shell, useMySalesFrame, viewsOf, type MySales } from "./shared";
+import { Note, shell, useMySalesFrame, viewsOf, type MySales } from "./shared";
 
 const eur = (n: number) => `${n < 0 ? "−" : ""}€${Math.round(Math.abs(n)).toLocaleString("en")}`;
 const int = (n: number) => Math.round(n).toLocaleString("en");
@@ -84,17 +82,12 @@ export function TargetsPage() {
       {view === "me"
         ? <Mine st={st} cubeReady={ready} labels={labels} people={people} d={d} onSaved={setTargets} />
         : <Contribution scopeName={whose} cubeReady={ready} labels={labels} people={people} d={d} year={st.year} />}
-      <Typography sx={footnoteSx}>
-        The targets are the VPP sheet&apos;s five, reckoned as it reckons them: last year&apos;s figure and the growth set on it (an amount for the new customers&apos; revenue, a number of visits), the year&apos;s target split
-        into quarters by the plan&apos;s weights - revenue 25.6 / 25 / 24.6 / 24.8 %, visits 26.5 / 27.5 / 22 / 24 %. Own area: the revenue of the customers Performis gives the person as their SAE; DT and KT: those customers&apos;
-        revenue in Sealing Technology and Engineering Plastics; new customers: the customers whose first invoice was this year, and what they were invoiced (the BSC rule, as ESO&apos;s New customers); visits: completed visit reports.
-        Revenue to {MONTH_NAMES[cubeReach(ready).month]} {st.year} as the ERP file has it, the month in progress to its day. My team: everyone under the person in Settings &gt; Hierarchy; All ESO or All TSA: the reports&apos; own team.
-      </Typography>
     </Box>
   );
 }
 
-/* ── My targets ────────────────────────────────────────────────────────── */
+/* ── My targets: one table, a row per target and the quarters across, each target set in its row (SARCLA 01.11.2026,
+   on the cards: "still not the good format" - "show them as horizontal table") ── */
 
 function Mine({ st, cubeReady, labels, people, d, onSaved }: {
   st: MySales; cubeReady: NonNullable<ReturnType<typeof useCustomersCube>["cube"]>; labels: string[]; people: Set<number>;
@@ -105,25 +98,43 @@ function Mine({ st, cubeReady, labels, people, d, onSaved }: {
   if (!st.subject) {
     return (
       <Note title="No figures of your own here">
-        Your email is not a HubSpot owner&apos;s, so the reports cannot tell which customers are yours. My team&apos;s targets and All ESO still show - and an admin can check the email on your HubSpot user.
+        Your email is not a HubSpot owner&apos;s, so the reports cannot tell which customers are yours. All still shows - and an admin can check the email on your HubSpot user.
       </Note>
     );
   }
   if (!st.targets) return <Note title="The targets are not given to you">Ask an admin for Targets in Settings, People.</Note>;
   const set = st.targets;
   const rows = TARGETS.map((t) => rowOf(t, m[t.id], set[t.id], t.id === "visits" ? reach.visits : reach.rev));
-  return (
-    <>
-      <Box sx={{ ...TWO, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))", xl: "repeat(3, minmax(0, 1fr))" } }}>
-        {TARGETS.map((t, i) => (
-          <TargetCard key={t.id} def={t} row={rows[i]} year={st.year} canEdit={st.canEdit} owner={st.subject!.id}
-            onSaved={onSaved} reach={t.id === "visits" ? reach.visits : reach.rev} />
-        ))}
+  const cols: Col<Row>[] = [
+    { key: "py", head: "Last year", cell: (r) => (r.id === "visits" ? <span style={{ color: FAINT }}>{int(r.m.py)} meetings</span> : eur(r.m.py)) },
+    { key: "set", head: "Target set", tip: "A growth on last year in %, an amount, a number of visits - as the VPP sheet has them",
+      cell: (r) => <SetField def={targetDefOf(r.id)} row={r} canEdit={st.canEdit} owner={st.subject!.id} onSaved={onSaved} /> },
+    { key: "year", head: `Target ${st.year}`, tip: "100 % - the target; 120 % - the most it counts, as the VPP sheet's Max", cell: (r) => (r.year == null ? <span style={{ color: FAINT }}>—</span> : (
+      <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.3 }}>
+        <b>{fmtOf(r.id)(r.year)}</b>
+        <span style={{ fontSize: "0.72rem", color: MUTED }}>max {fmtOf(r.id)(r.year * MAX_SHARE)}</span>
       </Box>
-      <ChartBox title={`All the figures, ${st.year} - ${st.subject.name}`} hint={`Each target: last year, what was set, the year's target, each quarter's result against its part, the year to date against what is due by now`}>
-        <FullTable<Row> first="Target" natural rows={rows} cols={COLS} />
-      </ChartBox>
-    </>
+    )) },
+    ...QS.map((q, k): Col<Row> => ({ key: q, head: q, cell: (r) => quarterCell(r, k) })),
+    { key: "ytd", head: "Year to date", cell: (r) => (
+      <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.3 }}>
+        <b>{fmtOf(r.id)(r.m.ytd)}</b>
+        {r.id !== "visits" && <span style={{ fontSize: "0.72rem", color: MUTED }}>{fmtOf(r.id)(r.m.ytdPy)} a year earlier</span>}
+      </Box>
+    ) },
+    { key: "due", head: "Due by now", tip: "The quarters done, and the running one as far as it has run", cell: (r) => (r.due == null ? <span style={{ color: FAINT }}>—</span> : fmtOf(r.id)(r.due)) },
+    { key: "reached", head: "Reached", cell: (r) => (r.due == null ? <span style={{ color: FAINT }}>—</span> : (
+      <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.3 }}>
+        <b style={{ color: reachedTone(r.m.ytd, r.due) }}>{pct(r.m.ytd / r.due)}</b>
+        <span style={{ fontSize: "0.72rem", color: MUTED }}>{pct(r.m.ytd / r.year!)} of the year</span>
+      </Box>
+    )) },
+  ];
+  return (
+    <ChartBox title={`${st.subject.name}'s targets, ${st.year}`}
+      hint={`${st.canEdit ? "Type each target in its row - a growth on last year, an amount, a number of visits. " : ""}As the VPP sheet reckons it: each quarter's part is the year's target times its weight - revenue 25.6 / 25 / 24.6 / 24.8 %, visits 26.5 / 27.5 / 22 / 24 % - 100 % the target, 120 % the most it counts; the year to date against what is due by now`}>
+      <FullTable<Row> first="Target" natural rows={rows} cols={cols} />
+    </ChartBox>
   );
 }
 
@@ -136,83 +147,33 @@ function rowOf(t: TargetDef, m: Measured, set: number | undefined, reach: Reach)
 const reachedTone = (a: number, t: number | null) => (t == null || t <= 0 ? FAINT : a >= t ? GREEN : RED);
 const quarterCell = (r: Row, k: number) => {
   const runQ = Math.floor(r.reach.month / 3);
-  if (k > runQ) return <span style={{ color: FAINT }}>{r.quarters ? `${fmtOf(r.id)(r.quarters[k])} to come` : "—"}</span>;
+  if (k > runQ) return r.quarters
+    ? <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.3, color: FAINT }}><span>{fmtOf(r.id)(r.quarters[k])} to come</span><span style={{ fontSize: "0.68rem" }}>{weightWords(r.id, k)}</span></Box>
+    : <span style={{ color: FAINT }}>—</span>;
   const t = r.quarters?.[k] ?? null;
   return (
     <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.3 }}>
       <b>{fmtOf(r.id)(r.m.q[k])}</b>
-      {t != null && <span style={{ fontSize: "0.72rem", color: reachedTone(r.m.q[k], k === runQ ? t * Math.min(1, (r.reach.month - k * 3 + r.reach.share) / 3) : t) }}>{pct(r.m.q[k] / t)} of {fmtOf(r.id)(t)}{k === runQ ? " · running" : ""}</span>}
+      {t != null
+        ? <>
+          <span style={{ fontSize: "0.72rem", color: reachedTone(r.m.q[k], k === runQ ? t * Math.min(1, (r.reach.month - k * 3 + r.reach.share) / 3) : t) }}>{pct(r.m.q[k] / t)} of {fmtOf(r.id)(t)}{k === runQ ? " · running" : ""}</span>
+          <span style={{ fontSize: "0.68rem", color: FAINT }} title={`${weightWords(r.id, k)} of the year's target; 120 %, the most it counts: ${fmtOf(r.id)(t * MAX_SHARE)}`}>{weightWords(r.id, k)} · max {fmtOf(r.id)(t * MAX_SHARE)}</span>
+        </>
+        : r.id !== "visits" && <span style={{ fontSize: "0.72rem", color: MUTED }}>{fmtOf(r.id)(r.m.qPy[k])} a year earlier</span>}
     </Box>
   );
 };
-const setWords = (r: Row) => (r.set == null ? "not set" : targetDefOf(r.id).kind === "growth" ? `${r.set > 0 ? "+" : ""}${r.set} %` : fmtOf(r.id)(r.set));
 const targetDefOf = (id: TargetId) => TARGETS.find((t) => t.id === id)!;
-const COLS: Col<Row>[] = [
-  { key: "py", head: "Last year", cell: (r) => (r.id === "visits" ? <span style={{ color: FAINT }}>{int(r.m.py)} meetings</span> : r.id === "new" ? <span style={{ color: FAINT }}>{eur(r.m.py)}</span> : eur(r.m.py)) },
-  { key: "set", head: "Set", cell: (r) => <span style={{ color: r.set == null ? FAINT : INK }}>{setWords(r)}</span> },
-  { key: "year", head: "Year's target", cell: (r) => (r.year == null ? "—" : <b>{fmtOf(r.id)(r.year)}</b>) },
-  ...QS.map((q, k): Col<Row> => ({ key: q, head: q, cell: (r) => quarterCell(r, k) })),
-  { key: "ytd", head: "Year to date", cell: (r) => <b>{fmtOf(r.id)(r.m.ytd)}</b> },
-  { key: "due", head: "Due by now", tip: "The quarters done, and the running one as far as it has run", cell: (r) => (r.due == null ? "—" : fmtOf(r.id)(r.due)) },
-  { key: "reached", head: "Reached", cell: (r) => (r.due == null ? "—" : <b style={{ color: reachedTone(r.m.ytd, r.due) }}>{pct(r.m.ytd / r.due)}</b>) },
-];
+/** A quarter's weight in the year, as the VPP sheet's "Period weighting": 25.6 %, visits 26.5 %… */
+const weightWords = (id: TargetId, k: number) => `${((id === "visits" ? QUARTER_WEIGHT.visits : QUARTER_WEIGHT.revenue)[k] * 100).toFixed(1).replace(/\.0$/, "")} %`;
 
-/** One target: what is set (typed in place), its quarters against their parts, the year to date against what is due. */
-function TargetCard({ def, row, year, canEdit, owner, onSaved, reach }: {
-  def: TargetDef; row: Row; year: number; canEdit: boolean; owner: string; onSaved: (t: PersonTargets) => void; reach: Reach;
-}) {
-  const f = fmtOf(def.id);
-  const runQ = Math.floor(reach.month / 3);
-  const data = QS.map((q, k) => ({ q, cur: k > runQ ? null : row.m.q[k], prev: def.id === "visits" ? null : row.m.qPy[k], target: row.quarters?.[k] ?? null }));
-  return (
-    <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0, display: "grid", gap: 1.25, alignContent: "start" }}>
-      <Box>
-        <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{def.name}</Typography>
-        <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{def.note}</Typography>
-      </Box>
-      <SetLine def={def} row={row} year={year} canEdit={canEdit} owner={owner} onSaved={onSaved} />
-      <Box sx={{ display: "flex", gap: 1.75, flexWrap: "wrap", fontSize: "0.74rem", color: MUTED, mb: -0.75 }}>
-        <Legend color={THIS} label={`${year}, quarter by quarter`} />
-        {def.id !== "visits" && <Legend color={BEFORE} label={`${year - 1}`} />}
-        {row.quarters && <Legend color={TARGET} label="each quarter's target" dashed />}
-      </Box>
-      <Box sx={{ height: 170 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 6, right: 6, bottom: 0, left: 0 }} barGap={2}>
-            <XAxis dataKey="q" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: MUTED }} />
-            <YAxis tickLine={false} axisLine={false} width={def.id === "visits" ? 34 : 64} tick={{ fontSize: 10, fill: FAINT }} tickFormatter={(v: number) => (def.id === "visits" ? int(v) : `€${Math.round(v / 1000)}k`)} />
-            <Tooltip formatter={(v, n) => [typeof v === "number" ? f(v) : "—", n === "cur" ? `${year}` : n === "prev" ? `${year - 1}` : "Target"]} />
-            {def.id !== "visits" && <Bar dataKey="prev" fill={BEFORE} radius={[4, 4, 0, 0]} maxBarSize={22} isAnimationActive={false} />}
-            <Bar dataKey="cur" fill={THIS} radius={[4, 4, 0, 0]} maxBarSize={22} isAnimationActive={false} />
-            {row.quarters && <Line dataKey="target" stroke={TARGET} strokeDasharray="5 4" strokeWidth={2} dot={{ r: 3, fill: TARGET }} isAnimationActive={false} />}
-          </ComposedChart>
-        </ResponsiveContainer>
-      </Box>
-      <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "baseline" }}>
-        <Typography sx={{ fontSize: "1.3rem", fontWeight: 700, color: INK, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>{f(row.m.ytd)}</Typography>
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-          year to date{row.due != null
-            ? <> · <b style={{ color: reachedTone(row.m.ytd, row.due) }}>{pct(row.m.ytd / row.due)}</b> of the {f(row.due)} due by now · {pct(row.m.ytd / row.year!)} of the year&apos;s {f(row.year!)}</>
-            : def.id !== "visits" ? <> · {f(row.m.ytdPy)} a year earlier</> : null}
-        </Typography>
-      </Box>
-    </Box>
-  );
-}
-
-const Legend = ({ color, label, dashed = false }: { color: string; label: string; dashed?: boolean }) => (
-  <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}>
-    <Box component="span" sx={dashed ? { width: 16, borderTop: `2px dashed ${color}` } : { width: 10, height: 10, borderRadius: "3px", bgcolor: color }} />
-    {label}
-  </Box>
-);
-
-/** What is set, typed in place: a growth in %, an amount, a number - saved when the field is left. */
-function SetLine({ def, row, year, canEdit, owner, onSaved }: { def: TargetDef; row: Row; year: number; canEdit: boolean; owner: string; onSaved: (t: PersonTargets) => void }) {
+/** A target, typed in its row: a growth in %, an amount, a number - saved when the field is left. */
+function SetField({ def, row, canEdit, owner, onSaved }: { def: TargetDef; row: Row; canEdit: boolean; owner: string; onSaved: (t: PersonTargets) => void }) {
   const [text, setText] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const shown = text ?? (row.set == null ? "" : def.kind === "growth" ? String(row.set) : row.set.toLocaleString("en"));
+  const unit = def.kind === "growth" ? "%" : def.kind === "eur" ? "€" : "visits";
   const save = async () => {
     if (text == null) return;
     const c = checkTarget(def.id, text.trim() === "" ? null : text);
@@ -226,25 +187,15 @@ function SetLine({ def, row, year, canEdit, owner, onSaved }: { def: TargetDef; 
       onSaved(j.targets); setText(null); setErr(null);
     } finally { setBusy(false); }
   };
-  const unit = def.kind === "growth" ? "%" : def.kind === "eur" ? "€" : "visits";
-  const lead = def.kind === "growth" ? `Growth on ${year - 1} (${eur(row.m.py)})` : `Target ${year}`;
+  if (!canEdit) return <span style={{ color: row.set == null ? FAINT : INK, fontWeight: 700 }}>{row.set == null ? "not set" : `${def.kind === "growth" && row.set > 0 ? "+" : ""}${shown} ${unit}`}</span>;
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-      <Typography sx={{ fontSize: "0.8rem", color: MUTED, fontWeight: 600 }}>{lead}</Typography>
-      {canEdit ? (
-        <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, border: `1px solid ${err ? RED : "rgba(21,34,58,.16)"}`, borderRadius: "10px", px: 1, bgcolor: "#fff" }}>
-          <InputBase value={shown} disabled={busy} placeholder="set it" inputProps={{ inputMode: "decimal", "aria-label": `${def.name}: ${lead}` }}
-            onChange={(e) => { setText(e.target.value); setErr(null); }} onBlur={() => { void save(); }}
-            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") { setText(null); setErr(null); } }}
-            sx={{ width: def.kind === "growth" ? 64 : 110, fontSize: "0.86rem", fontWeight: 700, "& input": { textAlign: "right", py: 0.5 } }} />
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{unit}</Typography>
-        </Box>
-      ) : (
-        <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: row.set == null ? FAINT : INK }}>{row.set == null ? "not set yet" : `${row.set} ${unit}`}</Typography>
-      )}
-      {row.year != null && def.kind === "growth" && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>= <b style={{ color: INK }}>{eur(row.year)}</b> for {year}</Typography>}
-      {err && <Typography sx={{ fontSize: "0.76rem", color: RED, width: "100%" }}>{err}</Typography>}
-      {row.year == null && !err && canEdit && <Typography sx={{ fontSize: "0.76rem", color: FAINT, width: "100%" }}>Set it to see each quarter against its part.</Typography>}
+    <Box component="span" title={err ?? undefined} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, border: `1px solid ${err ? RED : "rgba(21,34,58,.16)"}`, borderRadius: "10px", px: 1, bgcolor: "#fff" }}>
+      <InputBase value={shown} disabled={busy} placeholder="set it" inputProps={{ inputMode: "decimal", "aria-label": `${def.name}: target` }}
+        onChange={(e) => { setText(e.target.value); setErr(null); }} onBlur={() => { void save(); }}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") { setText(null); setErr(null); } }}
+        sx={{ width: def.kind === "growth" ? 58 : 88, fontSize: "0.84rem", fontWeight: 700, "& input": { textAlign: "right", py: 0.4 } }} />
+      <Typography component="span" sx={{ fontSize: "0.78rem", color: MUTED }}>{unit}</Typography>
     </Box>
   );
 }

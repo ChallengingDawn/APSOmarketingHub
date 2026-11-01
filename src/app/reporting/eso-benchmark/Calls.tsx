@@ -67,7 +67,7 @@ import {
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
 import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 import { BucEmpty } from "./BucEmpty";
-import { SCOPE_LEAD, scopedPeople, useScoped } from "@/app/reporting/scope";
+import { SCOPE_LEAD, scopedPeople, useScoped, KeyCharts } from "@/app/reporting/scope";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -1069,7 +1069,8 @@ export function CallsExplorer({ team, setTeam, home = "tsa" }: { team: TeamKey; 
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
 
   // back to the BUC View of where the page sits: TSA's, or ESO's (the Visits page's address)
-  const back = useScoped() ? null : (
+  const scoped = useScoped();
+  const back = scoped ? null : (
     <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
@@ -1103,7 +1104,7 @@ export function CallsExplorer({ team, setTeam, home = "tsa" }: { team: TeamKey; 
       </Box>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
-          <ReportTabs name="tsa-calls" tab={view} onSelect={setView} tabs={VIEWS.map((v) => ({ id: v.id, label: v.label, count: v.id !== "people" && v.id !== "new" && filters[DIM_OF[v.id]]?.length ? String(filters[DIM_OF[v.id]]!.length) : null }))} />
+          {!scoped && <ReportTabs name="tsa-calls" tab={view} onSelect={setView} tabs={VIEWS.map((v) => ({ id: v.id, label: v.label, count: v.id !== "people" && v.id !== "new" && filters[DIM_OF[v.id]]?.length ? String(filters[DIM_OF[v.id]]!.length) : null }))} />}
         </Box>
         <Box sx={{ flex: 1 }} />
         <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="tsa-calls" /></Box>
@@ -1120,7 +1121,9 @@ export function CallsExplorer({ team, setTeam, home = "tsa" }: { team: TeamKey; 
         ...chosen.map(([k, v]): ActiveItem => ({ key: `${k}:${v}`, name: DIM[k].name, value: v, tint: DIM[k].tint, onRemove: () => toggle(k, v) })),
       ]} />
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
-        <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />
+        {scoped
+          ? <KeyCharts ids={["people:visits", "people:share", "people:months"]} draw={(id) => { const ch = drawnOf(id); return ch ? ch.draw({ ...c, view: id.split(":")[0] } as typeof c) : null; }} />
+          : <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />}
       </Box>
       <VFilterWindow c={c} per={per} open={panel} onClose={() => setPanel(false)} focus={focus} onPer={setPer} toggle={toggle} clearAll={clearAll} />
     </Box>

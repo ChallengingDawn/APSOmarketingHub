@@ -37,6 +37,9 @@ export const QUARTER_WEIGHT: Record<"revenue" | "visits", readonly number[]> = {
 /** What a person set: per target, the growth in % (growth) or the year's amount / number; who set it last, and when. */
 export type PersonTargets = Partial<Record<TargetId, number>> & { by?: string; at?: string };
 
+/** The sheet's maximum: a target counts up to 120 % of itself (its "Max (%)" column) - 100 % is the target, 120 % the most. */
+export const MAX_SHARE = 1.2;
+
 /** The year's target: last year's figure and the growth on it, or the amount / number set. Nothing set: none. */
 export function yearTarget(id: TargetId, set: number | undefined, py: number): number | null {
   if (set == null || !Number.isFinite(set)) return null;

@@ -52,7 +52,7 @@ import { BucEmpty } from "./BucEmpty";
 import { ActiveFilters, type ActiveItem } from "./EsoFilters";
 import { CompaniesFor } from "@/app/reporting/CompanyList";
 import { cubeCompanies } from "@/app/reporting/marketing-kpis/cubeCompanies";
-import { SCOPE_LEAD, useScoped } from "@/app/reporting/scope";
+import { SCOPE_LEAD, useScoped, KeyCharts } from "@/app/reporting/scope";
 
 /* ── words and numbers, in full ────────────────────────────────────────── */
 
@@ -647,7 +647,8 @@ export function NewCustomersExplorer({ home = "eso" }: { home?: Home }) {
   const [focus, setFocus] = useState<{ dim: Dim; n: number } | null>(null);
   const openOn = (d: Dim) => { setFocus((f) => ({ dim: d, n: (f?.n ?? 0) + 1 })); setPanel(true); };
 
-  const back = useScoped() ? null : (
+  const scoped = useScoped();
+  const back = scoped ? null : (
     <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
@@ -713,8 +714,8 @@ export function NewCustomersExplorer({ home = "eso" }: { home?: Home }) {
       {/* the tabs, and at their right end Views and Filters */}
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
-          <ReportTabs name="eso-new-customers" tab={view} onSelect={setView}
-            tabs={VIEWS.map((v) => { const b = byOf(v.id), d = b === "pc" ? null : b; return { id: v.id, label: v.label, count: d && filters[d]?.length ? String(filters[d]!.length) : null }; })} />
+          {!scoped && <ReportTabs name="eso-new-customers" tab={view} onSelect={setView}
+            tabs={VIEWS.map((v) => { const b = byOf(v.id), d = b === "pc" ? null : b; return { id: v.id, label: v.label, count: d && filters[d]?.length ? String(filters[d]!.length) : null }; })} />}
         </Box>
         <Box sx={{ flex: 1 }} />
         <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="eso-new-customers" /></Box>
@@ -733,7 +734,9 @@ export function NewCustomersExplorer({ home = "eso" }: { home?: Home }) {
       ]} />
 
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
-        <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />
+        {scoped
+          ? <KeyCharts ids={["sae:new", "sae:rev", "sae:monrev"]} draw={(id) => { const ch = drawnOf(id); return ch ? ch.draw({ ...c, view: id.split(":")[0] } as typeof c) : null; }} />
+          : <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />}
       </Box>
 
       <CubeFilterWindow id="eso-new-customers-filters" period dims={FILTER_DIMS} open={panel} onClose={() => setPanel(false)} focus={focus} cube={cube}
