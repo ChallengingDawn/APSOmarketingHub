@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DIMS, fold, monthOf, type CompanyIn, type Cube, type Dim } from "../src/lib/marketingKpis/cube";
-import { TARGETS, checkTarget, cleanAll, quarterTargets, targetToQuarter, yearTarget } from "../src/lib/reporting/mySalesRules";
+import { MAX_SHARE, TARGETS, checkTarget, checkWeights, cleanAll, quarterTargets, sheetWeights, targetToQuarter, weightsOf, yearTarget } from "../src/lib/reporting/mySalesRules";
 import { cubeReach, dueToDate, revenueByPerson, revenueMeasures, visitsByPerson, visitsMeasure } from "../src/lib/reporting/mySalesFigures";
 import type { VisitsData } from "../src/lib/reporting/visitsRules";
 
@@ -105,4 +105,23 @@ test("the visits target: completed visits per quarter, last year's customer meet
   assert.deepEqual(a.qPy, [1, 0, 0, 1]);
   assert.equal(a.ytd, 3);
   assert.deepEqual(visitsByPerson(d, new Set([0, 1])).map((r) => [r.label, r.cur]), [["Anna", 3], ["Ben", 1]]);
+});
+
+test("each person's own period weighting, else the sheet's - four quarters making 100 %, and the 120 % the sheet counts to (SARCLA 01.11.2026)", () => {
+  assert.deepEqual(sheetWeights("own"), [25.6, 25, 24.6, 24.8]);
+  assert.deepEqual(sheetWeights("visits"), [26.5, 27.5, 22, 24]);
+  // the person's own split, the year's target falling on it
+  const t = { own: 10, weights: { own: [30, 25, 20, 25] } };
+  assert.deepEqual(weightsOf(t, "own"), [0.3, 0.25, 0.2, 0.25]);
+  assert.deepEqual(weightsOf(t, "dt"), [0.256, 0.25, 0.246, 0.248]);
+  assert.deepEqual(quarterTargets("own", 1000, weightsOf(t, "own")), [300, 250, 200, 250]);
+  assert.equal(targetToQuarter("own", 1000, 1, weightsOf(t, "own")), 550);
+  // four, each 0-100, together 100 (half a point either way taken as 100)
+  assert.deepEqual(checkWeights(["30", "25", "20", "25"]), { ok: true, value: [30, 25, 20, 25] });
+  assert.equal(checkWeights([30, 25, 20]).ok, false);
+  assert.equal(checkWeights([30, 30, 30, 30]).ok, false);
+  assert.equal(checkWeights([-1, 51, 25, 25]).ok, false);
+  // kept with the targets; a bad split dropped
+  assert.deepEqual(cleanAll({ "7": { own: 10, weights: { own: [30, 25, 20, 25], kt: [90, 90, 0, 0] } } })["7"], { own: 10, weights: { own: [30, 25, 20, 25] } });
+  assert.equal(MAX_SHARE, 1.2);
 });

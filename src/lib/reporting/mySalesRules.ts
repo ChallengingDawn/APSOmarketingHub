@@ -34,8 +34,30 @@ export const QUARTER_WEIGHT: Record<"revenue" | "visits", readonly number[]> = {
   visits: [0.265, 0.275, 0.22, 0.24],
 };
 
-/** What a person set: per target, the growth in % (growth) or the year's amount / number; who set it last, and when. */
-export type PersonTargets = Partial<Record<TargetId, number>> & { by?: string; at?: string };
+/**
+ * What a person set: per target, the growth in % (growth) or the year's amount / number; per target, if not the sheet's,
+ * its own quarter weights in % (SARCLA 01.11.2026: "I don't understand how to set the target for quarters without period
+ * weighting" - each person's sheet has its own column); who set it last, and when.
+ */
+export type PersonTargets = Partial<Record<TargetId, number>> & { weights?: Partial<Record<TargetId, number[]>>; by?: string; at?: string };
+
+/** The sheet's quarter weights for a target, in % (25.6, 25, 24.6, 24.8; visits 26.5, 27.5, 22, 24). */
+export const sheetWeights = (id: TargetId): number[] => (id === "visits" ? QUARTER_WEIGHT.visits : QUARTER_WEIGHT.revenue).map((w) => Math.round(w * 1000) / 10);
+/** A target's quarter weights as fractions: the person's own, else the sheet's. */
+export const weightsOf = (t: PersonTargets | null | undefined, id: TargetId): number[] => {
+  const own = t?.weights?.[id];
+  return own ? own.map((w) => w / 100) : [...(id === "visits" ? QUARTER_WEIGHT.visits : QUARTER_WEIGHT.revenue)];
+};
+
+/** Four quarter weights in %, each 0-100, together 100 (99.5-100.5 taken as 100), to one decimal - or why not. */
+export function checkWeights(values: unknown): { ok: true; value: number[] } | { ok: false; error: string } {
+  if (!Array.isArray(values) || values.length !== 4) return { ok: false, error: "Four quarters, please." };
+  const n = values.map((v) => (typeof v === "number" ? v : Number(String(v).replace(/[\s%]/g, "").replace(",", "."))));
+  if (n.some((x) => !Number.isFinite(x) || x < 0 || x > 100)) return { ok: false, error: "Each quarter between 0 and 100 %." };
+  const sum = n.reduce((a, x) => a + x, 0);
+  if (Math.abs(sum - 100) > 0.5) return { ok: false, error: `Together they make ${Math.round(sum * 10) / 10} % - they must make 100 %.` };
+  return { ok: true, value: n.map((x) => Math.round((x * 100) / sum * 10) / 10) };
+}
 
 /** The sheet's maximum: a target counts up to 120 % of itself (its "Max (%)" column) - 100 % is the target, 120 % the most. */
 export const MAX_SHARE = 1.2;
@@ -46,13 +68,13 @@ export function yearTarget(id: TargetId, set: number | undefined, py: number): n
   return targetDef(id).kind === "growth" ? py * (1 + set / 100) : set;
 }
 
-/** The year's target split into its four quarters. */
-export const quarterTargets = (id: TargetId, year: number): number[] =>
-  (id === "visits" ? QUARTER_WEIGHT.visits : QUARTER_WEIGHT.revenue).map((w) => year * w);
+/** The year's target split into its four quarters - by the person's weights (fractions) when given, else the sheet's. */
+export const quarterTargets = (id: TargetId, year: number, weights?: number[]): number[] =>
+  (weights ?? (id === "visits" ? QUARTER_WEIGHT.visits : QUARTER_WEIGHT.revenue)).map((w) => year * w);
 
 /** The quarters' targets up to and including quarter q (0-3) - what the year to date is measured against. */
-export const targetToQuarter = (id: TargetId, year: number, q: number): number =>
-  quarterTargets(id, year).slice(0, q + 1).reduce((a, x) => a + x, 0);
+export const targetToQuarter = (id: TargetId, year: number, q: number, weights?: number[]): number =>
+  quarterTargets(id, year, weights).slice(0, q + 1).reduce((a, x) => a + x, 0);
 
 /** What may be set: a growth of -100 % to +1,000 %, an amount up to €100 million, up to 10,000 visits. */
 const LIMIT: Record<TargetKind, [number, number]> = { growth: [-100, 1000], eur: [0, 100_000_000], count: [0, 10_000] };
@@ -80,6 +102,12 @@ export function cleanAll(x: unknown): Record<string, PersonTargets> {
     for (const d of TARGETS) {
       const c = checkTarget(d.id, r[d.id] ?? null);
       if (c.ok && c.value != null) t[d.id] = c.value;
+    }
+    if (r.weights && typeof r.weights === "object") {
+      for (const d of TARGETS) {
+        const c = checkWeights((r.weights as Record<string, unknown>)[d.id]);
+        if (c.ok) (t.weights ??= {})[d.id] = c.value;
+      }
     }
     if (typeof r.by === "string") t.by = r.by.slice(0, 120);
     if (typeof r.at === "string") t.at = r.at.slice(0, 40);

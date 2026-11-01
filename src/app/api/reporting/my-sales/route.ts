@@ -16,7 +16,7 @@ import { query } from "@/lib/db/client";
 import { hierarchyNow } from "@/lib/hierarchy/store";
 import { reportsOfUnit, under } from "@/lib/hierarchy/rules";
 import { getLeads, getTeams } from "@/lib/mapAssign/leads";
-import { checkTarget, cleanAll, isTargetId, type PersonTargets } from "@/lib/reporting/mySalesRules";
+import { checkTarget, checkWeights, cleanAll, isTargetId, type PersonTargets } from "@/lib/reporting/mySalesRules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,13 +87,16 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** { owner, target, value } - one target of one person; value null clears it. */
+/**
+ * { owner, target, value } - one target of one person; value null clears it. { owner, target, weights } - that target's
+ * quarter weights in % (four, together 100); null back to the sheet's.
+ */
 export async function PUT(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!opens(access, PAGES[0])) return NextResponse.json({ error: "No access" }, { status: 403 });
   const u = await getOptionalUser();
-  const b = (await req.json().catch(() => ({}))) as { owner?: unknown; target?: unknown; value?: unknown };
+  const b = (await req.json().catch(() => ({}))) as { owner?: unknown; target?: unknown; value?: unknown; weights?: unknown };
   const owner = String(b.owner ?? "");
   if (!/^\d+$/.test(owner) || !isTargetId(b.target)) return NextResponse.json({ ok: false, error: "That change is not valid." }, { status: 400 });
   try {
@@ -104,15 +107,26 @@ export async function PUT(req: NextRequest) {
       const mine = email ? h.people.find((p) => p.email?.toLowerCase() === email && p.id === owner) : undefined;
       if (!mine) return NextResponse.json({ ok: false, error: "Only the person themselves or an admin sets their targets." }, { status: 403 });
     }
-    const c = checkTarget(b.target, b.value);
-    if (!c.ok) return NextResponse.json({ ok: false, error: c.error }, { status: 400 });
     const year = new Date().getUTCFullYear();
     const now = await readTargets(year, owner);
     const next: PersonTargets = { ...now, by: u?.username ?? "", at: new Date().toISOString() };
-    if (c.value == null) delete next[b.target]; else next[b.target] = c.value;
+    if (b.weights !== undefined) {
+      const weights = { ...(now.weights ?? {}) };
+      if (b.weights === null) delete weights[b.target];
+      else {
+        const w = checkWeights(b.weights);
+        if (!w.ok) return NextResponse.json({ ok: false, error: w.error }, { status: 400 });
+        weights[b.target] = w.value;
+      }
+      next.weights = weights;
+    } else {
+      const c = checkTarget(b.target, b.value);
+      if (!c.ok) return NextResponse.json({ ok: false, error: c.error }, { status: 400 });
+      if (c.value == null) delete next[b.target]; else next[b.target] = c.value;
+    }
     await kvSet(keyOf(year, owner), next);
     await query(`INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`,
-      [u?.username ?? "", "my-sales.target", JSON.stringify({ owner, target: b.target, value: c.value, year })]).catch(() => { /* never fail the change because the log did */ });
+      [u?.username ?? "", "my-sales.target", JSON.stringify({ owner, target: b.target, ...(b.weights !== undefined ? { weights: next.weights?.[b.target] ?? null } : { value: next[b.target] ?? null }), year })]).catch(() => { /* never fail the change because the log did */ });
     return NextResponse.json({ ok: true, targets: next });
   } catch (e) {
     return NextResponse.json({ ok: false, error: String((e as Error)?.message ?? e) }, { status: 500 });
