@@ -8,7 +8,8 @@
 // and on every row an eye to hide it ("an eye-cut symbol to hide certain rows - this should also be a filter"). Right,
 // the time line in the main category's colour: a bracket over a topic or group from its first to its last
 // date, a bar for an action with a start and a due (its done part solid), a diamond for one with only a due,
-// a square per sub-action. Rows are dragged by their handle onto another topic or group; bars are dragged to
+// a thinner bar per sub-action from its planned to its go-live date (a square with only one of them).
+// Rows are dragged by their handle onto another topic or group; bars are dragged to
 // move their dates, or by their right end to change the due. The two halves scroll together.
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -28,7 +29,7 @@ import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArro
 
 import { FAINT, HAIRLINE, INK, MUTED, TINT } from "@/app/uc/report/ui";
 import type { PlanItem, PlanSub, Rolled } from "@/lib/reporting/actionPlanRules";
-import { KILLED, isClosed, isLate, priorityLabel, stageOf } from "@/lib/reporting/actionPlanRules";
+import { KILLED, isClosed, isLate, priorityLabel, stageOf, subPct } from "@/lib/reporting/actionPlanRules";
 import { SUMMIT } from "@/lib/reporting/summitRules";
 import { LATE, PRIORITY_COLOR, SUB_COLOR, SUMMARY, dayOf, dmy, isoOf, stageColor } from "./planUi";
 
@@ -150,7 +151,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
     const ds: number[] = [dayOf(today)];
     for (const r of rows) {
       if (r.type === "item") { const x = rolled.get(r.item.id); for (const d of [r.item.start, r.item.due, x?.from, x?.to]) if (d) ds.push(dayOf(d)); }
-      if (r.type === "sub" && r.sub.due) ds.push(dayOf(r.sub.due));
+      if (r.type === "sub") for (const d of [r.sub.start, r.sub.due]) if (d) ds.push(dayOf(d));
     }
     const lo = new Date(Math.min(...ds) * 86_400_000), hi = new Date(Math.max(...ds) * 86_400_000);
     const start = Math.round(Date.UTC(lo.getUTCFullYear(), lo.getUTCMonth() - 1, 1) / 86_400_000);
@@ -336,12 +337,26 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
                 );
               }
               if (r.type === "sub") {
-                if (!r.sub.due) return null;
+                const at = r.sub.due ?? r.sub.start;
+                if (!at) return null;
                 // the project's colour: filled when done, a ring while open
                 const c = colorOf(r.parent) ?? SUMMARY;
-                const done = r.sub.status === "done";
-                return <Box key={`s${r.key}`} title={`${r.sub.title} · ${dmy(r.sub.due)}${done ? " · done" : ""}`} onClick={() => onSubs(r.parent)}
-                  sx={{ position: "absolute", left: X(r.sub.due) + px / 2 - 5, top: cy - 5, width: 10, height: 10, borderRadius: "2px", bgcolor: done ? c : r.sub.status === "doing" ? alpha(c, 0.45) : "#fff", border: `2px solid ${c}`, cursor: "pointer", zIndex: 2 }} />;
+                const sb = r.sub;
+                const done = sb.status === "done";
+                const tipS = [sb.title, sb.start && sb.due ? `${dmy(sb.start)} – ${dmy(sb.due)}` : dmy(sb.due ?? sb.start), stageOf(sb.stage)?.label ?? (done ? "done" : ""), subPct(sb) != null ? `${subPct(sb)} %` : ""].filter(Boolean).join(" · ");
+                // a small action: a thinner bar from its planned to its go-live date, its done part solid
+                if (sb.start && sb.due) {
+                  const x = X(sb.start), w = Math.max(px * 2, X(sb.due) - x + px);
+                  return (
+                    <Tooltip key={`s${r.key}`} title={tipS} placement="top" disableInteractive>
+                      <Box onClick={() => onSubs(r.parent)} sx={{ position: "absolute", left: x, top: cy - 5, width: w, height: 10, borderRadius: "3px", bgcolor: alpha(c, 0.18), border: `1.5px solid ${c}`, overflow: "hidden", cursor: "pointer", zIndex: 2 }}>
+                        <Box sx={{ width: `${Math.max(0, Math.min(100, subPct(sb) ?? 0))}%`, height: "100%", bgcolor: c }} />
+                      </Box>
+                    </Tooltip>
+                  );
+                }
+                return <Box key={`s${r.key}`} title={tipS} onClick={() => onSubs(r.parent)}
+                  sx={{ position: "absolute", left: X(at) + px / 2 - 5, top: cy - 5, width: 10, height: 10, borderRadius: "2px", bgcolor: done ? c : sb.status === "doing" ? alpha(c, 0.45) : "#fff", border: `2px solid ${c}`, cursor: "pointer", zIndex: 2 }} />;
               }
               const it = r.item;
               const ro = rolled.get(it.id);
@@ -443,20 +458,27 @@ function TreeRow({ r, cols, compact, color, onAddSub, hidden, onHide, rolled, to
     const s = r.sub;
     const c = color ?? SUMMARY;
     const late = s.status !== "done" && !!s.due && s.due < today;
+    const sStage = stageOf(s.stage);
+    const sPrio = priorityLabel(s.priority);
+    const sPct = subPct(s);
     return (
       <Box sx={{ ...base, cursor: "pointer" }} onClick={() => onSubs(r.parent)}>
         <Box />
         <Box sx={{ ...cell, borderLeft: "none", pl: `${indent + 20}px`, gap: 0.75 }}>
           <Box sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: s.status === "done" ? c : s.status === "doing" ? alpha(c, 0.45) : "#fff", border: `1.5px solid ${c}`, flexShrink: 0 }} />
+          {sPrio && <Box sx={{ ...TAG, bgcolor: PRIORITY_COLOR[s.priority].bg, color: PRIORITY_COLOR[s.priority].fg }}>{sPrio}</Box>}
           <Typography noWrap sx={{ fontSize: "0.84rem", color: MUTED, textDecoration: s.status === "done" ? "line-through" : "none" }}>{s.title}</Typography>
           {s.kpiTile && <Tooltip title="Made on a KPI tile"><FlagOutlinedIcon sx={{ fontSize: 15, color: TINT.blue.fg, flexShrink: 0 }} /></Tooltip>}
           {s.tickets > 0 && <Tooltip title={`${s.tickets} Scroll to Sale ticket${s.tickets === 1 ? "" : "s"}`}><Box sx={{ display: "flex", alignItems: "center", gap: 0.25, color: TINT.amber.fg, flexShrink: 0 }}><ConfirmationNumberOutlinedIcon sx={{ fontSize: 15 }} /><Typography sx={{ fontSize: "0.72rem", fontWeight: 700 }}>{s.tickets}</Typography></Box></Tooltip>}
         </Box>
         {!compact && <>
-          <Box sx={cell} />
+          <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{dmy(s.start)}</Typography></Box>
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: late ? LATE : MUTED, fontWeight: late ? 700 : 400 }}>{dmy(s.due)}</Typography></Box>
-          <Box sx={cell}><Box sx={{ ...TAG, bgcolor: SUB_COLOR[s.status].soft, color: SUB_COLOR[s.status].ink }}>{s.status === "done" ? "Done" : s.status === "doing" ? "In progress" : "Open"}</Box></Box>
-          <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{s.status === "done" ? "100 %" : s.status === "doing" ? "50 %" : "0 %"}</Typography></Box>
+          <Box sx={cell}>
+            {sStage ? <Box sx={{ ...TAG, bgcolor: stageColor(sStage.id).soft, color: stageColor(sStage.id).ink }}>{sStage.label}</Box>
+              : <Box sx={{ ...TAG, bgcolor: SUB_COLOR[s.status].soft, color: SUB_COLOR[s.status].ink }}>{s.status === "done" ? "Done" : s.status === "doing" ? "In progress" : "Open"}</Box>}
+          </Box>
+          <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{sPct == null ? "—" : `${sPct} %`}</Typography></Box>
           <Box sx={cell}><Typography noWrap sx={{ fontSize: "0.8rem", color: MUTED }}>{s.ownerName}</Typography></Box>
         </>}
       </Box>

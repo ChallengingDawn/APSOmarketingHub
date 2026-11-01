@@ -5,7 +5,7 @@ import { test } from "node:test";
 import {
   IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, codesOf, isDigitalGrowth, isLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
-  stateOfStage, ticketFromAction, titleOf, toS2s, treeOrder,
+  stateOfStage, stageOfStatus, statusOfStage, subPct, ticketFromAction, titleOf, toS2s, treeOrder, BUC_MEMBERS,
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
@@ -119,7 +119,7 @@ test("action plan: the people behind 'Responsible of action' - one match per cod
   assert.deepEqual(ownersFromCodes("Bespoke / XYZQ", people), []); // an agency, a code nobody answers to
   assert.deepEqual(ownersFromCodes("BEIANN BEIANN", people), [{ id: "1", name: "Anna Beispiel" }]); // once
 });
-const sub = (id: number, item: number, status: PlanSub["status"], due: string | null = null): PlanSub => ({ id, item, title: `s${id}`, ownerName: "", due, status, kpiHref: "", kpiTile: "", tickets: 0 });
+const sub = (id: number, item: number, status: PlanSub["status"], due: string | null = null, p: Partial<PlanSub> = {}): PlanSub => ({ id, item, title: `s${id}`, owner: "", ownerName: "", start: null, due, status, stage: null, priority: "", kpiHref: "", kpiTile: "", tickets: 0, ...p });
 
 test("action plan: % complete and dates roll up; sub-actions count for their action", () => {
   const items = [
@@ -146,6 +146,34 @@ test("action plan: % complete and dates roll up; sub-actions count for their act
   assert.equal(rollup([it(9, null, "action", { stage: LIVE, percent: 100 })], [sub(4, 9, "open")], "2026-11-01").get(9)!.percent, 100);
   // a killed action leaves the average: (100 + 0) / 2, not / 3
   assert.equal(rollup([it(1, null, "topic"), it(2, 1, "action", { stage: LIVE, percent: 100 }), it(3, 1, "action", { stage: IDEA, percent: 0 }), it(4, 1, "action", { stage: KILLED })], [], "2026-11-01").get(1)!.percent, 50);
+});
+
+// SARCLA 01.11.2026: a sub-action "should be a small action" - the pipeline's stage, a priority, planned and go-live
+test("a sub-action's stage gives its open / doing / done and its %", () => {
+  assert.equal(statusOfStage(null), "open");
+  assert.equal(statusOfStage(IDEA), "open");
+  assert.equal(statusOfStage(IN_PROGRESS), "doing");
+  assert.equal(statusOfStage(LIVE), "done");
+  assert.equal(statusOfStage(KILLED), "done");
+  // set on a KPI tile: the stage that says the same
+  assert.deepEqual([stageOfStatus("open"), stageOfStatus("doing"), stageOfStatus("done")], [IDEA, IN_PROGRESS, LIVE]);
+  // the stage's own % (Ready to Roll 90); none: the status's; killed: out of the average
+  assert.equal(subPct({ stage: "6161860809", status: "doing" }), 90);
+  assert.equal(subPct({ stage: null, status: "doing" }), 50);
+  assert.equal(subPct({ stage: KILLED, status: "done" }), null);
+});
+
+test("an action's % and dates take its sub-actions' stages and planned dates", () => {
+  const items = [it(1, null, "action", { start: "2026-11-01", due: "2026-11-30" })];
+  const r = rollup(items, [sub(1, 1, "done", "2026-12-15", { stage: LIVE, start: "2026-10-20" }), sub(2, 1, "doing", null, { stage: "6161860809" }), sub(3, 1, "done", null, { stage: KILLED })], "2026-11-01").get(1)!;
+  // (100 + 90) / 2 - the killed one leaves the average
+  assert.equal(r.percent, 95);
+  assert.deepEqual([r.from, r.to], ["2026-10-20", "2026-12-15"]);
+});
+
+test("the referent is one of the five BUC members, as HubSpot users", () => {
+  assert.deepEqual(BUC_MEMBERS.map((m) => m.name.split(" ")[0]), ["Alexandre", "Claudio", "Bernd", "Marc", "Rose"]);
+  assert.ok(BUC_MEMBERS.every((m) => /^\d+$/.test(m.id)));
 });
 
 // SARCLA 01.11.2026: "uniform the values of the stages - follow at the maximum what we use on the From Scroll to Sale

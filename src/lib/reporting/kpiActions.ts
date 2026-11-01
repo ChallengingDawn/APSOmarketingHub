@@ -18,6 +18,7 @@
 // Six small tables, created on first use - and a seventh that records a one-off reset of the placements.
 
 import { query } from "@/lib/db/client";
+import { stageOfStatus, statusOfStage } from "./actionPlanRules";
 
 const TASKS = "apsomh_kpi_tasks";
 const LINKS = "apsomh_kpi_ticket_links";
@@ -38,6 +39,9 @@ export type KpiTask = {
   shared: SharedPerson[]; href: string;
   /** The action plan's action this is a sub-action of: tile "plan:<id>", or a KPI tile's task linked to one. */
   planItem: number | null;
+  /** As a small action of the plan (SARCLA 01.11.2026): the pipeline's stage (status follows it), a priority, a planned
+   *  date (`due` is the go-live date). Empty on a task that never had them. */
+  stage: string | null; priority: string; start: string | null;
   createdBy: string; createdAt: string; updatedAt: string; doneAt: string | null;
 };
 /** The action of a plan tile ("plan:12" -> 12), null for a KPI tile. */
@@ -77,6 +81,10 @@ function ensure(): Promise<void> {
       await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS href text NOT NULL DEFAULT ''`);
       // the action plan's action it belongs to (SARCLA 31.10.2026)
       await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS plan_item integer`);
+      // a sub-action as a small action: stage, priority, planned date (SARCLA 01.11.2026)
+      await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS stage text`);
+      await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS priority text NOT NULL DEFAULT ''`);
+      await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS start date`);
       await query(`CREATE TABLE IF NOT EXISTS ${LINKS} (
         tile text NOT NULL,
         ticket_id text NOT NULL,
@@ -143,7 +151,7 @@ const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : d == null ? n
 // a date column comes as the local midnight of that day: its own day, read locally - toISOString gave the day before
 // on any server east of UTC (seen on a local copy in Zurich, 01.11.2026)
 const day = (d: unknown) => (d instanceof Date ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : d == null ? null : String(d).slice(0, 10));
-type TaskRow = { id: number; tile: string; page: string; title: string; note: string; owner: string; owner_name: string; due: unknown; status: string; shared: unknown; href: string | null; plan_item?: number | null; created_by: string; created_at: unknown; updated_at: unknown; done_at: unknown };
+type TaskRow = { id: number; tile: string; page: string; title: string; note: string; owner: string; owner_name: string; due: unknown; status: string; shared: unknown; href: string | null; plan_item?: number | null; stage?: string | null; priority?: string | null; start?: unknown; created_by: string; created_at: unknown; updated_at: unknown; done_at: unknown };
 const sharedOf = (x: unknown): SharedPerson[] => {
   const v = typeof x === "string" ? (() => { try { return JSON.parse(x); } catch { return []; } })() : x;
   return Array.isArray(v) ? v.filter((p) => p && typeof p.id === "string") : [];
@@ -152,6 +160,7 @@ const task = (r: TaskRow): KpiTask => ({
   id: r.id, tile: r.tile, page: r.page, title: r.title, note: r.note, owner: r.owner, ownerName: r.owner_name,
   due: day(r.due), status: (TASK_STATUSES as readonly string[]).includes(r.status) ? (r.status as TaskStatus) : "open",
   shared: sharedOf(r.shared), href: r.href ?? "", planItem: r.plan_item ?? planIdOf(r.tile),
+  stage: r.stage ?? null, priority: r.priority ?? "", start: day(r.start),
   createdBy: r.created_by, createdAt: iso(r.created_at) ?? "", updatedAt: iso(r.updated_at) ?? "", doneAt: iso(r.done_at),
 });
 
@@ -166,11 +175,14 @@ export async function tasksOf(tile: string): Promise<KpiTask[]> {
   return r.rows.map(task);
 }
 
-export async function addTask(t: { tile: string; page: string; title: string; note?: string; owner?: string; ownerName?: string; due?: string | null; shared?: SharedPerson[]; href?: string; planItem?: number | null; by: string }): Promise<KpiTask> {
+export async function addTask(t: { tile: string; page: string; title: string; note?: string; owner?: string; ownerName?: string; due?: string | null; shared?: SharedPerson[]; href?: string; planItem?: number | null; stage?: string | null; priority?: string; start?: string | null; by: string }): Promise<KpiTask> {
   await ensure();
+  const status = statusOfStage(t.stage ?? null);
   const r = await query<TaskRow>(
-    `INSERT INTO ${TASKS} (tile, page, title, note, owner, owner_name, due, created_by, shared, href, plan_item) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11) RETURNING *`,
-    [t.tile, t.page, t.title.slice(0, 300), (t.note ?? "").slice(0, 4000), t.owner ?? "", t.ownerName ?? "", t.due || null, t.by, JSON.stringify(t.shared ?? []), (t.href ?? "").slice(0, 500), t.planItem ?? planIdOf(t.tile)],
+    `INSERT INTO ${TASKS} (tile, page, title, note, owner, owner_name, due, created_by, shared, href, plan_item, stage, priority, start, status, done_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, CASE WHEN $15 = 'done' THEN now() END) RETURNING *`,
+    [t.tile, t.page, t.title.slice(0, 300), (t.note ?? "").slice(0, 4000), t.owner ?? "", t.ownerName ?? "", t.due || null, t.by, JSON.stringify(t.shared ?? []), (t.href ?? "").slice(0, 500), t.planItem ?? planIdOf(t.tile),
+      t.stage || null, t.priority ?? "", t.start || null, status],
   );
   return task(r.rows[0]);
 }
@@ -182,7 +194,7 @@ export async function taskById(id: number): Promise<KpiTask | null> {
   return r.rows[0] ? task(r.rows[0]) : null;
 }
 
-export async function updateTask(id: number, p: { title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: TaskStatus; shared?: SharedPerson[]; planItem?: number | null }): Promise<KpiTask | null> {
+export async function updateTask(id: number, p: { title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: TaskStatus; shared?: SharedPerson[]; planItem?: number | null; stage?: string | null; priority?: string; start?: string | null }): Promise<KpiTask | null> {
   await ensure();
   const sets: string[] = [];
   const vals: unknown[] = [];
@@ -193,10 +205,16 @@ export async function updateTask(id: number, p: { title?: string; note?: string;
   if (p.ownerName !== undefined) set("owner_name", p.ownerName);
   if (p.due !== undefined) set("due", p.due || null);
   if (p.planItem !== undefined) set("plan_item", p.planItem);
+  if (p.priority !== undefined) set("priority", p.priority);
+  if (p.start !== undefined) set("start", p.start || null);
+  // the stage decides open / doing / done; open / doing / done set on a KPI tile moves a stage it has to the same
+  const status = p.stage !== undefined ? statusOfStage(p.stage) : p.status;
+  if (p.stage !== undefined) set("stage", p.stage || null);
+  else if (p.status !== undefined) { vals.push(stageOfStatus(p.status)); sets.push(`stage = CASE WHEN stage IS NULL THEN NULL ELSE $${vals.length} END`); }
   if (p.shared !== undefined) { vals.push(JSON.stringify(p.shared)); sets.push(`shared = $${vals.length}::jsonb`); }
-  if (p.status !== undefined) {
-    set("status", p.status);
-    sets.push(p.status === "done" ? "done_at = COALESCE(done_at, now())" : "done_at = NULL");
+  if (status !== undefined) {
+    set("status", status);
+    sets.push(status === "done" ? "done_at = COALESCE(done_at, now())" : "done_at = NULL");
   }
   if (!sets.length) return null;
   vals.push(id);

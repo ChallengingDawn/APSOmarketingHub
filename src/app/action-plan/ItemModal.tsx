@@ -36,9 +36,9 @@ import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 
 import { FAINT, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { KILLED, PRIORITIES, STAGES, isClosed, isLate, priorityLabel, stageOf, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
+import { BUC_MEMBERS, KILLED, PRIORITIES, STAGES, isClosed, isLate, priorityLabel, stageOf, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
 import { LATE, PRIORITY_COLOR, SUMMARY, dmy, stageColor, todayIso, type PlanData } from "./planUi";
-import { PlanSubActions } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
+import { SubActions } from "./SubActions";
 import type { TileInfo } from "@/app/reporting/marketing-kpis/tiles/TileActions";
 
 const field = { "& .MuiInputBase-root": { fontSize: "0.9rem", borderRadius: "8px", bgcolor: "#fff" }, "& .MuiInputLabel-root": { fontSize: "0.88rem" } };
@@ -133,6 +133,23 @@ function Owners({ item, people, peopleError, canWrite, onSave }: {
       )}
       {peopleError && <Typography sx={{ fontSize: "0.78rem", color: RED }}>HubSpot&apos;s users could not be read: {peopleError}</Typography>}
     </Box>
+  );
+}
+
+/**
+ * The referent / challenger: one of the BUC's members, as HubSpot's users (SARCLA 01.11.2026: "should be a BUC member -
+ * Alexandre, Claudio, Bernd, Marc or Rose - like a user"). Kept by name; a name typed before stays until it is changed.
+ */
+function Referent({ value, people, canWrite, onSave }: { value: string; people: PlanOwner[]; canWrite: boolean; onSave: (v: string) => void }) {
+  const names = BUC_MEMBERS.map((m) => people.find((p) => p.id === m.id)?.name ?? m.name);
+  const old = value && !names.includes(value) ? value : "";
+  return (
+    <TextField select size="small" label="Referent / challenger" value={value} disabled={!canWrite} onChange={(e) => onSave(e.target.value)}
+      helperText={old ? "From the workbook - pick the BUC member it means" : "A BUC member"} sx={field} slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}>
+      <MenuItem value="" sx={{ fontSize: "0.86rem", color: FAINT }}>Nobody yet</MenuItem>
+      {names.map((n) => <MenuItem key={n} value={n} sx={{ fontSize: "0.86rem" }}>{n}</MenuItem>)}
+      {old && <MenuItem value={old} sx={{ fontSize: "0.86rem", color: FAINT }}>{old}</MenuItem>}
+    </TextField>
   );
 }
 
@@ -590,7 +607,7 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
                   <TextField size="small" label="Roadmap ID" value={item.code} disabled helperText="The workbook's number" sx={field} slotProps={{ inputLabel: { shrink: true } }} />
                   <Field label="Next steps / milestones" value={item.nextSteps} canWrite={canWrite} multiline rows={3} onSave={(v) => save({ nextSteps: v })} />
                   <Field label="Status note" value={item.statusNote} canWrite={canWrite} multiline rows={3} onSave={(v) => save({ statusNote: v })} />
-                  <Field span={false} label="Referent / challenger" value={item.referent} canWrite={canWrite} onSave={(v) => save({ referent: v })} />
+                  <Referent value={item.referent} people={people} canWrite={canWrite} onSave={(v) => save({ referent: v })} />
                 </Box>
               ) : (
                 <Everything item={item} items={items} rolledAll={rolledAll} colorOf={colorOf} onOpen={onOpen} />
@@ -616,7 +633,7 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
                     </Box>
                     <Switch checked={item.dg} disabled={!canWrite} onChange={(e) => save({ dg: e.target.checked })} />
                   </Box>
-                  <PlanSubActions tile={tile} canWrite={canWrite} tickets={item.dg} start={start === "sub"} onChanged={onChanged} />
+                  <SubActions item={item} tile={tile} canWrite={canWrite} tickets={item.dg} start={start === "sub"} people={people} onChanged={onChanged} />
                 </Box>
               )}
               {addUnder}

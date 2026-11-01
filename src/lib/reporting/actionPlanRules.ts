@@ -50,6 +50,19 @@ export const stageOf = (id: string | null | undefined): Stage | null => STAGES.f
 /** Done or dropped: Live, Maintaining Internally, Killed. */
 export const isClosed = (id: string | null | undefined) => !!stageOf(id)?.closed;
 
+/**
+ * The BUC's members, as HubSpot's users: an action's referent / challenger is one of them (SARCLA 01.11.2026: "referent
+ * / challenger should be a BUC member - Alexandre, Claudio, Bernd, Marc or Rose - like a user"). Owner ids read from
+ * HubSpot that day; Claudio is Claudio Saraiva (Claudio Gabinato is a sales agent).
+ */
+export const BUC_MEMBERS: readonly PlanOwner[] = [
+  { id: "76033827", name: "Alexandre Lecomte" },
+  { id: "1229976033", name: "Claudio Saraiva" },
+  { id: "817647087", name: "Bernd Rausmann" },
+  { id: "817497321", name: "Marc Frech" },
+  { id: "31935670", name: "Rose Rasteiro" },
+];
+
 /** HubSpot's ticket priority. */
 export const PRIORITIES = [
   { value: "LOW", label: "Low" }, { value: "MEDIUM", label: "Medium" }, { value: "HIGH", label: "High" }, { value: "URGENT", label: "Urgent" },
@@ -94,9 +107,15 @@ export type PlanItem = PlanFields & {
 export type PlanSeedItem = Omit<PlanFields, "stage" | "channel" | "country" | "agency" | "roadmapYear" | "kpis" | "nextSteps" | "statusNote" | "reportLink">
   & { src: number; parentSrc: number | null; kind: PlanKind; code: string; sort: number };
 
-/** A sub-action: a KPI task kept for an action (tile "plan:<id>"), or one made on a KPI tile and linked to it. */
+/**
+ * A sub-action: a KPI task kept for an action (tile "plan:<id>"), or one made on a KPI tile and linked to it. A small
+ * action since 01.11.2026 (SARCLA: a sub-action "should be a small action"): the pipeline's stage, a priority, who does
+ * it, a planned and a go-live date (`start`, `due`) - its open / doing / done follows the stage (statusOfStage), as the
+ * KPI tiles show it. A task that never got a stage keeps its open / doing / done.
+ */
 export type PlanSub = {
-  id: number; item: number; title: string; ownerName: string; due: string | null; status: "open" | "doing" | "done";
+  id: number; item: number; title: string; owner: string; ownerName: string; start: string | null; due: string | null;
+  status: "open" | "doing" | "done"; stage: string | null; priority: string;
   /** Made on a KPI tile: its page, to go back to the KPI. Empty when made on the plan. */
   kpiHref: string; kpiTile: string; tickets: number;
 };
@@ -346,6 +365,13 @@ export type Rolled = {
 };
 
 const SUB_PCT = { open: 0, doing: 50, done: 100 } as const;
+type SubStatus = PlanSub["status"];
+/** What a stage means for a KPI task: Idea box (or none) open, Live / Maintaining / Killed done, the rest doing. */
+export const statusOfStage = (stage: string | null): SubStatus => (!stage || stage === IDEA ? "open" : isClosed(stage) ? "done" : "doing");
+/** A KPI task set open / doing / done on its tile, when it has a stage: the stage that says the same. */
+export const stageOfStatus = (status: SubStatus): string => (status === "done" ? LIVE : status === "doing" ? IN_PROGRESS : IDEA);
+/** A sub-action's %: its stage's (Ready to Roll 90), else its status's; null when killed - it leaves the average. */
+export const subPct = (s: Pick<PlanSub, "stage" | "status">): number | null => (s.stage && stageOf(s.stage) ? stageOf(s.stage)!.pct : SUB_PCT[s.status]);
 const minD = (a: string | null, b: string | null) => (!a ? b : !b ? a : a < b ? a : b);
 const maxD = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b);
 
@@ -370,7 +396,7 @@ export function rollup(items: PlanItem[], subs: PlanSub[], today: string): Map<n
     seen.add(i.id);
     const mine = subsOf.get(i.id) ?? [];
     let from = minD(i.start, i.due), to = maxD(i.start, i.due);
-    for (const s of mine) { from = minD(from, s.due); to = maxD(to, s.due); }
+    for (const s of mine) { from = minD(minD(from, s.start), s.due); to = maxD(maxD(to, s.start), s.due); }
     let n = mine.length, open = mine.filter((s) => s.status !== "done").length;
     let late = i.kind === "action" && isLate(i, today) ? 1 : 0;
     const acc = { n: 0, sum: 0 };
@@ -383,8 +409,9 @@ export function rollup(items: PlanItem[], subs: PlanSub[], today: string): Map<n
     }
     let percent: number | null;
     if (i.kind === "action") {
-      percent = mine.length && !isClosed(i.stage) && i.percent !== 100
-        ? Math.round(mine.reduce((s, x) => s + SUB_PCT[x.status], 0) / mine.length)
+      const counted = mine.map(subPct).filter((x): x is number => x != null);
+      percent = counted.length && !isClosed(i.stage) && i.percent !== 100
+        ? Math.round(counted.reduce((s, x) => s + x, 0) / counted.length)
         : i.percent;
       // a killed action is neither done nor to do: it leaves the average
       if (i.stage !== KILLED) { acc.n += 1; acc.sum += percent ?? 0; }

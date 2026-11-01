@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
     const [items, tasks] = await Promise.all([planItems(), planTasks()]);
     const ids = new Set(items.map((i) => i.id));
     const subs: PlanSub[] = tasks.filter((t) => t.planItem != null && ids.has(t.planItem)).map((t) => ({
-      id: t.id, item: t.planItem as number, title: t.title, ownerName: t.ownerName, due: t.due, status: t.status,
+      id: t.id, item: t.planItem as number, title: t.title, owner: t.owner, ownerName: t.ownerName, start: t.start, due: t.due, status: t.status, stage: t.stage, priority: t.priority,
       kpiHref: t.tile.startsWith("plan:") ? "" : t.href, kpiTile: t.tile.startsWith("plan:") ? "" : t.tile, tickets: t.tickets,
     }));
     return NextResponse.json({ ok: true, canWrite: w.canWrite, items, subs, people: list, peopleError, choices: await choices() });
