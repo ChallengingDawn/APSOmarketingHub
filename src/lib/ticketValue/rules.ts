@@ -224,8 +224,9 @@ export type Better = {
   firstOrder: number | null;
 };
 
-/** One company's first order: its orders of that day, one figure per order number. */
-export function firstOrderValue(orders: { name: string; net: number; status: string }[]): number | null {
+/** Orders one figure per order number: its .000 document (the order as placed) when there is one, else its deliveries
+ *  added up; credit notes left out. */
+export function orderTotals(orders: { name: string; net: number; status: string }[]): number[] {
   const byBase = new Map<string, { whole: number | null; parts: number }>();
   for (const o of orders) {
     if (/credit/i.test(o.status)) continue;
@@ -236,10 +237,42 @@ export function firstOrderValue(orders: { name: string; net: number; status: str
     if (pos === "000") e.whole = (e.whole ?? 0) + o.net; else e.parts += o.net;
     byBase.set(base, e);
   }
-  if (!byBase.size) return null;
-  let sum = 0;
-  for (const e of byBase.values()) sum += e.whole ?? e.parts;
+  return [...byBase.values()].map((e) => e.whole ?? e.parts);
+}
+
+/** One company's first order: its orders of that day, one figure per order number. */
+export function firstOrderValue(orders: { name: string; net: number; status: string }[]): number | null {
+  const t = orderTotals(orders);
+  if (!t.length) return null;
+  const sum = t.reduce((a, b) => a + b, 0);
   return sum > 0 ? sum : null;
+}
+
+/** A company's typical order: the middle of its orders - each order number once - of the last 2 years; null when it
+ *  ordered nothing in that time. The middle, not the average: one large project order would make every request of a
+ *  customer who mostly buys small look large. */
+export function typicalOrder(orders: { name: string; net: number; status: string }[]): { value: number; orders: number } | null {
+  const t = orderTotals(orders).filter((v) => v > 0).sort((a, b) => a - b);
+  if (!t.length) return null;
+  const m = Math.floor(t.length / 2);
+  return { value: t.length % 2 ? t[m] : (t[m - 1] + t[m]) / 2, orders: t.length };
+}
+/** The company's orders of the last 2 years (up to 300), read from HubSpot's orders. */
+async function companyTypicalOrder(api: Api, company: string): Promise<{ value: number; orders: number } | null> {
+  const since = String(Date.now() - 730 * 86400_000);
+  const all: { name: string; net: number; status: string }[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 3; page++) {
+    const sr = await api.post("/crm/v3/objects/orders/search", {
+      filterGroups: [{ filters: [{ propertyName: "associations.company", operator: "EQ", value: company }, { propertyName: "order_order_date", operator: "GTE", value: since }] }],
+      properties: ["hs_order_name", "order_total_net_revenue", "order_order_status"], limit: 100, ...(after ? { after } : {}),
+    });
+    if (sr.status !== 200) break;
+    for (const o of (sr.json?.results ?? []) as { properties: Props }[]) all.push({ name: o.properties.hs_order_name ?? "", net: toNum(o.properties.order_total_net_revenue), status: o.properties.order_order_status ?? "" });
+    after = sr.json?.paging?.next?.after;
+    if (!after) break;
+  }
+  return typicalOrder(all);
 }
 
 // ---------------- THE HUB'S PRODUCT RULE ----------------
@@ -434,16 +467,25 @@ export async function scoreTicket(api: Api, tid: string, p: Props, better?: Bett
     }
   }
 
-  // Tier 5 - the company's baseline (the last resort)
+  // Tier 5 - the company's baseline (the workflow's last resort)
   const yp = company.yp;
   if (yp > 0) {
     const tc = company.tickets12m || 0;
-    if (tc > 0) {
-      v = (yp * COMPANY_WIN_RATE) / tc;
-      return { value: v, source: "company_baseline", confidence: "low", why: `(yp${yp.toFixed(0)}*${COMPANY_WIN_RATE})/tc${tc.toFixed(0)}=${v.toFixed(0)}`, company: facts, linked };
-    }
-    v = (yp * COMPANY_WIN_RATE) / 12; // when tickets_count_last_12m is not filled
-    return { value: v, source: "company_baseline", confidence: "low", why: `(yp${yp.toFixed(0)}*${COMPANY_WIN_RATE})/12=${v.toFixed(0)} (no tc)`, company: facts, linked };
+    v = (yp * COMPANY_WIN_RATE) / (tc > 0 ? tc : 12); // 12 when tickets_count_last_12m is not filled
+    const why = tc > 0 ? `(yp${yp.toFixed(0)}*${COMPANY_WIN_RATE})/tc${tc.toFixed(0)}=${v.toFixed(0)}` : `(yp${yp.toFixed(0)}*${COMPANY_WIN_RATE})/12=${v.toFixed(0)} (no tc)`;
+    // the hub: a baseline under 1 EUR (a yearly potential of a few euros) says nothing - on to the company's orders
+    if (!better || v >= 1) return { value: v, source: "company_baseline", confidence: "low", why, company: facts, linked };
+  }
+  // The hub's last two (SARCLA 01.11.2026, on the 1,008 incoming ESO tickets of 2026 valued 0 - 944 "no signal", 204 of
+  // them won: "correct as best as possible"): a company without a potential is valued by its own orders - its typical
+  // order of the last 2 years -, a ticket without a company, or whose company never ordered, by what a new customer's
+  // first order is worth on average (as a new registrant). Both low confidence, as the company's baseline.
+  if (better && resolved) {
+    const t = await companyTypicalOrder(api, resolved);
+    if (t) return { value: t.value, source: "company_baseline", confidence: "low", why: `the company's typical order ${t.value.toFixed(0)} (the middle of its ${t.orders} orders of the last 2 years)`, company: facts, linked };
+  }
+  if (better?.firstOrder) {
+    return { value: better.firstOrder, source: "company_baseline", confidence: "low", why: `${resolved ? "the company never ordered" : "no company"}: the average first order ${better.firstOrder.toFixed(0)}`, company: facts, linked };
   }
   return { value: 0, source: "unknown", confidence: "low", why: "no signal", company: facts, linked };
 }
@@ -547,8 +589,8 @@ export const HUB_RULES: { rule: HubRule; label: string; from: string; confidence
   { rule: "gqs", label: "Its GQS ticket", from: "The Order potential of the GQS ticket linked to it", confidence: "high" },
   { rule: "textqty", label: "Quantity x price in the text", from: "A quantity and a price per piece written in the e-mail", confidence: "medium" },
   { rule: "product", label: "Articles x quantities", from: "Each article in the e-mail x the quantity on its line x what it sells for per piece", confidence: "medium" },
-  { rule: "company", label: "The company's potential", from: "The primary company's yearly potential x 10% / its tickets of the last 12 months", confidence: "low" },
-  { rule: "unknown", label: "No signal", from: "None of the above - 0", confidence: "low" },
+  { rule: "company", label: "The company", from: "The primary company's yearly potential x 10% / its tickets of the last 12 months - without a potential, its typical order of the last 2 years; without orders or a company, the average first order of a new customer", confidence: "low" },
+  { rule: "unknown", label: "No signal", from: "None of the above, and the average first order not worked out yet - 0", confidence: "low" },
 ];
 const LOST_LEAD_RE = /^\s*lost\s*lead\b/i;
 const SECOND_PURCHASE_RE = /^\s*push\s*for\s*second\s*purchase\b/i;

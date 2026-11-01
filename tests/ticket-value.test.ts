@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  articleQuantities, branchOf, decide, decideHub, findArticles, findFirstPrice, findFirstQty, isUnqualified, kpiEvents, lastEditorIsHuman, parseUnitQty, pickUnitPrice,
-  priceArticles, priceCheckArticles, scoreTicket, toNum, unwrapUrl, type Api, type Better, type Resp,
+  articleQuantities, branchOf, decide, decideHub, findArticles, findFirstPrice, findFirstQty, isUnqualified, kpiEvents, lastEditorIsHuman, orderTotals, parseUnitQty, pickUnitPrice,
+  priceArticles, priceCheckArticles, scoreTicket, toNum, typicalOrder, unwrapUrl, type Api, type Better, type Resp,
 } from "../src/lib/ticketValue/rules";
 import { averageOf, enrolsOnStage, finalOf, firstOrderValue, measure, pathOf, pickPipe, pricesOf, sameValue, sumPeriod, zurichDay, zurichMidnight, type DayBucket, type Values } from "../src/lib/ticketValue/model";
 
@@ -247,8 +247,53 @@ test("a customer's request goes down the path: its rule is named, a cart in the 
   const api = fake({ "/crm/v4/objects/tickets/1/associations": none });
   const cart = await decideHub(api, "1", { hs_pipeline: "1726599376", subject: "Abandoned Cart 2.247,20 €EUR | JB TEC sas" }, false, "2026-10-20", better());
   assert.deepEqual([cart.rule, cart.patch?.sales_potential_estimate, cart.patch?.sales_potential_confidence], ["cart", 2247.2, "high"]);
+  // no signal and no company: a new customer's average first order (SARCLA 01.11.2026, "correct as best as possible") -
+  // "unknown" only while that average is not worked out yet
   const none0 = await decideHub(api, "1", { hs_pipeline: "1726599376", subject: "Frage" }, false, "2026-10-20", better());
-  assert.deepEqual([none0.rule, none0.patch?.sales_potential_source], ["unknown", "unknown"]);
+  assert.deepEqual([none0.rule, none0.patch], ["company", { sales_potential_estimate: 420, sales_potential_source: "company_baseline", sales_potential_confidence: "low" }]);
+  assert.match(none0.action, /no company: the average first order 420/);
+  const none1 = await decideHub(api, "1", { hs_pipeline: "1726599376", subject: "Frage" }, false, "2026-10-20", better(null));
+  assert.deepEqual([none1.rule, none1.patch?.sales_potential_source], ["unknown", "unknown"]);
+});
+
+test("a company without a potential: its typical order of the last 2 years - the middle one, each order number once", async () => {
+  const order = (name: string, net: string, status = "invoiced") => ({ properties: { hs_order_name: name, order_total_net_revenue: net, order_order_status: status } });
+  const routes = (orders: unknown[]) => fake({
+    "/crm/v4/objects/tickets/1/associations/tickets": none,
+    "/crm/v4/objects/tickets/1/associations/companies": { results: [{ toObjectId: 55, associationTypes: [{ label: "Primary" }] }] },
+    "/crm/v3/objects/companies/55": { properties: { mandant: "M100", yearly_customer_potential: "", tickets_count_last_12m: "4" } },
+    "/crm/v3/objects/orders/search": { results: orders },
+  });
+  // 4 orders: 120, 300 (its .000 - the deliveries not counted again), 450, a 90,000 project; the credit note left out
+  const orders = [order("A1.000 | x", "120"), order("A2.000 | x", "300"), order("A2.001 | x", "300"), order("A3.000 | x", "450"), order("A4.000 | x", "90000"), order("A5.000 | x", "-500", "credit note")];
+  const d = await decideHub(routes(orders), "1", { hs_pipeline: "1726599376", subject: "Anfrage O-Ringe" }, false, "2026-11-01", better());
+  assert.deepEqual([d.rule, d.patch], ["company", { sales_potential_estimate: 375, sales_potential_source: "company_baseline", sales_potential_confidence: "low" }]);
+  assert.match(d.action, /typical order 375 \(the middle of its 4 orders/);
+  // never ordered: a new customer's average first order
+  const n = await decideHub(routes([]), "1", { hs_pipeline: "1726599376", subject: "Anfrage" }, false, "2026-11-01", better());
+  assert.deepEqual([n.patch?.sales_potential_estimate, n.action], [420, "the company never ordered: the average first order 420"]);
+});
+
+test("a company baseline under 1 EUR says nothing: the hub goes on to the company's orders - the workflow's copy keeps it", async () => {
+  const tiny = {
+    "/crm/v4/objects/tickets/1/associations/tickets": none,
+    "/crm/v4/objects/tickets/1/associations/companies": { results: [{ toObjectId: 55 }] },
+    "/crm/v3/objects/companies/55": { properties: { yearly_customer_potential: "5", tickets_count_last_12m: "3" } },
+    "/crm/v3/objects/orders/search": { results: [{ properties: { hs_order_name: "B1.000 | x", order_total_net_revenue: "800", order_order_status: "invoiced" } }] },
+  };
+  const hub = await scoreTicket(fake(tiny), "1", { subject: "hello" }, better());
+  assert.deepEqual([hub.value, hub.source, hub.confidence], [800, "company_baseline", "low"]);
+  const copy = await scoreTicket(fake(tiny), "1", { subject: "hello" });
+  assert.deepEqual([Math.round(copy.value * 100) / 100, copy.source], [0.17, "company_baseline"]);
+});
+
+test("orders as one figure per order number - the first order and the typical order", () => {
+  const o = (name: string, net: number, status = "invoiced") => ({ name, net, status });
+  assert.deepEqual(orderTotals([o("A1.000 | x", 100), o("A1.001 | x", 100), o("A2.001 | x", 40), o("A2.002 | x", 60), o("A3.000", -20, "Credit Note")]), [100, 100]);
+  assert.equal(firstOrderValue([o("A1.000 | x", 100), o("A1.001 | x", 100)]), 100);
+  assert.equal(firstOrderValue([]), null);
+  assert.deepEqual(typicalOrder([o("A1.000", 100), o("A2.000", 300), o("A3.000", 5000)]), { value: 300, orders: 3 });
+  assert.deepEqual(typicalOrder([o("A1.000", 0)]), null);
 });
 
 test("products at the price they sell for, every article added up - not the list price per 100", async () => {

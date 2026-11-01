@@ -5,8 +5,10 @@
 // off in HubSpot - until then the page says so and the hub stays in shadow - so the two never write at once.
 // Two one-time jobs when it starts (his answers 21.10): every open ESO/TSA ticket valued once with the hub's rules; the
 // values the workflow left on Back Office, GQS and Special Prices tickets cleared (a person's own value is kept), and
-// their open-ticket rows in the KPI object counted without a value. Every change is logged with what was there before
-// (kv ticketValue:log:<time>:<job>), so it can be put back.
+// their open-ticket rows in the KPI object counted without a value. A third (SARCLA 01.11.2026, "correct as best as
+// possible"): every ESO/TSA ticket left without a value - "no signal", or a company baseline under 1 EUR - valued again
+// with the rules' new last steps (the company's typical order, else a new customer's average first order). Every change
+// is logged with what was there before (kv ticketValue:log:<time>:<job>), so it can be put back.
 
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
@@ -76,7 +78,7 @@ export async function writeKpi(rows: KpiRow[], archive: string[]): Promise<numbe
 }
 
 // ---------------- the log: what was there before ----------------
-export type LogEntry = { id: string; job: "ticket" | "revalue" | "clear" | "kpi"; before: Values | Record<string, string | number | null>; after: Values | Record<string, string | number | null> | null; rule?: HubRule; link?: string | null };
+export type LogEntry = { id: string; job: "ticket" | "revalue" | "nosignal" | "clear" | "kpi"; before: Values | Record<string, string | number | null>; after: Values | Record<string, string | number | null> | null; rule?: HubRule; link?: string | null };
 async function log(job: LogEntry["job"], entries: LogEntry[]) {
   if (entries.length) await kvSet(`ticketValue:log:${new Date().toISOString()}:${job}`, entries);
 }
@@ -90,7 +92,7 @@ export type LiveResult = {
 };
 
 /** Read the ticket, decide with the hub's rules, write what changes, the link, the KPI rows; log it. */
-export async function liveTicket(id: string, better: Better, job: "ticket" | "revalue" = "ticket", raw?: Raw): Promise<LiveResult> {
+export async function liveTicket(id: string, better: Better, job: "ticket" | "revalue" | "nosignal" = "ticket", raw?: Raw): Promise<LiveResult> {
   const t = raw ?? await hubspotRetry<Raw>({ path: `/crm/v3/objects/tickets/${id}?properties=${TICKET_PROPS.join(",")}&propertiesWithHistory=${VALUE_PROPS.join(",")}` });
   const p = t.properties ?? {};
   const human = lastEditorIsHuman(t.propertiesWithHistory?.sales_potential_estimate);
@@ -103,9 +105,10 @@ export async function liveTicket(id: string, better: Better, job: "ticket" | "re
     if (d.patch) { await writeTicket(id, d.patch); written.changed = true; }
     // the re-valuing keeps the open-ticket row of the KPI object right; a live ticket writes all its rows
     if (d.kpi?.rows) {
-      const rows = job === "revalue" ? d.kpi.rows.filter((r) => /\|(live|mo)\|/.test(r.name)) : d.kpi.rows;
-      const archive = job === "revalue" ? d.kpi.archive.filter((n) => /\|(live|mo)\|/.test(n)) : d.kpi.archive;
-      if (job !== "revalue" || written.changed) written.kpi = await writeKpi(rows, archive);
+      const again = job !== "ticket";
+      const rows = again ? d.kpi.rows.filter((r) => /\|(live|mo)\|/.test(r.name)) : d.kpi.rows;
+      const archive = again ? d.kpi.archive.filter((n) => /\|(live|mo)\|/.test(n)) : d.kpi.archive;
+      if (!again || written.changed) written.kpi = await writeKpi(rows, archive);
     }
   } catch (e) {
     written.error = (e as Error).message.slice(0, 200);
@@ -192,6 +195,8 @@ export type Jobs = {
   started: string | null;
   revalue: { cursor: string; done: number; changed: number; errors: number; finished: string | null };
   clear: { cursor: string; done: number; cleared: number; keptTyped: number; kpiCursor: string; kpiFixed: number; finished: string | null };
+  /** the tickets left without a value, valued again (01.11.2026) - added to a state kept since 21.10 */
+  nosignal?: { cursor: string; done: number; changed: number; errors: number; finished: string | null; byRule?: Record<string, number> };
 };
 const KV_JOBS = "ticketValue:jobs";
 const freshJobs = (): Jobs => ({ started: new Date().toISOString(), revalue: { cursor: "0", done: 0, changed: 0, errors: 0, finished: null }, clear: { cursor: "0", done: 0, cleared: 0, keptTyped: 0, kpiCursor: "0", kpiFixed: 0, finished: null } });
@@ -223,6 +228,37 @@ async function revalueStep(j: Jobs, better: Better, more: () => boolean): Promis
     j.revalue.done++;
     n++;
   }
+  return n;
+}
+
+/** Every ESO/TSA ticket left without a value - "no signal", or a company baseline under 1 EUR - valued again with the
+ *  rules' new last steps, 30 a run, open and closed (only its open-ticket row in the KPI object follows). A ticket still
+ *  without one (the average first order not worked out yet) is passed - the cursor moves on. */
+async function nosignalStep(j: Jobs, better: Better, more: () => boolean): Promise<number> {
+  const s = (j.nosignal ??= { cursor: "0", done: 0, changed: 0, errors: 0, finished: null, byRule: {} });
+  if (s.finished || !more() || !better.firstOrder) return 0;
+  const groups = [ESO, TSA].flatMap((pipe) => [
+    [{ propertyName: "sales_potential_source", operator: "EQ", value: "unknown" }],
+    [{ propertyName: "sales_potential_source", operator: "EQ", value: "company_baseline" }, { propertyName: "sales_potential_estimate", operator: "LT", value: "1" }],
+  ].map((f) => ({ filters: [{ propertyName: "hs_pipeline", operator: "EQ", value: pipe }, ...f, { propertyName: "hs_object_id", operator: "GT", value: s.cursor }] })));
+  const page = await hubspotRetry<Page>({ path: "/crm/v3/objects/tickets/search", method: "POST", body: { filterGroups: groups, properties: ["hs_object_id"], sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: REVALUE_PER_RUN } });
+  const ids = (page.results ?? []).map((r) => String(r.id));
+  if (!ids.length) { s.finished = new Date().toISOString(); console.log(`[ticket-value] no-signal job finished: ${s.done} tickets, ${s.changed} valued, ${s.errors} errors`); return 0; }
+  const full = await hubspotRetry<{ results?: Raw[] }>({ path: "/crm/v3/objects/tickets/batch/read", method: "POST", body: { inputs: ids.map((id) => ({ id })), properties: TICKET_PROPS, propertiesWithHistory: ["sales_potential_estimate"] } });
+  const byId = new Map((full.results ?? []).map((r) => [String(r.id), r]));
+  let n = 0;
+  for (const id of ids) {
+    if (!more()) break;
+    try {
+      const r = await liveTicket(id, better, "nosignal", byId.get(id));
+      if (r.written.changed) { s.changed++; const k = /typical order/.test(r.better.action) ? "typical order" : /average first order/.test(r.better.action) ? "average first order" : r.better.rule; (s.byRule ??= {})[k] = (s.byRule[k] ?? 0) + 1; }
+      if (r.written.error) s.errors++;
+    } catch { s.errors++; }
+    s.cursor = id;
+    s.done++;
+    n++;
+  }
+  if (n) console.log(`[ticket-value] no-signal job: ${s.done} done, ${s.changed} valued (${Object.entries(s.byRule ?? {}).map(([k, v]) => `${k} ${v}`).join(", ")}), ${s.errors} errors`);
   return n;
 }
 
@@ -279,6 +315,7 @@ export async function oneTimeJobs(better: Better, more: () => boolean): Promise<
   try {
     await revalueStep(j, better, more);
     await clearStep(j, more);
+    await nosignalStep(j, better, more);
   } finally {
     await kvSet(KV_JOBS, j);
   }
