@@ -24,11 +24,28 @@ export const LEVEL: Record<How, "high" | "medium" | "low" | "none"> = { person: 
 /** a ticket the AI filed by its closest guess (kv ticketClose:guessed) */
 export type Guessed = { cat: string; sure: string };
 
+/**
+ * How a ticket came to the topic it has today (SARCLA 01.11.2026, on Detection: "the figures don't match - rethink the
+ * app based on the logic we have"). The topic is decided in three places - at intake (the keywords, the form or app it
+ * came from, or the person who created it), afterwards by the hub reading it (the sentiment flag, the AI two hours
+ * after it arrived or at its close), and by a person re-filing it - so every ticket of a period is one of:
+ * kept = it still has the topic it came with; hub = the hub's reading gave it (it came with Others, none, or a Task
+ * Status Report); person = a person gave it the one it has; open = still Others or empty.
+ */
+export type Journey = "kept" | "hub" | "person" | "open";
+export const JOURNEYS: Journey[] = ["kept", "hub", "person", "open"];
+
 /** What one ticket counts for: its category today, how it got it, and whether a person changed it to another one. */
-export type Fact = { cat: string; person: boolean; fromOthers: boolean; how: How };
+export type Fact = { cat: string; person: boolean; fromOthers: boolean; how: How; intake: string; journey: Journey };
 
 /** One day's tickets (by the day they were created, Swiss time); topics = per category, how many by each How. */
-export type DayFig = { n: number; others: number; empty: number; person: number; fromOthers: number; topics: Record<string, Partial<Record<How, number>>> };
+export type DayFig = {
+  n: number; others: number; empty: number; person: number; fromOthers: number; topics: Record<string, Partial<Record<How, number>>>;
+  /** per Journey; tj = per category and Journey */
+  j: Partial<Record<Journey, number>>; tj: Record<string, Partial<Record<Journey, number>>>;
+  /** what changed after intake: pairKey(intake, today, journey) -> tickets (journeys hub and person only) */
+  pairs: Record<string, number>;
+};
 
 /** A period's figures. */
 export type Win = DayFig & { from: string; to: string };
@@ -61,24 +78,63 @@ export function howOf(cat: string, newest: Hist | undefined, resolvedAt?: string
   return "keywords";
 }
 
+/** intake = what the ticket had half an hour after it arrived: the hub's routing writes within two minutes */
+const INTAKE_MS = 30 * 60_000;
+/** a value a person set this close to the creation came with the ticket (created by hand, its category picked) */
+const BY_HAND_MS = 60_000;
+
+/**
+ * The topic a ticket came with: the last value set within its first half hour by the routing, a form or an app - or by
+ * the person who created it, at the creation. A person's change after that is a re-filing, not the intake.
+ */
+export function intakeOf(hist: Hist[], created?: string | null): string {
+  const asc = [...hist].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const c0 = created ? Date.parse(created) : NaN;
+  if (!Number.isFinite(c0)) return (asc[0]?.value ?? "").trim();
+  let v = "";
+  for (const h of asc) {
+    const t = Date.parse(h.timestamp);
+    if (t > c0 + INTAKE_MS) break;
+    if (!byPerson(h) || t <= c0 + BY_HAND_MS) v = (h.value ?? "").trim();
+  }
+  return v;
+}
+
+/** kept / hub / person / open - see Journey. */
+export function journeyOf(cat: string, intake: string, how: How): Journey {
+  if (isEmpty(cat) || isOthers(cat)) return "open";
+  if (cat === intake) return "kept";
+  return how === "person" ? "person" : "hub";
+}
+
+/** One key per "came with -> has today -> who"; the separator never appears in a category. */
+const SEP = "\u0001";
+export const pairKey = (intake: string, today: string, j: Journey) => [intake, today, j].join(SEP);
+export function pairOf(key: string): { intake: string; today: string; journey: Journey } {
+  const [intake, today, journey] = key.split(SEP);
+  return { intake, today, journey: journey as Journey };
+}
+
 /**
  * A person re-filed the ticket when a change made by hand set a category other than the one it had just before - the
  * automatic one, or none. Setting the same value again is not a correction.
  */
-export function factOf(current: string | null | undefined, hist: Hist[], resolvedAt?: string | null, guessed?: Guessed): Fact {
+export function factOf(current: string | null | undefined, hist: Hist[], resolvedAt?: string | null, guessed?: Guessed, created?: string | null): Fact {
   const cat = (current ?? "").trim();
   const asc = [...hist].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
   const how = howOf(cat, asc[asc.length - 1], resolvedAt, guessed);
+  const intake = intakeOf(asc, created);
+  const journey = journeyOf(cat, intake, how);
   let prev = "";
   for (const h of asc) {
     const v = (h.value ?? "").trim();
-    if (byPerson(h) && v && v !== prev) return { cat, person: true, fromOthers: isOthers(prev) || isEmpty(prev), how };
+    if (byPerson(h) && v && v !== prev) return { cat, person: true, fromOthers: isOthers(prev) || isEmpty(prev), how, intake, journey };
     prev = v;
   }
-  return { cat, person: false, fromOthers: false, how };
+  return { cat, person: false, fromOthers: false, how, intake, journey };
 }
 
-export const emptyDay = (): DayFig => ({ n: 0, others: 0, empty: 0, person: 0, fromOthers: 0, topics: {} });
+export const emptyDay = (): DayFig => ({ n: 0, others: 0, empty: 0, person: 0, fromOthers: 0, topics: {}, j: {}, tj: {}, pairs: {} });
 
 export function addFact(d: DayFig, f: Fact): void {
   d.n++;
@@ -86,16 +142,27 @@ export function addFact(d: DayFig, f: Fact): void {
   else if (isOthers(f.cat)) d.others++;
   if (f.person) d.person++;
   if (f.fromOthers) d.fromOthers++;
-  const t = (d.topics[f.cat || "(empty)"] ??= {});
+  const c = f.cat || "(empty)";
+  const t = (d.topics[c] ??= {});
   t[f.how] = (t[f.how] ?? 0) + 1;
+  d.j[f.journey] = (d.j[f.journey] ?? 0) + 1;
+  const tj = (d.tj[c] ??= {});
+  tj[f.journey] = (tj[f.journey] ?? 0) + 1;
+  if (f.journey === "hub" || f.journey === "person") {
+    const k = pairKey(f.intake, f.cat, f.journey);
+    d.pairs[k] = (d.pairs[k] ?? 0) + 1;
+  }
 }
 
+function addCounts<K extends string>(into: Partial<Record<K, number>>, from: Partial<Record<K, number>> | undefined): void {
+  for (const [k, n] of Object.entries(from ?? {}) as [K, number][]) into[k] = (into[k] ?? 0) + n;
+}
 function addDay(w: DayFig, d: DayFig): void {
   w.n += d.n; w.others += d.others; w.empty += d.empty; w.person += d.person; w.fromOthers += d.fromOthers;
-  for (const [c, hows] of Object.entries(d.topics)) {
-    const t = (w.topics[c] ??= {});
-    for (const [h, n] of Object.entries(hows) as [How, number][]) t[h] = (t[h] ?? 0) + n;
-  }
+  for (const [c, hows] of Object.entries(d.topics)) addCounts((w.topics[c] ??= {}), hows);
+  addCounts(w.j, d.j);
+  for (const [c, js] of Object.entries(d.tj ?? {})) addCounts((w.tj[c] ??= {}), js);
+  addCounts(w.pairs, d.pairs);
 }
 
 /**
@@ -115,16 +182,21 @@ export function sumDays(days: Record<string, DayFig>, from: string, to: string):
   return w;
 }
 
-/** The tickets of from..to per month (YYYY-MM) and topic. */
-export function monthsOf(days: Record<string, DayFig>, from: string, to: string): { ym: string; topics: Record<string, number> }[] {
-  const by = new Map<string, Record<string, number>>();
+/** A month of the period: its tickets per topic, and per Journey. */
+export type MonthFig = { ym: string; topics: Record<string, number>; j: Partial<Record<Journey, number>> };
+
+/** The tickets of from..to per month (YYYY-MM): per topic, and per Journey. */
+export function monthsOf(days: Record<string, DayFig>, from: string, to: string): MonthFig[] {
+  const by = new Map<string, MonthFig>();
   for (const [k, d] of Object.entries(days)) {
     if (k < from || k > to) continue;
-    const m = by.get(k.slice(0, 7)) ?? {};
-    for (const [c, hows] of Object.entries(d.topics)) m[c] = (m[c] ?? 0) + Object.values(hows).reduce((a, n) => a + (n ?? 0), 0);
-    by.set(k.slice(0, 7), m);
+    const ym = k.slice(0, 7);
+    const m = by.get(ym) ?? { ym, topics: {}, j: {} };
+    for (const [c, hows] of Object.entries(d.topics)) m.topics[c] = (m.topics[c] ?? 0) + Object.values(hows).reduce((a, n) => a + (n ?? 0), 0);
+    addCounts(m.j, d.j);
+    by.set(ym, m);
   }
-  return [...by.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([ym, topics]) => ({ ym, topics }));
+  return [...by.values()].sort((a, b) => a.ym.localeCompare(b.ym));
 }
 
 const DAY_MS = 86_400_000;

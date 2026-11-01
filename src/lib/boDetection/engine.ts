@@ -5,24 +5,33 @@
 // it (its category history) - and kept in kv boDetection:month:<YYYY-MM>. The current month is counted again every 30 minutes,
 // the one before every 6 hours, older ones once a week (a person rarely re-files an old ticket). A restart loses at most
 // the month being counted. Reads HubSpot only, writes nothing there. BO_DETECTION=off stops it.
+// Since 01.11.2026 (store version 4) each ticket also counts for how it came to its topic - the one it came with, the
+// hub's reading, a person (figures.ts Journey) - and what changed after intake; the tickets that did not keep their
+// intake topic are listed per month (kv boDetection:list:<YYYY-MM>) so a line of the page opens its tickets. The same
+// run reads every GQS task for the GQS figures (src/lib/gqsFigures, kv gqsFigures:store).
 
 import type { PoolClient } from "pg";
 import { getPool, query } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
-import { addFact, dayOf, emptyDay, factOf, mergeDays, monthsOf, monthsSince, previousWindow, sumDays, type DayFig, type Guessed, type Hist, type Win } from "./figures";
+import { addFact, dayOf, emptyDay, factOf, mergeDays, monthsOf, monthsSince, previousWindow, sumDays, type DayFig, type Guessed, type Hist, type How, type Journey, type MonthFig, type Win } from "./figures";
+import { readGqs } from "../gqsFigures/read";
+import type { GqsStore } from "../gqsFigures/figures";
 
 const LOCK = 4_107_247;
 const EVERY_MS = 30 * 60_000;
 const BO = "1726786777";
 /** The Back Office pipeline's first tickets */
 const FIRST_MONTH = "2025-03";
-const KV = { month: (ym: string) => `boDetection:month:${ym}`, dirty: "boDetection:dirty", guessed: "ticketClose:guessed" };
+const KV = { month: (ym: string) => `boDetection:month:${ym}`, list: (ym: string) => `boDetection:list:${ym}`, dirty: "boDetection:dirty", guessed: "ticketClose:guessed", gqs: "gqsFigures:store" };
 const RESOLVED_AT = "hs_v2_date_entered_2338266328";
-/** what a month store holds; a store of another version is counted again (2: who set the category; 3: the AI's guess) */
-const VERSION = 3;
+/** what a month store holds; a store of another version is counted again (2: who set the category; 3: the AI's guess;
+ *  4: the journey from intake, what changed after it, the month's list) */
+const VERSION = 4;
 
 type MonthStore = { v?: number; at: string; n: number; days: Record<string, DayFig> };
+/** A ticket that did not keep the topic it came with: its id, Swiss day, subject, intake topic, today's, how it got there. */
+export type ListItem = { id: string; d: string; s: string; i: string; t: string; j: Journey; h: How };
 type Obj = { id: string; properties: Record<string, string | null>; propertiesWithHistory?: Record<string, Hist[]> };
 
 const HOUR = 3_600_000;
@@ -44,7 +53,7 @@ async function ticketsOfMonth(ym: string): Promise<Obj[]> {
         { propertyName: "createdate", operator: "LT", value: String(to) },
         { propertyName: "hs_object_id", operator: "GT", value: cursor },
       ] }],
-      properties: ["createdate", "enquiry_category"], sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: 200,
+      properties: ["createdate", "enquiry_category", "subject"], sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: 200,
     } });
     const res = j.results ?? [];
     out.push(...res);
@@ -53,9 +62,10 @@ async function ticketsOfMonth(ym: string): Promise<Obj[]> {
   }
 }
 
-async function countMonth(ym: string, guessed: Record<string, Guessed>): Promise<MonthStore> {
+async function countMonth(ym: string, guessed: Record<string, Guessed>): Promise<{ store: MonthStore; list: ListItem[] }> {
   const tickets = await ticketsOfMonth(ym);
   const days: Record<string, DayFig> = {};
+  const list: ListItem[] = [];
   for (let i = 0; i < tickets.length; i += 50) {
     const chunk = tickets.slice(i, i + 50);
     const j = await hubspotRetry<{ results?: Obj[] }>({ path: "/crm/v3/objects/tickets/batch/read", method: "POST", body: {
@@ -67,10 +77,12 @@ async function countMonth(ym: string, guessed: Record<string, Guessed>): Promise
       if (!created) continue;
       const h = hist.get(String(t.id));
       const k = dayOf(created);
-      addFact((days[k] ??= emptyDay()), factOf(h?.properties.enquiry_category ?? t.properties.enquiry_category, h?.propertiesWithHistory?.enquiry_category ?? [], h?.properties[RESOLVED_AT], guessed[String(t.id)]));
+      const f = factOf(h?.properties.enquiry_category ?? t.properties.enquiry_category, h?.propertiesWithHistory?.enquiry_category ?? [], h?.properties[RESOLVED_AT], guessed[String(t.id)], created);
+      addFact((days[k] ??= emptyDay()), f);
+      if (f.journey !== "kept") list.push({ id: String(t.id), d: k, s: (t.properties.subject ?? "").replace(/\s+/g, " ").trim().slice(0, 110), i: f.intake, t: f.cat, j: f.journey, h: f.how });
     }
   }
-  return { v: VERSION, at: new Date().toISOString(), n: tickets.length, days };
+  return { store: { v: VERSION, at: new Date().toISOString(), n: tickets.length, days }, list };
 }
 
 async function run(): Promise<void> {
@@ -84,15 +96,20 @@ async function run(): Promise<void> {
     const have = await kvGet<MonthStore>(KV.month(ym));
     if (have?.v === VERSION && !dirty.has(ym) && Date.now() - Date.parse(have.at) < staleAfter(ym)) continue;
     const m = await countMonth(ym, guessed);
-    await kvSet(KV.month(ym), m);
+    await kvSet(KV.list(ym), m.list);
+    await kvSet(KV.month(ym), m.store);
     done.push(ym);
-    n += m.n;
+    n += m.store.n;
   }
   if (dirty.size) {
     const still = ((await kvGet<string[]>(KV.dirty)) ?? []).filter((ym) => !done.includes(ym));
     await kvSet(KV.dirty, still);
   }
   if (done.length) console.log(`[bo-detection] counted ${done.length} month(s) (${done.join(", ")}) - ${n} Back Office tickets, ${Math.round((Date.now() - t0) / 1000)} s`);
+  // the GQS tasks, all of them every run - a failed read keeps the last one
+  try {
+    await kvSet(KV.gqs, await readGqs());
+  } catch (e) { console.warn(`[bo-detection] GQS tasks not read: ${(e as Error).message.slice(0, 200)}`); }
 }
 
 export async function runOnce(): Promise<void> {
@@ -130,8 +147,8 @@ export function startBoDetection() {
 export type PeriodFigures = {
   now: Win;
   before: Win;
-  /** the period's tickets per month and topic */
-  byMonth: { ym: string; topics: Record<string, number> }[];
+  /** the period's tickets per month: per topic, per Journey */
+  byMonth: MonthFig[];
   /** the first day with a Back Office ticket - a period that starts earlier really starts here */
   since: string | null;
   /** months not counted yet (the first count after a deploy takes a few minutes) */
@@ -162,3 +179,26 @@ export async function periodFigures(from: string, to: string): Promise<PeriodFig
     countedAt,
   };
 }
+
+/** Which tickets of a period to list: a "came with -> has today" line, or a journey (open = still Others / empty). */
+export type ListPick = { intake?: string; today?: string; journey?: Journey };
+const LIST_MAX = 300;
+
+/**
+ * The tickets of from..to that did not keep the topic they came with, narrowed to a pick - newest first, at most 300
+ * (total says how many there are). Read from the month lists, so it agrees with the figures of the same count.
+ */
+export async function periodList(from: string, to: string, pick: ListPick): Promise<{ rows: ListItem[]; total: number }> {
+  const months = monthsSince(FIRST_MONTH).filter((ym) => ym >= from.slice(0, 7) && ym <= to.slice(0, 7));
+  const got = await query<{ k: string; v: ListItem[] | string }>("SELECT k, v FROM apsomh_kv WHERE k = ANY($1)", [months.map(KV.list)]);
+  const all = got.rows.flatMap((r) => (typeof r.v === "string" ? (JSON.parse(r.v) as ListItem[]) : r.v) ?? []);
+  const keep = all.filter((x) => x.d >= from && x.d <= to
+    && (pick.journey === undefined || x.j === pick.journey)
+    && (pick.intake === undefined || x.i === pick.intake)
+    && (pick.today === undefined || x.t === pick.today))
+    .sort((a, b) => b.d.localeCompare(a.d) || b.id.localeCompare(a.id));
+  return { rows: keep.slice(0, LIST_MAX), total: keep.length };
+}
+
+/** Every GQS task as last read (null until the first run after a release, ~5 minutes). */
+export const gqsStore = () => kvGet<GqsStore>(KV.gqs);

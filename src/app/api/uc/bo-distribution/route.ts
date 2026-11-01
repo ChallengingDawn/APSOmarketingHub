@@ -7,6 +7,9 @@
 // GET ?ticket=ID: one ticket decided now, nothing stored.
 // GET ?detection=1&from=YYYY-MM-DD&to=YYYY-MM-DD: the Detection tiles for any period and the same days just before it,
 // counted from HubSpot (src/lib/boDetection).
+// GET ?detection=list&from&to[&intake&today&journey]: the tickets of the period that did not keep the topic they came
+// with - one "came with -> has today" line of the page, or a journey (open = still Others / empty).
+// GET ?gqs=1: every GQS task as the 30-minute count last read it (src/lib/gqsFigures) - the GQS figures.
 // POST {action: "classify", subject, content}: the classifier on any text (read-only, for everyone with access).
 // Admins: PUT {mode?, rosters?} - the teams the hub uses (a list set to null goes back to the workflow's);
 // POST {action: "run"} look now; POST {action: "replay"} replay the last 7 days.
@@ -23,7 +26,8 @@ import {
 } from "@/lib/boDistribution/engine";
 import { DEFAULT_PRIORITY, PEOPLE, PRIORITY_TABLE, type Person, type PrioritySettings, type RosterKey } from "@/lib/boDistribution/rules";
 import { DEFAULT_HUB, type HubOptions, type Settings } from "@/lib/boDistribution/engine";
-import { periodFigures } from "@/lib/boDetection/engine";
+import { gqsStore, periodFigures, periodList, type ListPick } from "@/lib/boDetection/engine";
+import { JOURNEYS, type Journey } from "@/lib/boDetection/figures";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,8 +45,17 @@ export async function GET(req: NextRequest) {
       const day = /^\d{4}-\d{2}-\d{2}$/;
       const from = sp.get("from") ?? "", to = sp.get("to") ?? "";
       if (!day.test(from) || !day.test(to) || from > to) return NextResponse.json({ configured: true, ok: false, error: "from and to must be days, from first" }, { status: 400 });
+      if (sp.get("detection") === "list") {
+        const j = sp.get("journey");
+        const pick: ListPick = {
+          intake: sp.has("intake") ? sp.get("intake")! : undefined, today: sp.has("today") ? sp.get("today")! : undefined,
+          journey: j && (JOURNEYS as string[]).includes(j) ? (j as Journey) : undefined,
+        };
+        return NextResponse.json({ configured: true, ok: true, data: await periodList(from, to, pick) });
+      }
       return NextResponse.json({ configured: true, ok: true, data: await periodFigures(from, to) });
     }
+    if (sp.get("gqs")) return NextResponse.json({ configured: true, ok: true, data: await gqsStore() });
     // SARCLA 25.10.2026: "back office distribution don't have the time filter on top, it limits
     // to only 7 days". The rows are kept for 21 days (engine DAYS_KEPT), so the page may ask for
     // any window up to that; 7 stays the default.

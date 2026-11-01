@@ -14,9 +14,14 @@
 // not mention it anymore". So the present tense belongs to the hub, and the workflows appear only
 // where they are genuinely the subject - the rollback path, and figures from before the hand-over.
 //
-// Tabs: Overview, Tickets, Flow, Detection, Sentiment, Priority, People, GQS, Settings.
+// A main toggle, Back Office | GQS (SARCLA 01.11.2026: "GQS should have its own KPI subdivided like we do in advanced
+// reporting - create a main toggle in between pipelines"), and each pipeline its own tabs:
+//   Back Office - Overview, Tickets, Flow, Detection, Sentiment, Priority, People, Settings;
+//   GQS - Overview, Type of request, By person, Speed, Open now (GqsKpis.tsx, every GQS task), Distribution (who gets
+//   each, GqsTab.tsx - the old GQS tab), People, Settings.
+// People and Settings hold both pipelines' lists and switches, so they are under both.
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
@@ -62,11 +67,15 @@ import type { Classification } from "@/lib/boDistribution/classifier";
 import type { Person, RosterKey } from "@/lib/boDistribution/rules";
 
 import {
-  CHAT_LABEL, Detail, STEP, TicketTable, VIEW_HASH, count, fixesDiffer, gave, measure, movedAfterUs, pct, sameOwner,
-  type Data, type PeopleData, type View,
+  CHAT_LABEL, Detail, GQS_KPI_VIEWS, PIPE_OF, STEP, TicketTable, VIEW_HASH, count, fixesDiffer, gave, movedAfterUs, pct,
+  type Data, type PeopleData, type Pipe, type View,
 } from "./shared";
+import type { GqsStore } from "@/lib/gqsFigures/figures";
+import { dayOf, rangeLabel } from "@/lib/boDetection/figures";
+import { DEEMPHASIS } from "@/app/charts/palette";
 import { FlowTab } from "./FlowTab";
 import { GqsTab } from "./GqsTab";
+import { GqsKpis, openCount, type GqsView } from "./GqsKpis";
 import { PriorityTab } from "./PriorityTab";
 import { SettingsTab } from "./SettingsTab";
 import { DetectionTab } from "./DetectionTab";
@@ -75,36 +84,50 @@ import { StraysCard } from "./StraysCard";
 import { ChatCard } from "./ChatCard";
 /* ── Overview ── */
 
-function Overview({ d }: { d: Data }) {
-  const m = measure(d.rows);
+/**
+ * What the routing did with the period's Back Office tickets (SARCLA 01.11.2026, "figures don't match"): the tiles are
+ * the Tickets tab's four counts - so the two tabs never disagree - and every line compares the hub with what it wrote,
+ * never with the old rules' pick ("Owner left as chosen" compared the owner with the rules as they stood before the
+ * hand-over, while the hub writes its corrected ones). The categories here are the ones the ticket came with, which is
+ * what routing works with: the engine reads a ticket's category once, ten minutes after it arrives - the topic it has
+ * today is Detection's.
+ */
+function Overview({ d, asked }: { d: Data; asked: number }) {
+  const rows = d.rows;
+  // the routing keeps its tickets 21 days: name the days the figures really cover, never the period asked for
+  const entered = rows.map((r) => r.enteredAt).sort();
+  const label = entered.length ? rangeLabel(dayOf(entered[0]), dayOf(entered[entered.length - 1])) : "in the period";
+  const capped = asked > ROWS_KEPT_DAYS ? ` (the routing keeps its tickets ${ROWS_KEPT_DAYS} days - the topics of any period are on Detection)` : "";
+  const given = rows.filter((r) => r.wrote?.ok);
+  const moved = rows.filter(movedAfterUs);
+  const fixes = rows.filter(fixesDiffer);
   const days = useMemo(() => {
-    const by = new Map<string, { same: number; different: number; none: number; waiting: number }>();
-    for (const r of d.rows) {
+    const by = new Map<string, { kept: number; moved: number; none: number }>();
+    for (const r of rows) {
       const k = r.enteredAt.slice(0, 10);
-      const b = by.get(k) ?? { same: 0, different: 0, none: 0, waiting: 0 };
-      if (!r.legacy) b.none++; else if (!r.actual) b.waiting++; else if (sameOwner(r)) b.same++; else b.different++;
+      const b = by.get(k) ?? { kept: 0, moved: 0, none: 0 };
+      if (!r.wrote?.ok) b.none++; else if (movedAfterUs(r)) b.moved++; else b.kept++;
       by.set(k, b);
     }
     return [...by].sort((a, b) => a[0].localeCompare(b[0])).map(([x, v]) => ({ x: x.slice(8, 10) + "." + x.slice(5, 7), ...v }));
-  }, [d.rows]);
+  }, [rows]);
   const kpis = [
-    { label: "Tickets, 7 days", value: full(m.total), note: `${full(m.bo)} Back Office, ${full(m.gqs)} GQS${d.backfill && !d.backfill.done ? " - replay still running" : ""}`, icon: <ConfirmationNumberOutlinedIcon />, tint: "blue" as const },
-    { label: "Owner left as chosen", value: pct(m.liveSame, m.live), note: `${full(m.liveSame)} of ${full(m.live)} tickets still carry the owner the hub picked - the rest a person moved afterwards`, icon: <PersonOutlineOutlinedIcon />, tint: "green" as const },
-    { label: "Category left as set", value: pct(m.catSame, m.cat), note: `${full(m.catSame)} of ${full(m.cat)}; priority left alone on ${pct(m.prioSame, m.prio)}`, icon: <CategoryOutlinedIcon />, tint: "purple" as const },
-    { label: "Corrections change the owner", value: full(m.fixes), note: "Tickets where the corrected rules pick someone else than the old routing would have", icon: <CompareArrowsOutlinedIcon />, tint: "amber" as const },
+    { label: "Back Office tickets", value: full(rows.length), note: `Entered New ${label}${capped}${d.backfill && !d.backfill.done ? " - replay still running" : ""}`, icon: <ConfirmationNumberOutlinedIcon />, tint: "blue" as const },
+    { label: "Given an owner by the hub", value: full(given.length), note: `${pct(given.length, rows.length)} of them; the rest came with an owner, had none to give on their path (chat, exclusions) or waited for someone available`, icon: <PersonOutlineOutlinedIcon />, tint: "green" as const },
+    { label: "Moved after the hub gave it", value: full(moved.length), note: given.length ? `${pct(moved.length, given.length)} of the ones the hub gave - a person gave them to someone else afterwards` : "Nothing given yet", icon: <CompareArrowsOutlinedIcon />, tint: "amber" as const },
+    { label: "A fix changed the owner", value: full(fixes.length), note: "Tickets where the corrected rules pick someone else than the rules before the hand-over would have", icon: <AltRouteOutlinedIcon />, tint: "purple" as const },
   ];
-  const owners = count(d.rows.filter((r) => r.actual), (r) => gave(r)!.name);
-  const steps = count(d.rows.filter((r) => r.route?.assigner), (r) => STEP[r.route!.assigner!]);
-  const cats = count(d.rows.filter((r) => r.actual), (r) => r.actual!.category ?? "No category");
+  const owners = count(rows.filter((r) => r.actual), (r) => gave(r)!.name);
+  const steps = count(rows.filter((r) => r.route?.assigner), (r) => STEP[r.route!.assigner!]);
+  const intake = (r: Row) => r.route?.sets.enquiry_category ?? r.actual?.category ?? "No category";
+  const cats = count(rows, intake);
   const [cat, setCat] = useState<string | null>(null);
   // deliveries, and how many of them are cut-to-size (SARCLA 19.10.2026: "from deliveries, how many C2S")
-  const deliveries = d.rows.filter((r) => r.pipeline === "bo" && (r.route?.sets.enquiry_category ?? r.actual?.category) === "Delivery");
+  const deliveries = rows.filter((r) => intake(r) === "Delivery");
   const c2s = deliveries.filter((r) => r.c2s);
-  const delSubs = count(deliveries, (r) => r.route?.sets.enquiry_sub_category___delivery___1 ?? r.actual?.subCategory ?? "No sub-category")
-    .map((x) => ({ ...x, secondary: `${full(deliveries.filter((r) => (r.route?.sets.enquiry_sub_category___delivery___1 ?? r.actual?.subCategory ?? "No sub-category") === x.label && r.c2s).length)} C2S` }));
-  const inCat = !cat ? [] : cat.startsWith("Delivery: ")
-    ? d.rows.filter((r) => (r.route?.sets.enquiry_category ?? r.actual?.category) === "Delivery" && (r.route?.sets.enquiry_sub_category___delivery___1 ?? r.actual?.subCategory ?? "No sub-category") === cat.slice(10))
-    : d.rows.filter((r) => r.actual && (r.actual.category ?? "No category") === cat);
+  const delSub = (r: Row) => r.route?.sets.enquiry_sub_category___delivery___1 ?? r.actual?.subCategory ?? "No sub-category";
+  const delSubs = count(deliveries, delSub).map((x) => ({ ...x, secondary: `${full(deliveries.filter((r) => delSub(r) === x.label && r.c2s).length)} C2S` }));
+  const inCat = !cat ? [] : cat.startsWith("Delivery: ") ? deliveries.filter((r) => delSub(r) === cat.slice(10)) : rows.filter((r) => intake(r) === cat);
   return (
     <>
       <Grid container spacing={2}>
@@ -113,23 +136,23 @@ function Overview({ d }: { d: Data }) {
       <StraysCard d={d} />
       <ChatCard d={d} />
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<InsightsOutlinedIcon />} tint="blue" title="Day by day" note="Copy against HubSpot: same owner, another owner, no distribution on the path, not settled yet" />
-        <StackedColumns data={days} parts={[{ key: "same", label: "Same owner" }, { key: "different", label: "Another owner" }, { key: "none", label: "No distribution" }, { key: "waiting", label: "Not settled" }]} format={(v) => full(v ?? 0)} />
+        <CardTitle icon={<InsightsOutlinedIcon />} tint="blue" title="Day by day" note="Each day's Back Office tickets: the owner the hub gave is still theirs, a person moved it afterwards, or the hub gave none" />
+        <StackedColumns data={days} parts={[{ key: "kept", label: "Kept the hub's owner" }, { key: "moved", label: "Moved afterwards" }, { key: "none", label: "No owner from the hub", color: DEEMPHASIS }]} format={(v) => full(v ?? 0)} />
       </GlassCard>
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<PersonOutlineOutlinedIcon />} tint="green" title="Who got them" note="Owner in HubSpot" /><BarList rows={owners} labelWidth={150} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
+        <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<PersonOutlineOutlinedIcon />} tint="green" title="Who got them" note="What the distribution step gave" /><BarList rows={owners} labelWidth={150} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
         <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<AltRouteOutlinedIcon />} tint="purple" title="Which rule picked" note="The rule that chose the owner on each ticket's path" /><BarList rows={steps} labelWidth={170} format={(v) => full(v ?? 0)} /></GlassCard></Grid>
-        <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="Categories" note="As HubSpot has them now - click one to see its tickets" /><BarList rows={cats} labelWidth={150} format={(v) => full(v ?? 0)} onSelect={(l) => setCat(cat === l ? null : l)} selectedLabel={cat} /></GlassCard></Grid>
+        <Grid size={{ xs: 12, lg: 4 }}><GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: "100%" }}><CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title="Category at intake" note="What the routing filed each ticket as when it arrived - the topic it has today is on Detection. Click one for its tickets" /><BarList rows={cats} labelWidth={150} format={(v) => full(v ?? 0)} onSelect={(l) => setCat(cat === l ? null : l)} selectedLabel={cat} /></GlassCard></Grid>
       </Grid>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<CategoryOutlinedIcon />} tint="pink" title={`Deliveries: ${full(deliveries.length)}, of which cut-to-size (C2S): ${full(c2s.length)} (${pct(c2s.length, deliveries.length)})`}
+        <CardTitle icon={<CategoryOutlinedIcon />} tint="pink" title={`Deliveries at intake: ${full(deliveries.length)}, of which cut-to-size (C2S): ${full(c2s.length)} (${pct(c2s.length, deliveries.length)})`}
           note="C2S = flagged by the ticket associations (c2s_ticket), a C2S problem order, or C2S / Zuschnitt in the subject. Second figure: the C2S ones" />
         <BarList rows={delSubs} labelWidth={200} format={(v) => full(v ?? 0)} onSelect={(l) => setCat(cat === `Delivery: ${l}` ? null : `Delivery: ${l}`)} />
       </GlassCard>
       {cat && (
         <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-          <CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title={`${cat} - ${full(inCat.length)} tickets`}
-            note={cat === "Others" ? "Others = the keyword classifier recognised nothing in the e-mail (or a form / hub ticket came without a known category) - it then goes to whoever is least busy. Detection > Not recognised shows why." : "Click the category again to close"} />
+          <CardTitle icon={<CategoryOutlinedIcon />} tint="amber" title={`${cat} at intake - ${full(inCat.length)} tickets`}
+            note={cat === "Others" ? "Others at intake = the keywords recognised nothing in the e-mail, so the ticket went to whoever was least busy. Two hours later the hub reads it and gives it its topic - Detection shows what they became." : "Click the category again to close"} />
           <TicketTable rows={inCat} empty="No ticket." />
         </GlassCard>
       )}
@@ -139,7 +162,6 @@ function Overview({ d }: { d: Data }) {
 
 function Tickets({ d }: { d: Data }) {
   const [filter, setFilter] = useState<"all" | "wrote" | "moved" | "fixes" | "error">("all");
-  const [pipe, setPipe] = useState<"all" | "bo" | "gqs">("all");
   const [id, setId] = useState("");
   const [check, setCheck] = useState<string | null>(null);
   const checked = useHeld<Row>(check ? `/api/uc/bo-distribution?ticket=${check}` : null, [check]);
@@ -149,8 +171,8 @@ function Tickets({ d }: { d: Data }) {
       : filter === "moved" ? movedAfterUs(r)
       : filter === "fixes" ? fixesDiffer(r)
       : !!r.error;
-  const rows = d.rows.filter((r) => (pipe === "all" || r.pipeline === pipe) && keep(r));
-  const inPipe = d.rows.filter((r) => pipe === "all" || r.pipeline === pipe);
+  const rows = d.rows.filter(keep);
+  const inPipe = d.rows;
   const given = inPipe.filter((r) => r.wrote?.ok).length;
   const moved = inPipe.filter(movedAfterUs).length;
   return (
@@ -169,7 +191,7 @@ function Tickets({ d }: { d: Data }) {
         <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Ticket by ticket" note={d.last ? `Last look ${when(d.last.at)}: ${full(d.last.read)} read, ${full(d.last.decided)} new, ${full(d.last.checked)} checked${d.last.error ? ` - ${d.last.error}` : ""}` : "Not run yet"} />
         {/* How many tickets the hub has actually handled, which is what the tab is for. */}
         <Grid container spacing={1.5} sx={{ mb: 2, mt: 0.5 }}>
-          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<ConfirmationNumberOutlinedIcon />} tint="slate" label="Tickets seen" value={full(inPipe.length)} note={pipe === "all" ? "Back Office and GQS" : pipe === "bo" ? "Back Office" : "GQS"} /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<ConfirmationNumberOutlinedIcon />} tint="slate" label="Tickets seen" value={full(inPipe.length)} note="Back Office - GQS's are on GQS > Distribution" /></Grid>
           <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<PersonOutlineOutlinedIcon />} tint="green" label="Given an owner by the hub" value={full(given)} note={`${pct(given, inPipe.length)} of them`} /></Grid>
           <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<CompareArrowsOutlinedIcon />} tint="amber" label="Moved after we gave it" value={full(moved)} note={given ? `${pct(moved, given)} of the ones we gave` : "nothing given yet"} /></Grid>
           <Grid size={{ xs: 6, md: 3 }}><KpiTile icon={<AltRouteOutlinedIcon />} tint="pink" label="A fix changed the owner" value={full(inPipe.filter(fixesDiffer).length)} note="rules in fixes.ts" /></Grid>
@@ -185,7 +207,6 @@ function Tickets({ d }: { d: Data }) {
             { key: "fixes", label: "A fix changed the owner", count: inPipe.filter(fixesDiffer).length },
             { key: "error", label: "Could not be read", count: inPipe.filter((r) => !!r.error).length },
           ]} />
-          <Choice<"all" | "bo" | "gqs"> value={pipe} onChange={setPipe} options={[{ key: "all", label: "Both" }, { key: "bo", label: "Back Office" }, { key: "gqs", label: "GQS" }]} />
         </Box>
         <TicketTable rows={rows} empty={`Nothing yet - tickets appear within ${d.everyMinutes} minutes of entering the stage; the replay fills the last 7 days.`} />
       </GlassCard>
@@ -309,54 +330,93 @@ function SentimentPanel({ days, from, to, label }: { days: number; from: string;
  */
 // keep in step with DAYS_KEPT in src/lib/boSentiment/engine.ts and DETAIL_DAYS in the route
 const STORE_DAYS = 90;
+/** what the route answers at most (route.ts: the routing's rows are kept 21 days) */
+const ROWS_KEPT_DAYS = 21;
+
+/** Back Office | GQS - the page's main toggle (SARCLA 01.11.2026), drawn as the ESO reports draw ESO | TSA | Total. */
+const PIPES: { id: Pipe; label: string; count: null }[] = [{ id: "bo", label: "Back Office", count: null }, { id: "gqs", label: "GQS", count: null }];
 
 export default function BoDistribution() {
   const [view, setView] = useHashTab<View>(VIEW_HASH, "overview");
+  // People and Settings serve both pipelines and keep the one picked; every other tab belongs to one, so an address
+  // naming it (an old #gqs) opens its pipeline
+  const [pipe, setPipe] = useState<Pipe>("bo");
+  useEffect(() => { const p = PIPE_OF[view]; if (p && p !== pipe) setPipe(p); }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
+  const choosePipe = (p: Pipe) => { setPipe(p); setView(p === "gqs" ? "gqs" : "overview"); };
   const [n, setN] = useState(0);
   const { window: win, days: askedDays, label: periodLabel } = useReportingWindow();
   const days = Math.min(STORE_DAYS, Math.max(1, askedDays));
   const url = `/api/uc/bo-distribution?days=${days}${n ? `&n=${n}` : ""}`;
   const held = useHeld<Data>(url, [url]);
   const r = held.result;
+  // GQS's own figures: every GQS task, read only once GQS is picked
+  const gqsUrl = pipe === "gqs" ? `/api/uc/bo-distribution?gqs=1${n ? `&n=${n}` : ""}` : null;
+  const gqsHeld = useHeld<GqsStore | null>(gqsUrl, [gqsUrl]);
+  const g = gqsHeld.result;
+  const store = g?.state === "ok" ? g.data : null;
   const reload = () => setN((x) => x + 1);
+  const all = r?.state === "ok" ? r.data : null;
+  // the Back Office tabs see the Back Office's tickets; GQS's are on GQS > Distribution
+  const bo = useMemo(() => (all ? { ...all, rows: all.rows.filter((x) => x.pipeline === "bo") } : null), [all]);
+  const gqsRows = all ? all.rows.filter((x) => x.pipeline === "gqs").length : 0;
   let body: React.ReactNode;
-  if (r === null) body = <LoadingPanel label="Reading the Back Office tickets…" />;
-  else if (r.state !== "ok") body = <UpstreamPanel source="Back Office distribution" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={reload} />;
-  else if (view === "tickets") body = <Tickets d={r.data} />;
-  else if (view === "flow") body = <FlowTab d={r.data} />;
-  else if (view === "detection") body = <DetectionTab d={r.data} from={win.from} to={win.to} />;
+  if (GQS_KPI_VIEWS.includes(view)) {
+    if (g === null) body = <LoadingPanel label="Reading the GQS tasks…" />;
+    else if (g.state !== "ok") body = <UpstreamPanel source="GQS figures" error={g.state === "error" ? g.error : "not configured"} status={g.state === "error" ? g.status : null} onRetry={reload} />;
+    else if (!store) body = <LoadingPanel label="The GQS tasks are read every 30 minutes - the first read after a release takes about five minutes" />;
+    else body = <GqsKpis key={view} view={view as GqsView} store={store} from={win.from} to={win.to} />;
+  } else if (r === null || !all || !bo) {
+    body = r !== null && r.state !== "ok"
+      ? <UpstreamPanel source="Back Office distribution" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={reload} />
+      : <LoadingPanel label="Reading the Back Office tickets…" />;
+  }
+  else if (view === "tickets") body = <Tickets d={bo} />;
+  else if (view === "flow") body = <FlowTab d={all} />;
+  else if (view === "detection") body = <DetectionTab d={all} from={win.from} to={win.to} />;
   else if (view === "sentiment") body = <SentimentPanel key="sentiment" days={days} from={win.from} to={win.to} label={periodLabel} />;
-  else if (view === "people") body = <People d={r.data} onSaved={reload} />;
-  else if (view === "gqs") body = <GqsTab d={r.data} />;
-  else if (view === "settings") body = <SettingsTab key={r.data.settings.at ?? "s"} d={r.data} onChanged={reload} />;
-  else if (view === "priority") body = <PriorityTab key={r.data.settings.at ?? "p"} d={r.data} onSaved={reload} />;
-  else body = <Overview d={r.data} />;
-  const rows = r?.state === "ok" ? r.data.rows : [];
+  else if (view === "people") body = <People d={all} onSaved={reload} />;
+  else if (view === "gqs-routing") body = <GqsTab d={all} />;
+  else if (view === "settings") body = <SettingsTab key={all.settings.at ?? "s"} d={all} onChanged={reload} />;
+  else if (view === "priority") body = <PriorityTab key={all.settings.at ?? "p"} d={all} onSaved={reload} />;
+  else body = <Overview d={bo} asked={askedDays} />;
+  const open = openCount(store);
+  const tabs: { id: View; label: string; count: string | null }[] = pipe === "gqs" ? [
+    { id: "gqs", label: "Overview", count: null },
+    { id: "gqs-type", label: "Type of request", count: null },
+    { id: "gqs-people", label: "By person", count: null },
+    { id: "gqs-speed", label: "Speed", count: null },
+    { id: "gqs-open", label: "Open now", count: open ? full(open) : null },
+    { id: "gqs-routing", label: "Distribution", count: gqsRows ? full(gqsRows) : null },
+    { id: "people", label: "People", count: null },
+    { id: "settings", label: "Settings", count: null },
+  ] : [
+    { id: "overview", label: "Overview", count: null },
+    { id: "tickets", label: "Tickets", count: bo?.rows.length ? full(bo.rows.length) : null },
+    { id: "flow", label: "Flow", count: null },
+    { id: "detection", label: "Detection", count: null },
+    { id: "sentiment", label: "Sentiment", count: null },
+    { id: "priority", label: "Priority", count: null },
+    { id: "people", label: "People", count: null },
+    { id: "settings", label: "Settings", count: null },
+  ];
+  const busy = r === null || held.stale || (pipe === "gqs" && (g === null || gqsHeld.stale));
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
         title="Back Office distribution"
-        subtitle="Who gets each new Back Office and GQS ticket, and why"
+        subtitle={pipe === "gqs" ? "GQS: the requests for an offer - how many, what came of them, how long they take, and who gets each" : "Back Office: who gets each new ticket, what it is about, and why"}
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <WindowPicker />
-            {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
+            {busy && <CircularProgress size={14} sx={{ color: MUTED }} />}
             <Tooltip title="Read again"><IconButton size="small" onClick={reload} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
           </Box>
         }
       />
-      <Box>
-        <ReportTabs name="bodist" tab={view} onSelect={setView} tabs={[
-          { id: "overview", label: "Overview", count: null },
-          { id: "tickets", label: "Tickets", count: rows.length ? full(rows.length) : null },
-          { id: "flow", label: "Flow", count: null },
-          { id: "detection", label: "Detection", count: null },
-          { id: "sentiment", label: "Sentiment", count: null },
-          { id: "priority", label: "Priority", count: null },
-          { id: "people", label: "People", count: null },
-          { id: "gqs", label: "GQS", count: rows.filter((x) => x.pipeline === "gqs").length ? full(rows.filter((x) => x.pipeline === "gqs").length) : null },
-          { id: "settings", label: "Settings", count: null },
-        ]} />
+      {/* Back Office | GQS - a row of its own above the tabs, as ESO | TSA | Total on the ESO reports */}
+      <Box sx={{ display: "grid", gap: 1.25 }}>
+        <Box sx={{ justifySelf: "start" }}><ReportTabs name="bodist-pipeline" tab={pipe} onSelect={choosePipe} tabs={PIPES} /></Box>
+        <Box><ReportTabs name="bodist" tab={tabs.some((t) => t.id === view) ? view : tabs[0].id} onSelect={setView} tabs={tabs} /></Box>
       </Box>
       <Box role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>{body}</Box>
     </Box>

@@ -57,8 +57,22 @@ export type Data = {
   defaults: { hub: Settings["hub"]; priority: Settings["priority"] };
 };
 export type PeopleData = { people: PersonRow[]; owners: Person[]; at: string };
-export type View = "overview" | "tickets" | "flow" | "detection" | "sentiment" | "priority" | "people" | "gqs" | "settings";
-export const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", flow: "#flow", detection: "#detection", sentiment: "#sentiment", priority: "#priority", people: "#people", gqs: "#gqs", settings: "#settings" };
+export type View = "overview" | "tickets" | "flow" | "detection" | "sentiment" | "priority" | "people" | "settings"
+  | "gqs" | "gqs-type" | "gqs-people" | "gqs-speed" | "gqs-open" | "gqs-routing";
+/** #gqs was the GQS tab (now GQS > Distribution, #gqs-distribution); it opens GQS's own figures. */
+export const VIEW_HASH: Record<View, string> = {
+  overview: "#overview", tickets: "#tickets", flow: "#flow", detection: "#detection", sentiment: "#sentiment", priority: "#priority", people: "#people", settings: "#settings",
+  gqs: "#gqs", "gqs-type": "#gqs-type", "gqs-people": "#gqs-people", "gqs-speed": "#gqs-speed", "gqs-open": "#gqs-open", "gqs-routing": "#gqs-distribution",
+};
+/** The page's main toggle (SARCLA 01.11.2026: "create a main toggle in between pipelines"). */
+export type Pipe = "bo" | "gqs";
+/** The pipeline a tab belongs to; null = both (People and Settings hold both pipelines' lists and switches). */
+export const PIPE_OF: Record<View, Pipe | null> = {
+  overview: "bo", tickets: "bo", flow: "bo", detection: "bo", sentiment: "bo", priority: "bo", people: null, settings: null,
+  gqs: "gqs", "gqs-type": "gqs", "gqs-people": "gqs", "gqs-speed": "gqs", "gqs-open": "gqs", "gqs-routing": "gqs",
+};
+/** GQS's own figures (GqsKpis.tsx) - drawn from every GQS task, not from the distribution's rows. */
+export const GQS_KPI_VIEWS: readonly View[] = ["gqs", "gqs-type", "gqs-people", "gqs-speed", "gqs-open"];
 export const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "—");
 export const STEP: Record<string, string> = {
   "23": "Assignment System - Maida, Sara, team", "27": "General Distribution", "42": "General Distribution, then ESO/TSA",
