@@ -100,7 +100,8 @@ export function CompanyDialog({ source, title, onClose }: { source: CompanySourc
 
 type State = { busy: boolean; data?: CompanyPageOut; pending?: boolean; error?: string };
 
-/** What a cell sorts by: its value given, or the cell itself when it is text or a number ("€1,234", "12.5%" by the figure). */
+/** What a cell sorts by: its value given, or the cell itself when it is text or a number ("€1,234", "12.5%" by the figure);
+ *  an empty cell or a dash, nothing - last either way. */
 function valueOf(r: CompanyItem, col: number): string | number | null {
   if (col === 0) return r.name;
   const given = r.values?.[col - 1];
@@ -109,6 +110,8 @@ function valueOf(r: CompanyItem, col: number): string | number | null {
   if (typeof c === "number") return c;
   if (typeof c !== "string") return null;
   const t = c.trim();
+  // nothing there ("—"): last, whichever way
+  if (t === "" || /^[—–-]$/.test(t)) return null;
   if (/^[−+-]?[€$]?\s?[\d,.']+\s?%?$/.test(t)) return Number(t.replace(/[€$%,'\s+]/g, "").replace("−", "-")) || 0;
   return t;
 }
