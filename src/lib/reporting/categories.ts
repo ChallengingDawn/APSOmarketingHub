@@ -105,6 +105,8 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     // default is TSA")
     slug: "tsa", name: "TSA Reports", line: "The TSA team's customers - per person, this year against last",
     reports: [
+      // first, where ESO has its Visits: TSA calls (SARCLA 01.11.2026: "build instead of visits on TSA a sub report for calls")
+      { name: "Calls", href: "/reporting/tsa-benchmark/calls", note: "Qualified calls per person - the companies reached, the prospects called and did they register and buy", icon: "chat" },
       // against the first qualified call, not the visit: TSA calls (SARCLA 01.11.2026: "measuring visits here it's not fair")
       { name: "Registrations", href: "/reporting/tsa-benchmark/registrations", note: "Companies registered in the shop, against their first qualified call, opening on TSA", icon: "verified" },
       { name: "Customer development", href: "/reporting/tsa-benchmark/customers", note: "Active, new, reactivated, decreasing and lost customers, opening on TSA", icon: "groups" },
