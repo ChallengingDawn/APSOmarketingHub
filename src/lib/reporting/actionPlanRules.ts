@@ -24,17 +24,66 @@ export const STATE_LABEL: Record<PlanState, string> = { todo: "Not started", doi
 /** A person an action is assigned to: a HubSpot user (owner id), as the KPI tasks keep them. */
 export type PlanOwner = { id: string; name: string };
 
-/** The fields a person can change on a row - everything the workbook has, under the plan's names. */
+/* ── an action speaks the "From Scroll to Sale" ticket's language ─────────────────────────────────
+   SARCLA 01.11.2026: "uniform the values of the stages - follow at the maximum what we use on the From Scroll to
+   Sale pipeline ... planned date, go-live date instead of start, due ... priority as HubSpot's Low / Medium /
+   High / Urgent". The stages and choices below are the pipeline's (4197562568) as read on 01.11.2026; the hub
+   offers HubSpot's live choices where it can read them. `start` and `due` keep their names in the data and
+   are the planned date and the go-live date on screen. */
+
+/** The pipeline's stages, in its order; `pct` = what the stage says about progress (null: counts nowhere). */
+export type Stage = { id: string; label: string; closed: boolean; pct: number | null };
+export const STAGES: readonly Stage[] = [
+  { id: "6161860807", label: "Idea box", closed: false, pct: 0 },
+  { id: "6161860808", label: "In Progress", closed: false, pct: 50 },
+  { id: "6161845476", label: "Waiting on APSO", closed: false, pct: 50 },
+  { id: "6161845477", label: "Waiting on Agency", closed: false, pct: 50 },
+  { id: "6161860809", label: "Ready to Roll", closed: false, pct: 90 },
+  { id: "6161856758", label: "Live", closed: true, pct: 100 },
+  { id: "6161856759", label: "Maintaining Internally", closed: true, pct: 100 },
+  // dropped: neither done nor to do, so it leaves the averages above it
+  { id: "6161860810", label: "Killed", closed: true, pct: null },
+];
+export const IDEA = "6161860807", IN_PROGRESS = "6161860808", LIVE = "6161856758", KILLED = "6161860810";
+const WAITING = ["6161845476", "6161845477"];
+export const stageOf = (id: string | null | undefined): Stage | null => STAGES.find((s) => s.id === id) ?? null;
+/** Done or dropped: Live, Maintaining Internally, Killed. */
+export const isClosed = (id: string | null | undefined) => !!stageOf(id)?.closed;
+
+/** HubSpot's ticket priority. */
+export const PRIORITIES = [
+  { value: "LOW", label: "Low" }, { value: "MEDIUM", label: "Medium" }, { value: "HIGH", label: "High" }, { value: "URGENT", label: "Urgent" },
+] as const;
+export type Priority = (typeof PRIORITIES)[number]["value"];
+export const priorityLabel = (v: string) => PRIORITIES.find((p) => p.value === v)?.label ?? "";
+
+/** The ticket's choices (mkt_channel, mkt_implementation_country, mkt_agency, mkt_roadmap_year) as read 01.11.2026. */
+export type Opt = { value: string; label: string };
+const opts = (...v: string[]): Opt[] => v.map((x) => ({ value: x, label: x }));
+export const S2S_CHOICES: Record<"channel" | "country" | "agency" | "roadmapYear", Opt[]> = {
+  channel: opts("SEA", "HubSpot", "LinkedIn", "Website", "Internal communication", "Newsletter", "Print", "SEO/GEO", "Other"),
+  country: opts("All", "CH", "DE", "IT", "FR"),
+  agency: opts("Bespoke", "Moskito", "SMEC", "TBC", "dotSource"),
+  roadmapYear: opts("2026", "2027"),
+};
+
+/** The fields a person can change on a row: the Scroll to Sale ticket's, plus what only the plan has. */
 export type PlanFields = {
   /**
    * Who does it: people, picked (SARCLA 01.11.2026: "assignment should be done by user, not names like Sales
    * leader"). `responsible` keeps the workbook's words ("LEAL/FRMA/RABE", "Sales leaders") beside them.
    */
   owners: PlanOwner[];
-  title: string; detail: string; priority: string; responsible: string; referent: string; status: string;
-  state: PlanState | null; result: string; mainTopic: string; perimeter: string; expected: string;
-  codeFreeze: string; complexity: string; release: string;
+  title: string; detail: string; priority: string; responsible: string; referent: string;
+  /** The pipeline's stage id (STAGES); null = nobody has said yet. */
+  stage: string | null;
+  channel: string[]; country: string[]; agency: string[]; roadmapYear: string;
+  kpis: string; nextSteps: string; statusNote: string; reportLink: string;
   start: string | null; due: string | null; dueNote: string; percent: number | null; dg: boolean;
+  // the workbook's own columns, kept in the data but no longer shown - their words moved to the ticket's fields
+  // once (toS2s); SARCLA 01.11.2026: "copy the HubSpot one made with the agency and delete those not needed"
+  status: string; state: PlanState | null; result: string; mainTopic: string; perimeter: string; expected: string;
+  codeFreeze: string; complexity: string; release: string;
 };
 
 export type PlanItem = PlanFields & {
@@ -42,7 +91,8 @@ export type PlanItem = PlanFields & {
   updatedBy: string; updatedAt: string;
 };
 
-export type PlanSeedItem = PlanFields & { src: number; parentSrc: number | null; kind: PlanKind; code: string; sort: number };
+export type PlanSeedItem = Omit<PlanFields, "stage" | "channel" | "country" | "agency" | "roadmapYear" | "kpis" | "nextSteps" | "statusNote" | "reportLink">
+  & { src: number; parentSrc: number | null; kind: PlanKind; code: string; sort: number };
 
 /** A sub-action: a KPI task kept for an action (tile "plan:<id>"), or one made on a KPI tile and linked to it. */
 export type PlanSub = {
@@ -107,6 +157,68 @@ export function stateOfPercent(p: number, was: PlanState | null): PlanState {
   if (p >= 100) return "done";
   if (p <= 0) return was === "hold" ? "hold" : "todo";
   return "doing";
+}
+
+/** The workbook's reading of a status as the pipeline's stage; on hold waits on APSO. */
+export function stageOfState(state: PlanState | null): string | null {
+  return state === "todo" ? IDEA : state === "doing" ? IN_PROGRESS : state === "hold" ? WAITING[0] : state === "done" ? LIVE : null;
+}
+/** And back, for the old column (a hub rolled back still shows where each action stands). */
+export function stateOfStage(id: string | null): PlanState | null {
+  if (!id) return null;
+  if (id === IDEA) return "todo";
+  if (WAITING.includes(id) || id === KILLED) return "hold";
+  return stageOf(id)?.closed ? "done" : "doing";
+}
+/** The progress a stage means. */
+export const percentOfStage = (id: string | null): number | null => stageOf(id)?.pct ?? null;
+
+/**
+ * The stage a typed percentage means: 100 % is live (or stays maintained), 0 % the idea box unless it is waiting
+ * on someone, anything between in progress unless it already stands further on an open stage.
+ */
+export function stageOfPercent(p: number, was: string | null): string {
+  if (p >= 100) return was === LIVE || was === "6161856759" ? was : LIVE;
+  if (p <= 0) return was && WAITING.includes(was) ? was : IDEA;
+  return was && !isClosed(was) && was !== IDEA ? was : IN_PROGRESS;
+}
+
+/** The workbook's priority 1, 2, 3 as HubSpot's; anything else is not a priority. */
+export function priorityOfWorkbook(p: string): Priority | "" {
+  const t = p.trim().toUpperCase();
+  if ((PRIORITIES as readonly { value: string }[]).some((x) => x.value === t)) return t as Priority;
+  return t === "1" ? "HIGH" : t === "2" ? "MEDIUM" : t === "3" ? "LOW" : "";
+}
+
+/** The workbook's "Main topic" as the ticket's marketing channels, where it names one. */
+export function channelsOfTopic(main: string): string[] {
+  const t = main.toLowerCase();
+  const out: string[] = [];
+  if (/\b(seo|geo)\b/.test(t)) out.push("SEO/GEO");
+  if (/\bsea\b/.test(t)) out.push("SEA");
+  if (/\b(hubspot|crm)\b/.test(t)) out.push("HubSpot");
+  if (/\blinkedin\b/.test(t)) out.push("LinkedIn");
+  if (/\bnewsletter\b/.test(t)) out.push("Newsletter");
+  if (/\b(website|web ?shop|e-?shop)\b/.test(t)) out.push("Website");
+  return out;
+}
+
+/**
+ * A row in the ticket's terms, once: the status as a stage, 1/2/3 as Low/Medium/High, the workbook's status and
+ * result words into the status note, its expected result into the KPIs, its main topic into the channels. Fields
+ * already filled are kept; nothing is made up - a row the workbook says nothing about keeps no stage.
+ */
+export function toS2s(r: Pick<PlanFields, "state" | "priority" | "status" | "result" | "expected" | "mainTopic" | "stage" | "statusNote" | "kpis" | "channel">): Pick<PlanFields, "stage" | "priority" | "statusNote" | "kpis" | "channel"> {
+  const prio = priorityOfWorkbook(r.priority);
+  const odd = r.priority.trim() && !prio ? r.priority.trim() : "";
+  const note = [r.status.trim(), r.result.trim() ? `Result: ${r.result.trim()}` : "", odd].filter(Boolean).join("\n\n");
+  return {
+    stage: r.stage ?? stageOfState(r.state),
+    priority: prio,
+    statusNote: r.statusNote.trim() ? r.statusNote : note,
+    kpis: r.kpis.trim() ? r.kpis : r.expected.trim() ? `Expected: ${r.expected.trim()}` : "",
+    channel: r.channel.length ? r.channel : channelsOfTopic(r.mainTopic),
+  };
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -237,8 +349,9 @@ const SUB_PCT = { open: 0, doing: 50, done: 100 } as const;
 const minD = (a: string | null, b: string | null) => (!a ? b : !b ? a : a < b ? a : b);
 const maxD = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b);
 
-export function isLate(i: Pick<PlanItem, "due" | "percent" | "state">, today: string): boolean {
-  return !!i.due && i.due < today && i.state !== "done" && (i.percent ?? 0) < 100;
+/** Past its go-live date and neither live nor dropped. */
+export function isLate(i: Pick<PlanItem, "due" | "percent" | "stage">, today: string): boolean {
+  return !!i.due && i.due < today && !isClosed(i.stage) && (i.percent ?? 0) < 100;
 }
 
 /** Every row's figures, bottom up. */
@@ -270,10 +383,11 @@ export function rollup(items: PlanItem[], subs: PlanSub[], today: string): Map<n
     }
     let percent: number | null;
     if (i.kind === "action") {
-      percent = mine.length && i.state !== "done" && i.percent !== 100
+      percent = mine.length && !isClosed(i.stage) && i.percent !== 100
         ? Math.round(mine.reduce((s, x) => s + SUB_PCT[x.status], 0) / mine.length)
         : i.percent;
-      acc.n += 1; acc.sum += percent ?? 0;
+      // a killed action is neither done nor to do: it leaves the average
+      if (i.stage !== KILLED) { acc.n += 1; acc.sum += percent ?? 0; }
     } else {
       percent = acc.n ? Math.round(acc.sum / acc.n) : null;
     }

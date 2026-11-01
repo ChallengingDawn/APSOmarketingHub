@@ -1,8 +1,10 @@
 // THE ACTION PLAN, KEPT IN THE HUB (SARCLA 31.10.2026: "APSOparts Business Improvement Action Plan - I need
 // to create a Gantt here ... per topic, main topic, drill down and drag and drop to switch categories").
 // One table, filled once from the workbook's first tab (src/data/actionPlanSeed.json, the budget columns left
-// out) and changed here from then on: dates, % complete, status, who, where a row sits. The rows' rules are
-// in actionPlanRules.ts; the sub-actions are KPI tasks (kpiActions.ts, tile "plan:<id>").
+// out) and changed here from then on: dates, % complete, stage, who, where a row sits - in the "From Scroll to
+// Sale" ticket's terms since 01.11.2026 (toS2s moves the workbook's words over once). Every change is written to
+// a log, the action's tracking. The rows' rules are in actionPlanRules.ts; the sub-actions are KPI tasks
+// (kpiActions.ts, tile "plan:<id>").
 // The seed is read from disk, not bundled: it is real company data, so the sandbox snapshot leaves it out
 // (scripts/sandbox-snapshot.mjs) and a copy without it simply starts with an empty plan.
 
@@ -10,11 +12,12 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { query } from "@/lib/db/client";
 import {
-  PLAN_STATES, ownersFromCodes, percentOf, planFromSeed, reorder, stateOfPercent,
+  PLAN_STATES, STAGES, ownersFromCodes, percentOfStage, planFromSeed, priorityLabel, reorder, stageOf, stageOfPercent, stateOfStage, toS2s,
   type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanState, type SeedRow,
 } from "./actionPlanRules";
 
 const T = "apsomh_action_plan";
+const LOG = "apsomh_action_plan_log";
 
 type Row = {
   id: number; parent_id: number | null; kind: string; code: string; sort: number; src: number | null;
@@ -22,6 +25,12 @@ type Row = {
   result: string; main_topic: string; perimeter: string; expected: string; code_freeze: string; complexity: string; release: string;
   start_date: unknown; due_date: unknown; due_note: string; percent: number | null; dg: boolean; updated_by: string; updated_at: unknown;
   owners: unknown; matched: boolean;
+  stage: string | null; channel: unknown; country: unknown; agency: unknown; roadmap_year: string;
+  kpis: string; next_steps: string; status_note: string; report_link: string; s2s: boolean;
+};
+const list = (x: unknown): string[] => {
+  const v = typeof x === "string" ? (() => { try { return JSON.parse(x); } catch { return []; } })() : x;
+  return Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [];
 };
 const ownersOf = (x: unknown): PlanOwner[] => {
   const v = typeof x === "string" ? (() => { try { return JSON.parse(x); } catch { return []; } })() : x;
@@ -37,6 +46,8 @@ const item = (r: Row): PlanItem => ({
   result: r.result, mainTopic: r.main_topic, perimeter: r.perimeter, expected: r.expected, codeFreeze: r.code_freeze,
   complexity: r.complexity, release: r.release, start: day(r.start_date), due: day(r.due_date), dueNote: r.due_note,
   percent: r.percent, dg: r.dg, owners: ownersOf(r.owners),
+  stage: stageOf(r.stage) ? r.stage : null, channel: list(r.channel), country: list(r.country), agency: list(r.agency),
+  roadmapYear: r.roadmap_year ?? "", kpis: r.kpis ?? "", nextSteps: r.next_steps ?? "", statusNote: r.status_note ?? "", reportLink: r.report_link ?? "",
   updatedBy: r.updated_by, updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at ?? ""),
 });
 
@@ -78,8 +89,21 @@ function ensure(): Promise<void> {
       // who does it, as people (SARCLA 01.11.2026); `matched` = the workbook's codes were read as people once
       await query(`ALTER TABLE ${T} ADD COLUMN IF NOT EXISTS owners jsonb NOT NULL DEFAULT '[]'::jsonb`);
       await query(`ALTER TABLE ${T} ADD COLUMN IF NOT EXISTS matched boolean NOT NULL DEFAULT false`);
+      // the "From Scroll to Sale" ticket's fields (SARCLA 01.11.2026); `s2s` = the workbook's words moved over once
+      for (const c of [
+        "stage text", "channel jsonb NOT NULL DEFAULT '[]'::jsonb", "country jsonb NOT NULL DEFAULT '[]'::jsonb",
+        "agency jsonb NOT NULL DEFAULT '[]'::jsonb", "roadmap_year text NOT NULL DEFAULT ''", "kpis text NOT NULL DEFAULT ''",
+        "next_steps text NOT NULL DEFAULT ''", "status_note text NOT NULL DEFAULT ''", "report_link text NOT NULL DEFAULT ''",
+        "s2s boolean NOT NULL DEFAULT false",
+      ]) await query(`ALTER TABLE ${T} ADD COLUMN IF NOT EXISTS ${c}`);
+      // the tracking: every change, who made it and when
+      await query(`CREATE TABLE IF NOT EXISTS ${LOG} (
+        id serial PRIMARY KEY, item_id integer NOT NULL, at timestamptz NOT NULL DEFAULT now(), by_name text NOT NULL DEFAULT '',
+        field text NOT NULL, before text NOT NULL DEFAULT '', after text NOT NULL DEFAULT '')`);
+      await query(`CREATE INDEX IF NOT EXISTS ${LOG}_item ON ${LOG} (item_id, at DESC)`);
       const n = await query<{ n: string }>(`SELECT count(*)::text AS n FROM ${T}`);
       if (Number(n.rows[0]?.n ?? 0) === 0) await seed();
+      await toTicketTerms();
     })().catch((e) => {
       ready = null;
       throw e;
@@ -129,6 +153,47 @@ async function seed(): Promise<void> {
   console.log(`[action-plan] ${plan.length} rows of the workbook loaded`);
 }
 
+/** The workbook's words in the ticket's fields, once per row (actionPlanRules.toS2s); two copies starting together write the same. */
+async function toTicketTerms(): Promise<void> {
+  const r = await query<Row>(`SELECT * FROM ${T} WHERE NOT s2s`);
+  if (!r.rows.length) return;
+  const moved = r.rows.map((row) => {
+    const it = item(row);
+    const s = toS2s(it);
+    return { id: it.id, stage: it.kind === "action" ? s.stage : null, priority: it.kind === "action" ? s.priority : it.priority,
+      status_note: s.statusNote, kpis: s.kpis, channel: s.channel, state: it.kind === "action" ? stateOfStage(s.stage) : null };
+  });
+  await query(
+    `UPDATE ${T} t SET stage = x.stage, priority = x.priority, status_note = x.status_note, kpis = x.kpis, channel = x.channel,
+            state = x.state, s2s = true
+       FROM jsonb_to_recordset($1::jsonb) AS x(id int, stage text, priority text, status_note text, kpis text, channel jsonb, state text)
+      WHERE t.id = x.id AND NOT t.s2s`,
+    [JSON.stringify(moved)],
+  );
+  console.log(`[action-plan] ${moved.length} rows put in the Scroll to Sale ticket's terms`);
+}
+
+/** One line of an action's tracking. */
+export type PlanLogLine = { at: string; by: string; field: string; before: string; after: string };
+
+async function log(itemId: number, by: string, lines: { field: string; before: string; after: string }[]): Promise<void> {
+  const real = lines.filter((l) => l.before !== l.after);
+  if (!real.length) return;
+  await query(
+    `INSERT INTO ${LOG} (item_id, by_name, field, before, after) SELECT $1, $2, x.field, x.before, x.after
+       FROM jsonb_to_recordset($3::jsonb) AS x(field text, before text, after text)`,
+    [itemId, by, JSON.stringify(real.map((l) => ({ field: l.field, before: l.before.slice(0, 600), after: l.after.slice(0, 600) })))],
+  );
+}
+
+/** An action's tracking, newest first. */
+export async function planLog(itemId: number, limit = 200): Promise<PlanLogLine[]> {
+  await ensure();
+  const r = await query<{ at: unknown; by_name: string; field: string; before: string; after: string }>(
+    `SELECT at, by_name, field, before, after FROM ${LOG} WHERE item_id = $1 ORDER BY at DESC, id DESC LIMIT $2`, [itemId, limit]);
+  return r.rows.map((x) => ({ at: x.at instanceof Date ? x.at.toISOString() : String(x.at), by: x.by_name, field: x.field, before: x.before, after: x.after }));
+}
+
 export async function planItems(): Promise<PlanItem[]> {
   await ensure();
   const r = await query<Row>(`SELECT * FROM ${T} ORDER BY sort, id`);
@@ -167,12 +232,35 @@ const TEXT: [keyof PlanFields, string, number][] = [
   ["referent", "referent", 200], ["status", "status", 4000], ["result", "result", 4000], ["mainTopic", "main_topic", 120],
   ["perimeter", "perimeter", 120], ["expected", "expected", 2000], ["codeFreeze", "code_freeze", 200],
   ["complexity", "complexity", 60], ["release", "release", 120], ["dueNote", "due_note", 200],
+  ["roadmapYear", "roadmap_year", 10], ["kpis", "kpis", 4000], ["nextSteps", "next_steps", 4000],
+  ["statusNote", "status_note", 4000], ["reportLink", "report_link", 600],
 ];
+const LISTS: [keyof PlanFields, string][] = [["channel", "channel"], ["country", "country"], ["agency", "agency"]];
+
+/** What the tracking calls a field, and how it writes a value. */
+const FIELD_NAME: Partial<Record<keyof PlanFields, string>> = {
+  title: "Name", detail: "Description", priority: "Priority", referent: "Referent", stage: "Status", owners: "Assigned to",
+  start: "Planned date", due: "Go-live date", percent: "% complete", dg: "Led by Digital Growth", channel: "Marketing channel",
+  country: "Implementation country", agency: "Agency", roadmapYear: "Roadmap year", kpis: "KPIs", nextSteps: "Next steps / milestones",
+  statusNote: "Status note", reportLink: "Report link", dueNote: "Deadline words", responsible: "Responsible (workbook)",
+};
+function shown(k: keyof PlanFields, v: unknown): string {
+  if (v == null || v === "") return "";
+  if (k === "stage") return stageOf(String(v))?.label ?? String(v);
+  if (k === "priority") return priorityLabel(String(v)) || String(v);
+  if (k === "owners") return (v as PlanOwner[]).map((o) => o.name).join(", ");
+  if (k === "percent") return `${v} %`;
+  if (k === "dg") return v ? "yes" : "no";
+  if ((k === "start" || k === "due") && typeof v === "string") return v.split("-").reverse().join(".");
+  if (Array.isArray(v)) return v.join(", ");
+  return String(v);
+}
 
 /**
- * Only the fields given change. % complete and the state follow each other the way Planner does: 100 % is
- * done, 0 % not started, anything between in progress - and choosing a state sets its percentage, except
- * "in progress" keeps one already typed.
+ * Only the fields given change. % complete and the stage follow each other: choosing a stage sets its
+ * percentage (an open stage keeps one already typed between 1 and 99), typing a percentage moves the stage
+ * (actionPlanRules.stageOfPercent). The old state column follows the stage, so a rolled-back hub still reads it.
+ * Every change goes to the log.
  */
 export async function updateItem(id: number, p: Partial<PlanFields>, by: string): Promise<PlanItem | null> {
   await ensure();
@@ -180,10 +268,14 @@ export async function updateItem(id: number, p: Partial<PlanFields>, by: string)
   if (!before) return null;
   const sets: string[] = [];
   const vals: unknown[] = [];
-  const set = (col: string, v: unknown) => { vals.push(v); sets.push(`${col} = $${vals.length}`); };
+  const set = (col: string, v: unknown, cast = "") => { vals.push(v); sets.push(`${col} = $${vals.length}${cast}`); };
   for (const [key, col, max] of TEXT) {
     const v = p[key];
     if (typeof v === "string") set(col, key === "title" ? v.trim().slice(0, max) || before.title : v.slice(0, max));
+  }
+  for (const [key, col] of LISTS) {
+    const v = p[key];
+    if (Array.isArray(v)) set(col, JSON.stringify([...new Set(v.map((x) => String(x).slice(0, 80)))].slice(0, 30)), "::jsonb");
   }
   if (p.owners !== undefined) {
     vals.push(JSON.stringify(p.owners.slice(0, 20)));
@@ -192,23 +284,31 @@ export async function updateItem(id: number, p: Partial<PlanFields>, by: string)
   if (p.start !== undefined) set("start_date", p.start || null);
   if (p.due !== undefined) set("due_date", p.due || null);
   if (p.dg !== undefined) set("dg", !!p.dg);
+  let stage = p.stage === undefined ? before.stage : p.stage;
+  let percent = before.percent;
   if (p.percent !== undefined && p.percent !== null) {
-    const pc = Math.max(0, Math.min(100, Math.round(p.percent)));
-    set("percent", pc);
-    if (p.state === undefined) set("state", stateOfPercent(pc, before.state));
-  } else if (p.percent === null) set("percent", null);
-  if (p.state !== undefined) {
-    set("state", p.state);
-    if (p.percent === undefined) {
-      const keep = p.state === "doing" && before.percent != null && before.percent > 0 && before.percent < 100;
-      if (!keep) set("percent", percentOf(p.state));
-    }
+    percent = Math.max(0, Math.min(100, Math.round(p.percent)));
+    if (p.stage === undefined) stage = stageOfPercent(percent, before.stage);
+  } else if (p.percent === null) percent = null;
+  if (p.stage !== undefined && p.percent === undefined) {
+    const keep = !!p.stage && !stageOf(p.stage)?.closed && p.stage !== STAGES[0].id && before.percent != null && before.percent > 0 && before.percent < 100;
+    if (!keep) percent = percentOfStage(p.stage);
+  }
+  if (p.percent !== undefined || p.stage !== undefined) {
+    set("percent", percent);
+    set("stage", stage);
+    set("state", stateOfStage(stage));
   }
   if (!sets.length) return before;
   set("updated_by", by);
   vals.push(id);
   const r = await query<Row>(`UPDATE ${T} SET ${sets.join(", ")}, updated_at = now() WHERE id = $${vals.length} RETURNING *`, vals);
-  return r.rows[0] ? item(r.rows[0]) : null;
+  const after = r.rows[0] ? item(r.rows[0]) : null;
+  if (after) {
+    const keys = (Object.keys(FIELD_NAME) as (keyof PlanFields)[]).filter((k) => p[k] !== undefined || k === "stage" || k === "percent");
+    await log(id, by, keys.map((k) => ({ field: FIELD_NAME[k]!, before: shown(k, before[k]), after: shown(k, after[k]) })));
+  }
+  return after;
 }
 
 /** A new row, last under its parent: an action under a topic or group, a group under a topic, a topic under the goal. */
@@ -223,8 +323,11 @@ export async function addItem(a: { parentId: number; kind: PlanKind; title: stri
      VALUES ($1, $2, '', (SELECT COALESCE(max(sort), 0) + 1 FROM ${T}), $3, $4, $5) RETURNING *`,
     [parent.id, a.kind, a.title.trim().slice(0, 300), false, a.by],
   );
-  // last among its siblings
+  // last among its siblings, in the ticket's terms from the start
   await query(`UPDATE ${T} SET sort = (SELECT COALESCE(max(sort), 0) + 1 FROM ${T} WHERE parent_id = $1 AND id <> $2) WHERE id = $2`, [parent.id, r.rows[0].id]);
+  await query(`UPDATE ${T} SET s2s = true, stage = $2, percent = $3, state = $4 WHERE id = $1`,
+    [r.rows[0].id, a.kind === "action" ? STAGES[0].id : null, a.kind === "action" ? 0 : null, a.kind === "action" ? "todo" : null]);
+  await log(r.rows[0].id, a.by, [{ field: "Created", before: "", after: `under "${parent.title}"` }]);
   return (await itemById(r.rows[0].id))!;
 }
 
@@ -249,6 +352,11 @@ export async function moveItem(dragId: number, targetId: number, where: "into" |
   const m = reorder(items, dragId, targetId, where);
   if (!m) return false;
   await query(`UPDATE ${T} SET parent_id = $1, updated_by = $2, updated_at = now() WHERE id = $3`, [m.parentId, by, dragId]);
+  const was = items.find((i) => i.id === dragId)?.parentId;
+  if (was !== m.parentId) {
+    const name = (pid: number | null | undefined) => items.find((i) => i.id === pid)?.title ?? "";
+    await log(dragId, by, [{ field: "Category", before: name(was), after: name(m.parentId) }]);
+  }
   await query(
     `UPDATE ${T} t SET sort = x.ord FROM unnest($1::int[]) WITH ORDINALITY AS x(id, ord) WHERE t.id = x.id`,
     [m.order],

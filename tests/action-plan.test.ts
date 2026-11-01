@@ -3,7 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  codesOf, isDigitalGrowth, ownersFromCodes, parseDue, percentOf, planFromSeed, reorder, rollup, stateOf, stateOfPercent, titleOf,
+  IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, codesOf, isDigitalGrowth, isLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
+  planFromSeed, priorityOfWorkbook, reorder, rollup, stageOfPercent, stageOfState, stateOf, stateOfPercent, stateOfStage, titleOf, toS2s,
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
@@ -91,7 +92,8 @@ test("action plan: Digital Growth leads when one of its people is responsible", 
 const it = (id: number, parentId: number | null, kind: PlanItem["kind"], p: Partial<PlanItem> = {}): PlanItem => ({
   id, parentId, kind, code: "", sort: id, src: null, title: `#${id}`, detail: "", priority: "", responsible: "", referent: "", status: "",
   state: null, result: "", mainTopic: "", perimeter: "", expected: "", codeFreeze: "", complexity: "", release: "",
-  start: null, due: null, dueNote: "", percent: null, dg: false, owners: [], updatedBy: "", updatedAt: "", ...p,
+  start: null, due: null, dueNote: "", percent: null, dg: false, owners: [], updatedBy: "", updatedAt: "",
+  stage: null, channel: [], country: [], agency: [], roadmapYear: "", kpis: "", nextSteps: "", statusNote: "", reportLink: "", ...p,
 });
 
 // SARCLA 01.11.2026: "assignment should be done by user, not names like Sales leader" - the workbook's codes read as
@@ -121,9 +123,9 @@ const sub = (id: number, item: number, status: PlanSub["status"], due: string | 
 test("action plan: % complete and dates roll up; sub-actions count for their action", () => {
   const items = [
     it(1, null, "goal"), it(2, 1, "topic"), it(3, 2, "group"),
-    it(4, 3, "action", { state: "doing", percent: 50, start: "2026-10-01", due: "2026-11-30" }),
-    it(5, 3, "action", { state: "todo", percent: 0, due: "2026-10-15" }),
-    it(6, 2, "action", { state: "done", percent: 100, due: "2026-09-01" }),
+    it(4, 3, "action", { stage: IN_PROGRESS, percent: 50, start: "2026-10-01", due: "2026-11-30" }),
+    it(5, 3, "action", { stage: IDEA, percent: 0, due: "2026-10-15" }),
+    it(6, 2, "action", { stage: LIVE, percent: 100, due: "2026-09-01" }),
     it(7, 2, "action"),
   ];
   const r = rollup(items, [sub(1, 5, "done", "2026-12-20"), sub(2, 5, "doing"), sub(3, 5, "open")], "2026-11-01");
@@ -134,13 +136,51 @@ test("action plan: % complete and dates roll up; sub-actions count for their act
   // only ones that have a figure (a topic with 3 done actions of 17 read 100 %)
   assert.equal(r.get(2)!.percent, 50);
   assert.equal(r.get(7)!.percent, null); // the action itself still says it has no figure
-  assert.equal(rollup([it(1, null, "topic"), it(2, 1, "action", { state: "done", percent: 100 }), it(3, 1, "action"), it(4, 1, "action")], [], "2026-11-01").get(1)!.percent, 33);
+  assert.equal(rollup([it(1, null, "topic"), it(2, 1, "action", { stage: LIVE, percent: 100 }), it(3, 1, "action"), it(4, 1, "action")], [], "2026-11-01").get(1)!.percent, 33);
   assert.deepEqual([r.get(3)!.from, r.get(3)!.to], ["2026-10-01", "2026-12-20"]);
   assert.equal(r.get(5)!.late, 1); // due 15.10, not done
   assert.equal(r.get(2)!.late, 1);
   assert.deepEqual([r.get(1)!.subs, r.get(1)!.subsOpen], [3, 2]);
   // done is done, whatever its sub-actions say
-  assert.equal(rollup([it(9, null, "action", { state: "done", percent: 100 })], [sub(4, 9, "open")], "2026-11-01").get(9)!.percent, 100);
+  assert.equal(rollup([it(9, null, "action", { stage: LIVE, percent: 100 })], [sub(4, 9, "open")], "2026-11-01").get(9)!.percent, 100);
+  // a killed action leaves the average: (100 + 0) / 2, not / 3
+  assert.equal(rollup([it(1, null, "topic"), it(2, 1, "action", { stage: LIVE, percent: 100 }), it(3, 1, "action", { stage: IDEA, percent: 0 }), it(4, 1, "action", { stage: KILLED })], [], "2026-11-01").get(1)!.percent, 50);
+});
+
+// SARCLA 01.11.2026: "uniform the values of the stages - follow at the maximum what we use on the From Scroll to Sale
+// pipeline ... priority as HubSpot's Low / Medium / High / Urgent"
+test("action plan: an action speaks the Scroll to Sale ticket's stages", () => {
+  assert.deepEqual(["todo", "doing", "hold", "done", null].map((x) => stageOfState(x as never)), [IDEA, IN_PROGRESS, "6161845476", LIVE, null]);
+  // and back for the old column, so a rolled-back hub still shows where things stand
+  assert.deepEqual([IDEA, IN_PROGRESS, "6161845477", "6161860809", LIVE, "6161856759", KILLED, null].map(stateOfStage), ["todo", "doing", "hold", "doing", "done", "done", "hold", null]);
+  assert.deepEqual([IDEA, IN_PROGRESS, "6161860809", LIVE, KILLED, null].map(percentOfStage), [0, 50, 90, 100, null, null]);
+  // a typed percentage moves the stage, but never off a wait or a maintained live
+  assert.equal(stageOfPercent(100, IN_PROGRESS), LIVE);
+  assert.equal(stageOfPercent(100, "6161856759"), "6161856759");
+  assert.equal(stageOfPercent(0, "6161845477"), "6161845477");
+  assert.equal(stageOfPercent(0, IN_PROGRESS), IDEA);
+  assert.equal(stageOfPercent(40, IDEA), IN_PROGRESS);
+  assert.equal(stageOfPercent(40, "6161860809"), "6161860809");
+  assert.equal(stageOfPercent(40, LIVE), IN_PROGRESS); // reopened
+  // live, maintained or killed is never late
+  for (const st of [LIVE, "6161856759", KILLED]) assert.equal(isLate(it(1, null, "action", { stage: st, due: "2026-01-01", percent: null }), "2026-11-01"), false);
+  assert.equal(isLate(it(1, null, "action", { stage: "6161845476", due: "2026-01-01" }), "2026-11-01"), true);
+});
+
+test("action plan: the workbook's words moved into the ticket's fields once, nothing made up", () => {
+  assert.deepEqual(["1", "2", "3", " 2 ", "HIGH", "urgent", "To be transferred", ""].map(priorityOfWorkbook), ["HIGH", "MEDIUM", "LOW", "MEDIUM", "HIGH", "URGENT", "", ""]);
+  assert.deepEqual(channelsOfTopic("SEO / GEO"), ["SEO/GEO"]);
+  assert.deepEqual(channelsOfTopic("Hubspot"), ["HubSpot"]);
+  assert.deepEqual(channelsOfTopic("CRM / SEA"), ["SEA", "HubSpot"]);
+  assert.deepEqual(channelsOfTopic("Price management"), []);
+  const row = { state: "doing" as const, priority: "1", status: "Ongoing, first wave sent", result: "Two answers", expected: "More visits", mainTopic: "SEA", stage: null, statusNote: "", kpis: "", channel: [] };
+  assert.deepEqual(toS2s(row), { stage: IN_PROGRESS, priority: "HIGH", statusNote: "Ongoing, first wave sent\n\nResult: Two answers", kpis: "Expected: More visits", channel: ["SEA"] });
+  // what is already filled stays; a priority that is not one goes to the note
+  assert.deepEqual(toS2s({ ...row, stage: LIVE, statusNote: "Mine", kpis: "Clicks", channel: ["Website"], priority: "To be transferred in E-commerce roadmap" }),
+    { stage: LIVE, priority: "", statusNote: "Mine", kpis: "Clicks", channel: ["Website"] });
+  assert.equal(toS2s({ ...row, state: null, status: "", result: "", priority: "To be transferred" }).statusNote, "To be transferred");
+  // no status in the workbook, no stage
+  assert.equal(toS2s({ ...row, state: null }).stage, null);
 });
 
 test("action plan: a dragged row lands only where it may", () => {

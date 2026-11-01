@@ -64,19 +64,24 @@ function xAtY(P: Pt[], y: number): number | null {
   return null;
 }
 
-/** Where things sit: the card's full face (as on the design board), or the wider band at the top of the plan. */
+/**
+ * Where things sit: the card's full face (as on the design board), the band with the years, or the hero at the top
+ * of the plan - wide, the mountain in its right half and its left half sky for the goal's words (SARCLA 01.11.2026:
+ * "put the sub text on top of the mountain, to cut the first block to about half").
+ */
 const LAYOUT = {
   card: { vw: 430, vh: 420, x0: 178, x1: 362, yb: 404, yt: 218, base: 424, years: false },
   band: { vw: 600, vh: 226, x0: 96, x1: 470, yb: 182, yt: 48, base: 200, years: true },
+  hero: { vw: 1000, vh: 250, x0: 610, x1: 925, yb: 206, yt: 64, base: 226, years: true },
 } as const;
 
-/** The mountain. In "card" it covers the card's face, anchored bottom right; in "band" it adds the years. */
-export function SummitMountain({ s, mode }: { s: SummitData | null; mode: "card" | "band" }) {
+/** The mountain. In "card" and "hero" it fills its box, anchored bottom right; "band" and "hero" add the years. */
+export function SummitMountain({ s, mode }: { s: SummitData | null; mode: "card" | "band" | "hero" }) {
   const uid = useId().replace(/:/g, "");
   const L = LAYOUT[mode];
-  const svgSx = mode === "card"
-    ? { position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }
-    : { width: "100%", height: "auto", display: "block" };
+  const svgSx = mode === "band"
+    ? { width: "100%", height: "auto", display: "block" }
+    : { position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" };
 
   // before the figures arrive - or if they cannot be read - the quiet range the card always had
   if (!s || !s.base || !s.path.length) {

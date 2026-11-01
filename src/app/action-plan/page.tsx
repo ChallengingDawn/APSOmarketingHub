@@ -23,11 +23,11 @@ import UnfoldLessIcon from "@mui/icons-material/UnfoldLess";
 import { HomeBar } from "@/app/HomeBar";
 import { FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { ActionsPanel } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
-import { STATE_LABEL, isLate, reorder, rollup, type PlanFields, type PlanItem, type PlanKind, type PlanState } from "@/lib/reporting/actionPlanRules";
-import { Gantt, type GRow, type Where, type Zoom } from "./Gantt";
-import { ItemDrawer } from "./ItemDrawer";
+import { KILLED, PRIORITIES, S2S_CHOICES, STAGES, isClosed, isLate, reorder, rollup, type PlanFields, type PlanItem, type PlanKind } from "@/lib/reporting/actionPlanRules";
+import { Gantt, type AddWhat, type GRow, type Where, type Zoom } from "./Gantt";
+import { ItemModal, KIND_LABEL } from "./ItemModal";
 import { SummitFigures, SummitMountain, useSummit } from "./Summit";
-import { LATE, PROJECT_COLORS, STATE_COLOR, readPref, send, todayIso, writePref, type PlanData } from "./planUi";
+import { LATE, PRIORITY_COLOR, PROJECT_COLORS, readPref, send, stageColor, todayIso, writePref, type PlanData } from "./planUi";
 
 // square, as the tags (SARCLA 01.11.2026: "tags not round, square")
 const chip = (on: boolean, color: string = TINT.blue.fg, soft: string = TINT.blue.bg) => ({
@@ -70,7 +70,7 @@ function ActionPlan() {
       const r = await fetch("/api/action-plan");
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) throw new Error(j?.error ?? `the hub answered ${r.status}`);
-      setData({ canWrite: !!j.canWrite, items: j.items, subs: j.subs, people: j.people ?? [], peopleError: j.peopleError ?? null });
+      setData({ canWrite: !!j.canWrite, items: j.items, subs: j.subs, people: j.people ?? [], peopleError: j.peopleError ?? null, choices: j.choices ?? S2S_CHOICES });
       // nothing saved yet: closed, in the same draw as the plan, so it never shows open first
       if (savedFold.current == null) { savedFold.current = []; setCollapsed(new Set(foldKeys(j.items, j.subs))); }
       setError(null);
@@ -81,11 +81,11 @@ function ActionPlan() {
   // filters
   const [q, setQ] = useState("");
   const [prios, setPrios] = useState<string[]>([]);
-  const [states, setStates] = useState<(PlanState | "none")[]>([]);
+  const [stages, setStages] = useState<string[]>([]);
   const [dgOnly, setDgOnly] = useState(false);
   const [lateOnly, setLateOnly] = useState(false);
   const [owner, setOwner] = useState("");
-  const filtering = !!q.trim() || prios.length > 0 || states.length > 0 || dgOnly || lateOnly || !!owner;
+  const filtering = !!q.trim() || prios.length > 0 || stages.length > 0 || dgOnly || lateOnly || !!owner;
 
   const items = useMemo(() => data?.items ?? [], [data]);
   const subs = useMemo(() => data?.subs ?? [], [data]);
@@ -115,14 +115,14 @@ function ActionPlan() {
   const passes = useCallback((i: PlanItem) => {
     if (i.kind !== "action") return false;
     const w = q.trim().toLowerCase();
-    if (w && ![i.title, i.detail, i.responsible, i.code, i.mainTopic, i.status, ...i.owners.map((o) => o.name)].some((x) => x.toLowerCase().includes(w))) return false;
+    if (w && ![i.title, i.detail, i.responsible, i.code, i.statusNote, i.kpis, i.nextSteps, ...i.channel, ...i.agency, ...i.owners.map((o) => o.name)].some((x) => x.toLowerCase().includes(w))) return false;
     if (prios.length && !prios.includes(i.priority)) return false;
-    if (states.length && !states.includes(i.state ?? "none")) return false;
+    if (stages.length && !stages.includes(i.stage ?? "none")) return false;
     if (dgOnly && !i.dg) return false;
     if (lateOnly && !isLate(i, today)) return false;
     if (owner === NOBODY ? i.owners.length > 0 : !!owner && !i.owners.some((o) => o.id === owner)) return false;
     return true;
-  }, [q, prios, states, dgOnly, lateOnly, owner, today]);
+  }, [q, prios, stages, dgOnly, lateOnly, owner, today]);
 
   // the rows, top to bottom
   const rows = useMemo<GRow[]>(() => {
@@ -163,10 +163,10 @@ function ActionPlan() {
   const actions = items.filter((i) => i.kind === "action");
   const counts = {
     all: actions.length,
-    done: actions.filter((i) => i.state === "done").length,
-    doing: actions.filter((i) => i.state === "doing").length,
+    done: actions.filter((i) => isClosed(i.stage) && i.stage !== KILLED).length,
+    doing: actions.filter((i) => !!i.stage && !isClosed(i.stage) && i.stage !== STAGES[0].id).length,
     late: actions.filter((i) => isLate(i, today)).length,
-    undated: actions.filter((i) => !i.due && i.state !== "done").length,
+    undated: actions.filter((i) => !i.due && !isClosed(i.stage)).length,
   };
 
   // the row opened beside the Gantt, and the action whose sub-actions are open
@@ -233,6 +233,23 @@ function ActionPlan() {
     if (!confirm(under ? `Remove "${i.title}" and the ${under} row${under === 1 ? "" : "s"} under it?` : `Remove "${i.title}"?`)) return;
     try { await send(`/api/action-plan?id=${i.id}`, "DELETE"); closeRow(); await load(); } catch (e) { setNote(`Not removed: ${(e as Error).message}`); }
   };
+  // the + beside a row: the new row goes in it or beside it, named for now and opened to be named properly
+  const addAt = async (row: PlanItem, kind: AddWhat["kind"]) => {
+    const byId = new Map(items.map((i) => [i.id, i]));
+    const up = (i: PlanItem, k: PlanKind) => { let p: PlanItem | undefined = i; while (p && p.kind !== k) p = p.parentId != null ? byId.get(p.parentId) : undefined; return p; };
+    const parent = kind === "topic" ? items.find((i) => i.kind === "goal")
+      : kind === "group" ? up(row, "topic")
+        : row.kind === "action" ? (row.parentId != null ? byId.get(row.parentId) : undefined) : row;
+    if (!parent) { setNote("There is no place for it here"); return; }
+    await add(parent, kind, `New ${KIND_LABEL[kind].toLowerCase()}`);
+  };
+  const moveTo = async (i: PlanItem, parentId: number) => {
+    try {
+      await send("/api/action-plan", "POST", { action: "move", id: i.id, target: parentId, where: "into" });
+      setNote(null);
+    } catch (e) { setNote(`Not moved: ${(e as Error).message}`); }
+    await load();
+  };
   const foldAll = (fold: boolean) => {
     const keys = fold ? foldKeys(items, subs) : [];
     writePref("collapsed.v2", keys);
@@ -247,31 +264,35 @@ function ActionPlan() {
       {/* an application of its own: the hub's bar, no panel - the whole width is the plan's */}
       <HomeBar on="Action plan" />
 
-      {/* the goal's statement, where we stand and the climb - one block (SARCLA 01.11.2026: "this text should be
-          included on the graph, only one block") */}
-      <GlassCard sx={{ display: "grid", gap: { xs: 2, lg: 3.5 }, alignItems: "end", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 1fr) 600px" } }}>
-        <Box sx={{ minWidth: 0, display: "grid", gap: 2.25 }}>
+      {/* the goal, where we stand and the climb - one block, about half as tall as it was: the headline and the figures on
+          the left, the mountain on the right with the goal's why in its sky (SARCLA 01.11.2026: "put the sub text on top of
+          the mountain to decrease the length of this first block to about half") */}
+      <GlassCard sx={{ display: "grid", gap: { xs: 2, lg: 3 }, alignItems: "stretch", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 0.92fr) minmax(0, 1.08fr)" } }}>
+        <Box sx={{ minWidth: 0, display: "grid", gap: 2, alignContent: "space-between" }}>
           <Box>
             <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: FAINT }}>Action plan</Typography>
-            <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontSize: { xs: "1.45rem", md: "1.8rem" }, fontWeight: 650, letterSpacing: "-0.025em", lineHeight: 1.2, color: INK, mt: 0.5, maxWidth: "62ch", textWrap: "balance" }}>
+            <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontSize: { xs: "1.4rem", md: "1.62rem" }, fontWeight: 650, letterSpacing: "-0.025em", lineHeight: 1.2, color: INK, mt: 0.5, textWrap: "balance" }}>
               {statement[0] ?? "APSOparts Business Improvement Action Plan"}
             </Typography>
-            {statement.length > 1 && (
-              <Box sx={{ display: "grid", gap: 0.6, mt: 1, maxWidth: "100ch" }}>
-                {statement.slice(1).map((l, k) => (
-                  <Typography key={k} sx={{ fontSize: "0.9rem", color: MUTED, lineHeight: 1.5 }}>{l}</Typography>
-                ))}
-              </Box>
-            )}
           </Box>
-          <Box sx={{ borderTop: `1px solid ${HAIRLINE}`, pt: 2 }}>
+          <Box sx={{ borderTop: `1px solid ${HAIRLINE}`, pt: 1.75 }}>
             {summit?.base ? <SummitFigures s={summit} /> : (
               <Typography sx={{ fontSize: "0.9rem", color: summitErr ? RED : MUTED }}>{summitErr ? `The revenue could not be read: ${summitErr}` : "Reading the revenue…"}</Typography>
             )}
           </Box>
         </Box>
-        <Box sx={{ justifySelf: { lg: "end" }, width: "100%", maxWidth: 600 }}>
-          <SummitMountain s={summit} mode="band" />
+        <Box sx={{ position: "relative", minWidth: 0, minHeight: { lg: 232 }, display: "flex", flexDirection: "column", gap: 1 }}>
+          {/* the mountain fills the right, anchored bottom right; on a phone it sits under the words */}
+          <Box sx={{ position: { xs: "relative", lg: "absolute" }, inset: { lg: 0 }, order: { xs: 2, lg: 0 }, aspectRatio: { xs: "1000 / 250", lg: "auto" }, width: "100%", maxWidth: "100%" }}>
+            <SummitMountain s={summit} mode="hero" />
+          </Box>
+          {statement.length > 1 && (
+            <Box sx={{ position: "relative", zIndex: 1, display: "grid", gap: 0.5, maxWidth: { lg: "54%" }, order: { xs: 1, lg: 0 } }}>
+              {statement.slice(1).map((l, k) => (
+                <Typography key={k} sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.45, textShadow: "0 0 6px rgba(255,255,255,.9)" }}>{l}</Typography>
+              ))}
+            </Box>
+          )}
         </Box>
       </GlassCard>
 
@@ -302,23 +323,24 @@ function ActionPlan() {
           <MenuItem value={NOBODY} sx={{ fontSize: "0.86rem", fontStyle: "italic" }}>Not assigned yet</MenuItem>
           {owners.map((o) => <MenuItem key={o.id} value={o.id} sx={{ fontSize: "0.86rem" }}>{o.name}</MenuItem>)}
         </TextField>
-        {["1", "2", "3"].map((p) => (
-          <Box key={p} component="button" type="button" aria-pressed={prios.includes(p)} onClick={() => setPrios((x) => (x.includes(p) ? x.filter((y) => y !== p) : [...x, p]))} sx={chip(prios.includes(p))}>Priority {p}</Box>
+        <TextField select size="small" value={stages} onChange={(e) => setStages(typeof e.target.value === "string" ? e.target.value.split(",") : (e.target.value as string[]))}
+          SelectProps={{ multiple: true, displayEmpty: true, renderValue: (v) => ((v as string[]).length ? (v as string[]).map((x) => STAGES.find((s) => s.id === x)?.label ?? "No status").join(", ") : "Every status") }}
+          sx={{ width: 220, "& .MuiInputBase-root": { borderRadius: "8px", bgcolor: "#fff", fontSize: "0.86rem" } }}>
+          {[...STAGES.map((s) => ({ id: s.id, label: s.label })), { id: "none", label: "No status" }].map((s) => (
+            <MenuItem key={s.id} value={s.id} sx={{ fontSize: "0.86rem", gap: 1 }}>
+              <Box component="span" sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: stageColor(s.id === "none" ? null : s.id).bar, flexShrink: 0 }} />
+              {s.label}
+            </MenuItem>
+          ))}
+        </TextField>
+        {[...PRIORITIES].reverse().map((p) => (
+          <Box key={p.value} component="button" type="button" aria-pressed={prios.includes(p.value)} onClick={() => setPrios((x) => (x.includes(p.value) ? x.filter((y) => y !== p.value) : [...x, p.value]))}
+            sx={chip(prios.includes(p.value), PRIORITY_COLOR[p.value].fg, PRIORITY_COLOR[p.value].bg)}>{p.label}</Box>
         ))}
-        <Box sx={{ width: 8 }} />
-        {(["todo", "doing", "done", "hold", "none"] as const).map((s) => {
-          const c = STATE_COLOR[s];
-          return (
-            <Box key={s} component="button" type="button" aria-pressed={states.includes(s)} onClick={() => setStates((x) => (x.includes(s) ? x.filter((y) => y !== s) : [...x, s]))} sx={chip(states.includes(s), c.ink, c.soft)}>
-              <Box component="span" sx={{ display: "inline-block", width: 8, height: 8, borderRadius: "2px", bgcolor: c.bar, mr: 0.6 }} />
-              {s === "none" ? "No status" : STATE_LABEL[s]}
-            </Box>
-          );
-        })}
         <Box sx={{ width: 8 }} />
         <Box component="button" type="button" aria-pressed={lateOnly} onClick={() => setLateOnly((v) => !v)} sx={chip(lateOnly, LATE, "#fde7e7")}>Late</Box>
         <Box component="button" type="button" aria-pressed={dgOnly} onClick={() => setDgOnly((v) => !v)} sx={chip(dgOnly)}>Digital Growth</Box>
-        {filtering && <Button size="small" onClick={() => { setQ(""); setPrios([]); setStates([]); setDgOnly(false); setLateOnly(false); setOwner(""); }} sx={{ textTransform: "none", fontWeight: 650 }}>Clear</Button>}
+        {filtering && <Button size="small" onClick={() => { setQ(""); setPrios([]); setStages([]); setDgOnly(false); setLateOnly(false); setOwner(""); }} sx={{ textTransform: "none", fontWeight: 650 }}>Clear</Button>}
       </Box>
 
       {note && <Typography sx={{ fontSize: "0.88rem", color: RED }}>{note}</Typography>}
@@ -331,17 +353,17 @@ function ActionPlan() {
         <Gantt rows={rows} rolled={rolled} today={today} zoom={zoom} canWrite={data.canWrite} collapsed={collapsed} toggle={toggle}
           selected={openId} onOpen={openRow} onSubs={setSubsFor} onPatch={patch} canDrop={canDrop} onDrop={onDrop}
           height="max(480px, calc(100vh - 150px))" colorOf={colorOf}
-          compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} />
+          compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} onAdd={(row, kind) => void addAt(row, kind)} />
       )}
       <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
-        Drag a row by its handle onto another main category or sub-category; drag a bar to move its dates, its right end to change the due.
-        A diamond is an action with only a due date; a dot is a sub-action. Sub-actions come from the action itself or from a KPI tile&apos;s Actions.
+        Drag a row by its handle onto another main category or sub-category, or add one with the + beside it; drag a bar to move its dates, its right end to change the go-live date.
+        A bar runs from the planned date to the go-live date, a diamond is an action with only a go-live date, a square a sub-action. The statuses and priorities are the &ldquo;From Scroll to Sale&rdquo; pipeline&apos;s.
       </Typography>
 
       {opened && (
-        <ItemDrawer item={opened} rolled={rolled.get(opened.id)} subs={subs.filter((s) => s.item === opened.id)} canWrite={!!data?.canWrite}
-          people={data?.people ?? []} peopleError={data?.peopleError ?? null}
-          onClose={closeRow} onPatch={patch} onSubs={setSubsFor} onAdd={add} onDelete={remove} />
+        <ItemModal item={opened} items={items} rolled={rolled.get(opened.id)} subs={subs.filter((s) => s.item === opened.id)} canWrite={!!data?.canWrite}
+          people={data?.people ?? []} peopleError={data?.peopleError ?? null} choices={data?.choices ?? S2S_CHOICES}
+          onClose={closeRow} onPatch={patch} onSubs={setSubsFor} onAdd={add} onDelete={remove} onMoveTo={moveTo} />
       )}
       {subsFor && (
         <ActionsPanel open onClose={() => setSubsFor(null)} canWrite={!!data?.canWrite}

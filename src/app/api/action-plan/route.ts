@@ -1,12 +1,15 @@
-// The action plan (SARCLA 31.10.2026), where Mission Control was - Marketing or Advanced reporting (./guard.ts):
-//   GET                                          every row, every sub-action, the people to assign, whether you may change
-//   PATCH {id, ...fields, owners?: [owner ids]}  a row's fields (people, dates, % complete, state, words, Digital Growth)
+// The action plan (SARCLA 31.10.2026), where Mission Control was - admins (./guard.ts):
+//   GET                                          every row, every sub-action, the people to assign, the ticket's choices,
+//                                                whether you may change
+//   GET   ?log=<id>                              an action's tracking: every change, who and when
+//   PATCH {id, ...fields, owners?: [owner ids]}  a row's fields, in the "From Scroll to Sale" ticket's terms (stage, priority,
+//                                                planned / go-live date, channels, countries, agency, KPIs, notes...)
 //   POST  {action:"add", parentId, kind, title}  a new topic, group or action
 //   POST  {action:"move", id, target, where}     drag and drop: "into" a topic or group, or "before" a row
 //   DELETE ?id=                                  a row and what is under it; its own sub-actions go too
 import { NextRequest, NextResponse } from "next/server";
-import { addItem, deleteItems, itemById, matchOwnersOnce, moveItem, planItems, subtree, updateItem } from "@/lib/reporting/actionPlan";
-import { PLAN_STATES, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
+import { addItem, deleteItems, itemById, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
+import { PRIORITIES, S2S_CHOICES, STAGES, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
 import { dropPlanItem, planTasks } from "@/lib/reporting/kpiActions";
 import { s2sForm } from "@/lib/reporting/scrollToSale";
 import { fail } from "../reporting/kpi-actions/guard";
@@ -16,16 +19,33 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const TEXT_FIELDS = ["title", "detail", "priority", "responsible", "referent", "status", "result", "mainTopic", "perimeter", "expected", "codeFreeze", "complexity", "release", "dueNote"] as const;
+const TEXT_FIELDS = ["title", "detail", "responsible", "referent", "dueNote", "roadmapYear", "kpis", "nextSteps", "statusNote", "reportLink"] as const;
+const LIST_FIELDS = ["channel", "country", "agency"] as const;
+/** The ticket's property behind each choice list. */
+const PROP = { channel: "mkt_channel", country: "mkt_implementation_country", agency: "mkt_agency", roadmapYear: "mkt_roadmap_year" } as const;
 
 /** The people an action can be given to: HubSpot's users, as the KPI tasks pick them (read at most once an hour). */
 async function people(): Promise<PlanOwner[]> {
   return (await s2sForm()).owners.map((o) => ({ id: o.id, name: o.name }));
 }
 
-export async function GET() {
+/** The ticket's choices as HubSpot has them now, else as they were read on 01.11.2026. */
+async function choices(): Promise<Record<keyof typeof PROP, Opt[]>> {
+  const form = await s2sForm().catch(() => null);
+  const live = (k: keyof typeof PROP) => form?.fields.find((f) => f.name === PROP[k])?.options ?? [];
+  const out = { ...S2S_CHOICES };
+  for (const k of Object.keys(PROP) as (keyof typeof PROP)[]) if (live(k).length) out[k] = live(k);
+  return out;
+}
+
+export async function GET(req: NextRequest) {
   const w = await who();
   if (w instanceof NextResponse) return w;
+  const logOf = Number(req.nextUrl.searchParams.get("log"));
+  if (logOf) {
+    if (!Number.isInteger(logOf) || logOf <= 0) return fail("log is a row id", 400);
+    try { return NextResponse.json({ ok: true, log: await planLog(logOf) }); } catch (e) { return fail(e); }
+  }
   try {
     let list: PlanOwner[] = [];
     let peopleError: string | null = null;
@@ -42,7 +62,7 @@ export async function GET() {
       id: t.id, item: t.planItem as number, title: t.title, ownerName: t.ownerName, due: t.due, status: t.status,
       kpiHref: t.tile.startsWith("plan:") ? "" : t.href, kpiTile: t.tile.startsWith("plan:") ? "" : t.tile, tickets: t.tickets,
     }));
-    return NextResponse.json({ ok: true, canWrite: w.canWrite, items, subs, people: list, peopleError });
+    return NextResponse.json({ ok: true, canWrite: w.canWrite, items, subs, people: list, peopleError, choices: await choices() });
   } catch (e) { return fail(e); }
 }
 
@@ -67,10 +87,20 @@ export async function PATCH(req: NextRequest) {
     if (b.percent !== null && !(typeof b.percent === "number" && Number.isFinite(b.percent))) return fail("percent is a number 0-100", 400);
     p.percent = b.percent as number | null;
   }
-  if (b.state !== undefined) {
-    if (b.state !== null && !(PLAN_STATES as readonly unknown[]).includes(b.state)) return fail(`state is one of ${PLAN_STATES.join(", ")}`, 400);
-    p.state = b.state as PlanFields["state"];
+  if (b.stage !== undefined) {
+    if (b.stage !== null && !STAGES.some((s) => s.id === b.stage)) return fail(`stage is one of the pipeline's: ${STAGES.map((s) => s.label).join(", ")}`, 400);
+    p.stage = b.stage as string | null;
   }
+  if (b.priority !== undefined) {
+    if (b.priority !== "" && !PRIORITIES.some((x) => x.value === b.priority)) return fail("priority is LOW, MEDIUM, HIGH or URGENT", 400);
+    p.priority = b.priority as string;
+  }
+  for (const k of LIST_FIELDS) {
+    if (b[k] === undefined) continue;
+    if (!Array.isArray(b[k]) || !(b[k] as unknown[]).every((x) => typeof x === "string")) return fail(`${k} is a list of choices`, 400);
+    p[k] = b[k] as string[];
+  }
+  if (typeof p.reportLink === "string" && p.reportLink.trim() && !/^https?:\/\//i.test(p.reportLink.trim())) return fail("the report link is a web address (https://...)", 400);
   if (b.dg !== undefined) p.dg = !!b.dg;
   if (b.owners !== undefined) {
     if (!Array.isArray(b.owners)) return fail("owners is a list of HubSpot owner ids", 400);
@@ -82,7 +112,7 @@ export async function PATCH(req: NextRequest) {
       p.owners = owners;
     } catch (e) { return fail(`HubSpot's users could not be read: ${(e as Error).message}`, 502); }
   }
-  if (p.start && p.due && p.start > p.due) return fail("the start comes after the due date", 400);
+  if (p.start && p.due && p.start > p.due) return fail("the planned date comes after the go-live date", 400);
   try {
     const item = await updateItem(id, p, w.name);
     if (!item) return fail("no such row", 404);

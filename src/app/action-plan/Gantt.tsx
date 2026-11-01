@@ -1,7 +1,10 @@
 "use client";
 // THE GANTT (SARCLA 31.10.2026: "I need to create a Gantt here like I showed you in the photo" - Planner's
-// Gantt chart). Left, the tree: task name, start, due, % complete, assigned to - dates and % typed in the
-// cell, every column resized by its edge, the four after the name folded away by the name's button. Right,
+// Gantt chart). Left, the tree: task name, planned date, go-live date, status, % complete, assigned to - in the
+// "From Scroll to Sale" ticket's terms since 01.11.2026 - dates and % typed in the cell, every column resized by
+// its edge, the columns after the name folded away by the name's button, a + beside the handle for a new main
+// category, sub-category or action (SARCLA 01.11.2026: "next to the move icon a plus to create new main, sub or
+// other categories"). Right,
 // the time line in the main category's colour: a bracket over a topic or group from its first to its last
 // date, a bar for an action with a start and a due (its done part solid), a diamond for one with only a due,
 // a square per sub-action. Rows are dragged by their handle onto another topic or group; bars are dragged to
@@ -11,6 +14,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Tooltip from "@mui/material/Tooltip";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import AddIcon from "@mui/icons-material/Add";
@@ -20,10 +25,10 @@ import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrow
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 
 import { FAINT, HAIRLINE, INK, MUTED, TINT } from "@/app/uc/report/ui";
-import type { PlanItem, PlanSub, Rolled } from "@/lib/reporting/actionPlanRules";
-import { isLate } from "@/lib/reporting/actionPlanRules";
+import type { PlanItem, PlanKind, PlanSub, Rolled } from "@/lib/reporting/actionPlanRules";
+import { KILLED, isClosed, isLate, priorityLabel, stageOf } from "@/lib/reporting/actionPlanRules";
 import { SUMMIT } from "@/lib/reporting/summitRules";
-import { LATE, SUMMARY, dayOf, dmy, isoOf } from "./planUi";
+import { LATE, PRIORITY_COLOR, SUB_COLOR, SUMMARY, dayOf, dmy, isoOf, stageColor } from "./planUi";
 
 export const ROW = 34;
 const HEAD = 52;
@@ -37,8 +42,19 @@ export type GRow =
 
 export type Where = "into" | "before";
 
-/** The columns: the handle, the name (sized to what is open), and - unless folded away - start, due, %, who. */
-const DETAIL = [88, 88, 84, 124];
+/** The columns: the handle and +, the name (sized to what is open), and - unless folded away - planned, go-live, status, %, who. */
+const HANDLE = 44;
+const DETAIL = [92, 92, 136, 84, 124];
+const HEADS = ["", "Task name", "Planned", "Go-live", "Status", "% complete", "Assigned to"];
+
+/** What the + beside a row makes: a new main category, a sub-category, an action - in it or beside it. */
+export type AddWhat = { kind: Exclude<PlanKind, "goal">; label: string };
+export function addChoices(kind: PlanKind): AddWhat[] {
+  if (kind === "goal") return [{ kind: "topic", label: "New main category" }];
+  if (kind === "topic") return [{ kind: "action", label: "New action in it" }, { kind: "group", label: "New sub-category in it" }, { kind: "topic", label: "New main category" }];
+  if (kind === "group") return [{ kind: "action", label: "New action in it" }, { kind: "group", label: "New sub-category beside it" }];
+  return [{ kind: "action", label: "New action beside it" }];
+}
 /** "#3b6fe0" at a given opacity, for the lighter bars of actions not done yet. */
 const alpha = (hex: string, a: number) => `${hex}${Math.round(a * 255).toString(16).padStart(2, "0")}`;
 /** A tag: square corners (SARCLA 01.11.2026: "tags not round, square"). */
@@ -64,7 +80,7 @@ function useNameWidth(rows: GRow[], rolled: Map<number, Rolled>, today: string):
       if (it.kind === "goal") continue;
       const [w, size] = it.kind === "topic" ? [800, 13.4] : it.kind === "group" ? [700, 13.8] : [500, 13.8];
       let chips = it.kind === "topic" ? 16 : 0;
-      if (it.kind === "action" && /^\d$/.test(it.priority)) chips += 26;
+      if (it.kind === "action" && priorityLabel(it.priority)) chips += measure(priorityLabel(it.priority), 800, 10.6) + 14;
       if (it.kind === "action" && it.dg) chips += 26;
       if (it.kind === "action" && isLate(it, today)) chips += 40;
       if (it.kind !== "action" && (ro?.late ?? 0) > 0) chips += 52;
@@ -76,7 +92,7 @@ function useNameWidth(rows: GRow[], rolled: Map<number, Rolled>, today: string):
   }, [rows, rolled, today]);
 }
 
-export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onPatch, canDrop, onDrop, height, colorOf, compact, onCompact }: {
+export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onPatch, canDrop, onDrop, height, colorOf, compact, onCompact, onAdd }: {
   rows: GRow[]; rolled: Map<number, Rolled>; today: string; zoom: Zoom; canWrite: boolean;
   collapsed: Set<string>; toggle: (key: string) => void; selected: number | null;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void;
@@ -87,8 +103,10 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   height: number | string;
   /** a main category's colour, carried by everything under it (SARCLA 01.11.2026: "Gantt colours per project"); null for the goal */
   colorOf: (item: PlanItem) => string | null;
-  /** start, due, % and who folded away, the names alone */
+  /** planned, go-live, status, % and who folded away, the names alone */
   compact: boolean; onCompact: () => void;
+  /** the + beside a row */
+  onAdd: (row: PlanItem, kind: AddWhat["kind"]) => void;
 }) {
   const left = useRef<HTMLDivElement>(null);
   const right = useRef<HTMLDivElement>(null);
@@ -107,10 +125,12 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
     } catch { /* the defaults */ }
   }, []);
   const nameW = nameManual ?? autoName;
-  const leftW = 22 + nameW + (compact ? 0 : detailW.reduce((s, w) => s + w, 0)) + 2;
-  const COLS = compact ? `22px ${nameW}px` : `22px ${nameW}px ${detailW.map((w) => `${w}px`).join(" ")}`;
+  const leftW = HANDLE + nameW + (compact ? 0 : detailW.reduce((s, w) => s + w, 0)) + 2;
+  const COLS = compact ? `${HANDLE}px ${nameW}px` : `${HANDLE}px ${nameW}px ${detailW.map((w) => `${w}px`).join(" ")}`;
+  // the + menu
+  const [addAt, setAddAt] = useState<{ el: HTMLElement; item: PlanItem } | null>(null);
   const GRID_MIN = leftW;
-  /** Drag a column's right edge: 0 is the name, 1-4 start, due, % and who. */
+  /** Drag a column's right edge: 0 is the name, 1-5 planned, go-live, status, % and who. */
   const startColResize = (e: React.PointerEvent, col: number) => {
     e.preventDefault(); e.stopPropagation();
     const x0 = e.clientX, w0 = col === 0 ? nameW : detailW[col - 1];
@@ -226,7 +246,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
 
   // the line between the halves widens or narrows the name column
   const startResize = (e: React.PointerEvent) => startColResize(e, 0);
-  const heads = compact ? ["", "Task name"] : ["", "Task name", "Start", "Due", "% complete", "Assigned to"];
+  const heads = compact ? HEADS.slice(0, 2) : HEADS;
 
   const todayX = X(today);
   const bodyH = rows.length * ROW;
@@ -246,7 +266,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
                 <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, lineHeight: 1.2, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", flex: 1, minWidth: 0 }}>{h}</Typography>
                 {/* fold the date, % and who columns away, or back */}
                 {i === 1 && (
-                  <Tooltip title={compact ? "Show start, due, % complete and assigned to" : "Fold away start, due, % complete and assigned to"}>
+                  <Tooltip title={compact ? "Show planned, go-live, status, % complete and assigned to" : "Fold away planned, go-live, status, % complete and assigned to"}>
                     <Box component="button" type="button" onClick={onCompact} aria-label={compact ? "Show the columns" : "Fold the columns away"} aria-pressed={!compact}
                       sx={{ border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", borderRadius: "3px", width: 22, height: 20, p: 0, display: "grid", placeItems: "center", cursor: "pointer", color: MUTED, mb: "-2px" }}>
                       {compact ? <KeyboardDoubleArrowRightIcon sx={{ fontSize: 15 }} /> : <KeyboardDoubleArrowLeftIcon sx={{ fontSize: 15 }} />}
@@ -260,7 +280,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
             ))}
           </Box>
           {rows.map((r) => (
-            <TreeRow key={r.key} r={r} cols={COLS} compact={compact} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
+            <TreeRow key={r.key} r={r} cols={COLS} compact={compact} onAddMenu={canWrite && r.type === "item" ? (el) => setAddAt({ el, item: r.item }) : undefined} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
               selected={r.type === "item" && r.item.id === selected} onOpen={onOpen} onSubs={onSubs} onPatch={onPatch}
               dragging={drag?.key === r.key} over={over?.key === r.key ? over.where : null}
               draggable={canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group")))}
@@ -282,6 +302,13 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
           {!rows.length && <Typography sx={{ p: 3, color: MUTED, fontSize: "0.9rem" }}>Nothing matches these filters.</Typography>}
         </Box>
       </Box>
+      <Menu anchorEl={addAt?.el} open={!!addAt} onClose={() => setAddAt(null)} slotProps={{ paper: { sx: { borderRadius: "8px" } } }}>
+        {addAt && addChoices(addAt.item.kind).map((c) => (
+          <MenuItem key={c.label} dense onClick={() => { const it = addAt.item; setAddAt(null); onAdd(it, c.kind); }} sx={{ fontSize: "0.86rem", gap: 1 }}>
+            <AddIcon sx={{ fontSize: 16, color: MUTED }} />{c.label}
+          </MenuItem>
+        ))}
+      </Menu>
 
       {/* the line between the halves, dragged to give one more room */}
       <Box onPointerDown={startResize} role="separator" aria-orientation="vertical" aria-label="Resize the task list"
@@ -330,9 +357,9 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
               }
               const it = r.item;
               const ro = rolled.get(it.id);
-              // the project's colour, its done part solid; on hold paler still
+              // the project's colour, its done part solid; waiting or killed paler still
               const c = colorOf(it) ?? SUMMARY;
-              const st = { bar: c, soft: alpha(c, it.state === "hold" ? 0.12 : 0.22) };
+              const st = { bar: c, soft: alpha(c, it.stage === KILLED || it.state === "hold" ? 0.12 : 0.22) };
               const late = isLate(it, today);
               const dx = bar?.id === it.id ? bar.dx : 0;
               const tip = [it.title, it.start ? `${dmy(it.start)} – ${dmy(it.due)}` : it.due ? `due ${dmy(it.due)}` : "", ro?.percent != null ? `${ro.percent} %` : "", late ? "late" : ""].filter(Boolean).join(" · ");
@@ -357,7 +384,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
                   <Tooltip key={`a${r.key}`} title={tip} placement="top" disableInteractive>
                     <Box onPointerDown={(e) => startBarDrag(e, it, "due")}
                       sx={{ position: "absolute", left: X(it.due) + px / 2 - 7 + dx, top: cy - 7, width: 14, height: 14, transform: "rotate(45deg)", borderRadius: "2px",
-                        bgcolor: it.state === "done" ? st.bar : alpha(c, 0.4), border: `2px solid ${late ? LATE : "#fff"}`, boxShadow: `0 0 0 1px ${late ? LATE : st.bar}`, cursor: canWrite ? "grab" : "pointer", zIndex: 3, touchAction: "none" }} />
+                        bgcolor: isClosed(it.stage) && it.stage !== KILLED ? st.bar : alpha(c, 0.4), border: `2px solid ${late ? LATE : "#fff"}`, boxShadow: `0 0 0 1px ${late ? LATE : st.bar}`, cursor: canWrite ? "grab" : "pointer", zIndex: 3, touchAction: "none" }} />
                   </Tooltip>
                 );
               }
@@ -377,8 +404,8 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
 
 /* ── a row of the tree ─────────────────────────────────────────────────── */
 
-function TreeRow({ r, cols, compact, color, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onPatch, dragging, over, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
-  r: GRow; cols: string; compact: boolean; color: string | null;
+function TreeRow({ r, cols, compact, color, onAddMenu, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onPatch, dragging, over, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
+  r: GRow; cols: string; compact: boolean; color: string | null; onAddMenu?: (el: HTMLElement) => void;
   rolled: Map<number, Rolled>; today: string; canWrite: boolean; folded: boolean; toggle: (key: string) => void; selected: boolean;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void;
   onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent">>) => Promise<void>;
@@ -399,12 +426,24 @@ function TreeRow({ r, cols, compact, color, rolled, today, canWrite, folded, tog
     boxShadow: over === "before" ? `inset 0 2px 0 ${TINT.blue.fg}` : "none", position: "relative",
     "&:hover": { bgcolor: selected ? "rgba(36,89,209,.08)" : "rgba(21,34,58,.025)" }, "&:hover .add": { opacity: 1 },
   } as const;
-  const handle = draggable ? (
-    <Box draggable onDragStart={(e: React.DragEvent) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", r.key); onDragStart(); }} onDragEnd={onDragEnd}
-      title="Drag onto another topic or group" sx={{ display: "grid", placeItems: "center", color: FAINT, cursor: "grab", height: "100%" }}>
-      <DragIndicatorIcon sx={{ fontSize: 17 }} />
+  // the handle to drag the row, and beside it the + for a new row
+  const handle = (
+    <Box sx={{ display: "grid", gridTemplateColumns: "22px 22px", height: "100%", alignItems: "center" }}>
+      {draggable ? (
+        <Box draggable onDragStart={(e: React.DragEvent) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", r.key); onDragStart(); }} onDragEnd={onDragEnd}
+          title="Drag onto another main category or sub-category" sx={{ display: "grid", placeItems: "center", color: FAINT, cursor: "grab", height: "100%" }}>
+          <DragIndicatorIcon sx={{ fontSize: 17 }} />
+        </Box>
+      ) : <Box />}
+      {onAddMenu ? (
+        <Box component="button" type="button" className="add" aria-label="Add a row" title="New main category, sub-category or action"
+          onClick={(e: React.MouseEvent<HTMLElement>) => { e.stopPropagation(); onAddMenu(e.currentTarget); }}
+          sx={{ width: 20, height: 20, p: 0, border: `1px solid ${HAIRLINE}`, borderRadius: "4px", bgcolor: "#fff", color: MUTED, display: "grid", placeItems: "center", cursor: "pointer", opacity: 0.45, transition: "opacity .15s", "&:hover, &:focus-visible": { opacity: 1, color: TINT.blue.fg, borderColor: TINT.blue.fg } }}>
+          <AddIcon sx={{ fontSize: 15 }} />
+        </Box>
+      ) : <Box />}
     </Box>
-  ) : <Box />;
+  );
 
   if (r.type === "sub") {
     const s = r.sub;
@@ -422,6 +461,7 @@ function TreeRow({ r, cols, compact, color, rolled, today, canWrite, folded, tog
         {!compact && <>
           <Box sx={cell} />
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: late ? LATE : MUTED, fontWeight: late ? 700 : 400 }}>{dmy(s.due)}</Typography></Box>
+          <Box sx={cell}><Box sx={{ ...TAG, bgcolor: SUB_COLOR[s.status].soft, color: SUB_COLOR[s.status].ink }}>{s.status === "done" ? "Done" : s.status === "doing" ? "In progress" : "Open"}</Box></Box>
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{s.status === "done" ? "100 %" : s.status === "doing" ? "50 %" : "0 %"}</Typography></Box>
           <Box sx={cell}><Typography noWrap sx={{ fontSize: "0.8rem", color: MUTED }}>{s.ownerName}</Typography></Box>
         </>}
@@ -433,7 +473,9 @@ function TreeRow({ r, cols, compact, color, rolled, today, canWrite, folded, tog
   const ro = rolled.get(it.id);
   const summary = it.kind !== "action";
   const late = isLate(it, today);
-  const fromSubs = it.kind === "action" && (ro?.subs ?? 0) > 0 && it.state !== "done" && it.percent !== 100;
+  const fromSubs = it.kind === "action" && (ro?.subs ?? 0) > 0 && !isClosed(it.stage) && it.percent !== 100;
+  const prio = it.kind === "action" ? priorityLabel(it.priority) : "";
+  const stage = stageOf(it.stage);
   const name = it.kind === "goal"
     ? { fontSize: "0.9rem", fontWeight: 800, color: INK }
     : it.kind === "topic" ? { fontSize: "0.84rem", fontWeight: 800, color: INK, letterSpacing: "0.01em" }
@@ -446,11 +488,10 @@ function TreeRow({ r, cols, compact, color, rolled, today, canWrite, folded, tog
         {caret(r.hasKids)}
         {/* the project's colour, as its bars carry it */}
         {it.kind === "topic" && color && <Box aria-hidden sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: color, flexShrink: 0, mr: 0.25 }} />}
-        {it.kind === "action" && it.priority && /^\d$/.test(it.priority) && (
-          <Box sx={{ ...TAG, fontSize: "0.68rem", bgcolor: it.priority === "1" ? "#fde7e7" : it.priority === "2" ? "#fdf0dc" : "#eef1f6", color: it.priority === "1" ? LATE : it.priority === "2" ? "#a96a12" : MUTED }}>P{it.priority}</Box>
-        )}
+        {/* HubSpot's priority (SARCLA 01.11.2026: "priority as HubSpot's Low / Medium / High / Urgent") */}
+        {prio && <Box sx={{ ...TAG, bgcolor: PRIORITY_COLOR[it.priority].bg, color: PRIORITY_COLOR[it.priority].fg }}>{prio}</Box>}
         <Tooltip title={it.detail && it.detail !== it.title ? <Box sx={{ whiteSpace: "pre-wrap", fontSize: "0.8rem", maxHeight: 320, overflow: "hidden" }}>{it.detail}</Box> : ""} placement="bottom-start" enterDelay={600} disableInteractive>
-          <Typography noWrap sx={{ ...name, minWidth: 0 }}>{it.title}</Typography>
+          <Typography noWrap sx={{ ...name, minWidth: 0, ...(it.stage === KILLED ? { textDecoration: "line-through", color: FAINT } : {}) }}>{it.title}</Typography>
         </Tooltip>
         {it.kind === "action" && it.dg && <Tooltip title="Led by Digital Growth - its sub-actions can take a Scroll to Sale ticket"><Box sx={{ ...TAG, bgcolor: TINT.blue.bg, color: TINT.blue.fg }}>DG</Box></Tooltip>}
         {late && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>LATE</Box>}
@@ -469,6 +510,7 @@ function TreeRow({ r, cols, compact, color, rolled, today, canWrite, folded, tog
         <>
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: FAINT }}>{dmy(ro?.from ?? null)}</Typography></Box>
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: FAINT }}>{dmy(ro?.to ?? null)}</Typography></Box>
+          <Box sx={cell} />
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: FAINT, fontWeight: 600 }}>{ro?.percent == null ? "" : `${ro.percent} %`}</Typography></Box>
           <Box sx={cell} />
         </>
@@ -476,6 +518,12 @@ function TreeRow({ r, cols, compact, color, rolled, today, canWrite, folded, tog
         <>
           <DateCell value={it.start} canWrite={canWrite} max={it.due} onSave={(v) => onPatch(it.id, { start: v })} />
           <DateCell value={it.due} note={it.dueNote} late={late} canWrite={canWrite} min={it.start} onSave={(v) => onPatch(it.id, { due: v })} />
+          {/* the pipeline's stage, as a square tag in its colour */}
+          <Box sx={cell}>
+            {stage
+              ? <Box title={stage.label} sx={{ ...TAG, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", bgcolor: stageColor(stage.id).soft, color: stageColor(stage.id).ink }}>{stage.label}</Box>
+              : <Typography sx={{ fontSize: "0.78rem", color: FAINT, fontStyle: "italic" }}>No status</Typography>}
+          </Box>
           {fromSubs
             ? <Box sx={cell}><Tooltip title="From its sub-actions"><Typography sx={{ fontSize: "0.8rem", color: MUTED, fontWeight: 600 }}>{ro?.percent ?? 0} %</Typography></Tooltip></Box>
             : <PercentCell value={it.percent} canWrite={canWrite} onSave={(v) => onPatch(it.id, { percent: v })} />}
