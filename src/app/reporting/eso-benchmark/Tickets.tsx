@@ -67,7 +67,7 @@ import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
   ChartBox, H1, KEPT, KEPT_LEAD, Leaderboard, NoLeadYet, TWO, asLead, asTeam, leadOf, setQuery, useLead, useLeads, useTeam,
-  type BoardRow, type LeadKey, type TeamKey,
+  type BoardRow, type Home, type LeadKey, type TeamKey,
 } from "./Figures";
 import { BucEmpty } from "./BucEmpty";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
@@ -114,7 +114,7 @@ const GROUP: Record<TGroup, { title: string; page: string; href: string; icon: R
   incoming: {
     title: "Incoming tickets", page: "eso-tickets", href: "/reporting/eso-benchmark/tickets", icon: <ConfirmationNumberOutlinedIcon />, tint: "amber",
     from: "Channel", fromLower: "channel", fromPlural: "Channels",
-    what: "the customers' requests: a website form, the chat, an e-mail (to the ESO or redirected from Back Office), a request the ESO typed in, the helpline - and Sales' follow-ups and special requests through GQS",
+    what: "the customers' requests: a website form, the chat, an e-mail (direct or redirected from Back Office), a request typed in for the team, the helpline - and Sales' follow-ups and special requests through GQS",
     won: "won: closed as Ordered or a one-shot order",
   },
   system: {
@@ -123,6 +123,12 @@ const GROUP: Record<TGroup, { title: string; page: string; href: string; icon: R
     what: "what a workflow or a push hands the ESO: new registrants, the qualified ones with no order 30 days on, lost leads, second purchase, poor rating, abandoned cart - and erosion, win back, the September push, price checks",
     won: "won: closed as Ordered or a one-shot order - a new registrant closed Qualified",
   },
+};
+/** A page as ESO's or as TSA Reports' (SARCLA 01.11.2026: "move the tickets also to TSA"): TSA's own address - so the side
+ *  panel stays TSA's - and its own keys ("tsa-tickets…"), so what is sent from it goes to TSA's BUC View. */
+const groupOf = (g: TGroup, home: Home) => {
+  const x = GROUP[g];
+  return home === "eso" ? x : { ...x, page: x.page.replace(/^eso-/, "tsa-"), href: x.href.replace("/eso-benchmark/", "/tsa-benchmark/") };
 };
 
 /* ── the period: this year's months, or one's own days ─────────────────── */
@@ -166,23 +172,27 @@ const perPill = (d: TicketsData, p: TPer) => { const w = perWords(d, p); return 
 
 /* ── the teams: ESO, or everyone who owns a ticket of the ESO pipeline ─── */
 
-const TTEAMS: { id: TeamKey; label: string; count: null }[] = [{ id: "eso", label: "ESO", count: null }, { id: "total", label: "Total", count: null }];
-/** ESO | Total, and under ESO the line managers' teams (as Visits: TSA owns a handful of the ESO pipeline's tickets). */
+const TTEAMS: { id: TeamKey; label: string; count: null }[] = [{ id: "eso", label: "ESO", count: null }, { id: "tsa", label: "TSA", count: null }, { id: "total", label: "Total", count: null }];
+/** ESO | TSA | Total on both pages - ESO's and TSA Reports' (SARCLA 01.11.2026: "all for all in ESO as well") - and under
+ *  ESO the line managers' teams. */
 function TTeams({ team, onTeam, lead, onLead, teams }: { team: TeamKey; onTeam: (t: TeamKey) => void; lead: LeadKey; onLead: (l: LeadKey) => void; teams: Team[] }) {
-  const t: TeamKey = team === "eso" ? "eso" : "total";
   const tabs: { id: LeadKey; label: string; count: null }[] = [{ id: "all", label: "All ESO", count: null }, ...teams.map((x) => ({ id: x.id, label: x.name, count: null }))];
   return (
     <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", justifySelf: "start", minWidth: 0 }}>
-      <ReportTabs name="eso-team" tab={t} onSelect={onTeam} tabs={TTEAMS} />
-      {t === "eso" && teams.length > 0 && <ReportTabs name="eso-lead" tab={teams.some((x) => x.id === lead) ? lead : "all"} onSelect={onLead} tabs={tabs} />}
+      <ReportTabs name="eso-team" tab={team} onSelect={onTeam} tabs={TTEAMS} />
+      {team === "eso" && teams.length > 0 && <ReportTabs name="eso-lead" tab={teams.some((x) => x.id === lead) ? lead : "all"} onSelect={onLead} tabs={tabs} />}
     </Box>
   );
 }
-/** The people shown: ESO's (a line manager's team's), or everyone who owns a ticket of the ESO pipeline. */
+/** A team's pipeline: ESO the ESO pipeline's tickets, TSA the TSA pipeline's, Total both (PIPES index; null: both). */
+const pipeOf = (team: TeamKey): number | null => (team === "eso" ? 0 : team === "tsa" ? 1 : null);
+/** The people shown: ESO's (a line manager's team's) on the ESO pipeline, TSA's on the TSA pipeline, or everyone who owns a
+ *  ticket of either. */
 const peopleOf = (d: TicketsData, team: TeamKey, lead: string | null, byId: Record<string, string>) => new Set(d.people.flatMap((p, i) => (
-  team === "eso" ? (p.team === "ESO" && (!lead || byId[p.id] === lead) ? [i] : []) : [i]
+  team === "eso" ? (p.team === "ESO" && (!lead || byId[p.id] === lead) ? [i] : []) : team === "tsa" ? (p.team === "TSA" ? [i] : []) : [i]
 )));
-const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (c.team === "eso" ? (c.lead ? c.teams.find((t) => t.id === c.lead)?.name ?? c.lead : "ESO") : "Everyone on the ESO pipeline");
+const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (c.team === "eso" ? (c.lead ? c.teams.find((t) => t.id === c.lead)?.name ?? c.lead : "ESO")
+  : c.team === "tsa" ? "TSA" : "Everyone, ESO and TSA");
 
 /* ── what every chart is drawn with ────────────────────────────────────── */
 
@@ -205,7 +215,9 @@ const dimOf = (g: TGroup, dim: TDim): DimInfo => ({
 const ORDER: Partial<Record<TDim, readonly string[]>> = { channel: CHANNEL_ORDER, prio: PRIO_BANDS };
 
 export type TCtx = {
-  d: TicketsData; group: TGroup; per: TPer; team: TeamKey; lead: string | null; teams: Team[];
+  d: TicketsData; group: TGroup; home: Home; per: TPer; team: TeamKey; lead: string | null; teams: Team[];
+  /** the team's pipeline (pipeOf) */
+  pipe: number | null;
   /** the people shown (indexes) */
   people: Set<number>; filters: TFilters; view: TView;
   half?: boolean; targets?: Record<string, number>;
@@ -222,7 +234,7 @@ function statsOf(c: TCtx, dim?: TDim, py = false): Map<string, TStats> {
   const hit = memo.get(k);
   if (hit) return hit;
   const win: TWin = py ? { ...c.per.win, year: 1 } : c.per.win;
-  const out = statsBy(rowsOf(c.d, c.group, win, c.filters, c.people, dim), win, dim ? (r) => labelOf(c.d, r, dim) : undefined);
+  const out = statsBy(rowsOf(c.d, c.group, win, c.filters, c.people, dim, c.pipe), win, dim ? (r) => labelOf(c.d, r, dim) : undefined);
   memo.set(k, out);
   return out;
 }
@@ -231,13 +243,13 @@ const pyCache = new WeakMap<TCtx, boolean>();
 /** Last year's same months beside this year's - only when each of them held enough tickets for the people shown. */
 function pyOk(c: TCtx): boolean {
   let v = pyCache.get(c);
-  if (v === undefined) { v = comparable(c.d, c.group, c.per.win, c.people); pyCache.set(c, v); }
+  if (v === undefined) { v = comparable(c.d, c.group, c.per.win, c.people, c.pipe); pyCache.set(c, v); }
   return v;
 }
 const PREV = (c: TCtx) => `${c.d.year - 1}, the same ${byDays(c.per.win) ? "days" : "months"}`;
 
 /** A chart's target, one per chart, team and period: "eso-tickets:people:won@eso-RABE~q2" (the year to date without "~"). */
-const targetKey = (c: { group: TGroup }, id: string, team: TeamKey, lead: string | null, per: TPer) => `${GROUP[c.group].page}:${id}@${team === "eso" ? "eso" : "total"}${team === "eso" && lead ? `-${lead}` : ""}${/^months:/.test(id) || per.id === "ytd" ? "" : `~${per.id}`}`;
+const targetKey = (c: { group: TGroup; home: Home }, id: string, team: TeamKey, lead: string | null, per: TPer) => `${groupOf(c.group, c.home).page}:${id}@${team}${team === "eso" && lead ? `-${lead}` : ""}${/^months:/.test(id) || per.id === "ytd" ? "" : `~${per.id}`}`;
 const targetFor = (c: TCtx, id: string) => { const t = c.targets?.[targetKey(c, id, c.team, c.lead, c.per)]; return t != null && t > 0 ? t : null; };
 
 /* ── the leaderboards ──────────────────────────────────────────────────── */
@@ -318,7 +330,7 @@ function Board({ c, id, dim, m, actions }: { c: TCtx; id: string; dim: TDim; m: 
 
 const TONE: Record<TFlowNode["tone"], string> = { source: SERIES[0], good: SERIES[2], bad: "#c0571f", none: DEEMPHASIS };
 function PathChart({ c, title, actions }: { c: TCtx; title: string; actions?: React.ReactNode }) {
-  const fl = flowOf(c.d, rowsOf(c.d, c.group, c.per.win, c.filters, c.people));
+  const fl = flowOf(c.d, rowsOf(c.d, c.group, c.per.win, c.filters, c.people, undefined, c.pipe));
   const label = new Map(fl.nodes.map((n) => [n.id, n.label]));
   return (
     <ChartBox title={title} hint={`${perWords(c.d, c.per)} · where each came from, how fast the first contact came (a reply in the ticket, an e-mail sent, a call or a meeting - working hours), what became of it, and the resolution it was closed with`} actions={actions}>
@@ -408,7 +420,7 @@ function companiesOf(c: TCtx, id: string): CompanySource | null {
   if (!ids || !names) return null;
   const quiet = /:quiet/.test(id), money = id.startsWith("potential:");
   const only = /^potential:pipe/.test(id) ? "open" : /^potential:wonpot/.test(id) ? "won" : null;
-  const rows = rowsOf(c.d, c.group, c.per.win, c.filters, c.people)
+  const rows = rowsOf(c.d, c.group, c.per.win, c.filters, c.people, undefined, c.pipe)
     .filter((r) => (!quiet || quietRow(r)) && (!only || outcomeGroup(r[T.outcome]) === only));
   type Co = { n: number; won: number; decided: number; open: number; last: number; pot: number; potOpen: number; potWon: number; people: Set<number>; country: string };
   const by = new Map<number, Co>();
@@ -429,7 +441,7 @@ function companiesOf(c: TCtx, id: string): CompanySource | null {
   const lastOf = (x: Co) => `${x.last % 32} ${MONTHS[Math.floor(x.last / 32)]}`;
   const owners = (x: Co) => [...x.people].map((p) => c.d.people[p]?.name ?? "").filter(Boolean).join(", ");
   return {
-    key: `${GROUP[c.group].page}|${id}|${c.d.generatedAt}|${c.per.id}|${[...c.people].join(",")}|${JSON.stringify(c.filters)}`,
+    key: `${groupOf(c.group, c.home).page}|${id}|${c.d.generatedAt}|${c.per.id}|${c.pipe ?? "all"}|${[...c.people].join(",")}|${JSON.stringify(c.filters)}`,
     head: money ? ["Tickets", "Potential", "Still open", "Won", "Last ticket", "Owner", "Country"] : ["Tickets", "Won", "Win rate", "Still open", "Last ticket", "Owner", "Country"], left: [5, 6, 7],
     note: `${perWords(c.d, c.per)} · the companies of ${whose}, ${money ? "the largest potential first · Still open and Won in EUR" : "the most tickets first"}${none ? ` · ${int(none)} ticket${none === 1 ? "" : "s"} without a company not on the list` : ""}`,
     rows: list.map(([ci, x]) => ({
@@ -467,7 +479,7 @@ function drawnBare(id: string): Drawn | undefined {
   }
   if (chart === "texts") {
     const title = (c: TCtx) => `Why, in their words - the resolution texts, ${P(c)}${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · "More information about the ticket resolution", as the owner wrote it when closing - the newest first`} actions={a}><ResolutionTexts d={c.d} rows={rowsOf(c.d, c.group, c.per.win, c.filters, c.people)} /></ChartBox> };
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · "More information about the ticket resolution", as the owner wrote it when closing - the newest first`} actions={a}><ResolutionTexts d={c.d} rows={rowsOf(c.d, c.group, c.per.win, c.filters, c.people, undefined, c.pipe)} /></ChartBox> };
   }
   if (chart === "effort") {
     const title = (c: TCtx) => `The win rate by how much was done, ${P(c)}${teamPart(c)}`;
@@ -741,7 +753,7 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
     <GlassCard>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
         {computing && !error && <CircularProgress size={18} />}
-        <Typography sx={{ fontSize: "0.9rem", color: error ? RED : MUTED }}>{error ? `The tickets could not be read: ${error}` : `Reading every ticket of the ESO pipeline in HubSpot, and what was done on each${progress ? ` · ${progress}` : ""}…`}</Typography>
+        <Typography sx={{ fontSize: "0.9rem", color: error ? RED : MUTED }}>{error ? `The tickets could not be read: ${error}` : `Reading every ticket of the ESO and TSA pipelines in HubSpot, and what was done on each${progress ? ` · ${progress}` : ""}…`}</Typography>
       </Box>
     </GlassCard>
   );
@@ -750,11 +762,13 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
  *  months (as before), ?from=2026-03-05&to=2026-05-17 for days - both read back by winFrom. */
 const isOwn = (p: TPer) => /^[md]\d/.test(p.id);
 
-export function TicketsExplorer({ group }: { group: TGroup }) {
-  const G = GROUP[group];
+/** A tickets page - ESO's, or TSA Reports' at its own address opening on TSA (`home`; a team picked there stays in the
+ *  address only, as on the other TSA pages). */
+export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?: Home }) {
+  const G = groupOf(group, home);
   const params = useSearchParams();
   const { d, computing, progress, error } = useTickets();
-  const [teamKey, setTeam] = useTeam();
+  const [team, setTeam] = useTeam(home);
   const [leadKey, setLead] = useLead();
   const lt = useLeads();
   const teams = lt?.teams ?? [];
@@ -770,7 +784,6 @@ export function TicketsExplorer({ group }: { group: TGroup }) {
   const setPer = (w: TWin) => setQuery((q) => { if (!d) return; if (sameWin(w, presetsOf(d)[0].win)) { q.delete("from"); q.delete("to"); } else { const [a, b] = winParams(d, w); q.set("from", a); q.set("to", b); } });
 
   // the work a click asks for, kept; the tabs and toggles answer at once and the charts follow (as the Figures)
-  const team: TeamKey = teamKey === "eso" ? "eso" : "total";
   const lead = team === "eso" ? leadOf("eso", leadKey, lt) : null;
   const fromP = params.get("from"), toP = params.get("to");
   const per = useMemo(() => (d ? perOf(d, winFrom(d, fromP, toP) ?? presetsOf(d)[0].win) : null), [d, fromP, toP]);
@@ -779,12 +792,12 @@ export function TicketsExplorer({ group }: { group: TGroup }) {
   const drawn = useDeferredValue(want);
   const stale = drawn !== want;
   const c = useMemo<TCtx | null>(() => (d && drawn.per && drawn.people ? {
-    d, group, per: drawn.per, team: drawn.team, lead: drawn.lead, teams, people: drawn.people, filters: drawn.filters, view: drawn.view, targets: acts?.targets,
+    d, group, home, per: drawn.per, team: drawn.team, lead: drawn.lead, teams, pipe: pipeOf(drawn.team), people: drawn.people, filters: drawn.filters, view: drawn.view, targets: acts?.targets,
     onBar: (k, l) => { toggle(k, l); openOn(k); }, onFilter: openOn,
-  } : null), [d, group, drawn, teams, acts?.targets]); // eslint-disable-line react-hooks/exhaustive-deps
+  } : null), [d, group, home, drawn, teams, acts?.targets]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const back = (
-    <Box component={Link} href="/reporting/eso-benchmark" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
+    <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
   );
@@ -846,24 +859,24 @@ export function TicketsExplorer({ group }: { group: TGroup }) {
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
 
 /** A tickets page in the BUC View: the year to date for the team the toggle shows, its months, and its charts sent here. */
-export function TicketsPanel({ acts, group }: { acts: ActionsState | null; group: TGroup }) {
-  const G = GROUP[group];
+export function TicketsPanel({ acts, group, home = "eso" }: { acts: ActionsState | null; group: TGroup; home?: Home }) {
+  const G = groupOf(group, home);
   const PANEL = `${G.page}:panel:`;
   const { d, computing, progress, error } = useTickets();
-  const [teamKey, setTeam] = useState<TeamKey>("eso");
+  const [team, setTeam] = useState<TeamKey>(home);
   const [leadKey, setLeadKey] = useState<LeadKey>("all");
   const lt = useLeads();
   const teams = lt?.teams ?? [];
-  useEffect(() => { try { const x = asTeam(localStorage.getItem(KEPT)); if (x) setTeam(x); const l = asLead(localStorage.getItem(KEPT_LEAD)); if (l) setLeadKey(l); } catch { /* ESO */ } }, []);
-  const choose = (t: TeamKey) => { setTeam(t); try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
+  // ESO's panel keeps the team picked last (as ESO's pages); TSA's opens on TSA every time
+  useEffect(() => { if (home === "tsa") return; try { const x = asTeam(localStorage.getItem(KEPT)); if (x) setTeam(x); const l = asLead(localStorage.getItem(KEPT_LEAD)); if (l) setLeadKey(l); } catch { /* ESO */ } }, [home]);
+  const choose = (t: TeamKey) => { setTeam(t); if (home === "eso") try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
   const chooseLead = (l: LeadKey) => { setLeadKey(l); try { localStorage.setItem(KEPT_LEAD, l); } catch { /* here only */ } };
-  const team: TeamKey = teamKey === "eso" ? "eso" : "total";
   const lead = team === "eso" ? leadOf("eso", leadKey, lt) : null;
   const want = useMemo(() => ({ team, lead }), [team, lead]);
   const drawn = useDeferredValue(want);
   const stale = drawn !== want;
-  const c = useMemo<TCtx | null>(() => (d ? { d, group, per: perOf(d, presetsOf(d)[0].win), team: drawn.team, lead: drawn.lead, teams, people: peopleOf(d, drawn.team, drawn.lead, lt?.byId ?? {}), filters: {}, view: "paths", targets: acts?.targets } : null),
-    [d, group, drawn, teams, lt, acts?.targets]);
+  const c = useMemo<TCtx | null>(() => (d ? { d, group, home, per: perOf(d, presetsOf(d)[0].win), team: drawn.team, lead: drawn.lead, teams, pipe: pipeOf(drawn.team), people: peopleOf(d, drawn.team, drawn.lead, lt?.byId ?? {}), filters: {}, view: "paths", targets: acts?.targets } : null),
+    [d, group, home, drawn, teams, lt, acts?.targets]);
   const items: SortItem[] = useMemo(() => !c ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === G.page && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
     const ch = chartOf(spec.key);
     const fmt = formatOf(acts, spec);

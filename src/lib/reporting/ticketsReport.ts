@@ -1,5 +1,6 @@
 // THE ESO TICKETS PAGES' READ (SARCLA 29.10.2026, rebuilt like Visits; 30.10.2026: Incoming tickets and System tickets,
-// how they are handled): every ticket of the ESO pipeline from January last year, of everyone who owns one, each as one
+// how they are handled; 01.11.2026: the TSA pipeline too): every ticket of the ESO and TSA pipelines from January last
+// year, of everyone who owns one, each as one
 // small row with what the pages slice it by - and what the team did on it (the reply in the ticket, the e-mails sent, the
 // calls, meetings, notes and tasks logged on it). The rules in ./ticketsRules.ts. Read every hour through slowReport:
 // the first visitor starts it, everyone after gets it.
@@ -12,16 +13,19 @@ import { UCS } from "@/lib/lifecycle/config";
 import { associations, batchRead, read, searchAll, ticketStages } from "@/lib/lifecycle/read";
 import { workingHours } from "@/lib/marketingKpis/handoverCube";
 import { prioBand, prioOf } from "./esoRules";
-import { confIndex, firstContact, kindOf, outcomeIndex, startLabels, type TicketsData } from "./ticketsRules";
+import { PIPES, confIndex, firstContact, kindOf, outcomeIndex, startLabels, type TicketsData } from "./ticketsRules";
 
 // v2: incoming and system tickets, the first contact and the activities, the outcome (30.10.2026)
 // v3: the resolution as set and its "more information" text; e-mail and the Back Office redirects as one channel (31.10.2026)
 // v4: "Bought at AP" lost, GQS with the incoming tickets as Sales', the typed-in tickets by their real reason, each
 // ticket's company (id and name) for the graphs' "Companies" lists (31.10.2026)
 // v5: each ticket's potential (Sales potential estimate, its confidence) and the stage it stands in (01.11.2026)
-const KEY = "esoTickets:v5";
+// v6: the TSA pipeline too, each row its pipeline - the pages in TSA Reports, ESO | TSA | Total on both (01.11.2026)
+const KEY = "esoTickets:v6";
 const TTL_MS = 60 * 60 * 1000;
-const ESO_PIPELINE = "1726599376";
+const ESO_PIPELINE = "1726599376", TSA_PIPELINE = "1726599377";
+/** The pipelines read, in PIPES' order (T.pipe). */
+const PIPELINES = [ESO_PIPELINE, TSA_PIPELINE];
 const PROPS = [
   "subject", "createdate", "hs_pipeline_stage", "hubspot_owner_id", "source_type", "hs_object_source", "hs_object_source_detail_1",
   "hs_outbound_ticket", "hs_tag_ids", "ticket_resolution_eso", "first_agent_reply_date", "hs_primary_company_id",
@@ -58,27 +62,28 @@ export async function buildTickets(): Promise<TicketsData> {
   const year = now.getUTCFullYear();
   const today = now.toISOString().slice(0, 10);
 
-  // 1. every ticket of the ESO pipeline since January last year
+  // 1. every ticket of the ESO and the TSA pipeline since January last year
   reportProgress(KEY, "reading the ticket stages");
   const stages = await ticketStages();
   const found = await searchAll("tickets",
-    [[{ propertyName: "hs_pipeline", operator: "EQ", value: ESO_PIPELINE }, { propertyName: "createdate", operator: "GTE", value: String(Date.UTC(year - 1, 0, 1)) }]],
-    PROPS, (n) => reportProgress(KEY, `reading the ESO tickets · ${n.toLocaleString("en")}`));
+    PIPELINES.map((pipe) => [{ propertyName: "hs_pipeline", operator: "EQ", value: pipe }, { propertyName: "createdate", operator: "GTE", value: String(Date.UTC(year - 1, 0, 1)) }]),
+    [...PROPS, "hs_pipeline"], (n) => reportProgress(KEY, `reading the ESO and TSA tickets · ${n.toLocaleString("en")}`));
 
   // 2. what each is - as the Hand-over page sorts them; what it leaves out as typed in by hand, by its real reason
   const lifecycle: Record<string, string> = {};
   for (const u of UCS) for (const t of u.tickets) lifecycle[t.name] = u.key;
   const left: Record<string, number> = {};
-  type Kept = { id: string; p: Record<string, string | null>; group: number; channel: string; newLead: boolean; created: number };
+  type Kept = { id: string; p: Record<string, string | null>; group: number; channel: string; newLead: boolean; created: number; pipe: number };
   const kept: Kept[] = [];
   for (const t of found) {
     const p = t.properties ?? {};
     const created = ms(p.createdate);
     const y = created == null ? 0 : new Date(created).getUTCFullYear();
-    if (created == null || (y !== year && y !== year - 1)) continue;
-    const what = kindOf({ subject: p.subject, sourceType: p.source_type, objectSource: p.hs_object_source, workflow: p.hs_object_source_detail_1, outbound: p.hs_outbound_ticket, tags: p.hs_tag_ids, resolution: p.ticket_resolution_eso }, lifecycle);
+    const pipe = PIPELINES.indexOf(p.hs_pipeline ?? "");
+    if (created == null || (y !== year && y !== year - 1) || pipe < 0) continue;
+    const what = kindOf({ subject: p.subject, sourceType: p.source_type, objectSource: p.hs_object_source, workflow: p.hs_object_source_detail_1, outbound: p.hs_outbound_ticket, tags: p.hs_tag_ids, resolution: p.ticket_resolution_eso }, lifecycle, PIPES[pipe]);
     if ("skip" in what) { left[what.skip] = (left[what.skip] ?? 0) + 1; continue; }
-    kept.push({ id: String(t.id), p, group: what.group === "incoming" ? 0 : 1, channel: what.channel, newLead: what.newLead, created });
+    kept.push({ id: String(t.id), p, group: what.group === "incoming" ? 0 : 1, channel: what.channel, newLead: what.newLead, created, pipe });
   }
 
   // 3. what the team did on them: the e-mails (sent ones are a contact, received ones are not), calls, meetings, notes, tasks
@@ -136,12 +141,12 @@ export async function buildTickets(): Promise<TicketsData> {
 
   // 6. the rows
   const resLabel = await resolutionLabels();
-  // the ESO pipeline's stages in its own order - the open potential stands in one of them
-  const labels = startLabels([...stages.values()].filter((s) => s.pipeline === ESO_PIPELINE).map((s) => s.label));
+  // the ESO pipeline's stages in its own order, then the TSA's not named alike - the open potential stands in one of them
+  const labels = startLabels([...new Set(PIPELINES.flatMap((pipe) => [...stages.values()].filter((s) => s.pipeline === pipe).map((s) => s.label)))]);
   const texts: TicketsData["texts"] = {};
   const at = (list: string[], v: string) => { let i = list.indexOf(v); if (i < 0) i = list.push(v) - 1; return i; };
   const rows: number[][] = [];
-  for (const { id, p, group, channel, newLead, created } of kept) {
+  for (const { id, p, group, channel, newLead, created, pipe } of kept) {
     const d = new Date(created);
     const co = companies.get(p.hs_primary_company_id ?? "");
     const emails = on.emails.get(id) ?? [], calls = on.calls.get(id) ?? [], meetings = on.meetings.get(id) ?? [];
@@ -167,7 +172,7 @@ export async function buildTickets(): Promise<TicketsData> {
       res ? at(labels.resolution, resLabel(res)) : -1,
       companyOf(p.hs_primary_company_id),
       Number.isFinite(pv) && pv > 0 ? Math.round(pv) : 0, confIndex(p.sales_potential_confidence),
-      at(labels.stage!, stage?.label ?? "Unknown"),
+      at(labels.stage!, stage?.label ?? "Unknown"), pipe,
     ]);
   }
   return {

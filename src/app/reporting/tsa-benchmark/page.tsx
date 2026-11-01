@@ -16,18 +16,22 @@ import { RegistrationsPanel } from "@/app/reporting/eso-benchmark/Registrations"
 import { CustomerDevPanel } from "@/app/reporting/eso-benchmark/CustomerDev";
 import { ShopPanel } from "@/app/reporting/eso-benchmark/Shop";
 import { NewCustomersPanel } from "@/app/reporting/eso-benchmark/NewCustomers";
+import { TicketsPanel } from "@/app/reporting/eso-benchmark/Tickets";
 
 export default function TsaBucView() {
   const { state: acts } = useActions("nutshell");
   return (
     // no title: the panels straight away, as ESO's BUC View
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
+      {/* in ESO's order (SARCLA 01.11.2026: "the order of apps on TSA is not the same as in ESO"), Calls where ESO has Visits */}
       <FiguresPanel acts={acts} home="tsa" />
       <CallsPanel acts={acts} />
       <RegistrationsPanel acts={acts} home="tsa" />
-      <CustomerDevPanel acts={acts} home="tsa" />
       <ShopPanel acts={acts} home="tsa" />
       <NewCustomersPanel acts={acts} home="tsa" />
+      <CustomerDevPanel acts={acts} home="tsa" />
+      <TicketsPanel acts={acts} group="incoming" home="tsa" />
+      <TicketsPanel acts={acts} group="system" home="tsa" />
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
         Each panel opens on TSA · a graph joins its page&apos;s panel here with Actions on a TSA Reports page, BUC View switched on.
       </Typography>

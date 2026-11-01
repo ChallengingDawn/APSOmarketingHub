@@ -110,6 +110,7 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
       {
         name: "TSA KPIs", href: "/reporting/tsa-benchmark/calls", note: "The TSA team, page by page, opening on TSA", icon: "chat",
         overview: "BUC View", overviewHref: "/reporting/tsa-benchmark",
+        // in ESO's order (SARCLA 01.11.2026: "the order of apps on TSA is not the same as in ESO"), Calls where ESO has Visits
         children: [
           // revenue and order intake per month and per person, opening on TSA - first, as on ESO
           { name: "Figures", href: "/reporting/tsa-benchmark/figures", icon: "bar" },
@@ -117,11 +118,14 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           { name: "Calls", href: "/reporting/tsa-benchmark/calls", icon: "chat" },
           // against the first qualified call, not the visit: TSA calls (SARCLA 01.11.2026: "measuring visits here it's not fair")
           { name: "Registrations", href: "/reporting/tsa-benchmark/registrations", icon: "verified" },
-          { name: "Customer development", href: "/reporting/tsa-benchmark/customers", icon: "groups" },
           // SARCLA 01.11.2026: "shop behaviour is finished - move it to TSA like the other one, keeping it default on TSA"
           { name: "Shop behaviour", href: "/reporting/tsa-benchmark/shop", icon: "inventory" },
           // SARCLA 01.11.2026: "transfer also this to TSA reports new customer"
           { name: "New customers", href: "/reporting/tsa-benchmark/new-customers", icon: "target" },
+          { name: "Customer development", href: "/reporting/tsa-benchmark/customers", icon: "groups" },
+          // SARCLA 01.11.2026: "move like the other the ticket also to TSA ... default TSA on TSA reports" - the TSA pipeline's
+          { name: "Incoming tickets", href: "/reporting/tsa-benchmark/tickets", icon: "description" },
+          { name: "System tickets", href: "/reporting/tsa-benchmark/system-tickets", icon: "bolt" },
         ],
       },
     ],

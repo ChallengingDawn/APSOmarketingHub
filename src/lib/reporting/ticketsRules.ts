@@ -6,7 +6,8 @@
 // per owner and also the resolution texts", no meetings among what was logged; "Bought at AP should count as lost as
 // well", "GQS sales follow-up is not a system ticket, it's a sales ticket", "Other, typed in by hand should not exist -
 // give it the real reason"; 01.11.2026: the potential back as a tab of its own - "the ticket value funnel on the pipeline
-// with the confidence score"). Every ticket of the ESO pipeline as one small row, so the pages work out any period, team,
+// with the confidence score"; then "move the tickets also to TSA, all for all in ESO as well": the TSA pipeline read too,
+// ESO | TSA | Total on both). Every ticket of the ESO and TSA pipelines as one small row, so the pages work out any period, team,
 // person or filter themselves. No HubSpot or database here.
 //
 //   incoming  the customers' requests, as Hand-over to ESO/TSA sorts them (handoverCube.classify, SARCLA 19.10): a
@@ -50,8 +51,8 @@ export type TicketsData = {
  *  (-1: none), what that contact was (FIRST, -1: none), the e-mails sent, calls, meetings, notes and tasks on it, and
  *  the resolution as set (an index into labels.resolution; -1: none or still open), its company (an index into companyIds
  *  and companyNames; -1: none), its potential - the Sales potential estimate in whole EUR (0: none) and how sure it is
- *  (CONFS; -1: no value) - and the stage it stands in now (labels.stage). */
-export const T = { person: 0, year: 1, month: 2, day: 3, group: 4, channel: 5, prio: 6, category: 7, country: 8, outcome: 9, firstH: 10, first: 11, emails: 12, calls: 13, meetings: 14, notes: 15, resolution: 16, company: 17, value: 18, conf: 19, stage: 20 } as const;
+ *  (CONFS; -1: no value) - the stage it stands in now (labels.stage), and its pipeline (PIPES: 0 ESO, 1 TSA). */
+export const T = { person: 0, year: 1, month: 2, day: 3, group: 4, channel: 5, prio: 6, category: 7, country: 8, outcome: 9, firstH: 10, first: 11, emails: 12, calls: 13, meetings: 14, notes: 15, resolution: 16, company: 17, value: 18, conf: 19, stage: 20, pipe: 21 } as const;
 
 export const GROUPS = ["Incoming tickets", "System tickets"] as const;
 export type TGroup = "incoming" | "system";
@@ -64,6 +65,12 @@ export const groupIndex = (g: TGroup) => (g === "incoming" ? 0 : 1);
 export const MAIL = "E-mail, direct or via Back Office";
 const MERGED: Record<string, string> = { "E-mail": MAIL, "Redirected from Back Office": MAIL };
 const DIRECT = "Direct request to the ESO";
+/** The same on the TSA pipeline (SARCLA 01.11.2026: the tickets in TSA Reports too). */
+export const DIRECT_TSA = "Direct request to the TSA";
+/** The pipelines the pages read - T.pipe is the index (SARCLA 01.11.2026: "move the tickets also to TSA ... all for all
+ *  in ESO as well"). */
+export const PIPES = ["ESO", "TSA"] as const;
+export type TPipe = (typeof PIPES)[number];
 /** Sales asking the ESO to follow up an offer, or a special request, through GQS: a sales ticket - a request like the
  *  customers', never a system one (SARCLA 31.10.2026). */
 export const FROM_SALES = "From Sales (GQS)";
@@ -75,7 +82,7 @@ export const PUSHES = ["Erosion", "Win back", "September push", "Price check"] a
 /** Where a ticket came from, in the order the pages show them: the requests' channels and Sales, then the UC hand-overs
  *  and the pushes. */
 export const CHANNEL_ORDER: readonly string[] = [
-  ...new Set(CHANNELS.filter((c) => c.kind === "request").map((c) => MERGED[c.label] ?? c.label)), FROM_SALES,
+  ...new Set(CHANNELS.filter((c) => c.kind === "request").flatMap((c) => (c.label === DIRECT ? [DIRECT, DIRECT_TSA] : [MERGED[c.label] ?? c.label]))), FROM_SALES,
   ...CHANNELS.filter((c) => c.kind !== "request").flatMap((c) => (c.id === "uc2" ? [c.label, NO_ORDER] : [c.label])), ...PUSHES,
 ];
 
@@ -110,8 +117,13 @@ function typedIn(t: TicketIn): Kind | { skip: string } {
 }
 
 /** A ticket's group, where it came from and whether it is a new registrant to qualify - or why the pages leave it out.
- *  `lifecycle` names the workflows that make the lifecycle tickets (as the Hand-over page reads them). */
-export function kindOf(t: TicketIn, lifecycle: Record<string, string>): Kind | { skip: string } {
+ *  `lifecycle` names the workflows that make the lifecycle tickets (as the Hand-over page reads them); on the TSA
+ *  pipeline a direct request is the TSA's. */
+export function kindOf(t: TicketIn, lifecycle: Record<string, string>, pipe: TPipe = "ESO"): Kind | { skip: string } {
+  const k = kindOnEso(t, lifecycle);
+  return pipe === "TSA" && !("skip" in k) && k.channel === DIRECT ? { ...k, channel: DIRECT_TSA } : k;
+}
+function kindOnEso(t: TicketIn, lifecycle: Record<string, string>): Kind | { skip: string } {
   const what = classify(t, lifecycle);
   if ("skip" in what) return what.skip === "campaign or typed in by hand" ? typedIn(t) : { skip: what.skip };
   const label = CHANNELS.find((c) => c.id === what.c)?.label ?? what.c;
@@ -229,11 +241,13 @@ export function labelOf(d: TicketsData, row: number[], dim: TDim): string {
 }
 
 /** A group's tickets of a period, under the filters - a breakdown's own filter left out when grouping by it. A window cut
- *  by days counts each ticket on the day it came in, last year's on the same days. */
-export function rowsOf(d: TicketsData, group: TGroup, win: TWin, f: TFilters, people: Set<number> | null, except?: TDim): number[][] {
+ *  by days counts each ticket on the day it came in, last year's on the same days. `pipe`: one pipeline's tickets (PIPES
+ *  index; none: both - a read before 01.11.2026 is the ESO pipeline's alone). */
+export function rowsOf(d: TicketsData, group: TGroup, win: TWin, f: TFilters, people: Set<number> | null, except?: TDim, pipe?: number | null): number[][] {
   const y = win.year ?? 0, g = groupIndex(group), days = byDays(win);
   const sets = (Object.keys(f) as TDim[]).filter((k) => k !== except && f[k]?.length).map((k) => [k, new Set(f[k])] as const);
   return d.tickets.filter((r) => r[T.group] === g && r[T.year] === y && r[T.month] >= win.from && r[T.month] <= win.to
+    && (pipe == null || (r[T.pipe] ?? 0) === pipe)
     && (!days || onDays(r, win))
     && (!people || people.has(r[T.person]))
     && sets.every(([k, s]) => s.has(labelOf(d, r, k))));
@@ -388,9 +402,9 @@ export function statsBy(rows: number[][], win: TWin, key: (r: number[]) => strin
  *  on the 20th would compare the 1st-19th with nothing) nor held to 50 in a few days, which no week would reach. A day
  *  this year that last year did not have (29 February) has nothing to compare with. Whole months: as before. */
 export const PY_MIN = 50;
-export function comparable(d: TicketsData, group: TGroup, win: TWin, people: Set<number> | null): boolean {
+export function comparable(d: TicketsData, group: TGroup, win: TWin, people: Set<number> | null, pipe?: number | null): boolean {
   const per = zeros(12), g = groupIndex(group), days = byDays(win);
-  for (const r of d.tickets) if (r[T.year] === 1 && r[T.group] === g && (!people || people.has(r[T.person])) && (!days || onDays(r, win))) per[r[T.month]]++;
+  for (const r of d.tickets) if (r[T.year] === 1 && r[T.group] === g && (pipe == null || (r[T.pipe] ?? 0) === pipe) && (!people || people.has(r[T.person])) && (!days || onDays(r, win))) per[r[T.month]]++;
   for (let m = win.from; m <= win.to; m++) {
     const n = daysIn(d.year - 1, m);
     const lo = m === win.from ? win.d0 ?? 1 : 1, hi = Math.min(n, m === win.to ? win.d1 ?? n : n);

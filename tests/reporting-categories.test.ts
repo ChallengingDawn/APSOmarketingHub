@@ -31,7 +31,7 @@ test("a click on a category goes straight into its first report - the overview w
   assert.equal(categoryEntry(categoryBySlug("otd")!), "/reporting/otd");
 });
 
-test("TSA Reports as ESO's: its BUC View first, then Figures, Calls, Registrations, Customer development, Shop behaviour and New customers at TSA's own addresses, not ESO's - so the side panel stays TSA's (SARCLA 01.11.2026)", () => {
+test("TSA Reports as ESO's: its BUC View first, then its pages in ESO's order - Calls where ESO has Visits - at TSA's own addresses, not ESO's, so the side panel stays TSA's (SARCLA 01.11.2026: \"the order of apps on TSA is not the same as in ESO\")", () => {
   const tsa = categoryBySlug("tsa")!;
   assert.equal(tsa.reports.length, 1);
   assert.equal(tsa.reports[0].overview, "BUC View");
@@ -40,12 +40,16 @@ test("TSA Reports as ESO's: its BUC View first, then Figures, Calls, Registratio
     ["Figures", "/reporting/tsa-benchmark/figures"],
     ["Calls", "/reporting/tsa-benchmark/calls"],
     ["Registrations", "/reporting/tsa-benchmark/registrations"],
-    ["Customer development", "/reporting/tsa-benchmark/customers"],
     ["Shop behaviour", "/reporting/tsa-benchmark/shop"],
     ["New customers", "/reporting/tsa-benchmark/new-customers"],
+    ["Customer development", "/reporting/tsa-benchmark/customers"],
+    ["Incoming tickets", "/reporting/tsa-benchmark/tickets"],
+    ["System tickets", "/reporting/tsa-benchmark/system-tickets"],
   ]);
-  assert.equal(tsa.next, undefined);
+  // the same order as ESO's, Calls standing for Visits
   const eso = categoryBySlug("eso")!.reports[0].children!;
+  assert.deepEqual(tsa.reports[0].children!.map((r) => (r.name === "Calls" ? "Visits" : r.name)), eso.map((r) => r.name));
+  assert.equal(tsa.next, undefined);
   assert.ok(!eso.some((k) => k.href.startsWith("/reporting/tsa-benchmark/")));
 });
 
