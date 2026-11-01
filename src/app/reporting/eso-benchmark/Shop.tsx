@@ -26,6 +26,8 @@
 // graphs expand to show the companies, paginated by 25"): the Companies button of the shared CompanyList - the logins'
 // charts list the companies that logged in (or of them those that ordered, or did nothing), the views' the companies that
 // looked at those articles, the orders' the buyers - each list adds up to its chart; the names read once, when a list opens.
+// Since 01.11.2026 the list opens in a window over the page (the shared CompanyList), every column sortable ("tables should
+// be sortable and allow search for a specific company"): the figures by their numbers, the buyer's kind by its orders.
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -716,18 +718,34 @@ function nameOf(d: ShopData, w: Who, co: number): { id: string | null; name: str
   const name = co < head ? w.names[co] : id ? w.tail[id] : "";
   return { id, name: name || `Company ${co + 1}` };
 }
-type ListItem = { co: number; cells: React.ReactNode[] };
-/** A chart's companies: worked out when its button is pressed (a chart counts thousands), named a page at a time. */
+/** A list's cell: a figure, a word, or a word that sorts by a figure (the buyer's kind by its orders). */
+type Cell = number | string | { v: number; text: string };
+type ListItem = { co: number; cells: Cell[] };
+const cellText = (x: Cell) => (typeof x === "number" ? int(x) : typeof x === "string" ? x : x.text);
+// nothing there (no owner, a label not set, a dash): last, whichever way - as the shared list (1e464cea)
+const NOTHING = new Set(["", "—", "–", "-", "Not set", "Not assigned", "No owner", "No priority"]);
+const cellValue = (x: Cell) => (typeof x === "object" ? x.v : typeof x === "string" && NOTHING.has(x.trim()) ? null : x);
+const byValue = (a: string | number, b: string | number) =>
+  typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b), "en", { sensitivity: "base", numeric: true });
+/** A chart's companies: worked out when its button is pressed (a chart counts thousands), named a page at a time - in the
+ *  window over the page, every column sortable (SARCLA 01.11.2026: "tables should be sortable"). */
 function listOf(c: ShCtx, id: string, head: string[], left: number[], note: string, make: () => ListItem[]): CompanySource {
-  let named: { id: string | null; name: string; cells: React.ReactNode[] }[] | null = null;
+  let named: { id: string | null; name: string; cells: string[]; values: (string | number | null)[] }[] | null = null;
   return {
     key: `${id}|${c.d.generatedAt}|${c.per.id}|${c.team}|${c.lead ?? ""}|${c.people ? [...c.people].join(",") : "all"}|${JSON.stringify(c.filters)}`,
     head, left, note,
-    load: async (page, q) => {
+    sorts: [0, ...head.map((_, k) => k + 1)],
+    load: async (page, q, sort) => {
       const w = await whoFor(c.d);
       if (!w) return "pending";
-      named ??= make().map((x) => ({ ...nameOf(c.d, w, x.co), cells: x.cells }));
-      const found = q ? named.filter((r) => r.name.toLowerCase().includes(q)) : named;
+      named ??= make().map((x) => ({ ...nameOf(c.d, w, x.co), cells: x.cells.map(cellText), values: x.cells.map(cellValue) }));
+      let found = q ? named.filter((r) => r.name.toLowerCase().includes(q)) : named;
+      if (sort) {
+        const dir = sort.desc ? -1 : 1;
+        const v = (r: (typeof found)[number]) => (sort.col === 0 ? r.name : r.values[sort.col - 1]);
+        const cmp = (x: string | number | null, y: string | number | null) => (x == null ? (y == null ? 0 : 1) : y == null ? -1 : dir * byValue(x, y));
+        found = found.map((r, i) => ({ r, i })).sort((a, b) => cmp(v(a.r), v(b.r)) || a.i - b.i).map((x) => x.r);
+      }
       return { total: found.length, rows: found.slice(page * PAGE, page * PAGE + PAGE) };
     },
   };
@@ -742,7 +760,7 @@ function loggedInSource(c: ShCtx, id: string, which: "all" | "ordered" | "idle")
   return listOf(c, id, head, live ? [5, 6, 7, 8] : [4, 5, 6, 7], `${perWords(c.d, c.per)} · the companies ${who}, the most logins first`,
     () => loggedInList(totalsOf(c.d, c.per.win), passOf(c.d, c.filters, c.people), which).map((r) => {
       const [owner, prio, country] = facts(c, r.co);
-      return { co: r.co, cells: [int(r.logins), int(r.views), ...(live ? [int(r.carts)] : []), int(r.orders), owner, prio, labelOf(c.d, r.co, "category"), country] };
+      return { co: r.co, cells: [r.logins, r.views, ...(live ? [r.carts] : []), r.orders, owner, prio, labelOf(c.d, r.co, "category"), country] };
     }));
 }
 /** The companies that looked at the articles a chart of the views counts - its line filters, what it does not show left out. */
@@ -762,7 +780,7 @@ function lookersSource(c: ShCtx, id: string, by: LookBy): CompanySource | null {
         const t = per.get(r[L.company]);
         if (t) { t[0] += r[L.looks]; t[1] += r[L.carted]; t[2] += r[L.ordered]; } else per.set(r[L.company], [r[L.looks], r[L.carted], r[L.ordered]]);
       }
-      return [...per].sort((a, b) => b[1][0] - a[1][0] || b[1][2] - a[1][2] || a[0] - b[0]).map(([co, [looks, carted, ordered]]) => ({ co, cells: [int(looks), int(carted), int(ordered), ...facts(c, co)] }));
+      return [...per].sort((a, b) => b[1][0] - a[1][0] || b[1][2] - a[1][2] || a[0] - b[0]).map(([co, [looks, carted, ordered]]) => ({ co, cells: [looks, carted, ordered, ...facts(c, co)] }));
     });
 }
 const KIND = (upTo: number) => (upTo === 1 ? "One-shot" : upTo === 2 ? "Second" : "Multiple");
@@ -773,7 +791,7 @@ function buyersSource(c: ShCtx, id: string): CompanySource | null {
   const pcs = mask === -1 ? "" : ` with a line of ${(c.filters.pc ?? []).map(pcName).join(", ")}`;
   return listOf(c, id, ["Shop orders", "Buyer", "Company owner", "Priority", "Country"], [2, 3, 4, 5],
     `${perWords(c.d, c.per)} · the companies that ordered in the shop${pcs} - one-shot, second or multiple by their shop orders since ${dayWords(c.d.ordersFrom!)}, the most orders first`,
-    () => buyersOf(c.d, c.per.win, passOf(c.d, c.filters, c.people), mask).map((b) => ({ co: b.co, cells: [int(b.orders), KIND(b.upTo), ...facts(c, b.co)] })));
+    () => buyersOf(c.d, c.per.win, passOf(c.d, c.filters, c.people), mask).map((b) => ({ co: b.co, cells: [b.orders, { v: b.upTo, text: KIND(b.upTo) }, ...facts(c, b.co)] })));
 }
 /** Which companies a chart counts, by its id. */
 function sourceOf(c: ShCtx, id: string): CompanySource | null {
