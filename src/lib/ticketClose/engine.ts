@@ -10,6 +10,9 @@
 // written only while the workflow is switched off (never both writing), only onto "Others" or empty, a hidden topic only
 // once it is an option of the property, every change kept with what was there before (kv ticketClose:log:<time>). Each
 // run that finds something says so in the log ("[ticket-close] ..."). TICKET_CLOSE=off stops it.
+// An open ticket does not wait for its close any more (SARCLA 01.11.2026, on 41 Others and 7 without a category on
+// Detection, all of them open: "this should really be classified, all the others"): two hours after it arrived, a Back
+// Office ticket still on Others / empty is decided the same way on the conversation so far (openSweep).
 
 import type { PoolClient } from "pg";
 import { getPool } from "@/lib/db/client";
@@ -37,7 +40,11 @@ const AI_PER_DAY = 1000;
 const LIVE_RESERVE = 250;
 /** customer e-mails of the history read per run, until all are done */
 const SWEEP_PER_RUN = 25;
-const KV = { rows: "ticketClose:rows", last: "ticketClose:last", sweep: "ticketClose:flagSweep", customers: "ticketClose:customerSweep", internal: "ticketClose:internalSweep", spam: "ticketClose:spamSweep", guessed: "ticketClose:guessed", tsr: "ticketClose:tsrSweep", merges: "ticketClose:gqsMerges" };
+/** an open ticket on Others / empty is decided this long after it arrived: routing and the sentiment flag have had their go */
+const OPEN_AFTER_MS = 2 * 3_600_000;
+/** New and Redirected from Chat/Helpline: not routed yet - routing decides those */
+const NOT_ROUTED = ["2338266325", "2554860732"];
+const KV = { rows: "ticketClose:rows", last: "ticketClose:last", sweep: "ticketClose:flagSweep", customers: "ticketClose:customerSweep", internal: "ticketClose:internalSweep", spam: "ticketClose:spamSweep", guessed: "ticketClose:guessed", tsr: "ticketClose:tsrSweep", merges: "ticketClose:gqsMerges", open: "ticketClose:openSweep" };
 const TICKET_PROPS = ["subject", "content", "enquiry_category", "createdate", "source_type", "order_number", "sentiment_not_valid_reason", "sentiment_customer_tone", `hs_v2_date_entered_${RESOLVED}`];
 
 export type Written = { at: string; error?: string; skipped?: string };
@@ -179,9 +186,11 @@ const replaceable = (cur: string | null | undefined, d: Decision) =>
 
 /**
  * Only onto what is replaceable (read again just before), a flag topic only once HubSpot has it as an option; 100 a
- * call, one by one if a call is refused; kept with what was there before.
+ * call, one by one if a call is refused; kept with what was there before. `mark`: the AI's answers are kept in
+ * ticketClose:guessed as well as its closest guesses - written before the close, Detection could not tell them from
+ * the keywords at intake otherwise (both come from the hub's app).
  */
-async function writeSafe(rows: Row[]): Promise<number> {
+async function writeSafe(rows: Row[], mark = false): Promise<number> {
   let done = 0;
   const cur = await batch("tickets", rows.map((r) => r.id), ["enquiry_category", "order_number"]);
   const opts = await options();
@@ -215,10 +224,10 @@ async function writeSafe(rows: Row[]): Promise<number> {
   // the months these tickets were created in are counted again on Detection's next run
   const months = [...new Set(log.map((x) => rows.find((r) => r.id === x.id)?.created?.slice(0, 7)).filter((m): m is string => !!m))];
   if (months.length) await kvSet("boDetection:dirty", [...new Set([...((await kvGet<string[]>("boDetection:dirty")) ?? []), ...months])]);
-  const guessed = rows.filter((r) => r.d.by === "guess" && r.written && !r.written.error && !r.written.skipped);
+  const guessed = rows.filter((r) => (r.d.by === "guess" || (mark && r.d.by === "ai")) && r.written && !r.written.error && !r.written.skipped);
   if (guessed.length) {
     const g = (await kvGet<Record<string, { cat: string; sure: string }>>(KV.guessed)) ?? {};
-    for (const r of guessed) g[r.id] = { cat: r.d.category!, sure: r.d.sure ?? "low" };
+    for (const r of guessed) g[r.id] = { cat: r.d.category!, sure: r.d.sure ?? (r.d.by === "ai" ? "high" : "low") };
     await kvSet(KV.guessed, g);
   }
   return done;
@@ -268,6 +277,37 @@ async function customerSweep(aiLeft: number): Promise<number> {
   const sure = (k: string) => rows.filter((r) => r.d.sure === k).length;
   console.log(`[ticket-close] Others of the history: ${found.length} read, ${written} get their closest topic (sure: high ${sure("high")}, medium ${sure("medium")}, low ${sure("low")}) - ${(st.written ?? 0) + written} so far`);
   return used;
+}
+
+/**
+ * Every run: the open Back Office tickets still on Others / empty two hours after they arrived (routed, not in New) are
+ * decided as a closing one is - the sentiment flag's topic, else the AI on the conversation so far, else its closest
+ * topic - 25 a run, written onto Others / empty only. One the AI could not place is read again the next day, not every
+ * run. A Task Status Report is the GQS pass's. At the close such a ticket is no longer on Others, so it is not read twice.
+ */
+async function openSweep(aiLeft: number): Promise<number> {
+  if (aiLeft <= 0) return 0;
+  const st = await kvGet<{ day: string; tried: string[] }>(KV.open);
+  const tried = new Set(st?.day === day() ? st.tried : []);
+  const base = [
+    { propertyName: "hs_pipeline", operator: "EQ", value: BO },
+    { propertyName: "hs_pipeline_stage", operator: "NOT_IN", values: [RESOLVED, ...NOT_ROUTED] },
+    { propertyName: "createdate", operator: "LT", value: String(Date.now() - OPEN_AFTER_MS) },
+  ];
+  const found = (await search([[...base, { propertyName: "enquiry_category", operator: "EQ", value: "Others" }], [...base, { propertyName: "enquiry_category", operator: "NOT_HAS_PROPERTY" }]]))
+    .filter((t) => !tried.has(String(t.id)) && !isTsr(t.properties.subject));
+  const todo = found.slice(0, SWEEP_PER_RUN);
+  if (!todo.length) return 0;
+  const r = await decideAll(todo, await conversations(todo), aiLeft);
+  const decided = r.rows.filter((x) => x.d.category);
+  const written = decided.length ? await writeSafe(decided, true) : 0;
+  // an answer the AI could not give is tried again on the next run; the rest once a day at most
+  const again = new Set(r.rows.filter((x) => x.d.stay === "ai_failed").map((x) => x.id));
+  await kvSet(KV.open, { day: day(), tried: [...tried, ...todo.map((t) => String(t.id)).filter((id) => !again.has(id))] });
+  const by: Record<string, number> = {};
+  for (const x of decided) if (x.written && !x.written.error && !x.written.skipped) by[x.d.category!] = (by[x.d.category!] ?? 0) + 1;
+  console.log(`[ticket-close] open tickets on Others/empty: ${todo.length} read, ${written} get a topic${written ? ` (${Object.entries(by).map(([k, n]) => `${k} ${n}`).join(", ")})` : ""}${found.length > todo.length ? ` - ${found.length - todo.length} more on the next runs` : ""}`);
+  return r.ai;
 }
 
 /** The GQS task of a Task Status Report: its exact O number, else a reference that finds exactly one GQS task. */
@@ -458,6 +498,12 @@ async function run(): Promise<RunInfo> {
   if (live) {
     try { await flagSweep(); } catch (e) { console.warn(`[ticket-close] daily pass: ${(e as Error).message}`); }
     try { await tsrSweep(); } catch (e) { console.warn(`[ticket-close] Task Status Reports: ${(e as Error).message}`); }
+    // the open tickets are today's work: they may use the answers kept for the closes, the history passes may not
+    try {
+      const usedNow = (await kvGet<number>(aiKey)) ?? 0;
+      const spent = await openSweep(AI_PER_DAY - usedNow);
+      if (spent) await kvSet(aiKey, usedNow + spent);
+    } catch (e) { console.warn(`[ticket-close] open tickets: ${(e as Error).message}`); }
     const sweeps: [string, (aiLeft: number) => Promise<number>][] = [
       ["Others of the history", customerSweep],
       ["Spam of the history", (n) => rereadSweep("spam", n)],
