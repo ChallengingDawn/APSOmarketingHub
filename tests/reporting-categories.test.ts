@@ -23,7 +23,7 @@ test("a click on a category goes straight into its first report - the overview w
   // ESO, built as Digital Growth (SARCLA 21.10.2026): its BUC View first
   assert.equal(categoryEntry(categoryBySlug("eso")!), "/reporting/eso-benchmark");
   assert.equal(categoryEntry(categoryBySlug("website")!), "/website/overview");
-  // Articles CY/LY moved in from UC & HubSpot Apps, its address unchanged
+  // Articles CY/LY moved in from UC & HubSpot Apps, its address unchanged - the first of Product KPIs' pages
   assert.equal(categoryEntry(categoryBySlug("products")!), "/uc/articles");
   // TSA, built as ESO (SARCLA 01.11.2026: "move BUC view with the same principle to TSA reports"): its BUC View first
   assert.equal(categoryEntry(categoryBySlug("tsa")!), "/reporting/tsa-benchmark");
@@ -89,5 +89,18 @@ test("Customer Reports: one report, Customer KPIs - Customer base its own page, 
   ]);
   assert.deepEqual(r.children!.filter((k) => k.group === "Other reports").map((k) => [k.name, k.href]), [
     ["KPIs", "/journey/kpis"], ["New customers", "/analytics/new-customers"], ["Buying companies", "/analytics/buyers"], ["Contact requests", "/analytics/contact-requests"],
+  ]);
+});
+
+test("Products Reports: one report, Product KPIs - Articles CY/LY first, then a page each for what customers looked for and did not get (SARCLA 01.11.2026: \"we should really create subtabs\", \"all by sub app\")", () => {
+  const products = categoryBySlug("products")!;
+  assert.equal(products.reports.length, 1);
+  assert.deepEqual(products.reports[0].children!.map((r) => [r.name, r.href]), [
+    ["Articles CY/LY", "/uc/articles"],
+    ["Availability", "/reporting/products/availability"],
+    ["Price checks", "/reporting/products/price-checks"],
+    ["Minimum order", "/reporting/products/minimum-order"],
+    ["Views against orders", "/reporting/products/views"],
+    ["Search", "/reporting/products/search"],
   ]);
 });

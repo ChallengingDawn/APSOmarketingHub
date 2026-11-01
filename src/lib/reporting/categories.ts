@@ -181,8 +181,24 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     // SARCLA, 16.10.2026: Articles CY/LY moves here from UC & HubSpot Apps > Reports & data.
     // Its address and its access rule (the UC app's) stay as they were.
     slug: "products", name: "Products Reports", line: "Articles and products, this year against last",
+    // one report and its pages, as ESO's (SARCLA 01.11.2026: "articles CY/LY is ok ... but we should have much more,
+    // for example availability check on the shop where we didn't have stock - we should really create subtabs"; his
+    // picks, "all by sub app": Availability, Price checks, Minimum order, Views against orders, Search)
     reports: [
-      { name: "Articles CY/LY", href: "/uc/articles", note: "Every article, this year against last", icon: "bar" },
+      {
+        name: "Product KPIs", href: "/uc/articles", note: "Every article, what customers looked for and did not get", icon: "bar",
+        children: [
+          // Articles CY/LY first, its address unchanged (it came from UC & HubSpot Apps)
+          { name: "Articles CY/LY", href: "/uc/articles", icon: "bar" },
+          // what the shop saw a customer try and not get (shopSignals.ts)
+          { name: "Availability", href: "/reporting/products/availability", icon: "inventory" },
+          { name: "Price checks", href: "/reporting/products/price-checks", icon: "tag" },
+          { name: "Minimum order", href: "/reporting/products/minimum-order", icon: "layers" },
+          // what customers looked at and searched for
+          { name: "Views against orders", href: "/reporting/products/views", icon: "route" },
+          { name: "Search", href: "/reporting/products/search", icon: "search" },
+        ],
+      },
     ],
   },
 ];
