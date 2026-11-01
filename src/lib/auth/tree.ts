@@ -186,6 +186,18 @@ export function appReachable(app: AppKey, levels: Record<string, Level>): boolea
     n.app === "reporting" && n.app !== app && (levels[n.key] ?? "none") !== "none" && n.paths.some((q) => q.exact && appForPath(q.p) === app));
 }
 
+/**
+ * May this person read this app at this address - a page or an API? The sub-app the address hits decides, else the app.
+ * Advanced reporting's APIs answer to anything open in it: one read feeds many reports - the customers' cube is Digital
+ * Growth's, ESO's, TSA's and My Sales' (SARCLA 01.11.2026: a person given My Sales Reports alone was refused the
+ * figures its pages are drawn from). Its pages, and every write, stay with their own sub-app.
+ */
+export function opensAt(app: AppKey, path: string | null, levels: Record<string, Level>): boolean {
+  if (app === "reporting" && path?.startsWith("/api/")) return appReachable("reporting", levels);
+  const here = path ? accessAt(path, levels) : null;
+  return here?.specific ? here.level !== "none" : appReachable(app, levels);
+}
+
 /** The first page of an app this person may open, in the menu's order - where its tile leads when its front page is not theirs. */
 export function firstOpenPage(app: AppKey, levels: Record<string, Level>): string | null {
   if ((levels[app] ?? "none") !== "none") return null;

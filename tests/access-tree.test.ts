@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { APPS } from "../src/app/hubApps";
 import { REPORT_CATEGORIES } from "../src/lib/reporting/categories";
 import {
-  ACCESS_TREE, accessAt, appOpen, appReachable, firstOpenPage, isNodeKey, levelsOf, nodeFor, reportPathOfPage,
+  ACCESS_TREE, accessAt, appOpen, appReachable, firstOpenPage, isNodeKey, levelsOf, nodeFor, opensAt, reportPathOfPage,
 } from "../src/lib/auth/tree";
 
 // SARCLA 01.11.2026: "sub hierarchy that needs to be updated at each new sub app" - the tree is read from the menus.
@@ -92,6 +92,22 @@ test("a page two menus list opens at the better of the two; a borrowed page open
   const dt = levelsOf("user", { datatracker: "read" });
   assert.equal(accessAt("/uc/price-checks", dt).level, "read");
   assert.equal(appReachable("uc", dt), false);
+});
+
+test("Advanced reporting's data answers to anything open in it; its pages and other apps' stay with their sub-app (SARCLA 01.11.2026)", () => {
+  // a sales rep given My Sales Reports alone
+  const lv = levelsOf("user", { datatracker: "read", "reporting:/reporting/my-sales": "read" });
+  // the customers' cube is read at Digital Growth's address - it feeds My Sales' pages too
+  assert.equal(opensAt("reporting", "/api/reporting/marketing-kpis/customers", lv), true);
+  assert.equal(opensAt("reporting", "/api/reporting/eso-visits", lv), true);
+  // the page itself is not theirs
+  assert.equal(opensAt("reporting", "/reporting/marketing-kpis/customers", lv), false);
+  assert.equal(opensAt("reporting", "/reporting/my-sales/figures", lv), true);
+  // another app's API keeps its sub-app's rule
+  const uc = levelsOf("user", { uc: "read", "uc:/uc/map-assignment": "none" });
+  assert.equal(opensAt("uc", "/api/uc/map-assignment/leads", uc), false);
+  // nothing in Advanced reporting: none of its data
+  assert.equal(opensAt("reporting", "/api/reporting/marketing-kpis/customers", levelsOf("user", { datatracker: "read" })), false);
 });
 
 test("the most specific address wins: a deeper sub-app before its sibling's prefix", () => {

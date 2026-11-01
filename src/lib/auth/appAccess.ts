@@ -13,7 +13,7 @@ import { query } from "@/lib/db/client";
 import { ensureSchema } from "@/lib/db/init";
 import { getOptionalUser } from "./guard";
 import { APP_KEYS, STARTER_GRANTS, asRole, type AppKey, type Level, type Role } from "./access";
-import { accessAt, appReachable, levelsOf, type Grants } from "./tree";
+import { accessAt, levelsOf, opensAt, type Grants } from "./tree";
 
 export type MyAccess = {
   userId: number;
@@ -60,7 +60,7 @@ export async function myAccess(): Promise<MyAccess | null> {
     role,
     grants,
     levels,
-    canOpen: (app) => (sub !== null ? sub !== "none" : appReachable(app, levels)),
+    canOpen: (app) => opensAt(app, path, levels),
     canWrite: (app) => (sub !== null ? sub === "write" : levels[app] === "write"),
     levelAt: (p) => accessAt(p, levels).level,
   };

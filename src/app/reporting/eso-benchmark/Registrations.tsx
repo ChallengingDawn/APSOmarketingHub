@@ -68,6 +68,7 @@ import {
 import { BucEmpty } from "./BucEmpty";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
 import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
+import { SCOPE_LEAD, scopedPeople, useScoped } from "@/app/reporting/scope";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -165,8 +166,10 @@ function monthsOf(d: RegData, per: RPer): { m: number; label: string; part: bool
 /* ── the teams: ESO, TSA or everyone - by the company's owner ──────────── */
 
 /** The people shown: ESO's (a line manager's team's), TSA's, or everyone (null) - with the accounts no company owns. */
-const peopleOf = (d: RegData, team: TeamKey, lead: string | null, byId: Record<string, string>): Set<number> | null => (team === "total" ? null
+const peopleOfTeam = (d: RegData, team: TeamKey, lead: string | null, byId: Record<string, string>): Set<number> | null => (team === "total" ? null
   : new Set(d.people.flatMap((p, i) => (team === "eso" ? (p.team === "ESO" && (!lead || byId[p.id] === lead) ? [i] : []) : p.team === "TSA" ? [i] : []))));
+/** Inside My Sales Reports, its people only (../scope.tsx). */
+const peopleOf = (d: RegData, team: TeamKey, lead: string | null, by: Record<string, string>) => (lead === SCOPE_LEAD ? scopedPeople(d.people, by, "id") : peopleOfTeam(d, team, lead, by));
 const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (c.team === "eso" && c.lead ? c.teams.find((t) => t.id === c.lead)?.name ?? c.lead : teamWord(c.team));
 /** The first contact the page measures: the qualified call, on TSA Reports and ESO's alike, whatever the team shown (SARCLA
  *  01.11.2026: "TSA don't do visits, they call, they do qualified calls"; "on registration you are still measuring visits,
@@ -791,7 +794,7 @@ export function RegistrationsExplorer({ home = "eso" }: { home?: Home }) {
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
 
   // TSA Reports has no BUC View to go back to (as ef's Customer development)
-  const back = (
+  const back = useScoped() ? null : (
     <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>

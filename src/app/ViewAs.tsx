@@ -102,10 +102,11 @@ function ViewAsBanner() {
       boxShadow: "0 2px 12px rgba(31,45,78,.22)",
     }}>
       <VisibilityIcon sx={{ fontSize: 19 }} />
-      <Typography sx={{ fontSize: "0.86rem", fontWeight: 600 }}>
+      {/* the hub's Typography is dark by default - white here, or the bar reads black on purple (SARCLA 01.11.2026) */}
+      <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: "#fff" }}>
         Viewing as {viewed.name}
       </Typography>
-      <Typography sx={{ fontSize: "0.8rem", opacity: 0.84, flex: "1 1 320px", minWidth: 0 }}>
+      <Typography sx={{ fontSize: "0.8rem", color: "#fff", opacity: 0.84, flex: "1 1 320px", minWidth: 0 }}>
         You are seeing the apps they would see. You are still signed in as yourself, so anything you do here
         you do with your own permissions.
       </Typography>

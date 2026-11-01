@@ -52,6 +52,7 @@ import { BucEmpty } from "./BucEmpty";
 import { ActiveFilters, type ActiveItem } from "./EsoFilters";
 import { CompaniesFor } from "@/app/reporting/CompanyList";
 import { cubeCompanies } from "@/app/reporting/marketing-kpis/cubeCompanies";
+import { SCOPE_LEAD, useScoped } from "@/app/reporting/scope";
 
 /* ── words and numbers, in full ────────────────────────────────────────── */
 
@@ -71,7 +72,7 @@ const minNew = (months: number) => (months >= 3 ? 5 : 2);
 /* ── ESO | TSA | Total: the Performis SAE's people, as the Figures ──────── */
 
 /** A team's Performis SAE people (the SAE as its person); null for Total - under ESO, a line manager's team only. */
-const membersOf = (cube: Cube, team: TeamKey, lead: string | null = null, leads: Record<string, string> | null = null) => (team === "total" ? null
+const membersOf = (cube: Cube, team: TeamKey, lead: string | null = null, leads: Record<string, string> | null = null) => (lead === SCOPE_LEAD ? cube.labels.sae.filter((l) => leads?.[l] === SCOPE_LEAD) : team === "total" ? null
   : cube.labels.sae.filter((l) => (cube.saeTeams ?? {})[l] === TEAM_OF[team] && (team !== "eso" || !lead || leads?.[l] === lead)));
 function withTeam(cube: Cube, filters: Filters, team: TeamKey, lead: string | null = null, leads: Record<string, string> | null = null): Filters {
   const members = membersOf(cube, team, lead, leads);
@@ -646,7 +647,7 @@ export function NewCustomersExplorer({ home = "eso" }: { home?: Home }) {
   const [focus, setFocus] = useState<{ dim: Dim; n: number } | null>(null);
   const openOn = (d: Dim) => { setFocus((f) => ({ dim: d, n: (f?.n ?? 0) + 1 })); setPanel(true); };
 
-  const back = (
+  const back = useScoped() ? null : (
     <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>

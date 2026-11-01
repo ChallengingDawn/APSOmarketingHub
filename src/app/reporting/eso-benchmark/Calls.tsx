@@ -67,6 +67,7 @@ import {
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
 import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 import { BucEmpty } from "./BucEmpty";
+import { SCOPE_LEAD, scopedPeople, useScoped } from "@/app/reporting/scope";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -161,9 +162,11 @@ const cutWords = (c: VCtx) => (c.per.win.d0 ? ` · the first and the last month 
 /* ── the teams: ESO | TSA | Total by the call's owner, opening on TSA ──── */
 
 /** The people shown: TSA's, ESO's (a line manager's team's), or everyone who called. */
-const peopleOf = (d: CallsData, team: TeamKey, lead: string | null, byId: Record<string, string>) => new Set(d.people.flatMap((p, i) => (
+const peopleOfTeam = (d: CallsData, team: TeamKey, lead: string | null, byId: Record<string, string>) => new Set(d.people.flatMap((p, i) => (
   team === "total" ? [i] : team === "eso" ? (p.team === "ESO" && (!lead || byId[p.id] === lead) ? [i] : []) : p.team === "TSA" ? [i] : []
 )));
+/** Inside My Sales Reports, its people only (../scope.tsx). */
+const peopleOf = (d: CallsData, team: TeamKey, lead: string | null, by: Record<string, string>) => (lead === SCOPE_LEAD ? scopedPeople(d.people, by, "id") : peopleOfTeam(d, team, lead, by));
 const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (c.team === "eso" && c.lead ? c.teams.find((t) => t.id === c.lead)?.name ?? c.lead : teamWord(c.team));
 /** Where the page sits: ESO Reports (the Visits page's address, under TSA) or TSA Reports (its own, opening on TSA). */
 export type Home = "eso" | "tsa";
@@ -1066,7 +1069,7 @@ export function CallsExplorer({ team, setTeam, home = "tsa" }: { team: TeamKey; 
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
 
   // back to the BUC View of where the page sits: TSA's, or ESO's (the Visits page's address)
-  const back = (
+  const back = useScoped() ? null : (
     <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>

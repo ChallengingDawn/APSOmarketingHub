@@ -86,6 +86,7 @@ import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem, type PeriodCh
 import { CompaniesFor, useChartCompanies, type CompanySource } from "@/app/reporting/CompanyList";
 import { BucEmpty } from "./BucEmpty";
 import { cubeCompanies } from "@/app/reporting/marketing-kpis/cubeCompanies";
+import { SCOPE_LEAD, useScoped } from "@/app/reporting/scope";
 
 /* ── the company's own series: the forecast, the profit centres ────────── */
 
@@ -123,6 +124,7 @@ export const asLead = (x: string | null): LeadKey | null => (x === "all" || isTe
 export type Leads = { byName: Record<string, string>; teams: Team[]; byId: Record<string, string> };
 /** The teams, and each person's (by the name the cube carries) - read once per page. */
 export function useLeads(): Leads | null {
+  const scope = useScoped();
   const [v, setV] = useState<Leads | null>(null);
   useEffect(() => {
     let alive = true;
@@ -131,12 +133,16 @@ export function useLeads(): Leads | null {
       .catch(() => { if (alive) setV({ byName: {}, teams: [], byId: {} }); });
     return () => { alive = false; };
   }, []);
-  return v;
+  // inside My Sales Reports, the people of its switch (../scope.tsx)
+  return scope ? scope.leads : v;
 }
-/** The team shown: a line manager's under ESO, once the teams are read and it is one of them. */
-export const leadOf = (team: TeamKey, key: LeadKey, lt: Leads | null) => (team === "eso" && key !== "all" && lt?.teams.some((t) => t.id === key) ? key : null);
+/** The team shown: a line manager's under ESO, once the teams are read and it is one of them - or My Sales' people. */
+export const leadOf = (team: TeamKey, key: LeadKey, lt: Leads | null) => (key === SCOPE_LEAD ? SCOPE_LEAD : team === "eso" && key !== "all" && lt?.teams.some((t) => t.id === key) ? key : null);
 /** ESO | TSA | Total, and beside it - under ESO only - the line managers' teams. */
 export function Teams({ team, onTeam, lead, onLead, teams }: { team: TeamKey; onTeam: (t: TeamKey) => void; lead: LeadKey; onLead: (l: LeadKey) => void; teams: Team[] }) {
+  // inside My Sales Reports its own switch stands here
+  const scope = useScoped();
+  if (scope) return <>{scope.bar}</>;
   const tabs: { id: LeadKey; label: string; count: null }[] = [{ id: "all", label: "All ESO", count: null }, ...teams.map((t) => ({ id: t.id, label: t.name, count: null }))];
   return (
     <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", justifySelf: "start", minWidth: 0 }}>
@@ -146,7 +152,7 @@ export function Teams({ team, onTeam, lead, onLead, teams }: { team: TeamKey; on
   );
 }
 /** A team's Performis SAE people (the SAE as its person); null for Total - under ESO, a line manager's team only. */
-export const membersOf = (cube: Cube, team: TeamKey, lead: string | null = null, leads: Record<string, string> | null = null) => (team === "total" ? null
+export const membersOf = (cube: Cube, team: TeamKey, lead: string | null = null, leads: Record<string, string> | null = null) => (lead === SCOPE_LEAD ? cube.labels.sae.filter((l) => leads?.[l] === SCOPE_LEAD) : team === "total" ? null
   : cube.labels.sae.filter((l) => (cube.saeTeams ?? {})[l] === TEAM_OF[team] && (team !== "eso" || !lead || leads?.[l] === lead)));
 export function withTeam(cube: Cube, filters: Filters, team: TeamKey, lead: string | null = null, leads: Record<string, string> | null = null): Filters {
   const members = membersOf(cube, team, lead, leads);
@@ -1706,6 +1712,7 @@ export type Home = "eso" | "tsa";
 /** A tile's page key under the reports it is in: "eso-figures", "tsa-figures" - TSA's charts go to TSA's BUC View. */
 export const homePage = (home: Home, page: string) => `${home}-${page}`;
 export function useTeam(home: Home = "eso"): [TeamKey, (t: TeamKey) => void] {
+  const scope = useScoped();
   const params = useSearchParams();
   const [kept, setKept] = useState<TeamKey | null>(null);
   useEffect(() => { try { setKept(asTeam(localStorage.getItem(KEPT))); } catch { /* ESO */ } }, []);
@@ -1717,11 +1724,12 @@ export function useTeam(home: Home = "eso"): [TeamKey, (t: TeamKey) => void] {
     setKept(t);
     try { localStorage.setItem(KEPT, t); } catch { /* still applies here */ }
   };
-  return [team, set];
+  return scope ? [scope.team, () => {}] : [team, set];
 }
 export const KEPT_LEAD = "eso.lead";
 /** Under ESO, the line manager's team: ?lead= in the address, kept for the next visit. */
 export function useLead(): [LeadKey, (l: LeadKey) => void] {
+  const scope = useScoped();
   const params = useSearchParams();
   const [kept, setKept] = useState<LeadKey | null>(null);
   useEffect(() => { try { setKept(asLead(localStorage.getItem(KEPT_LEAD))); } catch { /* all ESO */ } }, []);
@@ -1731,10 +1739,11 @@ export function useLead(): [LeadKey, (l: LeadKey) => void] {
     setKept(l);
     try { localStorage.setItem(KEPT_LEAD, l); } catch { /* still applies here */ }
   };
-  return [lead, set];
+  return scope ? [scope.lead ?? "all", () => {}] : [lead, set];
 }
 /** A line manager's team with nobody in it yet: where to set it. */
 export function NoLeadYet({ name }: { name: string }) {
+  if (useScoped()) return <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>No figures for {name} yet.</Typography>;
   return (
     <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
       Nobody is in {name} yet - pick each ESO person&apos;s line manager in the Line manager column of{" "}
@@ -1803,7 +1812,7 @@ export function FiguresExplorer({ home = "eso" }: { home?: Home }) {
   const openOn = (d: Dim) => { setFocus((f) => ({ dim: d, n: (f?.n ?? 0) + 1 })); setPanel(true); };
 
   // back to the BUC View of the reports it is in
-  const back = (
+  const back = useScoped() ? null : (
     <Box component={Link} href={home === "tsa" ? "/reporting/tsa-benchmark" : "/reporting/eso-benchmark"} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>

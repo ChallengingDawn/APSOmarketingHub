@@ -70,6 +70,7 @@ import {
 import { BucEmpty } from "./BucEmpty";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
 import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
+import { SCOPE_LEAD, scopedPeople, useScoped } from "@/app/reporting/scope";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -172,6 +173,9 @@ const VTEAMS: { id: TeamKey; label: string; count: null }[] = [{ id: "eso", labe
 const VTEAMS_TSA: { id: TeamKey; label: string; count: null }[] = [VTEAMS[0], { id: "tsa", label: "TSA", count: null }, VTEAMS[1]];
 /** ESO | Total - and TSA, which swaps to the Calls -, under ESO the line managers' teams (TSA does not visit). */
 function VTeams({ team, onTeam, lead, onLead, teams, withTsa }: { team: TeamKey; onTeam: (t: TeamKey) => void; lead: LeadKey; onLead: (l: LeadKey) => void; teams: Team[]; withTsa?: boolean }) {
+  // inside My Sales Reports its own switch stands here
+  const scope = useScoped();
+  if (scope) return <>{scope.bar}</>;
   const t: TeamKey = team === "eso" ? "eso" : team === "tsa" && withTsa ? "tsa" : "total";
   const tabs: { id: LeadKey; label: string; count: null }[] = [{ id: "all", label: "All ESO", count: null }, ...teams.map((x) => ({ id: x.id, label: x.name, count: null }))];
   return (
@@ -182,9 +186,11 @@ function VTeams({ team, onTeam, lead, onLead, teams, withTsa }: { team: TeamKey;
   );
 }
 /** The people shown: ESO's (a line manager's team's), or everyone who visits - ESO, Marc Frech and those outside the rosters. */
-export const peopleOf = (d: VisitsData, team: TeamKey, lead: string | null, byId: Record<string, string>) => new Set(d.people.flatMap((p, i) => (
+const peopleOfTeam = (d: VisitsData, team: TeamKey, lead: string | null, byId: Record<string, string>) => new Set(d.people.flatMap((p, i) => (
   team === "eso" ? (p.team === "ESO" && (!lead || byId[p.id] === lead) ? [i] : []) : visitsAt(p) ? [i] : []
 )));
+/** Inside My Sales Reports, its people only (../scope.tsx). */
+export const peopleOf = (d: VisitsData, team: TeamKey, lead: string | null, by: Record<string, string>) => (lead === SCOPE_LEAD ? scopedPeople(d.people, by, "id") : peopleOfTeam(d, team, lead, by));
 const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (c.team === "eso" ? (c.lead ? c.teams.find((t) => t.id === c.lead)?.name ?? c.lead : "ESO") : "ESO and Marc Frech");
 
 /* ── what every chart is drawn with ────────────────────────────────────── */
@@ -1031,7 +1037,7 @@ export function VisitsExplorer({ team: given, setTeam: giveTeam, home = "eso" }:
 
   // the work a click asks for, kept; the tabs and toggles answer at once and the charts follow (as the Figures)
   const team: TeamKey = teamKey === "eso" ? "eso" : "total";
-  const lead = team === "eso" ? leadOf("eso", leadKey, lt) : null;
+  const lead = team === "eso" || leadKey === SCOPE_LEAD ? leadOf(team, leadKey, lt) : null;
   const fromP = params.get("from"), toP = params.get("to");
   const per = useMemo(() => (d ? perOf(d, winOfQuery(d, fromP, toP) ?? presetsOf(d)[0].win) : null), [d, fromP, toP]);
   const people = useMemo(() => (d ? peopleOf(d, team, lead, lt?.byId ?? {}) : null), [d, team, lead, lt]);
@@ -1045,7 +1051,7 @@ export function VisitsExplorer({ team: given, setTeam: giveTeam, home = "eso" }:
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
 
   // back to the BUC View of where the page sits: ESO's, or TSA's (its Calls under ESO)
-  const back = (
+  const back = useScoped() ? null : (
     <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
@@ -1119,7 +1125,7 @@ export function VisitsPanel({ acts }: { acts: ActionsState | null }) {
   const choose = (t: TeamKey) => { setTeam(t); try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
   const chooseLead = (l: LeadKey) => { setLeadKey(l); try { localStorage.setItem(KEPT_LEAD, l); } catch { /* here only */ } };
   const team: TeamKey = teamKey === "eso" ? "eso" : "total";
-  const lead = team === "eso" ? leadOf("eso", leadKey, lt) : null;
+  const lead = team === "eso" || leadKey === SCOPE_LEAD ? leadOf(team, leadKey, lt) : null;
   const want = useMemo(() => ({ team, lead }), [team, lead]);
   const drawn = useDeferredValue(want);
   const stale = drawn !== want;

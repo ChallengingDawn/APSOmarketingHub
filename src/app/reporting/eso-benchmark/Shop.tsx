@@ -82,6 +82,7 @@ import {
   type BoardRow, type Col, type LeadKey, type TeamKey,
 } from "./Figures";
 import { ActiveFilters, PeriodPicker, type ActiveItem } from "./EsoFilters";
+import { SCOPE_LEAD, scopedPeople, useScoped } from "@/app/reporting/scope";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -148,9 +149,11 @@ const sourceWords = (p: SPer) => (isLive(p.win) ? "the smart bar's live counters
 
 /* ── the teams: ESO | TSA | Total by the company's owner, and under ESO the line managers' teams ── */
 
-const peopleOf = (d: ShopData, team: TeamKey, lead: string | null, byId: Record<string, string>) => (team === "total" ? null : new Set(d.people.flatMap((p, i) => (
+const peopleOfTeam = (d: ShopData, team: TeamKey, lead: string | null, byId: Record<string, string>) => (team === "total" ? null : new Set(d.people.flatMap((p, i) => (
   p.team === (team === "eso" ? "ESO" : "TSA") && (team !== "eso" || !lead || byId[p.id] === lead) ? [i] : []
 ))));
+/** Inside My Sales Reports, its people only (../scope.tsx). */
+const peopleOf = (d: ShopData, team: TeamKey, lead: string | null, by: Record<string, string>) => (lead === SCOPE_LEAD ? scopedPeople(d.people, by, "id") : peopleOfTeam(d, team, lead, by));
 /** Where the page sits: ESO Reports, or TSA Reports, where it opens on TSA (SARCLA 01.11.2026: "shop behaviour is
  *  finished - move it to TSA like the other one, keeping it default on TSA") - the same page, ESO | TSA | Total still on it. */
 export type Home = "eso" | "tsa";
@@ -1142,7 +1145,7 @@ export function ShopExplorer({ home = "eso" }: { home?: Home }) {
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
 
   // back to ESO's BUC View - TSA Reports has none (its side panel leads back)
-  const back = (
+  const back = useScoped() ? null : (
     <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>

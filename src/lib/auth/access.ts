@@ -240,6 +240,7 @@ const ADMIN_PATHS = [
   "/settings/roles",
   "/settings/integrations",
   "/settings/audit",
+  "/settings/hierarchy",
   "/audit",
   "/admin",
   // the action plan, an application of its own where Mission Control was (SARCLA 01.11.2026: "this should be only

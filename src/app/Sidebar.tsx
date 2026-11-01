@@ -393,6 +393,8 @@ const navSections: NavSection[] = [
       { group: "Personal", label: "Security", href: "/settings/security", icon: <ShieldOutlinedIcon fontSize="small" /> },
       { group: "Workspace", label: "People", href: "/settings/people", icon: <PeopleIcon fontSize="small" />, adminOnly: true },
       { group: "Workspace", label: "Roles & access", href: "/settings/roles", icon: <AdminPanelSettingsOutlinedIcon fontSize="small" />, adminOnly: true },
+      // who reports to whom - My Sales Reports' My team (SARCLA 01.11.2026)
+      { group: "Workspace", label: "Hierarchy", href: "/settings/hierarchy", icon: <AccountTreeOutlinedIcon fontSize="small" />, adminOnly: true },
       { group: "Workspace", label: "Integrations", href: "/settings/integrations", icon: <HubIcon fontSize="small" />, adminOnly: true },
       { group: "Workspace", label: "Mail", href: "/settings/mail", icon: <ForwardToInboxIcon fontSize="small" /> },
       { group: "Workspace", label: "Audit log", href: "/settings/audit", icon: <SecurityIcon fontSize="small" />, adminOnly: true },

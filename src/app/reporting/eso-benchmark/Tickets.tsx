@@ -74,6 +74,7 @@ import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoF
 import {
   ConfPanel, MonthOutcomes, MonthTrend, PotentialFunnel, PotentialPipeline, ResolutionBars, ResolutionPanels, ResolutionTexts, SpeedPanel, eur, potentialTables,
 } from "./TicketsCharts";
+import { SCOPE_LEAD, scopedPeople, useScoped } from "@/app/reporting/scope";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -176,6 +177,9 @@ const TTEAMS: { id: TeamKey; label: string; count: null }[] = [{ id: "eso", labe
 /** ESO | TSA | Total on both pages - ESO's and TSA Reports' (SARCLA 01.11.2026: "all for all in ESO as well") - and under
  *  ESO the line managers' teams. */
 function TTeams({ team, onTeam, lead, onLead, teams }: { team: TeamKey; onTeam: (t: TeamKey) => void; lead: LeadKey; onLead: (l: LeadKey) => void; teams: Team[] }) {
+  // inside My Sales Reports its own switch stands here
+  const scope = useScoped();
+  if (scope) return <>{scope.bar}</>;
   const tabs: { id: LeadKey; label: string; count: null }[] = [{ id: "all", label: "All ESO", count: null }, ...teams.map((x) => ({ id: x.id, label: x.name, count: null }))];
   return (
     <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", justifySelf: "start", minWidth: 0 }}>
@@ -188,9 +192,11 @@ function TTeams({ team, onTeam, lead, onLead, teams }: { team: TeamKey; onTeam: 
 const pipeOf = (team: TeamKey): number | null => (team === "eso" ? 0 : team === "tsa" ? 1 : null);
 /** The people shown: ESO's (a line manager's team's) on the ESO pipeline, TSA's on the TSA pipeline, or everyone who owns a
  *  ticket of either. */
-const peopleOf = (d: TicketsData, team: TeamKey, lead: string | null, byId: Record<string, string>) => new Set(d.people.flatMap((p, i) => (
+const peopleOfTeam = (d: TicketsData, team: TeamKey, lead: string | null, byId: Record<string, string>) => new Set(d.people.flatMap((p, i) => (
   team === "eso" ? (p.team === "ESO" && (!lead || byId[p.id] === lead) ? [i] : []) : team === "tsa" ? (p.team === "TSA" ? [i] : []) : [i]
 )));
+/** Inside My Sales Reports, its people only (../scope.tsx). */
+const peopleOf = (d: TicketsData, team: TeamKey, lead: string | null, by: Record<string, string>) => (lead === SCOPE_LEAD ? scopedPeople(d.people, by, "id") : peopleOfTeam(d, team, lead, by));
 const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (c.team === "eso" ? (c.lead ? c.teams.find((t) => t.id === c.lead)?.name ?? c.lead : "ESO")
   : c.team === "tsa" ? "TSA" : "Everyone, ESO and TSA");
 
@@ -784,7 +790,7 @@ export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?:
   const setPer = (w: TWin) => setQuery((q) => { if (!d) return; if (sameWin(w, presetsOf(d)[0].win)) { q.delete("from"); q.delete("to"); } else { const [a, b] = winParams(d, w); q.set("from", a); q.set("to", b); } });
 
   // the work a click asks for, kept; the tabs and toggles answer at once and the charts follow (as the Figures)
-  const lead = team === "eso" ? leadOf("eso", leadKey, lt) : null;
+  const lead = team === "eso" || leadKey === SCOPE_LEAD ? leadOf(team, leadKey, lt) : null;
   const fromP = params.get("from"), toP = params.get("to");
   const per = useMemo(() => (d ? perOf(d, winFrom(d, fromP, toP) ?? presetsOf(d)[0].win) : null), [d, fromP, toP]);
   const people = useMemo(() => (d ? peopleOf(d, team, lead, lt?.byId ?? {}) : null), [d, team, lead, lt]);
@@ -796,7 +802,7 @@ export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?:
     onBar: (k, l) => { toggle(k, l); openOn(k); }, onFilter: openOn,
   } : null), [d, group, home, drawn, teams, acts?.targets]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const back = (
+  const back = useScoped() ? null : (
     <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
@@ -871,7 +877,7 @@ export function TicketsPanel({ acts, group, home = "eso" }: { acts: ActionsState
   useEffect(() => { if (home === "tsa") return; try { const x = asTeam(localStorage.getItem(KEPT)); if (x) setTeam(x); const l = asLead(localStorage.getItem(KEPT_LEAD)); if (l) setLeadKey(l); } catch { /* ESO */ } }, [home]);
   const choose = (t: TeamKey) => { setTeam(t); if (home === "eso") try { localStorage.setItem(KEPT, t); } catch { /* here only */ } };
   const chooseLead = (l: LeadKey) => { setLeadKey(l); try { localStorage.setItem(KEPT_LEAD, l); } catch { /* here only */ } };
-  const lead = team === "eso" ? leadOf("eso", leadKey, lt) : null;
+  const lead = team === "eso" || leadKey === SCOPE_LEAD ? leadOf(team, leadKey, lt) : null;
   const want = useMemo(() => ({ team, lead }), [team, lead]);
   const drawn = useDeferredValue(want);
   const stale = drawn !== want;

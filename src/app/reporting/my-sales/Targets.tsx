@@ -3,8 +3,8 @@
 // don't put the target, allow the sales to set its own target percentage; understand the file, how it's calculated, then
 // display"; "filter by My Target | My Team Targets | All ESO - on the last two don't show the target but rather the
 // contribution"). His picks: targets only (no pay, no bonus), set by the person themselves or an admin, as the sheet
-// has them (a growth on last year for three revenues, an amount, a number of visits), a team its own and any for those
-// who may pick. The rules: src/lib/reporting/mySalesRules.ts; the figures: src/lib/reporting/mySalesFigures.ts.
+// has them (a growth on last year for three revenues, an amount, a number of visits); the switch from the hierarchy
+// (./shared.tsx); the team views as one table. The rules: src/lib/reporting/mySalesRules.ts; the figures: src/lib/reporting/mySalesFigures.ts.
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -15,10 +15,9 @@ import { Bar, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } 
 import { FAINT, GREEN, INK, MUTED, RED, glass } from "@/app/uc/report/ui";
 import { BEFORE, THIS } from "@/app/reporting/marketing-kpis/DimChart";
 import { useCustomersCube } from "@/app/reporting/marketing-kpis/Customers";
-import {
-  ChartBox, FullTable, H1, Leaderboard, TARGET, TWO, Waiting, membersOf, tooOld, useLeads, type BoardRow, type Col,
-} from "@/app/reporting/eso-benchmark/Figures";
-import { peopleOf, useVisits } from "@/app/reporting/eso-benchmark/Visits";
+import { ChartBox, FullTable, H1, TARGET, TWO, Waiting, membersOf, tooOld, type Col } from "@/app/reporting/eso-benchmark/Figures";
+import { useVisits } from "@/app/reporting/eso-benchmark/Visits";
+import { SCOPE_LEAD, scopedPeople } from "@/app/reporting/scope";
 import { MONTH_NAMES } from "@/lib/marketingKpis/cube";
 import {
   TARGETS, checkTarget, quarterTargets, yearTarget, type PersonTargets, type TargetDef, type TargetId,
@@ -26,7 +25,7 @@ import {
 import {
   cubeReach, dueToDate, revenueByPerson, revenueMeasures, visitsByPerson, visitsMeasure, visitsReach, type Measured, type PersonFig, type Reach,
 } from "@/lib/reporting/mySalesFigures";
-import { Note, PersonPicker, ScopeBar, footnoteSx, shell, useMySales, usePicked, usePickedTeam, useScope, type MySales } from "./shared";
+import { Note, footnoteSx, shell, useMySalesFrame, viewsOf, type MySales } from "./shared";
 
 const eur = (n: number) => `${n < 0 ? "−" : ""}€${Math.round(Math.abs(n)).toLocaleString("en")}`;
 const int = (n: number) => Math.round(n).toLocaleString("en");
@@ -35,51 +34,37 @@ const fmtOf = (id: TargetId) => (id === "visits" ? int : eur);
 const QS = ["Q1", "Q2", "Q3", "Q4"];
 
 export function TargetsPage() {
-  const [picked, setPicked] = usePicked();
-  const { st, setTargets } = useMySales(picked);
-  const [scope, setScope] = useScope();
-  const [pickedTeam, setPickedTeam] = usePickedTeam();
+  const { st, view, bar, scope, setTargets } = useMySalesFrame();
   const { cube, computing, progress, error } = useCustomersCube();
   const visits = useVisits();
-  const lt = useLeads();
   const ready = cube && !tooOld(cube) ? cube : null;
   const d = visits.d;
-
   const subject = st?.subject ?? null;
-  const teams = st?.teams ?? [];
-  // the team shown: the person's own; someone who may pick, any
-  const ownTeam = subject ? lt?.byId[subject.id] ?? (subject.id === st?.me?.id ? st?.team : null) ?? null : st?.team ?? null;
-  const teamId = st?.canPick && pickedTeam && teams.some((t) => t.id === pickedTeam) ? pickedTeam : ownTeam ?? (st?.canPick ? teams[0]?.id ?? null : null);
-  const teamName = teams.find((t) => t.id === teamId)?.name ?? "Your team";
+  const viewName = viewsOf(st).find((v) => v.id === view)?.label ?? "";
+  const whose = view === "me" ? subject?.name ?? "You" : view === "all" ? "All - ESO and TSA" : viewName;
 
-  // the people of the switch: their SAE names in the cube, their places in the visits read
+  // the people of the switch: their SAE names in the cube, their places in the visits read (../scope.tsx)
   const labels = useMemo(() => {
-    if (!ready) return [];
-    if (scope === "me") return subject ? [subject.name] : [];
-    if (scope === "team") return teamId ? membersOf(ready, "eso", teamId, lt?.byName ?? {}) ?? [] : [];
-    return membersOf(ready, "eso", null, lt?.byName ?? {}) ?? [];
-  }, [ready, scope, subject, teamId, lt]);
+    if (!ready || !scope) return [];
+    if (scope.lead === SCOPE_LEAD) return Object.keys(scope.leads.byName);
+    return scope.team === "total" ? ready.labels.sae : membersOf(ready, scope.team, null, null) ?? [];
+  }, [ready, scope]);
   const people = useMemo(() => {
-    if (!d) return new Set<number>();
-    if (scope === "me") return new Set(d.people.flatMap((p, i) => (subject && p.id === subject.id ? [i] : [])));
-    return peopleOf(d, "eso", scope === "team" ? teamId : null, lt?.byId ?? {});
-  }, [d, scope, subject, teamId, lt]);
+    if (!d || !scope) return new Set<number>();
+    if (scope.lead === SCOPE_LEAD) return scopedPeople(d.people, scope.leads.byId, "id");
+    const word = scope.team === "eso" ? "ESO" : scope.team === "tsa" ? "TSA" : null;
+    return new Set(d.people.flatMap((p, i) => (!word || p.team === word ? [i] : [])));
+  }, [d, scope]);
 
   const head = (
-    <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(240px, 1fr) auto" } }}>
-      <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
-        <Typography component="h1" sx={H1}>Targets</Typography>
-        <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-          {scope === "me"
-            ? <><b style={{ color: INK }}>{subject?.name ?? "You"}</b> · your {st?.year ?? ""} targets, set by you, measured on the ESO reports&apos; figures</>
-            : <><b style={{ color: INK }}>{scope === "team" ? teamName : "All ESO"}</b> · each person&apos;s share of the year to date - no one&apos;s target shown</>}
-        </Typography>
-      </Box>
-      {st && <PersonPicker st={st} picked={picked} onPick={setPicked} />}
+    <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
+      <Typography component="h1" sx={H1}>Targets</Typography>
+      <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
+        {view === "me"
+          ? <><b style={{ color: INK }}>{subject?.name ?? "You"}</b> · the {st?.year ?? ""} targets, set by the person, measured on the ESO reports&apos; figures</>
+          : <><b style={{ color: INK }}>{whose}</b> · each person&apos;s figure and share of the year to date - no one&apos;s target shown</>}
+      </Typography>
     </Box>
-  );
-  const bar = st && (
-    <ScopeBar scope={scope} onScope={setScope} mine="My targets" teamLabel="My team's targets" teams={teams} team={teamId} onTeam={setPickedTeam} canPick={st.canPick} />
   );
 
   if (!st || !ready || !d) {
@@ -96,14 +81,14 @@ export function TargetsPage() {
     <Box sx={shell}>
       {head}
       {bar}
-      {scope === "me"
+      {view === "me"
         ? <Mine st={st} cubeReady={ready} labels={labels} people={people} d={d} onSaved={setTargets} />
-        : <Contribution scopeName={scope === "team" ? teamName : "All ESO"} cubeReady={ready} labels={labels} people={people} d={d} year={st.year} noTeam={scope === "team" && !teamId} />}
+        : <Contribution scopeName={whose} cubeReady={ready} labels={labels} people={people} d={d} year={st.year} />}
       <Typography sx={footnoteSx}>
         The targets are the VPP sheet&apos;s five, reckoned as it reckons them: last year&apos;s figure and the growth set on it (an amount for the new customers&apos; revenue, a number of visits), the year&apos;s target split
         into quarters by the plan&apos;s weights - revenue 25.6 / 25 / 24.6 / 24.8 %, visits 26.5 / 27.5 / 22 / 24 %. Own area: the revenue of the customers Performis gives the person as their SAE; DT and KT: those customers&apos;
         revenue in Sealing Technology and Engineering Plastics; new customers: the customers whose first invoice was this year, and what they were invoiced (the BSC rule, as ESO&apos;s New customers); visits: completed visit reports.
-        Revenue to {MONTH_NAMES[cubeReach(ready).month]} {st.year} as the ERP file has it, the month in progress to its day. My team: the people Map assignment&apos;s SAE table puts in the team.
+        Revenue to {MONTH_NAMES[cubeReach(ready).month]} {st.year} as the ERP file has it, the month in progress to its day. My team: everyone under the person in Settings &gt; Hierarchy; All ESO or All TSA: the reports&apos; own team.
       </Typography>
     </Box>
   );
@@ -264,51 +249,46 @@ function SetLine({ def, row, year, canEdit, owner, onSaved }: { def: TargetDef; 
   );
 }
 
-/* ── My team's targets | All ESO: each person's share, no targets ─────────── */
+/* ── My team | All ESO / TSA | All: each person's figure and share, no targets - one table (SARCLA 01.11.2026: "show
+   them as horizontal table") ── */
 
-function Contribution({ scopeName, cubeReady, labels, people, d, year, noTeam }: {
+function Contribution({ scopeName, cubeReady, labels, people, d, year }: {
   scopeName: string; cubeReady: NonNullable<ReturnType<typeof useCustomersCube>["cube"]>; labels: string[]; people: Set<number>;
-  d: NonNullable<ReturnType<typeof useVisits>["d"]>; year: number; noTeam: boolean;
+  d: NonNullable<ReturnType<typeof useVisits>["d"]>; year: number;
 }) {
   const by = useMemo(() => ({ ...revenueByPerson(cubeReady, labels), visits: visitsByPerson(d, people) }), [cubeReady, labels, d, people]);
-  if (noTeam) return <Note title="You are in no team yet">Map assignment&apos;s SAE table puts each ESO person in their line manager&apos;s team - an admin sets it there.</Note>;
-  const boards = TARGETS.map((t) => {
-    const rows = by[t.id];
-    const total = rows.reduce((a, r) => a + r.cur, 0);
-    const board: BoardRow[] = rows.map((r) => ({ ...r, sub: `${pct(total ? r.cur / total : null)} of ${scopeName}'s` }));
-    return { t, rows, total, board };
+  type P = { label: string } & Record<TargetId, number> & { prev: Record<TargetId, number> };
+  const names = [...new Set(TARGETS.flatMap((t) => by[t.id].map((r) => r.label)))];
+  const value = (id: TargetId, name: string) => by[id].find((r: PersonFig) => r.label === name);
+  const rows: P[] = names.map((n) => {
+    const row = { label: n, prev: {} as Record<TargetId, number> } as P;
+    for (const t of TARGETS) { const v = value(t.id, n); row[t.id] = v?.cur ?? 0; row.prev[t.id] = v?.prev ?? 0; }
+    return row;
   });
-  // the table: a row per person, a pair of columns per target - the figure and its share
-  type P = { label: string } & Record<TargetId, number>;
-  const names = [...new Set(boards.flatMap((b) => b.rows.map((r) => r.label)))];
-  const value = (id: TargetId, name: string) => by[id].find((r: PersonFig) => r.label === name)?.cur ?? 0;
-  const tableRows: P[] = names.map((n) => ({ label: n, own: value("own", n), dt: value("dt", n), kt: value("kt", n), new: value("new", n), visits: value("visits", n) }));
-  const totals = Object.fromEntries(boards.map((b) => [b.t.id, b.total])) as Record<TargetId, number>;
+  const totals = Object.fromEntries(TARGETS.map((t) => [t.id, by[t.id].reduce((a, r) => a + r.cur, 0)])) as Record<TargetId, number>;
+  const totalsPy = Object.fromEntries(TARGETS.map((t) => [t.id, by[t.id].reduce((a, r) => a + r.prev, 0)])) as Record<TargetId, number>;
+  const change = (cur: number, prev: number) => (prev ? (cur - prev) / Math.abs(prev) : null);
   const cols: Col<P>[] = TARGETS.map((t) => ({
     key: t.id, head: SHORT[t.id], tip: t.name, sort: (r: P) => r[t.id],
-    cell: (r: P) => (
-      <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.3 }}>
-        <b>{fmtOf(t.id)(r[t.id])}</b>
-        <span style={{ fontSize: "0.72rem", color: MUTED }}>{pct(totals[t.id] ? r[t.id] / totals[t.id] : null)}</span>
-      </Box>
-    ),
+    cell: (r: P) => {
+      const ch = t.id === "visits" ? null : change(r[t.id], r.prev[t.id]);
+      return (
+        <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.3 }}>
+          <b>{fmtOf(t.id)(r[t.id])}</b>
+          <span style={{ fontSize: "0.72rem", color: MUTED }}>
+            {pct(totals[t.id] ? r[t.id] / totals[t.id] : null)} of all{ch != null ? <> · <span style={{ color: ch >= 0 ? GREEN : RED }}>{ch >= 0 ? "+" : "−"}{Math.abs(ch * 100).toFixed(1)}%</span></> : null}
+          </span>
+        </Box>
+      );
+    },
   }));
+  if (!rows.length) return <Note title={`No figures for ${scopeName} yet`} />;
   return (
-    <>
-      <Box sx={{ ...TWO }}>
-        {boards.map(({ t, board, total }) => (
-          <Leaderboard key={t.id} title={`${t.name}, year to date - each person's share`} rows={board}
-            curLabel={`${year} to date`} prevLabel={`${year - 1}, same days`} fmt={fmtOf(t.id)}
-            diff={t.id === "visits" ? (n) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${int(Math.abs(n))}` : undefined}
-            noChange={t.id === "visits"} first={10}
-            summary={<>{scopeName}: <b>{fmtOf(t.id)(total)}</b> year to date</>} />
-        ))}
-      </Box>
-      <ChartBox title={`All the figures, ${year} to date, by person - ${scopeName}`} hint="Each person's figure year to date, and under it their share of the whole - no one's target">
-        <FullTable<P> first="Person" rows={tableRows} cols={cols} initial="own"
-          total={{ label: `${scopeName} in all`, ...totals }} />
-      </ChartBox>
-    </>
+    <ChartBox title={`${year} to date, by person - ${scopeName}`}
+      hint={`Each person's figure year to date; under it their share of ${scopeName}'s, and the change against the same days of ${year - 1} - no one's target`}>
+      <FullTable<P> first="Person" rows={rows} cols={cols} initial="own" find={rows.length > 12 ? "a person" : undefined}
+        total={{ label: `${scopeName} in all`, ...totals, prev: totalsPy }} />
+    </ChartBox>
   );
 }
 const SHORT: Record<TargetId, string> = { own: "Own area", dt: "Sealing (DT)", kt: "Plastics (KT)", new: "New customers", visits: "Visits" };

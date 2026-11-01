@@ -1,9 +1,11 @@
 "use client";
-// MY SALES REPORTS - what the three pages share: who is signed in (the HubSpot owner with their email), the person shown
-// (an admin or a sales leader may pick anyone), and the switch My | My team | All ESO (SARCLA 01.11.2026: "they should
-// have also filter by My Target | My Team Targets | All ESO" - and the same on Figures and Visits).
+// MY SALES REPORTS - what its pages share: who is signed in (the HubSpot owner with their email), where they stand in the
+// hierarchy (Settings > Hierarchy), and the switch Mine | My team | All ESO (or All TSA) | All (SARCLA 01.11.2026: "Adem
+// should only see his KPIs + all ESO + all with TSA, a TSA person vice versa"; a manager also everyone under them; "he
+// should not be able to see other teams"). Only an admin picks someone else. The ESO pages are drawn whole inside it,
+// for the people of the switch (../scope.tsx).
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
@@ -12,85 +14,99 @@ import Typography from "@mui/material/Typography";
 import { GUTTER } from "@/app/analytics/Shell";
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import { FAINT, INK, MUTED, glass } from "@/app/uc/report/ui";
-import type { Team } from "@/lib/mapAssign/leadsRules";
+import { useViewAs } from "@/app/ViewAs";
+import { ScopeProvider, type Scope } from "@/app/reporting/scope";
+import { scopeOf, viewsOf, type View } from "@/lib/reporting/mySalesScope";
+
+export { viewsOf, type View };
 import type { PersonTargets } from "@/lib/reporting/mySalesRules";
 
 export type Person = { id: string; name: string };
 export type MySales = {
   ok?: boolean; error?: string; year: number;
-  /** the HubSpot owner with the email signed in, none when there is no such owner */
+  /** the HubSpot owner with the email signed in (or previewed), none when there is no such owner */
   me: Person | null;
-  /** the person shown: themselves, or whoever an admin or a sales leader picked */
+  /** the person shown: themselves, or whoever an admin picked */
   subject: Person | null;
   canPick: boolean; canEdit: boolean;
+  /** their unit in the hierarchy, and the reports it is drawn in */
+  unit: string | null; reports: "eso" | "tsa" | null;
+  /** them and everyone under them - empty when nobody reports to them */
+  team: Person[];
   /** what the person shown set - only with the Targets page given */
   targets: PersonTargets | null;
-  /** their line manager's team (Map assignment's SAE table) */
-  team: string | null; teams: Team[];
-  /** ESO's people, to pick from (admins and sales leaders) */
-  people: Person[];
+  /** the people an admin picks from */
+  people: (Person & { unit: string | null })[];
 };
 
-/** Who is signed in and who is shown; `owner` picks someone else (admins and sales leaders). */
+/** Who is signed in and who is shown; `owner` picks someone else (admins). A preview (View as) is answered as that person. */
 export function useMySales(owner: string | null) {
+  const { viewed } = useViewAs();
   const [st, setSt] = useState<MySales | null>(null);
+  const as = viewed ? String(viewed.id) : null;
   const load = useCallback(() => {
     let alive = true;
-    fetch(`/api/reporting/my-sales${owner ? `?owner=${owner}` : ""}`).then((r) => r.json())
+    const q = new URLSearchParams();
+    if (owner) q.set("owner", owner);
+    if (as) q.set("as", as);
+    fetch(`/api/reporting/my-sales${q.toString() ? `?${q}` : ""}`).then((r) => r.json())
       .then((j: MySales) => { if (alive) setSt(j); })
       .catch((e) => { if (alive) setSt((s) => ({ ...(s ?? EMPTY), ok: false, error: String((e as Error)?.message ?? e) })); });
     return () => { alive = false; };
-  }, [owner]);
+  }, [owner, as]);
   useEffect(() => load(), [load]);
   return { st, setTargets: (t: PersonTargets) => setSt((s) => (s ? { ...s, targets: t } : s)) };
 }
-const EMPTY: MySales = { year: new Date().getFullYear(), me: null, subject: null, canPick: false, canEdit: false, targets: null, team: null, teams: [], people: [] };
+const EMPTY: MySales = { year: new Date().getFullYear(), me: null, subject: null, canPick: false, canEdit: false, unit: null, reports: null, team: [], targets: null, people: [] };
 
-/** The person picked, kept across the three pages (admins and sales leaders). */
+/** The person an admin picked, kept across the pages. */
 const KEPT_OWNER = "mySales.owner";
-export function usePicked(): [string | null, (id: string | null) => void] {
+function usePicked(): [string | null, (id: string | null) => void] {
   const [v, setV] = useState<string | null>(null);
   useEffect(() => { try { setV(localStorage.getItem(KEPT_OWNER)); } catch { /* none */ } }, []);
   return [v, (id) => { setV(id); try { if (id) localStorage.setItem(KEPT_OWNER, id); else localStorage.removeItem(KEPT_OWNER); } catch { /* here only */ } }];
 }
 
-export type Scope = "me" | "team" | "all";
-const KEPT_SCOPE = "mySales.scope";
-/** My | My team | All ESO, kept across the pages. */
-export function useScope(): [Scope, (s: Scope) => void] {
-  const [v, setV] = useState<Scope>("me");
-  useEffect(() => { try { const x = localStorage.getItem(KEPT_SCOPE); if (x === "me" || x === "team" || x === "all") setV(x); } catch { /* mine */ } }, []);
-  return [v, (s) => { setV(s); try { localStorage.setItem(KEPT_SCOPE, s); } catch { /* here only */ } }];
-}
+const KEPT_VIEW = "mySales.view";
 
-/** The team shown under My team, kept (admins and sales leaders may pick any). */
-const KEPT_TEAM = "mySales.team";
-export function usePickedTeam(): [string | null, (id: string) => void] {
-  const [v, setV] = useState<string | null>(null);
-  useEffect(() => { try { setV(localStorage.getItem(KEPT_TEAM)); } catch { /* none */ } }, []);
-  return [v, (id) => { setV(id); try { localStorage.setItem(KEPT_TEAM, id); } catch { /* here only */ } }];
-}
-
-export const shell = { width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.75 } as const;
-
-/** My … | My team | All ESO; under My team, for those who may pick, every team beside it. */
-export function ScopeBar({ scope, onScope, mine, teamLabel, teams, team, onTeam, canPick }: {
-  scope: Scope; onScope: (s: Scope) => void; mine: string; teamLabel: string;
-  teams: Team[]; team: string | null; onTeam: (id: string) => void; canPick: boolean;
-}) {
-  return (
-    <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
-      <ReportTabs name="my-sales-scope" tab={scope} onSelect={onScope}
-        tabs={[{ id: "me", label: mine, count: null }, { id: "team", label: teamLabel, count: null }, { id: "all", label: "All ESO", count: null }]} />
-      {scope === "team" && canPick && teams.length > 0 && (
-        <ReportTabs name="my-sales-team" tab={team && teams.some((t) => t.id === team) ? team : teams[0].id} onSelect={onTeam}
-          tabs={teams.map((t) => ({ id: t.id, label: t.name, count: null }))} />
-      )}
+/** Everything a My Sales page needs: the person, the view of the switch, the bar that sets it, the scope it makes. */
+export function useMySalesFrame() {
+  const [picked, setPicked] = usePicked();
+  const { st, setTargets } = useMySales(picked);
+  const [kept, setKept] = useState<View>("me");
+  useEffect(() => { try { const x = localStorage.getItem(KEPT_VIEW); if (x === "me" || x === "team" || x === "unit" || x === "all") setKept(x); } catch { /* mine */ } }, []);
+  const views = viewsOf(st);
+  // a view this person does not have (no one under them, no unit) falls back to their own
+  const view: View = views.some((v) => v.id === kept) ? kept : "me";
+  const setView = (v: View) => { setKept(v); try { localStorage.setItem(KEPT_VIEW, v); } catch { /* here only */ } };
+  const bar = (
+    <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", justifySelf: "start", minWidth: 0 }}>
+      <ReportTabs name="my-sales-view" tab={view} onSelect={setView} tabs={views.map((v) => ({ ...v, count: null }))} />
+      {st && <PersonPicker st={st} picked={picked} onPick={setPicked} />}
     </Box>
+  );
+  const scope = useMemo<Scope | null>(() => (st?.ok ? { ...scopeOf(st, view), bar } : null), [st, view]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { st, view, setView, bar, scope, setTargets };
+}
+
+/** An ESO page drawn whole inside My Sales Reports, for the people of the switch. */
+export function MySalesFrame({ children }: { children: React.ReactNode }) {
+  const { st, scope, bar } = useMySalesFrame();
+  if (!st) return <Box sx={shell}><Typography sx={{ fontSize: "0.88rem", color: MUTED }}>Reading who you are…</Typography></Box>;
+  if (!scope) return <Box sx={shell}>{bar}<Note title="My Sales Reports could not be read">{st.error ?? "Try again in a moment."}</Note></Box>;
+  return (
+    <>
+      {!st.subject && (
+        <Box sx={{ px: GUTTER, pt: 1.5 }}>
+          <Note title="No figures of your own here">Your email is not a HubSpot owner&apos;s, so the reports cannot tell which customers are yours. All still shows - an admin can check the email on your HubSpot user.</Note>
+        </Box>
+      )}
+      <ScopeProvider value={scope}>{children}</ScopeProvider>
+    </>
   );
 }
 
-/** For admins and sales leaders: whose page this is. */
+/** For admins: whose page this is. */
 export function PersonPicker({ st, picked, onPick }: { st: MySales; picked: string | null; onPick: (id: string | null) => void }) {
   if (!st.canPick) return null;
   const people = [...st.people].sort((a, b) => a.name.localeCompare(b.name));
@@ -99,15 +115,18 @@ export function PersonPicker({ st, picked, onPick }: { st: MySales; picked: stri
     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
       <Typography sx={{ fontSize: "0.8rem", color: MUTED, fontWeight: 600 }}>Showing</Typography>
       <Select size="small" displayEmpty value={value} onChange={(e) => onPick(e.target.value ? String(e.target.value) : null)}
-        sx={{ minWidth: 220, fontSize: "0.84rem", borderRadius: "10px", bgcolor: "#fff", "& .MuiSelect-select": { py: 0.75 } }}>
+        sx={{ minWidth: 220, fontSize: "0.84rem", borderRadius: "10px", bgcolor: "#fff", "& .MuiSelect-select": { py: 0.75 } }}
+        MenuProps={{ PaperProps: { sx: { maxHeight: 420 } } }}>
         <MenuItem value="" sx={{ fontSize: "0.84rem" }}>{st.me ? `Me (${st.me.name})` : "Me"}</MenuItem>
-        {people.map((p) => <MenuItem key={p.id} value={p.id} sx={{ fontSize: "0.84rem" }}>{p.name}</MenuItem>)}
+        {people.map((p) => <MenuItem key={p.id} value={p.id} sx={{ fontSize: "0.84rem" }}>{p.name}{p.unit ? <span style={{ color: FAINT }}>&nbsp;· {p.unit}</span> : null}</MenuItem>)}
       </Select>
     </Box>
   );
 }
 
-/** A plain note in the page's glass - no owner for the email, no team set, … */
+export const shell = { width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.75 } as const;
+
+/** A plain note in the page's glass - no owner for the email, … */
 export function Note({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <Box sx={{ ...glass, borderRadius: "18px", p: 2.25, display: "grid", gap: 0.5 }}>

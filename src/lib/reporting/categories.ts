@@ -206,15 +206,23 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
   {
     // Each salesperson's own figures, by the email they sign in with (SARCLA 01.11.2026: "display the figures based on
     // user email so it only shows each one's sales"): their targets - set by themselves, as the VPP sheet reckons them -
-    // and the most important ESO KPIs, each page with My | My team | All ESO
+    // and ESO's pages, each with Mine | My team | All ESO (or TSA) | All from Settings > Hierarchy
     slug: "my-sales", name: "My Sales Reports", line: "Your own targets and figures, then your team's and all ESO's",
     reports: [
       {
-        name: "My sales KPIs", href: "/reporting/my-sales/targets", note: "Your targets, your figures and your visits", icon: "target",
+        name: "My sales KPIs", href: "/reporting/my-sales/targets", note: "Your targets, and every ESO report for you, your team, your unit", icon: "target",
+        // the targets, then ESO's own pages in ESO's order, each whole - tabs, Filters, saved views (SARCLA 01.11.2026: "the
+        // other sub-reports on ESO should be brought to give value to the sales - all with filtering and saving views")
         children: [
           { name: "Targets", href: "/reporting/my-sales/targets", icon: "target" },
           { name: "Figures", href: "/reporting/my-sales/figures", icon: "bar" },
           { name: "Visits", href: "/reporting/my-sales/visits", icon: "route" },
+          { name: "Registrations", href: "/reporting/my-sales/registrations", icon: "verified" },
+          { name: "Shop behaviour", href: "/reporting/my-sales/shop", icon: "inventory" },
+          { name: "New customers", href: "/reporting/my-sales/new-customers", icon: "target" },
+          { name: "Customer development", href: "/reporting/my-sales/customers", icon: "groups" },
+          { name: "Incoming tickets", href: "/reporting/my-sales/tickets", icon: "description" },
+          { name: "System tickets", href: "/reporting/my-sales/system-tickets", icon: "bolt" },
         ],
       },
     ],

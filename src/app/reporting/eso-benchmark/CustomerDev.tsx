@@ -60,6 +60,7 @@ import {
 } from "./Figures";
 import { BucEmpty } from "./BucEmpty";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
+import { SCOPE_LEAD, scopedPeople, useScoped } from "@/app/reporting/scope";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -147,8 +148,10 @@ const sinceWords = (d: CustDevData, per: CPer) => `${monthWords(d, CY0 + per.win
 /* ── the teams: ESO | TSA | Total by the Performis SAE's people, as the Figures ── */
 
 /** The people shown (indexes): a team's SAE people - under ESO, a line manager's team only; null for Total. */
-const peopleOf = (d: CustDevData, team: TeamKey, lead: string | null, byName: Record<string, string>) => (team === "total" ? null
+const peopleOfTeam = (d: CustDevData, team: TeamKey, lead: string | null, byName: Record<string, string>) => (team === "total" ? null
   : new Set(d.people.flatMap((p, i) => (p.team === TEAM_OF[team] && (team !== "eso" || !lead || byName[p.name] === lead) ? [i] : []))));
+/** Inside My Sales Reports, its people only (../scope.tsx). */
+const peopleOf = (d: CustDevData, team: TeamKey, lead: string | null, by: Record<string, string>) => (lead === SCOPE_LEAD ? scopedPeople(d.people, by, "name") : peopleOfTeam(d, team, lead, by));
 /** Where the page sits: ESO Reports, or TSA Reports, where it opens on TSA (SARCLA 01.11.2026: "migrate to TSA now the
  *  customer development, but instead of default ESO, default is TSA") - the same page, ESO | TSA | Total still on it. */
 export type Home = "eso" | "tsa";
@@ -753,7 +756,7 @@ export function CustomerDevExplorer({ home = "eso" }: { home?: Home }) {
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
 
   // back to ESO's BUC View - TSA Reports has none (its side panel leads back)
-  const back = (
+  const back = useScoped() ? null : (
     <Box component={Link} href={`/reporting/${home}-benchmark`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
