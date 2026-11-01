@@ -36,6 +36,7 @@ import ShoppingCartCheckoutOutlinedIcon from "@mui/icons-material/ShoppingCartCh
 import TimerOutlinedIcon from "@mui/icons-material/TimerOutlined";
 import PersonAddAltOutlinedIcon from "@mui/icons-material/PersonAddAltOutlined";
 import DirectionsCarOutlinedIcon from "@mui/icons-material/DirectionsCarOutlined";
+import PhoneInTalkOutlinedIcon from "@mui/icons-material/PhoneInTalkOutlined";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import PublicOutlinedIcon from "@mui/icons-material/PublicOutlined";
@@ -56,8 +57,8 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  C, CATEGORIES, REG_VISIT, addressOf, blank, companiesOf, hasDays, isoOf, labelOf, median, spanOf, statsBy, winOf,
-  type RDim, type RFilters, type RStats, type RWin, type RegData, type RegList,
+  C, CATEGORIES, REG_CALL, REG_VISIT, addressOf, blank, companiesOf, hasDays, isoOf, labelOf, median, spanOf, statsBy, winOf,
+  type RDim, type RFilters, type RStats, type RWin, type RegData, type RegList, type Touch,
 } from "@/lib/reporting/registrationsRules";
 import type { Team } from "@/lib/mapAssign/leadsRules";
 import {
@@ -166,30 +167,49 @@ function monthsOf(d: RegData, per: RPer): { m: number; label: string; part: bool
 const peopleOf = (d: RegData, team: TeamKey, lead: string | null, byId: Record<string, string>): Set<number> | null => (team === "total" ? null
   : new Set(d.people.flatMap((p, i) => (team === "eso" ? (p.team === "ESO" && (!lead || byId[p.id] === lead) ? [i] : []) : p.team === "TSA" ? [i] : []))));
 const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (c.team === "eso" && c.lead ? c.teams.find((t) => t.id === c.lead)?.name ?? c.lead : teamWord(c.team));
+/** How the team shown reaches its companies: TSA calls - its registrations against the first qualified call (SARCLA
+ *  01.11.2026: "measuring visits here it's not fair - TSA don't do visits, they call, they do qualified calls") -, ESO and
+ *  everyone together against the first visit, as before. */
+const touchOf = (c: { team: TeamKey }): Touch => (c.team === "tsa" ? "call" : "visit");
+/** Where the page sits: ESO Reports, or TSA Reports, where it opens on TSA (SARCLA 01.11.2026: "bring the default TSA to
+ *  TSA reports") - the same page, ESO | TSA | Total still on it. */
+export type Home = "eso" | "tsa";
+/** The team shown: on ESO's page the address's, else the one kept across the ESO pages, else ESO; on TSA's the address's,
+ *  else TSA - a click there does not change what the ESO pages open on (as ef's Customer development). */
+function useHomeTeam(home: Home): [TeamKey, (t: TeamKey) => void] {
+  const params = useSearchParams();
+  const eso = useTeam();
+  return home === "eso" ? eso : [asTeam(params.get("team")) ?? "tsa", (t) => setQuery((q) => q.set("team", t))];
+}
 
 /* ── what every chart is drawn with ────────────────────────────────────── */
 
-type RView = "people" | "visit" | "country" | "prio" | "category" | "type" | "apic";
+type RView = "people" | "visit" | "call" | "country" | "prio" | "category" | "type" | "apic";
 const VIEWS: { id: RView; label: string }[] = [
-  { id: "people", label: "People" }, { id: "visit", label: "Visit and registration" }, { id: "country", label: "Country" },
+  { id: "people", label: "People" }, { id: "visit", label: "Visit and registration" }, { id: "call", label: "Qualified call and registration" }, { id: "country", label: "Country" },
   { id: "prio", label: "Priority" }, { id: "category", label: "Customer category" }, { id: "type", label: "Customer type" }, { id: "apic", label: "APIC" },
 ];
 const isView = (x: string | null): x is RView => VIEWS.some((v) => v.id === x);
-const DIM_OF: Record<RView, RDim> = { people: "person", visit: "visit", country: "country", prio: "prio", category: "category", type: "type", apic: "apic" };
+/** The tabs a team sees: the visit's on ESO and Total, the qualified call's on TSA. */
+const viewsOf = (t: Touch) => VIEWS.filter((v) => v.id !== (t === "call" ? "visit" : "call"));
+/** A tab of the other team's way is its own: "visit" on TSA is "call", and back. */
+const ownView = (v: RView, t: Touch): RView => (v === "visit" && t === "call" ? "call" : v === "call" && t === "visit" ? "visit" : v);
+const DIM_OF: Record<RView, RDim> = { people: "person", visit: "visit", call: "call", country: "country", prio: "prio", category: "category", type: "type", apic: "apic" };
 const DIM: Record<RDim, { name: string; lower: string; icon: React.ReactNode; tint: Tint; note: string }> = {
   person: { name: "Company owner", lower: "company owner", icon: <BadgeOutlinedIcon />, tint: "pink", note: "The company's owner in HubSpot today" },
   visit: { name: "Visit and registration", lower: "visit", icon: <DirectionsCarOutlinedIcon />, tint: "green", note: "The company's first completed customer visit against the day it registered - visits are in HubSpot since 2026, so this year only" },
+  call: { name: "Qualified call and registration", lower: "qualified call", icon: <PhoneInTalkOutlinedIcon />, tint: "green", note: "The company's first qualified call (the call outcome \"TSA Qualified Calls\") against the day it registered - qualified calls are in HubSpot since 2026, so this year only" },
   country: { name: "Country", lower: "country", icon: <PublicOutlinedIcon />, tint: "blue", note: "Where the company is" },
   prio: { name: "Priority", lower: "priority", icon: <FlagOutlinedIcon />, tint: "purple", note: "The company's priority today - it rises with what a company buys, so last year's registrations (a year longer to buy) are not compared" },
   category: { name: "Customer category", lower: "customer category", icon: <CategoryOutlinedIcon />, tint: "blue", note: "The company's APSO customer category today - a company that buys moves up to APSOgrowth or APSOcore, so last year's registrations (a year longer to buy) are not compared" },
   type: { name: "Customer type", lower: "customer type", icon: <BusinessOutlinedIcon />, tint: "slate", note: "OEM, MRO, C2S workshop… as HubSpot has the company" },
   apic: { name: "APIC", lower: "APIC", icon: <FactoryOutlinedIcon />, tint: "amber", note: "The company's APIC industry code - 1.x OEM industries, down to the sub-industry" },
 };
-const ORDER: Partial<Record<RDim, readonly string[]>> = { visit: REG_VISIT, prio: ["Prio 1", "Prio 2", "Prio 3", "No priority"], category: CATEGORIES };
-/** No comparison with last year: visits are in HubSpot since 2026, and the category and the priority are the company's
- *  today - last year's registrations had a year longer to buy and move up (SARCLA 31.10.2026 on APSOcore −78%: "this for
- *  me indicates that this is an issue"). */
-const thisYearOnly = (dim: RDim) => dim === "visit" || dim === "category" || dim === "prio";
+const ORDER: Partial<Record<RDim, readonly string[]>> = { visit: REG_VISIT, call: REG_CALL, prio: ["Prio 1", "Prio 2", "Prio 3", "No priority"], category: CATEGORIES };
+/** No comparison with last year: visits and qualified calls are in HubSpot since 2026, and the category and the priority
+ *  are the company's today - last year's registrations had a year longer to buy and move up (SARCLA 31.10.2026 on APSOcore
+ *  −78%: "this for me indicates that this is an issue"). */
+const thisYearOnly = (dim: RDim) => dim === "visit" || dim === "call" || dim === "category" || dim === "prio";
 
 export type RCtx = {
   d: RegData; per: RPer; team: TeamKey; lead: string | null; teams: Team[];
@@ -214,9 +234,15 @@ function statsOf(c: RCtx, side: 0 | 1, dim?: RDim): Map<string, RStats> {
 }
 const totalOf = (c: RCtx, side: 0 | 1 = 0) => statsOf(c, side).get("") ?? blank(c.per.months);
 /** Nothing to compare with last year: a breakdown by one of those, or one of them chosen under Filters. */
-const noPy = (c: RCtx, dim?: RDim) => (dim ? thisYearOnly(dim) : false) || !!(c.filters.visit?.length || c.filters.category?.length || c.filters.prio?.length);
-/** registered on the day of a visit or after one */
+const noPy = (c: RCtx, dim?: RDim) => (dim ? thisYearOnly(dim) : false) || !!(c.filters.visit?.length || c.filters.call?.length || c.filters.category?.length || c.filters.prio?.length);
+/** registered on the day of a visit or after one - of a qualified call on TSA */
 const visitedFirst = (s: RStats) => (s.visit[REG_VISIT[0]] ?? 0) + (s.visit[REG_VISIT[1]] ?? 0);
+const calledFirst = (s: RStats) => (s.call[REG_CALL[0]] ?? 0) + (s.call[REG_CALL[1]] ?? 0);
+/** A team's way: its measure, its breakdown, its count. */
+const WAY = {
+  visit: { m: "visited", dim: "visit", first: visitedFirst, ways: REG_VISIT, of: (s: RStats) => s.visit, word: "customer visit" },
+  call: { m: "called", dim: "call", first: calledFirst, ways: REG_CALL, of: (s: RStats) => s.call, word: "qualified call" },
+} as const;
 
 /** A chart's target, one per chart, team and period: "eso-registrations:people:registered@eso-RABE~q2" (the year to date without "~"). */
 const targetKey = (id: string, team: TeamKey, lead: string | null, per: RPer) => `eso-registrations:${id}@${team}${team === "eso" && lead ? `-${lead}` : ""}${/:months$/.test(id) || per.id === "ytd" ? "" : `~${per.id}`}`;
@@ -224,7 +250,7 @@ const targetFor = (c: RCtx, id: string) => { const t = c.targets?.[targetKey(id,
 
 /* ── the leaderboards ──────────────────────────────────────────────────── */
 
-type Measure = "registered" | "bought" | "conversion" | "accounts" | "visited";
+type Measure = "registered" | "bought" | "conversion" | "accounts" | "visited" | "called";
 /** Every title says what it counts - companies, or contacts named as people - and keeps the period and the breakdown apart
  *  (SARCLA 31.10.2026 on "Registered on the day of a visit or after one year to date, by person": "companies or contacts?
  *  the titles are still not explanatory"). */
@@ -234,20 +260,23 @@ const MEASURE: Record<Measure, { title: string; fmt: (n: number) => string; diff
   conversion: { title: "Share of the companies registered that have ordered in the shop since", fmt: (n) => pct(n), diff: (n) => moreLess(n, "fewer", "more"), unit: "pct", target: "share of the companies registered that have ordered in the shop since" },
   accounts: { title: "Contacts (people, not companies) who opened a shop account", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "contacts (people, not companies) who opened a shop account" },
   visited: { title: "Companies registered on the day of a customer visit or later", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "companies registered on the day of a customer visit or later" },
+  called: { title: "Companies registered on the day of a qualified call or later", fmt: int, diff: (n) => moreLess(n, "fewer", "more"), unit: "n", target: "companies registered on the day of a qualified call or later" },
 };
+/** The measures with nothing to compare: visits and qualified calls are in HubSpot since 2026. */
+const firstContact = (m: Measure) => m === "visited" || m === "called";
 /** "Companies registered in the shop · year to date · by company owner" */
 const titleOf = (what: string, per: RPer, by?: RDim) => `${what} · ${per.title}${by ? ` · by ${DIM[by].lower}` : ""}`;
 function boardRows(c: RCtx, dim: RDim, m: Measure): { rows: BoardRow[]; small: BoardRow[] } {
   const by = statsOf(c, 0, dim), was = statsOf(c, 1, dim);
   const rows: BoardRow[] = [], small: BoardRow[] = [];
-  for (const label of new Set([...by.keys(), ...(m === "visited" ? [] : was.keys())])) {
+  for (const label of new Set([...by.keys(), ...(firstContact(m) ? [] : was.keys())])) {
     const s = by.get(label) ?? blank(c.per.months), p = was.get(label) ?? blank(c.per.months);
     let cur: number, prev: number, sub: string, ranked = true;
     if (m === "registered") { cur = s.companies; prev = p.companies; sub = `${int(s.bought)} ordered since · ${pct(share(s.bought, s.companies))} of them`; }
     else if (m === "bought") { cur = s.bought; prev = p.bought; sub = `${pct(share(s.bought, s.companies))} of ${int(s.companies)} registered · median ${days(median(s.days))}`; }
     else if (m === "conversion") { cur = share(s.bought, s.companies) ?? 0; prev = share(p.bought, p.companies) ?? 0; sub = `${int(s.bought)} of ${int(s.companies)} registered`; ranked = s.companies >= MIN_COMPANIES; }
     else if (m === "accounts") { cur = s.accounts; prev = p.accounts; sub = `people · ${int(s.more)} at companies already in the shop`; }
-    else { cur = visitedFirst(s); prev = 0; sub = `${pct(share(cur, s.companies))} of ${int(s.companies)} registered · ${int(s.visit[REG_VISIT[0]] ?? 0)} on the day`; }
+    else { const w = WAY[m === "called" ? "call" : "visit"]; cur = w.first(s); prev = 0; sub = `${pct(share(cur, s.companies))} of ${int(s.companies)} registered · ${int(w.of(s)[w.ways[0]] ?? 0)} on the day`; }
     if (!cur && !prev) continue;
     (ranked ? rows : small).push({ label, cur, prev, sub });
   }
@@ -257,7 +286,7 @@ function Board({ c, id, dim, m, actions }: { c: RCtx; id: string; dim: RDim; m: 
   const { rows, small } = boardRows(c, dim, m);
   const M = MEASURE[m];
   return (
-    <Leaderboard key={`${id}-${c.per.id}`} title={titleOf(M.title, c.per, dim)} rows={rows} noChange={m === "visited" || noPy(c, dim)}
+    <Leaderboard key={`${id}-${c.per.id}`} title={titleOf(M.title, c.per, dim)} rows={rows} noChange={firstContact(m) || noPy(c, dim)}
       curLabel={perWords(c.d, c.per)} prevLabel={perWords(c.d, c.per, 1)} vs={vsOf(c.d)}
       first={c.half ? 8 : 12} fmt={M.fmt} diff={M.diff} ratio={m === "conversion"} target={targetFor(c, id)}
       unranked={small.length ? { why: `under ${MIN_COMPANIES} companies registered`, rows: small } : undefined}
@@ -316,22 +345,23 @@ function RegMonths({ c, target }: { c: RCtx; target: number | null }) {
   );
 }
 
-/** The companies registered against their first visit, each way with what came of it (this year: visits are in HubSpot
- *  since 2026). */
-function VisitSplit({ c }: { c: RCtx }) {
+/** The companies registered against their first visit - their first qualified call on TSA -, each way with what came of
+ *  it (this year: both are in HubSpot since 2026). */
+function WaySplit({ c, touch }: { c: RCtx; touch: Touch }) {
   const cols = c.half ? "minmax(0, 1fr) 104px minmax(0, 1fr)" : "minmax(200px, 1.1fr) minmax(60px, .8fr) 110px minmax(240px, 1.2fr)";
-  const by = statsOf(c, 0, "visit");
+  const dim = WAY[touch].dim;
+  const by = statsOf(c, 0, dim);
   const t = totalOf(c);
-  const rows = REG_VISIT.map((w) => [w, by.get(w) ?? blank(c.per.months)] as const);
+  const rows = WAY[touch].ways.map((w) => [w, by.get(w) ?? blank(c.per.months)] as const);
   const max = Math.max(1, ...rows.map(([, s]) => s.companies));
   return (
     <Box sx={{ display: "grid", gap: 0.25 }}>
       {rows.map(([w, s]) => {
-        const on = !!c.filters.visit?.includes(w);
+        const on = !!c.filters[dim]?.includes(w);
         return (
-          <Box key={w} component={c.onBar ? "button" : "div"} type={c.onBar ? "button" : undefined} onClick={c.onBar ? () => c.onBar!("visit", w) : undefined} aria-pressed={c.onBar ? on : undefined}
+          <Box key={w} component={c.onBar ? "button" : "div"} type={c.onBar ? "button" : undefined} onClick={c.onBar ? () => c.onBar!(dim, w) : undefined} aria-pressed={c.onBar ? on : undefined}
             sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr) 96px", md: cols }, gap: 1.25, alignItems: "center", px: 1, py: 1, border: 0, borderBottom: `1px solid ${HAIRLINE}`, font: "inherit", textAlign: "left",
-              cursor: c.onBar ? "pointer" : "default", bgcolor: on ? TINT.green.bg : "transparent", opacity: c.filters.visit?.length && !on ? 0.5 : 1, "&:hover": c.onBar ? { bgcolor: on ? TINT.green.bg : "rgba(21,34,58,.035)" } : {} }}>
+              cursor: c.onBar ? "pointer" : "default", bgcolor: on ? TINT.green.bg : "transparent", opacity: c.filters[dim]?.length && !on ? 0.5 : 1, "&:hover": c.onBar ? { bgcolor: on ? TINT.green.bg : "rgba(21,34,58,.035)" } : {} }}>
             <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>{w}</Typography>
             {!c.half && <Box sx={{ display: { xs: "none", md: "block" }, height: 10, borderRadius: 5, bgcolor: "rgba(21,34,58,.06)", overflow: "hidden" }}><Box sx={{ height: "100%", width: `${(s.companies / max) * 100}%`, bgcolor: THIS }} /></Box>}
             <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{int(s.companies)} <span style={{ color: MUTED, fontWeight: 500 }}>{pct(share(s.companies, t.companies))}</span></Typography>
@@ -359,7 +389,7 @@ function drawnOf(id: string): Drawn | undefined {
 function listOf(id: string): RegList {
   const chart = id.split(":")[1] ?? "";
   const what = chart.startsWith("table-") ? chart.slice(6) : chart.split("-")[0];
-  return what === "bought" || what === "visited" || what === "accounts" ? what : "registered";
+  return what === "bought" || what === "visited" || what === "called" || what === "accounts" ? what : "registered";
 }
 /** 20261012 -> "12 Oct 2026" */
 const dayWords = (day: number) => (day ? `${day % 100} ${MONTHS[(Math.floor(day / 100) % 100) - 1] ?? ""} ${Math.floor(day / 10000)}` : "—");
@@ -367,6 +397,7 @@ const LIST_NOTE: Record<RegList, string> = {
   registered: "the companies registered in the shop, the newest first",
   bought: "the companies registered that have ordered in the shop since, the newest registration first",
   visited: "the companies registered on the day of a customer visit or later, the newest first",
+  called: "the companies registered on the day of a qualified call or later, the newest first",
   accounts: "the companies the contacts opened their shop accounts at, the most accounts first",
 };
 /** The companies behind a chart: its period, team and filters, as the figures count them - so the list adds up to the chart. */
@@ -375,9 +406,10 @@ function listedOf(c: RCtx, what: RegList): CompanySource | null {
   if (!ids || !names) return null;
   const { companies, noCompany } = companiesOf(c.d, c.per.win, c.filters, c.people, what);
   const acc = what === "accounts";
+  const way = WAY[touchOf(c)].dim;
   return {
     key: `registrations|${c.d.generatedAt}|${what}|${c.per.id}|${c.per.win.from}-${c.per.win.to}|${c.per.win.d0 ?? ""}-${c.per.win.d1 ?? ""}|${c.team}|${c.lead ?? ""}|${JSON.stringify(c.filters)}`,
-    head: [...(acc ? ["Shop accounts opened"] : []), "Registered", "First shop order", "Company owner", "Country", "Priority", "Customer category", "Visit and registration"],
+    head: [...(acc ? ["Shop accounts opened"] : []), "Registered", "First shop order", "Company owner", "Country", "Priority", "Customer category", DIM[way].name],
     left: acc ? [4, 5, 6, 7, 8] : [3, 4, 5, 6, 7],
     note: `${perWords(c.d, c.per)} · ${LIST_NOTE[what]}${noCompany ? ` · ${int(noCompany)} account${noCompany === 1 ? "" : "s"} without a company are not on the list` : ""}`,
     rows: companies.map(({ ci, accounts }) => {
@@ -386,7 +418,7 @@ function listedOf(c: RCtx, what: RegList): CompanySource | null {
       const fo = co[C.firstOrder] >= co[C.reg] ? co[C.firstOrder] : 0;
       return {
         id: ids[ci] ?? null, name: names[ci] ?? `Company ${ci + 1}`,
-        cells: [...(acc ? [int(accounts)] : []), dayWords(co[C.reg]), dayWords(fo), labelOf(c.d, co, "person"), labelOf(c.d, co, "country"), labelOf(c.d, co, "prio"), labelOf(c.d, co, "category"), labelOf(c.d, co, "visit")],
+        cells: [...(acc ? [int(accounts)] : []), dayWords(co[C.reg]), dayWords(fo), labelOf(c.d, co, "person"), labelOf(c.d, co, "country"), labelOf(c.d, co, "prio"), labelOf(c.d, co, "category"), labelOf(c.d, co, way)],
         // the dates sort by the day, not the words; no shop order yet ("—") sorts last either way
         values: [...(acc ? [accounts] : []), co[C.reg], fo || null, null, null, null, null, null],
       };
@@ -418,8 +450,9 @@ function drawnBare(id: string): Drawn | undefined {
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`Companies whose first shop account was opened, by the company's owner, month by month · ${perWords(c.d, c.per)}`} actions={a}><PeopleMonths c={c} /></ChartBox> };
   }
   if (chart === "split") {
-    const title = (c: RCtx) => `${titleOf(MEASURE.registered.title, c.per)} · against their first customer visit${teamPart(c)}`;
-    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · the companies registered, against their first completed customer visit · a click shows only them`} actions={a}><VisitSplit c={c} /></ChartBox> };
+    const touch: Touch = v === "call" ? "call" : "visit", word = touch === "call" ? "qualified call" : "completed customer visit";
+    const title = (c: RCtx) => `${titleOf(MEASURE.registered.title, c.per)} · against their first ${WAY[touch].word}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · the companies registered, against their first ${word} · a click shows only them`} actions={a}><WaySplit c={c} touch={touch} /></ChartBox> };
   }
   const [what, by] = chart.split("-");
   if (!(what in MEASURE)) return undefined;
@@ -533,20 +566,23 @@ function TabCard({ c, act }: { c: RCtx; act: Act }) {
       <CardTitle icon={<BadgeOutlinedIcon />} tint="pink" title={`${teamName(c)} by company owner · ${c.per.title}`} note={`${words} · ${DIM.person.note}`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "people:registered")}{draw(c, act, "people:bought")}</Box>
       {many && draw(c, act, "people:months")}
-      <Box sx={TWO}>{draw(c, act, "people:conversion")}{draw(c, act, "people:visited")}</Box>
+      <Box sx={TWO}>{draw(c, act, "people:conversion")}{draw(c, act, `people:${WAY[touchOf(c)].m}`)}</Box>
       {reports}
       {many && draw(c, act, "people:months-table")}
       {many && draw(c, act, "people:person-months")}
     </GlassCard>
   );
-  if (c.view === "visit") return (
-    <GlassCard sx={card}>
-      <CardTitle icon={<DirectionsCarOutlinedIcon />} tint="green" title={`${teamName(c)}: companies registered in the shop against their first customer visit · ${c.per.title}`} note={`${perWords(c.d, c.per)} · ${DIM.visit.note} · click a way to see who ordered of it`} />
-      <Box sx={{ mt: -1 }}>{draw(c, act, "visit:split")}</Box>
-      <Box sx={TWO}>{draw(c, act, "visit:visited-person")}{draw(c, act, "visit:bought-person")}</Box>
-      {reports}
-    </GlassCard>
-  );
+  if (c.view === "visit" || c.view === "call") {
+    const w = WAY[c.view];
+    return (
+      <GlassCard sx={card}>
+        <CardTitle icon={DIM[w.dim].icon} tint="green" title={`${teamName(c)}: companies registered in the shop against their first ${w.word} · ${c.per.title}`} note={`${perWords(c.d, c.per)} · ${DIM[w.dim].note} · click a way to see who ordered of it`} />
+        <Box sx={{ mt: -1 }}>{draw(c, act, `${c.view}:split`)}</Box>
+        <Box sx={TWO}>{draw(c, act, `${c.view}:${w.m}-person`)}{draw(c, act, `${c.view}:bought-person`)}</Box>
+        {reports}
+      </GlassCard>
+    );
+  }
   const dim = DIM_OF[c.view], dd = DIM[dim];
   return (
     <GlassCard sx={card}>
@@ -571,7 +607,9 @@ function figuresOf(c: RCtx): Fig[] {
     { id: "fig-registered", label: MEASURE.registered.title, value: int(t.companies), ch: py ? changeOf(t.companies, p.companies) : null, sub: py ? `${int(p.companies)} in ${was}` : "not compared with last year under this filter", icon: <HowToRegOutlinedIcon />, tint: "pink", amount: t.companies, unit: "n" },
     { id: "fig-bought", label: MEASURE.bought.title, value: int(t.bought), ch: py ? changeOf(t.bought, p.bought) : null, sub: `${pct(share(t.bought, t.companies))} of them${py ? ` · ${pct(share(p.bought, p.companies))} in ${c.d.year - 1}` : ""}`, icon: <ShoppingCartCheckoutOutlinedIcon />, tint: "green", amount: t.bought, unit: "n" },
     { id: "fig-days", label: "Median days from registering to the company's first shop order", value: days(median(t.days)), ch: null, sub: py ? `${days(median(p.days))} in ${c.d.year - 1}` : `over ${int(t.days.length)} that ordered`, icon: <TimerOutlinedIcon />, tint: "amber", amount: median(t.days) ?? 0, unit: "n" },
-    { id: "fig-visited", label: MEASURE.visited.title, value: int(visitedFirst(t)), ch: null, sub: `${pct(share(visitedFirst(t), t.companies))} of the companies registered`, icon: <DirectionsCarOutlinedIcon />, tint: "green", amount: visitedFirst(t), unit: "n" },
+    touchOf(c) === "call"
+      ? { id: "fig-called", label: MEASURE.called.title, value: int(calledFirst(t)), ch: null, sub: `${pct(share(calledFirst(t), t.companies))} of the companies registered`, icon: <PhoneInTalkOutlinedIcon />, tint: "green", amount: calledFirst(t), unit: "n" }
+      : { id: "fig-visited", label: MEASURE.visited.title, value: int(visitedFirst(t)), ch: null, sub: `${pct(share(visitedFirst(t), t.companies))} of the companies registered`, icon: <DirectionsCarOutlinedIcon />, tint: "green", amount: visitedFirst(t), unit: "n" },
     { id: "fig-accounts", label: MEASURE.accounts.title, value: int(t.accounts), ch: py ? changeOf(t.accounts, p.accounts) : null, sub: `people, not companies · ${int(t.more)} at companies already in the shop`, icon: <PersonAddAltOutlinedIcon />, tint: "blue", amount: t.accounts, unit: "n" },
   ];
 }
@@ -656,7 +694,9 @@ function RFacet({ c, dim, onPick }: { c: RCtx; dim: RDim; onPick: (l: string) =>
     </Box>
   );
 }
-const FILTER_DIMS: RDim[] = ["person", "visit", "country", "prio", "category", "type", "apic"];
+const FILTER_DIMS: RDim[] = ["person", "visit", "call", "country", "prio", "category", "type", "apic"];
+/** The Filters window's breakdowns: the team's way - the visit, or the qualified call on TSA -, the other only while chosen. */
+const filterDimsOf = (c: RCtx) => FILTER_DIMS.filter((k) => k !== (touchOf(c) === "call" ? "visit" : "call") || !!c.filters[k]?.length);
 function RFilterWindow({ c, per, open, onClose, focus, onPer, toggle, clearAll }: {
   c: RCtx; per: RPer; open: boolean; onClose: () => void; focus: { dim: RDim; n: number } | null; onPer: (w: RWin) => void; toggle: (d: RDim, l: string) => void; clearAll: () => void;
 }) {
@@ -681,7 +721,7 @@ function RFilterWindow({ c, per, open, onClose, focus, onPer, toggle, clearAll }
           <FilterSection id="rfilter-period" index={0} title="Period" icon={<CalendarMonthOutlinedIcon />} tint="blue" open={isOpen("period")} onFlip={() => setShut((s) => ({ ...s, period: isOpen("period") }))} summary={perCap(per)}>
             <RPeriod d={c.d} per={per} onPer={onPer} />
           </FilterSection>
-          {FILTER_DIMS.map((dim, i) => (
+          {filterDimsOf(c).map((dim, i) => (
             <FilterSection key={dim} id={`rfilter-${dim}`} index={i + 1} title={DIM[dim].name} icon={DIM[dim].icon} tint={DIM[dim].tint} open={isOpen(dim)} onFlip={() => setShut((s) => ({ ...s, [dim]: isOpen(dim) }))}
               summary={!c.filters[dim]?.length ? "All" : c.filters[dim]!.length === 1 ? c.filters[dim]![0] : `${c.filters[dim]!.length} chosen`} chosen={!!c.filters[dim]?.length}>
               <RFacet c={c} dim={dim} onPick={(l) => toggle(dim, l)} />
@@ -706,15 +746,16 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
   );
 }
 
-export function RegistrationsExplorer() {
+export function RegistrationsExplorer({ home = "eso" }: { home?: Home }) {
   const params = useSearchParams();
   const { d, computing, progress, error } = useRegistrations();
-  const [team, setTeam] = useTeam();
+  const [team, setTeam] = useHomeTeam(home);
   const [leadKey, setLead] = useLead();
   const lt = useLeads();
   const teams = lt?.teams ?? [];
   const { state: acts } = useActions("eso-registrations");
-  const view: RView = isView(params.get("view")) ? (params.get("view") as RView) : "people";
+  const touch = touchOf({ team });
+  const view: RView = ownView(isView(params.get("view")) ? (params.get("view") as RView) : "people", touch);
   const setView = (v: RView) => setQuery((q) => { if (v === "people") q.delete("view"); else q.set("view", v); });
   const filters: RFilters = useMemo(() => Object.fromEntries(FILTER_DIMS.flatMap((k) => (params.getAll(k).length ? [[k, params.getAll(k)]] : []))), [params]);
   const toggle = (k: RDim, label: string) => setQuery((q) => { const cur = q.getAll(k), next = cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label]; q.delete(k); for (const x of next) q.append(k, x); });
@@ -743,7 +784,8 @@ export function RegistrationsExplorer() {
   } : null), [d, drawn, teams, acts?.targets]); // eslint-disable-line react-hooks/exhaustive-deps
   const figs = useMemo(() => (c ? figuresOf(c) : []), [c]);
 
-  const back = (
+  // TSA Reports has no BUC View to go back to (as ef's Customer development)
+  const back = home === "tsa" ? null : (
     <Box component={Link} href="/reporting/eso-benchmark" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
       <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to BUC View
     </Box>
@@ -781,7 +823,7 @@ export function RegistrationsExplorer() {
       </Box>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
-          <ReportTabs name="eso-registrations" tab={view} onSelect={setView} tabs={VIEWS.map((v) => ({ id: v.id, label: v.label, count: v.id !== "people" && filters[DIM_OF[v.id]]?.length ? String(filters[DIM_OF[v.id]]!.length) : null }))} />
+          <ReportTabs name="eso-registrations" tab={view} onSelect={setView} tabs={viewsOf(touch).map((v) => ({ id: v.id, label: v.label, count: v.id !== "people" && filters[DIM_OF[v.id]]?.length ? String(filters[DIM_OF[v.id]]!.length) : null }))} />
         </Box>
         <Box sx={{ flex: 1 }} />
         <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page="eso-registrations" /></Box>

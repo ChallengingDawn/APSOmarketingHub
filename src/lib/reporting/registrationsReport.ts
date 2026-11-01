@@ -9,6 +9,7 @@ import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/s
 import { ownerNames } from "@/lib/integrations/erosion";
 import { teamOf } from "@/lib/datatracker/rosters";
 import { readOwners } from "@/lib/ownerRules/hubspot";
+import { associations, searchAll } from "@/lib/lifecycle/read";
 import { prioBand, prioOf, PRIO_BANDS } from "./esoRules";
 import { CATEGORIES, typeShort, ymd, type RegData } from "./registrationsRules";
 
@@ -16,15 +17,17 @@ import { CATEGORIES, typeShort, ymd, type RegData } from "./registrationsRules";
 // instead of the potential
 // v3: each APSO customer category by its own name, no "Other"
 // (31.10: each company's HubSpot id and name too, for the charts' lists of companies - a read without them is read again,
-// the last one shown meanwhile)
+// the last one shown meanwhile; 01.11: each company's first qualified call too, for TSA - the same)
 const KEY = "esoRegistrations:v3";
 const TTL_MS = 60 * 60 * 1000;
 const VISIT_OBJ = "2-139767037";
 /** "Visit and Report complete": the only visits that count (SARCLA 12.10). */
 const VISIT_DONE = "3972587738";
+/** The call outcome "TSA Qualified Calls": the TSA reps' "reached" (SARCLA 01.11.2026: "they do qualified calls") */
+const QUALIFIED = "693d66b5-bd64-4289-bfc4-ff93ff004694";
 
 export function esoRegistrations(): Promise<SlowState<RegData>> {
-  return slowReport(KEY, (v: RegData) => (v?.companyIds ? TTL_MS : 0), build);
+  return slowReport(KEY, (v: RegData) => (v?.companyIds && v.coverage?.calls !== undefined ? TTL_MS : 0), build);
 }
 
 type Row = { id: string; properties?: Record<string, string | null> };
@@ -63,7 +66,7 @@ async function build(): Promise<RegData> {
   // 2. their companies: the owner, the first shop account (the company's "customer since", or its earliest contact's if
   // that is earlier - HubSpot copies a contact's onto the company, now and then a later one), the first order in the shop
   // (the earliest of its accounts')
-  type Co = { name: string; owner: string; reg: number; firstOrder: number; firstVisit: number; country: string; prio: string; category: string; type: string; apic: string };
+  type Co = { name: string; owner: string; reg: number; firstOrder: number; firstVisit: number; firstCall: number; country: string; prio: string; category: string; type: string; apic: string };
   const companies = new Map<string, Co>();
   const ids = [...new Set(accounts.map((a) => a.company).filter(Boolean))];
   for (let i = 0; i < ids.length; i += 100) {
@@ -74,7 +77,7 @@ async function build(): Promise<RegData> {
     for (const row of r.results ?? []) {
       const p = row.properties ?? {};
       companies.set(String(row.id), {
-        name: p.name || `Company ${row.id}`, owner: p.hubspot_owner_id ?? "", reg: ymd(p.magento_customer_since), firstOrder: 0, firstVisit: 0,
+        name: p.name || `Company ${row.id}`, owner: p.hubspot_owner_id ?? "", reg: ymd(p.magento_customer_since), firstOrder: 0, firstVisit: 0, firstCall: 0,
         country: p.country_custom || "Not set", prio: prioBand(prioOf(p.sales_priority)), category: p.apso_customer || "Not set",
         type: p.customer_type ? typeShort(p.customer_type) : "Not set", apic: p.apic_ap || "Not set",
       });
@@ -116,6 +119,19 @@ async function build(): Promise<RegData> {
     reportProgress(KEY, `linking visits to companies · ${Math.min(i + 100, done.length).toLocaleString("en")}`);
   }
 
+  // 3b. the first qualified call to each of those companies - TSA calls, it does not visit (SARCLA 01.11.2026: "measuring
+  // visits here it's not fair - TSA don't do visits, they call"); the outcome is in HubSpot since 2026
+  const calls = await searchAll("calls", [[
+    { propertyName: "hs_call_disposition", operator: "EQ", value: QUALIFIED },
+    { propertyName: "hs_timestamp", operator: "GTE", value: String(Date.UTC(year - 1, 0, 1)) },
+  ]], ["hs_timestamp"], (n) => reportProgress(KEY, `reading qualified calls · ${n.toLocaleString("en")}`));
+  const callDay = new Map(calls.map((c) => [String(c.id), ymd(c.properties?.hs_timestamp)] as const).filter(([, day]) => day && day <= todayN));
+  reportProgress(KEY, `linking ${callDay.size.toLocaleString("en")} qualified calls to companies`);
+  for (const [id, cos] of await associations("calls", "companies", [...callDay.keys()])) {
+    const day = callDay.get(id) ?? 0;
+    for (const cid of cos) { const co = companies.get(cid); if (co && day && (!co.firstCall || day < co.firstCall)) co.firstCall = day; }
+  }
+
   // 4. the people: the companies' owners, their names, and their team - the rosters, else the team HubSpot has them in
   const names = await ownerNames().catch(() => new Map<string, string>());
   const hsTeam = new Map<string, string>();
@@ -137,13 +153,13 @@ async function build(): Promise<RegData> {
   const coIds: string[] = [], coNames: string[] = [];
   for (const [id, co] of companies) {
     if (!co.reg) continue;
-    coIdx.set(id, coRows.push([person(co.owner), co.reg, co.firstOrder, co.firstVisit, at(labels.country, co.country), at(labels.prio, co.prio), at(labels.category, co.category), at(labels.type, co.type), at(labels.apic, co.apic)]) - 1);
+    coIdx.set(id, coRows.push([person(co.owner), co.reg, co.firstOrder, co.firstVisit, at(labels.country, co.country), at(labels.prio, co.prio), at(labels.category, co.category), at(labels.type, co.type), at(labels.apic, co.apic), co.firstCall]) - 1);
     coIds.push(id); coNames.push(co.name);
   }
   person("");
   const accRows = accounts.map((a) => [coIdx.get(a.company) ?? -1, a.day]);
   return {
     generatedAt: new Date().toISOString(), year, today, people, labels, companies: coRows, companyIds: coIds, companyNames: coNames, accounts: accRows,
-    coverage: { accounts: accRows.length, noCompany: accRows.filter((a) => a[0] < 0).length, companies: coRows.length, visits: done.length },
+    coverage: { accounts: accRows.length, noCompany: accRows.filter((a) => a[0] < 0).length, companies: coRows.length, visits: done.length, calls: callDay.size },
   };
 }

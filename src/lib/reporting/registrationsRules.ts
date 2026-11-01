@@ -25,18 +25,25 @@ export type RegData = {
   companyNames?: string[];
   /** every shop account opened this year or last - see A */
   accounts: number[][];
-  coverage: { accounts: number; noCompany: number; companies: number; visits: number };
+  /** calls: the qualified calls read - missing in a read before them (01.11.2026) */
+  coverage: { accounts: number; noCompany: number; companies: number; visits: number; calls?: number };
 };
 /** The columns of a company row: its owner; the day its first shop account was opened yyyymmdd; its first order in the
- *  shop yyyymmdd or 0; its first completed customer visit yyyymmdd or 0; its country / priority / category / type / APIC. */
-export const C = { person: 0, reg: 1, firstOrder: 2, firstVisit: 3, country: 4, prio: 5, category: 6, type: 7, apic: 8 } as const;
+ *  shop yyyymmdd or 0; its first completed customer visit yyyymmdd or 0; its country / priority / category / type / APIC;
+ *  its first qualified call yyyymmdd or 0 (missing in a read before them: none). */
+export const C = { person: 0, reg: 1, firstOrder: 2, firstVisit: 3, country: 4, prio: 5, category: 6, type: 7, apic: 8, firstCall: 9 } as const;
 /** The columns of an account row: its company (-1: none), the day it was opened yyyymmdd. */
 export const A = { company: 0, day: 1 } as const;
 
 /** A registered company against its first completed visit - visits are in HubSpot since 2026 */
 export const REG_VISIT = ["Registered on the day of a visit", "Registered after a visit", "Visited after registering", "Not visited"] as const;
+/** The same against its first qualified call - TSA calls, it does not visit (SARCLA 01.11.2026: "measuring visits here it's
+ *  not fair - TSA don't do visits, they call, they do qualified calls"); "TSA Qualified Calls" are in HubSpot since 2026 */
+export const REG_CALL = ["Registered on the day of a qualified call", "Registered after a qualified call", "Called after registering", "Not called"] as const;
+/** How a team reaches its companies: ESO visits, TSA calls. */
+export type Touch = "visit" | "call";
 
-export type RDim = "person" | "visit" | "country" | "prio" | "category" | "type" | "apic";
+export type RDim = "person" | "visit" | "call" | "country" | "prio" | "category" | "type" | "apic";
 export type RFilters = Partial<Record<RDim, string[]>>;
 /** A period: this year's months, 0 = January - compared with the same months of the year before (the running month to
  *  the same day). With days (SARCLA 31.10.2026: "really custom dates with a mini calendar" - the rows hold the day):
@@ -127,23 +134,28 @@ export function addressOf(d: RegData, w: RWin): { from: string; to: string } {
 
 /** The registration against the company's first completed visit, as far as the side reaches. */
 export function visitOf(co: number[], cut: number): (typeof REG_VISIT)[number] {
-  const v = co[C.firstVisit], r = co[C.reg];
-  if (!v || v > cut) return REG_VISIT[3];
-  return v < r ? REG_VISIT[1] : v === r ? REG_VISIT[0] : REG_VISIT[2];
+  return REG_VISIT[wayOf(co[C.firstVisit], co[C.reg], cut)];
 }
+/** The registration against the company's first qualified call, as far as the side reaches. */
+export function callOf(co: number[], cut: number): (typeof REG_CALL)[number] {
+  return REG_CALL[wayOf(co[C.firstCall] ?? 0, co[C.reg], cut)];
+}
+/** 0 registered on the day, 1 after it, 2 the visit or call came after registering, 3 none by the side's day */
+const wayOf = (first: number, r: number, cut: number) => (!first || first > cut ? 3 : first < r ? 1 : first === r ? 0 : 2);
 
 const COL: Record<"country" | "prio" | "category" | "type" | "apic", number> = { country: C.country, prio: C.prio, category: C.category, type: C.type, apic: C.apic };
 /** A company's value on a breakdown, as its label (the visit as far as the side reaches). */
 export function labelOf(d: RegData, co: number[], dim: RDim, cut = cutOf(d, 0)): string {
   if (dim === "person") return d.people[co[C.person]]?.name ?? "Unknown";
   if (dim === "visit") return visitOf(co, cut);
+  if (dim === "call") return callOf(co, cut);
   return d.labels[dim][co[COL[dim]]] ?? "Not set";
 }
 
 /** The row an account without a company is read by: no owner, nothing known. */
 export function noCompany(d: RegData): number[] {
   const i = d.people.findIndex((p) => p.id === "");
-  return [i < 0 ? d.people.length : i, 0, 0, 0, -1, -1, -1, -1, -1];
+  return [i < 0 ? d.people.length : i, 0, 0, 0, -1, -1, -1, -1, -1, 0];
 }
 
 export type RStats = {
@@ -153,14 +165,14 @@ export type RStats = {
   bought: number;
   /** the days from registering to that first order, one per company that bought */
   days: number[];
-  /** the companies against their first visit (REG_VISIT) */
-  visit: Record<string, number>;
+  /** the companies against their first visit (REG_VISIT), and against their first qualified call (REG_CALL) */
+  visit: Record<string, number>; call: Record<string, number>;
   /** shop accounts opened in the period, and of them the ones at companies already in the shop before that day */
   accounts: number; more: number;
   /** companies registered per month of the period, from its first */
   months: number[];
 };
-export const blank = (n: number): RStats => ({ companies: 0, bought: 0, days: [], visit: {}, accounts: 0, more: 0, months: Array(n).fill(0) });
+export const blank = (n: number): RStats => ({ companies: 0, bought: 0, days: [], visit: {}, call: {}, accounts: 0, more: 0, months: Array(n).fill(0) });
 
 /**
  * A period's figures on one side (0 this year, 1 the year before), for the people shown, under the filters - a
@@ -184,8 +196,9 @@ export function statsBy(d: RegData, win: RWin, side: 0 | 1, f: RFilters, people:
     const s = at(co);
     s.companies++;
     s.months[(Math.floor(r / 100) % 100) - 1 - win.from]++;
-    const v = visitOf(co, cut);
+    const v = visitOf(co, cut), k = callOf(co, cut);
     s.visit[v] = (s.visit[v] ?? 0) + 1;
+    s.call[k] = (s.call[k] ?? 0) + 1;
     if (boughtBy(co, cut)) { s.bought++; s.days.push(daysBetween(r, co[C.firstOrder])); }
   }
   const none = noCompany(d);
@@ -210,8 +223,9 @@ function keeper(d: RegData, f: RFilters, people: Set<number> | null, cut: number
 const boughtBy = (co: number[], cut: number) => { const fo = co[C.firstOrder]; return !!fo && fo >= co[C.reg] && fo <= cut; };
 
 /** What a chart counts, so its list of companies is the same: the companies registered, of them the ones that ordered in
- *  the shop since, the ones registered on the day of a visit or after one - or the companies the shop accounts were opened at. */
-export type RegList = "registered" | "bought" | "visited" | "accounts";
+ *  the shop since, the ones registered on the day of a visit or after one (of a qualified call, on TSA) - or the companies
+ *  the shop accounts were opened at. */
+export type RegList = "registered" | "bought" | "visited" | "called" | "accounts";
 /** A company on a chart's list: its index, and the shop accounts opened at it in the period (on "accounts"). */
 export type ListedCompany = { ci: number; accounts: number };
 /**
@@ -244,6 +258,7 @@ export function companiesOf(d: RegData, win: RWin, f: RFilters, people: Set<numb
     if (r < from || r > to || !keep(co)) return;
     if (what === "bought" && !boughtBy(co, cut)) return;
     if (what === "visited" && visitOf(co, cut) !== REG_VISIT[0] && visitOf(co, cut) !== REG_VISIT[1]) return;
+    if (what === "called" && callOf(co, cut) !== REG_CALL[0] && callOf(co, cut) !== REG_CALL[1]) return;
     companies.push({ ci, accounts: 0 });
   });
   return { companies: companies.sort((a, b) => reg(b.ci) - reg(a.ci) || a.ci - b.ci), noCompany: 0 };

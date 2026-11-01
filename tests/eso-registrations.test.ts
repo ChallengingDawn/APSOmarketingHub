@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { REG_VISIT, addressOf, companiesOf, cutOf, daysBetween, hasDays, labelOf, median, spanOf, statsBy, visitOf, winOf, ymd, type RegData } from "../src/lib/reporting/registrationsRules";
+import { REG_CALL, REG_VISIT, addressOf, callOf, companiesOf, cutOf, daysBetween, hasDays, labelOf, median, spanOf, statsBy, visitOf, winOf, ymd, type RegData } from "../src/lib/reporting/registrationsRules";
 
 // the read's day 29 Oct 2026; two owners and the "No owner" row; five companies:
 // 0 registered 5 Mar 2026, visited the same day, its first shop order 20 Mar
@@ -168,4 +168,30 @@ test("registrations: a chart's companies add up to its figure", () => {
   assert.deepEqual(ids("registered", {}, new Set([0])), [1, 0]);
   assert.equal(companiesOf(d, YTD, {}, new Set([0]), "accounts").noCompany, 0);
   assert.deepEqual(ids("registered", { country: ["Germany"] }), [3, 1]);
+});
+
+// TSA calls, it does not visit (SARCLA 01.11.2026): the same companies, each with its first qualified call -
+// 0 none, 1 on the day it registered, 2 (last year's) in January after registering, 3 in May before registering in June
+const dc: RegData = { ...d, companies: d.companies.map((co, i) => [...co, [0, 20260412, 20260115, 20260520, 0][i]]), coverage: { ...d.coverage, calls: 3 } };
+
+test("registrations: against the first qualified call, as TSA is measured", () => {
+  assert.equal(callOf(dc.companies[0], 20261029), REG_CALL[3]);
+  assert.equal(callOf(dc.companies[1], 20261029), REG_CALL[0]);
+  assert.equal(callOf(dc.companies[3], 20261029), REG_CALL[1]);
+  assert.equal(callOf(dc.companies[2], 20261029), REG_CALL[2]);
+  // a call after the side's day is not there yet; a read from before the calls (no column) has none
+  assert.equal(callOf(dc.companies[3], 20260501), REG_CALL[3]);
+  assert.equal(callOf(d.companies[1], 20261029), REG_CALL[3]);
+  assert.equal(labelOf(dc, dc.companies[1], "call"), REG_CALL[0]);
+  const cy = statsBy(dc, YTD, 0, {}, null).get("")!;
+  assert.deepEqual(cy.call, { [REG_CALL[3]]: 1, [REG_CALL[0]]: 1, [REG_CALL[1]]: 1 });
+  // the visits stay as they were
+  assert.deepEqual(cy.visit, { [REG_VISIT[0]]: 1, [REG_VISIT[1]]: 1, [REG_VISIT[2]]: 1 });
+  // the call as a filter, and as a breakdown
+  assert.equal(statsBy(dc, YTD, 0, { call: [REG_CALL[0]] }, null).get("")!.companies, 1);
+  assert.equal(statsBy(dc, YTD, 0, {}, null, "call").get(REG_CALL[1])!.companies, 1);
+  // the list behind "registered on the day of a qualified call or later": the newest first - TSA's (Ben) only company 3
+  assert.deepEqual(companiesOf(dc, YTD, {}, null, "called").companies.map((x) => x.ci), [3, 1]);
+  assert.deepEqual(companiesOf(dc, YTD, {}, new Set([1]), "called").companies.map((x) => x.ci), [3]);
+  assert.equal(companiesOf(dc, YTD, {}, null, "called").companies.length, cy.call[REG_CALL[0]] + cy.call[REG_CALL[1]]);
 });
