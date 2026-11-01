@@ -21,8 +21,16 @@ export type PlanState = "todo" | "doing" | "done" | "hold";
 export const PLAN_STATES: readonly PlanState[] = ["todo", "doing", "done", "hold"];
 export const STATE_LABEL: Record<PlanState, string> = { todo: "Not started", doing: "In progress", done: "Done", hold: "On hold" };
 
+/** A person an action is assigned to: a HubSpot user (owner id), as the KPI tasks keep them. */
+export type PlanOwner = { id: string; name: string };
+
 /** The fields a person can change on a row - everything the workbook has, under the plan's names. */
 export type PlanFields = {
+  /**
+   * Who does it: people, picked (SARCLA 01.11.2026: "assignment should be done by user, not names like Sales
+   * leader"). `responsible` keeps the workbook's words ("LEAL/FRMA/RABE", "Sales leaders") beside them.
+   */
+  owners: PlanOwner[];
   title: string; detail: string; priority: string; responsible: string; referent: string; status: string;
   state: PlanState | null; result: string; mainTopic: string; perimeter: string; expected: string;
   codeFreeze: string; complexity: string; release: string;
@@ -164,8 +172,46 @@ export function planFromSeed(rows: SeedRow[]): PlanSeedItem[] {
       status: tidy(r.status), state, result: tidy(r.result), mainTopic: tidy(r.main), perimeter: tidy(r.perimeter),
       expected: tidy(r.expected), codeFreeze: tidy(r.freeze), complexity: tidy(r.complexity), release: tidy(r.release),
       start: null, due: due.date, dueNote: due.note, percent: percentOf(state),
-      dg: kind === "action" && isDigitalGrowth(r.who),
+      dg: kind === "action" && isDigitalGrowth(r.who), owners: [],
     });
+  }
+  return out;
+}
+
+/* ── the workbook's codes as people ─────────────────────────────────────── */
+
+const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/[^A-Z ]+/g, " ").trim();
+
+/**
+ * The short codes a person goes by in the workbook - the start of the last name, then of the first:
+ * SARCLA = SARaiva CLAudio, FEHDIA = FEHr DIAna, WIDA = WIeland DAniel. Every split of a longer name counts.
+ */
+export function codesOf(name: string): Set<string> {
+  const t = plain(name).split(/\s+/).filter(Boolean);
+  const out = new Set<string>();
+  if (t.length < 2) return out;
+  const first = t[0];
+  // each word after the first name, and every ending of the name run together ("de Vries" -> DEVRIES)
+  const lasts = [...t.slice(1), ...t.slice(1).map((_, k) => t.slice(k + 1).join(""))];
+  for (const l of lasts) {
+    for (const [a, b] of [[3, 3], [2, 2], [4, 2], [3, 2], [2, 3]]) {
+      if (l.length >= a && first.length >= b) out.add(l.slice(0, a) + first.slice(0, b));
+    }
+  }
+  return out;
+}
+
+/**
+ * The people behind "Responsible of action": each code written in capitals ("LEAL/FRMA/RABE") that exactly one
+ * person answers to. Words ("Sales leaders", "Bespoke") and codes nobody or several people answer to are left
+ * for a person to pick - a guess would put someone's name on an action that is not theirs.
+ */
+export function ownersFromCodes(responsible: string, people: PlanOwner[]): PlanOwner[] {
+  const out: PlanOwner[] = [];
+  const codes = (responsible.match(/\b[A-Z]{4,7}\b/g) ?? []);
+  for (const code of codes) {
+    const hits = people.filter((p) => codesOf(p.name).has(code));
+    if (hits.length === 1 && !out.some((o) => o.id === hits[0].id)) out.push({ id: hits[0].id, name: hits[0].name });
   }
   return out;
 }

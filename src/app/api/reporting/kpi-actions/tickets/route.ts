@@ -11,7 +11,8 @@ import { itemById } from "@/lib/reporting/actionPlan";
 import { createTicket, ownerOf, readTickets, s2sForm, searchTickets, ticketUrl } from "@/lib/reporting/scrollToSale";
 import { missingRequired, prefill, type TileContext } from "@/lib/reporting/scrollToSaleRules";
 import { describeIntegrationError } from "@/lib/integrations/status";
-import { fail, who } from "../guard";
+import { fail, whoForTile } from "../guard";
+import { planWho } from "../../../action-plan/guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,9 +21,10 @@ const tileOk = (t: unknown): t is string => typeof t === "string" && /^[a-z0-9-]
 const hsFail = (e: unknown) => NextResponse.json({ ok: false, ...describeIntegrationError(e) }, { status: 502 });
 
 export async function GET(req: NextRequest) {
-  const w = await who();
-  if (w instanceof NextResponse) return w;
   const sp = req.nextUrl.searchParams;
+  // the open tickets to link are asked from a KPI tile or from an action of the plan: either rule lets you search
+  const w = sp.has("search") ? await planWho() : await whoForTile(sp.get("tile"));
+  if (w instanceof NextResponse) return w;
   try {
     if (sp.has("search")) return NextResponse.json({ ok: true, tickets: await searchTickets(sp.get("search") ?? "") });
     const tile = sp.get("tile");
@@ -46,9 +48,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const w = await who(true);
-  if (w instanceof NextResponse) return w;
   const b = (await req.json().catch(() => ({}))) as { action?: string; tile?: string; taskId?: number; values?: Record<string, string>; ids?: string[]; id?: string };
+  const w = await whoForTile(b.tile, true);
+  if (w instanceof NextResponse) return w;
   if (!tileOk(b.tile)) return fail("tile is missing", 400);
   const taskId = Number.isInteger(b.taskId) ? (b.taskId as number) : null;
   try {

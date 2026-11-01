@@ -1,9 +1,10 @@
 // What the action plan's pieces share: the colours of a state, day arithmetic on "YYYY-MM-DD", the
 // writes, and the viewer's own settings (zoom, grouping, what is folded) kept in their browser.
 
-import type { PlanItem, PlanState, PlanSub } from "@/lib/reporting/actionPlanRules";
+import type { PlanItem, PlanOwner, PlanState, PlanSub } from "@/lib/reporting/actionPlanRules";
 
-export type PlanData = { canWrite: boolean; items: PlanItem[]; subs: PlanSub[] };
+/** `people` = HubSpot's users, to assign an action to; empty with `peopleError` when HubSpot could not be read. */
+export type PlanData = { canWrite: boolean; items: PlanItem[]; subs: PlanSub[]; people: PlanOwner[]; peopleError: string | null };
 
 /** Planner's colours, in the hub's tones: not started grey, in progress blue, done green, on hold amber. */
 export const STATE_COLOR: Record<PlanState | "none", { bar: string; soft: string; ink: string }> = {

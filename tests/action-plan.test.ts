@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  isDigitalGrowth, parseDue, percentOf, planFromSeed, reorder, rollup, stateOf, stateOfPercent, titleOf,
+  codesOf, isDigitalGrowth, ownersFromCodes, parseDue, percentOf, planFromSeed, reorder, rollup, stateOf, stateOfPercent, titleOf,
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, summitOf } from "../src/lib/reporting/summitRules";
@@ -91,7 +91,30 @@ test("action plan: Digital Growth leads when one of its people is responsible", 
 const it = (id: number, parentId: number | null, kind: PlanItem["kind"], p: Partial<PlanItem> = {}): PlanItem => ({
   id, parentId, kind, code: "", sort: id, src: null, title: `#${id}`, detail: "", priority: "", responsible: "", referent: "", status: "",
   state: null, result: "", mainTopic: "", perimeter: "", expected: "", codeFreeze: "", complexity: "", release: "",
-  start: null, due: null, dueNote: "", percent: null, dg: false, updatedBy: "", updatedAt: "", ...p,
+  start: null, due: null, dueNote: "", percent: null, dg: false, owners: [], updatedBy: "", updatedAt: "", ...p,
+});
+
+// SARCLA 01.11.2026: "assignment should be done by user, not names like Sales leader" - the workbook's codes read as
+// people once, only where exactly one person answers to the code (made-up people here)
+test("action plan: a workbook code is the start of the last name, then of the first", () => {
+  const c = codesOf("Anna Beispiel");
+  for (const code of ["BEIANN", "BEAN", "BEISAN", "BEIAN", "BEANN"]) assert.ok(c.has(code), code);
+  assert.ok(codesOf("Jörg Müller-Lüdenscheid").has("MULJOR")); // accents and hyphens away
+  assert.ok(codesOf("Marie Claire de Vries").has("DEVMAR")); // a last name in parts, run together
+  assert.equal(codesOf("Madonna").size, 0);
+});
+
+test("action plan: the people behind 'Responsible of action' - one match per code, words and doubts left to pick", () => {
+  const people = [
+    { id: "1", name: "Anna Beispiel" }, { id: "2", name: "Marco Rossi" }, { id: "3", name: "Lea Albers" },
+    { id: "4", name: "Bea Rabe" }, { id: "5", name: "Ben Rauch" }, // both answer to RABE
+  ];
+  assert.deepEqual(ownersFromCodes("BEIANN/ROSMAR", people), [{ id: "1", name: "Anna Beispiel" }, { id: "2", name: "Marco Rossi" }]);
+  assert.deepEqual(ownersFromCodes("ALLE / ROSMAR", people), [{ id: "3", name: "Lea Albers" }, { id: "2", name: "Marco Rossi" }]);
+  assert.deepEqual(ownersFromCodes("RABE", people), []); // two people answer to it: nobody is guessed
+  assert.deepEqual(ownersFromCodes("Sales leaders", people), []); // words are not codes
+  assert.deepEqual(ownersFromCodes("Bespoke / XYZQ", people), []); // an agency, a code nobody answers to
+  assert.deepEqual(ownersFromCodes("BEIANN BEIANN", people), [{ id: "1", name: "Anna Beispiel" }]); // once
 });
 const sub = (id: number, item: number, status: PlanSub["status"], due: string | null = null): PlanSub => ({ id, item, title: `s${id}`, ownerName: "", due, status, kpiHref: "", kpiTile: "", tickets: 0 });
 

@@ -1,9 +1,9 @@
 // Where APSOparts stands on the way to 30 M€ by 2031 - the home card's mountain and the plan's header
-// (src/lib/reporting/summit.ts). Advanced reporting's grant, like the plan.
+// (src/lib/reporting/summit.ts). The plan's own rule: Marketing or Advanced reporting.
 import { NextResponse } from "next/server";
 import { summit } from "@/lib/reporting/summit";
 import { describeIntegrationError } from "@/lib/integrations/status";
-import { who } from "../../kpi-actions/guard";
+import { planWho as who } from "../guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

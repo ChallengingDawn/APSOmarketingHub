@@ -7,7 +7,7 @@ import { itemById } from "@/lib/reporting/actionPlan";
 import { s2sForm } from "@/lib/reporting/scrollToSale";
 import { renderTaskMail } from "@/lib/reporting/kpiTaskMail";
 import { mailConfigured, sendHubMail } from "@/lib/notify/mailer";
-import { fail, who, type Who } from "../guard";
+import { fail, whoForTile, type Who } from "../guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,18 +57,19 @@ async function planLink(v: unknown): Promise<number | null | undefined | false> 
   return row?.kind === "action" ? id : false;
 }
 
+// The tile decides whose rule applies: an action of the plan answers to the plan's (guard.ts whoForTile).
 export async function GET(req: NextRequest) {
-  const w = await who();
-  if (w instanceof NextResponse) return w;
   const tile = req.nextUrl.searchParams.get("tile");
+  const w = await whoForTile(tile);
+  if (w instanceof NextResponse) return w;
   if (!tileOk(tile)) return fail("tile is missing", 400);
   try { return NextResponse.json({ ok: true, tasks: await tasksOf(tile) }); } catch (e) { return fail(e); }
 }
 
 export async function POST(req: NextRequest) {
-  const w = await who(true);
-  if (w instanceof NextResponse) return w;
   const b = (await req.json().catch(() => ({}))) as { tile?: string; page?: string; title?: string; note?: string; owner?: string; ownerName?: string; due?: string; shared?: string[]; href?: string; kpi?: string; summary?: string; planItem?: number | null };
+  const w = await whoForTile(b.tile, true);
+  if (w instanceof NextResponse) return w;
   if (!tileOk(b.tile) || !b.page || !b.title?.trim()) return fail("a task needs its tile, its page and what to do", 400);
   if (b.due && !/^\d{4}-\d{2}-\d{2}$/.test(b.due)) return fail("due is a date (YYYY-MM-DD)", 400);
   try {
@@ -78,7 +79,7 @@ export async function POST(req: NextRequest) {
     const shared = await people(b.shared).catch(() => [] as SharedPerson[]);
     const t = await addTask({
       tile: b.tile, page: b.page, title: b.title.trim(), note: b.note, owner: b.owner || w.email || "", ownerName: b.ownerName || w.name, due: b.due || null,
-      shared, href: typeof b.href === "string" && b.href.startsWith("/reporting/") ? b.href : "", planItem: plan ?? null, by: w.name,
+      shared, href: typeof b.href === "string" && (b.href.startsWith("/reporting/") || b.href.startsWith("/action-plan")) ? b.href : "", planItem: plan ?? null, by: w.name,
     });
     const mailed = await notify(t, w, b, true, shared);
     return NextResponse.json({ ok: true, task: t, mailed });
@@ -86,14 +87,14 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const w = await who(true);
-  if (w instanceof NextResponse) return w;
   const b = (await req.json().catch(() => ({}))) as { id?: number; title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: string; shared?: string[]; kpi?: string; summary?: string; planItem?: number | null };
   if (!Number.isInteger(b.id)) return fail("id is missing", 400);
   if (b.status !== undefined && !(TASK_STATUSES as readonly string[]).includes(b.status)) return fail("status is open, doing or done", 400);
   if (b.due && !/^\d{4}-\d{2}-\d{2}$/.test(b.due)) return fail("due is a date (YYYY-MM-DD)", 400);
   try {
     const before = await taskById(b.id as number);
+    const w = await whoForTile(before?.tile, true);
+    if (w instanceof NextResponse) return w;
     if (!before) return fail("no such task", 404);
     const plan = await planLink(b.planItem);
     if (plan === false) return fail("that action is not in the action plan", 400);
@@ -109,9 +110,13 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const w = await who(true);
-  if (w instanceof NextResponse) return w;
   const id = Number(req.nextUrl.searchParams.get("id"));
   if (!Number.isInteger(id) || id <= 0) return fail("id is missing", 400);
-  try { await deleteTask(id); return NextResponse.json({ ok: true }); } catch (e) { return fail(e); }
+  try {
+    const task = await taskById(id);
+    const w = await whoForTile(task?.tile, true);
+    if (w instanceof NextResponse) return w;
+    await deleteTask(id);
+    return NextResponse.json({ ok: true });
+  } catch (e) { return fail(e); }
 }

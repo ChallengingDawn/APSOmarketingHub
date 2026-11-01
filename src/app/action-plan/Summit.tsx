@@ -21,7 +21,7 @@ export function useSummit(enabled = true): { data: SummitData | null; error: str
   useEffect(() => {
     if (!enabled) return;
     if (!cache) {
-      cache = fetch("/api/reporting/action-plan/summit").then(async (r) => {
+      cache = fetch("/api/action-plan/summit").then(async (r) => {
         const j = await r.json().catch(() => null);
         if (!r.ok || !j?.ok) throw new Error(j?.message ?? j?.error ?? `the hub answered ${r.status}`);
         return j.summit as SummitData;

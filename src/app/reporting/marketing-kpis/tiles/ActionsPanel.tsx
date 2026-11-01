@@ -66,7 +66,7 @@ type PlanOption = { id: number; title: string; code: string; topic: string; who:
 let planOptions: Promise<PlanOption[]> | null = null;
 function loadPlanOptions(): Promise<PlanOption[]> {
   if (!planOptions) {
-    planOptions = fetch("/api/reporting/action-plan").then(async (r) => {
+    planOptions = fetch("/api/action-plan").then(async (r) => {
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) throw new Error(j?.error ?? `the hub answered ${r.status}`);
       const items = j.items as { id: number; parentId: number | null; kind: string; title: string; code: string; responsible: string }[];
@@ -193,7 +193,8 @@ export function ActionsPanel({ tile, open, onClose, placed, format, formats, onM
     } catch (e) { setErr((e as Error).message); }
   }, [tile.key]);
   useEffect(() => { if (open) { void loadTasks(); if (!t) void loadTickets(); } }, [open, t, loadTasks, loadTickets]);
-  const reload = async () => { await Promise.all([loadTasks(), loadTickets()]); void refreshActions(tile.page); onChanged?.(); };
+  // a KPI page's counts follow its tiles; the plan counts its own (onChanged)
+  const reload = async () => { await Promise.all([loadTasks(), loadTickets()]); if (!plan) void refreshActions(tile.page); onChanged?.(); };
   const tickets = plan ? plan.tickets : true;
   const move = async (to: Placement, fmt?: TileFormat) => {
     setMoving(true);
@@ -532,7 +533,7 @@ function TaskRow({ tile, k, t, tickets, canWrite, reload, setErr, plan, allowTic
         </Typography>
       )}
       {!plan && k.planItem != null && (
-        <Typography component="a" href={`/reporting/action-plan?item=${k.planItem}`} sx={{ fontSize: "0.82rem", color: TINT.blue.fg, fontWeight: 600, textDecoration: "none", display: "flex", gap: 0.5, alignItems: "center", "&:hover": { textDecoration: "underline" } }}>
+        <Typography component="a" href={`/action-plan?item=${k.planItem}`} sx={{ fontSize: "0.82rem", color: TINT.blue.fg, fontWeight: 600, textDecoration: "none", display: "flex", gap: 0.5, alignItems: "center", "&:hover": { textDecoration: "underline" } }}>
           <FlagOutlinedIcon sx={{ fontSize: 17 }} /> A sub-action of the action plan - open it
         </Typography>
       )}

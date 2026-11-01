@@ -227,7 +227,8 @@ export const APPS: HubApp[] = [
 
 /** The hub's own. Not apps, but they have to be findable. */
 export const HUB_TOOLS: SubApp[] = [
-  { name: "Mission Control", note: "The week at a glance", href: "/mission-control", icon: "bar", ...BLUE },
+  { name: "Action plan", note: "Every action toward 30 M€ by 2031, on a Gantt", href: "/action-plan", icon: "target", ...BLUE },
+  { name: "Content calendar", note: "The marketing week at a glance", href: "/mission-control", icon: "bar", ...BLUE },
   { name: "Live", note: "Who is on the site right now", href: "/live", icon: "bolt", ...GREEN },
   { name: "Settings", note: "Your account and the hub's", href: "/settings", icon: "filter", ...PURPLE },
   { name: "Integrations", note: "What is connected", href: "/settings/integrations", icon: "sync", ...AMBER },

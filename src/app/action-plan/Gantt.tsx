@@ -400,7 +400,7 @@ function TreeRow({ r, rolled, today, canWrite, folded, toggle, selected, onOpen,
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: FAINT }}>{dmy(ro?.from ?? null)}</Typography></Box>
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: FAINT }}>{dmy(ro?.to ?? null)}</Typography></Box>
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: FAINT, fontWeight: 600 }}>{ro?.percent == null ? "" : `${ro.percent} %`}</Typography></Box>
-          <Box sx={cell}><Typography noWrap sx={{ fontSize: "0.8rem", color: MUTED }}>{it.responsible}</Typography></Box>
+          <Box sx={cell} />
         </>
       ) : (
         <>
@@ -409,7 +409,12 @@ function TreeRow({ r, rolled, today, canWrite, folded, toggle, selected, onOpen,
           {fromSubs
             ? <Box sx={cell}><Tooltip title="From its sub-actions"><Typography sx={{ fontSize: "0.8rem", color: MUTED, fontWeight: 600 }}>{ro?.percent ?? 0} %</Typography></Tooltip></Box>
             : <PercentCell value={it.percent} canWrite={canWrite} onSave={(v) => onPatch(it.id, { percent: v })} />}
-          <Box sx={cell}><Typography noWrap title={it.responsible} sx={{ fontSize: "0.8rem", color: MUTED }}>{it.responsible}</Typography></Box>
+          {/* people; while nobody is given it, the workbook's words in grey - a click opens the row to pick someone */}
+          <Box sx={cell}>
+            {it.owners.length
+              ? <Typography noWrap title={it.owners.map((o) => o.name).join(", ")} sx={{ fontSize: "0.8rem", color: INK }}>{it.owners.map((o) => o.name).join(", ")}</Typography>
+              : <Typography noWrap title={it.responsible ? `Not assigned yet - the workbook says "${it.responsible}"` : "Not assigned yet"} sx={{ fontSize: "0.78rem", color: FAINT, fontStyle: "italic" }}>{it.responsible || "Not assigned"}</Typography>}
+          </Box>
         </>
       )}
     </Box>

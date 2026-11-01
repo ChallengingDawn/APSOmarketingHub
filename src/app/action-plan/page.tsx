@@ -35,8 +35,8 @@ const chip = (on: boolean, color: string = TINT.blue.fg, soft: string = TINT.blu
   font: "inherit", fontSize: "0.8rem", fontWeight: on ? 700 : 600, px: 1.2, py: 0.4, borderRadius: 99, cursor: "pointer", whiteSpace: "nowrap" as const,
 });
 
-/** The people of "Responsible of action": "FEHDIA/SARCLA" is two of them, "Sales leaders" one. */
-const peopleOf = (who: string) => who.split(/\s*(?:\/|,|;|&|\+|\band\b)\s*/i).map((x) => x.trim()).filter(Boolean);
+/** The filter's choice for the actions nobody has been given to yet. */
+const NOBODY = "__nobody";
 
 function ActionPlan() {
   const params = useSearchParams();
@@ -49,10 +49,10 @@ function ActionPlan() {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch("/api/reporting/action-plan");
+      const r = await fetch("/api/action-plan");
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) throw new Error(j?.error ?? `the hub answered ${r.status}`);
-      setData({ canWrite: !!j.canWrite, items: j.items, subs: j.subs });
+      setData({ canWrite: !!j.canWrite, items: j.items, subs: j.subs, people: j.people ?? [], peopleError: j.peopleError ?? null });
       setError(null);
     } catch (e) { setError((e as Error).message); }
   }, []);
@@ -86,17 +86,22 @@ function ActionPlan() {
   const items = useMemo(() => data?.items ?? [], [data]);
   const subs = useMemo(() => data?.subs ?? [], [data]);
   const rolled = useMemo(() => rollup(items, subs, today), [items, subs, today]);
-  const owners = useMemo(() => [...new Set(items.filter((i) => i.kind === "action").flatMap((i) => peopleOf(i.responsible)))].sort((a, b) => a.localeCompare(b)), [items]);
+  // the people actions are given to, for the filter
+  const owners = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const i of items) if (i.kind === "action") for (const o of i.owners) m.set(o.id, o.name);
+    return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [items]);
 
   const passes = useCallback((i: PlanItem) => {
     if (i.kind !== "action") return false;
     const w = q.trim().toLowerCase();
-    if (w && ![i.title, i.detail, i.responsible, i.code, i.mainTopic, i.status].some((x) => x.toLowerCase().includes(w))) return false;
+    if (w && ![i.title, i.detail, i.responsible, i.code, i.mainTopic, i.status, ...i.owners.map((o) => o.name)].some((x) => x.toLowerCase().includes(w))) return false;
     if (prios.length && !prios.includes(i.priority)) return false;
     if (states.length && !states.includes(i.state ?? "none")) return false;
     if (dgOnly && !i.dg) return false;
     if (lateOnly && !isLate(i, today)) return false;
-    if (owner && !peopleOf(i.responsible).includes(owner)) return false;
+    if (owner === NOBODY ? i.owners.length > 0 : !!owner && !i.owners.some((o) => o.id === owner)) return false;
     return true;
   }, [q, prios, states, dgOnly, lateOnly, owner, today]);
 
@@ -193,15 +198,16 @@ function ActionPlan() {
   const openRow = (i: PlanItem) => {
     handled.current = i.id;
     setOpenId(i.id);
-    router.replace(`/reporting/action-plan?item=${i.id}`, { scroll: false });
+    router.replace(`/action-plan?item=${i.id}`, { scroll: false });
   };
-  const closeRow = useCallback(() => { setOpenId(null); router.replace("/reporting/action-plan", { scroll: false }); }, [router]);
+  const closeRow = useCallback(() => { setOpenId(null); router.replace("/action-plan", { scroll: false }); }, [router]);
 
   // changes
   const patch = async (id: number, p: Partial<PlanFields>) => {
     setData((d) => d && { ...d, items: d.items.map((i) => (i.id === id ? { ...i, ...p } : i)) });
     try {
-      const j = await send("/api/reporting/action-plan", "PATCH", { id, ...p });
+      // people go by their HubSpot owner id
+      const j = await send("/api/action-plan", "PATCH", { id, ...p, ...(p.owners ? { owners: p.owners.map((o) => o.id) } : {}) });
       const item = j.item as PlanItem;
       setData((d) => d && { ...d, items: d.items.map((i) => (i.id === id ? item : i)) });
       setNote(null);
@@ -225,7 +231,7 @@ function ActionPlan() {
     }
     if (target.type !== "item") return;
     try {
-      await send("/api/reporting/action-plan", "POST", { action: "move", id: drag.item.id, target: target.item.id, where });
+      await send("/api/action-plan", "POST", { action: "move", id: drag.item.id, target: target.item.id, where });
       setNote(null);
       if (where === "into") setCollapsed((c) => { const n = new Set(c); n.delete(target.key); return n; });
     } catch (e) { setNote(`Not moved: ${(e as Error).message}`); }
@@ -233,7 +239,7 @@ function ActionPlan() {
   };
   const add = async (parent: PlanItem, kind: PlanKind, title: string) => {
     try {
-      const j = await send("/api/reporting/action-plan", "POST", { action: "add", parentId: parent.id, kind, title });
+      const j = await send("/api/action-plan", "POST", { action: "add", parentId: parent.id, kind, title });
       await load();
       setCollapsed((c) => { const n = new Set(c); n.delete(`i${parent.id}`); return n; });
       openRow(j.item as PlanItem);
@@ -242,7 +248,7 @@ function ActionPlan() {
   const remove = async (i: PlanItem) => {
     const under = items.filter((x) => x.parentId === i.id).length;
     if (!confirm(under ? `Remove "${i.title}" and the ${under} row${under === 1 ? "" : "s"} under it?` : `Remove "${i.title}"?`)) return;
-    try { await send(`/api/reporting/action-plan?id=${i.id}`, "DELETE"); closeRow(); await load(); } catch (e) { setNote(`Not removed: ${(e as Error).message}`); }
+    try { await send(`/api/action-plan?id=${i.id}`, "DELETE"); closeRow(); await load(); } catch (e) { setNote(`Not removed: ${(e as Error).message}`); }
   };
   const foldAll = (fold: boolean) => {
     const keys = fold
@@ -297,7 +303,8 @@ function ActionPlan() {
         <TextField select size="small" value={owner} onChange={(e) => setOwner(e.target.value)} SelectProps={{ displayEmpty: true }}
           sx={{ width: 190, "& .MuiInputBase-root": { borderRadius: "10px", bgcolor: "#fff", fontSize: "0.86rem" } }}>
           <MenuItem value="" sx={{ fontSize: "0.86rem" }}>Everyone</MenuItem>
-          {owners.map((o) => <MenuItem key={o} value={o} sx={{ fontSize: "0.86rem" }}>{o}</MenuItem>)}
+          <MenuItem value={NOBODY} sx={{ fontSize: "0.86rem", fontStyle: "italic" }}>Not assigned yet</MenuItem>
+          {owners.map((o) => <MenuItem key={o.id} value={o.id} sx={{ fontSize: "0.86rem" }}>{o.name}</MenuItem>)}
         </TextField>
         {["1", "2", "3"].map((p) => (
           <Box key={p} component="button" type="button" aria-pressed={prios.includes(p)} onClick={() => setPrios((x) => (x.includes(p) ? x.filter((y) => y !== p) : [...x, p]))} sx={chip(prios.includes(p))}>Priority {p}</Box>
@@ -336,11 +343,12 @@ function ActionPlan() {
 
       {opened && (
         <ItemDrawer item={opened} rolled={rolled.get(opened.id)} subs={subs.filter((s) => s.item === opened.id)} canWrite={!!data?.canWrite}
+          people={data?.people ?? []} peopleError={data?.peopleError ?? null}
           onClose={closeRow} onPatch={patch} onSubs={setSubsFor} onAdd={add} onDelete={remove} />
       )}
       {subsFor && (
         <ActionsPanel open onClose={() => setSubsFor(null)} canWrite={!!data?.canWrite}
-          tile={{ key: `plan:${subsFor.id}`, page: "plan", title: subsFor.title, summary: [subsFor.code, subsFor.responsible, subsFor.due ? `due ${subsFor.due.split("-").reverse().join(".")}` : ""].filter(Boolean).join(" · "), href: `${window.location.origin}/reporting/action-plan?item=${subsFor.id}` }}
+          tile={{ key: `plan:${subsFor.id}`, page: "plan", title: subsFor.title, summary: [subsFor.code, subsFor.owners.map((o) => o.name).join(", ") || subsFor.responsible, subsFor.due ? `due ${subsFor.due.split("-").reverse().join(".")}` : ""].filter(Boolean).join(" · "), href: `${window.location.origin}/action-plan?item=${subsFor.id}` }}
           placed="tab" format="tile" formats={[]} onMove={async () => {}}
           plan={{ tickets: subsFor.dg }} onChanged={() => void load()} />
       )}

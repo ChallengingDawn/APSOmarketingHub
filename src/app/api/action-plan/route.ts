@@ -1,14 +1,16 @@
-// The action plan (SARCLA 31.10.2026), behind Advanced reporting's grant like the KPI tiles' toolbar:
-//   GET                                          every row, every sub-action, whether you may change them
-//   PATCH {id, ...fields}                        a row's fields (dates, % complete, state, who, words, Digital Growth)
+// The action plan (SARCLA 31.10.2026), where Mission Control was - Marketing or Advanced reporting (./guard.ts):
+//   GET                                          every row, every sub-action, the people to assign, whether you may change
+//   PATCH {id, ...fields, owners?: [owner ids]}  a row's fields (people, dates, % complete, state, words, Digital Growth)
 //   POST  {action:"add", parentId, kind, title}  a new topic, group or action
 //   POST  {action:"move", id, target, where}     drag and drop: "into" a topic or group, or "before" a row
 //   DELETE ?id=                                  a row and what is under it; its own sub-actions go too
 import { NextRequest, NextResponse } from "next/server";
-import { addItem, deleteItems, itemById, moveItem, planItems, subtree, updateItem } from "@/lib/reporting/actionPlan";
-import { PLAN_STATES, type PlanFields, type PlanKind, type PlanSub } from "@/lib/reporting/actionPlanRules";
+import { addItem, deleteItems, itemById, matchOwnersOnce, moveItem, planItems, subtree, updateItem } from "@/lib/reporting/actionPlan";
+import { PLAN_STATES, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
 import { dropPlanItem, planTasks } from "@/lib/reporting/kpiActions";
-import { fail, who } from "../kpi-actions/guard";
+import { s2sForm } from "@/lib/reporting/scrollToSale";
+import { fail } from "../reporting/kpi-actions/guard";
+import { planWho as who } from "./guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,17 +18,31 @@ export const dynamic = "force-dynamic";
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TEXT_FIELDS = ["title", "detail", "priority", "responsible", "referent", "status", "result", "mainTopic", "perimeter", "expected", "codeFreeze", "complexity", "release", "dueNote"] as const;
 
+/** The people an action can be given to: HubSpot's users, as the KPI tasks pick them (read at most once an hour). */
+async function people(): Promise<PlanOwner[]> {
+  return (await s2sForm()).owners.map((o) => ({ id: o.id, name: o.name }));
+}
+
 export async function GET() {
   const w = await who();
   if (w instanceof NextResponse) return w;
   try {
+    let list: PlanOwner[] = [];
+    let peopleError: string | null = null;
+    try {
+      list = await people();
+      // the workbook's codes become people the first time HubSpot can be read
+      await matchOwnersOnce(list);
+    } catch (e) {
+      peopleError = String((e as Error)?.message ?? e).slice(0, 200);
+    }
     const [items, tasks] = await Promise.all([planItems(), planTasks()]);
     const ids = new Set(items.map((i) => i.id));
     const subs: PlanSub[] = tasks.filter((t) => t.planItem != null && ids.has(t.planItem)).map((t) => ({
       id: t.id, item: t.planItem as number, title: t.title, ownerName: t.ownerName, due: t.due, status: t.status,
       kpiHref: t.tile.startsWith("plan:") ? "" : t.href, kpiTile: t.tile.startsWith("plan:") ? "" : t.tile, tickets: t.tickets,
     }));
-    return NextResponse.json({ ok: true, canWrite: w.canWrite, items, subs });
+    return NextResponse.json({ ok: true, canWrite: w.canWrite, items, subs, people: list, peopleError });
   } catch (e) { return fail(e); }
 }
 
@@ -56,6 +72,16 @@ export async function PATCH(req: NextRequest) {
     p.state = b.state as PlanFields["state"];
   }
   if (b.dg !== undefined) p.dg = !!b.dg;
+  if (b.owners !== undefined) {
+    if (!Array.isArray(b.owners)) return fail("owners is a list of HubSpot owner ids", 400);
+    const want = [...new Set(b.owners.map(String).filter((x) => /^\d+$/.test(x)))];
+    try {
+      const known = new Map((await people()).map((o) => [o.id, o]));
+      const owners = want.map((id) => known.get(id)).filter((o): o is PlanOwner => !!o);
+      if (owners.length !== want.length) return fail("someone in that list is not a HubSpot user", 400);
+      p.owners = owners;
+    } catch (e) { return fail(`HubSpot's users could not be read: ${(e as Error).message}`, 502); }
+  }
   if (p.start && p.due && p.start > p.due) return fail("the start comes after the due date", 400);
   try {
     const item = await updateItem(id, p, w.name);

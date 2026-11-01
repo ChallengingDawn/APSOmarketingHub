@@ -11,13 +11,14 @@ import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Switch from "@mui/material/Switch";
+import Autocomplete from "@mui/material/Autocomplete";
 import CloseIcon from "@mui/icons-material/Close";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import TaskAltIcon from "@mui/icons-material/TaskAlt";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 
 import { FAINT, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { PLAN_STATES, STATE_LABEL, type PlanFields, type PlanItem, type PlanKind, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
+import { PLAN_STATES, STATE_LABEL, type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
 import { STATE_COLOR, SUB_COLOR, dmy } from "./planUi";
 
 const field = { "& .MuiInputBase-root": { fontSize: "0.9rem", borderRadius: "10px", bgcolor: "#fff" }, "& .MuiInputLabel-root": { fontSize: "0.88rem" } };
@@ -37,8 +38,34 @@ function Field({ label, value, onSave, canWrite, multiline = false, rows, half =
   );
 }
 
-export function ItemDrawer({ item, rolled, subs, canWrite, onClose, onPatch, onSubs, onAdd, onDelete }: {
+/**
+ * Who does it - HubSpot's users, picked (SARCLA 01.11.2026: "assignment should be done by user, not names like
+ * Sales leader"). The workbook's words stay underneath until somebody is chosen.
+ */
+function Owners({ item, people, peopleError, canWrite, onSave }: {
+  item: PlanItem; people: PlanOwner[]; peopleError: string | null; canWrite: boolean; onSave: (owners: PlanOwner[]) => void;
+}) {
+  // the people already on it stay choosable even if HubSpot's list has not come
+  const options = [...item.owners.filter((o) => !people.some((p) => p.id === o.id)), ...people];
+  return (
+    <Box sx={{ display: "grid", gap: 0.5 }}>
+      <Autocomplete multiple size="small" options={options} value={item.owners} disabled={!canWrite || (!people.length && !item.owners.length)}
+        getOptionLabel={(o) => o.name} isOptionEqualToValue={(a, b) => a.id === b.id} filterSelectedOptions
+        onChange={(_, v) => onSave(v.map((o) => ({ id: o.id, name: o.name })))}
+        renderInput={(p) => <TextField {...p} label="Assigned to" placeholder={item.owners.length ? "" : "Pick the people who do it"} sx={field} />} />
+      {item.responsible && (
+        <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
+          The workbook says: “{item.responsible}”{item.owners.length ? "" : " - pick the people it means"}
+        </Typography>
+      )}
+      {peopleError && <Typography sx={{ fontSize: "0.78rem", color: RED }}>HubSpot&apos;s users could not be read: {peopleError}</Typography>}
+    </Box>
+  );
+}
+
+export function ItemDrawer({ item, rolled, subs, canWrite, people, peopleError, onClose, onPatch, onSubs, onAdd, onDelete }: {
   item: PlanItem; rolled: Rolled | undefined; subs: PlanSub[]; canWrite: boolean; onClose: () => void;
+  people: PlanOwner[]; peopleError: string | null;
   onPatch: (id: number, p: Partial<PlanFields>) => Promise<void>;
   onSubs: (item: PlanItem) => void;
   onAdd: (parent: PlanItem, kind: PlanKind, title: string) => Promise<void>;
@@ -81,6 +108,7 @@ export function ItemDrawer({ item, rolled, subs, canWrite, onClose, onPatch, onS
         <Box sx={{ flex: 1, overflowY: "auto", px: 2.5, py: 2, display: "grid", gap: 1.5, alignContent: "start" }}>
           {action ? (
             <>
+              <Owners item={item} people={people} peopleError={peopleError} canWrite={canWrite} onSave={(owners) => save({ owners })} />
               {/* where it stands */}
               <Typography sx={section}>Progress</Typography>
               <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap" }}>
@@ -152,7 +180,6 @@ export function ItemDrawer({ item, rolled, subs, canWrite, onClose, onPatch, onS
             <Field label="Action and description of main steps" value={item.detail} canWrite={canWrite} multiline rows={4} onSave={(v) => save({ detail: v })} />
             {action && (
               <>
-                <Field half label="Responsible of action" value={item.responsible} canWrite={canWrite} onSave={(v) => save({ responsible: v })} />
                 <Field half label="BUC referent / challenger" value={item.referent} canWrite={canWrite} onSave={(v) => save({ referent: v })} />
                 <Field half label="Priority" value={item.priority} canWrite={canWrite} onSave={(v) => save({ priority: v })} />
                 <Field half label="Main topic" value={item.mainTopic} canWrite={canWrite} onSave={(v) => save({ mainTopic: v })} />
@@ -165,7 +192,6 @@ export function ItemDrawer({ item, rolled, subs, canWrite, onClose, onPatch, onS
                 <Field half label="Planned release" value={item.release} canWrite={canWrite} onSave={(v) => save({ release: v })} />
               </>
             )}
-            {!action && item.responsible && <Field label="Responsible" value={item.responsible} canWrite={canWrite} onSave={(v) => save({ responsible: v })} />}
           </Box>
 
           {canWrite && kinds.length > 0 && (

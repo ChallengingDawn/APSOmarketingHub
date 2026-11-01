@@ -9,7 +9,7 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
-import { SummitMountain, useSummit } from "./reporting/action-plan/Summit";
+import { SummitMountain, useSummit } from "./action-plan/Summit";
 import { SUMMIT, mEur, pct1 } from "@/lib/reporting/summitRules";
 
 const INK = "#15223a";
@@ -22,7 +22,7 @@ export default function ActionPlanCard({ glass, focusRing }: { glass: object; fo
   const ahead = s?.gap == null || s.gap >= 0;
   const tone = !s?.current ? "#6d5bd0" : ahead ? "#1b7a55" : "#a96a12";
   return (
-    <Box component={Link} href="/reporting/action-plan" sx={{
+    <Box component={Link} href="/action-plan" sx={{
       ...glass, borderRadius: "22px", p: { xs: 2, md: 2.5 }, position: "relative", overflow: "hidden",
       textDecoration: "none", minHeight: 170, display: "flex", flexDirection: "column", justifyContent: "center",
       background: "linear-gradient(150deg, rgba(154,123,240,.18), rgba(91,141,239,.13) 58%, rgba(255,255,255,.72))",

@@ -10,8 +10,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { query } from "@/lib/db/client";
 import {
-  PLAN_STATES, percentOf, planFromSeed, reorder, stateOfPercent,
-  type PlanFields, type PlanItem, type PlanKind, type PlanState, type SeedRow,
+  PLAN_STATES, ownersFromCodes, percentOf, planFromSeed, reorder, stateOfPercent,
+  type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanState, type SeedRow,
 } from "./actionPlanRules";
 
 const T = "apsomh_action_plan";
@@ -21,6 +21,11 @@ type Row = {
   title: string; detail: string; priority: string; responsible: string; referent: string; status: string; state: string | null;
   result: string; main_topic: string; perimeter: string; expected: string; code_freeze: string; complexity: string; release: string;
   start_date: unknown; due_date: unknown; due_note: string; percent: number | null; dg: boolean; updated_by: string; updated_at: unknown;
+  owners: unknown; matched: boolean;
+};
+const ownersOf = (x: unknown): PlanOwner[] => {
+  const v = typeof x === "string" ? (() => { try { return JSON.parse(x); } catch { return []; } })() : x;
+  return Array.isArray(v) ? v.filter((o) => o && typeof o.id === "string" && typeof o.name === "string").map((o) => ({ id: o.id, name: o.name })) : [];
 };
 
 const day = (d: unknown) => (d instanceof Date ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : d == null ? null : String(d).slice(0, 10));
@@ -31,7 +36,8 @@ const item = (r: Row): PlanItem => ({
   state: r.state && (PLAN_STATES as readonly string[]).includes(r.state) ? (r.state as PlanState) : null,
   result: r.result, mainTopic: r.main_topic, perimeter: r.perimeter, expected: r.expected, codeFreeze: r.code_freeze,
   complexity: r.complexity, release: r.release, start: day(r.start_date), due: day(r.due_date), dueNote: r.due_note,
-  percent: r.percent, dg: r.dg, updatedBy: r.updated_by, updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at ?? ""),
+  percent: r.percent, dg: r.dg, owners: ownersOf(r.owners),
+  updatedBy: r.updated_by, updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at ?? ""),
 });
 
 let ready: Promise<void> | null = null;
@@ -69,6 +75,9 @@ function ensure(): Promise<void> {
         updated_at timestamptz NOT NULL DEFAULT now()
       )`);
       await query(`CREATE INDEX IF NOT EXISTS ${T}_parent ON ${T} (parent_id)`);
+      // who does it, as people (SARCLA 01.11.2026); `matched` = the workbook's codes were read as people once
+      await query(`ALTER TABLE ${T} ADD COLUMN IF NOT EXISTS owners jsonb NOT NULL DEFAULT '[]'::jsonb`);
+      await query(`ALTER TABLE ${T} ADD COLUMN IF NOT EXISTS matched boolean NOT NULL DEFAULT false`);
       const n = await query<{ n: string }>(`SELECT count(*)::text AS n FROM ${T}`);
       if (Number(n.rows[0]?.n ?? 0) === 0) await seed();
     })().catch((e) => {
@@ -126,6 +135,27 @@ export async function planItems(): Promise<PlanItem[]> {
   return r.rows.map(item);
 }
 
+/**
+ * The workbook's "Responsible of action" read as people, once per row: a code exactly one HubSpot user answers to
+ * becomes that person (actionPlanRules.ownersFromCodes); the rest waits for someone to pick. A row someone already
+ * gave people to, or cleared, is never read again. Returns how many rows got somebody.
+ */
+export async function matchOwnersOnce(people: PlanOwner[]): Promise<number> {
+  await ensure();
+  const r = await query<{ id: number; responsible: string; kind: string }>(`SELECT id, responsible, kind FROM ${T} WHERE NOT matched`);
+  if (!r.rows.length) return 0;
+  const found = r.rows.map((x) => ({ id: x.id, owners: x.kind === "action" ? ownersFromCodes(x.responsible, people) : [] }));
+  await query(
+    `UPDATE ${T} t SET owners = x.owners, matched = true
+       FROM jsonb_to_recordset($1::jsonb) AS x(id int, owners jsonb)
+      WHERE t.id = x.id AND NOT t.matched`,
+    [JSON.stringify(found)],
+  );
+  const n = found.filter((f) => f.owners.length).length;
+  console.log(`[action-plan] the workbook's codes read as people: ${n} of ${found.length} rows got somebody`);
+  return n;
+}
+
 export async function itemById(id: number): Promise<PlanItem | null> {
   await ensure();
   const r = await query<Row>(`SELECT * FROM ${T} WHERE id = $1`, [id]);
@@ -154,6 +184,10 @@ export async function updateItem(id: number, p: Partial<PlanFields>, by: string)
   for (const [key, col, max] of TEXT) {
     const v = p[key];
     if (typeof v === "string") set(col, key === "title" ? v.trim().slice(0, max) || before.title : v.slice(0, max));
+  }
+  if (p.owners !== undefined) {
+    vals.push(JSON.stringify(p.owners.slice(0, 20)));
+    sets.push(`owners = $${vals.length}::jsonb`, "matched = true");
   }
   if (p.start !== undefined) set("start_date", p.start || null);
   if (p.due !== undefined) set("due_date", p.due || null);

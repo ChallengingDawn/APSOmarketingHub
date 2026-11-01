@@ -319,7 +319,7 @@ export default function FrontPage() {
 
           {/* the action plan, and where we stand on the climb to 30 M€ - it was "Mission Control", a promise
               of a screen that was never built (SARCLA 31.10.2026: "change the name to Action plan") */}
-          {openFor("reporting") && panel("missionControl") && <ActionPlanCard glass={glass} focusRing={focusRing} />}
+          {(openFor("marketing") || openFor("reporting")) && panel("missionControl") && <ActionPlanCard glass={glass} focusRing={focusRing} />}
         </Box>
 
       </Box>

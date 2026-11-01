@@ -43,7 +43,7 @@ export const BAR_H = 48;
 
 const APPS: { href: string; label: string; icon: React.ReactNode }[] = [
   { href: "/", label: "All apps", icon: <HomeOutlinedIcon sx={{ fontSize: 19 }} /> },
-  { href: "/mission-control", label: "Mission Control", icon: <DashboardIcon sx={{ fontSize: 19 }} /> },
+  { href: "/mission-control", label: "Content calendar", icon: <DashboardIcon sx={{ fontSize: 19 }} /> },
   { href: "/create", label: "Create Studio", icon: <AutoAwesomeIcon sx={{ fontSize: 19 }} /> },
   { href: "/projects", label: "Projects", icon: <FolderOpenIcon sx={{ fontSize: 19 }} /> },
   { href: "/projects/calendar", label: "Calendar", icon: <CalendarMonthIcon sx={{ fontSize: 19 }} /> },
