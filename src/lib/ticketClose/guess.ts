@@ -62,17 +62,42 @@ Say how sure you are: "high" (the e-mail says it), "medium" (most likely), "low"
 Answer only JSON: {"category":"...","sub":"..." or "","sure":"high"|"medium"|"low","why":"max 12 words"}`;
 }
 
-/** The model's answer, checked against the list: no known category = no answer (asked again next time). */
+type Answer = { category?: unknown; sub?: unknown; sure?: unknown; why?: unknown };
+/** each {...} of the answer, a stray `,"` before its brace dropped */
+function objects(text: string): Answer[] {
+  const out: Answer[] = [];
+  for (let i = 0, depth = 0, start = -1; i < text.length; i++) {
+    if (text[i] === "{" && depth++ === 0) start = i;
+    else if (text[i] === "}" && depth > 0 && --depth === 0) {
+      const s = text.slice(start, i + 1);
+      for (const c of [s, s.replace(/,\s*"?\s*}$/, "}")]) { try { out.push(JSON.parse(c)); break; } catch { /* the repaired one */ } }
+    }
+  }
+  return out;
+}
+/** a sub-category named as the category: its own category, when only one has it */
+function parentOf(sub: string): string | null {
+  const p = BUSINESS().filter((c) => aiSubs(c).includes(sub));
+  return p.length === 1 ? p[0] : null;
+}
+
+/**
+ * The model's answer, checked against the list: no known category = no answer (asked again next time). The last
+ * object naming a known topic wins (01.11.2026: four order replies stayed Others - the model named the sub-category
+ * "Existing Order" as the category and corrected itself in a second object, or left a stray `,"` before the brace).
+ */
 export function guessParse(text: string, from: From = "outside"): Guess | null {
-  const a = text.indexOf("{"), b = text.lastIndexOf("}");
-  if (a < 0 || b <= a) return null;
-  let j: { category?: unknown; sub?: unknown; sure?: unknown; why?: unknown };
-  try { j = JSON.parse(text.slice(a, b + 1)); } catch { return null; }
-  const category = typeof j.category === "string" && allowed(from).includes(j.category) ? j.category : null;
-  if (!category) return null;
-  const sub = typeof j.sub === "string" && aiSubs(category).includes(j.sub) ? j.sub : null;
-  const sure: Sure = j.sure === "high" || j.sure === "medium" ? j.sure : "low";
-  return { category, sub, sure, why: String(j.why ?? "").slice(0, 120) };
+  for (const j of objects(text).reverse()) {
+    if (typeof j.category !== "string") continue;
+    const parent = allowed(from).includes(j.category) ? null : parentOf(j.category);
+    const category = parent ?? (allowed(from).includes(j.category) ? j.category : null);
+    if (!category) continue;
+    const named = parent ? j.category : j.sub;
+    const sub = typeof named === "string" && aiSubs(category).includes(named) ? named : null;
+    const sure: Sure = j.sure === "high" || j.sure === "medium" ? j.sure : "low";
+    return { category, sub, sure, why: String(j.why ?? "").slice(0, 120) };
+  }
+  return null;
 }
 
 let thinkingOff = true; // switched to false if the model refuses the parameter

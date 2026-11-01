@@ -97,6 +97,19 @@ test("a machine's mail from outside has its own topic; Spam is only adverts and 
   assert.equal(guessParse('{"category":"Empty e-mail","sure":"high","why":"only a name"}', "outside")?.category, "Empty e-mail");
 });
 
+test("the model's answer is read when it names a sub-category, corrects itself or leaves a stray quote", async () => {
+  const { guessParse } = await import("../src/lib/ticketClose/guess");
+  // the four order replies of 01.11.2026, as the model wrote them
+  assert.deepEqual(guessParse('{"category":"Existing Order","sub":"","sure":"high","why":"asks for the order confirmation"}'),
+    { category: "Delivery", sub: "Existing Order", sure: "high", why: "asks for the order confirmation" });
+  const two = '{"category":"Existing Order","sub":"","sure":"high","why":"x"} Note: the correct form is: {"category":"Delivery","sub":"Existing Order","sure":"medium","why":"y"}';
+  assert.deepEqual([guessParse(two)?.category, guessParse(two)?.sub, guessParse(two)?.sure], ["Delivery", "Existing Order", "medium"]);
+  assert.equal(guessParse('{"category":"Finance e-mail","sub":"","sure":"high","why":"account reconciliation reminder","}')?.category, "Finance e-mail");
+  // a correction cut off by the token limit: the whole first answer still counts
+  assert.equal(guessParse('{"category":"Delivery","sub":"","sure":"low","why":"x"} Corrected answer: {"ca')?.category, "Delivery");
+  assert.equal(guessParse('{"category":"Others","sure":"high"} {"category":"Nonsense"}'), null);
+});
+
 test("a Task Status Report: its O number, the references that can find its GQS task, and its topic", async () => {
   const { isTsr, oOf, refsOf, mergedNote } = await import("../src/lib/ticketClose/gqs");
   const { before, patchFor, fromGuess } = await import("../src/lib/ticketClose/rules");

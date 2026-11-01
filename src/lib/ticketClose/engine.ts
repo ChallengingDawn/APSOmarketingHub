@@ -156,7 +156,8 @@ async function decideAll(tickets: Obj[], text: Map<string, string>, aiMax: numbe
         // nothing stays Others (SARCLA 27.10.2026: "Recognise should be 100%"): the closest topic, with how sure
         if (d.stay === "unclear" && ai < aiMax) {
           ai++;
-          const g = await aiGuess(client, p.subject, txt).catch(() => null);
+          let g = null;
+          for (let i = 0; i < 2 && !g; i++) g = await aiGuess(client, p.subject, txt).catch(() => null); // asked again once
           if (g) d = fromGuess(g, txt, p.subject);
         }
       }
@@ -226,10 +227,13 @@ async function writeSafe(rows: Row[]): Promise<number> {
 /**
  * Every run, while the history is not done: 25 closed tickets still on Others/empty get the AI's closest topic - or
  * Spam or advertising - one answer each, within the day's AI budget; nothing to read is Empty e-mail. A ticket whose
- * sentiment flag gives a topic is the daily pass's. Oldest first (cursor kept in kv).
+ * sentiment flag gives a topic is the daily pass's. Oldest first (cursor kept in kv), once a day from the start.
  */
 async function customerSweep(aiLeft: number): Promise<number> {
-  const st = (await kvGet<{ cursor: string; done?: boolean; written?: number }>(KV.customers)) ?? { cursor: "0" };
+  const was = (await kvGet<{ cursor: string; done?: boolean; day?: string; written?: number }>(KV.customers)) ?? { cursor: "0" };
+  // once through, it starts again the next day: a ticket closed again, closed after the pass or with no answer the
+  // first time is asked again once a day (01.11.2026: two order mails stayed Others - one closed again, one unanswered)
+  const st = was.done && was.day !== day() ? { cursor: "0", written: was.written } : was;
   const client = getAnthropic();
   if (st.done || !client || aiLeft <= 0) return 0;
   // the AI's answers include "Spam or advertising": wait until HubSpot has it, or those tickets would be skipped for good
@@ -245,7 +249,7 @@ async function customerSweep(aiLeft: number): Promise<number> {
   } });
   const found = (j.results ?? []).filter((t) => !flagTopic(t.properties.sentiment_not_valid_reason) && !isTsr(t.properties.subject));
   const last = j.results?.[j.results.length - 1];
-  if (!last) { await kvSet(KV.customers, { ...st, done: true, at: new Date().toISOString() }); return 0; }
+  if (!last) { await kvSet(KV.customers, { ...st, done: true, day: day(), at: new Date().toISOString() }); return 0; }
   const text = await conversations(found);
   const rows: Row[] = [];
   let used = 0;
