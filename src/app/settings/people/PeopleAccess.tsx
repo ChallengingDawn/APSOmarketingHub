@@ -474,7 +474,7 @@ export default function PeopleAccess() {
                 <>
                   <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.5, mb: 1 }}>
                     {person.role === "sales_leader"
-                      ? "A sales leader views every app and sub-app. Edit can be given on Advanced reporting - all of it, a team's reports, or one report."
+                      ? "A sales leader views every app and sub-app until you set No access on one. Edit can be given on Advanced reporting - all of it, a team's reports, or one report."
                       : "Open an app to set its sub-apps one by one. A sub-app not set takes its app's access."}
                   </Typography>
                   <AccessTree role={person.role} access={person.access}

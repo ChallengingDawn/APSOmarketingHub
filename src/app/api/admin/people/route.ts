@@ -9,7 +9,7 @@ import { z } from "zod";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { ensureSchema } from "@/lib/db/init";
 import { query } from "@/lib/db/client";
-import { asRole, type Level, type Role } from "@/lib/auth/access";
+import { asRole, roleDefault, type Level, type Role } from "@/lib/auth/access";
 import { isNodeKey, nodeByKey } from "@/lib/auth/tree";
 
 export const runtime = "nodejs";
@@ -92,17 +92,17 @@ export async function PUT(req: NextRequest) {
       error: "An admin already has every app. Change the role instead.",
     }, { status: 400 });
   }
-  // A sales leader views everything: what can be given is Edit, in Advanced reporting (SARCLA 01.11.2026)
-  if (role === "sales_leader" && (node.app !== "reporting" || level === "none")) {
+  // A sales leader views what is not taken from them; Edit can be given in Advanced reporting only (SARCLA 01.11.2026)
+  if (role === "sales_leader" && node.app !== "reporting" && level === "write") {
     return NextResponse.json({
       ok: false,
-      error: "A sales leader views every app. Only Edit on Advanced reporting can be given.",
+      error: "A sales leader can be given Edit on Advanced reporting only.",
     }, { status: 400 });
   }
 
-  // No row: the parent's level - for an app, the role's (nothing, for a user). "No access" on a sub-app is a row of
-  // its own, so it holds against an app given.
-  const clear = level === "inherit" || (level === "none" && node.parent === null);
+  // No row: the parent's level - for an app, the role's (nothing for a user, View for a sales leader). "No access" on
+  // a sub-app is a row of its own, so it holds against an app given; on a sales leader's app too.
+  const clear = level === "inherit" || (node.parent === null && level === roleDefault(role));
   if (clear) {
     await query(`DELETE FROM apsomh_user_app_access WHERE user_id = $1 AND app_key = $2`, [userId, appKey]);
   } else {

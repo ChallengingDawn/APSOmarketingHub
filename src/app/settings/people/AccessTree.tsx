@@ -16,7 +16,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import { APPS } from "@/app/hubApps";
 import { FAINT, INK, MUTED } from "@/app/uc/report/ui";
-import { LEVELS, levelsFor, type Level, type Role } from "@/lib/auth/access";
+import { LEVELS, levelsFor, roleDefault, type Level, type Role } from "@/lib/auth/access";
 import { ACCESS_TREE, childrenOf, levelsOf, nodeByKey, type AccessNode, type Grants } from "@/lib/auth/tree";
 
 /** What a row can be set to: a level, or its parent's. */
@@ -44,7 +44,10 @@ export default function AccessTree({ role, access, busy, onSet }: {
     const own = access[n.key];
     const offered = levelsFor(role, n.app);
     const parent = n.parent ? nodeByKey(n.parent) : null;
-    const value: Choice = own ?? (parent ? "inherit" : role === "user" ? "none" : "inherit");
+    // an app not set is at the role's own (nothing for a user, View for a sales leader); a grant the role cannot hold -
+    // a user's Edit kept from before they became a sales leader - shows as what it comes to
+    const value: Choice = own === undefined ? (parent ? "inherit" : roleDefault(role))
+      : offered.some((l) => l.value === own) ? own : levels[n.key];
     return (
       <Fragment key={n.key}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, minHeight: n.depth === 0 ? 40 : 34, pl: n.depth * 2.25 }}>
@@ -63,27 +66,22 @@ export default function AccessTree({ role, access, busy, onSet }: {
               ? { fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: FAINT }
               : { fontSize: n.depth === 0 ? "0.85rem" : "0.82rem", fontWeight: n.depth === 0 ? 600 : 400, color: INK }),
           }}>{n.name}</Typography>
-          {offered.length === 0 ? (
-            // a sales leader views every app but Advanced reporting's, where Edit can be given
-            <Typography sx={{ width: 168, flexShrink: 0, fontSize: "0.8rem", color: TONE[levels[n.key]], px: 1.5 }}>{LABEL[levels[n.key]]}</Typography>
-          ) : (
-            <Select size="small" value={value} disabled={busy === n.key}
-              onChange={(e) => onSet(n.key, e.target.value as Choice)}
-              renderValue={(raw) => {
-                const v = raw as Choice;
-                return v === "inherit"
-                  ? <Box component="span" sx={{ color: TONE[levels[n.key]] }}>{LABEL[levels[n.key]]} <Box component="span" sx={{ color: FAINT }}>· inherited</Box></Box>
-                  : <Box component="span" sx={{ color: TONE[v], fontWeight: 600 }}>{LABEL[v]}</Box>;
-              }}
-              sx={{ width: 168, flexShrink: 0, fontSize: "0.8rem", borderRadius: "10px", "& .MuiSelect-select": { py: 0.6, overflow: "hidden", textOverflow: "ellipsis" } }}>
-              {(parent || role !== "user") && (
-                <MenuItem value="inherit" sx={{ fontSize: "0.84rem" }}>
-                  As {parent ? parent.name : "the role"} ({LABEL[parent ? levels[parent.key] : levels[n.key]]})
-                </MenuItem>
-              )}
-              {offered.map((l) => <MenuItem key={l.value} value={l.value} sx={{ fontSize: "0.84rem" }}>{l.label}</MenuItem>)}
-            </Select>
-          )}
+          <Select size="small" value={value} disabled={busy === n.key}
+            onChange={(e) => onSet(n.key, e.target.value as Choice)}
+            renderValue={(raw) => {
+              const v = raw as Choice;
+              return v === "inherit"
+                ? <Box component="span" sx={{ color: TONE[levels[n.key]] }}>{LABEL[levels[n.key]]} <Box component="span" sx={{ color: FAINT }}>· inherited</Box></Box>
+                : <Box component="span" sx={{ color: TONE[v], fontWeight: 600 }}>{LABEL[v]}</Box>;
+            }}
+            sx={{ width: 168, flexShrink: 0, fontSize: "0.8rem", borderRadius: "10px", "& .MuiSelect-select": { py: 0.6, overflow: "hidden", textOverflow: "ellipsis" } }}>
+            {parent && (
+              <MenuItem value="inherit" sx={{ fontSize: "0.84rem" }}>
+                As {parent.name} ({LABEL[levels[parent.key]]})
+              </MenuItem>
+            )}
+            {offered.map((l) => <MenuItem key={l.value} value={l.value} sx={{ fontSize: "0.84rem" }}>{l.label}</MenuItem>)}
+          </Select>
         </Box>
         {kids.length > 0 && isOpen(n.key) && kids.map(row)}
       </Fragment>

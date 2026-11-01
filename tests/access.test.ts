@@ -29,9 +29,9 @@ test("a user's grant is honoured up to write - the viewer and the editor of befo
   assert.equal(asRole(undefined), "user");
 });
 
-test("a sales leader views every app without a grant, and edits only where given", () => {
+test("a sales leader views every app without a grant, loses what is taken, and edits only where given", () => {
   assert.equal(effectiveLevel("sales_leader", undefined), "read");
-  assert.equal(effectiveLevel("sales_leader", "none"), "read");
+  assert.equal(effectiveLevel("sales_leader", "none"), "none");
   assert.equal(effectiveLevel("sales_leader", "write"), "write");
   assert.equal(roleDefault("sales_leader"), "read");
   assert.equal(roleDefault("user"), "none");
@@ -55,9 +55,9 @@ test("anyone who can change something carries a second factor, and a sales leade
 
 test("what each role is offered on an app or a sub-app", () => {
   assert.deepEqual(levelsFor("user", "uc").map((l) => l.value), ["none", "read", "write"]);
-  // a sales leader: Edit on Advanced reporting, nothing to give elsewhere (they view it all)
-  assert.deepEqual(levelsFor("sales_leader", "reporting").map((l) => l.value), ["read", "write"]);
-  assert.deepEqual(levelsFor("sales_leader", "uc"), []);
+  // a sales leader: No access or View anywhere, Edit on Advanced reporting only (SARCLA 01.11.2026)
+  assert.deepEqual(levelsFor("sales_leader", "reporting").map((l) => l.value), ["none", "read", "write"]);
+  assert.deepEqual(levelsFor("sales_leader", "uc").map((l) => l.value), ["none", "read"]);
   assert.deepEqual(levelsFor("admin", "reporting"), []);
 });
 

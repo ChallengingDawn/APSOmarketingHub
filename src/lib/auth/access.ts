@@ -12,7 +12,8 @@
 //
 // The three roles (SARCLA, 01.11.2026: "we have to have more roles"):
 //   admin         every app and every sub-app, and the parts of Settings that govern other people;
-//   sales_leader  every app and every sub-app, view only - and edit on the Advanced reports given to them;
+//   sales_leader  every app and every sub-app to view, but what is taken from them - and edit on the Advanced reports
+//                 given to them;
 //   user          the Datatracker to start with; any other app or sub-app given to them, to view or to edit.
 // The viewer and the editor of before are both users now: what they could open and change is kept, grant by grant.
 //
@@ -44,7 +45,7 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 export const ROLE_NOTE: Record<Role, string> = {
   admin: "Every app and sub-app, and the parts of Settings that govern other people.",
-  sales_leader: "Every app and sub-app, view only - and edit on the Advanced reports given to them.",
+  sales_leader: "Every app and sub-app to view, but those taken from them - and edit on the Advanced reports given to them.",
   user: "The Datatracker to start with; any other app or sub-app given to them, to view or to edit.",
 };
 
@@ -84,7 +85,7 @@ export function cap(level: Level, limit: Level): Level {
  */
 export function effectiveLevel(role: Role, granted: Level | undefined): Level {
   if (role === "admin") return "write";
-  if (role === "sales_leader") return granted === "write" ? "write" : "read";
+  if (role === "sales_leader") return granted === "write" ? "write" : granted === "none" ? "none" : "read";
   if (!granted || granted === "none") return "none";
   return cap(granted, ceiling(role));
 }
@@ -160,12 +161,13 @@ export const LEVELS: { value: Level; label: string }[] = [
 ];
 
 /**
- * What a role may be offered on an app or a sub-app: a user anything, a sales leader View or Edit in Advanced
- * reporting (they view everything else, and nothing is taken from them), an admin nothing (they have it all).
+ * What a role may be offered on an app or a sub-app: a user anything; a sales leader No access or View anywhere and
+ * Edit in Advanced reporting only (SARCLA 01.11.2026: "i should be able to refuse to a sales leader"); an admin
+ * nothing (they have it all).
  */
 export function levelsFor(role: Role, app?: string): { value: Level; label: string }[] {
   if (role === "admin") return [];
-  if (role === "sales_leader") return app === "reporting" ? LEVELS.filter((l) => l.value !== "none") : [];
+  if (role === "sales_leader") return app === "reporting" ? LEVELS : LEVELS.filter((l) => l.value !== "write");
   return LEVELS;
 }
 

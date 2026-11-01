@@ -119,8 +119,9 @@ export function levelsOf(role: Role, grants: Grants): Record<string, Level> {
   for (const n of ACCESS_TREE) {
     if (role === "admin") { out[n.key] = "write"; continue; }
     let l: Level = grants[n.key] ?? (n.parent ? out[n.parent] : roleDefault(role));
-    // a sales leader views everything, and edits only the Advanced reports given to them
-    if (role === "sales_leader") l = n.app === "reporting" ? better(l, "read") : "read";
+    // a sales leader views everything not taken from them, and edits only the Advanced reports given to them
+    // (SARCLA 01.11.2026: "i can't deny one of the reports - that's the point")
+    if (role === "sales_leader" && n.app !== "reporting" && l === "write") l = "read";
     out[n.key] = l;
   }
   return out;

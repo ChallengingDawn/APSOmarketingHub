@@ -58,13 +58,26 @@ test("an app given, one sub-app taken away", () => {
 });
 
 test("a sales leader: views every app and sub-app, edits only the Advanced reports given (SARCLA 01.11.2026)", () => {
-  const lv = levelsOf("sales_leader", { "reporting:/reporting/eso": "write", uc: "write", "connectors:/connectors/review": "none" });
+  const lv = levelsOf("sales_leader", { "reporting:/reporting/eso": "write", uc: "write" });
   assert.equal(accessAt("/reporting/eso-benchmark/new-customers", lv).level, "write");
   assert.equal(accessAt("/reporting/tsa-benchmark/new-customers", lv).level, "read");
-  // a grant outside Advanced reporting gives no Edit, and nothing is taken from them
+  // a grant outside Advanced reporting gives no Edit
   assert.equal(accessAt("/uc/map-assignment", lv).level, "read");
-  assert.equal(accessAt("/connectors/review", lv).level, "read");
   for (const a of ["datatracker", "website", "marketing", "journey", "reporting", "uc", "connectors"] as const) assert.equal(appOpen(a, lv), true);
+});
+
+test("a sales leader: a report, a team's reports or a whole app can be taken away (SARCLA 01.11.2026: \"i can't deny one of the reports - that's the point\")", () => {
+  const lv = levelsOf("sales_leader", {
+    "reporting:/reporting/tsa": "none", "connectors:/connectors/review": "none", uc: "none", "uc:/uc/personas": "read",
+  });
+  assert.equal(accessAt("/reporting/tsa-benchmark/new-customers", lv).level, "none");
+  assert.equal(accessAt("/reporting/eso-benchmark/new-customers", lv).level, "read");
+  assert.equal(accessAt("/connectors/review", lv).level, "none");
+  assert.equal(appOpen("connectors", lv), true);
+  // an app taken, one sub-app of it given back
+  assert.equal(accessAt("/uc/map-assignment", lv).level, "none");
+  assert.equal(accessAt("/uc/personas", lv).level, "read");
+  assert.equal(firstOpenPage("uc", lv), "/uc/personas");
 });
 
 test("a page two menus list opens at the better of the two; a borrowed page opens itself, not its app's pages beneath it", () => {
