@@ -8,7 +8,7 @@
 // 01.11.2026: "the modal should be wider, like the modal"); "Create with AI" fills the new task and its ticket from a
 // description; existing tickets are found open, closed (to trace back) or all.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Portal from "@mui/material/Portal";
 import Typography from "@mui/material/Typography";
@@ -31,6 +31,8 @@ import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import AddIcon from "@mui/icons-material/Add";
+import SearchIcon from "@mui/icons-material/Search";
 
 import { Badge, FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { FORMAT_LABEL } from "./store";
@@ -164,6 +166,34 @@ function TargetBox({ tile, value, canWrite }: { tile: TileInfo; value: number | 
   );
 }
 
+/** A tile's tasks, and in one other read its owners, ticket form and linked tickets - read when it opens. */
+function useTileActions(tile: TileInfo, open: boolean) {
+  const [t, setT] = useState<TicketsAnswer | null>(null);
+  const [tErr, setTErr] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<KpiTask[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const loadTickets = useCallback(async () => {
+    setTErr(null);
+    const ctx = { page: tile.page, tab: tile.tab, kpiId: tile.kpiId, title: tile.title, summary: tile.summary, filters: tile.filters, href: tile.href ?? (typeof window !== "undefined" ? window.location.href : undefined) };
+    try {
+      const r = await fetch(`/api/reporting/kpi-actions/tickets?tile=${encodeURIComponent(tile.key)}&ctx=${encodeURIComponent(JSON.stringify(ctx))}`);
+      const j = (await r.json().catch(() => null)) as TicketsAnswer | null;
+      if (!r.ok || !j?.ok) throw new Error(j?.message ?? j?.error ?? `the hub answered ${r.status}`);
+      setT(j);
+    } catch (e) { setTErr((e as Error).message); }
+  }, [tile.key, tile.page, tile.tab, tile.kpiId, tile.title, tile.summary, tile.filters, tile.href]);
+  const loadTasks = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/reporting/kpi-actions/tasks?tile=${encodeURIComponent(tile.key)}`);
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error ?? `the hub answered ${r.status}`);
+      setTasks(j.tasks); setErr(null);
+    } catch (e) { setErr((e as Error).message); }
+  }, [tile.key]);
+  useEffect(() => { if (open) { void loadTasks(); if (!t) void loadTickets(); } }, [open, t, loadTasks, loadTickets]);
+  return { t, tErr, tasks, err, setErr, loadTickets, loadTasks };
+}
+
 export function ActionsPanel({ tile, open, onClose, placed, format, formats, onMove, canWrite, target = null, plan, onChanged }: {
   tile: TileInfo; open: boolean; onClose: () => void; placed: Placement; format: TileFormat; formats: TileFormat[];
   onMove: (to: Placement, format?: TileFormat) => Promise<void>; canWrite: boolean;
@@ -186,31 +216,8 @@ export function ActionsPanel({ tile, open, onClose, placed, format, formats, onM
     return () => window.removeEventListener("keydown", esc);
   }, [open, onClose]);
 
-  // the owners, the ticket form and the linked tickets come in one read; the tasks in another
-  const [t, setT] = useState<TicketsAnswer | null>(null);
-  const [tErr, setTErr] = useState<string | null>(null);
-  const [tasks, setTasks] = useState<KpiTask[] | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const { t, tErr, tasks, err, setErr, loadTickets, loadTasks } = useTileActions(tile, open);
   const [moving, setMoving] = useState(false);
-  const loadTickets = useCallback(async () => {
-    setTErr(null);
-    const ctx = { page: tile.page, tab: tile.tab, kpiId: tile.kpiId, title: tile.title, summary: tile.summary, filters: tile.filters, href: tile.href ?? (typeof window !== "undefined" ? window.location.href : undefined) };
-    try {
-      const r = await fetch(`/api/reporting/kpi-actions/tickets?tile=${encodeURIComponent(tile.key)}&ctx=${encodeURIComponent(JSON.stringify(ctx))}`);
-      const j = (await r.json().catch(() => null)) as TicketsAnswer | null;
-      if (!r.ok || !j?.ok) throw new Error(j?.message ?? j?.error ?? `the hub answered ${r.status}`);
-      setT(j);
-    } catch (e) { setTErr((e as Error).message); }
-  }, [tile.key, tile.page, tile.tab, tile.kpiId, tile.title, tile.summary, tile.filters, tile.href]);
-  const loadTasks = useCallback(async () => {
-    try {
-      const r = await fetch(`/api/reporting/kpi-actions/tasks?tile=${encodeURIComponent(tile.key)}`);
-      const j = await r.json();
-      if (!r.ok || !j.ok) throw new Error(j.error ?? `the hub answered ${r.status}`);
-      setTasks(j.tasks); setErr(null);
-    } catch (e) { setErr((e as Error).message); }
-  }, [tile.key]);
-  useEffect(() => { if (open) { void loadTasks(); if (!t) void loadTickets(); } }, [open, t, loadTasks, loadTickets]);
   // a KPI page's counts follow its tiles; the plan counts its own (onChanged)
   const reload = async () => { await Promise.all([loadTasks(), loadTickets()]); if (!plan) void refreshActions(tile.page); onChanged?.(); };
   const tickets = plan ? plan.tickets : true;
@@ -296,9 +303,107 @@ export function ActionsPanel({ tile, open, onClose, placed, format, formats, onM
   );
 }
 
+/* ── an action's sub-actions, inside the action plan's own window ─────── */
+
+/**
+ * The same tasks, tickets and "Create with AI" as the window above, drawn inside the action's window instead of over it
+ * (SARCLA 01.11.2026: "sub-action creation still holds the old modal"; "where is the AI"). When Digital Growth leads the
+ * action its Scroll to Sale tickets are here too, found open, closed or all and linked to the action ("toggle on should
+ * allow the search of tickets") - the ones of a sub-action sit on its card.
+ */
+export function PlanSubActions({ tile, canWrite, tickets, start, onChanged }: {
+  tile: TileInfo; canWrite: boolean;
+  /** Digital Growth leads the action */
+  tickets: boolean;
+  /** opened from the + beside its row: the new sub-action's form at once */
+  start: boolean;
+  onChanged: () => void;
+}) {
+  const { t, tErr, tasks, err, setErr, loadTickets, loadTasks } = useTileActions(tile, true);
+  const [form, setForm] = useState<null | "new" | "ai">(start && canWrite ? "new" : null);
+  const [said, setSaid] = useState<string | null>(null);
+  const [finding, setFinding] = useState(false);
+  const [pick, setPick] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (start) box.current?.scrollIntoView({ block: "nearest" }); }, [start]);
+  // turned on here: the search opens at once
+  const was = useRef(tickets);
+  useEffect(() => { if (tickets && !was.current) setFinding(true); if (!tickets) setFinding(false); was.current = tickets; }, [tickets]);
+  const reload = async () => { await Promise.all([loadTasks(), loadTickets()]); onChanged(); };
+  const linked = t?.linked ?? [];
+  const loose = linked.filter((x) => x.taskId == null);
+  const link = async () => {
+    setBusy(true);
+    try {
+      await send("/api/reporting/kpi-actions/tickets", "POST", { action: "link", tile: tile.key, ids: pick });
+      setPick([]); setFinding(false); await reload();
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  const open = (f: "new" | "ai") => { setSaid(null); setForm(f); };
+
+  return (
+    <Box ref={box} sx={{ display: "grid", gap: 1.25 }}>
+      {canWrite && (form ? (
+        <Box sx={{ p: 1.75, borderRadius: "12px", border: `1px solid ${form === "ai" ? AI_LINE : TINT.blue.fg}`, bgcolor: "#fbfcfe" }}>
+          <AddTask key={form} tile={tile} t={t} tErr={tErr} retry={loadTickets} done={reload} plan tickets={tickets} aiStart={form === "ai"}
+            onCancel={() => setForm(null)} onAdded={(s) => { setForm(null); setSaid(s); }} />
+        </Box>
+      ) : (
+        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+          <Button variant="contained" disableElevation startIcon={<AddIcon />} onClick={() => open("new")} sx={cta}>New sub-action</Button>
+          <Button startIcon={<AutoAwesomeIcon sx={{ fontSize: 18 }} />} onClick={() => open("ai")}
+            sx={{ ...cta, color: AI_INK, border: `1px solid ${AI_LINE}`, "&:hover": { bgcolor: AI_SOFT } }}>
+            Create with AI
+          </Button>
+          {said && <Typography sx={{ fontSize: "0.86rem", color: GREEN, fontWeight: 600 }}>{said}</Typography>}
+        </Box>
+      ))}
+      {(err || (tErr && tickets)) && <Typography sx={{ fontSize: "0.86rem", color: RED }}>{err ?? `HubSpot could not be read: ${tErr}`}</Typography>}
+      {!tasks ? <Box sx={{ display: "flex", gap: 1, alignItems: "center", minHeight: 40 }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Reading its sub-actions…</Typography></Box>
+        : !tasks.length ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>No sub-action yet{canWrite ? " - add the first step, or add one from a KPI tile's Actions" : ""}.</Typography>
+          : tasks.map((k) => <TaskRow key={k.id} tile={tile} k={k} t={t} tickets={linked.filter((x) => x.taskId === k.id)} canWrite={canWrite} reload={reload} setErr={setErr} plan allowTickets={tickets} />)}
+
+      {/* the action's own tickets, and the search for more */}
+      {(tickets || loose.length > 0) && (
+        <Box sx={{ display: "grid", gap: 0.9, p: 1.5, borderRadius: "12px", bgcolor: "#fff", border: `1px solid ${tickets ? TINT.blue.fg : HAIRLINE}` }}>
+          <Box sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>
+            <ConfirmationNumberOutlinedIcon sx={{ fontSize: 20, color: FAINT }} />
+            <Typography sx={{ flex: 1, fontSize: "0.9rem", fontWeight: 700, color: INK }}>Scroll to Sale tickets{linked.length ? ` · ${linked.length}` : ""}</Typography>
+            {tickets && canWrite && (
+              <Button size="small" startIcon={<SearchIcon sx={{ fontSize: 18 }} />} onClick={() => setFinding((f) => !f)} sx={{ ...cta, fontSize: "0.84rem", color: finding ? TINT.blue.fg : MUTED }}>
+                {finding ? "Close the search" : "Find a ticket"}
+              </Button>
+            )}
+          </Box>
+          {!linked.length && !finding && <Typography sx={{ fontSize: "0.82rem", color: FAINT }}>None linked yet. Find one in the pipeline - open, closed or all - or give a sub-action a new ticket.</Typography>}
+          {linked.length > loose.length && <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>{linked.length - loose.length} on its sub-actions, shown on each</Typography>}
+          {loose.map((x) => <TicketLine key={x.id} tile={tile} x={x} canWrite={canWrite} reload={reload} />)}
+          {finding && (
+            <>
+              <FindTickets pick={pick} setPick={setPick} already={linked.map((x) => x.id)} />
+              <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+                <Button variant="contained" disableElevation disabled={busy || !pick.length} onClick={() => void link()} sx={cta}>
+                  {busy ? "Linking…" : pick.length > 1 ? `Link these ${pick.length} to the action` : "Link it to the action"}
+                </Button>
+              </Box>
+            </>
+          )}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 /* ── a new task, with its ticket ───────────────────────────────────────── */
 
-function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo; t: TicketsAnswer | null; tErr: string | null; retry: () => Promise<void>; done: () => Promise<void>; plan: boolean; tickets: boolean }) {
+function AddTask({ tile, t, tErr, retry, done, plan, tickets, aiStart = false, onCancel, onAdded }: {
+  tile: TileInfo; t: TicketsAnswer | null; tErr: string | null; retry: () => Promise<void>; done: () => Promise<void>; plan: boolean; tickets: boolean;
+  /** opened by "Create with AI": the description first */
+  aiStart?: boolean;
+  /** inside the plan's window: the form can be put away, and closes once the sub-action is added */
+  onCancel?: () => void; onAdded?: (said: string) => void;
+}) {
   const [title, setTitle] = useState("");
   // a KPI tile's task can be a sub-action of the action plan as well
   const [planItem, setPlanItem] = useState<number | null>(null);
@@ -313,7 +418,7 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo
   const [err, setErr] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
   // "Create with AI": the description, and what came back
-  const [ai, setAi] = useState<{ open: boolean; text: string; busy: boolean; msg: string | null; err: string | null }>({ open: false, text: "", busy: false, msg: null, err: null });
+  const [ai, setAi] = useState<{ open: boolean; text: string; busy: boolean; msg: string | null; err: string | null }>({ open: aiStart, text: "", busy: false, msg: null, err: null });
   useEffect(() => { if (t?.me && !owner) setOwner(t.me.id); }, [t, owner]);
   // the prefill goes under what is already typed: the task's own fields (below) are written in before HubSpot answers,
   // so "nothing yet" cannot be told by an empty object - the prefill never reached the form (seen 01.11.2026)
@@ -356,9 +461,11 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo
       if (ticket === "new") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "create", tile: tile.key, taskId, values });
       if (ticket === "link") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "link", tile: tile.key, taskId, ids: pick });
       const mailed = Number(j.mailed ?? 0);
-      setSent(`Added${ticket === "new" ? ", with its ticket in HubSpot" : ticket === "link" ? ", with its linked tickets" : ""}${mailed ? ` · ${mailed} mail${mailed === 1 ? "" : "s"} sent` : ""}`);
+      const said = `“${title.trim()}” added${ticket === "new" ? ", with its ticket in HubSpot" : ticket === "link" ? ", with its linked tickets" : ""}${mailed ? ` · ${mailed} mail${mailed === 1 ? "" : "s"} sent` : ""}`;
+      setSent(said);
       setTitle(""); setNote(""); setDue(""); setShared([]); setTicket("none"); setPick([]); setValues(t?.prefill ?? {}); setPlanItem(null);
       await done();
+      onAdded?.(said);
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
 
@@ -388,7 +495,7 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo
           </Box>
         </Box>
       )}
-      <TextField label="What will be done" value={title} onChange={(e) => setTitle(e.target.value)} sx={field} autoFocus fullWidth
+      <TextField label="What will be done" value={title} onChange={(e) => setTitle(e.target.value)} sx={field} autoFocus={!aiStart} fullWidth
         helperText={tickets ? "Written as an action - it is also the ticket's name" : "Written as an action"} />
       <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: "1fr 170px" }}>
         <TextField select size="small" label="Who does it" value={owners.some((o) => o.value === owner) ? owner : ""} onChange={(e) => setOwner(e.target.value)} sx={field}>
@@ -426,6 +533,7 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo
         <Typography sx={{ fontSize: "0.82rem", color: missing.length ? RED : FAINT, flex: 1 }}>
           {missing.length ? `For the ticket, still to fill in: ${missing.join(", ")}` : shared.length ? `${shared.length} colleague${shared.length === 1 ? "" : "s"} will get a mail` : ""}
         </Typography>
+        {onCancel && <Button disabled={busy} onClick={onCancel} sx={{ ...cta, color: MUTED }}>Cancel</Button>}
         <Button variant="contained" size="large" disableElevation disabled={!ready} onClick={() => void add()} sx={cta}>
           {busy ? "Saving…" : ticket === "new" ? `Add the ${plan ? "sub-action" : "task"} and its ticket` : ticket === "link" ? `Add the ${plan ? "sub-action" : "task"} and link` : plan ? "Add the sub-action" : "Add the task"}
         </Button>
@@ -523,7 +631,7 @@ function FindTickets({ pick, setPick, already }: { pick: string[]; setPick: (f: 
                 <Checkbox disabled={has} checked={has || pick.includes(k.id)} onChange={(e) => setPick((p) => e.target.checked ? [...p, k.id] : p.filter((x) => x !== k.id))} />
                 <Box sx={{ minWidth: 0 }}>
                   <Typography sx={{ fontSize: "0.9rem", color: INK, fontWeight: 600 }}>{k.subject || `Ticket ${k.id}`}</Typography>
-                  <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>{[k.roadmapId, k.stageLabel, k.ownerName, has ? "already on this KPI" : ""].filter(Boolean).join(" · ")}</Typography>
+                  <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>{[k.roadmapId, k.stageLabel, k.ownerName, has ? "already linked here" : ""].filter(Boolean).join(" · ")}</Typography>
                 </Box>
               </Box>
             );

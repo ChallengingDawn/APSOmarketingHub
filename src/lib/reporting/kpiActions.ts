@@ -140,7 +140,9 @@ function ensure(): Promise<void> {
 }
 
 const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : d == null ? null : String(d));
-const day = (d: unknown) => (d instanceof Date ? d.toISOString().slice(0, 10) : d == null ? null : String(d).slice(0, 10));
+// a date column comes as the local midnight of that day: its own day, read locally - toISOString gave the day before
+// on any server east of UTC (seen on a local copy in Zurich, 01.11.2026)
+const day = (d: unknown) => (d instanceof Date ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : d == null ? null : String(d).slice(0, 10));
 type TaskRow = { id: number; tile: string; page: string; title: string; note: string; owner: string; owner_name: string; due: unknown; status: string; shared: unknown; href: string | null; plan_item?: number | null; created_by: string; created_at: unknown; updated_at: unknown; done_at: unknown };
 const sharedOf = (x: unknown): SharedPerson[] => {
   const v = typeof x === "string" ? (() => { try { return JSON.parse(x); } catch { return []; } })() : x;

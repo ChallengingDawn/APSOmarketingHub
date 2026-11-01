@@ -8,7 +8,7 @@
 // statement first, where APSOparts stands on the climb to 30 M€ by 2031, then the Gantt.
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
@@ -22,7 +22,6 @@ import UnfoldLessIcon from "@mui/icons-material/UnfoldLess";
 
 import { HomeBar } from "@/app/HomeBar";
 import { FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { ActionsPanel } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { KILLED, PRIORITIES, S2S_CHOICES, STAGES, isClosed, isLate, reorder, rollup, type PlanFields, type PlanItem, type PlanKind } from "@/lib/reporting/actionPlanRules";
 import { Gantt, type AddWhat, type GRow, type Where, type Zoom } from "./Gantt";
 import { ItemModal, KIND_LABEL } from "./ItemModal";
@@ -44,7 +43,6 @@ const NOBODY = "__nobody";
 
 function ActionPlan() {
   const params = useSearchParams();
-  const router = useRouter();
   const [data, setData] = useState<PlanData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -169,9 +167,9 @@ function ActionPlan() {
     undated: actions.filter((i) => !i.due && !isClosed(i.stage)).length,
   };
 
-  // the row opened beside the Gantt, and the action whose sub-actions are open
+  // the row opened over the Gantt - from an action's +, with its new sub-action's form open
   const [openId, setOpenId] = useState<number | null>(null);
-  const [subsFor, setSubsFor] = useState<PlanItem | null>(null);
+  const [openStart, setOpenStart] = useState<"sub" | null>(null);
   // a link to one row (?item=, as a KPI tile's task links here) opens it once - not again after every save
   const handled = useRef<number | null>(null);
   useEffect(() => {
@@ -189,12 +187,15 @@ function ActionPlan() {
     });
   }, [data, params]);
   const opened = openId != null ? items.find((i) => i.id === openId) ?? null : null;
-  const openRow = (i: PlanItem) => {
+  // the address follows the row opened without asking the server for the page again (router.replace did, on every
+  // open and close); Next keeps useSearchParams in step with history.replaceState
+  const openRow = (i: PlanItem, start: "sub" | null = null) => {
     handled.current = i.id;
+    setOpenStart(start);
     setOpenId(i.id);
-    router.replace(`/action-plan?item=${i.id}`, { scroll: false });
+    window.history.replaceState(null, "", `/action-plan?item=${i.id}`);
   };
-  const closeRow = useCallback(() => { setOpenId(null); router.replace("/action-plan", { scroll: false }); }, [router]);
+  const closeRow = useCallback(() => { setOpenId(null); setOpenStart(null); window.history.replaceState(null, "", "/action-plan"); }, []);
 
   // changes
   const patch = async (id: number, p: Partial<PlanFields>) => {
@@ -233,15 +234,11 @@ function ActionPlan() {
     if (!confirm(under ? `Remove "${i.title}" and the ${under} row${under === 1 ? "" : "s"} under it?` : `Remove "${i.title}"?`)) return;
     try { await send(`/api/action-plan?id=${i.id}`, "DELETE"); closeRow(); await load(); } catch (e) { setNote(`Not removed: ${(e as Error).message}`); }
   };
-  // the + beside a row: the new row goes in it or beside it, named for now and opened to be named properly
+  // the + beside a row: what goes under it - an action's new sub-action in its window, else a new row in it, named
+  // for now and opened to be named properly
   const addAt = async (row: PlanItem, kind: AddWhat["kind"]) => {
-    const byId = new Map(items.map((i) => [i.id, i]));
-    const up = (i: PlanItem, k: PlanKind) => { let p: PlanItem | undefined = i; while (p && p.kind !== k) p = p.parentId != null ? byId.get(p.parentId) : undefined; return p; };
-    const parent = kind === "topic" ? items.find((i) => i.kind === "goal")
-      : kind === "group" ? up(row, "topic")
-        : row.kind === "action" ? (row.parentId != null ? byId.get(row.parentId) : undefined) : row;
-    if (!parent) { setNote("There is no place for it here"); return; }
-    await add(parent, kind, `New ${KIND_LABEL[kind].toLowerCase()}`);
+    if (kind === "sub") { openRow(row, "sub"); return; }
+    await add(row, kind, `New ${KIND_LABEL[kind].toLowerCase()}`);
   };
   const moveTo = async (i: PlanItem, parentId: number) => {
     try {
@@ -351,26 +348,20 @@ function ActionPlan() {
         </Box></GlassCard>
       ) : (
         <Gantt rows={rows} rolled={rolled} today={today} zoom={zoom} canWrite={data.canWrite} collapsed={collapsed} toggle={toggle}
-          selected={openId} onOpen={openRow} onSubs={setSubsFor} onPatch={patch} canDrop={canDrop} onDrop={onDrop}
+          selected={openId} onOpen={(i) => openRow(i)} onSubs={(i) => openRow(i)} onPatch={patch} canDrop={canDrop} onDrop={onDrop}
           height="max(480px, calc(100vh - 150px))" colorOf={colorOf}
           compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} onAdd={(row, kind) => void addAt(row, kind)} />
       )}
       <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
-        Drag a row by its handle onto another main category or sub-category, or add one with the + beside it; drag a bar to move its dates, its right end to change the go-live date.
+        Drag a row by its handle onto another main category or sub-category; the + beside a row adds under it - a sub-action under an action, an action or a sub-category in a category; drag a bar to move its dates, its right end to change the go-live date.
         A bar runs from the planned date to the go-live date, a diamond is an action with only a go-live date, a square a sub-action. The statuses and priorities are the &ldquo;From Scroll to Sale&rdquo; pipeline&apos;s.
       </Typography>
 
       {opened && (
         // keyed by the row: a bubble opens another row with its own view and fields
         <ItemModal key={opened.id} item={opened} items={items} rolledAll={rolled} subs={subs.filter((s) => s.item === opened.id)} canWrite={!!data?.canWrite}
-          people={data?.people ?? []} peopleError={data?.peopleError ?? null} choices={data?.choices ?? S2S_CHOICES} colorOf={colorOf}
-          onClose={closeRow} onOpen={openRow} onPatch={patch} onSubs={setSubsFor} onAdd={add} onDelete={remove} onMoveTo={moveTo} />
-      )}
-      {subsFor && (
-        <ActionsPanel open onClose={() => setSubsFor(null)} canWrite={!!data?.canWrite}
-          tile={{ key: `plan:${subsFor.id}`, page: "plan", title: subsFor.title, summary: [subsFor.code, subsFor.owners.map((o) => o.name).join(", ") || subsFor.responsible, subsFor.due ? `due ${subsFor.due.split("-").reverse().join(".")}` : ""].filter(Boolean).join(" · "), href: `${window.location.origin}/action-plan?item=${subsFor.id}` }}
-          placed="tab" format="tile" formats={[]} onMove={async () => {}}
-          plan={{ tickets: subsFor.dg }} onChanged={() => void load()} />
+          people={data?.people ?? []} peopleError={data?.peopleError ?? null} choices={data?.choices ?? S2S_CHOICES} colorOf={colorOf} start={openStart}
+          onClose={closeRow} onOpen={(i) => openRow(i)} onPatch={patch} onChanged={() => void load()} onAdd={add} onDelete={remove} onMoveTo={moveTo} />
       )}
     </Box>
   );

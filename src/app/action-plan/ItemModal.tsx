@@ -9,6 +9,9 @@
 // Two views, switched at the top like Map assignment's Live | Sandbox (SARCLA 01.11.2026: "KPI should be a toggle like
 // in map assignment - this KPI will be fed by the KPI actions later"): Overview and KPI. A main category or a
 // sub-category shows everything in it as bubbles to open ("list everything like an interactive bubble").
+// The window takes the whole screen but a margin ("modal way larger"); an action's sub-actions are made, described to
+// the AI and given their tickets in it, not in a second window over it ("sub-action creation still holds the old
+// modal"). "Led by Digital Growth" opens the ticket search, the marketing channel and the agency.
 
 import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -32,7 +35,9 @@ import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 
 import { FAINT, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { KILLED, PRIORITIES, STAGES, isClosed, isLate, stageOf, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
-import { LATE, PRIORITY_COLOR, SUB_COLOR, SUMMARY, dmy, stageColor, todayIso, type PlanData } from "./planUi";
+import { LATE, PRIORITY_COLOR, SUMMARY, dmy, stageColor, todayIso, type PlanData } from "./planUi";
+import { PlanSubActions } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
+import type { TileInfo } from "@/app/reporting/marketing-kpis/tiles/TileActions";
 
 const field = { "& .MuiInputBase-root": { fontSize: "0.9rem", borderRadius: "8px", bgcolor: "#fff" }, "& .MuiInputLabel-root": { fontSize: "0.88rem" } };
 const section = { fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
@@ -382,14 +387,17 @@ function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen
   );
 }
 
-export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peopleError, choices, colorOf, onClose, onOpen, onPatch, onSubs, onAdd, onDelete, onMoveTo }: {
+export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peopleError, choices, colorOf, start, onClose, onOpen, onPatch, onChanged, onAdd, onDelete, onMoveTo }: {
   item: PlanItem; items: PlanItem[]; rolledAll: Map<number, Rolled>; subs: PlanSub[]; canWrite: boolean; onClose: () => void;
   people: PlanOwner[]; peopleError: string | null; choices: PlanData["choices"];
   colorOf: (i: PlanItem) => string | null;
+  /** opened from the + beside an action's row: its new sub-action's form open */
+  start: "sub" | null;
   /** another row, opened from a bubble */
   onOpen: (item: PlanItem) => void;
   onPatch: (id: number, p: Partial<PlanFields>) => Promise<void>;
-  onSubs: (item: PlanItem) => void;
+  /** a sub-action or a ticket changed: the plan reads its counts again */
+  onChanged: () => void;
   onAdd: (parent: PlanItem, kind: PlanKind, title: string) => Promise<void>;
   onDelete: (item: PlanItem) => Promise<void>;
   onMoveTo: (item: PlanItem, parentId: number) => Promise<void>;
@@ -399,6 +407,13 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
   const save = (p: Partial<PlanFields>) => { void onPatch(item.id, p).then(() => setTick((t) => t + 1)); };
   const rolled = rolledAll.get(item.id);
   const action = item.kind === "action";
+  // the action as the sub-actions' "tile" (plan:<id>), as a KPI tile's Actions knows it
+  const who = item.owners.map((o) => o.name).join(", ") || item.responsible;
+  const tile = useMemo<TileInfo>(() => ({
+    key: `plan:${item.id}`, page: "plan", title: item.title,
+    summary: [item.code, who, item.due ? `due ${dmy(item.due)}` : ""].filter(Boolean).join(" · "),
+    href: `${window.location.origin}/action-plan?item=${item.id}`,
+  }), [item.id, item.title, item.code, who, item.due]);
   const fromSubs = action && subs.length > 0 && !isClosed(item.stage) && item.percent !== 100;
   const [pct, setPct] = useState(item.percent == null ? "" : String(item.percent));
   useEffect(() => { setPct(item.percent == null ? "" : String(item.percent)); }, [item.percent]);
@@ -460,7 +475,7 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
 
   return (
     <Dialog open onClose={onClose} maxWidth={false} scroll="paper" aria-label={item.title}
-      slotProps={{ paper: { sx: { width: "min(1320px, calc(100vw - 32px))", height: "calc(100vh - 32px)", maxHeight: "none", m: 2, borderRadius: "18px", bgcolor: "#f7f9fc", overflow: "hidden", display: "flex", flexDirection: "column" } } }}>
+      slotProps={{ paper: { sx: { width: "calc(100vw - 32px)", height: "calc(100vh - 32px)", maxHeight: "none", m: 2, borderRadius: "18px", bgcolor: "#f7f9fc", overflow: "hidden", display: "flex", flexDirection: "column" } } }}>
       {/* ── the head: where it sits, its name, Overview | KPI, its stage ── */}
       <Box sx={{ px: { xs: 2, md: 3 }, pt: 2.25, pb: 1.75, bgcolor: "#fff", borderBottom: `1px solid ${HAIRLINE}`, display: "grid", gap: 1.25 }}>
         <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", flexWrap: { xs: "wrap", md: "nowrap" } }}>
@@ -537,9 +552,10 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
               {action ? (
                 <Box sx={{ ...card, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
                   <Typography sx={{ ...section, gridColumn: "1 / -1" }}>As on the Scroll to Sale ticket</Typography>
-                  <Choices label="Marketing channel" options={choices.channel} value={item.channel} canWrite={canWrite} onSave={(v) => save({ channel: v })} />
+                  {/* the channel and the agency are marketing's: only when Digital Growth leads it (kept, not shown, otherwise) */}
+                  {item.dg && <Choices label="Marketing channel" options={choices.channel} value={item.channel} canWrite={canWrite} onSave={(v) => save({ channel: v })} />}
                   <Choices label="Implementation country" options={choices.country} value={item.country} canWrite={canWrite} onSave={(v) => save({ country: v })} />
-                  <Choices label="Agency" options={choices.agency} value={item.agency} canWrite={canWrite} onSave={(v) => save({ agency: v })} />
+                  {item.dg && <Choices label="Agency" options={choices.agency} value={item.agency} canWrite={canWrite} onSave={(v) => save({ agency: v })} />}
                   <TextField select size="small" label="Roadmap year" value={item.roadmapYear} disabled={!canWrite} onChange={(e) => save({ roadmapYear: e.target.value })}
                     sx={field} slotProps={{ inputLabel: { shrink: true } }}>
                     <MenuItem value="" sx={{ fontSize: "0.86rem", color: FAINT }}>None</MenuItem>
@@ -561,28 +577,22 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
             <Box sx={{ display: "grid", gap: 2.25, minWidth: 0 }}>
               {action && (
                 <Box sx={card}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                    <TaskAltIcon sx={{ fontSize: 18, color: FAINT }} />
                     <Typography sx={{ ...section, flex: 1 }}>Sub-actions{subs.length ? ` · ${done} of ${subs.length} done` : ""}</Typography>
-                    <Button size="small" startIcon={<TaskAltIcon sx={{ fontSize: 18 }} />} onClick={() => onSubs(item)} sx={{ textTransform: "none", fontWeight: 700, borderRadius: "6px" }}>
-                      {canWrite ? "Add or change" : "Open"}
-                    </Button>
                   </Box>
-                  {!subs.length && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>None yet. A sub-action can be added here or from a KPI tile&apos;s Actions{item.dg ? ", with its Scroll to Sale ticket" : ""}.</Typography>}
-                  {subs.map((s) => (
-                    <Box key={s.id} sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>
-                      <Box sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: SUB_COLOR[s.status].bar, flexShrink: 0 }} />
-                      <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.86rem", color: INK, textDecoration: s.status === "done" ? "line-through" : "none" }} noWrap>{s.title}</Typography>
-                      {s.tickets > 0 && <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: TINT.amber.fg }}>{s.tickets} ticket{s.tickets === 1 ? "" : "s"}</Typography>}
-                      <Typography sx={{ fontSize: "0.76rem", color: FAINT, flexShrink: 0 }}>{[s.ownerName, dmy(s.due)].filter(Boolean).join(" · ")}</Typography>
-                    </Box>
-                  ))}
-                  <Box component="label" sx={{ display: "flex", alignItems: "center", gap: 1, p: 1.25, mt: 0.5, borderRadius: "8px", border: `1px solid ${item.dg ? TINT.blue.fg : HAIRLINE}`, bgcolor: item.dg ? TINT.blue.bg : "#fff", cursor: canWrite ? "pointer" : "default" }}>
+                  {/* first, as it decides what the sub-actions can carry */}
+                  <Box component="label" sx={{ display: "flex", alignItems: "center", gap: 1, p: 1.25, borderRadius: "8px", border: `1px solid ${item.dg ? TINT.blue.fg : HAIRLINE}`, bgcolor: item.dg ? TINT.blue.bg : "#fff", cursor: canWrite ? "pointer" : "default" }}>
                     <Box sx={{ flex: 1 }}>
                       <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: item.dg ? TINT.blue.fg : INK }}>Led by Digital Growth</Typography>
-                      <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Its sub-actions can take a “From Scroll to Sale” ticket - the sales actions have no pipeline</Typography>
+                      <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
+                        {item.dg ? "“From Scroll to Sale” tickets: found and linked below, or made with a sub-action - the marketing channel and the agency are on the left"
+                          : "Turn on for “From Scroll to Sale” tickets, the marketing channel and the agency - the sales actions have no pipeline"}
+                      </Typography>
                     </Box>
                     <Switch checked={item.dg} disabled={!canWrite} onChange={(e) => save({ dg: e.target.checked })} />
                   </Box>
+                  <PlanSubActions tile={tile} canWrite={canWrite} tickets={item.dg} start={start === "sub"} onChanged={onChanged} />
                 </Box>
               )}
               {addUnder}

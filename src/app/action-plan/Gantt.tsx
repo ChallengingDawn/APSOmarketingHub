@@ -2,9 +2,10 @@
 // THE GANTT (SARCLA 31.10.2026: "I need to create a Gantt here like I showed you in the photo" - Planner's
 // Gantt chart). Left, the tree: task name, planned date, go-live date, status, % complete, assigned to - in the
 // "From Scroll to Sale" ticket's terms since 01.11.2026 - dates and % typed in the cell, every column resized by
-// its edge, the columns after the name folded away by the name's button, a + beside the handle for a new main
-// category, sub-category or action (SARCLA 01.11.2026: "next to the move icon a plus to create new main, sub or
-// other categories"). Right,
+// its edge, the columns after the name folded away by the name's button, a + beside the handle for what goes under
+// the row - a sub-action under an action, an action or a sub-category in a category (SARCLA 01.11.2026: "next to the
+// move icon a plus to create new main, sub or other categories"; then "the plus on the left should always mean a
+// sub-action"). Right,
 // the time line in the main category's colour: a bracket over a topic or group from its first to its last
 // date, a bar for an action with a start and a due (its done part solid), a diamond for one with only a due,
 // a square per sub-action. Rows are dragged by their handle onto another topic or group; bars are dragged to
@@ -19,6 +20,7 @@ import MenuItem from "@mui/material/MenuItem";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import AddIcon from "@mui/icons-material/Add";
+import TaskAltIcon from "@mui/icons-material/TaskAlt";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
@@ -47,14 +49,16 @@ const HANDLE = 44;
 const DETAIL = [92, 92, 136, 84, 124];
 const HEADS = ["", "Task name", "Planned", "Go-live", "Status", "% complete", "Assigned to"];
 
-/** What the + beside a row makes: a new main category, a sub-category, an action - in it or beside it. */
-export type AddWhat = { kind: Exclude<PlanKind, "goal">; label: string };
+/** What the + beside a row makes: always something UNDER it - a sub-action under an action (SARCLA 01.11.2026: "2 plus
+ *  is confusing - the plus on the left should always mean a sub-action"), an action or a sub-category in a category. */
+export type AddWhat = { kind: Exclude<PlanKind, "goal"> | "sub"; label: string };
 export function addChoices(kind: PlanKind): AddWhat[] {
   if (kind === "goal") return [{ kind: "topic", label: "New main category" }];
-  if (kind === "topic") return [{ kind: "action", label: "New action in it" }, { kind: "group", label: "New sub-category in it" }, { kind: "topic", label: "New main category" }];
-  if (kind === "group") return [{ kind: "action", label: "New action in it" }, { kind: "group", label: "New sub-category beside it" }];
-  return [{ kind: "action", label: "New action beside it" }];
+  if (kind === "topic") return [{ kind: "action", label: "New action in it" }, { kind: "group", label: "New sub-category in it" }];
+  if (kind === "group") return [{ kind: "action", label: "New action in it" }];
+  return [{ kind: "sub", label: "New sub-action" }];
 }
+const ADD_TITLE: Record<PlanKind, string> = { goal: "Add a main category", topic: "Add an action or a sub-category in it", group: "Add an action in it", action: "Add a sub-action" };
 /** "#3b6fe0" at a given opacity, for the lighter bars of actions not done yet. */
 const alpha = (hex: string, a: number) => `${hex}${Math.round(a * 255).toString(16).padStart(2, "0")}`;
 /** A tag: square corners (SARCLA 01.11.2026: "tags not round, square"). */
@@ -280,7 +284,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
             ))}
           </Box>
           {rows.map((r) => (
-            <TreeRow key={r.key} r={r} cols={COLS} compact={compact} onAddMenu={canWrite && r.type === "item" ? (el) => setAddAt({ el, item: r.item }) : undefined} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
+            <TreeRow key={r.key} r={r} cols={COLS} compact={compact} onAddMenu={canWrite && r.type === "item" ? (el) => { const c = addChoices(r.item.kind); if (c.length === 1) onAdd(r.item, c[0].kind); else setAddAt({ el, item: r.item }); } : undefined} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
               selected={r.type === "item" && r.item.id === selected} onOpen={onOpen} onSubs={onSubs} onPatch={onPatch}
               dragging={drag?.key === r.key} over={over?.key === r.key ? over.where : null}
               draggable={canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group")))}
@@ -426,7 +430,7 @@ function TreeRow({ r, cols, compact, color, onAddMenu, rolled, today, canWrite, 
     boxShadow: over === "before" ? `inset 0 2px 0 ${TINT.blue.fg}` : "none", position: "relative",
     "&:hover": { bgcolor: selected ? "rgba(36,89,209,.08)" : "rgba(21,34,58,.025)" }, "&:hover .add": { opacity: 1 },
   } as const;
-  // the handle to drag the row, and beside it the + for a new row
+  // the handle to drag the row, and beside it the + for what goes under it
   const handle = (
     <Box sx={{ display: "grid", gridTemplateColumns: "22px 22px", height: "100%", alignItems: "center" }}>
       {draggable ? (
@@ -435,8 +439,8 @@ function TreeRow({ r, cols, compact, color, onAddMenu, rolled, today, canWrite, 
           <DragIndicatorIcon sx={{ fontSize: 17 }} />
         </Box>
       ) : <Box />}
-      {onAddMenu ? (
-        <Box component="button" type="button" className="add" aria-label="Add a row" title="New main category, sub-category or action"
+      {onAddMenu && r.type === "item" ? (
+        <Box component="button" type="button" className="add" aria-label={ADD_TITLE[r.item.kind]} title={ADD_TITLE[r.item.kind]}
           onClick={(e: React.MouseEvent<HTMLElement>) => { e.stopPropagation(); onAddMenu(e.currentTarget); }}
           sx={{ width: 20, height: 20, p: 0, border: `1px solid ${HAIRLINE}`, borderRadius: "4px", bgcolor: "#fff", color: MUTED, display: "grid", placeItems: "center", cursor: "pointer", opacity: 0.45, transition: "opacity .15s", "&:hover, &:focus-visible": { opacity: 1, color: TINT.blue.fg, borderColor: TINT.blue.fg } }}>
           <AddIcon sx={{ fontSize: 15 }} />
@@ -497,11 +501,12 @@ function TreeRow({ r, cols, compact, color, onAddMenu, rolled, today, canWrite, 
         {late && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>LATE</Box>}
         {summary && (ro?.late ?? 0) > 0 && <Tooltip title={`${ro!.late} action${ro!.late === 1 ? "" : "s"} past due`}><Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>{ro!.late} late</Box></Tooltip>}
         <Box sx={{ flex: 1 }} />
-        {it.kind === "action" && canWrite && (
-          <Tooltip title="Sub-actions">
-            <Box component="button" type="button" className="add" aria-label="Sub-actions" onClick={(e: React.MouseEvent) => { e.stopPropagation(); onSubs(it); }}
-              sx={{ opacity: (ro?.subs ?? 0) > 0 ? 1 : 0, transition: "opacity .15s", flexShrink: 0, display: "flex", alignItems: "center", gap: 0.25, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", borderRadius: "4px", px: 0.75, height: 22, cursor: "pointer", color: MUTED, font: "inherit", fontSize: "0.72rem", fontWeight: 700 }}>
-              <AddIcon sx={{ fontSize: 15 }} />{(ro?.subs ?? 0) > 0 ? `${ro!.subs - ro!.subsOpen}/${ro!.subs}` : ""}
+        {/* how many of its sub-actions are done - a count, not a second + (the + on the left adds one) */}
+        {it.kind === "action" && (ro?.subs ?? 0) > 0 && (
+          <Tooltip title={`${ro!.subs - ro!.subsOpen} of ${ro!.subs} sub-action${ro!.subs === 1 ? "" : "s"} done - open them`}>
+            <Box component="button" type="button" aria-label="Sub-actions" onClick={(e: React.MouseEvent) => { e.stopPropagation(); onSubs(it); }}
+              sx={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 0.4, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", borderRadius: "4px", px: 0.75, height: 22, cursor: "pointer", color: MUTED, font: "inherit", fontSize: "0.72rem", fontWeight: 700 }}>
+              <TaskAltIcon sx={{ fontSize: 14 }} />{`${ro!.subs - ro!.subsOpen}/${ro!.subs}`}
             </Box>
           </Tooltip>
         )}
