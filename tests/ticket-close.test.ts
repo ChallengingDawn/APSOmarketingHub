@@ -110,6 +110,15 @@ test("the model's answer is read when it names a sub-category, corrects itself o
   assert.equal(guessParse('{"category":"Others","sure":"high"} {"category":"Nonsense"}'), null);
 });
 
+test("a change or a confirmation of an existing order is Delivery; Order Cancellation is only cancelling, a return or a refund", async () => {
+  const { guessSystem } = await import("../src/lib/ticketClose/guess");
+  for (const from of ["outside", "internal"] as const) {
+    const sys = guessSystem(from);
+    assert.ok(sys.includes(`changing a quantity or a date, adding or swapping an item or reporting a wrong article is "Delivery" with sub "Existing Order"`));
+    assert.ok(sys.includes(`"Order Cancellation" is only cancelling an order, a return or a refund`));
+  }
+});
+
 test("a Task Status Report: its O number, the references that can find its GQS task, and its topic", async () => {
   const { isTsr, oOf, refsOf, mergedNote } = await import("../src/lib/ticketClose/gqs");
   const { before, patchFor, fromGuess } = await import("../src/lib/ticketClose/rules");

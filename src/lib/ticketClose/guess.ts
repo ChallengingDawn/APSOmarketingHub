@@ -44,6 +44,9 @@ const EXTRA: Record<From, { topic: string; when: string }[]> = {
   ],
 };
 const allowed = (from: From) => [...BUSINESS(), ...EXTRA[from].map((x) => x.topic)];
+// as the classifier files them (its Delivery keywords hold "confirmation de commande", "mise à jour", the changes of an
+// existing order): 01.11.2026 order confirmations, quantity changes and an item to add went to Order Cancellation
+const ORDER_RULE = `Asking for an order's confirmation, changing a quantity or a date, adding or swapping an item or reporting a wrong article is "Delivery" with sub "Existing Order"; "Order Cancellation" is only cancelling an order, a return or a refund.`;
 
 export function guessSystem(from: From = "outside"): string {
   const lines = [
@@ -54,8 +57,8 @@ export function guessSystem(from: From = "outside"): string {
     ...EXTRA[from].map((x) => `- ${JSON.stringify(x.topic)} - ${x.when}`),
   ].join("\n");
   const who = from === "outside"
-    ? `an e-mail from outside to the Back Office of APSOparts, an industrial web shop (seals, O-rings, hoses, plastics). A first reading found no clear reason; it must still go to the topic it is closest to - there is no "other". If someone asks or tells APSOparts something about buying, an order, a product, a price, an invoice or the shop, pick that topic - a reply to one of our own e-mails (an order confirmation, a shipping notice) or a forwarded mail with an order or reference number is about that order. A message a machine sent has its own topic below; "Spam or advertising" is only advertising and spam.`
-    : `an e-mail a colleague or a shared mailbox of APSOparts / Angst+Pfister sent to the Back Office of APSOparts, an industrial web shop (seals, O-rings, hoses, plastics). If it passes on or asks about a customer's matter - an order, a delivery, a price, a product, an invoice, the shop, a call back - pick that topic; otherwise say what kind of internal message it is. There is no "other".`;
+    ? `an e-mail from outside to the Back Office of APSOparts, an industrial web shop (seals, O-rings, hoses, plastics). A first reading found no clear reason; it must still go to the topic it is closest to - there is no "other". If someone asks or tells APSOparts something about buying, an order, a product, a price, an invoice or the shop, pick that topic - a reply to one of our own e-mails (an order confirmation, a shipping notice) or a forwarded mail with an order or reference number is about that order. ${ORDER_RULE} A message a machine sent has its own topic below; "Spam or advertising" is only advertising and spam.`
+    : `an e-mail a colleague or a shared mailbox of APSOparts / Angst+Pfister sent to the Back Office of APSOparts, an industrial web shop (seals, O-rings, hoses, plastics). If it passes on or asks about a customer's matter - an order, a delivery, a price, a product, an invoice, the shop, a call back - pick that topic; otherwise say what kind of internal message it is. ${ORDER_RULE} There is no "other".`;
   return `You file ${who} Pick exactly one category from this list and, if it has them, one sub-category:
 ${lines}
 Say how sure you are: "high" (the e-mail says it), "medium" (most likely), "low" (only the closest guess).
