@@ -23,19 +23,18 @@ import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
-import SearchIcon from "@mui/icons-material/Search";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 
 import { FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { IDEA, PRIORITIES, STAGES, priorityLabel, stageOf, subPct, type PlanItem, type PlanOwner } from "@/lib/reporting/actionPlanRules";
+import { IDEA, PRIORITIES, STAGES, priorityLabel, subPct, subStage, type PlanItem } from "@/lib/reporting/actionPlanRules";
 import type { KpiTask } from "@/lib/reporting/kpiActions";
 import type { AiFill } from "@/lib/reporting/scrollToSaleRules";
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { TileInfo } from "@/app/reporting/marketing-kpis/tiles/TileActions";
 import { AI_INK, AI_LINE, AI_SOFT, FindTickets, People, TicketFields, TicketLine, useTileActions, type Linked, type Opt, type TicketsAnswer } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
-import { LATE, PRIORITY_COLOR, SUB_COLOR, dmy, stageColor } from "./planUi";
+import { LATE, PRIORITY_COLOR, dmy, stageColor } from "./planUi";
 
 const field = { "& .MuiInputBase-root": { fontSize: "0.9rem", borderRadius: "8px", bgcolor: "#fff" }, "& .MuiInputLabel-root": { fontSize: "0.88rem" } };
 const cta = { textTransform: "none", fontWeight: 700, borderRadius: "6px", fontSize: "0.86rem" } as const;
@@ -53,12 +52,16 @@ const nonEmpty = (v: Record<string, string>) => Object.fromEntries(Object.entrie
 type Small = { title: string; stage: string; priority: string; owner: string; start: string; due: string; statusNote: string };
 const smallOf = (k: KpiTask): Small => ({ title: k.title, stage: k.stage ?? "", priority: k.priority, owner: k.owner, start: k.start ?? "", due: k.due ?? "", statusNote: k.statusNote ?? "" });
 
-/** A date handed up when it is left - typing the year does not hand up 0002, 0020, 0202 on the way. */
+/** A date handed up as soon as it is a whole one (a year from 2000 - typing it does not hand up 0002, 0020, 0202 on the way)
+ *  or when it is left: one picked and the window closed is kept (SARCLA 02.11.2026: "planned, go-live dates are not updating"). */
+export const wholeDay = (v: string) => /^(2\d{3})-\d{2}-\d{2}$/.test(v);
 function DayField({ label: l, value, min, max, canWrite, onSave }: { label: string; value: string; min?: string; max?: string; canWrite: boolean; onSave: (v: string) => void }) {
   const [v, setV] = useState(value);
-  useEffect(() => { setV(value); }, [value]);
+  const sent = useRef(value);
+  useEffect(() => { setV(value); sent.current = value; }, [value]);
+  const hand = (x: string) => { if (x !== sent.current) { sent.current = x; onSave(x); } };
   return (
-    <TextField size="small" type="date" label={l} value={v} disabled={!canWrite} onChange={(e) => setV(e.target.value)} onBlur={() => { if (v !== value) onSave(v); }}
+    <TextField size="small" type="date" label={l} value={v} disabled={!canWrite} onChange={(e) => { setV(e.target.value); if (wholeDay(e.target.value)) hand(e.target.value); }} onBlur={() => hand(v)}
       sx={field} slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: min || undefined, max: max || undefined } }} />
   );
 }
@@ -294,10 +297,11 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, wid
 
 /* ── one of them: a line that opens into its fields ────────────────────── */
 
-function SubLine({ k, tile, t, owners, canWrite, tickets, linked, open, onToggle, saved, reload, setErr }: {
-  k: KpiTask; tile: TileInfo; t: TicketsAnswer | null; owners: Opt[]; canWrite: boolean; tickets: boolean; linked: Linked[]; open: boolean; onToggle: () => void;
+/** A sub-action's own fields, saved as they change - in its window (SubWindow.tsx). */
+export function SubEditor({ k, tile, t, owners, canWrite, tickets, linked, saved, reload, setErr, onRemoved }: {
+  k: KpiTask; tile: TileInfo; t: TicketsAnswer | null; owners: Opt[]; canWrite: boolean; tickets: boolean; linked: Linked[];
   /** after a change of its own fields; reload after a ticket */
-  saved: () => Promise<void>; reload: () => Promise<void>; setErr: (e: string | null) => void;
+  saved: () => Promise<void>; reload: () => Promise<void>; setErr: (e: string | null) => void; onRemoved: () => void;
 }) {
   const [v, setV] = useState<Small>(smallOf(k));
   useEffect(() => { setV(smallOf(k)); }, [k]);
@@ -307,11 +311,6 @@ function SubLine({ k, tile, t, owners, canWrite, tickets, linked, open, onToggle
   const [values, setValues] = useState<Record<string, string>>({});
   const [pick, setPick] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const today = new Date().toISOString().slice(0, 10);
-  const late = k.status !== "done" && !!k.due && k.due < today;
-  const stage = stageOf(k.stage);
-  const pct = subPct(k);
-  const prio = priorityLabel(k.priority);
   const fromKpi = !k.tile.startsWith("plan:");
 
   const patch = async (p: Record<string, unknown>) => {
@@ -330,7 +329,7 @@ function SubLine({ k, tile, t, owners, canWrite, tickets, linked, open, onToggle
   };
   const remove = async () => {
     if (!confirm(linked.length ? `Remove “${k.title}”? Its tickets stay in HubSpot.` : `Remove “${k.title}”?`)) return;
-    try { await send(`/api/reporting/kpi-actions/tasks?id=${k.id}`, "DELETE"); await reload(); } catch (e) { setErr((e as Error).message); }
+    try { await send(`/api/reporting/kpi-actions/tasks?id=${k.id}`, "DELETE"); onRemoved(); } catch (e) { setErr((e as Error).message); }
   };
   const startTicket = (mode: "new" | "link") => {
     setAdding(adding === mode ? null : mode);
@@ -347,54 +346,29 @@ function SubLine({ k, tile, t, owners, canWrite, tickets, linked, open, onToggle
   };
 
   return (
-    <Box sx={{ borderRadius: "8px", border: `1px solid ${open ? TINT.blue.fg : HAIRLINE}`, borderLeft: `4px solid ${stage ? stageColor(stage.id).bar : SUB_COLOR[k.status].bar}`, bgcolor: "#fff" }}>
-      <Box component="button" type="button" onClick={onToggle} aria-expanded={open}
-        sx={{ all: "unset", boxSizing: "border-box", width: "100%", cursor: "pointer", display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 1, alignItems: "center", px: 1.25, py: 0.9, "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: -2 } }}>
-        <Box sx={{ minWidth: 0, display: "grid", gap: 0.35 }}>
-          <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", minWidth: 0 }}>
-            {stage ? <Box sx={{ ...TAG, bgcolor: stageColor(stage.id).soft, color: stageColor(stage.id).ink }}>{stage.label}</Box>
-              : <Box sx={{ ...TAG, bgcolor: SUB_COLOR[k.status].soft, color: SUB_COLOR[k.status].ink }}>{k.status === "done" ? "Done" : k.status === "doing" ? "In progress" : "Open"}</Box>}
-            {prio && <Box sx={{ ...TAG, bgcolor: PRIORITY_COLOR[k.priority].bg, color: PRIORITY_COLOR[k.priority].fg }}>{prio}</Box>}
-            {late && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>LATE</Box>}
-            <Typography noWrap sx={{ fontSize: "0.88rem", fontWeight: 650, color: INK, minWidth: 0, textDecoration: k.status === "done" ? "line-through" : "none" }}>{k.title}</Typography>
+    <Box sx={{ display: "grid", gap: 1.4 }}>
+      <TextField size="small" label="Sub-action" value={v.title} disabled={!canWrite} onChange={(e) => setV((x) => ({ ...x, title: e.target.value }))}
+        onBlur={() => { if (v.title.trim() && v.title !== k.title) void patch({ title: v.title }); else setV((x) => ({ ...x, title: k.title })); }}
+        sx={field} slotProps={{ inputLabel: { shrink: true } }} />
+      <TextField size="small" label="Description" placeholder="What it is about, what done looks like" value={note} disabled={!canWrite} onChange={(e) => setNote(e.target.value)}
+        onBlur={() => { if (note !== k.note) void patch({ note }); }} sx={field} multiline minRows={2} maxRows={8} slotProps={{ inputLabel: { shrink: true } }} />
+      <SmallFields v={v} set={set} owners={owners} canWrite={canWrite} />
+      <People owners={owners} value={k.shared.map((p) => p.id)} onChange={(ids) => void patch({ shared: ids })} label="Shared with - the new ones get a mail" />
+      {fromKpi && k.href && (
+        <Typography component="a" href={k.href} sx={{ fontSize: "0.82rem", color: TINT.blue.fg, fontWeight: 600, textDecoration: "none", display: "flex", gap: 0.5, alignItems: "center", "&:hover": { textDecoration: "underline" } }}>
+          <FlagOutlinedIcon sx={{ fontSize: 17 }} /> Made on a KPI tile - open it
+        </Typography>
+      )}
+      {(tickets || linked.length > 0) && (
+        <Box sx={{ display: "grid", gap: 0.9, p: 1.25, borderRadius: "8px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
+          <Box sx={{ display: "flex", gap: 0.6, alignItems: "center", flexWrap: "wrap" }}>
+            <ConfirmationNumberOutlinedIcon sx={{ fontSize: 19, color: FAINT }} />
+            <Typography sx={{ flex: 1, fontSize: "0.86rem", fontWeight: 700, color: INK }}>Scroll to Sale ticket{linked.length > 1 ? "s" : ""}</Typography>
+            {tickets && canWrite && <Box component="button" type="button" onClick={() => startTicket("new")} sx={square(adding === "new", TINT.blue.fg, TINT.blue.bg, true)}>New ticket</Box>}
+            {tickets && canWrite && <Box component="button" type="button" onClick={() => startTicket("link")} sx={square(adding === "link", TINT.blue.fg, TINT.blue.bg, true)}>Link existing</Box>}
           </Box>
-          <Typography noWrap sx={{ fontSize: "0.76rem", color: FAINT }}>
-            {[k.ownerName, k.start && k.due ? `${dmy(k.start)} → ${dmy(k.due)}` : k.due ? `go-live ${dmy(k.due)}` : k.start ? `planned ${dmy(k.start)}` : "",
-              linked.length ? `${linked.length} ticket${linked.length === 1 ? "" : "s"}` : "", fromKpi ? "made on a KPI tile" : ""].filter(Boolean).join(" · ") || "No one, no date yet"}
-          </Typography>
-          {k.statusNote && <Typography noWrap title={k.statusNote} sx={{ fontSize: "0.78rem", color: MUTED }}><b>Status note</b> · {k.statusNote}</Typography>}
-        </Box>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: MUTED, fontVariantNumeric: "tabular-nums" }}>{pct == null ? "—" : `${pct} %`}</Typography>
-          <ExpandMoreIcon sx={{ fontSize: 20, color: FAINT, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
-        </Box>
-      </Box>
-
-      {open && (
-        <Box sx={{ display: "grid", gap: 1.25, px: 1.25, pb: 1.5, pt: 0.5, borderTop: `1px solid ${HAIRLINE}` }}>
-          <TextField size="small" label="Sub-action" value={v.title} disabled={!canWrite} onChange={(e) => setV((x) => ({ ...x, title: e.target.value }))}
-            onBlur={() => { if (v.title.trim() && v.title !== k.title) void patch({ title: v.title }); else setV((x) => ({ ...x, title: k.title })); }}
-            sx={{ ...field, mt: 1 }} slotProps={{ inputLabel: { shrink: true } }} />
-          <SmallFields v={v} set={set} owners={owners} canWrite={canWrite} />
-          <Box sx={{ display: "grid", gap: 1.1, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
-            <People owners={owners} value={k.shared.map((p) => p.id)} onChange={(ids) => void patch({ shared: ids })} label="Shared with - the new ones get a mail" />
-            <TextField size="small" label="Description" value={note} disabled={!canWrite} onChange={(e) => setNote(e.target.value)} onBlur={() => { if (note !== k.note) void patch({ note }); }}
-              sx={field} multiline maxRows={5} slotProps={{ inputLabel: { shrink: true } }} />
-          </Box>
-          {fromKpi && k.href && (
-            <Typography component="a" href={k.href} sx={{ fontSize: "0.82rem", color: TINT.blue.fg, fontWeight: 600, textDecoration: "none", display: "flex", gap: 0.5, alignItems: "center", "&:hover": { textDecoration: "underline" } }}>
-              <FlagOutlinedIcon sx={{ fontSize: 17 }} /> Made on a KPI tile - open it
-            </Typography>
-          )}
+          {!linked.length && !adding && <Typography sx={{ fontSize: "0.82rem", color: FAINT }}>None yet.</Typography>}
           {linked.map((x) => <TicketLine key={x.id} tile={tile} x={x} canWrite={canWrite} reload={reload} />)}
-          {canWrite && (
-            <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
-              {tickets && <Button size="small" startIcon={<ConfirmationNumberOutlinedIcon sx={{ fontSize: 18 }} />} onClick={() => startTicket("new")} sx={{ ...cta, color: adding === "new" ? TINT.blue.fg : MUTED }}>New ticket</Button>}
-              {tickets && <Button size="small" onClick={() => startTicket("link")} sx={{ ...cta, color: adding === "link" ? TINT.blue.fg : MUTED }}>Link existing</Button>}
-              <Box sx={{ flex: 1 }} />
-              <Button size="small" startIcon={<DeleteOutlineIcon sx={{ fontSize: 18 }} />} onClick={() => void remove()} sx={{ ...cta, color: FAINT }}>Remove</Button>
-            </Box>
-          )}
           {adding === "new" && t && <TicketFields form={restOf(t.form)} values={values} set={(key, x) => setValues((o) => ({ ...o, [key]: x }))} />}
           {adding === "link" && <FindTickets pick={pick} setPick={setPick} already={linked.map((x) => x.id)} />}
           {adding && (
@@ -407,6 +381,46 @@ function SubLine({ k, tile, t, owners, canWrite, tickets, linked, open, onToggle
           )}
         </Box>
       )}
+      {canWrite && (
+        <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+          <Button size="small" startIcon={<DeleteOutlineIcon sx={{ fontSize: 18 }} />} onClick={() => void remove()} sx={{ ...cta, color: FAINT }}>Remove the sub-action</Button>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+/** A sub-action in its action's window: one line - its status as an action's, who, when - that opens its own window. */
+function SubLine({ k, linked, onOpen }: { k: KpiTask; linked: Linked[]; onOpen: () => void }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const late = k.status !== "done" && !!k.due && k.due < today;
+  const stage = subStage(k);
+  const pct = subPct(k);
+  const prio = priorityLabel(k.priority);
+  const fromKpi = !k.tile.startsWith("plan:");
+  return (
+    <Box component="button" type="button" onClick={onOpen} title="Open the sub-action"
+      sx={{ all: "unset", boxSizing: "border-box", width: "100%", cursor: "pointer", display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 1, alignItems: "center", px: 1.25, py: 0.9,
+        borderRadius: "8px", border: `1px solid ${HAIRLINE}`, borderLeft: `4px solid ${stage ? stageColor(stage.id).bar : HAIRLINE}`, bgcolor: "#fff",
+        "&:hover": { borderColor: TINT.blue.fg }, "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: -2 } }}>
+      <Box sx={{ minWidth: 0, display: "grid", gap: 0.35 }}>
+        <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", minWidth: 0 }}>
+          {stage ? <Box sx={{ ...TAG, bgcolor: stageColor(stage.id).soft, color: stageColor(stage.id).ink }}>{stage.label}</Box>
+            : <Typography sx={{ flexShrink: 0, fontSize: "0.72rem", color: FAINT, fontStyle: "italic" }}>No status</Typography>}
+          {prio && <Box sx={{ ...TAG, bgcolor: PRIORITY_COLOR[k.priority].bg, color: PRIORITY_COLOR[k.priority].fg }}>{prio}</Box>}
+          {late && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>LATE</Box>}
+          <Typography noWrap sx={{ fontSize: "0.88rem", fontWeight: 650, color: INK, minWidth: 0, textDecoration: k.status === "done" ? "line-through" : "none" }}>{k.title}</Typography>
+        </Box>
+        <Typography noWrap sx={{ fontSize: "0.76rem", color: FAINT }}>
+          {[k.ownerName, k.start && k.due ? `${dmy(k.start)} → ${dmy(k.due)}` : k.due ? `go-live ${dmy(k.due)}` : k.start ? `planned ${dmy(k.start)}` : "",
+            linked.length ? `${linked.length} ticket${linked.length === 1 ? "" : "s"}` : "", fromKpi ? "made on a KPI tile" : ""].filter(Boolean).join(" · ") || "No one, no date yet"}
+        </Typography>
+        {k.statusNote && <Typography noWrap title={k.statusNote} sx={{ fontSize: "0.78rem", color: MUTED }}><b>Status note</b> · {k.statusNote}</Typography>}
+      </Box>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+        <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: MUTED, fontVariantNumeric: "tabular-nums" }}>{pct == null ? "—" : `${pct} %`}</Typography>
+        <ChevronRightIcon sx={{ fontSize: 20, color: FAINT }} />
+      </Box>
     </Box>
   );
 }
@@ -423,77 +437,91 @@ export function planTile(item: PlanItem): TileInfo {
 
 /* ── all of it ─────────────────────────────────────────────────────────── */
 
-export function SubActions({ item, tile, canWrite, tickets, people, onChanged }: {
-  item: PlanItem; tile: TileInfo; canWrite: boolean;
-  /** Digital Growth leads the action */
-  tickets: boolean;
-  /** HubSpot's users, as the plan read them */
-  people: PlanOwner[];
-  onChanged: () => void;
+/** An action's sub-actions in its window, once there are some: each opens its own window (SARCLA 02.11.2026: "I click on
+ *  a sub-action and I'm redirected to the main action - this should not happen"). */
+export function SubActions({ tile, onOpenSub, tick }: {
+  tile: TileInfo; onOpenSub: (id: number) => void;
+  /** read again when it changes */
+  tick: number;
 }) {
-  const { t, tErr, tasks, err, setErr, loadTickets, loadTasks } = useTileActions(tile, true);
-  const owners: Opt[] = people.length ? people.map((p) => ({ value: p.id, label: p.name })) : t?.form.owners ?? [];
-  const [openId, setOpenId] = useState<number | null>(null);
-  const [finding, setFinding] = useState(false);
+  const { t, tasks, err, loadTasks, loadTickets } = useTileActions(tile, true);
+  const first = useRef(true);
+  useEffect(() => { if (first.current) { first.current = false; return; } void loadTasks(); void loadTickets(); }, [tick, loadTasks, loadTickets]);
+  const linked = t?.linked ?? [];
+  if (err) return <Typography sx={{ fontSize: "0.86rem", color: RED }}>{err}</Typography>;
+  if (!tasks) return <Box sx={{ display: "flex", gap: 1, alignItems: "center", minHeight: 40 }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Reading its sub-actions…</Typography></Box>;
+  return (
+    <Box sx={{ display: "grid", gap: 0.75 }}>
+      {tasks.map((k) => <SubLine key={k.id} k={k} linked={linked.filter((x) => x.taskId === k.id)} onOpen={() => onOpenSub(k.id)} />)}
+    </Box>
+  );
+}
+
+/** The ticket fields an action gives its ticket itself - kept in step with it, so the ticket's form does not ask them. */
+const ACTION_GIVES = ["subject", "content", "hs_pipeline_stage", "hs_ticket_priority", "hubspot_owner_id", "mkt_planned_date", "mkt_golive_date",
+  "mkt_channel", "mkt_implementation_country", "mkt_agency", "mkt_roadmap_year", "mkt_kpis", "mkt_next_steps", "mkt_status_note",
+  "mkt_plan_category", "mkt_plan_subcategory", "mkt_plan_action"];
+
+/**
+ * An action's own "From Scroll to Sale" ticket - one per action, kept in step with it both ways (SARCLA 02.11.2026: "if
+ * a ticket is associated to an action - only one per action - the properties communicate with each other"): a new one
+ * made from the action (only what it does not say is asked), or one found in the pipeline.
+ */
+export function ActionTicket({ item, tile, canWrite, onChanged }: { item: PlanItem; tile: TileInfo; canWrite: boolean; onChanged: () => void }) {
+  const { t, tErr, loadTickets } = useTileActions(tile, true);
+  const [adding, setAdding] = useState<null | "new" | "link">(null);
+  const [extra, setExtra] = useState<Record<string, string>>({});
   const [pick, setPick] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  // turned on here: the ticket search opens at once
-  const was = useRef(tickets);
-  useEffect(() => { if (tickets && !was.current) setFinding(true); if (!tickets) setFinding(false); was.current = tickets; }, [tickets]);
-  const saved = async () => { await loadTasks(); onChanged(); };
-  const reload = async () => { await Promise.all([loadTasks(), loadTickets()]); onChanged(); };
-  const linked = t?.linked ?? [];
-  const loose = linked.filter((x) => x.taskId == null);
-  const link = async () => {
-    setBusy(true);
+  const [err, setErr] = useState<string | null>(null);
+  const own = (t?.linked ?? []).filter((x) => x.taskId == null);
+  // the action as it is now - changed on the left while this is open, it is what the ticket gets
+  const values: Record<string, string> = {
+    ...(t?.prefill ?? {}), ...extra, subject: item.title.slice(0, 200), content: item.detail || item.title, hs_pipeline_stage: item.stage ?? IDEA,
+    hs_ticket_priority: item.priority, hubspot_owner_id: item.owners[0]?.id ?? "", mkt_planned_date: item.start ?? "", mkt_golive_date: item.due ?? "",
+    mkt_channel: item.channel.join(";"), mkt_implementation_country: item.country.join(";"), mkt_agency: item.agency.join(";"),
+    mkt_roadmap_year: item.roadmapYear, mkt_kpis: item.kpis, mkt_next_steps: item.nextSteps, mkt_status_note: item.statusNote,
+  };
+  const required = adding === "new" && t ? t.form.fields.filter((f) => f.required && !String(values[f.name] ?? "").trim()) : [];
+  const missing = required.map((f) => f.label);
+  // what is missing on the action itself, on the left, and what this form asks
+  const onAction = required.filter((f) => ACTION_GIVES.includes(f.name)).map((f) => (f.name === "hubspot_owner_id" ? "Assigned to" : f.label));
+  const here = required.filter((f) => !ACTION_GIVES.includes(f.name)).map((f) => f.label);
+  const save = async () => {
+    setBusy(true); setErr(null);
     try {
-      await send("/api/reporting/kpi-actions/tickets", "POST", { action: "link", tile: tile.key, ids: pick });
-      setPick([]); setFinding(false); await reload();
+      if (adding === "new") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "create", tile: tile.key, values });
+      else await send("/api/reporting/kpi-actions/tickets", "POST", { action: "link", tile: tile.key, ids: pick.slice(-1) });
+      setAdding(null); setPick([]); setExtra({}); await loadTickets(); onChanged();
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
-
   return (
-    <Box sx={{ display: "grid", gap: 1.25 }}>
-      {(err || (tErr && tickets)) && <Typography sx={{ fontSize: "0.86rem", color: RED }}>{err ?? `HubSpot could not be read: ${tErr}`}</Typography>}
-      {!tasks ? (
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center", minHeight: 40 }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Reading its sub-actions…</Typography></Box>
-      ) : !tasks.length ? (
-        <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>No sub-action yet{canWrite ? " - add one with the + beside this action in the plan, or from a KPI tile's Actions" : ""}.</Typography>
-      ) : (
-        <Box sx={{ display: "grid", gap: 0.75 }}>
-          <Typography sx={section}>Its sub-actions · {tasks.length} · click one to change it</Typography>
-          {tasks.map((k) => (
-            <SubLine key={k.id} k={k} tile={tile} t={t} owners={owners} canWrite={canWrite} tickets={tickets} linked={linked.filter((x) => x.taskId === k.id)}
-              open={openId === k.id} onToggle={() => setOpenId(openId === k.id ? null : k.id)} saved={saved} reload={reload} setErr={setErr} />
-          ))}
+    <Box sx={{ display: "grid", gap: 1 }}>
+      {tErr && <Typography sx={{ fontSize: "0.84rem", color: RED }}>HubSpot could not be read: {tErr} <Button size="small" onClick={() => void loadTickets()}>Try again</Button></Typography>}
+      {!t && !tErr && <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Reading the pipeline…</Typography></Box>}
+      {own.map((x) => <TicketLine key={x.id} tile={tile} x={x} canWrite={canWrite} reload={async () => { await loadTickets(); onChanged(); }} />)}
+      {own.length > 1 && <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>One ticket per action: the latest linked is the one kept in step - unlink the others.</Typography>}
+      {own.length > 0 && <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>Kept in step with the action both ways: a change here goes to the ticket, a change on the ticket - its status too - comes back here.</Typography>}
+      {t && !own.length && canWrite && (
+        <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
+          <Typography sx={{ flex: 1, fontSize: "0.82rem", color: FAINT }}>None yet - make it from the action, or link one from the pipeline.</Typography>
+          <Box component="button" type="button" onClick={() => setAdding(adding === "new" ? null : "new")} sx={square(adding === "new", TINT.blue.fg, TINT.blue.bg, true)}>New ticket</Box>
+          <Box component="button" type="button" onClick={() => setAdding(adding === "link" ? null : "link")} sx={square(adding === "link", TINT.blue.fg, TINT.blue.bg, true)}>Link existing</Box>
         </Box>
       )}
-
-      {/* the action's own tickets, and the search for more */}
-      {(tickets || loose.length > 0) && (
-        <Box sx={{ display: "grid", gap: 0.9, p: 1.5, borderRadius: "10px", bgcolor: "#fff", border: `1px solid ${tickets ? TINT.blue.fg : HAIRLINE}` }}>
-          <Box sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>
-            <ConfirmationNumberOutlinedIcon sx={{ fontSize: 20, color: FAINT }} />
-            <Typography sx={{ flex: 1, fontSize: "0.9rem", fontWeight: 700, color: INK }}>Scroll to Sale tickets{linked.length ? ` · ${linked.length}` : ""}</Typography>
-            {tickets && canWrite && (
-              <Button size="small" startIcon={<SearchIcon sx={{ fontSize: 18 }} />} onClick={() => setFinding((f) => !f)} sx={{ ...cta, color: finding ? TINT.blue.fg : MUTED }}>
-                {finding ? "Close the search" : "Find a ticket"}
-              </Button>
-            )}
-          </Box>
-          {!linked.length && !finding && <Typography sx={{ fontSize: "0.82rem", color: FAINT }}>None linked yet. Find one in the pipeline - open, closed or all - or give a sub-action a new ticket.</Typography>}
-          {linked.length > loose.length && <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>{linked.length - loose.length} on its sub-actions, shown on each</Typography>}
-          {loose.map((x) => <TicketLine key={x.id} tile={tile} x={x} canWrite={canWrite} reload={reload} />)}
-          {finding && (
-            <>
-              <FindTickets pick={pick} setPick={setPick} already={linked.map((x) => x.id)} />
-              <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-                <Button variant="contained" disableElevation disabled={busy || !pick.length} onClick={() => void link()} sx={cta}>
-                  {busy ? "Linking…" : pick.length > 1 ? `Link these ${pick.length} to the action` : "Link it to the action"}
-                </Button>
-              </Box>
-            </>
-          )}
+      {adding === "new" && t && <TicketFields form={{ ...t.form, fields: t.form.fields.filter((f) => !ACTION_GIVES.includes(f.name)) }} values={values} set={(k, x) => setExtra((o) => ({ ...o, [k]: x }))} />}
+      {adding === "link" && <FindTickets pick={pick} setPick={(f) => setPick((p) => f(p).slice(-1))} already={[]} />}
+      {err && <Typography sx={{ fontSize: "0.84rem", color: RED }}>{err}</Typography>}
+      {adding && (
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+          <Typography sx={{ flex: 1, fontSize: "0.82rem", color: missing.length ? RED : FAINT }}>
+            {missing.length
+              ? [here.length ? `Still to fill in here: ${here.join(", ")}` : "", onAction.length ? `on the action, at the left: ${onAction.join(", ")}` : ""].filter(Boolean).join(" - ")
+              : adding === "new" ? "Its name, description, status, priority, owner, dates, channels, countries, agency, KPIs and notes come from the action." : ""}
+          </Typography>
+          <Button variant="contained" disableElevation disabled={busy || missing.length > 0 || (adding === "link" && !pick.length)} onClick={() => void save()} sx={cta}>
+            {busy ? "Saving…" : adding === "new" ? "Create the ticket" : "Link it"}
+          </Button>
         </Box>
       )}
     </Box>

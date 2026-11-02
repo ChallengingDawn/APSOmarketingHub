@@ -372,6 +372,13 @@ export const statusOfStage = (stage: string | null): SubStatus => (!stage || sta
 export const stageOfStatus = (status: SubStatus): string => (status === "done" ? LIVE : status === "doing" ? IN_PROGRESS : IDEA);
 /** A sub-action's %: its stage's (Ready to Roll 90), else its status's; null when killed - it leaves the average. */
 export const subPct = (s: Pick<PlanSub, "stage" | "status">): number | null => (s.stage && stageOf(s.stage) ? stageOf(s.stage)!.pct : SUB_PCT[s.status]);
+/**
+ * A sub-action's status in the actions' own words (SARCLA 02.11.2026: "the status should stay the same even on
+ * sub-actions"): its stage; a KPI task with none, the stage its open / doing / done means - "No status" (null) for an
+ * open one, as an action without one.
+ */
+export const subStage = (s: Pick<PlanSub, "stage" | "status">): Stage | null =>
+  stageOf(s.stage) ?? (s.status === "open" ? null : stageOf(stageOfStatus(s.status)));
 const minD = (a: string | null, b: string | null) => (!a ? b : !b ? a : a < b ? a : b);
 const maxD = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b);
 
@@ -559,4 +566,84 @@ export function ticketFromAction(a: PlanItem, items: TreeRow[], options: Record<
     ...(planValuesOf(a.id, items) ?? {}),
   };
   return Object.fromEntries(Object.entries(v).filter(([, x]) => x));
+}
+
+/* ── an action and its ticket, kept in step (SARCLA 02.11.2026: "if a ticket is associated to an action - only one per
+   action - the properties communicate with each other: a change in the hub changes the ticket, the ticket's status
+   comes back as well - this should be a sync") ───────────────────────────────────────────────────────────────── */
+
+type SyncField = { prop: string; hub: (a: PlanItem) => string; kind?: "text" | "list" | "date" };
+/** The ticket's property behind each field of an action. */
+export const TICKET_SYNC: readonly SyncField[] = [
+  { prop: "subject", hub: (a) => a.title },
+  { prop: "content", hub: (a) => a.detail },
+  { prop: "hs_pipeline_stage", hub: (a) => a.stage ?? "" },
+  { prop: "hs_ticket_priority", hub: (a) => a.priority },
+  { prop: "hubspot_owner_id", hub: (a) => a.owners[0]?.id ?? "" },
+  { prop: "mkt_planned_date", hub: (a) => a.start ?? "", kind: "date" },
+  { prop: "mkt_golive_date", hub: (a) => a.due ?? "", kind: "date" },
+  { prop: "mkt_channel", hub: (a) => a.channel.join(";"), kind: "list" },
+  { prop: "mkt_implementation_country", hub: (a) => a.country.join(";"), kind: "list" },
+  { prop: "mkt_agency", hub: (a) => a.agency.join(";"), kind: "list" },
+  { prop: "mkt_roadmap_year", hub: (a) => a.roadmapYear },
+  { prop: "mkt_kpis", hub: (a) => a.kpis },
+  { prop: "mkt_next_steps", hub: (a) => a.nextSteps },
+  { prop: "mkt_status_note", hub: (a) => a.statusNote },
+];
+const norm = (f: SyncField, v: string | null | undefined): string => {
+  const x = String(v ?? "").replace(/\r\n/g, "\n").trim();
+  return f.kind === "list" ? x.split(";").map((y) => y.trim()).filter(Boolean).sort().join(";") : f.kind === "date" ? x.slice(0, 10) : x;
+};
+
+/**
+ * Where an action and its ticket differ, and what goes which way: "push" the hub's values to the ticket, "pull" the
+ * ticket's to the action (its owner as an id, `ownerId`), "merge" - the first time they meet, as when a ticket is
+ * linked - an empty side takes the other's and where both say something the ticket wins. Neither side gets what it
+ * cannot take: no empty name or status for the ticket, no stage or priority the plan does not know for the action.
+ */
+export function ticketSync(a: PlanItem, t: Record<string, string | null | undefined>, way: "push" | "pull" | "merge"): {
+  fields: string[]; push: Record<string, string>; pull: Partial<PlanFields> & { ownerId?: string };
+} {
+  const fields: string[] = [];
+  const push: Record<string, string> = {};
+  const pull: Partial<PlanFields> & { ownerId?: string } = {};
+  for (const f of TICKET_SYNC) {
+    const mine = norm(f, f.hub(a)), theirs = norm(f, t[f.prop]);
+    if (mine === theirs) continue;
+    fields.push(f.prop);
+    if (way === "push" || (way === "merge" && !theirs)) {
+      if (!(["subject", "hs_pipeline_stage"].includes(f.prop) && !mine)) push[f.prop] = mine;
+      continue;
+    }
+    const list = theirs ? theirs.split(";") : [];
+    switch (f.prop) {
+      case "subject": if (theirs) pull.title = theirs; break;
+      case "content": pull.detail = theirs; break;
+      case "hs_pipeline_stage": if (stageOf(theirs)) pull.stage = theirs; break;
+      case "hs_ticket_priority": if (!theirs || PRIORITIES.some((p) => p.value === theirs)) pull.priority = theirs; break;
+      case "hubspot_owner_id": if (theirs) pull.ownerId = theirs; break;
+      case "mkt_planned_date": pull.start = theirs || null; break;
+      case "mkt_golive_date": pull.due = theirs || null; break;
+      case "mkt_channel": pull.channel = list; break;
+      case "mkt_implementation_country": pull.country = list; break;
+      case "mkt_agency": pull.agency = list; break;
+      case "mkt_roadmap_year": pull.roadmapYear = theirs; break;
+      case "mkt_kpis": pull.kpis = theirs; break;
+      case "mkt_next_steps": pull.nextSteps = theirs; break;
+      case "mkt_status_note": pull.statusNote = theirs; break;
+    }
+  }
+  return { fields, push, pull };
+}
+
+/**
+ * Which way a difference goes: the side changed since they last agreed; both, the latest change; never agreed, a
+ * merge. An ISO time each; `synced` null when they never agreed.
+ */
+export function syncWay(hubAt: string, ticketAt: string, synced: string | null): "push" | "pull" | "merge" {
+  if (!synced) return "merge";
+  const hub = hubAt > synced, ticket = ticketAt > synced;
+  if (hub && !ticket) return "push";
+  if (ticket && !hub) return "pull";
+  return ticketAt > hubAt ? "pull" : "push";
 }

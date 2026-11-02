@@ -5,7 +5,7 @@ import { test } from "node:test";
 import {
   IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, codesOf, isDigitalGrowth, isLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
-  stateOfStage, stageOfStatus, statusOfStage, subPct, ticketFromAction, titleOf, toS2s, treeOrder, BUC_MEMBERS,
+  stateOfStage, stageOfStatus, statusOfStage, subPct, subStage, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
@@ -290,4 +290,49 @@ test("summit: within 0.05 M€ of the path is on it - never \"behind by 0.0 M€
   assert.equal(standingOf(-50_000), "behind");
   assert.equal(standingOf(700_000), "ahead");
   assert.equal(standingOf(null), null);
+});
+
+test("action plan: a sub-action's status reads as an action's - No status when open without a stage", () => {
+  assert.equal(subStage({ stage: null, status: "open" }), null);
+  assert.equal(subStage({ stage: null, status: "doing" })?.id, IN_PROGRESS);
+  assert.equal(subStage({ stage: null, status: "done" })?.id, LIVE);
+  assert.equal(subStage({ stage: KILLED, status: "done" })?.id, KILLED);
+});
+
+test("action plan: an action and its ticket - which way a difference goes", () => {
+  const synced = "2026-11-02T10:00:00.000Z";
+  assert.equal(syncWay("2026-11-02T09:00:00.000Z", "2026-11-02T09:30:00.000Z", null), "merge");
+  assert.equal(syncWay("2026-11-02T10:05:00.000Z", "2026-11-02T09:59:00.000Z", synced), "push");
+  assert.equal(syncWay("2026-11-02T09:59:00.000Z", "2026-11-02T10:05:00.000Z", synced), "pull");
+  // both changed since: the latest
+  assert.equal(syncWay("2026-11-02T10:06:00.000Z", "2026-11-02T10:05:00.000Z", synced), "push");
+  assert.equal(syncWay("2026-11-02T10:05:00.000Z", "2026-11-02T10:06:00.000Z", synced), "pull");
+});
+
+test("action plan: an action and its ticket - what goes over, only what the other side takes", () => {
+  const a = it(7, 3, "action", {
+    title: "Run the spring campaign", detail: "Two waves", stage: IN_PROGRESS, priority: "HIGH", owners: [{ id: "11", name: "Ann" }, { id: "12", name: "Bo" }],
+    start: "2026-11-02", due: "2026-12-15", channel: ["SEA", "HubSpot"], country: ["CH"], kpis: "Clicks", statusNote: "",
+  });
+  const t = {
+    subject: "Run the spring campaign", content: "Two waves\r\n", hs_pipeline_stage: LIVE, hs_ticket_priority: "HIGH", hubspot_owner_id: "12",
+    mkt_planned_date: "2026-11-02", mkt_golive_date: "2026-12-20", mkt_channel: "HubSpot;SEA", mkt_implementation_country: "CH", mkt_agency: "",
+    mkt_roadmap_year: "", mkt_kpis: "Clicks", mkt_next_steps: "", mkt_status_note: "Briefed",
+  };
+  // the same channels in another order, a trailing line break: no difference
+  const pull = ticketSync(a, t, "pull");
+  assert.deepEqual(pull.fields, ["hs_pipeline_stage", "hubspot_owner_id", "mkt_golive_date", "mkt_status_note"]);
+  assert.deepEqual(pull.pull, { stage: LIVE, ownerId: "12", due: "2026-12-20", statusNote: "Briefed" });
+  assert.deepEqual(pull.push, {});
+  const push = ticketSync(a, t, "push");
+  assert.deepEqual(push.push, { hs_pipeline_stage: IN_PROGRESS, hubspot_owner_id: "11", mkt_golive_date: "2026-12-15", mkt_status_note: "" });
+  assert.deepEqual(push.pull, {});
+  // the first time: an empty side takes the other's, where both say something the ticket wins
+  const merge = ticketSync({ ...a, roadmapYear: "2026" }, t, "merge");
+  assert.deepEqual(merge.push, { mkt_roadmap_year: "2026" });
+  assert.deepEqual(merge.pull, { stage: LIVE, ownerId: "12", due: "2026-12-20", statusNote: "Briefed" });
+  // never an empty name or status to the ticket, never a stage the plan does not know
+  const odd = ticketSync({ ...a, stage: null }, { ...t, subject: "", hs_pipeline_stage: "999" }, "push");
+  assert.equal("hs_pipeline_stage" in odd.push, false);
+  assert.equal(ticketSync(a, { ...t, hs_pipeline_stage: "999" }, "pull").pull.stage, undefined);
 });

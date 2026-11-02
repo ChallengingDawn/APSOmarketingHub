@@ -293,6 +293,20 @@ export async function planTicketLinks(): Promise<{ ticketId: string; item: numbe
   return [...out.entries()].map(([ticketId, item]) => ({ ticketId, item }));
 }
 
+/**
+ * Each action's own ticket - linked on the action, not under a sub-action; one per action (SARCLA 02.11.2026), the
+ * latest linked when an older action has several. For the action and its ticket kept in step.
+ */
+export async function actionTickets(): Promise<{ item: number; ticketId: string; count: number }[]> {
+  await ensure();
+  const r = await query<{ item: number; ticket_id: string; count: string }>(
+    `SELECT DISTINCT ON (substring(tile from 6)::int) substring(tile from 6)::int AS item, ticket_id,
+            (count(*) OVER (PARTITION BY tile))::text AS count
+       FROM ${LINKS} WHERE tile ~ '^plan:[0-9]+$' AND task_id IS NULL ORDER BY substring(tile from 6)::int, linked_at DESC`,
+  );
+  return r.rows.map((x) => ({ item: Number(x.item), ticketId: x.ticket_id, count: Number(x.count) }));
+}
+
 /** An action leaves the plan: its own sub-actions go with it (their tickets stay in HubSpot), KPI tasks only lose the link. */
 export async function dropPlanItem(id: number): Promise<void> {
   await ensure();

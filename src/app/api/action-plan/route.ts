@@ -1,5 +1,5 @@
 // The action plan (SARCLA 31.10.2026), where Mission Control was - admins (./guard.ts):
-//   GET                                          every row, every sub-action, the people to assign, the ticket's choices,
+//   GET                                          every row (the actions' tickets read first), every sub-action, the people to assign, the ticket's choices,
 //                                                whether you may change
 //   GET   ?log=<id>                              an action's tracking: every change, who and when
 //   PATCH {id, ...fields, owners?: [owner ids]}  a row's fields, in the "From Scroll to Sale" ticket's terms (stage, priority,
@@ -11,7 +11,7 @@
 // Every change to the tree reaches HubSpot's three plan properties a few seconds later (actionPlanHubspot.ts).
 import { NextRequest, NextResponse } from "next/server";
 import { actionToSub, addItem, deleteItems, itemById, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
-import { planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
+import { freshFromTickets, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { PRIORITIES, S2S_CHOICES, STAGES, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
 import { dropPlanItem, planTasks } from "@/lib/reporting/kpiActions";
 import { s2sForm } from "@/lib/reporting/scrollToSale";
@@ -61,6 +61,8 @@ export async function GET(req: NextRequest) {
     } catch (e) {
       peopleError = String((e as Error)?.message ?? e).slice(0, 200);
     }
+    // what changed on the actions' tickets comes in first
+    await freshFromTickets();
     const [items, tasks] = await Promise.all([planItems(), planTasks()]);
     const ids = new Set(items.map((i) => i.id));
     const subs: PlanSub[] = tasks.filter((t) => t.planItem != null && ids.has(t.planItem)).map((t) => ({
@@ -120,8 +122,8 @@ export async function PATCH(req: NextRequest) {
   try {
     const item = await updateItem(id, p, w.name);
     if (!item) return fail("no such row", 404);
-    // a renamed row is renamed in HubSpot's choices too
-    if (p.title !== undefined) queuePlanSync("row renamed");
+    // a renamed row is renamed in HubSpot's choices too, and an action's ticket takes its changes (02.11.2026)
+    if (p.title !== undefined || item.kind === "action") queuePlanSync(p.title !== undefined ? "row renamed" : "action changed");
     return NextResponse.json({ ok: true, item });
   } catch (e) { return fail(e); }
 }

@@ -31,9 +31,9 @@ import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArro
 
 import { FAINT, HAIRLINE, INK, MUTED, TINT } from "@/app/uc/report/ui";
 import type { PlanItem, PlanKind, PlanSub, Rolled } from "@/lib/reporting/actionPlanRules";
-import { KILLED, isClosed, isLate, priorityLabel, stageOf, subPct } from "@/lib/reporting/actionPlanRules";
+import { KILLED, isClosed, isLate, priorityLabel, stageOf, subPct, subStage } from "@/lib/reporting/actionPlanRules";
 import { SUMMIT } from "@/lib/reporting/summitRules";
-import { LATE, PRIORITY_COLOR, SUB_COLOR, SUMMARY, dayOf, dmy, isoOf, stageColor } from "./planUi";
+import { LATE, PRIORITY_COLOR, SUMMARY, dayOf, dmy, isoOf, stageColor } from "./planUi";
 
 export const ROW = 34;
 const HEAD = 52;
@@ -91,10 +91,12 @@ function useNameWidth(rows: GRow[], rolled: Map<number, Rolled>, today: string):
   }, [rows, rolled, today]);
 }
 
-export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onPatch, canDrop, onDrop, height, colorOf, compact, onCompact, onAdd, hidden, onHide }: {
+export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, canDrop, onDrop, height, colorOf, compact, onCompact, onAdd, hidden, onHide }: {
   rows: GRow[]; rolled: Map<number, Rolled>; today: string; zoom: Zoom; canWrite: boolean;
   collapsed: Set<string>; toggle: (key: string) => void; selected: number | null;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void;
+  /** a sub-action's row or bar: its own window */
+  onOpenSub: (id: number) => void;
   onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent">>) => Promise<void>;
   canDrop: (drag: GRow, target: GRow, where: Where) => boolean;
   onDrop: (drag: GRow, target: GRow, where: Where) => Promise<void>;
@@ -289,7 +291,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
           {rows.map((r) => (
             <TreeRow key={r.key} r={r} cols={COLS} compact={compact} onAdd={canWrite && r.type === "item" ? () => onAdd(r.item) : undefined}
               hidden={r.type === "item" && hidden.has(r.item.id)} onHide={r.type === "item" && r.item.kind !== "goal" ? (h) => onHide(r.item, h) : undefined} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
-              selected={r.type === "item" && r.item.id === selected} onOpen={onOpen} onSubs={onSubs} onPatch={onPatch}
+              selected={r.type === "item" && r.item.id === selected} onOpen={onOpen} onSubs={onSubs} onOpenSub={onOpenSub} onPatch={onPatch}
               dragging={drag?.key === r.key} over={over?.key === r.key ? over.where : null}
               draggable={canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group")))}
               onDragStart={() => setDrag(r)} onDragEnd={() => { setDrag(null); setOver(null); }}
@@ -355,19 +357,19 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
                 const c = colorOf(r.parent) ?? SUMMARY;
                 const sb = r.sub;
                 const done = sb.status === "done";
-                const tipS = [sb.title, sb.start && sb.due ? `${dmy(sb.start)} – ${dmy(sb.due)}` : dmy(sb.due ?? sb.start), stageOf(sb.stage)?.label ?? (done ? "done" : ""), subPct(sb) != null ? `${subPct(sb)} %` : ""].filter(Boolean).join(" · ");
+                const tipS = [sb.title, sb.start && sb.due ? `${dmy(sb.start)} – ${dmy(sb.due)}` : dmy(sb.due ?? sb.start), subStage(sb)?.label ?? "No status", subPct(sb) != null ? `${subPct(sb)} %` : ""].filter(Boolean).join(" · ");
                 // a small action: a thinner bar from its planned to its go-live date, its done part solid
                 if (sb.start && sb.due) {
                   const x = X(sb.start), w = Math.max(px * 2, X(sb.due) - x + px);
                   return (
                     <Tooltip key={`s${r.key}`} title={tipS} placement="top" disableInteractive>
-                      <Box onClick={() => onSubs(r.parent)} sx={{ position: "absolute", left: x, top: cy - 5, width: w, height: 10, borderRadius: "3px", bgcolor: alpha(c, 0.18), border: `1.5px solid ${c}`, overflow: "hidden", cursor: "pointer", zIndex: 2 }}>
+                      <Box onClick={() => onOpenSub(sb.id)} sx={{ position: "absolute", left: x, top: cy - 5, width: w, height: 10, borderRadius: "3px", bgcolor: alpha(c, 0.18), border: `1.5px solid ${c}`, overflow: "hidden", cursor: "pointer", zIndex: 2 }}>
                         <Box sx={{ width: `${Math.max(0, Math.min(100, subPct(sb) ?? 0))}%`, height: "100%", bgcolor: c }} />
                       </Box>
                     </Tooltip>
                   );
                 }
-                return <Box key={`s${r.key}`} title={tipS} onClick={() => onSubs(r.parent)}
+                return <Box key={`s${r.key}`} title={tipS} onClick={() => onOpenSub(sb.id)}
                   sx={{ position: "absolute", left: X(at) + px / 2 - 5, top: cy - 5, width: 10, height: 10, borderRadius: "2px", bgcolor: done ? c : sb.status === "doing" ? alpha(c, 0.45) : "#fff", border: `2px solid ${c}`, cursor: "pointer", zIndex: 2 }} />;
               }
               const it = r.item;
@@ -419,10 +421,10 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
 
 /* ── a row of the tree ─────────────────────────────────────────────────── */
 
-function TreeRow({ r, cols, compact, color, onAdd, hidden, onHide, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onPatch, dragging, over, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
+function TreeRow({ r, cols, compact, color, onAdd, hidden, onHide, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, dragging, over, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
   r: GRow; cols: string; compact: boolean; color: string | null; onAdd?: () => void; hidden: boolean; onHide?: (hide: boolean) => void;
   rolled: Map<number, Rolled>; today: string; canWrite: boolean; folded: boolean; toggle: (key: string) => void; selected: boolean;
-  onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void;
+  onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void; onOpenSub: (id: number) => void;
   onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent">>) => Promise<void>;
   dragging: boolean; over: Where | null; draggable: boolean;
   onDragStart: () => void; onDragEnd: () => void; onDragOver: (e: React.DragEvent) => void; onDrop: (e: React.DragEvent) => void;
@@ -472,11 +474,12 @@ function TreeRow({ r, cols, compact, color, onAdd, hidden, onHide, rolled, today
     const s = r.sub;
     const c = color ?? SUMMARY;
     const late = s.status !== "done" && !!s.due && s.due < today;
-    const sStage = stageOf(s.stage);
+    // its status in the actions' words (SARCLA 02.11.2026: "the status should stay the same even on sub-actions")
+    const sStage = subStage(s);
     const sPrio = priorityLabel(s.priority);
     const sPct = subPct(s);
     return (
-      <Box sx={{ ...base, cursor: "pointer" }} onClick={() => onSubs(r.parent)}>
+      <Box sx={{ ...base, cursor: "pointer" }} onClick={() => onOpenSub(s.id)}>
         <Box />
         <Box sx={{ ...cell, borderLeft: "none", pl: `${indent + 20}px`, gap: 0.75 }}>
           <Box sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: s.status === "done" ? c : s.status === "doing" ? alpha(c, 0.45) : "#fff", border: `1.5px solid ${c}`, flexShrink: 0 }} />
@@ -490,7 +493,7 @@ function TreeRow({ r, cols, compact, color, onAdd, hidden, onHide, rolled, today
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: late ? LATE : MUTED, fontWeight: late ? 700 : 400 }}>{dmy(s.due)}</Typography></Box>
           <Box sx={cell}>
             {sStage ? <Box sx={{ ...TAG, bgcolor: stageColor(sStage.id).soft, color: stageColor(sStage.id).ink }}>{sStage.label}</Box>
-              : <Box sx={{ ...TAG, bgcolor: SUB_COLOR[s.status].soft, color: SUB_COLOR[s.status].ink }}>{s.status === "done" ? "Done" : s.status === "doing" ? "In progress" : "Open"}</Box>}
+              : <Typography sx={{ fontSize: "0.78rem", color: FAINT, fontStyle: "italic" }}>No status</Typography>}
           </Box>
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{sPct == null ? "—" : `${sPct} %`}</Typography></Box>
           <Box sx={cell}><Typography noWrap sx={{ fontSize: "0.8rem", color: MUTED }}>{s.ownerName}</Typography></Box>

@@ -12,7 +12,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { query } from "@/lib/db/client";
 import {
-  PLAN_STATES, STAGES, ownersFromCodes, percentOfStage, planFromSeed, priorityLabel, reorder, stageOf, stageOfPercent, stateOfStage, toS2s,
+  IDEA, IN_PROGRESS, PLAN_STATES, STAGES, ownersFromCodes, percentOfStage, planFromSeed, priorityLabel, reorder, stageOf, stageOfPercent, stateOfStage, toS2s,
   type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanState, type SeedRow,
 } from "./actionPlanRules";
 import { addTask, movePlanItem, type KpiTask } from "./kpiActions";
@@ -97,6 +97,8 @@ function ensure(): Promise<void> {
         // report_link: kept, no longer read or shown (SARCLA 02.11.2026: "report link - take out completely")
         "next_steps text NOT NULL DEFAULT ''", "status_note text NOT NULL DEFAULT ''", "report_link text NOT NULL DEFAULT ''",
         "s2s boolean NOT NULL DEFAULT false",
+        // `year_set` = the roadmap year taken from the dates once; `ticket_sync_at` = the action and its ticket last agreed
+        "year_set boolean NOT NULL DEFAULT false", "ticket_sync_at timestamptz",
       ]) await query(`ALTER TABLE ${T} ADD COLUMN IF NOT EXISTS ${c}`);
       // the tracking: every change, who made it and when
       await query(`CREATE TABLE IF NOT EXISTS ${LOG} (
@@ -106,6 +108,10 @@ function ensure(): Promise<void> {
       const n = await query<{ n: string }>(`SELECT count(*)::text AS n FROM ${T}`);
       if (Number(n.rows[0]?.n ?? 0) === 0) await seed();
       await toTicketTerms();
+      // an action with a date and no roadmap year takes its date's year, once (SARCLA 02.11.2026: "show stuff like the year
+      // we can define"); emptied afterwards, it stays empty
+      await query(`UPDATE ${T} SET roadmap_year = CASE WHEN kind = 'action' AND roadmap_year = '' AND COALESCE(start_date, due_date) IS NOT NULL
+                     THEN to_char(COALESCE(start_date, due_date), 'YYYY') ELSE roadmap_year END, year_set = true WHERE NOT year_set`);
     })().catch((e) => {
       ready = null;
       throw e;
@@ -285,6 +291,9 @@ export async function updateItem(id: number, p: Partial<PlanFields>, by: string)
   }
   if (p.start !== undefined) set("start_date", p.start || null);
   if (p.due !== undefined) set("due_date", p.due || null);
+  // a date on an action without a roadmap year brings its year
+  const dated = p.start || p.due;
+  if (dated && before.kind === "action" && !before.roadmapYear && p.roadmapYear === undefined) set("roadmap_year", dated.slice(0, 4));
   if (p.dg !== undefined) set("dg", !!p.dg);
   let stage = p.stage === undefined ? before.stage : p.stage;
   let percent = before.percent;
@@ -307,10 +316,36 @@ export async function updateItem(id: number, p: Partial<PlanFields>, by: string)
   const r = await query<Row>(`UPDATE ${T} SET ${sets.join(", ")}, updated_at = now() WHERE id = $${vals.length} RETURNING *`, vals);
   const after = r.rows[0] ? item(r.rows[0]) : null;
   if (after) {
-    const keys = (Object.keys(FIELD_NAME) as (keyof PlanFields)[]).filter((k) => p[k] !== undefined || k === "stage" || k === "percent");
+    const keys = (Object.keys(FIELD_NAME) as (keyof PlanFields)[]).filter((k) => p[k] !== undefined || k === "stage" || k === "percent" || k === "roadmapYear");
     await log(id, by, keys.map((k) => ({ field: FIELD_NAME[k]!, before: shown(k, before[k]), after: shown(k, after[k]) })));
   }
   return after;
+}
+
+/**
+ * An action something is put inside of is under way (SARCLA 02.11.2026: "if an action is inside of a main action, the
+ * action itself should go to In Progress"): with no status or in the Idea box it moves to In Progress. The action as it
+ * is now, or null when it is not an action.
+ */
+export async function startedBySub(id: number, by: string): Promise<PlanItem | null> {
+  const a = await itemById(id);
+  if (!a || a.kind !== "action") return null;
+  if (a.stage && a.stage !== IDEA) return a;
+  return updateItem(id, { stage: IN_PROGRESS }, by);
+}
+
+/** When each action and its ticket last agreed (actionPlanHubspot.ts). */
+export async function ticketSyncTimes(): Promise<Map<number, string>> {
+  await ensure();
+  const r = await query<{ id: number; at: unknown }>(`SELECT id, ticket_sync_at AS at FROM ${T} WHERE ticket_sync_at IS NOT NULL`);
+  return new Map(r.rows.map((x) => [x.id, x.at instanceof Date ? x.at.toISOString() : String(x.at)]));
+}
+/** A ticket linked to the action or taken off it: the next time they meet is a first time again. */
+export async function forgetTicketSync(id: number): Promise<void> {
+  await query(`UPDATE ${T} SET ticket_sync_at = NULL WHERE id = $1`, [id]);
+}
+export async function markTicketSync(ids: number[]): Promise<void> {
+  if (ids.length) await query(`UPDATE ${T} SET ticket_sync_at = now() WHERE id = ANY($1::int[])`, [ids]);
 }
 
 /** A new row, last under its parent: an action under a topic or group, a group under a topic, a topic under the goal. */
@@ -367,6 +402,7 @@ export async function actionToSub(id: number, intoId: number, by: string): Promi
   await movePlanItem(a.id, into.id, task.id);
   await log(into.id, by, [{ field: "Sub-action", before: "", after: `${a.title} (was an action of the plan)` }]);
   await deleteItems([a.id]);
+  await startedBySub(into.id, by);
   return task;
 }
 

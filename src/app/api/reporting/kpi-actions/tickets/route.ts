@@ -9,8 +9,8 @@
 // On an action of the plan the form also carries the plan's place (three properties the hub keeps in HubSpot,
 // actionPlanHubspot.ts) and starts from the action's own fields; a ticket made or linked there gets its place.
 import { NextRequest, NextResponse } from "next/server";
-import { linkTickets, planIdOf, taskById, ticketsOf, unlinkTicket } from "@/lib/reporting/kpiActions";
-import { itemById, planItems } from "@/lib/reporting/actionPlan";
+import { actionTickets, linkTickets, planIdOf, taskById, ticketsOf, unlinkTicket } from "@/lib/reporting/kpiActions";
+import { forgetTicketSync, itemById, planItems } from "@/lib/reporting/actionPlan";
 import { flushPlanSync, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { PLAN_PROPS, planOptions, ticketFromAction } from "@/lib/reporting/actionPlanRules";
 import { createTicket, ownerOf, readTickets, s2sForm, searchTickets, ticketUrl, type TicketState } from "@/lib/reporting/scrollToSale";
@@ -88,6 +88,11 @@ export async function POST(req: NextRequest) {
     if (planId != null && (b.action === "create" || b.action === "link") && !(await itemById(planId))?.dg) {
       return fail("only an action led by Digital Growth takes a Scroll to Sale ticket", 400);
     }
+    // one ticket per action, on the action itself (SARCLA 02.11.2026) - a sub-action's tickets are its own
+    if (planId != null && taskId == null && (b.action === "create" || b.action === "link")) {
+      if ((await actionTickets()).some((x) => x.item === planId)) return fail("this action has its ticket - unlink it first to give it another", 400);
+      if (b.action === "link" && (b.ids ?? []).length > 1) return fail("an action takes one ticket", 400);
+    }
     if (b.action === "create") {
       const missing = missingRequired(b.values ?? {});
       if (missing.length) return fail(`still to fill in: ${missing.join(", ")}`, 400);
@@ -100,6 +105,7 @@ export async function POST(req: NextRequest) {
       else if (PLAN_FIELDS.some((k) => values[k])) await flushPlanSync();
       const id = await createTicket(values, sharedUsers.length ? { hs_shared_user_ids: sharedUsers.join(";") } : {});
       await linkTickets(b.tile, [id], w.name, true, taskId);
+      if (planId != null && taskId == null) await forgetTicketSync(planId);
       queuePlanSync("ticket made");
       console.log(`[kpi-actions] ticket ${id} created from tile ${b.tile} by ${w.name}`);
       return NextResponse.json({ ok: true, id, url: ticketUrl(id) });
@@ -110,11 +116,13 @@ export async function POST(req: NextRequest) {
       // only tickets of the pipeline: what HubSpot returns for the ids
       const found = await readTickets(ids);
       await linkTickets(b.tile, found.map((t) => t.id), w.name, false, taskId);
+      if (planId != null && taskId == null) await forgetTicketSync(planId);
       queuePlanSync("tickets linked");
       return NextResponse.json({ ok: true, linked: found.length });
     }
     if (b.action === "unlink" && b.id) {
       await unlinkTicket(b.tile, String(b.id));
+      if (planId != null) await forgetTicketSync(planId);
       return NextResponse.json({ ok: true });
     }
     return fail("action is create, link or unlink", 400);

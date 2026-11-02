@@ -17,7 +17,7 @@
 // A category's window is its tiles alone, the whole width, a + tile to add under it ("kanban is broken ... the side
 // is not needed, new action should be the +"); it moves by drag and drop in the Gantt. Its changes are in the KPI view.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Dialog from "@mui/material/Dialog";
 import Typography from "@mui/material/Typography";
@@ -31,6 +31,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import TaskAltIcon from "@mui/icons-material/TaskAlt";
+import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import HistoryIcon from "@mui/icons-material/History";
 import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
@@ -39,7 +40,7 @@ import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import { FAINT, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { BUC_MEMBERS, KILLED, PRIORITIES, STAGES, isClosed, isLate, priorityLabel, stageOf, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
 import { LATE, PRIORITY_COLOR, SUMMARY, dmy, stageColor, todayIso, type PlanData } from "./planUi";
-import { SubActions, planTile } from "./SubActions";
+import { ActionTicket, SubActions, planTile, wholeDay } from "./SubActions";
 
 const field = { "& .MuiInputBase-root": { fontSize: "0.9rem", borderRadius: "8px", bgcolor: "#fff" }, "& .MuiInputLabel-root": { fontSize: "0.88rem" } };
 const section = { fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
@@ -81,12 +82,16 @@ function Title({ value, canWrite, onSave }: { value: string; canWrite: boolean; 
 }
 
 /** A date saved when it is left - typing the year does not save 0002, 0020, 0202 on the way. */
+/** A date handed up as soon as it is a whole one, or when it is left - one picked and the window closed is kept
+ *  (SARCLA 02.11.2026: "planned, go-live dates are not updating"). */
 function DateField({ label, value, min, max, canWrite, onSave }: { label: string; value: string | null; min?: string | null; max?: string | null; canWrite: boolean; onSave: (v: string | null) => void }) {
   const [v, setV] = useState(value ?? "");
-  useEffect(() => { setV(value ?? ""); }, [value]);
+  const sent = useRef(value);
+  useEffect(() => { setV(value ?? ""); sent.current = value; }, [value]);
+  const hand = (x: string) => { const n = x || null; if (n !== sent.current) { sent.current = n; onSave(n); } };
   return (
-    <TextField size="small" type="date" label={label} value={v} disabled={!canWrite} onChange={(e) => setV(e.target.value)}
-      onBlur={() => { const n = v || null; if (n !== value) onSave(n); }}
+    <TextField size="small" type="date" label={label} value={v} disabled={!canWrite} onChange={(e) => { setV(e.target.value); if (wholeDay(e.target.value)) hand(e.target.value); }}
+      onBlur={() => hand(v)}
       sx={field} slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: min ?? undefined, max: max ?? undefined } }} />
   );
 }
@@ -392,7 +397,7 @@ function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen
         <>
           <Box sx={card}>
             <Typography sx={section}>How it is measured</Typography>
-            <Field label="KPIs" value={item.kpis} canWrite={canWrite} multiline rows={4} onSave={(v) => save({ kpis: v })} />
+            <Field label="KPIs" value={item.kpis} placeholder="How success is measured - what is counted or compared" canWrite={canWrite} multiline rows={3} onSave={(v) => save({ kpis: v })} />
           </Box>
           <Box sx={card}>
             <Typography sx={section}>KPI tiles it is tied to</Typography>
@@ -442,12 +447,14 @@ function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen
   );
 }
 
-export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peopleError, choices, colorOf, onClose, onOpen, onPatch, onChanged, onAddUnder, onDelete, onMoveTo }: {
+export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peopleError, choices, colorOf, onClose, onOpen, onOpenSub, onPatch, onChanged, onAddUnder, onDelete, onMoveTo }: {
   item: PlanItem; items: PlanItem[]; rolledAll: Map<number, Rolled>; subs: PlanSub[]; canWrite: boolean; onClose: () => void;
   people: PlanOwner[]; peopleError: string | null; choices: PlanData["choices"];
   colorOf: (i: PlanItem) => string | null;
   /** another row, opened from a tile */
   onOpen: (item: PlanItem) => void;
+  /** a sub-action, in its own window */
+  onOpenSub: (id: number) => void;
   onPatch: (id: number, p: Partial<PlanFields>) => Promise<void>;
   /** a sub-action or a ticket changed: the plan reads its counts again */
   onChanged: () => void;
@@ -558,7 +565,7 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
             <Box sx={{ display: "grid", gap: 2.25, minWidth: 0 }}>
               <Box sx={{ ...card, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
                 <Typography sx={{ ...section, gridColumn: "1 / -1" }}>The action</Typography>
-                <Field label="Description" value={item.detail} canWrite={canWrite} multiline rows={4} onSave={(v) => save({ detail: v })} />
+                <Field label="Description" value={item.detail} placeholder="What the action is about, what done looks like" canWrite={canWrite} multiline rows={3} onSave={(v) => save({ detail: v })} />
                     <Owners item={item} people={people} peopleError={peopleError} canWrite={canWrite} onSave={(owners) => save({ owners })} />
                     <Box sx={{ display: "grid", gap: 0.6, gridColumn: "1 / -1" }}>
                       <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontWeight: 600 }}>Priority</Typography>
@@ -583,7 +590,16 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
               </Box>
 
                 <Box sx={{ ...card, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
-                  <Typography sx={{ ...section, gridColumn: "1 / -1" }}>Details</Typography>
+                  {/* the head: and the switch that decides what the action carries - its ticket, the channel, the agency */}
+                  <Box sx={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
+                    <Typography sx={{ ...section, flex: 1 }}>Details</Typography>
+                    <Tooltip title={item.dg ? "Its “From Scroll to Sale” ticket, the marketing channel and the agency" : "Turn on for a “From Scroll to Sale” ticket, the marketing channel and the agency - a sales action has no pipeline"}>
+                      <Box component="label" sx={{ display: "flex", alignItems: "center", gap: 0.25, pl: 1, borderRadius: "999px", border: `1px solid ${item.dg ? TINT.blue.fg : HAIRLINE}`, bgcolor: item.dg ? TINT.blue.bg : "#fff", cursor: canWrite ? "pointer" : "default" }}>
+                        <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: item.dg ? TINT.blue.fg : MUTED }}>Led by Digital Growth</Typography>
+                        <Switch size="small" checked={item.dg} disabled={!canWrite} onChange={(e) => save({ dg: e.target.checked })} />
+                      </Box>
+                    </Tooltip>
+                  </Box>
                   {/* the channel and the agency are marketing's: only when Digital Growth leads it (kept, not shown, otherwise) */}
                   {item.dg && <Choices label="Marketing channel" options={choices.channel} value={item.channel} canWrite={canWrite} onSave={(v) => save({ channel: v })} />}
                   <Choices label="Implementation country" options={choices.country} value={item.country} canWrite={canWrite} onSave={(v) => save({ country: v })} />
@@ -596,29 +612,34 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
                     ))}
                   </TextField>
                   <TextField size="small" label="Roadmap ID" value={item.code} disabled helperText="The workbook's number" sx={field} slotProps={{ inputLabel: { shrink: true } }} />
-                  <Field label="Next steps / milestones" value={item.nextSteps} canWrite={canWrite} multiline rows={3} onSave={(v) => save({ nextSteps: v })} />
-                  <Field label="Status note" value={item.statusNote} canWrite={canWrite} multiline rows={3} onSave={(v) => save({ statusNote: v })} />
+                  <Field label="Next steps / milestones" value={item.nextSteps} placeholder="The next steps or milestones - one per line" canWrite={canWrite} multiline rows={2} onSave={(v) => save({ nextSteps: v })} />
+                  <Field label="Status note" value={item.statusNote} placeholder="Where it stands - what is done, what is in the way" canWrite={canWrite} multiline rows={2} onSave={(v) => save({ statusNote: v })} />
                   <Referent value={item.referent} people={people} canWrite={canWrite} onSave={(v) => save({ referent: v })} />
                 </Box>
             </Box>
 
-            {/* ── the right: its sub-actions and its tracking ── */}
+            {/* ── the right: its ticket, its sub-actions once there are some (SARCLA 02.11.2026: "sub-actions should only appear
+                when they have been created"), its tracking ── */}
             <Box sx={{ display: "grid", gap: 2.25, minWidth: 0 }}>
-                <Box sx={card}>
-                  {/* the head: how many, and the switch that decides what they can carry (SARCLA 01.11.2026: "rethink this
-                      page, it would be great to see it better") */}
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
-                    <TaskAltIcon sx={{ fontSize: 18, color: FAINT }} />
-                    <Typography sx={{ ...section, flex: 1 }}>Sub-actions{subs.length ? ` · ${done} of ${subs.length} done` : ""}</Typography>
-                    <Tooltip title={item.dg ? "Its sub-actions carry “From Scroll to Sale” tickets - new or linked; the marketing channel and the agency are on the left" : "Turn on for “From Scroll to Sale” tickets, the marketing channel and the agency - a sales action has no pipeline"}>
-                      <Box component="label" sx={{ display: "flex", alignItems: "center", gap: 0.25, pl: 1, borderRadius: "999px", border: `1px solid ${item.dg ? TINT.blue.fg : HAIRLINE}`, bgcolor: item.dg ? TINT.blue.bg : "#fff", cursor: canWrite ? "pointer" : "default" }}>
-                        <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: item.dg ? TINT.blue.fg : MUTED }}>Led by Digital Growth</Typography>
-                        <Switch size="small" checked={item.dg} disabled={!canWrite} onChange={(e) => save({ dg: e.target.checked })} />
-                      </Box>
-                    </Tooltip>
+                {item.dg && (
+                  <Box sx={card}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                      <ConfirmationNumberOutlinedIcon sx={{ fontSize: 18, color: FAINT }} />
+                      <Typography sx={{ ...section, flex: 1 }}>Its Scroll to Sale ticket</Typography>
+                    </Box>
+                    <ActionTicket item={item} tile={tile} canWrite={canWrite} onChanged={() => { onChanged(); setTick((t) => t + 1); }} />
                   </Box>
-                  <SubActions item={item} tile={tile} canWrite={canWrite} tickets={item.dg} people={people} onChanged={onChanged} />
-                </Box>
+                )}
+                {subs.length > 0 && (
+                  <Box sx={card}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                      <TaskAltIcon sx={{ fontSize: 18, color: FAINT }} />
+                      <Typography sx={{ ...section, flex: 1 }}>Sub-actions · {done} of {subs.length} done</Typography>
+                      <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>Click one to open it</Typography>
+                    </Box>
+                    <SubActions tile={tile} onOpenSub={onOpenSub} tick={tick} />
+                  </Box>
+                )}
               <Tracking id={item.id} tick={tick} />
             </Box>
           </Box>
