@@ -250,12 +250,43 @@ function ActionPlan() {
     } catch (e) { setNote(`Not saved: ${(e as Error).message}`); void load(); }
   };
   const canDrop = (drag: GRow, target: GRow, where: Where) => {
+    // a sub-action made on the plan: under another action, or an action of its own in a category
+    if (drag.type === "sub") {
+      if (!data?.canWrite || target.type !== "item" || drag.sub.kpiTile) return false;
+      return where === "sub" ? target.item.kind === "action" && target.item.id !== drag.parent.id : where === "into" && (target.item.kind === "group" || target.item.kind === "topic");
+    }
     if (!data?.canWrite || drag.type !== "item" || drag.key === target.key) return false;
     // an action onto another action: it becomes its sub-action
     if (where === "sub") return target.type === "item" && drag.item.kind === "action" && target.item.kind === "action";
     return target.type === "item" && reorder(items, drag.item.id, target.item.id, where) != null;
   };
-  const onDrop = async (drag: GRow, target: GRow, where: Where) => {
+  const onDrop = async (drag: GRow, target: GRow, where: Where, copy = false) => {
+    if (drag.type === "sub" && target.type === "item") {
+      const s = drag.sub, into = target.item, back = where === "into";
+      // Ctrl held: a copy goes under the action, the sub-action stays where it is
+      if (copy && !back) {
+        try {
+          await send("/api/action-plan", "POST", { action: "copysub", taskId: s.id, target: into.id });
+          setNote(null); setSaid(`A copy of “${s.title}” is under “${into.title}” now`);
+          setCollapsed((c) => { const n = new Set(c); n.delete(target.key); return n; });
+        } catch (e) { setNote(`Not copied: ${(e as Error).message}`); }
+        await load();
+        return;
+      }
+      if (!confirm(back ? `Make “${s.title}” an action of its own in “${into.title}”?
+
+Its name, description, status, priority, person, dates, status note and tickets go with it.` : `Move “${s.title}” under “${into.title}”?
+
+Its tickets go with it.`)) return;
+      try {
+        await send("/api/action-plan", "POST", { action: back ? "unsub" : "movesub", taskId: s.id, target: into.id });
+        setNote(null);
+        setSaid(back ? `“${s.title}” is an action of its own in “${into.title}” now` : `“${s.title}” is a sub-action of “${into.title}” now`);
+        setCollapsed((c) => { const n = new Set(c); n.delete(target.key); return n; });
+      } catch (e) { setNote(`Not moved: ${(e as Error).message}`); }
+      await load();
+      return;
+    }
     if (drag.type !== "item" || target.type !== "item") return;
     if (where === "sub") {
       const a = drag.item, into = target.item;
@@ -406,7 +437,7 @@ It leaves the plan as an action; its name, description, status, priority, first 
           compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} onAdd={setAddFor} hidden={hidden} onHide={hide} />
       )}
       <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
-        Drag a row by its handle onto another main category or sub-category - an action dropped on another action becomes its sub-action, on its top edge it goes before it; the + beside a row adds what goes under it - a sub-action under an action, an action in a category - and the eye hides a row (Hidden rows shows them again); drag a bar to move its dates, its right end to change the go-live date.
+        Drag a row by its handle onto another main category or sub-category - an action dropped on another action becomes its sub-action, on its top edge it goes before it; a sub-action dropped on another action moves there (Ctrl held: a copy goes there), on a category it becomes an action again; the + beside a row adds what goes under it - a sub-action under an action, an action in a category - and the eye hides a row (Hidden rows shows them again); drag a bar to move its dates, its right end to change the go-live date.
         A bar runs from the planned date to the go-live date, a diamond is an action with only a go-live date, a square a sub-action. The statuses and priorities are the &ldquo;From Scroll to Sale&rdquo; pipeline&apos;s.
       </Typography>
 
@@ -418,7 +449,9 @@ It leaves the plan as an action; its name, description, status, priority, first 
       )}
       {sub && subParent && (
         <SubWindow key={sub.id} id={sub.id} parent={subParent} people={data?.people ?? []} canWrite={!!data?.canWrite}
-          onClose={closeSub} onOpenParent={() => { closeSub(); openRow(subParent); }} onChanged={() => void load()} />
+          onClose={closeSub} onOpenParent={() => { closeSub(); openRow(subParent); }} onChanged={() => void load()}
+          onDuplicated={(id) => { closeSub(); setSaid("Duplicated - drag the copy where it serves"); void load().then(() => openSub(id)); }}
+          onMadeAction={(itemId) => { closeSub(); setSaid("Made an action again"); void load().then(() => { setOpenId(itemId); window.history.replaceState(null, "", `/action-plan?item=${itemId}`); }); }} />
       )}
       {asked && !addFor && <AskDates item={asked} onSave={async (p) => { await patch(asked.id, p); setAskFor(null); }} onClose={() => setAskFor(null)} />}
       {addFor && (

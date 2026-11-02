@@ -29,7 +29,7 @@ Rules:
 - A choice is one of the values listed for its field - the value, not its label.
 - A person is chosen only when the description names them; "I" or "me" is the person writing.
 - Dates are YYYY-MM-DD. A month or a quarter means its last day; "next week", "end of the month" are counted from today.
-- The title says what will be done, as an action (a verb first), at most 120 characters, in the description's language. The other texts are in the description's language too.
+- Write every text in English, whatever language the description is in. The title says what will be done, as an action (a verb first), at most 120 characters.
 - ticket is "new" only when the description asks for a ticket, or describes a marketing job for the agency or the Digital Growth team.
 - On the ticket: the description says what and why; the planned date is when the work starts; the go-live date is when it should be live; KPIs say how success is measured, only when the description says it.
 - Keep what the form already holds unless the description says otherwise: give those fields back as they are.`;
@@ -48,6 +48,7 @@ const OWN_ACTION = ["hs_pipeline_stage", "hs_ticket_priority", "mkt_planned_date
 
 /** On the plan: what the AI proposes, what it takes from around it. */
 const ON_THE_PLAN = `On the action plan, also:
+- The note is the description (SARCLA 02.11.2026: "the answer of filling should be more complete"): two to four sentences - what will be done, why it matters for its action or category, and what done looks like - built from the words given and the context; no figure, date or name that neither gives.
 - Propose the KPIs (mkt_kpis): how success would be measured - what is counted or compared, no target figure unless the description gives one - and the next steps (mkt_next_steps): the first two to four concrete steps, one per line. Both are proposals the person checks; write them when the field is in the form.
 - The status note (mkt_status_note) only when the description says where it stands.
 - When the description says no priority or implementation country, take the one the context above gives (the action's, or the one most of the category's actions have).`;

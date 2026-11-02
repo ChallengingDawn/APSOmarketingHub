@@ -99,7 +99,8 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   onOpenSub: (id: number) => void;
   onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent">>) => Promise<void>;
   canDrop: (drag: GRow, target: GRow, where: Where) => boolean;
-  onDrop: (drag: GRow, target: GRow, where: Where) => Promise<void>;
+  /** `copy`: Ctrl, Alt or Cmd held - a sub-action is copied there, not moved */
+  onDrop: (drag: GRow, target: GRow, where: Where, copy: boolean) => Promise<void>;
   /** the most it takes; with fewer rows open it is as tall as they are */
   height: number | string;
   /** a main category's colour, carried by everything under it (SARCLA 01.11.2026: "Gantt colours per project"); null for the goal */
@@ -213,9 +214,12 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   });
 
   const [drag, setDrag] = useState<GRow | null>(null);
-  const [over, setOver] = useState<{ key: string; where: Where } | null>(null);
+  const [over, setOver] = useState<{ key: string; where: Where; copy: boolean } | null>(null);
   // onto a category: into it; onto an action an action becomes its sub-action, but on the row's top edge it goes before
   const whereFor = (r: GRow, e: React.DragEvent): Where => {
+    // a sub-action: onto an action it moves under it, onto a category it becomes an action there (SARCLA 02.11.2026: "I
+    // should be able to move a sub-action back into a main action if needed")
+    if (drag?.type === "sub") return r.type === "item" && r.item.kind === "action" ? "sub" : "into";
     if (r.type === "item" && r.item.kind !== "action") return "into";
     if (r.type === "item" && drag?.type === "item" && drag.item.kind === "action") {
       const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -292,21 +296,23 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
             <TreeRow key={r.key} r={r} cols={COLS} compact={compact} onAdd={canWrite && r.type === "item" ? () => onAdd(r.item) : undefined}
               hidden={r.type === "item" && hidden.has(r.item.id)} onHide={r.type === "item" && r.item.kind !== "goal" ? (h) => onHide(r.item, h) : undefined} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
               selected={r.type === "item" && r.item.id === selected} onOpen={onOpen} onSubs={onSubs} onOpenSub={onOpenSub} onPatch={onPatch}
-              dragging={drag?.key === r.key} over={over?.key === r.key ? over.where : null}
-              draggable={canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group")))}
+              dragging={drag?.key === r.key} over={over?.key === r.key ? over.where : null} copying={over?.key === r.key && over.copy}
+              draggable={canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group")) || (r.type === "sub" && !r.sub.kpiTile))}
               onDragStart={() => setDrag(r)} onDragEnd={() => { setDrag(null); setOver(null); }}
               onDragOver={(e) => {
                 if (!drag) return;
                 const w = whereFor(r, e);
                 if (!canDrop(drag, r, w)) { if (over?.key === r.key) setOver(null); return; }
                 e.preventDefault();
-                if (over?.key !== r.key || over.where !== w) setOver({ key: r.key, where: w });
+                const copy = drag.type === "sub" && w === "sub" && (e.ctrlKey || e.altKey || e.metaKey);
+                e.dataTransfer.dropEffect = copy ? "copy" : "move";
+                if (over?.key !== r.key || over.where !== w || over.copy !== copy) setOver({ key: r.key, where: w, copy });
               }}
               onDrop={(e) => {
                 e.preventDefault();
                 const d = drag, w = whereFor(r, e);
                 setDrag(null); setOver(null);
-                if (d && canDrop(d, r, w)) void onDrop(d, r, w);
+                if (d && canDrop(d, r, w)) void onDrop(d, r, w, d.type === "sub" && w === "sub" && (e.ctrlKey || e.altKey || e.metaKey));
               }} />
           ))}
           {!rows.length && <Typography sx={{ p: 3, color: MUTED, fontSize: "0.9rem" }}>Nothing matches these filters.</Typography>}
@@ -421,12 +427,12 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
 
 /* ── a row of the tree ─────────────────────────────────────────────────── */
 
-function TreeRow({ r, cols, compact, color, onAdd, hidden, onHide, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, dragging, over, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
+function TreeRow({ r, cols, compact, color, onAdd, hidden, onHide, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, dragging, over, copying, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
   r: GRow; cols: string; compact: boolean; color: string | null; onAdd?: () => void; hidden: boolean; onHide?: (hide: boolean) => void;
   rolled: Map<number, Rolled>; today: string; canWrite: boolean; folded: boolean; toggle: (key: string) => void; selected: boolean;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void; onOpenSub: (id: number) => void;
   onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent">>) => Promise<void>;
-  dragging: boolean; over: Where | null; draggable: boolean;
+  dragging: boolean; over: Where | null; copying: boolean; draggable: boolean;
   onDragStart: () => void; onDragEnd: () => void; onDragOver: (e: React.DragEvent) => void; onDrop: (e: React.DragEvent) => void;
 }) {
   const cell = { px: 1, minWidth: 0, height: "100%", display: "flex", alignItems: "center", borderLeft: `1px solid ${HAIRLINE}` } as const;
@@ -442,7 +448,7 @@ function TreeRow({ r, cols, compact, color, onAdd, hidden, onHide, rolled, today
     bgcolor: selected ? "rgba(36,89,209,.06)" : over === "into" || over === "sub" ? TINT.blue.bg : "transparent", opacity: dragging ? 0.4 : hidden ? 0.5 : 1,
     boxShadow: over === "before" ? `inset 0 2px 0 ${TINT.blue.fg}` : over === "sub" ? `inset 0 0 0 2px ${TINT.blue.fg}` : "none", position: "relative",
     // what the drop will do
-    ...(over === "sub" ? { "&::after": { content: '"Drop: becomes its sub-action"', position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: TINT.blue.fg, color: "#fff", fontSize: "0.7rem", fontWeight: 800, pointerEvents: "none", zIndex: 2 } } : {}),
+    ...(over === "sub" ? { "&::after": { content: copying ? '"Drop: a copy goes under it"' : '"Drop: becomes its sub-action"', position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: TINT.blue.fg, color: "#fff", fontSize: "0.7rem", fontWeight: 800, pointerEvents: "none", zIndex: 2 } } : {}),
     "&:hover": { bgcolor: selected ? "rgba(36,89,209,.08)" : "rgba(21,34,58,.025)" }, "&:hover .add": { opacity: 1 },
   } as const;
   // the handle to drag the row, beside it the + for what goes under it and the eye that hides the row
@@ -450,8 +456,8 @@ function TreeRow({ r, cols, compact, color, onAdd, hidden, onHide, rolled, today
   const handle = (
     <Box sx={{ display: "grid", gridTemplateColumns: "22px 22px 22px", height: "100%", alignItems: "center" }}>
       {draggable ? (
-        <Box draggable onDragStart={(e: React.DragEvent) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", r.key); onDragStart(); }} onDragEnd={onDragEnd}
-          title="Drag onto another main category or sub-category" sx={{ display: "grid", placeItems: "center", color: FAINT, cursor: "grab", height: "100%" }}>
+        <Box draggable onDragStart={(e: React.DragEvent) => { e.dataTransfer.effectAllowed = r.type === "sub" ? "copyMove" : "move"; e.dataTransfer.setData("text/plain", r.key); onDragStart(); }} onDragEnd={onDragEnd}
+          title={r.type === "sub" ? "Drag onto another action to move it there (Ctrl held: a copy), onto a category to make it an action again" : "Drag onto another main category or sub-category"} sx={{ display: "grid", placeItems: "center", color: FAINT, cursor: "grab", height: "100%" }}>
           <DragIndicatorIcon sx={{ fontSize: 17 }} />
         </Box>
       ) : <Box />}
@@ -480,7 +486,7 @@ function TreeRow({ r, cols, compact, color, onAdd, hidden, onHide, rolled, today
     const sPct = subPct(s);
     return (
       <Box sx={{ ...base, cursor: "pointer" }} onClick={() => onOpenSub(s.id)}>
-        <Box />
+        {handle}
         <Box sx={{ ...cell, borderLeft: "none", pl: `${indent + 20}px`, gap: 0.75 }}>
           <Box sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: s.status === "done" ? c : s.status === "doing" ? alpha(c, 0.45) : "#fff", border: `1.5px solid ${c}`, flexShrink: 0 }} />
           {sPrio && <Box sx={{ ...TAG, bgcolor: PRIORITY_COLOR[s.priority].bg, color: PRIORITY_COLOR[s.priority].fg }}>{sPrio}</Box>}

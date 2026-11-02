@@ -72,7 +72,7 @@ function NoteField({ label: l, value, placeholder, canWrite, onSave }: { label: 
   useEffect(() => { setV(value); }, [value]);
   return (
     <TextField size="small" label={l} value={v} placeholder={placeholder} disabled={!canWrite} onChange={(e) => setV(e.target.value)} onBlur={() => { if (v !== value) onSave(v); }}
-      sx={field} multiline minRows={1} maxRows={5} slotProps={{ inputLabel: { shrink: true } }} />
+      sx={field} multiline minRows={1} slotProps={{ inputLabel: { shrink: true } }} />
   );
 }
 
@@ -160,7 +160,7 @@ export function AiBox({ placeholder, hint, fill }: { placeholder: string; hint: 
   };
   return (
     <Box sx={{ display: "grid", gap: 1, p: 1.5, borderRadius: "8px", border: `1px solid ${AI_LINE}`, bgcolor: AI_SOFT }}>
-      <TextField multiline minRows={3} maxRows={10} autoFocus value={text} onChange={(e) => setText(e.target.value)}
+      <TextField multiline minRows={3} autoFocus value={text} onChange={(e) => setText(e.target.value)}
         label="Describe it to the AI" placeholder={placeholder}
         sx={field} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && text.trim().length >= 5 && !busy) void go(); }} />
       <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
@@ -291,12 +291,12 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, wid
       {/* side by side when the window is wide and a ticket is to be filled (SARCLA 01.11.2026: "with Digital Growth the
           window should expand to display everything correctly") */}
       <Box sx={{ display: "grid", gap: 1.75, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: wide && tickets ? "minmax(0, 1fr) minmax(0, 1.15fr)" : "minmax(0, 1fr)" } }}>
-        <Box sx={{ display: "grid", gap: 1.25, minWidth: 0 }}>
+        <Box sx={{ display: "grid", gap: 1.9, minWidth: 0 }}>
           <TextField size="small" label="Sub-action" placeholder="What will be done - written as an action" value={v.title} onChange={(e) => set({ title: e.target.value })}
             autoFocus={focus} sx={field} slotProps={{ inputLabel: { shrink: true } }}
             onKeyDown={(e) => { if (e.key === "Enter" && ready) void add(); }} />
           <TextField size="small" label="Description" placeholder="What it is about, what done looks like" value={note} onChange={(e) => setNote(e.target.value)}
-            sx={field} multiline minRows={2} maxRows={8} slotProps={{ inputLabel: { shrink: true } }} />
+            sx={field} multiline minRows={2} slotProps={{ inputLabel: { shrink: true } }} />
           <SmallFields v={v} set={set} owners={owners} canWrite />
           <People owners={owners} value={shared} onChange={setShared} />
         </Box>
@@ -427,7 +427,7 @@ export function SubEditor({ k, tile, t, owners, canWrite, tickets, linked, saved
         onBlur={() => { if (v.title.trim() && v.title !== k.title) void patch({ title: v.title }); else setV((x) => ({ ...x, title: k.title })); }}
         sx={field} slotProps={{ inputLabel: { shrink: true } }} />
       <TextField size="small" label="Description" placeholder="What it is about, what done looks like" value={note} disabled={!canWrite} onChange={(e) => setNote(e.target.value)}
-        onBlur={() => { if (note !== k.note) void patch({ note }); }} sx={field} multiline minRows={2} maxRows={8} slotProps={{ inputLabel: { shrink: true } }} />
+        onBlur={() => { if (note !== k.note) void patch({ note }); }} sx={field} multiline minRows={2} slotProps={{ inputLabel: { shrink: true } }} />
       <SmallFields v={v} set={set} owners={owners} canWrite={canWrite} />
       <People owners={owners} value={k.shared.map((p) => p.id)} onChange={(ids) => void patch({ shared: ids })} label="Shared with - the new ones get a mail" />
       {fromKpi && k.href && (

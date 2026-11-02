@@ -15,7 +15,7 @@ import {
   IDEA, IN_PROGRESS, PLAN_STATES, STAGES, ownersFromCodes, percentOfStage, planFromSeed, priorityLabel, reorder, stageOf, stageOfPercent, stateOfStage, toS2s,
   type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanState, type SeedRow,
 } from "./actionPlanRules";
-import { addTask, movePlanItem, type KpiTask } from "./kpiActions";
+import { addTask, deleteTask, movePlanItem, moveTask, taskById, ticketsToAction, type KpiTask } from "./kpiActions";
 
 /** An action's description as its sub-action's: without its name repeated on the first line, the workbook's indents out
  *  (SARCLA 02.11.2026: "the text feels weird"). */
@@ -340,6 +340,62 @@ export async function startedBySub(id: number, by: string): Promise<PlanItem | n
   if (!a || a.kind !== "action") return null;
   if (a.stage && a.stage !== IDEA) return a;
   return updateItem(id, { stage: IN_PROGRESS }, by);
+}
+
+/**
+ * A sub-action made an action again (SARCLA 02.11.2026: "I should be able to move a sub-action back into a main action
+ * if needed"): an action of its own in the category it is dropped on, with its name, description, status, priority,
+ * person, dates and status note, Digital Growth's as its action had it; its tickets go onto it, the sub-action leaves.
+ * Only a sub-action made on the plan - a KPI tile's task stays the tile's. The new action, or null when it cannot.
+ */
+export async function subToAction(taskId: number, parentId: number, by: string): Promise<PlanItem | null> {
+  const [k, parent] = await Promise.all([taskById(taskId), itemById(parentId)]);
+  if (!k || !k.tile.startsWith("plan:") || !parent || (parent.kind !== "group" && parent.kind !== "topic")) return null;
+  const from = k.planItem != null ? await itemById(k.planItem) : null;
+  const a = await addItem({ parentId, kind: "action", title: k.title, by });
+  const made = await updateItem(a.id, {
+    detail: k.note || k.title, ...(k.stage ? { stage: k.stage } : {}), priority: k.priority, start: k.start, due: k.due, statusNote: k.statusNote,
+    owners: /^\d+$/.test(k.owner) ? [{ id: k.owner, name: k.ownerName || k.owner }] : [],
+    dg: from?.dg ?? false, country: from?.country ?? [], ...(from?.dg ? { channel: from.channel, agency: from.agency } : {}),
+  }, by);
+  await ticketsToAction(k.id, a.id);
+  // they agree as they are: the ticket was the sub-action's, its fields are the action's now
+  await markTicketSync([a.id]);
+  await deleteTask(k.id);
+  if (from) await log(from.id, by, [{ field: "Sub-action", before: k.title, after: `made an action of its own in “${parent.title}”` }]);
+  await log(a.id, by, [{ field: "Made from", before: "", after: from ? `a sub-action of “${from.title}”` : "a sub-action" }]);
+  return made;
+}
+
+/**
+ * A sub-action copied under another action (SARCLA 02.11.2026: "if a sub-action serves a purpose in another major point I
+ * should be able to duplicate and drag and drop"): the same name, description, status, priority, person, dates, status
+ * note and people it is shared with - no ticket, a ticket is one sub-action's. Onto its own action, a second one there.
+ * The copy, or null when it cannot.
+ */
+export async function copySub(taskId: number, actionId: number, by: string): Promise<KpiTask | null> {
+  const [k, to] = await Promise.all([taskById(taskId), itemById(actionId)]);
+  if (!k || !to || to.kind !== "action") return null;
+  const from = k.planItem != null ? await itemById(k.planItem) : null;
+  const copy = await addTask({
+    tile: `plan:${to.id}`, page: "plan", title: k.title, note: k.note, owner: k.owner, ownerName: k.ownerName, due: k.due, start: k.start,
+    stage: k.stage, priority: k.priority, statusNote: k.statusNote, shared: k.shared, href: `/action-plan?item=${to.id}`, by,
+  });
+  await log(to.id, by, [{ field: "Sub-action", before: "", after: from && from.id !== to.id ? `${k.title} (a copy of the one in “${from.title}”)` : `${k.title} (a copy)` }]);
+  await startedBySub(to.id, by);
+  return copy;
+}
+
+/** A sub-action moved under another action, its tickets with it; the action it goes to is under way. */
+export async function moveSub(taskId: number, actionId: number, by: string): Promise<boolean> {
+  const [k, to] = await Promise.all([taskById(taskId), itemById(actionId)]);
+  if (!k || !k.tile.startsWith("plan:") || !to || to.kind !== "action" || k.planItem === to.id) return false;
+  const from = k.planItem != null ? await itemById(k.planItem) : null;
+  await moveTask(k.id, to.id);
+  if (from) await log(from.id, by, [{ field: "Sub-action", before: k.title, after: `moved under “${to.title}”` }]);
+  await log(to.id, by, [{ field: "Sub-action", before: "", after: from ? `${k.title} (from “${from.title}”)` : k.title }]);
+  await startedBySub(to.id, by);
+  return true;
 }
 
 /**

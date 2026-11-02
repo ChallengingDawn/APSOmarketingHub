@@ -479,7 +479,7 @@ export function TicketFields({ form, values, set }: { form: Form; values: Record
         return (
           <TextField key={f.name} size="small" label={label} value={values[f.name] ?? ""} onChange={(e) => set(f.name, e.target.value)}
             sx={{ ...field, ...(f.kind === "textarea" ? { gridColumn: "1 / -1" } : {}) }}
-            type={f.kind === "date" ? "date" : "text"} multiline={f.kind === "textarea"} minRows={f.kind === "textarea" ? 2 : undefined} maxRows={8}
+            type={f.kind === "date" ? "date" : "text"} multiline={f.kind === "textarea"} minRows={f.kind === "textarea" ? 2 : undefined}
             InputLabelProps={f.kind === "date" ? { shrink: true } : undefined} />
         );
       })}

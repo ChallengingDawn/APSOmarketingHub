@@ -7,10 +7,13 @@
 //   POST  {action:"add", parentId, kind, title}  a new topic, group or action
 //   POST  {action:"move", id, target, where}     drag and drop: "into" a topic or group, or "before" a row
 //   POST  {action:"sub", id, target}             an action dropped on another action: it becomes its sub-action
+//   POST  {action:"unsub", taskId, target}       a sub-action dropped on a category: an action of its own there
+//   POST  {action:"movesub", taskId, target}     a sub-action dropped on another action: it moves under it
+//   POST  {action:"copysub", taskId, target}     a copy of a sub-action under an action (Ctrl-drag, or Duplicate)
 //   DELETE ?id=                                  a row and what is under it; its own sub-actions go too
 // Every change to the tree reaches HubSpot's three plan properties a few seconds later (actionPlanHubspot.ts).
 import { NextRequest, NextResponse } from "next/server";
-import { actionToSub, addItem, deleteItems, itemById, startMains, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
+import { actionToSub, addItem, copySub, deleteItems, itemById, moveSub, startMains, subToAction, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
 import { freshFromTickets, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { PRIORITIES, S2S_CHOICES, STAGES, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
 import { dropPlanItem, planTasks } from "@/lib/reporting/kpiActions";
@@ -132,7 +135,7 @@ export async function PATCH(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const w = await who(true);
   if (w instanceof NextResponse) return w;
-  const b = (await req.json().catch(() => ({}))) as { action?: string; parentId?: number; kind?: string; title?: string; id?: number; target?: number; where?: string };
+  const b = (await req.json().catch(() => ({}))) as { action?: string; parentId?: number; kind?: string; title?: string; id?: number; target?: number; where?: string; taskId?: number };
   try {
     if (b.action === "add") {
       if (!Number.isInteger(b.parentId) || !b.title?.trim()) return fail("a new row needs where it goes and its name", 400);
@@ -156,7 +159,27 @@ export async function POST(req: NextRequest) {
       console.log(`[action-plan] ${w.name} made row ${b.id} a sub-action of ${b.target} (task ${task.id})`);
       return NextResponse.json({ ok: true, task });
     }
-    return fail("action is add, move or sub", 400);
+    if (b.action === "copysub") {
+      if (!Number.isInteger(b.taskId) || !Number.isInteger(b.target)) return fail("it needs the sub-action and the action its copy goes under", 400);
+      const task = await copySub(b.taskId as number, b.target as number, w.name);
+      if (!task) return fail("a sub-action is copied under an action", 400);
+      queuePlanSync("sub-action copied");
+      return NextResponse.json({ ok: true, task });
+    }
+    if (b.action === "unsub" || b.action === "movesub") {
+      if (!Number.isInteger(b.taskId) || !Number.isInteger(b.target)) return fail("it needs the sub-action and where it goes", 400);
+      if (b.action === "unsub") {
+        const item = await subToAction(b.taskId as number, b.target as number, w.name);
+        if (!item) return fail("only a sub-action made on the plan becomes an action, in a main category or a sub-category", 400);
+        queuePlanSync("sub-action made an action");
+        console.log(`[action-plan] ${w.name} made sub-action ${b.taskId} an action (row ${item.id}) in ${b.target}`);
+        return NextResponse.json({ ok: true, item });
+      }
+      if (!(await moveSub(b.taskId as number, b.target as number, w.name))) return fail("a sub-action made on the plan moves under another action", 400);
+      queuePlanSync("sub-action moved");
+      return NextResponse.json({ ok: true });
+    }
+    return fail("action is add, move, sub, unsub or movesub", 400);
   } catch (e) { return fail(e); }
 }
 

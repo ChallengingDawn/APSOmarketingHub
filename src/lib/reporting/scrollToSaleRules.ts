@@ -23,7 +23,8 @@ export const S2S_FIELDS: readonly Omit<S2sField, "options">[] = [
   { name: "hs_pipeline_stage", label: "Status", kind: "stage", required: true },
   { name: "hs_ticket_priority", label: "Priority", kind: "select", required: true },
   { name: "hubspot_owner_id", label: "Owner", kind: "owner", required: true },
-  { name: "mkt_business_goal", label: "Business goal", kind: "multi", required: true },
+  // optional (SARCLA 02.11.2026: "business goal - don't make it mandatory at all")
+  { name: "mkt_business_goal", label: "Business goal", kind: "multi" },
   // the plan's place, three properties the hub keeps in HubSpot (SARCLA 01.11.2026: "create new properties in HubSpot to
   // populate the action plan's main categories and sub and so forth") - on the form of the plan's sub-actions only
   ...PLAN_PROPS.map((p) => ({ name: p.name, label: p.label, kind: "select" as const })),

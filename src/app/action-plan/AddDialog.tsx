@@ -54,7 +54,7 @@ const without = (v: Record<string, string>, keys: string[]) => Object.fromEntrie
 /** Several square choices (country, channel, agency). */
 function Pick({ title, options, value, set }: { title: string; options: Opt[]; value: string[]; set: (v: string[]) => void }) {
   return (
-    <Box sx={{ display: "grid", gap: 0.5 }}>
+    <Box sx={{ display: "grid", gap: 0.75 }}>
       <Typography sx={label}>{title}</Typography>
       <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
         {options.map((o) => {
@@ -215,8 +215,10 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
     } catch (e) { setErr((e as Error).message); setBusy(false); }
   };
 
+  // the sub-action window's spacing (SubActions.tsx SmallFields, SubEditor): 1.9 between blocks, 0.75 from a label to its tags
+  // (SARCLA 02.11.2026: "the design rules are still so wrong")
   return (
-    <Box sx={{ display: "grid", gap: 1.4 }}>
+    <Box sx={{ display: "grid", gap: 1.9 }}>
       {(can.length > 1 || action) && (
         <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
           {can.length > 1 && can.map((k) => <Box key={k} component="button" type="button" aria-pressed={kind === k} onClick={() => setKind(k)} sx={{ ...square(kind === k, TINT.blue.fg, TINT.blue.bg), fontSize: "0.84rem", px: 1.4, py: 0.6 }}>New {NAME[k]}</Box>)}
@@ -230,13 +232,13 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
       )}
       {dgOk && <DgSwitch on={dg} set={setDg} hint={dg ? "The action and its sub-actions carry “From Scroll to Sale” tickets - make one or link one now" : "Turn on for a “From Scroll to Sale” ticket, the marketing channel and the agency"} />}
       <Box sx={{ display: "grid", gap: 1.75, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: withTicket ? "minmax(0, 1fr) minmax(0, 1.15fr)" : "minmax(0, 1fr)" } }}>
-        <Box sx={{ display: "grid", gap: 1.4, minWidth: 0 }}>
+        <Box sx={{ display: "grid", gap: 1.9, minWidth: 0 }}>
           <TextField size="small" autoFocus label={action ? "Action" : `The ${NAME[kind]}'s name`} placeholder={action ? "What will be done - written as an action" : ""} value={title}
             onChange={(e) => setTitle(e.target.value)} sx={field} slotProps={{ inputLabel: { shrink: true } }} onKeyDown={(e) => { if (e.key === "Enter" && !action && ready) void create(); }} />
           {action && (
             <>
-              <TextField size="small" label="Description" value={detail} onChange={(e) => setDetail(e.target.value)} multiline minRows={2} maxRows={6} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
-              <Box sx={{ display: "grid", gap: 0.5 }}>
+              <TextField size="small" label="Description" placeholder="What the action is about, what done looks like" value={detail} onChange={(e) => setDetail(e.target.value)} multiline minRows={2} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
+              <Box sx={{ display: "grid", gap: 0.75 }}>
                 <Typography sx={label}>Status</Typography>
                 <Box role="radiogroup" aria-label="Status" sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                   {STAGES.map((s) => {
@@ -247,8 +249,8 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
                 </Box>
               </Box>
               <TextField size="small" label="Status note" placeholder="Where it stands - what is done, what is in the way" value={statusNote} onChange={(e) => setStatusNote(e.target.value)}
-                multiline minRows={1} maxRows={5} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
-              <Box sx={{ display: "grid", gap: 0.5 }}>
+                multiline minRows={1} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
+              <Box sx={{ display: "grid", gap: 0.75 }}>
                 <Typography sx={label}>Priority</Typography>
                 <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                   {[...PRIORITIES].reverse().map((p) => {
@@ -258,20 +260,20 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
                   })}
                 </Box>
               </Box>
-              <Box sx={{ display: "grid", gap: 1.2, gridTemplateColumns: { xs: "1fr", sm: "1.6fr 1fr 1fr" } }}>
+              <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: { xs: "1fr", sm: "1.6fr 1fr 1fr" } }}>
                 <Autocomplete multiple size="small" options={people} value={owners} getOptionLabel={(o) => o.name} isOptionEqualToValue={(a, b) => a.id === b.id} filterSelectedOptions
-                  onChange={(_, v) => setOwners(v)} renderInput={(p) => <TextField {...p} label="Assigned to" placeholder={owners.length ? "" : "HubSpot users"} sx={field} />} />
+                  onChange={(_, v) => setOwners(v)} renderInput={(p) => <TextField {...p} label="Assigned to" placeholder={owners.length ? "" : "HubSpot users"} sx={field} InputLabelProps={{ ...p.InputLabelProps, shrink: true }} />} />
                 <TextField size="small" type="date" label="Planned date" value={start} onChange={(e) => setStart(e.target.value)} sx={field} slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: due || undefined } }} />
                 <TextField size="small" type="date" label="Go-live date" value={due} onChange={(e) => setDue(e.target.value)} sx={field} slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: start || undefined } }} />
               </Box>
               <Pick title="Implementation country" options={choices.country} value={country} set={setCountry} />
               {withTicket && <Pick title="Marketing channel" options={choices.channel} value={channel} set={setChannel} />}
               {withTicket && <Pick title="Agency" options={choices.agency} value={agency} set={setAgency} />}
-              <Box sx={{ display: "grid", gap: 1.2, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
+              <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
                 <TextField size="small" label="KPIs" placeholder="How success is measured" value={kpis} onChange={(e) => setKpis(e.target.value)}
-                  multiline minRows={2} maxRows={6} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
+                  multiline minRows={3} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
                 <TextField size="small" label="Next steps / milestones" placeholder="The first steps, one per line" value={nextSteps} onChange={(e) => setNextSteps(e.target.value)}
-                  multiline minRows={2} maxRows={6} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
+                  multiline minRows={3} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
               </Box>
             </>
           )}

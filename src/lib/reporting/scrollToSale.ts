@@ -3,7 +3,7 @@
 // that fill the form are in scrollToSaleRules.ts.
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
-import { S2S_FIELDS, S2S_PIPELINE, ticketProperties, type S2sField } from "./scrollToSaleRules";
+import { S2S_FIELDS, S2S_PIPELINE, nextRoadmapId, ticketProperties, type S2sField } from "./scrollToSaleRules";
 
 type Opt = { value: string; label: string };
 type Page<T> = { results?: T[]; paging?: { next?: { after?: string } } };
@@ -44,7 +44,8 @@ async function roadmapIds(): Promise<string[]> {
   for (let page = 0; page < 20; page++) {
     const j = await hubspotFetchJson<Page<Ticket>>({
       path: "/crm/v3/objects/tickets/search", method: "POST",
-      body: { filterGroups: [{ filters: [{ propertyName: "hs_pipeline", operator: "EQ", value: S2S_PIPELINE }, { propertyName: "mkt_roadmap_id", operator: "HAS_PROPERTY" }] }], properties: ["mkt_roadmap_id"], limit: 100, ...(after ? { after } : {}) },
+      // every ticket that has one, any pipeline: HubSpot keeps the ID unique across them all
+      body: { filterGroups: [{ filters: [{ propertyName: "mkt_roadmap_id", operator: "HAS_PROPERTY" }] }], properties: ["mkt_roadmap_id"], limit: 100, ...(after ? { after } : {}) },
     });
     for (const t of j.results ?? []) if (t.properties?.mkt_roadmap_id) ids.push(t.properties.mkt_roadmap_id);
     after = j.paging?.next?.after;
@@ -92,10 +93,26 @@ export function ownerOf(form: S2sForm, email: string | null | undefined): S2sOwn
   return e ? form.owners.find((o) => o.email === e) ?? null : null;
 }
 
+/**
+ * A new ticket of the pipeline. Its roadmap ID is unique in HubSpot - across every ticket, any pipeline: one taken
+ * meanwhile (SARCLA 02.11.2026: "Cannot set mkt_roadmap_id = MKT26-47 on 4458... 4456... already has that value") is
+ * replaced by the next free one, read again, up to three times.
+ */
 export async function createTicket(values: Record<string, string | null | undefined>, extra: Record<string, string> = {}): Promise<string> {
-  const j = await hubspotFetchJson<{ id: string }>({ path: "/crm/v3/objects/tickets", method: "POST", body: { properties: ticketProperties(values, extra) } });
-  formCache = null; // its roadmap id is taken now
-  return String(j.id);
+  let v = { ...values };
+  for (let tries = 0; ; tries++) {
+    try {
+      const j = await hubspotFetchJson<{ id: string }>({ path: "/crm/v3/objects/tickets", method: "POST", body: { properties: ticketProperties(v, extra) } });
+      formCache = null; // its roadmap id is taken now
+      return String(j.id);
+    } catch (e) {
+      const m = String((e as Error)?.message ?? e);
+      if (tries >= 3 || !/mkt_roadmap_id/.test(m) || !/already has that value/i.test(m)) throw e;
+      const yy = String(v.mkt_roadmap_id ?? "").match(/^MKT(\d{2})-/i)?.[1];
+      v = { ...v, mkt_roadmap_id: nextRoadmapId(await roadmapIds(), yy ? 2000 + Number(yy) : new Date().getFullYear()) };
+      formCache = null;
+    }
+  }
 }
 
 export type S2sTicket = { id: string; subject: string; stage: string; stageLabel: string; open: boolean; owner: string; ownerName: string; roadmapId: string; created: string; url: string };

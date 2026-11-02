@@ -64,7 +64,7 @@ function Field({ label, value, onSave, canWrite, multiline = false, rows, placeh
   useEffect(() => { setV(value); }, [value]);
   return (
     <TextField size="small" label={label} value={v} placeholder={placeholder} onChange={(e) => setV(e.target.value)} onBlur={() => { if (v !== value) onSave(v); }}
-      disabled={!canWrite} multiline={multiline} minRows={multiline ? rows ?? 2 : undefined} maxRows={multiline ? 16 : undefined}
+      disabled={!canWrite} multiline={multiline} minRows={multiline ? rows ?? 2 : undefined}
       sx={{ ...field, gridColumn: span ? "1 / -1" : "auto" }} slotProps={{ inputLabel: { shrink: true } }} />
   );
 }
@@ -74,7 +74,7 @@ function Title({ value, canWrite, onSave }: { value: string; canWrite: boolean; 
   const [v, setV] = useState(value);
   useEffect(() => { setV(value); }, [value]);
   return (
-    <TextField variant="standard" fullWidth multiline maxRows={3} value={v} disabled={!canWrite} aria-label="Name"
+    <TextField variant="standard" fullWidth multiline value={v} disabled={!canWrite} aria-label="Name"
       onChange={(e) => setV(e.target.value)} onBlur={() => { if (v.trim() && v !== value) onSave(v); else setV(value); }}
       sx={{ mt: 0.5, "& .MuiInputBase-root": { fontSize: "1.3rem", fontWeight: 700, color: INK, lineHeight: 1.3 }, "& .MuiInput-underline:before": { borderBottomColor: "transparent" } }} />
   );

@@ -100,3 +100,8 @@ test("scroll to sale: no report link on the ticket form - nor sent with a ticket
   assert.equal("mkt_report_link" in ticketProperties({ subject: "Run it", mkt_report_link: "https://example.com/r", mkt_status_note: "Briefed" }), false);
   assert.equal(ticketProperties({ subject: "Run it", mkt_status_note: "Briefed" }).mkt_status_note, "Briefed");
 });
+
+test("scroll to sale: the business goal is not asked for (SARCLA 02.11.2026: don't make it mandatory at all)", () => {
+  assert.equal(missingRequired({}).includes("Business goal"), false);
+  assert.equal(S2S_FIELDS.find((f) => f.name === "mkt_business_goal")?.required ?? false, false);
+});

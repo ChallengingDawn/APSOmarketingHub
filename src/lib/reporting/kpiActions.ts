@@ -340,6 +340,23 @@ export async function actionTickets(): Promise<{ item: number; ticketId: string;
   return r.rows.map((x) => ({ item: Number(x.item), ticketId: x.ticket_id, count: Number(x.count) }));
 }
 
+/** A sub-action made an action of its own: its tickets go onto that action (a ticket it already has stays as it is there). */
+export async function ticketsToAction(taskId: number, itemId: number): Promise<void> {
+  await ensure();
+  const tile = `plan:${itemId}`;
+  await query(`DELETE FROM ${LINKS} l WHERE l.task_id = $1 AND EXISTS (SELECT 1 FROM ${LINKS} x WHERE x.tile = $2 AND x.ticket_id = l.ticket_id AND x.task_id IS DISTINCT FROM $1)`, [taskId, tile]);
+  await query(`UPDATE ${LINKS} SET tile = $2, task_id = NULL WHERE task_id = $1`, [taskId, tile]);
+}
+
+/** A sub-action moved under another action, its tickets with it. */
+export async function moveTask(taskId: number, itemId: number): Promise<void> {
+  await ensure();
+  const tile = `plan:${itemId}`;
+  await query(`DELETE FROM ${LINKS} l WHERE l.task_id = $1 AND l.tile <> $2 AND EXISTS (SELECT 1 FROM ${LINKS} x WHERE x.tile = $2 AND x.ticket_id = l.ticket_id)`, [taskId, tile]);
+  await query(`UPDATE ${LINKS} SET tile = $2 WHERE task_id = $1`, [taskId, tile]);
+  await query(`UPDATE ${TASKS} SET tile = $2, plan_item = $3, href = $4, updated_at = now() WHERE id = $1`, [taskId, tile, itemId, `/action-plan?item=${itemId}`]);
+}
+
 /** An action leaves the plan: its own sub-actions go with it (their tickets stay in HubSpot), KPI tasks only lose the link. */
 export async function dropPlanItem(id: number): Promise<void> {
   await ensure();
