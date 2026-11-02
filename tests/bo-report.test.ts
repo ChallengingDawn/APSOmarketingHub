@@ -76,3 +76,11 @@ test("before July 2025 the tickets were not in HubSpot's pipelines: no ticket fi
   // the year to date from January 2025 has no ticket total to compare with
   assert.equal(kpisOf(sumMonths([m("2025-01"), m("2025-07")]), null, null).created, null);
 });
+
+test("a month not counted yet has no figure at all - not zero - and months added up with one of them neither", () => {
+  const m = (ym: string, pending?: boolean): BoMonth => ({ ym, created: 0, closed: 0, closeDays: 0, closeN: 0, replyDays: 0, replyN: 0, chat: 0, topics: {}, eso: 0, tsa: 0, all: 0, orders: 0, lines: 0, ...(pending ? { pending } : {}) });
+  const k = kpisOf(m("2026-03", true), null, 900);
+  assert.deepEqual([k.created, k.orders, k.lines, k.perLine, k.hoursPerTicket], [null, null, null, null, null]);
+  assert.equal(kpisOf(sumMonths([m("2026-02"), m("2026-03", true)]), null, null).created, null);
+  assert.equal(kpisOf(m("2026-03"), null, null).created, 0);
+});

@@ -1,4 +1,5 @@
-// BACK-OFFICE REPORTS: the months and the GQS tasks (./boReport.ts, hourly) and the hours the Back Office worked - typed in
+// BACK-OFFICE REPORTS: the months and the GQS tasks kept so far (src/lib/reporting/boReport.ts - asking starts the counter
+// on what is missing or due) and the hours the Back Office worked - typed in
 // per month on Figures, not in HubSpot (SARCLA 02.11.2026: "Live, file = the KPI list ... hours worked, OTD and stopped
 // orders are typed in"). GET for anyone with one of the report's pages; PUT (the hours) for whoever may change Figures.
 
@@ -8,7 +9,7 @@ import { accessAt } from "@/lib/auth/tree";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { query } from "@/lib/db/client";
-import { boReport } from "@/lib/reporting/boReport";
+import { boReportNow } from "@/lib/reporting/boReport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,10 +27,11 @@ export async function GET() {
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!PAGES.some((p) => level(access, p) !== "none")) return NextResponse.json({ error: "No access" }, { status: 403 });
   try {
-    const [st, hours] = await Promise.all([boReport(), kvGet<Record<string, number>>(HOURS)]);
+    const [st, hours] = await Promise.all([boReportNow(), kvGet<Record<string, number>>(HOURS)]);
     return NextResponse.json({
-      state: { computing: st.computing, progress: st.progress ?? null, error: st.error ?? null, computedAt: st.computedAt ?? null },
-      data: st.value ? { ...st.value, hours: hours ?? WORKBOOK_HOURS } : null,
+      state: { computing: st.counting, progress: st.progress, error: st.error, computedAt: st.generatedAt },
+      // nothing kept yet: the page says it is counting; else the months there are, the rest named as pending
+      data: st.months.length ? { ...st, hours: hours ?? WORKBOOK_HOURS } : null,
       canEdit: level(access, PAGES[0]) === "write",
     });
   } catch (e) {

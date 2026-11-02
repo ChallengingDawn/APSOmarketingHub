@@ -31,6 +31,8 @@ export type BoMonth = {
   eso: number; tsa: number; all: number;
   /** the orders of the month (order date): order numbers, and their lines */
   orders: number; lines: number;
+  /** not counted yet (the first count fills the months newest first): every figure of it null, never 0 */
+  pending?: boolean;
 };
 
 /** One month of GQS tasks (from the GQS figures' own read, kv gqsFigures:store). */
@@ -148,6 +150,7 @@ const ratio = (a: number, b: number) => (b ? a / b : null);
 export function sumMonths(ms: BoMonth[]): BoMonth {
   const out: BoMonth = { ym: ms[0]?.ym ?? "", created: 0, closed: 0, closeDays: 0, closeN: 0, replyDays: 0, replyN: 0, chat: 0, topics: {}, eso: 0, tsa: 0, all: 0, orders: 0, lines: 0 };
   for (const m of ms) {
+    if (m.pending) out.pending = true;
     for (const k of ["created", "closed", "closeDays", "closeN", "replyDays", "replyN", "chat", "eso", "tsa", "all", "orders", "lines"] as const) out[k] += m[k];
     for (const [t, n] of Object.entries(m.topics)) out.topics[t] = (out.topics[t] ?? 0) + n;
   }
@@ -160,7 +163,7 @@ export function sumGqs(ms: GqsMonth[]): GqsMonth {
 }
 
 export type BoKpis = {
-  created: number | null; closed: number | null; hours: number | null; lines: number; orders: number;
+  created: number | null; closed: number | null; hours: number | null; lines: number | null; orders: number | null;
   resolution: number | null; firstReply: number | null; chat: number | null;
   gqsCreated: number | null; gqsSent: number | null; gqsResolution: number | null;
   perLine: number | null; perOrder: number | null; hoursPerTicket: number | null;
@@ -173,11 +176,11 @@ export type BoKpis = {
  * TICKETS_FROM every ticket figure is null; months added up that start before it have none either.
  */
 export function kpisOf(m: BoMonth, g: GqsMonth | null, hours: number | null): BoKpis {
-  const t = hasTickets(m.ym);
+  const t = hasTickets(m.ym) && !m.pending;
   const n = (x: number) => (t ? x : null);
   const r = (a: number, b: number) => (t ? ratio(a, b) : null);
   return {
-    created: n(m.created), closed: n(m.closed), hours, lines: m.lines, orders: m.orders,
+    created: n(m.created), closed: n(m.closed), hours, lines: m.pending ? null : m.lines, orders: m.pending ? null : m.orders,
     resolution: t ? avg(m.closeDays, m.closeN) : null, firstReply: t ? avg(m.replyDays, m.replyN) : null, chat: n(m.chat),
     gqsCreated: t ? g?.created ?? 0 : null, gqsSent: t && g ? avg(g.sentDays, g.sentN) : null, gqsResolution: t && g ? avg(g.doneDays, g.doneN) : null,
     perLine: r(m.created, m.lines), perOrder: r(m.created, m.orders), hoursPerTicket: hours != null ? r(hours, m.created) : null,

@@ -68,7 +68,8 @@ function useBo() {
 
 /* ── the year shown: its months, last year's beside them ──────────────── */
 
-const EMPTY = (ym: string): BoMonth => ({ ym, created: 0, closed: 0, closeDays: 0, closeN: 0, replyDays: 0, replyN: 0, chat: 0, topics: {}, eso: 0, tsa: 0, all: 0, orders: 0, lines: 0 });
+/** a month not counted yet */
+const EMPTY = (ym: string): BoMonth => ({ ym, created: 0, closed: 0, closeDays: 0, closeN: 0, replyDays: 0, replyN: 0, chat: 0, topics: {}, eso: 0, tsa: 0, all: 0, orders: 0, lines: 0, pending: true });
 const EMPTY_GQS = (ym: string): GqsMonth => ({ ym, created: 0, sentDays: 0, sentN: 0, doneDays: 0, doneN: 0 });
 
 type Frame = {
@@ -137,7 +138,7 @@ function Page({ title, children, figs }: { title: string; children: (f: Frame, d
   const head = <Typography component="h1" sx={H1}>{title}</Typography>;
   if (err && !a?.data) return <Box sx={SHELL}>{head}<UpstreamPanel source="Back-Office Reports" error={err.error} status={err.status} onRetry={again} /></Box>;
   if (!a?.data) {
-    const label = a?.state.error ? `The last count stopped: ${a.state.error}` : `Counting the Back Office's months from HubSpot - the first count takes some minutes${a?.state.progress ? ` · ${a.state.progress}` : "…"}`;
+    const label = a?.state.error ? `The last count stopped: ${a.state.error}` : `Counting the Back Office's months from HubSpot - the newest first, each shown as soon as it is counted${a?.state.progress ? ` · ${a.state.progress}` : "…"}`;
     return <Box sx={SHELL}>{head}<LoadingPanel label={label} /></Box>;
   }
   return <Loaded title={title} d={a.data} a={a} figs={figs} canEdit={a.canEdit} setHours={setHours}>{children}</Loaded>;
@@ -156,7 +157,7 @@ function Loaded({ title, d, a, figs, canEdit, setHours, children }: {
           <Typography component="h1" sx={H1}>{title}</Typography>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
             <b style={{ color: INK }}>Back Office</b> · {f.year}{f.done ? <> · the figures: <b style={{ color: INK }}>{f.doneWords} {f.year}</b>{f.totalPrev ? <> against {f.doneWords} {f.year - 1}</> : null}</> : null} · counted {counted}
-            {a.state.computing && <> · <CircularProgress size={10} sx={{ mx: 0.4 }} />counting again{a.state.progress ? `: ${a.state.progress}` : ""}</>}
+            {a.state.computing && <> · <CircularProgress size={10} sx={{ mx: 0.4 }} />{d.pending?.length ? `counting - ${d.pending.length} of ${d.pending.length + d.months.length} months still to come, the newest first` : "counting again"}{a.state.progress ? `: ${a.state.progress}` : ""}</>}
           </Typography>
           <Choices items={f.years.map((y) => ({ id: String(y), label: String(y) }))} on={String(f.year)} onPick={(y) => f.setYear(Number(y))} />
         </Box>
@@ -266,7 +267,7 @@ export function BoFiguresPage() {
       fig(`Tickets created`, n0(f.total.created), f.total.created, f.totalPrev?.created ?? null, f.doneWords || "this year", <ConfirmationNumberOutlinedIcon sx={{ fontSize: 14 }} />, "blue"),
       fig("Days to close", days(f.total.resolution), f.total.resolution, f.totalPrev?.resolution ?? null, "tickets created then, on average", <TimerOutlinedIcon sx={{ fontSize: 14 }} />, "amber", true),
       fig("Days to the first reply", days(f.total.firstReply), f.total.firstReply, f.totalPrev?.firstReply ?? null, "first agent e-mail", <ReplyOutlinedIcon sx={{ fontSize: 14 }} />, "purple", true),
-      fig("Tickets per order line", share(f.total.perLine), f.total.perLine, f.totalPrev?.perLine ?? null, `${int(f.total.lines)} order lines`, <ReceiptLongOutlinedIcon sx={{ fontSize: 14 }} />, "green", true),
+      fig("Tickets per order line", share(f.total.perLine), f.total.perLine, f.totalPrev?.perLine ?? null, `${n0(f.total.lines)} order lines`, <ReceiptLongOutlinedIcon sx={{ fontSize: 14 }} />, "green", true),
     ]}>
       {(f, _d, canEdit, setHours) => (
         <>
@@ -306,7 +307,7 @@ function TopicsBody({ f }: { f: Frame }) {
   const all = [...new Set([...f.cur, ...f.prev].flatMap((m) => (m ? Object.keys(m.topics) : [])))].sort(topicSort);
   const rows = all.map((t) => ({ label: topicLabel(t), key: t, cur: cur[t] ?? 0, prev: prev[t] ?? 0 }));
   const keys = picked.length ? all.filter((t) => picked.includes(topicLabel(t))) : all;
-  const pickN = (m: BoMonth | null) => (m && hasTickets(m.ym) ? keys.reduce((s, t) => s + (m.topics[t] ?? 0), 0) : null);
+  const pickN = (m: BoMonth | null) => (m && hasTickets(m.ym) && !m.pending ? keys.reduce((s, t) => s + (m.topics[t] ?? 0), 0) : null);
   const what = picked.length ? picked.join(", ") : "every topic";
   return (
     <>
@@ -322,7 +323,7 @@ function TopicsBody({ f }: { f: Frame }) {
           minWidth={Math.max(900, 150 + (f.yms.length + 3) * 74)} firstWidth="minmax(220px, 1.8fr)"
           rows={[...rows, { label: "Grand total", key: "__total", cur: rows.reduce((s, r) => s + r.cur, 0), prev: rows.reduce((s, r) => s + r.prev, 0) }].map((r) => ({
             key: r.key, strong: r.key === "__total",
-            cells: [r.label, ...f.cur.map((m) => (hasTickets(m.ym) ? n0(r.key === "__total" ? m.created : m.topics[r.key] ?? 0) : "—")), ...(f.done ? [int(r.cur)] : []),
+            cells: [r.label, ...f.cur.map((m) => (hasTickets(m.ym) && !m.pending ? n0(r.key === "__total" ? m.created : m.topics[r.key] ?? 0) : "—")), ...(f.done ? [int(r.cur)] : []),
               ...(compare ? [int(r.prev), <Box key="ch" component="span" sx={{ fontWeight: 700, color: tone(changeOf(r.cur, r.prev), true) }}>{r.prev ? signedPct(changeOf(r.cur, r.prev)) : "—"}</Box>] : [])],
           }))} />
       </ChartBox>
