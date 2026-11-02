@@ -2,6 +2,9 @@
 // description (SARCLA 01.11.2026: "create with AI should be a button where you describe to the AI and the AI helps fill
 // out the form"):
 //   POST {tile, describe, ctx?: {title, summary}, values?: the ticket form so far}  ->  {ok, fill}
+// On a category of the plan with kind "action" it fills a new action in it instead, its ticket only with dg (SARCLA
+// 02.11.2026: the + window of a new action "should have also create with AI"). With no ticket the AI still fills what
+// the sub-action - or the new action - has of its own: its status, priority, dates, status note, country.
 // The AI only proposes: each choice must be one the form offers (aiFillSchema, cleanAiFill), nothing is made up, and
 // the person checks the form before anything is saved. Nothing is written here.
 import { NextRequest, NextResponse } from "next/server";
@@ -16,7 +19,7 @@ import { fail, whoForTile } from "../guard";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const SYSTEM = `You help the marketing team of APSOparts (an online shop for technical parts: seals, O-rings, hoses, plastics) fill in a form in their hub: a new task - on their action plan, a sub-action of an action - and, when one is wanted, its ticket in HubSpot's "From Scroll to Sale" marketing pipeline. You get the person's description, what the task belongs to, the form as it is now, and every field with the choices it allows.
+const SYSTEM = `You help the marketing team of APSOparts (an online shop for technical parts: seals, O-rings, hoses, plastics) fill in a form in their hub: a new task - on their action plan, a sub-action of an action, or a new action - and, when one is wanted, its ticket in HubSpot's "From Scroll to Sale" marketing pipeline. You get the person's description, what the task belongs to, the form as it is now, and every field with the choices it allows.
 
 Rules:
 - Fill a field only with what the description says or what the context states plainly. Leave everything else empty ("" or []). Never invent dates, people, figures, budgets, agencies or KPIs.
@@ -28,11 +31,21 @@ Rules:
 - On the ticket: the description says what and why; the planned date is when the work starts; the go-live date is when it should be live; KPIs say how success is measured, only when the description says it.
 - Keep what the form already holds unless the description says otherwise: give those fields back as they are.`;
 
-/** An action of the plan, as the AI reads it. */
-function actionText(a: PlanItem, items: PlanItem[]): string {
+/** Where a row of the plan sits: its parents' names, the top first. */
+function pathOf(a: PlanItem, items: PlanItem[]): string[] {
   const byId = new Map(items.map((i) => [i.id, i]));
   const path: string[] = [];
   for (let p = a.parentId == null ? undefined : byId.get(a.parentId); p && path.length < 6; p = p.parentId == null ? undefined : byId.get(p.parentId)) path.unshift(p.title);
+  return path;
+}
+
+/** The sub-action's own fields, filled with no ticket too; a new action's. */
+const OWN_SUB = ["hs_pipeline_stage", "hs_ticket_priority", "mkt_planned_date", "mkt_status_note"];
+const OWN_ACTION = ["hs_pipeline_stage", "hs_ticket_priority", "mkt_planned_date", "mkt_golive_date", "mkt_implementation_country"];
+
+/** An action of the plan, as the AI reads it. */
+function actionText(a: PlanItem, items: PlanItem[]): string {
+  const path = pathOf(a, items);
   return [
     `The action plan's action "${a.title}"${path.length ? ` (in ${path.join(" > ")})` : ""}.`,
     a.detail && a.detail !== a.title ? `Its description: ${a.detail.slice(0, 1500)}` : "",
@@ -43,7 +56,7 @@ function actionText(a: PlanItem, items: PlanItem[]): string {
 }
 
 export async function POST(req: NextRequest) {
-  const b = (await req.json().catch(() => ({}))) as { tile?: string; describe?: string; ctx?: { title?: string; summary?: string }; values?: Record<string, string> };
+  const b = (await req.json().catch(() => ({}))) as { tile?: string; describe?: string; ctx?: { title?: string; summary?: string }; values?: Record<string, string>; kind?: string; dg?: boolean };
   const w = await whoForTile(b.tile, true);
   if (w instanceof NextResponse) return w;
   if (typeof b.tile !== "string") return fail("tile is missing", 400);
@@ -63,7 +76,10 @@ export async function POST(req: NextRequest) {
       return p ? { ...f, options: planOptions(items, p.kind).filter((o) => !o.hidden).map((o) => ({ value: o.value, label: o.label })) } : f;
     });
     const aiForm: AiForm = { fields, owners: form.owners.map((o) => ({ value: o.id, label: o.name })), stages: form.stages.map((s) => ({ value: s.value, label: s.label })) };
-    const tickets = planId == null || !!action?.dg;
+    // a new action in this category, or a sub-action of this action
+    const newAction = b.kind === "action" && !!action && action.kind !== "action";
+    const tickets = newAction ? !!b.dg : planId == null || !!action?.dg;
+    const own = newAction ? OWN_ACTION : OWN_SUB;
     const me = ownerOf(form, w.email);
     const choiceLines = fields.filter((f) => f.name !== "subject" && f.kind !== "team").map((f) => {
       const opts = f.kind === "stage" ? aiForm.stages : f.kind === "owner" ? [] : f.options ?? [];
@@ -73,8 +89,9 @@ export async function POST(req: NextRequest) {
     const now = Object.fromEntries(Object.entries(b.values ?? {}).filter(([k, v]) => typeof v === "string" && v.trim() && k !== "subject" && fields.some((f) => f.name === k)));
     const user = [
       `Today is ${new Date().toISOString().slice(0, 10)}. The person writing is ${me ? `${me.name} (id ${me.id})` : w.name}.`,
-      action ? actionText(action, items) : `A task on the KPI tile "${String(b.ctx?.title ?? "").slice(0, 200)}"${b.ctx?.summary ? ` - now: ${String(b.ctx.summary).slice(0, 300)}` : ""}.`,
-      tickets ? "" : "This action takes no ticket: ticket stays \"none\" and the ticket's fields stay empty.",
+      newAction ? `A new action to add to the action plan, in "${action!.title}"${pathOf(action!, items).length ? ` (in ${pathOf(action!, items).join(" > ")})` : ""}. The title is the new action's name, the note its description.`
+        : action ? actionText(action, items) : `A task on the KPI tile "${String(b.ctx?.title ?? "").slice(0, 200)}"${b.ctx?.summary ? ` - now: ${String(b.ctx.summary).slice(0, 300)}` : ""}.`,
+      tickets ? "" : `This takes no ticket: ticket stays "none". Of the fields below fill only its own - ${own.join(", ")} - and leave the others empty.`,
       `\nThe description:\n${describe}`,
       `\nThe ticket form so far: ${JSON.stringify(now)}`,
       `\nThe people (id = name): ${aiForm.owners.map((o) => `${o.value} = ${o.label}`).join("; ")}`,
@@ -88,6 +105,7 @@ export async function POST(req: NextRequest) {
     let raw: unknown;
     try { raw = JSON.parse(r.text); } catch { return fail("the AI's answer could not be read - try again", 502); }
     const fill = cleanAiFill(raw, aiForm, tickets);
+    if (!tickets) fill.values = Object.fromEntries(Object.entries(fill.values).filter(([k]) => own.includes(k)));
     console.log(`[kpi-actions] AI fill on ${b.tile} by ${w.name}: ${Object.keys(fill.values).length} ticket field(s), ${r.usage.input_tokens}+${r.usage.output_tokens} tokens`);
     return NextResponse.json({ ok: true, fill });
   } catch (e) { return fail(e, 502); }

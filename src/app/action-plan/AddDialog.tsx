@@ -10,7 +10,8 @@
 // there, the ticket - new or linked - comes at once ("on sub creation we should be able to create a ticket too - the
 // Digital Growth toggle"). A new action under a sub-category behaves the same ("even on sub-category it should allow to
 // create or associate the ticket"); under a main category there is no Digital Growth to pick. With Digital Growth on the
-// window widens, the ticket beside the rest ("the window should expand to display everything correctly").
+// window widens, the ticket beside the rest ("the window should expand to display everything correctly"). A new action
+// has "Create with AI" as a sub-action has (SARCLA 02.11.2026: "here should have also create with AI").
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -27,9 +28,10 @@ import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumb
 
 import { FAINT, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { IDEA, PRIORITIES, STAGES, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner } from "@/lib/reporting/actionPlanRules";
+import type { AiFill } from "@/lib/reporting/scrollToSaleRules";
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
 import { FindTickets, TicketFields, useTileActions } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
-import { NewSub, planTile } from "./SubActions";
+import { AiBox, AiButton, NewSub, planTile } from "./SubActions";
 import { PRIORITY_COLOR, stageColor, type PlanData } from "./planUi";
 
 const field = { "& .MuiInputBase-root": { fontSize: "0.9rem", borderRadius: "8px", bgcolor: "#fff" }, "& .MuiInputLabel-root": { fontSize: "0.88rem" } };
@@ -104,6 +106,7 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
   const [pick, setPick] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
   const action = kind === "action";
   // Digital Growth only for an action under a sub-category (none to pick under a main category)
   const dgOk = action && parent.kind === "group";
@@ -121,6 +124,35 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
   }) as Record<string, string>, [t, extra, title, detail, stage, priority, owners, start, due, country, channel, agency]);
   const missing = withTicket && ticket === "new" && t ? t.form.fields.filter((f) => f.required && !String(values[f.name] ?? "").trim()).map((f) => f.label) : [];
   const ready = !!title.trim() && !busy && (!start || !due || start <= due) && (!withTicket || ticket === "none" || (ticket === "new" ? !!t && !missing.length : pick.length > 0));
+
+  // "Create with AI": the new action's fields from a description, its ticket's too with Digital Growth - nothing saved
+  const fill = async (text: string): Promise<string> => {
+    const j = await send("/api/reporting/kpi-actions/ai", "POST", { tile: tile.key, kind: "action", dg: withTicket, describe: text, ctx: { title: parent.title, summary: tile.summary }, values });
+    const f = j.fill as AiFill;
+    const g = f.values ?? {};
+    const of = (x: string | undefined, opts: Opt[]) => (x ?? "").split(";").filter((y) => opts.some((o) => o.value === y));
+    let n = 0;
+    const take = (ok: unknown, apply: () => void) => { if (ok) { apply(); n++; } };
+    take(f.title, () => setTitle(f.title));
+    take(f.note, () => setDetail(f.note));
+    take(STAGES.some((x) => x.id === g.hs_pipeline_stage), () => setStage(g.hs_pipeline_stage));
+    take(PRIORITIES.some((x) => x.value === g.hs_ticket_priority), () => setPriority(g.hs_ticket_priority));
+    take(g.mkt_planned_date, () => setStart(g.mkt_planned_date));
+    take(f.due || g.mkt_golive_date, () => setDue(f.due || g.mkt_golive_date));
+    const who = people.find((x) => x.id === f.owner);
+    take(who, () => setOwners([who!]));
+    take(of(g.mkt_implementation_country, choices.country).length, () => setCountry(of(g.mkt_implementation_country, choices.country)));
+    if (withTicket) {
+      take(of(g.mkt_channel, choices.channel).length, () => setChannel(of(g.mkt_channel, choices.channel)));
+      take(of(g.mkt_agency, choices.agency).length, () => setAgency(of(g.mkt_agency, choices.agency)));
+      // the ticket's own fields, each one counted
+      const rest = without(g, GIVEN);
+      setExtra((x) => ({ ...x, ...rest }));
+      n += Object.keys(rest).length;
+      if (f.ticket) setTicket("new");
+    }
+    return `${n} field${n === 1 ? "" : "s"} filled in - check each one before creating. Nothing is saved yet.`;
+  };
 
   const create = async () => {
     if (!ready) return;
@@ -152,10 +184,16 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
 
   return (
     <Box sx={{ display: "grid", gap: 1.4 }}>
-      {can.length > 1 && (
-        <Box sx={{ display: "flex", gap: 0.5 }}>
-          {can.map((k) => <Box key={k} component="button" type="button" aria-pressed={kind === k} onClick={() => setKind(k)} sx={{ ...square(kind === k, TINT.blue.fg, TINT.blue.bg), fontSize: "0.84rem", px: 1.4, py: 0.6 }}>New {NAME[k]}</Box>)}
+      {(can.length > 1 || action) && (
+        <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+          {can.length > 1 && can.map((k) => <Box key={k} component="button" type="button" aria-pressed={kind === k} onClick={() => setKind(k)} sx={{ ...square(kind === k, TINT.blue.fg, TINT.blue.bg), fontSize: "0.84rem", px: 1.4, py: 0.6 }}>New {NAME[k]}</Box>)}
+          <Box sx={{ flex: 1 }} />
+          {action && <AiButton on={aiOpen} toggle={() => setAiOpen((o) => !o)} />}
         </Box>
+      )}
+      {action && aiOpen && (
+        <AiBox placeholder={`What the action is, who does it, by when, how urgent, in which countries${withTicket ? " - and what its ticket needs" : ""}`}
+          hint="The AI fills in the new action from your words - only choices the form offers, nothing made up. You check it, then create it." fill={fill} />
       )}
       {dgOk && <DgSwitch on={dg} set={setDg} hint={dg ? "The action and its sub-actions carry “From Scroll to Sale” tickets - make one or link one now" : "Turn on for a “From Scroll to Sale” ticket, the marketing channel and the agency"} />}
       <Box sx={{ display: "grid", gap: 1.75, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: withTicket ? "minmax(0, 1fr) minmax(0, 1.15fr)" : "minmax(0, 1fr)" } }}>

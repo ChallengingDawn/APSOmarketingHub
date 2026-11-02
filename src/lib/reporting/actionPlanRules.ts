@@ -91,7 +91,7 @@ export type PlanFields = {
   /** The pipeline's stage id (STAGES); null = nobody has said yet. */
   stage: string | null;
   channel: string[]; country: string[]; agency: string[]; roadmapYear: string;
-  kpis: string; nextSteps: string; statusNote: string; reportLink: string;
+  kpis: string; nextSteps: string; statusNote: string;
   start: string | null; due: string | null; dueNote: string; percent: number | null; dg: boolean;
   // the workbook's own columns, kept in the data but no longer shown - their words moved to the ticket's fields
   // once (toS2s); SARCLA 01.11.2026: "copy the HubSpot one made with the agency and delete those not needed"
@@ -104,7 +104,7 @@ export type PlanItem = PlanFields & {
   updatedBy: string; updatedAt: string;
 };
 
-export type PlanSeedItem = Omit<PlanFields, "stage" | "channel" | "country" | "agency" | "roadmapYear" | "kpis" | "nextSteps" | "statusNote" | "reportLink">
+export type PlanSeedItem = Omit<PlanFields, "stage" | "channel" | "country" | "agency" | "roadmapYear" | "kpis" | "nextSteps" | "statusNote">
   & { src: number; parentSrc: number | null; kind: PlanKind; code: string; sort: number };
 
 /**
@@ -537,7 +537,7 @@ export function planValuesOf(itemId: number, items: TreeRow[]): Record<PlanPropN
 
 /**
  * A sub-action's ticket starts from its action (SARCLA 01.11.2026: "we should try to uniform everything"): its place in
- * the plan, priority, channels, countries, agency, roadmap year, dates, KPIs, status note and report link - only the
+ * the plan, priority, channels, countries, agency, roadmap year, dates, KPIs and status note - only the
  * choices HubSpot offers, nothing made up. The stage stays the pipeline's first: the sub-action has not started.
  */
 export function ticketFromAction(a: PlanItem, items: TreeRow[], options: Record<string, { value: string }[]>): Record<string, string> {
@@ -556,7 +556,6 @@ export function ticketFromAction(a: PlanItem, items: TreeRow[], options: Record<
     mkt_golive_date: a.due ?? "",
     mkt_kpis: a.kpis,
     mkt_status_note: a.statusNote,
-    mkt_report_link: a.reportLink,
     ...(planValuesOf(a.id, items) ?? {}),
   };
   return Object.fromEntries(Object.entries(v).filter(([, x]) => x));

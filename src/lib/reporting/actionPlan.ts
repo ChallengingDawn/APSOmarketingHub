@@ -26,7 +26,7 @@ type Row = {
   start_date: unknown; due_date: unknown; due_note: string; percent: number | null; dg: boolean; updated_by: string; updated_at: unknown;
   owners: unknown; matched: boolean;
   stage: string | null; channel: unknown; country: unknown; agency: unknown; roadmap_year: string;
-  kpis: string; next_steps: string; status_note: string; report_link: string; s2s: boolean;
+  kpis: string; next_steps: string; status_note: string; s2s: boolean;
 };
 const list = (x: unknown): string[] => {
   const v = typeof x === "string" ? (() => { try { return JSON.parse(x); } catch { return []; } })() : x;
@@ -47,7 +47,7 @@ const item = (r: Row): PlanItem => ({
   complexity: r.complexity, release: r.release, start: day(r.start_date), due: day(r.due_date), dueNote: r.due_note,
   percent: r.percent, dg: r.dg, owners: ownersOf(r.owners),
   stage: stageOf(r.stage) ? r.stage : null, channel: list(r.channel), country: list(r.country), agency: list(r.agency),
-  roadmapYear: r.roadmap_year ?? "", kpis: r.kpis ?? "", nextSteps: r.next_steps ?? "", statusNote: r.status_note ?? "", reportLink: r.report_link ?? "",
+  roadmapYear: r.roadmap_year ?? "", kpis: r.kpis ?? "", nextSteps: r.next_steps ?? "", statusNote: r.status_note ?? "",
   updatedBy: r.updated_by, updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at ?? ""),
 });
 
@@ -93,6 +93,7 @@ function ensure(): Promise<void> {
       for (const c of [
         "stage text", "channel jsonb NOT NULL DEFAULT '[]'::jsonb", "country jsonb NOT NULL DEFAULT '[]'::jsonb",
         "agency jsonb NOT NULL DEFAULT '[]'::jsonb", "roadmap_year text NOT NULL DEFAULT ''", "kpis text NOT NULL DEFAULT ''",
+        // report_link: kept, no longer read or shown (SARCLA 02.11.2026: "report link - take out completely")
         "next_steps text NOT NULL DEFAULT ''", "status_note text NOT NULL DEFAULT ''", "report_link text NOT NULL DEFAULT ''",
         "s2s boolean NOT NULL DEFAULT false",
       ]) await query(`ALTER TABLE ${T} ADD COLUMN IF NOT EXISTS ${c}`);
@@ -233,7 +234,7 @@ const TEXT: [keyof PlanFields, string, number][] = [
   ["perimeter", "perimeter", 120], ["expected", "expected", 2000], ["codeFreeze", "code_freeze", 200],
   ["complexity", "complexity", 60], ["release", "release", 120], ["dueNote", "due_note", 200],
   ["roadmapYear", "roadmap_year", 10], ["kpis", "kpis", 4000], ["nextSteps", "next_steps", 4000],
-  ["statusNote", "status_note", 4000], ["reportLink", "report_link", 600],
+  ["statusNote", "status_note", 4000],
 ];
 const LISTS: [keyof PlanFields, string][] = [["channel", "channel"], ["country", "country"], ["agency", "agency"]];
 
@@ -242,7 +243,7 @@ const FIELD_NAME: Partial<Record<keyof PlanFields, string>> = {
   title: "Name", detail: "Description", priority: "Priority", referent: "Referent", stage: "Status", owners: "Assigned to",
   start: "Planned date", due: "Go-live date", percent: "% complete", dg: "Led by Digital Growth", channel: "Marketing channel",
   country: "Implementation country", agency: "Agency", roadmapYear: "Roadmap year", kpis: "KPIs", nextSteps: "Next steps / milestones",
-  statusNote: "Status note", reportLink: "Report link", dueNote: "Deadline words", responsible: "Responsible (workbook)",
+  statusNote: "Status note", dueNote: "Deadline words", responsible: "Responsible (workbook)",
 };
 function shown(k: keyof PlanFields, v: unknown): string {
   if (v == null || v === "") return "";

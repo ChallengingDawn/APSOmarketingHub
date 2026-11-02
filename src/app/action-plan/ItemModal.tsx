@@ -3,7 +3,7 @@
 // full modal per action with tracking and KPI"). The fields are the "From Scroll to Sale" ticket's, the ones made
 // with the agency (01.11.2026: "follow at the maximum what we use on the From Scroll to Sale pipeline ... copy the
 // HubSpot one and delete those not needed"): the pipeline's stages, HubSpot's priorities, planned and go-live
-// dates, channels, countries, agency, roadmap year, KPIs, next steps, status note, report link. Where the ticket
+// dates, channels, countries, agency, roadmap year, KPIs, next steps, status note (no report link - 02.11.2026). Where the ticket
 // picks a business goal ("Awareness"), an action picks its place in the plan's tree. Each field saves when it is
 // left; every change lands in the tracking on the right.
 // Two views, switched at the top like Map assignment's Live | Sandbox (SARCLA 01.11.2026: "KPI should be a toggle like
@@ -32,7 +32,6 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import TaskAltIcon from "@mui/icons-material/TaskAlt";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import HistoryIcon from "@mui/icons-material/History";
 import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
@@ -394,12 +393,6 @@ function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen
           <Box sx={card}>
             <Typography sx={section}>How it is measured</Typography>
             <Field label="KPIs" value={item.kpis} canWrite={canWrite} multiline rows={4} onSave={(v) => save({ kpis: v })} />
-            <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
-              <Box sx={{ flex: 1 }}><Field label="Report link" value={item.reportLink} placeholder="https://" canWrite={canWrite} onSave={(v) => save({ reportLink: v.trim() })} /></Box>
-              {/^https?:\/\//i.test(item.reportLink) && (
-                <IconButton component="a" href={item.reportLink} target="_blank" rel="noreferrer" aria-label="Open the report" sx={{ mt: 0.25 }}><OpenInNewIcon sx={{ fontSize: 18 }} /></IconButton>
-              )}
-            </Box>
           </Box>
           <Box sx={card}>
             <Typography sx={section}>KPI tiles it is tied to</Typography>

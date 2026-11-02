@@ -21,7 +21,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const TEXT_FIELDS = ["title", "detail", "responsible", "referent", "dueNote", "roadmapYear", "kpis", "nextSteps", "statusNote", "reportLink"] as const;
+const TEXT_FIELDS = ["title", "detail", "responsible", "referent", "dueNote", "roadmapYear", "kpis", "nextSteps", "statusNote"] as const;
 const LIST_FIELDS = ["channel", "country", "agency"] as const;
 /** The ticket's property behind each choice list. */
 const PROP = { channel: "mkt_channel", country: "mkt_implementation_country", agency: "mkt_agency", roadmapYear: "mkt_roadmap_year" } as const;
@@ -104,7 +104,6 @@ export async function PATCH(req: NextRequest) {
     if (!Array.isArray(b[k]) || !(b[k] as unknown[]).every((x) => typeof x === "string")) return fail(`${k} is a list of choices`, 400);
     p[k] = b[k] as string[];
   }
-  if (typeof p.reportLink === "string" && p.reportLink.trim() && !/^https?:\/\//i.test(p.reportLink.trim())) return fail("the report link is a web address (https://...)", 400);
   if (b.dg !== undefined) p.dg = !!b.dg;
   if (b.owners !== undefined) {
     if (!Array.isArray(b.owners)) return fail("owners is a list of HubSpot owner ids", 400);

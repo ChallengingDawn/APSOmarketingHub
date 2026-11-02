@@ -1,7 +1,8 @@
 // A tile's tasks - the actions taken to correct its KPI (SARCLA 18.10.2026): list (?tile=), add,
 // change (status, owner, due, words, who it is shared with), remove. The owner and the people it is
 // shared with get a mail from the hub ("share inside of the hub via mail notification"). A sub-action of the action
-// plan is a small action too (01.11.2026): a stage of the pipeline (open / doing / done follow it), a priority, a planned date.
+// plan is a small action too (01.11.2026): a stage of the pipeline (open / doing / done follow it), a priority, a planned date,
+// and a status note (02.11.2026).
 import { NextRequest, NextResponse } from "next/server";
 import { TASK_STATUSES, addTask, deleteTask, taskById, tasksOf, updateTask, type KpiTask, type SharedPerson, type TaskStatus } from "@/lib/reporting/kpiActions";
 import { itemById } from "@/lib/reporting/actionPlan";
@@ -18,7 +19,8 @@ export const dynamic = "force-dynamic";
 const tileOk = (t: unknown): t is string => typeof t === "string" && /^[a-z0-9-]+:[^\s]{0,80}$/i.test(t);
 const isDay = (d: unknown) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d);
 /** A sub-action as a small action: a stage of the pipeline (or "" for none), HubSpot's priority (or ""), a planned date. */
-function smallAction(b: { stage?: unknown; priority?: unknown; start?: unknown }): string | null {
+function smallAction(b: { stage?: unknown; priority?: unknown; start?: unknown; statusNote?: unknown }): string | null {
+  if (b.statusNote !== undefined && typeof b.statusNote !== "string") return "the status note is a text";
   if (b.stage !== undefined && b.stage !== null && b.stage !== "" && !STAGES.some((x) => x.id === b.stage)) return "stage is one of the pipeline's stages";
   if (b.priority !== undefined && b.priority !== "" && !PRIORITIES.some((x) => x.value === b.priority)) return "priority is LOW, MEDIUM, HIGH or URGENT";
   if (b.start !== undefined && b.start !== null && b.start !== "" && !isDay(b.start)) return "start is a date (YYYY-MM-DD)";
@@ -78,7 +80,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const b = (await req.json().catch(() => ({}))) as { tile?: string; page?: string; title?: string; note?: string; owner?: string; ownerName?: string; due?: string; shared?: string[]; href?: string; kpi?: string; summary?: string; planItem?: number | null; stage?: string | null; priority?: string; start?: string | null };
+  const b = (await req.json().catch(() => ({}))) as { tile?: string; page?: string; title?: string; note?: string; owner?: string; ownerName?: string; due?: string; shared?: string[]; href?: string; kpi?: string; summary?: string; planItem?: number | null; stage?: string | null; priority?: string; start?: string | null; statusNote?: string };
   const w = await whoForTile(b.tile, true);
   if (w instanceof NextResponse) return w;
   if (!tileOk(b.tile) || !b.page || !b.title?.trim()) return fail("a task needs its tile, its page and what to do", 400);
@@ -93,7 +95,7 @@ export async function POST(req: NextRequest) {
     const t = await addTask({
       tile: b.tile, page: b.page, title: b.title.trim(), note: b.note, owner: b.owner || w.email || "", ownerName: b.ownerName || w.name, due: b.due || null,
       shared, href: typeof b.href === "string" && (b.href.startsWith("/reporting/") || b.href.startsWith("/action-plan")) ? b.href : "", planItem: plan ?? null,
-      stage: b.stage || null, priority: b.priority ?? "", start: b.start || null, by: w.name,
+      stage: b.stage || null, priority: b.priority ?? "", start: b.start || null, statusNote: b.statusNote ?? "", by: w.name,
     });
     const mailed = await notify(t, w, b, true, shared);
     return NextResponse.json({ ok: true, task: t, mailed });
@@ -101,7 +103,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const b = (await req.json().catch(() => ({}))) as { id?: number; title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: string; shared?: string[]; kpi?: string; summary?: string; planItem?: number | null; stage?: string | null; priority?: string; start?: string | null };
+  const b = (await req.json().catch(() => ({}))) as { id?: number; title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: string; shared?: string[]; kpi?: string; summary?: string; planItem?: number | null; stage?: string | null; priority?: string; start?: string | null; statusNote?: string };
   if (!Number.isInteger(b.id)) return fail("id is missing", 400);
   const bad = smallAction(b);
   if (bad) return fail(bad, 400);
@@ -121,6 +123,7 @@ export async function PATCH(req: NextRequest) {
     const t = await updateTask(b.id as number, {
       title: b.title?.trim(), note: b.note, owner: b.owner, ownerName: b.ownerName, due: b.due, status: b.status as TaskStatus | undefined, shared, planItem: plan,
       stage: b.stage === undefined ? undefined : b.stage || null, priority: b.priority, start: b.start === undefined ? undefined : b.start || null,
+      statusNote: b.statusNote,
     });
     if (!t) return fail("no such task", 404);
     // tied to another action: its tickets take that action's place in HubSpot

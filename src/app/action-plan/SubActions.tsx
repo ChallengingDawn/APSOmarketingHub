@@ -9,7 +9,9 @@
 // needed if Digital Growth is on") - and the action's own tickets are found open, closed or all and linked at the bottom.
 // The + beside an action's row opens the same form in a small window of its own (AddDialog.tsx). A sub-action has a
 // description ("description should be part of the sub-action creation") - the ticket's own description when it has one.
-// In the action's window the form starts as one line and opens when it is used, the sub-actions under it.
+// In the action's window the form starts as one line and opens when it is used, the sub-actions under it. A sub-action
+// has its status note right under its status (SARCLA 02.11.2026: "status note should directly appear on the sub-action")
+// - the ticket's status note when it has one.
 
 import { useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -47,8 +49,8 @@ const square = (on: boolean, fg: string, bg: string, can: boolean) => ({
 const nonEmpty = (v: Record<string, string>) => Object.fromEntries(Object.entries(v).filter(([, x]) => String(x ?? "").trim()));
 
 /** What a sub-action is, as an action: its name, stage, priority, who does it, planned and go-live dates. */
-type Small = { title: string; stage: string; priority: string; owner: string; start: string; due: string };
-const smallOf = (k: KpiTask): Small => ({ title: k.title, stage: k.stage ?? "", priority: k.priority, owner: k.owner, start: k.start ?? "", due: k.due ?? "" });
+type Small = { title: string; stage: string; priority: string; owner: string; start: string; due: string; statusNote: string };
+const smallOf = (k: KpiTask): Small => ({ title: k.title, stage: k.stage ?? "", priority: k.priority, owner: k.owner, start: k.start ?? "", due: k.due ?? "", statusNote: k.statusNote ?? "" });
 
 /** A date handed up when it is left - typing the year does not hand up 0002, 0020, 0202 on the way. */
 function DayField({ label: l, value, min, max, canWrite, onSave }: { label: string; value: string; min?: string; max?: string; canWrite: boolean; onSave: (v: string) => void }) {
@@ -60,7 +62,18 @@ function DayField({ label: l, value, min, max, canWrite, onSave }: { label: stri
   );
 }
 
-/** The stage, the priority, who and the two dates - square choices as on the action; each change handed up at once. */
+/** A text handed up when it is left, as the dates. */
+function NoteField({ label: l, value, placeholder, canWrite, onSave }: { label: string; value: string; placeholder?: string; canWrite: boolean; onSave: (v: string) => void }) {
+  const [v, setV] = useState(value);
+  useEffect(() => { setV(value); }, [value]);
+  return (
+    <TextField size="small" label={l} value={v} placeholder={placeholder} disabled={!canWrite} onChange={(e) => setV(e.target.value)} onBlur={() => { if (v !== value) onSave(v); }}
+      sx={field} multiline minRows={1} maxRows={5} slotProps={{ inputLabel: { shrink: true } }} />
+  );
+}
+
+/** The stage and its status note, the priority, who and the two dates - square choices as on the action; each change
+ *  handed up at once, a text when it is left. */
 function SmallFields({ v, set, owners, canWrite }: { v: Small; set: (p: Partial<Small>) => void; owners: Opt[]; canWrite: boolean }) {
   return (
     <Box sx={{ display: "grid", gap: 1.1 }}>
@@ -79,6 +92,7 @@ function SmallFields({ v, set, owners, canWrite }: { v: Small; set: (p: Partial<
           })}
         </Box>
       </Box>
+      <NoteField label="Status note" value={v.statusNote} placeholder="Where it stands - what is done, what is in the way" canWrite={canWrite} onSave={(x) => set({ statusNote: x })} />
       <Box sx={{ display: "grid", gap: 0.5 }}>
         <Typography sx={label}>Priority</Typography>
         <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
@@ -101,9 +115,9 @@ function SmallFields({ v, set, owners, canWrite }: { v: Small; set: (p: Partial<
   );
 }
 
-/** The ticket fields a sub-action fills: its name, owner, stage, priority, dates and note are the ticket's too - the
- *  ticket's form shows only the rest. */
-const OWN = ["hubspot_owner_id", "hs_pipeline_stage", "hs_ticket_priority", "mkt_planned_date", "mkt_golive_date", "content"];
+/** The ticket fields a sub-action fills: its name, owner, stage, status note, priority, dates and description are the
+ *  ticket's too - the ticket's form shows only the rest. */
+const OWN = ["hubspot_owner_id", "hs_pipeline_stage", "mkt_status_note", "hs_ticket_priority", "mkt_planned_date", "mkt_golive_date", "content"];
 const restOf = (form: TicketsAnswer["form"]): TicketsAnswer["form"] => ({ ...form, fields: form.fields.filter((f) => !OWN.includes(f.name)) });
 const ticketOwn = (v: Small, note: string, href?: string): Record<string, string> => ({
   subject: v.title.trim().slice(0, 200),
@@ -112,9 +126,49 @@ const ticketOwn = (v: Small, note: string, href?: string): Record<string, string
   ...(v.priority ? { hs_ticket_priority: v.priority } : {}),
   ...(v.start ? { mkt_planned_date: v.start } : {}),
   ...(v.due ? { mkt_golive_date: v.due } : {}),
+  // its own, even empty: never the action's, hidden under it
+  mkt_status_note: v.statusNote.trim(),
   // its description, with the way back to the action as the plan's tickets carry it
   ...(note.trim() ? { content: `${note.trim()}${href ? `\n\nOpen it: ${href}` : ""}` } : {}),
 });
+
+/* ── "Create with AI" - the button and the box, on a new sub-action and a new action alike ─────── */
+
+export function AiButton({ on, toggle }: { on: boolean; toggle: () => void }) {
+  return (
+    <Button size="small" startIcon={<AutoAwesomeIcon sx={{ fontSize: 18 }} />} onClick={toggle}
+      sx={{ ...cta, color: AI_INK, bgcolor: on ? AI_SOFT : "transparent", "&:hover": { bgcolor: AI_SOFT } }}>
+      Create with AI
+    </Button>
+  );
+}
+
+/** The words for the AI, and the button that fills the form from them - `fill` answers what it did; nothing is saved. */
+export function AiBox({ placeholder, hint, fill }: { placeholder: string; hint: string; fill: (text: string) => Promise<string> }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const go = async () => {
+    setBusy(true); setMsg(null); setErr(null);
+    try { setMsg(await fill(text)); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  return (
+    <Box sx={{ display: "grid", gap: 1, p: 1.5, borderRadius: "8px", border: `1px solid ${AI_LINE}`, bgcolor: AI_SOFT }}>
+      <TextField multiline minRows={3} maxRows={10} autoFocus value={text} onChange={(e) => setText(e.target.value)}
+        label="Describe it to the AI" placeholder={placeholder}
+        sx={field} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && text.trim().length >= 5 && !busy) void go(); }} />
+      <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+        <Typography sx={{ flex: 1, fontSize: "0.8rem", color: err ? RED : msg ? GREEN : FAINT, fontWeight: msg ? 600 : 400 }}>{err ?? msg ?? hint}</Typography>
+        <Button variant="contained" disableElevation disabled={busy || text.trim().length < 5} onClick={() => void go()}
+          startIcon={busy ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AutoAwesomeIcon sx={{ fontSize: 18 }} />}
+          sx={{ ...cta, bgcolor: AI_INK, "&:hover": { bgcolor: "#5a3ab0" } }}>
+          {busy ? "Filling in…" : "Fill in the form"}
+        </Button>
+      </Box>
+    </Box>
+  );
+}
 
 /* ── a new one ─────────────────────────────────────────────────────────── */
 
@@ -126,7 +180,7 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, com
   wide?: boolean;
   done: () => Promise<void>;
 }) {
-  const blank = (): Small => ({ title: "", stage: IDEA, priority: item.priority, owner: t?.me?.id ?? "", start: "", due: "" });
+  const blank = (): Small => ({ title: "", stage: IDEA, priority: item.priority, owner: t?.me?.id ?? "", start: "", due: "", statusNote: "" });
   const [v, setV] = useState<Small>(blank);
   const [note, setNote] = useState("");
   const [shared, setShared] = useState<string[]>([]);
@@ -139,10 +193,10 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, com
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
-  const [ai, setAi] = useState<{ open: boolean; text: string; busy: boolean; msg: string | null; err: string | null }>({ open: false, text: "", busy: false, msg: null, err: null });
+  const [aiOpen, setAiOpen] = useState(false);
   const set = (p: Partial<Small>) => setV((x) => ({ ...x, ...p }));
   const [used, setUsed] = useState(!compact);
-  const open = used || !!v.title.trim() || ai.open;
+  const open = used || !!v.title.trim() || aiOpen;
   useEffect(() => { if (t?.me) setV((x) => (x.owner ? x : { ...x, owner: t.me!.id })); }, [t]);
   // the pipeline's prefill under what is typed, the sub-action's own fields over it
   useEffect(() => { if (t) setValues((x) => ({ ...t.prefill, ...nonEmpty(x) })); }, [t]);
@@ -150,23 +204,21 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, com
   const missing = ticket === "new" && t ? t.form.fields.filter((f) => f.required && f.name !== "subject" && !String(values[f.name] ?? "").trim()).map((f) => f.label) : [];
   const ready = !!v.title.trim() && !busy && (ticket !== "new" || !missing.length) && (ticket !== "link" || pick.length > 0);
 
-  const fill = async () => {
-    setAi((a) => ({ ...a, busy: true, msg: null, err: null }));
-    try {
-      const j = await send("/api/reporting/kpi-actions/ai", "POST", { tile: tile.key, describe: ai.text, ctx: { title: tile.title, summary: tile.summary }, values });
-      const f = j.fill as AiFill;
-      const g = f.values ?? {};
-      set({
-        ...(f.title ? { title: f.title } : {}), ...(f.due ? { due: f.due } : {}), ...(f.owner ? { owner: f.owner } : {}),
-        ...(g.hs_pipeline_stage ? { stage: g.hs_pipeline_stage } : {}), ...(g.hs_ticket_priority ? { priority: g.hs_ticket_priority } : {}), ...(g.mkt_planned_date ? { start: g.mkt_planned_date } : {}),
-      });
-      if (f.note) setNote(f.note);
-      if (f.shared.length) setShared((s) => [...new Set([...s, ...f.shared])]);
-      if (f.ticket && tickets) setTicket("new");
-      if (Object.keys(g).length) setValues((x) => ({ ...x, ...g }));
-      const n = [f.title, f.note, f.due, f.owner].filter(Boolean).length + f.shared.length + Object.keys(g).length;
-      setAi((a) => ({ ...a, busy: false, msg: `${n} field${n === 1 ? "" : "s"} filled in${f.ticket && tickets ? ", with a new ticket" : ""} - check each one before adding. Nothing is saved yet.` }));
-    } catch (e) { setAi((a) => ({ ...a, busy: false, err: (e as Error).message })); }
+  const fill = async (text: string): Promise<string> => {
+    const j = await send("/api/reporting/kpi-actions/ai", "POST", { tile: tile.key, describe: text, ctx: { title: tile.title, summary: tile.summary }, values });
+    const f = j.fill as AiFill;
+    const g = f.values ?? {};
+    set({
+      ...(f.title ? { title: f.title } : {}), ...(f.due ? { due: f.due } : {}), ...(f.owner ? { owner: f.owner } : {}),
+      ...(g.hs_pipeline_stage ? { stage: g.hs_pipeline_stage } : {}), ...(g.hs_ticket_priority ? { priority: g.hs_ticket_priority } : {}), ...(g.mkt_planned_date ? { start: g.mkt_planned_date } : {}),
+      ...(g.mkt_status_note ? { statusNote: g.mkt_status_note } : {}),
+    });
+    if (f.note) setNote(f.note);
+    if (f.shared.length) setShared((s) => [...new Set([...s, ...f.shared])]);
+    if (f.ticket && tickets) setTicket("new");
+    if (Object.keys(g).length) setValues((x) => ({ ...x, ...g }));
+    const n = [f.title, f.note, f.due, f.owner].filter(Boolean).length + f.shared.length + Object.keys(g).length;
+    return `${n} field${n === 1 ? "" : "s"} filled in${f.ticket && tickets ? ", with a new ticket" : ""} - check each one before adding. Nothing is saved yet.`;
   };
 
   const add = async () => {
@@ -175,16 +227,16 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, com
     try {
       const j = await send("/api/reporting/kpi-actions/tasks", "POST", {
         tile: tile.key, page: "plan", title: v.title, note, owner: v.owner, ownerName: owners.find((o) => o.value === v.owner)?.label ?? "", shared,
-        stage: v.stage || null, priority: v.priority, start: v.start || null, due: v.due || undefined,
+        stage: v.stage || null, priority: v.priority, start: v.start || null, due: v.due || undefined, statusNote: v.statusNote.trim(),
         href: `${window.location.pathname}${window.location.search}`, kpi: tile.title, summary: tile.summary,
       });
       const taskId = (j.task as KpiTask).id;
-      if (ticket === "new") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "create", tile: tile.key, taskId, values });
+      if (ticket === "new") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "create", tile: tile.key, taskId, values: { ...values, ...ticketOwn(v, note, tile.href) } });
       if (ticket === "link") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "link", tile: tile.key, taskId, ids: pick });
       const mailed = Number(j.mailed ?? 0);
       setSent(`“${v.title.trim()}” added${ticket === "new" ? ", with its ticket in HubSpot" : ticket === "link" ? ", with its linked tickets" : ""}${mailed ? ` · ${mailed} mail${mailed === 1 ? "" : "s"} sent` : ""}`);
       setV(blank()); setNote(""); setShared([]); setTicket(first); setPick([]); setValues(t?.prefill ?? {});
-      setAi((a) => ({ ...a, open: false, text: "", msg: null }));
+      setAiOpen(false);
       if (compact) setUsed(false);
       await done();
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
@@ -194,27 +246,11 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, com
     <Box sx={{ display: "grid", gap: 1.25, p: 1.75, borderRadius: "10px", border: `1px solid ${TINT.blue.fg}`, bgcolor: "#fbfcfe" }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <Typography sx={{ ...section, flex: 1 }}>New sub-action</Typography>
-        <Button size="small" startIcon={<AutoAwesomeIcon sx={{ fontSize: 18 }} />} onClick={() => setAi((a) => ({ ...a, open: !a.open }))}
-          sx={{ ...cta, color: AI_INK, bgcolor: ai.open ? AI_SOFT : "transparent", "&:hover": { bgcolor: AI_SOFT } }}>
-          Create with AI
-        </Button>
+        <AiButton on={aiOpen} toggle={() => setAiOpen((o) => !o)} />
       </Box>
-      {ai.open && (
-        <Box sx={{ display: "grid", gap: 1, p: 1.5, borderRadius: "8px", border: `1px solid ${AI_LINE}`, bgcolor: AI_SOFT }}>
-          <TextField multiline minRows={3} maxRows={10} autoFocus value={ai.text} onChange={(e) => setAi((a) => ({ ...a, text: e.target.value }))}
-            label="Describe it to the AI" placeholder={`What should be done, by whom, by when, how urgent${tickets ? " - and whether it needs a Scroll to Sale ticket" : ""}`}
-            sx={field} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && ai.text.trim().length >= 5 && !ai.busy) void fill(); }} />
-          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-            <Typography sx={{ flex: 1, fontSize: "0.8rem", color: ai.err ? RED : ai.msg ? GREEN : FAINT, fontWeight: ai.msg ? 600 : 400 }}>
-              {ai.err ?? ai.msg ?? "The AI fills in the sub-action from your words - only choices the form offers, nothing made up. You check it, then add it."}
-            </Typography>
-            <Button variant="contained" disableElevation disabled={ai.busy || ai.text.trim().length < 5} onClick={() => void fill()}
-              startIcon={ai.busy ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AutoAwesomeIcon sx={{ fontSize: 18 }} />}
-              sx={{ ...cta, bgcolor: AI_INK, "&:hover": { bgcolor: "#5a3ab0" } }}>
-              {ai.busy ? "Filling in…" : "Fill in the form"}
-            </Button>
-          </Box>
-        </Box>
+      {aiOpen && (
+        <AiBox placeholder={`What should be done, by whom, by when, how urgent, where it stands${tickets ? " - and whether it needs a Scroll to Sale ticket" : ""}`}
+          hint="The AI fills in the sub-action from your words - only choices the form offers, nothing made up. You check it, then add it." fill={fill} />
       )}
       {/* side by side when the window is wide and a ticket is to be filled (SARCLA 01.11.2026: "with Digital Growth the
           window should expand to display everything correctly") */}
@@ -255,7 +291,7 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, com
           <Typography sx={{ flex: 1, fontSize: "0.82rem", color: missing.length ? RED : sent ? GREEN : FAINT, fontWeight: sent && !missing.length ? 600 : 400 }}>
             {missing.length ? `For the ticket, still to fill in: ${missing.join(", ")}` : sent ?? (shared.length ? `${shared.length} colleague${shared.length === 1 ? "" : "s"} will get a mail` : "")}
           </Typography>
-          {compact && <Button disabled={busy} onClick={() => { setUsed(false); set({ title: "" }); setNote(""); setAi((a) => ({ ...a, open: false })); }} sx={{ ...cta, color: MUTED }}>Cancel</Button>}
+          {compact && <Button disabled={busy} onClick={() => { setUsed(false); set({ title: "" }); setNote(""); setAiOpen(false); }} sx={{ ...cta, color: MUTED }}>Cancel</Button>}
           <Button variant="contained" disableElevation disabled={!ready} onClick={() => void add()} sx={{ ...cta, fontSize: "0.9rem", px: 2 }}>
             {busy ? "Saving…" : ticket === "new" ? "Add it and its ticket" : ticket === "link" ? "Add it and link" : "Add the sub-action"}
           </Button>
@@ -298,6 +334,7 @@ function SubLine({ k, tile, t, owners, canWrite, tickets, linked, open, onToggle
     if (p.priority !== undefined) out.priority = p.priority;
     if (p.start !== undefined) out.start = p.start || null;
     if (p.due !== undefined) out.due = p.due || null;
+    if (p.statusNote !== undefined) out.statusNote = p.statusNote;
     if (p.owner !== undefined) { out.owner = p.owner; out.ownerName = owners.find((o) => o.value === p.owner)?.label ?? ""; }
     void patch(out);
   };
@@ -335,6 +372,7 @@ function SubLine({ k, tile, t, owners, canWrite, tickets, linked, open, onToggle
             {[k.ownerName, k.start && k.due ? `${dmy(k.start)} → ${dmy(k.due)}` : k.due ? `go-live ${dmy(k.due)}` : k.start ? `planned ${dmy(k.start)}` : "",
               linked.length ? `${linked.length} ticket${linked.length === 1 ? "" : "s"}` : "", fromKpi ? "made on a KPI tile" : ""].filter(Boolean).join(" · ") || "No one, no date yet"}
           </Typography>
+          {k.statusNote && <Typography noWrap title={k.statusNote} sx={{ fontSize: "0.78rem", color: MUTED }}><b>Status note</b> · {k.statusNote}</Typography>}
         </Box>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
           <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: MUTED, fontVariantNumeric: "tabular-nums" }}>{pct == null ? "—" : `${pct} %`}</Typography>

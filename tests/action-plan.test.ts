@@ -94,7 +94,7 @@ const it = (id: number, parentId: number | null, kind: PlanItem["kind"], p: Part
   id, parentId, kind, code: "", sort: id, src: null, title: `#${id}`, detail: "", priority: "", responsible: "", referent: "", status: "",
   state: null, result: "", mainTopic: "", perimeter: "", expected: "", codeFreeze: "", complexity: "", release: "",
   start: null, due: null, dueNote: "", percent: null, dg: false, owners: [], updatedBy: "", updatedAt: "",
-  stage: null, channel: [], country: [], agency: [], roadmapYear: "", kpis: "", nextSteps: "", statusNote: "", reportLink: "", ...p,
+  stage: null, channel: [], country: [], agency: [], roadmapYear: "", kpis: "", nextSteps: "", statusNote: "", ...p,
 });
 
 // SARCLA 01.11.2026: "assignment should be done by user, not names like Sales leader" - the workbook's codes read as
@@ -238,12 +238,12 @@ test("action plan: HubSpot's plan properties - the rows as choices in the plan's
 test("action plan: a sub-action's ticket starts from its action - only what HubSpot offers, nothing made up", () => {
   const items = [it(1, null, "goal"), it(2, 1, "topic"), it(4, 2, "action", {
     title: "Run the spring campaign", detail: "Run the spring campaign", priority: "HIGH", channel: ["SEA", "Fax"], country: ["DE"], agency: [],
-    roadmapYear: "2027", start: "2026-11-02", due: "2026-12-15", kpis: "Clicks", statusNote: "", reportLink: "https://example.com/r",
+    roadmapYear: "2027", start: "2026-11-02", due: "2026-12-15", kpis: "Clicks", statusNote: "Briefed the agency",
   })];
   const v = ticketFromAction(items[2], items, { mkt_channel: [{ value: "SEA" }, { value: "HubSpot" }], mkt_roadmap_year: [{ value: "2026" }] });
   assert.deepEqual(v, {
     content: 'From the action plan: "Run the spring campaign".', hs_ticket_priority: "HIGH", mkt_channel: "SEA", mkt_implementation_country: "DE",
-    mkt_planned_date: "2026-11-02", mkt_golive_date: "2026-12-15", mkt_kpis: "Clicks", mkt_report_link: "https://example.com/r",
+    mkt_planned_date: "2026-11-02", mkt_golive_date: "2026-12-15", mkt_kpis: "Clicks", mkt_status_note: "Briefed the agency",
     mkt_plan_category: "2", mkt_plan_action: "4",
   });
 });

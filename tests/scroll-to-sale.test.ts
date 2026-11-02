@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { S2S_FIRST_STAGE, S2S_PIPELINE, aiFillSchema, channelsFor, cleanAiFill, goalsFor, missingRequired, nextRoadmapId, prefill, ticketProperties, type AiForm } from "../src/lib/reporting/scrollToSaleRules";
+import { S2S_FIELDS, S2S_FIRST_STAGE, S2S_PIPELINE, aiFillSchema, channelsFor, cleanAiFill, goalsFor, missingRequired, nextRoadmapId, prefill, ticketProperties, type AiForm } from "../src/lib/reporting/scrollToSaleRules";
 
 const o = (...v: string[]) => v.map((x) => ({ value: x, label: x }));
 const OPTIONS = {
@@ -93,4 +93,10 @@ test("Create with AI: what the AI proposes is kept only where the form allows it
   // no ticket where the action takes none; nonsense in, nothing out
   assert.equal(cleanAiFill({ ticket: "new" }, AI_FORM, false).ticket, false);
   assert.deepEqual(cleanAiFill(null, AI_FORM, true), { title: "", note: "", due: "", owner: "", shared: [], ticket: false, values: {} });
+});
+
+test("scroll to sale: no report link on the ticket form - nor sent with a ticket (SARCLA 02.11.2026: take it out completely)", () => {
+  assert.equal(S2S_FIELDS.some((f) => f.name === "mkt_report_link"), false);
+  assert.equal("mkt_report_link" in ticketProperties({ subject: "Run it", mkt_report_link: "https://example.com/r", mkt_status_note: "Briefed" }), false);
+  assert.equal(ticketProperties({ subject: "Run it", mkt_status_note: "Briefed" }).mkt_status_note, "Briefed");
 });

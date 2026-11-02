@@ -37,8 +37,7 @@ export const S2S_FIELDS: readonly Omit<S2sField, "options">[] = [
   { name: "mkt_kpis", label: "KPIs", kind: "textarea" },
   { name: "mkt_next_steps", label: "Next steps / milestones", kind: "textarea" },
   { name: "mkt_status_note", label: "Status note", kind: "textarea" },
-  // in HubSpot since the agency's set-up, on no ticket yet (01.11.2026) - "all properties for creation"
-  { name: "mkt_report_link", label: "Report link", kind: "text" },
+  // mkt_report_link stays in HubSpot, on no form (SARCLA 02.11.2026: "report link - take out completely")
 ];
 export const PLAN_FIELDS: readonly string[] = PLAN_PROPS.map((p) => p.name);
 
