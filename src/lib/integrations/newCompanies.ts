@@ -22,6 +22,8 @@ const KV = { settings: "segmentation:new:settings", scan: "segmentation:new:scan
 /** the days the scan's counts are kept */
 const DAYS_KEPT = 120;
 const FOLLOW_LOCK = 4_107_255;
+/** what a read holds: 2 = the rule behind each first segment (02.11.2026) - an older read is read again at the next start */
+const FOLLOW_VERSION = 2;
 const SCAN_WINDOW_H = 48;
 const SCAN_KEEP = 400;
 /** measured 02.11.2026: the hub's HubSpot app (its writes on the Domains tab show as INTEGRATION 50521064) */
@@ -39,7 +41,7 @@ export type ScanDoc = { rows: ScanRow[]; last: ScanInfo | null };
 /** What the hub wrote per day (Zurich): the companies, by rule, and the ones HubSpot refused. */
 export type DayCount = { written: number; freemail: number; small: number; other: number; errors: number };
 export type Days = Record<string, DayCount>;
-export type BuildInfo = { running: boolean; startedAt: string | null; beatAt: string | null; progress: string; at: string | null; rows: number; seconds: number; by?: string; error?: string };
+export type BuildInfo = { running: boolean; startedAt: string | null; beatAt: string | null; progress: string; at: string | null; rows: number; seconds: number; by?: string; error?: string; v?: number };
 
 type Obj = { id: string; properties?: Record<string, string | null>; propertiesWithHistory?: Record<string, HistoryEntry[]> };
 const nowIso = () => new Date().toISOString().slice(0, 19) + "Z";
@@ -242,7 +244,7 @@ async function buildInner(by: string): Promise<BuildInfo> {
   const doc: NewDoc = { at: new Date().toISOString(), since, rows, owners: Object.fromEntries(owners), users: Object.fromEntries(users), hubApps: [...apps] };
   await kvSet(KV.follow, doc);
   docCache = { at: doc.at, doc };
-  return { running: false, startedAt, beatAt: new Date().toISOString(), progress: "done", at: doc.at, rows: rows.length, seconds: Math.round((Date.now() - t0) / 1000), by };
+  return { running: false, startedAt, beatAt: new Date().toISOString(), progress: "done", at: doc.at, rows: rows.length, seconds: Math.round((Date.now() - t0) / 1000), by, v: FOLLOW_VERSION };
 }
 
 /** Read the last two years again; one copy of the hub at a time. Returns at once - it runs in the background. */
@@ -276,7 +278,7 @@ export async function startFollow(by: string): Promise<{ started: boolean; why?:
 export async function followDue(): Promise<boolean> {
   const b = await kvGet<BuildInfo>(KV.build);
   if (alive(b)) return false;
-  return !b?.at || b.at.slice(0, 10) !== new Date().toISOString().slice(0, 10);
+  return !b?.at || b.at.slice(0, 10) !== new Date().toISOString().slice(0, 10) || (b.v ?? 1) < FOLLOW_VERSION;
 }
 
 let docCache: { at: string; doc: NewDoc } | null = null;
