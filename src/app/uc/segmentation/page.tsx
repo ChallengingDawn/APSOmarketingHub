@@ -50,6 +50,7 @@ import { WindowPicker } from "@/app/window/ReportingWindow";
 import { PotentialChanges } from "./PotentialChanges";
 import { HowItWorks } from "./HowItWorks";
 import { PriorityMix, SegmentMix } from "./PortfolioCharts";
+import { NewCompanies } from "./NewCompanies";
 
 type Run = Record<string, unknown> | null;
 type YearlySummary = {
@@ -72,8 +73,8 @@ type Breakdown = {
 };
 type Data = { status: Status; breakdown: Breakdown; last: Record<string, Run> };
 
-type TabId = "overview" | "profit-centre" | "changes" | "runs" | "properties";
-const TAB_HASH: Record<TabId, string> = { overview: "#overview", "profit-centre": "#profit-centre", changes: "#potential-changes", runs: "#runs", properties: "#how-it-works" };
+type TabId = "overview" | "new" | "profit-centre" | "changes" | "runs" | "properties";
+const TAB_HASH: Record<TabId, string> = { overview: "#overview", new: "#new-companies", "profit-centre": "#profit-centre", changes: "#potential-changes", runs: "#runs", properties: "#how-it-works" };
 
 const PROPERTY_ROWS: [string, string, string][] = [
   ["sales_priority", "New-company watcher (about 3 min after creation) · the buttons · nightly sweep · the yearly reclassification",
@@ -83,8 +84,8 @@ const PROPERTY_ROWS: [string, string, string][] = [
   ["max_pot_or_turnover", "Wherever the priority is computed", "= MAX(yearly potential, best revenue year) - the basis behind the priority."],
   ["max_revenue_2015_2026", "Wherever the priority is computed", "Best Performis revenue year since 2015."],
   ["max_revenue_bucket", "Wherever the priority is computed", "Fine 0–8 revenue scale (0 = no turnover … 8 = ≥ 100 k€)."],
-  ["apso_customer", "HubSpot creation workflow · nightly lost-recovery · the yearly reclassification",
-    "At creation APSOmicro (free mail domain or 1–5 employees) or APSOprospect; APSOlost that bought this year becomes APSOcore (≥ 500 €) or APSOprospect; once a year the 14-rule waterfall decides every segment again - ERP segments (ESO, DS, Growth Engine) never."],
+  ["apso_customer", "New companies: the hub's scan (Live, once the HubSpot workflow is off) or the HubSpot creation workflow · nightly lost-recovery · the yearly reclassification",
+    "20 minutes after creation APSOmicro (free mail domain or 1–5 employees) or APSOprospect; APSOlost that bought this year becomes APSOcore (≥ 500 €) or APSOprospect; once a year the 14-rule waterfall decides every segment again - ERP segments (ESO, DS, Growth Engine) never."],
   ["apic_ap / industry / hs_keywords", "Watcher and full runs, when empty · the yearly reclassification",
     "From the industry mapping or DE/FR/IT/EN keywords in the name, description and website - only valid portal values. Once a year a generic 1.1 APIC is corrected or cleared from the industry; resellers (3.x) never change."],
   ["description / employees / address / website", "Website enrichment, when empty", "Read from the company's own site (meta description, schema.org); country falls back to the domain (.ch → Switzerland). Each site at most once per 30 days."],
@@ -289,7 +290,7 @@ export default function SmartSegmentation() {
       rightSlot={
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
-          {tab === "changes" && <WindowPicker />}
+          {(tab === "changes" || tab === "new") && <WindowPicker />}
           <Tooltip title="Count again in HubSpot">
             <IconButton size="small" onClick={() => setTick((n) => n + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
           </Tooltip>
@@ -341,6 +342,7 @@ export default function SmartSegmentation() {
       <Box>
         <ReportTabs name="segmentation" tab={tab} onSelect={selectTab} tabs={[
           { id: "overview", label: "Portfolio", count: null },
+          { id: "new", label: "New companies", count: null },
           { id: "profit-centre", label: "Profit center", count: null },
           { id: "changes", label: "Potential changes", count: null },
           { id: "runs", label: "Runs", count: running ? "running" : null },
@@ -389,6 +391,8 @@ export default function SmartSegmentation() {
           </GlassCard>
         </Box>
       )}
+
+      {tab === "new" && <NewCompanies />}
 
       {tab === "changes" && (
         <Box id="segmentation-panel-changes" role="tabpanel" sx={{ minWidth: 0 }}>

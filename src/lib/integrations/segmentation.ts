@@ -28,6 +28,7 @@ import {
 } from "../segmentation/engine";
 import { decide, isWellFormedSplit, sumByPc } from "../segmentation/profitCentre";
 import { reclassify, yearlyReadProps } from "../segmentation/yearly";
+import { scanNew } from "./newCompanies";
 
 const LOCK = 4_107_204;
 const KV = {
@@ -592,7 +593,7 @@ async function saveEdits(meta: { scannedAt: string; scanned: number; setters: Ed
 let usersCache: { at: number; map: Map<string, string> } | null = null;
 
 /** HubSpot user id -> name, active and archived owners, paged to the end. */
-async function userNames(): Promise<Map<string, string>> {
+export async function userNames(): Promise<Map<string, string>> {
   if (usersCache && Date.now() - usersCache.at < 60 * 60_000) return usersCache.map;
   const map = new Map<string, string>();
   for (const archived of [false, true]) {
@@ -868,7 +869,14 @@ async function watchInner() {
   } catch (e) {
     changed = { error: (e as Error).message.slice(0, 150) };
   }
-  const res = { at: nowIso(), found: found.size, potential_seeded: seeded, enriched, priorities_set: dist, written, web, potential_changed: changed };
+  // the first APSO segment of a new company - the HubSpot workflow's job until it is switched off (New companies tab)
+  let segmented: unknown;
+  try {
+    segmented = await scanNew();
+  } catch (e) {
+    segmented = { error: (e as Error).message.slice(0, 150) };
+  }
+  const res = { at: nowIso(), found: found.size, potential_seeded: seeded, enriched, priorities_set: dist, written, web, potential_changed: changed, first_segment: segmented };
   await patchState({ watcher_last: res });
   return { ...res, log };
 }

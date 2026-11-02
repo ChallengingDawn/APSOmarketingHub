@@ -4,11 +4,13 @@
 //
 //   watcher - every two minutes, new companies and reps' potential edits
 //   nightly - once a day after the connector's nightly chain (the revenue_* are
-//             fresh then): potential recalc when POTENTIAL_RECALC=1, sweep, web batch
+//             fresh then): potential recalc when POTENTIAL_RECALC=1, sweep, web batch; then the companies created in
+//             the last two years are read again for the New companies tab
 // The first time it runs it takes over the connector's state (the 30-day website memory).
 
 import { chainDoneToday, utcToday } from "@/lib/erosion/run";
 import { importConnectorState, loadState, nightly, potentialEditsData, startAction, watchTick } from "@/lib/integrations/segmentation";
+import { followDue, startFollow } from "@/lib/integrations/newCompanies";
 
 const WATCH_MS = 120_000;
 const NIGHTLY_TICK_MS = 10 * 60_000;
@@ -26,6 +28,8 @@ async function nightlyTick() {
       ready = new Date().getUTCHours() >= 8;
     }
     if (ready) await nightly();
+    // the new companies are followed once a day, after the nightly (their priority and revenue are fresh then)
+    if ((await loadState()).nightly_day === today && (await followDue())) await startFollow("nightly");
   } catch (e) {
     console.warn(`[segmentation] nightly tick skipped: ${(e as Error).message}`);
   }
@@ -62,6 +66,10 @@ export function startSegmentationScheduler() {
       console.warn(`[segmentation] first history scan not started: ${(e as Error).message}`);
     }
   })();
+  // a hub that has not read the new companies today reads them a few minutes after it starts, not at the next night
+  setTimeout(() => {
+    void followDue().then((due) => (due ? startFollow("first start") : null)).catch((e) => console.warn(`[segmentation] new companies not read: ${(e as Error).message}`));
+  }, 5 * 60_000).unref?.();
   const w = setInterval(() => {
     void watchTick().catch((e) => console.warn(`[segwatch] error: ${(e as Error).message.slice(0, 200)}`));
   }, WATCH_MS);
