@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { S2S_FIELDS, S2S_FIRST_STAGE, S2S_PIPELINE, aiFillSchema, channelsFor, cleanAiFill, goalsFor, missingRequired, nextRoadmapId, prefill, ticketProperties, type AiForm } from "../src/lib/reporting/scrollToSaleRules";
+import { S2S_FIELDS, S2S_FIRST_STAGE, S2S_PIPELINE, aiFillSchema, channelsFor, cleanAiFill, missingRequired, nextRoadmapId, prefill, ticketProperties, type AiForm } from "../src/lib/reporting/scrollToSaleRules";
 
 const o = (...v: string[]) => v.map((x) => ({ value: x, label: x }));
 const OPTIONS = {
   hs_ticket_priority: [{ value: "LOW", label: "Low" }, { value: "MEDIUM", label: "Medium" }, { value: "HIGH", label: "High" }],
-  mkt_business_goal: o("Acquisition", "Retention", "Reactivation", "Visibility & Demand"),
   mkt_channel: o("SEA", "HubSpot", "LinkedIn", "Website", "Newsletter", "SEO/GEO"),
   mkt_implementation_country: o("All", "CH", "DE", "IT", "FR"),
   mkt_roadmap_year: o("2026", "2027"),
@@ -24,7 +23,6 @@ test("a ticket from a Reach tile filtered on Germany: SEO, visibility, DE, the y
   // the action names the ticket: empty until the task says what will be done (SARCLA 18.10)
   assert.equal(v.subject, "");
   assert.equal(v.mkt_channel, "SEO/GEO");
-  assert.equal(v.mkt_business_goal, "Visibility & Demand");
   assert.equal(v.mkt_implementation_country, "DE");
   assert.equal(v.mkt_roadmap_year, "2026");
   assert.equal(v.mkt_roadmap_id, "MKT26-47");
@@ -40,17 +38,15 @@ test("nothing invented: a country the property lacks gives All, a page with no c
   const v = prefill({ page: "efficiency", title: "Cost per order", filters: { country: ["PL"] } }, { options: OPTIONS, year: 2026, takenRoadmapIds: [] });
   assert.equal(v.mkt_implementation_country, "All");
   assert.equal(v.mkt_channel, "");
-  assert.equal(v.mkt_business_goal, "");
   assert.equal(v.hubspot_owner_id, undefined);
   assert.deepEqual(channelsFor("reach", "Ads (SEA)"), ["SEA"]);
-  assert.deepEqual(goalsFor("retain"), ["Retention", "Reactivation"]);
 });
 
 test("a create sends the pipeline, the filled fields and the shared users; the required ones are named when missing", () => {
   assert.equal(ticketProperties({ subject: "Fix the meta descriptions" }, { hs_shared_user_ids: "62822791;49905443" }).hs_shared_user_ids, "62822791;49905443");
   assert.equal(ticketProperties({ subject: "x", hubspot_team_id: "155178625" }).hubspot_team_id, undefined);
   assert.deepEqual(ticketProperties({ subject: "x", mkt_channel: "SEA;Website", mkt_agency: "", foo: "bar" }), { hs_pipeline: S2S_PIPELINE, subject: "x", mkt_channel: "SEA;Website", hs_pipeline_stage: S2S_FIRST_STAGE });
-  assert.deepEqual(missingRequired({ subject: "x", hs_pipeline_stage: "1", hs_ticket_priority: "LOW", hubspot_owner_id: "1", mkt_business_goal: "Acquisition", mkt_channel: "SEA" }), ["Implementation country"]);
+  assert.deepEqual(missingRequired({ subject: "x", hs_pipeline_stage: "1", hs_ticket_priority: "LOW", hubspot_owner_id: "1", mkt_channel: "SEA" }), ["Implementation country"]);
 });
 
 // SARCLA 01.11.2026: "create with AI should be a button where you describe to the AI and the AI helps fill out the form"
@@ -101,7 +97,8 @@ test("scroll to sale: no report link on the ticket form - nor sent with a ticket
   assert.equal(ticketProperties({ subject: "Run it", mkt_status_note: "Briefed" }).mkt_status_note, "Briefed");
 });
 
-test("scroll to sale: the business goal is not asked for (SARCLA 02.11.2026: don't make it mandatory at all)", () => {
-  assert.equal(missingRequired({}).includes("Business goal"), false);
-  assert.equal(S2S_FIELDS.find((f) => f.name === "mkt_business_goal")?.required ?? false, false);
+test("scroll to sale: no business goal on the form, in the prefill or sent (SARCLA 02.11.2026: take it out completely)", () => {
+  assert.equal(S2S_FIELDS.some((f) => f.name === "mkt_business_goal"), false);
+  assert.equal("mkt_business_goal" in prefill({ page: "reach", title: "Organic clicks" }, { options: { ...OPTIONS, mkt_business_goal: o("Visibility & Demand") }, year: 2026, takenRoadmapIds: [] }), false);
+  assert.equal("mkt_business_goal" in ticketProperties({ subject: "Run it", mkt_business_goal: "Acquisition" }), false);
 });

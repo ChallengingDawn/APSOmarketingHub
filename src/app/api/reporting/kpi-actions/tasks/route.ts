@@ -5,10 +5,10 @@
 // and a status note (02.11.2026).
 import { NextRequest, NextResponse } from "next/server";
 import { TASK_STATUSES, addTask, deleteTask, taskById, tasksOf, updateTask, type KpiTask, type SharedPerson, type TaskStatus } from "@/lib/reporting/kpiActions";
-import { itemById, startMains, startedBySub } from "@/lib/reporting/actionPlan";
+import { itemById, startMains } from "@/lib/reporting/actionPlan";
 import { queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { s2sForm } from "@/lib/reporting/scrollToSale";
-import { IDEA, PRIORITIES, STAGES } from "@/lib/reporting/actionPlanRules";
+import { PRIORITIES, STAGES } from "@/lib/reporting/actionPlanRules";
 import { renderTaskMail } from "@/lib/reporting/kpiTaskMail";
 import { mailConfigured, sendHubMail } from "@/lib/notify/mailer";
 import { fail, whoForTile, type Who } from "../guard";
@@ -97,11 +97,8 @@ export async function POST(req: NextRequest) {
       shared, href: typeof b.href === "string" && (b.href.startsWith("/reporting/") || b.href.startsWith("/action-plan")) ? b.href : "", planItem: plan ?? null,
       stage: b.stage || null, priority: b.priority ?? "", start: b.start || null, statusNote: b.statusNote ?? "", by: w.name,
     });
-    // a sub-action made in an action puts the action under way (SARCLA 02.11.2026), its ticket following
-    if (t.planItem != null) {
-      const a = await itemById(t.planItem);
-      if (a && (!a.stage || a.stage === IDEA)) { await startedBySub(a.id, w.name); queuePlanSync("its action under way"); }
-    }
+    // a sub-action made in an action leaves the action's status as it is (SARCLA 02.11.2026: "when saving a sub-action ...
+    // it also changes the status of the action") - the action follows once one of them is under way (startMains)
     const mailed = await notify(t, w, b, true, shared);
     return NextResponse.json({ ok: true, task: t, mailed });
   } catch (e) { return fail(e); }

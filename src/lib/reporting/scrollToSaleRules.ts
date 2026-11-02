@@ -23,8 +23,7 @@ export const S2S_FIELDS: readonly Omit<S2sField, "options">[] = [
   { name: "hs_pipeline_stage", label: "Status", kind: "stage", required: true },
   { name: "hs_ticket_priority", label: "Priority", kind: "select", required: true },
   { name: "hubspot_owner_id", label: "Owner", kind: "owner", required: true },
-  // optional (SARCLA 02.11.2026: "business goal - don't make it mandatory at all")
-  { name: "mkt_business_goal", label: "Business goal", kind: "multi" },
+  // no business goal (SARCLA 02.11.2026: "take out business goal completely") - it stays in HubSpot, on no form
   // the plan's place, three properties the hub keeps in HubSpot (SARCLA 01.11.2026: "create new properties in HubSpot to
   // populate the action plan's main categories and sub and so forth") - on the form of the plan's sub-actions only
   ...PLAN_PROPS.map((p) => ({ name: p.name, label: p.label, kind: "select" as const })),
@@ -79,15 +78,6 @@ export function channelsFor(page: string, tab = ""): string[] {
   return [];
 }
 
-/** The business goal a page serves. */
-export function goalsFor(page: string): string[] {
-  if (["reach", "visit", "engage"].includes(page)) return ["Visibility & Demand"];
-  if (["lead", "handover", "cart", "purchase"].includes(page)) return ["Acquisition"];
-  if (page === "retain") return ["Retention", "Reactivation"];
-  if (page === "customers") return ["Acquisition", "Retention"];
-  return [];
-}
-
 /** The next free roadmap id of a year: MKT26-46 taken -> MKT26-47. */
 export function nextRoadmapId(taken: (string | null | undefined)[], year: number): string {
   const pre = `MKT${String(year).slice(-2)}-`;
@@ -125,7 +115,6 @@ export function prefill(tile: TileContext, ctx: {
     ].filter(Boolean).join("\n"),
     hs_pipeline_stage: S2S_FIRST_STAGE,
     hs_ticket_priority: pick(o.hs_ticket_priority, ["MEDIUM"])[0] ?? "MEDIUM",
-    mkt_business_goal: pick(o.mkt_business_goal, goalsFor(tile.page)).join(";"),
     mkt_channel: pick(o.mkt_channel, channelsFor(tile.page, tile.tab)).join(";"),
     // the country the page is filtered on, else every country
     mkt_implementation_country: (country.length ? country : pick(o.mkt_implementation_country, ["All"])).join(";"),

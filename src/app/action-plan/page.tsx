@@ -17,7 +17,6 @@ import Button from "@mui/material/Button";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import CircularProgress from "@mui/material/CircularProgress";
-import Dialog from "@mui/material/Dialog";
 import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore";
 import UnfoldLessIcon from "@mui/icons-material/UnfoldLess";
 import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
@@ -192,9 +191,6 @@ function ActionPlan() {
   const [addFor, setAddFor] = useState<PlanItem | null>(null);
   // a sub-action in its own window (SARCLA 02.11.2026: "I click on a sub-action and I'm redirected to the main action")
   const [subId, setSubId] = useState<number | null>(null);
-  // an action a sub-action was just put in, its dates asked when it has none ("the action itself should go to In
-  // Progress and ask the dates")
-  const [askFor, setAskFor] = useState<number | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   useEffect(() => { if (!said) return; const h = setTimeout(() => setSaid(null), 8000); return () => clearTimeout(h); }, [said]);
   // a link to one row (?item=, as a KPI tile's task links here) opens it once - not again after every save
@@ -229,7 +225,6 @@ function ActionPlan() {
   const closeSub = () => { setSubId(null); window.history.replaceState(null, "", "/action-plan"); };
   const sub = subId != null ? subs.find((x) => x.id === subId) ?? null : null;
   const subParent = sub ? items.find((i) => i.id === sub.item) ?? null : null;
-  const asked = askFor != null ? items.find((i) => i.id === askFor && (!i.start || !i.due)) ?? null : null;
   // the address follows the row opened without asking the server for the page again (router.replace did, on every
   // open and close); Next keeps useSearchParams in step with history.replaceState
   const openRow = (i: PlanItem) => {
@@ -310,7 +305,6 @@ It leaves the plan as an action; its name, description, status, priority, first 
         setNote(null);
         setSaid(`“${a.title}” is now a sub-action of “${into.title}”`);
         setCollapsed((c) => { const n = new Set(c); n.delete(target.key); return n; });
-        setAskFor(into.id);
       } catch (e) { setNote(`Not moved: ${(e as Error).message}`); }
       await load();
       return;
@@ -471,7 +465,6 @@ It leaves the plan as an action; its name, description, status, priority, first 
           onClose={() => { const d = dupFor; setDupFor(null); if (d.back) openSub(d.sub.id); }}
           onDone={(_, to, tickets) => { const t = dupFor.sub.title; setDupFor(null); duplicated(to, tickets, t); void load(); }} />
       )}
-      {asked && !addFor && <AskDates item={asked} onSave={async (p) => { await patch(asked.id, p); setAskFor(null); }} onClose={() => setAskFor(null)} />}
       {addFor && (
         // the row as the plan has it now: its Digital Growth switched in the window shows at once
         <AddDialog key={addFor.id} parent={items.find((i) => i.id === addFor.id) ?? addFor} people={data?.people ?? []} choices={data?.choices ?? S2S_CHOICES}
@@ -479,39 +472,11 @@ It leaves the plan as an action; its name, description, status, priority, first 
           onDone={(s) => {
             const at = addFor;
             setAddFor(null); setSaid(s); void load();
-            if (at.kind === "action") setAskFor(at.id);
             // what was made shows: its parent opens
             setCollapsed((c) => { const n = new Set(c); n.delete(`i${at.id}`); return n; });
           }} />
       )}
     </Box>
-  );
-}
-
-/** An action now under way without its dates: when it starts and when it goes live, asked once (Later leaves them). */
-function AskDates({ item, onSave, onClose }: { item: PlanItem; onSave: (p: Partial<PlanFields>) => Promise<void>; onClose: () => void }) {
-  const [start, setStart] = useState(item.start ?? "");
-  const [due, setDue] = useState(item.due ?? "");
-  const [busy, setBusy] = useState(false);
-  const bad = !!start && !!due && start > due;
-  return (
-    <Dialog open onClose={onClose} slotProps={{ paper: { sx: { width: "min(520px, calc(100vw - 32px))", m: 2, borderRadius: "14px", p: 2.25, display: "grid", gap: 1.5 } } }}>
-      <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" }}>Under way now</Typography>
-      <Typography sx={{ fontSize: "1rem", fontWeight: 750, color: INK, lineHeight: 1.35 }}>When does “{item.title}” start, and when does it go live?</Typography>
-      <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>It has a sub-action now, so it is In Progress - its dates put it on the Gantt.</Typography>
-      <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: "1fr 1fr" }}>
-        <TextField size="small" type="date" label="Planned date" value={start} onChange={(e) => setStart(e.target.value)} slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: due || undefined } }} />
-        <TextField size="small" type="date" label="Go-live date" value={due} onChange={(e) => setDue(e.target.value)} slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: start || undefined } }} />
-      </Box>
-      <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-        <Typography sx={{ flex: 1, fontSize: "0.82rem", color: RED }}>{bad ? "The go-live date comes before the planned date" : ""}</Typography>
-        <Button onClick={onClose} sx={{ textTransform: "none", fontWeight: 700, color: MUTED }}>Later</Button>
-        <Button variant="contained" disableElevation disabled={busy || bad || (!start && !due)} sx={{ textTransform: "none", fontWeight: 700, borderRadius: "6px" }}
-          onClick={async () => { setBusy(true); try { await onSave({ start: start || null, due: due || null }); } finally { setBusy(false); } }}>
-          {busy ? "Saving…" : "Save the dates"}
-        </Button>
-      </Box>
-    </Dialog>
   );
 }
 

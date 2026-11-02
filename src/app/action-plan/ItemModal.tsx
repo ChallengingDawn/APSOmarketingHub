@@ -83,14 +83,14 @@ function Title({ value, canWrite, onSave }: { value: string; canWrite: boolean; 
 /** A date saved when it is left - typing the year does not save 0002, 0020, 0202 on the way. */
 /** A date handed up as soon as it is a whole one, or when it is left - one picked and the window closed is kept
  *  (SARCLA 02.11.2026: "planned, go-live dates are not updating"). */
-function DateField({ label, value, min, max, canWrite, onSave }: { label: string; value: string | null; min?: string | null; max?: string | null; canWrite: boolean; onSave: (v: string | null) => void }) {
+function DateField({ label, value, min, max, canWrite, onSave, helper }: { label: string; value: string | null; min?: string | null; max?: string | null; canWrite: boolean; onSave: (v: string | null) => void; helper?: string }) {
   const [v, setV] = useState(value ?? "");
   const sent = useRef(value);
   useEffect(() => { setV(value ?? ""); sent.current = value; }, [value]);
   const hand = (x: string) => { const n = x || null; if (n !== sent.current) { sent.current = n; onSave(n); } };
   return (
     <TextField size="small" type="date" label={label} value={v} disabled={!canWrite} onChange={(e) => { setV(e.target.value); if (wholeDay(e.target.value)) hand(e.target.value); }}
-      onBlur={() => hand(v)}
+      onBlur={() => hand(v)} helperText={helper}
       sx={field} slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: min ?? undefined, max: max ?? undefined } }} />
   );
 }
@@ -395,10 +395,14 @@ function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen
 
       {action ? (
         <>
-          <Box sx={card}>
-            <Typography sx={section}>How it is measured</Typography>
-            <Field label="KPIs" value={item.kpis} placeholder="How success is measured - what is counted or compared" canWrite={canWrite} multiline rows={3} onSave={(v) => save({ kpis: v })} />
-          </Box>
+          {/* not on an action from the workbook: its KPIs went into its description (SARCLA 02.11.2026: "take out KPIs and
+              next steps completely on the old imported ones") */}
+          {!(item.src != null && !item.kpis) && (
+            <Box sx={card}>
+              <Typography sx={section}>How it is measured</Typography>
+              <Field label="KPIs" value={item.kpis} placeholder="How success is measured - what is counted or compared" canWrite={canWrite} multiline rows={3} onSave={(v) => save({ kpis: v })} />
+            </Box>
+          )}
           <Box sx={card}>
             <Typography sx={section}>KPI tiles it is tied to</Typography>
             {!tiles.length && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>None yet - a KPI tile&apos;s Actions can add a sub-action to it.</Typography>}
@@ -475,8 +479,8 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
   const [pct, setPct] = useState(item.percent == null ? "" : String(item.percent));
   useEffect(() => { setPct(item.percent == null ? "" : String(item.percent)); }, [item.percent]);
 
-  // its place in the plan: the path above it, and the categories it may move to (the ticket's "business goal",
-  // as a tree from the plan - SARCLA 01.11.2026: "where today I select Awareness, this should be a tree from the plan")
+  // its place in the plan: the path above it, and the categories it may move to, as a tree from the plan (SARCLA
+  // 01.11.2026: "where today I select Awareness, this should be a tree from the plan")
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const path: PlanItem[] = [];
   for (let p = item.parentId != null ? byId.get(item.parentId) : undefined; p && path.length < 8; p = p.parentId != null ? byId.get(p.parentId) : undefined) path.unshift(p);
@@ -495,7 +499,7 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
   const done = subs.filter((s) => s.status === "done").length;
 
   const placeSelect = places.length > 0 && (
-    <TextField select size="small" label={action ? "Business goal - its place in the plan" : "Main category"} value={item.parentId ?? ""} disabled={!canWrite}
+    <TextField select size="small" label={action ? "Its place in the plan" : "Main category"} value={item.parentId ?? ""} disabled={!canWrite}
       onChange={(e) => { const to = Number(e.target.value); if (to && to !== item.parentId) void onMoveTo(item, to).then(() => setTick((t) => t + 1)); }}
       sx={{ ...field, gridColumn: "1 / -1" }} slotProps={{ inputLabel: { shrink: true } }}>
       {places.map((p) => (
@@ -578,8 +582,11 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
                       </Box>
                     </Box>
                     <Box sx={{ display: "grid", gap: 1.25, gridColumn: "1 / -1", gridTemplateColumns: { xs: "1fr 1fr", sm: "1fr 1fr 120px" } }}>
-                      <DateField label="Planned date" value={item.start} max={item.due} canWrite={canWrite} onSave={(v) => save({ start: v })} />
-                      <DateField label="Go-live date" value={item.due} min={item.start} canWrite={canWrite} onSave={(v) => save({ due: v })} />
+                      {/* a main action's dates are its sub-actions' first to last (SARCLA 02.11.2026) */}
+                      <DateField label="Planned date" value={item.start} max={item.due} canWrite={canWrite && !rolled?.datesFromSubs} onSave={(v) => save({ start: v })}
+                        helper={rolled?.datesFromSubs ? "Its first sub-action's" : undefined} />
+                      <DateField label="Go-live date" value={item.due} min={item.start} canWrite={canWrite && !rolled?.datesFromSubs} onSave={(v) => save({ due: v })}
+                        helper={rolled?.datesFromSubs ? "Its last sub-action's" : undefined} /> 
                       <TextField size="small" label="% complete" value={fromSubs ? String(rolled?.percent ?? 0) : pct} disabled={!canWrite || fromSubs}
                         onChange={(e) => setPct(e.target.value)} helperText={fromSubs ? "From its sub-actions" : undefined}
                         onBlur={() => { const s = pct.trim(); const n = s === "" ? null : Math.max(0, Math.min(100, Math.round(Number(s)))); if (n !== item.percent && (n == null || Number.isFinite(n))) save({ percent: n }); }}
@@ -612,7 +619,7 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
                     ))}
                   </TextField>
                   <TextField size="small" label="Roadmap ID" value={item.code} disabled helperText="The workbook's number" sx={field} slotProps={{ inputLabel: { shrink: true } }} />
-                  <Field label="Next steps / milestones" value={item.nextSteps} placeholder="The next steps or milestones - one per line" canWrite={canWrite} multiline rows={2} onSave={(v) => save({ nextSteps: v })} />
+                  {!(item.src != null && !item.nextSteps) && <Field label="Next steps / milestones" value={item.nextSteps} placeholder="The next steps or milestones - one per line" canWrite={canWrite} multiline rows={2} onSave={(v) => save({ nextSteps: v })} />}
                   <Field label="Status note" value={item.statusNote} placeholder="Where it stands - what is done, what is in the way" canWrite={canWrite} multiline rows={2} onSave={(v) => save({ statusNote: v })} />
                   <Referent value={item.referent} people={people} canWrite={canWrite} onSave={(v) => save({ referent: v })} />
                 </Box>

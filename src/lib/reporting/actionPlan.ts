@@ -12,7 +12,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { query } from "@/lib/db/client";
 import {
-  IDEA, IN_PROGRESS, PLAN_STATES, STAGES, ownersFromCodes, percentOfStage, planFromSeed, priorityLabel, reorder, stageOf, stageOfPercent, stateOfStage, toS2s,
+  IDEA, IN_PROGRESS, PLAN_STATES, STAGES, foldedDetail, namesSalesLeaders, ownersFromCodes, percentOfStage, planFromSeed, priorityLabel, reorder, stageOf,
+  stageOfPercent, stateOfStage, subsSpan, toS2s,
   type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanState, type SeedRow,
 } from "./actionPlanRules";
 import { addTask, deleteTask, movePlanItem, moveTask, shareTickets, taskById, ticketsToAction, type KpiTask } from "./kpiActions";
@@ -107,6 +108,9 @@ function ensure(): Promise<void> {
         "s2s boolean NOT NULL DEFAULT false",
         // `year_set` = the roadmap year taken from the dates once; `ticket_sync_at` = the action and its ticket last agreed
         "year_set boolean NOT NULL DEFAULT false", "ticket_sync_at timestamptz",
+        // `folded` = an imported action's KPIs and next steps put in its description; `leaders_set` = "Sales leaders" read
+        // as the hierarchy's people (both once, SARCLA 02.11.2026)
+        "folded boolean NOT NULL DEFAULT false", "leaders_set boolean NOT NULL DEFAULT false",
       ]) await query(`ALTER TABLE ${T} ADD COLUMN IF NOT EXISTS ${c}`);
       // the tracking: every change, who made it and when
       await query(`CREATE TABLE IF NOT EXISTS ${LOG} (
@@ -237,6 +241,68 @@ export async function matchOwnersOnce(people: PlanOwner[]): Promise<number> {
   return n;
 }
 
+/**
+ * "Sales leaders" in the workbook's words read as the people the hierarchy tags Sales leader (SARCLA 02.11.2026: "sales
+ * leader - select the people you know from the hierarchy"), added to whoever the action has - once per action: what
+ * someone sets afterwards stays. While nobody is tagged, the actions wait. How many actions got them.
+ */
+export async function salesLeadersOnce(leaders: PlanOwner[]): Promise<number> {
+  await ensure();
+  if (!leaders.length) return 0;
+  const r = await query<Row>(`SELECT * FROM ${T} WHERE kind = 'action' AND NOT leaders_set ORDER BY id`);
+  let n = 0;
+  for (const a of r.rows.map(item)) {
+    const add = namesSalesLeaders(a.responsible) ? leaders.filter((l) => !a.owners.some((o) => o.id === l.id)) : [];
+    if (add.length) { await updateItem(a.id, { owners: [...a.owners, ...add] }, "The hierarchy's sales leaders"); n++; }
+    await query(`UPDATE ${T} SET leaders_set = true WHERE id = $1`, [a.id]);
+  }
+  if (n) console.log(`[action-plan] "Sales leaders" read from the hierarchy: ${n} action(s) given ${leaders.map((l) => l.name).join(", ")}`);
+  return n;
+}
+
+/**
+ * The workbook's actions put right once (SARCLA 02.11.2026: "take out KPIs and next steps completely on the old imported
+ * ones, enrich the description with this data and fix the description"): actionPlanRules.foldedDetail, the two fields
+ * emptied, in each one's tracking. One with its own ticket waits - those fields are its ticket's. How many changed.
+ */
+export async function foldImportedOnce(withTicket: Set<number>): Promise<number> {
+  await ensure();
+  const r = await query<Row>(`SELECT * FROM ${T} WHERE kind = 'action' AND src IS NOT NULL AND NOT folded ORDER BY id`);
+  let n = 0;
+  for (const a of r.rows.map(item)) {
+    if (withTicket.has(a.id)) continue;
+    const detail = foldedDetail(a);
+    if (detail !== a.detail || a.kpis || a.nextSteps) {
+      await updateItem(a.id, { detail, kpis: "", nextSteps: "" }, "Put right: KPIs and next steps moved into the description");
+      n++;
+    }
+    await query(`UPDATE ${T} SET folded = true WHERE id = $1`, [a.id]);
+  }
+  if (n) console.log(`[action-plan] imported actions put right: ${n} description(s) with their KPIs and next steps`);
+  return n;
+}
+
+/**
+ * A main action's dates are its sub-actions' first to last (actionPlanRules.subsSpan; SARCLA 02.11.2026: "go-live and
+ * planned date do not go as planned"), written where they differ, in its tracking. The actions changed.
+ */
+export async function datesFromSubs(subs: { planItem: number | null; start: string | null; due: string | null }[]): Promise<number[]> {
+  const of = new Map<number, { start: string | null; due: string | null }[]>();
+  for (const s of subs) if (s.planItem != null) of.set(s.planItem, [...(of.get(s.planItem) ?? []), s]);
+  if (!of.size) return [];
+  await ensure();
+  const r = await query<{ id: number; start: string | null; due: string | null }>(
+    `SELECT id, to_char(start_date, 'YYYY-MM-DD') AS start, to_char(due_date, 'YYYY-MM-DD') AS due FROM ${T} WHERE kind = 'action' AND id = ANY($1::int[])`,
+    [[...of.keys()]],
+  );
+  const out: number[] = [];
+  for (const a of r.rows) {
+    const span = subsSpan(of.get(a.id) ?? []);
+    if (span && (span.start !== a.start || span.due !== a.due)) { await updateItem(a.id, { start: span.start, due: span.due }, "Its sub-actions"); out.push(a.id); }
+  }
+  return out;
+}
+
 export async function itemById(id: number): Promise<PlanItem | null> {
   await ensure();
   const r = await query<Row>(`SELECT * FROM ${T} WHERE id = $1`, [id]);
@@ -331,18 +397,6 @@ export async function updateItem(id: number, p: Partial<PlanFields>, by: string)
 }
 
 /**
- * An action something is put inside of is under way (SARCLA 02.11.2026: "if an action is inside of a main action, the
- * action itself should go to In Progress"): with no status or in the Idea box it moves to In Progress. The action as it
- * is now, or null when it is not an action.
- */
-export async function startedBySub(id: number, by: string): Promise<PlanItem | null> {
-  const a = await itemById(id);
-  if (!a || a.kind !== "action") return null;
-  if (a.stage && a.stage !== IDEA) return a;
-  return updateItem(id, { stage: IN_PROGRESS }, by);
-}
-
-/**
  * A sub-action made an action again (SARCLA 02.11.2026: "I should be able to move a sub-action back into a main action
  * if needed"): an action of its own in the category it is dropped on, with its name, description, status, priority,
  * person, dates and status note, Digital Growth's as its action had it; its tickets go onto it, the sub-action leaves.
@@ -386,7 +440,6 @@ export async function copySub(taskId: number, actionId: number, by: string): Pro
   const tickets = to.dg ? await shareTickets(k.id, copy.id, `plan:${to.id}`, by) : 0;
   await log(to.id, by, [{ field: "Sub-action", before: "", after: `${k.title} (a copy of the one in “${from?.title ?? "another action"}”${tickets ? ", the same ticket" : ""})` }]);
   if (from) await log(from.id, by, [{ field: "Sub-action", before: "", after: `${k.title} duplicated onto “${to.title}”${tickets ? ", the same ticket" : ""}` }]);
-  await startedBySub(to.id, by);
   return { task: copy, tickets };
 }
 
@@ -398,7 +451,6 @@ export async function moveSub(taskId: number, actionId: number, by: string): Pro
   await moveTask(k.id, to.id);
   if (from) await log(from.id, by, [{ field: "Sub-action", before: k.title, after: `moved under “${to.title}”` }]);
   await log(to.id, by, [{ field: "Sub-action", before: "", after: from ? `${k.title} (from “${from.title}”)` : k.title }]);
-  await startedBySub(to.id, by);
   return true;
 }
 
@@ -483,7 +535,6 @@ export async function actionToSub(id: number, intoId: number, by: string): Promi
   await movePlanItem(a.id, into.id, task.id);
   await log(into.id, by, [{ field: "Sub-action", before: "", after: `${a.title} (was an action of the plan)` }]);
   await deleteItems([a.id]);
-  await startedBySub(into.id, by);
   return task;
 }
 

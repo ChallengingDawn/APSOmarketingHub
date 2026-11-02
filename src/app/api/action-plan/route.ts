@@ -13,10 +13,11 @@
 //   DELETE ?id=                                  a row and what is under it; its own sub-actions go too
 // Every change to the tree reaches HubSpot's three plan properties a few seconds later (actionPlanHubspot.ts).
 import { NextRequest, NextResponse } from "next/server";
-import { actionToSub, addItem, copySub, deleteItems, itemById, moveSub, startMains, subToAction, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
+import { actionToSub, addItem, copySub, datesFromSubs, deleteItems, foldImportedOnce, itemById, moveSub, salesLeadersOnce, startMains, subToAction, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
+import { savedHierarchy } from "@/lib/hierarchy/store";
 import { freshFromTickets, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { PRIORITIES, S2S_CHOICES, STAGES, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
-import { dropPlanItem, planTasks } from "@/lib/reporting/kpiActions";
+import { actionTickets, dropPlanItem, planTasks } from "@/lib/reporting/kpiActions";
 import { s2sForm } from "@/lib/reporting/scrollToSale";
 import { fail } from "../reporting/kpi-actions/guard";
 import { planWho as who } from "./guard";
@@ -57,16 +58,22 @@ export async function GET(req: NextRequest) {
     let peopleError: string | null = null;
     try {
       list = await people();
-      // the workbook's codes become people the first time HubSpot can be read
+      // the workbook's codes become people the first time HubSpot can be read, its "Sales leaders" the hierarchy's
       await matchOwnersOnce(list);
+      const saved = await savedHierarchy().catch(() => ({} as Awaited<ReturnType<typeof savedHierarchy>>));
+      await salesLeadersOnce(list.filter((p) => saved[p.id]?.tags?.includes("leader"))).catch((e) => console.error("[action-plan] sales leaders not read:", (e as Error).message));
       // and HubSpot gets the plan's three ticket properties (once per start of the hub; not waited for)
       void planInHubspot().catch(() => undefined);
     } catch (e) {
       peopleError = String((e as Error)?.message ?? e).slice(0, 200);
     }
-    // what changed on the actions' tickets comes in first; a main action whose sub-actions are under way is too
+    // what changed on the actions' tickets comes in first; a main action whose sub-actions are under way is too, and its
+    // dates are theirs; the workbook's actions put right once
     await freshFromTickets();
-    await startMains(await planTasks(), "Its sub-actions are under way").catch(() => []);
+    await foldImportedOnce(new Set((await actionTickets()).map((x) => x.item))).catch((e) => console.error("[action-plan] imported actions not put right:", (e as Error).message));
+    const before = await planTasks();
+    await startMains(before, "Its sub-actions are under way").catch(() => []);
+    await datesFromSubs(before).catch((e) => console.error("[action-plan] dates from sub-actions not set:", (e as Error).message));
     const [items, tasks] = await Promise.all([planItems(), planTasks()]);
     const ids = new Set(items.map((i) => i.id));
     const subs: PlanSub[] = tasks.filter((t) => t.planItem != null && ids.has(t.planItem)).map((t) => ({

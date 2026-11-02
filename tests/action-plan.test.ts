@@ -3,9 +3,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, isDigitalGrowth, isLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
+  IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, foldedDetail, namesSalesLeaders, isDigitalGrowth, isLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
-  stateOfStage, stageOfStatus, statusOfStage, sharedTicketSync, subPct, subStage, subTicketSync, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
+  stateOfStage, stageOfStatus, statusOfStage, sharedTicketSync, subPct, subStage, subTicketSync, subsSpan, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
@@ -350,10 +350,37 @@ test("action plan: a category's dates are only what is in it - its first date to
   const r = rollup(items, [sub(1, 3, "open", "2027-02-10", { start: "2026-10-20" })], "2026-11-01");
   assert.deepEqual([r.get(1)!.from, r.get(1)!.to], ["2026-10-20", "2027-02-10"]);
   assert.deepEqual([r.get(2)!.from, r.get(2)!.to], ["2026-10-20", "2027-02-10"]);
-  // an action keeps its own, its sub-actions widening them
-  assert.deepEqual([r.get(3)!.from, r.get(3)!.to], ["2026-10-20", "2027-02-10"]);
+  // an action with sub-actions: their first date to their last
+  assert.deepEqual([r.get(3)!.from, r.get(3)!.to, r.get(3)!.datesFromSubs], ["2026-10-20", "2027-02-10", true]);
+  assert.equal(r.get(4)!.datesFromSubs, false);
   // nothing dated in it: no dates
   assert.deepEqual([rollup([it(5, null, "topic", { start: "2026-01-01" })], [], "2026-11-01").get(5)!.from], [null]);
+});
+
+test("action plan: a main action's dates are its sub-actions' - first to last, its own no longer count", () => {
+  // SARCLA 02.11.2026: "go-live and planned date do not go as planned"
+  assert.deepEqual(subsSpan([{ start: "2026-11-02", due: "2026-12-15" }, { start: null, due: "2027-01-31" }, { start: "2026-10-05", due: null }]), { start: "2026-10-05", due: "2027-01-31" });
+  assert.equal(subsSpan([{ start: null, due: null }]), null);
+  const r = rollup([it(1, null, "group"), it(2, 1, "action", { start: "2026-01-01", due: "2028-12-31" })], [sub(1, 2, "doing", "2026-12-01", { start: "2026-11-02" })], "2026-11-01");
+  assert.deepEqual([r.get(2)!.from, r.get(2)!.to], ["2026-11-02", "2026-12-01"]);
+  // no sub-action dated: the action keeps its own
+  assert.deepEqual([rollup([it(2, null, "action", { start: "2026-01-01", due: "2026-03-01" })], [sub(1, 2, "open", null)], "2026-11-01").get(2)!.from], ["2026-01-01"]);
+});
+
+test("action plan: an imported action's description put right - its name not repeated, its expected result and next steps in it", () => {
+  // SARCLA 02.11.2026: "take out KPIs and next steps completely on the old imported ones, enrich the description with this data and fix the description"
+  const a = { title: "Expand Apsoparts market reach to new territories in Europe", detail: "Expand Apsoparts market reach to new territories in Europe\nWhich countries are interesting? => See matrix of country fit", kpis: "Expected: Increase Revenue", nextSteps: "" };
+  assert.equal(foldedDetail(a), "Which countries are interesting? => See matrix of country fit\n\nExpected result: Increase Revenue");
+  // only its name: the expected result alone
+  assert.equal(foldedDetail({ ...a, detail: a.title }), "Expected result: Increase Revenue");
+  // a name made of a line ending in ":" and the next ones (titleOf): that first line goes
+  assert.equal(foldedDetail({ title: "Pricing project linked to Pricing Hub: Step 1 : see low margin…", detail: "Pricing project linked to Pricing Hub:\nStep 1 : see low margin articles\nStep 2 : own prices", kpis: "", nextSteps: "Ask Claudio\nTest on 10 articles" }),
+    "Step 1 : see low margin articles\nStep 2 : own prices\n\nNext steps:\nAsk Claudio\nTest on 10 articles");
+  // KPIs someone typed, word for word; a description that does not repeat the name stays whole
+  assert.equal(foldedDetail({ title: "Price check", detail: "Check prices weekly", kpis: "Share of prices checked", nextSteps: "" }), "Check prices weekly\n\nKPIs: Share of prices checked");
+  assert.equal(namesSalesLeaders("Sales leaders"), true);
+  assert.equal(namesSalesLeaders("LEAL + sales leader"), true);
+  assert.equal(namesSalesLeaders("LEAL/FRMA/RABE"), false);
 });
 
 test("action plan: a sub-action and its ticket - its own fields both ways, the ticket's way back kept", () => {

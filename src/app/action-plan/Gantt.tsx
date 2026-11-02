@@ -59,6 +59,13 @@ const HEADS = ["", "Task name", "Planned", "Go-live", "Status", "% complete", "A
 const alpha = (hex: string, a: number) => `${hex}${Math.round(a * 255).toString(16).padStart(2, "0")}`;
 /** A tag: square corners (SARCLA 01.11.2026: "tags not round, square"). */
 const TAG = { flexShrink: 0, px: 0.6, borderRadius: "3px", fontSize: "0.66rem", fontWeight: 800, lineHeight: "17px" } as const;
+// the same things in the same place on every row, a column each (SARCLA 02.11.2026: "the design is not even"): the
+// priority before the name, then on the right the Digital Growth tag and the sub-actions' count (a sub-action's KPI flag
+// and its ticket in the same two places) - kept empty where a row has none
+const PRIO_SLOT = { width: 54, flexShrink: 0, display: "flex" } as const;
+const PRIO_TAG = { ...TAG, width: "100%", px: 0, textAlign: "center" } as const;
+const MARK_SLOT = { width: 28, flexShrink: 0, display: "flex", justifyContent: "center", alignItems: "center" } as const;
+const COUNT_SLOT = { width: 56, flexShrink: 0, display: "flex", justifyContent: "flex-end", alignItems: "center" } as const;
 
 /**
  * The width the names need, as the browser will draw them - so the table grows and shrinks with what is opened
@@ -74,17 +81,16 @@ function useNameWidth(rows: GRow[], rolled: Map<number, Rolled>, today: string):
     let need = 260;
     for (const r of rows) {
       const indent = 6 + r.depth * 18 + 24;
-      if (r.type === "sub") { need = Math.max(need, indent + 20 + 17 + measure(r.sub.title, 400, 13.4) + 50); continue; }
+      // the slots are there whether filled or not: the priority's, the mark's and the count's (PRIO_SLOT, MARK_SLOT, COUNT_SLOT)
+      if (r.type === "sub") { need = Math.max(need, indent + 20 + 17 + 58 + measure(r.sub.title, 400, 13.4) + 28 + 56 + 16); continue; }
       const it = r.item, ro = rolled.get(it.id);
       // the goal's sentence is the page's headline: its row may cut it short rather than widen every row
       if (it.kind === "goal") continue;
       const [w, size] = it.kind === "topic" ? [800, 13.4] : it.kind === "group" ? [700, 13.8] : [500, 13.8];
       let chips = it.kind === "topic" ? 16 : 0;
-      if (it.kind === "action" && priorityLabel(it.priority)) chips += measure(priorityLabel(it.priority), 800, 10.6) + 14;
-      if (it.kind === "action" && it.dg) chips += 26;
+      if (it.kind === "action") chips += 58 + 28 + 56;
       if (it.kind === "action" && isLate(it, today)) chips += 40;
       if (it.kind !== "action" && (ro?.late ?? 0) > 0) chips += 52;
-      if (it.kind === "action" && (ro?.subs ?? 0) > 0) chips += 50;
       need = Math.max(need, indent + chips + measure(it.title, w, size) + 16);
     }
     // never more than 40 % of the window, so the time line keeps room on a laptop
@@ -500,10 +506,13 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
         {handle}
         <Box sx={{ ...cell, borderLeft: "none", pl: `${indent + 20}px`, gap: 0.75 }}>
           <Box sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: s.status === "done" ? c : s.status === "doing" ? alpha(c, 0.45) : "#fff", border: `1.5px solid ${c}`, flexShrink: 0 }} />
-          {sPrio && <Box sx={{ ...TAG, bgcolor: PRIORITY_COLOR[s.priority].bg, color: PRIORITY_COLOR[s.priority].fg }}>{sPrio}</Box>}
-          <Typography noWrap sx={{ fontSize: "0.84rem", color: MUTED, textDecoration: s.status === "done" ? "line-through" : "none" }}>{s.title}</Typography>
-          {s.kpiTile && <Tooltip title="Made on a KPI tile"><FlagOutlinedIcon sx={{ fontSize: 15, color: TINT.blue.fg, flexShrink: 0 }} /></Tooltip>}
-          {s.tickets > 0 && <Tooltip title={`${s.tickets} Scroll to Sale ticket${s.tickets === 1 ? "" : "s"}`}><Box sx={{ display: "flex", alignItems: "center", gap: 0.25, color: TINT.amber.fg, flexShrink: 0 }}><ConfirmationNumberOutlinedIcon sx={{ fontSize: 15 }} /><Typography sx={{ fontSize: "0.72rem", fontWeight: 700 }}>{s.tickets}</Typography></Box></Tooltip>}
+          <Box sx={PRIO_SLOT}>{sPrio && <Box sx={{ ...PRIO_TAG, bgcolor: PRIORITY_COLOR[s.priority].bg, color: PRIORITY_COLOR[s.priority].fg }}>{sPrio}</Box>}</Box>
+          <Typography noWrap sx={{ fontSize: "0.84rem", color: MUTED, minWidth: 0, textDecoration: s.status === "done" ? "line-through" : "none" }}>{s.title}</Typography>
+          <Box sx={{ flex: 1 }} />
+          <Box sx={MARK_SLOT}>{s.kpiTile && <Tooltip title="Made on a KPI tile"><FlagOutlinedIcon sx={{ fontSize: 15, color: TINT.blue.fg }} /></Tooltip>}</Box>
+          <Box sx={COUNT_SLOT}>
+            {s.tickets > 0 && <Tooltip title={`${s.tickets} Scroll to Sale ticket${s.tickets === 1 ? "" : "s"}`}><Box sx={{ width: 50, height: 22, display: "flex", alignItems: "center", justifyContent: "center", gap: 0.4, color: TINT.amber.fg, fontVariantNumeric: "tabular-nums" }}><ConfirmationNumberOutlinedIcon sx={{ fontSize: 15 }} /><Typography sx={{ fontSize: "0.72rem", fontWeight: 700 }}>{s.tickets}</Typography></Box></Tooltip>}
+          </Box>
         </Box>
         {!compact && <>
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{dmy(s.start)}</Typography></Box>
@@ -539,23 +548,27 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
         {/* the project's colour, as its bars carry it */}
         {it.kind === "topic" && color && <Box aria-hidden sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: color, flexShrink: 0, mr: 0.25 }} />}
         {/* HubSpot's priority (SARCLA 01.11.2026: "priority as HubSpot's Low / Medium / High / Urgent") */}
-        {prio && <Box sx={{ ...TAG, bgcolor: PRIORITY_COLOR[it.priority].bg, color: PRIORITY_COLOR[it.priority].fg }}>{prio}</Box>}
+        {it.kind === "action" && <Box sx={PRIO_SLOT}>{prio && <Box sx={{ ...PRIO_TAG, bgcolor: PRIORITY_COLOR[it.priority].bg, color: PRIORITY_COLOR[it.priority].fg }}>{prio}</Box>}</Box>}
         <Tooltip title={it.detail && it.detail !== it.title ? <Box sx={{ whiteSpace: "pre-wrap", fontSize: "0.8rem", maxHeight: 320, overflow: "hidden" }}>{it.detail}</Box> : ""} placement="bottom-start" enterDelay={600} disableInteractive>
           <Typography noWrap sx={{ ...name, minWidth: 0, ...(it.stage === KILLED ? { textDecoration: "line-through", color: FAINT } : {}) }}>{it.title}</Typography>
         </Tooltip>
-        {it.kind === "action" && it.dg && <Tooltip title="Led by Digital Growth - its sub-actions can take a Scroll to Sale ticket"><Box sx={{ ...TAG, bgcolor: TINT.blue.bg, color: TINT.blue.fg }}>DG</Box></Tooltip>}
         {late && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>LATE</Box>}
         {summary && (ro?.late ?? 0) > 0 && <Tooltip title={`${ro!.late} action${ro!.late === 1 ? "" : "s"} past due`}><Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>{ro!.late} late</Box></Tooltip>}
         <Box sx={{ flex: 1 }} />
-        {/* how many of its sub-actions are done - a count, not a second + (the + on the left adds one) */}
-        {it.kind === "action" && (ro?.subs ?? 0) > 0 && (
-          <Tooltip title={`${ro!.subs - ro!.subsOpen} of ${ro!.subs} sub-action${ro!.subs === 1 ? "" : "s"} done - open them`}>
-            <Box component="button" type="button" aria-label="Sub-actions" onClick={(e: React.MouseEvent) => { e.stopPropagation(); onSubs(it); }}
-              sx={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 0.4, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", borderRadius: "4px", px: 0.75, height: 22, cursor: "pointer", color: MUTED, font: "inherit", fontSize: "0.72rem", fontWeight: 700 }}>
-              <TaskAltIcon sx={{ fontSize: 14 }} />{`${ro!.subs - ro!.subsOpen}/${ro!.subs}`}
-            </Box>
-          </Tooltip>
-        )}
+        {it.kind === "action" && <>
+          <Box sx={MARK_SLOT}>{it.dg && <Tooltip title="Led by Digital Growth - its sub-actions can take a Scroll to Sale ticket"><Box sx={{ ...TAG, bgcolor: TINT.blue.bg, color: TINT.blue.fg }}>DG</Box></Tooltip>}</Box>
+          {/* how many of its sub-actions are done - a count, not a second + (the + on the left adds one) */}
+          <Box sx={COUNT_SLOT}>
+            {(ro?.subs ?? 0) > 0 && (
+              <Tooltip title={`${ro!.subs - ro!.subsOpen} of ${ro!.subs} sub-action${ro!.subs === 1 ? "" : "s"} done - open them`}>
+                <Box component="button" type="button" aria-label="Sub-actions" onClick={(e: React.MouseEvent) => { e.stopPropagation(); onSubs(it); }}
+                  sx={{ width: 50, display: "flex", alignItems: "center", justifyContent: "center", gap: 0.4, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", borderRadius: "4px", px: 0, height: 22, cursor: "pointer", color: MUTED, font: "inherit", fontSize: "0.72rem", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                  <TaskAltIcon sx={{ fontSize: 14 }} />{`${ro!.subs - ro!.subsOpen}/${ro!.subs}`}
+                </Box>
+              </Tooltip>
+            )}
+          </Box>
+        </>}
       </Box>
       {compact ? null : summary ? (
         <>
@@ -567,8 +580,9 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
         </>
       ) : (
         <>
-          <DateCell value={it.start} canWrite={canWrite} max={it.due} onSave={(v) => onPatch(it.id, { start: v })} />
-          <DateCell value={it.due} note={it.dueNote} late={late} canWrite={canWrite} min={it.start} onSave={(v) => onPatch(it.id, { due: v })} />
+          {/* a main action's dates are its sub-actions' first to last (SARCLA 02.11.2026: "go-live and planned date do not go as planned") */}
+          <DateCell value={it.start} canWrite={canWrite && !ro?.datesFromSubs} max={it.due} fromSubs={ro?.datesFromSubs} onSave={(v) => onPatch(it.id, { start: v })} />
+          <DateCell value={it.due} note={it.dueNote} late={late} canWrite={canWrite && !ro?.datesFromSubs} min={it.start} fromSubs={ro?.datesFromSubs} onSave={(v) => onPatch(it.id, { due: v })} />
           {/* the pipeline's stage, as a square tag in its colour */}
           <Box sx={cell}>
             {stage
@@ -591,7 +605,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
 }
 
 /** A date typed in its cell, as in Planner's grid. */
-function DateCell({ value, note, late, canWrite, min, max, onSave }: { value: string | null; note?: string; late?: boolean; canWrite: boolean; min?: string | null; max?: string | null; onSave: (v: string | null) => Promise<void> }) {
+function DateCell({ value, note, late, canWrite, min, max, fromSubs, onSave }: { value: string | null; note?: string; late?: boolean; canWrite: boolean; min?: string | null; max?: string | null; fromSubs?: boolean; onSave: (v: string | null) => Promise<void> }) {
   const [edit, setEdit] = useState(false);
   const cell = { px: 1, minWidth: 0, height: "100%", display: "flex", alignItems: "center", borderLeft: `1px solid ${HAIRLINE}` } as const;
   if (edit) {
@@ -607,7 +621,7 @@ function DateCell({ value, note, late, canWrite, min, max, onSave }: { value: st
   return (
     <Box sx={{ ...cell, cursor: canWrite ? "text" : "inherit" }} onClick={(e) => { if (!canWrite) return; e.stopPropagation(); setEdit(true); }}>
       {value
-        ? <Typography sx={{ fontSize: "0.8rem", color: late ? LATE : INK, fontWeight: late ? 700 : 400, fontVariantNumeric: "tabular-nums" }}>{dmy(value)}</Typography>
+        ? <Typography title={fromSubs ? "From its sub-actions" : undefined} sx={{ fontSize: "0.8rem", color: late ? LATE : INK, fontWeight: late ? 700 : 400, fontVariantNumeric: "tabular-nums" }}>{dmy(value)}</Typography>
         : <Typography noWrap title={note || undefined} sx={{ fontSize: "0.78rem", color: FAINT, fontStyle: note ? "italic" : "normal" }}>{note || ""}</Typography>}
     </Box>
   );

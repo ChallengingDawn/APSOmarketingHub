@@ -362,6 +362,8 @@ export type Rolled = {
   subs: number; subsOpen: number;
   /** Actions under the row that are past their due and not done. */
   late: number;
+  /** An action's dates are its sub-actions' (subsSpan) - shown, not typed. */
+  datesFromSubs: boolean;
 };
 
 const SUB_PCT = { open: 0, doing: 50, done: 100 } as const;
@@ -382,6 +384,38 @@ export const subStage = (s: Pick<PlanSub, "stage" | "status">): Stage | null =>
 const minD = (a: string | null, b: string | null) => (!a ? b : !b ? a : a < b ? a : b);
 const maxD = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b);
 
+/**
+ * A main action's dates: its sub-actions' first date to their last (SARCLA 02.11.2026: "go-live and planned date do not
+ * go as planned") - a sub-action with only one date counts it at both ends. Null when none of them has a date: the
+ * action keeps its own.
+ */
+export function subsSpan(subs: { start: string | null; due: string | null }[]): { start: string; due: string } | null {
+  let from: string | null = null, to: string | null = null;
+  for (const s of subs) { from = minD(minD(from, s.start), s.due); to = maxD(maxD(to, s.start), s.due); }
+  return from && to ? { start: from, due: to } : null;
+}
+
+/**
+ * An action imported from the workbook, its description put right (SARCLA 02.11.2026: "take out KPIs and next steps
+ * completely on the old imported ones, enrich the description with this data and fix the description"): the first line
+ * that only repeats its name goes, its KPIs - the workbook's expected result - and its next steps follow, word for word.
+ */
+export function foldedDetail(a: Pick<PlanFields, "title" | "detail" | "kpis" | "nextSteps">): string {
+  const ls = a.detail.replace(/\r/g, "").split("\n");
+  while (ls.length && !ls[0].trim()) ls.shift();
+  const first = (ls[0] ?? "").trim(), title = a.title.trim();
+  // the name is the first line, or that line ending in ":" with the next ones (titleOf)
+  if (first && (first === title || (first.endsWith(":") && title.startsWith(`${first} `)))) ls.shift();
+  const body = ls.join("\n").trim();
+  const k = a.kpis.trim();
+  const kpis = !k ? "" : /^expected:\s*/i.test(k) ? `Expected result: ${k.replace(/^expected:\s*/i, "")}` : `KPIs: ${k}`;
+  const next = a.nextSteps.trim() ? `Next steps:\n${a.nextSteps.trim()}` : "";
+  return [body, kpis, next].filter(Boolean).join("\n\n");
+}
+
+/** The workbook names the sales leaders as a group ("Sales leaders", "LEAL + sales leader"): the hierarchy's are meant. */
+export const namesSalesLeaders = (responsible: string): boolean => /\bsales[\s-]*leaders?\b/i.test(responsible);
+
 /** Past its go-live date and neither live nor dropped. */
 export function isLate(i: Pick<PlanItem, "due" | "percent" | "stage">, today: string): boolean {
   return !!i.due && i.due < today && !isClosed(i.stage) && (i.percent ?? 0) < 100;
@@ -399,15 +433,17 @@ export function rollup(items: PlanItem[], subs: PlanSub[], today: string): Map<n
   const seen = new Set<number>();
   const walk = (i: PlanItem): Rolled => {
     if (out.has(i.id)) return out.get(i.id)!;
-    if (seen.has(i.id)) return { percent: null, from: null, to: null, subs: 0, subsOpen: 0, late: 0 };
+    if (seen.has(i.id)) return { percent: null, from: null, to: null, subs: 0, subsOpen: 0, late: 0, datesFromSubs: false };
     seen.add(i.id);
     const mine = subsOf.get(i.id) ?? [];
     // an action's own dates; a category's only from what is in it - its first date to its last, actions and sub-actions
     // alike (SARCLA 02.11.2026: "main categories' planned and go-live dates should inherit from the first date of any
     // action or sub-action and end at the latest")
+    // - and an action with sub-actions, its sub-actions' first to their last (subsSpan)
     const own = i.kind === "action";
-    let from = own ? minD(i.start, i.due) : null, to = own ? maxD(i.start, i.due) : null;
-    for (const s of mine) { from = minD(minD(from, s.start), s.due); to = maxD(maxD(to, s.start), s.due); }
+    const span = own ? subsSpan(mine) : null;
+    let from = span ? span.start : own ? minD(i.start, i.due) : null, to = span ? span.due : own ? maxD(i.start, i.due) : null;
+    if (!own) for (const s of mine) { from = minD(minD(from, s.start), s.due); to = maxD(maxD(to, s.start), s.due); }
     let n = mine.length, open = mine.filter((s) => s.status !== "done").length;
     let late = i.kind === "action" && isLate(i, today) ? 1 : 0;
     const acc = { n: 0, sum: 0 };
@@ -430,7 +466,7 @@ export function rollup(items: PlanItem[], subs: PlanSub[], today: string): Map<n
       percent = acc.n ? Math.round(acc.sum / acc.n) : null;
     }
     sums.set(i.id, acc);
-    const r = { percent, from, to, subs: n, subsOpen: open, late };
+    const r = { percent, from, to, subs: n, subsOpen: open, late, datesFromSubs: !!span };
     out.set(i.id, r);
     return r;
   };
