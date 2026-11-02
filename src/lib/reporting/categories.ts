@@ -198,9 +198,20 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     // The Sales leader view leaves Digital Growth for a tile of its own (SARCLA 20.10.2026: "a full advanced
     // report with its own tile - will be changed later"); renamed and moved to the bottom, after Products Reports
     // (SARCLA 01.11.2026: "Sales Leader View becomes Sales Leader Reports and comes before this new one")
-    slug: "sales-leader", name: "Sales Leader Reports", line: "The KPIs the sales leader follows",
+    slug: "sales-leader", name: "Sales Leader Reports", line: "Your team's targets, and the graphs a sales leader follows",
+    // built as My Sales Reports (SARCLA 02.11.2026: "build the sales leader report - the table for overall and for its team
+    // on the targets first page; rethink the more important graphs per sales leader"): Targets first - My team, and every
+    // sales leader's team (Settings > Hierarchy) - then the Team page's graphs; the KPIs tagged for the sales leader, the
+    // report of before, under "Other reports" (at /reporting/sales-leader/view; the report's address opens on Targets)
     reports: [
-      { name: "Sales leader view", href: "/reporting/sales-leader", note: "The KPIs tagged for the sales leader, stage by stage", icon: "verified" },
+      {
+        name: "Sales leader KPIs", href: "/reporting/sales-leader/targets", note: "Each team's targets, who is on track, activity, revenue and customer health", icon: "verified",
+        overview: "Targets", overviewHref: "/reporting/sales-leader/targets",
+        children: [
+          { name: "Team", href: "/reporting/sales-leader/team", icon: "groups" },
+          { name: "Sales leader view", href: "/reporting/sales-leader/view", icon: "verified", group: "Other reports" },
+        ],
+      },
     ],
   },
   {

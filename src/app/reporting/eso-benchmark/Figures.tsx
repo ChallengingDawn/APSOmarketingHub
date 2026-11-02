@@ -1982,6 +1982,25 @@ const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minma
 /** The panel's own cards and month charts: their tile keys */
 
 /** The figures for ESO, TSA or Total with the same toggle, the year to date month by month - and the Figures charts sent here. */
+/** This page's charts by id - the year to date, no filters, for the people of the scope around it (Sales Leader Reports' Team page,
+ *  SARCLA 02.11.2026: "rethink the more important graphs per sales leader"). */
+export function useFiguresDraw(): { draw: ((id: string) => React.ReactNode) | null; wait: React.ReactNode } {
+  const scoped = useScoped();
+  const { cube, computing, progress, error } = useCustomersCube();
+  const { kpi, busy } = useKpiSeries();
+  const lt = useLeads();
+  const leads = lt?.byName ?? null, teams = lt?.teams ?? [];
+  const ready = cube && !tooOld(cube) ? cube : null;
+  const team: TeamKey = scoped?.team ?? "eso";
+  const c = useMemo<FigCtx | null>(() => (ready && scoped
+    ? { cube: ready, kpi, kpiBusy: busy, team, view: "ytd", per: ytdPer(ready), filters: {}, eff: withTeam(ready, {}, team, SCOPE_LEAD, leads), lead: SCOPE_LEAD, leads, teams }
+    : null), [ready, scoped, kpi, busy, team, leads, teams]);
+  return {
+    draw: c ? (id) => { const ch = drawnOf(id); return ch ? ch.draw({ ...c, view: id.split(":")[0] } as FigCtx) : null; } : null,
+    wait: <Waiting computing={computing || (!!cube && tooOld(cube))} progress={progress} error={error} />,
+  };
+}
+
 export function FiguresPanel({ acts, home = "eso" }: { acts: ActionsState | null; home?: Home }) {
   // ESO's BUC View or TSA's (SARCLA 01.11.2026: "move the BUC View with the same principle to TSA reports"): its charts, its team
   const PAGE = homePage(home, "figures"), PANEL = `${PAGE}:panel:`, base = `/reporting/${home}-benchmark/figures`;

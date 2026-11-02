@@ -1200,6 +1200,23 @@ export function VisitsExplorer({ team: given, setTeam: giveTeam, home = "eso" }:
   );
 }
 
+/** This page's charts by id - the year to date, no filters, for the people of the scope around it (Sales Leader Reports' Team page,
+ *  SARCLA 02.11.2026: "rethink the more important graphs per sales leader"). */
+export function useVisitsDraw(): { draw: ((id: string) => React.ReactNode) | null; wait: React.ReactNode } {
+  const { d, computing, progress, error } = useVisits();
+  const scoped = useScoped();
+  const lt = useLeads();
+  const c = useMemo<VCtx | null>(() => {
+    if (!d || !scoped) return null;
+    const team: TeamKey = scoped.team === "eso" ? "eso" : "total";
+    return { d, per: perOf(d, presetsOf(d)[0].win), team, lead: SCOPE_LEAD, teams: lt?.teams ?? [], people: peopleOf(d, team, SCOPE_LEAD, lt?.byId ?? {}), filters: {}, view: "people" };
+  }, [d, scoped, lt]);
+  return {
+    draw: c ? (id) => { const ch = drawnOf(id); return ch ? ch.draw({ ...c, view: id.split(":")[0] as VView }) : null; } : null,
+    wait: <Waiting computing={computing} progress={progress} error={error} />,
+  };
+}
+
 /* ── the BUC View's Visits panel ───────────────────────────────────────── */
 
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;

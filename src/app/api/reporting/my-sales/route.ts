@@ -9,36 +9,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess, type MyAccess } from "@/lib/auth/appAccess";
 import { accessAt } from "@/lib/auth/tree";
-import { asRole } from "@/lib/auth/access";
 import { getOptionalUser } from "@/lib/auth/guard";
-import { kvGet, kvSet } from "@/lib/db/init";
+import { kvSet } from "@/lib/db/init";
 import { query } from "@/lib/db/client";
 import { hierarchyNow } from "@/lib/hierarchy/store";
 import { reportsOfUnit, under } from "@/lib/hierarchy/rules";
 import { getLeads, getTeams } from "@/lib/mapAssign/leads";
-import { checkTarget, checkWeights, cleanAll, isTargetId, type PersonTargets } from "@/lib/reporting/mySalesRules";
+import { checkTarget, checkWeights, isTargetId, type PersonTargets } from "@/lib/reporting/mySalesRules";
+import { asking, readTargets, targetsKey } from "@/lib/reporting/mySalesStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const PAGES = ["targets", "figures", "visits", "registrations", "shop", "new-customers", "customers", "tickets", "system-tickets"].map((p) => `/reporting/my-sales/${p}`);
 const opens = (a: MyAccess, href: string) => accessAt(href, a.levels).level !== "none";
-/** one key per person, so two people saving at once never overwrite each other */
-const keyOf = (year: number, owner: string) => `mySales:targets:${year}:${owner}`;
-
-async function readTargets(year: number, owner: string): Promise<PersonTargets> {
-  return cleanAll({ [owner]: (await kvGet<unknown>(keyOf(year, owner))) ?? {} })[owner] ?? {};
-}
-
-/** The person asking - or, for an admin previewing someone, that person: their email and their role. */
-async function asking(access: MyAccess, as: string | null) {
-  const u = await getOptionalUser();
-  if (access.role === "admin" && as && /^\d+$/.test(as)) {
-    const r = await query<{ email: string | null; role: string; username: string }>(`SELECT email, role, username FROM apsomh_users WHERE id = $1`, [Number(as)]);
-    if (r.rows[0]) return { email: r.rows[0].email, role: asRole(r.rows[0].role), username: r.rows[0].username, previewing: true };
-  }
-  return { email: u?.email ?? null, role: access.role, username: u?.username ?? "", previewing: false };
-}
 
 export async function GET(req: NextRequest) {
   const access = await myAccess();
@@ -124,7 +108,7 @@ export async function PUT(req: NextRequest) {
       if (!c.ok) return NextResponse.json({ ok: false, error: c.error }, { status: 400 });
       if (c.value == null) delete next[b.target]; else next[b.target] = c.value;
     }
-    await kvSet(keyOf(year, owner), next);
+    await kvSet(targetsKey(year, owner), next);
     await query(`INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`,
       [u?.username ?? "", "my-sales.target", JSON.stringify({ owner, target: b.target, ...(b.weights !== undefined ? { weights: next.weights?.[b.target] ?? null } : { value: next[b.target] ?? null }), year })]).catch(() => { /* never fail the change because the log did */ });
     return NextResponse.json({ ok: true, targets: next });

@@ -154,8 +154,8 @@ export const APPS: HubApp[] = [
       { name: "Customer Reports", note: "KPIs, new and buying customers", href: "/reporting/customers", icon: "groups", ...GREEN },
       // Articles CY/LY, moved from UC & HubSpot Apps (SARCLA, 16.10.2026)
       { name: "Products Reports", note: "Articles, this year against last", href: "/reporting/products", icon: "inventory", ...TEAL },
-      // its own tile (SARCLA 20.10.2026), renamed and at the bottom (01.11.2026)
-      { name: "Sales Leader Reports", note: "The KPIs the sales leader follows", href: "/reporting/sales-leader", icon: "verified", ...PURPLE },
+      // its own tile (SARCLA 20.10.2026), renamed and at the bottom (01.11.2026); its team's targets first (02.11.2026)
+      { name: "Sales Leader Reports", note: "Your team's targets and graphs", href: "/reporting/sales-leader", icon: "verified", ...PURPLE },
       // each salesperson's own (SARCLA 01.11.2026)
       { name: "My Sales Reports", note: "Your targets and figures", href: "/reporting/my-sales", icon: "target", ...AMBER },
     ],

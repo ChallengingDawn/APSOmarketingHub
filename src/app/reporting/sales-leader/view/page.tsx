@@ -2,7 +2,8 @@
 // THE SALES LEADER VIEW - the KPIs SARCLA tagged "Sales leader, Rose" in the
 // workbook (12.10.2026), stage by stage: the measured ones with their figures,
 // the rest named with what they wait for. Its own report since 20.10.2026 (SARCLA: "a full advanced
-// report with its own tile - will be changed later"); /reporting/marketing-kpis/sales-leader sends here.
+// report with its own tile - will be changed later"); /reporting/marketing-kpis/sales-leader sends here. At
+// /reporting/sales-leader/view since 02.11.2026, under "Other reports" - the report opens on its Targets.
 
 import Link from "next/link";
 import Box from "@mui/material/Box";
@@ -14,8 +15,8 @@ import { GlassCard, INK, MUTED, RED } from "@/app/uc/report/ui";
 import { KPIS } from "@/lib/marketingKpis/catalogue";
 import { SHOWN_STAGES } from "@/lib/marketingKpis/stageNames";
 import { GUTTER } from "@/app/analytics/Shell";
-import { KpiCard, LEADER, LiveNote, NotConnected, StageGlyph, buildViews, isMeasured, stageHref, stageTint, upToOf, useMarketingKpis } from "../marketing-kpis/data";
-import { CustomersSummary } from "../marketing-kpis/Customers";
+import { KpiCard, LEADER, LiveNote, NotConnected, StageGlyph, buildViews, isMeasured, stageHref, stageTint, upToOf, useMarketingKpis } from "../../marketing-kpis/data";
+import { CustomersSummary } from "../../marketing-kpis/Customers";
 
 export default function SalesLeaderView() {
   const [state] = useMarketingKpis();

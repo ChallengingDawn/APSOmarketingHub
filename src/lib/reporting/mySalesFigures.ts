@@ -97,6 +97,34 @@ export function visitsByPerson(d: VisitsData, people: Set<number>): PersonFig[] 
 }
 
 /**
+ * Per person - by owner id - each target's last year (what a growth is set on) and this year to date, as revenueMeasures
+ * and visitsMeasure reckon them for one person; a single pass of the cube per figure for everyone (Sales Leader Reports'
+ * tables: a row per person). The cube knows a person by their SAE name, the visits read by their owner id.
+ */
+export function figsByPerson(cube: Cube, d: VisitsData, people: { id: string; name: string }[]): Map<string, Record<TargetId, { py: number; ytd: number }>> {
+  const labels = people.map((p) => p.name);
+  const f = saeFilter(labels), r = cubeReach(cube);
+  const ownYtd = new Map(breakdown(cube, "sae", f, win(0, r.month)).map((x) => [x.label, x.rev] as [string, number]));
+  const ownPy = new Map(breakdown(cube, "sae", f, win(0, 11, true)).map((x) => [x.label, x.rev] as [string, number]));
+  const pcs = pcBy(cube, f, "sae");
+  const pcOf = (label: string, pc: string) => { const p = pcs.get(label)?.get(pc); return { py: sum(p?.py ?? []), ytd: sum(p?.cy ?? [], 0, r.month) }; };
+  const newYtd = newBy(cube, f, win(0, r.month), "sae"), newPy = newBy(cube, f, win(0, 11, true), "sae");
+  const index = new Map(d.people.map((p, i) => [p.id, i]));
+  const out = new Map<string, Record<TargetId, { py: number; ytd: number }>>();
+  for (const p of people) {
+    const i = index.get(p.id);
+    const v = i == null ? { py: 0, ytd: 0 } : visitsMeasure(d, new Set([i]));
+    out.set(p.id, {
+      own: { py: ownPy.get(p.name) ?? 0, ytd: ownYtd.get(p.name) ?? 0 },
+      dt: pcOf(p.name, "dt"), kt: pcOf(p.name, "kt"),
+      new: { py: newPy.get(p.name)?.rev ?? 0, ytd: newYtd.get(p.name)?.rev ?? 0 },
+      visits: { py: v.py, ytd: v.ytd },
+    });
+  }
+  return out;
+}
+
+/**
  * How much of the year's target is due by now: the quarters done in full, the running one as far as it has run (its
  * months done and the share of the month in progress). What the year to date is measured against.
  */

@@ -356,4 +356,4 @@ function Contribution({ scopeName, cubeReady, labels, people, d, year }: {
     </ChartBox>
   );
 }
-const SHORT: Record<TargetId, string> = { own: "Own area", dt: "Sealing (DT)", kt: "Plastics (KT)", new: "New customers", visits: "Visits" };
+export const SHORT: Record<TargetId, string> = { own: "Own area", dt: "Sealing (DT)", kt: "Plastics (KT)", new: "New customers", visits: "Visits" };

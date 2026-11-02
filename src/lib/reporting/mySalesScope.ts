@@ -45,8 +45,13 @@ export function scopeOf(st: Standing, view: View): ScopeOf {
   // a team not set up yet shows nobody - never the person alone under the name of a team
   const people = view === "team" ? st.team : st.subject ? [st.subject] : [];
   const name = view === "team" ? viewsOf(st).find((v) => v.id === "team")?.label ?? "My team" : st.subject?.name ?? "You";
+  return scopeFor(people, name, st.reports ?? "eso");
+}
+
+/** The figures of these people only, under a name, in ESO's or TSA's reports or everyone's (Sales Leader Reports' teams too). */
+export function scopeFor(people: Person[], name: string, team: "eso" | "tsa" | "total"): ScopeOf {
   return {
-    team: st.reports ?? "eso", lead: SCOPE_LEAD,
+    team, lead: SCOPE_LEAD,
     leads: {
       byName: Object.fromEntries(people.map((p) => [p.name, SCOPE_LEAD])),
       byId: Object.fromEntries(people.map((p) => [p.id, SCOPE_LEAD])),

@@ -6,7 +6,8 @@ test("the categories stand in SARCLA's order (16.10.2026), then Customer and Pro
   assert.deepEqual(REPORT_CATEGORIES.map((c) => c.slug),
     ["marketing", "eso", "tsa", "back-office", "website", "otd", "satisfaction", "customers", "products", "sales-leader", "my-sales"]);
   assert.equal(categoryBySlug("marketing")?.name, "Digital Growth Reports");
-  assert.equal(categoryEntry(categoryBySlug("sales-leader")!), "/reporting/sales-leader");
+  // its team's targets first (SARCLA 02.11.2026: "the table for overall and for its team on the targets first page")
+  assert.equal(categoryEntry(categoryBySlug("sales-leader")!), "/reporting/sales-leader/targets");
 });
 
 test("Digital Growth's side panel: the stages, then Other reports - Monthly inputs, SMEC targets, Use Cases Overview; no Sales leader view, no Efficiency (SARCLA 20-21.10.2026)", () => {

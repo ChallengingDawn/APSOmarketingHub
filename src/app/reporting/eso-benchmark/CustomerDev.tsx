@@ -717,6 +717,22 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
     </GlassCard>
   );
 }
+/** This page's charts by id - the year to date, no filters, for the people of the scope around it (Sales Leader Reports' Team page,
+ *  SARCLA 02.11.2026: "rethink the more important graphs per sales leader"). */
+export function useCustomerDevDraw(): { draw: ((id: string) => React.ReactNode) | null; wait: React.ReactNode } {
+  const scoped = useScoped();
+  const { d, computing, progress, error } = useCustDev();
+  const lt = useLeads();
+  const team: TeamKey = scoped?.team ?? "eso";
+  const c = useMemo<CCtx | null>(() => (d && scoped
+    ? { d, per: perOf(d, presetsOf(d)[0].win), team, lead: SCOPE_LEAD, teams: lt?.teams ?? [], people: peopleOf(d, team, SCOPE_LEAD, lt?.byName ?? {}), filters: {}, view: "people" }
+    : null), [d, scoped, team, lt]);
+  return {
+    draw: c ? (id) => { const ch = drawnOf(id); return ch ? ch.draw({ ...c, view: id.split(":")[0] as CView }) : null; } : null,
+    wait: <Waiting computing={computing} progress={progress} error={error} />,
+  };
+}
+
 export function CustomerDevExplorer({ home = "eso" }: { home?: Home }) {
   // its charts to the BUC View of the reports it is in: "eso-customers:…", or "tsa-customers:…" on TSA Reports (SARCLA 01.11.2026)
   const PAGE = `${home}-customers`;

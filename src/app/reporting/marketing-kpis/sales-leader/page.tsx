@@ -2,5 +2,5 @@
 import { redirect } from "next/navigation";
 
 export default function MovedSalesLeaderView() {
-  redirect("/reporting/sales-leader");
+  redirect("/reporting/sales-leader/view");
 }
