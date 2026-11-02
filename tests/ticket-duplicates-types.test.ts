@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_TYPES, coreSubject, decide, type Cand, type Me } from "../src/lib/ticketDuplicates/types";
+import { DEFAULT_TYPES, coreSubject, coreText, decide, excludedBy, makeSure, sameText, type Cand, type Me } from "../src/lib/ticketDuplicates/types";
 
 const BO = "1726786777", ESO = "1726599376";
 const H = 3600_000;
@@ -38,15 +38,21 @@ test("the same request twice: same subject from the same customer, the earlier o
 test("a system or a colleague sending the same subject is not the same request - unless it is on the same order", () => {
   const shop = { id: "c2", domain: "apsoparts.com", name: null };
   const me = M("BO | Email | Request billing address change", { sender: shop });
-  assert.equal(decide(me, [C("90", "Request billing address change", { sameSender: true })], DEFAULT_TYPES, none).status, null);
+  const fromShop = decide(me, [C("90", "Request billing address change", { sameSender: true })], DEFAULT_TYPES, none);
+  assert.deepEqual([fromShop.status, fromShop.systemSender], [null, true]); // counted as a system writing the same again, never "twice"
+  assert.equal(decide(me, [C("90", "Order confirmation", { sameSender: true })], DEFAULT_TYPES, none).systemSender, undefined);
   // the ERP twice about the same order: that is the same notice twice
   const erp = M("BO | Email | ERP Order Export Failed for A26.659170.000", { sender: { id: "c3", domain: "angst-pfister.com", name: null } });
   const v = decide(erp, [C("90", "ERP Order Export Failed for A26.659170.000")], DEFAULT_TYPES, none);
   assert.deepEqual([v.type, v.of], ["twice", ["90"]]);
   assert.match(v.why, /^Same subject on order 659170/);
-  // a subject that is only the sender's name says nothing
+  // a subject that is only the sender's name, or a chat's or a web form's template, says nothing
   const named = M("BO | Delivery | Anna Muster");
   assert.equal(decide(named, [C("90", "BO | Delivery | Anna Muster", { sameSender: true })], DEFAULT_TYPES, none).status, null);
+  assert.equal(decide(M("Request from chat |  | BO TOPIC"), [C("90", "Request from chat |  | BO TOPIC", { sameSender: true })], DEFAULT_TYPES, none).status, null);
+  assert.equal(decide(M("Customer Form | Delivery: Existing Order |  Henrik Woldt"), [C("90", "Customer Form | Delivery: Existing Order |  Henrik Woldt", { sameSender: true })], DEFAULT_TYPES, none).status, null);
+  // ... unless it is about the same order
+  assert.equal(decide(M("Customer Form | Delivery: Existing Order A26.666379"), [C("90", "Customer Form | Delivery: Existing Order A26.666379", { sameSender: true })], DEFAULT_TYPES, none).type, "order");
 });
 
 test("same order, another request: related, the owner of the oldest open one takes it - closed ones and other pipelines are only shown", () => {
@@ -71,14 +77,38 @@ test("same order, another request: related, the owner of the oldest open one tak
   assert.deepEqual([off.status, off.ownerChange], ["related", null]);
 });
 
-test("never compared, newer tickets ignored, erosion only on its key", () => {
-  assert.match(decide(M("CERTIFICATES | A26.666379"), [C("90", "A26.666379")], DEFAULT_TYPES, none).skip ?? "", /never compared/);
-  assert.equal(decide(M("ERP Order Export Stale Warning A26.666379"), [C("90", "A26.666379")], DEFAULT_TYPES, none).status, null);
+test("never compared: the built-in rules, erosion win-backs and the texts; newer tickets ignored", () => {
+  assert.equal(excludedBy("CERTIFICATES | A26.666379", []), "Certificates");
+  assert.equal(excludedBy("EROSION | 8001198990 | Giesserei", []), "Erosion win-backs");
+  assert.equal(excludedBy("BO | Email | Automatische Antwort: Ferien", DEFAULT_TYPES.neverMatchTexts), "Automatische Antwort");
+  assert.equal(excludedBy("BO | Email | Liefertermin", DEFAULT_TYPES.neverMatchTexts), null);
+  const v = decide(M("CERTIFICATES | A26.666379"), [C("90", "A26.666379")], DEFAULT_TYPES, none);
+  assert.deepEqual([v.status, v.excludedBy], [null, "Certificates"]);
+  assert.equal(decide(M("ERP Order Export Stale Warning A26.666379"), [C("90", "A26.666379")], DEFAULT_TYPES, none).excludedBy, "ERP Order Export Stale Warning");
+  assert.equal(decide(M("EROSION | 8001198990 | Giesserei", { erosionKey: "k" }), [C("90", "EROSION | 8001198990 | Giesserei", { erosionKey: "k" })], DEFAULT_TYPES, none).excludedBy, "Erosion win-backs");
   // a ticket created after this one is checked itself and points back
   assert.equal(decide(M("A26.666379"), [C("90", "A26.666379", { createdate: iso(T0 + H) })], DEFAULT_TYPES, none).status, null);
-  const ero = M("EROSION | 8001198990 | Giesserei", { erosionKey: "110|8001198990|2026", orderNumber: "A26.503780.002" });
-  const v = decide(ero, [C("90", "EROSION | 8001198990 | Giesserei", { erosionKey: "110|8001198990|2026" }), C("91", "BO | A26.503780.002")], DEFAULT_TYPES, none);
-  assert.deepEqual([v.type, v.status, v.of, v.ownerChange], ["erosion", "possible", ["90"], null]);
-  assert.match(decide(M("EROSION | x"), [], DEFAULT_TYPES, none).skip ?? "", /without an erosion key/);
   assert.match(decide(M("Hallo", { sender: null }), [], DEFAULT_TYPES, none).skip ?? "", /no order number/);
+});
+
+test("100% sure: the same e-mail, word for word - a quoted earlier mail and a footer do not change it", () => {
+  const body = "Guten Tag, bitte senden Sie uns die Auftragsbestätigung für unsere Bestellung 4711 mit dem Liefertermin. Freundliche Grüsse Anna Muster";
+  assert.ok(sameText(coreText(body), coreText(body)));
+  assert.ok(sameText(coreText(body), coreText(`${body}
+Von: Anna Muster
+Gesendet: Montag
+Alte Nachricht mit anderen Worten`)));
+  // a footer a mail server adds: the same on a mail of normal length; on a two-line mail it is too much - a person decides
+  const long = `${body} Wir benötigen zusätzlich das Datenblatt, die Konformitätserklärung und das Ursprungszeugnis für die Positionen eins bis fünf, sowie eine Bestätigung der Verpackungsvorschriften und der Lieferadresse in Solothurn.`;
+  assert.ok(sameText(coreText(long), coreText(`${long} Diese E-Mail wurde gescannt`)));
+  assert.ok(!sameText(coreText(body), coreText(`${body} Diese E-Mail wurde auf Viren gescannt und geprüft`)));
+  assert.ok(!sameText(coreText(body), coreText("Guten Tag, wann wird die Bestellung 4711 geliefert? Die Rechnung fehlt auch noch. Freundliche Grüsse Anna Muster")));
+  assert.ok(!sameText("", coreText(body)));
+  const v = decide(M("BO | Email | Liefertermin Bestellung 4711"), [C("90", "Liefertermin Bestellung 4711", { sameSender: true, createdate: iso(T0 - 5 * 60_000) })], DEFAULT_TYPES, none);
+  assert.equal(v.gapMin, 5);
+  const sure = makeSure(v, "kunde.ch");
+  assert.deepEqual([sure.sure, sure.type], [true, "twice"]);
+  assert.match(sure.why, /the same e-mail from kunde\.ch, word for word$/);
+  // never on another type
+  assert.equal(makeSure({ ...v, type: "order" }, null).sure, v.sure);
 });

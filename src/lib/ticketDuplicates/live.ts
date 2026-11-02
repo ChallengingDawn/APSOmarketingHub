@@ -80,6 +80,24 @@ export async function writeVerdict(id: string, v: Verdict): Promise<{ flagged: b
   return { flagged: true, owner: true };
 }
 
+/** 100% sure (SARCLA 02.11.2026: "merge the 100% directly"): this ticket merged into the older one - the older keeps its
+ *  owner - when the older is still open and in the same pipeline; else a person decides. */
+export async function autoMerge(id: string, v: Verdict): Promise<{ merged: boolean; into?: string; note?: string }> {
+  const older = v.of[0];
+  if (!older) return { merged: false, note: "no older ticket" };
+  const read = (x: string) => hubspotRetry<Raw>({ path: `/crm/v3/objects/tickets/${x}?properties=hs_pipeline,hs_is_closed,hubspot_owner_id` });
+  const [me, o] = await Promise.all([read(id), read(older)]);
+  if (String(o.id) !== older) return { merged: false, note: `the older ticket ${older} was merged into ${o.id} meanwhile - a person decides` };
+  if ((o.properties.hs_is_closed ?? "").toLowerCase() === "true") return { merged: false, note: `the older ticket ${older} was closed meanwhile - a person decides` };
+  if (o.properties.hs_pipeline !== me.properties.hs_pipeline) return { merged: false, note: `the older ticket ${older} moved to another pipeline - a person decides` };
+  if (!(await allow("merge"))) return { merged: false, note: `merge limit of ${MERGE_PER_HOUR} an hour reached - a person decides` };
+  const r = await hubspotRetry<{ id?: string | number }>({ path: "/crm/v3/objects/tickets/merge", method: "POST", body: { primaryObjectId: older, objectIdToMerge: id } });
+  const into = String(r.id ?? older);
+  await patch(into, { dup_status: "merged", dup_type: "twice", dup_of_ticket: id, dup_decided_by: "APSOhub (100% sure)", dup_why: `Merged ticket ${id} into this one by APSOhub - ${v.why.slice(0, 600)} - ${zurich()}` });
+  await log({ at: new Date().toISOString(), ticketId: id, what: "merge", text: `100% sure - merged into ${into}, the owner kept`, by: "APSOhub", ids: [id], into });
+  return { merged: true, into };
+}
+
 // ---------------- the decisions people take ----------------
 const DEC_PROPS = ["subject", "hs_pipeline", "hs_is_closed", "createdate", "dup_of_ticket", "dup_decision", "dup_decided_by", "dup_status", "hubspot_owner_id"];
 export type Pending = { id: string; subject: string; decision: string; by: string | null; at: string | null };

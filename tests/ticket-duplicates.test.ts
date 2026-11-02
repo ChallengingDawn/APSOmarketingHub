@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_EXCLUSIONS, extractKeys, findDuplicates, keysMatch, type Ticket } from "../src/lib/ticketDuplicates/rules";
+import { extractKeys, keysMatch } from "../src/lib/ticketDuplicates/rules";
+import { mergeDue, outcomeOf, readMerge, type Row } from "../src/lib/ticketDuplicates/model";
+import { spanOk } from "../src/lib/ticketDuplicates/period";
 
-const T = (id: string, subject: string, extra: Partial<Ticket> = {}): Ticket => ({
-  id, subject, orderNumber: null, owner: null, createdate: "2026-10-18T08:00:00Z", closed: false, erosionKey: null, pipeline: "1726786777", ...extra,
+const H = 3600_000, D = 24 * H;
+const T0 = Date.parse("2026-10-10T08:00:00Z");
+const iso = (ms: number) => new Date(ms).toISOString();
+const R = (id: string, extra: Partial<Row> = {}): Row => ({
+  key: `${id}:${iso(T0)}`, ticketId: id, enteredAt: iso(T0), seenAt: iso(T0 + 2 * 60_000), subject: "BO | A26.666379", orderNumber: null, keys: "666379",
+  ownerNames: {}, ownerAtCheck: "1", ...extra,
 });
-const none = new Set<string>();
 
 test("order keys: core + position, .000 is the whole order, any separator", () => {
   assert.deepEqual(extractKeys("A26.632870.003 and A26-640000 / A25 504807 000"), [
@@ -15,52 +20,40 @@ test("order keys: core + position, .000 is the whole order, any separator", () =
   assert.ok(!keysMatch(extractKeys("A26.632870.001"), extractKeys("A26.632870.003")));
 });
 
-test("a duplicate hands over the owner of the oldest open duplicate of the last 30 days, in any pipeline", () => {
-  const me = T("10", "BO | Delivery A26.666379", { owner: "76134337", createdate: "2026-10-18T09:00:00Z" });
-  const r = findDuplicates(me, [
-    T("8", "Re: A26.666379 late", { owner: "1229976033", createdate: "2026-10-15T09:00:00Z", pipeline: "1726599376" }),
-    T("9", "A26.666379", { owner: "30050251", createdate: "2026-10-17T09:00:00Z" }),
-  ], DEFAULT_EXCLUSIONS, none);
-  assert.deepEqual(r.duplicates, ["8", "9"]);
-  assert.equal(r.reason, "Same order number 666379");
-  assert.deepEqual(r.ownerChange, { ownerId: "1229976033", fromTicket: "8" }); // the ESO ticket's owner - any pipeline
-  // the setting "owner from the same pipeline only" keeps it in Back Office
-  assert.deepEqual(findDuplicates(me, [
-    T("8", "A26.666379", { owner: "1229976033", createdate: "2026-10-15T09:00:00Z", pipeline: "1726599376" }),
-    T("9", "A26.666379", { owner: "30050251", createdate: "2026-10-17T09:00:00Z" }),
-  ], { ...DEFAULT_EXCLUSIONS, ownerFromSamePipelineOnly: true }, none).ownerChange, { ownerId: "30050251", fromTicket: "9" });
+test("follow-up schedule: from one hour, then daily, once more at 7 days, then never - the year's rows never", () => {
+  const r = R("1");
+  assert.equal(mergeDue(r, T0 + 30 * 60_000), false);
+  assert.equal(mergeDue(r, T0 + H), true);
+  const read = (at: number, final = false): Row => ({ ...r, merge: { state: "open", checkedAt: iso(at), checks: 1, final } });
+  assert.equal(mergeDue(read(T0 + H), T0 + 5 * H), false);
+  assert.equal(mergeDue(read(T0 + H), T0 + 25 * H), true);
+  assert.equal(mergeDue(read(T0 + 6.9 * D), T0 + 7 * D), true);
+  assert.equal(mergeDue(read(T0 + 7 * D, true), T0 + 9 * D), false);
+  assert.equal(mergeDue({ ...r, error: "boom" }, T0 + 2 * H), false);
+  assert.equal(mergeDue({ ...r, backfill: true }, T0 + 2 * H), false);
 });
 
-test("no owner change: already the owner, closed or too old duplicates, deactivated owners, flag-only", () => {
-  const me = T("10", "A26.666379", { owner: "76134337", createdate: "2026-10-18T09:00:00Z" });
-  assert.equal(findDuplicates(me, [T("8", "A26.666379", { owner: "76134337", createdate: "2026-10-15T00:00:00Z" })], DEFAULT_EXCLUSIONS, none).ownerChange, null);
-  assert.equal(findDuplicates(me, [T("8", "A26.666379", { owner: "1", createdate: "2026-10-15T00:00:00Z", closed: true })], DEFAULT_EXCLUSIONS, none).ownerChange, null);
-  assert.equal(findDuplicates(me, [T("8", "A26.666379", { owner: "1", createdate: "2026-08-01T00:00:00Z" })], DEFAULT_EXCLUSIONS, none).ownerChange, null);
-  assert.equal(findDuplicates(me, [T("8", "A26.666379", { owner: "76134415", createdate: "2026-10-15T00:00:00Z" })], DEFAULT_EXCLUSIONS, new Set(["76134415"])).ownerChange, null);
-  const flag = findDuplicates(me, [T("8", "A26.666379", { owner: "1", createdate: "2026-10-15T00:00:00Z" })], { ...DEFAULT_EXCLUSIONS, flagOnly: true }, none);
-  assert.deepEqual(flag.duplicates, ["8"]);
-  assert.equal(flag.ownerChange, null);
+test("reading a merge: merged away, others merged in, an old merge, gone, open and closed - and what became of a row", () => {
+  const v = { type: "twice" as const, status: "possible" as const, of: ["8"], why: "", ownerChange: null, history: [], elsewhere: [] };
+  const r = R("10", { v });
+  const away = readMerge(r, { id: "8", merged: ["10"], closed: false, mergedAt: iso(T0 + 3 * H), mergedBy: "Maida" }, T0 + 4 * H);
+  assert.deepEqual([away.state, away.into, away.withFlagged, away.final, away.by], ["merged", "8", true, true, "Maida"]);
+  const intoMe = readMerge(r, { id: "10", merged: ["7"], closed: true, mergedAt: iso(T0 + 3 * H) }, T0 + 4 * H);
+  assert.deepEqual([intoMe.state, intoMe.into, intoMe.with, intoMe.withFlagged], ["merged", "10", ["7"], false]);
+  assert.equal(readMerge(r, { id: "10", merged: ["7"], closed: false, mergedAt: iso(T0 - D) }, T0 + 4 * H).state, "open");
+  assert.deepEqual([readMerge(r, null, T0 + H).state, readMerge(r, null, T0 + H).final], ["gone", true]);
+  const closed = readMerge(r, { id: "10", merged: [], closed: true }, T0 + 2 * D);
+  assert.deepEqual([closed.state, closed.final, closed.checks], ["closed", false, 1]);
+  assert.equal(outcomeOf({ ...r, merge: away }), "merged");
+  assert.equal(outcomeOf({ ...r, merge: closed }), "closed");
+  assert.equal(outcomeOf({ ...r, live: { at: iso(T0), flagged: true, owner: false, merged: "8" } }), "merged");
+  assert.equal(outcomeOf({ ...r, mergedIn: ["7"] }), "merged");
+  assert.equal(outcomeOf(r), "open");
 });
 
-test("never matched: certificates, C2S problems, warnings - and the extra texts from the settings", () => {
-  assert.equal(findDuplicates(T("10", "CERTIFICATES | FDA | A26.666379"), [T("8", "A26.666379")], DEFAULT_EXCLUSIONS, none).skip, "ticket category excluded from dup matching");
-  assert.deepEqual(findDuplicates(T("10", "A26.666379"), [T("8", "C2S PROBLEM | A26.666379"), T("9", "⚠ A26.666379")], DEFAULT_EXCLUSIONS, none).duplicates, []);
-  assert.deepEqual(findDuplicates(T("10", "A26.666379"), [T("8", "ERP Order Export Stale Warning for A26.666379")], { ...DEFAULT_EXCLUSIONS, neverMatchTexts: ["ERP Order Export"] }, none).duplicates, []);
-});
-
-test("erosion tickets only match erosion tickets with the same erosion key, and never change owner", () => {
-  const me = T("10", "EROSION | Kunde AG | A26.111111", { erosionKey: "c1|a1|2026", owner: "7" });
-  const r = findDuplicates(me, [
-    T("8", "A26.111111", { owner: "9" }),
-    T("9", "EROSION | Kunde AG | A26.222222", { erosionKey: "c1|a1|2026", owner: "9", createdate: "2026-10-10T00:00:00Z" }),
-  ], DEFAULT_EXCLUSIONS, none);
-  assert.deepEqual(r.duplicates, ["9"]);
-  assert.equal(r.ownerChange, null);
-  assert.match(r.message, /Owner not changed/);
-});
-
-test("at most three duplicates; a ticket without an order key is not compared", () => {
-  const me = T("10", "A26.666379");
-  assert.equal(findDuplicates(me, ["1", "2", "3", "4"].map((i) => T(i, "A26.666379")), DEFAULT_EXCLUSIONS, none).duplicates.length, 3);
-  assert.equal(findDuplicates(T("10", "Hello"), [T("8", "Hello")], DEFAULT_EXCLUSIONS, none).skip, "no order key in subject/order_number");
+test("the period: at most 365 days, never after today, the last 28 days when none is given", () => {
+  assert.deepEqual(spanOk("2026-10-01", "2026-10-31", "2026-11-03"), { from: "2026-10-01", to: "2026-10-31", days: 31 });
+  assert.deepEqual(spanOk("2024-01-01", "2026-12-31", "2026-11-03"), { from: "2025-11-04", to: "2026-11-03", days: 365 });
+  assert.deepEqual(spanOk(null, null, "2026-11-03"), { from: "2026-10-07", to: "2026-11-03", days: 28 });
+  assert.deepEqual(spanOk("2026-10-31", "2026-10-01", "2026-11-03"), { from: "2026-10-01", to: "2026-10-31", days: 31 });
 });

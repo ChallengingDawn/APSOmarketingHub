@@ -1,67 +1,79 @@
-// DUPLICATES - the page's figures by type (SARCLA 02.11.2026). Pure: the stored rows in, what each tab shows out.
-//   - per type: flagged, and what people did with it - merged, closed without a merge, still open (the follow-up of
-//     model.ts, final after 7 days) -, the owners handed over, what the hub wrote when live;
-//   - the workflow against the hub: what the workflow flagged (what HubSpot wrote; the copy before HubSpot's answer is
-//     read) and the hub kept or dropped - and why -, and what the hub finds that the workflow does not.
+// DUPLICATES - the page's figures (SARCLA 02.11.2026). Pure: the stored rows of the period in, what each tab shows out -
+// the flow from checked to merged, each type's counts and breakdowns, what was never compared and why.
 
-import { hsFound, type Row } from "./model";
-import { DUP_TYPES, type DupType } from "./types";
+import { outcomeOf, type Row } from "./model";
+import { BUILT_IN } from "./types";
 
-export type TypeFig = { flagged: number; merged: number; closed: number; open: number; owner: number; written: number };
-export type Why = "closed only" | "other pipeline only" | "not the same order" | "never compared";
+export type Count = { key: string; count: number };
 export type Figures = {
-  /** rows with the hub's verdict, and those still waiting for the replay */
-  checked: number; waiting: number;
-  byType: Record<DupType, TypeFig>;
-  /** the same order only in closed tickets, or open only in another pipeline: shown, never flagged */
-  historyOnly: number; elsewhereOnly: number;
-  workflow: { flagged: number; kept: number; dropped: number; droppedWhy: { key: Why; count: number }[]; hubOnly: number };
-  perDay: { day: string; twice: number; order: number; erosion: number; nothing: number }[];
+  checked: number; excluded: number; compared: number;
+  twice: { flagged: number; sure: number; possible: number; merged: number; closed: number; open: number; owner: number; autoMerged: number };
+  order: { flagged: number; owner: number; merged: number; closed: number; open: number; historyOnly: number; elsewhereOnly: number };
+  nothing: number;
+  /** a system or a colleague sent the same subject again - not counted as a customer writing twice */
+  systemSender: number;
+  exclusions: (Count & { builtIn: boolean })[];
+  /** per day for a period up to two months, else per month */
+  series: { x: string; sure: number; possible: number; order: number }[];
+  byDay: boolean;
+  gaps: Count[];
+  twiceOwners: Count[]; orderOwners: Count[]; twiceSenders: Count[];
+  live: { written: number; merged: number; owner: number };
+  /** rows made by the year build, not seen live */
+  rebuilt: number;
 };
 
 export const hasVerdict = (r: Row) => !!r.v && !r.error;
-/** What the workflow flagged for this entry: HubSpot's own answer once read, else the copy. */
-export const workflowFlagged = (r: Row) => (r.actual ? hsFound(r) : !!r.legacy?.duplicates.length);
-export function droppedWhy(r: Row): Why {
-  const v = r.v!;
-  if (v.skip && /never compared/.test(v.skip)) return "never compared";
-  if (v.history.length && !v.elsewhere.length) return "closed only";
-  if (v.elsewhere.length) return "other pipeline only";
-  return "not the same order";
-}
+export const isSure = (r: Row) => r.v?.type === "twice" && !!r.v.sure;
+export const isHistoryOnly = (r: Row) => !!r.v && !r.v.status && !r.v.excludedBy && r.v.history.length > 0 && !r.v.elsewhere.length;
+export const isElsewhereOnly = (r: Row) => !!r.v && !r.v.status && !r.v.excludedBy && r.v.elsewhere.length > 0;
+/** The time between the two tickets of a "twice". */
+export const GAPS = ["under 10 minutes", "10 to 60 minutes", "1 to 24 hours", "1 to 3 days", "over 3 days"] as const;
+export const gapKey = (min: number) => (min < 10 ? GAPS[0] : min < 60 ? GAPS[1] : min < 1440 ? GAPS[2] : min < 4320 ? GAPS[3] : GAPS[4]);
+/** Whose the earlier ticket is - the person who has the request. */
+export const ownerOfFirst = (r: Row) => { const o = r.v?.of[0] ? r.dups?.[r.v.of[0]]?.owner : null; return o ? r.ownerNames[o] ?? `Owner ${o}` : "No owner"; };
 
-export function figures(rows: Row[]): Figures {
+const tally = (keys: string[]): Count[] => {
+  const m = new Map<string, number>();
+  for (const k of keys) m.set(k, (m.get(k) ?? 0) + 1);
+  return [...m].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+};
+
+export function figures(rows: Row[], days: number): Figures {
   const done = rows.filter(hasVerdict);
-  const byType = Object.fromEntries(DUP_TYPES.map((t) => [t, { flagged: 0, merged: 0, closed: 0, open: 0, owner: 0, written: 0 }])) as Record<DupType, TypeFig>;
-  const days = new Map<string, Figures["perDay"][number]>();
-  const why = new Map<Why, number>();
-  let historyOnly = 0, elsewhereOnly = 0, wf = 0, kept = 0, dropped = 0, hubOnly = 0;
+  const twice = done.filter((r) => r.v!.type === "twice"), order = done.filter((r) => r.v!.type === "order");
+  const excluded = done.filter((r) => r.v!.excludedBy);
+  const out = (list: Row[], k: "merged" | "closed" | "open") => list.filter((r) => outcomeOf(r) === k).length;
+  const byDay = days <= 62;
+  const series = new Map<string, Figures["series"][number]>();
   for (const r of done) {
-    const v = r.v!;
-    const d = r.enteredAt.slice(0, 10);
-    const x = days.get(d) ?? { day: d, twice: 0, order: 0, erosion: 0, nothing: 0 };
-    if (v.type) {
-      const f = byType[v.type];
-      f.flagged++;
-      if (r.merge?.state === "merged") f.merged++;
-      else if (r.merge?.state === "closed") f.closed++;
-      else f.open++;
-      if (v.ownerChange) f.owner++;
-      if (r.live?.flagged) f.written++;
-      x[v.type]++;
-    } else {
-      x.nothing++;
-      if (v.history.length && !v.elsewhere.length) historyOnly++;
-      else if (v.elsewhere.length) elsewhereOnly++;
-    }
-    days.set(d, x);
-    const w = workflowFlagged(r);
-    if (w) { wf++; if (v.status) kept++; else { dropped++; const k = droppedWhy(r); why.set(k, (why.get(k) ?? 0) + 1); } }
-    else if (v.status) hubOnly++;
+    const x = byDay ? r.enteredAt.slice(0, 10) : r.enteredAt.slice(0, 7);
+    const s = series.get(x) ?? { x, sure: 0, possible: 0, order: 0 };
+    if (r.v!.type === "twice") { if (r.v!.sure) s.sure++; else s.possible++; }
+    else if (r.v!.type === "order") s.order++;
+    series.set(x, s);
   }
+  const builtIn = new Set(BUILT_IN.map((b) => b.label));
   return {
-    checked: done.length, waiting: rows.filter((r) => !r.v && !r.error).length, byType, historyOnly, elsewhereOnly,
-    workflow: { flagged: wf, kept, dropped, droppedWhy: [...why].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count), hubOnly },
-    perDay: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)),
+    checked: done.length, excluded: excluded.length, compared: done.length - excluded.length,
+    twice: {
+      flagged: twice.length, sure: twice.filter(isSure).length, possible: twice.filter((r) => !r.v!.sure).length,
+      merged: out(twice, "merged"), closed: out(twice, "closed"), open: out(twice, "open"),
+      owner: twice.filter((r) => r.v!.ownerChange).length, autoMerged: twice.filter((r) => r.live?.merged).length,
+    },
+    order: {
+      flagged: order.length, owner: order.filter((r) => r.v!.ownerChange).length,
+      merged: out(order, "merged"), closed: out(order, "closed"), open: out(order, "open"),
+      historyOnly: done.filter(isHistoryOnly).length, elsewhereOnly: done.filter(isElsewhereOnly).length,
+    },
+    nothing: done.filter((r) => !r.v!.status && !r.v!.excludedBy).length,
+    systemSender: done.filter((r) => r.v!.systemSender && r.v!.type !== "twice").length,
+    exclusions: tally(excluded.map((r) => r.v!.excludedBy!)).map((x) => ({ ...x, builtIn: builtIn.has(x.key) })),
+    series: [...series.values()].sort((a, b) => a.x.localeCompare(b.x)), byDay,
+    gaps: GAPS.map((key) => ({ key, count: twice.filter((r) => gapKey(r.v!.gapMin ?? 0) === key).length })),
+    twiceOwners: tally(twice.map(ownerOfFirst)), orderOwners: tally(order.map(ownerOfFirst)),
+    twiceSenders: tally(twice.map((r) => r.sender ?? "no sender")),
+    live: { written: done.filter((r) => r.live?.flagged).length, merged: done.filter((r) => r.live?.merged).length, owner: done.filter((r) => r.live?.owner).length },
+    rebuilt: done.filter((r) => r.backfill).length,
   };
 }
