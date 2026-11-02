@@ -52,7 +52,9 @@ export type Where = "into" | "before" | "sub";
 const ADD_TITLE: Record<PlanKind, string> = { goal: "Add a main category", topic: "Add an action or a sub-category in it", group: "Add an action in it", action: "Add a sub-action" };
 /** The columns: the handle, the + and the eye, the name (sized to what is open), and - unless folded away - planned, go-live, status, %, who. */
 const HANDLE = 66;
-const DETAIL = [92, 92, 136, 84, 124];
+const DETAIL = [92, 92, 136, 104, 124];
+/** The narrowest each detail column may be: its heading on one line. */
+const DETAIL_MIN = [84, 84, 96, 104, 100];
 const HEADS = ["", "Task name", "Planned", "Go-live", "Status", "% complete", "Assigned to"];
 
 /** "#3b6fe0" at a given opacity, for the lighter bars of actions not done yet. */
@@ -65,7 +67,9 @@ const TAG = { flexShrink: 0, px: 0.6, borderRadius: "3px", fontSize: "0.66rem", 
 const PRIO_SLOT = { width: 54, flexShrink: 0, display: "flex" } as const;
 const PRIO_TAG = { ...TAG, width: "100%", px: 0, textAlign: "center" } as const;
 const MARK_SLOT = { width: 28, flexShrink: 0, display: "flex", justifyContent: "center", alignItems: "center" } as const;
-const COUNT_SLOT = { width: 56, flexShrink: 0, display: "flex", justifyContent: "flex-end", alignItems: "center" } as const;
+const COUNT_SLOT = { width: 72, flexShrink: 0, display: "flex", justifyContent: "flex-end", alignItems: "center" } as const;
+/** The count's chip: one width for "0/1" and "12/18" alike, as tall as a tag (TAG). */
+const COUNT_CHIP = { width: 66, height: 17, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", gap: "3px", px: 0, borderRadius: "3px", fontSize: "0.7rem", fontWeight: 700, lineHeight: 1, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" } as const;
 
 /**
  * The width the names need, as the browser will draw them - so the table grows and shrinks with what is opened
@@ -82,13 +86,13 @@ function useNameWidth(rows: GRow[], rolled: Map<number, Rolled>, today: string):
     for (const r of rows) {
       const indent = 6 + r.depth * 18 + 24;
       // the slots are there whether filled or not: the priority's, the mark's and the count's (PRIO_SLOT, MARK_SLOT, COUNT_SLOT)
-      if (r.type === "sub") { need = Math.max(need, indent + 20 + 17 + 58 + measure(r.sub.title, 400, 13.4) + 28 + 56 + 16); continue; }
+      if (r.type === "sub") { need = Math.max(need, indent + 20 + 17 + 58 + measure(r.sub.title, 400, 13.4) + 28 + 72 + 16); continue; }
       const it = r.item, ro = rolled.get(it.id);
       // the goal's sentence is the page's headline: its row may cut it short rather than widen every row
       if (it.kind === "goal") continue;
       const [w, size] = it.kind === "topic" ? [800, 13.4] : it.kind === "group" ? [700, 13.8] : [500, 13.8];
       let chips = it.kind === "topic" ? 16 : 0;
-      if (it.kind === "action") chips += 58 + 28 + 56;
+      if (it.kind === "action") chips += 58 + 28 + 72;
       if (it.kind === "action" && isLate(it, today)) chips += 40;
       if (it.kind !== "action" && (ro?.late ?? 0) > 0) chips += 52;
       need = Math.max(need, indent + chips + measure(it.title, w, size) + 16);
@@ -134,7 +138,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   useEffect(() => {
     try {
       const v = JSON.parse(window.localStorage.getItem("actionPlan.cols") ?? "null");
-      if (Array.isArray(v) && v.length === DETAIL.length && v.every((n) => typeof n === "number" && n >= 48 && n <= 400)) setDetailW(v);
+      if (Array.isArray(v) && v.length === DETAIL.length && v.every((n) => typeof n === "number" && n >= 48 && n <= 400)) setDetailW(v.map((n: number, k: number) => Math.max(n, DETAIL_MIN[k])));
     } catch { /* the defaults */ }
   }, []);
   const nameW = nameManual ?? autoName;
@@ -149,7 +153,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
     el.setPointerCapture(e.pointerId);
     let last = detailW;
     const move = (ev: PointerEvent) => {
-      const w = Math.round(col === 0 ? Math.max(200, Math.min(900, w0 + ev.clientX - x0)) : Math.max(48, Math.min(400, w0 + ev.clientX - x0)));
+      const w = Math.round(col === 0 ? Math.max(200, Math.min(900, w0 + ev.clientX - x0)) : Math.max(DETAIL_MIN[col - 1], Math.min(400, w0 + ev.clientX - x0)));
       if (col === 0) setNameManual(w);
       else setDetailW((d) => { last = d.map((x, k) => (k === col - 1 ? w : x)); return last; });
     };
@@ -285,7 +289,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
           <Box sx={{ position: "sticky", top: 0, zIndex: 2, display: "grid", gridTemplateColumns: COLS, height: HEAD, alignItems: "end", bgcolor: "#f7f9fc", borderBottom: `1px solid ${HAIRLINE}` }}>
             {heads.map((h, i) => (
               <Box key={i} sx={{ position: "relative", px: 1, pb: 0.75, borderLeft: i > 1 ? `1px solid ${HAIRLINE}` : "none", alignSelf: "stretch", display: "flex", alignItems: "flex-end", gap: 0.5, minWidth: 0 }}>
-                <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, lineHeight: 1.2, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", flex: 1, minWidth: 0 }}>{h}</Typography>
+                <Typography noWrap sx={{ fontSize: "0.7rem", fontWeight: 700, lineHeight: 1.2, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", flex: 1, minWidth: 0 }}>{h}</Typography>
                 {/* fold the date, % and who columns away, or back */}
                 {i === 1 && (
                   <Tooltip title={compact ? "Show planned, go-live, status, % complete and assigned to" : "Fold away planned, go-live, status, % complete and assigned to"}>
@@ -505,13 +509,13 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
       <Box sx={{ ...base, cursor: "pointer" }} onClick={() => onOpenSub(s.id)}>
         {handle}
         <Box sx={{ ...cell, borderLeft: "none", pl: `${indent + 20}px`, gap: 0.75 }}>
-          <Box sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: s.status === "done" ? c : s.status === "doing" ? alpha(c, 0.45) : "#fff", border: `1.5px solid ${c}`, flexShrink: 0 }} />
           <Box sx={PRIO_SLOT}>{sPrio && <Box sx={{ ...PRIO_TAG, bgcolor: PRIORITY_COLOR[s.priority].bg, color: PRIORITY_COLOR[s.priority].fg }}>{sPrio}</Box>}</Box>
+          <Box sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: s.status === "done" ? c : s.status === "doing" ? alpha(c, 0.45) : "#fff", border: `1.5px solid ${c}`, flexShrink: 0 }} />
           <Typography noWrap sx={{ fontSize: "0.84rem", color: MUTED, minWidth: 0, textDecoration: s.status === "done" ? "line-through" : "none" }}>{s.title}</Typography>
           <Box sx={{ flex: 1 }} />
           <Box sx={MARK_SLOT}>{s.kpiTile && <Tooltip title="Made on a KPI tile"><FlagOutlinedIcon sx={{ fontSize: 15, color: TINT.blue.fg }} /></Tooltip>}</Box>
           <Box sx={COUNT_SLOT}>
-            {s.tickets > 0 && <Tooltip title={`${s.tickets} Scroll to Sale ticket${s.tickets === 1 ? "" : "s"}`}><Box sx={{ width: 50, height: 22, display: "flex", alignItems: "center", justifyContent: "center", gap: 0.4, color: TINT.amber.fg, fontVariantNumeric: "tabular-nums" }}><ConfirmationNumberOutlinedIcon sx={{ fontSize: 15 }} /><Typography sx={{ fontSize: "0.72rem", fontWeight: 700 }}>{s.tickets}</Typography></Box></Tooltip>}
+            {s.tickets > 0 && <Tooltip title={`${s.tickets} Scroll to Sale ticket${s.tickets === 1 ? "" : "s"}`}><Box sx={{ ...COUNT_CHIP, color: TINT.amber.fg }}><ConfirmationNumberOutlinedIcon sx={{ fontSize: 14 }} />{s.tickets}</Box></Tooltip>}
           </Box>
         </Box>
         {!compact && <>
@@ -562,8 +566,8 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
             {(ro?.subs ?? 0) > 0 && (
               <Tooltip title={`${ro!.subs - ro!.subsOpen} of ${ro!.subs} sub-action${ro!.subs === 1 ? "" : "s"} done - open them`}>
                 <Box component="button" type="button" aria-label="Sub-actions" onClick={(e: React.MouseEvent) => { e.stopPropagation(); onSubs(it); }}
-                  sx={{ width: 50, display: "flex", alignItems: "center", justifyContent: "center", gap: 0.4, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", borderRadius: "4px", px: 0, height: 22, cursor: "pointer", color: MUTED, font: "inherit", fontSize: "0.72rem", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                  <TaskAltIcon sx={{ fontSize: 14 }} />{`${ro!.subs - ro!.subsOpen}/${ro!.subs}`}
+                  sx={{ font: "inherit", ...COUNT_CHIP, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", cursor: "pointer", color: MUTED }}>
+                  <TaskAltIcon sx={{ fontSize: 13 }} />{`${ro!.subs - ro!.subsOpen}/${ro!.subs}`}
                 </Box>
               </Tooltip>
             )}
