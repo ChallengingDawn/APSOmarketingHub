@@ -298,7 +298,9 @@ async function unsegmented(): Promise<Unsegmented | null> {
   try {
     const r = await hubspotFetchJson<{ total?: number; results?: Obj[] }>({
       path: "/crm/v3/objects/companies/search", method: "POST",
-      body: { filterGroups: [{ filters: [{ propertyName: "apso_customer", operator: "NOT_HAS_PROPERTY" }] }], properties: ["name", "createdate"], sorts: [{ propertyName: "createdate", direction: "DESCENDING" }], limit: 25 },
+      // past the 20 minutes' wait and a pass of the scan: the ones still waiting are not missing (02.11.2026: PSI Villigen,
+      // created 14:02, showed as "without a segment" at 14:10)
+      body: { filterGroups: [{ filters: [{ propertyName: "apso_customer", operator: "NOT_HAS_PROPERTY" }, { propertyName: "createdate", operator: "LTE", value: String(Date.now() - (SEGMENT_AFTER_MIN + 5) * 60_000) }] }], properties: ["name", "createdate"], sorts: [{ propertyName: "createdate", direction: "DESCENDING" }], limit: 25 },
     });
     return { total: r.total ?? 0, rows: (r.results ?? []).map((c) => ({ id: String(c.id), n: c.properties?.name ?? "", t: c.properties?.createdate ?? "" })) };
   } catch {

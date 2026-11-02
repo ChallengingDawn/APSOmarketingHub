@@ -29,9 +29,9 @@ const centre = (v: string) => (v ? CENTRE[v] ?? v : "Not worked out yet");
 type Pick = { kind: "major" | "split"; value: string; label: string };
 
 export function ProfitCentreKpis() {
-  const r = useHeld<PcMix>("/api/uc/segmentation/companies?mix=pc", ["pc-mix"]).result;
+  const r = useHeld<PcMix & { refreshing?: boolean }>("/api/uc/segmentation/companies?mix=pc", ["pc-mix"]).result;
   const [pick, setPick] = useState<Pick | null>(null);
-  if (r === null) return <LoadingPanel label="Counting the companies per profit centre in HubSpot - about 15 seconds the first time…" />;
+  if (r === null) return <LoadingPanel label="Counting the companies per profit centre in HubSpot - only the very first time, then kept…" />;
   if (r.state !== "ok") return <Typography sx={{ color: RED, fontSize: "0.86rem" }}>{r.state === "error" ? r.error : "not configured"}</Typography>;
   const m = r.data;
   const kinds: Record<string, number> = {};
@@ -64,7 +64,7 @@ export function ProfitCentreKpis() {
           curNote={(x) => ({ text: pct(x.n, m.total), color: MUTED })} selected={pick?.kind === "split" ? [pick.label] : undefined} onPick={choose("split", splits)} />
       </Box>
       <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: -1 }}>
-        As HubSpot has them, counted {when(m.at)} - the split is taken from every order&apos;s revenue per profit centre, every night for the companies whose revenue moved. A click on a bar lists its companies.
+        As HubSpot has them, counted {when(m.at)}{r.data.refreshing ? " - being counted again now" : ""} - the split is taken from every order&apos;s revenue per profit centre, every night for the companies whose revenue moved. A click on a bar lists its companies.
       </Typography>
       {pick && (
         <Box id="pc-companies" sx={{ scrollMarginTop: 16, minWidth: 0 }}>

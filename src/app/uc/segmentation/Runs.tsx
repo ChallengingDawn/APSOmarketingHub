@@ -32,11 +32,12 @@ import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, INK, KpiTile, MUTED, Notice, TINT } from "@/app/uc/report/ui";
 import type { PcRun } from "./ProfitCentre";
+import { RunAlive } from "./RunAlive";
 
 export type Run = Record<string, unknown> | null;
 export type YearlySummary = {
   at: string; dry: boolean; year: number; scanned: number; changes: number; written: number; rowCount: number;
-  transitions: Record<string, number>; before: Record<string, number>; after: Record<string, number>;
+  transitions: Record<string, number>; before: Record<string, number>; after: Record<string, number>; byRule?: Record<string, number>;
 };
 export type Status = {
   total: number; empty: number; prio_1?: number; prio_2?: number; prio_3?: number; prio_4?: number;
@@ -145,7 +146,7 @@ function YearlyExtra({ st }: { st: Status }) {
 
 export type Topic = "new" | "sweep" | "potential" | "web" | "yearly";
 /** "12% - " before a note, nothing when there is nothing to take a share of */
-const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}% - ` : "");
+const pct = (a: number, b: number) => (!b ? "" : a && a / b < 0.01 ? "under 1% - " : `${Math.round((a / b) * 100)}% - `);
 const statsOf = (r: Run) => (r && typeof r.stats === "object" && r.stats ? (r.stats as Record<string, number>) : {});
 type Tile = { label: string; value: number | string; note: string; icon: React.ReactNode; tint: "blue" | "green" | "amber" | "purple" | "pink" | "slate" };
 
@@ -203,6 +204,7 @@ export function RunTopic({ topic: sub, st, admin, live, running, act, toggleWeb 
   };
   return (
     <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
+      <RunAlive topic={sub} st={st} live={live} />
       {running && <Notice tone="warn">{st.running!.what} running since {st.running!.started.slice(11, 16)} UTC (started by {st.running!.by}) - other runs wait for it.</Notice>}
       <Tiles tiles={tiles[sub]} />
       {sub === "new" && (

@@ -3,6 +3,7 @@
 // company, narrowed to a segment, a priority, a major profit centre or a split, in the order asked. And the profit-centre
 // mix: how many companies hold each value of the two properties, held 3 hours.
 
+import { kvGet, kvSet } from "@/lib/db/init";
 import { ownerNames } from "./erosion";
 import { hubspotFetchJson } from "./hubspot";
 import { enums } from "./segmentation";
@@ -51,33 +52,46 @@ export async function companiesPage(f: CompanyFilter): Promise<CompaniesPage> {
   };
 }
 
-let mixCache: { at: number; p: Promise<PcMix> } | null = null;
+const MIX_KEY = "segmentation:pc-mix";
+/** the split changes once a night: counted again when older than this, behind the page */
+const MIX_FRESH_MS = 3 * 60 * 60_000;
+let refreshing: Promise<PcMix> | null = null;
 
 async function count(filters: object[] | null): Promise<number> {
   const r = await hubspotFetchJson<{ total?: number }>({ path: "/crm/v3/objects/companies/search", method: "POST", body: { filterGroups: filters ? [{ filters }] : [], limit: 1, properties: ["name"] } });
   return r.total ?? 0;
 }
 
-/** How many companies hold each value of major_profit_center and profit_center_split ("" = none), held 3 hours - the split
- *  changes once a night; ~45 searches, about 15 seconds the first time. */
-export function pcMix(fresh = false): Promise<PcMix> {
-  if (mixCache && !fresh && Date.now() - mixCache.at < 3 * 60 * 60_000) return mixCache.p;
-  const p = (async () => {
-    const out: PcMix = { at: new Date().toISOString(), total: await count(null), major: [], split: [] };
-    for (const [prop, into] of [["major_profit_center", out.major], ["profit_center_split", out.split]] as const) {
-      const def = await hubspotFetchJson<{ options?: { value: string }[] }>({ path: `/crm/v3/properties/companies/${prop}` });
-      for (const o of def.options ?? []) {
-        const n = await count([{ propertyName: prop, operator: "EQ", value: o.value }]);
-        if (n) into.push({ value: o.value, n });
-      }
-      const none = await count([{ propertyName: prop, operator: "NOT_HAS_PROPERTY" }]);
-      if (none) into.push({ value: "", n: none });
-      into.sort((a, b) => b.n - a.n);
+async function countMix(): Promise<PcMix> {
+  const out: PcMix = { at: new Date().toISOString(), total: await count(null), major: [], split: [] };
+  for (const [prop, into] of [["major_profit_center", out.major], ["profit_center_split", out.split]] as const) {
+    const def = await hubspotFetchJson<{ options?: { value: string }[] }>({ path: `/crm/v3/properties/companies/${prop}` });
+    for (const o of def.options ?? []) {
+      const n = await count([{ propertyName: prop, operator: "EQ", value: o.value }]);
+      if (n) into.push({ value: o.value, n });
     }
-    return out;
-  })();
-  mixCache = { at: Date.now(), p };
-  p.catch(() => { if (mixCache?.p === p) mixCache = null; });
-  return p;
+    const none = await count([{ propertyName: prop, operator: "NOT_HAS_PROPERTY" }]);
+    if (none) into.push({ value: "", n: none });
+    into.sort((a, b) => b.n - a.n);
+  }
+  await kvSet(MIX_KEY, out);
+  return out;
+}
+
+/**
+ * How many companies hold each value of major_profit_center and profit_center_split ("" = none). Kept in the database:
+ * the page gets the last count at once, and an older one is counted again behind it (~45 searches) - it used to be held
+ * in one server's memory, so every restart and every second copy counted again while the page waited (SARCLA 02.11.2026).
+ */
+export async function pcMix(fresh = false): Promise<PcMix & { refreshing: boolean }> {
+  const kept = await kvGet<PcMix>(MIX_KEY);
+  if (fresh || !kept || Date.now() - Date.parse(kept.at) > MIX_FRESH_MS) {
+    if (!refreshing) {
+      refreshing = countMix().finally(() => { refreshing = null; });
+      refreshing.catch((e) => console.warn(`[segmentation] profit-centre mix: ${(e as Error).message}`));
+    }
+  }
+  if (kept) return { ...kept, refreshing: !!refreshing };
+  return { ...(await refreshing!), refreshing: false };
 }
 

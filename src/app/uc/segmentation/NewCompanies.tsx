@@ -403,8 +403,8 @@ function LiveScan({ steering }: { steering?: React.ReactNode }) {
             ))}
           </Box>
         </Stage>
-        <Stage last label="4 · Without an APSO segment" value={none === null ? "—" : full(none)} tint={none ? RED : "#1b7a55"}
-          note={none === null ? "could not be read just now" : none === 0 ? "every company in HubSpot has one - read just now" : `in all of HubSpot, read just now - ${d.waiting ? "the ones in the wait included" : "see below"}`}>
+        <Stage last label="4 · Missed - no segment after the wait" value={none === null ? "—" : full(none)} tint={none ? RED : "#1b7a55"}
+          note={none === null ? "could not be read just now" : none === 0 ? "none: every company in HubSpot past its 20 minutes has an APSO segment - read just now" : "past their 20 minutes and still without one, in all of HubSpot - the hub picks them up at its next pass"}>
           <Unsegmented u={d.unsegmented} />
         </Stage>
       </Box>

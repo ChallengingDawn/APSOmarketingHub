@@ -76,6 +76,48 @@ async function patchState(p: Partial<SegState>) {
   await kvSet(KV.state, { ...(await loadState()), ...p });
 }
 
+/* ── what each run did, day by day, and what it changed (SARCLA 02.11.2026: "I don't know if it's live and working") ── */
+
+/** A run's counts summed per day (UTC), 120 days kept - the tabs' day-by-day charts. */
+export type RunDay = { runs: number; scanned: number; written: number; stats: Record<string, number> };
+export type RunAction = "sweep" | "potential" | "web" | "yearly" | "watch";
+/** One company a run changed: a priority, a potential, a segment, or what a website filled. */
+export type Move = { id: string; n: string; from: string; to: string; why: string; at: string };
+const DAYS_KEPT = 120;
+
+async function recordDay(action: RunAction, r: { scanned?: number; written?: number; stats?: Record<string, unknown> }) {
+  try {
+    const key = `segmentation:days:${action}`;
+    const days = (await kvGet<Record<string, RunDay>>(key)) ?? {};
+    const k = utcToday();
+    const d = days[k] ?? { runs: 0, scanned: 0, written: 0, stats: {} };
+    d.runs += 1; d.scanned += r.scanned ?? 0; d.written += r.written ?? 0;
+    for (const [s, n] of Object.entries(r.stats ?? {})) if (typeof n === "number") d.stats[s] = (d.stats[s] ?? 0) + n;
+    days[k] = d;
+    for (const old of Object.keys(days).sort().slice(0, -DAYS_KEPT)) delete days[old];
+    await kvSet(key, days);
+  } catch (e) {
+    console.warn(`[segmentation] ${action}: the day's count not kept - ${(e as Error).message}`);
+  }
+}
+
+/** The companies a run changed: a night's run replaces the list, the websites' small batches add to it. */
+async function recordMoves(action: RunAction, rows: Move[], keep: number, replace: boolean) {
+  if (!rows.length && !replace) return;
+  try {
+    const key = `segmentation:moves:${action}`;
+    const old = replace ? [] : ((await kvGet<{ rows: Move[] }>(key))?.rows ?? []);
+    await kvSet(key, { at: nowIso(), rows: [...rows, ...old].slice(0, keep) });
+  } catch (e) {
+    console.warn(`[segmentation] ${action}: the changes not kept - ${(e as Error).message}`);
+  }
+}
+
+export async function runHistory(action: RunAction): Promise<{ days: Record<string, RunDay>; moves: { at: string; rows: Move[] } | null }> {
+  const [days, moves] = await Promise.all([kvGet<Record<string, RunDay>>(`segmentation:days:${action}`), kvGet<{ at: string; rows: Move[] }>(`segmentation:moves:${action}`)]);
+  return { days: days ?? {}, moves: moves ?? null };
+}
+
 /** Take over the connector's state once: the 30-day website memory and the new-company switch. */
 export async function importConnectorState(): Promise<{ attempts: number }> {
   const st = await connectorGet<SegState & { error?: string }>("/segmentation/state");
@@ -354,6 +396,8 @@ export async function planSweep(beat: () => Promise<void> = async () => {}, maxP
   const log: string[] = [];
   const changes: [string, Props][] = [];
   const stats: Record<string, number> = { fill_empty: 0, upgrade: 0, facts_only: 0, clamped: 0, enriched: 0 };
+  const moves: Move[] = [];
+  const at = nowIso();
   let scanned = 0, pages = 0;
   for await (const page of allCompanies(READ_PROPS())) {
     for (const res of page) {
@@ -370,20 +414,25 @@ export async function planSweep(beat: () => Promise<void> = async () => {}, maxP
       if (!cur) { upd.sales_priority = en.prio[c.prefix]; stats.fill_empty += 1; }
       else if (c.prefix < cur[0]) { upd.sales_priority = en.prio[c.prefix]; stats.upgrade += 1; }
       else if (Object.keys(upd).length) stats.facts_only += 1;
+      if (moves.length < 3000) {
+        if (upd.sales_priority) moves.push({ id: res.id, n: p.name ?? "", from: cur, to: upd.sales_priority, why: cur ? "upgrade" : "fill", at });
+        if (u.apso_customer) moves.push({ id: res.id, n: p.name ?? "", from: "APSOlost", to: u.apso_customer, why: "unlost", at });
+      }
       if (Object.keys(upd).length) changes.push([res.id, upd]);
     }
     pages += 1;
     if (pages % 50 === 0) await beat();
     if (maxPages && pages >= maxPages) break;
   }
-  return { scanned, changes, stats, log };
+  return { scanned, changes, stats, log, moves };
 }
 
 /** The whole portfolio, upgrade-only: fills EMPTY, upgrades stale buckets, refreshes max_* facts. */
 async function sweepInner(dry: boolean, beat: () => Promise<void>, maxPages = 0) {
-  const { scanned, changes, stats, log } = await planSweep(beat, maxPages);
+  const { scanned, changes, stats, log, moves } = await planSweep(beat, maxPages);
   const written = dry ? 0 : await batchUpdate(changes, log);
   await patchState({ last_sweep: { at: nowIso(), scanned, changes: changes.length, written, stats, dry } });
+  if (!dry) { await recordDay("sweep", { scanned, written, stats }); await recordMoves("sweep", moves, 3000, true); }
   return { scanned, planned_changes: changes.length, written, stats, dry, log };
 }
 
@@ -393,6 +442,7 @@ async function potentialInner(dry: boolean, beat: () => Promise<void>, maxPages 
   const own = await ownApps();
   const changes: [string, Props][] = [];
   const stats: Record<string, number> = { manual_kept: 0, machine_recalc: 0, filled: 0, unchanged: 0, no_revenue: 0, kept_higher: 0, human_restored: 0 };
+  const moves: Move[] = [];
   // the same pass measures the sales side: every person's edit, and who set each potential now
   const edits: PotentialEdit[] = [];
   const setters = { person: 0, machine: 0, empty: 0 };
@@ -405,7 +455,10 @@ async function potentialInner(dry: boolean, beat: () => Promise<void>, maxPages 
       const hist = res.propertiesWithHistory?.yearly_customer_potential ?? [];
       const d = recalcDecision(p, hist, rev, own);
       stats[d.kind] += 1;
-      if ("value" in d) changes.push([res.id, { yearly_customer_potential: pyStr(d.value) }]);
+      if ("value" in d) {
+        changes.push([res.id, { yearly_customer_potential: pyStr(d.value) }]);
+        if (moves.length < 3000) moves.push({ id: res.id, n: p.name ?? "", from: p.yearly_customer_potential ?? "", to: pyStr(d.value), why: d.kind, at: nowIso() });
+      }
       edits.push(...potentialEdits(res.id, p, hist, rev, own));
       setters[potentialSetter(p, hist, own)] += 1;
     }
@@ -417,6 +470,7 @@ async function potentialInner(dry: boolean, beat: () => Promise<void>, maxPages 
   const written = dry ? 0 : await batchUpdate(changes, log);
   const res = { at: nowIso(), scanned, planned: changes.length, written, stats, dry };
   await patchState({ last_potential: res });
+  if (!dry) { await recordDay("potential", { scanned, written, stats }); await recordMoves("potential", moves, 3000, true); }
   await saveEdits({ scannedAt: res.at, scanned, setters }, edits, true);
   return { ...res, log };
 }
@@ -548,6 +602,7 @@ async function yearlyInner(dry: boolean, beat: () => Promise<void>, maxPages = 0
   await kvSet(dry ? KV.yearlyPlan : KV.yearlyApplied, plan);
   // the page shows the moves without loading every row
   await kvSet(KV.yearlySummary, { ...plan, rows: undefined, rowCount: rows.length });
+  if (!dry) await recordDay("yearly", { scanned, written, stats });
   await patchState({
     last_yearly: { at: plan.at, scanned, changes: changes.length, written, stats, dry, year },
     ...(dry ? {} : { yearly_done: year }),
@@ -731,6 +786,7 @@ async function webInner(limit: number, dry: boolean) {
   const props = await batchRead(ids, WEB_PROPS);
   const changes: [string, Props][] = [];
   const stats = { attempted: 0, site_ok: 0, description: 0, employees: 0, address: 0, apic_or_industry: 0, website: 0 };
+  const webMoves: Move[] = [];
   const today = utcToday();
   for (const cid of ids) {
     const p = props.get(cid);
@@ -749,6 +805,7 @@ async function webInner(limit: number, dry: boolean) {
     if ("apic_ap" in upd || "industry" in upd) stats.apic_or_industry += 1;
     if ("website" in upd) stats.website += 1;
     changes.push([cid, upd]);
+    webMoves.push({ id: cid, n: p.name ?? "", from: domain, to: Object.keys(upd).join(", "), why: "web", at: nowIso() });
   }
   const log: string[] = [];
   const written = dry ? 0 : await batchUpdate(changes, log);
@@ -757,6 +814,7 @@ async function webInner(limit: number, dry: boolean) {
   // a no-op pass (the watcher's small batch finding nothing new) must not hide the last real batch
   if (stats.attempted > 0 || !fresh.last_web) patch.last_web = { at: nowIso(), candidates: ids.length, written, stats, dry };
   await patchState(patch);
+  if (!dry && stats.attempted > 0) { await recordDay("web", { scanned: ids.length, written, stats }); await recordMoves("web", webMoves, 500, false); }
   return { candidates: ids.length, written, stats, dry, log };
 }
 
@@ -869,6 +927,14 @@ async function watchInner() {
   } catch (e) {
     changed = { error: (e as Error).message.slice(0, 150) };
   }
+  // a company with no profit centre gets one - "No sales" until it orders (SARCLA 02.11.2026: "Not worked out yet - we
+  // should have this filled"); a new company never "moves", so the nightly pass alone left it blank
+  let pcFilled: unknown;
+  try {
+    pcFilled = await pcFillBlank(200);
+  } catch (e) {
+    pcFilled = { error: (e as Error).message.slice(0, 150) };
+  }
   // the first APSO segment of a new company - the HubSpot workflow's job until it is switched off (New companies tab)
   let segmented: unknown;
   try {
@@ -876,9 +942,32 @@ async function watchInner() {
   } catch (e) {
     segmented = { error: (e as Error).message.slice(0, 150) };
   }
-  const res = { at: nowIso(), found: found.size, potential_seeded: seeded, enriched, priorities_set: dist, written, web, potential_changed: changed, first_segment: segmented };
+  const res = { at: nowIso(), found: found.size, potential_seeded: seeded, enriched, priorities_set: dist, written, web, potential_changed: changed, first_segment: segmented, pc_filled: pcFilled };
+  if (found.size || written) await recordDay("watch", { scanned: found.size, written, stats: { potential_seeded: seeded, enriched, ...dist } });
   await patchState({ watcher_last: res });
   return { ...res, log };
+}
+
+/** Companies with no profit centre, at least 20 minutes old: their split from their orders, "No sales" when none. */
+async function pcFillBlank(cap: number): Promise<{ found: number; written: number }> {
+  const ids = await searchIds([
+    { propertyName: "major_profit_center", operator: "NOT_HAS_PROPERTY" },
+    { propertyName: "createdate", operator: "LTE", value: String(Date.now() - 20 * 60_000) },
+  ], { cap });
+  if (!ids.length) return { found: 0, written: 0 };
+  const opts = await pcOptions();
+  const blobs = pcBlobProps();
+  const props = await batchRead(ids.slice(0, cap), ["profit_center_split", "major_profit_center", ...blobs]);
+  const changes: [string, Props][] = [];
+  for (const [id, p] of props) {
+    if ((p.major_profit_center ?? "").trim()) continue;
+    const v = decide(sumByPc(blobs.map((k) => p[k])), opts.split, opts.major);
+    changes.push([id, { profit_center_split: v.split, major_profit_center: v.major }]);
+  }
+  const log: string[] = [];
+  const written = changes.length ? await batchUpdate(changes, log) : 0;
+  if (log.length) console.warn(`[segmentation] blank profit centres: ${log.join(" | ").slice(0, 300)}`);
+  return { found: ids.length, written };
 }
 
 /* ── what the routes and the scheduler call ───────────────────────────── */

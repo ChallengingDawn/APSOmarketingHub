@@ -11,6 +11,7 @@
 import { chainDoneToday, utcToday } from "@/lib/erosion/run";
 import { importConnectorState, loadState, nightly, potentialEditsData, startAction, watchTick } from "@/lib/integrations/segmentation";
 import { followDue, startFollow } from "@/lib/integrations/newCompanies";
+import { pcMix } from "@/lib/integrations/segmentationCompanies";
 
 const WATCH_MS = 120_000;
 const NIGHTLY_TICK_MS = 10 * 60_000;
@@ -30,6 +31,8 @@ async function nightlyTick() {
     if (ready) await nightly();
     // the new companies are followed once a day, after the nightly (their priority and revenue are fresh then)
     if ((await loadState()).nightly_day === today && (await followDue())) await startFollow("nightly");
+    // the profit centres moved in the night: counted again for the Profit center tab
+    if ((await loadState()).nightly_day === today) void pcMix(true).catch(() => {});
   } catch (e) {
     console.warn(`[segmentation] nightly tick skipped: ${(e as Error).message}`);
   }
@@ -69,6 +72,8 @@ export function startSegmentationScheduler() {
   // a hub that has not read the new companies today reads them a few minutes after it starts, not at the next night
   setTimeout(() => {
     void followDue().then((due) => (due ? startFollow("first start") : null)).catch((e) => console.warn(`[segmentation] new companies not read: ${(e as Error).message}`));
+    // the Profit center tab's counts, kept in the database: counted now if there are none or they are old
+    void pcMix().catch(() => {});
   }, 5 * 60_000).unref?.();
   const w = setInterval(() => {
     void watchTick().catch((e) => console.warn(`[segwatch] error: ${(e as Error).message.slice(0, 200)}`));
