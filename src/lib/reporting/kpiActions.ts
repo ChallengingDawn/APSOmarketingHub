@@ -91,6 +91,10 @@ function ensure(): Promise<void> {
       await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS status_note text NOT NULL DEFAULT ''`);
       // when a sub-action and its ticket last agreed (actionPlanHubspot.ts)
       await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS ticket_sync_at timestamptz`);
+      // a sub-action made from an action before 02.11.2026 repeated its name on its description's first line, the
+      // workbook's indents in ("the text feels weird"): cleaned once - after it no description starts with its name
+      await query(`UPDATE ${TASKS} SET note = btrim(regexp_replace(substr(note, length(title) + 1), E'\\n[ \\t]+', E'\\n', 'g'), E' \\t\\n')
+                     WHERE tile LIKE 'plan:%' AND left(note, length(title) + 1) = title || E'\n'`);
       await query(`CREATE TABLE IF NOT EXISTS ${LINKS} (
         tile text NOT NULL,
         ticket_id text NOT NULL,

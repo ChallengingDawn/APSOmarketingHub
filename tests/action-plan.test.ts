@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, codesOf, isDigitalGrowth, isLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
+  IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, isDigitalGrowth, isLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
   stateOfStage, stageOfStatus, statusOfStage, subPct, subStage, subTicketSync, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
   type PlanItem, type PlanSub, type SeedRow,
@@ -307,6 +307,8 @@ test("action plan: an action and its ticket - which way a difference goes", () =
   // both changed since: the latest
   assert.equal(syncWay("2026-11-02T10:06:00.000Z", "2026-11-02T10:05:00.000Z", synced), "push");
   assert.equal(syncWay("2026-11-02T10:05:00.000Z", "2026-11-02T10:06:00.000Z", synced), "pull");
+  // neither changed since they agreed: left alone
+  assert.equal(syncWay("2026-11-02T09:00:00.000Z", "2026-11-02T09:30:00.000Z", synced), null);
 });
 
 test("action plan: an action and its ticket - what goes over, only what the other side takes", () => {
@@ -373,4 +375,16 @@ test("action plan: a sub-action and its ticket - its own fields both ways, the t
   const merge = subTicketSync({ ...s, statusNote: "", due: "2026-12-05" }, { ...t, mkt_status_note: "" }, "merge");
   assert.deepEqual(merge.pull, { stage: LIVE, due: "2026-12-01" });
   assert.deepEqual(merge.push, {});
+});
+
+test("action plan: a Scroll to Sale ticket goes under a Digital Growth action, or as a new action in a category holding one", () => {
+  const items = [
+    it(1, null, "goal"), it(2, 1, "topic", { title: "Boost" }), it(3, 2, "group", { title: "Sales" }), it(4, 3, "action", { title: "Ads", dg: true }),
+    it(5, 3, "action", { title: "Calls" }), it(6, 2, "group", { title: "Ops" }), it(7, 6, "action", { title: "Stock" }), it(8, 1, "topic", { title: "Other" }),
+  ];
+  const t = dgTargets(items);
+  assert.deepEqual(t.actions.map((a) => a.id), [4]);
+  // the categories above a Digital Growth action - not the goal, not the ones without one
+  assert.deepEqual(t.categories.map((c) => c.id), [2, 3]);
+  assert.equal(t.path(items[3]), "Boost > Sales");
 });

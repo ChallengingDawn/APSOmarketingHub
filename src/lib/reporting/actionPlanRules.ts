@@ -698,12 +698,29 @@ export function subTicketSync(s: SubSyncable, t: Record<string, string | null | 
 
 /**
  * Which way a difference goes: the side changed since they last agreed; both, the latest change; never agreed, a
- * merge. An ISO time each; `synced` null when they never agreed.
+ * merge; neither, none - they are left as they agreed (a difference only in how a text is written stays). An ISO time
+ * each; `synced` null when they never agreed.
  */
-export function syncWay(hubAt: string, ticketAt: string, synced: string | null): "push" | "pull" | "merge" {
+export function syncWay(hubAt: string, ticketAt: string, synced: string | null): "push" | "pull" | "merge" | null {
   if (!synced) return "merge";
   const hub = hubAt > synced, ticket = ticketAt > synced;
+  if (!hub && !ticket) return null;
   if (hub && !ticket) return "push";
   if (ticket && !hub) return "pull";
   return ticketAt > hubAt ? "pull" : "push";
+}
+
+/** Where a "From Scroll to Sale" ticket may go in the plan (scrollToSaleBoard.ts): the actions led by Digital Growth,
+ *  and the categories that hold them - each with the path above it. */
+export function dgTargets(items: PlanItem[]): { actions: PlanItem[]; categories: PlanItem[]; path: (i: PlanItem) => string } {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const path = (i: PlanItem) => {
+    const up: string[] = [];
+    for (let p = i.parentId == null ? undefined : byId.get(i.parentId); p && up.length < 5; p = p.parentId == null ? undefined : byId.get(p.parentId)) if (p.kind !== "goal") up.unshift(p.title);
+    return up.join(" > ");
+  };
+  const actions = items.filter((i) => i.kind === "action" && i.dg);
+  const cats = new Set<number>();
+  for (const a of actions) for (let p = a.parentId == null ? undefined : byId.get(a.parentId); p && p.kind !== "goal"; p = p.parentId == null ? undefined : byId.get(p.parentId)) cats.add(p.id);
+  return { actions, categories: items.filter((i) => cats.has(i.id)), path };
 }

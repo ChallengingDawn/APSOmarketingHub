@@ -5,7 +5,7 @@
 // and a status note (02.11.2026).
 import { NextRequest, NextResponse } from "next/server";
 import { TASK_STATUSES, addTask, deleteTask, taskById, tasksOf, updateTask, type KpiTask, type SharedPerson, type TaskStatus } from "@/lib/reporting/kpiActions";
-import { itemById, startedBySub } from "@/lib/reporting/actionPlan";
+import { itemById, startMains, startedBySub } from "@/lib/reporting/actionPlan";
 import { queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { s2sForm } from "@/lib/reporting/scrollToSale";
 import { IDEA, PRIORITIES, STAGES } from "@/lib/reporting/actionPlanRules";
@@ -135,6 +135,7 @@ export async function PATCH(req: NextRequest) {
     if (plan !== undefined && plan !== before.planItem) queuePlanSync("sub-action moved");
     // a sub-action of the plan: its ticket takes the change (SARCLA 02.11.2026)
     else if (t.planItem != null) queuePlanSync("sub-action changed");
+    if (t.planItem != null && b.stage !== undefined) await startMains([t], w.name);
     const added = (shared ?? []).filter((p) => !before.shared.some((x) => x.id === p.id));
     const mailed = await notify(t, w, b, b.owner !== undefined && b.owner !== before.owner, added);
     return NextResponse.json({ ok: true, task: t, mailed });

@@ -24,7 +24,7 @@ import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined
 
 import { HomeBar } from "@/app/HomeBar";
 import { FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { KILLED, PRIORITIES, S2S_CHOICES, STAGES, isClosed, isLate, reorder, rollup, type PlanFields, type PlanItem } from "@/lib/reporting/actionPlanRules";
+import { KILLED, LIVE, PRIORITIES, S2S_CHOICES, STAGES, isClosed, isLate, reorder, rollup, subStage, type PlanFields, type PlanItem } from "@/lib/reporting/actionPlanRules";
 import { Gantt, type GRow, type Where, type Zoom } from "./Gantt";
 import { ItemModal } from "./ItemModal";
 import { AddDialog } from "./AddDialog";
@@ -97,7 +97,10 @@ function ActionPlan() {
   const [dgOnly, setDgOnly] = useState(false);
   const [lateOnly, setLateOnly] = useState(false);
   const [owner, setOwner] = useState("");
-  const filtering = !!q.trim() || prios.length > 0 || stages.length > 0 || dgOnly || lateOnly || !!owner;
+  // the live ones out of sight (SARCLA 02.11.2026: "another filter: hide live, to hide the live actions"), kept per browser
+  const [hideLive, setHideLive] = useState(() => readPref<boolean>("hideLive.v1", false));
+  const liveOff = (v: boolean) => { setHideLive(v); writePref("hideLive.v1", v); };
+  const filtering = !!q.trim() || prios.length > 0 || stages.length > 0 || dgOnly || lateOnly || !!owner || hideLive;
 
   const items = useMemo(() => data?.items ?? [], [data]);
   const subs = useMemo(() => data?.subs ?? [], [data]);
@@ -132,9 +135,10 @@ function ActionPlan() {
     if (stages.length && !stages.includes(i.stage ?? "none")) return false;
     if (dgOnly && !i.dg) return false;
     if (lateOnly && !isLate(i, today)) return false;
+    if (hideLive && i.stage === LIVE) return false;
     if (owner === NOBODY ? i.owners.length > 0 : !!owner && !i.owners.some((o) => o.id === owner)) return false;
     return true;
-  }, [q, prios, stages, dgOnly, lateOnly, owner, today]);
+  }, [q, prios, stages, dgOnly, lateOnly, owner, today, hideLive]);
 
   // the rows, top to bottom
   const rows = useMemo<GRow[]>(() => {
@@ -161,7 +165,7 @@ function ActionPlan() {
     };
     const walk = (i: PlanItem, depth: number) => {
       const under = (kids.get(i.id) ?? []).filter(visible);
-      const mine = i.kind === "action" ? subsOf.get(i.id) ?? [] : [];
+      const mine = i.kind === "action" ? (subsOf.get(i.id) ?? []).filter((x) => !hideLive || subStage(x)?.id !== LIVE) : [];
       const key = `i${i.id}`;
       out.push({ key, type: "item", item: i, depth, hasKids: under.length > 0 || mine.length > 0 });
       if (collapsed.has(key)) return;
@@ -170,7 +174,7 @@ function ActionPlan() {
     };
     for (const root of (kids.get(null) ?? []).filter(visible)) walk(root, 0);
     return out;
-  }, [items, subs, collapsed, filtering, passes, hidden, showHidden]);
+  }, [items, subs, collapsed, filtering, passes, hidden, showHidden, hideLive]);
 
   const actions = items.filter((i) => i.kind === "action");
   const hiddenN = items.filter((i) => hidden.has(i.id)).length;
@@ -299,7 +303,7 @@ It leaves the plan as an action; its name, description, status, priority, first 
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: { xs: 2, md: 3 }, py: { xs: 2, md: 2.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2 }}>
       {/* an application of its own: the hub's bar, no panel - the whole width is the plan's */}
-      <HomeBar on="Action plan" />
+      <HomeBar on="Action plan" plan />
 
       {/* the goal, where we stand and the climb - one block, about half as tall as it was: the headline and the figures on
           the left, the mountain on the right with the goal's why in its sky (SARCLA 01.11.2026: "put the sub text on top of
@@ -377,6 +381,7 @@ It leaves the plan as an action; its name, description, status, priority, first 
         <Box sx={{ width: 8 }} />
         <Box component="button" type="button" aria-pressed={lateOnly} onClick={() => setLateOnly((v) => !v)} sx={chip(lateOnly, LATE, "#fde7e7")}>Late</Box>
         <Box component="button" type="button" aria-pressed={dgOnly} onClick={() => setDgOnly((v) => !v)} sx={chip(dgOnly)}>Digital Growth</Box>
+        <Box component="button" type="button" aria-pressed={hideLive} onClick={() => liveOff(!hideLive)} sx={chip(hideLive, stageColor(LIVE).ink, stageColor(LIVE).soft)}>Hide live</Box>
         {hiddenN > 0 && (
           <Box component="button" type="button" aria-pressed={showHidden} onClick={() => setShowHidden((v) => !v)} title={showHidden ? "Hide them again" : "Show the rows you hid, faded - the eye on one shows it for good"}
             sx={{ ...chip(showHidden, MUTED, "#eef1f6"), display: "inline-flex", alignItems: "center", gap: 0.5 }}>
@@ -384,7 +389,7 @@ It leaves the plan as an action; its name, description, status, priority, first 
           </Box>
         )}
         {showHidden && hiddenN > 0 && <Button size="small" onClick={() => { setHidden(new Set()); writePref("hidden.v1", []); setShowHidden(false); }} sx={{ textTransform: "none", fontWeight: 650 }}>Show them all again</Button>}
-        {filtering && <Button size="small" onClick={() => { setQ(""); setPrios([]); setStages([]); setDgOnly(false); setLateOnly(false); setOwner(""); }} sx={{ textTransform: "none", fontWeight: 650 }}>Clear</Button>}
+        {filtering && <Button size="small" onClick={() => { setQ(""); setPrios([]); setStages([]); setDgOnly(false); setLateOnly(false); setOwner(""); liveOff(false); }} sx={{ textTransform: "none", fontWeight: 650 }}>Clear</Button>}
       </Box>
 
       {note && <Typography sx={{ fontSize: "0.88rem", color: RED }}>{note}</Typography>}

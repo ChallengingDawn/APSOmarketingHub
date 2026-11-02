@@ -121,6 +121,8 @@ export async function POST(req: NextRequest) {
       if (planId != null && taskId == null) await forgetTicketSync(planId);
       if (taskId != null) await forgetTaskSync(taskId);
       queuePlanSync("ticket made");
+      // SARCLA 02.11.2026: "when I linked the ticket it didn't load the information - I need to close and come back"
+      if (planId != null) await flushPlanSync().catch(() => undefined);
       console.log(`[kpi-actions] ticket ${id} created from tile ${b.tile} by ${w.name}`);
       return NextResponse.json({ ok: true, id, url: ticketUrl(id) });
     }
@@ -133,6 +135,7 @@ export async function POST(req: NextRequest) {
       if (planId != null && taskId == null) await forgetTicketSync(planId);
       if (taskId != null) await forgetTaskSync(taskId);
       queuePlanSync("tickets linked");
+      if (planId != null) await flushPlanSync().catch(() => undefined);
       return NextResponse.json({ ok: true, linked: found.length });
     }
     if (b.action === "unlink" && b.id) {

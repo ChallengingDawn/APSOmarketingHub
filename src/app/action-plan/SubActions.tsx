@@ -80,8 +80,9 @@ function NoteField({ label: l, value, placeholder, canWrite, onSave }: { label: 
  *  handed up at once, a text when it is left. */
 function SmallFields({ v, set, owners, canWrite }: { v: Small; set: (p: Partial<Small>) => void; owners: Opt[]; canWrite: boolean }) {
   return (
-    <Box sx={{ display: "grid", gap: 1.1 }}>
-      <Box sx={{ display: "grid", gap: 0.5 }}>
+    // room between a text box and the tags under it (SARCLA 02.11.2026: "give more padding between the text box and the tags")
+    <Box sx={{ display: "grid", gap: 1.75 }}>
+      <Box sx={{ display: "grid", gap: 0.75 }}>
         <Typography sx={label}>Status</Typography>
         <Box role="radiogroup" aria-label="Status" sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
           {STAGES.map((s) => {
@@ -97,7 +98,7 @@ function SmallFields({ v, set, owners, canWrite }: { v: Small; set: (p: Partial<
         </Box>
       </Box>
       <NoteField label="Status note" value={v.statusNote} placeholder="Where it stands - what is done, what is in the way" canWrite={canWrite} onSave={(x) => set({ statusNote: x })} />
-      <Box sx={{ display: "grid", gap: 0.5 }}>
+      <Box sx={{ display: "grid", gap: 0.75 }}>
         <Typography sx={label}>Priority</Typography>
         <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
           {[...PRIORITIES].reverse().map((p) => {
@@ -107,7 +108,7 @@ function SmallFields({ v, set, owners, canWrite }: { v: Small; set: (p: Partial<
           })}
         </Box>
       </Box>
-      <Box sx={{ display: "grid", gap: 1.1, gridTemplateColumns: { xs: "1fr", sm: "1.4fr 1fr 1fr" } }}>
+      <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: { xs: "1fr", sm: "1.4fr 1fr 1fr" } }}>
         <TextField select size="small" label="Assigned to" value={owners.some((o) => o.value === v.owner) ? v.owner : ""} disabled={!canWrite}
           onChange={(e) => set({ owner: e.target.value })} sx={field} slotProps={{ inputLabel: { shrink: true } }}>
           {owners.map((o) => <MenuItem key={o.value} value={o.value} sx={{ fontSize: "0.88rem" }}>{o.label}</MenuItem>)}
@@ -409,7 +410,7 @@ export function SubEditor({ k, tile, t, owners, canWrite, tickets, linked, saved
   };
 
   return (
-    <Box sx={{ display: "grid", gap: 1.4 }}>
+    <Box sx={{ display: "grid", gap: 1.9 }}>
       {canWrite && <Box sx={{ display: "flex", justifyContent: "flex-end", mb: -0.5 }}><AiButton on={aiOpen} toggle={() => setAiOpen((o) => !o)} /></Box>}
       {aiOpen && <AiBox placeholder="What changed, by whom, by when, how urgent, where it stands" hint="The AI proposes changes from your words - only choices the form offers, nothing made up. You apply them, or not." fill={fill} />}
       {proposal && (

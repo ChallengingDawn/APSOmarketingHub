@@ -16,6 +16,7 @@ import Typography from "@mui/material/Typography";
 
 import HomeIcon from "@mui/icons-material/Home";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
+import ViewKanbanOutlinedIcon from "@mui/icons-material/ViewKanbanOutlined";
 import SensorsIcon from "@mui/icons-material/Sensors";
 import AppsIcon from "@mui/icons-material/Apps";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
@@ -57,7 +58,7 @@ const focusRing = {
  * keyframes (both pages that use it do) and turn motion off under
  * prefers-reduced-motion.
  */
-export function HomeBar({ on }: { on?: string }) {
+export function HomeBar({ on, plan = false }: { on?: string; plan?: boolean }) {
   const router = useRouter();
   const { viewed, canOpen, canOpenPath } = useViewAs();
 
@@ -138,7 +139,13 @@ export function HomeBar({ on }: { on?: string }) {
   // gets Home and Settings, the honest header for them. The two anchors point at
   // the front page, so they work from any page that shows the bar.
   const reads = APP_KEYS.filter((k) => openFor(k)).length <= 1;
-  const NAV = [
+  // the Action plan's own pages, admins only, carry their own three (SARCLA 02.11.2026: "Action plan first, Home, From
+  // Scroll to Sale" - "only admins have access to it, show it for everyone on the page")
+  const NAV = plan ? [
+    { name: "Action plan", href: "/action-plan", icon: <DashboardOutlinedIcon />, show: true },
+    { name: "Home", href: "/", icon: <HomeIcon />, show: true },
+    { name: "From Scroll to Sale", href: "/action-plan/scroll-to-sale", icon: <ViewKanbanOutlinedIcon />, show: true },
+  ] : [
     { name: "Home", href: "/", icon: <HomeIcon />, show: true },
     { name: "Applications", href: "/#applications", icon: <AppsIcon />, show: !reads },
     // where Mission Control was: the action plan, for admins only (SARCLA 01.11.2026)

@@ -9,7 +9,7 @@
 // they last agreed wins, the first time a merge (actionPlanRules.ticketSync, syncWay). Read again when the plan is opened.
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { IntegrationError } from "@/lib/integrations/status";
-import { markTicketSync, planItems, ticketSyncTimes, updateItem } from "./actionPlan";
+import { markTicketSync, planItems, startMains, ticketSyncTimes, updateItem } from "./actionPlan";
 import { PLAN_PROPS, SUB_TICKET_SYNC, TICKET_SYNC, planOptions, planValuesOf, sameOptions, subTicketSync, syncWay, ticketSync, type HsOption, type PlanFields, type PlanPropName } from "./actionPlanRules";
 import { actionTickets, markTaskSync, planTasks, planTicketLinks, taskSyncTimes, taskTickets, updateTask } from "./kpiActions";
 import { S2S_PIPELINE } from "./scrollToSaleRules";
@@ -108,7 +108,9 @@ async function inStep(items: Items): Promise<{ pushed: number; pulled: number }>
   for (const l of links) {
     const a = byId.get(l.item), t = ours(l.ticketId);
     if (!a || a.kind !== "action" || main.has(a.id) || !t) continue;
-    const d = ticketSync(a, t, syncWay(a.updatedAt, at(t), synced.get(a.id) ?? null));
+    const way = syncWay(a.updatedAt, at(t), synced.get(a.id) ?? null);
+    if (!way) continue;
+    const d = ticketSync(a, t, way);
     agreed.push(a.id);
     if (!d.fields.length) continue;
     if (Object.keys(d.push).length) { writes.set(l.ticketId, d.push); pushed++; }
@@ -121,7 +123,9 @@ async function inStep(items: Items): Promise<{ pushed: number; pulled: number }>
     const k = taskById.get(l.task), t = ours(l.ticketId);
     // one ticket on both an action and its sub-action: the action's went first
     if (!k || !t || writes.has(l.ticketId)) continue;
-    const d = subTicketSync(k, t, syncWay(k.updatedAt, at(t), subSynced.get(k.id) ?? null));
+    const way = syncWay(k.updatedAt, at(t), subSynced.get(k.id) ?? null);
+    if (!way) continue;
+    const d = subTicketSync(k, t, way);
     subAgreed.push(k.id);
     if (!d.fields.length) continue;
     if (Object.keys(d.push).length) { writes.set(l.ticketId, d.push); pushed++; }
@@ -136,6 +140,7 @@ async function inStep(items: Items): Promise<{ pushed: number; pulled: number }>
     await hubspotFetchJson({ path: "/crm/v3/objects/tickets/batch/update", method: "POST", body: { inputs: inputs.slice(k, k + 100) } });
   }
   await Promise.all([markTicketSync(agreed), markTaskSync(subAgreed)]);
+  if (pulled) await startMains(await planTasks(), "Its sub-actions are under way");
   return { pushed, pulled };
 }
 

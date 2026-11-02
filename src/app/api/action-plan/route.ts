@@ -10,7 +10,7 @@
 //   DELETE ?id=                                  a row and what is under it; its own sub-actions go too
 // Every change to the tree reaches HubSpot's three plan properties a few seconds later (actionPlanHubspot.ts).
 import { NextRequest, NextResponse } from "next/server";
-import { actionToSub, addItem, deleteItems, itemById, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
+import { actionToSub, addItem, deleteItems, itemById, startMains, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
 import { freshFromTickets, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { PRIORITIES, S2S_CHOICES, STAGES, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
 import { dropPlanItem, planTasks } from "@/lib/reporting/kpiActions";
@@ -61,8 +61,9 @@ export async function GET(req: NextRequest) {
     } catch (e) {
       peopleError = String((e as Error)?.message ?? e).slice(0, 200);
     }
-    // what changed on the actions' tickets comes in first
+    // what changed on the actions' tickets comes in first; a main action whose sub-actions are under way is too
     await freshFromTickets();
+    await startMains(await planTasks(), "Its sub-actions are under way").catch(() => []);
     const [items, tasks] = await Promise.all([planItems(), planTasks()]);
     const ids = new Set(items.map((i) => i.id));
     const subs: PlanSub[] = tasks.filter((t) => t.planItem != null && ids.has(t.planItem)).map((t) => ({

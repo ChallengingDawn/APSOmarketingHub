@@ -17,6 +17,14 @@ import {
 } from "./actionPlanRules";
 import { addTask, movePlanItem, type KpiTask } from "./kpiActions";
 
+/** An action's description as its sub-action's: without its name repeated on the first line, the workbook's indents out
+ *  (SARCLA 02.11.2026: "the text feels weird"). */
+export const subText = (title: string, detail: string): string => {
+  let d = (detail ?? "").replace(/\r\n/g, "\n");
+  if (d.trim().startsWith(title.trim())) d = d.trim().slice(title.trim().length);
+  return d.split("\n").map((l) => l.trim()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+};
+
 const T = "apsomh_action_plan";
 const LOG = "apsomh_action_plan_log";
 
@@ -334,6 +342,19 @@ export async function startedBySub(id: number, by: string): Promise<PlanItem | n
   return updateItem(id, { stage: IN_PROGRESS }, by);
 }
 
+/**
+ * Main actions whose sub-actions are under way while they are not (SARCLA 02.11.2026: "the status of the main action is
+ * Idea box - this should be In Progress because the others are in progress"): to In Progress, each in its tracking.
+ * `subs`: the plan's sub-actions with their action and stage. The ones moved.
+ */
+export async function startMains(subs: { planItem: number | null; stage: string | null; status: string }[], by: string): Promise<number[]> {
+  const moving = new Set(subs.filter((x) => x.planItem != null && ((x.stage && x.stage !== IDEA) || (!x.stage && x.status !== "open"))).map((x) => x.planItem as number));
+  if (!moving.size) return [];
+  const r = await query<{ id: number }>(`SELECT id FROM ${T} WHERE kind = 'action' AND (stage IS NULL OR stage = $2) AND id = ANY($1::int[])`, [[...moving], IDEA]);
+  for (const x of r.rows) await updateItem(x.id, { stage: IN_PROGRESS }, by);
+  return r.rows.map((x) => x.id);
+}
+
 /** When each action and its ticket last agreed (actionPlanHubspot.ts). */
 export async function ticketSyncTimes(): Promise<Map<number, string>> {
   await ensure();
@@ -395,7 +416,7 @@ export async function actionToSub(id: number, intoId: number, by: string): Promi
   if ((await subtree(a.id)).length > 1) return null;
   const who = a.owners[0];
   const task = await addTask({
-    tile: `plan:${into.id}`, page: "plan", title: a.title, note: a.detail && a.detail !== a.title ? a.detail : "",
+    tile: `plan:${into.id}`, page: "plan", title: a.title, note: subText(a.title, a.detail),
     owner: who?.id ?? "", ownerName: who?.name ?? "", due: a.due, start: a.start, stage: a.stage, priority: a.priority,
     statusNote: a.statusNote, href: `/action-plan?item=${into.id}`, by,
   });
