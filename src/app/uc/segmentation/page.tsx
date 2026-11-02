@@ -11,10 +11,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
-import Button from "@mui/material/Button";
-import Chip from "@mui/material/Chip";
-import Switch from "@mui/material/Switch";
-import FormControlLabel from "@mui/material/FormControlLabel";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -29,18 +25,13 @@ import StarOutlineIcon from "@mui/icons-material/StarOutline";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
-import PlayArrowIcon from "@mui/icons-material/PlayArrow";
-import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import LanguageOutlinedIcon from "@mui/icons-material/LanguageOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
-import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
-import EventRepeatOutlinedIcon from "@mui/icons-material/EventRepeatOutlined";
-import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import { CardTitle, GlassCard, INK, KpiTile, MUTED, Notice, TINT, bodyCell, headCell } from "@/app/uc/report/ui";
+import { CardTitle, GlassCard, INK, KpiTile, MUTED, TINT, bodyCell, headCell } from "@/app/uc/report/ui";
 import Collapse from "@mui/material/Collapse";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
@@ -51,22 +42,10 @@ import { PotentialChanges } from "./PotentialChanges";
 import { HowItWorks } from "./HowItWorks";
 import { PriorityMix, SegmentMix } from "./PortfolioCharts";
 import { NewCompanies } from "./NewCompanies";
+import { Runs, type Run, type Status } from "./Runs";
+import { ProfitCentreKpis } from "./ProfitCentreKpis";
+import { CompaniesTable, PRIO_LABEL } from "./CompaniesTable";
 
-type Run = Record<string, unknown> | null;
-type YearlySummary = {
-  at: string; dry: boolean; year: number; scanned: number; changes: number; written: number; rowCount: number;
-  transitions: Record<string, number>; before: Record<string, number>; after: Record<string, number>;
-};
-type Status = {
-  total: number; empty: number; prio_1?: number; prio_2?: number; prio_3?: number; prio_4?: number;
-  no_prio_share_pct: number | null; web_new_enabled: boolean; web_candidates: number;
-  last_run_new: Run; last_sweep: Run; last_potential: Run; last_web: Run; watcher_last: Run;
-  last_yearly: Run; yearly_done: number | null; year: number; yearly_summary: YearlySummary | null;
-  running: { what: string; started: string; by: string } | null;
-  engine: "hub" | "connector"; state_imported: string | null; own_app: string | null;
-  last_profit_centre: PcRun; pc_window_years: number;
-  pc_progress: { scanned: number; changes: number; of: number | null; done: boolean } | null;
-};
 type Breakdown = {
   total: number; with_apso_customer: number; empty: number; by_value: Record<string, number>; other: number; lost_with_current_revenue: number;
   without_segment?: { id: string; name: string }[];
@@ -91,18 +70,6 @@ const PROPERTY_ROWS: [string, string, string][] = [
   ["description / employees / address / website", "Website enrichment, when empty", "Read from the company's own site (meta description, schema.org); country falls back to the domain (.ch → Switzerland). Each site at most once per 30 days."],
   ["revenue_2015 … revenue_<this year>", "Compass daily sync", "Input only - segmentation never writes revenue."],
 ];
-
-const when = (r: Run) => (r && typeof r.at === "string" ? `${r.at.slice(8, 10)}.${r.at.slice(5, 7)} ${r.at.slice(11, 16)} UTC` : "never");
-const num = (v: unknown) => (typeof v === "number" ? v : 0);
-
-/** What each run's counters mean, under its card. */
-const LEGEND: Record<string, string> = {
-  "Segment new companies": "The numbers: how many companies had no priority, and which priority each got.",
-  "Full sweep": "Upgrade: the priority went up because potential or revenue grew · facts only: the priority stayed, its helper fields were refreshed · unlost: an APSOlost customer bought again and became Core or Prospect · fill empty: had no priority yet.",
-  "Website enrichment": "Attempted: websites tried · site ok: the site answered and something was learned · then which fields it filled.",
-  "Potential recalculation": "Manual kept: a person's value - never touched · kept higher: the engine's value is already above the formula, it is not lowered · unchanged: less than 10 % away · no revenue: nothing to calculate from · filled: was empty · machine recalc: the engine's value raised to the formula.",
-  "Yearly reclassification": "Segment changed: a new APSO segment from the 14 rules · prio up / prio down: the priority set exactly to the rule · APIC corrected / set / cleared and industry filled / corrected: made to agree · facts only: nothing decided changed, helper fields refreshed · ERP left alone: ESO, DS, Growth Engine - never touched.",
-};
 
 /**
  * Notes, folded away.
@@ -147,88 +114,6 @@ function Notes({ items }: { items: { tone: "bad" | "warn"; text: React.ReactNode
           ))}
         </Box>
       </Collapse>
-    </Box>
-  );
-}
-
-function RunCard({ title, note, icon, last, extra, onPreview, onRun, busy, canRun, live }: {
-  title: string; note: string; icon: React.ReactNode; last: Run; extra?: React.ReactNode;
-  onPreview?: () => void; onRun?: () => void; busy: boolean; canRun: boolean; live: boolean;
-}) {
-  const stats = last && typeof last.stats === "object" && last.stats ? (last.stats as Record<string, number>) : null;
-  return (
-    <GlassCard sx={{ height: "100%" }}>
-      <CardTitle icon={icon} title={title} note={note} />
-      <Typography sx={{ fontSize: "0.82rem", color: MUTED, mb: 1 }}>
-        Last: {when(last)}{last?.dry ? " (preview)" : ""}
-        {last && "scanned" in last ? ` · ${full(num(last.scanned))} read` : ""}
-        {last && "planned_changes" in last ? ` · ${full(num(last.planned_changes))} to change` : ""}
-        {last && "changes" in last ? ` · ${full(num(last.changes))} to change` : ""}
-        {last && "planned" in last ? ` · ${full(num(last.planned))} to change` : ""}
-        {last && "written" in last ? ` · ${full(num(last.written))} written` : ""}
-        {last && "error" in last ? ` · failed: ${String(last.error).slice(0, 120)}` : ""}
-      </Typography>
-      {stats && (
-        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", mb: 1.5 }}>
-          {Object.entries(stats).filter(([, v]) => v).map(([k, v]) => (
-            <Chip key={k} size="small" label={`${k.replace(/_/g, " ")} ${full(v)}`} sx={{ height: 22, fontSize: "0.72rem", bgcolor: TINT.slate.bg, color: TINT.slate.fg }} />
-          ))}
-        </Box>
-      )}
-      {LEGEND[title] && <Typography sx={{ fontSize: "0.76rem", color: MUTED, lineHeight: 1.5, mb: 1 }}>{LEGEND[title]}</Typography>}
-      {extra}
-      {canRun && (
-        <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
-          {onPreview && (
-            <Button size="small" variant="outlined" startIcon={<VisibilityOutlinedIcon />} disabled={busy} onClick={onPreview}>Preview</Button>
-          )}
-          {onRun && (
-            <Tooltip title={live ? "" : "The connector still runs segmentation - only previews until the switch"}>
-              <span>
-                <Button size="small" variant="contained" disableElevation startIcon={<PlayArrowIcon />} disabled={busy || !live}
-                  onClick={() => { if (confirm(`${title}: write to HubSpot now?`)) onRun(); }}>Run</Button>
-              </span>
-            </Tooltip>
-          )}
-        </Box>
-      )}
-    </GlassCard>
-  );
-}
-
-/** The yearly card's own part: is it due, the biggest moves of the last preview or run, the Excel files. */
-function YearlyExtra({ st }: { st: Status }) {
-  const ys = st.yearly_summary;
-  const moves = ys ? Object.entries(ys.transitions).sort((a, b) => b[1] - a[1]) : [];
-  return (
-    <Box sx={{ display: "grid", gap: 1.25, mb: 0.5 }}>
-      <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-        <Chip size="small" label={st.yearly_done === st.year ? `Done for ${st.year}` : `Not run for ${st.year} yet`}
-          sx={{ height: 22, fontSize: "0.72rem", fontWeight: 700, bgcolor: st.yearly_done === st.year ? TINT.green.bg : TINT.amber.bg, color: st.yearly_done === st.year ? TINT.green.fg : TINT.amber.fg }} />
-        {ys && (
-          <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
-            {ys.dry ? "Last preview" : "Last run"} {when(ys as unknown as Run)}: {full(ys.rowCount)} companies with a new segment, priority, APIC or industry
-          </Typography>
-        )}
-      </Box>
-      {moves.length > 0 && (
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))", xl: "repeat(3, minmax(0, 1fr))" }, gap: 0.75 }}>
-          {moves.slice(0, 9).map(([t, n]) => (
-            <Box key={t} sx={{ display: "flex", justifyContent: "space-between", gap: 1, px: 1.25, py: 0.6, borderRadius: "10px", bgcolor: "rgba(255,255,255,.7)", border: "1px solid rgba(21,34,58,.08)" }}>
-              <Typography sx={{ fontSize: "0.8rem", color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t}</Typography>
-              <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{full(n)}</Typography>
-            </Box>
-          ))}
-        </Box>
-      )}
-      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-        {ys?.dry && (
-          <Button size="small" variant="text" startIcon={<FileDownloadOutlinedIcon />} href="/api/uc/segmentation/yearly-export?which=preview">Excel of the preview</Button>
-        )}
-        {st.yearly_done !== null && (
-          <Button size="small" variant="text" startIcon={<FileDownloadOutlinedIcon />} href="/api/uc/segmentation/yearly-export?which=applied">Excel of the last run - the before values</Button>
-        )}
-      </Box>
     </Box>
   );
 }
@@ -350,6 +235,7 @@ export default function SmartSegmentation() {
         ]} />
       </Box>
 
+      {tab === "profit-centre" && <ProfitCentreKpis />}
       {tab === "profit-centre" && (
         <ProfitCentre
           last={(st?.last_profit_centre ?? null) as PcRun}
@@ -389,6 +275,9 @@ export default function SmartSegmentation() {
               </Typography>
             )}
           </GlassCard>
+          <CompaniesTable title="The companies" note="Every company in HubSpot, live - the largest basis first; narrow it by segment, priority or a name"
+            segments={[...Object.entries(bd.by_value).map(([k, n]) => ({ key: k, label: k, n })), ...(bd.empty > 0 ? [{ key: "No APSO segment", label: "No APSO segment", n: bd.empty }] : [])]}
+            priorities={[{ key: "1", n: p.p1 }, { key: "2", n: p.p2 }, { key: "3", n: p.p3 }, { key: "4", n: p.p4 }, ...(st.empty ? [{ key: "", n: st.empty }] : [])].map((x) => ({ ...x, label: PRIO_LABEL[x.key] }))} />
         </Box>
       )}
 
@@ -400,51 +289,7 @@ export default function SmartSegmentation() {
         </Box>
       )}
 
-      {tab === "runs" && (
-        <Grid container spacing={2} id="segmentation-panel-runs" role="tabpanel">
-          {running && (
-            <Grid size={{ xs: 12 }}>
-              <Notice tone="warn">{st.running!.what} running since {st.running!.started.slice(11, 16)} UTC (started by {st.running!.by}) - other runs wait for it.</Notice>
-            </Grid>
-          )}
-          <Grid size={{ xs: 12, lg: 6 }}>
-            <RunCard title="Segment new companies" icon={<PlayArrowIcon />} note="Gives a priority to every company that has none yet - a safety net: the watcher already does it within minutes"
-              last={st.last_run_new} busy={running} canRun={admin} live={live}
-              onPreview={() => act("run-new", true)} onRun={() => act("run-new", false)} />
-          </Grid>
-          <Grid size={{ xs: 12, lg: 6 }}>
-            <RunCard title="Full sweep" icon={<TuneOutlinedIcon />} note="Every night, all 60,000 companies: keeps each priority up to date - raises it when it should, never lowers it"
-              last={st.last_sweep} busy={running} canRun={admin} live={live}
-              onPreview={() => act("sweep", true)} onRun={() => act("sweep", false)} />
-          </Grid>
-          <Grid size={{ xs: 12, lg: 6 }}>
-            <RunCard title="Website enrichment" icon={<LanguageOutlinedIcon />} note="Reads a company's own website to fill an empty description, size and address"
-              last={st.last_web} busy={running} canRun={admin} live={live} onRun={() => act("web", false, "&limit=300")}
-              extra={(
-                <FormControlLabel sx={{ mb: 0.5 }} control={<Switch size="small" checked={st.web_new_enabled} disabled={!admin || !live} onChange={(e) => toggleWeb(e.target.checked)} />}
-                  label={<Typography sx={{ fontSize: "0.82rem", color: INK }}>Read new companies' sites automatically</Typography>} />
-              )} />
-          </Grid>
-          <Grid size={{ xs: 12, lg: 6 }}>
-            <RunCard title="Potential recalculation" icon={<ScheduleOutlinedIcon />} note="Recalculates the potentials the engine set itself (revenue × product fit) - never one a person entered, never lower"
-              last={st.last_potential} busy={running} canRun={admin} live={live}
-              onPreview={() => act("potential", true)} onRun={() => act("potential", false)} />
-          </Grid>
-          <Grid size={{ xs: 12 }}>
-            <RunCard title="Yearly reclassification" icon={<EventRepeatOutlinedIcon />}
-              note="Once a year, in January: every company's APSO segment decided again from scratch, and every priority set exactly to the rule - up or down. Preview, check the Excel, then run"
-              last={st.last_yearly} busy={running} canRun={admin} live={live}
-              onPreview={() => act("yearly", true)} onRun={() => act("yearly", false)}
-              extra={<YearlyExtra st={st} />} />
-          </Grid>
-          <Grid size={{ xs: 12 }}>
-            <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-              Watcher: last pass {when(st.watcher_last)}{st.watcher_last ? ` · ${full(num(st.watcher_last.found))} new companies found · ${full(num(st.watcher_last.written))} written` : ""}.
-              {" "}Engine: {live ? "the hub" : "the Compass connector"}{st.own_app ? ` · the hub writes as HubSpot app ${st.own_app}` : ""}.
-            </Typography>
-          </Grid>
-        </Grid>
-      )}
+      {tab === "runs" && <Runs st={st} admin={admin} live={live} running={running} act={act} toggleWeb={toggleWeb} />}
 
       {tab === "properties" && (
         <Box id="segmentation-panel-properties" role="tabpanel" sx={{ minWidth: 0, display: "grid", gap: 2.5 }}>

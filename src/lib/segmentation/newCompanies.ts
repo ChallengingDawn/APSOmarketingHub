@@ -110,7 +110,8 @@ export type NewDoc = { at: string; since: string; rows: NewCo[]; owners: Record<
 
 /** The country as a name - HubSpot holds "CH" beside "Switzerland" (02.11.2026: 790 "CH", 776 "DE", 621 "IT" in a year). */
 export function countryName(k: string | null | undefined): string {
-  const v = (k ?? "").trim();
+  // "The Netherlands" beside "Netherlands"
+  const v = (k ?? "").trim().replace(/^the\s+/i, "");
   if (!v) return "No country";
   if (/^[A-Za-z]{2}$/.test(v)) return TLD_COUNTRY[v.toLowerCase()] ?? ({ GB: "United Kingdom", US: "United States" } as Record<string, string>)[v.toUpperCase()] ?? v.toUpperCase();
   return v;

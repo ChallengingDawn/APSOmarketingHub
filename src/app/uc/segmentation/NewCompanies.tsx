@@ -38,13 +38,13 @@ import { CardTitle, FAINT, GlassCard, INK, KpiTile, MUTED, RED, bodyCell, clip, 
 import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
 import { useReportingWindow } from "@/app/window/ReportingWindow";
 import { rangeLabel } from "@/lib/boDetection/figures";
-import type { BuildInfo, ScanDoc, ScanRow, Settings } from "@/lib/integrations/newCompanies";
+import type { BuildInfo, ScanDoc, ScanRow, Settings, Unsegmented } from "@/lib/integrations/newCompanies";
 import { SET_BYS, SET_BY_LABEL, countryName, previousWindow, sourceLabel, type NewCo, type NewFigures, type SetBy, type Side } from "@/lib/segmentation/newCompanies";
 import { SEGMENT_COLOR } from "./PortfolioCharts";
 
 const API = "/api/uc/segmentation/new-companies";
 type Data = {
-  figures: NewFigures | null; imported: number; settings: Settings; workflowOn: boolean | null; writing: boolean; scan: ScanDoc; build: BuildInfo | null;
+  figures: NewFigures | null; imported: number; settings: Settings; workflowOn: boolean | null; writing: boolean; scan: ScanDoc; build: BuildInfo | null; unsegmented: Unsegmented | null;
   admin: boolean; engineLive: boolean;
 };
 
@@ -128,7 +128,6 @@ function Evolution({ f, label, pick, setPick, imports }: { f: NewFigures; label:
   const dim = (cur: Record<string, number>, prv: Record<string, number>, name: (k: string) => string): DimRow[] =>
     [...new Set([...Object.keys(cur), ...Object.keys(prv)])].map((k) => ({ id: k, label: name(k), n: cur[k] ?? 0, b: prv[k] ?? 0 })).filter((x) => x.n || x.b);
   const srcs = dim(now.src, was.src, srcName);
-  const whoRows = SET_BYS.map((k) => ({ id: k, label: SET_BY_LABEL[k], n: now.who[k] ?? 0, b: was.who[k] ?? 0 })).filter((x) => x.n || x.b);
   const moves = dim(now.moves, was.moves, (k) => k);
   const segs = dim(now.seg, was.seg, (k) => k);
   const countries = dim(now.country, was.country, (k) => k);
@@ -170,18 +169,16 @@ function Evolution({ f, label, pick, setPick, imports }: { f: NewFigures; label:
       <Box sx={TWO}>
         <DimChart title={`Where they came from, ${label}`} rows={srcs} cur={(x) => x.n} prev={(x) => x.b} curLabel={label} prevLabel={before} fmt={full} labelWidth={230} single={single}
           selected={sel("src")} onPick={choose("src", srcs)} />
-        <DimChart title={`Who gave them their first segment, ${label}`} rows={whoRows} cur={(x) => x.n} prev={(x) => x.b} curLabel={label} prevLabel={before} fmt={full} labelWidth={230} single={single} fixedOrder
-          curNote={(x) => ({ text: pct(x.n, now.n), color: MUTED })} selected={sel("who")} onPick={choose("who", whoRows)} />
-      </Box>
-      <Box sx={TWO}>
-        <DimChart title={`From their first segment to today, ${label}`} rows={moves} cur={(x) => x.n} prev={(x) => x.b} curLabel={label} prevLabel={before} fmt={full} labelWidth={260} single={single}
-          selected={sel("move")} onPick={choose("move", moves)} />
         <DimChart title={`Their segment today, ${label}`} rows={segs} cur={(x) => x.n} prev={(x) => x.b} curLabel={label} prevLabel={before} fmt={full} labelWidth={190} single={single}
           curNote={(x) => ({ text: pct(x.n, now.n), color: MUTED })} selected={sel("seg")} onPick={choose("seg", segs)} />
       </Box>
       <Box sx={TWO}>
+        <DimChart title={`From their first segment to today, ${label}`} rows={moves} cur={(x) => x.n} prev={(x) => x.b} curLabel={label} prevLabel={before} fmt={full} labelWidth={260} single={single}
+          selected={sel("move")} onPick={choose("move", moves)} />
         <DimChart title={`By country, ${label}`} rows={countries} cur={(x) => x.n} prev={(x) => x.b} curLabel={label} prevLabel={before} fmt={full} labelWidth={170} single={single}
           selected={sel("country")} onPick={choose("country", countries)} />
+      </Box>
+      <Box sx={TWO}>
         <DimChart title={`Their owner today, ${label}`} rows={owners} cur={(x) => x.n} prev={(x) => x.b} curLabel={label} prevLabel={before} fmt={full} labelWidth={190} single={single}
           selected={sel("owner")} onPick={choose("owner", owners)} />
       </Box>
@@ -213,7 +210,7 @@ function Tiles({ now, was, label, delta, prospects }: { now: Side; was: Side; la
       <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<DomainAddOutlinedIcon />} tint="blue" label="New companies" value={full(now.n)} delta={delta(now.n, was.n)}
         note={`Created ${inSentence(label)}${delta(now.n, was.n) ? `; ${full(was.n)} the days before` : ""}.`} /></Grid>
       <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<BoltOutlinedIcon />} tint="green" label="Segmented within the hour" value={full(now.fast)}
-        note={`${pct(now.fast, now.n)} of them. In all, the first segments came from ${SET_BYS.filter((k) => k !== "none" && w[k]).sort((a, b) => (w[b] ?? 0) - (w[a] ?? 0)).slice(0, 3).map((k) => `${SET_BY_LABEL[k].replace(/^The /, "the ").replace(/^An? /, (m) => m.toLowerCase())} ${full(w[k] ?? 0)}`).join(", ")}${w.none ? `; ${full(w.none)} have none yet` : ""}.`} /></Grid>
+        note={`${pct(now.fast, now.n)} of them got their APSO segment within an hour of being created${w.none ? `; ${full(w.none)} have none yet` : ""}.`} /></Grid>
       <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<HourglassEmptyOutlinedIcon />} tint="amber" label="Still APSOprospect" value={full(prospects)}
         note={`${pct(prospects, now.n)} of them have the segment they came with or got no other; ${full(now.changed)} changed segment since.`} /></Grid>
       <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ShoppingCartOutlinedIcon />} tint="purple" label="Bought since" value={full(now.bought)}
@@ -276,6 +273,26 @@ function CompanyList({ from, to, pick, f, imports }: { from: string; to: string;
 
 /* ── the scan ──────────────────────────────────────────────────────────── */
 
+/** Every company in HubSpot without an APSO segment, read when the tab opens - the one figure that says the job is done. */
+function Unsegmented({ u }: { u: Unsegmented | null }) {
+  if (!u) return <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>The companies without an APSO segment could not be read just now.</Typography>;
+  if (!u.total) return <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: "#1b7a55" }}>Every company in HubSpot has an APSO segment - none without one, read just now.</Typography>;
+  const fresh = u.rows.filter((x) => Date.now() - Date.parse(x.t) < 30 * 60_000).length;
+  return (
+    <Box>
+      <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: RED }}>
+        {full(u.total)} {u.total === 1 ? "company has" : "companies have"} no APSO segment{fresh ? ` - ${full(fresh)} created in the last half hour, the scan or the workflow gives them one 20 minutes after` : ""}:
+      </Typography>
+      <Typography sx={{ fontSize: "0.82rem", color: MUTED, mt: 0.5 }}>
+        {u.rows.map((x, i) => (
+          <span key={x.id}>{i ? ", " : ""}<Box component="a" href={hsCompany(x.id)} target="_blank" rel="noopener" sx={{ color: "#2459d1" }}>{x.n || x.id}</Box> ({when(x.t)})</span>
+        ))}
+        {u.total > u.rows.length ? ` and ${full(u.total - u.rows.length)} more` : ""}
+      </Typography>
+    </Box>
+  );
+}
+
 type Filter = "all" | "micro" | "prospect" | "differs";
 
 function Status({ x }: { x: ScanRow }) {
@@ -311,6 +328,7 @@ function Scan({ d, reload }: { d: Data; reload: () => void }) {
       <CardTitle icon={<RadarOutlinedIcon />} tint="purple" title="The scan - the first segment of every new company"
         note={`Every 2 minutes, with Smart Segmentation's watcher: a company created in the last 48 hours, at least 20 minutes ago (the workflow's wait), that has no APSO segment gets one - a free mail domain (gmail, bluewin, gmx …) or 1–5 employees → APSOmicro, any other → APSOprospect. The APIC from the industry, the workflow's second step, the watcher already fills.`} />
       <Box sx={{ display: "grid", gap: 1.5 }}>
+        <Unsegmented u={d.unsegmented} />
         {!d.engineLive ? <Info>The Compass connector still runs Smart Segmentation here - the scan runs where the hub runs the engine.</Info>
           : mode === "live" && !d.writing ? <Info><b>Live - waiting:</b> the HubSpot workflow “SARCLA | COMPANY SMARTSEGMENTATION” is {d.workflowOn ? "still switched on" : "not readable"} - the hub writes nothing while it runs. Switch it off in HubSpot (Automation → Workflows) and the hub takes over within 2 minutes.</Info>
           : null}

@@ -46,7 +46,7 @@ test("where a company came from", () => {
   assert.equal(sourceLabel("person", "1", {}), "User 1");
   assert.equal(sourceLabel("wf:Associations | Contact - Companies", undefined, {}), "Workflow: Associations | Contact - Companies");
   // HubSpot holds "CH" beside "Switzerland"
-  assert.deepEqual(["CH", "de", "GB", "Switzerland", "", "XX"].map(countryName), ["Switzerland", "Germany", "United Kingdom", "Switzerland", "No country", "XX"]);
+  assert.deepEqual(["CH", "de", "GB", "Switzerland", "", "XX", "The Netherlands"].map(countryName), ["Switzerland", "Germany", "United Kingdom", "Switzerland", "No country", "XX", "Netherlands"]);
 });
 
 const co = (id: string, d: string, more: Partial<NewCo> = {}): NewCo => ({
@@ -95,4 +95,12 @@ test("the companies behind a pick, newest first", () => {
   assert.deepEqual(newList(d, "2026-10-01", "2026-10-31", { bucket: "2026-10" }).total, 3);
   assert.deepEqual(newList(d, "2026-10-01", "2026-10-31", { q: "company 1" }).rows.map((x) => x.id), ["1"]);
   assert.equal(newList(d, "2026-10-01", "2026-10-31", {}, 2).total, 3);
+});
+
+test("a profit-centre split: none, one centre, two, three or more", async () => {
+  const { splitKind } = await import("../src/lib/segmentation/companies");
+  assert.deepEqual(
+    ["No sales", ">80% DT", "100 % DT", "100% KT", "Major DT, then KT", "Majot ST, then mix other PC", "Major KT, then mix other PC", "Mix different PC", ""].map(splitKind),
+    ["none", "one", "one", "one", "two", "more", "more", "more", "empty"],
+  );
 });

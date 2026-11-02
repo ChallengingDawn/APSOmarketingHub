@@ -258,11 +258,26 @@ export async function followDoc(): Promise<NewDoc | null> {
   return doc ?? null;
 }
 
-/** What the tab needs besides the figures: the switch, the workflow, the scan's decisions, the last read. */
+export type Unsegmented = { total: number; rows: { id: string; n: string; t: string }[] };
+/** Every company in HubSpot with no APSO segment right now, the newest first (SARCLA 02.11.2026: "is there any company not
+ *  segmented yet? this is important"). null = could not be read. */
+async function unsegmented(): Promise<Unsegmented | null> {
+  try {
+    const r = await hubspotFetchJson<{ total?: number; results?: Obj[] }>({
+      path: "/crm/v3/objects/companies/search", method: "POST",
+      body: { filterGroups: [{ filters: [{ propertyName: "apso_customer", operator: "NOT_HAS_PROPERTY" }] }], properties: ["name", "createdate"], sorts: [{ propertyName: "createdate", direction: "DESCENDING" }], limit: 25 },
+    });
+    return { total: r.total ?? 0, rows: (r.results ?? []).map((c) => ({ id: String(c.id), n: c.properties?.name ?? "", t: c.properties?.createdate ?? "" })) };
+  } catch {
+    return null;
+  }
+}
+
+/** What the tab needs besides the figures: the switch, the workflow, the scan's decisions, the last read, who has no segment. */
 export async function scanState() {
-  const [settings, on, scan, build] = await Promise.all([getSettings(), workflowOn(), kvGet<ScanDoc>(KV.scan), kvGet<BuildInfo>(KV.build)]);
+  const [settings, on, scan, build, none] = await Promise.all([getSettings(), workflowOn(), kvGet<ScanDoc>(KV.scan), kvGet<BuildInfo>(KV.build), unsegmented()]);
   return {
     settings, workflowOn: on, writing: settings.mode === "live" && on === false,
-    scan: scan ?? { rows: [], last: null }, build: build ? { ...build, running: alive(build) } : null,
+    scan: scan ?? { rows: [], last: null }, build: build ? { ...build, running: alive(build) } : null, unsegmented: none,
   };
 }
