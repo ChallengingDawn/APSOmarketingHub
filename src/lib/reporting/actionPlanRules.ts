@@ -362,8 +362,8 @@ export type Rolled = {
   subs: number; subsOpen: number;
   /** Actions under the row that are past their due and not done. */
   late: number;
-  /** An action's dates are its sub-actions' (subsSpan) - shown, not typed. */
-  datesFromSubs: boolean;
+  /** An action's planned date, its go-live date, are its sub-actions' (subsSpan) - shown, not typed. */
+  startFromSubs: boolean; dueFromSubs: boolean;
 };
 
 const SUB_PCT = { open: 0, doing: 50, done: 100 } as const;
@@ -385,14 +385,24 @@ const minD = (a: string | null, b: string | null) => (!a ? b : !b ? a : a < b ? 
 const maxD = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b);
 
 /**
- * A main action's dates: its sub-actions' first date to their last (SARCLA 02.11.2026: "go-live and planned date do not
- * go as planned") - a sub-action with only one date counts it at both ends. Null when none of them has a date: the
- * action keeps its own.
+ * A main action's dates: its sub-actions' first planned date to their last go-live date (SARCLA 02.11.2026: "go-live and
+ * planned date do not go as planned"); a sub-action with no planned date starts at its go-live. A planned date is never a
+ * go-live: with no go-live among them the action keeps its own (null there). Null when none of them has a date.
  */
-export function subsSpan(subs: { start: string | null; due: string | null }[]): { start: string; due: string } | null {
+export function subsSpan(subs: { start: string | null; due: string | null }[]): { start: string | null; due: string | null } | null {
   let from: string | null = null, to: string | null = null;
-  for (const s of subs) { from = minD(minD(from, s.start), s.due); to = maxD(maxD(to, s.start), s.due); }
-  return from && to ? { start: from, due: to } : null;
+  for (const s of subs) { from = minD(from, s.start ?? s.due); to = maxD(to, s.due); }
+  return from || to ? { start: from, due: to } : null;
+}
+
+/**
+ * The main actions whose sub-actions are all killed (SARCLA 02.11.2026: "the sub-ticket is killed - the main action should
+ * be, if it's the only one"). A sub-action with no status is not killed.
+ */
+export function killedMains(subs: { planItem: number | null; stage: string | null }[]): number[] {
+  const all = new Map<number, boolean>();
+  for (const s of subs) if (s.planItem != null) all.set(s.planItem, (all.get(s.planItem) ?? true) && s.stage === KILLED);
+  return [...all].filter(([, k]) => k).map(([id]) => id);
 }
 
 /**
@@ -433,7 +443,7 @@ export function rollup(items: PlanItem[], subs: PlanSub[], today: string): Map<n
   const seen = new Set<number>();
   const walk = (i: PlanItem): Rolled => {
     if (out.has(i.id)) return out.get(i.id)!;
-    if (seen.has(i.id)) return { percent: null, from: null, to: null, subs: 0, subsOpen: 0, late: 0, datesFromSubs: false };
+    if (seen.has(i.id)) return { percent: null, from: null, to: null, subs: 0, subsOpen: 0, late: 0, startFromSubs: false, dueFromSubs: false };
     seen.add(i.id);
     const mine = subsOf.get(i.id) ?? [];
     // an action's own dates; a category's only from what is in it - its first date to its last, actions and sub-actions
@@ -442,7 +452,7 @@ export function rollup(items: PlanItem[], subs: PlanSub[], today: string): Map<n
     // - and an action with sub-actions, its sub-actions' first to their last (subsSpan)
     const own = i.kind === "action";
     const span = own ? subsSpan(mine) : null;
-    let from = span ? span.start : own ? minD(i.start, i.due) : null, to = span ? span.due : own ? maxD(i.start, i.due) : null;
+    let from = span?.start ?? (own ? minD(i.start, i.due) : null), to = span?.due ?? (own ? maxD(i.start, i.due) : null);
     if (!own) for (const s of mine) { from = minD(minD(from, s.start), s.due); to = maxD(maxD(to, s.start), s.due); }
     let n = mine.length, open = mine.filter((s) => s.status !== "done").length;
     let late = i.kind === "action" && isLate(i, today) ? 1 : 0;
@@ -466,7 +476,7 @@ export function rollup(items: PlanItem[], subs: PlanSub[], today: string): Map<n
       percent = acc.n ? Math.round(acc.sum / acc.n) : null;
     }
     sums.set(i.id, acc);
-    const r = { percent, from, to, subs: n, subsOpen: open, late, datesFromSubs: !!span };
+    const r = { percent, from, to, subs: n, subsOpen: open, late, startFromSubs: !!span?.start, dueFromSubs: !!span?.due };
     out.set(i.id, r);
     return r;
   };

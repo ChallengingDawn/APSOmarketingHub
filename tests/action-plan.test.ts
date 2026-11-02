@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, foldedDetail, namesSalesLeaders, isDigitalGrowth, isLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
+  IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, foldedDetail, killedMains, namesSalesLeaders, isDigitalGrowth, isLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
   stateOfStage, stageOfStatus, statusOfStage, sharedTicketSync, subPct, subStage, subTicketSync, subsSpan, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
   type PlanItem, type PlanSub, type SeedRow,
@@ -351,8 +351,8 @@ test("action plan: a category's dates are only what is in it - its first date to
   assert.deepEqual([r.get(1)!.from, r.get(1)!.to], ["2026-10-20", "2027-02-10"]);
   assert.deepEqual([r.get(2)!.from, r.get(2)!.to], ["2026-10-20", "2027-02-10"]);
   // an action with sub-actions: their first date to their last
-  assert.deepEqual([r.get(3)!.from, r.get(3)!.to, r.get(3)!.datesFromSubs], ["2026-10-20", "2027-02-10", true]);
-  assert.equal(r.get(4)!.datesFromSubs, false);
+  assert.deepEqual([r.get(3)!.from, r.get(3)!.to, r.get(3)!.startFromSubs, r.get(3)!.dueFromSubs], ["2026-10-20", "2027-02-10", true, true]);
+  assert.equal(r.get(4)!.startFromSubs, false);
   // nothing dated in it: no dates
   assert.deepEqual([rollup([it(5, null, "topic", { start: "2026-01-01" })], [], "2026-11-01").get(5)!.from], [null]);
 });
@@ -361,6 +361,12 @@ test("action plan: a main action's dates are its sub-actions' - first to last, i
   // SARCLA 02.11.2026: "go-live and planned date do not go as planned"
   assert.deepEqual(subsSpan([{ start: "2026-11-02", due: "2026-12-15" }, { start: null, due: "2027-01-31" }, { start: "2026-10-05", due: null }]), { start: "2026-10-05", due: "2027-01-31" });
   assert.equal(subsSpan([{ start: null, due: null }]), null);
+  // a planned date is never a go-live: none among them - the action keeps its own go-live
+  assert.deepEqual(subsSpan([{ start: "2026-11-01", due: null }]), { start: "2026-11-01", due: null });
+  const own = rollup([it(2, null, "action", { start: "2026-09-01", due: "2026-12-31" })], [sub(1, 2, "open", null, { start: "2026-11-01" })], "2026-11-01").get(2)!;
+  assert.deepEqual([own.from, own.to, own.startFromSubs, own.dueFromSubs], ["2026-11-01", "2026-12-31", true, false]);
+  // its sub-actions all killed - the only one, or every one: the action is killed; one still open, it is not
+  assert.deepEqual(killedMains([{ planItem: 7, stage: KILLED }, { planItem: 8, stage: KILLED }, { planItem: 8, stage: IN_PROGRESS }, { planItem: 9, stage: null }, { planItem: null, stage: KILLED }]), [7]);
   const r = rollup([it(1, null, "group"), it(2, 1, "action", { start: "2026-01-01", due: "2028-12-31" })], [sub(1, 2, "doing", "2026-12-01", { start: "2026-11-02" })], "2026-11-01");
   assert.deepEqual([r.get(2)!.from, r.get(2)!.to], ["2026-11-02", "2026-12-01"]);
   // no sub-action dated: the action keeps its own

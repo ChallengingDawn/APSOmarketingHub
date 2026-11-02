@@ -583,10 +583,10 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
                     </Box>
                     <Box sx={{ display: "grid", gap: 1.25, gridColumn: "1 / -1", gridTemplateColumns: { xs: "1fr 1fr", sm: "1fr 1fr 120px" } }}>
                       {/* a main action's dates are its sub-actions' first to last (SARCLA 02.11.2026) */}
-                      <DateField label="Planned date" value={item.start} max={item.due} canWrite={canWrite && !rolled?.datesFromSubs} onSave={(v) => save({ start: v })}
-                        helper={rolled?.datesFromSubs ? "Its first sub-action's" : undefined} />
-                      <DateField label="Go-live date" value={item.due} min={item.start} canWrite={canWrite && !rolled?.datesFromSubs} onSave={(v) => save({ due: v })}
-                        helper={rolled?.datesFromSubs ? "Its last sub-action's" : undefined} /> 
+                      <DateField label="Planned date" value={item.start} max={item.due} canWrite={canWrite && !rolled?.startFromSubs} onSave={(v) => save({ start: v })}
+                        helper={rolled?.startFromSubs ? "Its first sub-action's" : undefined} />
+                      <DateField label="Go-live date" value={item.due} min={item.start} canWrite={canWrite && !rolled?.dueFromSubs} onSave={(v) => save({ due: v })}
+                        helper={rolled?.dueFromSubs ? "Its last sub-action's" : undefined} />
                       <TextField size="small" label="% complete" value={fromSubs ? String(rolled?.percent ?? 0) : pct} disabled={!canWrite || fromSubs}
                         onChange={(e) => setPct(e.target.value)} helperText={fromSubs ? "From its sub-actions" : undefined}
                         onBlur={() => { const s = pct.trim(); const n = s === "" ? null : Math.max(0, Math.min(100, Math.round(Number(s)))); if (n !== item.percent && (n == null || Number.isFinite(n))) save({ percent: n }); }}

@@ -581,8 +581,8 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
       ) : (
         <>
           {/* a main action's dates are its sub-actions' first to last (SARCLA 02.11.2026: "go-live and planned date do not go as planned") */}
-          <DateCell value={it.start} canWrite={canWrite && !ro?.datesFromSubs} max={it.due} fromSubs={ro?.datesFromSubs} onSave={(v) => onPatch(it.id, { start: v })} />
-          <DateCell value={it.due} note={it.dueNote} late={late} canWrite={canWrite && !ro?.datesFromSubs} min={it.start} fromSubs={ro?.datesFromSubs} onSave={(v) => onPatch(it.id, { due: v })} />
+          <DateCell value={it.start} canWrite={canWrite && !ro?.startFromSubs} max={it.due} fromSubs={ro?.startFromSubs} onSave={(v) => onPatch(it.id, { start: v })} />
+          <DateCell value={it.due} note={it.dueNote} late={late} canWrite={canWrite && !ro?.dueFromSubs} min={it.start} fromSubs={ro?.dueFromSubs} onSave={(v) => onPatch(it.id, { due: v })} />
           {/* the pipeline's stage, as a square tag in its colour */}
           <Box sx={cell}>
             {stage

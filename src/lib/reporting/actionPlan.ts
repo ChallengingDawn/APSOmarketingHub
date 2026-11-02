@@ -12,11 +12,11 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { query } from "@/lib/db/client";
 import {
-  IDEA, IN_PROGRESS, PLAN_STATES, STAGES, foldedDetail, namesSalesLeaders, ownersFromCodes, percentOfStage, planFromSeed, priorityLabel, reorder, stageOf,
+  IDEA, IN_PROGRESS, KILLED, PLAN_STATES, STAGES, foldedDetail, killedMains, namesSalesLeaders, ownersFromCodes, percentOfStage, planFromSeed, priorityLabel, reorder, stageOf,
   stageOfPercent, stateOfStage, subsSpan, toS2s,
   type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanState, type SeedRow,
 } from "./actionPlanRules";
-import { addTask, deleteTask, movePlanItem, moveTask, shareTickets, taskById, ticketsToAction, type KpiTask } from "./kpiActions";
+import { addTask, deleteTask, movePlanItem, moveTask, planTasks, shareTickets, taskById, ticketsToAction, type KpiTask } from "./kpiActions";
 
 /** An action's description as its sub-action's: without its name repeated on the first line, the workbook's indents out
  *  (SARCLA 02.11.2026: "the text feels weird"). */
@@ -261,6 +261,18 @@ export async function salesLeadersOnce(leaders: PlanOwner[]): Promise<number> {
 }
 
 /**
+ * The BUC's referent / challenger "LANKAR" is Claudio Saraiva (SARCLA 02.11.2026: "replace all LANKAR to me, Claudio, on
+ * BUC"), in each row's tracking; a row that says it no more is left. How many changed.
+ */
+export async function lankarToClaudio(): Promise<number> {
+  await ensure();
+  const r = await query<{ id: number }>(`SELECT id FROM ${T} WHERE upper(btrim(referent)) = 'LANKAR' ORDER BY id`);
+  for (const x of r.rows) await updateItem(x.id, { referent: "Claudio Saraiva" }, "LANKAR on the BUC is Claudio");
+  if (r.rows.length) console.log(`[action-plan] referent LANKAR -> Claudio Saraiva on ${r.rows.length} row(s)`);
+  return r.rows.length;
+}
+
+/**
  * The workbook's actions put right once (SARCLA 02.11.2026: "take out KPIs and next steps completely on the old imported
  * ones, enrich the description with this data and fix the description"): actionPlanRules.foldedDetail, the two fields
  * emptied, in each one's tracking. One with its own ticket waits - those fields are its ticket's. How many changed.
@@ -298,7 +310,10 @@ export async function datesFromSubs(subs: { planItem: number | null; start: stri
   const out: number[] = [];
   for (const a of r.rows) {
     const span = subsSpan(of.get(a.id) ?? []);
-    if (span && (span.start !== a.start || span.due !== a.due)) { await updateItem(a.id, { start: span.start, due: span.due }, "Its sub-actions"); out.push(a.id); }
+    const p: { start?: string; due?: string } = {};
+    if (span?.start && span.start !== a.start) p.start = span.start;
+    if (span?.due && span.due !== a.due) p.due = span.due;
+    if (Object.keys(p).length) { await updateItem(a.id, p, "Its sub-actions"); out.push(a.id); }
   }
   return out;
 }
@@ -455,16 +470,25 @@ export async function moveSub(taskId: number, actionId: number, by: string): Pro
 }
 
 /**
- * Main actions whose sub-actions are under way while they are not (SARCLA 02.11.2026: "the status of the main action is
- * Idea box - this should be In Progress because the others are in progress"): to In Progress, each in its tracking.
- * `subs`: the plan's sub-actions with their action and stage. The ones moved.
+ * Main actions follow their sub-actions, each move in its tracking: one under way while the action is not - to In
+ * Progress (SARCLA 02.11.2026: "the status of the main action is Idea box - this should be In Progress because the others
+ * are in progress"); all of them killed - Killed (killedMains: "the sub-ticket is killed - the main action should be, if
+ * it's the only one"), read over all the plan's sub-actions. A killed sub-action puts nothing under way. `subs`: the
+ * sub-actions just changed, with their action and stage. The actions moved.
  */
 export async function startMains(subs: { planItem: number | null; stage: string | null; status: string }[], by: string): Promise<number[]> {
-  const moving = new Set(subs.filter((x) => x.planItem != null && ((x.stage && x.stage !== IDEA) || (!x.stage && x.status !== "open"))).map((x) => x.planItem as number));
-  if (!moving.size) return [];
-  const r = await query<{ id: number }>(`SELECT id FROM ${T} WHERE kind = 'action' AND (stage IS NULL OR stage = $2) AND id = ANY($1::int[])`, [[...moving], IDEA]);
-  for (const x of r.rows) await updateItem(x.id, { stage: IN_PROGRESS }, by);
-  return r.rows.map((x) => x.id);
+  const moved: number[] = [];
+  const moving = new Set(subs.filter((x) => x.planItem != null && ((x.stage && x.stage !== IDEA && x.stage !== KILLED) || (!x.stage && x.status !== "open"))).map((x) => x.planItem as number));
+  if (moving.size) {
+    const r = await query<{ id: number }>(`SELECT id FROM ${T} WHERE kind = 'action' AND (stage IS NULL OR stage = $2) AND id = ANY($1::int[])`, [[...moving], IDEA]);
+    for (const x of r.rows) { await updateItem(x.id, { stage: IN_PROGRESS }, by); moved.push(x.id); }
+  }
+  const dead = killedMains(await planTasks());
+  if (dead.length) {
+    const r = await query<{ id: number }>(`SELECT id FROM ${T} WHERE kind = 'action' AND stage IS DISTINCT FROM $2 AND id = ANY($1::int[])`, [dead, KILLED]);
+    for (const x of r.rows) { await updateItem(x.id, { stage: KILLED }, "Its sub-actions are all killed"); moved.push(x.id); }
+  }
+  return moved;
 }
 
 /** When each action and its ticket last agreed (actionPlanHubspot.ts). */
