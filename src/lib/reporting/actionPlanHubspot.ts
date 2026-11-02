@@ -4,13 +4,13 @@
 // on the plan's rows (a row that leaves the plan stays as a hidden choice, so a ticket carrying it keeps its name), and
 // puts on every ticket of a sub-action its action's place - again when the action moves. One run is a few reads, and
 // writes only what differs. Rules: actionPlanRules.ts (planOptions, planValuesOf). Proof in the log: `[action-plan] HubSpot`.
-// Each action and its one ticket - each sub-action and its one - are kept in step both ways (SARCLA 02.11.2026: "the properties communicate with each
+// Each action and its one ticket - each sub-action and its one, shared with its duplicates - are kept in step both ways (SARCLA 02.11.2026: "the properties communicate with each
 // other: a change in the hub changes the ticket, the status comes back from the ticket as well"): the side changed since
 // they last agreed wins, the first time a merge (actionPlanRules.ticketSync, syncWay). Read again when the plan is opened.
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { IntegrationError } from "@/lib/integrations/status";
 import { markTicketSync, planItems, startMains, ticketSyncTimes, updateItem } from "./actionPlan";
-import { PLAN_PROPS, SUB_TICKET_SYNC, TICKET_SYNC, planOptions, planValuesOf, sameOptions, subTicketSync, syncWay, ticketSync, type HsOption, type PlanFields, type PlanPropName } from "./actionPlanRules";
+import { PLAN_PROPS, SUB_TICKET_SYNC, TICKET_SYNC, planOptions, planValuesOf, sameOptions, sharedTicketSync, syncWay, ticketSync, type HsOption, type PlanFields, type PlanPropName } from "./actionPlanRules";
 import { actionTickets, markTaskSync, planTasks, planTicketLinks, taskSyncTimes, taskTickets, updateTask } from "./kpiActions";
 import { S2S_PIPELINE } from "./scrollToSaleRules";
 import { s2sForm } from "./scrollToSale";
@@ -119,19 +119,23 @@ async function inStep(items: Items): Promise<{ pushed: number; pulled: number }>
     if (ownerId) patch.owners = [{ id: ownerId, name: names.get(ownerId) ?? ownerId }, ...a.owners.filter((o) => o.id !== ownerId)];
     if (Object.keys(patch).length) { await updateItem(a.id, patch, `Its ticket in HubSpot (${l.ticketId})`); pulled++; }
   }
+  // a ticket on several sub-actions - one duplicated onto another action keeps its ticket - is brought in step with all
+  // of them at once (sharedTicketSync)
+  const onTicket = new Map<string, NonNullable<ReturnType<typeof taskById.get>>[]>();
   for (const l of subLinks) {
-    const k = taskById.get(l.task), t = ours(l.ticketId);
+    const k = taskById.get(l.task);
+    if (k) onTicket.set(l.ticketId, [...(onTicket.get(l.ticketId) ?? []), k]);
+  }
+  const now = new Date().toISOString();
+  for (const [id, ks] of onTicket) {
+    const t = ours(id);
     // one ticket on both an action and its sub-action: the action's went first
-    if (!k || !t || writes.has(l.ticketId)) continue;
-    const way = syncWay(k.updatedAt, at(t), subSynced.get(k.id) ?? null);
-    if (!way) continue;
-    const d = subTicketSync(k, t, way);
-    subAgreed.push(k.id);
-    if (!d.fields.length) continue;
-    if (Object.keys(d.push).length) { writes.set(l.ticketId, d.push); pushed++; }
-    if (Object.keys(d.pull).length) {
-      const p = d.pull;
-      await updateTask(k.id, { ...p, ...(p.owner ? { ownerName: names.get(p.owner) ?? p.owner } : {}) });
+    if (!t || writes.has(id)) continue;
+    const d = sharedTicketSync(ks, t, at(t), subSynced, now);
+    subAgreed.push(...d.agreed);
+    if (Object.keys(d.push).length) { writes.set(id, d.push); pushed++; }
+    for (const { id: taskId, pull: p } of d.pulls) {
+      await updateTask(taskId, { ...p, ...(p.owner ? { ownerName: names.get(p.owner) ?? p.owner } : {}) });
       pulled++;
     }
   }

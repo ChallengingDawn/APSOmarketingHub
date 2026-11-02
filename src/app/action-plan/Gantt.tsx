@@ -21,6 +21,7 @@ import Tooltip from "@mui/material/Tooltip";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import AddIcon from "@mui/icons-material/Add";
+import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import TaskAltIcon from "@mui/icons-material/TaskAlt";
@@ -91,7 +92,7 @@ function useNameWidth(rows: GRow[], rolled: Map<number, Rolled>, today: string):
   }, [rows, rolled, today]);
 }
 
-export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, canDrop, onDrop, height, colorOf, compact, onCompact, onAdd, hidden, onHide }: {
+export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, canDrop, onDrop, height, colorOf, compact, onCompact, onAdd, onDuplicate, hidden, onHide }: {
   rows: GRow[]; rolled: Map<number, Rolled>; today: string; zoom: Zoom; canWrite: boolean;
   collapsed: Set<string>; toggle: (key: string) => void; selected: number | null;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void;
@@ -109,6 +110,8 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   compact: boolean; onCompact: () => void;
   /** the + beside a row: the small window to make what goes under it */
   onAdd: (row: PlanItem) => void;
+  /** in the +'s place on a sub-action's row: duplicate it onto another action, its ticket the same */
+  onDuplicate: (sub: PlanSub, parent: PlanItem) => void;
   /** the rows this viewer hid, drawn faded when they are shown again; the eye hides or shows one */
   hidden: Set<number>; onHide: (row: PlanItem, hide: boolean) => void;
 }) {
@@ -294,6 +297,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
           </Box>
           {rows.map((r) => (
             <TreeRow key={r.key} r={r} cols={COLS} compact={compact} onAdd={canWrite && r.type === "item" ? () => onAdd(r.item) : undefined}
+              onDuplicate={canWrite && r.type === "sub" && !r.sub.kpiTile ? () => onDuplicate(r.sub, r.parent) : undefined}
               hidden={r.type === "item" && hidden.has(r.item.id)} onHide={r.type === "item" && r.item.kind !== "goal" ? (h) => onHide(r.item, h) : undefined} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
               selected={r.type === "item" && r.item.id === selected} onOpen={onOpen} onSubs={onSubs} onOpenSub={onOpenSub} onPatch={onPatch}
               dragging={drag?.key === r.key} over={over?.key === r.key ? over.where : null} copying={over?.key === r.key && over.copy}
@@ -427,8 +431,8 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
 
 /* ── a row of the tree ─────────────────────────────────────────────────── */
 
-function TreeRow({ r, cols, compact, color, onAdd, hidden, onHide, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, dragging, over, copying, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
-  r: GRow; cols: string; compact: boolean; color: string | null; onAdd?: () => void; hidden: boolean; onHide?: (hide: boolean) => void;
+function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, dragging, over, copying, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
+  r: GRow; cols: string; compact: boolean; color: string | null; onAdd?: () => void; onDuplicate?: () => void; hidden: boolean; onHide?: (hide: boolean) => void;
   rolled: Map<number, Rolled>; today: string; canWrite: boolean; folded: boolean; toggle: (key: string) => void; selected: boolean;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void; onOpenSub: (id: number) => void;
   onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent">>) => Promise<void>;
@@ -465,6 +469,13 @@ function TreeRow({ r, cols, compact, color, onAdd, hidden, onHide, rolled, today
         <Box component="button" type="button" className="add" aria-label={ADD_TITLE[r.item.kind]} title={ADD_TITLE[r.item.kind]}
           onClick={(e: React.MouseEvent) => { e.stopPropagation(); onAdd(); }} sx={{ ...small, opacity: 0.45 }}>
           <AddIcon sx={{ fontSize: 15 }} />
+        </Box>
+      ) : onDuplicate ? (
+        // a sub-action's row: duplicate it onto another action, the same ticket (SARCLA 02.11.2026: "the duplicate should
+        // also be an icon next to the plus")
+        <Box component="button" type="button" className="add" aria-label="Duplicate onto another action" title="Duplicate onto another action - the same ticket goes with it"
+          onClick={(e: React.MouseEvent) => { e.stopPropagation(); onDuplicate(); }} sx={{ ...small, opacity: 0.45 }}>
+          <ContentCopyOutlinedIcon sx={{ fontSize: 13 }} />
         </Box>
       ) : <Box />}
       {onHide ? (

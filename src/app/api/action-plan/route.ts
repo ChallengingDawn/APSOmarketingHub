@@ -9,7 +9,7 @@
 //   POST  {action:"sub", id, target}             an action dropped on another action: it becomes its sub-action
 //   POST  {action:"unsub", taskId, target}       a sub-action dropped on a category: an action of its own there
 //   POST  {action:"movesub", taskId, target}     a sub-action dropped on another action: it moves under it
-//   POST  {action:"copysub", taskId, target}     a copy of a sub-action under an action (Ctrl-drag, or Duplicate)
+//   POST  {action:"copysub", taskId, target}     a sub-action duplicated onto another action, its ticket the same (Ctrl-drag, or Duplicate)
 //   DELETE ?id=                                  a row and what is under it; its own sub-actions go too
 // Every change to the tree reaches HubSpot's three plan properties a few seconds later (actionPlanHubspot.ts).
 import { NextRequest, NextResponse } from "next/server";
@@ -161,10 +161,10 @@ export async function POST(req: NextRequest) {
     }
     if (b.action === "copysub") {
       if (!Number.isInteger(b.taskId) || !Number.isInteger(b.target)) return fail("it needs the sub-action and the action its copy goes under", 400);
-      const task = await copySub(b.taskId as number, b.target as number, w.name);
-      if (!task) return fail("a sub-action is copied under an action", 400);
-      queuePlanSync("sub-action copied");
-      return NextResponse.json({ ok: true, task });
+      const made = await copySub(b.taskId as number, b.target as number, w.name);
+      if (!made) return fail("a sub-action is duplicated onto another action", 400);
+      queuePlanSync("sub-action duplicated");
+      return NextResponse.json({ ok: true, task: made.task, tickets: made.tickets });
     }
     if (b.action === "unsub" || b.action === "movesub") {
       if (!Number.isInteger(b.taskId) || !Number.isInteger(b.target)) return fail("it needs the sub-action and where it goes", 400);

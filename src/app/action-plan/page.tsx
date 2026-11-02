@@ -29,6 +29,7 @@ import { Gantt, type GRow, type Where, type Zoom } from "./Gantt";
 import { ItemModal } from "./ItemModal";
 import { AddDialog } from "./AddDialog";
 import { SubWindow } from "./SubWindow";
+import { DuplicateSub } from "./DuplicateSub";
 import { SummitFigures, SummitMountain, useSummit } from "./Summit";
 import { LATE, PRIORITY_COLOR, PROJECT_COLORS, readPref, send, stageColor, todayIso, writePref, type PlanData } from "./planUi";
 
@@ -260,15 +261,26 @@ function ActionPlan() {
     if (where === "sub") return target.type === "item" && drag.item.kind === "action" && target.item.kind === "action";
     return target.type === "item" && reorder(items, drag.item.id, target.item.id, where) != null;
   };
+  // a sub-action duplicated onto another action (the icon on its row, its window, or Ctrl-drag): that action opened to show it
+  // (from its window: the window gives way to it - two windows closing at once left the lower one on the screen - and
+  // comes back on Cancel)
+  const [dupFor, setDupFor] = useState<{ sub: (typeof subs)[number]; parent: PlanItem; back?: boolean } | null>(null);
+  const duplicated = (to: PlanItem, tickets: number, title: string) => {
+    setSaid(`A copy of “${title}” is under “${to.title}” now${tickets ? " - the same ticket, kept in step with both" : ""}`);
+    setCollapsed((c) => {
+      const n = new Set(c);
+      for (let p: number | null = to.id; p != null; p = items.find((x) => x.id === p)?.parentId ?? null) n.delete(`i${p}`);
+      return n;
+    });
+  };
   const onDrop = async (drag: GRow, target: GRow, where: Where, copy = false) => {
     if (drag.type === "sub" && target.type === "item") {
       const s = drag.sub, into = target.item, back = where === "into";
-      // Ctrl held: a copy goes under the action, the sub-action stays where it is
+      // Ctrl held: a copy goes under the action with the same ticket, the sub-action stays where it is
       if (copy && !back) {
         try {
-          await send("/api/action-plan", "POST", { action: "copysub", taskId: s.id, target: into.id });
-          setNote(null); setSaid(`A copy of “${s.title}” is under “${into.title}” now`);
-          setCollapsed((c) => { const n = new Set(c); n.delete(target.key); return n; });
+          const j = await send("/api/action-plan", "POST", { action: "copysub", taskId: s.id, target: into.id });
+          setNote(null); duplicated(into, Number(j.tickets ?? 0), s.title);
         } catch (e) { setNote(`Not copied: ${(e as Error).message}`); }
         await load();
         return;
@@ -434,10 +446,11 @@ It leaves the plan as an action; its name, description, status, priority, first 
         <Gantt rows={rows} rolled={rolled} today={today} zoom={zoom} canWrite={data.canWrite} collapsed={collapsed} toggle={toggle}
           selected={openId} onOpen={(i) => openRow(i)} onSubs={(i) => openRow(i)} onOpenSub={openSub} onPatch={patch} canDrop={canDrop} onDrop={onDrop}
           height="max(480px, calc(100vh - 150px))" colorOf={colorOf}
-          compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} onAdd={setAddFor} hidden={hidden} onHide={hide} />
+          compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} onAdd={setAddFor}
+          onDuplicate={(s, parent) => setDupFor({ sub: s, parent })} hidden={hidden} onHide={hide} />
       )}
       <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
-        Drag a row by its handle onto another main category or sub-category - an action dropped on another action becomes its sub-action, on its top edge it goes before it; a sub-action dropped on another action moves there (Ctrl held: a copy goes there), on a category it becomes an action again; the + beside a row adds what goes under it - a sub-action under an action, an action in a category - and the eye hides a row (Hidden rows shows them again); drag a bar to move its dates, its right end to change the go-live date.
+        Drag a row by its handle onto another main category or sub-category - an action dropped on another action becomes its sub-action, on its top edge it goes before it; a sub-action dropped on another action moves there (Ctrl held: a copy goes there), on a category it becomes an action again, and the copy icon on its row duplicates it onto another action - the same ticket, not a new one; the + beside a row adds what goes under it - a sub-action under an action, an action in a category - and the eye hides a row (Hidden rows shows them again); drag a bar to move its dates, its right end to change the go-live date.
         A bar runs from the planned date to the go-live date, a diamond is an action with only a go-live date, a square a sub-action. The statuses and priorities are the &ldquo;From Scroll to Sale&rdquo; pipeline&apos;s.
       </Typography>
 
@@ -450,8 +463,13 @@ It leaves the plan as an action; its name, description, status, priority, first 
       {sub && subParent && (
         <SubWindow key={sub.id} id={sub.id} parent={subParent} people={data?.people ?? []} canWrite={!!data?.canWrite}
           onClose={closeSub} onOpenParent={() => { closeSub(); openRow(subParent); }} onChanged={() => void load()}
-          onDuplicated={(id) => { closeSub(); setSaid("Duplicated - drag the copy where it serves"); void load().then(() => openSub(id)); }}
+          onDuplicate={() => { closeSub(); setDupFor({ sub, parent: subParent, back: true }); }}
           onMadeAction={(itemId) => { closeSub(); setSaid("Made an action again"); void load().then(() => { setOpenId(itemId); window.history.replaceState(null, "", `/action-plan?item=${itemId}`); }); }} />
+      )}
+      {dupFor && (
+        <DuplicateSub key={dupFor.sub.id} sub={dupFor.sub} parent={dupFor.parent} items={items}
+          onClose={() => { const d = dupFor; setDupFor(null); if (d.back) openSub(d.sub.id); }}
+          onDone={(_, to, tickets) => { const t = dupFor.sub.title; setDupFor(null); duplicated(to, tickets, t); void load(); }} />
       )}
       {asked && !addFor && <AskDates item={asked} onSave={async (p) => { await patch(asked.id, p); setAskFor(null); }} onClose={() => setAskFor(null)} />}
       {addFor && (

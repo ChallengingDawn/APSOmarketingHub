@@ -3,7 +3,8 @@
 // should not happen"). Opened from its row in the Gantt or its line in the action's window: its fields as a small
 // action's - status and status note, priority, who, planned and go-live dates, description, who it is shared with, its
 // tickets when Digital Growth leads the action - saved as they change; the way back to its action at the top. It can be
-// made an action again, beside the one it was under (SARCLA 02.11.2026: "move a sub-action back into a main action").
+// made an action again, beside the one it was under (SARCLA 02.11.2026: "move a sub-action back into a main action"),
+// or duplicated onto another action with the same ticket (DuplicateSub.tsx).
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -22,13 +23,13 @@ import { useTileActions, type Opt } from "@/app/reporting/marketing-kpis/tiles/A
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
 import { SubEditor, planTile } from "./SubActions";
 
-export function SubWindow({ id, parent, people, canWrite, onClose, onOpenParent, onChanged, onMadeAction, onDuplicated }: {
+export function SubWindow({ id, parent, people, canWrite, onClose, onOpenParent, onChanged, onMadeAction, onDuplicate }: {
   id: number; parent: PlanItem; people: PlanOwner[]; canWrite: boolean;
   onClose: () => void; onOpenParent: () => void;
   /** made an action again: the plan opens it */
   onMadeAction: (itemId: number) => void;
-  /** a copy made beside it: the plan opens it (SARCLA 02.11.2026: "duplicate and drag and drop") */
-  onDuplicated: (id: number) => void;
+  /** duplicate it onto another action, its ticket the same: the plan asks which (DuplicateSub.tsx) */
+  onDuplicate: () => void;
   /** the plan reads itself again */
   onChanged: () => void;
 }) {
@@ -38,13 +39,6 @@ export function SubWindow({ id, parent, people, canWrite, onClose, onOpenParent,
   const owners: Opt[] = people.length ? people.map((p) => ({ value: p.id, label: p.name })) : t?.form.owners ?? [];
   const linked = (t?.linked ?? []).filter((x) => x.taskId === id);
   const [busy, setBusy] = useState(false);
-  // a copy under the same action - to drag where it also serves
-  const duplicate = async () => {
-    if (!k) return;
-    setBusy(true);
-    try { const j = await send("/api/action-plan", "POST", { action: "copysub", taskId: k.id, target: parent.id }); onDuplicated((j.task as { id: number }).id); }
-    catch (e) { setErr((e as Error).message); setBusy(false); }
-  };
   // an action of its own again, in the category its action is in
   const back = async () => {
     if (!k || parent.parentId == null || !confirm(`Make “${k.title}” an action of its own again, beside “${parent.title}”?
@@ -71,7 +65,7 @@ Its name, description, status, priority, person, dates, status note and tickets 
           </Typography>
         </Box>
         {canWrite && k && (
-          <Button size="small" startIcon={<ContentCopyIcon sx={{ fontSize: 16 }} />} disabled={busy} onClick={() => void duplicate()} title="A copy under the same action - drag it onto the action it also serves"
+          <Button size="small" startIcon={<ContentCopyIcon sx={{ fontSize: 16 }} />} disabled={busy} onClick={onDuplicate} title="Duplicate onto another action - the same ticket goes with it"
             sx={{ textTransform: "none", fontWeight: 700, color: MUTED, borderRadius: "6px", whiteSpace: "nowrap" }}>Duplicate</Button>
         )}
         {canWrite && k && k.tile.startsWith("plan:") && parent.parentId != null && (

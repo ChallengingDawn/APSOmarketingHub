@@ -5,7 +5,7 @@ import { test } from "node:test";
 import {
   IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, isDigitalGrowth, isLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
-  stateOfStage, stageOfStatus, statusOfStage, subPct, subStage, subTicketSync, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
+  stateOfStage, stageOfStatus, statusOfStage, sharedTicketSync, subPct, subStage, subTicketSync, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
@@ -375,6 +375,31 @@ test("action plan: a sub-action and its ticket - its own fields both ways, the t
   const merge = subTicketSync({ ...s, statusNote: "", due: "2026-12-05" }, { ...t, mkt_status_note: "" }, "merge");
   assert.deepEqual(merge.pull, { stage: LIVE, due: "2026-12-01" });
   assert.deepEqual(merge.push, {});
+});
+
+test("action plan: a sub-action duplicated onto another action keeps its ticket - all three kept in step in one run", () => {
+  const base = { title: "Brief the agency", note: "Two waves", stage: IN_PROGRESS, priority: "HIGH", owner: "11", start: "2026-11-02", due: "2026-12-01", statusNote: "" };
+  const t = {
+    subject: "Brief the agency", content: "Two waves\n\nOpen it: https://hub/action-plan?item=7", hs_pipeline_stage: IN_PROGRESS, hs_ticket_priority: "HIGH",
+    hubspot_owner_id: "11", mkt_planned_date: "2026-11-02", mkt_golive_date: "2026-12-01", mkt_status_note: "",
+  };
+  const synced = new Map([[1, "2026-11-02T10:00:00.000Z"], [2, "2026-11-02T10:00:00.000Z"]]);
+  const now = "2026-11-02T12:00:00.000Z";
+  // the original changed since: the ticket takes it, the copy takes it from the ticket at once
+  const a = { ...base, id: 1, statusNote: "Sent", updatedAt: "2026-11-02T11:00:00.000Z" }, b = { ...base, id: 2, updatedAt: "2026-11-02T09:00:00.000Z" };
+  let r = sharedTicketSync([b, a], t, "2026-11-02T09:30:00.000Z", synced, now);
+  assert.deepEqual(r.push, { mkt_status_note: "Sent" });
+  assert.deepEqual(r.pulls, [{ id: 2, pull: { statusNote: "Sent" } }]);
+  assert.deepEqual(r.agreed, [1, 2]);
+  // both changed: the last change wins, for the ticket and for the other one
+  r = sharedTicketSync([a, { ...b, statusNote: "Waiting", updatedAt: "2026-11-02T11:30:00.000Z" }], t, "2026-11-02T09:30:00.000Z", synced, now);
+  assert.deepEqual([r.push, r.pulls], [{ mkt_status_note: "Waiting" }, [{ id: 1, pull: { statusNote: "Waiting" } }]]);
+  // the ticket changed in HubSpot: both take it, nothing is pushed
+  r = sharedTicketSync([{ ...base, id: 1, updatedAt: "2026-11-02T09:00:00.000Z" }, b], { ...t, hs_pipeline_stage: LIVE }, "2026-11-02T11:00:00.000Z", synced, now);
+  assert.deepEqual([r.push, r.pulls.map((x) => x.id)], [{}, [1, 2]]);
+  // nothing changed: left alone; a copy that never met the ticket and says the same: in step, nothing moves
+  r = sharedTicketSync([{ ...base, id: 1, updatedAt: "2026-11-02T09:00:00.000Z" }, { ...base, id: 3, updatedAt: "2026-11-02T11:00:00.000Z" }], t, "2026-11-02T09:30:00.000Z", synced, now);
+  assert.deepEqual([r.push, r.pulls, r.agreed], [{}, [], [3]]);
 });
 
 test("action plan: a Scroll to Sale ticket goes under a Digital Growth action, or as a new action in a category holding one", () => {

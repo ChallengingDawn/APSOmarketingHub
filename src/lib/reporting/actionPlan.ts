@@ -15,7 +15,7 @@ import {
   IDEA, IN_PROGRESS, PLAN_STATES, STAGES, ownersFromCodes, percentOfStage, planFromSeed, priorityLabel, reorder, stageOf, stageOfPercent, stateOfStage, toS2s,
   type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanState, type SeedRow,
 } from "./actionPlanRules";
-import { addTask, deleteTask, movePlanItem, moveTask, taskById, ticketsToAction, type KpiTask } from "./kpiActions";
+import { addTask, deleteTask, movePlanItem, moveTask, shareTickets, taskById, ticketsToAction, type KpiTask } from "./kpiActions";
 
 /** An action's description as its sub-action's: without its name repeated on the first line, the workbook's indents out
  *  (SARCLA 02.11.2026: "the text feels weird"). */
@@ -368,22 +368,26 @@ export async function subToAction(taskId: number, parentId: number, by: string):
 }
 
 /**
- * A sub-action copied under another action (SARCLA 02.11.2026: "if a sub-action serves a purpose in another major point I
- * should be able to duplicate and drag and drop"): the same name, description, status, priority, person, dates, status
- * note and people it is shared with - no ticket, a ticket is one sub-action's. Onto its own action, a second one there.
- * The copy, or null when it cannot.
+ * A sub-action duplicated onto another action (SARCLA 02.11.2026: "if a sub-action serves a purpose in another major
+ * point I should be able to duplicate and drag and drop"): the same name, description, status, priority, person, dates,
+ * status note and people it is shared with - and the same ticket, none made ("it should not create a new ticket but keep
+ * the same, associated to a different action"): the copy, the sub-action and the ticket are kept in step as one
+ * (sharedTicketSync). Only an action led by Digital Growth takes the ticket; never onto its own action. The copy and how
+ * many tickets it shares, or null when it cannot.
  */
-export async function copySub(taskId: number, actionId: number, by: string): Promise<KpiTask | null> {
+export async function copySub(taskId: number, actionId: number, by: string): Promise<{ task: KpiTask; tickets: number } | null> {
   const [k, to] = await Promise.all([taskById(taskId), itemById(actionId)]);
-  if (!k || !to || to.kind !== "action") return null;
+  if (!k || !to || to.kind !== "action" || k.planItem === to.id) return null;
   const from = k.planItem != null ? await itemById(k.planItem) : null;
   const copy = await addTask({
     tile: `plan:${to.id}`, page: "plan", title: k.title, note: k.note, owner: k.owner, ownerName: k.ownerName, due: k.due, start: k.start,
     stage: k.stage, priority: k.priority, statusNote: k.statusNote, shared: k.shared, href: `/action-plan?item=${to.id}`, by,
   });
-  await log(to.id, by, [{ field: "Sub-action", before: "", after: from && from.id !== to.id ? `${k.title} (a copy of the one in “${from.title}”)` : `${k.title} (a copy)` }]);
+  const tickets = to.dg ? await shareTickets(k.id, copy.id, `plan:${to.id}`, by) : 0;
+  await log(to.id, by, [{ field: "Sub-action", before: "", after: `${k.title} (a copy of the one in “${from?.title ?? "another action"}”${tickets ? ", the same ticket" : ""})` }]);
+  if (from) await log(from.id, by, [{ field: "Sub-action", before: "", after: `${k.title} duplicated onto “${to.title}”${tickets ? ", the same ticket" : ""}` }]);
   await startedBySub(to.id, by);
-  return copy;
+  return { task: copy, tickets };
 }
 
 /** A sub-action moved under another action, its tickets with it; the action it goes to is under way. */

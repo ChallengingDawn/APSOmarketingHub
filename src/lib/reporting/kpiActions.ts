@@ -284,7 +284,8 @@ export async function planTasks(): Promise<(KpiTask & { tickets: number })[]> {
 
 /**
  * Every ticket that belongs to an action of the plan - linked on the action, or under a sub-action of it (one made on a
- * KPI tile and tied to the action too) - with that action; the latest link wins. For the plan's properties in HubSpot.
+ * KPI tile and tied to the action too) - with that action; the first link wins, so a sub-action duplicated onto another
+ * action with its ticket leaves the ticket where it was. For the plan's properties in HubSpot.
  */
 export async function planTicketLinks(): Promise<{ ticketId: string; item: number }[]> {
   await ensure();
@@ -295,8 +296,22 @@ export async function planTicketLinks(): Promise<{ ticketId: string; item: numbe
        FROM ${LINKS} l LEFT JOIN ${TASKS} t ON t.id = l.task_id ORDER BY l.linked_at`,
   );
   const out = new Map<string, number>();
-  for (const x of r.rows) if (x.item != null) out.set(x.ticket_id, Number(x.item));
+  for (const x of r.rows) if (x.item != null && !out.has(x.ticket_id)) out.set(x.ticket_id, Number(x.item));
   return [...out.entries()].map(([ticketId, item]) => ({ ticketId, item }));
+}
+
+/**
+ * A sub-action's tickets given to its duplicate under another action too - the same tickets, none made (SARCLA
+ * 02.11.2026). One the action already has stays as it is there. How many it was given.
+ */
+export async function shareTickets(fromTask: number, toTask: number, tile: string, by: string): Promise<number> {
+  await ensure();
+  const r = await query(
+    `INSERT INTO ${LINKS} (tile, ticket_id, created, linked_by, task_id) SELECT $2, ticket_id, false, $4, $3 FROM ${LINKS} WHERE task_id = $1
+     ON CONFLICT (tile, ticket_id) DO NOTHING RETURNING ticket_id`,
+    [fromTask, tile, toTask, by],
+  );
+  return r.rows.length;
 }
 
 /**

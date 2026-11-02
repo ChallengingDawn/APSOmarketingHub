@@ -710,6 +710,31 @@ export function syncWay(hubAt: string, ticketAt: string, synced: string | null):
   return ticketAt > hubAt ? "pull" : "push";
 }
 
+/**
+ * One ticket and every sub-action it is on - a sub-action duplicated onto another action keeps its ticket (SARCLA
+ * 02.11.2026: "it should not create a new ticket but keep the same, associated to a different action") - brought in step
+ * in one run: the sub-action changed last goes first, as with a ticket of its own (syncWay, subTicketSync); what it gives
+ * the ticket is the ticket's from then on, so the others take it at once. `ticketAt` the ticket's last change, `now` the
+ * run's time. What the ticket is given, what each sub-action takes, and the ones now in step with it.
+ */
+export function sharedTicketSync(
+  subs: (SubSyncable & { id: number; updatedAt: string })[], t: Record<string, string | null | undefined>, ticketAt: string, synced: Map<number, string>, now: string,
+): { push: Record<string, string>; pulls: { id: number; pull: Partial<SubSyncable> }[]; agreed: number[] } {
+  let ticket = t, at = ticketAt;
+  const push: Record<string, string> = {};
+  const pulls: { id: number; pull: Partial<SubSyncable> }[] = [];
+  const agreed: number[] = [];
+  for (const s of [...subs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))) {
+    const way = syncWay(s.updatedAt, at, synced.get(s.id) ?? null);
+    if (!way) continue;
+    const d = subTicketSync(s, ticket, way);
+    agreed.push(s.id);
+    if (Object.keys(d.push).length) { Object.assign(push, d.push); ticket = { ...ticket, ...d.push }; at = now; }
+    if (Object.keys(d.pull).length) pulls.push({ id: s.id, pull: d.pull });
+  }
+  return { push, pulls, agreed };
+}
+
 /** Where a "From Scroll to Sale" ticket may go in the plan (scrollToSaleBoard.ts): the actions led by Digital Growth,
  *  and the categories that hold them - each with the path above it. */
 export function dgTargets(items: PlanItem[]): { actions: PlanItem[]; categories: PlanItem[]; path: (i: PlanItem) => string } {
