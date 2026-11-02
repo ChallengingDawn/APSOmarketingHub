@@ -224,10 +224,26 @@ function ActionPlan() {
   };
   const canDrop = (drag: GRow, target: GRow, where: Where) => {
     if (!data?.canWrite || drag.type !== "item" || drag.key === target.key) return false;
+    // an action onto another action: it becomes its sub-action
+    if (where === "sub") return target.type === "item" && drag.item.kind === "action" && target.item.kind === "action";
     return target.type === "item" && reorder(items, drag.item.id, target.item.id, where) != null;
   };
   const onDrop = async (drag: GRow, target: GRow, where: Where) => {
     if (drag.type !== "item" || target.type !== "item") return;
+    if (where === "sub") {
+      const a = drag.item, into = target.item;
+      if (!confirm(`Make “${a.title}” a sub-action of “${into.title}”?
+
+It leaves the plan as an action; its name, description, status, priority, first person assigned, dates and status note go with it, and its sub-actions and tickets move to “${into.title}”.`)) return;
+      try {
+        await send("/api/action-plan", "POST", { action: "sub", id: a.id, target: into.id });
+        setNote(null);
+        setSaid(`“${a.title}” is now a sub-action of “${into.title}”`);
+        setCollapsed((c) => { const n = new Set(c); n.delete(target.key); return n; });
+      } catch (e) { setNote(`Not moved: ${(e as Error).message}`); }
+      await load();
+      return;
+    }
     try {
       await send("/api/action-plan", "POST", { action: "move", id: drag.item.id, target: target.item.id, where });
       setNote(null);
@@ -361,7 +377,7 @@ function ActionPlan() {
           compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} onAdd={setAddFor} hidden={hidden} onHide={hide} />
       )}
       <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
-        Drag a row by its handle onto another main category or sub-category; the + beside a row adds what goes under it - a sub-action under an action, an action in a category - and the eye hides a row (Hidden rows shows them again); drag a bar to move its dates, its right end to change the go-live date.
+        Drag a row by its handle onto another main category or sub-category - an action dropped on another action becomes its sub-action, on its top edge it goes before it; the + beside a row adds what goes under it - a sub-action under an action, an action in a category - and the eye hides a row (Hidden rows shows them again); drag a bar to move its dates, its right end to change the go-live date.
         A bar runs from the planned date to the go-live date, a diamond is an action with only a go-live date, a square a sub-action. The statuses and priorities are the &ldquo;From Scroll to Sale&rdquo; pipeline&apos;s.
       </Typography>
 

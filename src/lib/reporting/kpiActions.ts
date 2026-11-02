@@ -301,6 +301,21 @@ export async function dropPlanItem(id: number): Promise<void> {
   await query(`UPDATE ${TASKS} SET plan_item = NULL WHERE plan_item = $1`, [id]);
 }
 
+/**
+ * An action made a sub-action of another (SARCLA 02.11.2026): its own sub-actions move to the other action, KPI tasks tied
+ * to it are tied to the other one, and its tickets follow - those on the action itself go under its new sub-action
+ * (`taskId`), those under its sub-actions stay with them. A ticket the other action already has stays as it is there.
+ */
+export async function movePlanItem(fromId: number, intoId: number, taskId: number): Promise<void> {
+  await ensure();
+  const from = `plan:${fromId}`, into = `plan:${intoId}`;
+  await query(`UPDATE ${LINKS} SET task_id = $2 WHERE tile = $1 AND task_id IS NULL`, [from, taskId]);
+  await query(`DELETE FROM ${LINKS} l WHERE l.tile = $1 AND EXISTS (SELECT 1 FROM ${LINKS} x WHERE x.tile = $2 AND x.ticket_id = l.ticket_id)`, [from, into]);
+  await query(`UPDATE ${LINKS} SET tile = $2 WHERE tile = $1`, [from, into]);
+  await query(`UPDATE ${TASKS} SET tile = $2, plan_item = $3, updated_at = now() WHERE tile = $1`, [from, into, intoId]);
+  await query(`UPDATE ${TASKS} SET plan_item = $2 WHERE plan_item = $1`, [fromId, intoId]);
+}
+
 /* ── placement ─────────────────────────────────────────────────────────── */
 
 /** Where a tile is shown; a KPI's format kept as it was when none is given. */

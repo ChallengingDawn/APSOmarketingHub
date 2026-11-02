@@ -6,10 +6,11 @@
 //                                                planned / go-live date, channels, countries, agency, KPIs, notes...)
 //   POST  {action:"add", parentId, kind, title}  a new topic, group or action
 //   POST  {action:"move", id, target, where}     drag and drop: "into" a topic or group, or "before" a row
+//   POST  {action:"sub", id, target}             an action dropped on another action: it becomes its sub-action
 //   DELETE ?id=                                  a row and what is under it; its own sub-actions go too
 // Every change to the tree reaches HubSpot's three plan properties a few seconds later (actionPlanHubspot.ts).
 import { NextRequest, NextResponse } from "next/server";
-import { addItem, deleteItems, itemById, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
+import { actionToSub, addItem, deleteItems, itemById, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
 import { planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { PRIORITIES, S2S_CHOICES, STAGES, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
 import { dropPlanItem, planTasks } from "@/lib/reporting/kpiActions";
@@ -144,7 +145,15 @@ export async function POST(req: NextRequest) {
       if (ok) queuePlanSync("row moved");
       return ok ? NextResponse.json({ ok: true }) : fail("it cannot go there", 400);
     }
-    return fail("action is add or move", 400);
+    if (b.action === "sub") {
+      if (!Number.isInteger(b.id) || !Number.isInteger(b.target)) return fail("it needs the action and the one it goes under", 400);
+      const task = await actionToSub(b.id as number, b.target as number, w.name);
+      if (!task) return fail("only an action dropped on another action becomes its sub-action", 400);
+      queuePlanSync("action made a sub-action");
+      console.log(`[action-plan] ${w.name} made row ${b.id} a sub-action of ${b.target} (task ${task.id})`);
+      return NextResponse.json({ ok: true, task });
+    }
+    return fail("action is add, move or sub", 400);
   } catch (e) { return fail(e); }
 }
 

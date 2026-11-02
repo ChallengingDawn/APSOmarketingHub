@@ -11,7 +11,9 @@
 // Digital Growth toggle"). A new action under a sub-category behaves the same ("even on sub-category it should allow to
 // create or associate the ticket"); under a main category there is no Digital Growth to pick. With Digital Growth on the
 // window widens, the ticket beside the rest ("the window should expand to display everything correctly"). A new action
-// has "Create with AI" as a sub-action has (SARCLA 02.11.2026: "here should have also create with AI").
+// has "Create with AI" as a sub-action has (SARCLA 02.11.2026: "here should have also create with AI"), and its status
+// note, KPIs and next steps with or without Digital Growth ("KPI, next steps and status note should appear on the action
+// creation form with or without Digital Growth") - with it they are the ticket's too.
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -44,7 +46,8 @@ const square = (on: boolean, fg: string, bg: string) => ({
 const NAME: Record<PlanKind, string> = { goal: "the goal", topic: "main category", group: "sub-category", action: "action" };
 /** The ticket fields the new action gives itself (and the plan's place, written by the hub once it is made). */
 const GIVEN = ["subject", "content", "hs_pipeline_stage", "hs_ticket_priority", "hubspot_owner_id", "mkt_planned_date", "mkt_golive_date",
-  "mkt_implementation_country", "mkt_channel", "mkt_agency", "mkt_plan_category", "mkt_plan_subcategory", "mkt_plan_action"];
+  "mkt_implementation_country", "mkt_channel", "mkt_agency", "mkt_status_note", "mkt_kpis", "mkt_next_steps",
+  "mkt_plan_category", "mkt_plan_subcategory", "mkt_plan_action"];
 const PLACE = ["mkt_plan_category", "mkt_plan_subcategory", "mkt_plan_action"];
 const without = (v: Record<string, string>, keys: string[]) => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
 
@@ -101,6 +104,9 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
   const [country, setCountry] = useState<string[]>([]);
   const [channel, setChannel] = useState<string[]>([]);
   const [agency, setAgency] = useState<string[]>([]);
+  const [statusNote, setStatusNote] = useState("");
+  const [kpis, setKpis] = useState("");
+  const [nextSteps, setNextSteps] = useState("");
   const [ticket, setTicket] = useState<"none" | "new" | "link">("new");
   const [extra, setExtra] = useState<Record<string, string>>({});
   const [pick, setPick] = useState<string[]>([]);
@@ -121,7 +127,9 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
     ...(owners[0] ? { hubspot_owner_id: owners[0].id } : {}), ...(start ? { mkt_planned_date: start } : {}), ...(due ? { mkt_golive_date: due } : {}),
     ...(country.length ? { mkt_implementation_country: country.join(";") } : {}), ...(channel.length ? { mkt_channel: channel.join(";") } : {}),
     ...(agency.length ? { mkt_agency: agency.join(";") } : {}),
-  }) as Record<string, string>, [t, extra, title, detail, stage, priority, owners, start, due, country, channel, agency]);
+    // the action's own, even empty: never the prefill's, hidden under them
+    mkt_status_note: statusNote.trim(), mkt_kpis: kpis.trim(), mkt_next_steps: nextSteps.trim(),
+  }) as Record<string, string>, [t, extra, title, detail, stage, priority, owners, start, due, country, channel, agency, statusNote, kpis, nextSteps]);
   const missing = withTicket && ticket === "new" && t ? t.form.fields.filter((f) => f.required && !String(values[f.name] ?? "").trim()).map((f) => f.label) : [];
   const ready = !!title.trim() && !busy && (!start || !due || start <= due) && (!withTicket || ticket === "none" || (ticket === "new" ? !!t && !missing.length : pick.length > 0));
 
@@ -142,6 +150,9 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
     const who = people.find((x) => x.id === f.owner);
     take(who, () => setOwners([who!]));
     take(of(g.mkt_implementation_country, choices.country).length, () => setCountry(of(g.mkt_implementation_country, choices.country)));
+    take(g.mkt_status_note, () => setStatusNote(g.mkt_status_note));
+    take(g.mkt_kpis, () => setKpis(g.mkt_kpis));
+    take(g.mkt_next_steps, () => setNextSteps(g.mkt_next_steps));
     if (withTicket) {
       take(of(g.mkt_channel, choices.channel).length, () => setChannel(of(g.mkt_channel, choices.channel)));
       take(of(g.mkt_agency, choices.agency).length, () => setAgency(of(g.mkt_agency, choices.agency)));
@@ -167,6 +178,7 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
           await send("/api/action-plan", "PATCH", {
             id: made.id, detail: detail.trim() || title.trim(), stage, priority, start: start || null, due: due || null,
             country, dg: withTicket, ...(withTicket ? { channel, agency } : {}), ...(owners.length ? { owners: owners.map((o) => o.id) } : {}),
+            statusNote: statusNote.trim(), kpis: kpis.trim(), nextSteps: nextSteps.trim(),
           });
         } catch (e) { onDone(`${said} - but its details were not saved (${(e as Error).message}); open it to fill them in`); return; }
         if (withTicket && ticket !== "none") {
@@ -213,6 +225,8 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
                   })}
                 </Box>
               </Box>
+              <TextField size="small" label="Status note" placeholder="Where it stands - what is done, what is in the way" value={statusNote} onChange={(e) => setStatusNote(e.target.value)}
+                multiline minRows={1} maxRows={5} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
               <Box sx={{ display: "grid", gap: 0.5 }}>
                 <Typography sx={label}>Priority</Typography>
                 <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
@@ -232,6 +246,12 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
               <Pick title="Implementation country" options={choices.country} value={country} set={setCountry} />
               {withTicket && <Pick title="Marketing channel" options={choices.channel} value={channel} set={setChannel} />}
               {withTicket && <Pick title="Agency" options={choices.agency} value={agency} set={setAgency} />}
+              <Box sx={{ display: "grid", gap: 1.2, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
+                <TextField size="small" label="KPIs" placeholder="How success is measured" value={kpis} onChange={(e) => setKpis(e.target.value)}
+                  multiline minRows={2} maxRows={6} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
+                <TextField size="small" label="Next steps / milestones" placeholder="The first steps, one per line" value={nextSteps} onChange={(e) => setNextSteps(e.target.value)}
+                  multiline minRows={2} maxRows={6} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
+              </Box>
             </>
           )}
         </Box>

@@ -15,6 +15,7 @@ import {
   PLAN_STATES, STAGES, ownersFromCodes, percentOfStage, planFromSeed, priorityLabel, reorder, stageOf, stageOfPercent, stateOfStage, toS2s,
   type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanState, type SeedRow,
 } from "./actionPlanRules";
+import { addTask, movePlanItem, type KpiTask } from "./kpiActions";
 
 const T = "apsomh_action_plan";
 const LOG = "apsomh_action_plan_log";
@@ -345,6 +346,28 @@ export async function subtree(id: number): Promise<number[]> {
 export async function deleteItems(ids: number[]): Promise<void> {
   await ensure();
   if (ids.length) await query(`DELETE FROM ${T} WHERE id = ANY($1::int[])`, [ids]);
+}
+
+/**
+ * An action dropped on another action becomes its sub-action (SARCLA 02.11.2026: "I should be able to drag and drop the
+ * action into another, and the dragged becomes a sub-action"): a sub-action of the other with its name, description,
+ * stage, priority, first person assigned, planned and go-live dates and status note; its sub-actions and tickets follow
+ * (kpiActions.movePlanItem); the row leaves the plan and the other action's tracking says so. Null when it cannot.
+ */
+export async function actionToSub(id: number, intoId: number, by: string): Promise<KpiTask | null> {
+  const [a, into] = await Promise.all([itemById(id), itemById(intoId)]);
+  if (!a || !into || a.id === into.id || a.kind !== "action" || into.kind !== "action") return null;
+  if ((await subtree(a.id)).length > 1) return null;
+  const who = a.owners[0];
+  const task = await addTask({
+    tile: `plan:${into.id}`, page: "plan", title: a.title, note: a.detail && a.detail !== a.title ? a.detail : "",
+    owner: who?.id ?? "", ownerName: who?.name ?? "", due: a.due, start: a.start, stage: a.stage, priority: a.priority,
+    statusNote: a.statusNote, href: `/action-plan?item=${into.id}`, by,
+  });
+  await movePlanItem(a.id, into.id, task.id);
+  await log(into.id, by, [{ field: "Sub-action", before: "", after: `${a.title} (was an action of the plan)` }]);
+  await deleteItems([a.id]);
+  return task;
 }
 
 /** A dragged row dropped on another (actionPlanRules.reorder decides whether it may land there). */

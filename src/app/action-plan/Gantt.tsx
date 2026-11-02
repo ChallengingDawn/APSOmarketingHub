@@ -10,7 +10,8 @@
 // the time line in the main category's colour: a bracket over a topic or group from its first to its last
 // date, a bar for an action with a start and a due (its done part solid), a diamond for one with only a due,
 // a thinner bar per sub-action from its planned to its go-live date (a square with only one of them).
-// Rows are dragged by their handle onto another topic or group; bars are dragged to
+// Rows are dragged by their handle onto another topic or group, or before a row; an action dropped on another action
+// becomes its sub-action (SARCLA 02.11.2026), its top edge still placing it before; bars are dragged to
 // move their dates, or by their right end to change the due. The two halves scroll together.
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -44,7 +45,7 @@ export type GRow =
   | { key: string; type: "item"; item: PlanItem; depth: number; hasKids: boolean }
   | { key: string; type: "sub"; sub: PlanSub; parent: PlanItem; depth: number };
 
-export type Where = "into" | "before";
+export type Where = "into" | "before" | "sub";
 
 /** What the + beside a row makes, said on it. */
 const ADD_TITLE: Record<PlanKind, string> = { goal: "Add a main category", topic: "Add an action or a sub-category in it", group: "Add an action in it", action: "Add a sub-action" };
@@ -211,7 +212,15 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
 
   const [drag, setDrag] = useState<GRow | null>(null);
   const [over, setOver] = useState<{ key: string; where: Where } | null>(null);
-  const whereFor = (r: GRow): Where => (r.type === "item" && r.item.kind !== "action" ? "into" : "before");
+  // onto a category: into it; onto an action an action becomes its sub-action, but on the row's top edge it goes before
+  const whereFor = (r: GRow, e: React.DragEvent): Where => {
+    if (r.type === "item" && r.item.kind !== "action") return "into";
+    if (r.type === "item" && drag?.type === "item" && drag.item.kind === "action") {
+      const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      if (e.clientY - box.top > box.height * 0.35) return "sub";
+    }
+    return "before";
+  };
 
   // a bar being dragged: how far, and whether it moves or stretches
   const [bar, setBar] = useState<{ id: number; mode: "move" | "end" | "due"; dx: number } | null>(null);
@@ -286,14 +295,14 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
               onDragStart={() => setDrag(r)} onDragEnd={() => { setDrag(null); setOver(null); }}
               onDragOver={(e) => {
                 if (!drag) return;
-                const w = whereFor(r);
+                const w = whereFor(r, e);
                 if (!canDrop(drag, r, w)) { if (over?.key === r.key) setOver(null); return; }
                 e.preventDefault();
                 if (over?.key !== r.key || over.where !== w) setOver({ key: r.key, where: w });
               }}
               onDrop={(e) => {
                 e.preventDefault();
-                const d = drag, w = whereFor(r);
+                const d = drag, w = whereFor(r, e);
                 setDrag(null); setOver(null);
                 if (d && canDrop(d, r, w)) void onDrop(d, r, w);
               }} />
@@ -428,8 +437,10 @@ function TreeRow({ r, cols, compact, color, onAdd, hidden, onHide, rolled, today
   );
   const base = {
     display: "grid", gridTemplateColumns: cols, height: ROW, alignItems: "center", borderBottom: "1px solid rgba(21,34,58,.06)",
-    bgcolor: selected ? "rgba(36,89,209,.06)" : over === "into" ? TINT.blue.bg : "transparent", opacity: dragging ? 0.4 : hidden ? 0.5 : 1,
-    boxShadow: over === "before" ? `inset 0 2px 0 ${TINT.blue.fg}` : "none", position: "relative",
+    bgcolor: selected ? "rgba(36,89,209,.06)" : over === "into" || over === "sub" ? TINT.blue.bg : "transparent", opacity: dragging ? 0.4 : hidden ? 0.5 : 1,
+    boxShadow: over === "before" ? `inset 0 2px 0 ${TINT.blue.fg}` : over === "sub" ? `inset 0 0 0 2px ${TINT.blue.fg}` : "none", position: "relative",
+    // what the drop will do
+    ...(over === "sub" ? { "&::after": { content: '"Drop: becomes its sub-action"', position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: TINT.blue.fg, color: "#fff", fontSize: "0.7rem", fontWeight: 800, pointerEvents: "none", zIndex: 2 } } : {}),
     "&:hover": { bgcolor: selected ? "rgba(36,89,209,.08)" : "rgba(21,34,58,.025)" }, "&:hover .add": { opacity: 1 },
   } as const;
   // the handle to drag the row, beside it the + for what goes under it and the eye that hides the row

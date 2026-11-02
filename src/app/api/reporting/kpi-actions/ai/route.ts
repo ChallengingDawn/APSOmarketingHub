@@ -4,7 +4,10 @@
 //   POST {tile, describe, ctx?: {title, summary}, values?: the ticket form so far}  ->  {ok, fill}
 // On a category of the plan with kind "action" it fills a new action in it instead, its ticket only with dg (SARCLA
 // 02.11.2026: the + window of a new action "should have also create with AI"). With no ticket the AI still fills what
-// the sub-action - or the new action - has of its own: its status, priority, dates, status note, country.
+// the sub-action - or the new action - has of its own: its status, priority, dates, status note, country, and a new
+// action's KPIs and next steps. On the plan the AI proposes KPIs and next steps from the description, and takes the
+// priority and the country of the action - or most of the category's actions - when none is said (SARCLA 02.11.2026:
+// "AI filling in should also set the other properties").
 // The AI only proposes: each choice must be one the form offers (aiFillSchema, cleanAiFill), nothing is made up, and
 // the person checks the form before anything is saved. Nothing is written here.
 import { NextRequest, NextResponse } from "next/server";
@@ -22,7 +25,7 @@ export const dynamic = "force-dynamic";
 const SYSTEM = `You help the marketing team of APSOparts (an online shop for technical parts: seals, O-rings, hoses, plastics) fill in a form in their hub: a new task - on their action plan, a sub-action of an action, or a new action - and, when one is wanted, its ticket in HubSpot's "From Scroll to Sale" marketing pipeline. You get the person's description, what the task belongs to, the form as it is now, and every field with the choices it allows.
 
 Rules:
-- Fill a field only with what the description says or what the context states plainly. Leave everything else empty ("" or []). Never invent dates, people, figures, budgets, agencies or KPIs.
+- Fill a field only with what the description says or what the context states plainly. Leave everything else empty ("" or []). Never invent dates, people, figures, budgets or agencies, nor KPIs unless told below to propose them.
 - A choice is one of the values listed for its field - the value, not its label.
 - A person is chosen only when the description names them; "I" or "me" is the person writing.
 - Dates are YYYY-MM-DD. A month or a quarter means its last day; "next week", "end of the month" are counted from today.
@@ -41,7 +44,29 @@ function pathOf(a: PlanItem, items: PlanItem[]): string[] {
 
 /** The sub-action's own fields, filled with no ticket too; a new action's. */
 const OWN_SUB = ["hs_pipeline_stage", "hs_ticket_priority", "mkt_planned_date", "mkt_status_note"];
-const OWN_ACTION = ["hs_pipeline_stage", "hs_ticket_priority", "mkt_planned_date", "mkt_golive_date", "mkt_implementation_country"];
+const OWN_ACTION = ["hs_pipeline_stage", "hs_ticket_priority", "mkt_planned_date", "mkt_golive_date", "mkt_implementation_country", "mkt_kpis", "mkt_next_steps", "mkt_status_note"];
+
+/** On the plan: what the AI proposes, what it takes from around it. */
+const ON_THE_PLAN = `On the action plan, also:
+- Propose the KPIs (mkt_kpis): how success would be measured - what is counted or compared, no target figure unless the description gives one - and the next steps (mkt_next_steps): the first two to four concrete steps, one per line. Both are proposals the person checks; write them when the field is in the form.
+- The status note (mkt_status_note) only when the description says where it stands.
+- When the description says no priority or implementation country, take the one the context above gives (the action's, or the one most of the category's actions have).`;
+
+const tally = (xs: string[], label: (x: string) => string = (x) => x) =>
+  [...xs.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${label(k)} (value ${k}): ${n}`).join("; ");
+
+/** A category of the plan a new action goes into, as the AI reads it: where it is, and what its actions are like. */
+function categoryText(c: PlanItem, items: PlanItem[]): string {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const inside = (i: PlanItem) => { for (let p = i.parentId == null ? undefined : byId.get(i.parentId); p; p = p.parentId == null ? undefined : byId.get(p.parentId)) if (p.id === c.id) return true; return false; };
+  const under = items.filter((i) => i.kind === "action" && inside(i));
+  const path = pathOf(c, items);
+  return [
+    `A new action to add to the action plan, in "${c.title}"${path.length ? ` (in ${path.join(" > ")})` : ""}. The title is the new action's name, the note its description.`,
+    c.detail && c.detail !== c.title ? `The category's description: ${c.detail.slice(0, 1000)}` : "",
+    under.length ? `Its ${under.length} action${under.length === 1 ? "" : "s"} now - priorities: ${tally(under.map((a) => a.priority).filter(Boolean), (x) => priorityLabel(x) || x) || "none set"}; implementation countries: ${tally(under.flatMap((a) => a.country)) || "none set"}.\nSome of them: ${under.slice(0, 10).map((a) => `"${a.title.slice(0, 120)}"`).join("; ")}` : "It has no action yet.",
+  ].filter(Boolean).join("\n");
+}
 
 /** An action of the plan, as the AI reads it. */
 function actionText(a: PlanItem, items: PlanItem[]): string {
@@ -50,7 +75,7 @@ function actionText(a: PlanItem, items: PlanItem[]): string {
     `The action plan's action "${a.title}"${path.length ? ` (in ${path.join(" > ")})` : ""}.`,
     a.detail && a.detail !== a.title ? `Its description: ${a.detail.slice(0, 1500)}` : "",
     [stageOf(a.stage) ? `status ${stageOf(a.stage)!.label}` : "", a.priority ? `priority ${priorityLabel(a.priority)}` : "", a.start ? `planned ${a.start}` : "", a.due ? `go-live ${a.due}` : "",
-      a.owners.length ? `assigned to ${a.owners.map((o) => o.name).join(", ")}` : ""].filter(Boolean).join(", "),
+      a.owners.length ? `assigned to ${a.owners.map((o) => o.name).join(", ")}` : "", a.country.length ? `implementation country ${a.country.join(", ")}` : ""].filter(Boolean).join(", "),
     a.kpis ? `Its KPIs: ${a.kpis.slice(0, 800)}` : "",
   ].filter(Boolean).join("\n");
 }
@@ -89,9 +114,10 @@ export async function POST(req: NextRequest) {
     const now = Object.fromEntries(Object.entries(b.values ?? {}).filter(([k, v]) => typeof v === "string" && v.trim() && k !== "subject" && fields.some((f) => f.name === k)));
     const user = [
       `Today is ${new Date().toISOString().slice(0, 10)}. The person writing is ${me ? `${me.name} (id ${me.id})` : w.name}.`,
-      newAction ? `A new action to add to the action plan, in "${action!.title}"${pathOf(action!, items).length ? ` (in ${pathOf(action!, items).join(" > ")})` : ""}. The title is the new action's name, the note its description.`
+      newAction ? categoryText(action!, items)
         : action ? actionText(action, items) : `A task on the KPI tile "${String(b.ctx?.title ?? "").slice(0, 200)}"${b.ctx?.summary ? ` - now: ${String(b.ctx.summary).slice(0, 300)}` : ""}.`,
       tickets ? "" : `This takes no ticket: ticket stays "none". Of the fields below fill only its own - ${own.join(", ")} - and leave the others empty.`,
+      action ? ON_THE_PLAN : "",
       `\nThe description:\n${describe}`,
       `\nThe ticket form so far: ${JSON.stringify(now)}`,
       `\nThe people (id = name): ${aiForm.owners.map((o) => `${o.value} = ${o.label}`).join("; ")}`,

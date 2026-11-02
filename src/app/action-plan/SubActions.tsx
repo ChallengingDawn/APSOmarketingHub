@@ -9,7 +9,8 @@
 // needed if Digital Growth is on") - and the action's own tickets are found open, closed or all and linked at the bottom.
 // The + beside an action's row opens the same form in a small window of its own (AddDialog.tsx). A sub-action has a
 // description ("description should be part of the sub-action creation") - the ticket's own description when it has one.
-// In the action's window the form starts as one line and opens when it is used, the sub-actions under it. A sub-action
+// The action's window lists them, each one changed in place; a new one is made only by the + beside the action in the
+// plan (SARCLA 02.11.2026: "don't allow sub-action creation inside the action page, only by the + outside"). A sub-action
 // has its status note right under its status (SARCLA 02.11.2026: "status note should directly appear on the sub-action")
 // - the ticket's status note when it has one.
 
@@ -172,10 +173,8 @@ export function AiBox({ placeholder, hint, fill }: { placeholder: string; hint: 
 
 /* ── a new one ─────────────────────────────────────────────────────────── */
 
-export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, compact = false, wide = false, done }: {
+export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, wide = false, done }: {
   item: PlanItem; tile: TileInfo; t: TicketsAnswer | null; tErr: string | null; retry: () => Promise<void>; owners: Opt[]; tickets: boolean; focus: boolean;
-  /** one line until it is used (the action's window) */
-  compact?: boolean;
   /** the + window opened wide: the ticket beside the sub-action */
   wide?: boolean;
   done: () => Promise<void>;
@@ -195,8 +194,6 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, com
   const [sent, setSent] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const set = (p: Partial<Small>) => setV((x) => ({ ...x, ...p }));
-  const [used, setUsed] = useState(!compact);
-  const open = used || !!v.title.trim() || aiOpen;
   useEffect(() => { if (t?.me) setV((x) => (x.owner ? x : { ...x, owner: t.me!.id })); }, [t]);
   // the pipeline's prefill under what is typed, the sub-action's own fields over it
   useEffect(() => { if (t) setValues((x) => ({ ...t.prefill, ...nonEmpty(x) })); }, [t]);
@@ -237,7 +234,6 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, com
       setSent(`“${v.title.trim()}” added${ticket === "new" ? ", with its ticket in HubSpot" : ticket === "link" ? ", with its linked tickets" : ""}${mailed ? ` · ${mailed} mail${mailed === 1 ? "" : "s"} sent` : ""}`);
       setV(blank()); setNote(""); setShared([]); setTicket(first); setPick([]); setValues(t?.prefill ?? {});
       setAiOpen(false);
-      if (compact) setUsed(false);
       await done();
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
@@ -254,20 +250,18 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, com
       )}
       {/* side by side when the window is wide and a ticket is to be filled (SARCLA 01.11.2026: "with Digital Growth the
           window should expand to display everything correctly") */}
-      <Box sx={{ display: "grid", gap: 1.75, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: wide && tickets && open ? "minmax(0, 1fr) minmax(0, 1.15fr)" : "minmax(0, 1fr)" } }}>
+      <Box sx={{ display: "grid", gap: 1.75, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: wide && tickets ? "minmax(0, 1fr) minmax(0, 1.15fr)" : "minmax(0, 1fr)" } }}>
         <Box sx={{ display: "grid", gap: 1.25, minWidth: 0 }}>
-          <TextField size="small" label="Sub-action" placeholder={open ? "What will be done - written as an action" : "+ Add a sub-action - what will be done"} value={v.title} onChange={(e) => set({ title: e.target.value })}
-            onFocus={() => setUsed(true)} autoFocus={focus} sx={field} slotProps={{ inputLabel: { shrink: true } }}
+          <TextField size="small" label="Sub-action" placeholder="What will be done - written as an action" value={v.title} onChange={(e) => set({ title: e.target.value })}
+            autoFocus={focus} sx={field} slotProps={{ inputLabel: { shrink: true } }}
             onKeyDown={(e) => { if (e.key === "Enter" && ready) void add(); }} />
-          {open && (<>
-            <TextField size="small" label="Description" placeholder="What it is about, what done looks like" value={note} onChange={(e) => setNote(e.target.value)}
-              sx={field} multiline minRows={2} maxRows={8} slotProps={{ inputLabel: { shrink: true } }} />
-            <SmallFields v={v} set={set} owners={owners} canWrite />
-            <People owners={owners} value={shared} onChange={setShared} />
-          </>)}
+          <TextField size="small" label="Description" placeholder="What it is about, what done looks like" value={note} onChange={(e) => setNote(e.target.value)}
+            sx={field} multiline minRows={2} maxRows={8} slotProps={{ inputLabel: { shrink: true } }} />
+          <SmallFields v={v} set={set} owners={owners} canWrite />
+          <People owners={owners} value={shared} onChange={setShared} />
         </Box>
         {/* its Scroll to Sale ticket - only when Digital Growth leads the action */}
-        {open && tickets && (
+        {tickets && (
           <Box sx={{ display: "grid", gap: 1, p: 1.25, borderRadius: "8px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
             <Box sx={{ display: "flex", gap: 0.6, alignItems: "center", flexWrap: "wrap" }}>
               <ConfirmationNumberOutlinedIcon sx={{ fontSize: 19, color: FAINT }} />
@@ -285,19 +279,15 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, com
           </Box>
         )}
       </Box>
-      {open && (<>
-        {err && <Typography sx={{ fontSize: "0.86rem", color: RED }}>{err}</Typography>}
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-          <Typography sx={{ flex: 1, fontSize: "0.82rem", color: missing.length ? RED : sent ? GREEN : FAINT, fontWeight: sent && !missing.length ? 600 : 400 }}>
-            {missing.length ? `For the ticket, still to fill in: ${missing.join(", ")}` : sent ?? (shared.length ? `${shared.length} colleague${shared.length === 1 ? "" : "s"} will get a mail` : "")}
-          </Typography>
-          {compact && <Button disabled={busy} onClick={() => { setUsed(false); set({ title: "" }); setNote(""); setAiOpen(false); }} sx={{ ...cta, color: MUTED }}>Cancel</Button>}
-          <Button variant="contained" disableElevation disabled={!ready} onClick={() => void add()} sx={{ ...cta, fontSize: "0.9rem", px: 2 }}>
-            {busy ? "Saving…" : ticket === "new" ? "Add it and its ticket" : ticket === "link" ? "Add it and link" : "Add the sub-action"}
-          </Button>
-        </Box>
-      </>)}
-      {!open && sent && <Typography sx={{ fontSize: "0.82rem", color: GREEN, fontWeight: 600 }}>{sent}</Typography>}
+      {err && <Typography sx={{ fontSize: "0.86rem", color: RED }}>{err}</Typography>}
+      <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+        <Typography sx={{ flex: 1, fontSize: "0.82rem", color: missing.length ? RED : sent ? GREEN : FAINT, fontWeight: sent && !missing.length ? 600 : 400 }}>
+          {missing.length ? `For the ticket, still to fill in: ${missing.join(", ")}` : sent ?? (shared.length ? `${shared.length} colleague${shared.length === 1 ? "" : "s"} will get a mail` : "")}
+        </Typography>
+        <Button variant="contained" disableElevation disabled={!ready} onClick={() => void add()} sx={{ ...cta, fontSize: "0.9rem", px: 2 }}>
+          {busy ? "Saving…" : ticket === "new" ? "Add it and its ticket" : ticket === "link" ? "Add it and link" : "Add the sub-action"}
+        </Button>
+      </Box>
     </Box>
   );
 }
@@ -464,12 +454,11 @@ export function SubActions({ item, tile, canWrite, tickets, people, onChanged }:
 
   return (
     <Box sx={{ display: "grid", gap: 1.25 }}>
-      {canWrite && <NewSub item={item} tile={tile} t={t} tErr={tErr} retry={loadTickets} owners={owners} tickets={tickets} focus={false} compact done={reload} />}
       {(err || (tErr && tickets)) && <Typography sx={{ fontSize: "0.86rem", color: RED }}>{err ?? `HubSpot could not be read: ${tErr}`}</Typography>}
       {!tasks ? (
         <Box sx={{ display: "flex", gap: 1, alignItems: "center", minHeight: 40 }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Reading its sub-actions…</Typography></Box>
       ) : !tasks.length ? (
-        <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>No sub-action yet{canWrite ? " - write the first step above, or add one from a KPI tile's Actions" : ""}.</Typography>
+        <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>No sub-action yet{canWrite ? " - add one with the + beside this action in the plan, or from a KPI tile's Actions" : ""}.</Typography>
       ) : (
         <Box sx={{ display: "grid", gap: 0.75 }}>
           <Typography sx={section}>Its sub-actions · {tasks.length} · click one to change it</Typography>
