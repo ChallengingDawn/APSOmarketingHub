@@ -21,11 +21,13 @@ export const THIS = "#2d6fa8", BEFORE = "#b9c0c9";
 /** A row the chart can draw: its label (also what a click picks); revenue, when it has it, breaks ties. */
 export type ChartRow = { label: string; rev?: number };
 
-export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions, curColor = THIS, prevColor = BEFORE, single = false, curNote, labelWidth = 170, companies }: {
+export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, pickHint = "Click bars to show only them", onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions, curColor = THIS, prevColor = BEFORE, single = false, curNote, labelWidth = 170, companies }: {
   title: string; rows: T[]; cur: (r: T) => number; prev: (r: T) => number; curLabel: string; prevLabel: string;
   fmt: (n: number) => string; selected?: string[];
   /** a click on a bar picks its row - left out where the bars cannot filter (ESO's breakdowns: the read holds the reps only) */
   onPick?: (label: string) => void; onFilter?: () => void; filterLabel?: string; pageSize?: number;
+  /** what a click on a bar does, under the title (Smart Segmentation: a bar's companies open in the window) */
+  pickHint?: string;
   /** the tile toolbar: tasks (with their Scroll to Sale tickets), promote */
   actions?: React.ReactNode;
   /** priority and potential keep their own order; every other chart ranks by what it shows */
@@ -52,7 +54,7 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
   const slice = rows.slice(page * pageSize, page * pageSize + pageSize);
   const data = slice.map((r) => ({ label: r.label, cur: Math.max(0, cur(r)), prev: Math.max(0, prev(r)), note: curNote?.(r) ?? null }));
   const pick = (d: unknown) => { const l = (d as { payload?: { label?: string } })?.payload?.label; if (l) onPick?.(l); };
-  const hint = [onPick ? "Click bars to show only them" : "", pages > 1 ? `${page * pageSize + 1}–${Math.min(rows.length, (page + 1) * pageSize)} of ${rows.length}, largest first` : ""].filter(Boolean).join(" · ");
+  const hint = [onPick ? pickHint : "", pages > 1 ? `${page * pageSize + 1}–${Math.min(rows.length, (page + 1) * pageSize)} of ${rows.length}, largest first` : ""].filter(Boolean).join(" · ");
   const tall = Math.min(rows.length, pageSize);
   const nav = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
   return (

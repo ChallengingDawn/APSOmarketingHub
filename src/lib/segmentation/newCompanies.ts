@@ -194,11 +194,11 @@ export function newFigures(doc: NewDoc, from: string, to: string): NewFigures {
 }
 
 /** What a click on a chart narrows the list to. */
-export type NewPick = { rule?: RuleKey; byRules?: boolean; fast?: boolean; changed?: boolean; customer?: boolean; seg?: string; first?: string; who?: SetBy; move?: string; src?: string; country?: string; owner?: string; prio?: string; bought?: boolean; bucket?: string; q?: string };
+export type NewPick = { rule?: RuleKey; byRules?: boolean; fast?: boolean; top?: boolean; changed?: boolean; customer?: boolean; seg?: string; first?: string; who?: SetBy; move?: string; src?: string; country?: string; owner?: string; prio?: string; bought?: boolean; bucket?: string; q?: string };
 
-export function newList(doc: NewDoc, from: string, to: string, pick: NewPick, max = 300): { rows: NewCo[]; total: number } {
+function picked(doc: NewDoc, from: string, to: string, pick: NewPick): NewCo[] {
   const q = (pick.q ?? "").trim().toLowerCase();
-  const hit = doc.rows.filter((x) => x.d >= from && x.d <= to
+  return doc.rows.filter((x) => x.d >= from && x.d <= to
     && (pick.seg === undefined || segOf(x.s) === pick.seg)
     && (pick.first === undefined || segOf(x.f) === pick.first)
     && (pick.who === undefined || x.fb === pick.who)
@@ -212,9 +212,38 @@ export function newList(doc: NewDoc, from: string, to: string, pick: NewPick, ma
     && (pick.rule === undefined || (byTheRules(x) && x.ru === pick.rule))
     && (pick.byRules === undefined || byTheRules(x) === pick.byRules)
     && (pick.fast === undefined || (x.fm !== null && x.fm <= FAST_MIN) === pick.fast)
+    && (pick.top === undefined || ["1", "2", "3"].includes(x.p) === pick.top)
     && (pick.changed === undefined || (!!x.f && x.f !== x.s) === pick.changed)
     && (pick.customer === undefined || CUSTOMER_SEGMENTS.has(x.s) === pick.customer)
     && (!q || x.n.toLowerCase().includes(q) || x.id === q));
-  hit.sort((a, b) => b.t.localeCompare(a.t) || b.id.localeCompare(a.id));
+}
+const newestFirst = (a: NewCo, b: NewCo) => b.t.localeCompare(a.t) || b.id.localeCompare(a.id);
+
+export function newList(doc: NewDoc, from: string, to: string, pick: NewPick, max = 300): { rows: NewCo[]; total: number } {
+  const hit = picked(doc, from, to, pick).sort(newestFirst);
   return { rows: hit.slice(0, max), total: hit.length };
+}
+
+/** The columns the companies' window sorts by (SARCLA 02.11.2026: the reporting pages' window on every chart). */
+export const NEW_SORTS = ["name", "created", "country", "src", "first", "today", "prio", "revenue", "owner"] as const;
+export type NewSort = (typeof NEW_SORTS)[number];
+export const NEW_PAGE = 25;
+
+/** A page of the companies behind a pick, in the order of a column - the newest first when none. */
+export function newPage(doc: NewDoc, from: string, to: string, pick: NewPick, page: number, sort?: NewSort, desc = true): { rows: NewCo[]; total: number } {
+  const hit = picked(doc, from, to, pick);
+  const key: Record<NewSort, (x: NewCo) => string | number> = {
+    name: (x) => x.n.toLowerCase(), created: (x) => x.t, country: (x) => countryName(x.k), src: (x) => sourceLabel(x.src, x.by, doc.users),
+    first: (x) => x.f, today: (x) => x.s, prio: (x) => x.p || "9", revenue: (x) => x.r, owner: (x) => (x.o ? doc.owners[x.o] ?? `Owner ${x.o}` : ""),
+  };
+  if (!sort) hit.sort(newestFirst);
+  else {
+    const k = key[sort], dir = desc ? -1 : 1;
+    // an empty value last, whichever way - as the reporting pages' lists
+    const cmp = (a: string | number, b: string | number) => (typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b), "en", { sensitivity: "base", numeric: true }));
+    const empty = (v: string | number) => v === "" || v === 0;
+    hit.sort((a, b) => { const x = k(a), y = k(b); return empty(x) !== empty(y) ? (empty(x) ? 1 : -1) : dir * cmp(x, y) || newestFirst(a, b); });
+  }
+  const at = Math.max(0, Math.min(Math.floor(page), Math.max(0, Math.ceil(hit.length / NEW_PAGE) - 1)));
+  return { rows: hit.slice(at * NEW_PAGE, at * NEW_PAGE + NEW_PAGE), total: hit.length };
 }

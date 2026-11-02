@@ -8,11 +8,6 @@
 
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableCell from "@mui/material/TableCell";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import AddIcon from "@mui/icons-material/Add";
@@ -23,7 +18,8 @@ import EventRepeatOutlinedIcon from "@mui/icons-material/EventRepeatOutlined";
 import FunctionsOutlinedIcon from "@mui/icons-material/FunctionsOutlined";
 import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
-import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, TINT, bodyCell, headCell, type Tint } from "@/app/uc/report/ui";
+import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, TINT, type Tint } from "@/app/uc/report/ui";
+import { Table as KitTable } from "@/app/reporting/marketing-kpis/ExplorerKit";
 import { GENERIC_DOMAINS, INDUSTRY_TO_APIC_CODE, KEYWORD_RULES, KEYWORD_TAGS } from "@/lib/segmentation/engine";
 import { YEARLY_RULES } from "@/lib/segmentation/yearly";
 
@@ -166,28 +162,11 @@ export function HowItWorks() {
 
         <Sub n="c" title="Keywords in the name and description"
           note={`${KEYWORD_RULES.length} rules in German, French, Italian and English, the specific ones first - the first that fits gives the APIC, the industry and a keyword tag, each only where empty`} />
-        <Box sx={{ overflowX: "auto", border: `1px solid ${HAIRLINE}`, borderRadius: "12px", bgcolor: "rgba(255,255,255,.6)" }}>
-          <Table size="small" sx={{ minWidth: 640 }}>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ ...headCell, width: 36 }}>#</TableCell>
-                <TableCell sx={headCell}>The name or description contains</TableCell>
-                <TableCell sx={headCell}>APIC</TableCell>
-                <TableCell sx={headCell}>Industry</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {KEYWORD_RULES.map(([pats, code, ind], i) => (
-                <TableRow key={pats.join()} hover>
-                  <TableCell sx={{ ...bodyCell, color: MUTED, fontSize: "0.78rem" }}>{i + 1}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: INK }}>{pats.map((p) => p.trim()).join(" · ")}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{apicName(code)}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED }}>{ind ? words(ind) : "-"}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Box>
+        <KitTable head={["The name or description contains", "APIC", "Industry"]} left={[1, 2]} pageSize={15} minWidth={640}
+          firstWidth="minmax(280px, 2fr)" widths={["minmax(160px, 1fr)", "minmax(160px, 1fr)"]}
+          rows={KEYWORD_RULES.map(([pats, code, ind], i) => ({ key: pats.join(), cells: [
+            <span key="p"><span style={{ color: MUTED, marginRight: 8 }}>{i + 1}</span>{pats.map((p) => p.trim()).join(" · ")}</span>, apicName(code), ind ? words(ind) : "-",
+          ] }))} />
 
         <Sub n="d" title="Its own website" note="When the company has a real domain (not a free mail one) - each site at most once per 30 days" />
         <Box sx={flow}>

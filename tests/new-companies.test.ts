@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { countryName, firstSegment, firstValue, moveOf, newFigures, newList, previousWindow, setByOf, sourceLabel, sourceOf, type NewCo, type NewDoc } from "../src/lib/segmentation/newCompanies";
+import { countryName, firstSegment, firstValue, moveOf, newFigures, newList, newPage, previousWindow, setByOf, sourceLabel, sourceOf, type NewCo, type NewDoc } from "../src/lib/segmentation/newCompanies";
 
 test("the first segment is the HubSpot workflow's, word for word", () => {
   assert.equal(firstSegment({ domain: "gmail.com", numberofemployees: "250" }).segment, "APSOmicro");
@@ -100,6 +100,27 @@ test("the companies behind a pick, newest first", () => {
   assert.deepEqual(newList(d, "2026-10-01", "2026-10-31", { bucket: "2026-10" }).total, 3);
   assert.deepEqual(newList(d, "2026-10-01", "2026-10-31", { q: "company 1" }).rows.map((x) => x.id), ["1"]);
   assert.equal(newList(d, "2026-10-01", "2026-10-31", {}, 2).total, 3);
+});
+
+test("the companies window: 25 a page in the order of a column, an empty value last either way", () => {
+  const rows = Array.from({ length: 30 }, (_, i) => co(String(i + 1), `2026-10-${String(i + 1).padStart(2, "0")}`.replace("-10-31", "-10-30"), { r: i % 3 ? 0 : i * 10, p: String((i % 4) + 1), o: i % 2 ? "1" : "" }));
+  const d = doc(rows);
+  const first = newPage(d, "2026-10-01", "2026-10-31", {}, 0);
+  assert.deepEqual([first.total, first.rows.length, first.rows[0].id], [30, 25, "30"]);
+  assert.equal(newPage(d, "2026-10-01", "2026-10-31", {}, 1).rows.length, 5);
+  // a page past the end: the last one
+  assert.equal(newPage(d, "2026-10-01", "2026-10-31", {}, 9).rows.length, 5);
+  // revenue, the largest first; the companies without any last, whichever way
+  const rev = newPage(d, "2026-10-01", "2026-10-31", {}, 0, "revenue", true).rows;
+  assert.deepEqual(rev.slice(0, 2).map((x) => x.r), [270, 240]);
+  assert.equal(newPage(d, "2026-10-01", "2026-10-31", {}, 0, "revenue", false).rows[0].r, 30);
+  assert.equal(newPage(d, "2026-10-01", "2026-10-31", {}, 1, "revenue", false).rows.at(-1)!.r, 0);
+  // the owner by name, the companies with none last
+  assert.equal(newPage(d, "2026-10-01", "2026-10-31", {}, 0, "owner", false).rows[0].o, "1");
+  assert.equal(newPage(d, "2026-10-01", "2026-10-31", {}, 1, "owner", true).rows.at(-1)!.o, "");
+  // a priority P1 to P3 today
+  assert.equal(newPage(d, "2026-10-01", "2026-10-31", { top: true }, 0).total, 23);
+  assert.ok(newList(d, "2026-10-01", "2026-10-31", { top: true }).rows.every((x) => ["1", "2", "3"].includes(x.p)));
 });
 
 test("a profit-centre split: none, one centre, two, three or more", async () => {

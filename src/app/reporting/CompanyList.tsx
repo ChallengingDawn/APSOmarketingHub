@@ -43,6 +43,8 @@ export type CompanySource = {
   note?: string;
   /** the columns read as text, left-aligned like the name (counted with the name as 0) */
   left?: number[];
+  /** the columns' widths after the name's, when a long text needs more room than a figure (Smart Segmentation) */
+  widths?: string[];
 };
 
 export const PAGE = 25;
@@ -119,8 +121,9 @@ function valueOf(r: CompanyItem, col: number): string | number | null {
 const compare = (a: string | number | null, b: string | number | null) =>
   a == null ? (b == null ? 0 : 1) : b == null ? -1 : typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b), "en", { sensitivity: "base", numeric: true });
 
-/** The list: a name search, the columns sortable, 25 a page, each name to its HubSpot record. */
-export function CompanyList({ source }: { source: CompanySource }) {
+/** The list: a name search, the columns sortable, 25 a page, each name to its HubSpot record - in the window, or on a page
+ *  itself (Smart Segmentation's lists, 02.11.2026: the same table everywhere), where the search does not take the cursor. */
+export function CompanyList({ source, autoFocus = true }: { source: CompanySource; autoFocus?: boolean }) {
   const [page, setPage] = useState(0);
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
@@ -187,7 +190,7 @@ export function CompanyList({ source }: { source: CompanySource }) {
           </Typography>
           {source.note && <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{source.note}</Typography>}
         </Box>
-        <InputBase value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Find a company" autoFocus inputProps={{ "aria-label": "Find a company" }}
+        <InputBase value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Find a company" autoFocus={autoFocus} inputProps={{ "aria-label": "Find a company" }}
           sx={{ fontSize: "0.82rem", px: 1, py: 0.25, border: `1px solid ${HAIRLINE}`, borderRadius: "9px", bgcolor: "#fff", width: { xs: "100%", sm: 220 } }} />
         <Pager p={pager} />
       </Box>
@@ -196,7 +199,7 @@ export function CompanyList({ source }: { source: CompanySource }) {
         : !shown.length && !(st.busy && !local) ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>{q ? "No company by that name on this list." : "No company on this graph."}</Typography>
         : (
           <Box sx={{ opacity: st.busy && !local ? 0.5 : 1, transition: "opacity .15s ease" }}>
-            <Table head={["Company", ...source.head]} left={source.left} sortable={sortable} sort={sort} onSort={onSort}
+            <Table head={["Company", ...source.head]} left={source.left} widths={source.widths} sortable={sortable} sort={sort} onSort={onSort}
               rows={shown.map((r, i) => ({
                 key: `${r.id ?? r.name}-${i}`,
                 cells: [

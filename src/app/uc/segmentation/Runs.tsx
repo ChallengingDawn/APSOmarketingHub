@@ -3,7 +3,8 @@
 // SMART SEGMENTATION - the runs, each on the main tab of its topic (SARCLA 02.11.2026: "runs should be split in different
 // tabs per topic and bring also KPIs", then "integrated to the main tabs, not as a separate tab"): the new companies and
 // the watcher (New companies), the nightly sweep, the potentials (Potential changes), the websites, the yearly
-// reclassification - each with four counts from its last run, then its card to preview and run it.
+// reclassification - each in the same order (SARCLA 02.11.2026: "the design changes from page to page"): is it alive, four
+// counts from its last run, its days with their companies, the companies it changed, then its card to preview and run it.
 
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
@@ -32,7 +33,7 @@ import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, INK, KpiTile, MUTED, Notice, TINT } from "@/app/uc/report/ui";
 import type { PcRun } from "./ProfitCentre";
-import { RunAlive } from "./RunAlive";
+import { RunDays, RunMoves, RunStatus, useRunHistory } from "./RunAlive";
 
 export type Run = Record<string, unknown> | null;
 export type YearlySummary = {
@@ -166,6 +167,7 @@ export function RunTopic({ topic: sub, st, admin, live, running, act, toggleWeb 
   topic: Topic; st: Status; admin: boolean; live: boolean; running: boolean;
   act: (what: string, dry: boolean, extra?: string) => void; toggleWeb: (on: boolean) => void;
 }) {
+  const h = useRunHistory(sub);
   const w = (st.watcher_last ?? {}) as Record<string, unknown>;
   const set = (m: unknown) => Object.values((m ?? {}) as Record<string, number>).reduce((a, n) => a + (Number(n) || 0), 0);
   const sw = statsOf(st.last_sweep), po = statsOf(st.last_potential), we = statsOf(st.last_web), ye = statsOf(st.last_yearly);
@@ -204,9 +206,11 @@ export function RunTopic({ topic: sub, st, admin, live, running, act, toggleWeb 
   };
   return (
     <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
-      <RunAlive topic={sub} st={st} live={live} />
+      <RunStatus topic={sub} st={st} live={live} />
       {running && <Notice tone="warn">{st.running!.what} running since {st.running!.started.slice(11, 16)} UTC (started by {st.running!.by}) - other runs wait for it.</Notice>}
       <Tiles tiles={tiles[sub]} />
+      <RunDays topic={sub} st={st} h={h} />
+      <RunMoves topic={sub} h={h} />
       {sub === "new" && (
         <>
           <RunCard title="Segment new companies" icon={<PlayArrowIcon />} note="Gives a priority to every company that has none yet - a safety net: the watcher already does it within minutes"

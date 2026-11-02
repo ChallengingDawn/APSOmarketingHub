@@ -5,28 +5,19 @@
 // workflow "SARCLA | COMPANY SMARTSEGMENTATION" brought into the watcher (Off / Paused / Live, writes only once the
 // workflow is off) - and the evolution: every company created in the period, where it came from, who gave it its first
 // segment and what became of it since, against the days before. Advanced reporting's cards: DimChart, "All the
-// figures", a click lists the companies. Reads /api/uc/segmentation/new-companies (src/lib/integrations/newCompanies.ts).
+// figures", and the reporting pages' companies window on every chart, stage and row (SARCLA: "you don't have the button
+// on the modal - uniformize"). Reads /api/uc/segmentation/new-companies (src/lib/integrations/newCompanies.ts).
 
 import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Grid from "@mui/material/Grid";
-import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableCell from "@mui/material/TableCell";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
 import CircularProgress from "@mui/material/CircularProgress";
-import CloseIcon from "@mui/icons-material/Close";
 import DomainAddOutlinedIcon from "@mui/icons-material/DomainAddOutlined";
 import BoltOutlinedIcon from "@mui/icons-material/BoltOutlined";
 import HourglassEmptyOutlinedIcon from "@mui/icons-material/HourglassEmptyOutlined";
 import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
-import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
-import FilterAltOutlinedIcon from "@mui/icons-material/FilterAltOutlined";
-import ListAltIcon from "@mui/icons-material/ListAlt";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
@@ -34,21 +25,21 @@ import { StackedColumns } from "@/app/charts/StackedColumns";
 import { DEEMPHASIS } from "@/app/charts/palette";
 import { DimChart } from "@/app/reporting/marketing-kpis/DimChart";
 import { ChartBox, FullTable, TWO, type Col } from "@/app/reporting/eso-benchmark/Figures";
-import { CardTitle, FAINT, GlassCard, INK, KpiTile, MUTED, RED, bodyCell, clip, headCell } from "@/app/uc/report/ui";
-import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
+import { CompanyDialog, useChartCompanies, type CompanySource } from "@/app/reporting/CompanyList";
+import { FAINT, INK, KpiTile, MUTED, RED, clip } from "@/app/uc/report/ui";
+import { Chip, Choice, Info, when } from "@/app/connectors/parts";
 import { useReportingWindow } from "@/app/window/ReportingWindow";
 import { rangeLabel } from "@/lib/boDetection/figures";
 import type { BuildInfo, LiveState, ScanDoc, ScanRow, Settings, Unsegmented } from "@/lib/integrations/newCompanies";
-import { RULES, RULE_LABEL, SET_BY_LABEL, countryName, previousWindow, sourceLabel, type NewCo, type NewFigures, type RuleKey, type Side } from "@/lib/segmentation/newCompanies";
+import { RULES, RULE_LABEL, SET_BY_LABEL, previousWindow, sourceLabel, type NewFigures, type RuleKey, type Side } from "@/lib/segmentation/newCompanies";
 import { SEGMENT_COLOR } from "./PortfolioCharts";
+import { ListCard, NEW_API as API, StatusCard, dayTime, newSource, stageSource, twoLines } from "./lists";
 
-const API = "/api/uc/segmentation/new-companies";
 type Data = {
   figures: NewFigures | null; imported: number; settings: Settings; workflowOn: boolean | null; writing: boolean; scan: ScanDoc; build: BuildInfo | null; unsegmented: Unsegmented | null;
   admin: boolean; engineLive: boolean;
 };
 
-const hsCompany = (id: string) => `https://app-eu1.hubspot.com/contacts/26492587/record/0-2/${id}`;
 const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "—");
 const eur = (n: number) => `${full(Math.round(n))} €`;
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -56,9 +47,9 @@ const monthLabel = (ym: string) => `${MON[Number(ym.slice(5, 7)) - 1]} ${ym.slic
 const bucketLabel = (x: string) => (x.length === 7 ? monthLabel(x) : `${x.slice(8, 10)}.${x.slice(5, 7)}`);
 /** "Last 365 days" inside a sentence */
 const inSentence = (l: string) => l.replace(/^Last /, "the last ");
-const PRIO: Record<string, string> = { "1": "P1", "2": "P2", "3": "P3", "4": "No priority (under 500 €)", "": "No priority yet" };
 /** the segments a customer is in - the ERP's and the engine's */
 const CUSTOMER = new Set(["APSOcore", "APSOgrowth", "Growth Engine Customer"]);
+const LIST_HINT = "A click on a bar lists its companies";
 
 /** Four stacks at most (the palette is never cycled): still a prospect, micro, a customer segment, the rest. */
 const STACK = [
@@ -73,7 +64,8 @@ const stackOf = (seg: Record<string, number>) => {
   return out;
 };
 
-type Kind = "src" | "who" | "move" | "seg" | "country" | "owner" | "bucket" | "rule" | "byRules" | "fast" | "bought" | "customer";
+/** What a click opens - "all": every company of the period; "top": a priority P1 to P3 today. */
+type Kind = "all" | "src" | "who" | "move" | "seg" | "country" | "owner" | "bucket" | "rule" | "byRules" | "fast" | "top" | "bought" | "customer";
 type Pick = { kind: Kind; key: string; label: string };
 type DimRow = { id: string; label: string; n: number; b: number };
 
@@ -99,7 +91,8 @@ export function NewCompanies({ steering }: { steering?: React.ReactNode }) {
   const f = d.figures;
   return (
     <Box id="segmentation-panel-new" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
-      <LiveScan steering={steering} />
+      <LiveScan />
+      {steering}
       {f && (d.imported > 0 || imports === "without") && (
         <Choice<"all" | "without"> value={imports} onChange={setImports} options={[
           { key: "all", label: "All new companies", count: imports === "without" ? f.now.n + d.imported : f.now.n },
@@ -133,11 +126,14 @@ function Evolution({ f, label, pick, setPick, imports }: { f: NewFigures; label:
   const segs = dim(now.seg, was.seg, (k) => k);
   const countries = dim(now.country, was.country, (k) => k);
   const owners = dim(now.owner, was.owner, owner);
+  // the period's companies behind a chart, a stage or a row - in the reporting pages' window
+  const created = `Created ${inSentence(label)}`;
+  const source = (p: Record<string, string>, note = `${created} - the newest first; a click on a column orders by it`): CompanySource => newSource({ from: now.from, to: now.to }, p, imports, f, note);
+  const all = source({});
+  const open = (kind: Kind, key: string, l: string) => setPick({ kind, key, label: l });
   const choose = (kind: Kind, rows: { id: string; label: string }[]) => (l: string) => {
     const x = rows.find((y) => y.label === l);
-    if (!x) return;
-    setPick(pick?.kind === kind && pick.key === x.id ? null : { kind, key: x.id, label: l });
-    if (typeof document !== "undefined") setTimeout(() => document.getElementById("new-companies-list")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    if (x) open(kind, x.id, l);
   };
   const sel = (kind: Kind) => (pick?.kind === kind ? [pick.label] : undefined);
   const data = f.buckets.map((b) => ({ x: b.x, ...stackOf(b.seg) }));
@@ -162,47 +158,35 @@ function Evolution({ f, label, pick, setPick, imports }: { f: NewFigures; label:
   return (
     <>
       <Tiles now={now} was={was} label={label} delta={delta} prospects={prospects} />
-      <Funnel now={now} label={label} picked={pick} onPick={(kind, key, l) => {
-        setPick(pick?.kind === kind && pick.key === key ? null : { kind, key, label: l });
-        if (typeof document !== "undefined") setTimeout(() => document.getElementById("new-companies-list")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
-      }} />
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<InsightsOutlinedIcon />} tint="blue" title={f.byDay ? "Day by day" : "Month by month"}
-          note={`The ${full(now.n)} companies created ${inSentence(label)}, by the APSO segment each has today${f.byDay ? "" : ". The first and last month count only the days inside the period"}`} />
+      <Funnel now={now} label={label} picked={pick} onPick={open} companies={all} />
+      <ChartBox title={`${f.byDay ? "Day by day" : "Month by month"}, ${label}`} companies={all}
+        hint={`The ${full(now.n)} companies created ${inSentence(label)}, by the APSO segment each has today${f.byDay ? "" : ". The first and last month count only the days inside the period"}`}>
         <StackedColumns data={data} parts={STACK.map(({ key, label: l, color }) => ({ key, label: l, color }))} format={(v) => full(v ?? 0)} xFormat={bucketLabel} />
-      </GlassCard>
+      </ChartBox>
       <Box sx={TWO}>
         <DimChart title={`Where they came from, ${label}`} rows={srcs} cur={(x) => x.n} prev={(x) => x.b} curLabel={label} prevLabel={before} fmt={full} labelWidth={230} single={single}
-          selected={sel("src")} onPick={choose("src", srcs)} />
+          selected={sel("src")} onPick={choose("src", srcs)} pickHint={LIST_HINT} companies={all} />
         <DimChart title={`Their segment today, ${label}`} rows={segs} cur={(x) => x.n} prev={(x) => x.b} curLabel={label} prevLabel={before} fmt={full} labelWidth={190} single={single}
-          curNote={(x) => ({ text: pct(x.n, now.n), color: MUTED })} selected={sel("seg")} onPick={choose("seg", segs)} />
+          curNote={(x) => ({ text: pct(x.n, now.n), color: MUTED })} selected={sel("seg")} onPick={choose("seg", segs)} pickHint={LIST_HINT} companies={all} />
       </Box>
       <Box sx={TWO}>
         <DimChart title={`From their first segment to today, ${label}`} rows={moves} cur={(x) => x.n} prev={(x) => x.b} curLabel={label} prevLabel={before} fmt={full} labelWidth={260} single={single}
-          selected={sel("move")} onPick={choose("move", moves)} />
+          selected={sel("move")} onPick={choose("move", moves)} pickHint={LIST_HINT} companies={all} />
         <DimChart title={`By country, ${label}`} rows={countries} cur={(x) => x.n} prev={(x) => x.b} curLabel={label} prevLabel={before} fmt={full} labelWidth={170} single={single}
-          selected={sel("country")} onPick={choose("country", countries)} />
+          selected={sel("country")} onPick={choose("country", countries)} pickHint={LIST_HINT} companies={all} />
       </Box>
       <Box sx={TWO}>
         <DimChart title={`Their owner today, ${label}`} rows={owners} cur={(x) => x.n} prev={(x) => x.b} curLabel={label} prevLabel={before} fmt={full} labelWidth={190} single={single}
-          selected={sel("owner")} onPick={choose("owner", owners)} />
+          selected={sel("owner")} onPick={choose("owner", owners)} pickHint={LIST_HINT} companies={all} />
       </Box>
-      <ChartBox title={`All the figures, ${label}, by ${f.byDay ? "day" : "month"} of creation`}
+      <ChartBox title={`All the figures, ${label}, by ${f.byDay ? "day" : "month"} of creation`} companies={all}
         hint={`What the companies created each ${f.byDay ? "day" : "month"} came as, and what they are today · bought and revenue: invoiced since the year each was created · a click on a row lists its companies`}>
         <FullTable first={f.byDay ? "Day" : "Month"} cols={cols} rows={mrows} total={total} natural onPick={choose("bucket", mrows)} selected={sel("bucket")} />
       </ChartBox>
       <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: -1 }}>
         Read {when(f.at)} - every company created since {rangeLabel(f.since, f.since)}, each with the first value its APSO segment ever had, who wrote it and when; its segment, priority, owner and revenue as HubSpot has them today.
       </Typography>
-      {pick && (
-        <Box id="new-companies-list" sx={{ scrollMarginTop: 16, minWidth: 0 }}>
-          <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-            <CardTitle icon={<ListAltIcon />} tint="slate" title={pick.label} note={`Created ${inSentence(label)} - newest first`}
-              right={<Button size="small" onClick={() => setPick(null)} startIcon={<CloseIcon sx={{ fontSize: 16 }} />} sx={{ textTransform: "none" }}>Close</Button>} />
-            <CompanyList from={now.from} to={now.to} pick={pick} f={f} imports={imports} />
-          </GlassCard>
-        </Box>
-      )}
+      {pick && <CompanyDialog source={source(pick.kind === "all" ? {} : { [pick.kind]: pick.key })} title={`${pick.label}, ${label}`} onClose={() => setPick(null)} />}
     </>
   );
 }
@@ -224,73 +208,7 @@ function Tiles({ now, was, label, delta, prospects }: { now: Side; was: Side; la
   );
 }
 
-/** The companies behind a pick: newest first, the 300 newest of any number. */
-function CompanyList({ from, to, pick, f, imports }: { from: string; to: string; pick: Pick; f: NewFigures; imports: string | null }) {
-  const [q, setQ] = useState(""), [asked, setAsked] = useState("");
-  const params = new URLSearchParams({ list: "1", from, to, [pick.kind]: pick.key, ...(imports ? { imports } : {}), ...(asked ? { q: asked } : {}) });
-  const url = `${API}?${params}`;
-  const r = useHeld<{ rows: NewCo[]; total: number }>(url, [url]).result;
-  const rows = r?.state === "ok" ? r.data.rows : [];
-  const { slice, pager } = usePaged(rows, 25);
-  return (
-    <>
-      <Box component="form" onSubmit={(e: React.FormEvent) => { e.preventDefault(); setAsked(q.trim()); }} sx={{ display: "flex", gap: 0.75, mb: 1.5, alignItems: "center" }}>
-        <TextField size="small" placeholder="a word of the name, or a company id" value={q} onChange={(e) => setQ(e.target.value)} sx={{ width: 280 }} />
-        <Button type="submit" size="small" variant="outlined" sx={{ textTransform: "none" }}>Find</Button>
-        {asked && <Button size="small" onClick={() => { setQ(""); setAsked(""); }} sx={{ textTransform: "none" }}>Clear</Button>}
-        {r === null && <CircularProgress size={14} />}
-      </Box>
-      {r?.state === "ok" && r.data.total > rows.length && <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>The {full(rows.length)} newest of {full(r.data.total)} - a word of the name or a shorter period narrows them.</Typography>}
-      <Box sx={{ overflowX: "auto" }}>
-        <Table size="small">
-          <TableHead><TableRow>{["Created", "Company", "Country", "Came from", "First segment", "Today", "Bought since", "Owner"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
-          <TableBody>
-            {slice.map((x) => (
-              <TableRow key={x.id} hover>
-                <TableCell sx={{ ...bodyCell, color: MUTED, fontSize: "0.78rem", whiteSpace: "nowrap" }}>{rangeLabel(x.d, x.d)}</TableCell>
-                <TableCell sx={bodyCell}>
-                  <Box component="a" href={hsCompany(x.id)} target="_blank" rel="noopener" sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(260) }}>{x.n || x.id}</Box>
-                  <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>{x.c ? `${full(x.c)} contact${x.c === 1 ? "" : "s"}` : "no contact"}{x.dom ? "" : " · no domain"}</Typography>
-                </TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{x.k ? countryName(x.k) : "—"}</TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", ...clip(220) }}>{sourceLabel(x.src, x.by, f.users)}</TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>
-                  {x.f || <Box component="span" sx={{ color: FAINT }}>none</Box>}
-                  {x.f && <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{SET_BY_LABEL[x.fb]}{x.fm !== null ? `, ${x.fm < 120 ? `${x.fm} min` : x.fm < 2880 ? `${Math.round(x.fm / 60)} h` : `${Math.round(x.fm / 1440)} days`} after` : ""}</Typography>}
-                </TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap", fontWeight: x.s !== x.f ? 700 : 400 }}>
-                  {x.s || <Box component="span" sx={{ color: FAINT }}>none</Box>}
-                  <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{PRIO[x.p] ?? x.p}</Typography>
-                </TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap", color: x.r > 0 ? INK : FAINT }}>{x.r > 0 ? eur(x.r) : "—"}</TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{x.o ? f.owners[x.o] ?? `Owner ${x.o}` : "—"}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Box>
-      {pager}
-      {r?.state === "ok" && !rows.length && <Typography sx={{ fontSize: "0.85rem", color: MUTED, mt: 1 }}>No company.</Typography>}
-      {r?.state === "error" && <Typography sx={{ fontSize: "0.85rem", color: RED, mt: 1 }}>{r.error}</Typography>}
-    </>
-  );
-}
-
 /* ── the scan, live ───────────────────────────────────────────────────── */
-
-/** Every company in HubSpot without an APSO segment, read when asked - the one figure that says the job is done. */
-function Unsegmented({ u }: { u: Unsegmented | null }) {
-  if (!u) return <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>The companies without an APSO segment could not be read just now.</Typography>;
-  if (!u.total) return null;
-  return (
-    <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
-      {u.rows.map((x, i) => (
-        <span key={x.id}>{i ? ", " : ""}<Box component="a" href={hsCompany(x.id)} target="_blank" rel="noopener" sx={{ color: "#2459d1" }}>{x.n || x.id}</Box> ({when(x.t)})</span>
-      ))}
-      {u.total > u.rows.length ? ` and ${full(u.total - u.rows.length)} more` : ""}
-    </Typography>
-  );
-}
 
 type Filter = "all" | "micro" | "prospect" | "differs";
 
@@ -303,18 +221,42 @@ function Status({ x }: { x: ScanRow }) {
 type Live = LiveState & { admin: boolean; engineLive: boolean };
 const ago = (ms: number) => (ms < 90_000 ? `${Math.max(0, Math.round(ms / 1000))} s ago` : ms < 5_400_000 ? `${Math.round(ms / 60_000)} min ago` : `${Math.round(ms / 3_600_000)} h ago`);
 const hm = (iso: string) => new Date(iso).toLocaleTimeString("de-CH", { timeZone: "Europe/Zurich", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+/** the Zurich day of a moment, "2026-11-02" */
+const zurichDay = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" });
 const RULE_SHORT: Record<RuleKey, string> = { freemail: "Free mail → APSOmicro", small: "1–5 employees → APSOmicro", other: "Any other → APSOprospect" };
 const RULE_COLOR: Record<RuleKey, string> = { freemail: SEGMENT_COLOR.APSOmicro, small: "#c3b2f7", other: SEGMENT_COLOR.APSOprospect };
 
-/** One stage of today's funnel. */
-function Stage({ label, value, note, tint, children, last }: { label: string; value: string; note: string; tint: string; children?: React.ReactNode; last?: boolean }) {
+/** The scan's decisions as the companies window lists them. */
+function decisions(rows: ScanRow[], key: string, note: string): CompanySource {
+  return {
+    key, note, head: ["Created", "Domain", "Employees", "The rule", "State", "Given in HubSpot"], left: [2, 4, 5, 6],
+    rows: () => rows.map((x) => ({
+      id: x.id, name: x.n || x.id,
+      cells: [
+        dayTime(x.t), x.dom || "none", x.emp || "—", twoLines(x.seg, x.why),
+        <Box key="s" component="span" sx={{ display: "grid", gap: 0.25 }}><Status x={x} />{x.err && <Box component="span" sx={{ fontSize: "0.7rem", color: RED }}>{x.err}</Box>}</Box>,
+        x.actual ? <Box key="a" component="span" sx={{ color: x.actual.seg === x.seg ? INK : RED }}>{twoLines(x.actual.seg, SET_BY_LABEL[x.actual.by], x.actual.seg !== x.seg)}</Box>
+          : x.w === "written" ? `by the hub, ${hm(x.at)}` : "not yet",
+      ],
+      values: [x.t, x.dom || null, Number(x.emp) || null, x.seg, x.w, x.actual?.seg ?? (x.w === "written" ? x.seg : null)],
+    })),
+  };
+}
+
+/** One stage of today's funnel - its companies in the window, from the button beside its name. */
+function Stage({ label, value, note, tint, children, last, companies }: { label: string; value: string; note: string; tint: string; children?: React.ReactNode; last?: boolean; companies: CompanySource | null }) {
+  const list = useChartCompanies(companies, label.replace(/^\d · /, ""));
   return (
     <Box sx={{ display: "flex", alignItems: "stretch", gap: 1, minWidth: 0 }}>
       <Box sx={{ flex: 1, minWidth: 0, borderRadius: "16px", border: "1px solid rgba(21,34,58,.08)", borderTop: `3px solid ${tint}`, bgcolor: "rgba(255,255,255,.75)", p: 1.75, display: "grid", gap: 0.5, alignContent: "start" }}>
-        <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: MUTED }}>{label}</Typography>
+        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+          <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.78rem", fontWeight: 700, color: MUTED }}>{label}</Typography>
+          {list.button}
+        </Box>
         <Typography sx={{ fontSize: "1.9rem", fontWeight: 800, color: INK, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{value}</Typography>
         <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.45 }}>{note}</Typography>
         {children}
+        {list.list}
       </Box>
       {!last && <Box sx={{ display: { xs: "none", lg: "flex" }, alignItems: "center", color: FAINT, fontSize: "1.3rem" }}>→</Box>}
     </Box>
@@ -326,7 +268,7 @@ function Stage({ label, value, note, tint, children, last }: { label: string; va
  * stages"): its pulse and switch, today's funnel - created, in the 20 minutes' wait, given a segment by the hub (by rule),
  * none without one - the days since the hub took over, and every decision. Asks again every 30 seconds.
  */
-function LiveScan({ steering }: { steering?: React.ReactNode }) {
+function LiveScan() {
   const [tick, setTick] = useState(0), [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
     const a = setInterval(() => setTick((x) => x + 1), 30_000), b = setInterval(() => setClock(Date.now()), 1000);
@@ -339,12 +281,11 @@ function LiveScan({ steering }: { steering?: React.ReactNode }) {
   useEffect(() => { if (r?.state === "ok") setD(r.data); }, [r]);
   const [busy, setBusy] = useState(false), [msg, setMsg] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
-  const rowsAll = d?.rows ?? [];
+  if (!d) return r?.state === "error" ? <Typography sx={{ color: RED, fontSize: "0.86rem" }}>{r.error}</Typography> : <LoadingPanel label="Reading the scan…" />;
+  const rowsAll = d.rows;
   const test: Record<Filter, (x: ScanRow) => boolean> = {
     all: () => true, micro: (x) => x.seg === "APSOmicro", prospect: (x) => x.seg === "APSOprospect", differs: (x) => !!x.actual && x.actual.seg !== x.seg,
   };
-  const { slice, pager } = usePaged(rowsAll.filter(test[filter]), 10);
-  if (!d) return r?.state === "error" ? <Typography sx={{ color: RED, fontSize: "0.86rem" }}>{r.error}</Typography> : <LoadingPanel label="Reading the scan…" />;
   const setMode = async (m: "off" | "shadow" | "live") => {
     if (!d.admin || m === d.settings.mode) return;
     if (m === "live" && !window.confirm("Switch the scan to live? The hub writes the first APSO segment of every new company once the HubSpot workflow is switched off.")) return;
@@ -364,101 +305,70 @@ function LiveScan({ steering }: { steering?: React.ReactNode }) {
   const none = d.unsegmented?.total ?? null;
   const dayKeys = Object.keys(d.days).sort().slice(-21);
   const compared = rowsAll.filter((x) => x.actual), agree = compared.filter((x) => x.actual!.seg === x.seg).length;
+  // a list starts again only when a decision comes or changes - not at every look every 30 seconds
+  const stamp = `${rowsAll.length}|${rowsAll[0]?.id ?? ""}|${rowsAll.filter((x) => x.w === "written").length}`;
+  const writtenToday = rowsAll.filter((x) => x.w === "written" && zurichDay(x.at) === d.today);
+  const shown = rowsAll.filter(test[filter]);
   return (
-    <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-      <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start", flexWrap: "wrap", mb: 2 }}>
-        <Box sx={{ position: "relative", width: 14, height: 14, mt: 0.6, flexShrink: 0 }}>
-          <Box sx={{ position: "absolute", inset: 0, borderRadius: "50%", bgcolor: tone }} />
-          {alive && <Box sx={{ position: "absolute", inset: -4, borderRadius: "50%", border: `2px solid ${tone}`, animation: "scanPulse 1.8s ease-out infinite", "@keyframes scanPulse": { "0%": { transform: "scale(.6)", opacity: 0.9 }, "100%": { transform: "scale(1.6)", opacity: 0 } } }} />}
-        </Box>
-        <Box sx={{ flex: 1, minWidth: 260 }}>
-          <Typography sx={{ fontSize: "1.02rem", fontWeight: 800, color: INK }}>
-            {!d.engineLive ? "The scan runs where the hub runs Smart Segmentation" : mode === "off" ? "The scan is off" : mode === "shadow" ? "Paused - the hub works each new company out, writes nothing" : d.writing ? "Live - the hub gives every new company its first APSO segment" : "Live - waiting for the HubSpot workflow to be switched off"}
-          </Typography>
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-            {last ? `Last pass ${hm(last.at)} - ${ago(since)}: ${full(last.found)} without a segment, ${full(last.written)} written${last.error ? ` - ${last.error}` : ""}. ` : "No pass yet. "}
-            Every 2 minutes; a company is decided 20 minutes after it is created. The HubSpot workflow is {d.workflowOn === null ? "not readable" : d.workflowOn ? "switched ON" : "switched off"}{d.writing && d.settings.liveFrom ? `; the hub writes since ${when(d.settings.liveFrom)}` : ""}.
-          </Typography>
-        </Box>
-        {d.admin && <Choice<"off" | "shadow" | "live"> value={mode} onChange={(m) => void setMode(m)} options={[{ key: "live", label: "Live" }, { key: "shadow", label: "Paused" }, { key: "off", label: "Off" }]} />}
-        {busy && <CircularProgress size={14} />}
-      </Box>
-      {msg && <Typography sx={{ fontSize: "0.82rem", color: RED, mb: 1 }}>{msg}</Typography>}
-
-      <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, mb: 1 }}>Today, {rangeLabel(d.today, d.today)}</Typography>
-      <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(4, minmax(0, 1fr))" } }}>
-        <Stage label="1 · Created" value={d.createdToday === null ? "—" : full(d.createdToday)} tint={SEGMENT_COLOR["Growth Engine Customer"]} note="new companies in HubSpot since midnight" />
-        <Stage label="2 · In the 20 minutes' wait" value={d.waiting === null ? "—" : full(d.waiting)} tint="#eda100" note="created in the last 20 minutes with no segment yet - decided when the 20 minutes are up" />
-        <Stage label="3 · Segmented by the hub" value={full(today.written)} tint="#1b7a55"
-          note={today.errors ? `${full(today.errors)} refused by HubSpot` : "by the three rules, written to HubSpot"}>
-          <Box sx={{ display: "grid", gap: 0.5, mt: 0.5 }}>
-            {RULES.map((k) => (
-              <Box key={k} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 36px", gap: 1, alignItems: "center" }}>
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography sx={{ fontSize: "0.7rem", color: MUTED, ...clip(220) }}>{RULE_SHORT[k]}</Typography>
-                  <Box sx={{ height: 5, borderRadius: 3, bgcolor: "rgba(21,34,58,.06)", overflow: "hidden" }}><Box sx={{ height: "100%", width: `${today.written ? (100 * today[k]) / today.written : 0}%`, bgcolor: RULE_COLOR[k] }} /></Box>
+    <>
+      <StatusCard tone={tone} beat={alive}
+        title={!d.engineLive ? "The scan runs where the hub runs Smart Segmentation" : mode === "off" ? "The scan is off" : mode === "shadow" ? "Paused - the hub works each new company out, writes nothing" : d.writing ? "Live - the hub gives every new company its first APSO segment" : "Live - waiting for the HubSpot workflow to be switched off"}
+        line={<>
+          {last ? `Last pass ${hm(last.at)} - ${ago(since)}: ${full(last.found)} without a segment, ${full(last.written)} written${last.error ? ` - ${last.error}` : ""}. ` : "No pass yet. "}
+          Every 2 minutes; a company is decided 20 minutes after it is created. The HubSpot workflow is {d.workflowOn === null ? "not readable" : d.workflowOn ? "switched ON" : "switched off"}{d.writing && d.settings.liveFrom ? `; the hub writes since ${when(d.settings.liveFrom)}` : ""}.
+        </>}
+        right={<>
+          {d.admin && <Choice<"off" | "shadow" | "live"> value={mode} onChange={(m) => void setMode(m)} options={[{ key: "live", label: "Live" }, { key: "shadow", label: "Paused" }, { key: "off", label: "Off" }]} />}
+          {busy && <CircularProgress size={14} />}
+        </>}>
+        {msg && <Typography sx={{ fontSize: "0.82rem", color: RED, mt: 1 }}>{msg}</Typography>}
+        <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, mt: 2, mb: 1 }}>Today, {rangeLabel(d.today, d.today)}</Typography>
+        <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(4, minmax(0, 1fr))" } }}>
+          <Stage label="1 · Created" value={d.createdToday === null ? "—" : full(d.createdToday)} tint={SEGMENT_COLOR["Growth Engine Customer"]} note="new companies in HubSpot since midnight"
+            companies={d.createdToday ? stageSource("created", "Created in HubSpot today since midnight (Zurich), live - the newest first") : null} />
+          <Stage label="2 · In the 20 minutes' wait" value={d.waiting === null ? "—" : full(d.waiting)} tint="#eda100" note="created in the last 20 minutes with no segment yet - decided when the 20 minutes are up"
+            companies={d.waiting ? stageSource("waiting", "Created in the last 20 minutes with no APSO segment yet, live - each is decided when its 20 minutes are up") : null} />
+          <Stage label="3 · Segmented by the hub" value={full(today.written)} tint="#1b7a55"
+            note={today.errors ? `${full(today.errors)} refused by HubSpot` : "by the three rules, written to HubSpot"}
+            companies={writtenToday.length ? decisions(writtenToday, `today|${stamp}`, "Given their first APSO segment by the hub today, the newest first") : null}>
+            <Box sx={{ display: "grid", gap: 0.5, mt: 0.5 }}>
+              {RULES.map((k) => (
+                <Box key={k} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 36px", gap: 1, alignItems: "center" }}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontSize: "0.7rem", color: MUTED, ...clip(220) }}>{RULE_SHORT[k]}</Typography>
+                    <Box sx={{ height: 5, borderRadius: 3, bgcolor: "rgba(21,34,58,.06)", overflow: "hidden" }}><Box sx={{ height: "100%", width: `${today.written ? (100 * today[k]) / today.written : 0}%`, bgcolor: RULE_COLOR[k] }} /></Box>
+                  </Box>
+                  <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(today[k])}</Typography>
                 </Box>
-                <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(today[k])}</Typography>
-              </Box>
-            ))}
-          </Box>
-        </Stage>
-        <Stage last label="4 · Missed - no segment after the wait" value={none === null ? "—" : full(none)} tint={none ? RED : "#1b7a55"}
-          note={none === null ? "could not be read just now" : none === 0 ? "none: every company in HubSpot past its 20 minutes has an APSO segment - read just now" : "past their 20 minutes and still without one, in all of HubSpot - the hub picks them up at its next pass"}>
-          <Unsegmented u={d.unsegmented} />
-        </Stage>
-      </Box>
+              ))}
+            </Box>
+          </Stage>
+          <Stage last label="4 · Missed - no segment after the wait" value={none === null ? "—" : full(none)} tint={none ? RED : "#1b7a55"}
+            note={none === null ? "could not be read just now" : none === 0 ? "none: every company in HubSpot past its 20 minutes has an APSO segment - read just now" : "past their 20 minutes and still without one, in all of HubSpot - the hub picks them up at its next pass"}
+            companies={none ? stageSource("missed", "Past their 20 minutes and still without an APSO segment, in all of HubSpot, live - the newest first") : null} />
+        </Box>
+      </StatusCard>
 
       {dayKeys.length > 0 && (
-        <Box sx={{ mt: 2.5 }}>
-          <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Day by day since the hub took over</Typography>
-          <Typography sx={{ fontSize: "0.74rem", color: MUTED, mb: 1 }}>The companies the hub gave their first segment each day, by the rule that decided</Typography>
+        <ChartBox title="Day by day since the hub took over" hint="The companies the hub gave their first segment each day, by the rule that decided"
+          companies={rowsAll.length ? decisions(rowsAll, `days|${stamp}`, `The ${full(rowsAll.length)} last decisions the scan keeps, the newest first`) : null}>
           <StackedColumns height={170} data={dayKeys.map((k) => ({ x: k, freemail: d.days[k].freemail, small: d.days[k].small, other: d.days[k].other }))}
             parts={RULES.map((k) => ({ key: k, label: RULE_LABEL[k], color: RULE_COLOR[k] }))} format={(v) => full(v ?? 0)} xFormat={(x) => `${x.slice(8, 10)}.${x.slice(5, 7)}`} />
-        </Box>
+        </ChartBox>
       )}
 
-      <Box sx={{ mt: 2.5, display: "grid", gap: 1 }}>
-        <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Every decision, the newest first</Typography>
-        {compared.length > 0 && (
-          <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
-            Before the switch the hub only worked each company out: of the {full(compared.length)} the workflow (or someone) segmented, it would have given the same to {full(agree)} ({pct(agree, compared.length)}).
-          </Typography>
-        )}
-        <Choice<Filter> value={filter} onChange={setFilter} options={[
-          { key: "all", label: "All", count: rowsAll.length }, { key: "prospect", label: "APSOprospect", count: rowsAll.filter(test.prospect).length },
-          { key: "micro", label: "APSOmicro", count: rowsAll.filter(test.micro).length }, { key: "differs", label: "Someone gave another", count: rowsAll.filter(test.differs).length },
-        ]} />
-        <Box sx={{ overflowX: "auto" }}>
-          <Table size="small">
-            <TableHead><TableRow>{["Created", "Company", "Domain", "Employees", "The rule", "", "Given in HubSpot"].map((h, i) => <TableCell key={i} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
-            <TableBody>
-              {slice.map((x) => (
-                <TableRow key={x.id} hover>
-                  <TableCell sx={{ ...bodyCell, color: MUTED, fontSize: "0.78rem", whiteSpace: "nowrap" }}>{when(x.t)}</TableCell>
-                  <TableCell sx={bodyCell}><Box component="a" href={hsCompany(x.id)} target="_blank" rel="noopener" sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(220) }}>{x.n || x.id}</Box></TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: x.dom ? INK : FAINT, ...clip(170) }}>{x.dom || "none"}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: x.emp ? INK : FAINT }}>{x.emp || "—"}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{x.seg}<Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{x.why}</Typography></TableCell>
-                  <TableCell sx={bodyCell}><Status x={x} />{x.err && <Typography sx={{ fontSize: "0.7rem", color: RED }}>{x.err}</Typography>}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap", color: !x.actual ? FAINT : x.actual.seg === x.seg ? INK : RED, fontWeight: x.actual && x.actual.seg !== x.seg ? 700 : 400 }}>
-                    {x.actual ? <>{x.actual.seg}<Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{SET_BY_LABEL[x.actual.by]}</Typography></> : x.w === "written" ? `by the hub, ${hm(x.at)}` : "not yet"}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Box>
-        {pager}
-        {!rowsAll.length && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{mode === "off" ? "Off - no company is looked at." : "No decision yet - the next new company shows here 20 minutes after it is created."}</Typography>}
-      </Box>
-      {steering && (
-        <Box sx={{ mt: 2.5, display: "grid", gap: 1 }}>
-          <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Their priority and potential - the watcher</Typography>
-          {steering}
-        </Box>
+      {rowsAll.length ? (
+        <ListCard title="Every decision, the newest first" source={decisions(shown, `all|${filter}|${stamp}`, "The rule the hub decided by, and what HubSpot has - a click on a column orders by it")}
+          hint={compared.length ? `Before the switch the hub only worked each company out: of the ${full(compared.length)} the workflow (or someone) segmented, it would have given the same to ${full(agree)} (${pct(agree, compared.length)}).` : undefined}>
+          <Choice<Filter> value={filter} onChange={setFilter} options={[
+            { key: "all", label: "All", count: rowsAll.length }, { key: "prospect", label: "APSOprospect", count: rowsAll.filter(test.prospect).length },
+            { key: "micro", label: "APSOmicro", count: rowsAll.filter(test.micro).length }, { key: "differs", label: "Someone gave another", count: rowsAll.filter(test.differs).length },
+          ]} />
+        </ListCard>
+      ) : (
+        <Info>{mode === "off" ? "Off - no company is looked at." : "No decision yet - the next new company shows here 20 minutes after it is created."}</Info>
       )}
-    </GlassCard>
+    </>
   );
 }
 
@@ -466,32 +376,31 @@ function LiveScan({ steering }: { steering?: React.ReactNode }) {
  * The period's funnel (SARCLA 02.11.2026: "track it like a funnel, by the rules and the different stages"): of the
  * companies created, how many the rules segmented (and by which rule), how many within the hour, how many have a P1 to P3
  * priority today, bought since, are in a customer segment today. Each bar is a share of the companies created; a click
- * lists them.
+ * opens its companies in the window.
  */
-function Funnel({ now, label, onPick, picked }: { now: Side; label: string; onPick: (kind: Kind, key: string, l: string) => void; picked: Pick | null }) {
+function Funnel({ now, label, onPick, picked, companies }: { now: Side; label: string; onPick: (kind: Kind, key: string, l: string) => void; picked: Pick | null; companies: CompanySource }) {
   const n = now.n, others = n - now.byRules - (now.who.none ?? 0);
   const top = (now.prio["1"] ?? 0) + (now.prio["2"] ?? 0) + (now.prio["3"] ?? 0);
-  type Row = { label: string; value: number; note: string; kind?: Kind; key?: string; color: string; indent?: boolean };
+  type Row = { label: string; value: number; note: string; kind: Kind; key: string; color: string; indent?: boolean };
   const rows: Row[] = [
-    { label: "Created", value: n, note: `the new companies, ${inSentence(label)}`, color: SEGMENT_COLOR["Growth Engine Customer"] },
+    { label: "Created", value: n, note: `the new companies, ${inSentence(label)}`, kind: "all", key: "", color: SEGMENT_COLOR["Growth Engine Customer"] },
     { label: "Segmented by the rules", value: now.byRules, note: `the workflow until 02.11.2026, the hub since; ${full(others)} got theirs another way (an import, a data sync, a person), ${full(now.who.none ?? 0)} none yet`, kind: "byRules", key: "1", color: "#1b7a55" },
     ...RULES.map((k) => ({ label: RULE_LABEL[k], value: now.rules[k] ?? 0, note: "", kind: "rule" as Kind, key: k, color: RULE_COLOR[k], indent: true })),
     { label: "Within the hour", value: now.fast, note: "their first segment came within an hour of the creation", kind: "fast", key: "1", color: "#5b8def" },
-    { label: "A priority P1 to P3 today", value: top, note: "a basis of 500 € or more - worth a salesperson's time", color: "#eda100" },
+    { label: "A priority P1 to P3 today", value: top, note: "a basis of 500 € or more - worth a salesperson's time", kind: "top", key: "1", color: "#eda100" },
     { label: "Bought since", value: now.bought, note: `an invoice since the year they were created - ${full(Math.round(now.revenue))} € in all`, kind: "bought", key: "1", color: "#13866a" },
     { label: "A customer segment today", value: now.customer, note: "APSOcore, APSOgrowth or Growth Engine", kind: "customer", key: "1", color: SEGMENT_COLOR.APSOcore },
   ];
   return (
-    <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-      <CardTitle icon={<FilterAltOutlinedIcon />} tint="green" title={`From created to customer, ${label}`}
-        note="Every stage is a share of the companies created; the three rules are the ones the workflow and now the hub decide by. A click on a stage lists its companies" />
+    <ChartBox title={`From created to customer, ${label}`} companies={companies}
+      hint="Every stage is a share of the companies created; the three rules are the ones the workflow and now the hub decide by · a click on a stage lists its companies">
       <Box sx={{ display: "grid", gap: 0.75 }}>
         {rows.map((x) => {
-          const on = !!x.kind && picked?.kind === x.kind && picked.key === x.key;
+          const on = picked?.kind === x.kind && picked.key === x.key;
           return (
-            <Box key={x.label} component={x.kind ? "button" : "div"} type={x.kind ? "button" : undefined} onClick={x.kind ? () => onPick(x.kind!, x.key!, x.label) : undefined}
-              sx={{ all: "unset", display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "250px minmax(0, 1fr) 120px" }, gap: { xs: 0.5, md: 1.5 }, alignItems: "center", cursor: x.kind ? "pointer" : "default",
-                pl: x.indent ? { xs: 2, md: 3 } : 0, py: 0.5, borderRadius: "10px", bgcolor: on ? "rgba(36,89,209,.06)" : "transparent", "&:hover": x.kind ? { bgcolor: "rgba(21,34,58,.03)" } : undefined }}>
+            <Box key={x.label} component="button" type="button" onClick={() => onPick(x.kind, x.key, x.label)}
+              sx={{ all: "unset", display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "250px minmax(0, 1fr) 120px" }, gap: { xs: 0.5, md: 1.5 }, alignItems: "center", cursor: "pointer",
+                pl: x.indent ? { xs: 2, md: 3 } : 0, py: 0.5, borderRadius: "10px", bgcolor: on ? "rgba(36,89,209,.06)" : "transparent", "&:hover": { bgcolor: "rgba(21,34,58,.03)" } }}>
               <Box sx={{ minWidth: 0 }}>
                 <Typography sx={{ fontSize: x.indent ? "0.8rem" : "0.88rem", fontWeight: x.indent ? 500 : 700, color: INK }}>{x.label}</Typography>
                 {x.note && <Typography sx={{ fontSize: "0.72rem", color: MUTED, lineHeight: 1.4 }}>{x.note}</Typography>}
@@ -506,7 +415,7 @@ function Funnel({ now, label, onPick, picked }: { now: Side; label: string; onPi
           );
         })}
       </Box>
-    </GlassCard>
+    </ChartBox>
   );
 }
 

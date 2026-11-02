@@ -895,6 +895,9 @@ async function watchInner() {
   const log: string[] = [];
   const dist: Record<string, number> = {};
   let seeded = 0, written = 0, enriched = 0;
+  // the companies it gave a priority or a potential - their list behind the New companies tab's watcher chart (SARCLA
+  // 02.11.2026: every chart with its companies)
+  const moves: Move[] = [];
   if (found.size) {
     const props = await batchRead([...found].sort(), READ_PROPS());
     const changes: [string, Props][] = [];
@@ -917,9 +920,14 @@ async function watchInner() {
         upd.sales_priority = en.prio[c.prefix];
         dist[`P${c.prefix}`] = (dist[`P${c.prefix}`] ?? 0) + 1;
       }
-      if (Object.keys(upd).length) changes.push([cid, upd]);
+      if (Object.keys(upd).length) {
+        changes.push([cid, upd]);
+        const seed = !p0.yearly_customer_potential, was = cur ? cur[0] : "";
+        moves.push({ id: cid, n: p.name ?? "", from: was, to: upd.sales_priority ? c.prefix : was, why: upd.sales_priority ? (seed ? "prio_seed" : "prio") : seed ? "seed" : "enrich", at: nowIso() });
+      }
     }
     written = await batchUpdate(changes, log);
+    if (written) await recordMoves("watch", moves, 500, false);
   }
   let changed: unknown;
   try {

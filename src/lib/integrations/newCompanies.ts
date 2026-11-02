@@ -317,6 +317,36 @@ async function searchCount(filters: object[]): Promise<number | null> {
   }
 }
 
+/** A stage of today's scan: created since midnight (Zurich), in the 20 minutes' wait, past it without a segment. */
+export type Stage = "created" | "waiting" | "missed";
+export type StageRow = { id: string; n: string; t: string; dom: string; emp: string; seg: string };
+
+/**
+ * The companies of a stage, 25 a page, the newest first - read from HubSpot when the stage's window opens (SARCLA
+ * 02.11.2026: every count with its companies, in the reporting pages' window).
+ */
+export async function stageList(stage: Stage, page: number, q?: string): Promise<{ total: number; rows: StageRow[] }> {
+  const now = Date.now();
+  const filters = stage === "created" ? [{ propertyName: "createdate", operator: "GTE", value: String(zurichMidnight(now)) }]
+    : stage === "waiting" ? [{ propertyName: "createdate", operator: "GTE", value: String(now - SEGMENT_AFTER_MIN * 60_000) }, { propertyName: "apso_customer", operator: "NOT_HAS_PROPERTY" }]
+    : [{ propertyName: "apso_customer", operator: "NOT_HAS_PROPERTY" }, { propertyName: "createdate", operator: "LTE", value: String(now - (SEGMENT_AFTER_MIN + 5) * 60_000) }];
+  const at = Math.max(0, Math.min(Math.floor(page), 399));
+  const r = await hubspotFetchJson<{ total?: number; results?: Obj[] }>({
+    path: "/crm/v3/objects/companies/search", method: "POST",
+    body: {
+      filterGroups: [{ filters }], ...(q ? { query: q.slice(0, 80) } : {}), properties: ["name", "createdate", "domain", "numberofemployees", "apso_customer"],
+      sorts: [{ propertyName: "createdate", direction: "DESCENDING" }], limit: 25, ...(at ? { after: String(at * 25) } : {}),
+    },
+  });
+  return {
+    total: r.total ?? 0,
+    rows: (r.results ?? []).map((c) => {
+      const p = c.properties ?? {};
+      return { id: String(c.id), n: p.name ?? "", t: p.createdate ?? "", dom: p.domain ?? "", emp: p.numberofemployees ?? "", seg: p.apso_customer ?? "" };
+    }),
+  };
+}
+
 /**
  * The scan as it happens (SARCLA 02.11.2026: "it doesn't look alive - track it like a funnel, by the rules and the
  * stages"): today in Zurich - created, still in the 20 minutes' wait, given a segment by the hub (by rule), and every

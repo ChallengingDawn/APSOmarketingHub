@@ -14,24 +14,22 @@ import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import CircularProgress from "@mui/material/CircularProgress";
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableCell from "@mui/material/TableCell";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import DonutSmallOutlinedIcon from "@mui/icons-material/DonutSmallOutlined";
 import StarOutlineIcon from "@mui/icons-material/StarOutline";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
-import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import LanguageOutlinedIcon from "@mui/icons-material/LanguageOutlined";
-import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import { CardTitle, GlassCard, INK, KpiTile, MUTED, TINT, bodyCell, headCell } from "@/app/uc/report/ui";
+import { INK, KpiTile, MUTED, TINT } from "@/app/uc/report/ui";
+import { DimChart } from "@/app/reporting/marketing-kpis/DimChart";
+import { Table as KitTable } from "@/app/reporting/marketing-kpis/ExplorerKit";
+import { ChartBox, TWO } from "@/app/reporting/eso-benchmark/Figures";
+import { CompanyDialog } from "@/app/reporting/CompanyList";
+import { Choice } from "@/app/connectors/parts";
+import { NO_SEGMENT } from "@/lib/segmentation/companies";
 import Collapse from "@mui/material/Collapse";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
@@ -40,11 +38,10 @@ import { pctText } from "@/app/uc/oneshot/parts";
 import { WindowPicker } from "@/app/window/ReportingWindow";
 import { PotentialChanges } from "./PotentialChanges";
 import { HowItWorks } from "./HowItWorks";
-import { PriorityMix, SegmentMix } from "./PortfolioCharts";
 import { NewCompanies } from "./NewCompanies";
 import { RunTopic, type Run, type Status, type Topic } from "./Runs";
 import { ProfitCentreKpis } from "./ProfitCentreKpis";
-import { CompaniesTable, PRIO_LABEL } from "./CompaniesTable";
+import { ListCard, PRIO_LABEL, hubSource, type Fixed } from "./lists";
 
 type Breakdown = {
   total: number; with_apso_customer: number; empty: number; by_value: Record<string, number>; other: number; lost_with_current_revenue: number;
@@ -114,6 +111,51 @@ function Notes({ items }: { items: { tone: "bad" | "warn"; text: React.ReactNode
           ))}
         </Box>
       </Collapse>
+    </Box>
+  );
+}
+
+type Prio = { p1: number; p2: number; p3: number; p4: number };
+
+/**
+ * The portfolio: the priorities and the segments as the reporting pages draw a breakdown - a click on a bar opens its
+ * companies in the window - and every company below, live from HubSpot (SARCLA 02.11.2026: "you don't have the button
+ * on the modal and the design changes from page to page").
+ */
+function Portfolio({ st, bd, p }: { st: Status; bd: Breakdown; p: Prio }) {
+  const [pick, setPick] = useState<{ fixed: Fixed; label: string } | null>(null);
+  const [seg, setSeg] = useState("all"), [prio, setPrio] = useState("all");
+  const all = hubSource({});
+  const prios = [
+    { id: "1", label: "P1 · 25,000 € or more", n: p.p1 }, { id: "2", label: "P2 · 2,500 – 24,999 €", n: p.p2 }, { id: "3", label: "P3 · 500 – 2,499 €", n: p.p3 },
+    { id: "4", label: "No priority · under 500 €", n: p.p4 }, ...(st.empty ? [{ id: "", label: "No priority yet", n: st.empty }] : []),
+  ];
+  const segs = [
+    ...Object.entries(bd.by_value).map(([k, n]) => ({ id: k, label: k, n })),
+    ...(bd.empty > 0 ? [{ id: NO_SEGMENT, label: NO_SEGMENT, n: bd.empty }] : []),
+    // more than one value: no single list to open
+    ...(bd.other > 0 ? [{ id: "", label: "Other values", n: bd.other }] : []),
+  ];
+  const open = (rows: { id: string; label: string }[], fixed: (id: string) => Fixed | null, what: string) => (l: string) => {
+    const x = rows.find((y) => y.label === l), f = x && fixed(x.id);
+    if (f) setPick({ fixed: f, label: `${what}: ${l}` });
+  };
+  return (
+    <Box id="segmentation-panel-overview" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
+      <Box sx={TWO}>
+        <DimChart title="Sales priority, every company" rows={prios} cur={(x) => x.n} prev={() => 0} curLabel="Companies" prevLabel="" fmt={full} single fixedOrder labelWidth={210}
+          curNote={(x) => ({ text: pctText(x.n, st.total), color: MUTED })} companies={all} pickHint="From the higher of the yearly potential and the best revenue year since 2015 · a click on a bar lists its companies"
+          selected={pick?.fixed.prio !== undefined ? [prios.find((x) => x.id === pick.fixed.prio)?.label ?? ""] : undefined} onPick={open(prios, (id) => ({ prio: id }), "Sales priority")} />
+        <DimChart title="APSO segment, every company" rows={segs} cur={(x) => x.n} prev={() => 0} curLabel="Companies" prevLabel="" fmt={full} single labelWidth={190}
+          curNote={(x) => ({ text: pctText(x.n, bd.total), color: MUTED })} companies={all} pickHint="A click on a bar lists its companies"
+          selected={pick?.fixed.seg !== undefined ? [pick.fixed.seg] : undefined} onPick={open(segs, (id) => (id ? { seg: id } : null), "APSO segment")} />
+      </Box>
+      <ListCard title="The companies" hint="Every company in HubSpot, live - the largest basis first; narrow it by segment, priority or a name, a click on a column orders by it"
+        source={hubSource({ ...(seg !== "all" ? { seg } : {}), ...(prio !== "all" ? { prio } : {}) })}>
+        <Choice<string> value={seg} onChange={setSeg} options={[{ key: "all", label: "Every segment" }, ...segs.filter((x) => x.id).map((x) => ({ key: x.id, label: `${x.label} · ${full(x.n)}` }))]} />
+        <Choice<string> value={prio} onChange={setPrio} options={[{ key: "all", label: "Every priority" }, ...prios.map((x) => ({ key: x.id, label: `${PRIO_LABEL[x.id]} · ${full(x.n)}` }))]} />
+      </ListCard>
+      {pick && <CompanyDialog source={hubSource(pick.fixed)} title={pick.label} onClose={() => setPick(null)} />}
     </Box>
   );
 }
@@ -253,36 +295,7 @@ export default function SmartSegmentation() {
           onRun={(dry) => void act("profit-centre", dry)}
         />
       )}
-      {tab === "overview" && (
-        <Box id="segmentation-panel-overview" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
-          <GlassCard>
-            <CardTitle icon={<DonutSmallOutlinedIcon />} title="Sales priority" note="MAX(yearly potential, best revenue year since 2015) → P1 ≥ 25'000 € · P2 ≥ 2'500 € · P3 ≥ 500 €" />
-            <PriorityMix total={st.total} slices={[
-              { label: "P1", note: "basis ≥ 25,000 €", value: p.p1, color: "#1b7a55" },
-              { label: "P2", note: "2,500 – 24,999 €", value: p.p2, color: "#3cb889" },
-              { label: "P3", note: "500 – 2,499 €", value: p.p3, color: "#eda100" },
-              { label: "No priority", note: "basis under 500 €", value: p.p4, color: "#b9c0c9" },
-              ...(st.empty ? [{ label: "No priority yet", note: "sales_priority empty", value: st.empty, color: "#c5221f" }] : []),
-            ]} />
-          </GlassCard>
-          <GlassCard>
-            <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="APSO segment" />
-            <SegmentMix total={bd.total} rows={[...Object.entries(bd.by_value).map(([label, value]) => ({ label, value })), ...(bd.other > 0 ? [{ label: "Other values", value: bd.other }] : []), ...(bd.empty > 0 ? [{ label: "No APSO segment", value: bd.empty }] : [])]} />
-            {(bd.without_segment ?? []).length > 0 && (
-              <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1.5 }}>
-                Without an APSO segment (a person sets it - the engine never does):{" "}
-                {(bd.without_segment ?? []).map((c, i) => (
-                  <span key={c.id}>{i ? ", " : ""}<a href={`https://app-eu1.hubspot.com/contacts/26492587/record/0-2/${c.id}`} target="_blank" rel="noreferrer" style={{ color: "#2459d1" }}>{c.name}</a></span>
-                ))}
-                {bd.empty > (bd.without_segment ?? []).length ? ` and ${full(bd.empty - (bd.without_segment ?? []).length)} more` : ""}
-              </Typography>
-            )}
-          </GlassCard>
-          <CompaniesTable title="The companies" note="Every company in HubSpot, live - the largest basis first; narrow it by segment, priority or a name"
-            segments={[...Object.entries(bd.by_value).map(([k, n]) => ({ key: k, label: k, n })), ...(bd.empty > 0 ? [{ key: "No APSO segment", label: "No APSO segment", n: bd.empty }] : [])]}
-            priorities={[{ key: "1", n: p.p1 }, { key: "2", n: p.p2 }, { key: "3", n: p.p3 }, { key: "4", n: p.p4 }, ...(st.empty ? [{ key: "", n: st.empty }] : [])].map((x) => ({ ...x, label: PRIO_LABEL[x.key] }))} />
-        </Box>
-      )}
+      {tab === "overview" && <Portfolio st={st} bd={bd} p={p} />}
 
       {tab === "new" && <NewCompanies steering={run("new")} />}
 
@@ -297,31 +310,14 @@ export default function SmartSegmentation() {
       {tab === "properties" && (
         <Box id="segmentation-panel-properties" role="tabpanel" sx={{ minWidth: 0, display: "grid", gap: 2.5 }}>
           <HowItWorks />
-          <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.75 } }}>
-            <Box sx={{ px: { xs: 2, md: 2.75 } }}>
-              <CardTitle icon={<TuneOutlinedIcon />} title="Every property it writes - and nothing else" note="These are ALL the fields the engine changes; everything else on a company is only read. A person's value is never overwritten" />
-            </Box>
-            <Box sx={{ overflowX: "auto" }}>
-              <Table size="small" sx={{ minWidth: 820 }}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={headCell}>Property</TableCell>
-                    <TableCell sx={headCell}>Written by</TableCell>
-                    <TableCell sx={headCell}>Rule</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {PROPERTY_ROWS.map(([prop, who, rule]) => (
-                    <TableRow key={prop} hover>
-                      <TableCell sx={{ ...bodyCell, fontFamily: "monospace", fontSize: "0.78rem", whiteSpace: "nowrap", color: INK }}>{prop}</TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{who}</TableCell>
-                      <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: MUTED }}>{rule}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Box>
-          </GlassCard>
+          <ChartBox title="Every property it writes - and nothing else" hint="These are ALL the fields the engine changes; everything else on a company is only read. A person's value is never overwritten">
+            <KitTable head={["Property", "Written by", "Rule"]} left={[1, 2]} firstWidth="minmax(190px, 0.8fr)" widths={["minmax(220px, 1.2fr)", "minmax(280px, 2fr)"]} minWidth={820}
+              rows={PROPERTY_ROWS.map(([prop, who, rule]) => ({ key: prop, cells: [
+                <Box key="p" component="span" sx={{ fontFamily: "monospace", fontSize: "0.78rem" }}>{prop}</Box>,
+                <Box key="w" component="span" sx={{ fontSize: "0.82rem", fontWeight: 400 }}>{who}</Box>,
+                <Box key="r" component="span" sx={{ fontSize: "0.82rem", color: MUTED, fontWeight: 400 }}>{rule}</Box>,
+              ] }))} />
+          </ChartBox>
         </Box>
       )}
     </>,

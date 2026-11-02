@@ -1,10 +1,11 @@
 // Smart Segmentation > New companies: the period's new companies and what became of them (?from&to), the companies
-// behind a pick (?list=1&...), the scan's switch and its last decisions. Admins switch it and read the companies again.
+// behind a pick (?list=1&..., a page in the order of a column with &page&sort&desc), the companies of a stage of today's
+// scan (?stage=created|waiting|missed&page&q), the scan's switch and its last decisions. Admins switch it and read the companies again.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
-import { followDoc, liveState, saveSettings, scanState, startFollow, type Mode } from "@/lib/integrations/newCompanies";
-import { RULES, SET_BYS, newFigures, newList, type NewPick, type RuleKey, type SetBy } from "@/lib/segmentation/newCompanies";
+import { followDoc, liveState, saveSettings, scanState, stageList, startFollow, type Mode, type Stage } from "@/lib/integrations/newCompanies";
+import { NEW_SORTS, RULES, SET_BYS, newFigures, newList, newPage, type NewPick, type NewSort, type RuleKey, type SetBy } from "@/lib/segmentation/newCompanies";
 import { describeIntegrationError } from "@/lib/integrations/status";
 
 export const runtime = "nodejs";
@@ -19,6 +20,10 @@ export async function GET(req: NextRequest) {
   const to = DAY.test(sp.get("to") ?? "") ? sp.get("to")! : new Date().toISOString().slice(0, 10);
   const from = DAY.test(sp.get("from") ?? "") ? sp.get("from")! : new Date(Date.now() - 364 * 86_400_000).toISOString().slice(0, 10);
   try {
+    const stage = sp.get("stage");
+    if (stage === "created" || stage === "waiting" || stage === "missed") {
+      return NextResponse.json({ configured: true, ok: true, data: await stageList(stage as Stage, Number(sp.get("page")) || 0, sp.get("q")?.trim() || undefined) });
+    }
     if (sp.get("live") === "1") return NextResponse.json({ configured: true, ok: true, data: { ...(await liveState()), admin: user.role === "admin", engineLive: process.env.SEGMENTATION_ENGINE === "live" } });
     const all = await followDoc();
     // the bulk imports (14.02.2026: 12,006 companies at once) hide the companies that came one by one - a choice on the tab
@@ -32,10 +37,14 @@ export async function GET(req: NextRequest) {
         seg: opt("seg"), first: opt("first"), move: opt("move"), src: opt("src"), country: opt("country"), owner: opt("owner"), prio: opt("prio"), bucket: opt("bucket"),
         who: (SET_BYS as string[]).includes(sp.get("who") ?? "") ? (sp.get("who") as SetBy) : undefined,
         rule: (RULES as string[]).includes(sp.get("rule") ?? "") ? (sp.get("rule") as RuleKey) : undefined,
-        byRules: flag("byRules"), fast: flag("fast"), changed: flag("changed"), customer: flag("customer"),
+        byRules: flag("byRules"), fast: flag("fast"), top: flag("top"), changed: flag("changed"), customer: flag("customer"),
         bought: sp.get("bought") === "1" ? true : sp.get("bought") === "0" ? false : undefined,
         q: opt("q")?.slice(0, 80),
       };
+      if (sp.has("page")) {
+        const sort = (NEW_SORTS as readonly string[]).includes(sp.get("sort") ?? "") ? (sp.get("sort") as NewSort) : undefined;
+        return NextResponse.json({ configured: true, ok: true, data: newPage(doc, from, to, pick, Number(sp.get("page")) || 0, sort, sp.get("desc") !== "0") });
+      }
       return NextResponse.json({ configured: true, ok: true, data: newList(doc, from, to, pick) });
     }
     const state = await scanState();
