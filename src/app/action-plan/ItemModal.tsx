@@ -31,7 +31,6 @@ import CloseIcon from "@mui/icons-material/Close";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import TaskAltIcon from "@mui/icons-material/TaskAlt";
-import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import HistoryIcon from "@mui/icons-material/History";
 import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
@@ -269,10 +268,11 @@ function Tile({ row, r, items, color, onOpen, today }: { row: PlanItem; r: Rolle
         <Typography sx={{ fontSize: "0.86rem", fontWeight: action ? 600 : 800, color: INK, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere", textDecoration: row.stage === KILLED ? "line-through" : "none" }}>
           {row.title}
         </Typography>
-        <Box sx={{ display: "grid", gap: 0.5 }}>
-          <Box sx={{ display: "flex", gap: 1, alignItems: "baseline" }}>
-            <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: "0.74rem", color: FAINT }}>{meta.join(" · ")}</Typography>
-            <Typography sx={{ fontSize: "0.74rem", fontWeight: 800, color: MUTED, fontVariantNumeric: "tabular-nums" }}>{pct} %</Typography>
+        {/* held to the tile's width: a long list of people ends in "…" (SARCLA 02.11.2026: "kanban still broken on main category") */}
+        <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.5, minWidth: 0 }}>
+          <Box sx={{ display: "flex", gap: 1, alignItems: "baseline", minWidth: 0 }}>
+            <Typography noWrap title={meta.join(" · ")} sx={{ flex: 1, minWidth: 0, fontSize: "0.74rem", color: FAINT }}>{meta.join(" · ")}</Typography>
+            <Typography sx={{ flexShrink: 0, fontSize: "0.74rem", fontWeight: 800, color: MUTED, fontVariantNumeric: "tabular-nums" }}>{pct} %</Typography>
           </Box>
           <Box sx={{ height: 3, borderRadius: "1px", bgcolor: "#eef1f6", overflow: "hidden" }}>
             <Box sx={{ height: "100%", width: `${Math.max(0, Math.min(100, pct))}%`, bgcolor: edge }} />
@@ -621,15 +621,8 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
             {/* ── the right: its ticket, its sub-actions once there are some (SARCLA 02.11.2026: "sub-actions should only appear
                 when they have been created"), its tracking ── */}
             <Box sx={{ display: "grid", gap: 2.25, minWidth: 0 }}>
-                {item.dg && (
-                  <Box sx={card}>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                      <ConfirmationNumberOutlinedIcon sx={{ fontSize: 18, color: FAINT }} />
-                      <Typography sx={{ ...section, flex: 1 }}>Its Scroll to Sale ticket</Typography>
-                    </Box>
-                    <ActionTicket item={item} tile={tile} canWrite={canWrite} onChanged={() => { onChanged(); setTick((t) => t + 1); }} />
-                  </Box>
-                )}
+                {/* its own ticket - none on a main action: its sub-actions carry theirs */}
+                {item.dg && <ActionTicket item={item} tile={tile} canWrite={canWrite} main={subs.length > 0} onChanged={() => { onChanged(); setTick((t) => t + 1); }} />}
                 {subs.length > 0 && (
                   <Box sx={card}>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>

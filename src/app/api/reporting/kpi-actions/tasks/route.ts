@@ -133,6 +133,8 @@ export async function PATCH(req: NextRequest) {
     if (!t) return fail("no such task", 404);
     // tied to another action: its tickets take that action's place in HubSpot
     if (plan !== undefined && plan !== before.planItem) queuePlanSync("sub-action moved");
+    // a sub-action of the plan: its ticket takes the change (SARCLA 02.11.2026)
+    else if (t.planItem != null) queuePlanSync("sub-action changed");
     const added = (shared ?? []).filter((p) => !before.shared.some((x) => x.id === p.id));
     const mailed = await notify(t, w, b, b.owner !== undefined && b.owner !== before.owner, added);
     return NextResponse.json({ ok: true, task: t, mailed });

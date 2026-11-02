@@ -4,14 +4,14 @@
 // on the plan's rows (a row that leaves the plan stays as a hidden choice, so a ticket carrying it keeps its name), and
 // puts on every ticket of a sub-action its action's place - again when the action moves. One run is a few reads, and
 // writes only what differs. Rules: actionPlanRules.ts (planOptions, planValuesOf). Proof in the log: `[action-plan] HubSpot`.
-// Each action and its one ticket are kept in step both ways (SARCLA 02.11.2026: "the properties communicate with each
+// Each action and its one ticket - each sub-action and its one - are kept in step both ways (SARCLA 02.11.2026: "the properties communicate with each
 // other: a change in the hub changes the ticket, the status comes back from the ticket as well"): the side changed since
 // they last agreed wins, the first time a merge (actionPlanRules.ticketSync, syncWay). Read again when the plan is opened.
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { IntegrationError } from "@/lib/integrations/status";
 import { markTicketSync, planItems, ticketSyncTimes, updateItem } from "./actionPlan";
-import { PLAN_PROPS, TICKET_SYNC, planOptions, planValuesOf, sameOptions, syncWay, ticketSync, type HsOption, type PlanFields, type PlanPropName } from "./actionPlanRules";
-import { actionTickets, planTicketLinks } from "./kpiActions";
+import { PLAN_PROPS, SUB_TICKET_SYNC, TICKET_SYNC, planOptions, planValuesOf, sameOptions, subTicketSync, syncWay, ticketSync, type HsOption, type PlanFields, type PlanPropName } from "./actionPlanRules";
+import { actionTickets, markTaskSync, planTasks, planTicketLinks, taskSyncTimes, taskTickets, updateTask } from "./kpiActions";
 import { S2S_PIPELINE } from "./scrollToSaleRules";
 import { s2sForm } from "./scrollToSale";
 
@@ -71,40 +71,71 @@ async function tickets(items: Items): Promise<number> {
   return n;
 }
 
-/** Each action and its own ticket brought in step; the tickets written in one batch, the actions one by one. */
-async function inStep(items: Items): Promise<{ pushed: number; pulled: number }> {
-  const links = await actionTickets();
-  if (!links.length) return { pushed: 0, pulled: 0 };
-  const byId = new Map(items.map((i) => [i.id, i]));
-  const synced = await ticketSyncTimes();
-  const names = new Map(((await s2sForm().catch(() => null))?.owners ?? []).map((o) => [o.id, o.name]));
-  const props = [...TICKET_SYNC.map((f) => f.prop), "hs_pipeline", "hs_lastmodifieddate"];
-  let pushed = 0, pulled = 0;
-  const agreed: number[] = [];
-  for (let k = 0; k < links.length; k += 100) {
-    const part = links.slice(k, k + 100);
-    const j = await hubspotFetchJson<{ results?: { id: string; properties?: Record<string, string | null> }[] }>({
-      path: "/crm/v3/objects/tickets/batch/read", method: "POST", body: { inputs: part.map((l) => ({ id: l.ticketId })), properties: props },
+type Ticket = Record<string, string | null>;
+/** The tickets as HubSpot has them now, 100 a read. */
+async function readTickets(ids: string[], props: string[]): Promise<Map<string, Ticket>> {
+  const out = new Map<string, Ticket>();
+  for (let k = 0; k < ids.length; k += 100) {
+    const j = await hubspotFetchJson<{ results?: { id: string; properties?: Ticket }[] }>({
+      path: "/crm/v3/objects/tickets/batch/read", method: "POST", body: { inputs: ids.slice(k, k + 100).map((id) => ({ id })), properties: props },
     });
-    const found = new Map((j.results ?? []).map((t) => [String(t.id), t.properties ?? {}]));
-    const writes: { id: string; properties: Record<string, string> }[] = [];
-    for (const l of part) {
-      const a = byId.get(l.item), t = found.get(l.ticketId);
-      // a ticket moved out of the pipeline, or deleted, is left alone
-      if (!a || a.kind !== "action" || !t || t.hs_pipeline !== S2S_PIPELINE) continue;
-      const ticketAt = t.hs_lastmodifieddate ? new Date(t.hs_lastmodifieddate).toISOString() : "";
-      const d = ticketSync(a, t, syncWay(a.updatedAt, ticketAt, synced.get(a.id) ?? null));
-      agreed.push(a.id);
-      if (!d.fields.length) continue;
-      if (Object.keys(d.push).length) { writes.push({ id: l.ticketId, properties: d.push }); pushed++; }
-      const { ownerId, ...rest } = d.pull;
-      const patch: Partial<PlanFields> = { ...rest };
-      if (ownerId) patch.owners = [{ id: ownerId, name: names.get(ownerId) ?? ownerId }, ...a.owners.filter((o) => o.id !== ownerId)];
-      if (Object.keys(patch).length) { await updateItem(a.id, patch, `Its ticket in HubSpot (${l.ticketId})`); pulled++; }
-    }
-    if (writes.length) await hubspotFetchJson({ path: "/crm/v3/objects/tickets/batch/update", method: "POST", body: { inputs: writes } });
+    for (const t of j.results ?? []) out.set(String(t.id), t.properties ?? {});
   }
-  await markTicketSync(agreed);
+  return out;
+}
+
+/**
+ * Each action and each sub-action brought in step with its ticket; the tickets written in batches, the plan one by one.
+ * A main action - one with sub-actions - takes no ticket: its sub-actions carry theirs (SARCLA 02.11.2026: "this type of
+ * action should not have a ticket, because they are main"); an old one on it is left alone.
+ */
+async function inStep(items: Items): Promise<{ pushed: number; pulled: number }> {
+  const [links, subLinks, subs] = await Promise.all([actionTickets(), taskTickets(), planTasks()]);
+  if (!links.length && !subLinks.length) return { pushed: 0, pulled: 0 };
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const main = new Set(subs.map((x) => x.planItem).filter((x): x is number => x != null));
+  const taskById = new Map(subs.map((x) => [x.id, x]));
+  const [synced, subSynced] = await Promise.all([ticketSyncTimes(), taskSyncTimes()]);
+  const names = new Map(((await s2sForm().catch(() => null))?.owners ?? []).map((o) => [o.id, o.name]));
+  const props = [...new Set([...TICKET_SYNC.map((f) => f.prop), ...SUB_TICKET_SYNC.map((f) => f.prop), "hs_pipeline", "hs_lastmodifieddate"])];
+  const found = await readTickets([...new Set([...links, ...subLinks].map((l) => l.ticketId))], props);
+  // a ticket moved out of the pipeline, or deleted, is left alone
+  const ours = (id: string) => { const t = found.get(id); return t && t.hs_pipeline === S2S_PIPELINE ? t : null; };
+  const at = (t: Ticket) => (t.hs_lastmodifieddate ? new Date(t.hs_lastmodifieddate).toISOString() : "");
+  const writes = new Map<string, Record<string, string>>();
+  let pushed = 0, pulled = 0;
+  const agreed: number[] = [], subAgreed: number[] = [];
+  for (const l of links) {
+    const a = byId.get(l.item), t = ours(l.ticketId);
+    if (!a || a.kind !== "action" || main.has(a.id) || !t) continue;
+    const d = ticketSync(a, t, syncWay(a.updatedAt, at(t), synced.get(a.id) ?? null));
+    agreed.push(a.id);
+    if (!d.fields.length) continue;
+    if (Object.keys(d.push).length) { writes.set(l.ticketId, d.push); pushed++; }
+    const { ownerId, ...rest } = d.pull;
+    const patch: Partial<PlanFields> = { ...rest };
+    if (ownerId) patch.owners = [{ id: ownerId, name: names.get(ownerId) ?? ownerId }, ...a.owners.filter((o) => o.id !== ownerId)];
+    if (Object.keys(patch).length) { await updateItem(a.id, patch, `Its ticket in HubSpot (${l.ticketId})`); pulled++; }
+  }
+  for (const l of subLinks) {
+    const k = taskById.get(l.task), t = ours(l.ticketId);
+    // one ticket on both an action and its sub-action: the action's went first
+    if (!k || !t || writes.has(l.ticketId)) continue;
+    const d = subTicketSync(k, t, syncWay(k.updatedAt, at(t), subSynced.get(k.id) ?? null));
+    subAgreed.push(k.id);
+    if (!d.fields.length) continue;
+    if (Object.keys(d.push).length) { writes.set(l.ticketId, d.push); pushed++; }
+    if (Object.keys(d.pull).length) {
+      const p = d.pull;
+      await updateTask(k.id, { ...p, ...(p.owner ? { ownerName: names.get(p.owner) ?? p.owner } : {}) });
+      pulled++;
+    }
+  }
+  const inputs = [...writes.entries()].map(([id, properties]) => ({ id, properties }));
+  for (let k = 0; k < inputs.length; k += 100) {
+    await hubspotFetchJson({ path: "/crm/v3/objects/tickets/batch/update", method: "POST", body: { inputs: inputs.slice(k, k + 100) } });
+  }
+  await Promise.all([markTicketSync(agreed), markTaskSync(subAgreed)]);
   return { pushed, pulled };
 }
 

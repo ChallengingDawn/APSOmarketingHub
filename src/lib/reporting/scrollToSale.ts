@@ -126,6 +126,17 @@ export async function readTickets(ids: string[]): Promise<S2sTicket[]> {
   return shape(j.results ?? []);
 }
 
+/** One ticket of the pipeline with every field of the form - to fill what is made from it. Null when it is not there. */
+export async function ticketFields(id: string): Promise<Record<string, string> | null> {
+  const props = [...new Set([...S2S_FIELDS.map((f) => f.name), "hs_pipeline"])];
+  const j = await hubspotFetchJson<{ results?: Ticket[] }>({
+    path: "/crm/v3/objects/tickets/batch/read", method: "POST", body: { inputs: [{ id }], properties: props },
+  });
+  const t = j.results?.[0];
+  if (!t || t.properties?.hs_pipeline !== S2S_PIPELINE) return null;
+  return Object.fromEntries(Object.entries(t.properties ?? {}).filter(([k, v]) => k !== "hs_pipeline" && v != null && String(v).trim()).map(([k, v]) => [k, String(v)]));
+}
+
 export type TicketState = "open" | "closed" | "all";
 
 /**

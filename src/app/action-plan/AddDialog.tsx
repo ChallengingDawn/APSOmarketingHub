@@ -33,7 +33,7 @@ import { IDEA, PRIORITIES, STAGES, type Opt, type PlanFields, type PlanItem, typ
 import type { AiFill } from "@/lib/reporting/scrollToSaleRules";
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
 import { FindTickets, TicketFields, useTileActions } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
-import { AiBox, AiButton, NewSub, planTile } from "./SubActions";
+import { AiBox, AiButton, NewSub, planTile, ticketText, useTicketFill } from "./SubActions";
 import { PRIORITY_COLOR, stageColor, type PlanData } from "./planUi";
 
 const field = { "& .MuiInputBase-root": { fontSize: "0.9rem", borderRadius: "8px", bgcolor: "#fff" }, "& .MuiInputLabel-root": { fontSize: "0.88rem" } };
@@ -113,7 +113,28 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
+  const [fromTicket, setFromTicket] = useState(false);
   const action = kind === "action";
+  // a ticket linked: what it says becomes the new action's - its name and description where none is typed yet (SARCLA
+  // 02.11.2026: "here it doesn't inherit the fields from the ticket")
+  useTicketFill(ticket === "link" ? pick : [], (f) => {
+    const list = (x: string | undefined, opts: Opt[]) => (x ?? "").split(";").filter((y) => opts.some((o) => o.value === y));
+    setTitle((x) => x.trim() || f.subject || "");
+    setDetail((x) => x.trim() || ticketText(f.content));
+    if (STAGES.some((x) => x.id === f.hs_pipeline_stage)) setStage(f.hs_pipeline_stage);
+    if (PRIORITIES.some((x) => x.value === f.hs_ticket_priority)) setPriority(f.hs_ticket_priority);
+    const who = people.find((x) => x.id === f.hubspot_owner_id);
+    if (who) setOwners((o) => (o.some((x) => x.id === who.id) ? o : [who, ...o]));
+    if (f.mkt_planned_date) setStart(f.mkt_planned_date.slice(0, 10));
+    if (f.mkt_golive_date) setDue(f.mkt_golive_date.slice(0, 10));
+    if (list(f.mkt_implementation_country, choices.country).length) setCountry(list(f.mkt_implementation_country, choices.country));
+    if (list(f.mkt_channel, choices.channel).length) setChannel(list(f.mkt_channel, choices.channel));
+    if (list(f.mkt_agency, choices.agency).length) setAgency(list(f.mkt_agency, choices.agency));
+    setStatusNote((x) => x.trim() || f.mkt_status_note || "");
+    setKpis((x) => x.trim() || f.mkt_kpis || "");
+    setNextSteps((x) => x.trim() || f.mkt_next_steps || "");
+    setFromTicket(true);
+  });
   // Digital Growth only for an action under a sub-category (none to pick under a main category)
   const dgOk = action && parent.kind === "group";
   const withTicket = dgOk && dg;
@@ -270,7 +291,8 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
                 : <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Reading the pipeline…</Typography></Box>
             )}
             {ticket === "new" && t && <TicketFields form={{ ...t.form, fields: t.form.fields.filter((f) => !GIVEN.includes(f.name)) }} values={values} set={(k, x) => setExtra((o) => ({ ...o, [k]: x }))} />}
-            {ticket === "link" && <FindTickets pick={pick} setPick={setPick} already={[]} />}
+            {ticket === "link" && <FindTickets pick={pick} setPick={(f) => setPick((x) => f(x).slice(-1))} already={[]} />}
+            {ticket === "link" && fromTicket && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Filled in from the ticket - check it at the left, then create it.</Typography>}
           </Box>
         )}
       </Box>

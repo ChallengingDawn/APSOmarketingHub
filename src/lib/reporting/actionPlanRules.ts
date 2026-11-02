@@ -402,7 +402,11 @@ export function rollup(items: PlanItem[], subs: PlanSub[], today: string): Map<n
     if (seen.has(i.id)) return { percent: null, from: null, to: null, subs: 0, subsOpen: 0, late: 0 };
     seen.add(i.id);
     const mine = subsOf.get(i.id) ?? [];
-    let from = minD(i.start, i.due), to = maxD(i.start, i.due);
+    // an action's own dates; a category's only from what is in it - its first date to its last, actions and sub-actions
+    // alike (SARCLA 02.11.2026: "main categories' planned and go-live dates should inherit from the first date of any
+    // action or sub-action and end at the latest")
+    const own = i.kind === "action";
+    let from = own ? minD(i.start, i.due) : null, to = own ? maxD(i.start, i.due) : null;
     for (const s of mine) { from = minD(minD(from, s.start), s.due); to = maxD(maxD(to, s.start), s.due); }
     let n = mine.length, open = mine.filter((s) => s.status !== "done").length;
     let late = i.kind === "action" && isLate(i, today) ? 1 : 0;
@@ -572,7 +576,8 @@ export function ticketFromAction(a: PlanItem, items: TreeRow[], options: Record<
    action - the properties communicate with each other: a change in the hub changes the ticket, the ticket's status
    comes back as well - this should be a sync") ───────────────────────────────────────────────────────────────── */
 
-type SyncField = { prop: string; hub: (a: PlanItem) => string; kind?: "text" | "list" | "date" };
+type SyncKind = "text" | "list" | "date";
+type SyncField = { prop: string; hub: (a: PlanItem) => string; kind?: SyncKind };
 /** The ticket's property behind each field of an action. */
 export const TICKET_SYNC: readonly SyncField[] = [
   { prop: "subject", hub: (a) => a.title },
@@ -590,33 +595,43 @@ export const TICKET_SYNC: readonly SyncField[] = [
   { prop: "mkt_next_steps", hub: (a) => a.nextSteps },
   { prop: "mkt_status_note", hub: (a) => a.statusNote },
 ];
-const norm = (f: SyncField, v: string | null | undefined): string => {
+const norm = (kind: SyncKind | undefined, v: string | null | undefined): string => {
   const x = String(v ?? "").replace(/\r\n/g, "\n").trim();
-  return f.kind === "list" ? x.split(";").map((y) => y.trim()).filter(Boolean).sort().join(";") : f.kind === "date" ? x.slice(0, 10) : x;
+  return kind === "list" ? x.split(";").map((y) => y.trim()).filter(Boolean).sort().join(";") : kind === "date" ? x.slice(0, 10) : x;
 };
 
 /**
- * Where an action and its ticket differ, and what goes which way: "push" the hub's values to the ticket, "pull" the
- * ticket's to the action (its owner as an id, `ownerId`), "merge" - the first time they meet, as when a ticket is
- * linked - an empty side takes the other's and where both say something the ticket wins. Neither side gets what it
- * cannot take: no empty name or status for the ticket, no stage or priority the plan does not know for the action.
+ * Where one side and its ticket differ, by property, and what goes which way: "push" ours to the ticket, "pull" the
+ * ticket's to us, "merge" - the first time they meet, as when a ticket is linked - an empty side takes the other's and
+ * where both say something the ticket wins. No empty name or status is pushed: the ticket needs both.
+ */
+function diff(defs: readonly { prop: string; kind?: SyncKind }[], mine: Record<string, string>, t: Record<string, string | null | undefined>, way: "push" | "pull" | "merge") {
+  const fields: string[] = [];
+  const push: Record<string, string> = {};
+  const pull: Record<string, string> = {};
+  for (const f of defs) {
+    const m = norm(f.kind, mine[f.prop]), theirs = norm(f.kind, t[f.prop]);
+    if (m === theirs) continue;
+    fields.push(f.prop);
+    if (way === "push" || (way === "merge" && !theirs)) {
+      if (!(["subject", "hs_pipeline_stage"].includes(f.prop) && !m)) push[f.prop] = m;
+    } else pull[f.prop] = theirs;
+  }
+  return { fields, push, pull };
+}
+
+/**
+ * Where an action and its ticket differ, and what goes which way (diff); the ticket's values as the action's fields - its
+ * owner as an id, `ownerId` - never a stage or priority the plan does not know.
  */
 export function ticketSync(a: PlanItem, t: Record<string, string | null | undefined>, way: "push" | "pull" | "merge"): {
   fields: string[]; push: Record<string, string>; pull: Partial<PlanFields> & { ownerId?: string };
 } {
-  const fields: string[] = [];
-  const push: Record<string, string> = {};
+  const d = diff(TICKET_SYNC, Object.fromEntries(TICKET_SYNC.map((f) => [f.prop, f.hub(a)])), t, way);
   const pull: Partial<PlanFields> & { ownerId?: string } = {};
-  for (const f of TICKET_SYNC) {
-    const mine = norm(f, f.hub(a)), theirs = norm(f, t[f.prop]);
-    if (mine === theirs) continue;
-    fields.push(f.prop);
-    if (way === "push" || (way === "merge" && !theirs)) {
-      if (!(["subject", "hs_pipeline_stage"].includes(f.prop) && !mine)) push[f.prop] = mine;
-      continue;
-    }
+  for (const [prop, theirs] of Object.entries(d.pull)) {
     const list = theirs ? theirs.split(";") : [];
-    switch (f.prop) {
+    switch (prop) {
       case "subject": if (theirs) pull.title = theirs; break;
       case "content": pull.detail = theirs; break;
       case "hs_pipeline_stage": if (stageOf(theirs)) pull.stage = theirs; break;
@@ -633,7 +648,52 @@ export function ticketSync(a: PlanItem, t: Record<string, string | null | undefi
       case "mkt_status_note": pull.statusNote = theirs; break;
     }
   }
-  return { fields, push, pull };
+  return { fields: d.fields, push: d.push, pull };
+}
+
+/** A sub-action as its ticket sees it (a KPI task of the plan). */
+export type SubSyncable = { title: string; note: string; stage: string | null; priority: string; owner: string; start: string | null; due: string | null; statusNote: string };
+/** The ticket's property behind each field of a sub-action. */
+export const SUB_TICKET_SYNC: readonly { prop: string; sub: (s: SubSyncable) => string; kind?: SyncKind }[] = [
+  { prop: "subject", sub: (s) => s.title },
+  { prop: "content", sub: (s) => s.note },
+  { prop: "hs_pipeline_stage", sub: (s) => s.stage ?? "" },
+  { prop: "hs_ticket_priority", sub: (s) => s.priority },
+  // a task made on a KPI tile without a HubSpot owner has the maker's e-mail: no owner for the ticket
+  { prop: "hubspot_owner_id", sub: (s) => (/^\d+$/.test(s.owner) ? s.owner : "") },
+  { prop: "mkt_planned_date", sub: (s) => s.start ?? "", kind: "date" },
+  { prop: "mkt_golive_date", sub: (s) => s.due ?? "", kind: "date" },
+  { prop: "mkt_status_note", sub: (s) => s.statusNote },
+];
+/** The way back to the plan a sub-action's ticket ends its description with ("Open it: <link>"). */
+const OPEN_IT = /\s*Open it: \S+\s*$/;
+
+/**
+ * Where a sub-action and its ticket differ, and what goes which way (SARCLA 02.11.2026: "here it has a ticket associated
+ * but did not copy the properties back to the action plan"), as an action's: the ticket's values as the sub-action's
+ * fields. The ticket's description keeps its way back to the plan; it is not part of the sub-action's.
+ */
+export function subTicketSync(s: SubSyncable, t: Record<string, string | null | undefined>, way: "push" | "pull" | "merge"): {
+  fields: string[]; push: Record<string, string>; pull: Partial<SubSyncable>;
+} {
+  const content = String(t.content ?? "");
+  const tail = content.match(OPEN_IT)?.[0].trim() ?? "";
+  const d = diff(SUB_TICKET_SYNC, Object.fromEntries(SUB_TICKET_SYNC.map((f) => [f.prop, f.sub(s)])), { ...t, content: content.replace(OPEN_IT, "") }, way);
+  if (d.push.content !== undefined && tail) d.push.content = d.push.content ? `${d.push.content}\n\n${tail}` : tail;
+  const pull: Partial<SubSyncable> = {};
+  for (const [prop, theirs] of Object.entries(d.pull)) {
+    switch (prop) {
+      case "subject": if (theirs) pull.title = theirs; break;
+      case "content": pull.note = theirs; break;
+      case "hs_pipeline_stage": if (stageOf(theirs)) pull.stage = theirs; break;
+      case "hs_ticket_priority": if (!theirs || PRIORITIES.some((p) => p.value === theirs)) pull.priority = theirs; break;
+      case "hubspot_owner_id": if (theirs) pull.owner = theirs; break;
+      case "mkt_planned_date": pull.start = theirs || null; break;
+      case "mkt_golive_date": pull.due = theirs || null; break;
+      case "mkt_status_note": pull.statusNote = theirs; break;
+    }
+  }
+  return { fields: d.fields, push: d.push, pull };
 }
 
 /**

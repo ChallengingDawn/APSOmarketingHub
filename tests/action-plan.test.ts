@@ -5,7 +5,7 @@ import { test } from "node:test";
 import {
   IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, codesOf, isDigitalGrowth, isLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
-  stateOfStage, stageOfStatus, statusOfStage, subPct, subStage, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
+  stateOfStage, stageOfStatus, statusOfStage, subPct, subStage, subTicketSync, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
@@ -335,4 +335,42 @@ test("action plan: an action and its ticket - what goes over, only what the othe
   const odd = ticketSync({ ...a, stage: null }, { ...t, subject: "", hs_pipeline_stage: "999" }, "push");
   assert.equal("hs_pipeline_stage" in odd.push, false);
   assert.equal(ticketSync(a, { ...t, hs_pipeline_stage: "999" }, "pull").pull.stage, undefined);
+});
+
+test("action plan: a category's dates are only what is in it - its first date to its last, sub-actions too", () => {
+  const items = [
+    // the workbook gave the category its own dates: they no longer count
+    it(1, null, "topic", { start: "2026-01-01", due: "2028-12-31" }),
+    it(2, 1, "group"),
+    it(3, 2, "action", { start: "2026-11-02", due: "2026-12-15" }),
+    it(4, 1, "action", { due: "2027-01-20" }),
+  ];
+  const r = rollup(items, [sub(1, 3, "open", "2027-02-10", { start: "2026-10-20" })], "2026-11-01");
+  assert.deepEqual([r.get(1)!.from, r.get(1)!.to], ["2026-10-20", "2027-02-10"]);
+  assert.deepEqual([r.get(2)!.from, r.get(2)!.to], ["2026-10-20", "2027-02-10"]);
+  // an action keeps its own, its sub-actions widening them
+  assert.deepEqual([r.get(3)!.from, r.get(3)!.to], ["2026-10-20", "2027-02-10"]);
+  // nothing dated in it: no dates
+  assert.deepEqual([rollup([it(5, null, "topic", { start: "2026-01-01" })], [], "2026-11-01").get(5)!.from], [null]);
+});
+
+test("action plan: a sub-action and its ticket - its own fields both ways, the ticket's way back kept", () => {
+  const s = { title: "Brief the agency", note: "Two waves", stage: IN_PROGRESS, priority: "HIGH", owner: "11", start: "2026-11-02", due: null, statusNote: "" };
+  const t = {
+    subject: "Brief the agency", content: "Two waves\n\nOpen it: https://hub/action-plan?item=7", hs_pipeline_stage: LIVE, hs_ticket_priority: "HIGH",
+    hubspot_owner_id: "11", mkt_planned_date: "2026-11-02", mkt_golive_date: "2026-12-01", mkt_status_note: "Sent",
+  };
+  // the link at the end of the ticket's description is not a difference
+  const pull = subTicketSync(s, t, "pull");
+  assert.deepEqual(pull.fields, ["hs_pipeline_stage", "mkt_golive_date", "mkt_status_note"]);
+  assert.deepEqual(pull.pull, { stage: LIVE, due: "2026-12-01", statusNote: "Sent" });
+  // a new description pushed keeps the way back
+  const push = subTicketSync({ ...s, note: "Three waves" }, t, "push");
+  assert.equal(push.push.content, "Three waves\n\nOpen it: https://hub/action-plan?item=7");
+  // a task made on a KPI tile with the maker's e-mail as owner: no owner for the ticket
+  assert.equal("hubspot_owner_id" in subTicketSync({ ...s, owner: "ann@example.com" }, { ...t, hubspot_owner_id: "" }, "push").push, false);
+  // the first time: the ticket wins where both say something, an empty side takes the other's
+  const merge = subTicketSync({ ...s, statusNote: "", due: "2026-12-05" }, { ...t, mkt_status_note: "" }, "merge");
+  assert.deepEqual(merge.pull, { stage: LIVE, due: "2026-12-01" });
+  assert.deepEqual(merge.push, {});
 });

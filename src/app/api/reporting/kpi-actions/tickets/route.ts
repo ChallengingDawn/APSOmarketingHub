@@ -1,5 +1,7 @@
 // A tile's "From Scroll to Sale" tickets (SARCLA 18.10.2026):
 //   GET ?tile=&ctx=<json>   the linked tickets as HubSpot has them, the form and its prefill
+//   GET ?read=<id>          one ticket's fields, to fill a new sub-action or action from it (SARCLA 02.11.2026: "here it
+//                           doesn't inherit the fields from the ticket")
 //   GET ?search=<words>&state=open|closed|all   the pipeline's tickets to link (newest first when empty) - open ones,
 //                           or the closed ones too to trace back (SARCLA 01.11.2026)
 //   POST {action:"create", tile, taskId?, values}   a new ticket, linked to the tile (and its task)
@@ -9,11 +11,11 @@
 // On an action of the plan the form also carries the plan's place (three properties the hub keeps in HubSpot,
 // actionPlanHubspot.ts) and starts from the action's own fields; a ticket made or linked there gets its place.
 import { NextRequest, NextResponse } from "next/server";
-import { actionTickets, linkTickets, planIdOf, taskById, ticketsOf, unlinkTicket } from "@/lib/reporting/kpiActions";
+import { actionTickets, forgetTaskSync, linkTickets, planIdOf, taskById, taskTickets, tasksOf, ticketsOf, unlinkTicket } from "@/lib/reporting/kpiActions";
 import { forgetTicketSync, itemById, planItems } from "@/lib/reporting/actionPlan";
 import { flushPlanSync, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { PLAN_PROPS, planOptions, ticketFromAction } from "@/lib/reporting/actionPlanRules";
-import { createTicket, ownerOf, readTickets, s2sForm, searchTickets, ticketUrl, type TicketState } from "@/lib/reporting/scrollToSale";
+import { createTicket, ownerOf, readTickets, s2sForm, searchTickets, ticketFields, ticketUrl, type TicketState } from "@/lib/reporting/scrollToSale";
 import { PLAN_FIELDS, missingRequired, prefill, type TileContext } from "@/lib/reporting/scrollToSaleRules";
 import { describeIntegrationError } from "@/lib/integrations/status";
 import { fail, who, whoForTile } from "../guard";
@@ -27,9 +29,15 @@ const hsFail = (e: unknown) => NextResponse.json({ ok: false, ...describeIntegra
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   // the open tickets to link: Advanced reporting's rule (an admin, the only one on the plan, passes it too)
-  const w = sp.has("search") ? await who() : await whoForTile(sp.get("tile"));
+  const w = sp.has("search") || sp.has("read") ? await who() : await whoForTile(sp.get("tile"));
   if (w instanceof NextResponse) return w;
   try {
+    if (sp.has("read")) {
+      const id = sp.get("read") ?? "";
+      if (!/^\d+$/.test(id)) return fail("read is a ticket id", 400);
+      const fields = await ticketFields(id);
+      return fields ? NextResponse.json({ ok: true, fields }) : fail("no such ticket in the pipeline", 404);
+    }
     if (sp.has("search")) {
       const state = (["open", "closed", "all"].includes(sp.get("state") ?? "") ? sp.get("state") : "open") as TicketState;
       return NextResponse.json({ ok: true, tickets: await searchTickets(sp.get("search") ?? "", state) });
@@ -88,10 +96,15 @@ export async function POST(req: NextRequest) {
     if (planId != null && (b.action === "create" || b.action === "link") && !(await itemById(planId))?.dg) {
       return fail("only an action led by Digital Growth takes a Scroll to Sale ticket", 400);
     }
-    // one ticket per action, on the action itself (SARCLA 02.11.2026) - a sub-action's tickets are its own
-    if (planId != null && taskId == null && (b.action === "create" || b.action === "link")) {
-      if ((await actionTickets()).some((x) => x.item === planId)) return fail("this action has its ticket - unlink it first to give it another", 400);
-      if (b.action === "link" && (b.ids ?? []).length > 1) return fail("an action takes one ticket", 400);
+    // one ticket per action, on the action itself, and one per sub-action (SARCLA 02.11.2026); a main action - one with
+    // sub-actions - takes none: its sub-actions carry theirs ("this type of action should not have a ticket, because
+    // they are main")
+    if (planId != null && (b.action === "create" || b.action === "link")) {
+      if (b.action === "link" && (b.ids ?? []).length > 1) return fail(taskId == null ? "an action takes one ticket" : "a sub-action takes one ticket", 400);
+      if (taskId == null) {
+        if ((await tasksOf(b.tile as string)).length) return fail("a main action takes no ticket - its sub-actions carry theirs", 400);
+        if ((await actionTickets()).some((x) => x.item === planId)) return fail("this action has its ticket - unlink it first to give it another", 400);
+      } else if ((await taskTickets()).some((x) => x.task === taskId)) return fail("this sub-action has its ticket - unlink it first to give it another", 400);
     }
     if (b.action === "create") {
       const missing = missingRequired(b.values ?? {});
@@ -106,6 +119,7 @@ export async function POST(req: NextRequest) {
       const id = await createTicket(values, sharedUsers.length ? { hs_shared_user_ids: sharedUsers.join(";") } : {});
       await linkTickets(b.tile, [id], w.name, true, taskId);
       if (planId != null && taskId == null) await forgetTicketSync(planId);
+      if (taskId != null) await forgetTaskSync(taskId);
       queuePlanSync("ticket made");
       console.log(`[kpi-actions] ticket ${id} created from tile ${b.tile} by ${w.name}`);
       return NextResponse.json({ ok: true, id, url: ticketUrl(id) });
@@ -117,6 +131,7 @@ export async function POST(req: NextRequest) {
       const found = await readTickets(ids);
       await linkTickets(b.tile, found.map((t) => t.id), w.name, false, taskId);
       if (planId != null && taskId == null) await forgetTicketSync(planId);
+      if (taskId != null) await forgetTaskSync(taskId);
       queuePlanSync("tickets linked");
       return NextResponse.json({ ok: true, linked: found.length });
     }

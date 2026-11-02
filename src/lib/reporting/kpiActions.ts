@@ -89,6 +89,8 @@ function ensure(): Promise<void> {
       await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS start date`);
       // and its status note (SARCLA 02.11.2026)
       await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS status_note text NOT NULL DEFAULT ''`);
+      // when a sub-action and its ticket last agreed (actionPlanHubspot.ts)
+      await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS ticket_sync_at timestamptz`);
       await query(`CREATE TABLE IF NOT EXISTS ${LINKS} (
         tile text NOT NULL,
         ticket_id text NOT NULL,
@@ -291,6 +293,33 @@ export async function planTicketLinks(): Promise<{ ticketId: string; item: numbe
   const out = new Map<string, number>();
   for (const x of r.rows) if (x.item != null) out.set(x.ticket_id, Number(x.item));
   return [...out.entries()].map(([ticketId, item]) => ({ ticketId, item }));
+}
+
+/**
+ * Each sub-action's ticket - one per sub-action (SARCLA 02.11.2026), the latest linked when an older one has several.
+ * For the sub-action and its ticket kept in step, as an action and its own.
+ */
+export async function taskTickets(): Promise<{ task: number; ticketId: string; count: number }[]> {
+  await ensure();
+  const r = await query<{ task_id: number; ticket_id: string; count: string }>(
+    `SELECT DISTINCT ON (task_id) task_id, ticket_id, (count(*) OVER (PARTITION BY task_id))::text AS count
+       FROM ${LINKS} WHERE task_id IS NOT NULL ORDER BY task_id, linked_at DESC`,
+  );
+  return r.rows.map((x) => ({ task: Number(x.task_id), ticketId: x.ticket_id, count: Number(x.count) }));
+}
+/** When each sub-action and its ticket last agreed. */
+export async function taskSyncTimes(): Promise<Map<number, string>> {
+  await ensure();
+  const r = await query<{ id: number; at: unknown }>(`SELECT id, ticket_sync_at AS at FROM ${TASKS} WHERE ticket_sync_at IS NOT NULL`);
+  return new Map(r.rows.map((x) => [x.id, iso(x.at) ?? ""]));
+}
+export async function markTaskSync(ids: number[]): Promise<void> {
+  if (ids.length) await query(`UPDATE ${TASKS} SET ticket_sync_at = now() WHERE id = ANY($1::int[])`, [ids]);
+}
+/** A ticket linked to the sub-action or taken off it: the next time they meet is a first time again. */
+export async function forgetTaskSync(id: number): Promise<void> {
+  await ensure();
+  await query(`UPDATE ${TASKS} SET ticket_sync_at = NULL WHERE id = $1`, [id]);
 }
 
 /**
