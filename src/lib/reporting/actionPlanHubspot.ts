@@ -9,7 +9,7 @@
 // they last agreed wins, the first time a merge (actionPlanRules.ticketSync, syncWay). Read again when the plan is opened.
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { IntegrationError } from "@/lib/integrations/status";
-import { markTicketSync, planItems, startMains, ticketSyncTimes, updateItem } from "./actionPlan";
+import { mainsFollowSubs, markTicketSync, planItems, ticketSyncTimes, updateItem } from "./actionPlan";
 import { PLAN_PROPS, SUB_TICKET_SYNC, TICKET_SYNC, planOptions, planValuesOf, sameOptions, sharedTicketSync, syncWay, ticketSync, type HsOption, type PlanFields, type PlanPropName } from "./actionPlanRules";
 import { actionTickets, markTaskSync, planTasks, planTicketLinks, taskSyncTimes, taskTickets, updateTask } from "./kpiActions";
 import { S2S_PIPELINE } from "./scrollToSaleRules";
@@ -144,7 +144,7 @@ async function inStep(items: Items): Promise<{ pushed: number; pulled: number }>
     await hubspotFetchJson({ path: "/crm/v3/objects/tickets/batch/update", method: "POST", body: { inputs: inputs.slice(k, k + 100) } });
   }
   await Promise.all([markTicketSync(agreed), markTaskSync(subAgreed)]);
-  if (pulled) await startMains(await planTasks(), "Its sub-actions are under way");
+  if (pulled) await mainsFollowSubs();
   return { pushed, pulled };
 }
 

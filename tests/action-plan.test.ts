@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, foldedDetail, killedMains, namesSalesLeaders, isDigitalGrowth, isLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
+  IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, foldedDetail, mainStage, namesSalesLeaders, isDigitalGrowth, isLate, subLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
   stateOfStage, stageOfStatus, statusOfStage, sharedTicketSync, subPct, subStage, subTicketSync, subsSpan, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
   type PlanItem, type PlanSub, type SeedRow,
@@ -125,7 +125,7 @@ test("action plan: % complete and dates roll up; sub-actions count for their act
   const items = [
     it(1, null, "goal"), it(2, 1, "topic"), it(3, 2, "group"),
     it(4, 3, "action", { stage: IN_PROGRESS, percent: 50, start: "2026-10-01", due: "2026-11-30" }),
-    it(5, 3, "action", { stage: IDEA, percent: 0, due: "2026-10-15" }),
+    it(5, 3, "action", { stage: IDEA, percent: 0, start: "2026-10-15" }),
     it(6, 2, "action", { stage: LIVE, percent: 100, due: "2026-09-01" }),
     it(7, 2, "action"),
   ];
@@ -139,8 +139,10 @@ test("action plan: % complete and dates roll up; sub-actions count for their act
   assert.equal(r.get(7)!.percent, null); // the action itself still says it has no figure
   assert.equal(rollup([it(1, null, "topic"), it(2, 1, "action", { stage: LIVE, percent: 100 }), it(3, 1, "action"), it(4, 1, "action")], [], "2026-11-01").get(1)!.percent, 33);
   assert.deepEqual([r.get(3)!.from, r.get(3)!.to], ["2026-10-01", "2026-12-20"]);
-  assert.equal(r.get(5)!.late, 1); // due 15.10, not done
-  assert.equal(r.get(2)!.late, 1);
+  assert.equal(r.get(5)!.late, 1); // planned 15.10, not done
+  // late on the planned date, not the go-live (SARCLA 02.11.2026): 4 too - planned 01.10, go-live 30.11, in progress
+  assert.equal(r.get(4)!.late, 1);
+  assert.equal(r.get(2)!.late, 2);
   assert.deepEqual([r.get(1)!.subs, r.get(1)!.subsOpen], [3, 2]);
   // done is done, whatever its sub-actions say
   assert.equal(rollup([it(9, null, "action", { stage: LIVE, percent: 100 })], [sub(4, 9, "open")], "2026-11-01").get(9)!.percent, 100);
@@ -192,8 +194,13 @@ test("action plan: an action speaks the Scroll to Sale ticket's stages", () => {
   assert.equal(stageOfPercent(40, "6161860809"), "6161860809");
   assert.equal(stageOfPercent(40, LIVE), IN_PROGRESS); // reopened
   // live, maintained or killed is never late
-  for (const st of [LIVE, "6161856759", KILLED]) assert.equal(isLate(it(1, null, "action", { stage: st, due: "2026-01-01", percent: null }), "2026-11-01"), false);
-  assert.equal(isLate(it(1, null, "action", { stage: "6161845476", due: "2026-01-01" }), "2026-11-01"), true);
+  for (const st of [LIVE, "6161856759", KILLED]) assert.equal(isLate(it(1, null, "action", { stage: st, start: "2026-01-01", percent: null }), "2026-11-01"), false);
+  assert.equal(isLate(it(1, null, "action", { stage: "6161845476", start: "2026-01-01" }), "2026-11-01"), true);
+  // the go-live alone makes nothing late; a sub-action the same way
+  assert.equal(isLate(it(1, null, "action", { stage: IN_PROGRESS, due: "2026-01-01" }), "2026-11-01"), false);
+  assert.equal(subLate({ start: "2026-10-01", stage: IN_PROGRESS, status: "doing" }, "2026-11-01"), true);
+  assert.equal(subLate({ start: "2026-10-01", stage: LIVE, status: "done" }, "2026-11-01"), false);
+  assert.equal(subLate({ start: null, stage: IN_PROGRESS, status: "doing" }, "2026-11-01"), false);
 });
 
 test("action plan: the workbook's words moved into the ticket's fields once, nothing made up", () => {
@@ -366,7 +373,19 @@ test("action plan: a main action's dates are its sub-actions' - first to last, i
   const own = rollup([it(2, null, "action", { start: "2026-09-01", due: "2026-12-31" })], [sub(1, 2, "open", null, { start: "2026-11-01" })], "2026-11-01").get(2)!;
   assert.deepEqual([own.from, own.to, own.startFromSubs, own.dueFromSubs], ["2026-11-01", "2026-12-31", true, false]);
   // its sub-actions all killed - the only one, or every one: the action is killed; one still open, it is not
-  assert.deepEqual(killedMains([{ planItem: 7, stage: KILLED }, { planItem: 8, stage: KILLED }, { planItem: 8, stage: IN_PROGRESS }, { planItem: 9, stage: null }, { planItem: null, stage: KILLED }]), [7]);
+  // a main action's status, its sub-actions' (SARCLA 02.11.2026: "the top stage is not changing even if it's live and a new sub-action")
+  const k = (stage: string | null, status: PlanSub["status"] = "open") => ({ stage, status });
+  const WAIT_APSO = "6161845476", READY = "6161860809", MAINT = "6161856759";
+  assert.equal(mainStage([k(LIVE, "done"), k(WAIT_APSO, "doing")]), WAIT_APSO);
+  assert.equal(mainStage([k(KILLED, "done")]), KILLED);
+  assert.equal(mainStage([k(KILLED, "done"), k(LIVE, "done")]), LIVE);
+  assert.equal(mainStage([k(MAINT, "done"), k(KILLED, "done")]), MAINT);
+  assert.equal(mainStage([k(READY, "doing"), k(IN_PROGRESS, "doing"), k(IDEA)]), IN_PROGRESS);
+  assert.equal(mainStage([k(LIVE, "done"), k(null)]), IN_PROGRESS);
+  // nothing under way or done: the action keeps its own
+  assert.equal(mainStage([k(IDEA), k(null)]), null);
+  assert.equal(mainStage([k(null)]), null);
+  assert.equal(mainStage([]), null);
   const r = rollup([it(1, null, "group"), it(2, 1, "action", { start: "2026-01-01", due: "2028-12-31" })], [sub(1, 2, "doing", "2026-12-01", { start: "2026-11-02" })], "2026-11-01");
   assert.deepEqual([r.get(2)!.from, r.get(2)!.to], ["2026-11-02", "2026-12-01"]);
   // no sub-action dated: the action keeps its own

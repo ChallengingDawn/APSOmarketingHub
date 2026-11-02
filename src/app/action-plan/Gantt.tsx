@@ -32,7 +32,7 @@ import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArro
 
 import { FAINT, HAIRLINE, INK, MUTED, TINT } from "@/app/uc/report/ui";
 import type { PlanItem, PlanKind, PlanSub, Rolled } from "@/lib/reporting/actionPlanRules";
-import { KILLED, isClosed, isLate, priorityLabel, stageOf, subPct, subStage } from "@/lib/reporting/actionPlanRules";
+import { KILLED, isClosed, isLate, priorityLabel, stageOf, subLate, subPct, subStage } from "@/lib/reporting/actionPlanRules";
 import { SUMMIT } from "@/lib/reporting/summitRules";
 import { LATE, PRIORITY_COLOR, SUMMARY, dayOf, dmy, isoOf, stageColor } from "./planUi";
 
@@ -500,7 +500,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
   if (r.type === "sub") {
     const s = r.sub;
     const c = color ?? SUMMARY;
-    const late = s.status !== "done" && !!s.due && s.due < today;
+    const late = subLate(s, today);
     // its status in the actions' words (SARCLA 02.11.2026: "the status should stay the same even on sub-actions")
     const sStage = subStage(s);
     const sPrio = priorityLabel(s.priority);
@@ -519,8 +519,8 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
           </Box>
         </Box>
         {!compact && <>
-          <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{dmy(s.start)}</Typography></Box>
-          <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: late ? LATE : MUTED, fontWeight: late ? 700 : 400 }}>{dmy(s.due)}</Typography></Box>
+          <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: late ? LATE : MUTED, fontWeight: late ? 700 : 400 }}>{dmy(s.start)}</Typography></Box>
+          <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{dmy(s.due)}</Typography></Box>
           <Box sx={cell}>
             {sStage ? <Box sx={{ ...TAG, bgcolor: stageColor(sStage.id).soft, color: stageColor(sStage.id).ink }}>{sStage.label}</Box>
               : <Typography sx={{ fontSize: "0.78rem", color: FAINT, fontStyle: "italic" }}>No status</Typography>}
@@ -557,7 +557,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
           <Typography noWrap sx={{ ...name, minWidth: 0, ...(it.stage === KILLED ? { textDecoration: "line-through", color: FAINT } : {}) }}>{it.title}</Typography>
         </Tooltip>
         {late && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>LATE</Box>}
-        {summary && (ro?.late ?? 0) > 0 && <Tooltip title={`${ro!.late} action${ro!.late === 1 ? "" : "s"} past due`}><Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>{ro!.late} late</Box></Tooltip>}
+        {summary && (ro?.late ?? 0) > 0 && <Tooltip title={`${ro!.late} action${ro!.late === 1 ? "" : "s"} past the planned date and not live`}><Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>{ro!.late} late</Box></Tooltip>}
         <Box sx={{ flex: 1 }} />
         {it.kind === "action" && <>
           <Box sx={MARK_SLOT}>{it.dg && <Tooltip title="Led by Digital Growth - its sub-actions can take a Scroll to Sale ticket"><Box sx={{ ...TAG, bgcolor: TINT.blue.bg, color: TINT.blue.fg }}>DG</Box></Tooltip>}</Box>
@@ -585,8 +585,8 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
       ) : (
         <>
           {/* a main action's dates are its sub-actions' first to last (SARCLA 02.11.2026: "go-live and planned date do not go as planned") */}
-          <DateCell value={it.start} canWrite={canWrite && !ro?.startFromSubs} max={it.due} fromSubs={ro?.startFromSubs} onSave={(v) => onPatch(it.id, { start: v })} />
-          <DateCell value={it.due} note={it.dueNote} late={late} canWrite={canWrite && !ro?.dueFromSubs} min={it.start} fromSubs={ro?.dueFromSubs} onSave={(v) => onPatch(it.id, { due: v })} />
+          <DateCell value={it.start} late={late} canWrite={canWrite && !ro?.startFromSubs} max={it.due} fromSubs={ro?.startFromSubs} onSave={(v) => onPatch(it.id, { start: v })} />
+          <DateCell value={it.due} note={it.dueNote} canWrite={canWrite && !ro?.dueFromSubs} min={it.start} fromSubs={ro?.dueFromSubs} onSave={(v) => onPatch(it.id, { due: v })} />
           {/* the pipeline's stage, as a square tag in its colour */}
           <Box sx={cell}>
             {stage

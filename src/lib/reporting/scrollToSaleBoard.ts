@@ -9,7 +9,7 @@
 // 119 tickets, 51 open, 68 closed, 2 in the plan.
 import { claudeText, getAnthropic } from "@/lib/ai/claude";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
-import { addItem, markTicketSync, planItems, startMains, updateItem } from "./actionPlan";
+import { addItem, mainsFollowSubs, markTicketSync, planItems, updateItem } from "./actionPlan";
 import { queuePlanSync } from "./actionPlanHubspot";
 import { IDEA, PRIORITIES, dgTargets, stageOf, type PlanItem, type PlanOwner } from "./actionPlanRules";
 import { actionTickets, addTask, linkTickets, markTaskSync, planTasks, taskTickets } from "./kpiActions";
@@ -199,7 +199,7 @@ export async function place(picks: { ticketId: string; as: "sub" | "action"; tar
     placed++;
   }
   if (placed) {
-    await startMains(await planTasks(), "Its sub-actions are under way");
+    await mainsFollowSubs();
     // their place in the plan written on the tickets
     queuePlanSync("tickets placed");
   }

@@ -440,7 +440,7 @@ function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen
           </Box>
           <Box sx={card}>
             <Typography sx={section}>Late · {late.length}</Typography>
-            {!late.length && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Nothing in it is past its go-live date.</Typography>}
+            {!late.length && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Nothing in it is past its planned date without being live.</Typography>}
             <Box sx={TILES}>
               {late.map((i) => <Tile key={i.id} row={i} r={rolledAll.get(i.id)} items={items} color={colorOf(i)} onOpen={onOpen} today={today} />)}
             </Box>
@@ -531,18 +531,21 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
         </Box>
         {action && (
           // the pipeline's stages, in its order
+          // - a main action's from its sub-actions: shown, set on them (mainStage)
           <Box role="radiogroup" aria-label="Status" sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
             {STAGES.map((s) => {
               const on = item.stage === s.id;
               const c = stageColor(s.id);
+              const can = canWrite && !rolled?.stageFromSubs;
               return (
-                <Box key={s.id} component="button" type="button" role="radio" aria-checked={on} disabled={!canWrite} onClick={() => !on && save({ stage: s.id })}
-                  sx={{ ...square(on, c.ink, c.soft, canWrite), ...(on ? { bgcolor: c.bar, color: "#fff", borderColor: c.bar } : {}) }}>
+                <Box key={s.id} component="button" type="button" role="radio" aria-checked={on} disabled={!can} onClick={() => !on && save({ stage: s.id })}
+                  sx={{ ...square(on, c.ink, c.soft, can), ...(on ? { bgcolor: c.bar, color: "#fff", borderColor: c.bar } : {}) }}>
                   {s.label}
                 </Box>
               );
             })}
             {!item.stage && <Typography sx={{ fontSize: "0.78rem", color: FAINT, alignSelf: "center", ml: 0.5 }}>No status yet</Typography>}
+            {rolled?.stageFromSubs && <Typography sx={{ fontSize: "0.78rem", color: FAINT, alignSelf: "center", ml: 0.5 }}>From its sub-actions - change theirs</Typography>}
           </Box>
         )}
       </Box>

@@ -13,7 +13,7 @@
 //   DELETE ?id=                                  a row and what is under it; its own sub-actions go too
 // Every change to the tree reaches HubSpot's three plan properties a few seconds later (actionPlanHubspot.ts).
 import { NextRequest, NextResponse } from "next/server";
-import { actionToSub, addItem, copySub, datesFromSubs, deleteItems, foldImportedOnce, itemById, lankarToClaudio, moveSub, salesLeadersOnce, startMains, subToAction, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
+import { actionToSub, addItem, copySub, datesFromSubs, deleteItems, foldImportedOnce, itemById, lankarToClaudio, mainsFollowSubs, moveSub, salesLeadersOnce, subToAction, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
 import { savedHierarchy } from "@/lib/hierarchy/store";
 import { freshFromTickets, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { PRIORITIES, S2S_CHOICES, STAGES, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
     await foldImportedOnce(new Set((await actionTickets()).map((x) => x.item))).catch((e) => console.error("[action-plan] imported actions not put right:", (e as Error).message));
     await lankarToClaudio().catch((e) => console.error("[action-plan] LANKAR not replaced:", (e as Error).message));
     const before = await planTasks();
-    await startMains(before, "Its sub-actions are under way").catch(() => []);
+    await mainsFollowSubs().catch((e) => console.error("[action-plan] main actions not given their sub-actions' status:", (e as Error).message));
     await datesFromSubs(before).catch((e) => console.error("[action-plan] dates from sub-actions not set:", (e as Error).message));
     const [items, tasks] = await Promise.all([planItems(), planTasks()]);
     const ids = new Set(items.map((i) => i.id));

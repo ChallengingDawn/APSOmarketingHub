@@ -362,8 +362,8 @@ export type Rolled = {
   subs: number; subsOpen: number;
   /** Actions under the row that are past their due and not done. */
   late: number;
-  /** An action's planned date, its go-live date, are its sub-actions' (subsSpan) - shown, not typed. */
-  startFromSubs: boolean; dueFromSubs: boolean;
+  /** An action's planned date, its go-live date, its status are its sub-actions' (subsSpan, mainStage) - shown, not set. */
+  startFromSubs: boolean; dueFromSubs: boolean; stageFromSubs: boolean;
 };
 
 const SUB_PCT = { open: 0, doing: 50, done: 100 } as const;
@@ -396,13 +396,23 @@ export function subsSpan(subs: { start: string | null; due: string | null }[]): 
 }
 
 /**
- * The main actions whose sub-actions are all killed (SARCLA 02.11.2026: "the sub-ticket is killed - the main action should
- * be, if it's the only one"). A sub-action with no status is not killed.
+ * A main action's status, its sub-actions' (SARCLA 02.11.2026: "the top stage is not changing even if it's live and a new
+ * sub-action"; "the sub-ticket is killed - the main action should be, if it's the only one"): all killed - Killed; all done,
+ * the killed ones aside - Live (Maintaining Internally when none is live); some still open - the least advanced of those
+ * under way, as far as its slowest part goes; none under way but some done - In Progress. A sub-action with no status is
+ * in the Idea box. Null - the action keeps its own - when none has a status, or none is under way or done.
  */
-export function killedMains(subs: { planItem: number | null; stage: string | null }[]): number[] {
-  const all = new Map<number, boolean>();
-  for (const s of subs) if (s.planItem != null) all.set(s.planItem, (all.get(s.planItem) ?? true) && s.stage === KILLED);
-  return [...all].filter(([, k]) => k).map(([id]) => id);
+export function mainStage(subs: Pick<PlanSub, "stage" | "status">[]): string | null {
+  const st = subs.map(subStage);
+  if (!st.some(Boolean)) return null;
+  const all = st.map((s) => s ?? stageOf(IDEA)!);
+  const alive = all.filter((s) => s.id !== KILLED);
+  if (!alive.length) return KILLED;
+  const open = alive.filter((s) => !s.closed);
+  if (!open.length) return alive.some((s) => s.id === LIVE) ? LIVE : alive[0].id;
+  const going = open.filter((s) => s.id !== IDEA);
+  if (going.length) return going.reduce((a, b) => (STAGES.indexOf(b) < STAGES.indexOf(a) ? b : a)).id;
+  return open.length < alive.length ? IN_PROGRESS : null;
 }
 
 /**
@@ -426,10 +436,18 @@ export function foldedDetail(a: Pick<PlanFields, "title" | "detail" | "kpis" | "
 /** The workbook names the sales leaders as a group ("Sales leaders", "LEAL + sales leader"): the hierarchy's are meant. */
 export const namesSalesLeaders = (responsible: string): boolean => /\bsales[\s-]*leaders?\b/i.test(responsible);
 
-/** Past its go-live date and neither live nor dropped. */
-export function isLate(i: Pick<PlanItem, "due" | "percent" | "stage">, today: string): boolean {
-  return !!i.due && i.due < today && !isClosed(i.stage) && (i.percent ?? 0) < 100;
+/**
+ * Late: past its planned date and neither live, maintained nor dropped (SARCLA 02.11.2026: "late should be on the planned
+ * date, not on the go-live - go-live is just the release date; of course if it was late but is live it should not count
+ * any more").
+ */
+export function isLate(i: Pick<PlanItem, "start" | "percent" | "stage">, today: string): boolean {
+  return !!i.start && i.start < today && !isClosed(i.stage) && (i.percent ?? 0) < 100;
 }
+
+/** A sub-action late as an action is: its planned date passed, and not live, maintained, killed or done. */
+export const subLate = (s: Pick<PlanSub, "start" | "stage" | "status">, today: string): boolean =>
+  !!s.start && s.start < today && s.status !== "done" && !subStage(s)?.closed;
 
 /** Every row's figures, bottom up. */
 export function rollup(items: PlanItem[], subs: PlanSub[], today: string): Map<number, Rolled> {
@@ -443,7 +461,7 @@ export function rollup(items: PlanItem[], subs: PlanSub[], today: string): Map<n
   const seen = new Set<number>();
   const walk = (i: PlanItem): Rolled => {
     if (out.has(i.id)) return out.get(i.id)!;
-    if (seen.has(i.id)) return { percent: null, from: null, to: null, subs: 0, subsOpen: 0, late: 0, startFromSubs: false, dueFromSubs: false };
+    if (seen.has(i.id)) return { percent: null, from: null, to: null, subs: 0, subsOpen: 0, late: 0, startFromSubs: false, dueFromSubs: false, stageFromSubs: false };
     seen.add(i.id);
     const mine = subsOf.get(i.id) ?? [];
     // an action's own dates; a category's only from what is in it - its first date to its last, actions and sub-actions
@@ -476,7 +494,7 @@ export function rollup(items: PlanItem[], subs: PlanSub[], today: string): Map<n
       percent = acc.n ? Math.round(acc.sum / acc.n) : null;
     }
     sums.set(i.id, acc);
-    const r = { percent, from, to, subs: n, subsOpen: open, late, startFromSubs: !!span?.start, dueFromSubs: !!span?.due };
+    const r = { percent, from, to, subs: n, subsOpen: open, late, startFromSubs: !!span?.start, dueFromSubs: !!span?.due, stageFromSubs: own && mainStage(mine) != null };
     out.set(i.id, r);
     return r;
   };

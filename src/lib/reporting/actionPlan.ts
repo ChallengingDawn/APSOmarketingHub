@@ -12,7 +12,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { query } from "@/lib/db/client";
 import {
-  IDEA, IN_PROGRESS, KILLED, PLAN_STATES, STAGES, foldedDetail, killedMains, namesSalesLeaders, ownersFromCodes, percentOfStage, planFromSeed, priorityLabel, reorder, stageOf,
+  IDEA, IN_PROGRESS, PLAN_STATES, STAGES, foldedDetail, mainStage, namesSalesLeaders, ownersFromCodes, percentOfStage, planFromSeed, priorityLabel, reorder, stageOf,
   stageOfPercent, stateOfStage, subsSpan, toS2s,
   type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanState, type SeedRow,
 } from "./actionPlanRules";
@@ -470,23 +470,22 @@ export async function moveSub(taskId: number, actionId: number, by: string): Pro
 }
 
 /**
- * Main actions follow their sub-actions, each move in its tracking: one under way while the action is not - to In
- * Progress (SARCLA 02.11.2026: "the status of the main action is Idea box - this should be In Progress because the others
- * are in progress"); all of them killed - Killed (killedMains: "the sub-ticket is killed - the main action should be, if
- * it's the only one"), read over all the plan's sub-actions. A killed sub-action puts nothing under way. `subs`: the
- * sub-actions just changed, with their action and stage. The actions moved.
+ * Main actions take their sub-actions' status (actionPlanRules.mainStage; SARCLA 02.11.2026: "the top stage is not
+ * changing even if it's live and a new sub-action" - In Progress once they are under way, Killed when they all are, Live
+ * when they are done, else as far as the slowest one under way), read over all the plan's sub-actions, each change in the
+ * action's tracking. The actions changed.
  */
-export async function startMains(subs: { planItem: number | null; stage: string | null; status: string }[], by: string): Promise<number[]> {
+export async function mainsFollowSubs(): Promise<number[]> {
+  const tasks = await planTasks();
+  const of = new Map<number, typeof tasks>();
+  for (const t of tasks) if (t.planItem != null) of.set(t.planItem, [...(of.get(t.planItem) ?? []), t]);
+  if (!of.size) return [];
+  await ensure();
+  const r = await query<{ id: number; stage: string | null }>(`SELECT id, stage FROM ${T} WHERE kind = 'action' AND id = ANY($1::int[])`, [[...of.keys()]]);
   const moved: number[] = [];
-  const moving = new Set(subs.filter((x) => x.planItem != null && ((x.stage && x.stage !== IDEA && x.stage !== KILLED) || (!x.stage && x.status !== "open"))).map((x) => x.planItem as number));
-  if (moving.size) {
-    const r = await query<{ id: number }>(`SELECT id FROM ${T} WHERE kind = 'action' AND (stage IS NULL OR stage = $2) AND id = ANY($1::int[])`, [[...moving], IDEA]);
-    for (const x of r.rows) { await updateItem(x.id, { stage: IN_PROGRESS }, by); moved.push(x.id); }
-  }
-  const dead = killedMains(await planTasks());
-  if (dead.length) {
-    const r = await query<{ id: number }>(`SELECT id FROM ${T} WHERE kind = 'action' AND stage IS DISTINCT FROM $2 AND id = ANY($1::int[])`, [dead, KILLED]);
-    for (const x of r.rows) { await updateItem(x.id, { stage: KILLED }, "Its sub-actions are all killed"); moved.push(x.id); }
+  for (const a of r.rows) {
+    const want = mainStage(of.get(a.id) ?? []);
+    if (want && want !== a.stage) { await updateItem(a.id, { stage: want }, "Its sub-actions"); moved.push(a.id); }
   }
   return moved;
 }

@@ -28,7 +28,7 @@ import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumb
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 
 import { FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { IDEA, PRIORITIES, STAGES, priorityLabel, stageOf, subPct, subStage, type PlanItem } from "@/lib/reporting/actionPlanRules";
+import { IDEA, PRIORITIES, STAGES, priorityLabel, stageOf, subLate, subPct, subStage, type PlanItem } from "@/lib/reporting/actionPlanRules";
 import type { KpiTask } from "@/lib/reporting/kpiActions";
 import type { AiFill } from "@/lib/reporting/scrollToSaleRules";
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
@@ -471,7 +471,7 @@ export function SubEditor({ k, tile, t, owners, canWrite, tickets, linked, saved
 /** A sub-action in its action's window: one line - its status as an action's, who, when - that opens its own window. */
 function SubLine({ k, linked, onOpen }: { k: KpiTask; linked: Linked[]; onOpen: () => void }) {
   const today = new Date().toISOString().slice(0, 10);
-  const late = k.status !== "done" && !!k.due && k.due < today;
+  const late = subLate(k, today);
   const stage = subStage(k);
   const pct = subPct(k);
   const prio = priorityLabel(k.priority);
