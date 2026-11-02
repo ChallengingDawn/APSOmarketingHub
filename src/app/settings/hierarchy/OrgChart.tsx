@@ -2,8 +2,8 @@
 // THE HIERARCHY AS A TREE, TOP DOWN (SARCLA 01.11.2026: "I want to see it as a hierarchy tree, collapsing parents, like a
 // top-down diagram where you can change person and leader"). Each person a card under their manager, a branch folded
 // away with its chevron; a card dragged onto another puts them under that person, onto the top zone at the top; a click
-// opens the card - its unit, who it reports to, its people handed over to someone else, someone put under it. Who is
-// under nobody and has nobody under them waits in "Not placed yet", to be dragged in.
+// opens the card - its unit, who it reports to, its tags, its people handed over to someone else, someone put under it.
+// Who is under nobody and has nobody under them waits in "Not placed yet", to be dragged in.
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -17,10 +17,10 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import { FAINT, HAIRLINE, INK, MUTED, TINT, glass, type Tint } from "@/app/uc/report/ui";
-import { under, type Hierarchy } from "@/lib/hierarchy/rules";
+import { TAGS, under, type Hierarchy, type Tag } from "@/lib/hierarchy/rules";
 import type { HierarchyPerson } from "@/lib/hierarchy/store";
 
-type Placed = Record<string, { manager: string | null; unit: string | null }>;
+type Placed = Record<string, { manager: string | null; unit: string | null; tags?: Tag[] }>;
 export type Move = { ownerId: string; manager: string | null };
 
 const INHERIT = "\u0000inherit", NONE = "\u0000none", PICK = "\u0000pick";
@@ -49,10 +49,22 @@ const TREE = {
   "& ul ul::before, & > li > ul::before": { content: '""', position: "absolute", top: 0, left: "50%", borderLeft: `1.5px solid ${LINE}`, width: 0, height: "20px" },
 } as const;
 
-export function OrgChart({ people, placed, saved, seed, units, q, busy, onMove, onUnit }: {
+/** A tag on a card or a row - Sales leader, BUC member (tags only: no access comes with them). */
+export const TAG_TONE: Record<Tag, Tint> = { leader: "blue", buc: "purple" };
+export function TagChip({ tag }: { tag: Tag }) {
+  const t = TINT[TAG_TONE[tag]];
+  return (
+    <Typography component="span" noWrap sx={{ fontSize: "0.68rem", fontWeight: 700, color: t.fg, border: `1px solid ${t.fg}`, px: 0.6, borderRadius: "6px", lineHeight: 1.5, flexShrink: 0 }}>
+      {TAGS.find((x) => x.id === tag)!.label}
+    </Typography>
+  );
+}
+
+export function OrgChart({ people, placed, saved, seed, units, q, busy, onMove, onUnit, onTags }: {
   people: HierarchyPerson[]; placed: Placed; saved: Hierarchy; seed: Hierarchy; units: string[]; q: string; busy: boolean;
   onMove: (moves: Move[]) => Promise<void>;
   onUnit: (ownerId: string, unit: string | null | "inherit") => Promise<void>;
+  onTags: (ownerId: string, tags: Tag[]) => Promise<void>;
 }) {
   const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
   const { kids, trees, tray } = useMemo(() => {
@@ -74,7 +86,8 @@ export function OrgChart({ people, placed, saved, seed, units, q, busy, onMove, 
   const [over, setOver] = useState<string | null>(null);
   const [open, setOpen] = useState<{ id: string; el: HTMLElement } | null>(null);
   const needle = q.trim().toLowerCase();
-  const hits = (p: HierarchyPerson) => !!needle && (p.name.toLowerCase().includes(needle) || (p.email ?? "").toLowerCase().includes(needle) || (placed[p.id]?.unit ?? "").toLowerCase().includes(needle));
+  const hits = (p: HierarchyPerson) => !!needle && (p.name.toLowerCase().includes(needle) || (p.email ?? "").toLowerCase().includes(needle) || (placed[p.id]?.unit ?? "").toLowerCase().includes(needle)
+    || (placed[p.id]?.tags ?? []).some((t) => TAGS.find((x) => x.id === t)!.label.toLowerCase().includes(needle)));
 
   // a card may go under anyone but itself and those under it; NONE = to the top
   const canDrop = (target: string) => !!drag && drag !== target && (target === NONE || !under(placed, drag).includes(target));
@@ -122,6 +135,9 @@ export function OrgChart({ people, placed, saved, seed, units, q, busy, onMove, 
           {n > 0 && <Typography noWrap sx={{ fontSize: "0.7rem", color: MUTED, flexShrink: 0 }}>{n} under</Typography>}
           {!p.active && <Typography noWrap sx={{ fontSize: "0.7rem", color: FAINT }}>has left</Typography>}
         </Box>
+        {(placed[p.id]?.tags ?? []).length > 0 && (
+          <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>{(placed[p.id]?.tags ?? []).map((t) => <TagChip key={t} tag={t} />)}</Box>
+        )}
         {direct > 0 && (
           <IconButton size="small" aria-label={isFolded ? `Open ${p.name}'s people` : `Fold ${p.name}'s people`}
             onClick={(e) => { e.stopPropagation(); setFolded((f) => { const x = new Set(f); if (x.has(p.id)) x.delete(p.id); else x.add(p.id); return x; }); }}
@@ -133,7 +149,9 @@ export function OrgChart({ people, placed, saved, seed, units, q, busy, onMove, 
     );
   };
 
-  // a person and, unfolded, their people beneath: the leaves of a branch stacked as a column, so a wide team stays narrow
+  // a person and, unfolded, their people beneath: the leaves of a branch stacked as a column, so a wide team stays narrow -
+  // every such team, whatever its size, so they all look the same (SARCLA 02.11.2026: "collapse at 3 already, so we have
+  // the same design" - Luca's three stood side by side)
   const node = (p: HierarchyPerson): React.ReactNode => {
     const ch = kids.get(p.id) ?? [];
     const show = ch.length > 0 && !folded.has(p.id);
@@ -141,7 +159,7 @@ export function OrgChart({ people, placed, saved, seed, units, q, busy, onMove, 
     return (
       <li key={p.id}>
         {card(p)}
-        {show && (leaves && ch.length > 3
+        {show && (leaves
           ? <ul><li><Box sx={{ display: "grid", gap: 0.75, p: 1, borderRadius: "14px", border: `1px dashed ${LINE}` }}>{ch.map((c) => card(c, true))}</Box></li></ul>
           : <ul>{ch.map(node)}</ul>)}
       </li>
@@ -189,17 +207,18 @@ export function OrgChart({ people, placed, saved, seed, units, q, busy, onMove, 
       <Popover open={!!open && !!p} anchorEl={open?.el} onClose={() => setOpen(null)} anchorOrigin={{ vertical: "bottom", horizontal: "center" }} transformOrigin={{ vertical: "top", horizontal: "center" }}
         slotProps={{ paper: { sx: { borderRadius: "14px", p: 2, width: 320, display: "grid", gap: 1.25 } } }}>
         {p && <Editor p={p} placed={placed} saved={saved} seed={seed} units={units} people={people} kids={kids.get(p.id) ?? []} byId={byId} busy={busy}
-          onMove={async (m) => { await onMove(m); }} onUnit={onUnit} />}
+          onMove={async (m) => { await onMove(m); }} onUnit={onUnit} onTags={onTags} />}
       </Popover>
     </Box>
   );
 }
 
-/** One card, opened: its unit, who it reports to, its people handed over, someone put under it. */
-function Editor({ p, placed, saved, seed, units, people, kids, byId, busy, onMove, onUnit }: {
+/** One card, opened: its unit, who it reports to, its tags, its people handed over, someone put under it. */
+function Editor({ p, placed, saved, seed, units, people, kids, byId, busy, onMove, onUnit, onTags }: {
   p: HierarchyPerson; placed: Placed; saved: Hierarchy; seed: Hierarchy; units: string[]; people: HierarchyPerson[];
   kids: HierarchyPerson[]; byId: Map<string, HierarchyPerson>; busy: boolean;
   onMove: (m: Move[]) => Promise<void>; onUnit: (ownerId: string, unit: string | null | "inherit") => Promise<void>;
+  onTags: (ownerId: string, tags: Tag[]) => Promise<void>;
 }) {
   const s = saved[p.id] ?? {};
   const below = new Set(under(placed, p.id));
@@ -235,6 +254,10 @@ function Editor({ p, placed, saved, seed, units, people, kids, byId, busy, onMov
         </Select>
         {s.manager === undefined && seedManager && <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>As before: {byId.get(seedManager)?.name ?? seedManager}, from Map assignment</Typography>}
       </Box>
+      <Box sx={{ display: "grid", gap: 0.5 }}>
+        {label("Tags")}
+        <TagPicks tags={s.tags ?? []} busy={busy} onChange={(t) => void onTags(p.id, t)} />
+      </Box>
       {kids.length > 0 && (
         <Box sx={{ display: "grid", gap: 0.5 }}>
           {label(`Hand their ${kids.length} ${kids.length === 1 ? "person" : "people"} to`)}
@@ -255,5 +278,24 @@ function Editor({ p, placed, saved, seed, units, people, kids, byId, busy, onMov
         </Select>
       </Box>
     </>
+  );
+}
+
+/** The tags as two switches: Sales leader, BUC member - each on or off on its own. */
+export function TagPicks({ tags, busy, onChange }: { tags: Tag[]; busy: boolean; onChange: (tags: Tag[]) => void }) {
+  return (
+    <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
+      {TAGS.map((t) => {
+        const on = tags.includes(t.id), tone = TINT[TAG_TONE[t.id]];
+        return (
+          <Button key={t.id} size="small" disabled={busy} aria-pressed={on}
+            onClick={() => onChange(on ? tags.filter((x) => x !== t.id) : [...tags, t.id])}
+            sx={{ textTransform: "none", fontWeight: 700, fontSize: "0.78rem", borderRadius: "8px", px: 1.25, py: 0.25, minWidth: 0,
+              color: on ? "#fff" : tone.fg, bgcolor: on ? tone.fg : "transparent", border: `1px solid ${tone.fg}`, "&:hover": { bgcolor: on ? tone.fg : tone.bg } }}>
+            {on ? "\u2713 " : ""}{t.label}
+          </Button>
+        );
+      })}
+    </Box>
   );
 }

@@ -18,8 +18,8 @@ import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED } from "@/app/uc/report/ui";
 import { ReportTabs } from "@/app/uc/report/Tabs";
-import { OrgChart, type Move } from "./OrgChart";
-import { effective, under, type Hierarchy } from "@/lib/hierarchy/rules";
+import { OrgChart, TagPicks, type Move } from "./OrgChart";
+import { TAGS, effective, under, type Hierarchy, type Tag } from "@/lib/hierarchy/rules";
 import type { HierarchyPerson } from "@/lib/hierarchy/store";
 
 type Data = { ok?: boolean; error?: string; people: HierarchyPerson[]; saved: Hierarchy; seed: Hierarchy; units: string[] };
@@ -59,7 +59,8 @@ export default function HierarchyPage() {
     // the people with someone under them first, then everyone else
     roots.sort((a, b) => Number(kids.has(b.id)) - Number(kids.has(a.id)) || a.name.localeCompare(b.name)).forEach((p) => walk(p, 0));
     const needle = q.trim().toLowerCase();
-    return needle ? out.filter((r) => r.p.name.toLowerCase().includes(needle) || (r.p.email ?? "").toLowerCase().includes(needle) || (placed[r.p.id]?.unit ?? "").toLowerCase().includes(needle)) : out;
+    return needle ? out.filter((r) => r.p.name.toLowerCase().includes(needle) || (r.p.email ?? "").toLowerCase().includes(needle) || (placed[r.p.id]?.unit ?? "").toLowerCase().includes(needle)
+      || (placed[r.p.id]?.tags ?? []).some((t) => TAGS.find((x) => x.id === t)!.label.toLowerCase().includes(needle))) : out;
   }, [d, placed, q, inactive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const units = useMemo(() => [...new Set([...(d?.units ?? []), ...Object.values(placed).map((x) => x.unit).filter((x): x is string => !!x)])], [d, placed]);
@@ -77,6 +78,8 @@ export default function HierarchyPage() {
 
   const move = (moves: Move[]) => put({ moves }, "moves");
   const setUnit = (ownerId: string, unit: string | null | "inherit") => put({ ownerId, unit }, `${ownerId}:unit`);
+  // Sales leader, BUC member: tags only (SARCLA 02.11.2026)
+  const setTags = (ownerId: string, tags: Tag[]) => put({ ownerId, tags }, `${ownerId}:tags`);
 
   if (!d) {
     return (
@@ -122,13 +125,14 @@ export default function HierarchyPage() {
         </Box>
         {view === "tree" && (
           <OrgChart people={d.people.filter(shown)} placed={placed} saved={d.saved} seed={d.seed} units={units} q={q} busy={busy !== null}
-            onMove={move} onUnit={setUnit} />
+            onMove={move} onUnit={setUnit} onTags={setTags} />
         )}
         {view === "list" && <>
-        <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 190px 240px", columnGap: 1.5, alignItems: "center" }}>
+        <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 190px 240px 230px", columnGap: 1.5, alignItems: "center" }}>
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.06em", py: 0.75 }}>Person</Typography>
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.06em" }}>Unit</Typography>
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.06em" }}>Reports to</Typography>
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.06em" }}>Tags</Typography>
           {rows.map(({ p, depth }) => {
             const s = d.saved[p.id] ?? {};
             const pl = placed[p.id] ?? { manager: null, unit: null };
@@ -161,6 +165,9 @@ export default function HierarchyPage() {
                     {/* a manager who has left, still set: shown so the value stands */}
                     {s.manager && !managers.some((m) => m.id === s.manager) && <MenuItem value={s.manager} sx={{ fontSize: "0.84rem" }}>{byId.get(s.manager)?.name ?? s.manager}</MenuItem>}
                   </Select>
+                </Box>
+                <Box sx={{ borderTop: `1px solid ${HAIRLINE}`, py: 0.4, alignSelf: "stretch", display: "flex", alignItems: "center" }}>
+                  <TagPicks tags={s.tags ?? []} busy={busy === `${p.id}:tags`} onChange={(t) => void setTags(p.id, t)} />
                 </Box>
               </Fragment>
             );

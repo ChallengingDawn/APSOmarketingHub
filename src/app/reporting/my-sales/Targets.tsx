@@ -35,7 +35,7 @@ const fmtOf = (id: TargetId) => (id === "visits" ? int : eur);
 const QS = ["Q1", "Q2", "Q3", "Q4"];
 
 export function TargetsPage() {
-  const { st, view, bar, scope, setTargets } = useMySalesFrame();
+  const { st, view, bar, scope, setTargets } = useMySalesFrame({ pick: true });
   const { cube, computing, progress, error } = useCustomersCube();
   const visits = useVisits();
   const ready = cube && !tooOld(cube) ? cube : null;

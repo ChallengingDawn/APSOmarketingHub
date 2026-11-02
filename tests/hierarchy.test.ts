@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cleanHierarchy, effective, reportsOfUnit, seedUnit, under, wouldLoop } from "../src/lib/hierarchy/rules";
+import { cleanHierarchy, cleanTags, effective, reportsOfUnit, seedUnit, under, wouldLoop } from "../src/lib/hierarchy/rules";
 import { SCOPE_LEAD, scopeOf, scopedPeople, viewsOf } from "../src/lib/reporting/mySalesScope";
 
 // SARCLA 01.11.2026: "bring another sub-app to Settings to define the hierarchy - keep the existing; Back Office is under
@@ -13,8 +13,18 @@ test("what is set here wins; what is not keeps what the hub knew before", () => 
   // an owner id only; nobody their own manager
   assert.deepEqual(saved, { [ADEM]: { manager: null }, [BO]: { manager: ROSE } });
   const h = effective(saved, seed);
-  assert.deepEqual(h[ADEM], { manager: null, unit: "ESO" });
-  assert.deepEqual(h[BO], { manager: ROSE, unit: "Back Office" });
+  assert.deepEqual(h[ADEM], { manager: null, unit: "ESO", tags: [] });
+  assert.deepEqual(h[BO], { manager: ROSE, unit: "Back Office", tags: [] });
+});
+
+test("tags: Sales leader and BUC member, each once, nothing else - kept with or without a place (SARCLA 02.11.2026)", () => {
+  assert.deepEqual(cleanTags(["buc", "leader", "buc", "admin", 3]), ["leader", "buc"]);
+  assert.deepEqual(cleanTags("leader"), []);
+  const saved = cleanHierarchy({ [LUCA]: { tags: ["leader", "buc"] }, [ROSE]: { tags: [] }, [ADEM]: { manager: LUCA, tags: ["x"] } });
+  // a tag alone keeps the person; no tags keep nothing
+  assert.deepEqual(saved, { [LUCA]: { tags: ["leader", "buc"] }, [ADEM]: { manager: LUCA } });
+  const h = effective(saved, { [LUCA]: { unit: "ESO", manager: CEO } });
+  assert.deepEqual(h[LUCA], { manager: CEO, unit: "ESO", tags: ["leader", "buc"] });
 });
 
 test("everyone under a person, at any depth - and no loop can be made", () => {

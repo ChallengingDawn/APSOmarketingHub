@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { query } from "@/lib/db/client";
 import { getUnits, hierarchyNow, saveHierarchy, saveUnits } from "@/lib/hierarchy/store";
-import { tidyUnit, wouldLoop, type Placement } from "@/lib/hierarchy/rules";
+import { cleanTags, tidyUnit, wouldLoop, type Placement } from "@/lib/hierarchy/rules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,14 +29,15 @@ export async function GET() {
 }
 
 /**
- * { ownerId, manager?, unit? } - an owner id or null (none), "inherit" back to what was known before; or { units }; or
- * { moves: [{ ownerId, manager }] } - several people under a new manager at once (a team handed over, SARCLA 01.11.2026:
- * "where you can change person and leader"), each checked against the tree as the moves before it left it.
+ * { ownerId, manager?, unit?, tags? } - an owner id or null (none), "inherit" back to what was known before; tags the
+ * person's whole set (Sales leader, BUC member - tags only, SARCLA 02.11.2026); or { units }; or { moves: [{ ownerId,
+ * manager }] } - several people under a new manager at once (a team handed over, SARCLA 01.11.2026: "where you can change
+ * person and leader"), each checked against the tree as the moves before it left it.
  */
 export async function PUT(req: NextRequest) {
   const gate = await admin();
   if (gate.error) return gate.error;
-  const b = (await req.json().catch(() => ({}))) as { ownerId?: unknown; manager?: unknown; unit?: unknown; units?: unknown; moves?: unknown };
+  const b = (await req.json().catch(() => ({}))) as { ownerId?: unknown; manager?: unknown; unit?: unknown; tags?: unknown; units?: unknown; moves?: unknown };
   try {
     if (b.moves !== undefined) {
       if (!Array.isArray(b.moves) || b.moves.length > 300) return NextResponse.json({ ok: false, error: "The moves are missing." }, { status: 400 });
@@ -48,7 +49,7 @@ export async function PUT(req: NextRequest) {
         if (!ids.has(id) || (to !== null && !ids.has(to))) return NextResponse.json({ ok: false, error: "No such HubSpot owner." }, { status: 400 });
         if (to !== null && wouldLoop(placed, id, to)) return NextResponse.json({ ok: false, error: "That would put someone under a person who reports to them." }, { status: 400 });
         saved[id] = { ...(saved[id] ?? {}), manager: to };
-        placed[id] = { ...(placed[id] ?? { unit: null }), manager: to };
+        placed[id] = { ...(placed[id] ?? { unit: null, tags: [] }), manager: to };
       }
       await saveHierarchy(saved);
       await query(`INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`,
@@ -80,11 +81,16 @@ export async function PUT(req: NextRequest) {
       else if (b.unit === null) next.unit = null;
       else { const u = tidyUnit(String(b.unit)); if (!u) return NextResponse.json({ ok: false, error: "A unit needs a name." }, { status: 400 }); next.unit = u; }
     }
+    if (b.tags !== undefined) {
+      if (!Array.isArray(b.tags)) return NextResponse.json({ ok: false, error: "The tags are missing." }, { status: 400 });
+      const tags = cleanTags(b.tags);
+      if (tags.length) next.tags = tags; else delete next.tags;
+    }
     const saved = { ...h.saved };
-    if (next.manager === undefined && next.unit === undefined) delete saved[id]; else saved[id] = next;
+    if (next.manager === undefined && next.unit === undefined && !next.tags) delete saved[id]; else saved[id] = next;
     await saveHierarchy(saved);
     await query(`INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`,
-      [gate.user!.username, "hierarchy.change", JSON.stringify({ ownerId: id, manager: b.manager, unit: b.unit })]).catch(() => { /* never fail the change because the log did */ });
+      [gate.user!.username, "hierarchy.change", JSON.stringify({ ownerId: id, manager: b.manager, unit: b.unit, tags: b.tags })]).catch(() => { /* never fail the change because the log did */ });
     return NextResponse.json({ ok: true, saved });
   } catch (e) {
     return NextResponse.json({ ok: false, error: String((e as Error)?.message ?? e) }, { status: 500 });

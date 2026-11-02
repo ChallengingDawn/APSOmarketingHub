@@ -69,20 +69,25 @@ function usePicked(): [string | null, (id: string | null) => void] {
 
 const KEPT_VIEW = "mySales.view";
 
-/** Everything a My Sales page needs: the person, the view of the switch, the bar that sets it, the scope it makes. */
-export function useMySalesFrame() {
-  const [picked, setPicked] = usePicked();
+/**
+ * Everything a My Sales page needs: the person, the view of the switch, the bar that sets it, the scope it makes. Only
+ * Targets lets an admin pick someone (`pick`); every other page is the person signed in, or the one View as previews
+ * (SARCLA 02.11.2026: "Showing should only be available in Targets - the rest the system should get per user").
+ */
+export function useMySalesFrame({ pick = false }: { pick?: boolean } = {}) {
+  const [kept, setPicked] = usePicked();
+  const picked = pick ? kept : null;
   const { st, setTargets } = useMySales(picked);
-  const [kept, setKept] = useState<View>("me");
+  const [keptView, setKept] = useState<View>("me");
   useEffect(() => { try { const x = localStorage.getItem(KEPT_VIEW); if (x === "me" || x === "team" || x === "unit" || x === "all") setKept(x); } catch { /* mine */ } }, []);
   const views = viewsOf(st);
   // a view this person does not have (no one under them, no unit) falls back to their own
-  const view: View = views.some((v) => v.id === kept) ? kept : "me";
+  const view: View = views.some((v) => v.id === keptView) ? keptView : "me";
   const setView = (v: View) => { setKept(v); try { localStorage.setItem(KEPT_VIEW, v); } catch { /* here only */ } };
   const bar = (
     <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", justifySelf: "start", minWidth: 0 }}>
       <ReportTabs name="my-sales-view" tab={view} onSelect={setView} tabs={views.map((v) => ({ ...v, count: null }))} />
-      {st && <PersonPicker st={st} picked={picked} onPick={setPicked} />}
+      {st && pick && <PersonPicker st={st} picked={picked} onPick={setPicked} />}
     </Box>
   );
   const scope = useMemo<Scope | null>(() => (st?.ok ? { ...scopeOf(st, view), bar } : null), [st, view]); // eslint-disable-line react-hooks/exhaustive-deps

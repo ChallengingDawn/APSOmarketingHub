@@ -7,10 +7,21 @@
 // What is not set takes what the hub knew before - the unit from the rosters or the person's HubSpot team, the manager
 // from Map assignment's line managers' teams - so nothing changes until an admin says so. No HubSpot or database here.
 
-/** One person's place; undefined = not set here (what was known before stands), null = set to none. */
-export type Placement = { manager?: string | null; unit?: string | null };
+/**
+ * A person's tags (SARCLA 02.11.2026: "I should also be able to select BUC member and/or sales leader" - his pick: tags
+ * only, no access changes; the hub roles stay in Settings > Roles).
+ */
+export const TAGS = [{ id: "leader", label: "Sales leader" }, { id: "buc", label: "BUC member" }] as const;
+export type Tag = (typeof TAGS)[number]["id"];
+const isTag = (x: unknown): x is Tag => TAGS.some((t) => t.id === x);
+
+/** One person's place; undefined = not set here (what was known before stands), null = set to none. Tags only as set here. */
+export type Placement = { manager?: string | null; unit?: string | null; tags?: Tag[] };
 /** owner id -> their place */
 export type Hierarchy = Record<string, Placement>;
+
+/** Tags as kept: known ones, each once, in TAGS' order. */
+export const cleanTags = (x: unknown): Tag[] => (Array.isArray(x) ? TAGS.map((t) => t.id).filter((id) => x.some((v) => v === id && isTag(v))) : []);
 
 export const DEFAULT_UNITS = ["Management", "ESO", "TSA", "Back Office", "Italy"];
 const ID = /^\d+$/;
@@ -27,17 +38,19 @@ export function cleanHierarchy(x: unknown): Hierarchy {
     const p: Placement = {};
     if (r.manager === null || (typeof r.manager === "string" && ID.test(r.manager) && r.manager !== id)) p.manager = r.manager as string | null;
     if (r.unit === null || (typeof r.unit === "string" && tidyUnit(r.unit))) p.unit = r.unit === null ? null : tidyUnit(r.unit as string);
-    if (p.manager !== undefined || p.unit !== undefined) out[id] = p;
+    const tags = cleanTags(r.tags);
+    if (tags.length) p.tags = tags;
+    if (p.manager !== undefined || p.unit !== undefined || p.tags) out[id] = p;
   }
   return out;
 }
 
-/** Each person's place as it stands: set here, else what was known before. */
-export function effective(saved: Hierarchy, seed: Hierarchy): Record<string, { manager: string | null; unit: string | null }> {
-  const out: Record<string, { manager: string | null; unit: string | null }> = {};
+/** Each person's place as it stands: set here, else what was known before; their tags as set here. */
+export function effective(saved: Hierarchy, seed: Hierarchy): Record<string, { manager: string | null; unit: string | null; tags: Tag[] }> {
+  const out: Record<string, { manager: string | null; unit: string | null; tags: Tag[] }> = {};
   for (const id of new Set([...Object.keys(seed), ...Object.keys(saved)])) {
     const s = saved[id] ?? {}, d = seed[id] ?? {};
-    out[id] = { manager: s.manager !== undefined ? s.manager : d.manager ?? null, unit: s.unit !== undefined ? s.unit : d.unit ?? null };
+    out[id] = { manager: s.manager !== undefined ? s.manager : d.manager ?? null, unit: s.unit !== undefined ? s.unit : d.unit ?? null, tags: s.tags ?? [] };
   }
   return out;
 }

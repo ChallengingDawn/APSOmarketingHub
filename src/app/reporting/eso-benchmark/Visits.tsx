@@ -71,6 +71,7 @@ import { BucEmpty } from "./BucEmpty";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "./EsoFilters";
 import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 import { SCOPE_LEAD, scopedPeople, useScoped, KeyCharts } from "@/app/reporting/scope";
+import { activityOf, type ActivityData } from "@/lib/reporting/activityRules";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -92,6 +93,26 @@ export function useVisits(): { d: VisitsData | null; computing: boolean; progres
     return () => { alive = false; stop(); if (timer) clearTimeout(timer); };
   }, []);
   return { d: st?.state?.value ?? null, computing: !!st?.state?.computing || st === null, progress: st?.state?.progress, error: st?.error ?? st?.state?.error };
+}
+
+/** The e-mails sent and calls made this year, per person and day - the activities chart's own read. */
+function useActivity(): { a: ActivityData | null; computing: boolean; progress?: string; error?: string } {
+  const [st, setSt] = useState<{ state?: SlowState<ActivityData>; error?: string } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () => fetch("/api/reporting/eso-activity").then((r) => r.json())
+      .then((j: { state?: SlowState<ActivityData>; error?: string }) => {
+        if (!alive) return;
+        setSt((was) => (was?.state?.value && j.state?.value && was.state.value.generatedAt === j.state.value.generatedAt && !!was.state.computing === !!j.state.computing ? was : j));
+        timer = j.state?.computing ? setTimeout(() => { timer = undefined; load(); }, 5000) : undefined;
+      })
+      .catch((e) => { if (alive) setSt((s) => ({ ...(s ?? {}), error: String((e as Error)?.message ?? e) })); });
+    load();
+    const stop = everyWhileSeen(() => { if (!timer) load(); });
+    return () => { alive = false; stop(); if (timer) clearTimeout(timer); };
+  }, []);
+  return { a: st?.state?.value ?? null, computing: !!st?.state?.computing || st === null, progress: st?.state?.progress, error: st?.error ?? st?.state?.error };
 }
 
 /* ── words and numbers ─────────────────────────────────────────────────── */
@@ -471,6 +492,68 @@ function PersonSplit({ c, part }: { c: VCtx; part: VDim }) {
   );
 }
 
+/** An activity's colour and name: the e-mails sent, the calls made, the customer visits completed. */
+const ACT_PARTS = [
+  { label: "E-mails sent", color: TINT.purple.fg },
+  { label: "Calls", color: TINT.amber.fg },
+  { label: "Customer visits", color: THIS },
+] as const;
+/**
+ * Each person's activities stacked - e-mails sent, calls, customer visits - the most first, and the team's total split
+ * above them (SARCLA 02.11.2026: "just a graph with the number of activities in total, split by e-mails, calls, customer
+ * visits"). The visits are this page's own, by the period and the people chosen; the e-mails and calls their own read.
+ */
+function ActivitySplit({ c }: { c: VCtx }) {
+  const { a, progress, error } = useActivity();
+  const [all, setAll] = useState(false);
+  if (!a) return <Typography sx={{ fontSize: "0.84rem", color: error ? RED : FAINT }}>{error ?? `Reading HubSpot's e-mails and calls${progress ? ` · ${progress}` : "…"}`}</Typography>;
+  const shown = shownPeople(c);
+  const visits = new Map<number, number>();
+  for (const r of rowsOf(c.d, c.per.win, {}, shown)) visits.set(r[V.person], (visits.get(r[V.person]) ?? 0) + 1);
+  const rows = [...shown].map((i) => {
+    const p = c.d.people[i];
+    const { mails, calls } = p ? activityOf(a, p.id, c.per.win) : { mails: 0, calls: 0 };
+    const n = [mails, calls, visits.get(i) ?? 0];
+    return { label: p?.name ?? "Unknown", n, total: n[0] + n[1] + n[2] };
+  }).filter((r) => r.total > 0).sort((x, y) => y.total - x.total || x.label.localeCompare(y.label));
+  const totals = ACT_PARTS.map((_, k) => rows.reduce((s, r) => s + r.n[k], 0));
+  const total = totals.reduce((s, x) => s + x, 0);
+  const max = Math.max(1, ...rows.map((r) => r.total));
+  const first = c.half ? 8 : 12;
+  const list = all ? rows : rows.slice(0, first);
+  return (
+    <Box sx={{ display: "grid", gap: 1.1 }}>
+      <Box sx={{ display: "flex", gap: 1.75, flexWrap: "wrap", alignItems: "center" }}>
+        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Total <b style={{ color: INK, fontSize: "0.92rem" }}>{int(total)}</b></Typography>
+        {ACT_PARTS.map((p, k) => (
+          <Box key={p.label} sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: p.color }} />
+            <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{p.label} <b style={{ color: INK }}>{int(totals[k])}</b> {pct(total ? totals[k] / total : null)}</Typography>
+          </Box>
+        ))}
+      </Box>
+      {rows.length === 0 && <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>No e-mails, calls or visits in this period.</Typography>}
+      <Box sx={{ display: "grid", gap: 0.75 }}>
+        {list.map((r) => (
+          <Box key={r.label} {...(c.onBar ? { component: "button" as const, type: "button" as const, onClick: () => c.onBar!("person", r.label) } : {})}
+            sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "minmax(110px, 0.9fr) minmax(40px, 2fr) auto" }, gap: { xs: 0.4, sm: 1.25 }, alignItems: "center", border: 0, bgcolor: "transparent", font: "inherit", textAlign: "left", cursor: c.onBar ? "pointer" : "default", borderRadius: "8px", px: 0.5, py: 0.25, "&:hover": c.onBar ? { bgcolor: "rgba(21,34,58,.04)" } : {} }}>
+            <Typography noWrap title={r.label} sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>{r.label}</Typography>
+            <Box sx={{ display: "flex", gap: "2px", height: 16, width: `${(r.total / max) * 100}%`, minWidth: 6 }}>
+              {ACT_PARTS.map((p, k) => r.n[k] > 0 && (
+                <Box key={p.label} title={`${r.label} - ${p.label}: ${int(r.n[k])} (${pct(r.n[k] / r.total)})`} sx={{ flex: `${r.n[k]} 0 0`, minWidth: 2, bgcolor: p.color, "&:first-of-type": { borderRadius: "3px 0 0 3px" }, "&:last-of-type": { borderRadius: "0 3px 3px 0" } }} />
+              ))}
+            </Box>
+            <Typography sx={{ fontSize: "0.8rem", color: INK, textAlign: { sm: "right" }, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+              <b>{int(r.total)}</b><span style={{ color: FAINT }}> · {int(r.n[0])} e-mails · {int(r.n[1])} calls · {int(r.n[2])} visits</span>
+            </Typography>
+          </Box>
+        ))}
+      </Box>
+      {rows.length > first && <Button size="small" onClick={() => setAll((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start" }}>{all ? `Show the first ${first}` : `Show all ${rows.length}`}</Button>}
+    </Box>
+  );
+}
+
 /** The types of visit month by month: each month's completed visits stacked by type, the share scheduled under it. */
 function KindMonths({ c }: { c: VCtx }) {
   const by = statsOf(c, "kind");
@@ -624,6 +707,10 @@ function drawnBare(id: string): Drawn | undefined {
     const title = (c: VCtx) => `Completed visits ${c.per.title}, month by month${teamPart(c)}`;
     return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={monthsHint(c)} actions={a}><VisitMonths c={c} target={targetFor(c, id)} /></ChartBox>,
       target: (c) => ({ unit: "n", label: `Each month's completed visits are measured against it - a line across the months; the running month is not counted · ${teamName(c)}'s target.` }) };
+  }
+  if (chart === "activities") {
+    const title = (c: VCtx) => `Activities ${c.per.title} - e-mails sent, calls and customer visits, by person${teamPart(c)}`;
+    return { id, title, draw: (c, a) => <ChartBox title={title(c)} hint={`${perWords(c.d, c.per)} · the e-mails each person sent and the calls they made in HubSpot, and their completed visit reports${c.per.win.year ? " · e-mails and calls are read for this year only" : ""}`} actions={a}><ActivitySplit c={c} /></ChartBox> };
   }
   if (chart === "answers") {
     const title = (c: VCtx) => `Prospects and customers visited - did they register, did they buy, ${c.per.title}${teamPart(c)}`;
@@ -804,6 +891,7 @@ function TabCard({ c, act }: { c: VCtx; act: Act }) {
     <GlassCard sx={card}>
       <CardTitle icon={<BadgeOutlinedIcon />} tint="green" title={`${teamName(c)}, ${c.per.title}`} note={`${words} · completed visit reports only, by meeting date, by who made the visit`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, "people:visits")}{draw(c, act, "people:kinds")}</Box>
+      {draw(c, act, "people:activities")}
       {c.per.months >= 2 && draw(c, act, "people:months")}
       {c.per.months >= 2 && draw(c, act, "people:months-table")}
       {draw(c, act, "people:table")}
@@ -1104,7 +1192,7 @@ export function VisitsExplorer({ team: given, setTeam: giveTeam, home = "eso" }:
       ]} />
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
         {scoped
-          ? <KeyCharts ids={["people:visits", "people:kinds", "people:months", "prio:coverage"]} draw={(id) => { const ch = drawnOf(id); return ch ? ch.draw({ ...c, view: id.split(":")[0] } as typeof c) : null; }} />
+          ? <KeyCharts ids={["people:activities", "people:visits", "people:kinds", "people:months", "prio:coverage"]} draw={(id) => { const ch = drawnOf(id); return ch ? ch.draw({ ...c, view: id.split(":")[0] } as typeof c) : null; }} />
           : <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />}
       </Box>
       <VFilterWindow c={c} per={per} open={panel} onClose={() => setPanel(false)} focus={focus} onPer={setPer} toggle={toggle} clearAll={clearAll} />
