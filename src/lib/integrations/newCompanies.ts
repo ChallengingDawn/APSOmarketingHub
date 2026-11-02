@@ -15,10 +15,12 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { ownerNames } from "./erosion";
 import { hubspotFetchJson } from "./hubspot";
 import { userNames } from "./segmentation";
-import { FOLLOW_DAYS, SEGMENT_AFTER_MIN, WORKFLOW_ID, firstSegment, firstValue, setByOf, sourceOf, type NewCo, type NewDoc, type SetBy } from "../segmentation/newCompanies";
+import { FOLLOW_DAYS, SEGMENT_AFTER_MIN, WORKFLOW_ID, firstSegment, firstValue, setByOf, sourceOf, type NewCo, type NewDoc, type RuleKey, type SetBy } from "../segmentation/newCompanies";
 import type { HistoryEntry } from "../segmentation/engine";
 
-const KV = { settings: "segmentation:new:settings", scan: "segmentation:new:scan", follow: "segmentation:new:follow", build: "segmentation:new:build", ownApp: "segmentation:own-app-id" } as const;
+const KV = { settings: "segmentation:new:settings", scan: "segmentation:new:scan", days: "segmentation:new:days", follow: "segmentation:new:follow", build: "segmentation:new:build", ownApp: "segmentation:own-app-id" } as const;
+/** the days the scan's counts are kept */
+const DAYS_KEPT = 120;
 const FOLLOW_LOCK = 4_107_255;
 const SCAN_WINDOW_H = 48;
 const SCAN_KEEP = 400;
@@ -29,15 +31,29 @@ export type Mode = "off" | "shadow" | "live";
 export type Settings = { mode: Mode; liveFrom: string | null; by?: string; at?: string };
 /** One decision of the scan; in Paused, `actual` is what the workflow wrote afterwards. */
 export type ScanRow = {
-  id: string; n: string; t: string; dom: string; emp: string; seg: string; why: string; at: string;
+  id: string; n: string; t: string; dom: string; emp: string; seg: string; why: string; at: string; ru?: RuleKey;
   w: "written" | "would" | "waiting" | "error"; err?: string; actual?: { seg: string; by: SetBy };
 };
 export type ScanInfo = { at: string; found: number; decided: number; written: number; mode: Mode; writing: boolean; error?: string };
 export type ScanDoc = { rows: ScanRow[]; last: ScanInfo | null };
+/** What the hub wrote per day (Zurich): the companies, by rule, and the ones HubSpot refused. */
+export type DayCount = { written: number; freemail: number; small: number; other: number; errors: number };
+export type Days = Record<string, DayCount>;
 export type BuildInfo = { running: boolean; startedAt: string | null; beatAt: string | null; progress: string; at: string | null; rows: number; seconds: number; by?: string; error?: string };
 
 type Obj = { id: string; properties?: Record<string, string | null>; propertiesWithHistory?: Record<string, HistoryEntry[]> };
 const nowIso = () => new Date().toISOString().slice(0, 19) + "Z";
+/** today in Zurich, and the moment its day began */
+export function zurichDay(ms = Date.now()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Zurich", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+}
+function zurichMidnight(ms = Date.now()): number {
+  const day = zurichDay(ms);
+  // the offset at that moment: Zurich's wall clock against UTC
+  const wall = new Date(new Date(ms).toLocaleString("en-US", { timeZone: "Europe/Zurich" })).getTime();
+  const utc = new Date(new Date(ms).toLocaleString("en-US", { timeZone: "UTC" })).getTime();
+  return Date.parse(`${day}T00:00:00Z`) - (wall - utc);
+}
 
 /* ── settings, the workflow ─────────────────────────────────────────────── */
 
@@ -118,7 +134,7 @@ export async function scanNew(): Promise<ScanInfo | null> {
     info.found = found.length;
     const decided: ScanRow[] = found.map((c) => {
       const p = c.properties ?? {}, v = firstSegment(p);
-      return { id: String(c.id), n: p.name ?? "", t: p.createdate ?? "", dom: p.domain ?? "", emp: p.numberofemployees ?? "", seg: v.segment, why: v.why, at: info.at, w: writing ? "written" : settings.mode === "live" ? "waiting" : "would" };
+      return { id: String(c.id), n: p.name ?? "", t: p.createdate ?? "", dom: p.domain ?? "", emp: p.numberofemployees ?? "", seg: v.segment, why: v.why, ru: v.rule, at: info.at, w: writing ? "written" : settings.mode === "live" ? "waiting" : "would" };
     });
     info.decided = decided.length;
     if (writing && decided.length) {
@@ -135,6 +151,16 @@ export async function scanNew(): Promise<ScanInfo | null> {
           }
         }
       }
+    }
+    if (writing && decided.length) {
+      // the day's count: what the hub wrote, by rule (a company is written once - it has a segment after)
+      const days = (await kvGet<Days>(KV.days)) ?? {};
+      const k = zurichDay();
+      const d = days[k] ?? { written: 0, freemail: 0, small: 0, other: 0, errors: 0 };
+      for (const x of decided) { if (x.w === "error") d.errors++; else { d.written++; if (x.ru) d[x.ru]++; } }
+      days[k] = d;
+      for (const old of Object.keys(days).sort().slice(0, -DAYS_KEPT)) delete days[old];
+      await kvSet(KV.days, days);
     }
     // the newest decision of each company first; a company decided again replaces its older row
     const fresh = new Set(decided.map((x) => x.id));
@@ -179,14 +205,19 @@ async function buildInner(by: string): Promise<BuildInfo> {
   const companies = await searchAll([{ propertyName: "createdate", operator: "GTE", value: String(Date.parse(`${since}T00:00:00Z`)) }],
     [...FOLLOW_PROPS, ...revProps], (n) => beat(`${n.toLocaleString("en")} companies read`));
   await beat(`${companies.length.toLocaleString("en")} companies - reading who gave each its first segment`);
-  const h = await histories(companies.map((c) => String(c.id)), ["apso_customer"], (i) => beat(`first segments: ${i.toLocaleString("en")} of ${companies.length.toLocaleString("en")}`));
+  const h = await histories(companies.map((c) => String(c.id)), ["apso_customer", "domain", "numberofemployees"], (i) => beat(`first segments: ${i.toLocaleString("en")} of ${companies.length.toLocaleString("en")}`));
   const apps = await hubApps();
   const rows: NewCo[] = [];
   for (const c of companies) {
     const p = c.properties ?? {};
     const created = p.createdate ?? "";
     if (!created) continue;
-    const first = firstValue(h.get(String(c.id))?.apso_customer);
+    const hist = h.get(String(c.id)) ?? {};
+    const first = firstValue(hist.apso_customer);
+    const fb = setByOf(first, apps);
+    // the rule that decided, from the domain and the size as they were the moment the workflow or the hub wrote
+    const asOf = (k: string) => [...(hist[k] ?? [])].filter((e) => (e.timestamp ?? "") <= (first?.timestamp ?? "")).sort((a, b) => (b.timestamp ?? "").localeCompare(a.timestamp ?? ""))[0]?.value ?? "";
+    const ru = first && (fb === "workflow" || fb === "hub") ? firstSegment({ domain: asOf("domain"), numberofemployees: asOf("numberofemployees") }).rule : undefined;
     const cy = Number(created.slice(0, 4));
     let r = 0;
     for (const k of revProps) if (Number(k.slice(8)) >= cy) r += Number(p[k]) || 0;
@@ -194,7 +225,7 @@ async function buildInner(by: string): Promise<BuildInfo> {
     rows.push({
       id: String(c.id), n: p.name ?? "", d: created.slice(0, 10), t: created.slice(0, 19), k: (p.country || p.country_custom || "").trim(),
       src, ...(who ? { by: who } : {}),
-      f: (first?.value ?? "").trim(), fb: setByOf(first, apps), fm: first?.timestamp ? Math.max(0, Math.round((Date.parse(first.timestamp) - Date.parse(created)) / 60_000)) : null,
+      f: (first?.value ?? "").trim(), fb, ...(ru ? { ru } : {}), fm: first?.timestamp ? Math.max(0, Math.round((Date.parse(first.timestamp) - Date.parse(created)) / 60_000)) : null,
       s: (p.apso_customer ?? "").trim(), p: (p.sales_priority ?? "").trim().slice(0, 1), r: Math.round(r),
       o: p.hubspot_owner_id ?? "", c: Number(p.num_associated_contacts) || 0, dom: !!(p.domain ?? "").trim(),
     });
@@ -272,6 +303,35 @@ async function unsegmented(): Promise<Unsegmented | null> {
     return null;
   }
 }
+
+async function searchCount(filters: object[]): Promise<number | null> {
+  try {
+    const r = await hubspotFetchJson<{ total?: number }>({ path: "/crm/v3/objects/companies/search", method: "POST", body: { filterGroups: [{ filters }], limit: 1, properties: ["name"] } });
+    return r.total ?? 0;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The scan as it happens (SARCLA 02.11.2026: "it doesn't look alive - track it like a funnel, by the rules and the
+ * stages"): today in Zurich - created, still in the 20 minutes' wait, given a segment by the hub (by rule), and every
+ * company in HubSpot without one. Light: three counts and the kv; the tab asks again every 30 seconds.
+ */
+export async function liveState() {
+  const now = Date.now(), midnight = zurichMidnight(now);
+  const [settings, on, scan, days, createdToday, waiting, none] = await Promise.all([
+    getSettings(), workflowOn(), kvGet<ScanDoc>(KV.scan), kvGet<Days>(KV.days),
+    searchCount([{ propertyName: "createdate", operator: "GTE", value: String(midnight) }]),
+    searchCount([{ propertyName: "createdate", operator: "GTE", value: String(now - SEGMENT_AFTER_MIN * 60_000) }, { propertyName: "apso_customer", operator: "NOT_HAS_PROPERTY" }]),
+    unsegmented(),
+  ]);
+  return {
+    at: new Date(now).toISOString(), today: zurichDay(now), settings, workflowOn: on, writing: settings.mode === "live" && on === false,
+    last: scan?.last ?? null, rows: scan?.rows ?? [], days: days ?? {}, createdToday, waiting, unsegmented: none,
+  };
+}
+export type LiveState = Awaited<ReturnType<typeof liveState>>;
 
 /** What the tab needs besides the figures: the switch, the workflow, the scan's decisions, the last read, who has no segment. */
 export async function scanState() {

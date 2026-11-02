@@ -42,7 +42,7 @@ import { PotentialChanges } from "./PotentialChanges";
 import { HowItWorks } from "./HowItWorks";
 import { PriorityMix, SegmentMix } from "./PortfolioCharts";
 import { NewCompanies } from "./NewCompanies";
-import { Runs, type Run, type Status } from "./Runs";
+import { RunTopic, type Run, type Status, type Topic } from "./Runs";
 import { ProfitCentreKpis } from "./ProfitCentreKpis";
 import { CompaniesTable, PRIO_LABEL } from "./CompaniesTable";
 
@@ -52,8 +52,8 @@ type Breakdown = {
 };
 type Data = { status: Status; breakdown: Breakdown; last: Record<string, Run> };
 
-type TabId = "overview" | "new" | "profit-centre" | "changes" | "runs" | "properties";
-const TAB_HASH: Record<TabId, string> = { overview: "#overview", new: "#new-companies", "profit-centre": "#profit-centre", changes: "#potential-changes", runs: "#runs", properties: "#how-it-works" };
+type TabId = "overview" | "new" | "profit-centre" | "changes" | "sweep" | "web" | "yearly" | "properties";
+const TAB_HASH: Record<TabId, string> = { overview: "#overview", new: "#new-companies", "profit-centre": "#profit-centre", changes: "#potential-changes", sweep: "#nightly-sweep", web: "#websites", yearly: "#yearly", properties: "#how-it-works" };
 
 const PROPERTY_ROWS: [string, string, string][] = [
   ["sales_priority", "New-company watcher (about 3 min after creation) · the buttons · nightly sweep · the yearly reclassification",
@@ -63,7 +63,7 @@ const PROPERTY_ROWS: [string, string, string][] = [
   ["max_pot_or_turnover", "Wherever the priority is computed", "= MAX(yearly potential, best revenue year) - the basis behind the priority."],
   ["max_revenue_2015_2026", "Wherever the priority is computed", "Best Performis revenue year since 2015."],
   ["max_revenue_bucket", "Wherever the priority is computed", "Fine 0–8 revenue scale (0 = no turnover … 8 = ≥ 100 k€)."],
-  ["apso_customer", "New companies: the hub's scan (Live, once the HubSpot workflow is off) or the HubSpot creation workflow · nightly lost-recovery · the yearly reclassification",
+  ["apso_customer", "New companies: the hub's scan, 20 minutes after creation (since 02.11.2026 - the HubSpot workflow is off) · nightly lost-recovery · the yearly reclassification",
     "20 minutes after creation APSOmicro (free mail domain or 1–5 employees) or APSOprospect; APSOlost that bought this year becomes APSOcore (≥ 500 €) or APSOprospect; once a year the 14-rule waterfall decides every segment again - ERP segments (ESO, DS, Growth Engine) never."],
   ["apic_ap / industry / hs_keywords", "Watcher and full runs, when empty · the yearly reclassification",
     "From the industry mapping or DE/FR/IT/EN keywords in the name, description and website - only valid portal values. Once a year a generic 1.1 APIC is corrected or cleared from the industry; resellers (3.x) never change."],
@@ -197,6 +197,7 @@ export default function SmartSegmentation() {
   const live = st.engine === "hub";
   const admin = role === "admin";
 
+  const run = (topic: Topic) => <RunTopic topic={topic} st={st} admin={admin} live={live} running={running} act={act} toggleWeb={toggleWeb} />;
   return shell(
     <>
       <Notes items={[
@@ -230,7 +231,9 @@ export default function SmartSegmentation() {
           { id: "new", label: "New companies", count: null },
           { id: "profit-centre", label: "Profit center", count: null },
           { id: "changes", label: "Potential changes", count: null },
-          { id: "runs", label: "Runs", count: running ? "running" : null },
+          { id: "sweep", label: "Nightly sweep", count: running && st.running?.what === "sweep" ? "running" : null },
+          { id: "web", label: "Websites", count: null },
+          { id: "yearly", label: "Yearly", count: null },
           { id: "properties", label: "How it works", count: null },
         ]} />
       </Box>
@@ -281,15 +284,15 @@ export default function SmartSegmentation() {
         </Box>
       )}
 
-      {tab === "new" && <NewCompanies />}
+      {tab === "new" && <NewCompanies steering={run("new")} />}
 
       {tab === "changes" && (
         <Box id="segmentation-panel-changes" role="tabpanel" sx={{ minWidth: 0 }}>
-          <PotentialChanges />
+          <Box sx={{ display: "grid", gap: 2.5 }}>{run("potential")}<PotentialChanges /></Box>
         </Box>
       )}
 
-      {tab === "runs" && <Runs st={st} admin={admin} live={live} running={running} act={act} toggleWeb={toggleWeb} />}
+      {(tab === "sweep" || tab === "web" || tab === "yearly") && <Box role="tabpanel" sx={{ minWidth: 0 }}>{run(tab)}</Box>}
 
       {tab === "properties" && (
         <Box id="segmentation-panel-properties" role="tabpanel" sx={{ minWidth: 0, display: "grid", gap: 2.5 }}>

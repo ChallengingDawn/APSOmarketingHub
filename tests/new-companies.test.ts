@@ -4,16 +4,17 @@ import { countryName, firstSegment, firstValue, moveOf, newFigures, newList, pre
 
 test("the first segment is the HubSpot workflow's, word for word", () => {
   assert.equal(firstSegment({ domain: "gmail.com", numberofemployees: "250" }).segment, "APSOmicro");
+  assert.equal(firstSegment({ domain: "gmail.com", numberofemployees: "250" }).rule, "freemail");
   // the workflow's endsWith: a sub-domain of a free mail domain is one too
   assert.equal(firstSegment({ domain: "mail.bluewin.ch" }).segment, "APSOmicro");
   // ... but not a domain that only ends in the same letters
   assert.equal(firstSegment({ domain: "notgmail.com" }).segment, "APSOprospect");
   assert.equal(firstSegment({ domain: " GMX.CH " }).segment, "APSOmicro");
-  assert.deepEqual(firstSegment({ domain: "acme.ch", numberofemployees: "5" }), { segment: "APSOmicro", why: "5 employees" });
+  assert.deepEqual(firstSegment({ domain: "acme.ch", numberofemployees: "5" }), { segment: "APSOmicro", why: "5 employees", rule: "small" });
   assert.equal(firstSegment({ domain: "acme.ch", numberofemployees: "6" }).segment, "APSOprospect");
   // no size known (0 or empty) is not micro
   assert.equal(firstSegment({ domain: "acme.ch", numberofemployees: "0" }).segment, "APSOprospect");
-  assert.deepEqual(firstSegment({}), { segment: "APSOprospect", why: "a new company" });
+  assert.deepEqual(firstSegment({}), { segment: "APSOprospect", why: "a new company", rule: "other" });
 });
 
 test("who gave the first segment: the workflow's app, the hub's, a person, an import, anything else", () => {
@@ -58,7 +59,7 @@ const doc = (rows: NewCo[]): NewDoc => ({ at: "2026-11-02T08:00:00Z", since: "20
 test("a period's figures: the new companies, what became of them, against the days before", () => {
   const d = doc([
     co("1", "2026-10-05"),
-    co("2", "2026-10-20", { s: "APSOcore", r: 1200, p: "2" }),
+    co("2", "2026-10-20", { s: "APSOcore", r: 1200, p: "2", ru: "other" }),
     co("3", "2026-10-31", { f: "APSOmicro", s: "APSOmicro", fm: 500, src: "person", by: "7" }),
     co("4", "2026-10-31", { f: "", fb: "none", fm: null, s: "" }),
     co("5", "2026-09-15"),
@@ -71,6 +72,10 @@ test("a period's figures: the new companies, what became of them, against the da
   assert.deepEqual(f.now.seg, { APSOprospect: 1, APSOcore: 1, APSOmicro: 1, "No APSO segment": 1 });
   assert.deepEqual(f.now.who, { workflow: 3, none: 1 });
   assert.equal(f.now.fast, 2);
+  // the funnel: given by the rules (the workflow or the hub), by which rule, a customer segment today
+  assert.deepEqual([f.now.byRules, f.now.rules, f.now.customer], [3, { other: 1 }, 1]);
+  assert.deepEqual(newList(d, "2026-10-01", "2026-10-31", { rule: "other" }).rows.map((x) => x.id), ["2"]);
+  assert.deepEqual(newList(d, "2026-10-01", "2026-10-31", { customer: true }).rows.map((x) => x.id), ["2"]);
   assert.equal(f.now.changed, 1);
   assert.deepEqual([f.now.bought, f.now.revenue], [1, 1200]);
   assert.deepEqual(f.now.src, { "wf:Associations | Contact - Companies": 3, "person:7": 1 });

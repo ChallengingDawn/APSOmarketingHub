@@ -19,15 +19,19 @@ export const SEGMENT_AFTER_MIN = 20;
 /** how far back the companies are followed: a year, and the year before it to compare with */
 export const FOLLOW_DAYS = 731;
 
-export type FirstSegment = { segment: "APSOmicro" | "APSOprospect"; why: string };
+/** Which of the three rules decided: a free mail domain, 1-5 employees, any other company */
+export type RuleKey = "freemail" | "small" | "other";
+export const RULES: RuleKey[] = ["freemail", "small", "other"];
+export const RULE_LABEL: Record<RuleKey, string> = { freemail: "A free mail domain → APSOmicro", small: "1–5 employees → APSOmicro", other: "Any other company → APSOprospect" };
+export type FirstSegment = { segment: "APSOmicro" | "APSOprospect"; why: string; rule: RuleKey };
 
 /** The workflow's own test, word for word: the domain IS a free mail domain or ends in ".<one of them>"; then 1-5 employees. */
 export function firstSegment(p: { domain?: string | null; numberofemployees?: string | null }): FirstSegment {
   const domain = (p.domain ?? "").toLowerCase().trim();
   const employees = parseFloat(p.numberofemployees ?? "") || 0;
-  if (domain && [...GENERIC_DOMAINS].some((g) => domain === g || domain.endsWith(`.${g}`))) return { segment: "APSOmicro", why: `free mail domain ${domain}` };
-  if (employees > 0 && employees <= 5) return { segment: "APSOmicro", why: `${employees} employees` };
-  return { segment: "APSOprospect", why: "a new company" };
+  if (domain && [...GENERIC_DOMAINS].some((g) => domain === g || domain.endsWith(`.${g}`))) return { segment: "APSOmicro", why: `free mail domain ${domain}`, rule: "freemail" };
+  if (employees > 0 && employees <= 5) return { segment: "APSOmicro", why: `${employees} employees`, rule: "small" };
+  return { segment: "APSOprospect", why: "a new company", rule: "other" };
 }
 
 /** Who gave a company its first APSO segment. */
@@ -98,6 +102,8 @@ export type NewCo = {
   src: string; by?: string;
   /** first segment, who gave it, minutes after the creation */
   f: string; fb: SetBy; fm: number | null;
+  /** when the workflow or the hub gave it: which rule, from the domain and the size as they were at that moment */
+  ru?: RuleKey;
   /** segment today, priority today (its first character, "" none) */
   s: string; p: string;
   /** invoiced revenue from the year it was created on */
@@ -131,7 +137,12 @@ export type Side = {
   seg: Record<string, number>; first: Record<string, number>; who: Partial<Record<SetBy, number>>; moves: Record<string, number>;
   src: Record<string, number>; country: Record<string, number>; owner: Record<string, number>; prio: Record<string, number>;
   bought: number; revenue: number; fast: number; changed: number;
+  /** given by the rules (the workflow or the hub), and by which rule; a customer segment today */
+  byRules: number; rules: Partial<Record<RuleKey, number>>; customer: number;
 };
+/** the segments a customer is in */
+export const CUSTOMER_SEGMENTS = new Set(["APSOcore", "APSOgrowth", "Growth Engine Customer"]);
+export const byTheRules = (x: Pick<NewCo, "fb">) => x.fb === "workflow" || x.fb === "hub";
 export type Bucket = { x: string; n: number; seg: Record<string, number>; first: Record<string, number>; bought: number; revenue: number; changed: number; prio: Record<string, number> };
 export type NewFigures = { now: Side; before: Side; since: string; at: string; buckets: Bucket[]; byDay: boolean; owners: Record<string, string>; users: Record<string, string> };
 
@@ -139,7 +150,7 @@ export type NewFigures = { now: Side; before: Side; since: string; at: string; b
 export const srcKey = (x: Pick<NewCo, "src" | "by">) => (x.src === "person" ? `person:${x.by ?? ""}` : x.src);
 
 function side(rows: NewCo[], from: string, to: string): Side {
-  const out: Side = { from, to, n: 0, seg: {}, first: {}, who: {}, moves: {}, src: {}, country: {}, owner: {}, prio: {}, bought: 0, revenue: 0, fast: 0, changed: 0 };
+  const out: Side = { from, to, n: 0, seg: {}, first: {}, who: {}, moves: {}, src: {}, country: {}, owner: {}, prio: {}, bought: 0, revenue: 0, fast: 0, changed: 0, byRules: 0, rules: {}, customer: 0 };
   for (const x of rows) {
     if (x.d < from || x.d > to) continue;
     out.n++;
@@ -148,6 +159,8 @@ function side(rows: NewCo[], from: string, to: string): Side {
     if (x.r > 0) { out.bought++; out.revenue += x.r; }
     if (x.fm !== null && x.fm <= FAST_MIN) out.fast++;
     if (x.f && x.f !== x.s) out.changed++;
+    if (byTheRules(x)) { out.byRules++; if (x.ru) out.rules[x.ru] = (out.rules[x.ru] ?? 0) + 1; }
+    if (CUSTOMER_SEGMENTS.has(x.s)) out.customer++;
   }
   return out;
 }
@@ -181,7 +194,7 @@ export function newFigures(doc: NewDoc, from: string, to: string): NewFigures {
 }
 
 /** What a click on a chart narrows the list to. */
-export type NewPick = { seg?: string; first?: string; who?: SetBy; move?: string; src?: string; country?: string; owner?: string; prio?: string; bought?: boolean; bucket?: string; q?: string };
+export type NewPick = { rule?: RuleKey; byRules?: boolean; fast?: boolean; changed?: boolean; customer?: boolean; seg?: string; first?: string; who?: SetBy; move?: string; src?: string; country?: string; owner?: string; prio?: string; bought?: boolean; bucket?: string; q?: string };
 
 export function newList(doc: NewDoc, from: string, to: string, pick: NewPick, max = 300): { rows: NewCo[]; total: number } {
   const q = (pick.q ?? "").trim().toLowerCase();
@@ -196,6 +209,11 @@ export function newList(doc: NewDoc, from: string, to: string, pick: NewPick, ma
     && (pick.prio === undefined || x.p === pick.prio)
     && (pick.bought === undefined || (x.r > 0) === pick.bought)
     && (pick.bucket === undefined || x.d.startsWith(pick.bucket))
+    && (pick.rule === undefined || (byTheRules(x) && x.ru === pick.rule))
+    && (pick.byRules === undefined || byTheRules(x) === pick.byRules)
+    && (pick.fast === undefined || (x.fm !== null && x.fm <= FAST_MIN) === pick.fast)
+    && (pick.changed === undefined || (!!x.f && x.f !== x.s) === pick.changed)
+    && (pick.customer === undefined || CUSTOMER_SEGMENTS.has(x.s) === pick.customer)
     && (!q || x.n.toLowerCase().includes(q) || x.id === q));
   hit.sort((a, b) => b.t.localeCompare(a.t) || b.id.localeCompare(a.id));
   return { rows: hit.slice(0, max), total: hit.length };

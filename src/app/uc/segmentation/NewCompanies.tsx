@@ -25,7 +25,7 @@ import BoltOutlinedIcon from "@mui/icons-material/BoltOutlined";
 import HourglassEmptyOutlinedIcon from "@mui/icons-material/HourglassEmptyOutlined";
 import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
-import RadarOutlinedIcon from "@mui/icons-material/RadarOutlined";
+import FilterAltOutlinedIcon from "@mui/icons-material/FilterAltOutlined";
 import ListAltIcon from "@mui/icons-material/ListAlt";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
@@ -38,8 +38,8 @@ import { CardTitle, FAINT, GlassCard, INK, KpiTile, MUTED, RED, bodyCell, clip, 
 import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
 import { useReportingWindow } from "@/app/window/ReportingWindow";
 import { rangeLabel } from "@/lib/boDetection/figures";
-import type { BuildInfo, ScanDoc, ScanRow, Settings, Unsegmented } from "@/lib/integrations/newCompanies";
-import { SET_BYS, SET_BY_LABEL, countryName, previousWindow, sourceLabel, type NewCo, type NewFigures, type SetBy, type Side } from "@/lib/segmentation/newCompanies";
+import type { BuildInfo, LiveState, ScanDoc, ScanRow, Settings, Unsegmented } from "@/lib/integrations/newCompanies";
+import { RULES, RULE_LABEL, SET_BY_LABEL, countryName, previousWindow, sourceLabel, type NewCo, type NewFigures, type RuleKey, type Side } from "@/lib/segmentation/newCompanies";
 import { SEGMENT_COLOR } from "./PortfolioCharts";
 
 const API = "/api/uc/segmentation/new-companies";
@@ -73,11 +73,11 @@ const stackOf = (seg: Record<string, number>) => {
   return out;
 };
 
-type Kind = "src" | "who" | "move" | "seg" | "country" | "owner" | "bucket";
+type Kind = "src" | "who" | "move" | "seg" | "country" | "owner" | "bucket" | "rule" | "byRules" | "fast" | "bought" | "customer";
 type Pick = { kind: Kind; key: string; label: string };
 type DimRow = { id: string; label: string; n: number; b: number };
 
-export function NewCompanies() {
+export function NewCompanies({ steering }: { steering?: React.ReactNode }) {
   const { window: win, label } = useReportingWindow();
   const [n, setN] = useState(0);
   const [imports, setImports] = useState<"all" | "without">("all");
@@ -99,6 +99,7 @@ export function NewCompanies() {
   const f = d.figures;
   return (
     <Box id="segmentation-panel-new" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
+      <LiveScan steering={steering} />
       {f && (d.imported > 0 || imports === "without") && (
         <Choice<"all" | "without"> value={imports} onChange={setImports} options={[
           { key: "all", label: "All new companies", count: imports === "without" ? f.now.n + d.imported : f.now.n },
@@ -108,7 +109,7 @@ export function NewCompanies() {
       {f ? <Evolution f={f} label={label} pick={pick} setPick={setPick} imports={imports === "without" ? "0" : null} /> : (
         <Info>{building ? `Reading every company created in the last two years - ${d.build?.progress ?? ""}. The figures appear here when it is done, in a few minutes.` : "The companies of the last two years have not been read yet - the hub reads them a few minutes after it starts, and every night after the nightly sweep."}</Info>
       )}
-      <Scan d={d} reload={reload} />
+      <FollowFooter build={d.build} admin={d.admin} reload={reload} />
     </Box>
   );
 }
@@ -161,6 +162,10 @@ function Evolution({ f, label, pick, setPick, imports }: { f: NewFigures; label:
   return (
     <>
       <Tiles now={now} was={was} label={label} delta={delta} prospects={prospects} />
+      <Funnel now={now} label={label} picked={pick} onPick={(kind, key, l) => {
+        setPick(pick?.kind === kind && pick.key === key ? null : { kind, key, label: l });
+        if (typeof document !== "undefined") setTimeout(() => document.getElementById("new-companies-list")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+      }} />
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<InsightsOutlinedIcon />} tint="blue" title={f.byDay ? "Day by day" : "Month by month"}
           note={`The ${full(now.n)} companies created ${inSentence(label)}, by the APSO segment each has today${f.byDay ? "" : ". The first and last month count only the days inside the period"}`} />
@@ -271,25 +276,19 @@ function CompanyList({ from, to, pick, f, imports }: { from: string; to: string;
   );
 }
 
-/* ── the scan ──────────────────────────────────────────────────────────── */
+/* ── the scan, live ───────────────────────────────────────────────────── */
 
-/** Every company in HubSpot without an APSO segment, read when the tab opens - the one figure that says the job is done. */
+/** Every company in HubSpot without an APSO segment, read when asked - the one figure that says the job is done. */
 function Unsegmented({ u }: { u: Unsegmented | null }) {
   if (!u) return <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>The companies without an APSO segment could not be read just now.</Typography>;
-  if (!u.total) return <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: "#1b7a55" }}>Every company in HubSpot has an APSO segment - none without one, read just now.</Typography>;
-  const fresh = u.rows.filter((x) => Date.now() - Date.parse(x.t) < 30 * 60_000).length;
+  if (!u.total) return null;
   return (
-    <Box>
-      <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: RED }}>
-        {full(u.total)} {u.total === 1 ? "company has" : "companies have"} no APSO segment{fresh ? ` - ${full(fresh)} created in the last half hour, the scan or the workflow gives them one 20 minutes after` : ""}:
-      </Typography>
-      <Typography sx={{ fontSize: "0.82rem", color: MUTED, mt: 0.5 }}>
-        {u.rows.map((x, i) => (
-          <span key={x.id}>{i ? ", " : ""}<Box component="a" href={hsCompany(x.id)} target="_blank" rel="noopener" sx={{ color: "#2459d1" }}>{x.n || x.id}</Box> ({when(x.t)})</span>
-        ))}
-        {u.total > u.rows.length ? ` and ${full(u.total - u.rows.length)} more` : ""}
-      </Typography>
-    </Box>
+    <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
+      {u.rows.map((x, i) => (
+        <span key={x.id}>{i ? ", " : ""}<Box component="a" href={hsCompany(x.id)} target="_blank" rel="noopener" sx={{ color: "#2459d1" }}>{x.n || x.id}</Box> ({when(x.t)})</span>
+      ))}
+      {u.total > u.rows.length ? ` and ${full(u.total - u.rows.length)} more` : ""}
+    </Typography>
   );
 }
 
@@ -301,51 +300,129 @@ function Status({ x }: { x: ScanRow }) {
   return <Chip tint={x.w === "waiting" ? "amber" : "slate"}>{x.w === "waiting" ? "waits for the workflow" : "would write"}</Chip>;
 }
 
-function Scan({ d, reload }: { d: Data; reload: () => void }) {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
+type Live = LiveState & { admin: boolean; engineLive: boolean };
+const ago = (ms: number) => (ms < 90_000 ? `${Math.max(0, Math.round(ms / 1000))} s ago` : ms < 5_400_000 ? `${Math.round(ms / 60_000)} min ago` : `${Math.round(ms / 3_600_000)} h ago`);
+const hm = (iso: string) => new Date(iso).toLocaleTimeString("de-CH", { timeZone: "Europe/Zurich", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const RULE_SHORT: Record<RuleKey, string> = { freemail: "Free mail → APSOmicro", small: "1–5 employees → APSOmicro", other: "Any other → APSOprospect" };
+const RULE_COLOR: Record<RuleKey, string> = { freemail: SEGMENT_COLOR.APSOmicro, small: "#c3b2f7", other: SEGMENT_COLOR.APSOprospect };
+
+/** One stage of today's funnel. */
+function Stage({ label, value, note, tint, children, last }: { label: string; value: string; note: string; tint: string; children?: React.ReactNode; last?: boolean }) {
+  return (
+    <Box sx={{ display: "flex", alignItems: "stretch", gap: 1, minWidth: 0 }}>
+      <Box sx={{ flex: 1, minWidth: 0, borderRadius: "16px", border: "1px solid rgba(21,34,58,.08)", borderTop: `3px solid ${tint}`, bgcolor: "rgba(255,255,255,.75)", p: 1.75, display: "grid", gap: 0.5, alignContent: "start" }}>
+        <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: MUTED }}>{label}</Typography>
+        <Typography sx={{ fontSize: "1.9rem", fontWeight: 800, color: INK, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{value}</Typography>
+        <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.45 }}>{note}</Typography>
+        {children}
+      </Box>
+      {!last && <Box sx={{ display: { xs: "none", lg: "flex" }, alignItems: "center", color: FAINT, fontSize: "1.3rem" }}>→</Box>}
+    </Box>
+  );
+}
+
+/**
+ * The scan as it happens (SARCLA 02.11.2026: "it doesn't look alive - track it like a funnel, by the rules and the
+ * stages"): its pulse and switch, today's funnel - created, in the 20 minutes' wait, given a segment by the hub (by rule),
+ * none without one - the days since the hub took over, and every decision. Asks again every 30 seconds.
+ */
+function LiveScan({ steering }: { steering?: React.ReactNode }) {
+  const [tick, setTick] = useState(0), [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const a = setInterval(() => setTick((x) => x + 1), 30_000), b = setInterval(() => setClock(Date.now()), 1000);
+    return () => { clearInterval(a); clearInterval(b); };
+  }, []);
+  const url = `${API}?live=1${tick ? `&t=${tick}` : ""}`;
+  const r = useHeld<Live>(url, [url]).result;
+  // the last answer stays on screen while the next one is on its way
+  const [d, setD] = useState<Live | null>(null);
+  useEffect(() => { if (r?.state === "ok") setD(r.data); }, [r]);
+  const [busy, setBusy] = useState(false), [msg, setMsg] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
-  const rowsAll = d.scan.rows;
+  const rowsAll = d?.rows ?? [];
   const test: Record<Filter, (x: ScanRow) => boolean> = {
     all: () => true, micro: (x) => x.seg === "APSOmicro", prospect: (x) => x.seg === "APSOprospect", differs: (x) => !!x.actual && x.actual.seg !== x.seg,
   };
-  const rows = rowsAll.filter(test[filter]);
-  const { slice, pager } = usePaged(rows, 15);
-  const call = async (what: string, body: unknown) => {
-    setBusy(what); setMsg(null);
+  const { slice, pager } = usePaged(rowsAll.filter(test[filter]), 10);
+  if (!d) return r?.state === "error" ? <Typography sx={{ color: RED, fontSize: "0.86rem" }}>{r.error}</Typography> : <LoadingPanel label="Reading the scan…" />;
+  const setMode = async (m: "off" | "shadow" | "live") => {
+    if (!d.admin || m === d.settings.mode) return;
+    if (m === "live" && !window.confirm("Switch the scan to live? The hub writes the first APSO segment of every new company once the HubSpot workflow is switched off.")) return;
+    setBusy(true); setMsg(null);
     try {
-      const res = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const res = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "mode", mode: m }) });
       const j = (await res.json()) as { ok: boolean; error?: string };
-      setMsg(j.ok ? "Done." : j.error ?? `HTTP ${res.status}`);
-      reload();
-    } catch (e) { setMsg((e as Error).message); } finally { setBusy(null); }
+      setMsg(j.ok ? null : j.error ?? `HTTP ${res.status}`);
+      setTick((x) => x + 1);
+    } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   };
-  const mode = d.settings.mode, last = d.scan.last;
+  const mode = d.settings.mode, last = d.last;
+  const since = last ? clock - Date.parse(last.at) : Infinity;
+  const alive = d.writing && since < 5 * 60_000 && !last?.error;
+  const tone = last?.error ? RED : alive ? "#1b7a55" : mode === "off" ? FAINT : "#eda100";
+  const today = d.days[d.today] ?? { written: 0, freemail: 0, small: 0, other: 0, errors: 0 };
+  const none = d.unsegmented?.total ?? null;
+  const dayKeys = Object.keys(d.days).sort().slice(-21);
   const compared = rowsAll.filter((x) => x.actual), agree = compared.filter((x) => x.actual!.seg === x.seg).length;
-  const byWho = (k: SetBy) => compared.filter((x) => x.actual!.by === k).length;
   return (
     <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-      <CardTitle icon={<RadarOutlinedIcon />} tint="purple" title="The scan - the first segment of every new company"
-        note={`Every 2 minutes, with Smart Segmentation's watcher: a company created in the last 48 hours, at least 20 minutes ago (the workflow's wait), that has no APSO segment gets one - a free mail domain (gmail, bluewin, gmx …) or 1–5 employees → APSOmicro, any other → APSOprospect. The APIC from the industry, the workflow's second step, the watcher already fills.`} />
-      <Box sx={{ display: "grid", gap: 1.5 }}>
-        <Unsegmented u={d.unsegmented} />
-        {!d.engineLive ? <Info>The Compass connector still runs Smart Segmentation here - the scan runs where the hub runs the engine.</Info>
-          : mode === "live" && !d.writing ? <Info><b>Live - waiting:</b> the HubSpot workflow “SARCLA | COMPANY SMARTSEGMENTATION” is {d.workflowOn ? "still switched on" : "not readable"} - the hub writes nothing while it runs. Switch it off in HubSpot (Automation → Workflows) and the hub takes over within 2 minutes.</Info>
-          : null}
-        <Choice<"off" | "shadow" | "live"> value={mode} onChange={(m) => {
-          if (!d.admin || m === mode) return;
-          if (m === "live" && !window.confirm("Switch the scan to live? The hub writes the first APSO segment of every new company once the HubSpot workflow is switched off.")) return;
-          void call("mode", { action: "mode", mode: m });
-        }} options={[{ key: "live", label: "Live - the hub writes" }, { key: "shadow", label: "Paused - works it out, writes nothing" }, { key: "off", label: "Off" }]} />
-        <Typography sx={{ fontSize: "0.84rem", color: INK }}>
-          {d.writing ? <>Writing{d.settings.liveFrom ? ` since ${when(d.settings.liveFrom)}` : ""}.</> : mode === "live" ? "Waiting for the workflow to be switched off." : mode === "shadow" ? "Paused: each new company is worked out and compared with what the workflow wrote; nothing is written." : "Off."}
-          {last ? ` Last pass ${when(last.at)}: ${full(last.found)} without a segment, ${full(last.written)} written${last.error ? ` - ${last.error}` : ""}.` : ""}
-          {` The workflow is ${d.workflowOn === null ? "not readable" : d.workflowOn ? "switched on" : "switched off"}.`}
-        </Typography>
+      <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start", flexWrap: "wrap", mb: 2 }}>
+        <Box sx={{ position: "relative", width: 14, height: 14, mt: 0.6, flexShrink: 0 }}>
+          <Box sx={{ position: "absolute", inset: 0, borderRadius: "50%", bgcolor: tone }} />
+          {alive && <Box sx={{ position: "absolute", inset: -4, borderRadius: "50%", border: `2px solid ${tone}`, animation: "scanPulse 1.8s ease-out infinite", "@keyframes scanPulse": { "0%": { transform: "scale(.6)", opacity: 0.9 }, "100%": { transform: "scale(1.6)", opacity: 0 } } }} />}
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 260 }}>
+          <Typography sx={{ fontSize: "1.02rem", fontWeight: 800, color: INK }}>
+            {!d.engineLive ? "The scan runs where the hub runs Smart Segmentation" : mode === "off" ? "The scan is off" : mode === "shadow" ? "Paused - the hub works each new company out, writes nothing" : d.writing ? "Live - the hub gives every new company its first APSO segment" : "Live - waiting for the HubSpot workflow to be switched off"}
+          </Typography>
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+            {last ? `Last pass ${hm(last.at)} - ${ago(since)}: ${full(last.found)} without a segment, ${full(last.written)} written${last.error ? ` - ${last.error}` : ""}. ` : "No pass yet. "}
+            Every 2 minutes; a company is decided 20 minutes after it is created. The HubSpot workflow is {d.workflowOn === null ? "not readable" : d.workflowOn ? "switched ON" : "switched off"}{d.writing && d.settings.liveFrom ? `; the hub writes since ${when(d.settings.liveFrom)}` : ""}.
+          </Typography>
+        </Box>
+        {d.admin && <Choice<"off" | "shadow" | "live"> value={mode} onChange={(m) => void setMode(m)} options={[{ key: "live", label: "Live" }, { key: "shadow", label: "Paused" }, { key: "off", label: "Off" }]} />}
+        {busy && <CircularProgress size={14} />}
+      </Box>
+      {msg && <Typography sx={{ fontSize: "0.82rem", color: RED, mb: 1 }}>{msg}</Typography>}
+
+      <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, mb: 1 }}>Today, {rangeLabel(d.today, d.today)}</Typography>
+      <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(4, minmax(0, 1fr))" } }}>
+        <Stage label="1 · Created" value={d.createdToday === null ? "—" : full(d.createdToday)} tint={SEGMENT_COLOR["Growth Engine Customer"]} note="new companies in HubSpot since midnight" />
+        <Stage label="2 · In the 20 minutes' wait" value={d.waiting === null ? "—" : full(d.waiting)} tint="#eda100" note="created in the last 20 minutes with no segment yet - decided when the 20 minutes are up" />
+        <Stage label="3 · Segmented by the hub" value={full(today.written)} tint="#1b7a55"
+          note={today.errors ? `${full(today.errors)} refused by HubSpot` : "by the three rules, written to HubSpot"}>
+          <Box sx={{ display: "grid", gap: 0.5, mt: 0.5 }}>
+            {RULES.map((k) => (
+              <Box key={k} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 36px", gap: 1, alignItems: "center" }}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontSize: "0.7rem", color: MUTED, ...clip(220) }}>{RULE_SHORT[k]}</Typography>
+                  <Box sx={{ height: 5, borderRadius: 3, bgcolor: "rgba(21,34,58,.06)", overflow: "hidden" }}><Box sx={{ height: "100%", width: `${today.written ? (100 * today[k]) / today.written : 0}%`, bgcolor: RULE_COLOR[k] }} /></Box>
+                </Box>
+                <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(today[k])}</Typography>
+              </Box>
+            ))}
+          </Box>
+        </Stage>
+        <Stage last label="4 · Without an APSO segment" value={none === null ? "—" : full(none)} tint={none ? RED : "#1b7a55"}
+          note={none === null ? "could not be read just now" : none === 0 ? "every company in HubSpot has one - read just now" : `in all of HubSpot, read just now - ${d.waiting ? "the ones in the wait included" : "see below"}`}>
+          <Unsegmented u={d.unsegmented} />
+        </Stage>
+      </Box>
+
+      {dayKeys.length > 0 && (
+        <Box sx={{ mt: 2.5 }}>
+          <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Day by day since the hub took over</Typography>
+          <Typography sx={{ fontSize: "0.74rem", color: MUTED, mb: 1 }}>The companies the hub gave their first segment each day, by the rule that decided</Typography>
+          <StackedColumns height={170} data={dayKeys.map((k) => ({ x: k, freemail: d.days[k].freemail, small: d.days[k].small, other: d.days[k].other }))}
+            parts={RULES.map((k) => ({ key: k, label: RULE_LABEL[k], color: RULE_COLOR[k] }))} format={(v) => full(v ?? 0)} xFormat={(x) => `${x.slice(8, 10)}.${x.slice(5, 7)}`} />
+        </Box>
+      )}
+
+      <Box sx={{ mt: 2.5, display: "grid", gap: 1 }}>
+        <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Every decision, the newest first</Typography>
         {compared.length > 0 && (
-          <Typography sx={{ fontSize: "0.84rem", color: INK }}>
-            Of the {full(compared.length)} companies below that got a segment from someone else, the hub would have given the same to <b>{full(agree)}</b> ({pct(agree, compared.length)})
-            {` - given by ${SET_BYS.filter((k) => byWho(k)).map((k) => `${k === "hub" ? "the hub's Domains tab" : SET_BY_LABEL[k].replace(/^The /, "the ").replace(/^A /, "a ").replace(/^An /, "an ")} ${full(byWho(k))}`).join(", ")}.`}
+          <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
+            Before the switch the hub only worked each company out: of the {full(compared.length)} the workflow (or someone) segmented, it would have given the same to {full(agree)} ({pct(agree, compared.length)}).
           </Typography>
         )}
         <Choice<Filter> value={filter} onChange={setFilter} options={[
@@ -354,18 +431,18 @@ function Scan({ d, reload }: { d: Data; reload: () => void }) {
         ]} />
         <Box sx={{ overflowX: "auto" }}>
           <Table size="small">
-            <TableHead><TableRow>{["Created", "Company", "Domain", "Employees", "The hub gives", "", "Given in HubSpot"].map((h, i) => <TableCell key={i} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+            <TableHead><TableRow>{["Created", "Company", "Domain", "Employees", "The rule", "", "Given in HubSpot"].map((h, i) => <TableCell key={i} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
             <TableBody>
               {slice.map((x) => (
                 <TableRow key={x.id} hover>
                   <TableCell sx={{ ...bodyCell, color: MUTED, fontSize: "0.78rem", whiteSpace: "nowrap" }}>{when(x.t)}</TableCell>
-                  <TableCell sx={bodyCell}><Box component="a" href={hsCompany(x.id)} target="_blank" rel="noopener" sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(240) }}>{x.n || x.id}</Box></TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: x.dom ? INK : FAINT, ...clip(180) }}>{x.dom || "none"}</TableCell>
+                  <TableCell sx={bodyCell}><Box component="a" href={hsCompany(x.id)} target="_blank" rel="noopener" sx={{ color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" }, display: "block", ...clip(220) }}>{x.n || x.id}</Box></TableCell>
+                  <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: x.dom ? INK : FAINT, ...clip(170) }}>{x.dom || "none"}</TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: x.emp ? INK : FAINT }}>{x.emp || "—"}</TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{x.seg}<Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{x.why}</Typography></TableCell>
                   <TableCell sx={bodyCell}><Status x={x} />{x.err && <Typography sx={{ fontSize: "0.7rem", color: RED }}>{x.err}</Typography>}</TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap", color: !x.actual ? FAINT : x.actual.seg === x.seg ? INK : RED, fontWeight: x.actual && x.actual.seg !== x.seg ? 700 : 400 }}>
-                    {x.actual ? <>{x.actual.seg}<Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{SET_BY_LABEL[x.actual.by]}</Typography></> : x.w === "written" ? "by the hub" : "not yet"}
+                    {x.actual ? <>{x.actual.seg}<Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{SET_BY_LABEL[x.actual.by]}</Typography></> : x.w === "written" ? `by the hub, ${hm(x.at)}` : "not yet"}
                   </TableCell>
                 </TableRow>
               ))}
@@ -373,17 +450,87 @@ function Scan({ d, reload }: { d: Data; reload: () => void }) {
           </Table>
         </Box>
         {pager}
-        {!rowsAll.length && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{mode === "off" ? "Off - no company is looked at." : "No new company without a segment yet - the next one shows here 20 minutes after it is created."}</Typography>}
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-          <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
-            {d.build?.running ? `Reading the last two years' companies - ${d.build.progress}.` : d.build?.at ? `The two years' companies read ${when(d.build.at)}${d.build.rows ? ` (${full(d.build.rows)} in ${full(d.build.seconds)} s)` : ""}, every night after the sweep.` : ""}
-            {d.build?.error ? ` The last read failed: ${d.build.error}` : ""}
-          </Typography>
-          {d.admin && <Button variant="outlined" size="small" disabled={!!busy || !!d.build?.running} onClick={() => void call("follow", { action: "follow" })} sx={{ textTransform: "none" }}>Read them again</Button>}
-          {(busy || d.build?.running) && <CircularProgress size={14} />}
+        {!rowsAll.length && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{mode === "off" ? "Off - no company is looked at." : "No decision yet - the next new company shows here 20 minutes after it is created."}</Typography>}
+      </Box>
+      {steering && (
+        <Box sx={{ mt: 2.5, display: "grid", gap: 1 }}>
+          <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Their priority and potential - the watcher</Typography>
+          {steering}
         </Box>
-        {msg && <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>{msg}</Typography>}
+      )}
+    </GlassCard>
+  );
+}
+
+/**
+ * The period's funnel (SARCLA 02.11.2026: "track it like a funnel, by the rules and the different stages"): of the
+ * companies created, how many the rules segmented (and by which rule), how many within the hour, how many have a P1 to P3
+ * priority today, bought since, are in a customer segment today. Each bar is a share of the companies created; a click
+ * lists them.
+ */
+function Funnel({ now, label, onPick, picked }: { now: Side; label: string; onPick: (kind: Kind, key: string, l: string) => void; picked: Pick | null }) {
+  const n = now.n, others = n - now.byRules - (now.who.none ?? 0);
+  const top = (now.prio["1"] ?? 0) + (now.prio["2"] ?? 0) + (now.prio["3"] ?? 0);
+  type Row = { label: string; value: number; note: string; kind?: Kind; key?: string; color: string; indent?: boolean };
+  const rows: Row[] = [
+    { label: "Created", value: n, note: `the new companies, ${inSentence(label)}`, color: SEGMENT_COLOR["Growth Engine Customer"] },
+    { label: "Segmented by the rules", value: now.byRules, note: `the workflow until 02.11.2026, the hub since; ${full(others)} got theirs another way (an import, a data sync, a person), ${full(now.who.none ?? 0)} none yet`, kind: "byRules", key: "1", color: "#1b7a55" },
+    ...RULES.map((k) => ({ label: RULE_LABEL[k], value: now.rules[k] ?? 0, note: "", kind: "rule" as Kind, key: k, color: RULE_COLOR[k], indent: true })),
+    { label: "Within the hour", value: now.fast, note: "their first segment came within an hour of the creation", kind: "fast", key: "1", color: "#5b8def" },
+    { label: "A priority P1 to P3 today", value: top, note: "a basis of 500 € or more - worth a salesperson's time", color: "#eda100" },
+    { label: "Bought since", value: now.bought, note: `an invoice since the year they were created - ${full(Math.round(now.revenue))} € in all`, kind: "bought", key: "1", color: "#13866a" },
+    { label: "A customer segment today", value: now.customer, note: "APSOcore, APSOgrowth or Growth Engine", kind: "customer", key: "1", color: SEGMENT_COLOR.APSOcore },
+  ];
+  return (
+    <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+      <CardTitle icon={<FilterAltOutlinedIcon />} tint="green" title={`From created to customer, ${label}`}
+        note="Every stage is a share of the companies created; the three rules are the ones the workflow and now the hub decide by. A click on a stage lists its companies" />
+      <Box sx={{ display: "grid", gap: 0.75 }}>
+        {rows.map((x) => {
+          const on = !!x.kind && picked?.kind === x.kind && picked.key === x.key;
+          return (
+            <Box key={x.label} component={x.kind ? "button" : "div"} type={x.kind ? "button" : undefined} onClick={x.kind ? () => onPick(x.kind!, x.key!, x.label) : undefined}
+              sx={{ all: "unset", display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "250px minmax(0, 1fr) 120px" }, gap: { xs: 0.5, md: 1.5 }, alignItems: "center", cursor: x.kind ? "pointer" : "default",
+                pl: x.indent ? { xs: 2, md: 3 } : 0, py: 0.5, borderRadius: "10px", bgcolor: on ? "rgba(36,89,209,.06)" : "transparent", "&:hover": x.kind ? { bgcolor: "rgba(21,34,58,.03)" } : undefined }}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={{ fontSize: x.indent ? "0.8rem" : "0.88rem", fontWeight: x.indent ? 500 : 700, color: INK }}>{x.label}</Typography>
+                {x.note && <Typography sx={{ fontSize: "0.72rem", color: MUTED, lineHeight: 1.4 }}>{x.note}</Typography>}
+              </Box>
+              <Box sx={{ height: x.indent ? 10 : 18, borderRadius: "6px", bgcolor: "rgba(21,34,58,.05)", overflow: "hidden" }}>
+                <Box sx={{ height: "100%", width: `${n ? Math.max(0.4, (100 * x.value) / n) : 0}%`, bgcolor: x.color, borderRadius: "6px", transition: "width .4s ease" }} />
+              </Box>
+              <Typography sx={{ fontSize: x.indent ? "0.8rem" : "0.9rem", fontWeight: 700, color: INK, textAlign: { xs: "left", md: "right" }, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                {full(x.value)} <Box component="span" sx={{ color: MUTED, fontWeight: 500 }}>· {pct(x.value, n)}</Box>
+              </Typography>
+            </Box>
+          );
+        })}
       </Box>
     </GlassCard>
+  );
+}
+
+/** When the two years' companies were read, and an admin's "read them again". */
+function FollowFooter({ build, admin, reload }: { build: BuildInfo | null; admin: boolean; reload: () => void }) {
+  const [busy, setBusy] = useState(false), [msg, setMsg] = useState<string | null>(null);
+  const again = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const res = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "follow" }) });
+      const j = (await res.json()) as { ok: boolean; error?: string };
+      setMsg(j.ok ? "Reading them again - a few minutes." : j.error ?? `HTTP ${res.status}`);
+      reload();
+    } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
+  };
+  return (
+    <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+      <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
+        {build?.running ? `Reading the last two years' companies - ${build.progress}.` : build?.at ? `The two years' companies read ${when(build.at)}${build.rows ? ` (${full(build.rows)} in ${full(build.seconds)} s)` : ""}, every night after the sweep.` : ""}
+        {build?.error ? ` The last read failed: ${build.error}` : ""}
+      </Typography>
+      {admin && <Button variant="outlined" size="small" disabled={busy || !!build?.running} onClick={() => void again()} sx={{ textTransform: "none" }}>Read them again</Button>}
+      {(busy || build?.running) && <CircularProgress size={14} />}
+      {msg && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{msg}</Typography>}
+    </Box>
   );
 }

@@ -152,7 +152,7 @@ export function HowItWorks() {
         <CardTitle icon={<CategoryOutlinedIcon />} tint="purple" title="3 · How a company is classified"
           note="APSO segment, APIC code, industry and keyword tag - five sources. The first four only fill what is empty; the yearly run decides the segment again" />
 
-        <Sub n="a" title="At creation: 20 minutes after, the first APSO segment" note="The HubSpot workflow SARCLA | COMPANY SMARTSEGMENTATION (COMPANYSEG) until it is switched off, then the hub's scan (New companies tab) - the same rule, only where the segment is empty" />
+        <Sub n="a" title="At creation: 20 minutes after, the first APSO segment" note="The hub's scan on the New companies tab, every 2 minutes - since 02.11.2026; the HubSpot workflow SARCLA | COMPANY SMARTSEGMENTATION did it before with the same rule. Only where the segment is empty" />
         <Box sx={flow}>
           <Node tint="purple" strong title="APSOmicro">The domain is a free mail address ({GENERIC_DOMAINS.size} domains: gmail, bluewin, gmx, outlook …) or it has 1–5 employees</Node>
           <Node tint="blue" strong title="APSOprospect">Every other new company</Node>

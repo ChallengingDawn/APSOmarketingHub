@@ -1,10 +1,10 @@
 "use client";
 
-// SMART SEGMENTATION - Runs, one tab per topic (SARCLA 02.11.2026: "runs should be split in different tabs per topic and
-// bring also KPIs"): the new companies and the watcher, the nightly sweep, the potentials, the websites, the yearly
+// SMART SEGMENTATION - the runs, each on the main tab of its topic (SARCLA 02.11.2026: "runs should be split in different
+// tabs per topic and bring also KPIs", then "integrated to the main tabs, not as a separate tab"): the new companies and
+// the watcher (New companies), the nightly sweep, the potentials (Potential changes), the websites, the yearly
 // reclassification - each with four counts from its last run, then its card to preview and run it.
 
-import { useState } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
@@ -31,7 +31,6 @@ import SwapVertIcon from "@mui/icons-material/SwapVert";
 import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, INK, KpiTile, MUTED, Notice, TINT } from "@/app/uc/report/ui";
-import { ReportTabs } from "@/app/uc/report/Tabs";
 import type { PcRun } from "./ProfitCentre";
 
 export type Run = Record<string, unknown> | null;
@@ -144,7 +143,7 @@ function YearlyExtra({ st }: { st: Status }) {
   );
 }
 
-type Sub = "new" | "sweep" | "potential" | "web" | "yearly";
+export type Topic = "new" | "sweep" | "potential" | "web" | "yearly";
 /** "12% - " before a note, nothing when there is nothing to take a share of */
 const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}% - ` : "");
 const statsOf = (r: Run) => (r && typeof r.stats === "object" && r.stats ? (r.stats as Record<string, number>) : {});
@@ -162,16 +161,15 @@ function Tiles({ tiles }: { tiles: Tile[] }) {
   );
 }
 
-export function Runs({ st, admin, live, running, act, toggleWeb }: {
-  st: Status; admin: boolean; live: boolean; running: boolean;
+export function RunTopic({ topic: sub, st, admin, live, running, act, toggleWeb }: {
+  topic: Topic; st: Status; admin: boolean; live: boolean; running: boolean;
   act: (what: string, dry: boolean, extra?: string) => void; toggleWeb: (on: boolean) => void;
 }) {
-  const [sub, setSub] = useState<Sub>("new");
   const w = (st.watcher_last ?? {}) as Record<string, unknown>;
   const set = (m: unknown) => Object.values((m ?? {}) as Record<string, number>).reduce((a, n) => a + (Number(n) || 0), 0);
   const sw = statsOf(st.last_sweep), po = statsOf(st.last_potential), we = statsOf(st.last_web), ye = statsOf(st.last_yearly);
   const swRead = num(st.last_sweep?.scanned), poRead = num(st.last_potential?.scanned), yeRead = num(st.last_yearly?.scanned), tried = we.attempted ?? 0;
-  const tiles: Record<Sub, Tile[]> = {
+  const tiles: Record<Topic, Tile[]> = {
     new: [
       { label: "No priority yet", value: st.empty, note: st.empty ? `of ${full(st.total)} companies - the watcher or the next run fills them` : `every one of the ${full(st.total)} companies has a sales priority`, icon: <HelpOutlineIcon />, tint: st.empty ? "pink" : "green" },
       { label: "New companies, last pass", value: num(w.found), note: `the watcher's pass ${when(st.watcher_last)}: created in the last 48 hours without a priority or a potential`, icon: <DomainAddOutlinedIcon />, tint: "blue" },
@@ -204,14 +202,7 @@ export function Runs({ st, admin, live, running, act, toggleWeb }: {
     ],
   };
   return (
-    <Box id="segmentation-panel-runs" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
-      <ReportTabs name="segmentation-runs" tab={sub} onSelect={setSub} tabs={[
-        { id: "new", label: "New companies", count: null },
-        { id: "sweep", label: "Nightly sweep", count: null },
-        { id: "potential", label: "Potentials", count: null },
-        { id: "web", label: "Websites", count: null },
-        { id: "yearly", label: "Yearly", count: null },
-      ]} />
+    <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
       {running && <Notice tone="warn">{st.running!.what} running since {st.running!.started.slice(11, 16)} UTC (started by {st.running!.by}) - other runs wait for it.</Notice>}
       <Tiles tiles={tiles[sub]} />
       {sub === "new" && (
@@ -221,7 +212,7 @@ export function Runs({ st, admin, live, running, act, toggleWeb }: {
             onPreview={() => act("run-new", true)} onRun={() => act("run-new", false)} />
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
             Watcher: last pass {when(st.watcher_last)}{st.watcher_last ? ` · ${full(num(w.found))} new companies found · ${full(num(w.written))} written` : ""}.
-            {" "}Engine: {live ? "the hub" : "the Compass connector"}{st.own_app ? ` · the hub writes as HubSpot app ${st.own_app}` : ""}. The first APSO segment of a new company is on the New companies tab.
+            {" "}Engine: {live ? "the hub" : "the Compass connector"}{st.own_app ? ` · the hub writes as HubSpot app ${st.own_app}` : ""}.
           </Typography>
         </>
       )}

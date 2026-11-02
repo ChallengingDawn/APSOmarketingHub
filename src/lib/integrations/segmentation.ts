@@ -979,10 +979,14 @@ async function pcChangedSince(sinceIso: string, yearsBack: number): Promise<stri
   if (!Number.isFinite(ms)) return [];
   const thisYear = `rev_${curYear()}_pc_monthly`;
   void yearsBack;
-  return searchIds([
+  const moved = await searchIds([
     { propertyName: "hs_lastmodifieddate", operator: "GTE", value: String(ms) },
     { propertyName: thisYear, operator: "HAS_PROPERTY" },
   ], { sorts: ["hs_lastmodifieddate"] });
+  // and every company with no profit centre at all: a new one that never ordered never "moves", so it stayed blank -
+  // 281 "Not worked out yet" on 02.11.2026 (SARCLA: "we should have this filled"); it gets "No sales" or its split
+  const blank = await searchIds([{ propertyName: "major_profit_center", operator: "NOT_HAS_PROPERTY" }]);
+  return [...new Set([...moved, ...blank])];
 }
 
 /** Plan the split: no writes, so the tab can show it before anyone runs it. */
