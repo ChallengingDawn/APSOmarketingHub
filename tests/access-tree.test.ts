@@ -124,6 +124,9 @@ test("a tile's or a view's page key leads to its report", () => {
   assert.equal(reportPathOfPage("tsa-calls"), "/reporting/tsa-benchmark/calls");
   assert.equal(reportPathOfPage("nutshell:eso-shop"), "/reporting/eso-benchmark/shop");
   assert.equal(reportPathOfPage("eso-figures:panel:revenue"), "/reporting/eso-benchmark/figures");
+  // Back-Office Reports (SARCLA 03.11.2026): its pages keyed "bo-<page>"
+  assert.equal(reportPathOfPage("bo-figures:main:created"), "/reporting/back-office/figures");
+  assert.equal(reportPathOfPage("nutshell:bo-topics"), "/reporting/back-office/topics");
   assert.equal(reportPathOfPage("reach"), "/reporting/marketing-kpis/reach");
   assert.equal(reportPathOfPage("nutshell"), "/reporting/marketing-kpis");
   assert.equal(reportPathOfPage(null), null);

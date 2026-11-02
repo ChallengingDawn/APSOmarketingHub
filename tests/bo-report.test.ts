@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { gqsTally, kpisOf, monthStart, monthsBetween, orderTally, sumMonths, swissDay, ticketTally, type BoMonth } from "../src/lib/reporting/boReportRules";
+import { WORKBOOK_TYPED, checkTyped, emptyMonth, gqsTally, inboundByMonth, kpisOf, monthStart, monthsBetween, orderTally, sumMonths, swissDay, ticketTally, type BoMonth } from "../src/lib/reporting/boReportRules";
 
 // SARCLA 02.11.2026: "and the back office reports based on file?" - the Back Office's KPI workbook worked out live. The
 // workbook's January 2026: 4,224 orders and 9,074 order lines, where HubSpot holds 4,879 order records (deliveries .000,
@@ -18,7 +18,7 @@ test("an order number counts once, whatever its deliveries and whichever system 
     { number: "A26.500126.000", type: null, status: "credit_note", lines: 1 },
     { number: null, type: "Order", status: null, lines: 9 },
   ]);
-  assert.deepEqual(t, { orders: 2, lines: 8 });
+  assert.deepEqual([t.orders, t.lines], [2, 8]);
 });
 
 test("a month begins at Swiss midnight - CET in winter, CEST in summer", () => {
@@ -41,7 +41,7 @@ test("the created tickets: topics, days to close and to the first reply over tho
 });
 
 test("the KPIs as the workbook names them: averages over the tickets, ratios to the orders, hours per ticket only when typed in", () => {
-  const m = (ym: string, x: Partial<BoMonth>): BoMonth => ({ ym, created: 0, closed: 0, closeDays: 0, closeN: 0, replyDays: 0, replyN: 0, chat: 0, topics: {}, eso: 0, tsa: 0, all: 0, orders: 0, lines: 0, ...x });
+  const m = (ym: string, x: Partial<BoMonth>): BoMonth => ({ ym, ...emptyMonth(), ...x });
   const both = sumMonths([m("2026-01", { created: 100, closeDays: 300, closeN: 50, lines: 400, orders: 200, topics: { A: 1 } }), m("2026-02", { created: 100, closeDays: 100, closeN: 50, lines: 400, orders: 200, topics: { A: 2, B: 1 } })]);
   const k = kpisOf(both, null, 80);
   assert.equal(k.resolution, 4); // 400 days over 100 tickets, not the average of the two months' averages
@@ -66,7 +66,7 @@ test("GQS by the month a task was created: the days before it went to GQS, the d
 });
 
 test("before July 2025 the tickets were not in HubSpot's pipelines: no ticket figure, not zero - the orders still count", () => {
-  const m = (ym: string): BoMonth => ({ ym, created: 2, closed: 1, closeDays: 0, closeN: 0, replyDays: 0, replyN: 0, chat: 0, topics: {}, eso: 6, tsa: 1, all: 481, orders: 4488, lines: 9847 });
+  const m = (ym: string): BoMonth => ({ ym, ...emptyMonth(), created: 2, closed: 1, eso: 6, tsa: 1, all: 481, orders: 4488, lines: 9847 });
   const june = kpisOf(m("2025-06"), null, null), july = kpisOf(m("2025-07"), null, null);
   assert.equal(june.created, null);
   assert.equal(june.all, null);
@@ -78,9 +78,49 @@ test("before July 2025 the tickets were not in HubSpot's pipelines: no ticket fi
 });
 
 test("a month not counted yet has no figure at all - not zero - and months added up with one of them neither", () => {
-  const m = (ym: string, pending?: boolean): BoMonth => ({ ym, created: 0, closed: 0, closeDays: 0, closeN: 0, replyDays: 0, replyN: 0, chat: 0, topics: {}, eso: 0, tsa: 0, all: 0, orders: 0, lines: 0, ...(pending ? { pending } : {}) });
+  const m = (ym: string, pending?: boolean): BoMonth => ({ ym, ...emptyMonth(), ...(pending ? { pending } : {}) });
   const k = kpisOf(m("2026-03", true), null, 900);
   assert.deepEqual([k.created, k.orders, k.lines, k.perLine, k.hoursPerTicket], [null, null, null, null, null]);
   assert.equal(kpisOf(sumMonths([m("2026-02"), m("2026-03", true)]), null, null).created, null);
   assert.equal(kpisOf(m("2026-03"), null, null).created, 0);
+});
+
+// SARCLA 03.11.2026: "did you read this file ... and what is expected?" - its comments and its new KPIs.
+
+test("the C2S tickets (all, and those filed Delivery), the customer tone's neutral share over the scored ones, the orders by profit centre", () => {
+  const t = ticketTally([
+    { topic: "Delivery", toClose: null, toReply: null, chat: false, c2s: true, tone: "neutral" },
+    { topic: "Delivery", toClose: null, toReply: null, chat: false, c2s: false, tone: "negative" },
+    { topic: "Product Price", toClose: null, toReply: null, chat: false, c2s: true, tone: "Positive" },
+    { topic: "Others", toClose: null, toReply: null, chat: false, tone: null }, // not scored
+  ]);
+  assert.deepEqual([t.c2s, t.c2sDelivery], [2, 1]);
+  const k = kpisOf({ ym: "2026-09", ...emptyMonth(), ...t }, null, null);
+  assert.equal(k.neutral, 1 / 3);
+  assert.equal(k.negative, 1 / 3);
+  const o = orderTally([
+    { number: "A26.1.000", type: null, status: null, lines: 2 }, // the shop's record names no profit centre
+    { number: "A26.1.001", type: "Order", status: "invoiced", lines: 2, pc: "DT" }, // the ERP's does
+    { number: "A26.2.000", type: null, status: null, lines: 1 },
+  ]);
+  assert.deepEqual(o.pcs, { DT: 1, "": 1 });
+});
+
+test("ESO and TSA inbound: the incoming tickets of the ESO Reports' read, by pipeline and month - the sales actions left out", () => {
+  const at = { year: 1, month: 2, group: 4, pipe: 21 };
+  const row = (yOff: number, month: number, group: number, pipe: number) => { const r = new Array(22).fill(0); r[1] = yOff; r[2] = month; r[4] = group; r[21] = pipe; return r; };
+  const got = inboundByMonth([row(0, 8, 0, 0), row(0, 8, 1, 0), row(0, 8, 0, 1), row(1, 0, 0, 0)], 2026, at);
+  assert.deepEqual(got, { eso: { "2026-09": 1, "2025-01": 1 }, tsa: { "2026-09": 1 } });
+});
+
+test("typed figures: a share typed as 95.5 or 95,5 % or 0.955 is 95.5 %; a count is whole; empty clears it", () => {
+  assert.deepEqual(checkTyped("pct", "95,5 %"), { ok: true, value: 0.955 });
+  assert.deepEqual(checkTyped("pct", 0.955), { ok: true, value: 0.955 });
+  assert.deepEqual(checkTyped("n", "712"), { ok: true, value: 712 });
+  assert.deepEqual(checkTyped("pct", ""), { ok: true, value: null });
+  assert.equal(checkTyped("pct", "150").ok, false);
+  assert.equal(checkTyped("n", "-3").ok, false);
+  // the workbook's own figures to start: OTD online, all, September 2026 80.8 %; pass rate mandant 100 January 96.43 %
+  assert.equal(WORKBOOK_TYPED["otd.online-all"]["2026-09"], 0.808);
+  assert.equal(WORKBOOK_TYPED["pass.m100"]["2026-01"], 0.9643);
 });

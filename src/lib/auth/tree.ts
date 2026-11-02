@@ -219,6 +219,9 @@ export function reportPathOfPage(page: string | null | undefined): string | null
   const k = page.replace(/^nutshell:/, "").split(":")[0];
   const team = /^(eso|tsa)-(.+)$/.exec(k);
   if (team) return `/reporting/${team[1]}-benchmark/${team[2]}`;
+  // Back-Office Reports' pages are keyed "bo-<page>" (SARCLA 03.11.2026: "BUC View is missing on Back-Office Reports")
+  const bo = /^bo-(.+)$/.exec(k);
+  if (bo) return `/reporting/back-office/${bo[1]}`;
   // Digital Growth's own: its BUC View, its stage pages
   if (k === "nutshell") return "/reporting/marketing-kpis";
   if (/^[a-z-]+$/.test(k)) return `/reporting/marketing-kpis/${k}`;

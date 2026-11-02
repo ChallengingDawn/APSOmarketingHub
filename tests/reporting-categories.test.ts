@@ -28,10 +28,10 @@ test("a click on a category goes straight into its first report - the overview w
   assert.equal(categoryEntry(categoryBySlug("products")!), "/uc/articles");
   // TSA, built as ESO (SARCLA 01.11.2026: "move BUC view with the same principle to TSA reports"): its BUC View first
   assert.equal(categoryEntry(categoryBySlug("tsa")!), "/reporting/tsa-benchmark");
-  // the Back Office's KPI workbook live (SARCLA 02.11.2026): Figures first, then a page per part at its own addresses
+  // the Back Office's KPI workbook live (SARCLA 02.11.2026): its BUC View first (03.11.2026), then a page per part
   const bo = categoryBySlug("back-office")!;
-  assert.equal(categoryEntry(bo), "/reporting/back-office/figures");
-  assert.deepEqual(bo.reports[0].children!.map((r) => r.href), ["/reporting/back-office/topics", "/reporting/back-office/sales-tickets", "/reporting/back-office/gqs"]);
+  assert.equal(categoryEntry(bo), "/reporting/back-office");
+  assert.deepEqual(bo.reports[0].children!.map((r) => r.href.replace("/reporting/back-office/", "")), ["figures", "topics", "sales-tickets", "gqs", "otd"]);
   // nothing in it yet: the category's own page, which names what comes first
   assert.equal(categoryEntry(categoryBySlug("otd")!), "/reporting/otd");
 });

@@ -126,15 +126,18 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     slug: "back-office", name: "Back-Office Reports", line: "What the Back Office handles, and how fast",
     // the Back Office's own KPI workbook (sheet "BO KPI") worked out live, a page per part as on ESO / TSA Reports (SARCLA
     // 02.11.2026: "and the back office reports based on file?" - "Live, file = the KPI list", "like on the ESO / TSA, split
-    // per topic"); the hours worked typed in on Figures; OTD and the stopped orders next
+    // per topic"); the BUC View first, as ESO's and TSA's (SARCLA 03.11.2026: "BUC View is missing"); what HubSpot does
+    // not hold typed in - the hours on Figures, the OTD, the pass rate, the manual prices, the stopped orders on OTD & autonomy
     reports: [
       {
-        name: "Back Office KPIs", href: "/reporting/back-office/figures", note: "Tickets, topics, sales tickets against the orders, and GQS - month by month", icon: "bar",
-        overview: "Figures", overviewHref: "/reporting/back-office/figures",
+        name: "Back Office KPIs", href: "/reporting/back-office", note: "Tickets, topics, sales tickets against the orders, GQS, OTD and autonomy - month by month", icon: "bar",
+        overview: "BUC View", overviewHref: "/reporting/back-office",
         children: [
+          { name: "Figures", href: "/reporting/back-office/figures", icon: "bar" },
           { name: "Topics", href: "/reporting/back-office/topics", icon: "layers" },
           { name: "Sales tickets", href: "/reporting/back-office/sales-tickets", icon: "groups" },
           { name: "GQS", href: "/reporting/back-office/gqs", icon: "description" },
+          { name: "OTD & autonomy", href: "/reporting/back-office/otd", icon: "verified" },
         ],
       },
     ],

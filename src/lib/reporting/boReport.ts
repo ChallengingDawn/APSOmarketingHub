@@ -13,10 +13,11 @@
 import { query } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { read, searchAll, type Filter } from "@/lib/lifecycle/read";
+import { isC2s } from "@/lib/boDetection/figures";
 import { gqsTally, monthStart, monthsBetween, nextMonth, orderTally, swissDay, ticketTally, type BoMonth, type GqsMonth } from "./boReportRules";
 
-/** a kept month of another version is counted again */
-const VERSION = 1;
+/** a kept month of another version is counted again (2: the C2S tickets, the tones, the orders by profit centre) */
+const VERSION = 2;
 const HOUR = 3_600_000, WEEK = 7 * 24 * HOUR;
 const LEASE_STALE_MS = 3 * 60_000;
 const PIPE = { bo: "1726786777", eso: "1726599376", tsa: "1726599377", gqs: "1726786775" } as const;
@@ -53,12 +54,13 @@ async function ticketCount(filters: Filter[]): Promise<number> {
 async function readMonth(ym: string, say: (s: string) => void): Promise<BoMonth> {
   say(`${ym}: the Back Office's tickets`);
   const tickets = await searchAll("tickets", [[pipe(PIPE.bo), ...between("createdate", ym)]],
-    ["enquiry_category", "time_to_close", "time_to_first_agent_reply", "source_type", REDIRECTED],
+    ["enquiry_category", "time_to_close", "time_to_first_agent_reply", "source_type", REDIRECTED, "subject", "c2s_ticket", "c2s_problem_order", "sentiment_customer_tone"],
     (n) => say(`${ym}: the Back Office's tickets · ${n.toLocaleString("en")}`));
   const num = (x: string | null | undefined) => (x == null || x === "" ? null : Number(x));
   const t = ticketTally(tickets.map((r) => ({
     topic: r.properties?.enquiry_category ?? null, toClose: num(r.properties?.time_to_close), toReply: num(r.properties?.time_to_first_agent_reply),
     chat: !!r.properties?.[REDIRECTED] || r.properties?.source_type === "CHAT",
+    c2s: isC2s(r.properties?.c2s_ticket, r.properties?.c2s_problem_order, r.properties?.subject), tone: r.properties?.sentiment_customer_tone ?? null,
   })));
   say(`${ym}: tickets closed, ESO's, TSA's, all`);
   const closed = await ticketCount([pipe(PIPE.bo), ...between("closed_date", ym)]);
@@ -66,13 +68,13 @@ async function readMonth(ym: string, say: (s: string) => void): Promise<BoMonth>
   const tsa = await ticketCount([pipe(PIPE.tsa), ...between("createdate", ym)]);
   const all = await ticketCount(between("createdate", ym));
   say(`${ym}: the orders`);
-  const orders = await searchAll("orders", [between("order_order_date", ym)], ["order_order_number", "order_order_type", "order_order_status", "order_line_count", "order_item_count"],
+  const orders = await searchAll("orders", [between("order_order_date", ym)], ["order_order_number", "order_order_type", "order_order_status", "order_line_count", "order_item_count", "order_profit_center"],
     (n) => say(`${ym}: the orders · ${n.toLocaleString("en")}`));
   const o = orderTally(orders.map((r) => ({
     number: r.properties?.order_order_number ?? null, type: r.properties?.order_order_type ?? null, status: r.properties?.order_order_status ?? null,
-    lines: Number(r.properties?.order_line_count) || Number(r.properties?.order_item_count) || 0,
+    lines: Number(r.properties?.order_line_count) || Number(r.properties?.order_item_count) || 0, pc: r.properties?.order_profit_center ?? null,
   })));
-  return { ym, ...t, closed, eso, tsa, all, orders: o.orders, lines: o.lines };
+  return { ym, ...t, closed, eso, tsa, all, orders: o.orders, lines: o.lines, pcs: o.pcs };
 }
 
 async function readGqs(): Promise<GqsMonth[]> {

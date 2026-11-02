@@ -19,7 +19,7 @@ import { useActions } from "@/app/reporting/marketing-kpis/tiles/store";
 export function BucEmpty({ page, href, tint = "blue" }: { page: string; href: string; tint?: Tint }) {
   // the BUC View it is in, by its page's address: TSA's pages are keyed "tsa-…", ESO's "eso-…"
   const { state } = useActions("nutshell");
-  const home = href.startsWith("/reporting/tsa-benchmark") ? "tsa-" : "eso-";
+  const home = href.startsWith("/reporting/tsa-benchmark") ? "tsa-" : href.startsWith("/reporting/back-office") ? "bo-" : "eso-";
   const any = (state?.placements ?? []).some((x) => x.placement === "nutshell" && x.spec.page.startsWith(home) && !x.spec.key.includes(":panel:"));
   if (!state || any) return null;
   const steps = [
