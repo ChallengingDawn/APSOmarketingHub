@@ -16,6 +16,7 @@ import IconButton from "@mui/material/IconButton";
 import InputBase from "@mui/material/InputBase";
 import Dialog from "@mui/material/Dialog";
 import BusinessOutlinedIcon from "@mui/icons-material/BusinessOutlined";
+import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import { FAINT, HAIRLINE, INK, MUTED, TINT } from "@/app/uc/report/ui";
 import { Pager, Table, type TableSort } from "@/app/reporting/marketing-kpis/ExplorerKit";
@@ -45,10 +46,15 @@ export type CompanySource = {
   left?: number[];
   /** the columns' widths after the name's, when a long text needs more room than a figure (Smart Segmentation) */
   widths?: string[];
+  /** the rows are tickets, not companies (Duplicates & merges, 02.11.2026): the words, the link and the button */
+  object?: "tickets";
 };
 
 export const PAGE = 25;
 export const hsCompany = (id: string) => `https://app-eu1.hubspot.com/contacts/26492587/record/0-2/${id}`;
+const hsTicketUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/26492587/record/0-5/${id}`;
+/** "company" or "ticket", one or more */
+const word = (s: { object?: "tickets" } | null | undefined, n = 2) => (s?.object === "tickets" ? (n === 1 ? "ticket" : "tickets") : n === 1 ? "company" : "companies");
 
 const Ctx = createContext<CompanySource | null>(null);
 /** Every graph card drawn inside gets this list of companies. */
@@ -63,7 +69,7 @@ export function useChartCompanies(given?: CompanySource | null, title?: string) 
   const [open, setOpen] = useState(false);
   return {
     source, open: !!source && open,
-    button: source ? <CompaniesButton open={open} onClick={() => setOpen((o) => !o)} /> : null,
+    button: source ? <CompaniesButton open={open} onClick={() => setOpen((o) => !o)} tickets={source.object === "tickets"} /> : null,
     list: source && open ? <CompanyDialog source={source} title={title} onClose={() => setOpen(false)} /> : null,
     /** the card's own content: no second list inside */
     inner: (node: React.ReactNode) => <Ctx.Provider value={null}>{node}</Ctx.Provider>,
@@ -71,11 +77,13 @@ export function useChartCompanies(given?: CompanySource | null, title?: string) 
 }
 
 const NAV = { width: 30, height: 30, border: "1px solid rgba(21,34,58,.12)", borderRadius: "9px" };
-export function CompaniesButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+export function CompaniesButton({ open, onClick, tickets = false }: { open: boolean; onClick: () => void; tickets?: boolean }) {
+  const w = tickets ? "tickets" : "companies";
+  const Icon = tickets ? ConfirmationNumberOutlinedIcon : BusinessOutlinedIcon;
   return (
-    <IconButton size="small" aria-label={open ? "Hide the companies" : "Show the companies"} title={open ? "Hide the companies" : "The companies behind this graph"} aria-pressed={open} onClick={onClick}
+    <IconButton size="small" aria-label={open ? `Hide the ${w}` : `Show the ${w}`} title={open ? `Hide the ${w}` : `The ${w} behind this graph`} aria-pressed={open} onClick={onClick}
       sx={{ ...NAV, color: open ? TINT.blue.fg : MUTED, bgcolor: open ? TINT.blue.bg : "transparent" }}>
-      <BusinessOutlinedIcon sx={{ fontSize: 17 }} />
+      <Icon sx={{ fontSize: 17 }} />
     </IconButton>
   );
 }
@@ -89,10 +97,10 @@ export function CompanyDialog({ source, title, onClose }: { source: CompanySourc
       slotProps={{ paper: { sx: { borderRadius: { xs: 0, sm: "18px" }, height: { xs: "100%", sm: "auto" }, maxHeight: { xs: "100%", sm: "90vh" }, m: { xs: 0, sm: 2 }, width: { xs: "100%", sm: "min(1600px, calc(100vw - 32px))" }, maxWidth: "100%" } } }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, px: { xs: 2, sm: 2.5 }, pt: 2, pb: 1 }}>
         <Box id={id} sx={{ flex: 1, minWidth: 0 }}>
-          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>The companies</Typography>
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>The {word(source)}</Typography>
           {title && <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>{title}</Typography>}
         </Box>
-        <IconButton onClick={onClose} aria-label="Close the companies" sx={{ mt: -0.5, mr: -1 }}><CloseIcon /></IconButton>
+        <IconButton onClick={onClose} aria-label={`Close the ${word(source)}`} sx={{ mt: -0.5, mr: -1 }}><CloseIcon /></IconButton>
       </Box>
       <Box sx={{ px: { xs: 2, sm: 2.5 }, pb: 2, overflowY: "auto", minHeight: 0 }}>
         <CompanyList source={source} />
@@ -186,20 +194,20 @@ export function CompanyList({ source, autoFocus = true }: { source: CompanySourc
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
         <Box sx={{ flex: "1 1 220px", minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>
-            {st.busy && !local ? "Reading the companies…" : `${total.toLocaleString("en")} compan${total === 1 ? "y" : "ies"}`}
+            {st.busy && !local ? `Reading the ${word(source)}…` : `${total.toLocaleString("en")} ${word(source, total)}`}
           </Typography>
           {source.note && <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{source.note}</Typography>}
         </Box>
-        <InputBase value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Find a company" autoFocus={autoFocus} inputProps={{ "aria-label": "Find a company" }}
+        <InputBase value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={`Find a ${word(source, 1)}`} autoFocus={autoFocus} inputProps={{ "aria-label": `Find a ${word(source, 1)}` }}
           sx={{ fontSize: "0.82rem", px: 1, py: 0.25, border: `1px solid ${HAIRLINE}`, borderRadius: "9px", bgcolor: "#fff", width: { xs: "100%", sm: 220 } }} />
         <Pager p={pager} />
       </Box>
-      {st.error ? <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>The companies could not be read: {st.error}</Typography>
-        : st.pending ? <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>The companies come with the next read of the figures - it is on its way, a few minutes.</Typography>
-        : !shown.length && !(st.busy && !local) ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>{q ? "No company by that name on this list." : "No company on this graph."}</Typography>
+      {st.error ? <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>The {word(source)} could not be read: {st.error}</Typography>
+        : st.pending ? <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>The {word(source)} come with the next read of the figures - it is on its way, a few minutes.</Typography>
+        : !shown.length && !(st.busy && !local) ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>{q ? `No ${word(source, 1)} by that name on this list.` : `No ${word(source, 1)} on this graph.`}</Typography>
         : (
           <Box sx={{ opacity: st.busy && !local ? 0.5 : 1, transition: "opacity .15s ease" }}>
-            <Table head={["Company", ...source.head]} left={source.left} widths={source.widths} sortable={sortable} sort={sort} onSort={onSort}
+            <Table head={[source.object === "tickets" ? "Ticket" : "Company", ...source.head]} left={source.left} widths={source.widths} sortable={sortable} sort={sort} onSort={onSort}
               rows={shown.map((r, i) => ({
                 key: `${r.id ?? r.name}-${i}`,
                 cells: [
@@ -208,7 +216,7 @@ export function CompanyList({ source, autoFocus = true }: { source: CompanySourc
                     ? <>{r.name} <Box component="span" sx={{ color: FAINT, fontSize: "0.74rem" }}>· {r.id.slice(4)}, not in HubSpot yet</Box></>
                   : r.id
                     // underlined - a link to the company in HubSpot (SARCLA 01.11.2026)
-                    ? <Box component="a" href={hsCompany(r.id)} target="_blank" rel="noreferrer" title="Open in HubSpot"
+                    ? <Box component="a" href={source.object === "tickets" ? hsTicketUrl(r.id) : hsCompany(r.id)} target="_blank" rel="noreferrer" title="Open in HubSpot"
                         sx={{ color: INK, textDecoration: "underline", textDecorationColor: "rgba(21,34,58,.35)", textUnderlineOffset: "3px", "&:hover": { color: TINT.blue.fg, textDecorationColor: "currentColor" } }}>{r.name}</Box>
                     : r.name,
                   ...r.cells,

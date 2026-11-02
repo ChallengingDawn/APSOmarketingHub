@@ -3,6 +3,7 @@
 // runs read the ticket again to see whether people merged it. No HubSpot and no database here, so the tests can run it.
 
 import type { DupResult, Exclusions, Ticket } from "./rules";
+import type { Verdict } from "./types";
 
 /** The private app whose token the DUPS workflow's code uses - its writes carry this source id (read 18.10.2026). */
 export const DUPS_APP = "22343290";
@@ -54,6 +55,10 @@ export type Row = {
   ownerWhy?: { legacy: OwnerWhy | null; hub: OwnerWhy | null };
   merge?: Merge;
   later?: Later;
+  /** the hub's own verdict, by type (types.ts) - rows checked before 02.11.2026 get it from the replay */
+  v?: Verdict;
+  /** live: what the hub wrote on the ticket (or why not) */
+  live?: { at: string; flagged: boolean; owner: boolean; note?: string; error?: string };
 };
 
 const HOUR = 60 * 60_000, DAY = 24 * HOUR;
@@ -77,7 +82,7 @@ export function hsDuplicates(text: string | null | undefined): string[] {
 /** What HubSpot answered for this entry: its first write after it, else what the field holds now. */
 export const hsText = (r: Row) => (r.actual ? (r.actual.firstMessage ?? r.actual.message) : null);
 export const hsFound = (r: Row) => { const t = hsText(r); return !!t && !/^\s*No duplicates found/i.test(t); };
-export const flaggedIds = (r: Row) => [...new Set([...(r.legacy?.duplicates ?? []), ...(r.hub?.duplicates ?? []), ...hsDuplicates(hsText(r))])];
+export const flaggedIds = (r: Row) => [...new Set([...(r.legacy?.duplicates ?? []), ...(r.hub?.duplicates ?? []), ...(r.v?.of ?? []), ...hsDuplicates(hsText(r))])];
 
 type Hist = { value: string; timestamp: string; sourceType?: string; sourceId?: string; sourceLabel?: string }[];
 const inWindow = (enteredAt: string, ts: string) => { const d = Date.parse(ts) - Date.parse(enteredAt); return d >= -60_000 && d <= WRITE_WINDOW_MS; };

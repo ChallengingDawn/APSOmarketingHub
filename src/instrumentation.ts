@@ -83,8 +83,9 @@ export async function register() {
     // them; live countries get owner + region_responsibility + contacts written (src/lib/mapAssign). MAP_ASSIGN=off stops it.
     const { startMapAssign } = await import("./lib/mapAssign/engine");
     startMapAssign();
-    // Duplicates & merges, SHADOW MODE: the DUPS workflow's duplicate check next to the hub's, with its exclusions
-    // (src/lib/ticketDuplicates) - writes nothing to HubSpot. TICKET_DUPLICATES=off stops it.
+    // Duplicates & merges: the hub's check by type (the same request twice, the same order, erosion) beside the DUPS
+    // workflow's; writes only in Live with the workflow off, and carries out the card's decisions while merging is on
+    // (src/lib/ticketDuplicates). TICKET_DUPLICATES=off stops it.
     const { startTicketDuplicates } = await import("./lib/ticketDuplicates/engine");
     startTicketDuplicates();
     // Ticket value, SHADOW MODE: the workflow SARCLA | TICKET VALUE CALCULATION's rules run by the hub, next to what the
