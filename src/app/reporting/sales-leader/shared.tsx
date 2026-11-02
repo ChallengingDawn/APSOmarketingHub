@@ -6,10 +6,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 
 import { ReportTabs } from "@/app/uc/report/Tabs";
+import { MUTED } from "@/app/uc/report/ui";
 import { useViewAs } from "@/app/ViewAs";
-import type { Scope } from "@/app/reporting/scope";
+import { ScopeProvider, type Scope } from "@/app/reporting/scope";
+import { Note, shell } from "@/app/reporting/my-sales/shared";
 import { scopeFor } from "@/lib/reporting/mySalesScope";
 import type { PersonTargets } from "@/lib/reporting/mySalesRules";
 import type { LeaderTeam, Person } from "@/lib/reporting/salesLeaderRules";
@@ -75,4 +78,16 @@ export function useLeaderFrame() {
   const scope = useMemo<Scope | null>(() => (st?.ok ? { ...scopeFor(people, name, reportsOf(view === "team" && st.mine ? [st.mine] : st.teams)), bar } : null),
     [st, people, name, view]); // eslint-disable-line react-hooks/exhaustive-deps
   return { st, view, bar, people, name, scope };
+}
+
+/**
+ * An ESO page drawn whole inside Sales Leader Reports, for the people of the switch - as My Sales Reports draws them
+ * (SARCLA 02.11.2026: "the sales leader report should follow the same pattern as ESO, TSA or My Sales Reports").
+ */
+export function LeaderFrame({ children }: { children: React.ReactNode }) {
+  const { st, scope, bar } = useLeaderFrame();
+  if (!st) return <Box sx={shell}><Typography sx={{ fontSize: "0.88rem", color: MUTED }}>Reading the teams…</Typography></Box>;
+  if (!st.ok || !scope) return <Box sx={shell}>{bar}<Note title="The teams could not be read">{st.error ?? "Try again in a moment."}</Note></Box>;
+  if (!st.teams.length && !st.mine) return <Box sx={shell}><Note title="No sales leader yet">Tag the sales leaders in Settings &gt; Hierarchy - each one&apos;s team is everyone under them.</Note></Box>;
+  return <ScopeProvider value={scope}>{children}</ScopeProvider>;
 }

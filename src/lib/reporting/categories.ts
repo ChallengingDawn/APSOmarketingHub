@@ -201,15 +201,24 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     slug: "sales-leader", name: "Sales Leader Reports", line: "Your team's targets, and the graphs a sales leader follows",
     // built as My Sales Reports (SARCLA 02.11.2026: "build the sales leader report - the table for overall and for its team
     // on the targets first page; rethink the more important graphs per sales leader"): Targets first - My team, and every
-    // sales leader's team (Settings > Hierarchy) - then the Team page's graphs; the KPIs tagged for the sales leader, the
-    // report of before, under "Other reports" (at /reporting/sales-leader/view; the report's address opens on Targets)
+    // sales leader's team (Settings > Hierarchy) - then the Team page's graphs; then ESO's own pages in ESO's order, each
+    // whole for the switch's people, as My Sales Reports has them (SARCLA 02.11.2026: "the sales leader report should follow
+    // the same pattern as ESO, TSA or My Sales Reports"). The KPIs tagged for the sales leader, the report of before, left
+    // the menu (his pick, "keep Team, drop the old view"); its addresses send here.
     reports: [
       {
-        name: "Sales leader KPIs", href: "/reporting/sales-leader/targets", note: "Each team's targets, who is on track, activity, revenue and customer health", icon: "verified",
+        name: "Sales leader KPIs", href: "/reporting/sales-leader/targets", note: "Each team's targets, who is on track, and every ESO report for the team", icon: "verified",
         overview: "Targets", overviewHref: "/reporting/sales-leader/targets",
         children: [
           { name: "Team", href: "/reporting/sales-leader/team", icon: "groups" },
-          { name: "Sales leader view", href: "/reporting/sales-leader/view", icon: "verified", group: "Other reports" },
+          { name: "Figures", href: "/reporting/sales-leader/figures", icon: "bar" },
+          { name: "Visits", href: "/reporting/sales-leader/visits", icon: "route" },
+          { name: "Registrations", href: "/reporting/sales-leader/registrations", icon: "verified" },
+          { name: "Shop behaviour", href: "/reporting/sales-leader/shop", icon: "inventory" },
+          { name: "New customers", href: "/reporting/sales-leader/new-customers", icon: "target" },
+          { name: "Customer development", href: "/reporting/sales-leader/customers", icon: "groups" },
+          { name: "Incoming tickets", href: "/reporting/sales-leader/tickets", icon: "description" },
+          { name: "System tickets", href: "/reporting/sales-leader/system-tickets", icon: "bolt" },
         ],
       },
     ],

@@ -15,7 +15,8 @@ import { asking, readManyTargets } from "@/lib/reporting/mySalesStore";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PAGES = ["targets", "team"].map((p) => `/reporting/sales-leader/${p}`);
+// any of the report's pages is enough to know the teams
+const PAGES = ["targets", "team", "figures", "visits", "registrations", "shop", "new-customers", "customers", "tickets", "system-tickets"].map((p) => `/reporting/sales-leader/${p}`);
 const opens = (a: MyAccess, href: string) => accessAt(href, a.levels).level !== "none";
 
 export async function GET(req: NextRequest) {

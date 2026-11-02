@@ -106,3 +106,11 @@ test("Products Reports: one report, Product KPIs - Articles CY/LY first, then a 
     ["Search", "/reporting/products/search"],
   ]);
 });
+
+test("Sales Leader Reports: Targets, Team, then ESO's pages as My Sales Reports has them - no tagged-KPI view (SARCLA 02.11.2026)", () => {
+  const r = categoryBySlug("sales-leader")!.reports[0];
+  const mine = categoryBySlug("my-sales")!.reports[0].children!.map((k) => k.name);
+  assert.equal(r.overview, "Targets");
+  assert.deepEqual(r.children!.map((k) => k.name), ["Team", ...mine]);
+  assert.ok(r.children!.every((k) => k.href.startsWith("/reporting/sales-leader/") && !k.group));
+});
