@@ -52,6 +52,9 @@ export async function POST(req: NextRequest) {
   const me = await requireUser();
   const who = me.full_name || me.username;
   try {
+    // an Ads Gateway older than the ACC shop ignores ?env=acc and would take ACC's settings as the live shop's
+    if ((body.action === "acc-reset" || (body.action === "settings" && body.env === "acc")) && !(await promoStatus()).acc)
+      return NextResponse.json({ ok: false, error: "The Ads Gateway does not know the ACC shop yet - it needs its next deploy." }, { status: 409 });
     if (body.action === "acc-reset") {
       const data = await resetAccTests();
       console.log(`[black-friday] ACC test hand-outs cleared by ${who}: ${data.cleared} (${data.codes_back} TEST codes back)`);

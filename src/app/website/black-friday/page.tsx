@@ -399,7 +399,13 @@ function Codes({ d, reload }: { d: Data; reload: () => void }) {
   );
 }
 
-function Settings({ d, env, reload }: { d: Data; env: PromoEnv; reload: () => void }) {
+function Settings(props: { d: Data; env: PromoEnv; reload: () => void }) {
+  // a gateway without the ACC shop would take ACC's settings as the live shop's: no form until it knows ACC
+  if (props.env === "acc" && !props.d.status.acc) return <Notice tone="warn">The Ads Gateway does not know the ACC shop yet - it needs its next deploy.</Notice>;
+  return <SettingsForm {...props} />;
+}
+
+function SettingsForm({ d, env, reload }: { d: Data; env: PromoEnv; reload: () => void }) {
   const s = env === "acc" && d.status.acc ? d.status.acc.settings : d.status.settings;
   const [on, setOn] = useState(s.on);
   const [from, setFrom] = useState(zurichDay(s.start));
