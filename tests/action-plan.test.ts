@@ -139,10 +139,12 @@ test("action plan: % complete and dates roll up; sub-actions count for their act
   assert.equal(r.get(7)!.percent, null); // the action itself still says it has no figure
   assert.equal(rollup([it(1, null, "topic"), it(2, 1, "action", { stage: LIVE, percent: 100 }), it(3, 1, "action"), it(4, 1, "action")], [], "2026-11-01").get(1)!.percent, 33);
   assert.deepEqual([r.get(3)!.from, r.get(3)!.to], ["2026-10-01", "2026-12-20"]);
-  assert.equal(r.get(5)!.late, 1); // planned 15.10, not done
-  // late on the planned date, not the go-live (SARCLA 02.11.2026): 4 too - planned 01.10, go-live 30.11, in progress
+  // 5 is dated by its sub-actions (one going live 20.12, none planned in the past): not late, whatever its own 15.10 says
+  // (SARCLA 03.11.2026)
+  assert.equal(r.get(5)!.late, 0);
+  // late on the planned date, not the go-live (SARCLA 02.11.2026): 4 - planned 01.10, go-live 30.11, in progress
   assert.equal(r.get(4)!.late, 1);
-  assert.equal(r.get(2)!.late, 2);
+  assert.equal(r.get(2)!.late, 1);
   assert.deepEqual([r.get(1)!.subs, r.get(1)!.subsOpen], [3, 2]);
   // done is done, whatever its sub-actions say
   assert.equal(rollup([it(9, null, "action", { stage: LIVE, percent: 100 })], [sub(4, 9, "open")], "2026-11-01").get(9)!.percent, 100);
@@ -489,7 +491,7 @@ test("action plan: sub-actions in their order - the open ones first, as dragged,
 test("action plan: due within a week - a planned date today to seven days on, not yet live; the action's or a sub-action's", () => {
   const today = "2026-11-03";
   const a = (start: string | null, stage: string | null = IN_PROGRESS) => it(1, null, "action", { start, stage, percent: null });
-  const s = (start: string | null, x: Partial<PlanSub> = {}) => ({ start, stage: IN_PROGRESS, status: "doing" as const, ...x });
+  const s = (start: string | null, x: Partial<PlanSub> = {}): PlanSub => ({ id: 0, item: 1, title: "", owner: "", ownerName: "", start, due: null, status: "doing", stage: IN_PROGRESS, priority: "", kpiHref: "", kpiTile: "", tickets: 0, ...x });
   assert.equal(dueSoon(a("2026-11-03"), [], today), true); // today: due, not late
   assert.equal(dueSoon(a("2026-11-10"), [], today), true); // seven days on
   assert.equal(dueSoon(a("2026-11-11"), [], today), false);
@@ -502,4 +504,26 @@ test("action plan: due within a week - a planned date today to seven days on, no
   assert.equal(dueSoon(a("2026-10-01"), [s("2026-11-08", { stage: LIVE, status: "done" })], today), false);
   // across a month's end
   assert.equal(dueSoon(a("2026-12-03"), [], "2026-11-28"), true);
+});
+
+test("action plan: an action dated by its sub-actions is late only when an open one is - a live one no longer counts", () => {
+  const today = "2026-11-03";
+  // SARCLA 03.11.2026: planned 22.10 from its first sub-action, which is live; the open one planned for 16.12
+  const action = it(1, null, "action", { start: "2026-10-22", due: "2026-11-10", stage: "6161845476", percent: null });
+  const live = { start: "2026-10-22", due: "2026-11-10", stage: LIVE, status: "done" as const };
+  const waiting = { start: "2026-12-16", due: null, stage: "6161845476", status: "doing" as const };
+  assert.equal(isLate(action, today, [live, waiting]), false);
+  assert.equal(isLate(action, today), true); // on its own date alone it would be
+  assert.equal(isLate(action, today, [live, { ...waiting, start: "2026-10-30" }]), true);
+  // sub-actions without a date: the action's own
+  assert.equal(isLate(action, today, [{ start: null, due: null, stage: null, status: "open" }]), true);
+  // due within a week the same way: the live one's date is not a deadline
+  assert.equal(dueSoon(action, [{ ...live, start: "2026-11-05" }, waiting], today), false);
+  assert.equal(dueSoon(action, [live, { ...waiting, start: "2026-11-05" }], today), true);
+  // the rollup: the action and its category
+  const items = [it(10, null, "topic"), it(11, 10, "action", { start: "2026-10-22", due: "2026-11-10", stage: "6161845476", percent: null })];
+  const subsOf = (xs: Partial<PlanSub>[]): PlanSub[] => xs.map((x, k) => ({ id: 100 + k, item: 11, title: "", owner: "", ownerName: "", start: null, due: null, status: "open", stage: null, priority: "", kpiHref: "", kpiTile: "", tickets: 0, ...x }));
+  const r = rollup(items, subsOf([live, waiting]), today);
+  assert.equal(r.get(11)!.lateSelf, false);
+  assert.equal(r.get(10)!.late, 0);
 });

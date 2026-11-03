@@ -244,7 +244,7 @@ function actionsUnder(id: number, items: PlanItem[]): PlanItem[] {
 function Tile({ row, r, items, color, onOpen, today }: { row: PlanItem; r: Rolled | undefined; items: PlanItem[]; color: string | null; onOpen: (i: PlanItem) => void; today: string }) {
   const action = row.kind === "action";
   const c = stageColor(row.stage);
-  const late = action ? (isLate(row, today) ? 1 : 0) : r?.late ?? 0;
+  const late = action ? (r?.lateSelf ? 1 : 0) : r?.late ?? 0;
   const n = action ? 0 : actionsUnder(row.id, items).length;
   const pct = r?.percent ?? (action ? row.percent ?? 0 : 0);
   const edge = action ? c.bar : color ?? SUMMARY;
@@ -369,7 +369,7 @@ function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen
   const pct = fromSubs ? rolled?.percent ?? 0 : action ? item.percent : rolled?.percent;
   const under = action ? [] : actionsUnder(item.id, items);
   const byStage = [...STAGES.map((s) => ({ id: s.id as string | null, label: s.label, n: under.filter((i) => i.stage === s.id).length })), { id: null, label: "No status", n: under.filter((i) => !stageOf(i.stage)).length }].filter((x) => x.n);
-  const late = under.filter((i) => isLate(i, today));
+  const late = under.filter((i) => rolledAll.get(i.id)?.lateSelf);
   const tiles = subs.filter((s) => s.kpiHref);
   const from = action ? item.start : rolled?.from ?? null;
   const to = action ? item.due : rolled?.to ?? null;

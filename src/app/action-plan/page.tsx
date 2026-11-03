@@ -141,7 +141,7 @@ function ActionPlan() {
     if (prios.length && !prios.includes(i.priority)) return false;
     if (stages.length && !stages.includes(i.stage ?? "none")) return false;
     if (dgOnly && !i.dg) return false;
-    if (lateOnly && !isLate(i, today)) return false;
+    if (lateOnly && !isLate(i, today, subsByItem.get(i.id))) return false;
     if (soonOnly && !dueSoon(i, subsByItem.get(i.id) ?? [], today)) return false;
     if (hideLive && i.stage === LIVE) return false;
     if (owner === NOBODY ? i.owners.length > 0 : !!owner && !i.owners.some((o) => o.id === owner)) return false;
@@ -190,7 +190,7 @@ function ActionPlan() {
     all: actions.length,
     done: actions.filter((i) => isClosed(i.stage) && i.stage !== KILLED).length,
     doing: actions.filter((i) => !!i.stage && !isClosed(i.stage) && i.stage !== STAGES[0].id).length,
-    late: actions.filter((i) => isLate(i, today)).length,
+    late: actions.filter((i) => isLate(i, today, subsByItem.get(i.id))).length,
     soon: actions.filter((i) => dueSoon(i, subsByItem.get(i.id) ?? [], today)).length,
     undated: actions.filter((i) => !i.due && !isClosed(i.stage)).length,
   };

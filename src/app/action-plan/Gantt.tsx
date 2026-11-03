@@ -93,7 +93,7 @@ function useNameWidth(rows: GRow[], rolled: Map<number, Rolled>, today: string):
       const [w, size] = it.kind === "topic" ? [800, 13.4] : it.kind === "group" ? [700, 13.8] : [500, 13.8];
       let chips = it.kind === "topic" ? 16 : 0;
       if (it.kind === "action") chips += 58 + 28 + 72;
-      if (it.kind === "action" && isLate(it, today)) chips += 40;
+      if (it.kind === "action" && ro?.lateSelf) chips += 40;
       if (it.kind !== "action" && (ro?.late ?? 0) > 0) chips += 52;
       need = Math.max(need, indent + chips + measure(it.title, w, size) + 16);
     }
@@ -402,7 +402,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
               // the project's colour, its done part solid; waiting or killed paler still
               const c = colorOf(it) ?? SUMMARY;
               const st = { bar: c, soft: alpha(c, it.stage === KILLED || it.state === "hold" ? 0.12 : 0.22) };
-              const late = isLate(it, today);
+              const late = !!ro?.lateSelf;
               const dx = bar?.id === it.id ? bar.dx : 0;
               const tip = [it.title, it.start ? `${dmy(it.start)} – ${dmy(it.due)}` : it.due ? `due ${dmy(it.due)}` : "", ro?.percent != null ? `${ro.percent} %` : "", late ? "late" : ""].filter(Boolean).join(" · ");
               if (it.start && it.due) {
@@ -540,7 +540,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
   const it = r.item;
   const ro = rolled.get(it.id);
   const summary = it.kind !== "action";
-  const late = isLate(it, today);
+  const late = !!ro?.lateSelf;
   const fromSubs = it.kind === "action" && (ro?.subs ?? 0) > 0 && !isClosed(it.stage) && it.percent !== 100;
   const prio = it.kind === "action" ? priorityLabel(it.priority) : "";
   const stage = stageOf(it.stage);
