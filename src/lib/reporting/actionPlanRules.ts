@@ -478,12 +478,18 @@ const plusDays = (iso: string, n: number): string =>
  * sub-actions'. Past that date it is late (isLate), never both.
  */
 export function dueSoon(i: Pick<PlanItem, "start" | "percent" | "stage">, subs: Pick<PlanSub, "start" | "due" | "stage" | "status">[], today: string, days = 7): boolean {
-  const end = plusDays(today, days);
-  const soon = (d: string | null) => !!d && d >= today && d <= end;
   // dated by its sub-actions: one still open planned in the week, as isLate reads them
-  if (subs.some((s) => s.start || s.due)) return subs.some((s) => soon(s.start) && !subClosed(s));
-  return soon(i.start) && !isClosed(i.stage) && (i.percent ?? 0) < 100;
+  if (subs.some((s) => s.start || s.due)) return subs.some((s) => subSoon(s, today, days));
+  return !!i.start && i.start >= today && i.start <= plusDays(today, days) && !isClosed(i.stage) && (i.percent ?? 0) < 100;
 }
+
+/**
+ * A sub-action due within a week: still open, planned for today or one of the next days - the one that puts its action
+ * under "Due within a week", its planned date shown in amber as a late one is red (SARCLA 03.11.2026: "how is this due
+ * within a week also" - "Aggregate all UC's review actions", by "Use Case: Purchaser Leaving" planned 09.11).
+ */
+export const subSoon = (s: Pick<PlanSub, "start" | "stage" | "status">, today: string, days = 7): boolean =>
+  !!s.start && s.start >= today && s.start <= plusDays(today, days) && !subClosed(s);
 
 /** A sub-action closed: done, or live, maintained or killed. */
 export const subClosed = (s: Pick<PlanSub, "stage" | "status">): boolean => s.status === "done" || !!subStage(s)?.closed;

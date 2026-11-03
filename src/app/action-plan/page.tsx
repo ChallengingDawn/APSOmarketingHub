@@ -149,7 +149,7 @@ function ActionPlan() {
   }, [q, prios, stages, dgOnly, lateOnly, soonOnly, subsByItem, owner, today, hideLive]);
 
   // the rows, top to bottom
-  const rows = useMemo<GRow[]>(() => {
+  const { rows, lateShown } = useMemo(() => {
     const kids = new Map<number | null, PlanItem[]>();
     const ids = new Set(items.map((i) => i.id));
     for (const i of items) {
@@ -181,8 +181,25 @@ function ActionPlan() {
       for (const c of under) walk(c, depth + 1);
     };
     for (const root of (kids.get(null) ?? []).filter(visible)) walk(root, 0);
-    return out;
-  }, [items, subs, collapsed, filtering, passes, hidden, showHidden, hideLive]);
+    // a category's "N late": the late actions under it that show - with a filter on, or rows hidden, the others are not
+    // there to find (SARCLA 03.11.2026: "MARKETING & AUTOMATION" said 2 late over three actions none of them late)
+    const lateShown = new Map<number, number>();
+    const lateIn = (i: PlanItem): number => {
+      if (lateShown.has(i.id)) return lateShown.get(i.id)!;
+      lateShown.set(i.id, 0);
+      const n = (kids.get(i.id) ?? []).filter(visible).reduce((sum, c) => sum + (rolled.get(c.id)?.lateSelf ? 1 : 0) + lateIn(c), 0);
+      lateShown.set(i.id, n);
+      return n;
+    };
+    for (const i of items) lateIn(i);
+    return { rows: out, lateShown };
+  }, [items, subs, collapsed, filtering, passes, hidden, showHidden, hideLive, rolled]);
+  // the Gantt's figures with those counts; the rows' windows keep the whole plan's
+  const rolledShown = useMemo(() => {
+    const m = new Map(rolled);
+    for (const [id, n] of lateShown) { const r = m.get(id); if (r && r.late !== n + (r.lateSelf ? 1 : 0)) m.set(id, { ...r, late: n + (r.lateSelf ? 1 : 0) }); }
+    return m;
+  }, [rolled, lateShown]);
 
   const actions = items.filter((i) => i.kind === "action");
   const hiddenN = items.filter((i) => hidden.has(i.id)).length;
@@ -475,7 +492,7 @@ It leaves the plan as an action; its name, description, status, priority, first 
           <Typography sx={{ fontSize: "0.9rem", color: error ? RED : MUTED }}>{error ? `The plan could not be read: ${error}` : "Loading the plan…"}</Typography>
         </Box></GlassCard>
       ) : (
-        <Gantt rows={rows} rolled={rolled} today={today} zoom={zoom} canWrite={data.canWrite} collapsed={collapsed} toggle={toggle}
+        <Gantt rows={rows} rolled={rolledShown} today={today} zoom={zoom} canWrite={data.canWrite} collapsed={collapsed} toggle={toggle}
           selected={openId} onOpen={(i) => openRow(i)} onSubs={(i) => openRow(i)} onOpenSub={openSub} onPatch={patch} canDrop={canDrop} onDrop={onDrop}
           height="max(480px, calc(100vh - 150px))" colorOf={colorOf}
           compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} onAdd={setAddFor}

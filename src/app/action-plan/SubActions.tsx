@@ -28,7 +28,7 @@ import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumb
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 
 import { FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { IDEA, PRIORITIES, STAGES, priorityLabel, stageOf, subLate, subPct, subStage, takesTicket, type PlanItem } from "@/lib/reporting/actionPlanRules";
+import { IDEA, PRIORITIES, STAGES, priorityLabel, stageOf, subLate, subPct, subSoon, subStage, takesTicket, type PlanItem } from "@/lib/reporting/actionPlanRules";
 import type { KpiTask } from "@/lib/reporting/kpiActions";
 import type { AiFill } from "@/lib/reporting/scrollToSaleRules";
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
@@ -475,6 +475,7 @@ export function SubEditor({ k, tile, t, owners, canWrite, tickets, linked, saved
 function SubLine({ k, linked, onOpen }: { k: KpiTask; linked: Linked[]; onOpen: () => void }) {
   const today = new Date().toISOString().slice(0, 10);
   const late = subLate(k, today);
+  const soon = !late && subSoon(k, today);
   const stage = subStage(k);
   const pct = subPct(k);
   const prio = priorityLabel(k.priority);
@@ -490,6 +491,7 @@ function SubLine({ k, linked, onOpen }: { k: KpiTask; linked: Linked[]; onOpen: 
             : <Typography sx={{ flexShrink: 0, fontSize: "0.72rem", color: FAINT, fontStyle: "italic" }}>No status</Typography>}
           {prio && <Box sx={{ ...TAG, bgcolor: PRIORITY_COLOR[k.priority].bg, color: PRIORITY_COLOR[k.priority].fg }}>{prio}</Box>}
           {late && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>LATE</Box>}
+          {soon && <Box title="Planned within the next 7 days, not live yet" sx={{ ...TAG, bgcolor: TINT.amber.bg, color: TINT.amber.fg }}>DUE SOON</Box>}
           <Typography noWrap sx={{ fontSize: "0.88rem", fontWeight: 650, color: INK, minWidth: 0, textDecoration: k.status === "done" ? "line-through" : "none" }}>{k.title}</Typography>
         </Box>
         <Typography noWrap sx={{ fontSize: "0.76rem", color: FAINT }}>

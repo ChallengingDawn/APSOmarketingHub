@@ -32,7 +32,7 @@ import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArro
 
 import { FAINT, HAIRLINE, INK, MUTED, TINT } from "@/app/uc/report/ui";
 import type { PlanItem, PlanKind, PlanSub, Rolled } from "@/lib/reporting/actionPlanRules";
-import { KILLED, isClosed, isLate, priorityLabel, stageOf, subLate, subPct, subStage } from "@/lib/reporting/actionPlanRules";
+import { KILLED, dueSoon, isClosed, isLate, priorityLabel, stageOf, subLate, subPct, subSoon, subStage } from "@/lib/reporting/actionPlanRules";
 import { SUMMIT } from "@/lib/reporting/summitRules";
 import { LATE, PRIORITY_COLOR, SUMMARY, dayOf, dmy, isoOf, stageColor } from "./planUi";
 
@@ -506,6 +506,8 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
     const s = r.sub;
     const c = color ?? SUMMARY;
     const late = subLate(s, today);
+    // planned within a week: the reason its action is "Due within a week", in amber
+    const soon = !late && subSoon(s, today);
     // its status in the actions' words (SARCLA 02.11.2026: "the status should stay the same even on sub-actions")
     const sStage = subStage(s);
     const sPrio = priorityLabel(s.priority);
@@ -524,7 +526,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
           </Box>
         </Box>
         {!compact && <>
-          <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: late ? LATE : MUTED, fontWeight: late ? 700 : 400 }}>{dmy(s.start)}</Typography></Box>
+          <Box sx={cell}><Typography title={soon ? "Due within a week" : undefined} sx={{ fontSize: "0.8rem", color: late ? LATE : soon ? TINT.amber.fg : MUTED, fontWeight: late || soon ? 700 : 400 }}>{dmy(s.start)}</Typography></Box>
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{dmy(s.due)}</Typography></Box>
           <Box sx={cell}>
             {sStage ? <Box sx={{ ...TAG, bgcolor: stageColor(sStage.id).soft, color: stageColor(sStage.id).ink }}>{sStage.label}</Box>
@@ -590,7 +592,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
       ) : (
         <>
           {/* a main action's dates are its sub-actions' first to last (SARCLA 02.11.2026: "go-live and planned date do not go as planned") */}
-          <DateCell value={it.start} late={late} canWrite={canWrite && !ro?.startFromSubs} max={it.due} fromSubs={ro?.startFromSubs} onSave={(v) => onPatch(it.id, { start: v })} />
+          <DateCell value={it.start} late={late} soon={!late && !ro?.startFromSubs && !ro?.dueFromSubs && dueSoon(it, [], today)} canWrite={canWrite && !ro?.startFromSubs} max={it.due} fromSubs={ro?.startFromSubs} onSave={(v) => onPatch(it.id, { start: v })} />
           <DateCell value={it.due} note={it.dueNote} canWrite={canWrite && !ro?.dueFromSubs} min={it.start} fromSubs={ro?.dueFromSubs} onSave={(v) => onPatch(it.id, { due: v })} />
           {/* the pipeline's stage, as a square tag in its colour */}
           <Box sx={cell}>
@@ -614,7 +616,12 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
 }
 
 /** A date typed in its cell, as in Planner's grid. */
-function DateCell({ value, note, late, canWrite, min, max, fromSubs, onSave }: { value: string | null; note?: string; late?: boolean; canWrite: boolean; min?: string | null; max?: string | null; fromSubs?: boolean; onSave: (v: string | null) => Promise<void> }) {
+function DateCell({ value, note, late, soon, canWrite, min, max, fromSubs, onSave }: {
+  value: string | null; note?: string; late?: boolean;
+  /** due within a week on its own date - amber */
+  soon?: boolean;
+  canWrite: boolean; min?: string | null; max?: string | null; fromSubs?: boolean; onSave: (v: string | null) => Promise<void>;
+}) {
   const [edit, setEdit] = useState(false);
   const cell = { px: 1, minWidth: 0, height: "100%", display: "flex", alignItems: "center", borderLeft: `1px solid ${HAIRLINE}` } as const;
   if (edit) {
@@ -630,7 +637,7 @@ function DateCell({ value, note, late, canWrite, min, max, fromSubs, onSave }: {
   return (
     <Box sx={{ ...cell, cursor: canWrite ? "text" : "inherit" }} onClick={(e) => { if (!canWrite) return; e.stopPropagation(); setEdit(true); }}>
       {value
-        ? <Typography title={fromSubs ? "From its sub-actions" : undefined} sx={{ fontSize: "0.8rem", color: late ? LATE : INK, fontWeight: late ? 700 : 400, fontVariantNumeric: "tabular-nums" }}>{dmy(value)}</Typography>
+        ? <Typography title={fromSubs ? "From its sub-actions" : soon ? "Due within a week" : undefined} sx={{ fontSize: "0.8rem", color: late ? LATE : soon ? TINT.amber.fg : INK, fontWeight: late || soon ? 700 : 400, fontVariantNumeric: "tabular-nums" }}>{dmy(value)}</Typography>
         : <Typography noWrap title={note || undefined} sx={{ fontSize: "0.78rem", color: FAINT, fontStyle: note ? "italic" : "normal" }}>{note || ""}</Typography>}
     </Box>
   );

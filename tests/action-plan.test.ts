@@ -6,7 +6,7 @@ import {
   IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, foldedDetail, mainStage, namesSalesLeaders, isDigitalGrowth, isLate, dueSoon, subLate, subOrder, placeSub, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
   stateOfStage, stageOfStatus, statusOfStage, sharedTicketSync, subPct, subStage, subTicketSync, subsSpan, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
-  isDgPerson, takesTicket,
+  isDgPerson, takesTicket, subSoon,
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
@@ -541,4 +541,23 @@ test("action plan: a Digital Growth person's sub-action takes a Scroll to Sale t
   assert.equal(takesTicket({ dg: false }, "Marc Muster"), false);
   assert.equal(takesTicket({ dg: false }), false); // the action itself: only when Digital Growth leads it
   assert.equal(takesTicket({ dg: true }, "Marc Muster"), true);
+});
+
+test("action plan: the sub-action that makes its action due within a week is the one marked", () => {
+  const today = "2026-11-03";
+  const open = { stage: "6161860808", status: "doing" as const };
+  // SARCLA 03.11.2026: "Use Case: Purchaser Leaving", in progress, planned 09.11
+  assert.equal(subSoon({ start: "2026-11-09", ...open }, today), true);
+  assert.equal(subSoon({ start: "2026-11-03", ...open }, today), true); // today
+  assert.equal(subSoon({ start: "2026-11-10", ...open }, today), true); // the 7th day
+  assert.equal(subSoon({ start: "2026-11-11", ...open }, today), false);
+  assert.equal(subSoon({ start: "2026-11-02", ...open }, today), false); // late, not soon
+  assert.equal(subSoon({ start: "2027-01-18", ...open }, today), false);
+  assert.equal(subSoon({ start: "2026-11-09", stage: LIVE, status: "done" }, today), false);
+  assert.equal(subSoon({ start: null, ...open }, today), false);
+  // the action is due within a week exactly when one of its sub-actions is marked
+  const action = { start: "2026-07-25", percent: 58, stage: "6161860808" };
+  const subs = [{ start: "2027-02-14", due: "2027-01-16", ...open }, { start: "2026-11-09", due: null, ...open }, { start: "2027-01-18", due: null, ...open }];
+  assert.equal(dueSoon(action, subs, today), true);
+  assert.deepEqual(subs.map((s) => subSoon(s, today)), [false, true, false]);
 });
