@@ -45,7 +45,6 @@ import type { MapData } from "@/lib/mapAssign/api";
 import { CountryPicker, MapPanel, useCountryMap } from "./MapPanel";
 import { RulesDialog, type Compare, type Mode, type Place } from "./RulesDialog";
 import { ContactsView, followPct, useContactsData } from "./ContactsView";
-import { NoCompanyView } from "./NoCompanyView";
 import { LiveView } from "./LiveView";
 import { SaeTableView } from "./SaeTableView";
 import { WrongPerformisView } from "./WrongPerformisView";
@@ -64,7 +63,7 @@ type Space = "live" | "sandbox";
 const TAB_HASH = { ...VIEW_HASH, ...OLD_VIEW_HASH };
 
 const VIEW_LABEL: Record<View, string> = {
-  map: "Map", sae: "SAE table", performis: "Wrong Performis Owners", differences: "Differences", contacts: "Contacts", nocompany: "No company", domains: "Domains", phones: "Phone numbers", live: "Live",
+  map: "Map", sae: "SAE table", performis: "Wrong Performis Owners", differences: "Differences", contacts: "Contacts", domains: "Domains", phones: "Phone numbers", live: "Live",
 };
 
 function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n, busy, check, msg, onSave, onUndo, seededNow, onSeeded, sandbox, liveRules }: {
@@ -348,7 +347,6 @@ export default function MapAssignment() {
     if (view === "contacts") body = <ContactsView key="contacts" d={d} names={names} palette={palette} held={contacts} onRetry={reload} onRefresh={() => setCn((x) => x + 1)} />;
     else if (view === "performis") body = <WrongPerformisView key="performis" names={names} n={n} />;
     else if (view === "differences") body = <DiffView key="differences" d={d} names={names} palette={palette} />;
-    else if (view === "nocompany") body = <NoCompanyView key="nocompany" d={d} names={names} onLinked={reload} />;
     else if (view === "live") body = <LiveView key="live" d={d} dirty={dirty} onChanged={reload} />;
     else if (view === "sae") body = <SaeTableView key={`sae-${space}`} d={dv} rules={rules} setDraft={setDraft} names={names} palette={palette} rev={rev} n={n} />;
     else body = <MapView key={`map-${space}`} d={dv} rules={rules} setDraft={setDraft} cc={cc} setCc={setCc} names={names} palette={palette} dirty={dirty} rev={rev} n={n}
@@ -377,7 +375,6 @@ export default function MapAssignment() {
           { id: "performis", label: VIEW_LABEL.performis, count: null },
           { id: "differences", label: VIEW_LABEL.differences, count: null },
           { id: "contacts", label: VIEW_LABEL.contacts, count: follow !== null ? `${follow}%` : null },
-          { id: "nocompany", label: VIEW_LABEL.nocompany, count: d && d.noCompany.length ? full(d.noCompany.length) : null },
           { id: "domains", label: VIEW_LABEL.domains, count: null },
           { id: "phones", label: VIEW_LABEL.phones, count: null },
           { id: "live", label: VIEW_LABEL.live, count: liveCount ? `${liveCount} live` : null },

@@ -47,7 +47,8 @@ import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
 import type { Backfill, LastRun, Mode, Settings } from "@/lib/ticketAssoc/run";
 import type { AlertMode, AlertRow, AlertRun } from "@/lib/ticketAssoc/orderAlerts";
 import type { ContactRow, ContactTotals, ContactsMode, ContactsRun } from "@/lib/ticketAssoc/contacts";
-import { ShopAccountsTab } from "./ShopAccounts";
+import { ShopAccountsTab } from "./ShopAccounts";
+import { NoCompanyTab } from "./NoCompany";
 
 type Row = {
   ticket_id: string; at: string; pipeline: string | null; why: string; subject: string | null; orders: string[]; articles: string[];
@@ -66,8 +67,8 @@ type Data = {
   contacts: { rows: ContactRow[]; totals: ContactTotals }; lastContacts: ContactsRun | null;
   last: { preview: LastRun | null; live: LastRun | null }; everyMinutes: number; admin: boolean;
 };
-type View = "overview" | "articles" | "orders" | "contacts" | "shop" | "alerts" | "settings";
-const VIEW_HASH: Record<View, string> = { overview: "#overview", articles: "#articles", orders: "#orders", contacts: "#contacts", shop: "#shop-accounts", alerts: "#alerts", settings: "#settings" };
+type View = "overview" | "articles" | "orders" | "contacts" | "shop" | "nocompany" | "alerts" | "settings";
+const VIEW_HASH: Record<View, string> = { overview: "#overview", articles: "#articles", orders: "#orders", contacts: "#contacts", shop: "#shop-accounts", nocompany: "#no-company", alerts: "#alerts", settings: "#settings" };
 const PIPE: Record<string, string> = { BO: "Back Office", ESO: "ESO", TSA: "TSA", SPR: "Special Prices", PM: "Product Management" };
 const WHY: Record<string, string> = { new: "new", stage: "moved stage", retry: "asked again" };
 const FIELD: Record<string, string> = { order_number: "order number", articles_on_the_ticket: "articles", c2s_ticket: "C2S" };
@@ -620,8 +621,9 @@ export default function TicketAssociations() {
   let body: React.ReactNode;
   // the shop accounts have their own read - not the period's tickets (SARCLA 19.10)
   if (view === "shop") body = <Box id="ticketassoc-panel-shop" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><ShopAccountsTab /></Box>;
+  else if (view === "nocompany") body = <Box id="ticketassoc-panel-nocompany" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><NoCompanyTab /></Box>;
   else if (r === null) body = <LoadingPanel label="Reading the tickets the hub linked…" />;
-  else if (r.state !== "ok") body = <UpstreamPanel source="Ticket/order/article associations" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
+  else if (r.state !== "ok") body = <UpstreamPanel source="Associations" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
   else if (view === "settings") body = <Box id="ticketassoc-panel-settings" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><SettingsTab d={r.data} onChanged={() => setN((x) => x + 1)} /></Box>;
   else if (view === "articles") body = <Box id="ticketassoc-panel-articles" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><ArticlesTab d={r.data} /></Box>;
   else if (view === "orders") body = <Box id="ticketassoc-panel-orders" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><OrdersTab d={r.data} /></Box>;
@@ -632,9 +634,9 @@ export default function TicketAssociations() {
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
-        title="Ticket/order/article associations"
-        subtitle="Tickets linked to the orders and articles they name - by the hub, every 3 minutes"
-        rightSlot={view !== "settings" && view !== "shop" ? (
+        title="Associations"
+        subtitle="Tickets linked to the orders and articles they name, contacts to their company - by the hub, every 3 minutes"
+        rightSlot={view !== "settings" && view !== "shop" && view !== "nocompany" ? (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <WindowPicker />
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
@@ -651,11 +653,12 @@ export default function TicketAssociations() {
           { id: "orders", label: "Orders", count: r?.state === "ok" && r.data.totals.order_tickets ? full(r.data.totals.order_tickets) : null },
           { id: "contacts", label: "Contacts & companies", count: r?.state === "ok" && r.data.contacts.totals.with_contact ? full(r.data.contacts.totals.with_contact) : null },
           { id: "shop", label: "Contacts without a company", count: null },
+          { id: "nocompany", label: "No company", count: null },
           { id: "alerts", label: "Order alerts", count: r?.state === "ok" && r.data.alerts.length ? full(r.data.alerts.length) : null },
           { id: "settings", label: "Settings", count: null },
         ]} />
       </Box>
-      {view !== "settings" && view !== "shop" && (
+      {view !== "settings" && view !== "shop" && view !== "nocompany" && (
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Pipeline</Typography>
           <Choice<"all" | "BO" | "ESO" | "TSA"> value={pipe} onChange={setPipe} options={[

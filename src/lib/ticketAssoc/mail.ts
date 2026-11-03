@@ -42,7 +42,7 @@ export function renderOrderAlert(m: OrderAlertMail): { subject: string; html: st
     rows: `<table style="border-collapse:collapse">${lines.map(([k, v]) => row(k, v)).join("")}</table>`,
     cta: { label: "Review it", href: m.ticketUrl },
     hubUrl: m.hubUrl,
-    footer: "Sent by APSOhub's Ticket/order/article associations because an order matched your open ESO / TSA ticket. An admin can switch these mails off in the hub (UC & HubSpot Apps > Ticket/order/article associations > Order alerts).",
+    footer: "Sent by APSOhub's Associations because an order matched your open ESO / TSA ticket. An admin can switch these mails off in the hub (UC & HubSpot Apps > Associations > Order alerts).",
   });
   const text = [
     "Please check your ticket",

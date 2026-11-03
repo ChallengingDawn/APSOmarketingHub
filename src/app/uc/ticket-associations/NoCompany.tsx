@@ -1,10 +1,12 @@
 "use client";
 
-// MAP ASSIGNMENT - recent contacts with no company (SARCLA 19.10.2026: "contacts without a clear company listed for a
+// ASSOCIATIONS - recent contacts with no company (SARCLA 19.10.2026: "contacts without a clear company listed for a
 // person to pick"): what their e-mail domain says, the owner it suggests, and the companies that share the domain -
-// "Link" associates the contact with one of them (admins), and the company's owner then follows.
+// "Link" associates the contact with one of them (admins), and the company's owner then follows. Moved here from Map
+// assignment on 03.11.2026 ("take out No company tab, move it to Ticket/order/article associations"); Map assignment's
+// engine still finds them (apsomh_map_assign_nocompany) and links them (its route, action "link").
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
@@ -17,10 +19,25 @@ import CircularProgress from "@mui/material/CircularProgress";
 import PersonSearchOutlinedIcon from "@mui/icons-material/PersonSearchOutlined";
 import { CardTitle, GlassCard, INK, MUTED, RED, bodyCell, clip, headCell } from "@/app/uc/report/ui";
 import { Chip, Choice, usePaged, when } from "@/app/connectors/parts";
+import { useHeld } from "@/app/analytics/AnalyticsData";
+import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import type { MapData, NoCompany } from "@/lib/mapAssign/api";
-import { hsCompany, hsContact, send, type Names } from "./shared";
+import { hsCompany, hsContact, namesOf, send, type Names } from "@/app/uc/map-assignment/shared";
 
-export function NoCompanyView({ d, names, onLinked }: { d: MapData; names: Names; onLinked: () => void }) {
+type NoCompanyData = Pick<MapData, "noCompany" | "owners" | "admin">;
+
+/** The tab: its own read of Map assignment's list (GET ?noCompany), not the map's whole read. */
+export function NoCompanyTab() {
+  const [n, setN] = useState(0);
+  const held = useHeld<NoCompanyData>(`/api/uc/map-assignment?noCompany${n ? `&n=${n}` : ""}`, [n]);
+  const r = held.result;
+  const names = useMemo(() => namesOf(r?.state === "ok" ? r.data.owners : []), [r]);
+  if (r === null) return <LoadingPanel label="Reading the recent contacts without a company…" />;
+  if (r.state !== "ok") return <UpstreamPanel source="Map assignment" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
+  return <NoCompanyView d={r.data} names={names} onLinked={() => setN((x) => x + 1)} />;
+}
+
+function NoCompanyView({ d, names, onLinked }: { d: NoCompanyData; names: Names; onLinked: () => void }) {
   const [filter, setFilter] = useState<"all" | "candidates" | "none">("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [linked, setLinked] = useState<Record<string, string>>({});

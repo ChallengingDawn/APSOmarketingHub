@@ -42,7 +42,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { query } from "@/lib/db/client";
 import { describeIntegrationError } from "@/lib/integrations/status";
-import { changesPage, companyRows, getRules, getSandbox, isRunning, kick, layerData, linkContact, mapData, performisData, promoteSandbox, saveLive, saveRules, saveSandbox, saveSettings } from "@/lib/mapAssign/engine";
+import { changesPage, companyRows, getRules, getSandbox, isRunning, kick, layerData, linkContact, mapData, noCompanyData, performisData, promoteSandbox, saveLive, saveRules, saveSandbox, saveSettings } from "@/lib/mapAssign/engine";
 import { answerConflict } from "@/lib/mapAssign/redirections";
 import { validateLive, validateRules, type RulesPatch } from "@/lib/mapAssign/plan";
 import type { MapPost, MapPut } from "@/lib/mapAssign/api";
@@ -78,6 +78,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ configured: true, ok: true, data: await layerData(cc, rules ? { rules } : {}) });
     }
     if (sp.get("performis") !== null) return NextResponse.json({ configured: true, ok: true, data: await performisData() });
+    if (sp.get("noCompany") !== null) return NextResponse.json({ configured: true, ok: true, data: await noCompanyData(access.role === "admin") });
     if (sp.get("contacts") !== null) return NextResponse.json({ configured: true, ok: true, data: await contactsData() });
     if (sp.get("performisWrong") !== null) {
       if (sp.get("format") === "xlsx") {

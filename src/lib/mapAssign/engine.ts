@@ -1245,6 +1245,25 @@ const toChange = (r: DbChange): CompanyChange => ({
   wrote: r.wrote_at ? { at: iso(r.wrote_at)!, ok: !r.wrote_error, ...(r.wrote_error ? { error: r.wrote_error } : {}) } : null,
 });
 
+/** The recent contacts with no company (the page's "No company" list), newest first. */
+async function noCompanyRows(): Promise<NoCompany[]> {
+  const nc = await query<DbNoCompany>(
+    `SELECT contact_id, email, name, createdate, owner_id, why, suggested_owner, link, candidates FROM apsomh_map_assign_nocompany
+     ORDER BY createdate DESC NULLS LAST, contact_id DESC LIMIT ${NO_COMPANY_SHOWN}`,
+  );
+  return nc.rows.map((r) => ({
+    id: String(r.contact_id), email: r.email, name: r.name ?? r.email ?? `Contact ${r.contact_id}`, createdate: iso(r.createdate), ownerId: r.owner_id,
+    why: r.why ?? "", suggestedOwner: r.suggested_owner, link: r.link, candidates: Array.isArray(r.candidates) ? r.candidates : [],
+  }));
+}
+/** Just the "No company" list with the owners' names - Associations > No company reads it (SARCLA 03.11.2026: "take out
+ *  No company tab, move it to Ticket/order/article associations"), without the map's whole read. */
+export async function noCompanyData(admin: boolean): Promise<Pick<MapData, "noCompany" | "owners" | "admin">> {
+  await ensureMapAssign();
+  const own = await owners().catch(() => null);
+  return { noCompany: await noCompanyRows(), owners: own?.list ?? [], admin };
+}
+
 export async function mapData(admin: boolean): Promise<MapData> {
   await ensureMapAssign();
   const rules = await getRules();
@@ -1293,14 +1312,7 @@ export async function mapData(admin: boolean): Promise<MapData> {
   );
   const changes: CompanyChange[] = ch.rows.map(toChange);
 
-  const nc = await query<DbNoCompany>(
-    `SELECT contact_id, email, name, createdate, owner_id, why, suggested_owner, link, candidates FROM apsomh_map_assign_nocompany
-     ORDER BY createdate DESC NULLS LAST, contact_id DESC LIMIT ${NO_COMPANY_SHOWN}`,
-  );
-  const noCompany: NoCompany[] = nc.rows.map((r) => ({
-    id: String(r.contact_id), email: r.email, name: r.name ?? r.email ?? `Contact ${r.contact_id}`, createdate: iso(r.createdate), ownerId: r.owner_id,
-    why: r.why ?? "", suggestedOwner: r.suggested_owner, link: r.link, candidates: Array.isArray(r.candidates) ? r.candidates : [],
-  }));
+  const noCompany = await noCompanyRows();
 
   const mv = await query<{ country: string; from: string | null; to: string; companies: number; contacts: number }>(
     `SELECT COALESCE(country, '${NO_COUNTRY}') AS country, owner_now AS "from", owner_decided AS "to",
