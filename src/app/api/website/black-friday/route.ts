@@ -3,6 +3,8 @@
 //   GET  ?fresh=1                          -> { status, report | null, reportError | null, testers, isAdmin }
 //   POST { action: "settings", on?, start?, end?, discount?, testers? }  (admins; testers = e-mails: the hub keeps
 //        them, the gateway gets only the salted hashes the shop page sends)
+//   POST { action: "settings", env: "acc", on?, start?, end?, discount? }  the ACC shop's own settings (admins)
+//   POST { action: "acc-reset" }   ACC's test hand-outs cleared, the TEST- codes back in the pool       (admins)
 //   POST { action: "codes", discount, codes: [...] }                 (admins; the page sends 300 a call - the
 //        8 KB request limit in front of the hub)
 
@@ -11,7 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { myAccess } from "@/lib/auth/appAccess";
 import { requireUser } from "@/lib/auth/guard";
-import { adminToken, loadPromoCodes, promoReport, promoStatus, setPromoSettings } from "@/lib/promo/blackFriday";
+import { adminToken, loadPromoCodes, promoReport, promoStatus, resetAccTests, setPromoSettings } from "@/lib/promo/blackFriday";
 import { wrongRate } from "@/lib/promo/report";
 
 export const runtime = "nodejs";
@@ -50,19 +52,25 @@ export async function POST(req: NextRequest) {
   const me = await requireUser();
   const who = me.full_name || me.username;
   try {
+    if (body.action === "acc-reset") {
+      const data = await resetAccTests();
+      console.log(`[black-friday] ACC test hand-outs cleared by ${who}: ${data.cleared} (${data.codes_back} TEST codes back)`);
+      return NextResponse.json({ ok: true, data });
+    }
     if (body.action === "settings") {
+      const env = body.env === "acc" ? "acc" : "prod";
       const patch: Record<string, unknown> = {};
       for (const k of ["on", "start", "end", "discount"]) if (body[k] !== undefined) patch[k] = body[k];
       let testers: string[] | null = null;
-      if (body.testers !== undefined) {
+      if (env === "prod" && body.testers !== undefined) {
         const list = Array.isArray(body.testers) ? body.testers.map((x) => String(x).trim().toLowerCase()).filter(Boolean) : null;
         if (!list || list.length > 20 || list.some((x) => !EMAIL.test(x))) return NextResponse.json({ ok: false, error: "Test accounts: up to 20 e-mail addresses." }, { status: 400 });
         testers = [...new Set(list)];
         patch.testers = testers.map(keyOf);
       }
-      const data = await setPromoSettings(patch);
+      const data = await setPromoSettings(patch, env);
       if (testers) await kvSet(TESTERS_KV, testers);
-      console.log(`[black-friday] settings set by ${who}: ${JSON.stringify({ ...patch, testers: testers ? testers.length : undefined })}`);
+      console.log(`[black-friday] ${env} settings set by ${who}: ${JSON.stringify({ ...patch, testers: testers ? testers.length : undefined })}`);
       return NextResponse.json({ ok: true, data });
     }
     if (body.action === "codes") {

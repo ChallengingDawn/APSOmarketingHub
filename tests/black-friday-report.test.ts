@@ -92,3 +92,16 @@ test("a rule's codes only under their own rate", () => {
   assert.deepEqual(wrongRate(["BLACKFRIDAY10-A", "BLACKFRIDAY15-B", "TEST-15-1", "BLACKFRIDAY1099"], 10), ["BLACKFRIDAY15-B"]);
   assert.deepEqual(wrongRate(["BLACKFRIDAY107A", "BLACKFRIDAY5B"], 5), ["BLACKFRIDAY107A"]);
 });
+
+test("results by customer status: new, reactivated, active - older hand-outs without a status count as existing", () => {
+  const holders: Holder[] = [
+    { ...H("1", "BLACKFRIDAY20-A", "new", 20), status: "new" },
+    { ...H("2", "BLACKFRIDAY15-B", "list", 15), status: "reactivated" },
+    { ...H("3", "BLACKFRIDAY5-C", "gold", 5), status: "active" },
+    H("4", "BLACKFRIDAY10-D", "bronze", 10),
+  ];
+  const r = buildReport(holders, [O("11", "BLACKFRIDAY20-A", ["1"], 100, -20), O("12", "BLACKFRIDAY15-B", ["2"], 200, -30),
+    O("13", "BLACKFRIDAY5-C", ["3"], 300, -15), O("14", "BLACKFRIDAY10-D", ["4"], 400, -40)], RATES);
+  const by = Object.fromEntries(r.results.byStatus.map((x) => [x.status, [x.orders, x.revenue]]));
+  assert.deepEqual(by, { new: [1, 100], reactivated: [1, 200], active: [1, 300], existing: [1, 400] });
+});

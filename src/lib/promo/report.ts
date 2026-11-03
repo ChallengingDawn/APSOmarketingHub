@@ -10,7 +10,8 @@ export const GROUP_LABEL: Record<string, string> = {
   unclassified: "No price class",
 };
 
-export type Holder = { companyId: string; name: string; code: string; discount: number | null; group: string; budgetClass: string | null };
+/** status = the buyer when the code was given (new / active / reactivated / existing), bf26_status; null on older hand-outs */
+export type Holder = { companyId: string; name: string; code: string; discount: number | null; group: string; budgetClass: string | null; status?: string | null };
 export type CodeOrder = {
   orderId: string; codes: string | null; createdAt: string | null; total: number | null; discount: number | null;
   name: string | null; companyIds: string[];
@@ -25,7 +26,13 @@ export type GroupRow = {
   group: string; label: string; rate: number | null; handedOut: number; used: number; orders: number; revenue: number; discountGiven: number;
 };
 /** One web order that used a Black Friday code - the Results tab's rows. */
-export type OrderRow = Use & { code: string; group: string | null; holderId: string; holderName: string; check: Check["reason"] | null };
+export type OrderRow = Use & { code: string; group: string | null; status: string | null; holderId: string; holderName: string; check: Check["reason"] | null };
+export type Side = { orders: number; revenue: number; discountGiven: number };
+/** the customer statuses the results split by (SARCLA 03.11.2026: "also the split by reactivated customer") */
+export const STATUS_ORDER = ["new", "reactivated", "active", "existing"] as const;
+export const STATUS_LABEL: Record<string, string> = {
+  new: "New customers", reactivated: "Reactivated (last order over a year before)", active: "Active (ordered within a year)", existing: "Existing, not split yet",
+};
 export type DayRow = { day: string; orders: number; revenue: number; discountGiven: number; newOrders: number };
 export type BfReport = {
   groups: GroupRow[];
@@ -37,7 +44,9 @@ export type BfReport = {
     orders: OrderRow[]; byDay: DayRow[];
     /** companies won: a "new" code holder (never ordered before) that ordered with it */
     newCompaniesWon: number;
-    split: { new: { orders: number; revenue: number; discountGiven: number }; existing: { orders: number; revenue: number; discountGiven: number } };
+    split: { new: Side; existing: Side };
+    /** new / reactivated / active / existing (codes handed out before the status was recorded) */
+    byStatus: (Side & { status: string; label: string })[];
   };
 };
 
@@ -88,7 +97,7 @@ export function buildReport(holders: Holder[], orders: CodeOrder[], rates: Recor
         if (rateOfCode(code, ruleRates) == null) continue; // another promotion's code
         const c: Check = { ...use, code, holderId: "", holderName: "-", reason: "not from the page" };
         checks.push(c);
-        rows.push({ ...use, code, group: null, holderId: "", holderName: "-", check: c.reason });
+        rows.push({ ...use, code, group: null, status: null, holderId: "", holderName: "-", check: c.reason });
         continue;
       }
       let reason: Check["reason"] | null = null;
@@ -96,7 +105,7 @@ export function buildReport(holders: Holder[], orders: CodeOrder[], rates: Recor
       // a code still on an account (no company yet) cannot be held against the order's company
       else if (h.companyId && use.byCompanyId && !o.companyIds.includes(h.companyId)) reason = "other company";
       if (reason) checks.push({ ...use, code, holderId: h.companyId, holderName: h.name, reason });
-      rows.push({ ...use, code, group: h.group, holderId: h.companyId, holderName: h.name, check: reason });
+      rows.push({ ...use, code, group: h.group, status: h.status ?? (h.group === "new" ? "new" : null), holderId: h.companyId, holderName: h.name, check: reason });
       h.uses.push(use);
     }
   }
@@ -128,7 +137,15 @@ export function buildReport(holders: Holder[], orders: CodeOrder[], rates: Recor
     const side = isNew ? split.new : split.existing;
     side.orders++; side.revenue += num(r.total); side.discountGiven += num(r.discount);
   }
+  const statusSides = new Map<string, Side>(STATUS_ORDER.map((st) => [st, { orders: 0, revenue: 0, discountGiven: 0 }]));
+  for (const r of rows) {
+    if (r.check === "not from the page") continue;
+    const st = r.status && statusSides.has(r.status) ? r.status : "existing";
+    const x = statusSides.get(st)!;
+    x.orders++; x.revenue += num(r.total); x.discountGiven += num(r.discount);
+  }
   const results = {
+    byStatus: [...statusSides.entries()].map(([status, x]) => ({ status, label: STATUS_LABEL[status] ?? status, ...x })),
     orders: [...rows].reverse(),                          // the newest first
     byDay: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)),
     newCompaniesWon: all.filter((h) => h.group === "new" && h.uses.length).length,

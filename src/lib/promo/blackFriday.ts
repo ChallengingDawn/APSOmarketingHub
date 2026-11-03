@@ -15,7 +15,10 @@ export { adminToken };
 
 export type PromoPhase = "off" | "soon" | "live" | "ended";
 export type PromoSettings = { on: boolean; start: string; end: string; discount: Record<string, number>; set_at: string | null; testers?: number };
-export type PromoStock = { discount: number; loaded: number; taken: number; free: number };
+export type PromoStock = { discount: number; loaded: number; taken: number; free: number; test?: number; test_free?: number };
+export type PromoEnv = "prod" | "acc";
+export type AccHandOut = { code: string; discount: number; grp: string; status: string; company_name: string | null; handed_at: string; on_company: boolean };
+export type Signups = { total: number; by_day: { day: string; n: number }[] };
 export type PromoStatus = {
   settings: PromoSettings; phase: PromoPhase; stock: PromoStock[] | null; stock_error: string | null;
   answers: Record<string, number>; handed_out_since_boot: Record<string, number>; since: string;
@@ -24,11 +27,17 @@ export type PromoStatus = {
   placed_by?: { list: number; domain: number; account: number };
   /** codes given to accounts HubSpot had not placed yet; placed = since written on the buyer's company */
   account_codes?: { code: string; discount: number; grp: string; claimed_at: string; placed: boolean }[] | null;
+  /** accounts that came through the page's "Register now" (Ads Gateway 5b69b351), per shop */
+  signups?: { prod: Signups; acc: Signups } | null;
+  /** the ACC shop (acc.apsoparts.com): its own settings, TEST- codes only, its hand-outs kept on the gateway, never in HubSpot */
+  acc?: { settings: PromoSettings; phase: PromoPhase; answers: Record<string, number>; handed_out: AccHandOut[] | null };
 };
 
 export const promoStatus = () => adsGateway<PromoStatus>("/admin/promo");
-export const setPromoSettings = (patch: Partial<Pick<PromoSettings, "on" | "start" | "end" | "discount">> & { testers?: string[] }) =>
-  adsGateway<{ settings: PromoSettings }>("/admin/promo/settings", { method: "POST", body: patch });
+export const setPromoSettings = (patch: Partial<Pick<PromoSettings, "on" | "start" | "end" | "discount">> & { testers?: string[] }, env: PromoEnv = "prod") =>
+  adsGateway<{ settings: PromoSettings }>(`/admin/promo/settings${env === "acc" ? "?env=acc" : ""}`, { method: "POST", body: patch });
+/** ACC's test hand-outs cleared, so the same test accounts can be tried again (their TEST- codes go back in the pool). */
+export const resetAccTests = () => adsGateway<{ cleared: number; codes_back: number }>("/admin/promo/acc/reset", { method: "POST" });
 export const loadPromoCodes = (discount: number, codes: string[]) =>
   adsGateway<{ given: number; valid: number; added: number; already: number }>("/admin/promo/codes", { method: "POST", body: { discount, codes } });
 
@@ -61,10 +70,11 @@ export async function promoReport(status: PromoStatus, fresh = false): Promise<B
   if (!fresh && cache && cache.key === key && Date.now() - cache.at < FRESH_MS) return cache.report;
 
   const companies: Rec[] = await searchAll("companies", [[{ propertyName: "bf26_code", operator: "HAS_PROPERTY" }]],
-    ["name", "bf26_code", "bf26_discount", "bf26_group", "budget_class"]);
+    ["name", "bf26_code", "bf26_discount", "bf26_group", "bf26_status", "budget_class"]);
   const holders: Holder[] = companies.map((c) => ({
     companyId: c.id, name: c.properties?.name || `Company ${c.id}`, code: normCode(c.properties?.bf26_code),
     discount: fnum(c.properties?.bf26_discount), group: c.properties?.bf26_group || "unclassified", budgetClass: c.properties?.budget_class ?? null,
+    status: c.properties?.bf26_status || null,
   }));
   // a code given to a brand-new account is on no company until HubSpot places the buyer - it still counts
   const onCompanies = new Set(holders.map((h) => h.code));
@@ -73,7 +83,7 @@ export async function promoReport(status: PromoStatus, fresh = false): Promise<B
     if (!code || onCompanies.has(code)) continue;
     holders.push({
       companyId: "", name: a.placed ? "An account (its company holds another code)" : "A new account (not in HubSpot yet)",
-      code, discount: a.discount, group: a.grp, budgetClass: null,
+      code, discount: a.discount, group: a.grp, budgetClass: null, status: a.grp === "new" ? "new" : null,
     });
   }
 

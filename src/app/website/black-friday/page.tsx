@@ -37,8 +37,8 @@ import { CardTitle, FAINT, GREEN, GlassCard, INK, KpiTile, MUTED, Notice, RED, b
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { Chip } from "@/app/connectors/parts";
 import { when } from "@/app/website/directup/shared";
-import type { PromoStatus } from "@/lib/promo/blackFriday";
-import { GROUP_LABEL, GROUP_ORDER, codesFromText, endAfter, lastDayOf, wrongRate, zurichDay, zurichMidnight, type BfReport } from "@/lib/promo/report";
+import type { PromoEnv, PromoStatus } from "@/lib/promo/blackFriday";
+import { GROUP_LABEL, GROUP_ORDER, STATUS_LABEL, codesFromText, endAfter, lastDayOf, wrongRate, zurichDay, zurichMidnight, type BfReport } from "@/lib/promo/report";
 
 type Data = { status: PromoStatus; report: BfReport | null; reportError: string | null; testers: string[]; isAdmin: boolean };
 type View = "overview" | "results" | "companies" | "codes" | "settings";
@@ -236,6 +236,44 @@ function Results({ d }: { d: Data }) {
         </Grid>
       </Grid>
 
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, md: 8 }}>
+          <GlassCard sx={{ height: "100%" }}>
+            <CardTitle icon={<LocalOfferOutlinedIcon />} tint="purple" title="By customer status"
+              note="The buyer when the code was given: never ordered, came back after over a year, or ordered within a year" />
+            <Table size="small">
+              <TableHead><TableRow>{["", "Orders", "Order value", "Discount given"].map((h, i) => <TableCell key={h || "who"} sx={{ ...headCell, textAlign: i ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
+              <TableBody>
+                {res.byStatus.filter((x) => x.status !== "existing" || x.orders > 0).map((x) => (
+                  <TableRow key={x.status}>
+                    <TableCell sx={{ ...bodyCell, fontWeight: 600, color: INK }}>{x.label}</TableCell>
+                    {[full(x.orders), eur(x.revenue), eur(x.discountGiven)].map((v, i) => (
+                      <TableCell key={i} sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{v}</TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </GlassCard>
+        </Grid>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <GlassCard sx={{ height: "100%" }}>
+            <CardTitle icon={<ShoppingCartCheckoutOutlinedIcon />} tint="green" title="Sign-ups from this page"
+              note={`${full(d.status.signups?.prod.total ?? 0)} accounts made through its Register now`} />
+            {!(d.status.signups?.prod.by_day ?? []).length ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>None yet.</Typography> : (
+              <Table size="small"><TableBody>
+                {(d.status.signups?.prod.by_day ?? []).map((x) => (
+                  <TableRow key={x.day}>
+                    <TableCell sx={bodyCell}>{x.day.split("-").reverse().join(".")}</TableCell>
+                    <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(x.n)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody></Table>
+            )}
+          </GlassCard>
+        </Grid>
+      </Grid>
+
       <GlassCard>
         <CardTitle icon={<FactCheckOutlinedIcon />} tint="purple" title="The orders" note="Every web order Magento passed with a Black Friday code, newest first" />
         {!res.orders.length ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>No order with a code yet.</Typography> : (
@@ -361,8 +399,8 @@ function Codes({ d, reload }: { d: Data; reload: () => void }) {
   );
 }
 
-function Settings({ d, reload }: { d: Data; reload: () => void }) {
-  const s = d.status.settings;
+function Settings({ d, env, reload }: { d: Data; env: PromoEnv; reload: () => void }) {
+  const s = env === "acc" && d.status.acc ? d.status.acc.settings : d.status.settings;
   const [on, setOn] = useState(s.on);
   const [from, setFrom] = useState(zurichDay(s.start));
   const [to, setTo] = useState(lastDayOf(s.end));
@@ -371,12 +409,13 @@ function Settings({ d, reload }: { d: Data; reload: () => void }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const save = async () => {
-    if (on !== s.on && !confirm(on ? "Switch the promotion on? Signed-in customers then get their code between the start and the end." : "Switch it off? The page then hands out no code; codes already given still work in Magento.")) return;
+    const where = env === "acc" ? "on the ACC shop" : "on the live shop";
+    if (on !== s.on && !confirm(on ? `Switch it on ${where}? Signed-in customers then get their code between the start and the end.` : `Switch it off ${where}? The page then hands out no code; codes already given still work in Magento.`)) return;
     setBusy(true); setMsg(null);
     let body: Record<string, unknown>;
     try {
-      body = { action: "settings", on, start: zurichMidnight(from), end: endAfter(to), discount: Object.fromEntries(Object.entries(rates).map(([g, v]) => [g, Number(v)])),
-        testers: testers.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean) };
+      body = { action: "settings", env, on, start: zurichMidnight(from), end: endAfter(to), discount: Object.fromEntries(Object.entries(rates).map(([g, v]) => [g, Number(v)])),
+        ...(env === "prod" ? { testers: testers.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean) } : {}) };
     } catch (e) { setBusy(false); setMsg({ ok: false, text: String((e as Error).message) }); return; }
     const r = await post(body);
     setBusy(false);
@@ -386,7 +425,8 @@ function Settings({ d, reload }: { d: Data; reload: () => void }) {
   const ro = !d.isAdmin;
   return (
     <GlassCard sx={{ display: "grid", gap: 1.75, maxWidth: 760 }}>
-      <CardTitle icon={<TuneOutlinedIcon />} tint="purple" title="Settings" note={s.set_at ? `Last saved ${when(s.set_at)}` : "Not saved yet - the defaults below, switched off"} />
+      <CardTitle icon={<TuneOutlinedIcon />} tint="purple" title={env === "acc" ? "Settings - ACC shop" : "Settings - live shop"}
+        note={s.set_at ? `Last saved ${when(s.set_at)}` : env === "acc" ? "Not saved yet - the ACC defaults below, switched on" : "Not saved yet - the defaults below, switched off"} />
       <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <Switch checked={on} disabled={ro || busy} onChange={(e) => setOn(e.target.checked)} slotProps={{ input: { "aria-label": "Promotion on" } }} />
         <Typography sx={{ fontSize: "0.88rem", fontWeight: 600, color: on ? GREEN : MUTED }}>{on ? "On" : "Off"}</Typography>
@@ -404,15 +444,11 @@ function Settings({ d, reload }: { d: Data; reload: () => void }) {
           </Grid>
         ))}
       </Grid>
-      <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-        In HubSpot a new customer and a list-price customer have the same price class - the orders tell them apart.
-        New customers: price class List price (or none) and no order at all in HubSpot, web or ERP, for the organisation.
-        List price: price class List price, and has ordered. No price class: has ordered, but HubSpot gives it no class - the lowest rate, never a guess upwards.
-        Each rate needs its own Magento rule (BLACKFRIDAY5 / 10 / 15 / 20) and its codes.
-      </Typography>
-      <TextField multiline minRows={2} maxRows={6} size="small" label="Test accounts (e-mail, one per line)" value={testers} disabled={ro}
-        onChange={(e) => setTesters(e.target.value)} placeholder="name@company.ch"
-        helperText="These shop accounts get their real code before the start, even while it is switched off - to try the page and the cart. Up to 20; nobody else sees a code before the first day." />
+      {env === "prod" && (
+        <TextField multiline minRows={2} maxRows={6} size="small" label="Test accounts (e-mail, one per line)" value={testers} disabled={ro}
+          onChange={(e) => setTesters(e.target.value)} placeholder="name@company.ch"
+          helperText="These shop accounts get their real code before the start, even while it is switched off - to try the page and the cart. Up to 20; nobody else sees a code before the first day." />
+      )}
       {!ro && (
         <Box sx={{ display: "flex", gap: 1.25, alignItems: "center" }}>
           <Button size="small" variant="contained" sx={pill} disabled={busy} onClick={() => void save()}>{busy ? <CircularProgress size={14} sx={{ color: "inherit" }} /> : "Save"}</Button>
@@ -423,8 +459,64 @@ function Settings({ d, reload }: { d: Data; reload: () => void }) {
   );
 }
 
+/** The ACC shop (acc.apsoparts.com): any test account gets a TEST- code, kept on the gateway, never in HubSpot. */
+function AccOverview({ d, reload }: { d: Data; reload: () => void }) {
+  const acc = d.status.acc;
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  if (!acc) return <Notice tone="warn">The Ads Gateway does not know the ACC shop yet - it needs its next deploy.</Notice>;
+  const rows = acc.handed_out ?? [];
+  const testLeft = (d.status.stock ?? []).reduce((t, x) => t + (x.test_free ?? 0), 0);
+  const signups = d.status.signups?.acc.total ?? 0;
+  const reset = async () => {
+    if (!confirm("Clear every ACC test hand-out? The same test accounts then get a code again, and the TEST codes go back in the pool. The live shop is not touched.")) return;
+    setBusy(true); setMsg(null);
+    const r = await post({ action: "acc-reset" });
+    setBusy(false);
+    setMsg(r.ok ? { ok: true, text: `Cleared ${full(r.data?.cleared ?? 0)} test hand-outs.` } : { ok: false, text: r.error ?? "Did not work." });
+    if (r.ok) reload();
+  };
+  const phaseText = acc.phase === "live" ? "Running: every signed-in account on acc.apsoparts.com gets its company's rate with a TEST code."
+    : acc.phase === "off" ? "Switched off on ACC: the ACC page hands out no code." : acc.phase === "soon" ? `Starts on ACC ${swiss(acc.settings.start)}.` : "Ended on ACC.";
+  return (
+    <>
+      <Typography sx={{ fontSize: "0.86rem", color: acc.phase === "live" ? GREEN : MUTED, fontWeight: 600 }}>{phaseText}</Typography>
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<LocalOfferOutlinedIcon />} tint="blue" label="Test hand-outs on ACC" value={full(rows.length)} note="one per company, as on the live shop" /></Grid>
+        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<Inventory2OutlinedIcon />} tint="amber" label="TEST codes left" value={full(testLeft)} note="ACC hands out TEST- codes only" /></Grid>
+        <Grid size={{ xs: 12, sm: 4 }}><KpiTile icon={<ShoppingCartCheckoutOutlinedIcon />} tint="green" label="Sign-ups from the page" value={full(signups)} note="accounts made through Register now, on ACC" /></Grid>
+      </Grid>
+      <GlassCard sx={{ display: "grid", gap: 1.25 }}>
+        <CardTitle icon={<FactCheckOutlinedIcon />} tint="purple" title="Who got what on ACC"
+          note="Check each test account against what its set should get. Nothing here reaches HubSpot or the live shop."
+          right={d.isAdmin ? <Button size="small" variant="outlined" sx={pill} disabled={busy} onClick={() => void reset()}>{busy ? <CircularProgress size={14} /> : "Clear the test hand-outs"}</Button> : undefined} />
+        {msg && (msg.ok ? <Typography sx={{ fontSize: "0.8rem", color: GREEN }}>{msg.text}</Typography> : <Notice tone="bad">{msg.text}</Notice>)}
+        {!rows.length ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>No test hand-out yet - log in on the ACC Black Friday page with a test account.</Typography> : (
+          <Table size="small">
+            <TableHead><TableRow>{["When", "Company", "Group", "Customer", "Rate", "Code"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+            <TableBody>
+              {rows.map((x) => (
+                <TableRow key={x.code}>
+                  <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}>{when(x.handed_at)}</TableCell>
+                  <TableCell sx={bodyCell}>{x.company_name || (x.on_company ? "-" : "an account without a company")}</TableCell>
+                  <TableCell sx={bodyCell}>{GROUP_LABEL[x.grp] ?? x.grp}</TableCell>
+                  <TableCell sx={bodyCell}>{STATUS_LABEL[x.status]?.split(" (")[0] ?? x.status}</TableCell>
+                  <TableCell sx={{ ...bodyCell, fontVariantNumeric: "tabular-nums" }}>{x.discount} %</TableCell>
+                  <TableCell sx={{ ...bodyCell, fontFamily: "monospace" }}>{x.code}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </GlassCard>
+    </>
+  );
+}
+
 export default function BlackFridayPage() {
   const [view, setView] = useHashTab<View>(VIEW_HASH, "overview");
+  // which shop the page works on (SARCLA 03.11.2026: "a toggle ACC / production")
+  const [env, setEnv] = useState<PromoEnv>("prod");
   const [n, setN] = useState(0);
   const [fresh, setFresh] = useState(false);
   const held = useHeld<Data>(`${API}?n=${n}${fresh ? "&fresh=1" : ""}`, [n]);
@@ -436,27 +528,37 @@ export default function BlackFridayPage() {
       <PageHeader title="Black Friday"
         subtitle="Each company's own code and rate on the shop's Black Friday page, 16 November - 6 December 2026: who got one, who used it"
         rightSlot={<Tooltip title="Read again from HubSpot"><IconButton size="small" onClick={() => reload(true)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>} />
-      {d && (
-        <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
-          <ReportTabs name="black-friday" tab={view} onSelect={setView} tabs={[
-            { id: "overview", label: "Overview", count: null },
-            { id: "results", label: "Results", count: d.report ? full(d.report.results.orders.length) : null },
-            { id: "companies", label: "Companies", count: d.report ? full(d.report.holders.length) : null },
-            { id: "codes", label: "Codes", count: null },
-            { id: "settings", label: "Settings", count: null },
-          ]} />
-          <Chip tint={d.status.phase === "live" ? "green" : d.status.phase === "off" ? "slate" : "amber"}>
-            {d.status.phase === "live" ? "Live" : d.status.phase === "off" ? "Off" : d.status.phase === "soon" ? "Not started" : "Ended"}
-          </Chip>
-        </Box>
-      )}
+      {d && (() => {
+        const ph = env === "acc" ? d.status.acc?.phase ?? "off" : d.status.phase;
+        return (
+          <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
+            <ReportTabs<PromoEnv> name="black-friday-shop" tab={env} onSelect={(e) => { setEnv(e); if (e === "acc" && (view === "results" || view === "companies")) setView("overview"); }} tabs={[
+              { id: "prod", label: "Production", count: null },
+              { id: "acc", label: "ACC", count: null },
+            ]} />
+            <ReportTabs name="black-friday" tab={view} onSelect={setView} tabs={[
+              { id: "overview", label: "Overview", count: null },
+              ...(env === "prod" ? [
+                { id: "results" as View, label: "Results", count: d.report ? full(d.report.results.orders.length) : null },
+                { id: "companies" as View, label: "Companies", count: d.report ? full(d.report.holders.length) : null },
+              ] : []),
+              { id: "codes", label: "Codes", count: null },
+              { id: "settings", label: "Settings", count: null },
+            ]} />
+            <Chip tint={ph === "live" ? "green" : ph === "off" ? "slate" : "amber"}>
+              {`${env === "acc" ? "ACC" : "Live shop"}: ${ph === "live" ? "running" : ph === "off" ? "off" : ph === "soon" ? "not started" : "ended"}`}
+            </Chip>
+          </Box>
+        );
+      })()}
       {r === null ? <LoadingPanel label="Reading the Ads Gateway and HubSpot…" />
         : r.state === "not-configured" ? <NotConnectedPanel source="Ads Gateway" missing={r.missing} />
         : r.state === "error" ? <UpstreamPanel source="Ads Gateway" error={r.error} status={r.status} onRetry={() => reload()} />
-        : view === "results" ? <Results d={r.data} />
-        : view === "companies" ? <Companies d={r.data} />
+        : view === "results" && env === "prod" ? <Results d={r.data} />
+        : view === "companies" && env === "prod" ? <Companies d={r.data} />
         : view === "codes" ? <Codes d={r.data} reload={() => reload()} />
-        : view === "settings" ? <Settings key={r.data.status.settings.set_at ?? "default"} d={r.data} reload={() => reload()} />
+        : view === "settings" ? <Settings key={`${env}-${(env === "acc" ? r.data.status.acc?.settings.set_at : r.data.status.settings.set_at) ?? "default"}`} d={r.data} env={env} reload={() => reload()} />
+        : env === "acc" ? <AccOverview d={r.data} reload={() => reload()} />
         : <Overview d={r.data} />}
     </Box>
   );
