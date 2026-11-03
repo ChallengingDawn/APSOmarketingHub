@@ -7,7 +7,11 @@ import { claudeText, getAnthropic } from "@/lib/ai/claude";
 import { logChange, planItems } from "./actionPlan";
 import { planTasks } from "./kpiActions";
 import { stageOf, type PlanItem } from "./actionPlanRules";
-import { kpiLibrary } from "./planKpiRules";
+import { kpiLibrary, libraryTree, type LibNode } from "./planKpiRules";
+import { recentTiles } from "./reportTiles";
+
+/** Advanced reporting as a tree, the graphs its pages have drawn in it - what the plan's KPIs are picked from. */
+export const libraryNow = async (): Promise<LibNode[]> => libraryTree(await recentTiles());
 
 const T = "apsomh_action_plan_kpis";
 
@@ -48,7 +52,7 @@ export async function kpisOf(itemIds: number[]): Promise<PlanKpi[]> {
 /** Picked from the library: its name and address kept as they are now - a report removed later still says what it was. */
 export async function addKpis(itemId: number, picks: { key: string; target?: number | null; goodUp?: boolean }[], by: string): Promise<number> {
   await ensure();
-  const lib = new Map(kpiLibrary().map((x) => [x.key, x]));
+  const lib = new Map(kpiLibrary(await recentTiles()).map((x) => [x.key, x]));
   let n = 0;
   for (const p of picks) {
     const x = lib.get(p.key);
@@ -94,7 +98,7 @@ export async function removeKpi(id: number, by: string): Promise<boolean> {
 export type KpiProposal = { key: string; name: string; path: string; target: number | null; goodUp: boolean; why: string };
 
 const SYSTEM = `You choose how a row of APSOparts' action plan is measured. APSOparts sells technical parts online (seals, O-rings, hoses, plastics); its plan has main categories, sub-categories, actions and the actions' sub-actions. From the library - the reports and KPIs of the hub's Advanced reporting - pick the 2 to 5 that best show whether the row succeeds: what its sub-actions (or, for a category, its actions) will move.
-- Prefer a KPI (kind "kpi") - it has a number the hub measures - over a report page; a report only when no KPI fits.
+- Prefer a KPI (kind "kpi") - it has a number the hub measures - then a graph of a page (kind "graph"), then a whole report page; the narrowest that fits.
 - Never one already picked.
 - target: the figure to reach by the row's go-live, in the KPI's unit (a rate as a fraction: 0.12 for 12 %), only when the row's words or the KPI's own catalogue target give a basis - otherwise null. No made-up figures.
 - goodUp: false when lower is better (cost, position, bounce, time to answer, abandonment).
@@ -121,7 +125,7 @@ export async function proposeKpis(itemId: number): Promise<{ proposals: KpiPropo
       row.start || row.due ? `Planned ${row.start ?? "?"}, go-live ${row.due ?? "?"}` : "", "Its sub-actions:", ...subLines(row)].filter(Boolean)
     : [`${row.kind === "topic" ? "Main category" : row.kind === "group" ? "Sub-category" : "The goal"}: ${oneLine(row.title, 200)}`, path.length ? `In: ${path.join(" > ")}` : "",
       "Its actions:", ...actionsUnder(row.id).slice(0, 40).flatMap((a) => [`  - action: ${oneLine(a.title, 160)}`, ...subLines(a).slice(0, 6)])].filter(Boolean);
-  const lib = kpiLibrary().filter((x) => !picked.some((p) => p.key === x.key));
+  const lib = kpiLibrary(await recentTiles()).filter((x) => !picked.some((p) => p.key === x.key));
   const listing = lib.map((x) => `- ${x.key} | ${x.kind} | ${oneLine(x.name, 90)} | ${x.path}${x.unit ? ` | unit: ${x.unit}` : ""}${x.definition ? ` | ${oneLine(x.definition, 140)}` : ""}${x.target ? ` | catalogue target: ${oneLine(x.target, 60)}` : ""}`);
   const schema = {
     type: "object", additionalProperties: false, required: ["kpis"],

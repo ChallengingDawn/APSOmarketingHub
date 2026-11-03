@@ -2,7 +2,7 @@
 // it; picked from the library, a target or a figure set, one taken off, or the AI's proposal. Admins only, as the plan.
 import { NextRequest, NextResponse } from "next/server";
 import { planItems } from "@/lib/reporting/actionPlan";
-import { addKpis, kpisOf, proposeKpis, removeKpi, setKpi } from "@/lib/reporting/planKpis";
+import { addKpis, kpisOf, libraryNow, proposeKpis, removeKpi, setKpi } from "@/lib/reporting/planKpis";
 import { fail } from "../../reporting/kpi-actions/guard";
 import { planWho as who } from "../guard";
 
@@ -12,6 +12,10 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const w = await who();
   if (w instanceof NextResponse) return w;
+  // the library, as Advanced reporting's side panel has it, the graphs its pages have drawn in it
+  if (req.nextUrl.searchParams.get("library") === "1") {
+    try { return NextResponse.json({ ok: true, tree: await libraryNow() }); } catch (e) { return fail(e, 502); }
+  }
   const id = Number(req.nextUrl.searchParams.get("item"));
   if (!Number.isInteger(id)) return fail("item is a row's id", 400);
   try {

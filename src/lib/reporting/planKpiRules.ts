@@ -11,11 +11,11 @@ import { KPIS, STAGES } from "../marketingKpis/catalogue";
 import { stageName } from "../marketingKpis/stageNames";
 
 export type LibraryItem = {
-  /** "kpi:R05" or "report:<its address>" */
+  /** "kpi:R05", "report:<a page's address>" or "tile:<a page's address>#<the graph's key>" */
   key: string;
-  kind: "kpi" | "report";
+  kind: "kpi" | "report" | "graph";
   name: string;
-  /** where it is in Advanced reporting: "ESO Reports › ESO KPIs" */
+  /** where it is in Advanced reporting: "ESO Reports › ESO KPIs › Visits" */
   path: string;
   href: string;
   unit: string;
@@ -26,28 +26,92 @@ export type LibraryItem = {
   target?: string;
 };
 
-/** Every report and page of Advanced reporting, then every KPI of the catalogue - one entry each. */
-export function kpiLibrary(): LibraryItem[] {
+/** A place of Advanced reporting and what is in it - a category, a report, a page, a graph or a KPI on a page. */
+export type LibNode = {
+  key: string;
+  kind: "category" | "report" | "page" | "graph" | "kpi";
+  name: string;
+  href: string;
+  path: string;
+  /** a page's heading in the side panel ("Other reports") */
+  group?: string;
+  unit?: string; kpiId?: string; definition?: string; target?: string;
+  children: LibNode[];
+};
+/** A graph a page has drawn (reportTiles.ts). */
+export type TileSeen = { path: string; key: string; title: string; kind: string; kpiId: string | null };
+
+const STAGE_PAGE = /^\/reporting\/marketing-kpis\/([a-z-]+)$/;
+
+/**
+ * Advanced reporting as its side panel has it (SARCLA 03.11.2026: "the individual reports like a library ... this should
+ * be hierarchy dynamic for picking up"): each category, its reports, their pages, and in each page what it draws - the
+ * graphs it said it draws (TileSeen) and, on a Digital Growth stage page, the catalogue's KPIs of that stage, a graph
+ * showing one of them being that KPI. A KPI of the catalogue on no page yet goes under Digital Growth's own report.
+ */
+export function libraryTree(tiles: TileSeen[] = []): LibNode[] {
+  const byPage = new Map<string, TileSeen[]>();
+  for (const t of tiles) (byPage.get(t.path) ?? byPage.set(t.path, []).get(t.path)!).push(t);
+  const stageBySlug = new Map(STAGES.map((s) => [s.slug, s]));
+  const placed = new Set<string>();
+  const kpiNode = (id: string, href: string, path: string, name?: string): LibNode | null => {
+    const k = KPIS.find((x) => x.id === id);
+    if (!k && !name) return null;
+    placed.add(id);
+    return { key: `kpi:${id}`, kind: "kpi", name: k ? `${k.id} ${k.name}` : `${id} ${name}`, href, path, unit: k?.unit ?? "", kpiId: id, definition: k?.definition, target: k?.target, children: [] };
+  };
+  const inside = (href: string, path: string): LibNode[] => {
+    const out: LibNode[] = [];
+    const ids = new Set<string>();
+    for (const t of byPage.get(href) ?? []) {
+      if (t.kpiId) { if (!ids.has(t.kpiId)) { const n = kpiNode(t.kpiId, href, path, t.title); if (n) { out.push(n); ids.add(t.kpiId); } } continue; }
+      out.push({ key: `tile:${href}#${t.key}`, kind: "graph", name: t.title, href, path, children: [] });
+    }
+    const m = href.match(STAGE_PAGE);
+    const stage = m ? stageBySlug.get(m[1]) : undefined;
+    if (stage) for (const k of KPIS) if (k.stage === stage.id && !ids.has(k.id)) { const n = kpiNode(k.id, href, path); if (n) { out.push(n); ids.add(k.id); } }
+    return out;
+  };
+  const tree = REPORT_CATEGORIES.map((c): LibNode => ({
+    key: `category:${c.slug}`, kind: "category", name: c.name, href: "", path: "",
+    children: c.reports.map((r): LibNode => {
+      const here = `${c.name} › ${r.name}`;
+      const pages = (r.children ?? []).map((ch): LibNode => ({ key: `report:${ch.href}`, kind: "page", name: ch.name, href: ch.href, path: here, group: ch.group, children: inside(ch.href, `${here} › ${ch.name}`) }));
+      // the report as a whole: its own page (its BUC View) - a report that opens on its first page keeps a key of its own
+      const own = r.overviewHref ?? r.href;
+      const key = pages.some((pg) => pg.href === own) ? `report:${own}#report` : `report:${own}`;
+      return { key, kind: "report", name: r.name, href: own, path: c.name, children: pages.length ? pages : inside(r.href, here) };
+    }),
+  }));
+  // the catalogue's KPIs on no page: under Digital Growth's report, so every one can be picked
+  const rest = KPIS.filter((k) => !placed.has(k.id));
+  const dg = tree.flatMap((c) => c.children).find((r) => r.href.startsWith("/reporting/marketing-kpis"));
+  if (rest.length && dg) {
+    const path = `${dg.path} › ${dg.name}`;
+    dg.children.push({ key: "report:/reporting/marketing-kpis#no-page", kind: "page", name: "KPIs on no page yet", href: "/reporting/marketing-kpis", path, group: "Other reports",
+      children: rest.map((k) => kpiNode(k.id, "/reporting/marketing-kpis", `${path} › KPIs on no page yet`)!).filter(Boolean) });
+  }
+  return tree;
+}
+
+/** The library as a list - every report, page, graph and KPI once, for a search and for what is picked. */
+export function flatLibrary(tree: LibNode[]): LibraryItem[] {
   const out: LibraryItem[] = [];
   const seen = new Set<string>();
-  const add = (x: LibraryItem) => { if (!seen.has(x.key)) { seen.add(x.key); out.push(x); } };
-  for (const c of REPORT_CATEGORIES) {
-    for (const r of c.reports) {
-      add({ key: `report:${r.href}`, kind: "report", name: r.name, path: c.name, href: r.href, unit: "" });
-      for (const ch of r.children ?? []) add({ key: `report:${ch.href}`, kind: "report", name: ch.name, path: `${c.name} › ${r.name}`, href: ch.href, unit: "" });
+  const walk = (n: LibNode) => {
+    if (n.kind !== "category" && !seen.has(n.key)) {
+      seen.add(n.key);
+      out.push({ key: n.key, kind: n.kind === "kpi" ? "kpi" : n.kind === "graph" ? "graph" : "report", name: n.name, path: n.path, href: n.href, unit: n.unit ?? "",
+        ...(n.kpiId ? { kpiId: n.kpiId } : {}), ...(n.definition ? { definition: n.definition } : {}), ...(n.target ? { target: n.target } : {}) });
     }
-  }
-  const stages = new Map(STAGES.map((s) => [s.id, s]));
-  for (const k of KPIS) {
-    const s = stages.get(k.stage);
-    add({
-      key: `kpi:${k.id}`, kind: "kpi", name: `${k.id} ${k.name}`, path: `Digital Growth KPIs › ${s ? stageName(s.slug, s.name) : "Other"}`,
-      href: s ? `/reporting/marketing-kpis/${s.slug}` : "/reporting/marketing-kpis", unit: k.unit, kpiId: k.id,
-      definition: k.definition, target: k.target,
-    });
-  }
+    n.children.forEach(walk);
+  };
+  tree.forEach(walk);
   return out;
 }
+
+/** Every report and page of Advanced reporting, every KPI of the catalogue - and the graphs pages have drawn. */
+export const kpiLibrary = (tiles: TileSeen[] = []): LibraryItem[] => flatLibrary(libraryTree(tiles));
 
 export type Progress = { share: number | null; state: "none" | "behind" | "close" | "reached" };
 /**

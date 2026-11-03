@@ -5,7 +5,7 @@
 // tickets, who they are shared with, and whether the tile shows In a nutshell (promote / demote).
 // Drop it into a card's header: <TileActions tile={{ key, page, tab, kpiId, title, summary, filters }} />.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Tooltip from "@mui/material/Tooltip";
 
@@ -30,6 +30,28 @@ export type TileInfo = {
 type Space = number | { xs?: number; md?: number };
 const neg = (e: Space) => (typeof e === "number" ? -e : { xs: -(e.xs ?? 0), md: -(e.md ?? e.xs ?? 0) });
 
+// every graph drawn, said once to the hub - the action plan's KPI library lists them, page by page (reportTiles.ts;
+// SARCLA 03.11.2026: "the individual reports like a library ... hierarchy dynamic"): a few at a time, the hub takes no
+// request over 8 KB
+const said = new Set<string>();
+let queue: { path: string; key: string; title: string; kind: string; kpiId: string | null }[] = [];
+let wait: ReturnType<typeof setTimeout> | null = null;
+function sayDrawn(t: TileInfo) {
+  if (typeof window === "undefined" || !t.key || !t.title) return;
+  const path = window.location.pathname;
+  if (said.has(`${path}#${t.key}`)) return;
+  said.add(`${path}#${t.key}`);
+  queue.push({ path, key: t.key, title: t.title, kind: t.kind ?? "card", kpiId: t.kpiId ?? null });
+  if (wait) clearTimeout(wait);
+  wait = setTimeout(() => {
+    wait = null;
+    for (const tiles of Array.from({ length: Math.ceil(queue.length / 20) }, (_, i) => queue.slice(i * 20, i * 20 + 20))) {
+      void fetch("/api/reporting/tiles/seen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tiles }), keepalive: true }).catch(() => undefined);
+    }
+    queue = [];
+  }, 2500);
+}
+
 export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.75 } }: {
   tile: TileInfo;
   /** where the tile is shown before anyone moves it: KPI tiles start in the nutshell, page cards on their tab */
@@ -43,6 +65,8 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
 }) {
   const { state } = useActions(where === "nutshell" ? "nutshell" : tile.page);
   const [open, setOpen] = useState(false);
+  // on its own page only - the nutshell shows copies of other pages' graphs
+  useEffect(() => { if (where !== "nutshell") sayDrawn(tile); }, [tile.key, tile.title, where]); // eslint-disable-line react-hooks/exhaustive-deps
   const c = state?.counts[tile.key] ?? { open: 0, tasks: 0, tickets: 0 };
   const placed = placementOf(state, tile.key, start);
   const running = c.open > 0;

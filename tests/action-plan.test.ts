@@ -10,7 +10,7 @@ import {
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
-import { kpiLibrary, numberOf, progressOf } from "../src/lib/reporting/planKpiRules";
+import { flatLibrary, kpiLibrary, libraryTree, numberOf, progressOf, type LibNode } from "../src/lib/reporting/planKpiRules";
 import { REPORT_CATEGORIES } from "../src/lib/reporting/categories";
 import { KPIS } from "../src/lib/marketingKpis/catalogue";
 
@@ -576,7 +576,7 @@ test("action plan: the KPI library is Advanced reporting's reports and the catal
   assert.equal(new Set(lib.map((x) => x.key)).size, lib.length);
   // every report and page of Advanced reporting's menu: one added or removed there is one here
   for (const c of REPORT_CATEGORIES) for (const r of c.reports) {
-    assert.ok(lib.some((x) => x.key === `report:${r.href}` && x.path === c.name), r.name);
+    assert.ok(lib.some((x) => x.kind === "report" && x.name === r.name && x.path === c.name), r.name);
     for (const ch of r.children ?? []) assert.ok(lib.some((x) => x.key === `report:${ch.href}`), ch.name);
   }
   const r05 = lib.find((x) => x.key === "kpi:R05");
@@ -603,4 +603,29 @@ test("action plan: a KPI's way to its target - higher or lower is better, typed 
   assert.equal(numberOf("CHF 4000"), 4000);
   assert.equal(numberOf(""), null);
   assert.equal(numberOf("abc"), null);
+});
+
+test("action plan: the KPI library as Advanced reporting's tree - a page's graphs, a graph showing a KPI being that KPI", () => {
+  const tiles = [
+    { path: "/reporting/eso-benchmark/visits", key: "visits:months:all", title: "Visits by month", kind: "card", kpiId: null },
+    { path: "/reporting/marketing-kpis/reach", key: "reach:seo:R05", title: "SEO clicks", kind: "kpi", kpiId: "R05" },
+  ];
+  const tree = libraryTree(tiles);
+  // the categories in the side panel's order, each report with its pages
+  assert.deepEqual(tree.map((c) => c.name), REPORT_CATEGORIES.map((c) => c.name));
+  const all: LibNode[] = [];
+  const walk = (n: LibNode) => { all.push(n); n.children.forEach(walk); };
+  tree.forEach(walk);
+  const visits = all.find((n) => n.key === "report:/reporting/eso-benchmark/visits");
+  assert.equal(visits?.kind, "page");
+  assert.deepEqual(visits?.children.map((n) => [n.kind, n.name, n.key]), [["graph", "Visits by month", "tile:/reporting/eso-benchmark/visits#visits:months:all"]]);
+  // the graph of R05 is the KPI R05, once on its page
+  const reach = all.find((n) => n.key === "report:/reporting/marketing-kpis/reach");
+  assert.equal(reach?.children.filter((n) => n.key === "kpi:R05").length, 1);
+  assert.equal(reach?.children.some((n) => n.kind === "graph"), false);
+  // flat: each once, the graph a "graph", every catalogue KPI there
+  const flat = flatLibrary(tree);
+  assert.equal(new Set(flat.map((x) => x.key)).size, flat.length);
+  assert.equal(flat.find((x) => x.key.startsWith("tile:"))?.kind, "graph");
+  assert.equal(flat.filter((x) => x.kind === "kpi").length, KPIS.length);
 });

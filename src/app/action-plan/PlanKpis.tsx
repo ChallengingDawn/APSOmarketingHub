@@ -15,15 +15,16 @@ import TextField from "@mui/material/TextField";
 import Checkbox from "@mui/material/Checkbox";
 import IconButton from "@mui/material/IconButton";
 import CircularProgress from "@mui/material/CircularProgress";
-import Autocomplete, { createFilterOptions } from "@mui/material/Autocomplete";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import AddIcon from "@mui/icons-material/Add";
 import CloseIcon from "@mui/icons-material/Close";
 import TrackChangesIcon from "@mui/icons-material/TrackChanges";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import SearchIcon from "@mui/icons-material/Search";
 
 import { FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import type { PlanItem } from "@/lib/reporting/actionPlanRules";
-import { kpiLibrary, numberOf, progressOf, type LibraryItem } from "@/lib/reporting/planKpiRules";
+import { numberOf, progressOf, type LibNode } from "@/lib/reporting/planKpiRules";
 import type { KpiProposal, PlanKpi } from "@/lib/reporting/planKpis";
 import { fmtValue, type Fmt } from "@/lib/marketingKpis/measures";
 import { buildViews, periodOf, useMarketingKpis, type KpiView } from "@/app/reporting/marketing-kpis/data";
@@ -106,18 +107,167 @@ function KpiRow({ k, place, view, canWrite, onSet, onRemove }: {
   );
 }
 
-const filter = createFilterOptions<LibraryItem>({ stringify: (o) => `${o.name} ${o.path} ${o.definition ?? ""}`, limit: 80 });
+/**
+ * The library to browse, as Advanced reporting's side panel has it (SARCLA 03.11.2026: "I mean the individual reports
+ * like a library, not like this - this should be hierarchy dynamic for picking up"): its categories on the left, the
+ * chosen one's reports and their pages in the middle - under the side panel's headings - and on the right what the
+ * page opened draws, graph by graph, its KPIs with their figure when the hub reads them. Anything ticked, at any level -
+ * a whole page, a graph, a KPI; a search over the whole library keeps each one's place.
+ */
+function LibraryBrowser({ tree, views, taken, busy, onAdd, onCancel }: {
+  tree: LibNode[]; views: Record<string, KpiView>; taken: Set<string>; busy: boolean; onAdd: (picks: LibNode[]) => void; onCancel: () => void;
+}) {
+  const [cat, setCat] = useState(tree[0]?.key ?? "");
+  const [open, setOpen] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [pick, setPick] = useState<LibNode[]>([]);
+  const all = useMemo(() => {
+    const out: LibNode[] = [];
+    const seen = new Set<string>();
+    const walk = (n: LibNode) => { if (n.kind !== "category" && !seen.has(n.key)) { seen.add(n.key); out.push(n); } n.children.forEach(walk); };
+    tree.forEach(walk);
+    return out;
+  }, [tree]);
+  const category = tree.find((c) => c.key === cat) ?? tree[0];
+  const inside = (n: LibNode) => n.children.filter((c) => c.kind === "graph" || c.kind === "kpi");
+  const count = (n: LibNode): number => n.children.reduce((sum, c) => sum + (c.kind === "graph" || c.kind === "kpi" ? 1 : count(c)), 0);
+  const shown = open ? all.find((n) => n.key === open) : undefined;
+  const on = (n: LibNode) => pick.some((x) => x.key === n.key);
+  const toggle = (n: LibNode) => setPick((p) => (p.some((x) => x.key === n.key) ? p.filter((x) => x.key !== n.key) : [...p, n]));
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const hits = words.length ? all.filter((n) => words.every((w) => `${n.name} ${n.path} ${n.definition ?? ""}`.toLowerCase().includes(w))).slice(0, 150) : [];
+  const liveOf = (n: LibNode) => (n.kpiId ? views[n.kpiId] : undefined);
+  const col = { minWidth: 0, overflowY: "auto", p: 0.75, display: "grid", alignContent: "start", gap: 0.25 } as const;
+
+  // a row of the library: the box to tick, its name, what it is, and - when something is in it - the way in
+  const row = (n: LibNode, opts: { depth?: number; showPath?: boolean } = {}) => {
+    const had = taken.has(n.key);
+    const v = liveOf(n);
+    const into = n.kind === "report" || n.kind === "page";
+    const active = open === n.key;
+    const k = into ? count(n) : 0;
+    return (
+      <Box key={n.key} sx={{ display: "flex", alignItems: "center", gap: 0.5, pl: 0.5 + (opts.depth ?? 0) * 2, pr: 0.5, py: 0.25, borderRadius: "6px", bgcolor: active ? TINT.blue.bg : "transparent", "&:hover": { bgcolor: active ? TINT.blue.bg : "#f3f6fb" } }}>
+        <Checkbox size="small" checked={had || on(n)} disabled={had} onChange={() => toggle(n)} sx={{ p: 0.4 }} slotProps={{ input: { "aria-label": `Pick ${n.name}` } }} />
+        <Box component={into ? "button" : "div"} type={into ? "button" : undefined} onClick={into ? () => setOpen(n.key) : undefined}
+          sx={{ all: "unset", flex: 1, minWidth: 0, cursor: into ? "pointer" : "default", display: "grid", py: 0.25 }}>
+          <Box sx={{ display: "flex", gap: 0.6, alignItems: "center", minWidth: 0 }}>
+            <Typography noWrap sx={{ fontSize: "0.85rem", fontWeight: n.kind === "report" ? 750 : 600, color: had ? FAINT : INK, minWidth: 0 }}>{n.name}</Typography>
+            {n.kind === "kpi" && <Box sx={{ ...TAG, bgcolor: v?.ytd != null ? TINT.green.bg : "#eef1f6", color: v?.ytd != null ? TINT.green.fg : MUTED }}>{v?.ytd != null ? `LIVE ${display(v.measure.fmt, v.ytd)}` : "KPI"}</Box>}
+            {n.kind === "graph" && <Box sx={{ ...TAG, bgcolor: "#eef1f6", color: MUTED }}>GRAPH</Box>}
+            {had && <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>added</Typography>}
+          </Box>
+          {(opts.showPath || n.definition) && (
+            <Typography noWrap sx={{ fontSize: "0.72rem", color: FAINT }}>{[opts.showPath ? n.path : "", n.definition ?? ""].filter(Boolean).join(" · ")}</Typography>
+          )}
+        </Box>
+        {into && <Typography sx={{ fontSize: "0.72rem", color: FAINT, flexShrink: 0 }}>{k || ""}</Typography>}
+        {into && <ChevronRightIcon sx={{ fontSize: 18, color: active ? TINT.blue.fg : FAINT, flexShrink: 0 }} />}
+      </Box>
+    );
+  };
+
+  return (
+    <Box sx={{ display: "grid", gap: 1.25, p: 1.5, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fbfcfe" }}>
+      <TextField size="small" label="The library - Advanced reporting" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search every report, page, graph and KPI - or browse below"
+        sx={field} slotProps={{ inputLabel: { shrink: true }, input: { startAdornment: <SearchIcon sx={{ fontSize: 18, color: FAINT, mr: 0.75 }} /> } }} />
+      {words.length > 0 ? (
+        <Box sx={{ ...col, maxHeight: 400, bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, borderRadius: "8px" }}>
+          {!hits.length && <Typography sx={{ fontSize: "0.84rem", color: FAINT, p: 1 }}>Nothing in the library with these words.</Typography>}
+          {hits.map((n) => row(n, { showPath: true }))}
+        </Box>
+      ) : (
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "230px minmax(0, 1fr) minmax(0, 1.3fr)" }, height: { md: 400 }, bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, borderRadius: "8px", overflow: "hidden" }}>
+          {/* its categories */}
+          <Box sx={{ ...col, borderRight: { md: `1px solid ${HAIRLINE}` } }}>
+            {tree.map((c) => {
+              const active = c.key === category?.key;
+              return (
+                <Box key={c.key} component="button" type="button" onClick={() => { setCat(c.key); setOpen(null); }}
+                  sx={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 0.5, px: 1, py: 0.75, borderRadius: "6px", bgcolor: active ? TINT.blue.bg : "transparent", "&:hover": { bgcolor: active ? TINT.blue.bg : "#f3f6fb" } }}>
+                  <Typography sx={{ flex: 1, fontSize: "0.85rem", fontWeight: active ? 800 : 650, color: active ? TINT.blue.fg : INK }}>{c.name}</Typography>
+                  <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>{count(c) || ""}</Typography>
+                </Box>
+              );
+            })}
+          </Box>
+          {/* the chosen category's reports and their pages, under the side panel's headings */}
+          <Box sx={{ ...col, borderRight: { md: `1px solid ${HAIRLINE}` } }}>
+            {!category?.children.length && <Typography sx={{ fontSize: "0.82rem", color: FAINT, p: 1 }}>No report in it yet.</Typography>}
+            {category?.children.map((r) => {
+              let last: string | undefined;
+              return (
+                <Box key={r.key} sx={{ display: "grid", gap: 0.25, mb: 0.5 }}>
+                  {row(r)}
+                  {r.children.filter((c) => c.kind === "page").map((pg) => {
+                    const head = pg.group !== last ? pg.group : undefined;
+                    last = pg.group;
+                    return (
+                      <Box key={pg.key}>
+                        {head && <Typography sx={{ ...section, fontSize: "0.66rem", pl: 4.5, pt: 0.75, pb: 0.25 }}>{head}</Typography>}
+                        {row(pg, { depth: 1 })}
+                      </Box>
+                    );
+                  })}
+                </Box>
+              );
+            })}
+          </Box>
+          {/* what the page opened draws */}
+          <Box sx={col}>
+            {!shown ? (
+              <Typography sx={{ fontSize: "0.82rem", color: FAINT, p: 1 }}>Open a report or a page to see its graphs and KPIs - or tick it whole.</Typography>
+            ) : (
+              <>
+                <Typography sx={{ ...section, px: 1, pt: 0.5 }}>{shown.name}</Typography>
+                {!inside(shown).length && (
+                  <Typography sx={{ fontSize: "0.82rem", color: FAINT, px: 1, py: 0.5 }}>
+                    {shown.kind === "report" && shown.children.length ? "Its pages are in the middle - open one." : "No graph of this page known yet - a page's graphs are listed once it has been opened. The page itself can be ticked."}
+                  </Typography>
+                )}
+                {inside(shown).map((n) => row(n))}
+              </>
+            )}
+          </Box>
+        </Box>
+      )}
+      <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+        <Box sx={{ flex: 1, display: "flex", gap: 0.5, flexWrap: "wrap", minWidth: 0 }}>
+          {!pick.length && <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>Tick what measures it - a whole page, a graph or a KPI.</Typography>}
+          {pick.map((n) => (
+            <Box key={n.key} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, pl: 0.9, pr: 0.25, py: 0.15, borderRadius: "4px", border: `1px solid ${TINT.blue.fg}`, bgcolor: TINT.blue.bg }}>
+              <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: TINT.blue.fg }}>{n.name}</Typography>
+              <IconButton size="small" aria-label={`Untick ${n.name}`} onClick={() => toggle(n)} sx={{ p: 0.2 }}><CloseIcon sx={{ fontSize: 14, color: TINT.blue.fg }} /></IconButton>
+            </Box>
+          ))}
+        </Box>
+        <Button onClick={onCancel} sx={{ ...cta, color: MUTED }}>Cancel</Button>
+        <Button variant="contained" disableElevation disabled={!pick.length || busy} onClick={() => onAdd(pick)} sx={cta}>{pick.length > 1 ? `Add these ${pick.length}` : "Add it"}</Button>
+      </Box>
+    </Box>
+  );
+}
 
 export function PlanKpis({ item, items, canWrite, onOpen }: { item: PlanItem; items: PlanItem[]; canWrite: boolean; onOpen: (i: PlanItem) => void }) {
-  const library = useMemo(() => kpiLibrary(), []);
-  const places = useMemo(() => new Map(library.map((x) => [x.key, x.path])), [library]);
+  // the library, read from the hub: Advanced reporting's tree, the graphs its pages have drawn in it
+  const [tree, setTree] = useState<LibNode[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch("/api/action-plan/kpis?library=1").then((r) => r.json()).then((j) => { if (live && j.ok) setTree(j.tree as LibNode[]); }).catch(() => undefined);
+    return () => { live = false; };
+  }, []);
+  const places = useMemo(() => {
+    const m = new Map<string, string>();
+    const walk = (n: LibNode) => { if (n.kind !== "category" && !m.has(n.key)) m.set(n.key, n.kind === "report" || n.kind === "page" ? `${n.path} › ${n.name}` : n.path); n.children.forEach(walk); };
+    (tree ?? []).forEach(walk);
+    return m;
+  }, [tree]);
   const [mk] = useMarketingKpis();
   const live = mk?.live?.value;
   const views = useMemo<Record<string, KpiView>>(() => (mk?.inputs && live ? buildViews(mk.inputs, live, live.year) : {}), [mk?.inputs, live]);
   const [data, setData] = useState<{ kpis: PlanKpi[]; under: PlanKpi[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [pick, setPick] = useState<LibraryItem[]>([]);
   const [ai, setAi] = useState<{ busy: boolean; list: (KpiProposal & { on: boolean })[]; note: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -136,7 +286,6 @@ export function PlanKpis({ item, items, canWrite, onOpen }: { item: PlanItem; it
     try { const j = await send("/api/action-plan/kpis", "POST", body); await load(); return j; } catch (e) { setErr((e as Error).message); return null; } finally { setBusy(false); }
   };
   const picked = new Set((data?.kpis ?? []).map((k) => k.key));
-  const options = library.filter((x) => !picked.has(x.key));
   const viewOf = (k: PlanKpi) => { const id = kpiIdOf(k.key); return id ? views[id] : undefined; };
   const propose = async () => {
     setAi({ busy: true, list: [], note: "" });
@@ -168,32 +317,12 @@ export function PlanKpis({ item, items, canWrite, onOpen }: { item: PlanItem; it
       </Typography>
       {err && <Typography sx={{ fontSize: "0.84rem", color: RED }}>{err}</Typography>}
 
-      {adding && (
-        <Box sx={{ display: "grid", gap: 1, p: 1.5, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fbfcfe" }}>
-          <Autocomplete multiple size="small" options={options} value={pick} onChange={(_, v) => setPick(v)} filterOptions={filter} disableCloseOnSelect
-            groupBy={(o) => o.path.split(" › ")[0]} getOptionLabel={(o) => o.name} isOptionEqualToValue={(a, b) => a.key === b.key}
-            renderOption={({ key, ...rest }, o, { selected }) => (
-              <li key={String(key)} {...rest}>
-                <Checkbox size="small" checked={selected} sx={{ p: 0.25, mr: 1 }} />
-                <Box sx={{ minWidth: 0 }}>
-                  <Box sx={{ display: "flex", gap: 0.6, alignItems: "center" }}>
-                    <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>{o.name}</Typography>
-                    {o.kpiId && views[o.kpiId]?.ytd != null && <Box sx={{ ...TAG, bgcolor: TINT.green.bg, color: TINT.green.fg }}>LIVE</Box>}
-                  </Box>
-                  <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{o.path}{o.definition ? ` · ${o.definition.slice(0, 110)}` : ""}</Typography>
-                </Box>
-              </li>
-            )}
-            renderInput={(p) => <TextField {...p} label="From Advanced reporting" placeholder={pick.length ? "" : "Search a report or a KPI - by name, team or what it measures"} sx={field}
-              InputLabelProps={{ ...p.InputLabelProps, shrink: true }} />} />
-          <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end" }}>
-            <Button onClick={() => { setAdding(false); setPick([]); }} sx={{ ...cta, color: MUTED }}>Cancel</Button>
-            <Button variant="contained" disableElevation disabled={!pick.length || busy}
-              onClick={() => void post({ action: "add", item: item.id, picks: pick.map((x) => ({ key: x.key, goodUp: x.kpiId ? views[x.kpiId]?.measure.goodWhenUp !== false : true })) }).then(() => { setPick([]); setAdding(false); })}
-              sx={cta}>{pick.length > 1 ? `Add these ${pick.length}` : "Add it"}</Button>
-          </Box>
-        </Box>
-      )}
+      {adding && (tree ? (
+        <LibraryBrowser tree={tree} views={views} taken={picked} busy={busy} onCancel={() => setAdding(false)}
+          onAdd={(picks) => void post({ action: "add", item: item.id, picks: picks.map((x) => ({ key: x.key, goodUp: x.kpiId ? views[x.kpiId]?.measure.goodWhenUp !== false : true })) }).then(() => setAdding(false))} />
+      ) : (
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Reading the library…</Typography></Box>
+      ))}
 
       {ai && (
         <Box sx={{ display: "grid", gap: 1, p: 1.5, borderRadius: "10px", border: `1px solid ${AI_LINE}`, bgcolor: AI_SOFT }}>
