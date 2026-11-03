@@ -39,12 +39,15 @@ export function GroupedColumns({
   priorLabel,
   height = 230,
   format = compact,
+  currentFirst = false,
 }: {
   data: GroupedRow[];
   currentLabel: string;
   priorLabel: string;
   height?: number;
   format?: (v: number | null) => string;
+  /** The current bar on the left of each pair - for two measures of one period (created, then closed), not two years. */
+  currentFirst?: boolean;
 }) {
   const top = niceCeiling(
     Math.max(0, ...data.flatMap((d) => [d.current ?? 0, d.prior ?? 0])),
@@ -91,16 +94,13 @@ export function GroupedColumns({
             {/* A month still in progress is drawn faded rather than dropped:
                 hiding the most recent bar makes the chart look broken, and it is
                 the month people came to look at. It is still out of the total. */}
-            <Bar dataKey="prior" name={priorLabel} fill={DEEMPHASIS} radius={[3, 3, 0, 0]} maxBarSize={30} isAnimationActive={false}>
-              {data.map((row) => (
-                <Cell key={`p-${row.x}`} fillOpacity={row.partial ? 0.45 : 1} />
-              ))}
-            </Bar>
-            <Bar dataKey="current" name={currentLabel} fill={SERIES[0]} radius={[3, 3, 0, 0]} maxBarSize={30} isAnimationActive={false}>
-              {data.map((row) => (
-                <Cell key={`c-${row.x}`} fillOpacity={row.partial ? 0.45 : 1} />
-              ))}
-            </Bar>
+            {(currentFirst ? ["current", "prior"] as const : ["prior", "current"] as const).map((k) => (
+              <Bar key={k} dataKey={k} name={k === "current" ? currentLabel : priorLabel} fill={k === "current" ? SERIES[0] : DEEMPHASIS} radius={[3, 3, 0, 0]} maxBarSize={30} isAnimationActive={false}>
+                {data.map((row) => (
+                  <Cell key={`${k[0]}-${row.x}`} fillOpacity={row.partial ? 0.45 : 1} />
+                ))}
+              </Bar>
+            ))}
           </BarChart>
         </ResponsiveContainer>
       </Box>

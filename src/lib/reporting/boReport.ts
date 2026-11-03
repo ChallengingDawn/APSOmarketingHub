@@ -9,15 +9,26 @@
 // at once with the months already kept, the newest counted first, and a counter fills the rest in the background - one
 // copy of the hub at a time (kv boReport:lease, a heartbeat; a lease older than 3 minutes is a counter a release killed).
 // Its searches go through the hub's shared pace like everyone's. Reads HubSpot only.
+//
+// Version 3 (SARCLA 03.11.2026: "doesn't have customer filter", "a graph by people ... how many came in automatic or
+// customer, how much closed month by month", "the breakdown per category", "STILL NO PROFIT CENTER?"): every ticket kept
+// one by one (its topic, owner, where it came from, its company, its days) and the tickets closed with them; the companies'
+// facts the filters read (kv boReport:companies); and each order's profit centre from its lines - the line's own, else its
+// article's, learnt from every order line that names one (kv boReport:articles).
 
 import { query } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
-import { read, searchAll, type Filter } from "@/lib/lifecycle/read";
+import { batchRead, read, searchAll, type Filter } from "@/lib/lifecycle/read";
+import { prioBand, prioOf } from "./esoRules";
 import { isC2s } from "@/lib/boDetection/figures";
-import { gqsTally, monthStart, monthsBetween, nextMonth, orderTally, swissDay, ticketTally, type BoMonth, type GqsMonth } from "./boReportRules";
+import {
+  articlePcs, gqsTally, monthStart, monthsBetween, nextMonth, orderTally, originOf, pcFinder, rowsOf, swissDay, ticketTally,
+  type BoMonth, type CoFacts, type GqsMonth, type RowTicket,
+} from "./boReportRules";
 
-/** a kept month of another version is counted again (2: the C2S tickets, the tones, the orders by profit centre) */
-const VERSION = 2;
+/** a kept month of another version is counted again (2: the C2S tickets, the tones, the orders by profit centre; 3: the
+ *  tickets one by one, the tickets closed, the orders' profit centre from their lines) */
+const VERSION = 3;
 const HOUR = 3_600_000, WEEK = 7 * 24 * HOUR;
 const LEASE_STALE_MS = 3 * 60_000;
 const PIPE = { bo: "1726786777", eso: "1726599376", tsa: "1726599377", gqs: "1726786775" } as const;
@@ -25,7 +36,11 @@ const PIPE = { bo: "1726786777", eso: "1726599376", tsa: "1726599377", gqs: "172
 const GQS_BO_STAGES = ["hs_v2_cumulative_time_in_2338266314", "hs_v2_cumulative_time_in_2338266316"];
 /** Back Office: entered "Redirected from chat" - the chat handed it over */
 const REDIRECTED = "hs_v2_date_entered_2554860732";
-const KV = { month: (ym: string) => `boReport:month:${ym}`, gqs: "boReport:gqs", lease: "boReport:lease" };
+const KV = { month: (ym: string) => `boReport:month:${ym}`, gqs: "boReport:gqs", lease: "boReport:lease", companies: "boReport:companies", articles: "boReport:articles" };
+/** the order lines read per order record: enough for every order but the largest, whose profit centre most lines decide */
+const LINES = Array.from({ length: 30 }, (_, i) => String(i + 1).padStart(2, "0"));
+/** the companies' facts, read again weekly */
+export type KeptCompanies = { at: string; facts: CoFacts };
 
 type Kept = BoMonth & { v: number; at: string };
 type KeptGqs = { v: number; at: string; months: GqsMonth[] };
@@ -51,30 +66,71 @@ async function ticketCount(filters: Filter[]): Promise<number> {
   return r.total;
 }
 
-async function readMonth(ym: string, say: (s: string) => void): Promise<BoMonth> {
+/** what a month's read adds to the whole count: the articles' profit centres learnt, the companies met */
+type Learnt = { arts: Record<string, string>; companies: Set<string> };
+
+async function readMonth(ym: string, say: (s: string) => void, learnt: Learnt): Promise<BoMonth> {
+  const num = (x: string | null | undefined) => (x == null || x === "" ? null : Number(x));
+  const dayOf = (iso: string | null | undefined) => (iso ? Number(swissDay(Date.parse(iso)).slice(8, 10)) || 1 : 1);
+  const chatOf = (p: Record<string, string | null> | undefined) => !!p?.[REDIRECTED] || p?.source_type === "CHAT";
   say(`${ym}: the Back Office's tickets`);
   const tickets = await searchAll("tickets", [[pipe(PIPE.bo), ...between("createdate", ym)]],
-    ["enquiry_category", "time_to_close", "time_to_first_agent_reply", "source_type", REDIRECTED, "subject", "c2s_ticket", "c2s_problem_order", "sentiment_customer_tone"],
+    ["createdate", "enquiry_category", "time_to_close", "time_to_first_agent_reply", "source_type", REDIRECTED, "subject", "c2s_ticket", "c2s_problem_order", "sentiment_customer_tone",
+      "hubspot_owner_id", "hs_primary_company_id", "hs_object_source"],
     (n) => say(`${ym}: the Back Office's tickets · ${n.toLocaleString("en")}`));
-  const num = (x: string | null | undefined) => (x == null || x === "" ? null : Number(x));
-  const t = ticketTally(tickets.map((r) => ({
-    topic: r.properties?.enquiry_category ?? null, toClose: num(r.properties?.time_to_close), toReply: num(r.properties?.time_to_first_agent_reply),
-    chat: !!r.properties?.[REDIRECTED] || r.properties?.source_type === "CHAT",
-    c2s: isC2s(r.properties?.c2s_ticket, r.properties?.c2s_problem_order, r.properties?.subject), tone: r.properties?.sentiment_customer_tone ?? null,
-  })));
-  say(`${ym}: tickets closed, ESO's, TSA's, all`);
-  const closed = await ticketCount([pipe(PIPE.bo), ...between("closed_date", ym)]);
+  const created: RowTicket[] = tickets.map((r) => {
+    const p = r.properties;
+    return {
+      day: dayOf(p?.createdate), topic: p?.enquiry_category ?? null, owner: p?.hubspot_owner_id ?? null, company: p?.hs_primary_company_id ?? null,
+      origin: originOf(p?.enquiry_category, chatOf(p), p?.hs_object_source), toClose: num(p?.time_to_close), toReply: num(p?.time_to_first_agent_reply),
+      c2s: isC2s(p?.c2s_ticket, p?.c2s_problem_order, p?.subject), tone: p?.sentiment_customer_tone ?? null,
+    };
+  });
+  const t = ticketTally(created.map((r) => ({ topic: r.topic, toClose: r.toClose ?? null, toReply: r.toReply ?? null, chat: r.origin === "Chat", c2s: r.c2s, tone: r.tone })));
+  const srcs: Record<string, number> = {};
+  for (const r of tickets) { const k = r.properties?.hs_object_source ?? ""; srcs[k] = (srcs[k] ?? 0) + 1; }
+  say(`${ym}: the tickets closed`);
+  const closedRecs = await searchAll("tickets", [[pipe(PIPE.bo), ...between("closed_date", ym)]],
+    ["closed_date", "enquiry_category", "hubspot_owner_id", "hs_primary_company_id", "source_type", REDIRECTED, "hs_object_source"],
+    (n) => say(`${ym}: the tickets closed · ${n.toLocaleString("en")}`));
+  const closed: RowTicket[] = closedRecs.map((r) => {
+    const p = r.properties;
+    return { day: dayOf(p?.closed_date), topic: p?.enquiry_category ?? null, owner: p?.hubspot_owner_id ?? null, company: p?.hs_primary_company_id ?? null, origin: originOf(p?.enquiry_category, chatOf(p), p?.hs_object_source) };
+  });
+  for (const r of [...created, ...closed]) if (r.company) learnt.companies.add(r.company);
+  say(`${ym}: ESO's, TSA's, all tickets`);
   const eso = await ticketCount([pipe(PIPE.eso), ...between("createdate", ym)]);
   const tsa = await ticketCount([pipe(PIPE.tsa), ...between("createdate", ym)]);
   const all = await ticketCount(between("createdate", ym));
   say(`${ym}: the orders`);
-  const orders = await searchAll("orders", [between("order_order_date", ym)], ["order_order_number", "order_order_type", "order_order_status", "order_line_count", "order_item_count", "order_profit_center"],
+  const orders = await searchAll("orders", [between("order_order_date", ym)],
+    ["order_order_number", "order_order_type", "order_order_status", "order_line_count", "order_item_count", "order_profit_center", ...LINES.flatMap((i) => [`order_line_${i}_article`, `order_line_${i}_pc`])],
     (n) => say(`${ym}: the orders · ${n.toLocaleString("en")}`));
-  const o = orderTally(orders.map((r) => ({
+  const recs = orders.map((r) => ({
     number: r.properties?.order_order_number ?? null, type: r.properties?.order_order_type ?? null, status: r.properties?.order_order_status ?? null,
     lines: Number(r.properties?.order_line_count) || Number(r.properties?.order_item_count) || 0, pc: r.properties?.order_profit_center ?? null,
-  })));
-  return { ym, ...t, closed, eso, tsa, all, orders: o.orders, lines: o.lines, pcs: o.pcs };
+    arts: LINES.map((i) => r.properties?.[`order_line_${i}_article`] ?? null), lpcs: LINES.map((i) => r.properties?.[`order_line_${i}_pc`] ?? null),
+  }));
+  Object.assign(learnt.arts, articlePcs(recs));
+  const o = orderTally(recs, pcFinder(learnt.arts));
+  return { ym, ...t, closed: closed.length, eso, tsa, all, orders: o.orders, lines: o.lines, pcs: o.pcs, linePcs: o.linePcs, rows: rowsOf(created, closed), srcs };
+}
+
+/** The facts the filters read of the companies met: customer category, country, priority band - those not known yet, or
+ *  all of them once a week. */
+async function readCompanies(ids: Set<string>, say: (s: string) => void): Promise<void> {
+  const kept = await kvGet<KeptCompanies>(KV.companies);
+  const old = !kept || Date.now() - Date.parse(kept.at) > WEEK;
+  const want = [...ids].filter((id) => old || !kept?.facts[id]);
+  if (!want.length) return;
+  const recs = await batchRead("companies", want, ["sales_priority", "apso_customer", "country_custom"], [],
+    (n) => say(`the tickets' companies · ${n.toLocaleString("en")} of ${want.length.toLocaleString("en")}`));
+  const facts: CoFacts = { ...(kept?.facts ?? {}) };
+  for (const c of recs) {
+    const p = c.properties ?? {};
+    facts[String(c.id)] = [(p.apso_customer ?? "").trim() || "Not set", (p.country_custom ?? "").trim() || "Not set", prioBand(prioOf(p.sales_priority))];
+  }
+  await kvSet(KV.companies, { at: old ? new Date().toISOString() : kept!.at, facts } satisfies KeptCompanies);
 }
 
 async function readGqs(): Promise<GqsMonth[]> {
@@ -118,10 +174,13 @@ function count(todo: string[], gqsDue: boolean): void {
   void (async () => {
     try {
       await beat();
+      const learnt: Learnt = { arts: (await kvGet<Record<string, string>>(KV.articles)) ?? {}, companies: new Set() };
       for (const [i, ym] of todo.entries()) {
-        const m = await readMonth(ym, (s) => say(`month ${i + 1} of ${todo.length} · ${s}`));
+        const m = await readMonth(ym, (s) => say(`month ${i + 1} of ${todo.length} · ${s}`), learnt);
         await kvSet(KV.month(ym), { ...m, v: VERSION, at: new Date().toISOString() } satisfies Kept);
+        await kvSet(KV.articles, learnt.arts);
       }
+      if (learnt.companies.size) await readCompanies(learnt.companies, say);
       if (gqsDue) {
         say("the GQS tasks");
         await kvSet(KV.gqs, { v: VERSION, at: new Date().toISOString(), months: await readGqs() } satisfies KeptGqs);

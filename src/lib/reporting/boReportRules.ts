@@ -37,6 +37,12 @@ export type BoMonth = {
    * sweep's: positive / neutral / negative, "neutral feeling"); the orders by profit centre ("orders per PC").
    */
   c2s: number; c2sDelivery: number; tones: Record<string, number>; pcs: Record<string, number>;
+  /** the order lines by profit centre (since version 3) */
+  linePcs?: Record<string, number>;
+  /** the month's tickets one by one - the filters, the people, the speed per topic are drawn from them (since version 3) */
+  rows?: BoRows;
+  /** how HubSpot says each ticket created was made (hs_object_source) - what "automatic" rests on, kept to check it */
+  srcs?: Record<string, number>;
   /** not counted yet (the first count fills the months newest first): every figure of it null, never 0 */
   pending?: boolean;
 };
@@ -74,27 +80,66 @@ export function monthsBetween(first: string, last: string): string[] {
  * An order record as the count needs it - `lines` its line count, or, on the shop's own records (Magento, which carry no
  * line count and no type - most of them since July 2026), its item count.
  */
-export type OrderRec = { number: string | null; type: string | null; status: string | null; lines: number; pc?: string | null };
+export type OrderRec = {
+  number: string | null; type: string | null; status: string | null; lines: number; pc?: string | null;
+  /** its lines' articles and their profit centres, as the record names them (order_line_NN_article / _pc) */
+  arts?: (string | null)[]; lpcs?: (string | null)[];
+};
+/** what a profit centre field holds when it names none */
+const noPc = (x: string | null | undefined) => !x || !x.trim() || /^unknown$/i.test(x.trim());
 const isCredit = (r: OrderRec) => /credit/i.test(r.type ?? "") || /credit/i.test(r.status ?? "");
 /**
  * The month's orders the way the Back Office counts them: an order number once, whatever its deliveries (.001, .002 ...)
  * and whichever system wrote it (the ERP and the shop number them alike), credit notes out; its lines = the largest line
  * count among its deliveries. June to September 2026, with the shop's records in: 1.5 to 4 % from the workbook's figures.
  */
-export function orderTally(rows: OrderRec[]): { orders: number; lines: number; pcs: Record<string, number> } {
-  const most = new Map<string, number>(), pcOf = new Map<string, string>();
+export function orderTally(rows: OrderRec[], pcOfArticle: (article: string) => string | null = () => null): { orders: number; lines: number; pcs: Record<string, number>; linePcs: Record<string, number> } {
+  const most = new Map<string, number>(), pcOf = new Map<string, string>(), widest = new Map<string, OrderRec>();
+  const named = (r: OrderRec | undefined) => (r?.arts ?? []).filter(Boolean).length;
   for (const r of rows) {
     if (isCredit(r) || !r.number) continue;
     const base = r.number.replace(/\.\d+$/, "");
     most.set(base, Math.max(most.get(base) ?? 0, r.lines || 0));
-    // its profit centre: any of its records that names one (the shop's own records often do not)
-    if (r.pc && !pcOf.get(base)) pcOf.set(base, r.pc);
+    // its profit centre: any of its records that names one
+    if (!noPc(r.pc) && !pcOf.get(base)) pcOf.set(base, r.pc!.trim());
+    if (!widest.has(base) || named(r) > named(widest.get(base))) widest.set(base, r);
   }
   let lines = 0;
   for (const n of most.values()) lines += n;
-  const pcs: Record<string, number> = {};
-  for (const base of most.keys()) { const k = pcOf.get(base) ?? ""; pcs[k] = (pcs[k] ?? 0) + 1; }
-  return { orders: most.size, lines, pcs };
+  const pcs: Record<string, number> = {}, linePcs: Record<string, number> = {};
+  for (const base of most.keys()) {
+    // the lines of its widest record: each line's own profit centre, else its article's (SARCLA 03.11.2026 on "No
+    // profit centre" for most orders: "this need to be correct" - the shop's own records name none, June to August)
+    const r = widest.get(base);
+    const ls = (r?.arts ?? []).map((art, i) => { const own = r?.lpcs?.[i]; return !noPc(own) ? own!.trim() : art ? pcOfArticle(art.trim()) : null; }).filter((x): x is string => !!x);
+    for (const x of ls) linePcs[x] = (linePcs[x] ?? 0) + 1;
+    let k = pcOf.get(base) ?? "";
+    if (!k && ls.length) {
+      // the profit centre most of its lines are in
+      const by: Record<string, number> = {};
+      for (const x of ls) by[x] = (by[x] ?? 0) + 1;
+      k = Object.entries(by).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0][0];
+    }
+    pcs[k] = (pcs[k] ?? 0) + 1;
+  }
+  return { orders: most.size, lines, pcs, linePcs };
+}
+
+/**
+ * An article's profit centre: the one its order lines name, else the one most known articles of its first four digits
+ * are in - 94.6 % right on 2026's order lines, where 70 % of the shop's July articles were known by their number.
+ */
+export function pcFinder(known: Record<string, string>): (article: string) => string | null {
+  const by = new Map<string, Record<string, number>>();
+  for (const [art, pc] of Object.entries(known)) { const k = art.slice(0, 4); const m = by.get(k) ?? {}; m[pc] = (m[pc] ?? 0) + 1; by.set(k, m); }
+  const prefix = new Map([...by].map(([k, m]) => [k, Object.entries(m).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0][0]]));
+  return (art) => known[art] ?? prefix.get(art.slice(0, 4)) ?? null;
+}
+/** the article -> profit centre pairs of a month's order lines that name both */
+export function articlePcs(rows: OrderRec[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const r of rows) (r.arts ?? []).forEach((art, i) => { const pc = r.lpcs?.[i]; if (art && art.trim() && !noPc(pc)) out[art.trim()] = pc!.trim(); });
+  return out;
 }
 
 /** A Back Office ticket as the month needs it. */
@@ -142,6 +187,79 @@ export const emptyMonth = (): Omit<BoMonth, "ym"> => ({ created: 0, closed: 0, c
 
 const avg = (sum: number, n: number) => (n ? sum / n : null);
 
+/* ── the tickets one by one: where each came from, who has it, whose it is ─ */
+
+/** where a Back Office ticket came from (SARCLA 03.11.2026: "how many came in automatic or customer") */
+export const ORIGINS = ["Customer", "Chat", "Automatic & internal"] as const;
+/** the e-mails HubSpot files on their own that no customer wrote - what the workbook counted in Others */
+export const AUTO_TOPICS = ["Automatic e-mail", "Finance e-mail", "Internal e-mail", "GQS task update", "Spam or advertising", "Empty e-mail", "AVOR e-mail"];
+/** tickets a system made, not an e-mail or a form (hs_object_source) */
+const SYSTEM_SOURCES = new Set(["AUTOMATION_PLATFORM", "INTEGRATION", "API", "IMPORT", "WORKFLOWS", "BATCH_UPDATE"]);
+export function originOf(topic: string | null | undefined, chat: boolean, objectSource?: string | null): (typeof ORIGINS)[number] {
+  if (chat) return "Chat";
+  if (AUTO_TOPICS.includes((topic ?? "").trim()) || SYSTEM_SOURCES.has((objectSource ?? "").trim().toUpperCase())) return "Automatic & internal";
+  return "Customer";
+}
+
+/**
+ * A month's tickets, each string once in `dict` and the rows pointing at it:
+ * created: [day, topic, owner, origin, days to close x10 (-1 none), days to the first reply x10 (-1 none), C2S 0/1, tone, company]
+ * closed (by close date): [day, topic, owner, origin, company] - owner and company as HubSpot ids ("" none).
+ */
+export type BoRows = { dict: string[]; created: number[][]; closed: number[][] };
+export const RW = { day: 0, topic: 1, owner: 2, origin: 3, close: 4, reply: 5, c2s: 6, tone: 7, company: 8 } as const;
+export const RCL = { day: 0, topic: 1, owner: 2, origin: 3, company: 4 } as const;
+export type RowTicket = { day: number; topic: string | null; owner: string | null; origin: string; toClose?: number | null; toReply?: number | null; c2s?: boolean; tone?: string | null; company: string | null };
+export function rowsOf(created: RowTicket[], closed: RowTicket[]): BoRows {
+  const dict: string[] = [], at = new Map<string, number>();
+  const ix = (x: string | null | undefined) => { const k = (x ?? "").trim(); let i = at.get(k); if (i === undefined) { i = dict.push(k) - 1; at.set(k, i); } return i; };
+  const tenths = (ms: number | null | undefined) => (ms != null && ms > 0 ? Math.round((ms / DAY) * 10) : -1);
+  return {
+    dict,
+    created: created.map((t) => [t.day, ix(t.topic), ix(t.owner), ix(t.origin), tenths(t.toClose), tenths(t.toReply), t.c2s ? 1 : 0, ix((t.tone ?? "").toLowerCase()), ix(t.company)]),
+    closed: closed.map((t) => [t.day, ix(t.topic), ix(t.owner), ix(t.origin), ix(t.company)]),
+  };
+}
+
+/** The filters of the pages: values picked per breakdown (owners by their HubSpot id, customers by their company's facts). */
+export type BoFilter = Partial<Record<"topic" | "person" | "origin" | "category" | "country" | "prio", string[]>>;
+/** a company's facts the filters read: customer category, country, priority band */
+export type CoFacts = Record<string, [string, string, string]>;
+const FACT = { category: 0, country: 1, prio: 2 } as const;
+/** Does a ticket pass the filters - `topic`, `owner`, `origin`, `company` as strings. */
+export function passes(f: BoFilter, co: CoFacts, t: { topic: string; owner: string; origin: string; company: string }): boolean {
+  if (f.topic?.length && !f.topic.includes(topicLabel(t.topic))) return false;
+  if (f.person?.length && !f.person.includes(t.owner)) return false;
+  if (f.origin?.length && !f.origin.includes(t.origin)) return false;
+  for (const k of ["category", "country", "prio"] as const) {
+    if (!f[k]?.length) continue;
+    const v = co[t.company]?.[FACT[k]] ?? "Not set";
+    if (!f[k]!.includes(v)) return false;
+  }
+  return true;
+}
+export const filtering = (f: BoFilter) => Object.values(f).some((v) => v?.length);
+/** A month with only the tickets that pass: the ticket figures counted again from its rows; orders, ESO, TSA as they are. */
+export function filteredMonth(m: BoMonth, f: BoFilter, co: CoFacts): BoMonth {
+  if (!m.rows || !filtering(f)) return m;
+  const d = m.rows.dict;
+  const out: BoMonth = { ...m, created: 0, closed: 0, closeDays: 0, closeN: 0, replyDays: 0, replyN: 0, chat: 0, topics: {}, c2s: 0, c2sDelivery: 0, tones: {} };
+  for (const r of m.rows.created) {
+    const t = { topic: d[r[RW.topic]], owner: d[r[RW.owner]], origin: d[r[RW.origin]], company: d[r[RW.company]] };
+    if (!passes(f, co, t)) continue;
+    out.created++;
+    out.topics[t.topic] = (out.topics[t.topic] ?? 0) + 1;
+    if (r[RW.close] >= 0) { out.closeDays += r[RW.close] / 10; out.closeN++; }
+    if (r[RW.reply] >= 0) { out.replyDays += r[RW.reply] / 10; out.replyN++; }
+    if (t.origin === "Chat") out.chat++;
+    if (r[RW.c2s]) { out.c2s++; if (t.topic === "Delivery") out.c2sDelivery++; }
+    const tone = d[r[RW.tone]];
+    out.tones[tone] = (out.tones[tone] ?? 0) + 1;
+  }
+  for (const r of m.rows.closed) if (passes(f, co, { topic: d[r[RCL.topic]], owner: d[r[RCL.owner]], origin: d[r[RCL.origin]], company: d[r[RCL.company]] })) out.closed++;
+  return out;
+}
+
 /**
  * The tickets are in HubSpot's pipelines from July 2025 (the Back Office's 1,207 that month, a handful before; GQS from
  * the same month): a month before has no ticket figures - not zero - so nothing is compared with it. The orders go back
@@ -158,6 +276,7 @@ export function sumMonths(ms: BoMonth[]): BoMonth {
     if (m.pending) out.pending = true;
     for (const k of ["created", "closed", "closeDays", "closeN", "replyDays", "replyN", "chat", "eso", "tsa", "all", "orders", "lines", "c2s", "c2sDelivery"] as const) out[k] += m[k] ?? 0;
     for (const f of ["topics", "tones", "pcs"] as const) for (const [t, n] of Object.entries(m[f] ?? {})) out[f][t] = (out[f][t] ?? 0) + n;
+    for (const [t, n] of Object.entries(m.linePcs ?? {})) { out.linePcs ??= {}; out.linePcs[t] = (out.linePcs[t] ?? 0) + n; }
   }
   return out;
 }

@@ -11,7 +11,8 @@ import { accessAt } from "@/lib/auth/tree";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { query } from "@/lib/db/client";
-import { boReportNow } from "@/lib/reporting/boReport";
+import { boReportNow, type KeptCompanies } from "@/lib/reporting/boReport";
+import { ownerNames } from "@/lib/integrations/erosion";
 import { esoTickets } from "@/lib/reporting/ticketsReport";
 import { T } from "@/lib/reporting/ticketsRules";
 import { TYPED, WORKBOOK_TYPED, checkTyped, inboundByMonth, typedKey, type Typed } from "@/lib/reporting/boReportRules";
@@ -46,11 +47,15 @@ export async function GET() {
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!PAGES.some((p) => level(access, p) !== "none")) return NextResponse.json({ error: "No access" }, { status: 403 });
   try {
-    const [st, hours, typed, inb] = await Promise.all([boReportNow(), kvGet<Record<string, number>>(HOURS), kvGet<Typed>(TYPED_KV), inbound()]);
+    const [st, hours, typed, inb, cos, owners] = await Promise.all([boReportNow(), kvGet<Record<string, number>>(HOURS), kvGet<Typed>(TYPED_KV), inbound(),
+      kvGet<KeptCompanies>("boReport:companies"), ownerNames().catch(() => new Map<string, string>())]);
+    // the names of the tickets' owners, and the facts of their companies the filters read
+    const ids = new Set(st.months.flatMap((m) => m.rows?.dict ?? []));
+    const names = Object.fromEntries([...owners].filter(([id]) => ids.has(id)));
     return NextResponse.json({
       state: { computing: st.counting, progress: st.progress, error: st.error, computedAt: st.generatedAt },
       // nothing kept yet: the page says it is counting; else the months there are, the rest named as pending
-      data: st.months.length ? { ...st, hours: hours ?? WORKBOOK_HOURS, typed: typed ?? WORKBOOK_TYPED, inbound: inb } : null,
+      data: st.months.length ? { ...st, hours: hours ?? WORKBOOK_HOURS, typed: typed ?? WORKBOOK_TYPED, inbound: inb, names, companies: cos?.facts ?? {} } : null,
       canEdit: level(access, FIGURES) === "write", canEditTyped: Object.fromEntries(TYPED.map((s) => [s.id, level(access, SERIES_PAGE[s.id]) === "write"])),
     });
   } catch (e) {

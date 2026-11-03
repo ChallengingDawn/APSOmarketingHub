@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { WORKBOOK_TYPED, checkTyped, emptyMonth, gqsTally, inboundByMonth, kpisOf, monthStart, monthsBetween, orderTally, sumMonths, swissDay, ticketTally, type BoMonth } from "../src/lib/reporting/boReportRules";
+import {
+  RW, WORKBOOK_TYPED, articlePcs, checkTyped, emptyMonth, filteredMonth, gqsTally, inboundByMonth, kpisOf, monthStart, monthsBetween, orderTally, originOf, passes,
+  pcFinder, rowsOf, sumMonths, swissDay, ticketTally, type BoMonth,
+} from "../src/lib/reporting/boReportRules";
 
 // SARCLA 02.11.2026: "and the back office reports based on file?" - the Back Office's KPI workbook worked out live. The
 // workbook's January 2026: 4,224 orders and 9,074 order lines, where HubSpot holds 4,879 order records (deliveries .000,
@@ -123,4 +126,71 @@ test("typed figures: a share typed as 95.5 or 95,5 % or 0.955 is 95.5 %; a count
   // the workbook's own figures to start: OTD online, all, September 2026 80.8 %; pass rate mandant 100 January 96.43 %
   assert.equal(WORKBOOK_TYPED["otd.online-all"]["2026-09"], 0.808);
   assert.equal(WORKBOOK_TYPED["pass.m100"]["2026-01"], 0.9643);
+});
+
+test("an order's profit centre: the one it names, else most of its lines' - the line's own, else its article's, by number or by its first four digits (SARCLA 03.11.2026: \"STILL NO PROFIT CENTER?\")", () => {
+  const known = articlePcs([
+    { number: "A26.1.000", type: "Order", status: null, lines: 2, pc: "DT", arts: ["0301020030", "1301098020"], lpcs: ["DT", "KT"] },
+    { number: "A26.2.000", type: "Order", status: null, lines: 1, pc: "FT", arts: ["0653601016"], lpcs: ["FT"] },
+  ]);
+  assert.deepEqual(known, { "0301020030": "DT", "1301098020": "KT", "0653601016": "FT" });
+  const find = pcFinder(known);
+  assert.equal(find("0653601016"), "FT");
+  // an article never seen: what the known ones of its first four digits are
+  assert.equal(find("0301999999"), "DT");
+  assert.equal(find("9999000000"), null);
+  const t = orderTally([
+    // named on the order: kept, whatever its lines
+    { number: "A26.10.000", type: "Order", status: null, lines: 2, pc: "KT", arts: ["0301020030", "0301020031"], lpcs: [null, null] },
+    // the shop's own record, no profit centre: most of its lines are DT
+    { number: "A26.11.000", type: null, status: null, lines: 3, pc: null, arts: ["0301020030", "0301777777", "1301098020"], lpcs: [null, null, null] },
+    // "Unknown" names none
+    { number: "A26.12.000", type: null, status: null, lines: 1, pc: "Unknown", arts: ["0653601016"], lpcs: [null] },
+    // nothing to go on
+    { number: "A26.13.000", type: null, status: null, lines: 1, pc: null, arts: [], lpcs: [] },
+  ], find);
+  assert.deepEqual(t.pcs, { KT: 1, DT: 1, FT: 1, "": 1 });
+  assert.deepEqual(t.linePcs, { DT: 4, KT: 1, FT: 1 });
+});
+
+test("where a ticket came from: the chat, what no customer wrote (automatic, internal, spam ... or made by a system), else a customer (SARCLA 03.11.2026: \"how many came in automatic or customer\")", () => {
+  assert.equal(originOf("Delivery", true, "EMAIL"), "Chat");
+  assert.equal(originOf("Automatic e-mail", false, "EMAIL"), "Automatic & internal");
+  assert.equal(originOf("Delivery", false, "AUTOMATION_PLATFORM"), "Automatic & internal");
+  assert.equal(originOf("Delivery", false, "EMAIL"), "Customer");
+  assert.equal(originOf(null, false, null), "Customer");
+});
+
+test("the tickets one by one, filtered: the month's ticket figures counted again from the rows that pass; the orders untouched", () => {
+  const rows = rowsOf([
+    { day: 3, topic: "Delivery", owner: "11", origin: "Customer", toClose: 2 * 86_400_000, toReply: 86_400_000, c2s: true, tone: "Neutral", company: "c1" },
+    { day: 4, topic: "Product Price", owner: "22", origin: "Chat", toClose: null, toReply: null, tone: "positive", company: "c2" },
+    { day: 5, topic: "Delivery", owner: "22", origin: "Customer", toClose: 4 * 86_400_000, toReply: null, tone: "negative", company: "c2" },
+  ], [
+    { day: 9, topic: "Delivery", owner: "11", origin: "Customer", company: "c1" },
+    { day: 9, topic: "Delivery", owner: "22", origin: "Customer", company: "c2" },
+  ]);
+  assert.equal(rows.dict[rows.created[0][RW.topic]], "Delivery");
+  assert.equal(rows.created[0][RW.close], 20);
+  assert.equal(rows.created[1][RW.close], -1);
+  const m: BoMonth = { ym: "2026-10", ...emptyMonth(), created: 3, closed: 2, orders: 100, rows };
+  const co = { c1: ["Key account", "Switzerland", "P1"], c2: ["Shop", "Germany", "P3"] } as Record<string, [string, string, string]>;
+  // no filter: the month as it is
+  assert.equal(filteredMonth(m, {}, co), m);
+  const only22 = filteredMonth(m, { person: ["22"] }, co);
+  assert.equal(only22.created, 2);
+  assert.equal(only22.closed, 1);
+  assert.equal(only22.chat, 1);
+  assert.equal(only22.closeN, 1);
+  assert.equal(only22.closeDays, 4);
+  assert.equal(only22.orders, 100);
+  assert.deepEqual(only22.topics, { Delivery: 1, "Product Price": 1 });
+  const swiss = filteredMonth(m, { country: ["Switzerland"] }, co);
+  assert.equal(swiss.created, 1);
+  assert.equal(swiss.c2s, 1);
+  assert.equal(swiss.c2sDelivery, 1);
+  assert.deepEqual(swiss.tones, { neutral: 1 });
+  // a company without facts is "Not set"
+  assert.equal(passes({ category: ["Not set"] }, co, { topic: "", owner: "", origin: "Customer", company: "c9" }), true);
+  assert.equal(passes({ topic: ["No topic"] }, co, { topic: "", owner: "", origin: "Customer", company: "" }), true);
 });
