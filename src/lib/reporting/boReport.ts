@@ -27,8 +27,8 @@ import {
 } from "./boReportRules";
 
 /** a kept month of another version is counted again (2: the C2S tickets, the tones, the orders by profit centre; 3: the
- *  tickets one by one, the tickets closed, the orders' profit centre from their lines) */
-const VERSION = 3;
+ *  tickets one by one, the tickets closed, the orders' profit centre from their lines; 4: each ticket's id, for the lists) */
+const VERSION = 4;
 const HOUR = 3_600_000, WEEK = 7 * 24 * HOUR;
 const LEASE_STALE_MS = 3 * 60_000;
 const PIPE = { bo: "1726786777", eso: "1726599376", tsa: "1726599377", gqs: "1726786775" } as const;
@@ -85,7 +85,7 @@ async function readMonth(ym: string, say: (s: string) => void, learnt: Learnt): 
   const created: RowTicket[] = tickets.map((r) => {
     const p = r.properties;
     return {
-      day: dayOf(p?.createdate), topic: p?.enquiry_category ?? null, owner: p?.hubspot_owner_id ?? null, company: p?.hs_primary_company_id ?? null,
+      id: String(r.id), day: dayOf(p?.createdate), topic: p?.enquiry_category ?? null, owner: p?.hubspot_owner_id ?? null, company: p?.hs_primary_company_id ?? null,
       origin: originOf(p?.enquiry_category, chatOf(p), p?.hs_object_source), toClose: num(p?.time_to_close), toReply: num(p?.time_to_first_agent_reply),
       c2s: isC2s(p?.c2s_ticket, p?.c2s_problem_order, p?.subject), tone: p?.sentiment_customer_tone ?? null,
     };
@@ -99,7 +99,7 @@ async function readMonth(ym: string, say: (s: string) => void, learnt: Learnt): 
     (n) => say(`${ym}: the tickets closed · ${n.toLocaleString("en")}`));
   const closed: RowTicket[] = closedRecs.map((r) => {
     const p = r.properties;
-    return { day: dayOf(p?.closed_date), topic: p?.enquiry_category ?? null, owner: p?.hubspot_owner_id ?? null, company: p?.hs_primary_company_id ?? null, origin: originOf(p?.enquiry_category, chatOf(p), p?.hs_object_source) };
+    return { id: String(r.id), day: dayOf(p?.closed_date), topic: p?.enquiry_category ?? null, owner: p?.hubspot_owner_id ?? null, company: p?.hs_primary_company_id ?? null, origin: originOf(p?.enquiry_category, chatOf(p), p?.hs_object_source) };
   });
   for (const r of [...created, ...closed]) if (r.company) learnt.companies.add(r.company);
   say(`${ym}: ESO's, TSA's, all tickets`);
@@ -125,14 +125,15 @@ async function readMonth(ym: string, say: (s: string) => void, learnt: Learnt): 
 async function readCompanies(ids: Set<string>, say: (s: string) => void): Promise<void> {
   const kept = await kvGet<KeptCompanies>(KV.companies);
   const old = !kept || Date.now() - Date.parse(kept.at) > WEEK;
-  const want = [...ids].filter((id) => old || !kept?.facts[id]);
+  // the ones not known, or known without their name (kept before 03.11.2026), or all of them once a week
+  const want = [...ids].filter((id) => old || !kept?.facts[id] || kept.facts[id].length < 4);
   if (!want.length) return;
-  const recs = await batchRead("companies", want, ["sales_priority", "apso_customer", "country_custom"], [],
+  const recs = await batchRead("companies", want, ["name", "sales_priority", "apso_customer", "country_custom"], [],
     (n) => say(`the tickets' companies · ${n.toLocaleString("en")} of ${want.length.toLocaleString("en")}`));
   const facts: CoFacts = { ...(kept?.facts ?? {}) };
   for (const c of recs) {
     const p = c.properties ?? {};
-    facts[String(c.id)] = [(p.apso_customer ?? "").trim() || "Not set", (p.country_custom ?? "").trim() || "Not set", prioBand(prioOf(p.sales_priority))];
+    facts[String(c.id)] = [(p.apso_customer ?? "").trim() || "Not set", (p.country_custom ?? "").trim() || "Not set", prioBand(prioOf(p.sales_priority)), (p.name ?? "").trim() || `Company ${c.id}`];
   }
   await kvSet(KV.companies, { at: old ? new Date().toISOString() : kept!.at, facts } satisfies KeptCompanies);
 }

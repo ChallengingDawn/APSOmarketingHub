@@ -206,10 +206,10 @@ export function originOf(topic: string | null | undefined, chat: boolean, object
  * created: [day, topic, owner, origin, days to close x10 (-1 none), days to the first reply x10 (-1 none), C2S 0/1, tone, company]
  * closed (by close date): [day, topic, owner, origin, company] - owner and company as HubSpot ids ("" none).
  */
-export type BoRows = { dict: string[]; created: number[][]; closed: number[][] };
+export type BoRows = { dict: string[]; created: number[][]; closed: number[][]; ids?: string[]; cids?: string[] };
 export const RW = { day: 0, topic: 1, owner: 2, origin: 3, close: 4, reply: 5, c2s: 6, tone: 7, company: 8 } as const;
 export const RCL = { day: 0, topic: 1, owner: 2, origin: 3, company: 4 } as const;
-export type RowTicket = { day: number; topic: string | null; owner: string | null; origin: string; toClose?: number | null; toReply?: number | null; c2s?: boolean; tone?: string | null; company: string | null };
+export type RowTicket = { id?: string; day: number; topic: string | null; owner: string | null; origin: string; toClose?: number | null; toReply?: number | null; c2s?: boolean; tone?: string | null; company: string | null };
 export function rowsOf(created: RowTicket[], closed: RowTicket[]): BoRows {
   const dict: string[] = [], at = new Map<string, number>();
   const ix = (x: string | null | undefined) => { const k = (x ?? "").trim(); let i = at.get(k); if (i === undefined) { i = dict.push(k) - 1; at.set(k, i); } return i; };
@@ -218,13 +218,15 @@ export function rowsOf(created: RowTicket[], closed: RowTicket[]): BoRows {
     dict,
     created: created.map((t) => [t.day, ix(t.topic), ix(t.owner), ix(t.origin), tenths(t.toClose), tenths(t.toReply), t.c2s ? 1 : 0, ix((t.tone ?? "").toLowerCase()), ix(t.company)]),
     closed: closed.map((t) => [t.day, ix(t.topic), ix(t.owner), ix(t.origin), ix(t.company)]),
+    // each ticket's HubSpot id, beside its row - the lists of tickets behind a graph (SARCLA 03.11.2026)
+    ids: created.map((t) => t.id ?? ""), cids: closed.map((t) => t.id ?? ""),
   };
 }
 
 /** The filters of the pages: values picked per breakdown (owners by their HubSpot id, customers by their company's facts). */
 export type BoFilter = Partial<Record<"topic" | "person" | "origin" | "category" | "country" | "prio", string[]>>;
-/** a company's facts the filters read: customer category, country, priority band */
-export type CoFacts = Record<string, [string, string, string]>;
+/** a company's facts the filters read: customer category, country, priority band - and its name, for the lists */
+export type CoFacts = Record<string, [string, string, string] | [string, string, string, string]>;
 const FACT = { category: 0, country: 1, prio: 2 } as const;
 /** Does a ticket pass the filters - `topic`, `owner`, `origin`, `company` as strings. */
 export function passes(f: BoFilter, co: CoFacts, t: { topic: string; owner: string; origin: string; company: string }): boolean {
@@ -309,7 +311,7 @@ export function kpisOf(m: BoMonth, g: GqsMonth | null, hours: number | null): Bo
   return {
     created: n(m.created), closed: n(m.closed), hours, lines: m.pending ? null : m.lines, orders: m.pending ? null : m.orders,
     resolution: t ? avg(m.closeDays, m.closeN) : null, firstReply: t ? avg(m.replyDays, m.replyN) : null, chat: n(m.chat),
-    gqsCreated: t ? g?.created ?? 0 : null, gqsSent: t && g ? avg(g.sentDays, g.sentN) : null, gqsResolution: t && g ? avg(g.doneDays, g.doneN) : null,
+    gqsCreated: t && g ? g.created : null, gqsSent: t && g ? avg(g.sentDays, g.sentN) : null, gqsResolution: t && g ? avg(g.doneDays, g.doneN) : null,
     perLine: r(m.created, m.lines), perOrder: r(m.created, m.orders), hoursPerTicket: hours != null ? r(hours, m.created) : null,
     eso: n(m.eso), esoPerLine: r(m.eso, m.lines), esoPerOrder: r(m.eso, m.orders),
     tsa: n(m.tsa), tsaPerLine: r(m.tsa, m.lines), tsaPerOrder: r(m.tsa, m.orders),
