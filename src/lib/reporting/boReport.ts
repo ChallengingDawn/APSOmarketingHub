@@ -28,8 +28,9 @@ import {
 } from "./boReportRules";
 
 /** a kept month of another version is counted again (2: the C2S tickets, the tones, the orders by profit centre; 3: the
- *  tickets one by one, the tickets closed, the orders' profit centre from their lines; 4: each ticket's id, for the lists) */
-const VERSION = 4;
+ *  tickets one by one, the tickets closed, the orders' profit centre from their lines; 4: each ticket's id, for the lists;
+ *  5: each ticket's profit centre - its linked order's - and the orders' value by profit centre) */
+const VERSION = 5;
 const HOUR = 3_600_000, WEEK = 7 * 24 * HOUR;
 const LEASE_STALE_MS = 3 * 60_000;
 const PIPE = { bo: "1726786777", eso: "1726599376", tsa: "1726599377", gqs: "1726786775" } as const;
@@ -48,8 +49,9 @@ const KV = { month: (ym: string) => `boReport:month:${ym}`, chat: (ym: string) =
  * 3 meeting), working hours to it x10 (-1 none), calls, e-mails sent, notes, closed 0/1]. Kept per month on its own
  * (boReport:chat:<YYYY-MM>, its own version), so the months are not counted again for it.
  */
-export type ChatRow = [string, string, number, number, number, number, number, number];
-const CHAT_VERSION = 1;
+export type ChatRow = [string, string, number, number, number, number, number, number, number];
+/** 2: the day each chat ticket came in, beside it (the calls count from the chat v3 on) */
+const CHAT_VERSION = 2;
 type KeptChat = { v: number; at: string; rows: ChatRow[] };
 /** the order lines read per order record: enough for every order but the largest, whose profit centre most lines decide */
 const LINES = Array.from({ length: 30 }, (_, i) => String(i + 1).padStart(2, "0"));
@@ -120,16 +122,38 @@ async function readMonth(ym: string, say: (s: string) => void, learnt: Learnt): 
   const all = await ticketCount(between("createdate", ym));
   say(`${ym}: the orders`);
   const orders = await searchAll("orders", [between("order_order_date", ym)],
-    ["order_order_number", "order_order_type", "order_order_status", "order_line_count", "order_item_count", "order_profit_center", ...LINES.flatMap((i) => [`order_line_${i}_article`, `order_line_${i}_pc`])],
+    ["order_order_number", "order_order_type", "order_order_status", "order_line_count", "order_item_count", "order_profit_center", "order_total_net_revenue", ...LINES.flatMap((i) => [`order_line_${i}_article`, `order_line_${i}_pc`])],
     (n) => say(`${ym}: the orders · ${n.toLocaleString("en")}`));
   const recs = orders.map((r) => ({
     number: r.properties?.order_order_number ?? null, type: r.properties?.order_order_type ?? null, status: r.properties?.order_order_status ?? null,
     lines: Number(r.properties?.order_line_count) || Number(r.properties?.order_item_count) || 0, pc: r.properties?.order_profit_center ?? null,
     arts: LINES.map((i) => r.properties?.[`order_line_${i}_article`] ?? null), lpcs: LINES.map((i) => r.properties?.[`order_line_${i}_pc`] ?? null),
+    value: Number(r.properties?.order_total_net_revenue) || 0,
   }));
   Object.assign(learnt.arts, articlePcs(recs));
-  const o = orderTally(recs, pcFinder(learnt.arts));
-  return { ym, ...t, closed: closed.length, eso, tsa, all, orders: o.orders, lines: o.lines, pcs: o.pcs, linePcs: o.linePcs, rows: rowsOf(created, closed), srcs };
+  const find = pcFinder(learnt.arts);
+  const o = orderTally(recs, find);
+  // each ticket's profit centre: its linked order's (SARCLA 04.11.2026: "see per profit centre which types of tickets") -
+  // the month's orders by their record, the others read; none linked: ""
+  say(`${ym}: the tickets' orders`);
+  try {
+    const linked = await associations("tickets", "orders", created.map((c) => c.id!).filter(Boolean));
+    const recPc = new Map<string, string>();
+    orders.forEach((r, i) => { const n = recs[i].number; if (n) recPc.set(String(r.id), o.pcOfNumber.get(n.replace(/\.\d+$/, "")) ?? ""); });
+    const missing = [...new Set([...linked.values()].flat())].filter((id) => !recPc.has(id));
+    for (const r of await batchRead("orders", missing, ["order_profit_center", ...LINES.flatMap((i) => [`order_line_${i}_article`, `order_line_${i}_pc`])])) {
+      const p = r.properties ?? {};
+      const one = orderTally([{ number: String(r.id), type: null, status: null, lines: 1, pc: p.order_profit_center ?? null, arts: LINES.map((i) => p[`order_line_${i}_article`] ?? null), lpcs: LINES.map((i) => p[`order_line_${i}_pc`] ?? null) }], find);
+      recPc.set(String(r.id), [...one.pcOfNumber.values()][0] ?? "");
+    }
+    for (const c of created) {
+      const os = linked.get(c.id ?? "") ?? [];
+      c.pc = os.length ? os.map((id) => recPc.get(id) ?? "").find(Boolean) || "No profit centre" : "";
+    }
+  } catch (e) {
+    console.error(`[bo-report] ${ym}: the tickets' orders could not be read: ${String((e as Error)?.message ?? e)}`);
+  }
+  return { ym, ...t, closed: closed.length, eso, tsa, all, orders: o.orders, lines: o.lines, pcs: o.pcs, linePcs: o.linePcs, valuePcs: o.valuePcs, rows: rowsOf(created, closed), srcs };
 }
 
 /** A month's chat tickets and what the team did on each: the first call, e-mail sent or meeting, and how long it took in
@@ -138,6 +162,7 @@ async function readChat(ym: string, say: (s: string) => void): Promise<ChatRow[]
   const base = [pipe(PIPE.bo), ...between("createdate", ym)];
   const found = await searchAll("tickets", [[...base, { propertyName: REDIRECTED, operator: "HAS_PROPERTY" }], [...base, { propertyName: "source_type", operator: "EQ", value: "CHAT" }]],
     ["createdate", "hubspot_owner_id", "closed_date"], (n) => say(`${ym}: the chat's tickets · ${n.toLocaleString("en")}`));
+  const dayIn = (v: string | null | undefined) => (v ? Number(swissDay(Date.parse(v)).slice(8, 10)) || 1 : 1);
   const tickets = new Map(found.map((t) => [String(t.id), t.properties ?? {}]));
   const ids = [...tickets.keys()];
   if (!ids.length) return [];
@@ -159,7 +184,7 @@ async function readChat(ym: string, say: (s: string) => void): Promise<ChatRow[]
       .filter((x): x is readonly [1 | 2 | 3, number] => x[1] != null && (created == null || x[1] >= created - 60_000)).sort((a, b) => a[1] - b[1]);
     const first = contacts[0];
     rows.push([id, p.hubspot_owner_id ?? "", first ? first[0] : 0, first && created != null ? Math.round(workingHours(created, first[1]) * 10) : -1,
-      (calls.get(id) ?? []).length, sent.length, (notes.get(id) ?? []).length, p.closed_date ? 1 : 0]);
+      (calls.get(id) ?? []).length, sent.length, (notes.get(id) ?? []).length, p.closed_date ? 1 : 0, dayIn(p.createdate)]);
   }
   return rows;
 }

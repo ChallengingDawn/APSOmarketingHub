@@ -39,6 +39,8 @@ export type BoMonth = {
   c2s: number; c2sDelivery: number; tones: Record<string, number>; pcs: Record<string, number>;
   /** the order lines by profit centre (since version 3) */
   linePcs?: Record<string, number>;
+  /** the orders' net value by profit centre - an order once, its largest record's value, CHF and EUR as booked (since version 5) */
+  valuePcs?: Record<string, number>;
   /** the month's tickets one by one - the filters, the people, the speed per topic are drawn from them (since version 3) */
   rows?: BoRows;
   /** how HubSpot says each ticket created was made (hs_object_source) - what "automatic" rests on, kept to check it */
@@ -84,6 +86,8 @@ export type OrderRec = {
   number: string | null; type: string | null; status: string | null; lines: number; pc?: string | null;
   /** its lines' articles and their profit centres, as the record names them (order_line_NN_article / _pc) */
   arts?: (string | null)[]; lpcs?: (string | null)[];
+  /** its net value as booked (order_total_net_revenue) */
+  value?: number;
 };
 /** what a profit centre field holds when it names none */
 const noPc = (x: string | null | undefined) => !x || !x.trim() || /^unknown$/i.test(x.trim());
@@ -93,20 +97,21 @@ const isCredit = (r: OrderRec) => /credit/i.test(r.type ?? "") || /credit/i.test
  * and whichever system wrote it (the ERP and the shop number them alike), credit notes out; its lines = the largest line
  * count among its deliveries. June to September 2026, with the shop's records in: 1.5 to 4 % from the workbook's figures.
  */
-export function orderTally(rows: OrderRec[], pcOfArticle: (article: string) => string | null = () => null): { orders: number; lines: number; pcs: Record<string, number>; linePcs: Record<string, number> } {
-  const most = new Map<string, number>(), pcOf = new Map<string, string>(), widest = new Map<string, OrderRec>();
+export function orderTally(rows: OrderRec[], pcOfArticle: (article: string) => string | null = () => null): { orders: number; lines: number; pcs: Record<string, number>; linePcs: Record<string, number>; valuePcs: Record<string, number>; pcOfNumber: Map<string, string> } {
+  const most = new Map<string, number>(), pcOf = new Map<string, string>(), widest = new Map<string, OrderRec>(), worth = new Map<string, number>();
   const named = (r: OrderRec | undefined) => (r?.arts ?? []).filter(Boolean).length;
   for (const r of rows) {
     if (isCredit(r) || !r.number) continue;
     const base = r.number.replace(/\.\d+$/, "");
     most.set(base, Math.max(most.get(base) ?? 0, r.lines || 0));
+    worth.set(base, Math.max(worth.get(base) ?? 0, r.value || 0));
     // its profit centre: any of its records that names one
     if (!noPc(r.pc) && !pcOf.get(base)) pcOf.set(base, r.pc!.trim());
     if (!widest.has(base) || named(r) > named(widest.get(base))) widest.set(base, r);
   }
   let lines = 0;
   for (const n of most.values()) lines += n;
-  const pcs: Record<string, number> = {}, linePcs: Record<string, number> = {};
+  const pcs: Record<string, number> = {}, linePcs: Record<string, number> = {}, valuePcs: Record<string, number> = {}, pcOfNumber = new Map<string, string>();
   for (const base of most.keys()) {
     // the lines of its widest record: each line's own profit centre, else its article's (SARCLA 03.11.2026 on "No
     // profit centre" for most orders: "this need to be correct" - the shop's own records name none, June to August)
@@ -121,8 +126,10 @@ export function orderTally(rows: OrderRec[], pcOfArticle: (article: string) => s
       k = Object.entries(by).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0][0];
     }
     pcs[k] = (pcs[k] ?? 0) + 1;
+    valuePcs[k] = (valuePcs[k] ?? 0) + (worth.get(base) ?? 0);
+    pcOfNumber.set(base, k);
   }
-  return { orders: most.size, lines, pcs, linePcs };
+  return { orders: most.size, lines, pcs, linePcs, valuePcs, pcOfNumber };
 }
 
 /**
@@ -207,16 +214,17 @@ export function originOf(topic: string | null | undefined, chat: boolean, object
  * closed (by close date): [day, topic, owner, origin, company] - owner and company as HubSpot ids ("" none).
  */
 export type BoRows = { dict: string[]; created: number[][]; closed: number[][]; ids?: string[]; cids?: string[] };
-export const RW = { day: 0, topic: 1, owner: 2, origin: 3, close: 4, reply: 5, c2s: 6, tone: 7, company: 8 } as const;
+export const RW = { day: 0, topic: 1, owner: 2, origin: 3, close: 4, reply: 5, c2s: 6, tone: 7, company: 8, pc: 9 } as const;
 export const RCL = { day: 0, topic: 1, owner: 2, origin: 3, company: 4 } as const;
-export type RowTicket = { id?: string; day: number; topic: string | null; owner: string | null; origin: string; toClose?: number | null; toReply?: number | null; c2s?: boolean; tone?: string | null; company: string | null };
+export type RowTicket = { id?: string; pc?: string | null; day: number; topic: string | null; owner: string | null; origin: string; toClose?: number | null; toReply?: number | null; c2s?: boolean; tone?: string | null; company: string | null };
 export function rowsOf(created: RowTicket[], closed: RowTicket[]): BoRows {
   const dict: string[] = [], at = new Map<string, number>();
   const ix = (x: string | null | undefined) => { const k = (x ?? "").trim(); let i = at.get(k); if (i === undefined) { i = dict.push(k) - 1; at.set(k, i); } return i; };
   const tenths = (ms: number | null | undefined) => (ms != null && ms > 0 ? Math.round((ms / DAY) * 10) : -1);
   return {
     dict,
-    created: created.map((t) => [t.day, ix(t.topic), ix(t.owner), ix(t.origin), tenths(t.toClose), tenths(t.toReply), t.c2s ? 1 : 0, ix((t.tone ?? "").toLowerCase()), ix(t.company)]),
+    // the ticket's profit centre: its linked order's ("" - no order linked)
+    created: created.map((t) => [t.day, ix(t.topic), ix(t.owner), ix(t.origin), tenths(t.toClose), tenths(t.toReply), t.c2s ? 1 : 0, ix((t.tone ?? "").toLowerCase()), ix(t.company), ix(t.pc)]),
     closed: closed.map((t) => [t.day, ix(t.topic), ix(t.owner), ix(t.origin), ix(t.company)]),
     // each ticket's HubSpot id, beside its row - the lists of tickets behind a graph (SARCLA 03.11.2026)
     ids: created.map((t) => t.id ?? ""), cids: closed.map((t) => t.id ?? ""),
@@ -279,6 +287,7 @@ export function sumMonths(ms: BoMonth[]): BoMonth {
     for (const k of ["created", "closed", "closeDays", "closeN", "replyDays", "replyN", "chat", "eso", "tsa", "all", "orders", "lines", "c2s", "c2sDelivery"] as const) out[k] += m[k] ?? 0;
     for (const f of ["topics", "tones", "pcs"] as const) for (const [t, n] of Object.entries(m[f] ?? {})) out[f][t] = (out[f][t] ?? 0) + n;
     for (const [t, n] of Object.entries(m.linePcs ?? {})) { out.linePcs ??= {}; out.linePcs[t] = (out.linePcs[t] ?? 0) + n; }
+    for (const [t, n] of Object.entries(m.valuePcs ?? {})) { out.valuePcs ??= {}; out.valuePcs[t] = (out.valuePcs[t] ?? 0) + n; }
   }
   return out;
 }
