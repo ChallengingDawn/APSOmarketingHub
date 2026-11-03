@@ -173,11 +173,20 @@ export function CoreFields({ canWrite, stage, onStage, stageLocked = false, stag
       </Box>
       <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: { xs: "1fr", sm: beside ? "1.4fr 1fr 1fr 0.6fr" : "1.4fr 1fr 1fr" } }}>
         <AssignedTo value={owners} multiple={multiple} options={people} canWrite={canWrite} onChange={onOwners} />
-        <DayField label="Planned date" value={start} max={due} canWrite={canWrite && !startLocked} onSave={onStart} />
-        <DayField label="Go-live date" value={due} min={start} canWrite={canWrite && !dueLocked} onSave={onDue} />
+        {/* no min / max between the two (SARCLA 03.11.2026: "when creating a sub-action dates are really messed up"): the
+            planned date, handed up as its box is left, gave the go-live box a new min in the very click into it - Chrome
+            rebuilds a date box's parts when its min changes, the click's part was gone, the focus too, and the go-live
+            typed went nowhere; the order is said in red instead */}
+        <DayField label="Planned date" value={start} canWrite={canWrite && !startLocked} onSave={onStart} />
+        <DayField label="Go-live date" value={due} canWrite={canWrite && !dueLocked} onSave={onDue} />
         {beside}
       </Box>
-      {below && <Box sx={{ display: "grid", gap: 0.5, mt: -0.75 }}>{below}</Box>}
+      {(below || (start && due && start > due)) && (
+        <Box sx={{ display: "grid", gap: 0.5, mt: -0.75 }}>
+          {start && due && start > due && <Typography sx={{ fontSize: "0.78rem", color: RED }}>The go-live date comes before the planned date</Typography>}
+          {below}
+        </Box>
+      )}
     </Box>
   );
 }
