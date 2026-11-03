@@ -3,7 +3,7 @@
 // Planner draws one - the workbook's tree as its first tab shows it: the goal on top, the main categories (the
 // bold rows), their sub-categories (the green rows), the actions; opened and closed level by level, a row dragged
 // to another category. Sub-actions are added on an action, or on any KPI tile's Actions and linked to it; only
-// actions Digital Growth leads take a "From Scroll to Sale" ticket.
+// actions Digital Growth leads take a "From Scroll to Sale" ticket, and the sub-actions of the Digital Growth team's own.
 // An application of its own, admins only, the whole width (SARCLA 01.11.2026): the hub's bar on top, the goal's
 // statement first, where APSOparts stands on the climb to 30 M€ by 2031, then the Gantt.
 

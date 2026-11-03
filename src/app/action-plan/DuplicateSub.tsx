@@ -13,7 +13,7 @@ import Button from "@mui/material/Button";
 import Autocomplete from "@mui/material/Autocomplete";
 
 import { FAINT, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { treeOrder, type PlanItem, type PlanSub } from "@/lib/reporting/actionPlanRules";
+import { takesTicket, treeOrder, type PlanItem, type PlanSub } from "@/lib/reporting/actionPlanRules";
 import { send } from "./planUi";
 
 const TAG = { px: 0.6, py: 0.1, borderRadius: "3px", fontSize: "0.66rem", fontWeight: 800, letterSpacing: "0.04em", lineHeight: 1.5, flexShrink: 0 } as const;
@@ -46,7 +46,7 @@ export function DuplicateSub({ sub, parent, items, onClose, onDone }: {
   const [to, setTo] = useState<PlanItem | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const loses = sub.tickets > 0 && !!to && !to.dg;
+  const loses = sub.tickets > 0 && !!to && !takesTicket(to, sub.ownerName);
   const go = async () => {
     if (!to) return;
     setBusy(true); setErr(null);
@@ -72,7 +72,7 @@ export function DuplicateSub({ sub, parent, items, onClose, onDone }: {
           </Box>
         )}
         renderInput={(p) => <TextField {...p} autoFocus label="Action" placeholder="Search the actions" slotProps={{ inputLabel: { shrink: true } }} />} />
-      {loses && <Typography sx={{ fontSize: "0.82rem", color: TINT.amber.fg, lineHeight: 1.45 }}>“{to!.title}” is not led by Digital Growth: the copy goes under it without the ticket.</Typography>}
+      {loses && <Typography sx={{ fontSize: "0.82rem", color: TINT.amber.fg, lineHeight: 1.45 }}>“{to!.title}” is not led by Digital Growth, nor is the sub-action a Digital Growth person's: the copy goes under it without the ticket.</Typography>}
       <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
         <Typography sx={{ flex: 1, fontSize: "0.82rem", color: RED }}>{err ?? ""}</Typography>
         <Button onClick={onClose} sx={{ textTransform: "none", fontWeight: 700, color: MUTED }}>Cancel</Button>

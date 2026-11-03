@@ -135,6 +135,17 @@ export function isDigitalGrowth(who: string | undefined | null): boolean {
   return DG_CODES.some((c) => new RegExp(`(^|[^A-Z])${c}([^A-Z]|$)`).test(up));
 }
 
+/** One of the Digital Growth team, by the codes their name gives (codesOf): Aleksandra Pytlik is PYTALE. */
+export const isDgPerson = (name: string | null | undefined): boolean => [...codesOf(name ?? "")].some((c) => DG_CODES.includes(c));
+
+/**
+ * Where a "From Scroll to Sale" ticket may be: an action Digital Growth leads, and any sub-action of one - and a
+ * sub-action that is one of the Digital Growth team's own, whoever leads its action (SARCLA 03.11.2026: "Launch
+ * APSOparts Wikipedia", Aleksandra's, under "Bring more traffic to the shop" that no one leads in the workbook - "I
+ * should be able to also create a ticket if Digital Growth"). Without a person, as its action.
+ */
+export const takesTicket = (action: Pick<PlanItem, "dg">, person?: string | null): boolean => action.dg || isDgPerson(person);
+
 const ENUM = /^(?:\d{1,2}\s*[-.)]\s+|[a-z]\.\s+|[•·\-–]\s*)/i;
 const lines = (text: string) => text.split("\n").map((l) => l.trim().replace(ENUM, "").trim()).filter(Boolean);
 

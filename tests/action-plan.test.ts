@@ -6,6 +6,7 @@ import {
   IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, foldedDetail, mainStage, namesSalesLeaders, isDigitalGrowth, isLate, dueSoon, subLate, subOrder, placeSub, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
   stateOfStage, stageOfStatus, statusOfStage, sharedTicketSync, subPct, subStage, subTicketSync, subsSpan, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
+  isDgPerson, takesTicket,
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
@@ -526,4 +527,18 @@ test("action plan: an action dated by its sub-actions is late only when an open 
   const r = rollup(items, subsOf([live, waiting]), today);
   assert.equal(r.get(11)!.lateSelf, false);
   assert.equal(r.get(10)!.late, 0);
+});
+
+test("action plan: a Digital Growth person's sub-action takes a Scroll to Sale ticket, whoever leads its action", () => {
+  assert.equal(isDgPerson("Aleksandra Pytlik"), true); // PYTALE
+  assert.equal(isDgPerson("Claudio Saraiva"), true); // SARCLA
+  assert.equal(isDgPerson("Diana Fehr"), true); // FEHDIA
+  assert.equal(isDgPerson("Marc Muster"), false);
+  assert.equal(isDgPerson(""), false);
+  assert.equal(isDgPerson(null), false);
+  // SARCLA 03.11.2026: "Launch APSOparts Wikipedia", Aleksandra's, under an action no one leads
+  assert.equal(takesTicket({ dg: false }, "Aleksandra Pytlik"), true);
+  assert.equal(takesTicket({ dg: false }, "Marc Muster"), false);
+  assert.equal(takesTicket({ dg: false }), false); // the action itself: only when Digital Growth leads it
+  assert.equal(takesTicket({ dg: true }, "Marc Muster"), true);
 });

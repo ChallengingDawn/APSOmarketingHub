@@ -13,7 +13,7 @@ import path from "node:path";
 import { query } from "@/lib/db/client";
 import {
   IDEA, IN_PROGRESS, PLAN_STATES, STAGES, foldedDetail, mainStage, namesSalesLeaders, ownersFromCodes, percentOfStage, placeSub, planFromSeed, priorityLabel, reorder, stageOf,
-  stageOfPercent, stateOfStage, subClosed, subOrder, subsSpan, toS2s,
+  stageOfPercent, stateOfStage, subClosed, subOrder, subsSpan, takesTicket, toS2s,
   type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanState, type SeedRow,
 } from "./actionPlanRules";
 import { addTask, deleteTask, movePlanItem, moveTask, planTasks, shareTickets, sortTasks, taskById, ticketsToAction, type KpiTask } from "./kpiActions";
@@ -414,7 +414,8 @@ export async function updateItem(id: number, p: Partial<PlanFields>, by: string)
 /**
  * A sub-action made an action again (SARCLA 02.11.2026: "I should be able to move a sub-action back into a main action
  * if needed"): an action of its own in the category it is dropped on, with its name, description, status, priority,
- * person, dates and status note, Digital Growth's as its action had it; its tickets go onto it, the sub-action leaves.
+ * person, dates and status note, Digital Growth's when its action was or its person is (takesTicket - its ticket stays
+ * in view); its tickets go onto it, the sub-action leaves.
  * Only a sub-action made on the plan - a KPI tile's task stays the tile's. The new action, or null when it cannot.
  */
 export async function subToAction(taskId: number, parentId: number, by: string): Promise<PlanItem | null> {
@@ -425,7 +426,7 @@ export async function subToAction(taskId: number, parentId: number, by: string):
   const made = await updateItem(a.id, {
     detail: k.note || k.title, ...(k.stage ? { stage: k.stage } : {}), priority: k.priority, start: k.start, due: k.due, statusNote: k.statusNote,
     owners: /^\d+$/.test(k.owner) ? [{ id: k.owner, name: k.ownerName || k.owner }] : [],
-    dg: from?.dg ?? false, country: from?.country ?? [], ...(from?.dg ? { channel: from.channel, agency: from.agency } : {}),
+    dg: takesTicket({ dg: !!from?.dg }, k.ownerName), country: from?.country ?? [], ...(from?.dg ? { channel: from.channel, agency: from.agency } : {}),
   }, by);
   await ticketsToAction(k.id, a.id);
   // they agree as they are: the ticket was the sub-action's, its fields are the action's now
@@ -441,7 +442,8 @@ export async function subToAction(taskId: number, parentId: number, by: string):
  * point I should be able to duplicate and drag and drop"): the same name, description, status, priority, person, dates,
  * status note and people it is shared with - and the same ticket, none made ("it should not create a new ticket but keep
  * the same, associated to a different action"): the copy, the sub-action and the ticket are kept in step as one
- * (sharedTicketSync). Only an action led by Digital Growth takes the ticket; never onto its own action. The copy and how
+ * (sharedTicketSync). The ticket goes along where one may be - an action led by Digital Growth, or anywhere when the
+ * sub-action is a Digital Growth person's (takesTicket); never onto its own action. The copy and how
  * many tickets it shares, or null when it cannot.
  */
 export async function copySub(taskId: number, actionId: number, by: string): Promise<{ task: KpiTask; tickets: number } | null> {
@@ -452,7 +454,7 @@ export async function copySub(taskId: number, actionId: number, by: string): Pro
     tile: `plan:${to.id}`, page: "plan", title: k.title, note: k.note, owner: k.owner, ownerName: k.ownerName, due: k.due, start: k.start,
     stage: k.stage, priority: k.priority, statusNote: k.statusNote, shared: k.shared, href: `/action-plan?item=${to.id}`, by,
   });
-  const tickets = to.dg ? await shareTickets(k.id, copy.id, `plan:${to.id}`, by) : 0;
+  const tickets = takesTicket(to, k.ownerName) ? await shareTickets(k.id, copy.id, `plan:${to.id}`, by) : 0;
   await log(to.id, by, [{ field: "Sub-action", before: "", after: `${k.title} (a copy of the one in “${from?.title ?? "another action"}”${tickets ? ", the same ticket" : ""})` }]);
   if (from) await log(from.id, by, [{ field: "Sub-action", before: "", after: `${k.title} duplicated onto “${to.title}”${tickets ? ", the same ticket" : ""}` }]);
   return { task: copy, tickets };

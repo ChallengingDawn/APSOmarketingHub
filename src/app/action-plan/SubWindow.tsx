@@ -2,7 +2,8 @@
 // A SUB-ACTION'S OWN WINDOW (SARCLA 02.11.2026: "I click on a sub-action and I'm redirected to the main action - this
 // should not happen"). Opened from its row in the Gantt or its line in the action's window: its fields as a small
 // action's - status and status note, priority, who, planned and go-live dates, description, who it is shared with, its
-// tickets when Digital Growth leads the action - saved as they change; the way back to its action at the top. It can be
+// tickets when Digital Growth leads the action or it is a Digital Growth person's (takesTicket) - saved as they change;
+// the way back to its action at the top. It can be
 // made an action again, beside the one it was under (SARCLA 02.11.2026: "move a sub-action back into a main action"),
 // or duplicated onto another action with the same ticket (DuplicateSub.tsx).
 
@@ -18,7 +19,7 @@ import CallMadeIcon from "@mui/icons-material/CallMade";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 
 import { FAINT, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import type { PlanItem, PlanOwner } from "@/lib/reporting/actionPlanRules";
+import { takesTicket, type PlanItem, type PlanOwner } from "@/lib/reporting/actionPlanRules";
 import { useTileActions, type Opt } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
 import { SubEditor, planTile } from "./SubActions";
@@ -82,7 +83,7 @@ Its name, description, status, priority, person, dates, status note and tickets 
           <Typography sx={{ fontSize: "0.9rem", color: FAINT }}>This sub-action is no longer there.</Typography>
         ) : (
           <Box sx={{ p: 2, borderRadius: "12px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
-            <SubEditor k={k} tile={tile} t={t} owners={owners} canWrite={canWrite} tickets={parent.dg} linked={linked}
+            <SubEditor k={k} tile={tile} t={t} owners={owners} canWrite={canWrite} tickets={takesTicket(parent, k.ownerName)} linked={linked}
               saved={async () => { await loadTasks(); onChanged(); }} reload={async () => { await Promise.all([loadTasks(), loadTickets()]); onChanged(); }}
               setErr={setErr} onRemoved={() => { onChanged(); onClose(); }} />
           </Box>

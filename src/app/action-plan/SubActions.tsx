@@ -28,7 +28,7 @@ import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumb
 import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 
 import { FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { IDEA, PRIORITIES, STAGES, priorityLabel, stageOf, subLate, subPct, subStage, type PlanItem } from "@/lib/reporting/actionPlanRules";
+import { IDEA, PRIORITIES, STAGES, priorityLabel, stageOf, subLate, subPct, subStage, takesTicket, type PlanItem } from "@/lib/reporting/actionPlanRules";
 import type { KpiTask } from "@/lib/reporting/kpiActions";
 import type { AiFill } from "@/lib/reporting/scrollToSaleRules";
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
@@ -216,6 +216,9 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, wid
   const first = tickets ? "new" : "none";
   const [ticket, setTicket] = useState<"none" | "new" | "link">(first);
   useEffect(() => { setTicket(tickets ? "new" : "none"); }, [tickets]);
+  // a Digital Growth person's sub-action takes one too, whoever leads the action (SARCLA 03.11.2026) - offered, not first
+  const can = takesTicket({ dg: tickets }, owners.find((o) => o.value === v.owner)?.label);
+  useEffect(() => { if (!can) setTicket("none"); }, [can]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [pick, setPick] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -252,10 +255,10 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, wid
     });
     if (f.note) setNote(f.note);
     if (f.shared.length) setShared((s) => [...new Set([...s, ...f.shared])]);
-    if (f.ticket && tickets) setTicket("new");
+    if (f.ticket && can) setTicket("new");
     if (Object.keys(g).length) setValues((x) => ({ ...x, ...g }));
     const n = [f.title, f.note, f.due, f.owner].filter(Boolean).length + f.shared.length + Object.keys(g).length;
-    return `${n} field${n === 1 ? "" : "s"} filled in${f.ticket && tickets ? ", with a new ticket" : ""} - check each one before adding. Nothing is saved yet.`;
+    return `${n} field${n === 1 ? "" : "s"} filled in${f.ticket && can ? ", with a new ticket" : ""} - check each one before adding. Nothing is saved yet.`;
   };
 
   const add = async () => {
@@ -285,12 +288,12 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, wid
         <AiButton on={aiOpen} toggle={() => setAiOpen((o) => !o)} />
       </Box>
       {aiOpen && (
-        <AiBox placeholder={`What should be done, by whom, by when, how urgent, where it stands${tickets ? " - and whether it needs a Scroll to Sale ticket" : ""}`}
+        <AiBox placeholder={`What should be done, by whom, by when, how urgent, where it stands${can ? " - and whether it needs a Scroll to Sale ticket" : ""}`}
           hint="The AI fills in the sub-action from your words - only choices the form offers, nothing made up. You check it, then add it." fill={fill} />
       )}
       {/* side by side when the window is wide and a ticket is to be filled (SARCLA 01.11.2026: "with Digital Growth the
           window should expand to display everything correctly") */}
-      <Box sx={{ display: "grid", gap: 1.75, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: wide && tickets ? "minmax(0, 1fr) minmax(0, 1.15fr)" : "minmax(0, 1fr)" } }}>
+      <Box sx={{ display: "grid", gap: 1.75, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: wide && (tickets || ticket !== "none") ? "minmax(0, 1fr) minmax(0, 1.15fr)" : "minmax(0, 1fr)" } }}>
         <Box sx={{ display: "grid", gap: 1.9, minWidth: 0 }}>
           <TextField size="small" label="Sub-action" placeholder="What will be done - written as an action" value={v.title} onChange={(e) => set({ title: e.target.value })}
             autoFocus={focus} sx={field} slotProps={{ inputLabel: { shrink: true } }}
@@ -300,8 +303,8 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, wid
           <SmallFields v={v} set={set} owners={owners} canWrite />
           <People owners={owners} value={shared} onChange={setShared} />
         </Box>
-        {/* its Scroll to Sale ticket - only when Digital Growth leads the action */}
-        {tickets && (
+        {/* its Scroll to Sale ticket - only when Digital Growth leads the action or the person is Digital Growth's */}
+        {can && (
           <Box sx={{ display: "grid", gap: 1, p: 1.25, borderRadius: "8px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
             <Box sx={{ display: "flex", gap: 0.6, alignItems: "center", flexWrap: "wrap" }}>
               <ConfirmationNumberOutlinedIcon sx={{ fontSize: 19, color: FAINT }} />

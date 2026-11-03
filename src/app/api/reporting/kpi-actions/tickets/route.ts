@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { actionTickets, forgetTaskSync, linkTickets, planIdOf, taskById, taskTickets, tasksOf, ticketsOf, unlinkTicket } from "@/lib/reporting/kpiActions";
 import { forgetTicketSync, itemById, planItems } from "@/lib/reporting/actionPlan";
 import { flushPlanSync, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
-import { PLAN_PROPS, planOptions, ticketFromAction } from "@/lib/reporting/actionPlanRules";
+import { PLAN_PROPS, planOptions, takesTicket, ticketFromAction } from "@/lib/reporting/actionPlanRules";
 import { createTicket, ownerOf, readTickets, s2sForm, searchTickets, ticketFields, ticketUrl, type TicketState } from "@/lib/reporting/scrollToSale";
 import { PLAN_FIELDS, missingRequired, prefill, type TileContext } from "@/lib/reporting/scrollToSaleRules";
 import { describeIntegrationError } from "@/lib/integrations/status";
@@ -91,10 +91,15 @@ export async function POST(req: NextRequest) {
   const taskId = Number.isInteger(b.taskId) ? (b.taskId as number) : null;
   try {
     // an action of the plan takes a Scroll to Sale ticket only when Digital Growth leads it - the sales
-    // actions have no pipeline (SARCLA 31.10.2026)
+    // actions have no pipeline (SARCLA 31.10.2026) - and a sub-action also when it is a Digital Growth person's
+    // (SARCLA 03.11.2026)
     const planId = planIdOf(b.tile);
-    if (planId != null && (b.action === "create" || b.action === "link") && !(await itemById(planId))?.dg) {
-      return fail("only an action led by Digital Growth takes a Scroll to Sale ticket", 400);
+    if (planId != null && (b.action === "create" || b.action === "link")) {
+      const [item, sub] = await Promise.all([itemById(planId), taskId != null ? taskById(taskId) : null]);
+      if (!item || !takesTicket(item, sub?.ownerName)) {
+        return fail(taskId == null ? "only an action led by Digital Growth takes a Scroll to Sale ticket"
+          : "only a sub-action of an action led by Digital Growth, or a Digital Growth person's, takes a Scroll to Sale ticket", 400);
+      }
     }
     // one ticket per action, on the action itself, and one per sub-action (SARCLA 02.11.2026); a main action - one with
     // sub-actions - takes none: its sub-actions carry theirs ("this type of action should not have a ticket, because
