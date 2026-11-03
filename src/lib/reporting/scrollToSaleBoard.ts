@@ -18,7 +18,7 @@ import { s2sForm, ticketUrl } from "./scrollToSale";
 
 const PROPS = ["subject", "content", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id", "hs_ticket_priority", "createdate", "mkt_roadmap_id",
   "mkt_planned_date", "mkt_golive_date", "mkt_business_goal", "mkt_channel", "mkt_implementation_country", "mkt_agency", "mkt_roadmap_year",
-  "mkt_kpis", "mkt_next_steps", "mkt_status_note", "mkt_plan_action"];
+  "mkt_status_note", "mkt_plan_action"];
 type Raw = { id: string; properties?: Record<string, string | null> };
 
 /** Where a ticket sits in the plan: on an action, or under one as its sub-action. */
@@ -239,7 +239,7 @@ export async function place(picks: { ticketId: string; as: "sub" | "action"; tar
       await updateItem(a.id, {
         detail: (p.content ?? "").trim() || subject, stage, priority, start: dated(p.mkt_planned_date), due: dated(p.mkt_golive_date), dg: true,
         owners: owner ? [owner] : [], channel: listOf(p.mkt_channel), country: listOf(p.mkt_implementation_country), agency: listOf(p.mkt_agency),
-        roadmapYear: p.mkt_roadmap_year ?? "", kpis: p.mkt_kpis ?? "", nextSteps: p.mkt_next_steps ?? "", statusNote: p.mkt_status_note ?? "",
+        roadmapYear: p.mkt_roadmap_year ?? "", statusNote: p.mkt_status_note ?? "",
       }, by);
       await linkTickets(`plan:${a.id}`, [x.ticketId], by, false, null);
       await markTicketSync([a.id]);

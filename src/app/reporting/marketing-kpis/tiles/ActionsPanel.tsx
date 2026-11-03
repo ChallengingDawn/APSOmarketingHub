@@ -49,7 +49,24 @@ const STATUS: { id: TaskStatus; label: string; color: string }[] = [
   { id: "doing", label: "Doing", color: "#a96a12" },
   { id: "done", label: "Done", color: GREEN },
 ];
-const field = { "& .MuiInputBase-root": { fontSize: "0.92rem", borderRadius: "10px", bgcolor: "#fff" }, "& .MuiInputLabel-root": { fontSize: "0.9rem" } };
+/**
+ * A form's text box, the same in every window of the plan and on the tiles (SARCLA 03.11.2026: "design padding still
+ * shit"): a text over several lines starts where a one-line one does - the theme pads both the box and its text area,
+ * which put it twice as far in.
+ */
+export const field = {
+  "& .MuiInputBase-root": { fontSize: "0.9rem", borderRadius: "8px", bgcolor: "#fff" }, "& .MuiInputLabel-root": { fontSize: "0.88rem" },
+  "& .MuiInputBase-multiline": { padding: "10px 13px" }, "& .MuiInputBase-multiline.MuiInputBase-sizeSmall": { padding: "7px 11px" },
+  "& .MuiInputBase-inputMultiline": { padding: 0 },
+  // a people picker's text too, beside its chips
+  "& .MuiInputBase-root.MuiAutocomplete-inputRoot.MuiInputBase-sizeSmall .MuiAutocomplete-input": { paddingLeft: "5px" },
+};
+
+/** A task's note at the head of its ticket's description - the ticket has no next steps any more (SARCLA 03.11.2026). */
+const withNote = (values: Record<string, string>, note: string): Record<string, string> => {
+  const n = note.trim();
+  return n && !String(values.content ?? "").includes(n) ? { ...values, content: [n, values.content].filter(Boolean).join("\n\n") } : values;
+};
 const cta = { textTransform: "none", fontWeight: 700, borderRadius: "10px", fontSize: "0.9rem" } as const;
 const dmy = (d: string) => d.slice(0, 10).split("-").reverse().join(".");
 const section = { fontSize: "0.74rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
@@ -62,7 +79,8 @@ export function People({ owners, value, onChange, label = "Shared with" }: { own
     <Autocomplete multiple size="small" options={owners} value={owners.filter((o) => value.includes(o.value))}
       getOptionLabel={(o) => o.label} isOptionEqualToValue={(a, b) => a.value === b.value}
       onChange={(_, v) => onChange(v.map((o) => o.value))} filterSelectedOptions
-      renderInput={(p) => <TextField {...p} label={label} placeholder={value.length ? "" : "Colleagues to inform - they get a mail, and the ticket in HubSpot"} sx={field} />} />
+      renderInput={(p) => <TextField {...p} label={label} placeholder={value.length ? "" : "Colleagues to inform - they get a mail, and the ticket in HubSpot"} sx={field}
+        InputLabelProps={{ ...p.InputLabelProps, shrink: true }} />} />
   );
 }
 
@@ -323,10 +341,11 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo
   // the prefill goes under what is already typed: the task's own fields (below) are written in before HubSpot answers,
   // so "nothing yet" cannot be told by an empty object - the prefill never reached the form (seen 01.11.2026)
   useEffect(() => { if (t) setValues((v) => ({ ...t.prefill, ...Object.fromEntries(Object.entries(v).filter(([, x]) => String(x ?? "").trim())) })); }, [t]);
-  // the ticket follows the task: the action is its name; its owner, planned date and next steps
+  // the ticket follows the task: the action is its name; its owner and planned date - its note heads the description
+  // when the ticket is made (withNote)
   useEffect(() => {
-    setValues((v) => ({ ...v, subject: title.trim().slice(0, 200), ...(owner ? { hubspot_owner_id: owner } : {}), ...(due ? { mkt_planned_date: due } : {}), ...(note.trim() ? { mkt_next_steps: note.trim() } : {}) }));
-  }, [title, owner, due, note]);
+    setValues((v) => ({ ...v, subject: title.trim().slice(0, 200), ...(owner ? { hubspot_owner_id: owner } : {}), ...(due ? { mkt_planned_date: due } : {}) }));
+  }, [title, owner, due]);
   const owners = t?.form.owners ?? [];
   const missing = useMemo(() => (ticket === "new" && t ? t.form.fields.filter((f) => f.required && f.name !== "subject" && !String(values[f.name] ?? "").trim()).map((f) => f.label) : []), [ticket, t, values]);
   const ready = !!title.trim() && !busy && (ticket !== "new" || !missing.length) && (ticket !== "link" || pick.length > 0);
@@ -358,7 +377,7 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo
         ...(!plan && planItem ? { planItem } : {}),
       });
       const taskId = (j.task as KpiTask).id;
-      if (ticket === "new") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "create", tile: tile.key, taskId, values });
+      if (ticket === "new") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "create", tile: tile.key, taskId, values: withNote(values, note) });
       if (ticket === "link") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "link", tile: tile.key, taskId, ids: pick });
       const mailed = Number(j.mailed ?? 0);
       setSent(`“${title.trim()}” added${ticket === "new" ? ", with its ticket in HubSpot" : ticket === "link" ? ", with its linked tickets" : ""}${mailed ? ` · ${mailed} mail${mailed === 1 ? "" : "s"} sent` : ""}`);
@@ -444,15 +463,16 @@ function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo
 export function TicketFields({ form, values, set }: { form: Form; values: Record<string, string>; set: (k: string, v: string) => void }) {
   const optionsOf = (f: S2sField): Opt[] => f.kind === "stage" ? form.stages : f.kind === "owner" ? form.owners : f.kind === "team" ? form.teams : f.options ?? [];
   return (
-    <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: { xs: "1fr", lg: "1fr 1fr" }, pt: 0.5 }}>
+    // the plan's rhythm: the same room between fields, a heading over its tags as on the left (SARCLA 03.11.2026)
+    <Box sx={{ display: "grid", rowGap: 1.75, columnGap: 1.25, gridTemplateColumns: { xs: "1fr", lg: "1fr 1fr" }, pt: 0.5 }}>
       <Typography sx={{ fontSize: "0.82rem", color: MUTED, gridColumn: "1 / -1" }}>Filled in from the task and the KPI - check and change what is wrong.</Typography>
       {form.fields.filter((f) => f.name !== "subject").map((f) => {
         const label = `${f.label}${f.required ? " *" : ""}`;
         if (f.kind === "multi") {
           const chosen = (values[f.name] ?? "").split(";").filter(Boolean);
           return (
-            <Box key={f.name} sx={{ gridColumn: "1 / -1" }}>
-              <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: FAINT, mb: 0.4 }}>{label}</Typography>
+            <Box key={f.name} sx={{ gridColumn: "1 / -1", display: "grid", gap: 0.75 }}>
+              <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: MUTED }}>{label}</Typography>
               <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap" }}>
                 {optionsOf(f).map((o) => {
                   const on = chosen.includes(o.value);
@@ -470,7 +490,8 @@ export function TicketFields({ form, values, set }: { form: Form; values: Record
         if (f.kind === "select" || f.kind === "stage" || f.kind === "owner" || f.kind === "team") {
           const opts = optionsOf(f);
           return (
-            <TextField key={f.name} select size="small" label={label} value={opts.some((o) => o.value === values[f.name]) ? values[f.name] : ""} onChange={(e) => set(f.name, e.target.value)} sx={field}>
+            <TextField key={f.name} select size="small" label={label} value={opts.some((o) => o.value === values[f.name]) ? values[f.name] : ""} onChange={(e) => set(f.name, e.target.value)} sx={field}
+              slotProps={{ inputLabel: { shrink: true } }}>
               {!f.required && <MenuItem value="" sx={{ fontSize: "0.9rem", color: FAINT }}>-</MenuItem>}
               {opts.map((o) => <MenuItem key={o.value} value={o.value} sx={{ fontSize: "0.9rem" }}>{o.label}</MenuItem>)}
             </TextField>
@@ -480,7 +501,7 @@ export function TicketFields({ form, values, set }: { form: Form; values: Record
           <TextField key={f.name} size="small" label={label} value={values[f.name] ?? ""} onChange={(e) => set(f.name, e.target.value)}
             sx={{ ...field, ...(f.kind === "textarea" ? { gridColumn: "1 / -1" } : {}) }}
             type={f.kind === "date" ? "date" : "text"} multiline={f.kind === "textarea"} minRows={f.kind === "textarea" ? 2 : undefined}
-            InputLabelProps={f.kind === "date" ? { shrink: true } : undefined} />
+            slotProps={{ inputLabel: { shrink: true } }} />
         );
       })}
     </Box>
@@ -571,13 +592,13 @@ function TaskRow({ tile, k, t, tickets, canWrite, reload, setErr, plan, allowTic
     setAdding(adding === mode ? null : mode);
     if (mode === "share") setShared(k.shared.map((p) => p.id));
     if (mode === "plan") setPlanPick(k.planItem);
-    if (t) setValues({ ...t.prefill, subject: k.title.slice(0, 200), ...(k.owner && /^\d+$/.test(k.owner) ? { hubspot_owner_id: k.owner } : {}), ...(k.due ? { mkt_planned_date: k.due } : {}), ...(k.note ? { mkt_next_steps: k.note } : {}) });
+    if (t) setValues({ ...t.prefill, subject: k.title.slice(0, 200), ...(k.owner && /^\d+$/.test(k.owner) ? { hubspot_owner_id: k.owner } : {}), ...(k.due ? { mkt_planned_date: k.due } : {}) });
   };
   const missing = adding === "new" && t ? t.form.fields.filter((f) => f.required && !String(values[f.name] ?? "").trim()).map((f) => f.label) : [];
   const save = async () => {
     setBusy(true);
     try {
-      if (adding === "new") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "create", tile: tile.key, taskId: k.id, values });
+      if (adding === "new") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "create", tile: tile.key, taskId: k.id, values: withNote(values, k.note) });
       if (adding === "link") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "link", tile: tile.key, taskId: k.id, ids: pick });
       if (adding === "share") await send("/api/reporting/kpi-actions/tasks", "PATCH", { id: k.id, shared, kpi: tile.title, summary: tile.summary });
       if (adding === "plan") await send("/api/reporting/kpi-actions/tasks", "PATCH", { id: k.id, planItem: planPick });

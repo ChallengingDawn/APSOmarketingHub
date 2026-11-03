@@ -14,7 +14,7 @@
 //   DELETE ?id=                                  a row and what is under it; its own sub-actions go too
 // Every change to the tree reaches HubSpot's three plan properties a few seconds later (actionPlanHubspot.ts).
 import { NextRequest, NextResponse } from "next/server";
-import { actionToSub, addItem, copySub, datesFromSubs, deleteItems, foldImportedOnce, itemById, lankarToClaudio, mainsFollowSubs, moveSub, orderSub, salesLeadersOnce, subToAction, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
+import { actionToSub, addItem, copySub, datesFromSubs, deleteItems, foldImportedOnce, foldNotes, itemById, lankarToClaudio, mainsFollowSubs, moveSub, orderSub, salesLeadersOnce, subToAction, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
 import { savedHierarchy } from "@/lib/hierarchy/store";
 import { freshFromTickets, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { PRIORITIES, S2S_CHOICES, STAGES, subOrder, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
@@ -27,7 +27,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const TEXT_FIELDS = ["title", "detail", "responsible", "referent", "dueNote", "roadmapYear", "kpis", "nextSteps", "statusNote"] as const;
+const TEXT_FIELDS = ["title", "detail", "responsible", "referent", "dueNote", "roadmapYear", "statusNote"] as const;
 const LIST_FIELDS = ["channel", "country", "agency"] as const;
 /** The ticket's property behind each choice list. */
 const PROP = { channel: "mkt_channel", country: "mkt_implementation_country", agency: "mkt_agency", roadmapYear: "mkt_roadmap_year" } as const;
@@ -71,7 +71,10 @@ export async function GET(req: NextRequest) {
     // what changed on the actions' tickets comes in first; a main action whose sub-actions are under way is too, and its
     // dates are theirs; the workbook's actions put right once
     await freshFromTickets();
-    await foldImportedOnce(new Set((await actionTickets()).map((x) => x.item))).catch((e) => console.error("[action-plan] imported actions not put right:", (e as Error).message));
+    const ticketed = new Set((await actionTickets()).map((x) => x.item));
+    await foldImportedOnce(ticketed).catch((e) => console.error("[action-plan] imported actions not put right:", (e as Error).message));
+    // no KPIs or next steps on any form any more: the ones still on an action go into its description (03.11.2026)
+    await foldNotes(ticketed).catch((e) => console.error("[action-plan] KPIs and next steps not moved:", (e as Error).message));
     await lankarToClaudio().catch((e) => console.error("[action-plan] LANKAR not replaced:", (e as Error).message));
     const before = await planTasks();
     await mainsFollowSubs().catch((e) => console.error("[action-plan] main actions not given their sub-actions' status:", (e as Error).message));

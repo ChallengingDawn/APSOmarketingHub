@@ -6,7 +6,7 @@ import {
   IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, foldedDetail, mainStage, namesSalesLeaders, isDigitalGrowth, isLate, dueSoon, subLate, subOrder, placeSub, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
   stateOfStage, stageOfStatus, statusOfStage, sharedTicketSync, subPct, subStage, subTicketSync, subsSpan, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
-  isDgPerson, takesTicket, subSoon,
+  isDgPerson, takesTicket, subSoon, withNotes,
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
@@ -253,7 +253,7 @@ test("action plan: a sub-action's ticket starts from its action - only what HubS
   const v = ticketFromAction(items[2], items, { mkt_channel: [{ value: "SEA" }, { value: "HubSpot" }], mkt_roadmap_year: [{ value: "2026" }] });
   assert.deepEqual(v, {
     content: 'From the action plan: "Run the spring campaign".', hs_ticket_priority: "HIGH", mkt_channel: "SEA", mkt_implementation_country: "DE",
-    mkt_planned_date: "2026-11-02", mkt_golive_date: "2026-12-15", mkt_kpis: "Clicks", mkt_status_note: "Briefed the agency",
+    mkt_planned_date: "2026-11-02", mkt_golive_date: "2026-12-15", mkt_status_note: "Briefed the agency",
     mkt_plan_category: "2", mkt_plan_action: "4",
   });
 });
@@ -560,4 +560,10 @@ test("action plan: the sub-action that makes its action due within a week is the
   const subs = [{ start: "2027-02-14", due: "2027-01-16", ...open }, { start: "2026-11-09", due: null, ...open }, { start: "2027-01-18", due: null, ...open }];
   assert.equal(dueSoon(action, subs, today), true);
   assert.deepEqual(subs.map((s) => subSoon(s, today)), [false, true, false]);
+});
+
+test("action plan: KPIs and next steps still on an action go into its description, word for word", () => {
+  assert.equal(withNotes({ detail: "Two waves", kpis: "Clicks", nextSteps: "Brief the agency\nBook the slots" }), "Two waves\n\nKPIs: Clicks\n\nNext steps:\nBrief the agency\nBook the slots");
+  assert.equal(withNotes({ detail: "Two waves", kpis: "", nextSteps: "" }), "Two waves");
+  assert.equal(withNotes({ detail: "", kpis: "Expected: More visits", nextSteps: "" }), "Expected result: More visits");
 });

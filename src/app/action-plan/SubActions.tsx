@@ -33,10 +33,9 @@ import type { KpiTask } from "@/lib/reporting/kpiActions";
 import type { AiFill } from "@/lib/reporting/scrollToSaleRules";
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { TileInfo } from "@/app/reporting/marketing-kpis/tiles/TileActions";
-import { AI_INK, AI_LINE, AI_SOFT, FindTickets, People, TicketFields, TicketLine, useTileActions, type Linked, type Opt, type TicketsAnswer } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
+import { AI_INK, AI_LINE, AI_SOFT, FindTickets, People, TicketFields, TicketLine, field, useTileActions, type Linked, type Opt, type TicketsAnswer } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { LATE, PRIORITY_COLOR, dmy, stageColor } from "./planUi";
 
-const field = { "& .MuiInputBase-root": { fontSize: "0.9rem", borderRadius: "8px", bgcolor: "#fff" }, "& .MuiInputLabel-root": { fontSize: "0.88rem" } };
 const cta = { textTransform: "none", fontWeight: 700, borderRadius: "6px", fontSize: "0.86rem" } as const;
 const label = { fontSize: "0.78rem", color: MUTED, fontWeight: 600 } as const;
 const section = { fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
@@ -542,7 +541,7 @@ export function SubActions({ tile, onOpenSub, tick }: {
 
 /** The ticket fields an action gives its ticket itself - kept in step with it, so the ticket's form does not ask them. */
 const ACTION_GIVES = ["subject", "content", "hs_pipeline_stage", "hs_ticket_priority", "hubspot_owner_id", "mkt_planned_date", "mkt_golive_date",
-  "mkt_channel", "mkt_implementation_country", "mkt_agency", "mkt_roadmap_year", "mkt_kpis", "mkt_next_steps", "mkt_status_note",
+  "mkt_channel", "mkt_implementation_country", "mkt_agency", "mkt_roadmap_year", "mkt_status_note",
   "mkt_plan_category", "mkt_plan_subcategory", "mkt_plan_action"];
 
 /**
@@ -568,7 +567,7 @@ export function ActionTicket({ item, tile, canWrite, main, onChanged }: {
     ...(t?.prefill ?? {}), ...extra, subject: item.title.slice(0, 200), content: item.detail || item.title, hs_pipeline_stage: item.stage ?? IDEA,
     hs_ticket_priority: item.priority, hubspot_owner_id: item.owners[0]?.id ?? "", mkt_planned_date: item.start ?? "", mkt_golive_date: item.due ?? "",
     mkt_channel: item.channel.join(";"), mkt_implementation_country: item.country.join(";"), mkt_agency: item.agency.join(";"),
-    mkt_roadmap_year: item.roadmapYear, mkt_kpis: item.kpis, mkt_next_steps: item.nextSteps, mkt_status_note: item.statusNote,
+    mkt_roadmap_year: item.roadmapYear, mkt_status_note: item.statusNote,
   };
   const required = adding === "new" && t ? t.form.fields.filter((f) => f.required && !String(values[f.name] ?? "").trim()) : [];
   const missing = required.map((f) => f.label);

@@ -441,11 +441,18 @@ export function foldedDetail(a: Pick<PlanFields, "title" | "detail" | "kpis" | "
   const first = (ls[0] ?? "").trim(), title = a.title.trim();
   // the name is the first line, or that line ending in ":" with the next ones (titleOf)
   if (first && (first === title || (first.endsWith(":") && title.startsWith(`${first} `)))) ls.shift();
-  const body = ls.join("\n").trim();
+  return withNotes({ ...a, detail: ls.join("\n") });
+}
+
+/**
+ * A description with the action's KPIs and next steps after it, word for word - the workbook's expected result as such
+ * (SARCLA 03.11.2026: "I've already told you to take out KPIs and next steps overall": no form asks them any more).
+ */
+export function withNotes(a: Pick<PlanFields, "detail" | "kpis" | "nextSteps">): string {
   const k = a.kpis.trim();
   const kpis = !k ? "" : /^expected:\s*/i.test(k) ? `Expected result: ${k.replace(/^expected:\s*/i, "")}` : `KPIs: ${k}`;
   const next = a.nextSteps.trim() ? `Next steps:\n${a.nextSteps.trim()}` : "";
-  return [body, kpis, next].filter(Boolean).join("\n\n");
+  return [a.detail.trim(), kpis, next].filter(Boolean).join("\n\n");
 }
 
 /** The workbook names the sales leaders as a group ("Sales leaders", "LEAL + sales leader"): the hierarchy's are meant. */
@@ -694,7 +701,6 @@ export function ticketFromAction(a: PlanItem, items: TreeRow[], options: Record<
     mkt_roadmap_year: a.roadmapYear ? offered("mkt_roadmap_year", [a.roadmapYear]) : "",
     mkt_planned_date: a.start ?? "",
     mkt_golive_date: a.due ?? "",
-    mkt_kpis: a.kpis,
     mkt_status_note: a.statusNote,
     ...(planValuesOf(a.id, items) ?? {}),
   };
@@ -720,8 +726,6 @@ export const TICKET_SYNC: readonly SyncField[] = [
   { prop: "mkt_implementation_country", hub: (a) => a.country.join(";"), kind: "list" },
   { prop: "mkt_agency", hub: (a) => a.agency.join(";"), kind: "list" },
   { prop: "mkt_roadmap_year", hub: (a) => a.roadmapYear },
-  { prop: "mkt_kpis", hub: (a) => a.kpis },
-  { prop: "mkt_next_steps", hub: (a) => a.nextSteps },
   { prop: "mkt_status_note", hub: (a) => a.statusNote },
 ];
 const norm = (kind: SyncKind | undefined, v: string | null | undefined): string => {
@@ -772,8 +776,6 @@ export function ticketSync(a: PlanItem, t: Record<string, string | null | undefi
       case "mkt_implementation_country": pull.country = list; break;
       case "mkt_agency": pull.agency = list; break;
       case "mkt_roadmap_year": pull.roadmapYear = theirs; break;
-      case "mkt_kpis": pull.kpis = theirs; break;
-      case "mkt_next_steps": pull.nextSteps = theirs; break;
       case "mkt_status_note": pull.statusNote = theirs; break;
     }
   }

@@ -13,7 +13,7 @@ import path from "node:path";
 import { query } from "@/lib/db/client";
 import {
   IDEA, IN_PROGRESS, PLAN_STATES, STAGES, foldedDetail, mainStage, namesSalesLeaders, ownersFromCodes, percentOfStage, placeSub, planFromSeed, priorityLabel, reorder, stageOf,
-  stageOfPercent, stateOfStage, subClosed, subOrder, subsSpan, takesTicket, toS2s,
+  stageOfPercent, stateOfStage, subClosed, subOrder, subsSpan, takesTicket, toS2s, withNotes,
   type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanState, type SeedRow,
 } from "./actionPlanRules";
 import { addTask, deleteTask, movePlanItem, moveTask, planTasks, shareTickets, sortTasks, taskById, ticketsToAction, type KpiTask } from "./kpiActions";
@@ -291,6 +291,24 @@ export async function foldImportedOnce(withTicket: Set<number>): Promise<number>
     await query(`UPDATE ${T} SET folded = true WHERE id = $1`, [a.id]);
   }
   if (n) console.log(`[action-plan] imported actions put right: ${n} description(s) with their KPIs and next steps`);
+  return n;
+}
+
+/**
+ * No form asks KPIs or next steps any more (SARCLA 03.11.2026: "I've already told you to take out KPIs and next steps
+ * overall"): an action that still has them - made in the hub before - gets them in its description (withNotes), the two
+ * emptied, in its tracking. One with its own ticket keeps them: they are its ticket's, which stays as it is. How many.
+ */
+export async function foldNotes(withTicket: Set<number>): Promise<number> {
+  await ensure();
+  const r = await query<Row>(`SELECT * FROM ${T} WHERE kind = 'action' AND (btrim(coalesce(kpis, '')) <> '' OR btrim(coalesce(next_steps, '')) <> '') ORDER BY id`);
+  let n = 0;
+  for (const a of r.rows.map(item)) {
+    if (withTicket.has(a.id)) continue;
+    await updateItem(a.id, { detail: withNotes(a), kpis: "", nextSteps: "" }, "KPIs and next steps moved into the description");
+    n++;
+  }
+  if (n) console.log(`[action-plan] KPIs and next steps moved into ${n} description(s)`);
   return n;
 }
 

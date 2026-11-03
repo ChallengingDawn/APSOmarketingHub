@@ -31,7 +31,10 @@ test("a ticket from a Reach tile filtered on Germany: SEO, visibility, DE, the y
   assert.equal(v.hubspot_owner_id, "1694460619");
   assert.equal(v.hubspot_team_id, undefined); // no team on the form (SARCLA 18.10)
   assert.match(v.content, /reach\?country=DE/);
-  assert.equal(v.mkt_kpis, "R05 Organic clicks: 30,216 Jan-Sep, -28% vs last year");
+  // no KPIs on the form (SARCLA 03.11.2026): the KPI and where it stands are in the description
+  assert.equal("mkt_kpis" in v, false);
+  assert.match(v.content, /Organic clicks/);
+  assert.match(v.content, /30,216 Jan-Sep, -28% vs last year/);
 });
 
 test("nothing invented: a country the property lacks gives All, a page with no channel leaves it empty", () => {
@@ -124,4 +127,10 @@ test("Scroll to Sale: a ticket's place learned from where the team placed the ot
   // nothing in common: nothing proposed - the owner or channel alone never place a ticket
   assert.deepEqual(learnPlaces({ subject: "Totally unrelated words", owner: "A", channel: "Newsletter" }, placed), []);
   assert.deepEqual(learnPlaces({ subject: "Blog", owner: "", channel: "" }, []), []);
+});
+
+test("scroll to sale: no KPIs and no next steps on the form or sent (SARCLA 03.11.2026: take them out overall)", () => {
+  assert.equal(S2S_FIELDS.some((f) => f.name === "mkt_kpis" || f.name === "mkt_next_steps"), false);
+  const sent = ticketProperties({ subject: "Run it", mkt_kpis: "Clicks", mkt_next_steps: "Brief the agency" });
+  assert.equal("mkt_kpis" in sent || "mkt_next_steps" in sent, false);
 });

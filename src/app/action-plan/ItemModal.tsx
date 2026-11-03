@@ -40,8 +40,8 @@ import { FAINT, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { BUC_MEMBERS, KILLED, PRIORITIES, STAGES, isClosed, isLate, priorityLabel, stageOf, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
 import { LATE, PRIORITY_COLOR, SUMMARY, dmy, stageColor, todayIso, type PlanData } from "./planUi";
 import { ActionTicket, SubActions, planTile, wholeDay } from "./SubActions";
+import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 
-const field = { "& .MuiInputBase-root": { fontSize: "0.9rem", borderRadius: "8px", bgcolor: "#fff" }, "& .MuiInputLabel-root": { fontSize: "0.88rem" } };
 const section = { fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
 const card = { display: "grid", gap: 1.25, p: 2, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, alignContent: "start" } as const;
 export const KIND_LABEL: Record<PlanKind, string> = { goal: "The goal", topic: "Main category", group: "Sub-category", action: "Action" };
@@ -131,7 +131,8 @@ function Owners({ item, people, peopleError, canWrite, onSave }: {
       <Autocomplete multiple size="small" options={options} value={item.owners} disabled={!canWrite || (!people.length && !item.owners.length)}
         getOptionLabel={(o) => o.name} isOptionEqualToValue={(a, b) => a.id === b.id} filterSelectedOptions
         onChange={(_, v) => onSave(v.map((o) => ({ id: o.id, name: o.name })))}
-        renderInput={(p) => <TextField {...p} label="Assigned to" placeholder={item.owners.length ? "" : "Pick the people who do it"} sx={field} />} />
+        renderInput={(p) => <TextField {...p} label="Assigned to" placeholder={item.owners.length ? "" : "Pick the people who do it"} sx={field}
+          InputLabelProps={{ ...p.InputLabelProps, shrink: true }} />} />
       {item.responsible && !item.owners.length && (
         <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>The workbook says: “{item.responsible}” - pick the people it means</Typography>
       )}
@@ -395,14 +396,6 @@ function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen
 
       {action ? (
         <>
-          {/* not on an action from the workbook: its KPIs went into its description (SARCLA 02.11.2026: "take out KPIs and
-              next steps completely on the old imported ones") */}
-          {!(item.src != null && !item.kpis) && (
-            <Box sx={card}>
-              <Typography sx={section}>How it is measured</Typography>
-              <Field label="KPIs" value={item.kpis} placeholder="How success is measured - what is counted or compared" canWrite={canWrite} multiline rows={3} onSave={(v) => save({ kpis: v })} />
-            </Box>
-          )}
           <Box sx={card}>
             <Typography sx={section}>KPI tiles it is tied to</Typography>
             {!tiles.length && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>None yet - a KPI tile&apos;s Actions can add a sub-action to it.</Typography>}
@@ -622,7 +615,6 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
                     ))}
                   </TextField>
                   <TextField size="small" label="Roadmap ID" value={item.code} disabled helperText="The workbook's number" sx={field} slotProps={{ inputLabel: { shrink: true } }} />
-                  {!(item.src != null && !item.nextSteps) && <Field label="Next steps / milestones" value={item.nextSteps} placeholder="The next steps or milestones - one per line" canWrite={canWrite} multiline rows={2} onSave={(v) => save({ nextSteps: v })} />}
                   <Field label="Status note" value={item.statusNote} placeholder="Where it stands - what is done, what is in the way" canWrite={canWrite} multiline rows={2} onSave={(v) => save({ statusNote: v })} />
                   <Referent value={item.referent} people={people} canWrite={canWrite} onSave={(v) => save({ referent: v })} />
                 </Box>

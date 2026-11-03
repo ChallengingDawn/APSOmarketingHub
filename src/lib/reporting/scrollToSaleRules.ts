@@ -34,8 +34,8 @@ export const S2S_FIELDS: readonly Omit<S2sField, "options">[] = [
   { name: "mkt_planned_date", label: "Planned date", kind: "date" },
   { name: "mkt_golive_date", label: "Go-live date", kind: "date" },
   { name: "mkt_agency", label: "Agency", kind: "multi" },
-  { name: "mkt_kpis", label: "KPIs", kind: "textarea" },
-  { name: "mkt_next_steps", label: "Next steps / milestones", kind: "textarea" },
+  // no KPIs, no next steps (SARCLA 03.11.2026: "I've already told you to take out KPIs and next steps overall") - they
+  // stay in HubSpot, on no form
   { name: "mkt_status_note", label: "Status note", kind: "textarea" },
   // mkt_report_link stays in HubSpot, on no form (SARCLA 02.11.2026: "report link - take out completely")
 ];
@@ -98,12 +98,11 @@ export function prefill(tile: TileContext, ctx: {
   ownerId?: string; year: number; takenRoadmapIds: (string | null | undefined)[];
 }): Record<string, string> {
   const o = ctx.options;
-  const kpi = [tile.kpiId, tile.title].filter(Boolean).join(" ");
   const countries = (tile.filters?.country ?? []).map((c) => c.toUpperCase());
   const country = pick(o.mkt_implementation_country, countries);
   const year = pick(o.mkt_roadmap_year, [String(ctx.year)]);
   const v: Record<string, string> = {
-    // the action names the ticket - it comes from the task; the KPI goes into KPIs and the description
+    // the action names the ticket - it comes from the task; the KPI and where it stands go into the description
     subject: "",
     content: [
       tile.page === "plan"
@@ -120,7 +119,6 @@ export function prefill(tile: TileContext, ctx: {
     mkt_implementation_country: (country.length ? country : pick(o.mkt_implementation_country, ["All"])).join(";"),
     mkt_roadmap_year: year[0] ?? "",
     mkt_roadmap_id: nextRoadmapId(ctx.takenRoadmapIds, ctx.year),
-    mkt_kpis: [kpi, tile.summary].filter(Boolean).join(": "),
   };
   if (ctx.ownerId) v.hubspot_owner_id = ctx.ownerId;
   return v;

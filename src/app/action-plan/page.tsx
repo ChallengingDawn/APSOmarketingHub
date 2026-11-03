@@ -137,7 +137,7 @@ function ActionPlan() {
   const passes = useCallback((i: PlanItem) => {
     if (i.kind !== "action") return false;
     const w = q.trim().toLowerCase();
-    if (w && ![i.title, i.detail, i.responsible, i.code, i.statusNote, i.kpis, i.nextSteps, ...i.channel, ...i.agency, ...i.owners.map((o) => o.name)].some((x) => x.toLowerCase().includes(w))) return false;
+    if (w && ![i.title, i.detail, i.responsible, i.code, i.statusNote, ...i.channel, ...i.agency, ...i.owners.map((o) => o.name)].some((x) => x.toLowerCase().includes(w))) return false;
     if (prios.length && !prios.includes(i.priority)) return false;
     if (stages.length && !stages.includes(i.stage ?? "none")) return false;
     if (dgOnly && !i.dg) return false;
