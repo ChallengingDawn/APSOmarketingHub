@@ -210,7 +210,7 @@ export default function FrontPage() {
           {visibleApps.map((a, i) => {
             const open = !!expanded[a.key];
             // only the sub-apps that are theirs
-            const subs = a.subs.filter((x) => mayOpen(x.href));
+            const subs = (a.cards ?? a.subs).filter((x) => mayOpen(x.href));
             const shown = open ? subs : subs.slice(0, 3);
             return (
               <Box key={a.key} sx={{

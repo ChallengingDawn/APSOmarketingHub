@@ -6,7 +6,6 @@ import { fetchBuyerYears } from "@/lib/integrations/buyers";
 import { customerTypes } from "@/lib/integrations/customerTypes";
 import { customerYear, registrationCohort } from "@/lib/integrations/customerYear";
 import { fetchContactRequests } from "@/lib/integrations/contactRequests";
-import { fetchWebOrders } from "@/lib/integrations/webOrders";
 import { rangeParams, resolveRange } from "@/lib/integrations/dateRange";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 
@@ -165,15 +164,12 @@ export async function GET(req: NextRequest) {
       const data = await cachedReport(`buyers:${year}`, () => fetchBuyerYears({ currentYear: year, signal: controller.signal }));
       return NextResponse.json({ configured: true, ok: true, data });
     }
-    if (req.nextUrl.searchParams.get("report") === "contactRequests" || req.nextUrl.searchParams.get("report") === "webOrders") {
+    if (req.nextUrl.searchParams.get("report") === "contactRequests") {
       const win = windowParams(req.nextUrl.searchParams);
       if (!win) {
         return NextResponse.json({ configured: true, ok: false, error: "This report needs from and to as YYYY-MM-DD, at most a year apart.", status: 400 });
       }
-      const data =
-        req.nextUrl.searchParams.get("report") === "contactRequests"
-          ? await cachedReport(`contactRequests:${win.from}:${win.to}`, () => fetchContactRequests({ ...win, signal: controller.signal }))
-          : await cachedReport(`webOrders:${win.from}:${win.to}`, () => fetchWebOrders({ ...win, signal: controller.signal }));
+      const data = await cachedReport(`contactRequests:${win.from}:${win.to}`, () => fetchContactRequests({ ...win, signal: controller.signal }));
       return NextResponse.json({ configured: true, ok: true, data });
     }
     if (req.nextUrl.searchParams.get("report") === "weekly") {

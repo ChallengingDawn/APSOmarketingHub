@@ -3,7 +3,7 @@
 /**
  * INTELLIGENCE SHELL — independent sub-apps reached from the sidebar, no tab
  * rail: New customers, Buying companies, Contact requests, SMEC targets,
- * Tracking health, Cookie consent and Web order sync. The GA4 site sub-apps
+ * Tracking health and Cookie consent. The GA4 site sub-apps
  * (overview, acquisition, audience) live in the Website area; old /analytics
  * URLs redirect (next.config.ts).
  *
@@ -54,11 +54,6 @@ const HEADERS: Record<string, Header> = {
   "/analytics/consent": {
     title: "Cookie consent",
     subtitle: "How many visitors allow statistics and marketing cookies, which sets how much Google Analytics and Ads can see",
-    controls: "window",
-  },
-  "/analytics/web-orders": {
-    title: "Web order sync",
-    subtitle: "Whether every web shop order reaches HubSpot, checked week by week against GA4 purchases",
     controls: "window",
   },
 };

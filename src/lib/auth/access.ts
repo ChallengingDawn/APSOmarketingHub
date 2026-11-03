@@ -185,7 +185,6 @@ const ROUTES: [string, AppKey][] = [
   ["/live", "website"],
   ["/analytics/tracking", "website"],
   ["/analytics/consent", "website"],
-  ["/analytics/web-orders", "website"],
 
   // Advanced reporting's own pages: the landing and one page per category, for
   // the people granted it and nobody else (SARCLA, 11.10.2026). The reports it

@@ -110,7 +110,7 @@ import { accessAt } from "@/lib/auth/tree";
 import { pickActiveSection } from "@/lib/nav/activeSection";
 import { useViewAs } from "@/app/ViewAs";
 import { Wordmark } from "@/app/Wordmark";
-import { APPS } from "@/app/hubApps";
+import { APPS, WEBSITE_SECTIONS } from "@/app/hubApps";
 
 const DRAWER_WIDTH = 300;
 const RED = "#ed1b2f";
@@ -171,6 +171,25 @@ const SEO_ICON: Record<SeoRouteId, React.ReactNode> = {
   impact: <FactCheckIcon fontSize="small" />,
 };
 
+/** The glyphs the Website pages had in the panel before it was split into sections, kept. */
+const WEBSITE_ICON: Record<string, React.ReactNode> = {
+  "/live": <SensorsIcon fontSize="small" />,
+  "/analytics/tracking": <MonitorHeartIcon fontSize="small" />,
+  "/analytics/consent": <CookieIcon fontSize="small" />,
+  "/website/black-friday": <LocalOfferOutlinedIcon fontSize="small" />,
+  "/website/search-bar": <ManageSearchIcon fontSize="small" />,
+  "/website/ads-buckets": <CampaignOutlinedIcon fontSize="small" />,
+  "/website/directcut": <ContentCutOutlinedIcon fontSize="small" />,
+  "/website/chat": <ForumOutlinedIcon fontSize="small" />,
+  "/website/doc": <VerifiedOutlinedIcon fontSize="small" />,
+  "/website/3d": <ViewInArOutlinedIcon fontSize="small" />,
+  "/website/directup": <UploadFileOutlinedIcon fontSize="small" />,
+  "/website/oring-expert": <TripOriginOutlinedIcon fontSize="small" />,
+  "/website/shaft-seal-expert": <AdjustOutlinedIcon fontSize="small" />,
+  "/website/compatibility-table": <ScienceOutlinedIcon fontSize="small" />,
+  "/website/vulcanised-o-rings": <AllInclusiveOutlinedIcon fontSize="small" />,
+};
+
 const navSections: NavSection[] = [
   {
     // The launch pad and the things that belong to no single app.
@@ -183,33 +202,17 @@ const navSections: NavSection[] = [
       { label: "Action plan", href: "/action-plan", icon: <DashboardIcon fontSize="small" /> },
     ],
   },
-  {
-    title: "Website",
-    icon: <PublicIcon />,
-    color: "#2d6fa8",
-    items: [
-      { label: "Live", href: "/live", icon: <SensorsIcon fontSize="small" />, badge: "Live" },
-      { label: "Tracking health", href: "/analytics/tracking", icon: <MonitorHeartIcon fontSize="small" /> },
-      { label: "Cookie consent", href: "/analytics/consent", icon: <CookieIcon fontSize="small" /> },
-      // A data check (are shop orders reaching HubSpot, against GA4), so it sits
-      // with Tracking health rather than among the use cases.
-      { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
-      // the 2026 promotion's codes per company (SARCLA 03.11.2026)
-      { label: "Black Friday", href: "/website/black-friday", icon: <LocalOfferOutlinedIcon fontSize="small" /> },
-      // services the shop's orders trigger, run by the hub (SARCLA 13.10.2026: DoC moved here from UC)
-      { group: "Microservices", label: "Search bar", href: "/website/search-bar", icon: <ManageSearchIcon fontSize="small" /> },
-      { group: "Microservices", label: "Google Ads buckets", href: "/website/ads-buckets", icon: <CampaignOutlinedIcon fontSize="small" /> },
-      { group: "Microservices", label: "DirectCut", href: "/website/directcut", icon: <ContentCutOutlinedIcon fontSize="small" /> },
-      { group: "Microservices", label: "APSOassistant Chat", href: "/website/chat", icon: <ForumOutlinedIcon fontSize="small" /> },
-      { group: "Microservices", label: "DoC Declarations", href: "/website/doc", icon: <VerifiedOutlinedIcon fontSize="small" /> },
-      { group: "Microservices", label: "3D Files", href: "/website/3d", icon: <ViewInArOutlinedIcon fontSize="small" /> },
-      { group: "Microservices", label: "DirectUP", href: "/website/directup", icon: <UploadFileOutlinedIcon fontSize="small" /> },
-      { group: "Microservices", label: "O-Ring Expert", href: "/website/oring-expert", icon: <TripOriginOutlinedIcon fontSize="small" /> },
-      { group: "Microservices", label: "Shaft-seal expert", href: "/website/shaft-seal-expert", icon: <AdjustOutlinedIcon fontSize="small" /> },
-      { group: "Microservices", label: "Compatibility table", href: "/website/compatibility-table", icon: <ScienceOutlinedIcon fontSize="small" /> },
-      { group: "Microservices", label: "Vulcanised O-rings", href: "/website/vulcanised-o-rings", icon: <AllInclusiveOutlinedIcon fontSize="small" /> },
-    ],
-  },
+  // Website, a section per part (SARCLA 03.11.2026: "website becomes a multiple app application like advanced
+  // reports"), from WEBSITE_SECTIONS in hubApps.ts: inside one, the panel shows only its pages, and the way out leads
+  // back to the Website front page - as Advanced reporting's categories do. A section with nothing yet is its heading.
+  ...WEBSITE_SECTIONS.map((x): NavSection => ({
+    title: x.name,
+    home: `/website/${x.slug}`,
+    back: { href: "/website", label: "Website" },
+    icon: <HubIconGlyph name={x.icon} fontSize={22} />,
+    color: x.fg,
+    items: x.pages.map((pg) => ({ label: pg.name, href: pg.href, icon: WEBSITE_ICON[pg.href] ?? <HubIconGlyph name={pg.icon} fontSize={20} />, ...(pg.href === "/live" ? { badge: "Live" } : {}) })),
+  })),
   {
     title: "Marketing & Content",
     icon: <AutoAwesomeIcon />,

@@ -88,8 +88,9 @@ export default function AppShell({ children, sandbox = false }: { children: Reac
           wash would be the whole lower half of the window at full strength. */}
       <MeshBackground strength="quiet" />
       {/* Advanced reporting's front page is a door like the launch pad: no
-          panel until you are in a category or a report (SARCLA, 11.10.2026). */}
-      {pathname !== "/reporting" && !isCanvas && !isPlan && <Sidebar />}
+          panel until you are in a category or a report (SARCLA, 11.10.2026); Website's the same since it has
+          sections (SARCLA 03.11.2026). */}
+      {pathname !== "/reporting" && pathname !== "/website" && !isCanvas && !isPlan && <Sidebar />}
       <Box
         component="main"
         sx={{

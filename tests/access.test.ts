@@ -112,7 +112,6 @@ test("analytics splits by subject, longest prefix winning", () => {
   // Website questions
   assert.equal(appForPath("/analytics/tracking"), "website");
   assert.equal(appForPath("/analytics/consent"), "website");
-  assert.equal(appForPath("/analytics/web-orders"), "website");
   // Journey questions
   assert.equal(appForPath("/analytics/smec"), "journey");
   assert.equal(appForPath("/analytics/buyers"), "journey");

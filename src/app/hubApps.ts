@@ -40,6 +40,8 @@ export type HubApp = {
   subs: SubApp[];
   /** Reached from its own square under the tiles, not a tile of its own (Connectors - SARCLA, 07.10.2026). */
   square?: boolean;
+  /** What the launch pad's card lists when it is not the subs - Website: its sections, as Advanced reporting's are its categories. */
+  cards?: SubApp[];
 };
 
 const BLUE = { tint: "#e6edfd", fg: "#3461c9" };
@@ -48,6 +50,82 @@ const PINK = { tint: "#fde8f1", fg: "#b63a76" };
 const PURPLE = { tint: "#efe8fd", fg: "#6a46c9" };
 const AMBER = { tint: "#fdf0e3", fg: "#a96a12" };
 const TEAL = { tint: "#e3f5f1", fg: "#13866a" };
+
+export type WebsiteSection = {
+  slug: string;
+  name: string;
+  /** One line: what the section is for. */
+  line: string;
+  icon: IconKey;
+  tint: string;
+  fg: string;
+  pages: Omit<SubApp, "group">[];
+};
+
+/**
+ * WEBSITE, BY SECTION (SARCLA 03.11.2026: "on macro level website becomes a multiple app application like advanced
+ * reports" - Health, Live, Microservices, Cookies & Legals, A/B testing, AI testing & personalization, Security; and
+ * "black friday goes into campaigns"). The front page /website is a tile per section; inside one, the side panel lists
+ * that section's pages alone and leads back to Website. The app's subs below are these pages, each under its section's
+ * heading - what the access tree reads (src/lib/auth/tree.ts), so a page keeps its grant when it changes section.
+ */
+export const WEBSITE_SECTIONS: WebsiteSection[] = [
+  {
+    slug: "health", name: "Health", line: "Is the measurement sound", icon: "health", ...GREEN,
+    // Web order sync is gone (SARCLA 03.11.2026: "not needed anymore - delete completely"): a count beside GA4, it moved nothing
+    pages: [{ name: "Tracking health", note: "Is the measurement sound", href: "/analytics/tracking", icon: "health", ...GREEN }],
+  },
+  {
+    slug: "live", name: "Live", line: "Who is on the site right now", icon: "bolt", ...BLUE,
+    pages: [{ name: "Live", note: "Who is on the site right now", href: "/live", icon: "bolt", ...BLUE }],
+  },
+  {
+    slug: "microservices", name: "Microservices", line: "The shop's tools and services, each on its own gateway", icon: "layers", ...PURPLE,
+    pages: [
+      // the shop's search bar, on its own Railway gateway; its dashboard moved here (SARCLA 16.10.2026), first of
+      // the Microservices (SARCLA 17.10.2026)
+      { name: "Search bar", note: "What customers search and find, the gaps, stock, brands, its views", href: "/website/search-bar", icon: "search", ...BLUE },
+      // the Google Ads buyer buckets + live shop activity, their own service since 17.10.2026 (SARCLA: "a separate microservice")
+      { name: "Google Ads buckets", note: "New, active or reactivated buyers for Google Ads; live shop activity", href: "/website/ads-buckets", icon: "ads", ...AMBER },
+      // cut to size: the widget and its reservation ledger stay on Railway (the shop frames it, and the
+      // middleware is the single reservation authority) - this page reads them (SARCLA 16.10.2026)
+      { name: "DirectCut", note: "Cut to size: open work, the shelf, the machine feed", href: "/website/directcut", icon: "inventory", ...TEAL },
+      // the shop chat: its dashboard moves here from the APSOAssistant dashboard, the chat itself unchanged (SARCLA 18.10.2026:
+      // "start building under Website > Microservices just after DirectCut, without switching off the old one")
+      { name: "APSOassistant Chat", note: "The shop chat and the search bar's AI: conversations, hand-overs to TSA and Back Office, the AI test bench", href: "/website/chat", icon: "chat", ...PURPLE },
+      // services the shop's orders trigger, run by the hub (DoC moved here from UC, SARCLA 13.10.2026)
+      { name: "DoC", note: "Declarations of Conformity, emailed", href: "/website/doc", icon: "verified", ...GREEN },
+      { name: "3D files", note: "The 3D catalogue, its form and the tickets", href: "/website/3d", icon: "layers", ...BLUE },
+      // the order tool the shop frames, on its own Railway gateway (SARCLA 13.10.2026)
+      { name: "DirectUP", note: "Order files into the cart: usage, lists, log, installation", href: "/website/directup", icon: "upload", ...PINK },
+      // the shop tools, each on its own gateway since 14.10.2026 (SARCLA: "one page per tool")
+      { name: "O-Ring Expert", note: "O-rings by groove or size, in 3D: use and installation", href: "/website/oring-expert", icon: "ring", ...PURPLE },
+      { name: "Shaft-seal expert", note: "Radial shaft seals by shaft, bore and width", href: "/website/shaft-seal-expert", icon: "shaft", ...AMBER },
+      { name: "Compatibility table", note: "Which material resists which chemical", href: "/website/compatibility-table", icon: "science", ...TEAL },
+      { name: "Vulcanised O-rings", note: "Any O-ring size from stocked cord", href: "/website/vulcanised-o-rings", icon: "loop", ...BLUE },
+    ],
+  },
+  {
+    slug: "cookies-legals", name: "Cookies & Legals", line: "What consent allows us to see", icon: "cookie", ...TEAL,
+    pages: [{ name: "Cookie consent", note: "What consent allows us to see", href: "/analytics/consent", icon: "cookie", ...TEAL }],
+  },
+  {
+    slug: "ab-testing", name: "A/B testing", line: "What we test on the site, and what it shows", icon: "science", ...PINK,
+    // the first one: the shop chat's e-mail before the chat, as APSOassistant Chat > A/B test has it (SARCLA 03.11.2026:
+    // "contains a copy of the first A/B test on the chat, and then more")
+    pages: [{ name: "Chat: e-mail first", note: "E-mail before the chat or during it: do we lose chats, do we gain e-mails", href: "/website/ab-testing", icon: "chat", ...PINK }],
+  },
+  { slug: "ai-personalization", name: "AI testing & personalization", line: "Testing the AI and personalising the site", icon: "brain", ...PURPLE, pages: [] },
+  { slug: "security", name: "Security", line: "The site's security", icon: "verified", ...BLUE, pages: [] },
+  {
+    slug: "campaigns", name: "Campaigns", line: "Promotions on the shop", icon: "tag", ...AMBER,
+    // the 2026 promotion: each company's own single-use code and rate, handed out by the Ads Gateway after login
+    // (SARCLA 03.11.2026: "deploy on website subapp")
+    pages: [{ name: "Black Friday", note: "Each company's own code and rate, 16.11-06.12.2026: who got one, who used it", href: "/website/black-friday", icon: "tag", ...AMBER }],
+  },
+];
+
+export const websiteSectionBySlug = (slug: string) => WEBSITE_SECTIONS.find((s) => s.slug === slug) ?? null;
 
 export const APPS: HubApp[] = [
   {
@@ -66,40 +144,12 @@ export const APPS: HubApp[] = [
   },
   {
     key: "website",
-    href: "/live",
+    href: "/website",
     name: "Website",
-    line: "Who is on the site now, and whether we measure it right. Its reports are in Advanced reporting.",
+    line: "The site: who is on it, whether we measure it right, its tools, tests and campaigns. Its reports are in Advanced reporting.",
     from: "#2ec29a", to: "#13866a", wash: "rgba(46,194,154,.10)", icon: "globe",
-    subs: [
-      { name: "Live", note: "Who is on the site right now", href: "/live", icon: "bolt", ...BLUE },
-      { name: "Tracking health", note: "Is the measurement sound", href: "/analytics/tracking", icon: "health", ...GREEN },
-      { name: "Cookie consent", note: "What consent allows us to see", href: "/analytics/consent", icon: "cookie", ...TEAL },
-      { name: "Web order sync", note: "Shop orders into HubSpot", href: "/analytics/web-orders", icon: "sync", ...PINK },
-      // the 2026 promotion: each company's own single-use code and rate, handed out by the Ads Gateway after login
-      // (SARCLA 03.11.2026: "deploy on website subapp")
-      { name: "Black Friday", note: "Each company's own code and rate, 16.11-06.12.2026: who got one, who used it", href: "/website/black-friday", icon: "tag", ...AMBER },
-      // the shop's search bar, on its own Railway gateway; its dashboard moved here (SARCLA 16.10.2026), first of
-      // the Microservices (SARCLA 17.10.2026)
-      { group: "Microservices", name: "Search bar", note: "What customers search and find, the gaps, stock, brands, its views", href: "/website/search-bar", icon: "search", ...BLUE },
-      // the Google Ads buyer buckets + live shop activity, their own service since 17.10.2026 (SARCLA: "a separate microservice")
-      { group: "Microservices", name: "Google Ads buckets", note: "New, active or reactivated buyers for Google Ads; live shop activity", href: "/website/ads-buckets", icon: "ads", ...AMBER },
-      // cut to size: the widget and its reservation ledger stay on Railway (the shop frames it, and the
-      // middleware is the single reservation authority) - this page reads them (SARCLA 16.10.2026)
-      { group: "Microservices", name: "DirectCut", note: "Cut to size: open work, the shelf, the machine feed", href: "/website/directcut", icon: "inventory", ...TEAL },
-      // the shop chat: its dashboard moves here from the APSOAssistant dashboard, the chat itself unchanged (SARCLA 18.10.2026:
-      // "start building under Website > Microservices just after DirectCut, without switching off the old one")
-      { group: "Microservices", name: "APSOassistant Chat", note: "The shop chat and the search bar's AI: conversations, hand-overs to TSA and Back Office, the AI test bench", href: "/website/chat", icon: "chat", ...PURPLE },
-      // services the shop's orders trigger, run by the hub (DoC moved here from UC, SARCLA 13.10.2026)
-      { group: "Microservices", name: "DoC", note: "Declarations of Conformity, emailed", href: "/website/doc", icon: "verified", ...GREEN },
-      { group: "Microservices", name: "3D files", note: "The 3D catalogue, its form and the tickets", href: "/website/3d", icon: "layers", ...BLUE },
-      // the order tool the shop frames, on its own Railway gateway (SARCLA 13.10.2026)
-      { group: "Microservices", name: "DirectUP", note: "Order files into the cart: usage, lists, log, installation", href: "/website/directup", icon: "upload", ...PINK },
-      // the shop tools, each on its own gateway since 14.10.2026 (SARCLA: "one page per tool")
-      { group: "Microservices", name: "O-Ring Expert", note: "O-rings by groove or size, in 3D: use and installation", href: "/website/oring-expert", icon: "ring", ...PURPLE },
-      { group: "Microservices", name: "Shaft-seal expert", note: "Radial shaft seals by shaft, bore and width", href: "/website/shaft-seal-expert", icon: "shaft", ...AMBER },
-      { group: "Microservices", name: "Compatibility table", note: "Which material resists which chemical", href: "/website/compatibility-table", icon: "science", ...TEAL },
-      { group: "Microservices", name: "Vulcanised O-rings", note: "Any O-ring size from stocked cord", href: "/website/vulcanised-o-rings", icon: "loop", ...BLUE },
-    ],
+    subs: WEBSITE_SECTIONS.flatMap((x) => x.pages.map((p) => ({ ...p, group: x.name }))),
+    cards: WEBSITE_SECTIONS.map((x) => ({ name: x.name, note: x.line, href: `/website/${x.slug}`, icon: x.icon, tint: x.tint, fg: x.fg })),
   },
   {
     key: "marketing",

@@ -115,8 +115,10 @@ test("the most specific address wins: a deeper sub-app before its sibling's pref
   assert.equal(nodeFor("marketing", "/seo/something")?.name, "SEO");
   assert.equal(nodeFor("connectors", "/connectors/magento/orders")?.name, "Shop order list");
   assert.equal(nodeFor("reporting", "/reporting/eso-benchmark/revenue")?.name, "ESO Reports");
-  // the app's own front page is the app
-  assert.equal(nodeFor("website", "/live")?.key, "website");
+  // the app's own front page is the app; Live is a page of its section (SARCLA 03.11.2026)
+  assert.equal(nodeFor("website", "/website")?.key, "website");
+  assert.equal(nodeFor("website", "/live")?.key, "website:/live");
+  assert.equal(nodeFor("website", "/live")?.parent, "website#Live");
 });
 
 test("a tile's or a view's page key leads to its report", () => {
