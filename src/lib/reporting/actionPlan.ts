@@ -336,6 +336,9 @@ export async function datesFromSubs(subs: { planItem: number | null; start: stri
   return out;
 }
 
+/** A row's tracking, written from outside - the KPIs it is measured by (planKpis.ts). */
+export const logChange = (itemId: number, by: string, lines: { field: string; before: string; after: string }[]) => log(itemId, by, lines);
+
 export async function itemById(id: number): Promise<PlanItem | null> {
   await ensure();
   const r = await query<Row>(`SELECT * FROM ${T} WHERE id = $1`, [id]);

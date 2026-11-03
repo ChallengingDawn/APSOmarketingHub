@@ -10,6 +10,9 @@ import {
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
+import { kpiLibrary, numberOf, progressOf } from "../src/lib/reporting/planKpiRules";
+import { REPORT_CATEGORIES } from "../src/lib/reporting/categories";
+import { KPIS } from "../src/lib/marketingKpis/catalogue";
 
 // SARCLA 31.10.2026: the "APSOparts Business Improvement Action Plan" workbook's first tab as a Gantt in the hub,
 // by topic, sub-actions from the KPI tiles, Scroll to Sale tickets only for Digital Growth's actions; the home
@@ -566,4 +569,38 @@ test("action plan: KPIs and next steps still on an action go into its descriptio
   assert.equal(withNotes({ detail: "Two waves", kpis: "Clicks", nextSteps: "Brief the agency\nBook the slots" }), "Two waves\n\nKPIs: Clicks\n\nNext steps:\nBrief the agency\nBook the slots");
   assert.equal(withNotes({ detail: "Two waves", kpis: "", nextSteps: "" }), "Two waves");
   assert.equal(withNotes({ detail: "", kpis: "Expected: More visits", nextSteps: "" }), "Expected result: More visits");
+});
+
+test("action plan: the KPI library is Advanced reporting's reports and the catalogue's KPIs, one entry each, read from them", () => {
+  const lib = kpiLibrary();
+  assert.equal(new Set(lib.map((x) => x.key)).size, lib.length);
+  // every report and page of Advanced reporting's menu: one added or removed there is one here
+  for (const c of REPORT_CATEGORIES) for (const r of c.reports) {
+    assert.ok(lib.some((x) => x.key === `report:${r.href}` && x.path === c.name), r.name);
+    for (const ch of r.children ?? []) assert.ok(lib.some((x) => x.key === `report:${ch.href}`), ch.name);
+  }
+  const r05 = lib.find((x) => x.key === "kpi:R05");
+  assert.equal(r05?.kind, "kpi");
+  assert.equal(r05?.kpiId, "R05");
+  assert.equal(r05?.href, "/reporting/marketing-kpis/reach");
+  // every KPI of the catalogue
+  assert.equal(lib.filter((x) => x.kind === "kpi").length, KPIS.length);
+});
+
+test("action plan: a KPI's way to its target - higher or lower is better, typed figures read as people type them", () => {
+  assert.deepEqual(progressOf(800, 1000), { share: 0.8, state: "close" });
+  assert.deepEqual(progressOf(1200, 1000), { share: 1.2, state: "reached" });
+  assert.equal(progressOf(300, 1000).state, "behind");
+  // lower is better: a cost of 50 against 40 to reach
+  assert.deepEqual(progressOf(50, 40, false), { share: 0.8, state: "close" });
+  assert.equal(progressOf(30, 40, false).state, "reached");
+  assert.deepEqual(progressOf(null, 1000), { share: null, state: "none" });
+  assert.deepEqual(progressOf(500, null), { share: null, state: "none" });
+  assert.equal(numberOf("1'250"), 1250);
+  assert.equal(numberOf("1,250"), 1250);
+  assert.equal(numberOf("12,5 %"), 12.5);
+  assert.equal(numberOf("1,250.75"), 1250.75);
+  assert.equal(numberOf("CHF 4000"), 4000);
+  assert.equal(numberOf(""), null);
+  assert.equal(numberOf("abc"), null);
 });

@@ -40,6 +40,7 @@ import { BUC_MEMBERS, KILLED, PRIORITIES, STAGES, isClosed, isLate, priorityLabe
 import { LATE, PRIORITY_COLOR, SUMMARY, dmy, stageColor, todayIso, type PlanData } from "./planUi";
 import { ActionTicket, CoreFields, SubActions, label, planTile, square } from "./SubActions";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
+import { PlanKpis } from "./PlanKpis";
 
 const section = { fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
 const card = { display: "grid", rowGap: 1.75, columnGap: 1.25, p: 2, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, alignContent: "start" } as const;
@@ -348,6 +349,9 @@ function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen
         </Box>
         {(from || to) && <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>{action ? "Planned " : ""}{dmy(from) || "…"} – {action ? "go-live " : ""}{dmy(to) || "…"}</Typography>}
       </Box>
+
+      {/* what it is measured by - from Advanced reporting, each with its target (SARCLA 03.11.2026) */}
+      <Box sx={{ gridColumn: "1 / -1", minWidth: 0 }}><PlanKpis item={item} items={items} canWrite={canWrite} onOpen={onOpen} /></Box>
 
       {action ? (
         <>
