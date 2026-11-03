@@ -23,7 +23,7 @@ import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined
 
 import { HomeBar } from "@/app/HomeBar";
 import { FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { KILLED, LIVE, PRIORITIES, S2S_CHOICES, STAGES, isClosed, isLate, placeSub, reorder, rollup, subClosed, subOrder, subStage, type PlanFields, type PlanItem } from "@/lib/reporting/actionPlanRules";
+import { KILLED, LIVE, PRIORITIES, S2S_CHOICES, STAGES, dueSoon, isClosed, isLate, placeSub, reorder, rollup, subClosed, subOrder, subStage, type PlanFields, type PlanItem } from "@/lib/reporting/actionPlanRules";
 import { Gantt, type GRow, type Where, type Zoom } from "./Gantt";
 import { ItemModal } from "./ItemModal";
 import { AddDialog } from "./AddDialog";
@@ -96,14 +96,21 @@ function ActionPlan() {
   const [stages, setStages] = useState<string[]>([]);
   const [dgOnly, setDgOnly] = useState(false);
   const [lateOnly, setLateOnly] = useState(false);
+  // due within a week (SARCLA 03.11.2026: "we have the filter late but we should have also 1 week to deadline")
+  const [soonOnly, setSoonOnly] = useState(false);
   const [owner, setOwner] = useState("");
   // the live ones out of sight (SARCLA 02.11.2026: "another filter: hide live, to hide the live actions"), kept per browser
   const [hideLive, setHideLive] = useState(() => readPref<boolean>("hideLive.v1", false));
   const liveOff = (v: boolean) => { setHideLive(v); writePref("hideLive.v1", v); };
-  const filtering = !!q.trim() || prios.length > 0 || stages.length > 0 || dgOnly || lateOnly || !!owner || hideLive;
+  const filtering = !!q.trim() || prios.length > 0 || stages.length > 0 || dgOnly || lateOnly || soonOnly || !!owner || hideLive;
 
   const items = useMemo(() => data?.items ?? [], [data]);
   const subs = useMemo(() => data?.subs ?? [], [data]);
+  const subsByItem = useMemo(() => {
+    const m = new Map<number, typeof subs>();
+    for (const s of subs) (m.get(s.item) ?? m.set(s.item, []).get(s.item)!).push(s);
+    return m;
+  }, [subs]);
   const rolled = useMemo(() => rollup(items, subs, today), [items, subs, today]);
   // each main category's colour, carried by everything under it; the goal has none
   const colors = useMemo(() => {
@@ -135,10 +142,11 @@ function ActionPlan() {
     if (stages.length && !stages.includes(i.stage ?? "none")) return false;
     if (dgOnly && !i.dg) return false;
     if (lateOnly && !isLate(i, today)) return false;
+    if (soonOnly && !dueSoon(i, subsByItem.get(i.id) ?? [], today)) return false;
     if (hideLive && i.stage === LIVE) return false;
     if (owner === NOBODY ? i.owners.length > 0 : !!owner && !i.owners.some((o) => o.id === owner)) return false;
     return true;
-  }, [q, prios, stages, dgOnly, lateOnly, owner, today, hideLive]);
+  }, [q, prios, stages, dgOnly, lateOnly, soonOnly, subsByItem, owner, today, hideLive]);
 
   // the rows, top to bottom
   const rows = useMemo<GRow[]>(() => {
@@ -183,6 +191,7 @@ function ActionPlan() {
     done: actions.filter((i) => isClosed(i.stage) && i.stage !== KILLED).length,
     doing: actions.filter((i) => !!i.stage && !isClosed(i.stage) && i.stage !== STAGES[0].id).length,
     late: actions.filter((i) => isLate(i, today)).length,
+    soon: actions.filter((i) => dueSoon(i, subsByItem.get(i.id) ?? [], today)).length,
     undated: actions.filter((i) => !i.due && !isClosed(i.stage)).length,
   };
 
@@ -405,6 +414,8 @@ It leaves the plan as an action; its name, description, status, priority, first 
           {counts.all} actions
           <Box component="span" sx={{ color: MUTED, fontWeight: 500 }}> · {counts.done} done · {counts.doing} in progress · </Box>
           <Box component="span" sx={{ color: counts.late ? LATE : MUTED, fontWeight: counts.late ? 700 : 500 }}>{counts.late} late</Box>
+          <Box component="span" sx={{ color: MUTED, fontWeight: 500 }}> · </Box>
+          <Box component="span" sx={{ color: counts.soon ? TINT.amber.fg : MUTED, fontWeight: counts.soon ? 700 : 500 }}>{counts.soon} due within a week</Box>
           <Box component="span" sx={{ color: MUTED, fontWeight: 500 }}> · {counts.undated} without a due date</Box>
         </Typography>
         <Box sx={{ flex: 1 }} />
@@ -442,6 +453,8 @@ It leaves the plan as an action; its name, description, status, priority, first 
         ))}
         <Box sx={{ width: 8 }} />
         <Box component="button" type="button" aria-pressed={lateOnly} onClick={() => setLateOnly((v) => !v)} sx={chip(lateOnly, LATE, "#fde7e7")}>Late</Box>
+        <Box component="button" type="button" aria-pressed={soonOnly} onClick={() => setSoonOnly((v) => !v)} title="Planned for today or the next 7 days and not live yet - the action or one of its sub-actions"
+          sx={chip(soonOnly, TINT.amber.fg, TINT.amber.bg)}>Due within a week</Box>
         <Box component="button" type="button" aria-pressed={dgOnly} onClick={() => setDgOnly((v) => !v)} sx={chip(dgOnly)}>Digital Growth</Box>
         <Box component="button" type="button" aria-pressed={hideLive} onClick={() => liveOff(!hideLive)} sx={chip(hideLive, stageColor(LIVE).ink, stageColor(LIVE).soft)}>Hide live</Box>
         {hiddenN > 0 && (
@@ -451,7 +464,7 @@ It leaves the plan as an action; its name, description, status, priority, first 
           </Box>
         )}
         {showHidden && hiddenN > 0 && <Button size="small" onClick={() => { setHidden(new Set()); writePref("hidden.v1", []); setShowHidden(false); }} sx={{ textTransform: "none", fontWeight: 650 }}>Show them all again</Button>}
-        {filtering && <Button size="small" onClick={() => { setQ(""); setPrios([]); setStages([]); setDgOnly(false); setLateOnly(false); setOwner(""); liveOff(false); }} sx={{ textTransform: "none", fontWeight: 650 }}>Clear</Button>}
+        {filtering && <Button size="small" onClick={() => { setQ(""); setPrios([]); setStages([]); setDgOnly(false); setLateOnly(false); setSoonOnly(false); setOwner(""); liveOff(false); }} sx={{ textTransform: "none", fontWeight: 650 }}>Clear</Button>}
       </Box>
 
       {note && <Typography sx={{ fontSize: "0.88rem", color: RED }}>{note}</Typography>}
@@ -469,7 +482,7 @@ It leaves the plan as an action; its name, description, status, priority, first 
           onDuplicate={(s, parent) => setDupFor({ sub: s, parent })} hidden={hidden} onHide={hide} />
       )}
       <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
-        Drag a row by its handle onto another main category or sub-category - an action dropped on another action becomes its sub-action, on its top edge it goes before it; a sub-action dropped on another action moves there (Ctrl held: a copy goes there), on a category it becomes an action again, and the copy icon on its row duplicates it onto another action - the same ticket, not a new one; the + beside a row adds what goes under it - a sub-action under an action, an action in a category - and the eye hides a row (Hidden rows shows them again); drag a bar to move its dates, its right end to change the go-live date.
+        Drag a row by its handle onto another main category or sub-category - an action dropped on another action becomes its sub-action, on its top edge it goes before it; a sub-action dropped above or below another takes that place (the closed ones stay at the end), dropped on another action it moves there (Ctrl held: a copy goes there), on a category it becomes an action again, and the copy icon on its row duplicates it onto another action - the same ticket, not a new one; the + beside a row adds what goes under it - a sub-action under an action, an action in a category - and the eye hides a row (Hidden rows shows them again); drag a bar to move its dates, its right end to change the go-live date.
         A bar runs from the planned date to the go-live date, a diamond is an action with only a go-live date, a square a sub-action. The statuses and priorities are the &ldquo;From Scroll to Sale&rdquo; pipeline&apos;s.
       </Typography>
 

@@ -451,6 +451,21 @@ export function isLate(i: Pick<PlanItem, "start" | "percent" | "stage">, today: 
 export const subLate = (s: Pick<PlanSub, "start" | "stage" | "status">, today: string): boolean =>
   !!s.start && s.start < today && s.status !== "done" && !subStage(s)?.closed;
 
+/** The day n days after an ISO day. */
+const plusDays = (iso: string, n: number): string =>
+  new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)) + n)).toISOString().slice(0, 10);
+
+/**
+ * Due within a week (SARCLA 03.11.2026: "we have the filter late but we should have also 1 week to deadline"): a planned
+ * date today or in the next seven days, not yet live, maintained, killed or done - the action's own, or one of its
+ * sub-actions'. Past that date it is late (isLate), never both.
+ */
+export function dueSoon(i: Pick<PlanItem, "start" | "percent" | "stage">, subs: Pick<PlanSub, "start" | "stage" | "status">[], today: string, days = 7): boolean {
+  const end = plusDays(today, days);
+  const soon = (d: string | null) => !!d && d >= today && d <= end;
+  return (soon(i.start) && !isClosed(i.stage) && (i.percent ?? 0) < 100) || subs.some((s) => soon(s.start) && s.status !== "done" && !subStage(s)?.closed);
+}
+
 /** A sub-action closed: done, or live, maintained or killed. */
 export const subClosed = (s: Pick<PlanSub, "stage" | "status">): boolean => s.status === "done" || !!subStage(s)?.closed;
 

@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, foldedDetail, mainStage, namesSalesLeaders, isDigitalGrowth, isLate, subLate, subOrder, placeSub, ownersFromCodes, parseDue, percentOf, percentOfStage,
+  IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, foldedDetail, mainStage, namesSalesLeaders, isDigitalGrowth, isLate, dueSoon, subLate, subOrder, placeSub, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
   stateOfStage, stageOfStatus, statusOfStage, sharedTicketSync, subPct, subStage, subTicketSync, subsSpan, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
   type PlanItem, type PlanSub, type SeedRow,
@@ -484,4 +484,22 @@ test("action plan: sub-actions in their order - the open ones first, as dragged,
   assert.deepEqual(placeSub([4, 2], 9, 2, "before"), [4, 9, 2]);
   assert.equal(placeSub([4, 2], 4, 4, "before"), null);
   assert.equal(placeSub([4, 2], 4, 8, "before"), null);
+});
+
+test("action plan: due within a week - a planned date today to seven days on, not yet live; the action's or a sub-action's", () => {
+  const today = "2026-11-03";
+  const a = (start: string | null, stage: string | null = IN_PROGRESS) => it(1, null, "action", { start, stage, percent: null });
+  const s = (start: string | null, x: Partial<PlanSub> = {}) => ({ start, stage: IN_PROGRESS, status: "doing" as const, ...x });
+  assert.equal(dueSoon(a("2026-11-03"), [], today), true); // today: due, not late
+  assert.equal(dueSoon(a("2026-11-10"), [], today), true); // seven days on
+  assert.equal(dueSoon(a("2026-11-11"), [], today), false);
+  assert.equal(dueSoon(a("2026-11-02"), [], today), false); // past: late instead
+  assert.equal(isLate(a("2026-11-02"), today), true);
+  assert.equal(dueSoon(a("2026-11-05", LIVE), [], today), false); // live: nothing due
+  assert.equal(dueSoon(a(null), [], today), false);
+  // an action already late, one of its sub-actions planned in five days: due within a week too
+  assert.equal(dueSoon(a("2026-10-01"), [s("2026-10-01"), s("2026-11-08")], today), true);
+  assert.equal(dueSoon(a("2026-10-01"), [s("2026-11-08", { stage: LIVE, status: "done" })], today), false);
+  // across a month's end
+  assert.equal(dueSoon(a("2026-12-03"), [], "2026-11-28"), true);
 });
