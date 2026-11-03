@@ -32,8 +32,12 @@ const VERSION = 3;
 const HOUR = 3_600_000, WEEK = 7 * 24 * HOUR;
 const LEASE_STALE_MS = 3 * 60_000;
 const PIPE = { bo: "1726786777", eso: "1726599376", tsa: "1726599377", gqs: "1726786775" } as const;
-/** GQS: the Back Office's own two stages before a task goes on to GQS - New for Back-Office, Open the GQS Task */
-const GQS_BO_STAGES = ["hs_v2_cumulative_time_in_2338266314", "hs_v2_cumulative_time_in_2338266316"];
+/** GQS: the time before a task is sent on - from entering Open the GQS Task to entering Waiting on GQS, or Waiting on APSO
+ *  where it was put by mistake (SARCLA 03.11.2026: "it's based on time to move from open the GQS task stage until waiting on
+ *  GQS, sometimes APSO because of mistakes") */
+const GQS_OPEN = "hs_v2_date_entered_2338266316", GQS_SENT = ["hs_v2_date_entered_4704538856", "hs_v2_date_entered_6078992599"];
+/** the GQS tasks are counted again when this changes (4: the time before sent, as above) - the months keep theirs */
+const GQS_VERSION = 4;
 /** Back Office: entered "Redirected from chat" - the chat handed it over */
 const REDIRECTED = "hs_v2_date_entered_2554860732";
 const KV = { month: (ym: string) => `boReport:month:${ym}`, gqs: "boReport:gqs", lease: "boReport:lease", companies: "boReport:companies", articles: "boReport:articles" };
@@ -134,11 +138,12 @@ async function readCompanies(ids: Set<string>, say: (s: string) => void): Promis
 }
 
 async function readGqs(): Promise<GqsMonth[]> {
-  const tasks = await searchAll("tickets", [[pipe(PIPE.gqs)]], ["createdate", "time_to_close", ...GQS_BO_STAGES]);
-  return gqsTally(tasks.filter((r) => r.properties?.createdate).map((r) => ({
-    created: r.properties!.createdate!, toClose: Number(r.properties?.time_to_close) || null,
-    sentMs: GQS_BO_STAGES.reduce((s, p) => s + (Number(r.properties?.[p]) || 0), 0),
-  })));
+  const tasks = await searchAll("tickets", [[pipe(PIPE.gqs)]], ["createdate", "time_to_close", GQS_OPEN, ...GQS_SENT]);
+  return gqsTally(tasks.filter((r) => r.properties?.createdate).map((r) => {
+    const p = r.properties!;
+    const open = Date.parse(p[GQS_OPEN] ?? ""), sent = Math.min(...GQS_SENT.map((k) => Date.parse(p[k] ?? "")).filter(Number.isFinite));
+    return { created: p.createdate!, toClose: Number(p.time_to_close) || null, sentMs: Number.isFinite(open) && Number.isFinite(sent) && sent > open ? sent - open : 0 };
+  }));
 }
 
 /* ── the counter: one copy of the hub at a time, the newest months first ── */
@@ -183,7 +188,7 @@ function count(todo: string[], gqsDue: boolean): void {
       if (learnt.companies.size) await readCompanies(learnt.companies, say);
       if (gqsDue) {
         say("the GQS tasks");
-        await kvSet(KV.gqs, { v: VERSION, at: new Date().toISOString(), months: await readGqs() } satisfies KeptGqs);
+        await kvSet(KV.gqs, { v: GQS_VERSION, at: new Date().toISOString(), months: await readGqs() } satisfies KeptGqs);
       }
     } catch (e) {
       state.error = String((e as Error)?.message ?? e);
@@ -205,13 +210,13 @@ export async function boReportNow(): Promise<BoRead> {
   const g = await kvGet<KeptGqs>(KV.gqs);
   const pending = months.filter((ym) => !kept.get(ym) || kept.get(ym)!.v !== VERSION);
   const due = [...months].reverse().filter((ym) => stale(kept.get(ym), fresh.has(ym), now));
-  const gqsDue = !g || g.v !== VERSION || now - Date.parse(g.at) > HOUR;
+  const gqsDue = !g || g.v !== GQS_VERSION || now - Date.parse(g.at) > HOUR;
   if ((due.length || gqsDue) && !state.running && (await leaseFree())) count(due, gqsDue);
   const have = months.flatMap((ym) => (kept.get(ym) && kept.get(ym)!.v === VERSION ? [kept.get(ym)!] : []));
   const newest = [...have.map((m) => m.at), g?.at ?? ""].sort().pop() ?? "";
   const elsewhere = !state.running && !(await leaseFree());
   return {
-    generatedAt: newest || new Date(now).toISOString(), months: have, gqs: g?.v === VERSION ? g.months : [], current, today,
+    generatedAt: newest || new Date(now).toISOString(), months: have, gqs: g?.v === GQS_VERSION ? g.months : [], current, today,
     pending, counting: state.running || elsewhere, progress: state.running ? state.progress : elsewhere ? "counting on another copy of the hub" : null, error: state.error,
   };
 }

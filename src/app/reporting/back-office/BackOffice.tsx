@@ -17,6 +17,10 @@
 // breakdown per category", "STILL NO PROFIT CENTER?". So the period and the filters (topic, person, where it came from, the
 // customer's category, country, priority) in a Filters window as on ESO's pages, the tab row beside it, a People tab, the
 // speed per topic, the table a tab of its own; the tickets are kept one by one for it (boReport.ts, version 3).
+// Later that evening: the People graphs "limited to Back Office, a hidden row for wrong owners", each person month by month
+// drawn anew, on Speed the first reply by person and the customer tickets closed without any answer, Workload "a real
+// insight into team workload", the profit centres and a diagram of the whole on Orders & ratios, Customer tone renamed
+// Sentiment with the survey sent after a ticket is closed, the Table first and drawn anew.
 //
 // Every graph is defined once (CHARTS) and drawn the same on its page and in the BUC View, keyed "bo-<page>:main:<id>".
 
@@ -85,6 +89,8 @@ import { StackedColumns } from "@/app/charts/StackedColumns";
 import { TrendChart } from "@/app/charts/TrendChart";
 import { BarList } from "@/app/charts/BarList";
 import { DEEMPHASIS, SEQUENTIAL, SERIES } from "@/app/charts/palette";
+import { ChartFrame } from "@/app/charts/ChartFrame";
+import { Sankey } from "@/app/charts/Sankey";
 import type { BoRead } from "@/lib/reporting/boReport";
 import {
   ORIGINS, RCL, RW, TOPIC_ORDER, TYPED, emptyMonth, filteredMonth, hasTickets, kpisOf, passes, sumGqs, sumMonths, topicLabel, typedKey,
@@ -97,7 +103,10 @@ type Data = BoRead & {
   hours: Record<string, number>; typed: Typed; inbound: { eso: Record<string, number>; tsa: Record<string, number> } | null;
   /** the tickets' owners by their HubSpot id, and their companies' facts for the filters */
   names?: Record<string, string>; companies?: CoFacts;
+  /** the Back Office team (owner ids, from the hierarchy), and the answers to the survey sent after a ticket is closed */
+  team?: string[]; surveys?: BoSurvey[];
 };
+type BoSurvey = { day: string; value: number | null; sentiment: string | null; comment: string | null; ticket: string | null; company: string | null };
 type Answer = { state: { computing: boolean; progress: string | null; error: string | null; computedAt: string | null }; data: Data | null; canEdit: boolean; canEditTyped: boolean | Record<string, boolean> };
 const API = "/api/reporting/back-office";
 
@@ -151,6 +160,8 @@ type Frame = {
   fil: BoFilter; co: CoFacts; names: Record<string, string>;
   /** the period: its months of the year (0 = January); this year, and its last month with figures */
   win: { from: number; to: number }; cy: number; cm: number;
+  /** the Back Office team - the People graphs show them, the other owners folded away (empty: everyone) */
+  team: Set<string>;
 };
 
 /** the breakdowns the Filters window offers - "person" by the owner's HubSpot id */
@@ -218,7 +229,7 @@ function useFrame(d: Data): Frame {
       cur, prev, gqs, gqsPrev, hours, hoursPrev, done, from, doneWords,
       k: (i: number) => kpisOf(cur[i], gqs[i], hours[i]),
       kPrev: (i: number) => (prev[i] ? kpisOf(prev[i] as BoMonth, gqsPrev[i], hoursPrev[i]) : null),
-      total, totalPrev, inbound: !!inb, fil, co, names, win: { from: wf, to: wt }, cy, cm,
+      total, totalPrev, inbound: !!inb, fil, co, names, win: { from: wf, to: wt }, cy, cm, team: new Set(d.team ?? []),
     };
   }, [d, year, wf, wt, fkey, cy, cm]); // eslint-disable-line react-hooks/exhaustive-deps
 }
@@ -449,6 +460,7 @@ function Minis({ items, legend }: { items: Mini[]; legend?: [string, string] }) 
 }
 
 const TONE_RED = "#c0571f";
+const share0 = (v: number | null) => (v == null ? "—" : `${Math.round(v * 100)}%`);
 
 /* the tickets one by one - the People tab, the speed per topic, where they came from */
 
@@ -487,6 +499,127 @@ function peopleOf(f: Frame): Person[] {
   eachRow(f, "closed", (t, _r, i) => { const p = get(t.owner); p.closed++; p.shut[i]++; });
   return [...by.values()].sort((a, b) => b.created + b.closed - (a.created + a.closed) || a.name.localeCompare(b.name));
 }
+const inTeam = (f: Frame, id: string) => !f.team.size || f.team.has(id);
+/** Bars for the Back Office team, the owners outside it folded under a button (SARCLA 03.11.2026: "a hidden row for wrong
+ *  owners") - on one scale. */
+function TeamBars({ f, rows, format, empty }: { f: Frame; rows: { id: string; label: string; value: number | null; secondary?: string }[]; format: (v: number | null) => string; empty: string }) {
+  const [show, setShow] = useState(false);
+  const mine = rows.filter((r) => inTeam(f, r.id)), others = rows.filter((r) => !inTeam(f, r.id));
+  const max = Math.max(0, ...rows.map((r) => r.value ?? 0));
+  return (
+    <Box sx={{ display: "grid", gap: 1 }}>
+      <BarList rows={mine} format={format} labelWidth={170} max={max} emptyMessage={empty} />
+      {others.length > 0 && (
+        <Box sx={{ display: "grid", gap: 0.75, borderTop: `1px dashed ${HAIRLINE}`, pt: 1 }}>
+          <Button size="small" onClick={() => setShow((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start", color: MUTED }}>
+            {show ? "Hide" : "Show"} the {others.length} owner{others.length === 1 ? "" : "s"} outside the Back Office - tickets that may sit with the wrong person
+          </Button>
+          {show && <BarList rows={others} format={format} labelWidth={170} max={max} />}
+        </Box>
+      )}
+    </Box>
+  );
+}
+/** Each person a row, each month a column: what came in (blue) and what was closed (grey) side by side on one scale, the
+ *  period's totals at the end - the team first, the other owners folded. */
+function PersonMonths({ f, people }: { f: Frame; people: Person[] }) {
+  const [show, setShow] = useState(false);
+  const n = drawn(f);
+  const mine = people.filter((p) => inTeam(f, p.id)), others = people.filter((p) => !inTeam(f, p.id));
+  const max = Math.max(1, ...people.flatMap((p) => [...p.came.slice(0, n), ...p.shut.slice(0, n)]));
+  const cols = `minmax(150px, 1.5fr) repeat(${n}, minmax(30px, 1fr)) 120px`;
+  const row = (p: Person) => (
+    <Box key={p.id} sx={{ display: "grid", gridTemplateColumns: cols, alignItems: "end", gap: 0.75, py: 0.6, borderBottom: `1px solid ${HAIRLINE}` }}>
+      <Typography noWrap title={p.name} sx={{ fontSize: "0.82rem", fontWeight: 600, color: INK, alignSelf: "center" }}>{p.name}</Typography>
+      {Array.from({ length: n }, (_, i) => (
+        <Box key={i} title={`${p.name}, ${f.labels[i]}: ${int(p.came[i])} came in, ${int(p.shut[i])} closed`} sx={{ display: "flex", alignItems: "flex-end", justifyContent: "center", gap: "2px", height: 34 }}>
+          <Box sx={{ width: 8, height: `${(p.came[i] / max) * 100}%`, minHeight: p.came[i] ? 2 : 0, bgcolor: SERIES[0], borderRadius: "2px 2px 0 0" }} />
+          <Box sx={{ width: 8, height: `${(p.shut[i] / max) * 100}%`, minHeight: p.shut[i] ? 2 : 0, bgcolor: DEEMPHASIS, borderRadius: "2px 2px 0 0" }} />
+        </Box>
+      ))}
+      <Typography sx={{ fontSize: "0.8rem", color: MUTED, textAlign: "right", fontVariantNumeric: "tabular-nums", alignSelf: "center" }}><b style={{ color: INK }}>{int(p.created)}</b> · {int(p.closed)}</Typography>
+    </Box>
+  );
+  return (
+    <Box sx={{ overflowX: "auto" }}>
+      <Box sx={{ minWidth: 640, display: "grid" }}>
+        <Box sx={{ display: "flex", gap: 2, fontSize: "0.76rem", color: MUTED, mb: 1 }}>
+          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.75 }}><Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: SERIES[0] }} />Came in</Box>
+          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.75 }}><Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: DEEMPHASIS }} />Closed</Box>
+        </Box>
+        <Box sx={{ display: "grid", gridTemplateColumns: cols, gap: 0.75, pb: 0.5, borderBottom: `1px solid ${HAIRLINE}` }}>
+          {["Person", ...f.labels.slice(0, n).map((l) => l.replace(" (to date)", "*")), "Came in · closed"].map((h, i) => (
+            <Typography key={i} sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: FAINT, textAlign: i === 0 ? "left" : i === n + 1 ? "right" : "center" }}>{h}</Typography>
+          ))}
+        </Box>
+        {mine.map(row)}
+        {others.length > 0 && (
+          <Button size="small" onClick={() => setShow((x) => !x)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start", color: MUTED, mt: 0.75 }}>
+            {show ? "Hide" : "Show"} the {others.length} owner{others.length === 1 ? "" : "s"} outside the Back Office
+          </Button>
+        )}
+        {show && others.map(row)}
+      </Box>
+    </Box>
+  );
+}
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+/** a ticket's weekday, Monday first */
+const weekdayOf = (ym: string, day: number) => (new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, day)).getUTCDay() + 6) % 7;
+/** the working days (Monday to Friday) of the period's complete months - the month to date while none is */
+function workingDays(f: Frame) {
+  let n = 0;
+  f.cur.forEach((m, i) => {
+    if (i < f.from || i >= Math.max(f.done, f.from + 1)) return;
+    const y = Number(m.ym.slice(0, 4)), mo = Number(m.ym.slice(5, 7)) - 1;
+    const last = m.ym === f.yms[f.yms.length - 1] && i >= f.done ? new Date().getDate() : new Date(Date.UTC(y, mo + 1, 0)).getUTCDate();
+    for (let d = 1; d <= last; d++) if (weekdayOf(m.ym, d) < 5) n++;
+  });
+  return n;
+}
+/** the customers' tickets closed without any answer - no first agent reply - by the month they came in */
+const unanswered = (r: number[], t: Tk) => t.origin === "Customer" && r[RW.close] >= 0 && r[RW.reply] < 0;
+/** the survey's answers of the period's months, as happy / neutral / unhappy */
+const feelingOf = (x: BoSurvey) => {
+  const v = (x.sentiment ?? "").toLowerCase();
+  if (/happy|pos/.test(v) && !/un/.test(v)) return "happy";
+  if (/unhappy|neg/.test(v)) return "unhappy";
+  if (/neutral/.test(v)) return "neutral";
+  return x.value === 2 ? "happy" : x.value === 1 ? "neutral" : x.value === 0 ? "unhappy" : null;
+};
+const FEELINGS = [{ key: "happy", label: "Happy", color: SERIES[2] }, { key: "neutral", label: "Neutral", color: DEEMPHASIS }, { key: "unhappy", label: "Unhappy", color: "#c0571f" }];
+/** each month of the frame's: its survey answers by feeling - this year's, or last year's same month */
+function surveyMonths(f: Frame, d: Data, prior = false) {
+  return f.yms.slice(0, drawn(f)).map((ym) => {
+    const k = prior ? back(ym) : ym;
+    const out: Record<string, number> = { happy: 0, neutral: 0, unhappy: 0 };
+    for (const x of d.surveys ?? []) if (x.day.slice(0, 7) === k) { const fl = feelingOf(x); if (fl) out[fl]++; }
+    return out;
+  });
+}
+function SurveyTable({ f, d }: { f: Frame; d: Data }) {
+  const [shown, setShown] = useState(25);
+  const first = f.yms[0] ?? "", last = f.yms[f.yms.length - 1] ?? "";
+  const rows = (d.surveys ?? []).filter((x) => x.day.slice(0, 7) >= first && x.day.slice(0, 7) <= last);
+  const color = (fl: string | null) => (fl === "happy" ? "#1e7e45" : fl === "unhappy" ? "#c5221f" : MUTED);
+  if (!rows.length) return <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>No answer to the survey in these months.</Typography>;
+  return (
+    <Box sx={{ display: "grid", gap: 1 }}>
+      <Table head={["Day", "Answer", "Company", "What they wrote", "Ticket"]} minWidth={760} firstWidth="110px"
+        rows={rows.slice(0, shown).map((x, i) => {
+          const fl = feelingOf(x);
+          return {
+            key: `${x.day}-${x.ticket ?? ""}-${i}`,
+            cells: [x.day.split("-").reverse().join("."), <Box key="a" component="span" sx={{ fontWeight: 700, color: color(fl) }}>{fl ? fl.charAt(0).toUpperCase() + fl.slice(1) : "—"}</Box>,
+              x.company ?? "—", x.comment?.trim() || "—",
+              x.ticket ? <Box key="t" component="a" href={`https://app-eu1.hubspot.com/contacts/26492587/record/0-5/${x.ticket}`} target="_blank" rel="noreferrer" sx={{ color: TINT.blue.fg, fontWeight: 600 }}>Open</Box> : "—"],
+          };
+        })} />
+      {rows.length > shown && <Button size="small" onClick={() => setShown((n) => n + 50)} sx={{ textTransform: "none", fontWeight: 600, justifySelf: "start" }}>Show 50 more of {int(rows.length - shown)}</Button>}
+    </Box>
+  );
+}
+
 const shortName = (name: string) => { if (name === "No owner") return name; const w = name.trim().split(/\s+/); return w.length > 1 ? `${w[0]} ${w[w.length - 1][0]}.` : name; };
 /** Customer, Chat, Automatic & internal */
 const ORIGIN_COLORS = [SERIES[0], SERIES[3], DEEMPHASIS];
@@ -541,29 +674,126 @@ export const CHARTS: ChartDef[] = [
   }),
   wide({
     id: "peopleOrigin", page: "figures", title: "What came in to each person, by where it came from",
-    hint: ({ f }) => `${periodOf(f)} · the tickets created, by their owner today · the 14 with the most`,
+    hint: ({ f }) => {
+      const out = peopleOf(f).filter((p) => !inTeam(f, p.id)).reduce((s, p) => s + p.created, 0);
+      return `${periodOf(f)} · the tickets created, by their owner today · the Back Office team${out ? ` - ${int(out)} tickets with owners outside it left out` : ""}`;
+    },
     body: ({ f }) => {
-      const ps = peopleOf(f).filter((p) => p.created).sort((a, b) => b.created - a.created).slice(0, 14);
+      const ps = peopleOf(f).filter((p) => p.created && inTeam(f, p.id)).sort((a, b) => b.created - a.created).slice(0, 16);
       return <StackedColumns height={300} format={n0} data={ps.map((p) => ({ x: shortName(p.name), ...originCells(p.origin) }))} parts={originParts} />;
     },
   }),
-  {
+  wide({
     id: "peopleClosed", page: "figures", title: "Tickets closed, by person",
-    hint: ({ f }) => `${periodOf(f)} · by their close date and their owner · beside it, what came in to them`,
-    body: ({ f }) => <BarList rows={peopleOf(f).filter((p) => p.closed).sort((a, b) => b.closed - a.closed).map((p) => ({ label: p.name, value: p.closed, secondary: `${int(p.created)} came in` }))} format={(v) => int(v ?? 0)} labelWidth={170} emptyMessage="No ticket closed for this choice." />,
-  },
+    hint: ({ f }) => `${periodOf(f)} · by their close date and their owner · beside it, what came in to them · the Back Office team, the other owners folded`,
+    body: ({ f }) => <TeamBars f={f} rows={peopleOf(f).filter((p) => p.closed).sort((a, b) => b.closed - a.closed).map((p) => ({ id: p.id, label: p.name, value: p.closed, secondary: `${int(p.created)} came in` }))} format={(v) => int(v ?? 0)} empty="No ticket closed for this choice." />,
+  }),
   {
     id: "peopleSpeed", page: "figures", title: "Days to close, by person",
     hint: ({ f }) => `${periodOf(f)} · the tickets created in the period and closed since, on average, by their owner`,
-    body: ({ f }) => <BarList rows={peopleOf(f).filter((p) => p.dn).sort((a, b) => b.created - a.created).map((p) => ({ label: p.name, value: p.days / p.dn, secondary: `${int(p.dn)} of ${int(p.created)} closed` }))} format={days} labelWidth={170} emptyMessage="No ticket closed for this choice." />,
+    body: ({ f }) => <TeamBars f={f} rows={peopleOf(f).filter((p) => p.dn).sort((a, b) => b.created - a.created).map((p) => ({ id: p.id, label: p.name, value: p.days / p.dn, secondary: `${int(p.dn)} of ${int(p.created)} closed` }))} format={days} empty="No ticket closed for this choice." />,
+  },
+  {
+    id: "peopleReply", page: "figures", title: "Days to the first reply, by person",
+    hint: ({ f }) => `${periodOf(f)} · to the first agent e-mail reply, on average, by the ticket's owner`,
+    body: ({ f }) => {
+      const by = new Map<string, { s: number; n: number }>();
+      eachRow(f, "created", (t, r) => { if (r[RW.reply] < 0) return; const x = by.get(t.owner) ?? { s: 0, n: 0 }; x.s += r[RW.reply] / 10; x.n++; by.set(t.owner, x); });
+      return <TeamBars f={f} rows={[...by].sort((a, b) => b[1].n - a[1].n).map(([id, x]) => ({ id, label: ownerName(f, id), value: x.s / x.n, secondary: `${int(x.n)} answered` }))} format={days} empty="No ticket answered for this choice." />;
+    },
   },
   wide({
     id: "peopleMonths", page: "figures", title: "Each person, month by month",
-    hint: ({ f }) => `${periodOf(f)} · what came in to each and what each closed, month by month - the 16 with the most`,
+    hint: ({ f }) => `${periodOf(f)} · what came in to each and what each closed, month by month, on one scale · the Back Office team, the other owners folded`,
+    body: ({ f }) => <PersonMonths f={f} people={peopleOf(f).filter((p) => p.created || p.closed)} />,
+  }),
+  {
+    id: "noAnswer", page: "figures", title: "Customer tickets closed without any answer, month by month",
+    hint: () => "A customer's e-mail or form closed with no agent reply at all - by the month it came in",
     body: ({ f }) => {
       const n = drawn(f);
-      return <Minis legend={["Came in", "Closed"]} items={peopleOf(f).slice(0, 16).map((p) => ({ label: p.name, values: p.came.slice(0, n), values2: p.shut.slice(0, n), value: `${int(p.created)} · ${int(p.closed)}`, sub: "came in · closed", counts: true }))} />;
+      const of = (m: BoMonth | null) => {
+        if (!m?.rows || m.pending || !hasTickets(m.ym)) return null;
+        const d = m.rows.dict;
+        let k = 0;
+        for (const r of m.rows.created) { const t = tk(d, r, RW); if (passes(f.fil, f.co, t) && unanswered(r, t)) k++; }
+        return k;
+      };
+      const compare = f.prev.slice(0, n).map(of);
+      return <MonthTrend values={f.cur.slice(0, n).map(of)} compare={compare.some((x) => x != null) ? compare : null} labels={f.labels.slice(0, n)} label={String(f.year)} compareLabel={String(f.year - 1)} fmt={n0} />;
     },
+  },
+  {
+    id: "noAnswerPeople", page: "figures", title: "Customer tickets closed without any answer, by person",
+    hint: ({ f }) => `${periodOf(f)} · by the ticket's owner · beside it, the share of their customer tickets`,
+    body: ({ f }) => {
+      const by = new Map<string, { k: number; all: number }>();
+      eachRow(f, "created", (t, r) => { if (t.origin !== "Customer") return; const x = by.get(t.owner) ?? { k: 0, all: 0 }; x.all++; if (unanswered(r, t)) x.k++; by.set(t.owner, x); });
+      return <TeamBars f={f} rows={[...by].filter(([, x]) => x.k).sort((a, b) => b[1].k - a[1].k).map(([id, x]) => ({ id, label: ownerName(f, id), value: x.k, secondary: `${pct(x.k / x.all)} of ${int(x.all)}` }))} format={(v) => int(v ?? 0)} empty="None for this choice." />;
+    },
+  },
+  trend("ticketsPerHour", "figures", "Tickets per hour worked", "The tickets that came in against the hours typed in for the month", (k) => (k.hoursPerTicket ? 1 / k.hoursPerTicket : null), (v) => (v == null ? "—" : v.toFixed(2)), (v) => (v == null ? "" : v.toFixed(1))),
+  wide({
+    id: "weekday", page: "figures", title: "When the work comes in and goes out, by weekday",
+    hint: ({ f }) => `${periodOf(f)} · the tickets by the weekday they came in, and the weekday they were closed`,
+    body: ({ f }) => {
+      const came = WEEKDAYS.map(() => 0), shut = WEEKDAYS.map(() => 0);
+      eachRow(f, "created", (_t, r, i) => { came[weekdayOf(f.cur[i].ym, r[RW.day])]++; });
+      eachRow(f, "closed", (_t, r, i) => { shut[weekdayOf(f.cur[i].ym, r[RCL.day])]++; });
+      return <GroupedColumns height={240} format={n0} currentLabel="Came in" priorLabel="Closed" currentFirst data={WEEKDAYS.map((x, i) => ({ x, current: came[i], prior: shut[i] }))} />;
+    },
+  }),
+  {
+    id: "peopleDay", page: "figures", title: "Tickets closed per working day, by person",
+    hint: ({ f }) => `${periodOf(f)} · each person's tickets closed against the ${int(workingDays(f))} working days, Monday to Friday`,
+    body: ({ f }) => {
+      const wd = Math.max(1, workingDays(f));
+      return <TeamBars f={f} rows={peopleOf(f).filter((p) => p.closed).sort((a, b) => b.closed - a.closed).map((p) => ({ id: p.id, label: p.name, value: p.closed / wd, secondary: `${int(p.closed)} closed` }))} format={(v) => (v == null ? "—" : v.toFixed(1))} empty="No ticket closed for this choice." />;
+    },
+  },
+  wide({
+    id: "overall", page: "figures", title: "For every 100 orders",
+    hint: ({ f }) => `${periodOf(f)} · the orders by profit centre, and the Back Office tickets that came in against them, by topic - per 100 orders`,
+    body: ({ f }) => {
+      const orders = f.total.orders ?? 0;
+      const pcs = sumField(f, "pcs").filter((r) => r.cur).sort((a, b) => b.cur - a.cur);
+      const tops = topicRows(f).rows.filter((r) => r.cur).sort((a, b) => b.cur - a.cur);
+      const per = (x: number) => (orders ? Math.round((x / orders) * 1000) / 10 : 0);
+      const head = tops.slice(0, 6), rest = tops.slice(6).reduce((s, r) => s + r.cur, 0);
+      const right = [...head.map((r) => ({ id: `t:${r.key}`, label: r.label, v: per(r.cur) })), ...(rest ? [{ id: "t:rest", label: "Every other topic", v: per(rest) }] : [])];
+      const nodes = [
+        ...pcs.map((r) => ({ id: `pc:${r.label}`, column: 0, label: r.label, color: SEQUENTIAL[4] })),
+        { id: "orders", column: 1, label: "100 orders", color: SERIES[0] },
+        ...right.map((r) => ({ id: r.id, column: 2, label: r.label, color: r.id === "t:rest" ? DEEMPHASIS : SERIES[1] })),
+      ];
+      const links = [...pcs.map((r) => ({ from: `pc:${r.label}`, to: "orders", value: per(r.cur) })), ...right.map((r) => ({ from: "orders", to: r.id, value: r.v }))];
+      return (
+        <ChartFrame table={{ columns: ["From", "To", "Per 100 orders"], rows: links.map((l) => [l.from.replace(/^(pc|t):/, ""), l.to.replace(/^(pc|t):/, ""), l.value]), numeric: [2] }} empty={orders ? null : "No orders for this choice."}>
+          <Box sx={{ overflowX: "auto" }}><Box sx={{ minWidth: 760 }}>
+            <Sankey height={380} columns={["Orders by profit centre", "Per 100 orders", "Tickets by topic"]} label="For every 100 orders" nodes={nodes} links={links} format={(v) => v.toLocaleString("en", { maximumFractionDigits: 1 })} />
+          </Box></Box>
+        </ChartFrame>
+      );
+    },
+  }),
+  wide({
+    id: "csat", page: "figures", title: "The survey after a ticket is closed, month by month",
+    hint: () => "The customers' answers to the survey sent at random after a Back Office ticket is closed - by the month they answered; the ticket filters do not apply",
+    body: ({ f, d }) => <StackedColumns height={260} format={n0} data={surveyMonths(f, d).map((x, i) => ({ x: f.labels[i], ...x }))} parts={FEELINGS} />,
+  }),
+  {
+    id: "csatScore", page: "figures", title: "Happy customers, month by month",
+    hint: () => "Of the month's answers to the survey after a closed ticket, the share happy",
+    body: ({ f, d }) => {
+      const share = (x: Record<string, number>) => { const n = x.happy + x.neutral + x.unhappy; return n ? x.happy / n : null; };
+      const cur = surveyMonths(f, d).map(share), prev = surveyMonths(f, d, true).map(share);
+      return <MonthTrend values={cur} compare={prev.some((x) => x != null) ? prev : null} labels={f.labels.slice(0, drawn(f))} label={String(f.year)} compareLabel={String(f.year - 1)} fmt={share0} />;
+    },
+  },
+  wide({
+    id: "surveyTable", page: "figures", title: "Every answer to the survey",
+    hint: ({ f }) => `${periodOf(f)} · the newest first · what the customer wrote, and the ticket it was about`,
+    body: ({ f, d }) => <SurveyTable f={f} d={d} />,
   }),
   {
     id: "closeByTopic", page: "figures", title: "Days to close, by topic",
@@ -591,7 +821,7 @@ export const CHARTS: ChartDef[] = [
   trend("perOrder", "figures", "Tickets per order", "Tickets created against the month's orders (an order number once, credit notes out)", (k) => k.perOrder, share),
   trend("perLine", "figures", "Tickets per order line", "Tickets created against the month's order lines", (k) => k.perLine, share),
   wide({
-    id: "tones", page: "figures", title: "The customers' tone, month by month",
+    id: "tones", page: "figures", title: "The tone the sentiment sweep heard, month by month",
     hint: () => "The tickets the sentiment sweep scored, by the tone it heard - those it could not score left out",
     body: ({ f }) => {
       const n = drawn(f);
@@ -699,7 +929,7 @@ export const CHARTS: ChartDef[] = [
 
   /* GQS */
   wide(trend("gqs", "gqs", "GQS tasks created", "Back Office - Special Tasks GQS, by the month they were created", (k) => k.gqsCreated, n0)),
-  trend("gqsSent", "gqs", "Days before sent to GQS", "Time in New for Back-Office and Open the GQS Task, on average - reliable from October 2026, with the new stage", (k) => k.gqsSent, days, daysTick),
+  trend("gqsSent", "gqs", "Days before sent to GQS", "From entering Open the GQS Task to entering Waiting on GQS - or Waiting on APSO, where a task was put by mistake - on average", (k) => k.gqsSent, days, daysTick),
   trend("gqsDone", "gqs", "Days to close", "HubSpot's time to close - to the offer sent to Sales, or refused; the tasks closed so far", (k) => k.gqsResolution, days, daysTick),
 
   /* OTD - typed in */
@@ -768,32 +998,31 @@ const TABLE = (note: string): TabDef => ({ id: "table", label: "Table", title: "
 const TYPE_IN: TabDef = { id: "input", label: "Type in", title: "Typed in by the Back Office", note: "not in HubSpot - a month typed in saves when you leave the field", icon: <EditNoteOutlinedIcon />, tint: "slate", charts: [] };
 const TABS: Record<Slug, TabDef[]> = {
   figures: [
-    { id: "volume", label: "Volume", title: "Tickets created and closed", note: "the workbook's first rows: what came in and from where, what was closed, the queue between them", icon: <ConfirmationNumberOutlinedIcon />, tint: "blue", charts: ["createdClosed", "backlog", "origins", "created", "chat"] },
-    { id: "people", label: "People", title: "Who handles the tickets", note: "each ticket's owner today: what came in to them and from where, what they closed, how fast", icon: <BadgeOutlinedIcon />, tint: "green", charts: ["peopleOrigin", "peopleClosed", "peopleSpeed", "peopleMonths"] },
-    { id: "speed", label: "Speed", title: "How fast", note: "days to close and to the first reply, tickets created in the month - and per topic", icon: <TimerOutlinedIcon />, tint: "amber", charts: ["resolution", "reply", "closeByTopic", "replyByTopic"] },
-    { id: "workload", label: "Workload", title: "Hours worked", note: "typed in per month (Abacus) - the hours per ticket follow", icon: <WorkHistoryOutlinedIcon />, tint: "purple", charts: ["hours", "perHour"] },
-    { id: "ratios", label: "Orders & ratios", title: "Tickets against the orders", note: "an order number once, credit notes out · per order, the lines of its largest delivery", icon: <ShoppingCartOutlinedIcon />, tint: "green", charts: ["orders", "lines", "perOrder", "perLine"] },
-    { id: "tone", label: "Customer tone", title: "The customers' tone", note: "the neutral feeling the workbook's New KPIs ask for, from the sentiment sweep", icon: <SentimentNeutralOutlinedIcon />, tint: "slate", charts: ["tones", "neutral", "negative"] },
-    { id: "pcs", label: "Profit centres", title: "Orders per profit centre", note: "the workbook's New KPIs: orders per PC - and their lines", icon: <ApartmentOutlinedIcon />, tint: "pink", charts: ["pcs", "pcLines"] },
     TABLE("the workbook's rows, a month a column - the last columns add up the complete months"),
+    { id: "volume", label: "Volume", title: "Tickets created and closed", note: "the workbook's first rows: what came in and from where, what was closed, the queue between them", icon: <ConfirmationNumberOutlinedIcon />, tint: "blue", charts: ["createdClosed", "backlog", "origins", "created", "chat"] },
+    { id: "people", label: "People", title: "Who handles the tickets", note: "each ticket's owner today: what came in to them and from where, what they closed - the Back Office team, the other owners folded", icon: <BadgeOutlinedIcon />, tint: "green", charts: ["peopleOrigin", "peopleClosed", "peopleMonths"] },
+    { id: "speed", label: "Speed", title: "How fast", note: "days to the first reply and to close, the customers' tickets closed without any answer - by month, person and topic", icon: <TimerOutlinedIcon />, tint: "amber", charts: ["reply", "resolution", "noAnswer", "noAnswerPeople", "peopleReply", "peopleSpeed", "replyByTopic", "closeByTopic"] },
+    { id: "workload", label: "Workload", title: "The team's workload", note: "the hours typed in (Abacus) against the tickets, when the work comes in, what each person closes a working day", icon: <WorkHistoryOutlinedIcon />, tint: "purple", charts: ["hours", "ticketsPerHour", "weekday", "peopleDay", "perHour"] },
+    { id: "ratios", label: "Orders & ratios", title: "Tickets against the orders", note: "an order number once, credit notes out · its profit centre the one it names, else most of its lines'", icon: <ShoppingCartOutlinedIcon />, tint: "green", charts: ["overall", "pcs", "pcLines", "orders", "lines", "perOrder", "perLine"] },
+    { id: "tone", label: "Sentiment", title: "Sentiment", note: "the survey sent after a ticket is closed, and the tone the sentiment sweep heard in the tickets", icon: <SentimentNeutralOutlinedIcon />, tint: "slate", charts: ["csat", "csatScore", "neutral", "tones", "negative", "surveyTable"] },
   ],
   topics: [
+    TABLE("the workbook's topic table: Back Office tickets per topic, by the month they came in"),
     { id: "all", label: "All topics", title: "Tickets per topic", note: "the topic each ticket has today · click topics to follow them month by month", icon: <CategoryOutlinedIcon />, tint: "amber", charts: ["topics", "topicMonths"] },
     { id: "months", label: "Month by month", title: "Each topic, month by month", note: "the shape of every topic, and the mix of each month", icon: <BarChartOutlinedIcon />, tint: "blue", charts: ["topicMinis", "topicShare"] },
     { id: "delivery", label: "Delivery & C2S", title: "Delivery and C2S", note: "the biggest topic, and the first impact of C2S V1 and V2", icon: <ContentCutOutlinedIcon />, tint: "pink", charts: ["delivery", "c2s", "c2sDelivery"] },
     { id: "cancel", label: "Order cancellations", title: "Order cancellations", note: "a KPI of its own, as the workbook's New KPIs ask", icon: <CancelOutlinedIcon />, tint: "purple", charts: ["cancel", "cancelPerOrder"] },
     { id: "others", label: "Inside Others", title: "What is inside Others", note: "the workbook's Others, each kind on its own", icon: <ManageSearchOutlinedIcon />, tint: "slate", charts: ["othersWhat", "othersMonths"] },
-    TABLE("the workbook's topic table: Back Office tickets per topic, by the month they came in"),
   ],
   "sales-tickets": [
+    TABLE("the workbook's table: the ESO's and the TSA's inbound tickets against the month's orders and order lines"),
     { id: "eso", label: "ESO", title: "The ESO's inbound tickets", note: "the sales actions left out", icon: <GroupsOutlinedIcon />, tint: "blue", charts: ["eso", "esoO", "esoL"] },
     { id: "tsa", label: "TSA", title: "The TSA's inbound tickets", note: "the sales actions left out", icon: <SupportAgentOutlinedIcon />, tint: "green", charts: ["tsa", "tsaO", "tsaL"] },
     { id: "all", label: "APSOparts in total", title: "Every ticket of APSOparts", note: "every pipeline, the ESO's and the TSA's sales actions left out", icon: <ApartmentOutlinedIcon />, tint: "purple", charts: ["stack", "allO", "allL"] },
-    TABLE("the workbook's table: the ESO's and the TSA's inbound tickets against the month's orders and order lines"),
   ],
   gqs: [
-    { id: "gqs", label: "GQS", title: "GQS tasks", note: "how many, how long before sent to GQS, how long to close", icon: <AssignmentOutlinedIcon />, tint: "green", charts: ["gqs", "gqsSent", "gqsDone"] },
     TABLE("every GQS task, by the month it was created"),
+    { id: "gqs", label: "GQS", title: "GQS tasks", note: "how many, how long before sent to GQS, how long to close", icon: <AssignmentOutlinedIcon />, tint: "green", charts: ["gqs", "gqsSent", "gqsDone"] },
   ],
   otd: [
     { id: "online", label: "Online", title: "OTD online", note: "with early call-offs, against the first confirmation date", icon: <LocalShippingOutlinedIcon />, tint: "pink", charts: ["otdAll", "otdStandard", "otdSpecial"] },
@@ -999,24 +1228,62 @@ function Loaded({ slug, d, a, put, children }: { slug: Slug; d: Data; a: Answer;
   );
 }
 
-/** "All the figures": a KPI a row, a month a column, then the complete months, last year's and the change - as the workbook.
- *  `whole`: a ratio to the orders - "—" for the month to date, whose orders come in days later. */
-type KRow = { key: string; label: string; pick: (k: BoKpis) => number | null; fmt: (v: number | null) => string; lower?: boolean; strong?: boolean; whole?: boolean };
+/** "All the figures": a KPI a row, a month a column, then the complete months, last year's and the change - as the workbook,
+ *  its rows in sections (SARCLA 03.11.2026: "please improve table design"). `whole`: a ratio to the orders - "—" for the
+ *  month to date, whose orders come in days later. */
+type KRow = { key: string; label: string; pick: (k: BoKpis) => number | null; fmt: (v: number | null) => string; lower?: boolean; strong?: boolean; whole?: boolean; section?: string };
+type WRow = { key: string; cells: React.ReactNode[]; strong?: boolean; section?: string };
+/** The workbook's table: a sticky first column, the months, then the period's columns set apart; a section's name above its rows. */
+function WTable({ head, rows, totals }: { head: string[]; rows: WRow[]; totals: number }) {
+  const months = head.length - 1 - totals;
+  const cell = { px: 1.25, py: 0.85, fontSize: "0.84rem", textAlign: "right" as const, whiteSpace: "nowrap" as const, fontVariantNumeric: "tabular-nums", borderBottom: `1px solid ${HAIRLINE}` };
+  const apart = (i: number) => (i === months + 1 ? { borderLeft: `2px solid ${HAIRLINE}` } : {});
+  let section: string | undefined;
+  return (
+    <Box sx={{ overflowX: "auto" }}>
+      <Box component="table" sx={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 150 + head.length * 76 }}>
+        <thead>
+          <tr>
+            {head.map((h, i) => (
+              <Box component="th" key={i} sx={{ ...cell, ...apart(i), py: 1, fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: i > months ? INK : FAINT, textAlign: i ? "right" : "left", ...(i === 0 ? { position: "sticky", left: 0, bgcolor: "#fff", zIndex: 1, minWidth: 230 } : {}) }}>{h}</Box>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.flatMap((r) => {
+            const out: React.ReactNode[] = [];
+            if (r.section && r.section !== section) {
+              section = r.section;
+              out.push(<tr key={`s-${r.key}`}><Box component="td" colSpan={head.length} sx={{ px: 1.25, pt: 2, pb: 0.75, fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: TINT.blue.fg, borderBottom: `1px solid ${HAIRLINE}`, position: "sticky", left: 0 }}>{r.section}</Box></tr>);
+            }
+            out.push(
+              <Box component="tr" key={r.key} sx={{ "&:hover td": { bgcolor: "rgba(21,34,58,.03)" } }}>
+                {r.cells.map((c, i) => (
+                  <Box component="td" key={i} sx={{ ...cell, ...apart(i), fontWeight: r.strong || i > months ? 700 : 500, color: i === 0 || i > months ? INK : MUTED, ...(i === 0 ? { textAlign: "left", position: "sticky", left: 0, bgcolor: "#fff", zIndex: 1, whiteSpace: "normal" } : {}) }}>{c}</Box>
+                ))}
+              </Box>,
+            );
+            return out;
+          })}
+        </tbody>
+      </Box>
+    </Box>
+  );
+}
 function AllFigures({ f, rows, title = "All the figures, month by month", hint }: { f: Frame; rows: KRow[]; title?: string; hint?: string }) {
   const sum = f.doneWords ? `${f.doneWords} ${f.year}` : String(f.year);
   const head = ["KPI", ...f.labels.map((l) => l.replace(" (to date)", "*")), sum, ...(f.totalPrev ? [`${f.doneWords} ${f.year - 1}`, "Change"] : [])];
   return (
     <ChartBox title={title} hint={hint ?? `${f.labels.some((l) => l.includes("to date")) ? "* to date - " : ""}the workbook's rows · the last columns add up the complete months`}>
-      <Table head={head} minWidth={Math.max(900, 150 + head.length * 74)} firstWidth="minmax(220px, 1.8fr)"
-        rows={rows.map((r) => {
-          const a = r.pick(f.total), b = f.totalPrev ? r.pick(f.totalPrev) : null;
-          const ch = a != null && b != null ? changeOf(a, b) : null;
-          return {
-            key: r.key, strong: r.strong,
-            cells: [r.label, ...f.yms.map((_, i) => (r.whole && f.labels[i].includes("to date") ? "—" : r.fmt(r.pick(f.k(i))))), r.fmt(a),
-              ...(f.totalPrev ? [r.fmt(b), <Box key="ch" component="span" sx={{ fontWeight: 700, color: tone(ch, r.lower) }}>{signedPct(ch)}</Box>] : [])],
-          };
-        })} />
+      <WTable head={head} totals={f.totalPrev ? 3 : 1} rows={rows.map((r) => {
+        const a = r.pick(f.total), b = f.totalPrev ? r.pick(f.totalPrev) : null;
+        const ch = a != null && b != null ? changeOf(a, b) : null;
+        return {
+          key: r.key, strong: r.strong, section: r.section,
+          cells: [r.label, ...f.yms.map((_, i) => (r.whole && f.labels[i].includes("to date") ? "—" : r.fmt(r.pick(f.k(i))))), r.fmt(a),
+            ...(f.totalPrev ? [r.fmt(b), <Box key="ch" component="span" sx={{ color: tone(ch, r.lower) }}>{signedPct(ch)}</Box>] : [])],
+        };
+      })} />
     </ChartBox>
   );
 }
@@ -1024,22 +1291,22 @@ function AllFigures({ f, rows, title = "All the figures, month by month", hint }
 /* ── Team totals ───────────────────────────────────────────────────────── */
 
 const TEAM_ROWS: KRow[] = [
-  { key: "created", label: "Number of tickets created", pick: (k) => k.created, fmt: n0, strong: true },
-  { key: "hours", label: "Hours worked", pick: (k) => k.hours, fmt: hrs },
-  { key: "lines", label: "Order lines", pick: (k) => k.lines, fmt: n0 },
-  { key: "orders", label: "Orders", pick: (k) => k.orders, fmt: n0 },
-  { key: "closed", label: "Number of tickets closed", pick: (k) => k.closed, fmt: n0 },
-  { key: "resolution", label: "Avg. resolution time (days)", pick: (k) => k.resolution, fmt: d1, lower: true },
-  { key: "reply", label: "Avg. first response time (days)", pick: (k) => k.firstReply, fmt: d1, lower: true },
-  { key: "chat", label: "Number of chat tickets", pick: (k) => k.chat, fmt: n0 },
-  { key: "gqs", label: "Number of GQS tasks created", pick: (k) => k.gqsCreated, fmt: n0 },
-  { key: "gqsSent", label: "Avg. time before sent to GQS (days)", pick: (k) => k.gqsSent, fmt: d1, lower: true },
-  { key: "gqsDone", label: "Avg. resolution time GQS (days)", pick: (k) => k.gqsResolution, fmt: d1, lower: true },
-  { key: "perLine", label: "Ratio tickets vs order lines", pick: (k) => k.perLine, fmt: share, lower: true, whole: true },
-  { key: "perOrder", label: "Ratio tickets vs orders", pick: (k) => k.perOrder, fmt: share, lower: true, whole: true },
-  { key: "perHour", label: "Avg. hours per ticket", pick: (k) => k.hoursPerTicket, fmt: (v) => (v == null ? "—" : v.toFixed(2)), whole: true },
-  { key: "neutral", label: "Neutral feeling (share of scored)", pick: (k) => k.neutral, fmt: share },
-  { key: "negative", label: "Negative feeling (share of scored)", pick: (k) => k.negative, fmt: share, lower: true },
+  { key: "created", label: "Number of tickets created", pick: (k) => k.created, fmt: n0, strong: true, section: "Tickets" },
+  { key: "closed", label: "Number of tickets closed", pick: (k) => k.closed, fmt: n0, section: "Tickets" },
+  { key: "chat", label: "Number of chat tickets", pick: (k) => k.chat, fmt: n0, section: "Tickets" },
+  { key: "reply", label: "Avg. first response time (days)", pick: (k) => k.firstReply, fmt: d1, lower: true, section: "Speed" },
+  { key: "resolution", label: "Avg. resolution time (days)", pick: (k) => k.resolution, fmt: d1, lower: true, section: "Speed" },
+  { key: "orders", label: "Orders", pick: (k) => k.orders, fmt: n0, section: "Orders" },
+  { key: "lines", label: "Order lines", pick: (k) => k.lines, fmt: n0, section: "Orders" },
+  { key: "perLine", label: "Ratio tickets vs order lines", pick: (k) => k.perLine, fmt: share, lower: true, whole: true, section: "Orders" },
+  { key: "perOrder", label: "Ratio tickets vs orders", pick: (k) => k.perOrder, fmt: share, lower: true, whole: true, section: "Orders" },
+  { key: "hours", label: "Hours worked", pick: (k) => k.hours, fmt: hrs, section: "Workload" },
+  { key: "perHour", label: "Avg. hours per ticket", pick: (k) => k.hoursPerTicket, fmt: (v) => (v == null ? "—" : v.toFixed(2)), whole: true, section: "Workload" },
+  { key: "gqs", label: "Number of GQS tasks created", pick: (k) => k.gqsCreated, fmt: n0, section: "GQS" },
+  { key: "gqsSent", label: "Avg. time before sent to GQS (days)", pick: (k) => k.gqsSent, fmt: d1, lower: true, section: "GQS" },
+  { key: "gqsDone", label: "Avg. resolution time GQS (days)", pick: (k) => k.gqsResolution, fmt: d1, lower: true, section: "GQS" },
+  { key: "neutral", label: "Neutral feeling (share of scored)", pick: (k) => k.neutral, fmt: share, section: "Sentiment" },
+  { key: "negative", label: "Negative feeling (share of scored)", pick: (k) => k.negative, fmt: share, lower: true, section: "Sentiment" },
 ];
 
 /** a month's figure typed in place: saved when it loses focus or on Enter */
@@ -1097,12 +1364,12 @@ function TopicsBody({ f, d }: { f: Frame; d: Data }) {
   return (
     <TabCard slug="topics" c={c} extra={(tab) => tab === "table" && (
       <ChartBox title="The workbook's topic table" hint="The workbook's topic table: Back Office tickets per topic, by the month they came in - what the workbook calls Others is each of its own today (automatic, finance, internal e-mails, spam ...)">
-        <Table head={["Topic", ...f.labels.map((l) => l.replace(" (to date)", "*")), ...(f.done ? [`${f.doneWords} ${f.year}`] : []), ...(compare ? [`${f.doneWords} ${f.year - 1}`, "Change"] : [])]}
-          minWidth={Math.max(900, 150 + (f.yms.length + 3) * 74)} firstWidth="minmax(220px, 1.8fr)"
+        <WTable head={["Topic", ...f.labels.map((l) => l.replace(" (to date)", "*")), ...(f.done ? [`${f.doneWords} ${f.year}`] : []), ...(compare ? [`${f.doneWords} ${f.year - 1}`, "Change"] : [])]}
+          totals={(f.done ? 1 : 0) + (compare ? 2 : 0)}
           rows={[...rows, { label: "Grand total", key: "__total", cur: rows.reduce((s, r) => s + r.cur, 0), prev: rows.reduce((s, r) => s + r.prev, 0) }].map((r) => ({
             key: r.key, strong: r.key === "__total",
             cells: [r.label, ...f.cur.map((m) => (hasTickets(m.ym) && !m.pending ? n0(r.key === "__total" ? m.created : m.topics[r.key] ?? 0) : "—")), ...(f.done ? [int(r.cur)] : []),
-              ...(compare ? [int(r.prev), <Box key="ch" component="span" sx={{ fontWeight: 700, color: tone(changeOf(r.cur, r.prev), true) }}>{r.prev ? signedPct(changeOf(r.cur, r.prev)) : "—"}</Box>] : [])],
+              ...(compare ? [int(r.prev), <Box key="ch" component="span" sx={{ color: tone(changeOf(r.cur, r.prev), true) }}>{r.prev ? signedPct(changeOf(r.cur, r.prev)) : "—"}</Box>] : [])],
           }))} />
       </ChartBox>
     )} />
@@ -1116,15 +1383,15 @@ export function BoTopicsPage() {
 /* ── ESO & TSA tickets ─────────────────────────────────────────────────── */
 
 const SALES_ROWS: KRow[] = [
-  { key: "eso", label: "Total number of tickets - ESO (inbound)", pick: (k) => k.eso, fmt: n0, strong: true },
-  { key: "esoL", label: "Ratio tickets vs order lines", pick: (k) => k.esoPerLine, fmt: share, lower: true, whole: true },
-  { key: "esoO", label: "Ratio tickets vs orders", pick: (k) => k.esoPerOrder, fmt: share, lower: true, whole: true },
-  { key: "tsa", label: "Total number of tickets - TSA (inbound)", pick: (k) => k.tsa, fmt: n0, strong: true },
-  { key: "tsaL", label: "Ratio tickets vs order lines", pick: (k) => k.tsaPerLine, fmt: share, lower: true, whole: true },
-  { key: "tsaO", label: "Ratio tickets vs orders", pick: (k) => k.tsaPerOrder, fmt: share, lower: true, whole: true },
-  { key: "all", label: "Total number of tickets - APSOparts", pick: (k) => k.all, fmt: n0, strong: true },
-  { key: "allL", label: "Ratio tickets vs order lines", pick: (k) => k.allPerLine, fmt: share, lower: true, whole: true },
-  { key: "allO", label: "Ratio tickets vs orders", pick: (k) => k.allPerOrder, fmt: share, lower: true, whole: true },
+  { key: "eso", label: "Total number of tickets - ESO (inbound)", pick: (k) => k.eso, fmt: n0, strong: true, section: "ESO" },
+  { key: "esoL", label: "Ratio tickets vs order lines", pick: (k) => k.esoPerLine, fmt: share, lower: true, whole: true, section: "ESO" },
+  { key: "esoO", label: "Ratio tickets vs orders", pick: (k) => k.esoPerOrder, fmt: share, lower: true, whole: true, section: "ESO" },
+  { key: "tsa", label: "Total number of tickets - TSA (inbound)", pick: (k) => k.tsa, fmt: n0, strong: true, section: "TSA" },
+  { key: "tsaL", label: "Ratio tickets vs order lines", pick: (k) => k.tsaPerLine, fmt: share, lower: true, whole: true, section: "TSA" },
+  { key: "tsaO", label: "Ratio tickets vs orders", pick: (k) => k.tsaPerOrder, fmt: share, lower: true, whole: true, section: "TSA" },
+  { key: "all", label: "Total number of tickets - APSOparts", pick: (k) => k.all, fmt: n0, strong: true, section: "APSOparts" },
+  { key: "allL", label: "Ratio tickets vs order lines", pick: (k) => k.allPerLine, fmt: share, lower: true, whole: true, section: "APSOparts" },
+  { key: "allO", label: "Ratio tickets vs orders", pick: (k) => k.allPerOrder, fmt: share, lower: true, whole: true, section: "APSOparts" },
 ];
 
 export function BoSalesTicketsPage() {
