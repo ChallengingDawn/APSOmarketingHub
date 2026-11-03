@@ -35,8 +35,11 @@ export type LibNode = {
   path: string;
   /** a page's heading in the side panel ("Other reports") */
   group?: string;
-  /** what a graph shows, as its page last drew it - its words, the figure they open with, when */
+  /** what a graph shows, as its page last drew it - its words, the figure they open with, when; a page or a report: its
+   *  first graph's that has a figure */
   shown?: { text: string; value: number | null; at: string | null };
+  /** a page or a report: what its graphs show, each by name - the real figures of a whole page picked */
+  parts?: { name: string; text: string; value: number | null }[];
   unit?: string; kpiId?: string; definition?: string; target?: string;
   children: LibNode[];
 };
@@ -47,6 +50,12 @@ export type TileSeen = { path: string; key: string; title: string; kind: string;
 export function figureOf(text: string): number | null {
   const m = text.replace(/(CHF|EUR|€|\$)\s*/gi, "").match(/-?\d[\d',’]*(?:\.\d+)?/);
   return m ? numberOf(m[0]) : null;
+}
+
+/** The figure as the graph's words write it - "73.4%", "CHF 4'000", "21,526" - or null. */
+export function figureText(text: string): string | null {
+  const m = text.match(/(?:CHF|EUR|€|\$)?\s*-?\d[\d',’]*(?:\.\d+)?\s*%?/i);
+  return m ? m[0].trim() : null;
 }
 
 const STAGE_PAGE = /^\/reporting\/marketing-kpis\/([a-z-]+)$/;
@@ -104,6 +113,19 @@ export function libraryTree(tiles: TileSeen[] = []): LibNode[] {
     dg.children.push({ key: "report:/reporting/marketing-kpis#no-page", kind: "page", name: "KPIs on no page yet", href: "/reporting/marketing-kpis", path, group: "Other reports",
       children: rest.map((k) => kpiNode(k.id, "/reporting/marketing-kpis", `${path} › KPIs on no page yet`)!).filter(Boolean) });
   }
+  // a whole page or report picked has its graphs' figures (SARCLA 04.11.2026: "KPI is still not bringing the real KPI" -
+  // his picks were pages, which had none): the first graph with a figure is the page's, the others listed under it
+  const roll = (n: LibNode): LibNode[] => {
+    const own = n.children.filter((c) => (c.kind === "graph" || c.kind === "kpi") && c.shown?.value != null);
+    const all = [...own, ...n.children.filter((c) => c.kind === "page" || c.kind === "report").flatMap(roll)];
+    if ((n.kind === "page" || n.kind === "report") && all.length) {
+      const first = all[0];
+      n.shown = { text: `${first.name}: ${first.shown!.text}`, value: first.shown!.value, at: first.shown!.at };
+      n.parts = all.slice(0, 8).map((c) => ({ name: c.name, text: c.shown!.text, value: c.shown!.value }));
+    }
+    return all;
+  };
+  tree.forEach((c) => c.children.forEach(roll));
   return tree;
 }
 

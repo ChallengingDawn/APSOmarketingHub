@@ -24,7 +24,7 @@ import SearchIcon from "@mui/icons-material/Search";
 
 import { FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import type { PlanItem } from "@/lib/reporting/actionPlanRules";
-import { numberOf, progressOf, type LibNode } from "@/lib/reporting/planKpiRules";
+import { figureText, numberOf, progressOf, type LibNode } from "@/lib/reporting/planKpiRules";
 import type { KpiProposal, PlanKpi } from "@/lib/reporting/planKpis";
 import { fmtValue, type Fmt } from "@/lib/marketingKpis/measures";
 import { buildViews, periodOf, useMarketingKpis, type KpiView } from "@/app/reporting/marketing-kpis/data";
@@ -71,13 +71,15 @@ function InlineNumber({ value, fmt, placeholder, canWrite, onSave, big = false }
  * showed it, the graph's own words under it; or typed where the hub reads nothing - its target in place, how far, and
  * which way is better. Read only on a category's view of its actions'.
  */
-function KpiCard({ k, place, view, shown, canWrite, onSet, onRemove }: {
+function KpiCard({ k, place, view, shown, parts, canWrite, onSet, onRemove }: {
   k: PlanKpi;
   /** where it is in Advanced reporting now - gone from it, its address as it was */
   place: string | null;
   view: KpiView | undefined;
   /** what its graph showed when its page was last drawn */
   shown: LibNode["shown"];
+  /** a page or a report picked whole: what its graphs show */
+  parts?: LibNode["parts"];
   canWrite: boolean; onSet: (p: { target?: number | null; goodUp?: boolean; current?: number | null }) => void; onRemove?: () => void;
 }) {
   const live = !!view && view.ytd != null;
@@ -100,7 +102,10 @@ function KpiCard({ k, place, view, shown, canWrite, onSet, onRemove }: {
       </Box>
       <Box sx={{ minHeight: 64 }}>
         {live || fromPage ? (
-          <Typography sx={{ fontSize: "1.7rem", fontWeight: 800, color: INK, letterSpacing: "-0.01em", lineHeight: 1.15, fontVariantNumeric: "tabular-nums" }}>{display(fmt, current)}</Typography>
+          <Typography sx={{ fontSize: "1.7rem", fontWeight: 800, color: INK, letterSpacing: "-0.01em", lineHeight: 1.15, fontVariantNumeric: "tabular-nums" }}>
+            {/* as its graph writes it - "73.4%", "CHF 4'000" - when it comes from the page */}
+            {fromPage ? figureText(shown!.text.slice(shown!.text.indexOf(": ") + 1)) ?? display(null, current) : display(fmt, current)}
+          </Typography>
         ) : (
           <InlineNumber value={k.current} fmt={null} placeholder="Type where it stands" canWrite={canWrite} big onSave={(v) => onSet({ current: v })} />
         )}
@@ -110,6 +115,18 @@ function KpiCard({ k, place, view, shown, canWrite, onSet, onRemove }: {
             : k.currentAt ? `typed · as of ${when(k.currentAt)}` : "the hub does not read it - typed"}
         </Typography>
       </Box>
+      {/* a whole page: its other graphs' figures, each by name */}
+      {fromPage && parts && parts.length > 1 && (
+        <Box sx={{ display: "grid", gap: 0.25, pt: 0.5, borderTop: `1px dashed ${HAIRLINE}` }}>
+          {parts.slice(1, 5).map((x) => (
+            <Box key={x.name} sx={{ display: "flex", gap: 0.75, alignItems: "baseline", minWidth: 0 }}>
+              <Typography noWrap sx={{ flex: 1, fontSize: "0.76rem", color: MUTED, minWidth: 0 }}>{x.name}</Typography>
+              <Typography sx={{ fontSize: "0.8rem", fontWeight: 750, color: INK, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{figureText(x.text) ?? display(null, x.value)}</Typography>
+            </Box>
+          ))}
+          {parts.length > 5 && <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>and {parts.length - 5} more on the page</Typography>}
+        </Box>
+      )}
       <Box sx={{ height: 6, borderRadius: "3px", bgcolor: "#eef1f6", overflow: "hidden" }}>
         <Box sx={{ height: "100%", width: `${Math.min(1, p.share ?? 0) * 100}%`, bgcolor: STATE[p.state] }} />
       </Box>
@@ -179,7 +196,8 @@ function LibraryBrowser({ tree, views, taken, busy, onAdd, onCancel }: {
           <Box sx={{ display: "flex", gap: 0.6, alignItems: "center", minWidth: 0 }}>
             <Typography noWrap sx={{ fontSize: "0.85rem", fontWeight: n.kind === "report" ? 750 : 600, color: had ? FAINT : INK, minWidth: 0 }}>{n.name}</Typography>
             {n.kind === "kpi" && <Box sx={{ ...TAG, bgcolor: v?.ytd != null ? TINT.green.bg : "#eef1f6", color: v?.ytd != null ? TINT.green.fg : MUTED }}>{v?.ytd != null ? `LIVE ${display(v.measure.fmt, v.ytd)}` : "KPI"}</Box>}
-            {n.kind === "graph" && <Box sx={{ ...TAG, bgcolor: "#eef1f6", color: MUTED }}>GRAPH</Box>}
+            {n.kind === "graph" && <Box sx={{ ...TAG, bgcolor: n.shown?.value != null ? TINT.green.bg : "#eef1f6", color: n.shown?.value != null ? TINT.green.fg : MUTED }}>{n.shown?.value != null ? `LIVE ${display(null, n.shown.value)}` : "GRAPH"}</Box>}
+            {n.kind === "kpi" && v?.ytd == null && n.shown?.value != null && <Box sx={{ ...TAG, bgcolor: TINT.green.bg, color: TINT.green.fg }}>{`LIVE ${display(null, n.shown.value)}`}</Box>}
             {had && <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>added</Typography>}
           </Box>
           {(opts.showPath || n.definition) && (
@@ -281,7 +299,7 @@ export function PlanKpis({ item, items, canWrite, onOpen }: { item: PlanItem; it
     fetch("/api/action-plan/kpis?library=1").then((r) => r.json()).then((j) => { if (live && j.ok) setTree(j.tree as LibNode[]); }).catch(() => undefined);
     return () => { live = false; };
   }, []);
-  const { places, shownBy } = useMemo(() => {
+  const { places, shownBy, partsBy } = useMemo(() => {
     const m = new Map<string, string>();
     const shown = new Map<string, LibNode["shown"]>();
     const walk = (n: LibNode) => {
@@ -290,7 +308,10 @@ export function PlanKpis({ item, items, canWrite, onOpen }: { item: PlanItem; it
       n.children.forEach(walk);
     };
     (tree ?? []).forEach(walk);
-    return { places: m, shownBy: shown };
+    const parts = new Map<string, NonNullable<LibNode["parts"]>>();
+    const walkParts = (n: LibNode) => { if (n.parts && !parts.has(n.key)) parts.set(n.key, n.parts); n.children.forEach(walkParts); };
+    (tree ?? []).forEach(walkParts);
+    return { places: m, shownBy: shown, partsBy: parts };
   }, [tree]);
   const [mk] = useMarketingKpis();
   const live = mk?.live?.value;
@@ -392,7 +413,7 @@ export function PlanKpis({ item, items, canWrite, onOpen }: { item: PlanItem; it
       {n > 0 && (
         <Box sx={GRID}>
           {data!.kpis.map((k) => (
-            <KpiCard key={k.id} k={k} place={places.get(k.key) ?? null} view={viewOf(k)} shown={shownBy.get(k.key)} canWrite={canWrite}
+            <KpiCard key={k.id} k={k} place={places.get(k.key) ?? null} view={viewOf(k)} shown={shownBy.get(k.key)} parts={partsBy.get(k.key)} canWrite={canWrite}
               onSet={(p) => void post({ action: "set", id: k.id, ...p })} onRemove={() => void post({ action: "remove", id: k.id })} />
           ))}
         </Box>
@@ -407,7 +428,7 @@ export function PlanKpis({ item, items, canWrite, onOpen }: { item: PlanItem; it
               <Box component="button" type="button" onClick={() => onOpen(a)}
                 sx={{ all: "unset", cursor: "pointer", fontSize: "0.84rem", fontWeight: 700, color: TINT.blue.fg, "&:hover": { textDecoration: "underline" } }}>{a.title}</Box>
               <Box sx={GRID}>
-                {ks.map((k) => <KpiCard key={k.id} k={k} place={places.get(k.key) ?? null} view={viewOf(k)} shown={shownBy.get(k.key)} canWrite={false} onSet={() => undefined} />)}
+                {ks.map((k) => <KpiCard key={k.id} k={k} place={places.get(k.key) ?? null} view={viewOf(k)} shown={shownBy.get(k.key)} parts={partsBy.get(k.key)} canWrite={false} onSet={() => undefined} />)}
               </Box>
             </Box>
           ))}

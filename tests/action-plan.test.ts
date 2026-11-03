@@ -10,7 +10,7 @@ import {
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
-import { figureOf, flatLibrary, kpiLibrary, libraryTree, numberOf, progressOf, type LibNode } from "../src/lib/reporting/planKpiRules";
+import { figureOf, figureText, flatLibrary, kpiLibrary, libraryTree, numberOf, progressOf, type LibNode } from "../src/lib/reporting/planKpiRules";
 import { REPORT_CATEGORIES } from "../src/lib/reporting/categories";
 import { KPIS } from "../src/lib/marketingKpis/catalogue";
 
@@ -647,4 +647,31 @@ test("action plan: a graph's figure is the one its own words open with", () => {
   tree.forEach(walk);
   assert.equal(all.find((n) => n.key === "tile:/reporting/eso-benchmark/visits#visits:months")?.shown?.value, 1234);
   assert.equal(all.find((n) => n.key === "kpi:H06")?.shown?.value, 812000);
+});
+
+test("action plan: a whole page picked has its graphs' real figures - the first one its own, the others listed", () => {
+  const tree = libraryTree([
+    { path: "/reporting/eso-benchmark/visits", key: "a", title: "Visits by month", kind: "card", kpiId: null, summary: "1,234 against 1,100", value: 1234, at: "2026-11-04 00:40" },
+    { path: "/reporting/eso-benchmark/visits", key: "b", title: "Visits per sales rep", kind: "card", kpiId: null, summary: "41 · per rep", value: 41, at: "2026-11-04 00:40" },
+    { path: "/reporting/eso-benchmark/visits", key: "c", title: "A leaderboard", kind: "card", kpiId: null },
+  ]);
+  const all: LibNode[] = [];
+  const walk = (n: LibNode) => { all.push(n); n.children.forEach(walk); };
+  tree.forEach(walk);
+  const page = all.find((n) => n.kind === "page" && n.href === "/reporting/eso-benchmark/visits");
+  assert.equal(page?.shown?.value, 1234);
+  assert.equal(page?.shown?.text, "Visits by month: 1,234 against 1,100");
+  assert.deepEqual(page?.parts?.map((x) => [x.name, x.value]), [["Visits by month", 1234], ["Visits per sales rep", 41]]);
+  // the report above it: its pages' figures
+  const eso = all.find((n) => n.kind === "report" && n.name === "ESO KPIs");
+  assert.equal(eso?.shown?.value, 1234);
+  // a page with no graph saying a figure has none
+  assert.equal(all.find((n) => n.kind === "page" && n.href === "/reporting/eso-benchmark/calls")?.shown, undefined);
+});
+
+test("action plan: a graph's figure shown as its words write it", () => {
+  assert.equal(figureText("73.4% · KPI autonomy, Jan–Oct 2026"), "73.4%");
+  assert.equal(figureText("CHF 812,000 this year so far"), "CHF 812,000");
+  assert.equal(figureText("21,526 created, 21,952 closed"), "21,526");
+  assert.equal(figureText("No figure yet"), null);
 });
