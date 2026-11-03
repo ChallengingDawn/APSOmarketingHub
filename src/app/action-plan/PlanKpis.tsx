@@ -30,7 +30,7 @@ import { fmtValue, type Fmt } from "@/lib/marketingKpis/measures";
 import { buildViews, periodOf, useMarketingKpis, type KpiView } from "@/app/reporting/marketing-kpis/data";
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
 import { AI_INK, AI_LINE, AI_SOFT, field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
-import { label, square } from "./SubActions";
+import { label } from "./SubActions";
 
 const card = { display: "grid", rowGap: 1.75, columnGap: 1.25, p: 2, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, alignContent: "start" } as const;
 const section = { fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
@@ -43,66 +43,91 @@ const display = (fmt: Fmt | null, v: number | null) => (fmt ? fmtValue(fmt, v) :
 /** What a box shows and reads: a rate typed in percent, kept as a fraction as the KPI's figures are. */
 const boxOf = (fmt: Fmt | null, v: number | null) => (v == null ? "" : fmt === "pct" ? String(+(v * 100).toFixed(2)) : String(v));
 const readBox = (fmt: Fmt | null, text: string) => { const n = numberOf(text); return n == null ? null : fmt === "pct" ? n / 100 : n; };
-const STATE = { reached: GREEN, close: TINT.amber.fg, behind: RED, none: FAINT } as const;
+const STATE = { reached: GREEN, close: TINT.amber.fg, behind: RED, none: HAIRLINE } as const;
+/** The cards, as many in a row as the window holds. */
+const GRID = { display: "grid", gap: 1.25, gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))" } as const;
 
-/** A box handed up when it is left. */
-function NumberBox({ value, fmt, label: l, canWrite, onSave }: { value: number | null; fmt: Fmt | null; label: string; canWrite: boolean; onSave: (v: number | null) => void }) {
+/** A figure typed in place - a quiet box until it is used, handed up when it is left. */
+function InlineNumber({ value, fmt, placeholder, canWrite, onSave, big = false }: {
+  value: number | null; fmt: Fmt | null; placeholder: string; canWrite: boolean; onSave: (v: number | null) => void; big?: boolean;
+}) {
   const [v, setV] = useState(boxOf(fmt, value));
   useEffect(() => { setV(boxOf(fmt, value)); }, [fmt, value]);
   return (
-    <TextField size="small" label={l} value={v} disabled={!canWrite} onChange={(e) => setV(e.target.value)}
-      onBlur={() => { const n = readBox(fmt, v); if (n !== value) onSave(n); }} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-      sx={field} slotProps={{ inputLabel: { shrink: true }, htmlInput: { inputMode: "decimal" }, input: { endAdornment: fmt === "pct" ? <Typography sx={{ fontSize: "0.82rem", color: FAINT }}>%</Typography> : undefined } }} />
+    <Box component="input" value={v} placeholder={placeholder} disabled={!canWrite} inputMode="decimal"
+      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setV(e.target.value)}
+      onBlur={() => { const n = readBox(fmt, v); if (n !== value) onSave(n); }}
+      onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      sx={{ all: "unset", boxSizing: "border-box", width: big ? "100%" : 110, px: 0.75, py: big ? 0.25 : 0.4, borderRadius: "6px", border: "1px solid transparent",
+        font: "inherit", fontSize: big ? "1.7rem" : "0.86rem", fontWeight: big ? 800 : 700, color: INK, fontVariantNumeric: "tabular-nums",
+        "&::placeholder": { color: FAINT, fontWeight: big ? 600 : 500, fontSize: big ? "0.95rem" : "0.82rem" },
+        "&:hover": canWrite ? { borderColor: HAIRLINE } : {}, "&:focus": { borderColor: TINT.blue.fg, bgcolor: "#fff" } }} />
   );
 }
 
-/** One KPI: what it is and where, where it stands, its target, how far - and the way to take it off. */
-function KpiRow({ k, place, view, canWrite, onSet, onRemove }: {
+/**
+ * One KPI as a card (SARCLA 03.11.2026: "I really don't like the design like this" of the rows; "we should see the real
+ * KPIs"): its name and place, its figure large - live, the year so far of its Digital Growth page; as its page last
+ * showed it, the graph's own words under it; or typed where the hub reads nothing - its target in place, how far, and
+ * which way is better. Read only on a category's view of its actions'.
+ */
+function KpiCard({ k, place, view, shown, canWrite, onSet, onRemove }: {
   k: PlanKpi;
   /** where it is in Advanced reporting now - gone from it, its address as it was */
   place: string | null;
-  view: KpiView | undefined; canWrite: boolean; onSet: (p: { target?: number | null; goodUp?: boolean; current?: number | null }) => void; onRemove: () => void;
+  view: KpiView | undefined;
+  /** what its graph showed when its page was last drawn */
+  shown: LibNode["shown"];
+  canWrite: boolean; onSet: (p: { target?: number | null; goodUp?: boolean; current?: number | null }) => void; onRemove?: () => void;
 }) {
   const live = !!view && view.ytd != null;
-  const fmt: Fmt | null = view?.measure.fmt ?? null;
-  const current = live ? view!.ytd : k.current;
+  const fromPage = !live && !!shown && shown.value != null;
+  const fmt: Fmt | null = live ? view!.measure.fmt : null;
+  const current = live ? view!.ytd : fromPage ? shown!.value : k.current;
   const p = progressOf(current, k.target, k.goodUp);
+  const when = (s: string | null | undefined) => (s ? `${s.slice(8, 10)}.${s.slice(5, 7)}.${s.slice(0, 4)}${s.length > 10 ? ` ${s.slice(11, 16)}` : ""}` : "");
   return (
-    <Box sx={{ display: "grid", gap: 1.25, alignItems: "center", py: 1.25, borderTop: `1px solid ${HAIRLINE}`,
-      gridTemplateColumns: { xs: "1fr", md: "minmax(0, 2fr) minmax(0, 1.1fr) 140px minmax(0, 1.5fr) 34px" } }}>
-      <Box sx={{ minWidth: 0 }}>
-        <Box component="a" href={k.href} target="_blank" rel="noopener" title="Open it in Advanced reporting"
-          sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK, textDecoration: "none", "&:hover": { color: TINT.blue.fg, textDecoration: "underline" } }}>{k.label}</Box>
-        <Box sx={{ display: "flex", gap: 0.6, alignItems: "center", mt: 0.25, minWidth: 0 }}>
-          <Box sx={{ ...TAG, bgcolor: live ? TINT.green.bg : "#eef1f6", color: live ? TINT.green.fg : MUTED }}>{live ? "LIVE" : "TYPED"}</Box>
-          <Typography noWrap sx={{ fontSize: "0.76rem", color: FAINT, minWidth: 0 }}>{k.unit ? `${k.unit} · ` : ""}{place ?? `no longer in Advanced reporting (${k.href})`}</Typography>
+    // one column the card's width: a long line is cut, never widening the card past its border
+    <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.9, p: 1.75, borderRadius: "12px", border: `1px solid ${HAIRLINE}`, borderTop: `3px solid ${STATE[p.state]}`, bgcolor: "#fff", alignContent: "start", minWidth: 0 }}>
+      <Box sx={{ display: "flex", gap: 0.75, alignItems: "flex-start" }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box component="a" href={k.href} target="_blank" rel="noopener" title="Open it in Advanced reporting"
+            sx={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: "0.92rem", fontWeight: 750, color: INK, lineHeight: 1.3, textDecoration: "none", "&:hover": { color: TINT.blue.fg, textDecoration: "underline" } }}>{k.label}</Box>
+          <Typography noWrap title={place ?? k.href} sx={{ fontSize: "0.74rem", color: FAINT }}>{place ?? `no longer in Advanced reporting (${k.href})`}</Typography>
         </Box>
+        <Box sx={{ ...TAG, mt: 0.25, bgcolor: live || fromPage ? TINT.green.bg : "#eef1f6", color: live || fromPage ? TINT.green.fg : MUTED }}>{live || fromPage ? "LIVE" : "TYPED"}</Box>
+        {onRemove && canWrite && <IconButton size="small" aria-label={`Take “${k.label}” off`} onClick={onRemove} sx={{ p: 0.25, mt: -0.25 }}><CloseIcon sx={{ fontSize: 17, color: FAINT }} /></IconButton>}
       </Box>
-      {live ? (
-        <Box>
-          <Typography sx={{ fontSize: "1.05rem", fontWeight: 800, color: INK, fontVariantNumeric: "tabular-nums" }}>{display(fmt, current)}</Typography>
-          <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{periodOf(view!)}</Typography>
-        </Box>
-      ) : (
-        <Box sx={{ display: "grid", gap: 0.25 }}>
-          <NumberBox value={k.current} fmt={null} label="Where it stands" canWrite={canWrite} onSave={(v) => onSet({ current: v })} />
-          <Typography sx={{ fontSize: "0.72rem", color: FAINT, pl: 0.25 }}>{k.currentAt ? `as of ${k.currentAt.split("-").reverse().join(".")}` : "typed - the hub does not read it"}</Typography>
-        </Box>
+      <Box sx={{ minHeight: 64 }}>
+        {live || fromPage ? (
+          <Typography sx={{ fontSize: "1.7rem", fontWeight: 800, color: INK, letterSpacing: "-0.01em", lineHeight: 1.15, fontVariantNumeric: "tabular-nums" }}>{display(fmt, current)}</Typography>
+        ) : (
+          <InlineNumber value={k.current} fmt={null} placeholder="Type where it stands" canWrite={canWrite} big onSave={(v) => onSet({ current: v })} />
+        )}
+        <Typography noWrap title={fromPage ? shown!.text : undefined} sx={{ fontSize: "0.76rem", color: MUTED }}>
+          {live ? `${periodOf(view!)}${k.unit ? ` · ${k.unit}` : ""}`
+            : fromPage ? `${shown!.text}${shown!.at ? ` · as its page showed it ${when(shown!.at)}` : ""}`
+            : k.currentAt ? `typed · as of ${when(k.currentAt)}` : "the hub does not read it - typed"}
+        </Typography>
+      </Box>
+      <Box sx={{ height: 6, borderRadius: "3px", bgcolor: "#eef1f6", overflow: "hidden" }}>
+        <Box sx={{ height: "100%", width: `${Math.min(1, p.share ?? 0) * 100}%`, bgcolor: STATE[p.state] }} />
+      </Box>
+      <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
+        <Typography sx={{ fontSize: "0.82rem", fontWeight: 750, color: STATE[p.state] }}>
+          {p.share == null ? (k.target == null ? "No target yet" : "No figure yet") : `${Math.round(p.share * 100)} % of target`}
+        </Typography>
+        <Box sx={{ flex: 1 }} />
+        <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>Target</Typography>
+        {canWrite
+          ? <InlineNumber value={k.target} fmt={fmt} placeholder="set it" canWrite onSave={(v) => onSet({ target: v })} />
+          : <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>{k.target == null ? "—" : display(fmt, k.target)}</Typography>}
+        {fmt === "pct" && <Typography sx={{ fontSize: "0.78rem", color: FAINT, ml: -0.5 }}>%</Typography>}
+      </Box>
+      {canWrite && (
+        <Box component="button" type="button" onClick={() => onSet({ goodUp: !k.goodUp })} title="Click to turn it round"
+          sx={{ all: "unset", cursor: "pointer", justifySelf: "start", fontSize: "0.74rem", color: FAINT, "&:hover": { color: TINT.blue.fg } }}>{k.goodUp ? "↑ higher is better" : "↓ lower is better"}</Box>
       )}
-      <NumberBox value={k.target} fmt={live ? fmt : null} label="Target" canWrite={canWrite} onSave={(v) => onSet({ target: v })} />
-      <Box sx={{ display: "grid", gap: 0.5, minWidth: 0 }}>
-        <Box sx={{ height: 8, borderRadius: "2px", bgcolor: "#eef1f6", overflow: "hidden" }}>
-          <Box sx={{ height: "100%", width: `${Math.min(1, p.share ?? 0) * 100}%`, bgcolor: STATE[p.state] }} />
-        </Box>
-        <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
-          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: STATE[p.state] }}>
-            {p.share == null ? (k.target == null ? "No target yet" : "No figure yet") : `${Math.round(p.share * 100)} % of target`}
-          </Typography>
-          <Box component="button" type="button" disabled={!canWrite} onClick={() => onSet({ goodUp: !k.goodUp })} title="Click to turn it round"
-            sx={{ ...square(false, MUTED, "#fff", canWrite), fontSize: "0.72rem", py: 0.1 }}>{k.goodUp ? "↑ higher is better" : "↓ lower is better"}</Box>
-        </Box>
-      </Box>
-      {canWrite ? <IconButton size="small" aria-label={`Take “${k.label}” off`} onClick={onRemove}><CloseIcon sx={{ fontSize: 18, color: FAINT }} /></IconButton> : <Box />}
     </Box>
   );
 }
@@ -256,11 +281,16 @@ export function PlanKpis({ item, items, canWrite, onOpen }: { item: PlanItem; it
     fetch("/api/action-plan/kpis?library=1").then((r) => r.json()).then((j) => { if (live && j.ok) setTree(j.tree as LibNode[]); }).catch(() => undefined);
     return () => { live = false; };
   }, []);
-  const places = useMemo(() => {
+  const { places, shownBy } = useMemo(() => {
     const m = new Map<string, string>();
-    const walk = (n: LibNode) => { if (n.kind !== "category" && !m.has(n.key)) m.set(n.key, n.kind === "report" || n.kind === "page" ? `${n.path} › ${n.name}` : n.path); n.children.forEach(walk); };
+    const shown = new Map<string, LibNode["shown"]>();
+    const walk = (n: LibNode) => {
+      if (n.kind !== "category" && !m.has(n.key)) m.set(n.key, n.kind === "report" || n.kind === "page" ? `${n.path} › ${n.name}` : n.path);
+      if (n.shown && !shown.has(n.key)) shown.set(n.key, n.shown);
+      n.children.forEach(walk);
+    };
     (tree ?? []).forEach(walk);
-    return m;
+    return { places: m, shownBy: shown };
   }, [tree]);
   const [mk] = useMarketingKpis();
   const live = mk?.live?.value;
@@ -313,7 +343,7 @@ export function PlanKpis({ item, items, canWrite, onOpen }: { item: PlanItem; it
         )}
       </Box>
       <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: -1 }}>
-        From the reports and KPIs of Advanced reporting - a KPI the hub reads is measured live, its year so far against the target; for any other the figure is typed.
+        Picked from Advanced reporting - each shows its real figure: live from its Digital Growth page, or as its graph last showed it; typed only where the hub reads nothing.
       </Typography>
       {err && <Typography sx={{ fontSize: "0.84rem", color: RED }}>{err}</Typography>}
 
@@ -360,9 +390,9 @@ export function PlanKpis({ item, items, canWrite, onOpen }: { item: PlanItem; it
       {!data && !err && <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Reading its KPIs…</Typography></Box>}
       {data && !n && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>None yet - add them from Advanced reporting, or let the AI propose them.</Typography>}
       {n > 0 && (
-        <Box>
+        <Box sx={GRID}>
           {data!.kpis.map((k) => (
-            <KpiRow key={k.id} k={k} place={places.get(k.key) ?? null} view={viewOf(k)} canWrite={canWrite}
+            <KpiCard key={k.id} k={k} place={places.get(k.key) ?? null} view={viewOf(k)} shown={shownBy.get(k.key)} canWrite={canWrite}
               onSet={(p) => void post({ action: "set", id: k.id, ...p })} onRemove={() => void post({ action: "remove", id: k.id })} />
           ))}
         </Box>
@@ -373,25 +403,12 @@ export function PlanKpis({ item, items, canWrite, onOpen }: { item: PlanItem; it
         <Box sx={{ display: "grid", gap: 1 }}>
           <Typography sx={{ ...label, mt: 0.5 }}>Its actions&apos; KPIs</Typography>
           {byAction.map(({ a, ks }) => (
-            <Box key={a.id} sx={{ display: "grid", gap: 0.25 }}>
+            <Box key={a.id} sx={{ display: "grid", gap: 0.75 }}>
               <Box component="button" type="button" onClick={() => onOpen(a)}
                 sx={{ all: "unset", cursor: "pointer", fontSize: "0.84rem", fontWeight: 700, color: TINT.blue.fg, "&:hover": { textDecoration: "underline" } }}>{a.title}</Box>
-              {ks.map((k) => {
-                const v = viewOf(k);
-                const cur = v && v.ytd != null ? v.ytd : k.current;
-                const p = progressOf(cur, k.target, k.goodUp);
-                const fmt = v?.measure.fmt ?? null;
-                return (
-                  <Box key={k.id} sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.2fr)" }, gap: 1, alignItems: "center", pl: 1.5 }}>
-                    <Typography noWrap sx={{ fontSize: "0.84rem", color: INK, minWidth: 0 }}>{k.label}</Typography>
-                    <Typography sx={{ fontSize: "0.82rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{display(fmt, cur)}{k.target != null ? ` / ${display(fmt, k.target)}` : ""}</Typography>
-                    <Box sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>
-                      <Box sx={{ flex: 1, height: 6, borderRadius: "2px", bgcolor: "#eef1f6", overflow: "hidden" }}><Box sx={{ height: "100%", width: `${Math.min(1, p.share ?? 0) * 100}%`, bgcolor: STATE[p.state] }} /></Box>
-                      <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: STATE[p.state], minWidth: 44, textAlign: "right" }}>{p.share == null ? "—" : `${Math.round(p.share * 100)} %`}</Typography>
-                    </Box>
-                  </Box>
-                );
-              })}
+              <Box sx={GRID}>
+                {ks.map((k) => <KpiCard key={k.id} k={k} place={places.get(k.key) ?? null} view={viewOf(k)} shown={shownBy.get(k.key)} canWrite={false} onSet={() => undefined} />)}
+              </Box>
             </Box>
           ))}
         </Box>

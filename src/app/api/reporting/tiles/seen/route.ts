@@ -10,7 +10,8 @@ export async function POST(req: NextRequest) {
   if (!(await getOptionalUser())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const b = (await req.json().catch(() => ({}))) as { tiles?: unknown };
   const tiles = (Array.isArray(b.tiles) ? b.tiles : []).filter((t): t is Record<string, unknown> => !!t && typeof t === "object")
-    .map((t): SeenTile => ({ path: String(t.path ?? ""), key: String(t.key ?? ""), title: String(t.title ?? ""), kind: String(t.kind ?? "card"), kpiId: typeof t.kpiId === "string" ? t.kpiId : null }));
+    .map((t): SeenTile => ({ path: String(t.path ?? ""), key: String(t.key ?? ""), title: String(t.title ?? ""), kind: String(t.kind ?? "card"), kpiId: typeof t.kpiId === "string" ? t.kpiId : null,
+      summary: typeof t.summary === "string" ? t.summary : null }));
   try { return NextResponse.json({ ok: true, seen: await tilesSeen(tiles) }); }
   catch (e) { return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 }); }
 }

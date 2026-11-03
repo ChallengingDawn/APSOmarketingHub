@@ -10,7 +10,7 @@ import {
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
-import { flatLibrary, kpiLibrary, libraryTree, numberOf, progressOf, type LibNode } from "../src/lib/reporting/planKpiRules";
+import { figureOf, flatLibrary, kpiLibrary, libraryTree, numberOf, progressOf, type LibNode } from "../src/lib/reporting/planKpiRules";
 import { REPORT_CATEGORIES } from "../src/lib/reporting/categories";
 import { KPIS } from "../src/lib/marketingKpis/catalogue";
 
@@ -628,4 +628,23 @@ test("action plan: the KPI library as Advanced reporting's tree - a page's graph
   assert.equal(new Set(flat.map((x) => x.key)).size, flat.length);
   assert.equal(flat.find((x) => x.key.startsWith("tile:"))?.kind, "graph");
   assert.equal(flat.filter((x) => x.kind === "kpi").length, KPIS.length);
+});
+
+test("action plan: a graph's figure is the one its own words open with", () => {
+  assert.equal(figureOf("30,216 Jan-Sep, -28% vs last year"), 30216);
+  assert.equal(figureOf("12.5% of visits"), 12.5);
+  assert.equal(figureOf("CHF 4'000 this year"), 4000);
+  assert.equal(figureOf("€1,250 against €1,100"), 1250);
+  assert.equal(figureOf("1234 against 1100 · all of ESO"), 1234);
+  assert.equal(figureOf("No figure yet"), null);
+  // a library's graph and KPI carry what their page last showed
+  const tree = libraryTree([
+    { path: "/reporting/eso-benchmark/visits", key: "visits:months", title: "Visits by month", kind: "card", kpiId: null, summary: "1,234 against 1,100 · all of ESO", value: 1234, at: "2026-11-03 21:40" },
+    { path: "/reporting/marketing-kpis/handover", key: "handover::H06", title: "Pipeline potential", kind: "kpi", kpiId: "H06", summary: "CHF 812,000 this year so far", value: 812000, at: "2026-11-03 21:41" },
+  ]);
+  const all: LibNode[] = [];
+  const walk = (n: LibNode) => { all.push(n); n.children.forEach(walk); };
+  tree.forEach(walk);
+  assert.equal(all.find((n) => n.key === "tile:/reporting/eso-benchmark/visits#visits:months")?.shown?.value, 1234);
+  assert.equal(all.find((n) => n.key === "kpi:H06")?.shown?.value, 812000);
 });

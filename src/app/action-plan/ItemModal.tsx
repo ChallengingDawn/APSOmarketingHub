@@ -36,7 +36,7 @@ import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 
 import { FAINT, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { BUC_MEMBERS, KILLED, PRIORITIES, STAGES, isClosed, isLate, priorityLabel, stageOf, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
+import { BUC_MEMBERS, KILLED, PRIORITIES, STAGES, isClosed, priorityLabel, stageOf, subClosed, subLate, subOrder, subSoon, subStage, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
 import { LATE, PRIORITY_COLOR, SUMMARY, dmy, stageColor, todayIso, type PlanData } from "./planUi";
 import { ActionTicket, CoreFields, SubActions, label, planTile, square } from "./SubActions";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
@@ -313,6 +313,70 @@ function Everything({ item, items, rolledAll, colorOf, onOpen, onAdd }: {
   );
 }
 
+/** A sub-action in a category's window: one line, as in its action's window - its status, priority, who, when. */
+function CategorySubLine({ s, today, onOpen }: { s: PlanSub; today: string; onOpen: () => void }) {
+  const stage = subStage(s);
+  const late = subLate(s, today);
+  const soon = !late && subSoon(s, today);
+  const prio = priorityLabel(s.priority);
+  const closed = subClosed(s);
+  return (
+    <Box component="button" type="button" onClick={onOpen} title="Open the sub-action"
+      sx={{ all: "unset", boxSizing: "border-box", width: "100%", cursor: "pointer", display: "grid", gap: 0.35, px: 1.25, py: 0.9, borderRadius: "8px", border: `1px solid ${HAIRLINE}`,
+        borderLeft: `4px solid ${stage ? stageColor(stage.id).bar : HAIRLINE}`, bgcolor: "#fff", minWidth: 0,
+        "&:hover": { borderColor: TINT.blue.fg }, "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: -2 } }}>
+      <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", minWidth: 0 }}>
+        {stage ? <Box sx={{ ...TAG, bgcolor: stageColor(stage.id).soft, color: stageColor(stage.id).ink }}>{stage.label}</Box>
+          : <Typography sx={{ flexShrink: 0, fontSize: "0.72rem", color: FAINT, fontStyle: "italic" }}>No status</Typography>}
+        {prio && <Box sx={{ ...TAG, bgcolor: PRIORITY_COLOR[s.priority].bg, color: PRIORITY_COLOR[s.priority].fg }}>{prio}</Box>}
+        {late && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>LATE</Box>}
+        {soon && <Box sx={{ ...TAG, bgcolor: TINT.amber.bg, color: TINT.amber.fg }}>DUE SOON</Box>}
+        <Typography noWrap sx={{ fontSize: "0.86rem", fontWeight: 650, color: closed ? MUTED : INK, minWidth: 0, textDecoration: closed ? "line-through" : "none" }}>{s.title}</Typography>
+      </Box>
+      <Typography noWrap sx={{ fontSize: "0.76rem", color: FAINT }}>
+        {[s.ownerName, s.start && s.due ? `${dmy(s.start)} → ${dmy(s.due)}` : s.due ? `go-live ${dmy(s.due)}` : s.start ? `planned ${dmy(s.start)}` : "",
+          s.tickets ? `${s.tickets} ticket${s.tickets === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ") || "No one, no date yet"}
+      </Typography>
+    </Box>
+  );
+}
+
+/**
+ * A category's sub-actions, its actions' one under the other (SARCLA 03.11.2026: "on main categories we should also see
+ * sub-actions"): each action a heading that opens it, its sub-actions as in its own window - open first, then the closed
+ * ones - each opening in its own window.
+ */
+function CategorySubs({ item, items, allSubs, onOpen, onOpenSub }: {
+  item: PlanItem; items: PlanItem[]; allSubs: PlanSub[]; onOpen: (i: PlanItem) => void; onOpenSub: (id: number) => void;
+}) {
+  const today = todayIso();
+  const groups = actionsUnder(item.id, items).map((a) => ({ a, ss: subOrder(allSubs.filter((s) => s.item === a.id)) })).filter((g) => g.ss.length);
+  if (!groups.length) return null;
+  const all = groups.flatMap((g) => g.ss);
+  const done = all.filter(subClosed).length;
+  return (
+    <Box sx={card}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+        <TaskAltIcon sx={{ fontSize: 18, color: FAINT }} />
+        <Typography sx={{ ...section, flex: 1 }}>Sub-actions · {done} of {all.length} done</Typography>
+        <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>Click one to open it</Typography>
+      </Box>
+      {groups.map(({ a, ss }) => (
+        <Box key={a.id} sx={{ display: "grid", gap: 0.75 }}>
+          <Box component="button" type="button" onClick={() => onOpen(a)}
+            sx={{ all: "unset", cursor: "pointer", display: "flex", gap: 0.75, alignItems: "baseline", "&:hover .t": { color: TINT.blue.fg, textDecoration: "underline" } }}>
+            <Typography className="t" sx={{ fontSize: "0.88rem", fontWeight: 800, color: INK }}>{a.title}</Typography>
+            <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>{ss.filter(subClosed).length} of {ss.length} done</Typography>
+          </Box>
+          <Box sx={{ display: "grid", gap: 0.75, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 1fr) minmax(0, 1fr)" } }}>
+            {ss.map((x) => <CategorySubLine key={x.id} s={x} today={today} onOpen={() => onOpenSub(x.id)} />)}
+          </Box>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
 /** The KPI view: where it stands; for a category its actions by status and priority, and what is late. The KPI
  *  actions will feed it (SARCLA 01.11.2026: "this KPI will be fed by the KPI actions, later to come"). */
 function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen }: {
@@ -321,35 +385,12 @@ function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen
 }) {
   const today = todayIso();
   const action = item.kind === "action";
-  const rolled = rolledAll.get(item.id);
-  const fromSubs = action && subs.length > 0 && !isClosed(item.stage) && item.percent !== 100;
-  const pct = fromSubs ? rolled?.percent ?? 0 : action ? item.percent : rolled?.percent;
   const under = action ? [] : actionsUnder(item.id, items);
   const byStage = [...STAGES.map((s) => ({ id: s.id as string | null, label: s.label, n: under.filter((i) => i.stage === s.id).length })), { id: null, label: "No status", n: under.filter((i) => !stageOf(i.stage)).length }].filter((x) => x.n);
   const late = under.filter((i) => rolledAll.get(i.id)?.lateSelf);
   const tiles = subs.filter((s) => s.kpiHref);
-  const from = action ? item.start : rolled?.from ?? null;
-  const to = action ? item.due : rolled?.to ?? null;
   return (
     <Box sx={{ display: "grid", gap: 2.25, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 1fr) minmax(0, 1fr)" }, alignItems: "start" }}>
-      <Box sx={{ ...card, gridColumn: "1 / -1" }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-          <InsightsOutlinedIcon sx={{ fontSize: 18, color: FAINT }} />
-          <Typography sx={{ ...section, flex: 1 }}>Where it stands</Typography>
-          <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>The KPI actions will feed this view</Typography>
-        </Box>
-        <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.25, flexWrap: "wrap" }}>
-          <Typography sx={{ fontSize: "2.6rem", fontWeight: 800, color: INK, letterSpacing: "-0.02em", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{pct == null ? "—" : `${pct} %`}</Typography>
-          <Typography sx={{ fontSize: "0.9rem", color: MUTED }}>
-            complete{rolled?.late ? ` · ${rolled.late} late` : ""}{(rolled?.subs ?? 0) > 0 ? ` · ${rolled!.subs - rolled!.subsOpen} of ${rolled!.subs} sub-actions done` : ""}{fromSubs ? " · from its sub-actions" : ""}
-          </Typography>
-        </Box>
-        <Box sx={{ height: 8, borderRadius: "2px", bgcolor: "#eef1f6", overflow: "hidden" }}>
-          <Box sx={{ height: "100%", width: `${Math.max(0, Math.min(100, pct ?? 0))}%`, bgcolor: action ? stageColor(item.stage).bar : colorOf(item) ?? TINT.blue.fg }} />
-        </Box>
-        {(from || to) && <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>{action ? "Planned " : ""}{dmy(from) || "…"} – {action ? "go-live " : ""}{dmy(to) || "…"}</Typography>}
-      </Box>
-
       {/* what it is measured by - from Advanced reporting, each with its target (SARCLA 03.11.2026) */}
       <Box sx={{ gridColumn: "1 / -1", minWidth: 0 }}><PlanKpis item={item} items={items} canWrite={canWrite} onOpen={onOpen} /></Box>
 
@@ -403,8 +444,10 @@ function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen
   );
 }
 
-export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peopleError, choices, colorOf, onClose, onOpen, onOpenSub, onPatch, onChanged, onAddUnder, onDelete, onMoveTo }: {
+export function ItemModal({ item, items, rolledAll, subs, allSubs, canWrite, people, peopleError, choices, colorOf, onClose, onOpen, onOpenSub, onPatch, onChanged, onAddUnder, onDelete, onMoveTo }: {
   item: PlanItem; items: PlanItem[]; rolledAll: Map<number, Rolled>; subs: PlanSub[]; canWrite: boolean; onClose: () => void;
+  /** every sub-action of the plan - a category's window lists its actions' */
+  allSubs: PlanSub[];
   people: PlanOwner[]; peopleError: string | null; choices: PlanData["choices"];
   colorOf: (i: PlanItem) => string | null;
   /** another row, opened from a tile */
@@ -508,6 +551,7 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
               </Box>
             )}
             <Everything item={item} items={items} rolledAll={rolledAll} colorOf={colorOf} onOpen={onOpen} onAdd={canWrite ? onAddUnder : undefined} />
+            <CategorySubs item={item} items={items} allSubs={allSubs} onOpen={onOpen} onOpenSub={onOpenSub} />
           </Box>
         ) : (
           <Box sx={{ display: "grid", gap: 2.25, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 1.55fr) minmax(0, 1fr)" } }}>

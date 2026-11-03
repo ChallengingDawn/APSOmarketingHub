@@ -117,8 +117,16 @@ export function SummitMountain({ s, mode }: { s: SummitData | null; mode: "card"
   // not aligned with the line" - it ran through the path's value for this year); the path takes over after it
   const data = (s.current ? [P[0], N, ...P.filter((q) => q[0] > N[0])] : P).map(XY);
   const top = data[data.length - 1];
-  const back: Pt[] = [[top[0] + 24, top[1] + 38], [top[0] + 44, top[1] + 62], [top[0] + 70, top[1] + 78]];
-  const crest: Pt[] = [[L.x0 - 60, L.base - 2], [L.x0 - 28, L.yb - 22], ...data, ...back];
+  // after the summit the climb goes on to the edge (SARCLA 03.11.2026: "after 2031 the mountain drops completely - this
+  // needs to continue growing", here and on the main menu's card): the last stretch's slope, a little gentler, never
+  // above the flag's label
+  const prev = data[data.length - 2] ?? [top[0] - 40, top[1] + 20];
+  const rise = (top[1] - prev[1]) / Math.max(1, top[0] - prev[0]);
+  const onward: Pt[] = [1, 2, 3].map((k) => {
+    const x = top[0] + ((L.vw + 14 - top[0]) * k) / 3;
+    return [x, Math.max(L.yt - 30, top[1] + rise * (x - top[0]) * 0.8)];
+  });
+  const crest: Pt[] = [[L.x0 - 60, L.base - 2], [L.x0 - 28, L.yb - 22], ...data, ...onward];
   const ridge = smooth(crest), rock = closeDown(ridge, crest, L.base);
   // solid up to where we are, dashed from there to the summit
   const xBase = X(N[0]);
@@ -153,7 +161,6 @@ export function SummitMountain({ s, mode }: { s: SummitData | null; mode: "card"
       <g clipPath={`url(#a${uid})`}>
         {ridges.map((d, k) => <path key={k} d={d} fill="none" stroke="#4b37b0" strokeOpacity=".28" strokeWidth="1.1" strokeLinecap="round" />)}
         <path d={snow} fill="#ffffff" />
-        <path d={`M${pt(top)}L${right},${r1(top[1] - 6)}L${right},${L.base}L${r1(top[0] - 40)},${L.base}Z`} fill="#2e1f8a" fillOpacity=".2" />
       </g>
       {/* where we have been, solid; the climb still to make, dashed */}
       <path d={ridge} fill="none" stroke="#7c5cf0" strokeWidth="1.2" clipPath={`url(#p${uid})`} />

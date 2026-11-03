@@ -34,14 +34,15 @@ const neg = (e: Space) => (typeof e === "number" ? -e : { xs: -(e.xs ?? 0), md: 
 // SARCLA 03.11.2026: "the individual reports like a library ... hierarchy dynamic"): a few at a time, the hub takes no
 // request over 8 KB
 const said = new Set<string>();
-let queue: { path: string; key: string; title: string; kind: string; kpiId: string | null }[] = [];
+let queue: { path: string; key: string; title: string; kind: string; kpiId: string | null; summary: string | null }[] = [];
 let wait: ReturnType<typeof setTimeout> | null = null;
-function sayDrawn(t: TileInfo) {
-  if (typeof window === "undefined" || !t.key || !t.title) return;
-  const path = window.location.pathname;
-  if (said.has(`${path}#${t.key}`)) return;
-  said.add(`${path}#${t.key}`);
-  queue.push({ path, key: t.key, title: t.title, kind: t.kind ?? "card", kpiId: t.kpiId ?? null });
+function sayDrawn(t: TileInfo, path: string) {
+  if (!t.key || !t.title) return;
+  // what it shows, once its figure is there: said again when the words change (SARCLA 03.11.2026: "we should see the real KPIs")
+  const id = `${path}#${t.key}#${t.summary ?? ""}`;
+  if (said.has(id)) return;
+  said.add(id);
+  queue.push({ path, key: t.key, title: t.title, kind: t.kind ?? "card", kpiId: t.kpiId ?? null, summary: t.summary ?? null });
   if (wait) clearTimeout(wait);
   wait = setTimeout(() => {
     wait = null;
@@ -65,8 +66,12 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
 }) {
   const { state } = useActions(where === "nutshell" ? "nutshell" : tile.page);
   const [open, setOpen] = useState(false);
-  // on its own page only - the nutshell shows copies of other pages' graphs
-  useEffect(() => { if (where !== "nutshell") sayDrawn(tile); }, [tile.key, tile.title, where]); // eslint-disable-line react-hooks/exhaustive-deps
+  // on its own page - a copy in the nutshell counts for the page it comes from, its KPI's figure with it
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (where !== "nutshell") sayDrawn(tile, window.location.pathname);
+    else if (tile.href?.startsWith("/")) sayDrawn(tile, tile.href.split(/[?#]/)[0]);
+  }, [tile.key, tile.title, tile.summary, tile.href, where]); // eslint-disable-line react-hooks/exhaustive-deps
   const c = state?.counts[tile.key] ?? { open: 0, tasks: 0, tickets: 0 };
   const placed = placementOf(state, tile.key, start);
   const running = c.open > 0;

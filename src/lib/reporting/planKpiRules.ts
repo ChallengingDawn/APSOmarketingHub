@@ -35,11 +35,19 @@ export type LibNode = {
   path: string;
   /** a page's heading in the side panel ("Other reports") */
   group?: string;
+  /** what a graph shows, as its page last drew it - its words, the figure they open with, when */
+  shown?: { text: string; value: number | null; at: string | null };
   unit?: string; kpiId?: string; definition?: string; target?: string;
   children: LibNode[];
 };
 /** A graph a page has drawn (reportTiles.ts). */
-export type TileSeen = { path: string; key: string; title: string; kind: string; kpiId: string | null };
+export type TileSeen = { path: string; key: string; title: string; kind: string; kpiId: string | null; summary?: string | null; value?: number | null; at?: string | null };
+
+/** The figure a graph's own words open with - "30,216 Jan-Sep" 30216, "12.5% of visits" 12.5, "CHF 4'000" 4000 - or null. */
+export function figureOf(text: string): number | null {
+  const m = text.replace(/(CHF|EUR|€|\$)\s*/gi, "").match(/-?\d[\d',’]*(?:\.\d+)?/);
+  return m ? numberOf(m[0]) : null;
+}
 
 const STAGE_PAGE = /^\/reporting\/marketing-kpis\/([a-z-]+)$/;
 
@@ -52,20 +60,25 @@ const STAGE_PAGE = /^\/reporting\/marketing-kpis\/([a-z-]+)$/;
 export function libraryTree(tiles: TileSeen[] = []): LibNode[] {
   const byPage = new Map<string, TileSeen[]>();
   for (const t of tiles) (byPage.get(t.path) ?? byPage.set(t.path, []).get(t.path)!).push(t);
+  const shownOf = (t: TileSeen | undefined) => (t?.summary ? { text: t.summary, value: t.value ?? null, at: t.at ?? null } : undefined);
+  // a KPI's figure: the latest a graph showing it said, wherever it is drawn (its page, the BUC View)
+  const byKpi = new Map<string, TileSeen>();
+  for (const t of tiles) if (t.kpiId && t.summary && (!byKpi.has(t.kpiId) || (t.at ?? "") > (byKpi.get(t.kpiId)!.at ?? ""))) byKpi.set(t.kpiId, t);
   const stageBySlug = new Map(STAGES.map((s) => [s.slug, s]));
   const placed = new Set<string>();
   const kpiNode = (id: string, href: string, path: string, name?: string): LibNode | null => {
     const k = KPIS.find((x) => x.id === id);
     if (!k && !name) return null;
     placed.add(id);
-    return { key: `kpi:${id}`, kind: "kpi", name: k ? `${k.id} ${k.name}` : `${id} ${name}`, href, path, unit: k?.unit ?? "", kpiId: id, definition: k?.definition, target: k?.target, children: [] };
+    return { key: `kpi:${id}`, kind: "kpi", name: k ? `${k.id} ${k.name}` : `${id} ${name}`, href, path, unit: k?.unit ?? "", kpiId: id, definition: k?.definition, target: k?.target,
+      ...(byKpi.has(id) ? { shown: shownOf(byKpi.get(id)) } : {}), children: [] };
   };
   const inside = (href: string, path: string): LibNode[] => {
     const out: LibNode[] = [];
     const ids = new Set<string>();
     for (const t of byPage.get(href) ?? []) {
       if (t.kpiId) { if (!ids.has(t.kpiId)) { const n = kpiNode(t.kpiId, href, path, t.title); if (n) { out.push(n); ids.add(t.kpiId); } } continue; }
-      out.push({ key: `tile:${href}#${t.key}`, kind: "graph", name: t.title, href, path, children: [] });
+      out.push({ key: `tile:${href}#${t.key}`, kind: "graph", name: t.title, href, path, ...(t.summary ? { shown: shownOf(t) } : {}), children: [] });
     }
     const m = href.match(STAGE_PAGE);
     const stage = m ? stageBySlug.get(m[1]) : undefined;

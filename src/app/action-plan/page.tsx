@@ -505,7 +505,7 @@ It leaves the plan as an action; its name, description, status, priority, first 
 
       {opened && (
         // keyed by the row: a tile opens another row with its own view and fields
-        <ItemModal key={opened.id} item={opened} items={items} rolledAll={rolled} subs={subs.filter((s) => s.item === opened.id)} canWrite={!!data?.canWrite}
+        <ItemModal key={opened.id} item={opened} items={items} rolledAll={rolled} subs={subs.filter((s) => s.item === opened.id)} allSubs={subs} canWrite={!!data?.canWrite}
           people={data?.people ?? []} peopleError={data?.peopleError ?? null} choices={data?.choices ?? S2S_CHOICES} colorOf={colorOf}
           onClose={closeRow} onOpen={(i) => openRow(i)} onOpenSub={openSub} onPatch={patch} onChanged={() => void load()} onAddUnder={setAddFor} onDelete={remove} onMoveTo={moveTo} />
       )}
