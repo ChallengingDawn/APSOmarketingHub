@@ -38,11 +38,11 @@ import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { Chip } from "@/app/connectors/parts";
 import { when } from "@/app/website/directup/shared";
 import type { PromoStatus } from "@/lib/promo/blackFriday";
-import { GROUP_LABEL, GROUP_ORDER, codesFromText, endAfter, lastDayOf, zurichDay, zurichMidnight, type BfReport } from "@/lib/promo/report";
+import { GROUP_LABEL, GROUP_ORDER, codesFromText, endAfter, lastDayOf, wrongRate, zurichDay, zurichMidnight, type BfReport } from "@/lib/promo/report";
 
 type Data = { status: PromoStatus; report: BfReport | null; reportError: string | null; testers: string[]; isAdmin: boolean };
-type View = "overview" | "companies" | "codes" | "settings";
-const VIEW_HASH: Record<View, string> = { overview: "#overview", companies: "#companies", codes: "#codes", settings: "#settings" };
+type View = "overview" | "results" | "companies" | "codes" | "settings";
+const VIEW_HASH: Record<View, string> = { overview: "#overview", results: "#results", companies: "#companies", codes: "#codes", settings: "#settings" };
 const pill = { borderRadius: "999px", textTransform: "none" as const, fontWeight: 600 };
 const API = "/api/website/black-friday";
 const CHUNK = 300;                                         // codes per call - the 8 KB request limit in front of the hub
@@ -155,7 +155,7 @@ function Overview({ d }: { d: Data }) {
       </Grid>
 
       <GlassCard sx={{ display: "grid", gap: 1 }}>
-        <CardTitle icon={<FactCheckOutlinedIcon />} tint="pink" title="Checks" note="A code used on another company's order, or used twice - for Back Office before the order is confirmed" />
+        <CardTitle icon={<FactCheckOutlinedIcon />} tint="pink" title="Checks" note="A code used on another company's order, used twice, or a BLACKFRIDAY code the page never gave out - for Back Office before the order is confirmed" />
         {!r ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Waiting for HubSpot.</Typography>
           : !r.checks.length ? <Typography sx={{ fontSize: "0.84rem", color: GREEN, fontWeight: 600 }}>Every code was used by the company it was given to.</Typography>
           : (
@@ -166,14 +166,96 @@ function Overview({ d }: { d: Data }) {
                   <TableRow key={`${c.orderId}-${c.code}`}>
                     <TableCell sx={bodyCell}>{c.name ?? c.orderId}</TableCell>
                     <TableCell sx={{ ...bodyCell, fontFamily: "monospace" }}>{c.code}</TableCell>
-                    <TableCell sx={bodyCell}><a href={hsCompany(c.holderId)} target="_blank" rel="noreferrer">{c.holderName}</a></TableCell>
-                    <TableCell sx={{ ...bodyCell, color: RED, fontWeight: 600 }}>{c.reason === "other company" ? "used by another company" : "used a second time"}</TableCell>
+                    <TableCell sx={bodyCell}>{c.holderId ? <a href={hsCompany(c.holderId)} target="_blank" rel="noreferrer">{c.holderName}</a> : c.holderName}</TableCell>
+                    <TableCell sx={{ ...bodyCell, color: RED, fontWeight: 600 }}>
+                      {c.reason === "other company" ? "used by another company" : c.reason === "used again" ? "used a second time" : "a BLACKFRIDAY code the page never gave out"}
+                    </TableCell>
                     <TableCell sx={bodyCell}>{c.at ? when(c.at) : "-"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           )}
+      </GlassCard>
+    </>
+  );
+}
+
+/** The action's success: every web order that used a Black Friday code, by day, new customers against existing ones. */
+function Results({ d }: { d: Data }) {
+  if (!d.report) return <Notice tone="warn">{d.reportError ?? "Waiting for HubSpot."}</Notice>;
+  const res = d.report.results;
+  const n = res.split.new, e = res.split.existing;
+  const all = n.orders + e.orders;
+  const share = (x: number) => (all ? `${Math.round((x / all) * 100)} % of the orders` : "no orders yet");
+  return (
+    <>
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ShoppingCartCheckoutOutlinedIcon />} tint="blue" label="Orders with a code" value={full(all)} note={`${full(d.report.totals.used)} of ${full(d.report.totals.handedOut)} codes used`} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<LocalOfferOutlinedIcon />} tint="green" label="New customers won" value={full(res.newCompaniesWon)} note="never ordered before, ordered with their code" /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<SavingsOutlinedIcon />} tint="purple" label="Order value" value={eur(n.revenue + e.revenue)} note="order totals, each in its own currency" /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<SavingsOutlinedIcon />} tint="amber" label="Discount given" value={eur(n.discountGiven + e.discountGiven)} note="from the orders' discount" /></Grid>
+      </Grid>
+
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, md: 8 }}>
+          <GlassCard sx={{ height: "100%" }}>
+            <CardTitle icon={<LocalOfferOutlinedIcon />} tint="green" title="New customers against existing ones" note="New = the code of an organisation with no order at all before it; existing = every price class" />
+            <Table size="small">
+              <TableHead><TableRow>{["", "Orders", "Share", "Order value", "Discount given"].map((h, i) => <TableCell key={h || "who"} sx={{ ...headCell, textAlign: i ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
+              <TableBody>
+                {([["New customers", n], ["Existing customers", e]] as const).map(([label, x]) => (
+                  <TableRow key={label}>
+                    <TableCell sx={{ ...bodyCell, fontWeight: 600, color: INK }}>{label}</TableCell>
+                    {[full(x.orders), share(x.orders), eur(x.revenue), eur(x.discountGiven)].map((v, i) => (
+                      <TableCell key={i} sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{v}</TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </GlassCard>
+        </Grid>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <GlassCard sx={{ height: "100%" }}>
+            <CardTitle icon={<ShoppingCartCheckoutOutlinedIcon />} tint="blue" title="By day" note="Swiss days" />
+            {!res.byDay.length ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>No order with a code yet.</Typography> : (
+              <Table size="small">
+                <TableHead><TableRow>{["Day", "Orders", "New", "Value"].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
+                <TableBody>
+                  {res.byDay.map((x) => (
+                    <TableRow key={x.day}>
+                      <TableCell sx={bodyCell}>{x.day.split("-").reverse().join(".")}</TableCell>
+                      {[full(x.orders), full(x.newOrders), eur(x.revenue)].map((v, i) => <TableCell key={i} sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{v}</TableCell>)}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </GlassCard>
+        </Grid>
+      </Grid>
+
+      <GlassCard>
+        <CardTitle icon={<FactCheckOutlinedIcon />} tint="purple" title="The orders" note="Every web order Magento passed with a Black Friday code, newest first" />
+        {!res.orders.length ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>No order with a code yet.</Typography> : (
+          <Table size="small">
+            <TableHead><TableRow>{["When", "Order", "Company", "Group", "Code", "Value", "Discount"].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i >= 5 ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
+            <TableBody>
+              {res.orders.slice(0, 300).map((o) => (
+                <TableRow key={`${o.orderId}-${o.code}`}>
+                  <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}>{o.at ? when(o.at) : "-"}</TableCell>
+                  <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}>{o.name ?? o.orderId}</TableCell>
+                  <TableCell sx={bodyCell}>{o.holderId ? <a href={hsCompany(o.holderId)} target="_blank" rel="noreferrer">{o.holderName}</a> : o.holderName}</TableCell>
+                  <TableCell sx={{ ...bodyCell, color: o.check ? RED : INK, fontWeight: o.check ? 600 : 400 }}>{o.check ? o.check : o.group ? GROUP_LABEL[o.group] ?? o.group : "-"}</TableCell>
+                  <TableCell sx={{ ...bodyCell, fontFamily: "monospace", whiteSpace: "nowrap" }}>{o.code}</TableCell>
+                  <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{o.total != null ? eur(o.total) : "-"}</TableCell>
+                  <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{o.discount != null ? eur(o.discount) : "-"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </GlassCard>
     </>
   );
@@ -195,8 +277,8 @@ function Companies({ d }: { d: Data }) {
         <TableHead><TableRow>{["Company", "Group", "Rate", "Code", "Used"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
         <TableBody>
           {rows.map((h) => (
-            <TableRow key={h.companyId}>
-              <TableCell sx={bodyCell}><a href={hsCompany(h.companyId)} target="_blank" rel="noreferrer">{h.name}</a></TableCell>
+            <TableRow key={h.code}>
+              <TableCell sx={bodyCell}>{h.companyId ? <a href={hsCompany(h.companyId)} target="_blank" rel="noreferrer">{h.name}</a> : <span style={{ color: MUTED }}>{h.name}</span>}</TableCell>
               <TableCell sx={bodyCell}>{GROUP_LABEL[h.group] ?? h.group}</TableCell>
               <TableCell sx={{ ...bodyCell, fontVariantNumeric: "tabular-nums" }}>{h.discount != null ? `${h.discount} %` : "-"}</TableCell>
               <TableCell sx={{ ...bodyCell, fontFamily: "monospace" }}>{h.code}</TableCell>
@@ -218,6 +300,12 @@ function LoadCodes({ rate, d, reload }: { rate: number; d: Data; reload: () => v
   const found = codesFromText(text);
   const load = async () => {
     if (!found.length) return;
+    // BLACKFRIDAY10... belongs to the 10 % rule: never loaded under another rate
+    const bad = wrongRate(found, rate, Object.values(d.status.settings.discount));
+    if (bad.length) {
+      setMsg({ ok: false, text: `${full(bad.length)} of these codes belong to another rate (e.g. ${bad[0]}) - load each file under its own rate.` });
+      return;
+    }
     if (!confirm(`Load ${full(found.length)} codes for ${rate} %? Use only codes Magento generated for the ${rate} % rule.`)) return;
     let added = 0, already = 0;
     setMsg(null);
@@ -317,8 +405,10 @@ function Settings({ d, reload }: { d: Data; reload: () => void }) {
         ))}
       </Grid>
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-        New: the organisation never ordered (the Google Ads list's strict rule) and has no price class above List price. No price class: has ordered, but HubSpot gives it no class - the lowest rate, never a guess upwards.
-        Each rate needs its own Magento rule and codes.
+        In HubSpot a new customer and a list-price customer have the same price class - the orders tell them apart.
+        New customers: price class List price (or none) and no order at all in HubSpot, web or ERP, for the organisation.
+        List price: price class List price, and has ordered. No price class: has ordered, but HubSpot gives it no class - the lowest rate, never a guess upwards.
+        Each rate needs its own Magento rule (BLACKFRIDAY5 / 10 / 15 / 20) and its codes.
       </Typography>
       <TextField multiline minRows={2} maxRows={6} size="small" label="Test accounts (e-mail, one per line)" value={testers} disabled={ro}
         onChange={(e) => setTesters(e.target.value)} placeholder="name@company.ch"
@@ -350,6 +440,7 @@ export default function BlackFridayPage() {
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
           <ReportTabs name="black-friday" tab={view} onSelect={setView} tabs={[
             { id: "overview", label: "Overview", count: null },
+            { id: "results", label: "Results", count: d.report ? full(d.report.results.orders.length) : null },
             { id: "companies", label: "Companies", count: d.report ? full(d.report.holders.length) : null },
             { id: "codes", label: "Codes", count: null },
             { id: "settings", label: "Settings", count: null },
@@ -362,6 +453,7 @@ export default function BlackFridayPage() {
       {r === null ? <LoadingPanel label="Reading the Ads Gateway and HubSpot…" />
         : r.state === "not-configured" ? <NotConnectedPanel source="Ads Gateway" missing={r.missing} />
         : r.state === "error" ? <UpstreamPanel source="Ads Gateway" error={r.error} status={r.status} onRetry={() => reload()} />
+        : view === "results" ? <Results d={r.data} />
         : view === "companies" ? <Companies d={r.data} />
         : view === "codes" ? <Codes d={r.data} reload={() => reload()} />
         : view === "settings" ? <Settings key={r.data.status.settings.set_at ?? "default"} d={r.data} reload={() => reload()} />

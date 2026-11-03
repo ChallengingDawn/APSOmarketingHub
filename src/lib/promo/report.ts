@@ -20,16 +20,44 @@ export type Use = {
   /** the company the order is on; null while the order is not linked to one yet */
   byCompanyId: string | null;
 };
-export type Check = Use & { code: string; holderId: string; holderName: string; reason: "other company" | "used again" };
+export type Check = Use & { code: string; holderId: string; holderName: string; reason: "other company" | "used again" | "not from the page" };
 export type GroupRow = {
   group: string; label: string; rate: number | null; handedOut: number; used: number; orders: number; revenue: number; discountGiven: number;
 };
+/** One web order that used a Black Friday code - the Results tab's rows. */
+export type OrderRow = Use & { code: string; group: string | null; holderId: string; holderName: string; check: Check["reason"] | null };
+export type DayRow = { day: string; orders: number; revenue: number; discountGiven: number; newOrders: number };
 export type BfReport = {
   groups: GroupRow[];
   totals: { handedOut: number; used: number; orders: number; revenue: number; discountGiven: number };
   holders: (Holder & { uses: Use[] })[];
   checks: Check[];
+  /** the action's success (SARCLA 03.11.2026: "measure the success ... also the split per new customer") */
+  results: {
+    orders: OrderRow[]; byDay: DayRow[];
+    /** companies won: a "new" code holder (never ordered before) that ordered with it */
+    newCompaniesWon: number;
+    split: { new: { orders: number; revenue: number; discountGiven: number }; existing: { orders: number; revenue: number; discountGiven: number } };
+  };
 };
+
+/**
+ * The rate of a code of the Black Friday cart rules: BLACKFRIDAY<rate> + Magento's generated part, which may start
+ * with a digit (BLACKFRIDAY10 + 7K2Q...) - so it is read against the rates that exist, the longest first. null = not one of ours.
+ */
+export const RULE_RATES = [5, 10, 15, 20];
+export const rateOfCode = (code: string, rates: number[] = RULE_RATES): number | null => {
+  const c = normCode(code);
+  if (!c.startsWith("BLACKFRIDAY")) return null;
+  const hit = [...new Set(rates)].filter((r) => r > 0).sort((a, b) => String(b).length - String(a).length || b - a)
+    .find((r) => c.startsWith(`BLACKFRIDAY${r}`));
+  return hit ?? null;
+};
+/** Codes loaded under a rate must be that rate's codes: BLACKFRIDAY10... only under 10 %. The mismatched ones. */
+export const wrongRate = (codes: string[], rate: number, rates: number[] = RULE_RATES) => codes.filter((c) => {
+  const r = rateOfCode(c, [...rates, rate]);
+  return r != null && r !== rate;
+});
 
 /** A code as Magento and HubSpot spell it, for comparing: trimmed, upper case. */
 export const normCode = (c: string | null | undefined) => String(c ?? "").trim().toUpperCase();
@@ -39,25 +67,36 @@ export const splitCodes = (s: string | null | undefined) => String(s ?? "").spli
 const num = (v: number | null) => (v != null && Number.isFinite(v) ? v : 0);
 
 export function buildReport(holders: Holder[], orders: CodeOrder[], rates: Record<string, number>): BfReport {
+  const ruleRates = [...RULE_RATES, ...Object.values(rates)];
   const byCode = new Map<string, Holder & { uses: Use[] }>();
   for (const h of holders) {
     const code = normCode(h.code);
     if (code && !byCode.has(code)) byCode.set(code, { ...h, code, uses: [] });
   }
   const checks: Check[] = [];
+  const rows: OrderRow[] = [];
   const sorted = [...orders].sort((a, b) => String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")));
   for (const o of sorted) {
     for (const code of new Set(splitCodes(o.codes))) {
       const h = byCode.get(code);
-      if (!h) continue;                                   // not a Black Friday code
       const use: Use = {
         orderId: o.orderId, at: o.createdAt, total: o.total, discount: o.discount == null ? null : Math.abs(o.discount), name: o.name,
         byCompanyId: o.companyIds[0] ?? null,
       };
-      if (h.uses.length) checks.push({ ...use, code, holderId: h.companyId, holderName: h.name, reason: "used again" });
-      else if (use.byCompanyId && !o.companyIds.includes(h.companyId)) {
-        checks.push({ ...use, code, holderId: h.companyId, holderName: h.name, reason: "other company" });
+      if (!h) {
+        // a code of the Black Friday rules that the page never handed out: typed in by someone, or passed on
+        if (rateOfCode(code, ruleRates) == null) continue; // another promotion's code
+        const c: Check = { ...use, code, holderId: "", holderName: "-", reason: "not from the page" };
+        checks.push(c);
+        rows.push({ ...use, code, group: null, holderId: "", holderName: "-", check: c.reason });
+        continue;
       }
+      let reason: Check["reason"] | null = null;
+      if (h.uses.length) reason = "used again";
+      // a code still on an account (no company yet) cannot be held against the order's company
+      else if (h.companyId && use.byCompanyId && !o.companyIds.includes(h.companyId)) reason = "other company";
+      if (reason) checks.push({ ...use, code, holderId: h.companyId, holderName: h.name, reason });
+      rows.push({ ...use, code, group: h.group, holderId: h.companyId, holderName: h.name, check: reason });
       h.uses.push(use);
     }
   }
@@ -76,7 +115,26 @@ export function buildReport(holders: Holder[], orders: CodeOrder[], rates: Recor
     revenue: t.revenue + g.revenue, discountGiven: t.discountGiven + g.discountGiven,
   }), { handedOut: 0, used: 0, orders: 0, revenue: 0, discountGiven: 0 });
   all.sort((a, b) => (b.uses.length - a.uses.length) || a.name.localeCompare(b.name));
-  return { groups, totals, holders: all, checks };
+
+  // the action's success: the orders, by Swiss day, and new customers against existing ones
+  const days = new Map<string, DayRow>();
+  const split = { new: { orders: 0, revenue: 0, discountGiven: 0 }, existing: { orders: 0, revenue: 0, discountGiven: 0 } };
+  for (const r of rows) {
+    const isNew = r.group === "new";
+    const day = r.at ? zurichDay(r.at) : "-";
+    const d = days.get(day) ?? { day, orders: 0, revenue: 0, discountGiven: 0, newOrders: 0 };
+    d.orders++; d.revenue += num(r.total); d.discountGiven += num(r.discount); if (isNew) d.newOrders++;
+    days.set(day, d);
+    const side = isNew ? split.new : split.existing;
+    side.orders++; side.revenue += num(r.total); side.discountGiven += num(r.discount);
+  }
+  const results = {
+    orders: [...rows].reverse(),                          // the newest first
+    byDay: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)),
+    newCompaniesWon: all.filter((h) => h.group === "new" && h.uses.length).length,
+    split,
+  };
+  return { groups, totals, holders: all, checks, results };
 }
 
 /* ── the settings form works in Swiss days; the gateway keeps instants ─────────────────────────── */

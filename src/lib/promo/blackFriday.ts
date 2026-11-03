@@ -9,7 +9,7 @@
 
 import { adminToken, adsGateway } from "@/lib/adsbuckets/gateway";
 import { read, searchAll, type Rec } from "@/lib/lifecycle/read";
-import { buildReport, normCode, splitCodes, type BfReport, type CodeOrder, type Holder } from "./report";
+import { RULE_RATES, buildReport, normCode, rateOfCode, splitCodes, type BfReport, type CodeOrder, type Holder } from "./report";
 
 export { adminToken };
 
@@ -20,6 +20,10 @@ export type PromoStatus = {
   settings: PromoSettings; phase: PromoPhase; stock: PromoStock[] | null; stock_error: string | null;
   answers: Record<string, number>; handed_out_since_boot: Record<string, number>; since: string;
   list_ready: boolean; last_error: { at: string; message: string } | null; properties: { code: string; discount: string; group: string };
+  /** how each hand-out was placed (Ads Gateway 2f870814): night list / e-mail domain's company / the account alone */
+  placed_by?: { list: number; domain: number; account: number };
+  /** codes given to accounts HubSpot had not placed yet; placed = since written on the buyer's company */
+  account_codes?: { code: string; discount: number; grp: string; claimed_at: string; placed: boolean }[] | null;
 };
 
 export const promoStatus = () => adsGateway<PromoStatus>("/admin/promo");
@@ -49,9 +53,11 @@ async function orderCompanies(ids: string[]): Promise<Map<string, string[]>> {
 let cache: { at: number; key: string; report: BfReport } | null = null;
 const FRESH_MS = 5 * 60_000;
 
-/** Who holds a code and who used it, from HubSpot; kept 5 minutes unless asked fresh. */
-export async function promoReport(s: PromoSettings, fresh = false): Promise<BfReport> {
-  const key = `${s.start}|${JSON.stringify(s.discount)}`;
+/** Who holds a code and who used it, from HubSpot (+ the codes still on accounts, from the gateway); kept 5 minutes. */
+export async function promoReport(status: PromoStatus, fresh = false): Promise<BfReport> {
+  const s = status.settings;
+  const accounts = status.account_codes ?? [];
+  const key = `${s.start}|${JSON.stringify(s.discount)}|${accounts.length}`;
   if (!fresh && cache && cache.key === key && Date.now() - cache.at < FRESH_MS) return cache.report;
 
   const companies: Rec[] = await searchAll("companies", [[{ propertyName: "bf26_code", operator: "HAS_PROPERTY" }]],
@@ -60,6 +66,16 @@ export async function promoReport(s: PromoSettings, fresh = false): Promise<BfRe
     companyId: c.id, name: c.properties?.name || `Company ${c.id}`, code: normCode(c.properties?.bf26_code),
     discount: fnum(c.properties?.bf26_discount), group: c.properties?.bf26_group || "unclassified", budgetClass: c.properties?.budget_class ?? null,
   }));
+  // a code given to a brand-new account is on no company until HubSpot places the buyer - it still counts
+  const onCompanies = new Set(holders.map((h) => h.code));
+  for (const a of accounts) {
+    const code = normCode(a.code);
+    if (!code || onCompanies.has(code)) continue;
+    holders.push({
+      companyId: "", name: a.placed ? "An account (its company holds another code)" : "A new account (not in HubSpot yet)",
+      code, discount: a.discount, group: a.grp, budgetClass: null,
+    });
+  }
 
   // web orders with a discount code since the day before the start - only those carrying one of OUR codes need their company
   const since = String(Date.parse(s.start) - 86_400_000);
@@ -67,8 +83,10 @@ export async function promoReport(s: PromoSettings, fresh = false): Promise<BfRe
     { propertyName: "hs_discount_codes", operator: "HAS_PROPERTY" },
     { propertyName: "hs_createdate", operator: "GTE", value: since },
   ]], ["hs_discount_codes", "hs_total_price", "hs_order_discount", "hs_createdate", "hs_order_name"]);
+  // ours: a code the page handed out, or any code of the BLACKFRIDAY rules (one the page never gave out is a check)
   const ours = new Set(holders.map((h) => h.code));
-  const relevant = orders.filter((o) => splitCodes(o.properties?.hs_discount_codes).some((c) => ours.has(c)));
+  const ruleRates = [...RULE_RATES, ...Object.values(s.discount)];
+  const relevant = orders.filter((o) => splitCodes(o.properties?.hs_discount_codes).some((c) => ours.has(c) || rateOfCode(c, ruleRates) != null));
   const assoc = await orderCompanies(relevant.map((o) => o.id));
   const codeOrders: CodeOrder[] = relevant.map((o) => ({
     orderId: o.id, codes: o.properties?.hs_discount_codes ?? null, createdAt: o.properties?.hs_createdate ?? null,

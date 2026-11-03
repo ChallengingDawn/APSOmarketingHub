@@ -12,6 +12,7 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { myAccess } from "@/lib/auth/appAccess";
 import { requireUser } from "@/lib/auth/guard";
 import { adminToken, loadPromoCodes, promoReport, promoStatus, setPromoSettings } from "@/lib/promo/blackFriday";
+import { wrongRate } from "@/lib/promo/report";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
   try {
     const status = await promoStatus();
     let report = null, reportError: string | null = null;
-    try { report = await promoReport(status.settings, req.nextUrl.searchParams.get("fresh") === "1"); }
+    try { report = await promoReport(status, req.nextUrl.searchParams.get("fresh") === "1"); }
     catch (e) { reportError = String((e as Error)?.message ?? e); }
     const testers = (await kvGet<string[]>(TESTERS_KV).catch(() => null)) ?? [];
     return NextResponse.json({ configured: true, ok: true, data: { status, report, reportError, testers, isAdmin: access.role === "admin" } });
@@ -67,6 +68,9 @@ export async function POST(req: NextRequest) {
     if (body.action === "codes") {
       const codes = Array.isArray(body.codes) ? body.codes.map(String) : [];
       if (!codes.length || codes.length > 800) return NextResponse.json({ ok: false, error: "Send 1 to 800 codes at a time." }, { status: 400 });
+      // BLACKFRIDAY10... is the 10 % rule's: never loaded under another rate
+      const bad = wrongRate(codes, Number(body.discount));
+      if (bad.length) return NextResponse.json({ ok: false, error: `${bad.length} codes belong to another rate (e.g. ${bad[0]}).` }, { status: 400 });
       const data = await loadPromoCodes(Number(body.discount), codes);
       console.log(`[black-friday] ${data.added} codes at ${Number(body.discount)} % loaded by ${who} (${data.already} already there)`);
       return NextResponse.json({ ok: true, data });
