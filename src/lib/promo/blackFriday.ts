@@ -9,7 +9,8 @@
 
 import { adminToken, adsGateway } from "@/lib/adsbuckets/gateway";
 import { read, searchAll, type Rec } from "@/lib/lifecycle/read";
-import { RULE_RATES, buildReport, normCode, rateOfCode, splitCodes, type BfReport, type CodeOrder, type Holder } from "./report";
+import { fetchGa4Report } from "@/lib/integrations/ga4Reports";
+import { NOT_SEEN, RULE_RATES, buildReport, normCode, rateOfCode, sourceLabel, splitCodes, zurichDay, type BfReport, type CodeOrder, type Holder } from "./report";
 
 export { adminToken };
 
@@ -59,6 +60,32 @@ async function orderCompanies(ids: string[]): Promise<Map<string, string[]>> {
   return out;
 }
 
+/**
+ * Where they come from, from GA4 (SARCLA 04.11.2026: "the source where they come from, SEO, SEA etc."): each web order's
+ * channel by its shop order number - GA4's transaction id, matched as the Digital Growth KPIs match it - and the visits
+ * that saw the page, by channel, from a month before the start (the page went up before it). A GA4 failure costs these
+ * two cards, not the report.
+ */
+async function sourcesOf(s: PromoStatus["settings"], hasOrders: boolean): Promise<Parameters<typeof buildReport>[3]> {
+  const today = zurichDay(Date.now());
+  const to = zurichDay(Math.min(Date.now(), Date.parse(s.end) - 1));
+  const day = 86_400_000;
+  try {
+    let sourceOf: (n: string[]) => string = () => NOT_SEEN;
+    if (hasOrders) {
+      const r = await fetchGa4Report({ name: "transactionsChannel", from: zurichDay(Date.parse(s.start) - day), to: today });
+      const channel = new Map(r.rows.map((x) => [(x.keys[0] ?? "").trim(), x.keys[1] ?? ""]));
+      sourceOf = (ns) => ns.map((n) => channel.get(n)).find(Boolean) ?? NOT_SEEN;
+    }
+    const from = zurichDay(Date.parse(s.start) - 30 * day);
+    const v = await fetchGa4Report({ name: "bfPageChannels", from, to });
+    const bySource = v.rows.map((x) => ({ source: x.keys[0] ?? "", label: sourceLabel(x.keys[0] ?? ""), visits: Number(x.values[0] ?? 0) }));
+    return { sourceOf, visitors: { from, to, visits: bySource.reduce((t, x) => t + x.visits, 0), bySource }, error: null };
+  } catch (e) {
+    return { sourceOf: null, visitors: null, error: String((e as Error)?.message ?? e).slice(0, 300) };
+  }
+}
+
 let cache: { at: number; key: string; report: BfReport } | null = null;
 const FRESH_MS = 5 * 60_000;
 
@@ -92,7 +119,7 @@ export async function promoReport(status: PromoStatus, fresh = false): Promise<B
   const orders: Rec[] = await searchAll("orders", [[
     { propertyName: "hs_discount_codes", operator: "HAS_PROPERTY" },
     { propertyName: "hs_createdate", operator: "GTE", value: since },
-  ]], ["hs_discount_codes", "hs_total_price", "hs_order_discount", "hs_createdate", "hs_order_name"]);
+  ]], ["hs_discount_codes", "hs_total_price", "hs_order_discount", "hs_createdate", "hs_order_name", "hs_external_order_id", "order_web_order_number"]);
   // ours: a code the page handed out, or any code of the BLACKFRIDAY rules (one the page never gave out is a check)
   const ours = new Set(holders.map((h) => h.code));
   const ruleRates = [...RULE_RATES, ...Object.values(s.discount)];
@@ -102,9 +129,10 @@ export async function promoReport(status: PromoStatus, fresh = false): Promise<B
     orderId: o.id, codes: o.properties?.hs_discount_codes ?? null, createdAt: o.properties?.hs_createdate ?? null,
     total: fnum(o.properties?.hs_total_price), discount: fnum(o.properties?.hs_order_discount), name: o.properties?.hs_order_name ?? null,
     companyIds: assoc.get(o.id) ?? [],
+    shopNumbers: [o.properties?.hs_external_order_id, o.properties?.order_web_order_number].map((x) => String(x ?? "").trim()).filter(Boolean),
   }));
 
-  const report = buildReport(holders, codeOrders, s.discount);
+  const report = buildReport(holders, codeOrders, s.discount, await sourcesOf(s, codeOrders.length > 0));
   cache = { at: Date.now(), key, report };
   return report;
 }

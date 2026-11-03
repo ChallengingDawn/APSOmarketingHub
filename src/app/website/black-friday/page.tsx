@@ -27,6 +27,7 @@ import ShoppingCartCheckoutOutlinedIcon from "@mui/icons-material/ShoppingCartCh
 import SavingsOutlinedIcon from "@mui/icons-material/SavingsOutlined";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
+import TravelExploreOutlinedIcon from "@mui/icons-material/TravelExploreOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
 import PageHeader from "@/app/PageHeader";
@@ -38,7 +39,7 @@ import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { Chip } from "@/app/connectors/parts";
 import { when } from "@/app/website/directup/shared";
 import type { PromoEnv, PromoStatus } from "@/lib/promo/blackFriday";
-import { GROUP_LABEL, GROUP_ORDER, STATUS_LABEL, codesFromText, endAfter, lastDayOf, wrongRate, zurichDay, zurichMidnight, type BfReport } from "@/lib/promo/report";
+import { GROUP_LABEL, GROUP_ORDER, NOT_SEEN, STATUS_LABEL, codesFromText, endAfter, lastDayOf, sourceLabel, wrongRate, zurichDay, zurichMidnight, type BfReport } from "@/lib/promo/report";
 
 type Data = { status: PromoStatus; report: BfReport | null; reportError: string | null; testers: string[]; isAdmin: boolean };
 type View = "overview" | "results" | "companies" | "codes" | "settings";
@@ -274,11 +275,57 @@ function Results({ d }: { d: Data }) {
         </Grid>
       </Grid>
 
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, md: 8 }}>
+          <GlassCard sx={{ height: "100%" }}>
+            <CardTitle icon={<TravelExploreOutlinedIcon />} tint="blue" title="Orders by source"
+              note="The channel of the visit each order came in on (GA4, last click), found by the shop's order number" />
+            {!res.bySource ? <Notice tone="warn">GA4 could not be read{res.sourcesError ? `: ${res.sourcesError}` : "."}</Notice>
+              : !res.bySource.length ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>No order with a code yet.</Typography> : (
+              <Table size="small">
+                <TableHead><TableRow>{["Source", "Orders", "New customers", "Order value", "Discount given"].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
+                <TableBody>
+                  {res.bySource.map((x) => (
+                    <TableRow key={x.source}>
+                      <TableCell sx={{ ...bodyCell, fontWeight: 600, color: x.source === NOT_SEEN ? MUTED : INK }}>{x.label}</TableCell>
+                      {[full(x.orders), full(x.newOrders), eur(x.revenue), eur(x.discountGiven)].map((v, i) => (
+                        <TableCell key={i} sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{v}</TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </GlassCard>
+        </Grid>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <GlassCard sx={{ height: "100%" }}>
+            <CardTitle icon={<TravelExploreOutlinedIcon />} tint="green" title="Visitors of the page by source"
+              note={res.visitors ? `Visits that saw the Black Friday page, any language, ${res.visitors.from.split("-").reverse().join(".")} - ${res.visitors.to.split("-").reverse().join(".")}; only visitors who allowed statistics cookies` : "Visits that saw the Black Friday page"} />
+            {!res.visitors ? <Notice tone="warn">GA4 could not be read{res.sourcesError ? `: ${res.sourcesError}` : "."}</Notice>
+              : !res.visitors.bySource.length ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>No visit yet.</Typography> : (
+              <Table size="small">
+                <TableHead><TableRow>{["Source", "Visits", "Share"].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
+                <TableBody>
+                  {res.visitors.bySource.map((x) => (
+                    <TableRow key={x.source}>
+                      <TableCell sx={{ ...bodyCell, fontWeight: 600, color: INK }}>{x.label}</TableCell>
+                      <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(x.visits)}</TableCell>
+                      <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{res.visitors!.visits ? `${Math.round((x.visits / res.visitors!.visits) * 100)} %` : "-"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </GlassCard>
+        </Grid>
+      </Grid>
+
       <GlassCard>
         <CardTitle icon={<FactCheckOutlinedIcon />} tint="purple" title="The orders" note="Every web order Magento passed with a Black Friday code, newest first" />
         {!res.orders.length ? <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>No order with a code yet.</Typography> : (
           <Table size="small">
-            <TableHead><TableRow>{["When", "Order", "Company", "Group", "Code", "Value", "Discount"].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i >= 5 ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
+            <TableHead><TableRow>{["When", "Order", "Company", "Group", "Source", "Code", "Value", "Discount"].map((h, i) => <TableCell key={h} sx={{ ...headCell, textAlign: i >= 6 ? "right" : "left" }}>{h}</TableCell>)}</TableRow></TableHead>
             <TableBody>
               {res.orders.slice(0, 300).map((o) => (
                 <TableRow key={`${o.orderId}-${o.code}`}>
@@ -286,6 +333,7 @@ function Results({ d }: { d: Data }) {
                   <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}>{o.name ?? o.orderId}</TableCell>
                   <TableCell sx={bodyCell}>{o.holderId ? <a href={hsCompany(o.holderId)} target="_blank" rel="noreferrer">{o.holderName}</a> : o.holderName}</TableCell>
                   <TableCell sx={{ ...bodyCell, color: o.check ? RED : INK, fontWeight: o.check ? 600 : 400 }}>{o.check ? o.check : o.group ? GROUP_LABEL[o.group] ?? o.group : "-"}</TableCell>
+                  <TableCell sx={{ ...bodyCell, color: o.source && o.source !== NOT_SEEN ? INK : FAINT }}>{!o.source ? "-" : o.source === NOT_SEEN ? "not seen by GA4" : sourceLabel(o.source)}</TableCell>
                   <TableCell sx={{ ...bodyCell, fontFamily: "monospace", whiteSpace: "nowrap" }}>{o.code}</TableCell>
                   <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{o.total != null ? eur(o.total) : "-"}</TableCell>
                   <TableCell sx={{ ...bodyCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{o.discount != null ? eur(o.discount) : "-"}</TableCell>

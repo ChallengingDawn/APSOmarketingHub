@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildReport, codesFromText, endAfter, lastDayOf, rateOfCode, splitCodes, wrongRate, zurichDay, zurichMidnight, type CodeOrder, type Holder } from "../src/lib/promo/report";
+import { NOT_SEEN, buildReport, codesFromText, endAfter, lastDayOf, rateOfCode, sourceLabel, splitCodes, wrongRate, zurichDay, zurichMidnight, type CodeOrder, type Holder } from "../src/lib/promo/report";
 
 // Black Friday 2026 (SARCLA 03.11.2026): one code per company; each use placed on the company the code was given to.
 const H = (companyId: string, code: string, group: string, discount: number): Holder =>
@@ -104,4 +104,20 @@ test("results by customer status: new, reactivated, active - older hand-outs wit
     O("13", "BLACKFRIDAY5-C", ["3"], 300, -15), O("14", "BLACKFRIDAY10-D", ["4"], 400, -40)], RATES);
   const by = Object.fromEntries(r.results.byStatus.map((x) => [x.status, [x.orders, x.revenue]]));
   assert.deepEqual(by, { new: [1, 100], reactivated: [1, 200], active: [1, 300], existing: [1, 400] });
+});
+
+test("by source: each order by GA4's channel of its shop order number, the unseen ones last (SARCLA 04.11.2026)", () => {
+  const ch: Record<string, string> = { "100001": "Paid Search", "100002": "Organic Search", "100003": "Paid Search" };
+  const order = (id: string, code: string, co: string, shop: string | null, total: number) => ({ ...O(id, code, [co], total), shopNumbers: shop ? [shop] : [] });
+  const r = buildReport([H("1", "BFN-1", "new", 20), H("2", "BFL-1", "list", 15), H("3", "BFL-2", "list", 15), H("4", "BFL-3", "list", 15)],
+    [order("11", "BFN-1", "1", "100001", 300), order("12", "BFL-1", "2", "100002", 200), order("13", "BFL-2", "3", "100003", 100), order("14", "BFL-3", "4", "100009", 50)],
+    RATES, { sourceOf: (ns) => ns.map((n) => ch[n]).find(Boolean) ?? NOT_SEEN, visitors: null, error: null });
+  assert.deepEqual(r.results.bySource?.map((x) => [x.source, x.orders, x.newOrders, x.revenue]),
+    [["Paid Search", 2, 1, 400], ["Organic Search", 1, 0, 200], [NOT_SEEN, 1, 0, 50]]);
+  assert.equal(sourceLabel("Organic Search"), "SEO (organic search)");
+  assert.equal(r.results.orders.find((o) => o.orderId === "14")?.source, NOT_SEEN);
+  // GA4 not read: no split, and no source guessed on any order
+  const none = buildReport([H("1", "BFN-1", "new", 20)], [order("11", "BFN-1", "1", "100001", 300)], RATES);
+  assert.equal(none.results.bySource, null);
+  assert.equal(none.results.orders[0].source, null);
 });

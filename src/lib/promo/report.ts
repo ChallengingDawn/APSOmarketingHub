@@ -15,6 +15,8 @@ export type Holder = { companyId: string; name: string; code: string; discount: 
 export type CodeOrder = {
   orderId: string; codes: string | null; createdAt: string | null; total: number | null; discount: number | null;
   name: string | null; companyIds: string[];
+  /** the shop's order number(s) on the HubSpot order (hs_external_order_id, order_web_order_number) - GA4's transaction id */
+  shopNumbers?: string[];
 };
 export type Use = {
   orderId: string; at: string | null; total: number | null; discount: number | null; name: string | null;
@@ -26,7 +28,11 @@ export type GroupRow = {
   group: string; label: string; rate: number | null; handedOut: number; used: number; orders: number; revenue: number; discountGiven: number;
 };
 /** One web order that used a Black Friday code - the Results tab's rows. */
-export type OrderRow = Use & { code: string; group: string | null; status: string | null; holderId: string; holderName: string; check: Check["reason"] | null };
+export type OrderRow = Use & {
+  code: string; group: string | null; status: string | null; holderId: string; holderName: string; check: Check["reason"] | null;
+  /** GA4's channel of the visit the order came in (last click), NOT_SEEN when GA4 has no such order; null = GA4 not read */
+  source: string | null;
+};
 export type Side = { orders: number; revenue: number; discountGiven: number };
 /** the customer statuses the results split by (SARCLA 03.11.2026: "also the split by reactivated customer") */
 export const STATUS_ORDER = ["new", "reactivated", "active", "existing"] as const;
@@ -34,6 +40,20 @@ export const STATUS_LABEL: Record<string, string> = {
   new: "New customers", reactivated: "Reactivated (last order over a year before)", active: "Active (ordered within a year)", existing: "Existing, not split yet",
 };
 export type DayRow = { day: string; orders: number; revenue: number; discountGiven: number; newOrders: number };
+
+/**
+ * Where they come from (SARCLA 04.11.2026: "the source where they come from, SEO, SEA etc."): GA4's default channel
+ * groups in the team's words. GA4 sees only the visitors who allowed statistics cookies - the rest is NOT_SEEN.
+ */
+export const NOT_SEEN = "(not seen by GA4)";
+const SOURCE_LABEL: Record<string, string> = {
+  "Organic Search": "SEO (organic search)", "Paid Search": "SEA (paid search)", "Cross-network": "Cross-network (Google Ads)",
+  "Organic Social": "Social", "Paid Social": "Paid social", Direct: "Direct", Referral: "Referral (other sites)", Email: "E-mail",
+  [NOT_SEEN]: "Not seen by GA4 (no statistics consent)",
+};
+export const sourceLabel = (s: string) => SOURCE_LABEL[s] ?? s;
+export type SourceRow = Side & { source: string; label: string; newOrders: number };
+export type VisitRow = { source: string; label: string; visits: number };
 export type BfReport = {
   groups: GroupRow[];
   totals: { handedOut: number; used: number; orders: number; revenue: number; discountGiven: number };
@@ -47,6 +67,11 @@ export type BfReport = {
     split: { new: Side; existing: Side };
     /** new / reactivated / active / existing (codes handed out before the status was recorded) */
     byStatus: (Side & { status: string; label: string })[];
+    /** the orders by the channel they came in on; null while GA4 could not be read */
+    bySource: SourceRow[] | null;
+    /** the visits that saw the shop's Black Friday page, by channel, since the page went up; null while GA4 could not be read */
+    visitors: { from: string; to: string; visits: number; bySource: VisitRow[] } | null;
+    sourcesError: string | null;
   };
 };
 
@@ -75,7 +100,10 @@ export const splitCodes = (s: string | null | undefined) => String(s ?? "").spli
 
 const num = (v: number | null) => (v != null && Number.isFinite(v) ? v : 0);
 
-export function buildReport(holders: Holder[], orders: CodeOrder[], rates: Record<string, number>): BfReport {
+export function buildReport(
+  holders: Holder[], orders: CodeOrder[], rates: Record<string, number>,
+  sources: { sourceOf: ((shopNumbers: string[]) => string) | null; visitors: BfReport["results"]["visitors"]; error: string | null } = { sourceOf: null, visitors: null, error: null },
+): BfReport {
   const ruleRates = [...RULE_RATES, ...Object.values(rates)];
   const byCode = new Map<string, Holder & { uses: Use[] }>();
   for (const h of holders) {
@@ -92,12 +120,13 @@ export function buildReport(holders: Holder[], orders: CodeOrder[], rates: Recor
         orderId: o.orderId, at: o.createdAt, total: o.total, discount: o.discount == null ? null : Math.abs(o.discount), name: o.name,
         byCompanyId: o.companyIds[0] ?? null,
       };
+      const source = sources.sourceOf ? sources.sourceOf(o.shopNumbers ?? []) : null;
       if (!h) {
         // a code of the Black Friday rules that the page never handed out: typed in by someone, or passed on
         if (rateOfCode(code, ruleRates) == null) continue; // another promotion's code
         const c: Check = { ...use, code, holderId: "", holderName: "-", reason: "not from the page" };
         checks.push(c);
-        rows.push({ ...use, code, group: null, status: null, holderId: "", holderName: "-", check: c.reason });
+        rows.push({ ...use, code, group: null, status: null, holderId: "", holderName: "-", check: c.reason, source });
         continue;
       }
       let reason: Check["reason"] | null = null;
@@ -105,7 +134,7 @@ export function buildReport(holders: Holder[], orders: CodeOrder[], rates: Recor
       // a code still on an account (no company yet) cannot be held against the order's company
       else if (h.companyId && use.byCompanyId && !o.companyIds.includes(h.companyId)) reason = "other company";
       if (reason) checks.push({ ...use, code, holderId: h.companyId, holderName: h.name, reason });
-      rows.push({ ...use, code, group: h.group, status: h.status ?? (h.group === "new" ? "new" : null), holderId: h.companyId, holderName: h.name, check: reason });
+      rows.push({ ...use, code, group: h.group, status: h.status ?? (h.group === "new" ? "new" : null), holderId: h.companyId, holderName: h.name, check: reason, source });
       h.uses.push(use);
     }
   }
@@ -144,7 +173,20 @@ export function buildReport(holders: Holder[], orders: CodeOrder[], rates: Recor
     const x = statusSides.get(st)!;
     x.orders++; x.revenue += num(r.total); x.discountGiven += num(r.discount);
   }
+  // by source: the most orders first, the ones GA4 did not see last
+  let bySource: SourceRow[] | null = null;
+  if (sources.sourceOf) {
+    const m = new Map<string, SourceRow>();
+    for (const r of rows) {
+      const src = r.source ?? NOT_SEEN;
+      const x = m.get(src) ?? { source: src, label: sourceLabel(src), orders: 0, revenue: 0, discountGiven: 0, newOrders: 0 };
+      x.orders++; x.revenue += num(r.total); x.discountGiven += num(r.discount); if (r.group === "new") x.newOrders++;
+      m.set(src, x);
+    }
+    bySource = [...m.values()].sort((a, b) => Number(a.source === NOT_SEEN) - Number(b.source === NOT_SEEN) || b.orders - a.orders);
+  }
   const results = {
+    bySource, visitors: sources.visitors, sourcesError: sources.error,
     byStatus: [...statusSides.entries()].map(([status, x]) => ({ status, label: STATUS_LABEL[status] ?? status, ...x })),
     orders: [...rows].reverse(),                          // the newest first
     byDay: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)),

@@ -62,7 +62,8 @@ export type Ga4ReportName =
   | "engageEvents"
   | "itemsMonthly"
   | "viewItemPages"
-  | "transactionsChannel";
+  | "transactionsChannel"
+  | "bfPageChannels";
 
 type ReportSpec = {
   dimensions: string[];
@@ -337,6 +338,18 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     dimensions: ["transactionId", "sessionDefaultChannelGroup", "date"],
     metrics: ["transactions"],
     limit: 100000,
+  },
+  bfPageChannels: {
+    // Website > Campaigns > Black Friday (SARCLA 04.11.2026: "the source where they come from, SEO, SEA"): the visits that
+    // saw the shop's Black Friday page in any store view, by the channel the visit came in on
+    dimensions: ["sessionDefaultChannelGroup"],
+    metrics: ["sessions"],
+    filter: {
+      field: "pagePath",
+      values: ["de-CH", "fr-CH", "it-CH", "en-CH", "fr-FR", "it-IT", "nl-NL", "pl-PL", "en-INT", "fr-INT", "it-INT", "nl-INT"].map((sv) => `/${sv}/black-friday`),
+    },
+    orderBy: { metric: "sessions", desc: true },
+    limit: 50,
   },
   adsClicksDaily: {
     // GA4 answers Google Ads metrics only alongside a campaign dimension; the client sums per day.
