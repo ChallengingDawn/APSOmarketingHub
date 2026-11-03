@@ -50,6 +50,7 @@ import { SaeTableView } from "./SaeTableView";
 import { WrongPerformisView } from "./WrongPerformisView";
 import { DomainsView } from "./DomainsView";
 import { PhoneView } from "./PhoneView";
+import { RegionsView } from "./RegionsView";
 import { DiffView } from "./DiffView";
 import {
   API, OLD_VIEW_HASH, VIEW_HASH, assignInto, buildPalette, canon, checkRules, countryList, countryName, effectiveRules, namesOf, partName, rulesParts, saveRules, send,
@@ -63,7 +64,7 @@ type Space = "live" | "sandbox";
 const TAB_HASH = { ...VIEW_HASH, ...OLD_VIEW_HASH };
 
 const VIEW_LABEL: Record<View, string> = {
-  map: "Map", sae: "SAE table", performis: "Wrong Performis Owners", differences: "Differences", contacts: "Contacts", domains: "Domains", phones: "Phone numbers", live: "Live",
+  map: "Map", sae: "SAE table", performis: "Wrong Performis Owners", differences: "Differences", contacts: "Contacts", domains: "Domains", regions: "Regions", phones: "Phone numbers", live: "Live",
 };
 
 function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n, busy, check, msg, onSave, onUndo, seededNow, onSeeded, sandbox, liveRules }: {
@@ -333,8 +334,9 @@ export default function MapAssignment() {
   };
 
   let body: React.ReactNode;
-  // Domains and Phone numbers have their own engine and API - they never wait for the map's data
+  // Domains, Regions and Phone numbers have their own engine and API - they never wait for the map's data
   if (view === "domains") body = <DomainsView key="domains" />;
+  else if (view === "regions") body = <RegionsView key="regions" />;
   else if (view === "phones") body = <PhoneView key="phones" />;
   else if (r === null) body = <LoadingPanel key="loading" label="Reading who owns which companies…" />;
   else if (r.state !== "ok") {
@@ -376,6 +378,7 @@ export default function MapAssignment() {
           { id: "differences", label: VIEW_LABEL.differences, count: null },
           { id: "contacts", label: VIEW_LABEL.contacts, count: follow !== null ? `${follow}%` : null },
           { id: "domains", label: VIEW_LABEL.domains, count: null },
+          { id: "regions", label: VIEW_LABEL.regions, count: null },
           { id: "phones", label: VIEW_LABEL.phones, count: null },
           { id: "live", label: VIEW_LABEL.live, count: liveCount ? `${liveCount} live` : null },
         ]} />

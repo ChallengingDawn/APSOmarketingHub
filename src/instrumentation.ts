@@ -114,6 +114,12 @@ export async function register() {
     const { startCompanyDomain } = await import("./lib/companyDomain/engine");
     startCompanyDomain();
 
+    // Map assignment > Regions: each company of the eight countries gets the region of its postcode (the official one,
+    // else the map's) in "regions" - replaces the workflow SARCLA | REGIONS SET; writes only in Live with the workflow
+    // switched off (src/lib/companyRegions). COMPANY_REGIONS=off stops it. SARCLA, 03.11.2026.
+    const { startCompanyRegions } = await import("./lib/companyRegions/engine");
+    startCompanyRegions();
+
     // The Enquiry Category at the end of each Back Office ticket left "Others" or empty - the whole conversation, no
     // customer request stays Others, the AI reads the rest; replaces the workflow SARCLA | CLASSIFIER END OF TICKET and
     // writes once that workflow is switched off (src/lib/ticketClose). TICKET_CLOSE=off stops it. SARCLA, 25.10.2026.
