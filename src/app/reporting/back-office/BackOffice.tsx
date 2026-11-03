@@ -349,7 +349,12 @@ const FIGS: Record<Slug, (f: Frame, d: Data) => Fig[]> = {
 /** what a graph is drawn from - and, on Topics, the topics picked */
 type Ctx = { f: Frame; d: Data; picked?: string[]; pick?: (label: string) => void };
 /** `wide`: across the card - a graph with many parts, or the first of three */
-type ChartDef = { id: string; page: Slug; title: string; hint?: (c: Ctx) => string; body: (c: Ctx) => React.ReactNode; wide?: boolean; list?: ListOf; board?: (c: Ctx) => BoardSpec };
+type ChartDef = {
+  id: string; page: Slug; title: string; hint?: (c: Ctx) => string; body: (c: Ctx) => React.ReactNode; wide?: boolean; list?: ListOf; board?: (c: Ctx) => BoardSpec;
+  /** the graph's headline figure for the period shown - its tile's summary opens with it, and the Action plan reads it as the
+   *  KPI's real figure (SARCLA 03.11.2026: "we should see the real KPIs") */
+  figure?: (c: Ctx) => string | null;
+};
 /** a person board: the Back Office team ranked, each against the same number of months right before; the other owners folded */
 type BoardSpec = { rows: BoardRow[]; others: BoardRow[]; fmt: (v: number) => string; ratio?: boolean; lower?: boolean; diff?: (n: number) => string; summary: string; prevLabel: string; noChange: boolean };
 /** a graph with the tickets behind it */
@@ -363,7 +368,7 @@ const wide = (c: ChartDef): ChartDef => ({ ...c, wide: true });
 /** a monthly KPI as a line, last year's beside it, its complete months added up in the hint */
 function trend(id: string, page: Slug, title: string, note: string, pick: (k: BoKpis) => number | null, fmt: (v: number | null) => string, tick?: (v: number | null) => string): ChartDef {
   return {
-    id, page, title,
+    id, page, title, figure: ({ f }) => { const a = pick(f.total); return a == null ? null : fmt(a); },
     hint: ({ f }) => {
       const a = pick(f.total), b = f.totalPrev ? pick(f.totalPrev) : null;
       const ch = a != null && b != null ? changeOf(a, b) : null;
@@ -382,6 +387,7 @@ function typedTrend(id: string, page: Slug, title: string, key: string, note: st
   const fmt = unit === "pct" ? share : n0;
   return {
     id, page, title, hint: () => note,
+    figure: ({ f, d }) => { const v = meanOf(typedOf(d, key, f.yms.slice(f.from, Math.max(f.done, f.from + 1)))); return v == null ? null : fmt(v); },
     body: ({ f, d }) => {
       const n = drawn(f);
       const values = typedOf(d, key, f.yms.slice(0, n)), compare = typedOf(d, key, f.yms.slice(0, n).map(back));
@@ -393,6 +399,11 @@ function typedTrend(id: string, page: Slug, title: string, key: string, note: st
 function topicTrend(id: string, title: string, keys: string[], note: string, perOrder = false): ChartDef {
   return {
     id, page: "topics", title, hint: () => note,
+    figure: ({ f }) => {
+      const ms = f.cur.slice(f.from, f.done).filter((m) => hasTickets(m.ym) && !m.pending);
+      const t = ms.reduce((s, m) => s + keys.reduce((x, k) => x + (m.topics[k] ?? 0), 0), 0), o = ms.reduce((s, m) => s + m.orders, 0);
+      return ms.length ? (perOrder ? share(o ? t / o : null) : int(t)) : null;
+    },
     body: ({ f }) => {
       const n = drawn(f);
       const of = (m: BoMonth | null) => {
@@ -765,6 +776,7 @@ export const CHARTS: ChartDef[] = [
   /* Team totals - the workbook's "Monthly evolution - team totals" */
   listed(ALL_IN)({
     id: "createdClosed", page: "figures", title: "Tickets created and closed, month by month",
+    figure: ({ f }) => (f.total.created == null ? null : `${n0(f.total.created)} created, ${n0(f.total.closed)} closed`),
     hint: ({ f }) => `Created: by the month they came in · closed: by their close date${f.done ? ` · ${f.doneWords}: ${n0(f.total.created)} created, ${n0(f.total.closed)} closed` : ""}`,
     body: ({ f }) => {
       const n = drawn(f);
@@ -774,6 +786,7 @@ export const CHARTS: ChartDef[] = [
   }),
   {
     id: "backlog", page: "figures", title: "Tickets created and closed, added up over the year",
+    figure: ({ f }) => (f.total.created == null ? null : `${n0(f.total.created)} created, ${n0(f.total.closed)} closed`),
     hint: () => "The gap between the two lines is how far closing lags behind what came in",
     body: ({ f }) => {
       const n = drawn(f);
@@ -792,6 +805,7 @@ export const CHARTS: ChartDef[] = [
   listed({ closed: true, note: "the tickets closed" })(trend("closed", "figures", "Tickets closed", "By their close date", (k) => k.closed, n0)),
   listed(ALL_IN)(wide({
     id: "origins", page: "figures", title: "Where the tickets came from, month by month",
+    figure: ({ f }) => (f.total.created == null ? null : n0(f.total.created)),
     hint: () => "Customer: an e-mail or a form · Chat: handed over by the chat · Automatic & internal: what no customer wrote - automatic, finance and internal e-mails, GQS updates, spam - and what a system made",
     body: ({ f }) => <StackedColumns height={260} format={n0} data={byMonth(f, "created", (t) => t.origin).map((x, i) => ({ x: f.labels[i], ...originCells(x) }))} parts={originParts} />,
   })),
@@ -1220,6 +1234,7 @@ export const CHARTS: ChartDef[] = [
   /* Stopped orders - typed in */
   {
     id: "stopped", page: "stopped", title: "Stopped orders, month by month", hint: () => "Of the Magento orders transferred to the Back Office, the share stopped",
+    figure: ({ f, d }) => { const v = meanOf(f.yms.slice(f.from, Math.max(f.done, f.from + 1)).map((ym) => stoppedShare(d, ym))); return v == null ? null : share(v); },
     body: ({ f, d }) => {
       const n = f.year === Number(d.current.slice(0, 4)) ? drawn(f) : f.yms.length;
       const values = f.yms.slice(0, n).map((ym) => stoppedShare(d, ym)), compare = f.yms.slice(0, n).map((ym) => stoppedShare(d, back(ym)));
@@ -1241,7 +1256,10 @@ const chartByKey = (key: string) => CHARTS.find((c) => chartKey(c) === key) ?? C
 
 /** A graph with its Actions - on its page, or in the BUC View. */
 function Card({ def, c, where }: { def: ChartDef; c: Ctx; where: "tab" | "nutshell" }) {
-  const actions = <TileActions where={where} start="tab" edge={2} tile={{ key: chartKey(def), page: `bo-${def.page}`, tab: "main", title: def.title, kind: "card", href: hrefOf(def.page) }} />;
+  // the summary opens with the graph's figure for the period shown - "21,526 · Tickets created, Jan–Oct 2026"
+  const fig = def.figure?.(c) ?? null;
+  const summary = fig ? `${fig} · ${def.title}, ${periodOf(c.f)}` : undefined;
+  const actions = <TileActions where={where} start="tab" edge={2} tile={{ key: chartKey(def), page: `bo-${def.page}`, tab: "main", title: def.title, kind: "card", href: hrefOf(def.page), summary }} />;
   if (def.board) {
     const b = def.board(c);
     return (
