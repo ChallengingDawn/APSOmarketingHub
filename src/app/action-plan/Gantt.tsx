@@ -256,13 +256,18 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
     let dx = 0;
-    const move = (ev: PointerEvent) => { dx = ev.clientX - x0; setBar({ id: item.id, mode, dx }); };
+    // a press that barely moves is a click: it opens the row and moves nothing (SARCLA 03.11.2026: "date on the plan
+    // sometimes change, it's really weird" - at Months a day is 2.6 px, at Quarters 1.1 px, so a click's 2 px wobble
+    // moved the bar a day or two and saved it); a drag starts beyond 6 px
+    const SLOP = 6;
+    const move = (ev: PointerEvent) => { dx = ev.clientX - x0; if (Math.abs(dx) >= SLOP) setBar({ id: item.id, mode, dx }); };
     const up = () => {
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", up);
       setBar(null);
+      if (Math.abs(dx) < SLOP) { onOpen(item); return; }
       const days = Math.round(dx / px);
-      if (!days) { if (Math.abs(dx) < 3) onOpen(item); return; }
+      if (!days) return;
       const sh = (d: string | null) => (d ? isoOf(dayOf(d) + days) : d);
       if (mode === "move") void onPatch(item.id, { start: sh(item.start), due: sh(item.due) });
       else if (mode === "due") void onPatch(item.id, { due: sh(item.due) });

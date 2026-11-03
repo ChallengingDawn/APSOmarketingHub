@@ -473,12 +473,13 @@ export function TicketFields({ form, values, set }: { form: Form; values: Record
           return (
             <Box key={f.name} sx={{ gridColumn: "1 / -1", display: "grid", gap: 0.75 }}>
               <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: MUTED }}>{label}</Typography>
-              <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap" }}>
+              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                 {optionsOf(f).map((o) => {
                   const on = chosen.includes(o.value);
                   return (
                     <Box key={o.value} component="button" type="button" onClick={() => set(f.name, (on ? chosen.filter((x) => x !== o.value) : [...chosen, o.value]).join(";"))}
-                      sx={{ border: `1px solid ${on ? TINT.blue.fg : HAIRLINE}`, bgcolor: on ? TINT.blue.bg : "#fff", color: on ? TINT.blue.fg : MUTED, font: "inherit", fontSize: "0.84rem", fontWeight: on ? 700 : 500, px: 1.1, py: 0.4, borderRadius: "4px", cursor: "pointer" }}>
+                      // the plan's tags, one size (SubActions.square)
+                      sx={{ border: `1px solid ${on ? TINT.blue.fg : HAIRLINE}`, bgcolor: on ? TINT.blue.bg : "#fff", color: on ? TINT.blue.fg : MUTED, font: "inherit", fontSize: "0.78rem", fontWeight: on ? 800 : 600, px: 1, py: 0.4, borderRadius: "4px", cursor: "pointer", whiteSpace: "nowrap" }}>
                       {o.label}
                     </Box>
                   );

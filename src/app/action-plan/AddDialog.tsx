@@ -23,7 +23,6 @@ import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Switch from "@mui/material/Switch";
-import Autocomplete from "@mui/material/Autocomplete";
 import CircularProgress from "@mui/material/CircularProgress";
 import CloseIcon from "@mui/icons-material/Close";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
@@ -33,15 +32,12 @@ import { IDEA, PRIORITIES, STAGES, type Opt, type PlanFields, type PlanItem, typ
 import type { AiFill } from "@/lib/reporting/scrollToSaleRules";
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
 import { FindTickets, TicketFields, field, useTileActions } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
-import { AiBox, AiButton, NewSub, planTile, ticketText, useTicketFill } from "./SubActions";
-import { PRIORITY_COLOR, stageColor, type PlanData } from "./planUi";
+import { AiBox, AiButton, CoreFields, NewSub, label, planTile, square as tag, ticketText, useTicketFill } from "./SubActions";
+import type { PlanData } from "./planUi";
 
-const label = { fontSize: "0.78rem", color: MUTED, fontWeight: 600 } as const;
 const cta = { textTransform: "none", fontWeight: 700, borderRadius: "6px", fontSize: "0.9rem" } as const;
-const square = (on: boolean, fg: string, bg: string) => ({
-  border: `1px solid ${on ? fg : HAIRLINE}`, bgcolor: on ? bg : "#fff", color: on ? fg : MUTED, font: "inherit", fontSize: "0.78rem",
-  fontWeight: on ? 800 : 600, px: 1, py: 0.4, borderRadius: "4px", cursor: "pointer", whiteSpace: "nowrap" as const,
-});
+// the tags of every form (SubActions.square)
+const square = (on: boolean, fg: string, bg: string) => tag(on, fg, bg, true);
 const NAME: Record<PlanKind, string> = { goal: "the goal", topic: "main category", group: "sub-category", action: "action" };
 /** The ticket fields the new action gives itself (and the plan's place, written by the hub once it is made). */
 const GIVEN = ["subject", "content", "hs_pipeline_stage", "hs_ticket_priority", "hubspot_owner_id", "mkt_planned_date", "mkt_golive_date",
@@ -208,10 +204,10 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
     } catch (e) { setErr((e as Error).message); setBusy(false); }
   };
 
-  // the sub-action window's spacing (SubActions.tsx SmallFields, SubEditor): 1.9 between blocks, 0.75 from a label to its tags
-  // (SARCLA 02.11.2026: "the design rules are still so wrong")
+  // the sub-action window's spacing (SubActions.tsx CoreFields, SubEditor): 1.75 between blocks, 0.75 from a label to its
+  // tags (SARCLA 02.11.2026: "the design rules are still so wrong")
   return (
-    <Box sx={{ display: "grid", gap: 1.9 }}>
+    <Box sx={{ display: "grid", gap: 1.75 }}>
       {(can.length > 1 || action) && (
         <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
           {can.length > 1 && can.map((k) => <Box key={k} component="button" type="button" aria-pressed={kind === k} onClick={() => setKind(k)} sx={{ ...square(kind === k, TINT.blue.fg, TINT.blue.bg), fontSize: "0.84rem", px: 1.4, py: 0.6 }}>New {NAME[k]}</Box>)}
@@ -225,40 +221,16 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
       )}
       {dgOk && <DgSwitch on={dg} set={setDg} hint={dg ? "The action and its sub-actions carry “From Scroll to Sale” tickets - make one or link one now" : "Turn on for a “From Scroll to Sale” ticket, the marketing channel and the agency"} />}
       <Box sx={{ display: "grid", gap: 1.75, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: withTicket ? "minmax(0, 1fr) minmax(0, 1.15fr)" : "minmax(0, 1fr)" } }}>
-        <Box sx={{ display: "grid", gap: 1.9, minWidth: 0 }}>
+        <Box sx={{ display: "grid", gap: 1.75, minWidth: 0 }}>
           <TextField size="small" autoFocus label={action ? "Action" : `The ${NAME[kind]}'s name`} placeholder={action ? "What will be done - written as an action" : ""} value={title}
             onChange={(e) => setTitle(e.target.value)} sx={field} slotProps={{ inputLabel: { shrink: true } }} onKeyDown={(e) => { if (e.key === "Enter" && !action && ready) void create(); }} />
           {action && (
             <>
               <TextField size="small" label="Description" placeholder="What the action is about, what done looks like" value={detail} onChange={(e) => setDetail(e.target.value)} multiline minRows={2} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
-              <Box sx={{ display: "grid", gap: 0.75 }}>
-                <Typography sx={label}>Status</Typography>
-                <Box role="radiogroup" aria-label="Status" sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-                  {STAGES.map((s) => {
-                    const on = stage === s.id;
-                    const c = stageColor(s.id);
-                    return <Box key={s.id} component="button" type="button" role="radio" aria-checked={on} onClick={() => setStage(s.id)} sx={{ ...square(on, c.ink, c.soft), ...(on ? { bgcolor: c.bar, color: "#fff", borderColor: c.bar } : {}) }}>{s.label}</Box>;
-                  })}
-                </Box>
-              </Box>
-              <TextField size="small" label="Status note" placeholder="Where it stands - what is done, what is in the way" value={statusNote} onChange={(e) => setStatusNote(e.target.value)}
-                multiline minRows={1} sx={field} slotProps={{ inputLabel: { shrink: true } }} />
-              <Box sx={{ display: "grid", gap: 0.75 }}>
-                <Typography sx={label}>Priority</Typography>
-                <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-                  {[...PRIORITIES].reverse().map((p) => {
-                    const on = priority === p.value;
-                    const c = PRIORITY_COLOR[p.value];
-                    return <Box key={p.value} component="button" type="button" aria-pressed={on} onClick={() => setPriority(on ? "" : p.value)} sx={square(on, c.fg, c.bg)}>{p.label}</Box>;
-                  })}
-                </Box>
-              </Box>
-              <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: { xs: "1fr", sm: "1.6fr 1fr 1fr" } }}>
-                <Autocomplete multiple size="small" options={people} value={owners} getOptionLabel={(o) => o.name} isOptionEqualToValue={(a, b) => a.id === b.id} filterSelectedOptions
-                  onChange={(_, v) => setOwners(v)} renderInput={(p) => <TextField {...p} label="Assigned to" placeholder={owners.length ? "" : "HubSpot users"} sx={field} InputLabelProps={{ ...p.InputLabelProps, shrink: true }} />} />
-                <TextField size="small" type="date" label="Planned date" value={start} onChange={(e) => setStart(e.target.value)} sx={field} slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: due || undefined } }} />
-                <TextField size="small" type="date" label="Go-live date" value={due} onChange={(e) => setDue(e.target.value)} sx={field} slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: start || undefined } }} />
-              </Box>
+              <CoreFields canWrite stage={stage} onStage={setStage} statusNote={statusNote} onStatusNote={setStatusNote} priority={priority} onPriority={setPriority}
+                owners={owners.map((o) => o.id)} multiple people={people.map((p) => ({ value: p.id, label: p.name }))}
+                onOwners={(ids) => setOwners(ids.map((id) => people.find((p) => p.id === id)).filter((p): p is PlanOwner => !!p))}
+                start={start} due={due} onStart={setStart} onDue={setDue} />
               <Pick title="Implementation country" options={choices.country} value={country} set={setCountry} />
               {withTicket && <Pick title="Marketing channel" options={choices.channel} value={channel} set={setChannel} />}
               {withTicket && <Pick title="Agency" options={choices.agency} value={agency} set={setAgency} />}

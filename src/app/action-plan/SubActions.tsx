@@ -14,11 +14,12 @@
 // has its status note right under its status (SARCLA 02.11.2026: "status note should directly appear on the sub-action")
 // - the ticket's status note when it has one.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
+import Checkbox from "@mui/material/Checkbox";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
@@ -37,11 +38,12 @@ import { AI_INK, AI_LINE, AI_SOFT, FindTickets, People, TicketFields, TicketLine
 import { LATE, PRIORITY_COLOR, dmy, stageColor } from "./planUi";
 
 const cta = { textTransform: "none", fontWeight: 700, borderRadius: "6px", fontSize: "0.86rem" } as const;
-const label = { fontSize: "0.78rem", color: MUTED, fontWeight: 600 } as const;
+/** A label over its tags, the same on every form. */
+export const label = { fontSize: "0.78rem", color: MUTED, fontWeight: 600 } as const;
 const section = { fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
 const TAG = { flexShrink: 0, px: 0.6, borderRadius: "3px", fontSize: "0.66rem", fontWeight: 800, lineHeight: "17px" } as const;
-/** A square choice, as the action's. */
-const square = (on: boolean, fg: string, bg: string, can: boolean) => ({
+/** A square choice - one size on every form (the action's window, a sub-action's, a new one). */
+export const square = (on: boolean, fg: string, bg: string, can: boolean) => ({
   border: `1px solid ${on ? fg : HAIRLINE}`, bgcolor: on ? bg : "#fff", color: on ? fg : MUTED, font: "inherit", fontSize: "0.78rem",
   fontWeight: on ? 800 : 600, px: 1, py: 0.4, borderRadius: "4px", cursor: can ? "pointer" : "default", whiteSpace: "nowrap" as const,
 });
@@ -51,16 +53,39 @@ const nonEmpty = (v: Record<string, string>) => Object.fromEntries(Object.entrie
 type Small = { title: string; stage: string; priority: string; owner: string; start: string; due: string; statusNote: string };
 const smallOf = (k: KpiTask): Small => ({ title: k.title, stage: k.stage ?? "", priority: k.priority, owner: k.owner, start: k.start ?? "", due: k.due ?? "", statusNote: k.statusNote ?? "" });
 
-/** A date handed up as soon as it is a whole one (a year from 2000 - typing it does not hand up 0002, 0020, 0202 on the way)
- *  or when it is left: one picked and the window closed is kept (SARCLA 02.11.2026: "planned, go-live dates are not updating"). */
+/** A whole date - a year from 2000: typing it does not give 0002, 0020, 0202 on the way. */
 export const wholeDay = (v: string) => /^(2\d{3})-\d{2}-\d{2}$/.test(v);
+/**
+ * A date handed up once it is settled (SARCLA 03.11.2026: "date on creation and on the plan sometimes change, it's
+ * really weird"): typing 19 over 09 made 01 on the way, saved at once, and the two saves could land in either order; the
+ * saved one coming back also reset the box while it was still being typed. Now a whole date is handed up when typing
+ * has stopped for a moment, when the box is left, or when its window closes - one picked and the window closed is kept
+ * (02.11.2026: "planned, go-live dates are not updating") - and the box follows the row only when it is not being typed in.
+ */
 function DayField({ label: l, value, min, max, canWrite, onSave }: { label: string; value: string; min?: string; max?: string; canWrite: boolean; onSave: (v: string) => void }) {
   const [v, setV] = useState(value);
   const sent = useRef(value);
-  useEffect(() => { setV(value); sent.current = value; }, [value]);
-  const hand = (x: string) => { if (x !== sent.current) { sent.current = x; onSave(x); } };
+  const typing = useRef(false);
+  const wait = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const last = useRef({ v: value, onSave });
+  last.current.onSave = onSave;
+  useEffect(() => { if (!typing.current) { setV(value); last.current.v = value; } sent.current = value; }, [value]);
+  const hand = (x: string) => {
+    if (wait.current) { clearTimeout(wait.current); wait.current = null; }
+    if (x !== sent.current && (x === "" || wholeDay(x))) { sent.current = x; last.current.onSave(x); }
+  };
+  // the window closed while a date waited: it is kept
+  useEffect(() => () => { if (wait.current) { clearTimeout(wait.current); if (last.current.v !== sent.current && wholeDay(last.current.v)) last.current.onSave(last.current.v); } }, []);
   return (
-    <TextField size="small" type="date" label={l} value={v} disabled={!canWrite} onChange={(e) => { setV(e.target.value); if (wholeDay(e.target.value)) hand(e.target.value); }} onBlur={() => hand(v)}
+    <TextField size="small" type="date" label={l} value={v} disabled={!canWrite}
+      onFocus={() => { typing.current = true; }}
+      onChange={(e) => {
+        const x = e.target.value;
+        setV(x); last.current.v = x;
+        if (wait.current) clearTimeout(wait.current);
+        wait.current = wholeDay(x) ? setTimeout(() => hand(x), 900) : null;
+      }}
+      onBlur={() => { typing.current = false; hand(v); }}
       sx={field} slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: min || undefined, max: max || undefined } }} />
   );
 }
@@ -75,47 +100,94 @@ function NoteField({ label: l, value, placeholder, canWrite, onSave }: { label: 
   );
 }
 
-/** The stage and its status note, the priority, who and the two dates - square choices as on the action; each change
- *  handed up at once, a text when it is left. */
-function SmallFields({ v, set, owners, canWrite }: { v: Small; set: (p: Partial<Small>) => void; owners: Opt[]; canWrite: boolean }) {
+/**
+ * Who does it: HubSpot's users in one box - one person on a sub-action, several ticked on an action - the same box on
+ * every form (SARCLA 03.11.2026: "depending on main, sub-actions or actions the way you give the owner is different, this
+ * should be uniform"; of the sub-action's: "this is the correct way I like").
+ */
+export function AssignedTo({ value, multiple = false, options, canWrite, onChange }: {
+  value: string[]; multiple?: boolean; options: Opt[]; canWrite: boolean; onChange: (ids: string[]) => void;
+}) {
+  const shown = value.filter((id) => options.some((o) => o.value === id));
+  const name = (id: string) => options.find((o) => o.value === id)?.label ?? id;
+  return (
+    <TextField select size="small" label="Assigned to" value={multiple ? shown : shown[0] ?? ""} disabled={!canWrite}
+      onChange={(e) => { const x = e.target.value as string | string[]; onChange(Array.isArray(x) ? x : x ? [x] : []); }} sx={field}
+      slotProps={{ inputLabel: { shrink: true }, select: { multiple, displayEmpty: true, renderValue: (x) => {
+        const ids = (Array.isArray(x) ? x : x ? [x] : []) as string[];
+        return ids.length ? ids.map(name).join(", ") : <Box component="span" sx={{ color: FAINT }}>Pick who does it</Box>;
+      } } }}>
+      {options.map((o) => (
+        <MenuItem key={o.value} value={o.value} sx={{ fontSize: "0.88rem" }}>
+          {multiple && <Checkbox size="small" checked={value.includes(o.value)} sx={{ p: 0.25, mr: 1 }} />}{o.label}
+        </MenuItem>
+      ))}
+    </TextField>
+  );
+}
+
+/**
+ * The fields an action, a sub-action and a new one share - one order, one look (SARCLA 03.11.2026: "this should be
+ * uniform", "can't you see the form design is really not good?"): the status with its note under it, the priority,
+ * then who does it beside the planned and go-live dates - and what a row adds beside them (an action's % complete) or
+ * under them. Each change handed up at once, a text when it is left.
+ */
+export function CoreFields({ canWrite, stage, onStage, stageLocked = false, stageNote, statusNote, onStatusNote, priority, onPriority,
+  owners, multiple = false, people, onOwners, start, due, onStart, onDue, startLocked = false, dueLocked = false, beside, below }: {
+  canWrite: boolean; stage: string; onStage: (s: string) => void; stageLocked?: boolean; stageNote?: string;
+  statusNote: string; onStatusNote: (v: string) => void; priority: string; onPriority: (p: string) => void;
+  owners: string[]; multiple?: boolean; people: Opt[]; onOwners: (ids: string[]) => void;
+  start: string; due: string; onStart: (d: string) => void; onDue: (d: string) => void; startLocked?: boolean; dueLocked?: boolean;
+  beside?: ReactNode; below?: ReactNode;
+}) {
+  const can = canWrite && !stageLocked;
   return (
     // room between a text box and the tags under it (SARCLA 02.11.2026: "give more padding between the text box and the tags")
     <Box sx={{ display: "grid", gap: 1.75 }}>
       <Box sx={{ display: "grid", gap: 0.75 }}>
         <Typography sx={label}>Status</Typography>
-        <Box role="radiogroup" aria-label="Status" sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+        <Box role="radiogroup" aria-label="Status" sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
           {STAGES.map((s) => {
-            const on = v.stage === s.id;
+            const on = stage === s.id;
             const c = stageColor(s.id);
             return (
-              <Box key={s.id} component="button" type="button" role="radio" aria-checked={on} disabled={!canWrite} onClick={() => !on && set({ stage: s.id })}
-                sx={{ ...square(on, c.ink, c.soft, canWrite), ...(on ? { bgcolor: c.bar, color: "#fff", borderColor: c.bar } : {}) }}>
+              <Box key={s.id} component="button" type="button" role="radio" aria-checked={on} disabled={!can} onClick={() => !on && onStage(s.id)}
+                sx={{ ...square(on, c.ink, c.soft, can), ...(on ? { bgcolor: c.bar, color: "#fff", borderColor: c.bar } : {}) }}>
                 {s.label}
               </Box>
             );
           })}
+          {stageNote && <Typography sx={{ fontSize: "0.78rem", color: FAINT, ml: 0.5 }}>{stageNote}</Typography>}
         </Box>
       </Box>
-      <NoteField label="Status note" value={v.statusNote} placeholder="Where it stands - what is done, what is in the way" canWrite={canWrite} onSave={(x) => set({ statusNote: x })} />
+      <NoteField label="Status note" value={statusNote} placeholder="Where it stands - what is done, what is in the way" canWrite={canWrite} onSave={onStatusNote} />
       <Box sx={{ display: "grid", gap: 0.75 }}>
         <Typography sx={label}>Priority</Typography>
         <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
           {[...PRIORITIES].reverse().map((p) => {
-            const on = v.priority === p.value;
+            const on = priority === p.value;
             const c = PRIORITY_COLOR[p.value];
-            return <Box key={p.value} component="button" type="button" aria-pressed={on} disabled={!canWrite} onClick={() => set({ priority: on ? "" : p.value })} sx={square(on, c.fg, c.bg, canWrite)}>{p.label}</Box>;
+            return <Box key={p.value} component="button" type="button" aria-pressed={on} disabled={!canWrite} onClick={() => onPriority(on ? "" : p.value)} sx={square(on, c.fg, c.bg, canWrite)}>{p.label}</Box>;
           })}
         </Box>
       </Box>
-      <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: { xs: "1fr", sm: "1.4fr 1fr 1fr" } }}>
-        <TextField select size="small" label="Assigned to" value={owners.some((o) => o.value === v.owner) ? v.owner : ""} disabled={!canWrite}
-          onChange={(e) => set({ owner: e.target.value })} sx={field} slotProps={{ inputLabel: { shrink: true } }}>
-          {owners.map((o) => <MenuItem key={o.value} value={o.value} sx={{ fontSize: "0.88rem" }}>{o.label}</MenuItem>)}
-        </TextField>
-        <DayField label="Planned date" value={v.start} max={v.due} canWrite={canWrite} onSave={(d) => set({ start: d })} />
-        <DayField label="Go-live date" value={v.due} min={v.start} canWrite={canWrite} onSave={(d) => set({ due: d })} />
+      <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: { xs: "1fr", sm: beside ? "1.4fr 1fr 1fr 0.6fr" : "1.4fr 1fr 1fr" } }}>
+        <AssignedTo value={owners} multiple={multiple} options={people} canWrite={canWrite} onChange={onOwners} />
+        <DayField label="Planned date" value={start} max={due} canWrite={canWrite && !startLocked} onSave={onStart} />
+        <DayField label="Go-live date" value={due} min={start} canWrite={canWrite && !dueLocked} onSave={onDue} />
+        {beside}
       </Box>
+      {below && <Box sx={{ display: "grid", gap: 0.5, mt: -0.75 }}>{below}</Box>}
     </Box>
+  );
+}
+
+/** A sub-action's: one person. */
+function SmallFields({ v, set, owners, canWrite }: { v: Small; set: (p: Partial<Small>) => void; owners: Opt[]; canWrite: boolean }) {
+  return (
+    <CoreFields canWrite={canWrite} stage={v.stage} onStage={(x) => set({ stage: x })} statusNote={v.statusNote} onStatusNote={(x) => set({ statusNote: x })}
+      priority={v.priority} onPriority={(x) => set({ priority: x })} owners={v.owner ? [v.owner] : []} people={owners} onOwners={(ids) => set({ owner: ids[0] ?? "" })}
+      start={v.start} due={v.due} onStart={(d) => set({ start: d })} onDue={(d) => set({ due: d })} />
   );
 }
 
@@ -293,7 +365,7 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, wid
       {/* side by side when the window is wide and a ticket is to be filled (SARCLA 01.11.2026: "with Digital Growth the
           window should expand to display everything correctly") */}
       <Box sx={{ display: "grid", gap: 1.75, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: wide && (tickets || ticket !== "none") ? "minmax(0, 1fr) minmax(0, 1.15fr)" : "minmax(0, 1fr)" } }}>
-        <Box sx={{ display: "grid", gap: 1.9, minWidth: 0 }}>
+        <Box sx={{ display: "grid", gap: 1.75, minWidth: 0 }}>
           <TextField size="small" label="Sub-action" placeholder="What will be done - written as an action" value={v.title} onChange={(e) => set({ title: e.target.value })}
             autoFocus={focus} sx={field} slotProps={{ inputLabel: { shrink: true } }}
             onKeyDown={(e) => { if (e.key === "Enter" && ready) void add(); }} />
@@ -412,7 +484,7 @@ export function SubEditor({ k, tile, t, owners, canWrite, tickets, linked, saved
   };
 
   return (
-    <Box sx={{ display: "grid", gap: 1.9 }}>
+    <Box sx={{ display: "grid", gap: 1.75 }}>
       {canWrite && <Box sx={{ display: "flex", justifyContent: "flex-end", mb: -0.5 }}><AiButton on={aiOpen} toggle={() => setAiOpen((o) => !o)} /></Box>}
       {aiOpen && <AiBox placeholder="What changed, by whom, by when, how urgent, where it stands" hint="The AI proposes changes from your words - only choices the form offers, nothing made up. You apply them, or not." fill={fill} />}
       {proposal && (

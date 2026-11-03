@@ -17,7 +17,7 @@
 // A category's window is its tiles alone, the whole width, a + tile to add under it ("kanban is broken ... the side
 // is not needed, new action should be the +"); it moves by drag and drop in the Gantt. Its changes are in the KPI view.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Dialog from "@mui/material/Dialog";
 import Typography from "@mui/material/Typography";
@@ -26,7 +26,6 @@ import MenuItem from "@mui/material/MenuItem";
 import IconButton from "@mui/material/IconButton";
 import Switch from "@mui/material/Switch";
 import Tooltip from "@mui/material/Tooltip";
-import Autocomplete from "@mui/material/Autocomplete";
 import CloseIcon from "@mui/icons-material/Close";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -39,17 +38,12 @@ import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import { FAINT, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { BUC_MEMBERS, KILLED, PRIORITIES, STAGES, isClosed, isLate, priorityLabel, stageOf, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
 import { LATE, PRIORITY_COLOR, SUMMARY, dmy, stageColor, todayIso, type PlanData } from "./planUi";
-import { ActionTicket, SubActions, planTile, wholeDay } from "./SubActions";
+import { ActionTicket, CoreFields, SubActions, label, planTile, square } from "./SubActions";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 
 const section = { fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
-const card = { display: "grid", gap: 1.25, p: 2, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, alignContent: "start" } as const;
+const card = { display: "grid", rowGap: 1.75, columnGap: 1.25, p: 2, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, alignContent: "start" } as const;
 export const KIND_LABEL: Record<PlanKind, string> = { goal: "The goal", topic: "Main category", group: "Sub-category", action: "Action" };
-/** A square choice, as the tags (SARCLA 01.11.2026: "tags not round, square"). */
-const square = (on: boolean, fg: string, bg: string, can: boolean) => ({
-  border: `1px solid ${on ? fg : HAIRLINE}`, bgcolor: on ? bg : "#fff", color: on ? fg : MUTED, font: "inherit", fontSize: "0.8rem",
-  fontWeight: on ? 800 : 600, px: 1.1, py: 0.45, borderRadius: "4px", cursor: can ? "pointer" : "default", whiteSpace: "nowrap" as const,
-});
 const byOrder = (a: PlanItem, b: PlanItem) => a.sort - b.sort || a.id - b.id;
 /** A tag, square as the Gantt's. */
 const TAG = { flexShrink: 0, px: 0.6, borderRadius: "3px", fontSize: "0.66rem", fontWeight: 800, lineHeight: "17px" } as const;
@@ -80,29 +74,14 @@ function Title({ value, canWrite, onSave }: { value: string; canWrite: boolean; 
   );
 }
 
-/** A date saved when it is left - typing the year does not save 0002, 0020, 0202 on the way. */
-/** A date handed up as soon as it is a whole one, or when it is left - one picked and the window closed is kept
- *  (SARCLA 02.11.2026: "planned, go-live dates are not updating"). */
-function DateField({ label, value, min, max, canWrite, onSave, helper }: { label: string; value: string | null; min?: string | null; max?: string | null; canWrite: boolean; onSave: (v: string | null) => void; helper?: string }) {
-  const [v, setV] = useState(value ?? "");
-  const sent = useRef(value);
-  useEffect(() => { setV(value ?? ""); sent.current = value; }, [value]);
-  const hand = (x: string) => { const n = x || null; if (n !== sent.current) { sent.current = n; onSave(n); } };
-  return (
-    <TextField size="small" type="date" label={label} value={v} disabled={!canWrite} onChange={(e) => { setV(e.target.value); if (wholeDay(e.target.value)) hand(e.target.value); }}
-      onBlur={() => hand(v)} helperText={helper}
-      sx={field} slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: min ?? undefined, max: max ?? undefined } }} />
-  );
-}
-
 /** Several of the ticket's choices, as square toggles. */
-function Choices({ label, options, value, canWrite, onSave }: { label: string; options: Opt[]; value: string[]; canWrite: boolean; onSave: (v: string[]) => void }) {
+function Choices({ label: title, options, value, canWrite, onSave }: { label: string; options: Opt[]; value: string[]; canWrite: boolean; onSave: (v: string[]) => void }) {
   // a value HubSpot no longer offers stays visible until it is taken off
   const all = [...options, ...value.filter((v) => !options.some((o) => o.value === v)).map((v) => ({ value: v, label: v }))];
   return (
-    <Box sx={{ display: "grid", gap: 0.6, gridColumn: "1 / -1" }}>
-      <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontWeight: 600 }}>{label}</Typography>
-      <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap" }}>
+    <Box sx={{ display: "grid", gap: 0.75, gridColumn: "1 / -1" }}>
+      <Typography sx={label}>{title}</Typography>
+      <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
         {all.map((o) => {
           const on = value.includes(o.value);
           return (
@@ -118,30 +97,6 @@ function Choices({ label, options, value, canWrite, onSave }: { label: string; o
 }
 
 /**
- * Who does it - HubSpot's users, picked (SARCLA 01.11.2026: "assignment should be done by user, not names like
- * Sales leader"). The workbook's words stay underneath until somebody is chosen.
- */
-function Owners({ item, people, peopleError, canWrite, onSave }: {
-  item: PlanItem; people: PlanOwner[]; peopleError: string | null; canWrite: boolean; onSave: (owners: PlanOwner[]) => void;
-}) {
-  // the people already on it stay choosable even if HubSpot's list has not come
-  const options = [...item.owners.filter((o) => !people.some((p) => p.id === o.id)), ...people];
-  return (
-    <Box sx={{ display: "grid", gap: 0.5, gridColumn: "1 / -1" }}>
-      <Autocomplete multiple size="small" options={options} value={item.owners} disabled={!canWrite || (!people.length && !item.owners.length)}
-        getOptionLabel={(o) => o.name} isOptionEqualToValue={(a, b) => a.id === b.id} filterSelectedOptions
-        onChange={(_, v) => onSave(v.map((o) => ({ id: o.id, name: o.name })))}
-        renderInput={(p) => <TextField {...p} label="Assigned to" placeholder={item.owners.length ? "" : "Pick the people who do it"} sx={field}
-          InputLabelProps={{ ...p.InputLabelProps, shrink: true }} />} />
-      {item.responsible && !item.owners.length && (
-        <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>The workbook says: “{item.responsible}” - pick the people it means</Typography>
-      )}
-      {peopleError && <Typography sx={{ fontSize: "0.78rem", color: RED }}>HubSpot&apos;s users could not be read: {peopleError}</Typography>}
-    </Box>
-  );
-}
-
-/**
  * The referent / challenger: one of the BUC's members, as HubSpot's users (SARCLA 01.11.2026: "should be a BUC member -
  * Alexandre, Claudio, Bernd, Marc or Rose - like a user"). Kept by name; a name typed before stays until it is changed.
  */
@@ -150,7 +105,7 @@ function Referent({ value, people, canWrite, onSave }: { value: string; people: 
   const old = value && !names.includes(value) ? value : "";
   return (
     <TextField select size="small" label="Referent / challenger" value={value} disabled={!canWrite} onChange={(e) => onSave(e.target.value)}
-      helperText={old ? "From the workbook - pick the BUC member it means" : "A BUC member"} sx={field} slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}>
+      helperText={old ? "From the workbook - pick the BUC member it means" : undefined} sx={field} slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}>
       <MenuItem value="" sx={{ fontSize: "0.86rem", color: FAINT }}>Nobody yet</MenuItem>
       {names.map((n) => <MenuItem key={n} value={n} sx={{ fontSize: "0.86rem" }}>{n}</MenuItem>)}
       {old && <MenuItem value={old} sx={{ fontSize: "0.86rem", color: FAINT }}>{old}</MenuItem>}
@@ -490,6 +445,15 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
     return out;
   }, [items, item.kind]);
   const done = subs.filter((s) => s.status === "done").length;
+  // who may do it: HubSpot's users, and the people already on it even if HubSpot's list has not come
+  const ownerOptions = useMemo(() => [...item.owners.filter((o) => !people.some((p) => p.id === o.id)), ...people].map((p) => ({ value: p.id, label: p.name })), [item.owners, people]);
+  // what the shared fields cannot say themselves, one line each under them
+  const notes = [
+    item.responsible && !item.owners.length ? `The workbook says: “${item.responsible}” - pick the people it means` : "",
+    rolled?.startFromSubs || rolled?.dueFromSubs || fromSubs ? `${[rolled?.startFromSubs || rolled?.dueFromSubs ? "Its dates" : "", fromSubs ? "its % complete" : ""].filter(Boolean).join(" and ")} from its sub-actions` : "",
+    item.dueNote ? `Deadline in the workbook: “${item.dueNote}”` : "",
+    peopleError ? `HubSpot's users could not be read: ${peopleError}` : "",
+  ].filter(Boolean).map((n) => n[0].toUpperCase() + n.slice(1));
 
   const placeSelect = places.length > 0 && (
     <TextField select size="small" label={action ? "Its place in the plan" : "Main category"} value={item.parentId ?? ""} disabled={!canWrite}
@@ -522,25 +486,6 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
             <IconButton aria-label="Close" onClick={onClose} sx={{ bgcolor: "rgba(21,34,58,.05)" }}><CloseIcon /></IconButton>
           </Box>
         </Box>
-        {action && (
-          // the pipeline's stages, in its order
-          // - a main action's from its sub-actions: shown, set on them (mainStage)
-          <Box role="radiogroup" aria-label="Status" sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-            {STAGES.map((s) => {
-              const on = item.stage === s.id;
-              const c = stageColor(s.id);
-              const can = canWrite && !rolled?.stageFromSubs;
-              return (
-                <Box key={s.id} component="button" type="button" role="radio" aria-checked={on} disabled={!can} onClick={() => !on && save({ stage: s.id })}
-                  sx={{ ...square(on, c.ink, c.soft, can), ...(on ? { bgcolor: c.bar, color: "#fff", borderColor: c.bar } : {}) }}>
-                  {s.label}
-                </Box>
-              );
-            })}
-            {!item.stage && <Typography sx={{ fontSize: "0.78rem", color: FAINT, alignSelf: "center", ml: 0.5 }}>No status yet</Typography>}
-            {rolled?.stageFromSubs && <Typography sx={{ fontSize: "0.78rem", color: FAINT, alignSelf: "center", ml: 0.5 }}>From its sub-actions - change theirs</Typography>}
-          </Box>
-        )}
       </Box>
 
       {/* ── the body ── */}
@@ -563,32 +508,26 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
         ) : (
           <Box sx={{ display: "grid", gap: 2.25, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 1.55fr) minmax(0, 1fr)" } }}>
             <Box sx={{ display: "grid", gap: 2.25, minWidth: 0 }}>
-              <Box sx={{ ...card, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
-                <Typography sx={{ ...section, gridColumn: "1 / -1" }}>The action</Typography>
+              <Box sx={card}>
+                <Typography sx={section}>The action</Typography>
                 <Field label="Description" value={item.detail} placeholder="What the action is about, what done looks like" canWrite={canWrite} multiline rows={3} onSave={(v) => save({ detail: v })} />
-                    <Owners item={item} people={people} peopleError={peopleError} canWrite={canWrite} onSave={(owners) => save({ owners })} />
-                    <Box sx={{ display: "grid", gap: 0.6, gridColumn: "1 / -1" }}>
-                      <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontWeight: 600 }}>Priority</Typography>
-                      <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap" }}>
-                        {[...PRIORITIES].reverse().map((p) => {
-                          const on = item.priority === p.value;
-                          const c = PRIORITY_COLOR[p.value];
-                          return <Box key={p.value} component="button" type="button" aria-pressed={on} disabled={!canWrite} onClick={() => save({ priority: on ? "" : p.value })} sx={square(on, c.fg, c.bg, canWrite)}>{p.label}</Box>;
-                        })}
-                      </Box>
-                    </Box>
-                    <Box sx={{ display: "grid", gap: 1.25, gridColumn: "1 / -1", gridTemplateColumns: { xs: "1fr 1fr", sm: "1fr 1fr 120px" } }}>
-                      {/* a main action's dates are its sub-actions' first to last (SARCLA 02.11.2026) */}
-                      <DateField label="Planned date" value={item.start} max={item.due} canWrite={canWrite && !rolled?.startFromSubs} onSave={(v) => save({ start: v })}
-                        helper={rolled?.startFromSubs ? "Its first sub-action's" : undefined} />
-                      <DateField label="Go-live date" value={item.due} min={item.start} canWrite={canWrite && !rolled?.dueFromSubs} onSave={(v) => save({ due: v })}
-                        helper={rolled?.dueFromSubs ? "Its last sub-action's" : undefined} />
-                      <TextField size="small" label="% complete" value={fromSubs ? String(rolled?.percent ?? 0) : pct} disabled={!canWrite || fromSubs}
-                        onChange={(e) => setPct(e.target.value)} helperText={fromSubs ? "From its sub-actions" : undefined}
-                        onBlur={() => { const s = pct.trim(); const n = s === "" ? null : Math.max(0, Math.min(100, Math.round(Number(s)))); if (n !== item.percent && (n == null || Number.isFinite(n))) save({ percent: n }); }}
-                        sx={field} slotProps={{ htmlInput: { inputMode: "numeric" }, inputLabel: { shrink: true } }} />
-                    </Box>
-                    {item.dueNote && <Typography sx={{ gridColumn: "1 / -1", fontSize: "0.8rem", color: FAINT, mt: -0.5 }}>Deadline in the workbook: “{item.dueNote}”</Typography>}
+                {/* the sub-action's fields, in its order and look - several people here (SARCLA 03.11.2026: "uniform") */}
+                <CoreFields canWrite={canWrite}
+                  stage={item.stage ?? ""} onStage={(s) => save({ stage: s })} stageLocked={!!rolled?.stageFromSubs}
+                  stageNote={rolled?.stageFromSubs ? "From its sub-actions - change theirs" : !item.stage ? "No status yet" : undefined}
+                  statusNote={item.statusNote} onStatusNote={(v) => save({ statusNote: v })}
+                  priority={item.priority} onPriority={(p) => save({ priority: p })}
+                  owners={item.owners.map((o) => o.id)} multiple people={ownerOptions}
+                  onOwners={(ids) => save({ owners: ids.map((id) => ({ id, name: ownerOptions.find((o) => o.value === id)?.label ?? id })) })}
+                  start={item.start ?? ""} due={item.due ?? ""} onStart={(d) => save({ start: d || null })} onDue={(d) => save({ due: d || null })}
+                  startLocked={!!rolled?.startFromSubs} dueLocked={!!rolled?.dueFromSubs}
+                  beside={
+                    <TextField size="small" label="% complete" value={fromSubs ? String(rolled?.percent ?? 0) : pct} disabled={!canWrite || fromSubs}
+                      onChange={(e) => setPct(e.target.value)}
+                      onBlur={() => { const s = pct.trim(); const n = s === "" ? null : Math.max(0, Math.min(100, Math.round(Number(s)))); if (n !== item.percent && (n == null || Number.isFinite(n))) save({ percent: n }); }}
+                      sx={field} slotProps={{ htmlInput: { inputMode: "numeric" }, inputLabel: { shrink: true } }} />
+                  }
+                  below={notes.length ? notes.map((n) => <Typography key={n} sx={{ fontSize: "0.78rem", color: n.startsWith("HubSpot") ? RED : FAINT }}>{n}</Typography>) : undefined} />
                 {placeSelect}
               </Box>
 
@@ -614,8 +553,7 @@ export function ItemModal({ item, items, rolledAll, subs, canWrite, people, peop
                       <MenuItem key={o.value} value={o.value} sx={{ fontSize: "0.86rem" }}>{o.label}</MenuItem>
                     ))}
                   </TextField>
-                  <TextField size="small" label="Roadmap ID" value={item.code} disabled helperText="The workbook's number" sx={field} slotProps={{ inputLabel: { shrink: true } }} />
-                  <Field label="Status note" value={item.statusNote} placeholder="Where it stands - what is done, what is in the way" canWrite={canWrite} multiline rows={2} onSave={(v) => save({ statusNote: v })} />
+                  <TextField size="small" label="Roadmap ID" value={item.code} disabled title="The workbook's number" sx={field} slotProps={{ inputLabel: { shrink: true } }} />
                   <Referent value={item.referent} people={people} canWrite={canWrite} onSave={(v) => save({ referent: v })} />
                 </Box>
             </Box>
