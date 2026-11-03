@@ -40,7 +40,7 @@ import { when } from "@/app/website/directup/shared";
 import type { PromoStatus } from "@/lib/promo/blackFriday";
 import { GROUP_LABEL, GROUP_ORDER, codesFromText, endAfter, lastDayOf, zurichDay, zurichMidnight, type BfReport } from "@/lib/promo/report";
 
-type Data = { status: PromoStatus; report: BfReport | null; reportError: string | null; isAdmin: boolean };
+type Data = { status: PromoStatus; report: BfReport | null; reportError: string | null; testers: string[]; isAdmin: boolean };
 type View = "overview" | "companies" | "codes" | "settings";
 const VIEW_HASH: Record<View, string> = { overview: "#overview", companies: "#companies", codes: "#codes", settings: "#settings" };
 const pill = { borderRadius: "999px", textTransform: "none" as const, fontWeight: 600 };
@@ -279,6 +279,7 @@ function Settings({ d, reload }: { d: Data; reload: () => void }) {
   const [from, setFrom] = useState(zurichDay(s.start));
   const [to, setTo] = useState(lastDayOf(s.end));
   const [rates, setRates] = useState<Record<string, string>>(Object.fromEntries(GROUP_ORDER.map((g) => [g, String(s.discount[g] ?? 0)])));
+  const [testers, setTesters] = useState((d.testers ?? []).join("\n"));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const save = async () => {
@@ -286,7 +287,8 @@ function Settings({ d, reload }: { d: Data; reload: () => void }) {
     setBusy(true); setMsg(null);
     let body: Record<string, unknown>;
     try {
-      body = { action: "settings", on, start: zurichMidnight(from), end: endAfter(to), discount: Object.fromEntries(Object.entries(rates).map(([g, v]) => [g, Number(v)])) };
+      body = { action: "settings", on, start: zurichMidnight(from), end: endAfter(to), discount: Object.fromEntries(Object.entries(rates).map(([g, v]) => [g, Number(v)])),
+        testers: testers.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean) };
     } catch (e) { setBusy(false); setMsg({ ok: false, text: String((e as Error).message) }); return; }
     const r = await post(body);
     setBusy(false);
@@ -318,6 +320,9 @@ function Settings({ d, reload }: { d: Data; reload: () => void }) {
         New: the organisation never ordered (the Google Ads list's strict rule) and has no price class above List price. No price class: has ordered, but HubSpot gives it no class - the lowest rate, never a guess upwards.
         Each rate needs its own Magento rule and codes.
       </Typography>
+      <TextField multiline minRows={2} maxRows={6} size="small" label="Test accounts (e-mail, one per line)" value={testers} disabled={ro}
+        onChange={(e) => setTesters(e.target.value)} placeholder="name@company.ch"
+        helperText="These shop accounts get their real code before the start, even while it is switched off - to try the page and the cart. Up to 20; nobody else sees a code before the first day." />
       {!ro && (
         <Box sx={{ display: "flex", gap: 1.25, alignItems: "center" }}>
           <Button size="small" variant="contained" sx={pill} disabled={busy} onClick={() => void save()}>{busy ? <CircularProgress size={14} sx={{ color: "inherit" }} /> : "Save"}</Button>

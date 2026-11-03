@@ -1,11 +1,14 @@
 // BLACK FRIDAY 2026 - the hub's page Website > Black Friday. The promotion's settings and codes live on the Ads
 // Gateway (src/lib/promo/blackFriday.ts); who holds and who used a code is read from HubSpot.
-//   GET  ?fresh=1                          -> { status, report | null, reportError | null, isAdmin }
-//   POST { action: "settings", on?, start?, end?, discount? }        (admins)
+//   GET  ?fresh=1                          -> { status, report | null, reportError | null, testers, isAdmin }
+//   POST { action: "settings", on?, start?, end?, discount?, testers? }  (admins; testers = e-mails: the hub keeps
+//        them, the gateway gets only the salted hashes the shop page sends)
 //   POST { action: "codes", discount, codes: [...] }                 (admins; the page sends 300 a call - the
 //        8 KB request limit in front of the hub)
 
+import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { kvGet, kvSet } from "@/lib/db/init";
 import { myAccess } from "@/lib/auth/appAccess";
 import { requireUser } from "@/lib/auth/guard";
 import { adminToken, loadPromoCodes, promoReport, promoStatus, setPromoSettings } from "@/lib/promo/blackFriday";
@@ -13,6 +16,12 @@ import { adminToken, loadPromoCodes, promoReport, promoStatus, setPromoSettings 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+// the salt of the search bar's and the Ads Gateway's buyer keys (ADS_BUCKET_SALT unset there) - the page hashes the same way
+const SALT = "apso-bb1:";
+const TESTERS_KV = "promo:bf26:testers";
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const keyOf = (email: string) => createHash("sha256").update(SALT + email.trim().toLowerCase()).digest("hex");
 
 export async function GET(req: NextRequest) {
   const access = await myAccess();
@@ -24,7 +33,8 @@ export async function GET(req: NextRequest) {
     let report = null, reportError: string | null = null;
     try { report = await promoReport(status.settings, req.nextUrl.searchParams.get("fresh") === "1"); }
     catch (e) { reportError = String((e as Error)?.message ?? e); }
-    return NextResponse.json({ configured: true, ok: true, data: { status, report, reportError, isAdmin: access.role === "admin" } });
+    const testers = (await kvGet<string[]>(TESTERS_KV).catch(() => null)) ?? [];
+    return NextResponse.json({ configured: true, ok: true, data: { status, report, reportError, testers, isAdmin: access.role === "admin" } });
   } catch (err) {
     return NextResponse.json({ configured: true, ok: false, error: String((err as Error)?.message ?? err), status: (err as { status?: number })?.status ?? null });
   }
@@ -42,8 +52,16 @@ export async function POST(req: NextRequest) {
     if (body.action === "settings") {
       const patch: Record<string, unknown> = {};
       for (const k of ["on", "start", "end", "discount"]) if (body[k] !== undefined) patch[k] = body[k];
+      let testers: string[] | null = null;
+      if (body.testers !== undefined) {
+        const list = Array.isArray(body.testers) ? body.testers.map((x) => String(x).trim().toLowerCase()).filter(Boolean) : null;
+        if (!list || list.length > 20 || list.some((x) => !EMAIL.test(x))) return NextResponse.json({ ok: false, error: "Test accounts: up to 20 e-mail addresses." }, { status: 400 });
+        testers = [...new Set(list)];
+        patch.testers = testers.map(keyOf);
+      }
       const data = await setPromoSettings(patch);
-      console.log(`[black-friday] settings set by ${who}: ${JSON.stringify(patch)}`);
+      if (testers) await kvSet(TESTERS_KV, testers);
+      console.log(`[black-friday] settings set by ${who}: ${JSON.stringify({ ...patch, testers: testers ? testers.length : undefined })}`);
       return NextResponse.json({ ok: true, data });
     }
     if (body.action === "codes") {

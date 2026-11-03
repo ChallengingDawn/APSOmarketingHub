@@ -14,7 +14,7 @@ import { buildReport, normCode, splitCodes, type BfReport, type CodeOrder, type 
 export { adminToken };
 
 export type PromoPhase = "off" | "soon" | "live" | "ended";
-export type PromoSettings = { on: boolean; start: string; end: string; discount: Record<string, number>; set_at: string | null };
+export type PromoSettings = { on: boolean; start: string; end: string; discount: Record<string, number>; set_at: string | null; testers?: number };
 export type PromoStock = { discount: number; loaded: number; taken: number; free: number };
 export type PromoStatus = {
   settings: PromoSettings; phase: PromoPhase; stock: PromoStock[] | null; stock_error: string | null;
@@ -23,7 +23,7 @@ export type PromoStatus = {
 };
 
 export const promoStatus = () => adsGateway<PromoStatus>("/admin/promo");
-export const setPromoSettings = (patch: Partial<Pick<PromoSettings, "on" | "start" | "end" | "discount">>) =>
+export const setPromoSettings = (patch: Partial<Pick<PromoSettings, "on" | "start" | "end" | "discount">> & { testers?: string[] }) =>
   adsGateway<{ settings: PromoSettings }>("/admin/promo/settings", { method: "POST", body: patch });
 export const loadPromoCodes = (discount: number, codes: string[]) =>
   adsGateway<{ given: number; valid: number; added: number; already: number }>("/admin/promo/codes", { method: "POST", body: { discount, codes } });
