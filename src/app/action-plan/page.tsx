@@ -23,7 +23,7 @@ import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined
 
 import { HomeBar } from "@/app/HomeBar";
 import { FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { KILLED, LIVE, PRIORITIES, S2S_CHOICES, STAGES, isClosed, isLate, reorder, rollup, subStage, type PlanFields, type PlanItem } from "@/lib/reporting/actionPlanRules";
+import { KILLED, LIVE, PRIORITIES, S2S_CHOICES, STAGES, isClosed, isLate, placeSub, reorder, rollup, subClosed, subOrder, subStage, type PlanFields, type PlanItem } from "@/lib/reporting/actionPlanRules";
 import { Gantt, type GRow, type Where, type Zoom } from "./Gantt";
 import { ItemModal } from "./ItemModal";
 import { AddDialog } from "./AddDialog";
@@ -246,6 +246,11 @@ function ActionPlan() {
     } catch (e) { setNote(`Not saved: ${(e as Error).message}`); void load(); }
   };
   const canDrop = (drag: GRow, target: GRow, where: Where) => {
+    // a sub-action: up or down among the sub-actions, the open ones above the closed ones (SARCLA 03.11.2026) - by another
+    // action's, it moves there (one made on the plan)
+    if (drag.type === "sub" && target.type === "sub") {
+      return !!data?.canWrite && target.key !== drag.key && subClosed(target.sub) === subClosed(drag.sub) && (target.parent.id === drag.parent.id || !drag.sub.kpiTile);
+    }
     // a sub-action made on the plan: under another action, or an action of its own in a category
     if (drag.type === "sub") {
       if (!data?.canWrite || target.type !== "item" || drag.sub.kpiTile) return false;
@@ -254,7 +259,7 @@ function ActionPlan() {
     if (!data?.canWrite || drag.type !== "item" || drag.key === target.key) return false;
     // an action onto another action: it becomes its sub-action
     if (where === "sub") return target.type === "item" && drag.item.kind === "action" && target.item.kind === "action";
-    return target.type === "item" && reorder(items, drag.item.id, target.item.id, where) != null;
+    return target.type === "item" && where !== "after" && reorder(items, drag.item.id, target.item.id, where) != null;
   };
   // a sub-action duplicated onto another action (the icon on its row, its window, or Ctrl-drag): that action opened to show it
   // (from its window: the window gives way to it - two windows closing at once left the lower one on the screen - and
@@ -269,6 +274,26 @@ function ActionPlan() {
     });
   };
   const onDrop = async (drag: GRow, target: GRow, where: Where, copy = false) => {
+    if (drag.type === "sub" && target.type === "sub") {
+      const s = drag.sub, to = target.parent, away = to.id !== drag.parent.id;
+      if (away && !confirm(`Move “${s.title}” under “${to.title}”?
+
+Its tickets go with it.`)) return;
+      // in its place at once, under the same action
+      const order = away ? null : placeSub(subOrder(subs.filter((x) => x.item === to.id)).map((x) => x.id), s.id, target.sub.id, where === "after" ? "after" : "before");
+      if (order) {
+        const at = new Map(order.map((id, k) => [id, k + 1]));
+        setData((d) => d && { ...d, subs: subOrder(d.subs.map((x) => (at.has(x.id) ? { ...x, sort: at.get(x.id)! } : x))) });
+      }
+      try {
+        await send("/api/action-plan", "POST", { action: "ordersub", taskId: s.id, target: target.sub.id, where });
+        setNote(null);
+        if (away) setSaid(`“${s.title}” is a sub-action of “${to.title}” now`);
+        if (!away) return;
+      } catch (e) { setNote(`Not moved: ${(e as Error).message}`); }
+      await load();
+      return;
+    }
     if (drag.type === "sub" && target.type === "item") {
       const s = drag.sub, into = target.item, back = where === "into";
       // Ctrl held: a copy goes under the action with the same ticket, the sub-action stays where it is

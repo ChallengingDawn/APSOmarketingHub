@@ -46,7 +46,7 @@ export type GRow =
   | { key: string; type: "item"; item: PlanItem; depth: number; hasKids: boolean }
   | { key: string; type: "sub"; sub: PlanSub; parent: PlanItem; depth: number };
 
-export type Where = "into" | "before" | "sub";
+export type Where = "into" | "before" | "after" | "sub";
 
 /** What the + beside a row makes, said on it. */
 const ADD_TITLE: Record<PlanKind, string> = { goal: "Add a main category", topic: "Add an action or a sub-category in it", group: "Add an action in it", action: "Add a sub-action" };
@@ -232,6 +232,11 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   const whereFor = (r: GRow, e: React.DragEvent): Where => {
     // a sub-action: onto an action it moves under it, onto a category it becomes an action there (SARCLA 02.11.2026: "I
     // should be able to move a sub-action back into a main action if needed")
+    // up or down among the sub-actions: above a sub-action on its top half, below it on the bottom half (03.11.2026)
+    if (drag?.type === "sub" && r.type === "sub") {
+      const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      return e.clientY - box.top > box.height / 2 ? "after" : "before";
+    }
     if (drag?.type === "sub") return r.type === "item" && r.item.kind === "action" ? "sub" : "into";
     if (r.type === "item" && r.item.kind !== "action") return "into";
     if (r.type === "item" && drag?.type === "item" && drag.item.kind === "action") {
@@ -311,7 +316,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
               hidden={r.type === "item" && hidden.has(r.item.id)} onHide={r.type === "item" && r.item.kind !== "goal" ? (h) => onHide(r.item, h) : undefined} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
               selected={r.type === "item" && r.item.id === selected} onOpen={onOpen} onSubs={onSubs} onOpenSub={onOpenSub} onPatch={onPatch}
               dragging={drag?.key === r.key} over={over?.key === r.key ? over.where : null} copying={over?.key === r.key && over.copy}
-              draggable={canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group")) || (r.type === "sub" && !r.sub.kpiTile))}
+              draggable={canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group")) || r.type === "sub")}
               onDragStart={() => setDrag(r)} onDragEnd={() => { setDrag(null); setOver(null); }}
               onDragOver={(e) => {
                 if (!drag) return;
@@ -460,7 +465,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
   const base = {
     display: "grid", gridTemplateColumns: cols, height: ROW, alignItems: "center", borderBottom: "1px solid rgba(21,34,58,.06)",
     bgcolor: selected ? "rgba(36,89,209,.06)" : over === "into" || over === "sub" ? TINT.blue.bg : "transparent", opacity: dragging ? 0.4 : hidden ? 0.5 : 1,
-    boxShadow: over === "before" ? `inset 0 2px 0 ${TINT.blue.fg}` : over === "sub" ? `inset 0 0 0 2px ${TINT.blue.fg}` : "none", position: "relative",
+    boxShadow: over === "before" ? `inset 0 2px 0 ${TINT.blue.fg}` : over === "after" ? `inset 0 -2px 0 ${TINT.blue.fg}` : over === "sub" ? `inset 0 0 0 2px ${TINT.blue.fg}` : "none", position: "relative",
     // what the drop will do
     ...(over === "sub" ? { "&::after": { content: copying ? '"Drop: a copy goes under it"' : '"Drop: becomes its sub-action"', position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: TINT.blue.fg, color: "#fff", fontSize: "0.7rem", fontWeight: 800, pointerEvents: "none", zIndex: 2 } } : {}),
     "&:hover": { bgcolor: selected ? "rgba(36,89,209,.08)" : "rgba(21,34,58,.025)" }, "&:hover .add": { opacity: 1 },
@@ -471,7 +476,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
     <Box sx={{ display: "grid", gridTemplateColumns: "22px 22px 22px", height: "100%", alignItems: "center" }}>
       {draggable ? (
         <Box draggable onDragStart={(e: React.DragEvent) => { e.dataTransfer.effectAllowed = r.type === "sub" ? "copyMove" : "move"; e.dataTransfer.setData("text/plain", r.key); onDragStart(); }} onDragEnd={onDragEnd}
-          title={r.type === "sub" ? "Drag onto another action to move it there (Ctrl held: a copy), onto a category to make it an action again" : "Drag onto another main category or sub-category"} sx={{ display: "grid", placeItems: "center", color: FAINT, cursor: "grab", height: "100%" }}>
+          title={r.type === "sub" ? (r.sub.kpiTile ? "Drag up or down among its action's sub-actions" : "Drag up or down among the sub-actions, onto another action to move it there (Ctrl held: a copy), onto a category to make it an action again") : "Drag onto another main category or sub-category"} sx={{ display: "grid", placeItems: "center", color: FAINT, cursor: "grab", height: "100%" }}>
           <DragIndicatorIcon sx={{ fontSize: 17 }} />
         </Box>
       ) : <Box />}
@@ -506,7 +511,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
     const sPrio = priorityLabel(s.priority);
     const sPct = subPct(s);
     return (
-      <Box sx={{ ...base, cursor: "pointer" }} onClick={() => onOpenSub(s.id)}>
+      <Box sx={{ ...base, cursor: "pointer" }} onClick={() => onOpenSub(s.id)} onDragOver={onDragOver} onDrop={onDrop}>
         {handle}
         <Box sx={{ ...cell, borderLeft: "none", pl: `${indent + 20}px`, gap: 0.75 }}>
           <Box sx={PRIO_SLOT}>{sPrio && <Box sx={{ ...PRIO_TAG, bgcolor: PRIORITY_COLOR[s.priority].bg, color: PRIORITY_COLOR[s.priority].fg }}>{sPrio}</Box>}</Box>

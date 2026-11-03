@@ -12,11 +12,11 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { query } from "@/lib/db/client";
 import {
-  IDEA, IN_PROGRESS, PLAN_STATES, STAGES, foldedDetail, mainStage, namesSalesLeaders, ownersFromCodes, percentOfStage, planFromSeed, priorityLabel, reorder, stageOf,
-  stageOfPercent, stateOfStage, subsSpan, toS2s,
+  IDEA, IN_PROGRESS, PLAN_STATES, STAGES, foldedDetail, mainStage, namesSalesLeaders, ownersFromCodes, percentOfStage, placeSub, planFromSeed, priorityLabel, reorder, stageOf,
+  stageOfPercent, stateOfStage, subClosed, subOrder, subsSpan, toS2s,
   type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanState, type SeedRow,
 } from "./actionPlanRules";
-import { addTask, deleteTask, movePlanItem, moveTask, planTasks, shareTickets, taskById, ticketsToAction, type KpiTask } from "./kpiActions";
+import { addTask, deleteTask, movePlanItem, moveTask, planTasks, shareTickets, sortTasks, taskById, ticketsToAction, type KpiTask } from "./kpiActions";
 
 /** An action's description as its sub-action's: without its name repeated on the first line, the workbook's indents out
  *  (SARCLA 02.11.2026: "the text feels weird"). */
@@ -467,6 +467,24 @@ export async function moveSub(taskId: number, actionId: number, by: string): Pro
   if (from) await log(from.id, by, [{ field: "Sub-action", before: k.title, after: `moved under “${to.title}”` }]);
   await log(to.id, by, [{ field: "Sub-action", before: "", after: from ? `${k.title} (from “${from.title}”)` : k.title }]);
   return true;
+}
+
+/**
+ * A sub-action dropped before or after another (SARCLA 03.11.2026: "I can't move the closed sub-actions up or down"): its
+ * action's sub-actions numbered in the new order - the open ones among the open, the closed among the closed; dropped by
+ * another action's sub-action, it moves under that action first (only one made on the plan). "moved" or "placed", or null
+ * when it cannot go there.
+ */
+export async function orderSub(taskId: number, targetId: number, where: "before" | "after", by: string): Promise<"moved" | "placed" | null> {
+  const [k, t] = await Promise.all([taskById(taskId), taskById(targetId)]);
+  if (!k || !t || k.id === t.id || t.planItem == null || subClosed(k) !== subClosed(t)) return null;
+  const away = k.planItem !== t.planItem;
+  if (away && !(await moveSub(k.id, t.planItem, by))) return null;
+  const mine = subOrder((await planTasks()).filter((x) => x.planItem === t.planItem).map((x) => ({ ...x, sort: x.planSort })));
+  const order = placeSub(mine.map((x) => x.id), k.id, t.id, where);
+  if (!order) return null;
+  await sortTasks(order);
+  return away ? "moved" : "placed";
 }
 
 /**

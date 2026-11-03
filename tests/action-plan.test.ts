@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, foldedDetail, mainStage, namesSalesLeaders, isDigitalGrowth, isLate, subLate, ownersFromCodes, parseDue, percentOf, percentOfStage,
+  IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, foldedDetail, mainStage, namesSalesLeaders, isDigitalGrowth, isLate, subLate, subOrder, placeSub, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
   stateOfStage, stageOfStatus, statusOfStage, sharedTicketSync, subPct, subStage, subTicketSync, subsSpan, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
   type PlanItem, type PlanSub, type SeedRow,
@@ -464,4 +464,24 @@ test("action plan: a Scroll to Sale ticket goes under a Digital Growth action, o
   // the categories above a Digital Growth action - not the goal, not the ones without one
   assert.deepEqual(t.categories.map((c) => c.id), [2, 3]);
   assert.equal(t.path(items[3]), "Boost > Sales");
+});
+
+test("action plan: sub-actions in their order - the open ones first, as dragged, then by go-live; a drop's new order", () => {
+  const sub = (id: number, x: Partial<PlanSub> = {}): PlanSub => ({
+    id, item: 1, title: `s${id}`, owner: "", ownerName: "", start: null, due: null, status: "open", stage: null, priority: "", kpiHref: "", kpiTile: "", tickets: 0, ...x,
+  });
+  // never dragged: open by go-live, the ones without one after them; the closed ones (done, live, killed) at the end
+  const plain = [sub(1, { status: "done", due: "2026-08-01" }), sub(2, { due: "2026-12-01" }), sub(3, { stage: LIVE, status: "doing" }), sub(4, { due: "2026-09-01" }), sub(5), sub(6, { stage: KILLED })];
+  assert.deepEqual(subOrder(plain).map((s) => s.id), [4, 2, 5, 1, 3, 6]);
+  // dragged: their places first, a new one after them; a closed one stays below the open ones whatever its place
+  const dragged = [sub(1, { sort: 1, status: "done" }), sub(2, { sort: 3 }), sub(4, { sort: 2 }), sub(7, { due: "2026-01-01" })];
+  assert.deepEqual(subOrder(dragged).map((s) => s.id), [4, 2, 7, 1]);
+  // a drop above or below another
+  assert.deepEqual(placeSub([4, 2, 7], 7, 4, "before"), [7, 4, 2]);
+  assert.deepEqual(placeSub([4, 2, 7], 4, 7, "after"), [2, 7, 4]);
+  assert.deepEqual(placeSub([4, 2, 7], 4, 2, "after"), [2, 4, 7]);
+  // from another action: put in among them
+  assert.deepEqual(placeSub([4, 2], 9, 2, "before"), [4, 9, 2]);
+  assert.equal(placeSub([4, 2], 4, 4, "before"), null);
+  assert.equal(placeSub([4, 2], 4, 8, "before"), null);
 });

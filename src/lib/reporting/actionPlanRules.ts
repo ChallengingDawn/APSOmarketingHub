@@ -118,6 +118,8 @@ export type PlanSub = {
   status: "open" | "doing" | "done"; stage: string | null; priority: string;
   /** Made on a KPI tile: its page, to go back to the KPI. Empty when made on the plan. */
   kpiHref: string; kpiTile: string; tickets: number;
+  /** Its place among its action's sub-actions, as dragged (SARCLA 03.11.2026); none until one of them is. */
+  sort?: number | null;
 };
 
 /* ── reading the workbook ───────────────────────────────────────────────── */
@@ -448,6 +450,28 @@ export function isLate(i: Pick<PlanItem, "start" | "percent" | "stage">, today: 
 /** A sub-action late as an action is: its planned date passed, and not live, maintained, killed or done. */
 export const subLate = (s: Pick<PlanSub, "start" | "stage" | "status">, today: string): boolean =>
   !!s.start && s.start < today && s.status !== "done" && !subStage(s)?.closed;
+
+/** A sub-action closed: done, or live, maintained or killed. */
+export const subClosed = (s: Pick<PlanSub, "stage" | "status">): boolean => s.status === "done" || !!subStage(s)?.closed;
+
+/**
+ * An action's sub-actions in their order (SARCLA 03.11.2026: "I can't move the closed sub-actions up or down, and by
+ * default they should go to the end if they are closed"): the open ones first, the closed ones after; in each as they were
+ * dragged, the ones never dragged after those by go-live date.
+ */
+export function subOrder<T extends Pick<PlanSub, "id" | "stage" | "status" | "due" | "sort">>(subs: T[]): T[] {
+  const sortOf = (s: T) => s.sort ?? Number.MAX_SAFE_INTEGER;
+  const dueOf = (s: T) => s.due ?? "9999-12-31";
+  return [...subs].sort((a, b) => Number(subClosed(a)) - Number(subClosed(b)) || sortOf(a) - sortOf(b) || dueOf(a).localeCompare(dueOf(b)) || a.id - b.id);
+}
+
+/** The sub-actions' order (ids, top to bottom) once one is dropped before or after another; null when it cannot go there. */
+export function placeSub(order: number[], drag: number, target: number, where: "before" | "after"): number[] | null {
+  if (drag === target || !order.includes(target)) return null;
+  const rest = order.filter((id) => id !== drag);
+  const at = rest.indexOf(target) + (where === "after" ? 1 : 0);
+  return [...rest.slice(0, at), drag, ...rest.slice(at)];
+}
 
 /** Every row's figures, bottom up. */
 export function rollup(items: PlanItem[], subs: PlanSub[], today: string): Map<number, Rolled> {

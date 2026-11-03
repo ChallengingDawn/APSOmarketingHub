@@ -10,13 +10,14 @@
 //   POST  {action:"unsub", taskId, target}       a sub-action dropped on a category: an action of its own there
 //   POST  {action:"movesub", taskId, target}     a sub-action dropped on another action: it moves under it
 //   POST  {action:"copysub", taskId, target}     a sub-action duplicated onto another action, its ticket the same (Ctrl-drag, or Duplicate)
+//   POST  {action:"ordersub", taskId, target, where}  a sub-action dropped "before" or "after" another: its place among them
 //   DELETE ?id=                                  a row and what is under it; its own sub-actions go too
 // Every change to the tree reaches HubSpot's three plan properties a few seconds later (actionPlanHubspot.ts).
 import { NextRequest, NextResponse } from "next/server";
-import { actionToSub, addItem, copySub, datesFromSubs, deleteItems, foldImportedOnce, itemById, lankarToClaudio, mainsFollowSubs, moveSub, salesLeadersOnce, subToAction, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
+import { actionToSub, addItem, copySub, datesFromSubs, deleteItems, foldImportedOnce, itemById, lankarToClaudio, mainsFollowSubs, moveSub, orderSub, salesLeadersOnce, subToAction, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
 import { savedHierarchy } from "@/lib/hierarchy/store";
 import { freshFromTickets, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
-import { PRIORITIES, S2S_CHOICES, STAGES, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
+import { PRIORITIES, S2S_CHOICES, STAGES, subOrder, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
 import { actionTickets, dropPlanItem, planTasks } from "@/lib/reporting/kpiActions";
 import { s2sForm } from "@/lib/reporting/scrollToSale";
 import { fail } from "../reporting/kpi-actions/guard";
@@ -77,10 +78,11 @@ export async function GET(req: NextRequest) {
     await datesFromSubs(before).catch((e) => console.error("[action-plan] dates from sub-actions not set:", (e as Error).message));
     const [items, tasks] = await Promise.all([planItems(), planTasks()]);
     const ids = new Set(items.map((i) => i.id));
-    const subs: PlanSub[] = tasks.filter((t) => t.planItem != null && ids.has(t.planItem)).map((t) => ({
+    // in their order: the open ones first, as dragged (actionPlanRules.subOrder)
+    const subs: PlanSub[] = subOrder(tasks.filter((t) => t.planItem != null && ids.has(t.planItem)).map((t) => ({
       id: t.id, item: t.planItem as number, title: t.title, owner: t.owner, ownerName: t.ownerName, start: t.start, due: t.due, status: t.status, stage: t.stage, priority: t.priority,
-      kpiHref: t.tile.startsWith("plan:") ? "" : t.href, kpiTile: t.tile.startsWith("plan:") ? "" : t.tile, tickets: t.tickets,
-    }));
+      kpiHref: t.tile.startsWith("plan:") ? "" : t.href, kpiTile: t.tile.startsWith("plan:") ? "" : t.tile, tickets: t.tickets, sort: t.planSort,
+    })));
     return NextResponse.json({ ok: true, canWrite: w.canWrite, items, subs, people: list, peopleError, choices: await choices() });
   } catch (e) { return fail(e); }
 }
@@ -187,7 +189,15 @@ export async function POST(req: NextRequest) {
       queuePlanSync("sub-action moved");
       return NextResponse.json({ ok: true });
     }
-    return fail("action is add, move, sub, unsub or movesub", 400);
+    if (b.action === "ordersub") {
+      if (!Number.isInteger(b.taskId) || !Number.isInteger(b.target)) return fail("it needs the sub-action and the one it goes next to", 400);
+      if (b.where !== "before" && b.where !== "after") return fail("where is before or after", 400);
+      const done = await orderSub(b.taskId as number, b.target as number, b.where, w.name);
+      if (!done) return fail("it cannot go there - the open sub-actions stay above the closed ones", 400);
+      if (done === "moved") queuePlanSync("sub-action moved");
+      return NextResponse.json({ ok: true, done });
+    }
+    return fail("action is add, move, sub, unsub, movesub, copysub or ordersub", 400);
   } catch (e) { return fail(e); }
 }
 

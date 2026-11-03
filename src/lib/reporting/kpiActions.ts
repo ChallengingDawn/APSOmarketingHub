@@ -44,6 +44,8 @@ export type KpiTask = {
   stage: string | null; priority: string; start: string | null;
   /** Where it stands, in a line or two (SARCLA 02.11.2026: "status note should directly appear on the sub-action"). */
   statusNote: string;
+  /** Its place among its action's sub-actions, as dragged (SARCLA 03.11.2026); null until then. */
+  planSort: number | null;
   createdBy: string; createdAt: string; updatedAt: string; doneAt: string | null;
 };
 /** The action of a plan tile ("plan:12" -> 12), null for a KPI tile. */
@@ -91,6 +93,8 @@ function ensure(): Promise<void> {
       await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS status_note text NOT NULL DEFAULT ''`);
       // when a sub-action and its ticket last agreed (actionPlanHubspot.ts)
       await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS ticket_sync_at timestamptz`);
+      // its place among its action's sub-actions, dragged (SARCLA 03.11.2026)
+      await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS plan_sort integer`);
       // a sub-action made from an action before 02.11.2026 repeated its name on its description's first line, the
       // workbook's indents in ("the text feels weird"): cleaned once - after it no description starts with its name
       await query(`UPDATE ${TASKS} SET note = btrim(regexp_replace(substr(note, length(title) + 1), E'\\n[ \\t]+', E'\\n', 'g'), E' \\t\\n')
@@ -161,7 +165,7 @@ const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : d == null ? n
 // a date column comes as the local midnight of that day: its own day, read locally - toISOString gave the day before
 // on any server east of UTC (seen on a local copy in Zurich, 01.11.2026)
 const day = (d: unknown) => (d instanceof Date ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : d == null ? null : String(d).slice(0, 10));
-type TaskRow = { id: number; tile: string; page: string; title: string; note: string; owner: string; owner_name: string; due: unknown; status: string; shared: unknown; href: string | null; plan_item?: number | null; stage?: string | null; priority?: string | null; start?: unknown; status_note?: string | null; created_by: string; created_at: unknown; updated_at: unknown; done_at: unknown };
+type TaskRow = { id: number; tile: string; page: string; title: string; note: string; owner: string; owner_name: string; due: unknown; status: string; shared: unknown; href: string | null; plan_item?: number | null; stage?: string | null; priority?: string | null; start?: unknown; status_note?: string | null; plan_sort?: number | null; created_by: string; created_at: unknown; updated_at: unknown; done_at: unknown };
 const sharedOf = (x: unknown): SharedPerson[] => {
   const v = typeof x === "string" ? (() => { try { return JSON.parse(x); } catch { return []; } })() : x;
   return Array.isArray(v) ? v.filter((p) => p && typeof p.id === "string") : [];
@@ -170,7 +174,7 @@ const task = (r: TaskRow): KpiTask => ({
   id: r.id, tile: r.tile, page: r.page, title: r.title, note: r.note, owner: r.owner, ownerName: r.owner_name,
   due: day(r.due), status: (TASK_STATUSES as readonly string[]).includes(r.status) ? (r.status as TaskStatus) : "open",
   shared: sharedOf(r.shared), href: r.href ?? "", planItem: r.plan_item ?? planIdOf(r.tile),
-  stage: r.stage ?? null, priority: r.priority ?? "", start: day(r.start), statusNote: r.status_note ?? "",
+  stage: r.stage ?? null, priority: r.priority ?? "", start: day(r.start), statusNote: r.status_note ?? "", planSort: r.plan_sort ?? null,
   createdBy: r.created_by, createdAt: iso(r.created_at) ?? "", updatedAt: iso(r.updated_at) ?? "", doneAt: iso(r.done_at),
 });
 
@@ -369,7 +373,13 @@ export async function moveTask(taskId: number, itemId: number): Promise<void> {
   const tile = `plan:${itemId}`;
   await query(`DELETE FROM ${LINKS} l WHERE l.task_id = $1 AND l.tile <> $2 AND EXISTS (SELECT 1 FROM ${LINKS} x WHERE x.tile = $2 AND x.ticket_id = l.ticket_id)`, [taskId, tile]);
   await query(`UPDATE ${LINKS} SET tile = $2 WHERE task_id = $1`, [taskId, tile]);
-  await query(`UPDATE ${TASKS} SET tile = $2, plan_item = $3, href = $4, updated_at = now() WHERE id = $1`, [taskId, tile, itemId, `/action-plan?item=${itemId}`]);
+  await query(`UPDATE ${TASKS} SET tile = $2, plan_item = $3, href = $4, plan_sort = NULL, updated_at = now() WHERE id = $1`, [taskId, tile, itemId, `/action-plan?item=${itemId}`]);
+}
+
+/** An action's sub-actions in the order given (ids, top to bottom), as dragged on the plan. */
+export async function sortTasks(ids: number[]): Promise<void> {
+  await ensure();
+  await query(`UPDATE ${TASKS} t SET plan_sort = x.n FROM unnest($1::int[]) WITH ORDINALITY AS x(id, n) WHERE t.id = x.id`, [ids]);
 }
 
 /** An action leaves the plan: its own sub-actions go with it (their tickets stay in HubSpot), KPI tasks only lose the link. */
