@@ -126,18 +126,21 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     slug: "back-office", name: "Back-Office Reports", line: "What the Back Office handles, and how fast",
     // the Back Office's own KPI workbook (sheet "BO KPI") worked out live, a page per part as on ESO / TSA Reports (SARCLA
     // 02.11.2026: "and the back office reports based on file?" - "Live, file = the KPI list", "like on the ESO / TSA, split
-    // per topic"); the BUC View first, as ESO's and TSA's (SARCLA 03.11.2026: "BUC View is missing"); what HubSpot does
-    // not hold typed in - the hours on Figures, the OTD, the pass rate, the manual prices, the stopped orders on OTD & autonomy
+    // per topic"); the BUC View first, as ESO's and TSA's (SARCLA 03.11.2026: "BUC View is missing"); then a page per block
+    // of the workbook, in its order (SARCLA 03.11.2026: "rethink based on the excel file all the view"); what HubSpot does
+    // not hold typed in - the hours on Team totals, the OTD, the pass rate, the manual prices, the stopped orders
     reports: [
       {
-        name: "Back Office KPIs", href: "/reporting/back-office", note: "Tickets, topics, sales tickets against the orders, GQS, OTD and autonomy - month by month", icon: "bar",
+        name: "Back Office KPIs", href: "/reporting/back-office", note: "Team totals, topics, ESO & TSA tickets, GQS, OTD, KPI autonomy, stopped orders - month by month", icon: "bar",
         overview: "BUC View", overviewHref: "/reporting/back-office",
         children: [
-          { name: "Figures", href: "/reporting/back-office/figures", icon: "bar" },
+          { name: "Team totals", href: "/reporting/back-office/figures", icon: "bar" },
           { name: "Topics", href: "/reporting/back-office/topics", icon: "layers" },
-          { name: "Sales tickets", href: "/reporting/back-office/sales-tickets", icon: "groups" },
+          { name: "ESO & TSA tickets", href: "/reporting/back-office/sales-tickets", icon: "groups" },
           { name: "GQS", href: "/reporting/back-office/gqs", icon: "description" },
-          { name: "OTD & autonomy", href: "/reporting/back-office/otd", icon: "verified" },
+          { name: "OTD", href: "/reporting/back-office/otd", icon: "verified" },
+          { name: "KPI autonomy", href: "/reporting/back-office/autonomy", icon: "verified" },
+          { name: "Stopped orders", href: "/reporting/back-office/stopped", icon: "description" },
         ],
       },
     ],

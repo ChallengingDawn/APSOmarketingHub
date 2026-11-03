@@ -1,7 +1,7 @@
 // BACK-OFFICE REPORTS: the months and the GQS tasks kept so far (src/lib/reporting/boReport.ts - asking starts the counter
 // on what is missing or due); the ESO's and the TSA's inbound tickets from the ESO Reports' own read (the sales actions
 // left out, as the workbook counts them); and what HubSpot does not hold, typed in per month - the hours the Back Office
-// worked (on Figures) and the OTD, the pass rate, the manual price adjustments and the stopped orders (on OTD & autonomy),
+// worked (on Team totals) and the OTD, the pass rate, the manual price adjustments and the stopped orders (on their pages),
 // the workbook's own figures until someone types a month in (SARCLA 02.11.2026: "Live, file = the KPI list"). GET for
 // anyone with one of the report's pages; PUT for whoever may change the page the figure is typed on.
 
@@ -19,8 +19,10 @@ import { TYPED, WORKBOOK_TYPED, checkTyped, inboundByMonth, typedKey, type Typed
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PAGES = ["figures", "topics", "sales-tickets", "gqs", "otd"].map((p) => `/reporting/back-office/${p}`).concat("/reporting/back-office");
-const FIGURES = PAGES[0], OTD = PAGES[4];
+const PAGES = ["figures", "topics", "sales-tickets", "gqs", "otd", "autonomy", "stopped"].map((p) => `/reporting/back-office/${p}`).concat("/reporting/back-office");
+const FIGURES = PAGES[0];
+/** the page each typed series is typed in on - its edit right decides */
+const SERIES_PAGE: Record<string, string> = { otd: "/reporting/back-office/otd", pass: "/reporting/back-office/autonomy", price: "/reporting/back-office/autonomy", stopped: "/reporting/back-office/stopped" };
 const HOURS = "boReport:hours", TYPED_KV = "boReport:typed";
 /** the workbook's own hours (BO KPI, "Hours worked", January to September 2026) until someone types the months in here */
 const WORKBOOK_HOURS: Record<string, number> = {
@@ -49,14 +51,14 @@ export async function GET() {
       state: { computing: st.counting, progress: st.progress, error: st.error, computedAt: st.generatedAt },
       // nothing kept yet: the page says it is counting; else the months there are, the rest named as pending
       data: st.months.length ? { ...st, hours: hours ?? WORKBOOK_HOURS, typed: typed ?? WORKBOOK_TYPED, inbound: inb } : null,
-      canEdit: level(access, FIGURES) === "write", canEditTyped: level(access, OTD) === "write",
+      canEdit: level(access, FIGURES) === "write", canEditTyped: Object.fromEntries(TYPED.map((s) => [s.id, level(access, SERIES_PAGE[s.id]) === "write"])),
     });
   } catch (e) {
     return NextResponse.json({ error: String((e as Error)?.message ?? e) }, { status: 500 });
   }
 }
 
-/** { ym, hours } - the hours on Figures; { ym, series, row, value } - a figure on OTD & autonomy. */
+/** { ym, hours } - the hours on Team totals; { ym, series, row, value } - a figure on OTD, KPI autonomy or Stopped orders. */
 export async function PUT(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -68,10 +70,10 @@ export async function PUT(req: NextRequest) {
     [u?.username ?? "", action, JSON.stringify(detail)]).catch(() => { /* never fail the change because the log did */ });
   try {
     if (b.series !== undefined) {
-      if (level(access, OTD) !== "write") return NextResponse.json({ ok: false, error: "Only someone who may change OTD & autonomy types these in." }, { status: 403 });
       const series = TYPED.find((x) => x.id === b.series);
       const row = series?.rows.find((x) => x.id === b.row);
       if (!series || !row) return NextResponse.json({ ok: false, error: "That figure is not on the page." }, { status: 400 });
+      if (level(access, SERIES_PAGE[series.id]) !== "write") return NextResponse.json({ ok: false, error: "Only someone who may change this page types these in." }, { status: 403 });
       const c = checkTyped(series.unit, b.value);
       if (!c.ok) return NextResponse.json({ ok: false, error: c.error }, { status: 400 });
       const typed: Typed = { ...((await kvGet<Typed>(TYPED_KV)) ?? WORKBOOK_TYPED) };
@@ -83,7 +85,7 @@ export async function PUT(req: NextRequest) {
       await audit("back-office.typed", { key, ym, value: c.value });
       return NextResponse.json({ ok: true, typed });
     }
-    if (level(access, FIGURES) !== "write") return NextResponse.json({ ok: false, error: "Only someone who may change Figures types in the hours." }, { status: 403 });
+    if (level(access, FIGURES) !== "write") return NextResponse.json({ ok: false, error: "Only someone who may change Team totals types in the hours." }, { status: 403 });
     const value = b.hours === null || b.hours === "" ? null : Number(b.hours);
     if (value !== null && (!Number.isFinite(value) || value < 0 || value > 100_000)) return NextResponse.json({ ok: false, error: "That is not a number of hours." }, { status: 400 });
     const hours = { ...((await kvGet<Record<string, number>>(HOURS)) ?? WORKBOOK_HOURS) };

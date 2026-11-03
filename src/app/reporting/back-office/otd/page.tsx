@@ -1,5 +1,5 @@
 "use client";
-// Back-Office Reports > OTD & autonomy - drawn in ../BackOffice.tsx.
+// Back-Office Reports > OTD - drawn in ../BackOffice.tsx.
 
 import { Suspense } from "react";
 import { BoOtdPage } from "../BackOffice";

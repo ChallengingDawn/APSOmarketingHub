@@ -31,7 +31,9 @@ test("a click on a category goes straight into its first report - the overview w
   // the Back Office's KPI workbook live (SARCLA 02.11.2026): its BUC View first (03.11.2026), then a page per part
   const bo = categoryBySlug("back-office")!;
   assert.equal(categoryEntry(bo), "/reporting/back-office");
-  assert.deepEqual(bo.reports[0].children!.map((r) => r.href.replace("/reporting/back-office/", "")), ["figures", "topics", "sales-tickets", "gqs", "otd"]);
+  assert.deepEqual(bo.reports[0].children!.map((r) => r.href.replace("/reporting/back-office/", "")), ["figures", "topics", "sales-tickets", "gqs", "otd", "autonomy", "stopped"]);
+  // the workbook's blocks, in its order (SARCLA 03.11.2026: "rethink based on the excel file all the view")
+  assert.deepEqual(bo.reports[0].children!.map((r) => r.name), ["Team totals", "Topics", "ESO & TSA tickets", "GQS", "OTD", "KPI autonomy", "Stopped orders"]);
   // nothing in it yet: the category's own page, which names what comes first
   assert.equal(categoryEntry(categoryBySlug("otd")!), "/reporting/otd");
 });

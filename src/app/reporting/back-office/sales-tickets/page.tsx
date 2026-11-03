@@ -1,5 +1,5 @@
 "use client";
-// Back-Office Reports > Sales tickets - drawn in ../BackOffice.tsx.
+// Back-Office Reports > ESO & TSA tickets - drawn in ../BackOffice.tsx.
 
 import { Suspense } from "react";
 import { BoSalesTicketsPage } from "../BackOffice";
