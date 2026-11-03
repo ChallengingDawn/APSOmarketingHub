@@ -23,7 +23,9 @@
 // Sentiment with the survey sent after a ticket is closed, the Table first and drawn anew. Round 5: the Table in red and
 // green against the period's average, the hours typed into it; the tickets behind every graph (the shared list, as the
 // Companies of the other reports); the balance of each person; tickets per 100 orders by where they came from and C2S;
-// Sentiment split into the Survey and the Detected tone, each by person.
+// Sentiment split into the Survey and the Detected tone, each by person. Round 6: the hours to type in marked, a filter on
+// every graph, the orders diagram in totals, a C2S tab, a Chat handling tab (how fast the first call or e-mail, closed with
+// or without any activity - boReport.ts readChat), the people ranked against the months before (the ESO pages' leaderboard).
 //
 // Every graph is defined once (CHARTS) and drawn the same on its page and in the BUC View, keyed "bo-<page>:main:<id>".
 
@@ -75,7 +77,7 @@ import SellOutlinedIcon from "@mui/icons-material/SellOutlined";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { Badge, CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, TINT, glass, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs } from "@/app/uc/report/Tabs";
-import { ChartBox, H1, TWO, setQuery } from "@/app/reporting/eso-benchmark/Figures";
+import { CardFilterFor, ChartBox, H1, Leaderboard, TWO, setQuery, type BoardRow } from "@/app/reporting/eso-benchmark/Figures";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "@/app/reporting/eso-benchmark/EsoFilters";
 import { FilterPanel, FilterSection } from "@/app/reporting/marketing-kpis/FilterPanel";
 import { SavedViews } from "@/app/reporting/marketing-kpis/tiles/SavedViews";
@@ -95,7 +97,7 @@ import { DEEMPHASIS, SEQUENTIAL, SERIES } from "@/app/charts/palette";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 import { Sankey } from "@/app/charts/Sankey";
-import type { BoRead } from "@/lib/reporting/boReport";
+import type { BoRead, ChatRow } from "@/lib/reporting/boReport";
 import {
   ORIGINS, RCL, RW, TOPIC_ORDER, TYPED, emptyMonth, filteredMonth, hasTickets, kpisOf, passes, sumGqs, sumMonths, topicLabel, typedKey,
   type BoFilter, type BoKpis, type BoMonth, type CoFacts, type GqsMonth, type Typed, type TypedSeries,
@@ -347,7 +349,9 @@ const FIGS: Record<Slug, (f: Frame, d: Data) => Fig[]> = {
 /** what a graph is drawn from - and, on Topics, the topics picked */
 type Ctx = { f: Frame; d: Data; picked?: string[]; pick?: (label: string) => void };
 /** `wide`: across the card - a graph with many parts, or the first of three */
-type ChartDef = { id: string; page: Slug; title: string; hint?: (c: Ctx) => string; body: (c: Ctx) => React.ReactNode; wide?: boolean; list?: ListOf };
+type ChartDef = { id: string; page: Slug; title: string; hint?: (c: Ctx) => string; body: (c: Ctx) => React.ReactNode; wide?: boolean; list?: ListOf; board?: (c: Ctx) => BoardSpec };
+/** a person board: the Back Office team ranked, each against the same number of months right before; the other owners folded */
+type BoardSpec = { rows: BoardRow[]; others: BoardRow[]; fmt: (v: number) => string; ratio?: boolean; lower?: boolean; diff?: (n: number) => string; summary: string; prevLabel: string; noChange: boolean };
 /** a graph with the tickets behind it */
 const listed = (l: ListOf) => (c: ChartDef): ChartDef => ({ ...c, list: l });
 const ALL_IN: ListOf = { note: "the tickets created" };
@@ -526,6 +530,67 @@ function ticketsOf(f: Frame, key: string, l: ListOf): CompanySource {
     },
   };
 }
+
+/** the same number of months as the period's, right before it - what a person board compares with */
+function prevYms(f: Frame): string[] {
+  const span = f.yms.slice(f.from, Math.max(f.done, f.from + 1));
+  if (!span.length) return [];
+  let y = Number(span[0].slice(0, 4)), m = Number(span[0].slice(5, 7));
+  const out: string[] = [];
+  for (let i = 0; i < span.length; i++) { m--; if (m === 0) { m = 12; y--; } out.unshift(`${y}-${String(m).padStart(2, "0")}`); }
+  return out;
+}
+const prevWords = (f: Frame) => { const p = prevYms(f); return p.length ? (p.length === 1 ? `${MONTHS[Number(p[0].slice(5, 7)) - 1]} ${p[0].slice(0, 4)}` : `${MONTHS[Number(p[0].slice(5, 7)) - 1]} ${p[0].slice(0, 4)} – ${MONTHS[Number(p[p.length - 1].slice(5, 7)) - 1]} ${p[p.length - 1].slice(0, 4)}`) : ""; };
+/** every created ticket of some months (from every month kept) that passes the filters */
+function eachRowOf(f: Frame, d: Data, yms: string[], cb: (t: Tk, r: number[], m: BoMonth) => void) {
+  const want = new Set(yms);
+  for (const m of d.months) {
+    if (!want.has(m.ym) || !m.rows || !hasTickets(m.ym)) continue;
+    const dd = m.rows.dict;
+    for (const r of m.rows.created) { const t = tk(dd, r, RW); if (passes(f.fil, f.co, t)) cb(t, r, m); }
+  }
+}
+/** A person board from a measure kept per owner: (value, how many) now and in the months before. */
+function personBoard(f: Frame, d: Data, add: (t: Tk, r: number[], m: BoMonth, into: (owner: string, hit: boolean) => void) => void, opts: { ratio: boolean; lower?: boolean; min?: number; what: string; summary: string }): BoardSpec {
+  const cur = new Map<string, { k: number; n: number }>(), prev = new Map<string, { k: number; n: number }>();
+  const into = (map: Map<string, { k: number; n: number }>) => (o: string, hit: boolean) => { const x = map.get(o) ?? { k: 0, n: 0 }; x.n++; if (hit) x.k++; map.set(o, x); };
+  eachRowOf(f, d, f.yms.slice(f.from, Math.max(f.done, f.from + 1)), (t, r, m) => add(t, r, m, into(cur)));
+  eachRowOf(f, d, prevYms(f), (t, r, m) => add(t, r, m, into(prev)));
+  const val = (x: { k: number; n: number } | undefined) => (!x ? 0 : opts.ratio ? (x.n ? x.k / x.n : 0) : x.k);
+  const rows = [...cur].filter(([, x]) => x.n >= (opts.min ?? 1)).map(([o, x]) => ({ o, row: { label: ownerName(f, o), cur: val(x), prev: val(prev.get(o)), sub: opts.ratio ? `${int(x.k)} of ${int(x.n)} ${opts.what}` : `${int(x.n)} ${opts.what}` } }));
+  return {
+    rows: rows.filter((x) => inTeam(f, x.o)).map((x) => x.row), others: rows.filter((x) => !inTeam(f, x.o)).map((x) => x.row),
+    fmt: opts.ratio ? (v) => `${(v * 100).toFixed(1)}%` : (v) => int(v), ratio: opts.ratio, lower: opts.lower, diff: opts.ratio ? undefined : (n) => `${n > 0 ? "+" : n < 0 ? "−" : "±"}${int(Math.abs(n))}`,
+    summary: opts.summary, prevLabel: prevWords(f), noChange: !prev.size,
+  };
+}
+
+/* the chat's tickets and what was done on them (boReport.ts readChat) */
+const CHAT_KINDS = ["No contact", "A call", "An e-mail sent", "A meeting"];
+/** the period's chat tickets that pass the filters - the ticket's row from the month's read where it is known */
+function chatRows(f: Frame, d: Data, yms?: string[]): { c: ChatRow; t: Tk; ym: string }[] {
+  const byId = new Map<string, Tk>();
+  for (const m of d.months) { const r = m.rows; if (!r?.ids) continue; r.created.forEach((row, i) => { const id = r.ids![i]; if (id) byId.set(id, tk(r.dict, row, RW)); }); }
+  const out: { c: ChatRow; t: Tk; ym: string }[] = [];
+  for (const ym of yms ?? f.yms.slice(f.from, Math.max(f.done, f.from + 1))) {
+    for (const c of d.chat?.[ym] ?? []) {
+      const t = byId.get(c[0]) ?? { topic: "", owner: c[1], origin: "Chat", company: "" };
+      if (passes(f.fil, f.co, t)) out.push({ c, t, ym });
+    }
+  }
+  return out;
+}
+const median = (xs: number[]) => { if (!xs.length) return null; const s2 = [...xs].sort((a, b) => a - b); const h = Math.floor(s2.length / 2); return s2.length % 2 ? s2[h] : (s2[h - 1] + s2[h]) / 2; };
+const whours = (h: number | null) => (h == null ? "—" : h < 9 ? `${h.toFixed(1)} working hours` : `${(h / 9).toFixed(1)} working days`);
+/** a chat person board: each owner's chat tickets, a measure of them now and in the months before */
+function chatBoard(f: Frame, d: Data, of: (rows: ChatRow[]) => number | null, opts: { ratio?: boolean; lower?: boolean; fmt: (v: number) => string; sub: (rows: ChatRow[]) => string; summary: string }): BoardSpec {
+  const group = (xs: { c: ChatRow; t: Tk }[]) => { const m = new Map<string, ChatRow[]>(); for (const x of xs) { const o = x.t.owner || x.c[1]; m.set(o, [...(m.get(o) ?? []), x.c]); } return m; };
+  const cur = group(chatRows(f, d)), prev = group(chatRows(f, d, prevYms(f)));
+  const rows = [...cur].map(([o, rs]) => ({ o, v: of(rs), row: null as BoardRow | null })).filter((x) => x.v != null).map((x) => ({ o: x.o, row: { label: ownerName(f, x.o), cur: x.v!, prev: of(prev.get(x.o) ?? []) ?? 0, sub: opts.sub(cur.get(x.o)!) } }));
+  return { rows: rows.filter((x) => inTeam(f, x.o)).map((x) => x.row), others: rows.filter((x) => !inTeam(f, x.o)).map((x) => x.row), fmt: opts.fmt, ratio: opts.ratio, lower: opts.lower,
+    diff: opts.ratio ? undefined : (n) => `${n > 0 ? "+" : n < 0 ? "−" : "±"}${Math.abs(n).toFixed(1)}`, summary: opts.summary, prevLabel: prevWords(f), noChange: !prev.size };
+}
+const quietChat = (c: ChatRow) => c[7] === 1 && c[4] + c[5] + c[6] === 0 && c[2] === 0;
 
 type Person = { id: string; name: string; created: number; closed: number; origin: Record<string, number>; days: number; dn: number; came: number[]; shut: number[] };
 /** each owner's tickets: what came in to them and from where, what they closed, how fast, month by month */
@@ -809,6 +874,86 @@ export const CHARTS: ChartDef[] = [
       return <MonthTrend values={f.cur.slice(0, n).map(of)} compare={compare.some((x) => x != null) ? compare : null} labels={f.labels.slice(0, n)} label={String(f.year)} compareLabel={String(f.year - 1)} fmt={(v) => (v == null ? "—" : v.toFixed(2))} />;
     },
   }),
+  listed({ note: "the C2S tickets", keep: (_t, r) => r[RW.c2s] === 1 })(trend("c2sT", "figures", "C2S tickets, month by month", "Cut-to-size: a C2S ticket, a problem order, or C2S in the subject", (k) => k.c2s, n0)),
+  listed({ note: "the C2S tickets", keep: (_t, r) => r[RW.c2s] === 1 })(trend("c2sShare", "figures", "C2S tickets, their share of all", "Of the month's Back Office tickets, the C2S ones", (k) => (k.created ? (k.c2s ?? 0) / k.created : null), share)),
+  listed({ note: "the C2S tickets", keep: (_t, r) => r[RW.c2s] === 1 })({
+    id: "c2sTopics", page: "figures", title: "C2S tickets, by type of problem",
+    hint: ({ f }) => `${periodOf(f)} · the topic each C2S ticket was filed under`,
+    body: ({ f }) => {
+      const by = new Map<string, number>();
+      eachRow(f, "created", (t, r) => { if (r[RW.c2s] === 1) by.set(topicLabel(t.topic), (by.get(topicLabel(t.topic)) ?? 0) + 1); });
+      const all = [...by.values()].reduce((x, y) => x + y, 0);
+      return <BarList rows={[...by].sort((a, b) => b[1] - a[1]).map(([label, v]) => ({ label, value: v, secondary: pct(v / all) }))} format={(v) => int(v ?? 0)} labelWidth={180} emptyMessage="No C2S ticket for this choice." />;
+    },
+  }),
+  listed({ note: "the C2S tickets", keep: (_t, r) => r[RW.c2s] === 1 })({
+    id: "c2sSpeed", page: "figures", title: "Days to close: C2S tickets against the others",
+    hint: () => "Each month's tickets closed since, on average - the C2S ones beside all the others",
+    body: ({ f }) => {
+      const n = drawn(f);
+      const rows = f.cur.slice(0, n).map((m, i) => {
+        let a = 0, an = 0, b = 0, bn = 0;
+        if (m.rows && !m.pending) for (const r of m.rows.created) { const t = tk(m.rows.dict, r, RW); if (!passes(f.fil, f.co, t) || r[RW.close] < 0) continue; if (r[RW.c2s] === 1) { a += r[RW.close] / 10; an++; } else { b += r[RW.close] / 10; bn++; } }
+        return { x: f.labels[i], current: an ? a / an : null, prior: bn ? b / bn : null };
+      });
+      return <GroupedColumns height={240} format={(v) => (v == null ? "—" : v.toFixed(1))} currentLabel="C2S" priorLabel="Every other ticket" currentFirst data={rows} />;
+    },
+  }),
+  listed({ note: "the C2S tickets", keep: (_t, r) => r[RW.c2s] === 1 })({
+    id: "c2sPeople", page: "figures", title: "C2S tickets, by person",
+    hint: () => "", body: () => null,
+    board: ({ f, d }) => personBoard(f, d, (t, r, _m, into) => { if (r[RW.c2s] === 1) into(t.owner, true); }, { ratio: false, what: "C2S tickets", summary: `${periodOf(f)} against ${prevWords(f)} · each person's C2S tickets, by the ticket's owner` }),
+  }),
+  listed({ note: "the chat's tickets", keep: (t) => t.origin === "Chat" })(wide({
+    id: "chatKinds", page: "figures", title: "Chat tickets, by the first contact",
+    hint: () => "Each month's tickets the chat handed over, by what the team did first: a call, an e-mail sent, a meeting - or nothing at all",
+    body: ({ f, d }) => {
+      const n = drawn(f);
+      const data = f.yms.slice(0, n).map((ym, i) => {
+        const rs = chatRows(f, d, [ym]);
+        const known = !!d.chat?.[ym];
+        return { x: f.labels[i], ...Object.fromEntries(CHAT_KINDS.map((_, k) => [`k${k}`, known ? rs.filter((x) => x.c[2] === k).length : null])) };
+      });
+      return <StackedColumns height={260} format={n0} data={data} parts={[{ key: "k1", label: CHAT_KINDS[1], color: SERIES[0] }, { key: "k2", label: CHAT_KINDS[2], color: SERIES[2] }, { key: "k3", label: CHAT_KINDS[3], color: SERIES[3] }, { key: "k0", label: CHAT_KINDS[0], color: "#c0571f" }]} />;
+    },
+  })),
+  listed({ note: "the chat's tickets", keep: (t) => t.origin === "Chat" })({
+    id: "chatHours", page: "figures", title: "Chat tickets: time to the first contact, month by month",
+    hint: () => "The middle of each month's first calls, e-mails sent or meetings on the chat's tickets - working hours, Mon-Fri 8-17",
+    body: ({ f, d }) => {
+      const n = drawn(f);
+      const of = (ym: string) => (d.chat?.[ym] ? median(chatRows(f, d, [ym]).filter((x) => x.c[3] >= 0).map((x) => x.c[3] / 10)) : null);
+      const compare = f.yms.slice(0, n).map((ym) => of(back(ym)));
+      return <MonthTrend values={f.yms.slice(0, n).map(of)} compare={compare.some((x) => x != null) ? compare : null} labels={f.labels.slice(0, n)} label={String(f.year)} compareLabel={String(f.year - 1)} fmt={whours} tick={(v) => (v == null ? "" : `${Math.round(v)} h`)} />;
+    },
+  }),
+  listed({ note: "the chat's tickets", keep: (t) => t.origin === "Chat" })({
+    id: "chatPeopleHours", page: "figures", title: "Chat: time to the first contact, by person",
+    hint: () => "", body: () => null,
+    board: ({ f, d }) => chatBoard(f, d, (rs) => median(rs.filter((c) => c[3] >= 0).map((c) => c[3] / 10)), { lower: true, fmt: (v) => `${v.toFixed(1)} h`, sub: (rs) => `the middle of ${int(rs.filter((c) => c[3] >= 0).length)} first contacts · ${int(rs.length)} chat tickets`, summary: `${periodOf(f)} against ${prevWords(f)} · working hours from the ticket to the first call, e-mail sent or meeting` }),
+  }),
+  listed({ note: "the chat's tickets", keep: (t) => t.origin === "Chat" })({
+    id: "chatPeopleCall", page: "figures", title: "Chat: tickets with a call, by person",
+    hint: () => "", body: () => null,
+    board: ({ f, d }) => chatBoard(f, d, (rs) => (rs.length ? rs.filter((c) => c[4] > 0).length / rs.length : null), { ratio: true, fmt: (v) => `${(v * 100).toFixed(1)}%`, sub: (rs) => `${int(rs.filter((c) => c[4] > 0).length)} of ${int(rs.length)} chat tickets called`, summary: `${periodOf(f)} against ${prevWords(f)} · the share of each person's chat tickets with at least one call` }),
+  }),
+  listed({ note: "the chat's tickets", keep: (t) => t.origin === "Chat" })({
+    id: "chatQuiet", page: "figures", title: "Chat: closed without any activity, by person",
+    hint: () => "", body: () => null,
+    board: ({ f, d }) => chatBoard(f, d, (rs) => (rs.length ? rs.filter(quietChat).length / rs.length : null), { ratio: true, lower: true, fmt: (v) => `${(v * 100).toFixed(1)}%`, sub: (rs) => `${int(rs.filter(quietChat).length)} of ${int(rs.length)} closed with no call, e-mail sent, meeting or note`, summary: `${periodOf(f)} against ${prevWords(f)} · each person's chat tickets closed with nothing done on them` }),
+  }),
+  {
+    id: "toneNegPeople", page: "figures", title: "Detected tone: negative, by person",
+    hint: () => "", body: () => null,
+    board: ({ f, d }) => personBoard(f, d, (t, r, m, into) => { const tone = m.rows!.dict[r[RW.tone]]; if (["positive", "neutral", "negative"].includes(tone)) into(t.owner, tone === "negative"); },
+      { ratio: true, lower: true, min: 10, what: "scored", summary: `${periodOf(f)} against ${prevWords(f)} · not a survey - of each person's tickets the sentiment sweep scored, the share it heard as negative (10 or more scored)` }),
+  },
+  {
+    id: "tonePosPeople", page: "figures", title: "Detected tone: positive, by person",
+    hint: () => "", body: () => null,
+    board: ({ f, d }) => personBoard(f, d, (t, r, m, into) => { const tone = m.rows!.dict[r[RW.tone]]; if (["positive", "neutral", "negative"].includes(tone)) into(t.owner, tone === "positive"); },
+      { ratio: true, min: 10, what: "scored", summary: `${periodOf(f)} against ${prevWords(f)} · not a survey - of each person's tickets the sentiment sweep scored, the share it heard as positive (10 or more scored)` }),
+  },
   trend("ticketsPerHour", "figures", "Tickets per hour worked", "The tickets that came in against the hours typed in for the month", (k) => (k.hoursPerTicket ? 1 / k.hoursPerTicket : null), (v) => (v == null ? "—" : v.toFixed(2)), (v) => (v == null ? "" : v.toFixed(1))),
   listed(ALL_IN)(wide({
     id: "weekday", page: "figures", title: "When the work comes in and goes out, by weekday",
@@ -829,25 +974,25 @@ export const CHARTS: ChartDef[] = [
     },
   }),
   wide({
-    id: "overall", page: "figures", title: "For every 100 orders",
-    hint: ({ f }) => `${periodOf(f)} · the orders by profit centre, and the Back Office tickets that came in against them, by topic - per 100 orders`,
+    id: "overall", page: "figures", title: "The orders, and the tickets that came in against them",
+    hint: ({ f }) => `${periodOf(f)} · the orders by profit centre on the left (their share of the orders), the Back Office tickets by type of problem on the right (their share of the tickets) - every figure a total`,
     body: ({ f }) => {
-      const orders = f.total.orders ?? 0;
       const pcs = sumField(f, "pcs").filter((r) => r.cur).sort((a, b) => b.cur - a.cur);
+      const orders = pcs.reduce((x, r) => x + r.cur, 0);
       const tops = topicRows(f).rows.filter((r) => r.cur).sort((a, b) => b.cur - a.cur);
-      const per = (x: number) => (orders ? Math.round((x / orders) * 1000) / 10 : 0);
-      const head = tops.slice(0, 6), rest = tops.slice(6).reduce((s, r) => s + r.cur, 0);
-      const right = [...head.map((r) => ({ id: `t:${r.key}`, label: r.label, v: per(r.cur) })), ...(rest ? [{ id: "t:rest", label: "Every other topic", v: per(rest) }] : [])];
+      const tickets = tops.reduce((x, r) => x + r.cur, 0);
+      const head = tops.slice(0, 7), rest = tops.slice(7).reduce((x, r) => x + r.cur, 0);
+      const right = [...head.map((r) => ({ id: `t:${r.key}`, label: r.label, v: r.cur })), ...(rest ? [{ id: "t:rest", label: "Every other type", v: rest }] : [])];
       const nodes = [
         ...pcs.map((r) => ({ id: `pc:${r.label}`, column: 0, label: r.label, color: SEQUENTIAL[4] })),
-        { id: "orders", column: 1, label: "100 orders", color: SERIES[0] },
-        ...right.map((r) => ({ id: r.id, column: 2, label: r.label, color: r.id === "t:rest" ? DEEMPHASIS : SERIES[1] })),
+        { id: "orders", column: 1, label: `Orders, against ${int(tickets)} tickets`, color: SERIES[0] },
+        ...right.map((r) => ({ id: r.id, column: 2, label: r.label, color: r.id === "t:rest" ? DEEMPHASIS : SERIES[1], of: { value: tickets, label: "the tickets" } })),
       ];
-      const links = [...pcs.map((r) => ({ from: `pc:${r.label}`, to: "orders", value: per(r.cur) })), ...right.map((r) => ({ from: "orders", to: r.id, value: r.v }))];
+      const links = [...pcs.map((r) => ({ from: `pc:${r.label}`, to: "orders", value: r.cur })), ...right.map((r) => ({ from: "orders", to: r.id, value: r.v }))];
       return (
-        <ChartFrame table={{ columns: ["From", "To", "Per 100 orders"], rows: links.map((l) => [l.from.replace(/^(pc|t):/, ""), l.to.replace(/^(pc|t):/, ""), l.value]), numeric: [2] }} empty={orders ? null : "No orders for this choice."}>
+        <ChartFrame table={{ columns: ["From", "To", "How many"], rows: links.map((l) => [l.from.replace(/^(pc|t):/, ""), l.to.replace(/^(pc|t):/, ""), l.value]), numeric: [2] }} empty={orders ? null : "No orders for this choice."}>
           <Box sx={{ overflowX: "auto" }}><Box sx={{ minWidth: 760 }}>
-            <Sankey height={380} columns={["Orders by profit centre", "Per 100 orders", "Tickets by topic"]} label="For every 100 orders" nodes={nodes} links={links} format={(v) => v.toLocaleString("en", { maximumFractionDigits: 1 })} />
+            <Sankey height={400} columns={["Orders by profit centre", "The period", "Tickets by type of problem"]} label="The orders and the tickets against them" nodes={nodes} links={links} format={(v) => int(v)} />
           </Box></Box>
         </ChartFrame>
       );
@@ -1097,6 +1242,14 @@ const chartByKey = (key: string) => CHARTS.find((c) => chartKey(c) === key) ?? C
 /** A graph with its Actions - on its page, or in the BUC View. */
 function Card({ def, c, where }: { def: ChartDef; c: Ctx; where: "tab" | "nutshell" }) {
   const actions = <TileActions where={where} start="tab" edge={2} tile={{ key: chartKey(def), page: `bo-${def.page}`, tab: "main", title: def.title, kind: "card", href: hrefOf(def.page) }} />;
+  if (def.board) {
+    const b = def.board(c);
+    return (
+      <Leaderboard title={def.title} summary={b.summary} rows={b.rows} curLabel={periodOf(c.f)} prevLabel={b.prevLabel} first={12} fmt={b.fmt} diff={b.diff} ratio={!!b.ratio}
+        lowerIsBetter={!!b.lower} ascending={!!b.lower} noChange={b.noChange} actions={actions} companies={def.list ? ticketsOf(c.f, chartKey(def), def.list) : undefined}
+        unranked={b.others.length ? { why: `${b.others.length} owner${b.others.length === 1 ? "" : "s"} outside the Back Office - tickets that may sit with the wrong person`, rows: b.others } : undefined} />
+    );
+  }
   const box = <ChartBox title={def.title} hint={def.hint?.(c)} actions={actions}>{def.body(c)}</ChartBox>;
   return def.list ? <CompaniesFor source={ticketsOf(c.f, chartKey(def), def.list)}>{box}</CompaniesFor> : box;
 }
@@ -1115,8 +1268,10 @@ const TABS: Record<Slug, TabDef[]> = {
     { id: "speed", label: "Speed", title: "How fast", note: "days to the first reply and to close, the customers' tickets closed without any answer - by month, person and topic", icon: <TimerOutlinedIcon />, tint: "amber", charts: ["reply", "resolution", "noAnswer", "noAnswerPeople", "peopleReply", "peopleSpeed", "replyByTopic", "closeByTopic"] },
     { id: "workload", label: "Workload", title: "The team's workload", note: "the hours (typed in on the Table, from Abacus) against the tickets, when the work comes in, what each person closes a working day", icon: <WorkHistoryOutlinedIcon />, tint: "purple", charts: ["weekday", "peopleDay", "ticketsPerHour", "hours", "perHour"] },
     { id: "ratios", label: "Orders & ratios", title: "Tickets against the orders", note: "an order number once, credit notes out · its profit centre the one it names, else most of its lines'", icon: <ShoppingCartOutlinedIcon />, tint: "green", charts: ["overall", "perOrigin", "pcs", "pcLines", "perOrder", "perLine", "orders", "lines", "c2sPerOrder"] },
+    { id: "c2s", label: "C2S", title: "C2S - cut to size", note: "the cut-to-size tickets: how many, their share, what they are about, how fast they close, who has them", icon: <ContentCutOutlinedIcon />, tint: "pink", charts: ["c2sT", "c2sShare", "c2sPerOrder", "c2sSpeed", "c2sTopics", "c2sPeople"] },
+    { id: "chat", label: "Chat handling", title: "The chat's tickets", note: "the tickets the chat handed over: what the team did first, how fast, the calls, and those closed with nothing done", icon: <SupportAgentOutlinedIcon />, tint: "purple", charts: ["chatKinds", "chatHours", "chat", "chatPeopleHours", "chatPeopleCall", "chatQuiet"] },
     { id: "survey", label: "Survey", title: "Survey after a closed ticket", note: "what the customers answered to the survey sent at random after a Back Office ticket is closed", icon: <SentimentNeutralOutlinedIcon />, tint: "green", charts: ["csat", "csatScore", "surveyPeople", "surveyTable"] },
-    { id: "tone", label: "Detected tone", title: "Detected tone", note: "not a survey: the tone the hub's sentiment sweep hears in each ticket's e-mails", icon: <SentimentNeutralOutlinedIcon />, tint: "slate", charts: ["tones", "neutral", "negative", "tonePeople"] },
+    { id: "tone", label: "Detected tone", title: "Detected tone", note: "not a survey: the tone the hub's sentiment sweep hears in each ticket's e-mails", icon: <SentimentNeutralOutlinedIcon />, tint: "slate", charts: ["tones", "negative", "neutral", "toneNegPeople", "tonePosPeople"] },
   ],
   topics: [
     TABLE("the workbook's topic table: Back Office tickets per topic, by the month they came in"),
@@ -1185,12 +1340,14 @@ function TabCard({ slug, c, extra }: { slug: Slug; c: Ctx; extra?: (tab: string)
       <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
         <CardTitle icon={t.icon} tint={t.tint} title={`${t.title}, ${periodOf(f)}`} note={t.note} />
         {t.charts.length > 0 && (
+          <CardFilterFor filter={{ open: () => setPanel(true), label: n ? `Filtered by ${n} - change the filters` : "Filter these graphs", on: n > 0 }}>
           <Box sx={{ ...TWO, mt: -0.5 }}>
             {t.charts.map((id) => {
               const def = CHARTS.find((x) => x.page === slug && x.id === id);
               return def ? <Box key={id} sx={{ minWidth: 0, ...(def.wide ? { gridColumn: "1 / -1" } : {}) }}><Card def={def} c={c} where="tab" /></Box> : null;
             })}
           </Box>
+          </CardFilterFor>
         )}
         {extra?.(t.id)}
       </GlassCard>
@@ -1395,9 +1552,11 @@ function AllFigures({ f, rows, title = "All the figures, month by month", hint, 
   const sum = f.doneWords ? `${f.doneWords} ${f.year}` : String(f.year);
   const [msg, setMsg] = useState<string | null>(null);
   const save = (ym: string) => async (v: string) => {
-    const n = v.trim() === "" ? null : Number(v.replace(",", "."));
+    // "1,200.5" and "1'200" as a person writes them, "908,6" as a decimal comma
+    const t = v.trim().replace(/[\s']/g, "");
+    const n = t === "" ? null : Number(/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(t) ? t.replace(/,/g, "") : t.replace(",", "."));
     if (n !== null && !Number.isFinite(n)) { setMsg("Hours are a number, e.g. 908.6"); return; }
-    try { await hours!.put({ ym, hours: n }); setMsg(null); } catch (e) { setMsg(String((e as Error).message)); }
+    try { await hours!.put({ ym, hours: n }); setMsg(n === null ? "Cleared" : "Saved - the hours per ticket and the workload follow"); } catch (e) { setMsg(String((e as Error).message)); }
   };
   const head = ["KPI", ...f.labels.map((l) => l.replace(" (to date)", "*")), sum, ...(f.totalPrev ? [`${f.doneWords} ${f.year - 1}`, "Change"] : [])];
   return (
@@ -1412,12 +1571,16 @@ function AllFigures({ f, rows, title = "All the figures, month by month", hint, 
         return {
           key: r.key, strong: r.strong, section: r.section,
           cells: [r.label, ...f.yms.map((ym, i) => (typed
-            ? <Cell key={ym} value={f.hours[i]} fmt={hrs} can label={`Hours worked, ${f.labels[i]}`} onSave={save(ym)} />
+            ? <Box key={ym} title={f.hours[i] == null && i < f.done ? "To type in: this month's hours from Abacus" : undefined}
+                sx={f.hours[i] == null && i < f.done ? { display: "inline-block", minWidth: 64, px: 0.75, py: 0.25, borderRadius: "8px", border: "1.5px dashed #eda100", bgcolor: "#fff8e6" } : undefined}>
+                <Cell value={f.hours[i]} fmt={(v) => (v == null ? "" : String(v))} can label={`Hours worked, ${f.labels[i]}`} onSave={save(ym)} />
+              </Box>
             : <Box key={ym} component="span" sx={{ color: r.plain || f.labels[i].includes("to date") ? undefined : against(vals[i], mean, r.lower) }}>{vals[i] == null && r.whole && f.labels[i].includes("to date") ? "—" : r.fmt(vals[i])}</Box>)), r.fmt(a),
             ...(f.totalPrev ? [r.fmt(b), <Box key="ch" component="span" sx={{ color: tone(ch, r.lower) }}>{signedPct(ch)}</Box>] : [])],
         };
       })} />
-      {msg && <Typography sx={{ fontSize: "0.78rem", color: BAD }}>{msg}</Typography>}
+      {msg && <Typography sx={{ fontSize: "0.78rem", color: /^Saved|^Cleared/.test(msg) ? GOOD : BAD }}>{msg}</Typography>}
+      {hours?.can && f.hours.slice(0, f.done).some((x) => x == null) && <Typography sx={{ fontSize: "0.78rem", color: "#9a6700" }}>The months marked in amber still need their hours typed in (Abacus) - the hours per ticket and the workload graphs follow.</Typography>}
     </ChartBox>
   );
 }

@@ -472,7 +472,7 @@ const PODIUM_BG = "rgba(45,111,168,.07)";
 /** "+1.2 pts" - a ratio's change (book-to-bill) */
 const points = (cur: number, prev: number) => `${cur - prev > 0 ? "+" : cur - prev < 0 ? "−" : "±"}${Math.abs((cur - prev) * 100).toFixed(1)} pts`;
 
-export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, pageSize, selected, onPick, onFilter, filterLabel, actions, fmt = eur, diff = signedEur, vs, lowerIsBetter = false, ratio = false, target = null, summary, unranked, noChange = false, companies }: {
+export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 12, pageSize, selected, onPick, onFilter, filterLabel, actions, fmt = eur, diff = signedEur, vs, lowerIsBetter = false, ratio = false, target = null, summary, unranked, noChange = false, companies, ascending = false }: {
   title: string; rows: BoardRow[]; curLabel: string; prevLabel: string;
   /** the places shown before "Show all" */
   first?: number;
@@ -498,6 +498,8 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   unranked?: { why: string; rows: BoardRow[]; open?: boolean };
   /** nothing to compare with (the visits: none recorded last year) - no change shown */
   noChange?: boolean;
+  /** the lowest first - where less is better and the best should lead (Back-Office Reports' time to the first contact) */
+  ascending?: boolean;
   /** the companies behind the board - its button beside the filter (or a <CompaniesFor> around it) */
   companies?: CompanySource | null;
 }) {
@@ -506,7 +508,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   // its own filter (its breakdown), or the page's (a board of something not filtered, the profit centres)
   const around = useContext(FilterCtx);
   const filter: CardFilter | null = onFilter ? { open: onFilter, label: filterLabel ?? "Filter", on: !!selected?.length } : around;
-  const rows = useMemo(() => [...given].sort((a, b) => b.cur - a.cur || b.prev - a.prev || a.label.localeCompare(b.label)), [given]);
+  const rows = useMemo(() => [...given].sort((a, b) => (ascending ? a.cur - b.cur : b.cur - a.cur) || b.prev - a.prev || a.label.localeCompare(b.label)), [given, ascending]);
   const [all, setAll] = useState(false);
   const [small, setSmall] = useState(!!unranked?.open);
   // the first three as cards, the next places under them - all of them, once asked for, in pages; a board given pageSize:
@@ -523,7 +525,7 @@ export function Leaderboard({ title, rows: given, curLabel, prevLabel, first = 1
   const flip = (color: string) => (!lowerIsBetter ? color : color === GREEN ? RED : color === RED ? GREEN : color);
   const reached = target ? rows.filter(hits).length : 0;
   // in words anyone reads (SARCLA 27.10.2026: "I don't understand 'ranked by 2026 · the first 6 of 17'")
-  const hint = ["Highest first", !pageSize && rows.length > first && !all ? `top ${first} of ${rows.length.toLocaleString("en")} shown` : "", onPick ? "click one to show only it" : ""].filter(Boolean).join(" · ");
+  const hint = [ascending ? "Lowest first" : "Highest first", !pageSize && rows.length > first && !all ? `top ${first} of ${rows.length.toLocaleString("en")} shown` : "", onPick ? "click one to show only it" : ""].filter(Boolean).join(" · ");
   // the change: in % and euros, or in points for a ratio
   const change = (r: BoardRow) => {
     if (noChange) return { main: "", color: FAINT, second: null as string | null };

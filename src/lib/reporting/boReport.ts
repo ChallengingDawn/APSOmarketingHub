@@ -18,7 +18,8 @@
 
 import { query } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
-import { batchRead, read, searchAll, type Filter } from "@/lib/lifecycle/read";
+import { associations, batchRead, read, searchAll, type Filter } from "@/lib/lifecycle/read";
+import { workingHours } from "@/lib/marketingKpis/handoverCube";
 import { prioBand, prioOf } from "./esoRules";
 import { isC2s } from "@/lib/boDetection/figures";
 import {
@@ -40,7 +41,16 @@ const GQS_OPEN = "hs_v2_date_entered_2338266316", GQS_SENT = ["hs_v2_date_entere
 const GQS_VERSION = 4;
 /** Back Office: entered "Redirected from chat" - the chat handed it over */
 const REDIRECTED = "hs_v2_date_entered_2554860732";
-const KV = { month: (ym: string) => `boReport:month:${ym}`, gqs: "boReport:gqs", lease: "boReport:lease", companies: "boReport:companies", articles: "boReport:articles" };
+const KV = { month: (ym: string) => `boReport:month:${ym}`, chat: (ym: string) => `boReport:chat:${ym}`, gqs: "boReport:gqs", lease: "boReport:lease", companies: "boReport:companies", articles: "boReport:articles" };
+/**
+ * A chat ticket's handling (SARCLA 03.11.2026: "a tab chat handling - per person how much time people take to call the
+ * customer, if they close with activity"): [ticket id, owner id, the first contact (0 none, 1 call, 2 e-mail sent,
+ * 3 meeting), working hours to it x10 (-1 none), calls, e-mails sent, notes, closed 0/1]. Kept per month on its own
+ * (boReport:chat:<YYYY-MM>, its own version), so the months are not counted again for it.
+ */
+export type ChatRow = [string, string, number, number, number, number, number, number];
+const CHAT_VERSION = 1;
+type KeptChat = { v: number; at: string; rows: ChatRow[] };
 /** the order lines read per order record: enough for every order but the largest, whose profit centre most lines decide */
 const LINES = Array.from({ length: 30 }, (_, i) => String(i + 1).padStart(2, "0"));
 /** the companies' facts, read again weekly */
@@ -50,6 +60,8 @@ type Kept = BoMonth & { v: number; at: string };
 type KeptGqs = { v: number; at: string; months: GqsMonth[] };
 export type BoRead = {
   generatedAt: string; months: BoMonth[]; gqs: GqsMonth[]; current: string; today: string;
+  /** the chat tickets' handling, by month */
+  chat: Record<string, ChatRow[]>;
   /** the months not counted yet (the counter is on them), and what it is doing */
   pending: string[]; counting: boolean; progress: string | null; error: string | null;
 };
@@ -120,6 +132,38 @@ async function readMonth(ym: string, say: (s: string) => void, learnt: Learnt): 
   return { ym, ...t, closed: closed.length, eso, tsa, all, orders: o.orders, lines: o.lines, pcs: o.pcs, linePcs: o.linePcs, rows: rowsOf(created, closed), srcs };
 }
 
+/** A month's chat tickets and what the team did on each: the first call, e-mail sent or meeting, and how long it took in
+ *  working hours; the calls, e-mails sent and notes logged; closed or not. */
+async function readChat(ym: string, say: (s: string) => void): Promise<ChatRow[]> {
+  const base = [pipe(PIPE.bo), ...between("createdate", ym)];
+  const found = await searchAll("tickets", [[...base, { propertyName: REDIRECTED, operator: "HAS_PROPERTY" }], [...base, { propertyName: "source_type", operator: "EQ", value: "CHAT" }]],
+    ["createdate", "hubspot_owner_id", "closed_date"], (n) => say(`${ym}: the chat's tickets · ${n.toLocaleString("en")}`));
+  const tickets = new Map(found.map((t) => [String(t.id), t.properties ?? {}]));
+  const ids = [...tickets.keys()];
+  if (!ids.length) return [];
+  say(`${ym}: what was done on the chat's tickets`);
+  const [emails, calls, meetings, notes] = [await associations("tickets", "emails", ids), await associations("tickets", "calls", ids), await associations("tickets", "meetings", ids), await associations("tickets", "notes", ids)];
+  const at = new Map<string, number>(), out = new Set<string>();
+  const t = (v: string | null | undefined) => { const n = v ? (/^\d+$/.test(v) ? Number(v) : Date.parse(v)) : NaN; return Number.isFinite(n) ? n : null; };
+  for (const e of await batchRead("emails", [...new Set([...emails.values()].flat())], ["hs_timestamp", "hs_email_direction"])) {
+    const w = t(e.properties?.hs_timestamp); if (w != null) at.set(`e${e.id}`, w);
+    if ((e.properties?.hs_email_direction ?? "") !== "INCOMING_EMAIL") out.add(String(e.id));
+  }
+  for (const c of await batchRead("calls", [...new Set([...calls.values()].flat())], ["hs_timestamp"])) { const w = t(c.properties?.hs_timestamp); if (w != null) at.set(`c${c.id}`, w); }
+  for (const m of await batchRead("meetings", [...new Set([...meetings.values()].flat())], ["hs_meeting_start_time", "hs_timestamp"])) { const w = t(m.properties?.hs_meeting_start_time) ?? t(m.properties?.hs_timestamp); if (w != null) at.set(`m${m.id}`, w); }
+  const rows: ChatRow[] = [];
+  for (const [id, p] of tickets) {
+    const created = t(p.createdate);
+    const sent = (emails.get(id) ?? []).filter((e) => out.has(e));
+    const contacts = [...(calls.get(id) ?? []).map((c) => [1, at.get(`c${c}`)] as const), ...sent.map((e) => [2, at.get(`e${e}`)] as const), ...(meetings.get(id) ?? []).map((m) => [3, at.get(`m${m}`)] as const)]
+      .filter((x): x is readonly [1 | 2 | 3, number] => x[1] != null && (created == null || x[1] >= created - 60_000)).sort((a, b) => a[1] - b[1]);
+    const first = contacts[0];
+    rows.push([id, p.hubspot_owner_id ?? "", first ? first[0] : 0, first && created != null ? Math.round(workingHours(created, first[1]) * 10) : -1,
+      (calls.get(id) ?? []).length, sent.length, (notes.get(id) ?? []).length, p.closed_date ? 1 : 0]);
+  }
+  return rows;
+}
+
 /** The facts the filters read of the companies met: customer category, country, priority band - those not known yet, or
  *  all of them once a week. */
 async function readCompanies(ids: Set<string>, say: (s: string) => void): Promise<void> {
@@ -164,13 +208,22 @@ async function keptMonths(): Promise<Map<string, Kept>> {
   }
 }
 
+async function keptChats(): Promise<Map<string, KeptChat>> {
+  try {
+    const r = await query<{ k: string; v: KeptChat }>("SELECT k, v FROM apsomh_kv WHERE k LIKE 'boReport:chat:%'");
+    return new Map(r.rows.map((x) => [x.k.slice("boReport:chat:".length), x.v]));
+  } catch {
+    return new Map();
+  }
+}
+
 async function leaseFree(): Promise<boolean> {
   const l = await kvGet<{ beat: string }>(KV.lease);
   return !l || Date.now() - Date.parse(l.beat) > LEASE_STALE_MS;
 }
 const beat = () => kvSet(KV.lease, { beat: new Date().toISOString() });
 
-function count(todo: string[], gqsDue: boolean): void {
+function count(todo: string[], gqsDue: boolean, chatTodo: string[] = []): void {
   state.running = true; state.error = null;
   let last = 0;
   const say = (s: string) => {
@@ -185,6 +238,10 @@ function count(todo: string[], gqsDue: boolean): void {
         const m = await readMonth(ym, (s) => say(`month ${i + 1} of ${todo.length} · ${s}`), learnt);
         await kvSet(KV.month(ym), { ...m, v: VERSION, at: new Date().toISOString() } satisfies Kept);
         await kvSet(KV.articles, learnt.arts);
+      }
+      for (const [i, ym] of chatTodo.entries()) {
+        const rows = await readChat(ym, (s) => say(`chat ${i + 1} of ${chatTodo.length} · ${s}`));
+        await kvSet(KV.chat(ym), { v: CHAT_VERSION, at: new Date().toISOString(), rows } satisfies KeptChat);
       }
       if (learnt.companies.size) await readCompanies(learnt.companies, say);
       if (gqsDue) {
@@ -212,12 +269,16 @@ export async function boReportNow(): Promise<BoRead> {
   const pending = months.filter((ym) => !kept.get(ym) || kept.get(ym)!.v !== VERSION);
   const due = [...months].reverse().filter((ym) => stale(kept.get(ym), fresh.has(ym), now));
   const gqsDue = !g || g.v !== GQS_VERSION || now - Date.parse(g.at) > HOUR;
-  if ((due.length || gqsDue) && !state.running && (await leaseFree())) count(due, gqsDue);
+  // the chat's handling: the months with tickets, kept like the months (this one and the one before hourly, older weekly)
+  const chats = await keptChats();
+  const chatDue = [...months].reverse().filter((ym) => ym >= "2025-07" && (() => { const k = chats.get(ym); return !k || k.v !== CHAT_VERSION || now - Date.parse(k.at) > (fresh.has(ym) ? HOUR : WEEK); })());
+  if ((due.length || gqsDue || chatDue.length) && !state.running && (await leaseFree())) count(due, gqsDue, chatDue);
   const have = months.flatMap((ym) => (kept.get(ym) && kept.get(ym)!.v === VERSION ? [kept.get(ym)!] : []));
   const newest = [...have.map((m) => m.at), g?.at ?? ""].sort().pop() ?? "";
   const elsewhere = !state.running && !(await leaseFree());
   return {
-    generatedAt: newest || new Date(now).toISOString(), months: have, gqs: g?.v === GQS_VERSION ? g.months : [], current, today,
+    generatedAt: newest || new Date(now).toISOString(), months: have,
+    chat: Object.fromEntries([...chats].filter(([, k]) => k.v === CHAT_VERSION).map(([ym, k]) => [ym, k.rows])), gqs: g?.v === GQS_VERSION ? g.months : [], current, today,
     pending, counting: state.running || elsewhere, progress: state.running ? state.progress : elsewhere ? "counting on another copy of the hub" : null, error: state.error,
   };
 }
