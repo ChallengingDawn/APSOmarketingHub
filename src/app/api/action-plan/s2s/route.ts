@@ -1,6 +1,8 @@
 // "From Scroll to Sale" beside the action plan (SARCLA 02.11.2026), admins only as the plan (../guard.ts):
 //   GET  ?fresh=1                                   the pipeline 1-1, each ticket with its place in the plan
-//   POST {action:"propose", ids?: [ticket ids]}     a place for each ticket not in the plan: its HubSpot plan property, else the AI's
+//   POST {action:"propose", ids?: [ticket ids]}     a place for each ticket not in the plan: its HubSpot plan property, else the AI's (shown
+//                                                   the team's own placements), else the closest learned one; each with the places learned
+//                                                   from where the team put the others, to pick from first (scrollToSaleRules.learnPlaces)
 //   POST {action:"place", picks: [{ticketId, as:"sub"|"action", target}]}   the ticked ones placed (scrollToSaleBoard.place)
 // Nothing is placed without a pick ("proposal first, I tick").
 import { NextRequest, NextResponse } from "next/server";

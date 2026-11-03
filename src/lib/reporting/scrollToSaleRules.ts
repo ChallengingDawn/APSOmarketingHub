@@ -220,3 +220,59 @@ export function cleanAiFill(raw: unknown, form: AiForm, tickets: boolean): AiFil
   }
   return out;
 }
+
+/* ── where a ticket goes, learned from the team's own placements ──────── */
+
+/**
+ * A ticket already in the plan, as the team placed it: a sub-action under an action (target = the action), or an action of
+ * its own in a category (target = the category).
+ */
+export type PlacedTicket = { subject: string; owner: string; channel: string; as: "sub" | "action"; target: number };
+/** A place learned for a ticket: how close its nearest placed tickets there are (0-1+), and their subjects. */
+export type Learned = { as: "sub" | "action"; target: number; score: number; like: string[] };
+
+const STOP = new Set(["the", "and", "for", "with", "from", "into", "our", "new", "what", "which", "how", "all", "per", "via", "are", "can", "not", "has",
+  "have", "will", "des", "les", "und", "der", "die", "das", "pour", "avec"]);
+/** A subject's words: lower case, no accents, three letters or more, a plural's "s" off. */
+export function wordsOf(s: string): string[] {
+  const out = new Set<string>();
+  for (const w of s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9]+/)) {
+    if (w.length < 3 || STOP.has(w)) continue;
+    out.add(w.length > 4 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w);
+  }
+  return [...out];
+}
+
+/**
+ * Where a ticket would go, learned from where the team placed the others (SARCLA 03.11.2026: "learn a lot of how I
+ * organised and ease the way I pick when associating tickets - but really the data should be dynamic"): given the placed
+ * tickets as they are now, never a list kept. The ticket is compared word by word with each placed one - the rarer a word
+ * among them, the more it says; the same owner and a shared channel add a little, only where words already match - and
+ * each place scores its closest ticket and half its second. The best few, closest first.
+ */
+export function learnPlaces(t: { subject: string; owner: string; channel: string }, placed: PlacedTicket[], top = 3): Learned[] {
+  const docs = placed.map((p) => ({ ...p, words: wordsOf(p.subject) }));
+  const df = new Map<string, number>();
+  for (const d of docs) for (const w of d.words) df.set(w, (df.get(w) ?? 0) + 1);
+  const idf = (w: string) => Math.log(1 + docs.length / (df.get(w) ?? 1));
+  const norm = (ws: string[]) => Math.sqrt(ws.reduce((s, w) => s + idf(w) ** 2, 0)) || 1;
+  const mine = wordsOf(t.subject);
+  if (!mine.length) return [];
+  const own = new Set(mine), nMine = norm(mine);
+  const chans = (c: string) => c.split(";").map((x) => x.trim()).filter(Boolean);
+  const myChans = new Set(chans(t.channel));
+  const at = new Map<string, { as: "sub" | "action"; target: number; near: { sim: number; subject: string }[] }>();
+  for (const d of docs) {
+    const shared = d.words.filter((w) => own.has(w));
+    if (!shared.length) continue;
+    let sim = shared.reduce((s, w) => s + idf(w) ** 2, 0) / (nMine * norm(d.words));
+    if (t.owner && t.owner === d.owner) sim += 0.1;
+    if (chans(d.channel).some((c) => myChans.has(c))) sim += 0.05;
+    const k = `${d.as}:${d.target}`;
+    (at.get(k) ?? at.set(k, { as: d.as, target: d.target, near: [] }).get(k)!).near.push({ sim, subject: d.subject });
+  }
+  return [...at.values()].map((x) => {
+    x.near.sort((a, b) => b.sim - a.sim);
+    return { as: x.as, target: x.target, score: Math.round((x.near[0].sim + 0.5 * (x.near[1]?.sim ?? 0)) * 100) / 100, like: x.near.slice(0, 2).map((n) => n.subject) };
+  }).filter((x) => x.score >= 0.2).sort((a, b) => b.score - a.score || a.target - b.target).slice(0, top);
+}

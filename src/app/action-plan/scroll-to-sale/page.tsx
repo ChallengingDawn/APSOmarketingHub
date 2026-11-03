@@ -11,21 +11,20 @@ import Link from "next/link";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
-import MenuItem from "@mui/material/MenuItem";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Checkbox from "@mui/material/Checkbox";
 import CircularProgress from "@mui/material/CircularProgress";
+import Autocomplete, { createFilterOptions } from "@mui/material/Autocomplete";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import RefreshIcon from "@mui/icons-material/Refresh";
 
 import { HomeBar } from "@/app/HomeBar";
 import { FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import type { Board, BoardTicket, Proposal } from "@/lib/reporting/scrollToSaleBoard";
+import type { Board, BoardTicket, Proposal, Target } from "@/lib/reporting/scrollToSaleBoard";
 import { PRIORITY_COLOR, dmy, send, stageColor } from "../planUi";
 
-type Target = { id: number; title: string; path: string };
 type Pick = Proposal & { on: boolean };
 const AMBER = { fg: "#a15c07", bg: "#fff3dc" };
 const chip = (on: boolean, fg: string = TINT.blue.fg, bg: string = TINT.blue.bg) => ({
@@ -73,6 +72,33 @@ function Card({ t }: { t: BoardTicket }) {
   );
 }
 
+/** A place in the picker, under its heading. */
+type PlaceOption = { value: string; label: string; detail: string; group: string };
+const LEAVE_OUT: PlaceOption = { value: "none", label: "Leave it out of the plan", detail: "", group: "Or" };
+const findPlace = createFilterOptions<PlaceOption>({ stringify: (o) => `${o.label} ${o.detail}` });
+
+/**
+ * A ticket's places, the likeliest first (SARCLA 03.11.2026: "learn how I organised and ease the way I pick"): the ones
+ * learned from where the team put similar tickets, then the actions holding the most tickets, the other Digital Growth
+ * actions, a new action in a category - all read from the plan and the board as they are now.
+ */
+function placesFor(p: Pick, targets: { actions: Target[]; categories: Target[] }): PlaceOption[] {
+  const find = (as: "sub" | "action", id: number) => (as === "sub" ? targets.actions : targets.categories).find((x) => x.id === id);
+  const label = (as: "sub" | "action", t: Target) => (as === "sub" ? `Sub-action of “${t.title}”` : `New action in “${t.title}”`);
+  const held = (t: Target, what: string) => [t.path, t.tickets ? `${t.tickets} ${what}${t.tickets === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ");
+  const out: PlaceOption[] = [];
+  for (const s of p.suggest ?? []) {
+    const t = find(s.as, s.target);
+    if (t) out.push({ value: `${s.as}:${t.id}`, label: label(s.as, t), detail: s.why, group: "Like the tickets you placed" });
+  }
+  const byUse = (a: Target, b: Target) => b.tickets - a.tickets || a.title.localeCompare(b.title);
+  for (const a of targets.actions.filter((x) => x.tickets).sort(byUse)) out.push({ value: `sub:${a.id}`, label: label("sub", a), detail: held(a, "ticket"), group: "Where your tickets are" });
+  for (const a of targets.actions.filter((x) => !x.tickets)) out.push({ value: `sub:${a.id}`, label: label("sub", a), detail: held(a, "ticket"), group: "Other Digital Growth actions" });
+  for (const c of [...targets.categories].sort(byUse)) out.push({ value: `action:${c.id}`, label: label("action", c), detail: held(c, "action made from a ticket"), group: "A new action in a category" });
+  out.push(LEAVE_OUT);
+  return out;
+}
+
 /** The proposals for the tickets not in the plan, to tick and apply. */
 function Placing({ tickets, onDone, onClose }: { tickets: BoardTicket[]; onDone: (said: string) => void; onClose: () => void }) {
   const [picks, setPicks] = useState<Pick[] | null>(null);
@@ -114,7 +140,7 @@ function Placing({ tickets, onDone, onClose }: { tickets: BoardTicket[]; onDone:
         <Button size="small" onClick={onClose} sx={{ textTransform: "none", fontWeight: 650, color: MUTED }}>Close</Button>
       </Box>
       <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
-        Each ticket goes where its own plan property in HubSpot says, else where the AI reads it fits: a sub-action of a Digital Growth action, or a new action in a category. Change any place, untick what should stay out. Nothing is placed until you apply; placed, the ticket and its sub-action or action are kept in step.
+        Each ticket goes where its own plan property in HubSpot says, else where the AI reads it fits - shown where you placed the others - else beside the tickets most like it. The picker shows those places first, then the actions holding the most tickets; type to find any other. Change any place, untick what should stay out. Nothing is placed until you apply; placed, the ticket and its sub-action or action are kept in step.
       </Typography>
       {err && <Typography sx={{ fontSize: "0.86rem", color: RED }}>{err}</Typography>}
       {!picks && !err && <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={18} /><Typography sx={{ fontSize: "0.86rem", color: MUTED }}>Reading the tickets and the plan - the AI takes a little while for many…</Typography></Box>}
@@ -128,13 +154,25 @@ function Placing({ tickets, onDone, onClose }: { tickets: BoardTicket[]; onDone:
                 <Checkbox size="small" checked={p.on} disabled={p.as === "none"} onChange={(e) => setPicks((ps) => ps!.map((x) => (x.ticketId === p.ticketId ? { ...x, on: e.target.checked } : x)))} />
                 <Box sx={{ minWidth: 0 }}>
                   <Typography noWrap title={t.subject} sx={{ fontSize: "0.86rem", fontWeight: 650, color: INK }}>{t.subject || `Ticket ${t.id}`}</Typography>
-                  <Typography noWrap sx={{ fontSize: "0.74rem", color: FAINT }}>{[t.open ? "open" : "closed", t.ownerName, p.why].filter(Boolean).join(" · ")}{p.by === "hubspot" ? " (HubSpot)" : p.by === "ai" ? " (AI)" : ""}</Typography>
+                  <Typography noWrap title={p.why} sx={{ fontSize: "0.74rem", color: FAINT }}>{[t.open ? "open" : "closed", t.ownerName, p.why].filter(Boolean).join(" · ")}{p.by === "hubspot" ? " (HubSpot)" : p.by === "ai" ? " (AI)" : p.by === "learned" ? " (learned)" : ""}</Typography>
                 </Box>
-                <TextField select size="small" value={value(p)} onChange={(e) => set(p.ticketId, e.target.value)} sx={{ gridColumn: { xs: "2", md: "auto" }, "& .MuiInputBase-root": { fontSize: "0.82rem", bgcolor: "#fff" } }}>
-                  <MenuItem value="none" sx={{ fontSize: "0.84rem", color: FAINT }}>Leave it out of the plan</MenuItem>
-                  {targets.actions.map((a) => <MenuItem key={`s${a.id}`} value={`sub:${a.id}`} sx={{ fontSize: "0.84rem", whiteSpace: "normal" }}>Sub-action of “{a.title.slice(0, 90)}”</MenuItem>)}
-                  {targets.categories.map((c) => <MenuItem key={`a${c.id}`} value={`action:${c.id}`} sx={{ fontSize: "0.84rem", whiteSpace: "normal" }}>New action in “{c.title.slice(0, 90)}”</MenuItem>)}
-                </TextField>
+                {(() => {
+                  const opts = placesFor(p, targets);
+                  const v = value(p);
+                  return (
+                    <Autocomplete size="small" disableClearable autoHighlight options={opts} groupBy={(o) => o.group} getOptionLabel={(o) => o.label}
+                      value={opts.find((o) => o.value === v) ?? LEAVE_OUT} isOptionEqualToValue={(a, b) => a.value === b.value && a.group === b.group}
+                      filterOptions={findPlace} onChange={(_, o) => set(p.ticketId, o.value)}
+                      renderOption={({ key, ...rest }, o) => (
+                        <Box component="li" key={`${String(key)}|${o.group}`} {...rest} sx={{ display: "grid !important", gap: 0.1, py: "5px !important" }}>
+                          <Typography sx={{ fontSize: "0.84rem", color: o.value === "none" ? FAINT : INK, lineHeight: 1.35 }}>{o.label}</Typography>
+                          {o.detail && <Typography sx={{ fontSize: "0.72rem", color: FAINT, lineHeight: 1.3 }}>{o.detail}</Typography>}
+                        </Box>
+                      )}
+                      renderInput={(params) => <TextField {...params} placeholder="Type to find an action or a category" />}
+                      sx={{ gridColumn: { xs: "2", md: "auto" }, minWidth: 0, "& .MuiInputBase-root": { fontSize: "0.82rem", bgcolor: "#fff" } }} />
+                  );
+                })()}
               </Box>
             );
           })}

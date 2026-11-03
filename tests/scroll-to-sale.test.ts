@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { S2S_FIELDS, S2S_FIRST_STAGE, S2S_PIPELINE, aiFillSchema, channelsFor, cleanAiFill, missingRequired, nextRoadmapId, prefill, ticketProperties, type AiForm } from "../src/lib/reporting/scrollToSaleRules";
+import { S2S_FIELDS, S2S_FIRST_STAGE, S2S_PIPELINE, aiFillSchema, channelsFor, cleanAiFill, learnPlaces, missingRequired, nextRoadmapId, prefill, ticketProperties, wordsOf, type AiForm, type PlacedTicket } from "../src/lib/reporting/scrollToSaleRules";
 
 const o = (...v: string[]) => v.map((x) => ({ value: x, label: x }));
 const OPTIONS = {
@@ -101,4 +101,27 @@ test("scroll to sale: no business goal on the form, in the prefill or sent (SARC
   assert.equal(S2S_FIELDS.some((f) => f.name === "mkt_business_goal"), false);
   assert.equal("mkt_business_goal" in prefill({ page: "reach", title: "Organic clicks" }, { options: { ...OPTIONS, mkt_business_goal: o("Visibility & Demand") }, year: 2026, takenRoadmapIds: [] }), false);
   assert.equal("mkt_business_goal" in ticketProperties({ subject: "Run it", mkt_business_goal: "Acquisition" }), false);
+});
+
+test("Scroll to Sale: a ticket's place learned from where the team placed the others", () => {
+  assert.deepEqual(wordsOf("Campaigns & Newsletters for the Café, AI"), ["campaign", "newsletter", "cafe"]);
+  const placed: PlacedTicket[] = [
+    { subject: "Blog for APSOparts", owner: "A", channel: "", as: "sub", target: 10 },
+    { subject: "Blog content plan", owner: "A", channel: "", as: "sub", target: 10 },
+    { subject: "Christmas Holidays Announcement Campaigns", owner: "B", channel: "Newsletter", as: "sub", target: 20 },
+    { subject: "Chemical Compatibility Newsletter Campaign", owner: "D", channel: "Newsletter", as: "sub", target: 20 },
+    { subject: "German feed for Google", owner: "C", channel: "SEA", as: "sub", target: 30 },
+    { subject: "Create End of Year Gift - Special Customers", owner: "D", channel: "", as: "action", target: 40 },
+  ];
+  const blog = learnPlaces({ subject: "Blog post on O-ring materials", owner: "A", channel: "" }, placed);
+  assert.equal(blog[0].target, 10);
+  assert.equal(blog[0].as, "sub");
+  assert.ok(blog[0].like.includes("Blog for APSOparts"));
+  assert.equal(learnPlaces({ subject: "Easter newsletter campaign", owner: "", channel: "Newsletter" }, placed)[0].target, 20);
+  assert.equal(learnPlaces({ subject: "French feed for Google Shopping", owner: "", channel: "" }, placed)[0].target, 30);
+  // an action of its own in a category, learned the same way
+  assert.deepEqual(learnPlaces({ subject: "Gift for special customers", owner: "", channel: "" }, placed).map((x) => [x.as, x.target]), [["action", 40]]);
+  // nothing in common: nothing proposed - the owner or channel alone never place a ticket
+  assert.deepEqual(learnPlaces({ subject: "Totally unrelated words", owner: "A", channel: "Newsletter" }, placed), []);
+  assert.deepEqual(learnPlaces({ subject: "Blog", owner: "", channel: "" }, []), []);
 });

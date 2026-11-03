@@ -13,7 +13,7 @@ import { addItem, mainsFollowSubs, markTicketSync, planItems, updateItem } from 
 import { queuePlanSync } from "./actionPlanHubspot";
 import { IDEA, PRIORITIES, dgTargets, stageOf, type PlanItem, type PlanOwner } from "./actionPlanRules";
 import { actionTickets, addTask, linkTickets, markTaskSync, planTasks, taskTickets } from "./kpiActions";
-import { S2S_PIPELINE } from "./scrollToSaleRules";
+import { S2S_PIPELINE, learnPlaces, type PlacedTicket } from "./scrollToSaleRules";
 import { s2sForm, ticketUrl } from "./scrollToSale";
 
 const PROPS = ["subject", "content", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id", "hs_ticket_priority", "createdate", "mkt_roadmap_id",
@@ -81,47 +81,94 @@ export async function board(fresh = false): Promise<Board> {
 
 /* ── proposals ─────────────────────────────────────────────────────────── */
 
-/** A ticket's place proposed: a sub-action of a Digital Growth action, a new action in a category, or left out. */
-export type Proposal = { ticketId: string; as: "sub" | "action" | "none"; target: number | null; why: string; by: "hubspot" | "ai" | "none" };
+/** A place learned for a ticket from where the team placed the others, to pick from first. */
+export type Suggestion = { as: "sub" | "action"; target: number; why: string };
+/**
+ * A ticket's place proposed: a sub-action of an action, a new action in a category, or left out - and the places learned
+ * from the team's own placements, to pick from first.
+ */
+export type Proposal = { ticketId: string; as: "sub" | "action" | "none"; target: number | null; why: string; by: "hubspot" | "ai" | "learned" | "none"; suggest: Suggestion[] };
+/** A place a ticket may go, and how many tickets the team already put there. */
+export type Target = { id: number; title: string; path: string; tickets: number };
 
 const SYSTEM = `You place the marketing team's tickets on their action plan. APSOparts sells technical parts online (seals, O-rings, hoses, plastics); its Digital Growth team runs a HubSpot pipeline "From Scroll to Sale" for marketing and shop jobs. Each ticket goes where it moves the plan forward:
 - "sub": a step of an existing Digital Growth action - the ticket's subject is a part of what that action is about. target = the action's id.
 - "action": a job of its own that no action covers, in the category it belongs to. target = the category's id.
 - "none": nothing on the plan fits. target = 0.
-Only the ids listed. Prefer "sub" when an action clearly covers the ticket. why: one short sentence, in English.`;
+Only the ids listed. Prefer "sub" when an action clearly covers the ticket. Under each action and category are the tickets the team already placed there: place a new ticket the way they placed similar ones. why: one short sentence, in English.`;
 
-/** Where a ticket may go, to pick from: the Digital Growth actions and their categories, each with where it is. */
-export async function targetList(): Promise<{ actions: { id: number; title: string; path: string }[]; categories: { id: number; title: string; path: string }[] }> {
-  const { actions, categories, path } = dgTargets(await planItems());
-  const one = (i: PlanItem) => ({ id: i.id, title: i.title, path: path(i) });
-  return { actions: actions.map(one), categories: categories.map(one) };
+/**
+ * Where tickets may go, from the plan and the board as they are now (SARCLA 03.11.2026: "learn how I organised ... the
+ * data should be dynamic"): the Digital Growth actions and the actions the team has put tickets under, the Digital Growth
+ * categories and the ones the team has made actions from tickets in; the tickets as placed, to learn from.
+ */
+function targetsOf(items: PlanItem[], tickets: BoardTicket[]) {
+  const { actions: dg, categories: dgCats, path } = dgTargets(items);
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const placed: PlacedTicket[] = [];
+  for (const t of tickets) {
+    if (!t.place) continue;
+    const target = t.place.kind === "sub" ? t.place.itemId : byId.get(t.place.itemId)?.parentId;
+    if (target != null && byId.has(target)) placed.push({ subject: t.subject, owner: t.owner, channel: t.channel, as: t.place.kind, target });
+  }
+  const count = (as: "sub" | "action", id: number) => placed.filter((p) => p.as === as && p.target === id).length;
+  const more = (as: "sub" | "action", have: PlanItem[], ok: (i: PlanItem) => boolean) => {
+    const ids = new Set(have.map((i) => i.id));
+    return [...have, ...[...new Set(placed.filter((p) => p.as === as).map((p) => p.target))].map((id) => byId.get(id)).filter((i): i is PlanItem => !!i && !ids.has(i.id) && ok(i))];
+  };
+  const actions = more("sub", dg, (i) => i.kind === "action");
+  const categories = more("action", dgCats, (i) => i.kind === "group" || i.kind === "topic");
+  const one = (as: "sub" | "action") => (i: PlanItem): Target => ({ id: i.id, title: i.title, path: path(i), tickets: count(as, i.id) });
+  return { actions, categories, path, placed, list: { actions: actions.map(one("sub")), categories: categories.map(one("action")) } };
 }
+
+/** Where a ticket may go, to pick from: each action and category with where it is and how many tickets are there. */
+export async function targetList(): Promise<{ actions: Target[]; categories: Target[] }> {
+  const [b, items] = await Promise.all([board(), planItems()]);
+  return targetsOf(items, b.tickets).list;
+}
+
+/** The places learned for a ticket, said in the team's own tickets. */
+const suggestFor = (t: BoardTicket, placed: PlacedTicket[]): Suggestion[] =>
+  learnPlaces(t, placed).map((l) => ({ as: l.as, target: l.target, why: `Like “${l.like.map((x) => x.slice(0, 60)).join("” and “")}”` }));
 
 /** Proposals for the tickets not in the plan: the ticket's own plan property first, else the AI's - 40 tickets a question. */
 export async function propose(ids: string[]): Promise<Proposal[]> {
   const [b, items] = await Promise.all([board(), planItems()]);
   const want = new Set(ids);
   const loose = b.tickets.filter((t) => !t.place && (!want.size || want.has(t.id)));
-  const { actions, categories, path } = dgTargets(items);
+  const { actions, categories, path, placed } = targetsOf(items, b.tickets);
   const byId = new Map(items.map((i) => [i.id, i]));
   const out: Proposal[] = [];
   const ask: BoardTicket[] = [];
+  const suggest = new Map(loose.map((t) => [t.id, suggestFor(t, placed)]));
+  // where nothing else proposes a place: the closest learned one, when there is one
+  const learned = (t: BoardTicket, why: string): Proposal => {
+    const s = suggest.get(t.id) ?? [];
+    return s.length ? { ticketId: t.id, as: s[0].as, target: s[0].target, why: `${s[0].why}, placed there.`, by: "learned", suggest: s } : { ticketId: t.id, as: "none", target: null, why, by: "none", suggest: s };
+  };
   for (const t of loose) {
     const h = t.hint != null ? byId.get(t.hint) : undefined;
-    if (h?.kind === "action") out.push({ ticketId: t.id, as: "sub", target: h.id, why: "Its \"Action plan action\" property in HubSpot says so.", by: "hubspot" });
-    else if (h && (h.kind === "group" || h.kind === "topic")) out.push({ ticketId: t.id, as: "action", target: h.id, why: "Its plan property in HubSpot names this category.", by: "hubspot" });
+    const s = suggest.get(t.id) ?? [];
+    if (h?.kind === "action") out.push({ ticketId: t.id, as: "sub", target: h.id, why: "Its \"Action plan action\" property in HubSpot says so.", by: "hubspot", suggest: s });
+    else if (h && (h.kind === "group" || h.kind === "topic")) out.push({ ticketId: t.id, as: "action", target: h.id, why: "Its plan property in HubSpot names this category.", by: "hubspot", suggest: s });
     else ask.push(t);
   }
   const client = getAnthropic();
   if (!client || !ask.length || (!actions.length && !categories.length)) {
-    return [...out, ...ask.map((t) => ({ ticketId: t.id, as: "none" as const, target: null, why: client ? "No Digital Growth action or category in the plan to put it in." : "The AI is not set up on this hub.", by: "none" as const }))];
+    return [...out, ...ask.map((t) => learned(t, client ? "No action or category in the plan to put it in." : "The AI is not set up on this hub."))];
   }
   const actionIds = new Set(actions.map((a) => a.id)), catIds = new Set(categories.map((c) => c.id));
+  // the team's own placements under each, a few of the latest: the AI places the way they did
+  const there = (as: "sub" | "action", id: number) => {
+    const xs = placed.filter((p) => p.as === as && p.target === id).slice(0, 6).map((p) => `“${p.subject.slice(0, 80)}”`);
+    return xs.length ? `\n    tickets already there: ${xs.join("; ")}` : "";
+  };
   const listing = [
-    "Digital Growth actions (for \"sub\"):",
-    ...actions.map((a) => `- ${a.id}: ${a.title.slice(0, 160)}${path(a) ? ` (in ${path(a)})` : ""}${a.detail && a.detail !== a.title ? ` - ${a.detail.replace(/\s+/g, " ").slice(0, 160)}` : ""}`),
+    "Actions (for \"sub\"):",
+    ...actions.map((a) => `- ${a.id}: ${a.title.slice(0, 160)}${path(a) ? ` (in ${path(a)})` : ""}${a.detail && a.detail !== a.title ? ` - ${a.detail.replace(/\s+/g, " ").slice(0, 160)}` : ""}${there("sub", a.id)}`),
     "Categories (for \"action\"):",
-    ...categories.map((c) => `- ${c.id}: ${path(c) ? `${path(c)} > ` : ""}${c.title.slice(0, 160)}`),
+    ...categories.map((c) => `- ${c.id}: ${path(c) ? `${path(c)} > ` : ""}${c.title.slice(0, 160)}${there("action", c.id)}`),
   ].join("\n");
   // the batches asked side by side: 117 tickets one after another took longer than a page waits
   const parts: BoardTicket[][] = [];
@@ -143,10 +190,11 @@ export async function propose(ids: string[]): Promise<Proposal[]> {
   for (const { part, got, ok } of answers) {
     for (const t of part) {
       const g = got.find((x) => x.ticket === t.id);
-      // kept only where the target fits the kind
-      if (g?.as === "sub" && actionIds.has(g.target)) out.push({ ticketId: t.id, as: "sub", target: g.target, why: g.why.slice(0, 300), by: "ai" });
-      else if (g?.as === "action" && catIds.has(g.target)) out.push({ ticketId: t.id, as: "action", target: g.target, why: g.why.slice(0, 300), by: "ai" });
-      else out.push({ ticketId: t.id, as: "none", target: null, why: g?.why?.slice(0, 300) || (ok ? "Nothing on the plan fits." : "The AI did not answer - try again."), by: g ? "ai" : "none" });
+      const s = suggest.get(t.id) ?? [];
+      // kept only where the target fits the kind; none from the AI, the closest learned place
+      if (g?.as === "sub" && actionIds.has(g.target)) out.push({ ticketId: t.id, as: "sub", target: g.target, why: g.why.slice(0, 300), by: "ai", suggest: s });
+      else if (g?.as === "action" && catIds.has(g.target)) out.push({ ticketId: t.id, as: "action", target: g.target, why: g.why.slice(0, 300), by: "ai", suggest: s });
+      else out.push(learned(t, g?.why?.slice(0, 300) || (ok ? "Nothing on the plan fits." : "The AI did not answer - try again.")));
     }
   }
   return out;
@@ -164,7 +212,7 @@ const listOf = (v: string | null | undefined) => (v ?? "").split(";").map((x) =>
  */
 export async function place(picks: { ticketId: string; as: "sub" | "action"; target: number }[], by: string): Promise<{ placed: number; skipped: number }> {
   const [b, items, form] = await Promise.all([board(true), planItems(), s2sForm()]);
-  const { actions, categories } = dgTargets(items);
+  const { actions, categories } = targetsOf(items, b.tickets);
   const actionIds = new Set(actions.map((a) => a.id)), catIds = new Set(categories.map((c) => c.id));
   const loose = new Set(b.tickets.filter((t) => !t.place).map((t) => t.id));
   const names = new Map(form.owners.map((o) => [o.id, o.name]));
