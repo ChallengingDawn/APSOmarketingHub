@@ -91,6 +91,7 @@ import ShowChartIcon from "@mui/icons-material/ShowChart";
 import ContactMailIcon from "@mui/icons-material/ContactMail";
 import TagIcon from "@mui/icons-material/Tag";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
+import LocalOfferOutlinedIcon from "@mui/icons-material/LocalOfferOutlined";
 import UploadFileOutlinedIcon from "@mui/icons-material/UploadFileOutlined";
 import TripOriginOutlinedIcon from "@mui/icons-material/TripOriginOutlined";
 import AdjustOutlinedIcon from "@mui/icons-material/AdjustOutlined";
@@ -193,6 +194,8 @@ const navSections: NavSection[] = [
       // A data check (are shop orders reaching HubSpot, against GA4), so it sits
       // with Tracking health rather than among the use cases.
       { label: "Web order sync", href: "/analytics/web-orders", icon: <SyncAltIcon fontSize="small" /> },
+      // the 2026 promotion's codes per company (SARCLA 03.11.2026)
+      { label: "Black Friday", href: "/website/black-friday", icon: <LocalOfferOutlinedIcon fontSize="small" /> },
       // services the shop's orders trigger, run by the hub (SARCLA 13.10.2026: DoC moved here from UC)
       { group: "Microservices", label: "Search bar", href: "/website/search-bar", icon: <ManageSearchIcon fontSize="small" /> },
       { group: "Microservices", label: "Google Ads buckets", href: "/website/ads-buckets", icon: <CampaignOutlinedIcon fontSize="small" /> },

@@ -75,6 +75,9 @@ export const APPS: HubApp[] = [
       { name: "Tracking health", note: "Is the measurement sound", href: "/analytics/tracking", icon: "health", ...GREEN },
       { name: "Cookie consent", note: "What consent allows us to see", href: "/analytics/consent", icon: "cookie", ...TEAL },
       { name: "Web order sync", note: "Shop orders into HubSpot", href: "/analytics/web-orders", icon: "sync", ...PINK },
+      // the 2026 promotion: each company's own single-use code and rate, handed out by the Ads Gateway after login
+      // (SARCLA 03.11.2026: "deploy on website subapp")
+      { name: "Black Friday", note: "Each company's own code and rate, 16.11-06.12.2026: who got one, who used it", href: "/website/black-friday", icon: "tag", ...AMBER },
       // the shop's search bar, on its own Railway gateway; its dashboard moved here (SARCLA 16.10.2026), first of
       // the Microservices (SARCLA 17.10.2026)
       { group: "Microservices", name: "Search bar", note: "What customers search and find, the gaps, stock, brands, its views", href: "/website/search-bar", icon: "search", ...BLUE },
