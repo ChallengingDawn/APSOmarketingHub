@@ -202,7 +202,7 @@ function Status({ d, onChanged }: { d: Data; onChanged: () => void }) {
   const waiting = s.mode === "live" && !live;
   const tone = live ? "#1f8a4c" : waiting ? "#c47a00" : s.mode === "off" ? "#8a94a6" : TINT.blue.fg;
   const title = live ? "Live - the hub writes on the tickets and merges the 100% sure ones"
-    : waiting ? `Live is chosen - the hub waits: ${wf !== false ? "the DUPS workflow is still on in HubSpot" : "the properties are missing"}`
+    : waiting ? (ready ? "Live is chosen - the hub starts with its next look" : "Live is chosen - the hub waits for its properties")
     : s.mode === "off" ? "Off - nothing is checked" : "Shadow - every new Back Office ticket is checked, nothing is written";
   const y = d.year;
   const line = [
@@ -230,7 +230,7 @@ function Flow({ d, show }: { d: Data; show: ReturnType<typeof useTickets>["show"
   type Step = { label: string; value: number; of: number; note: string; color: string; level: 0 | 1 | 2 | 3 | 4; list?: Row[]; cols?: Cols };
   const steps: Step[] = [
     { label: "Back Office tickets", value: entered, of: entered, note: `entered Back Office New in ${d.days} days - with the tickets merged into them`, color: "#15223a", level: 0 },
-    { label: "Merged into another ticket", value: f.merged.away, of: entered, note: `by a person or a workflow, into ${full(f.merged.into)} tickets - HubSpot keeps only the ticket it went into, so the merge is read there`, color: COLOR.merged, level: 1, list: withMerges(rows) },
+    { label: "Merged into another ticket", value: f.merged.away, of: entered, note: `into ${full(f.merged.into)} tickets - HubSpot keeps only the ticket it went into, so the merge is read there`, color: COLOR.merged, level: 1, list: withMerges(rows) },
     { label: "Still a ticket of its own - checked by the hub", value: f.checked, of: entered, note: "", color: "#15223a", level: 1 },
     { label: "Never compared", value: f.excluded, of: f.checked, note: "certificates, C2S problems, warnings, erosion win-backs and the texts set - see Never compared", color: COLOR.never, level: 2, list: rows.filter((r) => r.v?.excludedBy), cols: "never" },
     { label: "Same request twice, still two tickets", value: f.twice.flagged, of: f.checked, note: "the same subject from the same sender or on the same order, the earlier ticket still open", color: COLOR.possible, level: 2, list: twice },
@@ -282,7 +282,7 @@ function Overview({ d }: { d: Data }) {
     <>
       <Tiles items={[
         { label: "Back Office tickets", value: entered, icon: <ConfirmationNumberOutlinedIcon />, tint: "blue", note: `in ${d.days} days · ${full(f.checked)} still a ticket of their own, ${full(f.merged.away)} merged away` },
-        { label: "Merged into another ticket", value: f.merged.away, icon: <CallMergeOutlinedIcon />, tint: "slate", note: `${pct(f.merged.away, entered)} of them · by a person or a workflow, into ${full(f.merged.into)} tickets` },
+        { label: "Merged into another ticket", value: f.merged.away, icon: <CallMergeOutlinedIcon />, tint: "slate", note: `${pct(f.merged.away, entered)} of them · into ${full(f.merged.into)} tickets` },
         { label: "100% sure, still two tickets", value: f.twice.sure, icon: <VerifiedOutlinedIcon />, tint: "green", note: d.settings.mode === "live" ? `the same e-mail twice · ${full(f.twice.autoMerged)} merged by the hub` : "the same e-mail twice · the hub merges these once Live" },
         { label: "Possible, still two tickets", value: f.twice.possible, icon: <HourglassEmptyOutlinedIcon />, tint: "purple", note: `for a person · ${n("merged")} merged later, ${n("closed")} closed without a merge, ${n("open")} open` },
       ]} />
@@ -580,7 +580,6 @@ function DecisionsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
         line={[
           d.decided ? `last look ${dayTime(d.decided.at)}: ${full(d.decided.done)} done${d.decided.errors ? `, ${full(d.decided.errors)} failed` : ""}` : "not run yet",
           !d.props.ready ? "the properties are missing" : null,
-          d.workflows.merging ? "the old workflow SARCLA | BO MERGING is still on - it acts only on the old Merge_ticket_decision" : null,
         ].filter(Boolean).join(" · ")}
         right={d.admin ? <Button variant="outlined" size="small" disabled={busy || !on} onClick={() => void now()} sx={{ textTransform: "none" }}>{busy ? <CircularProgress size={14} /> : "Carry them out now"}</Button> : undefined} />
       {msg && <Typography sx={{ ...small, color: MUTED }}>{msg}</Typography>}
@@ -636,14 +635,13 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
       setCheck(j.ok && j.data ? { row: j.data } : { error: j.error ?? "Failed" });
     } catch (e) { setCheck({ error: (e as Error).message }); } finally { setBusy(null); }
   };
-  const wf = d.workflows, y = d.year, s = d.settings;
-  const wfChip = (on: boolean | null, name: string) => <Chip tint={on === false ? "green" : on ? "amber" : "slate"}>{on === false ? `${name} OFF` : on ? `${name} ON` : `${name} not read`}</Chip>;
+  const y = d.year, s = d.settings;
   const setMode = (m: Mode, ask?: string) => { if (ask && !window.confirm(ask)) return; void call("mode", "PUT", { mode: m }, "Saved."); };
-  const LIVE_ASK = "Switch Duplicates & merges LIVE?\n\nFrom the next Back Office ticket the hub writes what it finds on the ticket, hands the owner over where the rule says so, and merges a 100% sure duplicate into the older open ticket (a merge cannot be undone in HubSpot - at most 30 an hour).\n\nIt writes nothing until the workflow SARCLA | BACK OFFICE FILTERING | DUPS HANDLING WITH CODE is off in HubSpot - switch it off after this.";
+  const LIVE_ASK = "Switch Duplicates & merges LIVE?\n\nFrom the next Back Office ticket the hub writes what it finds on the ticket, hands the owner over where the rule says so, and merges a 100% sure duplicate into the older open ticket (a merge cannot be undone in HubSpot - at most 30 an hour).";
   return (
     <>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 }, borderColor: writing(d) ? RED : undefined }}>
-        <CardTitle icon={<TuneOutlinedIcon />} tint="blue" title="How it runs" note={`Every ${d.everyMinutes} minutes, four minutes after a ticket enters Back Office New. Back: Live off, then the workflow on again`} />
+        <CardTitle icon={<TuneOutlinedIcon />} tint="blue" title="How it runs" note={`Every ${d.everyMinutes} minutes, four minutes after a ticket enters Back Office New. To stop writing: Live off`} />
         <Grid container spacing={1.5}>
           <Grid size={{ xs: 12, md: 4 }}>
             <SwitchRow title="Check every new ticket" checked={s.mode !== "off"} disabled={!d.admin || !!busy} onChange={(v) => setMode(v ? "shadow" : "off", v ? undefined : "Stop checking new Back Office tickets?")}
@@ -653,19 +651,13 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
           <Grid size={{ xs: 12, md: 4 }}>
             <SwitchRow title="Live - write and merge" checked={s.mode === "live"} disabled={!d.admin || !!busy || s.mode === "off"} onChange={(v) => setMode(v ? "live" : "shadow", v ? LIVE_ASK : undefined)}
               chips={writing(d) ? <Chip tint="pink">LIVE</Chip> : s.mode === "live" ? <Chip tint="amber">waiting</Chip> : <Chip tint="slate">shadow</Chip>}
-              text={<>
-                <Box sx={{ mb: 0.5 }}>{wfChip(wf.dups, "DUPS workflow")}</Box>
-                {s.mode !== "live" ? "Shadow: checked, nothing written. Live: the finding on the ticket, the owner handed over, the 100% sure ones merged."
-                  : wf.dups !== false ? "Chosen - the hub waits until SARCLA | BACK OFFICE FILTERING | DUPS HANDLING WITH CODE is off in HubSpot, so the two never write at once."
-                  : !d.props.ready ? "Chosen - the hub waits for its properties." : "The hub writes on the tickets and merges the 100% sure ones."}
-              </>} />
+              text={s.mode !== "live" ? "Shadow: checked, nothing written. Live: the finding on the ticket, the owner handed over, the 100% sure ones merged."
+                : !d.props.ready ? "Chosen - the hub waits for its properties."
+                : writing(d) ? "The hub writes on the tickets and merges the 100% sure ones." : "Chosen - the hub starts with its next look."} />
           </Grid>
           <Grid size={{ xs: 12, md: 4 }}>
             <SwitchRow title="Carry out the card's decisions" checked={s.merging === "on"} disabled={!d.admin || !!busy} onChange={(v) => void call("merging", "PUT", { merging: v ? "on" : "off" }, "Saved.")}
-              text={<>
-                <Box sx={{ mb: 0.5 }}>{wfChip(wf.merging, "BO MERGING")}</Box>
-                Merge or Not a duplicate, chosen on the ticket&apos;s card - done within a minute. SARCLA | BO MERGING acts on the old Merge_ticket_decision only: off once the card is in use.
-              </>} />
+              text="Merge or Not a duplicate, chosen on the ticket's card - done within a minute." />
           </Grid>
         </Grid>
         {d.admin && (
