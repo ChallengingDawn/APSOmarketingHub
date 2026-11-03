@@ -13,8 +13,7 @@ import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import InputBase from "@mui/material/InputBase";
-import Checkbox from "@mui/material/Checkbox";
-import FormControlLabel from "@mui/material/FormControlLabel";
+import Switch from "@mui/material/Switch";
 import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
@@ -44,7 +43,7 @@ import { full } from "@/app/charts/format";
 import { StackedColumns } from "@/app/charts/StackedColumns";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, TINT, hsTicket, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
-import { Choice, Info } from "@/app/connectors/parts";
+import { Chip, Choice, Info } from "@/app/connectors/parts";
 import { ChartBox } from "@/app/reporting/eso-benchmark/Figures";
 import { DimChart } from "@/app/reporting/marketing-kpis/DimChart";
 import { Table as KitTable } from "@/app/reporting/marketing-kpis/ExplorerKit";
@@ -53,7 +52,7 @@ import { ListCard, StatusCard, dayTime } from "@/app/uc/segmentation/lists";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import type { Mode, RunInfo, Settings } from "@/lib/ticketDuplicates/engine";
 import { outcomeOf, type Row } from "@/lib/ticketDuplicates/model";
-import { gapKey, isElsewhereOnly, isHistoryOnly, isSure, ownerOfFirst, type Count, type Figures } from "@/lib/ticketDuplicates/figures";
+import { gapKey, isElsewhereOnly, isHistoryOnly, isSure, mergedAwayOf, ownerOfFirst, type Count, type Figures } from "@/lib/ticketDuplicates/figures";
 import type { PropsState } from "@/lib/ticketDuplicates/properties";
 import type { LogEntry, Pending } from "@/lib/ticketDuplicates/live";
 import type { YearState } from "@/lib/ticketDuplicates/year";
@@ -70,10 +69,22 @@ const TAB_HASH: Record<TabId, string> = { overview: "#overview", twice: "#same-r
 const PIPES: Record<string, string> = { "1726786777": "Back Office", "1726599376": "ESO", "1726599377": "TSA", "1726786775": "GQS", "1553929403": "Special Prices", "1737150687": "Product Management" };
 const pipeLabel = (id: string | null | undefined) => (id ? PIPES[id] ?? `pipeline ${id}` : "—");
 const OUTCOME: Record<"merged" | "closed" | "open", string> = { merged: "Merged", closed: "Closed, not merged", open: "Still open" };
-const COLOR = { sure: "#1b7a55", possible: "#7c5cd6", order: "#2d6fa8", history: "#8a94a6", never: "#c47a00" };
-const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "—");
+const COLOR = { merged: "#4a5a73", sure: "#1b7a55", possible: "#7c5cd6", order: "#2d6fa8", history: "#8a94a6", never: "#c47a00" };
+/** A share that never reads "0%" for something that happened: one decimal under 10%, "<0.1%" below that. */
+const pct = (a: number, b: number) => {
+  if (!b) return "—";
+  const p = (100 * a) / b;
+  return !a ? "0%" : p < 0.1 ? "<0.1%" : p < 10 ? `${p.toFixed(1)}%` : `${Math.round(p)}%`;
+};
 const small = { fontSize: "0.8rem" } as const;
-const dd = (x: string) => (x.length === 10 ? `${x.slice(8, 10)}.${x.slice(5, 7)}` : `${x.slice(5, 7)}.${x.slice(2, 4)}`);
+/** The x of a chart: a day "dd.mm"; a month "mm.yy", or "4–30.11" when the period covers only part of it. */
+const axisLabel = (from: string, to: string) => (x: string) => {
+  if (x.length === 10) return `${x.slice(8, 10)}.${x.slice(5, 7)}`;
+  const y = Number(x.slice(0, 4)), m = Number(x.slice(5, 7));
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const a = x === from.slice(0, 7) ? Number(from.slice(8, 10)) : 1, b = x === to.slice(0, 7) ? Number(to.slice(8, 10)) : last;
+  return a === 1 && b === last ? `${x.slice(5, 7)}.${x.slice(2, 4)}` : `${a}–${b}.${x.slice(5, 7)}`;
+};
 
 type Answer = { ok: boolean; error?: string; data?: { skipped?: string; done?: number; errors?: number } };
 async function send(method: "PUT" | "POST", body: object): Promise<Answer> {
@@ -88,7 +99,7 @@ const link = (id: string, text?: string) => (
     sx={{ color: INK, textDecoration: "underline", textDecorationColor: "rgba(21,34,58,.35)", textUnderlineOffset: "3px", "&:hover": { color: TINT.blue.fg } }}>{text ?? id}</Box>
 );
 /** The tickets a row points at: the hub's, else the closed or elsewhere ones it only shows. */
-const shownIds = (r: Row) => { const v = r.v; return v?.of.length ? v.of : v?.history.length ? v.history : v?.elsewhere ?? []; };
+const shownIds = (r: Row) => { const v = r.v; return v?.of.length ? v.of : v?.history.length ? v.history : v?.elsewhere.length ? v.elsewhere : mergedAwayOf(r); };
 function Others({ r }: { r: Row }) {
   const ids = shownIds(r);
   if (!ids.length) return <>—</>;
@@ -114,6 +125,8 @@ const why = (r: Row) => {
   if (v.excludedBy) return `Never compared - ${v.excludedBy}`;
   if (isHistoryOnly(r)) return "Only closed tickets on the same order - history, shown on the card";
   if (isElsewhereOnly(r)) return "Open only in another pipeline - shown on the card";
+  const away = mergedAwayOf(r);
+  if (away.length) return `Nothing found by the hub - ${away.length === 1 ? "a ticket was" : `${away.length} tickets were`} merged into it`;
   return v.skip ?? "Nothing found";
 };
 const hubDid = (r: Row) => (r.live?.merged ? `merged into ${r.live.merged}` : r.live?.error ? `error: ${r.live.error}` : r.live?.flagged ? `written${r.live.owner ? ", owner handed over" : ""}` : r.live?.note ?? (r.backfill ? "from the year's read" : "shadow - not written"));
@@ -165,13 +178,16 @@ function Breakdown({ title, rows, fixed, onPick, source, labelWidth }: { title: 
       onPick={onPick} pickHint="Click a bar for its tickets" companies={source} pageSize={8} labelWidth={labelWidth ?? 170} />
   );
 }
-type Part = "sure" | "possible" | "order";
-const PART_LABEL: Record<Part, string> = { sure: "100% sure", possible: "Possible - a person decides", order: "Same order, still open" };
-function Series({ f, parts, source }: { f: Figures; parts: Part[]; source: CompanySource | null }) {
+type Part = "merged" | "sure" | "possible" | "order";
+const PART_LABEL: Record<Part, string> = { merged: "Merged into another ticket", sure: "100% sure, still two tickets", possible: "Possible, still two tickets", order: "Same order, still open" };
+/** Bottom segment first; each type in the colour it has in the flow and on the tiles. */
+function Series({ d, parts, source }: { d: Data; parts: Part[]; source: CompanySource | null }) {
+  const f = d.figures;
   return (
-    <ChartBox title={f.byDay ? "Day by day" : "Month by month"} hint={`By the ${f.byDay ? "day" : "month"} the ticket entered Back Office New`} companies={source}>
+    <ChartBox title={f.byDay ? "Day by day" : "Month by month"} hint={`By the ${f.byDay ? "day" : "month"} the ticket entered Back Office New${parts.includes("merged") ? " - a merge on the ticket it went into" : ""}`} companies={source}>
       {f.series.some((s) => parts.some((p) => s[p]))
-        ? <StackedColumns data={f.series.map((s) => ({ x: s.x, ...Object.fromEntries(parts.map((p) => [p, s[p]])) }))} parts={parts.map((p) => ({ key: p, label: PART_LABEL[p] }))} height={240} format={(n) => full(n ?? 0)} xFormat={dd} />
+        ? <StackedColumns data={f.series.map((s) => ({ x: s.x, ...Object.fromEntries(parts.map((p) => [p, s[p]])) }))} parts={parts.map((p) => ({ key: p, label: PART_LABEL[p], color: COLOR[p] }))}
+            height={240} format={(n) => full(n ?? 0)} xFormat={axisLabel(d.from, d.to)} />
         : <Typography sx={{ ...small, color: FAINT }}>Nothing in this period.</Typography>}
     </ChartBox>
   );
@@ -203,44 +219,49 @@ function Status({ d, onChanged }: { d: Data; onChanged: () => void }) {
 
 // ---------------------------------------------------------------- Overview: from a new ticket to a merge
 
+const withMerges = (rows: Row[]) => rows.filter((r) => mergedAwayOf(r).length);
+
 function Flow({ d, show }: { d: Data; show: ReturnType<typeof useTickets>["show"] }) {
   const f = d.figures, rows = d.rows;
   const twice = rows.filter((r) => r.v?.type === "twice"), possible = twice.filter((r) => !isSure(r));
   const by = (k: "merged" | "closed" | "open") => possible.filter((r) => outcomeOf(r) === k);
-  type Step = { label: string; value: number; note: string; color: string; level: 0 | 1 | 2 | 3; list?: Row[]; cols?: Cols };
+  const entered = f.checked + f.merged.away;
+  // each step is a share of the one above it (its parent), its bar too - "100% sure · 1%" of every ticket read as nonsense
+  type Step = { label: string; value: number; of: number; note: string; color: string; level: 0 | 1 | 2 | 3 | 4; list?: Row[]; cols?: Cols };
   const steps: Step[] = [
-    { label: "Checked", value: f.checked, note: `every ticket that entered Back Office New in ${d.days} days`, color: "#15223a", level: 0 },
-    { label: "Never compared", value: f.excluded, note: "certificates, C2S problems, warnings, erosion win-backs and the texts set - see Never compared", color: COLOR.never, level: 1, list: rows.filter((r) => r.v?.excludedBy), cols: "never" },
-    { label: "Same request twice", value: f.twice.flagged, note: "the same subject from the same sender or on the same order, the earlier ticket still open", color: COLOR.possible, level: 1, list: twice },
-    { label: "100% sure - the same e-mail", value: f.twice.sure, note: d.settings.mode === "live" ? `merged into the older ticket by the hub, its owner kept - ${full(f.twice.autoMerged)} so far` : "merged into the older ticket by the hub, its owner kept - once Live", color: COLOR.sure, level: 2, list: twice.filter(isSure) },
-    { label: "Possible - a person decides", value: f.twice.possible, note: "flagged on the ticket: Merge or Not a duplicate on its card", color: COLOR.possible, level: 2, list: possible },
-    { label: "Merged", value: by("merged").length, note: "", color: "#1f8a4c", level: 3, list: by("merged") },
-    { label: "Closed, not merged", value: by("closed").length, note: "", color: "#8a94a6", level: 3, list: by("closed") },
-    { label: "Still open", value: by("open").length, note: "", color: "#eda100", level: 3, list: by("open") },
-    { label: "Same order, still open", value: f.order.flagged, note: "another request on the order - the owner of the oldest takes it, nothing to merge", color: COLOR.order, level: 1, list: rows.filter((r) => r.v?.type === "order") },
-    { label: "Only closed tickets on the order", value: f.order.historyOnly, note: "the earlier request was done - history on the card, never a flag", color: COLOR.history, level: 1, list: rows.filter(isHistoryOnly) },
-    { label: "Open only in another pipeline", value: f.order.elsewhereOnly, note: "ESO or TSA has the order - shown on the card, never a flag", color: COLOR.history, level: 1, list: rows.filter(isElsewhereOnly) },
-    { label: "Nothing found", value: Math.max(0, f.nothing - f.order.historyOnly - f.order.elsewhereOnly), note: "no order number, or nobody else on it", color: "#c9cfd8", level: 1 },
+    { label: "Back Office tickets", value: entered, of: entered, note: `entered Back Office New in ${d.days} days - with the tickets merged into them`, color: "#15223a", level: 0 },
+    { label: "Merged into another ticket", value: f.merged.away, of: entered, note: `by a person or a workflow, into ${full(f.merged.into)} tickets - HubSpot keeps only the ticket it went into, so the merge is read there`, color: COLOR.merged, level: 1, list: withMerges(rows) },
+    { label: "Still a ticket of its own - checked by the hub", value: f.checked, of: entered, note: "", color: "#15223a", level: 1 },
+    { label: "Never compared", value: f.excluded, of: f.checked, note: "certificates, C2S problems, warnings, erosion win-backs and the texts set - see Never compared", color: COLOR.never, level: 2, list: rows.filter((r) => r.v?.excludedBy), cols: "never" },
+    { label: "Same request twice, still two tickets", value: f.twice.flagged, of: f.checked, note: "the same subject from the same sender or on the same order, the earlier ticket still open", color: COLOR.possible, level: 2, list: twice },
+    { label: "100% sure - the same e-mail", value: f.twice.sure, of: f.twice.flagged, note: d.settings.mode === "live" ? `merged into the older ticket by the hub, its owner kept - ${full(f.twice.autoMerged)} so far` : "the hub merges these into the older ticket, its owner kept - once Live", color: COLOR.sure, level: 3, list: twice.filter(isSure) },
+    { label: "Possible - for a person", value: f.twice.possible, of: f.twice.flagged, note: "flagged on the ticket: Merge or Not a duplicate on its card", color: COLOR.possible, level: 3, list: possible },
+    { label: "Then merged", value: by("merged").length, of: f.twice.possible, note: "", color: COLOR.merged, level: 4, list: by("merged") },
+    { label: "Closed, not merged", value: by("closed").length, of: f.twice.possible, note: "", color: "#8a94a6", level: 4, list: by("closed") },
+    { label: "Still open", value: by("open").length, of: f.twice.possible, note: "", color: "#eda100", level: 4, list: by("open") },
+    { label: "Same order, still open", value: f.order.flagged, of: f.checked, note: "another request on the order - the owner of the oldest takes it, nothing to merge", color: COLOR.order, level: 2, list: rows.filter((r) => r.v?.type === "order") },
+    { label: "Only closed tickets on the order", value: f.order.historyOnly, of: f.checked, note: "the earlier request was done - history on the card, never a flag", color: COLOR.history, level: 2, list: rows.filter(isHistoryOnly) },
+    { label: "Open only in another pipeline", value: f.order.elsewhereOnly, of: f.checked, note: "ESO or TSA has the order - shown on the card, never a flag", color: COLOR.history, level: 2, list: rows.filter(isElsewhereOnly) },
+    { label: "Nothing found", value: Math.max(0, f.nothing - f.order.historyOnly - f.order.elsewhereOnly), of: f.checked, note: "no order number, or nobody else on it", color: "#c9cfd8", level: 2 },
   ];
-  const n = f.checked;
   return (
-    <ChartBox title="From a new ticket to a merge" hint="Every step is a share of the tickets checked - a click on a step lists its tickets">
+    <ChartBox title="From a new ticket to a merge" hint="Each step is a share of the step it sits under - a click on a step lists its tickets">
       <Box sx={{ display: "grid", gap: 0.5 }}>
         {steps.map((x) => {
-          const click = x.list && x.value ? () => show(x.label, x.list!, x.note || x.label, x.cols) : undefined;
+          const click = x.list?.length ? () => show(x.label, x.list!, x.note || x.label, x.cols) : undefined;
           return (
             <Box key={x.label} component={click ? "button" : "div"} type={click ? "button" : undefined} onClick={click}
-              sx={{ all: "unset", display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "300px minmax(0, 1fr) 130px" }, gap: { xs: 0.5, md: 1.5 }, alignItems: "center", cursor: click ? "pointer" : "default",
-                pl: { xs: x.level * 1.5, md: x.level * 2.5 }, py: 0.5, borderRadius: "10px", "&:hover": click ? { bgcolor: "rgba(21,34,58,.03)" } : {} }}>
+              sx={{ all: "unset", display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "320px minmax(0, 1fr) 130px" }, gap: { xs: 0.5, md: 1.5 }, alignItems: "center", cursor: click ? "pointer" : "default",
+                pl: { xs: x.level * 1.25, md: x.level * 2.25 }, py: 0.5, borderRadius: "10px", "&:hover": click ? { bgcolor: "rgba(21,34,58,.03)" } : {} }}>
               <Box sx={{ minWidth: 0 }}>
-                <Typography sx={{ fontSize: x.level ? "0.84rem" : "0.9rem", fontWeight: x.level < 2 ? 700 : 600, color: INK }}>{x.label}</Typography>
+                <Typography sx={{ fontSize: x.level ? "0.84rem" : "0.9rem", fontWeight: x.level < 3 ? 700 : 600, color: INK }}>{x.label}</Typography>
                 {x.note && <Typography sx={{ fontSize: "0.72rem", color: MUTED, lineHeight: 1.4 }}>{x.note}</Typography>}
               </Box>
-              <Box sx={{ height: x.level < 2 ? 16 : 10, borderRadius: "6px", bgcolor: "rgba(21,34,58,.05)", overflow: "hidden" }}>
-                <Box sx={{ height: "100%", width: `${n ? Math.max(x.value ? 0.4 : 0, (100 * x.value) / n) : 0}%`, bgcolor: x.color, borderRadius: "6px", transition: "width .4s ease" }} />
+              <Box sx={{ height: x.level < 3 ? 14 : 10, borderRadius: "6px", bgcolor: "rgba(21,34,58,.05)", overflow: "hidden" }}>
+                <Box sx={{ height: "100%", width: `${x.of ? Math.max(x.value ? 0.6 : 0, (100 * x.value) / x.of) : 0}%`, bgcolor: x.color, borderRadius: "6px", transition: "width .4s ease" }} />
               </Box>
               <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK, textAlign: { xs: "left", md: "right" }, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                {full(x.value)} <Box component="span" sx={{ color: MUTED, fontWeight: 500 }}>· {pct(x.value, n)}</Box>
+                {full(x.value)}{x.level > 0 && <Box component="span" sx={{ color: MUTED, fontWeight: 500 }}> · {pct(x.value, x.of)}</Box>}
               </Typography>
             </Box>
           );
@@ -253,71 +274,109 @@ function Flow({ d, show }: { d: Data; show: ReturnType<typeof useTickets>["show"
 function Overview({ d }: { d: Data }) {
   const f = d.figures;
   const t = useTickets();
-  const flagged = d.rows.filter((r) => r.v?.status);
+  const shown = d.rows.filter((r) => r.v?.type === "twice" || mergedAwayOf(r).length);
   const possible = d.rows.filter((r) => r.v?.type === "twice" && !isSure(r));
+  const entered = f.checked + f.merged.away;
+  const n = (k: "merged" | "closed" | "open") => full(possible.filter((r) => outcomeOf(r) === k).length);
   return (
     <>
       <Tiles items={[
-        { label: "Tickets checked", value: f.checked, icon: <ConfirmationNumberOutlinedIcon />, tint: "blue", note: `entered Back Office New in ${d.days} days${f.rebuilt === f.checked ? " · read from the year's tickets" : f.rebuilt ? ` · ${full(f.rebuilt)} from the year's read` : ""}` },
-        { label: "100% sure - merged by the hub", value: f.twice.sure, icon: <VerifiedOutlinedIcon />, tint: "green", note: d.settings.mode === "live" ? `the same e-mail twice · ${full(f.twice.autoMerged)} merged by the hub` : "the same e-mail twice · merged by the hub once Live" },
-        { label: "Possible - a person decides", value: f.twice.possible, icon: <HourglassEmptyOutlinedIcon />, tint: "purple", note: `flagged on the ticket · ${full(possible.filter((r) => outcomeOf(r) === "merged").length)} merged, ${full(possible.filter((r) => outcomeOf(r) === "open").length)} still open` },
-        { label: "Same order, still open", value: f.order.flagged, icon: <ReceiptLongOutlinedIcon />, tint: "blue", note: `another request on an open order · ${full(f.order.owner)} owners handed over` },
+        { label: "Back Office tickets", value: entered, icon: <ConfirmationNumberOutlinedIcon />, tint: "blue", note: `in ${d.days} days · ${full(f.checked)} still a ticket of their own, ${full(f.merged.away)} merged away` },
+        { label: "Merged into another ticket", value: f.merged.away, icon: <CallMergeOutlinedIcon />, tint: "slate", note: `${pct(f.merged.away, entered)} of them · by a person or a workflow, into ${full(f.merged.into)} tickets` },
+        { label: "100% sure, still two tickets", value: f.twice.sure, icon: <VerifiedOutlinedIcon />, tint: "green", note: d.settings.mode === "live" ? `the same e-mail twice · ${full(f.twice.autoMerged)} merged by the hub` : "the same e-mail twice · the hub merges these once Live" },
+        { label: "Possible, still two tickets", value: f.twice.possible, icon: <HourglassEmptyOutlinedIcon />, tint: "purple", note: `for a person · ${n("merged")} merged later, ${n("closed")} closed without a merge, ${n("open")} open` },
       ]} />
       <Flow d={d} show={t.show} />
-      <Series f={f} parts={["sure", "possible", "order"]} source={flagged.length ? ticketSource(`series|${d.from}|${d.to}`, flagged, "Every ticket flagged in the period, newest first") : null} />
+      <Series d={d} parts={["merged", "sure", "possible"]} source={shown.length ? ticketSource(`series|${d.from}|${d.to}`, shown, "The same request twice, and the tickets others were merged into - newest first") : null} />
       {t.dialog}
     </>
   );
 }
 
-// ---------------------------------------------------------------- the rule of a type, at the foot of its tab
+// ---------------------------------------------------------------- the rule of a type, at the top of its tab
+
+const BOX = { border: `1px solid ${HAIRLINE}`, borderRadius: "12px", p: 1.5, height: "100%", boxSizing: "border-box" } as const;
+/** A setting as the platform shows one (Back Office distribution > Settings): what it does, its switch on the right. */
+function SwitchRow({ title, text, checked, disabled, onChange, chips }: { title: string; text: React.ReactNode; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void; chips?: React.ReactNode }) {
+  return (
+    <Box sx={{ ...BOX, borderColor: checked ? "rgba(36,89,209,.35)" : HAIRLINE }}>
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+        <Typography sx={{ fontSize: "0.88rem", fontWeight: 800, color: INK }}>{title}</Typography>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
+          {chips}
+          <Switch checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} slotProps={{ input: { "aria-label": title } }} />
+        </Box>
+      </Box>
+      <Typography component="div" sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.25, lineHeight: 1.45 }}>{text}</Typography>
+    </Box>
+  );
+}
+/** The hub writes on tickets: Live chosen, the old workflow off and the properties there. */
+const writing = (d: Data) => d.settings.mode === "live" && d.workflows.dups === false && d.props.ready;
 
 function RuleCard({ k, d, onSaved }: { k: "twice" | "order"; d: Data; onSaved: () => void }) {
-  const [ts, setTs] = useState<TypeSettings>(d.settings.types);
+  const saved = d.settings.types;
+  const [ts, setTs] = useState<TypeSettings>(saved);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const off = !d.admin;
-  const save = async () => {
+  const off = !d.admin || busy;
+  const put = async (next: TypeSettings, done: string) => {
     setBusy(true); setMsg(null);
-    try { const j = await send("PUT", { types: k === "twice" ? { twice: ts.twice } : { order: ts.order } }); setMsg(j.ok ? "Saved - new tickets are checked with it." : j.error ?? "Not saved"); onSaved(); }
+    try { const j = await send("PUT", { types: k === "twice" ? { twice: next.twice } : { order: next.order } }); setMsg(j.ok ? done : j.error ?? "Not saved"); if (j.ok) onSaved(); }
     finally { setBusy(false); }
   };
-  const box = (checked: boolean, set: (v: boolean) => void, label: React.ReactNode) => (
-    <FormControlLabel sx={{ m: 0, alignItems: "flex-start" }} control={<Checkbox size="small" checked={checked} disabled={off} onChange={(e) => set(e.target.checked)} sx={{ pt: 0.25 }} />} label={<Typography sx={{ fontSize: "0.84rem", color: INK }}>{label}</Typography>} />
+  // the rule on or off is saved at once, as every switch of the platform; the details below wait for Save
+  const onOff = (v: boolean) => void put({ ...saved, [k]: { ...saved[k], on: v } }, v ? "On - new tickets are checked with it." : "Off - never flagged.");
+  const changed = JSON.stringify({ ...ts[k], on: saved[k].on }) !== JSON.stringify(saved[k]);
+  const on = saved[k].on;
+  const state = !on ? <Chip tint="slate">off - never flagged</Chip> : writing(d) ? <Chip tint="pink">LIVE</Chip> : <Chip tint="blue">shadow - nothing written</Chip>;
+  const number = (label: string, value: number, set: (n: number) => void, text: string, width: number) => (
+    <Box sx={BOX}>
+      <TextField size="small" type="number" label={label} value={value} disabled={off} onChange={(e) => set(Number(e.target.value))} sx={{ width }} />
+      <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.75 }}>{text}</Typography>
+    </Box>
   );
   return (
-    <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-      <CardTitle icon={<RuleOutlinedIcon />} tint={k === "twice" ? "purple" : "blue"} title="The rule" note={k === "twice"
-        ? "The same subject from the same customer - or on the same order - while the earlier ticket is still open in the same pipeline. The same e-mail, word for word, makes it 100% sure"
-        : "Another open ticket on the same order in the same pipeline: another request about it. Closed tickets on the order are history only, an open one in another pipeline is shown"} />
-      <Box sx={{ display: "grid", gap: 1.25, maxWidth: 820 }}>
-        <Choice<"on" | "off"> value={ts[k].on ? "on" : "off"} onChange={(v) => { if (!off) setTs((x) => ({ ...x, [k]: { ...x[k], on: v === "on" } })); }} options={[{ key: "on", label: "On" }, { key: "off", label: "Off - never flagged" }]} />
+    <GlassCard sx={{ p: { xs: 2, md: 2.5 }, borderColor: on && writing(d) ? RED : undefined }}>
+      <CardTitle icon={<RuleOutlinedIcon />} tint={k === "twice" ? "purple" : "blue"} title={k === "twice" ? "The rule - the same request twice" : "The rule - the same order"}
+        note={k === "twice"
+          ? "The same subject from the same customer - or on the same order - while the earlier ticket is still open in the same pipeline. The same e-mail, word for word, makes it 100% sure"
+          : "Another open ticket on the same order in the same pipeline: another request about it. Closed tickets on the order are history only, an open one in another pipeline is shown"}
+        right={<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>{state}<Switch checked={on} disabled={off} onChange={(e) => onOff(e.target.checked)} slotProps={{ input: { "aria-label": "The rule on or off" } }} /></Box>} />
+      <Grid container spacing={1.5}>
         {k === "twice" ? (
           <>
-            <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-              <TextField size="small" type="number" label="Within (hours)" value={ts.twice.withinHours} disabled={off} onChange={(e) => setTs((x) => ({ ...x, twice: { ...x.twice, withinHours: Number(e.target.value) } }))} sx={{ width: 150 }} />
-              <Typography sx={{ ...small, color: MUTED }}>the earlier ticket at most this long before</Typography>
-            </Box>
-            {box(ts.twice.autoMerge, (v) => setTs((x) => ({ ...x, twice: { ...x.twice, autoMerge: v } })), <><b>Merge the 100% sure ones</b> - into the older ticket, which keeps its owner, as long as it is open. The others wait for a person.</>)}
-            {box(ts.twice.handOver, (v) => setTs((x) => ({ ...x, twice: { ...x.twice, handOver: v } })), "Give a possible duplicate to the owner of the first ticket, so one person sees both")}
+            <Grid size={{ xs: 12, md: 5 }}>
+              <SwitchRow title="Merge the 100% sure ones" checked={ts.twice.autoMerge} disabled={off} onChange={(v) => setTs((x) => ({ ...x, twice: { ...x.twice, autoMerge: v } }))}
+                text="Into the older ticket, which keeps its owner, while it is open. The others wait for a person." />
+            </Grid>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <SwitchRow title="Hand a possible one over" checked={ts.twice.handOver} disabled={off} onChange={(v) => setTs((x) => ({ ...x, twice: { ...x.twice, handOver: v } }))}
+                text="To the owner of the first ticket, so one person sees both." />
+            </Grid>
+            <Grid size={{ xs: 12, md: 3 }}>
+              {number("Within (hours)", ts.twice.withinHours, (n) => setTs((x) => ({ ...x, twice: { ...x.twice, withinHours: n } })), "The earlier ticket at most this long before.", 140)}
+            </Grid>
           </>
         ) : (
           <>
-            {box(ts.order.handOver, (v) => setTs((x) => ({ ...x, order: { ...x.order, handOver: v } })), "Give the ticket to the owner of the oldest open ticket on the order - one person per order, within the pipeline")}
-            <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-              <TextField size="small" type="number" label="Owner from tickets up to (days)" value={ts.order.ownerMaxAgeDays} disabled={off} onChange={(e) => setTs((x) => ({ ...x, order: { ...x.order, ownerMaxAgeDays: Number(e.target.value) } }))} sx={{ width: 230 }} />
-              <Typography sx={{ ...small, color: MUTED }}>an older open ticket still shows, its owner is not taken</Typography>
-            </Box>
+            <Grid size={{ xs: 12, md: 7 }}>
+              <SwitchRow title="Hand it to the order's owner" checked={ts.order.handOver} disabled={off} onChange={(v) => setTs((x) => ({ ...x, order: { ...x.order, handOver: v } }))}
+                text="To the owner of the oldest open ticket on the order - one person per order, within the pipeline." />
+            </Grid>
+            <Grid size={{ xs: 12, md: 5 }}>
+              {number("Owner from tickets up to (days)", ts.order.ownerMaxAgeDays, (n) => setTs((x) => ({ ...x, order: { ...x.order, ownerMaxAgeDays: n } })), "An older open ticket still shows; its owner is not taken.", 230)}
+            </Grid>
           </>
         )}
-        {d.admin && (
-          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-            <Button variant="contained" size="small" disableElevation disabled={busy} onClick={() => void save()} sx={{ textTransform: "none" }}>Save</Button>
-            {busy && <CircularProgress size={14} />}
-            {msg && <Typography sx={{ ...small, color: MUTED }}>{msg}</Typography>}
-          </Box>
-        )}
-      </Box>
+      </Grid>
+      {d.admin && (changed || msg) && (
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center", mt: 1.5 }}>
+          {changed && <Button variant="contained" size="small" disableElevation disabled={busy} onClick={() => void put({ ...ts, [k]: { ...ts[k], on } }, "Saved - new tickets are checked with it.")} sx={{ textTransform: "none" }}>Save</Button>}
+          {busy && <CircularProgress size={14} />}
+          {msg && <Typography sx={{ ...small, color: MUTED }}>{msg}</Typography>}
+        </Box>
+      )}
     </GlassCard>
   );
 }
@@ -343,14 +402,15 @@ function TwiceTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
   const src = (key: string) => (rows.length ? ticketSource(`${key}|${d.from}|${d.to}`, rows, "Same request twice") : null);
   return (
     <>
+      <RuleCard key={`tw|${d.settings.at ?? ""}`} k="twice" d={d} onSaved={onSaved} />
       <Tiles items={[
-        { label: "Same request twice", value: x.flagged, icon: <ContentCopyOutlinedIcon />, tint: "purple", note: `${pct(x.flagged, f.compared)} of the tickets compared` },
-        { label: "100% sure", value: x.sure, icon: <VerifiedOutlinedIcon />, tint: "green", note: "the same e-mail, word for word - merged by the hub" },
-        { label: "Merged", value: x.merged, icon: <CallMergeOutlinedIcon />, tint: "green", note: `${pct(x.merged, x.flagged)} of them${x.autoMerged ? ` · ${full(x.autoMerged)} by the hub` : ""}` },
-        { label: "Still open", value: x.open, icon: <HourglassEmptyOutlinedIcon />, tint: "amber", note: `${full(x.closed)} closed without a merge` },
+        { label: "Same request twice", value: x.flagged, icon: <ContentCopyOutlinedIcon />, tint: "purple", note: `still two tickets · ${pct(x.flagged, f.checked)} of the tickets checked - the ones merged already are on the Overview` },
+        { label: "100% sure", value: x.sure, icon: <VerifiedOutlinedIcon />, tint: "green", note: `${pct(x.sure, x.flagged)} of them · the same e-mail, word for word${x.autoMerged ? ` · ${full(x.autoMerged)} merged by the hub` : ""}` },
+        { label: "Possible", value: x.possible, icon: <HourglassEmptyOutlinedIcon />, tint: "purple", note: `${pct(x.possible, x.flagged)} of them · a person decides on the ticket's card` },
+        { label: "Closed without a merge", value: x.closed, icon: <CallMergeOutlinedIcon />, tint: "amber", note: `${pct(x.closed, x.flagged)} of them · ${full(x.merged)} merged later, ${full(x.open)} still open` },
       ]} />
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, lg: 7 }}><Series f={f} parts={["sure", "possible"]} source={src("tw-series")} /></Grid>
+        <Grid size={{ xs: 12, lg: 7 }}><Series d={d} parts={["sure", "possible"]} source={src("tw-series")} /></Grid>
         <Grid size={{ xs: 12, lg: 5 }}>
           <Breakdown title="Time between the two tickets" rows={f.gaps} fixed source={src("tw-gap")} labelWidth={150}
             onPick={(k) => t.show(`${k} between the two`, rows.filter((r) => gapKey(r.v!.gapMin ?? 0) === k), "Same request twice")} />
@@ -373,7 +433,6 @@ function TwiceTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
         { key: "merged", label: "Merged", test: (r) => outcomeOf(r) === "merged" },
         { key: "open", label: "Still open", test: (r) => outcomeOf(r) === "open" },
       ]} />
-      <RuleCard key={`tw|${d.settings.at ?? ""}`} k="twice" d={d} onSaved={onSaved} />
       {t.dialog}
     </>
   );
@@ -389,6 +448,7 @@ function OrderTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
   const src = (key: string) => (rows.length ? ticketSource(`${key}|${d.from}|${d.to}`, rows, "Same order, still open") : null);
   return (
     <>
+      <RuleCard key={`or|${d.settings.at ?? ""}`} k="order" d={d} onSaved={onSaved} />
       <Tiles items={[
         { label: "Same order, still open", value: x.flagged, icon: <ReceiptLongOutlinedIcon />, tint: "blue", note: "another request on an order someone already works" },
         { label: "Owner handed over", value: x.owner, icon: <PersonOutlineOutlinedIcon />, tint: "amber", note: "to the owner of the oldest open ticket on the order" },
@@ -396,7 +456,7 @@ function OrderTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
         { label: "Open in another pipeline", value: x.elsewhereOnly, icon: <AltRouteOutlinedIcon />, tint: "slate", note: "ESO or TSA has the order - shown, never a flag" },
       ]} />
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, lg: 7 }}><Series f={f} parts={["order"]} source={src("or-series")} /></Grid>
+        <Grid size={{ xs: 12, lg: 7 }}><Series d={d} parts={["order"]} source={src("or-series")} /></Grid>
         <Grid size={{ xs: 12, lg: 5 }}>
           <Breakdown title="Who has the order" rows={f.orderOwners} source={src("or-own")}
             onPick={(k) => t.show(`Orders with ${k}`, rows.filter((r) => ownerOfFirst(r) === k), "Same order, still open")} />
@@ -407,7 +467,6 @@ function OrderTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
         { key: "history", label: "Only closed on the order", test: isHistoryOnly },
         { key: "elsewhere", label: "Open in another pipeline", test: isElsewhereOnly },
       ]} />
-      <RuleCard key={`or|${d.settings.at ?? ""}`} k="order" d={d} onSaved={onSaved} />
       {t.dialog}
     </>
   );
@@ -577,34 +636,44 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
       setCheck(j.ok && j.data ? { row: j.data } : { error: j.error ?? "Failed" });
     } catch (e) { setCheck({ error: (e as Error).message }); } finally { setBusy(null); }
   };
-  const wf = d.workflows, y = d.year;
-  const flow = (on: boolean | null) => (on === null ? "could not be read" : on ? "ON" : "off");
+  const wf = d.workflows, y = d.year, s = d.settings;
+  const wfChip = (on: boolean | null, name: string) => <Chip tint={on === false ? "green" : on ? "amber" : "slate"}>{on === false ? `${name} OFF` : on ? `${name} ON` : `${name} not read`}</Chip>;
+  const setMode = (m: Mode, ask?: string) => { if (ask && !window.confirm(ask)) return; void call("mode", "PUT", { mode: m }, "Saved."); };
+  const LIVE_ASK = "Switch Duplicates & merges LIVE?\n\nFrom the next Back Office ticket the hub writes what it finds on the ticket, hands the owner over where the rule says so, and merges a 100% sure duplicate into the older open ticket (a merge cannot be undone in HubSpot - at most 30 an hour).\n\nIt writes nothing until the workflow SARCLA | BACK OFFICE FILTERING | DUPS HANDLING WITH CODE is off in HubSpot - switch it off after this.";
   return (
     <>
-      <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-        <CardTitle icon={<TuneOutlinedIcon />} tint="blue" title="How it runs" note={`Every ${d.everyMinutes} minutes, four minutes after a ticket enters Back Office New`} />
-        <Box sx={{ display: "grid", gap: 1.5 }}>
-          <Choice<Mode> value={d.settings.mode} onChange={(m) => { if (d.admin) void call("mode", "PUT", { mode: m }, "Saved."); }} options={[
-            { key: "shadow", label: "Shadow - check, write nothing" }, { key: "live", label: "Live - write and merge" }, { key: "off", label: "Off" },
-          ]} />
-          <Typography sx={{ ...small, color: MUTED }}>
-            Live writes only while the workflow <b>SARCLA | BACK OFFICE FILTERING | DUPS HANDLING WITH CODE</b> is off in HubSpot (now: <b>{flow(wf.dups)}</b>), so the two never write at once - choose Live here, then switch the workflow off.
-            Live, a 100% sure duplicate is merged into the older ticket right away (Same request twice &gt; The rule); the others are flagged for a person. Rollback: the workflow on again.
-          </Typography>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-            <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Merging</Typography>
-            <Choice<"off" | "on"> value={d.settings.merging} onChange={(m) => { if (d.admin) void call("merging", "PUT", { merging: m }, "Saved."); }} options={[{ key: "on", label: "On - carry out the decisions" }, { key: "off", label: "Off" }]} />
+      <GlassCard sx={{ p: { xs: 2, md: 2.5 }, borderColor: writing(d) ? RED : undefined }}>
+        <CardTitle icon={<TuneOutlinedIcon />} tint="blue" title="How it runs" note={`Every ${d.everyMinutes} minutes, four minutes after a ticket enters Back Office New. Back: Live off, then the workflow on again`} />
+        <Grid container spacing={1.5}>
+          <Grid size={{ xs: 12, md: 4 }}>
+            <SwitchRow title="Check every new ticket" checked={s.mode !== "off"} disabled={!d.admin || !!busy} onChange={(v) => setMode(v ? "shadow" : "off", v ? undefined : "Stop checking new Back Office tickets?")}
+              chips={s.mode === "off" ? <Chip tint="slate">off</Chip> : undefined}
+              text="Off: nothing is checked, nothing is written. On: every ticket entering Back Office New is checked and kept for these pages." />
+          </Grid>
+          <Grid size={{ xs: 12, md: 4 }}>
+            <SwitchRow title="Live - write and merge" checked={s.mode === "live"} disabled={!d.admin || !!busy || s.mode === "off"} onChange={(v) => setMode(v ? "live" : "shadow", v ? LIVE_ASK : undefined)}
+              chips={writing(d) ? <Chip tint="pink">LIVE</Chip> : s.mode === "live" ? <Chip tint="amber">waiting</Chip> : <Chip tint="slate">shadow</Chip>}
+              text={<>
+                <Box sx={{ mb: 0.5 }}>{wfChip(wf.dups, "DUPS workflow")}</Box>
+                {s.mode !== "live" ? "Shadow: checked, nothing written. Live: the finding on the ticket, the owner handed over, the 100% sure ones merged."
+                  : wf.dups !== false ? "Chosen - the hub waits until SARCLA | BACK OFFICE FILTERING | DUPS HANDLING WITH CODE is off in HubSpot, so the two never write at once."
+                  : !d.props.ready ? "Chosen - the hub waits for its properties." : "The hub writes on the tickets and merges the 100% sure ones."}
+              </>} />
+          </Grid>
+          <Grid size={{ xs: 12, md: 4 }}>
+            <SwitchRow title="Carry out the card's decisions" checked={s.merging === "on"} disabled={!d.admin || !!busy} onChange={(v) => void call("merging", "PUT", { merging: v ? "on" : "off" }, "Saved.")}
+              text={<>
+                <Box sx={{ mb: 0.5 }}>{wfChip(wf.merging, "BO MERGING")}</Box>
+                Merge or Not a duplicate, chosen on the ticket&apos;s card - done within a minute. SARCLA | BO MERGING acts on the old Merge_ticket_decision only: off once the card is in use.
+              </>} />
+          </Grid>
+        </Grid>
+        {d.admin && (
+          <Box sx={{ display: "flex", gap: 1, alignItems: "center", mt: 1.5 }}>
+            <Button variant="outlined" size="small" disabled={!!busy || s.mode === "off"} onClick={() => void call("run", "POST", { action: "run" }, "Done.")} sx={{ textTransform: "none" }}>Look now</Button>
+            {busy && <CircularProgress size={14} />}
           </Box>
-          <Typography sx={{ ...small, color: MUTED }}>
-            The decisions people take on the ticket card. The old workflow <b>SARCLA | BO MERGING</b> (now: <b>{flow(wf.merging)}</b>) acts on the old Merge_ticket_decision only - switch it off once the card is in use.
-          </Typography>
-          {d.admin && (
-            <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-              <Button variant="outlined" size="small" disabled={!!busy} onClick={() => void call("run", "POST", { action: "run" }, "Done.")} sx={{ textTransform: "none" }}>Look now</Button>
-              {busy === "run" && <CircularProgress size={14} />}
-            </Box>
-          )}
-        </Box>
+        )}
       </GlassCard>
       {msg && <Typography sx={{ ...small, color: MUTED }}>{msg}</Typography>}
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>

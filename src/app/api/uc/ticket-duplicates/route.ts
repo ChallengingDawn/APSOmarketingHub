@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { describeIntegrationError } from "@/lib/integrations/status";
 import { checkTicket, decisionsOnce, getSettings, lastDecisions, lastRun, runOnce, saveSettings, type Mode } from "@/lib/ticketDuplicates/engine";
-import { figures, isElsewhereOnly, isHistoryOnly } from "@/lib/ticketDuplicates/figures";
+import { figures, isElsewhereOnly, isHistoryOnly, mergedAwayOf } from "@/lib/ticketDuplicates/figures";
 import { createProps, propsState } from "@/lib/ticketDuplicates/properties";
 import { mergingWorkflowOn, pendingDecisions, readLog, workflowOn } from "@/lib/ticketDuplicates/live";
 import { rowsBetween, spanOk } from "@/lib/ticketDuplicates/store";
@@ -23,12 +23,12 @@ import type { TypeSettings } from "@/lib/ticketDuplicates/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** the tickets the lists can show: flagged, never compared, shown only - each with what the lists read */
-const LISTED = 6000;
-const listed = (r: Row) => !!r.v && (!!r.v.status || !!r.v.excludedBy || isHistoryOnly(r) || isElsewhereOnly(r));
+/** the tickets the lists can show: flagged, never compared, shown only, others merged into it - each with what the lists read */
+const LISTED = 9000;
+const listed = (r: Row) => !!r.v && (!!r.v.status || !!r.v.excludedBy || isHistoryOnly(r) || isElsewhereOnly(r) || mergedAwayOf(r).length > 0);
 const slim = (r: Row): Row => ({
   key: r.key, ticketId: r.ticketId, enteredAt: r.enteredAt, seenAt: "", subject: r.subject, orderNumber: null, keys: r.keys, sender: r.sender ?? null,
-  ownerNames: r.ownerNames, ownerAtCheck: r.ownerAtCheck, v: r.v, dups: r.dups, ...(r.merge ? { merge: { state: r.merge.state, checkedAt: r.merge.checkedAt, checks: r.merge.checks, final: r.merge.final } } : {}),
+  ownerNames: r.ownerNames, ownerAtCheck: r.ownerAtCheck, v: r.v, dups: r.dups, ...(r.merge ? { merge: { state: r.merge.state, into: r.merge.into, with: r.merge.with, checkedAt: r.merge.checkedAt, checks: r.merge.checks, final: r.merge.final } } : {}),
   ...(r.mergedIn ? { mergedIn: r.mergedIn } : {}), ...(r.live ? { live: r.live } : {}), ...(r.backfill ? { backfill: true as const } : {}),
 });
 

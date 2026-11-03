@@ -7,6 +7,10 @@ import { BUILT_IN } from "./types";
 export type Count = { key: string; count: number };
 export type Figures = {
   checked: number; excluded: number; compared: number;
+  /** Merged away by people (or their workflow) into a ticket of the period. HubSpot keeps only the ticket that lives on -
+   *  the merged one is gone from its search, so the year's read sees the merge only on the survivor (SARCLA 03.11.2026:
+   *  "Merged 3 · 1%" could not be true - 3,922 tickets had been merged in the year). */
+  merged: { away: number; into: number };
   twice: { flagged: number; sure: number; possible: number; merged: number; closed: number; open: number; owner: number; autoMerged: number };
   order: { flagged: number; owner: number; merged: number; closed: number; open: number; historyOnly: number; elsewhereOnly: number };
   nothing: number;
@@ -14,7 +18,7 @@ export type Figures = {
   systemSender: number;
   exclusions: (Count & { builtIn: boolean })[];
   /** per day for a period up to two months, else per month */
-  series: { x: string; sure: number; possible: number; order: number }[];
+  series: { x: string; merged: number; sure: number; possible: number; order: number }[];
   byDay: boolean;
   gaps: Count[];
   twiceOwners: Count[]; orderOwners: Count[]; twiceSenders: Count[];
@@ -30,6 +34,17 @@ export const isElsewhereOnly = (r: Row) => !!r.v && !r.v.status && !r.v.excluded
 /** The time between the two tickets of a "twice". */
 export const GAPS = ["under 10 minutes", "10 to 60 minutes", "1 to 24 hours", "1 to 3 days", "over 3 days"] as const;
 export const gapKey = (min: number) => (min < 10 ? GAPS[0] : min < 60 ? GAPS[1] : min < 1440 ? GAPS[2] : min < 4320 ? GAPS[3] : GAPS[4]);
+/** The tickets merged away into this row's ticket - seen by the year's read, or by the live check's later reads. */
+export function mergedAwayOf(r: Row): string[] {
+  const out = new Set((r.mergedIn ?? []).map(String));
+  const m = r.merge;
+  if (m?.state === "merged" && m.into) {
+    if (String(m.into) === String(r.ticketId)) for (const x of m.with ?? []) out.add(String(x));
+    else out.add(String(r.ticketId));
+  }
+  if (r.live?.merged) out.add(String(r.ticketId));
+  return [...out];
+}
 /** Whose the earlier ticket is - the person who has the request. */
 export const ownerOfFirst = (r: Row) => { const o = r.v?.of[0] ? r.dups?.[r.v.of[0]]?.owner : null; return o ? r.ownerNames[o] ?? `Owner ${o}` : "No owner"; };
 
@@ -46,9 +61,15 @@ export function figures(rows: Row[], days: number): Figures {
   const out = (list: Row[], k: "merged" | "closed" | "open") => list.filter((r) => outcomeOf(r) === k).length;
   const byDay = days <= 62;
   const series = new Map<string, Figures["series"][number]>();
+  // a ticket merged away counts once, on the ticket it went into
+  const away = new Set<string>();
+  let into = 0;
   for (const r of done) {
     const x = byDay ? r.enteredAt.slice(0, 10) : r.enteredAt.slice(0, 7);
-    const s = series.get(x) ?? { x, sure: 0, possible: 0, order: 0 };
+    const s = series.get(x) ?? { x, merged: 0, sure: 0, possible: 0, order: 0 };
+    const gone = mergedAwayOf(r).filter((id) => !away.has(id));
+    for (const id of gone) away.add(id);
+    if (gone.length) { into++; s.merged += gone.length; }
     if (r.v!.type === "twice") { if (r.v!.sure) s.sure++; else s.possible++; }
     else if (r.v!.type === "order") s.order++;
     series.set(x, s);
@@ -56,6 +77,7 @@ export function figures(rows: Row[], days: number): Figures {
   const builtIn = new Set(BUILT_IN.map((b) => b.label));
   return {
     checked: done.length, excluded: excluded.length, compared: done.length - excluded.length,
+    merged: { away: away.size, into },
     twice: {
       flagged: twice.length, sure: twice.filter(isSure).length, possible: twice.filter((r) => !r.v!.sure).length,
       merged: out(twice, "merged"), closed: out(twice, "closed"), open: out(twice, "open"),
