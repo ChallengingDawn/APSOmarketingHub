@@ -1,6 +1,7 @@
 // BACK-OFFICE REPORTS: the months and the GQS tasks kept so far (src/lib/reporting/boReport.ts - asking starts the counter
 // on what is missing or due); the ESO's and the TSA's inbound tickets from the ESO Reports' own read (the sales actions
-// left out, as the workbook counts them); and what HubSpot does not hold, typed in per month - the hours the Back Office
+// left out) and, from the same read, their win rate, first contact and the rest (boInbound.ts); and what HubSpot does not
+// hold, typed in per month - the hours the Back Office
 // worked (on Team totals) and the OTD, the pass rate, the manual price adjustments and the stopped orders (on their pages),
 // the workbook's own figures until someone types a month in (SARCLA 02.11.2026: "Live, file = the KPI list"). GET for
 // anyone with one of the report's pages; PUT for whoever may change the page the figure is typed on.
@@ -16,6 +17,7 @@ import { ownerNames } from "@/lib/integrations/erosion";
 import { hierarchyNow } from "@/lib/hierarchy/store";
 import { esoTickets } from "@/lib/reporting/ticketsReport";
 import { T } from "@/lib/reporting/ticketsRules";
+import { inboundDetail } from "@/lib/reporting/boInbound";
 import { TYPED, WORKBOOK_TYPED, checkTyped, inboundByMonth, typedKey, type Typed } from "@/lib/reporting/boReportRules";
 
 export const runtime = "nodejs";
@@ -59,12 +61,13 @@ async function surveys(fromYear: number): Promise<BoSurvey[]> {
   }
 }
 
-/** the ESO's and the TSA's incoming tickets per month - none while the ESO Reports' read is still counting */
+/** the ESO's and the TSA's incoming tickets per month, and their figures in detail - none while the ESO Reports' read is
+ *  still counting */
 async function inbound() {
   try {
     const st = await esoTickets();
     const d = st.value;
-    return d ? inboundByMonth(d.tickets, d.year, { year: T.year, month: T.month, group: T.group, pipe: T.pipe }) : null;
+    return d ? { counts: inboundByMonth(d.tickets, d.year, { year: T.year, month: T.month, group: T.group, pipe: T.pipe }), detail: inboundDetail(d) } : null;
   } catch {
     return null;
   }
@@ -84,7 +87,7 @@ export async function GET() {
     return NextResponse.json({
       state: { computing: st.counting, progress: st.progress, error: st.error, computedAt: st.generatedAt },
       // nothing kept yet: the page says it is counting; else the months there are, the rest named as pending
-      data: st.months.length ? { ...st, hours: hours ?? WORKBOOK_HOURS, typed: typed ?? WORKBOOK_TYPED, inbound: inb, names, companies: cos?.facts ?? {}, team, surveys: answers } : null,
+      data: st.months.length ? { ...st, hours: hours ?? WORKBOOK_HOURS, typed: typed ?? WORKBOOK_TYPED, inbound: inb?.counts ?? null, inDetail: inb?.detail ?? null, names, companies: cos?.facts ?? {}, team, surveys: answers } : null,
       canEdit: level(access, FIGURES) === "write", canEditTyped: Object.fromEntries(TYPED.map((s) => [s.id, level(access, SERIES_PAGE[s.id]) === "write"])),
     });
   } catch (e) {

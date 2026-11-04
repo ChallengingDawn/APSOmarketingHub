@@ -82,6 +82,9 @@ import PaymentsOutlinedIcon from "@mui/icons-material/PaymentsOutlined";
 import PercentOutlinedIcon from "@mui/icons-material/PercentOutlined";
 import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import MarkEmailUnreadOutlinedIcon from "@mui/icons-material/MarkEmailUnreadOutlined";
+import EmojiEventsOutlinedIcon from "@mui/icons-material/EmojiEventsOutlined";
+import BoltOutlinedIcon from "@mui/icons-material/BoltOutlined";
+import HourglassEmptyOutlinedIcon from "@mui/icons-material/HourglassEmptyOutlined";
 
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { Badge, CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, TINT, glass, type Tint } from "@/app/uc/report/ui";
@@ -107,6 +110,7 @@ import { ChartFrame } from "@/app/charts/ChartFrame";
 import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 import { Sankey } from "@/app/charts/Sankey";
 import type { ArtInfo, BoRead, ChatRow } from "@/lib/reporting/boReport";
+import { IN, inZero, type InDetail, type InRow } from "@/lib/reporting/boInbound";
 import {
   ORIGINS, PC_FROM, RCL, RW, TOPIC_ORDER, TYPED, artsOf, emptyMonth, filteredMonth, hasTickets, kpisOf, passes, sumGqs, sumMonths, topicLabel, typedKey,
   type BoFilter, type BoKpis, type BoMonth, type CoFacts, type GqsMonth, type Typed, type TypedSeries,
@@ -116,6 +120,8 @@ import {
 
 type Data = BoRead & {
   hours: Record<string, number>; typed: Typed; inbound: { eso: Record<string, number>; tsa: Record<string, number> } | null;
+  /** the ESO's and the TSA's incoming tickets in detail - win rate, first contact, outcomes - per month, channel, owner */
+  inDetail?: InDetail | null;
   /** the tickets' owners by their HubSpot id, and their companies' facts for the filters */
   names?: Record<string, string>; companies?: CoFacts;
   /** the Back Office team (owner ids, from the hierarchy), and the answers to the survey sent after a ticket is closed */
@@ -594,7 +600,9 @@ function TopicMatrix({ f, by, head, last = () => false }: { f: Frame; by: (t: Tk
 }
 
 /* the C2S tickets against their orders: the cut-to-size family's orders (KT - the only one cut to size) and their value */
-type MonthRow = { name: string; values: (number | null)[]; fmt: (v: number) => string; color: string; total?: React.ReactNode; sub?: string };
+type MonthRow = { name: string; values: (number | null)[]; fmt: (v: number) => string; color: string; total?: React.ReactNode; sub?: string;
+  /** what a month without its figure shows instead of "—" (a month being read again: "…") */
+  notes?: (string | null)[] };
 function MonthRows({ labels, rows, totalHead }: { labels: string[]; rows: MonthRow[]; totalHead?: string }) {
   const cols = `minmax(170px, 1.2fr) repeat(${labels.length}, minmax(44px, 1fr))${totalHead ? " minmax(96px, 0.8fr)" : ""}`;
   const barH = rows.length > 6 ? 34 : 46;
@@ -615,9 +623,9 @@ function MonthRows({ labels, rows, totalHead }: { labels: string[]; rows: MonthR
                 {r.sub && <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>{r.sub}</Typography>}
               </Box>
               {r.values.map((v, i) => (
-                <Box key={i} title={`${r.name}, ${labels[i]}: ${v == null ? "—" : r.fmt(v)}`} sx={{ display: "grid", justifyItems: "center", gap: 0.25 }}>
+                <Box key={i} title={`${r.name}, ${labels[i]}: ${v == null ? (r.notes?.[i] ? "being read again" : "—") : r.fmt(v)}`} sx={{ display: "grid", justifyItems: "center", gap: 0.25 }}>
                   <Box sx={{ width: "70%", height: barH, display: "flex", alignItems: "flex-end" }}><Box sx={{ width: "100%", height: `${((v ?? 0) / max) * 100}%`, minHeight: v ? 2 : 0, bgcolor: r.color, borderRadius: "3px 3px 0 0" }} /></Box>
-                  <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: INK, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{v == null ? "—" : r.fmt(v)}</Typography>
+                  <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: v == null && r.notes?.[i] ? FAINT : INK, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{v == null ? r.notes?.[i] ?? "—" : r.fmt(v)}</Typography>
                 </Box>
               ))}
               {totalHead && <Box sx={{ alignSelf: "center", textAlign: "right", fontSize: "0.84rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{r.total ?? ""}</Box>}
@@ -721,7 +729,7 @@ function AggTable({ f, rows, first, find, pick, picked, lead = [], total = true,
     { key: "reply", head: "First reply", tip: "Days to the first agent e-mail reply, on average", cell: (r) => days(avgOf(r.a.replyS, r.a.replyN)), sort: (r) => avgOf(r.a.replyS, r.a.replyN) ?? -1 },
     { key: "close", head: "Days to close", tip: "Of those closed since, on average", cell: (r) => days(avgOf(r.a.closeS, r.a.closeN)), sort: (r) => avgOf(r.a.closeS, r.a.closeN) ?? -1 },
     { key: "quiet", head: "Unanswered", tip: "Customer tickets closed without any agent reply - and their share of the row's customer tickets", cell: (r) => quietCell(r.a), sort: (r) => r.a.quiet },
-    { key: "value", head: "Order value", tip: "The net value of the orders the tickets are about, CHF and EUR as booked", cell: (r) => (r.a.v6 ? money(r.a.value) : SOON), sort: (r) => r.a.value },
+    { key: "value", head: "Order value", tip: "The net value of the orders the tickets are about, CHF and EUR as booked", cell: (r) => (r.a.v6 === r.a.n ? money(r.a.value) : SOON), sort: (r) => r.a.value },
     { key: "pc", head: "Main profit centre", cell: (r) => (r.label === "Total" ? "" : mainPc(r.a)) },
   ];
   return <FullTable first={first} cols={cols.filter((c) => !hide.includes(c.key))} rows={rows} find={find} selected={picked} onPick={pick} initial="n" total={total ? { label: "Total", a: all, p: allP } : null} />;
@@ -730,8 +738,9 @@ function AggTable({ f, rows, first, find, pick, picked, lead = [], total = true,
 /** small figures in a row - the BUC View's figure look, without a box around each */
 type Tile = { label: string; value: string; ch?: number | null; lower?: boolean; sub: string; icon: React.ReactNode; tint: Tint };
 function Tiles({ items }: { items: Tile[] }) {
+  const cols = items.length % 4 === 0 ? 4 : 3;
   return (
-    <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(0, 1fr))" } }}>
+    <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: `repeat(${cols}, minmax(0, 1fr))` } }}>
       {items.map((x) => (
         <Box key={x.label} sx={{ borderRadius: "16px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.8)", p: 1.75, display: "grid", gap: 0.5, alignContent: "start", minWidth: 0 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -750,19 +759,23 @@ function Tiles({ items }: { items: Tile[] }) {
 }
 const ch2 = (a: number | null, b: number | null) => (a != null && b != null && b ? changeOf(a, b) : null);
 /** a topic's (or several's) figures for the period - against the same months a year before where both have tickets */
-function DiveTiles({ f, is }: { f: Frame; is: (t: Tk) => boolean }) {
+function DiveTiles({ f, is, label }: { f: Frame; is: (t: Tk) => boolean; label: string }) {
   const a = aggSum([...groups(f, (t) => (is(t) ? "x" : null)).values()]);
   const compare = f.totalPrev?.created != null;
   const p = compare ? aggSum([...groups(f, (t) => (is(t) ? "x" : null), "prev").values()]) : null;
   const all = aggSum([...groups(f, () => "x").values()]);
+  const allP = compare ? aggSum([...groups(f, () => "x", "prev").values()]) : null;
+  // the value only once every month of the period is read again - a sum of some months would read as the whole
+  const read = a.n > 0 && a.v6 === a.n;
   const orders = ordersOfPeriod(f), ordersP = f.totalPrev?.orders ?? null;
   const top = Object.entries(a.pcs).filter(([k]) => !notPc(k)).sort((x, y) => y[1] - x[1]);
   const S = 14;
   return <Tiles items={[
-    { label: "Tickets", value: int(a.n), ch: p ? ch2(a.n, p.n) : null, lower: true, sub: `${pct(all.n ? a.n / all.n : null)} of the Back Office's ${int(all.n)}`, icon: <ConfirmationNumberOutlinedIcon sx={{ fontSize: S }} />, tint: "blue" },
+    { label: "Back Office tickets", value: int(all.n), ch: allP ? ch2(all.n, allP.n) : null, lower: true, sub: `every topic, ${periodOf(f)}`, icon: <ConfirmationNumberOutlinedIcon sx={{ fontSize: S }} />, tint: "slate" },
+    { label, value: int(a.n), ch: p ? ch2(a.n, p.n) : null, lower: true, sub: `${pct(all.n ? a.n / all.n : null)} of the Back Office's tickets`, icon: <ConfirmationNumberOutlinedIcon sx={{ fontSize: S }} />, tint: "blue" },
     { label: "Per 100 orders", value: p100(per100(a.n, orders)), ch: p ? ch2(per100(a.n, orders), per100(p.n, ordersP)) : null, lower: true, sub: `against the period's ${int(orders)} orders`, icon: <PercentOutlinedIcon sx={{ fontSize: S }} />, tint: "purple" },
     { label: "C2S tickets", value: int(a.c2s), ch: p ? ch2(a.c2s, p.c2s) : null, lower: true, sub: a.n ? `${pct(a.c2s / a.n)} of them cut to size` : "", icon: <ContentCutOutlinedIcon sx={{ fontSize: S }} />, tint: "pink" },
-    { label: "Value of their orders", value: a.v6 ? int(a.value) : "—", sub: a.v6 ? `${int(a.ordered)} tickets about an order · CHF and EUR as booked` : "the orders' value is being read", icon: <PaymentsOutlinedIcon sx={{ fontSize: S }} />, tint: "green" },
+    { label: "Value of their orders", value: read ? moneyShort(a.value) : a.n ? "…" : "—", sub: read ? `${int(a.ordered)} tickets about an order · CHF and EUR as booked` : "being read again - it shows once every month is counted", icon: <PaymentsOutlinedIcon sx={{ fontSize: S }} />, tint: "green" },
     { label: "Days to the first reply", value: days(avgOf(a.replyS, a.replyN)), ch: p ? ch2(avgOf(a.replyS, a.replyN), avgOf(p.replyS, p.replyN)) : null, lower: true, sub: `${int(a.replyN)} answered`, icon: <ForumOutlinedIcon sx={{ fontSize: S }} />, tint: "amber" },
     { label: "Days to close", value: days(avgOf(a.closeS, a.closeN)), ch: p ? ch2(avgOf(a.closeS, a.closeN), avgOf(p.closeS, p.closeN)) : null, lower: true, sub: `${int(a.closeN)} closed since`, icon: <TimerOutlinedIcon sx={{ fontSize: S }} />, tint: "amber" },
     { label: "Closed without any answer", value: int(a.quiet), ch: p ? ch2(a.quiet, p.quiet) : null, lower: true, sub: a.cust ? `${pct(a.quiet / a.cust)} of ${int(a.cust)} from customers` : "no customer tickets", icon: <MarkEmailUnreadOutlinedIcon sx={{ fontSize: S }} />, tint: "slate" },
@@ -779,7 +792,8 @@ function DiveMonths({ f, is }: { f: Frame; is: (t: Tk) => boolean }) {
     ...(prev.some((x) => x) ? [{ name: `Tickets, ${f.year - 1}`, values: prev.map((a) => a?.n ?? null), fmt: int, color: DEEMPHASIS, total: int(aggSum(prev.filter((x): x is Agg => !!x)).n), sub: "the same month a year before" }] : []),
     { name: "Per 100 orders", values: cur.map((a, i) => (a ? per100(a.n, f.cur[i].orders) : null)), fmt: (v) => v.toFixed(1), color: SERIES[1], total: p100(per100(sum.n, ordersOfPeriod(f))) },
     { name: "C2S tickets", values: cur.map((a) => a?.c2s ?? null), fmt: int, color: SERIES[3], total: int(sum.c2s), sub: sum.n ? `${pct(sum.c2s / sum.n)} of them` : undefined },
-    { name: "Value of their orders", values: cur.map((a) => (a && a.v6 ? a.value : null)), fmt: moneyShort, color: SERIES[2], total: sum.v6 ? moneyShort(sum.value) : "—", sub: "CHF and EUR as booked" },
+    { name: "Value of their orders", values: cur.map((a) => (a && a.n && a.v6 === a.n ? a.value : null)), notes: cur.map((a) => (a && a.n && a.v6 < a.n ? "…" : null)), fmt: moneyShort, color: SERIES[2],
+      total: sum.n && sum.v6 === sum.n ? moneyShort(sum.value) : sum.n ? <Box component="span" sx={{ color: FAINT, fontWeight: 600, fontSize: "0.74rem" }}>being read</Box> : "—", sub: "CHF and EUR as booked" },
     { name: "Days to close", values: cur.map((a) => (a ? avgOf(a.closeS, a.closeN) : null)), fmt: (v) => v.toFixed(1), color: SEQUENTIAL[4], total: d1(avgOf(sum.closeS, sum.closeN)) },
   ];
   return <MonthRows labels={f.labels.slice(0, n)} rows={rows} totalHead={f.doneWords || "Total"} />;
@@ -839,17 +853,143 @@ function DiveArts({ f, d, is }: { f: Frame; d: Data; is: (t: Tk) => boolean }) {
   );
 }
 /** the charts of a topic's own tab - its figures, its months, per profit centre, per article, per person, per customer */
-function dive(p: string, name: string, is: (topic: string) => boolean, why: string): ChartDef[] {
+function dive(p: string, name: string, is: (topic: string) => boolean, why: string, o: { tile?: string; skip?: string[] } = {}): ChartDef[] {
   const keep = (t: Tk) => is(t.topic);
   const L: ListOf = { note: `the tickets filed ${name}`, keep };
   const fig = ({ f }: Ctx) => { const a = aggSum([...groups(f, (t) => (keep(t) ? "x" : null)).values()]); return a.n ? int(a.n) : null; };
   return [
-    listed(L)(wide({ id: `${p}Figs`, page: "topics", title: `${name} in figures`, figure: fig, hint: ({ f }) => `${periodOf(f)} · ${why}${f.totalPrev?.created != null ? ` · the change against the same months of ${f.year - 1}` : ""}`, body: ({ f }) => <DiveTiles f={f} is={keep} /> })),
+    listed(L)(wide({ id: `${p}Figs`, page: "topics", title: `${name} in figures`, figure: fig, hint: ({ f }) => `${periodOf(f)} · ${why}${f.totalPrev?.created != null ? ` · the change against the same months of ${f.year - 1}` : ""}`, body: ({ f }) => <DiveTiles f={f} is={keep} label={o.tile ?? `${name} tickets`} /> })),
     listed(L)(wide({ id: `${p}Months`, page: "topics", title: `${name}, month by month`, figure: fig, hint: () => "Each month's tickets, last year's beside them, against the month's orders, the C2S ones, the value of their orders, the days to close - the figure of each month under its bar", body: ({ f }) => <DiveMonths f={f} is={keep} /> })),
     listed(L)(wide({ id: `${p}Pcs`, page: "topics", title: `${name} per profit centre`, figure: fig, hint: ({ f }) => `${periodOf(f)} · the profit centre of the order each ticket is about, else of the articles named on it, else its customer's main one · against the profit centre's own orders`, body: ({ f }) => <DiveBy f={f} is={keep} by="pc" /> })),
     listed(L)(wide({ id: `${p}Arts`, page: "topics", title: `${name} per article`, figure: fig, hint: ({ f }) => `${periodOf(f)} · the articles named on each ticket, else the largest lines of its order · the value of those lines · search an article number`, body: ({ f, d }) => <DiveArts f={f} d={d} is={keep} /> })),
     listed(L)(wide({ id: `${p}People`, page: "topics", title: `${name} per person`, figure: fig, hint: ({ f }) => `${periodOf(f)} · by the ticket's owner today - how many, how fast, the customers left without an answer · the owners outside the Back Office together`, body: ({ f }) => <DiveBy f={f} is={keep} by="person" /> })),
     listed(L)(wide({ id: `${p}Cos`, page: "topics", title: `${name} per customer`, figure: fig, hint: ({ f }) => `${periodOf(f)} · the customers behind the tickets - search a name`, body: ({ f }) => <DiveBy f={f} is={keep} by="company" /> })),
+  ].filter((c) => !(o.skip ?? []).some((s) => c.id === `${p}${s}`));
+}
+
+/* ── the ESO's and the TSA's tickets in detail (SARCLA 04.11.2026: "ESO & TSA tickets should be also improved with a little
+   bit more details, win rate and so forth") - the ESO Reports' own read, added up on the server (boInbound.ts) ── */
+
+type Pipe = "eso" | "tsa";
+const PIPE: Record<Pipe, string> = { eso: "ESO", tsa: "TSA" };
+/** last year's same months beside this year's only with at least 50 tickets in them - the pipelines began in July 2025 */
+const IN_MIN = 50;
+const inPlus = (a: InRow, b: InRow | null | undefined) => { if (b) for (let i = 0; i < a.length; i++) a[i] += b[i] ?? 0; return a; };
+/** a month's figures of a pipeline (or of one channel or owner in it) - null before the pipeline's first month, or while the
+ *  ESO Reports' read is not in */
+function inMonth(d: Data, pipe: Pipe, ym: string, by?: ["ch" | "who", string]): InRow | null {
+  const p = d.inDetail?.[pipe];
+  if (!p) return null;
+  const first = Object.keys(p.m).sort()[0];
+  if (!first || ym < first || ym > d.current) return null;
+  return inPlus(inZero(), (by ? p[by[0]][by[1]] : p.m)?.[ym]);
+}
+/** the period's figures added up - this year's, or the same months a year before (null when one of them has none) */
+function inPeriod(f: Frame, d: Data, pipe: Pipe, which: "cur" | "prev" = "cur", by?: ["ch" | "who", string]): InRow | null {
+  const xs = f.yms.slice(f.from, Math.max(f.done, f.from + 1)).map((ym) => inMonth(d, pipe, which === "cur" ? ym : back(ym), by));
+  if (xs.every((x) => x == null) || (which === "prev" && xs.some((x) => x == null))) return null;
+  return xs.reduce<InRow>((s, x) => inPlus(s, x), inZero());
+}
+const inPrev = (f: Frame, d: Data, pipe: Pipe) => { const p = inPeriod(f, d, pipe, "prev"); return p && p[IN.n] >= IN_MIN ? p : null; };
+const winOf = (a: InRow) => (a[IN.resolved] ? a[IN.won] / a[IN.resolved] : null);
+const dayOf = (a: InRow) => (a[IN.n] ? a[IN.inDay] / a[IN.n] : null);
+const quietIn = (a: InRow) => (a[IN.closed] ? a[IN.quiet] / a[IN.closed] : null);
+const firstOf = (a: InRow) => (a[IN.hoursN] ? a[IN.hoursS] / a[IN.hoursN] : null);
+const openIn = (a: InRow) => a[IN.n] - a[IN.closed];
+/** working hours as a person says them - a working day is 9 hours */
+const wh = (h: number | null) => (h == null ? "—" : h < 9 ? `${h.toFixed(1)} working hours` : `${(h / 9).toFixed(1)} working days`);
+const eur = (v: number) => `${moneyShort(v)} EUR`;
+const NO_READ = <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>The ESO Reports&apos; ticket read is still counting - these figures show as soon as it is in.</Typography>;
+
+/** a pipeline's figures for the period - against the same months a year before where both have enough tickets */
+function InTiles({ f, d, pipe }: { f: Frame; d: Data; pipe: Pipe }) {
+  const a = inPeriod(f, d, pipe), p = inPrev(f, d, pipe);
+  if (!a) return NO_READ;
+  const orders = ordersOfPeriod(f), ordersP = f.totalPrev?.orders ?? null;
+  const c = (x: number | null, y: number | null) => (p ? ch2(x, y) : null);
+  const S = 14;
+  return <Tiles items={[
+    { label: `${PIPE[pipe]} tickets`, value: int(a[IN.n]), ch: c(a[IN.n], p?.[IN.n] ?? null), lower: true, sub: "incoming - the sales actions left out", icon: <ConfirmationNumberOutlinedIcon sx={{ fontSize: S }} />, tint: "blue" },
+    { label: "Per 100 orders", value: p100(per100(a[IN.n], orders)), ch: c(per100(a[IN.n], orders), p ? per100(p[IN.n], ordersP) : null), lower: true, sub: `against the period's ${int(orders)} orders`, icon: <PercentOutlinedIcon sx={{ fontSize: S }} />, tint: "purple" },
+    { label: "Win rate", value: pct(winOf(a)), ch: c(winOf(a), p ? winOf(p) : null), sub: `${int(a[IN.won])} won of ${int(a[IN.resolved])} closed with a resolution`, icon: <EmojiEventsOutlinedIcon sx={{ fontSize: S }} />, tint: "green" },
+    { label: "Contacted within a working day", value: pct(dayOf(a)), ch: c(dayOf(a), p ? dayOf(p) : null), sub: `${int(a[IN.inDay])} of the ${int(a[IN.n])} tickets`, icon: <BoltOutlinedIcon sx={{ fontSize: S }} />, tint: "amber" },
+    { label: "Time to the first contact", value: wh(firstOf(a)), ch: c(firstOf(a), p ? firstOf(p) : null), lower: true, sub: "on average - working hours, Monday to Friday 8-17", icon: <TimerOutlinedIcon sx={{ fontSize: S }} />, tint: "amber" },
+    { label: "Closed without any activity", value: int(a[IN.quiet]), ch: c(a[IN.quiet], p?.[IN.quiet] ?? null), lower: true, sub: `${pct(quietIn(a))} of the ${int(a[IN.closed])} closed`, icon: <MarkEmailUnreadOutlinedIcon sx={{ fontSize: S }} />, tint: "slate" },
+    { label: "Still open", value: int(openIn(a)), sub: `${pct(a[IN.n] ? openIn(a) / a[IN.n] : null)} of the tickets`, icon: <HourglassEmptyOutlinedIcon sx={{ fontSize: S }} />, tint: "pink" },
+    { label: "Potential won", value: a[IN.pot] ? eur(a[IN.potWon]) : "—", ch: c(a[IN.potWon], p?.[IN.potWon] ?? null), sub: a[IN.pot] ? `of ${eur(a[IN.pot])} on the tickets - Sales' estimate` : "no potential on these tickets", icon: <PaymentsOutlinedIcon sx={{ fontSize: S }} />, tint: "green" },
+  ]} />;
+}
+/** a pipeline's rate or figure month by month, last year's beside it */
+function inTrend(id: string, pipe: Pipe, title: string, note: string, of: (a: InRow) => number | null, fmt: (v: number | null) => string): ChartDef {
+  return {
+    id, page: "sales-tickets", title,
+    figure: ({ f, d }) => { const a = inPeriod(f, d, pipe); const v = a ? of(a) : null; return v == null ? null : fmt(v); },
+    hint: ({ f, d }) => {
+      const a = inPeriod(f, d, pipe), p = inPrev(f, d, pipe);
+      const v = a ? of(a) : null, w = p ? of(p) : null;
+      const ch = v != null && w != null ? changeOf(v, w) : null;
+      return [note, f.done && v != null ? `${f.doneWords}: ${fmt(v)}${ch != null ? ` (${signedPct(ch)} on last year)` : ""}` : ""].filter(Boolean).join(" · ");
+    },
+    body: ({ f, d }) => {
+      if (!d.inDetail) return NO_READ;
+      const n = drawn(f);
+      const at = (ym: string) => { const a = inMonth(d, pipe, ym); return a && a[IN.n] ? of(a) : null; };
+      const values = f.yms.slice(0, n).map(at), compare = f.yms.slice(0, n).map((ym) => at(back(ym)));
+      return <MonthTrend values={values} compare={compare.some((x) => x != null) ? compare : null} labels={f.labels.slice(0, n)} label={String(f.year)} compareLabel={String(f.year - 1)} fmt={fmt} />;
+    },
+  };
+}
+/** each month's tickets by where they stand today */
+function InOutcomes({ f, d, pipe }: { f: Frame; d: Data; pipe: Pipe }) {
+  if (!d.inDetail) return NO_READ;
+  const n = drawn(f);
+  const data = f.yms.slice(0, n).map((ym, i) => {
+    const a = inMonth(d, pipe, ym);
+    const v = (x: (a: InRow) => number) => (a && a[IN.n] ? x(a) : null);
+    // four parts at most (the chart's palette): closed without a resolution goes with the closed otherwise
+    return { x: f.labels[i], won: v((a) => a[IN.won]), lost: v((a) => a[IN.lost]), other: v((a) => a[IN.closed] - a[IN.won] - a[IN.lost]), open: v(openIn) };
+  });
+  return <StackedColumns height={280} format={n0} data={data}
+    parts={[{ key: "won", label: "Won" }, { key: "lost", label: "Lost" }, { key: "other", label: "Closed otherwise or without a resolution" }, { key: "open", label: "Still open", color: DEEMPHASIS }]} />;
+}
+/** a pipeline's tickets per channel or per owner - every column sorts */
+function InTable({ f, d, pipe, by }: { f: Frame; d: Data; pipe: Pipe; by: "ch" | "who" }) {
+  const p = d.inDetail?.[pipe], all = inPeriod(f, d, pipe);
+  if (!p || !all) return NO_READ;
+  const allP = inPrev(f, d, pipe);
+  type R = { label: string; a: InRow; p: InRow | null };
+  const rows: R[] = Object.keys(p[by]).map((label) => ({ label, a: inPeriod(f, d, pipe, "cur", [by, label]) ?? inZero(), p: allP ? inPeriod(f, d, pipe, "prev", [by, label]) : null })).filter((r) => r.a[IN.n] > 0);
+  if (!rows.length) return <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>No tickets in these months.</Typography>;
+  const part = (n: number, of: number) => (n ? <span>{int(n)} <Box component="span" sx={{ color: FAINT, fontSize: "0.74rem" }}>{pct(of ? n / of : null)}</Box></span> : "—");
+  const cols: Col<R>[] = [
+    { key: "n", head: "Tickets", tip: allP ? `Against the same months of ${f.year - 1}` : undefined, cell: (r) => (r.p && r.p[IN.n] ? withChangeCell(int(r.a[IN.n]), r.a[IN.n], r.p[IN.n], true) : int(r.a[IN.n])), sort: (r) => r.a[IN.n] },
+    { key: "share", head: "Share", tip: "Of the incoming tickets", cell: (r) => pct(all[IN.n] ? r.a[IN.n] / all[IN.n] : null), sort: (r) => r.a[IN.n] },
+    { key: "won", head: "Won", cell: (r) => int(r.a[IN.won]), sort: (r) => r.a[IN.won] },
+    { key: "win", head: "Win rate", tip: "Won of the tickets closed with a resolution", cell: (r) => pct(winOf(r.a)), sort: (r) => winOf(r.a) ?? -1 },
+    { key: "day", head: "In a working day", tip: "Contacted within a working day of coming in", cell: (r) => pct(dayOf(r.a)), sort: (r) => dayOf(r.a) ?? -1 },
+    { key: "first", head: "First contact", tip: "Working hours to the first contact, on average", cell: (r) => wh(firstOf(r.a)), sort: (r) => firstOf(r.a) ?? -1 },
+    { key: "quiet", head: "No activity", tip: "Closed with nothing logged on them - and their share of the closed", cell: (r) => part(r.a[IN.quiet], r.a[IN.closed]), sort: (r) => r.a[IN.quiet] },
+    { key: "open", head: "Still open", cell: (r) => int(openIn(r.a)), sort: (r) => openIn(r.a) },
+    { key: "pot", head: "Potential won", tip: "Sales' potential estimate of the won tickets, EUR", cell: (r) => (r.a[IN.potWon] ? eur(r.a[IN.potWon]) : "—"), sort: (r) => r.a[IN.potWon] },
+  ];
+  return <FullTable first={by === "ch" ? "Channel" : "Person"} cols={cols} rows={rows} find={by === "who" ? "a person" : undefined} initial="n" total={{ label: "Total", a: all, p: allP }} />;
+}
+/** the graphs of the ESO's (or the TSA's) tab - its figures, the rates month by month, what became of the tickets, the tables */
+function inCharts(pipe: Pipe): ChartDef[] {
+  const N = PIPE[pipe];
+  return [
+    wide({
+      id: `${pipe}Figs`, page: "sales-tickets", title: `${N} in figures`, figure: ({ f, d }) => { const a = inPeriod(f, d, pipe); return a ? int(a[IN.n]) : null; },
+      hint: ({ f, d }) => `${periodOf(f)} · the ${N}'s incoming tickets, the sales actions left out${inPrev(f, d, pipe) ? ` · the change against the same months of ${f.year - 1}` : ""}`,
+      body: ({ f, d }) => <InTiles f={f} d={d} pipe={pipe} />,
+    }),
+    inTrend(`${pipe}Win`, pipe, "Win rate, month by month", "Won - closed as Ordered or a one-shot order - of the tickets closed with a resolution", winOf, share),
+    inTrend(`${pipe}Day`, pipe, "Contacted within a working day", "The first reply, e-mail, call or meeting within a working day of the ticket coming in", dayOf, share),
+    wide({ id: `${pipe}Out`, page: "sales-tickets", title: "What became of the tickets, month by month", hint: () => "Each month's incoming tickets by where they stand today: won, lost, closed otherwise or without a resolution, still open", body: ({ f, d }) => <InOutcomes f={f} d={d} pipe={pipe} /> }),
+    inTrend(`${pipe}First`, pipe, "Time to the first contact", "Working hours from the ticket coming in to the first contact, on average - Monday to Friday 8-17", firstOf, (v) => (v == null ? "—" : `${v.toFixed(1)} h`)),
+    inTrend(`${pipe}Quiet`, pipe, "Closed without any activity", "Of the month's tickets closed so far, those with nothing logged on them at all", quietIn, share),
+    wide({ id: `${pipe}Ch`, page: "sales-tickets", title: `${N} tickets per channel`, hint: ({ f }) => `${periodOf(f)} · where each ticket came from: how many, won, how fast the first contact came, closed without any activity, still open, the potential won · a header sorts`, body: ({ f, d }) => <InTable f={f} d={d} pipe={pipe} by="ch" /> }),
+    wide({ id: `${pipe}Who`, page: "sales-tickets", title: `${N} tickets per person`, hint: ({ f }) => `${periodOf(f)} · by the ticket's owner today · search a name, a header sorts`, body: ({ f, d }) => <InTable f={f} d={d} pipe={pipe} by="who" /> }),
   ];
 }
 
@@ -1349,7 +1489,7 @@ export const CHARTS: ChartDef[] = [
       );
     },
   }),
-  listed({ note: "the tickets filed in the workbook's Others", keep: (t) => OTHERS.includes(t.topic) })(wide({
+  listed({ note: "the tickets filed in Others", keep: (t) => OTHERS.includes(t.topic) })(wide({
     id: "othersKinds", page: "topics", title: "Each kind of Others, month by month",
     hint: ({ f }) => `${periodOf(f)} · a row per kind, the largest first - every month's tickets under its bar`,
     body: ({ f }) => {
@@ -1358,9 +1498,10 @@ export const CHARTS: ChartDef[] = [
       return <MonthRows labels={f.labels.slice(0, n)} totalHead={f.doneWords || "Total"} rows={inside.map((r) => ({ name: r.label, fmt: int, color: SEQUENTIAL[4], total: int(r.cur), values: f.cur.slice(0, n).map((m) => (hasTickets(m.ym) && !m.pending ? m.topics[r.key] ?? 0 : null)) }))} />;
     },
   })),
-  ...dive("dlv", "Delivery", (t) => t === "Delivery", "the workbook's biggest topic - \"delivery biggest issue\" - with its C2S tickets"),
-  ...dive("cxl", "Order cancellations", (t) => t === "Order Cancellation", "tickets filed Order Cancellation - a KPI of its own, as the workbook's New KPIs ask"),
-  ...dive("oth", "Others", (t) => OTHERS.includes(t), "the workbook's Others - each kind HubSpot files on its own today"),
+  ...dive("dlv", "Delivery", (t) => t === "Delivery", "the biggest topic, with its C2S tickets"),
+  ...dive("cxl", "Order cancellations", (t) => t === "Order Cancellation", "the tickets filed Order Cancellation", { tile: "Cancellation tickets" }),
+  // Others: no figures of its own, its month by month once (SARCLA 04.11.2026 on "Others in figures": "not needed, doesn't make sense")
+  ...dive("oth", "Others", (t) => OTHERS.includes(t), "each kind HubSpot files on its own today", { skip: ["Figs", "Months"] }),
   listed({ note: "the C2S tickets", keep: (_t, r) => r[RW.c2s] === 1 })(wide({
     id: "c2sFunnel", page: "figures", title: "C2S tickets against the cut-to-size orders and their value",
     hint: ({ f }) => {
@@ -1668,21 +1809,21 @@ export const CHARTS: ChartDef[] = [
       return <StackedColumns height={260} format={(v) => (v == null ? "—" : `${Math.round(v * 100)}%`)} data={data} parts={[...top.map((t, j) => ({ key: `t${j}`, label: t.label })), { key: "rest", label: "Every other topic", color: DEEMPHASIS }]} />;
     },
   })),
-  listed({ note: "the tickets filed Delivery", keep: (t) => t.topic === "Delivery" })(wide(topicTrend("delivery", "Delivery tickets", ["Delivery"], "The workbook's biggest topic - \"delivery biggest issue\""))),
-  listed({ note: "the C2S tickets", keep: (_t, r) => r[RW.c2s] === 1 })(trend("c2s", "topics", "C2S tickets", "Cut-to-size: a C2S ticket, a problem order, or C2S in the subject - the workbook asks for the first impact of C2S V1 and V2", (k) => k.c2s, n0)),
+  listed({ note: "the tickets filed Delivery", keep: (t) => t.topic === "Delivery" })(wide(topicTrend("delivery", "Delivery tickets", ["Delivery"], "The biggest topic"))),
+  listed({ note: "the C2S tickets", keep: (_t, r) => r[RW.c2s] === 1 })(trend("c2s", "topics", "C2S tickets", "Cut-to-size: a C2S ticket, a problem order, or C2S in the subject - the first impact of C2S V1 and V2", (k) => k.c2s, n0)),
   listed({ note: "the C2S tickets filed Delivery", keep: (t, r) => r[RW.c2s] === 1 && t.topic === "Delivery" })(trend("c2sDelivery", "topics", "C2S tickets filed Delivery", "The C2S tickets among Delivery", (k) => k.c2sDelivery, n0)),
-  listed({ note: "the tickets filed Order Cancellation", keep: (t) => t.topic === "Order Cancellation" })(topicTrend("cancel", "Order cancellations", ["Order Cancellation"], "Tickets filed Order Cancellation - a KPI of its own, as the workbook's New KPIs ask")),
+  listed({ note: "the tickets filed Order Cancellation", keep: (t) => t.topic === "Order Cancellation" })(topicTrend("cancel", "Order cancellations", ["Order Cancellation"], "Tickets filed Order Cancellation")),
   topicTrend("cancelPerOrder", "Order cancellations per order", ["Order Cancellation"], "Cancellation tickets against the month's orders", true),
-  listed({ note: "the tickets filed in the workbook's Others", keep: (t) => OTHERS.includes(t.topic) })({
+  listed({ note: "the tickets filed in Others", keep: (t) => OTHERS.includes(t.topic) })({
     id: "othersWhat", page: "topics", title: "What is inside Others",
-    hint: ({ f }) => `${f.doneWords} ${f.year} · the workbook's Others, each kind on its own today - its question: "the amount of Others is still huge, do we know what is inside?"`,
+    hint: ({ f }) => `${f.doneWords} ${f.year} · each kind HubSpot files on its own today, the largest first`,
     body: ({ f }) => {
       const inside = topicRows(f).rows.filter((r) => OTHERS.includes(r.key) && r.cur > 0).sort((a, b) => b.cur - a.cur);
       const tot = inside.reduce((s, r) => s + r.cur, 0);
       return <BarList rows={inside.map((r) => ({ label: r.label, value: r.cur, secondary: tot ? pct(r.cur / tot) : "" }))} format={(v) => int(v ?? 0)} labelWidth={180} emptyMessage="Nothing in Others for these months." />;
     },
   }),
-  listed({ note: "the tickets filed in the workbook's Others", keep: (t) => OTHERS.includes(t.topic) })(topicTrend("othersMonths", "Others, month by month", OTHERS, "Every kind of Others together")),
+  listed({ note: "the tickets filed in Others", keep: (t) => OTHERS.includes(t.topic) })(topicTrend("othersMonths", "Others, month by month", OTHERS, "Every kind of Others together")),
 
   /* ESO & TSA tickets - the workbook's inbound table */
   wide(trend("eso", "sales-tickets", "ESO tickets", "The ESO's inbound tickets - the sales actions left out", (k) => k.eso, n0)),
@@ -1691,6 +1832,7 @@ export const CHARTS: ChartDef[] = [
   wide(trend("tsa", "sales-tickets", "TSA tickets", "The TSA's inbound tickets - the sales actions left out", (k) => k.tsa, n0)),
   trend("tsaO", "sales-tickets", "TSA tickets per order", "Inbound against the month's orders", (k) => k.tsaPerOrder, share),
   trend("tsaL", "sales-tickets", "TSA tickets per order line", "Inbound against the month's order lines", (k) => k.tsaPerLine, share),
+  ...inCharts("eso"), ...inCharts("tsa"),
   wide({
     id: "stack", page: "sales-tickets", title: "APSOparts' tickets, built up by team",
     hint: ({ f }) => `Back Office, the ESO's and the TSA's inbound, and every other pipeline (GQS and the others) on top${f.inbound ? "" : " · the ESO's and the TSA's sales actions still in, until ESO Reports' ticket read is in"}`,
@@ -1790,8 +1932,8 @@ const TABLE = (note: string): TabDef => ({ id: "table", label: "Table", title: "
 const TYPE_IN: TabDef = { id: "input", label: "Type in", title: "Typed in by the Back Office", note: "not in HubSpot - a month typed in saves when you leave the field", icon: <EditNoteOutlinedIcon />, tint: "slate", charts: [] };
 const TABS: Record<Slug, TabDef[]> = {
   figures: [
-    TABLE("the workbook's rows, a month a column - the last columns add up the complete months"),
-    { id: "volume", label: "Volume", title: "Tickets created and closed", note: "the workbook's first rows: what came in and from where, what was closed, the queue between them", icon: <ConfirmationNumberOutlinedIcon />, tint: "blue", charts: ["createdClosed", "backlog", "origins", "created", "chat"] },
+    TABLE("every KPI, a month a column - the last columns add up the complete months"),
+    { id: "volume", label: "Volume", title: "Tickets created and closed", note: "what came in and from where, what was closed, the queue between them", icon: <ConfirmationNumberOutlinedIcon />, tint: "blue", charts: ["createdClosed", "backlog", "origins", "created", "chat"] },
     { id: "people", label: "People", title: "Who handles the tickets", note: "each ticket's owner today: what came in to them and from where, what they closed - the Back Office team, the other owners folded", icon: <BadgeOutlinedIcon />, tint: "green", charts: ["peopleOrigin", "peopleClosed", "peopleMonths"] },
     { id: "speed", label: "Speed", title: "How fast", note: "days to the first reply and to close, the customers' tickets closed without any answer - by month, person and topic", icon: <TimerOutlinedIcon />, tint: "amber", charts: ["reply", "resolution", "noAnswer", "noAnswerPeople", "peopleReply", "peopleSpeed", "replyByTopic", "closeByTopic"] },
     { id: "workload", label: "Workload", title: "The team's workload", note: "the hours (typed in on the Table, from Abacus) against the tickets, when the work comes in, what each person closes a working day", icon: <WorkHistoryOutlinedIcon />, tint: "purple", charts: ["weekday", "peopleDay", "ticketsPerHour", "hours", "perHour"] },
@@ -1802,20 +1944,20 @@ const TABS: Record<Slug, TabDef[]> = {
     { id: "tone", label: "Detected tone", title: "Detected tone", note: "not a survey: the tone the hub's sentiment sweep hears in each ticket's e-mails", icon: <SentimentNeutralOutlinedIcon />, tint: "slate", charts: ["tones", "negative", "neutral", "toneNegPeople", "tonePosPeople"] },
   ],
   topics: [
-    TABLE("the workbook's topic table: Back Office tickets per topic, by the month they came in"),
-    { id: "all", label: "All topics", title: "Tickets per topic", note: "every topic in figures, then the bars - click topics to follow them month by month", icon: <CategoryOutlinedIcon />, tint: "amber", charts: ["topicBoard", "topics", "topicMonths", "topicPer100"] },
-    { id: "months", label: "Month by month", title: "Each topic, month by month", note: "every month's figure of every topic, and the mix of each month", icon: <BarChartOutlinedIcon />, tint: "blue", charts: ["topicMinis", "topicShare"] },
+    TABLE("Back Office tickets per topic, by the month they came in"),
+    { id: "all", label: "All topics", title: "Tickets per topic", note: "the bars - click topics to follow them month by month - then every topic in figures", icon: <CategoryOutlinedIcon />, tint: "amber", charts: ["topics", "topicMonths", "topicPer100", "topicBoard"] },
+    { id: "months", label: "Month by month", title: "Each topic, month by month", note: "the mix of each month, then every month's figure of every topic", icon: <BarChartOutlinedIcon />, tint: "blue", charts: ["topicShare", "topicMinis"] },
     { id: "people", label: "By person", title: "Each person's topics", note: "the topics each person of the Back Office handles", icon: <BadgeOutlinedIcon />, tint: "green", charts: ["topicPeople", "topicPeopleTable"] },
     { id: "pcs", label: "By profit centre", title: "Topics per profit centre", note: "each ticket's profit centre - its order's, else the articles named on it, else its customer's main one", icon: <ApartmentOutlinedIcon />, tint: "blue", charts: ["topicPcs", "pcFound", "pcPer100", "topicPcTable"] },
     { id: "speed", label: "Speed", title: "How fast, per topic and per person", note: "days to close and to the first reply, per topic - and each person in each topic", icon: <TimerOutlinedIcon />, tint: "amber", charts: ["topicClose", "topicReply", "topicClosePeople", "topicReplyPeople"] },
     { id: "delivery", label: "Delivery", title: "Delivery in depth", note: "the biggest topic: its figures, month by month, per profit centre, per article, per person, per customer - C2S and the value of the orders throughout", icon: <LocalShippingOutlinedIcon />, tint: "pink", charts: ["dlvFigs", "dlvMonths", "dlvPcs", "dlvArts", "dlvPeople", "dlvCos"] },
-    { id: "cancel", label: "Order cancellations", title: "Order cancellations in depth", note: "a KPI of its own, as the workbook's New KPIs ask: per profit centre, per article, per person, per customer, in value", icon: <CancelOutlinedIcon />, tint: "purple", charts: ["cxlFigs", "cxlMonths", "cxlPcs", "cxlArts", "cxlPeople", "cxlCos"] },
-    { id: "others", label: "Inside Others", title: "What is inside Others", note: "the workbook's Others, each kind on its own - and in depth, as Delivery", icon: <ManageSearchOutlinedIcon />, tint: "slate", charts: ["othersWhat", "othersMonths", "othersKinds", "othFigs", "othMonths", "othPcs", "othArts", "othPeople", "othCos"] },
+    { id: "cancel", label: "Order cancellations", title: "Order cancellations in depth", note: "its figures, month by month, per profit centre, per article, per person, per customer - in value", icon: <CancelOutlinedIcon />, tint: "purple", charts: ["cxlFigs", "cxlMonths", "cxlPcs", "cxlArts", "cxlPeople", "cxlCos"] },
+    { id: "others", label: "Inside Others", title: "What is inside Others", note: "each kind on its own, month by month - and per profit centre, per article, per person, per customer", icon: <ManageSearchOutlinedIcon />, tint: "slate", charts: ["othersWhat", "othersMonths", "othersKinds", "othPcs", "othArts", "othPeople", "othCos"] },
   ],
   "sales-tickets": [
-    TABLE("the workbook's table: the ESO's and the TSA's inbound tickets against the month's orders and order lines"),
-    { id: "eso", label: "ESO", title: "The ESO's inbound tickets", note: "the sales actions left out", icon: <GroupsOutlinedIcon />, tint: "blue", charts: ["eso", "esoO", "esoL"] },
-    { id: "tsa", label: "TSA", title: "The TSA's inbound tickets", note: "the sales actions left out", icon: <SupportAgentOutlinedIcon />, tint: "green", charts: ["tsa", "tsaO", "tsaL"] },
+    TABLE("the ESO's and the TSA's inbound tickets against the month's orders and order lines"),
+    { id: "eso", label: "ESO", title: "The ESO's inbound tickets", note: "the sales actions left out: how many, the win rate, how fast the first contact came, what became of them - per channel and per person", icon: <GroupsOutlinedIcon />, tint: "blue", charts: ["esoFigs", "eso", "esoWin", "esoDay", "esoOut", "esoFirst", "esoQuiet", "esoO", "esoL", "esoCh", "esoWho"] },
+    { id: "tsa", label: "TSA", title: "The TSA's inbound tickets", note: "the sales actions left out: how many, the win rate, how fast the first contact came, what became of them - per channel and per person", icon: <SupportAgentOutlinedIcon />, tint: "green", charts: ["tsaFigs", "tsa", "tsaWin", "tsaDay", "tsaOut", "tsaFirst", "tsaQuiet", "tsaO", "tsaL", "tsaCh", "tsaWho"] },
     { id: "all", label: "APSOparts in total", title: "Every ticket of APSOparts", note: "every pipeline, the ESO's and the TSA's sales actions left out", icon: <ApartmentOutlinedIcon />, tint: "purple", charts: ["stack", "allO", "allL"] },
   ],
   gqs: [
@@ -2091,7 +2233,7 @@ function AllFigures({ f, rows, title = "All the figures, month by month", hint, 
   };
   const head = ["KPI", ...f.labels.map((l) => l.replace(" (to date)", "*")), sum, ...(f.totalPrev ? [`${f.doneWords} ${f.year - 1}`, "Change"] : [])];
   return (
-    <ChartBox title={title} hint={hint ?? `${f.labels.some((l) => l.includes("to date")) ? "* to date - " : ""}the workbook's rows · a month in green when better than the period's average, in red when worse · the last columns add up the complete months${hours?.can ? " · the hours typed in here (Abacus) - nothing else is typed, all the rest comes from HubSpot" : ""}`}>
+    <ChartBox title={title} hint={hint ?? `${f.labels.some((l) => l.includes("to date")) ? "* to date - " : ""}a KPI a row · a month in green when better than the period's average, in red when worse · the last columns add up the complete months${hours?.can ? " · the hours typed in here (Abacus) - nothing else is typed, all the rest comes from HubSpot" : ""}`}>
       <WTable head={head} totals={f.totalPrev ? 3 : 1} rows={rows.map((r) => {
         const a = r.pick(f.total), b = f.totalPrev ? r.pick(f.totalPrev) : null;
         const ch = a != null && b != null ? changeOf(a, b) : null;
@@ -2154,7 +2296,7 @@ export function BoFiguresPage() {
     <Page slug="figures">
       {(f, d, a, put) => (
         <>
-          <TabCard slug="figures" c={{ f, d }} extra={(tab) => (tab === "table" ? <AllFigures f={f} rows={TEAM_ROWS} title="The workbook's team totals" hours={{ can: a.canEdit, put }} /> : null)} />
+          <TabCard slug="figures" c={{ f, d }} extra={(tab) => (tab === "table" ? <AllFigures f={f} rows={TEAM_ROWS} title="Team totals, month by month" hours={{ can: a.canEdit, put }} /> : null)} />
         </>
       )}
     </Page>
@@ -2169,7 +2311,7 @@ function TopicsBody({ f, d }: { f: Frame; d: Data }) {
   const { compare, rows } = topicRows(f);
   return (
     <TabCard slug="topics" c={c} extra={(tab) => tab === "table" && (
-      <ChartBox title="The workbook's topic table" hint="The workbook's topic table: Back Office tickets per topic, by the month they came in - what the workbook calls Others is each of its own today (automatic, finance, internal e-mails, spam ...)">
+      <ChartBox title="Tickets per topic, month by month" hint="Back Office tickets per topic, by the month they came in - Others is each kind on its own today (automatic, finance, internal e-mails, spam ...)">
         <WTable head={["Topic", ...f.labels.map((l) => l.replace(" (to date)", "*")), ...(f.done ? [`${f.doneWords} ${f.year}`] : []), ...(compare ? [`${f.doneWords} ${f.year - 1}`, "Change"] : [])]}
           totals={(f.done ? 1 : 0) + (compare ? 2 : 0)}
           rows={[...rows, { label: "Grand total", key: "__total", cur: rows.reduce((s, r) => s + r.cur, 0), prev: rows.reduce((s, r) => s + r.prev, 0) }].map((r) => ({
@@ -2206,7 +2348,7 @@ export function BoSalesTicketsPage() {
       {(f, d) => (
         <>
           {!f.inbound && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>The ESO Reports&apos; ticket read is still counting - until it is in, the ESO and the TSA show every ticket of their pipelines, the sales actions with them.</Typography>}
-          <TabCard slug="sales-tickets" c={{ f, d }} extra={(tab) => tab === "table" && <AllFigures f={f} rows={SALES_ROWS} title="The workbook's table" hint="The ESO's and the TSA's inbound tickets (the UC hand-overs and the pushes - erosion, win back, the September push, price checks - left out) against the month's orders and order lines" />} />
+          <TabCard slug="sales-tickets" c={{ f, d }} extra={(tab) => tab === "table" && <AllFigures f={f} rows={SALES_ROWS} title="ESO, TSA and APSOparts, month by month" hint="The ESO's and the TSA's inbound tickets (the UC hand-overs and the pushes - erosion, win back, the September push, price checks - left out) against the month's orders and order lines" />} />
         </>
       )}
     </Page>
@@ -2224,7 +2366,7 @@ const GQS_ROWS: KRow[] = [
 export function BoGqsPage() {
   return (
     <Page slug="gqs">
-      {(f, d) => <TabCard slug="gqs" c={{ f, d }} extra={(tab) => tab === "table" && <AllFigures f={f} rows={GQS_ROWS} title="The workbook's GQS rows" hint="Every GQS task, by the month it was created - the last columns add up the complete months" />} />}
+      {(f, d) => <TabCard slug="gqs" c={{ f, d }} extra={(tab) => tab === "table" && <AllFigures f={f} rows={GQS_ROWS} title="GQS tasks, month by month" hint="Every GQS task, by the month it was created - the last columns add up the complete months" />} />}
     </Page>
   );
 }
@@ -2263,13 +2405,13 @@ function TypedPage({ slug, note }: { slug: Slug; note: string }) {
 }
 
 export function BoOtdPage() {
-  return <TypedPage slug="otd" note="Not in HubSpot - no order carries its first confirmation date - so the Back Office types each month in; the workbook's own figures to start." />;
+  return <TypedPage slug="otd" note="Not in HubSpot - no order carries its first confirmation date - so the Back Office types each month in." />;
 }
 export function BoAutonomyPage() {
-  return <TypedPage slug="autonomy" note="Not in HubSpot - the ERP knows which orders went through untouched and which prices were changed by hand - so the Back Office types each month in; the workbook's own figures to start." />;
+  return <TypedPage slug="autonomy" note="Not in HubSpot - the ERP knows which orders went through untouched and which prices were changed by hand - so the Back Office types each month in." />;
 }
 export function BoStoppedPage() {
-  return <TypedPage slug="stopped" note="Not in HubSpot - no order says it was stopped, or why - so the Back Office types each month in; the workbook's own figures to start." />;
+  return <TypedPage slug="stopped" note="Not in HubSpot - no order says it was stopped, or why - so the Back Office types each month in." />;
 }
 
 /* ── the BUC View: a panel per page ────────────────────────────────────── */
