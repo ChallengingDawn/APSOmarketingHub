@@ -30,6 +30,7 @@ import { AddDialog } from "./AddDialog";
 import { SubWindow } from "./SubWindow";
 import { DuplicateSub } from "./DuplicateSub";
 import { SummitFigures, SummitMountain, useSummit } from "./Summit";
+import { KpiPicker, type TrackChoice, type TrackTarget } from "./KpiPicker";
 import { LATE, PRIORITY_COLOR, PROJECT_COLORS, readPref, send, stageColor, todayIso, writePref, type PlanData } from "./planUi";
 
 // square, as the tags (SARCLA 01.11.2026: "tags not round, square")
@@ -287,6 +288,17 @@ function ActionPlan() {
       setNote(null);
     } catch (e) { setNote(`Not saved: ${(e as Error).message}`); void load(); }
   };
+  // KPI tracking, an action's or a sub-action's own (SARCLA 04.11.2026): off at once; Yes - or another KPI - asks which
+  // KPI of the plan first (KpiPicker.tsx), and Cancel leaves it as it was
+  const [trackFor, setTrackFor] = useState<TrackTarget | null>(null);
+  const saveTrack = async (t: TrackTarget, k: { key: string; title: string } | null) => {
+    const p = { tracked: !!k, trackKpi: k?.key ?? "", trackKpiTitle: k?.title ?? "" };
+    if (t.kind === "item") { await patch(t.id, p); return; }
+    setData((d) => d && { ...d, subs: d.subs.map((s) => (s.id === t.id ? { ...s, ...p } : s)) });
+    try { await send("/api/reporting/kpi-actions/tasks", "PATCH", { id: t.id, ...p }); setNote(null); }
+    catch (e) { setNote(`Not saved: ${(e as Error).message}`); void load(); }
+  };
+  const track = (t: TrackTarget, c: TrackChoice) => { if (c === "no") void saveTrack(t, null); else setTrackFor(t); };
   const canDrop = (drag: GRow, target: GRow, where: Where) => {
     // a sub-action: up or down among the sub-actions, the open ones above the closed ones (SARCLA 03.11.2026) - by another
     // action's, it moves there (one made on the plan)
@@ -511,7 +523,7 @@ It leaves the plan as an action; its name, description, status, priority, first 
         </Box></GlassCard>
       ) : (
         <Gantt rows={rows} rolled={rolledShown} today={today} zoom={zoom} canWrite={data.canWrite} collapsed={folds} toggle={toggle}
-          selected={openId} onOpen={(i) => openRow(i)} onSubs={(i) => openRow(i)} onOpenSub={openSub} onPatch={patch} canDrop={canDrop} onDrop={onDrop}
+          selected={openId} onOpen={(i) => openRow(i)} onSubs={(i) => openRow(i)} onOpenSub={openSub} onPatch={patch} onTrack={track} canDrop={canDrop} onDrop={onDrop}
           height="max(480px, calc(100vh - 150px))" colorOf={colorOf}
           compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} onAdd={setAddFor}
           onDuplicate={(s, parent) => setDupFor({ sub: s, parent })} hidden={hidden} onHide={hide} />
@@ -525,10 +537,13 @@ It leaves the plan as an action; its name, description, status, priority, first 
         // keyed by the row: a tile opens another row with its own view and fields
         <ItemModal key={opened.id} item={opened} items={items} rolledAll={rolled} subs={subs.filter((s) => s.item === opened.id)} allSubs={subs} canWrite={!!data?.canWrite}
           people={data?.people ?? []} peopleError={data?.peopleError ?? null} choices={data?.choices ?? S2S_CHOICES} colorOf={colorOf}
-          onClose={closeRow} onOpen={(i) => openRow(i)} onOpenSub={openSub} onPatch={patch} onChanged={() => void load()} onAddUnder={setAddFor} onDelete={remove} onMoveTo={moveTo} />
+          onClose={closeRow} onOpen={(i) => openRow(i)} onOpenSub={openSub} onPatch={patch} onChanged={() => void load()} onAddUnder={setAddFor} onDelete={remove} onMoveTo={moveTo}
+          onTrack={(c) => track({ kind: "item", id: opened.id, title: opened.title, tracked: !!opened.tracked, kpi: opened.trackKpi ?? "" }, c)} />
       )}
       {sub && subParent && (
         <SubWindow key={sub.id} id={sub.id} parent={subParent} people={data?.people ?? []} canWrite={!!data?.canWrite}
+          tracking={{ tracked: !!sub.tracked, title: sub.trackKpiTitle ?? "" }}
+          onTrack={(c) => track({ kind: "sub", id: sub.id, title: sub.title, tracked: !!sub.tracked, kpi: sub.trackKpi ?? "" }, c)}
           onClose={closeSub} onOpenParent={() => { closeSub(); openRow(subParent); }} onChanged={() => void load()}
           onDuplicate={() => { closeSub(); setDupFor({ sub, parent: subParent, back: true }); }}
           onMadeAction={(itemId) => { closeSub(); setSaid("Made an action again"); void load().then(() => { setOpenId(itemId); window.history.replaceState(null, "", `/action-plan?item=${itemId}`); }); }} />
@@ -548,6 +563,11 @@ It leaves the plan as an action; its name, description, status, priority, first 
             // what was made shows: its parent opens
             setCollapsed((c) => { const n = new Set(c); n.delete(`i${at.id}`); return n; });
           }} />
+      )}
+      {/* last, so it opens over the window it was asked from */}
+      {trackFor && (
+        <KpiPicker key={`${trackFor.kind}${trackFor.id}`} target={trackFor} onClose={() => setTrackFor(null)}
+          onPick={(k) => { const t = trackFor; setTrackFor(null); void saveTrack(t, k); }} />
       )}
     </Box>
   );

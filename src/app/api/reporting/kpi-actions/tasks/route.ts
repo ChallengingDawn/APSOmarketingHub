@@ -105,8 +105,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const b = (await req.json().catch(() => ({}))) as { id?: number; title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: string; shared?: string[]; kpi?: string; summary?: string; planItem?: number | null; stage?: string | null; priority?: string; start?: string | null; statusNote?: string };
+  const b = (await req.json().catch(() => ({}))) as { id?: number; title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: string; shared?: string[]; kpi?: string; summary?: string; planItem?: number | null; stage?: string | null; priority?: string; start?: string | null; statusNote?: string; tracked?: boolean; trackKpi?: string; trackKpiTitle?: string };
   if (!Number.isInteger(b.id)) return fail("id is missing", 400);
+  if ((b.trackKpi !== undefined && typeof b.trackKpi !== "string") || (b.trackKpiTitle !== undefined && typeof b.trackKpiTitle !== "string")) return fail("the KPI tracked is a text", 400);
   const bad = smallAction(b);
   if (bad) return fail(bad, 400);
   if (b.title !== undefined && !b.title.trim()) return fail("a task needs what to do", 400);
@@ -125,9 +126,12 @@ export async function PATCH(req: NextRequest) {
     const t = await updateTask(b.id as number, {
       title: b.title?.trim(), note: b.note, owner: b.owner, ownerName: b.ownerName, due: b.due, status: b.status as TaskStatus | undefined, shared, planItem: plan,
       stage: b.stage === undefined ? undefined : b.stage || null, priority: b.priority, start: b.start === undefined ? undefined : b.start || null,
-      statusNote: b.statusNote,
+      statusNote: b.statusNote, tracked: b.tracked === undefined ? undefined : !!b.tracked, trackKpi: b.trackKpi, trackKpiTitle: b.trackKpiTitle,
     });
     if (!t) return fail("no such task", 404);
+    // its KPI tracking alone: the plan's, nothing for its ticket or anyone's mail
+    const keys = Object.keys(b).filter((k) => k !== "id" && (b as Record<string, unknown>)[k] !== undefined);
+    if (keys.length && keys.every((k) => k === "tracked" || k === "trackKpi" || k === "trackKpiTitle")) return NextResponse.json({ ok: true, task: t, mailed: [] });
     // tied to another action: its tickets take that action's place in HubSpot
     if (plan !== undefined && plan !== before.planItem) queuePlanSync("sub-action moved");
     // a sub-action of the plan: its ticket takes the change (SARCLA 02.11.2026)

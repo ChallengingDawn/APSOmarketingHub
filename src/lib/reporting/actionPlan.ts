@@ -36,7 +36,7 @@ type Row = {
   start_date: unknown; due_date: unknown; due_note: string; percent: number | null; dg: boolean; updated_by: string; updated_at: unknown;
   owners: unknown; matched: boolean;
   stage: string | null; channel: unknown; country: unknown; agency: unknown; roadmap_year: string;
-  kpis: string; next_steps: string; status_note: string; s2s: boolean; kpi_tracking: boolean;
+  kpis: string; next_steps: string; status_note: string; s2s: boolean; kpi_tracking: boolean; kpi_tracking_key?: string | null; kpi_tracking_title?: string | null;
 };
 const list = (x: unknown): string[] => {
   const v = typeof x === "string" ? (() => { try { return JSON.parse(x); } catch { return []; } })() : x;
@@ -55,7 +55,7 @@ const item = (r: Row): PlanItem => ({
   state: r.state && (PLAN_STATES as readonly string[]).includes(r.state) ? (r.state as PlanState) : null,
   result: r.result, mainTopic: r.main_topic, perimeter: r.perimeter, expected: r.expected, codeFreeze: r.code_freeze,
   complexity: r.complexity, release: r.release, start: day(r.start_date), due: day(r.due_date), dueNote: r.due_note,
-  percent: r.percent, dg: r.dg, tracked: !!r.kpi_tracking, owners: ownersOf(r.owners),
+  percent: r.percent, dg: r.dg, tracked: !!r.kpi_tracking, trackKpi: r.kpi_tracking_key ?? "", trackKpiTitle: r.kpi_tracking_title ?? "", owners: ownersOf(r.owners),
   stage: stageOf(r.stage) ? r.stage : null, channel: list(r.channel), country: list(r.country), agency: list(r.agency),
   roadmapYear: r.roadmap_year ?? "", kpis: r.kpis ?? "", nextSteps: r.next_steps ?? "", statusNote: r.status_note ?? "",
   updatedBy: r.updated_by, updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at ?? ""),
@@ -113,6 +113,8 @@ function ensure(): Promise<void> {
         "folded boolean NOT NULL DEFAULT false", "leaders_set boolean NOT NULL DEFAULT false",
         // KPI tracking, Yes or No (SARCLA 04.11.2026)
         "kpi_tracking boolean NOT NULL DEFAULT false",
+        // the KPI it tracks, picked on Yes: the tile's key and its name
+        "kpi_tracking_key text NOT NULL DEFAULT ''", "kpi_tracking_title text NOT NULL DEFAULT ''",
       ]) await query(`ALTER TABLE ${T} ADD COLUMN IF NOT EXISTS ${c}`);
       // the tracking: every change, who made it and when
       await query(`CREATE TABLE IF NOT EXISTS ${LOG} (
@@ -353,14 +355,14 @@ const TEXT: [keyof PlanFields, string, number][] = [
   ["perimeter", "perimeter", 120], ["expected", "expected", 2000], ["codeFreeze", "code_freeze", 200],
   ["complexity", "complexity", 60], ["release", "release", 120], ["dueNote", "due_note", 200],
   ["roadmapYear", "roadmap_year", 10], ["kpis", "kpis", 4000], ["nextSteps", "next_steps", 4000],
-  ["statusNote", "status_note", 4000],
+  ["statusNote", "status_note", 4000], ["trackKpi", "kpi_tracking_key", 200], ["trackKpiTitle", "kpi_tracking_title", 300],
 ];
 const LISTS: [keyof PlanFields, string][] = [["channel", "channel"], ["country", "country"], ["agency", "agency"]];
 
 /** What the tracking calls a field, and how it writes a value. */
 const FIELD_NAME: Partial<Record<keyof PlanFields, string>> = {
   title: "Name", detail: "Description", priority: "Priority", referent: "Referent", stage: "Status", owners: "Assigned to",
-  start: "Planned date", due: "Go-live date", percent: "% complete", dg: "Led by Digital Growth", tracked: "KPI tracking", channel: "Marketing channel",
+  start: "Planned date", due: "Go-live date", percent: "% complete", dg: "Led by Digital Growth", tracked: "KPI tracking", trackKpiTitle: "Tracked KPI", channel: "Marketing channel",
   country: "Implementation country", agency: "Agency", roadmapYear: "Roadmap year", kpis: "KPIs", nextSteps: "Next steps / milestones",
   statusNote: "Status note", dueNote: "Deadline words", responsible: "Responsible (workbook)",
 };
@@ -451,6 +453,7 @@ export async function subToAction(taskId: number, parentId: number, by: string):
     detail: k.note || k.title, ...(k.stage ? { stage: k.stage } : {}), priority: k.priority, start: k.start, due: k.due, statusNote: k.statusNote,
     owners: /^\d+$/.test(k.owner) ? [{ id: k.owner, name: k.ownerName || k.owner }] : [],
     dg: takesTicket({ dg: !!from?.dg }, k.ownerName), country: from?.country ?? [], ...(from?.dg ? { channel: from.channel, agency: from.agency } : {}),
+    ...(k.tracked ? { tracked: true, trackKpi: k.trackKpi, trackKpiTitle: k.trackKpiTitle } : {}),
   }, by);
   await ticketsToAction(k.id, a.id);
   // they agree as they are: the ticket was the sub-action's, its fields are the action's now

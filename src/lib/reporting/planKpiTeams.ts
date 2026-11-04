@@ -43,6 +43,13 @@ export function viewOf(t: { filters?: Record<string, string[]>; from?: string; t
 }
 
 /** A KPI on the plan: its tile, its team, what it showed when last drawn in its view, where it stands. */
+/** A KPI's target as it is typed: a rate in %, euros, a count. */
+export function targetText(v: number, unit: "eur" | "pct" | "n"): string {
+  if (unit === "pct") return `${(v * 100).toFixed(1)}%`;
+  if (unit === "eur") return `€${Math.round(v).toLocaleString("en")}`;
+  return Math.round(v).toLocaleString("en");
+}
+
 export type PlanKpi = {
   key: string; page: string; team: PlanKpiTeam; title: string; href: string;
   /** the key its target is kept under (a chart's own, else the tile's) and how that target is typed */

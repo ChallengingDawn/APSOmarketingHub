@@ -35,6 +35,7 @@ import type { PlanItem, PlanKind, PlanSub, Rolled } from "@/lib/reporting/action
 import { KILLED, dueSoon, isClosed, isLate, priorityLabel, stageOf, subLate, subPct, subSoon, subStage } from "@/lib/reporting/actionPlanRules";
 import { SUMMIT } from "@/lib/reporting/summitRules";
 import { LATE, PRIORITY_COLOR, SUMMARY, dayOf, dmy, isoOf, stageColor } from "./planUi";
+import type { TrackChoice, TrackTarget } from "./KpiPicker";
 
 export const ROW = 34;
 const HEAD = 52;
@@ -104,13 +105,15 @@ function useNameWidth(rows: GRow[], rolled: Map<number, Rolled>, today: string):
   }, [rows, rolled, today]);
 }
 
-export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, canDrop, onDrop, height, colorOf, compact, onCompact, onAdd, onDuplicate, hidden, onHide }: {
+export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, onTrack, canDrop, onDrop, height, colorOf, compact, onCompact, onAdd, onDuplicate, hidden, onHide }: {
   rows: GRow[]; rolled: Map<number, Rolled>; today: string; zoom: Zoom; canWrite: boolean;
   collapsed: Set<string>; toggle: (key: string) => void; selected: number | null;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void;
   /** a sub-action's row or bar: its own window */
   onOpenSub: (id: number) => void;
   onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent" | "tracked">>) => Promise<void>;
+  /** KPI tracking on an action's or a sub-action's row: off, or Yes - the plan asks which KPI (KpiPicker.tsx) */
+  onTrack: (t: TrackTarget, c: TrackChoice) => void;
   canDrop: (drag: GRow, target: GRow, where: Where) => boolean;
   /** `copy`: Ctrl, Alt or Cmd held - a sub-action is copied there, not moved */
   onDrop: (drag: GRow, target: GRow, where: Where, copy: boolean) => Promise<void>;
@@ -321,7 +324,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
             <TreeRow key={r.key} r={r} cols={COLS} compact={compact} onAdd={canWrite && r.type === "item" ? () => onAdd(r.item) : undefined}
               onDuplicate={canWrite && r.type === "sub" && !r.sub.kpiTile ? () => onDuplicate(r.sub, r.parent) : undefined}
               hidden={r.type === "item" && hidden.has(r.item.id)} onHide={r.type === "item" && r.item.kind !== "goal" ? (h) => onHide(r.item, h) : undefined} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
-              selected={r.type === "item" && r.item.id === selected} onOpen={onOpen} onSubs={onSubs} onOpenSub={onOpenSub} onPatch={onPatch}
+              selected={r.type === "item" && r.item.id === selected} onOpen={onOpen} onSubs={onSubs} onOpenSub={onOpenSub} onPatch={onPatch} onTrack={onTrack}
               dragging={drag?.key === r.key} over={over?.key === r.key ? over.where : null} copying={over?.key === r.key && over.copy}
               draggable={canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group")) || r.type === "sub")}
               onDragStart={() => setDrag(r)} onDragEnd={() => { setDrag(null); setOver(null); }}
@@ -453,11 +456,12 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
 
 /* ── a row of the tree ─────────────────────────────────────────────────── */
 
-function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, dragging, over, copying, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
+function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, onTrack, dragging, over, copying, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
   r: GRow; cols: string; compact: boolean; color: string | null; onAdd?: () => void; onDuplicate?: () => void; hidden: boolean; onHide?: (hide: boolean) => void;
   rolled: Map<number, Rolled>; today: string; canWrite: boolean; folded: boolean; toggle: (key: string) => void; selected: boolean;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void; onOpenSub: (id: number) => void;
   onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent" | "tracked">>) => Promise<void>;
+  onTrack: (t: TrackTarget, c: TrackChoice) => void;
   dragging: boolean; over: Where | null; copying: boolean; draggable: boolean;
   onDragStart: () => void; onDragEnd: () => void; onDragOver: (e: React.DragEvent) => void; onDrop: (e: React.DragEvent) => void;
 }) {
@@ -541,7 +545,9 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
           </Box>
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{sPct == null ? "—" : `${sPct} %`}</Typography></Box>
           <Box sx={cell}><Typography noWrap sx={{ fontSize: "0.8rem", color: MUTED }}>{s.ownerName}</Typography></Box>
-          <Box sx={cell} />
+          {/* its own KPI tracking - not its action's (SARCLA 04.11.2026) */}
+          <TrackCell tracked={!!s.tracked} title={s.trackKpiTitle ?? ""} canWrite={canWrite}
+            onChoose={(c) => onTrack({ kind: "sub", id: s.id, title: s.title, tracked: !!s.tracked, kpi: s.trackKpi ?? "" }, c)} />
         </>}
       </Box>
     );
@@ -618,24 +624,29 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
               ? <Typography noWrap title={it.owners.map((o) => o.name).join(", ")} sx={{ fontSize: "0.8rem", color: INK }}>{it.owners.map((o) => o.name).join(", ")}</Typography>
               : <Typography noWrap title={it.responsible ? `Not assigned yet - the workbook says "${it.responsible}"` : "Not assigned yet"} sx={{ fontSize: "0.78rem", color: FAINT, fontStyle: "italic" }}>{it.responsible || "Not assigned"}</Typography>}
           </Box>
-          <TrackCell value={!!it.tracked} canWrite={canWrite} onSave={(v) => onPatch(it.id, { tracked: v })} />
+          <TrackCell tracked={!!it.tracked} title={it.trackKpiTitle ?? ""} canWrite={canWrite}
+            onChoose={(c) => onTrack({ kind: "item", id: it.id, title: it.title, tracked: !!it.tracked, kpi: it.trackKpi ?? "" }, c)} />
         </>
       )}
     </Box>
   );
 }
 
-/** KPI tracking, Yes or No - a dropdown in its cell. */
-function TrackCell({ value, canWrite, onSave }: { value: boolean; canWrite: boolean; onSave: (v: boolean) => Promise<void> }) {
+/**
+ * KPI tracking, Yes or No - a dropdown in its cell; Yes asks which KPI (SARCLA 04.11.2026: "if put yes, a pop-up to select
+ * the KPI"), and once tracked it says which, with another one to pick.
+ */
+function TrackCell({ tracked, title, canWrite, onChoose }: { tracked: boolean; title: string; canWrite: boolean; onChoose: (c: TrackChoice) => void }) {
   const cell = { px: 1, minWidth: 0, height: "100%", display: "flex", alignItems: "center", borderLeft: `1px solid ${HAIRLINE}` } as const;
-  const tone = value ? { color: GREEN, bgcolor: "rgba(27,122,85,.1)", borderColor: GREEN } : { color: MUTED, bgcolor: "#fff", borderColor: HAIRLINE };
+  const tone = tracked ? { color: GREEN, bgcolor: "rgba(27,122,85,.1)", borderColor: GREEN } : { color: MUTED, bgcolor: "#fff", borderColor: HAIRLINE };
   return (
     <Box sx={cell} onClick={(e) => e.stopPropagation()}>
-      <Box component="select" aria-label="KPI tracking" value={value ? "yes" : "no"} disabled={!canWrite}
-        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => { const v = e.target.value === "yes"; if (v !== value) void onSave(v); }}
-        sx={{ ...tone, width: "100%", font: "inherit", fontSize: "0.78rem", fontWeight: 700, border: "1px solid", borderRadius: "4px", px: 0.5, py: 0.25, cursor: canWrite ? "pointer" : "default", "&:disabled": { opacity: 1 } }}>
+      <Box component="select" aria-label="KPI tracking" value={tracked ? "yes" : "no"} disabled={!canWrite} title={tracked && title ? `Tracks “${title}”` : undefined}
+        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => { const v = e.target.value; if (v === "no") { if (tracked) onChoose("no"); } else onChoose("pick"); }}
+        sx={{ ...tone, width: "100%", minWidth: 0, textOverflow: "ellipsis", font: "inherit", fontSize: "0.78rem", fontWeight: 700, border: "1px solid", borderRadius: "4px", px: 0.5, py: 0.25, cursor: canWrite ? "pointer" : "default", "&:disabled": { opacity: 1 } }}>
         <option value="no">No</option>
-        <option value="yes">Yes</option>
+        <option value="yes">{tracked ? (title ? `Yes · ${title}` : "Yes") : "Yes"}</option>
+        {tracked && <option value="pick">Another KPI…</option>}
       </Box>
     </Box>
   );

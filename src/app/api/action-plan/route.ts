@@ -95,6 +95,7 @@ export async function GET(req: NextRequest) {
     const subs: PlanSub[] = subOrder(tasks.filter((t) => t.planItem != null && ids.has(t.planItem)).map((t) => ({
       id: t.id, item: t.planItem as number, title: t.title, owner: t.owner, ownerName: t.ownerName, start: t.start, due: t.due, status: t.status, stage: t.stage, priority: t.priority,
       kpiHref: t.tile.startsWith("plan:") ? "" : t.href, kpiTile: t.tile.startsWith("plan:") ? "" : t.tile, tickets: t.tickets, ticketIds: byTask.get(t.id) ?? [], sort: t.planSort,
+      tracked: t.tracked, trackKpi: t.trackKpi, trackKpiTitle: t.trackKpiTitle,
     })));
     return NextResponse.json({ ok: true, canWrite: w.canWrite, items, subs, own, people: list, peopleError, choices: await choices() });
   } catch (e) { return fail(e); }
@@ -136,6 +137,8 @@ export async function PATCH(req: NextRequest) {
   }
   if (b.dg !== undefined) p.dg = !!b.dg;
   if (b.tracked !== undefined) p.tracked = !!b.tracked;
+  if (typeof b.trackKpi === "string") p.trackKpi = b.trackKpi;
+  if (typeof b.trackKpiTitle === "string") p.trackKpiTitle = b.trackKpiTitle;
   if (b.owners !== undefined) {
     if (!Array.isArray(b.owners)) return fail("owners is a list of HubSpot owner ids", 400);
     const want = [...new Set(b.owners.map(String).filter((x) => /^\d+$/.test(x)))];
@@ -151,7 +154,8 @@ export async function PATCH(req: NextRequest) {
     const item = await updateItem(id, p, w.name);
     if (!item) return fail("no such row", 404);
     // a renamed row is renamed in HubSpot's choices too, and an action's ticket takes its changes (02.11.2026)
-    if (p.title !== undefined || item.kind === "action") queuePlanSync(p.title !== undefined ? "row renamed" : "action changed");
+    const trackingOnly = Object.keys(p).every((k) => k === "tracked" || k === "trackKpi" || k === "trackKpiTitle");
+    if (!trackingOnly && (p.title !== undefined || item.kind === "action")) queuePlanSync(p.title !== undefined ? "row renamed" : "action changed");
     return NextResponse.json({ ok: true, item });
   } catch (e) { return fail(e); }
 }

@@ -37,6 +37,7 @@ import { BUC_MEMBERS, KILLED, isClosed, priorityLabel, stageOf, subClosed, subLa
 import { LATE, PRIORITY_COLOR, SUMMARY, dmy, stageColor, todayIso, type PlanData } from "./planUi";
 import { ActionTicket, CoreFields, SubActions, label, planTile, square } from "./SubActions";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
+import { KpiTrackingField, type TrackChoice } from "./KpiPicker";
 
 const section = { fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
 const card = { display: "grid", rowGap: 1.75, columnGap: 1.25, p: 2, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, alignContent: "start" } as const;
@@ -349,7 +350,9 @@ function CategorySubs({ item, items, allSubs, onOpen, onOpenSub }: {
   );
 }
 
-export function ItemModal({ item, items, rolledAll, subs, allSubs, canWrite, people, peopleError, choices, colorOf, onClose, onOpen, onOpenSub, onPatch, onChanged, onAddUnder, onDelete, onMoveTo }: {
+export function ItemModal({ item, items, rolledAll, subs, allSubs, canWrite, people, peopleError, choices, colorOf, onClose, onOpen, onOpenSub, onPatch, onChanged, onAddUnder, onDelete, onMoveTo, onTrack }: {
+  /** its KPI tracking: off, or Yes - the plan asks which KPI (KpiPicker.tsx) */
+  onTrack: (c: TrackChoice) => void;
   item: PlanItem; items: PlanItem[]; rolledAll: Map<number, Rolled>; subs: PlanSub[]; canWrite: boolean; onClose: () => void;
   /** every sub-action of the plan - a category's window lists its actions' */
   allSubs: PlanSub[];
@@ -504,11 +507,7 @@ export function ItemModal({ item, items, rolledAll, subs, allSubs, canWrite, peo
                   <TextField size="small" label="Roadmap ID" value={item.code} disabled title="The workbook's number" sx={field} slotProps={{ inputLabel: { shrink: true } }} />
                   <Referent value={item.referent} people={people} canWrite={canWrite} onSave={(v) => save({ referent: v })} />
                   {/* the table's KPI tracking column, here too (SARCLA 04.11.2026) */}
-                  <TextField select size="small" label="KPI tracking" value={item.tracked ? "yes" : "no"} disabled={!canWrite} onChange={(e) => save({ tracked: e.target.value === "yes" })}
-                    sx={field} slotProps={{ inputLabel: { shrink: true } }}>
-                    <MenuItem value="no" sx={{ fontSize: "0.86rem" }}>No</MenuItem>
-                    <MenuItem value="yes" sx={{ fontSize: "0.86rem" }}>Yes</MenuItem>
-                  </TextField>
+                  <KpiTrackingField tracked={!!item.tracked} title={item.trackKpiTitle ?? ""} canWrite={canWrite} onTrack={onTrack} />
                 </Box>
             </Box>
 

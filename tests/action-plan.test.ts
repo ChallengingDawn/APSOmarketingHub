@@ -11,7 +11,7 @@ import {
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
 import { figureOf, figureText, numberOf } from "../src/lib/reporting/tileFigure";
-import { PLAN_KPI_STATUSES, PLAN_KPI_TEAMS, isPlanKpiStatus, isPlanKpiTeam, teamOfPage, viewOf } from "../src/lib/reporting/planKpiTeams";
+import { PLAN_KPI_STATUSES, PLAN_KPI_TEAMS, isPlanKpiStatus, isPlanKpiTeam, targetText, teamOfPage, viewOf } from "../src/lib/reporting/planKpiTeams";
 
 // SARCLA 31.10.2026: the "APSOparts Business Improvement Action Plan" workbook's first tab as a Gantt in the hub,
 // by topic, sub-actions from the KPI tiles, Scroll to Sale tickets only for Digital Growth's actions; the home
@@ -673,4 +673,11 @@ test("action plan: the tickets of what shows, each once", () => {
   const subs = [sub(5, 1, "open", null, { ticketIds: ["t1", "t2"] }), sub(6, 2, "open", null, { ticketIds: ["t2"] }), sub(7, 2, "open")];
   assert.equal(ticketsShown([{ id: 1 }, { id: 2 }], subs, { "1": ["t9"], "3": ["t8"] }), 3);
   assert.equal(ticketsShown([], [], {}), 0);
+});
+
+// the KPIs tab and the KPI tracking picker write a target the same way
+test("action plan: a KPI's target as it is typed", () => {
+  assert.equal(targetText(0.35, "pct"), "35.0%");
+  assert.equal(targetText(150000, "eur"), "€150,000");
+  assert.equal(targetText(1234.4, "n"), "1,234");
 });

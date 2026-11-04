@@ -96,6 +96,9 @@ export type PlanFields = {
   /** KPI tracking, Yes or No - picked in the table's column (SARCLA 04.11.2026: "just a dropdown, yes or no - this will
    *  then be implemented in the page in the header like KPIs, we will come to that later"); no when never picked */
   tracked?: boolean;
+  /** The KPI it tracks, picked when KPI tracking is set to Yes (SARCLA 04.11.2026: "if put yes, a pop-up to select the
+   *  KPI"): one of the KPIs promoted to the plan's KPIs tab, by its tile's key, and its name as it was picked. */
+  trackKpi?: string; trackKpiTitle?: string;
   // the workbook's own columns, kept in the data but no longer shown - their words moved to the ticket's fields
   // once (toS2s); SARCLA 01.11.2026: "copy the HubSpot one made with the agency and delete those not needed"
   status: string; state: PlanState | null; result: string; mainTopic: string; perimeter: string; expected: string;
@@ -123,6 +126,8 @@ export type PlanSub = {
   kpiHref: string; kpiTile: string; tickets: number;
   /** Its tickets' ids, to count each ticket once over the plan's rows (a duplicate shares its original's). */
   ticketIds?: string[];
+  /** KPI tracking, its own - not its action's (SARCLA 04.11.2026: "KPI tracking should be available at sub-action level"). */
+  tracked?: boolean; trackKpi?: string; trackKpiTitle?: string;
   /** Its place among its action's sub-actions, as dragged (SARCLA 03.11.2026); none until one of them is. */
   sort?: number | null;
 };

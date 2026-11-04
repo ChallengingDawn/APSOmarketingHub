@@ -20,7 +20,7 @@ import { refreshPlanKpis, usePlanKpis } from "@/app/reporting/marketing-kpis/til
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
 import { square } from "@/app/action-plan/SubActions";
 import { categoryBySlug, categoryEntry } from "@/lib/reporting/categories";
-import { PLAN_KPI_STATUSES, PLAN_KPI_TEAMS, type PlanKpi, type PlanKpiStatus } from "@/lib/reporting/planKpiTeams";
+import { PLAN_KPI_STATUSES, PLAN_KPI_TEAMS, targetText, type PlanKpi, type PlanKpiStatus } from "@/lib/reporting/planKpiTeams";
 import { figureOf, figureText } from "@/lib/reporting/tileFigure";
 
 type Team = (typeof PLAN_KPI_TEAMS)[number];
@@ -30,13 +30,6 @@ const STATUS_TONE: Record<PlanKpiStatus, { fg: string; bg: string }> = {
   late: { fg: RED, bg: "#fde7e7" },
 };
 const day = (iso: string) => (iso ? new Date(iso).toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit", year: "numeric" }) : "");
-
-/** The target as it is typed: a rate in %, euros, a count. */
-function targetText(v: number, unit: PlanKpi["unit"]): string {
-  if (unit === "pct") return `${(v * 100).toFixed(1)}%`;
-  if (unit === "eur") return `€${Math.round(v).toLocaleString("en")}`;
-  return Math.round(v).toLocaleString("en");
-}
 
 /** A KPI on the plan, as a KPI card of the reports: name and Actions, its figure; its target and where it stands under. */
 function KpiOnPlan({ k, target, onStatus, busy }: { k: PlanKpi; target: number | null; onStatus: (s: PlanKpiStatus) => void; busy: boolean }) {

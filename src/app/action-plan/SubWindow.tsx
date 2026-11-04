@@ -23,8 +23,11 @@ import { takesTicket, type PlanItem, type PlanOwner } from "@/lib/reporting/acti
 import { useTileActions, type Opt } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { send } from "@/app/reporting/marketing-kpis/tiles/store";
 import { SubEditor, planTile } from "./SubActions";
+import { KpiTrackingField, type TrackChoice } from "./KpiPicker";
 
-export function SubWindow({ id, parent, people, canWrite, onClose, onOpenParent, onChanged, onMadeAction, onDuplicate }: {
+export function SubWindow({ id, parent, people, canWrite, onClose, onOpenParent, onChanged, onMadeAction, onDuplicate, tracking, onTrack }: {
+  /** its own KPI tracking, as the plan has it (SARCLA 04.11.2026: "KPI tracking should be available at sub-action level") */
+  tracking: { tracked: boolean; title: string }; onTrack: (c: TrackChoice) => void;
   id: number; parent: PlanItem; people: PlanOwner[]; canWrite: boolean;
   onClose: () => void; onOpenParent: () => void;
   /** made an action again: the plan opens it */
@@ -86,6 +89,10 @@ Its name, description, status, priority, person, dates, status note and tickets 
             <SubEditor k={k} tile={tile} t={t} owners={owners} canWrite={canWrite} tickets={takesTicket(parent, k.ownerName)} linked={linked}
               saved={async () => { await loadTasks(); onChanged(); }} reload={async () => { await Promise.all([loadTasks(), loadTickets()]); onChanged(); }}
               setErr={setErr} onRemoved={() => { onChanged(); onClose(); }} />
+            {/* its own KPI tracking - not its action's */}
+            <Box sx={{ mt: 1.75, maxWidth: 360 }}>
+              <KpiTrackingField tracked={tracking.tracked} title={tracking.title} canWrite={canWrite} onTrack={onTrack} />
+            </Box>
           </Box>
         )}
       </Box>

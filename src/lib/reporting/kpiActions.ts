@@ -46,6 +46,8 @@ export type KpiTask = {
   statusNote: string;
   /** Its place among its action's sub-actions, as dragged (SARCLA 03.11.2026); null until then. */
   planSort: number | null;
+  /** KPI tracking, its own (SARCLA 04.11.2026): Yes or No, and the KPI of the plan it tracks - its key and its name. */
+  tracked: boolean; trackKpi: string; trackKpiTitle: string;
   createdBy: string; createdAt: string; updatedAt: string; doneAt: string | null;
 };
 /** The action of a plan tile ("plan:12" -> 12), null for a KPI tile. */
@@ -95,6 +97,10 @@ function ensure(): Promise<void> {
       await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS ticket_sync_at timestamptz`);
       // its place among its action's sub-actions, dragged (SARCLA 03.11.2026)
       await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS plan_sort integer`);
+      // KPI tracking on a sub-action, its own (SARCLA 04.11.2026)
+      await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS kpi_tracking boolean NOT NULL DEFAULT false`);
+      await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS kpi_tracking_key text NOT NULL DEFAULT ''`);
+      await query(`ALTER TABLE ${TASKS} ADD COLUMN IF NOT EXISTS kpi_tracking_title text NOT NULL DEFAULT ''`);
       // a sub-action made from an action before 02.11.2026 repeated its name on its description's first line, the
       // workbook's indents in ("the text feels weird"): cleaned once - after it no description starts with its name
       await query(`UPDATE ${TASKS} SET note = btrim(regexp_replace(substr(note, length(title) + 1), E'\\n[ \\t]+', E'\\n', 'g'), E' \\t\\n')
@@ -165,7 +171,7 @@ const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : d == null ? n
 // a date column comes as the local midnight of that day: its own day, read locally - toISOString gave the day before
 // on any server east of UTC (seen on a local copy in Zurich, 01.11.2026)
 const day = (d: unknown) => (d instanceof Date ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : d == null ? null : String(d).slice(0, 10));
-type TaskRow = { id: number; tile: string; page: string; title: string; note: string; owner: string; owner_name: string; due: unknown; status: string; shared: unknown; href: string | null; plan_item?: number | null; stage?: string | null; priority?: string | null; start?: unknown; status_note?: string | null; plan_sort?: number | null; created_by: string; created_at: unknown; updated_at: unknown; done_at: unknown };
+type TaskRow = { id: number; tile: string; page: string; title: string; note: string; owner: string; owner_name: string; due: unknown; status: string; shared: unknown; href: string | null; plan_item?: number | null; stage?: string | null; priority?: string | null; start?: unknown; status_note?: string | null; plan_sort?: number | null; kpi_tracking?: boolean | null; kpi_tracking_key?: string | null; kpi_tracking_title?: string | null; created_by: string; created_at: unknown; updated_at: unknown; done_at: unknown };
 const sharedOf = (x: unknown): SharedPerson[] => {
   const v = typeof x === "string" ? (() => { try { return JSON.parse(x); } catch { return []; } })() : x;
   return Array.isArray(v) ? v.filter((p) => p && typeof p.id === "string") : [];
@@ -175,6 +181,7 @@ const task = (r: TaskRow): KpiTask => ({
   due: day(r.due), status: (TASK_STATUSES as readonly string[]).includes(r.status) ? (r.status as TaskStatus) : "open",
   shared: sharedOf(r.shared), href: r.href ?? "", planItem: r.plan_item ?? planIdOf(r.tile),
   stage: r.stage ?? null, priority: r.priority ?? "", start: day(r.start), statusNote: r.status_note ?? "", planSort: r.plan_sort ?? null,
+  tracked: !!r.kpi_tracking, trackKpi: r.kpi_tracking_key ?? "", trackKpiTitle: r.kpi_tracking_title ?? "",
   createdBy: r.created_by, createdAt: iso(r.created_at) ?? "", updatedAt: iso(r.updated_at) ?? "", doneAt: iso(r.done_at),
 });
 
@@ -208,7 +215,7 @@ export async function taskById(id: number): Promise<KpiTask | null> {
   return r.rows[0] ? task(r.rows[0]) : null;
 }
 
-export async function updateTask(id: number, p: { title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: TaskStatus; shared?: SharedPerson[]; planItem?: number | null; stage?: string | null; priority?: string; start?: string | null; statusNote?: string }): Promise<KpiTask | null> {
+export async function updateTask(id: number, p: { title?: string; note?: string; owner?: string; ownerName?: string; due?: string | null; status?: TaskStatus; shared?: SharedPerson[]; planItem?: number | null; stage?: string | null; priority?: string; start?: string | null; statusNote?: string; tracked?: boolean; trackKpi?: string; trackKpiTitle?: string }): Promise<KpiTask | null> {
   await ensure();
   const sets: string[] = [];
   const vals: unknown[] = [];
@@ -222,6 +229,9 @@ export async function updateTask(id: number, p: { title?: string; note?: string;
   if (p.priority !== undefined) set("priority", p.priority);
   if (p.start !== undefined) set("start", p.start || null);
   if (p.statusNote !== undefined) set("status_note", p.statusNote.slice(0, 4000));
+  if (p.tracked !== undefined) set("kpi_tracking", !!p.tracked);
+  if (p.trackKpi !== undefined) set("kpi_tracking_key", p.trackKpi.slice(0, 200));
+  if (p.trackKpiTitle !== undefined) set("kpi_tracking_title", p.trackKpiTitle.slice(0, 300));
   // the stage decides open / doing / done; open / doing / done set on a KPI tile moves a stage it has to the same
   const status = p.stage !== undefined ? statusOfStage(p.stage) : p.status;
   if (p.stage !== undefined) set("stage", p.stage || null);
