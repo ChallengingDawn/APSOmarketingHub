@@ -5,7 +5,7 @@
 // tickets, who they are shared with, and whether the tile shows In a nutshell (promote / demote).
 // Drop it into a card's header: <TileActions tile={{ key, page, tab, kpiId, title, summary, filters }} />.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Box from "@mui/material/Box";
 import Tooltip from "@mui/material/Tooltip";
 
@@ -13,6 +13,27 @@ import { FAINT, HAIRLINE, TINT } from "@/app/uc/report/ui";
 import type { Placement, TileFormat, TileSpec } from "@/lib/reporting/kpiActions";
 import { ActionsPanel } from "./ActionsPanel";
 import { formatOf, formatsFor, placementOf, refreshActions, send, targetOf, useActions } from "./store";
+import { figureOf, figureText } from "@/lib/reporting/tileFigure";
+
+/**
+ * A target for a tile that has none of its own (SARCLA 04.11.2026, of the KPIs tab: "you should be able also to set a
+ * target"): the figure its words open with is measured against it - a rate in %, euros or francs as they are written, a
+ * count otherwise. Kept under the tile's key, as a chart's own. A chart with its own target keeps it.
+ */
+function targetFor(tile: TileInfo): TileInfo["target"] {
+  if (tile.target) return tile.target;
+  const f = tile.summary ? figureText(tile.summary) : null;
+  if (!f || figureOf(f) == null) return undefined;
+  const unit = f.includes("%") ? "pct" : /€|EUR|CHF/i.test(f) ? "eur" : "n";
+  return { key: tile.key, unit, label: `What it shows - “${tile.summary}” - is measured against it.` };
+}
+/** The tile's figure in its target's terms - a rate as a fraction - for how far it is. */
+const figureFor = (tile: TileInfo): number | null => {
+  if (tile.target || !tile.summary) return null;
+  const f = figureText(tile.summary);
+  const n = f ? figureOf(f) : null;
+  return n == null ? null : f!.includes("%") ? n / 100 : n;
+};
 
 export type TileInfo = {
   /** "<page>:<tab>:<what>", e.g. "reach:seo:R05" or "visit::P02" - the same on the page and in the nutshell */
@@ -30,29 +51,6 @@ export type TileInfo = {
 type Space = number | { xs?: number; md?: number };
 const neg = (e: Space) => (typeof e === "number" ? -e : { xs: -(e.xs ?? 0), md: -(e.md ?? e.xs ?? 0) });
 
-// every graph drawn, said once to the hub - the action plan's KPI library lists them, page by page (reportTiles.ts;
-// SARCLA 03.11.2026: "the individual reports like a library ... hierarchy dynamic"): a few at a time, the hub takes no
-// request over 8 KB
-const said = new Set<string>();
-let queue: { path: string; key: string; title: string; kind: string; kpiId: string | null; summary: string | null }[] = [];
-let wait: ReturnType<typeof setTimeout> | null = null;
-function sayDrawn(t: TileInfo, path: string) {
-  if (!t.key || !t.title) return;
-  // what it shows, once its figure is there: said again when the words change (SARCLA 03.11.2026: "we should see the real KPIs")
-  const id = `${path}#${t.key}#${t.summary ?? ""}`;
-  if (said.has(id)) return;
-  said.add(id);
-  queue.push({ path, key: t.key, title: t.title, kind: t.kind ?? "card", kpiId: t.kpiId ?? null, summary: t.summary ?? null });
-  if (wait) clearTimeout(wait);
-  wait = setTimeout(() => {
-    wait = null;
-    for (const tiles of Array.from({ length: Math.ceil(queue.length / 20) }, (_, i) => queue.slice(i * 20, i * 20 + 20))) {
-      void fetch("/api/reporting/tiles/seen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tiles }), keepalive: true }).catch(() => undefined);
-    }
-    queue = [];
-  }, 2500);
-}
-
 export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.75 } }: {
   tile: TileInfo;
   /** where the tile is shown before anyone moves it: KPI tiles start in the nutshell, page cards on their tab */
@@ -66,12 +64,6 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
 }) {
   const { state } = useActions(where === "nutshell" ? "nutshell" : tile.page);
   const [open, setOpen] = useState(false);
-  // on its own page - a copy in the nutshell counts for the page it comes from, its KPI's figure with it
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (where !== "nutshell") sayDrawn(tile, window.location.pathname);
-    else if (tile.href?.startsWith("/")) sayDrawn(tile, tile.href.split(/[?#]/)[0]);
-  }, [tile.key, tile.title, tile.summary, tile.href, where]); // eslint-disable-line react-hooks/exhaustive-deps
   const c = state?.counts[tile.key] ?? { open: 0, tasks: 0, tickets: 0 };
   const placed = placementOf(state, tile.key, start);
   const running = c.open > 0;
@@ -115,7 +107,8 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
         </Box>
       </Tooltip>
       </Box>
-      {open && <ActionsPanel tile={tile} open={open} onClose={() => setOpen(false)} placed={placed} format={formatOf(state, tile)} formats={formatsFor(tile)} onMove={move} canWrite={state?.canWrite ?? false} target={targetOf(state, tile.target?.key)} />}
+      {open && <ActionsPanel tile={{ ...tile, target: targetFor(tile) }} open={open} onClose={() => setOpen(false)} placed={placed} format={formatOf(state, tile)} formats={formatsFor(tile)} onMove={move}
+        canWrite={state?.canWrite ?? false} target={targetOf(state, targetFor(tile)?.key)} current={figureFor(tile)} />}
     </>
   );
 }

@@ -40,7 +40,6 @@ import { BUC_MEMBERS, KILLED, PRIORITIES, STAGES, isClosed, priorityLabel, stage
 import { LATE, PRIORITY_COLOR, SUMMARY, dmy, stageColor, todayIso, type PlanData } from "./planUi";
 import { ActionTicket, CoreFields, SubActions, label, planTile, square } from "./SubActions";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
-import { PlanKpis } from "./PlanKpis";
 
 const section = { fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
 const card = { display: "grid", rowGap: 1.75, columnGap: 1.25, p: 2, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, alignContent: "start" } as const;
@@ -391,8 +390,7 @@ function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen
   const tiles = subs.filter((s) => s.kpiHref);
   return (
     <Box sx={{ display: "grid", gap: 2.25, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 1fr) minmax(0, 1fr)" }, alignItems: "start" }}>
-      {/* what it is measured by - from Advanced reporting, each with its target (SARCLA 03.11.2026) */}
-      <Box sx={{ gridColumn: "1 / -1", minWidth: 0 }}><PlanKpis item={item} items={items} canWrite={canWrite} onOpen={onOpen} /></Box>
+      {/* no KPIs picked here - they are the KPIs tab's, team by team (SARCLA 04.11.2026: "this KPI like this is a bad idea") */}
 
       {action ? (
         <>

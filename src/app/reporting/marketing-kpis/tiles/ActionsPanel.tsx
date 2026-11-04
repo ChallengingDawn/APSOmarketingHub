@@ -142,7 +142,11 @@ function PlanPick({ value, onChange }: { value: number | null; onChange: (v: num
 
 /** A chart's target (SARCLA 25.10.2026: "allow to enter a threshold so we can measure the rest of it"): typed here, one
  *  for everyone; the chart draws it and says how far each row is from it. Shown only for a chart that can use one. */
-function TargetBox({ tile, value, canWrite }: { tile: TileInfo; value: number | null; canWrite: boolean }) {
+function TargetBox({ tile, value, canWrite, current = null }: {
+  tile: TileInfo; value: number | null; canWrite: boolean;
+  /** what the tile shows now, in the target's terms - for a tile with no chart of its own to draw the target */
+  current?: number | null;
+}) {
   const t = tile.target!;
   const shown = (v: number | null) => (v == null ? "" : t.unit === "pct" ? String(Math.round(v * 1000) / 10) : String(Math.round(v)));
   const [v, setV] = useState(shown(value));
@@ -168,6 +172,15 @@ function TargetBox({ tile, value, canWrite }: { tile: TileInfo; value: number | 
         <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: value == null ? FAINT : INK, fontVariantNumeric: "tabular-nums" }}>{now}</Typography>
       </Box>
       <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{t.label}</Typography>
+      {/* how far it is, where the tile has no chart to draw the target on */}
+      {current != null && value != null && value > 0 && (
+        <Box sx={{ display: "grid", gap: 0.5 }}>
+          <Box sx={{ height: 6, borderRadius: "3px", bgcolor: "#eef1f6", overflow: "hidden" }}>
+            <Box sx={{ height: "100%", width: `${Math.min(1, current / value) * 100}%`, bgcolor: current >= value ? GREEN : current >= value * 0.8 ? TINT.amber.fg : RED }} />
+          </Box>
+          <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: current >= value ? GREEN : current >= value * 0.8 ? TINT.amber.fg : RED }}>{Math.round((current / value) * 100)} % of the target</Typography>
+        </Box>
+      )}
       {canWrite && (
         <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
           <TextField size="small" value={v} onChange={(e) => setV(e.target.value)} label={t.unit === "pct" ? "Target in %" : t.unit === "n" ? "Target" : "Target in EUR"}
@@ -210,11 +223,13 @@ export function useTileActions(tile: TileInfo, open: boolean) {
   return { t, tErr, tasks, err, setErr, loadTickets, loadTasks };
 }
 
-export function ActionsPanel({ tile, open, onClose, placed, format, formats, onMove, canWrite, target = null, plan, onChanged }: {
+export function ActionsPanel({ tile, open, onClose, placed, format, formats, onMove, canWrite, target = null, current = null, plan, onChanged }: {
   tile: TileInfo; open: boolean; onClose: () => void; placed: Placement; format: TileFormat; formats: TileFormat[];
   onMove: (to: Placement, format?: TileFormat) => Promise<void>; canWrite: boolean;
   /** the chart's target now, when the chart takes one */
   target?: number | null;
+  /** what the tile shows now, in its target's terms */
+  current?: number | null;
   /** an action of the action plan (tile "plan:<id>"): its tasks are its sub-actions, there is no BUC View, and a
    *  Scroll to Sale ticket only when Digital Growth leads the action (SARCLA 31.10.2026) */
   plan?: { tickets: boolean };
@@ -293,7 +308,7 @@ export function ActionsPanel({ tile, open, onClose, placed, format, formats, onM
             </Box>
           )}
           <Box sx={{ overflowY: "auto", px: 3, py: 2.5, display: "grid", gap: 1.5, alignContent: "start" }}>
-            {tile.target && <TargetBox tile={tile} value={target} canWrite={canWrite} />}
+            {tile.target && <TargetBox tile={tile} value={target} canWrite={canWrite} current={current} />}
             <Typography sx={section}>{plan ? "Sub-actions" : "Tasks"}{tasks?.length ? ` · ${openCount} open of ${tasks.length}` : ""}</Typography>
             {(err || (tErr && tickets)) && <Typography sx={{ fontSize: "0.88rem", color: RED }}>{err ?? `HubSpot could not be read: ${tErr}`}</Typography>}
             {!tasks ? <CircularProgress size={18} /> : !tasks.length && !loose.length ? (

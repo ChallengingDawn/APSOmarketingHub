@@ -10,9 +10,7 @@ import {
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
-import { figureOf, figureText, flatLibrary, kpiLibrary, libraryTree, numberOf, progressOf, type LibNode } from "../src/lib/reporting/planKpiRules";
-import { REPORT_CATEGORIES } from "../src/lib/reporting/categories";
-import { KPIS } from "../src/lib/marketingKpis/catalogue";
+import { figureOf, figureText, numberOf } from "../src/lib/reporting/tileFigure";
 
 // SARCLA 31.10.2026: the "APSOparts Business Improvement Action Plan" workbook's first tab as a Gantt in the hub,
 // by topic, sub-actions from the KPI tiles, Scroll to Sale tickets only for Digital Growth's actions; the home
@@ -571,31 +569,7 @@ test("action plan: KPIs and next steps still on an action go into its descriptio
   assert.equal(withNotes({ detail: "", kpis: "Expected: More visits", nextSteps: "" }), "Expected result: More visits");
 });
 
-test("action plan: the KPI library is Advanced reporting's reports and the catalogue's KPIs, one entry each, read from them", () => {
-  const lib = kpiLibrary();
-  assert.equal(new Set(lib.map((x) => x.key)).size, lib.length);
-  // every report and page of Advanced reporting's menu: one added or removed there is one here
-  for (const c of REPORT_CATEGORIES) for (const r of c.reports) {
-    assert.ok(lib.some((x) => x.kind === "report" && x.name === r.name && x.path === c.name), r.name);
-    for (const ch of r.children ?? []) assert.ok(lib.some((x) => x.key === `report:${ch.href}`), ch.name);
-  }
-  const r05 = lib.find((x) => x.key === "kpi:R05");
-  assert.equal(r05?.kind, "kpi");
-  assert.equal(r05?.kpiId, "R05");
-  assert.equal(r05?.href, "/reporting/marketing-kpis/reach");
-  // every KPI of the catalogue
-  assert.equal(lib.filter((x) => x.kind === "kpi").length, KPIS.length);
-});
-
-test("action plan: a KPI's way to its target - higher or lower is better, typed figures read as people type them", () => {
-  assert.deepEqual(progressOf(800, 1000), { share: 0.8, state: "close" });
-  assert.deepEqual(progressOf(1200, 1000), { share: 1.2, state: "reached" });
-  assert.equal(progressOf(300, 1000).state, "behind");
-  // lower is better: a cost of 50 against 40 to reach
-  assert.deepEqual(progressOf(50, 40, false), { share: 0.8, state: "close" });
-  assert.equal(progressOf(30, 40, false).state, "reached");
-  assert.deepEqual(progressOf(null, 1000), { share: null, state: "none" });
-  assert.deepEqual(progressOf(500, null), { share: null, state: "none" });
+test("a tile's figures read as people type them", () => {
   assert.equal(numberOf("1'250"), 1250);
   assert.equal(numberOf("1,250"), 1250);
   assert.equal(numberOf("12,5 %"), 12.5);
@@ -605,31 +579,6 @@ test("action plan: a KPI's way to its target - higher or lower is better, typed 
   assert.equal(numberOf("abc"), null);
 });
 
-test("action plan: the KPI library as Advanced reporting's tree - a page's graphs, a graph showing a KPI being that KPI", () => {
-  const tiles = [
-    { path: "/reporting/eso-benchmark/visits", key: "visits:months:all", title: "Visits by month", kind: "card", kpiId: null },
-    { path: "/reporting/marketing-kpis/reach", key: "reach:seo:R05", title: "SEO clicks", kind: "kpi", kpiId: "R05" },
-  ];
-  const tree = libraryTree(tiles);
-  // the categories in the side panel's order, each report with its pages
-  assert.deepEqual(tree.map((c) => c.name), REPORT_CATEGORIES.map((c) => c.name));
-  const all: LibNode[] = [];
-  const walk = (n: LibNode) => { all.push(n); n.children.forEach(walk); };
-  tree.forEach(walk);
-  const visits = all.find((n) => n.key === "report:/reporting/eso-benchmark/visits");
-  assert.equal(visits?.kind, "page");
-  assert.deepEqual(visits?.children.map((n) => [n.kind, n.name, n.key]), [["graph", "Visits by month", "tile:/reporting/eso-benchmark/visits#visits:months:all"]]);
-  // the graph of R05 is the KPI R05, once on its page
-  const reach = all.find((n) => n.key === "report:/reporting/marketing-kpis/reach");
-  assert.equal(reach?.children.filter((n) => n.key === "kpi:R05").length, 1);
-  assert.equal(reach?.children.some((n) => n.kind === "graph"), false);
-  // flat: each once, the graph a "graph", every catalogue KPI there
-  const flat = flatLibrary(tree);
-  assert.equal(new Set(flat.map((x) => x.key)).size, flat.length);
-  assert.equal(flat.find((x) => x.key.startsWith("tile:"))?.kind, "graph");
-  assert.equal(flat.filter((x) => x.kind === "kpi").length, KPIS.length);
-});
-
 test("action plan: a graph's figure is the one its own words open with", () => {
   assert.equal(figureOf("30,216 Jan-Sep, -28% vs last year"), 30216);
   assert.equal(figureOf("12.5% of visits"), 12.5);
@@ -637,36 +586,6 @@ test("action plan: a graph's figure is the one its own words open with", () => {
   assert.equal(figureOf("€1,250 against €1,100"), 1250);
   assert.equal(figureOf("1234 against 1100 · all of ESO"), 1234);
   assert.equal(figureOf("No figure yet"), null);
-  // a library's graph and KPI carry what their page last showed
-  const tree = libraryTree([
-    { path: "/reporting/eso-benchmark/visits", key: "visits:months", title: "Visits by month", kind: "card", kpiId: null, summary: "1,234 against 1,100 · all of ESO", value: 1234, at: "2026-11-03 21:40" },
-    { path: "/reporting/marketing-kpis/handover", key: "handover::H06", title: "Pipeline potential", kind: "kpi", kpiId: "H06", summary: "CHF 812,000 this year so far", value: 812000, at: "2026-11-03 21:41" },
-  ]);
-  const all: LibNode[] = [];
-  const walk = (n: LibNode) => { all.push(n); n.children.forEach(walk); };
-  tree.forEach(walk);
-  assert.equal(all.find((n) => n.key === "tile:/reporting/eso-benchmark/visits#visits:months")?.shown?.value, 1234);
-  assert.equal(all.find((n) => n.key === "kpi:H06")?.shown?.value, 812000);
-});
-
-test("action plan: a whole page picked has its graphs' real figures - the first one its own, the others listed", () => {
-  const tree = libraryTree([
-    { path: "/reporting/eso-benchmark/visits", key: "a", title: "Visits by month", kind: "card", kpiId: null, summary: "1,234 against 1,100", value: 1234, at: "2026-11-04 00:40" },
-    { path: "/reporting/eso-benchmark/visits", key: "b", title: "Visits per sales rep", kind: "card", kpiId: null, summary: "41 · per rep", value: 41, at: "2026-11-04 00:40" },
-    { path: "/reporting/eso-benchmark/visits", key: "c", title: "A leaderboard", kind: "card", kpiId: null },
-  ]);
-  const all: LibNode[] = [];
-  const walk = (n: LibNode) => { all.push(n); n.children.forEach(walk); };
-  tree.forEach(walk);
-  const page = all.find((n) => n.kind === "page" && n.href === "/reporting/eso-benchmark/visits");
-  assert.equal(page?.shown?.value, 1234);
-  assert.equal(page?.shown?.text, "Visits by month: 1,234 against 1,100");
-  assert.deepEqual(page?.parts?.map((x) => [x.name, x.value]), [["Visits by month", 1234], ["Visits per sales rep", 41]]);
-  // the report above it: its pages' figures
-  const eso = all.find((n) => n.kind === "report" && n.name === "ESO KPIs");
-  assert.equal(eso?.shown?.value, 1234);
-  // a page with no graph saying a figure has none
-  assert.equal(all.find((n) => n.kind === "page" && n.href === "/reporting/eso-benchmark/calls")?.shown, undefined);
 });
 
 test("action plan: a graph's figure shown as its words write it", () => {

@@ -17,6 +17,7 @@ import Typography from "@mui/material/Typography";
 import HomeIcon from "@mui/icons-material/Home";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
 import ViewKanbanOutlinedIcon from "@mui/icons-material/ViewKanbanOutlined";
+import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
 import SensorsIcon from "@mui/icons-material/Sensors";
 import AppsIcon from "@mui/icons-material/Apps";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
@@ -145,6 +146,8 @@ export function HomeBar({ on, plan = false }: { on?: string; plan?: boolean }) {
     { name: "Action plan", href: "/action-plan", icon: <DashboardOutlinedIcon />, show: true },
     { name: "Home", href: "/", icon: <HomeIcon />, show: true },
     { name: "From Scroll to Sale", href: "/action-plan/scroll-to-sale", icon: <ViewKanbanOutlinedIcon />, show: true },
+    // each team's KPIs, as their BUC View has them (SARCLA 04.11.2026: "another tab in the header like From Scroll to Sale")
+    { name: "KPIs", href: "/action-plan/kpis", icon: <InsightsOutlinedIcon />, show: true },
   ] : [
     { name: "Home", href: "/", icon: <HomeIcon />, show: true },
     { name: "Applications", href: "/#applications", icon: <AppsIcon />, show: !reads },
