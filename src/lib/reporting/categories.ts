@@ -134,13 +134,14 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
         name: "Back Office KPIs", href: "/reporting/back-office", note: "Team totals, topics, ESO & TSA tickets, GQS, OTD, KPI autonomy, stopped orders - month by month", icon: "bar",
         overview: "BUC View", overviewHref: "/reporting/back-office",
         children: [
+          // each page's glyph the one its BUC View panel wears (SARCLA 04.11.2026: "Team totals icon should be the same as in BUC View")
           { name: "Team totals", href: "/reporting/back-office/figures", icon: "bar" },
-          { name: "Topics", href: "/reporting/back-office/topics", icon: "layers" },
+          { name: "Topics", href: "/reporting/back-office/topics", icon: "category" },
           { name: "ESO & TSA tickets", href: "/reporting/back-office/sales-tickets", icon: "groups" },
-          { name: "GQS", href: "/reporting/back-office/gqs", icon: "description" },
-          { name: "OTD", href: "/reporting/back-office/otd", icon: "verified" },
+          { name: "GQS", href: "/reporting/back-office/gqs", icon: "assignment" },
+          { name: "OTD", href: "/reporting/back-office/otd", icon: "shipping" },
           { name: "KPI autonomy", href: "/reporting/back-office/autonomy", icon: "verified" },
-          { name: "Stopped orders", href: "/reporting/back-office/stopped", icon: "description" },
+          { name: "Stopped orders", href: "/reporting/back-office/stopped", icon: "block" },
         ],
       },
     ],

@@ -25,7 +25,9 @@ export type SubApp = {
 export type IconKey =
   | "groups" | "description" | "inventory" | "bar" | "layers" | "edit" | "photo"
   | "search" | "filter" | "tag" | "sync" | "route" | "health" | "ads" | "target"
-  | "brain" | "template" | "globe" | "bolt" | "cookie" | "verified" | "upload" | "ring" | "shaft" | "science" | "loop" | "chat" | "tree" | "assign" | "copy" | "map";
+  | "brain" | "template" | "globe" | "bolt" | "cookie" | "verified" | "upload" | "ring" | "shaft" | "science" | "loop" | "chat" | "tree" | "assign" | "copy" | "map"
+  // the Back-Office Reports' pages, as their BUC View draws them (SARCLA 04.11.2026: "Team totals icon should be the same as in BUC View")
+  | "category" | "assignment" | "shipping" | "block";
 
 export type HubApp = {
   key: string;

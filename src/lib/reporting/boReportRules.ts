@@ -88,21 +88,36 @@ export type OrderRec = {
   arts?: (string | null)[]; lpcs?: (string | null)[];
   /** its net value as booked (order_total_net_revenue) */
   value?: number;
+  /** its lines' net revenue, beside `arts` (order_line_NN_revenue) - what an article named on a ticket is worth */
+  revs?: (number | null)[];
 };
 /** what a profit centre field holds when it names none */
 const noPc = (x: string | null | undefined) => !x || !x.trim() || /^unknown$/i.test(x.trim());
-const isCredit = (r: OrderRec) => /credit/i.test(r.type ?? "") || /credit/i.test(r.status ?? "");
+export const isCredit = (r: OrderRec) => /credit/i.test(r.type ?? "") || /credit/i.test(r.status ?? "");
+/** an order number without its delivery's suffix (.000, .001 ...) - the ERP and the shop number alike */
+export const baseOf = (n: string) => n.replace(/\.\d+$/, "");
+/**
+ * A profit centre as a code, from wherever it is written: Products & Pricing's profit_center, a company's
+ * major_profit_center ("DT", "KT" ... or "No sales" / "Mix different PC", which name none) - "" when it names none.
+ */
+export function pcCode(x: string | null | undefined): string {
+  const s = (x ?? "").trim();
+  if (!s || /^unknown$/i.test(s) || /no sales|mix/i.test(s)) return "";
+  const m = s.match(/\b(DT|KT|FT|ST|AT|PW)\b/i);
+  if (m) return m[1].toUpperCase();
+  return /^[A-Za-z]{2,4}$/.test(s) ? s.toUpperCase() : "";
+}
 /**
  * The month's orders the way the Back Office counts them: an order number once, whatever its deliveries (.001, .002 ...)
  * and whichever system wrote it (the ERP and the shop number them alike), credit notes out; its lines = the largest line
  * count among its deliveries. June to September 2026, with the shop's records in: 1.5 to 4 % from the workbook's figures.
  */
-export function orderTally(rows: OrderRec[], pcOfArticle: (article: string) => string | null = () => null): { orders: number; lines: number; pcs: Record<string, number>; linePcs: Record<string, number>; valuePcs: Record<string, number>; pcOfNumber: Map<string, string> } {
+export function orderTally(rows: OrderRec[], pcOfArticle: (article: string) => string | null = () => null, fallback: (base: string) => string | null | undefined = () => null): { orders: number; lines: number; pcs: Record<string, number>; linePcs: Record<string, number>; valuePcs: Record<string, number>; pcOfNumber: Map<string, string>; valueOfNumber: Map<string, number> } {
   const most = new Map<string, number>(), pcOf = new Map<string, string>(), widest = new Map<string, OrderRec>(), worth = new Map<string, number>();
   const named = (r: OrderRec | undefined) => (r?.arts ?? []).filter(Boolean).length;
   for (const r of rows) {
     if (isCredit(r) || !r.number) continue;
-    const base = r.number.replace(/\.\d+$/, "");
+    const base = baseOf(r.number);
     most.set(base, Math.max(most.get(base) ?? 0, r.lines || 0));
     worth.set(base, Math.max(worth.get(base) ?? 0, r.value || 0));
     // its profit centre: any of its records that names one
@@ -125,11 +140,14 @@ export function orderTally(rows: OrderRec[], pcOfArticle: (article: string) => s
       for (const x of ls) by[x] = (by[x] ?? 0) + 1;
       k = Object.entries(by).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0][0];
     }
+    // none on the order nor its lines: its customer's main profit centre (SARCLA 04.11.2026: "WHY DO WE STILL HAVE No profit
+    // centre - we should not have")
+    if (!k) k = pcCode(fallback(base));
     pcs[k] = (pcs[k] ?? 0) + 1;
     valuePcs[k] = (valuePcs[k] ?? 0) + (worth.get(base) ?? 0);
     pcOfNumber.set(base, k);
   }
-  return { orders: most.size, lines, pcs, linePcs, valuePcs, pcOfNumber };
+  return { orders: most.size, lines, pcs, linePcs, valuePcs, pcOfNumber, valueOfNumber: worth };
 }
 
 /**
@@ -214,9 +232,25 @@ export function originOf(topic: string | null | undefined, chat: boolean, object
  * closed (by close date): [day, topic, owner, origin, company] - owner and company as HubSpot ids ("" none).
  */
 export type BoRows = { dict: string[]; created: number[][]; closed: number[][]; ids?: string[]; cids?: string[] };
-export const RW = { day: 0, topic: 1, owner: 2, origin: 3, close: 4, reply: 5, c2s: 6, tone: 7, company: 8, pc: 9 } as const;
+/** from version 6 on, after `pc`: the net value of the ticket's orders (CHF and EUR as booked, whole), its articles
+ *  ("article:line value|..." in `dict`, "" none) and where its profit centre was found (PC_FROM) */
+export const RW = { day: 0, topic: 1, owner: 2, origin: 3, close: 4, reply: 5, c2s: 6, tone: 7, company: 8, pc: 9, value: 10, arts: 11, from: 12 } as const;
 export const RCL = { day: 0, topic: 1, owner: 2, origin: 3, company: 4 } as const;
-export type RowTicket = { id?: string; pc?: string | null; day: number; topic: string | null; owner: string | null; origin: string; toClose?: number | null; toReply?: number | null; c2s?: boolean; tone?: string | null; company: string | null };
+export type RowTicket = {
+  id?: string; pc?: string | null; day: number; topic: string | null; owner: string | null; origin: string; toClose?: number | null; toReply?: number | null; c2s?: boolean; tone?: string | null; company: string | null;
+  /** the net value of its orders, its articles with their line's value, where its profit centre came from (PC_FROM) */
+  value?: number | null; arts?: [string, number][]; from?: number;
+};
+/**
+ * Where a ticket's profit centre was found (SARCLA 04.11.2026: "WHY DO WE STILL HAVE No profit centre"): its linked
+ * order's (the order's own, else most of its lines', else its customer's); else the articles named on the ticket
+ * (Products & Pricing's profit centre); else its customer's main profit centre (major_profit_center). None found: why -
+ * its customer buys across profit centres (4) or has bought nothing yet (5); no customer at all (0).
+ */
+export const PC_FROM = ["Not found", "Its order", "The articles named on it", "The customer's main profit centre", "Customer buying across profit centres", "Customer with no purchase yet"] as const;
+/** a ticket's articles as kept: "article:value|article:value" */
+export const artsText = (xs: [string, number][] | undefined) => (xs ?? []).map(([a, v]) => `${a}:${Math.round(v)}`).join("|");
+export const artsOf = (s: string | undefined): [string, number][] => (s ? s.split("|").map((x) => { const i = x.lastIndexOf(":"); return [x.slice(0, i), Number(x.slice(i + 1)) || 0] as [string, number]; }) : []);
 export function rowsOf(created: RowTicket[], closed: RowTicket[]): BoRows {
   const dict: string[] = [], at = new Map<string, number>();
   const ix = (x: string | null | undefined) => { const k = (x ?? "").trim(); let i = at.get(k); if (i === undefined) { i = dict.push(k) - 1; at.set(k, i); } return i; };
@@ -224,7 +258,8 @@ export function rowsOf(created: RowTicket[], closed: RowTicket[]): BoRows {
   return {
     dict,
     // the ticket's profit centre: its linked order's ("" - no order linked)
-    created: created.map((t) => [t.day, ix(t.topic), ix(t.owner), ix(t.origin), tenths(t.toClose), tenths(t.toReply), t.c2s ? 1 : 0, ix((t.tone ?? "").toLowerCase()), ix(t.company), ix(t.pc)]),
+    created: created.map((t) => [t.day, ix(t.topic), ix(t.owner), ix(t.origin), tenths(t.toClose), tenths(t.toReply), t.c2s ? 1 : 0, ix((t.tone ?? "").toLowerCase()), ix(t.company), ix(t.pc),
+      Math.round(t.value ?? 0), ix(artsText(t.arts)), t.from ?? 0]),
     closed: closed.map((t) => [t.day, ix(t.topic), ix(t.owner), ix(t.origin), ix(t.company)]),
     // each ticket's HubSpot id, beside its row - the lists of tickets behind a graph (SARCLA 03.11.2026)
     ids: created.map((t) => t.id ?? ""), cids: closed.map((t) => t.id ?? ""),

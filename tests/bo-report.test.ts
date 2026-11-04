@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  RW, WORKBOOK_TYPED, articlePcs, checkTyped, emptyMonth, filteredMonth, gqsTally, inboundByMonth, kpisOf, monthStart, monthsBetween, orderTally, originOf, passes,
-  pcFinder, rowsOf, sumMonths, swissDay, ticketTally, type BoMonth,
+  PC_FROM, RW, WORKBOOK_TYPED, articlePcs, artsOf, artsText, baseOf, checkTyped, emptyMonth, filteredMonth, gqsTally, inboundByMonth, kpisOf, monthStart, monthsBetween, orderTally, originOf, passes,
+  pcCode, pcFinder, rowsOf, sumMonths, swissDay, ticketTally, type BoMonth,
 } from "../src/lib/reporting/boReportRules";
 
 // SARCLA 02.11.2026: "and the back office reports based on file?" - the Back Office's KPI workbook worked out live. The
@@ -193,4 +193,49 @@ test("the tickets one by one, filtered: the month's ticket figures counted again
   // a company without facts is "Not set"
   assert.equal(passes({ category: ["Not set"] }, co, { topic: "", owner: "", origin: "Customer", company: "c9" }), true);
   assert.equal(passes({ topic: ["No topic"] }, co, { topic: "", owner: "", origin: "Customer", company: "" }), true);
+});
+
+// SARCLA 04.11.2026: "WHY DO WE STILL HAVE No profit centre - we should not have" - a profit centre for every ticket and
+// order that can have one: the order's own, most of its lines', its customer's main one; the reason when there is none.
+test("a profit centre as a code, wherever it is written - none for 'No sales', 'Mix different PC', 'Unknown'", () => {
+  assert.equal(pcCode("KT"), "KT");
+  assert.equal(pcCode(" dt "), "DT");
+  assert.equal(pcCode("FT - Fluid Technology"), "FT");
+  assert.equal(pcCode("No sales"), "");
+  assert.equal(pcCode("Mix different PC"), "");
+  assert.equal(pcCode("Unknown"), "");
+  assert.equal(pcCode(null), "");
+  assert.equal(pcCode("WS"), "WS");
+  assert.equal(baseOf("A26.123456.001"), "A26.123456");
+});
+
+test("an order naming no profit centre, its lines none either: its customer's main one; the value per order number kept", () => {
+  const recs = [
+    { number: "100.000", type: null, status: null, lines: 2, pc: null, arts: [null], lpcs: [null], value: 500 },
+    { number: "100.001", type: null, status: null, lines: 2, pc: null, arts: [null], lpcs: [null], value: 450 },
+    { number: "200.000", type: null, status: null, lines: 1, pc: "Unknown", arts: ["9999"], lpcs: [null], value: 80 },
+  ];
+  const none = orderTally(recs);
+  assert.equal(none.pcOfNumber.get("100"), "");
+  const o = orderTally(recs, () => null, (b) => (b === "100" ? "Major KT, then DT" : b === "200" ? "Mix different PC" : null));
+  assert.equal(o.pcOfNumber.get("100"), "KT");
+  assert.equal(o.pcOfNumber.get("200"), "");
+  assert.deepEqual(o.pcs, { KT: 1, "": 1 });
+  assert.equal(o.valueOfNumber.get("100"), 500);
+  assert.equal(o.valuePcs.KT, 500);
+});
+
+test("a ticket's order value, its articles and where its profit centre came from - kept after its profit centre", () => {
+  const rows = rowsOf([
+    { day: 1, topic: "Delivery", owner: "1", origin: "Customer", company: "c1", pc: "KT", value: 1234.4, arts: [["1120030001", 245.5], ["4000:1", 10]], from: 1 },
+    { day: 2, topic: "Spam or advertising", owner: "", origin: "Automatic & internal", company: "", pc: "", from: 0 },
+  ], []);
+  const [a, b] = rows.created;
+  assert.equal(rows.dict[a[RW.pc]], "KT");
+  assert.equal(a[RW.value], 1234);
+  assert.deepEqual(artsOf(rows.dict[a[RW.arts]]), [["1120030001", 246], ["4000:1", 10]]);
+  assert.equal(PC_FROM[a[RW.from]], "Its order");
+  assert.equal(b[RW.value], 0);
+  assert.deepEqual(artsOf(rows.dict[b[RW.arts]]), []);
+  assert.equal(artsText([["A", 1.6]]), "A:2");
 });

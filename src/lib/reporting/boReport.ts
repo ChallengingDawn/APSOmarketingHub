@@ -18,19 +18,26 @@
 
 import { query } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
-import { associations, batchRead, read, searchAll, type Filter } from "@/lib/lifecycle/read";
+import { associations, batchRead, read, searchAll, type Filter, type Rec } from "@/lib/lifecycle/read";
 import { workingHours } from "@/lib/marketingKpis/handoverCube";
 import { prioBand, prioOf } from "./esoRules";
 import { isC2s } from "@/lib/boDetection/figures";
 import {
-  articlePcs, gqsTally, monthStart, monthsBetween, nextMonth, orderTally, originOf, pcFinder, rowsOf, swissDay, ticketTally,
-  type BoMonth, type CoFacts, type GqsMonth, type RowTicket,
+  RW, articlePcs, artsOf, baseOf, gqsTally, isCredit, monthStart, monthsBetween, nextMonth, orderTally, originOf, pcCode, pcFinder, rowsOf, swissDay, ticketTally,
+  type BoMonth, type CoFacts, type GqsMonth, type OrderRec, type RowTicket,
 } from "./boReportRules";
 
 /** a kept month of another version is counted again (2: the C2S tickets, the tones, the orders by profit centre; 3: the
  *  tickets one by one, the tickets closed, the orders' profit centre from their lines; 4: each ticket's id, for the lists;
- *  5: each ticket's profit centre - its linked order's - and the orders' value by profit centre) */
-const VERSION = 5;
+ *  5: each ticket's profit centre - its linked order's - and the orders' value by profit centre; 6: a profit centre for
+ *  every ticket and order that can have one - Products & Pricing's for an article no order line names, the customer's
+ *  main one last - and each ticket's order value and articles, for the topics per article, per profit centre, in value) */
+const VERSION = 6;
+/** Products & Pricing, the articles' own record (article_number, profit_center, description, main group) */
+const PP_OBJ = "2-200042439";
+const PP_PROPS = ["article_number", "article_description", "profit_center", "main_group_description"];
+/** an article as the pages name it: [its description, its profit centre, its main group] */
+export type ArtInfo = [string, string, string];
 const HOUR = 3_600_000, WEEK = 7 * 24 * HOUR;
 const LEASE_STALE_MS = 3 * 60_000;
 const PIPE = { bo: "1726786777", eso: "1726599376", tsa: "1726599377", gqs: "1726786775" } as const;
@@ -42,7 +49,13 @@ const GQS_OPEN = "hs_v2_date_entered_2338266316", GQS_SENT = ["hs_v2_date_entere
 const GQS_VERSION = 4;
 /** Back Office: entered "Redirected from chat" - the chat handed it over */
 const REDIRECTED = "hs_v2_date_entered_2554860732";
-const KV = { month: (ym: string) => `boReport:month:${ym}`, chat: (ym: string) => `boReport:chat:${ym}`, gqs: "boReport:gqs", lease: "boReport:lease", companies: "boReport:companies", articles: "boReport:articles" };
+const KV = {
+  month: (ym: string) => `boReport:month:${ym}`, chat: (ym: string) => `boReport:chat:${ym}`, gqs: "boReport:gqs", lease: "boReport:lease", companies: "boReport:companies", articles: "boReport:articles",
+  /** the articles Products & Pricing was asked for and does not know (or names no profit centre for) - not asked again */
+  ppMiss: "boReport:ppMiss",
+  /** the articles on the tickets, named for the pages: description, profit centre, main group */
+  artInfo: "boReport:artInfo",
+};
 /**
  * A chat ticket's handling (SARCLA 03.11.2026: "a tab chat handling - per person how much time people take to call the
  * customer, if they close with activity"): [ticket id, owner id, the first contact (0 none, 1 call, 2 e-mail sent,
@@ -68,6 +81,8 @@ export type BoRead = {
   pending: string[]; counting: boolean; progress: string | null; error: string | null;
   /** the months shown with their earlier count while they are counted again (a new version after a release) */
   updating: string[];
+  /** the articles on the tickets kept: description, profit centre, main group */
+  arts?: Record<string, ArtInfo>;
 };
 
 const between = (prop: string, ym: string): Filter[] => [
@@ -86,8 +101,77 @@ async function ticketCount(filters: Filter[]): Promise<number> {
   return r.total;
 }
 
-/** what a month's read adds to the whole count: the articles' profit centres learnt, the companies met */
-type Learnt = { arts: Record<string, string>; companies: Set<string> };
+/** what a month's read adds to the whole count: the articles' profit centres learnt, the companies met, the articles
+ *  Products & Pricing does not know, the tickets' articles named, the companies' main profit centres */
+type Learnt = { arts: Record<string, string>; companies: Set<string>; miss: Set<string>; info: Record<string, ArtInfo>; coPc: Map<string, string>; coRaw: Map<string, string> };
+
+const clip = (s: string | null | undefined, n = 70) => { const t = (s ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
+/** Products & Pricing's records of some articles, 100 article numbers a search - each found one named and its profit
+ *  centre learnt, the others remembered as unknown so they are not asked again. */
+async function ppLearn(arts: string[], learnt: Learnt, say: (s: string) => void): Promise<void> {
+  const want = [...new Set(arts.map((a) => a.trim()).filter((a) => a && !learnt.miss.has(a) && !(a in learnt.info)))];
+  for (let i = 0; i < want.length; i += 100) {
+    const chunk = want.slice(i, i + 100);
+    say(`the articles in Products & Pricing · ${Math.min(i + 100, want.length).toLocaleString("en")} of ${want.length.toLocaleString("en")}`);
+    const r = await read<{ results?: Rec[] }>({
+      path: `/crm/v3/objects/${PP_OBJ}/search`, method: "POST",
+      body: { filterGroups: [{ filters: [{ propertyName: "article_number", operator: "IN", values: chunk }] }], properties: PP_PROPS, limit: 200 },
+    });
+    const found = new Set<string>();
+    for (const x of r.results ?? []) {
+      const p = x.properties ?? {}, a = (p.article_number ?? "").trim(), pc = pcCode(p.profit_center);
+      if (!a) continue;
+      found.add(a);
+      learnt.info[a] = [clip(p.article_description), pc, clip(p.main_group_description, 50)];
+      if (pc && !learnt.arts[a]) learnt.arts[a] = pc;
+    }
+    for (const a of chunk) if (!found.has(a)) learnt.miss.add(a);
+  }
+}
+/** The companies' main profit centre (major_profit_center) - read once a count, those not read yet. */
+async function companyPcs(ids: string[], learnt: Learnt): Promise<void> {
+  const want = [...new Set(ids)].filter((id) => id && !learnt.coPc.has(id));
+  if (!want.length) return;
+  for (const c of await batchRead("companies", want, ["major_profit_center"])) { learnt.coPc.set(String(c.id), pcCode(c.properties?.major_profit_center)); learnt.coRaw.set(String(c.id), (c.properties?.major_profit_center ?? "").trim()); }
+  for (const id of want) if (!learnt.coPc.has(id)) learnt.coPc.set(id, "");
+}
+/** An order record as the count reads it. */
+const recOf = (p: Record<string, string | null>, number: string | null): OrderRec => ({
+  number, type: p.order_order_type ?? null, status: p.order_order_status ?? null,
+  lines: Number(p.order_line_count) || Number(p.order_item_count) || 0, pc: p.order_profit_center ?? null,
+  arts: LINES.map((i) => p[`order_line_${i}_article`] ?? null), lpcs: LINES.map((i) => p[`order_line_${i}_pc`] ?? null),
+  revs: LINES.map((i) => (p[`order_line_${i}_revenue`] == null || p[`order_line_${i}_revenue`] === "" ? null : Number(p[`order_line_${i}_revenue`]) || 0)),
+  value: Number(p.order_total_net_revenue) || 0,
+});
+const ORDER_PROPS = ["order_order_number", "order_order_type", "order_order_status", "order_line_count", "order_item_count", "order_profit_center", "order_total_net_revenue",
+  ...LINES.flatMap((i) => [`order_line_${i}_article`, `order_line_${i}_pc`, `order_line_${i}_revenue`])];
+/** Some order records' profit centres: the order's own, else most of its lines' (Products & Pricing asked for the articles
+ *  not known), else its customer's main one. */
+async function tallyWithPcs(recs: { id: string; rec: OrderRec }[], learnt: Learnt, say: (s: string) => void) {
+  const rs = recs.map((x) => x.rec);
+  Object.assign(learnt.arts, articlePcs(rs));
+  try {
+    await ppLearn(rs.flatMap((r) => (r.arts ?? []).filter((a): a is string => !!a && !learnt.arts[a.trim()])), learnt, say);
+  } catch (e) {
+    console.error(`[bo-report] Products & Pricing could not be read: ${String((e as Error)?.message ?? e)}`);
+  }
+  const find = pcFinder(learnt.arts);
+  let o = orderTally(rs, find);
+  // the orders still without one: their customer's main profit centre
+  const blank = recs.filter((x) => x.rec.number && !isCredit(x.rec) && o.pcOfNumber.get(baseOf(x.rec.number)) === "");
+  if (blank.length) {
+    try {
+      const co = await associations("orders", "companies", blank.map((x) => x.id));
+      await companyPcs([...co.values()].flat(), learnt);
+      const byBase = new Map<string, string>();
+      for (const x of blank) { const pc = (co.get(x.id) ?? []).map((c) => learnt.coPc.get(c) ?? "").find(Boolean); if (pc && !byBase.has(baseOf(x.rec.number!))) byBase.set(baseOf(x.rec.number!), pc); }
+      if (byBase.size) o = orderTally(rs, find, (b) => byBase.get(b));
+    } catch (e) {
+      console.error(`[bo-report] the orders' companies could not be read: ${String((e as Error)?.message ?? e)}`);
+    }
+  }
+  return o;
+}
 
 async function readMonth(ym: string, say: (s: string) => void, learnt: Learnt): Promise<BoMonth> {
   const num = (x: string | null | undefined) => (x == null || x === "" ? null : Number(x));
@@ -123,35 +207,73 @@ async function readMonth(ym: string, say: (s: string) => void, learnt: Learnt): 
   const tsa = await ticketCount([pipe(PIPE.tsa), ...between("createdate", ym)]);
   const all = await ticketCount(between("createdate", ym));
   say(`${ym}: the orders`);
-  const orders = await searchAll("orders", [between("order_order_date", ym)],
-    ["order_order_number", "order_order_type", "order_order_status", "order_line_count", "order_item_count", "order_profit_center", "order_total_net_revenue", ...LINES.flatMap((i) => [`order_line_${i}_article`, `order_line_${i}_pc`])],
-    (n) => say(`${ym}: the orders · ${n.toLocaleString("en")}`));
-  const recs = orders.map((r) => ({
-    number: r.properties?.order_order_number ?? null, type: r.properties?.order_order_type ?? null, status: r.properties?.order_order_status ?? null,
-    lines: Number(r.properties?.order_line_count) || Number(r.properties?.order_item_count) || 0, pc: r.properties?.order_profit_center ?? null,
-    arts: LINES.map((i) => r.properties?.[`order_line_${i}_article`] ?? null), lpcs: LINES.map((i) => r.properties?.[`order_line_${i}_pc`] ?? null),
-    value: Number(r.properties?.order_total_net_revenue) || 0,
-  }));
-  Object.assign(learnt.arts, articlePcs(recs));
-  const find = pcFinder(learnt.arts);
-  const o = orderTally(recs, find);
-  // each ticket's profit centre: its linked order's (SARCLA 04.11.2026: "see per profit centre which types of tickets") -
-  // the month's orders by their record, the others read; none linked: ""
-  say(`${ym}: the tickets' orders`);
+  const orders = await searchAll("orders", [between("order_order_date", ym)], ORDER_PROPS, (n) => say(`${ym}: the orders · ${n.toLocaleString("en")}`));
+  const recs = orders.map((r) => ({ id: String(r.id), rec: recOf(r.properties ?? {}, r.properties?.order_order_number ?? null) }));
+  const o = await tallyWithPcs(recs, learnt, (s) => say(`${ym}: ${s}`));
+  // Each ticket's profit centre, the value of its orders and its articles (SARCLA 04.11.2026: "see per profit centre which
+  // types of tickets", "WHY DO WE STILL HAVE No profit centre", "per article, per profit centre, value"): its linked
+  // orders' - the month's by their record, the others read - else the articles named on it, else its customer's main one.
+  say(`${ym}: the tickets' orders and articles`);
   try {
-    const linked = await associations("tickets", "orders", created.map((c) => c.id!).filter(Boolean));
-    const recPc = new Map<string, string>();
-    orders.forEach((r, i) => { const n = recs[i].number; if (n) recPc.set(String(r.id), o.pcOfNumber.get(n.replace(/\.\d+$/, "")) ?? ""); });
-    const missing = [...new Set([...linked.values()].flat())].filter((id) => !recPc.has(id));
-    for (const r of await batchRead("orders", missing, ["order_profit_center", ...LINES.flatMap((i) => [`order_line_${i}_article`, `order_line_${i}_pc`])])) {
-      const p = r.properties ?? {};
-      const one = orderTally([{ number: String(r.id), type: null, status: null, lines: 1, pc: p.order_profit_center ?? null, arts: LINES.map((i) => p[`order_line_${i}_article`] ?? null), lpcs: LINES.map((i) => p[`order_line_${i}_pc`] ?? null) }], find);
-      recPc.set(String(r.id), [...one.pcOfNumber.values()][0] ?? "");
+    const ids = created.map((c) => c.id!).filter(Boolean);
+    const linked = await associations("tickets", "orders", ids);
+    type Linked = { base: string; pc: string; value: number; lines: [string, number][] };
+    const linesOf = (r: OrderRec): [string, number][] => (r.arts ?? []).flatMap((a, i) => (a && a.trim() ? [[a.trim(), r.revs?.[i] ?? 0] as [string, number]] : []));
+    const byRec = new Map<string, Linked>();
+    const put = (id: string, r: OrderRec, t: { pcOfNumber: Map<string, string>; valueOfNumber: Map<string, number> }) => {
+      if (!r.number) return;
+      const b = baseOf(r.number);
+      byRec.set(id, { base: b, pc: t.pcOfNumber.get(b) ?? "", value: t.valueOfNumber.get(b) ?? r.value ?? 0, lines: linesOf(r) });
+    };
+    for (const x of recs) put(x.id, x.rec, o);
+    const missing = [...new Set([...linked.values()].flat())].filter((id) => !byRec.has(id));
+    if (missing.length) {
+      const other = (await batchRead("orders", missing, ORDER_PROPS)).map((r) => ({ id: String(r.id), rec: recOf(r.properties ?? {}, r.properties?.order_order_number || String(r.id)) }));
+      const ot = await tallyWithPcs(other, learnt, (s) => say(`${ym}: ${s}`));
+      for (const x of other) put(x.id, x.rec, ot);
+    }
+    // the articles named on the tickets (the hub's ticket associations link them to Products & Pricing) - a failure here
+    // leaves the tickets their orders' profit centres
+    let named = new Map<string, string[]>();
+    const ppArt = new Map<string, string>();
+    try {
+      named = await associations("tickets", PP_OBJ, ids);
+      const ppIds = [...new Set([...named.values()].flat())];
+      if (ppIds.length) {
+        for (const x of await batchRead(PP_OBJ, ppIds, PP_PROPS)) {
+          const p = x.properties ?? {}, a = (p.article_number ?? "").trim();
+          if (!a) continue;
+          ppArt.set(String(x.id), a);
+          learnt.info[a] = [clip(p.article_description), pcCode(p.profit_center), clip(p.main_group_description, 50)];
+        }
+      }
+    } catch (e) {
+      console.error(`[bo-report] ${ym}: the articles named on the tickets could not be read: ${String((e as Error)?.message ?? e)}`);
     }
     for (const c of created) {
-      const os = linked.get(c.id ?? "") ?? [];
-      c.pc = os.length ? os.map((id) => recPc.get(id) ?? "").find(Boolean) || "No profit centre" : "";
+      const os = [...new Map((linked.get(c.id ?? "") ?? []).map((id) => byRec.get(id)).filter((x): x is Linked => !!x).map((x) => [x.base, x] as const)).values()];
+      const lines = os.flatMap((x) => x.lines);
+      const arts = [...new Set((named.get(c.id ?? "") ?? []).map((id) => ppArt.get(id)).filter((a): a is string => !!a))];
+      c.value = os.reduce((s, x) => s + x.value, 0);
+      // the articles named on it, with their line's value where its order holds them; else its orders' lines, the largest first
+      c.arts = arts.length ? arts.slice(0, 5).map((a) => [a, lines.filter(([x]) => x === a).reduce((s, [, v]) => s + v, 0)] as [string, number])
+        : [...lines].sort((a, b) => b[1] - a[1]).slice(0, 5);
+      const pcOrder = os.map((x) => x.pc).find(Boolean);
+      const byArt: Record<string, number> = {};
+      for (const a of arts) { const pc = learnt.info[a]?.[1] || learnt.arts[a]; if (pc) byArt[pc] = (byArt[pc] ?? 0) + 1; }
+      const pcArt = Object.entries(byArt).sort((x, y) => y[1] - x[1])[0]?.[0];
+      if (pcOrder) { c.pc = pcOrder; c.from = 1; } else if (pcArt) { c.pc = pcArt; c.from = 2; } else { c.pc = ""; c.from = 0; }
     }
+    // the rest: the customer's main profit centre
+    const rest = created.filter((c) => !c.pc && c.company);
+    if (rest.length) {
+      await companyPcs(rest.map((c) => c.company!), learnt).catch((e) => console.error(`[bo-report] ${ym}: the companies' profit centres could not be read: ${String((e as Error)?.message ?? e)}`));
+      // none: a customer buying across profit centres (4), or one with no purchase yet (5)
+      for (const c of rest) { const pc = learnt.coPc.get(c.company!); if (pc) { c.pc = pc; c.from = 3; } else c.from = /mix/i.test(learnt.coRaw.get(c.company!) ?? "") ? 4 : 5; }
+    }
+    // the articles on the tickets named for the pages - those not named yet asked of Products & Pricing
+    await ppLearn(created.flatMap((c) => (c.arts ?? []).map(([a]) => a)), learnt, (s) => say(`${ym}: ${s}`))
+      .catch((e) => console.error(`[bo-report] ${ym}: the tickets' articles could not be named: ${String((e as Error)?.message ?? e)}`));
   } catch (e) {
     console.error(`[bo-report] ${ym}: the tickets' orders could not be read: ${String((e as Error)?.message ?? e)}`);
   }
@@ -260,11 +382,20 @@ function count(todo: string[], gqsDue: boolean, chatTodo: string[] = []): void {
   void (async () => {
     try {
       await beat();
-      const learnt: Learnt = { arts: (await kvGet<Record<string, string>>(KV.articles)) ?? {}, companies: new Set() };
+      const learnt: Learnt = {
+        arts: (await kvGet<Record<string, string>>(KV.articles)) ?? {}, companies: new Set(), miss: new Set((await kvGet<string[]>(KV.ppMiss)) ?? []),
+        info: (await kvGet<Record<string, ArtInfo>>(KV.artInfo)) ?? {}, coPc: new Map(), coRaw: new Map(),
+      };
       for (const [i, ym] of todo.entries()) {
         const m = await readMonth(ym, (s) => say(`month ${i + 1} of ${todo.length} · ${s}`), learnt);
         await kvSet(KV.month(ym), { ...m, v: VERSION, at: new Date().toISOString() } satisfies Kept);
         await kvSet(KV.articles, learnt.arts);
+        await kvSet(KV.ppMiss, [...learnt.miss]);
+        // only the articles on the tickets go to the pages
+        const onTickets = new Set(m.rows?.created.flatMap((r) => artsOf(m.rows!.dict[r[RW.arts]]).map(([a]) => a)) ?? []);
+        const kept = (await kvGet<Record<string, ArtInfo>>(KV.artInfo)) ?? {};
+        for (const a of onTickets) if (learnt.info[a]) kept[a] = learnt.info[a];
+        await kvSet(KV.artInfo, kept);
       }
       for (const [i, ym] of chatTodo.entries()) {
         const rows = await readChat(ym, (s) => say(`chat ${i + 1} of ${chatTodo.length} · ${s}`));
@@ -307,9 +438,10 @@ export async function boReportNow(): Promise<BoRead> {
   const have = months.flatMap((ym) => (usable(kept.get(ym)) ? [kept.get(ym)!] : []));
   const newest = [...have.map((m) => m.at), g?.at ?? ""].sort().pop() ?? "";
   const elsewhere = !state.running && !(await leaseFree());
+  const arts = (await kvGet<Record<string, ArtInfo>>(KV.artInfo).catch(() => null)) ?? {};
   return {
     generatedAt: newest || new Date(now).toISOString(), months: have,
     chat: Object.fromEntries([...chats].filter(([, k]) => k.v === CHAT_VERSION).map(([ym, k]) => [ym, k.rows])), gqs: g?.v === GQS_VERSION ? g.months : [], current, today,
-    pending, updating, counting: state.running || elsewhere, progress: state.running ? state.progress : elsewhere ? "counting on another copy of the hub" : null, error: state.error,
+    pending, updating, arts, counting: state.running || elsewhere, progress: state.running ? state.progress : elsewhere ? "counting on another copy of the hub" : null, error: state.error,
   };
 }
