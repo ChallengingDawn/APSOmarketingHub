@@ -6,7 +6,7 @@ import {
   IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, foldedDetail, mainStage, namesSalesLeaders, isDigitalGrowth, isLate, dueSoon, subLate, subOrder, placeSub, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
   stateOfStage, stageOfStatus, statusOfStage, sharedTicketSync, subPct, subStage, subTicketSync, subsSpan, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
-  isDgPerson, takesTicket, subSoon, withNotes, NOBODY, actionMatches, subMatches, isFiltering, ticketsShown, type PlanFilter,
+  isDgPerson, takesTicket, subSoon, withNotes, NOBODY, actionMatches, subMatches, subsFound, searchWords, fold, isFiltering, ticketsShown, type PlanFilter,
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
@@ -637,8 +637,9 @@ test("action plan: a sub-action is found by its own name and person, its action 
   assert.equal(subMatches(free, a, byName, "2026-11-04"), false);
   // by its person's name: Ben's sub-action, under Anna's action
   assert.equal(subMatches(wiki, a, { ...NONE, q: "ben" }, "2026-11-04"), true);
-  // a word of its action's finds all of them; the action's person only those with no person of their own
-  assert.equal(subMatches(wiki, a, { ...NONE, q: "traffic" }, "2026-11-04"), true);
+  // its own words only here - a word of its action's is subsFound's; the action's person finds those with none of their own
+  assert.equal(subMatches(wiki, a, { ...NONE, q: "traffic" }, "2026-11-04"), false);
+  assert.deepEqual(subsFound(a, [wiki, free], { ...NONE, q: "traffic" }, "2026-11-04").map((s) => s.id), [5, 6]);
   assert.equal(subMatches(wiki, a, { ...NONE, q: "anna" }, "2026-11-04"), false);
   assert.equal(subMatches(free, a, { ...NONE, q: "anna" }, "2026-11-04"), true);
   // by the person filter: Ben's own; one with nobody is its action's people's
@@ -680,4 +681,42 @@ test("action plan: a KPI's target as it is typed", () => {
   assert.equal(targetText(0.35, "pct"), "35.0%");
   assert.equal(targetText(150000, "eur"), "€150,000");
   assert.equal(targetText(1234.4, "n"), "1,234");
+});
+
+// SARCLA 04.11.2026: "review that search and filtering is really working, optimized" - the live search showed all 68 of the
+// Bespoke plan's sub-actions for "robots" (a word of its action's description), found nothing for "aleksandra blog" nor
+// "muller" for Müller, nor a ticket by its number (made-up people)
+test("action plan: the search - only the sub-actions it finds, every word in any order, no accents, ticket numbers", () => {
+  const plan = it(1, null, "action", { title: "Bespoke technical plan - implementation", detail: "The open requests: robots.txt, sitemaps, hreflang", dg: true,
+    owners: [{ id: "1", name: "Carla Beispiel" }, { id: "2", name: "Aleksandra Muster" }] });
+  const subs = Array.from({ length: 6 }, (_, k) => sub(10 + k, 1, "open", null, { title: `Bespoke #${k} - check ${k}`, owner: "3", ownerName: "Jörg Müller", ticketIds: [`44000000000${k}`] }));
+  subs[2] = { ...subs[2], title: "Bespoke #18 - New robots.txt (ANP-2930)" };
+  const q = (x: string, extra: Partial<PlanFilter> = {}) => subsFound(plan, subs, { ...NONE, q: x, ...extra }, "2026-11-04", ["440000000999"]).map((s) => s.id);
+  // a word of the description: only the sub-action that has it
+  assert.deepEqual(q("robots"), [12]);
+  assert.deepEqual(q("  ROBOTS  "), [12]);
+  // the action's name, none of them has it: all of them
+  assert.deepEqual(q("technical plan"), [10, 11, 12, 13, 14, 15]);
+  // every word, any order, no accents, a person's name with a word of the name
+  assert.deepEqual(q("muller robots"), [12]);
+  assert.deepEqual(q("robots joerg"), []);
+  assert.deepEqual(q("jorg #18"), [12]);
+  // a ticket's number: the sub-action that carries it; the action's own ticket: the action, so all of them
+  assert.deepEqual(q("440000000004"), [14]);
+  assert.equal(actionMatches(plan, subs, { ...NONE, q: "440000000999" }, "2026-11-04", ["440000000999"]), true);
+  assert.deepEqual(q("440000000999"), [10, 11, 12, 13, 14, 15]);
+  // nothing anywhere: none
+  assert.deepEqual(q("wikipedia"), []);
+  // the other filters first: a person picked, then the search among theirs
+  assert.deepEqual(q("robots", { owner: "2" }), []);
+  // someone else's sub-action has the word: not all of this person's under the action whose description has it too
+  assert.deepEqual(q("robots", { owner: "3" }), [12]);
+  const other = subs.map((s) => (s.id === 12 ? { ...s, owner: "4", ownerName: "Ben Test" } : s));
+  assert.deepEqual(subsFound(plan, other, { ...NONE, q: "robots", owner: "3" }, "2026-11-04").map((s) => s.id), []);
+  assert.deepEqual(q("technical", { owner: "3" }), [10, 11, 12, 13, 14, 15]);
+  // the action: every word in any of its fields
+  assert.equal(actionMatches(plan, subs, { ...NONE, q: "hreflang aleksandra" }, "2026-11-04"), true);
+  assert.equal(actionMatches(plan, subs, { ...NONE, q: "hreflang daniel" }, "2026-11-04"), false);
+  assert.deepEqual(searchWords("  Jörg   Müller "), ["jorg", "muller"]);
+  assert.equal(fold("ÉCLAIRÉ Ångström"), "eclaire angstrom");
 });

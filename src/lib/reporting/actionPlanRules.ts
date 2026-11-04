@@ -904,19 +904,50 @@ export const NOBODY = "__nobody";
 export type PlanFilter = { q: string; prios: string[]; stages: string[]; dg: boolean; late: boolean; soon: boolean; owner: string; hideLive: boolean };
 
 export const isFiltering = (f: PlanFilter): boolean =>
-  !!f.q.trim() || f.prios.length > 0 || f.stages.length > 0 || f.dg || f.late || f.soon || !!f.owner || f.hideLive;
+  searchWords(f.q).length > 0 || f.prios.length > 0 || f.stages.length > 0 || f.dg || f.late || f.soon || !!f.owner || f.hideLive;
 
-const found = (texts: (string | null | undefined)[], q: string): boolean => {
-  const w = q.trim().toLowerCase();
-  return !w || texts.some((x) => (x ?? "").toLowerCase().includes(w));
+/*
+ * The search (SARCLA 04.11.2026: "review that search and filtering is really working, optimized"): every word typed must be
+ * in the row, in any order ("aleksandra blog", "blog aleksandra"), without case or accents ("muller" finds Müller), a
+ * ticket's number finds the row that carries it. A row's text is folded once and kept while the row is the same object -
+ * typing reads it, never builds it again.
+ */
+/** Lower case, accents off. */
+export const fold = (s: string): string => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+/** The words searched, folded; none for an empty search. The last search's words are kept: one search reads them for
+ *  every row. */
+let lastQ = "", lastWords: string[] = [];
+export const searchWords = (q: string): string[] => {
+  if (q !== lastQ) { lastQ = q; lastWords = fold(q).split(/\s+/).filter(Boolean); }
+  return lastWords;
 };
-const actionWords = (i: PlanItem) => [i.title, i.detail, i.code, i.statusNote, ...i.channel, ...i.agency];
-const actionPeople = (i: PlanItem) => [i.responsible, ...i.owners.map((o) => o.name)];
+const hasAll = (words: string[], text: string): boolean => words.every((w) => text.includes(w));
 
-/** An action by its own fields; its sub-actions count for late and due within a week, as ever. */
-export function actionMatches(i: PlanItem, subs: Pick<PlanSub, "start" | "due" | "stage" | "status">[], f: PlanFilter, today: string): boolean {
+const actionText = new WeakMap<PlanItem, string>();
+/** An action's words: its name, description, roadmap ID, status note, channels, agencies, people. */
+const actionHay = (i: PlanItem): string => {
+  let t = actionText.get(i);
+  if (t === undefined) {
+    t = fold([i.title, i.detail, i.code, i.statusNote, ...i.channel, ...i.agency, i.responsible, ...i.owners.map((o) => o.name)].join("\n"));
+    actionText.set(i, t);
+  }
+  return t;
+};
+const subText = new WeakMap<PlanSub, { a: PlanItem; t: string }>();
+/** A sub-action's own words: its name, its person - its action's people when it has none - and its tickets' numbers. */
+const subHay = (s: PlanSub, a: PlanItem): string => {
+  const c = subText.get(s);
+  if (c && c.a === a) return c.t;
+  const t = fold([s.title, ...(s.owner ? [s.ownerName] : [a.responsible, ...a.owners.map((o) => o.name)]), ...(s.ticketIds ?? [])].join("\n"));
+  subText.set(s, { a, t });
+  return t;
+};
+
+/** An action by its own fields (and its own tickets' numbers); its sub-actions count for late and due within a week, as ever. */
+export function actionMatches(i: PlanItem, subs: Pick<PlanSub, "start" | "due" | "stage" | "status">[], f: PlanFilter, today: string, tickets: string[] = []): boolean {
   if (i.kind !== "action") return false;
-  if (!found([...actionWords(i), ...actionPeople(i)], f.q)) return false;
+  const words = searchWords(f.q);
+  if (words.length && !words.every((w) => actionHay(i).includes(w) || tickets.some((t) => t.includes(w)))) return false;
   if (f.prios.length && !f.prios.includes(i.priority)) return false;
   if (f.stages.length && !f.stages.includes(i.stage ?? "none")) return false;
   if (f.dg && !i.dg) return false;
@@ -928,12 +959,17 @@ export function actionMatches(i: PlanItem, subs: Pick<PlanSub, "start" | "due" |
 }
 
 /**
- * A sub-action by its own fields: its name and person, its priority, status and planned date. One with no person is its
- * action's people's, one with no priority has its action's; a word of its action's finds it too - but not its action's
- * people's names when it has a person of its own. Its action shows with it, as a category shows with its actions.
+ * A sub-action by its own fields: its name, person and tickets, its priority, status and planned date. One with no person
+ * is its action's people's, one with no priority has its action's. Its action shows with it, as a category shows with its
+ * actions. The search here is its own words only - which of an action's sub-actions a search shows is subsFound's.
  */
 export function subMatches(s: PlanSub, a: PlanItem, f: PlanFilter, today: string): boolean {
-  if (!found([s.title, s.ownerName, ...actionWords(a), ...(s.owner ? [] : actionPeople(a))], f.q)) return false;
+  const words = searchWords(f.q);
+  if (words.length && !hasAll(words, subHay(s, a))) return false;
+  return subOthers(s, a, f, today);
+}
+/** A sub-action by every filter but the search. */
+function subOthers(s: PlanSub, a: PlanItem, f: PlanFilter, today: string): boolean {
   if (f.prios.length && !f.prios.includes(s.priority || a.priority)) return false;
   if (f.stages.length && !f.stages.includes(subStage(s)?.id ?? "none")) return false;
   if (f.dg && !takesTicket(a, s.ownerName)) return false;
@@ -943,6 +979,21 @@ export function subMatches(s: PlanSub, a: PlanItem, f: PlanFilter, today: string
   const people = s.owner ? [s.owner] : a.owners.map((o) => o.id);
   if (f.owner === NOBODY ? people.length > 0 : !!f.owner && !people.includes(f.owner)) return false;
   return true;
+}
+
+/**
+ * The sub-actions the filters show under an action: each by every filter but the search, as subMatches; then the search -
+ * when one of its sub-actions has the words itself, the search is about those: only they show, if the other filters keep
+ * them (a word in the action's description no longer brings all 68 of the Bespoke plan's: "robots" brings "#18 New
+ * robots.txt", and with someone else picked, nothing). When none of them has the words but the action itself does (its
+ * name, its description), all of them, as they are the action's.
+ */
+export function subsFound(a: PlanItem, subs: PlanSub[], f: PlanFilter, today: string, tickets: string[] = []): PlanSub[] {
+  const rest = subs.filter((s) => subOthers(s, a, f, today));
+  const words = searchWords(f.q);
+  if (!words.length || !rest.length) return rest;
+  if (subs.some((s) => hasAll(words, subHay(s, a)))) return rest.filter((s) => hasAll(words, subHay(s, a)));
+  return words.every((w) => actionHay(a).includes(w) || tickets.some((t) => t.includes(w))) ? rest : [];
 }
 
 /** The tickets of what shows, each once - a duplicated sub-action carries the same ticket as its original. */

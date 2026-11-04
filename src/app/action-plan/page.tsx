@@ -7,7 +7,7 @@
 // An application of its own, admins only, the whole width (SARCLA 01.11.2026): the hub's bar on top, the goal's
 // statement first, where APSOparts stands on the climb to 30 M€ by 2031, then the Gantt.
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -23,7 +23,7 @@ import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined
 
 import { HomeBar } from "@/app/HomeBar";
 import { FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { KILLED, LIVE, NOBODY, PRIORITIES, S2S_CHOICES, STAGES, actionMatches, dueSoon, isClosed, isFiltering, isLate, placeSub, reorder, rollup, subClosed, subMatches, subOrder, ticketsShown, type PlanFields, type PlanFilter, type PlanItem, type PlanSub } from "@/lib/reporting/actionPlanRules";
+import { KILLED, LIVE, NOBODY, PRIORITIES, S2S_CHOICES, STAGES, actionMatches, dueSoon, isClosed, isFiltering, isLate, placeSub, reorder, rollup, searchWords, subClosed, subOrder, subsFound, ticketsShown, type PlanFields, type PlanFilter, type PlanItem, type PlanSub } from "@/lib/reporting/actionPlanRules";
 import { Gantt, type GRow, type Where, type Zoom } from "./Gantt";
 import { ItemModal } from "./ItemModal";
 import { AddDialog } from "./AddDialog";
@@ -100,14 +100,16 @@ function ActionPlan() {
   // the live ones out of sight (SARCLA 02.11.2026: "another filter: hide live, to hide the live actions"), kept per browser
   const [hideLive, setHideLive] = useState(() => readPref<boolean>("hideLive.v1", false));
   const liveOff = (v: boolean) => { setHideLive(v); writePref("hideLive.v1", v); };
-  const f: PlanFilter = useMemo(() => ({ q, prios, stages, dg: dgOnly, late: lateOnly, soon: soonOnly, owner, hideLive }), [q, prios, stages, dgOnly, lateOnly, soonOnly, owner, hideLive]);
+  // the box answers each key at once; the plan follows when React has a moment (a long plan never holds the typing up)
+  const dq = useDeferredValue(q);
+  const f: PlanFilter = useMemo(() => ({ q: dq, prios, stages, dg: dgOnly, late: lateOnly, soon: soonOnly, owner, hideLive }), [dq, prios, stages, dgOnly, lateOnly, soonOnly, owner, hideLive]);
   const filtering = isFiltering(f);
   // a search or a person picked opens what they find - the plan is closed by default, and a sub-action found under a
   // closed action did not show (SARCLA 04.11.2026: "when searching for names the sub-actions are not appearing"); what
   // is closed while they are on is closed for them alone, the plan's own folds come back with them off
-  const opening = !!q.trim() || !!owner;
+  const opening = searchWords(dq).length > 0 || !!owner;
   const [filterFold, setFilterFold] = useState<Set<string>>(() => new Set());
-  useEffect(() => { setFilterFold(new Set()); }, [q, owner]);
+  useEffect(() => { setFilterFold(new Set()); }, [dq, owner]);
 
   const items = useMemo(() => data?.items ?? [], [data]);
   const subs = useMemo(() => data?.subs ?? [], [data]);
@@ -140,9 +142,11 @@ function ActionPlan() {
     return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [items, subs]);
 
-  // an action and each of its sub-actions, by the same filters (actionPlanRules.actionMatches / subMatches)
-  const passes = useCallback((i: PlanItem) => actionMatches(i, subsByItem.get(i.id) ?? [], f, today), [f, subsByItem, today]);
-  const subPasses = useCallback((s: PlanSub, a: PlanItem) => subMatches(s, a, f, today), [f, today]);
+  // an action and its sub-actions, by the same filters (actionPlanRules.actionMatches / subsFound); its own tickets' numbers
+  // are searched with it
+  const own = data?.own;
+  const passes = useCallback((i: PlanItem) => actionMatches(i, subsByItem.get(i.id) ?? [], f, today, own?.[i.id] ?? []), [f, subsByItem, today, own]);
+  const found = useCallback((a: PlanItem) => subsFound(a, subsByItem.get(a.id) ?? [], f, today, own?.[a.id] ?? []), [f, subsByItem, today, own]);
   const folds = opening ? filterFold : collapsed;
   const toggle = (key: string) => {
     if (!opening) { flip(key); return; }
@@ -168,12 +172,19 @@ function ActionPlan() {
     // the workbook's own tree - the goal first, its main categories (the bold rows), their sub-categories (the green
     // rows), the actions; a row shows when it passes the filters or something under it does
     const shown = new Map<number, boolean>();
+    // an action's sub-actions found, once per draw
+    const foundOf = new Map<number, PlanSub[]>();
+    const foundUnder = (a: PlanItem): PlanSub[] => {
+      let x = foundOf.get(a.id);
+      if (!x) { x = found(a); foundOf.set(a.id, x); }
+      return x;
+    };
     const visible = (i: PlanItem): boolean => {
       if (shown.has(i.id)) return shown.get(i.id)!;
       shown.set(i.id, false);
       const v = hidden.has(i.id) && !showHidden ? false : !filtering ? true
         // an action: found itself, or one of its sub-actions is
-        : i.kind === "action" ? passes(i) || (subsOf.get(i.id) ?? []).some((s) => subPasses(s, i))
+        : i.kind === "action" ? passes(i) || foundUnder(i).length > 0
           : (kids.get(i.id) ?? []).some(visible);
       shown.set(i.id, v);
       return v;
@@ -181,7 +192,7 @@ function ActionPlan() {
     const walk = (i: PlanItem, depth: number, closed: boolean) => {
       const under = (kids.get(i.id) ?? []).filter(visible);
       // with a filter on, the sub-actions it finds - all of them without one
-      const mine = i.kind === "action" ? (subsOf.get(i.id) ?? []).filter((x) => !filtering || subPasses(x, i)) : [];
+      const mine = i.kind === "action" ? (filtering ? foundUnder(i) : subsOf.get(i.id) ?? []) : [];
       if (i.kind === "action") {
         if (!filtering || passes(i)) acts.push(i);
         subsShown.push(...mine);
@@ -205,7 +216,7 @@ function ActionPlan() {
     };
     for (const i of items) lateIn(i);
     return { rows: out, lateShown, acts, subsShown };
-  }, [items, subs, folds, filtering, passes, subPasses, hidden, showHidden, rolled]);
+  }, [items, subs, folds, filtering, passes, found, hidden, showHidden, rolled]);
   // the Gantt's figures with those counts; the rows' windows keep the whole plan's
   const rolledShown = useMemo(() => {
     const m = new Map(rolled);
@@ -476,8 +487,9 @@ It leaves the plan as an action; its name, description, status, priority, first 
         <Button size="small" startIcon={<UnfoldLessIcon />} onClick={() => foldAll(true)} sx={{ textTransform: "none", fontWeight: 650, color: MUTED }}>Close all</Button>
       </Box>
       <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
-        <TextField size="small" placeholder="Search actions and sub-actions" value={q} onChange={(e) => setQ(e.target.value)}
-          sx={{ width: 240, "& .MuiInputBase-root": { borderRadius: "10px", bgcolor: "#fff", fontSize: "0.86rem" } }} />
+        <TextField size="small" placeholder="Search names, people, ticket numbers" value={q} onChange={(e) => setQ(e.target.value)}
+          title="Every word must be in the row, in any order - a name, a person, a ticket's number"
+          sx={{ width: 270, "& .MuiInputBase-root": { borderRadius: "10px", bgcolor: "#fff", fontSize: "0.86rem" } }} />
         <TextField select size="small" value={owner} onChange={(e) => setOwner(e.target.value)} SelectProps={{ displayEmpty: true }}
           sx={{ width: 190, "& .MuiInputBase-root": { borderRadius: "10px", bgcolor: "#fff", fontSize: "0.86rem" } }}>
           <MenuItem value="" sx={{ fontSize: "0.86rem" }}>Everyone</MenuItem>
