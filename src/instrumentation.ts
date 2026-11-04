@@ -120,6 +120,13 @@ export async function register() {
     const { startCompanyRegions } = await import("./lib/companyRegions/engine");
     startCompanyRegions();
 
+    // Back Office distribution > GQS > Approvals: each GQS request Sales creates gets its subject, O-number, Sales follow-up
+    // ticket and the approval rule (line manager or approved by itself, with the mails) - replaces the workflow SARCLA | GQS
+    // Ticket Created by Sales; writes only in Live with the workflow switched off (src/lib/gqsApprovals). GQS_APPROVALS=off
+    // stops it. SARCLA, 04.11.2026.
+    const { startGqsApprovals } = await import("./lib/gqsApprovals/engine");
+    startGqsApprovals();
+
     // The Enquiry Category at the end of each Back Office ticket left "Others" or empty - the whole conversation, no
     // customer request stays Others, the AI reads the rest; replaces the workflow SARCLA | CLASSIFIER END OF TICKET and
     // writes once that workflow is switched off (src/lib/ticketClose). TICKET_CLOSE=off stops it. SARCLA, 25.10.2026.

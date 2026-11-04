@@ -23,6 +23,7 @@
 // People and Settings are each pipeline's own ("GQS still on back office setting"): its team lists, its live switch.
 
 import { useMemo, useState } from "react";
+import { ApprovalsTab } from "./ApprovalsTab";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
@@ -239,7 +240,9 @@ export default function BoDistribution() {
       : !store ? <LoadingPanel label="The GQS tasks are read every 30 minutes - the first read after a release takes about five minutes" />
       : draw(store);
   let body: React.ReactNode;
-  if (GQS_KPI_VIEWS.includes(view)) {
+  // Approvals has its own engine and API (src/lib/gqsApprovals) - it never waits for the distribution's data
+  if (view === "gqs-approvals") body = <ApprovalsTab from={win.from} to={win.to} />;
+  else if (GQS_KPI_VIEWS.includes(view)) {
     body = withStore((s) => <GqsKpis key={view} view={view as GqsView} store={s} from={win.from} to={win.to} />);
   } else if (r === null || !all || !bo) {
     body = r !== null && r.state !== "ok"
@@ -264,6 +267,7 @@ export default function BoDistribution() {
   const tabs: { id: View; label: string; count: string | null }[] = pipe === "gqs" ? [
     { id: "gqs", label: "Overview", count: null },
     { id: "gqs-tickets", label: "Tickets", count: open ? full(open) : null },
+    { id: "gqs-approvals", label: "Approvals", count: null },
     { id: "gqs-flow", label: "Flow", count: null },
     { id: "gqs-type", label: "Type of request", count: null },
     { id: "gqs-resolution", label: "Resolution", count: null },

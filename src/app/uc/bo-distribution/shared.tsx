@@ -63,11 +63,11 @@ export type PeopleData = { people: PersonRow[]; owners: Person[]; at: string };
  * Priority / Speed, People, Settings.
  */
 export type View = "overview" | "tickets" | "flow" | "detection" | "sentiment" | "priority" | "people" | "settings"
-  | "gqs" | "gqs-tickets" | "gqs-flow" | "gqs-type" | "gqs-resolution" | "gqs-speed" | "gqs-people" | "gqs-settings";
+  | "gqs" | "gqs-tickets" | "gqs-approvals" | "gqs-flow" | "gqs-type" | "gqs-resolution" | "gqs-speed" | "gqs-people" | "gqs-settings";
 /** #gqs was the one GQS tab; it opens GQS's Overview. */
 export const VIEW_HASH: Record<View, string> = {
   overview: "#overview", tickets: "#tickets", flow: "#flow", detection: "#detection", sentiment: "#sentiment", priority: "#priority", people: "#people", settings: "#settings",
-  gqs: "#gqs", "gqs-tickets": "#gqs-tickets", "gqs-flow": "#gqs-flow", "gqs-type": "#gqs-type", "gqs-resolution": "#gqs-resolution", "gqs-speed": "#gqs-speed",
+  gqs: "#gqs", "gqs-tickets": "#gqs-tickets", "gqs-approvals": "#gqs-approvals", "gqs-flow": "#gqs-flow", "gqs-type": "#gqs-type", "gqs-resolution": "#gqs-resolution", "gqs-speed": "#gqs-speed",
   "gqs-people": "#gqs-people", "gqs-settings": "#gqs-settings",
 };
 /** The page's main toggle (SARCLA 01.11.2026: "create a main toggle in between pipelines"). */
