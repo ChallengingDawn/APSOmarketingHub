@@ -282,11 +282,13 @@ export function useTicketFill(pick: string[], fill: (fields: Record<string, stri
 
 /* ── a new one ─────────────────────────────────────────────────────────── */
 
-export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, wide = false, done }: {
+export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, wide = false, done, track }: {
   item: PlanItem; tile: TileInfo; t: TicketsAnswer | null; tErr: string | null; retry: () => Promise<void>; owners: Opt[]; tickets: boolean; focus: boolean;
   /** the + window opened wide: the ticket beside the sub-action */
   wide?: boolean;
   done: () => Promise<void>;
+  /** made on a KPI's Actions page: it tracks that KPI (AddDialog.TrackKpi) */
+  track?: { key: string; title: string } | null;
 }) {
   const blank = (): Small => ({ title: "", stage: IDEA, priority: item.priority, owner: t?.me?.id ?? "", start: "", due: "", statusNote: "" });
   const [v, setV] = useState<Small>(blank);
@@ -351,6 +353,8 @@ export function NewSub({ item, tile, t, tErr, retry, owners, tickets, focus, wid
         href: `${window.location.pathname}${window.location.search}`, kpi: tile.title, summary: tile.summary,
       });
       const taskId = (j.task as KpiTask).id;
+      // the KPI it was made from - tracking alone, so no HubSpot sync and no mail for it
+      if (track) await send("/api/reporting/kpi-actions/tasks", "PATCH", { id: taskId, tracked: true, trackKpi: track.key, trackKpiTitle: track.title });
       if (ticket === "new") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "create", tile: tile.key, taskId, values: { ...values, ...ticketOwn(v, note, tile.href) } });
       if (ticket === "link") await send("/api/reporting/kpi-actions/tickets", "POST", { action: "link", tile: tile.key, taskId, ids: pick });
       const mailed = Number(j.mailed ?? 0);

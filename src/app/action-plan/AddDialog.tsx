@@ -74,18 +74,26 @@ function DgSwitch({ on, set, hint }: { on: boolean; set: (on: boolean) => void; 
   );
 }
 
+/**
+ * The KPI a row is made from, on that KPI's Actions page in Advanced reporting (SARCLA 04.11.2026: "allow to create from
+ * the KPI directly"): the new action or sub-action tracks it - only a KPI on the plan's KPIs tab (round 40's rule).
+ */
+export type TrackKpi = { key: string; title: string };
+const tracking = (track?: TrackKpi | null) => (track ? { tracked: true, trackKpi: track.key, trackKpiTitle: track.title } : {});
+
 /** A sub-action under an action: its form, with the action's tickets. */
-function SubUnder({ parent, people, wide, onDone }: { parent: PlanItem; people: PlanOwner[]; wide: boolean; onDone: (said: string) => void }) {
+function SubUnder({ parent, people, wide, onDone, track }: { parent: PlanItem; people: PlanOwner[]; wide: boolean; onDone: (said: string) => void; track?: TrackKpi | null }) {
   const [tile] = useState(() => planTile(parent));
   const { t, tErr, loadTickets } = useTileActions(tile, true);
   const owners: Opt[] = people.length ? people.map((p) => ({ value: p.id, label: p.name })) : t?.form.owners ?? [];
-  return <NewSub item={parent} tile={tile} t={t} tErr={tErr} retry={loadTickets} owners={owners} tickets={parent.dg} focus wide={wide} done={async () => onDone(`Sub-action added under “${parent.title}”`)} />;
+  return <NewSub item={parent} tile={tile} t={t} tErr={tErr} retry={loadTickets} owners={owners} tickets={parent.dg} focus wide={wide} track={track}
+    done={async () => onDone(`Sub-action added under “${parent.title}”${track ? ` - tracking ${track.title}` : ""}`)} />;
 }
 
 /** An action (or a category) under a category: its name and, for an action, the Gantt's boxes - and, under a
  *  sub-category with Digital Growth, its ticket made or linked with it. */
-function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
-  parent: PlanItem; people: PlanOwner[]; choices: PlanData["choices"]; dg: boolean; setDg: (on: boolean) => void; onDone: (said: string) => void;
+function RowUnder({ parent, people, choices, dg, setDg, onDone, track }: {
+  parent: PlanItem; people: PlanOwner[]; choices: PlanData["choices"]; dg: boolean; setDg: (on: boolean) => void; onDone: (said: string) => void; track?: TrackKpi | null;
 }) {
   const can: PlanKind[] = parent.kind === "goal" ? ["topic"] : parent.kind === "topic" ? ["action", "group"] : ["action"];
   const [kind, setKind] = useState<PlanKind>(can[0]);
@@ -181,14 +189,14 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
     try {
       const j = await send("/api/action-plan", "POST", { action: "add", parentId: parent.id, kind, title: title.trim() });
       const made = j.item as PlanItem;
-      const said = `${NAME[kind][0].toUpperCase()}${NAME[kind].slice(1)} “${title.trim()}” added in “${parent.title}”`;
+      const said = `${NAME[kind][0].toUpperCase()}${NAME[kind].slice(1)} “${title.trim()}” added in “${parent.title}”${action && track ? ` - tracking ${track.title}` : ""}`;
       if (action) {
         // made already: a failure here must not leave the window open for a second Create (a second row)
         try {
           await send("/api/action-plan", "PATCH", {
             id: made.id, detail: detail.trim() || title.trim(), stage, priority, start: start || null, due: due || null,
             country, dg: withTicket, ...(withTicket ? { channel, agency } : {}), ...(owners.length ? { owners: owners.map((o) => o.id) } : {}),
-            statusNote: statusNote.trim(),
+            statusNote: statusNote.trim(), ...tracking(track),
           });
         } catch (e) { onDone(`${said} - but its details were not saved (${(e as Error).message}); open it to fill them in`); return; }
         if (withTicket && ticket !== "none") {
@@ -270,6 +278,33 @@ function RowUnder({ parent, people, choices, dg, setDg, onDone }: {
   );
 }
 
+/**
+ * What the + makes under a row, without its window: the sub-action's form under an action (with the action's Digital
+ * Growth switch), the action's or category's under a category. The plan's + window draws it, and so does a KPI's
+ * Actions page beside the plan's table - the one form (SARCLA 04.11.2026: "the form creation should be the same as in
+ * the action plan").
+ */
+export function AddForm({ parent, people, choices, onPatch, onDone, rowDg, setRowDg, track }: {
+  parent: PlanItem; people: PlanOwner[]; choices: PlanData["choices"];
+  onPatch: (id: number, p: Partial<PlanFields>) => Promise<void>;
+  onDone: (said: string) => void;
+  /** a new action's own Digital Growth, before it exists */
+  rowDg: boolean; setRowDg: (on: boolean) => void;
+  track?: TrackKpi | null;
+}) {
+  const sub = parent.kind === "action";
+  const wide = sub ? parent.dg : rowDg && parent.kind === "group";
+  return (
+    <>
+      {sub && (
+        <DgSwitch on={parent.dg} set={(on) => void onPatch(parent.id, { dg: on })}
+          hint={parent.dg ? "The sub-action can carry its “From Scroll to Sale” ticket - a new one or one linked" : "Turn on for a “From Scroll to Sale” ticket - a sales action has no pipeline. It is the action's switch"} />
+      )}
+      {sub ? <SubUnder parent={parent} people={people} wide={wide} onDone={onDone} track={track} /> : <RowUnder parent={parent} people={people} choices={choices} dg={rowDg} setDg={setRowDg} onDone={onDone} track={track} />}
+    </>
+  );
+}
+
 export function AddDialog({ parent, people, choices, onPatch, onClose, onDone }: {
   parent: PlanItem; people: PlanOwner[]; choices: PlanData["choices"];
   /** the action's Digital Growth, switched from here */
@@ -295,11 +330,7 @@ export function AddDialog({ parent, people, choices, onPatch, onClose, onDone }:
         <IconButton aria-label="Close" onClick={onClose} sx={{ bgcolor: "rgba(21,34,58,.05)" }}><CloseIcon /></IconButton>
       </Box>
       <Box sx={{ overflowY: "auto", p: 2.5, display: "grid", gap: 1.5 }}>
-        {sub && (
-          <DgSwitch on={parent.dg} set={(on) => void onPatch(parent.id, { dg: on })}
-            hint={parent.dg ? "The sub-action can carry its “From Scroll to Sale” ticket - a new one or one linked" : "Turn on for a “From Scroll to Sale” ticket - a sales action has no pipeline. It is the action's switch"} />
-        )}
-        {sub ? <SubUnder parent={parent} people={people} wide={wide} onDone={onDone} /> : <RowUnder parent={parent} people={people} choices={choices} dg={rowDg} setDg={setRowDg} onDone={onDone} />}
+        <AddForm parent={parent} people={people} choices={choices} onPatch={onPatch} onDone={onDone} rowDg={rowDg} setRowDg={setRowDg} />
       </Box>
     </Dialog>
   );

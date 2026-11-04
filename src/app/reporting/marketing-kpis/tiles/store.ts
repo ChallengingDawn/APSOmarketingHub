@@ -4,9 +4,10 @@
 
 import { useEffect, useState } from "react";
 import type { Placement, SavedView, TileFormat, TileSpec } from "@/lib/reporting/kpiActions";
+import type { TileStyle } from "@/lib/reporting/tileStyles";
 
 export type Counts = Record<string, { open: number; tasks: number; tickets: number }>;
-export type Placed = { spec: TileSpec; placement: Placement; format: TileFormat | null; by: string; at: string };
+export type Placed = { spec: TileSpec; placement: Placement; format: TileFormat | null; style?: TileStyle | null; by: string; at: string };
 export type ActionsState = { canWrite: boolean; counts: Counts; placements: Placed[]; views: SavedView[]; orders: Record<string, string[]>; targets: Record<string, number> };
 
 type Store = { state: ActionsState | null; error: string | null; listeners: Set<() => void>; loading: Promise<void> | null };
@@ -93,4 +94,9 @@ export async function send(url: string, method: "POST" | "PATCH" | "DELETE", bod
   const j = (await r.json().catch(() => null)) as Record<string, unknown> | null;
   if (!r.ok || !j?.ok) throw new Error(String(j?.error ?? j?.message ?? `the hub answered ${r.status}`));
   return j;
+}
+
+/** A KPI's style in the BUC View, picked on its Actions page; null = the look it has today (tileStyles.styleShown). */
+export function styleOf(state: ActionsState | null, key: string): TileStyle | null {
+  return state?.placements.find((p) => p.spec.key === key)?.style ?? null;
 }

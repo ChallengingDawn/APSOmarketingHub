@@ -105,7 +105,7 @@ function useNameWidth(rows: GRow[], rolled: Map<number, Rolled>, today: string):
   }, [rows, rolled, today]);
 }
 
-export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, onTrack, canDrop, onDrop, height, colorOf, compact, onCompact, onAdd, onDuplicate, hidden, onHide }: {
+export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, onTrack, canDrop, onDrop, height, colorOf, compact, onCompact, onAdd, onDuplicate, hidden, onHide, calendar = true }: {
   rows: GRow[]; rolled: Map<number, Rolled>; today: string; zoom: Zoom; canWrite: boolean;
   collapsed: Set<string>; toggle: (key: string) => void; selected: number | null;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void;
@@ -126,9 +126,11 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   /** the + beside a row: the small window to make what goes under it */
   onAdd: (row: PlanItem) => void;
   /** in the +'s place on a sub-action's row: duplicate it onto another action, its ticket the same */
-  onDuplicate: (sub: PlanSub, parent: PlanItem) => void;
+  onDuplicate?: (sub: PlanSub, parent: PlanItem) => void;
   /** the rows this viewer hid, drawn faded when they are shown again; the eye hides or shows one */
   hidden: Set<number>; onHide: (row: PlanItem, hide: boolean) => void;
+  /** the time line beside the table; off where the table alone is wanted (a KPI's Actions page: the plan to pick from) */
+  calendar?: boolean;
 }) {
   const left = useRef<HTMLDivElement>(null);
   const right = useRef<HTMLDivElement>(null);
@@ -146,7 +148,9 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
       if (Array.isArray(v) && v.length === DETAIL.length && v.every((n) => typeof n === "number" && n >= 48 && n <= 400)) setDetailW(v.map((n: number, k: number) => Math.max(n, DETAIL_MIN[k])));
     } catch { /* the defaults */ }
   }, []);
-  const nameW = nameManual ?? autoName;
+  // without the calendar (a KPI's Actions page) the table is all there is, in a narrower room: the names give way to the
+  // columns, cut short at the end with their whole name on hover
+  const nameW = nameManual ?? (calendar ? autoName : Math.min(autoName, 430));
   const leftW = HANDLE + nameW + (compact ? 0 : detailW.reduce((s, w) => s + w, 0)) + 2;
   const COLS = compact ? `${HANDLE}px ${nameW}px` : `${HANDLE}px ${nameW}px ${detailW.map((w) => `${w}px`).join(" ")}`;
   const GRID_MIN = leftW;
@@ -298,8 +302,8 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   return (
     <Box ref={box} sx={{ display: "flex", height: fitH, minHeight: HEAD + ROW * 2 + 20, border: `1px solid ${HAIRLINE}`, borderRadius: "16px", overflow: "hidden", bgcolor: "#fff" }}>
       {/* ── the tree ── */}
-      <Box ref={left} onWheel={wheel}
-        sx={{ width: { xs: "100%", md: leftW }, flexShrink: 0, overflowX: "scroll", overflowY: { xs: "auto", md: "hidden" } }}>
+      <Box ref={left} onWheel={calendar ? wheel : undefined}
+        sx={calendar ? { width: { xs: "100%", md: leftW }, flexShrink: 0, overflowX: "scroll", overflowY: { xs: "auto", md: "hidden" } } : { flex: 1, minWidth: 0, overflow: "auto" }}>
         <Box sx={{ minWidth: GRID_MIN }}>
           <Box sx={{ position: "sticky", top: 0, zIndex: 2, display: "grid", gridTemplateColumns: COLS, height: HEAD, alignItems: "end", bgcolor: "#f7f9fc", borderBottom: `1px solid ${HAIRLINE}` }}>
             {heads.map((h, i) => (
@@ -322,7 +326,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
           </Box>
           {rows.map((r) => (
             <TreeRow key={r.key} r={r} cols={COLS} compact={compact} onAdd={canWrite && r.type === "item" ? () => onAdd(r.item) : undefined}
-              onDuplicate={canWrite && r.type === "sub" && !r.sub.kpiTile ? () => onDuplicate(r.sub, r.parent) : undefined}
+              onDuplicate={canWrite && onDuplicate && r.type === "sub" && !r.sub.kpiTile ? () => onDuplicate(r.sub, r.parent) : undefined}
               hidden={r.type === "item" && hidden.has(r.item.id)} onHide={r.type === "item" && r.item.kind !== "goal" ? (h) => onHide(r.item, h) : undefined} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
               selected={r.type === "item" && r.item.id === selected} onOpen={onOpen} onSubs={onSubs} onOpenSub={onOpenSub} onPatch={onPatch} onTrack={onTrack}
               dragging={drag?.key === r.key} over={over?.key === r.key ? over.where : null} copying={over?.key === r.key && over.copy}
@@ -349,7 +353,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
       </Box>
 
       {/* the line between the halves, dragged to give one more room */}
-      <Box onPointerDown={startResize} role="separator" aria-orientation="vertical" aria-label="Resize the task list"
+      {calendar && <><Box onPointerDown={startResize} role="separator" aria-orientation="vertical" aria-label="Resize the task list"
         sx={{ display: { xs: "none", md: "block" }, width: 6, flexShrink: 0, cursor: "col-resize", bgcolor: "#f1f4f9", borderLeft: `1px solid ${HAIRLINE}`, borderRight: `1px solid ${HAIRLINE}`, "&:hover": { bgcolor: TINT.blue.bg } }} />
 
       {/* ── the time line ── */}
@@ -449,7 +453,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
             })}
           </Box>
         </Box>
-      </Box>
+      </Box></>}
     </Box>
   );
 }
@@ -529,7 +533,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
         <Box sx={{ ...cell, borderLeft: "none", pl: `${indent + 20}px`, gap: 0.75 }}>
           <Box sx={PRIO_SLOT}>{sPrio && <Box sx={{ ...PRIO_TAG, bgcolor: PRIORITY_COLOR[s.priority].bg, color: PRIORITY_COLOR[s.priority].fg }}>{sPrio}</Box>}</Box>
           <Box sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: s.status === "done" ? c : s.status === "doing" ? alpha(c, 0.45) : "#fff", border: `1.5px solid ${c}`, flexShrink: 0 }} />
-          <Typography noWrap sx={{ fontSize: "0.84rem", color: MUTED, minWidth: 0, textDecoration: s.status === "done" ? "line-through" : "none" }}>{s.title}</Typography>
+          <Typography noWrap title={s.title} sx={{ fontSize: "0.84rem", color: MUTED, minWidth: 0, textDecoration: s.status === "done" ? "line-through" : "none" }}>{s.title}</Typography>
           <Box sx={{ flex: 1 }} />
           <Box sx={MARK_SLOT}>{s.kpiTile && <Tooltip title="Made on a KPI tile"><FlagOutlinedIcon sx={{ fontSize: 15, color: TINT.blue.fg }} /></Tooltip>}</Box>
           <Box sx={COUNT_SLOT}>
@@ -575,7 +579,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
         {/* HubSpot's priority (SARCLA 01.11.2026: "priority as HubSpot's Low / Medium / High / Urgent") */}
         {it.kind === "action" && <Box sx={PRIO_SLOT}>{prio && <Box sx={{ ...PRIO_TAG, bgcolor: PRIORITY_COLOR[it.priority].bg, color: PRIORITY_COLOR[it.priority].fg }}>{prio}</Box>}</Box>}
         <Tooltip title={it.detail && it.detail !== it.title ? <Box sx={{ whiteSpace: "pre-wrap", fontSize: "0.8rem", maxHeight: 320, overflow: "hidden" }}>{it.detail}</Box> : ""} placement="bottom-start" enterDelay={600} disableInteractive>
-          <Typography noWrap sx={{ ...name, minWidth: 0, ...(it.stage === KILLED ? { textDecoration: "line-through", color: FAINT } : {}) }}>{it.title}</Typography>
+          <Typography noWrap title={it.title} sx={{ ...name, minWidth: 0, ...(it.stage === KILLED ? { textDecoration: "line-through", color: FAINT } : {}) }}>{it.title}</Typography>
         </Tooltip>
         {late && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>LATE</Box>}
         {summary && (ro?.late ?? 0) > 0 && <Tooltip title={`${ro!.late} action${ro!.late === 1 ? "" : "s"} past the planned date and not live`}><Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>{ro!.late} late</Box></Tooltip>}

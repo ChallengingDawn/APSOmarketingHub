@@ -17,6 +17,7 @@
 // 31.10.2026: "subactions can be linked and triggered from the KPI actions").
 // Six small tables, created on first use - and a seventh that records a one-off reset of the placements.
 
+import { isTileStyle, type TileStyle } from "./tileStyles";
 import { query } from "@/lib/db/client";
 import { stageOfStatus, statusOfStage } from "./actionPlanRules";
 
@@ -123,6 +124,8 @@ function ensure(): Promise<void> {
         at timestamptz NOT NULL DEFAULT now()
       )`);
       await query(`ALTER TABLE ${PLACE} ADD COLUMN IF NOT EXISTS format text`);
+      // a KPI's style in the BUC View, picked on its Actions page (tileStyles.ts); null = the look it has today
+      await query(`ALTER TABLE ${PLACE} ADD COLUMN IF NOT EXISTS style text`);
       // the ESO BUC View emptied of its graphs, once (SARCLA 01.11.2026: "clear BUC view of all graphs, let the user
       // promote what he wants"): every ESO chart sent there goes back to its page - the panels' own figures stay. The
       // tiles it took off are kept with the reset (RESETS), so it can be undone; it never runs again.
@@ -427,22 +430,27 @@ export async function movePlanItem(fromId: number, intoId: number, taskId: numbe
 
 /* ── placement ─────────────────────────────────────────────────────────── */
 
-/** Where a tile is shown; a KPI's format kept as it was when none is given. */
-export async function setPlacement(spec: TileSpec, placement: Placement, by: string, format?: TileFormat): Promise<void> {
+/**
+ * Where a tile is shown; a KPI's format kept as it was when none is given, and its style too - `null` puts it back to the
+ * look it has today (tileStyles.ts).
+ */
+export async function setPlacement(spec: TileSpec, placement: Placement, by: string, format?: TileFormat, style?: TileStyle | null): Promise<void> {
   await ensure();
+  const st = style === undefined ? "keep" : style ?? "";
   await query(
-    `INSERT INTO ${PLACE} (tile, placement, spec, by_name, format) VALUES ($1, $2, $3::jsonb, $4, $5)
+    `INSERT INTO ${PLACE} (tile, placement, spec, by_name, format, style) VALUES ($1, $2, $3::jsonb, $4, $5, NULLIF(NULLIF($6, 'keep'), ''))
      ON CONFLICT (tile) DO UPDATE SET placement = EXCLUDED.placement, spec = EXCLUDED.spec, by_name = EXCLUDED.by_name,
-       format = COALESCE(EXCLUDED.format, ${PLACE}.format), at = now()`,
-    [spec.key, placement, JSON.stringify(spec), by, format ?? null],
+       format = COALESCE(EXCLUDED.format, ${PLACE}.format),
+       style = CASE WHEN $6 = 'keep' THEN ${PLACE}.style ELSE NULLIF($6, '') END, at = now()`,
+    [spec.key, placement, JSON.stringify(spec), by, format ?? null, st],
   );
 }
 
 /** Every tile someone moved: promoted to the nutshell or demoted to its tab. */
-export async function placements(): Promise<{ spec: TileSpec; placement: Placement; format: TileFormat | null; by: string; at: string }[]> {
+export async function placements(): Promise<{ spec: TileSpec; placement: Placement; format: TileFormat | null; style: TileStyle | null; by: string; at: string }[]> {
   await ensure();
-  const r = await query<{ tile: string; placement: string; spec: TileSpec; by_name: string; at: unknown; format: string | null }>(`SELECT * FROM ${PLACE} ORDER BY at`);
-  return r.rows.map((x) => ({ spec: { ...x.spec, key: x.tile }, placement: x.placement === "nutshell" ? "nutshell" : "tab", format: x.format && FORMATS.includes(x.format) ? (x.format as TileFormat) : null, by: x.by_name, at: iso(x.at) ?? "" }));
+  const r = await query<{ tile: string; placement: string; spec: TileSpec; by_name: string; at: unknown; format: string | null; style: string | null }>(`SELECT * FROM ${PLACE} ORDER BY at`);
+  return r.rows.map((x) => ({ spec: { ...x.spec, key: x.tile }, placement: x.placement === "nutshell" ? "nutshell" : "tab", format: x.format && FORMATS.includes(x.format) ? (x.format as TileFormat) : null, style: isTileStyle(x.style) ? x.style : null, by: x.by_name, at: iso(x.at) ?? "" }));
 }
 
 /* ── order ───────────────────────────────────────────────────────────── */
@@ -537,5 +545,24 @@ export async function pageCounts(page: string): Promise<Record<string, { open: n
   for (const x of t.rows) out[x.tile] = { open: Number(x.open), tasks: Number(x.total), tickets: 0 };
   const l = await query<{ tile: string; n: string }>(`SELECT tile, count(*)::text AS n FROM ${LINKS} ${all ? "" : "WHERE tile LIKE $1"} GROUP BY tile`, all ? [] : [`${page}:%`]);
   for (const x of l.rows) (out[x.tile] ??= { open: 0, tasks: 0, tickets: 0 }).tickets = Number(x.n);
+  // what tracks a KPI on the action plan counts on its Actions tab too - its actions and sub-actions, made on its Actions
+  // page or set there (SARCLA 04.11.2026); open = not Live, Maintaining or Killed. No plan yet: nothing to add.
+  try {
+    const like = all ? null : `${page}:%`;
+    const r = await query<{ key: string; open: string; total: string }>(
+      `SELECT key, sum(open)::text AS open, sum(total)::text AS total FROM (
+         SELECT kpi_tracking_key AS key, count(*) FILTER (WHERE COALESCE(stage, '') NOT IN ('6161856758', '6161856759', '6161860810')) AS open, count(*) AS total
+           FROM apsomh_action_plan WHERE kpi_tracking AND kpi_tracking_key <> '' ${like ? "AND kpi_tracking_key LIKE $1" : ""} GROUP BY 1
+         UNION ALL
+         SELECT kpi_tracking_key, count(*) FILTER (WHERE status <> 'done'), count(*)
+           FROM ${TASKS} WHERE kpi_tracking AND kpi_tracking_key <> '' AND tile <> kpi_tracking_key ${like ? "AND kpi_tracking_key LIKE $1" : ""} GROUP BY 1
+       ) x GROUP BY key`,
+      like ? [like] : [],
+    );
+    for (const x of r.rows) {
+      const c = (out[x.key] ??= { open: 0, tasks: 0, tickets: 0 });
+      c.open += Number(x.open); c.tasks += Number(x.total);
+    }
+  } catch { /* the plan's tables are not there yet */ }
   return out;
 }

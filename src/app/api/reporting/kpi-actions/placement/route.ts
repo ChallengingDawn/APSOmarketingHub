@@ -3,13 +3,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { reportPathOfPage } from "@/lib/auth/tree";
 import { setPlacement, type Placement, type TileFormat, type TileSpec } from "@/lib/reporting/kpiActions";
+import { isTileStyle, type TileStyle } from "@/lib/reporting/tileStyles";
 import { fail, who } from "../guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const b = (await req.json().catch(() => ({}))) as { spec?: TileSpec; placement?: Placement; format?: TileFormat };
+  const b = (await req.json().catch(() => ({}))) as { spec?: TileSpec; placement?: Placement; format?: TileFormat; style?: TileStyle | "" | null };
   const w = await who(true, typeof b.spec?.page === "string" ? reportPathOfPage(b.spec.page) : null);
   if (w instanceof NextResponse) return w;
   const s = b.spec;
@@ -22,5 +23,8 @@ export async function POST(req: NextRequest) {
     ...(s.href && String(s.href).startsWith("/reporting/") ? { href: String(s.href).slice(0, 500) } : {}),
   };
   const format = b.format === "tile" || b.format === "half" || b.format === "card" ? b.format : undefined;
-  try { await setPlacement(spec, b.placement, w.name, format); return NextResponse.json({ ok: true }); } catch (e) { return fail(e); }
+  // a KPI's style (its Actions page): one of tileStyles' or "" / null for the look it has today; left out = kept
+  if (b.style !== undefined && b.style !== null && b.style !== "" && !isTileStyle(b.style)) return fail("that style is not one of the BUC View's", 400);
+  const style = b.style === undefined ? undefined : isTileStyle(b.style) ? b.style : null;
+  try { await setPlacement(spec, b.placement, w.name, format, style); return NextResponse.json({ ok: true }); } catch (e) { return fail(e); }
 }

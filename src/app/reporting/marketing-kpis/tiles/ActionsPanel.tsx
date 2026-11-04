@@ -191,7 +191,7 @@ function PlanKpiSwitch({ tile, saved }: { tile: TileInfo; saved: boolean }) {
 
 /** A chart's target (SARCLA 25.10.2026: "allow to enter a threshold so we can measure the rest of it"): typed here, one
  *  for everyone; the chart draws it and says how far each row is from it. Shown only for a chart that can use one. */
-function TargetBox({ tile, value, canWrite, current = null }: {
+export function TargetBox({ tile, value, canWrite, current = null }: {
   tile: TileInfo; value: number | null; canWrite: boolean;
   /** what the tile shows now, in the target's terms - for a tile with no chart of its own to draw the target */
   current?: number | null;
@@ -387,7 +387,7 @@ export function ActionsPanel({ tile, open, onClose, placed, format, formats, onM
 
 /* ── a new task, with its ticket ───────────────────────────────────────── */
 
-function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo; t: TicketsAnswer | null; tErr: string | null; retry: () => Promise<void>; done: () => Promise<void>; plan: boolean; tickets: boolean }) {
+export function AddTask({ tile, t, tErr, retry, done, plan, tickets }: { tile: TileInfo; t: TicketsAnswer | null; tErr: string | null; retry: () => Promise<void>; done: () => Promise<void>; plan: boolean; tickets: boolean }) {
   const [title, setTitle] = useState("");
   // a KPI tile's task can be a sub-action of the action plan as well
   const [planItem, setPlanItem] = useState<number | null>(null);

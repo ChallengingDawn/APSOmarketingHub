@@ -36,7 +36,9 @@ import { LinkCard, rendererOf } from "./tiles/registry";
 import { kpiSummary } from "./tiles/summary";
 import { WithActions } from "./tiles/WithActions";
 import { stageName } from "@/lib/marketingKpis/stageNames";
-import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "./tiles/store";
+import { formatOf, placementOf, refreshActions, send, styleOf, targetOf, useActions, type ActionsState } from "./tiles/store";
+import { KpiStyled, KpiTileChart, shapeOf } from "./tiles/KpiStyled";
+import { styleShown } from "@/lib/reporting/tileStyles";
 import type { TileFormat } from "@/lib/reporting/kpiActions";
 import { SortableGrid, type SortItem } from "./tiles/SortableGrid";
 import { VISIT_NAMES, useVisitData } from "./VisitCompact";
@@ -55,49 +57,6 @@ const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minma
 const TILE_SPAN = { gridColumn: { xs: "span 12", sm: "span 6", md: "span 4", lg: "span 3", xl: "span 2" } };
 const HALF_SPAN = { gridColumn: { xs: "span 12", md: "span 6" } };
 const FULL_SPAN = { gridColumn: "1 / -1" };
-
-/** One KPI as the UC apps draw a headline: badge, name, the figure, the comparison - and its months. */
-function KpiTileChart({ v, slug, tint, upTo, actions, chart, title }: {
-  v: KpiView; slug: string; tint: Tint; upTo: string; actions?: React.ReactNode;
-  /** the graph its card on the page draws, small (SARCLA 19.10: "the same graph in both levels") - else its months */
-  chart?: React.ReactNode;
-  /** the page's own name for the KPI, when it has one */
-  title?: string;
-}) {
-  return (
-    <Box sx={{ ...glass, borderRadius: "20px", p: 2.25, display: "flex", flexDirection: "column", gap: 1.1, minWidth: 0 }}>
-      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, minWidth: 0 }}>
-        <Badge icon={<StageGlyph slug={slug} />} tint={tint} size={32} />
-        <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED, lineHeight: 1.25, flex: 1, minWidth: 0, pt: 0.75 }}>{title ?? nameOf(v.id)}</Typography>
-        {actions}
-      </Box>
-      <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
-        <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{fmtValue(v.measure.fmt, v.ytd)}</Typography>
-        <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{periodOf(v)}</Typography>
-      </Box>
-      <Compare v={v} size="0.78rem" />
-      <Box sx={{ mt: "auto", pt: 0.5 }}>
-        {chart ? chart : v.measure.agg.kind === "ytd" ? (
-          // a count for the year so far: this year against last year whole, as two bars
-          <Box sx={{ display: "grid", gap: 0.6 }}>
-            {([["This year so far", v.ytd, TINT[tint].fg], [v.pyNote ?? "Last year", v.pyYtd, "#d3d8e0"]] as const).map(([label, x, color]) => {
-              const max = Math.max(v.ytd ?? 0, v.pyYtd ?? 0) || 1;
-              return (
-                <Box key={label}>
-                  <Typography sx={{ fontSize: "0.68rem", color: FAINT, mb: 0.25 }}>{label}</Typography>
-                  <Box sx={{ height: 12, borderRadius: 99, bgcolor: color, width: `${((x ?? 0) / max) * 100}%`, minWidth: 4 }} />
-                </Box>
-              );
-            })}
-          </Box>
-        ) : (
-          <MiniBars v={v} />
-        )}
-      </Box>
-      <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: FAINT, borderTop: "1px solid rgba(21,34,58,.07)", pt: 0.75 }}>{upTo}</Typography>
-    </Box>
-  );
-}
 
 /** A nutshell KPI tile's key - the same as on its page, so a move there is a move here. */
 const kpiKey = (slug: string, id: string) => `${slug}::${id}`;
@@ -145,6 +104,14 @@ function promotedOf(slug: string, ids: string[], views: Record<string, KpiView>,
     if (spec.page === "retain") { rows.push(row(spec.key, <RetainPromoted spec={spec} half={fmt === "half"} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />, fmt)); continue; }
     if (spec.page === "handover" || spec.page === "uc") { rows.push(row(spec.key, <HandoverPromoted spec={spec} half={fmt === "half"} actions={<TileActions where="nutshell" start="tab" tile={tile} />} />, fmt)); continue; }
     const v = spec.kind === "kpi" && spec.kpiId ? views[spec.kpiId] : undefined;
+    // a style picked on its Actions page (tileStyles.ts): the same tile or card, its chart drawn that way
+    const st = v ? styleShown(styleOf(acts, spec.key), fmt, shapeOf(v)) : null;
+    if (v && st) {
+      const node = <KpiStyled v={v} style={st} format={fmt} slug={slug} tint={stageTint(slug)} upTo={upToOf(v, state, year)} target={targetOf(acts, spec.key)}
+        actions={<TileActions where="nutshell" start="tab" {...(fmt === "tile" ? { edge: 2.25 } : {})} tile={tile} />} />;
+      if (fmt === "tile") tiles.push({ key: spec.key, node }); else rows.push(row(spec.key, node, fmt));
+      continue;
+    }
     // a KPI at half or the whole width is its page's card
     const full = v && fmt !== "tile" && spec.kpiId ? fullCardFor(spec.page, spec.kpiId, <TileActions where="nutshell" start="tab" tile={tile} />) : null;
     if (full) { rows.push(row(spec.key, full, fmt)); continue; }
@@ -189,6 +156,13 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
   const small = tiles.filter((v) => {
     const fmt = formatOf(acts, { key: kpiKey(s.slug, v.id), kind: "kpi", kpiId: v.id });
     if (fmt === "tile") return true;
+    // a style picked on its Actions page: its card with the chart drawn that way
+    const st = styleShown(styleOf(acts, kpiKey(s.slug, v.id)), fmt, shapeOf(v));
+    if (st) {
+      fullRows.push(row(kpiKey(s.slug, v.id), <KpiStyled v={v} style={st} format={fmt} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} target={targetOf(acts, kpiKey(s.slug, v.id))}
+        actions={<KpiActions v={v} slug={s.slug} card />} title={s.slug === "visit" ? VISIT_NAMES[v.id] : undefined} />, fmt));
+      return false;
+    }
     const node = fullCardFor(s.slug, v.id, <KpiActions v={v} slug={s.slug} card />);
     if (!node) return true;
     fullRows.push(row(kpiKey(s.slug, v.id), node, fmt));
@@ -214,8 +188,13 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
   // the panel's tiles, then its full-width cards, each in the order someone dragged them
   const items: SortItem[] = [
     // Visit's tiles draw their page's graphs, small (VisitCompact.tsx)
-    ...small.map((v) => ({ key: kpiKey(s.slug, v.id), node: <KpiTileChart v={v} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} actions={<KpiActions v={v} slug={s.slug} />}
-      chart={tileChartFor(s.slug, v.id, views, visit, live, year) ?? undefined} title={s.slug === "visit" ? VISIT_NAMES[v.id] : undefined} /> })),
+    ...small.map((v) => {
+      const st = styleShown(styleOf(acts, kpiKey(s.slug, v.id)), "tile", shapeOf(v));
+      return { key: kpiKey(s.slug, v.id), node: st
+        ? <KpiStyled v={v} style={st} format="tile" slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} target={targetOf(acts, kpiKey(s.slug, v.id))} actions={<KpiActions v={v} slug={s.slug} />} title={s.slug === "visit" ? VISIT_NAMES[v.id] : undefined} />
+        : <KpiTileChart v={v} slug={s.slug} tint={tint} upTo={upToOf(v, state, year)} actions={<KpiActions v={v} slug={s.slug} />}
+          chart={tileChartFor(s.slug, v.id, views, visit, live, year) ?? undefined} title={s.slug === "visit" ? VISIT_NAMES[v.id] : undefined} /> };
+    }),
     ...leadTiles.filter((t) => t.fmt !== "half").map((t) => ({ key: t.key, node: t.node })),
     ...promoted.tiles,
     // SEO and SEA in customers: new, reactivated, active (SARCLA 17.10)

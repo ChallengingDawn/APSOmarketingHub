@@ -1,18 +1,20 @@
 "use client";
 // THE TILE'S "ACTIONS" TAB (SARCLA 18.10.2026: "icons way too big - a separator tab on the side,
 // small, 'Actions', that changes colour when there is an action running"). One small tab on the
-// card's right edge; it opens the tile's window: its tasks, each with its "From Scroll to Sale"
-// tickets, who they are shared with, and whether the tile shows In a nutshell (promote / demote).
+// card's right edge; it opens the tile's Actions page in Advanced reporting (SARCLA 04.11.2026: "open the action page on
+// the KPI ... a creation action module on Advanced reporting" - src/app/reporting/actions): the action plan to create
+// from, the graph's size and style in the BUC View, its target, what tracks it.
 // Drop it into a card's header: <TileActions tile={{ key, page, tab, kpiId, title, summary, filters }} />.
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
 import Tooltip from "@mui/material/Tooltip";
 
 import { FAINT, HAIRLINE, TINT } from "@/app/uc/report/ui";
-import type { Placement, TileFormat, TileSpec } from "@/lib/reporting/kpiActions";
-import { ActionsPanel } from "./ActionsPanel";
-import { formatOf, formatsFor, placementOf, refreshActions, send, targetOf, useActions } from "./store";
+import type { Placement } from "@/lib/reporting/kpiActions";
+import { placementOf, useActions } from "./store";
+import { openActions } from "@/app/reporting/actions/handoff";
 import { figureOf, figureText } from "@/lib/reporting/tileFigure";
 import { viewOf } from "@/lib/reporting/planKpiTeams";
 import { sayFigure, usePlanKpis } from "./planKpis";
@@ -22,7 +24,7 @@ import { sayFigure, usePlanKpis } from "./planKpis";
  * target"): the figure its words open with is measured against it - a rate in %, euros or francs as they are written, a
  * count otherwise. Kept under the tile's key, as a chart's own. A chart with its own target keeps it.
  */
-function targetFor(tile: TileInfo): TileInfo["target"] {
+export function targetFor(tile: TileInfo): TileInfo["target"] {
   if (tile.target) return tile.target;
   const f = tile.summary ? figureText(tile.summary) : null;
   if (!f || figureOf(f) == null) return undefined;
@@ -30,7 +32,7 @@ function targetFor(tile: TileInfo): TileInfo["target"] {
   return { key: tile.key, unit, label: `What it shows - “${tile.summary}” - is measured against it.` };
 }
 /** The tile's figure in its target's terms - a rate as a fraction - for how far it is. */
-const figureFor = (tile: TileInfo): number | null => {
+export const figureFor = (tile: TileInfo): number | null => {
   if (tile.target || !tile.summary) return null;
   const f = figureText(tile.summary);
   const n = f ? figureOf(f) : null;
@@ -65,7 +67,7 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
   edge?: Space;
 }) {
   const { state } = useActions(where === "nutshell" ? "nutshell" : tile.page);
-  const [open, setOpen] = useState(false);
+  const router = useRouter();
   const c = state?.counts[tile.key] ?? { open: 0, tasks: 0, tickets: 0 };
   const placed = placementOf(state, tile.key, start);
   const running = c.open > 0;
@@ -75,16 +77,11 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
   const view = viewOf(tile);
   useEffect(() => { if (onPlan && tile.summary) sayFigure(onPlan, tile.summary, view); }, [onPlan, tile.summary, view]);
 
-  const move = async (to: Placement, format?: TileFormat) => {
-    const spec: TileSpec = {
-      key: tile.key, page: tile.page, title: tile.title, kind: tile.kind ?? (tile.kpiId ? "kpi" : "card"),
-      ...(tile.tab ? { tab: tile.tab } : {}), ...(tile.kpiId ? { kpiId: tile.kpiId } : {}),
-      ...(tile.filters ? { filters: tile.filters } : {}), ...(tile.from ? { from: tile.from } : {}), ...(tile.to ? { to: tile.to } : {}),
-      href: tile.href ?? (typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : undefined),
-    };
-    await send("/api/reporting/kpi-actions/placement", "POST", { spec, placement: to, ...(format ? { format } : {}) });
-    await refreshActions(tile.page);
-  };
+  // its Actions page, with the tile as it is drawn here: where it starts, its target, what it shows now
+  const open = (button: HTMLElement) => openActions({
+    ...tile, target: targetFor(tile), current: figureFor(tile), start, where,
+    href: tile.href ?? `${window.location.pathname}${window.location.search}`,
+  }, button, (href) => router.push(href));
 
   return (
     <>
@@ -92,7 +89,7 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
           card's content starts right under it (SARCLA 19.10: "still stupid top padding everywhere") */}
       <Box sx={{ mr: neg(edge), flex: "0 0 auto", alignSelf: "flex-start", position: "relative", width: 20, height: 0 }}>
       <Tooltip placement="left" title={c.tasks ? `${c.open} open of ${c.tasks} task${c.tasks === 1 ? "" : "s"}${c.tickets ? ` · ${c.tickets} Scroll to Sale ticket${c.tickets === 1 ? "" : "s"}` : ""}${placed === "nutshell" ? " · BUC View" : ""}${onPlan ? " · Action plan KPI" : ""}` : `Actions${placed === "nutshell" ? " · BUC View" : ""}${onPlan ? " · Action plan KPI" : ""}`}>
-        <Box component="button" type="button" aria-label={`Actions for ${tile.title}`} onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+        <Box component="button" type="button" aria-label={`Actions for ${tile.title}`} onClick={(e) => { e.stopPropagation(); open(e.currentTarget); }}
           sx={{
             // on the card's right edge, rounded on the inside only
             position: "absolute", top: 0, right: 0, zIndex: 1,
@@ -114,8 +111,6 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
         </Box>
       </Tooltip>
       </Box>
-      {open && <ActionsPanel tile={{ ...tile, target: targetFor(tile) }} open={open} onClose={() => setOpen(false)} placed={placed} format={formatOf(state, tile)} formats={formatsFor(tile)} onMove={move}
-        canWrite={state?.canWrite ?? false} target={targetOf(state, targetFor(tile)?.key)} current={figureFor(tile)} />}
     </>
   );
 }
