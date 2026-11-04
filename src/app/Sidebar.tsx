@@ -358,6 +358,8 @@ const navSections: NavSection[] = [
       { group: "HubSpot apps", label: "Smart Sub-Tickets", href: "/uc/smart-tickets", icon: <AccountTreeOutlinedIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Back Office Distribution", href: "/uc/bo-distribution", icon: <AssignmentIndOutlinedIcon fontSize="small" /> },
       { group: "HubSpot apps", label: "Duplicates & Merges", href: "/uc/ticket-duplicates", icon: <ContentCopyOutlinedIcon fontSize="small" /> },
+      // the workflow "SARCLA | CERTIFICATES NEW PROCESS", run by the hub (SARCLA, 04.11.2026)
+      { group: "HubSpot apps", label: "Certificates", href: "/uc/certificates", icon: <VerifiedOutlinedIcon fontSize="small" /> },
       // the workflow "SARCLA | TICKET VALUE CALCULATION", run by the hub (SARCLA, 20.10.2026)
       { group: "HubSpot apps", label: "Ticket Value", href: "/uc/ticket-value", icon: <PaidOutlinedIcon fontSize="small" /> },
       { group: "One-shot actions", label: "September Push", href: "/uc/sept-push", icon: <CampaignOutlinedIcon fontSize="small" /> },

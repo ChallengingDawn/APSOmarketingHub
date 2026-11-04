@@ -127,6 +127,13 @@ export async function register() {
     const { startGqsApprovals } = await import("./lib/gqsApprovals/engine");
     startGqsApprovals();
 
+    // Certificates: the Back Office's certificate requests - AVOR, the Back Office rotation, the conformity experts, the
+    // 48 h / 96 h / a week reminders and the 15-day hand-over - replaces the workflow SARCLA | CERTIFICATES NEW PROCESS,
+    // switched off 04.11.2026; starts in Preview, writes in Live while the workflow is off (src/lib/certificates).
+    // CERTIFICATES=off stops it. SARCLA, 04.11.2026.
+    const { startCertificates } = await import("./lib/certificates/engine");
+    startCertificates();
+
     // The Enquiry Category at the end of each Back Office ticket left "Others" or empty - the whole conversation, no
     // customer request stays Others, the AI reads the rest; replaces the workflow SARCLA | CLASSIFIER END OF TICKET and
     // writes once that workflow is switched off (src/lib/ticketClose). TICKET_CLOSE=off stops it. SARCLA, 25.10.2026.

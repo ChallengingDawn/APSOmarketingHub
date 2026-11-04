@@ -13,6 +13,8 @@ export type GqsMode = "off" | "preview" | "live";
 export type GqsRun = {
   at: string; seconds: number; mode: GqsMode; requests: number; linked: number; carrying: number;
   written: number; would: number; left: number; failed: number; error?: string;
+  /** the linked tickets by pipeline and by their Type of sales ticket (none = empty) - the tab's figures */
+  eso?: number; tsa?: number; types?: Record<string, number>;
 };
 export type GqsRow = {
   at: string; ticketId: string; pipeline: "ESO" | "TSA"; subject: string | null; requestId: string | null; requestSubject: string | null;
@@ -73,7 +75,7 @@ export async function runGqsType(mode: GqsMode, signal?: AbortSignal): Promise<G
   if (mode === "off") return null;
   const t0 = Date.now();
   const live = mode === "live";
-  const run: GqsRun = { at: new Date().toISOString(), seconds: 0, mode, requests: 0, linked: 0, carrying: 0, written: 0, would: 0, left: 0, failed: 0 };
+  const run: GqsRun = { at: new Date().toISOString(), seconds: 0, mode, requests: 0, linked: 0, carrying: 0, written: 0, would: 0, left: 0, failed: 0, eso: 0, tsa: 0, types: {} };
   try {
     const state: State = (await kvGet<State>(KV.state)) ?? { seeded: false, done: {} };
     const rows = (await kvGet<GqsRow[]>(KV.rows)) ?? [];
@@ -89,6 +91,8 @@ export async function runGqsType(mode: GqsMode, signal?: AbortSignal): Promise<G
       const pipe = SALES_PIPELINES[p.hs_pipeline ?? ""];
       if (!pipe) continue;
       run.linked++;
+      if (pipe === "ESO") run.eso!++; else run.tsa!++;
+      run.types![p.type_of_sales_ticket || "none"] = (run.types![p.type_of_sales_ticket || "none"] ?? 0) + 1;
       if (p.type_of_sales_ticket === GQS_TYPE) run.carrying++;
       const plan = planGqs({ pipeline: p.hs_pipeline ?? null, type: p.type_of_sales_ticket ?? null }, state.done[id], live);
       const requestId = links.get(id) ?? null;
@@ -104,7 +108,11 @@ export async function runGqsType(mode: GqsMode, signal?: AbortSignal): Promise<G
       const chunk = toWrite.slice(i, i + 100);
       try {
         await hs("/crm/v3/objects/tickets/batch/update", "POST", { inputs: chunk.map((w) => ({ id: w.row.ticketId, properties: { type_of_sales_ticket: GQS_TYPE } })) });
-        for (const w of chunk) { done[w.row.ticketId] = w.next; fresh.push(w.row); run.written++; run.carrying++; }
+        for (const w of chunk) {
+          done[w.row.ticketId] = w.next; fresh.push(w.row); run.written++; run.carrying++;
+          const was = w.row.before || "none";
+          run.types![was] = Math.max(0, (run.types![was] ?? 1) - 1); run.types![GQS_TYPE] = (run.types![GQS_TYPE] ?? 0) + 1;
+        }
       } catch (e) {
         // not remembered: asked again next run
         for (const w of chunk) { fresh.push({ ...w.row, what: "failed", error: (e as Error).message.slice(0, 200) }); run.failed++; }
@@ -121,7 +129,19 @@ export async function runGqsType(mode: GqsMode, signal?: AbortSignal): Promise<G
   return run;
 }
 
-export async function gqsReport(): Promise<{ last: GqsRun | null; rows: GqsRow[] }> {
-  const [last, rows] = await Promise.all([kvGet<GqsRun>(KV.last), kvGet<GqsRow[]>(KV.rows)]);
-  return { last: last ?? null, rows: rows ?? [] };
+/** The HubSpot workflow this replaces - switched on? null = could not be read. */
+export const GQS_WORKFLOW_ID = "3887968475";
+let wfCache: { at: number; on: boolean | null } | null = null;
+async function workflowOn(): Promise<boolean | null> {
+  if (wfCache && Date.now() - wfCache.at < 2 * 60_000) return wfCache.on;
+  let on: boolean | null = null;
+  // the hub's own token reads workflows (the tickets token does not)
+  try { on = !!(await hubspotRetry<{ isEnabled?: boolean }>({ path: `/automation/v4/flows/${GQS_WORKFLOW_ID}` })).isEnabled; } catch { on = null; }
+  wfCache = { at: Date.now(), on };
+  return on;
+}
+
+export async function gqsReport(): Promise<{ last: GqsRun | null; rows: GqsRow[]; workflowOn: boolean | null }> {
+  const [last, rows, on] = await Promise.all([kvGet<GqsRun>(KV.last), kvGet<GqsRow[]>(KV.rows), workflowOn()]);
+  return { last: last ?? null, rows: rows ?? [], workflowOn: on };
 }
