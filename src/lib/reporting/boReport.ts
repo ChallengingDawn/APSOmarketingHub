@@ -66,6 +66,8 @@ export type BoRead = {
   chat: Record<string, ChatRow[]>;
   /** the months not counted yet (the counter is on them), and what it is doing */
   pending: string[]; counting: boolean; progress: string | null; error: string | null;
+  /** the months shown with their earlier count while they are counted again (a new version after a release) */
+  updating: string[];
 };
 
 const between = (prop: string, ym: string): Filter[] => [
@@ -291,19 +293,23 @@ export async function boReportNow(): Promise<BoRead> {
   const fresh = new Set(months.slice(-2));
   const kept = await keptMonths();
   const g = await kvGet<KeptGqs>(KV.gqs);
-  const pending = months.filter((ym) => !kept.get(ym) || kept.get(ym)!.v !== VERSION);
+  // a month of an earlier version (from 3 on, the tickets one by one) stays shown while it is counted again - a release that
+  // changes the read no longer leaves the pages empty for the half hour of the count (SARCLA 04.11.2026: "it's empty")
+  const usable = (k: Kept | undefined) => !!k && (k.v === VERSION || k.v >= 3);
+  const pending = months.filter((ym) => !usable(kept.get(ym)));
+  const updating = months.filter((ym) => usable(kept.get(ym)) && kept.get(ym)!.v !== VERSION);
   const due = [...months].reverse().filter((ym) => stale(kept.get(ym), fresh.has(ym), now));
   const gqsDue = !g || g.v !== GQS_VERSION || now - Date.parse(g.at) > HOUR;
   // the chat's handling: the months with tickets, kept like the months (this one and the one before hourly, older weekly)
   const chats = await keptChats();
   const chatDue = [...months].reverse().filter((ym) => ym >= "2025-07" && (() => { const k = chats.get(ym); return !k || k.v !== CHAT_VERSION || now - Date.parse(k.at) > (fresh.has(ym) ? HOUR : WEEK); })());
   if ((due.length || gqsDue || chatDue.length) && !state.running && (await leaseFree())) count(due, gqsDue, chatDue);
-  const have = months.flatMap((ym) => (kept.get(ym) && kept.get(ym)!.v === VERSION ? [kept.get(ym)!] : []));
+  const have = months.flatMap((ym) => (usable(kept.get(ym)) ? [kept.get(ym)!] : []));
   const newest = [...have.map((m) => m.at), g?.at ?? ""].sort().pop() ?? "";
   const elsewhere = !state.running && !(await leaseFree());
   return {
     generatedAt: newest || new Date(now).toISOString(), months: have,
     chat: Object.fromEntries([...chats].filter(([, k]) => k.v === CHAT_VERSION).map(([ym, k]) => [ym, k.rows])), gqs: g?.v === GQS_VERSION ? g.months : [], current, today,
-    pending, counting: state.running || elsewhere, progress: state.running ? state.progress : elsewhere ? "counting on another copy of the hub" : null, error: state.error,
+    pending, updating, counting: state.running || elsewhere, progress: state.running ? state.progress : elsewhere ? "counting on another copy of the hub" : null, error: state.error,
   };
 }

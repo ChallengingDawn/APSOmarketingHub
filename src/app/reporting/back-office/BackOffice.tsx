@@ -28,7 +28,9 @@
 // or without any activity - boReport.ts readChat), the people ranked against the months before (the ESO pages' leaderboard).
 // Round 7 (04.11.2026): each ticket's profit centre from its linked order - "per profit centre which types of tickets";
 // C2S against its orders and their value month by month; the chat's first contact from the chat v3 on, "no contact" split
-// into closed and still open; Topics reviewed - by person, by profit centre, the speed per topic.
+// into closed and still open; Topics reviewed - by person, by profit centre, the speed per topic. Round 8: the months keep
+// their earlier count on show while counted again ("it's empty"); Topics completed - the topic table under All topics, the
+// small graphs bigger, each person's and each profit centre's topics as tables, tickets per 100 orders per profit centre.
 //
 // Every graph is defined once (CHARTS) and drawn the same on its page and in the BUC View, keyed "bo-<page>:main:<id>".
 
@@ -439,7 +441,7 @@ const PCS = ["DT", "KT", "FT", "ST", "AT"];
 /* a small graph per topic or per profit centre - the hub's colours, a glass tile each */
 type Mini = { label: string; values: (number | null)[]; values2?: (number | null)[]; value: string; ch?: number | null; lower?: boolean; sub?: string; counts?: boolean };
 function MiniColumns({ values }: { values: (number | null)[] }) {
-  const w = 160, h = 46, max = Math.max(1, ...values.map((v) => v ?? 0)), band = w / Math.max(1, values.length);
+  const w = 240, h = 84, max = Math.max(1, ...values.map((v) => v ?? 0)), band = w / Math.max(1, values.length);
   const last = values.reduce<number>((k, v, i) => (v != null ? i : k), -1);
   return (
     <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h} preserveAspectRatio="none" aria-hidden>
@@ -469,7 +471,7 @@ function Minis({ items, legend }: { items: Mini[]; legend?: [string, string] }) 
           {legend.map((l, i) => <Box key={l} sx={{ display: "inline-flex", alignItems: "center", gap: 0.75 }}><Box sx={{ width: 14, height: 3, borderRadius: 2, bgcolor: i ? DEEMPHASIS : SERIES[0] }} />{l}</Box>)}
         </Box>
       )}
-      <Box sx={{ display: "grid", gap: 1.25, gridTemplateColumns: "repeat(auto-fill, minmax(168px, 1fr))" }}>
+      <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))" }}>
         {items.map((it) => (
           <Box key={it.label} sx={{ ...glass, borderRadius: "14px", px: 1.5, py: 1.1, display: "grid", gap: 0.5, minWidth: 0 }}>
             <Typography title={it.label} sx={{ fontSize: "0.8rem", fontWeight: 650, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.label}</Typography>
@@ -533,6 +535,37 @@ function PcTopics({ f }: { f: Frame }) {
       </Box></Box>
       {known < all && <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>{int(all - known)} tickets of months not counted again yet are left out until they are.</Typography>}
     </ChartFrame>
+  );
+}
+
+/** The tickets of the period by a breakdown (rows) and their topic (columns): the eight largest topics, every other, the
+ *  total - each with its share of the row. */
+function TopicMatrix({ f, by, head }: { f: Frame; by: (t: Tk, r: number[], d: string[]) => string | null; head: string }) {
+  const m = new Map<string, Map<string, number>>(), tot = new Map<string, number>();
+  f.cur.forEach((mo, i) => {
+    if (i < f.from || i >= Math.max(f.done, f.from + 1) || !mo.rows || mo.pending) return;
+    const dd = mo.rows.dict;
+    for (const r of mo.rows.created) {
+      const t = tk(dd, r, RW);
+      if (!passes(f.fil, f.co, t)) continue;
+      const k = by(t, r, dd);
+      if (k == null) continue;
+      const tp = topicLabel(t.topic);
+      const row = m.get(k) ?? new Map<string, number>();
+      row.set(tp, (row.get(tp) ?? 0) + 1);
+      m.set(k, row);
+      tot.set(tp, (tot.get(tp) ?? 0) + 1);
+    }
+  });
+  if (!m.size) return <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>No tickets for this choice yet.</Typography>;
+  const cols = [...tot].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k]) => k);
+  const rows = [...m].map(([k, row]) => ({ k, row, total: [...row.values()].reduce((a, b) => a + b, 0) })).sort((a, b) => (a.k.startsWith("Outside") || a.k === "No order linked" ? 1 : 0) - (b.k.startsWith("Outside") || b.k === "No order linked" ? 1 : 0) || b.total - a.total);
+  const cell = (n: number, of: number) => (n ? <span>{int(n)} <Box component="span" sx={{ color: FAINT, fontSize: "0.74rem" }}>{pct(n / of)}</Box></span> : <Box component="span" sx={{ color: FAINT }}>—</Box>);
+  return (
+    <WTable head={[head, ...cols, "Every other topic", "Tickets"]} totals={1} rows={rows.map((r) => {
+      const other = r.total - cols.reduce((x, c) => x + (r.row.get(c) ?? 0), 0);
+      return { key: r.k, cells: [r.k, ...cols.map((c) => cell(r.row.get(c) ?? 0, r.total)), cell(other, r.total), int(r.total)] };
+    })} />
   );
 }
 
@@ -975,6 +1008,27 @@ export const CHARTS: ChartDef[] = [
         parts={[...tops.map((t, j2) => ({ key: `t${j2}`, label: t.label })), { key: "rest", label: "Every other topic", color: DEEMPHASIS }]} />;
     },
   })),
+  listed(ALL_IN)(wide({
+    id: "topicPeopleTable", page: "topics", title: "Each person's topics, in figures",
+    hint: ({ f }) => `${periodOf(f)} · the tickets created, by their owner today: the eight largest topics and every other, each with its share of the person's tickets · the owners outside the Back Office together on the last row`,
+    body: ({ f }) => <TopicMatrix f={f} head="Person" by={(t) => (inTeam(f, t.owner) ? ownerName(f, t.owner) : "Outside the Back Office")} />,
+  })),
+  listed(ALL_IN)(wide({
+    id: "topicPcTable", page: "topics", title: "Each profit centre's topics, in figures",
+    hint: ({ f }) => `${periodOf(f)} · the tickets by the profit centre of the order they are about: the eight largest topics and every other, each with its share of the profit centre's tickets`,
+    body: ({ f }) => <TopicMatrix f={f} head="Profit centre" by={(_t, r, dd) => pcOfRow(dd, r)} />,
+  })),
+  listed(ALL_IN)({
+    id: "pcPer100", page: "topics", title: "Tickets per 100 orders, by profit centre",
+    hint: ({ f }) => `${periodOf(f)} · each profit centre's Back Office tickets (by their order) against its orders - where the orders cause the most work`,
+    body: ({ f }) => {
+      const tickets = new Map<string, number>();
+      eachRow(f, "created", (_t, r, i) => { const pc = pcOfRow(f.cur[i].rows!.dict, r); if (pc && pc !== "No order linked") tickets.set(pc, (tickets.get(pc) ?? 0) + 1); });
+      const orders = new Map(sumField(f, "pcs").map((r) => [r.label, r.cur]));
+      const rows = [...tickets].filter(([pc]) => (orders.get(pc) ?? 0) > 0).map(([pc, n]) => ({ label: pc, value: (n / orders.get(pc)!) * 100, secondary: `${int(n)} tickets · ${int(orders.get(pc)!)} orders` })).sort((a, b) => b.value - a.value);
+      return <BarList rows={rows} format={(v) => (v == null ? "—" : v.toFixed(1))} labelWidth={150} emptyMessage="The tickets' orders are being read - each month shows as soon as it is counted again." />;
+    },
+  }),
   listed({ note: "the tickets closed since", keep: (_t, r) => r[RW.close] >= 0 })({
     id: "topicClose", page: "topics", title: "Days to close, by topic",
     hint: ({ f }) => `${periodOf(f)} · tickets created in the period and closed since, on average · topics with 5 or more, the slowest first`,
@@ -1410,8 +1464,8 @@ const TABS: Record<Slug, TabDef[]> = {
     TABLE("the workbook's topic table: Back Office tickets per topic, by the month they came in"),
     { id: "all", label: "All topics", title: "Tickets per topic", note: "the topic each ticket has today · click topics to follow them month by month", icon: <CategoryOutlinedIcon />, tint: "amber", charts: ["topics", "topicMonths"] },
     { id: "months", label: "Month by month", title: "Each topic, month by month", note: "the shape of every topic, and the mix of each month", icon: <BarChartOutlinedIcon />, tint: "blue", charts: ["topicMinis", "topicShare"] },
-    { id: "people", label: "By person", title: "Each person's topics", note: "the topics each person of the Back Office handles", icon: <BadgeOutlinedIcon />, tint: "green", charts: ["topicPeople"] },
-    { id: "pcs", label: "By profit centre", title: "Topics per profit centre", note: "the tickets by the profit centre of the order they are about", icon: <ApartmentOutlinedIcon />, tint: "blue", charts: ["topicPcs"] },
+    { id: "people", label: "By person", title: "Each person's topics", note: "the topics each person of the Back Office handles", icon: <BadgeOutlinedIcon />, tint: "green", charts: ["topicPeople", "topicPeopleTable"] },
+    { id: "pcs", label: "By profit centre", title: "Topics per profit centre", note: "the tickets by the profit centre of the order they are about", icon: <ApartmentOutlinedIcon />, tint: "blue", charts: ["topicPcs", "pcPer100", "topicPcTable"] },
     { id: "speed", label: "Speed", title: "How fast, per topic", note: "days to close and to the first reply, per topic", icon: <TimerOutlinedIcon />, tint: "amber", charts: ["topicClose", "topicReply"] },
     { id: "delivery", label: "Delivery", title: "Delivery", note: "the biggest topic - its C2S tickets beside it (the C2S tab of Team totals has them all)", icon: <LocalShippingOutlinedIcon />, tint: "pink", charts: ["delivery", "c2sDelivery"] },
     { id: "cancel", label: "Order cancellations", title: "Order cancellations", note: "a KPI of its own, as the workbook's New KPIs ask", icon: <CancelOutlinedIcon />, tint: "purple", charts: ["cancel", "cancelPerOrder"] },
@@ -1623,7 +1677,7 @@ function Loaded({ slug, d, a, put, children }: { slug: Slug; d: Data; a: Answer;
           <Typography component="h1" sx={H1}>{pageOf(slug).title}</Typography>
           <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
             <b style={{ color: INK }}>Back Office</b> · {f.year}{f.done ? <> · the figures: <b style={{ color: INK }}>{f.doneWords} {f.year}</b>{f.totalPrev ? <> against {f.doneWords} {f.year - 1}</> : null}</> : null} · counted {counted}
-            {a.state.computing && <> · <CircularProgress size={10} sx={{ mx: 0.4 }} />{d.pending?.length ? `counting - ${d.pending.length} of ${d.pending.length + d.months.length} months still to come, the newest first` : "counting again"}</>}
+            {a.state.computing && <> · <CircularProgress size={10} sx={{ mx: 0.4 }} />{d.pending?.length ? `counting - ${d.pending.length} of ${d.pending.length + d.months.length} months still to come, the newest first` : d.updating?.length ? `bringing ${d.updating.length} months up to date - their earlier figures shown meanwhile` : "counting again"}</>}
           </Typography>
         </Box>
         <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" } }}><FigureCards items={FIGS[slug](f, d)} /></Box>
@@ -1773,7 +1827,7 @@ function TopicsBody({ f, d }: { f: Frame; d: Data }) {
   const c: Ctx = { f, d, picked, pick: (l) => setPicked((x) => (x.includes(l) ? x.filter((y) => y !== l) : [...x, l])) };
   const { compare, rows } = topicRows(f);
   return (
-    <TabCard slug="topics" c={c} extra={(tab) => tab === "table" && (
+    <TabCard slug="topics" c={c} extra={(tab) => (tab === "table" || tab === "all") && (
       <ChartBox title="The workbook's topic table" hint="The workbook's topic table: Back Office tickets per topic, by the month they came in - what the workbook calls Others is each of its own today (automatic, finance, internal e-mails, spam ...)">
         <WTable head={["Topic", ...f.labels.map((l) => l.replace(" (to date)", "*")), ...(f.done ? [`${f.doneWords} ${f.year}`] : []), ...(compare ? [`${f.doneWords} ${f.year - 1}`, "Change"] : [])]}
           totals={(f.done ? 1 : 0) + (compare ? 2 : 0)}
