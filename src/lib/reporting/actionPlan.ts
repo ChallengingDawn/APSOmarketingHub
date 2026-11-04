@@ -36,7 +36,7 @@ type Row = {
   start_date: unknown; due_date: unknown; due_note: string; percent: number | null; dg: boolean; updated_by: string; updated_at: unknown;
   owners: unknown; matched: boolean;
   stage: string | null; channel: unknown; country: unknown; agency: unknown; roadmap_year: string;
-  kpis: string; next_steps: string; status_note: string; s2s: boolean;
+  kpis: string; next_steps: string; status_note: string; s2s: boolean; kpi_tracking: boolean;
 };
 const list = (x: unknown): string[] => {
   const v = typeof x === "string" ? (() => { try { return JSON.parse(x); } catch { return []; } })() : x;
@@ -55,7 +55,7 @@ const item = (r: Row): PlanItem => ({
   state: r.state && (PLAN_STATES as readonly string[]).includes(r.state) ? (r.state as PlanState) : null,
   result: r.result, mainTopic: r.main_topic, perimeter: r.perimeter, expected: r.expected, codeFreeze: r.code_freeze,
   complexity: r.complexity, release: r.release, start: day(r.start_date), due: day(r.due_date), dueNote: r.due_note,
-  percent: r.percent, dg: r.dg, owners: ownersOf(r.owners),
+  percent: r.percent, dg: r.dg, tracked: !!r.kpi_tracking, owners: ownersOf(r.owners),
   stage: stageOf(r.stage) ? r.stage : null, channel: list(r.channel), country: list(r.country), agency: list(r.agency),
   roadmapYear: r.roadmap_year ?? "", kpis: r.kpis ?? "", nextSteps: r.next_steps ?? "", statusNote: r.status_note ?? "",
   updatedBy: r.updated_by, updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at ?? ""),
@@ -111,6 +111,8 @@ function ensure(): Promise<void> {
         // `folded` = an imported action's KPIs and next steps put in its description; `leaders_set` = "Sales leaders" read
         // as the hierarchy's people (both once, SARCLA 02.11.2026)
         "folded boolean NOT NULL DEFAULT false", "leaders_set boolean NOT NULL DEFAULT false",
+        // KPI tracking, Yes or No (SARCLA 04.11.2026)
+        "kpi_tracking boolean NOT NULL DEFAULT false",
       ]) await query(`ALTER TABLE ${T} ADD COLUMN IF NOT EXISTS ${c}`);
       // the tracking: every change, who made it and when
       await query(`CREATE TABLE IF NOT EXISTS ${LOG} (
@@ -358,7 +360,7 @@ const LISTS: [keyof PlanFields, string][] = [["channel", "channel"], ["country",
 /** What the tracking calls a field, and how it writes a value. */
 const FIELD_NAME: Partial<Record<keyof PlanFields, string>> = {
   title: "Name", detail: "Description", priority: "Priority", referent: "Referent", stage: "Status", owners: "Assigned to",
-  start: "Planned date", due: "Go-live date", percent: "% complete", dg: "Led by Digital Growth", channel: "Marketing channel",
+  start: "Planned date", due: "Go-live date", percent: "% complete", dg: "Led by Digital Growth", tracked: "KPI tracking", channel: "Marketing channel",
   country: "Implementation country", agency: "Agency", roadmapYear: "Roadmap year", kpis: "KPIs", nextSteps: "Next steps / milestones",
   statusNote: "Status note", dueNote: "Deadline words", responsible: "Responsible (workbook)",
 };
@@ -368,7 +370,7 @@ function shown(k: keyof PlanFields, v: unknown): string {
   if (k === "priority") return priorityLabel(String(v)) || String(v);
   if (k === "owners") return (v as PlanOwner[]).map((o) => o.name).join(", ");
   if (k === "percent") return `${v} %`;
-  if (k === "dg") return v ? "yes" : "no";
+  if (k === "dg" || k === "tracked") return v ? "yes" : "no";
   if ((k === "start" || k === "due") && typeof v === "string") return v.split("-").reverse().join(".");
   if (Array.isArray(v)) return v.join(", ");
   return String(v);
@@ -405,6 +407,7 @@ export async function updateItem(id: number, p: Partial<PlanFields>, by: string)
   const dated = p.start || p.due;
   if (dated && before.kind === "action" && !before.roadmapYear && p.roadmapYear === undefined) set("roadmap_year", dated.slice(0, 4));
   if (p.dg !== undefined) set("dg", !!p.dg);
+  if (p.tracked !== undefined) set("kpi_tracking", !!p.tracked);
   let stage = p.stage === undefined ? before.stage : p.stage;
   let percent = before.percent;
   if (p.percent !== undefined && p.percent !== null) {

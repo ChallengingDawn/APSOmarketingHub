@@ -11,6 +11,7 @@ import {
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
 import { figureOf, figureText, numberOf } from "../src/lib/reporting/tileFigure";
+import { PLAN_KPI_STATUSES, PLAN_KPI_TEAMS, isPlanKpiStatus, isPlanKpiTeam, teamOfPage, viewOf } from "../src/lib/reporting/planKpiTeams";
 
 // SARCLA 31.10.2026: the "APSOparts Business Improvement Action Plan" workbook's first tab as a Gantt in the hub,
 // by topic, sub-actions from the KPI tiles, Scroll to Sale tickets only for Digital Growth's actions; the home
@@ -593,4 +594,31 @@ test("action plan: a graph's figure shown as its words write it", () => {
   assert.equal(figureText("CHF 812,000 this year so far"), "CHF 812,000");
   assert.equal(figureText("21,526 created, 21,952 closed"), "21,526");
   assert.equal(figureText("No figure yet"), null);
+});
+
+// SARCLA 04.11.2026: the plan's KPIs tab holds only the KPIs promoted to it, with a target, each Target complete | Still
+// running | Late - promoted from its tile in Advanced reporting, under its page's team by default.
+test("action plan KPIs: a tile's team is its page's", () => {
+  assert.equal(teamOfPage("eso-figures"), "eso");
+  assert.equal(teamOfPage("tsa-tickets"), "tsa");
+  assert.equal(teamOfPage("bo-orders"), "back-office");
+  assert.equal(teamOfPage("reach"), "digital-growth");
+  assert.equal(teamOfPage("nutshell:visit"), "digital-growth");
+  assert.equal(teamOfPage(""), "digital-growth");
+});
+
+test("action plan KPIs: the teams and the three standings, in the tab's order", () => {
+  assert.deepEqual(PLAN_KPI_TEAMS.map((t) => t.name), ["Digital Growth", "ESO", "TSA", "Back-Office", "Products", "Website"]);
+  assert.deepEqual(PLAN_KPI_STATUSES.map((s) => s.label), ["Target complete", "Still running", "Late"]);
+  assert.equal(isPlanKpiTeam("website"), true);
+  assert.equal(isPlanKpiTeam("sales"), false);
+  assert.equal(isPlanKpiStatus("late"), true);
+  assert.equal(isPlanKpiStatus("done"), false);
+});
+
+test("action plan KPIs: a tile's view is the same whatever the order of its filters, empty ones left out", () => {
+  assert.equal(viewOf({ filters: { b: ["2", "1"], a: ["x"], c: [] } }), viewOf({ filters: { a: ["x"], b: ["1", "2"] } }));
+  assert.notEqual(viewOf({ filters: { a: ["x"] } }), viewOf({ filters: { a: ["y"] } }));
+  assert.notEqual(viewOf({ from: "2026-01" }), viewOf({ from: "2025-01" }));
+  assert.equal(viewOf({}), viewOf({ filters: {} }));
 });

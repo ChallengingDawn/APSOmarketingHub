@@ -140,11 +140,11 @@ export function HomeBar({ on, plan = false }: { on?: string; plan?: boolean }) {
   // gets Home and Settings, the honest header for them. The two anchors point at
   // the front page, so they work from any page that shows the bar.
   const reads = APP_KEYS.filter((k) => openFor(k)).length <= 1;
-  // the Action plan's own pages, admins only, carry their own three (SARCLA 02.11.2026: "Action plan first, Home, From
-  // Scroll to Sale" - "only admins have access to it, show it for everyone on the page")
+  // the Action plan's own pages, admins only, carry their own (SARCLA 02.11.2026: "only admins have access to it, show it
+  // for everyone on the page"; 04.11.2026: "bring Home to first position")
   const NAV = plan ? [
-    { name: "Action plan", href: "/action-plan", icon: <DashboardOutlinedIcon />, show: true },
     { name: "Home", href: "/", icon: <HomeIcon />, show: true },
+    { name: "Action plan", href: "/action-plan", icon: <DashboardOutlinedIcon />, show: true },
     { name: "From Scroll to Sale", href: "/action-plan/scroll-to-sale", icon: <ViewKanbanOutlinedIcon />, show: true },
     // each team's KPIs, as their BUC View has them (SARCLA 04.11.2026: "another tab in the header like From Scroll to Sale")
     { name: "KPIs", href: "/action-plan/kpis", icon: <InsightsOutlinedIcon />, show: true },

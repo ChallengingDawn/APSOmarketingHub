@@ -5,7 +5,7 @@
 // tickets, who they are shared with, and whether the tile shows In a nutshell (promote / demote).
 // Drop it into a card's header: <TileActions tile={{ key, page, tab, kpiId, title, summary, filters }} />.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Tooltip from "@mui/material/Tooltip";
 
@@ -14,6 +14,8 @@ import type { Placement, TileFormat, TileSpec } from "@/lib/reporting/kpiActions
 import { ActionsPanel } from "./ActionsPanel";
 import { formatOf, formatsFor, placementOf, refreshActions, send, targetOf, useActions } from "./store";
 import { figureOf, figureText } from "@/lib/reporting/tileFigure";
+import { viewOf } from "@/lib/reporting/planKpiTeams";
+import { sayFigure, usePlanKpis } from "./planKpis";
 
 /**
  * A target for a tile that has none of its own (SARCLA 04.11.2026, of the KPIs tab: "you should be able also to set a
@@ -67,6 +69,11 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
   const c = state?.counts[tile.key] ?? { open: 0, tasks: 0, tickets: 0 };
   const placed = placementOf(state, tile.key, start);
   const running = c.open > 0;
+  // on the action plan's KPIs: what it shows now goes there, when drawn in the view it was promoted in
+  const plan = usePlanKpis();
+  const onPlan = plan.state?.kpis.find((k) => k.key === tile.key);
+  const view = viewOf(tile);
+  useEffect(() => { if (onPlan && tile.summary) sayFigure(onPlan, tile.summary, view); }, [onPlan, tile.summary, view]);
 
   const move = async (to: Placement, format?: TileFormat) => {
     const spec: TileSpec = {
@@ -84,7 +91,7 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
       {/* the tab hangs from its place without taking height: a two-line title stays two lines high, and the
           card's content starts right under it (SARCLA 19.10: "still stupid top padding everywhere") */}
       <Box sx={{ mr: neg(edge), flex: "0 0 auto", alignSelf: "flex-start", position: "relative", width: 20, height: 0 }}>
-      <Tooltip placement="left" title={c.tasks ? `${c.open} open of ${c.tasks} task${c.tasks === 1 ? "" : "s"}${c.tickets ? ` · ${c.tickets} Scroll to Sale ticket${c.tickets === 1 ? "" : "s"}` : ""}${placed === "nutshell" ? " · BUC View" : ""}` : `Actions${placed === "nutshell" ? " · BUC View" : ""}`}>
+      <Tooltip placement="left" title={c.tasks ? `${c.open} open of ${c.tasks} task${c.tasks === 1 ? "" : "s"}${c.tickets ? ` · ${c.tickets} Scroll to Sale ticket${c.tickets === 1 ? "" : "s"}` : ""}${placed === "nutshell" ? " · BUC View" : ""}${onPlan ? " · Action plan KPI" : ""}` : `Actions${placed === "nutshell" ? " · BUC View" : ""}${onPlan ? " · Action plan KPI" : ""}`}>
         <Box component="button" type="button" aria-label={`Actions for ${tile.title}`} onClick={(e) => { e.stopPropagation(); setOpen(true); }}
           sx={{
             // on the card's right edge, rounded on the inside only

@@ -6,16 +6,16 @@
 // dates, channels, countries, agency, roadmap year, KPIs, next steps, status note (no report link - 02.11.2026). Where the ticket
 // picks a business goal ("Awareness"), an action picks its place in the plan's tree. Each field saves when it is
 // left; every change lands in the tracking on the right.
-// Two views, switched at the top like Map assignment's Live | Sandbox (SARCLA 01.11.2026: "KPI should be a toggle like
-// in map assignment - this KPI will be fed by the KPI actions later"): Overview and KPI. A main category or a
-// sub-category shows everything in it as square tiles to open ("list everything like an interactive bubble", then
+// One view: no Overview | KPI switch any more (SARCLA 04.11.2026: "still the old KPI appearing") - the KPIs are the KPIs
+// tab's, promoted there from Advanced reporting. A main category or a sub-category shows everything in it as square tiles
+// to open ("list everything like an interactive bubble", then
 // "improve the design and UX - square tabs").
 // The window takes the whole screen but a margin ("modal way larger"); an action's sub-actions are made, described to
 // the AI and given their tickets in it, not in a second window over it ("sub-action creation still holds the old
 // modal"), its form open from the start ("when I click [an action] I should see creating directly a sub-action").
 // "Led by Digital Growth" opens the ticket search, the marketing channel and the agency.
 // A category's window is its tiles alone, the whole width, a + tile to add under it ("kanban is broken ... the side
-// is not needed, new action should be the +"); it moves by drag and drop in the Gantt. Its changes are in the KPI view.
+// is not needed, new action should be the +"); it moves by drag and drop in the Gantt. Its changes are under its tiles.
 
 import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -30,13 +30,10 @@ import CloseIcon from "@mui/icons-material/Close";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import TaskAltIcon from "@mui/icons-material/TaskAlt";
-import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 import HistoryIcon from "@mui/icons-material/History";
-import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
-import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 
 import { FAINT, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { BUC_MEMBERS, KILLED, PRIORITIES, STAGES, isClosed, priorityLabel, stageOf, subClosed, subLate, subOrder, subSoon, subStage, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
+import { BUC_MEMBERS, KILLED, isClosed, priorityLabel, stageOf, subClosed, subLate, subOrder, subSoon, subStage, type Opt, type PlanFields, type PlanItem, type PlanKind, type PlanOwner, type PlanSub, type Rolled } from "@/lib/reporting/actionPlanRules";
 import { LATE, PRIORITY_COLOR, SUMMARY, dmy, stageColor, todayIso, type PlanData } from "./planUi";
 import { ActionTicket, CoreFields, SubActions, label, planTile, square } from "./SubActions";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
@@ -153,30 +150,6 @@ function Tracking({ id, tick }: { id: number; tick: number }) {
           </Box>
         ))}
       </Box>
-    </Box>
-  );
-}
-
-type View = "overview" | "kpi";
-/** Overview | KPI, at the top - Map assignment's Live | Sandbox switch (SARCLA 01.11.2026: "KPI should be a toggle like in map assignment"). */
-function ViewSwitch({ view, setView }: { view: View; setView: (v: View) => void }) {
-  const btn = (v: View, label: string, icon: React.ReactNode, color: string) => {
-    const on = view === v;
-    return (
-      <Box component="button" type="button" onClick={() => setView(v)} aria-pressed={on}
-        sx={{
-          all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.75, px: 1.75, py: 0.75, fontSize: "0.9rem", fontWeight: 700,
-          color: on ? "#fff" : color, bgcolor: on ? color : "transparent", transition: "background-color .12s",
-          "&:hover": { bgcolor: on ? color : "rgba(21,34,58,.05)" }, "&:focus-visible": { outline: `2px solid ${color}`, outlineOffset: -2 },
-        }}>
-        {icon}{label}
-      </Box>
-    );
-  };
-  return (
-    <Box role="group" aria-label="Overview or KPI" sx={{ display: "inline-flex", flexShrink: 0, border: "1px solid rgba(21,34,58,.16)", borderRadius: "12px", overflow: "hidden", bgcolor: "#fff", boxShadow: "0 1px 4px rgba(31,45,78,.08)" }}>
-      {btn("overview", "Overview", <AccountTreeOutlinedIcon sx={{ fontSize: 18 }} />, "#2459d1")}
-      {btn("kpi", "KPI", <InsightsOutlinedIcon sx={{ fontSize: 18 }} />, "#1b7a55")}
     </Box>
   );
 }
@@ -376,72 +349,6 @@ function CategorySubs({ item, items, allSubs, onOpen, onOpenSub }: {
   );
 }
 
-/** The KPI view: where it stands; for a category its actions by status and priority, and what is late. The KPI
- *  actions will feed it (SARCLA 01.11.2026: "this KPI will be fed by the KPI actions, later to come"). */
-function KpiView({ item, items, rolledAll, subs, canWrite, save, colorOf, onOpen }: {
-  item: PlanItem; items: PlanItem[]; rolledAll: Map<number, Rolled>; subs: PlanSub[]; canWrite: boolean; save: (p: Partial<PlanFields>) => void;
-  colorOf: (i: PlanItem) => string | null; onOpen: (i: PlanItem) => void;
-}) {
-  const today = todayIso();
-  const action = item.kind === "action";
-  const under = action ? [] : actionsUnder(item.id, items);
-  const byStage = [...STAGES.map((s) => ({ id: s.id as string | null, label: s.label, n: under.filter((i) => i.stage === s.id).length })), { id: null, label: "No status", n: under.filter((i) => !stageOf(i.stage)).length }].filter((x) => x.n);
-  const late = under.filter((i) => rolledAll.get(i.id)?.lateSelf);
-  const tiles = subs.filter((s) => s.kpiHref);
-  return (
-    <Box sx={{ display: "grid", gap: 2.25, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 1fr) minmax(0, 1fr)" }, alignItems: "start" }}>
-      {/* no KPIs picked here - they are the KPIs tab's, team by team (SARCLA 04.11.2026: "this KPI like this is a bad idea") */}
-
-      {action ? (
-        <>
-          <Box sx={card}>
-            <Typography sx={section}>KPI tiles it is tied to</Typography>
-            {!tiles.length && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>None yet - a KPI tile&apos;s Actions can add a sub-action to it.</Typography>}
-            {tiles.map((s) => (
-              <Box key={s.id} component="a" href={s.kpiHref} sx={{ display: "flex", gap: 0.75, alignItems: "center", color: TINT.blue.fg, textDecoration: "none", fontSize: "0.86rem", fontWeight: 600, "&:hover": { textDecoration: "underline" } }}>
-                <FlagOutlinedIcon sx={{ fontSize: 16 }} />{s.title}
-              </Box>
-            ))}
-          </Box>
-        </>
-      ) : (
-        <>
-          <Box sx={card}>
-            <Typography sx={section}>Its {under.length} action{under.length === 1 ? "" : "s"} by status</Typography>
-            {under.length > 0 && (
-              <Box sx={{ display: "flex", height: 14, borderRadius: "3px", overflow: "hidden", bgcolor: "#eef1f6" }}>
-                {byStage.map((s) => <Box key={s.label} title={`${s.label}: ${s.n}`} sx={{ width: `${(s.n / under.length) * 100}%`, bgcolor: stageColor(s.id).bar }} />)}
-              </Box>
-            )}
-            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
-              {byStage.map((s) => (
-                <Box key={s.label} sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, px: 1, py: 0.35, borderRadius: "4px", bgcolor: stageColor(s.id).soft, fontSize: "0.8rem", fontWeight: 700, color: stageColor(s.id).ink }}>
-                  {s.label}<Box component="span" sx={{ fontVariantNumeric: "tabular-nums" }}>{s.n}</Box>
-                </Box>
-              ))}
-            </Box>
-            <Typography sx={{ ...section, mt: 0.5 }}>By priority</Typography>
-            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
-              {[...PRIORITIES].reverse().map((p) => {
-                const n = under.filter((i) => i.priority === p.value).length;
-                const c = PRIORITY_COLOR[p.value];
-                return <Box key={p.value} sx={{ display: "inline-flex", gap: 0.6, px: 1, py: 0.35, borderRadius: "4px", bgcolor: c.bg, color: c.fg, fontSize: "0.8rem", fontWeight: 700, opacity: n ? 1 : 0.45 }}>{p.label}<span>{n}</span></Box>;
-              })}
-            </Box>
-          </Box>
-          <Box sx={card}>
-            <Typography sx={section}>Late · {late.length}</Typography>
-            {!late.length && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Nothing in it is past its planned date without being live.</Typography>}
-            <Box sx={TILES}>
-              {late.map((i) => <Tile key={i.id} row={i} r={rolledAll.get(i.id)} items={items} color={colorOf(i)} onOpen={onOpen} today={today} />)}
-            </Box>
-          </Box>
-        </>
-      )}
-    </Box>
-  );
-}
-
 export function ItemModal({ item, items, rolledAll, subs, allSubs, canWrite, people, peopleError, choices, colorOf, onClose, onOpen, onOpenSub, onPatch, onChanged, onAddUnder, onDelete, onMoveTo }: {
   item: PlanItem; items: PlanItem[]; rolledAll: Map<number, Rolled>; subs: PlanSub[]; canWrite: boolean; onClose: () => void;
   /** every sub-action of the plan - a category's window lists its actions' */
@@ -461,7 +368,6 @@ export function ItemModal({ item, items, rolledAll, subs, allSubs, canWrite, peo
   onMoveTo: (item: PlanItem, parentId: number) => Promise<void>;
 }) {
   const [tick, setTick] = useState(0);
-  const [view, setView] = useState<View>("overview");
   const save = (p: Partial<PlanFields>) => { void onPatch(item.id, p).then(() => setTick((t) => t + 1)); };
   const rolled = rolledAll.get(item.id);
   const action = item.kind === "action";
@@ -513,7 +419,7 @@ export function ItemModal({ item, items, rolledAll, subs, allSubs, canWrite, peo
   return (
     <Dialog open onClose={onClose} maxWidth={false} scroll="paper" aria-label={item.title}
       slotProps={{ paper: { sx: { width: "calc(100vw - 32px)", height: "calc(100vh - 32px)", maxHeight: "none", m: 2, borderRadius: "18px", bgcolor: "#f7f9fc", overflow: "hidden", display: "flex", flexDirection: "column" } } }}>
-      {/* ── the head: where it sits, its name, Overview | KPI, its stage ── */}
+      {/* ── the head: where it sits, its name ── */}
       <Box sx={{ px: { xs: 2, md: 3 }, pt: 2.25, pb: 1.75, bgcolor: "#fff", borderBottom: `1px solid ${HAIRLINE}`, display: "grid", gap: 1.25 }}>
         <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", flexWrap: { xs: "wrap", md: "nowrap" } }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -524,7 +430,6 @@ export function ItemModal({ item, items, rolledAll, subs, allSubs, canWrite, peo
             <Title value={item.title} canWrite={canWrite} onSave={(v) => save({ title: v })} />
           </Box>
           <Box sx={{ display: "flex", gap: 1, alignItems: "center", mt: 0.5 }}>
-            <ViewSwitch view={view} setView={setView} />
             {canWrite && item.kind !== "goal" && (
               <IconButton aria-label="Remove this row" title="Remove this row" onClick={() => void onDelete(item)}><DeleteOutlineIcon sx={{ color: FAINT }} /></IconButton>
             )}
@@ -535,12 +440,7 @@ export function ItemModal({ item, items, rolledAll, subs, allSubs, canWrite, peo
 
       {/* ── the body ── */}
       <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", px: { xs: 2, md: 3 }, py: 2.25 }}>
-        {view === "kpi" ? (
-          <Box sx={{ display: "grid", gap: 2.25 }}>
-            <KpiView item={item} items={items} rolledAll={rolledAll} subs={subs} canWrite={canWrite} save={save} colorOf={colorOf} onOpen={onOpen} />
-            {!action && <Tracking id={item.id} tick={tick} />}
-          </Box>
-        ) : !action ? (
+        {!action ? (
           <Box sx={{ display: "grid", gap: 2.25 }}>
             {item.kind === "goal" && (
               <Box sx={card}>
@@ -550,6 +450,8 @@ export function ItemModal({ item, items, rolledAll, subs, allSubs, canWrite, peo
             )}
             <Everything item={item} items={items} rolledAll={rolledAll} colorOf={colorOf} onOpen={onOpen} onAdd={canWrite ? onAddUnder : undefined} />
             <CategorySubs item={item} items={items} allSubs={allSubs} onOpen={onOpen} onOpenSub={onOpenSub} />
+            {/* its changes, as an action's */}
+            <Tracking id={item.id} tick={tick} />
           </Box>
         ) : (
           <Box sx={{ display: "grid", gap: 2.25, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 1.55fr) minmax(0, 1fr)" } }}>
@@ -601,6 +503,12 @@ export function ItemModal({ item, items, rolledAll, subs, allSubs, canWrite, peo
                   </TextField>
                   <TextField size="small" label="Roadmap ID" value={item.code} disabled title="The workbook's number" sx={field} slotProps={{ inputLabel: { shrink: true } }} />
                   <Referent value={item.referent} people={people} canWrite={canWrite} onSave={(v) => save({ referent: v })} />
+                  {/* the table's KPI tracking column, here too (SARCLA 04.11.2026) */}
+                  <TextField select size="small" label="KPI tracking" value={item.tracked ? "yes" : "no"} disabled={!canWrite} onChange={(e) => save({ tracked: e.target.value === "yes" })}
+                    sx={field} slotProps={{ inputLabel: { shrink: true } }}>
+                    <MenuItem value="no" sx={{ fontSize: "0.86rem" }}>No</MenuItem>
+                    <MenuItem value="yes" sx={{ fontSize: "0.86rem" }}>Yes</MenuItem>
+                  </TextField>
                 </Box>
             </Box>
 

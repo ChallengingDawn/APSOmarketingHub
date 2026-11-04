@@ -93,6 +93,9 @@ export type PlanFields = {
   channel: string[]; country: string[]; agency: string[]; roadmapYear: string;
   kpis: string; nextSteps: string; statusNote: string;
   start: string | null; due: string | null; dueNote: string; percent: number | null; dg: boolean;
+  /** KPI tracking, Yes or No - picked in the table's column (SARCLA 04.11.2026: "just a dropdown, yes or no - this will
+   *  then be implemented in the page in the header like KPIs, we will come to that later"); no when never picked */
+  tracked?: boolean;
   // the workbook's own columns, kept in the data but no longer shown - their words moved to the ticket's fields
   // once (toS2s); SARCLA 01.11.2026: "copy the HubSpot one made with the agency and delete those not needed"
   status: string; state: PlanState | null; result: string; mainTopic: string; perimeter: string; expected: string;

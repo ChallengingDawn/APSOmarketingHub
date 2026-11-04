@@ -125,6 +125,7 @@ export async function PATCH(req: NextRequest) {
     p[k] = b[k] as string[];
   }
   if (b.dg !== undefined) p.dg = !!b.dg;
+  if (b.tracked !== undefined) p.tracked = !!b.tracked;
   if (b.owners !== undefined) {
     if (!Array.isArray(b.owners)) return fail("owners is a list of HubSpot owner ids", 400);
     const want = [...new Set(b.owners.map(String).filter((x) => /^\d+$/.test(x)))];

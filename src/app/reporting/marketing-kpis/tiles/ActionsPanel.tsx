@@ -38,6 +38,8 @@ import type { KpiTask, Placement, TaskStatus, TileFormat } from "@/lib/reporting
 import type { AiFill, S2sField } from "@/lib/reporting/scrollToSaleRules";
 import { refreshActions, send } from "./store";
 import type { TileInfo } from "./TileActions";
+import { refreshPlanKpis, usePlanKpis } from "./planKpis";
+import { PLAN_KPI_TEAMS, teamOfPage, viewOf, type PlanKpiTeam } from "@/lib/reporting/planKpiTeams";
 
 export type Opt = { value: string; label: string };
 export type Linked = { id: string; subject: string; stageLabel: string; open: boolean; ownerName: string; roadmapId: string; url: string; createdHere: boolean; taskId: number | null };
@@ -140,6 +142,53 @@ function PlanPick({ value, onChange }: { value: number | null; onChange: (v: num
   );
 }
 
+/**
+ * The tile on the action plan's KPIs (SARCLA 04.11.2026: "they need to be promoted here with a defined target ... the KPI
+ * inside is defined on the Advanced reporting action"): for whoever has the plan (admins), once its target is saved, under
+ * a team - its page's by default. There it stands as Target complete, Still running or Late.
+ */
+function PlanKpiSwitch({ tile, saved }: { tile: TileInfo; saved: boolean }) {
+  const { state, denied } = usePlanKpis();
+  const on = state?.kpis.find((k) => k.key === tile.key);
+  const [team, setTeam] = useState<PlanKpiTeam>(on?.team ?? teamOfPage(tile.page));
+  useEffect(() => { if (on) setTeam(on.team); }, [on?.team]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (denied || !state || !tile.target) return null;
+  const go = async (body: Record<string, unknown>) => {
+    setBusy(true); setErr(null);
+    try { await send("/api/action-plan/kpis", "POST", body); await refreshPlanKpis(); }
+    catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  const promote = (t: PlanKpiTeam) => go({
+    action: "promote", key: tile.key, page: tile.page, team: t, title: tile.title,
+    href: tile.href ?? `${window.location.pathname}${window.location.search}`,
+    targetKey: tile.target!.key, unit: tile.target!.unit, summary: tile.summary ?? "", view: viewOf(tile),
+  });
+  const teamName = PLAN_KPI_TEAMS.find((x) => x.id === (on?.team ?? team))?.name ?? "";
+  return (
+    <Box sx={{ borderTop: `1px solid ${HAIRLINE}`, pt: 1.25, display: "grid", gap: 0.75 }}>
+      <Box sx={{ display: "flex", gap: 1.25, alignItems: "center", flexWrap: "wrap" }}>
+        <Box component="label" sx={{ display: "flex", alignItems: "center", gap: 0.5, flex: 1, minWidth: 220, cursor: saved || on ? "pointer" : "default" }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: on ? TINT.blue.fg : INK }}>Action plan · KPIs</Typography>
+            <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
+              {on ? `Tracked there under ${teamName}, against this target` : saved ? "Track it on the action plan's KPIs, against this target" : "Save a target first - a KPI goes to the plan with its target"}
+            </Typography>
+          </Box>
+          <Switch checked={!!on} disabled={busy || (!on && !saved)} slotProps={{ input: { "aria-label": "On the action plan's KPIs" } }}
+            onChange={(e) => void (e.target.checked ? promote(team) : go({ action: "demote", key: tile.key }))} />
+        </Box>
+        <TextField select size="small" label="Team" value={team} disabled={busy} sx={{ ...field, width: 190 }}
+          onChange={(e) => { const t = e.target.value as PlanKpiTeam; setTeam(t); if (on) void promote(t); }}>
+          {PLAN_KPI_TEAMS.map((x) => <MenuItem key={x.id} value={x.id} sx={{ fontSize: "0.86rem" }}>{x.name}</MenuItem>)}
+        </TextField>
+      </Box>
+      {err && <Typography sx={{ fontSize: "0.84rem", color: RED }}>{err}</Typography>}
+    </Box>
+  );
+}
+
 /** A chart's target (SARCLA 25.10.2026: "allow to enter a threshold so we can measure the rest of it"): typed here, one
  *  for everyone; the chart draws it and says how far each row is from it. Shown only for a chart that can use one. */
 function TargetBox({ tile, value, canWrite, current = null }: {
@@ -161,7 +210,8 @@ function TargetBox({ tile, value, canWrite, current = null }: {
   };
   const save = async (val: number | null) => {
     setBusy(true); setErr(null);
-    try { await send("/api/reporting/kpi-actions/target", "POST", { key: t.key, value: val }); await refreshActions(tile.page); }
+    // the plan's KPIs read it too
+    try { await send("/api/reporting/kpi-actions/target", "POST", { key: t.key, value: val }); await refreshActions(tile.page); void refreshPlanKpis(); }
     catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   };
   const now = value == null ? "No target yet" : t.unit === "pct" ? `${(value * 100).toFixed(1)}%` : t.unit === "n" ? Math.round(value).toLocaleString("en") : `€${Math.round(value).toLocaleString("en")}`;
@@ -191,6 +241,7 @@ function TargetBox({ tile, value, canWrite, current = null }: {
         </Box>
       )}
       {err && <Typography sx={{ fontSize: "0.84rem", color: RED }}>{err}</Typography>}
+      {canWrite && <PlanKpiSwitch tile={tile} saved={value != null} />}
     </Box>
   );
 }

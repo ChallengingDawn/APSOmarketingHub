@@ -30,7 +30,7 @@ import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumb
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 
-import { FAINT, HAIRLINE, INK, MUTED, TINT } from "@/app/uc/report/ui";
+import { FAINT, GREEN, HAIRLINE, INK, MUTED, TINT } from "@/app/uc/report/ui";
 import type { PlanItem, PlanKind, PlanSub, Rolled } from "@/lib/reporting/actionPlanRules";
 import { KILLED, dueSoon, isClosed, isLate, priorityLabel, stageOf, subLate, subPct, subSoon, subStage } from "@/lib/reporting/actionPlanRules";
 import { SUMMIT } from "@/lib/reporting/summitRules";
@@ -50,12 +50,14 @@ export type Where = "into" | "before" | "after" | "sub";
 
 /** What the + beside a row makes, said on it. */
 const ADD_TITLE: Record<PlanKind, string> = { goal: "Add a main category", topic: "Add an action or a sub-category in it", group: "Add an action in it", action: "Add a sub-action" };
-/** The columns: the handle, the + and the eye, the name (sized to what is open), and - unless folded away - planned, go-live, status, %, who. */
+/** The columns: the handle, the + and the eye, the name (sized to what is open), and - unless folded away - planned, go-live,
+ *  status, %, who, and KPI tracking (SARCLA 04.11.2026: "another column, just a dropdown you can select from the column, yes
+ *  or no"). */
 const HANDLE = 66;
-const DETAIL = [92, 92, 136, 104, 124];
+const DETAIL = [92, 92, 136, 104, 124, 112];
 /** The narrowest each detail column may be: its heading on one line. */
-const DETAIL_MIN = [84, 84, 96, 104, 100];
-const HEADS = ["", "Task name", "Planned", "Go-live", "Status", "% complete", "Assigned to"];
+const DETAIL_MIN = [84, 84, 96, 104, 100, 106];
+const HEADS = ["", "Task name", "Planned", "Go-live", "Status", "% complete", "Assigned to", "KPI tracking"];
 
 /** "#3b6fe0" at a given opacity, for the lighter bars of actions not done yet. */
 const alpha = (hex: string, a: number) => `${hex}${Math.round(a * 255).toString(16).padStart(2, "0")}`;
@@ -108,7 +110,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void;
   /** a sub-action's row or bar: its own window */
   onOpenSub: (id: number) => void;
-  onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent">>) => Promise<void>;
+  onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent" | "tracked">>) => Promise<void>;
   canDrop: (drag: GRow, target: GRow, where: Where) => boolean;
   /** `copy`: Ctrl, Alt or Cmd held - a sub-action is copied there, not moved */
   onDrop: (drag: GRow, target: GRow, where: Where, copy: boolean) => Promise<void>;
@@ -145,7 +147,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   const leftW = HANDLE + nameW + (compact ? 0 : detailW.reduce((s, w) => s + w, 0)) + 2;
   const COLS = compact ? `${HANDLE}px ${nameW}px` : `${HANDLE}px ${nameW}px ${detailW.map((w) => `${w}px`).join(" ")}`;
   const GRID_MIN = leftW;
-  /** Drag a column's right edge: 0 is the name, 1-5 planned, go-live, status, % and who. */
+  /** Drag a column's right edge: 0 is the name, 1-6 planned, go-live, status, %, who and KPI tracking. */
   const startColResize = (e: React.PointerEvent, col: number) => {
     e.preventDefault(); e.stopPropagation();
     const x0 = e.clientX, w0 = col === 0 ? nameW : detailW[col - 1];
@@ -302,7 +304,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
                 <Typography noWrap sx={{ fontSize: "0.7rem", fontWeight: 700, lineHeight: 1.2, color: FAINT, textTransform: "uppercase", letterSpacing: "0.04em", flex: 1, minWidth: 0 }}>{h}</Typography>
                 {/* fold the date, % and who columns away, or back */}
                 {i === 1 && (
-                  <Tooltip title={compact ? "Show planned, go-live, status, % complete and assigned to" : "Fold away planned, go-live, status, % complete and assigned to"}>
+                  <Tooltip title={compact ? "Show planned, go-live, status, % complete, assigned to and KPI tracking" : "Fold away planned, go-live, status, % complete, assigned to and KPI tracking"}>
                     <Box component="button" type="button" onClick={onCompact} aria-label={compact ? "Show the columns" : "Fold the columns away"} aria-pressed={!compact}
                       sx={{ border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", borderRadius: "3px", width: 22, height: 20, p: 0, display: "grid", placeItems: "center", cursor: "pointer", color: MUTED, mb: "-2px" }}>
                       {compact ? <KeyboardDoubleArrowRightIcon sx={{ fontSize: 15 }} /> : <KeyboardDoubleArrowLeftIcon sx={{ fontSize: 15 }} />}
@@ -455,7 +457,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
   r: GRow; cols: string; compact: boolean; color: string | null; onAdd?: () => void; onDuplicate?: () => void; hidden: boolean; onHide?: (hide: boolean) => void;
   rolled: Map<number, Rolled>; today: string; canWrite: boolean; folded: boolean; toggle: (key: string) => void; selected: boolean;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void; onOpenSub: (id: number) => void;
-  onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent">>) => Promise<void>;
+  onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent" | "tracked">>) => Promise<void>;
   dragging: boolean; over: Where | null; copying: boolean; draggable: boolean;
   onDragStart: () => void; onDragEnd: () => void; onDragOver: (e: React.DragEvent) => void; onDrop: (e: React.DragEvent) => void;
 }) {
@@ -539,6 +541,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
           </Box>
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{sPct == null ? "—" : `${sPct} %`}</Typography></Box>
           <Box sx={cell}><Typography noWrap sx={{ fontSize: "0.8rem", color: MUTED }}>{s.ownerName}</Typography></Box>
+          <Box sx={cell} />
         </>}
       </Box>
     );
@@ -593,6 +596,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
           <Box sx={cell} />
           <Box sx={cell}><Typography sx={{ fontSize: "0.8rem", color: FAINT, fontWeight: 600 }}>{ro?.percent == null ? "" : `${ro.percent} %`}</Typography></Box>
           <Box sx={cell} />
+          <Box sx={cell} />
         </>
       ) : (
         <>
@@ -614,8 +618,25 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
               ? <Typography noWrap title={it.owners.map((o) => o.name).join(", ")} sx={{ fontSize: "0.8rem", color: INK }}>{it.owners.map((o) => o.name).join(", ")}</Typography>
               : <Typography noWrap title={it.responsible ? `Not assigned yet - the workbook says "${it.responsible}"` : "Not assigned yet"} sx={{ fontSize: "0.78rem", color: FAINT, fontStyle: "italic" }}>{it.responsible || "Not assigned"}</Typography>}
           </Box>
+          <TrackCell value={!!it.tracked} canWrite={canWrite} onSave={(v) => onPatch(it.id, { tracked: v })} />
         </>
       )}
+    </Box>
+  );
+}
+
+/** KPI tracking, Yes or No - a dropdown in its cell. */
+function TrackCell({ value, canWrite, onSave }: { value: boolean; canWrite: boolean; onSave: (v: boolean) => Promise<void> }) {
+  const cell = { px: 1, minWidth: 0, height: "100%", display: "flex", alignItems: "center", borderLeft: `1px solid ${HAIRLINE}` } as const;
+  const tone = value ? { color: GREEN, bgcolor: "rgba(27,122,85,.1)", borderColor: GREEN } : { color: MUTED, bgcolor: "#fff", borderColor: HAIRLINE };
+  return (
+    <Box sx={cell} onClick={(e) => e.stopPropagation()}>
+      <Box component="select" aria-label="KPI tracking" value={value ? "yes" : "no"} disabled={!canWrite}
+        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => { const v = e.target.value === "yes"; if (v !== value) void onSave(v); }}
+        sx={{ ...tone, width: "100%", font: "inherit", fontSize: "0.78rem", fontWeight: 700, border: "1px solid", borderRadius: "4px", px: 0.5, py: 0.25, cursor: canWrite ? "pointer" : "default", "&:disabled": { opacity: 1 } }}>
+        <option value="no">No</option>
+        <option value="yes">Yes</option>
+      </Box>
     </Box>
   );
 }
