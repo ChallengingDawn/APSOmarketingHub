@@ -20,6 +20,7 @@ import { freshFromTickets, planInHubspot, queuePlanSync } from "@/lib/reporting/
 import { PRIORITIES, S2S_CHOICES, STAGES, subOrder, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
 import { actionTickets, dropPlanItem, planTasks } from "@/lib/reporting/kpiActions";
 import { s2sForm } from "@/lib/reporting/scrollToSale";
+import { startBespokeSetup } from "@/lib/reporting/bespoke";
 import { fail } from "../reporting/kpi-actions/guard";
 import { planWho as who } from "./guard";
 
@@ -68,6 +69,8 @@ export async function GET(req: NextRequest) {
     } catch (e) {
       peopleError = String((e as Error)?.message ?? e).slice(0, 200);
     }
+    // Bespoke's check set up in the plan once, in the background (src/lib/reporting/bespoke.ts; the "Bespoke checks" tab)
+    startBespokeSetup(w.name);
     // what changed on the actions' tickets comes in first; a main action whose sub-actions are under way is too, and its
     // dates are theirs; the workbook's actions put right once
     await freshFromTickets();
