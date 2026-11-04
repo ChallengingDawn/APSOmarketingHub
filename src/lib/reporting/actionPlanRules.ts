@@ -121,6 +121,8 @@ export type PlanSub = {
   status: "open" | "doing" | "done"; stage: string | null; priority: string;
   /** Made on a KPI tile: its page, to go back to the KPI. Empty when made on the plan. */
   kpiHref: string; kpiTile: string; tickets: number;
+  /** Its tickets' ids, to count each ticket once over the plan's rows (a duplicate shares its original's). */
+  ticketIds?: string[];
   /** Its place among its action's sub-actions, as dragged (SARCLA 03.11.2026); none until one of them is. */
   sort?: number | null;
 };
@@ -882,4 +884,66 @@ export function dgTargets(items: PlanItem[]): { actions: PlanItem[]; categories:
   const cats = new Set<number>();
   for (const a of actions) for (let p = a.parentId == null ? undefined : byId.get(a.parentId); p && p.kind !== "goal"; p = p.parentId == null ? undefined : byId.get(p.parentId)) cats.add(p.id);
   return { actions, categories: items.filter((i) => cats.has(i.id)), path };
+}
+
+/* ── the plan's filters ─────────────────────────────────────────────────── */
+
+/** The person filter's choice for what nobody has been given yet. */
+export const NOBODY = "__nobody";
+
+/**
+ * The plan's filters, read the same way on an action and on each of its sub-actions (SARCLA 04.11.2026: "sometimes when
+ * filtering or searching for names the sub-actions are not appearing; the filter per person doesn't give the total number of
+ * tickets; the filters are wrong") - they looked at the actions alone, and at the people given the action only.
+ */
+export type PlanFilter = { q: string; prios: string[]; stages: string[]; dg: boolean; late: boolean; soon: boolean; owner: string; hideLive: boolean };
+
+export const isFiltering = (f: PlanFilter): boolean =>
+  !!f.q.trim() || f.prios.length > 0 || f.stages.length > 0 || f.dg || f.late || f.soon || !!f.owner || f.hideLive;
+
+const found = (texts: (string | null | undefined)[], q: string): boolean => {
+  const w = q.trim().toLowerCase();
+  return !w || texts.some((x) => (x ?? "").toLowerCase().includes(w));
+};
+const actionWords = (i: PlanItem) => [i.title, i.detail, i.code, i.statusNote, ...i.channel, ...i.agency];
+const actionPeople = (i: PlanItem) => [i.responsible, ...i.owners.map((o) => o.name)];
+
+/** An action by its own fields; its sub-actions count for late and due within a week, as ever. */
+export function actionMatches(i: PlanItem, subs: Pick<PlanSub, "start" | "due" | "stage" | "status">[], f: PlanFilter, today: string): boolean {
+  if (i.kind !== "action") return false;
+  if (!found([...actionWords(i), ...actionPeople(i)], f.q)) return false;
+  if (f.prios.length && !f.prios.includes(i.priority)) return false;
+  if (f.stages.length && !f.stages.includes(i.stage ?? "none")) return false;
+  if (f.dg && !i.dg) return false;
+  if (f.late && !isLate(i, today, subs)) return false;
+  if (f.soon && !dueSoon(i, subs, today)) return false;
+  if (f.hideLive && i.stage === LIVE) return false;
+  if (f.owner === NOBODY ? i.owners.length > 0 : !!f.owner && !i.owners.some((o) => o.id === f.owner)) return false;
+  return true;
+}
+
+/**
+ * A sub-action by its own fields: its name and person, its priority, status and planned date. One with no person is its
+ * action's people's, one with no priority has its action's; a word of its action's finds it too - but not its action's
+ * people's names when it has a person of its own. Its action shows with it, as a category shows with its actions.
+ */
+export function subMatches(s: PlanSub, a: PlanItem, f: PlanFilter, today: string): boolean {
+  if (!found([s.title, s.ownerName, ...actionWords(a), ...(s.owner ? [] : actionPeople(a))], f.q)) return false;
+  if (f.prios.length && !f.prios.includes(s.priority || a.priority)) return false;
+  if (f.stages.length && !f.stages.includes(subStage(s)?.id ?? "none")) return false;
+  if (f.dg && !takesTicket(a, s.ownerName)) return false;
+  if (f.late && !subLate(s, today)) return false;
+  if (f.soon && !subSoon(s, today)) return false;
+  if (f.hideLive && subStage(s)?.id === LIVE) return false;
+  const people = s.owner ? [s.owner] : a.owners.map((o) => o.id);
+  if (f.owner === NOBODY ? people.length > 0 : !!f.owner && !people.includes(f.owner)) return false;
+  return true;
+}
+
+/** The tickets of what shows, each once - a duplicated sub-action carries the same ticket as its original. */
+export function ticketsShown(actions: { id: number }[], subs: Pick<PlanSub, "ticketIds">[], own: Record<string, string[] | undefined>): number {
+  const t = new Set<string>();
+  for (const a of actions) for (const id of own[String(a.id)] ?? []) t.add(id);
+  for (const s of subs) for (const id of s.ticketIds ?? []) t.add(id);
+  return t.size;
 }

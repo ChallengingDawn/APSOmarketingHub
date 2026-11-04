@@ -359,6 +359,16 @@ export async function actionTickets(): Promise<{ item: number; ticketId: string;
   return r.rows.map((x) => ({ item: Number(x.item), ticketId: x.ticket_id, count: Number(x.count) }));
 }
 
+/** Every ticket linked on the plan, by where: a sub-action's (task) or an action's own (item) - for the plan's counts. */
+export async function planTicketIds(): Promise<{ task: number | null; item: number | null; ticketId: string }[]> {
+  await ensure();
+  const r = await query<{ task_id: number | null; item: number | null; ticket_id: string }>(
+    `SELECT DISTINCT task_id, CASE WHEN task_id IS NULL THEN substring(tile from 6)::int END AS item, ticket_id
+       FROM ${LINKS} WHERE task_id IS NOT NULL OR tile ~ '^plan:[0-9]+$'`,
+  );
+  return r.rows.map((x) => ({ task: x.task_id == null ? null : Number(x.task_id), item: x.item == null ? null : Number(x.item), ticketId: String(x.ticket_id) }));
+}
+
 /** A sub-action made an action of its own: its tickets go onto that action (a ticket it already has stays as it is there). */
 export async function ticketsToAction(taskId: number, itemId: number): Promise<void> {
   await ensure();

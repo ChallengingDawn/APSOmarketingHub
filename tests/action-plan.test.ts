@@ -6,7 +6,7 @@ import {
   IDEA, IN_PROGRESS, KILLED, LIVE, channelsOfTopic, dgTargets, codesOf, foldedDetail, mainStage, namesSalesLeaders, isDigitalGrowth, isLate, dueSoon, subLate, subOrder, placeSub, ownersFromCodes, parseDue, percentOf, percentOfStage,
   planFromSeed, planOptions, planValuesOf, priorityOfWorkbook, reorder, rollup, sameOptions, stageOfPercent, stageOfState, stateOf, stateOfPercent,
   stateOfStage, stageOfStatus, statusOfStage, sharedTicketSync, subPct, subStage, subTicketSync, subsSpan, syncWay, ticketFromAction, ticketSync, titleOf, toS2s, treeOrder, BUC_MEMBERS,
-  isDgPerson, takesTicket, subSoon, withNotes,
+  isDgPerson, takesTicket, subSoon, withNotes, NOBODY, actionMatches, subMatches, isFiltering, ticketsShown, type PlanFilter,
   type PlanItem, type PlanSub, type SeedRow,
 } from "../src/lib/reporting/actionPlanRules";
 import { SUMMIT, standingOf, summitOf } from "../src/lib/reporting/summitRules";
@@ -621,4 +621,56 @@ test("action plan KPIs: a tile's view is the same whatever the order of its filt
   assert.notEqual(viewOf({ filters: { a: ["x"] } }), viewOf({ filters: { a: ["y"] } }));
   assert.notEqual(viewOf({ from: "2026-01" }), viewOf({ from: "2025-01" }));
   assert.equal(viewOf({}), viewOf({ filters: {} }));
+});
+
+// SARCLA 04.11.2026: "when searching for names the sub-actions are not appearing; the filter per person doesn't give the
+// total number of tickets; the filters are wrong" - an action and its sub-actions read by the same filters (made-up people)
+const NONE: PlanFilter = { q: "", prios: [], stages: [], dg: false, late: false, soon: false, owner: "", hideLive: false };
+test("action plan: a sub-action is found by its own name and person, its action shows with it", () => {
+  const a = it(1, null, "action", { title: "Bring more traffic to the shop", owners: [{ id: "11", name: "Anna Beispiel" }] });
+  const wiki = sub(5, 1, "open", null, { title: "Launch the Wikipedia page", owner: "22", ownerName: "Ben Muster" });
+  const free = sub(6, 1, "open", null, { title: "Write the brief" });
+  // by its name: the sub-action, not its action
+  const byName = { ...NONE, q: "wikipedia" };
+  assert.equal(actionMatches(a, [wiki, free], byName, "2026-11-04"), false);
+  assert.equal(subMatches(wiki, a, byName, "2026-11-04"), true);
+  assert.equal(subMatches(free, a, byName, "2026-11-04"), false);
+  // by its person's name: Ben's sub-action, under Anna's action
+  assert.equal(subMatches(wiki, a, { ...NONE, q: "ben" }, "2026-11-04"), true);
+  // a word of its action's finds all of them; the action's person only those with no person of their own
+  assert.equal(subMatches(wiki, a, { ...NONE, q: "traffic" }, "2026-11-04"), true);
+  assert.equal(subMatches(wiki, a, { ...NONE, q: "anna" }, "2026-11-04"), false);
+  assert.equal(subMatches(free, a, { ...NONE, q: "anna" }, "2026-11-04"), true);
+  // by the person filter: Ben's own; one with nobody is its action's people's
+  assert.equal(subMatches(wiki, a, { ...NONE, owner: "22" }, "2026-11-04"), true);
+  assert.equal(subMatches(free, a, { ...NONE, owner: "22" }, "2026-11-04"), false);
+  assert.equal(subMatches(free, a, { ...NONE, owner: "11" }, "2026-11-04"), true);
+  assert.equal(subMatches(wiki, a, { ...NONE, owner: "11" }, "2026-11-04"), false);
+  // nobody: no person of its own and none on its action
+  const lone = it(2, null, "action");
+  assert.equal(subMatches(sub(7, 2, "open"), lone, { ...NONE, owner: NOBODY }, "2026-11-04"), true);
+  assert.equal(subMatches(free, a, { ...NONE, owner: NOBODY }, "2026-11-04"), false);
+});
+
+test("action plan: a sub-action by its own status, priority, dates and live", () => {
+  const a = it(1, null, "action", { priority: "HIGH" });
+  const late = sub(5, 1, "open", null, { start: "2026-10-20", stage: IN_PROGRESS });
+  const live = sub(6, 1, "done", null, { start: "2026-10-01", stage: LIVE, priority: "LOW" });
+  assert.equal(subMatches(late, a, { ...NONE, late: true }, "2026-11-04"), true);
+  assert.equal(subMatches(live, a, { ...NONE, late: true }, "2026-11-04"), false);
+  assert.equal(subMatches(live, a, { ...NONE, hideLive: true }, "2026-11-04"), false);
+  assert.equal(subMatches(late, a, { ...NONE, stages: [IN_PROGRESS] }, "2026-11-04"), true);
+  assert.equal(subMatches(live, a, { ...NONE, stages: [IN_PROGRESS] }, "2026-11-04"), false);
+  // its own priority, else its action's
+  assert.equal(subMatches(late, a, { ...NONE, prios: ["HIGH"] }, "2026-11-04"), true);
+  assert.equal(subMatches(live, a, { ...NONE, prios: ["HIGH"] }, "2026-11-04"), false);
+  assert.equal(isFiltering(NONE), false);
+  assert.equal(isFiltering({ ...NONE, q: "  " }), false);
+  assert.equal(isFiltering({ ...NONE, hideLive: true }), true);
+});
+
+test("action plan: the tickets of what shows, each once", () => {
+  const subs = [sub(5, 1, "open", null, { ticketIds: ["t1", "t2"] }), sub(6, 2, "open", null, { ticketIds: ["t2"] }), sub(7, 2, "open")];
+  assert.equal(ticketsShown([{ id: 1 }, { id: 2 }], subs, { "1": ["t9"], "3": ["t8"] }), 3);
+  assert.equal(ticketsShown([], [], {}), 0);
 });

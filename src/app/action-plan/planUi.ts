@@ -9,6 +9,8 @@ import type { Opt, PlanItem, PlanOwner, PlanSub } from "@/lib/reporting/actionPl
  */
 export type PlanData = {
   canWrite: boolean; items: PlanItem[]; subs: PlanSub[]; people: PlanOwner[]; peopleError: string | null;
+  /** Each action's own tickets' ids (linked on the action, not under a sub-action), by the action's id. */
+  own?: Record<string, string[]>;
   choices: Record<"channel" | "country" | "agency" | "roadmapYear", Opt[]>;
 };
 

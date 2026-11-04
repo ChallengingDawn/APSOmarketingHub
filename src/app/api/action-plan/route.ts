@@ -18,7 +18,7 @@ import { actionToSub, addItem, copySub, datesFromSubs, deleteItems, foldImported
 import { savedHierarchy } from "@/lib/hierarchy/store";
 import { freshFromTickets, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { PRIORITIES, S2S_CHOICES, STAGES, subOrder, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
-import { actionTickets, dropPlanItem, planTasks } from "@/lib/reporting/kpiActions";
+import { actionTickets, dropPlanItem, planTasks, planTicketIds } from "@/lib/reporting/kpiActions";
 import { s2sForm } from "@/lib/reporting/scrollToSale";
 import { startBespokeSetup } from "@/lib/reporting/bespoke";
 import { fail } from "../reporting/kpi-actions/guard";
@@ -82,14 +82,21 @@ export async function GET(req: NextRequest) {
     const before = await planTasks();
     await mainsFollowSubs().catch((e) => console.error("[action-plan] main actions not given their sub-actions' status:", (e as Error).message));
     await datesFromSubs(before).catch((e) => console.error("[action-plan] dates from sub-actions not set:", (e as Error).message));
-    const [items, tasks] = await Promise.all([planItems(), planTasks()]);
+    const [items, tasks, links] = await Promise.all([planItems(), planTasks(), planTicketIds()]);
     const ids = new Set(items.map((i) => i.id));
+    // each ticket's id where it is linked: the plan counts the tickets of what its filters show, each once
+    const byTask = new Map<number, string[]>();
+    const own: Record<number, string[]> = {};
+    for (const l of links) {
+      if (l.task != null) (byTask.get(l.task) ?? byTask.set(l.task, []).get(l.task)!).push(l.ticketId);
+      else if (l.item != null && ids.has(l.item)) (own[l.item] ??= []).push(l.ticketId);
+    }
     // in their order: the open ones first, as dragged (actionPlanRules.subOrder)
     const subs: PlanSub[] = subOrder(tasks.filter((t) => t.planItem != null && ids.has(t.planItem)).map((t) => ({
       id: t.id, item: t.planItem as number, title: t.title, owner: t.owner, ownerName: t.ownerName, start: t.start, due: t.due, status: t.status, stage: t.stage, priority: t.priority,
-      kpiHref: t.tile.startsWith("plan:") ? "" : t.href, kpiTile: t.tile.startsWith("plan:") ? "" : t.tile, tickets: t.tickets, sort: t.planSort,
+      kpiHref: t.tile.startsWith("plan:") ? "" : t.href, kpiTile: t.tile.startsWith("plan:") ? "" : t.tile, tickets: t.tickets, ticketIds: byTask.get(t.id) ?? [], sort: t.planSort,
     })));
-    return NextResponse.json({ ok: true, canWrite: w.canWrite, items, subs, people: list, peopleError, choices: await choices() });
+    return NextResponse.json({ ok: true, canWrite: w.canWrite, items, subs, own, people: list, peopleError, choices: await choices() });
   } catch (e) { return fail(e); }
 }
 
