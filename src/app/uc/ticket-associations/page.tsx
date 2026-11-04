@@ -49,6 +49,8 @@ import type { AlertMode, AlertRow, AlertRun } from "@/lib/ticketAssoc/orderAlert
 import type { ContactRow, ContactTotals, ContactsMode, ContactsRun } from "@/lib/ticketAssoc/contacts";
 import { ShopAccountsTab } from "./ShopAccounts";
 import { NoCompanyTab } from "./NoCompany";
+import { GqsFollowUpsTab } from "./GqsFollowUps";
+import type { GqsMode } from "@/lib/ticketAssoc/gqsType";
 
 type Row = {
   ticket_id: string; at: string; pipeline: string | null; why: string; subject: string | null; orders: string[]; articles: string[];
@@ -67,8 +69,10 @@ type Data = {
   contacts: { rows: ContactRow[]; totals: ContactTotals }; lastContacts: ContactsRun | null;
   last: { preview: LastRun | null; live: LastRun | null }; everyMinutes: number; admin: boolean;
 };
-type View = "overview" | "articles" | "orders" | "contacts" | "shop" | "nocompany" | "alerts" | "settings";
-const VIEW_HASH: Record<View, string> = { overview: "#overview", articles: "#articles", orders: "#orders", contacts: "#contacts", shop: "#shop-accounts", nocompany: "#no-company", alerts: "#alerts", settings: "#settings" };
+type View = "overview" | "articles" | "orders" | "contacts" | "shop" | "nocompany" | "gqs" | "alerts" | "settings";
+const VIEW_HASH: Record<View, string> = { overview: "#overview", articles: "#articles", orders: "#orders", contacts: "#contacts", shop: "#shop-accounts", nocompany: "#no-company", gqs: "#gqs-follow-ups", alerts: "#alerts", settings: "#settings" };
+/** The tabs with their own read - no period, no pipeline filter. */
+const OWN_READ: View[] = ["settings", "shop", "nocompany", "gqs"];
 const PIPE: Record<string, string> = { BO: "Back Office", ESO: "ESO", TSA: "TSA", SPR: "Special Prices", PM: "Product Management" };
 const WHY: Record<string, string> = { new: "new", stage: "moved stage", retry: "asked again" };
 const FIELD: Record<string, string> = { order_number: "order number", articles_on_the_ticket: "articles", c2s_ticket: "C2S" };
@@ -492,7 +496,7 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
   const [tid, setTid] = useState("");
   const [check, setCheck] = useState<Record<string, unknown> | null>(null);
 
-  const save = async (change: { mode?: Mode; extended?: boolean; alerts?: AlertMode; contacts?: ContactsMode }) => {
+  const save = async (change: { mode?: Mode; extended?: boolean; alerts?: AlertMode; contacts?: ContactsMode; gqs?: GqsMode }) => {
     setBusy("save"); setMsg(null);
     try {
       const r = await fetch("/api/uc/ticket-associations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(change) });
@@ -554,6 +558,14 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
                 { key: "off", label: "Off" }, { key: "preview", label: "Preview - writes nothing" }, { key: "live", label: "Live - links them" },
               ]} />
             ) : <Chip tint="slate">{d.settings.contacts}</Chip>}
+          </Box>
+          <Box>
+            <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.5 }}>GQS follow-ups - an ESO / TSA ticket linked to a GQS request gets Type of sales ticket = GQS</Typography>
+            {d.admin ? (
+              <Choice<GqsMode> value={d.settings.gqs} onChange={(v) => void save({ gqs: v })} options={[
+                { key: "off", label: "Off" }, { key: "preview", label: "Preview - writes nothing" }, { key: "live", label: "Live - sets it" },
+              ]} />
+            ) : <Chip tint="slate">{d.settings.gqs}</Chip>}
           </Box>
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
             {d.settings.by ? `Set by ${d.settings.by}, ${when(d.settings.at)}.` : "Not set yet - preview, the ticket's fields."}
@@ -622,6 +634,7 @@ export default function TicketAssociations() {
   // the shop accounts have their own read - not the period's tickets (SARCLA 19.10)
   if (view === "shop") body = <Box id="ticketassoc-panel-shop" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><ShopAccountsTab /></Box>;
   else if (view === "nocompany") body = <Box id="ticketassoc-panel-nocompany" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><NoCompanyTab /></Box>;
+  else if (view === "gqs") body = <Box id="ticketassoc-panel-gqs" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><GqsFollowUpsTab /></Box>;
   else if (r === null) body = <LoadingPanel label="Reading the tickets the hub linked…" />;
   else if (r.state !== "ok") body = <UpstreamPanel source="Associations" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
   else if (view === "settings") body = <Box id="ticketassoc-panel-settings" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><SettingsTab d={r.data} onChanged={() => setN((x) => x + 1)} /></Box>;
@@ -636,7 +649,7 @@ export default function TicketAssociations() {
       <PageHeader
         title="Associations"
         subtitle="Tickets linked to the orders and articles they name, contacts to their company - by the hub, every 3 minutes"
-        rightSlot={view !== "settings" && view !== "shop" && view !== "nocompany" ? (
+        rightSlot={!OWN_READ.includes(view) ? (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <WindowPicker />
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
@@ -654,11 +667,12 @@ export default function TicketAssociations() {
           { id: "contacts", label: "Contacts & companies", count: r?.state === "ok" && r.data.contacts.totals.with_contact ? full(r.data.contacts.totals.with_contact) : null },
           { id: "shop", label: "Contacts without a company", count: null },
           { id: "nocompany", label: "No company", count: null },
+          { id: "gqs", label: "GQS follow-ups", count: null },
           { id: "alerts", label: "Order alerts", count: r?.state === "ok" && r.data.alerts.length ? full(r.data.alerts.length) : null },
           { id: "settings", label: "Settings", count: null },
         ]} />
       </Box>
-      {view !== "settings" && view !== "shop" && view !== "nocompany" && (
+      {!OWN_READ.includes(view) && (
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Pipeline</Typography>
           <Choice<"all" | "BO" | "ESO" | "TSA"> value={pipe} onChange={setPipe} options={[

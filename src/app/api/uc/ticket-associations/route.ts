@@ -6,7 +6,7 @@
 // GET ?workflows=1: the HubSpot workflows whose custom code still reads TICKETS_TOKEN (needs the
 // hub app's "automation" scope).
 // PUT (admins): mode (off / preview / live), the extended evidence, the order alerts (off / preview /
-// link / mail). POST (admins): run now - tickets and order alerts.
+// link / mail), contacts and the GQS follow-ups (off / preview / live). POST (admins): run now - tickets and order alerts.
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
@@ -40,13 +40,13 @@ export async function PUT(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
-  const b = (await req.json().catch(() => ({}))) as { mode?: Mode; extended?: boolean; alerts?: AlertMode; contacts?: "off" | "preview" | "live"; backfill?: { from: string | null }; alertsLookBack?: number };
+  const b = (await req.json().catch(() => ({}))) as { mode?: Mode; extended?: boolean; alerts?: AlertMode; contacts?: "off" | "preview" | "live"; gqs?: "off" | "preview" | "live"; backfill?: { from: string | null }; alertsLookBack?: number };
   try {
     // the order alerts read the last N days' orders again (at most 14)
     if (typeof b.alertsLookBack === "number") return NextResponse.json({ ok: true, data: { since: await lookBack(b.alertsLookBack) } });
     // the re-check of older tickets: start from a day, or stop (from null)
     if (b.backfill) return NextResponse.json({ ok: true, data: await setBackfill(b.backfill.from, `user ${access.userId}`) });
-    const s = await setSettings({ mode: b.mode, extended: typeof b.extended === "boolean" ? b.extended : undefined, alerts: b.alerts, contacts: b.contacts }, `user ${access.userId}`);
+    const s = await setSettings({ mode: b.mode, extended: typeof b.extended === "boolean" ? b.extended : undefined, alerts: b.alerts, contacts: b.contacts, gqs: b.gqs }, `user ${access.userId}`);
     return NextResponse.json({ ok: true, data: s });
   } catch (err) {
     return NextResponse.json({ ok: false, ...describeIntegrationError(err) }, { status: 500 });

@@ -24,10 +24,12 @@ import { ASSOC_FIELDS, ASSOC_PIPELINES, BO, ESO, TSA } from "@/lib/connectors/st
 import { alertsPlan, firstSince, nextSince, reason, type Seen } from "./rules";
 import { alertRows, lastAlertRun, MAX_READ as ALERTS_MAX_READ, runOrderAlerts, type AlertMode } from "./orderAlerts";
 import { contactReport, lastContactsRun, planContacts, runContacts, type ContactsMode } from "./contacts";
+import { runGqsType, type GqsMode } from "./gqsType";
 
 export type Mode = "off" | "preview" | "live";
-/** alerts: the order alerts (orderAlerts.ts) - off / preview / link / mail; contacts: contacts & companies (contacts.ts). */
-export type Settings = { mode: Mode; extended: boolean; alerts: AlertMode; contacts: ContactsMode; by: string | null; at: string | null };
+/** alerts: the order alerts (orderAlerts.ts) - off / preview / link / mail; contacts: contacts & companies (contacts.ts);
+ *  gqs: the GQS follow-ups (gqsType.ts, SARCLA 04.11.2026). */
+export type Settings = { mode: Mode; extended: boolean; alerts: AlertMode; contacts: ContactsMode; gqs: GqsMode; by: string | null; at: string | null };
 export type LastRun = {
   at: string; seconds: number; mode: "preview" | "live"; read: number; processed: number; skipped: number; retried: number;
   newOrders: number; newArticles: number; filled: number; c2s: number; failed: number; error?: string;
@@ -70,15 +72,16 @@ const tix = <T>(path: string, method: "GET" | "POST" = "GET", body?: unknown) =>
 /** Until somebody chooses: preview, fields only, order alerts listed but not sent - the hub watches. */
 export async function getSettings(): Promise<Settings> {
   const s = await kvGet<Settings>(KV.settings).catch(() => undefined);
-  return { mode: s?.mode ?? "preview", extended: !!s?.extended, alerts: s?.alerts ?? "preview", contacts: s?.contacts ?? "preview", by: s?.by ?? null, at: s?.at ?? null };
+  return { mode: s?.mode ?? "preview", extended: !!s?.extended, alerts: s?.alerts ?? "preview", contacts: s?.contacts ?? "preview", gqs: s?.gqs ?? "preview", by: s?.by ?? null, at: s?.at ?? null };
 }
 
-export async function setSettings(change: { mode?: Mode; extended?: boolean; alerts?: AlertMode; contacts?: ContactsMode }, by: string): Promise<Settings> {
+export async function setSettings(change: { mode?: Mode; extended?: boolean; alerts?: AlertMode; contacts?: ContactsMode; gqs?: GqsMode }, by: string): Promise<Settings> {
   const cur = await getSettings();
   const mode = change.mode && ["off", "preview", "live"].includes(change.mode) ? change.mode : cur.mode;
   const alerts = change.alerts && ["off", "preview", "link", "mail"].includes(change.alerts) ? change.alerts : cur.alerts;
   const contacts = change.contacts && ["off", "preview", "live"].includes(change.contacts) ? change.contacts : cur.contacts;
-  const next: Settings = { mode, extended: change.extended ?? cur.extended, alerts, contacts, by, at: new Date().toISOString() };
+  const gqs = change.gqs && ["off", "preview", "live"].includes(change.gqs) ? change.gqs : cur.gqs;
+  const next: Settings = { mode, extended: change.extended ?? cur.extended, alerts, contacts, gqs, by, at: new Date().toISOString() };
   // going live: the live window starts at the last half hour, not at whenever live last ran
   if (mode === "live" && cur.mode !== "live") await kvSet(KV.since("live"), Date.now() - 30 * 60_000);
   await kvSet(KV.settings, next);
@@ -262,7 +265,7 @@ async function run(settings: Settings, signal?: AbortSignal): Promise<LastRun> {
  */
 export async function runOnce(signal?: AbortSignal, forceAlerts = false): Promise<LastRun | null> {
   const settings = await getSettings();
-  if (settings.mode === "off" && settings.alerts === "off" && settings.contacts === "off") return null;
+  if (settings.mode === "off" && settings.alerts === "off" && settings.contacts === "off" && settings.gqs === "off") return null;
   const client: PoolClient = await getPool().connect();
   let dropped = false;
   const drop = () => { dropped = true; client.release(new Error("ticket associations: time limit")); };
@@ -271,6 +274,8 @@ export async function runOnce(signal?: AbortSignal, forceAlerts = false): Promis
     const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK]);
     if (!got.rows[0]?.ok) return null;
     try {
+      // the GQS follow-ups (the workflow "SARCLA | GQS ESO/TSA SETS ASSOCIATION", 04.11.2026): every run, first - it never throws
+      if (settings.gqs !== "off") await runGqsType(settings.gqs, signal);
       const res = settings.mode !== "off" ? await run(settings, signal) : null;
       // the order alerts: every 15 minutes (or now, from the page)
       if (settings.alerts !== "off") {
