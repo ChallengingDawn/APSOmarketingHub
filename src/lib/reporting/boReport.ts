@@ -26,6 +26,8 @@ import {
   RW, articlePcs, artsOf, baseOf, gqsTally, isCredit, monthStart, monthsBetween, nextMonth, orderTally, originOf, pcCode, pcFinder, rowsOf, swissDay, ticketTally,
   type BoMonth, type CoFacts, type GqsMonth, type OrderRec, type RowTicket,
 } from "./boReportRules";
+import { taskOf, type GqsKept, type GqsTask } from "./boGqs";
+import { DEFAULT_LIMITS, type Limits } from "../gqsApprovals/rules";
 
 /** a kept month of another version is counted again (2: the C2S tickets, the tones, the orders by profit centre; 3: the
  *  tickets one by one, the tickets closed, the orders' profit centre from their lines; 4: each ticket's id, for the lists;
@@ -47,10 +49,16 @@ const PIPE = { bo: "1726786777", eso: "1726599376", tsa: "1726599377", gqs: "172
 const GQS_OPEN = "hs_v2_date_entered_2338266316", GQS_SENT = ["hs_v2_date_entered_4704538856", "hs_v2_date_entered_6078992599"];
 /** the GQS tasks are counted again when this changes (4: the time before sent, as above) - the months keep theirs */
 const GQS_VERSION = 4;
+/** every GQS task on its own, for the GQS page in full (boGqs.ts) - read with the months above, kept on its own key */
+const GQS_TASKS_VERSION = 1;
+const GQS_PROPS = [
+  "createdate", "time_to_close", GQS_OPEN, ...GQS_SENT, "hs_pipeline_stage", "status_of_gqs", "gqs_type_of_request", "hubspot_owner_id", "back_office_ticket_requester",
+  "price_tier_approver", "order_potential_", "margin__", "liquidation_article", "reason_of_decline_by_pm", "customer_number_customer_name",
+];
 /** Back Office: entered "Redirected from chat" - the chat handed it over */
 const REDIRECTED = "hs_v2_date_entered_2554860732";
 const KV = {
-  month: (ym: string) => `boReport:month:${ym}`, chat: (ym: string) => `boReport:chat:${ym}`, gqs: "boReport:gqs", lease: "boReport:lease", companies: "boReport:companies", articles: "boReport:articles",
+  month: (ym: string) => `boReport:month:${ym}`, chat: (ym: string) => `boReport:chat:${ym}`, gqs: "boReport:gqs", gqsTasks: "boReport:gqsTasks", lease: "boReport:lease", companies: "boReport:companies", articles: "boReport:articles",
   /** the articles Products & Pricing was asked for and does not know (or names no profit centre for) - not asked again */
   ppMiss: "boReport:ppMiss",
   /** the articles on the tickets, named for the pages: description, profit centre, main group */
@@ -73,6 +81,7 @@ export type KeptCompanies = { at: string; facts: CoFacts };
 
 type Kept = BoMonth & { v: number; at: string };
 type KeptGqs = { v: number; at: string; months: GqsMonth[] };
+type KeptGqsTasks = GqsKept & { v: number };
 export type BoRead = {
   generatedAt: string; months: BoMonth[]; gqs: GqsMonth[]; current: string; today: string;
   /** the chat tickets' handling, by month */
@@ -83,6 +92,8 @@ export type BoRead = {
   updating: string[];
   /** the articles on the tickets kept: description, profit centre, main group */
   arts?: Record<string, ArtInfo>;
+  /** every GQS task on its own - the GQS page in full; null until first read */
+  gqsTasks?: GqsKept | null;
 };
 
 const between = (prop: string, ym: string): Filter[] => [
@@ -331,13 +342,30 @@ async function readCompanies(ids: Set<string>, say: (s: string) => void): Promis
   await kvSet(KV.companies, { at: old ? new Date().toISOString() : kept!.at, facts } satisfies KeptCompanies);
 }
 
-async function readGqs(): Promise<GqsMonth[]> {
-  const tasks = await searchAll("tickets", [[pipe(PIPE.gqs)]], ["createdate", "time_to_close", GQS_OPEN, ...GQS_SENT]);
-  return gqsTally(tasks.filter((r) => r.properties?.createdate).map((r) => {
+/** The approval rule's limits as they stand (Back Office distribution > GQS > Approvals), to say why a request went to the
+ *  line manager. */
+async function gqsLimits(): Promise<Limits> {
+  const s = await kvGet<{ limits?: Partial<Limits> }>("gqsApprovals:settings").catch(() => null);
+  return { ...DEFAULT_LIMITS, ...(s?.limits ?? {}) };
+}
+
+/** Every GQS task: the months' three figures as before, and each task on its own with its stage and STATUS OF GQS
+ *  histories (50 a read, ~15 reads) - SARCLA 04.11.2026: "GQS ... this is a full pipeline, we should have the full scope". */
+async function readGqs(say: (s: string) => void): Promise<{ months: GqsMonth[]; tasks: GqsKept }> {
+  const recs = (await searchAll("tickets", [[pipe(PIPE.gqs)]], GQS_PROPS)).filter((r) => r.properties?.createdate);
+  const hist = new Map<string, Record<string, { value?: string | null; timestamp?: string }[]>>();
+  for (const r of await batchRead("tickets", recs.map((x) => String(x.id)), ["hs_pipeline_stage"], ["hs_pipeline_stage", "status_of_gqs"],
+    (n) => say(`the GQS tasks' histories · ${n.toLocaleString("en")} of ${recs.length.toLocaleString("en")}`))) hist.set(String(r.id), r.propertiesWithHistory ?? {});
+  const limits = await gqsLimits();
+  const now = Date.now();
+  const months = gqsTally(recs.map((r) => {
     const p = r.properties!;
     const open = Date.parse(p[GQS_OPEN] ?? ""), sent = Math.min(...GQS_SENT.map((k) => Date.parse(p[k] ?? "")).filter(Number.isFinite));
     return { created: p.createdate!, toClose: Number(p.time_to_close) || null, sentMs: Number.isFinite(open) && Number.isFinite(sent) && sent > open ? sent - open : 0 };
   }));
+  const tasks = recs.map((r) => { const id = String(r.id), h = hist.get(id); return taskOf(id, r.properties!, h?.hs_pipeline_stage, h?.status_of_gqs, limits, now); })
+    .filter((t): t is GqsTask => !!t);
+  return { months, tasks: { at: new Date(now).toISOString(), tasks, limits } };
 }
 
 /* ── the counter: one copy of the hub at a time, the newest months first ── */
@@ -382,6 +410,18 @@ function count(todo: string[], gqsDue: boolean, chatTodo: string[] = []): void {
   void (async () => {
     try {
       await beat();
+      // the GQS tasks first - a minute's read, never behind a recount of the months (and never stopping it)
+      if (gqsDue) {
+        say("the GQS tasks");
+        try {
+          const g = await readGqs(say);
+          const at = new Date().toISOString();
+          await kvSet(KV.gqs, { v: GQS_VERSION, at, months: g.months } satisfies KeptGqs);
+          await kvSet(KV.gqsTasks, { ...g.tasks, v: GQS_TASKS_VERSION } satisfies KeptGqsTasks);
+        } catch (e) {
+          console.error(`[bo-report] the GQS tasks: ${String((e as Error)?.message ?? e)}`);
+        }
+      }
       const learnt: Learnt = {
         arts: (await kvGet<Record<string, string>>(KV.articles)) ?? {}, companies: new Set(), miss: new Set((await kvGet<string[]>(KV.ppMiss)) ?? []),
         info: (await kvGet<Record<string, ArtInfo>>(KV.artInfo)) ?? {}, coPc: new Map(), coRaw: new Map(),
@@ -402,10 +442,6 @@ function count(todo: string[], gqsDue: boolean, chatTodo: string[] = []): void {
         await kvSet(KV.chat(ym), { v: CHAT_VERSION, at: new Date().toISOString(), rows } satisfies KeptChat);
       }
       if (learnt.companies.size) await readCompanies(learnt.companies, say);
-      if (gqsDue) {
-        say("the GQS tasks");
-        await kvSet(KV.gqs, { v: GQS_VERSION, at: new Date().toISOString(), months: await readGqs() } satisfies KeptGqs);
-      }
     } catch (e) {
       state.error = String((e as Error)?.message ?? e);
       console.error(`[bo-report] the count stopped: ${state.error}`);
@@ -424,13 +460,14 @@ export async function boReportNow(): Promise<BoRead> {
   const fresh = new Set(months.slice(-2));
   const kept = await keptMonths();
   const g = await kvGet<KeptGqs>(KV.gqs);
+  const gt = await kvGet<KeptGqsTasks>(KV.gqsTasks);
   // a month of an earlier version (from 3 on, the tickets one by one) stays shown while it is counted again - a release that
   // changes the read no longer leaves the pages empty for the half hour of the count (SARCLA 04.11.2026: "it's empty")
   const usable = (k: Kept | undefined) => !!k && (k.v === VERSION || k.v >= 3);
   const pending = months.filter((ym) => !usable(kept.get(ym)));
   const updating = months.filter((ym) => usable(kept.get(ym)) && kept.get(ym)!.v !== VERSION);
   const due = [...months].reverse().filter((ym) => stale(kept.get(ym), fresh.has(ym), now));
-  const gqsDue = !g || g.v !== GQS_VERSION || now - Date.parse(g.at) > HOUR;
+  const gqsDue = !g || g.v !== GQS_VERSION || now - Date.parse(g.at) > HOUR || !gt || gt.v !== GQS_TASKS_VERSION;
   // the chat's handling: the months with tickets, kept like the months (this one and the one before hourly, older weekly)
   const chats = await keptChats();
   const chatDue = [...months].reverse().filter((ym) => ym >= "2025-07" && (() => { const k = chats.get(ym); return !k || k.v !== CHAT_VERSION || now - Date.parse(k.at) > (fresh.has(ym) ? HOUR : WEEK); })());
@@ -442,6 +479,7 @@ export async function boReportNow(): Promise<BoRead> {
   return {
     generatedAt: newest || new Date(now).toISOString(), months: have,
     chat: Object.fromEntries([...chats].filter(([, k]) => k.v === CHAT_VERSION).map(([ym, k]) => [ym, k.rows])), gqs: g?.v === GQS_VERSION ? g.months : [], current, today,
+    gqsTasks: gt?.v === GQS_TASKS_VERSION ? { at: gt.at, tasks: gt.tasks, limits: gt.limits } : null,
     pending, updating, arts, counting: state.running || elsewhere, progress: state.running ? state.progress : elsewhere ? "counting on another copy of the hub" : null, error: state.error,
   };
 }

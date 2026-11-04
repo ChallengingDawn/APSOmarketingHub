@@ -111,8 +111,10 @@ import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 import { Sankey } from "@/app/charts/Sankey";
 import type { ArtInfo, BoRead, ChatRow } from "@/lib/reporting/boReport";
 import { IN, inZero, type InDetail, type InRow } from "@/lib/reporting/boInbound";
+import { FIRST_MONTH as GQS_FIRST, STAGE_LABEL, STAGE_WHO, WORK, offersOf, refusalsOf, stageTimes, sumOf, winRate, type GSum, type GStage, type GqsTask } from "@/lib/reporting/boGqs";
+import type { Reason } from "@/lib/gqsApprovals/rules";
 import {
-  ORIGINS, PC_FROM, RCL, RW, TOPIC_ORDER, TYPED, artsOf, emptyMonth, filteredMonth, hasTickets, kpisOf, passes, sumGqs, sumMonths, topicLabel, typedKey,
+  ORIGINS, PC_FROM, RCL, RW, TOPIC_ORDER, TYPED, artsOf, emptyMonth, filteredMonth, hasTickets, kpisOf, passes, sumGqs, sumMonths, swissDay, topicLabel, typedKey,
   type BoFilter, type BoKpis, type BoMonth, type CoFacts, type GqsMonth, type Typed, type TypedSeries,
 } from "@/lib/reporting/boReportRules";
 
@@ -321,11 +323,18 @@ const FIGS: Record<Slug, (f: Frame, d: Data) => Fig[]> = {
     fig("TSA tickets", n0(f.total.tsa), f.total.tsa, f.totalPrev?.tsa ?? null, `${share(f.total.tsaPerOrder)} tickets per order`, <SupportAgentOutlinedIcon sx={{ fontSize: 14 }} />, "green", true),
     fig("All APSOparts", n0(f.total.all), f.total.all, f.totalPrev?.all ?? null, `${share(f.total.allPerOrder)} tickets per order`, <ApartmentOutlinedIcon sx={{ fontSize: 14 }} />, "purple", true),
   ],
-  gqs: (f) => [
-    fig("GQS tasks", n0(f.total.gqsCreated), f.total.gqsCreated, f.totalPrev?.gqsCreated ?? null, f.doneWords || String(f.year), <AssignmentOutlinedIcon sx={{ fontSize: 14 }} />, "blue"),
-    fig("Days before GQS", days(f.total.gqsSent), f.total.gqsSent, f.totalPrev?.gqsSent ?? null, "in New and Open the GQS Task", <SendOutlinedIcon sx={{ fontSize: 14 }} />, "amber", true),
-    fig("Days to close", days(f.total.gqsResolution), f.total.gqsResolution, f.totalPrev?.gqsResolution ?? null, "offer sent to Sales or refused", <TaskAltOutlinedIcon sx={{ fontSize: 14 }} />, "green", true),
-  ],
+  gqs: (f, d) => {
+    // the whole pipeline's headline: the requests, the offers sent, the win rate (SARCLA 04.11.2026: "a full pipeline")
+    const py = gPrevYms(f);
+    const o = gBy(d, gYms(f), "of"), op = py ? gBy(d, py, "of") : null;
+    const a = o ? offersOf(o) : null, b = op ? offersOf(op) : null;
+    const w = a ? winRate(a.won, a.lost) : null, wp = b ? winRate(b.won, b.lost) : null;
+    return [
+      fig("GQS tasks", n0(f.total.gqsCreated), f.total.gqsCreated, f.totalPrev?.gqsCreated ?? null, f.doneWords || String(f.year), <AssignmentOutlinedIcon sx={{ fontSize: 14 }} />, "blue"),
+      fig("Offers sent to Sales", n0(a?.n ?? null), a?.n ?? null, b?.n ?? null, "by the day first sent", <SendOutlinedIcon sx={{ fontSize: 14 }} />, "green"),
+      fig("Win rate", pct(w), w, wp, a ? `${int(a.won)} won of ${int(a.won + a.lost)} with a result` : "the offers with a result", <EmojiEventsOutlinedIcon sx={{ fontSize: 14 }} />, "green"),
+    ];
+  },
   otd: (f, d) => {
     const ys = doneYms(f), py = ys.map(back);
     const one = (row: string, label: string, tint: Tint) => {
@@ -991,6 +1000,381 @@ function inCharts(pipe: Pipe): ChartDef[] {
     wide({ id: `${pipe}Ch`, page: "sales-tickets", title: `${N} tickets per channel`, hint: ({ f }) => `${periodOf(f)} · where each ticket came from: how many, won, how fast the first contact came, closed without any activity, still open, the potential won · a header sorts`, body: ({ f, d }) => <InTable f={f} d={d} pipe={pipe} by="ch" /> }),
     wide({ id: `${pipe}Who`, page: "sales-tickets", title: `${N} tickets per person`, hint: ({ f }) => `${periodOf(f)} · by the ticket's owner today · search a name, a header sorts`, body: ({ f, d }) => <InTable f={f} d={d} pipe={pipe} by="who" /> }),
   ];
+}
+
+/* ── GQS, the whole pipeline (SARCLA 04.11.2026: "GQS is very very incomplete - this is a full pipeline, we should have the
+   full scope") - every task on its own, from its stage and STATUS OF GQS histories (boGqs.ts): the request, the approval,
+   the work in each stage, the offer or the refusal, the result. Requests count by the day they came in, offers by the day
+   first sent, refusals by the day refused - a month's own requests are young, so what came of them is said, never compared. ── */
+
+const NO_GQS = <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>The GQS tasks are being read - these figures show in a minute.</Typography>;
+const NONE_GQS = <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>No GQS request in these months.</Typography>;
+/** each task with the months it came in, was first offered and was refused */
+type GIdx = { t: GqsTask; c: string; of: string | null; rf: string | null };
+const gCache = new WeakMap<Data, GIdx[]>();
+function gAll(d: Data): GIdx[] | null {
+  const ts = d.gqsTasks?.tasks;
+  if (!ts) return null;
+  let x = gCache.get(d);
+  if (!x) gCache.set(d, (x = ts.map((t) => ({ t, c: swissDay(t.c).slice(0, 7), of: t.of ? swissDay(t.of).slice(0, 7) : null, rf: t.s === "refused" && t.rf ? swissDay(t.rf).slice(0, 7) : null }))));
+  return x;
+}
+type GWhich = "c" | "of" | "rf";
+/** the tasks that came in (c), were first offered (of) or refused (rf) in some months */
+function gBy(d: Data, yms: string[], which: GWhich): GqsTask[] | null {
+  const all = gAll(d);
+  if (!all) return null;
+  const s = new Set(yms);
+  return all.filter((x) => x[which] != null && s.has(x[which]!)).map((x) => x.t);
+}
+/** the period's months - the complete ones, the month to date only while none is */
+const gYms = (f: Frame) => f.yms.slice(f.from, Math.max(f.done, f.from + 1));
+/** the same months a year before - only where the pipeline already ran in every one of them (from July 2025) */
+const gPrevYms = (f: Frame) => { const p = gYms(f).map(back); return p.every((ym) => ym >= GQS_FIRST) ? p : null; };
+const gName = (f: Frame, id: string | undefined) => (id ? ownerName(f, id) : "Nobody");
+const gType = (t: GqsTask) => t.ty ?? (t.c < Date.UTC(2026, 0, 1) ? "Not asked yet (before 2026)" : "No type");
+const hShort = (h: number | null) => (h == null ? "—" : h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${h.toFixed(1)} h` : `${(h / 24).toFixed(1)} days`);
+const eurN = (v: number | null) => (v == null ? "—" : moneyShort(v));
+const dayCh = (v: number | null) => (v == null ? "—" : `${v.toFixed(1)}`);
+const ago = (ms: number | undefined) => (ms ? Math.max(0, (Date.now() - ms) / 86_400_000) : null);
+/** a list's rows named by customer and requester - a second request of the same pair numbered, so each row is its own */
+const clipTo = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+const uniqLabels = <R extends { label: string }>(rows: R[]): R[] => { const seen = new Map<string, number>(); return rows.map((r) => { const n = (seen.get(r.label) ?? 0) + 1; seen.set(r.label, n); return n > 1 ? { ...r, label: `${r.label} (${n})` } : r; }); };
+const partCell = (n: number, of: number) => (n ? <span>{int(n)} <Box component="span" sx={{ color: FAINT, fontSize: "0.74rem" }}>{pct(of ? n / of : null)}</Box></span> : "—");
+
+/** the period in figures - against the same months a year before, where the pipeline ran then */
+function GqTiles({ f, d }: { f: Frame; d: Data }) {
+  const yms = gYms(f), py = gPrevYms(f);
+  const req = gBy(d, yms, "c");
+  if (!req) return NO_GQS;
+  const a = sumOf(req), o = offersOf(gBy(d, yms, "of")!), r = refusalsOf(gBy(d, yms, "rf")!);
+  const pa = py ? sumOf(gBy(d, py, "c")!) : null, po = py ? offersOf(gBy(d, py, "of")!) : null;
+  const win = winRate(o.won, o.lost), winP = po ? winRate(po.won, po.lost) : null;
+  const med = median(o.days), medP = po ? median(po.days) : null;
+  const S = 14;
+  return <Tiles items={[
+    { label: "GQS requests", value: int(a.n), ch: pa ? ch2(a.n, pa.n) : null, sub: `${int(a.customers)} customers${a.again ? ` · ${int(a.again)} of them asked more than once` : ""}`, icon: <AssignmentOutlinedIcon sx={{ fontSize: S }} />, tint: "blue" },
+    { label: "Sent to a line manager", value: int(a.review), sub: a.review ? `${pct(a.review / a.n)} of the requests · ${int(a.lmYes)} approved, ${int(a.lmNo)} refused${a.lmWait ? `, ${int(a.lmWait)} not decided` : ""}` : "the approval is kept from March 2026", icon: <VerifiedOutlinedIcon sx={{ fontSize: S }} />, tint: "purple" },
+    { label: "Offers sent to Sales", value: int(o.n), ch: po ? ch2(o.n, po.n) : null, sub: "by the day first sent, whenever asked for", icon: <SendOutlinedIcon sx={{ fontSize: S }} />, tint: "green" },
+    { label: "Days to the offer", value: days(med), ch: medP != null ? ch2(med, medP) : null, lower: true, sub: "from the request to the offer sent - the median", icon: <TimerOutlinedIcon sx={{ fontSize: S }} />, tint: "amber" },
+    { label: "Refused", value: int(r.n), sub: r.n ? `by GQS ${r.gqs} · the Back Office ${r.bo} · a line manager ${r.lm}${r.none ? ` · not said ${r.none}` : ""}` : "none in these months", icon: <BlockOutlinedIcon sx={{ fontSize: S }} />, tint: "pink" },
+    { label: "Still open", value: int(a.open), sub: `${pct(a.n ? a.open / a.n : null)} of these months' requests`, icon: <HourglassEmptyOutlinedIcon sx={{ fontSize: S }} />, tint: "slate" },
+    { label: "Won", value: int(o.won), sub: `of the offers sent · ${int(o.lost)} lost, ${int(o.n - o.won - o.lost)} without a result yet`, icon: <EmojiEventsOutlinedIcon sx={{ fontSize: S }} />, tint: "green" },
+    { label: "Win rate", value: pct(win), ch: winP != null ? ch2(win, winP) : null, sub: "won of the offers whose result is known", icon: <PercentOutlinedIcon sx={{ fontSize: S }} />, tint: "green" },
+    { label: "Potential asked", value: a.potN ? eur(a.pot) : "—", ch: pa?.potN ? ch2(a.pot, pa.pot) : null, sub: `Sales' order potential, on ${int(a.potN)} of the ${int(a.n)} requests`, icon: <PaymentsOutlinedIcon sx={{ fontSize: S }} />, tint: "blue" },
+    { label: "Potential won", value: o.potWon ? eur(o.potWon) : "—", ch: po?.potWon ? ch2(o.potWon, po.potWon) : null, sub: o.pot ? `of ${eur(o.pot)} offered · ${eur(o.potLost)} lost` : "no potential on these offers", icon: <PaymentsOutlinedIcon sx={{ fontSize: S }} />, tint: "green" },
+    { label: "Days at GQS", value: days(median(o.atGqs)), lower: true, sub: "in Waiting on GQS, the offers that went there - the median", icon: <WorkHistoryOutlinedIcon sx={{ fontSize: S }} />, tint: "amber" },
+    { label: "Reminded", value: int(a.reminded), sub: `${pct(a.n ? a.reminded / a.n : null)} of the requests went to Remind Back-Office`, icon: <MarkEmailUnreadOutlinedIcon sx={{ fontSize: S }} />, tint: "slate" },
+  ]} />;
+}
+
+/** the period's requests from the request to the result, in one diagram */
+function GqFlow({ f, d }: { f: Frame; d: Data }) {
+  const req = gBy(d, gYms(f), "c");
+  if (!req) return NO_GQS;
+  if (!req.length) return NONE_GQS;
+  const apOf = (t: GqsTask) => (t.ap === "a" ? "auto" : t.ap === "r" ? (t.dec === "y" ? "lmy" : t.dec === "n" ? "lmn" : "lmw") : "noap");
+  const stOf = (t: GqsTask) => (t.s === "offer" ? "offer" : t.s === "refused" ? "refused" : "open");
+  const links = new Map<string, number>(), seen = new Set<string>(["req"]);
+  const add = (a: string, b: string) => { links.set(`${a}>${b}`, (links.get(`${a}>${b}`) ?? 0) + 1); seen.add(b); };
+  for (const t of req) {
+    const a = apOf(t), s = stOf(t);
+    add("req", a); add(a, s);
+    if (s === "offer") add("offer", t.res === "w" ? "won" : t.res === "l" ? "lost" : "nores");
+  }
+  const NODES: [string, number, string, string][] = [
+    ["req", 0, "Requests", SERIES[0]],
+    ["auto", 1, "Approved automatically", SERIES[2]], ["lmy", 1, "Approved by a line manager", SERIES[0]], ["lmn", 1, "Refused by a line manager", SERIES[1]],
+    ["lmw", 1, "With the line manager, not decided", SERIES[3]], ["noap", 1, "No approval kept (before March 2026)", DEEMPHASIS],
+    ["offer", 2, "Offer sent to Sales", SERIES[2]], ["refused", 2, "Refused", SERIES[1]], ["open", 2, "Still open", DEEMPHASIS],
+    ["won", 3, "Won", SERIES[2]], ["lost", 3, "Lost", SERIES[1]], ["nores", 3, "No result yet", DEEMPHASIS],
+  ];
+  const nodes = NODES.filter(([id]) => seen.has(id)).map(([id, column, label, color]) => ({ id, column, label, color }));
+  return <Sankey height={400} columns={["The requests", "The approval", "Where they stand", "What came of the offer"]} label="The GQS pipeline, from the request to the result"
+    nodes={nodes} links={[...links].map(([k, value]) => { const [from, to] = k.split(">"); return { from, to, value }; })} format={(v) => int(v)} />;
+}
+
+/** a figure month by month, last year's beside it - over the tasks that came in, were offered or refused each month */
+function gTrend(id: string, title: string, note: string, which: GWhich, of: (ts: GqsTask[]) => number | null, fmt: (v: number | null) => string, wideIt = false): ChartDef {
+  const def: ChartDef = {
+    id, page: "gqs", title,
+    figure: ({ f, d }) => { const ts = gBy(d, gYms(f), which); const v = ts ? of(ts) : null; return v == null ? null : fmt(v); },
+    hint: ({ f, d }) => {
+      const ts = gBy(d, gYms(f), which), py = gPrevYms(f);
+      const v = ts ? of(ts) : null, w = py ? of(gBy(d, py, which) ?? []) : null;
+      const ch = v != null && w != null ? changeOf(v, w) : null;
+      return [note, f.done && v != null ? `${f.doneWords}: ${fmt(v)}${ch != null ? ` (${signedPct(ch)} on last year)` : ""}` : ""].filter(Boolean).join(" · ");
+    },
+    body: ({ f, d }) => {
+      if (!gAll(d)) return NO_GQS;
+      const n = drawn(f);
+      const at = (ym: string) => (ym < GQS_FIRST || ym > d.current ? null : of(gBy(d, [ym], which) ?? []));
+      const values = f.yms.slice(0, n).map(at), compare = f.yms.slice(0, n).map((ym) => at(back(ym)));
+      return <MonthTrend values={values} compare={compare.some((x) => x != null) ? compare : null} labels={f.labels.slice(0, n)} label={String(f.year)} compareLabel={String(f.year - 1)} fmt={fmt} />;
+    },
+  };
+  return wideIt ? wide(def) : def;
+}
+
+/** columns month by month: the parts of each month's tasks (four at most - the chart's palette) */
+function GqStack({ f, d, which, parts, fmt = n0 }: { f: Frame; d: Data; which: GWhich; parts: { key: string; label: string; color?: string; of: (ts: GqsTask[]) => number }[]; fmt?: (v: number | null) => string }) {
+  if (!gAll(d)) return NO_GQS;
+  const n = drawn(f);
+  const data = f.yms.slice(0, n).map((ym, i) => {
+    const ts = ym < GQS_FIRST || ym > d.current ? null : gBy(d, [ym], which);
+    return { x: f.labels[i], ...Object.fromEntries(parts.map((p) => [p.key, ts && ts.length ? p.of(ts) : null])) };
+  });
+  return <StackedColumns height={280} format={fmt} data={data} parts={parts.map(({ key, label, color }) => ({ key, label, color }))} />;
+}
+
+/** the period's requests per requester, person, type or customer - every column sorts */
+type GqR = { label: string; s: GSum; ts: GqsTask[] };
+function GqTable({ f, d, by, first, find, more = [], hide = [] }: { f: Frame; d: Data; by: (t: GqsTask) => string; first: string; find?: string; more?: Col<GqR>[]; hide?: string[] }) {
+  const ts = gBy(d, gYms(f), "c");
+  if (!ts) return NO_GQS;
+  if (!ts.length) return NONE_GQS;
+  const groups = new Map<string, GqsTask[]>();
+  for (const t of ts) { const k = by(t); const g = groups.get(k); if (g) g.push(t); else groups.set(k, [t]); }
+  const rows: GqR[] = [...groups].map(([label, xs]) => ({ label, s: sumOf(xs), ts: xs }));
+  const all = sumOf(ts);
+  const base: Col<GqR>[] = [
+    { key: "n", head: "Requests", cell: (r) => int(r.s.n), sort: (r) => r.s.n },
+    { key: "share", head: "Share", tip: "Of the period's requests", cell: (r) => pct(all.n ? r.s.n / all.n : null), sort: (r) => r.s.n },
+    { key: "lm", head: "To a line manager", tip: "Sent to a line manager to approve - and their share of the requests", cell: (r) => partCell(r.s.review, r.s.n), sort: (r) => r.s.review },
+    { key: "offer", head: "Offer sent", tip: "In Offer Sent to Sales now - and their share", cell: (r) => partCell(r.s.offer, r.s.n), sort: (r) => r.s.offer },
+    { key: "refused", head: "Refused", cell: (r) => partCell(r.s.refused, r.s.n), sort: (r) => r.s.refused },
+    { key: "open", head: "Still open", cell: (r) => int(r.s.open), sort: (r) => r.s.open },
+    { key: "won", head: "Won", cell: (r) => int(r.s.won), sort: (r) => r.s.won },
+    { key: "win", head: "Win rate", tip: "Won of the offers whose result is known", cell: (r) => pct(winRate(r.s.won, r.s.lost)), sort: (r) => winRate(r.s.won, r.s.lost) ?? -1 },
+    { key: "pot", head: "Potential asked", tip: "Sales' order potential on the requests, EUR", cell: (r) => (r.s.potN ? eur(r.s.pot) : "—"), sort: (r) => r.s.pot },
+    { key: "potWon", head: "Potential won", tip: "The order potential of the won offers, EUR", cell: (r) => (r.s.potWon ? eur(r.s.potWon) : "—"), sort: (r) => r.s.potWon },
+    { key: "days", head: "Days to the offer", tip: "From the request to the offer sent - the median", cell: (r) => days(median(r.s.toOffer)), sort: (r) => median(r.s.toOffer) ?? -1 },
+  ];
+  const cols = [...base, ...more].filter((c) => !hide.includes(c.key));
+  return <FullTable first={first} cols={cols} rows={rows} find={find} initial="n" total={{ label: "Total", s: all, ts }} />;
+}
+
+/** a few bars of the period's requests - per requester, per person */
+function GqBars({ f, d, by, of = (xs) => xs.length, fmt = n0, top = 12, sub }: { f: Frame; d: Data; by: (t: GqsTask) => string; of?: (xs: GqsTask[]) => number | null; fmt?: (v: number | null) => string; top?: number; sub?: (xs: GqsTask[]) => string }) {
+  const ts = gBy(d, gYms(f), "c");
+  if (!ts) return NO_GQS;
+  const groups = new Map<string, GqsTask[]>();
+  for (const t of ts) { const k = by(t); const g = groups.get(k); if (g) g.push(t); else groups.set(k, [t]); }
+  const rows = [...groups].map(([label, xs]) => ({ label, value: of(xs), secondary: sub?.(xs) })).filter((r) => r.value != null).sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).slice(0, top);
+  return <BarList rows={rows} format={fmt} emptyMessage="No GQS request in these months." />;
+}
+
+/** why the requests went to the line manager, by the approval rule as it stands */
+function GqWhy({ f, d }: { f: Frame; d: Data }) {
+  const ts = gBy(d, gYms(f), "c");
+  if (!ts) return NO_GQS;
+  const rev = ts.filter((t) => t.ap === "r");
+  const lim = d.gqsTasks!.limits;
+  const e = (n: number) => `${Math.round(n).toLocaleString("de-CH")} EUR`, m = (x: number) => `${Math.round(x * 100)} %`;
+  const LABEL: Record<Reason | "none", string> = {
+    big: `Potential ${e(lim.bigFrom)} or more`, mid: `${e(lim.midFrom).replace(" EUR", "")}-${e(lim.midTo)}, margin ≤ ${m(lim.midMargin)}`,
+    small: `Up to ${e(lim.smallUpTo)}, margin ≤ ${m(lim.smallMargin)}`, liquidation: "A liquidation article", none: "None of these today",
+  };
+  const KEYS: (Reason | "none")[] = ["big", "mid", "small", "liquidation", "none"];
+  const rows = KEYS.map((k) => ({ label: LABEL[k], value: rev.filter((t) => (t.rule ?? "none") === k).length }))
+    .filter((r) => r.value).map((r) => ({ ...r, secondary: pct(r.value / rev.length) }));
+  return <BarList rows={rows} format={n0} labelWidth={290} maxLabel={52} emptyMessage="No request went to a line manager in these months." />;
+}
+
+/** the refused requests of the period, the reason each was given */
+function GqReasons({ f, d }: { f: Frame; d: Data }) {
+  const ts = gBy(d, gYms(f), "rf");
+  if (!ts) return NO_GQS;
+  if (!ts.length) return <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>No GQS request refused in these months.</Typography>;
+  type R = { label: string; t: GqsTask };
+  const BY = { gqs: "GQS", bo: "The Back Office", lm: "A line manager" } as const;
+  const rows: R[] = uniqLabels(ts.map((t) => ({ label: `${clipTo(t.cu ?? "No customer", 42)} · ${gName(f, t.rq)}`, t })));
+  const cols: Col<R>[] = [
+    { key: "when", head: "Refused", cell: (r) => (r.t.rf ? swissDay(r.t.rf).split("-").reverse().join(".") : "—"), sort: (r) => r.t.rf ?? 0 },
+    { key: "by", head: "By", cell: (r) => (r.t.by ? BY[r.t.by] : "Not said") },
+    { key: "why", head: "The reason given", cell: (r) => <Box component="span" title={r.t.why ?? ""} sx={{ display: "inline-block", maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "bottom", color: r.t.why ? INK : FAINT }}>{r.t.why ?? "none typed in"}</Box> },
+    { key: "type", head: "Type", cell: (r) => gType(r.t) },
+    { key: "pot", head: "Potential", cell: (r) => (r.t.pot != null ? eur(r.t.pot) : "—"), sort: (r) => r.t.pot ?? -1 },
+    { key: "open", head: "", cell: (r) => <Box component="a" href={`https://app-eu1.hubspot.com/contacts/26492587/record/0-5/${r.t.id}`} target="_blank" rel="noreferrer" sx={{ color: TINT.blue.fg, fontWeight: 600 }}>Open</Box> },
+  ];
+  return <FullTable first="Customer · requester" cols={cols} rows={rows} find="a customer or a requester" initial="when" />;
+}
+
+/** each stage: how many of the period's requests went through it, how long they stayed - and how many are in it now */
+function GqStages({ f, d, table = false }: { f: Frame; d: Data; table?: boolean }) {
+  const ts = gBy(d, gYms(f), "c"), all = gAll(d);
+  if (!ts || !all) return NO_GQS;
+  if (!ts.length) return NONE_GQS;
+  const now = new Map<GStage, number>();
+  for (const x of all) now.set(x.t.s, (now.get(x.t.s) ?? 0) + 1);
+  const st = stageTimes(ts);
+  if (!table) return <BarList rows={st.filter((x) => x.n).map((x) => ({ label: STAGE_LABEL[x.stage], value: x.median, secondary: `${int(x.n)} tasks · ${STAGE_WHO[x.stage]}` }))} format={(v) => (v == null ? "—" : `${v.toFixed(1)} days`)} labelWidth={200} maxLabel={40} />;
+  type R = { label: string; x: (typeof st)[number] };
+  const cols: Col<R>[] = [
+    { key: "n", head: "Tasks there", tip: "Of the period's requests, those that went through the stage", cell: (r) => partCell(r.x.n, ts.length), sort: (r) => r.x.n },
+    { key: "median", head: "Days there", tip: "Every visit added up - the median", cell: (r) => days(r.x.median), sort: (r) => r.x.median ?? -1 },
+    { key: "mean", head: "On average", cell: (r) => days(r.x.mean), sort: (r) => r.x.mean ?? -1 },
+    { key: "who", head: "Waiting on", cell: (r) => STAGE_WHO[r.x.stage] },
+    { key: "now", head: "In it now", tip: "Every GQS task in the stage today, whatever the period", cell: (r) => int(now.get(r.x.stage) ?? 0), sort: (r) => now.get(r.x.stage) ?? 0 },
+  ];
+  return <FullTable first="Stage" cols={cols} rows={st.map((x) => ({ label: STAGE_LABEL[x.stage], x }))} natural />;
+}
+
+/** every GQS task open now, whatever the period: where it waits, since when - and those whose sale is already decided */
+function GqOpen({ f, d, list = false }: { f: Frame; d: Data; list?: boolean }) {
+  const all = gAll(d);
+  if (!all) return NO_GQS;
+  const open = all.map((x) => x.t).filter((t) => t.s !== "offer" && t.s !== "refused");
+  if (!open.length) return <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>No GQS task is open.</Typography>;
+  if (!list) {
+    const by = new Map<GStage, GqsTask[]>();
+    for (const t of open) { const g = by.get(t.s); if (g) g.push(t); else by.set(t.s, [t]); }
+    return <BarList rows={WORK.filter((s) => by.has(s)).map((s) => { const xs = by.get(s)!; const old = xs.filter((t) => (ago(t.at) ?? 0) > 28).length; return { label: STAGE_LABEL[s], value: xs.length, secondary: `${old ? `${int(old)} there over 4 weeks · ` : ""}${dayCh(median(xs.map((t) => ago(t.at) ?? 0)))} days there, the median` }; })} format={n0} labelWidth={200} />;
+  }
+  type R = { label: string; t: GqsTask };
+  const cols: Col<R>[] = [
+    { key: "stage", head: "Stage", cell: (r) => STAGE_LABEL[r.t.s] },
+    { key: "in", head: "Days in it", tip: "Since it entered the stage it is in", cell: (r) => dayCh(ago(r.t.at)), sort: (r) => ago(r.t.at) ?? -1 },
+    { key: "age", head: "Days open", tip: "Since the request came in", cell: (r) => dayCh(ago(r.t.c)), sort: (r) => ago(r.t.c) ?? -1 },
+    { key: "type", head: "Type", cell: (r) => gType(r.t) },
+    { key: "owner", head: "Back Office", cell: (r) => gName(f, r.t.o) },
+    { key: "pot", head: "Potential", cell: (r) => (r.t.pot != null ? eur(r.t.pot) : "—"), sort: (r) => r.t.pot ?? -1 },
+    { key: "sale", head: "The sale", tip: "WON or LOST already on the task - its sales ticket decided before the offer", cell: (r) => (r.t.res === "w" ? <b style={{ color: GOOD }}>already won</b> : r.t.res === "l" ? <b style={{ color: BAD }}>already lost</b> : "—"), sort: (r) => (r.t.res ? 1 : 0) },
+    { key: "open", head: "", cell: (r) => <Box component="a" href={`https://app-eu1.hubspot.com/contacts/26492587/record/0-5/${r.t.id}`} target="_blank" rel="noreferrer" sx={{ color: TINT.blue.fg, fontWeight: 600 }}>Open</Box> },
+  ];
+  return <FullTable first="Customer · requester" cols={cols} rows={uniqLabels(open.map((t) => ({ label: `${clipTo(t.cu ?? "No customer", 48)} · ${gName(f, t.rq)}`, t })))} find="a customer or a requester" initial="age" />;
+}
+
+/** the graphs of the GQS page */
+function gqCharts(): ChartDef[] {
+  const typeTop = (f: Frame, d: Data) => {
+    const m = new Map<string, number>();
+    for (const t of gBy(d, gYms(f), "c") ?? []) m.set(gType(t), (m.get(gType(t)) ?? 0) + 1);
+    return [...m].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k);
+  };
+  return [
+    /* Pipeline */
+    wide({ id: "gqFigs", page: "gqs", title: "GQS in figures", figure: ({ f, d }) => { const ts = gBy(d, gYms(f), "c"); return ts ? int(ts.length) : null; },
+      hint: ({ f }) => `${periodOf(f)} · requests by the day they came in, offers by the day first sent, refusals by the day refused${gPrevYms(f) ? ` · the change against the same months of ${f.year - 1}` : ""}`,
+      body: ({ f, d }) => <GqTiles f={f} d={d} /> }),
+    wide({ id: "gqFlow", page: "gqs", title: "The pipeline, from the request to the result", hint: ({ f }) => `${periodOf(f)}'s requests: how each was approved, where it stands today, what came of the offer - hover a band for its count`, body: ({ f, d }) => <GqFlow f={f} d={d} /> }),
+    gTrend("gqOffers", "Offers sent to Sales", "By the day first sent, whenever the request came in", "of", (ts) => ts.length, n0),
+    { id: "gqWhere", page: "gqs", title: "Where each month's requests stand", hint: () => "Each month's requests by where they are today: offer sent to Sales, refused, still in the pipeline",
+      body: ({ f, d }) => <GqStack f={f} d={d} which="c" parts={[{ key: "offer", label: "Offer sent to Sales", of: (ts) => sumOf(ts).offer }, { key: "refused", label: "Refused", of: (ts) => sumOf(ts).refused }, { key: "open", label: "Still open", color: DEEMPHASIS, of: (ts) => sumOf(ts).open }]} /> },
+    { id: "gqOpenStage", page: "gqs", title: "Open now, by stage", hint: () => "Every GQS task open today, whatever the period - and how long it has been in its stage", body: ({ f, d }) => <GqOpen f={f} d={d} /> },
+
+    /* Approval */
+    { id: "gqAp", page: "gqs", title: "Approved by the rule, or by a line manager", hint: () => "Each month's requests: approved automatically, sent to a line manager - the approval is kept in STATUS OF GQS from March 2026",
+      body: ({ f, d }) => <GqStack f={f} d={d} which="c" parts={[{ key: "auto", label: "Approved automatically", color: SERIES[2], of: (ts) => sumOf(ts).auto }, { key: "review", label: "Sent to a line manager", color: SERIES[0], of: (ts) => sumOf(ts).review }, { key: "noAp", label: "No approval kept", color: DEEMPHASIS, of: (ts) => sumOf(ts).noAp }]} /> },
+    gTrend("gqApShare", "Sent to a line manager", "Of the month's requests with an approval kept, those the rule sent to a line manager - a month with fewer than 10 left out", "c", (ts) => { const s = sumOf(ts); return s.auto + s.review >= 10 ? s.review / (s.auto + s.review) : null; }, share),
+    gTrend("gqApHours", "Time to the line manager's decision", "From the request reaching the line manager to Approved or Refused by Line Manager - the median; a month with fewer than 3 decisions left out", "c", (ts) => { const xs = sumOf(ts).decH; return xs.length >= 3 ? median(xs) : null; }, hShort),
+    { id: "gqApWhy", page: "gqs", title: "Why a line manager", hint: ({ f }) => `${periodOf(f)} · the requests sent to a line manager, by the approval rule as it stands now (Back Office distribution > GQS > Approvals) · "none of these today": a value changed since, or sent again`, body: ({ f, d }) => <GqWhy f={f} d={d} /> },
+    wide({ id: "gqApLm", page: "gqs", title: "Per line manager", hint: ({ f }) => `${periodOf(f)} · the requests of each line manager's team: how many went to them, what they decided and how fast · a header sorts`,
+      body: ({ f, d }) => <GqTable f={f} d={d} by={(t) => gName(f, t.lm)} first="Line manager" hide={["potWon"]} more={[
+        { key: "dec", head: "Approved / refused", tip: "The line manager's decisions - and those not decided in HubSpot", cell: (r) => `${int(r.s.lmYes)} / ${int(r.s.lmNo)}${r.s.lmWait ? ` · ${int(r.s.lmWait)} open` : ""}`, sort: (r) => r.s.lmYes + r.s.lmNo },
+        { key: "decH", head: "Time to decide", tip: "From the request reaching them to their decision - the median", cell: (r) => hShort(median(r.s.decH)), sort: (r) => median(r.s.decH) ?? -1 },
+      ]} /> }),
+
+    /* Offers & results */
+    { id: "gqResult", page: "gqs", title: "What came of the offers, month by month", hint: () => "The offers sent each month by what STATUS OF GQS says now: won, lost, no result yet - the latest months' offers have had less time",
+      body: ({ f, d }) => <GqStack f={f} d={d} which="of" parts={[{ key: "won", label: "Won", color: SERIES[2], of: (ts) => offersOf(ts).won }, { key: "lost", label: "Lost", color: SERIES[1], of: (ts) => offersOf(ts).lost }, { key: "wait", label: "No result yet", color: DEEMPHASIS, of: (ts) => { const o = offersOf(ts); return o.n - o.won - o.lost; } }]} /> },
+    gTrend("gqWin", "Win rate, month by month", "Won of the offers sent that month whose result is known - a month with fewer than 8 results left out", "of", (ts) => { const o = offersOf(ts); return o.won + o.lost >= 8 ? winRate(o.won, o.lost) : null; }, share),
+    { id: "gqValue", page: "gqs", title: "The offers' potential, month by month", hint: () => "Sales' order potential of the offers sent each month, EUR: won, lost, no result yet",
+      body: ({ f, d }) => <GqStack f={f} d={d} which="of" fmt={eurN} parts={[{ key: "won", label: "Won", color: SERIES[2], of: (ts) => offersOf(ts).potWon }, { key: "lost", label: "Lost", color: SERIES[1], of: (ts) => offersOf(ts).potLost }, { key: "wait", label: "No result yet", color: DEEMPHASIS, of: (ts) => { const o = offersOf(ts); return o.pot - o.potWon - o.potLost; } }]} /> },
+    { id: "gqRefused", page: "gqs", title: "Refused, month by month", hint: () => "The requests refused each month, by who refused them - STATUS OF GQS",
+      body: ({ f, d }) => <GqStack f={f} d={d} which="rf" parts={[{ key: "gqs", label: "By GQS", color: SERIES[1], of: (ts) => refusalsOf(ts).gqs }, { key: "bo", label: "By the Back Office", color: SERIES[3], of: (ts) => refusalsOf(ts).bo }, { key: "lm", label: "By a line manager", color: SERIES[0], of: (ts) => refusalsOf(ts).lm }, { key: "none", label: "Not said", color: DEEMPHASIS, of: (ts) => refusalsOf(ts).none }]} /> },
+    wide({ id: "gqReasons", page: "gqs", title: "The refused requests and why", hint: ({ f }) => `${periodOf(f)} · every request refused, who refused it and the reason typed in · search a customer or a requester`, body: ({ f, d }) => <GqReasons f={f} d={d} /> }),
+
+    /* Speed */
+    { id: "gqStages", page: "gqs", title: "Days in each stage", hint: ({ f }) => `${periodOf(f)}'s requests · every visit to a stage added up, the median of those that went there`, body: ({ f, d }) => <GqStages f={f} d={d} /> },
+    gTrend("gqToOffer", "Days to the offer", "From the request to the offer sent, of the offers sent that month - the median", "of", (ts) => median(offersOf(ts).days), days),
+    gTrend("gqBoDays", "Days with the Back Office", "In Open the GQS Task, of the offers sent that month - every visit added up, the median", "of", (ts) => median(ts.filter((t) => t.of && t.d?.open).map((t) => t.d!.open!)), days),
+    gTrend("gqAtGqs", "Days at GQS", "In Waiting on GQS, of the offers sent that month that went there - the median", "of", (ts) => median(offersOf(ts).atGqs), days),
+    gTrend("gqRemind", "Reminded", "Of the month's requests, those that went to Remind Back-Office", "c", (ts) => (ts.length ? sumOf(ts).reminded / ts.length : null), share),
+    wide({ id: "gqStageTable", page: "gqs", title: "Each stage in figures", hint: ({ f }) => `${periodOf(f)}'s requests · the tasks in each stage, the days there, who it waits on, how many are in it today`, body: ({ f, d }) => <GqStages f={f} d={d} table /> }),
+
+    /* Type of request */
+    { id: "gqTypeMix", page: "gqs", title: "Types of request, month by month", hint: ({ f, d }) => `The period's three largest types, the others together${typeTop(f, d).includes("Not asked yet (before 2026)") ? " · the type is asked from January 2026" : ""}`,
+      body: ({ f, d }) => { const top = typeTop(f, d); const COL = [SERIES[0], SERIES[2], SERIES[3]]; return <GqStack f={f} d={d} which="c" parts={[...top.map((k, i) => ({ key: `t${i}`, label: k, color: COL[i], of: (ts: GqsTask[]) => ts.filter((t) => gType(t) === k).length })), { key: "other", label: "The other types", color: DEEMPHASIS, of: (ts: GqsTask[]) => ts.filter((t) => !top.includes(gType(t))).length }]} />; } },
+    { id: "gqTypeWin", page: "gqs", title: "Win rate per type", hint: ({ f }) => `${periodOf(f)}'s requests · won of the offers whose result is known`,
+      body: ({ f, d }) => <GqBars f={f} d={d} by={gType} of={(xs) => { const s = sumOf(xs); return winRate(s.won, s.lost); }} fmt={share} sub={(xs) => { const s = sumOf(xs); return `${int(s.won)} won of ${int(s.won + s.lost)}`; }} /> },
+    wide({ id: "gqTypeTable", page: "gqs", title: "Per type of request", hint: ({ f }) => `${periodOf(f)}'s requests per type · a header sorts`, body: ({ f, d }) => <GqTable f={f} d={d} by={gType} first="Type of request" /> }),
+
+    /* People */
+    { id: "gqReqBars", page: "gqs", title: "Requests per requester", hint: ({ f }) => `${periodOf(f)} · who in Sales asked - the largest twelve`, body: ({ f, d }) => <GqBars f={f} d={d} by={(t) => gName(f, t.rq)} sub={(xs) => { const s = sumOf(xs); return `${int(s.won)} won`; }} /> },
+    { id: "gqOwnBars", page: "gqs", title: "Requests per Back Office person", hint: ({ f }) => `${periodOf(f)} · the task's owner today`, body: ({ f, d }) => <GqBars f={f} d={d} by={(t) => gName(f, t.o)} sub={(xs) => `${dayCh(median(xs.filter((t) => t.d?.open).map((t) => t.d!.open!)))} days in Open the GQS Task`} /> },
+    wide({ id: "gqReq", page: "gqs", title: "Per requester", hint: ({ f }) => `${periodOf(f)} · each Sales person's requests and what came of them · search a name, a header sorts`, body: ({ f, d }) => <GqTable f={f} d={d} by={(t) => gName(f, t.rq)} first="Requester" find="a person" /> }),
+    wide({ id: "gqOwn", page: "gqs", title: "Per Back Office person", hint: ({ f }) => `${periodOf(f)} · by the task's owner today · a header sorts`,
+      body: ({ f, d }) => <GqTable f={f} d={d} by={(t) => gName(f, t.o)} first="Back Office" find="a person" hide={["lm", "potWon"]} more={[
+        { key: "bo", head: "Days in Open the GQS Task", tip: "Every visit added up - the median", cell: (r) => days(median(r.ts.filter((t) => t.d?.open).map((t) => t.d!.open!))), sort: (r) => median(r.ts.filter((t) => t.d?.open).map((t) => t.d!.open!)) ?? -1 },
+        { key: "rem", head: "Reminded", cell: (r) => partCell(r.s.reminded, r.s.n), sort: (r) => r.s.reminded },
+      ]} /> }),
+    wide({ id: "gqCust", page: "gqs", title: "Per customer", hint: ({ f }) => `${periodOf(f)} · the customers asked for · search a name, a header sorts`, body: ({ f, d }) => <GqTable f={f} d={d} by={(t) => t.cu ?? "No customer"} first="Customer" find="a customer" hide={["share", "lm"]} /> }),
+
+    /* Open tasks */
+    wide({ id: "gqOpenList", page: "gqs", title: "Every open GQS task", hint: () => "Whatever the period, the oldest first · \"already won\" or \"already lost\": the sale was decided while the task is still open · search a customer or a requester", body: ({ f, d }) => <GqOpen f={f} d={d} list /> }),
+  ];
+}
+
+/** "All the figures" of GQS: a figure a row, a month a column, then the period, last year's and the change */
+type GqRowDef = { key: string; label: string; section: string; which: GWhich | "gm"; of: (ts: GqsTask[], g: GqsMonth | null) => number | null; fmt: (v: number | null) => string; strong?: boolean; lower?: boolean; plain?: boolean };
+const gmAvg = (s: number, n: number) => (n ? s / n : null);
+const S_REQ = "Requests", S_AP = "The approval - kept from March 2026", S_NOW = "Where the month's requests stand today", S_OF = "Offers sent to Sales - by the day first sent";
+const S_SPEED = "Speed", S_VAL = "Value - Sales' order potential, EUR", S_RF = "Refused - by the day refused";
+const GQ_ROWS: GqRowDef[] = [
+  { key: "n", label: "GQS requests", section: S_REQ, which: "c", of: (ts) => ts.length, fmt: n0, strong: true, plain: true },
+  { key: "cust", label: "Customers", section: S_REQ, which: "c", of: (ts) => sumOf(ts).customers, fmt: n0, plain: true },
+  { key: "auto", label: "Approved automatically", section: S_AP, which: "c", of: (ts) => sumOf(ts).auto, fmt: n0, plain: true },
+  { key: "review", label: "Sent to a line manager", section: S_AP, which: "c", of: (ts) => sumOf(ts).review, fmt: n0, plain: true },
+  { key: "lmYes", label: "… approved by the line manager", section: S_AP, which: "c", of: (ts) => sumOf(ts).lmYes, fmt: n0, plain: true },
+  { key: "lmNo", label: "… refused by the line manager", section: S_AP, which: "c", of: (ts) => sumOf(ts).lmNo, fmt: n0, plain: true },
+  { key: "decH", label: "Hours to the line manager's decision (median)", section: S_AP, which: "c", of: (ts) => median(sumOf(ts).decH), fmt: d1, lower: true },
+  { key: "offerNow", label: "In Offer Sent to Sales", section: S_NOW, which: "c", of: (ts) => sumOf(ts).offer, fmt: n0, plain: true },
+  { key: "refusedNow", label: "Refused", section: S_NOW, which: "c", of: (ts) => sumOf(ts).refused, fmt: n0, plain: true },
+  { key: "openNow", label: "Still open", section: S_NOW, which: "c", of: (ts) => sumOf(ts).open, fmt: n0, plain: true },
+  { key: "offers", label: "Offers sent to Sales", section: S_OF, which: "of", of: (ts) => offersOf(ts).n, fmt: n0, strong: true },
+  { key: "won", label: "Won", section: S_OF, which: "of", of: (ts) => offersOf(ts).won, fmt: n0 },
+  { key: "lost", label: "Lost", section: S_OF, which: "of", of: (ts) => offersOf(ts).lost, fmt: n0, lower: true },
+  { key: "win", label: "Win rate", section: S_OF, which: "of", of: (ts) => { const o = offersOf(ts); return winRate(o.won, o.lost); }, fmt: share },
+  { key: "again", label: "Sent more than once", section: S_OF, which: "of", of: (ts) => offersOf(ts).again, fmt: n0, lower: true },
+  { key: "toOffer", label: "Days to the offer (median)", section: S_SPEED, which: "of", of: (ts) => median(offersOf(ts).days), fmt: d1, lower: true },
+  { key: "boDays", label: "Days in Open the GQS Task (median)", section: S_SPEED, which: "of", of: (ts) => median(ts.filter((t) => t.of && t.d?.open).map((t) => t.d!.open!)), fmt: d1, lower: true },
+  { key: "atGqs", label: "Days at GQS (median)", section: S_SPEED, which: "of", of: (ts) => median(offersOf(ts).atGqs), fmt: d1, lower: true },
+  { key: "sent", label: "Avg. time before sent to GQS (days)", section: S_SPEED, which: "gm", of: (_, g) => (g ? gmAvg(g.sentDays, g.sentN) : null), fmt: d1, lower: true },
+  { key: "done", label: "Avg. resolution time GQS (days)", section: S_SPEED, which: "gm", of: (_, g) => (g ? gmAvg(g.doneDays, g.doneN) : null), fmt: d1, lower: true },
+  { key: "remind", label: "Reminded - went to Remind Back-Office", section: S_SPEED, which: "c", of: (ts) => sumOf(ts).reminded, fmt: n0, lower: true },
+  { key: "pot", label: "Potential asked", section: S_VAL, which: "c", of: (ts) => { const s = sumOf(ts); return s.potN ? s.pot : null; }, fmt: money, plain: true },
+  { key: "potOf", label: "Potential of the offers sent", section: S_VAL, which: "of", of: (ts) => offersOf(ts).pot, fmt: money, plain: true },
+  { key: "potWon", label: "Potential won", section: S_VAL, which: "of", of: (ts) => offersOf(ts).potWon, fmt: money },
+  { key: "rf", label: "Refused", section: S_RF, which: "rf", of: (ts) => refusalsOf(ts).n, fmt: n0, lower: true },
+  { key: "rfGqs", label: "… by GQS", section: S_RF, which: "rf", of: (ts) => refusalsOf(ts).gqs, fmt: n0, plain: true },
+  { key: "rfBo", label: "… by the Back Office", section: S_RF, which: "rf", of: (ts) => refusalsOf(ts).bo, fmt: n0, plain: true },
+  { key: "rfLm", label: "… by a line manager", section: S_RF, which: "rf", of: (ts) => refusalsOf(ts).lm, fmt: n0, plain: true },
+];
+function GqsTable({ f, d }: { f: Frame; d: Data }) {
+  if (!gAll(d)) return NO_GQS;
+  const yms = gYms(f), py = gPrevYms(f);
+  const gm = new Map(d.gqs.map((m) => [m.ym, m]));
+  const gOf = (ys: string[]) => (d.gqs.length ? sumGqs(ys.map((ym) => gm.get(ym) ?? EMPTY_GQS(ym))) : null);
+  const val = (r: GqRowDef, ys: string[]) => (r.which === "gm" ? r.of([], gOf(ys)) : r.of(gBy(d, ys, r.which) ?? [], null));
+  const sum = f.doneWords ? `${f.doneWords} ${f.year}` : String(f.year);
+  const head = ["KPI", ...f.labels.map((l) => l.replace(" (to date)", "*")), sum, ...(py ? [`${f.doneWords} ${f.year - 1}`, "Change"] : [])];
+  return (
+    <ChartBox title="GQS, month by month" hint={`${f.labels.some((l) => l.includes("to date")) ? "* to date - " : ""}a figure a row · requests by the month they came in, offers by the month first sent, refusals by the month refused · a month in green when better than the period's average, in red when worse`}>
+      <WTable head={head} totals={py ? 3 : 1} rows={GQ_ROWS.map((r) => {
+        const vals = f.yms.map((ym) => (ym < GQS_FIRST || ym > d.current ? null : val(r, [ym])));
+        const done = vals.slice(f.from, f.done).filter((x): x is number => x != null);
+        const mean = done.length ? done.reduce((x, y) => x + y, 0) / done.length : null;
+        const a = val(r, yms), b = py ? val(r, py) : null;
+        const ch = a != null && b != null ? changeOf(a, b) : null;
+        return {
+          key: r.key, strong: r.strong, section: r.section,
+          cells: [r.label, ...vals.map((v, i) => <Box key={i} component="span" sx={{ color: r.plain || f.labels[i].includes("to date") ? undefined : against(v, mean, r.lower) }}>{r.fmt(v)}</Box>), r.fmt(a),
+            ...(py ? [r.fmt(b), <Box key="ch" component="span" sx={{ color: tone(ch, r.lower) }}>{signedPct(ch)}</Box>] : [])],
+        };
+      })} />
+    </ChartBox>
+  );
 }
 
 /** The days to close (or to the first reply) of each person, overall and in the period's largest topics - a cell green when
@@ -1847,8 +2231,9 @@ export const CHARTS: ChartDef[] = [
   trend("allO", "sales-tickets", "All tickets per order", "Against the month's orders", (k) => k.allPerOrder, share),
   trend("allL", "sales-tickets", "All tickets per order line", "Against the month's order lines", (k) => k.allPerLine, share),
 
-  /* GQS */
-  wide(trend("gqs", "gqs", "GQS tasks created", "Back Office - Special Tasks GQS, by the month they were created", (k) => k.gqsCreated, n0)),
+  /* GQS - the whole pipeline (gqCharts), the requests and the two speeds counted from the start beside it */
+  trend("gqs", "gqs", "GQS requests", "Back Office - Special Tasks GQS, by the month they came in", (k) => k.gqsCreated, n0),
+  ...gqCharts(),
   trend("gqsSent", "gqs", "Days before sent to GQS", "From entering Open the GQS Task to entering Waiting on GQS - or Waiting on APSO, where a task was put by mistake - on average", (k) => k.gqsSent, days, daysTick),
   trend("gqsDone", "gqs", "Days to close", "HubSpot's time to close - to the offer sent to Sales, or refused; the tasks closed so far", (k) => k.gqsResolution, days, daysTick),
 
@@ -1961,8 +2346,14 @@ const TABS: Record<Slug, TabDef[]> = {
     { id: "all", label: "APSOparts in total", title: "Every ticket of APSOparts", note: "every pipeline, the ESO's and the TSA's sales actions left out", icon: <ApartmentOutlinedIcon />, tint: "purple", charts: ["stack", "allO", "allL"] },
   ],
   gqs: [
-    TABLE("every GQS task, by the month it was created"),
-    { id: "gqs", label: "GQS", title: "GQS tasks", note: "how many, how long before sent to GQS, how long to close", icon: <AssignmentOutlinedIcon />, tint: "green", charts: ["gqs", "gqsSent", "gqsDone"] },
+    TABLE("every GQS figure, a month a column - requests by the month they came in, offers by the month first sent, refusals by the month refused"),
+    { id: "pipeline", label: "Pipeline", title: "The GQS pipeline", note: "from the request to the result: how many, how each was approved, where they stand, the offers sent and won", icon: <AssignmentOutlinedIcon />, tint: "green", charts: ["gqFigs", "gqFlow", "gqs", "gqOffers", "gqWhere", "gqOpenStage"] },
+    { id: "approval", label: "Approval", title: "The approval", note: "approved by the rule or sent to a line manager, why, and how fast each line manager decides", icon: <VerifiedOutlinedIcon />, tint: "purple", charts: ["gqAp", "gqApShare", "gqApHours", "gqApWhy", "gqApLm"] },
+    { id: "results", label: "Offers & results", title: "The offers and what came of them", note: "the offers sent to Sales by the day sent: won, lost, the win rate, the value - then the requests refused, with the reasons", icon: <EmojiEventsOutlinedIcon />, tint: "green", charts: ["gqResult", "gqWin", "gqValue", "gqRefused", "gqReasons"] },
+    { id: "speed", label: "Speed", title: "How long each step takes", note: "the days in each stage - the Back Office, GQS, the customer - the days to the offer, the reminders", icon: <TimerOutlinedIcon />, tint: "amber", charts: ["gqStages", "gqToOffer", "gqBoDays", "gqAtGqs", "gqsSent", "gqsDone", "gqRemind", "gqStageTable"] },
+    { id: "types", label: "Type of request", title: "Per type of request", note: "running business and each profit centre's new business: how many, the offers, won, the value", icon: <CategoryOutlinedIcon />, tint: "blue", charts: ["gqTypeMix", "gqTypeWin", "gqTypeTable"] },
+    { id: "people", label: "People", title: "Who asks, who handles", note: "the requesters in Sales, the Back Office person on each task, the customers", icon: <BadgeOutlinedIcon />, tint: "green", charts: ["gqReqBars", "gqOwnBars", "gqReq", "gqOwn", "gqCust"] },
+    { id: "open", label: "Open tasks", title: "Every GQS task open now", note: "whatever the period: where each one waits and since when - and those whose sale is already won or lost", icon: <HourglassEmptyOutlinedIcon />, tint: "pink", charts: ["gqOpenStage", "gqOpenList"] },
   ],
   otd: [
     { id: "online", label: "Online", title: "OTD online", note: "with early call-offs, against the first confirmation date", icon: <LocalShippingOutlinedIcon />, tint: "pink", charts: ["otdAll", "otdStandard", "otdSpecial"] },
@@ -2357,16 +2748,10 @@ export function BoSalesTicketsPage() {
 
 /* ── GQS ───────────────────────────────────────────────────────────────── */
 
-const GQS_ROWS: KRow[] = [
-  { key: "gqs", label: "Number of GQS tasks created", pick: (k) => k.gqsCreated, fmt: n0, strong: true },
-  { key: "gqsSent", label: "Avg. time before sent to GQS (days)", pick: (k) => k.gqsSent, fmt: d1, lower: true },
-  { key: "gqsDone", label: "Avg. resolution time GQS (days)", pick: (k) => k.gqsResolution, fmt: d1, lower: true },
-];
-
 export function BoGqsPage() {
   return (
     <Page slug="gqs">
-      {(f, d) => <TabCard slug="gqs" c={{ f, d }} extra={(tab) => tab === "table" && <AllFigures f={f} rows={GQS_ROWS} title="GQS tasks, month by month" hint="Every GQS task, by the month it was created - the last columns add up the complete months" />} />}
+      {(f, d) => <TabCard slug="gqs" c={{ f, d }} extra={(tab) => tab === "table" && <GqsTable f={f} d={d} />} />}
     </Page>
   );
 }

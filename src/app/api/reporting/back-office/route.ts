@@ -1,5 +1,5 @@
 // BACK-OFFICE REPORTS: the months and the GQS tasks kept so far (src/lib/reporting/boReport.ts - asking starts the counter
-// on what is missing or due); the ESO's and the TSA's inbound tickets from the ESO Reports' own read (the sales actions
+// on what is missing or due; every GQS task on its own for the GQS page in full, boGqs.ts); the ESO's and the TSA's inbound tickets from the ESO Reports' own read (the sales actions
 // left out) and, from the same read, their win rate, first contact and the rest (boInbound.ts); and what HubSpot does not
 // hold, typed in per month - the hours the Back Office
 // worked (on Team totals) and the OTD, the pass rate, the manual price adjustments and the stopped orders (on their pages),
@@ -83,6 +83,8 @@ export async function GET() {
     const answers = await surveys(new Date().getFullYear() - 1);
     // the names of the tickets' owners, and the facts of their companies the filters read
     const ids = new Set(st.months.flatMap((m) => m.rows?.dict ?? []));
+    // and of the GQS tasks' owners, requesters and line managers
+    for (const t of st.gqsTasks?.tasks ?? []) for (const x of [t.o, t.rq, t.lm]) if (x) ids.add(x);
     const names = Object.fromEntries([...owners].filter(([id]) => ids.has(id)));
     return NextResponse.json({
       state: { computing: st.counting, progress: st.progress, error: st.error, computedAt: st.generatedAt },
