@@ -223,8 +223,9 @@ export async function intakePass(): Promise<{ pending: Set<string>; failed: bool
           continue;
         }
         const emails = await emailsOf(id);
-        // a mail of the hub's own that reached an inbox: never taken in, never mailed again
-        if (emails.some((e) => (e.from ?? "").toLowerCase() === addressOf(FROM).toLowerCase())) {
+        // a mail of the hub's own that reached an inbox: never taken in, never mailed again (the hub's sender is also the
+        // Back Office's own address to customers - so its sender AND one of its own subjects)
+        if (emails.some((e) => (e.from ?? "").toLowerCase() === addressOf(FROM).toLowerCase() && /^\s*(❗Back Office Ticket Created|⚠️REMINDER: Back Office Ticket)\s*$/.test(e.subject ?? ""))) {
           rows.unshift({ ...base, subjectBefore: p.subject ?? null, branch: null, team: null, props: {}, mail: false, what: "skipped", why: "made from a mail of the hub's own - left alone" });
           done.add(id);
           continue;
