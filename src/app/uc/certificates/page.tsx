@@ -5,6 +5,8 @@
 // the hub every 3 minutes in place of the workflow SARCLA | CERTIFICATES NEW PROCESS (SARCLA 04.11.2026: "migrate ASAP
 // this certificates process to the hub as a sub-app, follow the logic"). Overview = the figures and the process drawn
 // with where each open ticket stands; Tickets; Activity = what the hub did (or, in Preview, would do); Settings.
+// 05.11.2026 ("migrate the rest of certificates"): the Back Office's reminders of the workflow Back Office Ticket Remind
+// too, from the moment that workflow no longer takes certificate tickets - Settings shows the switch-over.
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
@@ -40,13 +42,15 @@ import { GroupedColumns } from "@/app/charts/GroupedColumns";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, TINT, bodyCell, clip, headCell, hsTicket, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { Chip, Choice, usePaged, when } from "@/app/connectors/parts";
-import type { Mode, OpenTicket, Row, RunInfo, Settings, Stats } from "@/lib/certificates/engine";
+import type { Mode, OpenTicket, RemindState, Row, RunInfo, Settings, Stats } from "@/lib/certificates/engine";
 import { STEP_WORDS, type Phase, type StepName } from "@/lib/certificates/rules";
 
 type Data = {
   settings: Settings; last: RunInfo | null; rows: Row[]; open: OpenTicket[]; stats: Stats | null;
   names: Record<string, string>; choices: { id: string; name: string }[];
   workflowOn: boolean | null; writing: boolean; offAt: string; admin: boolean;
+  /** Back Office Ticket Remind: still mailing (takesCerts), or the hub's since offAt; null = not readable */
+  remind: (RemindState & { offAt: string | null }) | null; mailReady: boolean;
 };
 type View = "overview" | "tickets" | "activity" | "settings";
 const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", activity: "#activity", settings: "#settings" };
@@ -64,14 +68,17 @@ const STAGE_LABEL: Record<string, string> = {
   "2726922455": "Waiting Internally", "2728031473": "Customer/Internal replied", "5948837104": "CHAT/C2S Issue",
   "2338266327": "Remind Back Office", "3640065212": "Certificates", "2338266328": "Resolved",
 };
-const LATE: StepName[] = ["late", "late96", "lateWeek", "lateRose"];
+const LATE: StepName[] = ["late", "late96", "lateWeek", "lateRose", "bo48", "bo96", "boWeek", "boRose"];
+const isLate = (t: OpenTicket) => !!t.step && LATE.includes(t.step);
+const BO_STEPS: StepName[] = ["bo3days", "boToday", "bo48", "bo96", "boWeek", "boRose"];
+const REMIND_NAME = "Back Office Ticket Remind | Notification";
 
 // ---------------- the process, drawn ----------------
 /** The box of the drawing a ticket sits in. */
 function boxOf(t: OpenTicket): string {
   if (t.phase === "start") return "start";
   if (t.phase === "avor") return t.step ?? "avor";
-  if (t.phase === "backOffice" || t.phase === "merged") return t.step === "bo3days" ? "bo3days" : "bo";
+  if (t.phase === "backOffice" || t.phase === "merged") return t.step && BO_STEPS.includes(t.step) ? t.step : "bo";
   if (t.phase === "expert") return !t.step || t.step === "expert-entry" ? "expert" : t.step;
   return "sent";
 }
@@ -87,9 +94,14 @@ const LANES: { title: string; who: string; tint: Tint; boxes: Box_[]; then?: str
     { id: "avorWeek", label: "Over a week", when: "+6 days", tint: "pink" },
     { id: "avorRose", label: "To Rose Rasteiro + note", when: "+15 days", tint: "pink" },
   ] },
-  { title: "Back Office", who: "Owner = next of the Back Office rotation", tint: "blue", then: "Assign to Conformity Expert", boxes: [
+  { title: "Back Office", who: "Owner = next of the Back Office rotation; a mail to the owner at each reminder", tint: "blue", then: "Assign to Conformity Expert", boxes: [
     { id: "bo", label: "Certificates stage", when: "set", tint: "blue" },
     { id: "bo3days", label: "3 days before delivery - create the certificate", when: "delivery -3 days, 07:00", tint: "amber" },
+    { id: "boToday", label: "Certificate due today", when: "delivery day, 07:00", tint: "amber" },
+    { id: "bo48", label: "Due 48 hours ago", when: "+48 h", tint: "pink" },
+    { id: "bo96", label: "Due 96 hours ago", when: "+48 h", tint: "pink" },
+    { id: "boWeek", label: "More than a week", when: "+48 h", tint: "pink" },
+    { id: "boRose", label: "To Rose Rasteiro + note", when: "+15 days", tint: "pink" },
   ] },
   { title: "Conformity expert", who: "Next of the experts' rotation, also owner", tint: "purple", then: "Sent out to customer and EDA", boxes: [
     { id: "expert", label: "With the expert", when: "set", tint: "purple" },
@@ -104,13 +116,13 @@ const LANES: { title: string; who: string; tint: Tint; boxes: Box_[]; then?: str
   ] },
 ];
 
-function ProcessCard({ open, resolvedThisMonth, sel, onPick }: { open: OpenTicket[]; resolvedThisMonth: number | null; sel: string | null; onPick: (id: string | null) => void }) {
+function ProcessCard({ open, resolvedThisMonth, sel, onPick, remindByHub }: { open: OpenTicket[]; resolvedThisMonth: number | null; sel: string | null; onPick: (id: string | null) => void; remindByHub: boolean }) {
   const counts = new Map<string, number>();
   for (const t of open) counts.set(boxOf(t), (counts.get(boxOf(t)) ?? 0) + 1);
   return (
     <GlassCard>
       <CardTitle icon={<AccountTreeOutlinedIcon />} tint="purple" title="The process, and where each open request stands"
-        note="Left to right, as the workflow ran it. The figure in a box = open requests there now - click a box for them" />
+        note={`Left to right, as the workflows ran it. The figure in a box = open requests there now - click a box for them.${remindByHub ? "" : ` The Back Office's reminders after the 3 days: still by HubSpot's ${REMIND_NAME} until the switch-over (Settings).`}`} />
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(5, minmax(0, 1fr))" }, gap: 1.25, alignItems: "stretch" }}>
         {LANES.map((lane, i) => (
           <Box key={lane.title} sx={{ display: "flex", flexDirection: "column", gap: 0.75, minWidth: 0, position: "relative", p: 1.25, borderRadius: "16px", bgcolor: TINT[lane.tint].bg + "66", border: `1px solid ${HAIRLINE}` }}>
@@ -165,7 +177,7 @@ function TicketsTable({ rows, names, empty }: { rows: OpenTicket[]; names: Recor
           <TableBody>
             {!rows.length && <TableRow><TableCell colSpan={6} sx={{ ...bodyCell, color: MUTED, fontSize: "0.84rem" }}>{empty}</TableCell></TableRow>}
             {slice.map((t) => {
-              const late = t.phase === "expert" && t.step && LATE.includes(t.step);
+              const late = isLate(t);
               return (
                 <TableRow key={t.id} hover>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>
@@ -177,7 +189,7 @@ function TicketsTable({ rows, names, empty }: { rows: OpenTicket[]; names: Recor
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>
                     <Chip tint={PHASE[t.phase].tint}>{PHASE[t.phase].label}</Chip>
                     <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.25 }}>
-                      {t.step ? STEP_WORDS[t.step].split(" - ")[0] : "started"} · {STAGE_LABEL[t.stage ?? ""] ?? t.stage ?? "-"}{t.workflowStep ? " · by the workflow" : ""}
+                      {t.step ? STEP_WORDS[t.step].split(" - ")[0] : "started"} · {STAGE_LABEL[t.stage ?? ""] ?? t.stage ?? "-"}{t.remindStep ? " · by the Remind workflow" : t.workflowStep ? " · by the workflow" : ""}
                     </Typography>
                   </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>
@@ -188,7 +200,7 @@ function TicketsTable({ rows, names, empty }: { rows: OpenTicket[]; names: Recor
                     {t.next ? (
                       <>
                         <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, whiteSpace: "nowrap" }}>{when(t.next.at)}</Typography>
-                        <Typography sx={{ fontSize: "0.74rem", color: MUTED, ...clip(280) }}>{STEP_WORDS[t.next.name]}</Typography>
+                        <Typography sx={{ fontSize: "0.74rem", color: MUTED, ...clip(280) }}>{STEP_WORDS[t.next.name]}{t.nextRemind ? " - by HubSpot's Remind workflow until the switch-over" : ""}</Typography>
                       </>
                     ) : <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{t.due ? "nothing more - waits for the next action" : "no delivery date - nothing timed"}</Typography>}
                   </TableCell>
@@ -233,6 +245,7 @@ function ActivityTable({ rows, names }: { rows: Row[]; names: Record<string, str
                 <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>
                   <Chip tint={WHAT[r.what].tint}>{WHAT[r.what].label}</Chip>
                   {r.error && <Typography sx={{ fontSize: "0.72rem", color: RED }}>{r.error}</Typography>}
+                  {r.mail && <Typography sx={{ fontSize: "0.72rem", color: r.mailFailed ? RED : MUTED, mt: 0.25 }}>{r.mail}</Typography>}
                 </TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.78rem", color: MUTED }}>{written(r, names) || "subject"}</TableCell>
               </TableRow>
@@ -249,8 +262,13 @@ function ActivityTable({ rows, names }: { rows: Row[]; names: Record<string, str
 function statusLine(d: Data): string {
   const wf = d.workflowOn === true ? "The workflow is switched ON again - the hub writes nothing while it runs." : d.workflowOn === false ? "The workflow is off." : "The workflow's state could not be read - the hub writes nothing.";
   const mode = d.settings.mode === "off" ? "Off - the hub does not look." : d.settings.mode === "preview" ? "Preview - every 3 minutes the hub works out each request's steps and lists them; it writes nothing." : d.writing ? "Live - every 3 minutes the hub takes each request's steps that fell due." : "Live, but not writing.";
-  const last = d.last ? ` Last look ${when(d.last.at)}: ${full(d.last.tickets)} open requests${d.last.error ? ` - failed: ${d.last.error}` : ""}.` : " Not looked yet.";
-  return `${mode} ${wf}${last}`;
+  const last = d.last ? ` Last look ${when(d.last.at)}: ${full(d.last.tickets)} open requests${d.last.mailed ? `, ${full(d.last.mailed)} mailed` : ""}${d.last.error ? ` - failed: ${d.last.error}` : ""}.` : " Not looked yet.";
+  return `${mode} ${wf} ${remindLine(d)}${last}`;
+}
+function remindLine(d: Data): string {
+  if (!d.remind) return `The Back Office's reminders: ${REMIND_NAME} could not be read - the hub takes none of them now.`;
+  if (d.remind.takesCerts) return `The Back Office's reminders after the 3 days: still by ${REMIND_NAME} (it mails the owner) - the switch-over is under Settings.`;
+  return `The Back Office's reminders: the hub's${d.remind.offAt ? ` since ${when(d.remind.offAt)}` : ""} - ${d.remind.why}.`;
 }
 
 function Overview({ d }: { d: Data }) {
@@ -258,7 +276,7 @@ function Overview({ d }: { d: Data }) {
   const open = d.open;
   const now = Date.now();
   const in7 = open.filter((t) => t.due && Date.parse(`${t.due}T23:59:59`) >= now && Date.parse(`${t.due}T00:00:00`) <= now + 7 * 86400_000).length;
-  const late = open.filter((t) => t.phase === "expert" && t.step && LATE.includes(t.step)).length;
+  const late = open.filter(isLate).length;
   const avor = open.filter((t) => t.phase === "avor").length;
   const month = new Date().toISOString().slice(0, 7);
   const thisMonth = d.stats?.months.find((m) => m.month === month) ?? null;
@@ -271,11 +289,11 @@ function Overview({ d }: { d: Data }) {
         <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<ConfirmationNumberOutlinedIcon />} tint="blue" label="Open requests" value={full(open.length)} note="in the process now" /></Grid>
         <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<ScheduleOutlinedIcon />} tint="amber" label="Waiting for AVOR" value={full(avor)} note="a new EC 1935/2004 article first" /></Grid>
         <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<EventOutlinedIcon />} tint="purple" label="Delivery in 7 days" value={full(in7)} note="open, delivery date this week" /></Grid>
-        <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<ReportProblemOutlinedIcon />} tint="pink" label="Late" value={full(late)} note="with the expert, delivery date passed, not sent" /></Grid>
+        <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<ReportProblemOutlinedIcon />} tint="pink" label="Late" value={full(late)} note="delivery date passed, no certificate sent yet" /></Grid>
         <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<TaskAltOutlinedIcon />} tint="green" label="Resolved this month" value={thisMonth ? full(thisMonth.resolved) : "—"} note={thisMonth ? `${full(thisMonth.created)} new this month` : "read every 30 min"} /></Grid>
         <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<TimerOutlinedIcon />} tint="slate" label="Days to resolve" value={d.stats?.medianDays !== null && d.stats?.medianDays !== undefined ? String(d.stats.medianDays) : "—"} note={d.stats ? `median, ${full(d.stats.resolved90)} resolved in 90 days` : "read every 30 min"} /></Grid>
       </Grid>
-      <ProcessCard open={open} resolvedThisMonth={thisMonth?.resolved ?? null} sel={sel} onPick={setSel} />
+      <ProcessCard open={open} resolvedThisMonth={thisMonth?.resolved ?? null} sel={sel} onPick={setSel} remindByHub={!!d.remind && !d.remind.takesCerts} />
       {sel && (
         <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
           <Box sx={{ px: { xs: 2, md: 2.75 }, display: "flex", alignItems: "center", gap: 1 }}>
@@ -365,6 +383,7 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
           {msg && <Typography sx={{ fontSize: "0.82rem", color: msg.ok ? "#1b7a55" : RED }}>{msg.text}</Typography>}
         </Box>
       </GlassCard>
+      <SwitchOverCard d={d} />
       <GlassCard>
         <CardTitle icon={<GroupsOutlinedIcon />} tint="purple" title="Who gets the requests" note="Each rotation hands the next request to the next person; people who left HubSpot are skipped" />
         <Box sx={{ display: "grid", gap: 1.75 }}>
@@ -383,16 +402,62 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
           <li>Put right: &quot;Sent out&quot; set before the delivery date was missed and the ticket called late - the hub resolves it at once (the workflow also waited 48 h more on time).</li>
           <li>Put right: a merged ticket lost every later &quot;Assign to Conformity Expert&quot; (its merged branch emptied the action again).</li>
           <li>The company in the subject is the ticket&apos;s primary company - the workflow took the last-modified one, often A+P.</li>
+          <li>The Back Office&apos;s reminders ({REMIND_NAME}), kept: the mail to the owner at 3 days, then due today, 48 h, 96 h, more than a week (subject and mail each), 15 days later to Rose Rasteiro.</li>
+          <li>Put right: the reminders come on the delivery date (07:00) and after it - the workflow counted 72 h from the moment the ticket went to Remind, so a late article made &quot;due today&quot; days late.</li>
+          <li>Put right: the expert no longer gets the Back Office&apos;s reminders - the expert&apos;s own &quot;today&quot; and &quot;late&quot; steps put the ticket back in Remind, and that workflow ran its Back Office chain again, mailing the expert &quot;please create it&quot; and writing over the expert&apos;s subjects.</li>
+          <li>Put right: the last two mails said &quot;96 hours ago&quot; after a week.</li>
         </Box>
       </GlassCard>
       <GlassCard>
-        <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Still in HubSpot, next to it" note="Both stay on; they enrolled tickets into the certificates workflow - the hub now sees those tickets itself" />
+        <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Still in HubSpot, next to it" note="Both stay on" />
         <Box component="ul" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.5, fontSize: "0.82rem", color: INK }}>
-          <li><b>Back Office Ticket Created | Notification</b> - sets the requester on a new certificate request; its step &quot;enrol in the certificates workflow&quot; does nothing now - the hub starts the request within 3 minutes.</li>
-          <li><b>Back Office Ticket Remind | Notification</b> - its certificates branch mails the owner (3 days, due today, 48 h, 96 h, a week) and hands over to the expert step; the hand-over now comes from &quot;Assign to Conformity Expert&quot;, which the hub sees.</li>
+          <li><b>SARCLA | Back Office Ticket Created | Notification</b> - the way in: it sets the requester on a new certificate request (and the subject, owner and mail on every other Back Office ticket). Its step &quot;enrol in the certificates workflow&quot; does nothing now - the hub starts the request within 3 minutes, with the requester already set.</li>
+          <li><b>{REMIND_NAME}</b> - keeps its reminder to the Backoffice Team on every other ticket. {d.remind && !d.remind.takesCerts ? "Its certificates part is the hub's now." : "Its certificates branch (the mails to the owner after the 3 days) is the hub's from the switch-over above."}</li>
         </Box>
       </GlassCard>
     </>
+  );
+}
+
+function SwitchOverCard({ d }: { d: Data }) {
+  const r = d.remind;
+  const hub = !!r && !r.takesCerts;
+  const before = r?.offAt ? Date.parse(r.offAt) : Date.now();
+  // in stage Remind since before the switch-over = enrolled in that workflow: they must leave it, or it mails them too
+  const enrolled = d.open.filter((t) => t.stage === "2338266327" && (!t.remindAt || Date.parse(t.remindAt) < before))
+    .sort((a, b) => (a.remindAt ?? "").localeCompare(b.remindAt ?? ""));
+  return (
+    <GlassCard>
+      <CardTitle icon={<HistoryOutlinedIcon />} tint={hub ? "green" : "amber"} title={`The Back Office's reminders - ${hub ? "the hub's" : `still by ${REMIND_NAME}`}`}
+        note={hub ? `Since ${when(r?.offAt ?? null)}: ${r?.why}. The hub mails the owner at each reminder.` : "One change in HubSpot hands them to the hub; the hub sees it within 3 minutes"} />
+      <Box sx={{ display: "grid", gap: 1.25, fontSize: "0.82rem", color: INK }}>
+        {!d.mailReady && <Typography sx={{ fontSize: "0.82rem", color: RED }}>The hub cannot send mail here (no SMTP credentials) - the reminders&apos; mails would not go out.</Typography>}
+        {!r && <Typography sx={{ fontSize: "0.82rem", color: RED }}>{REMIND_NAME} could not be read - the hub takes none of its reminders until it can.</Typography>}
+        {!hub && (
+          <Box component="ol" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.5, listStyleType: "decimal", "& > li": { display: "list-item" } }}>
+            <li>In HubSpot, open the workflow <b>{REMIND_NAME}</b>. In its enrollment trigger (pipeline Back Office, stage Remind Back Office) add <b>&quot;Which certificate ?&quot; is unknown</b>, then save. Certificate tickets stop entering it; its reminder to the Backoffice Team on the other tickets stays.</li>
+            <li>Unenroll the certificate tickets still in it - listed below (on each ticket: Workflows, Unenroll; or in the workflow&apos;s list of enrolled tickets). Otherwise it goes on mailing them next to the hub.</li>
+            <li>Nothing to do in the hub: it reads the workflow every few minutes, takes the reminders from the moment of the change and this card turns green. What fell due before stays HubSpot&apos;s.</li>
+          </Box>
+        )}
+        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+          {enrolled.length
+            ? `${full(enrolled.length)} certificate ticket${enrolled.length === 1 ? "" : "s"} in stage Remind Back Office${hub ? " since before the switch-over" : ""} - enrolled in ${REMIND_NAME}${hub ? "; unenroll them if not done yet" : ""}:`
+            : `No certificate ticket in stage Remind Back Office${hub ? " from before the switch-over" : ""}.`}
+        </Typography>
+        {enrolled.length > 0 && (
+          <Box sx={{ display: "grid", gap: 0.5 }}>
+            {enrolled.map((t) => (
+              <Box key={t.id} sx={{ display: "flex", gap: 1, alignItems: "baseline", minWidth: 0 }}>
+                <Typography sx={{ fontSize: "0.74rem", color: FAINT, whiteSpace: "nowrap", minWidth: 92 }}>{t.remindAt ? when(t.remindAt) : "-"}</Typography>
+                <Chip tint={PHASE[t.phase].tint}>{PHASE[t.phase].label}</Chip>
+                <Box sx={{ minWidth: 0, flex: 1 }}><TicketLink id={t.id} subject={t.subject} max={520} /></Box>
+              </Box>
+            ))}
+          </Box>
+        )}
+      </Box>
+    </GlassCard>
   );
 }
 
@@ -422,7 +487,7 @@ export default function Certificates() {
   );
   else if (view === "settings") body = <Box id="certificates-panel-settings" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><SettingsTab d={r.data} onChanged={() => setN((x) => x + 1)} /></Box>;
   else body = <Box id="certificates-panel-overview" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><Overview d={r.data} /></Box>;
-  const late = r?.state === "ok" ? r.data.open.filter((t) => t.phase === "expert" && t.step && LATE.includes(t.step)).length : 0;
+  const late = r?.state === "ok" ? r.data.open.filter(isLate).length : 0;
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
@@ -443,7 +508,7 @@ export default function Certificates() {
           { id: "settings", label: "Settings", count: null },
         ]} />
       </Box>
-      {late > 0 && view !== "overview" && <Typography sx={{ fontSize: "0.82rem", color: RED }}>{full(late)} late with the expert.</Typography>}
+      {late > 0 && view !== "overview" && <Typography sx={{ fontSize: "0.82rem", color: RED }}>{full(late)} late - delivery date passed, no certificate sent yet.</Typography>}
       {body}
     </Box>
   );

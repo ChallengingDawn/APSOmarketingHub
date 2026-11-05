@@ -28,8 +28,22 @@
 // Times are Swiss time, as the workflow's. Every step has the moment it falls due: what fell due before the workflow
 // was switched off was the workflow's (WORKFLOW_OFF_AT) - the hub takes every step after, so the 25 tickets enrolled
 // that evening go on where they stood.
+//
+// THE BACK OFFICE'S REMINDERS (SARCLA 05.11.2026: "we need to migrate the rest of certificates, stay with the first
+// SARCLA | Back Office Ticket Created | Notification"). The workflow "Back Office Ticket Remind | Notification"
+// (2322872555) took a certificate ticket when it went to stage Remind Back Office (the 3-days step): it mailed the
+// owner "3 days for certificate delivery", then, while nobody chose "Assign to Conformity Expert": 72 h -> "CERTIFICATE
+// DUE TODAY", 48 h -> "48 HOURS AGO", 48 h -> "96 HOURS AGO", 48 h -> "MORE THAN ONE WEEK" (subject and a mail to the
+// owner each), 15 days -> owner Rose Rasteiro and a mail to her. The hub does it from the moment that workflow no longer
+// takes certificate tickets ("which certificate is unknown" in its trigger, its certificates branch gone, or switched
+// off) - until then the hub sets the stage and that workflow mails, as before. Put right: the reminders come on the
+// delivery date (07:00) and after it, not 72 h after the ticket went to Remind; the expert no longer gets the Back
+// Office's reminders (the expert's own "today"/"late" steps put the ticket back in Remind, and that workflow ran its
+// Back Office chain on it again, writing over the expert's subjects); the last mails said "96 hours ago".
 
 export const WORKFLOW_ID = "2959551709";
+/** "Back Office Ticket Remind | Notification" - its certificates branch is the hub's once it no longer takes certificate tickets */
+export const REMIND_WORKFLOW_ID = "2322872555";
 /** 04.11.2026 23:13:33 Swiss time - the workflow's last change, switched off */
 export const WORKFLOW_OFF_AT = Date.parse("2026-11-04T22:13:33Z");
 export const BO_PIPELINE = "1726786777";
@@ -85,6 +99,10 @@ export type Facts = {
   /** the first entry into stage Certificates - the process had started it */
   startedAt: number | null;
   subject: string | null;
+  /** sarcla_article_number_order_pm - for the mail */
+  articles?: string | null;
+  /** the last entry into stage Remind Back Office */
+  remindAt?: number | null;
 };
 
 export type Phase = "start" | "avor" | "backOffice" | "expert" | "sent" | "merged";
@@ -94,11 +112,16 @@ export type Act =
   | { kind: "subject"; head: string }
   | { kind: "rotate"; who: "backOffice" | "experts"; prop: "hubspot_owner_id" | "conformity_expert"; alsoOwner?: boolean }
   | { kind: "ownerFrom"; prop: "back_office_ticket_requester" }
-  | { kind: "escalate" };
-export type Step = { key: string; name: StepName; at: number; acts: Act[] };
+  | { kind: "escalate" }
+  /** a mail to the ticket's owner (after the step's writes) - only once the Remind workflow no longer takes certificate tickets */
+  | { kind: "mail"; mail: MailName };
+/** remind = the Remind workflow's own step: the hub's only from the switch-over (REMIND_WORKFLOW_ID) */
+export type Step = { key: string; name: StepName; at: number; acts: Act[]; remind?: true };
 export type StepName =
   | "start-avor" | "start-bo" | "avor48" | "avor96" | "avorWeek" | "avorRose"
-  | "bo-entry" | "bo3days" | "expert-entry" | "today" | "late" | "late96" | "lateWeek" | "lateRose" | "close" | "merge-clear";
+  | "bo-entry" | "bo3days" | "boToday" | "bo48" | "bo96" | "boWeek" | "boRose"
+  | "expert-entry" | "today" | "late" | "late96" | "lateWeek" | "lateRose" | "close" | "merge-clear";
+export type MailName = "bo3days" | "boToday" | "bo48" | "bo96" | "boWeek" | "boRose";
 
 export const HEAD = {
   std: "CERTIFICATES",
@@ -110,7 +133,23 @@ export const HEAD = {
   late: "⚠️ Certificate is late - CERTIFICATES",
   late96: "⚠️ 96 hours yet not sent - CERTIFICATES",
   lateWeek: "⚠️OVER A WEEK YET NOT SENT ⚠️ - CERTIFICATES",
+  // the Remind workflow's
+  boToday: "⚠️ CERTIFICATE DUE TODAY",
+  bo48: "⚠️ CERTIFICATE DUE DATE WAS 48 HOURS AGO",
+  bo96: "⚠️ CERTIFICATE DUE DATE WAS 96 HOURS AGO",
+  boWeek: "⚠️ CERTIFICATE DUE DATE IS MORE THAN ONE WEEK",
 } as const;
+
+const ASK = 'Once created and attached to the ticket, please choose "Assign to Conformity Expert".';
+/** The mails, as the Remind workflow wrote them: the first line, then what to do. */
+export const MAIL_TEXT: Record<MailName, { line: string; ask: string }> = {
+  bo3days: { line: "⚠️ 3 days for certificate delivery - please create it", ask: ASK },
+  boToday: { line: "⚠️ CERTIFICATE DUE DATE IS TODAY - please create it", ask: ASK },
+  bo48: { line: "⚠️ CERTIFICATE DUE DATE WAS 48 HOURS AGO - please create it", ask: ASK },
+  bo96: { line: "⚠️ CERTIFICATE DUE DATE WAS 96 HOURS AGO - please create it", ask: ASK },
+  boWeek: { line: "⚠️ CERTIFICATE DUE DATE IS MORE THAN ONE WEEK - please create it", ask: ASK },
+  boRose: { line: "⚠️ CERTIFICATE DUE DATE IS MORE THAN ONE WEEK - the ticket is yours now", ask: "15 days more and still no certificate - please handle it manually." },
+};
 
 /** What each step does, in words - the page and the tests. */
 export const STEP_WORDS: Record<StepName, string> = {
@@ -121,7 +160,12 @@ export const STEP_WORDS: Record<StepName, string> = {
   avorWeek: "Over a week without the new article (subject)",
   avorRose: "15 days more - owner Rose Rasteiro, note: handle it manually",
   "bo-entry": "Article received - stage Certificates, owner = next of the Back Office rotation",
-  bo3days: "3 days before delivery, 07:00 - create the certificate (subject, stage Remind Back Office)",
+  bo3days: "3 days before delivery, 07:00 - create the certificate (subject, stage Remind Back Office, mail to the owner)",
+  boToday: "Delivery date, 07:00 - certificate due today (subject, mail to the owner)",
+  bo48: "48 h after the delivery date, no certificate (subject, mail to the owner)",
+  bo96: "96 h after the delivery date (subject, mail to the owner)",
+  boWeek: "More than a week after the delivery date (subject, mail to the owner)",
+  boRose: "15 days more - owner Rose Rasteiro, note and mail",
   "expert-entry": "Assigned to a conformity expert - next of the experts' rotation, also owner; stage Certificates",
   today: "Delivery date, 05:00 - delivery date is today (subject, stage Remind Back Office)",
   late: "Not sent - certificate is late (subject, stage Remind Back Office)",
@@ -131,6 +175,17 @@ export const STEP_WORDS: Record<StepName, string> = {
   close: "Sent out to customer and EDA - plain subject, Resolved",
   "merge-clear": "Merged - Actions for certificates emptied",
 };
+
+// ---------------- the Remind workflow's trigger ----------------
+/** A HubSpot filter branch, as the flows API gives it */
+export type Branch = { filterBranchType?: string; filters?: { property?: string; operation?: { operator?: string } }[]; filterBranches?: Branch[] };
+const isExclusion = (x: { property?: string; operation?: { operator?: string } }) => x.property === "which_certificate__" && /UNKNOWN|NOT_HAS/i.test(x.operation?.operator ?? "");
+/** Does the trigger leave out every ticket that names a certificate? (an OR needs it in each of its branches) */
+export function excludesCertificates(b: Branch | undefined): boolean {
+  if (!b) return false;
+  const all = [...(b.filters ?? []).map(isExclusion), ...(b.filterBranches ?? []).map(excludesCertificates)];
+  return (b.filterBranchType ?? "AND") === "OR" ? all.length > 0 && all.every(Boolean) : all.some(Boolean);
+}
 
 // ---------------- Swiss time ----------------
 const zoneFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Zurich", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
@@ -183,6 +238,8 @@ export function phaseOf(f: Facts): { phase: Phase; anchor: number } | null {
 
 const step = (phase: Phase, anchor: number, name: StepName, at: number, acts: Act[]): Step => ({ key: `${phase}@${new Date(anchor).toISOString()}:${name}`, name, at, acts });
 const subj = (head: string): Act => ({ kind: "subject", head });
+const mail = (m: MailName): Act => ({ kind: "mail", mail: m });
+const remind = (s: Step): Step => ({ ...s, remind: true });
 const stage = (s: string): Act => ({ kind: "set", prop: "hs_pipeline_stage", value: s });
 
 /** Every step of the ticket's phase, in order, with the moment each falls due. */
@@ -203,7 +260,18 @@ export function stepsOf(f: Facts, settleMs = 2 * 60_000): { phase: Phase; anchor
     if (phase === "merged") s.push(step(phase, a, "merge-clear", a, [{ kind: "set", prop: "actions_for_certificates", value: "" }]));
     else if (f.actions === ACT.article) s.push(step(phase, a, "bo-entry", a, [stage(STAGE.certificates), subj(HEAD.std), { kind: "rotate", who: "backOffice", prop: "hubspot_owner_id" }]));
     // no delivery date: the workflow stopped there
-    if (f.due) s.push(step(phase, a, "bo3days", Math.max(swiss(f.due, 7, 0, -3), a), [subj(HEAD.bo3days), stage(STAGE.remind)]));
+    if (f.due) {
+      const t3 = Math.max(swiss(f.due, 7, 0, -3), a);
+      s.push(step(phase, a, "bo3days", t3, [subj(HEAD.bo3days), stage(STAGE.remind), mail("bo3days")]));
+      // the Remind workflow's chain, on the delivery date (07:00) and after - never before the 3-days step
+      const day = swiss(f.due, 7);
+      const at = (x: number) => Math.max(x, t3);
+      s.push(remind(step(phase, a, "boToday", at(day), [subj(HEAD.boToday), mail("boToday")])));
+      s.push(remind(step(phase, a, "bo48", at(day + 48 * H), [subj(HEAD.bo48), mail("bo48")])));
+      s.push(remind(step(phase, a, "bo96", at(day + 96 * H), [subj(HEAD.bo96), mail("bo96")])));
+      s.push(remind(step(phase, a, "boWeek", at(day + 144 * H), [subj(HEAD.boWeek), mail("boWeek")])));
+      s.push(remind(step(phase, a, "boRose", at(day + 144 * H + 15 * D), [{ kind: "escalate" }, subj(HEAD.boWeek), mail("boRose")])));
+    }
   } else if (phase === "expert") {
     s.push(step(phase, a, "expert-entry", a, [stage(STAGE.certificates), { kind: "rotate", who: "experts", prop: "conformity_expert", alsoOwner: true }]));
     const day = f.due ? swiss(f.due, 5) : null;
@@ -224,12 +292,13 @@ export function stepsOf(f: Facts, settleMs = 2 * 60_000): { phase: Phase; anchor
 
 /**
  * What is owed now: the steps that fell due (at <= now), after the workflow was switched off (at >= offAt), and not
- * done yet. A step that fell due while the workflow ran was the workflow's.
+ * done yet. A step that fell due while the workflow ran was the workflow's. The Remind workflow's steps only from the
+ * moment it no longer takes certificate tickets (remindOffAt; null = it still does - they stay HubSpot's).
  */
-export function owed(f: Facts, done: Set<string>, now: number, offAt = WORKFLOW_OFF_AT): Step[] {
+export function owed(f: Facts, done: Set<string>, now: number, offAt = WORKFLOW_OFF_AT, remindOffAt: number | null = null): Step[] {
   const p = stepsOf(f);
   if (!p) return [];
-  return p.steps.filter((x) => x.at <= now && x.at >= offAt && !done.has(x.key));
+  return p.steps.filter((x) => x.at <= now && x.at >= offAt && !done.has(x.key) && (!x.remind || (remindOffAt !== null && x.at >= remindOffAt)));
 }
 
 /** The step the ticket is at (the last that fell due) and the next one, for the page. */
@@ -240,10 +309,17 @@ export function position(f: Facts, now: number): { phase: Phase; at: StepName | 
   return { phase: p.phase, at: past.length ? past[past.length - 1].name : null, next: p.steps.find((x) => x.at > now) ?? null };
 }
 
-/** The steps' writes as one PATCH, in order (a later subject wins). Rotations and the escalation are resolved by the caller. */
-export function merge(f: Facts, steps: Step[], pick: (who: "backOffice" | "experts") => string | null, people: People): { props: Record<string, string>; note: boolean } {
+/**
+ * The steps' writes as one PATCH, in order (a later subject wins), and the one mail to send (the last step's). Rotations
+ * and the escalation are resolved by the caller. Mails only from the Remind switch-over (mailFrom; null = none - the
+ * Remind workflow still mails).
+ */
+export function merge(
+  f: Facts, steps: Step[], pick: (who: "backOffice" | "experts") => string | null, people: People, mailFrom: number | null = null,
+): { props: Record<string, string>; note: boolean; mail: MailName | null } {
   const props: Record<string, string> = {};
   let note = false;
+  let mailed: MailName | null = null;
   for (const st of steps) for (const a of st.acts) {
     if (a.kind === "set") props[a.prop] = a.value;
     else if (a.kind === "subject") props.subject = subjectOf(a.head, f);
@@ -256,7 +332,9 @@ export function merge(f: Facts, steps: Step[], pick: (who: "backOffice" | "exper
     } else if (a.kind === "escalate") {
       props.hubspot_owner_id = people.escalation;
       note = true;
+    } else if (a.kind === "mail") {
+      if (mailFrom !== null && st.at >= mailFrom) mailed = a.mail;
     }
   }
-  return { props, note };
+  return { props, note, mail: mailed };
 }

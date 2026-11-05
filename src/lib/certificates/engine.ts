@@ -10,14 +10,22 @@
 // listed is kept (kv certificates:rows, the last 500); the open tickets with their step and the next one are kept for
 // the page (certificates:open); the year in figures every 30 minutes (certificates:stats).
 // CERTIFICATES=off stops the schedule.
+//
+// The Back Office's reminders (SARCLA 05.11.2026, "migrate the rest of certificates"): the certificates branch of the
+// workflow "Back Office Ticket Remind | Notification" - the mails to the owner and the chain after the delivery date -
+// is the hub's from the moment that workflow no longer takes certificate tickets (read every 2 minutes; the moment is
+// kept in certificates:remind). Until then the hub sets the stage and that workflow mails, as before. The mails go out
+// on the hub's own post (notify/mailer), to the ticket's owner.
 
 import type { PoolClient } from "pg";
 import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
+import { esc, mailConfigured, sendHubMail, wrap } from "@/lib/notify/mailer";
 import {
-  ACT, BO_PIPELINE, CATEGORY, DEFAULT_PEOPLE, STAGE, WORKFLOW_ID, WORKFLOW_OFF_AT, merge, owed, position, stepsOf,
-  type Facts, type People, type Phase, type StepName,
+  ACT, BO_PIPELINE, CATEGORY, DEFAULT_PEOPLE, MAIL_TEXT, REMIND_WORKFLOW_ID, STAGE, WORKFLOW_ID, WORKFLOW_OFF_AT,
+  certsText, dueShort, excludesCertificates, merge, owed, position, stepsOf,
+  type Branch, type Facts, type MailName, type People, type Phase, type StepName,
 } from "./rules";
 
 const LOCK = 4_107_260;
@@ -27,23 +35,34 @@ const STATS_EVERY_MS = 30 * 60_000;
 const ROWS_KEPT = 500;
 const KV = {
   settings: "certificates:settings", rows: "certificates:rows", last: "certificates:last", open: "certificates:open",
-  done: "certificates:done", rotation: "certificates:rotation", stats: "certificates:stats",
+  done: "certificates:done", rotation: "certificates:rotation", stats: "certificates:stats", remind: "certificates:remind",
 };
 
 export type Mode = "off" | "preview" | "live";
 export type Settings = { mode: Mode; people: People; by?: string; at?: string };
-export type RunInfo = { at: string; seconds: number; mode: Mode; writing: boolean; tickets: number; owed: number; written: number; listed: number; failed: number; error?: string };
+export type RunInfo = {
+  at: string; seconds: number; mode: Mode; writing: boolean; tickets: number; owed: number; written: number; listed: number; failed: number;
+  mailed?: number; remind?: "hubspot" | "hub" | "unknown"; error?: string;
+};
 /** One ticket's steps done (or, in Preview, listed) in one look. */
 export type Row = {
   at: string; ticketId: string; subject: string | null; phase: Phase; steps: StepName[];
   what: "done" | "would" | "failed"; props: Record<string, string>; note: boolean; error?: string;
+  /** the mail: "mail to Sara Gashi", "would mail Sara Gashi", or why it did not go (mailFailed) */
+  mail?: string; mailFailed?: boolean;
 };
 /** An open ticket of the process, for the page. */
 export type OpenTicket = {
   id: string; subject: string | null; company: string | null; order: string | null; certs: string; due: string | null;
   stage: string | null; actions: string | null; owner: string | null; expert: string | null; createdAt: string;
   phase: Phase; step: StepName | null; next: { name: StepName; at: string } | null; workflowStep: boolean;
+  /** the step it is at was the Remind workflow's; its next step still is (before the switch-over) */
+  remindStep?: boolean; nextRemind?: boolean;
+  /** the last entry into stage Remind Back Office */
+  remindAt?: string | null;
 };
+/** The Remind workflow, as the hub reads it. */
+export type RemindState = { on: boolean; takesCerts: boolean; updatedAt: string | null; why: string };
 export type Stats = {
   at: string;
   months: { month: string; created: number; resolved: number }[];
@@ -74,8 +93,65 @@ export async function workflowOn(): Promise<boolean | null> {
   return on;
 }
 
+// ---------------- the Remind workflow ----------------
+let remindCache: { at: number; v: RemindState | null } | null = null;
+/** null = could not be read (then the hub takes none of its steps). */
+export async function remindState(): Promise<RemindState | null> {
+  if (remindCache && Date.now() - remindCache.at < 2 * 60_000) return remindCache.v;
+  let v: RemindState | null = null;
+  try {
+    const d = await hs<{ isEnabled?: boolean; updatedAt?: string; enrollmentCriteria?: { listFilterBranch?: Branch }; actions?: unknown[] }>(`/automation/v4/flows/${REMIND_WORKFLOW_ID}`);
+    const on = !!d.isEnabled;
+    const branch = JSON.stringify(d.actions ?? []).includes("which_certificate__");
+    const excluded = excludesCertificates(d.enrollmentCriteria?.listFilterBranch);
+    v = {
+      on, takesCerts: on && branch && !excluded, updatedAt: d.updatedAt ?? null,
+      why: !on ? "it is switched off" : !branch ? "its certificates branch is gone" : excluded ? "\"Which certificate ?\" is unknown is in its trigger" : "it still takes the certificate tickets",
+    };
+  } catch { v = null; }
+  remindCache = { at: Date.now(), v };
+  return v;
+}
+/** From when the Remind workflow's certificate steps are the hub's (null = not yet, or not readable now). */
+async function remindSwitch(): Promise<{ offAt: number | null; state: RemindState | null }> {
+  const state = await remindState();
+  if (!state) return { offAt: null, state };
+  const kept = await kvGet<{ offAt: string | null }>(KV.remind);
+  if (state.takesCerts) {
+    if (kept?.offAt) await kvSet(KV.remind, { offAt: null, why: state.why, at: new Date().toISOString() });
+    return { offAt: null, state };
+  }
+  if (kept?.offAt) return { offAt: Date.parse(kept.offAt), state };
+  // the moment it was changed in HubSpot - what fell due before was still that workflow's
+  const off = state.updatedAt && !Number.isNaN(Date.parse(state.updatedAt)) ? state.updatedAt : new Date().toISOString();
+  await kvSet(KV.remind, { offAt: off, why: state.why, at: new Date().toISOString() });
+  return { offAt: Date.parse(off), state };
+}
+
+// ---------------- the mails ----------------
+const HUB_URL = process.env.HUB_PUBLIC_URL ?? "https://apsomarketinghub-dev.awssandbox.angst-pfister.com";
+const ticketUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/26492587/record/0-5/${id}`;
+const FOOTER = "Sent by APSOhub's Certificates (UC & HubSpot Apps > Certificates), which took over the certificate reminders of the workflow Back Office Ticket Remind | Notification.";
+const rowHtml = (k: string, v: string) =>
+  `<tr><td style="padding:5px 12px 5px 0;color:#8b97ac;font-size:13px;white-space:nowrap;vertical-align:top">${esc(k)}</td><td style="padding:5px 0;font-size:14px;color:#15223a">${esc(v)}</td></tr>`;
+/** The Remind workflow's mail, to the ticket's owner. */
+async function sendReminder(m: MailName, f: Facts, subject: string, to: Owner | undefined): Promise<{ ok: boolean; text: string }> {
+  const who = to?.name ?? "the owner";
+  if (!to?.email) return { ok: false, text: `no e-mail address for ${who}` };
+  if (!mailConfigured()) return { ok: false, text: "the hub cannot send mail" };
+  const t = MAIL_TEXT[m];
+  const rows: [string, string][] = [
+    ["Company", f.company || "-"], ["Order number", f.order || "-"], ["Article(s)", f.articles || "-"],
+    ["Certificates", certsText(f) || "-"], ["Delivery date", dueShort(f.due) || "-"],
+  ];
+  const html = wrap({ heading: t.line, intro: t.ask, rows: `<table style="border-collapse:collapse">${rows.map(([k, v]) => rowHtml(k, v)).join("")}</table>`, cta: { label: "Open the ticket", href: ticketUrl(f.id) }, hubUrl: HUB_URL, footer: FOOTER });
+  const text = [t.line, t.ask, "", ...rows.map(([k, v]) => `${k}: ${v}`), "", ticketUrl(f.id)].join("\n");
+  try { await sendHubMail({ to: to.email, subject: subject.slice(0, 180), html, text }); return { ok: true, text: `mail to ${who}` }; }
+  catch (e) { return { ok: false, text: `mail to ${who} failed: ${(e as Error).message.slice(0, 120)}` }; }
+}
+
 // ---------------- owners ----------------
-type Owner = { id: string; name: string; archived: boolean };
+type Owner = { id: string; name: string; archived: boolean; email: string | null };
 let ownersCache: { at: number; list: Owner[] } | null = null;
 export async function owners(): Promise<Owner[]> {
   if (ownersCache && Date.now() - ownersCache.at < 30 * 60_000) return ownersCache.list;
@@ -85,7 +161,7 @@ export async function owners(): Promise<Owner[]> {
     for (let i = 0; i < 20; i++) {
       const j = await hs<{ results?: { id: string; firstName?: string; lastName?: string; email?: string }[]; paging?: { next?: { after?: string } } }>(
         `/crm/v3/owners?limit=100&archived=${archived}${after ? `&after=${after}` : ""}`);
-      for (const o of j.results ?? []) list.push({ id: String(o.id), name: [o.firstName, o.lastName].filter(Boolean).join(" ") || o.email || `Owner ${o.id}`, archived });
+      for (const o of j.results ?? []) list.push({ id: String(o.id), name: [o.firstName, o.lastName].filter(Boolean).join(" ") || o.email || `Owner ${o.id}`, archived, email: o.email || null });
       after = j.paging?.next?.after ?? "";
       if (!after) break;
     }
@@ -98,7 +174,7 @@ export async function owners(): Promise<Owner[]> {
 const PROPS = [
   "subject", "hs_pipeline_stage", "hubspot_owner_id", "actions_for_certificates", "which_certificate__", "other_certificates",
   "sarcla_pm_witch_mandant__", "order_number", "delivery_date_for_certificate", "conformity_expert", "back_office_ticket_requester",
-  "enquiry_category", "hs_merged_object_ids", "createdate",
+  "enquiry_category", "hs_merged_object_ids", "createdate", "sarcla_article_number_order_pm",
 ];
 const HIST = ["actions_for_certificates", "hs_pipeline_stage", "hs_merged_object_ids"];
 
@@ -134,6 +210,7 @@ function factsOf(t: Obj, company: string | null): Facts {
   const stages = [...(h.hs_pipeline_stage ?? [])].sort((x, y) => ts(x.timestamp) - ts(y.timestamp));
   const merges = [...(h.hs_merged_object_ids ?? [])].filter((x) => x.value).sort((x, y) => ts(y.timestamp) - ts(x.timestamp));
   const firstCert = stages.find((x) => x.value === STAGE.certificates);
+  const lastRemind = [...stages].reverse().find((x) => x.value === STAGE.remind);
   return {
     id: String(t.id), stage: p.hs_pipeline_stage ?? null, actions: p.actions_for_certificates || null,
     actionsAt: act[0] ? ts(act[0].timestamp) : null, actionsBy: act[0]?.sourceType ?? null, actionsBefore: act[1]?.value || null,
@@ -144,6 +221,7 @@ function factsOf(t: Obj, company: string | null): Facts {
     category: p.enquiry_category ?? null, createdAt: ts(p.createdate ?? new Date().toISOString()),
     mergedAt: p.hs_merged_object_ids && merges[0] ? ts(merges[0].timestamp) : null,
     startedAt: firstCert ? ts(firstCert.timestamp) : null, subject: p.subject ?? null,
+    articles: p.sarcla_article_number_order_pm ?? null, remindAt: lastRemind ? ts(lastRemind.timestamp) : null,
   };
 }
 
@@ -188,7 +266,11 @@ async function run(): Promise<RunInfo> {
   const settings = await getSettings();
   const on = await workflowOn();
   const writing = settings.mode === "live" && on === false;
-  const info: RunInfo = { at: new Date().toISOString(), seconds: 0, mode: settings.mode, writing, tickets: 0, owed: 0, written: 0, listed: 0, failed: 0 };
+  const { offAt: remindOffAt, state: remind } = await remindSwitch();
+  const info: RunInfo = {
+    at: new Date().toISOString(), seconds: 0, mode: settings.mode, writing, tickets: 0, owed: 0, written: 0, listed: 0, failed: 0, mailed: 0,
+    remind: !remind ? "unknown" : remindOffAt !== null ? "hub" : "hubspot",
+  };
   const facts = await readTickets(await openIds());
   const doneMap = (await kvGet<Record<string, string[]>>(KV.done)) ?? {};
   const rot = (await kvGet<{ backOffice: number; experts: number }>(KV.rotation)) ?? { backOffice: 0, experts: 0 };
@@ -203,7 +285,7 @@ async function run(): Promise<RunInfo> {
     if (!pos) continue;
     info.tickets++;
     const done = new Set(doneMap[f.id] ?? []);
-    const due = owed(f, done, now);
+    const due = owed(f, done, now, WORKFLOW_OFF_AT, remindOffAt);
     if (due.length) {
       info.owed += due.length;
       // the rotation: the next of the list, moved on only by a write that went through
@@ -213,8 +295,11 @@ async function run(): Promise<RunInfo> {
         if (!people.length) return null;
         return people[(rot[who] + used[who]++) % people.length];
       };
-      const { props, note } = merge(f, due, pick, settings.people);
+      const { props, note, mail } = merge(f, due, pick, settings.people, remindOffAt);
       const row: Row = { at: new Date().toISOString(), ticketId: f.id, subject: f.subject, phase: pos.phase, steps: due.map((x) => x.name), what: "would", props, note };
+      // the mail goes to the owner after the writes (Rose, after the 15 days)
+      const mailTo = mail ? list.find((o) => o.id === (props.hubspot_owner_id ?? f.owner)) : undefined;
+      if (mail) row.mail = `would mail ${mailTo?.name ?? "the owner"}`;
       if (writing) {
         try {
           if (Object.keys(props).length) await hs(`/crm/v3/objects/tickets/${f.id}`, "PATCH", { properties: props });
@@ -228,6 +313,11 @@ async function run(): Promise<RunInfo> {
           for (const x of due) done.add(x.key);
           rot.backOffice += used.backOffice; rot.experts += used.experts;
           row.what = "done"; info.written++;
+          if (mail) {
+            const sent = await sendReminder(mail, f, props.subject ?? f.subject ?? "Certificate", mailTo);
+            row.mail = sent.text;
+            if (sent.ok) info.mailed = (info.mailed ?? 0) + 1; else row.mailFailed = true;
+          }
         } catch (e) {
           row.what = "failed"; row.error = (e as Error).message.slice(0, 200); info.failed++;
         }
@@ -246,6 +336,9 @@ async function run(): Promise<RunInfo> {
       stage: f.stage, actions: f.actions, owner: f.owner, expert: f.expert, createdAt: new Date(f.createdAt).toISOString(),
       phase: p2.phase, step: p2.at, next: p2.next ? { name: p2.next.name, at: new Date(p2.next.at).toISOString() } : null,
       workflowStep: !!p2.at && (owedAt(f, p2.at) ?? now) < WORKFLOW_OFF_AT,
+      remindStep: !!p2.at && isRemind(f, p2.at) && (remindOffAt === null || (owedAt(f, p2.at) ?? now) < remindOffAt),
+      nextRemind: !!p2.next?.remind && remindOffAt === null,
+      remindAt: f.remindAt ? new Date(f.remindAt).toISOString() : null,
     });
   }
   // only the tickets still open are remembered
@@ -264,6 +357,7 @@ async function run(): Promise<RunInfo> {
 function owedAt(f: Facts, name: StepName): number | null {
   return stepsOf(f)?.steps.find((x) => x.name === name)?.at ?? null;
 }
+const isRemind = (f: Facts, name: StepName) => !!stepsOf(f)?.steps.find((x) => x.name === name)?.remind;
 
 /** The year in figures: certificate tickets created and resolved per month, days to resolve. */
 export async function readStats(): Promise<Stats> {
@@ -299,7 +393,7 @@ export async function runOnce(): Promise<RunInfo | null> {
     try {
       return await run().catch(async (e) => {
         const s = await getSettings().catch(() => null);
-        const info: RunInfo = { at: new Date().toISOString(), seconds: 0, mode: s?.mode ?? "preview", writing: false, tickets: 0, owed: 0, written: 0, listed: 0, failed: 0, error: (e as Error).message.slice(0, 300) };
+        const info: RunInfo = { at: new Date().toISOString(), seconds: 0, mode: s?.mode ?? "preview", writing: false, tickets: 0, owed: 0, written: 0, listed: 0, failed: 0, mailed: 0, error: (e as Error).message.slice(0, 300) };
         await kvSet(KV.last, info);
         return info;
       });
@@ -330,8 +424,9 @@ export function startCertificates() {
 
 // ---------------- the page ----------------
 export async function pageState() {
-  const [settings, last, rows, open, stats, on] = await Promise.all([
+  const [settings, last, rows, open, stats, on, remind, kept] = await Promise.all([
     getSettings(), kvGet<RunInfo>(KV.last), kvGet<Row[]>(KV.rows), kvGet<OpenTicket[]>(KV.open), kvGet<Stats>(KV.stats), workflowOn(),
+    remindState(), kvGet<{ offAt: string | null }>(KV.remind),
   ]);
   const list = await owners().catch(() => [] as Owner[]);
   const ids = new Set<string>([...settings.people.backOffice, ...settings.people.experts, settings.people.escalation]);
@@ -344,5 +439,8 @@ export async function pageState() {
     settings, last: last ?? null, rows: (rows ?? []).slice(0, 300), open: open ?? [], stats: stats ?? null, names, choices,
     workflowOn: on, writing: settings.mode === "live" && on === false, offAt: new Date(WORKFLOW_OFF_AT).toISOString(),
     category: CATEGORY, actions: ACT,
+    // the Remind workflow: still mailing (takesCerts), or the hub's since remindOffAt
+    remind: remind ? { ...remind, offAt: remind.takesCerts ? null : kept?.offAt ?? null } : null,
+    mailReady: mailConfigured(),
   };
 }
