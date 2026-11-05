@@ -19,6 +19,7 @@ import { openActions } from "@/app/reporting/actions/handoff";
 import { figureOf, figureText } from "@/lib/reporting/tileFigure";
 import { viewOf } from "@/lib/reporting/planKpiTeams";
 import { sayFigure, usePlanKpis } from "./planKpis";
+import { useScoped } from "@/app/reporting/scope";
 
 /**
  * A target for a tile that has none of its own (SARCLA 04.11.2026, of the KPIs tab: "you should be able also to set a
@@ -69,6 +70,9 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
 }) {
   const { state } = useActions(where === "nutshell" ? "nutshell" : tile.page);
   const router = useRouter();
+  // a report without a BUC View draws no Actions tab - Sales Leader and My Sales Reports, which draw ESO's pages for their
+  // own people (SARCLA 05.11.2026: "take out on type of reports that don't have a BUC View")
+  const scoped = !!useScoped();
   const c = state?.counts[tile.key] ?? { open: 0, tasks: 0, tickets: 0 };
   const placed = placementOf(state, tile.key, start);
   const running = c.open > 0;
@@ -87,6 +91,7 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
   const designable = where === "nutshell" && placed === "nutshell" && !!state?.canWrite
     && (formatsFor(tile).length > 1 || ((tile.kind ?? (tile.kpiId ? "kpi" : "card")) === "kpi" && !!tile.kpiId));
 
+  if (scoped) return null;
   return (
     <>
       {/* the tab hangs from its place without taking height: a two-line title stays two lines high, and the
