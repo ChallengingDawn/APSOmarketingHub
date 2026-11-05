@@ -42,7 +42,7 @@ import { GroupedColumns } from "@/app/charts/GroupedColumns";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, TINT, bodyCell, clip, headCell, hsTicket, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { Chip, Choice, usePaged, when } from "@/app/connectors/parts";
-import type { Mode, OpenTicket, RemindState, Row, RunInfo, Settings, Stats } from "@/lib/certificates/engine";
+import type { Mode, OpenTicket, OthersRow, RemindState, Row, RunInfo, Settings, Stats } from "@/lib/certificates/engine";
 import { STEP_WORDS, type Phase, type StepName } from "@/lib/certificates/rules";
 
 type Data = {
@@ -51,6 +51,8 @@ type Data = {
   workflowOn: boolean | null; writing: boolean; offAt: string; admin: boolean;
   /** Back Office Ticket Remind: still mailing (takesCerts), or the hub's since offAt; null = not readable */
   remind: (RemindState & { offAt: string | null }) | null; mailReady: boolean;
+  /** the Backoffice Team's reminder on every other ticket: the hub's since offAt (the workflow switched off) */
+  others: { offAt: string | null; rows: OthersRow[] };
 };
 type View = "overview" | "tickets" | "activity" | "settings";
 const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", activity: "#activity", settings: "#settings" };
@@ -258,6 +260,34 @@ function ActivityTable({ rows, names }: { rows: Row[]; names: Record<string, str
   );
 }
 
+function OthersTable({ rows }: { rows: OthersRow[] }) {
+  const { slice, pager } = usePaged(rows, 15);
+  return (
+    <>
+      <Box sx={{ overflowX: "auto" }}>
+        <Table size="small">
+          <TableHead><TableRow>{["When", "Ticket", "Went to Remind", "Result"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableBody>
+            {!rows.length && <TableRow><TableCell colSpan={4} sx={{ ...bodyCell, color: MUTED, fontSize: "0.84rem" }}>None yet - the next ticket to go to Remind Back Office shows here within 3 minutes.</TableCell></TableRow>}
+            {slice.map((r) => (
+              <TableRow key={`${r.ticketId}-${r.enteredAt}`} hover>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap" }}>{when(r.at)}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}><TicketLink id={r.ticketId} subject={r.subject} max={420} /></TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{when(r.enteredAt)}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>
+                  <Chip tint={WHAT[r.what].tint}>{r.what === "would" ? "would mail" : WHAT[r.what].label}</Chip>
+                  <Typography sx={{ fontSize: "0.72rem", color: r.what === "failed" ? RED : MUTED, mt: 0.25 }}>{r.mail}</Typography>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Box>
+      <Box sx={{ px: 2, py: 1 }}>{pager}</Box>
+    </>
+  );
+}
+
 // ---------------- the tabs ----------------
 function statusLine(d: Data): string {
   const wf = d.workflowOn === true ? "The workflow is switched ON again - the hub writes nothing while it runs." : d.workflowOn === false ? "The workflow is off." : "The workflow's state could not be read - the hub writes nothing.";
@@ -412,7 +442,7 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
         <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Still in HubSpot, next to it" note="Both stay on" />
         <Box component="ul" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.5, fontSize: "0.82rem", color: INK }}>
           <li><b>SARCLA | Back Office Ticket Created | Notification</b> - the way in: it sets the requester on a new certificate request (and the subject, owner and mail on every other Back Office ticket). Its step &quot;enrol in the certificates workflow&quot; does nothing now - the hub starts the request within 3 minutes, with the requester already set.</li>
-          <li><b>{REMIND_NAME}</b> - keeps its reminder to the Backoffice Team on every other ticket. {d.remind && !d.remind.takesCerts ? "Its certificates part is the hub's now." : "Its certificates branch (the mails to the owner after the 3 days) is the hub's from the switch-over above."}</li>
+          <li><b>{REMIND_NAME}</b> - {d.others.offAt ? "switched off: both its parts are the hub's - the certificate reminders and the reminder to the Backoffice Team." : d.remind && !d.remind.takesCerts ? "its certificates part is the hub's; its reminder to the Backoffice Team on every other ticket is the hub's once the workflow is switched off." : "its certificates branch (the mails to the owner after the 3 days) is the hub's from the switch-over above."}</li>
         </Box>
       </GlassCard>
     </>
@@ -444,6 +474,14 @@ function SwitchOverCard({ d }: { d: Data }) {
           {enrolled.length
             ? `${full(enrolled.length)} certificate ticket${enrolled.length === 1 ? "" : "s"} in stage Remind Back Office${hub ? " since before the switch-over" : ""} - enrolled in ${REMIND_NAME}${hub ? "; unenroll them if not done yet" : ""}:`
             : `No certificate ticket in stage Remind Back Office${hub ? " from before the switch-over" : ""}.`}
+        </Typography>
+        <Typography sx={{ fontSize: "0.82rem", color: d.others.offAt ? "#1b7a55" : MUTED }}>
+          <b>Every other Back Office ticket</b> (no certificate) that goes to stage Remind Back Office:{" "}
+          {d.others.offAt
+            ? `the hub mails the Backoffice Team "Reminder to Review Ticket" within 3 minutes - since ${when(d.others.offAt)}, when the workflow was switched off.`
+            : r?.on === false
+              ? "the workflow is off - the hub takes the reminder at its next look."
+              : `${REMIND_NAME} still mails the Backoffice Team. Switched off, the hub mails it within 3 minutes from that moment - the Activity tab lists each one.`}
         </Typography>
         {enrolled.length > 0 && (
           <Box sx={{ display: "grid", gap: 0.5 }}>
@@ -482,6 +520,10 @@ export default function Certificates() {
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}><CardTitle icon={<HistoryOutlinedIcon />} tint="purple" title="What the hub did" note="Each step the hub took (Live) or would take (Preview), newest first" /></Box>
         <ActivityTable rows={r.data.rows} names={r.data.names} />
+      </GlassCard>
+      <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
+        <Box sx={{ px: { xs: 2, md: 2.75 } }}><CardTitle icon={<HistoryOutlinedIcon />} tint="blue" title="Reminders to the Backoffice Team" note="Every other Back Office ticket (no certificate) that went to stage Remind Back Office - the mail of Back Office Ticket Remind, newest first" /></Box>
+        <OthersTable rows={r.data.others.rows} />
       </GlassCard>
     </Box>
   );
