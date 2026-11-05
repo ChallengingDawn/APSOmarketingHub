@@ -13,7 +13,8 @@ import Tooltip from "@mui/material/Tooltip";
 
 import { FAINT, HAIRLINE, TINT } from "@/app/uc/report/ui";
 import type { Placement } from "@/lib/reporting/kpiActions";
-import { placementOf, useActions } from "./store";
+import { formatsFor, placementOf, useActions } from "./store";
+import { DesignTab, sideTab } from "./DesignTab";
 import { openActions } from "@/app/reporting/actions/handoff";
 import { figureOf, figureText } from "@/lib/reporting/tileFigure";
 import { viewOf } from "@/lib/reporting/planKpiTeams";
@@ -82,23 +83,24 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
     ...tile, target: targetFor(tile), current: figureFor(tile), start, where,
     href: tile.href ?? `${window.location.pathname}${window.location.search}`,
   }, button, (href) => router.push(href));
+  // in the BUC View, for whoever may change it, when there is something to switch: a size, or a KPI's style
+  const designable = where === "nutshell" && placed === "nutshell" && !!state?.canWrite
+    && (formatsFor(tile).length > 1 || ((tile.kind ?? (tile.kpiId ? "kpi" : "card")) === "kpi" && !!tile.kpiId));
 
   return (
     <>
       {/* the tab hangs from its place without taking height: a two-line title stays two lines high, and the
           card's content starts right under it (SARCLA 19.10: "still stupid top padding everywhere") */}
       <Box sx={{ mr: neg(edge), flex: "0 0 auto", alignSelf: "flex-start", position: "relative", width: 20, height: 0 }}>
+      {/* the tabs, one under the other on the card's right edge (the Actions page copies the card without them) */}
+      <Box sx={{ position: "absolute", top: 0, right: 0, zIndex: 1, display: "flex", flexDirection: "column", gap: "4px" }}>
       <Tooltip placement="left" title={c.tasks ? `${c.open} open of ${c.tasks} task${c.tasks === 1 ? "" : "s"}${c.tickets ? ` · ${c.tickets} Scroll to Sale ticket${c.tickets === 1 ? "" : "s"}` : ""}${placed === "nutshell" ? " · BUC View" : ""}${onPlan ? " · Action plan KPI" : ""}` : `Actions${placed === "nutshell" ? " · BUC View" : ""}${onPlan ? " · Action plan KPI" : ""}`}>
         <Box component="button" type="button" aria-label={`Actions for ${tile.title}`} onClick={(e) => { e.stopPropagation(); open(e.currentTarget); }}
           sx={{
             // on the card's right edge, rounded on the inside only
-            position: "absolute", top: 0, right: 0, zIndex: 1,
-            display: "inline-flex", alignItems: "center", gap: 0.6, px: 0.35, py: 1, minHeight: 70,
-            writingMode: "vertical-rl", transform: "rotate(180deg)",
-            border: `1px solid ${running ? TINT.amber.fg : HAIRLINE}`, borderLeft: 0, borderRadius: "0 9px 9px 0",
+            ...sideTab, minHeight: 70,
+            border: `1px solid ${running ? TINT.amber.fg : HAIRLINE}`, borderLeft: 0,
             bgcolor: running ? TINT.amber.bg : "rgba(21,34,58,.035)", color: running ? TINT.amber.fg : FAINT,
-            font: "inherit", fontSize: "0.6rem", fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", lineHeight: 1,
-            cursor: "pointer", transition: "background-color .15s, color .15s",
             "&:hover": { bgcolor: running ? TINT.amber.bg : "rgba(21,34,58,.08)", color: running ? TINT.amber.fg : "#15223a" },
           }}>
           {running && (
@@ -110,6 +112,9 @@ export function TileActions({ tile, start = "tab", where, edge = { xs: 2, md: 2.
           Actions
         </Box>
       </Tooltip>
+      {/* its size and style, switched here - in the BUC View, where they show (SARCLA 05.11.2026) */}
+      {designable && state && <DesignTab tile={tile} state={state} more={open} />}
+      </Box>
       </Box>
     </>
   );

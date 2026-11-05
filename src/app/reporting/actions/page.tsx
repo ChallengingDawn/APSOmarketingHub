@@ -24,27 +24,24 @@ import FlagOutlinedIcon from "@mui/icons-material/FlagOutlined";
 
 import { HomeBar } from "@/app/HomeBar";
 import { FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import type { Placement, TileFormat, TileSpec } from "@/lib/reporting/kpiActions";
+import type { Placement, TileFormat } from "@/lib/reporting/kpiActions";
 
-import { TILE_STYLES, stylesFor, styleShown, type TileStyle } from "@/lib/reporting/tileStyles";
-import { FORMAT_LABEL, formatOf, formatsFor, placementOf, refreshActions, send, styleOf, targetOf, useActions } from "@/app/reporting/marketing-kpis/tiles/store";
+import { styleShown, type TileStyle } from "@/lib/reporting/tileStyles";
+import { formatOf, formatsFor, placementOf, refreshActions, send, styleOf, targetOf, useActions } from "@/app/reporting/marketing-kpis/tiles/store";
+import { SizeChoices, StyleChoices, useKpiView } from "@/app/reporting/marketing-kpis/tiles/DesignChoices";
 import { AddTask, TargetBox, useTileActions } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { KpiStyled, KpiTileChart, shapeOf } from "@/app/reporting/marketing-kpis/tiles/KpiStyled";
 import { LinkCard, rendererOf } from "@/app/reporting/marketing-kpis/tiles/registry";
 import { usePlanKpis } from "@/app/reporting/marketing-kpis/tiles/planKpis";
-import { KpiCard, StageGlyph, buildViews, stageTint, upToOf, useMarketingKpis, type KpiView } from "@/app/reporting/marketing-kpis/data";
+import { KpiCard, StageGlyph, stageTint } from "@/app/reporting/marketing-kpis/data";
+import { shownStage, stageName } from "@/lib/marketingKpis/stageNames";
 import { fullCardFor } from "@/app/reporting/marketing-kpis/FullCards";
 import { S2S_CHOICES, STAGES } from "@/lib/reporting/actionPlanRules";
 import type { PlanData } from "@/app/action-plan/planUi";
-import { PlanPanel, trackingOf } from "./PlanPanel";
-import { readTile, snapOf, type ActionsTile } from "./handoff";
+import { PlanPanel, trackingOf, untrackedCarriers, type PanelMode, type PanelOnly } from "./PlanPanel";
+import { readTile, snapOf, specOf, type ActionsTile } from "./handoff";
 
 const section = { fontSize: "0.74rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
-// the plan's square choices (SubActions.square)
-const opt = (on: boolean, off = false) => ({
-  border: `1px solid ${on ? TINT.blue.fg : HAIRLINE}`, bgcolor: on ? TINT.blue.bg : "#fff", color: on ? TINT.blue.fg : MUTED,
-  font: "inherit", fontSize: "0.8rem", fontWeight: on ? 700 : 600, px: 1.2, py: 0.5, borderRadius: "4px", cursor: off ? "not-allowed" : "pointer", opacity: off ? 0.4 : 1, whiteSpace: "nowrap" as const,
-});
 /** How wide the graph is drawn here, as in a BUC View: a tile, half of it, the whole of it (at least this wide). */
 const WIDTH: Record<TileFormat, number> = { tile: 300, half: 720, card: 1000 };
 
@@ -71,13 +68,6 @@ function Fit({ format, children }: { format: TileFormat; children: React.ReactNo
   );
 }
 
-const specOf = (t: ActionsTile): TileSpec => ({
-  key: t.key, page: t.page, title: t.title, kind: t.kind ?? (t.kpiId ? "kpi" : "card"),
-  ...(t.tab ? { tab: t.tab } : {}), ...(t.kpiId ? { kpiId: t.kpiId } : {}),
-  ...(t.filters ? { filters: t.filters } : {}), ...(t.from ? { from: t.from } : {}), ...(t.to ? { to: t.to } : {}),
-  ...(t.href ? { href: t.href } : {}),
-});
-
 /** Where it sits in the BUC View, as a small map: the tiles, the half and whole rows, this one in blue. */
 function WhereMap({ format }: { format: TileFormat }) {
   const spans = format === "tile" ? [3, 3, 3, 3, 6, 6] : format === "half" ? [3, 3, 6, 6, 6] : [3, 3, 3, 3, 12, 6, 6];
@@ -98,17 +88,6 @@ function AsDrawn({ t }: { t: ActionsTile }) {
   return <Box sx={{ width: 420, maxWidth: "100%" }}><LinkCard spec={specOf(t)} /></Box>;
 }
 
-/** A KPI of the Digital Growth KPIs: its figures, to draw it in any style. */
-function useKpiView(kpiId: string | undefined): { v: KpiView | null; upTo: string; loading: boolean } {
-  const [state] = useMarketingKpis();
-  const year = new Date().getFullYear();
-  const v = useMemo(() => {
-    if (!kpiId || !state?.inputs) return null;
-    return buildViews(state.inputs, state.live?.value, year)[kpiId] ?? null;
-  }, [kpiId, state, year]);
-  return { v, upTo: v && state ? upToOf(v, state, year) : "", loading: !state };
-}
-
 function KpiDesign({ t, format, style, target }: { t: ActionsTile; format: TileFormat; style: TileStyle | null; target: number | null }) {
   const { v, upTo, loading } = useKpiView(t.kpiId);
   if (loading) return <CircularProgress size={20} />;
@@ -119,28 +98,6 @@ function KpiDesign({ t, format, style, target }: { t: ActionsTile; format: TileF
     : format === "tile" ? <KpiTileChart v={v} slug={t.page} tint={tint} upTo={upTo} title={t.title} />
       : (t.kpiId && fullCardFor(t.page, t.kpiId, null)) || <KpiCard v={v} icon={<StageGlyph slug={t.page} />} tint={tint} upTo={upTo} title={t.title} />;
   return <Fit format={format}>{node}</Fit>;
-}
-
-/** Which styles the KPI can take - read from its figures, so the choices are only those it has. */
-function StyleChoices({ t, format, style, canWrite, busy, pick }: { t: ActionsTile; format: TileFormat; style: TileStyle | null; canWrite: boolean; busy: boolean; pick: (s: TileStyle | null) => void }) {
-  const { v, loading } = useKpiView(t.kpiId);
-  if (loading) return <CircularProgress size={16} />;
-  if (!v) return <Typography sx={{ fontSize: "0.82rem", color: FAINT }}>This graph keeps its own look - styles are for the KPIs with their figures by month.</Typography>;
-  const can = stylesFor(format, shapeOf(v));
-  const shown = styleShown(style, format, shapeOf(v));
-  return (
-    <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-      <Box component="button" type="button" disabled={!canWrite || busy} aria-pressed={!shown} onClick={() => pick(null)} sx={opt(!shown)}>As today</Box>
-      {TILE_STYLES.map((s) => {
-        const ok = can.includes(s.id);
-        return (
-          <Box key={s.id} component="button" type="button" disabled={!canWrite || busy || !ok} aria-pressed={shown === s.id}
-            title={ok ? undefined : s.needs === "sum" && shapeOf(v).months ? "Only for a KPI that adds up month by month - not a rate" : format === "tile" ? "Too small for a small tile" : "This KPI has no months to draw"}
-            onClick={() => pick(s.id)} sx={opt(shown === s.id, !ok)}>{s.label}</Box>
-        );
-      })}
-    </Box>
-  );
 }
 
 function ActionsPage() {
@@ -195,6 +152,8 @@ function ForTile({ t }: { t: ActionsTile }) {
   // the plan's table open beside it: the graph gets the room left, its target and what tracks it go under it
   const stacked = panelOpen && plan !== null && plan !== "denied";
   const [adding, setAdding] = useState<Parameters<typeof PlanPanel>[0]["adding"]>(null);
+  const [mode, setMode] = useState<PanelMode>("create");
+  const [only, setOnly] = useState<PanelOnly>(null);
 
   // on the plan's KPIs tab: what is made here tracks it (round 40: only those KPIs are tracked)
   const planKpis = usePlanKpis(true);
@@ -205,18 +164,36 @@ function ForTile({ t }: { t: ActionsTile }) {
   // the KPI's own tasks (made on it before, or by someone without the plan)
   const acts = useTileActions(t, true);
   const reloadTasks = async () => { await Promise.all([acts.loadTasks(), acts.loadTickets()]); void refreshActions(t.page); };
+  // its "From Scroll to Sale" tickets: the plan's rows holding one are offered to link (SARCLA 05.11.2026)
+  const kpiTickets = useMemo(() => (acts.t?.linked ?? []).map((l) => String(l.id)), [acts.t]);
+  const offered = untrackedCarriers(plan && plan !== "denied" ? plan : null, t.key, kpiTickets);
 
   const target = targetOf(state, t.target?.key);
   const isKpi = (t.kind ?? (t.kpiId ? "kpi" : "card")) === "kpi" && !!t.kpiId;
-  const backLabel = t.where === "nutshell" ? "Back to the BUC View" : "Back to the report";
+  // the ways back, both always (SARCLA 05.11.2026: "two buttons to get back"): the BUC View at this KPI's stage, and the
+  // page the graph lives on - the one it was opened from goes back to where it was
+  const stage = shownStage(t.page);
+  const pageName = stage ? stageName(stage.slug, stage.name) : "";
+  const bucBase = t.where === "nutshell" && t.back ? t.back : "/reporting/marketing-kpis";
+  const bucHref = stage && !bucBase.includes("#") ? `${bucBase}#stage-${stage.slug}` : bucBase;
+  const pageHref = t.where !== "nutshell" && t.back ? t.back : t.href ?? "/reporting";
+  const ways = [
+    ...(stage || t.where === "nutshell" ? [{ label: "BUC View", href: bucHref, from: t.where === "nutshell" }] : []),
+    { label: pageName || "the report", href: pageHref, from: t.where !== "nutshell" },
+  ];
 
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: { xs: 2, md: 3 }, py: { xs: 2, md: 2.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2 }}>
       <HomeBar />
       {/* what it is, where it came from, whether it is in the BUC View */}
       <GlassCard sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap", py: { xs: 1.75, md: 2 } }}>
-        <Box component={Link} href={t.back ?? t.href ?? "/reporting"} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, fontSize: "0.86rem", fontWeight: 650, textDecoration: "none", "&:hover": { color: INK } }}>
-          <ArrowBackIcon sx={{ fontSize: 18 }} />{backLabel}
+        <Box component="nav" aria-label="Back" sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+          {ways.map((w) => (
+            <Box key={w.label} component={Link} href={w.href} title={w.from ? "Where you opened it from" : undefined}
+              sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, px: 1.1, py: 0.5, borderRadius: "8px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", color: w.from ? INK : MUTED, fontSize: "0.84rem", fontWeight: w.from ? 700 : 600, textDecoration: "none", whiteSpace: "nowrap", "&:hover": { color: INK, borderColor: TINT.blue.fg } }}>
+              <ArrowBackIcon sx={{ fontSize: 16 }} />Back to {w.label}
+            </Box>
+          ))}
         </Box>
         <Box sx={{ flex: 1, minWidth: 240 }}>
           <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.08em" }}>Actions on a {isKpi ? "KPI" : "graph"}</Typography>
@@ -245,7 +222,8 @@ function ForTile({ t }: { t: ActionsTile }) {
             </Box>
           )
         ) : (
-          <PlanPanel data={plan} kpi={kpi} onTracked={onPlan} reload={loadPlan} open={panelOpen} setOpen={setPanelOpen} adding={adding} setAdding={setAdding} />
+          <PlanPanel data={plan} kpi={kpi} onTracked={onPlan} reload={loadPlan} open={panelOpen} setOpen={setPanelOpen} adding={adding} setAdding={setAdding}
+            mode={mode} setMode={setMode} only={only} setOnly={setOnly} kpiTickets={kpiTickets} />
         )}
 
         {/* centre and right */}
@@ -254,12 +232,7 @@ function ForTile({ t }: { t: ActionsTile }) {
             <Box sx={{ display: "grid", gap: 1.25, p: 2, borderRadius: "16px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff" }}>
               <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
                 <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: MUTED, width: 130 }}>Size in the BUC View</Typography>
-                <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-                  {formats.map((f) => (
-                    <Box key={f} component="button" type="button" disabled={!canWrite || busy} aria-pressed={format === f}
-                      onClick={() => { setWant(f); if (placed === "nutshell") void place("nutshell", { format: f }); }} sx={opt(format === f)}>{FORMAT_LABEL[f]}</Box>
-                  ))}
-                </Box>
+                <SizeChoices formats={formats} format={format} disabled={!canWrite || busy} pick={(f) => { setWant(f); if (placed === "nutshell") void place("nutshell", { format: f }); }} />
                 <Box sx={{ flex: 1 }} />
                 <WhereMap format={format} />
               </Box>
@@ -267,7 +240,7 @@ function ForTile({ t }: { t: ActionsTile }) {
                 <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start", flexWrap: "wrap" }}>
                   <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: MUTED, width: 130, pt: 0.5 }}>Style</Typography>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <StyleChoices t={t} format={format} style={style} canWrite={canWrite} busy={busy} pick={(s) => void place(placed, { style: s })} />
+                    <StyleChoices kpiId={t.kpiId} format={format} style={style} disabled={!canWrite || busy} pick={(s) => void place(placed, { style: s })} />
                   </Box>
                 </Box>
               )}
@@ -286,9 +259,24 @@ function ForTile({ t }: { t: ActionsTile }) {
             {t.target ? <TargetBox tile={t} value={target} canWrite={canWrite} current={t.current ?? null} />
               : <Box sx={{ p: 2, borderRadius: "14px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff" }}><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>This graph has no single figure to measure against a target.</Typography></Box>}
             <Box sx={{ display: "grid", gap: 1.25, minWidth: 0, alignContent: "start" }}>
-            <Typography sx={section}>Tracking this KPI · {tracking.items.length + tracking.subs.length}</Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography sx={{ ...section, flex: 1 }}>Tracking this KPI · {tracking.items.length + tracking.subs.length}</Typography>
+              {plan && plan !== "denied" && plan.canWrite && (
+                <Box component="button" type="button" onClick={() => { setPanelOpen(true); setAdding(null); setMode("link"); setOnly(null); }}
+                  sx={{ border: 0, bgcolor: "transparent", p: 0, font: "inherit", fontSize: "0.8rem", fontWeight: 700, color: TINT.blue.fg, cursor: "pointer", "&:hover": { textDecoration: "underline" } }}>Link existing actions</Box>
+              )}
+            </Box>
+            {offered > 0 && plan && plan !== "denied" && plan.canWrite && (
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center", p: 1.1, borderRadius: "10px", border: `1px solid ${TINT.amber.fg}`, bgcolor: TINT.amber.bg }}>
+                <Typography sx={{ flex: 1, fontSize: "0.82rem", color: INK }}>
+                  {offered === 1 ? "1 action or sub-action holds this KPI's Digital Growth ticket and does not track it." : `${offered} actions and sub-actions hold this KPI's Digital Growth tickets and do not track it.`}
+                </Typography>
+                <Box component="button" type="button" onClick={() => { setPanelOpen(true); setAdding(null); setMode("link"); setOnly("tickets"); }}
+                  sx={{ border: `1px solid ${TINT.amber.fg}`, bgcolor: "#fff", borderRadius: "6px", px: 1, py: 0.4, font: "inherit", fontSize: "0.8rem", fontWeight: 700, color: TINT.amber.fg, cursor: "pointer", whiteSpace: "nowrap" }}>Show them</Box>
+              </Box>
+            )}
             {plan !== "denied" && !tracking.items.length && !tracking.subs.length && (
-              <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>{onPlan ? "Nothing yet - make an action or a sub-action on the left." : "Nothing - a KPI is tracked once it is on the Action plan's KPIs (its target, then the switch above)."}</Typography>
+              <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>{onPlan ? "Nothing yet - make an action or a sub-action on the left, or link those already on the plan." : "Nothing - a KPI is tracked once it is on the Action plan's KPIs (its target, then the switch above)."}</Typography>
             )}
             {tracking.items.map((i) => <TrackLine key={`i${i.id}`} href={`/action-plan?item=${i.id}`} title={i.title} what="Action" stage={i.stage} who={i.owners.map((o) => o.name).join(", ")} start={i.start} />)}
             {tracking.subs.map((s) => {

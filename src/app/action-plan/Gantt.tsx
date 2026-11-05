@@ -105,7 +105,7 @@ function useNameWidth(rows: GRow[], rolled: Map<number, Rolled>, today: string):
   }, [rows, rolled, today]);
 }
 
-export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, onTrack, canDrop, onDrop, height, colorOf, compact, onCompact, onAdd, onDuplicate, hidden, onHide, calendar = true }: {
+export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, onTrack, canDrop, onDrop, height, colorOf, compact, onCompact, onAdd, onDuplicate, hidden, onHide, calendar = true, pick }: {
   rows: GRow[]; rolled: Map<number, Rolled>; today: string; zoom: Zoom; canWrite: boolean;
   collapsed: Set<string>; toggle: (key: string) => void; selected: number | null;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void;
@@ -131,6 +131,8 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   hidden: Set<number>; onHide: (row: PlanItem, hide: boolean) => void;
   /** the time line beside the table; off where the table alone is wanted (a KPI's Actions page: the plan to pick from) */
   calendar?: boolean;
+  /** a tick in the drag handle's place, on the rows that take one (a KPI's Actions page: the plan's rows to link to it) */
+  pick?: { can: (r: GRow) => boolean; on: (r: GRow) => boolean; toggle: (r: GRow) => void; note?: (r: GRow) => string | undefined };
 }) {
   const left = useRef<HTMLDivElement>(null);
   const right = useRef<HTMLDivElement>(null);
@@ -150,10 +152,11 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   }, []);
   // without the calendar (a KPI's Actions page) the table is all there is, in a narrower room: the names give way to the
   // columns, cut short at the end with their whole name on hover
-  const nameW = nameManual ?? (calendar ? autoName : Math.min(autoName, 430));
+  // (with the columns folded away there, the names take the whole room)
+  const nameW = nameManual ?? (calendar || compact ? autoName : Math.min(autoName, 430));
   const leftW = HANDLE + nameW + (compact ? 0 : detailW.reduce((s, w) => s + w, 0)) + 2;
-  const COLS = compact ? `${HANDLE}px ${nameW}px` : `${HANDLE}px ${nameW}px ${detailW.map((w) => `${w}px`).join(" ")}`;
-  const GRID_MIN = leftW;
+  const COLS = compact ? `${HANDLE}px ${calendar ? `${nameW}px` : `minmax(${Math.min(nameW, 360)}px, 1fr)`}` : `${HANDLE}px ${nameW}px ${detailW.map((w) => `${w}px`).join(" ")}`;
+  const GRID_MIN = !calendar && compact ? HANDLE + Math.min(nameW, 360) + 2 : leftW;
   /** Drag a column's right edge: 0 is the name, 1-6 planned, go-live, status, %, who and KPI tracking. */
   const startColResize = (e: React.PointerEvent, col: number) => {
     e.preventDefault(); e.stopPropagation();
@@ -330,7 +333,8 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
               hidden={r.type === "item" && hidden.has(r.item.id)} onHide={r.type === "item" && r.item.kind !== "goal" ? (h) => onHide(r.item, h) : undefined} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
               selected={r.type === "item" && r.item.id === selected} onOpen={onOpen} onSubs={onSubs} onOpenSub={onOpenSub} onPatch={onPatch} onTrack={onTrack}
               dragging={drag?.key === r.key} over={over?.key === r.key ? over.where : null} copying={over?.key === r.key && over.copy}
-              draggable={canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group")) || r.type === "sub")}
+              pick={pick && pick.can(r) ? { on: pick.on(r), toggle: () => pick.toggle(r), note: pick.note?.(r) } : undefined}
+              draggable={!pick && canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group")) || r.type === "sub")}
               onDragStart={() => setDrag(r)} onDragEnd={() => { setDrag(null); setOver(null); }}
               onDragOver={(e) => {
                 if (!drag) return;
@@ -460,8 +464,9 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
 
 /* ── a row of the tree ─────────────────────────────────────────────────── */
 
-function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, onTrack, dragging, over, copying, draggable, onDragStart, onDragEnd, onDragOver, onDrop }: {
+function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, rolled, today, canWrite, folded, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, onTrack, dragging, over, copying, draggable, onDragStart, onDragEnd, onDragOver, onDrop, pick }: {
   r: GRow; cols: string; compact: boolean; color: string | null; onAdd?: () => void; onDuplicate?: () => void; hidden: boolean; onHide?: (hide: boolean) => void;
+  pick?: { on: boolean; toggle: () => void; note?: string };
   rolled: Map<number, Rolled>; today: string; canWrite: boolean; folded: boolean; toggle: (key: string) => void; selected: boolean;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void; onOpenSub: (id: number) => void;
   onPatch: (id: number, p: Partial<Pick<PlanItem, "start" | "due" | "percent" | "tracked">>) => Promise<void>;
@@ -479,7 +484,7 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
   );
   const base = {
     display: "grid", gridTemplateColumns: cols, height: ROW, alignItems: "center", borderBottom: "1px solid rgba(21,34,58,.06)",
-    bgcolor: selected ? "rgba(36,89,209,.06)" : over === "into" || over === "sub" ? TINT.blue.bg : "transparent", opacity: dragging ? 0.4 : hidden ? 0.5 : 1,
+    bgcolor: selected || pick?.on ? "rgba(36,89,209,.06)" : over === "into" || over === "sub" ? TINT.blue.bg : "transparent", opacity: dragging ? 0.4 : hidden ? 0.5 : 1,
     boxShadow: over === "before" ? `inset 0 2px 0 ${TINT.blue.fg}` : over === "after" ? `inset 0 -2px 0 ${TINT.blue.fg}` : over === "sub" ? `inset 0 0 0 2px ${TINT.blue.fg}` : "none", position: "relative",
     // what the drop will do
     ...(over === "sub" ? { "&::after": { content: copying ? '"Drop: a copy goes under it"' : '"Drop: becomes its sub-action"', position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: TINT.blue.fg, color: "#fff", fontSize: "0.7rem", fontWeight: 800, pointerEvents: "none", zIndex: 2 } } : {}),
@@ -489,7 +494,13 @@ function TreeRow({ r, cols, compact, color, onAdd, onDuplicate, hidden, onHide, 
   const small = { width: 20, height: 20, p: 0, border: `1px solid ${HAIRLINE}`, borderRadius: "4px", bgcolor: "#fff", color: MUTED, display: "grid", placeItems: "center", cursor: "pointer", transition: "opacity .15s", "&:hover, &:focus-visible": { opacity: 1, color: TINT.blue.fg, borderColor: TINT.blue.fg } } as const;
   const handle = (
     <Box sx={{ display: "grid", gridTemplateColumns: "22px 22px 22px", height: "100%", alignItems: "center" }}>
-      {draggable ? (
+      {pick ? (
+        <Box sx={{ display: "grid", placeItems: "center", height: "100%" }} onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+          <Box component="input" type="checkbox" checked={pick.on} onChange={pick.toggle}
+            aria-label={`${pick.on ? "Untick" : "Tick"} ${r.type === "sub" ? r.sub.title : r.item.title}`} title={pick.note}
+            sx={{ width: 15, height: 15, m: 0, cursor: "pointer", accentColor: TINT.blue.fg }} />
+        </Box>
+      ) : draggable ? (
         <Box draggable onDragStart={(e: React.DragEvent) => { e.dataTransfer.effectAllowed = r.type === "sub" ? "copyMove" : "move"; e.dataTransfer.setData("text/plain", r.key); onDragStart(); }} onDragEnd={onDragEnd}
           title={r.type === "sub" ? (r.sub.kpiTile ? "Drag up or down among its action's sub-actions" : "Drag up or down among the sub-actions, onto another action to move it there (Ctrl held: a copy), onto a category to make it an action again") : "Drag onto another main category or sub-category"} sx={{ display: "grid", placeItems: "center", color: FAINT, cursor: "grab", height: "100%" }}>
           <DragIndicatorIcon sx={{ fontSize: 17 }} />

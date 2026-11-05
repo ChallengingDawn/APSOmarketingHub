@@ -9,6 +9,7 @@
 // leaves the nutshell for its tab only, a promoted card shows in "Promoted" at the top (tiles/*).
 // 19.10: hold the mouse on a tile and drag it to its place in the panel - one order for everyone (tiles/SortableGrid).
 
+import { useEffect } from "react";
 import Link from "next/link";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -213,8 +214,8 @@ function StagePanel({ s, views, state, acts, visit }: { s: KpiStage; views: Reco
   };
   return (
     <GlassCard sx={{ display: "grid", gap: 2.25 }}>
-      {/* the stage, as a UC card title: badge, name (the way in), one line */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+      {/* the stage, as a UC card title: badge, name (the way in), one line - its id the way back from a KPI's Actions page */}
+      <Box id={`stage-${s.slug}`} sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", scrollMarginTop: 40 }}>
         <Badge icon={<StageGlyph slug={s.slug} size={22} />} tint={tint} size={42} />
         <Box sx={{ flex: 1, minWidth: 200 }}>
           <Box component={Link} href={stageHref(s.slug)} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, color: INK, textDecoration: "none", "&:hover .chev": { transform: "translateX(3px)" }, "&:hover": { color: TINT[tint].fg } }}>
@@ -267,6 +268,12 @@ export default function MarketingKpisMacro() {
   const visit = useVisitData();
   const year = new Date().getFullYear();
   const views = state?.inputs ? buildViews(state.inputs, state.live?.value, year) : null;
+  // back from a KPI's Actions page at its stage (#stage-<slug>): once the panels are drawn, there
+  const ready = !!views;
+  useEffect(() => {
+    const id = window.location.hash.slice(1);
+    if (ready && /^stage-[a-z]+$/.test(id)) document.getElementById(id)?.scrollIntoView({ block: "start" });
+  }, [ready]);
   return (
     // no title and no "N of N measured" line: the panels straight away (SARCLA 18.10: "take out this on the nutshell, put directly the placeholders")
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>

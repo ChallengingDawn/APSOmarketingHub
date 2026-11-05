@@ -6,8 +6,16 @@
 // page's styles are still loaded after a move inside the hub; after a reload the copy is gone and the page says where
 // the graph lives instead).
 
-import type { Placement } from "@/lib/reporting/kpiActions";
+import type { Placement, TileSpec } from "@/lib/reporting/kpiActions";
 import type { TileInfo } from "@/app/reporting/marketing-kpis/tiles/TileActions";
+
+/** A tile as the placement keeps it (POST /api/reporting/kpi-actions/placement). */
+export const specOf = (t: TileInfo): TileSpec => ({
+  key: t.key, page: t.page, title: t.title, kind: t.kind ?? (t.kpiId ? "kpi" : "card"),
+  ...(t.tab ? { tab: t.tab } : {}), ...(t.kpiId ? { kpiId: t.kpiId } : {}),
+  ...(t.filters ? { filters: t.filters } : {}), ...(t.from ? { from: t.from } : {}), ...(t.to ? { to: t.to } : {}),
+  ...(t.href ? { href: t.href } : {}),
+});
 
 /** A tile as its Actions page needs it: the tile, where it starts, the page it was opened from, what it shows now. */
 export type ActionsTile = TileInfo & {
