@@ -111,7 +111,9 @@ import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 import { Sankey } from "@/app/charts/Sankey";
 import type { ArtInfo, BoRead, ChatRow } from "@/lib/reporting/boReport";
 import { IN, inZero, type InDetail, type InRow } from "@/lib/reporting/boInbound";
-import { FIRST_MONTH as GQS_FIRST, STAGE_LABEL, STAGE_WHO, WORK, offersOf, refusalsOf, stageTimes, sumOf, winRate, type GSum, type GStage, type GqsTask } from "@/lib/reporting/boGqs";
+import { FIRST_MONTH as GQS_FIRST, FLOW_COLUMNS, STAGE_LABEL, STAGE_WHO, WORK, daysTo, flowOf, offersOf, refusalsOf, stageTimes, sumOf, winRate, type FlowNode, type GSum, type GStage, type GqsTask } from "@/lib/reporting/boGqs";
+import { GqsOpenBars } from "@/app/reporting/eso-benchmark/TicketsGqs";
+import type { GOpen } from "@/lib/reporting/esoGqs";
 import type { Reason } from "@/lib/gqsApprovals/rules";
 import {
   ORIGINS, PC_FROM, RCL, RW, TOPIC_ORDER, TYPED, artsOf, emptyMonth, filteredMonth, hasTickets, kpisOf, passes, sumGqs, sumMonths, swissDay, topicLabel, typedKey,
@@ -1073,25 +1075,10 @@ function GqFlow({ f, d }: { f: Frame; d: Data }) {
   const req = gBy(d, gYms(f), "c");
   if (!req) return NO_GQS;
   if (!req.length) return NONE_GQS;
-  const apOf = (t: GqsTask) => (t.ap === "a" ? "auto" : t.ap === "r" ? (t.dec === "y" ? "lmy" : t.dec === "n" ? "lmn" : "lmw") : "noap");
-  const stOf = (t: GqsTask) => (t.s === "offer" ? "offer" : t.s === "refused" ? "refused" : "open");
-  const links = new Map<string, number>(), seen = new Set<string>(["req"]);
-  const add = (a: string, b: string) => { links.set(`${a}>${b}`, (links.get(`${a}>${b}`) ?? 0) + 1); seen.add(b); };
-  for (const t of req) {
-    const a = apOf(t), s = stOf(t);
-    add("req", a); add(a, s);
-    if (s === "offer") add("offer", t.res === "w" ? "won" : t.res === "l" ? "lost" : "nores");
-  }
-  const NODES: [string, number, string, string][] = [
-    ["req", 0, "Requests", SERIES[0]],
-    ["auto", 1, "Approved automatically", SERIES[2]], ["lmy", 1, "Approved by a line manager", SERIES[0]], ["lmn", 1, "Refused by a line manager", SERIES[1]],
-    ["lmw", 1, "With the line manager, not decided", SERIES[3]], ["noap", 1, "No approval kept (before March 2026)", DEEMPHASIS],
-    ["offer", 2, "Offer sent to Sales", SERIES[2]], ["refused", 2, "Refused", SERIES[1]], ["open", 2, "Still open", DEEMPHASIS],
-    ["won", 3, "Won", SERIES[2]], ["lost", 3, "Lost", SERIES[1]], ["nores", 3, "No result yet", DEEMPHASIS],
-  ];
-  const nodes = NODES.filter(([id]) => seen.has(id)).map(([id, column, label, color]) => ({ id, column, label, color }));
-  return <Sankey height={400} columns={["The requests", "The approval", "Where they stand", "What came of the offer"]} label="The GQS pipeline, from the request to the result"
-    nodes={nodes} links={[...links].map(([k, value]) => { const [from, to] = k.split(">"); return { from, to, value }; })} format={(v) => int(v)} />;
+  const fl = flowOf(req);
+  const TONE: Record<FlowNode["tone"], string> = { source: SERIES[0], good: SERIES[2], bad: SERIES[1], wait: SERIES[3], none: DEEMPHASIS };
+  return <Sankey height={400} columns={FLOW_COLUMNS} label="The GQS pipeline, from the request to the result"
+    nodes={fl.nodes.map((n) => ({ id: n.id, column: n.column, label: n.label, color: TONE[n.tone] }))} links={fl.links} format={(v) => int(v)} />;
 }
 
 /** a figure month by month, last year's beside it - over the tasks that came in, were offered or refused each month */
@@ -1245,6 +1232,16 @@ function GqOpen({ f, d, list = false }: { f: Frame; d: Data; list?: boolean }) {
   return <FullTable first="Customer · requester" cols={cols} rows={uniqLabels(open.map((t) => ({ label: `${clipTo(t.cu ?? "No customer", 48)} · ${gName(f, t.rq)}`, t })))} find="a customer or a requester" initial="age" />;
 }
 
+/** every GQS task open now, whatever the period, by a person - how many, how long in their stage, where most wait
+ *  (SARCLA 05.11.2026: "open task show also by person") */
+function GqOpenBy({ d, by }: { d: Data; by: (t: GqsTask) => string }) {
+  const all = gAll(d);
+  if (!all) return NO_GQS;
+  const now = Date.now();
+  const open: GOpen[] = all.map((x) => x.t).filter((t) => t.s !== "offer" && t.s !== "refused").map((t) => ({ t, inStage: t.at ? daysTo(t.at, now) : null, age: daysTo(t.c, now) }));
+  return <GqsOpenBars open={open} by={(o) => by(o.t)} />;
+}
+
 /** the graphs of the GQS page */
 function gqCharts(): ChartDef[] {
   const typeTop = (f: Frame, d: Data) => {
@@ -1270,7 +1267,7 @@ function gqCharts(): ChartDef[] {
     gTrend("gqApHours", "Time to the line manager's decision", "From the request reaching the line manager to Approved or Refused by Line Manager - the median; a month with fewer than 3 decisions left out", "c", (ts) => { const xs = sumOf(ts).decH; return xs.length >= 3 ? median(xs) : null; }, hShort),
     { id: "gqApWhy", page: "gqs", title: "Why a line manager", hint: ({ f }) => `${periodOf(f)} · the requests sent to a line manager, by the approval rule as it stands now (Back Office distribution > GQS > Approvals) · "none of these today": a value changed since, or sent again`, body: ({ f, d }) => <GqWhy f={f} d={d} /> },
     wide({ id: "gqApLm", page: "gqs", title: "Per line manager", hint: ({ f }) => `${periodOf(f)} · the requests of each line manager's team: how many went to them, what they decided and how fast · a header sorts`,
-      body: ({ f, d }) => <GqTable f={f} d={d} by={(t) => gName(f, t.lm)} first="Line manager" hide={["potWon"]} more={[
+      body: ({ f, d }) => <GqTable f={f} d={d} by={(t) => gName(f, t.lm)} first="Line manager" more={[
         { key: "dec", head: "Approved / refused", tip: "The line manager's decisions - and those not decided in HubSpot", cell: (r) => `${int(r.s.lmYes)} / ${int(r.s.lmNo)}${r.s.lmWait ? ` · ${int(r.s.lmWait)} open` : ""}`, sort: (r) => r.s.lmYes + r.s.lmNo },
         { key: "decH", head: "Time to decide", tip: "From the request reaching them to their decision - the median", cell: (r) => hShort(median(r.s.decH)), sort: (r) => median(r.s.decH) ?? -1 },
       ]} /> }),
@@ -1303,6 +1300,10 @@ function gqCharts(): ChartDef[] {
     /* People */
     { id: "gqReqBars", page: "gqs", title: "Requests per requester", hint: ({ f }) => `${periodOf(f)} · who in Sales asked - the largest twelve`, body: ({ f, d }) => <GqBars f={f} d={d} by={(t) => gName(f, t.rq)} sub={(xs) => { const s = sumOf(xs); return `${int(s.won)} won`; }} /> },
     { id: "gqOwnBars", page: "gqs", title: "Requests per Back Office person", hint: ({ f }) => `${periodOf(f)} · the task's owner today`, body: ({ f, d }) => <GqBars f={f} d={d} by={(t) => gName(f, t.o)} sub={(xs) => `${dayCh(median(xs.filter((t) => t.d?.open).map((t) => t.d!.open!)))} days in Open the GQS Task`} /> },
+    { id: "gqLmWin", page: "gqs", title: "Win rate per line manager", hint: ({ f }) => `${periodOf(f)}'s requests of each line manager's team · won of the offers whose result is known`,
+      body: ({ f, d }) => <GqBars f={f} d={d} by={(t) => gName(f, t.lm)} of={(xs) => { const s = sumOf(xs); return winRate(s.won, s.lost); }} fmt={share} sub={(xs) => { const s = sumOf(xs); return `${int(s.won)} won of ${int(s.won + s.lost)} with a result · ${int(s.n)} requests`; }} /> },
+    { id: "gqLmPot", page: "gqs", title: "Potential won per line manager", hint: ({ f }) => `${periodOf(f)}'s requests of each line manager's team · Sales' order potential of the won offers, EUR`,
+      body: ({ f, d }) => <GqBars f={f} d={d} by={(t) => gName(f, t.lm)} of={(xs) => sumOf(xs).potWon} fmt={eurN} sub={(xs) => { const s = sumOf(xs); return `${int(s.won)} won · ${s.potN ? `${eur(s.pot)} asked` : "no potential typed in"}`; }} /> },
     wide({ id: "gqReq", page: "gqs", title: "Per requester", hint: ({ f }) => `${periodOf(f)} · each Sales person's requests and what came of them · search a name, a header sorts`, body: ({ f, d }) => <GqTable f={f} d={d} by={(t) => gName(f, t.rq)} first="Requester" find="a person" /> }),
     wide({ id: "gqOwn", page: "gqs", title: "Per Back Office person", hint: ({ f }) => `${periodOf(f)} · by the task's owner today · a header sorts`,
       body: ({ f, d }) => <GqTable f={f} d={d} by={(t) => gName(f, t.o)} first="Back Office" find="a person" hide={["lm", "potWon"]} more={[
@@ -1312,6 +1313,9 @@ function gqCharts(): ChartDef[] {
     wide({ id: "gqCust", page: "gqs", title: "Per customer", hint: ({ f }) => `${periodOf(f)} · the customers asked for · search a name, a header sorts`, body: ({ f, d }) => <GqTable f={f} d={d} by={(t) => t.cu ?? "No customer"} first="Customer" find="a customer" hide={["share", "lm"]} /> }),
 
     /* Open tasks */
+    { id: "gqOpenOwn", page: "gqs", title: "Open now, per Back Office person", hint: () => "Every GQS task open today, whatever the period, by its owner · \"d in stage\": the median days in the stage each waits in", body: ({ f, d }) => <GqOpenBy d={d} by={(t) => gName(f, t.o)} /> },
+    { id: "gqOpenReq", page: "gqs", title: "Open now, per requester", hint: () => "Every GQS task open today, whatever the period, by the Sales person who asked", body: ({ f, d }) => <GqOpenBy d={d} by={(t) => gName(f, t.rq)} /> },
+    { id: "gqOpenLm", page: "gqs", title: "Open now, per line manager", hint: () => "Every GQS task open today, whatever the period, by the requester's line manager", body: ({ f, d }) => <GqOpenBy d={d} by={(t) => gName(f, t.lm)} /> },
     wide({ id: "gqOpenList", page: "gqs", title: "Every open GQS task", hint: () => "Whatever the period, the oldest first · \"already won\" or \"already lost\": the sale was decided while the task is still open · search a customer or a requester", body: ({ f, d }) => <GqOpen f={f} d={d} list /> }),
   ];
 }
@@ -2352,8 +2356,8 @@ const TABS: Record<Slug, TabDef[]> = {
     { id: "results", label: "Offers & results", title: "The offers and what came of them", note: "the offers sent to Sales by the day sent: won, lost, the win rate, the value - then the requests refused, with the reasons", icon: <EmojiEventsOutlinedIcon />, tint: "green", charts: ["gqResult", "gqWin", "gqValue", "gqRefused", "gqReasons"] },
     { id: "speed", label: "Speed", title: "How long each step takes", note: "the days in each stage - the Back Office, GQS, the customer - the days to the offer, the reminders", icon: <TimerOutlinedIcon />, tint: "amber", charts: ["gqStages", "gqToOffer", "gqBoDays", "gqAtGqs", "gqsSent", "gqsDone", "gqRemind", "gqStageTable"] },
     { id: "types", label: "Type of request", title: "Per type of request", note: "running business and each profit centre's new business: how many, the offers, won, the value", icon: <CategoryOutlinedIcon />, tint: "blue", charts: ["gqTypeMix", "gqTypeWin", "gqTypeTable"] },
-    { id: "people", label: "People", title: "Who asks, who handles", note: "the requesters in Sales, the Back Office person on each task, the customers", icon: <BadgeOutlinedIcon />, tint: "green", charts: ["gqReqBars", "gqOwnBars", "gqReq", "gqOwn", "gqCust"] },
-    { id: "open", label: "Open tasks", title: "Every GQS task open now", note: "whatever the period: where each one waits and since when - and those whose sale is already won or lost", icon: <HourglassEmptyOutlinedIcon />, tint: "pink", charts: ["gqOpenStage", "gqOpenList"] },
+    { id: "people", label: "People", title: "Who asks, who handles", note: "the requesters in Sales, their line managers - win rate and potential won -, the Back Office person on each task, the customers", icon: <BadgeOutlinedIcon />, tint: "green", charts: ["gqReqBars", "gqOwnBars", "gqLmWin", "gqLmPot", "gqReq", "gqApLm", "gqOwn", "gqCust"] },
+    { id: "open", label: "Open tasks", title: "Every GQS task open now", note: "whatever the period: where each one waits and since when, per Back Office person, requester and line manager - and those whose sale is already won or lost", icon: <HourglassEmptyOutlinedIcon />, tint: "pink", charts: ["gqOpenStage", "gqOpenOwn", "gqOpenReq", "gqOpenLm", "gqOpenList"] },
   ],
   otd: [
     { id: "online", label: "Online", title: "OTD online", note: "with early call-offs, against the first confirmation date", icon: <LocalShippingOutlinedIcon />, tint: "pink", charts: ["otdAll", "otdStandard", "otdSpecial"] },

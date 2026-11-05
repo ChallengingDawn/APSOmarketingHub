@@ -452,6 +452,21 @@ function count(todo: string[], gqsDue: boolean, chatTodo: string[] = []): void {
   })();
 }
 
+/**
+ * The GQS tasks kept, for the GQS tab of the Incoming tickets page (ESO, TSA, Sales Leader and My Sales Reports - SARCLA
+ * 05.11.2026) - and, when they are an hour old, read again as a Back-Office page would (the GQS tasks only; the months
+ * wait for a Back-Office page), unless the counter runs here or on another copy.
+ */
+export async function gqsTasksNow(): Promise<{ kept: GqsKept | null; counting: boolean }> {
+  const now = Date.now();
+  const g = await kvGet<KeptGqs>(KV.gqs);
+  const gt = await kvGet<KeptGqsTasks>(KV.gqsTasks);
+  const due = !g || g.v !== GQS_VERSION || now - Date.parse(g.at) > HOUR || !gt || gt.v !== GQS_TASKS_VERSION;
+  if (due && !state.running && (await leaseFree())) count([], true, []);
+  const counting = state.running || !(await leaseFree());
+  return { kept: gt?.v === GQS_TASKS_VERSION ? { at: gt.at, tasks: gt.tasks, limits: gt.limits } : null, counting };
+}
+
 /** What is kept now - and, when months are missing or due, the counter started (unless it runs here or on another copy). */
 export async function boReportNow(): Promise<BoRead> {
   const now = Date.now();

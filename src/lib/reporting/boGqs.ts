@@ -227,3 +227,29 @@ export function stageTimes(ts: GqsTask[]): { stage: GStage; n: number; median: n
     return { stage, n: xs.length, median: median(xs), mean: xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null, now: ts.filter((t) => t.s === stage).length };
   }).filter((x) => x.n > 0 || x.now > 0);
 }
+
+/* ── the pipeline in one diagram: the request, the approval, where it stands, what came of the offer ── */
+
+export type FlowNode = { id: string; column: number; label: string; tone: "source" | "good" | "bad" | "wait" | "none" };
+export const FLOW_COLUMNS = ["The requests", "The approval", "Where they stand", "What came of the offer"];
+const FLOW_NODES: FlowNode[] = [
+  { id: "req", column: 0, label: "Requests", tone: "source" },
+  { id: "auto", column: 1, label: "Approved automatically", tone: "good" }, { id: "lmy", column: 1, label: "Approved by a line manager", tone: "source" },
+  { id: "lmn", column: 1, label: "Refused by a line manager", tone: "bad" }, { id: "lmw", column: 1, label: "With the line manager, not decided", tone: "wait" },
+  { id: "noap", column: 1, label: "No approval kept (before March 2026)", tone: "none" },
+  { id: "offer", column: 2, label: "Offer sent to Sales", tone: "good" }, { id: "refused", column: 2, label: "Refused", tone: "bad" }, { id: "open", column: 2, label: "Still open", tone: "none" },
+  { id: "won", column: 3, label: "Won", tone: "good" }, { id: "lost", column: 3, label: "Lost", tone: "bad" }, { id: "nores", column: 3, label: "No result yet", tone: "none" },
+];
+/** Some requests as a diagram's bands - only the nodes some request reaches. */
+export function flowOf(ts: GqsTask[]): { nodes: FlowNode[]; links: { from: string; to: string; value: number }[] } {
+  const apOf = (t: GqsTask) => (t.ap === "a" ? "auto" : t.ap === "r" ? (t.dec === "y" ? "lmy" : t.dec === "n" ? "lmn" : "lmw") : "noap");
+  const stOf = (t: GqsTask) => (t.s === "offer" ? "offer" : t.s === "refused" ? "refused" : "open");
+  const links = new Map<string, number>(), seen = new Set<string>(ts.length ? ["req"] : []);
+  const add = (a: string, b: string) => { links.set(`${a}>${b}`, (links.get(`${a}>${b}`) ?? 0) + 1); seen.add(b); };
+  for (const t of ts) {
+    const a = apOf(t), s = stOf(t);
+    add("req", a); add(a, s);
+    if (s === "offer") add("offer", t.res === "w" ? "won" : t.res === "l" ? "lost" : "nores");
+  }
+  return { nodes: FLOW_NODES.filter((n) => seen.has(n.id)), links: [...links].map(([k, value]) => { const [from, to] = k.split(">"); return { from, to, value }; }) };
+}

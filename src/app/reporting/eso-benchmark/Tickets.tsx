@@ -42,6 +42,7 @@ import BadgeOutlinedIcon from "@mui/icons-material/BadgeOutlined";
 import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
 import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
+import AssignmentOutlinedIcon from "@mui/icons-material/AssignmentOutlined";
 
 import { GUTTER } from "@/app/analytics/Shell";
 import { Badge, CardTitle, GlassCard, INK, MUTED, RED, TINT, type Tint } from "@/app/uc/report/ui";
@@ -75,6 +76,9 @@ import {
   ConfPanel, MonthOutcomes, MonthTrend, PotentialFunnel, PotentialPipeline, ResolutionBars, ResolutionPanels, ResolutionTexts, SpeedPanel, eur, potentialTables,
 } from "./TicketsCharts";
 import { SCOPE_LEAD, scopedPeople, useScoped, KeyCharts } from "@/app/reporting/scope";
+import { GqsFlow, GqsMonths, GqsOpenBars, GqsOpenStages, GqsWaiting, useEsoGqs, type GqsState } from "./TicketsGqs";
+import { monthsOf, nameOf as gqsName, openOf, prevOk, requestersOf, setsOf, statsBy as gqsStatsBy, typeOf as gqsType, type EsoGqs, type GSets, type GStat } from "@/lib/reporting/esoGqs";
+import type { GqsTask } from "@/lib/reporting/boGqs";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -202,14 +206,16 @@ const teamName = (c: { team: TeamKey; lead: string | null; teams: Team[] }) => (
 
 /* ── what every chart is drawn with ────────────────────────────────────── */
 
-type TView = "paths" | "people" | "from" | "handling" | "outcomes" | "potential" | "months" | "customers";
-const VIEW_IDS: TView[] = ["paths", "people", "from", "handling", "outcomes", "potential", "months", "customers"];
+type TView = "paths" | "people" | "from" | "handling" | "outcomes" | "potential" | "gqs" | "months" | "customers";
+const VIEW_IDS: TView[] = ["paths", "people", "from", "handling", "outcomes", "potential", "gqs", "months", "customers"];
+/** The tabs - GQS on the Incoming tickets page only: Sales' own requests to the Back Office, a sales ticket's sibling. */
 const viewsOf = (g: TGroup): { id: TView; label: string }[] => [
   { id: "paths", label: "Paths" }, { id: "people", label: "People" }, { id: "from", label: GROUP[g].fromPlural }, { id: "handling", label: "Handling" },
-  { id: "outcomes", label: "Outcomes" }, { id: "potential", label: "Potential" }, { id: "months", label: "Months" }, { id: "customers", label: "Customers" },
+  { id: "outcomes", label: "Outcomes" }, { id: "potential", label: "Potential" }, ...(g === "incoming" ? [{ id: "gqs" as const, label: "GQS" }] : []),
+  { id: "months", label: "Months" }, { id: "customers", label: "Customers" },
 ];
 const isView = (x: string | null | undefined): x is TView => VIEW_IDS.includes(x as TView);
-const DIM_OF: Record<TView, TDim> = { paths: "channel", people: "person", from: "channel", handling: "person", outcomes: "channel", potential: "person", months: "channel", customers: "prio" };
+const DIM_OF: Record<TView, TDim> = { paths: "channel", people: "person", from: "channel", handling: "person", outcomes: "channel", potential: "person", gqs: "person", months: "channel", customers: "prio" };
 type DimInfo = { name: string; lower: string; one: string; icon: React.ReactNode; tint: Tint };
 const dimOf = (g: TGroup, dim: TDim): DimInfo => ({
   person: { name: "Person", lower: "person", one: "a person", icon: <BadgeOutlinedIcon />, tint: "green" as Tint },
@@ -227,6 +233,8 @@ export type TCtx = {
   /** the people shown (indexes) */
   people: Set<number>; filters: TFilters; view: TView;
   half?: boolean; targets?: Record<string, number>;
+  /** the GQS tasks (the GQS tab, Incoming tickets only), and each person's line manager's team by owner id (or My Sales' people) */
+  gq?: GqsState | null; byId?: Record<string, string>;
   onBar?: (dim: TDim, label: string) => void; onFilter?: (dim: TDim) => void;
 };
 
@@ -406,6 +414,114 @@ function MonthLine({ c, what, target }: { c: TCtx; what: MonthWhat; target: numb
     labels={monthLabels(c, t.months.length)} label={W.label} compareLabel={PREV(c)} fmt={W.fmt} tick={W.tick} target={target} />;
 }
 
+/* ── GQS: what Sales asked the Back Office for and what came of it (SARCLA 05.11.2026: "another tab on ESO and Sales
+   leader on customer tickets ... to show the results of GQS to the sales leader, and to be able to report it also on my
+   reports"; "GQS to line manager on GQS win rate and so forth") - the rules are esoGqs.ts, the read ./TicketsGqs.tsx ── */
+
+type GqsView = { g: EsoGqs; who: Set<string> | null; s: GSets; py: GSets | null };
+const gqsCache = new WeakMap<TCtx, GqsView | null>();
+/** The period's GQS requests and offers of the people shown (the requesters), the page's person filter applied - and the
+ *  same months last year where GQS already ran in all of them. */
+function gqsOf(c: TCtx): GqsView | null {
+  if (gqsCache.has(c)) return gqsCache.get(c)!;
+  const g = c.gq?.v;
+  let out: GqsView | null = null;
+  if (g) {
+    const who = requestersOf(g, c.team, c.lead, c.byId ?? {}, c.lead === SCOPE_LEAD);
+    const names = c.filters.person;
+    out = { g, who, s: setsOf(g, c.d.year, c.per.win, who, names), py: prevOk(c.d.year, c.per.win) ? setsOf(g, c.d.year, { ...c.per.win, year: 1 }, who, names) : null };
+  }
+  gqsCache.set(c, out);
+  return out;
+}
+type GMeasure = "rate" | "won" | "offers" | "req" | "wonpot" | "days";
+const GQ_MEASURE: Record<GMeasure, { title: string; fmt: (n: number) => string; unit: "n" | "pct" | "eur"; ratio?: boolean; lower?: boolean; diff?: (n: number) => string; of: (s: GStat) => number | null; sub: (s: GStat) => string; enough?: [(s: GStat) => boolean, string] }> = {
+  rate: { title: "GQS win rate", fmt: (n) => pct(n), unit: "pct", ratio: true, of: (s) => (s.won + s.lost ? s.rate : null), sub: (s) => `${int(s.won)} won of ${int(s.won + s.lost)} offers with a result · ${int(s.wait)} without one yet`, enough: [(s) => s.won + s.lost >= 3, "fewer than 3 offers with a result"] },
+  won: { title: "GQS offers won", fmt: int, unit: "n", diff: signed, of: (s) => s.won, sub: (s) => `of ${int(s.offers)} offers sent · win rate ${pct(s.rate)}` },
+  offers: { title: "GQS offers received", fmt: int, unit: "n", diff: signed, of: (s) => s.offers, sub: (s) => `${int(s.won)} won · ${int(s.lost)} lost · ${int(s.wait)} without a result yet` },
+  req: { title: "GQS requests", fmt: int, unit: "n", diff: signed, of: (s) => s.req, sub: (s) => `${int(s.review)} sent to a line manager · ${int(s.refused)} refused` },
+  wonpot: { title: "GQS potential won", fmt: eur, unit: "eur", diff: signedEur, of: (s) => s.potWon, sub: (s) => `of ${eur(s.potOffered)} offered · ${int(s.won)} won` },
+  days: { title: "Days to the GQS offer", fmt: (n) => `${n.toFixed(1)} days`, unit: "n", lower: true, diff: (n) => `${n > 0 ? "+" : n < 0 ? "−" : "±"}${Math.abs(n).toFixed(1)} days`, of: (s) => s.days, sub: (s) => `from the request to the offer sent, the median of ${int(s.offers)}`, enough: [(s) => s.offers >= 3, "fewer than 3 offers sent"] },
+};
+type GBy = "person" | "lm" | "type";
+const GBY: Record<GBy, { lower: string; key: (g: EsoGqs) => (t: GqsTask) => string; note: string }> = {
+  person: { lower: "requester", key: (g) => (t) => gqsName(g, t.rq), note: "the Sales person who asked" },
+  lm: { lower: "line manager", key: (g) => (t) => gqsName(g, t.lm), note: "the requester's line manager, as the GQS task names them" },
+  type: { lower: "type of request", key: () => gqsType, note: "the type Sales picked - asked from January 2026" },
+};
+const isGBy = (x: string): x is GBy => x in GBY;
+const isGMeasure = (x: string): x is GMeasure => x in GQ_MEASURE;
+function GqsBoard({ c, id, by, m, actions }: { c: TCtx; id: string; by: GBy; m: GMeasure; actions?: React.ReactNode }) {
+  const scoped = !!useScoped();
+  const M = GQ_MEASURE[m], B = GBY[by];
+  const title = `${M.title} ${c.per.title}, by ${B.lower}`;
+  const x = gqsOf(c);
+  if (!x) return <ChartBox title={title} actions={actions}><GqsWaiting st={c.gq} /></ChartBox>;
+  const cur = gqsStatsBy(x.g, x.s, B.key(x.g)), prev = x.py ? gqsStatsBy(x.g, x.py, B.key(x.g)) : null;
+  // a rate or a median on one or two offers is ranked apart - listed under the board, never on its podium
+  const rows: BoardRow[] = [], few: BoardRow[] = [];
+  for (const [label, s] of cur) {
+    const v = M.of(s);
+    if (v == null || (!v && M.unit !== "pct" && !M.lower)) continue;
+    const p = prev?.get(label);
+    (M.enough && !M.enough[0](s) ? few : rows).push({ label, cur: v, prev: p ? M.of(p) ?? 0 : 0, sub: M.sub(s) });
+  }
+  const person = by === "person";
+  // My Sales and Sales Leader Reports show no list under a board: there everyone stays on it
+  if (scoped) { rows.push(...few); few.length = 0; }
+  return (
+    <Leaderboard key={`${id}-${c.per.id}`} title={title} rows={rows} noChange={!x.py}
+      curLabel={perWords(c.d, c.per)} prevLabel={PREV(c)} vs={`vs ${c.d.year - 1}`} first={c.half ? 8 : BOARD_FIRST} fmt={M.fmt} diff={M.diff} ratio={!!M.ratio} lowerIsBetter={!!M.lower} target={targetFor(c, id)}
+      unranked={M.enough && few.length ? { why: M.enough[1], rows: few } : undefined}
+      selected={person ? c.filters.person : undefined} onPick={person && c.onBar ? (l) => c.onBar!("person", l) : undefined}
+      onFilter={person && c.onFilter ? () => c.onFilter!("person") : undefined} filterLabel="Filter by person" actions={actions} />
+  );
+}
+/** The offers' win rate month by month - a month with fewer than 3 results left out - last year's beside it where GQS ran. */
+function GqsWinMonths({ c, x, target }: { c: TCtx; x: GqsView; target: number | null }) {
+  const n = c.per.win.to - c.per.win.from + 1;
+  const rate = (s: GSets) => { const m = monthsOf(s, c.per.win); return m.won.map((w, i) => (w + m.lost[i] >= 3 ? w / (w + m.lost[i]) : null)); };
+  return <MonthTrend values={rate(x.s)} compare={x.py ? rate(x.py) : null} labels={monthLabels(c, n)} label="Win rate" compareLabel={PREV(c)} fmt={(v) => pct(v)} target={target} />;
+}
+/** A GQS chart by its id: "gqs:flow", "gqs:months", "gqs:winmonths", "gqs:open-person", "gqs:open-stage", or a board
+ *  "gqs:<measure>-<breakdown>" - gqs:rate-person, gqs:rate-lm, gqs:won-type… */
+function gqsDrawn(id: string): Drawn | undefined {
+  const chart = id.split(":")[1] ?? "";
+  const P = (c: TCtx) => c.per.title;
+  const box = (c: TCtx, title: string, hint: string, a: React.ReactNode | undefined, body: (x: GqsView) => React.ReactNode) => {
+    const x = gqsOf(c);
+    return <ChartBox title={title} hint={hint} actions={a}>{x ? body(x) : <GqsWaiting st={c.gq} />}</ChartBox>;
+  };
+  if (chart === "flow") {
+    const title = (c: TCtx) => `GQS, from the request to the result, ${P(c)}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => box(c, title(c), `${perWords(c.d, c.per)} · the requests of the people shown, by the day they came in: how each was approved (kept from March 2026), where it stands today, what came of the offer - hover a band for its count`, a,
+      (x) => <GqsFlow req={x.s.req} height={c.half ? 360 : 420} />) };
+  }
+  if (chart === "months") {
+    const title = (c: TCtx) => `GQS offers month by month, by what came of them${teamPart(c)}`;
+    return { id, title, draw: (c, a) => box(c, title(c), `${perWords(c.d, c.per)} · the offers sent to Sales by the month first sent: won, lost, no result yet - the table under it adds the requests that came in`, a,
+      (x) => <GqsMonths m={monthsOf(x.s, c.per.win)} labels={monthLabels(c, c.per.win.to - c.per.win.from + 1)} />) };
+  }
+  if (chart === "winmonths") {
+    const title = (c: TCtx) => `GQS win rate, month by month${teamPart(c)}`;
+    return { id, title, draw: (c, a) => box(c, title(c), `${perWords(c.d, c.per)} · won of the offers sent that month whose result is known - a month with fewer than 3 left out${gqsOf(c)?.py ? ` · grey: ${PREV(c)}` : ""}`, a,
+      (x) => <GqsWinMonths c={c} x={x} target={targetFor(c, id)} />),
+      target: (c) => ({ unit: "pct", label: `Each month is measured against it - a line across the months · ${teamName(c)}'s target.` }) };
+  }
+  if (chart === "open-person" || chart === "open-stage") {
+    const stage = chart === "open-stage";
+    const title = (c: TCtx) => `GQS tasks open now, ${stage ? "by the stage they wait in" : "by requester"}${teamPart(c)}`;
+    return { id, title, draw: (c, a) => box(c, title(c), `Whatever the period: every GQS task of the people shown still open today - "d in stage": the median days in the stage each waits in`, a, (x) => {
+      const open = openOf(x.g, x.who, Date.now(), c.filters.person);
+      return stage ? <GqsOpenStages open={open} /> : <GqsOpenBars open={open} by={(o) => gqsName(x.g, o.t.rq)} />;
+    }) };
+  }
+  const [what = "", by = "person"] = chart.split("-");
+  if (!isGMeasure(what) || !isGBy(by)) return undefined;
+  return { id, title: (c) => `${GQ_MEASURE[what].title} ${P(c)}, by ${GBY[by].lower}${teamPart(c)}`, draw: (c, a) => <GqsBoard c={c} id={id} by={by} m={what} actions={a} />,
+    target: (c) => ({ unit: GQ_MEASURE[what].unit, label: `Each ${GBY[by].lower}'s ${GQ_MEASURE[what].title.toLowerCase()} ${c.per.title} is measured against it · ${forWhom(c)}.` }) };
+}
+
 /* ── every chart by its key ────────────────────────────────────────────── */
 
 type TargetOf = { unit: "eur" | "pct" | "n"; label: string };
@@ -423,6 +539,7 @@ function drawnOf(id: string): Drawn | undefined {
  *  potential leads, the largest first; the open pipeline's charts list the open tickets' companies, "Potential won" the won's. */
 function companiesOf(c: TCtx, id: string): CompanySource | null {
   const ids = c.d.companyIds, names = c.d.companyNames;
+  if (id.startsWith("gqs:")) return null;
   if (!ids || !names) return null;
   const quiet = /:quiet/.test(id), money = id.startsWith("potential:");
   const only = /^potential:pipe/.test(id) ? "open" : /^potential:wonpot/.test(id) ? "won" : null;
@@ -464,6 +581,7 @@ function companiesOf(c: TCtx, id: string): CompanySource | null {
 function drawnBare(id: string): Drawn | undefined {
   const [v, chart = ""] = id.split(":");
   if (!isView(v)) return undefined;
+  if (v === "gqs") return gqsDrawn(id);
   const P = (c: TCtx) => c.per.title;
   if (chart === "flow") {
     const title = (c: TCtx) => `What happens to the ${GROUP[c.group].title.toLowerCase()}, ${P(c)}${teamPart(c)}`;
@@ -638,6 +756,21 @@ function TabCard({ c, act }: { c: TCtx; act: Act }) {
       {two("potential:wonpot-person", "potential:pot-channel")}
     </GlassCard>
   );
+  if (c.view === "gqs") {
+    const others = (["channel", "prio", "category", "country"] as const).some((k) => c.filters[k]?.length);
+    return (
+      <GlassCard sx={card}>
+        {head(<AssignmentOutlinedIcon />, "green", `GQS - what Sales asked the Back Office for, ${c.per.title}`, `every GQS task the people shown asked for: the approval, the offer sent back to Sales, won or lost - the win rate counts the offers whose result is known${others ? " · of the filters, the person applies here, the others are the tickets'" : ""}`)}
+        <Box sx={{ mt: -1 }}>{draw(c, act, "gqs:flow")}</Box>
+        {two("gqs:rate-person", "gqs:won-person")}
+        {two("gqs:offers-person", "gqs:wonpot-person")}
+        {two("gqs:rate-lm", "gqs:days-person")}
+        {draw(c, act, "gqs:months")}
+        {two("gqs:winmonths", "gqs:rate-type")}
+        {two("gqs:open-person", "gqs:open-stage")}
+      </GlassCard>
+    );
+  }
   if (c.view === "months") return (
     <GlassCard sx={card}>
       {head(<TimelineOutlinedIcon />, "blue", `${G.title}, month by month`, "by the month the ticket came in")}
@@ -779,7 +912,9 @@ export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?:
   const lt = useLeads();
   const teams = lt?.teams ?? [];
   const { state: acts } = useActions(G.page);
-  const view: TView = isView(params.get("view")) ? (params.get("view") as TView) : "paths";
+  const asked = params.get("view");
+  const view: TView = isView(asked) && viewsOf(group).some((v) => v.id === asked) ? asked : "paths";
+  const gq = useEsoGqs(group === "incoming");
   const setView = (v: TView) => setQuery((q) => { if (v === "paths") q.delete("view"); else q.set("view", v); });
   const filters: TFilters = useMemo(() => Object.fromEntries(FILTER_DIMS.flatMap((k) => (params.getAll(k).length ? [[k, params.getAll(k)]] : []))), [params]);
   const toggle = (k: TDim, label: string) => setQuery((q) => { const cur = q.getAll(k), next = cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label]; q.delete(k); for (const x of next) q.append(k, x); });
@@ -799,8 +934,8 @@ export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?:
   const stale = drawn !== want;
   const c = useMemo<TCtx | null>(() => (d && drawn.per && drawn.people ? {
     d, group, home, per: drawn.per, team: drawn.team, lead: drawn.lead, teams, pipe: pipeOf(drawn.team), people: drawn.people, filters: drawn.filters, view: drawn.view, targets: acts?.targets,
-    onBar: (k, l) => { toggle(k, l); openOn(k); }, onFilter: openOn,
-  } : null), [d, group, home, drawn, teams, acts?.targets]); // eslint-disable-line react-hooks/exhaustive-deps
+    gq, byId: lt?.byId ?? {}, onBar: (k, l) => { toggle(k, l); openOn(k); }, onFilter: openOn,
+  } : null), [d, group, home, drawn, teams, acts?.targets, gq, lt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const scoped = useScoped();
   const back = scoped ? null : (
@@ -855,7 +990,7 @@ export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?:
       ]} />
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
         {scoped
-          ? <KeyCharts ids={["outcomes:resolutions", "outcomes:owners", "months:outcomes"]} draw={(id) => { const ch = drawnOf(id); return ch ? ch.draw({ ...c, view: id.split(":")[0] } as typeof c) : null; }} />
+          ? <KeyCharts ids={["outcomes:resolutions", "outcomes:owners", "months:outcomes", ...(group === "incoming" ? ["gqs:flow", "gqs:rate-person", "gqs:open-person"] : [])]} draw={(id) => { const ch = drawnOf(id); return ch ? ch.draw({ ...c, view: id.split(":")[0] } as typeof c) : null; }} />
           : <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />}
       </Box>
       <TFilterWindow c={c} per={per} open={panel} onClose={() => setPanel(false)} focus={focus} onPer={setPer} toggle={toggle} clearAll={clearAll} />
@@ -884,8 +1019,9 @@ export function TicketsPanel({ acts, group, home = "eso" }: { acts: ActionsState
   const want = useMemo(() => ({ team, lead }), [team, lead]);
   const drawn = useDeferredValue(want);
   const stale = drawn !== want;
-  const c = useMemo<TCtx | null>(() => (d ? { d, group, home, per: perOf(d, presetsOf(d)[0].win), team: drawn.team, lead: drawn.lead, teams, pipe: pipeOf(drawn.team), people: peopleOf(d, drawn.team, drawn.lead, lt?.byId ?? {}), filters: {}, view: "paths", targets: acts?.targets } : null),
-    [d, group, home, drawn, teams, lt, acts?.targets]);
+  const gq = useEsoGqs(group === "incoming" && (acts?.placements ?? []).some((x) => x.placement === "nutshell" && x.spec.page === G.page && x.spec.tab === "gqs"));
+  const c = useMemo<TCtx | null>(() => (d ? { d, group, home, per: perOf(d, presetsOf(d)[0].win), team: drawn.team, lead: drawn.lead, teams, pipe: pipeOf(drawn.team), people: peopleOf(d, drawn.team, drawn.lead, lt?.byId ?? {}), filters: {}, view: "paths", targets: acts?.targets, gq, byId: lt?.byId ?? {} } : null),
+    [d, group, home, drawn, teams, lt, acts?.targets, gq]);
   const items: SortItem[] = useMemo(() => !c ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === G.page && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
     const ch = chartOf(spec.key);
     const fmt = formatOf(acts, spec);
