@@ -80,6 +80,9 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           // customers, Customer development, Incoming tickets, System tickets"); the BUC View's panels follow it (pages.tsx)
           { name: "Figures", href: "/reporting/eso-benchmark/figures", icon: "bar" },
           { name: "Visits", href: "/reporting/eso-benchmark/visits", icon: "route" },
+          // which companies Sales called or visited, and the share of revenue and potential in them - the HubSpot dashboard
+          // "Sales Activities x Companies Performance" (SARCLA 05.11.2026: "build this report as a sub report on ESO and TSA")
+          { name: "Sales activity", href: "/reporting/eso-benchmark/sales-activity", icon: "map" },
           { name: "Registrations", href: "/reporting/eso-benchmark/registrations", icon: "verified" },
           { name: "Shop behaviour", href: "/reporting/eso-benchmark/shop", icon: "inventory" },
           { name: "New customers", href: "/reporting/eso-benchmark/new-customers", icon: "target" },
@@ -111,6 +114,7 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           { name: "Figures", href: "/reporting/tsa-benchmark/figures", icon: "bar" },
           // where ESO has its Visits: TSA calls (SARCLA 01.11.2026: "build instead of visits on TSA a sub report for calls")
           { name: "Calls", href: "/reporting/tsa-benchmark/calls", icon: "chat" },
+          { name: "Sales activity", href: "/reporting/tsa-benchmark/sales-activity", icon: "map" },
           // against the first qualified call, not the visit: TSA calls (SARCLA 01.11.2026: "measuring visits here it's not fair")
           { name: "Registrations", href: "/reporting/tsa-benchmark/registrations", icon: "verified" },
           // SARCLA 01.11.2026: "shop behaviour is finished - move it to TSA like the other one, keeping it default on TSA"

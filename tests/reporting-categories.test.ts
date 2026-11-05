@@ -46,6 +46,7 @@ test("TSA Reports as ESO's: its BUC View first, then its pages in ESO's order - 
   assert.deepEqual(tsa.reports[0].children!.map((r) => [r.name, r.href]), [
     ["Figures", "/reporting/tsa-benchmark/figures"],
     ["Calls", "/reporting/tsa-benchmark/calls"],
+    ["Sales activity", "/reporting/tsa-benchmark/sales-activity"],
     ["Registrations", "/reporting/tsa-benchmark/registrations"],
     ["Shop behaviour", "/reporting/tsa-benchmark/shop"],
     ["New customers", "/reporting/tsa-benchmark/new-customers"],
@@ -65,7 +66,7 @@ test("ESO's side panel as Digital Growth's: one report, BUC View first, then the
   const eso = categoryBySlug("eso")!;
   assert.equal(eso.reports.length, 1);
   assert.equal(eso.reports[0].overview, "BUC View");
-  assert.deepEqual(eso.reports[0].children!.map((k) => k.name), ["Figures", "Visits", "Registrations", "Shop behaviour", "New customers", "Customer development", "Incoming tickets", "GQS", "System tickets"]);
+  assert.deepEqual(eso.reports[0].children!.map((k) => k.name), ["Figures", "Visits", "Sales activity", "Registrations", "Shop behaviour", "New customers", "Customer development", "Incoming tickets", "GQS", "System tickets"]);
   assert.ok(eso.reports[0].children!.every((k) => k.href.startsWith("/reporting/eso-benchmark/")));
 });
 

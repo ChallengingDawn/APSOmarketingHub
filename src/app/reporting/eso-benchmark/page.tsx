@@ -24,6 +24,7 @@ import { CustomerDevPanel } from "./CustomerDev";
 import { ShopPanel } from "./Shop";
 import { TicketsPanel } from "./Tickets";
 import { RegistrationsPanel } from "./Registrations";
+import { SalesActivityPanel } from "./SalesActivity";
 import { useEso, type EsoBenchmark } from "./shared";
 
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
@@ -101,8 +102,9 @@ export default function EsoBucView() {
         <>
           {/* Visits has its own panel since it was rebuilt like the Figures (SARCLA 27.10.2026) - its own read, its own toggle;
               New customers too (29.10.2026) - on the customers' cube, as the Figures; Customer development, Tickets and Shop
-              behaviour too (29.10.2026) - each its own read, rebuilt like Visits; Registrations too (29.10.2026) */}
-          {ESO_PAGES.map((p) => (p.slug === "visits" ? <VisitsPanel key={p.slug} acts={acts} />
+              behaviour too (29.10.2026) - each its own read, rebuilt like Visits; Registrations too (29.10.2026); Sales activity
+              after Visits (05.11.2026), its own read */}
+          {ESO_PAGES.map((p) => (p.slug === "visits" ? <Fragment key={p.slug}><VisitsPanel acts={acts} /><SalesActivityPanel acts={acts} /></Fragment>
             : p.slug === "new-customers" ? <NewCustomersPanel key={p.slug} acts={acts} />
               : p.slug === "customers" ? <CustomerDevPanel key={p.slug} acts={acts} />
                 : p.slug === "tickets" ? <Fragment key={p.slug}><TicketsPanel acts={acts} group="incoming" /><TicketsPanel acts={acts} group="system" /></Fragment>

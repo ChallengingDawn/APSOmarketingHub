@@ -12,6 +12,7 @@ import { FAINT } from "@/app/uc/report/ui";
 import { useActions } from "@/app/reporting/marketing-kpis/tiles/store";
 import { FiguresPanel } from "@/app/reporting/eso-benchmark/Figures";
 import { CallsPanel } from "@/app/reporting/eso-benchmark/Calls";
+import { SalesActivityPanel } from "@/app/reporting/eso-benchmark/SalesActivity";
 import { RegistrationsPanel } from "@/app/reporting/eso-benchmark/Registrations";
 import { CustomerDevPanel } from "@/app/reporting/eso-benchmark/CustomerDev";
 import { ShopPanel } from "@/app/reporting/eso-benchmark/Shop";
@@ -26,6 +27,7 @@ export default function TsaBucView() {
       {/* in ESO's order (SARCLA 01.11.2026: "the order of apps on TSA is not the same as in ESO"), Calls where ESO has Visits */}
       <FiguresPanel acts={acts} home="tsa" />
       <CallsPanel acts={acts} />
+      <SalesActivityPanel acts={acts} home="tsa" />
       <RegistrationsPanel acts={acts} home="tsa" />
       <ShopPanel acts={acts} home="tsa" />
       <NewCustomersPanel acts={acts} home="tsa" />
