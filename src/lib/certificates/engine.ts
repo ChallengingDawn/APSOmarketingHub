@@ -28,10 +28,13 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { esc, mailConfigured, sendHubMail, wrap } from "@/lib/notify/mailer";
 import {
-  ACT, BO_PIPELINE, CATEGORY, DEFAULT_PEOPLE, MAIL_TEXT, REMIND_WORKFLOW_ID, STAGE, WORKFLOW_ID, WORKFLOW_OFF_AT,
+  ACT, BO_PIPELINE, CATEGORY, DEFAULT_PEOPLE, DEFAULT_TIMING, MAIL_TEXT, REMIND_WORKFLOW_ID, STAGE, WORKFLOW_ID, WORKFLOW_OFF_AT,
   certsText, dueShort, excludesCertificates, merge, owed, position, stepsOf,
-  type Branch, type Facts, type MailName, type People, type Phase, type StepName,
+  type Branch, type Facts, type MailName, type People, type Phase, type StepName, type Timing,
 } from "./rules";
+import { createdWorkflow, intakeState } from "@/lib/boDistribution/intakeRun";
+import { INBOX_OWNERS, NOBODY, teamRecipients, type Recipient } from "@/lib/notify/teamRecipients";
+import { CREATED_WORKFLOW } from "@/lib/boDistribution/intake";
 
 const LOCK = 4_107_260;
 const EVERY_MS = 3 * 60_000;
@@ -45,7 +48,14 @@ const KV = {
 };
 
 export type Mode = "off" | "preview" | "live";
-export type Settings = { mode: Mode; people: People; by?: string; at?: string };
+/** The console's mail switches (SARCLA 05.11.2026): the reminders to the owners, the Backoffice Team's reminder on
+ *  every other ticket in Remind, and "❗Back Office Ticket Created" (sent by the way in, boDistribution/intakeRun). */
+export type Mails = { owner: boolean; team: boolean; created: boolean };
+export const DEFAULT_MAILS: Mails = { owner: true, team: true, created: true };
+/** A ticket on hold: the hub leaves it alone until it is released. */
+export type Hold = { by: string; at: string };
+/** teamTo: who gets the Backoffice Team's two mails (never an inbox - notify/teamRecipients); none = not sent */
+export type Settings = { mode: Mode; people: People; mails: Mails; timing: Timing; held: Record<string, Hold>; teamTo: string[]; by?: string; at?: string };
 export type RunInfo = {
   at: string; seconds: number; mode: Mode; writing: boolean; tickets: number; owed: number; written: number; listed: number; failed: number;
   mailed?: number; remind?: "hubspot" | "hub" | "unknown"; error?: string;
@@ -66,6 +76,10 @@ export type OpenTicket = {
   remindStep?: boolean; nextRemind?: boolean;
   /** the last entry into stage Remind Back Office */
   remindAt?: string | null;
+  /** on hold on the console: the hub leaves it alone */
+  held?: boolean;
+  /** its steps in the next 7 days (the Agenda) */
+  upcoming?: { name: StepName; at: string }[];
 };
 /** A reminder to the Backoffice Team: a Back Office ticket without a certificate that entered stage Remind Back Office. */
 export type OthersRow = { at: string; ticketId: string; subject: string | null; enteredAt: string; what: "done" | "would" | "failed"; mail: string };
@@ -83,11 +97,22 @@ const hs = <T>(path: string, method: "GET" | "POST" | "PATCH" = "GET", body?: un
 // ---------------- settings, the workflow ----------------
 export async function getSettings(): Promise<Settings> {
   const s = await kvGet<Partial<Settings>>(KV.settings);
-  return { mode: s?.mode ?? "preview", people: { ...DEFAULT_PEOPLE, ...(s?.people ?? {}) }, by: s?.by, at: s?.at };
+  return {
+    mode: s?.mode ?? "preview", people: { ...DEFAULT_PEOPLE, ...(s?.people ?? {}) }, mails: { ...DEFAULT_MAILS, ...(s?.mails ?? {}) },
+    timing: { ...DEFAULT_TIMING, ...(s?.timing ?? {}) }, held: s?.held ?? {}, teamTo: (s?.teamTo ?? []).filter((id) => !INBOX_OWNERS.has(id)), by: s?.by, at: s?.at,
+  };
 }
-export async function saveSettings(patch: { mode?: Mode; people?: Partial<People> }, by: string): Promise<Settings> {
+export type SettingsPatch = { mode?: Mode; people?: Partial<People>; mails?: Partial<Mails>; timing?: Partial<Timing> | "default"; hold?: string; release?: string; teamTo?: string[] };
+export async function saveSettings(patch: SettingsPatch, by: string): Promise<Settings> {
   const cur = await getSettings();
-  const next: Settings = { mode: patch.mode ?? cur.mode, people: { ...cur.people, ...(patch.people ?? {}) }, by, at: new Date().toISOString() };
+  const held = { ...cur.held };
+  if (patch.hold) held[patch.hold] = { by, at: new Date().toISOString() };
+  if (patch.release) delete held[patch.release];
+  const next: Settings = {
+    mode: patch.mode ?? cur.mode, people: { ...cur.people, ...(patch.people ?? {}) }, mails: { ...cur.mails, ...(patch.mails ?? {}) },
+    timing: patch.timing === "default" ? { ...DEFAULT_TIMING } : { ...cur.timing, ...(patch.timing ?? {}) }, held,
+    teamTo: (patch.teamTo ?? cur.teamTo).filter((id) => !INBOX_OWNERS.has(id)), by, at: new Date().toISOString(),
+  };
   await kvSet(KV.settings, next);
   return next;
 }
@@ -187,12 +212,11 @@ async function othersSwitch(state: RemindState | null): Promise<number | null> {
 const joined = (p: Record<string, string | null>, keys: string[]) => keys.map((k) => (p[k] ?? "").trim()).filter(Boolean).join(" ");
 // 05.11.2026 10:47-11:31: the Backoffice Team's address is a HubSpot inbox - every mail the hub sent there came back as a
 // new Back Office ticket, which the way in mailed again (120 tickets in 44 minutes). The hub never mails it.
-async function sendTeamReminder(t: Obj, to: Owner | undefined): Promise<{ ok: boolean; text: string }> {
-  const who = to?.name ?? "the Backoffice Team";
-  if (!to?.email) return { ok: false, text: `no e-mail address for ${who}` };
-  // the Backoffice Team's address is the inbox: nothing goes out until the reminder has people to go to
-  if (to.id === BO_TEAM) return { ok: true, text: "not sent - the Backoffice Team's address is a HubSpot inbox: a mail there comes back as a new ticket" };
-  if (!mailConfigured()) return { ok: false, text: "the hub cannot send mail" };
+async function sendTeamReminder(t: Obj, to: Recipient[]): Promise<{ ok: boolean; sent: boolean; text: string }> {
+  // the people picked on the console - never the Backoffice Team's address (an inbox); nobody = not sent
+  if (!to.length) return { ok: true, sent: false, text: NOBODY };
+  const who = to.map((r) => r.name).join(", ");
+  if (!mailConfigured()) return { ok: false, sent: false, text: "the hub cannot send mail" };
   const p = t.properties;
   const rows: [string, string][] = ([
     ["Name", p.subject ?? ""], ["Category", joined(p, SUBCATS)], ["Description", p.content ?? ""], ["Article Number", p.article_number ?? ""],
@@ -207,15 +231,15 @@ async function sendTeamReminder(t: Obj, to: Owner | undefined): Promise<{ ok: bo
     footer: "Sent by APSOhub (UC & HubSpot Apps > Certificates), which replaced the workflow Back Office Ticket Remind | Notification.",
   });
   const text = ["Reminder to Review Ticket", "", ...rows.map(([k, v]) => `${k}: ${v}`), "", ticketUrl(id)].join("\n");
-  try { await sendHubMail({ to: to.email, subject: "⚠️REMINDER: Back Office Ticket", html, text }); return { ok: true, text: `mail to ${who}` }; }
-  catch (e) { return { ok: false, text: `mail to ${who} failed: ${(e as Error).message.slice(0, 120)}` }; }
+  try { await sendHubMail({ to: to.map((r) => r.email).join(", "), subject: "⚠️REMINDER: Back Office Ticket", html, text }); return { ok: true, sent: true, text: `mail to ${who}` }; }
+  catch (e) { return { ok: false, sent: false, text: `mail to ${who} failed: ${(e as Error).message.slice(0, 120)}` }; }
 }
 /**
  * Every entry into stage Remind Back Office of a Back Office ticket without a certificate, the last 2 days (and, once
  * the workflow is off, since it was switched off): a mail to the Backoffice Team, once per entry. While the workflow
  * runs, or in Preview: listed once as what the hub would mail.
  */
-async function remindOthers(writing: boolean, offAt: number | null, list: Owner[]): Promise<{ rows: OthersRow[]; mailed: number }> {
+async function remindOthers(writing: boolean, offAt: number | null, mailOn = true): Promise<{ rows: OthersRow[]; mailed: number }> {
   const now = Date.now();
   const since = Math.max(now - 2 * 86400_000, offAt ?? 0);
   const hits = await search([
@@ -229,7 +253,8 @@ async function remindOthers(writing: boolean, offAt: number | null, list: Owner[
     objs.push(...(j.results ?? []));
   }
   const done = new Set((await kvGet<string[]>(KV.othersDone)) ?? []);
-  const to = list.find((o) => o.id === BO_TEAM);
+  const to = await teamRecipients();
+  const names = to.map((r) => r.name).join(", ") || "nobody (pick on the console)";
   const rows: OthersRow[] = [];
   let mailed = 0;
   for (const t of objs) {
@@ -239,13 +264,16 @@ async function remindOthers(writing: boolean, offAt: number | null, list: Owner[
       const key = `${t.id}@${new Date(at).toISOString()}`;
       if (done.has(key)) continue;
       const base = { at: new Date().toISOString(), ticketId: String(t.id), subject: t.properties.subject ?? null, enteredAt: new Date(at).toISOString() };
-      if (writing && offAt !== null && at >= offAt) {
+      if (writing && offAt !== null && at >= offAt && !mailOn) {
+        rows.push({ ...base, what: "would", mail: "not sent - the mail is switched off on the console" });
+        done.add(key);
+      } else if (writing && offAt !== null && at >= offAt) {
         const sent = await sendTeamReminder(t, to);
         rows.push({ ...base, what: sent.ok ? "done" : "failed", mail: sent.text });
-        if (sent.ok) mailed++;
+        if (sent.sent) mailed++;
         done.add(key);
       } else if (!done.has(`~${key}`)) {
-        rows.push({ ...base, what: "would", mail: `would mail ${to?.name ?? "the Backoffice Team"}${offAt === null ? " (the workflow still does)" : ""}` });
+        rows.push({ ...base, what: "would", mail: `would mail ${names}${offAt === null ? " (the workflow still does)" : ""}` });
         done.add(`~${key}`);
       }
     }
@@ -387,12 +415,15 @@ async function run(): Promise<RunInfo> {
   const open: OpenTicket[] = [];
   const now = Date.now();
   const nextDone: Record<string, string[]> = {};
+  const tm = settings.timing;
   for (const f of facts) {
-    const pos = position(f, now);
+    const pos = position(f, now, tm);
     if (!pos) continue;
     info.tickets++;
     const done = new Set(doneMap[f.id] ?? []);
-    const due = owed(f, done, now, WORKFLOW_OFF_AT, remindOffAt);
+    // on hold: nothing owed - what falls due meanwhile is taken when it is released
+    const held = !!settings.held[f.id];
+    const due = held ? [] : owed(f, done, now, WORKFLOW_OFF_AT, remindOffAt, tm);
     if (due.length) {
       info.owed += due.length;
       // the rotation: the next of the list, moved on only by a write that went through
@@ -402,7 +433,9 @@ async function run(): Promise<RunInfo> {
         if (!people.length) return null;
         return people[(rot[who] + used[who]++) % people.length];
       };
-      const { props, note, mail } = merge(f, due, pick, settings.people, remindOffAt);
+      const { props, note, mail: mailed } = merge(f, due, pick, settings.people, remindOffAt);
+      // the owners' reminder mails, switched on the console
+      const mail = settings.mails.owner ? mailed : null;
       const row: Row = { at: new Date().toISOString(), ticketId: f.id, subject: f.subject, phase: pos.phase, steps: due.map((x) => x.name), what: "would", props, note };
       // the mail goes to the owner after the writes (Rose, after the 15 days)
       const mailTo = mail ? list.find((o) => o.id === (props.hubspot_owner_id ?? f.owner)) : undefined;
@@ -413,7 +446,7 @@ async function run(): Promise<RunInfo> {
           if (note) {
             const who = list.find((o) => o.id === settings.people.escalation)?.name ?? "";
             await hs("/crm/v3/objects/notes", "POST", {
-              properties: { hs_timestamp: new Date().toISOString(), hs_note_body: `<p>Dear ${who} more than 15 days and no certificates - please handle it manually</p><p>APSOhub - Certificates</p>` },
+              properties: { hs_timestamp: new Date().toISOString(), hs_note_body: `<p>Dear ${who} more than ${tm.escalationDays} days and no certificates - please handle it manually</p><p>APSOhub - Certificates</p>` },
               associations: [{ to: { id: f.id }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 228 }] }],
             });
           }
@@ -442,10 +475,12 @@ async function run(): Promise<RunInfo> {
       id: f.id, subject: f.subject, company: f.company, order: f.order, certs: [f.certs.join(", "), f.other].filter(Boolean).join(" "), due: f.due,
       stage: f.stage, actions: f.actions, owner: f.owner, expert: f.expert, createdAt: new Date(f.createdAt).toISOString(),
       phase: p2.phase, step: p2.at, next: p2.next ? { name: p2.next.name, at: new Date(p2.next.at).toISOString() } : null,
-      workflowStep: !!p2.at && (owedAt(f, p2.at) ?? now) < WORKFLOW_OFF_AT,
-      remindStep: !!p2.at && isRemind(f, p2.at) && (remindOffAt === null || (owedAt(f, p2.at) ?? now) < remindOffAt),
+      workflowStep: !!p2.at && (owedAt(f, p2.at, tm) ?? now) < WORKFLOW_OFF_AT,
+      remindStep: !!p2.at && isRemind(f, p2.at, tm) && (remindOffAt === null || (owedAt(f, p2.at, tm) ?? now) < remindOffAt),
       nextRemind: !!p2.next?.remind && remindOffAt === null,
       remindAt: f.remindAt ? new Date(f.remindAt).toISOString() : null,
+      held,
+      upcoming: (stepsOf(f, tm)?.steps ?? []).filter((x) => x.at > now && x.at <= now + 7 * 86400_000).map((x) => ({ name: x.name, at: new Date(x.at).toISOString() })),
     });
   }
   // only the tickets still open are remembered
@@ -455,7 +490,7 @@ async function run(): Promise<RunInfo> {
   await kvSet(KV.open, open);
   // the rest of Back Office Ticket Remind: the Backoffice Team's reminder on every other ticket
   try {
-    const others = await remindOthers(writing, await othersSwitch(remind), list);
+    const others = await remindOthers(writing, await othersSwitch(remind), settings.mails.team);
     info.mailed = (info.mailed ?? 0) + others.mailed;
   } catch (e) {
     console.warn(`[certificates] team reminders: ${(e as Error).message}`);
@@ -468,10 +503,10 @@ async function run(): Promise<RunInfo> {
 }
 
 /** When the step the ticket is at fell due (for "done by the workflow" on the page). */
-function owedAt(f: Facts, name: StepName): number | null {
-  return stepsOf(f)?.steps.find((x) => x.name === name)?.at ?? null;
+function owedAt(f: Facts, name: StepName, t: Timing): number | null {
+  return stepsOf(f, t)?.steps.find((x) => x.name === name)?.at ?? null;
 }
-const isRemind = (f: Facts, name: StepName) => !!stepsOf(f)?.steps.find((x) => x.name === name)?.remind;
+const isRemind = (f: Facts, name: StepName, t: Timing) => !!stepsOf(f, t)?.steps.find((x) => x.name === name)?.remind;
 
 /** The year in figures: certificate tickets created and resolved per month, days to resolve. */
 export async function readStats(): Promise<Stats> {
@@ -536,6 +571,43 @@ export function startCertificates() {
   setInterval(tick, EVERY_MS).unref?.();
 }
 
+// ---------------- the console's board: the workflows the hub took over ----------------
+export type BoardRow = {
+  id: string; name: string; what: string; hubspotOn: boolean | null; since: string | null; by: "hub" | "hubspot" | "preview" | "off" | "unknown";
+  today: { written: number; mailed: number; failed: number }; last: string | null; error: string | null; where: string;
+};
+const isToday = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" }) === new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" });
+async function board(settings: Settings, last: RunInfo | null, rows: Row[], others: OthersRow[], on: boolean | null, remind: RemindState | null): Promise<BoardRow[]> {
+  const steps = rows.filter((r) => isToday(r.at));
+  const team = others.filter((r) => isToday(r.at));
+  const created = await createdWorkflow().catch(() => null);
+  const intake = await intakeState().catch(() => null);
+  const intakeToday = (intake?.rows ?? []).filter((r) => isToday(r.at));
+  const live = settings.mode === "live";
+  // the workflow off: the hub does it (Live), lists it (Preview) or nobody does (Off)
+  const hubBy = (): BoardRow["by"] => (live ? "hub" : settings.mode === "preview" ? "preview" : "off");
+  return [
+    {
+      id: WORKFLOW_ID, name: "SARCLA | CERTIFICATES NEW PROCESS", what: "The certificate requests: AVOR, Back Office, conformity experts, the hand-over",
+      hubspotOn: on, since: new Date(WORKFLOW_OFF_AT).toISOString(), by: on === false ? hubBy() : on === true ? "hubspot" : "unknown",
+      today: { written: steps.filter((r) => r.what === "done").length, mailed: steps.filter((r) => r.mail && !r.mailFailed && r.what === "done").length, failed: steps.filter((r) => r.what === "failed").length },
+      last: last?.at ?? null, error: last?.error ?? null, where: "#tickets",
+    },
+    {
+      id: REMIND_WORKFLOW_ID, name: "Back Office Ticket Remind | Notification", what: "The Back Office's certificate reminders, and the Backoffice Team's reminder on every other ticket in Remind",
+      hubspotOn: remind ? remind.on : null, since: remind && !remind.on ? remind.updatedAt : null, by: remind && !remind.on ? hubBy() : remind?.on ? "hubspot" : "unknown",
+      today: { written: team.filter((r) => r.what === "done").length, mailed: team.filter((r) => r.mail.startsWith("mail to")).length, failed: team.filter((r) => r.what === "failed").length },
+      last: last?.at ?? null, error: null, where: "#activity",
+    },
+    {
+      id: CREATED_WORKFLOW.id, name: "SARCLA | Back Office Ticket Created | Notification", what: "The way in of every Back Office ticket: subject, requester, Backoffice Team, the mail - before the distribution assigns",
+      hubspotOn: created ? created.on : null, since: intake?.offAt ?? null, by: created && !created.on ? "hub" : created?.on ? "hubspot" : "unknown",
+      today: { written: intakeToday.filter((r) => r.what === "done").length, mailed: intakeToday.filter((r) => (r.mailText ?? "").startsWith("mail to")).length, failed: intakeToday.filter((r) => r.what === "failed").length },
+      last: intake?.last?.at ?? null, error: intake?.last?.error ?? null, where: "/uc/bo-distribution#settings",
+    },
+  ];
+}
+
 // ---------------- the page ----------------
 export async function pageState() {
   const [settings, last, rows, open, stats, on, remind, kept, othersOff, othersRows] = await Promise.all([
@@ -558,5 +630,6 @@ export async function pageState() {
     mailReady: mailConfigured(),
     // the Backoffice Team's reminder on every other ticket: the hub's once the workflow is off
     others: { offAt: remind && !remind.on ? othersOff?.offAt ?? null : null, rows: (othersRows ?? []).slice(0, 150) },
+    board: await board(settings, last ?? null, rows ?? [], othersRows ?? [], on, remind),
   };
 }

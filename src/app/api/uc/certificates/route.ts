@@ -3,14 +3,18 @@
 // GET: the mode, the people, the last look, the open tickets with their step, what the hub did (or would do), the year.
 // PUT (admins) {mode} or {people}: off / preview (lists, writes nothing) / live (writes while the workflow is off);
 //      the Back Office rotation, the conformity experts, who gets a ticket after 15 days.
+// PUT (admins) {mails: {owner?, team?, created?}} the console's mail switches; {timing: {...} | "default"} the times
+//      and waits (rules.ts TIMING_BOUNDS); {hold: ticketId} / {release: ticketId} - the hub leaves a ticket alone;
+//      {teamTo: [ownerId]} who gets the Backoffice Team's two mails (never a queue user - its address is an inbox).
 // POST (admins) {action: "run"} = look now.
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { query } from "@/lib/db/client";
 import { describeIntegrationError } from "@/lib/integrations/status";
-import { pageState, runOnce, saveSettings, type Mode } from "@/lib/certificates/engine";
-import type { People } from "@/lib/certificates/rules";
+import { pageState, runOnce, saveSettings, type Mails, type Mode, type SettingsPatch } from "@/lib/certificates/engine";
+import { timingProblem, type People, type Timing } from "@/lib/certificates/rules";
+import { INBOX_OWNERS } from "@/lib/notify/teamRecipients";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,8 +42,24 @@ export async function PUT(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
-  const b = (await req.json().catch(() => ({}))) as { mode?: Mode; people?: Partial<People> };
+  const b = (await req.json().catch(() => ({}))) as { mode?: Mode; people?: Partial<People>; mails?: Partial<Mails>; timing?: Partial<Timing> | "default"; hold?: string; release?: string; teamTo?: string[] };
   if (b.mode !== undefined && !["off", "preview", "live"].includes(b.mode)) return NextResponse.json({ ok: false, error: "Unknown mode" }, { status: 400 });
+  const patch: SettingsPatch = { mode: b.mode };
+  if (b.mails !== undefined) {
+    const m: Partial<Mails> = {};
+    for (const k of ["owner", "team", "created"] as const) if (b.mails[k] !== undefined) { if (typeof b.mails[k] !== "boolean") return NextResponse.json({ ok: false, error: `mails.${k}: on or off` }, { status: 400 }); m[k] = b.mails[k]; }
+    patch.mails = m;
+  }
+  if (b.timing !== undefined) {
+    if (b.timing !== "default") { const why = timingProblem(b.timing); if (why) return NextResponse.json({ ok: false, error: `Timing - ${why}` }, { status: 400 }); }
+    patch.timing = b.timing;
+  }
+  if (b.teamTo !== undefined) {
+    if (!Array.isArray(b.teamTo) || b.teamTo.length > 12 || !b.teamTo.every((x) => typeof x === "string" && /^\d+$/.test(x))) return NextResponse.json({ ok: false, error: "Recipients: up to 12 owners" }, { status: 400 });
+    if (b.teamTo.some((x) => INBOX_OWNERS.has(x))) return NextResponse.json({ ok: false, error: "Not a queue user - its address is a HubSpot inbox, a mail there comes back as a ticket" }, { status: 400 });
+    patch.teamTo = b.teamTo;
+  }
+  for (const k of ["hold", "release"] as const) if (b[k] !== undefined) { if (!/^\d+$/.test(String(b[k]))) return NextResponse.json({ ok: false, error: `${k}: a ticket id` }, { status: 400 }); patch[k] = String(b[k]); }
   let people: Partial<People> | undefined;
   if (b.people !== undefined) {
     people = {};
@@ -47,7 +67,8 @@ export async function PUT(req: NextRequest) {
     if (b.people.experts !== undefined) { if (!isIds(b.people.experts)) return NextResponse.json({ ok: false, error: "Conformity experts: at least one owner" }, { status: 400 }); people.experts = b.people.experts; }
     if (b.people.escalation !== undefined) { if (!/^\d+$/.test(String(b.people.escalation))) return NextResponse.json({ ok: false, error: "After 15 days: one owner" }, { status: 400 }); people.escalation = String(b.people.escalation); }
   }
-  return NextResponse.json({ ok: true, data: await saveSettings({ mode: b.mode, people }, await me(access.userId)) });
+  patch.people = people;
+  return NextResponse.json({ ok: true, data: await saveSettings(patch, await me(access.userId)) });
 }
 
 export async function POST(req: NextRequest) {

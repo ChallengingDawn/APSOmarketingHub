@@ -72,6 +72,40 @@ export const DEFAULT_PEOPLE: People = { backOffice: ["30050251", "1229976030"], 
 export const H = 3600_000;
 export const D = 24 * H;
 
+/**
+ * The times and waits - the workflows' by default, changed on the console (SARCLA 05.11.2026, "timings editable").
+ * The subjects keep the workflows' words ("48 hours", "more than one week") whatever the waits.
+ */
+export type Timing = {
+  /** hour (Swiss) of "3 days for delivery" and of the Back Office's reminders */
+  boHour: number;
+  /** days before the delivery date for "create the certificate" */
+  boDaysBefore: number;
+  /** hours between the Back Office's reminders after the delivery date */
+  boEveryH: number;
+  /** hour (Swiss) of "delivery date is today" for the expert */
+  expertHour: number;
+  /** hours between the expert's "late" steps */
+  lateEveryH: number;
+  /** hours between the reminders to AVOR */
+  avorEveryH: number;
+  /** days after the last reminder before the ticket goes to the hand-over person */
+  escalationDays: number;
+};
+export const DEFAULT_TIMING: Timing = { boHour: 7, boDaysBefore: 3, boEveryH: 48, expertHour: 5, lateEveryH: 48, avorEveryH: 48, escalationDays: 15 };
+/** The bounds the console accepts - null = fine. */
+export const TIMING_BOUNDS: Record<keyof Timing, [number, number]> = {
+  boHour: [0, 23], boDaysBefore: [0, 14], boEveryH: [4, 240], expertHour: [0, 23], lateEveryH: [4, 240], avorEveryH: [4, 240], escalationDays: [1, 60],
+};
+export function timingProblem(t: Partial<Timing>): string | null {
+  for (const [k, v] of Object.entries(t)) {
+    const b = TIMING_BOUNDS[k as keyof Timing];
+    if (!b) return `unknown: ${k}`;
+    if (typeof v !== "number" || !Number.isInteger(v) || v < b[0] || v > b[1]) return `${k}: a whole number from ${b[0]} to ${b[1]}`;
+  }
+  return null;
+}
+
 /** What the hub reads of a ticket. Times in ms. */
 export type Facts = {
   id: string;
@@ -176,6 +210,31 @@ export const STEP_WORDS: Record<StepName, string> = {
   "merge-clear": "Merged - Actions for certificates emptied",
 };
 
+const hh = (h: number) => `${String(h).padStart(2, "0")}:00`;
+const span = (h: number) => (h % 24 === 0 ? `${h / 24} day${h === 24 ? "" : "s"}` : `${h} h`);
+/** What each step does, with the console's times. */
+export function stepWords(name: StepName, t: Timing = DEFAULT_TIMING): string {
+  const w: Record<StepName, string> = {
+    ...STEP_WORDS,
+    avor48: `${span(t.avorEveryH)} without the new article - remind AVOR (subject)`,
+    avor96: `${span(2 * t.avorEveryH)} without the new article - remind AVOR (subject)`,
+    avorWeek: `${span(3 * t.avorEveryH)} without the new article - "over a week" (subject)`,
+    avorRose: `${t.escalationDays} days more - the hand-over person, note: handle it manually`,
+    bo3days: `${t.boDaysBefore} days before delivery, ${hh(t.boHour)} - create the certificate (subject, stage Remind Back Office, mail to the owner)`,
+    boToday: `Delivery date, ${hh(t.boHour)} - certificate due today (subject, mail to the owner)`,
+    bo48: `${span(t.boEveryH)} after the delivery date, no certificate (subject, mail to the owner)`,
+    bo96: `${span(2 * t.boEveryH)} after the delivery date (subject, mail to the owner)`,
+    boWeek: `${span(3 * t.boEveryH)} after - "more than a week" (subject, mail to the owner)`,
+    boRose: `${t.escalationDays} days more - the hand-over person, note and mail`,
+    today: `Delivery date, ${hh(t.expertHour)} - delivery date is today (subject, stage Remind Back Office)`,
+    late: `Not sent ${span(t.lateEveryH)} after - certificate is late (subject, stage Remind Back Office)`,
+    late96: `${span(t.lateEveryH)} later, not sent (subject)`,
+    lateWeek: `${span(t.lateEveryH)} later again - "over a week" (subject)`,
+    lateRose: `${t.escalationDays} days more - the hand-over person, note: handle it manually`,
+  };
+  return w[name];
+}
+
 // ---------------- the Remind workflow's trigger ----------------
 /** A HubSpot filter branch, as the flows API gives it */
 export type Branch = { filterBranchType?: string; filters?: { property?: string; operation?: { operator?: string } }[]; filterBranches?: Branch[] };
@@ -243,7 +302,7 @@ const remind = (s: Step): Step => ({ ...s, remind: true });
 const stage = (s: string): Act => ({ kind: "set", prop: "hs_pipeline_stage", value: s });
 
 /** Every step of the ticket's phase, in order, with the moment each falls due. */
-export function stepsOf(f: Facts, settleMs = 2 * 60_000): { phase: Phase; anchor: number; steps: Step[] } | null {
+export function stepsOf(f: Facts, t: Timing = DEFAULT_TIMING, settleMs = 2 * 60_000): { phase: Phase; anchor: number; steps: Step[] } | null {
   const p = phaseOf(f);
   if (!p) return null;
   const { phase, anchor: a } = p;
@@ -252,38 +311,40 @@ export function stepsOf(f: Facts, settleMs = 2 * 60_000): { phase: Phase; anchor
     if (f.certs.includes(EC1935)) s.push(step(phase, a, "start-avor", a + settleMs, [stage(STAGE.certificates), subj(HEAD.std), { kind: "ownerFrom", prop: "back_office_ticket_requester" }, { kind: "set", prop: "actions_for_certificates", value: ACT.avor }]));
     else s.push(step(phase, a, "start-bo", a + settleMs, [stage(STAGE.certificates), subj(HEAD.std), { kind: "rotate", who: "backOffice", prop: "hubspot_owner_id" }]));
   } else if (phase === "avor") {
-    s.push(step(phase, a, "avor48", a + 48 * H, [subj(HEAD.avor48)]));
-    s.push(step(phase, a, "avor96", a + 96 * H, [subj(HEAD.avor96)]));
-    s.push(step(phase, a, "avorWeek", a + 144 * H, [subj(HEAD.avorWeek)]));
-    s.push(step(phase, a, "avorRose", a + 144 * H + 15 * D, [{ kind: "escalate" }]));
+    s.push(step(phase, a, "avor48", a + t.avorEveryH * H, [subj(HEAD.avor48)]));
+    s.push(step(phase, a, "avor96", a + 2 * t.avorEveryH * H, [subj(HEAD.avor96)]));
+    s.push(step(phase, a, "avorWeek", a + 3 * t.avorEveryH * H, [subj(HEAD.avorWeek)]));
+    s.push(step(phase, a, "avorRose", a + 3 * t.avorEveryH * H + t.escalationDays * D, [{ kind: "escalate" }]));
   } else if (phase === "backOffice" || phase === "merged") {
     if (phase === "merged") s.push(step(phase, a, "merge-clear", a, [{ kind: "set", prop: "actions_for_certificates", value: "" }]));
     else if (f.actions === ACT.article) s.push(step(phase, a, "bo-entry", a, [stage(STAGE.certificates), subj(HEAD.std), { kind: "rotate", who: "backOffice", prop: "hubspot_owner_id" }]));
     // no delivery date: the workflow stopped there
     if (f.due) {
-      const t3 = Math.max(swiss(f.due, 7, 0, -3), a);
+      const t3 = Math.max(swiss(f.due, t.boHour, 0, -t.boDaysBefore), a);
       s.push(step(phase, a, "bo3days", t3, [subj(HEAD.bo3days), stage(STAGE.remind), mail("bo3days")]));
       // the Remind workflow's chain, on the delivery date (07:00) and after - never before the 3-days step
-      const day = swiss(f.due, 7);
+      const day = swiss(f.due, t.boHour);
+      const e = t.boEveryH * H;
       const at = (x: number) => Math.max(x, t3);
       s.push(remind(step(phase, a, "boToday", at(day), [subj(HEAD.boToday), mail("boToday")])));
-      s.push(remind(step(phase, a, "bo48", at(day + 48 * H), [subj(HEAD.bo48), mail("bo48")])));
-      s.push(remind(step(phase, a, "bo96", at(day + 96 * H), [subj(HEAD.bo96), mail("bo96")])));
-      s.push(remind(step(phase, a, "boWeek", at(day + 144 * H), [subj(HEAD.boWeek), mail("boWeek")])));
-      s.push(remind(step(phase, a, "boRose", at(day + 144 * H + 15 * D), [{ kind: "escalate" }, subj(HEAD.boWeek), mail("boRose")])));
+      s.push(remind(step(phase, a, "bo48", at(day + e), [subj(HEAD.bo48), mail("bo48")])));
+      s.push(remind(step(phase, a, "bo96", at(day + 2 * e), [subj(HEAD.bo96), mail("bo96")])));
+      s.push(remind(step(phase, a, "boWeek", at(day + 3 * e), [subj(HEAD.boWeek), mail("boWeek")])));
+      s.push(remind(step(phase, a, "boRose", at(day + 3 * e + t.escalationDays * D), [{ kind: "escalate" }, subj(HEAD.boWeek), mail("boRose")])));
     }
   } else if (phase === "expert") {
     s.push(step(phase, a, "expert-entry", a, [stage(STAGE.certificates), { kind: "rotate", who: "experts", prop: "conformity_expert", alsoOwner: true }]));
-    const day = f.due ? swiss(f.due, 5) : null;
+    const day = f.due ? swiss(f.due, t.expertHour) : null;
+    const e = t.lateEveryH * H;
     let late = a;
     if (day !== null && day > a) {
       s.push(step(phase, a, "today", day, [subj(HEAD.today), stage(STAGE.remind)]));
-      late = day + 48 * H;
+      late = day + e;
     }
     s.push(step(phase, a, "late", late, [subj(HEAD.late), stage(STAGE.remind)]));
-    s.push(step(phase, a, "late96", late + 48 * H, [subj(HEAD.late96)]));
-    s.push(step(phase, a, "lateWeek", late + 96 * H, [subj(HEAD.lateWeek)]));
-    s.push(step(phase, a, "lateRose", late + 96 * H + 15 * D, [{ kind: "escalate" }]));
+    s.push(step(phase, a, "late96", late + e, [subj(HEAD.late96)]));
+    s.push(step(phase, a, "lateWeek", late + 2 * e, [subj(HEAD.lateWeek)]));
+    s.push(step(phase, a, "lateRose", late + 2 * e + t.escalationDays * D, [{ kind: "escalate" }]));
   } else if (phase === "sent") {
     s.push(step(phase, a, "close", a, [subj(HEAD.std), stage(STAGE.resolved)]));
   }
@@ -295,15 +356,15 @@ export function stepsOf(f: Facts, settleMs = 2 * 60_000): { phase: Phase; anchor
  * done yet. A step that fell due while the workflow ran was the workflow's. The Remind workflow's steps only from the
  * moment it no longer takes certificate tickets (remindOffAt; null = it still does - they stay HubSpot's).
  */
-export function owed(f: Facts, done: Set<string>, now: number, offAt = WORKFLOW_OFF_AT, remindOffAt: number | null = null): Step[] {
-  const p = stepsOf(f);
+export function owed(f: Facts, done: Set<string>, now: number, offAt = WORKFLOW_OFF_AT, remindOffAt: number | null = null, t: Timing = DEFAULT_TIMING): Step[] {
+  const p = stepsOf(f, t);
   if (!p) return [];
   return p.steps.filter((x) => x.at <= now && x.at >= offAt && !done.has(x.key) && (!x.remind || (remindOffAt !== null && x.at >= remindOffAt)));
 }
 
 /** The step the ticket is at (the last that fell due) and the next one, for the page. */
-export function position(f: Facts, now: number): { phase: Phase; at: StepName | null; next: Step | null } | null {
-  const p = stepsOf(f);
+export function position(f: Facts, now: number, t: Timing = DEFAULT_TIMING): { phase: Phase; at: StepName | null; next: Step | null } | null {
+  const p = stepsOf(f, t);
   if (!p) return null;
   const past = p.steps.filter((x) => x.at <= now);
   return { phase: p.phase, at: past.length ? past[past.length - 1].name : null, next: p.steps.find((x) => x.at > now) ?? null };

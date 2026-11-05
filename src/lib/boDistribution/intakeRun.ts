@@ -16,6 +16,7 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { ownerNames } from "@/lib/integrations/erosion";
 import { FROM, addressOf, esc, mailConfigured, sendHubMail, wrap } from "@/lib/notify/mailer";
+import { NOBODY, teamRecipients } from "@/lib/notify/teamRecipients";
 import { BO_TEAM, CREATED_WORKFLOW, MAIL_SUBJECT, STAGE_ASSIGNED, STAGE_NEW, intakeOf, type Intake, type IntakeFacts } from "./intake";
 
 const BO = "1726786777";
@@ -110,24 +111,15 @@ function factsOf(p: Record<string, string | null>, email: Email | null, names: M
 // ---------------- the mail ----------------
 const HUB_URL = process.env.HUB_PUBLIC_URL ?? "https://apsomarketinghub-dev.awssandbox.angst-pfister.com";
 const ticketUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/26492587/record/0-5/${id}`;
-let teamMail: { at: number; email: string | null; name: string } | null = null;
-async function backofficeTeam(): Promise<{ email: string | null; name: string }> {
-  if (teamMail && Date.now() - teamMail.at < 60 * 60_000) return teamMail;
-  const o = await hs<{ email?: string; firstName?: string; lastName?: string }>(`/crm/v3/owners/${BO_TEAM}?idProperty=id&archived=false`).catch(() => null);
-  teamMail = { at: Date.now(), email: o?.email ?? null, name: [o?.firstName, o?.lastName].filter(Boolean).join(" ") || "Backoffice Team" };
-  return teamMail;
-}
 const joined = (p: Record<string, string | null>, keys: string[]) => keys.map((k) => (p[k] ?? "").trim()).filter(Boolean).join(" ");
 const rowHtml = (k: string, v: string) =>
   `<tr><td style="padding:5px 12px 5px 0;color:#8b97ac;font-size:13px;white-space:nowrap;vertical-align:top">${esc(k)}</td><td style="padding:5px 0;font-size:14px;color:#15223a">${esc(v)}</td></tr>`;
 // 05.11.2026 10:47-11:31: the Backoffice Team's address is a HubSpot inbox - every mail the hub sent there came back as a
-// new Back Office ticket, which the way in mailed again (120 tickets in 44 minutes). The hub never mails it.
-export const TEAM_INBOX_NOTE = "not sent - the Backoffice Team's address is a HubSpot inbox: a mail there comes back as a new ticket";
+// new Back Office ticket, which the way in mailed again (120 tickets in 44 minutes). The mail goes to the people picked
+// on Certificates > Console - never an inbox (notify/teamRecipients); nobody picked = not sent.
 async function mailTeam(id: string, p: Record<string, string | null>, subject: string): Promise<{ ok: boolean; text: string }> {
-  const team = await backofficeTeam();
-  if (!team.email) return { ok: false, text: `no e-mail address for ${team.name}` };
-  // the only address this mail ever had is the inbox - nothing goes out until it has people to go to
-  if (team.email) return { ok: true, text: TEAM_INBOX_NOTE };
+  const to = await teamRecipients();
+  if (!to.length) return { ok: true, text: NOBODY };
   if (!mailConfigured()) return { ok: false, text: "the hub cannot send mail" };
   const rows: [string, string][] = ([
     ["Name", subject], ["Category", joined(p, SUBCATS)], ["Description", p.content ?? ""], ["Article Number", p.article_number ?? ""],
@@ -141,8 +133,9 @@ async function mailTeam(id: string, p: Record<string, string | null>, subject: s
     footer: "Sent by APSOhub (UC & HubSpot Apps > Back Office distribution), which replaced the workflow SARCLA | Back Office Ticket Created | Notification.",
   });
   const text = ["Ticket Information", "", ...rows.map(([k, v]) => `${k}: ${v}`), "", ticketUrl(id)].join("\n");
-  try { await sendHubMail({ to: team.email, subject: MAIL_SUBJECT, html, text }); return { ok: true, text: `mail to ${team.name}` }; }
-  catch (e) { return { ok: false, text: `mail to ${team.name} failed: ${(e as Error).message.slice(0, 120)}` }; }
+  const who = to.map((r) => r.name).join(", ");
+  try { await sendHubMail({ to: to.map((r) => r.email).join(", "), subject: MAIL_SUBJECT, html, text }); return { ok: true, text: `mail to ${who}` }; }
+  catch (e) { return { ok: false, text: `mail to ${who} failed: ${(e as Error).message.slice(0, 120)}` }; }
 }
 
 // ---------------- shadow: the hub's answer against the workflow's writes ----------------
@@ -236,7 +229,10 @@ export async function intakePass(): Promise<{ pending: Set<string>; failed: bool
         const row: IntakeRow = { ...base, subjectBefore: p.subject ?? null, branch: want.branch, team: want.team, props: want.props, mail: want.mail, what: "done" };
         try {
           if (Object.keys(want.props).length) await hs(`/crm/v3/objects/tickets/${id}`, "PATCH", { properties: want.props });
-          if (want.mail) {
+          // the console's switch (Certificates > Console, "❗Back Office Ticket Created")
+          const mailOn = (await kvGet<{ mails?: { created?: boolean } }>("certificates:settings"))?.mails?.created !== false;
+          if (want.mail && !mailOn) row.mailText = "mail switched off on the console";
+          else if (want.mail) {
             const sent = await mailTeam(id, p, want.props.subject ?? p.subject ?? "");
             row.mailText = sent.text;
             if (!sent.ok) row.error = sent.text;

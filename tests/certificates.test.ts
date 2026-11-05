@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ACT, CATEGORY, DEFAULT_PEOPLE, H, D, HEAD, STAGE, WORKFLOW_OFF_AT, excludesCertificates, merge, owed, phaseOf, stepsOf, subjectOf, swiss, type Facts } from "../src/lib/certificates/rules";
+import { ACT, CATEGORY, DEFAULT_PEOPLE, DEFAULT_TIMING, H, D, HEAD, STAGE, WORKFLOW_OFF_AT, excludesCertificates, merge, owed, phaseOf, stepWords, stepsOf, subjectOf, swiss, timingProblem, type Facts } from "../src/lib/certificates/rules";
 
 const base = (x: Partial<Facts>): Facts => ({
   id: "1", stage: STAGE.certificates, actions: null, actionsAt: null, actionsBy: "CRM_UI", actionsBefore: null,
@@ -167,4 +167,19 @@ test("the switch-over: \"Which certificate is unknown\" in every branch of the R
   assert.equal(excludesCertificates({ filterBranchType: "OR", filters: [], filterBranches: [{ filterBranchType: "AND", filters: [stage, unknown] }, { filterBranchType: "AND", filters: [stage] }] }), false);
   assert.equal(excludesCertificates({ filterBranchType: "OR", filters: [], filterBranches: [{ filterBranchType: "AND", filters: [stage, { property: "which_certificate__", operation: { operator: "IS_KNOWN" } }] }] }), false);
   assert.equal(excludesCertificates(undefined), false);
+});
+
+test("the console's times: the steps move with them - the workflows' by default", () => {
+  const b = Date.parse("2026-11-04T23:00:00Z");
+  const f = base({ actions: ACT.article, actionsAt: b, due: "2026-11-09" });
+  const t = { ...DEFAULT_TIMING, boHour: 9, boDaysBefore: 2, boEveryH: 24, escalationDays: 10 };
+  assert.deepEqual(stepsOf(f, t)!.steps.filter((s) => s.name !== "bo-entry").map((s) => [s.name, new Date(s.at).toISOString()]), [
+    ["bo3days", "2026-11-07T08:00:00.000Z"], ["boToday", "2026-11-09T08:00:00.000Z"], ["bo48", "2026-11-10T08:00:00.000Z"],
+    ["bo96", "2026-11-11T08:00:00.000Z"], ["boWeek", "2026-11-12T08:00:00.000Z"], ["boRose", "2026-11-22T08:00:00.000Z"],
+  ]);
+  // the defaults are the workflows' own
+  assert.deepEqual(stepsOf(f)!.steps.map((s) => s.at), stepsOf(f, DEFAULT_TIMING)!.steps.map((s) => s.at));
+  assert.ok(stepWords("bo3days", t).startsWith("2 days before delivery, 09:00"));
+  assert.equal(timingProblem({ boHour: 25 }), "boHour: a whole number from 0 to 23");
+  assert.equal(timingProblem({ escalationDays: 15, lateEveryH: 48 }), null);
 });
