@@ -441,7 +441,7 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
       <GlassCard>
         <CardTitle icon={<HistoryOutlinedIcon />} tint="slate" title="Still in HubSpot, next to it" note="Both stay on" />
         <Box component="ul" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.5, fontSize: "0.82rem", color: INK }}>
-          <li><b>SARCLA | Back Office Ticket Created | Notification</b> - the way in: it sets the requester on a new certificate request (and the subject, owner and mail on every other Back Office ticket). Its step &quot;enrol in the certificates workflow&quot; does nothing now - the hub starts the request within 3 minutes, with the requester already set.</li>
+          <li><b>SARCLA | Back Office Ticket Created | Notification</b> - the way in: it sets the requester on a new certificate request (and the subject, owner and mail on every other Back Office ticket). Its step &quot;enrol in the certificates workflow&quot; does nothing now - the hub starts the request within 3 minutes, with the requester already set. The hub has its copy under Back Office distribution &gt; Settings (&quot;The way in&quot;): compared while the workflow runs, the hub&apos;s once it is switched off.</li>
           <li><b>{REMIND_NAME}</b> - {d.others.offAt ? "switched off: both its parts are the hub's - the certificate reminders and the reminder to the Backoffice Team." : d.remind && !d.remind.takesCerts ? "its certificates part is the hub's; its reminder to the Backoffice Team on every other ticket is the hub's once the workflow is switched off." : "its certificates branch (the mails to the owner after the 3 days) is the hub's from the switch-over above."}</li>
         </Box>
       </GlassCard>

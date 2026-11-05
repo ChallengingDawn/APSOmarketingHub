@@ -20,6 +20,7 @@ import { FIXES, classifyTicketV2, type ClassificationV2 } from "./classifierV2";
 import { AI_PER_DAY, AI_PER_RUN, aiClassify, type AiAnswer } from "./aiClassify";
 import { getAnthropic } from "@/lib/ai/claude";
 import { hubspotToken } from "@/lib/integrations/status";
+import { intakePass } from "./intakeRun";
 import { NOTE_NO_O, anysealsToFolder, gqsTaskFor, mergeIntoGqs, note, noteNoMatch, oNumber, salesSplit, type Call } from "./codeSteps";
 import {
   BO, BO_OPEN_STAGES, BO_OPEN_STAGES_HUB, CHAT_CALL_BACK, DEFAULT_PRIORITY, GQS, GQS_OPEN_STAGES_LEGACY, LEGACY, PEOPLE, QUEUE_OWNERS, ROSTER_LABEL, SALES_SPLIT_SENDERS, STAGE, SUB,
@@ -1090,6 +1091,10 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
   const cursor = (await kvGet<number>(KV.cursor)) ?? Date.now() - 30 * 60_000;
   const found = await entries(cursor - OVERLAP_MS);
   info.read = found.length;
+  // THE WAY IN first (intakeRun.ts, SARCLA 05.11.2026): "Back Office Ticket Created | Notification" - with the workflow
+  // off the hub writes it, and a Back Office ticket is decided only after its way in (the queue owner it sets is what
+  // hands it to actBo); with the workflow on, the hub only compares
+  const intake = signal?.aborted ? { pending: new Set<string>(), failed: false, live: null } : await intakePass();
   const shared: Shared = {};
   const touched = new Map<string, Row[]>();
   const rowsFor = async (d: string) => touched.get(d) ?? (touched.set(d, await rowsOfDay(d)), touched.get(d)!);
@@ -1100,6 +1105,8 @@ async function run(signal?: AbortSignal): Promise<RunInfo> {
     const key = `${e.id}:${e.enteredAt}`;
     // the workflow reads the ticket a minute after entry: so does the hub (the next run, 5-minute overlap, picks it up)
     if (Date.now() - Date.parse(e.enteredAt) < 50_000) continue;
+    // its way in not written yet: the next minute (the pass could not look: tickets under 5 minutes wait)
+    if (e.pipeline === "bo" && (intake.pending.has(e.id) || (intake.failed && intake.live !== false && Date.now() - Date.parse(e.enteredAt) < 5 * 60_000))) continue;
     newest = Math.max(newest, Date.parse(e.enteredAt));
     if (rows.some((r) => r.key === key)) continue;
     try {
