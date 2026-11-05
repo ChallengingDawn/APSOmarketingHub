@@ -15,7 +15,7 @@
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { ownerNames } from "@/lib/integrations/erosion";
-import { esc, mailConfigured, sendHubMail, wrap } from "@/lib/notify/mailer";
+import { FROM, addressOf, esc, mailConfigured, sendHubMail, wrap } from "@/lib/notify/mailer";
 import { BO_TEAM, CREATED_WORKFLOW, MAIL_SUBJECT, STAGE_ASSIGNED, STAGE_NEW, intakeOf, type Intake, type IntakeFacts } from "./intake";
 
 const BO = "1726786777";
@@ -120,9 +120,14 @@ async function backofficeTeam(): Promise<{ email: string | null; name: string }>
 const joined = (p: Record<string, string | null>, keys: string[]) => keys.map((k) => (p[k] ?? "").trim()).filter(Boolean).join(" ");
 const rowHtml = (k: string, v: string) =>
   `<tr><td style="padding:5px 12px 5px 0;color:#8b97ac;font-size:13px;white-space:nowrap;vertical-align:top">${esc(k)}</td><td style="padding:5px 0;font-size:14px;color:#15223a">${esc(v)}</td></tr>`;
+// 05.11.2026 10:47-11:31: the Backoffice Team's address is a HubSpot inbox - every mail the hub sent there came back as a
+// new Back Office ticket, which the way in mailed again (120 tickets in 44 minutes). The hub never mails it.
+export const TEAM_INBOX_NOTE = "not sent - the Backoffice Team's address is a HubSpot inbox: a mail there comes back as a new ticket";
 async function mailTeam(id: string, p: Record<string, string | null>, subject: string): Promise<{ ok: boolean; text: string }> {
   const team = await backofficeTeam();
   if (!team.email) return { ok: false, text: `no e-mail address for ${team.name}` };
+  // the only address this mail ever had is the inbox - nothing goes out until it has people to go to
+  if (team.email) return { ok: true, text: TEAM_INBOX_NOTE };
   if (!mailConfigured()) return { ok: false, text: "the hub cannot send mail" };
   const rows: [string, string][] = ([
     ["Name", subject], ["Category", joined(p, SUBCATS)], ["Description", p.content ?? ""], ["Article Number", p.article_number ?? ""],
@@ -218,6 +223,12 @@ export async function intakePass(): Promise<{ pending: Set<string>; failed: bool
           continue;
         }
         const emails = await emailsOf(id);
+        // a mail of the hub's own that reached an inbox: never taken in, never mailed again
+        if (emails.some((e) => (e.from ?? "").toLowerCase() === addressOf(FROM).toLowerCase())) {
+          rows.unshift({ ...base, subjectBefore: p.subject ?? null, branch: null, team: null, props: {}, mail: false, what: "skipped", why: "made from a mail of the hub's own - left alone" });
+          done.add(id);
+          continue;
+        }
         if ((p.source_type ?? "") === "EMAIL" && !emails.length && age < EMAIL_WAIT_MS) { pending.add(id); continue; }
         const email = [...emails].sort((a, b) => b.modified - a.modified)[0] ?? null;
         const want = intakeOf(factsOf(p, email, names, p.hubspot_owner_id ?? null));

@@ -185,9 +185,13 @@ async function othersSwitch(state: RemindState | null): Promise<number | null> {
   return Date.parse(off);
 }
 const joined = (p: Record<string, string | null>, keys: string[]) => keys.map((k) => (p[k] ?? "").trim()).filter(Boolean).join(" ");
+// 05.11.2026 10:47-11:31: the Backoffice Team's address is a HubSpot inbox - every mail the hub sent there came back as a
+// new Back Office ticket, which the way in mailed again (120 tickets in 44 minutes). The hub never mails it.
 async function sendTeamReminder(t: Obj, to: Owner | undefined): Promise<{ ok: boolean; text: string }> {
   const who = to?.name ?? "the Backoffice Team";
   if (!to?.email) return { ok: false, text: `no e-mail address for ${who}` };
+  // the Backoffice Team's address is the inbox: nothing goes out until the reminder has people to go to
+  if (to.id === BO_TEAM) return { ok: true, text: "not sent - the Backoffice Team's address is a HubSpot inbox: a mail there comes back as a new ticket" };
   if (!mailConfigured()) return { ok: false, text: "the hub cannot send mail" };
   const p = t.properties;
   const rows: [string, string][] = ([
