@@ -86,6 +86,9 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           { name: "Customer development", href: "/reporting/eso-benchmark/customers", icon: "groups" },
           // the tickets as two apps (SARCLA 30.10.2026: "split in 2 apps - Incoming Ticket and System tickets")
           { name: "Incoming tickets", href: "/reporting/eso-benchmark/tickets", icon: "description" },
+          // Sales' GQS requests and what came of them, a page of its own (SARCLA 05.11.2026: "another tab on ESO and Sales leader ...
+          // to show results of GQS to sales leader and to be able to report it also on my reports")
+          { name: "GQS", href: "/reporting/eso-benchmark/gqs", icon: "assignment" },
           { name: "System tickets", href: "/reporting/eso-benchmark/system-tickets", icon: "bolt" },
         ],
       },
@@ -117,6 +120,7 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           { name: "Customer development", href: "/reporting/tsa-benchmark/customers", icon: "groups" },
           // SARCLA 01.11.2026: "move like the other the ticket also to TSA ... default TSA on TSA reports" - the TSA pipeline's
           { name: "Incoming tickets", href: "/reporting/tsa-benchmark/tickets", icon: "description" },
+          { name: "GQS", href: "/reporting/tsa-benchmark/gqs", icon: "assignment" },
           { name: "System tickets", href: "/reporting/tsa-benchmark/system-tickets", icon: "bolt" },
         ],
       },
@@ -238,6 +242,7 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           { name: "New customers", href: "/reporting/sales-leader/new-customers", icon: "target" },
           { name: "Customer development", href: "/reporting/sales-leader/customers", icon: "groups" },
           { name: "Incoming tickets", href: "/reporting/sales-leader/tickets", icon: "description" },
+          { name: "GQS", href: "/reporting/sales-leader/gqs", icon: "assignment" },
           { name: "System tickets", href: "/reporting/sales-leader/system-tickets", icon: "bolt" },
         ],
       },
@@ -264,6 +269,7 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           { name: "New customers", href: "/reporting/my-sales/new-customers", icon: "target" },
           { name: "Customer development", href: "/reporting/my-sales/customers", icon: "groups" },
           { name: "Incoming tickets", href: "/reporting/my-sales/tickets", icon: "description" },
+          { name: "GQS", href: "/reporting/my-sales/gqs", icon: "assignment" },
           { name: "System tickets", href: "/reporting/my-sales/system-tickets", icon: "bolt" },
         ],
       },

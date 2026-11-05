@@ -21,7 +21,7 @@ import { asking, readTargets, targetsKey } from "@/lib/reporting/mySalesStore";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PAGES = ["targets", "figures", "visits", "registrations", "shop", "new-customers", "customers", "tickets", "system-tickets"].map((p) => `/reporting/my-sales/${p}`);
+const PAGES = ["targets", "figures", "visits", "registrations", "shop", "new-customers", "customers", "tickets", "gqs", "system-tickets"].map((p) => `/reporting/my-sales/${p}`);
 const opens = (a: MyAccess, href: string) => accessAt(href, a.levels).level !== "none";
 
 export async function GET(req: NextRequest) {

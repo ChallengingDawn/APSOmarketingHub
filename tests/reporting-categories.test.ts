@@ -51,6 +51,7 @@ test("TSA Reports as ESO's: its BUC View first, then its pages in ESO's order - 
     ["New customers", "/reporting/tsa-benchmark/new-customers"],
     ["Customer development", "/reporting/tsa-benchmark/customers"],
     ["Incoming tickets", "/reporting/tsa-benchmark/tickets"],
+    ["GQS", "/reporting/tsa-benchmark/gqs"],
     ["System tickets", "/reporting/tsa-benchmark/system-tickets"],
   ]);
   // the same order as ESO's, Calls standing for Visits
@@ -60,11 +61,11 @@ test("TSA Reports as ESO's: its BUC View first, then its pages in ESO's order - 
   assert.ok(!eso.some((k) => k.href.startsWith("/reporting/tsa-benchmark/")));
 });
 
-test("ESO's side panel as Digital Growth's: one report, BUC View first, then the sub-apps in SARCLA's order - the tickets as two, incoming and system, no Revenue & order intake (SARCLA 21-24.10, 30-31.10.2026)", () => {
+test("ESO's side panel as Digital Growth's: one report, BUC View first, then the sub-apps in SARCLA's order - the tickets as two, incoming and system, GQS between them, no Revenue & order intake (SARCLA 21-24.10, 30-31.10, 05.11.2026)", () => {
   const eso = categoryBySlug("eso")!;
   assert.equal(eso.reports.length, 1);
   assert.equal(eso.reports[0].overview, "BUC View");
-  assert.deepEqual(eso.reports[0].children!.map((k) => k.name), ["Figures", "Visits", "Registrations", "Shop behaviour", "New customers", "Customer development", "Incoming tickets", "System tickets"]);
+  assert.deepEqual(eso.reports[0].children!.map((k) => k.name), ["Figures", "Visits", "Registrations", "Shop behaviour", "New customers", "Customer development", "Incoming tickets", "GQS", "System tickets"]);
   assert.ok(eso.reports[0].children!.every((k) => k.href.startsWith("/reporting/eso-benchmark/")));
 });
 

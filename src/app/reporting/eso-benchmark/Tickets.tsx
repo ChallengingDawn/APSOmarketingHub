@@ -902,9 +902,13 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
 const isOwn = (p: TPer) => /^[md]\d/.test(p.id);
 
 /** A tickets page - ESO's, or TSA Reports' at its own address opening on TSA (`home`; a team picked there stays in the
- *  address only, as on the other TSA pages). */
-export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?: Home }) {
+ *  address only, as on the other TSA pages). `only="gqs"`: the GQS page of each report's menu - the GQS tab alone, whole
+ *  inside My Sales and Sales Leader Reports too (SARCLA 05.11.2026: "don't see at all" - there a page shows its key charts
+ *  only, no tabs). */
+export function TicketsExplorer({ group, home = "eso", only }: { group: TGroup; home?: Home; only?: "gqs" }) {
   const G = groupOf(group, home);
+  const gqsOnly = only === "gqs" && group === "incoming";
+  const title = gqsOnly ? "GQS requests" : G.title;
   const params = useSearchParams();
   const { d, computing, progress, error } = useTickets();
   const [team, setTeam] = useTeam(home);
@@ -913,7 +917,7 @@ export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?:
   const teams = lt?.teams ?? [];
   const { state: acts } = useActions(G.page);
   const asked = params.get("view");
-  const view: TView = isView(asked) && viewsOf(group).some((v) => v.id === asked) ? asked : "paths";
+  const view: TView = gqsOnly ? "gqs" : isView(asked) && viewsOf(group).some((v) => v.id === asked) ? asked : "paths";
   const gq = useEsoGqs(group === "incoming");
   const setView = (v: TView) => setQuery((q) => { if (v === "paths") q.delete("view"); else q.set("view", v); });
   const filters: TFilters = useMemo(() => Object.fromEntries(FILTER_DIMS.flatMap((k) => (params.getAll(k).length ? [[k, params.getAll(k)]] : []))), [params]);
@@ -944,7 +948,7 @@ export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?:
     </Box>
   );
   const shell = { width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.75 } as const;
-  if (!d || !c || !per) return (<Box sx={shell}>{back}<Typography component="h1" sx={H1}>{G.title}</Typography><Waiting computing={computing} progress={progress} error={error} /></Box>);
+  if (!d || !c || !per) return (<Box sx={shell}>{back}<Typography component="h1" sx={H1}>{title}</Typography><Waiting computing={computing} progress={progress} error={error} /></Box>);
 
   // a pick goes as its name (month to date keeps running in the BUC View), one's own months or days as the address has them
   const own = isOwn(c.per) ? winParams(d, c.per.win) : null;
@@ -961,9 +965,9 @@ export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?:
     <Box sx={shell}>
       {back}
       <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
-        <Typography component="h1" sx={H1}>{G.title}</Typography>
+        <Typography component="h1" sx={H1}>{title}</Typography>
         <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-          <b style={{ color: INK }}>{teamName(now)}</b> · {per.title === perWords(d, per) ? null : <>{per.title} </>}<b style={{ color: INK }}>{perWords(d, per)}</b> · {G.what}{computing ? " · reading HubSpot again" : ""}
+          <b style={{ color: INK }}>{teamName(now)}</b> · {per.title === perWords(d, per) ? null : <>{per.title} </>}<b style={{ color: INK }}>{perWords(d, per)}</b> · {gqsOnly ? "what Sales asked the Back Office for through GQS - the approval, the offer sent back, won or lost - by the person who asked" : G.what}{computing ? " · reading HubSpot again" : ""}
         </Typography>
       </Box>
       <Box sx={{ display: "grid", gap: 0.75, mt: -0.5 }}>
@@ -972,10 +976,10 @@ export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?:
       </Box>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Box sx={{ minWidth: 0, flex: "0 1 auto", "& [role=tab]": { px: { xs: 1, xl: 1.5 } } }}>
-          {scoped ? scoped.bar : <ReportTabs name={G.page} tab={view} onSelect={setView} tabs={views.map((v) => ({ id: v.id, label: v.label, count: null }))} />}
+          {scoped ? scoped.bar : gqsOnly ? null : <ReportTabs name={G.page} tab={view} onSelect={setView} tabs={views.map((v) => ({ id: v.id, label: v.label, count: null }))} />}
         </Box>
         <Box sx={{ flex: 1 }} />
-        <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page={G.page} /></Box>
+        <Box sx={{ "& .MuiButton-root": { height: 44 } }}><SavedViews page={gqsOnly ? G.page.replace(/tickets$/, "gqs") : G.page} /></Box>
         <Button onClick={() => { if (panel) setPanel(false); else openOn(DIM_OF[view]); }} variant={panel || chosen.length || per.id !== "ytd" ? "contained" : "outlined"} disableElevation
           aria-expanded={panel} aria-controls="eso-tickets-filters" startIcon={<TuneIcon />}
           sx={{ textTransform: "none", fontWeight: 700, borderRadius: "12px", px: 2.25, height: 44, whiteSpace: "nowrap", bgcolor: panel || chosen.length || per.id !== "ytd" ? undefined : "#fff" }}>
@@ -989,7 +993,7 @@ export function TicketsExplorer({ group, home = "eso" }: { group: TGroup; home?:
         ...chosen.map(([k, v]): ActiveItem => ({ key: `${k}:${v}`, name: dimOf(group, k).name, value: v, tint: dimOf(group, k).tint, onRemove: () => toggle(k, v) })),
       ]} />
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
-        {scoped
+        {scoped && !gqsOnly
           ? <KeyCharts ids={["outcomes:resolutions", "outcomes:owners", "months:outcomes", ...(group === "incoming" ? ["gqs:flow", "gqs:rate-person", "gqs:open-person"] : [])]} draw={(id) => { const ch = drawnOf(id); return ch ? ch.draw({ ...c, view: id.split(":")[0] } as typeof c) : null; }} />
           : <TabCardKept key={`${c.view}-${c.per.id}`} c={c} act={act} />}
       </Box>
