@@ -23,8 +23,13 @@ import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/
 import { Chip, Choice, when } from "@/app/connectors/parts";
 import { full } from "@/app/charts/format";
 import type { BoardRow, Mails, Mode, RunInfo } from "@/lib/certificates/engine";
+import type { DateMode } from "@/lib/certificates/erpData";
+import type { ShopMode } from "@/lib/certificates/shopIntake";
+import EventRepeatOutlinedIcon from "@mui/icons-material/EventRepeatOutlined";
+import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
 import { DEFAULT_TIMING, TIMING_BOUNDS, stepWords, type StepName, type Timing } from "@/lib/certificates/rules";
 import { TicketLink, put, type Data } from "./shared";
+import { PeoplePicker } from "@/app/uc/PeoplePicker";
 
 const GREEN = "#1b7a55";
 
@@ -108,7 +113,6 @@ function RunCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
 const MAILS: { key: keyof Mails; label: string; text: string }[] = [
   { key: "owner", label: "Reminders to the ticket's owner", text: "Certificates: 3 days before delivery, due today, 48 h, 96 h, more than a week - and the hand-over person's mail after the 15 days." },
   { key: "team", label: "Reminder to the Backoffice Team", text: "Every other Back Office ticket that goes to stage Remind Back Office: \"⚠️REMINDER: Back Office Ticket\" - to the people picked below." },
-  { key: "created", label: "\"❗Back Office Ticket Created\"", text: "Every new Back Office ticket (the way in, Back Office distribution) - to the people picked below." },
 ];
 /** Queue users: their address is a HubSpot inbox - never a recipient (05.11.2026: 120 tickets in 44 minutes) */
 const INBOX_OWNERS = ["76164822", "1202569408"];
@@ -140,12 +144,15 @@ function MailsCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
         ))}
       </Box>
       <Box sx={{ mt: 1.25, p: 1, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, display: "grid", gap: 0.5 }}>
-        <PeoplePicker label={"Who gets the Backoffice Team's two mails (the reminder and \"Ticket Created\") - one mail to all of them"}
+        <PeoplePicker label={"Who gets the Backoffice Team's reminder - one mail to all of them"}
           ids={d.settings.teamTo} allowEmpty choices={d.choices.filter((c) => !INBOX_OWNERS.includes(c.id))} names={d.names} disabled={!d.admin || !!busy} onSave={(ids) => void saveTo(ids)} />
         <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>
           Never the Backoffice Team or TSA Team themselves: their address is a HubSpot inbox, and a mail there comes back as a new ticket (05.11.2026: 120 tickets in 44 minutes). Nobody picked = not sent.
         </Typography>
       </Box>
+      <Typography sx={{ mt: 1, fontSize: "0.76rem", color: MUTED }}>
+        &quot;❗Back Office Ticket Created&quot; belongs to the way in: switched, and its people picked, on <Box component="a" href="/uc/bo-distribution#way-in" sx={{ color: INK, fontWeight: 700 }}>Back Office distribution &gt; Way in</Box>.
+      </Typography>
       {err && <Typography sx={{ mt: 1, fontSize: "0.82rem", color: RED }}>{err}</Typography>}
     </GlassCard>
   );
@@ -206,35 +213,6 @@ function TimingCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
 }
 
 // ---------------- who gets the requests ----------------
-function PeoplePicker({ label, ids, choices, names, single, onSave, disabled, allowEmpty }: {
-  label: string; ids: string[]; choices: { id: string; name: string }[]; names: Record<string, string>; single?: boolean;
-  onSave: (ids: string[]) => void; disabled: boolean; allowEmpty?: boolean;
-}) {
-  const [add, setAdd] = useState("");
-  return (
-    <Box>
-      <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.5 }}>{label}</Typography>
-      <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-        {!ids.length && allowEmpty && <Typography sx={{ fontSize: "0.8rem", color: RED }}>nobody - not sent</Typography>}
-        {ids.map((id, i) => (
-          <Box key={id} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, px: 1, py: 0.25, borderRadius: "999px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.8)", fontSize: "0.8rem" }}>
-            {single ? "" : `${i + 1}. `}{names[id] ?? `Owner ${id}`}
-            {!single && (ids.length > 1 || allowEmpty) && !disabled && (
-              <Box component="button" type="button" aria-label={`Take ${names[id] ?? id} out`} onClick={() => onSave(ids.filter((x) => x !== id))} sx={{ all: "unset", cursor: "pointer", color: FAINT, px: 0.25, "&:hover": { color: RED } }}>×</Box>
-            )}
-          </Box>
-        ))}
-        {!disabled && (
-          <Box component="select" value={add} aria-label={`${label}: add`} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => { const v = e.target.value; setAdd(""); if (v) onSave(single ? [v] : [...ids.filter((x) => x !== v), v]); }}
-            sx={{ fontSize: "0.8rem", px: 1, py: 0.4, borderRadius: "999px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", color: MUTED, maxWidth: 220 }}>
-            <option value="">{single ? "Change…" : "Add…"}</option>
-            {choices.filter((c) => !ids.includes(c.id)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </Box>
-        )}
-      </Box>
-    </Box>
-  );
-}
 function PeopleCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -278,9 +256,67 @@ function HeldCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
   );
 }
 
+// ---------------- the ERP's delivery dates ----------------
+function DatesCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const save = async (m: DateMode) => {
+    if (m === "write" && !window.confirm("Write the ERP's delivery dates on the tickets?\n\nEach open request whose date differs from its ERP delivery gets the ERP's date, the date in the subject and a note - and its reminders go by the new date (a date already past brings the reminder due now, with its mail).")) return;
+    setBusy(true); setErr(null); const r = await put({ erpDates: m }); if (!r.ok) setErr(r.error ?? "failed"); setBusy(false); onChanged();
+  };
+  const withErp = d.open.filter((t) => t.erp);
+  const differ = withErp.filter((t) => t.erp!.state === "would").length;
+  const left = d.open.filter((t) => t.erp?.shipped && t.phase !== "sent").length;
+  const moved = d.dates.filter((r) => r.what === "done").length;
+  return (
+    <GlassCard>
+      <CardTitle icon={<EventRepeatOutlinedIcon />} tint="amber" title="Delivery dates from the ERP" note="The ticket's date is typed once, from the ERP's first planned date; the ERP's moves - the hub follows it" />
+      <Box sx={{ display: "grid", gap: 1 }}>
+        {d.admin ? <Choice<DateMode> value={d.settings.erpDates} onChange={(m) => void save(m)} options={[{ key: "off", label: "Off" }, { key: "show", label: "Show only" }, { key: "write", label: "Write on the ticket" }]} />
+          : <Chip tint={d.settings.erpDates === "write" ? "green" : "slate"}>{d.settings.erpDates}</Chip>}
+        <Typography sx={{ fontSize: "0.8rem", color: INK }}>
+          {full(withErp.length)} of {full(d.open.length)} open requests have an ERP delivery date: {full(differ)} differ from the ticket{left ? `, ${full(left)} with the goods already gone` : ""}{moved ? ` · ${full(moved)} dates written` : ""}. The Tickets tab shows both.
+        </Typography>
+        <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
+          Which delivery: the one carrying the ticket&apos;s article, else the only one, else the one whose date the ticket was given, else the first that has not left. A date changed by hand after the hub wrote it stands until the ERP&apos;s moves again. The ERP&apos;s dates come with each ERP file (about every two days); before a delivery exists the ERP has none and the ticket&apos;s date stays.
+        </Typography>
+      </Box>
+      {err && <Typography sx={{ mt: 1, fontSize: "0.82rem", color: RED }}>{err}</Typography>}
+    </GlassCard>
+  );
+}
+
+// ---------------- tickets from the shop ----------------
+function ShopCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const save = async (m: ShopMode) => {
+    if (m === "live" && !window.confirm("Create the certificate tickets from the shop's orders?\n\nFrom now on, each new shop order with the plastics declaration gets its ticket from the hub once the ERP's number and the certificate are known - already started (AVOR or the Back Office rotation). The Back Office no longer needs to make those by hand; one made by hand first is kept and the hub makes none.")) return;
+    setBusy(true); setErr(null); const r = await put({ shop: m }); if (!r.ok) setErr(r.error ?? "failed"); setBusy(false); onChanged();
+  };
+  const hand = d.shop.filter((r) => r.state === "by-hand").length;
+  return (
+    <GlassCard>
+      <CardTitle icon={<StorefrontOutlinedIcon />} tint="blue" title="Tickets from the shop" note="A shop order with the plastics declaration (8001133004) gets its certificate ticket" />
+      <Box sx={{ display: "grid", gap: 1 }}>
+        {d.admin ? <Choice<ShopMode> value={d.settings.shop} onChange={(m) => void save(m)} options={[{ key: "off", label: "Off" }, { key: "preview", label: "Preview - lists only" }, { key: "live", label: "Live - creates the tickets" }]} />
+          : <Chip tint={d.settings.shop === "live" ? "green" : "slate"}>{d.settings.shop}</Chip>}
+        <Typography sx={{ fontSize: "0.8rem", color: INK }}>
+          {d.settings.shop === "live" ? `Live since ${when(d.settings.shopFrom)} - orders the shop sync saw before stay the Back Office's.` : d.settings.shop === "preview" ? "Preview: the hub lists the ticket it would create, next to the one the Back Office makes - the From the shop tab compares them." : "Off."}
+          {` Last 30 days: ${full(d.shop.length)} orders, ${full(hand)} tickets by the Back Office.`}
+        </Typography>
+        <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
+          Which certificate: the shop&apos;s order if its options name it, else the ERP&apos;s comment (&quot;Bitte Konformitätserklärung erstellen: FDA.&quot;), which comes with the next ERP file. No certificate named after 6 days = left to the Back Office. Seals are the DoC app&apos;s.
+        </Typography>
+      </Box>
+      {err && <Typography sx={{ mt: 1, fontSize: "0.82rem", color: RED }}>{err}</Typography>}
+    </GlassCard>
+  );
+}
+
 // ---------------- the rules ----------------
 const RULES: { lane: string; steps: StepName[]; then?: string }[] = [
-  { lane: "New request", steps: ["start-avor", "start-bo"], then: "EC 1935/2004 → AVOR, else → Back Office" },
+  { lane: "New request", steps: ["wayin", "start-avor", "start-bo"], then: "EC 1935/2004 → AVOR, else → Back Office" },
   { lane: "AVOR", steps: ["avor48", "avor96", "avorWeek", "avorRose"], then: "Article received → Back Office" },
   { lane: "Back Office", steps: ["bo-entry", "bo3days", "boToday", "bo48", "bo96", "boWeek", "boRose"], then: "Assign to Conformity Expert → the expert" },
   { lane: "Conformity expert", steps: ["expert-entry", "today", "late", "late96", "lateWeek", "lateRose"], then: "Sent out to customer and EDA → done" },
@@ -313,6 +349,10 @@ export function Console({ d, onChanged }: { d: Data; onChanged: () => void }) {
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>
         <RunCard d={d} onChanged={onChanged} />
         <MailsCard d={d} onChanged={onChanged} />
+      </Box>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>
+        <DatesCard d={d} onChanged={onChanged} />
+        <ShopCard d={d} onChanged={onChanged} />
       </Box>
       <TimingCard key={d.settings.at ?? "t"} d={d} onChanged={onChanged} />
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>

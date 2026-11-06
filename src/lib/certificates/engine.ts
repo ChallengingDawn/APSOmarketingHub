@@ -32,7 +32,9 @@ import {
   certsText, dueShort, excludesCertificates, merge, owed, position, stepsOf,
   type Branch, type Facts, type MailName, type People, type Phase, type StepName, type Timing,
 } from "./rules";
-import { createdWorkflow, intakeState } from "@/lib/boDistribution/intakeRun";
+import { createdWorkflow, intakeOffAt, intakeState } from "@/lib/boDistribution/intakeRun";
+import { datePass, dateRows, erpRequests, type DateInfo, type DateMode } from "./erpData";
+import { shopPass, shopRows, type ShopMode } from "./shopIntake";
 import { INBOX_OWNERS, NOBODY, teamRecipients, type Recipient } from "@/lib/notify/teamRecipients";
 import { CREATED_WORKFLOW } from "@/lib/boDistribution/intake";
 
@@ -54,11 +56,18 @@ export type Mails = { owner: boolean; team: boolean; created: boolean };
 export const DEFAULT_MAILS: Mails = { owner: true, team: true, created: true };
 /** A ticket on hold: the hub leaves it alone until it is released. */
 export type Hold = { by: string; at: string };
-/** teamTo: who gets the Backoffice Team's two mails (never an inbox - notify/teamRecipients); none = not sent */
-export type Settings = { mode: Mode; people: People; mails: Mails; timing: Timing; held: Record<string, Hold>; teamTo: string[]; by?: string; at?: string };
+/** teamTo: who gets the Backoffice Team's reminder (never an inbox - notify/teamRecipients); none = not sent.
+ *  erpDates: follow the ERP's delivery date (show only by default); shop: tickets from the shop's orders (Preview by
+ *  default), shopFrom = when Live was switched on (only orders first seen after it are created). */
+export type Settings = {
+  mode: Mode; people: People; mails: Mails; timing: Timing; held: Record<string, Hold>; teamTo: string[];
+  erpDates: DateMode; shop: ShopMode; shopFrom: string | null; by?: string; at?: string;
+};
 export type RunInfo = {
   at: string; seconds: number; mode: Mode; writing: boolean; tickets: number; owed: number; written: number; listed: number; failed: number;
   mailed?: number; remind?: "hubspot" | "hub" | "unknown"; error?: string;
+  /** dates moved to the ERP's (or listed), tickets created from the shop (or listed) */
+  dates?: number; shop?: number; notes?: string[];
 };
 /** One ticket's steps done (or, in Preview, listed) in one look. */
 export type Row = {
@@ -80,6 +89,9 @@ export type OpenTicket = {
   held?: boolean;
   /** its steps in the next 7 days (the Agenda) */
   upcoming?: { name: StepName; at: string }[];
+  /** the ERP's delivery date for it, and whether the hub follows it */
+  erp?: DateInfo;
+  articles?: string | null;
 };
 /** A reminder to the Backoffice Team: a Back Office ticket without a certificate that entered stage Remind Back Office. */
 export type OthersRow = { at: string; ticketId: string; subject: string | null; enteredAt: string; what: "done" | "would" | "failed"; mail: string };
@@ -99,10 +111,14 @@ export async function getSettings(): Promise<Settings> {
   const s = await kvGet<Partial<Settings>>(KV.settings);
   return {
     mode: s?.mode ?? "preview", people: { ...DEFAULT_PEOPLE, ...(s?.people ?? {}) }, mails: { ...DEFAULT_MAILS, ...(s?.mails ?? {}) },
-    timing: { ...DEFAULT_TIMING, ...(s?.timing ?? {}) }, held: s?.held ?? {}, teamTo: (s?.teamTo ?? []).filter((id) => !INBOX_OWNERS.has(id)), by: s?.by, at: s?.at,
+    timing: { ...DEFAULT_TIMING, ...(s?.timing ?? {}) }, held: s?.held ?? {}, teamTo: (s?.teamTo ?? []).filter((id) => !INBOX_OWNERS.has(id)),
+    erpDates: s?.erpDates ?? "show", shop: s?.shop ?? "preview", shopFrom: s?.shopFrom ?? null, by: s?.by, at: s?.at,
   };
 }
-export type SettingsPatch = { mode?: Mode; people?: Partial<People>; mails?: Partial<Mails>; timing?: Partial<Timing> | "default"; hold?: string; release?: string; teamTo?: string[] };
+export type SettingsPatch = {
+  mode?: Mode; people?: Partial<People>; mails?: Partial<Mails>; timing?: Partial<Timing> | "default"; hold?: string; release?: string; teamTo?: string[];
+  erpDates?: DateMode; shop?: ShopMode;
+};
 export async function saveSettings(patch: SettingsPatch, by: string): Promise<Settings> {
   const cur = await getSettings();
   const held = { ...cur.held };
@@ -111,7 +127,11 @@ export async function saveSettings(patch: SettingsPatch, by: string): Promise<Se
   const next: Settings = {
     mode: patch.mode ?? cur.mode, people: { ...cur.people, ...(patch.people ?? {}) }, mails: { ...cur.mails, ...(patch.mails ?? {}) },
     timing: patch.timing === "default" ? { ...DEFAULT_TIMING } : { ...cur.timing, ...(patch.timing ?? {}) }, held,
-    teamTo: (patch.teamTo ?? cur.teamTo).filter((id) => !INBOX_OWNERS.has(id)), by, at: new Date().toISOString(),
+    teamTo: (patch.teamTo ?? cur.teamTo).filter((id) => !INBOX_OWNERS.has(id)),
+    erpDates: patch.erpDates ?? cur.erpDates, shop: patch.shop ?? cur.shop,
+    // Live from now on: the orders the shop sync saw before stay the Back Office's
+    shopFrom: patch.shop === "live" && cur.shop !== "live" ? new Date().toISOString() : patch.shop && patch.shop !== "live" ? null : cur.shopFrom,
+    by, at: new Date().toISOString(),
   };
   await kvSet(KV.settings, next);
   return next;
@@ -286,7 +306,8 @@ async function remindOthers(writing: boolean, offAt: number | null, mailOn = tru
 }
 
 // ---------------- owners ----------------
-type Owner = { id: string; name: string; archived: boolean; email: string | null };
+/** userId: the HubSpot user behind the owner (hs_created_by_user_id is a user id) */
+export type Owner = { id: string; name: string; archived: boolean; email: string | null; userId?: string };
 let ownersCache: { at: number; list: Owner[] } | null = null;
 export async function owners(): Promise<Owner[]> {
   if (ownersCache && Date.now() - ownersCache.at < 30 * 60_000) return ownersCache.list;
@@ -294,9 +315,9 @@ export async function owners(): Promise<Owner[]> {
   for (const archived of [false, true]) {
     let after = "";
     for (let i = 0; i < 20; i++) {
-      const j = await hs<{ results?: { id: string; firstName?: string; lastName?: string; email?: string }[]; paging?: { next?: { after?: string } } }>(
+      const j = await hs<{ results?: { id: string; firstName?: string; lastName?: string; email?: string; userId?: number | string }[]; paging?: { next?: { after?: string } } }>(
         `/crm/v3/owners?limit=100&archived=${archived}${after ? `&after=${after}` : ""}`);
-      for (const o of j.results ?? []) list.push({ id: String(o.id), name: [o.firstName, o.lastName].filter(Boolean).join(" ") || o.email || `Owner ${o.id}`, archived, email: o.email || null });
+      for (const o of j.results ?? []) list.push({ id: String(o.id), name: [o.firstName, o.lastName].filter(Boolean).join(" ") || o.email || `Owner ${o.id}`, archived, email: o.email || null, ...(o.userId ? { userId: String(o.userId) } : {}) });
       after = j.paging?.next?.after ?? "";
       if (!after) break;
     }
@@ -311,7 +332,7 @@ const PROPS = [
   "sarcla_pm_witch_mandant__", "order_number", "delivery_date_for_certificate", "conformity_expert", "back_office_ticket_requester",
   "enquiry_category", "hs_merged_object_ids", "createdate", "sarcla_article_number_order_pm",
 ];
-const HIST = ["actions_for_certificates", "hs_pipeline_stage", "hs_merged_object_ids"];
+const HIST = ["actions_for_certificates", "hs_pipeline_stage", "hs_merged_object_ids", "delivery_date_for_certificate"];
 
 async function search(filters: { propertyName: string; operator: string; value?: string }[], properties = ["hs_object_id"]): Promise<Obj[]> {
   const out: Obj[] = [];
@@ -346,12 +367,14 @@ function factsOf(t: Obj, company: string | null): Facts {
   const merges = [...(h.hs_merged_object_ids ?? [])].filter((x) => x.value).sort((x, y) => ts(y.timestamp) - ts(x.timestamp));
   const firstCert = stages.find((x) => x.value === STAGE.certificates);
   const lastRemind = [...stages].reverse().find((x) => x.value === STAGE.remind);
+  const dueWrites = (h.delivery_date_for_certificate ?? []).map((x) => ts(x.timestamp)).filter((x) => !Number.isNaN(x));
   return {
     id: String(t.id), stage: p.hs_pipeline_stage ?? null, actions: p.actions_for_certificates || null,
     actionsAt: act[0] ? ts(act[0].timestamp) : null, actionsBy: act[0]?.sourceType ?? null, actionsBefore: act[1]?.value || null,
     certs: (p.which_certificate__ ?? "").split(";").map((x) => x.trim()).filter(Boolean),
     other: p.other_certificates ?? null, mandant: p.sarcla_pm_witch_mandant__ ?? null, order: p.order_number ?? null,
     due: p.delivery_date_for_certificate ? p.delivery_date_for_certificate.slice(0, 10) : null,
+    dueAt: p.delivery_date_for_certificate && dueWrites.length ? Math.max(...dueWrites) : null,
     company, owner: p.hubspot_owner_id ?? null, requester: p.back_office_ticket_requester ?? null, expert: p.conformity_expert ?? null,
     category: p.enquiry_category ?? null, createdAt: ts(p.createdate ?? new Date().toISOString()),
     mergedAt: p.hs_merged_object_ids && merges[0] ? ts(merges[0].timestamp) : null,
@@ -407,6 +430,14 @@ async function run(): Promise<RunInfo> {
     remind: !remind ? "unknown" : remindOffAt !== null ? "hub" : "hubspot",
   };
   const facts = await readTickets(await openIds());
+  info.notes = [];
+  // the ERP's delivery dates first - the steps go by the new date in the same look (SARCLA 06.11.2026)
+  const inProcess = facts.filter((f) => position(f, Date.now(), settings.timing));
+  const dates = await datePass(inProcess, settings.erpDates, writing).catch((e) => ({ info: new Map<string, DateInfo>(), rows: [], error: (e as Error).message.slice(0, 200) }));
+  info.dates = dates.rows.length;
+  if (dates.error) info.notes.push(`ERP dates: ${dates.error}`);
+  // the way in's part for certificate tickets, once the way in is the hub's (Back Office Ticket Created off)
+  const wayinFrom = await intakeOffAt().catch(() => null);
   const doneMap = (await kvGet<Record<string, string[]>>(KV.done)) ?? {};
   const rot = (await kvGet<{ backOffice: number; experts: number }>(KV.rotation)) ?? { backOffice: 0, experts: 0 };
   const list = await owners().catch(() => [] as Owner[]);
@@ -423,6 +454,15 @@ async function run(): Promise<RunInfo> {
     const done = new Set(doneMap[f.id] ?? []);
     // on hold: nothing owed - what falls due meanwhile is taken when it is released
     const held = !!settings.held[f.id];
+    if (!held && wayinFrom !== null && !f.requester && f.owner && f.createdAt >= wayinFrom && !done.has(writing ? "wayin" : "~wayin")) {
+      const props = { back_office_ticket_requester: f.owner };
+      const row: Row = { at: new Date().toISOString(), ticketId: f.id, subject: f.subject, phase: pos.phase, steps: ["wayin"], what: "would", props, note: false };
+      if (writing) {
+        try { await hs(`/crm/v3/objects/tickets/${f.id}`, "PATCH", { properties: props }); f.requester = f.owner; row.what = "done"; info.written++; done.add("wayin"); }
+        catch (e) { row.what = "failed"; row.error = (e as Error).message.slice(0, 200); info.failed++; }
+      } else { done.add("~wayin"); info.listed++; }
+      rows.push(row);
+    }
     const due = held ? [] : owed(f, done, now, WORKFLOW_OFF_AT, remindOffAt, tm);
     if (due.length) {
       info.owed += due.length;
@@ -481,7 +521,22 @@ async function run(): Promise<RunInfo> {
       remindAt: f.remindAt ? new Date(f.remindAt).toISOString() : null,
       held,
       upcoming: (stepsOf(f, tm)?.steps ?? []).filter((x) => x.at > now && x.at <= now + 7 * 86400_000).map((x) => ({ name: x.name, at: new Date(x.at).toISOString() })),
+      erp: dates.info.get(f.id), articles: f.articles ?? null,
     });
+  }
+  // tickets from the shop's orders with the declaration line (the rotation moves on only for a ticket created)
+  try {
+    const people = active(settings.people.backOffice);
+    let used = 0;
+    const shop = await shopPass({
+      mode: settings.shop, writing, from: settings.shopFrom,
+      pick: () => (people.length ? people[(rot.backOffice + used) % people.length] : null), taken: () => { used++; },
+    });
+    rot.backOffice += used;
+    info.shop = shop.created + shop.listed;
+    if (shop.error) info.notes.push(`Shop: ${shop.error}`);
+  } catch (e) {
+    info.notes.push(`Shop: ${(e as Error).message.slice(0, 200)}`);
   }
   // only the tickets still open are remembered
   await kvSet(KV.done, nextDone);
@@ -603,16 +658,17 @@ async function board(settings: Settings, last: RunInfo | null, rows: Row[], othe
       id: CREATED_WORKFLOW.id, name: "SARCLA | Back Office Ticket Created | Notification", what: "The way in of every Back Office ticket: subject, requester, Backoffice Team, the mail - before the distribution assigns",
       hubspotOn: created ? created.on : null, since: intake?.offAt ?? null, by: created && !created.on ? "hub" : created?.on ? "hubspot" : "unknown",
       today: { written: intakeToday.filter((r) => r.what === "done").length, mailed: intakeToday.filter((r) => (r.mailText ?? "").startsWith("mail to")).length, failed: intakeToday.filter((r) => r.what === "failed").length },
-      last: intake?.last?.at ?? null, error: intake?.last?.error ?? null, where: "/uc/bo-distribution#settings",
+      last: intake?.last?.at ?? null, error: intake?.last?.error ?? null, where: "/uc/bo-distribution#way-in",
     },
   ];
 }
 
 // ---------------- the page ----------------
 export async function pageState() {
-  const [settings, last, rows, open, stats, on, remind, kept, othersOff, othersRows] = await Promise.all([
+  const [settings, last, rows, open, stats, on, remind, kept, othersOff, othersRows, dRows, sRows, reqs] = await Promise.all([
     getSettings(), kvGet<RunInfo>(KV.last), kvGet<Row[]>(KV.rows), kvGet<OpenTicket[]>(KV.open), kvGet<Stats>(KV.stats), workflowOn(),
     remindState(), kvGet<{ offAt: string | null }>(KV.remind), kvGet<{ offAt: string | null }>(KV.othersOff), kvGet<OthersRow[]>(KV.othersRows),
+    dateRows(), shopRows(), erpRequests(),
   ]);
   const list = await owners().catch(() => [] as Owner[]);
   const ids = new Set<string>([...settings.people.backOffice, ...settings.people.experts, settings.people.escalation]);
@@ -631,5 +687,7 @@ export async function pageState() {
     // the Backoffice Team's reminder on every other ticket: the hub's once the workflow is off
     others: { offAt: remind && !remind.on ? othersOff?.offAt ?? null : null, rows: (othersRows ?? []).slice(0, 150) },
     board: await board(settings, last ?? null, rows ?? [], othersRows ?? [], on, remind),
+    // the ERP's delivery dates followed (or listed), the shop's orders with the declaration, the ERP's requests known
+    dates: dRows.slice(0, 150), shop: sRows.slice(0, 200), erpRequests: Object.keys(reqs).length,
   };
 }

@@ -6,6 +6,8 @@
 import Box from "@mui/material/Box";
 import { INK, clip, hsTicket, type Tint } from "@/app/uc/report/ui";
 import type { BoardRow, OpenTicket, OthersRow, RemindState, Row, RunInfo, Settings, Stats } from "@/lib/certificates/engine";
+import type { DateRow } from "@/lib/certificates/erpData";
+import type { ShopRow } from "@/lib/certificates/shopIntake";
 import type { Phase, StepName, Timing } from "@/lib/certificates/rules";
 
 export type Data = {
@@ -15,6 +17,8 @@ export type Data = {
   remind: (RemindState & { offAt: string | null }) | null; mailReady: boolean;
   others: { offAt: string | null; rows: OthersRow[] };
   board: BoardRow[];
+  /** the ERP's delivery dates followed (or listed); the shop's orders with the declaration; ERP orders with a request */
+  dates: DateRow[]; shop: ShopRow[]; erpRequests: number;
 };
 
 export const PHASE: Record<Phase, { label: string; tint: Tint }> = {
@@ -47,6 +51,8 @@ export function TicketLink({ id, subject, max = 360 }: { id: string; subject: st
     </Box>
   );
 }
+
+export const dueText = (d: string | null) => (d ? d.split("-").reverse().join(".") : "no date");
 
 /** The admins' changes - mode, people, mails, timing, hold / release. */
 export async function put(body: object): Promise<{ ok: boolean; error?: string }> {

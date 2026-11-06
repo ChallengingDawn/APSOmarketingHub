@@ -120,8 +120,9 @@ export type Facts = {
   other: string | null;
   mandant: string | null;
   order: string | null;
-  /** delivery date for certificate, YYYY-MM-DD */
+  /** delivery date for certificate, YYYY-MM-DD; dueAt = when it was last written (ms) */
   due: string | null;
+  dueAt?: number | null;
   company: string | null;
   owner: string | null;
   requester: string | null;
@@ -154,7 +155,9 @@ export type Step = { key: string; name: StepName; at: number; acts: Act[]; remin
 export type StepName =
   | "start-avor" | "start-bo" | "avor48" | "avor96" | "avorWeek" | "avorRose"
   | "bo-entry" | "bo3days" | "boToday" | "bo48" | "bo96" | "boWeek" | "boRose"
-  | "expert-entry" | "today" | "late" | "late96" | "lateWeek" | "lateRose" | "close" | "merge-clear";
+  | "expert-entry" | "today" | "late" | "late96" | "lateWeek" | "lateRose" | "close" | "merge-clear"
+  /** the way in's part for a certificate ticket (Back Office Ticket Created): requester = who created it */
+  | "wayin";
 export type MailName = "bo3days" | "boToday" | "bo48" | "bo96" | "boWeek" | "boRose";
 
 export const HEAD = {
@@ -208,6 +211,7 @@ export const STEP_WORDS: Record<StepName, string> = {
   lateRose: "15 days more - owner Rose Rasteiro, note: handle it manually",
   close: "Sent out to customer and EDA - plain subject, Resolved",
   "merge-clear": "Merged - Actions for certificates emptied",
+  wayin: "Way in: requester = the owner who created it (in place of Back Office Ticket Created)",
 };
 
 const hh = (h: number) => `${String(h).padStart(2, "0")}:00`;

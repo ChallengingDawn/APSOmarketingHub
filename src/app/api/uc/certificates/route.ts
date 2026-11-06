@@ -5,7 +5,9 @@
 //      the Back Office rotation, the conformity experts, who gets a ticket after 15 days.
 // PUT (admins) {mails: {owner?, team?, created?}} the console's mail switches; {timing: {...} | "default"} the times
 //      and waits (rules.ts TIMING_BOUNDS); {hold: ticketId} / {release: ticketId} - the hub leaves a ticket alone;
-//      {teamTo: [ownerId]} who gets the Backoffice Team's two mails (never a queue user - its address is an inbox).
+//      {teamTo: [ownerId]} who gets the Backoffice Team's reminder (never a queue user - its address is an inbox);
+//      {erpDates: "off" | "show" | "write"} follow the ERP's delivery date; {shop: "off" | "preview" | "live"} tickets
+//      from the shop's orders with the declaration line.
 // POST (admins) {action: "run"} = look now.
 
 import { NextRequest, NextResponse } from "next/server";
@@ -42,9 +44,11 @@ export async function PUT(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
-  const b = (await req.json().catch(() => ({}))) as { mode?: Mode; people?: Partial<People>; mails?: Partial<Mails>; timing?: Partial<Timing> | "default"; hold?: string; release?: string; teamTo?: string[] };
+  const b = (await req.json().catch(() => ({}))) as { mode?: Mode; people?: Partial<People>; mails?: Partial<Mails>; timing?: Partial<Timing> | "default"; hold?: string; release?: string; teamTo?: string[]; erpDates?: string; shop?: string };
   if (b.mode !== undefined && !["off", "preview", "live"].includes(b.mode)) return NextResponse.json({ ok: false, error: "Unknown mode" }, { status: 400 });
-  const patch: SettingsPatch = { mode: b.mode };
+  if (b.erpDates !== undefined && !["off", "show", "write"].includes(b.erpDates)) return NextResponse.json({ ok: false, error: "ERP dates: off, show or write" }, { status: 400 });
+  if (b.shop !== undefined && !["off", "preview", "live"].includes(b.shop)) return NextResponse.json({ ok: false, error: "Shop tickets: off, preview or live" }, { status: 400 });
+  const patch: SettingsPatch = { mode: b.mode, erpDates: b.erpDates as SettingsPatch["erpDates"], shop: b.shop as SettingsPatch["shop"] };
   if (b.mails !== undefined) {
     const m: Partial<Mails> = {};
     for (const k of ["owner", "team", "created"] as const) if (b.mails[k] !== undefined) { if (typeof b.mails[k] !== "boolean") return NextResponse.json({ ok: false, error: `mails.${k}: on or off` }, { status: 400 }); m[k] = b.mails[k]; }

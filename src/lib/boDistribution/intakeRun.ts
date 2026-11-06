@@ -17,15 +17,15 @@ import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { ownerNames } from "@/lib/integrations/erosion";
 import { FROM, addressOf, esc, mailConfigured, sendHubMail, wrap } from "@/lib/notify/mailer";
 import { NOBODY, teamRecipients } from "@/lib/notify/teamRecipients";
-import { BO_TEAM, CREATED_WORKFLOW, MAIL_SUBJECT, STAGE_ASSIGNED, STAGE_NEW, intakeOf, type Intake, type IntakeFacts } from "./intake";
+import { BO_TEAM, CREATED_WORKFLOW, MAIL_SUBJECT, STAGE_ASSIGNED, STAGE_NEW, intakeOf, type Intake, type IntakeConfig, type IntakeFacts } from "./intake";
+import { getIntakeSettings, type IntakeSettings } from "./intakeSettings";
 
 const BO = "1726786777";
 const KV = { rows: "boDist:intake:rows", done: "boDist:intake:done", off: "boDist:intake:off", last: "boDist:intake:last" };
-const WINDOW_MS = 35 * 60_000;
-const MIN_AGE_MS = 20_000;
-const EMAIL_WAIT_MS = 3 * 60_000;
-/** older than this and never taken in (the hub was down): left alone - a person may already have it */
-const LIVE_MAX_AGE_MS = 30 * 60_000;
+// the waits are steered on Back Office distribution > Way in (intakeSettings.ts): 20 s after entry, an e-mail ticket up
+// to 3 min for its e-mail, and older than 30 min never taken in (the hub was down) = left alone - a person may have it.
+// The search reaches 5 minutes past that (at least 35 minutes).
+const windowMs = (maxAgeMs: number) => Math.max(35 * 60_000, maxAgeMs + 5 * 60_000);
 const COMPARE_AFTER_MS = 10 * 60_000;
 const COMPARE_PER_RUN = 15;
 const ROWS_KEPT = 700;
@@ -39,7 +39,7 @@ export type IntakeRow = {
   ticketId: string; enteredAt: string; at: string; subjectBefore: string | null;
   branch: Intake["branch"] | null; team: string | null; props: Record<string, string>; mail: boolean;
   /** shadow = the workflow wrote it, compared; done / failed = the hub wrote it; skipped = left alone */
-  what: "shadow" | "done" | "failed" | "skipped"; why?: string; error?: string; mailText?: string;
+  what: "shadow" | "done" | "failed" | "skipped" | "certificates"; why?: string; error?: string; mailText?: string;
   /** shadow: what the workflow wrote and whether the hub's is the same */
   actual?: { props: Record<string, string>; same: boolean; diffs: string[]; wrote: boolean };
 };
@@ -55,6 +55,7 @@ export async function createdWorkflow(): Promise<{ on: boolean; updatedAt: strin
   return v;
 }
 /** From when the way in is the hub's: the moment the workflow was switched off (null = it runs, or not readable now). */
+export const intakeOffAt = (): Promise<number | null> => offMoment();
 async function offMoment(): Promise<number | null> {
   const wf = await createdWorkflow();
   const kept = await kvGet<{ offAt: string | null }>(KV.off);
@@ -117,8 +118,8 @@ const rowHtml = (k: string, v: string) =>
 // 05.11.2026 10:47-11:31: the Backoffice Team's address is a HubSpot inbox - every mail the hub sent there came back as a
 // new Back Office ticket, which the way in mailed again (120 tickets in 44 minutes). The mail goes to the people picked
 // on Certificates > Console - never an inbox (notify/teamRecipients); nobody picked = not sent.
-async function mailTeam(id: string, p: Record<string, string | null>, subject: string): Promise<{ ok: boolean; text: string }> {
-  const to = await teamRecipients();
+async function mailTeam(id: string, p: Record<string, string | null>, subject: string, ids: string[]): Promise<{ ok: boolean; text: string }> {
+  const to = await teamRecipients(ids);
   if (!to.length) return { ok: true, text: NOBODY };
   if (!mailConfigured()) return { ok: false, text: "the hub cannot send mail" };
   const rows: [string, string][] = ([
@@ -145,7 +146,7 @@ const valueBefore = (t: Obj, k: string, when: number) => { let v: string | null 
 
 /** What the workflow wrote (its enrolment: the one that wrote the requester, a "BO |" subject or the Assigned stage),
  *  and what the hub works out from the ticket as it was just before. Values already in place count as the same. */
-export function compareWithWorkflow(t: Obj, emails: Email[], enteredAt: number, names: Map<string, string>): { want: Intake; actual: NonNullable<IntakeRow["actual"]> } {
+export function compareWithWorkflow(t: Obj, emails: Email[], enteredAt: number, names: Map<string, string>, cfg?: IntakeConfig): { want: Intake; actual: NonNullable<IntakeRow["actual"]> } {
   const KEYS = ["subject", "hubspot_owner_id", "back_office_ticket_requester", "hs_pipeline_stage"];
   const writes = KEYS.flatMap((k) => sorted(t, k).filter((x) => x.sourceType === "AUTOMATION_PLATFORM" && ts(x.timestamp) >= enteredAt - 2000 && ts(x.timestamp) <= enteredAt + COMPARE_AFTER_MS).map((x) => ({ k, ...x })));
   const ids = new Set(writes.filter((w) => w.k === "back_office_ticket_requester" || (w.k === "subject" && /^BO \|/.test(w.value)) || (w.k === "hs_pipeline_stage" && w.value === STAGE_ASSIGNED)).map(enrolment));
@@ -156,7 +157,7 @@ export function compareWithWorkflow(t: Obj, emails: Email[], enteredAt: number, 
   for (const k of ["hs_pipeline_stage", "enquiry_category", "which_certificate__", "source_type"]) p[k] = valueBefore(t, k, tW);
   const owner = valueBefore(t, "hubspot_owner_id", tW);
   const then = emails.filter((e) => !e.created || e.created <= tW + 5000).sort((a, b) => a.modified - b.modified);
-  const want = intakeOf(factsOf(p, then[then.length - 1] ?? null, names, owner));
+  const want = intakeOf(factsOf(p, then[then.length - 1] ?? null, names, owner), cfg);
   const got: Record<string, string> = {};
   for (const w of mine) got[w.k] = w.value;
   const diffs: string[] = [];
@@ -184,9 +185,12 @@ export async function intakePass(): Promise<{ pending: Set<string>; failed: bool
     const offAt = await offMoment();
     live = offAt !== null;
     const now = Date.now();
+    const set: IntakeSettings = await getIntakeSettings();
+    const cfg: IntakeConfig = { teams: set.teams, creators: set.creators };
+    const MIN_AGE_MS = set.waitS * 1000, EMAIL_WAIT_MS = set.emailWaitS * 1000, LIVE_MAX_AGE_MS = set.maxAgeMin * 60_000;
     const prop = `hs_v2_date_entered_${STAGE_NEW}`;
     const r = await hs<{ results?: Obj[] }>("/crm/v3/objects/tickets/search", "POST", {
-      filterGroups: [{ filters: [{ propertyName: "hs_pipeline", operator: "EQ", value: BO }, { propertyName: prop, operator: "GTE", value: String(now - WINDOW_MS) }] }],
+      filterGroups: [{ filters: [{ propertyName: "hs_pipeline", operator: "EQ", value: BO }, { propertyName: prop, operator: "GTE", value: String(now - windowMs(LIVE_MAX_AGE_MS)) }] }],
       properties: [prop], sorts: [{ propertyName: prop, direction: "ASCENDING" }], limit: 100,
     });
     const done = new Set((await kvGet<string[]>(KV.done)) ?? []);
@@ -202,7 +206,7 @@ export async function intakePass(): Promise<{ pending: Set<string>; failed: bool
       if (offAt === null || entered < offAt) continue;
       const base = { ticketId: id, enteredAt: new Date(entered).toISOString(), at: new Date().toISOString() };
       if (age > LIVE_MAX_AGE_MS) {
-        rows.unshift({ ...base, subjectBefore: null, branch: null, team: null, props: {}, mail: false, what: "skipped", why: "older than 30 minutes - the hub was not running; left to the Back Office" });
+        rows.unshift({ ...base, subjectBefore: null, branch: null, team: null, props: {}, mail: false, what: "skipped", why: `older than ${set.maxAgeMin} minutes - the hub was not running; left to the Back Office` });
         done.add(id);
         continue;
       }
@@ -225,15 +229,21 @@ export async function intakePass(): Promise<{ pending: Set<string>; failed: bool
         }
         if ((p.source_type ?? "") === "EMAIL" && !emails.length && age < EMAIL_WAIT_MS) { pending.add(id); continue; }
         const email = [...emails].sort((a, b) => b.modified - a.modified)[0] ?? null;
-        const want = intakeOf(factsOf(p, email, names, p.hubspot_owner_id ?? null));
+        const want = intakeOf(factsOf(p, email, names, p.hubspot_owner_id ?? null), cfg);
+        // a certificate request: Certificates takes it on - the requester, then the steps (SARCLA 06.11.2026: "the
+        // certificates part should be on certificates")
+        if (want.branch === "CERTIFICATE") {
+          rows.unshift({ ...base, subjectBefore: p.subject ?? null, branch: want.branch, team: null, props: {}, mail: false, what: "certificates", why: "a certificate request - Certificates sets the requester and takes it on" });
+          done.add(id);
+          continue;
+        }
         const row: IntakeRow = { ...base, subjectBefore: p.subject ?? null, branch: want.branch, team: want.team, props: want.props, mail: want.mail, what: "done" };
         try {
           if (Object.keys(want.props).length) await hs(`/crm/v3/objects/tickets/${id}`, "PATCH", { properties: want.props });
-          // the console's switch (Certificates > Console, "❗Back Office Ticket Created")
-          const mailOn = (await kvGet<{ mails?: { created?: boolean } }>("certificates:settings"))?.mails?.created !== false;
-          if (want.mail && !mailOn) row.mailText = "mail switched off on the console";
+          // the way in's switch (Back Office distribution > Way in, "❗Back Office Ticket Created")
+          if (want.mail && !set.mail) row.mailText = "mail switched off on the Way in tab";
           else if (want.mail) {
-            const sent = await mailTeam(id, p, want.props.subject ?? p.subject ?? "");
+            const sent = await mailTeam(id, p, want.props.subject ?? p.subject ?? "", set.to);
             row.mailText = sent.text;
             if (!sent.ok) row.error = sent.text;
           }
@@ -259,7 +269,7 @@ export async function intakePass(): Promise<{ pending: Set<string>; failed: bool
       try {
         const qs = `properties=${FACT_PROPS.join(",")}&propertiesWithHistory=${HIST.join(",")}`;
         const t = await hs<Obj>(`/crm/v3/objects/tickets/${id}?${qs}`);
-        const { want, actual } = compareWithWorkflow(t, await emailsOf(id), entered, names);
+        const { want, actual } = compareWithWorkflow(t, await emailsOf(id), entered, names, cfg);
         rows.unshift({
           ticketId: id, enteredAt: new Date(entered).toISOString(), at: new Date().toISOString(), subjectBefore: valueBefore(t, "subject", entered + 1000) ?? t.properties.subject ?? null,
           branch: want.branch, team: want.team, props: want.props, mail: want.mail, what: "shadow", actual,

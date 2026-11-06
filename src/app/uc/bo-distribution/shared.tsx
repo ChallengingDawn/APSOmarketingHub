@@ -62,11 +62,11 @@ export type PeopleData = { people: PersonRow[]; owners: Person[]; at: string };
  * sentiment resolution for win or lost"): Overview, Tickets, Flow, Detection / Type of request, Sentiment / Resolution,
  * Priority / Speed, People, Settings.
  */
-export type View = "overview" | "tickets" | "flow" | "detection" | "sentiment" | "priority" | "people" | "settings"
+export type View = "overview" | "tickets" | "way-in" | "flow" | "detection" | "sentiment" | "priority" | "people" | "settings"
   | "gqs" | "gqs-tickets" | "gqs-approvals" | "gqs-flow" | "gqs-type" | "gqs-resolution" | "gqs-speed" | "gqs-people" | "gqs-settings";
 /** #gqs was the one GQS tab; it opens GQS's Overview. */
 export const VIEW_HASH: Record<View, string> = {
-  overview: "#overview", tickets: "#tickets", flow: "#flow", detection: "#detection", sentiment: "#sentiment", priority: "#priority", people: "#people", settings: "#settings",
+  overview: "#overview", tickets: "#tickets", "way-in": "#way-in", flow: "#flow", detection: "#detection", sentiment: "#sentiment", priority: "#priority", people: "#people", settings: "#settings",
   gqs: "#gqs", "gqs-tickets": "#gqs-tickets", "gqs-approvals": "#gqs-approvals", "gqs-flow": "#gqs-flow", "gqs-type": "#gqs-type", "gqs-resolution": "#gqs-resolution", "gqs-speed": "#gqs-speed",
   "gqs-people": "#gqs-people", "gqs-settings": "#gqs-settings",
 };

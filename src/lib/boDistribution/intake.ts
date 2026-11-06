@@ -57,11 +57,14 @@ export const TEAMS: readonly { team: string; from: readonly string[] }[] = [
   { team: "SENSORS & POWER CH", from: ["sensorsandpower@angst-pfister.com"] },
   { team: "SENSORS & POWER DE", from: ["sensorsandpower.de@angst-pfister.com"] },
 ];
-export function teamOf(from: string | null | undefined): string | null {
+export function teamOf(from: string | null | undefined, teams: readonly { team: string; from: readonly string[] }[] = TEAMS): string | null {
   const f = (from ?? "").trim().toLowerCase();
   if (!f) return null;
-  return TEAMS.find((t) => t.from.includes(f))?.team ?? null;
+  return teams.find((t) => t.from.includes(f))?.team ?? null;
 }
+/** What Back Office distribution > Way in changes: the sender -> team list, the Back Office's own people. */
+export type IntakeConfig = { teams: readonly { team: string; from: readonly string[] }[]; creators: readonly string[] };
+export const WORKFLOW_CONFIG: IntakeConfig = { teams: TEAMS, creators: BO_CREATORS };
 
 /** "Original source" (hs_originating_generic_channel_id) as a workflow token prints it */
 const CHANNEL: Record<string, string> = { "1000": "Chat", "1002": "Email", "1003": "Form", "1004": "Facebook Messenger", "1005": "Calling", "1007": "WhatsApp" };
@@ -97,9 +100,9 @@ function byHand(f: IntakeFacts): Intake {
   };
 }
 
-/** What the workflow writes on a ticket that entered Back Office "New". */
-export function intakeOf(f: IntakeFacts): Intake {
-  if (f.createdBy && BO_CREATORS.includes(f.createdBy) && f.stage !== STAGE_CERTIFICATES) {
+/** What the workflow writes on a ticket that entered Back Office "New" (with the way in's lists). */
+export function intakeOf(f: IntakeFacts, cfg: IntakeConfig = WORKFLOW_CONFIG): Intake {
+  if (f.createdBy && cfg.creators.includes(f.createdBy) && f.stage !== STAGE_CERTIFICATES) {
     if (f.category === CERT_CATEGORY) return byHand(f);
     return {
       branch: "MAIL TO CUSTOMER", team: null, mail: false,
@@ -108,7 +111,7 @@ export function intakeOf(f: IntakeFacts): Intake {
   }
   if (f.sourceType === "FORM") return { branch: "FORM", team: null, props: {}, mail: true };
   if (f.sourceType === "EMAIL") {
-    const team = teamOf(f.email?.from);
+    const team = teamOf(f.email?.from, cfg.teams);
     const es = tok(f.email?.subject);
     const subject = team ? `BO | EMAIL | ${team} | ${es} |` : `BO | ${tok(f.requirement)} ${tok(f.category)} ${channelLabel(f.channel)} | ${es} | `;
     return { branch: team ? "EMAIL TEAM" : "EMAIL", team, mail: true, props: { subject, ...requester(f), hubspot_owner_id: BO_TEAM } };

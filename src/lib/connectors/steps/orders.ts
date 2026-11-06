@@ -38,6 +38,7 @@ import { kvGet as dbKvGet, kvSet as dbKvSet } from "@/lib/db/init";
 import { query } from "@/lib/db/client";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { IntegrationError } from "@/lib/integrations/status";
+import { requestCollector, saveErpRequests } from "@/lib/certificates/erpData";
 import { stat } from "node:fs/promises";
 import { addPending, knownArticles } from "../articleIds";
 import fixmapJson from "../data/article_fixmap.json";
@@ -469,8 +470,12 @@ export async function stageLoad(live: boolean, beat: Beat, opts: { file: string;
 export async function orderSync(live: boolean, beat: Beat, opts: { file: string }): Promise<StepResult> {
   const t0 = deps.now();
   const tick = pacer(beat);
-  const { targets } = await detailTargetsFromFile(opts.file, null, tick);
+  // the certificate requests in the ERP's internal comments (Certificates > From the shop) - read in the same pass
+  const certs = requestCollector(new Date().getUTCFullYear() - 1);
+  const { targets } = await detailTargetsFromFile(opts.file, null, tick, (get, on) => certs.row(on, get("OrderYear"), get("InternalComment")));
   if (!targets.size) throw new Error("no order rows parsed (wrong file?)");
+  // the hub's own record (no HubSpot write) - kept whatever the mode; it never fails the step
+  const certificateRequests = await saveErpRequests(certs.found).catch(() => -1);
   const refreshed = await refreshSnapshot(tick);
 
   const counts = { titles: 0, shipment_dates: 0, statuses: 0 };
@@ -517,7 +522,7 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
   return {
     orders_in_snapshot: await deps.store.snapCount(), snapshot: refreshed.how, erp_orders: targets.size, with_person: persons,
     to_update: queued, ...counts, updated: done, errors: err, deleted_dropped: gone, ...(errors.length ? { error_samples: errors } : {}),
-    examples: samples, seconds: Math.round((deps.now() - t0) / 1000),
+    examples: samples, certificate_requests: certificateRequests, seconds: Math.round((deps.now() - t0) / 1000),
   };
 }
 

@@ -65,7 +65,7 @@ import { GqsFlow, GqsTeam } from "./GqsTab";
 import { GqsKpis, OpenNow, openCount, type GqsView } from "./GqsKpis";
 import { PriorityTab } from "./PriorityTab";
 import { SettingsTab } from "./SettingsTab";
-import { IntakeCard } from "./IntakeCard";
+import { WayInTab } from "./WayInTab";
 import { DetectionTab } from "./DetectionTab";
 import { SentimentTab, type MachineTopics, type SentimentData } from "./SentimentTab";
 import type { PeriodFigures } from "@/lib/boDetection/engine";
@@ -243,6 +243,8 @@ export default function BoDistribution() {
   let body: React.ReactNode;
   // Approvals has its own engine and API (src/lib/gqsApprovals) - it never waits for the distribution's data
   if (view === "gqs-approvals") body = <ApprovalsTab from={win.from} to={win.to} />;
+  // the way in (Back Office Ticket Created | Notification, SARCLA 05-06.11.2026: "a new tab that we can steer") - its own API
+  else if (view === "way-in") body = <WayInTab />;
   else if (GQS_KPI_VIEWS.includes(view)) {
     body = withStore((s) => <GqsKpis key={view} view={view as GqsView} store={s} from={win.from} to={win.to} />);
   } else if (r === null || !all || !bo) {
@@ -255,8 +257,7 @@ export default function BoDistribution() {
   else if (view === "detection") body = <DetectionTab d={all} from={win.from} to={win.to} />;
   else if (view === "sentiment") body = <SentimentPanel key="sentiment" days={days} from={win.from} to={win.to} label={periodLabel} />;
   else if (view === "people") body = <People d={bo} onSaved={reload} pipe="bo" />;
-  // the way in (Back Office Ticket Created | Notification, SARCLA 05.11.2026) above the distribution's own settings
-  else if (view === "settings") body = <><IntakeCard /><SettingsTab key={all.settings.at ?? "s"} d={all} onChanged={reload} pipe="bo" /></>;
+  else if (view === "settings") body = <SettingsTab key={all.settings.at ?? "s"} d={all} onChanged={reload} pipe="bo" />;
   else if (view === "priority") body = <PriorityTab key={all.settings.at ?? "p"} d={all} onSaved={reload} from={win.from} to={win.to} label={periodLabel} />;
   // GQS: Tickets and Flow from the routing's rows (GqsTab.tsx), with every open task under the tickets; People = each
   // owner's figures, the GQS team, GQS's lists
@@ -279,6 +280,7 @@ export default function BoDistribution() {
   ] : [
     { id: "overview", label: "Overview", count: null },
     { id: "tickets", label: "Tickets", count: null },
+    { id: "way-in", label: "Way in", count: null },
     { id: "flow", label: "Flow", count: null },
     { id: "detection", label: "Detection", count: null },
     { id: "sentiment", label: "Sentiment", count: null },

@@ -263,11 +263,15 @@ export async function stageTargetsFromFile(file: string, only?: ReadonlySet<stri
   return { targets, cancelled, rows };
 }
 
-/** order_sync's targets: order number -> packed (person, shipment date, status); the last row of a number wins. */
-export async function detailTargetsFromFile(file: string, only?: ReadonlySet<string> | null, tick?: () => Promise<void>): Promise<{ targets: Map<string, string>; rows: number }> {
+/**
+ * order_sync's targets: order number -> packed (person, shipment date, status); the last row of a number wins.
+ * `each` sees every row too (the certificates' requests in the internal comment - certificates/erpData.ts).
+ */
+export async function detailTargetsFromFile(file: string, only?: ReadonlySet<string> | null, tick?: () => Promise<void>, each?: (get: Get, on: string) => void): Promise<{ targets: Map<string, string>; rows: number }> {
   const targets = new Map<string, string>();
   const rows = await readDimOrder(file, (get) => {
     const on = dimOrderNumber(get);
+    if (on && each) { try { each(get, on); } catch { /* never the chain's problem */ } }
     if (!on || (only && !only.has(on))) return;
     targets.set(own(on), packDetail(detailOfRow(get, on)));
   }, tick);

@@ -31,10 +31,10 @@ async function inboxes(): Promise<Set<string>> {
   return out;
 }
 
-/** The people picked on the console, with an address that is not an inbox. */
-export async function teamRecipients(): Promise<Recipient[]> {
-  const s = await kvGet<{ teamTo?: string[] }>("certificates:settings");
-  const ids = (s?.teamTo ?? []).filter((id) => !INBOX_OWNERS.has(id));
+/** The people picked (the way in's own list, else Certificates > Console's), with an address that is not an inbox. */
+export async function teamRecipients(picked?: string[]): Promise<Recipient[]> {
+  const s = picked ? null : await kvGet<{ teamTo?: string[] }>("certificates:settings");
+  const ids = (picked ?? s?.teamTo ?? []).filter((id) => !INBOX_OWNERS.has(id));
   if (!ids.length) return [];
   const bad = await inboxes();
   const out: Recipient[] = [];
@@ -45,4 +45,4 @@ export async function teamRecipients(): Promise<Recipient[]> {
   return out;
 }
 
-export const NOBODY = "not sent - nobody picked on Certificates > Console (the Backoffice Team's own address is a HubSpot inbox)";
+export const NOBODY = "not sent - nobody picked to get it (the Backoffice Team's own address is a HubSpot inbox)";

@@ -46,10 +46,12 @@ import { Chip, usePaged, when } from "@/app/connectors/parts";
 import type { OpenTicket, OthersRow, Row } from "@/lib/certificates/engine";
 import { stepWords, type StepName, type Timing } from "@/lib/certificates/rules";
 import { Console } from "./Console";
-import { BO_STEPS, LATE, MAIL_STEPS, PHASE, STAGE_LABEL, TicketLink, hh, isLate, put, span, type Data } from "./shared";
+import { ShopTab } from "./ShopTab";
+import { BO_STEPS, LATE, MAIL_STEPS, PHASE, STAGE_LABEL, TicketLink, dueText, hh, isLate, put, span, type Data } from "./shared";
+import type { DateRow } from "@/lib/certificates/erpData";
 
-type View = "overview" | "tickets" | "agenda" | "activity" | "console";
-const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", agenda: "#agenda", activity: "#activity", console: "#console" };
+type View = "overview" | "tickets" | "agenda" | "shop" | "activity" | "console";
+const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", agenda: "#agenda", shop: "#shop", activity: "#activity", console: "#console" };
 
 // ---------------- the process, drawn ----------------
 /** The box of the drawing a ticket sits in. */
@@ -135,8 +137,7 @@ function ProcessCard({ open, resolvedThisMonth, sel, onPick, timing }: { open: O
 }
 
 // ---------------- the tickets ----------------
-const dueText = (d: string | null) => (d ? d.split("-").reverse().join(".") : "no date");
-type Filter = "all" | "start" | "avor" | "bo" | "expert" | "late" | "held";
+type Filter = "all" | "start" | "avor" | "bo" | "expert" | "late" | "held" | "erp";
 const FILTERS: { key: Filter; label: string; test: (t: OpenTicket) => boolean }[] = [
   { key: "all", label: "All", test: () => true },
   { key: "start", label: "New", test: (t) => t.phase === "start" },
@@ -145,6 +146,7 @@ const FILTERS: { key: Filter; label: string; test: (t: OpenTicket) => boolean }[
   { key: "expert", label: "Conformity expert", test: (t) => t.phase === "expert" },
   { key: "late", label: "Late", test: isLate },
   { key: "held", label: "On hold", test: (t) => !!t.held },
+  { key: "erp", label: "ERP date differs", test: (t) => t.erp?.state === "would" },
 ];
 function FilterChips<K extends string>({ items, value, onChange }: { items: { key: K; label: string; n: number }[]; value: K; onChange: (k: K) => void }) {
   return (
@@ -188,7 +190,16 @@ function TicketsTable({ rows, d, empty, onChanged }: { rows: OpenTicket[]; d: Da
                     <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{[x.company, x.order].filter(Boolean).join(" · ") || "-"}</Typography>
                   </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{x.certs || "-"}</TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap", color: late ? RED : INK, fontWeight: late ? 700 : 400 }}>{dueText(x.due)}</TableCell>
+                  <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap", color: late ? RED : INK, fontWeight: late ? 700 : 400 }}>
+                    {dueText(x.due)}
+                    {x.erp && (x.erp.state !== "same" || x.erp.shipped) && (
+                      <Tooltip title={`${x.erp.delivery}: ${x.erp.why}`}>
+                        <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: x.erp.state === "would" ? "#b26a00" : MUTED }}>
+                          {x.erp.state === "would" ? `ERP ${dueText(x.erp.date)}` : x.erp.state === "moved" ? "from the ERP" : x.erp.state === "kept" ? `ERP ${dueText(x.erp.date)} - kept by hand` : ""}{x.erp.shipped ? `${x.erp.state === "same" ? "" : " · "}the goods left` : ""}
+                        </Typography>
+                      </Tooltip>
+                    )}
+                  </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>
                     <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                       <Chip tint={PHASE[x.phase].tint}>{PHASE[x.phase].label}</Chip>
@@ -376,6 +387,34 @@ function OthersTable({ rows }: { rows: OthersRow[] }) {
     </>
   );
 }
+function DatesTable({ rows }: { rows: DateRow[] }) {
+  const { slice, pager } = usePaged(rows, 15);
+  return (
+    <>
+      <Box sx={{ overflowX: "auto" }}>
+        <Table size="small">
+          <TableHead><TableRow>{["When", "Ticket", "Date", "ERP delivery", "Result"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
+          <TableBody>
+            {!rows.length && <TableRow><TableCell colSpan={5} sx={{ ...bodyCell, color: MUTED, fontSize: "0.84rem" }}>None yet - each open request&apos;s ERP order is read every 30 minutes.</TableCell></TableRow>}
+            {slice.map((r) => (
+              <TableRow key={`${r.ticketId}-${r.at}`} hover>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap" }}>{when(r.at)}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}><TicketLink id={r.ticketId} subject={r.subject} max={380} /></TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{dueText(r.from)} → <b>{dueText(r.to)}</b></TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{r.delivery}{r.shipped ? <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>the goods have left</Typography> : null}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>
+                  <Chip tint={r.what === "done" ? "green" : r.what === "failed" ? "pink" : "blue"}>{r.what === "done" ? "written" : r.what === "failed" ? "failed - tried again" : "would write"}</Chip>
+                  {r.error && <Typography sx={{ fontSize: "0.72rem", color: RED }}>{r.error}</Typography>}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Box>
+      <Box sx={{ px: 2, py: 1 }}>{pager}</Box>
+    </>
+  );
+}
 type AFilter = "all" | "mail" | "failed" | "today";
 function ActivityTab({ d }: { d: Data }) {
   const [f, setF] = useState<AFilter>("all");
@@ -395,6 +434,12 @@ function ActivityTab({ d }: { d: Data }) {
           ]} />
         </Box>
         <ActivityTable rows={rows} d={d} />
+      </GlassCard>
+      <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
+        <Box sx={{ px: { xs: 2, md: 2.75 } }}>
+          <CardTitle icon={<EventOutlinedIcon />} tint="amber" title="Delivery dates from the ERP" note={d.settings.erpDates === "write" ? "Each date the hub moved to the ERP's, newest first" : "Each date the hub would move to the ERP's (Show only - switch on the Console), newest first"} />
+        </Box>
+        <DatesTable rows={d.dates} />
       </GlassCard>
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>
@@ -475,6 +520,7 @@ export default function Certificates() {
   else if (view === "tickets") body = <TicketsTab d={r.data} onChanged={reload} />;
   else if (view === "agenda") body = <Agenda d={r.data} />;
   else if (view === "activity") body = <ActivityTab d={r.data} />;
+  else if (view === "shop") body = <ShopTab d={r.data} />;
   else if (view === "console") body = <Console d={r.data} onChanged={reload} />;
   else body = <Overview d={r.data} go={setView} onChanged={reload} />;
   const d = r?.state === "ok" ? r.data : null;
@@ -497,6 +543,7 @@ export default function Certificates() {
           { id: "overview", label: "Overview", count: null },
           { id: "tickets", label: "Tickets", count: d ? full(d.open.length) : null },
           { id: "agenda", label: "Agenda", count: d && next7 ? full(next7) : null },
+          { id: "shop", label: "From the shop", count: d && d.shop.length ? full(d.shop.length) : null },
           { id: "activity", label: "Activity", count: d && d.rows.length ? full(d.rows.length) : null },
           { id: "console", label: "Console", count: null },
         ]} />
