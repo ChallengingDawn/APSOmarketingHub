@@ -24,7 +24,7 @@ import { Chip, Choice, when } from "@/app/connectors/parts";
 import { full } from "@/app/charts/format";
 import type { BoardRow, Mails, Mode, RunInfo } from "@/lib/certificates/engine";
 import { DEFAULT_TIMING, TIMING_BOUNDS, stepWords, type StepName, type Timing } from "@/lib/certificates/rules";
-import { TicketLink, hh, put, span, type Data } from "./shared";
+import { TicketLink, put, type Data } from "./shared";
 
 const GREEN = "#1b7a55";
 
@@ -286,18 +286,6 @@ const RULES: { lane: string; steps: StepName[]; then?: string }[] = [
   { lane: "Conformity expert", steps: ["expert-entry", "today", "late", "late96", "lateWeek", "lateRose"], then: "Sent out to customer and EDA → done" },
   { lane: "Done and merged", steps: ["close", "merge-clear"] },
 ];
-const BETTER = [
-  "The 96 h AVOR subject named the certificates twice.",
-  "After the AVOR \"over a week\" wait the workflow sent the ticket to Rose even when the article had come - the hub moves it on to the Back Office.",
-  "The expert's last wait waited for \"Article received\" in place of \"Sent out\".",
-  "\"Sent out\" before the delivery date was missed and the ticket called late - the hub resolves it at once.",
-  "A merged ticket lost every later \"Assign to Conformity Expert\".",
-  "The company in the subject is the ticket's primary company - the workflow took the last-modified one, often A+P.",
-  "The Back Office's reminders come on the delivery date and after - the workflow counted 72 h from the moment the ticket went to Remind.",
-  "The expert no longer gets the Back Office's \"please create it\" mails, and the expert's subjects are no longer written over.",
-  "The last reminder mails no longer say \"96 hours ago\" after a week.",
-  "The way in always comes before the assignment - the old workflow fired up to 6 minutes late and put Backoffice Team back over people the hub had assigned.",
-];
 function RulesCard({ d }: { d: Data }) {
   const t = d.settings.timing;
   return (
@@ -314,15 +302,6 @@ function RulesCard({ d }: { d: Data }) {
           </Box>
         ))}
       </Box>
-      <Box component="details" sx={{ mt: 1.5, "& summary": { cursor: "pointer", fontSize: "0.82rem", fontWeight: 600, color: INK } }}>
-        <summary>What the hub does better than the workflows ({BETTER.length})</summary>
-        <Box component="ul" sx={{ m: 0, mt: 0.75, pl: 2.5, display: "grid", gap: 0.4, listStyleType: "disc", "& > li": { display: "list-item" } }}>
-          {BETTER.map((b) => <Typography key={b} component="li" sx={{ fontSize: "0.78rem", color: INK }}>{b}</Typography>)}
-        </Box>
-      </Box>
-      <Typography sx={{ mt: 1, fontSize: "0.74rem", color: FAINT }}>
-        Steps that fell due before the hub took a workflow over were that workflow&apos;s; the hub takes every step after, once ({hh(t.boHour)} / {hh(t.expertHour)}, reminders every {span(t.boEveryH)}).
-      </Typography>
     </GlassCard>
   );
 }
