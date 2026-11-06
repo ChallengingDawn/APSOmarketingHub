@@ -142,6 +142,8 @@ export type PostcodeStat = {
   newCustomers: number;
   /** revenue this year, in the company property named in LayerData.revenueField (EUR - Performis net revenue) */
   revenue: number;
+  /** yearly_customer_potential summed (SARCLA 06.11.2026: "une map avec le potentiel"); absent from an older hub */
+  potential?: number;
   /** sales_priority P1..P4 -> companies */
   priority: Record<string, number>;
   /** apso_customer (APSOcore, APSOgrowth ...) -> companies; absent from an older hub */
@@ -165,7 +167,7 @@ export type PostcodeStat = {
    *  revenue, orders incoming, new customers, number of tickets, number of sales tickets") */
   byOwner?: Record<string, PersonStat>;
 };
-export type PersonStat = { companies: number; customers: number; newCustomers: number; revenue: number; tickets: number; sales: number };
+export type PersonStat = { companies: number; customers: number; newCustomers: number; revenue: number; potential?: number; tickets: number; sales: number };
 export type LayerData = {
   country: string; at: string | null;
   points: PostcodeStat[];
@@ -189,6 +191,8 @@ export type OwnerLoad = {
   now: number; after: number;
   /** of "after": bought this year, first order this year, revenue this year (EUR), contacts */
   customers: number; newCustomers: number; revenue: number; contacts: number;
+  /** of "after": the yearly customer potential summed (06.11.2026); absent from an older hub */
+  potential?: number;
   /** of "after": tickets of the last 90 days on their companies - every pipeline, and the sales ones (ESO + TSA) */
   tickets: number; sales: number;
   /** of "after", by sales_priority (P1..P4, "" = none) and by apso_customer ("" = none) - SARCLA 24.10.2026: "the split

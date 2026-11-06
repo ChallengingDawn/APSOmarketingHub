@@ -61,6 +61,8 @@ import { LAND, basePaths, cellGroups, drawBase, drawFocus, toBase, toScreen, typ
 import { CountryMenu, PillGroup, type PillDef } from "./mapTabs";
 import { KpiPanel, LAYERS, PlacePanel, gdpText, km2Text, rampOf, type Target } from "./SidePanel";
 import type { Place } from "./RulesDialog";
+import { MapSummary } from "./MapSummary";
+import { teamOf } from "@/lib/datatracker/rosters";
 
 export type { MapAssign } from "./mapEdit";
 
@@ -238,6 +240,24 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
   /* ── the canvas size ── */
   // the panel on the left (a place, Options, KPIs) keeps its 400 px from a tablet up; on a phone it covers the map
   const reserve = ((pinned !== null && (!onPlace || pinned.kind === "marker")) || side !== null) && (size?.w ?? 0) >= 700 ? 412 : 0;
+  // the bars over the map: the country fits below the top one and beside (or above) the summary bottom left, so the
+  // whole country shows at once (SARCLA 06.11.2026: "réduire un peu la taille des maps pour voir le pays complètement")
+  const topBarRef = useRef<HTMLDivElement>(null);
+  const cornerRef = useRef<HTMLDivElement>(null);
+  const [bars, setBars] = useState({ top: 0, cw: 0, ch: 0 });
+  useEffect(() => {
+    const t = topBarRef.current, c = cornerRef.current;
+    if (!t) return;
+    const measure = () => {
+      const next = { top: Math.round(t.offsetTop + t.offsetHeight), cw: Math.round(c?.offsetWidth ?? 0), ch: Math.round(c?.offsetHeight ?? 0) };
+      setBars((b) => (b.top === next.top && b.cw === next.cw && b.ch === next.ch ? b : next));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(t);
+    if (c) ro.observe(c);
+    return () => ro.disconnect();
+  }, [base]);
   useEffect(() => {
     const box = boxRef.current;
     if (!box || !base) return;
@@ -257,21 +277,32 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
     if (!cv || !size || !base) return;
     const dpr = Math.min(3, window.devicePixelRatio || 1);
     cv.width = Math.round(size.w * dpr); cv.height = Math.round(size.h * dpr);
-    // an open panel takes the left: the country fits beside it
-    const free = size.w - reserve;
-    const sx = Math.min(free / W, size.h / base.h);
+    // an open panel takes the left, the top bar the top: the country fits in what is left - beside the summary bottom
+    // left or above it, whichever shows the country bigger
+    const M = 8;
+    const top = Math.min(size.h / 3, bars.top) + M;
+    const left = reserve + M;
+    const fit = (x0: number, y0: number, x1: number, y1: number) => {
+      const w = Math.max(40, x1 - x0), h = Math.max(40, y1 - y0);
+      const sx = Math.min(w / W, h / base.h);
+      return { sx, ox: x0 + (w - W * sx) / 2, oy: y0 + (h - base.h * sx) / 2 };
+    };
+    const plain = fit(left, top, size.w - M, size.h - M);
+    const beside = bars.cw ? fit(left + bars.cw + 2 * M, top, size.w - M, size.h - M) : plain;
+    const above = bars.ch ? fit(left, top, size.w - M, size.h - bars.ch - 2 * M - 10) : plain;
+    const best = beside.sx >= above.sx ? beside : above;
     const before = frameRef.current;
-    const next = { cssW: size.w, cssH: size.h, dpr, sx, ox: reserve + (free - W * sx) / 2, oy: (size.h - base.h * sx) / 2 };
+    const next = { cssW: size.w, cssH: size.h, dpr, ...best };
     frameRef.current = next;
     const v = viewRef.current;
     // zoomed out: the whole country again; zoomed in: the same place stays under the same pixel
     if (v.k <= 1.02) setView({ k: 1, x: 0, y: 0 });
-    else if (before && before.sx !== next.sx) {
+    else if (before && (before.sx !== next.sx || before.ox !== next.ox || before.oy !== next.oy)) {
       const k = (v.k * before.sx) / next.sx;
       setView({ k, x: before.ox * v.k + v.x - next.ox * k, y: before.oy * v.k + v.y - next.oy * k });
     } else setView(v);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [size, base, reserve]);
+  }, [size, base, reserve, bars]);
 
   /* ── the view ── */
   const clampView = (v: View): View => {
@@ -365,7 +396,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
     });
   }, [base, ui.detail, m.picks, hl, paintKey, effLayer]);
 
-  const valueLayer: ValueLayer | null = effLayer === "revenue" || effLayer === "customers" || effLayer === "newCustomers" || effLayer === "priority" || effLayer === "gdp" ? effLayer : null;
+  const valueLayer: ValueLayer | null = effLayer === "revenue" || effLayer === "potential" || effLayer === "customers" || effLayer === "newCustomers" || effLayer === "priority" || effLayer === "gdp" ? effLayer : null;
   /** the value layer: per region (zoomed out; GDP always) or per postcode area, with its class breaks */
   const values = useMemo(() => {
     if (!base || !joined || !valueLayer) return null;
@@ -678,14 +709,35 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
   };
   const layerValue = (t: Target): string | null => {
     if (!joined || !valueLayer) return null;
-    const lab = valueLayer === "revenue" ? "Revenue" : valueLayer === "customers" ? "Customers" : valueLayer === "newCustomers" ? "New customers" : valueLayer === "priority" ? `${prio} companies` : "GDP";
+    const lab = valueLayer === "revenue" ? "Revenue" : valueLayer === "potential" ? "Potential" : valueLayer === "customers" ? "Customers" : valueLayer === "newCustomers" ? "New customers" : valueLayer === "priority" ? `${prio} companies` : "GDP";
     if (valueLayer === "gdp") {
       const r = t.kind === "cell" ? t.region : t.kind === "region" ? t.region : -1;
       return r >= 0 ? `GDP ${gdpText(joined.gdp[r])}` : null;
     }
     const s = t.kind === "cell" ? cellStat(t.cell) : t.kind === "region" ? joined.regions[t.region] : null;
     const v = statValue(s, valueLayer, prio);
-    return `${lab} ${valueLayer === "revenue" ? short(v) : full(v)}`;
+    const money = valueLayer === "revenue" || valueLayer === "potential";
+    return `${lab} ${money ? short(v) : full(v)}`;
+  };
+  /** the place's figure split ESO / TSA (SARCLA 06.11.2026: "si tu as TSA et ESO, quel est le revenue ou le potentiel") -
+   *  by the person the rules give each company there; Owners and Top customers: revenue and potential */
+  const teamSplit = (t: Target): string | null => {
+    if (!joined) return null;
+    const s = t.kind === "cell" ? cellStat(t.cell) : t.kind === "region" ? joined.regions[t.region] : null;
+    if (!s?.byOwner) return null;
+    const line = (what: "revenue" | "potential" | "customers" | "newCustomers", lab: string) => {
+      const by = new Map<string, number>();
+      for (const [o, x] of Object.entries(s.byOwner ?? {})) {
+        const k = teamOf(o) ?? "Other";
+        by.set(k, (by.get(k) ?? 0) + (Number(x[what]) || 0));
+      }
+      const money = what === "revenue" || what === "potential";
+      const parts = ["ESO", "TSA", "Other"].filter((k) => (by.get(k) ?? 0) > 0).map((k) => `${k} ${money ? short(by.get(k)) : full(by.get(k))}`);
+      return parts.length ? `${lab}: ${parts.join(" · ")}` : null;
+    };
+    if (valueLayer === "revenue" || valueLayer === "potential" || valueLayer === "customers" || valueLayer === "newCustomers") return line(valueLayer, valueLayer === "newCustomers" ? "New" : valueLayer[0].toUpperCase() + valueLayer.slice(1));
+    if (effLayer === "owners" || effLayer === "top") return [line("revenue", "Revenue"), line("potential", "Potential")].filter(Boolean).join("\n") || null;
+    return null;
   };
 
   const people = useMemo(() => {
@@ -707,6 +759,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
     const hint = layers.loading ? "Reading the companies per postcode…"
       : !joined ? `No company figures for ${countryName(cc)} yet - they come with the engine's scans`
       : l.key === "gdp" && !hasGdp ? `No GDP figures for ${countryName(cc)} yet`
+      : l.key === "potential" && !(Number(joined.total.potential) > 0) ? `No potential for ${countryName(cc)} yet - the engine's next full read of the companies brings it`
       : l.key === "top" && !joined.top.length ? `No customer with revenue in ${countryName(cc)} yet` : undefined;
     return { key: l.key, label: l.label, disabled: !!hint, hint };
   });
@@ -736,8 +789,15 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
   // the controls move right of an open panel (on a phone the panel covers the map: they stay under it)
   const besidePanel = panel ? { xs: 10, sm: 412 } : 10;
 
-  // the people on screen, small, bottom left: a click picks out their land
-  const mini = effLayer === "owners" || effLayer === "top" ? (
+  // the people on screen, small, bottom left: a click picks out their land - while the engine's figures per person
+  // are not there (they come with the summary, MapSummary.tsx, which takes this place)
+  const load = layers.data?.load ?? null;
+  const gdpTotal = joined && hasGdp ? joined.gdp.reduce<number>((a, v) => a + (v ?? 0), 0) : null;
+  const summaryCard = base && ((load && load.length) || effLayer === "gdp") ? (
+    <MapSummary cc={cc} layer={effLayer} prio={prio} load={load} onMap={people.map((p) => p.owner)} gdp={gdpTotal} names={names} palette={palette} hl={hl} setHl={setHl}
+      maxHeight={Math.max(160, (size?.h ?? 600) - bars.top - 90)} narrow={(size?.w ?? 1000) < 700} />
+  ) : null;
+  const mini = summaryCard && (effLayer === "owners" || effLayer === "top") ? null : effLayer === "owners" || effLayer === "top" ? (
     <Box sx={{ ...glassBar, px: 1, py: 0.6, display: "flex", flexWrap: "wrap", gap: 0.25, maxWidth: { xs: "100%", sm: 460 } }}>
       {(allPeople ? people : people.slice(0, 8)).map((p) => {
         const on = hl === p.owner;
@@ -788,7 +848,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
             outline: "none", "&:focus-visible": { boxShadow: "inset 0 0 0 2px #2459d1" },
           }} />
         {shown && !(pinned && sameTarget(pinned, shown)) && (
-          <HoverTip t={shown} base={base} m={m} names={names} palette={palette} joined={joined} layerValue={layerValue} boxW={boxW} />
+          <HoverTip t={shown} base={base} m={m} names={names} palette={palette} joined={joined} layerValue={layerValue} split={teamSplit} boxW={boxW} />
         )}
       </>
     );
@@ -803,11 +863,20 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
       }}>
         {stage}
         {/* over the map, top: the country, Options, KPIs - and the layers and the search */}
-        <Box sx={{ position: "absolute", top: 10, left: besidePanel, right: 10, zIndex: 4, display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 1, pointerEvents: "none", "& > *": { pointerEvents: "auto" } }}>
+        <Box ref={topBarRef} sx={{ position: "absolute", top: 10, left: besidePanel, right: 10, zIndex: 4, display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 1, pointerEvents: "none", "& > *": { pointerEvents: "auto" } }}>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, alignItems: "center" }}>
             {top}
             {onRules && <Button onClick={onRules} startIcon={<TuneOutlinedIcon sx={{ fontSize: 18 }} />} sx={sideBtn(false)}>Rules</Button>}
             <Button onClick={() => (onKpi ? onKpi() : toggle("kpis"))} startIcon={<InsightsOutlinedIcon sx={{ fontSize: 18 }} />} aria-pressed={!onKpi && side === "kpis" && !pinned} sx={sideBtn(!onKpi && side === "kpis" && !pinned)}>KPIs</Button>
+            {/* zoom in and out, in sight next to the country (SARCLA 06.11.2026: "put a plus or minus to zoom de zoom") */}
+            {base && (
+              <Box role="group" aria-label="Zoom" sx={{ ...glassBar, borderRadius: "12px", display: "flex", alignItems: "center", p: 0.25, gap: 0.25 }}>
+                <Tooltip title="Zoom out (−)"><span><IconButton onClick={() => zoomCentre(1 / 1.6)} disabled={ui.atMin} aria-label="Zoom out" sx={{ width: 34, height: 34, color: INK }}><RemoveIcon sx={{ fontSize: 22 }} /></IconButton></span></Tooltip>
+                <Tooltip title="Zoom in (+)"><span><IconButton onClick={() => zoomCentre(1.6)} disabled={ui.atMax} aria-label="Zoom in" sx={{ width: 34, height: 34, color: INK }}><AddIcon sx={{ fontSize: 22 }} /></IconButton></span></Tooltip>
+                <Box sx={{ width: "1px", alignSelf: "stretch", my: 0.5, bgcolor: HAIRLINE }} />
+                <Tooltip title="Whole country"><span><IconButton onClick={() => animateTo({ k: 1, x: 0, y: 0 })} disabled={ui.atMin} aria-label="Whole country" sx={{ width: 34, height: 34, color: INK }}><CenterFocusStrongOutlinedIcon sx={{ fontSize: 20 }} /></IconButton></span></Tooltip>
+              </Box>
+            )}
           </Box>
           <Box sx={{ flex: 1 }} />
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, alignItems: "center", justifyContent: "flex-end" }}>
@@ -824,10 +893,11 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
               sx={{ width: { xs: "100%", sm: 220 }, "& .MuiInputBase-root": { ...glassBar, fontSize: "0.85rem" }, "& .MuiInputBase-input": { py: 0.7 } }} />
           </Box>
         </Box>
-        {/* bottom: the people (or the layer's scale) and the level, left; the zoom, right */}
+        {/* bottom left: the summary (or the people), the layer's scale and the level */}
         {base && (
-          <Box sx={{ position: "absolute", left: besidePanel, right: 10, bottom: 10, zIndex: 4, display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 1, pointerEvents: "none", "& > *": { pointerEvents: "auto" } }}>
-            <Box sx={{ display: "grid", gap: 0.75, justifyItems: "start", minWidth: 0 }}>
+          <Box sx={{ position: "absolute", left: besidePanel, right: 10, bottom: 10, zIndex: 4, display: "flex", alignItems: "flex-end", pointerEvents: "none" }}>
+            <Box ref={cornerRef} sx={{ display: "grid", gap: 0.75, justifyItems: "start", minWidth: 0, maxWidth: "100%", pointerEvents: "auto" }}>
+              {summaryCard}
               {mini}
               <PillGroup<"regions" | "postcodes"> name="Map level" small value={ui.detail ? "postcodes" : "regions"}
                 onChange={(k) => {
@@ -835,11 +905,6 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
                   else zoomCentre(Math.max(K_DETAIL * 1.25, viewRef.current.k) / viewRef.current.k);
                 }}
                 options={[{ key: "regions", label: "Regions" }, { key: "postcodes", label: "Postcodes" }]} />
-            </Box>
-            <Box sx={{ ...glassBar, display: "flex", flexDirection: "column", gap: 0.25, p: 0.35 }}>
-              <Tooltip title="Zoom in" placement="left"><span><IconButton size="small" onClick={() => zoomCentre(1.7)} disabled={ui.atMax} aria-label="Zoom in"><AddIcon sx={{ fontSize: 18 }} /></IconButton></span></Tooltip>
-              <Tooltip title="Zoom out" placement="left"><span><IconButton size="small" onClick={() => zoomCentre(1 / 1.7)} disabled={ui.atMin} aria-label="Zoom out"><RemoveIcon sx={{ fontSize: 18 }} /></IconButton></span></Tooltip>
-              <Tooltip title="Whole country" placement="left"><span><IconButton size="small" onClick={() => animateTo({ k: 1, x: 0, y: 0 })} disabled={ui.atMin} aria-label="Whole country"><CenterFocusStrongOutlinedIcon sx={{ fontSize: 18 }} /></IconButton></span></Tooltip>
             </Box>
           </Box>
         )}
@@ -853,7 +918,7 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
         {panel}
       </Box>
       <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>
-        Scroll or pinch to zoom, drag to move. Zoomed out, each region takes the colour of the person with most of its postcodes - paler where others hold part of it; zoomed in, every postcode shows its own area. Click a region or a postcode for its figures{canGive ? " and to give it to someone" : ""}.
+        Scroll, pinch or the + and − buttons to zoom, drag to move. Zoomed out, each region takes the colour of the person with most of its postcodes - paler where others hold part of it; zoomed in, every postcode shows its own area. Click a region or a postcode for its figures{canGive ? " and to give it to someone" : ""}.
       </Typography>
     </Box>
   );
@@ -861,8 +926,10 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
 
 /* ── the hover ── */
 
-function HoverTip({ t, base, m, names, palette, joined, layerValue, boxW }: {
-  t: Target; base: MapBase; m: CountryMap; names: Names; palette: Palette; joined: Joined | null; layerValue: (t: Target) => string | null; boxW: number;
+function HoverTip({ t, base, m, names, palette, joined, layerValue, split, boxW }: {
+  t: Target; base: MapBase; m: CountryMap; names: Names; palette: Palette; joined: Joined | null; layerValue: (t: Target) => string | null;
+  /** the place's figure, ESO / TSA */
+  split: (t: Target) => string | null; boxW: number;
 }) {
   let title = "", sub = "", owner: string | null = null, line: string | null = null;
   if (t.kind === "cell") {
@@ -887,6 +954,7 @@ function HoverTip({ t, base, m, names, palette, joined, layerValue, boxW }: {
     }
   }
   const value = layerValue(t);
+  const teams = t.kind === "marker" ? null : split(t);
   const left = Math.max(4, Math.min(t.X + 14, boxW - 264));
   return (
     <Box sx={{
@@ -903,6 +971,7 @@ function HoverTip({ t, base, m, names, palette, joined, layerValue, boxW }: {
         </Box>
       )}
       {value && <Typography sx={{ fontSize: "0.78rem", color: INK, mt: 0.4, fontVariantNumeric: "tabular-nums" }}>{value}</Typography>}
+      {teams && <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.25, fontVariantNumeric: "tabular-nums", whiteSpace: "pre-line" }}>{teams}</Typography>}
     </Box>
   );
 }

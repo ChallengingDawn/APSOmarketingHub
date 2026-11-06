@@ -86,7 +86,7 @@ const KV = {
 };
 
 /** A full read whose facts are older than this (a new column) makes the next run a full one: every row filled. */
-const SCAN_VERSION = 3; // 3 (24.10.2026): apso_customer
+const SCAN_VERSION = 4; // 3 (24.10.2026): apso_customer; 4 (06.11.2026): yearly_customer_potential
 
 /** The calendar year in Zurich - the year of "revenue this year", "customer this year". */
 const yearNow = () => Number(zurich(Date.now()).day.slice(0, 4));
@@ -98,9 +98,12 @@ const FIRST_ORDER_FIELD = "order_first_order_date";
 const PRIORITY_FIELD = "sales_priority";
 /** APSOcore / APSOgrowth / APSOprospect / APSOlost / APSOmicro / Growth Engine Customer (the segmentation) */
 const CATEGORY_FIELD = "apso_customer";
+/** The yearly customer potential (Smart Segmentation; reps' own numbers from the visit form) - the map's Potential layer
+ *  (SARCLA 06.11.2026: "ajouter une map avec le potentiel") */
+const POTENTIAL_FIELD = "yearly_customer_potential";
 const BASE_PROPS = ["name", "country", "country_custom", "zip", "sae_performis", "erp_customer_id", "hubspot_owner_id", "region_responsibility", "hs_lastmodifieddate"];
 /** What a company read asks for: the rules' facts and the map's layers. */
-const companyProps = (year = yearNow()) => [...BASE_PROPS, revenueField(year), CUSTOMERS_FIELD, FIRST_ORDER_FIELD, PRIORITY_FIELD, CATEGORY_FIELD];
+const companyProps = (year = yearNow()) => [...BASE_PROPS, revenueField(year), CUSTOMERS_FIELD, FIRST_ORDER_FIELD, PRIORITY_FIELD, CATEGORY_FIELD, POTENTIAL_FIELD];
 const CONTACT_PROPS = ["email", "hubspot_owner_id", "region_responsibility", "sae_performis", "associatedcompanyid"];
 /** v4 association types: contact -> company, unlabeled and primary. */
 const CONTACT_TO_COMPANY = 279, CONTACT_TO_PRIMARY_COMPANY = 1;
@@ -171,6 +174,8 @@ export function ensureMapAssign(): Promise<void> {
       -- v7 (25.10.2026): open ESO + TSA tickets on the company, hourly - the KPI's "Sales open" per country (SARCLA: "what
       -- am I doing in Italy if I have no companies or contacts" - it counted a person's open tickets in every country)
       ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS sales_open INTEGER;
+      -- v8 (06.11.2026): the yearly customer potential, the map's Potential layer
+      ALTER TABLE apsomh_map_assign ADD COLUMN IF NOT EXISTS potential DOUBLE PRECISION;
       CREATE TABLE IF NOT EXISTS apsomh_map_assign_nocompany (
         contact_id       TEXT PRIMARY KEY,
         email            TEXT,
@@ -544,6 +549,8 @@ type Rec = {
   owner_decided: string; via: Via; detail: string; flags: string; contacts_off: number | null; contacts_checked: boolean; modified_at: string | null;
   revenue_cy: number | null; revenue_year: number; last_order: string | null; first_order: string | null; priority: string | null;
   category: string | null;
+  /** yearly_customer_potential */
+  potential: number | null;
   /** associated contacts, counted on a full read (null = keep the stored count) */
   contacts_n: number | null;
   /** of its own contacts: owner or region not the company's now (null = keep the stored count) */
@@ -572,7 +579,7 @@ function toRec(o: Obj, ctx: Ctx): Rec {
     ...base, name: nz(p.name), country: d.country, owner_now: nz(p.hubspot_owner_id), region_now: nz(p.region_responsibility),
     owner_decided: d.owner, via: d.via, detail: d.detail, flags: d.flags.join(","), contacts_off: null, contacts_checked: false, modified_at: nz(p.hs_lastmodifieddate),
     revenue_cy: num(p[revenueField(ctx.year)]), revenue_year: ctx.year, last_order: nz(p[CUSTOMERS_FIELD]), first_order: nz(p[FIRST_ORDER_FIELD]),
-    priority: nz(p[PRIORITY_FIELD]), category: nz(p[CATEGORY_FIELD]), contacts_n: null, contacts_mism: null,
+    priority: nz(p[PRIORITY_FIELD]), category: nz(p[CATEGORY_FIELD]), potential: num(p[POTENTIAL_FIELD]), contacts_n: null, contacts_mism: null,
   };
 }
 const differs = (r: { owner_now: string | null; region_now: string | null; owner_decided: string }) =>
@@ -585,22 +592,22 @@ async function upsert(recs: Rec[]): Promise<void> {
     await query(
       `INSERT INTO apsomh_map_assign AS m (company_id, name, country, country_raw, country_custom, zip, region, sae, erp_id, owner_now, region_now,
          owner_decided, via, detail, flags, contacts_off, contacts_at, modified_at, checked_at,
-         revenue_cy, revenue_year, last_order, first_order, priority, contacts_n, contacts_n_at, contacts_mism, apso_customer, facts_at)
+         revenue_cy, revenue_year, last_order, first_order, priority, contacts_n, contacts_n_at, contacts_mism, apso_customer, facts_at, potential)
        SELECT x.company_id, x.name, x.country, x.country_raw, x.country_custom, x.zip, x.region, x.sae, x.erp_id, x.owner_now, x.region_now,
          x.owner_decided, x.via, x.detail, COALESCE(string_to_array(NULLIF(x.flags, ''), ','), '{}'), x.contacts_off,
          CASE WHEN x.contacts_checked THEN NOW() END, x.modified_at, NOW(),
-         x.revenue_cy, x.revenue_year, x.last_order, x.first_order, x.priority, x.contacts_n, CASE WHEN x.contacts_n IS NOT NULL THEN NOW() END, x.contacts_mism, x.category, NOW()
+         x.revenue_cy, x.revenue_year, x.last_order, x.first_order, x.priority, x.contacts_n, CASE WHEN x.contacts_n IS NOT NULL THEN NOW() END, x.contacts_mism, x.category, NOW(), x.potential
        FROM jsonb_to_recordset($1::jsonb) AS x(company_id text, name text, country text, country_raw text, country_custom text, zip text, region text,
          sae text, erp_id text, owner_now text, region_now text, owner_decided text, via text, detail text, flags text, contacts_off int,
          contacts_checked boolean, modified_at timestamptz, revenue_cy double precision, revenue_year int, last_order text, first_order text,
-         priority text, contacts_n int, contacts_mism int, category text)
+         priority text, contacts_n int, contacts_mism int, category text, potential double precision)
        ON CONFLICT (company_id) DO UPDATE SET
          name = EXCLUDED.name, country = EXCLUDED.country, country_raw = EXCLUDED.country_raw, country_custom = EXCLUDED.country_custom,
          zip = EXCLUDED.zip, region = EXCLUDED.region, sae = EXCLUDED.sae, erp_id = EXCLUDED.erp_id, owner_now = EXCLUDED.owner_now,
          region_now = EXCLUDED.region_now, owner_decided = EXCLUDED.owner_decided, via = EXCLUDED.via, detail = EXCLUDED.detail, flags = EXCLUDED.flags,
          contacts_off = EXCLUDED.contacts_off, contacts_at = EXCLUDED.contacts_at, modified_at = EXCLUDED.modified_at, checked_at = NOW(),
          revenue_cy = EXCLUDED.revenue_cy, revenue_year = EXCLUDED.revenue_year, last_order = EXCLUDED.last_order, first_order = EXCLUDED.first_order,
-         priority = EXCLUDED.priority, apso_customer = EXCLUDED.apso_customer,
+         priority = EXCLUDED.priority, apso_customer = EXCLUDED.apso_customer, potential = EXCLUDED.potential,
          facts_at = CASE WHEN m.sae IS DISTINCT FROM EXCLUDED.sae OR m.zip IS DISTINCT FROM EXCLUDED.zip
            OR m.country_raw IS DISTINCT FROM EXCLUDED.country_raw OR m.country_custom IS DISTINCT FROM EXCLUDED.country_custom THEN NOW() ELSE m.facts_at END,
          -- counted on a full read only: a 15-minute read keeps the count
@@ -1423,10 +1430,10 @@ export async function layerData(country: string, opts: { rules?: AssignRules } =
     company_id: string; name: string | null; zip: string | null; owner_now: string | null; revenue_cy: number | null; revenue_year: number | null;
     last_order: string | null; first_order: string | null; priority: string | null; sae: string | null; owner_decided: string | null; region_now: string | null;
     via: string | null; tickets_90: number | null; sales_90: number | null; apso_customer: string | null; sales_open: number | null;
-    country_raw: string | null; country_custom: string | null; region: string | null; erp_id: string | null;
+    country_raw: string | null; country_custom: string | null; region: string | null; erp_id: string | null; potential: number | null;
   }>(
     `SELECT company_id, name, zip, owner_now, revenue_cy, revenue_year, last_order, first_order, priority, sae, owner_decided, region_now, via, tickets_90, sales_90,
-       apso_customer, country_raw, country_custom, region, erp_id, sales_open
+       apso_customer, country_raw, country_custom, region, erp_id, sales_open, potential
      FROM apsomh_map_assign WHERE country = $1`, [cc],
   );
   // the sandbox: every company decided again with its rules, here only (the table keeps the live decision)
@@ -1442,7 +1449,7 @@ export async function layerData(country: string, opts: { rules?: AssignRules } =
     // a row read before New Year holds last year's revenue: none until the next read
     revenue: Number(x.revenue_year) === year ? x.revenue_cy : null,
     lastOrder: x.last_order, firstOrder: x.first_order, priority: x.priority, sae: x.sae, decided: x.owner_decided, region: x.region_now, via: x.via,
-    tickets: x.tickets_90, sales: x.sales_90, category: x.apso_customer,
+    tickets: x.tickets_90, sales: x.sales_90, category: x.apso_customer, potential: x.potential,
   }));
   const ix = await zipsOf(cc);
   const place = ix.keys.length ? (z: string | null) => placeZip(ix, z)?.code ?? null : (z: string | null) => cleanZip(z) || null;
@@ -1450,7 +1457,7 @@ export async function layerData(country: string, opts: { rules?: AssignRules } =
   const last = await lastRun();
   // the workload per person: owner now and by the rules; of the companies by the rules, customers / revenue this year
   const by = new Map<string, OwnerLoad>();
-  const at = (o: string) => by.get(o) ?? (by.set(o, { owner: o, now: 0, after: 0, customers: 0, newCustomers: 0, revenue: 0, contacts: 0, tickets: 0, sales: 0, salesOpen: 0, priority: {}, category: {} }), by.get(o)!);
+  const at = (o: string) => by.get(o) ?? (by.set(o, { owner: o, now: 0, after: 0, customers: 0, newCustomers: 0, revenue: 0, potential: 0, contacts: 0, tickets: 0, sales: 0, salesOpen: 0, priority: {}, category: {} }), by.get(o)!);
   const extra = await query<{ company_id: string; contacts_n: number | null }>(`SELECT company_id, contacts_n FROM apsomh_map_assign WHERE country = $1`, [cc]);
   const contactsOf = new Map(extra.rows.map((x) => [String(x.company_id), Number(x.contacts_n) || 0]));
   for (const x of r.rows) {
@@ -1464,6 +1471,7 @@ export async function layerData(country: string, opts: { rules?: AssignRules } =
     a.sales += Number(x.sales_90) || 0;
     a.salesOpen! += Number(x.sales_open) || 0;
     if (Number(x.revenue_year) === year && Number.isFinite(Number(x.revenue_cy))) a.revenue += Number(x.revenue_cy);
+    if (x.potential !== null && Number.isFinite(Number(x.potential))) a.potential! += Number(x.potential);
     a.contacts += contactsOf.get(String(x.company_id)) ?? 0;
     // the split SARCLA asked for (24.10.2026): "PRIO and APSOcustomer" - "" = none
     const pk = priorityKey(x.priority) ?? "";
@@ -1471,7 +1479,7 @@ export async function layerData(country: string, opts: { rules?: AssignRules } =
     const ck = String(x.apso_customer ?? "").trim();
     a.category![ck] = (a.category![ck] ?? 0) + 1;
   }
-  const load = [...by.values()].map((l) => ({ ...l, revenue: Math.round(l.revenue) })).sort((a, b) => b.after - a.after || b.now - a.now);
+  const load = [...by.values()].map((l) => ({ ...l, revenue: Math.round(l.revenue), potential: Math.round(l.potential ?? 0) })).sort((a, b) => b.after - a.after || b.now - a.now);
   return {
     country: cc, at: last?.at ?? null, points, unplaced, gdp: await gdpOf(cc), gdpSource: await gdpSourceOf(cc),
     revenueField: revenueField(year), customersField: CUSTOMERS_FIELD,

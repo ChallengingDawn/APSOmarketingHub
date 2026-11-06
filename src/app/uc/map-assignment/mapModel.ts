@@ -378,7 +378,7 @@ export function tally(base: MapBase | null, picks: Decided[]): Tally {
 
 /* ── the engine's layers ── */
 
-export type ValueLayer = "revenue" | "customers" | "newCustomers" | "priority" | "gdp";
+export type ValueLayer = "revenue" | "potential" | "customers" | "newCustomers" | "priority" | "gdp";
 export type LayerKey = "owners" | ValueLayer | "top";
 export const PRIORITIES = ["P1", "P2", "P3", "P4"] as const;
 export type Priority = (typeof PRIORITIES)[number];
@@ -398,13 +398,14 @@ export type Joined = {
   total: PostcodeStat;
 };
 
-const emptyStat = (zip = ""): PostcodeStat => ({ zip, companies: 0, customers: 0, newCustomers: 0, revenue: 0, priority: {}, category: {}, top: [], sae: {}, now: {}, decided: {}, change: 0, via: {}, tickets: 0, sales: 0, byOwner: {} });
+const emptyStat = (zip = ""): PostcodeStat => ({ zip, companies: 0, customers: 0, newCustomers: 0, revenue: 0, potential: 0, priority: {}, category: {}, top: [], sae: {}, now: {}, decided: {}, change: 0, via: {}, tickets: 0, sales: 0, byOwner: {} });
 const addTo = (into: Record<string, number>, from: Record<string, number> | undefined) => {
   for (const [k, v] of Object.entries(from ?? {})) into[k] = (into[k] ?? 0) + (Number(v) || 0);
 };
 function addStat(into: PostcodeStat, s: PostcodeStat) {
   into.companies += s.companies || 0; into.customers += s.customers || 0; into.newCustomers += s.newCustomers || 0;
   into.revenue += Number.isFinite(s.revenue) ? s.revenue : 0;
+  into.potential = (into.potential ?? 0) + (Number(s.potential) || 0);
   addTo(into.priority, s.priority);
   addTo(into.category!, s.category);
   // where it comes from (a hub without these fields yet: empty)
@@ -414,9 +415,10 @@ function addStat(into: PostcodeStat, s: PostcodeStat) {
   into.sales = (into.sales ?? 0) + (Number(s.sales) || 0);
   for (const [o, x] of Object.entries(s.byOwner ?? {})) {
     const by = into.byOwner ?? (into.byOwner = {});
-    const t = by[o] ?? (by[o] = { companies: 0, customers: 0, newCustomers: 0, revenue: 0, tickets: 0, sales: 0 });
+    const t = by[o] ?? (by[o] = { companies: 0, customers: 0, newCustomers: 0, revenue: 0, potential: 0, tickets: 0, sales: 0 });
     t.companies += x.companies || 0; t.customers += x.customers || 0; t.newCustomers += x.newCustomers || 0;
-    t.revenue += Number(x.revenue) || 0; t.tickets += x.tickets || 0; t.sales += x.sales || 0;
+    t.revenue += Number(x.revenue) || 0; t.potential = (t.potential ?? 0) + (Number(x.potential) || 0);
+    t.tickets += x.tickets || 0; t.sales += x.sales || 0;
   }
 }
 /** A record's entries, biggest first: [[key, n], ...]. */
@@ -458,6 +460,7 @@ export function joinLayer(base: MapBase, data: LayerData): Joined {
 export function statValue(s: PostcodeStat | null, layer: ValueLayer, prio: Priority): number {
   if (!s) return 0;
   if (layer === "revenue") return s.revenue;
+  if (layer === "potential") return Number(s.potential) || 0;
   if (layer === "customers") return s.customers;
   if (layer === "newCustomers") return s.newCustomers;
   if (layer === "priority") return Number(s.priority?.[prio]) || 0;

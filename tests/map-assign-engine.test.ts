@@ -270,7 +270,25 @@ test("map assignment engine: the map's layers per postcode", () => {
   assert.deepEqual(b.category, { APSOcore: 1 });
   assert.deepEqual(b.top.map((t) => [t.id, t.revenue]), [["1", 1000], ["4", 400], ["5", 300]]);
   // a row without its decision (an old caller) counts no change
-  assert.deepEqual(points[1], { zip: "8400", companies: 1, customers: 0, newCustomers: 0, revenue: 0, priority: {}, category: {}, top: [], sae: { "": 1 }, now: { "1": 1 }, decided: {}, change: 0, via: {}, tickets: 0, sales: 0 });
+  assert.deepEqual(points[1], { zip: "8400", companies: 1, customers: 0, newCustomers: 0, revenue: 0, potential: 0, priority: {}, category: {}, top: [], sae: { "": 1 }, now: { "1": 1 }, decided: {}, change: 0, via: {}, tickets: 0, sales: 0 });
+});
+
+test("map assignment engine: the yearly potential per postcode and per person (the Potential layer, 06.11.2026)", () => {
+  const row = (id: string, x: Partial<LayerRow> = {}): LayerRow =>
+    ({ id, name: `C${id}`, zip: "1011", owner: "1", revenue: null, lastOrder: null, firstOrder: null, priority: null, ...x });
+  const { points } = layerPoints([
+    row("1", { potential: 30000, decided: "5", revenue: 1200 }),
+    row("2", { potential: 2500.25, decided: "5" }),
+    row("3", { potential: 800, decided: "9" }),
+    row("4", { potential: null, decided: "9", revenue: 40 }), // no potential written: nothing, never 0 made up
+    row("5"), // an old caller: no potential field
+  ], (z) => z, 2026);
+  assert.equal(points.length, 1);
+  const p = points[0];
+  assert.equal(p.potential, 33300.25);
+  assert.equal(p.byOwner?.["5"]?.potential, 32500.25);
+  assert.equal(p.byOwner?.["9"]?.potential, 800);
+  assert.equal(p.byOwner?.["9"]?.revenue, 40);
 });
 
 test("map assignment engine: the Performis tab per country and SAE", () => {

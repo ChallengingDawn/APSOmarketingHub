@@ -355,6 +355,8 @@ export type LayerRow = {
   tickets?: number | null; sales?: number | null;
   /** apso_customer */
   category?: string | null;
+  /** yearly_customer_potential - absent in old callers */
+  potential?: number | null;
 };
 /**
  * One country's companies per postcode point (PostcodeStat): companies, customers this year (an order this year -
@@ -369,7 +371,7 @@ export function layerPoints(rows: LayerRow[], place: (zip: string | null) => str
     const code = place(r.zip);
     if (!code) { unplaced++; continue; }
     let s = by.get(code);
-    if (!s) { s = { zip: code, companies: 0, customers: 0, newCustomers: 0, revenue: 0, priority: {}, category: {}, top: [], sae: {}, now: {}, decided: {}, change: 0, via: {} }; by.set(code, s); }
+    if (!s) { s = { zip: code, companies: 0, customers: 0, newCustomers: 0, revenue: 0, potential: 0, priority: {}, category: {}, top: [], sae: {}, now: {}, decided: {}, change: 0, via: {} }; by.set(code, s); }
     s.companies++;
     const sae = String(r.sae ?? "").trim().replace(/\s+/g, " ");
     s.sae![sae] = (s.sae![sae] ?? 0) + 1;
@@ -387,12 +389,13 @@ export function layerPoints(rows: LayerRow[], place: (zip: string | null) => str
     if (r.decided !== undefined && r.decided !== null) {
       const by = s.byOwner ?? (s.byOwner = {});
       const o = String(r.decided);
-      const ps = by[o] ?? (by[o] = { companies: 0, customers: 0, newCustomers: 0, revenue: 0, tickets: 0, sales: 0 });
+      const ps = by[o] ?? (by[o] = { companies: 0, customers: 0, newCustomers: 0, revenue: 0, potential: 0, tickets: 0, sales: 0 });
       ps.companies++;
       if (inYear(r.lastOrder, year)) ps.customers++;
       if (inYear(r.firstOrder, year)) ps.newCustomers++;
       const rv = Number(r.revenue);
       if (Number.isFinite(rv)) ps.revenue += rv;
+      if (r.potential !== null && r.potential !== undefined && Number.isFinite(Number(r.potential))) ps.potential = (ps.potential ?? 0) + Number(r.potential);
       ps.tickets += tk;
       ps.sales += sl;
     }
@@ -400,6 +403,7 @@ export function layerPoints(rows: LayerRow[], place: (zip: string | null) => str
     if (inYear(r.firstOrder, year)) s.newCustomers++;
     const rev = Number(r.revenue);
     if (Number.isFinite(rev) && rev) s.revenue += rev;
+    if (r.potential !== null && r.potential !== undefined && Number.isFinite(Number(r.potential))) s.potential = (s.potential ?? 0) + Number(r.potential);
     const p = priorityKey(r.priority);
     if (p) s.priority[p] = (s.priority[p] ?? 0) + 1;
     const cat = String(r.category ?? "").trim();
@@ -414,7 +418,7 @@ export function layerPoints(rows: LayerRow[], place: (zip: string | null) => str
       }
     }
   }
-  const points = [...by.values()].map((s) => ({ ...s, revenue: Math.round(s.revenue * 100) / 100 }));
+  const points = [...by.values()].map((s) => ({ ...s, revenue: Math.round(s.revenue * 100) / 100, potential: Math.round((s.potential ?? 0) * 100) / 100 }));
   points.sort((a, b) => (a.zip < b.zip ? -1 : a.zip > b.zip ? 1 : 0));
   return { points, unplaced };
 }

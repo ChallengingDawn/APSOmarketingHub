@@ -44,7 +44,7 @@ const RAMP = ["#b7d3f6", "#86b6ef", "#5598e7", "#256abf", "#104281"];
 export const rampOf = (classes: number) => (classes >= RAMP.length ? RAMP : RAMP.filter((_, i) => i % Math.ceil(RAMP.length / classes) === 0 || i === RAMP.length - 1).slice(-classes));
 
 export const LAYERS: { key: LayerKey; label: string }[] = [
-  { key: "owners", label: "Owners" }, { key: "revenue", label: "Revenue" }, { key: "customers", label: "Customers" },
+  { key: "owners", label: "Owners" }, { key: "revenue", label: "Revenue" }, { key: "potential", label: "Potential" }, { key: "customers", label: "Customers" },
   { key: "newCustomers", label: "New customers" }, { key: "priority", label: "Priority" }, { key: "gdp", label: "GDP" }, { key: "top", label: "Top customers" },
 ];
 
@@ -417,7 +417,7 @@ export function PlacePanel({ target, base, m, joined, names, palette, cc, rules,
 /* ── the country's KPIs ── */
 
 const layerTitle: Record<LayerKey, string> = {
-  owners: "Postcode land", revenue: "Revenue this year", customers: "Customers this year", newCustomers: "New customers this year",
+  owners: "Postcode land", revenue: "Revenue this year", potential: "Yearly customer potential", customers: "Customers this year", newCustomers: "New customers this year",
   priority: "Sales priority", gdp: "GDP per region", top: "Top customers",
 };
 
@@ -538,7 +538,7 @@ function Legend({ layer, people, names, palette, hl, setHl, m, base, joined, val
 
   const t = values?.thresholds ?? [];
   const ramp = rampOf(t.length + 1);
-  const fmt = (v: number) => (layer === "gdp" ? gdpText(v) : layer === "revenue" ? short(v) : full(v));
+  const fmt = (v: number) => (layer === "gdp" ? gdpText(v) : layer === "revenue" || layer === "potential" ? short(v) : full(v));
   const rows = ramp.map((c, i) => {
     const lo = i === 0 ? null : t[i - 1], hi = i < t.length ? t[i] : null;
     const label = lo === null && hi === null ? "more than 0" : lo === null ? `under ${fmt(hi!)}` : hi === null ? `${fmt(lo)} or more` : `${fmt(lo)} to under ${fmt(hi)}`;
@@ -559,7 +559,7 @@ function Legend({ layer, people, names, palette, hl, setHl, m, base, joined, val
       </Box>
       {total !== null && <Typography sx={{ fontSize: "0.82rem", color: INK, mt: 0.5, px: 0.5 }}>{countryName(cc)}: <b>{fmt(total)}</b>{layer === "priority" ? ` ${prio}` : ""}</Typography>}
       <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.5, lineHeight: 1.45 }}>
-        {values?.unit === "postcode" ? "Per postcode" : "Per region"}; darker = more.{layer === "revenue" && revenueField ? ` From ${revenueField}.` : ""}{layer !== "gdp" ? unplaced : ""}{asOf}
+        {values?.unit === "postcode" ? "Per postcode" : "Per region"}; darker = more.{layer === "revenue" && revenueField ? ` From ${revenueField}.` : layer === "potential" ? " From yearly_customer_potential." : ""}{layer !== "gdp" ? unplaced : ""}{asOf}
       </Typography>
     </Box>
   );
