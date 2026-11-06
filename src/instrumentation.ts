@@ -16,6 +16,15 @@ export async function register() {
     // HubSpot's per-app limit; SARCLA 19.10.2026). Before the schedulers below, so none searches outside it.
     const { installSharedSearchQueue } = await import("./lib/integrations/searchQueue");
     installSharedSearchQueue();
+    // HUB_JOBS=off: this copy starts NONE of the scheduled jobs below - its pages and buttons only. For the copy in the
+    // new AWS accounts (MarketingHub-Dev, 06.11.2026): it runs on a restored copy of the live database with the live
+    // keys while the sandbox still does the real work, so with its jobs on every e-mail, ticket and ERP pull would
+    // happen twice. Unset everywhere else, so nothing changes there. Still inside the nodejs `if`, so the edge bundle
+    // drops it with the rest.
+    if (process.env.HUB_JOBS === "off") {
+      console.log("[jobs] HUB_JOBS=off - no scheduled job started on this copy (pages and buttons only)");
+      return;
+    }
     const { startDocScheduler } = await import("./lib/doc/scheduler");
     startDocScheduler();
     // erosion tickets, once a day after the connector's nightly chain (EROSION_DETECTOR=live)

@@ -77,6 +77,34 @@ jobs:
           echo "Built and pushed $REPOSITORY:$IMAGE_TAG — NOT released."
           echo "To release it, retag :prod to this sha and force a new deployment (see the top of this file)."
 
+      # The new AWS account MarketingHub-Dev (292600391516, 06.11.2026) gets the SAME image, sha tag only - not released
+      # there either. The sandbox above stays the live hub until the switch, so these steps can never turn the run red:
+      # a failure here must not block the sandbox's image.
+      - name: Configure AWS credentials (MarketingHub-Dev)
+        id: aws-dev
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          aws-region: eu-central-1
+          role-to-assume: arn:aws:iam::292600391516:role/ap-apso-marketinghub-github-actions-role
+
+      - name: Login to Amazon ECR (MarketingHub-Dev)
+        id: login-ecr-dev
+        if: steps.aws-dev.outcome == 'success'
+        continue-on-error: true
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push the same image to MarketingHub-Dev
+        if: steps.login-ecr-dev.outcome == 'success'
+        continue-on-error: true
+        env:
+          SRC: ${{ steps.login-ecr.outputs.registry }}/apsomarketinghub:${{ github.sha }}
+          DST: ${{ steps.login-ecr-dev.outputs.registry }}/ap-apso-marketinghub:${{ github.sha }}
+        run: |
+          docker tag "$SRC" "$DST"
+          docker push "$DST"
+          echo "Also pushed to MarketingHub-Dev as ap-apso-marketinghub:${{ github.sha }} - NOT released there."
+
       # There is deliberately no deploy step here. A workflow that deploys every master push is
       # the hazard described at the top of this file: it would release code nobody approved, with
       # no gate. The old step called `aws ecs update-service --force-new-deployment` and survived
