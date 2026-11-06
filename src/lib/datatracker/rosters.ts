@@ -36,6 +36,8 @@ export const TSA_OWNERS: Record<string, string> = {
   "1229999295": "Denis Schawlochow",
   "1202569408": "TSA Team",
   "817497321": "Marc Frech",
+  // SARCLA 06.11.2026: "JAMES IS TSA" - Sandra Kuridza's successor (SAE "Köremez James" and "Kuridza Sandra")
+  "38431796": "James Koeremez",
 };
 
 /** Pipeline and the existing "New" stage. There is no dedicated price-check

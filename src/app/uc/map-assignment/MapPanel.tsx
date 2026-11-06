@@ -877,6 +877,14 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
                 <Tooltip title="Whole country"><span><IconButton onClick={() => animateTo({ k: 1, x: 0, y: 0 })} disabled={ui.atMin} aria-label="Whole country" sx={{ width: 34, height: 34, color: INK }}><CenterFocusStrongOutlinedIcon sx={{ fontSize: 20 }} /></IconButton></span></Tooltip>
               </Box>
             )}
+            {/* the search next to the zoom and the whole-country button (SARCLA 06.11.2026: "search bar should come by
+                your recentre") - it sat at the far right, cut off on a narrower screen */}
+            <TextField size="small" value={query} placeholder="Find a postcode or place" error={miss}
+              onChange={(e) => { setQuery(e.target.value); setMiss(false); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); find(query); } }}
+              slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18, color: FAINT }} /></InputAdornment> }, htmlInput: { "aria-label": "Find a postcode or place" } }}
+              title={miss ? `No postcode or place "${query.trim()}" in ${countryName(cc)}` : undefined}
+              sx={{ width: { xs: "100%", sm: 220 }, "& .MuiInputBase-root": { ...glassBar, fontSize: "0.85rem", height: 40 }, "& .MuiInputBase-input": { py: 0.7 } }} />
           </Box>
           <Box sx={{ flex: 1 }} />
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, alignItems: "center", justifyContent: "flex-end" }}>
@@ -885,12 +893,6 @@ export function MapPanel({ m, cc, rules, d, names, palette, onAssign, setDraft, 
               <PillGroup<Priority> name="Sales priority" small value={prio} onChange={setPrio}
                 options={PRIORITIES.map((p) => ({ key: p, label: p, count: joined ? full(joined.total.priority[p] ?? 0) : null }))} />
             )}
-            <TextField size="small" value={query} placeholder="Find a postcode or place" error={miss}
-              onChange={(e) => { setQuery(e.target.value); setMiss(false); }}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); find(query); } }}
-              slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18, color: FAINT }} /></InputAdornment> }, htmlInput: { "aria-label": "Find a postcode or place" } }}
-              title={miss ? `No postcode or place "${query.trim()}" in ${countryName(cc)}` : undefined}
-              sx={{ width: { xs: "100%", sm: 220 }, "& .MuiInputBase-root": { ...glassBar, fontSize: "0.85rem" }, "& .MuiInputBase-input": { py: 0.7 } }} />
           </Box>
         </Box>
         {/* bottom left: the summary (or the people), the layer's scale and the level */}
