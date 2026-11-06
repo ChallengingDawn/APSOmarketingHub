@@ -109,7 +109,7 @@ export default function CallsTab({ from, to }: { from: string; to: string }) {
       </GlassCard>
 
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center" }}>
-        {d.status && <Chip tint={d.status.aplink.reachable ? "green" : "pink"}>{d.status.aplink.reachable ? `AP-Link reachable · ${d.status.aplink.ms} ms` : "AP-Link not reachable"}</Chip>}
+        {d.status && <Chip tint={d.status.aplink.reachable ? "green" : "pink"}>{d.status.aplink.reachable ? `AP-Link reachable · ${d.status.aplink.ms} ms` : "AP-Link not reachable"}{d.status.aplink.target === "test" ? " · test system" : ""}</Chip>}
         {d.status && <Chip tint="slate">3D Gateway {d.status.commit}</Chip>}
         <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
           {d.collectedAt ? `Counts collected ${ago(d.collectedAt)} · every 15 minutes` : "No counts collected yet"}

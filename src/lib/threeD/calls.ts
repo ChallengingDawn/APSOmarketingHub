@@ -7,43 +7,22 @@
 // Delta, not copy: the gateway's counters are cumulative since its start (`bootId`), so the hub keeps
 // the last numbers it saw and adds only the difference; a new bootId starts from zero.
 
-import { isSandbox } from "@/lib/sandbox/mode";
-import { doorGet } from "@/lib/sandbox/viewer";
 import { getPool, query } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { deltas, SEARCH_BAR_TAGGED_FROM, type Count } from "./counts";
+import { KV_STATUS, adminKeySet, gw, saveStatus, type GatewayStatus } from "./gwApi";
+import { keepAplink } from "./aplink";
 
 export type { Count } from "./counts";
+export { adminKeySet, gatewayAdminUrl, type GatewayStatus } from "./gwApi";
 
 /** 4107212 owner-redirection publish; this one is the 3D counts. */
 const LOCK = 4_107_213;
 const TICK_MS = 15 * 60_000;
 const KV_SEEN = "threeD:usage-seen";
 const KV_CALLERS = "threeD:callers";
-const KV_STATUS = "threeD:gateway-status";
-
-/** The 3D Gateway's admin API - the new service, whatever address the shop uses meanwhile. */
-export const gatewayAdminUrl = () => (process.env.THREED_GATEWAY_URL || "https://3d-gateway-production.up.railway.app").replace(/\/+$/, "");
-export const adminKeySet = () => !!((isSandbox() ? process.env.SANDBOX_VIEWER_KEY : process.env.THREED_ADMIN_KEY) || "").trim();
-
-async function gw<T>(path: string): Promise<T> {
-  // a sandbox reads through the door and holds no key (src/lib/sandbox/viewer.ts)
-  if (isSandbox()) return doorGet<T>("3d", path, { timeoutMs: 60_000 });
-  const key = (process.env.THREED_ADMIN_KEY || "").trim();
-  if (!key) throw new Error("THREED_ADMIN_KEY is not set on the hub");
-  const res = await fetch(`${gatewayAdminUrl()}/api/admin${path}`, { headers: { "x-admin-key": key }, signal: AbortSignal.timeout(60_000), cache: "no-store" });
-  if (res.status === 403) throw new Error("The 3D Gateway refused the hub's key (THREED_ADMIN_KEY differs)");
-  if (!res.ok) throw new Error(`The 3D Gateway answered ${res.status}`);
-  return (await res.json()) as T;
-}
 
 export type Caller = { source: string; locale: string | null; what: string; lastAt: string; n: number };
-export type GatewayStatus = {
-  commit: string; bootId: string; bootedAt: string; uptime_s: number;
-  aplink: { configured: boolean; reachable: boolean | null; ms: number | null; checkedAt: string | null; error: string | null };
-  catalogue: { articles: number; categories: number };
-};
-
 let ready = false;
 async function ensureTable(): Promise<void> {
   if (ready) return;
@@ -70,7 +49,9 @@ export async function collect(): Promise<number> {
     gw<GatewayStatus>("/status").catch(() => null),
   ]);
   if (callers) await kvSet(KV_CALLERS, { at: new Date().toISOString(), callers: callers.callers });
-  if (status) await kvSet(KV_STATUS, { at: new Date().toISOString(), status });
+  if (status) await saveStatus(status);
+  // a gateway that restarted on the other AP-Link is set back to the hub's choice (the Settings switch)
+  if (status) await keepAplink(status).catch((e: Error) => console.warn(`[3d] AP-Link choice not set again: ${e.message}`));
   return add.length;
 }
 
