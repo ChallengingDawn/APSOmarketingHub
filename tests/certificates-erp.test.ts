@@ -4,6 +4,7 @@ import {
   articlesIn, baseOf, certsOf, dateCheck, parseRequests, pickDelivery, positionsText, subjectWithDate, typesInOptions, type Delivery,
 } from "../src/lib/certificates/erpRules";
 import { intakeOf, teamOf, type IntakeFacts } from "../src/lib/boDistribution/intake";
+import { ACT, STEP_GROUP, stepsOf, type Facts } from "../src/lib/certificates/rules";
 
 // ---------------- the ERP's requests (real comments of the ERP's July file) ----------------
 test("one request: position and certificate", () => {
@@ -124,4 +125,23 @@ test("a person added to the Back Office's own people: their ticket is a mail to 
   const f = facts({ createdBy: "99", sourceType: null, email: { from: null, subject: null, owner: "1229976030" } });
   assert.equal(intakeOf(f, { teams: [], creators: ["99"] }).branch, "MAIL TO CUSTOMER");
   assert.equal(intakeOf(f).branch, "BY HAND");
+});
+
+// ---------------- the console's step switches ----------------
+test("every timed step can be switched off on the console; the starts and entries cannot", () => {
+  const f = (x: Partial<Facts>): Facts => ({
+    id: "1", stage: "3640065212", actions: null, actionsAt: null, actionsBy: null, actionsBefore: null, certs: ["FDA"], other: null, mandant: "M110",
+    order: "A26.1", due: "2026-11-20", company: "X", owner: "1", requester: "1", expert: null, category: "Certificates (ONLY FOR BO)",
+    createdAt: Date.parse("2026-11-01T08:00:00Z"), mergedAt: null, startedAt: null, subject: null, ...x,
+  });
+  const at = Date.parse("2026-11-02T08:00:00Z");
+  const all = [
+    ...stepsOf(f({ actions: ACT.article, actionsAt: at }))!.steps,
+    ...stepsOf(f({ actions: ACT.expert, actionsAt: at }))!.steps,
+    ...stepsOf(f({ actions: ACT.avor, actionsAt: at }))!.steps,
+  ];
+  for (const s of all) {
+    const entry = ["bo-entry", "expert-entry", "start-avor", "start-bo", "close", "merge-clear"].includes(s.name);
+    assert.equal(!!STEP_GROUP[s.name], !entry, s.name);
+  }
 });

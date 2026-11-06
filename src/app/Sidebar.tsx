@@ -110,7 +110,7 @@ import { accessAt } from "@/lib/auth/tree";
 import { pickActiveSection } from "@/lib/nav/activeSection";
 import { useViewAs } from "@/app/ViewAs";
 import { Wordmark } from "@/app/Wordmark";
-import { APPS, WEBSITE_SECTIONS } from "@/app/hubApps";
+import { APPS, UC_SECTIONS, WEBSITE_SECTIONS } from "@/app/hubApps";
 
 const DRAWER_WIDTH = 300;
 const RED = "#ed1b2f";
@@ -172,6 +172,36 @@ const SEO_ICON: Record<SeoRouteId, React.ReactNode> = {
 };
 
 /** The glyphs the Website pages had in the panel before it was split into sections, kept. */
+/** UC & HubSpot Apps' pages as the panel names and draws them (the sections come from UC_SECTIONS). */
+const UC_NAV: Record<string, { label: string; icon: React.ReactNode }> = {
+  "/uc/lifecycle": { label: "Use Cases Overview", icon: <TimelineIcon fontSize="small" /> },
+  "/uc/lifecycle/welcome": { label: "UC2 - Welcome", icon: <WavingHandOutlinedIcon fontSize="small" /> },
+  "/uc/lifecycle/lost-leads": { label: "UC15 - Lost Leads", icon: <PersonOffOutlinedIcon fontSize="small" /> },
+  "/uc/lifecycle/thank-you": { label: "UC6 - Thank You", icon: <ThumbUpOffAltIcon fontSize="small" /> },
+  "/uc/lifecycle/second-purchase": { label: "UC9 - Second Purchase", icon: <RepeatOneIcon fontSize="small" /> },
+  "/uc/lifecycle/repeat-purchase": { label: "UC10+11 - Repeat Purchase", icon: <LoyaltyOutlinedIcon fontSize="small" /> },
+  "/uc/lifecycle/reactivation": { label: "UC13 - Reactivation", icon: <AutorenewIcon fontSize="small" /> },
+  "/uc/lifecycle/abandoned-cart": { label: "UC4 - Abandoned Cart", icon: <ShoppingCartOutlinedIcon fontSize="small" /> },
+  "/uc/lifecycle/revenue-drop": { label: "UC12 - Revenue Drop", icon: <ShowChartIcon fontSize="small" /> },
+  "/uc/erosion": { label: "UC16 - Erosion Article Level", icon: <TrendingDownIcon fontSize="small" /> },
+  "/uc/price-checks": { label: "UC17 - Price Check Tickets", icon: <PriceCheckIcon fontSize="small" /> },
+  "/uc/map-assignment": { label: "Map Assignment", icon: <MapOutlinedIcon fontSize="small" /> },
+  "/uc/segmentation": { label: "Smart Segmentation", icon: <DonutSmallIcon fontSize="small" /> },
+  "/uc/wrong-owners": { label: "Wrong Owners", icon: <ManageAccountsOutlinedIcon fontSize="small" /> },
+  "/uc/holiday-redirection": { label: "Holiday Redirection", icon: <BeachAccessOutlinedIcon fontSize="small" /> },
+  "/uc/personas": { label: "Personas", icon: <PsychologyIcon fontSize="small" /> },
+  "/uc/ticket-associations": { label: "Associations", icon: <LinkOutlinedIcon fontSize="small" /> },
+  "/uc/partner-stock": { label: "Stock to Partners", icon: <Inventory2OutlinedIcon fontSize="small" /> },
+  "/uc/smart-tickets": { label: "Smart Sub-Tickets", icon: <AccountTreeOutlinedIcon fontSize="small" /> },
+  "/uc/bo-distribution": { label: "Back Office Distribution", icon: <AssignmentIndOutlinedIcon fontSize="small" /> },
+  "/uc/ticket-duplicates": { label: "Duplicates & Merges", icon: <ContentCopyOutlinedIcon fontSize="small" /> },
+  "/uc/certificates": { label: "Certificates", icon: <VerifiedOutlinedIcon fontSize="small" /> },
+  "/uc/ticket-value": { label: "Ticket Value", icon: <PaidOutlinedIcon fontSize="small" /> },
+  "/uc/sept-push": { label: "September Push", icon: <CampaignOutlinedIcon fontSize="small" /> },
+  "/uc/marc-push": { label: "Marc CH Push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
+  "/uc/nancy-push": { label: "Nancy CH Push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
+};
+
 const WEBSITE_ICON: Record<string, React.ReactNode> = {
   "/live": <SensorsIcon fontSize="small" />,
   "/analytics/tracking": <MonitorHeartIcon fontSize="small" />,
@@ -316,58 +346,17 @@ const navSections: NavSection[] = [
       { group: "Magento connector", label: "ERP numbers", href: "/connectors/magento/erp-numbers", icon: <TagIcon fontSize="small" /> },
     ],
   },
-  {
-    // Use cases (UCx - numbers to be assigned by SARCLA) and HubSpot apps. Most
-    // still live in their own repos and migrate here over time; Erosion came from
-    // the APSOAssistant micro apps. DoC, from there too, moved on to Website >
-    // Microservices (SARCLA, 13.10). One-shot actions are campaigns with a start
-    // and a fixed list (05.10, from the micro apps).
-    title: "UC & HubSpot Apps",
-    icon: <HubIcon />,
-    color: "#eda100",
-    items: [
-      // the lifecycle use cases' reports - they run as HubSpot workflows; the hub only reads (SARCLA, 13.10.2026)
-      { group: "Use cases", label: "Use Cases Overview", href: "/uc/lifecycle", icon: <TimelineIcon fontSize="small" /> },
-      { group: "Use cases", label: "UC2 - Welcome", href: "/uc/lifecycle/welcome", icon: <WavingHandOutlinedIcon fontSize="small" /> },
-      { group: "Use cases", label: "UC15 - Lost Leads", href: "/uc/lifecycle/lost-leads", icon: <PersonOffOutlinedIcon fontSize="small" /> },
-      { group: "Use cases", label: "UC6 - Thank You", href: "/uc/lifecycle/thank-you", icon: <ThumbUpOffAltIcon fontSize="small" /> },
-      { group: "Use cases", label: "UC9 - Second Purchase", href: "/uc/lifecycle/second-purchase", icon: <RepeatOneIcon fontSize="small" /> },
-      { group: "Use cases", label: "UC10+11 - Repeat Purchase", href: "/uc/lifecycle/repeat-purchase", icon: <LoyaltyOutlinedIcon fontSize="small" /> },
-      { group: "Use cases", label: "UC13 - Reactivation", href: "/uc/lifecycle/reactivation", icon: <AutorenewIcon fontSize="small" /> },
-      { group: "Use cases", label: "UC4 - Abandoned Cart", href: "/uc/lifecycle/abandoned-cart", icon: <ShoppingCartOutlinedIcon fontSize="small" /> },
-      { group: "Use cases", label: "UC12 - Revenue Drop", href: "/uc/lifecycle/revenue-drop", icon: <ShowChartIcon fontSize="small" /> },
-      // new use cases, numbered after the lifecycle ones (SARCLA, 13.10.2026)
-      { group: "Use cases", label: "UC16 - Erosion Article Level", href: "/uc/erosion", icon: <TrendingDownIcon fontSize="small" /> },
-      { group: "Use cases", label: "UC17 - Price Check Tickets", href: "/uc/price-checks", icon: <PriceCheckIcon fontSize="small" /> },
-      // came off the Compass connector's loop, where it never belonged (SARCLA, 10.10.2026)
-      // who owns a company, per country, on a map - first of the HubSpot apps (SARCLA, 19.10.2026)
-      { group: "HubSpot apps", label: "Map Assignment", href: "/uc/map-assignment", icon: <MapOutlinedIcon fontSize="small" /> },
-      // the companies' sales priority (SARCLA, 16.10.2026)
-      { group: "HubSpot apps", label: "Smart Segmentation", href: "/uc/segmentation", icon: <DonutSmallIcon fontSize="small" /> },
-      { group: "HubSpot apps", label: "Wrong Owners", href: "/uc/wrong-owners", icon: <ManageAccountsOutlinedIcon fontSize="small" /> },
-      { group: "HubSpot apps", label: "Holiday Redirection", href: "/uc/holiday-redirection", icon: <BeachAccessOutlinedIcon fontSize="small" /> },
-      // the workflow "SARCLA | PERSONAS SET", run by the hub and put right (SARCLA, 25.10.2026)
-      { group: "HubSpot apps", label: "Personas", href: "/uc/personas", icon: <PsychologyIcon fontSize="small" /> },
-      // Owner Redirection (12.10.2026) is gone since 25.10.2026 - SARCLA: "that page should not exist"; its rules are
-      // overrides on Map Assignment's map; /uc/owner-redirection sends there
-      // the "Ticket associations" workflow of the Tickets app, run by the hub (SARCLA, 17.10.2026)
-      { group: "HubSpot apps", label: "Associations", href: "/uc/ticket-associations", icon: <LinkOutlinedIcon fontSize="small" /> },
-      // every morning a partner's article list with our stock, MOQ and status (SARCLA, 18.10.2026)
-      { group: "HubSpot apps", label: "Stock to Partners", href: "/uc/partner-stock", icon: <Inventory2OutlinedIcon fontSize="small" /> },
-      // the Smart Sub-Ticket card and 7 more, moved from "SARCLA - Smart Ticket Creator" (SARCLA, 18.10.2026)
-      { group: "HubSpot apps", label: "Smart Sub-Tickets", href: "/uc/smart-tickets", icon: <AccountTreeOutlinedIcon fontSize="small" /> },
-      { group: "HubSpot apps", label: "Back Office Distribution", href: "/uc/bo-distribution", icon: <AssignmentIndOutlinedIcon fontSize="small" /> },
-      { group: "HubSpot apps", label: "Duplicates & Merges", href: "/uc/ticket-duplicates", icon: <ContentCopyOutlinedIcon fontSize="small" /> },
-      // the workflow "SARCLA | CERTIFICATES NEW PROCESS", run by the hub (SARCLA, 04.11.2026)
-      { group: "HubSpot apps", label: "Certificates", href: "/uc/certificates", icon: <VerifiedOutlinedIcon fontSize="small" /> },
-      // the workflow "SARCLA | TICKET VALUE CALCULATION", run by the hub (SARCLA, 20.10.2026)
-      { group: "HubSpot apps", label: "Ticket Value", href: "/uc/ticket-value", icon: <PaidOutlinedIcon fontSize="small" /> },
-      { group: "One-shot actions", label: "September Push", href: "/uc/sept-push", icon: <CampaignOutlinedIcon fontSize="small" /> },
-      { group: "One-shot actions", label: "Marc CH Push", href: "/uc/marc-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
-      { group: "One-shot actions", label: "Nancy CH Push", href: "/uc/nancy-push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
-      // Articles CY/LY moved to Advanced reporting > Products Reports (SARCLA, 16.10.2026)
-    ],
-  },
+  // UC & HubSpot Apps, a section per topic (SARCLA 06.11.2026: "each main topic is a main app and then drill down" -
+  // UC's, HubSpot Apps, One-shot actions), from UC_SECTIONS in hubApps.ts: inside one, the panel shows only its pages,
+  // and the way out leads back to the UC & HubSpot Apps front page - as Website's sections do.
+  ...UC_SECTIONS.map((x): NavSection => ({
+    title: x.name,
+    home: `/uc/${x.slug}`,
+    back: { href: "/uc", label: "UC & HubSpot Apps" },
+    icon: <HubIconGlyph name={x.icon} fontSize={22} />,
+    color: x.fg,
+    items: x.pages.map((pg) => ({ label: UC_NAV[pg.href]?.label ?? pg.name, href: pg.href, icon: UC_NAV[pg.href]?.icon ?? <HubIconGlyph name={pg.icon} fontSize={20} /> })),
+  })),
   {
     title: "Datatracker",
     icon: <StorefrontIcon />,

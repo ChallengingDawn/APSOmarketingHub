@@ -8,15 +8,18 @@
 //      {teamTo: [ownerId]} who gets the Backoffice Team's reminder (never a queue user - its address is an inbox);
 //      {erpDates: "off" | "show" | "write"} follow the ERP's delivery date; {shop: "off" | "preview" | "live"} tickets
 //      from the shop's orders with the declaration line.
-// POST (admins) {action: "run"} = look now.
+// PUT (admins) {steps: {avor?, bo?, expert?, handover?}} the step groups on / off (off = skipped, not taken later).
+// POST (admins) {action: "run"} = look now; {action: "sample"} = the owner's "due today" mail for an open request, to
+//      the admin asking (never an inbox).
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { query } from "@/lib/db/client";
 import { describeIntegrationError } from "@/lib/integrations/status";
-import { pageState, runOnce, saveSettings, type Mails, type Mode, type SettingsPatch } from "@/lib/certificates/engine";
+import { pageState, runOnce, saveSettings, sendSample, type Mails, type Mode, type SettingsPatch } from "@/lib/certificates/engine";
 import { timingProblem, type People, type Timing } from "@/lib/certificates/rules";
-import { INBOX_OWNERS } from "@/lib/notify/teamRecipients";
+import { INBOX_OWNERS, isInbox } from "@/lib/notify/teamRecipients";
+import { DEFAULT_STEPS, type StepSwitches } from "@/lib/certificates/rules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,11 +47,19 @@ export async function PUT(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
-  const b = (await req.json().catch(() => ({}))) as { mode?: Mode; people?: Partial<People>; mails?: Partial<Mails>; timing?: Partial<Timing> | "default"; hold?: string; release?: string; teamTo?: string[]; erpDates?: string; shop?: string };
+  const b = (await req.json().catch(() => ({}))) as { mode?: Mode; people?: Partial<People>; mails?: Partial<Mails>; timing?: Partial<Timing> | "default"; hold?: string; release?: string; teamTo?: string[]; erpDates?: string; shop?: string; steps?: Partial<StepSwitches> };
   if (b.mode !== undefined && !["off", "preview", "live"].includes(b.mode)) return NextResponse.json({ ok: false, error: "Unknown mode" }, { status: 400 });
   if (b.erpDates !== undefined && !["off", "show", "write"].includes(b.erpDates)) return NextResponse.json({ ok: false, error: "ERP dates: off, show or write" }, { status: 400 });
   if (b.shop !== undefined && !["off", "preview", "live"].includes(b.shop)) return NextResponse.json({ ok: false, error: "Shop tickets: off, preview or live" }, { status: 400 });
   const patch: SettingsPatch = { mode: b.mode, erpDates: b.erpDates as SettingsPatch["erpDates"], shop: b.shop as SettingsPatch["shop"] };
+  if (b.steps !== undefined) {
+    const s: Partial<StepSwitches> = {};
+    for (const [k, v] of Object.entries(b.steps ?? {})) {
+      if (!(k in DEFAULT_STEPS) || typeof v !== "boolean") return NextResponse.json({ ok: false, error: `steps.${k}: on or off` }, { status: 400 });
+      s[k as keyof StepSwitches] = v;
+    }
+    patch.steps = s;
+  }
   if (b.mails !== undefined) {
     const m: Partial<Mails> = {};
     for (const k of ["owner", "team", "created"] as const) if (b.mails[k] !== undefined) { if (typeof b.mails[k] !== "boolean") return NextResponse.json({ ok: false, error: `mails.${k}: on or off` }, { status: 400 }); m[k] = b.mails[k]; }
@@ -81,6 +92,14 @@ export async function POST(req: NextRequest) {
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
   const b = (await req.json().catch(() => ({}))) as { action?: string };
   try {
+    if (b.action === "sample") {
+      const r = await query<{ email: string | null; full_name: string | null; username: string | null }>(`SELECT email, full_name, username FROM apsomh_users WHERE id = $1`, [access.userId]).catch(() => ({ rows: [] }));
+      const u = r.rows[0];
+      if (!u?.email) return NextResponse.json({ ok: false, error: "Your account has no e-mail address" });
+      if (await isInbox(u.email)) return NextResponse.json({ ok: false, error: "That address is a HubSpot inbox - a mail there comes back as a ticket" });
+      const sent = await sendSample({ name: u.full_name?.trim() || u.username || u.email, email: u.email });
+      return NextResponse.json(sent.ok ? { ok: true, data: { text: `${sent.text} (${u.email})` } } : { ok: false, error: sent.text });
+    }
     if (b.action === "run") {
       const info = await runOnce();
       return NextResponse.json(info ? { ok: true, data: info } : { ok: false, error: "Not run - switched off, or a look is running" });

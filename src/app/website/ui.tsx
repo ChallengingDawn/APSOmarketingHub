@@ -14,17 +14,18 @@ import { FAINT, INK, MUTED, focusRing, glass } from "@/app/reporting/ui";
 
 const rise = (i: number) => ({ animation: `riseIn .5s cubic-bezier(.22,.8,.3,1) ${0.05 + i * 0.07}s backwards` });
 
-/** Where a section's tile leads: its first page this person may open, else the section's own page. */
-export const sectionEntry = (s: WebsiteSection, canOpen: (href: string) => boolean) =>
-  s.pages.find((p) => canOpen(p.href))?.href ?? `/website/${s.slug}`;
+/** Where a section's tile leads: its first page this person may open, else the section's own page (under `base` -
+ *  Website's, or UC & HubSpot Apps' since 06.11.2026). */
+export const sectionEntry = (s: WebsiteSection, canOpen: (href: string) => boolean, base = "/website") =>
+  s.pages.find((p) => canOpen(p.href))?.href ?? `${base}/${s.slug}`;
 
-export function SectionTile({ s, canOpen, i }: { s: WebsiteSection; canOpen: (href: string) => boolean; i: number }) {
+export function SectionTile({ s, canOpen, i, base = "/website" }: { s: WebsiteSection; canOpen: (href: string) => boolean; i: number; base?: string }) {
   const open = s.pages.filter((p) => canOpen(p.href));
   const count = open.length === 1 ? open[0].name
     : open.length ? `${open.length} pages`
     : s.pages.length ? "Not opened to you - an admin can grant it" : "Nothing here yet";
   return (
-    <Box component={Link} href={sectionEntry(s, canOpen)} sx={{
+    <Box component={Link} href={sectionEntry(s, canOpen, base)} sx={{
       ...glass, backdropFilter: "none", borderRadius: "22px", p: { xs: 2, md: 2.75 }, height: "100%", minHeight: { md: 188 }, boxSizing: "border-box",
       display: "flex", flexDirection: "column", gap: 1.25, textDecoration: "none", color: INK, ...focusRing,
       background: `linear-gradient(170deg, ${s.tint}, rgba(255,255,255,.64) 62%)`,

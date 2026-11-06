@@ -129,6 +129,61 @@ export const WEBSITE_SECTIONS: WebsiteSection[] = [
 
 export const websiteSectionBySlug = (slug: string) => WEBSITE_SECTIONS.find((s) => s.slug === slug) ?? null;
 
+/**
+ * UC & HUBSPOT APPS, BY SECTION (SARCLA 06.11.2026: "transform the HubSpot app into a website look-alike, where each main
+ * topic is a main app and then drill down" - UC's, HubSpot Apps, One-shot actions). As Website: the front page /uc is a
+ * tile per section; inside one, the side panel lists that section's pages alone and leads back to UC & HubSpot Apps.
+ * The app's subs are these pages, each under its section's heading - what the access tree reads (src/lib/auth/tree.ts);
+ * a grant is on a page's address, so every page kept its grant when the sections came.
+ */
+export const UC_SECTIONS: WebsiteSection[] = [
+  {
+    slug: "use-cases", name: "UC's", line: "The lifecycle use cases: who each one reached, and what came of it", icon: "route", ...PURPLE,
+    // the lifecycle use cases, reported (they run as HubSpot workflows); UC16 and UC17 numbered after them (13.10.2026).
+    // Never price checks first: /uc/price-checks redirects into a Datatracker tab.
+    pages: [
+      { name: "Use Cases Overview", short: "Overview", note: "Every use case, and every company's lifecycle stage", href: "/uc/lifecycle", icon: "route", ...PURPLE },
+      { name: "UC2 Welcome", note: "New registrants, qualified and their first order", href: "/uc/lifecycle/welcome", icon: "groups", ...BLUE },
+      { name: "UC15 Lost Leads", note: "Lost leads pushed to a first purchase", href: "/uc/lifecycle/lost-leads", icon: "target", ...PINK },
+      { name: "UC6 Thank You", note: "First purchasers and their ratings", href: "/uc/lifecycle/thank-you", icon: "verified", ...GREEN },
+      { name: "UC9 Second Purchase", note: "New customers pushed to a second order", href: "/uc/lifecycle/second-purchase", icon: "sync", ...AMBER },
+      { name: "UC10+11 Repeat Purchase", note: "Grow / Nurture to Loyalty / Retain", href: "/uc/lifecycle/repeat-purchase", icon: "layers", ...TEAL },
+      { name: "UC13 Reactivation", note: "Churned customers, and who came back", href: "/uc/lifecycle/reactivation", icon: "route", ...PURPLE },
+      { name: "UC4 Abandoned Cart", note: "Carts left in the shop, and the orders after", href: "/uc/lifecycle/abandoned-cart", icon: "tag", ...BLUE },
+      { name: "UC12 Revenue Drop", note: "Revenue drops flagged to the owner", href: "/uc/lifecycle/revenue-drop", icon: "bar", ...AMBER },
+      { name: "UC16 Erosion", note: "Lapsed reorders, raised and expected", href: "/uc/erosion", icon: "target", ...AMBER },
+      { name: "UC17 Price checks", note: "Check customer pricing", href: "/uc/price-checks", icon: "tag", ...BLUE },
+    ],
+  },
+  {
+    slug: "hubspot-apps", name: "HubSpot Apps", line: "The HubSpot workflows the hub runs: owners, tickets, distribution, certificates", icon: "assign", ...TEAL,
+    // Map assignment first (19.10.2026); each "SARCLA | ..." workflow the hub took over, side by side before it switched
+    pages: [
+      { name: "Map assignment", note: "Who owns each company, per country: SAE or postcode zones on a map, owner redirections; contacts follow", href: "/uc/map-assignment", icon: "map", ...TEAL },
+      { name: "Smart Segmentation", note: "Every company's sales priority", href: "/uc/segmentation", icon: "layers", ...GREEN },
+      { name: "Wrong owners", note: "Tickets back to the team that owns them", href: "/uc/wrong-owners", icon: "groups", ...PINK },
+      { name: "Holiday redirection", note: "Tickets of people away go to their deputy", href: "/uc/holiday-redirection", icon: "route", ...BLUE },
+      { name: "Personas", note: "Each contact's persona from its job and its company - shadow first, side by side with the PERSONAS SET workflow", href: "/uc/personas", icon: "brain", ...PURPLE },
+      { name: "Associations", note: "Tickets linked to the orders and articles they name, contacts to their company; order alerts", href: "/uc/ticket-associations", icon: "loop", ...BLUE },
+      { name: "Stock to partners", note: "Every morning at 07:00 a partner's articles with our stock, MOQ and status", href: "/uc/partner-stock", icon: "inventory", ...GREEN },
+      { name: "Smart sub-tickets", note: "Sub-tickets from a ticket, prefilled; GQS needs Margin % and Target price", href: "/uc/smart-tickets", icon: "tree", ...PURPLE },
+      { name: "Back Office distribution", note: "Who gets each new Back Office and GQS ticket - shadow mode, side by side with the workflows", href: "/uc/bo-distribution", icon: "assign", ...TEAL },
+      { name: "Duplicates & merges", note: "The same request twice, another ticket on the same order - flagged on the ticket, merged by a click", href: "/uc/ticket-duplicates", icon: "copy", ...PURPLE },
+      { name: "Certificates", note: "The Back Office's certificate requests: AVOR, the Back Office, the conformity experts - reminders and hand-overs", href: "/uc/certificates", icon: "verified", ...GREEN },
+      { name: "Ticket value", note: "Each ticket's sales potential - shadow mode, side by side with the TICKET VALUE CALCULATION workflow", href: "/uc/ticket-value", icon: "tag", ...AMBER },
+    ],
+  },
+  {
+    slug: "one-shot-actions", name: "One-shot actions", line: "Pushes with a start, an end and a fixed list of accounts", icon: "target", ...PINK,
+    pages: [
+      { name: "September Push", note: "One-shot: September order intake push", href: "/uc/sept-push", icon: "target", ...PINK },
+      { name: "Marc CH Push", note: "One-shot: reactivation batch 1", href: "/uc/marc-push", icon: "route", ...PURPLE },
+      { name: "Nancy CH Push", note: "One-shot: reactivation batch 2", href: "/uc/nancy-push", icon: "route", ...TEAL },
+    ],
+  },
+];
+export const ucSectionBySlug = (slug: string) => UC_SECTIONS.find((s) => s.slug === slug) ?? null;
+
 export const APPS: HubApp[] = [
   {
     key: "datatracker",
@@ -217,48 +272,15 @@ export const APPS: HubApp[] = [
   },
   {
     key: "uc",
-    // The Use Cases Overview, the UC app's first page (SARCLA 15.10: "the first
-    // page should be the overview"). Never price checks: /uc/price-checks
-    // redirects into a Datatracker tab, so landing there drops people into
-    // Datatracker's menu and the UC apps never show.
-    href: "/uc/lifecycle",
+    // its front page: a tile per section (UC_SECTIONS, 06.11.2026) - a page only this app owns, never one another
+    // section lists (the Use Cases Overview is also in Digital Growth's "Other reports"; price checks redirect into
+    // Datatracker): a tile that lands on a borrowed page hands its panel to the other app
+    href: "/uc",
     name: "UC & HubSpot Apps",
     line: "Communication, integration and sales tools.",
     from: "#f5a23c", to: "#c97a10", wash: "rgba(245,162,60,.10)", icon: "hub",
-    subs: [
-      // the lifecycle use cases, reported (they run as HubSpot workflows)
-      { name: "Use Cases Overview", short: "Overview", note: "Every use case, and every company's lifecycle stage", href: "/uc/lifecycle", icon: "route", ...PURPLE },
-      { name: "UC2 Welcome", note: "New registrants, qualified and their first order", href: "/uc/lifecycle/welcome", icon: "groups", ...BLUE },
-      { name: "UC15 Lost Leads", note: "Lost leads pushed to a first purchase", href: "/uc/lifecycle/lost-leads", icon: "target", ...PINK },
-      { name: "UC6 Thank You", note: "First purchasers and their ratings", href: "/uc/lifecycle/thank-you", icon: "verified", ...GREEN },
-      { name: "UC9 Second Purchase", note: "New customers pushed to a second order", href: "/uc/lifecycle/second-purchase", icon: "sync", ...AMBER },
-      { name: "UC10+11 Repeat Purchase", note: "Grow / Nurture to Loyalty / Retain", href: "/uc/lifecycle/repeat-purchase", icon: "layers", ...TEAL },
-      { name: "UC13 Reactivation", note: "Churned customers, and who came back", href: "/uc/lifecycle/reactivation", icon: "route", ...PURPLE },
-      { name: "UC4 Abandoned Cart", note: "Carts left in the shop, and the orders after", href: "/uc/lifecycle/abandoned-cart", icon: "tag", ...BLUE },
-      { name: "UC12 Revenue Drop", note: "Revenue drops flagged to the owner", href: "/uc/lifecycle/revenue-drop", icon: "bar", ...AMBER },
-      { name: "UC16 Erosion", note: "Lapsed reorders, raised and expected", href: "/uc/erosion", icon: "target", ...AMBER },
-      { name: "UC17 Price checks", note: "Check customer pricing", href: "/uc/price-checks", icon: "tag", ...BLUE },
-      // who owns a company, per country: Performis SAE or postcode zones on a map - first of the HubSpot apps (SARCLA 19.10.2026);
-      // Owner redirection is its Redirections view since 19.10.2026 ("part of Map assignment, taken out as a sub-app")
-      { name: "Map assignment", note: "Who owns each company, per country: SAE or postcode zones on a map, owner redirections; contacts follow", href: "/uc/map-assignment", icon: "map", ...TEAL },
-      { name: "Smart Segmentation", note: "Every company's sales priority", href: "/uc/segmentation", icon: "layers", ...GREEN },
-      { name: "Wrong owners", note: "Tickets back to the team that owns them", href: "/uc/wrong-owners", icon: "groups", ...PINK },
-      { name: "Holiday redirection", note: "Tickets of people away go to their deputy", href: "/uc/holiday-redirection", icon: "route", ...BLUE },
-      // the workflow "SARCLA | PERSONAS SET", run by the hub and put right (SARCLA, 25.10.2026)
-      { name: "Personas", note: "Each contact's persona from its job and its company - shadow first, side by side with the PERSONAS SET workflow", href: "/uc/personas", icon: "brain", ...PURPLE },
-      { name: "Associations", note: "Tickets linked to the orders and articles they name, contacts to their company; order alerts", href: "/uc/ticket-associations", icon: "loop", ...BLUE },
-      { name: "Stock to partners", note: "Every morning at 07:00 a partner's articles with our stock, MOQ and status", href: "/uc/partner-stock", icon: "inventory", ...GREEN },
-      { name: "Back Office distribution", note: "Who gets each new Back Office and GQS ticket - shadow mode, side by side with the workflows", href: "/uc/bo-distribution", icon: "assign", ...TEAL },
-      // the workflow "SARCLA | CERTIFICATES NEW PROCESS", run by the hub (SARCLA, 04.11.2026)
-      { name: "Certificates", note: "The Back Office's certificate requests: AVOR, the Back Office, the conformity experts - reminders and hand-overs", href: "/uc/certificates", icon: "verified", ...GREEN },
-      { name: "Duplicates & merges", note: "The same request twice, another ticket on the same order - flagged on the ticket, merged by a click", href: "/uc/ticket-duplicates", icon: "copy", ...PURPLE },
-      // the workflow "SARCLA | TICKET VALUE CALCULATION", run by the hub (SARCLA, 20.10.2026)
-      { name: "Ticket value", note: "Each ticket's sales potential - shadow mode, side by side with the TICKET VALUE CALCULATION workflow", href: "/uc/ticket-value", icon: "tag", ...AMBER },
-      { name: "Smart sub-tickets", note: "Sub-tickets from a ticket, prefilled; GQS needs Margin % and Target price", href: "/uc/smart-tickets", icon: "tree", ...PURPLE },
-      { name: "September Push", note: "One-shot: September order intake push", href: "/uc/sept-push", icon: "target", ...PINK },
-      { name: "Marc CH Push", note: "One-shot: reactivation batch 1", href: "/uc/marc-push", icon: "route", ...PURPLE },
-      { name: "Nancy CH Push", note: "One-shot: reactivation batch 2", href: "/uc/nancy-push", icon: "route", ...TEAL },
-    ],
+    subs: UC_SECTIONS.flatMap((x) => x.pages.map((p) => ({ ...p, group: x.name }))),
+    cards: UC_SECTIONS.map((x) => ({ name: x.name, note: x.line, href: `/uc/${x.slug}`, icon: x.icon, tint: x.tint, fg: x.fg })),
   },
   {
     key: "connectors",

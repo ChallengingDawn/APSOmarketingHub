@@ -214,6 +214,19 @@ export const STEP_WORDS: Record<StepName, string> = {
   wayin: "Way in: requester = the owner who created it (in place of Back Office Ticket Created)",
 };
 
+/** The steps the console switches on and off by group (SARCLA 06.11.2026: "develop more the console KPI and steering").
+ *  A step of a group switched off is skipped - not taken later when the group is switched on again. The starts, the
+ *  entries, Sent out and the merge always run. */
+export type StepGroup = "avor" | "bo" | "expert" | "handover";
+export const STEP_GROUP: Partial<Record<StepName, StepGroup>> = {
+  avor48: "avor", avor96: "avor", avorWeek: "avor",
+  bo3days: "bo", boToday: "bo", bo48: "bo", bo96: "bo", boWeek: "bo",
+  today: "expert", late: "expert", late96: "expert", lateWeek: "expert",
+  avorRose: "handover", boRose: "handover", lateRose: "handover",
+};
+export type StepSwitches = Record<StepGroup, boolean>;
+export const DEFAULT_STEPS: StepSwitches = { avor: true, bo: true, expert: true, handover: true };
+
 const hh = (h: number) => `${String(h).padStart(2, "0")}:00`;
 const span = (h: number) => (h % 24 === 0 ? `${h / 24} day${h === 24 ? "" : "s"}` : `${h} h`);
 /** What each step does, with the console's times. */

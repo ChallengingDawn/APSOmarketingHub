@@ -27,11 +27,131 @@ import type { DateMode } from "@/lib/certificates/erpData";
 import type { ShopMode } from "@/lib/certificates/shopIntake";
 import EventRepeatOutlinedIcon from "@mui/icons-material/EventRepeatOutlined";
 import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
+import Grid from "@mui/material/Grid";
+import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
+import TaskAltOutlinedIcon from "@mui/icons-material/TaskAltOutlined";
+import TimerOutlinedIcon from "@mui/icons-material/TimerOutlined";
+import BoltOutlinedIcon from "@mui/icons-material/BoltOutlined";
+import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
+import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
+import ToggleOnOutlinedIcon from "@mui/icons-material/ToggleOnOutlined";
+import { KpiTile } from "@/app/uc/report/ui";
+import { isLate } from "./shared";
+import type { StepGroup } from "@/lib/certificates/rules";
 import { DEFAULT_TIMING, TIMING_BOUNDS, stepWords, type StepName, type Timing } from "@/lib/certificates/rules";
 import { TicketLink, put, type Data } from "./shared";
 import { PeoplePicker } from "@/app/uc/PeoplePicker";
 
 const GREEN = "#1b7a55";
+
+// ---------------- the figures (SARCLA 06.11.2026: "develop more the console KPI and steering") ----------------
+const isToday = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" }) === new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" });
+function KpiBand({ d }: { d: Data }) {
+  const late = d.open.filter(isLate).length;
+  const week = d.open.filter((t) => t.due && Date.parse(`${t.due}T23:59:59`) >= Date.now() && Date.parse(`${t.due}T00:00:00`) <= Date.now() + 7 * 86400_000).length;
+  const on = d.stats?.onTime90;
+  const today = d.rows.filter((r) => isToday(r.at));
+  const written = today.filter((r) => r.what === "done").length;
+  const mails = today.filter((r) => r.what === "done" && r.mail && !r.mailFailed).length;
+  const failed = today.filter((r) => r.what === "failed" || r.mailFailed).length + d.board.reduce((a, w) => a + w.today.failed, 0);
+  const left = d.open.filter((t) => t.erp?.shipped).length;
+  const hand = d.shop.filter((r) => r.state === "by-hand").length;
+  const hub = d.shop.filter((r) => r.state === "created").length;
+  return (
+    <Grid container spacing={2}>
+      <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<ConfirmationNumberOutlinedIcon />} tint="blue" label="Open requests" value={full(d.open.length)} note={`${full(late)} late · ${full(week)} due in 7 days`} /></Grid>
+      <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<TaskAltOutlinedIcon />} tint="green" label="Sent on time" value={on?.n ? `${Math.round((on.onTime / on.n) * 100)}%` : "—"} note={on?.n ? `${full(on.onTime)} of ${full(on.n)} resolved by the delivery date, 90 days${on.medianAfter != null ? ` · median ${on.medianAfter > 0 ? `${on.medianAfter} days after it` : "on time"}` : ""}` : "read every 30 min"} /></Grid>
+      <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<TimerOutlinedIcon />} tint="slate" label="Days to send" value={d.stats?.medianDays != null ? String(d.stats.medianDays) : "—"} note="median, request to Resolved" /></Grid>
+      <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<BoltOutlinedIcon />} tint="purple" label="The hub today" value={full(written)} note={`steps written · ${full(mails)} mails${failed ? ` · ${full(failed)} failed` : ""}`} /></Grid>
+      <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<LocalShippingOutlinedIcon />} tint="pink" label="Goods already left" value={full(left)} note="open requests whose ERP delivery has gone" /></Grid>
+      <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<StorefrontOutlinedIcon />} tint="amber" label="From the shop" value={full(d.shop.length)} note={`30 days · ${full(hand)} by hand · ${full(hub)} by the hub`} /></Grid>
+    </Grid>
+  );
+}
+
+// ---------------- who has what ----------------
+function LoadCard({ d }: { d: Data }) {
+  const by = new Map<string, { n: number; late: number; bo: number; expert: number; avor: number }>();
+  for (const t of d.open) {
+    const k = t.owner ?? "-";
+    const x = by.get(k) ?? { n: 0, late: 0, bo: 0, expert: 0, avor: 0 };
+    x.n++; if (isLate(t)) x.late++;
+    if (t.phase === "expert") x.expert++; else if (t.phase === "avor") x.avor++; else x.bo++;
+    by.set(k, x);
+  }
+  const rows = [...by.entries()].sort((a, b) => b[1].n - a[1].n);
+  const max = Math.max(1, ...rows.map(([, x]) => x.n));
+  const p = d.settings.people;
+  return (
+    <GlassCard>
+      <CardTitle icon={<PersonOutlineIcon />} tint="purple" title="Who has what" note="Open requests per owner - Back Office, conformity expert, AVOR - and how many are late" />
+      <Box sx={{ display: "grid", gap: 0.75 }}>
+        {!rows.length && <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>No open request.</Typography>}
+        {rows.map(([id, x]) => (
+          <Box key={id} sx={{ display: "grid", gridTemplateColumns: "minmax(110px, 170px) minmax(0, 1fr) auto", gap: 1, alignItems: "center" }}>
+            <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{id === "-" ? "nobody" : d.names[id] ?? `Owner ${id}`}</Typography>
+            <Box sx={{ display: "flex", height: 12, borderRadius: "6px", overflow: "hidden", bgcolor: "rgba(31,45,78,.06)" }}>
+              {(["bo", "expert", "avor"] as const).map((k) => x[k] ? <Box key={k} title={`${k === "bo" ? "Back Office" : k === "expert" ? "Conformity expert" : "AVOR"}: ${x[k]}`} sx={{ width: `${(x[k] / max) * 100}%`, bgcolor: k === "bo" ? TINT.blue.fg : k === "expert" ? TINT.purple.fg : TINT.amber.fg }} /> : null)}
+            </Box>
+            <Typography sx={{ fontSize: "0.78rem", color: x.late ? RED : MUTED, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{full(x.n)}{x.late ? ` · ${full(x.late)} late` : ""}</Typography>
+          </Box>
+        ))}
+      </Box>
+      <Box sx={{ mt: 1, display: "flex", gap: 1.5, flexWrap: "wrap" }}>
+        {[["Back Office", TINT.blue.fg], ["Conformity expert", TINT.purple.fg], ["AVOR", TINT.amber.fg]].map(([l, c]) => (
+          <Box key={l} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}><Box sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: c }} /><Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{l}</Typography></Box>
+        ))}
+      </Box>
+      <Typography sx={{ mt: 0.75, fontSize: "0.74rem", color: FAINT }}>
+        The rotations, in order: {[p.backOffice, p.experts].map((list, i) => `${i ? "experts" : "Back Office"} - ${list.map((id) => d.names[id] ?? id).join(" → ")}`).join(" · ")}
+      </Typography>
+    </GlassCard>
+  );
+}
+
+// ---------------- the steps, switched ----------------
+const GROUPS_ON: { key: StepGroup; label: string; text: string; steps: StepName[] }[] = [
+  { key: "bo", label: "Back Office reminders", text: "3 days before delivery, due today, 48 h, 96 h, more than a week - subject, stage and the owner's mail", steps: ["bo3days", "boToday", "bo48", "bo96", "boWeek"] },
+  { key: "expert", label: "Conformity expert's steps", text: "Delivery date is today, late, 96 h, over a week", steps: ["today", "late", "late96", "lateWeek"] },
+  { key: "avor", label: "Reminders to AVOR", text: "48 h, 96 h and over a week without the new EC 1935/2004 article", steps: ["avor48", "avor96", "avorWeek"] },
+  { key: "handover", label: "The hand-over", text: "After the last reminder and the days set below: owner = the hand-over person, with the note", steps: ["avorRose", "boRose", "lateRose"] },
+];
+function StepsCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const flip = async (k: StepGroup, on: boolean) => {
+    const g = GROUPS_ON.find((x) => x.key === k)!;
+    if (!on && !window.confirm(`Switch off: ${g.label}?\n\nWhat falls due while it is off is skipped - it is not caught up when you switch it on again.`)) return;
+    setBusy(k); setErr(null); const r = await put({ steps: { [k]: on } }); if (!r.ok) setErr(r.error ?? "failed"); setBusy(null); onChanged();
+  };
+  const next7 = (steps: StepName[]) => d.open.filter((t) => !t.held).reduce((a, t) => a + (t.upcoming ?? []).filter((u) => steps.includes(u.name)).length, 0);
+  const skippedToday = d.rows.filter((r) => r.what === "skipped" && isToday(r.at)).length;
+  return (
+    <GlassCard>
+      <CardTitle icon={<ToggleOnOutlinedIcon />} tint="green" title="The steps, switched" note="Each group of timed steps on or off - the starts, the entries, Sent out and the merges always run" />
+      <Box sx={{ display: "grid", gap: 0.75 }}>
+        {GROUPS_ON.map((g) => {
+          const on = d.settings.steps[g.key];
+          return (
+            <Box key={g.key} sx={{ display: "flex", gap: 1.25, alignItems: "center", p: 1, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, bgcolor: on ? "transparent" : "rgba(120,130,150,.06)" }}>
+              <Switch size="small" checked={on} disabled={!d.admin || !!busy} onChange={(e) => void flip(g.key, e.target.checked)} inputProps={{ "aria-label": g.label }} />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK }}>{g.label} {busy === g.key && <CircularProgress size={12} />}</Typography>
+                <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{g.text}</Typography>
+              </Box>
+              <Box sx={{ ml: "auto", textAlign: "right" }}>
+                <Chip tint={on ? "green" : "slate"}>{on ? "on" : "off - skipped"}</Chip>
+                <Typography sx={{ fontSize: "0.7rem", color: FAINT, mt: 0.25, whiteSpace: "nowrap" }}>{full(next7(g.steps))} in the next 7 days</Typography>
+              </Box>
+            </Box>
+          );
+        })}
+      </Box>
+      {skippedToday > 0 && <Typography sx={{ mt: 1, fontSize: "0.76rem", color: MUTED }}>{full(skippedToday)} skipped today - on the Activity tab.</Typography>}
+      {err && <Typography sx={{ mt: 1, fontSize: "0.82rem", color: RED }}>{err}</Typography>}
+    </GlassCard>
+  );
+}
 
 // ---------------- the workflows board ----------------
 function Board({ rows }: { rows: BoardRow[] }) {
@@ -119,6 +239,15 @@ const INBOX_OWNERS = ["76164822", "1202569408"];
 function MailsCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [sample, setSample] = useState<{ ok: boolean; text: string } | null>(null);
+  const sendSample = async () => {
+    setBusy("sample"); setSample(null);
+    try {
+      const r = await fetch("/api/uc/certificates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sample" }) });
+      const j = (await r.json()) as { ok: boolean; data?: { text: string }; error?: string };
+      setSample(j.ok ? { ok: true, text: `Sent: ${j.data?.text ?? ""}` } : { ok: false, text: j.error ?? `HTTP ${r.status}` });
+    } catch (e) { setSample({ ok: false, text: String((e as Error).message) }); } finally { setBusy(null); }
+  };
   const saveTo = async (ids: string[]) => { setBusy("to"); setErr(null); const r = await put({ teamTo: ids }); if (!r.ok) setErr(r.error ?? "failed"); setBusy(null); onChanged(); };
   const flip = async (k: keyof Mails, on: boolean) => {
     if (!on && !window.confirm(`Switch off: ${MAILS.find((m) => m.key === k)!.label}?\n\nThe hub still writes the subjects, stages and owners - only the mail stops.`)) return;
@@ -153,6 +282,13 @@ function MailsCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
       <Typography sx={{ mt: 1, fontSize: "0.76rem", color: MUTED }}>
         &quot;❗Back Office Ticket Created&quot; belongs to the way in: switched, and its people picked, on <Box component="a" href="/uc/bo-distribution#way-in" sx={{ color: INK, fontWeight: 700 }}>Back Office distribution &gt; Way in</Box>.
       </Typography>
+      {d.admin && (
+        <Box sx={{ mt: 1, display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+          <Button size="small" variant="outlined" disabled={!!busy || !d.mailReady} onClick={() => void sendSample()}>{busy === "sample" ? <CircularProgress size={12} /> : "Send me a sample"}</Button>
+          <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>the owner&apos;s &quot;due today&quot; mail for an open request, to your own address</Typography>
+        </Box>
+      )}
+      {sample && <Typography sx={{ mt: 0.75, fontSize: "0.8rem", color: sample.ok ? GREEN : RED }}>{sample.text}</Typography>}
       {err && <Typography sx={{ mt: 1, fontSize: "0.82rem", color: RED }}>{err}</Typography>}
     </GlassCard>
   );
@@ -345,6 +481,7 @@ function RulesCard({ d }: { d: Data }) {
 export function Console({ d, onChanged }: { d: Data; onChanged: () => void }) {
   return (
     <>
+      <KpiBand d={d} />
       <Board rows={d.board} />
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>
         <RunCard d={d} onChanged={onChanged} />
@@ -353,6 +490,10 @@ export function Console({ d, onChanged }: { d: Data; onChanged: () => void }) {
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>
         <DatesCard d={d} onChanged={onChanged} />
         <ShopCard d={d} onChanged={onChanged} />
+      </Box>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>
+        <StepsCard d={d} onChanged={onChanged} />
+        <LoadCard d={d} />
       </Box>
       <TimingCard key={d.settings.at ?? "t"} d={d} onChanged={onChanged} />
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>

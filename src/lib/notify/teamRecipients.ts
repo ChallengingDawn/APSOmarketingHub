@@ -31,6 +31,11 @@ async function inboxes(): Promise<Set<string>> {
   return out;
 }
 
+/** Is this address a HubSpot inbox (a queue user's) or the hub's own sender? A mail there comes back as a ticket. */
+export async function isInbox(email: string): Promise<boolean> {
+  return (await inboxes()).has(email.trim().toLowerCase());
+}
+
 /** The people picked (the way in's own list, else Certificates > Console's), with an address that is not an inbox. */
 export async function teamRecipients(picked?: string[]): Promise<Recipient[]> {
   const s = picked ? null : await kvGet<{ teamTo?: string[] }>("certificates:settings");

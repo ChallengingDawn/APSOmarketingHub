@@ -25,7 +25,12 @@ import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import AlternateEmailOutlinedIcon from "@mui/icons-material/AlternateEmailOutlined";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import ListAltOutlinedIcon from "@mui/icons-material/ListAltOutlined";
-import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, bodyCell, clip, headCell, hsTicket } from "@/app/uc/report/ui";
+import Grid from "@mui/material/Grid";
+import InboxOutlinedIcon from "@mui/icons-material/InboxOutlined";
+import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
+import EditNoteOutlinedIcon from "@mui/icons-material/EditNoteOutlined";
+import VerifiedOutlinedIcon from "@mui/icons-material/VerifiedOutlined";
+import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, bodyCell, clip, headCell, hsTicket } from "@/app/uc/report/ui";
 import { Chip, usePaged, when } from "@/app/connectors/parts";
 import { full } from "@/app/charts/format";
 import { PeoplePicker } from "@/app/uc/PeoplePicker";
@@ -79,6 +84,25 @@ function StatusCard({ s }: { s: State }) {
         {s.last ? ` · last look ${when(s.last.at)}${s.last.error ? ` - ${s.last.error}` : ""}` : ""}
       </Typography>
     </GlassCard>
+  );
+}
+
+// ---------------- the figures, 7 days ----------------
+function KpiBand({ s }: { s: State }) {
+  const week = s.rows.filter((r) => Date.now() - Date.parse(r.enteredAt) < 7 * 86400_000);
+  const today = s.rows.filter((r) => new Date(r.enteredAt).toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" }) === new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" }));
+  const f = s.figures;
+  const mails = week.filter((r) => (r.mailText ?? "").startsWith("mail to")).length;
+  const certs = week.filter((r) => r.what === "certificates" || r.branch === "CERTIFICATE").length;
+  const branches = Object.entries(week.reduce<Record<string, number>>((a, r) => { if (r.branch) a[r.branch] = (a[r.branch] ?? 0) + 1; return a; }, {})).sort((a, b) => b[1] - a[1]);
+  return (
+    <Grid container spacing={2}>
+      <Grid size={{ xs: 6, md: 4, lg: 2.4 }}><KpiTile icon={<InboxOutlinedIcon />} tint="blue" label="Tickets in" value={full(week.length)} note={`7 days · ${full(today.length)} today`} /></Grid>
+      <Grid size={{ xs: 6, md: 4, lg: 2.4 }}><KpiTile icon={<FactCheckOutlinedIcon />} tint="green" label="Same as the workflow" value={f.compared ? `${Math.round((f.same / f.compared) * 100)}%` : "—"} note={f.compared ? `${full(f.same)} of ${full(f.compared)} compared` : "compared while the workflow runs"} /></Grid>
+      <Grid size={{ xs: 6, md: 4, lg: 2.4 }}><KpiTile icon={<EditNoteOutlinedIcon />} tint="purple" label="Written by the hub" value={full(f.done)} note={f.failed ? `${full(f.failed)} failed` : s.offAt ? "7 days" : "once the workflow is off"} /></Grid>
+      <Grid size={{ xs: 6, md: 4, lg: 2.4 }}><KpiTile icon={<MailOutlineIcon />} tint="amber" label="Mails sent" value={full(mails)} note={s.settings.mail ? `to ${s.settings.to.length ? s.settings.to.map((id) => s.names[id] ?? id).join(", ") : "nobody yet"}` : "switched off"} /></Grid>
+      <Grid size={{ xs: 6, md: 4, lg: 2.4 }}><KpiTile icon={<VerifiedOutlinedIcon />} tint="pink" label="To Certificates" value={full(certs)} note={branches.length ? `most: ${BRANCH[branches[0][0]] ?? branches[0][0]} ${full(branches[0][1])}` : "7 days"} /></Grid>
+    </Grid>
   );
 }
 
@@ -321,6 +345,7 @@ export function WayInTab() {
   if (!s) return <GlassCard><Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={14} /><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Reading the way in…</Typography></Box></GlassCard>;
   return (
     <>
+      <KpiBand s={s} />
       <StatusCard s={s} />
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>
         <RulesCard s={s} />

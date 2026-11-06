@@ -318,7 +318,10 @@ function Agenda({ d }: { d: Data }) {
 }
 
 // ---------------- the activity ----------------
-const WHAT: Record<Row["what"], { tint: Tint; label: string }> = { done: { tint: "green", label: "done" }, would: { tint: "blue", label: "would do (Preview)" }, failed: { tint: "pink", label: "failed - tried again" } };
+const WHAT: Record<Row["what"], { tint: Tint; label: string }> = {
+  done: { tint: "green", label: "done" }, would: { tint: "blue", label: "would do (Preview)" }, failed: { tint: "pink", label: "failed - tried again" },
+  skipped: { tint: "slate", label: "skipped - switched off on the Console" },
+};
 function written(r: Row, names: Record<string, string>): string {
   const out: string[] = [];
   if (r.props.hs_pipeline_stage) out.push(`stage ${STAGE_LABEL[r.props.hs_pipeline_stage] ?? r.props.hs_pipeline_stage}`);
@@ -499,10 +502,18 @@ function Overview({ d, go, onChanged }: { d: Data; go: (v: View) => void; onChan
         </GlassCard>
       )}
       {months.length > 0 && (
-        <GlassCard>
-          <CardTitle icon={<BarChartOutlinedIcon />} tint="blue" title="Certificate requests per month" note="Back Office tickets naming a certificate: created, and resolved, the last 13 months" />
-          <GroupedColumns height={230} currentFirst currentLabel="New requests" priorLabel="Resolved" data={months.map((m) => ({ x: m.month.slice(2).split("-").reverse().join("."), current: m.created, prior: m.resolved, partial: m.month === month }))} />
-        </GlassCard>
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2.5 }}>
+          <GlassCard>
+            <CardTitle icon={<BarChartOutlinedIcon />} tint="blue" title="Certificate requests per month" note="Back Office tickets naming a certificate: created, and resolved, the last 13 months" />
+            <GroupedColumns height={230} currentFirst currentLabel="New requests" priorLabel="Resolved" data={months.map((m) => ({ x: m.month.slice(2).split("-").reverse().join("."), current: m.created, prior: m.resolved, partial: m.month === month }))} />
+          </GlassCard>
+          {!!d.stats?.punctual?.length && (
+            <GlassCard>
+              <CardTitle icon={<TaskAltOutlinedIcon />} tint="green" title="Sent on time, per month" note="Resolved requests with a delivery date: resolved on or before it, and after it" />
+              <GroupedColumns height={230} currentFirst currentLabel="On time" priorLabel="After the date" data={d.stats.punctual.map((m) => ({ x: m.month.slice(2).split("-").reverse().join("."), current: m.onTime, prior: m.late, partial: m.month === month }))} />
+            </GlassCard>
+          )}
+        </Box>
       )}
     </>
   );

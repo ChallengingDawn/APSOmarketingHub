@@ -28,7 +28,8 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { esc, mailConfigured, sendHubMail, wrap } from "@/lib/notify/mailer";
 import {
-  ACT, BO_PIPELINE, CATEGORY, DEFAULT_PEOPLE, DEFAULT_TIMING, MAIL_TEXT, REMIND_WORKFLOW_ID, STAGE, WORKFLOW_ID, WORKFLOW_OFF_AT,
+  ACT, BO_PIPELINE, CATEGORY, DEFAULT_PEOPLE, DEFAULT_STEPS, DEFAULT_TIMING, MAIL_TEXT, REMIND_WORKFLOW_ID, STAGE, STEP_GROUP, WORKFLOW_ID, WORKFLOW_OFF_AT,
+  type StepSwitches,
   certsText, dueShort, excludesCertificates, merge, owed, position, stepsOf,
   type Branch, type Facts, type MailName, type People, type Phase, type StepName, type Timing,
 } from "./rules";
@@ -61,7 +62,10 @@ export type Hold = { by: string; at: string };
  *  default), shopFrom = when Live was switched on (only orders first seen after it are created). */
 export type Settings = {
   mode: Mode; people: People; mails: Mails; timing: Timing; held: Record<string, Hold>; teamTo: string[];
-  erpDates: DateMode; shop: ShopMode; shopFrom: string | null; by?: string; at?: string;
+  erpDates: DateMode; shop: ShopMode; shopFrom: string | null;
+  /** the step groups on / off (console) */
+  steps: StepSwitches;
+  by?: string; at?: string;
 };
 export type RunInfo = {
   at: string; seconds: number; mode: Mode; writing: boolean; tickets: number; owed: number; written: number; listed: number; failed: number;
@@ -72,7 +76,8 @@ export type RunInfo = {
 /** One ticket's steps done (or, in Preview, listed) in one look. */
 export type Row = {
   at: string; ticketId: string; subject: string | null; phase: Phase; steps: StepName[];
-  what: "done" | "would" | "failed"; props: Record<string, string>; note: boolean; error?: string;
+  /** skipped = its step group is switched off on the console */
+  what: "done" | "would" | "failed" | "skipped"; props: Record<string, string>; note: boolean; error?: string;
   /** the mail: "mail to Sara Gashi", "would mail Sara Gashi", or why it did not go (mailFailed) */
   mail?: string; mailFailed?: boolean;
 };
@@ -102,6 +107,10 @@ export type Stats = {
   months: { month: string; created: number; resolved: number }[];
   /** median days from the request to Resolved, the last 90 days */
   medianDays: number | null; resolved90: number;
+  /** resolved with a delivery date, the last 90 days: how many on or before it (Swiss day) */
+  onTime90?: { n: number; onTime: number; medianAfter?: number | null };
+  /** per month: resolved on time / after the delivery date */
+  punctual?: { month: string; onTime: number; late: number }[];
 };
 type Obj = { id: string; properties: Record<string, string | null>; propertiesWithHistory?: Record<string, { value: string; timestamp: string; sourceType?: string }[]> };
 const hs = <T>(path: string, method: "GET" | "POST" | "PATCH" = "GET", body?: unknown) => hubspotRetry<T>({ path, method, body });
@@ -112,12 +121,12 @@ export async function getSettings(): Promise<Settings> {
   return {
     mode: s?.mode ?? "preview", people: { ...DEFAULT_PEOPLE, ...(s?.people ?? {}) }, mails: { ...DEFAULT_MAILS, ...(s?.mails ?? {}) },
     timing: { ...DEFAULT_TIMING, ...(s?.timing ?? {}) }, held: s?.held ?? {}, teamTo: (s?.teamTo ?? []).filter((id) => !INBOX_OWNERS.has(id)),
-    erpDates: s?.erpDates ?? "show", shop: s?.shop ?? "preview", shopFrom: s?.shopFrom ?? null, by: s?.by, at: s?.at,
+    erpDates: s?.erpDates ?? "show", shop: s?.shop ?? "preview", shopFrom: s?.shopFrom ?? null, steps: { ...DEFAULT_STEPS, ...(s?.steps ?? {}) }, by: s?.by, at: s?.at,
   };
 }
 export type SettingsPatch = {
   mode?: Mode; people?: Partial<People>; mails?: Partial<Mails>; timing?: Partial<Timing> | "default"; hold?: string; release?: string; teamTo?: string[];
-  erpDates?: DateMode; shop?: ShopMode;
+  erpDates?: DateMode; shop?: ShopMode; steps?: Partial<StepSwitches>;
 };
 export async function saveSettings(patch: SettingsPatch, by: string): Promise<Settings> {
   const cur = await getSettings();
@@ -128,7 +137,7 @@ export async function saveSettings(patch: SettingsPatch, by: string): Promise<Se
     mode: patch.mode ?? cur.mode, people: { ...cur.people, ...(patch.people ?? {}) }, mails: { ...cur.mails, ...(patch.mails ?? {}) },
     timing: patch.timing === "default" ? { ...DEFAULT_TIMING } : { ...cur.timing, ...(patch.timing ?? {}) }, held,
     teamTo: (patch.teamTo ?? cur.teamTo).filter((id) => !INBOX_OWNERS.has(id)),
-    erpDates: patch.erpDates ?? cur.erpDates, shop: patch.shop ?? cur.shop,
+    erpDates: patch.erpDates ?? cur.erpDates, shop: patch.shop ?? cur.shop, steps: { ...cur.steps, ...(patch.steps ?? {}) },
     // Live from now on: the orders the shop sync saw before stay the Back Office's
     shopFrom: patch.shop === "live" && cur.shop !== "live" ? new Date().toISOString() : patch.shop && patch.shop !== "live" ? null : cur.shopFrom,
     by, at: new Date().toISOString(),
@@ -201,6 +210,16 @@ async function sendReminder(m: MailName, f: Facts, subject: string, to: Owner | 
   const text = [t.line, t.ask, "", ...rows.map(([k, v]) => `${k}: ${v}`), "", ticketUrl(f.id)].join("\n");
   try { await sendHubMail({ to: to.email, subject: subject.slice(0, 180), html, text }); return { ok: true, text: `mail to ${who}` }; }
   catch (e) { return { ok: false, text: `mail to ${who} failed: ${(e as Error).message.slice(0, 120)}` }; }
+}
+
+/** The console's "send me a sample": the owner's "due today" mail for the first open request, to the person asking. */
+export async function sendSample(to: { name: string; email: string }): Promise<{ ok: boolean; text: string }> {
+  const open = (await kvGet<OpenTicket[]>(KV.open)) ?? [];
+  const pick = open.find((t) => t.due) ?? open[0];
+  if (!pick) return { ok: false, text: "no open request to show" };
+  const [f] = await readTickets([pick.id]);
+  if (!f) return { ok: false, text: "the request could not be read" };
+  return sendReminder("boToday", f, `[Sample] ${f.subject ?? "Certificate"}`, { id: "sample", name: to.name, email: to.email, archived: false });
 }
 
 // ---------------- the Backoffice Team's reminder (the rest of Back Office Ticket Remind) ----------------
@@ -463,7 +482,14 @@ async function run(): Promise<RunInfo> {
       } else { done.add("~wayin"); info.listed++; }
       rows.push(row);
     }
-    const due = held ? [] : owed(f, done, now, WORKFLOW_OFF_AT, remindOffAt, tm);
+    const owedNow = held ? [] : owed(f, done, now, WORKFLOW_OFF_AT, remindOffAt, tm);
+    // a step group switched off on the console: its steps are skipped (not taken later), listed once
+    const skipped = owedNow.filter((x) => { const g = STEP_GROUP[x.name]; return !!g && !settings.steps[g]; });
+    if (skipped.length) {
+      for (const x of skipped) done.add(x.key);
+      rows.push({ at: new Date().toISOString(), ticketId: f.id, subject: f.subject, phase: pos.phase, steps: skipped.map((x) => x.name), what: "skipped", props: {}, note: false });
+    }
+    const due = owedNow.filter((x) => !skipped.includes(x));
     if (due.length) {
       info.owed += due.length;
       // the rotation: the next of the list, moved on only by a write that went through
@@ -566,8 +592,12 @@ const isRemind = (f: Facts, name: StepName, t: Timing) => !!stepsOf(f, t)?.steps
 /** The year in figures: certificate tickets created and resolved per month, days to resolve. */
 export async function readStats(): Promise<Stats> {
   const since = Date.now() - 400 * 86400_000;
-  const all = await search([{ propertyName: "which_certificate__", operator: "HAS_PROPERTY" }, { propertyName: "createdate", operator: "GTE", value: String(since) }], ["createdate", "closed_date", "hs_pipeline_stage", "enquiry_category"]);
+  const all = await search([{ propertyName: "which_certificate__", operator: "HAS_PROPERTY" }, { propertyName: "createdate", operator: "GTE", value: String(since) }], ["createdate", "closed_date", "hs_pipeline_stage", "enquiry_category", "delivery_date_for_certificate"]);
   const m = new Map<string, { created: number; resolved: number }>();
+  const punct = new Map<string, { onTime: number; late: number }>();
+  const on90: { n: number; onTime: number; medianAfter?: number | null } = { n: 0, onTime: 0 };
+  const after90: number[] = [];
+  const swissDay = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" });
   const bump = (k: string, f: "created" | "resolved") => { const x = m.get(k) ?? { created: 0, resolved: 0 }; x[f]++; m.set(k, x); };
   const days: number[] = [];
   for (const t of all) {
@@ -575,14 +605,25 @@ export async function readStats(): Promise<Stats> {
     if (c) bump(c.slice(0, 7), "created");
     if (r && t.properties.hs_pipeline_stage === STAGE.resolved) {
       bump(r.slice(0, 7), "resolved");
+      const due = (t.properties.delivery_date_for_certificate ?? "").slice(0, 10);
+      if (due) {
+        const ok = swissDay(r) <= due;
+        const p = punct.get(r.slice(0, 7)) ?? { onTime: 0, late: 0 };
+        if (ok) p.onTime++; else p.late++;
+        punct.set(r.slice(0, 7), p);
+        if (Date.now() - ts(r) <= 90 * 86400_000) { on90.n++; if (ok) on90.onTime++; after90.push((ts(r) - Date.parse(`${due}T12:00:00Z`)) / 86400_000); }
+      }
       if (c && Date.now() - ts(r) <= 90 * 86400_000) days.push((ts(r) - ts(c)) / 86400_000);
     }
   }
   days.sort((a, b) => a - b);
+  after90.sort((a, b) => a - b);
+  on90.medianAfter = after90.length ? Math.round(after90[Math.floor(after90.length / 2)] * 10) / 10 : null;
   const stats: Stats = {
     at: new Date().toISOString(),
     months: [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-13).map(([month, v]) => ({ month, ...v })),
     medianDays: days.length ? Math.round(days[Math.floor(days.length / 2)] * 10) / 10 : null, resolved90: days.length,
+    onTime90: on90, punctual: [...punct.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-13).map(([month, v]) => ({ month, ...v })),
   };
   await kvSet(KV.stats, stats);
   return stats;
