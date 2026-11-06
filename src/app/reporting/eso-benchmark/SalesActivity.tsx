@@ -49,7 +49,7 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  BASES, C, DEFS, ORDER, baseOf, basesOf, blank, defOf, labelOf, reachedBy, rowsOf, shareOf, sharesOf, statsBy,
+  BASES, C, DEFS, ORDER, baseForDim, baseOf, basesOf, blank, defOf, labelOf, reachedBy, rowsOf, shareOf, sharesOf, statsBy,
   type BaseId, type SDim, type SFilters, type SStats, type SalesActData,
 } from "@/lib/reporting/salesActivityRules";
 import { CompaniesFor, type CompanyItem, type CompanySource } from "@/app/reporting/CompanyList";
@@ -155,25 +155,27 @@ export type SCtx = {
 const verb = (c: SCtx) => DEFS[c.def].verb;
 const baseWord = (c: SCtx, b: BaseId = c.base) => BASES.find((x) => x.id === b)!.label;
 /** the base in a sentence: "Prio 1 + 2 companies", "companies in HubSpot" */
-const baseWords = (c: SCtx) => BASES.find((x) => x.id === c.base)!.words;
+const baseWords = (c: SCtx, dim?: SDim) => BASES.find((x) => x.id === baseForDim(c.base, dim))!.words;
 /** "ESO's", "APSOparts'" */
 const poss = (name: string) => (/s$/i.test(name) ? `${name}'` : `${name}'s`);
 const teamPart = (c: SCtx) => ` - ${teamName(c)}`;
 
 const statCache = new WeakMap<SCtx, Map<string, Map<string, SStats>>>();
 /** The figures of the base by a breakdown, or all together - only what is filtered; `own` leaves the breakdown's own filter
- *  out, for the Filters window's lists. */
-function statsOf(c: SCtx, dim?: SDim, own = false): Map<string, SStats> {
+ *  out, for the Filters window's lists. By priority the base is every company when it is Prio 1 + 2 (baseForDim). */
+function statsOf(c: SCtx, dim?: SDim, own = false, base: BaseId = baseForDim(c.base, dim)): Map<string, SStats> {
   let memo = statCache.get(c);
   if (!memo) { memo = new Map(); statCache.set(c, memo); }
-  const k = `${dim ?? ""}${own ? ":all" : ""}`;
+  const k = `${dim ?? ""}${own ? ":all" : ""}@${base}`;
   const hit = memo.get(k);
   if (hit) return hit;
-  const out = statsBy(c.d, rowsOf(c.d, c.base, c.filters, c.people, own ? dim : undefined), c.def, dim ? (r) => labelOf(c.d, r, dim) : undefined);
+  const out = statsBy(c.d, rowsOf(c.d, base, c.filters, c.people, own ? dim : undefined), c.def, dim ? (r) => labelOf(c.d, r, dim) : undefined);
   memo.set(k, out);
   return out;
 }
 const totalOf = (c: SCtx) => statsOf(c).get("") ?? blank();
+/** A breakdown's total, on the base it counts on - every company by priority when the base is Prio 1 + 2. */
+const totalFor = (c: SCtx, dim: SDim) => statsOf(c, undefined, false, baseForDim(c.base, dim)).get("") ?? blank();
 /** The shares - a year whose flag is not in HubSpot left empty: unknown, not none. */
 function shares(c: SCtx, s: SStats) {
   const x = sharesOf(s);
@@ -347,7 +349,7 @@ function DimTable({ c, dim }: { c: SCtx; dim: SDim }) {
   const rank = ranked(dim);
   const rows: DRow[] = [...statsOf(c, dim)].map(([label, s]) => ({ label, ...s }));
   const sorted = rank ? [...rows].sort((a, b) => rank(a.label) - rank(b.label) || b.n - a.n) : rows;
-  return <FullTable key={`${dim}-${c.def}-${c.base}-${c.team}`} first={DIM[dim].name} cols={dimCols(c)} initial="n" rows={sorted} total={{ label: "Total", ...totalOf(c) }} natural={!!rank}
+  return <FullTable key={`${dim}-${c.def}-${c.base}-${c.team}`} first={DIM[dim].name} cols={dimCols(c)} initial="n" rows={sorted} total={{ label: "Total", ...totalFor(c, dim) }} natural={!!rank}
     selected={c.filters[dim]} onPick={c.onBar ? (l) => c.onBar!(dim, l) : undefined} find={dim === "person" ? "an owner" : `a ${DIM[dim].lower}`} />;
 }
 
@@ -400,17 +402,17 @@ type Who = "all" | "rev" | "never";
  * The companies behind a chart, its "Companies" button: the chart's base, team, owners and filters, worked out only when
  * the button is pressed (a base can be every company in HubSpot) - the most potential first, the revenue lists by revenue.
  */
-function companiesOf(c: SCtx, id: string, who: Who): CompanySource {
+function companiesOf(c: SCtx, id: string, who: Who, dim?: SDim): CompanySource {
   const v = verb(c), cy = c.d.year, py = cy - 1, k = c.d.read;
-  const key = `salesact|${c.d.generatedAt}|${id}|${c.def}|${c.base}|${c.team}|${c.lead ?? ""}|${JSON.stringify(c.filters)}`;
+  const key = `salesact|${c.d.generatedAt}|${id}|${c.def}|${baseForDim(c.base, dim)}|${c.team}|${c.lead ?? ""}|${JSON.stringify(c.filters)}`;
   const yes = (side: "cy" | "py", hit: boolean) => (k[side][c.def] ? (hit ? "Yes" : "No") : "—");
   const whoWords = who === "rev" ? "those with revenue in either year" : who === "never" ? `not ${v} in ${py} or ${cy}` : "all of them";
   return {
     key, head: [`${cap(v)} ${cy}`, `${cap(v)} ${py}`, `Revenue ${cy} so far`, `Revenue ${py}`, "Potential", "Company owner", "Priority", "Country"],
     left: [1, 2, 6, 7, 8],
-    note: `${cap(baseWords(c))} · ${teamName(c)} · ${whoWords} · ${who === "rev" ? "the most revenue first" : "the most potential first"}`,
+    note: `${cap(baseWords(c, dim))} · ${teamName(c)} · ${whoWords} · ${who === "rev" ? "the most revenue first" : "the most potential first"}`,
     rows: () => {
-      const idx = rowsOf(c.d, c.base, c.filters, c.people).filter((i) => {
+      const idx = rowsOf(c.d, baseForDim(c.base, dim), c.filters, c.people).filter((i) => {
         const r = c.d.companies[i];
         if (who === "rev") return r[C.revCy] > 0 || r[C.revPy] > 0;
         if (who === "never") return !reachedBy(r, c.def, "cy") && !reachedBy(r, c.def, "py");
@@ -432,11 +434,11 @@ function companiesOf(c: SCtx, id: string, who: Who): CompanySource {
 
 /* ── every chart by its key ────────────────────────────────────────────── */
 
-type Drawn = { id: string; title: (c: SCtx) => string; draw: (c: SCtx, actions?: React.ReactNode) => React.ReactNode; who?: Who };
+type Drawn = { id: string; title: (c: SCtx) => string; draw: (c: SCtx, actions?: React.ReactNode) => React.ReactNode; who?: Who; dim?: SDim };
 /** A chart by its id - with the companies it counts behind its "Companies" button. */
 function drawnOf(id: string): Drawn | undefined {
   const d = drawnBare(id);
-  return d && { ...d, draw: (c, a) => <CompaniesFor source={d.who ? companiesOf(c, id, d.who) : null}>{d.draw(c, a)}</CompaniesFor> };
+  return d && { ...d, draw: (c, a) => <CompaniesFor source={d.who ? companiesOf(c, id, d.who, d.dim) : null}>{d.draw(c, a)}</CompaniesFor> };
 }
 /** A chart by its id "<tab>:<chart>": overview:companies, people:reach, prio:never, bases:chart… */
 function drawnBare(id: string): Drawn | undefined {
@@ -495,10 +497,10 @@ function drawnBare(id: string): Drawn | undefined {
   const dim = DIM_OF[v];
   if (chart === "figures") {
     const title = (c: SCtx) => `All the figures, by ${DIM[dim].lower}${teamPart(c)}`;
-    return { id, title, who: "all", draw: (c, a) => <ChartBox title={title(c)} hint={`${cap(baseWords(c))} · ${DEFS[c.def].label.toLowerCase()} · ${yearsWords(c.d)}`} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
+    return { id, title, who: "all", dim, draw: (c, a) => <ChartBox title={title(c)} hint={`${cap(baseWords(c, dim))} · ${DEFS[c.def].label.toLowerCase()} · ${yearsWords(c.d)}`} actions={a}><DimTable c={c} dim={dim} /></ChartBox> };
   }
   if (!isMeasure(chart)) return undefined;
-  return { id, title: (c) => `${measureTitle(c, chart)}, by ${DIM[dim].lower}${teamPart(c)}`, who: chart === "rev" ? "rev" : chart === "never" ? "never" : "all",
+  return { id, title: (c) => `${measureTitle(c, chart)}, by ${DIM[dim].lower}${teamPart(c)}`, who: chart === "rev" ? "rev" : chart === "never" ? "never" : "all", dim,
     draw: (c, a) => <Board c={c} id={id} dim={dim} m={chart} actions={a} /> };
 }
 /** A chart sent to the BUC View, by its tile key "<page>:<tab>:<chart>". */
@@ -531,7 +533,7 @@ function TabCard({ c, act }: { c: SCtx; act: Act }) {
   const dim = DIM_OF[c.view], dd = DIM[dim];
   return (
     <GlassCard sx={card}>
-      <CardTitle icon={dd.icon} tint={dd.tint} title={`${poss(teamName(c))} companies by ${dd.lower}`} note={`${dd.note} · ${words}`} />
+      <CardTitle icon={dd.icon} tint={dd.tint} title={`${poss(teamName(c))} companies by ${dd.lower}`} note={`${dd.note} · ${cap(baseWords(c, dim))} · ${DEFS[c.def].label.toLowerCase()} · ${yearsWords(c.d)}`} />
       <Box sx={{ ...TWO, mt: -1 }}>{draw(c, act, `${c.view}:reach`)}{draw(c, act, `${c.view}:rev`)}</Box>
       <Box sx={TWO}>{draw(c, act, `${c.view}:pot`)}{draw(c, act, `${c.view}:never`)}</Box>
       {draw(c, act, `${c.view}:figures`)}
@@ -598,7 +600,7 @@ function Choice<T extends string | number>({ items, on, onPick }: { items: { id:
 function SFacet({ c, dim, onPick }: { c: SCtx; dim: SDim; onPick: (l: string) => void }) {
   const [q, setQ] = useState("");
   const [all, setAll] = useState(false);
-  const by = statsOf(c, dim, true);
+  const by = statsOf(c, dim, true, c.base);
   const rank = ranked(dim);
   const rows = [...by].map(([label, s]) => ({ label, n: s.n }));
   rows.sort(rank ? (a, b) => rank(a.label) - rank(b.label) || b.n - a.n : (a, b) => b.n - a.n || a.label.localeCompare(b.label));

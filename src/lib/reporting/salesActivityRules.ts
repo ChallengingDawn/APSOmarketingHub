@@ -81,6 +81,9 @@ export const reachedBy = (row: number[], def: number, side: "cy" | "py") => ((ro
 
 export type SDim = "person" | "prio" | "category" | "country";
 export type SFilters = Partial<Record<SDim, string[]>>;
+/** The base a breakdown counts on: by priority every priority stands (SARCLA 06.11.2026: "put all the priorities here") -
+ *  Prio 1 + 2 is itself two of the rows, so there it widens to every company; any other base keeps its companies. */
+export const baseForDim = (base: BaseId, dim?: SDim): BaseId => (dim === "prio" && base === "prio12" ? "all" : base);
 const COL: Record<Exclude<SDim, "person">, number> = { prio: C.prio, category: C.category, country: C.country };
 export const ORDER: Partial<Record<SDim, readonly string[]>> = { prio: PRIOS, category: ["APSOcore", "APSOgrowth", "APSOprospect", "APSOmicro", "APSOlost", "Growth Engine Customer", "Not set"] };
 

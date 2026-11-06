@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  C, DEFS, basesOf, baseOf, defOf, flagName, inBase, labelOf, potentialOf, prioLabel, reachedBits, reachedBy, rowsOf, sharesOf, statsBy,
+  C, DEFS, baseForDim, basesOf, baseOf, defOf, flagName, inBase, labelOf, potentialOf, prioLabel, reachedBits, reachedBy, rowsOf, sharesOf, statsBy,
   type SalesActData,
 } from "../src/lib/reporting/salesActivityRules";
 
@@ -104,4 +104,14 @@ test("a priority for every company and only a usable potential", () => {
   assert.equal(potentialOf("5000000"), 0);
   assert.equal(potentialOf(null), 0);
   assert.equal(C.pot, 9);
+});
+
+test("by priority every priority stands - a Prio 1 + 2 base widens to every company there, other bases keep theirs (SARCLA 06.11.2026)", () => {
+  assert.equal(baseForDim("prio12", "prio"), "all");
+  assert.equal(baseForDim("prio12", "person"), "prio12");
+  assert.equal(baseForDim("prio12"), "prio12");
+  assert.equal(baseForDim("bought", "prio"), "bought");
+  const d = data();
+  const byPrio = statsBy(d, rowsOf(d, baseForDim("prio12", "prio"), {}, null), 0, (r) => labelOf(d, r, "prio"));
+  assert.deepEqual([...byPrio.keys()], ["Prio 1", "Prio 2", "Prio 3", "No priority"]);
 });
