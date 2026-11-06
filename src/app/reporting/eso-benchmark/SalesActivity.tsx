@@ -7,6 +7,10 @@
 // bought this year, the customer categories) and "Which companies count" puts them side by side; the potential stands beside
 // the revenue everywhere. Diana's four definitions are the Filters' "Sales activity", calls and visits first. The rows and
 // their rules: src/lib/reporting/salesActivityRules.ts.
+// What to keep in mind (no footer on the page - SARCLA 06.11.2026 took the line out): the flags are HubSpot's company
+// properties "Sales Activity in <year>", the same as the HubSpot dashboard; calls, visits and e-mails had to be logged in
+// HubSpot only from mid-2025, so 2025 reads low; each company counts under today's owner, priority and potential in both
+// years; this year runs to the day of the read, last year is the whole year.
 
 import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -86,6 +90,7 @@ const int = (n: number) => Math.round(n).toLocaleString("en");
 const eur = (n: number) => `${n < 0 ? "−" : ""}€${Math.round(Math.abs(n)).toLocaleString("en")}`;
 const pct = (x: number | null | undefined) => (x == null || !Number.isFinite(x) ? "—" : `${(x * 100).toFixed(1)}%`);
 const signedInt = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : "±"}${Math.abs(Math.round(n)).toLocaleString("en")}`;
+const signedEur = (n: number) => `${Math.round(n) > 0 ? "+" : Math.round(n) < 0 ? "−" : "±"}€${Math.abs(Math.round(n)).toLocaleString("en")}`;
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 /** A share's change in points - green when it went up (or down, for what should shrink). */
 function ptsOf(cy: number | null, py: number | null, lower = false): { text: string; color: string } {
@@ -295,24 +300,29 @@ type ORow = { label: string; cy: string; py: string; ch: React.ReactNode };
 function OverviewTable({ c }: { c: SCtx }) {
   const t = totalOf(c), x = shares(c, t), v = verb(c), k = c.d.read;
   const known = (side: "cy" | "py", text: string) => (k[side][c.def] ? text : "—");
+  const both = !!k.cy[c.def] && !!k.py[c.def];
   const ch = (p: { cy: number | null; py: number | null }) => { const z = ptsOf(p.cy, p.py); return <span style={{ color: z.color, fontWeight: 700 }}>{z.text}</span>; };
+  // every row a figure each year and its change (SARCLA 06.11.2026: "not all fields are populated") - counts and euros in
+  // full, uncoloured: this year runs to today against the whole of last year
+  const n = (a: number, b: number) => (both ? signedInt(a - b) : "—");
+  const money = (a: number, b: number, needs = true) => (needs && !both ? "—" : `${signedEur(a - b)} · ${b ? `${a - b >= 0 ? "+" : "−"}${Math.abs(((a - b) / b) * 100).toFixed(1)}%` : "—"}`);
   const rows: ORow[] = [
-    { label: "Companies", cy: int(t.n), py: int(t.n), ch: "" },
-    { label: `Companies ${v}`, cy: known("cy", int(t.cy)), py: known("py", int(t.py)), ch: k.cy[c.def] && k.py[c.def] ? signedInt(t.cy - t.py) : "—" },
+    { label: "Companies", cy: int(t.n), py: int(t.n), ch: signedInt(0) },
+    { label: `Companies ${v}`, cy: known("cy", int(t.cy)), py: known("py", int(t.py)), ch: n(t.cy, t.py) },
+    { label: `Companies not ${v}`, cy: known("cy", int(t.n - t.cy)), py: known("py", int(t.n - t.py)), ch: n(t.n - t.cy, t.n - t.py) },
     { label: `Share of companies ${v}`, cy: pct(x.reach.cy), py: pct(x.reach.py), ch: ch(x.reach) },
-    { label: "Revenue", cy: eur(t.revCy), py: eur(t.revPy), ch: "" },
-    { label: `Revenue from companies ${v}`, cy: known("cy", eur(t.revCyHit)), py: known("py", eur(t.revPyHit)), ch: "" },
+    { label: "Revenue", cy: eur(t.revCy), py: eur(t.revPy), ch: money(t.revCy, t.revPy, false) },
+    { label: `Revenue from companies ${v}`, cy: known("cy", eur(t.revCyHit)), py: known("py", eur(t.revPyHit)), ch: money(t.revCyHit, t.revPyHit) },
     { label: `Share of revenue from companies ${v}`, cy: pct(x.rev.cy), py: pct(x.rev.py), ch: ch(x.rev) },
-    { label: "Potential today", cy: eur(t.pot), py: eur(t.pot), ch: "" },
-    { label: `Potential in companies ${v}`, cy: known("cy", eur(t.potCy)), py: known("py", eur(t.potPy)), ch: "" },
+    { label: "Potential today", cy: eur(t.pot), py: eur(t.pot), ch: signedEur(0) },
+    { label: `Potential in companies ${v}`, cy: known("cy", eur(t.potCy)), py: known("py", eur(t.potPy)), ch: money(t.potCy, t.potPy) },
     { label: `Share of potential in companies ${v}`, cy: pct(x.pot.cy), py: pct(x.pot.py), ch: ch(x.pot) },
-    { label: `Companies not ${v} in either year`, cy: x.never == null ? "—" : int(t.never), py: "", ch: x.never == null ? "" : `${pct(x.never)} of the companies · ${eur(t.potNever)} potential` },
   ];
   return (
     <FullTable key={`overview-${c.def}-${c.base}-${c.team}`} first={cap(baseWords(c))} natural rows={rows} cols={[
       { key: "cy", head: cyWord(c.d), cell: (r) => r.cy },
       { key: "py", head: pyWord(c.d), cell: (r) => r.py },
-      { key: "ch", head: "Change", tip: "Shares in points - this year runs to the day of the read, last year is the whole year", cell: (r) => r.ch },
+      { key: "ch", head: "Change", tip: "Shares in points, counts and euros in full - this year runs to the day of the read, last year is the whole year", cell: (r) => r.ch },
     ]} />
   );
 }
@@ -675,9 +685,6 @@ function Waiting({ computing, progress, error }: { computing: boolean; progress?
     </GlassCard>
   );
 }
-/** The one line under the page: where the figures come from and what to keep in mind. */
-const footWords = (d: SalesActData) =>
-  `HubSpot's company flags "Sales Activity in ${d.year - 1}" and "in ${d.year}", the same as the HubSpot dashboard · calls, visits and e-mails had to be logged in HubSpot only from mid-${d.year - 1}, so ${d.year - 1} reads low · each company under today's owner, priority and potential · read ${new Date(d.generatedAt).toLocaleString("en-GB")}`;
 
 export function SalesActivityExplorer({ home = "eso" }: { home?: Home }) {
   // its charts to the BUC View of the reports it is in: "eso-sales-activity:…", or "tsa-sales-activity:…" on TSA Reports
@@ -769,7 +776,6 @@ export function SalesActivityExplorer({ home = "eso" }: { home?: Home }) {
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
         <TabCardKept key={`${c.view}-${c.def}-${c.base}`} c={c} act={act} />
       </Box>
-      <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>{footWords(d)}</Typography>
       <SFilterWindow c={c} open={panel} onClose={() => setPanel(false)} focus={focus} onDef={setDef} onBase={setBase} toggle={toggle} clearAll={clearAll} />
     </Box>
   );
@@ -813,7 +819,7 @@ export function SalesActivityPanel({ acts, home = "eso" }: { acts: ActionsState 
   const shown = (id: string) => placementOf(acts, `${PANEL}${id}`, "nutshell") === "nutshell";
   const href = `${href0}?team=${drawn.team}${drawn.lead ? `&lead=${drawn.lead}` : ""}`;
   const own = (id: string, title: string) => (
-    <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}${id}`, page: PAGE, tab: "overview", title: `${title} - ${c ? teamName(c) : teamWord(home)}`, kind: "kpi",
+    <TileActions where="nutshell" start="nutshell" edge={1.5} tile={{ key: `${PANEL}${id}`, page: PAGE, tab: "overview", title: `${title} - ${c ? teamName(c) : teamWord(home)}`, kind: "kpi",
       filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}) }, href }} />
   );
   return (

@@ -2048,7 +2048,7 @@ export function FiguresPanel({ acts, home = "eso" }: { acts: ActionsState | null
   const ownKey = (id: string) => `${PANEL}${id}`;
   const shown = (id: string) => placementOf(acts, ownKey(id), "nutshell") === "nutshell";
   const ownActions = (id: string, title: string, kind: "kpi" | "card", target?: { key: string; unit: "eur" | "pct"; label: string }) => (
-    <TileActions where="nutshell" start="nutshell" edge={2}
+    <TileActions where="nutshell" start="nutshell" edge={1.5}
       tile={{ key: ownKey(id), page: PAGE, tab: "ytd", title: `${title}${c && c.team !== "total" ? ` - ${teamName(c)}` : ""}`, kind,
         filters: { team: [st], ...(slead ? { lead: [slead] } : {}), period: ["ytd"] }, href: `${base}?team=${st}${slead ? `&lead=${slead}` : ""}`, target }} />
   );

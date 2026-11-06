@@ -70,6 +70,9 @@ export function formatsFor(t: Sized): TileFormat[] {
   // an Engagements tool is a small tile in the nutshell (SARCLA 19.10: "they should be small, the services")
   if (/^engage:tools:tool-/.test(t.key)) return ["tile"];
   if ((t.kind ?? (t.kpiId ? "kpi" : "card")) === "kpi" && t.kpiId) return ["tile", "half", "card"];
+  // a team panel's figure (ESO, TSA: "<page>:panel:<figure>", a KPI without a KPI id) stands in its row at its one size -
+  // no size to switch, so no Design tab hanging under it (SARCLA 06.11.2026: "buc view is broken with the design and action")
+  if ((t.kind ?? "card") === "kpi" && !t.kpiId) return ["tile"];
   return ["half", "card"];
 }
 export const FORMAT_LABEL: Record<TileFormat, string> = { tile: "Small tile", half: "Half width", card: "Full width" };

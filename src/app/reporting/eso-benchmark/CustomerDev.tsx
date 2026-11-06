@@ -874,7 +874,7 @@ export function CustomerDevPanel({ acts, home = "eso" }: { acts: ActionsState | 
   const shown = (id: string) => placementOf(acts, `${PANEL}${id}`, "nutshell") === "nutshell";
   const href = `${base}?team=${drawn.team}${drawn.lead ? `&lead=${drawn.lead}` : ""}`;
   const own = (id: string, title: string, kind: "kpi" | "card", target?: { key: string; unit: "eur" | "pct" | "n"; label: string }) => (
-    <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}${id}`, page: PAGE, tab: "status", title: `${title} - ${c ? teamName(c) : "ESO"}`, kind,
+    <TileActions where="nutshell" start="nutshell" edge={1.5} tile={{ key: `${PANEL}${id}`, page: PAGE, tab: "status", title: `${title} - ${c ? teamName(c) : "ESO"}`, kind,
       filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}), period: ["ytd"] }, href, target }} />
   );
   return (

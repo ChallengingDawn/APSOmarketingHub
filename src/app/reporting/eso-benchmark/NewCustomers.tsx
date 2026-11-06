@@ -793,7 +793,7 @@ export function NewCustomersPanel({ acts, home = "eso" }: { acts: ActionsState |
   // the panel's own cards and month chart have their Actions too: tasks, a target - and taken off the BUC View there, they stay off
   const shown = (id: string) => placementOf(acts, `${PANEL}${id}`, "nutshell") === "nutshell";
   const own = (id: string, title: string, kind: "kpi" | "card", target?: { key: string; unit: "n" | "eur"; label: string }) => (
-    <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}${id}`, page: PAGE, tab: "sae", title: `${title}${c && c.team !== "total" ? ` - ${teamName(c)}` : ""}`, kind,
+    <TileActions where="nutshell" start="nutshell" edge={1.5} tile={{ key: `${PANEL}${id}`, page: PAGE, tab: "sae", title: `${title}${c && c.team !== "total" ? ` - ${teamName(c)}` : ""}`, kind,
       filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}), period: ["ytd"] }, href: `${base}?team=${drawn.team}${drawn.lead ? `&lead=${drawn.lead}` : ""}`, target }} />
   );
   return (

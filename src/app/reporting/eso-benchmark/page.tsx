@@ -103,14 +103,15 @@ export default function EsoBucView() {
           {/* Visits has its own panel since it was rebuilt like the Figures (SARCLA 27.10.2026) - its own read, its own toggle;
               New customers too (29.10.2026) - on the customers' cube, as the Figures; Customer development, Tickets and Shop
               behaviour too (29.10.2026) - each its own read, rebuilt like Visits; Registrations too (29.10.2026); Sales activity
-              after Visits (05.11.2026), its own read */}
-          {ESO_PAGES.map((p) => (p.slug === "visits" ? <Fragment key={p.slug}><VisitsPanel acts={acts} /><SalesActivityPanel acts={acts} /></Fragment>
+              last, as in the side panel (06.11.2026), its own read */}
+          {ESO_PAGES.map((p) => (p.slug === "visits" ? <VisitsPanel key={p.slug} acts={acts} />
             : p.slug === "new-customers" ? <NewCustomersPanel key={p.slug} acts={acts} />
               : p.slug === "customers" ? <CustomerDevPanel key={p.slug} acts={acts} />
                 : p.slug === "tickets" ? <Fragment key={p.slug}><TicketsPanel acts={acts} group="incoming" /><TicketsPanel acts={acts} group="system" /></Fragment>
                   : p.slug === "shop" ? <ShopPanel key={p.slug} acts={acts} />
                     : p.slug === "registrations" ? <RegistrationsPanel key={p.slug} acts={acts} />
                     : <PagePanel key={p.slug} def={p} b={b} acts={acts} />))}
+          <SalesActivityPanel acts={acts} />
           <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
             Read from HubSpot {new Date(state?.computedAt ?? b.generatedAt).toLocaleString("en-GB")} · refreshed every 12 hours · the completed months of this year against the same months of last year · a chart joins its page&apos;s panel here with Actions on the page.
           </Typography>

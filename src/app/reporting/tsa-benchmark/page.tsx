@@ -27,13 +27,13 @@ export default function TsaBucView() {
       {/* in ESO's order (SARCLA 01.11.2026: "the order of apps on TSA is not the same as in ESO"), Calls where ESO has Visits */}
       <FiguresPanel acts={acts} home="tsa" />
       <CallsPanel acts={acts} />
-      <SalesActivityPanel acts={acts} home="tsa" />
       <RegistrationsPanel acts={acts} home="tsa" />
       <ShopPanel acts={acts} home="tsa" />
       <NewCustomersPanel acts={acts} home="tsa" />
       <CustomerDevPanel acts={acts} home="tsa" />
       <TicketsPanel acts={acts} group="incoming" home="tsa" />
       <TicketsPanel acts={acts} group="system" home="tsa" />
+      <SalesActivityPanel acts={acts} home="tsa" />
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
         Each panel opens on TSA · a graph joins its page&apos;s panel here with Actions on a TSA Reports page, BUC View switched on.
       </Typography>

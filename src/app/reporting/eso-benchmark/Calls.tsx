@@ -1170,7 +1170,7 @@ export function CallsPanel({ acts }: { acts: ActionsState | null }) {
   const shown = (id: string) => placementOf(acts, `${PANEL}${id}`, "nutshell") === "nutshell";
   const href = `/reporting/tsa-benchmark/calls?team=${team}${lead ? `&lead=${lead}` : ""}`;
   const own = (id: string, title: string, target?: { key: string; unit: "eur" | "pct" | "n"; label: string }) => (
-    <TileActions where="nutshell" start="nutshell" edge={2} tile={{ key: `${PANEL}${id}`, page: "tsa-calls", tab: "people", title: `${title} - ${c ? teamName(c) : "TSA"}`, kind: "kpi",
+    <TileActions where="nutshell" start="nutshell" edge={1.5} tile={{ key: `${PANEL}${id}`, page: "tsa-calls", tab: "people", title: `${title} - ${c ? teamName(c) : "TSA"}`, kind: "kpi",
       filters: { team: [drawn.team], ...(drawn.lead ? { lead: [drawn.lead] } : {}), period: ["ytd"] }, href, target }} />
   );
   return (
