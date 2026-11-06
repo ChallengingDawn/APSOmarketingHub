@@ -7,7 +7,8 @@
 // Reached = Diana's company flags "Sales Activity in <year> (...)", Yes or No - one per definition and year, kept in
 // HubSpot, so the page and her dashboard always give the same answer. Last year is the whole year, this year runs to
 // today. The bases are the ones discussed in the thread (all companies, ever bought, bought this year, the customer
-// categories) and Claudio's pick, Prio 1 + 2 - the size Sales can cover. The potential is today's for both years.
+// categories) and Claudio's pick, Prio 1 + 2 - the size Sales can cover; every company is the default (06.11.2026).
+// The potential is today's for both years.
 // No HubSpot here, so the page and the tests read it as it is; the read is ./salesActivityReport.ts.
 
 import { PRIOS, prioFrom, usable } from "./customerDevRules";
@@ -28,16 +29,19 @@ export const defOf = (id: string | null | undefined) => Math.max(0, DEFS.findInd
 
 /** The customer categories of the "core + growth + prospect" base. */
 export const SEGMENTS = ["APSOcore", "APSOgrowth", "APSOprospect"] as const;
-/** Which companies count, Claudio's pick first (his reply of 10.09.2026) - its name, and the words a sentence takes. */
+/** Which companies count - its name, and the words a sentence takes. Every company first, the default: every priority
+ *  stands (SARCLA 06.11.2026: "we should have all prios by default"); then Claudio's pick (his reply of 10.09.2026). */
 export const BASES = [
+  { id: "all", label: "All companies", words: "companies in HubSpot", note: "every company in HubSpot, every priority - the base of the HubSpot dashboard" },
   { id: "prio12", label: "Prio 1 + 2", words: "Prio 1 + 2 companies", note: "sales priority Prio 1 or Prio 2 - a potential of €2,500 or more, the companies Sales can cover" },
-  { id: "all", label: "All companies", words: "companies in HubSpot", note: "every company in HubSpot - the base of the HubSpot dashboard" },
   { id: "bought", label: "Ever bought", words: "companies that ever bought", note: "a first order on record, or revenue last year or this year" },
   { id: "segments", label: "APSOcore, APSOgrowth, APSOprospect", words: "APSOcore, APSOgrowth and APSOprospect companies", note: "the customer categories today - APSOprospect is a size band" },
   { id: "active", label: "Bought this year", words: "companies that bought this year", note: "revenue this year - buying brings contact, so this base flatters the share" },
 ] as const;
 export type BaseId = (typeof BASES)[number]["id"];
-export const baseOf = (id: string | null | undefined): BaseId => (BASES.find((b) => b.id === id)?.id ?? "prio12");
+/** The base a page opens on, and the one an empty address means. */
+export const DEFAULT_BASE: BaseId = "all";
+export const baseOf = (id: string | null | undefined): BaseId => (BASES.find((b) => b.id === id)?.id ?? DEFAULT_BASE);
 
 export type SalesActData = {
   generatedAt: string;

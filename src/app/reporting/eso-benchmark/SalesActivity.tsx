@@ -3,7 +3,7 @@
 // HubSpot dashboard "Sales Activities x Companies Performance" in ESO and TSA Reports, built like Customer development: the
 // companies Sales reached against those it did not, and what share of the revenue and of the potential sits in them - this
 // year so far against last year, by the company's owner as the dashboard splits it. What Alexandre asked for on 10.09.2026
-// is in it: the base is a choice (Claudio's Prio 1 + 2 first, every company in HubSpot as the dashboard has it, ever bought,
+// is in it: the base is a choice (every company in HubSpot first, the default since 06.11.2026 - Claudio's Prio 1 + 2, ever bought,
 // bought this year, the customer categories) and "Which companies count" puts them side by side; the potential stands beside
 // the revenue everywhere. Diana's four definitions are the Filters' "Sales activity", calls and visits first. The rows and
 // their rules: src/lib/reporting/salesActivityRules.ts.
@@ -49,7 +49,7 @@ import { SortableGrid, type SortItem } from "@/app/reporting/marketing-kpis/tile
 import { formatOf, placementOf, refreshActions, send, useActions, type ActionsState } from "@/app/reporting/marketing-kpis/tiles/store";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  BASES, C, DEFS, ORDER, baseForDim, baseOf, basesOf, blank, defOf, labelOf, reachedBy, rowsOf, shareOf, sharesOf, statsBy,
+  BASES, C, DEFAULT_BASE, DEFS, ORDER, baseForDim, baseOf, basesOf, blank, defOf, labelOf, reachedBy, rowsOf, shareOf, sharesOf, statsBy,
   type BaseId, type SDim, type SFilters, type SStats, type SalesActData,
 } from "@/lib/reporting/salesActivityRules";
 import { CompaniesFor, type CompanyItem, type CompanySource } from "@/app/reporting/CompanyList";
@@ -653,14 +653,14 @@ function SFilterWindow({ c, open, onClose, focus, onDef, onBase, toggle, clearAl
   return (
     <FilterPanel id="sales-activity-filters" open={open} onClose={onClose}
       subtitle={chosen.length ? `${chosen.length} chosen - click again to let one go` : "What counts as contact, which companies count - then values to show only them"}
-      onClearAll={chosen.length || c.def || c.base !== "prio12" ? clearAll : undefined}
+      onClearAll={chosen.length || c.def || c.base !== DEFAULT_BASE ? clearAll : undefined}
       chips={chosen.length ? chosen.map(([d, v]) => <Chip key={`${d}:${v}`} size="small" label={<span><b>{DIM[d].name}:</b> {v}</span>} onDelete={() => toggle(d, v)} sx={{ height: 26, fontSize: "0.76rem", bgcolor: TINT[DIM[d].tint].bg, color: INK }} />) : null}>
       {live && (
         <>
           <FilterSection id="sfilter-def" index={0} title="Sales activity" icon={<PhoneInTalkOutlinedIcon />} tint="blue" open={isOpen("def")} onFlip={() => setShut((s) => ({ ...s, def: isOpen("def") }))} summary={DEFS[c.def].label} chosen={c.def !== 0}>
             <Choice items={DEFS.map((x, i) => ({ id: i, label: x.label, note: `${cap(x.note)} in the year` }))} on={c.def} onPick={onDef} />
           </FilterSection>
-          <FilterSection id="sfilter-base" index={1} title="Which companies count" icon={<DonutLargeOutlinedIcon />} tint="blue" open={isOpen("base")} onFlip={() => setShut((s) => ({ ...s, base: isOpen("base") }))} summary={baseWord(c)} chosen={c.base !== "prio12"}>
+          <FilterSection id="sfilter-base" index={1} title="Which companies count" icon={<DonutLargeOutlinedIcon />} tint="blue" open={isOpen("base")} onFlip={() => setShut((s) => ({ ...s, base: isOpen("base") }))} summary={baseWord(c)} chosen={c.base !== DEFAULT_BASE}>
             <Choice items={BASES.map((b) => ({ id: b.id, label: b.label, note: cap(b.note) }))} on={c.base} onPick={onBase} />
           </FilterSection>
           {FILTER_DIMS.map((dim, i) => (
@@ -702,7 +702,7 @@ export function SalesActivityExplorer({ home = "eso" }: { home?: Home }) {
   const setView = (v: SView) => setQuery((q) => { if (v === "overview") q.delete("view"); else q.set("view", v); });
   const def = defOf(params.get("def")), base = baseOf(params.get("base"));
   const setDef = (i: number) => setQuery((q) => { if (i === 0) q.delete("def"); else q.set("def", DEFS[i].id); });
-  const setBase = (b: BaseId) => setQuery((q) => { if (b === "prio12") q.delete("base"); else q.set("base", b); });
+  const setBase = (b: BaseId) => setQuery((q) => { if (b === DEFAULT_BASE) q.delete("base"); else q.set("base", b); });
   const filters: SFilters = useMemo(() => Object.fromEntries(FILTER_DIMS.flatMap((k) => (params.getAll(k).length ? [[k, params.getAll(k)]] : []))), [params]);
   const toggle = (k: SDim, label: string) => setQuery((q) => { const cur = q.getAll(k), next = cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label]; q.delete(k); for (const x of next) q.append(k, x); });
   const clearAll = () => setQuery((q) => { for (const k of FILTER_DIMS) q.delete(k); q.delete("def"); q.delete("base"); });
@@ -739,7 +739,7 @@ export function SalesActivityExplorer({ home = "eso" }: { home?: Home }) {
   );
   const now = { team, lead, teams };
   const chosen = FILTER_DIMS.flatMap((k) => (filters[k] ?? []).map((v) => [k, v] as const));
-  const steering = chosen.length + (def ? 1 : 0) + (base !== "prio12" ? 1 : 0);
+  const steering = chosen.length + (def ? 1 : 0) + (base !== DEFAULT_BASE ? 1 : 0);
   return (
     <Box sx={shell}>
       {back}
@@ -772,7 +772,7 @@ export function SalesActivityExplorer({ home = "eso" }: { home?: Home }) {
       </Box>
       <ActiveFilters onEdit={() => setPanel(true)} onClearAll={clearAll} items={[
         ...(def ? [{ key: "def", name: "Sales activity", value: DEFS[def].label, tint: "blue" as Tint, onRemove: () => setDef(0) }] : []),
-        ...(base !== "prio12" ? [{ key: "base", name: "Which companies count", value: baseWord(c, base), tint: "blue" as Tint, onRemove: () => setBase("prio12") }] : []),
+        ...(base !== DEFAULT_BASE ? [{ key: "base", name: "Which companies count", value: baseWord(c, base), tint: "blue" as Tint, onRemove: () => setBase(DEFAULT_BASE) }] : []),
         ...chosen.map(([k, v]): ActiveItem => ({ key: `${k}:${v}`, name: DIM[k].name, value: v, tint: DIM[k].tint, onRemove: () => toggle(k, v) })),
       ]} />
       <Box sx={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s ease", minWidth: 0 }} aria-busy={stale}>
@@ -787,7 +787,7 @@ export function SalesActivityExplorer({ home = "eso" }: { home?: Home }) {
 
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
 
-/** Sales activity in the BUC View: the four figures for the team the toggle shows (Prio 1 + 2, calls and visits), and the
+/** Sales activity in the BUC View: the four figures for the team the toggle shows (every company, calls and visits), and the
  *  charts sent here from the page with Actions - each with the activity, base and filters it was sent with. */
 export function SalesActivityPanel({ acts, home = "eso" }: { acts: ActionsState | null; home?: Home }) {
   // ESO's BUC View or TSA's: the page's charts are keyed by the reports they were sent from
@@ -804,7 +804,7 @@ export function SalesActivityPanel({ acts, home = "eso" }: { acts: ActionsState 
   const want = useMemo(() => ({ team, lead }), [team, lead]);
   const drawn = useDeferredValue(want);
   const stale = drawn !== want;
-  const c = useMemo<SCtx | null>(() => (d ? { d, def: 0, base: "prio12", team: drawn.team, lead: drawn.lead, teams, people: peopleOf(d, drawn.team, drawn.lead, lt?.byName ?? {}), filters: {}, view: "overview" } : null),
+  const c = useMemo<SCtx | null>(() => (d ? { d, def: 0, base: DEFAULT_BASE, team: drawn.team, lead: drawn.lead, teams, people: peopleOf(d, drawn.team, drawn.lead, lt?.byName ?? {}), filters: {}, view: "overview" } : null),
     [d, drawn, teams, lt]);
   const items: SortItem[] = useMemo(() => !c ? [] : (acts?.placements ?? []).filter((x) => x.placement === "nutshell" && x.spec.page === PAGE && !x.spec.key.startsWith(PANEL)).map(({ spec }) => {
     const ch = chartOf(spec.key);
@@ -833,7 +833,7 @@ export function SalesActivityPanel({ acts, home = "eso" }: { acts: ActionsState 
             <Typography sx={{ fontSize: "1.12rem", fontWeight: 650, letterSpacing: "-0.02em" }}>Sales activity</Typography>
             <ChevronRightIcon className="chev" sx={{ fontSize: 22, color: TINT.blue.fg, transition: "transform .15s ease" }} />
           </Box>
-          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{c ? `${teamName({ team, lead, teams })} · Prio 1 + 2 companies · calls and visits · ${yearsWords(c.d)}` : "Prio 1 + 2 companies · calls and visits"}</Typography>
+          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{c ? `${teamName({ team, lead, teams })} · ${baseWords(c)} · calls and visits · ${yearsWords(c.d)}` : `${BASES.find((b) => b.id === DEFAULT_BASE)!.words} · calls and visits`}</Typography>
         </Box>
         <Teams team={team} onTeam={choose} lead={leadKey} onLead={chooseLead} teams={teams} />
       </Box>

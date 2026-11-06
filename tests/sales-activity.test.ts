@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  C, DEFS, baseForDim, basesOf, baseOf, defOf, flagName, inBase, labelOf, potentialOf, prioLabel, reachedBits, reachedBy, rowsOf, sharesOf, statsBy,
+  BASES, C, DEFAULT_BASE, DEFS, baseForDim, basesOf, baseOf, defOf, flagName, inBase, labelOf, potentialOf, prioLabel, reachedBits, reachedBy, rowsOf, sharesOf, statsBy,
   type SalesActData,
 } from "../src/lib/reporting/salesActivityRules";
 
@@ -44,10 +44,13 @@ test("a company's flags read as bits - only Yes counts", () => {
   assert.ok(!reachedBy(row, 0, "py"));
 });
 
-test("the bases: Prio 1 + 2 (Claudio's pick and the default), all, ever bought, the categories, bought this year", () => {
+test("the bases: all (the default - every priority, SARCLA 06.11.2026), Prio 1 + 2 (Claudio's pick), ever bought, the categories, bought this year", () => {
   const d = data();
   const ids = (b: Parameters<typeof inBase>[2]) => d.companies.flatMap((r, i) => (inBase(d, r, b) ? [d.ids[i]] : []));
-  assert.equal(baseOf(null), "prio12");
+  assert.equal(DEFAULT_BASE, "all");
+  assert.equal(baseOf(null), "all");
+  assert.equal(baseOf("prio12"), "prio12");
+  assert.equal(BASES[0].id, DEFAULT_BASE);
   assert.equal(baseOf("all"), "all");
   assert.deepEqual(ids("prio12"), ["1", "2"]);
   assert.deepEqual(ids("all"), ["1", "2", "3", "4"]);
