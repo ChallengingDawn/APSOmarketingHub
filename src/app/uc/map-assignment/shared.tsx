@@ -166,7 +166,12 @@ export function ruleOwners(rule: CountryRule | undefined, globalDefault: OwnerId
    rings (white middle), never a made-up hue. TSA Team - the team that gets whatever no rule places, in every country -
    is grey; a person who has left keeps the colour with a red edge, and the legend stripes them. */
 
-export const HUES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"] as const;
+// 16 hues (07.11.2026, Europe's map: "one colour per person overall") - the first 8 as before, so the people who had
+// them keep them; then 8 more, each far from the others
+export const HUES = [
+  "#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948",
+  "#0e9aa7", "#9a6233", "#a6a41a", "#1f3d8a", "#c2189b", "#4fb3ea", "#7b2d8e", "#5c6b2e",
+] as const;
 const SLOTS = HUES.length * 2;
 export const GREY = "#8d97a6";
 export const NOBODY = "#c9ced6";
@@ -178,10 +183,13 @@ export type Palette = (owner: OwnerId | null | undefined) => Paint;
 const hash = (s: string) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; };
 
 /**
- * Colours as on a political map: two people who meet in any country never share a colour (up to 16 neighbours).
- * The people the rules name (they own dots on the map) choose first, then the others the scan gives companies to, and
- * within each in the order of the biggest country they appear in, then by id - so the big countries get the plain
- * hues. All of that is fixed while editing (nobody changes colour while you type); whoever the edits add comes last.
+ * One colour per person, everywhere (SARCLA 07.11.2026 on Europe's map: "two ESO have the same colour even not in the
+ * same country - here it is confusing, one colour per person overall"): each person a colour of their own - 16 hues,
+ * plain then striped, 32 in all; only past 32 people does a colour come back, and then never to two people who meet in
+ * a country (the political-map rule of before). The people the rules name (they own dots on the map) choose first, then
+ * the others the scan gives companies to, and within each in the order of the biggest country they appear in, then by
+ * id - so the big countries get the plain hues. All of that is fixed while editing (nobody changes colour while you
+ * type); whoever the edits add comes last.
  */
 export function buildPalette(d: MapData, draft: AssignRules, names: Names): Palette {
   const order = countryList(d, draft).map((c) => c.cc);
@@ -203,9 +211,16 @@ export function buildPalette(d: MapData, draft: AssignRules, names: Names): Pale
     return [...first].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0])).map(([o]) => o);
   };
   const slot = new Map<string, number>();
+  const taken = new Set<number>();
   const colour = (people: string[]) => {
     for (const o of people) {
       if (slot.has(o)) continue;
+      if (taken.size < SLOTS) {
+        let s = 0;
+        while (taken.has(s)) s++;
+        slot.set(o, s); taken.add(s);
+        continue;
+      }
       const used = new Set<number>();
       for (const m of members.values()) if (m.has(o)) for (const p of m) { const s = slot.get(p); if (s !== undefined) used.add(s); }
       let s = 0;
@@ -213,10 +228,13 @@ export function buildPalette(d: MapData, draft: AssignRules, names: Names): Pale
       slot.set(o, s < SLOTS ? s : hash(o) % SLOTS);
     }
   };
-  const tierA = join(ruled), tierB = join(scanned);
-  colour(tierA);
-  colour(tierB);
-  colour(join(edited));
+  const tierA = join(ruled), tierB = join(scanned), tierC = join(edited);
+  // the people still here first - the plain hues go to them, not to someone who has left and holds nothing now
+  const here = (o: string) => names.active(o);
+  colour(tierA.filter(here));
+  colour(tierB.filter(here));
+  colour(tierC.filter(here));
+  colour([...tierA, ...tierB, ...tierC]);
   return (owner) => {
     if (!owner) return { color: NOBODY, ring: false, grey: false, left: false, none: true };
     const o = String(owner);

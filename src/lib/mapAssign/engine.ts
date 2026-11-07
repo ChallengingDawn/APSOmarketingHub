@@ -86,6 +86,9 @@ const KV = {
 };
 
 /** A full read whose facts are older than this (a new column) makes the next run a full one: every row filled. */
+/** the map files and country names in this code (07.11.2026, 2: 15 more countries) - a change decides every stored
+ *  company again once, from the facts already read (redecideAll: country, region, owner) - no new read of HubSpot */
+const MAP_FILES = 2;
 const SCAN_VERSION = 4; // 3 (24.10.2026): apso_customer; 4 (06.11.2026): yearly_customer_potential
 
 /** The calendar year in Zurich - the year of "revenue this year", "customer this year". */
@@ -1129,7 +1132,8 @@ async function run(want: "full" | "changes" | undefined, signal: AbortSignal | u
   // the rules the table was decided with - a new seed in the code while nobody saved rules, an answer to a conflict:
   // decide every stored company again before anything is read or written (20.10.2026: France stayed "postcodes only"
   // in Differences all afternoon after its seed changed)
-  const sig = createHash("sha256").update(JSON.stringify([ctx.rules, [...ctx.redir.held].sort()]), "utf8").digest("hex");
+  // MAP_FILES: the postcode files and the country names ship with the hub - a new set places companies again too
+  const sig = createHash("sha256").update(JSON.stringify([ctx.rules, [...ctx.redir.held].sort(), MAP_FILES]), "utf8").digest("hex");
   if (String((await kvGet<string>(KV.decidedWith)) ?? "") !== sig) {
     const n = await redecideAll();
     await kvSet(KV.decidedWith, sig);

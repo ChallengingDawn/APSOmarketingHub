@@ -75,3 +75,21 @@ test("postcodes: Portugal's 7 digits and the UK's outward code", () => {
   assert.equal(cleanZip("1234 AB"), "1234AB");
   assert.equal(cleanZip("75001"), "75001");
 });
+
+test("map assignment rules: the 15 countries added to Europe's map are known by name (07.11.2026)", () => {
+  const c = (country: string) => countryOf({ id: "1", country });
+  assert.equal(c("Bosnia and Herzegovina"), "BA");
+  assert.equal(c("Bosnien und Herzegowina"), "BA");
+  assert.equal(c("Bosnie-Herzégovine"), "BA");
+  assert.equal(c("Kroatien"), "HR");
+  assert.equal(c("Serbia"), "RS");
+  assert.equal(c("North Macedonia"), "MK");
+  assert.equal(c("Montenegro"), "ME");
+  assert.equal(c("Kosovo"), "XK");
+  assert.equal(c("Grèce"), "GR");
+  assert.equal(c("Norwegen"), "NO");
+  assert.equal(c("Suomi"), "FI");
+  assert.equal(c("Albania"), "AL");
+  assert.equal(c("Rumänien"), "RO");
+  assert.equal(c("XK"), "XK");
+});

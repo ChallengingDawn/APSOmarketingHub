@@ -134,6 +134,16 @@ const COUNTRY_NAMES: Record<string, string> = {
   belgium: "BE", "belgique": "BE", belgie: "BE", spain: "ES", "espana": "ES", "czech republic": "CZ", czechia: "CZ", "united kingdom": "GB",
   liechtenstein: "LI", luxembourg: "LU", denmark: "DK", sweden: "SE", norway: "NO", finland: "FI", portugal: "PT", hungary: "HU",
   slovakia: "SK", slovenia: "SI", croatia: "HR", romania: "RO", bulgaria: "BG", greece: "GR", ireland: "IE", turkey: "TR",
+  // 07.11.2026 - the 15 maps added to Europe's: the Balkans in English, German and French (names without accents: countryOf
+  // looks them up that way)
+  serbia: "RS", "republic of serbia": "RS", srbija: "RS", serbien: "RS", serbie: "RS",
+  "bosnia and herzegovina": "BA", "bosnia & herzegovina": "BA", "bosnia-herzegovina": "BA", bosnia: "BA", "bosna i hercegovina": "BA",
+  "bosnien und herzegowina": "BA", "bosnie-herzegovine": "BA",
+  montenegro: "ME", "crna gora": "ME", kosovo: "XK", "north macedonia": "MK", macedonia: "MK", "republic of north macedonia": "MK",
+  nordmazedonien: "MK", "macedoine du nord": "MK", albania: "AL", shqiperia: "AL", albanien: "AL", albanie: "AL",
+  hrvatska: "HR", kroatien: "HR", croatie: "HR", slovenija: "SI", slowenien: "SI", slovenie: "SI", "slovak republic": "SK", slowakei: "SK",
+  slovaquie: "SK", magyarorszag: "HU", ungarn: "HU", hongrie: "HU", rumanien: "RO", roumanie: "RO", bulgarien: "BG", bulgarie: "BG",
+  griechenland: "GR", grece: "GR", hellas: "GR", norwegen: "NO", norvege: "NO", norge: "NO", finnland: "FI", finlande: "FI", suomi: "FI",
 };
 /** country_custom first, country as fallback (SARCLA 13.10: the custom field is right where they disagree). */
 export function countryOf(c: CompanyFacts): string | null {

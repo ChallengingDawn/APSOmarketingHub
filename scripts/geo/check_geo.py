@@ -90,7 +90,9 @@ for e in index:
     km2 = shp.get("km2")
     if km2 and abs(psum - km2) / km2 > 0.01:
         bad(f"postcodes' km2 {psum:.0f} vs outline {km2}")
-    if far > max(5, 0.01 * len(rows)):
+    # islands Natural Earth 10m does not draw (07.11.2026): Rost, Myken, Utsira (NO), Susak, Palagruza, Silba (HR) - their
+    # postcodes take the nearest region, which is their own; measured: NO 86 points up to 0.73 deg off, HR 7 up to 0.09
+    if far > max(5, 0.01 * len(rows), {"NO": 100, "HR": 10}.get(cc, 0)):
         bad(f"{far} points far from their own region")
     print(f"{cc:2} points {len(rows):6} regions {len(codes):3} | points in outline {inside}/{len(rows)}, far from own region {far} "
           f"| km2 postcodes {psum:9.0f} outline {km2} regions {rsum} | insets {[i['name'] for i in shp.get('insets') or []]}")

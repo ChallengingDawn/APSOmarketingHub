@@ -13,6 +13,13 @@ NOTES = {
     "ES": "Canary Islands (ES-GC, ES-TF, postcodes 35/38) drawn as an inset below the Gulf of Cadiz: moved +8.9 lon / +5.9 lat; km2 as on the real map",
     "PT": "Postcodes = CP4 (the 4 digits of 1000-001). Insets: Madeira (PT-30) moved +5.8 lon / +5.0 lat, Azores (PT-20) at half size around (-31.3, 39.73) then moved +18.2 / +1.27; km2 as on the real map",
     "GB": "Postcodes = outward codes (SW1A, B1, BT7). Regions = the 12 ITL1 regions (GB-TLC North East .. GB-TLN Northern Ireland; ex NUTS 1 UKC..UKN), group = the nation",
+    # 07.11.2026 (build_more.py)
+    "RO": "One postcode per spot: GeoNames has ~38,000 street-level codes, most of a town's on one spot - a company's code finds its town's through the nearest one",
+    "NO": "Without Svalbard and Jan Mayen",
+    "GR": "No open postcode list: one point per 2-digit postal area (10xxx .. 85xxx) on its main town - companies land in the right part of the country, not on their spot",
+    "BA": "No open postcode list: one point per 2-digit postal area (70xxx .. 89xxx) on its main town",
+    "ME": "No open postcode list: one point per postal area - 81xxx Central, 84xxx Northern, 85xxx Coastal region",
+    "XK": "No open postcode list: one point per postal area, 10xxx-19xxx Pristina .. 70xxx-79xxx Ferizaj (the 7 districts)",
 }
 have = {f[:2] for f in os.listdir(os.path.join(GEO, "postcodes")) if f.endswith(".json")} & {f[:2] for f in os.listdir(os.path.join(GEO, "shapes")) if f.endswith(".json")}
 index = []
