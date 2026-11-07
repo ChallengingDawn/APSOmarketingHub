@@ -8,16 +8,18 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import { FAINT, HAIRLINE, MUTED, RED } from "@/app/uc/report/ui";
 
-export function PeoplePicker({ label, ids, choices, names, single, onSave, disabled, allowEmpty }: {
+export function PeoplePicker({ label, ids, choices, names, single, onSave, disabled, allowEmpty, emptyText }: {
   label: string; ids: string[]; choices: { id: string; name: string }[]; names: Record<string, string>; single?: boolean;
   onSave: (ids: string[]) => void; disabled: boolean; allowEmpty?: boolean;
+  /** what an empty list means (default: "nobody - not sent", in red) */
+  emptyText?: string;
 }) {
   const [add, setAdd] = useState("");
   return (
     <Box>
       <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.5 }}>{label}</Typography>
       <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-        {!ids.length && allowEmpty && <Typography sx={{ fontSize: "0.8rem", color: RED }}>nobody - not sent</Typography>}
+        {!ids.length && allowEmpty && <Typography sx={{ fontSize: "0.8rem", color: emptyText ? MUTED : RED }}>{emptyText ?? "nobody - not sent"}</Typography>}
         {ids.map((id, i) => (
           <Box key={id} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, px: 1, py: 0.25, borderRadius: "999px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.8)", fontSize: "0.8rem" }}>
             {single ? "" : `${i + 1}. `}{names[id] ?? `Owner ${id}`}

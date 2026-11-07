@@ -417,6 +417,14 @@ async function askShop(inc: string, cond: Cond, value: string, codes: Record<str
   }
 }
 
+/** One web order's A-number, asked of the shop the way magento_link asks (Certificates > From the shop: an order the
+ *  shop had already sent to the ERP never gets a web order in HubSpot, so nothing else carries its number). */
+export async function erpNumberFromShop(inc: string): Promise<{ number: string | null; state: "found" | "not_transferred" | "no_answer" | "unreadable" }> {
+  const codes: Record<string, number> = {};
+  const f = await findErpNumber((cond, value) => askShop(inc, cond, value, codes), yearsToTry(new Date()));
+  return { number: f.number, state: f.state };
+}
+
 async function chainRunning(): Promise<boolean> {
   try {
     const c = await hubChain();

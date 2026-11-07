@@ -41,11 +41,14 @@
 // Office's reminders (the expert's own "today"/"late" steps put the ticket back in Remind, and that workflow ran its
 // Back Office chain on it again, writing over the expert's subjects); the last mails said "96 hours ago".
 
-export const WORKFLOW_ID = "2959551709";
-/** "Back Office Ticket Remind | Notification" - its certificates branch is the hub's once it no longer takes certificate tickets */
-export const REMIND_WORKFLOW_ID = "2322872555";
-/** 04.11.2026 23:13:33 Swiss time - the workflow's last change, switched off */
+/** 04.11.2026 23:13:33 Swiss time - from this moment the process is the hub's (HubSpot's 2959551709 switched off) */
 export const WORKFLOW_OFF_AT = Date.parse("2026-11-04T22:13:33Z");
+// Only the hub from here on (SARCLA 07.11.2026: "take out all reference to workflow - I want to do it only via the
+// hub"): the moments each part became the hub's are fixed, no workflow is read any more.
+/** 05.11.2026 06:28:11 Swiss - the Back Office's certificate reminders (Remind's certificates branch, revision 76) */
+export const REMIND_OFF_AT = Date.parse("2026-11-05T05:28:11Z");
+/** 05.11.2026 07:15:07 Swiss - the reminder on every other ticket in Remind (Remind switched off, revision 77) */
+export const OTHERS_OFF_AT = Date.parse("2026-11-05T06:15:07.500Z");
 export const BO_PIPELINE = "1726786777";
 export const STAGE = { new: "2338266325", remind: "2338266327", certificates: "3640065212", resolved: "2338266328" } as const;
 export const ACT = {
@@ -211,7 +214,7 @@ export const STEP_WORDS: Record<StepName, string> = {
   lateRose: "15 days more - owner Rose Rasteiro, note: handle it manually",
   close: "Sent out to customer and EDA - plain subject, Resolved",
   "merge-clear": "Merged - Actions for certificates emptied",
-  wayin: "Way in: requester = the owner who created it (in place of Back Office Ticket Created)",
+  wayin: "Way in: requester = the owner who created it",
 };
 
 /** The steps the console switches on and off by group (SARCLA 06.11.2026: "develop more the console KPI and steering").
@@ -415,4 +418,13 @@ export function merge(
     }
   }
   return { props, note, mail: mailed };
+}
+
+// ---------------- the reminder on every other ticket in Remind ----------------
+/** Who gets "⚠️REMINDER: Back Office Ticket" of one ticket (SARCLA 07.11.2026: "only mails directly to people - the
+ *  reminder however should work"): its owner when that is a person, and the people picked as well; an owner who is not a
+ *  person (the Backoffice Team, a queue) or none: the people picked, else the Back Office rotation. Once per address. */
+export function reminderTo<R extends { email: string }>(owner: R | null, picked: R[], rotation: R[]): R[] {
+  const out = owner ? [owner, ...picked] : picked.length ? picked : rotation;
+  return out.filter((r, i) => out.findIndex((x) => x.email.toLowerCase() === r.email.toLowerCase()) === i);
 }

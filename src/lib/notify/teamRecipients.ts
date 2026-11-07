@@ -1,6 +1,6 @@
-// WHO GETS THE BACK OFFICE TEAM'S MAILS - the way in's "❗Back Office Ticket Created" (boDistribution/intakeRun) and the
-// Backoffice Team's "⚠️REMINDER: Back Office Ticket" (certificates/engine), picked on Certificates > Console (kv
-// certificates:settings, teamTo). Nobody picked = not sent.
+// WHO GETS THE BACK OFFICE'S MAILS - the way in's "❗Back Office Ticket Created" (boDistribution/intakeRun, its people
+// picked on Back Office distribution > Way in) and "⚠️REMINDER: Back Office Ticket" (certificates/engine: the ticket's
+// owner, and the people picked on Certificates > Settings - kv certificates:settings, teamTo). Each to their own address.
 //
 // Never an inbox (SARCLA 05.11.2026, after the hub mailed the Backoffice Team's address, a HubSpot inbox, and every mail
 // came back as a new ticket - 120 in 44 minutes): the queue users' addresses (Backoffice Team, TSA Team) and the hub's
@@ -36,7 +36,7 @@ export async function isInbox(email: string): Promise<boolean> {
   return (await inboxes()).has(email.trim().toLowerCase());
 }
 
-/** The people picked (the way in's own list, else Certificates > Console's), with an address that is not an inbox. */
+/** The people given (else Certificates > Settings' list), with an address that is not an inbox. */
 export async function teamRecipients(picked?: string[]): Promise<Recipient[]> {
   const s = picked ? null : await kvGet<{ teamTo?: string[] }>("certificates:settings");
   const ids = (picked ?? s?.teamTo ?? []).filter((id) => !INBOX_OWNERS.has(id));

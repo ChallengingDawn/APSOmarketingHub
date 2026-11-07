@@ -15,7 +15,7 @@ import type { Facts } from "./rules";
 
 type Obj = { id: string; properties: Record<string, string | null>; propertiesWithHistory?: Record<string, { value: string; timestamp: string }[]> };
 const hs = <T>(path: string, method: "GET" | "POST" | "PATCH" = "GET", body?: unknown) => hubspotRetry<T>({ path, method, body });
-const KV = { requests: "certificates:erpRequests", dates: "certificates:erpDates", dateRows: "certificates:dateRows" };
+const KV = { requests: "certificates:erpRequests", readAt: "certificates:erpRequestsAt", dates: "certificates:erpDates", dateRows: "certificates:dateRows" };
 
 // ---------------- the ERP's requests ----------------
 export type ErpRequests = Record<string, { reqs: ErpRequest[]; seen: string }>;
@@ -44,9 +44,13 @@ export async function saveErpRequests(found: Map<string, ErpRequest[]>): Promise
   const keep = Date.now() - 200 * 86400_000;
   for (const [a, v] of Object.entries(cur)) if (!(Date.parse(v.seen) >= keep)) delete cur[a];
   await kvSet(KV.requests, cur);
+  await kvSet(KV.readAt, { at: now, found: found.size } satisfies ErpRead);
   return found.size;
 }
 export const erpRequests = async (): Promise<ErpRequests> => (await kvGet<ErpRequests>(KV.requests)) ?? {};
+/** When the ERP's order file was last read for the requests, and how many orders asked for one in it. */
+export type ErpRead = { at: string; found: number };
+export const erpReadAt = async (): Promise<ErpRead | null> => (await kvGet<ErpRead>(KV.readAt)) ?? null;
 
 // ---------------- the ERP's records of an order ----------------
 const LINE_PROPS = Array.from({ length: 30 }, (_, i) => `order_line_${String(i + 1).padStart(2, "0")}_article`);
@@ -76,7 +80,7 @@ export async function deliveriesOf(bases: string[]): Promise<Map<string, Deliver
           num: String(p.order_order_number).trim(), ship: day(p.order_shipment_date), status: p.order_order_status || null,
           history: [...new Set(hist.map((h) => day(h.value)).filter((x): x is string => !!x))],
           lines: LINE_PROPS.map((k) => (p[k] ?? "").trim()).filter(Boolean),
-          changedAt: stamps.length ? Math.max(...stamps) : null,
+          changedAt: stamps.length ? Math.max(...stamps) : null, id: String(o.id),
         });
       }
     }

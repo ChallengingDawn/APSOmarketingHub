@@ -1,9 +1,10 @@
 "use client";
 
-// CERTIFICATES - the console (SARCLA 05.11.2026: "improve a lot the hub's tabs and steering console"; picked: the
-// workflows board, the mail switches, holding a ticket, the timings). One place to steer what the hub does in place of
-// the three HubSpot workflows it took over: who does each one now and what it did today; Off / Preview / Live; which
-// mails go out; the times and waits; who gets the requests; the tickets on hold; the rules as they run.
+// CERTIFICATES - the Console and the Settings tabs (SARCLA 05.11.2026: "improve a lot the hub's tabs and steering
+// console"; 07.11.2026: "split the console in 2 tabs, there is too much in only one tab"; "I want to do it only via the
+// hub"). Console = what the hub runs and did today, Off / Preview / Live, who has what, the tickets on hold. Settings =
+// which mails go out and to whom, the ERP's dates, the tickets from the shop, the step switches, the times and waits,
+// who gets the requests, the rules as they run.
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
@@ -153,11 +154,11 @@ function StepsCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
   );
 }
 
-// ---------------- the workflows board ----------------
+// ---------------- what the hub runs ----------------
 function Board({ rows }: { rows: BoardRow[] }) {
   return (
     <GlassCard>
-      <CardTitle icon={<HubOutlinedIcon />} tint="green" title="The workflows the hub runs" note="Each HubSpot workflow the hub took over: is it off in HubSpot, who does the work now, and today's figures" />
+      <CardTitle icon={<HubOutlinedIcon />} tint="green" title="What the hub runs" note="Each part of the process: does the hub write it, and today's figures" />
       <Box sx={{ display: "grid", gap: 1 }}>
         {rows.map((w) => {
           const hub = w.by === "hub";
@@ -168,14 +169,11 @@ function Board({ rows }: { rows: BoardRow[] }) {
                 <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{w.what}</Typography>
               </Box>
               <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
-                <Chip tint={w.hubspotOn === false ? "slate" : w.hubspotOn ? "pink" : "amber"}>{w.hubspotOn === false ? "Off in HubSpot" : w.hubspotOn ? "ON in HubSpot" : "HubSpot unreadable"}</Chip>
-                <Chip tint={hub ? "green" : w.by === "off" || w.by === "unknown" ? "pink" : "amber"}>{hub ? "Run by the hub" : w.by === "hubspot" ? "Run by HubSpot" : w.by === "preview" ? "Hub in Preview - lists only" : w.by === "off" ? "Nobody runs it - the hub is Off" : "Unknown"}</Chip>
+                <Chip tint={hub ? "green" : w.by === "off" ? "pink" : "amber"}>{hub ? "Live - the hub writes it" : w.by === "preview" ? "Preview - lists only" : "Off - nobody runs it"}</Chip>
               </Box>
               <Typography sx={{ fontSize: "0.78rem", color: INK }}>
                 Today: {full(w.today.written)} written · {full(w.today.mailed)} mails{w.today.failed ? <span style={{ color: RED }}> · {full(w.today.failed)} failed</span> : null}
-                <span style={{ display: "block", color: FAINT, fontSize: "0.72rem" }}>
-                  {w.since && w.hubspotOn === false ? `hub's since ${when(w.since)}` : ""}{w.last ? ` · last look ${when(w.last)}` : ""}
-                </span>
+                {w.last && <span style={{ display: "block", color: FAINT, fontSize: "0.72rem" }}>last look {when(w.last)}</span>}
                 {w.error && <span style={{ display: "block", color: RED, fontSize: "0.72rem" }}>{w.error}</span>}
               </Typography>
               <Button size="small" variant="text" href={w.where.startsWith("#") ? `/uc/certificates${w.where}` : w.where}>Open</Button>
@@ -183,9 +181,6 @@ function Board({ rows }: { rows: BoardRow[] }) {
           );
         })}
       </Box>
-      <Typography sx={{ mt: 1, fontSize: "0.74rem", color: FAINT }}>
-        A workflow switched back on in HubSpot is the roll-back: the hub sees it within 2 minutes and stops writing what it did.
-      </Typography>
     </GlassCard>
   );
 }
@@ -213,8 +208,8 @@ function RunCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
             { key: "off", label: "Off" }, { key: "preview", label: "Preview - writes nothing" }, { key: "live", label: "Live - writes to HubSpot" },
           ]} />
         ) : <Chip tint={d.settings.mode === "live" ? "green" : "slate"}>{d.settings.mode}</Chip>}
-        <Typography sx={{ fontSize: "0.82rem", color: d.workflowOn === true ? RED : MUTED }}>
-          {d.settings.mode === "off" ? "Off - the hub does not look." : d.settings.mode === "preview" ? "Preview - the hub works out each request's steps and lists them; it writes nothing." : d.writing ? "Live - the hub takes each step when it falls due." : "Live, but not writing: the workflow SARCLA | CERTIFICATES NEW PROCESS is on again."}
+        <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>
+          {d.settings.mode === "off" ? "Off - the hub does not look." : d.settings.mode === "preview" ? "Preview - the hub works out each request's steps and lists them; it writes nothing." : "Live - the hub takes each step when it falls due."}
           {l ? ` Last look ${when(l.at)}, ${l.seconds} s: ${full(l.tickets)} open, ${full(l.written)} written, ${full(l.mailed ?? 0)} mails${l.failed ? `, ${full(l.failed)} failed` : ""}${l.error ? ` - ${l.error}` : ""}.` : " Not looked yet."}
         </Typography>
         {d.admin && (
@@ -232,7 +227,7 @@ function RunCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
 // ---------------- the mails ----------------
 const MAILS: { key: keyof Mails; label: string; text: string }[] = [
   { key: "owner", label: "Reminders to the ticket's owner", text: "Certificates: 3 days before delivery, due today, 48 h, 96 h, more than a week - and the hand-over person's mail after the 15 days." },
-  { key: "team", label: "Reminder to the Backoffice Team", text: "Every other Back Office ticket that goes to stage Remind Back Office: \"⚠️REMINDER: Back Office Ticket\" - to the people picked below." },
+  { key: "team", label: "Reminder on every other ticket in Remind", text: "Every other Back Office ticket that goes to stage Remind Back Office: \"⚠️REMINDER: Back Office Ticket\" to its owner, straight to the person." },
 ];
 /** Queue users: their address is a HubSpot inbox - never a recipient (05.11.2026: 120 tickets in 44 minutes) */
 const INBOX_OWNERS = ["76164822", "1202569408"];
@@ -273,10 +268,10 @@ function MailsCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
         ))}
       </Box>
       <Box sx={{ mt: 1.25, p: 1, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, display: "grid", gap: 0.5 }}>
-        <PeoplePicker label={"Who gets the Backoffice Team's reminder - one mail to all of them"}
-          ids={d.settings.teamTo} allowEmpty choices={d.choices.filter((c) => !INBOX_OWNERS.includes(c.id))} names={d.names} disabled={!d.admin || !!busy} onSave={(ids) => void saveTo(ids)} />
+        <PeoplePicker label={"The reminder also goes to - one mail to the owner and them"}
+          ids={d.settings.teamTo} allowEmpty emptyText="nobody else - the owner only" choices={d.choices.filter((c) => !INBOX_OWNERS.includes(c.id))} names={d.names} disabled={!d.admin || !!busy} onSave={(ids) => void saveTo(ids)} />
         <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>
-          Never the Backoffice Team or TSA Team themselves: their address is a HubSpot inbox, and a mail there comes back as a new ticket (05.11.2026: 120 tickets in 44 minutes). Nobody picked = not sent.
+          The ticket&apos;s owner always gets it, at their own address. A ticket whose owner is not a person (the Backoffice Team, a queue): the people picked here, else the Back Office rotation{d.settings.people.backOffice.length ? ` (${d.settings.people.backOffice.map((id) => d.names[id] ?? id).join(", ")})` : ""}. Never the Backoffice Team or TSA Team themselves: their address is a HubSpot inbox, and a mail there comes back as a new ticket.
         </Typography>
       </Box>
       <Typography sx={{ mt: 1, fontSize: "0.76rem", color: MUTED }}>
@@ -315,7 +310,7 @@ function TimingCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
   };
   return (
     <GlassCard>
-      <CardTitle icon={<ScheduleOutlinedIcon />} tint="amber" title="The times and waits" note={isDefault ? "The workflows' own times - Swiss time" : "Changed from the workflows' times - Swiss time"} />
+      <CardTitle icon={<ScheduleOutlinedIcon />} tint="amber" title="The times and waits" note={isDefault ? "The default times - Swiss time" : "Changed from the default times - Swiss time"} />
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" }, gap: 1.5 }}>
         {GROUPS.map((g) => (
           <Box key={g.title} sx={{ p: 1.25, borderRadius: "12px", border: `1px solid ${HAIRLINE}`, display: "grid", gap: 1 }}>
@@ -325,7 +320,7 @@ function TimingCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
                 <TextField key={f.key} size="small" type="number" label={f.label} value={t[f.key]} disabled={!d.admin || busy}
                   onChange={(e) => setT((x) => ({ ...x, [f.key]: Number(e.target.value) }))}
                   inputProps={{ min: TIMING_BOUNDS[f.key][0], max: TIMING_BOUNDS[f.key][1], step: 1 }}
-                  helperText={`${f.unit}, ${TIMING_BOUNDS[f.key][0]}-${TIMING_BOUNDS[f.key][1]}${t[f.key] !== DEFAULT_TIMING[f.key] ? ` (workflow: ${DEFAULT_TIMING[f.key]})` : ""}`}
+                  helperText={`${f.unit}, ${TIMING_BOUNDS[f.key][0]}-${TIMING_BOUNDS[f.key][1]}${t[f.key] !== DEFAULT_TIMING[f.key] ? ` (default: ${DEFAULT_TIMING[f.key]})` : ""}`}
                   sx={{ width: 170 }} />
               ))}
             </Box>
@@ -339,8 +334,8 @@ function TimingCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
         <Box sx={{ mt: 1.5, display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
           <Button size="small" variant="contained" disableElevation disabled={!changed || busy} onClick={() => void save({ timing: t })}>Save the times</Button>
           {changed && <Button size="small" variant="text" disabled={busy} onClick={() => setT(d.settings.timing)}>Undo</Button>}
-          {!isDefault && <Button size="small" variant="outlined" disabled={busy} onClick={() => { if (window.confirm("Back to the workflows' own times?")) { setT({ ...DEFAULT_TIMING }); void save({ timing: "default" }); } }}>Back to the workflows&apos; times</Button>}
-          <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>The subjects keep the workflows&apos; words (&quot;48 hours&quot;, &quot;more than one week&quot;) whatever the waits.</Typography>
+          {!isDefault && <Button size="small" variant="outlined" disabled={busy} onClick={() => { if (window.confirm("Back to the default times?")) { setT({ ...DEFAULT_TIMING }); void save({ timing: "default" }); } }}>Back to the defaults</Button>}
+          <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>The subjects keep their words (&quot;48 hours&quot;, &quot;more than one week&quot;) whatever the waits.</Typography>
         </Box>
       )}
       {msg && <Typography sx={{ mt: 1, fontSize: "0.82rem", color: msg.ok ? GREEN : RED }}>{msg.text}</Typography>}
@@ -442,7 +437,7 @@ function ShopCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
           {` Last 30 days: ${full(d.shop.length)} orders, ${full(hand)} tickets by the Back Office.`}
         </Typography>
         <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
-          Which certificate: the shop&apos;s order if its options name it, else the ERP&apos;s comment (&quot;Bitte Konformitätserklärung erstellen: FDA.&quot;), which comes with the next ERP file. No certificate named after 6 days = left to the Back Office. Seals are the DoC app&apos;s.
+          The ERP&apos;s number: from the web order, else asked of the shop. Which certificate: the shop&apos;s order if its options name it, else the ERP&apos;s comment (&quot;Bitte Konformitätserklärung erstellen: FDA.&quot;), which comes with the ERP&apos;s order file{d.erpRead ? ` - last read ${when(d.erpRead.at)}, ${full(d.erpRead.found)} orders asking for one` : " - not read since this was switched on"}. No certificate named after 6 days = left to the Back Office. Seals (DT) are the DoC app&apos;s, which mails the declaration itself - no ticket.
         </Typography>
       </Box>
       {err && <Typography sx={{ mt: 1, fontSize: "0.82rem", color: RED }}>{err}</Typography>}
@@ -462,7 +457,7 @@ function RulesCard({ d }: { d: Data }) {
   const t = d.settings.timing;
   return (
     <GlassCard>
-      <CardTitle icon={<MenuBookOutlinedIcon />} tint="blue" title="The rules, as they run now" note="Step for step, with the times above - every subject, stage, owner and rotation as the HubSpot workflows had them" />
+      <CardTitle icon={<MenuBookOutlinedIcon />} tint="blue" title="The rules, as they run now" note="Step for step, with the times above - every subject, stage, owner and rotation" />
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" }, gap: 1.25 }}>
         {RULES.map((r) => (
           <Box key={r.lane} sx={{ p: 1.25, borderRadius: "12px", border: `1px solid ${HAIRLINE}` }}>
@@ -478,6 +473,7 @@ function RulesCard({ d }: { d: Data }) {
   );
 }
 
+/** Console: what the hub runs and did, the run itself, who has what, the tickets on hold. */
 export function Console({ d, onChanged }: { d: Data; onChanged: () => void }) {
   return (
     <>
@@ -485,21 +481,27 @@ export function Console({ d, onChanged }: { d: Data; onChanged: () => void }) {
       <Board rows={d.board} />
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>
         <RunCard d={d} onChanged={onChanged} />
-        <MailsCard d={d} onChanged={onChanged} />
-      </Box>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>
-        <DatesCard d={d} onChanged={onChanged} />
-        <ShopCard d={d} onChanged={onChanged} />
-      </Box>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>
-        <StepsCard d={d} onChanged={onChanged} />
         <LoadCard d={d} />
       </Box>
-      <TimingCard key={d.settings.at ?? "t"} d={d} onChanged={onChanged} />
+      <HeldCard d={d} onChanged={onChanged} />
+    </>
+  );
+}
+
+/** Settings: the mails and who gets them, the ERP's dates, the shop's tickets, the steps, the times, the people, the rules. */
+export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
+  return (
+    <>
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>
+        <MailsCard d={d} onChanged={onChanged} />
         <PeopleCard d={d} onChanged={onChanged} />
-        <HeldCard d={d} onChanged={onChanged} />
       </Box>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>
+        <ShopCard d={d} onChanged={onChanged} />
+        <DatesCard d={d} onChanged={onChanged} />
+      </Box>
+      <StepsCard d={d} onChanged={onChanged} />
+      <TimingCard key={d.settings.at ?? "t"} d={d} onChanged={onChanged} />
       <RulesCard d={d} />
     </>
   );

@@ -58,8 +58,9 @@ export function positionsText(reqs: ErpRequest[], lines: string[]): string {
 
 // ---------------- the delivery date ----------------
 /** One ERP record of the order in HubSpot: the order (.000) or a delivery (.001, .002 ...). changedAt = when its date
- *  last changed (ms). */
-export type Delivery = { num: string; ship: string | null; status: string | null; history: string[]; lines: string[]; changedAt: number | null };
+ *  last changed (ms). id = the HubSpot record (a ticket from the shop links the ERP's own order when no web order was
+ *  ever made). */
+export type Delivery = { num: string; ship: string | null; status: string | null; history: string[]; lines: string[]; changedAt: number | null; id?: string };
 /** The goods have left */
 export const SHIPPED: ReadonlySet<string> = new Set(["ready_for_invoicing", "invoiced"]);
 const GONE: ReadonlySet<string> = new Set(["credit_note", "cancelled"]);
@@ -121,7 +122,7 @@ export function subjectWithDate(subject: string | null, from: string | null, to:
 // ---------------- a shop order with the declaration ----------------
 /** Where a shop order with the plastics declaration stands. */
 export type ShopState =
-  | "waiting-number" /** the ERP's order number not on the web order yet (the hub stamps it within ~15 min) */
+  | "waiting-number" /** no ERP order number yet: the shop has not sent the order to the ERP */
   | "waiting-type"   /** which certificate: not known yet - the ERP's comment comes with the next ERP file */
   | "would"          /** Preview: the hub would create the ticket now */
   | "created"        /** the hub created the ticket */

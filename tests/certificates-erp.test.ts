@@ -4,7 +4,8 @@ import {
   articlesIn, baseOf, certsOf, dateCheck, parseRequests, pickDelivery, positionsText, subjectWithDate, typesInOptions, type Delivery,
 } from "../src/lib/certificates/erpRules";
 import { intakeOf, teamOf, type IntakeFacts } from "../src/lib/boDistribution/intake";
-import { ACT, STEP_GROUP, stepsOf, type Facts } from "../src/lib/certificates/rules";
+import { ACT, OTHERS_OFF_AT, REMIND_OFF_AT, STEP_GROUP, WORKFLOW_OFF_AT, reminderTo, stepsOf, type Facts } from "../src/lib/certificates/rules";
+import { INTAKE_FROM } from "../src/lib/boDistribution/intake";
 
 // ---------------- the ERP's requests (real comments of the ERP's July file) ----------------
 test("one request: position and certificate", () => {
@@ -144,4 +145,23 @@ test("every timed step can be switched off on the console; the starts and entrie
     const entry = ["bo-entry", "expert-entry", "start-avor", "start-bo", "close", "merge-clear"].includes(s.name);
     assert.equal(!!STEP_GROUP[s.name], !entry, s.name);
   }
+});
+
+test("the reminder on every other ticket in Remind goes to its owner, straight to the person (SARCLA 07.11.2026)", () => {
+  const sara = { id: "30050251", name: "Sara Gashi", email: "sara@x.ch" };
+  const claudio = { id: "1229976030", name: "Claudio Gabinato", email: "claudio@x.ch" };
+  const leart = { id: "37413486", name: "Leart Asllani", email: "leart@x.ch" };
+  // the owner is a person: the owner, and the people picked as well - once per address
+  assert.deepEqual(reminderTo(leart, [], [sara, claudio]), [leart]);
+  assert.deepEqual(reminderTo(leart, [sara, { ...leart, id: "x", email: "LEART@x.ch" }], [claudio]), [leart, sara]);
+  // the owner is the Backoffice Team (an inbox - no recipient) or nobody: the people picked, else the rotation
+  assert.deepEqual(reminderTo(null, [sara], [claudio]), [sara]);
+  assert.deepEqual(reminderTo(null, [], [sara, claudio]), [sara, claudio]);
+  assert.deepEqual(reminderTo(null, [], []), []);
+});
+
+test("only the hub: the moments each part became the hub's are fixed, in the order they happened", () => {
+  assert.ok(WORKFLOW_OFF_AT < REMIND_OFF_AT && REMIND_OFF_AT < OTHERS_OFF_AT && OTHERS_OFF_AT < INTAKE_FROM);
+  assert.equal(new Date(INTAKE_FROM).toISOString(), "2026-11-07T10:27:43.527Z");
+  assert.equal(new Date(OTHERS_OFF_AT).toISOString(), "2026-11-05T06:15:07.500Z");
 });

@@ -1,33 +1,26 @@
-// THE WAY IN, run (the rule in intake.ts) - "SARCLA | Back Office Ticket Created | Notification" (2322831592) inside the
-// Back Office distribution's minute (engine.ts run), before anything is decided (SARCLA 05.11.2026: "This is the one we
-// need to migrate").
+// THE WAY IN, run (the rule in intake.ts) - every ticket that enters Back Office "New", inside the Back Office
+// distribution's minute (engine.ts run), before anything is decided (SARCLA 05.11.2026: "This is the one we need to
+// migrate"; 07.11.2026: "I want to do it only via the hub").
 //
-// While the workflow is ON (shadow): ten minutes after a ticket entered Back Office "New", the hub reads what the
-// workflow wrote (its writes in the ticket's history), works out from the ticket as it was just before what the hub
-// would have written, and keeps both - the page shows how many are the same.
-// Once the workflow is OFF (the moment is kept): every ticket that enters "New" from then on, 20 seconds after (an
-// e-mail ticket waits up to 3 minutes for its e-mail): the hub writes subject / requester / owner / stage in one PATCH
-// and mails the Backoffice Team "❗Back Office Ticket Created" - and the distribution decides that ticket only after
-// (pending), as it did after the workflow. Switching the workflow back on is the whole roll-back.
-// Today's race goes with it: the workflow fired 10 s to 6 min after entry and 8 times in 7 days put "Backoffice Team"
-// back after the hub had assigned someone.
+// From INTAKE_FROM on, every ticket that enters "New", 20 seconds after (an e-mail ticket waits up to 3 minutes for its
+// e-mail): the hub writes subject / requester / owner / stage in one PATCH and mails "❗Back Office Ticket Created" to
+// the people picked on the Way in tab - and the distribution decides that ticket only after (pending).
+// Older than the steered age (the hub was down) = left alone - a person may have it.
 
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { ownerNames } from "@/lib/integrations/erosion";
 import { FROM, addressOf, esc, mailConfigured, sendHubMail, wrap } from "@/lib/notify/mailer";
 import { NOBODY, teamRecipients } from "@/lib/notify/teamRecipients";
-import { BO_TEAM, CREATED_WORKFLOW, MAIL_SUBJECT, STAGE_ASSIGNED, STAGE_NEW, intakeOf, type Intake, type IntakeConfig, type IntakeFacts } from "./intake";
+import { INTAKE_FROM, MAIL_SUBJECT, STAGE_NEW, intakeOf, type Intake, type IntakeConfig, type IntakeFacts } from "./intake";
 import { getIntakeSettings, type IntakeSettings } from "./intakeSettings";
 
 const BO = "1726786777";
-const KV = { rows: "boDist:intake:rows", done: "boDist:intake:done", off: "boDist:intake:off", last: "boDist:intake:last" };
+const KV = { rows: "boDist:intake:rows", done: "boDist:intake:done", last: "boDist:intake:last" };
 // the waits are steered on Back Office distribution > Way in (intakeSettings.ts): 20 s after entry, an e-mail ticket up
 // to 3 min for its e-mail, and older than 30 min never taken in (the hub was down) = left alone - a person may have it.
 // The search reaches 5 minutes past that (at least 35 minutes).
 const windowMs = (maxAgeMs: number) => Math.max(35 * 60_000, maxAgeMs + 5 * 60_000);
-const COMPARE_AFTER_MS = 10 * 60_000;
-const COMPARE_PER_RUN = 15;
 const ROWS_KEPT = 700;
 
 type Hist = { value: string; timestamp: string; sourceType?: string; sourceId?: string };
@@ -38,38 +31,11 @@ const ts = (s: string | null | undefined) => (s ? Date.parse(s) : NaN);
 export type IntakeRow = {
   ticketId: string; enteredAt: string; at: string; subjectBefore: string | null;
   branch: Intake["branch"] | null; team: string | null; props: Record<string, string>; mail: boolean;
-  /** shadow = the workflow wrote it, compared; done / failed = the hub wrote it; skipped = left alone */
+  /** done / failed = the hub wrote it; skipped = left alone; certificates = handed to Certificates
+   *  (shadow: an old row from before 07.11.2026, never shown) */
   what: "shadow" | "done" | "failed" | "skipped" | "certificates"; why?: string; error?: string; mailText?: string;
-  /** shadow: what the workflow wrote and whether the hub's is the same */
-  actual?: { props: Record<string, string>; same: boolean; diffs: string[]; wrote: boolean };
 };
-export type IntakeLast = { at: string; seen: number; done: number; shadow: number; pending: number; error?: string };
-
-// ---------------- the workflow ----------------
-let wfCache: { at: number; v: { on: boolean; updatedAt: string | null } | null } | null = null;
-export async function createdWorkflow(): Promise<{ on: boolean; updatedAt: string | null } | null> {
-  if (wfCache && Date.now() - wfCache.at < 2 * 60_000) return wfCache.v;
-  let v: { on: boolean; updatedAt: string | null } | null = null;
-  try { const d = await hs<{ isEnabled?: boolean; updatedAt?: string }>(`/automation/v4/flows/${CREATED_WORKFLOW.id}`); v = { on: !!d.isEnabled, updatedAt: d.updatedAt ?? null }; } catch { v = null; }
-  wfCache = { at: Date.now(), v };
-  return v;
-}
-/** From when the way in is the hub's: the moment the workflow was switched off (null = it runs, or not readable now). */
-export const intakeOffAt = (): Promise<number | null> => offMoment();
-async function offMoment(): Promise<number | null> {
-  const wf = await createdWorkflow();
-  const kept = await kvGet<{ offAt: string | null }>(KV.off);
-  // not readable now: as it was last seen
-  if (!wf) return kept?.offAt ? Date.parse(kept.offAt) : null;
-  if (wf.on) {
-    if (kept?.offAt) await kvSet(KV.off, { offAt: null, at: new Date().toISOString() });
-    return null;
-  }
-  if (kept?.offAt) return Date.parse(kept.offAt);
-  const off = wf.updatedAt && !Number.isNaN(Date.parse(wf.updatedAt)) ? wf.updatedAt : new Date().toISOString();
-  await kvSet(KV.off, { offAt: off, at: new Date().toISOString() });
-  return Date.parse(off);
-}
+export type IntakeLast = { at: string; seen: number; done: number; pending: number; error?: string };
 
 // ---------------- reading a ticket ----------------
 const SUBCATS = [
@@ -85,7 +51,6 @@ const FACT_PROPS = [
   "back_office_ticket_requirement", "hs_originating_generic_channel_id", "hubspot_owner_id", "createdate",
   "content", "article_number", "order_number", "invoice_number", "order_issue_information", "others_bo_case", ...SUBCATS, ...TEXTBOXES,
 ];
-const HIST = ["subject", "hubspot_owner_id", "back_office_ticket_requester", "hs_pipeline_stage", "enquiry_category", "which_certificate__", "source_type"];
 type Email = { id: string; from: string | null; subject: string | null; owner: string | null; created: number; modified: number };
 
 async function emailsOf(id: string): Promise<Email[]> {
@@ -117,7 +82,7 @@ const rowHtml = (k: string, v: string) =>
   `<tr><td style="padding:5px 12px 5px 0;color:#8b97ac;font-size:13px;white-space:nowrap;vertical-align:top">${esc(k)}</td><td style="padding:5px 0;font-size:14px;color:#15223a">${esc(v)}</td></tr>`;
 // 05.11.2026 10:47-11:31: the Backoffice Team's address is a HubSpot inbox - every mail the hub sent there came back as a
 // new Back Office ticket, which the way in mailed again (120 tickets in 44 minutes). The mail goes to the people picked
-// on Certificates > Console - never an inbox (notify/teamRecipients); nobody picked = not sent.
+// on the Way in tab, each to their own address - never an inbox (notify/teamRecipients); nobody picked = not sent.
 async function mailTeam(id: string, p: Record<string, string | null>, subject: string, ids: string[]): Promise<{ ok: boolean; text: string }> {
   const to = await teamRecipients(ids);
   if (!to.length) return { ok: true, text: NOBODY };
@@ -131,7 +96,7 @@ async function mailTeam(id: string, p: Record<string, string | null>, subject: s
     heading: "Ticket Information", intro: "A new Back Office ticket.",
     rows: `<table style="border-collapse:collapse">${rows.map(([k, v]) => rowHtml(k, v)).join("")}</table>`,
     cta: { label: "Open the ticket", href: ticketUrl(id) }, hubUrl: HUB_URL,
-    footer: "Sent by APSOhub (UC & HubSpot Apps > Back Office distribution), which replaced the workflow SARCLA | Back Office Ticket Created | Notification.",
+    footer: "Sent by APSOhub (UC & HubSpot Apps > Back Office distribution > Way in).",
   });
   const text = ["Ticket Information", "", ...rows.map(([k, v]) => `${k}: ${v}`), "", ticketUrl(id)].join("\n");
   const who = to.map((r) => r.name).join(", ");
@@ -139,51 +104,18 @@ async function mailTeam(id: string, p: Record<string, string | null>, subject: s
   catch (e) { return { ok: false, text: `mail to ${who} failed: ${(e as Error).message.slice(0, 120)}` }; }
 }
 
-// ---------------- shadow: the hub's answer against the workflow's writes ----------------
-const enrolment = (h: Hist) => /enrollmentId:(\d+)/.exec(h.sourceId ?? "")?.[1] ?? null;
-const sorted = (t: Obj, k: string) => [...(t.propertiesWithHistory?.[k] ?? [])].sort((a, b) => ts(a.timestamp) - ts(b.timestamp));
-const valueBefore = (t: Obj, k: string, when: number) => { let v: string | null = null; for (const x of sorted(t, k)) if (ts(x.timestamp) < when) v = x.value; return v || null; };
-
-/** What the workflow wrote (its enrolment: the one that wrote the requester, a "BO |" subject or the Assigned stage),
- *  and what the hub works out from the ticket as it was just before. Values already in place count as the same. */
-export function compareWithWorkflow(t: Obj, emails: Email[], enteredAt: number, names: Map<string, string>, cfg?: IntakeConfig): { want: Intake; actual: NonNullable<IntakeRow["actual"]> } {
-  const KEYS = ["subject", "hubspot_owner_id", "back_office_ticket_requester", "hs_pipeline_stage"];
-  const writes = KEYS.flatMap((k) => sorted(t, k).filter((x) => x.sourceType === "AUTOMATION_PLATFORM" && ts(x.timestamp) >= enteredAt - 2000 && ts(x.timestamp) <= enteredAt + COMPARE_AFTER_MS).map((x) => ({ k, ...x })));
-  const ids = new Set(writes.filter((w) => w.k === "back_office_ticket_requester" || (w.k === "subject" && /^BO \|/.test(w.value)) || (w.k === "hs_pipeline_stage" && w.value === STAGE_ASSIGNED)).map(enrolment));
-  const mine = writes.filter((w) => ids.has(enrolment(w)));
-  const tW = mine.length ? Math.min(...mine.map((w) => ts(w.timestamp))) : enteredAt + 45_000;
-  const p = { ...t.properties };
-  // as they were just before (a value set later - the classifier's category - was not there yet)
-  for (const k of ["hs_pipeline_stage", "enquiry_category", "which_certificate__", "source_type"]) p[k] = valueBefore(t, k, tW);
-  const owner = valueBefore(t, "hubspot_owner_id", tW);
-  const then = emails.filter((e) => !e.created || e.created <= tW + 5000).sort((a, b) => a.modified - b.modified);
-  const want = intakeOf(factsOf(p, then[then.length - 1] ?? null, names, owner), cfg);
-  const got: Record<string, string> = {};
-  for (const w of mine) got[w.k] = w.value;
-  const diffs: string[] = [];
-  for (const k of new Set([...Object.keys(want.props), ...Object.keys(got)])) {
-    const a = want.props[k], b = got[k];
-    if (a === b) continue;
-    if (a !== undefined && b === undefined && valueBefore(t, k, tW + 1) === a) continue; // already so - HubSpot logs no change
-    if (k === "subject" && a !== undefined && b !== undefined && a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim()) continue;
-    diffs.push(`${k}: hub ${a ?? "(nothing)"} | workflow ${b ?? "(nothing)"}`);
-  }
-  return { want, actual: { props: got, same: !diffs.length, diffs, wrote: mine.length > 0 } };
-}
-
 // ---------------- one pass ----------------
 /**
- * Called first in each distribution run. pending = Back Office tickets the hub still has to take in (the workflow off):
- * the distribution leaves them for the next minute. failed = the pass could not look - the distribution then holds every
- * ticket younger than 5 minutes.
+ * Called first in each distribution run. pending = Back Office tickets the hub still has to take in: the distribution
+ * leaves them for the next minute. failed = the pass could not look - the distribution then holds every ticket younger
+ * than 5 minutes.
  */
 export async function intakePass(): Promise<{ pending: Set<string>; failed: boolean; live: boolean | null }> {
   const pending = new Set<string>();
   let live: boolean | null = null;
-  const last: IntakeLast = { at: new Date().toISOString(), seen: 0, done: 0, shadow: 0, pending: 0 };
+  const last: IntakeLast = { at: new Date().toISOString(), seen: 0, done: 0, pending: 0 };
   try {
-    const offAt = await offMoment();
-    live = offAt !== null;
+    live = true;
     const now = Date.now();
     const set: IntakeSettings = await getIntakeSettings();
     const cfg: IntakeConfig = { teams: set.teams, creators: set.creators };
@@ -202,8 +134,8 @@ export async function intakePass(): Promise<{ pending: Set<string>; failed: bool
       if (!entered || done.has(id)) continue;
       last.seen++;
       const age = now - entered;
-      // the workflow runs: compared in the shadow pass below
-      if (offAt === null || entered < offAt) continue;
+      // before the way in was the hub's alone
+      if (entered < INTAKE_FROM) continue;
       const base = { ticketId: id, enteredAt: new Date(entered).toISOString(), at: new Date().toISOString() };
       if (age > LIVE_MAX_AGE_MS) {
         rows.unshift({ ...base, subjectBefore: null, branch: null, team: null, props: {}, mail: false, what: "skipped", why: `older than ${set.maxAgeMin} minutes - the hub was not running; left to the Back Office` });
@@ -215,7 +147,7 @@ export async function intakePass(): Promise<{ pending: Set<string>; failed: bool
         const t = await hs<Obj>(`/crm/v3/objects/tickets/${id}?properties=${FACT_PROPS.join(",")}`);
         const p = t.properties;
         if (p.hs_pipeline !== BO || p.hs_pipeline_stage !== STAGE_NEW) {
-          rows.unshift({ ...base, subjectBefore: p.subject ?? null, branch: null, team: null, props: {}, mail: false, what: "skipped", why: "already out of New (the workflow would not have taken it either)" });
+          rows.unshift({ ...base, subjectBefore: p.subject ?? null, branch: null, team: null, props: {}, mail: false, what: "skipped", why: "already out of New when the hub looked" });
           done.add(id);
           continue;
         }
@@ -259,26 +191,6 @@ export async function intakePass(): Promise<{ pending: Set<string>; failed: bool
         last.error = (e as Error).message.slice(0, 200);
       }
     }
-    // shadow: tickets 10 minutes in, the workflow on when they entered - what it wrote against the hub's answer
-    let compared = 0;
-    for (const hit of r.results ?? []) {
-      if (compared >= COMPARE_PER_RUN) break;
-      const id = String(hit.id);
-      const entered = ts(hit.properties[prop]);
-      if (!entered || done.has(id) || (offAt !== null && entered >= offAt) || now - entered < COMPARE_AFTER_MS) continue;
-      try {
-        const qs = `properties=${FACT_PROPS.join(",")}&propertiesWithHistory=${HIST.join(",")}`;
-        const t = await hs<Obj>(`/crm/v3/objects/tickets/${id}?${qs}`);
-        const { want, actual } = compareWithWorkflow(t, await emailsOf(id), entered, names, cfg);
-        rows.unshift({
-          ticketId: id, enteredAt: new Date(entered).toISOString(), at: new Date().toISOString(), subjectBefore: valueBefore(t, "subject", entered + 1000) ?? t.properties.subject ?? null,
-          branch: want.branch, team: want.team, props: want.props, mail: want.mail, what: "shadow", actual,
-        });
-        done.add(id);
-        compared++;
-        last.shadow++;
-      } catch (e) { last.error = (e as Error).message.slice(0, 200); }
-    }
     last.pending = pending.size;
     // keep the ids of the last 2 days (the search window is 35 minutes)
     const keepIds = new Set(rows.filter((x) => now - Date.parse(x.enteredAt) < 2 * 86400_000).map((x) => x.ticketId));
@@ -295,15 +207,13 @@ export async function intakePass(): Promise<{ pending: Set<string>; failed: bool
 
 // ---------------- the page ----------------
 export async function intakeState() {
-  const [wf, kept, rows, last] = await Promise.all([createdWorkflow(), kvGet<{ offAt: string | null }>(KV.off), kvGet<IntakeRow[]>(KV.rows), kvGet<IntakeLast>(KV.last)]);
-  const all = rows ?? [];
+  const [rows, last] = await Promise.all([kvGet<IntakeRow[]>(KV.rows), kvGet<IntakeLast>(KV.last)]);
+  const all = (rows ?? []).filter((r) => r.what !== "shadow");
   const week = all.filter((r) => Date.now() - Date.parse(r.enteredAt) < 7 * 86400_000);
-  const shadow = week.filter((r) => r.what === "shadow" && r.actual);
-  const byBranch: Record<string, { n: number; same: number }> = {};
-  for (const r of shadow) { const k = r.branch ?? "-"; byBranch[k] ??= { n: 0, same: 0 }; byBranch[k].n++; if (r.actual!.same) byBranch[k].same++; }
+  const mailed = week.filter((r) => (r.mailText ?? "").startsWith("mail to")).length;
   return {
-    workflow: wf, workflowName: CREATED_WORKFLOW.name, offAt: wf && !wf.on ? kept?.offAt ?? null : null, last: last ?? null, mailReady: mailConfigured(),
-    figures: { compared: shadow.length, same: shadow.filter((r) => r.actual!.same).length, byBranch, done: week.filter((r) => r.what === "done").length, failed: week.filter((r) => r.what === "failed").length },
+    from: new Date(INTAKE_FROM).toISOString(), last: last ?? null, mailReady: mailConfigured(),
+    figures: { done: week.filter((r) => r.what === "done").length, failed: week.filter((r) => r.what === "failed").length, mailed, skipped: week.filter((r) => r.what === "skipped").length, certificates: week.filter((r) => r.what === "certificates").length },
     rows: all.slice(0, 200),
   };
 }

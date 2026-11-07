@@ -1,11 +1,11 @@
-// THE WAY IN - Back Office distribution > Way in, "SARCLA | Back Office Ticket Created | Notification" in the hub
-// (src/lib/boDistribution/intake.ts, intakeRun.ts, intakeSettings.ts; SARCLA 05-06.11.2026).
-// GET: the workflow's state, since when the hub writes it, the last pass, the comparison with the workflow (7 days), the
-//      latest tickets, what is steered here, and the people to pick from.
+// THE WAY IN - Back Office distribution > Way in, every ticket that enters Back Office New, run by the hub
+// (src/lib/boDistribution/intake.ts, intakeRun.ts, intakeSettings.ts; SARCLA 05-07.11.2026).
+// GET: since when the hub writes it, the last pass, the figures (7 days), the latest tickets, what is steered here, and
+//      the people to pick from.
 // PUT (admins): {mail} / {to: [ownerId]} the "❗Back Office Ticket Created" mail and who gets it (never a queue user -
 //      its address is an inbox); {teams: [{team, from: [address]}]} the sender -> team list; {creators: [userId]} the
 //      Back Office's own people; {waitS, emailWaitS, maxAgeMin} the waits; {reset: "teams" | "creators" | "waits"} back
-//      to the workflow's. The switch itself stays the workflow (off = the hub writes, on again = the roll-back).
+//      to the defaults.
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";

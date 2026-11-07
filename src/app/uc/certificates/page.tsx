@@ -2,12 +2,13 @@
 
 // CERTIFICATES - a HubSpot app (UC & HubSpot Apps > HubSpot apps). The Back Office's certificate requests: AVOR for a
 // new EC 1935/2004 article, the Back Office, the conformity experts, the reminders and the 15-day hand-over - run by
-// the hub every 3 minutes in place of the workflows SARCLA | CERTIFICATES NEW PROCESS and Back Office Ticket Remind
-// (SARCLA 04-05.11.2026: "migrate ASAP this certificates process to the hub as a sub-app, follow the logic").
-// 05.11.2026 ("improve a lot the hub's tabs and steering console"): Overview = the figures and the process drawn with
-// where each open request stands; Tickets = filters, search, hold; Agenda = every step of the next 7 days, day by day;
-// Activity = what the hub did (or would do), the mails; Console = the workflows board, the run, the mails and who gets
-// them, the times and waits, the rotations, the tickets on hold, the rules (Console.tsx).
+// the hub every 3 minutes (SARCLA 04-05.11.2026: "migrate ASAP this certificates process to the hub as a sub-app,
+// follow the logic"; 07.11.2026: "I want to do it only via the hub").
+// Overview = the figures and the process drawn with where each open request stands; Tickets = filters, search, hold;
+// Agenda = every step of the next 7 days, day by day; From the shop; Activity = what the hub did (or would do), the
+// mails; Console = what the hub runs, the run, who has what, the tickets on hold; Settings = the mails and who gets
+// them, the ERP's dates, the shop's tickets, the steps, the times, the rotations, the rules (Console.tsx; SARCLA
+// 07.11.2026: "split the console in 2 tabs").
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -45,13 +46,13 @@ import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { Chip, usePaged, when } from "@/app/connectors/parts";
 import type { OpenTicket, OthersRow, Row } from "@/lib/certificates/engine";
 import { stepWords, type StepName, type Timing } from "@/lib/certificates/rules";
-import { Console } from "./Console";
+import { Console, SettingsTab } from "./Console";
 import { ShopTab } from "./ShopTab";
 import { BO_STEPS, LATE, MAIL_STEPS, PHASE, STAGE_LABEL, TicketLink, dueText, hh, isLate, put, span, type Data } from "./shared";
 import type { DateRow } from "@/lib/certificates/erpData";
 
-type View = "overview" | "tickets" | "agenda" | "shop" | "activity" | "console";
-const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", agenda: "#agenda", shop: "#shop", activity: "#activity", console: "#console" };
+type View = "overview" | "tickets" | "agenda" | "shop" | "activity" | "console" | "settings";
+const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", agenda: "#agenda", shop: "#shop", activity: "#activity", console: "#console", settings: "#settings" };
 
 // ---------------- the process, drawn ----------------
 /** The box of the drawing a ticket sits in. */
@@ -105,7 +106,7 @@ function ProcessCard({ open, resolvedThisMonth, sel, onPick, timing }: { open: O
   return (
     <GlassCard>
       <CardTitle icon={<AccountTreeOutlinedIcon />} tint="purple" title="The process, and where each open request stands"
-        note="Left to right, with the console's times. The figure in a box = open requests there now - click a box for them" />
+        note="Left to right, with the times on the Settings tab. The figure in a box = open requests there now - click a box for them" />
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(5, minmax(0, 1fr))" }, gap: 1.25, alignItems: "stretch" }}>
         {lanes(timing).map((lane, i) => (
           <Box key={lane.title} sx={{ display: "flex", flexDirection: "column", gap: 0.75, minWidth: 0, position: "relative", p: 1.25, borderRadius: "16px", bgcolor: TINT[lane.tint].bg + "66", border: `1px solid ${HAIRLINE}` }}>
@@ -207,7 +208,7 @@ function TicketsTable({ rows, d, empty, onChanged }: { rows: OpenTicket[]; d: Da
                       {late && <Chip tint="pink">late</Chip>}
                     </Box>
                     <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.25 }}>
-                      {x.step ? stepWords(x.step, t).split(" - ")[0] : "started"} · {STAGE_LABEL[x.stage ?? ""] ?? x.stage ?? "-"}{x.remindStep ? " · by the Remind workflow" : x.workflowStep ? " · by the workflow" : ""}
+                      {x.step ? stepWords(x.step, t).split(" - ")[0] : "started"} · {STAGE_LABEL[x.stage ?? ""] ?? x.stage ?? "-"}
                     </Typography>
                   </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>
@@ -218,7 +219,7 @@ function TicketsTable({ rows, d, empty, onChanged }: { rows: OpenTicket[]; d: Da
                     {x.held ? <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>on hold - nothing until released</Typography> : x.next ? (
                       <>
                         <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, whiteSpace: "nowrap" }}>{when(x.next.at)}</Typography>
-                        <Typography sx={{ fontSize: "0.74rem", color: MUTED, ...clip(280) }}>{stepWords(x.next.name, t)}{x.nextRemind ? " - by HubSpot's Remind workflow" : ""}</Typography>
+                        <Typography sx={{ fontSize: "0.74rem", color: MUTED, ...clip(280) }}>{stepWords(x.next.name, t)}</Typography>
                       </>
                     ) : <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{x.due ? "nothing more - waits for the next action" : "no delivery date - nothing timed"}</Typography>}
                   </TableCell>
@@ -320,7 +321,7 @@ function Agenda({ d }: { d: Data }) {
 // ---------------- the activity ----------------
 const WHAT: Record<Row["what"], { tint: Tint; label: string }> = {
   done: { tint: "green", label: "done" }, would: { tint: "blue", label: "would do (Preview)" }, failed: { tint: "pink", label: "failed - tried again" },
-  skipped: { tint: "slate", label: "skipped - switched off on the Console" },
+  skipped: { tint: "slate", label: "skipped - switched off on the Settings tab" },
 };
 function written(r: Row, names: Record<string, string>): string {
   const out: string[] = [];
@@ -440,13 +441,13 @@ function ActivityTab({ d }: { d: Data }) {
       </GlassCard>
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>
-          <CardTitle icon={<EventOutlinedIcon />} tint="amber" title="Delivery dates from the ERP" note={d.settings.erpDates === "write" ? "Each date the hub moved to the ERP's, newest first" : "Each date the hub would move to the ERP's (Show only - switch on the Console), newest first"} />
+          <CardTitle icon={<EventOutlinedIcon />} tint="amber" title="Delivery dates from the ERP" note={d.settings.erpDates === "write" ? "Each date the hub moved to the ERP's, newest first" : "Each date the hub would move to the ERP's (Show only - switch on the Settings tab), newest first"} />
         </Box>
         <DatesTable rows={d.dates} />
       </GlassCard>
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>
-          <CardTitle icon={<MailOutlineIcon />} tint="blue" title="Reminders to the Backoffice Team" note={`Every other Back Office ticket (no certificate) that went to stage Remind Back Office - sent to ${d.settings.teamTo.length ? d.settings.teamTo.map((id) => d.names[id] ?? id).join(", ") : "nobody yet (pick on the Console)"}`} />
+          <CardTitle icon={<MailOutlineIcon />} tint="blue" title="Reminders on every other ticket in Remind" note={`Every other Back Office ticket (no certificate) that went to stage Remind Back Office - mailed to its owner${d.settings.teamTo.length ? `, and to ${d.settings.teamTo.map((id) => d.names[id] ?? id).join(", ")}` : ""}`} />
         </Box>
         <OthersTable rows={d.others.rows} />
       </GlassCard>
@@ -473,8 +474,8 @@ function Overview({ d, go, onChanged }: { d: Data; go: (v: View) => void; onChan
   return (
     <>
       <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
-        <Chip tint={d.settings.mode === "live" && d.writing ? "green" : d.settings.mode === "off" ? "slate" : "amber"}>{d.settings.mode === "live" ? (d.writing ? "Live - writing" : "Live - not writing") : d.settings.mode === "preview" ? "Preview" : "Off"}</Chip>
-        <Chip tint={byHub === d.board.length ? "green" : "amber"}>{byHub} of {d.board.length} workflows run by the hub</Chip>
+        <Chip tint={d.settings.mode === "live" ? "green" : d.settings.mode === "off" ? "slate" : "amber"}>{d.settings.mode === "live" ? "Live - writing" : d.settings.mode === "preview" ? "Preview" : "Off"}</Chip>
+        <Chip tint={byHub === d.board.length ? "green" : "amber"}>{byHub} of {d.board.length} parts live</Chip>
         {problems > 0 && <Chip tint="pink">{problems} with a problem</Chip>}
         <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
           {d.last ? `Last look ${when(d.last.at)} · ${full(d.last.tickets)} open · ${full(dueToday)} steps still due today` : "Not looked yet"}
@@ -482,6 +483,7 @@ function Overview({ d, go, onChanged }: { d: Data; go: (v: View) => void; onChan
         <Box sx={{ ml: "auto", display: "flex", gap: 1 }}>
           <Button size="small" variant="text" onClick={() => go("agenda")}>Agenda</Button>
           <Button size="small" variant="text" onClick={() => go("console")}>Console</Button>
+          <Button size="small" variant="text" onClick={() => go("settings")}>Settings</Button>
         </Box>
       </Box>
       <Grid container spacing={2}>
@@ -533,6 +535,7 @@ export default function Certificates() {
   else if (view === "activity") body = <ActivityTab d={r.data} />;
   else if (view === "shop") body = <ShopTab d={r.data} />;
   else if (view === "console") body = <Console d={r.data} onChanged={reload} />;
+  else if (view === "settings") body = <SettingsTab d={r.data} onChanged={reload} />;
   else body = <Overview d={r.data} go={setView} onChanged={reload} />;
   const d = r?.state === "ok" ? r.data : null;
   const late = d ? d.open.filter(isLate).length : 0;
@@ -541,7 +544,7 @@ export default function Certificates() {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
         title="Certificates"
-        subtitle="The Back Office's certificate requests - AVOR, the Back Office, the conformity experts - and the workflows the hub took over"
+        subtitle="The Back Office's certificate requests - AVOR, the Back Office, the conformity experts - run by the hub"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
@@ -557,6 +560,7 @@ export default function Certificates() {
           { id: "shop", label: "From the shop", count: d && d.shop.length ? full(d.shop.length) : null },
           { id: "activity", label: "Activity", count: d && d.rows.length ? full(d.rows.length) : null },
           { id: "console", label: "Console", count: null },
+          { id: "settings", label: "Settings", count: null },
         ]} />
       </Box>
       {late > 0 && view !== "overview" && <Typography sx={{ fontSize: "0.82rem", color: RED }}>{full(late)} late - delivery date passed, no certificate sent yet.</Typography>}

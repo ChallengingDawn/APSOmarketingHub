@@ -26,7 +26,7 @@ import type { ShopRow } from "@/lib/certificates/shopIntake";
 import { TicketLink, type Data } from "./shared";
 
 const STATE: Record<ShopRow["state"], { label: string; tint: Tint }> = {
-  "waiting-number": { label: "waiting for the ERP's number", tint: "slate" },
+  "waiting-number": { label: "not in the ERP yet", tint: "slate" },
   "waiting-type": { label: "waiting for the certificate's name", tint: "amber" },
   would: { label: "the hub would create it", tint: "blue" },
   created: { label: "created by the hub", tint: "green" },
@@ -69,7 +69,7 @@ export function ShopTab({ d }: { d: Data }) {
       <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
         <Chip tint={mode === "live" ? "green" : mode === "preview" ? "amber" : "slate"}>{mode === "live" ? `Live - creating since ${when(d.settings.shopFrom)}` : mode === "preview" ? "Preview - lists what it would create" : "Off"}</Chip>
         <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-          The shop&apos;s orders with the plastics declaration (8001133004), the last 30 days. Which certificate: the shop&apos;s order {full(fromShop)} times, the ERP&apos;s comment {full(fromErp)} times ({full(d.erpRequests)} ERP orders with a request known). Switch it on the Console.
+          The shop&apos;s orders with the plastics declaration (8001133004), the last 30 days. Which certificate: the shop&apos;s order {full(fromShop)} times, the ERP&apos;s comment {full(fromErp)} times. The ERP&apos;s order file {d.erpRead ? `last read ${when(d.erpRead.at)}: ${full(d.erpRead.found)} orders asking for a declaration` : "not read yet"} ({full(d.erpRequests)} known). Switch it on the Settings tab.
         </Typography>
       </Box>
       <Grid container spacing={2}>
@@ -105,12 +105,17 @@ export function ShopTab({ d }: { d: Data }) {
                     <Typography sx={{ fontSize: "0.82rem", fontWeight: 600 }}>{r.web}</Typography>
                     <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{day(r.orderedAt ?? r.seenAt)}{r.company || r.customer ? ` · ${r.company ?? r.customer}` : ""}</Typography>
                   </TableCell>
-                  <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{r.a ?? "-"}{r.mandant ? <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{r.mandant}</Typography> : null}</TableCell>
+                  <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>
+                    {r.a ?? "-"}{r.mandant ? <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{r.mandant}</Typography> : null}
+                    {r.a && r.numberFrom && <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>from {r.numberFrom === "shop" ? "the shop" : r.numberFrom === "ERP order" ? "the ERP's order" : "the web order"}</Typography>}
+                    {!r.a && r.askedAt && <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>shop asked {when(r.askedAt)}</Typography>}
+                  </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>
                     {r.certs?.length ? <Typography sx={{ fontSize: "0.8rem", fontWeight: 600 }}>{[r.certs.join(", "), r.other].filter(Boolean).join(" · ")}</Typography> : <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>not known yet</Typography>}
                     {r.pos && <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{r.pos}</Typography>}
                     {r.typeFrom && <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>from {r.typeFrom === "erp" ? "the ERP's comment" : r.typeFrom === "ticket" ? "the Back Office's ticket" : "the shop's order"}</Typography>}
                     {!!r.shopOptions?.length && <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>the shop&apos;s options: {r.shopOptions.join(" · ")}</Typography>}
+                    {r.probeError && <Typography sx={{ fontSize: "0.7rem", color: FAINT }}>the shop&apos;s options could not be read: {r.probeError}</Typography>}
                   </TableCell>
                   <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>
                     <Chip tint={STATE[r.state].tint}>{STATE[r.state].label}</Chip>
@@ -139,9 +144,6 @@ export function ShopTab({ d }: { d: Data }) {
         </Box>
         <Box sx={{ px: 2, py: 1 }}>{pager}</Box>
       </GlassCard>
-      <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>
-        Checked 06.11.2026 on HubSpot since 01.09: of 100 ERP orders with the line, 86 got a certificate ticket from the Back Office (22 the same day, 35 the next, 28 later) and 7 were invoiced with none; on the ERP&apos;s July file the comment named the same certificates as the ticket on 32 of 36 orders. Seals (8001228582) are the DoC app&apos;s, which mails the declaration itself.
-      </Typography>
     </>
   );
 }

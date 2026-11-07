@@ -1,10 +1,10 @@
 "use client";
 
 // THE WAY IN - Back Office distribution > Way in (SARCLA 06.11.2026: "the logic of ticket creation for me should be on
-// back office distribution, a new tab that we can steer as well"). "SARCLA | Back Office Ticket Created |
-// Notification" in the hub: who writes it now and how close the hub is to the workflow; the mail and who gets it; the
-// waits; the Back Office's own people; the sender -> team list; and every ticket that came in. A certificate request
-// is handed to Certificates (the requester, then its steps).
+// back office distribution, a new tab that we can steer as well"; 07.11.2026: "I want to do it only via the hub").
+// What the hub writes on every ticket that enters Back Office New; the mail and who gets it; the waits; the Back
+// Office's own people; the sender -> team list; and every ticket that came in. A certificate request is handed to
+// Certificates (the requester, then its steps).
 
 import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
@@ -27,7 +27,7 @@ import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import ListAltOutlinedIcon from "@mui/icons-material/ListAltOutlined";
 import Grid from "@mui/material/Grid";
 import InboxOutlinedIcon from "@mui/icons-material/InboxOutlined";
-import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
+import DoNotDisturbOnOutlinedIcon from "@mui/icons-material/DoNotDisturbOnOutlined";
 import EditNoteOutlinedIcon from "@mui/icons-material/EditNoteOutlined";
 import VerifiedOutlinedIcon from "@mui/icons-material/VerifiedOutlined";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, KpiTile, MUTED, RED, bodyCell, clip, headCell, hsTicket } from "@/app/uc/report/ui";
@@ -38,8 +38,8 @@ import type { IntakeLast, IntakeRow } from "@/lib/boDistribution/intakeRun";
 import type { IntakeSettings, Team } from "@/lib/boDistribution/intakeSettings";
 
 type State = {
-  workflow: { on: boolean; updatedAt: string | null } | null; workflowName: string; offAt: string | null; last: IntakeLast | null; mailReady: boolean;
-  figures: { compared: number; same: number; byBranch: Record<string, { n: number; same: number }>; done: number; failed: number };
+  from: string; last: IntakeLast | null; mailReady: boolean;
+  figures: { done: number; failed: number; mailed: number; skipped: number; certificates: number };
   rows: IntakeRow[];
   settings: IntakeSettings; names: Record<string, string>; choices: { id: string; name: string }[]; users: { id: string; name: string }[]; admin: boolean;
   defaults: { teams: Team[]; creators: string[]; waitS: number; emailWaitS: number; maxAgeMin: number };
@@ -62,25 +62,19 @@ async function put(body: object): Promise<{ ok: boolean; error?: string }> {
 
 // ---------------- who writes it ----------------
 function StatusCard({ s }: { s: State }) {
-  const hub = !!s.offAt;
   const f = s.figures;
   return (
     <GlassCard>
-      <CardTitle icon={<LoginOutlinedIcon />} tint={hub ? "green" : "amber"} title={`The way in: ${s.workflowName}`} note="Every ticket that enters Back Office New - written before the distribution gives it a person, in the same minute" />
+      <CardTitle icon={<LoginOutlinedIcon />} tint="green" title="The way in" note="Every ticket that enters Back Office New - written before the distribution gives it a person, in the same minute" />
       <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center", mb: 1 }}>
-        <Chip tint={!s.workflow ? "amber" : s.workflow.on ? "pink" : "slate"}>{!s.workflow ? "HubSpot unreadable" : s.workflow.on ? "Workflow ON in HubSpot" : "Workflow off in HubSpot"}</Chip>
-        <Chip tint={hub ? "green" : "amber"}>{hub ? `Run by the hub since ${when(s.offAt)}` : "Run by HubSpot - the hub compares"}</Chip>
+        <Chip tint="green">{`Run by the hub since ${when(s.from)}`}</Chip>
         {!s.mailReady && <Chip tint="pink">The hub cannot send mail here</Chip>}
       </Box>
       <Typography sx={{ fontSize: "0.82rem", color: INK }}>
-        {hub
-          ? "The hub writes the way in: subject, requester, owner Backoffice Team (stage Assigned for the Back Office's own mails), the mail - then the distribution assigns. Switching the workflow back on in HubSpot is the roll-back; the hub sees it within 2 minutes."
-          : "The workflow still writes it. The hub works out the same for every ticket that enters New and compares, 10 minutes later. Once the workflow is switched off in HubSpot, the hub writes it from that moment."}
+        The hub writes the way in: subject, requester, owner Backoffice Team (stage Assigned for the Back Office&apos;s own mails), the mail - then the distribution assigns.
       </Typography>
       <Typography sx={{ mt: 0.75, fontSize: "0.8rem", color: MUTED }}>
-        {f.compared ? `Compared with the workflow, 7 days: ${full(f.same)} of ${full(f.compared)} the same` : "Nothing compared yet - the first tickets show 10 minutes after they enter New"}
-        {Object.keys(f.byBranch).length ? ` (${Object.entries(f.byBranch).map(([k, v]) => `${BRANCH[k] ?? k} ${v.same}/${v.n}`).join(" · ")})` : ""}
-        {f.done ? ` · written by the hub: ${full(f.done)}` : ""}{f.failed ? ` · failed: ${full(f.failed)}` : ""}
+        7 days: {full(f.done)} written{f.failed ? ` · ${full(f.failed)} failed` : ""} · {full(f.mailed)} mails · {full(f.certificates)} to Certificates · {full(f.skipped)} left alone
         {s.last ? ` · last look ${when(s.last.at)}${s.last.error ? ` - ${s.last.error}` : ""}` : ""}
       </Typography>
     </GlassCard>
@@ -92,16 +86,15 @@ function KpiBand({ s }: { s: State }) {
   const week = s.rows.filter((r) => Date.now() - Date.parse(r.enteredAt) < 7 * 86400_000);
   const today = s.rows.filter((r) => new Date(r.enteredAt).toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" }) === new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Zurich" }));
   const f = s.figures;
-  const mails = week.filter((r) => (r.mailText ?? "").startsWith("mail to")).length;
   const certs = week.filter((r) => r.what === "certificates" || r.branch === "CERTIFICATE").length;
   const branches = Object.entries(week.reduce<Record<string, number>>((a, r) => { if (r.branch) a[r.branch] = (a[r.branch] ?? 0) + 1; return a; }, {})).sort((a, b) => b[1] - a[1]);
   return (
     <Grid container spacing={2}>
       <Grid size={{ xs: 6, md: 4, lg: 2.4 }}><KpiTile icon={<InboxOutlinedIcon />} tint="blue" label="Tickets in" value={full(week.length)} note={`7 days · ${full(today.length)} today`} /></Grid>
-      <Grid size={{ xs: 6, md: 4, lg: 2.4 }}><KpiTile icon={<FactCheckOutlinedIcon />} tint="green" label="Same as the workflow" value={f.compared ? `${Math.round((f.same / f.compared) * 100)}%` : "—"} note={f.compared ? `${full(f.same)} of ${full(f.compared)} compared` : "compared while the workflow runs"} /></Grid>
-      <Grid size={{ xs: 6, md: 4, lg: 2.4 }}><KpiTile icon={<EditNoteOutlinedIcon />} tint="purple" label="Written by the hub" value={full(f.done)} note={f.failed ? `${full(f.failed)} failed` : s.offAt ? "7 days" : "once the workflow is off"} /></Grid>
-      <Grid size={{ xs: 6, md: 4, lg: 2.4 }}><KpiTile icon={<MailOutlineIcon />} tint="amber" label="Mails sent" value={full(mails)} note={s.settings.mail ? `to ${s.settings.to.length ? s.settings.to.map((id) => s.names[id] ?? id).join(", ") : "nobody yet"}` : "switched off"} /></Grid>
+      <Grid size={{ xs: 6, md: 4, lg: 2.4 }}><KpiTile icon={<EditNoteOutlinedIcon />} tint="purple" label="Written by the hub" value={full(f.done)} note={f.failed ? `${full(f.failed)} failed` : "7 days"} /></Grid>
+      <Grid size={{ xs: 6, md: 4, lg: 2.4 }}><KpiTile icon={<MailOutlineIcon />} tint="amber" label="Mails sent" value={full(f.mailed)} note={s.settings.mail ? `to ${s.settings.to.length ? s.settings.to.map((id) => s.names[id] ?? id).join(", ") : "nobody yet"}` : "switched off"} /></Grid>
       <Grid size={{ xs: 6, md: 4, lg: 2.4 }}><KpiTile icon={<VerifiedOutlinedIcon />} tint="pink" label="To Certificates" value={full(certs)} note={branches.length ? `most: ${BRANCH[branches[0][0]] ?? branches[0][0]} ${full(branches[0][1])}` : "7 days"} /></Grid>
+      <Grid size={{ xs: 6, md: 4, lg: 2.4 }}><KpiTile icon={<DoNotDisturbOnOutlinedIcon />} tint="slate" label="Left alone" value={full(f.skipped)} note="out of New, too old, or from a mail of the hub's own" /></Grid>
     </Grid>
   );
 }
@@ -110,12 +103,12 @@ function KpiBand({ s }: { s: State }) {
 function RulesCard({ s }: { s: State }) {
   return (
     <GlassCard>
-      <CardTitle icon={<MenuBookOutlinedIcon />} tint="blue" title="What the way in writes" note="Branch by branch, as the workflow had it - the first that fits" />
+      <CardTitle icon={<MenuBookOutlinedIcon />} tint="blue" title="What the way in writes" note="Branch by branch - the first that fits" />
       <Box component="ol" sx={{ m: 0, pl: 2.5, display: "grid", gap: 0.5, fontSize: "0.8rem", color: INK, listStyleType: "decimal", "& > li": { display: "list-item" } }}>
         <li><b>Created by the Back Office itself</b> ({full(s.settings.creators.length)} people, below): &quot;BO | MAIL TO CUSTOMER or A+P TEAMS&quot;, stage Assigned, owner = the e-mail&apos;s owner. No mail.</li>
-        <li><b>A form</b>: the mail only (the form&apos;s own workflow wrote subject and owner).</li>
+        <li><b>A form</b>: the mail only (the form wrote subject and owner).</li>
         <li><b>An e-mail</b>: the sender names the A+P team ({full(s.settings.teams.length)} teams, below) - &quot;BO | EMAIL | team | e-mail subject |&quot;; any other sender &quot;BO | requirement category Email | e-mail subject |&quot;. Requester = the owner, owner = Backoffice Team, the mail.</li>
-        <li><b>A certificate request</b> (a certificate named): handed to <Box component="a" href="/uc/certificates#console" sx={{ color: INK, fontWeight: 700 }}>Certificates</Box> - it sets the requester and takes the ticket on (AVOR, the Back Office, the experts).</li>
+        <li><b>A certificate request</b> (a certificate named): handed to <Box component="a" href="/uc/certificates#settings" sx={{ color: INK, fontWeight: 700 }}>Certificates</Box> - it sets the requester and takes the ticket on (AVOR, the Back Office, the experts).</li>
         <li><b>Created by hand</b> (anything else): &quot;BO | requirement category | owner&quot;, requester = the owner, owner = Backoffice Team, the mail.</li>
       </Box>
       <Typography sx={{ mt: 1, fontSize: "0.74rem", color: FAINT }}>
@@ -142,7 +135,7 @@ function MailCard({ s, onChanged }: { s: State; onChanged: () => void }) {
       <PeoplePicker label="Who gets it" ids={s.settings.to} allowEmpty choices={s.choices} names={s.names} disabled={!s.admin || busy} onSave={(ids) => void save({ to: ids })} />
       <Typography sx={{ mt: 0.75, fontSize: "0.72rem", color: FAINT }}>
         Never the Backoffice Team or TSA Team themselves: their address is a HubSpot inbox, and a mail there comes back as a new ticket (05.11.2026: 120 tickets in 44 minutes). Nobody picked = not sent.
-        {!s.settings.own.to ? " Until changed here: the people picked on Certificates > Console." : ""}
+        {!s.settings.own.to ? " Until changed here: the people picked for the reminder on Certificates > Settings." : ""}
       </Typography>
       {err && <Typography sx={{ mt: 1, fontSize: "0.82rem", color: RED }}>{err}</Typography>}
     </GlassCard>
@@ -164,14 +157,14 @@ function WaitsCard({ s, onChanged }: { s: State; onChanged: () => void }) {
   const save = async (body: object) => { setBusy(true); setMsg(null); const r = await put(body); setMsg(r.ok ? { ok: true, text: "Saved - the next minute works this way." } : { ok: false, text: r.error ?? "failed" }); setBusy(false); onChanged(); };
   return (
     <GlassCard>
-      <CardTitle icon={<ScheduleOutlinedIcon />} tint="amber" title="The waits" note={isDefault ? "The workflow's" : "Changed from the workflow's"} />
+      <CardTitle icon={<ScheduleOutlinedIcon />} tint="amber" title="The waits" note={isDefault ? "The defaults" : "Changed from the defaults"} />
       <Box sx={{ display: "grid", gap: 1 }}>
         {WAITS.map((w) => (
           <Box key={w.key} sx={{ display: "flex", gap: 1.25, alignItems: "center", flexWrap: "wrap" }}>
             <TextField size="small" type="number" label={w.label} value={v[w.key]} disabled={!s.admin || busy} sx={{ width: 170 }}
               onChange={(e) => setV((x) => ({ ...x, [w.key]: Number(e.target.value) }))}
               inputProps={{ min: s.bounds[w.key][0], max: s.bounds[w.key][1], step: 1 }}
-              helperText={`${w.unit}, ${s.bounds[w.key][0]}-${s.bounds[w.key][1]}${s.settings[w.key] !== s.defaults[w.key] ? ` (workflow: ${s.defaults[w.key]})` : ""}`} />
+              helperText={`${w.unit}, ${s.bounds[w.key][0]}-${s.bounds[w.key][1]}${s.settings[w.key] !== s.defaults[w.key] ? ` (default: ${s.defaults[w.key]})` : ""}`} />
             <Typography sx={{ fontSize: "0.76rem", color: MUTED, flex: 1, minWidth: 180 }}>{w.text}</Typography>
           </Box>
         ))}
@@ -179,7 +172,7 @@ function WaitsCard({ s, onChanged }: { s: State; onChanged: () => void }) {
       {s.admin && (
         <Box sx={{ mt: 1, display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
           <Button size="small" variant="contained" disableElevation disabled={!changed || busy} onClick={() => void save(v)}>Save the waits</Button>
-          {!isDefault && <Button size="small" variant="outlined" disabled={busy} onClick={() => { setV({ waitS: s.defaults.waitS, emailWaitS: s.defaults.emailWaitS, maxAgeMin: s.defaults.maxAgeMin }); void save({ reset: "waits" }); }}>Back to the workflow&apos;s</Button>}
+          {!isDefault && <Button size="small" variant="outlined" disabled={busy} onClick={() => { setV({ waitS: s.defaults.waitS, emailWaitS: s.defaults.emailWaitS, maxAgeMin: s.defaults.maxAgeMin }); void save({ reset: "waits" }); }}>Back to the defaults</Button>}
         </Box>
       )}
       {msg && <Typography sx={{ mt: 1, fontSize: "0.82rem", color: msg.ok ? GREEN : RED }}>{msg.text}</Typography>}
@@ -199,7 +192,7 @@ function CreatorsCard({ s, onChanged }: { s: State; onChanged: () => void }) {
     <GlassCard>
       <CardTitle icon={<GroupsOutlinedIcon />} tint="blue" title="The Back Office's own people" note="A ticket one of them creates is their mail to a customer or an A+P team (branch 1) - not a request to hand out" />
       <PeoplePicker label="HubSpot users" ids={s.settings.creators} choices={s.users} names={names} disabled={!s.admin || busy} onSave={(ids) => void save({ creators: ids })} />
-      {s.admin && !isDefault && <Button sx={{ mt: 1 }} size="small" variant="outlined" disabled={busy} onClick={() => void save({ reset: "creators" })}>Back to the workflow&apos;s {full(s.defaults.creators.length)}</Button>}
+      {s.admin && !isDefault && <Button sx={{ mt: 1 }} size="small" variant="outlined" disabled={busy} onClick={() => void save({ reset: "creators" })}>Back to the default {full(s.defaults.creators.length)}</Button>}
       {err && <Typography sx={{ mt: 1, fontSize: "0.82rem", color: RED }}>{err}</Typography>}
     </GlassCard>
   );
@@ -248,7 +241,7 @@ function TeamsCard({ s, onChanged }: { s: State; onChanged: () => void }) {
           <Button size="small" variant="text" disabled={busy} onClick={() => setRows((x) => [...x, { team: "", from: "" }])}>Add a team</Button>
           <Button size="small" variant="contained" disableElevation disabled={!changed || busy} onClick={() => void save({ teams: parsed })}>Save the teams</Button>
           {changed && <Button size="small" variant="text" disabled={busy} onClick={() => setRows(toRows(s.settings.teams))}>Undo</Button>}
-          {!isDefault && <Button size="small" variant="outlined" disabled={busy} onClick={() => { if (window.confirm(`Back to the workflow's ${s.defaults.teams.length} teams and ${s.defaults.teams.reduce((a, t) => a + t.from.length, 0)} addresses?`)) { setRows(toRows(s.defaults.teams)); void save({ reset: "teams" }); } }}>Back to the workflow&apos;s</Button>}
+          {!isDefault && <Button size="small" variant="outlined" disabled={busy} onClick={() => { if (window.confirm(`Back to the default ${s.defaults.teams.length} teams and ${s.defaults.teams.reduce((a, t) => a + t.from.length, 0)} addresses?`)) { setRows(toRows(s.defaults.teams)); void save({ reset: "teams" }); } }}>Back to the defaults</Button>}
           <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>Addresses separated by commas; team names are written in capitals.</Typography>
         </Box>
       )}
@@ -259,21 +252,21 @@ function TeamsCard({ s, onChanged }: { s: State; onChanged: () => void }) {
 
 // ---------------- the tickets ----------------
 function TicketsCard({ s }: { s: State }) {
-  const [f, setF] = useState<"all" | "written" | "compared" | "differs" | "certificates" | "skipped">("all");
+  const [f, setF] = useState<"all" | "written" | "failed" | "mailed" | "certificates" | "skipped">("all");
   const tests: Record<typeof f, (r: IntakeRow) => boolean> = {
-    all: () => true, written: (r) => r.what === "done" || r.what === "failed", compared: (r) => r.what === "shadow",
-    differs: (r) => r.what === "shadow" && !!r.actual && !r.actual.same, certificates: (r) => r.what === "certificates" || r.branch === "CERTIFICATE", skipped: (r) => r.what === "skipped",
+    all: () => true, written: (r) => r.what === "done", failed: (r) => r.what === "failed", mailed: (r) => (r.mailText ?? "").startsWith("mail to"),
+    certificates: (r) => r.what === "certificates" || r.branch === "CERTIFICATE", skipped: (r) => r.what === "skipped",
   };
   const rows = s.rows.filter(tests[f]);
   const { slice, pager } = usePaged(rows, 20);
   const chips: { key: typeof f; label: string }[] = [
-    { key: "all", label: "All" }, { key: "written", label: "Written by the hub" }, { key: "compared", label: "Compared" }, { key: "differs", label: "Differs" },
+    { key: "all", label: "All" }, { key: "written", label: "Written by the hub" }, { key: "mailed", label: "Mailed" }, { key: "failed", label: "Failed" },
     { key: "certificates", label: "To Certificates" }, { key: "skipped", label: "Left alone" },
   ];
   return (
     <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
       <Box sx={{ px: { xs: 2, md: 2.75 }, display: "grid", gap: 1 }}>
-        <CardTitle icon={<ListAltOutlinedIcon />} tint="slate" title="The tickets that came in" note="Newest first: the branch, what the hub writes (or would), and the result" />
+        <CardTitle icon={<ListAltOutlinedIcon />} tint="slate" title="The tickets that came in" note="Newest first: the branch, what the hub wrote, and the result" />
         <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
           {chips.map((c) => {
             const on = c.key === f;
@@ -306,17 +299,8 @@ function TicketsCard({ s }: { s: State }) {
                   {!Object.keys(r.props).length && !r.mail ? (r.what === "certificates" ? "nothing - Certificates" : "nothing") : ""}
                 </TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.78rem" }}>
-                  {r.what === "shadow" && r.actual ? (
-                    <>
-                      <Chip tint={r.actual.same ? "green" : "pink"}>{r.actual.same ? "same as the workflow" : r.actual.wrote ? "differs" : "the workflow wrote nothing"}</Chip>
-                      {r.actual.diffs.map((x) => <Typography key={x} sx={{ fontSize: "0.7rem", color: FAINT, ...clip(360) }}>{x}</Typography>)}
-                    </>
-                  ) : (
-                    <>
-                      <Chip tint={r.what === "done" ? "green" : r.what === "failed" ? "pink" : r.what === "certificates" ? "purple" : "slate"}>{r.what === "done" ? "written" : r.what === "certificates" ? "to Certificates" : r.what === "skipped" ? "left alone" : r.what}</Chip>
-                      {(r.error || r.why || r.mailText) && <Typography sx={{ fontSize: "0.72rem", color: r.error ? RED : MUTED }}>{r.error ?? r.mailText ?? r.why}</Typography>}
-                    </>
-                  )}
+                  <Chip tint={r.what === "done" ? "green" : r.what === "failed" ? "pink" : r.what === "certificates" ? "purple" : "slate"}>{r.what === "done" ? "written" : r.what === "certificates" ? "to Certificates" : r.what === "skipped" ? "left alone" : r.what}</Chip>
+                  {(r.error || r.why || r.mailText) && <Typography sx={{ fontSize: "0.72rem", color: r.error ? RED : MUTED }}>{r.error ?? r.mailText ?? r.why}</Typography>}
                 </TableCell>
               </TableRow>
             ))}

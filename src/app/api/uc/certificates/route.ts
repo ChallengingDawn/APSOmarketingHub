@@ -1,11 +1,11 @@
-// CERTIFICATES - UC & HubSpot Apps > Certificates (src/lib/certificates). Replaces the HubSpot workflow "SARCLA |
-// CERTIFICATES NEW PROCESS", SARCLA 04.11.2026.
+// CERTIFICATES - UC & HubSpot Apps > Certificates (src/lib/certificates), run by the hub (SARCLA 04-07.11.2026).
 // GET: the mode, the people, the last look, the open tickets with their step, what the hub did (or would do), the year.
-// PUT (admins) {mode} or {people}: off / preview (lists, writes nothing) / live (writes while the workflow is off);
+// PUT (admins) {mode} or {people}: off / preview (lists, writes nothing) / live (writes);
 //      the Back Office rotation, the conformity experts, who gets a ticket after 15 days.
 // PUT (admins) {mails: {owner?, team?, created?}} the console's mail switches; {timing: {...} | "default"} the times
 //      and waits (rules.ts TIMING_BOUNDS); {hold: ticketId} / {release: ticketId} - the hub leaves a ticket alone;
-//      {teamTo: [ownerId]} who gets the Backoffice Team's reminder (never a queue user - its address is an inbox);
+//      {teamTo: [ownerId]} who also gets the reminder on every other ticket in Remind - its owner always does (never a
+//      queue user - its address is an inbox);
 //      {erpDates: "off" | "show" | "write"} follow the ERP's delivery date; {shop: "off" | "preview" | "live"} tickets
 //      from the shop's orders with the declaration line.
 // PUT (admins) {steps: {avor?, bo?, expert?, handover?}} the step groups on / off (off = skipped, not taken later).

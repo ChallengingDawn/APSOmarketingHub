@@ -5,20 +5,20 @@
 
 import Box from "@mui/material/Box";
 import { INK, clip, hsTicket, type Tint } from "@/app/uc/report/ui";
-import type { BoardRow, OpenTicket, OthersRow, RemindState, Row, RunInfo, Settings, Stats } from "@/lib/certificates/engine";
-import type { DateRow } from "@/lib/certificates/erpData";
+import type { BoardRow, OpenTicket, OthersRow, Row, RunInfo, Settings, Stats } from "@/lib/certificates/engine";
+import type { DateRow, ErpRead } from "@/lib/certificates/erpData";
 import type { ShopRow } from "@/lib/certificates/shopIntake";
 import type { Phase, StepName, Timing } from "@/lib/certificates/rules";
 
 export type Data = {
   settings: Settings; last: RunInfo | null; rows: Row[]; open: OpenTicket[]; stats: Stats | null;
   names: Record<string, string>; choices: { id: string; name: string }[];
-  workflowOn: boolean | null; writing: boolean; offAt: string; admin: boolean;
-  remind: (RemindState & { offAt: string | null }) | null; mailReady: boolean;
-  others: { offAt: string | null; rows: OthersRow[] };
+  writing: boolean; since: string; admin: boolean; mailReady: boolean;
+  others: { rows: OthersRow[] };
   board: BoardRow[];
-  /** the ERP's delivery dates followed (or listed); the shop's orders with the declaration; ERP orders with a request */
-  dates: DateRow[]; shop: ShopRow[]; erpRequests: number;
+  /** the ERP's delivery dates followed (or listed); the shop's orders with the declaration; ERP orders with a request,
+   *  and when the ERP's order file was last read for them */
+  dates: DateRow[]; shop: ShopRow[]; erpRequests: number; erpRead: ErpRead | null;
 };
 
 export const PHASE: Record<Phase, { label: string; tint: Tint }> = {
@@ -39,7 +39,6 @@ export const isLate = (t: OpenTicket) => !!t.step && LATE.includes(t.step);
 export const BO_STEPS: StepName[] = ["bo3days", "boToday", "bo48", "bo96", "boWeek", "boRose"];
 /** the steps that mail the owner (when the owners' mails are on) */
 export const MAIL_STEPS: StepName[] = BO_STEPS;
-export const REMIND_NAME = "Back Office Ticket Remind | Notification";
 
 export const hh = (h: number) => `${String(h).padStart(2, "0")}:00`;
 export const span = (h: number) => (h % 24 === 0 ? `${h / 24} day${h === 24 ? "" : "s"}` : `${h} h`);
