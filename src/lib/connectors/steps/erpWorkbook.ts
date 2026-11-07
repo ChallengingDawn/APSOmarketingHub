@@ -24,6 +24,7 @@ import { PassThrough, pipeline, type Readable } from "node:stream";
 import { createInflateRaw } from "node:zlib";
 import { SaxesParser } from "saxes";
 import { Figures3, Figures4, PyFloat, SHEET_CUSTOMERS, SHEET_PROFIT_CENTRES, pyRound, type Cell, type Figures3Result, type Figures4Result } from "./erpRules";
+import { ErpLinesSheet, SHEET_ERP_LINES, type ErpLine } from "../../reporting/boErpLines";
 
 export class WorkbookFormatError extends Error {
   constructor(message: string) {
@@ -489,6 +490,8 @@ export type ErpWorkbook = {
   customers: Figures3Result;
   /** null when the workbook has no FIGURES (4) - the connector then writes no profit-centre rows */
   profitCentres: Figures4Result | null;
+  /** the ERP's order lines from its BI model (sheet "KPI LINES", ../../reporting/boErpLines.ts) - null without that sheet */
+  erpLines: { lines: ErpLine[]; rows: number } | null;
   rows: number;
   seconds: number;
 };
@@ -519,5 +522,13 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>):
     rows += await readSheet(file, e4, book, (n, cells) => f4.feed(n, cells), beat);
     profitCentres = f4.finish();
   }
-  return { file: basename(file), mb: pyRound(size / 1048576, 1), sheets: names, customers, profitCentres, rows, seconds: Math.round((Date.now() - t0) / 100) / 10 };
+  // the order lines for the Back Office's KPIs: optional, and never the revenue's problem
+  let erpLines: { lines: ErpLine[]; rows: number } | null = null;
+  const lt = book.sheets.find((x) => x.name.trim().toUpperCase() === SHEET_ERP_LINES);
+  if (lt) {
+    const sl = new ErpLinesSheet();
+    rows += await readSheet(file, part(lt.name)!, book, (n, cells) => sl.feed(n, cells), beat);
+    erpLines = sl.finish();
+  }
+  return { file: basename(file), mb: pyRound(size / 1048576, 1), sheets: names, customers, profitCentres, erpLines, rows, seconds: Math.round((Date.now() - t0) / 100) / 10 };
 }

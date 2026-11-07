@@ -31,6 +31,8 @@ import {
   type CompanyValues, type FoundCompany, type KpiProps, type KpiRows,
 } from "./erpRules";
 import { readErpWorkbook } from "./erpWorkbook";
+import { SHEET_ERP_LINES } from "../../reporting/boErpLines";
+import { saveErpLines } from "@/lib/reporting/boErpLinesStore";
 
 type Beat = () => Promise<void>;
 type Obj = { id: string; properties?: Record<string, string | null | undefined> };
@@ -253,6 +255,13 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
     customers: data.size, month, pivots: wb.customers.pivots, dry_run: !live,
   };
   if (!data.size) throw new Error(`${wb.file}: no customer carries a figure - an empty or unfinished export, nothing written`);
+  // the Back Office's KPIs from the "KPI LINES" sheet (pass rate, manual prices, OTD) - kept before HubSpot, never its problem
+  if (!wb.erpLines) out.erp_lines = wb.sheets.some((s) => s.trim().toUpperCase() === SHEET_ERP_LINES) ? "sheet without the expected header" : "no KPI LINES sheet";
+  else if (!live) out.erp_lines = { lines: wb.erpLines.lines.length, rows: wb.erpLines.rows, kept: false };
+  else {
+    try { out.erp_lines = { ...(await saveErpLines(wb.erpLines.lines)), rows: wb.erpLines.rows, kept: true }; }
+    catch (e) { out.erp_lines = `not kept: ${(e as Error).message}`; }
+  }
   await beat();
 
   const pre = await preflight();
