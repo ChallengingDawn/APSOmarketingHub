@@ -102,6 +102,7 @@ import PreviewOutlinedIcon from "@mui/icons-material/PreviewOutlined";
 import ContentCutOutlinedIcon from "@mui/icons-material/ContentCutOutlined";
 import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
+import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
@@ -210,12 +211,13 @@ const UC_NAV: Record<string, { label: string; icon: React.ReactNode }> = {
  */
 const MARKETING_NAV: Record<string, NavSection["items"]> = {
   content: [
-    // Personality first: it is the brain every generator reads, and reading it is what you do before making anything.
+    // The calendar first (SARCLA 07.11.2026: "calendar should be the first app"), then the projects; how we write after.
     // Create Studio and the Content Library are deliberately NOT here: the studio is where you arrive after choosing what
     // to make (a link to it is an empty editor), and the library is what a project holds, reached through the project.
-    { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
+    { label: "Calendar", href: "/projects/calendar", icon: <CalendarMonthOutlinedIcon fontSize="small" /> },
     { label: "Projects", href: "/projects", icon: <FolderOpenIcon fontSize="small" /> },
-    { label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
+    { group: "How we write", label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
+    { group: "How we write", label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
   ],
   // from SEO_NAV, the one list the SEO pages' own tabs read too
   seo: SEO_NAV.map((e) => ({ label: e.label, href: e.href, icon: SEO_ICON[e.id] })),

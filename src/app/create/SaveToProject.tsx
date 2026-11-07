@@ -23,6 +23,14 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 
+/** The piece the studio was opened from, when the save goes to that piece's project. */
+function pieceFromUrl(projectId: number): number | null {
+  if (typeof window === "undefined") return null;
+  const q = new URLSearchParams(window.location.search);
+  const piece = Number(q.get("piece"));
+  return Number(q.get("project")) === projectId && Number.isInteger(piece) && piece > 0 ? piece : null;
+}
+
 type Project = { id: number; title: string; variantCount?: number };
 
 const INK = "#15223a";
@@ -71,7 +79,8 @@ export default function SaveToProject({
       const res = await fetch(`/api/content/projects/${projectId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "attach", contentId: draftId, label: label.trim() || null }),
+        // opened from a piece of this project (/create?project=..&piece=..): the version is that piece's (07.11.2026)
+        body: JSON.stringify({ action: "attach", contentId: draftId, label: label.trim() || null, pieceId: pieceFromUrl(projectId) }),
       });
       const j = await res.json();
       setDone(j.ok ? "Saved into the project." : (j.error ?? "That did not save."));

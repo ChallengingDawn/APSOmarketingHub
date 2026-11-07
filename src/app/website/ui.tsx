@@ -17,7 +17,7 @@ const rise = (i: number) => ({ animation: `riseIn .5s cubic-bezier(.22,.8,.3,1) 
 /** Where a section's tile leads: its first page this person may open, else the section's own page (under `base` -
  *  Website's, or UC & HubSpot Apps' since 06.11.2026). */
 export const sectionEntry = (s: WebsiteSection, canOpen: (href: string) => boolean, base = "/website") =>
-  s.pages.find((p) => canOpen(p.href))?.href ?? `${base}/${s.slug}`;
+  (s.entry && canOpen(s.entry) ? s.entry : null) ?? s.pages.find((p) => canOpen(p.href))?.href ?? `${base}/${s.slug}`;
 
 export function SectionTile({ s, canOpen, i, base = "/website" }: { s: WebsiteSection; canOpen: (href: string) => boolean; i: number; base?: string }) {
   const open = s.pages.filter((p) => canOpen(p.href));
