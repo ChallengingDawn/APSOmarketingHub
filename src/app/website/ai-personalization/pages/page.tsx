@@ -34,10 +34,11 @@ import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, HAIRLINE, KpiTile, MUTED, Notice, bodyCell, clip, headCell } from "@/app/uc/report/ui";
-import { Choice, Chip, ago, when } from "@/app/connectors/parts";
+import { Chip, ago, when } from "@/app/connectors/parts";
 import { ENVS, KIND_LABEL, PAGE_KINDS, type Env, type PageKind } from "@/lib/convert/model";
 import type { PageRow, PagesList, PagesSummary, ReadResult, Where } from "@/lib/convert/pages";
-import { Flow, previewHref } from "../Flow";
+import { previewHref } from "../Flow";
+import { SquareChoice } from "../SquareChoice";
 
 type Reads = Record<Env, { last: ReadResult | null; lastComplete: string | null }>;
 type Data = { reads: Reads; summary: PagesSummary; list: PagesList; canRead: boolean };
@@ -197,18 +198,18 @@ export default function ConvertPages() {
                 Those store views are listed, not compared.
               </Typography>
             )}
-            <Choice<PageKind | "all"> value={kind} onChange={(k) => { setKind(k); setPage(0); }} options={[
+            <SquareChoice<PageKind | "all"> label="Kind" value={kind} onChange={(k) => { setKind(k); setPage(0); }} options={[
               { key: "all", label: "All" },
               ...PAGE_KINDS.filter((k) => k !== "system" && totals.byKind(k) > 0).map((k) => ({ key: k, label: KIND_LABEL[k], count: totals.byKind(k) })),
             ]} />
-            <Choice<Where> value={where} onChange={(w) => { setWhere(w); setPage(0); }} options={[
+            <SquareChoice<Where> label="Where" value={where} onChange={(w) => { setWhere(w); setPage(0); }} options={[
               { key: "all", label: "Production or ACC" },
               { key: "both", label: "On both", count: totals.both },
               { key: "acc", label: "ACC only", count: totals.accOnly },
               { key: "prod", label: "Production only", count: totals.prodOnly },
             ]} />
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, alignItems: "center" }}>
-              <Choice<string> value={store} onChange={(s) => { setStore(s); setPage(0); }} options={[{ key: "all", label: "Every store view" }, ...totals.stores.map((s) => ({ key: s, label: s }))]} />
+              <SquareChoice<string> label="Store view" value={store} onChange={(s) => { setStore(s); setPage(0); }} options={[{ key: "all", label: "Every store view" }, ...totals.stores.map((s) => ({ key: s, label: s }))]} />
               <TextField size="small" value={qLive} onChange={(e) => setQLive(e.target.value)} placeholder="Address or product number"
                 inputProps={{ "aria-label": "Search the pages" }} sx={{ width: { xs: "100%", sm: 280 }, ml: { sm: "auto" } }} />
             </Box>
@@ -265,7 +266,6 @@ export default function ConvertPages() {
           </Box>
         }
       />
-      <Flow at={null} />
       {body}
     </Box>
   );

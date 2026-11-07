@@ -8,6 +8,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { getPool, query } from "@/lib/db/client";
 import { readPage } from "@/lib/directup/check";
+import { shopGet } from "./assets";
 import { claudeText, getAnthropic } from "@/lib/ai/claude";
 import { ENVS, classify, type Env, type PageKind } from "./model";
 import { outline, type Outline } from "./preview";
@@ -120,10 +121,9 @@ const THEME = new Map<string, { at: number; p: Promise<ThemeAssets> }>();
 
 async function getFile(url: string, max: number): Promise<Buffer | null> {
   try {
-    const r = await fetch(url, { headers: { "User-Agent": "APSOhub-preview" }, signal: AbortSignal.timeout(15_000) });
-    if (!r.ok) return null;
-    const b = Buffer.from(await r.arrayBuffer());
-    return b.length > 0 && b.length <= max ? b : null;
+    const r = await shopGet(url, 15_000, max);
+    if (r.status !== 200) return null;
+    return r.body.length > 0 && r.body.length <= max ? r.body : null;
   } catch {
     return null;
   }

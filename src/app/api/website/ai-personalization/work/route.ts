@@ -89,6 +89,13 @@ export async function POST(req: NextRequest) {
   const id = (k: string) => (typeof b[k] === "string" && /^\d{1,12}$/.test(b[k] as string) ? (b[k] as string) : null);
   try {
     switch (b.action) {
+      case "diag": {
+        // the preview frame's own report (how many of the shop's stylesheets it could draw), for the log only
+        const total = Number(b.total) || 0, failed = Number(b.nfailed) || 0;
+        const first = Array.isArray(b.failed) ? String(b.failed[0] ?? "").slice(0, 160) : "";
+        console.log(`[convert] preview styles ${total - failed}/${total} drawn for ${by}${failed ? ` - first refused: ${first}` : ""} (${String(req.headers.get("user-agent") ?? "").slice(0, 120)})`);
+        return NextResponse.json({ ok: true, data: null });
+      }
       case "ideas": {
         const path = cleanPath(b.path);
         if (!isEnv(b.env) || !path) return fail("env and path, please", 400);

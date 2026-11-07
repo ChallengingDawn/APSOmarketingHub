@@ -152,7 +152,7 @@ else if(c.op==="attr"){el.setAttribute(c.name,c.value);}
 function run(){
 for(var i=0;i<C.length;i++){var c=C[i];if(c.op==="css"||done[i])continue;var els;
 try{els=c.all?D.querySelectorAll(c.selector):[D.querySelector(c.selector)];}catch(e){done[i]=true;hit[i]=-1;continue;}
-for(var k=0;k<els.length;k++){var el=els[k];if(!el||(el.closest&&el.closest("[data-apso-v]")))continue;seen[i]=seen[i]||[];if(seen[i].indexOf(el)>=0)continue;seen[i].push(el);try{one(c,el);hit[i]=1;}catch(e){hit[i]=-1;}}
+for(var k=0;k<els.length;k++){var el=els[k];if(!el||(el.closest&&el.closest("[data-apso-v]")))continue;seen[i]=seen[i]||[];if(seen[i].indexOf(el)>=0)continue;seen[i].push(el);try{if(c.op!=="replace"&&el.setAttribute)el.setAttribute("data-apso-c",String(i+1));one(c,el);hit[i]=1;}catch(e){hit[i]=-1;}}
 if(hit[i]&&!c.all)done[i]=true;}
 }
 var mo,queued=false;

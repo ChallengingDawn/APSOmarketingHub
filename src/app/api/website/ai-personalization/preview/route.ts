@@ -6,16 +6,17 @@ import { NextRequest } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { ENVS, isEnv } from "@/lib/convert/model";
 import { cleanPage, previewCsp, shimSource, staticBase } from "@/lib/convert/preview";
+import { hubOriginOf, rewriteShopUrls } from "@/lib/convert/assets";
 import { cleanPath, revisionChanges, shopPage, themeAssets, versionById } from "@/lib/convert/studio";
 import { runtimeSource, type Change } from "@/lib/convert/versions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function headers(env: "prod" | "acc"): HeadersInit {
+function headers(env: "prod" | "acc", hub?: string): HeadersInit {
   return {
     "Content-Type": "text/html; charset=utf-8",
-    "Content-Security-Policy": previewCsp(ENVS[env].base),
+    "Content-Security-Policy": previewCsp(ENVS[env].base, hub),
     "Cache-Control": "no-store",
     "X-Frame-Options": "SAMEORIGIN",
     "X-Content-Type-Options": "nosniff",
@@ -61,5 +62,9 @@ export async function GET(req: NextRequest) {
   const head = `<script>${shimSource()}</script>${theme.css ? `<style data-apso-theme>${theme.css}</style>` : ""}`;
   const tail = changes ? `<script>${runtimeSource(changes, { report: true })}</script>` : "";
   const { html } = cleanPage(page.html, { pageUrl: page.url, head, tail, sprite: theme.sprite });
-  return new Response(html, { status: 200, headers: headers(env) });
+  // the shop's styles, scripts, fonts and pictures come through the hub (SARCLA 08.11.2026: the frame drew a raw page in
+  // his browser - something on the way blocked the shop's own files inside it); ?direct=1 keeps the shop's addresses
+  const hub = hubOriginOf(req.headers, req.nextUrl.origin);
+  const direct = sp.get("direct") === "1";
+  return new Response(direct ? html : rewriteShopUrls(html, hub), { status: 200, headers: headers(env, direct ? undefined : hub) });
 }

@@ -31,11 +31,12 @@ import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
 import { ACCENT, CardTitle, GREEN, GlassCard, KpiTile, MUTED, Notice, RED, TRACK, bodyCell, clip, headCell } from "@/app/uc/report/ui";
-import { Choice, Chip, usePaged } from "@/app/connectors/parts";
+import { Chip, usePaged } from "@/app/connectors/parts";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { KIND_LABEL, STEP_LABEL, sortProblems, type PageKind, type RankBy, type Step } from "@/lib/convert/model";
 import type { PageCustomers, ProblemsData } from "@/lib/convert/problems";
-import { Flow, previewHref } from "../Flow";
+import { previewHref } from "../Flow";
+import { SquareChoice } from "../SquareChoice";
 
 const PORTAL = "26492587";
 const hsCompany = (id: string) => `https://app-eu1.hubspot.com/contacts/${PORTAL}/record/0-2/${id}`;
@@ -250,10 +251,10 @@ export default function ConvertProblems() {
             <CardTitle icon={<ReportProblemOutlinedIcon />} tint="pink" title={`Pages · ${full(view.rows.length)}`}
               note={`A problem: ${full(data.minViews)}+ views and less than half the typical cart rate, or ${data.minCompanies}+ customers opened it and most did not order`} />
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
-              <Choice<RankBy> value={by} onChange={setBy} options={[{ key: "missed", label: "Most add-to-carts missed" }, { key: "lost", label: "Most customers lost" }]} />
-              <Choice<"flagged" | "all"> value={flagged} onChange={setFlagged} options={[{ key: "flagged", label: "Problems", count: view.flagged }, { key: "all", label: "Every page" }]} />
+              <SquareChoice<RankBy> label="Rank by" value={by} onChange={setBy} options={[{ key: "missed", label: "Most add-to-carts missed" }, { key: "lost", label: "Most customers lost" }]} />
+              <SquareChoice<"flagged" | "all"> label="Show" value={flagged} onChange={setFlagged} options={[{ key: "flagged", label: "Problems", count: view.flagged }, { key: "all", label: "Every page" }]} />
             </Box>
-            <Choice<PageKind | "all"> value={kind} onChange={setKind} options={[{ key: "all", label: "Every kind" }, ...view.kinds.filter((k) => k.n > 0).map((k) => ({ key: k.key, label: KIND_LABEL[k.key], count: k.n }))]} />
+            <SquareChoice<PageKind | "all"> label="Kind" value={kind} onChange={setKind} options={[{ key: "all", label: "Every kind" }, ...view.kinds.filter((k) => k.n > 0).map((k) => ({ key: k.key, label: KIND_LABEL[k.key], count: k.n }))]} />
           </Box>
           <Box sx={{ overflowX: "auto", mt: 1.5 }}>
             <Table size="small" sx={{ minWidth: 980 }}>
@@ -311,7 +312,6 @@ export default function ConvertProblems() {
           </Box>
         }
       />
-      <Flow at="problems" />
       {body}
     </Box>
   );

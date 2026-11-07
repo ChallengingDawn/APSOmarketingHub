@@ -216,3 +216,48 @@ test("projectForPage: a Content Studio project of a page - its type, its languag
   assert.deepEqual(markerOf(big.brief), { env: "acc", path: "/de-CH/x.html" });
   assert.ok(JSON.stringify(big).length < 7800);
 });
+
+test("shimSource keeps its regular expressions whole (a template string once ate the backslashes: 's' letters vanished)", () => {
+  const s = shimSource();
+  const BS = String.fromCharCode(92);
+  assert.ok(s.includes("/" + BS + "s+/g"));
+  assert.ok(s.includes("[" + BS + "w-]"));
+  assert.ok(!s.includes("[w-]"));
+  assert.doesNotThrow(() => new Function(s));
+});
+
+test("assets: the day key, the files it opens, and the shop's addresses in their three spellings", async () => {
+  process.env.SESSION_SECRET = process.env.SESSION_SECRET || "test-secret-for-the-asset-key";
+  const { assetKey, keyOk, assetPath, assetBase, rewriteShopUrls, hubOriginOf } = await import("../src/lib/convert/assets");
+  const now = Date.parse("2026-11-08T10:00:00Z");
+  const k = assetKey("prod", now);
+  assert.equal(k.length, 24);
+  assert.ok(keyOk("prod", k, now));
+  assert.ok(keyOk("prod", k, now + 86_400_000), "yesterday's key still opens");
+  assert.ok(!keyOk("prod", k, now + 2 * 86_400_000), "the day before yesterday's does not");
+  assert.ok(!keyOk("acc", k, now), "a key is for one shop");
+  assert.ok(!keyOk("prod", "x".repeat(24), now));
+  assert.equal(assetPath(["static", "version1", "frontend", "a.css"]), "/static/version1/frontend/a.css");
+  assert.equal(assetPath(["media", "catalog", "p.jpg"]), "/media/catalog/p.jpg");
+  assert.equal(assetPath(["de-CH", "checkout", "cart"]), null);
+  assert.equal(assetPath(["static", "..", "app", "etc", "env.php"]), null);
+  assert.equal(assetPath(["static", "a b.css"]), null);
+  const hub = "https://hub.example";
+  const base = assetBase(hub, "prod");
+  const BS = String.fromCharCode(92);
+  const esc = (x: string) => x.split(":").join(BS + "u003A").split("/").join(BS + "u002F");
+  const page = [
+    `<link href="https://www.apsoparts.com/static/version1/a.css">`,
+    `"src":"https:${BS}/${BS}/www.apsoparts.com${BS}/media${BS}/p.jpg"`,
+    `var require = { 'baseUrl': '${esc("https://acc.apsoparts.com/static/version1/frontend")}' }`,
+    `<a href="https://www.apsoparts.com/de-CH/x.html">`,
+  ].join("\n");
+  const out = rewriteShopUrls(page, hub);
+  assert.ok(out.includes(`${base}/static/version1/a.css`));
+  assert.ok(out.includes(`${base.split("/").join(BS + "/")}${BS}/media${BS}/p.jpg`));
+  assert.ok(out.includes(esc(`${assetBase(hub, "acc")}/static/version1/frontend`)));
+  assert.ok(out.includes(`href="https://www.apsoparts.com/de-CH/x.html"`), "page links stay on the shop");
+  const h = new Headers({ host: "internal:3000", "x-forwarded-host": "apsomarketinghub-dev.awssandbox.angst-pfister.com", "x-forwarded-proto": "https" });
+  assert.equal(hubOriginOf(h, "http://internal:3000"), "https://apsomarketinghub-dev.awssandbox.angst-pfister.com");
+  assert.equal(hubOriginOf(new Headers({ host: "localhost:3100" }), "http://localhost:3100"), "http://localhost:3100");
+});

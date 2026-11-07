@@ -28,13 +28,15 @@ import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
+import AdsClickOutlinedIcon from "@mui/icons-material/AdsClickOutlined";
+import HighlightAltOutlinedIcon from "@mui/icons-material/HighlightAltOutlined";
 import EditNoteOutlinedIcon from "@mui/icons-material/EditNoteOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
 import { ACCENT, AMBER, CardTitle, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, RED, clip } from "@/app/uc/report/ui";
-import { Choice, Chip, ago } from "@/app/connectors/parts";
+import { Chip, ago } from "@/app/connectors/parts";
 import { useReportingWindow } from "@/app/window/ReportingWindow";
 import { ENVS, KIND_LABEL, STEP_LABEL, classify, type Env, type PageKind, type Step } from "@/lib/convert/model";
 import type { ProblemsData } from "@/lib/convert/problems";
@@ -42,14 +44,17 @@ import type { PageRow, PagesList } from "@/lib/convert/pages";
 import type { Idea, Numbers, Revision, Version } from "@/lib/convert/studio";
 import { OP_LABEL, describe, type Change } from "@/lib/convert/versions";
 import { projectForPage, markerOf, pageMarker } from "@/lib/convert/handoff";
-import { Flow, convertPost, previewHref } from "../Flow";
+import { convertPost, previewHref } from "../Flow";
+import { SquareChoice } from "../SquareChoice";
 
 type StudioData = {
   env: Env; path: string;
   page: { status: number; error: string | null; title: string; h1: string[]; description: string; lines: string[]; truncated: boolean; kind: PageKind | null; product: string | null; url: string | null };
   ideas: Idea[]; versions: Version[]; canEdit: boolean; canContent: boolean; ai: boolean;
 };
-type Msg = { apsoPreview: "ready"; title: string } | { apsoPreview: "applied"; hit: number[] } | { apsoPreview: "go"; href: string } | { apsoPreview: "scroll"; y: number };
+type Msg = { apsoPreview: "ready"; title: string } | { apsoPreview: "applied"; hit: number[] } | { apsoPreview: "go"; href: string } | { apsoPreview: "scroll"; y: number }
+  | { apsoPreview: "picked"; selector: string; tag: string; text: string } | { apsoPreview: "styles"; total: number; nfailed: number; failed: string[] };
+type Picked = { selector: string; tag: string; text: string; from: string };
 type Device = "desktop" | "phone";
 type Zoom = "fit" | "full";
 type Sync = { y: number; from: string; n: number };
@@ -62,14 +67,16 @@ const pct = (r: number | null | undefined) => (r === null || r === undefined ? "
 // ---------------------------------------------------------------------------------------------------------------------
 // THE FRAME
 
-function Frame({ src, device, zoom, label, name, sync, onMsg }: {
-  src: string; device: Device; zoom: Zoom; label: string; name: string; sync: Sync | null; onMsg: (m: Msg, from: string) => void;
+function Frame({ src, device, zoom, label, address, name, sync, pick, marks, onMsg, onRetry }: {
+  src: string; device: Device; zoom: Zoom; label: string; address: string; name: string; sync: Sync | null;
+  pick: boolean; marks: boolean; onMsg: (m: Msg, from: string) => void; onRetry: () => void;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const [w, setW] = useState(0);
   const [vh, setVh] = useState(800);
   const [ready, setReady] = useState(false);
+  const [late, setLate] = useState(false);
   useEffect(() => {
     const el = wrap.current;
     if (!el) return;
@@ -77,7 +84,12 @@ function Frame({ src, device, zoom, label, name, sync, onMsg }: {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  useEffect(() => { setReady(false); }, [src]);
+  useEffect(() => {
+    setReady(false);
+    setLate(false);
+    const t = setTimeout(() => setLate(true), 25_000);
+    return () => clearTimeout(t);
+  }, [src]);
   useEffect(() => {
     const on = (e: MessageEvent) => {
       if (!frame.current || e.source !== frame.current.contentWindow) return;
@@ -94,23 +106,62 @@ function Frame({ src, device, zoom, label, name, sync, onMsg }: {
     if (!sync || sync.from === name) return;
     frame.current?.contentWindow?.postMessage({ apsoPreviewScroll: sync.y }, "*");
   }, [sync, name]);
-  const W = device === "phone" ? 390 : 1280;
-  const scale = zoom === "full" ? 1 : w ? Math.min(1, w / W) : 0.5;
-  const shownH = device === "phone" ? Math.min(820, Math.max(560, vh * 0.78)) : Math.max(420, vh * 0.72);
+  // picking an element, outlining the version's changes: told to the page once it is drawn, and on every change
+  useEffect(() => {
+    if (!ready) return;
+    frame.current?.contentWindow?.postMessage({ apsoPreviewPick: pick }, "*");
+  }, [pick, ready]);
+  useEffect(() => {
+    if (!ready) return;
+    frame.current?.contentWindow?.postMessage({ apsoPreviewMarks: marks }, "*");
+  }, [marks, ready]);
+  const phone = device === "phone";
+  const W = phone ? 390 : 1280;
+  const inner = phone ? Math.min(W, Math.max(0, w - 24)) : w;
+  const scale = zoom === "full" && !phone ? 1 : inner ? Math.min(1, inner / W) : 0.5;
+  const shownH = phone ? Math.min(780, Math.max(540, vh * 0.74)) : Math.max(420, vh * 0.7);
   const H = Math.round(shownH / scale);
+  const bar = (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.25, height: 34, bgcolor: "#f1f3f6", borderBottom: `1px solid ${HAIRLINE}` }}>
+      {!phone && <Box sx={{ display: "flex", gap: 0.6 }}>{["#ff5f57", "#febc2e", "#28c840"].map((c) => <Box key={c} sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: c, opacity: 0.85 }} />)}</Box>}
+      <Box sx={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 0.75, px: 1.25, height: 22, borderRadius: "6px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
+        <Box component="span" sx={{ fontSize: "0.72rem", color: GREEN }}>●</Box>
+        <Typography sx={{ fontSize: "0.72rem", color: MUTED, ...clip(900) }} title={address}>{address.replace(/^https:\/\//, "")}</Typography>
+      </Box>
+      {pick && <Chip tint="purple">Pick an element</Chip>}
+    </Box>
+  );
   return (
     <Box sx={{ minWidth: 0 }}>
-      <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: MUTED, mb: 0.5, textTransform: "uppercase", letterSpacing: ".04em" }}>{label}</Typography>
-      <Box ref={wrap} sx={{ position: "relative", height: shownH, overflowX: zoom === "full" ? "auto" : "hidden", overflowY: "hidden", borderRadius: "14px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff" }}>
-        <Box sx={{ width: zoom === "full" ? W : device === "phone" ? Math.min(W, w || W) : "100%", mx: zoom === "full" ? 0 : "auto", height: "100%", position: "relative", overflow: "hidden" }}>
-          <iframe ref={frame} key={src} src={src} title={label} sandbox="allow-scripts" referrerPolicy="no-referrer"
-            style={{ width: W, height: H, border: 0, transform: `scale(${scale})`, transformOrigin: "0 0", background: "#fff", display: "block" }} />
-        </Box>
-        {!ready && (
-          <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", bgcolor: "rgba(255,255,255,.75)", pointerEvents: "none" }}>
-            <Box sx={{ display: "flex", gap: 1, alignItems: "center", color: MUTED, fontSize: "0.84rem" }}><CircularProgress size={16} /> Reading the page from the shop…</Box>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
+        <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: label.startsWith("Version") ? "#6a46c9" : MUTED, textTransform: "uppercase", letterSpacing: ".04em" }}>{label}</Typography>
+        {ready && <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>· {phone ? "390 px wide" : zoom === "full" ? "actual size" : `${Math.round(scale * 100)}%`}</Typography>}
+      </Box>
+      <Box ref={wrap} sx={{ position: "relative", ...(phone ? { display: "grid", placeItems: "center", py: 1.5, bgcolor: "#eef1f5", borderRadius: "18px" } : {}) }}>
+        <Box sx={{
+          position: "relative", overflow: "hidden", bgcolor: "#fff",
+          ...(phone
+            ? { width: inner || W, borderRadius: "28px", border: "8px solid #1d2433", boxShadow: "0 18px 40px rgba(21,34,58,.22)" }
+            : { borderRadius: "12px", border: `1px solid ${HAIRLINE}`, boxShadow: "0 10px 30px rgba(21,34,58,.08)" }),
+        }}>
+          {bar}
+          <Box sx={{ height: shownH, overflowX: zoom === "full" && !phone ? "auto" : "hidden", overflowY: "hidden", position: "relative" }}>
+            <Box sx={{ width: zoom === "full" && !phone ? W : "100%", height: "100%", position: "relative", overflow: "hidden" }}>
+              <iframe ref={frame} key={src} src={src} title={label} sandbox="allow-scripts" referrerPolicy="no-referrer"
+                style={{ width: W, height: H, border: 0, transform: `scale(${scale})`, transformOrigin: "0 0", background: "#fff", display: "block" }} />
+            </Box>
+            {!ready && (
+              <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", bgcolor: "rgba(255,255,255,.82)", pointerEvents: late ? "auto" : "none" }}>
+                {late
+                  ? <Box sx={{ display: "grid", gap: 1, justifyItems: "center", color: MUTED, fontSize: "0.84rem", textAlign: "center", px: 2 }}>
+                      The page did not answer in 25 seconds.
+                      <Button size="small" variant="outlined" onClick={onRetry}>Read it again</Button>
+                    </Box>
+                  : <Box sx={{ display: "flex", gap: 1, alignItems: "center", color: MUTED, fontSize: "0.84rem" }}><CircularProgress size={16} /> Reading the page from the shop…</Box>}
+              </Box>
+            )}
           </Box>
-        )}
+        </Box>
       </Box>
     </Box>
   );
@@ -147,7 +198,7 @@ function Picker({ env, onOpen, problems }: { env: Env; onOpen: (env: Env, path: 
     <GlassCard>
       <CardTitle icon={<WebOutlinedIcon />} tint="blue" title="Open a page" note="Paste a shop address, or type a few letters of its name or address" />
       <Box sx={{ display: "grid", gap: 1.5, mt: 1.5 }}>
-        <Choice<Env> value={e} onChange={setE} options={[{ key: "prod", label: ENVS.prod.label }, { key: "acc", label: ENVS.acc.label }]} />
+        <SquareChoice<Env> label="Shop" value={e} onChange={setE} options={[{ key: "prod", label: ENVS.prod.label }, { key: "acc", label: ENVS.acc.label }]} />
         <Box sx={{ display: "flex", gap: 1 }}>
           <TextField size="small" fullWidth value={q} onChange={(ev) => setQ(ev.target.value)} onKeyDown={(ev) => { if (ev.key === "Enter") open(); }}
             placeholder="https://www.apsoparts.com/de-CH/… or o-ring" slotProps={{ input: { startAdornment: <SearchIcon sx={{ fontSize: 18, color: MUTED, mr: 1 }} /> } }} />
@@ -259,11 +310,17 @@ function OwnIdea({ onAdd }: { onAdd: (title: string, change: string) => Promise<
 // ---------------------------------------------------------------------------------------------------------------------
 // THE VERSION
 
-function VersionCard({ version, idea, hit, canEdit, busy, rev, onRev, onAsk, onStatus, onEdit }: {
-  version: Version; idea: Idea; hit: number[] | null; canEdit: boolean; busy: boolean; rev: number | null;
+function VersionCard({ version, idea, hit, canEdit, busy, rev, prefill, onRev, onAsk, onStatus, onEdit }: {
+  version: Version; idea: Idea; hit: number[] | null; canEdit: boolean; busy: boolean; rev: number | null; prefill: { text: string; n: number } | null;
   onRev: (r: number | null) => void; onAsk: (request: string) => Promise<boolean>; onStatus: (s: "approve" | "reopen") => void; onEdit: (changes: unknown) => Promise<string | null>;
 }) {
   const [ask, setAsk] = useState("");
+  const askRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!prefill) return;
+    setAsk(prefill.text);
+    setTimeout(() => { askRef.current?.focus(); askRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }, 50);
+  }, [prefill]);
   const [hand, setHand] = useState(false);
   const [json, setJson] = useState("");
   const [jsonErr, setJsonErr] = useState<string | null>(null);
@@ -298,7 +355,7 @@ function VersionCard({ version, idea, hit, canEdit, busy, rev, onRev, onAsk, onS
         </Box>
         {canEdit && (
           <Box sx={{ display: "grid", gap: 1 }}>
-            <TextField size="small" multiline minRows={2} value={ask} onChange={(e) => setAsk(e.target.value)} disabled={busy}
+            <TextField size="small" multiline minRows={2} value={ask} onChange={(e) => setAsk(e.target.value)} disabled={busy} inputRef={askRef}
               placeholder="Ask for a change in a sentence - e.g. “make the delivery line bigger, under the title”" inputProps={{ maxLength: 1500 }} />
             <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
               <Button size="small" variant="contained" disableElevation disabled={!ask.trim() || busy}
@@ -439,6 +496,12 @@ function ConvertPreview() {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [going, setGoing] = useState<string | null>(null);
+  const [pick, setPick] = useState(false);
+  const [marks, setMarks] = useState(true);
+  const [picked, setPicked] = useState<Picked | null>(null);
+  const [prefill, setPrefill] = useState<{ text: string; n: number } | null>(null);
+  const [styles, setStyles] = useState<{ total: number; nfailed: number } | null>(null);
+  const told = useRef(false);
 
   const go = useCallback((e: Env, p: string, idea?: string | null) => {
     router.push(`/website/ai-personalization/preview?env=${e}&path=${encodeURIComponent(p)}${idea ? `&idea=${idea}` : ""}`);
@@ -458,6 +521,7 @@ function ConvertPreview() {
   const idea = ideas.find((i) => i.id === ideaSel) ?? ideas.find((i) => versionOf.has(i.id)) ?? null;
   const version = idea ? versionOf.get(idea.id) ?? null : null;
   useEffect(() => { setHit(null); setRev(null); }, [version?.id, version?.rev]);
+  useEffect(() => { setPicked(null); setPick(false); setStyles(null); told.current = false; }, [path, env]);
   useEffect(() => { if (!version && view !== "original") setView("original"); else if (version && view === "original") setView("both"); }, [version?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const base = path ? `/api/website/ai-personalization/preview?env=${env}&path=${encodeURIComponent(path)}${fresh ? `&fresh=1&f=${fresh}` : ""}` : "";
@@ -466,6 +530,15 @@ function ConvertPreview() {
   const onMsg = useCallback((m: Msg, from: string) => {
     if (m.apsoPreview === "scroll" && typeof m.y === "number") setSync((s) => ({ y: m.y, from, n: (s?.n ?? 0) + 1 }));
     if (m.apsoPreview === "applied" && Array.isArray(m.hit)) setHit(m.hit);
+    if (m.apsoPreview === "picked" && typeof m.selector === "string") { setPicked({ selector: m.selector.slice(0, 300), tag: String(m.tag).slice(0, 20), text: String(m.text ?? "").slice(0, 160), from }); setPick(false); }
+    if (m.apsoPreview === "styles" && typeof m.total === "number") {
+      setStyles((s) => (s && s.nfailed >= m.nfailed ? s : { total: m.total, nfailed: m.nfailed }));
+      // the browser could not draw some of the shop's styles: once per page, into the hub's log
+      if (m.nfailed > 0 && !told.current) {
+        told.current = true;
+        void convertPost(API, { action: "diag", total: m.total, nfailed: m.nfailed, failed: (m.failed ?? []).slice(0, 3) });
+      }
+    }
     if (m.apsoPreview === "go" && typeof m.href === "string") {
       try {
         const u = new URL(m.href);
@@ -548,30 +621,54 @@ function ConvertPreview() {
           {/* the preview */}
           <GlassCard sx={{ p: { xs: 1.5, md: 2 } }}>
             <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap", mb: 1.5 }}>
-              <Choice<View> value={version ? view : "original"} onChange={setView}
+              <SquareChoice<View> label="Show" value={version ? view : "original"} onChange={setView}
                 options={version ? [{ key: "both", label: "Side by side" }, { key: "version", label: "Version" }, { key: "original", label: "Original" }] : [{ key: "original", label: "The page as it is" }]} />
-              <Choice<Device> value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "phone", label: "Phone" }]} />
-              {device === "desktop" && <Choice<Zoom> value={zoom} onChange={setZoom} options={[{ key: "fit", label: "Fit" }, { key: "full", label: "Actual size" }]} />}
+              <SquareChoice<Device> label="On" value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "phone", label: "Phone" }]} />
+              {device === "desktop" && <SquareChoice<Zoom> label="Size" value={zoom} onChange={setZoom} options={[{ key: "fit", label: "Fit" }, { key: "full", label: "Actual size" }]} />}
               <Box sx={{ flex: 1 }} />
+              {version && (
+                <Button size="small" variant={marks ? "contained" : "outlined"} disableElevation onClick={() => setMarks((x) => !x)} startIcon={<HighlightAltOutlinedIcon sx={{ fontSize: 17 }} />}
+                  sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{marks ? "Changes shown" : "Show the changes"}</Button>
+              )}
+              <Tooltip title="Click an element in the page to ask the AI to change it">
+                <Button size="small" variant={pick ? "contained" : "outlined"} color="secondary" disableElevation onClick={() => setPick((x) => !x)} startIcon={<AdsClickOutlinedIcon sx={{ fontSize: 17 }} />}
+                  sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{pick ? "Click an element…" : "Pick an element"}</Button>
+              </Tooltip>
               <Tooltip title="Read the page from the shop again">
                 <IconButton size="small" onClick={() => setFresh((n) => n + 1)} aria-label="Read again"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
               </Tooltip>
             </Box>
+            {picked && (
+              <Box sx={{ display: "flex", gap: 1.25, alignItems: "center", flexWrap: "wrap", mb: 1.5, p: 1.25, borderRadius: "10px", border: "1px solid rgba(124,77,255,.35)", bgcolor: "rgba(124,77,255,.06)" }}>
+                <AdsClickOutlinedIcon sx={{ fontSize: 18, color: "#6a46c9" }} />
+                <Box sx={{ minWidth: 0, flex: "1 1 320px" }}>
+                  <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, ...clip(720) }}>{picked.text ? `“${picked.text}”` : `A <${picked.tag}> element`}</Typography>
+                  <Typography sx={{ fontSize: "0.72rem", color: MUTED, fontFamily: "ui-monospace, Consolas, monospace", ...clip(720) }}>{picked.selector}</Typography>
+                </Box>
+                {version && data.canEdit
+                  ? <Button size="small" variant="contained" disableElevation onClick={() => { setPrefill({ text: `Change this element - ${picked.selector}${picked.text ? ` (it reads “${picked.text.slice(0, 80)}”)` : ""}: `, n: Date.now() }); }}>Ask the AI to change it</Button>
+                  : <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{idea ? "Write the idea's version first, then ask the AI to change it." : "Approve an idea first - its version can then change this element."}</Typography>}
+                <Button size="small" onClick={() => setPicked(null)}>Clear</Button>
+              </Box>
+            )}
+            {styles && styles.nfailed > 0 && (
+              <Notice tone="warn">Your browser drew {styles.total - styles.nfailed} of the shop&apos;s {styles.total} stylesheets in the preview - the page can look raw. The hub has noted it; reading the page again usually helps.</Notice>
+            )}
             {pg.status === 200 && (
-              <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: version && view === "both" ? { xs: "minmax(0,1fr)", md: "minmax(0,1fr) minmax(0,1fr)" } : "minmax(0,1fr)" }}>
-                {(!version || view !== "version") && <Frame src={base} device={device} zoom={zoom} name="original" sync={sync} label={version ? "Original" : "The page"} onMsg={onMsg} />}
-                {version && view !== "original" && <Frame src={vSrc} device={device} zoom={zoom} name="version" sync={sync} label={`Version · rev ${rev ?? version.rev}`} onMsg={onMsg} />}
+              <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: version && view === "both" ? { xs: "minmax(0,1fr)", md: "minmax(0,1fr) minmax(0,1fr)" } : "minmax(0,1fr)" }}>
+                {(!version || view !== "version") && <Frame src={base} device={device} zoom={zoom} name="original" sync={sync} pick={pick} marks={false} address={pg.url ?? path} label={version ? "Original" : "The page"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
+                {version && view !== "original" && <Frame src={vSrc} device={device} zoom={zoom} name="version" sync={sync} pick={pick} marks={marks} address={pg.url ?? path} label={`Version · rev ${rev ?? version.rev}`} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
               </Box>
             )}
             <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 1 }}>
-              Shown from the shop without its tracking and its tools (search bar, DirectCUT): nothing here is counted, ordered or sent - so what the shop loads after opening the page (the articles&apos; prices and availability, the cart) stays empty. Side by side, the two scroll together. Links ask before they open another page.
+              The page comes through the hub, without the shop&apos;s tracking and its tools (search bar, DirectCUT): nothing here is counted, ordered or sent - so what the shop asks for after opening the page (the articles&apos; prices and availability, the cart) can stay empty. Side by side, the two scroll together; the version&apos;s changes are outlined. Links ask before they open another page.
             </Typography>
           </GlassCard>
 
           {/* the version and the ideas */}
           <Box sx={{ display: "grid", gap: 2.5, minWidth: 0, gridTemplateColumns: { xs: "minmax(0,1fr)", lg: version ? "minmax(0,1fr) minmax(0,1fr)" : "minmax(0,1fr)" }, alignItems: "start" }}>
             {version && idea && (
-              <VersionCard version={version} idea={idea} hit={hit} canEdit={data.canEdit} busy={busy === `build:${idea.id}`} rev={rev} onRev={setRev}
+              <VersionCard version={version} idea={idea} hit={hit} canEdit={data.canEdit} busy={busy === `build:${idea.id}`} rev={rev} prefill={prefill} onRev={setRev}
                 onAsk={(request) => act(`build:${idea.id}`, { action: "build", ideaId: idea.id, request })}
                 onStatus={(s) => void act(`v:${version.id}`, { action: s, versionId: version.id })}
                 onEdit={async (changes) => {
@@ -626,7 +723,6 @@ function ConvertPreview() {
           </Box>
         }
       />
-      <Flow at="preview" />
       {body}
     </Box>
   );

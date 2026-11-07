@@ -21,7 +21,7 @@ import { Chip, ago } from "@/app/connectors/parts";
 import { ENVS, KIND_LABEL } from "@/lib/convert/model";
 import type { BoardRow } from "@/lib/convert/studio";
 import { markerOf } from "@/lib/convert/handoff";
-import { Flow, previewHref } from "../Flow";
+import { previewHref } from "../Flow";
 
 type Column = "proposed" | "approved" | "building" | "ready";
 const COLUMNS: { key: Column; name: string; line: string; tint: "amber" | "green" | "blue" | "purple" }[] = [
@@ -127,7 +127,6 @@ export default function ConvertIdeas() {
           </Box>
         }
       />
-      <Flow at="ideas" counts={r?.state === "ok" ? { ideas: cols.m.get("proposed")!.length + cols.m.get("approved")!.length, preview: cols.m.get("building")!.length + cols.m.get("ready")!.length } : undefined} />
       {body}
     </Box>
   );

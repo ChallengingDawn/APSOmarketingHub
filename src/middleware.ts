@@ -11,6 +11,8 @@ const PUBLIC_PREFIXES = [
   "/enroll",
   "/api/auth/",
   "/api/health",
+  // APSOconvert's preview frame takes the shop's files here; it sends no hub cookie, a day key in the address opens it
+  "/api/website/ai-personalization/asset/",
   "/_next",
   "/favicon",
   "/icon",
