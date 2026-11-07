@@ -267,3 +267,12 @@ test("assoc: an existing link counts only with the right type", () => {
   assert.ok(hasArticleType([{ category: "USER_DEFINED", typeId: 152 }, { category: "USER_DEFINED", typeId: 154 }]));
   assert.ok(!hasArticleType([{ category: "USER_DEFINED", typeId: 152 }])); // the erosion label is not "Referenced article"
 });
+
+test("wrong owners: a Back Office certificate request keeps its sales requester as owner", () => {
+  const t = (extra: Record<string, string>, pipe = BO) => wrongOwnerAction({ subject: "CERTIFICATES | FDA, EC 1935/2004 | M110 | A26.675846", hs_pipeline: pipe, hs_pipeline_stage: BO_REMIND, hubspot_owner_id: "2", ...extra }, stages, who, NOW).kind;
+  assert.equal(t({ which_certificate__: "FDA;EC 1935/2004" }), "none");
+  assert.equal(t({ actions_for_certificates: "New article number for 1935 - AVOR" }), "none");
+  assert.equal(t({ enquiry_category: "Certificates (ONLY FOR BO)" }), "none");
+  assert.equal(t({}), "flag"); // an ordinary Back Office ticket still is
+  assert.equal(t({ which_certificate__: "FDA" }, TSA), "flag"); // outside Back Office the rule is unchanged
+});

@@ -197,6 +197,9 @@ export function wrongOwnerAction(p: Props, stages: Map<string, StageInfo>, who: 
   }
   if (st?.closed || !(pipe in PIPE_TEAM)) return { kind: "none" };
   if (CAMPAIGN_RE.test(subject)) return { kind: "campaign" };
+  // a Back Office certificate request is Certificates' to steer: its owner is the requester by design while AVOR makes
+  // the new article (SARCLA 07.11.2026 - a test request from the order card went to ESO "Redirected from Back-Office")
+  if (pipe === BO && isCertificateRequest(p)) return { kind: "none" };
   const v = verdict(pipe, owner, who);
   if (!v) return { kind: "none" };
   return {
@@ -266,6 +269,10 @@ export function handBack(pipe: string, hist: OwnerHist[], who: Map<string, Owner
  * by the rules above, so the hub does not read it - and an id cursor never meets the
  * 10,000-result cap. More than 100 closed stages: no stage filter, every ticket is read.
  */
+/** A certificate request (certificates/rules.ts CATEGORY, which_certificate__, actions_for_certificates). */
+export const isCertificateRequest = (p: Props): boolean =>
+  !!String(p.which_certificate__ ?? "").trim() || !!String(p.actions_for_certificates ?? "").trim() || p.enquiry_category === "Certificates (ONLY FOR BO)";
+
 export function wrongOwnerSearch(pid: string, stages: Map<string, StageInfo>, cursor: string, flagReadable: boolean): object {
   const closed = [...stages].filter(([, s]) => s.closed).map(([id]) => id);
   const base = [{ propertyName: "hs_pipeline", operator: "EQ", value: pid }, { propertyName: "hs_object_id", operator: "GT", value: cursor }];
@@ -274,7 +281,8 @@ export function wrongOwnerSearch(pid: string, stages: Map<string, StageInfo>, cu
   if (stageFilter.length && flagReadable) filterGroups.push({ filters: [...base, { propertyName: "wrong_owner_flagged_at", operator: "HAS_PROPERTY" }] });
   return {
     limit: 200, filterGroups, sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }],
-    properties: ["subject", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id", "hs_v2_date_entered_current_stage", "createdate", ...WRONG_OWNER_PROPS],
+    properties: ["subject", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id", "hs_v2_date_entered_current_stage", "createdate",
+      "which_certificate__", "actions_for_certificates", "enquiry_category", ...WRONG_OWNER_PROPS],
   };
 }
 
