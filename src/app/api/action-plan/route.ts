@@ -7,14 +7,14 @@
 //   POST  {action:"add", parentId, kind, title}  a new topic, group or action
 //   POST  {action:"move", id, target, where}     drag and drop: "into" a topic or group, or "before" a row
 //   POST  {action:"sub", id, target}             an action dropped on another action: it becomes its sub-action
-//   POST  {action:"unsub", taskId, target}       a sub-action dropped on a category: an action of its own there
+//   POST  {action:"unsub", taskId, target}       a sub-action dropped on a category: an action of its own there, first in it
 //   POST  {action:"movesub", taskId, target}     a sub-action dropped on another action: it moves under it
 //   POST  {action:"copysub", taskId, target}     a sub-action duplicated onto another action, its ticket the same (Ctrl-drag, or Duplicate)
 //   POST  {action:"ordersub", taskId, target, where}  a sub-action dropped "before" or "after" another: its place among them
 //   DELETE ?id=                                  a row and what is under it; its own sub-actions go too
 // Every change to the tree reaches HubSpot's three plan properties a few seconds later (actionPlanHubspot.ts).
 import { NextRequest, NextResponse } from "next/server";
-import { actionToSub, addItem, copySub, datesFromSubs, deleteItems, foldImportedOnce, foldNotes, itemById, lankarToClaudio, mainsFollowSubs, moveSub, orderSub, salesLeadersOnce, subToAction, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
+import { actionToSub, addItem, copySub, datesFromSubs, deleteItems, foldImportedOnce, foldNotes, itemById, lankarToClaudio, mainsFollowSubs, moveSub, orderSub, salesLeadersOnce, segmentationToTopOnce, subToAction, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
 import { savedHierarchy } from "@/lib/hierarchy/store";
 import { freshFromTickets, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { PRIORITIES, S2S_CHOICES, STAGES, subOrder, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
@@ -79,6 +79,7 @@ export async function GET(req: NextRequest) {
     // no KPIs or next steps on any form any more: the ones still on an action go into its description (03.11.2026)
     await foldNotes(ticketed).catch((e) => console.error("[action-plan] KPIs and next steps not moved:", (e as Error).message));
     await lankarToClaudio().catch((e) => console.error("[action-plan] LANKAR not replaced:", (e as Error).message));
+    await segmentationToTopOnce().catch((e) => console.error("[action-plan] row 661 not put first:", (e as Error).message));
     const before = await planTasks();
     await mainsFollowSubs().catch((e) => console.error("[action-plan] main actions not given their sub-actions' status:", (e as Error).message));
     await datesFromSubs(before).catch((e) => console.error("[action-plan] dates from sub-actions not set:", (e as Error).message));

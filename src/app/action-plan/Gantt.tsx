@@ -14,7 +14,7 @@
 // becomes its sub-action (SARCLA 02.11.2026), its top edge still placing it before; bars are dragged to
 // move their dates, or by their right end to change the due. The two halves scroll together.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Tooltip from "@mui/material/Tooltip";
@@ -105,7 +105,7 @@ function useNameWidth(rows: GRow[], rolled: Map<number, Rolled>, today: string):
   }, [rows, rolled, today]);
 }
 
-export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, onTrack, canDrop, onDrop, height, colorOf, compact, onCompact, onAdd, onDuplicate, hidden, onHide, calendar = true, pick }: {
+export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, selected, onOpen, onSubs, onOpenSub, onPatch, onTrack, canDrop, onDrop, height, colorOf, compact, onCompact, onAdd, onDuplicate, hidden, onHide, calendar = true, pick, flash = null }: {
   rows: GRow[]; rolled: Map<number, Rolled>; today: string; zoom: Zoom; canWrite: boolean;
   collapsed: Set<string>; toggle: (key: string) => void; selected: number | null;
   onOpen: (item: PlanItem) => void; onSubs: (item: PlanItem) => void;
@@ -117,8 +117,12 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   canDrop: (drag: GRow, target: GRow, where: Where) => boolean;
   /** `copy`: Ctrl, Alt or Cmd held - a sub-action is copied there, not moved */
   onDrop: (drag: GRow, target: GRow, where: Where, copy: boolean) => Promise<void>;
-  /** the most it takes; with fewer rows open it is as tall as they are */
-  height: number | string;
+  /** the most it takes; with fewer rows open it is as tall as they are. "fit": down to the bottom of the screen from where
+   *  it starts - the plan scrolls in its own window and the page stays put (SARCLA 07.11.2026: "bloquer la fenêtre du plan
+   *  d'action par rapport à la fenêtre globale - quand tu scrolles tout bouge, tu ne vois plus les titres") */
+  height: number | string | "fit";
+  /** a row to bring into sight and light up for a moment (after a drag and drop: where it went); n = a new request */
+  flash?: { key: string; n: number } | null;
   /** a main category's colour, carried by everything under it (SARCLA 01.11.2026: "Gantt colours per project"); null for the goal */
   colorOf: (item: PlanItem) => string | null;
   /** planned, go-live, status, % and who folded away, the names alone */
@@ -227,9 +231,55 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
     return { top: top.filter((b) => b.x + b.w > 0), low };
   }, [span, px, zoom]);
 
-  // scroll together: the time line scrolls, the tree follows; a wheel over the tree moves the time line
+  // scroll together: the time line scrolls, the tree follows; a wheel over the tree moves the time line - and never the
+  // page behind it (React's wheel listener is passive: it could not stop the page, which scrolled away with the plan's
+  // titles - SARCLA 07.11.2026)
   const sync = () => { if (left.current && right.current) left.current.scrollTop = right.current.scrollTop; };
-  const wheel = (e: React.WheelEvent) => { if (right.current && Math.abs(e.deltaY) > Math.abs(e.deltaX)) right.current.scrollTop += e.deltaY; };
+  useEffect(() => {
+    const l = left.current;
+    if (!l || !calendar) return;
+    const onWheel = (e: WheelEvent) => {
+      const r = right.current;
+      if (!r || !r.offsetParent || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      r.scrollTop += e.deltaMode === 1 ? e.deltaY * ROW : e.deltaY;
+    };
+    l.addEventListener("wheel", onWheel, { passive: false });
+    return () => l.removeEventListener("wheel", onWheel);
+  }, [calendar]);
+  // "fit": as tall as the screen below where the plan starts (the page's own scroller, the window or a box)
+  const [fitPx, setFitPx] = useState<number | null>(null);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (height !== "fit") return;
+    const on = () => setTick((t) => t + 1);
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, [height]);
+  useLayoutEffect(() => {
+    const b = box.current;
+    if (height !== "fit" || !b) return;
+    let sc: HTMLElement | null = b.parentElement;
+    while (sc && !(/(auto|scroll)/.test(getComputedStyle(sc).overflowY) && sc.scrollHeight > sc.clientHeight)) sc = sc.parentElement;
+    const top = sc ? b.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop : b.getBoundingClientRect().top + window.scrollY;
+    const view = sc ? sc.clientHeight : window.innerHeight;
+    const px = Math.max(320, Math.round(view - top - 16));
+    if (fitPx === null || Math.abs(px - fitPx) > 2) setFitPx(px);
+  });
+  // a row asked for: into sight in the plan's own window, lit for a moment
+  const [lit, setLit] = useState<string | null>(null);
+  useEffect(() => {
+    if (!flash) return;
+    const i = rows.findIndex((r) => r.key === flash.key);
+    if (i < 0) return;
+    const r = right.current && right.current.offsetParent ? right.current : left.current;
+    if (r) r.scrollTop = Math.max(0, i * ROW - Math.max(0, r.clientHeight - HEAD) / 2);
+    sync();
+    setLit(flash.key);
+    const h = setTimeout(() => setLit(null), 3500);
+    return () => clearTimeout(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flash?.n]);
   // land on today the first time, and again on every change of scale (the old position means another date)
   const landed = useRef<Zoom | null>(null);
   useEffect(() => {
@@ -300,13 +350,14 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
   const bodyH = rows.length * ROW;
   // as tall as the open rows (and the scroll bar), up to the screen (SARCLA 01.11.2026: "the table should evolve
   // depending on the collapsible rows, not predefined")
-  const fitH = `min(${HEAD + Math.max(2, rows.length) * ROW + 20}px, ${typeof height === "number" ? `${height}px` : height})`;
+  const most = height === "fit" ? `${fitPx ?? 320}px` : typeof height === "number" ? `${height}px` : height;
+  const fitH = `min(${HEAD + Math.max(2, rows.length) * ROW + 20}px, ${most})`;
 
   return (
     <Box ref={box} sx={{ display: "flex", height: fitH, minHeight: HEAD + ROW * 2 + 20, border: `1px solid ${HAIRLINE}`, borderRadius: "16px", overflow: "hidden", bgcolor: "#fff" }}>
       {/* ── the tree ── */}
-      <Box ref={left} onWheel={calendar ? wheel : undefined}
-        sx={calendar ? { width: { xs: "100%", md: leftW }, flexShrink: 0, overflowX: "scroll", overflowY: { xs: "auto", md: "hidden" } } : { flex: 1, minWidth: 0, overflow: "auto" }}>
+      <Box ref={left}
+        sx={calendar ? { width: { xs: "100%", md: leftW }, flexShrink: 0, overflowX: "scroll", overflowY: { xs: "auto", md: "hidden" }, overscrollBehavior: "contain" } : { flex: 1, minWidth: 0, overflow: "auto", overscrollBehavior: "contain" }}>
         <Box sx={{ minWidth: GRID_MIN }}>
           <Box sx={{ position: "sticky", top: 0, zIndex: 2, display: "grid", gridTemplateColumns: COLS, height: HEAD, alignItems: "end", bgcolor: "#f7f9fc", borderBottom: `1px solid ${HAIRLINE}` }}>
             {heads.map((h, i) => (
@@ -331,7 +382,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
             <TreeRow key={r.key} r={r} cols={COLS} compact={compact} onAdd={canWrite && r.type === "item" ? () => onAdd(r.item) : undefined}
               onDuplicate={canWrite && onDuplicate && r.type === "sub" && !r.sub.kpiTile ? () => onDuplicate(r.sub, r.parent) : undefined}
               hidden={r.type === "item" && hidden.has(r.item.id)} onHide={r.type === "item" && r.item.kind !== "goal" ? (h) => onHide(r.item, h) : undefined} color={r.type === "item" ? colorOf(r.item) : colorOf(r.parent)} rolled={rolled} today={today} canWrite={canWrite} folded={collapsed.has(r.key)} toggle={toggle}
-              selected={r.type === "item" && r.item.id === selected} onOpen={onOpen} onSubs={onSubs} onOpenSub={onOpenSub} onPatch={onPatch} onTrack={onTrack}
+              selected={(r.type === "item" && r.item.id === selected) || lit === r.key} onOpen={onOpen} onSubs={onSubs} onOpenSub={onOpenSub} onPatch={onPatch} onTrack={onTrack}
               dragging={drag?.key === r.key} over={over?.key === r.key ? over.where : null} copying={over?.key === r.key && over.copy}
               pick={pick && pick.can(r) ? { on: pick.on(r), toggle: () => pick.toggle(r), note: pick.note?.(r) } : undefined}
               draggable={!pick && canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group")) || r.type === "sub")}
@@ -361,7 +412,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
         sx={{ display: { xs: "none", md: "block" }, width: 6, flexShrink: 0, cursor: "col-resize", bgcolor: "#f1f4f9", borderLeft: `1px solid ${HAIRLINE}`, borderRight: `1px solid ${HAIRLINE}`, "&:hover": { bgcolor: TINT.blue.bg } }} />
 
       {/* ── the time line ── */}
-      <Box ref={right} onScroll={sync} sx={{ display: { xs: "none", md: "block" }, flex: 1, minWidth: 0, overflow: "scroll" }}>
+      <Box ref={right} onScroll={sync} sx={{ display: { xs: "none", md: "block" }, flex: 1, minWidth: 0, overflow: "scroll", overscrollBehavior: "contain" }}>
         <Box sx={{ width, position: "relative" }}>
           <Box sx={{ position: "sticky", top: 0, zIndex: 2, height: HEAD, bgcolor: "#f7f9fc", borderBottom: `1px solid ${HAIRLINE}` }}>
             {bands.top.map((b) => (

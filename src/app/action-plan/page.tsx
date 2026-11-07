@@ -33,6 +33,9 @@ import { SummitFigures, SummitMountain, useSummit } from "./Summit";
 import { KpiPicker, type TrackChoice, type TrackTarget } from "./KpiPicker";
 import { LATE, PRIORITY_COLOR, PROJECT_COLORS, readPref, send, stageColor, todayIso, writePref, type PlanData } from "./planUi";
 
+/** A title cut for a question or a line - the whole of a long one buried what the question asked (07.11.2026). */
+const cut = (t: string, n = 70) => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t);
+
 // square, as the tags (SARCLA 01.11.2026: "tags not round, square")
 const chip = (on: boolean, color: string = TINT.blue.fg, soft: string = TINT.blue.bg) => ({
   border: `1px solid ${on ? color : HAIRLINE}`, bgcolor: on ? soft : "#fff", color: on ? color : MUTED,
@@ -62,6 +65,12 @@ function ActionPlan() {
   // 01.11.2026: "an eye-cut symbol to allow the user to hide certain rows - this should also be a filter then")
   const [hidden, setHidden] = useState<Set<number>>(() => new Set(readPref<number[]>("hidden.v1", [])));
   const [showHidden, setShowHidden] = useState(false);
+  // where a dragged row went (SARCLA 07.11.2026: a sub-action dropped on "Increase efficiency of Sales" became an action at
+  // the end of it - out of sight below the screen, and "Hide live" hid it: "j'ai perdu mon action"): once the plan is read
+  // again, its categories open, the plan scrolls to it and it lights up - or the line says what hides it
+  const [reveal, setReveal] = useState<{ id: number; key: string } | null>(null);
+  const [flash, setFlash] = useState<{ key: string; n: number } | null>(null);
+  const show = (id: number, key?: string) => setReveal({ id, key: key ?? `i${id}` });
   const hide = (i: PlanItem, h: boolean) => setHidden((x) => {
     const n = new Set(x);
     if (h) n.add(i.id); else n.delete(i.id);
@@ -217,6 +226,27 @@ function ActionPlan() {
     for (const i of items) lateIn(i);
     return { rows: out, lateShown, acts, subsShown };
   }, [items, subs, folds, filtering, passes, found, hidden, showHidden, rolled]);
+  // the row asked for (show): its categories opened first, then into sight - or the line says what hides it
+  useEffect(() => {
+    if (!reveal) return;
+    const it = items.find((x) => x.id === reveal.id);
+    if (!it) return; // the plan is not read again yet
+    const up: string[] = [];
+    for (let p = it.parentId; p != null; p = items.find((x) => x.id === p)?.parentId ?? null) up.push(`i${p}`);
+    if (reveal.key !== `i${it.id}`) up.push(`i${it.id}`); // a sub-action: its action open too
+    const shut = up.filter((k) => folds.has(k));
+    if (shut.length) {
+      const open = (c: Set<string>) => { const n = new Set(c); for (const k of shut) n.delete(k); return n; };
+      if (opening) setFilterFold(open); else setCollapsed(open);
+      return;
+    }
+    setReveal(null);
+    if (rows.some((r) => r.key === reveal.key)) { setFlash({ key: reveal.key, n: Date.now() }); return; }
+    const why = hidden.has(it.id) && !showHidden ? "the eye hides it - Hidden rows shows it"
+      : hideLive && it.stage === LIVE ? "it is Live and Hide live hides it - Clear shows it"
+      : "the filters hide it - Clear shows it";
+    setSaid((x) => `${x ? `${x}. ` : ""}Not in sight: ${why}`);
+  }, [reveal, items, rows, folds, opening, hidden, showHidden, hideLive]);
   // the Gantt's figures with those counts; the rows' windows keep the whole plan's
   const rolledShown = useMemo(() => {
     const m = new Map(rolled);
@@ -246,7 +276,7 @@ function ActionPlan() {
   // a sub-action in its own window (SARCLA 02.11.2026: "I click on a sub-action and I'm redirected to the main action")
   const [subId, setSubId] = useState<number | null>(null);
   const [said, setSaid] = useState<string | null>(null);
-  useEffect(() => { if (!said) return; const h = setTimeout(() => setSaid(null), 8000); return () => clearTimeout(h); }, [said]);
+  useEffect(() => { if (!said) return; const h = setTimeout(() => setSaid(null), said.includes(" hides it") ? 20000 : 8000); return () => clearTimeout(h); }, [said]);
   // a link to one row (?item=, as a KPI tile's task links here) opens it once - not again after every save
   const handled = useRef<number | null>(null);
   useEffect(() => {
@@ -341,9 +371,7 @@ function ActionPlan() {
   const onDrop = async (drag: GRow, target: GRow, where: Where, copy = false) => {
     if (drag.type === "sub" && target.type === "sub") {
       const s = drag.sub, to = target.parent, away = to.id !== drag.parent.id;
-      if (away && !confirm(`Move “${s.title}” under “${to.title}”?
-
-Its tickets go with it.`)) return;
+      if (away && !confirm(`Move it under “${cut(to.title)}”?\n\n“${cut(s.title)}”`)) return;
       // in its place at once, under the same action
       const order = away ? null : placeSub(subOrder(subs.filter((x) => x.item === to.id)).map((x) => x.id), s.id, target.sub.id, where === "after" ? "after" : "before");
       if (order) {
@@ -353,7 +381,7 @@ Its tickets go with it.`)) return;
       try {
         await send("/api/action-plan", "POST", { action: "ordersub", taskId: s.id, target: target.sub.id, where });
         setNote(null);
-        if (away) setSaid(`“${s.title}” is a sub-action of “${to.title}” now`);
+        if (away) { setSaid(`“${cut(s.title)}” is a sub-action of “${cut(to.title)}” now`); show(to.id, `s${s.id}`); }
         if (!away) return;
       } catch (e) { setNote(`Not moved: ${(e as Error).message}`); }
       await load();
@@ -370,15 +398,14 @@ Its tickets go with it.`)) return;
         await load();
         return;
       }
-      if (!confirm(back ? `Make “${s.title}” an action of its own in “${into.title}”?
-
-Its name, description, status, priority, person, dates, status note and tickets go with it.` : `Move “${s.title}” under “${into.title}”?
-
-Its tickets go with it.`)) return;
+      if (!confirm(back ? `Make it an ACTION in “${cut(into.title)}”? It goes first in it.\n\n“${cut(s.title)}”`
+        : `Move it under “${cut(into.title)}”?\n\n“${cut(s.title)}”`)) return;
       try {
-        await send("/api/action-plan", "POST", { action: back ? "unsub" : "movesub", taskId: s.id, target: into.id });
+        const j = await send("/api/action-plan", "POST", { action: back ? "unsub" : "movesub", taskId: s.id, target: into.id });
         setNote(null);
-        setSaid(back ? `“${s.title}” is an action of its own in “${into.title}” now` : `“${s.title}” is a sub-action of “${into.title}” now`);
+        setSaid(back ? `“${cut(s.title)}” is an action in “${cut(into.title)}” now - first in it` : `“${cut(s.title)}” is a sub-action of “${cut(into.title)}” now`);
+        const made = (j as { item?: { id?: number } }).item?.id;
+        if (back && Number.isInteger(made)) show(made as number); else if (!back) show(into.id, `s${s.id}`);
         setCollapsed((c) => { const n = new Set(c); n.delete(target.key); return n; });
       } catch (e) { setNote(`Not moved: ${(e as Error).message}`); }
       await load();
@@ -387,13 +414,13 @@ Its tickets go with it.`)) return;
     if (drag.type !== "item" || target.type !== "item") return;
     if (where === "sub") {
       const a = drag.item, into = target.item;
-      if (!confirm(`Make “${a.title}” a sub-action of “${into.title}”?
-
-It leaves the plan as an action; its name, description, status, priority, first person assigned, dates and status note go with it, and its sub-actions and tickets move to “${into.title}”.`)) return;
+      if (!confirm(`Make it a SUB-ACTION of “${cut(into.title)}”? Its own sub-actions go there too.\n\n“${cut(a.title)}”`)) return;
       try {
-        await send("/api/action-plan", "POST", { action: "sub", id: a.id, target: into.id });
+        const j = await send("/api/action-plan", "POST", { action: "sub", id: a.id, target: into.id });
         setNote(null);
-        setSaid(`“${a.title}” is now a sub-action of “${into.title}”`);
+        setSaid(`“${cut(a.title)}” is a sub-action of “${cut(into.title)}” now`);
+        const t = (j as { task?: { id?: number } }).task?.id;
+        show(into.id, Number.isInteger(t) ? `s${t}` : undefined);
         setCollapsed((c) => { const n = new Set(c); n.delete(target.key); return n; });
       } catch (e) { setNote(`Not moved: ${(e as Error).message}`); }
       await load();
@@ -403,6 +430,7 @@ It leaves the plan as an action; its name, description, status, priority, first 
       await send("/api/action-plan", "POST", { action: "move", id: drag.item.id, target: target.item.id, where });
       setNote(null);
       if (where === "into") setCollapsed((c) => { const n = new Set(c); n.delete(target.key); return n; });
+      show(drag.item.id);
     } catch (e) { setNote(`Not moved: ${(e as Error).message}`); }
     await load();
   };
@@ -536,7 +564,7 @@ It leaves the plan as an action; its name, description, status, priority, first 
       ) : (
         <Gantt rows={rows} rolled={rolledShown} today={today} zoom={zoom} canWrite={data.canWrite} collapsed={folds} toggle={toggle}
           selected={openId} onOpen={(i) => openRow(i)} onSubs={(i) => openRow(i)} onOpenSub={openSub} onPatch={patch} onTrack={track} canDrop={canDrop} onDrop={onDrop}
-          height="max(480px, calc(100vh - 150px))" colorOf={colorOf}
+          height="fit" flash={flash} colorOf={colorOf}
           compact={compact} onCompact={() => setCompact((v) => { writePref("compact", !v); return !v; })} onAdd={setAddFor}
           onDuplicate={(s, parent) => setDupFor({ sub: s, parent })} hidden={hidden} onHide={hide} />
       )}

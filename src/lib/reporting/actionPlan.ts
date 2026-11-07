@@ -11,6 +11,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { query } from "@/lib/db/client";
+import { kvGet, kvSet } from "@/lib/db/init";
 import {
   IDEA, IN_PROGRESS, PLAN_STATES, STAGES, foldedDetail, mainStage, namesSalesLeaders, ownersFromCodes, percentOfStage, placeSub, planFromSeed, priorityLabel, reorder, stageOf,
   stageOfPercent, stateOfStage, subClosed, subOrder, subsSpan, takesTicket, toS2s, withNotes,
@@ -455,6 +456,9 @@ export async function subToAction(taskId: number, parentId: number, by: string):
     dg: takesTicket({ dg: !!from?.dg }, k.ownerName), country: from?.country ?? [], ...(from?.dg ? { channel: from.channel, agency: from.agency } : {}),
     ...(k.tracked ? { tracked: true, trackKpi: k.trackKpi, trackKpiTitle: k.trackKpiTitle } : {}),
   }, by);
+  // first in the category, where it was dropped - at the end it went out of sight (SARCLA 07.11.2026: "j'ai perdu mon
+  // action")
+  await toTopOf(a.id, parentId, by);
   await ticketsToAction(k.id, a.id);
   // they agree as they are: the ticket was the sub-action's, its fields are the action's now
   await markTicketSync([a.id]);
@@ -552,6 +556,30 @@ export async function markTicketSync(ids: number[]): Promise<void> {
 }
 
 /** A new row, last under its parent: an action under a topic or group, a group under a topic, a topic under the goal. */
+/** A row put first among its siblings in its category. */
+async function toTopOf(id: number, parentId: number, by: string): Promise<void> {
+  const items = await planItems();
+  const first = items.filter((i) => i.parentId === parentId && i.id !== id).sort((x, y) => x.sort - y.sort || x.id - y.id)[0];
+  if (first) await moveItem(id, first.id, "before", by);
+}
+
+/**
+ * SARCLA 07.11.2026, "fix it directly as intended": his segmentation sub-action, dropped at 12:55 on "Increase efficiency
+ * of Sales (ESO & TSA)" (row 3), became row 661 at the END of it, out of sight - to the top, where he dropped it. Once
+ * (kv flag), and only while it is still that row there (a later move of his stays his).
+ */
+export async function segmentationToTopOnce(): Promise<boolean> {
+  const KEY = "actionPlan:fix:661-top";
+  if (await kvGet<boolean>(KEY)) return false;
+  await ensure();
+  const it = await itemById(661);
+  const ok = !!it && it.kind === "action" && it.parentId === 3 && /segmentation/i.test(it.title);
+  if (ok) await toTopOf(661, 3, "Put where it was dropped (07.11.2026)");
+  await kvSet(KEY, true);
+  if (ok) console.log("[action-plan] row 661 (segmentation) put first in row 3, where it was dropped on 07.11.2026");
+  return ok;
+}
+
 export async function addItem(a: { parentId: number; kind: PlanKind; title: string; by: string }): Promise<PlanItem> {
   await ensure();
   const parent = await itemById(a.parentId);
