@@ -4,7 +4,8 @@
 // hold, typed in per month - the hours the Back Office
 // worked (on Team totals) and the OTD, the pass rate, the manual price adjustments and the stopped orders (on their pages),
 // the workbook's own figures until someone types a month in (SARCLA 02.11.2026: "Live, file = the KPI list"). GET for
-// anyone with one of the report's pages; PUT for whoever may change the page the figure is typed on.
+// anyone with one of the report's pages; PUT for whoever may change the page the figure is typed on. And the delivery speed
+// the chain's order_sync keeps from the ERP's order file (boDelivery.ts) for OTD > Delivery speed.
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess, type MyAccess } from "@/lib/auth/appAccess";
@@ -18,6 +19,7 @@ import { hierarchyNow } from "@/lib/hierarchy/store";
 import { esoTickets } from "@/lib/reporting/ticketsReport";
 import { T } from "@/lib/reporting/ticketsRules";
 import { inboundDetail } from "@/lib/reporting/boInbound";
+import { deliveryNow } from "@/lib/reporting/boDeliveryStore";
 import { TYPED, WORKBOOK_TYPED, checkTyped, inboundByMonth, typedKey, type Typed } from "@/lib/reporting/boReportRules";
 
 export const runtime = "nodejs";
@@ -78,8 +80,8 @@ export async function GET() {
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!PAGES.some((p) => level(access, p) !== "none")) return NextResponse.json({ error: "No access" }, { status: 403 });
   try {
-    const [st, hours, typed, inb, cos, owners, team] = await Promise.all([boReportNow(), kvGet<Record<string, number>>(HOURS), kvGet<Typed>(TYPED_KV), inbound(),
-      kvGet<KeptCompanies>("boReport:companies"), ownerNames().catch(() => new Map<string, string>()), boTeam()]);
+    const [st, hours, typed, inb, cos, owners, team, delivery] = await Promise.all([boReportNow(), kvGet<Record<string, number>>(HOURS), kvGet<Typed>(TYPED_KV), inbound(),
+      kvGet<KeptCompanies>("boReport:companies"), ownerNames().catch(() => new Map<string, string>()), boTeam(), deliveryNow()]);
     const answers = await surveys(new Date().getFullYear() - 1);
     // the names of the tickets' owners, and the facts of their companies the filters read
     const ids = new Set(st.months.flatMap((m) => m.rows?.dict ?? []));
@@ -89,7 +91,7 @@ export async function GET() {
     return NextResponse.json({
       state: { computing: st.counting, progress: st.progress, error: st.error, computedAt: st.generatedAt },
       // nothing kept yet: the page says it is counting; else the months there are, the rest named as pending
-      data: st.months.length ? { ...st, hours: hours ?? WORKBOOK_HOURS, typed: typed ?? WORKBOOK_TYPED, inbound: inb?.counts ?? null, inDetail: inb?.detail ?? null, names, companies: cos?.facts ?? {}, team, surveys: answers } : null,
+      data: st.months.length ? { ...st, hours: hours ?? WORKBOOK_HOURS, typed: typed ?? WORKBOOK_TYPED, inbound: inb?.counts ?? null, inDetail: inb?.detail ?? null, names, companies: cos?.facts ?? {}, team, surveys: answers, delivery } : null,
       canEdit: level(access, FIGURES) === "write", canEditTyped: Object.fromEntries(TYPED.map((s) => [s.id, level(access, SERIES_PAGE[s.id]) === "write"])),
     });
   } catch (e) {

@@ -39,6 +39,8 @@ import { query } from "@/lib/db/client";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { IntegrationError } from "@/lib/integrations/status";
 import { requestCollector, saveErpRequests } from "@/lib/certificates/erpData";
+import { deliveryCollector } from "@/lib/reporting/boDelivery";
+import { saveDelivery, zurichToday } from "@/lib/reporting/boDeliveryStore";
 import { stat } from "node:fs/promises";
 import { addPending, knownArticles } from "../articleIds";
 import fixmapJson from "../data/article_fixmap.json";
@@ -472,11 +474,19 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
   const tick = pacer(beat);
   // the certificate requests in the ERP's internal comments (Certificates > From the shop) - read in the same pass
   const certs = requestCollector(new Date().getUTCFullYear() - 1);
-  const { targets } = await detailTargetsFromFile(opts.file, null, tick, (get, on) => certs.row(on, get("OrderYear"), get("InternalComment")));
+  // and each delivery's speed, for Back-Office Reports > OTD (lib/reporting/boDelivery.ts) - this year and last
+  const today = zurichToday();
+  const deliveries = deliveryCollector(today, Number(today.slice(0, 4)) - 1);
+  const { targets } = await detailTargetsFromFile(opts.file, null, tick, (get, on) => {
+    try { deliveries.row(get, on); } catch { /* never the chain's problem */ }
+    certs.row(on, get("OrderYear"), get("InternalComment"));
+  });
   if (!targets.size) throw new Error("no order rows parsed (wrong file?)");
   // the hub's own record (no HubSpot write) - kept whatever the mode; it never fails the step
   const certificateRequests = await saveErpRequests(certs.found).catch(() => -1);
   const refreshed = await refreshSnapshot(tick);
+  // after the snapshot's refresh: the slowest deliveries are named by their order's title
+  const deliveriesKept = await saveDelivery(deliveries, today).catch((e) => { console.warn(`[connectors] order_sync: the delivery speed was not kept - ${String((e as Error)?.message ?? e)}`); return -1; });
 
   const counts = { titles: 0, shipment_dates: 0, statuses: 0 };
   const samples: string[] = [];
@@ -522,7 +532,7 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
   return {
     orders_in_snapshot: await deps.store.snapCount(), snapshot: refreshed.how, erp_orders: targets.size, with_person: persons,
     to_update: queued, ...counts, updated: done, errors: err, deleted_dropped: gone, ...(errors.length ? { error_samples: errors } : {}),
-    examples: samples, certificate_requests: certificateRequests, seconds: Math.round((deps.now() - t0) / 1000),
+    examples: samples, certificate_requests: certificateRequests, deliveries_kept: deliveriesKept, seconds: Math.round((deps.now() - t0) / 1000),
   };
 }
 

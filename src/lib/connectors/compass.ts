@@ -207,9 +207,9 @@ export const STEPS: Step[] = [
   },
   {
     key: "order_sync", name: "Order title, shipment date and ERP status", group: "orders", phase: "preview",
-    what: "Titles every order \"A# | Person | Company\", and fills its shipment date and ERP status. Never blanks a value.",
+    what: "Titles every order \"A# | Person | Company\", and fills its shipment date and ERP status. Never blanks a value. In the same pass it keeps each delivery's speed for Back-Office Reports > OTD (the hub's own record).",
     when: "When dim_order.csv or fct_orderlinehist.csv arrives (first run about an hour)",
-    reads: "dim_order.csv (YourReference, ShipmentDate, OrderStatus) · a snapshot of ~800,000 orders",
+    reads: "dim_order.csv (YourReference, ShipmentDate, OrderStatus; OrderDate, DeliveryDateProp, ShippedToCountry, ShippingMode for the delivery speed) · a snapshot of ~800,000 orders",
     writes: [{ object: OBJECTS.order, props: ["hs_order_name", "order_shipment_date", "order_order_status"] }],
     fix: ["A title not starting with the A-number loses its company part"],
   },

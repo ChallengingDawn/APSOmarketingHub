@@ -111,6 +111,7 @@ import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 import { Sankey } from "@/app/charts/Sankey";
 import type { ArtInfo, BoRead, ChatRow } from "@/lib/reporting/boReport";
 import { IN, inZero, type InDetail, type InRow } from "@/lib/reporting/boInbound";
+import { HIST, LATE, bands, both, byDate, histSum, medianWd, sumDMonths, within, type DMonth, type DeliveryKept } from "@/lib/reporting/boDelivery";
 import { FIRST_MONTH as GQS_FIRST, FLOW_COLUMNS, STAGE_LABEL, STAGE_WHO, WORK, daysTo, flowOf, offersOf, refusalsOf, stageTimes, sumOf, winRate, type FlowNode, type GSum, type GStage, type GqsTask } from "@/lib/reporting/boGqs";
 import { GqsOpenBars } from "@/app/reporting/eso-benchmark/TicketsGqs";
 import type { GOpen } from "@/lib/reporting/esoGqs";
@@ -130,6 +131,8 @@ type Data = BoRead & {
   names?: Record<string, string>; companies?: CoFacts;
   /** the Back Office team (owner ids, from the hierarchy), and the answers to the survey sent after a ticket is closed */
   team?: string[]; surveys?: BoSurvey[];
+  /** each delivery's speed, from the ERP's order file (the chain's order_sync, every night) - OTD > Delivery speed */
+  delivery?: DeliveryKept | null;
 };
 type BoSurvey = { day: string; value: number | null; sentiment: string | null; comment: string | null; ticket: string | null; company: string | null };
 type Answer = { state: { computing: boolean; progress: string | null; error: string | null; computedAt: string | null }; data: Data | null; canEdit: boolean; canEditTyped: boolean | Record<string, boolean> };
@@ -281,7 +284,7 @@ export const BO_PAGES: PageDef[] = [
   { slug: "topics", title: "Topics", line: "the Back Office's tickets by topic - delivery and C2S, cancellations, what is inside Others", icon: <CategoryOutlinedIcon />, tint: "amber" },
   { slug: "sales-tickets", title: "ESO & TSA tickets", line: "inbound, without the sales actions, against the orders - and APSOparts in total", icon: <GroupsOutlinedIcon />, tint: "purple" },
   { slug: "gqs", title: "GQS", line: "special tasks with the GQS team: how many, how long before sent, how long to close", icon: <AssignmentOutlinedIcon />, tint: "green" },
-  { slug: "otd", title: "OTD", line: "on time against the first confirmation date, early call-offs counted - typed in", icon: <LocalShippingOutlinedIcon />, tint: "pink" },
+  { slug: "otd", title: "OTD", line: "on time against the first confirmation date, early call-offs counted - typed in; the delivery speed from the ERP", icon: <LocalShippingOutlinedIcon />, tint: "pink" },
   { slug: "autonomy", title: "KPI autonomy", line: "pass rate and manual price adjustments per mandant, against target - typed in", icon: <VerifiedOutlinedIcon />, tint: "slate" },
   { slug: "stopped", title: "Stopped orders", line: "the orders stopped and why - typed in", icon: <BlockOutlinedIcon />, tint: "amber" },
 ];
@@ -1701,6 +1704,140 @@ function sumField(f: Frame, field: "pcs" | "linePcs") {
   return [...new Set([...Object.keys(cur), ...Object.keys(prev)])].map((k) => ({ label: k || "Not found", cur: cur[k] ?? 0, prev: prev[k] ?? 0 }));
 }
 
+/* ── OTD > Delivery speed: each delivery's working days, from the ERP's order file (lib/reporting/boDelivery.ts) ── */
+
+const dvMonth = (d: Data, ym: string): DMonth | null => d.delivery?.months[ym] ?? null;
+/** the months a delivery figure adds up: the period's complete months, else the month to date */
+const dvYms = (f: Frame) => f.yms.slice(0, Math.max(f.done, 1));
+const dvSum = (f: Frame, d: Data) => sumDMonths(dvYms(f).map((ym) => dvMonth(d, ym)));
+/** the same months a year before - null where the file holds none of them */
+const dvPrev = (f: Frame, d: Data) => { const ys = dvYms(f).map(back); return ys.some((ym) => dvMonth(d, ym)) ? sumDMonths(ys.map((ym) => dvMonth(d, ym))) : null; };
+const wdays = (v: number | null) => (v == null ? "—" : v >= HIST - 1 ? `${HIST - 1}+ working days` : `${v} working day${v === 1 ? "" : "s"}`);
+/** a share on an axis, whole: "100.0%" is cut off there */
+const pctTick = (v: number | null) => (v == null ? "" : `${Math.round(v * 100)}%`);
+const ddmm = (iso: string) => (iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}` : "—");
+function DvNone() {
+  return <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>Counted from the ERP&apos;s next order file - the chain reads it every night.</Typography>;
+}
+/** a delivery figure month by month - this year's line, last year's beside it */
+function dvTrend(id: string, title: string, note: string, pick: (m: DMonth) => number | null, fmt: (v: number | null) => string, tick?: (v: number | null) => string): ChartDef {
+  return {
+    id, page: "otd", title,
+    figure: ({ f, d }) => { if (!d.delivery) return null; const v = pick(dvSum(f, d)); return v == null ? null : fmt(v); },
+    hint: ({ f, d }) => {
+      const a = d.delivery ? pick(dvSum(f, d)) : null, p = d.delivery ? dvPrev(f, d) : null, b = p ? pick(p) : null;
+      return [note, a != null ? `${periodOf(f)}: ${fmt(a)}${a != null && b ? ` (${signedPct(changeOf(a, b))} on last year)` : ""}` : ""].filter(Boolean).join(" · ");
+    },
+    body: ({ f, d }) => {
+      if (!d.delivery) return <DvNone />;
+      const n = drawn(f);
+      const at = (ym: string) => { const m = dvMonth(d, ym); return m ? pick(m) : null; };
+      const values = f.yms.slice(0, n).map(at), compare = f.yms.slice(0, n).map((ym) => at(back(ym)));
+      return <MonthTrend values={values} compare={compare.some((x) => x != null) ? compare : null} labels={f.labels.slice(0, n)} label={String(f.year)} compareLabel={String(f.year - 1)} fmt={fmt} tick={tick} />;
+    },
+  };
+}
+function dvCharts(): ChartDef[] {
+  const S = 14;
+  return [
+    wide({
+      id: "spdFigs", page: "otd", title: "Delivery speed in figures", hint: ({ f }) => `${periodOf(f)} against the same months a year before · the working days from the order to the shipment`,
+      figure: ({ f, d }) => (d.delivery ? pct(within(both(dvSum(f, d)), 1)) : null),
+      body: ({ f, d }) => {
+        if (!d.delivery) return <DvNone />;
+        const a = dvSum(f, d), p = dvPrev(f, d);
+        const ha = both(a), hp = p ? both(p) : null;
+        const na = histSum(ha), np = hp ? histSum(hp) : null, wa = histSum(a.p), wp = p ? histSum(p.p) : null;
+        return <Tiles items={[
+          { label: "Deliveries shipped", value: int(na), ch: ch2(na, np), sub: periodOf(f), icon: <LocalShippingOutlinedIcon sx={{ fontSize: S }} />, tint: "blue" },
+          { label: "Same or next working day", value: pct(within(ha, 1)), ch: ch2(within(ha, 1), hp ? within(hp, 1) : null), sub: `${int(ha[0] + ha[1])} deliveries`, icon: <BoltOutlinedIcon sx={{ fontSize: S }} />, tint: "green" },
+          { label: "Within 5 working days", value: pct(within(ha, 5)), ch: ch2(within(ha, 5), hp ? within(hp, 5) : null), sub: `${int(histSum(ha.slice(0, 6)))} deliveries`, icon: <TaskAltOutlinedIcon sx={{ fontSize: S }} />, tint: "green" },
+          { label: "Half ship within", value: wdays(medianWd(ha)), ch: ch2(medianWd(ha), hp ? medianWd(hp) : null), lower: true, sub: "the median, from the order", icon: <TimerOutlinedIcon sx={{ fontSize: S }} />, tint: "amber" },
+          { label: "With a proposed date", value: int(wa), ch: ch2(wa, wp), sub: na ? `${pct(wa / na)} of the deliveries` : "", icon: <CalendarMonthOutlinedIcon sx={{ fontSize: S }} />, tint: "purple" },
+          { label: "Shipped by the proposed date", value: pct(byDate(a)), ch: ch2(byDate(a), p ? byDate(p) : null), sub: "the ERP moves it with the delivery - not OTD", icon: <HourglassEmptyOutlinedIcon sx={{ fontSize: S }} />, tint: "pink" },
+        ]} />;
+      },
+    }),
+    wide({
+      id: "spdMix", page: "otd", title: "How fast each month's deliveries ship", hint: () => "The working days from the order to the shipment · a month's deliveries as 100 %, by the month shipped",
+      body: ({ f, d }) => {
+        if (!d.delivery) return <DvNone />;
+        const data = f.yms.slice(0, drawn(f)).map((ym, i) => {
+          const m = dvMonth(d, ym), h = m ? both(m) : null, t = h ? histSum(h) : 0, b = h ? bands(h) : [0, 0, 0, 0];
+          return { x: f.labels[i], b0: t ? b[0] / t : null, b1: t ? b[1] / t : null, b2: t ? b[2] / t : null, b3: t ? b[3] / t : null };
+        });
+        return <StackedColumns height={280} format={(v) => (v == null ? "—" : pctTick(v))} data={data} parts={[
+          { key: "b0", label: "Same or next working day", color: SEQUENTIAL[1] }, { key: "b1", label: "2-5 working days", color: SEQUENTIAL[3] },
+          { key: "b2", label: "6-20 working days", color: SEQUENTIAL[5] }, { key: "b3", label: "More than 20", color: SEQUENTIAL[6] },
+        ]} />;
+      },
+    }),
+    dvTrend("spdFast", "Shipped within 2 working days", "Of the month's deliveries, from the order to the shipment", (m) => within(both(m), 2), share, pctTick),
+    dvTrend("spdMedian", "Half the deliveries ship within", "The median working days from the order to the shipment", (m) => medianWd(both(m)), wdays, (v) => (v == null ? "" : String(v))),
+    dvTrend("spdByDate", "Shipped by the proposed date", "The deliveries with a date the ERP proposed (made-to-order lines) - the ERP moves it when the delivery moves, so this is not OTD", byDate, share, pctTick),
+    {
+      id: "spdLate", page: "otd", title: "Shipped after the proposed date: how late", hint: ({ f }) => `${periodOf(f)} · the working days after the date the ERP proposed`,
+      body: ({ f, d }) => {
+        if (!d.delivery) return <DvNone />;
+        const a = dvSum(f, d), late = a.late.reduce((x, y) => x + y, 0);
+        return <BarList rows={LATE.map((label, i) => ({ label, value: a.late[i], secondary: late ? `${pct(a.late[i] / late)} of the late` : "" }))} format={(v) => int(v ?? 0)} labelWidth={170} emptyMessage="None shipped after its proposed date." />;
+      },
+    },
+    {
+      id: "spdCountry", page: "otd", title: "Shipped within 2 working days, per country",
+      own: ({ f, d }, box) => {
+        if (!d.delivery) return <ChartBox title={box.title} actions={box.actions}><DvNone /></ChartBox>;
+        const a = dvSum(f, d), p = dvPrev(f, d);
+        const rows = Object.entries(a.c).filter(([, v]) => v[0] >= 20).map(([label, v]) => {
+          const q = p?.c[label];
+          return { label, cur: v[1] / v[0], prev: q && q[0] ? q[1] / q[0] : 0 };
+        });
+        return <DimChart {...box} rows={rows} cur={(r) => r.cur} prev={(r) => r.prev} curLabel={periodOf(f)} prevLabel={String(f.year - 1)} fmt={(v) => pct(v)} />;
+      },
+    },
+    {
+      id: "spdMode", page: "otd", title: "Per shipping mode", hint: ({ f }) => `${periodOf(f)} · the deliveries, and the share shipped within 2 working days`,
+      body: ({ f, d }) => {
+        if (!d.delivery) return <DvNone />;
+        const a = dvSum(f, d);
+        const rows = Object.entries(a.m).sort((x, y) => y[1][0] - x[1][0]).map(([label, v]) => ({ label, value: v[0], secondary: `${pct(v[0] ? v[1] / v[0] : null)} within 2 working days` }));
+        return <BarList rows={rows} format={(v) => int(v ?? 0)} labelWidth={190} emptyMessage="No deliveries in this period." />;
+      },
+    },
+    wide({
+      id: "spdTable", page: "otd", title: "Delivery speed, month by month", hint: () => "By the month shipped · the working days from the order to the shipment",
+      body: ({ f, d }) => {
+        if (!d.delivery) return <DvNone />;
+        type R = { label: string; m: DMonth | null };
+        const rows: R[] = f.yms.map((ym, i) => ({ label: f.labels[i], m: dvMonth(d, ym) }));
+        const h = (r: R) => (r.m ? both(r.m) : null);
+        const sh = (r: R, k: number) => { const x = h(r); return x ? within(x, k) : null; };
+        const cols: Col<R>[] = [
+          { key: "n", head: "Deliveries", cell: (r) => { const x = h(r); return x ? int(histSum(x)) : "—"; }, sort: (r) => { const x = h(r); return x ? histSum(x) : -1; } },
+          { key: "d1", head: "Same or next day", cell: (r) => pct(sh(r, 1)), sort: (r) => sh(r, 1) ?? -1 },
+          { key: "d2", head: "Within 2", cell: (r) => pct(sh(r, 2)), sort: (r) => sh(r, 2) ?? -1 },
+          { key: "d5", head: "Within 5", cell: (r) => pct(sh(r, 5)), sort: (r) => sh(r, 5) ?? -1 },
+          { key: "md", head: "Half within", cell: (r) => { const x = h(r); return x ? wdays(medianWd(x)) : "—"; }, sort: (r) => { const x = h(r); return x ? medianWd(x) ?? -1 : -1; } },
+          { key: "wp", head: "With a proposed date", cell: (r) => (r.m ? int(histSum(r.m.p)) : "—"), sort: (r) => (r.m ? histSum(r.m.p) : -1) },
+          { key: "by", head: "Shipped by it", cell: (r) => pct(r.m ? byDate(r.m) : null), sort: (r) => (r.m ? byDate(r.m) ?? -1 : -1) },
+        ];
+        return <FullTable first="Month" cols={cols} rows={rows} total={{ label: periodOf(f), m: dvSum(f, d) }} natural />;
+      },
+    }),
+    wide({
+      id: "spdSlow", page: "otd", title: "The slowest deliveries, last 3 months", hint: () => "6 working days or more from the order to the shipment, or shipped after the proposed date · the slowest first, whatever the period",
+      body: ({ d }) => {
+        if (!d.delivery) return <DvNone />;
+        return <Table head={["Delivery", "Customer", "Country", "Ordered", "Shipped", "Working days", "Proposed date", "Shipping"]} left={[1, 2, 7]} pageSize={15} minWidth={1000}
+          rows={d.delivery.slow.map((r) => ({
+            key: r[0],
+            cells: [r[0], r[7] || "—", r[5], ddmm(r[1]), ddmm(r[2]), `${int(r[3])} working day${r[3] === 1 ? "" : "s"}`, r[4] ? <Box key="p" component="span" sx={{ color: r[2] > r[4] ? BAD : undefined, fontWeight: r[2] > r[4] ? 700 : undefined }}>{ddmm(r[4])}</Box> : "—", r[6]],
+          }))} />;
+      },
+    }),
+  ];
+}
+
 export const CHARTS: ChartDef[] = [
   /* Team totals - the workbook's "Monthly evolution - team totals" */
   listed(ALL_IN)({
@@ -2264,6 +2401,8 @@ export const CHARTS: ChartDef[] = [
       return <DimChart {...box} rows={rows} cur={(r) => r.std} prev={(r) => r.spc} curLabel={`Standard, ${f.doneWords || f.year} on average`} prevLabel="Special" fmt={(v) => pct(v)} fixedOrder />;
     },
   }),
+  /* OTD > Delivery speed - from the ERP's order file */
+  ...dvCharts(),
 
   /* KPI autonomy - typed in */
   typedTrend("pass100", "autonomy", "Pass rate, mandant 100", "pass.m100", "Target 95 %", "pct", 0.95),
@@ -2315,7 +2454,9 @@ function Card({ def, c, where }: { def: ChartDef; c: Ctx; where: "tab" | "nutshe
 
 /* ── a tab per question, one card that follows it (as ESO's ticket pages) ── */
 
-type TabDef = { id: string; label: string; title: string; note: string; icon: React.ReactNode; tint: Tint; charts: string[] };
+type TabDef = { id: string; label: string; title: string; note: string; icon: React.ReactNode; tint: Tint; charts: string[];
+  /** graphs the filters do not reach (OTD > Delivery speed: deliveries, not tickets) - no "Filter these graphs" on them */
+  unfiltered?: boolean };
 /** the workbook's table, a tab of its own (SARCLA 03.11.2026: "the table should be a separate tab", "not on every page") */
 const TABLE = (note: string): TabDef => ({ id: "table", label: "Table", title: "All the figures, month by month", note, icon: <TableChartOutlinedIcon />, tint: "slate", charts: [] });
 const TYPE_IN: TabDef = { id: "input", label: "Type in", title: "Typed in by the Back Office", note: "not in HubSpot - a month typed in saves when you leave the field", icon: <EditNoteOutlinedIcon />, tint: "slate", charts: [] };
@@ -2362,6 +2503,8 @@ const TABS: Record<Slug, TabDef[]> = {
   otd: [
     { id: "online", label: "Online", title: "OTD online", note: "with early call-offs, against the first confirmation date", icon: <LocalShippingOutlinedIcon />, tint: "pink", charts: ["otdAll", "otdStandard", "otdSpecial"] },
     { id: "pcs", label: "Profit centres", title: "OTD per profit centre", note: "standard and special articles", icon: <ApartmentOutlinedIcon />, tint: "blue", charts: ["otdMinis", "otdPc"] },
+    { id: "speed", label: "Delivery speed", title: "Delivery speed", note: "every delivery in the ERP's order file, read every night: the working days from the order to the shipment - the filters do not apply here", icon: <TimerOutlinedIcon />, tint: "green", unfiltered: true,
+      charts: ["spdFigs", "spdMix", "spdFast", "spdMedian", "spdByDate", "spdLate", "spdCountry", "spdMode", "spdTable", "spdSlow"] },
     TYPE_IN,
   ],
   autonomy: [
@@ -2407,16 +2550,17 @@ function TabCard({ slug, c, extra }: { slug: Slug; c: Ctx; extra?: (tab: string)
       ]} />
       <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
         <CardTitle icon={t.id === "table" ? pageOf(slug).icon : t.icon} tint={t.id === "table" ? pageOf(slug).tint : t.tint} title={`${t.title}, ${periodOf(f)}`} note={t.note} />
-        {t.charts.length > 0 && (
-          <CardFilterFor filter={{ open: () => setPanel(true), label: n ? `Filtered by ${n} - change the filters` : "Filter these graphs", on: n > 0 }}>
-          <Box sx={{ ...TWO, mt: -0.5 }}>
-            {t.charts.map((id) => {
-              const def = CHARTS.find((x) => x.page === slug && x.id === id);
-              return def ? <Box key={id} sx={{ minWidth: 0, ...(def.wide ? { gridColumn: "1 / -1" } : {}), ...(def.tall ? { gridRow: { lg: "span 2" } } : {}) }}><Card def={def} c={c} where="tab" /></Box> : null;
-            })}
-          </Box>
-          </CardFilterFor>
-        )}
+        {t.charts.length > 0 && (() => {
+          const grid = (
+            <Box sx={{ ...TWO, mt: -0.5 }}>
+              {t.charts.map((id) => {
+                const def = CHARTS.find((x) => x.page === slug && x.id === id);
+                return def ? <Box key={id} sx={{ minWidth: 0, ...(def.wide ? { gridColumn: "1 / -1" } : {}), ...(def.tall ? { gridRow: { lg: "span 2" } } : {}) }}><Card def={def} c={c} where="tab" /></Box> : null;
+              })}
+            </Box>
+          );
+          return t.unfiltered ? grid : <CardFilterFor filter={{ open: () => setPanel(true), label: n ? `Filtered by ${n} - change the filters` : "Filter these graphs", on: n > 0 }}>{grid}</CardFilterFor>;
+        })()}
         {extra?.(t.id)}
       </GlassCard>
       <FilterWindow f={f} open={panel} onClose={() => setPanel(false)} />
@@ -2794,7 +2938,7 @@ function TypedPage({ slug, note }: { slug: Slug; note: string }) {
 }
 
 export function BoOtdPage() {
-  return <TypedPage slug="otd" note="Not in HubSpot - no order carries its first confirmation date - so the Back Office types each month in." />;
+  return <TypedPage slug="otd" note="Not in HubSpot - no order carries its first confirmation date - so the Back Office types each month in. The delivery speed is counted from the ERP's order file every night." />;
 }
 export function BoAutonomyPage() {
   return <TypedPage slug="autonomy" note="Not in HubSpot - the ERP knows which orders went through untouched and which prices were changed by hand - so the Back Office types each month in." />;
