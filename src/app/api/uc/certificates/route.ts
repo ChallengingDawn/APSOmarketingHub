@@ -54,11 +54,12 @@ export async function PUT(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
-  const b = (await req.json().catch(() => ({}))) as { mode?: Mode; people?: Partial<People>; mails?: Partial<Mails>; timing?: Partial<Timing> | "default"; hold?: string; release?: string; teamTo?: string[]; erpDates?: string; shop?: string; steps?: Partial<StepSwitches> };
+  const b = (await req.json().catch(() => ({}))) as { mode?: Mode; people?: Partial<People>; mails?: Partial<Mails>; timing?: Partial<Timing> | "default"; hold?: string; release?: string; teamTo?: string[]; erpDates?: string; shop?: string; steps?: Partial<StepSwitches>; makerSend?: string };
   if (b.mode !== undefined && !["off", "preview", "live"].includes(b.mode)) return NextResponse.json({ ok: false, error: "Unknown mode" }, { status: 400 });
   if (b.erpDates !== undefined && !["off", "show", "write"].includes(b.erpDates)) return NextResponse.json({ ok: false, error: "ERP dates: off, show or write" }, { status: 400 });
   if (b.shop !== undefined && !["off", "preview", "live"].includes(b.shop)) return NextResponse.json({ ok: false, error: "Shop tickets: off, preview or live" }, { status: 400 });
-  const patch: SettingsPatch = { mode: b.mode, erpDates: b.erpDates as SettingsPatch["erpDates"], shop: b.shop as SettingsPatch["shop"] };
+  if (b.makerSend !== undefined && !["off", "live"].includes(b.makerSend)) return NextResponse.json({ ok: false, error: "Declarations made on the ticket: off or live" }, { status: 400 });
+  const patch: SettingsPatch = { mode: b.mode, erpDates: b.erpDates as SettingsPatch["erpDates"], shop: b.shop as SettingsPatch["shop"], makerSend: b.makerSend as SettingsPatch["makerSend"] };
   if (b.steps !== undefined) {
     const s: Partial<StepSwitches> = {};
     for (const [k, v] of Object.entries(b.steps ?? {})) {

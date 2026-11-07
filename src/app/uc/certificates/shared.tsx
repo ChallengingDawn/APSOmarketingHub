@@ -9,6 +9,7 @@ import type { BoardRow, OpenTicket, OthersRow, Row, RunInfo, Settings, Stats } f
 import type { DateRow, ErpRead } from "@/lib/certificates/erpData";
 import type { ShopRow } from "@/lib/certificates/shopIntake";
 import type { Phase, StepName, Timing } from "@/lib/certificates/rules";
+import type { MakerRow } from "@/lib/certificates/makerSend";
 
 export type Data = {
   settings: Settings; last: RunInfo | null; rows: Row[]; open: OpenTicket[]; stats: Stats | null;
@@ -19,6 +20,8 @@ export type Data = {
   /** the ERP's delivery dates followed (or listed); the shop's orders with the declaration; ERP orders with a request,
    *  and when the ERP's order file was last read for them */
   dates: DateRow[]; shop: ShopRow[]; erpRequests: number; erpRead: ErpRead | null;
+  /** the declarations signed on the ticket card that the hub sent, or could not */
+  makerRows: MakerRow[];
 };
 
 export const PHASE: Record<Phase, { label: string; tint: Tint }> = {

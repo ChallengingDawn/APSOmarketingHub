@@ -35,6 +35,7 @@ import { INTAKE_FROM } from "@/lib/boDistribution/intake";
 import { datePass, dateRows, erpReadAt, erpRequests, type DateInfo, type DateMode } from "./erpData";
 import { shopPass, shopRows, type ShopMode } from "./shopIntake";
 import { INBOX_OWNERS, teamRecipients, type Recipient } from "@/lib/notify/teamRecipients";
+import { MAKER_PROP, makerPass, type MakerRow, type MakerSend } from "./makerSend";
 
 const LOCK = 4_107_260;
 const EVERY_MS = 3 * 60_000;
@@ -44,7 +45,7 @@ const ROWS_KEPT = 500;
 const KV = {
   settings: "certificates:settings", rows: "certificates:rows", last: "certificates:last", open: "certificates:open",
   done: "certificates:done", rotation: "certificates:rotation", stats: "certificates:stats",
-  othersDone: "certificates:othersDone", othersRows: "certificates:othersRows",
+  othersDone: "certificates:othersDone", othersRows: "certificates:othersRows", makerRows: "certificates:makerRows",
 };
 
 export type Mode = "off" | "preview" | "live";
@@ -61,6 +62,8 @@ export type Hold = { by: string; at: string };
 export type Settings = {
   mode: Mode; people: People; mails: Mails; timing: Timing; held: Record<string, Hold>; teamTo: string[];
   erpDates: DateMode; shop: ShopMode; shopFrom: string | null;
+  /** the declarations made and signed on the ticket card: mailed to the customer and EDA by the hub (off by default) */
+  makerSend: MakerSend;
   /** the step groups on / off (console) */
   steps: StepSwitches;
   by?: string; at?: string;
@@ -117,12 +120,13 @@ export async function getSettings(): Promise<Settings> {
   return {
     mode: s?.mode ?? "preview", people: { ...DEFAULT_PEOPLE, ...(s?.people ?? {}) }, mails: { ...DEFAULT_MAILS, ...(s?.mails ?? {}) },
     timing: { ...DEFAULT_TIMING, ...(s?.timing ?? {}) }, held: s?.held ?? {}, teamTo: (s?.teamTo ?? []).filter((id) => !INBOX_OWNERS.has(id)),
-    erpDates: s?.erpDates ?? "show", shop: s?.shop ?? "preview", shopFrom: s?.shopFrom ?? null, steps: { ...DEFAULT_STEPS, ...(s?.steps ?? {}) }, by: s?.by, at: s?.at,
+    erpDates: s?.erpDates ?? "show", shop: s?.shop ?? "preview", shopFrom: s?.shopFrom ?? null, steps: { ...DEFAULT_STEPS, ...(s?.steps ?? {}) },
+    makerSend: s?.makerSend ?? "off", by: s?.by, at: s?.at,
   };
 }
 export type SettingsPatch = {
   mode?: Mode; people?: Partial<People>; mails?: Partial<Mails>; timing?: Partial<Timing> | "default"; hold?: string; release?: string; teamTo?: string[];
-  erpDates?: DateMode; shop?: ShopMode; steps?: Partial<StepSwitches>;
+  erpDates?: DateMode; shop?: ShopMode; steps?: Partial<StepSwitches>; makerSend?: MakerSend;
 };
 export async function saveSettings(patch: SettingsPatch, by: string): Promise<Settings> {
   const cur = await getSettings();
@@ -133,7 +137,7 @@ export async function saveSettings(patch: SettingsPatch, by: string): Promise<Se
     mode: patch.mode ?? cur.mode, people: { ...cur.people, ...(patch.people ?? {}) }, mails: { ...cur.mails, ...(patch.mails ?? {}) },
     timing: patch.timing === "default" ? { ...DEFAULT_TIMING } : { ...cur.timing, ...(patch.timing ?? {}) }, held,
     teamTo: (patch.teamTo ?? cur.teamTo).filter((id) => !INBOX_OWNERS.has(id)),
-    erpDates: patch.erpDates ?? cur.erpDates, shop: patch.shop ?? cur.shop, steps: { ...cur.steps, ...(patch.steps ?? {}) },
+    erpDates: patch.erpDates ?? cur.erpDates, shop: patch.shop ?? cur.shop, steps: { ...cur.steps, ...(patch.steps ?? {}) }, makerSend: patch.makerSend ?? cur.makerSend,
     // Live from now on: the orders the shop sync saw before stay the Back Office's
     shopFrom: patch.shop === "live" && cur.shop !== "live" ? new Date().toISOString() : patch.shop && patch.shop !== "live" ? null : cur.shopFrom,
     by, at: new Date().toISOString(),
@@ -342,7 +346,7 @@ export async function owners(): Promise<Owner[]> {
 const PROPS = [
   "subject", "hs_pipeline_stage", "hubspot_owner_id", "actions_for_certificates", "which_certificate__", "other_certificates",
   "sarcla_pm_witch_mandant__", "order_number", "delivery_date_for_certificate", "conformity_expert", "back_office_ticket_requester",
-  "enquiry_category", "hs_merged_object_ids", "createdate", "sarcla_article_number_order_pm", PLAN_PROP, HOLD_PROP,
+  "enquiry_category", "hs_merged_object_ids", "createdate", "sarcla_article_number_order_pm", PLAN_PROP, HOLD_PROP, MAKER_PROP,
 ];
 const HIST = ["actions_for_certificates", "hs_pipeline_stage", "hs_merged_object_ids", "delivery_date_for_certificate"];
 
@@ -394,6 +398,7 @@ function factsOf(t: Obj, company: string | null): Facts {
     articles: p.sarcla_article_number_order_pm ?? null, remindAt: lastRemind ? ts(lastRemind.timestamp) : null,
     plan: p[PLAN_PROP] ?? null,
     hold: p[HOLD_PROP] ?? null,
+    maker: p[MAKER_PROP] ?? null,
   };
 }
 
@@ -546,7 +551,7 @@ async function run(): Promise<RunInfo> {
     }
     if (done.size) nextDone[f.id] = [...done];
     if (writing) {
-      const plan = planOf(f, done, now, tm, held, settings.people, remindOffAt);
+      const plan = planOf(f, done, now, tm, held, settings.people, remindOffAt, settings.makerSend);
       const text = plan ? JSON.stringify(plan) : "";
       if (plan && text !== (f.plan ?? "")) {
         try { await ensurePlanProp(); await hs(`/crm/v3/objects/tickets/${f.id}`, "PATCH", { properties: { [PLAN_PROP]: text } }); info.plans = (info.plans ?? 0) + 1; }
@@ -563,6 +568,16 @@ async function run(): Promise<RunInfo> {
       upcoming: (stepsOf(f, tm)?.steps ?? []).filter((x) => x.at > now && x.at <= now + 7 * 86400_000).map((x) => ({ name: x.name, at: new Date(x.at).toISOString() })),
       erp: dates.info.get(f.id), articles: f.articles ?? null,
     });
+  }
+  // the declarations signed on the ticket card: to the customer and EDA (makerSend.ts) - before the shop, after the steps
+  try {
+    const sent = await makerPass(facts, settings.held, settings.makerSend, writing);
+    info.mailed = (info.mailed ?? 0) + sent.mailed;
+    const fresh = sent.rows.filter((r) => r.what !== "would");
+    if (fresh.length) await kvSet(KV.makerRows, [...fresh, ...((await kvGet<MakerRow[]>(KV.makerRows)) ?? [])].slice(0, 200));
+    for (const r of fresh.filter((x) => x.what === "failed")) info.notes.push(`Declaration of ${r.ticketId}: ${r.error}`);
+  } catch (e) {
+    info.notes.push(`Declarations: ${(e as Error).message.slice(0, 200)}`);
   }
   // tickets from the shop's orders with the declaration line (the rotation moves on only for a ticket created)
   try {
@@ -708,9 +723,9 @@ async function board(settings: Settings, last: RunInfo | null, rows: Row[], othe
 
 // ---------------- the page ----------------
 export async function pageState() {
-  const [settings, last, rows, open, stats, othersRows, dRows, sRows, reqs, read] = await Promise.all([
+  const [settings, last, rows, open, stats, othersRows, dRows, sRows, reqs, read, mRows] = await Promise.all([
     getSettings(), kvGet<RunInfo>(KV.last), kvGet<Row[]>(KV.rows), kvGet<OpenTicket[]>(KV.open), kvGet<Stats>(KV.stats), kvGet<OthersRow[]>(KV.othersRows),
-    dateRows(), shopRows(), erpRequests(), erpReadAt(),
+    dateRows(), shopRows(), erpRequests(), erpReadAt(), kvGet<MakerRow[]>(KV.makerRows),
   ]);
   const list = await owners().catch(() => [] as Owner[]);
   const ids = new Set<string>([...settings.people.backOffice, ...settings.people.experts, settings.people.escalation]);
@@ -730,5 +745,7 @@ export async function pageState() {
     // the ERP's delivery dates followed (or listed), the shop's orders with the declaration, the ERP's requests known and
     // when the ERP's order file was last read for them
     dates: dRows.slice(0, 150), shop: sRows.slice(0, 200), erpRequests: Object.keys(reqs).length, erpRead: read,
+    // the declarations signed on the ticket card that the hub sent (or could not)
+    makerRows: (mRows ?? []).slice(0, 50),
   };
 }
