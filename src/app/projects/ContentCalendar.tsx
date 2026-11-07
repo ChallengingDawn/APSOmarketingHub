@@ -187,14 +187,14 @@ export default function ContentCalendar() {
 
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", lg: "1fr 280px" }, alignItems: "start" }}>
         <GlassCard sx={{ p: { xs: 1, sm: 1.5 } }}>
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0.5, mb: 0.5 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 0.5, mb: 0.5 }}>
             {WEEKDAYS.map((d) => (
               <Typography key={d} sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textAlign: "center", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                 {d}
               </Typography>
             ))}
           </Box>
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0.5 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 0.5 }}>
             {weeks.flat().map((day) => {
               const here = dated.get(day.iso) ?? [];
               const herePieces = piecesOn.get(day.iso) ?? [];
