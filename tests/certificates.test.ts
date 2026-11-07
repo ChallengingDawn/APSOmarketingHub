@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ACT, CATEGORY, DEFAULT_PEOPLE, DEFAULT_TIMING, H, D, HEAD, STAGE, WORKFLOW_OFF_AT, excludesCertificates, merge, owed, phaseOf, planOf, stepWords, stepsOf, subjectOf, swiss, timingProblem, type Facts } from "../src/lib/certificates/rules";
+import { ACT, CATEGORY, DEFAULT_PEOPLE, DEFAULT_TIMING, H, D, HEAD, STAGE, WORKFLOW_OFF_AT, excludesCertificates, isHeld, merge, owed, phaseOf, planOf, stepWords, stepsOf, subjectOf, swiss, timingProblem, type Facts } from "../src/lib/certificates/rules";
 
 const base = (x: Partial<Facts>): Facts => ({
   id: "1", stage: STAGE.certificates, actions: null, actionsAt: null, actionsBy: "CRM_UI", actionsBefore: null,
@@ -207,4 +207,12 @@ test("the plan on the ticket (the ticket card): states, the next step, who it wa
   assert.equal(pe.steps.find((x) => x.n === "expert-entry")!.s, "owed");
   // resolved: no plan
   assert.equal(planOf(base({ stage: STAGE.resolved }), new Set(), now, DEFAULT_TIMING, false, DEFAULT_PEOPLE), null);
+});
+
+test("on hold: on the console or on the ticket card", () => {
+  assert.equal(isHeld({ id: "1", hold: null }, {}), false);
+  assert.equal(isHeld({ id: "1", hold: "  " }, {}), false);
+  assert.equal(isHeld({ id: "1", hold: "Claudio Saraiva · 2026-11-07T17:30:00Z" }, {}), true);
+  assert.equal(isHeld({ id: "1", hold: null }, { "1": { by: "x", at: "y" } }), true);
+  assert.equal(isHeld({ id: "2", hold: "" }, { "1": { by: "x", at: "y" } }), false);
 });

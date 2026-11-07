@@ -143,6 +143,8 @@ export type Facts = {
   remindAt?: number | null;
   /** the plan the hub last wrote into the ticket (PLAN_PROP) - written again only when it changed */
   plan?: string | null;
+  /** HOLD_PROP: put on hold on the ticket card ("who · when") - the hub leaves the request alone while it is set */
+  hold?: string | null;
 };
 
 export type Phase = "start" | "avor" | "backOffice" | "expert" | "sent" | "merged";
@@ -439,12 +441,20 @@ export function reminderTo<R extends { email: string }>(owner: R | null, picked:
  * HubSpot cannot ask it: the hub writes each open request's plan into the ticket, in PLAN_PROP, when it changed.
  */
 export const PLAN_PROP = "apsohub_certificate_plan";
+/** On hold from the ticket card (SARCLA 07.11.2026, a test request: "block it from sending to AVOR") - hidden, the card
+ * writes "who · when", empty = released. The console's hold (settings.held) holds a ticket the same way. */
+export const HOLD_PROP = "apsohub_certificate_hold";
+/** On hold: on the console, or on the ticket card. Nothing is owed, no mail, no ERP date - until released. */
+export function isHeld(f: Pick<Facts, "id" | "hold">, held: Record<string, unknown>): boolean {
+  return !!held[f.id] || !!(f.hold ?? "").trim();
+}
 /** workflow = fell due while the HubSpot workflow still ran it; done = the hub took it (or skipped it, its group off);
  *  owed = due, the hub takes it in its next look; next = the next one; later = after it. */
 export type PlanStep = { n: StepName; at: string; w: string; s: "workflow" | "done" | "owed" | "next" | "later" };
 /** who the request waits for, and from when (the "3 days before" of the Back Office) */
 export type Wait = { who: "hub" | "avor" | "owner" | "expert"; what: string; from?: string };
-export type Plan = { v: 1; phase: Phase; held: boolean; wait: Wait; steps: PlanStep[]; experts: string[]; backOffice: string[] };
+/** v 2 = the hub also keeps the ticket card's hold (HOLD_PROP) - the card offers "Hold" only from v 2 */
+export type Plan = { v: 2; phase: Phase; held: boolean; wait: Wait; steps: PlanStep[]; experts: string[]; backOffice: string[] };
 
 export function waitOf(f: Facts, phase: Phase, steps: Step[], now: number): Wait {
   if (phase === "start") return { who: "hub", what: "The hub starts the request within 3 minutes" };
@@ -470,5 +480,5 @@ export function planOf(f: Facts, done: Set<string>, now: number, t: Timing, held
     else if (!nextSeen) { s = "next"; nextSeen = true; } else s = "later";
     return { n: x.name, at: new Date(x.at).toISOString(), w: stepWords(x.name, t), s };
   });
-  return { v: 1, phase: p.phase, held, wait: waitOf(f, p.phase, p.steps, now), steps, experts: people.experts, backOffice: people.backOffice };
+  return { v: 2, phase: p.phase, held, wait: waitOf(f, p.phase, p.steps, now), steps, experts: people.experts, backOffice: people.backOffice };
 }

@@ -27,7 +27,7 @@ import { esc, mailConfigured, sendHubMail, wrap } from "@/lib/notify/mailer";
 import {
   ACT, BO_PIPELINE, CATEGORY, DEFAULT_PEOPLE, DEFAULT_STEPS, DEFAULT_TIMING, MAIL_TEXT, OTHERS_OFF_AT, REMIND_OFF_AT, STAGE, STEP_GROUP, WORKFLOW_OFF_AT,
   type StepSwitches,
-  HEAD, PLAN_PROP, certsText, dueShort, merge, owed, planOf, position, reminderTo, stepsOf, subjectOf,
+  HEAD, HOLD_PROP, PLAN_PROP, certsText, isHeld, dueShort, merge, owed, planOf, position, reminderTo, stepsOf, subjectOf,
   type Facts, type MailName, type People, type Phase, type StepName, type Timing,
 } from "./rules";
 import { createdPreview, intakeState } from "@/lib/boDistribution/intakeRun";
@@ -342,7 +342,7 @@ export async function owners(): Promise<Owner[]> {
 const PROPS = [
   "subject", "hs_pipeline_stage", "hubspot_owner_id", "actions_for_certificates", "which_certificate__", "other_certificates",
   "sarcla_pm_witch_mandant__", "order_number", "delivery_date_for_certificate", "conformity_expert", "back_office_ticket_requester",
-  "enquiry_category", "hs_merged_object_ids", "createdate", "sarcla_article_number_order_pm", PLAN_PROP,
+  "enquiry_category", "hs_merged_object_ids", "createdate", "sarcla_article_number_order_pm", PLAN_PROP, HOLD_PROP,
 ];
 const HIST = ["actions_for_certificates", "hs_pipeline_stage", "hs_merged_object_ids", "delivery_date_for_certificate"];
 
@@ -393,6 +393,7 @@ function factsOf(t: Obj, company: string | null): Facts {
     startedAt: firstCert ? ts(firstCert.timestamp) : null, subject: p.subject ?? null,
     articles: p.sarcla_article_number_order_pm ?? null, remindAt: lastRemind ? ts(lastRemind.timestamp) : null,
     plan: p[PLAN_PROP] ?? null,
+    hold: p[HOLD_PROP] ?? null,
   };
 }
 
@@ -458,7 +459,8 @@ async function run(): Promise<RunInfo> {
   const facts = await readTickets(await openIds());
   info.notes = [];
   // the ERP's delivery dates first - the steps go by the new date in the same look (SARCLA 06.11.2026)
-  const inProcess = facts.filter((f) => position(f, Date.now(), settings.timing));
+  // a request on hold keeps its date too
+  const inProcess = facts.filter((f) => position(f, Date.now(), settings.timing) && !isHeld(f, settings.held));
   const dates = await datePass(inProcess, settings.erpDates, writing).catch((e) => ({ info: new Map<string, DateInfo>(), rows: [], error: (e as Error).message.slice(0, 200) }));
   info.dates = dates.rows.length;
   if (dates.error) info.notes.push(`ERP dates: ${dates.error}`);
@@ -479,7 +481,7 @@ async function run(): Promise<RunInfo> {
     info.tickets++;
     const done = new Set(doneMap[f.id] ?? []);
     // on hold: nothing owed - what falls due meanwhile is taken when it is released
-    const held = !!settings.held[f.id];
+    const held = isHeld(f, settings.held);
     if (!held && !f.requester && f.owner && f.createdAt >= wayinFrom && !done.has(writing ? "wayin" : "~wayin")) {
       const props = { back_office_ticket_requester: f.owner };
       const row: Row = { at: new Date().toISOString(), ticketId: f.id, subject: f.subject, phase: pos.phase, steps: ["wayin"], what: "would", props, note: false };
