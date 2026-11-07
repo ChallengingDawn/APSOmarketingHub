@@ -33,6 +33,8 @@ import {
 import { readErpWorkbook } from "./erpWorkbook";
 import { SHEET_ERP_LINES } from "../../reporting/boErpLines";
 import { saveErpLines } from "@/lib/reporting/boErpLinesStore";
+import { SHEET_INVOICES, invoiceFacts, lineFacts } from "./orderFactsRules";
+import { saveErpFacts } from "./orderFactsStore";
 
 type Beat = () => Promise<void>;
 type Obj = { id: string; properties?: Record<string, string | null | undefined> };
@@ -262,6 +264,15 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
     try { out.erp_lines = { ...(await saveErpLines(wb.erpLines.lines)), rows: wb.erpLines.rows, kept: true }; }
     catch (e) { out.erp_lines = `not kept: ${(e as Error).message}`; }
   }
+  // the order facts the sheets give (first confirmed date, special articles, the invoice) - order_sync writes them at night
+  if (wb.erpLines || wb.invoices) {
+    const byBase = wb.erpLines ? lineFacts(wb.erpLines.lines) : new Map(), byOrder = wb.invoices ? invoiceFacts(wb.invoices) : new Map();
+    if (!live) out.order_facts = { orders: byBase.size, deliveries_invoiced: byOrder.size, kept: false };
+    else {
+      try { out.order_facts = { ...(await saveErpFacts(byBase, byOrder)), kept: true }; }
+      catch (e) { out.order_facts = `not kept: ${(e as Error).message}`; }
+    }
+  } else out.order_facts = wb.sheets.some((s) => s.trim().toUpperCase() === SHEET_INVOICES) ? "KPI INVOICES without the expected header" : "no KPI LINES or KPI INVOICES sheet";
   await beat();
 
   const pre = await preflight();

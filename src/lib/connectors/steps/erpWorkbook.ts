@@ -25,6 +25,7 @@ import { createInflateRaw } from "node:zlib";
 import { SaxesParser } from "saxes";
 import { Figures3, Figures4, PyFloat, SHEET_CUSTOMERS, SHEET_PROFIT_CENTRES, pyRound, type Cell, type Figures3Result, type Figures4Result } from "./erpRules";
 import { ErpLinesSheet, SHEET_ERP_LINES, type ErpLine } from "../../reporting/boErpLines";
+import { InvoicesSheet, SHEET_INVOICES, type InvoiceRow } from "./orderFactsRules";
 
 export class WorkbookFormatError extends Error {
   constructor(message: string) {
@@ -492,6 +493,8 @@ export type ErpWorkbook = {
   profitCentres: Figures4Result | null;
   /** the ERP's order lines from its BI model (sheet "KPI LINES", ../../reporting/boErpLines.ts) - null without that sheet */
   erpLines: { lines: ErpLine[]; rows: number } | null;
+  /** the ERP's invoices per delivery from its BI model (sheet "KPI INVOICES", ./orderFactsRules.ts) - null without it */
+  invoices: InvoiceRow[] | null;
   rows: number;
   seconds: number;
 };
@@ -530,5 +533,12 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>):
     rows += await readSheet(file, part(lt.name)!, book, (n, cells) => sl.feed(n, cells), beat);
     erpLines = sl.finish();
   }
-  return { file: basename(file), mb: pyRound(size / 1048576, 1), sheets: names, customers, profitCentres, erpLines, rows, seconds: Math.round((Date.now() - t0) / 100) / 10 };
+  let invoices: InvoiceRow[] | null = null;
+  const it = book.sheets.find((x) => x.name.trim().toUpperCase() === SHEET_INVOICES);
+  if (it) {
+    const si = new InvoicesSheet();
+    rows += await readSheet(file, part(it.name)!, book, (n, cells) => si.feed(n, cells), beat);
+    invoices = si.finish();
+  }
+  return { file: basename(file), mb: pyRound(size / 1048576, 1), sheets: names, customers, profitCentres, erpLines, invoices, rows, seconds: Math.round((Date.now() - t0) / 100) / 10 };
 }
