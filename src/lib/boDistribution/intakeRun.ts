@@ -83,10 +83,8 @@ const rowHtml = (k: string, v: string) =>
 // 05.11.2026 10:47-11:31: the Backoffice Team's address is a HubSpot inbox - every mail the hub sent there came back as a
 // new Back Office ticket, which the way in mailed again (120 tickets in 44 minutes). The mail goes to the people picked
 // on the Way in tab, each to their own address - never an inbox (notify/teamRecipients); nobody picked = not sent.
-async function mailTeam(id: string, p: Record<string, string | null>, subject: string, ids: string[]): Promise<{ ok: boolean; text: string }> {
-  const to = await teamRecipients(ids);
-  if (!to.length) return { ok: true, text: NOBODY };
-  if (!mailConfigured()) return { ok: false, text: "the hub cannot send mail" };
+/** "❗Back Office Ticket Created" as it goes out (the Certificates > Mails tab shows it, mailTeam sends it). */
+function renderCreated(id: string, p: Record<string, string | null>, subject: string): { html: string; text: string } {
   const rows: [string, string][] = ([
     ["Name", subject], ["Category", joined(p, SUBCATS)], ["Description", p.content ?? ""], ["Article Number", p.article_number ?? ""],
     ["Order Number", p.order_number ?? ""], ["Invoice Number", p.invoice_number ?? ""], ["Order Issue Information", p.order_issue_information ?? ""],
@@ -99,9 +97,32 @@ async function mailTeam(id: string, p: Record<string, string | null>, subject: s
     footer: "Sent by APSOhub (UC & HubSpot Apps > Back Office distribution > Way in).",
   });
   const text = ["Ticket Information", "", ...rows.map(([k, v]) => `${k}: ${v}`), "", ticketUrl(id)].join("\n");
+  return { html, text };
+}
+async function mailTeam(id: string, p: Record<string, string | null>, subject: string, ids: string[]): Promise<{ ok: boolean; text: string }> {
+  const to = await teamRecipients(ids);
+  if (!to.length) return { ok: true, text: NOBODY };
+  if (!mailConfigured()) return { ok: false, text: "the hub cannot send mail" };
+  const { html, text } = renderCreated(id, p, subject);
   const who = to.map((r) => r.name).join(", ");
   try { await sendHubMail({ to: to.map((r) => r.email).join(", "), subject: MAIL_SUBJECT, html, text }); return { ok: true, text: `mail to ${who}` }; }
   catch (e) { return { ok: false, text: `mail to ${who} failed: ${(e as Error).message.slice(0, 120)}` }; }
+}
+
+/** The mail on the latest ticket the way in wrote (nothing is sent) - and who would get it. */
+export async function createdPreview(): Promise<{ subject: string; html: string; to: string; ticket: { id: string; subject: string | null } | null; note?: string }> {
+  const rows = (await kvGet<IntakeRow[]>(KV.rows)) ?? [];
+  const row = rows.find((r) => r.what === "done" && r.mail) ?? rows.find((r) => r.what === "done");
+  if (!row) return { subject: MAIL_SUBJECT, html: "", to: "", ticket: null, note: "No ticket taken in yet to show it on." };
+  const t = await hs<Obj>(`/crm/v3/objects/tickets/${row.ticketId}?properties=${FACT_PROPS.join(",")}`);
+  const set = await getIntakeSettings();
+  const to = set.mail ? await teamRecipients(set.to) : [];
+  const subject = row.props.subject ?? t.properties.subject ?? "";
+  return {
+    subject: MAIL_SUBJECT, ...renderCreated(row.ticketId, t.properties, subject),
+    to: !set.mail ? "nobody - switched off on the Way in tab" : to.map((r) => `${r.name} <${r.email}>`).join(", ") || "nobody - no one picked on the Way in tab",
+    ticket: { id: row.ticketId, subject },
+  };
 }
 
 // ---------------- one pass ----------------

@@ -48,11 +48,12 @@ import type { OpenTicket, OthersRow, Row } from "@/lib/certificates/engine";
 import { stepWords, type StepName, type Timing } from "@/lib/certificates/rules";
 import { Console, SettingsTab } from "./Console";
 import { ShopTab } from "./ShopTab";
+import { MailsTab } from "./MailsTab";
 import { BO_STEPS, LATE, MAIL_STEPS, PHASE, STAGE_LABEL, TicketLink, dueText, hh, isLate, put, span, type Data } from "./shared";
 import type { DateRow } from "@/lib/certificates/erpData";
 
-type View = "overview" | "tickets" | "agenda" | "shop" | "activity" | "console" | "settings";
-const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", agenda: "#agenda", shop: "#shop", activity: "#activity", console: "#console", settings: "#settings" };
+type View = "overview" | "tickets" | "agenda" | "shop" | "activity" | "mails" | "console" | "settings";
+const VIEW_HASH: Record<View, string> = { overview: "#overview", tickets: "#tickets", agenda: "#agenda", shop: "#shop", activity: "#activity", mails: "#mails", console: "#console", settings: "#settings" };
 
 // ---------------- the process, drawn ----------------
 /** The box of the drawing a ticket sits in. */
@@ -241,8 +242,8 @@ function TicketsTable({ rows, d, empty, onChanged }: { rows: OpenTicket[]; d: Da
   );
 }
 
-function TicketsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
-  const [f, setF] = useState<Filter>("all");
+function TicketsTab({ d, onChanged, initial = "all" }: { d: Data; onChanged: () => void; initial?: Filter }) {
+  const [f, setF] = useState<Filter>(initial);
   const [q, setQ] = useState("");
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const hit = (t: OpenTicket) => !words.length || words.every((w) => [t.id, t.subject, t.company, t.order, t.certs].join(" ").toLowerCase().includes(w));
@@ -455,8 +456,42 @@ function ActivityTab({ d }: { d: Data }) {
   );
 }
 
+// ---------------- the late ones (SARCLA 07.11.2026: "7 late ... can be improved, not just a line here") ----------------
+const daysSince = (date: string) => Math.max(0, Math.floor((Date.now() - Date.parse(`${date}T12:00:00`)) / 86400_000));
+function LateCard({ d, onAll }: { d: Data; onAll: () => void }) {
+  const late = d.open.filter(isLate).sort((a, b) => (a.due ?? "9").localeCompare(b.due ?? "9"));
+  if (!late.length) return null;
+  const byOwner = Object.entries(late.reduce<Record<string, number>>((a, t) => { const k = t.owner ? d.names[t.owner] ?? t.owner : "nobody"; a[k] = (a[k] ?? 0) + 1; return a; }, {})).sort((a, b) => b[1] - a[1]);
+  const left = late.filter((t) => t.erp?.shipped).length;
+  return (
+    <GlassCard sx={{ borderLeft: `4px solid ${RED}` }}>
+      <CardTitle icon={<ReportProblemOutlinedIcon />} tint="pink" title={`${full(late.length)} request${late.length === 1 ? " is" : "s are"} late`}
+        note={`The delivery date has passed and no certificate went out${left ? ` - for ${full(left)} of them the goods have already left` : ""}`} />
+      <Typography sx={{ fontSize: "0.8rem", color: INK, mb: 1 }}>
+        {byOwner.map(([n, c]) => `${n} ${c}`).join(" · ")}
+      </Typography>
+      <Box sx={{ display: "grid", gap: 0.75 }}>
+        {late.slice(0, 5).map((t) => (
+          <Box key={t.id} sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) 150px 170px" }, gap: { xs: 0.25, md: 1.5 }, alignItems: "center", py: 0.75, borderTop: `1px solid ${HAIRLINE}` }}>
+            <Box sx={{ minWidth: 0 }}>
+              <TicketLink id={t.id} subject={t.subject} max={620} />
+              <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{[t.company, t.order, t.certs].filter(Boolean).join(" · ")}</Typography>
+            </Box>
+            <Typography sx={{ fontSize: "0.8rem", color: INK }}>{t.owner ? d.names[t.owner] ?? t.owner : "nobody"}</Typography>
+            <Typography sx={{ fontSize: "0.8rem", color: RED, fontWeight: 600 }}>{t.due ? `due ${dueText(t.due)} · ${daysSince(t.due)} days ago` : "no date"}</Typography>
+          </Box>
+        ))}
+      </Box>
+      <Box sx={{ mt: 1, display: "flex", gap: 1, alignItems: "center" }}>
+        <Button size="small" variant="contained" disableElevation onClick={onAll}>{late.length > 5 ? `See all ${full(late.length)} on the Tickets tab` : "Open them on the Tickets tab"}</Button>
+        <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>Late = the &quot;48 h after the delivery date&quot; step or a later one has been taken.</Typography>
+      </Box>
+    </GlassCard>
+  );
+}
+
 // ---------------- the overview ----------------
-function Overview({ d, go, onChanged }: { d: Data; go: (v: View) => void; onChanged: () => void }) {
+function Overview({ d, go, onChanged, onLate }: { d: Data; go: (v: View) => void; onChanged: () => void; onLate: () => void }) {
   const [sel, setSel] = useState<string | null>(null);
   const open = d.open;
   const now = Date.now();
@@ -482,6 +517,7 @@ function Overview({ d, go, onChanged }: { d: Data; go: (v: View) => void; onChan
         </Typography>
         <Box sx={{ ml: "auto", display: "flex", gap: 1 }}>
           <Button size="small" variant="text" onClick={() => go("agenda")}>Agenda</Button>
+          <Button size="small" variant="text" onClick={() => go("mails")}>Mails</Button>
           <Button size="small" variant="text" onClick={() => go("console")}>Console</Button>
           <Button size="small" variant="text" onClick={() => go("settings")}>Settings</Button>
         </Box>
@@ -494,6 +530,7 @@ function Overview({ d, go, onChanged }: { d: Data; go: (v: View) => void; onChan
         <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<TaskAltOutlinedIcon />} tint="green" label="Resolved this month" value={thisMonth ? full(thisMonth.resolved) : "—"} note={thisMonth ? `${full(thisMonth.created)} new this month` : "read every 30 min"} /></Grid>
         <Grid size={{ xs: 6, md: 4, lg: 2 }}><KpiTile icon={<TimerOutlinedIcon />} tint="slate" label="Days to resolve" value={d.stats?.medianDays !== null && d.stats?.medianDays !== undefined ? String(d.stats.medianDays) : "—"} note={d.stats ? `median, ${full(d.stats.resolved90)} resolved in 90 days` : "read every 30 min"} /></Grid>
       </Grid>
+      <LateCard d={d} onAll={onLate} />
       <ProcessCard open={open} resolvedThisMonth={thisMonth?.resolved ?? null} sel={sel} onPick={setSel} timing={d.settings.timing} />
       {sel && (
         <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
@@ -524,19 +561,21 @@ function Overview({ d, go, onChanged }: { d: Data; go: (v: View) => void; onChan
 export default function Certificates() {
   const [view, setView] = useHashTab<View>(VIEW_HASH, "overview");
   const [n, setN] = useState(0);
+  const [ticketFilter, setTicketFilter] = useState<Filter>("all");
   const held = useHeld<Data>(`/api/uc/certificates${n ? `?n=${n}` : ""}`, [n]);
   const r = held.result;
   const reload = () => setN((x) => x + 1);
   let body: React.ReactNode;
   if (r === null) body = <LoadingPanel label="Reading the certificate requests…" />;
   else if (r.state !== "ok") body = <UpstreamPanel source="Certificates" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={reload} />;
-  else if (view === "tickets") body = <TicketsTab d={r.data} onChanged={reload} />;
+  else if (view === "tickets") body = <TicketsTab key={ticketFilter} d={r.data} onChanged={reload} initial={ticketFilter} />;
   else if (view === "agenda") body = <Agenda d={r.data} />;
   else if (view === "activity") body = <ActivityTab d={r.data} />;
+  else if (view === "mails") body = <MailsTab d={r.data} />;
   else if (view === "shop") body = <ShopTab d={r.data} />;
   else if (view === "console") body = <Console d={r.data} onChanged={reload} />;
   else if (view === "settings") body = <SettingsTab d={r.data} onChanged={reload} />;
-  else body = <Overview d={r.data} go={setView} onChanged={reload} />;
+  else body = <Overview d={r.data} go={setView} onChanged={reload} onLate={() => { setTicketFilter("late"); setView("tickets"); }} />;
   const d = r?.state === "ok" ? r.data : null;
   const late = d ? d.open.filter(isLate).length : 0;
   const next7 = d ? d.open.filter((x) => !x.held).reduce((a, x) => a + (x.upcoming?.length ?? 0), 0) : 0;
@@ -555,15 +594,15 @@ export default function Certificates() {
       <Box>
         <ReportTabs name="certificates" tab={view} onSelect={setView} tabs={[
           { id: "overview", label: "Overview", count: null },
-          { id: "tickets", label: "Tickets", count: d ? full(d.open.length) : null },
+          { id: "tickets", label: late ? `Tickets · ${full(late)} late` : "Tickets", count: d ? full(d.open.length) : null },
           { id: "agenda", label: "Agenda", count: d && next7 ? full(next7) : null },
           { id: "shop", label: "From the shop", count: d && d.shop.length ? full(d.shop.length) : null },
           { id: "activity", label: "Activity", count: d && d.rows.length ? full(d.rows.length) : null },
+          { id: "mails", label: "Mails", count: null },
           { id: "console", label: "Console", count: null },
           { id: "settings", label: "Settings", count: null },
         ]} />
       </Box>
-      {late > 0 && view !== "overview" && <Typography sx={{ fontSize: "0.82rem", color: RED }}>{full(late)} late - delivery date passed, no certificate sent yet.</Typography>}
       <Box id={`certificates-panel-${view}`} role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>{body}</Box>
     </Box>
   );

@@ -222,11 +222,11 @@ export async function shopPass(opts: {
       // the order's records, its company and contact, the delivery date
       const ds = (await deliveriesOf([r.a])).get(r.a) ?? [];
       const due = pickDelivery(null, articlesIn(pos), ds).d?.ship ?? null;
-      // the order the ticket hangs on: the web order when HubSpot has it, else the ERP's own (its .000, else its deliveries)
-      const own = ds.filter((x) => x.id);
-      const erpIds = (own.some((x) => x.num.endsWith(".000")) ? own.filter((x) => x.num.endsWith(".000")) : own).map((x) => x.id!);
+      // the orders the ticket hangs on (SARCLA 07.11.2026: "associate it to the order"): the web order when HubSpot has it,
+      // and every ERP record of the order - its .000 and each delivery - so the Certificates card shows on whichever is open
+      const erpIds = ds.filter((x) => x.id).map((x) => x.id!);
       const web = r.webOrderId === undefined ? s.hs_order_id : r.webOrderId;
-      const orderIds = [...new Set(web ? [web] : erpIds)];
+      const orderIds = [...new Set([...(web ? [web] : []), ...erpIds])];
       let companyId: string | null = null, contactId: string | null = null;
       for (const id of orderIds) {
         companyId ??= (await assocIds(id, "companies"))[0] ?? null;

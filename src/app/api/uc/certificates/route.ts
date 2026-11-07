@@ -9,14 +9,15 @@
 //      {erpDates: "off" | "show" | "write"} follow the ERP's delivery date; {shop: "off" | "preview" | "live"} tickets
 //      from the shop's orders with the declaration line.
 // PUT (admins) {steps: {avor?, bo?, expert?, handover?}} the step groups on / off (off = skipped, not taken later).
-// POST (admins) {action: "run"} = look now; {action: "sample"} = the owner's "due today" mail for an open request, to
+// GET ?preview=<bo3days|boToday|bo48|bo96|boWeek|boRose|team|created>: that mail as it would go out, nothing sent.
+// POST (admins) {action: "run"} = look now; {action: "sample", mail?} = that mail (default "due today") for an open request, to
 //      the admin asking (never an inbox).
 
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { query } from "@/lib/db/client";
 import { describeIntegrationError } from "@/lib/integrations/status";
-import { pageState, runOnce, saveSettings, sendSample, type Mails, type Mode, type SettingsPatch } from "@/lib/certificates/engine";
+import { MAIL_KEYS, pageState, previewMail, runOnce, saveSettings, sendSample, type MailKey, type Mails, type Mode, type SettingsPatch } from "@/lib/certificates/engine";
 import { timingProblem, type People, type Timing } from "@/lib/certificates/rules";
 import { INBOX_OWNERS, isInbox } from "@/lib/notify/teamRecipients";
 import { DEFAULT_STEPS, type StepSwitches } from "@/lib/certificates/rules";
@@ -30,11 +31,17 @@ async function me(userId: number): Promise<string> {
   return u?.full_name?.trim() || u?.username || `user ${userId}`;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!access.canOpen("uc")) return NextResponse.json({ error: "No access" }, { status: 403 });
   try {
+    // ?preview=<mail>: that mail as it would go out today, on a real ticket (the Mails tab) - nothing is sent
+    const preview = req.nextUrl.searchParams.get("preview");
+    if (preview !== null) {
+      if (!MAIL_KEYS.includes(preview as MailKey)) return NextResponse.json({ ok: false, error: "Unknown mail" }, { status: 400 });
+      return NextResponse.json({ ok: true, data: await previewMail(preview as MailKey) });
+    }
     return NextResponse.json({ configured: true, ok: true, data: { ...(await pageState()), admin: access.role === "admin" } });
   } catch (err) {
     return NextResponse.json({ configured: true, ok: false, ...describeIntegrationError(err) });
@@ -90,14 +97,15 @@ export async function POST(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
-  const b = (await req.json().catch(() => ({}))) as { action?: string };
+  const b = (await req.json().catch(() => ({}))) as { action?: string; mail?: string };
   try {
     if (b.action === "sample") {
       const r = await query<{ email: string | null; full_name: string | null; username: string | null }>(`SELECT email, full_name, username FROM apsomh_users WHERE id = $1`, [access.userId]).catch(() => ({ rows: [] }));
       const u = r.rows[0];
       if (!u?.email) return NextResponse.json({ ok: false, error: "Your account has no e-mail address" });
       if (await isInbox(u.email)) return NextResponse.json({ ok: false, error: "That address is a HubSpot inbox - a mail there comes back as a ticket" });
-      const sent = await sendSample({ name: u.full_name?.trim() || u.username || u.email, email: u.email });
+      const key = MAIL_KEYS.includes(b.mail as MailKey) ? (b.mail as MailKey) : "boToday";
+      const sent = await sendSample({ name: u.full_name?.trim() || u.username || u.email, email: u.email }, key);
       return NextResponse.json(sent.ok ? { ok: true, data: { text: `${sent.text} (${u.email})` } } : { ok: false, error: sent.text });
     }
     if (b.action === "run") {

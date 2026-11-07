@@ -26,10 +26,10 @@ import { esc, mailConfigured, sendHubMail, wrap } from "@/lib/notify/mailer";
 import {
   ACT, BO_PIPELINE, CATEGORY, DEFAULT_PEOPLE, DEFAULT_STEPS, DEFAULT_TIMING, MAIL_TEXT, OTHERS_OFF_AT, REMIND_OFF_AT, STAGE, STEP_GROUP, WORKFLOW_OFF_AT,
   type StepSwitches,
-  certsText, dueShort, merge, owed, position, reminderTo, stepsOf,
+  HEAD, certsText, dueShort, merge, owed, position, reminderTo, stepsOf, subjectOf,
   type Facts, type MailName, type People, type Phase, type StepName, type Timing,
 } from "./rules";
-import { intakeState } from "@/lib/boDistribution/intakeRun";
+import { createdPreview, intakeState } from "@/lib/boDistribution/intakeRun";
 import { INTAKE_FROM } from "@/lib/boDistribution/intake";
 import { datePass, dateRows, erpReadAt, erpRequests, type DateInfo, type DateMode } from "./erpData";
 import { shopPass, shopRows, type ShopMode } from "./shopIntake";
@@ -144,11 +144,8 @@ const ticketUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/26492587
 const FOOTER = "Sent by APSOhub (UC & HubSpot Apps > Certificates).";
 const rowHtml = (k: string, v: string) =>
   `<tr><td style="padding:5px 12px 5px 0;color:#8b97ac;font-size:13px;white-space:nowrap;vertical-align:top">${esc(k)}</td><td style="padding:5px 0;font-size:14px;color:#15223a">${esc(v)}</td></tr>`;
-/** The reminder mail, to the ticket's owner. */
-async function sendReminder(m: MailName, f: Facts, subject: string, to: Owner | undefined): Promise<{ ok: boolean; text: string }> {
-  const who = to?.name ?? "the owner";
-  if (!to?.email) return { ok: false, text: `no e-mail address for ${who}` };
-  if (!mailConfigured()) return { ok: false, text: "the hub cannot send mail" };
+/** The reminder mail to the ticket's owner, as it goes out (the Mails tab shows it, the step sends it). */
+function renderReminder(m: MailName, f: Facts): { html: string; text: string } {
   const t = MAIL_TEXT[m];
   const rows: [string, string][] = [
     ["Company", f.company || "-"], ["Order number", f.order || "-"], ["Article(s)", f.articles || "-"],
@@ -156,18 +153,66 @@ async function sendReminder(m: MailName, f: Facts, subject: string, to: Owner | 
   ];
   const html = wrap({ heading: t.line, intro: t.ask, rows: `<table style="border-collapse:collapse">${rows.map(([k, v]) => rowHtml(k, v)).join("")}</table>`, cta: { label: "Open the ticket", href: ticketUrl(f.id) }, hubUrl: HUB_URL, footer: FOOTER });
   const text = [t.line, t.ask, "", ...rows.map(([k, v]) => `${k}: ${v}`), "", ticketUrl(f.id)].join("\n");
+  return { html, text };
+}
+async function sendReminder(m: MailName, f: Facts, subject: string, to: Owner | undefined): Promise<{ ok: boolean; text: string }> {
+  const who = to?.name ?? "the owner";
+  if (!to?.email) return { ok: false, text: `no e-mail address for ${who}` };
+  if (!mailConfigured()) return { ok: false, text: "the hub cannot send mail" };
+  const { html, text } = renderReminder(m, f);
   try { await sendHubMail({ to: to.email, subject: subject.slice(0, 180), html, text }); return { ok: true, text: `mail to ${who}` }; }
   catch (e) { return { ok: false, text: `mail to ${who} failed: ${(e as Error).message.slice(0, 120)}` }; }
 }
 
-/** The console's "send me a sample": the owner's "due today" mail for the first open request, to the person asking. */
-export async function sendSample(to: { name: string; email: string }): Promise<{ ok: boolean; text: string }> {
+/** Every mail the hub sends for the Back Office (the Mails tab - SARCLA 07.11.2026: "a tab mails so we can see each mail
+ *  and preview the design"). The owner's reminders, the reminder on every other ticket in Remind, and the way in's
+ *  "❗Back Office Ticket Created" (boDistribution/intakeRun, steered on its Way in tab). */
+export type MailKey = MailName | "team" | "created";
+export const MAIL_KEYS: MailKey[] = ["bo3days", "boToday", "bo48", "bo96", "boWeek", "boRose", "team", "created"];
+export type MailPreview = { key: MailKey; subject: string; html: string; to: string; ticket: { id: string; subject: string | null } | null; note?: string };
+
+/** A mail as it would go out today, on a real ticket - nothing is sent. */
+export async function previewMail(key: MailKey): Promise<MailPreview> {
+  if (key === "team") {
+    // the latest ticket that went to Remind without a certificate
+    const rows = (await kvGet<OthersRow[]>(KV.othersRows)) ?? [];
+    const id = rows[0]?.ticketId ?? (await search([{ propertyName: "hs_pipeline_stage", operator: "EQ", value: STAGE.remind }, { propertyName: "which_certificate__", operator: "NOT_HAS_PROPERTY" }]))[0]?.id;
+    if (!id) return { key, subject: TEAM_SUBJECT, html: "", to: "", ticket: null, note: "No ticket in Remind Back Office to show it on." };
+    const t = await hs<Obj>(`/crm/v3/objects/tickets/${id}?properties=${OTHERS_PROPS.join(",")}`);
+    const s = await getSettings();
+    const owner = t.properties.hubspot_owner_id ? (await teamRecipients([t.properties.hubspot_owner_id]))[0] ?? null : null;
+    const picked = await teamRecipients(s.teamTo);
+    const to = reminderTo(owner, picked, owner || picked.length ? [] : await teamRecipients(s.people.backOffice));
+    return { key, subject: TEAM_SUBJECT, ...renderTeamReminder(t), to: to.map((r) => `${r.name} <${r.email}>`).join(", ") || "nobody", ticket: { id: String(id), subject: t.properties.subject ?? null } };
+  }
+  if (key === "created") {
+    const p = await createdPreview();
+    return { key, ...p };
+  }
+  // the owner's reminders: on an open request - one at that step if there is one, else one with a delivery date
   const open = (await kvGet<OpenTicket[]>(KV.open)) ?? [];
-  const pick = open.find((t) => t.due) ?? open[0];
-  if (!pick) return { ok: false, text: "no open request to show" };
+  const pick = open.find((t) => t.step === key) ?? open.find((t) => t.next?.name === key) ?? open.find((t) => t.due && t.phase === "backOffice") ?? open.find((t) => t.due) ?? open[0];
+  if (!pick) return { key, subject: HEAD.boToday, html: "", to: "", ticket: null, note: "No open request to show it on." };
   const [f] = await readTickets([pick.id]);
-  if (!f) return { ok: false, text: "the request could not be read" };
-  return sendReminder("boToday", f, `[Sample] ${f.subject ?? "Certificate"}`, { id: "sample", name: to.name, email: to.email, archived: false });
+  if (!f) return { key, subject: HEAD.boToday, html: "", to: "", ticket: null, note: "The request could not be read." };
+  const s = await getSettings();
+  const list = await owners().catch(() => [] as Owner[]);
+  // boRose goes to the hand-over person, the others to the ticket's owner
+  const toId = key === "boRose" ? s.people.escalation : f.owner;
+  const o = list.find((x) => x.id === toId);
+  return {
+    key, subject: subjectOf(key === "boRose" ? HEAD.boWeek : HEAD[key], f), ...renderReminder(key, f),
+    to: o ? `${o.name}${o.email ? ` <${o.email}>` : ""}` : "the owner", ticket: { id: f.id, subject: f.subject },
+  };
+}
+
+/** The console's "send me a sample": a mail as previewMail builds it, to the person asking ("[Sample]" in front). */
+export async function sendSample(to: { name: string; email: string }, key: MailKey = "boToday"): Promise<{ ok: boolean; text: string }> {
+  if (!mailConfigured()) return { ok: false, text: "the hub cannot send mail" };
+  const p = await previewMail(key);
+  if (!p.html) return { ok: false, text: p.note ?? "nothing to show it on" };
+  try { await sendHubMail({ to: to.email, subject: `[Sample] ${p.subject}`.slice(0, 180), html: p.html, text: p.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() }); return { ok: true, text: `mail to ${to.name}` }; }
+  catch (e) { return { ok: false, text: `failed: ${(e as Error).message.slice(0, 120)}` }; }
 }
 
 // ---------------- the reminder on every other ticket in Remind ----------------
@@ -187,10 +232,8 @@ const joined = (p: Record<string, string | null>, keys: string[]) => keys.map((k
 // 05.11.2026 10:47-11:31: the Backoffice Team's address is a HubSpot inbox - every mail the hub sent there came back as a
 // new Back Office ticket, which the way in mailed again (120 tickets in 44 minutes). The hub never mails it: the
 // reminder goes to people, each to their own address.
-async function sendTeamReminder(t: Obj, to: Recipient[]): Promise<{ ok: boolean; sent: boolean; text: string }> {
-  if (!to.length) return { ok: true, sent: false, text: "not sent - the ticket's owner is not a person and nobody is picked" };
-  const who = to.map((r) => r.name).join(", ");
-  if (!mailConfigured()) return { ok: false, sent: false, text: "the hub cannot send mail" };
+export const TEAM_SUBJECT = "⚠️REMINDER: Back Office Ticket";
+function renderTeamReminder(t: Obj): { html: string; text: string } {
   const p = t.properties;
   const rows: [string, string][] = ([
     ["Name", p.subject ?? ""], ["Category", joined(p, SUBCATS)], ["Description", p.content ?? ""], ["Article Number", p.article_number ?? ""],
@@ -205,7 +248,14 @@ async function sendTeamReminder(t: Obj, to: Recipient[]): Promise<{ ok: boolean;
     footer: "Sent by APSOhub (UC & HubSpot Apps > Certificates).",
   });
   const text = ["Reminder to Review Ticket", "", ...rows.map(([k, v]) => `${k}: ${v}`), "", ticketUrl(id)].join("\n");
-  try { await sendHubMail({ to: to.map((r) => r.email).join(", "), subject: "⚠️REMINDER: Back Office Ticket", html, text }); return { ok: true, sent: true, text: `mail to ${who}` }; }
+  return { html, text };
+}
+async function sendTeamReminder(t: Obj, to: Recipient[]): Promise<{ ok: boolean; sent: boolean; text: string }> {
+  if (!to.length) return { ok: true, sent: false, text: "not sent - the ticket's owner is not a person and nobody is picked" };
+  const who = to.map((r) => r.name).join(", ");
+  if (!mailConfigured()) return { ok: false, sent: false, text: "the hub cannot send mail" };
+  const { html, text } = renderTeamReminder(t);
+  try { await sendHubMail({ to: to.map((r) => r.email).join(", "), subject: TEAM_SUBJECT, html, text }); return { ok: true, sent: true, text: `mail to ${who}` }; }
   catch (e) { return { ok: false, sent: false, text: `mail to ${who} failed: ${(e as Error).message.slice(0, 120)}` }; }
 }
 /**
