@@ -112,6 +112,7 @@ import { Sankey } from "@/app/charts/Sankey";
 import type { ArtInfo, BoRead, ChatRow } from "@/lib/reporting/boReport";
 import { IN, inZero, type InDetail, type InRow } from "@/lib/reporting/boInbound";
 import { HIST, LATE, bands, both, byDate, histSum, medianWd, sumDMonths, within, type DMonth, type DeliveryKept } from "@/lib/reporting/boDelivery";
+import { PRICES_FROM, figOf, handRows, handShare, ownPriceCustomers, type PFig, type PricesKept } from "@/lib/reporting/boPrices";
 import { FIRST_MONTH as GQS_FIRST, FLOW_COLUMNS, STAGE_LABEL, STAGE_WHO, WORK, daysTo, flowOf, offersOf, refusalsOf, stageTimes, sumOf, winRate, type FlowNode, type GSum, type GStage, type GqsTask } from "@/lib/reporting/boGqs";
 import { GqsOpenBars } from "@/app/reporting/eso-benchmark/TicketsGqs";
 import type { GOpen } from "@/lib/reporting/esoGqs";
@@ -133,6 +134,9 @@ type Data = BoRead & {
   team?: string[]; surveys?: BoSurvey[];
   /** each delivery's speed, from the ERP's order file (the chain's order_sync, every night) - OTD > Delivery speed */
   delivery?: DeliveryKept | null;
+  /** KPI autonomy > Manual prices: the shop's prices against the ERP's, and how the read stands */
+  prices?: PricesKept | null;
+  pricesRead?: { computing: boolean; progress: string | null; error: string | null } | null;
 };
 type BoSurvey = { day: string; value: number | null; sentiment: string | null; comment: string | null; ticket: string | null; company: string | null };
 type Answer = { state: { computing: boolean; progress: string | null; error: string | null; computedAt: string | null }; data: Data | null; canEdit: boolean; canEditTyped: boolean | Record<string, boolean> };
@@ -284,8 +288,8 @@ export const BO_PAGES: PageDef[] = [
   { slug: "topics", title: "Topics", line: "the Back Office's tickets by topic - delivery and C2S, cancellations, what is inside Others", icon: <CategoryOutlinedIcon />, tint: "amber" },
   { slug: "sales-tickets", title: "ESO & TSA tickets", line: "inbound, without the sales actions, against the orders - and APSOparts in total", icon: <GroupsOutlinedIcon />, tint: "purple" },
   { slug: "gqs", title: "GQS", line: "special tasks with the GQS team: how many, how long before sent, how long to close", icon: <AssignmentOutlinedIcon />, tint: "green" },
-  { slug: "otd", title: "OTD", line: "on time against the first confirmation date, early call-offs counted - typed in; the delivery speed from the ERP", icon: <LocalShippingOutlinedIcon />, tint: "pink" },
-  { slug: "autonomy", title: "KPI autonomy", line: "pass rate and manual price adjustments per mandant, against target - typed in", icon: <VerifiedOutlinedIcon />, tint: "slate" },
+  { slug: "otd", title: "OTD", line: "on hold until the data is compared · on time against the first confirmation date - typed in; the delivery speed from the ERP", icon: <LocalShippingOutlinedIcon />, tint: "pink" },
+  { slug: "autonomy", title: "KPI autonomy", line: "manual price adjustments counted from the shop and the ERP · the pass rate typed in, on hold until we get the data", icon: <VerifiedOutlinedIcon />, tint: "slate" },
   { slug: "stopped", title: "Stopped orders", line: "the orders stopped and why - typed in", icon: <BlockOutlinedIcon />, tint: "amber" },
 ];
 const pageOf = (slug: Slug) => BO_PAGES.find((p) => p.slug === slug)!;
@@ -357,7 +361,8 @@ const FIGS: Record<Slug, (f: Frame, d: Data) => Fig[]> = {
     };
     return [
       one("pass.m100", "Pass rate, 100", 0.95, false, <VerifiedOutlinedIcon sx={{ fontSize: 14 }} />, "green"), one("pass.m110", "Pass rate, 110", 0.95, false, <VerifiedOutlinedIcon sx={{ fontSize: 14 }} />, "green"),
-      one("price.m100", "Manual prices, 100", 0.025, true, <PriceChangeOutlinedIcon sx={{ fontSize: 14 }} />, "amber"), one("price.m110", "Manual prices, 110", 0.025, true, <PriceChangeOutlinedIcon sx={{ fontSize: 14 }} />, "amber"),
+      prPageFig(f, d, "100") ?? one("price.m100", "Manual prices, 100", 0.025, true, <PriceChangeOutlinedIcon sx={{ fontSize: 14 }} />, "amber"),
+      prPageFig(f, d, "110") ?? one("price.m110", "Manual prices, 110", 0.025, true, <PriceChangeOutlinedIcon sx={{ fontSize: 14 }} />, "amber"),
     ];
   },
   stopped: (f, d) => {
@@ -425,7 +430,8 @@ function typedTrend(id: string, page: Slug, title: string, key: string, note: st
     body: ({ f, d }) => {
       const n = drawn(f);
       const values = typedOf(d, key, f.yms.slice(0, n)), compare = typedOf(d, key, f.yms.slice(0, n).map(back));
-      return <MonthTrend values={values} compare={compare.some((x) => x != null) ? compare : null} labels={f.labels.slice(0, n)} label={String(f.year)} compareLabel={String(f.year - 1)} fmt={fmt} target={target} />;
+      return <MonthTrend values={values} compare={compare.some((x) => x != null) ? compare : null} labels={f.labels.slice(0, n)} label={String(f.year)} compareLabel={String(f.year - 1)} fmt={fmt} target={target}
+        tick={unit === "pct" ? (v) => (v == null ? "" : v >= 0.1 ? `${Math.round(v * 100)}%` : `${(v * 100).toFixed(1)}%`) : undefined} />;
     },
   };
 }
@@ -1838,6 +1844,119 @@ function dvCharts(): ChartDef[] {
   ];
 }
 
+/* ── KPI autonomy > Manual prices: the shop's prices against the ERP's (lib/reporting/boPrices.ts) ── */
+
+/** a month with fewer web orders compared is not drawn (July 2026 kept 3) */
+const PR_MIN = 50;
+const PR_TARGET = 0.025;
+const prMonth = (d: Data, mandant: string, ym: string) => d.prices?.months[mandant]?.[ym];
+/** the customers' own prices, from all the months read - worked out once per read */
+const ownCache = new WeakMap<PricesKept, Set<string>>();
+const prOwn = (d: Data) => { const k = d.prices; if (!k) return new Set<string>(); let x = ownCache.get(k); if (!x) { x = ownPriceCustomers(k); ownCache.set(k, x); } return x; };
+/** the period's complete months the shop's prices are kept for (the month to date while none is complete) */
+const prYms = (f: Frame) => f.yms.slice(f.from, Math.max(f.done, f.from + 1)).filter((ym) => ym >= PRICES_FROM);
+const prSum = (f: Frame, d: Data, mandant: string): PFig => figOf(prYms(f).map((ym) => prMonth(d, mandant, ym)), prOwn(d));
+const prShareAt = (d: Data, mandant: string, ym: string) => { const x = figOf([prMonth(d, mandant, ym)], prOwn(d)); return x.o >= PR_MIN ? handShare(x) : null; };
+/** the page's figure top right, counted - null while nothing is counted for the period */
+function prPageFig(f: Frame, d: Data, mandant: string) {
+  if (!d.prices) return null;
+  const x = prSum(f, d, mandant), v = x.o >= PR_MIN ? handShare(x) : null;
+  if (v == null) return null;
+  return fig(`Manual prices, ${mandant}`, share(v), null, undefined, `target below ${pct(PR_TARGET)} · ${v < PR_TARGET ? "on target" : "off target"} · counted`, <PriceChangeOutlinedIcon sx={{ fontSize: 14 }} />, "amber");
+}
+function PrNone({ d }: { d: Data }) {
+  const r = d.pricesRead;
+  return <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>{r?.error ? `The last read stopped: ${r.error}` : `Reading the shop's prices and the ERP's deliveries from HubSpot${r?.progress ? ` - ${r.progress}` : ""}. The first read takes a few minutes.`}</Typography>;
+}
+/** the hand's share month by month, against what the Back Office typed in */
+function prTrend(id: string, mandant: string): ChartDef {
+  return {
+    id, page: "autonomy", title: `Manual price adjustments, mandant ${mandant}`,
+    figure: ({ f, d }) => { if (!d.prices) return null; const x = prSum(f, d, mandant); return x.o >= PR_MIN ? share(handShare(x)) : null; },
+    hint: ({ f, d }) => {
+      const x = d.prices ? prSum(f, d, mandant) : null;
+      return [`Web orders with a price changed by hand, of those the ERP has delivered · target below ${pct(PR_TARGET)} · the second line: typed in by the Back Office`,
+        x && x.o ? `${int(x.o)} orders compared, ${int(x.handO)} by hand` : ""].filter(Boolean).join(" · ");
+    },
+    body: ({ f, d }) => {
+      if (!d.prices) return <PrNone d={d} />;
+      const n = drawn(f), yms = f.yms.slice(0, n);
+      const values = yms.map((ym) => (ym >= PRICES_FROM ? prShareAt(d, mandant, ym) : null));
+      const typed = typedOf(d, `price.m${mandant}`, yms);
+      return <MonthTrend values={values} compare={typed.some((x) => x != null) ? typed : null} labels={f.labels.slice(0, n)} label="Counted from the shop and the ERP" compareLabel="Typed in by the Back Office" fmt={share} target={PR_TARGET} />;
+    },
+  };
+}
+function prCharts(): ChartDef[] {
+  const S = 14;
+  return [
+    wide({
+      id: "prFigs", page: "autonomy", title: "Manual prices in figures",
+      hint: ({ f }) => `${periodOf(f)} · the web orders the ERP has delivered: the price per piece invoiced against the price the customer accepted in the shop · the shop's prices are kept from June 2026`,
+      figure: ({ f, d }) => { if (!d.prices) return null; const x = prSum(f, d, "100"); return x.o >= PR_MIN ? share(handShare(x)) : null; },
+      body: ({ f, d }) => {
+        if (!d.prices) return <PrNone d={d} />;
+        const a = prSum(f, d, "100"), b = prSum(f, d, "110"), own = prOwn(d);
+        const hs = (x: PFig) => (x.o >= PR_MIN ? handShare(x) : null);
+        const on = (v: number | null) => (v == null ? "too few web orders kept" : v < PR_TARGET ? `on target, below ${pct(PR_TARGET)}` : `off target - below ${pct(PR_TARGET)} wanted`);
+        return <Tiles items={[
+          { label: "By hand, mandant 100", value: share(hs(a)), sub: `${on(hs(a))} · ${int(a.handO)} of ${int(a.o)} orders`, icon: <PriceChangeOutlinedIcon sx={{ fontSize: S }} />, tint: "amber" },
+          { label: "By hand, mandant 110", value: share(hs(b)), sub: `${on(hs(b))} · ${int(b.handO)} of ${int(b.o)} orders`, icon: <PriceChangeOutlinedIcon sx={{ fontSize: S }} />, tint: "amber" },
+          { label: "The customer's own price, 100", value: share(a.o ? a.ownO / a.o : null), sub: `${int(a.ownO)} orders · ${int(own.size)} customers the ERP prices 3-10 % below the shop - not a hand`, icon: <SellOutlinedIcon sx={{ fontSize: S }} />, tint: "slate" },
+          { label: "Lines changed by hand", value: share(a.l + b.l ? (a.handL + b.handL) / (a.l + b.l) : null), sub: `${int(a.handL + b.handL)} of ${int(a.l + b.l)} order lines, both mandants · ${int(a.qd + b.qd)} invoiced in another quantity, not compared`, icon: <ReceiptLongOutlinedIcon sx={{ fontSize: S }} />, tint: "blue" },
+        ]} />;
+      },
+    }),
+    prTrend("prTrend100", "100"),
+    prTrend("prTrend110", "110"),
+    wide({
+      id: "prMoved", page: "autonomy", title: "How the prices changed by hand moved", hint: ({ f }) => `${periodOf(f)} · the order lines, both mandants · "from 0" = a line without a price in the shop, priced in the ERP`,
+      body: ({ f, d }) => {
+        if (!d.prices) return <PrNone d={d} />;
+        const a = prSum(f, d, "100"), b = prSum(f, d, "110"), t = a.handL + b.handL;
+        const rows: [string, number][] = [["Lower than in the shop", a.dn + b.dn], ["Higher than in the shop", a.up + b.up], ["Priced from 0", a.z + b.z]];
+        return <BarList rows={rows.map(([label, value]) => ({ label, value, secondary: t ? `${pct(value / t)} of the lines by hand` : "" }))} format={(v) => int(v ?? 0)} labelWidth={190} emptyMessage="No price changed by hand in this period." />;
+      },
+    }),
+    wide({
+      id: "prMonths", page: "autonomy", title: "Manual prices, month by month",
+      hint: () => `Web orders the ERP has delivered, by the month ordered · a month with fewer than ${PR_MIN} web orders kept is left out (July 2026) · orders with a coupon left out`,
+      body: ({ f, d }) => {
+        if (!d.prices) return <PrNone d={d} />;
+        type R = { label: string; a: PFig | null; b: PFig | null };
+        const own = prOwn(d);
+        const at = (ym: string, m: string) => (ym >= PRICES_FROM ? figOf([prMonth(d, m, ym)], own) : null);
+        const rows: R[] = f.yms.map((ym, i) => ({ label: f.labels[i], a: at(ym, "100"), b: at(ym, "110") })).filter((r) => (r.a?.o ?? 0) >= PR_MIN || (r.b?.o ?? 0) >= PR_MIN);
+        const hs = (x: PFig | null) => (x && x.o >= PR_MIN ? handShare(x) : null);
+        const cols: Col<R>[] = [
+          { key: "oa", head: "Orders 100", cell: (r) => int(r.a?.o ?? 0), sort: (r) => r.a?.o ?? 0 },
+          { key: "ha", head: "By hand 100", cell: (r) => pct(hs(r.a)), sort: (r) => hs(r.a) ?? -1 },
+          { key: "ob", head: "Orders 110", cell: (r) => int(r.b?.o ?? 0), sort: (r) => r.b?.o ?? 0 },
+          { key: "hb", head: "By hand 110", cell: (r) => pct(hs(r.b)), sort: (r) => hs(r.b) ?? -1 },
+        ];
+        if (!rows.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>No web order with the shop&apos;s prices kept in this period - they are kept from June 2026.</Typography>;
+        return <FullTable first="Month" cols={cols} rows={rows} total={{ label: periodOf(f), a: prSum(f, d, "100"), b: prSum(f, d, "110") }} natural />;
+      },
+    }),
+    wide({
+      id: "prBig", page: "autonomy", title: "The biggest prices changed by hand",
+      hint: () => "The order lines whose price per piece moved most, by the amount it made on the pieces invoiced · the customers' own prices left out",
+      body: ({ f, d }) => {
+        if (!d.prices) return <PrNone d={d} />;
+        const own = prOwn(d), yms = prYms(f);
+        const rows = handRows(["100", "110"].flatMap((m) => yms.map((ym) => prMonth(d, m, ym))), own);
+        const money = (v: number) => v.toLocaleString("de-CH", { minimumFractionDigits: 2, maximumFractionDigits: v < 1 ? 4 : 2 });
+        return <Table head={["Order", "Customer", "Article", "Ordered", "Shop price", "ERP price", "Change", "Pieces"]} left={[1, 2]} pageSize={15} minWidth={1000}
+          rows={rows.map((r, i) => ({
+            key: `${r[0]}-${r[1]}-${i}`,
+            cells: [r[0], r[6] || "—", r[1], ddmm(r[5]), r[2] ? money(r[2]) : "0", money(r[3]),
+              r[2] ? <Box key="c" component="span" sx={{ fontWeight: 700, color: r[3] < r[2] ? BAD : INK }}>{signedPct((r[3] - r[2]) / r[2])}</Box> : "from 0", int(r[4])],
+          }))} />;
+      },
+    }),
+  ];
+}
+
 export const CHARTS: ChartDef[] = [
   /* Team totals - the workbook's "Monthly evolution - team totals" */
   listed(ALL_IN)({
@@ -2409,6 +2528,8 @@ export const CHARTS: ChartDef[] = [
   typedTrend("pass110", "autonomy", "Pass rate, mandant 110", "pass.m110", "Target 95 %", "pct", 0.95),
   typedTrend("price100", "autonomy", "Manual price adjustments, mandant 100", "price.m100", "Target below 2.5 %", "pct", 0.025),
   typedTrend("price110", "autonomy", "Manual price adjustments, mandant 110", "price.m110", "Target below 2.5 %", "pct", 0.025),
+  /* KPI autonomy > Manual prices - counted from the shop and the ERP */
+  ...prCharts(),
 
   /* Stopped orders - typed in */
   {
@@ -2456,7 +2577,9 @@ function Card({ def, c, where }: { def: ChartDef; c: Ctx; where: "tab" | "nutshe
 
 type TabDef = { id: string; label: string; title: string; note: string; icon: React.ReactNode; tint: Tint; charts: string[];
   /** graphs the filters do not reach (OTD > Delivery speed: deliveries, not tickets) - no "Filter these graphs" on them */
-  unfiltered?: boolean };
+  unfiltered?: boolean;
+  /** the tab's figures wait for data we do not have yet - said above its graphs (SARCLA 07.11.2026) */
+  warn?: string };
 /** the workbook's table, a tab of its own (SARCLA 03.11.2026: "the table should be a separate tab", "not on every page") */
 const TABLE = (note: string): TabDef => ({ id: "table", label: "Table", title: "All the figures, month by month", note, icon: <TableChartOutlinedIcon />, tint: "slate", charts: [] });
 const TYPE_IN: TabDef = { id: "input", label: "Type in", title: "Typed in by the Back Office", note: "not in HubSpot - a month typed in saves when you leave the field", icon: <EditNoteOutlinedIcon />, tint: "slate", charts: [] };
@@ -2508,8 +2631,10 @@ const TABS: Record<Slug, TabDef[]> = {
     TYPE_IN,
   ],
   autonomy: [
-    { id: "pass", label: "Pass rate", title: "Pass rate per mandant", note: "orders through without a hand on them · target 95 %", icon: <VerifiedOutlinedIcon />, tint: "green", charts: ["pass100", "pass110"] },
-    { id: "price", label: "Manual prices", title: "Manual price adjustments per mandant", note: "order lines whose price was changed by hand · target below 2.5 %", icon: <PriceChangeOutlinedIcon />, tint: "amber", charts: ["price100", "price110"] },
+    { id: "pass", label: "Pass rate", title: "Pass rate per mandant", note: "orders through without a hand on them · target 95 %", icon: <VerifiedOutlinedIcon />, tint: "green", charts: ["pass100", "pass110"],
+      warn: "The pass rate is on hold until we get the data - Performis knows which orders a person handled, but its nightly file does not say so. Until then these are the Back Office's own figures, not checked." },
+    { id: "price", label: "Manual prices", title: "Manual price adjustments per mandant", note: "the web orders whose price per piece in the ERP is not the one the customer accepted in the shop, read every 12 hours · a person and the ERP itself look the same here; a customer whose every order is 3-10 % lower has the ERP's own price and is set aside · a line invoiced in another quantity than ordered is not compared · target below 2.5 % · the filters do not apply here", icon: <PriceChangeOutlinedIcon />, tint: "amber", unfiltered: true,
+      charts: ["prFigs", "prTrend100", "prTrend110", "prMoved", "prMonths", "prBig"] },
     TYPE_IN,
   ],
   stopped: [
@@ -2550,6 +2675,7 @@ function TabCard({ slug, c, extra }: { slug: Slug; c: Ctx; extra?: (tab: string)
       ]} />
       <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
         <CardTitle icon={t.id === "table" ? pageOf(slug).icon : t.icon} tint={t.id === "table" ? pageOf(slug).tint : t.tint} title={`${t.title}, ${periodOf(f)}`} note={t.note} />
+        {t.warn && <OnHold text={t.warn} />}
         {t.charts.length > 0 && (() => {
           const grid = (
             <Box sx={{ ...TWO, mt: -0.5 }}>
@@ -2924,11 +3050,23 @@ function TypedTable({ s, f, d, can, put }: { s: TypedSeries; f: Frame; d: Data; 
   );
 }
 
-function TypedPage({ slug, note }: { slug: Slug; note: string }) {
+/** Figures on hold until we get the data - amber, an hourglass, said in words (SARCLA 07.11.2026) */
+function OnHold({ text }: { text: string }) {
+  return (
+    <Box role="note" sx={{ display: "flex", gap: 1.25, alignItems: "center", px: 1.75, py: 1.25, borderRadius: "12px", border: `1px solid ${TINT.amber.fg}`, bgcolor: TINT.amber.bg }}>
+      <HourglassEmptyOutlinedIcon sx={{ fontSize: 20, color: TINT.amber.fg }} />
+      <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK }}>{text}</Typography>
+    </Box>
+  );
+}
+
+/** `warn`: a page on hold, said above everything on it (SARCLA 07.11.2026 on OTD) */
+function TypedPage({ slug, note, warn }: { slug: Slug; note: string; warn?: string }) {
   return (
     <Page slug={slug}>
       {(f, d, a, put) => (
         <>
+          {warn && <OnHold text={warn} />}
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{note}</Typography>
           <TabCard slug={slug} c={{ f, d }} extra={(tab) => tab === "input" && TYPED.filter((s) => TYPED_ON[slug]?.includes(s.id)).map((s) => <TypedTable key={s.id} s={s} f={f} d={d} can={canType(a, s.id)} put={put} />)} />
         </>
@@ -2938,13 +3076,13 @@ function TypedPage({ slug, note }: { slug: Slug; note: string }) {
 }
 
 export function BoOtdPage() {
-  return <TypedPage slug="otd" note="Not in HubSpot - no order carries its first confirmation date - so the Back Office types each month in. The delivery speed is counted from the ERP's order file every night." />;
+  return <TypedPage slug="otd" warn="OTD is on hold - waiting for SARCLA's access to the OTD tool, to compare the data. Until then these figures are not confirmed." note="Not in HubSpot - no order carries its first confirmation date - so the Back Office types each month in. The delivery speed is counted from the ERP's order file every night." />;
 }
 export function BoAutonomyPage() {
-  return <TypedPage slug="autonomy" note="Not in HubSpot - the ERP knows which orders went through untouched and which prices were changed by hand - so the Back Office types each month in." />;
+  return <TypedPage slug="autonomy" note="The manual prices are counted: the shop's prices against the ERP's, from June 2026. The pass rate is typed in by the Back Office each month - the ERP's file does not say which orders a person handled." />;
 }
 export function BoStoppedPage() {
-  return <TypedPage slug="stopped" note="Not in HubSpot - no order says it was stopped, or why - so the Back Office types each month in." />;
+  return <TypedPage slug="stopped" warn="Stopped orders are on hold until we get the data - the stops happen in Performis after the shop has passed the order on, and neither the ERP's nightly file nor the shop keeps them. Until then these are the Back Office's own figures, not checked." note="Not in HubSpot - no order says it was stopped, or why - so the Back Office types each month in." />;
 }
 
 /* ── the BUC View: a panel per page ────────────────────────────────────── */
