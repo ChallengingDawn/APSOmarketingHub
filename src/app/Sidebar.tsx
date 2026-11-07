@@ -67,7 +67,6 @@ import PeopleIcon from "@mui/icons-material/People";
 import PsychologyIcon from "@mui/icons-material/Psychology";
 import HistoryIcon from "@mui/icons-material/History";
 import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize";
-import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import LanguageIcon from "@mui/icons-material/Language";
 import LayersIcon from "@mui/icons-material/Layers";
 import AdsClickIcon from "@mui/icons-material/AdsClick";
@@ -112,10 +111,9 @@ import { accessAt } from "@/lib/auth/tree";
 import { pickActiveSection } from "@/lib/nav/activeSection";
 import { useViewAs } from "@/app/ViewAs";
 import { Wordmark } from "@/app/Wordmark";
-import { APPS, UC_SECTIONS, WEBSITE_SECTIONS } from "@/app/hubApps";
+import { APPS, MARKETING_SECTIONS, UC_SECTIONS, WEBSITE_SECTIONS } from "@/app/hubApps";
 
 const DRAWER_WIDTH = 300;
-const RED = "#ed1b2f";
 
 interface NavSection {
   title: string;
@@ -204,6 +202,37 @@ const UC_NAV: Record<string, { label: string; icon: React.ReactNode }> = {
   "/uc/nancy-push": { label: "Nancy CH Push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
 };
 
+/**
+ * Marketing & Content's rows, section by section (the sections come from MARKETING_SECTIONS) - the rows the app's one
+ * panel had before the split (07.11.2026), each now in its own section's panel. A section listed here shows these rows;
+ * one that is not (SEA) shows its pages from MARKETING_SECTIONS.
+ */
+const MARKETING_NAV: Record<string, NavSection["items"]> = {
+  content: [
+    // Personality first: it is the brain every generator reads, and reading it is what you do before making anything.
+    // Create Studio and the Content Library are deliberately NOT here: the studio is where you arrive after choosing what
+    // to make (a link to it is an empty editor), and the library is what a project holds, reached through the project.
+    { label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
+    { label: "Projects", href: "/projects", icon: <FolderOpenIcon fontSize="small" /> },
+    { label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
+  ],
+  // from SEO_NAV, the one list the SEO pages' own tabs read too
+  seo: SEO_NAV.map((e) => ({ label: e.label, href: e.href, icon: SEO_ICON[e.id] })),
+  geo: [
+    { label: "GEO readiness", href: "/geo", icon: <FactCheckIcon fontSize="small" /> },
+    { label: "GEO content audit", href: "/geo/content", icon: <ArticleIcon fontSize="small" /> },
+    { label: "GEO live pages", href: "/geo/live", icon: <PublicIcon fontSize="small" /> },
+    { label: "GEO competitors", href: "/geo/competitors", icon: <CompareArrowsIcon fontSize="small" /> },
+    { label: "GEO fix queue", href: "/geo/fix-queue", icon: <BuildCircleIcon fontSize="small" /> },
+  ],
+  // HubSpot's AEO, read by the hub (SARCLA 17.10)
+  aeo: [
+    { label: "AI answers", href: "/aeo", icon: <SmartToyOutlinedIcon fontSize="small" /> },
+    { label: "Prompts and answers", href: "/aeo/prompts", icon: <QuestionAnswerOutlinedIcon fontSize="small" /> },
+    { label: "Recommendations", href: "/aeo/recommendations", icon: <TipsAndUpdatesOutlinedIcon fontSize="small" /> },
+  ],
+};
+
 const WEBSITE_ICON: Record<string, React.ReactNode> = {
   "/live": <SensorsIcon fontSize="small" />,
   "/analytics/tracking": <MonitorHeartIcon fontSize="small" />,
@@ -247,47 +276,17 @@ const navSections: NavSection[] = [
     color: x.fg,
     items: x.pages.map((pg) => ({ label: pg.name, href: pg.href, icon: WEBSITE_ICON[pg.href] ?? <HubIconGlyph name={pg.icon} fontSize={20} />, ...(pg.href === "/live" ? { badge: "Live" } : {}) })),
   })),
-  {
-    title: "Marketing & Content",
-    icon: <AutoAwesomeIcon />,
-    color: RED,
-    items: [
-      // CONTENT COMES FIRST, in SARCLA's order: the brain before the studio that
-      // reads it, then what has been written, then the shapes to start from.
-      // Personality leads because nothing the studio produces is right until it
-      // is.
-      // Projects first: it is the door, and the studio is where you go FROM a
-      // project rather than the place work begins.
-      // Personality first: it is the brain every generator reads, and reading
-      // it is what you do before making anything.
-      { group: "Content", label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
-      { group: "Content", label: "Projects", href: "/projects", icon: <FolderOpenIcon fontSize="small" /> },
-      { group: "Content", label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
-      // Create Studio and the Content Library are deliberately NOT here.
-      // The studio is where you arrive after choosing what to make — a link
-      // to it means an empty editor with nothing to edit, which is the state
-      // this whole redesign exists to remove. The library is what a project
-      // holds, so it is reached through the project that holds it.
-      // Generated from SEO_NAV rather than typed out again. The two lists
-      // used to be written separately and had drifted into disagreeing about
-      // what the pages were even called.
-      ...SEO_NAV.map((e) => ({
-        group: "SEO" as const,
-        label: e.label,
-        href: e.href,
-        icon: SEO_ICON[e.id],
-      })),
-      { group: "GEO", label: "GEO readiness", href: "/geo", icon: <FactCheckIcon fontSize="small" /> },
-      { group: "GEO", label: "GEO content audit", href: "/geo/content", icon: <ArticleIcon fontSize="small" /> },
-      { group: "GEO", label: "GEO live pages", href: "/geo/live", icon: <PublicIcon fontSize="small" /> },
-      { group: "GEO", label: "GEO competitors", href: "/geo/competitors", icon: <CompareArrowsIcon fontSize="small" /> },
-      { group: "GEO", label: "GEO fix queue", href: "/geo/fix-queue", icon: <BuildCircleIcon fontSize="small" /> },
-      // HubSpot's AEO, read by the hub (SARCLA 17.10)
-      { group: "AEO", label: "AI answers", href: "/aeo", icon: <SmartToyOutlinedIcon fontSize="small" /> },
-      { group: "AEO", label: "Prompts and answers", href: "/aeo/prompts", icon: <QuestionAnswerOutlinedIcon fontSize="small" /> },
-      { group: "AEO", label: "Recommendations", href: "/aeo/recommendations", icon: <TipsAndUpdatesOutlinedIcon fontSize="small" /> },
-    ],
-  },
+  // Marketing & Content, a section per main topic (SARCLA 07.11.2026: "split it like website or UC by main categories" -
+  // Content, SEO, SEA, GEO, AEO and LLM Optimizer), from MARKETING_SECTIONS in hubApps.ts: inside one, the panel shows
+  // only that section's rows (MARKETING_NAV), and the way out leads back to the Marketing & Content front page.
+  ...MARKETING_SECTIONS.map((x): NavSection => ({
+    title: x.name,
+    home: `/marketing/${x.slug}`,
+    back: { href: "/marketing", label: "Marketing & Content" },
+    icon: <HubIconGlyph name={x.icon} fontSize={22} />,
+    color: x.fg,
+    items: MARKETING_NAV[x.slug] ?? x.pages.map((pg) => ({ label: pg.name, href: pg.href, icon: <HubIconGlyph name={pg.icon} fontSize={20} /> })),
+  })),
   {
     title: "Customer Journey",
     icon: <RouteIcon />,

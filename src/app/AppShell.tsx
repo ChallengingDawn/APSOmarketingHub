@@ -92,8 +92,8 @@ export default function AppShell({ children, sandbox = false }: { children: Reac
       <MeshBackground strength="quiet" />
       {/* Advanced reporting's front page is a door like the launch pad: no
           panel until you are in a category or a report (SARCLA, 11.10.2026); Website's the same since it has
-          sections (SARCLA 03.11.2026). */}
-      {pathname !== "/reporting" && pathname !== "/website" && pathname !== "/uc" && !isCanvas && !isPlan && !isKpiActions && <Sidebar />}
+          sections (SARCLA 03.11.2026), UC & HubSpot Apps' and Marketing & Content's too. */}
+      {pathname !== "/reporting" && pathname !== "/website" && pathname !== "/uc" && pathname !== "/marketing" && !isCanvas && !isPlan && !isKpiActions && <Sidebar />}
       <Box
         component="main"
         sx={{

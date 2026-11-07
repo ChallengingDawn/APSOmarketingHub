@@ -191,6 +191,11 @@ const ROUTES: [string, AppKey][] = [
   // lists keep their addresses, and so their own apps.
   ["/reporting", "reporting"],
 
+  // Marketing & Content's front page and its sections' doorways (07.11.2026)
+  ["/marketing", "marketing"],
+  // content projects - each project's page answers to the Projects grant, as the list does
+  ["/projects", "marketing"],
+
   // It is named after the hub, but what it draws is the content calendar and
   // the library — the Marketing app's own data. It belongs where its data does.
   ["/mission-control", "marketing"],

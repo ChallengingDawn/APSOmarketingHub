@@ -193,6 +193,49 @@ export const UC_SECTIONS: WebsiteSection[] = [
 ];
 export const ucSectionBySlug = (slug: string) => UC_SECTIONS.find((s) => s.slug === slug) ?? null;
 
+/**
+ * MARKETING & CONTENT, BY SECTION (SARCLA 07.11.2026: "let's start to split it like website or UC by main categories" -
+ * Content, SEO, SEA, GEO, AEO and LLM Optimizer). As Website and UC & HubSpot Apps: the front page /marketing is a tile per
+ * section; inside one, the side panel lists that section's pages alone and leads back to Marketing & Content (the
+ * panel's rows are in Sidebar.tsx, MARKETING_NAV). The app's subs are these pages, each under its section's heading -
+ * what the access tree reads (src/lib/auth/tree.ts); a grant is on a page's address, so every page kept its grant.
+ * A section's pages here are exactly the app's subs before the split: listing more would give a page its own node, and
+ * the grant it inherits from its heading could differ from the one it had through its parent's address.
+ */
+export const MARKETING_SECTIONS: WebsiteSection[] = [
+  {
+    slug: "content", name: "Content", line: "What we make, together: the projects, who does what, and every version", icon: "edit", ...PINK,
+    pages: [
+      // Projects first: it is the door, and the studio is where you go FROM a project
+      { name: "Projects", note: "What we are working on, and every version of it", href: "/projects", icon: "template", ...PINK },
+      { name: "Personality", note: "The brain every generator reads", href: "/personality", icon: "brain", ...PINK },
+      { name: "Create Studio", note: "Design and create campaigns", href: "/create", icon: "edit", ...AMBER },
+      { name: "Content Library", note: "Everything already written", href: "/library", icon: "photo", ...PURPLE },
+      { name: "Templates", note: "Start from a known shape", href: "/templates", icon: "template", ...BLUE },
+    ],
+  },
+  {
+    slug: "seo", name: "SEO", line: "Google Search: where we rank, and what to work on next", icon: "search", ...TEAL,
+    pages: [
+      { name: "SEO", note: "What to work on next, worth most first", href: "/seo", icon: "search", ...TEAL },
+      { name: "Quick wins", note: "Pages one step from ranking", href: "/seo/quick-wins", icon: "bolt", ...AMBER },
+      { name: "Did it work", note: "What happened after the work was done", href: "/seo/impact", icon: "health", ...GREEN },
+    ],
+  },
+  // paid search; empty until its first page (the Google Ads buyer buckets are a Website microservice and stay there)
+  { slug: "sea", name: "SEA", line: "Paid search: our Google Ads campaigns", icon: "ads", ...AMBER, pages: [] },
+  {
+    slug: "geo", name: "GEO", line: "How AI search engines read our pages, and what to fix", icon: "globe", ...GREEN,
+    pages: [{ name: "GEO readiness", note: "How AI search sees us", href: "/geo", icon: "globe", ...GREEN }],
+  },
+  {
+    slug: "aeo", name: "AEO & LLM Optimizer", line: "What AI assistants answer about us, and how to be named more often", icon: "brain", ...PURPLE,
+    // HubSpot's AEO prompts and every answer the assistants gave (SARCLA 17.10: "a complete sub-app after GEO")
+    pages: [{ name: "AI answers (AEO)", note: "What AI assistants say about us", href: "/aeo", icon: "brain", ...PURPLE }],
+  },
+];
+export const marketingSectionBySlug = (slug: string) => MARKETING_SECTIONS.find((s) => s.slug === slug) ?? null;
+
 export const APPS: HubApp[] = [
   {
     key: "datatracker",
@@ -219,27 +262,13 @@ export const APPS: HubApp[] = [
   },
   {
     key: "marketing",
-    // Projects is the door. Work here starts as "we need a landing page for
-    // DirectCut in Italian", not as an empty studio with a blinking cursor.
-    href: "/projects",
+    // its front page: a tile per section (MARKETING_SECTIONS, 07.11.2026) - a page only this app owns
+    href: "/marketing",
     name: "Marketing & Content",
     line: "Create, manage and optimise our marketing content.",
     from: "#ef5fa0", to: "#c22c6e", wash: "rgba(239,95,160,.10)", icon: "campaign",
-    subs: [
-      // Content first, in the order somebody works in: the brain, the studio
-      // that reads it, what came out, and the shapes to start from.
-      { name: "Projects", note: "What we are working on, and every version of it", href: "/projects", icon: "template", ...PINK },
-      { name: "Personality", note: "The brain every generator reads", href: "/personality", icon: "brain", ...PINK },
-      { name: "Create Studio", note: "Design and create campaigns", href: "/create", icon: "edit", ...AMBER },
-      { name: "Content Library", note: "Everything already written", href: "/library", icon: "photo", ...PURPLE },
-      { name: "Templates", note: "Start from a known shape", href: "/templates", icon: "template", ...BLUE },
-      { name: "SEO", note: "What to work on next, worth most first", href: "/seo", icon: "search", ...TEAL },
-      { name: "Quick wins", note: "Pages one step from ranking", href: "/seo/quick-wins", icon: "bolt", ...AMBER },
-      { name: "Did it work", note: "What happened after the work was done", href: "/seo/impact", icon: "health", ...GREEN },
-      { name: "GEO readiness", note: "How AI search sees us", href: "/geo", icon: "globe", ...GREEN },
-      // HubSpot's AEO prompts and every answer the assistants gave (SARCLA 17.10: "a complete sub-app after GEO")
-      { name: "AI answers (AEO)", note: "What AI assistants say about us", href: "/aeo", icon: "brain", ...PURPLE },
-    ],
+    subs: MARKETING_SECTIONS.flatMap((x) => x.pages.map((p) => ({ ...p, group: x.name }))),
+    cards: MARKETING_SECTIONS.map((x) => ({ name: x.name, note: x.line, href: `/marketing/${x.slug}`, icon: x.icon, tint: x.tint, fg: x.fg })),
   },
   {
     key: "journey",
