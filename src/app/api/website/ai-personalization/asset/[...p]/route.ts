@@ -16,7 +16,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ p: string[]
   const { p } = await ctx.params;
   const [key, env, ...rest] = p ?? [];
   if (!isEnv(env) || !key || !keyOk(env, key)) return no(403, "no");
-  const path = assetPath(rest.map((x) => decodeURIComponent(x)));
+  let parts: string[];
+  try { parts = rest.map((x) => decodeURIComponent(x)); } catch { return no(404, "not a shop file"); }
+  const path = assetPath(parts);
   if (!path) return no(404, "not a shop file");
   try {
     const f = await shopFile(env, path, hubOriginOf(req.headers, req.nextUrl.origin));
