@@ -63,7 +63,8 @@ export type Ga4ReportName =
   | "itemsMonthly"
   | "viewItemPages"
   | "transactionsChannel"
-  | "bfPageChannels";
+  | "bfPageChannels"
+  | "convertPages";
 
 type ReportSpec = {
   dimensions: string[];
@@ -316,6 +317,14 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     dimensions: ["yearMonth", "itemId"],
     metrics: ["itemsPurchased"],
     limit: 250000,
+  },
+  convertPages: {
+    // APSOconvert's Problems (Website > AI testing & personalization): every address with its views and its add-to-carts,
+    // so a page with a lot of traffic and little buying stands out. add_to_cart carries the page it fired on.
+    dimensions: ["pagePath"],
+    metrics: ["screenPageViews", "sessions", "addToCarts"],
+    orderBy: { metric: "screenPageViews", desc: true },
+    limit: 25000,
   },
   viewItemPages: {
     // The pages view_item fires on, month by month: a category list (its name says the profit centre), a

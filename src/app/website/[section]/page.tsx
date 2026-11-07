@@ -1,7 +1,7 @@
 "use client";
 // One section of Website. Like a category of Advanced reporting, a section with pages is a doorway, not a page: it
-// sends you straight into its first page you may open. Only a section with nothing in it yet (AI testing &
-// personalization, Security - SARCLA 03.11.2026: "empty for now"), or none of it opened to you, stays and says so.
+// sends you straight into its first page you may open. Only a section with nothing in it yet (Security - SARCLA
+// 03.11.2026: "empty for now"), or none of it opened to you, stays and says so.
 
 import { useEffect } from "react";
 import { notFound, useParams, useRouter } from "next/navigation";

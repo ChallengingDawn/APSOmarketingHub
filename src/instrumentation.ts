@@ -166,5 +166,10 @@ export async function register() {
     // (src/lib/personas). PERSONAS=off stops it. SARCLA, 25.10.2026.
     const { startPersonas } = await import("./lib/personas/engine");
     startPersonas();
+
+    // Website > AI testing & personalization > Pages: the shop's sitemaps on production and ACC, read once a day per
+    // environment (src/lib/convert/pages.ts) - read-only against the shop. CONVERT_PAGES=off stops it. SARCLA, 07.11.2026.
+    const { startConvertPages } = await import("./lib/convert/pages");
+    startConvertPages();
   }
 }

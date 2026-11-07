@@ -97,6 +97,8 @@ import TripOriginOutlinedIcon from "@mui/icons-material/TripOriginOutlined";
 import AdjustOutlinedIcon from "@mui/icons-material/AdjustOutlined";
 import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import AllInclusiveOutlinedIcon from "@mui/icons-material/AllInclusiveOutlined";
+import TroubleshootOutlinedIcon from "@mui/icons-material/TroubleshootOutlined";
+import ListAltOutlinedIcon from "@mui/icons-material/ListAltOutlined";
 import ContentCutOutlinedIcon from "@mui/icons-material/ContentCutOutlined";
 import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
@@ -218,6 +220,8 @@ const WEBSITE_ICON: Record<string, React.ReactNode> = {
   "/website/shaft-seal-expert": <AdjustOutlinedIcon fontSize="small" />,
   "/website/compatibility-table": <ScienceOutlinedIcon fontSize="small" />,
   "/website/vulcanised-o-rings": <AllInclusiveOutlinedIcon fontSize="small" />,
+  "/website/ai-personalization/problems": <TroubleshootOutlinedIcon fontSize="small" />,
+  "/website/ai-personalization/pages": <ListAltOutlinedIcon fontSize="small" />,
 };
 
 const navSections: NavSection[] = [

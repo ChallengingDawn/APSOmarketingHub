@@ -117,7 +117,16 @@ export const WEBSITE_SECTIONS: WebsiteSection[] = [
     // "contains a copy of the first A/B test on the chat, and then more")
     pages: [{ name: "Chat: e-mail first", note: "E-mail before the chat or during it: do we lose chats, do we gain e-mails", href: "/website/ab-testing", icon: "chat", ...PINK }],
   },
-  { slug: "ai-personalization", name: "AI testing & personalization", line: "Testing the AI and personalising the site", icon: "brain", ...PURPLE, pages: [] },
+  {
+    slug: "ai-personalization", name: "AI testing & personalization", line: "Find what stops buyers, test the fix, ship the winner", icon: "brain", ...PURPLE,
+    // APSOconvert, modelled on Webyn (SARCLA 07.11.2026: "let's start building this ... under /website/ai-personalization"):
+    // the shop's pages on production and ACC, then the problems on them down to the customer; the ideas, the page code,
+    // the A/B test (in A/B testing above) and the Magento pages follow (src/lib/convert)
+    pages: [
+      { name: "Problems", note: "Pages with a lot of traffic and little buying, down to the customer", href: "/website/ai-personalization/problems", icon: "target", ...PINK },
+      { name: "Pages", note: "Every page of the shop, on production and on ACC", href: "/website/ai-personalization/pages", icon: "layers", ...BLUE },
+    ],
+  },
   { slug: "security", name: "Security", line: "The site's security", icon: "verified", ...BLUE, pages: [] },
   {
     slug: "campaigns", name: "Campaigns", line: "Promotions on the shop", icon: "tag", ...AMBER,
