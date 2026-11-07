@@ -93,7 +93,7 @@ function renderCreated(id: string, p: Record<string, string | null>, subject: st
   const html = wrap({
     heading: "Ticket Information", intro: "A new Back Office ticket.",
     rows: `<table style="border-collapse:collapse">${rows.map(([k, v]) => rowHtml(k, v)).join("")}</table>`,
-    cta: { label: "Open the ticket", href: ticketUrl(id) }, hubUrl: HUB_URL,
+    cta: { label: "Open the ticket", href: ticketUrl(id), red: true }, hubUrl: HUB_URL,
     footer: "Sent by APSOhub (UC & HubSpot Apps > Back Office distribution > Way in).",
   });
   const text = ["Ticket Information", "", ...rows.map(([k, v]) => `${k}: ${v}`), "", ticketUrl(id)].join("\n");

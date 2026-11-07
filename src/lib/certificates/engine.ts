@@ -22,11 +22,12 @@ import type { PoolClient } from "pg";
 import { getPool } from "@/lib/db/client";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
+import { IntegrationError } from "@/lib/integrations/status";
 import { esc, mailConfigured, sendHubMail, wrap } from "@/lib/notify/mailer";
 import {
   ACT, BO_PIPELINE, CATEGORY, DEFAULT_PEOPLE, DEFAULT_STEPS, DEFAULT_TIMING, MAIL_TEXT, OTHERS_OFF_AT, REMIND_OFF_AT, STAGE, STEP_GROUP, WORKFLOW_OFF_AT,
   type StepSwitches,
-  HEAD, certsText, dueShort, merge, owed, position, reminderTo, stepsOf, subjectOf,
+  HEAD, PLAN_PROP, certsText, dueShort, merge, owed, planOf, position, reminderTo, stepsOf, subjectOf,
   type Facts, type MailName, type People, type Phase, type StepName, type Timing,
 } from "./rules";
 import { createdPreview, intakeState } from "@/lib/boDistribution/intakeRun";
@@ -69,6 +70,8 @@ export type RunInfo = {
   mailed?: number; error?: string;
   /** dates moved to the ERP's (or listed), tickets created from the shop (or listed) */
   dates?: number; shop?: number; notes?: string[];
+  /** plans written into the tickets (the ticket card) */
+  plans?: number;
 };
 /** One ticket's steps done (or, in Preview, listed) in one look. */
 export type Row = {
@@ -151,7 +154,7 @@ function renderReminder(m: MailName, f: Facts): { html: string; text: string } {
     ["Company", f.company || "-"], ["Order number", f.order || "-"], ["Article(s)", f.articles || "-"],
     ["Certificates", certsText(f) || "-"], ["Delivery date", dueShort(f.due) || "-"],
   ];
-  const html = wrap({ heading: t.line, intro: t.ask, rows: `<table style="border-collapse:collapse">${rows.map(([k, v]) => rowHtml(k, v)).join("")}</table>`, cta: { label: "Open the ticket", href: ticketUrl(f.id) }, hubUrl: HUB_URL, footer: FOOTER });
+  const html = wrap({ heading: t.line, intro: t.ask, rows: `<table style="border-collapse:collapse">${rows.map(([k, v]) => rowHtml(k, v)).join("")}</table>`, cta: { label: "Open the ticket", href: ticketUrl(f.id), red: true }, hubUrl: HUB_URL, footer: FOOTER });
   const text = [t.line, t.ask, "", ...rows.map(([k, v]) => `${k}: ${v}`), "", ticketUrl(f.id)].join("\n");
   return { html, text };
 }
@@ -244,7 +247,7 @@ function renderTeamReminder(t: Obj): { html: string; text: string } {
   const html = wrap({
     heading: "Reminder to Review Ticket ⚠️", intro: "A Back Office ticket went to stage Remind Back Office.",
     rows: `<table style="border-collapse:collapse">${rows.map(([k, v]) => rowHtml(k, v)).join("")}</table>`,
-    cta: { label: "Open the ticket", href: ticketUrl(id) }, hubUrl: HUB_URL,
+    cta: { label: "Open the ticket", href: ticketUrl(id), red: true }, hubUrl: HUB_URL,
     footer: "Sent by APSOhub (UC & HubSpot Apps > Certificates).",
   });
   const text = ["Reminder to Review Ticket", "", ...rows.map(([k, v]) => `${k}: ${v}`), "", ticketUrl(id)].join("\n");
@@ -339,7 +342,7 @@ export async function owners(): Promise<Owner[]> {
 const PROPS = [
   "subject", "hs_pipeline_stage", "hubspot_owner_id", "actions_for_certificates", "which_certificate__", "other_certificates",
   "sarcla_pm_witch_mandant__", "order_number", "delivery_date_for_certificate", "conformity_expert", "back_office_ticket_requester",
-  "enquiry_category", "hs_merged_object_ids", "createdate", "sarcla_article_number_order_pm",
+  "enquiry_category", "hs_merged_object_ids", "createdate", "sarcla_article_number_order_pm", PLAN_PROP,
 ];
 const HIST = ["actions_for_certificates", "hs_pipeline_stage", "hs_merged_object_ids", "delivery_date_for_certificate"];
 
@@ -389,7 +392,25 @@ function factsOf(t: Obj, company: string | null): Facts {
     mergedAt: p.hs_merged_object_ids && merges[0] ? ts(merges[0].timestamp) : null,
     startedAt: firstCert ? ts(firstCert.timestamp) : null, subject: p.subject ?? null,
     articles: p.sarcla_article_number_order_pm ?? null, remindAt: lastRemind ? ts(lastRemind.timestamp) : null,
+    plan: p[PLAN_PROP] ?? null,
   };
+}
+
+// ---------------- the plan in the ticket (rules.ts PLAN_PROP - the ticket card reads it) ----------------
+let planPropReady = false;
+/** The hidden ticket property the plan goes into - made once, by the hub itself (the app has crm.schemas.tickets.write). */
+async function ensurePlanProp(): Promise<void> {
+  if (planPropReady) return;
+  try {
+    await hs(`/crm/v3/properties/tickets/${PLAN_PROP}`);
+  } catch (e) {
+    if (!(e instanceof IntegrationError) || e.status !== 404) throw e;
+    await hs("/crm/v3/properties/tickets", "POST", {
+      name: PLAN_PROP, label: "APSOhub certificate plan", type: "string", fieldType: "textarea", groupName: "ticketinformation", formField: false, hidden: true,
+      description: "Written by APSOhub (UC & HubSpot Apps > Certificates): the steps the hub plans for this certificate request. The Certificates ticket card shows them. Do not edit.",
+    });
+  }
+  planPropReady = true;
 }
 
 /** The ticket's company name, as the workflow's subject had it (Company Name (unique), else the name). */
@@ -522,6 +543,14 @@ async function run(): Promise<RunInfo> {
       }
     }
     if (done.size) nextDone[f.id] = [...done];
+    if (writing) {
+      const plan = planOf(f, done, now, tm, held, settings.people, remindOffAt);
+      const text = plan ? JSON.stringify(plan) : "";
+      if (plan && text !== (f.plan ?? "")) {
+        try { await ensurePlanProp(); await hs(`/crm/v3/objects/tickets/${f.id}`, "PATCH", { properties: { [PLAN_PROP]: text } }); info.plans = (info.plans ?? 0) + 1; }
+        catch (e) { (info.notes ??= []).push(`plan of ${f.id}: ${(e as Error).message.slice(0, 120)}`); }
+      }
+    }
     const p2 = pos;
     open.push({
       id: f.id, subject: f.subject, company: f.company, order: f.order, certs: [f.certs.join(", "), f.other].filter(Boolean).join(" "), due: f.due,

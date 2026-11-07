@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ACT, CATEGORY, DEFAULT_PEOPLE, DEFAULT_TIMING, H, D, HEAD, STAGE, WORKFLOW_OFF_AT, excludesCertificates, merge, owed, phaseOf, stepWords, stepsOf, subjectOf, swiss, timingProblem, type Facts } from "../src/lib/certificates/rules";
+import { ACT, CATEGORY, DEFAULT_PEOPLE, DEFAULT_TIMING, H, D, HEAD, STAGE, WORKFLOW_OFF_AT, excludesCertificates, merge, owed, phaseOf, planOf, stepWords, stepsOf, subjectOf, swiss, timingProblem, type Facts } from "../src/lib/certificates/rules";
 
 const base = (x: Partial<Facts>): Facts => ({
   id: "1", stage: STAGE.certificates, actions: null, actionsAt: null, actionsBy: "CRM_UI", actionsBefore: null,
@@ -182,4 +182,29 @@ test("the console's times: the steps move with them - the workflows' by default"
   assert.ok(stepWords("bo3days", t).startsWith("2 days before delivery, 09:00"));
   assert.equal(timingProblem({ boHour: 25 }), "boHour: a whole number from 0 to 23");
   assert.equal(timingProblem({ escalationDays: 15, lateEveryH: 48 }), null);
+});
+
+test("the plan on the ticket (the ticket card): states, the next step, who it waits for", () => {
+  // Back Office since 04.11, delivery 09.11: the 3-days step 06.11 07:00 taken, today 07.11 - the next is "due today" on 09.11
+  const f = base({ startedAt: Date.parse("2026-11-04T12:01:00Z") });
+  const steps = stepsOf(f)!.steps;
+  const done = new Set([steps.find((x) => x.name === "bo3days")!.key]);
+  const now = Date.parse("2026-11-07T15:00:00Z");
+  const p = planOf(f, done, now, DEFAULT_TIMING, false, DEFAULT_PEOPLE, Date.parse("2026-11-05T05:28:11Z"))!;
+  assert.equal(p.phase, "backOffice");
+  assert.deepEqual(p.steps.map((x) => `${x.n}:${x.s}`), ["bo3days:done", "boToday:next", "bo48:later", "bo96:later", "boWeek:later", "boRose:later"]);
+  assert.equal(p.wait.who, "owner");
+  assert.match(p.wait.what, /Create the certificate/);
+  assert.deepEqual(p.experts, DEFAULT_PEOPLE.experts);
+  // before the 3 days: it waits for the date, and says from when
+  const early = planOf(f, new Set(), Date.parse("2026-11-05T09:00:00Z"), DEFAULT_TIMING, false, DEFAULT_PEOPLE)!;
+  assert.equal(early.wait.from, "2026-11-06T06:00:00.000Z");
+  assert.equal(early.steps[0].s, "next");
+  // a step that fell due and was not taken yet is "owed"; with the expert it waits for the expert
+  const ex = base({ actions: ACT.expert, actionsAt: Date.parse("2026-11-06T08:42:00Z"), due: "2026-11-05" });
+  const pe = planOf(ex, new Set(), now, DEFAULT_TIMING, false, DEFAULT_PEOPLE)!;
+  assert.equal(pe.wait.who, "expert");
+  assert.equal(pe.steps.find((x) => x.n === "expert-entry")!.s, "owed");
+  // resolved: no plan
+  assert.equal(planOf(base({ stage: STAGE.resolved }), new Set(), now, DEFAULT_TIMING, false, DEFAULT_PEOPLE), null);
 });

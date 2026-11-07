@@ -141,6 +141,8 @@ export type Facts = {
   articles?: string | null;
   /** the last entry into stage Remind Back Office */
   remindAt?: number | null;
+  /** the plan the hub last wrote into the ticket (PLAN_PROP) - written again only when it changed */
+  plan?: string | null;
 };
 
 export type Phase = "start" | "avor" | "backOffice" | "expert" | "sent" | "merged";
@@ -427,4 +429,46 @@ export function merge(
 export function reminderTo<R extends { email: string }>(owner: R | null, picked: R[], rotation: R[]): R[] {
   const out = owner ? [owner, ...picked] : picked.length ? picked : rotation;
   return out.filter((r, i) => out.findIndex((x) => x.email.toLowerCase() === r.email.toLowerCase()) === i);
+}
+
+// ---------------- the plan on the ticket (the Certificates ticket card) ----------------
+/**
+ * The ticket card (HubSpot app sarcla-apsomarketinghub, cards/CertificateTicketCard) shows where a request stands and what
+ * comes next (SARCLA 07.11.2026: "a ticket card to replace [the property card] and steer from there - a timeline would be
+ * great, by waiting points"). The hub answers only A+P's own addresses (the load balancer's whitelist), so a card in
+ * HubSpot cannot ask it: the hub writes each open request's plan into the ticket, in PLAN_PROP, when it changed.
+ */
+export const PLAN_PROP = "apsohub_certificate_plan";
+/** workflow = fell due while the HubSpot workflow still ran it; done = the hub took it (or skipped it, its group off);
+ *  owed = due, the hub takes it in its next look; next = the next one; later = after it. */
+export type PlanStep = { n: StepName; at: string; w: string; s: "workflow" | "done" | "owed" | "next" | "later" };
+/** who the request waits for, and from when (the "3 days before" of the Back Office) */
+export type Wait = { who: "hub" | "avor" | "owner" | "expert"; what: string; from?: string };
+export type Plan = { v: 1; phase: Phase; held: boolean; wait: Wait; steps: PlanStep[]; experts: string[]; backOffice: string[] };
+
+export function waitOf(f: Facts, phase: Phase, steps: Step[], now: number): Wait {
+  if (phase === "start") return { who: "hub", what: "The hub starts the request within 3 minutes" };
+  if (phase === "sent") return { who: "hub", what: "Sent - the hub closes it (Resolved)" };
+  if (phase === "avor") return { who: "avor", what: "AVOR: the new article number for EC 1935/2004 - then \"Article received\"" };
+  if (phase === "expert") return { who: "expert", what: "The conformity expert: check and send it to the customer and EDA - then \"Sent out to customer and EDA\"" };
+  if (!f.due) return { who: "owner", what: "No delivery date - set one so the hub can plan the request" };
+  const t3 = steps.find((x) => x.name === "bo3days");
+  if (t3 && t3.at > now) return { who: "owner", what: "The certificate is made 3 days before the delivery date", from: new Date(t3.at).toISOString() };
+  return { who: "owner", what: "Create the certificate, attach it - then \"Assign to Conformity Expert\"" };
+}
+
+/** The plan of one request as the card shows it; null = not in the process (resolved, or no certificate). */
+export function planOf(f: Facts, done: Set<string>, now: number, t: Timing, held: boolean, people: People, remindOffAt: number | null = null): Plan | null {
+  const p = stepsOf(f, t);
+  if (!p) return null;
+  let nextSeen = false;
+  const steps: PlanStep[] = p.steps.map((x) => {
+    let s: PlanStep["s"];
+    if (done.has(x.key)) s = "done";
+    else if (x.at < WORKFLOW_OFF_AT || (x.remind && remindOffAt !== null && x.at < remindOffAt)) s = "workflow";
+    else if (x.at <= now) s = "owed";
+    else if (!nextSeen) { s = "next"; nextSeen = true; } else s = "later";
+    return { n: x.name, at: new Date(x.at).toISOString(), w: stepWords(x.name, t), s };
+  });
+  return { v: 1, phase: p.phase, held, wait: waitOf(f, p.phase, p.steps, now), steps, experts: people.experts, backOffice: people.backOffice };
 }

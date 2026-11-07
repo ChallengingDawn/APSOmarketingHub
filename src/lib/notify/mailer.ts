@@ -72,13 +72,14 @@ export function wrap(opts: {
   heading: string;
   intro: string;
   rows: string;
-  cta?: { label: string; href: string };
+  /** red: the A+P red button (SARCLA 07.11.2026: "on all mails, this button 'Open the ticket' - change the colour to red"). */
+  cta?: { label: string; href: string; red?: boolean };
   hubUrl: string;
   /** The last line, when "you switched it on" is not why this mail came. */
   footer?: string;
 }): string {
   const button = opts.cta
-    ? `<p style="margin:26px 0 0"><a href="${esc(opts.cta.href)}" style="background:#2459d1;color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-weight:600;display:inline-block">${esc(opts.cta.label)}</a></p>`
+    ? `<p style="margin:26px 0 0"><a href="${esc(opts.cta.href)}" style="background:${opts.cta.red ? "#ed1b2f" : "#2459d1"};color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-weight:600;display:inline-block">${esc(opts.cta.label)}</a></p>`
     : "";
   return `<!doctype html><html><body style="margin:0;background:#f5f6fa">
   <div style="max-width:620px;margin:0 auto;padding:28px 20px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#15223a">

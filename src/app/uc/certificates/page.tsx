@@ -464,7 +464,7 @@ function LateCard({ d, onAll }: { d: Data; onAll: () => void }) {
   const byOwner = Object.entries(late.reduce<Record<string, number>>((a, t) => { const k = t.owner ? d.names[t.owner] ?? t.owner : "nobody"; a[k] = (a[k] ?? 0) + 1; return a; }, {})).sort((a, b) => b[1] - a[1]);
   const left = late.filter((t) => t.erp?.shipped).length;
   return (
-    <GlassCard sx={{ borderLeft: `4px solid ${RED}` }}>
+    <GlassCard>
       <CardTitle icon={<ReportProblemOutlinedIcon />} tint="pink" title={`${full(late.length)} request${late.length === 1 ? " is" : "s are"} late`}
         note={`The delivery date has passed and no certificate went out${left ? ` - for ${full(left)} of them the goods have already left` : ""}`} />
       <Typography sx={{ fontSize: "0.8rem", color: INK, mb: 1 }}>

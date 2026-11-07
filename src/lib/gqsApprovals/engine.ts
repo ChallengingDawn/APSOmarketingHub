@@ -171,7 +171,7 @@ const FOOTER = "Sent by APSOhub's GQS approvals (Back Office distribution > GQS 
 async function mail(to: string | null, subject: string, heading: string, intro: string, rows: [string, string][], id: string): Promise<string> {
   if (!to) return "no e-mail address";
   if (!mailConfigured()) return "the hub cannot send mail";
-  const html = wrap({ heading, intro, rows: table(rows), cta: { label: "Open the ticket", href: ticketUrl(id) }, hubUrl: HUB_URL, footer: FOOTER });
+  const html = wrap({ heading, intro, rows: table(rows), cta: { label: "Open the ticket", href: ticketUrl(id), red: true }, hubUrl: HUB_URL, footer: FOOTER });
   const text = [intro, "", ...rows.map(([k, val]) => `${k}: ${val}`), "", ticketUrl(id)].join("\n");
   try { await sendHubMail({ to, subject: subject.slice(0, 180), html, text }); return `mail to ${to}`; }
   catch (e) { return `mail to ${to} failed: ${(e as Error).message.slice(0, 120)}`; }
