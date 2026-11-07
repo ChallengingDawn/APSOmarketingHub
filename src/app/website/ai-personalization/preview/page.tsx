@@ -54,7 +54,8 @@ type StudioData = {
   ideas: Idea[]; versions: Version[]; canEdit: boolean; canContent: boolean; ai: boolean;
 };
 type Msg = { apsoPreview: "ready"; title: string } | { apsoPreview: "applied"; hit: number[] } | { apsoPreview: "go"; href: string } | { apsoPreview: "scroll"; y: number }
-  | { apsoPreview: "picked"; selector: string; tag: string; text: string } | { apsoPreview: "styles"; total: number; nfailed: number; failed: string[] };
+  | { apsoPreview: "picked"; selector: string; tag: string; text: string } | { apsoPreview: "styles"; total: number; nfailed: number; failed: string[] }
+  | { apsoPreview: "drawn"; lines: string[] };
 type Picked = { selector: string; tag: string; text: string; from: string };
 type Device = "desktop" | "phone";
 type Zoom = "fit" | "full";
@@ -88,7 +89,8 @@ function Frame({ src, device, zoom, label, address, name, sync, pick, marks, onM
   useEffect(() => {
     setReady(false);
     setLate(false);
-    const t = setTimeout(() => setLate(true), 25_000);
+    // a cold hub reads the page's ~130 files from the shop six at a time: up to ~30 s once a day, then from memory
+    const t = setTimeout(() => setLate(true), 45_000);
     return () => clearTimeout(t);
   }, [src]);
   useEffect(() => {
@@ -155,7 +157,7 @@ function Frame({ src, device, zoom, label, address, name, sync, pick, marks, onM
               <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", bgcolor: "rgba(255,255,255,.82)", pointerEvents: late ? "auto" : "none" }}>
                 {late
                   ? <Box sx={{ display: "grid", gap: 1, justifyItems: "center", color: MUTED, fontSize: "0.84rem", textAlign: "center", px: 2 }}>
-                      The page did not answer in 25 seconds.
+                      The page did not answer in 45 seconds.
                       <Button size="small" variant="outlined" onClick={onRetry}>Read it again</Button>
                     </Box>
                   : <Box sx={{ display: "flex", gap: 1, alignItems: "center", color: MUTED, fontSize: "0.84rem" }}><CircularProgress size={16} /> Reading the page from the shop…</Box>}
@@ -513,6 +515,8 @@ function ConvertPreview() {
   const [prefill, setPrefill] = useState<{ text: string; n: number } | null>(null);
   const [styles, setStyles] = useState<{ total: number; nfailed: number } | null>(null);
   const told = useRef(false);
+  // the page as the browser drew it, from the original's frame (else the version's) - the AI aims its changes at it
+  const drawn = useRef<{ from: string; lines: string[] } | null>(null);
 
   const go = useCallback((e: Env, p: string, idea?: string | null) => {
     router.push(`/website/ai-personalization/preview?env=${e}&path=${encodeURIComponent(p)}${idea ? `&idea=${idea}` : ""}`);
@@ -532,7 +536,7 @@ function ConvertPreview() {
   const idea = ideas.find((i) => i.id === ideaSel) ?? ideas.find((i) => versionOf.has(i.id)) ?? null;
   const version = idea ? versionOf.get(idea.id) ?? null : null;
   useEffect(() => { setHit(null); setRev(null); }, [version?.id, version?.rev]);
-  useEffect(() => { setPicked(null); setPick(false); setStyles(null); told.current = false; }, [path, env]);
+  useEffect(() => { setPicked(null); setPick(false); setStyles(null); told.current = false; drawn.current = null; }, [path, env]);
   useEffect(() => { if (!version && view !== "original") setView("original"); else if (version && view === "original") setView("both"); }, [version?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const base = path ? `/api/website/ai-personalization/preview?env=${env}&path=${encodeURIComponent(path)}${fresh ? `&fresh=1&f=${fresh}` : ""}` : "";
@@ -541,6 +545,7 @@ function ConvertPreview() {
   const onMsg = useCallback((m: Msg, from: string) => {
     if (m.apsoPreview === "scroll" && typeof m.y === "number") setSync((s) => ({ y: m.y, from, n: (s?.n ?? 0) + 1 }));
     if (m.apsoPreview === "applied" && Array.isArray(m.hit)) setHit(m.hit);
+    if (m.apsoPreview === "drawn" && Array.isArray(m.lines) && (from === "original" || drawn.current?.from !== "original")) drawn.current = { from, lines: m.lines.slice(0, 160) };
     if (m.apsoPreview === "picked" && typeof m.selector === "string") { setPicked({ selector: m.selector.slice(0, 300), tag: String(m.tag).slice(0, 20), text: String(m.text ?? "").slice(0, 160), from }); setPick(false); }
     if (m.apsoPreview === "styles" && typeof m.total === "number") {
       setStyles((s) => (s && s.nfailed >= m.nfailed ? s : { total: m.total, nfailed: m.nfailed }));
@@ -561,7 +566,15 @@ function ConvertPreview() {
   const act = async (key: string, body: Record<string, unknown>): Promise<boolean> => {
     setBusy(key);
     setErr(null);
-    const res = await convertPost<unknown>(API, body);
+    // the AI's two actions take the drawn page along, cut to fit the hub's 8 KB body
+    let send = body;
+    if ((body.action === "ideas" || body.action === "build") && drawn.current) {
+      const lines: string[] = [];
+      let size = JSON.stringify(body).length + 40;
+      for (const l of drawn.current.lines) { if (size + l.length + 4 > 7600) break; lines.push(l); size += l.length + 4; }
+      send = { ...body, drawn: lines };
+    }
+    const res = await convertPost<unknown>(API, send);
     setBusy(null);
     if (!res.ok) { setErr(res.error); return false; }
     setTick((n) => n + 1);

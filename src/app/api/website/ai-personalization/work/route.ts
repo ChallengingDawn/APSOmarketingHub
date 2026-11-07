@@ -7,7 +7,7 @@ import { myAccess } from "@/lib/auth/appAccess";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { isEnv } from "@/lib/convert/model";
 import {
-  addIdea, cleanPath, editVersion, pageOutline, pageWork, proposeIdeas, revisions, setIdeaStatus, setVersionStatus, shopPage, writeVersion,
+  addIdea, cleanDrawn, cleanPath, editVersion, pageOutline, pageWork, proposeIdeas, revisions, setIdeaStatus, setVersionStatus, shopPage, writeVersion,
   type IdeaStatus, type Numbers,
 } from "@/lib/convert/studio";
 
@@ -100,7 +100,8 @@ export async function POST(req: NextRequest) {
         const path = cleanPath(b.path);
         if (!isEnv(b.env) || !path) return fail("env and path, please", 400);
         const env = b.env;
-        return slow(() => proposeIdeas(env, path, numbersOf(b.numbers), by));
+        const drawn = cleanDrawn(b.drawn);
+        return slow(() => proposeIdeas(env, path, numbersOf(b.numbers), by, drawn));
       }
       case "add": {
         const path = cleanPath(b.path);
@@ -120,7 +121,8 @@ export async function POST(req: NextRequest) {
         const ideaId = id("ideaId");
         if (!ideaId) return fail("ideaId, please", 400);
         const request = text(b.request, 1500) || null;
-        return slow(() => writeVersion(ideaId, request, by));
+        const drawn = cleanDrawn(b.drawn);
+        return slow(() => writeVersion(ideaId, request, by, drawn));
       }
       case "edit": {
         const versionId = id("versionId");

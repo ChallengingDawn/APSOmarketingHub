@@ -102,6 +102,32 @@ export function rewriteShopUrls(text: string, hubOrigin: string): string {
   return out;
 }
 
+// Kind to the shop: a page needs ~130 files, and a cold hub (a release, a day's end) would ask for all of them at once -
+// at most SIX reads at a time, the rest wait their turn; a read that fails (the network, a 5xx) is tried once more.
+// Learnt 08.11.2026: the burst made some reads fail, among them Magento's ".min" resolver, and every module after it
+// was asked for without ".min" (404).
+const MAX_PARALLEL = 6;
+let running = 0;
+const queue: (() => void)[] = [];
+async function inTurn<T>(work: () => Promise<T>): Promise<T> {
+  if (running >= MAX_PARALLEL) await new Promise<void>((go) => queue.push(go));
+  running++;
+  try {
+    return await work();
+  } finally {
+    running--;
+    queue.shift()?.();
+  }
+}
+async function readOnce(url: string): Promise<{ status: number; type: string; body: Buffer }> {
+  try {
+    const r = await inTurn(() => shopGet(url, 25_000, MAX_FILE));
+    if (r.status < 500) return r;
+  } catch { /* tried again below */ }
+  await new Promise((w) => setTimeout(w, 400));
+  return inTurn(() => shopGet(url, 25_000, MAX_FILE));
+}
+
 type Held = { at: number; status: number; type: string; body: Buffer; size: number };
 const HELD = new Map<string, Held>();
 let heldBytes = 0;
@@ -135,7 +161,7 @@ export async function shopFile(env: Env, path: string, hubOrigin: string): Promi
   const running = INFLIGHT.get(key);
   if (running) return running;
   const p = (async (): Promise<Held> => {
-    const r = await shopGet(`${ENVS[env].base}${path}`, 25_000, MAX_FILE);
+    const r = await readOnce(`${ENVS[env].base}${path}`);
     const ok = r.status >= 200 && r.status < 300;
     let body = r.body;
     if (body.length > MAX_FILE) return { at: Date.now(), status: 413, type: "text/plain", body: Buffer.from("too big"), size: 7 };

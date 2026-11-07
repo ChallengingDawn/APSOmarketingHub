@@ -357,8 +357,30 @@ async function ask<T>(system: string, user: string, schema: Record<string, unkno
   }
 }
 
-function pageBrief(page: ShopPage, o: Outline): string {
+/** The page as the browser drew it (the preview frame's outline): strings only, capped - it travels in a request body. */
+export function cleanDrawn(x: unknown): string[] | null {
+  if (!Array.isArray(x)) return null;
+  const out: string[] = [];
+  let chars = 0;
+  for (const l of x) {
+    if (typeof l !== "string") continue;
+    const line = l.slice(0, 200);
+    if (out.length >= 160 || chars + line.length > 5600) break;
+    out.push(line);
+    chars += line.length + 1;
+  }
+  return out.length ? out : null;
+}
+
+function pageBrief(page: ShopPage, o: Outline, drawn: string[] | null = null): string {
   const store = classify(page.path).store ?? "?";
+  const seen = drawn?.length
+    ? `
+
+THE MAIN COLUMN AS THE BROWSER DREW IT (after the theme's scripts - the articles table, prices, availability, buttons are
+here; aim at these selectors when a change concerns those parts):
+${drawn.join("\n")}`
+    : "";
   return `PAGE: ${page.url}
 Kind: ${page.kind}${page.product ? ` (product ${page.product})` : ""} · store view ${store} · environment ${page.env}
 Title: ${o.title}
@@ -367,7 +389,7 @@ H1: ${o.h1.join(" | ") || "-"}
 
 MAIN COLUMN (indented lines "selector · text"; a line ending in "…" was shortened HERE, for length - the page shows it
 whole; parts drawn by the theme's scripts after loading, like the articles' prices and availability, are NOT in it):
-${o.lines.join("\n")}${o.truncated ? "\n(... cut here)" : ""}`;
+${o.lines.join("\n")}${o.truncated ? "\n(... cut here)" : ""}${seen}`;
 }
 
 function numbersBrief(n: Numbers | null): string {
@@ -404,7 +426,7 @@ const IDEAS_SCHEMA = {
   },
 };
 
-export async function proposeIdeas(env: Env, path: string, numbers: Numbers | null, by: string): Promise<AiResult<Idea[]>> {
+export async function proposeIdeas(env: Env, path: string, numbers: Numbers | null, by: string, drawn: string[] | null = null): Promise<AiResult<Idea[]>> {
   const page = await shopPage(env, path);
   if (page.status !== 200) return { ok: false, error: `The shop answered ${page.status} for this page.` };
   const o = pageOutline(page);
@@ -416,7 +438,7 @@ piece of information the page already has elsewhere). Rank them: the one most li
 ${SHOP_FACTS}
 
 ${RULES}`;
-  const user = `${pageBrief(page, o)}
+  const user = `${pageBrief(page, o, drawn)}
 
 ${numbersBrief(numbers)}
 ${existing ? `\nIDEAS ALREADY ON THIS PAGE (do not repeat them):\n${existing}` : ""}`;
@@ -504,7 +526,7 @@ function fromAi(list: AiChange[]): unknown[] {
 }
 
 /** The first version of an approved idea, or a new revision from a person's request in plain words. */
-export async function writeVersion(ideaId: string, request: string | null, by: string): Promise<AiResult<{ version: Version; problems: string[] }>> {
+export async function writeVersion(ideaId: string, request: string | null, by: string, drawn: string[] | null = null): Promise<AiResult<{ version: Version; problems: string[] }>> {
   await ensureStudioSchema();
   const idea = await ideaById(ideaId);
   if (!idea) return { ok: false, error: "No such idea." };
@@ -513,7 +535,7 @@ export async function writeVersion(ideaId: string, request: string | null, by: s
   if (page.status !== 200) return { ok: false, error: `The shop answered ${page.status} for this page.` };
   const o = pageOutline(page);
   const cur = (await query<VersionRow>(`SELECT * FROM apsomh_convert_versions WHERE idea_id = $1`, [idea.id])).rows[0];
-  const user = `${pageBrief(page, o)}
+  const user = `${pageBrief(page, o, drawn)}
 
 ${numbersBrief(idea.numbers)}
 
