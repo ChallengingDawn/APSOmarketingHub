@@ -1,0 +1,641 @@
+"use client";
+
+// APSOconvert > PREVIEW (Website > AI testing & personalization). One shop page, live: the page as visitors see it in a
+// frame (src/app/api/website/ai-personalization/preview - nothing in it is counted or sent to the shop), its numbers
+// from Problems, the AI's ideas for it (a person approves or drops each), and for an approved idea the VERSION the AI
+// writes, laid over the page in the same frame - original and version side by side, on a desktop or a phone. Ask for a
+// change in a sentence and the AI writes the next revision; every revision stays. An approved version is what the test
+// will show (src/lib/convert/studio.ts). The page's TEXTS are written in Content Studio: "Send to Content" makes a
+// project of the page, its numbers, its approved ideas and its version (src/lib/convert/handoff.ts) - this page
+// shows, it does not write copy (SARCLA 07.11.2026: "we should not cannibalise content creation").
+
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import TextField from "@mui/material/TextField";
+import CircularProgress from "@mui/material/CircularProgress";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import TipsAndUpdatesOutlinedIcon from "@mui/icons-material/TipsAndUpdatesOutlined";
+import AutoFixHighOutlinedIcon from "@mui/icons-material/AutoFixHighOutlined";
+import WebOutlinedIcon from "@mui/icons-material/WebOutlined";
+import SearchIcon from "@mui/icons-material/Search";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
+import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
+import EditNoteOutlinedIcon from "@mui/icons-material/EditNoteOutlined";
+import PageHeader from "@/app/PageHeader";
+import { useHeld } from "@/app/analytics/AnalyticsData";
+import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
+import { full } from "@/app/charts/format";
+import { ACCENT, AMBER, CardTitle, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, RED, clip } from "@/app/uc/report/ui";
+import { Choice, Chip, ago } from "@/app/connectors/parts";
+import { useReportingWindow } from "@/app/window/ReportingWindow";
+import { ENVS, KIND_LABEL, STEP_LABEL, classify, type Env, type PageKind, type Step } from "@/lib/convert/model";
+import type { ProblemsData } from "@/lib/convert/problems";
+import type { PageRow, PagesList } from "@/lib/convert/pages";
+import type { Idea, Numbers, Revision, Version } from "@/lib/convert/studio";
+import { OP_LABEL, describe, type Change } from "@/lib/convert/versions";
+import { projectForPage, markerOf, pageMarker } from "@/lib/convert/handoff";
+import { Flow, convertPost, previewHref } from "../Flow";
+
+type StudioData = {
+  env: Env; path: string;
+  page: { status: number; error: string | null; title: string; h1: string[]; description: string; lines: string[]; truncated: boolean; kind: PageKind | null; product: string | null; url: string | null };
+  ideas: Idea[]; versions: Version[]; canEdit: boolean; canContent: boolean; ai: boolean;
+};
+type Msg = { apsoPreview: "ready"; title: string } | { apsoPreview: "applied"; hit: number[] } | { apsoPreview: "go"; href: string } | { apsoPreview: "scroll"; y: number };
+type Device = "desktop" | "phone";
+type Zoom = "fit" | "full";
+type Sync = { y: number; from: string; n: number };
+type View = "version" | "original" | "both";
+
+const API = "/api/website/ai-personalization/work";
+const since = (iso: string) => ago(Date.parse(iso) / 1000);
+const pct = (r: number | null | undefined) => (r === null || r === undefined ? "–" : `${(r * 100).toFixed(r < 0.1 ? 1 : 0)}%`);
+
+// ---------------------------------------------------------------------------------------------------------------------
+// THE FRAME
+
+function Frame({ src, device, zoom, label, name, sync, onMsg }: {
+  src: string; device: Device; zoom: Zoom; label: string; name: string; sync: Sync | null; onMsg: (m: Msg, from: string) => void;
+}) {
+  const wrap = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [w, setW] = useState(0);
+  const [vh, setVh] = useState(800);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => { setW(el.clientWidth); setVh(window.innerHeight); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => { setReady(false); }, [src]);
+  useEffect(() => {
+    const on = (e: MessageEvent) => {
+      if (!frame.current || e.source !== frame.current.contentWindow) return;
+      const d = e.data as Msg;
+      if (!d || typeof d !== "object" || !("apsoPreview" in d)) return;
+      if (d.apsoPreview === "ready") setReady(true);
+      onMsg(d, name);
+    };
+    window.addEventListener("message", on);
+    return () => window.removeEventListener("message", on);
+  }, [onMsg, name]);
+  // the other frame was scrolled: follow it (as a share of the page's height - a version can be longer or shorter)
+  useEffect(() => {
+    if (!sync || sync.from === name) return;
+    frame.current?.contentWindow?.postMessage({ apsoPreviewScroll: sync.y }, "*");
+  }, [sync, name]);
+  const W = device === "phone" ? 390 : 1280;
+  const scale = zoom === "full" ? 1 : w ? Math.min(1, w / W) : 0.5;
+  const shownH = device === "phone" ? Math.min(820, Math.max(560, vh * 0.78)) : Math.max(420, vh * 0.72);
+  const H = Math.round(shownH / scale);
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: MUTED, mb: 0.5, textTransform: "uppercase", letterSpacing: ".04em" }}>{label}</Typography>
+      <Box ref={wrap} sx={{ position: "relative", height: shownH, overflowX: zoom === "full" ? "auto" : "hidden", overflowY: "hidden", borderRadius: "14px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff" }}>
+        <Box sx={{ width: zoom === "full" ? W : device === "phone" ? Math.min(W, w || W) : "100%", mx: zoom === "full" ? 0 : "auto", height: "100%", position: "relative", overflow: "hidden" }}>
+          <iframe ref={frame} key={src} src={src} title={label} sandbox="allow-scripts" referrerPolicy="no-referrer"
+            style={{ width: W, height: H, border: 0, transform: `scale(${scale})`, transformOrigin: "0 0", background: "#fff", display: "block" }} />
+        </Box>
+        {!ready && (
+          <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", bgcolor: "rgba(255,255,255,.75)", pointerEvents: "none" }}>
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center", color: MUTED, fontSize: "0.84rem" }}><CircularProgress size={16} /> Reading the page from the shop…</Box>
+          </Box>
+        )}
+      </Box>
+    </Box>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// OPENING A PAGE
+
+function Picker({ env, onOpen, problems }: { env: Env; onOpen: (env: Env, path: string) => void; problems: ProblemsData | null }) {
+  const [e, setE] = useState<Env>(env);
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<PageRow[] | null>(null);
+  useEffect(() => {
+    const t = q.trim();
+    if (t.length < 2 || /^https?:|^\//.test(t)) { setHits(null); return; }
+    const c = new AbortController();
+    const timer = setTimeout(() => {
+      fetch(`/api/website/ai-personalization/pages?q=${encodeURIComponent(t.slice(0, 80))}&where=all`, { signal: c.signal })
+        .then((r) => r.json()).then((j: { ok?: boolean; data?: { list: PagesList } }) => setHits(j.ok && j.data ? j.data.list.rows.filter((x) => x[e]).slice(0, 10) : []))
+        .catch(() => {});
+    }, 300);
+    return () => { clearTimeout(timer); c.abort(); };
+  }, [q, e]);
+  const open = () => {
+    const t = q.trim();
+    if (!t) return;
+    let path = t;
+    try { if (/^https?:/i.test(t)) path = new URL(t).pathname; } catch { /* typed as a path */ }
+    if (!path.startsWith("/")) path = `/${path}`;
+    onOpen(/^https?:\/\/acc\./i.test(t) ? "acc" : e, path);
+  };
+  const top = (problems?.pages ?? []).filter((p) => p.reasons.length > 0).slice(0, 8);
+  return (
+    <GlassCard>
+      <CardTitle icon={<WebOutlinedIcon />} tint="blue" title="Open a page" note="Paste a shop address, or type a few letters of its name or address" />
+      <Box sx={{ display: "grid", gap: 1.5, mt: 1.5 }}>
+        <Choice<Env> value={e} onChange={setE} options={[{ key: "prod", label: ENVS.prod.label }, { key: "acc", label: ENVS.acc.label }]} />
+        <Box sx={{ display: "flex", gap: 1 }}>
+          <TextField size="small" fullWidth value={q} onChange={(ev) => setQ(ev.target.value)} onKeyDown={(ev) => { if (ev.key === "Enter") open(); }}
+            placeholder="https://www.apsoparts.com/de-CH/… or o-ring" slotProps={{ input: { startAdornment: <SearchIcon sx={{ fontSize: 18, color: MUTED, mr: 1 }} /> } }} />
+          <Button variant="contained" disableElevation onClick={open} disabled={!q.trim()}>Open</Button>
+        </Box>
+        {hits && (
+          <Box sx={{ display: "grid", gap: 0.25 }}>
+            {hits.length === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No page of the index has that in its address.</Typography>}
+            {hits.map((h) => {
+              const path = new URL(h[e]!.url).pathname;
+              return (
+                <Box key={path} component="button" type="button" onClick={() => onOpen(e, path)} sx={{ all: "unset", cursor: "pointer", display: "flex", gap: 1, alignItems: "center", px: 1, py: 0.6, borderRadius: "8px", "&:hover": { bgcolor: "rgba(36,89,209,.06)" } }}>
+                  <Chip tint={h.kind === "product" ? "green" : h.kind === "category" ? "blue" : h.kind === "home" ? "purple" : "amber"}>{KIND_LABEL[h.kind]}</Chip>
+                  <Typography sx={{ fontSize: "0.84rem", ...clip(560) }}>{path}</Typography>
+                </Box>
+              );
+            })}
+          </Box>
+        )}
+        {top.length > 0 && (
+          <Box>
+            <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: MUTED, mb: 0.5 }}>OR START FROM A PROBLEM</Typography>
+            <Box sx={{ display: "grid", gap: 0.25 }}>
+              {top.map((p) => (
+                <Box key={p.key} component="button" type="button" onClick={() => onOpen("prod", p.path)} sx={{ all: "unset", cursor: "pointer", display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 1, alignItems: "center", px: 1, py: 0.6, borderRadius: "8px", "&:hover": { bgcolor: "rgba(36,89,209,.06)" } }}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, ...clip(520) }}>{p.name || p.path}</Typography>
+                    <Typography sx={{ fontSize: "0.74rem", color: MUTED, ...clip(520) }}>{p.reasons[0]}</Typography>
+                  </Box>
+                  <Typography sx={{ fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap" }}>{p.missed ? `${full(p.missed)} missed` : ""}</Typography>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        )}
+      </Box>
+    </GlassCard>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// IDEAS
+
+const IDEA_TINT = { proposed: "amber", approved: "green", dropped: "slate" } as const;
+const IDEA_LABEL = { proposed: "Proposed", approved: "Approved", dropped: "Dropped" } as const;
+
+function IdeaCard({ idea, version, selected, canEdit, busy, onSelect, onStatus, onBuild }: {
+  idea: Idea; version: Version | null; selected: boolean; canEdit: boolean; busy: boolean;
+  onSelect: () => void; onStatus: (s: Idea["status"]) => void; onBuild: () => void;
+}) {
+  return (
+    <Box onClick={onSelect} sx={{
+      p: 1.5, borderRadius: "14px", border: `1px solid ${selected ? ACCENT : HAIRLINE}`, bgcolor: selected ? "rgba(36,89,209,.04)" : "rgba(255,255,255,.6)",
+      cursor: "pointer", opacity: idea.status === "dropped" ? 0.6 : 1, display: "grid", gap: 0.75,
+    }}>
+      <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
+        <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK, flex: 1, lineHeight: 1.3 }}>{idea.title}</Typography>
+        <Chip tint={IDEA_TINT[idea.status]}>{IDEA_LABEL[idea.status]}</Chip>
+      </Box>
+      {idea.why && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}><b>Why</b> {idea.why}</Typography>}
+      {idea.change && <Typography sx={{ fontSize: "0.8rem", color: INK }}><b>Change</b> {idea.change}</Typography>}
+      {idea.expect && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}><b>Should move</b> {idea.expect}</Typography>}
+      <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+        <Typography sx={{ fontSize: "0.72rem", color: MUTED, flex: 1 }}>
+          {idea.source === "ai" ? "AI" : idea.createdBy} · {since(idea.createdAt)}{idea.decidedBy && idea.status !== "proposed" ? ` · ${IDEA_LABEL[idea.status].toLowerCase()} by ${idea.decidedBy}` : ""}
+        </Typography>
+        {canEdit && idea.status === "proposed" && (
+          <>
+            <Button size="small" onClick={(e) => { e.stopPropagation(); onStatus("dropped"); }}>Drop</Button>
+            <Button size="small" variant="contained" disableElevation onClick={(e) => { e.stopPropagation(); onStatus("approved"); }}>Approve</Button>
+          </>
+        )}
+        {canEdit && idea.status === "approved" && !version && (
+          <Button size="small" variant="contained" disableElevation disabled={busy} onClick={(e) => { e.stopPropagation(); onBuild(); }}
+            startIcon={busy ? <CircularProgress size={13} sx={{ color: "inherit" }} /> : <AutoFixHighOutlinedIcon sx={{ fontSize: 16 }} />}>
+            {busy ? "Writing…" : "Write the version"}
+          </Button>
+        )}
+        {version && <Chip tint={version.status === "approved" ? "green" : "blue"}>{version.status === "approved" ? "Version approved" : `Version · rev ${version.rev}`}</Chip>}
+        {canEdit && idea.status === "dropped" && <Button size="small" onClick={(e) => { e.stopPropagation(); onStatus("proposed"); }}>Bring back</Button>}
+      </Box>
+    </Box>
+  );
+}
+
+function OwnIdea({ onAdd }: { onAdd: (title: string, change: string) => Promise<boolean> }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [change, setChange] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!open) return <Button size="small" onClick={() => setOpen(true)} sx={{ justifySelf: "start" }}>+ Your own idea</Button>;
+  return (
+    <Box sx={{ display: "grid", gap: 1, p: 1.5, borderRadius: "14px", border: `1px dashed ${HAIRLINE}` }}>
+      <TextField size="small" label="The idea" value={title} onChange={(e) => setTitle(e.target.value)} inputProps={{ maxLength: 200 }} />
+      <TextField size="small" label="What changes on the page" value={change} onChange={(e) => setChange(e.target.value)} multiline minRows={2} inputProps={{ maxLength: 2000 }} />
+      <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end" }}>
+        <Button size="small" onClick={() => setOpen(false)}>Cancel</Button>
+        <Button size="small" variant="contained" disableElevation disabled={!title.trim() || busy} onClick={async () => {
+          setBusy(true);
+          const ok = await onAdd(title.trim(), change.trim());
+          setBusy(false);
+          if (ok) { setTitle(""); setChange(""); setOpen(false); }
+        }}>Add, approved</Button>
+      </Box>
+    </Box>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// THE VERSION
+
+function VersionCard({ version, idea, hit, canEdit, busy, rev, onRev, onAsk, onStatus, onEdit }: {
+  version: Version; idea: Idea; hit: number[] | null; canEdit: boolean; busy: boolean; rev: number | null;
+  onRev: (r: number | null) => void; onAsk: (request: string) => Promise<boolean>; onStatus: (s: "approve" | "reopen") => void; onEdit: (changes: unknown) => Promise<string | null>;
+}) {
+  const [ask, setAsk] = useState("");
+  const [hand, setHand] = useState(false);
+  const [json, setJson] = useState("");
+  const [jsonErr, setJsonErr] = useState<string | null>(null);
+  const revs = useHeld<{ revisions: Revision[] }>(`${API}?revisions=${version.id}&r=${version.rev}`, [version.id, version.rev]);
+  const list = revs.result?.state === "ok" ? revs.result.data.revisions : [];
+  const shownRev = rev ?? version.rev;
+  const counted = hit && shownRev === version.rev;
+  const elementChanges = version.changes.map((c, i) => ({ c, i })).filter((x) => x.c.op !== "css");
+  const missed = counted ? elementChanges.filter((x) => (hit[x.i] ?? 0) <= 0) : [];
+  return (
+    <GlassCard>
+      <CardTitle icon={<AutoFixHighOutlinedIcon />} tint="purple" title={`Version · revision ${version.rev}`}
+        note={idea.title}
+        right={<Chip tint={version.status === "approved" ? "green" : "blue"}>{version.status === "approved" ? `Approved${version.approvedBy ? ` by ${version.approvedBy}` : ""}` : "Draft"}</Chip>} />
+      <Box sx={{ display: "grid", gap: 1.25, mt: 1.5 }}>
+        {version.summary && <Typography sx={{ fontSize: "0.84rem", color: INK }}>{version.summary}</Typography>}
+        {counted && (missed.length === 0
+          ? <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", color: GREEN, fontSize: "0.82rem", fontWeight: 600 }}><CheckCircleOutlineIcon sx={{ fontSize: 17 }} /> Every change found its place on the page</Box>
+          : <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", color: AMBER, fontSize: "0.82rem", fontWeight: 600 }}><ErrorOutlineIcon sx={{ fontSize: 17 }} /> {missed.length} of {elementChanges.length} changes found nothing on the page - ask the AI to aim them again</Box>)}
+        {rev !== null && rev !== version.rev && <Notice tone="warn">The frame shows revision {rev}. <Box component="button" type="button" onClick={() => onRev(null)} sx={{ all: "unset", cursor: "pointer", color: ACCENT, fontWeight: 600 }}>Back to the latest</Box></Notice>}
+        <Box sx={{ display: "grid", gap: 0.5 }}>
+          {version.changes.map((c: Change, i) => {
+            const h = counted && c.op !== "css" ? (hit[i] ?? 0) : null;
+            return (
+              <Box key={i} sx={{ display: "grid", gridTemplateColumns: "22px auto minmax(0,1fr)", gap: 1, alignItems: "center" }}>
+                {h === null ? <Box /> : h > 0 ? <CheckCircleOutlineIcon sx={{ fontSize: 16, color: GREEN }} /> : <ErrorOutlineIcon sx={{ fontSize: 16, color: h < 0 ? RED : AMBER }} />}
+                <Chip tint="slate">{OP_LABEL[c.op]}</Chip>
+                <Typography sx={{ fontSize: "0.8rem", color: INK, ...clip(420) }} title={"selector" in c ? c.selector : undefined}>{describe(c)}</Typography>
+              </Box>
+            );
+          })}
+        </Box>
+        {canEdit && (
+          <Box sx={{ display: "grid", gap: 1 }}>
+            <TextField size="small" multiline minRows={2} value={ask} onChange={(e) => setAsk(e.target.value)} disabled={busy}
+              placeholder="Ask for a change in a sentence - e.g. “make the delivery line bigger, under the title”" inputProps={{ maxLength: 1500 }} />
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+              <Button size="small" variant="contained" disableElevation disabled={!ask.trim() || busy}
+                startIcon={busy ? <CircularProgress size={13} sx={{ color: "inherit" }} /> : <AutoFixHighOutlinedIcon sx={{ fontSize: 16 }} />}
+                onClick={async () => { if (await onAsk(ask.trim())) setAsk(""); }}>
+                {busy ? "The AI is writing…" : "Send to the AI"}
+              </Button>
+              <Box sx={{ flex: 1 }} />
+              <Button size="small" onClick={() => { setHand((h) => !h); setJson(JSON.stringify(version.changes, null, 2)); setJsonErr(null); }}>{hand ? "Close the code" : "Edit the code"}</Button>
+              {version.status === "approved"
+                ? <Button size="small" onClick={() => onStatus("reopen")}>Back to draft</Button>
+                : <Button size="small" variant="contained" color="success" disableElevation disabled={busy} onClick={() => onStatus("approve")}>Approve the version</Button>}
+            </Box>
+            {hand && (
+              <Box sx={{ display: "grid", gap: 1 }}>
+                <TextField multiline minRows={10} maxRows={28} value={json} onChange={(e) => setJson(e.target.value)}
+                  sx={{ "& textarea": { fontFamily: "ui-monospace, Consolas, monospace", fontSize: "0.76rem" } }} />
+                {jsonErr && <Typography sx={{ fontSize: "0.8rem", color: RED }}>{jsonErr}</Typography>}
+                <Button size="small" variant="contained" disableElevation sx={{ justifySelf: "end" }} onClick={async () => {
+                  let parsed: unknown;
+                  try { parsed = JSON.parse(json); } catch (e) { setJsonErr(`Not valid JSON: ${(e as Error).message}`); return; }
+                  const err = await onEdit(parsed);
+                  setJsonErr(err);
+                  if (!err) setHand(false);
+                }}>Save as a new revision</Button>
+              </Box>
+            )}
+          </Box>
+        )}
+        {list.length > 1 && (
+          <Box>
+            <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: MUTED, mb: 0.5, display: "flex", gap: 0.5, alignItems: "center" }}><HistoryOutlinedIcon sx={{ fontSize: 15 }} /> REVISIONS</Typography>
+            <Box sx={{ display: "grid", gap: 0.25 }}>
+              {list.map((r) => (
+                <Box key={r.rev} component="button" type="button" onClick={() => onRev(r.rev === version.rev ? null : r.rev)} sx={{
+                  all: "unset", cursor: "pointer", display: "grid", gridTemplateColumns: "44px minmax(0,1fr) auto", gap: 1, px: 1, py: 0.5, borderRadius: "8px",
+                  bgcolor: shownRev === r.rev ? "rgba(36,89,209,.07)" : "transparent", "&:hover": { bgcolor: "rgba(36,89,209,.05)" },
+                }}>
+                  <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: shownRev === r.rev ? ACCENT : INK }}>rev {r.rev}</Typography>
+                  <Typography sx={{ fontSize: "0.78rem", color: MUTED, ...clip(300) }}>{r.request ?? "first version"}</Typography>
+                  <Typography sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap" }}>{r.by} · {since(r.at)}</Typography>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        )}
+      </Box>
+    </GlassCard>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// TO CONTENT STUDIO - the page's texts are written there: a project with the page, its numbers, its approved ideas
+// and its version, found again by its marker line (like AI answers' recommendations)
+
+function ToContent({ data, numbers, ideas, version }: { data: StudioData; numbers: Numbers | null; ideas: Idea[]; version: Version | null }) {
+  const router = useRouter();
+  const [made, setMade] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const marker = pageMarker(data.env, data.path);
+  useEffect(() => {
+    if (!data.canContent) return;
+    let live = true;
+    fetch("/api/content/projects?scope=visible").then((r) => r.json()).then((j: { ok?: boolean; projects?: { id: number; brief: string | null }[] }) => {
+      if (!live || !j.ok) return;
+      const p = (j.projects ?? []).find((x) => { const m = markerOf(x.brief); return !!m && m.env === data.env && m.path === data.path; });
+      setMade(p ? p.id : null);
+    }).catch(() => { /* the button still makes one */ });
+    return () => { live = false; };
+  }, [data.canContent, data.env, data.path, marker]);
+  if (!data.canContent) {
+    return <Tooltip title="Content Studio needs the Marketing access"><span><Button size="small" disabled>Send to Content</Button></span></Tooltip>;
+  }
+  const send = async () => {
+    setBusy(true); setErr(null);
+    const p = projectForPage({
+      env: data.env, path: data.path, url: data.page.url ?? `${ENVS[data.env].base}${data.path}`, h1: data.page.h1[0] ?? "", title: data.page.title,
+      numbers, ideas: ideas.filter((i) => i.status === "approved").map((i) => ({ title: i.title, why: i.why, change: i.change, expect: i.expect })),
+      version: version ? { rev: version.rev, summary: version.summary } : null,
+      previewPath: `${window.location.origin}${previewHref(data.env, data.path)}`,
+    });
+    try {
+      const r = await fetch("/api/content/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
+      const j = (await r.json().catch(() => null)) as { ok?: boolean; project?: { id: number }; error?: string } | null;
+      if (!j?.ok || !j.project) { setErr(j?.error ?? `Content Studio answered ${r.status}.`); setBusy(false); return; }
+      router.push(`/create?project=${j.project.id}&type=${p.contentType}`);
+    } catch {
+      setErr("Content Studio did not answer."); setBusy(false);
+    }
+  };
+  return (
+    <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
+      {made !== null && <Button size="small" variant="contained" disableElevation href={`/projects/${made}`}>Open in Content</Button>}
+      <Tooltip title={made !== null ? "A project for this page is in Content already - this makes another" : "Content Studio writes the page's texts from its numbers, approved ideas and version"}>
+        <span>
+          <Button size="small" variant={made !== null ? "text" : "contained"} disableElevation disabled={busy} onClick={() => void send()}
+            startIcon={busy ? <CircularProgress size={13} sx={{ color: "inherit" }} /> : <EditNoteOutlinedIcon sx={{ fontSize: 17 }} />}>
+            {made !== null ? "Send again" : "Send to Content"}
+          </Button>
+        </span>
+      </Tooltip>
+      {err && <Typography sx={{ fontSize: "0.76rem", color: RED, width: "100%" }}>{err}</Typography>}
+    </Box>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// THE PAGE
+
+function numbersFor(p: ProblemsData | null, path: string): (Numbers & { name: string }) | null {
+  if (!p) return null;
+  const c = classify(path);
+  const key = c.kind === "product" && c.product ? `product:${c.product}` : `page:${path}`;
+  const row = p.pages.find((x) => x.key === key);
+  if (!row) return null;
+  return {
+    name: row.name, views: row.views, addToCarts: row.addToCarts, rate: row.rate, typical: row.typical, reasons: row.reasons,
+    companies: row.shop?.companies ?? null, lost: row.shop?.lost ?? null, topLoss: row.shop?.topLoss ? STEP_LABEL[row.shop.topLoss as Step] : null, from: p.from, to: p.to,
+  };
+}
+
+function ConvertPreview() {
+  const router = useRouter();
+  const sp = useSearchParams();
+  const env: Env = sp.get("env") === "acc" ? "acc" : "prod";
+  const path = sp.get("path");
+  const ideaSel = sp.get("idea");
+  const { window: win } = useReportingWindow();
+  const [tick, setTick] = useState(0);
+  const [fresh, setFresh] = useState(0);
+  const [device, setDevice] = useState<Device>("desktop");
+  const [zoom, setZoom] = useState<Zoom>("fit");
+  const [sync, setSync] = useState<Sync | null>(null);
+  const [view, setView] = useState<View>("both");
+  const [hit, setHit] = useState<number[] | null>(null);
+  const [rev, setRev] = useState<number | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [going, setGoing] = useState<string | null>(null);
+
+  const go = useCallback((e: Env, p: string, idea?: string | null) => {
+    router.push(`/website/ai-personalization/preview?env=${e}&path=${encodeURIComponent(p)}${idea ? `&idea=${idea}` : ""}`);
+  }, [router]);
+
+  const url = path ? `${API}?env=${env}&path=${encodeURIComponent(path)}&n=${tick}${fresh ? "&fresh=1" : ""}` : null;
+  const held = useHeld<StudioData>(url, [url]);
+  const r = held.result;
+  const d = r?.state === "ok" ? r.data : null;
+  const probUrl = `/api/website/ai-personalization/problems?from=${win.from}&to=${win.to}`;
+  const prob = useHeld<ProblemsData>(probUrl, [probUrl]);
+  const problems = prob.result?.state === "ok" ? prob.result.data : null;
+  const numbers = path ? numbersFor(problems, path) : null;
+
+  const ideas = d?.ideas ?? [];
+  const versionOf = useMemo(() => new Map((d?.versions ?? []).map((v) => [v.ideaId, v])), [d]);
+  const idea = ideas.find((i) => i.id === ideaSel) ?? ideas.find((i) => versionOf.has(i.id)) ?? null;
+  const version = idea ? versionOf.get(idea.id) ?? null : null;
+  useEffect(() => { setHit(null); setRev(null); }, [version?.id, version?.rev]);
+  useEffect(() => { if (!version && view !== "original") setView("original"); else if (version && view === "original") setView("both"); }, [version?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const base = path ? `/api/website/ai-personalization/preview?env=${env}&path=${encodeURIComponent(path)}${fresh ? `&fresh=1&f=${fresh}` : ""}` : "";
+  const vSrc = version ? `${base}&v=${version.id}&r=${rev ?? version.rev}&at=${encodeURIComponent(version.updatedAt)}` : "";
+
+  const onMsg = useCallback((m: Msg, from: string) => {
+    if (m.apsoPreview === "scroll" && typeof m.y === "number") setSync((s) => ({ y: m.y, from, n: (s?.n ?? 0) + 1 }));
+    if (m.apsoPreview === "applied" && Array.isArray(m.hit)) setHit(m.hit);
+    if (m.apsoPreview === "go" && typeof m.href === "string") {
+      try {
+        const u = new URL(m.href);
+        if (u.origin === ENVS.prod.base || u.origin === ENVS.acc.base) setGoing(u.pathname);
+      } catch { /* not an address */ }
+    }
+  }, []);
+
+  const act = async (key: string, body: Record<string, unknown>): Promise<boolean> => {
+    setBusy(key);
+    setErr(null);
+    const res = await convertPost<unknown>(API, body);
+    setBusy(null);
+    if (!res.ok) { setErr(res.error); return false; }
+    setTick((n) => n + 1);
+    return true;
+  };
+
+  let body: React.ReactNode;
+  if (!path) {
+    body = <Picker env={env} onOpen={(e, p) => go(e, p)} problems={problems} />;
+  } else if (r === null) {
+    body = <LoadingPanel label="Reading the page from the shop…" />;
+  } else if (r.state !== "ok") {
+    body = <UpstreamPanel source="Preview" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? (r.status ?? null) : null} onRetry={() => setTick((n) => n + 1)} />;
+  } else {
+    const data = r.data;
+    const pg = data.page;
+    const counts = { proposed: ideas.filter((i) => i.status === "proposed").length, approved: ideas.filter((i) => i.status === "approved").length };
+    body = (
+      <>
+        {/* the page and its numbers */}
+        <GlassCard sx={{ py: { xs: 1.5, md: 1.75 } }}>
+          <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
+            <Box sx={{ minWidth: 0, flex: "1 1 360px" }}>
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+                <Chip tint={env === "prod" ? "green" : "amber"}>{ENVS[env].label}</Chip>
+                {pg.kind && <Chip tint={pg.kind === "product" ? "green" : pg.kind === "category" ? "blue" : pg.kind === "home" ? "purple" : "amber"}>{KIND_LABEL[pg.kind]}</Chip>}
+                <Typography sx={{ fontSize: "0.98rem", fontWeight: 700, color: INK, ...clip(640) }}>{pg.h1[0] || pg.title || path}</Typography>
+              </Box>
+              <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.25, ...clip(760) }}>{path}</Typography>
+            </Box>
+            {numbers ? (
+              <Box sx={{ display: "flex", gap: 2.5, flexWrap: "wrap" }}>
+                {[
+                  ["Views", numbers.views ? full(numbers.views) : "–"],
+                  ["Cart rate", `${pct(numbers.rate)} / ${pct(numbers.typical)} typical`],
+                  ["Customers lost", numbers.companies ? `${full(numbers.lost ?? 0)} of ${full(numbers.companies)}` : "–"],
+                  ["Most stopped at", numbers.topLoss ?? "–"],
+                ].map(([k, v]) => (
+                  <Box key={k}><Typography sx={{ fontSize: "0.7rem", color: MUTED, fontWeight: 700, textTransform: "uppercase" }}>{k}</Typography><Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK }}>{v}</Typography></Box>
+                ))}
+              </Box>
+            ) : (
+              <Typography sx={{ fontSize: "0.78rem", color: MUTED, display: "flex", gap: 0.5, alignItems: "center" }}>
+                <InsightsOutlinedIcon sx={{ fontSize: 16 }} />{prob.result === null ? "Reading its numbers…" : "Not on Problems in this period"}
+              </Typography>
+            )}
+            <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
+              <ToContent data={data} numbers={numbers} ideas={ideas} version={version} />
+              <Button size="small" onClick={() => router.push("/website/ai-personalization/preview")}>Other page</Button>
+              {pg.url && <Tooltip title="Open on the shop"><IconButton size="small" component="a" href={pg.url} target="_blank" rel="noopener"><OpenInNewIcon sx={{ fontSize: 17, color: MUTED }} /></IconButton></Tooltip>}
+            </Box>
+          </Box>
+          {numbers?.reasons?.[0] && <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1 }}>{numbers.reasons.join(" · ")}</Typography>}
+        </GlassCard>
+
+        {pg.status !== 200 && <Notice tone="bad">{pg.error ? `The shop did not answer: ${pg.error}` : `The shop answered ${pg.status} for this page.`}</Notice>}
+        {err && <Notice tone="bad">{err}</Notice>}
+        {going && (
+          <Notice tone="warn">
+            The link in the preview goes to {going}.{" "}
+            <Box component="button" type="button" onClick={() => { const p = going; setGoing(null); go(env, p); }} sx={{ all: "unset", cursor: "pointer", color: ACCENT, fontWeight: 700 }}>Open it in the preview</Box>
+            {" · "}
+            <Box component="button" type="button" onClick={() => setGoing(null)} sx={{ all: "unset", cursor: "pointer", color: MUTED, fontWeight: 600 }}>Stay</Box>
+          </Notice>
+        )}
+
+        <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: "minmax(0,1fr)", alignItems: "start" }}>
+          {/* the preview */}
+          <GlassCard sx={{ p: { xs: 1.5, md: 2 } }}>
+            <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap", mb: 1.5 }}>
+              <Choice<View> value={version ? view : "original"} onChange={setView}
+                options={version ? [{ key: "both", label: "Side by side" }, { key: "version", label: "Version" }, { key: "original", label: "Original" }] : [{ key: "original", label: "The page as it is" }]} />
+              <Choice<Device> value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "phone", label: "Phone" }]} />
+              {device === "desktop" && <Choice<Zoom> value={zoom} onChange={setZoom} options={[{ key: "fit", label: "Fit" }, { key: "full", label: "Actual size" }]} />}
+              <Box sx={{ flex: 1 }} />
+              <Tooltip title="Read the page from the shop again">
+                <IconButton size="small" onClick={() => setFresh((n) => n + 1)} aria-label="Read again"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
+              </Tooltip>
+            </Box>
+            {pg.status === 200 && (
+              <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: version && view === "both" ? { xs: "minmax(0,1fr)", md: "minmax(0,1fr) minmax(0,1fr)" } : "minmax(0,1fr)" }}>
+                {(!version || view !== "version") && <Frame src={base} device={device} zoom={zoom} name="original" sync={sync} label={version ? "Original" : "The page"} onMsg={onMsg} />}
+                {version && view !== "original" && <Frame src={vSrc} device={device} zoom={zoom} name="version" sync={sync} label={`Version · rev ${rev ?? version.rev}`} onMsg={onMsg} />}
+              </Box>
+            )}
+            <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 1 }}>
+              Shown from the shop without its tracking and its tools (search bar, DirectCUT): nothing here is counted, ordered or sent - so what the shop loads after opening the page (the articles&apos; prices and availability, the cart) stays empty. Side by side, the two scroll together. Links ask before they open another page.
+            </Typography>
+          </GlassCard>
+
+          {/* the version and the ideas */}
+          <Box sx={{ display: "grid", gap: 2.5, minWidth: 0, gridTemplateColumns: { xs: "minmax(0,1fr)", lg: version ? "minmax(0,1fr) minmax(0,1fr)" : "minmax(0,1fr)" }, alignItems: "start" }}>
+            {version && idea && (
+              <VersionCard version={version} idea={idea} hit={hit} canEdit={data.canEdit} busy={busy === `build:${idea.id}`} rev={rev} onRev={setRev}
+                onAsk={(request) => act(`build:${idea.id}`, { action: "build", ideaId: idea.id, request })}
+                onStatus={(s) => void act(`v:${version.id}`, { action: s, versionId: version.id })}
+                onEdit={async (changes) => {
+                  const res = await convertPost<{ problems: string[] }>(API, { action: "edit", versionId: version.id, changes });
+                  if (!res.ok) return res.error;
+                  setTick((n) => n + 1);
+                  return res.data.problems.length ? `Saved; left out: ${res.data.problems.join("; ")}` : null;
+                }} />
+            )}
+            <GlassCard>
+              <CardTitle icon={<TipsAndUpdatesOutlinedIcon />} tint="amber" title={`Ideas · ${ideas.filter((i) => i.status !== "dropped").length}`}
+                note={counts.proposed ? `${counts.proposed} waiting for a yes or no` : "Approve one and the AI writes its version"} />
+              <Box sx={{ display: "grid", gap: 1.25, mt: 1.5 }}>
+                {data.canEdit && (
+                  <Button variant="outlined" disabled={!data.ai || busy === "ideas" || pg.status !== 200} onClick={() => void act("ideas", { action: "ideas", env, path, numbers })}
+                    startIcon={busy === "ideas" ? <CircularProgress size={14} /> : <TipsAndUpdatesOutlinedIcon sx={{ fontSize: 17 }} />}>
+                    {busy === "ideas" ? "The AI is reading the page… about half a minute" : ideas.length ? "Ask the AI for more ideas" : "Ask the AI for ideas"}
+                  </Button>
+                )}
+                {!data.ai && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No AI key on this hub - ideas can be added by hand.</Typography>}
+                {ideas.length === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No idea for this page yet.</Typography>}
+                {ideas.map((i) => (
+                  <IdeaCard key={i.id} idea={i} version={versionOf.get(i.id) ?? null} selected={idea?.id === i.id} canEdit={data.canEdit} busy={busy === `build:${i.id}`}
+                    onSelect={() => go(env, path, i.id)}
+                    onStatus={(s) => void act(`i:${i.id}`, { action: "idea", id: i.id, status: s })}
+                    onBuild={() => { go(env, path, i.id); void act(`build:${i.id}`, { action: "build", ideaId: i.id }); }} />
+                ))}
+                {data.canEdit && <OwnIdea onAdd={(title, change) => act("add", { action: "add", env, path, title, change, numbers })} />}
+              </Box>
+            </GlassCard>
+            {pg.lines.length > 0 && (
+              <Box component="details" sx={{ px: 1, "& summary": { cursor: "pointer", fontSize: "0.8rem", fontWeight: 600, color: MUTED } }}>
+                <summary>What the AI reads of this page ({pg.lines.length} lines)</summary>
+                <Box component="pre" sx={{ fontSize: "0.7rem", color: MUTED, whiteSpace: "pre-wrap", maxHeight: 360, overflow: "auto", mt: 1 }}>{pg.lines.join("\n")}</Box>
+              </Box>
+            )}
+          </Box>
+        </Box>
+      </>
+    );
+  }
+
+  return (
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
+      <PageHeader
+        title="Preview"
+        subtitle="A shop page live: its numbers, the ideas a person approved, the version beside the original - its texts go to Content Studio"
+        rightSlot={
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            {(held.stale || busy) && <CircularProgress size={14} sx={{ color: MUTED }} />}
+            {path && <Tooltip title="Ask again"><IconButton size="small" onClick={() => setTick((n) => n + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>}
+          </Box>
+        }
+      />
+      <Flow at="preview" />
+      {body}
+    </Box>
+  );
+}
+
+export default function PreviewPage() {
+  return (
+    <Suspense fallback={<LoadingPanel label="Opening the preview…" />}>
+      <ConvertPreview />
+    </Suspense>
+  );
+}

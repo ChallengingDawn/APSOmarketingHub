@@ -57,7 +57,15 @@ const nextConfig: NextConfig = {
     ];
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      // every address but APSOconvert's live preview, which the hub's own pages frame - it sends its own rules
+      // (src/app/api/website/ai-personalization/preview/route.ts: framed by the hub only, sandboxed, no request out)
+      { source: "/:path((?!api/website/ai-personalization/preview$).*)", headers: securityHeaders },
+      {
+        source: "/api/website/ai-personalization/preview",
+        headers: securityHeaders.filter((h) => !["Content-Security-Policy", "X-Frame-Options", "Referrer-Policy"].includes(h.key)),
+      },
+    ];
   },
 };
 

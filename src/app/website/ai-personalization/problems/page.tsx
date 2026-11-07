@@ -25,6 +25,7 @@ import PersonOffOutlinedIcon from "@mui/icons-material/PersonOffOutlined";
 import AddShoppingCartOutlinedIcon from "@mui/icons-material/AddShoppingCartOutlined";
 import TroubleshootOutlinedIcon from "@mui/icons-material/TroubleshootOutlined";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
+import Link from "next/link";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
@@ -34,6 +35,7 @@ import { Choice, Chip, usePaged } from "@/app/connectors/parts";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { KIND_LABEL, STEP_LABEL, sortProblems, type PageKind, type RankBy, type Step } from "@/lib/convert/model";
 import type { PageCustomers, ProblemsData } from "@/lib/convert/problems";
+import { Flow, previewHref } from "../Flow";
 
 const PORTAL = "26492587";
 const hsCompany = (id: string) => `https://app-eu1.hubspot.com/contacts/${PORTAL}/record/0-2/${id}`;
@@ -266,6 +268,8 @@ export default function ConvertProblems() {
                       <Box sx={{ ...clip(300), fontWeight: 600 }} title={p.path}>{p.name || p.path}</Box>
                       <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
                         {p.kind === "product" ? `${p.product} · ${p.paths.length} ${p.paths.length === 1 ? "language" : "languages"}` : p.path}
+                        {" · "}
+                        <Box component={Link} href={previewHref("prod", p.path)} onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ color: ACCENT, fontWeight: 700, textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>Preview</Box>
                       </Typography>
                     </TableCell>
                     <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><Chip tint={p.kind === "product" ? "green" : p.kind === "category" ? "blue" : p.kind === "home" ? "purple" : "amber"}>{KIND_LABEL[p.kind]}</Chip></TableCell>
@@ -307,6 +311,7 @@ export default function ConvertProblems() {
           </Box>
         }
       />
+      <Flow at="problems" />
       {body}
     </Box>
   );

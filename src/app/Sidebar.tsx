@@ -98,6 +98,7 @@ import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import AllInclusiveOutlinedIcon from "@mui/icons-material/AllInclusiveOutlined";
 import TroubleshootOutlinedIcon from "@mui/icons-material/TroubleshootOutlined";
 import ListAltOutlinedIcon from "@mui/icons-material/ListAltOutlined";
+import PreviewOutlinedIcon from "@mui/icons-material/PreviewOutlined";
 import ContentCutOutlinedIcon from "@mui/icons-material/ContentCutOutlined";
 import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
@@ -250,6 +251,8 @@ const WEBSITE_ICON: Record<string, React.ReactNode> = {
   "/website/compatibility-table": <ScienceOutlinedIcon fontSize="small" />,
   "/website/vulcanised-o-rings": <AllInclusiveOutlinedIcon fontSize="small" />,
   "/website/ai-personalization/problems": <TroubleshootOutlinedIcon fontSize="small" />,
+  "/website/ai-personalization/ideas": <TipsAndUpdatesOutlinedIcon fontSize="small" />,
+  "/website/ai-personalization/preview": <PreviewOutlinedIcon fontSize="small" />,
   "/website/ai-personalization/pages": <ListAltOutlinedIcon fontSize="small" />,
 };
 

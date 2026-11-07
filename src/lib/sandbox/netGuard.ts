@@ -36,6 +36,9 @@ export function allowedHosts(env: NodeJS.ProcessEnv = process.env): Set<string> 
     hosts.add(clean(env.PGHOST));
   }
   if (env.SANDBOX_AI === "on") hosts.add("api.anthropic.com");
+  // the shop's public pages, production and ACC, while SANDBOX_SHOP=read: APSOconvert's page index and live preview
+  // read them (GET, no key - the sandbox holds no Magento key, so nothing there can change)
+  if (env.SANDBOX_SHOP === "read") for (const h of ["www.apsoparts.com", "acc.apsoparts.com"]) hosts.add(h);
   return hosts;
 }
 

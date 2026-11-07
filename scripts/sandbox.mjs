@@ -105,7 +105,7 @@ await pg.start();
 
 // 2. the app
 const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !NOT_FOR_THE_APP.test(k)));
-for (const k of ["SANDBOX_AI", "SANDBOX_JOBS"]) if (process.env[k]) env[k] = process.env[k];
+for (const k of ["SANDBOX_AI", "SANDBOX_JOBS", "SANDBOX_SHOP"]) if (process.env[k]) env[k] = process.env[k];
 Object.assign(env, {
   APSOHUB_SANDBOX: "1", PORT: String(port), NEXT_TELEMETRY_DISABLED: "1",
   DATABASE_URL: `postgres://postgres@127.0.0.1:${pgPort}/postgres?sslmode=disable`,

@@ -124,6 +124,8 @@ export const WEBSITE_SECTIONS: WebsiteSection[] = [
     // the A/B test (in A/B testing above) and the Magento pages follow (src/lib/convert)
     pages: [
       { name: "Problems", note: "Pages with a lot of traffic and little buying, down to the customer", href: "/website/ai-personalization/problems", icon: "target", ...PINK },
+      { name: "Ideas", note: "What to change on which page - the AI proposes, a person approves", href: "/website/ai-personalization/ideas", icon: "bolt", ...AMBER },
+      { name: "Preview", note: "A shop page live, its version beside the original; its texts go to Content Studio", href: "/website/ai-personalization/preview", icon: "edit", ...PURPLE },
       { name: "Pages", note: "Every page of the shop, on production and on ACC", href: "/website/ai-personalization/pages", icon: "layers", ...BLUE },
     ],
   },

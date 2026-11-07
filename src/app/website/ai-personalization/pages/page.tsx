@@ -28,6 +28,7 @@ import FiberNewOutlinedIcon from "@mui/icons-material/FiberNewOutlined";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import SyncOutlinedIcon from "@mui/icons-material/SyncOutlined";
 import ListAltOutlinedIcon from "@mui/icons-material/ListAltOutlined";
+import Link from "next/link";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
@@ -36,6 +37,7 @@ import { CardTitle, GlassCard, HAIRLINE, KpiTile, MUTED, Notice, bodyCell, clip,
 import { Choice, Chip, ago, when } from "@/app/connectors/parts";
 import { ENVS, KIND_LABEL, PAGE_KINDS, type Env, type PageKind } from "@/lib/convert/model";
 import type { PageRow, PagesList, PagesSummary, ReadResult, Where } from "@/lib/convert/pages";
+import { Flow, previewHref } from "../Flow";
 
 type Reads = Record<Env, { last: ReadResult | null; lastComplete: string | null }>;
 type Data = { reads: Reads; summary: PagesSummary; list: PagesList; canRead: boolean };
@@ -227,7 +229,8 @@ export default function ConvertPages() {
                 {list.rows.map((p) => (
                   <TableRow key={`${p.store}|${p.rest}`} hover>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.84rem" }}>
-                      <Box sx={{ ...clip(520) }} title={`/${p.store}/${p.rest}`}>{p.rest || "(home page)"}</Box>
+                      <Box component={Link} href={previewHref(p.prod ? "prod" : "acc", new URL((p.prod ?? p.acc)!.url).pathname)} title={`Open /${p.store}/${p.rest} in the preview`}
+                        sx={{ ...clip(520), display: "block", color: "inherit", textDecoration: "none", "&:hover": { color: "#2459d1", textDecoration: "underline" } }}>{p.rest || "(home page)"}</Box>
                     </TableCell>
                     <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><Chip tint={KIND_TINT[p.kind]}>{KIND_LABEL[p.kind]}{p.product ? ` ${p.product}` : ""}</Chip></TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", whiteSpace: "nowrap" }}>{p.store || "–"}</TableCell>
@@ -262,6 +265,7 @@ export default function ConvertPages() {
           </Box>
         }
       />
+      <Flow at={null} />
       {body}
     </Box>
   );
