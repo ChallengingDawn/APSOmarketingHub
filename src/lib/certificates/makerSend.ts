@@ -16,9 +16,9 @@ import { hubspotToken } from "@/lib/integrations/status";
 import { esc, sendHubMail, wrap } from "@/lib/notify/mailer";
 import { isDocLang, renderEmail } from "@/lib/doc/email";
 import { ACT, type Facts } from "./rules";
-import { EDA, MAKER_PROP, notSending, parseMaker, type MakerFile, type MakerRow, type MakerSend, type MakerState } from "./makerRules";
+import { DEMO_PROP, EDA, MAKER_PROP, demoOf, notSending, parseMaker, type MakerFile, type MakerRow, type MakerSend, type MakerState } from "./makerRules";
 
-export { EDA, MAKER_PROP, parseMaker, type MakerRow, type MakerSend, type MakerState } from "./makerRules";
+export { DEMO_PROP, EDA, MAKER_PROP, demoOf, parseMaker, type MakerRow, type MakerSend, type MakerState } from "./makerRules";
 
 const hs = <T>(path: string, method: "GET" | "POST" | "PATCH" | "PUT" = "GET", body?: unknown) => hubspotRetry<T>({ path, method, body });
 const ticketUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/26492587/record/0-5/${id}`;
@@ -97,26 +97,30 @@ export async function makerPass(facts: (Facts & { maker?: string | null })[], he
     // claimed before anything goes out: never twice
     const claim: MakerState = { ...s, status: "sending", log: [...(s.log ?? []), { at, what: "sending", by: "APSOhub" }] };
     await write(f.id, claim);
-    const to = s.send!.to;
+    // a DEMO: the customer's mail and EDA's both go to the demo user, marked [DEMO]
+    const demo = demoOf(f.demo);
+    const to = demo ? demo.email : s.send!.to;
+    const eda = demo ? demo.email : EDA;
+    const tag = demo ? "[DEMO] " : "";
     let customerSent = false;
     try {
       const files = await download(s.files);
       const lang = isDocLang(s.send!.lang) ? s.send!.lang : "en";
       const mail = renderEmail({ lang, to });
-      await sendHubMail({ to, subject: mail.subject, html: mail.html, text: mail.text, attachments: files });
+      await sendHubMail({ to, subject: `${tag}${mail.subject}`, html: mail.html, text: mail.text, attachments: files });
       customerSent = true;
       mailed++;
       await logOnTicket(f.id, to, mail, files.map((x) => x.filename)).catch((e) => console.warn(`[certificates] maker log ${f.id}: ${(e as Error).message}`));
       let edaError: string | undefined;
       try {
         const m = edaMail(f.id, s, f.company);
-        await sendHubMail({ to: EDA, subject: m.subject.slice(0, 180), html: m.html, text: m.text, attachments: files });
+        await sendHubMail({ to: eda, subject: `${tag}${m.subject}`.slice(0, 180), html: m.html, text: m.text, attachments: files });
         mailed++;
       } catch (e) { edaError = (e as Error).message.slice(0, 160); }
-      const done: MakerState = { ...claim, status: "sent", sent: { at: new Date().toISOString(), to, eda: edaError ? null : EDA, ...(edaError ? { edaError } : {}) }, log: [...(claim.log ?? []), { at: new Date().toISOString(), what: edaError ? `sent to ${to} - EDA failed` : `sent to ${to} and EDA`, by: "APSOhub" }] };
+      const done: MakerState = { ...claim, status: "sent", sent: { at: new Date().toISOString(), to, eda: edaError ? null : eda, ...(edaError ? { edaError } : {}) }, log: [...(claim.log ?? []), { at: new Date().toISOString(), what: edaError ? `sent to ${to} - EDA failed` : demo ? `DEMO: sent to ${to} (as the customer and as EDA)` : `sent to ${to} and EDA`, by: "APSOhub" }] };
       // "Sent out to customer and EDA": the engine closes the request on its next look
       await write(f.id, done, { actions_for_certificates: ACT.sent });
-      rows.push({ at, ticketId: f.id, what: "sent", to, eda: edaError ? null : EDA, ...(edaError ? { error: `EDA: ${edaError}` } : {}) });
+      rows.push({ at, ticketId: f.id, what: "sent", to, eda: edaError ? null : eda, ...(edaError ? { error: `EDA: ${edaError}` } : {}) });
     } catch (e) {
       const msg = (e as Error).message.slice(0, 200);
       const failed: MakerState = { ...claim, status: customerSent ? "sent" : "failed", error: msg, ...(customerSent ? { sent: { at: new Date().toISOString(), to, eda: null, edaError: msg } } : {}), log: [...(claim.log ?? []), { at: new Date().toISOString(), what: customerSent ? `sent to ${to}, then: ${msg}` : `not sent: ${msg}`, by: "APSOhub" }] };

@@ -5,6 +5,15 @@
 import { isHeld, type Facts } from "./rules";
 
 export const MAKER_PROP = "apsohub_certificate_maker";
+/** A DEMO request (SARCLA 07.11.2026, the demo of the certificate process on three demo orders): "name · owner id · e-mail".
+ *  The hub runs every step as for a real request, but every person it would pick (the rotation, the expert, Rose) is
+ *  that user, every mail goes to him only - also the customer's and EDA's - and the PDFs say DEMO. */
+export const DEMO_PROP = "apsohub_certificate_demo";
+export type DemoUser = { name: string; owner: string; email: string };
+export function demoOf(raw: string | null | undefined): DemoUser | null {
+  const [name, owner, email] = String(raw ?? "").split("·").map((x) => x.trim());
+  return name && /^\d+$/.test(owner ?? "") && /@/.test(email ?? "") ? { name, owner: owner!, email: email! } : null;
+}
 export const EDA = "eda.apch@angst-pfister.com";
 export type MakerSend = "off" | "live";
 
@@ -33,11 +42,12 @@ export function parseMaker(raw: string | null | undefined): MakerState | null {
   try { const s = JSON.parse(raw) as MakerState; return s && s.v === 1 && s.status ? s : null; } catch { return null; }
 }
 
-/** Why this ticket's declaration does not go out now - null = it goes. */
-export function notSending(f: Pick<Facts, "id" | "hold">, s: MakerState | null, held: Record<string, unknown>, mode: MakerSend): string | null {
+/** Why this ticket's declaration does not go out now - null = it goes. A DEMO goes, to the demo user only, whatever the switch. */
+export function notSending(f: Pick<Facts, "id" | "hold" | "demo">, s: MakerState | null, held: Record<string, unknown>, mode: MakerSend): string | null {
   if (!s || s.status !== "signed") return "not signed by the conformity expert";
   if (s.test) return "a test (made on a ticket on hold)";
   if (isHeld(f, held)) return "on hold";
+  if (demoOf(f.demo)) return s.files?.length ? null : "no PDF";
   if (!s.send?.to || OURS.test(s.send.to)) return "no customer address";
   if (!s.files?.length) return "no PDF";
   if (mode !== "live") return "sending is off on Settings";

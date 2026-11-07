@@ -2,7 +2,7 @@
 // issuer and the conformity expert sign, "then sent automatically to the customer and EDA").
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { notSending, parseMaker, type MakerState } from "../src/lib/certificates/makerRules";
+import { demoOf, notSending, parseMaker, type MakerState } from "../src/lib/certificates/makerRules";
 
 const signed: MakerState = {
   v: 1, status: "signed",
@@ -31,4 +31,15 @@ test("certificate maker - never: sending off, a test, on hold (card or console),
   assert.match(String(notSending(f, { ...signed, send: { ...signed.send!, to: "support@apsoparts.com" } }, {}, "live")), /address/);
   assert.match(String(notSending(f, { ...signed, send: { ...signed.send!, to: "x@support.hs-inbox.com" } }, {}, "live")), /address/);
   assert.match(String(notSending(f, { ...signed, files: [] }, {}, "live")), /PDF/);
+});
+test("certificate maker - a DEMO request goes to the demo user only, whatever the switch, never as a test or on hold", () => {
+  const demo = "Claudio Saraiva · 1229976033 · claudio.saraiva@apsoparts.com";
+  assert.deepEqual(demoOf(demo), { name: "Claudio Saraiva", owner: "1229976033", email: "claudio.saraiva@apsoparts.com" });
+  assert.equal(demoOf(""), null);
+  assert.equal(demoOf("Claudio Saraiva · x · y"), null);
+  const own = { ...signed, send: { ...signed.send!, to: "claudio.saraiva@apsoparts.com" } };
+  assert.equal(notSending({ ...f, demo }, own, {}, "off"), null);
+  assert.match(String(notSending({ ...f, demo }, { ...own, test: true }, {}, "live")), /test/);
+  assert.match(String(notSending({ ...f, demo, hold: "x · y" }, own, {}, "live")), /hold/);
+  assert.match(String(notSending({ ...f, demo }, { ...own, files: [] }, {}, "live")), /PDF/);
 });
