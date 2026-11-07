@@ -42,6 +42,7 @@ import { ENVS, KIND_LABEL, STEP_LABEL, classify, type Env, type PageKind, type S
 import type { ProblemsData } from "@/lib/convert/problems";
 import type { PageRow, PagesList } from "@/lib/convert/pages";
 import type { Idea, Numbers, Revision, Version } from "@/lib/convert/studio";
+import { iceScore } from "@/lib/convert/ice";
 import { OP_LABEL, describe, type Change } from "@/lib/convert/versions";
 import { projectForPage, markerOf, pageMarker } from "@/lib/convert/handoff";
 import { convertPost, previewHref } from "../Flow";
@@ -261,6 +262,16 @@ function IdeaCard({ idea, version, selected, canEdit, busy, onSelect, onStatus, 
       {idea.why && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}><b>Why</b> {idea.why}</Typography>}
       {idea.change && <Typography sx={{ fontSize: "0.8rem", color: INK }}><b>Change</b> {idea.change}</Typography>}
       {idea.expect && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}><b>Should move</b> {idea.expect}</Typography>}
+      {iceScore(idea) !== null && (
+        <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
+          <Tooltip title="Impact x confidence / effort - the higher, the sooner to try it">
+            <Box component="span" sx={{ px: 0.9, py: 0.15, borderRadius: "5px", bgcolor: "#2459d1", color: "#fff", fontSize: "0.72rem", fontWeight: 700 }}>Score {iceScore(idea)}</Box>
+          </Tooltip>
+          {([["Impact", idea.impact], ["Confidence", idea.confidence], ["Effort", idea.effort]] as const).map(([k, v]) => (
+            <Box key={k} component="span" sx={{ px: 0.8, py: 0.15, borderRadius: "5px", border: `1px solid ${HAIRLINE}`, fontSize: "0.7rem", fontWeight: 600, color: MUTED }}>{k} {v}/5</Box>
+          ))}
+        </Box>
+      )}
       <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
         <Typography sx={{ fontSize: "0.72rem", color: MUTED, flex: 1 }}>
           {idea.source === "ai" ? "AI" : idea.createdBy} · {since(idea.createdAt)}{idea.decidedBy && idea.status !== "proposed" ? ` · ${IDEA_LABEL[idea.status].toLowerCase()} by ${idea.decidedBy}` : ""}
@@ -647,7 +658,11 @@ function ConvertPreview() {
                 </Box>
                 {version && data.canEdit
                   ? <Button size="small" variant="contained" disableElevation onClick={() => { setPrefill({ text: `Change this element - ${picked.selector}${picked.text ? ` (it reads “${picked.text.slice(0, 80)}”)` : ""}: `, n: Date.now() }); }}>Ask the AI to change it</Button>
-                  : <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{idea ? "Write the idea's version first, then ask the AI to change it." : "Approve an idea first - its version can then change this element."}</Typography>}
+                  : idea && idea.status === "approved" && data.canEdit
+                    ? <Button size="small" variant="contained" disableElevation disabled={busy === `build:${idea.id}`} onClick={() => void act(`build:${idea.id}`, { action: "build", ideaId: idea.id, request: `Start from this element - ${picked.selector}${picked.text ? ` (it reads “${picked.text.slice(0, 80)}”)` : ""}.` })}>
+                        {busy === `build:${idea.id}` ? "The AI is writing…" : "Write the version from here"}
+                      </Button>
+                    : <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>Approve an idea first - its version can then change this element.</Typography>}
                 <Button size="small" onClick={() => setPicked(null)}>Clear</Button>
               </Box>
             )}
@@ -690,7 +705,7 @@ function ConvertPreview() {
                 )}
                 {!data.ai && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No AI key on this hub - ideas can be added by hand.</Typography>}
                 {ideas.length === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No idea for this page yet.</Typography>}
-                {ideas.map((i) => (
+                {[...ideas].sort((x, y) => (x.status === "dropped" ? 1 : 0) - (y.status === "dropped" ? 1 : 0) || (iceScore(y) ?? -1) - (iceScore(x) ?? -1)).map((i) => (
                   <IdeaCard key={i.id} idea={i} version={versionOf.get(i.id) ?? null} selected={idea?.id === i.id} canEdit={data.canEdit} busy={busy === `build:${i.id}`}
                     onSelect={() => go(env, path, i.id)}
                     onStatus={(s) => void act(`i:${i.id}`, { action: "idea", id: i.id, status: s })}

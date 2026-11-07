@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS apsomh_convert_ideas (
   decided_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS apsomh_convert_ideas_page ON apsomh_convert_ideas (env, path);
+ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS impact int;
+ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS confidence int;
+ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS effort int;
 CREATE TABLE IF NOT EXISTS apsomh_convert_versions (
   id bigserial PRIMARY KEY,
   idea_id bigint NOT NULL UNIQUE REFERENCES apsomh_convert_ideas(id) ON DELETE CASCADE,
@@ -162,6 +165,8 @@ export type Idea = {
   id: string; env: Env; path: string; pageKey: string; kind: PageKind; title: string; why: string; change: string; expect: string;
   source: "ai" | "person"; status: IdeaStatus; numbers: Numbers | null; createdBy: string | null; createdAt: string;
   decidedBy: string | null; decidedAt: string | null;
+  /** The AI's ranking, 1-5 each (ICE): how much it should move, how sure the numbers make it, how much work. null = by hand. */
+  impact?: number | null; confidence?: number | null; effort?: number | null;
 };
 export type VersionStatus = "draft" | "approved";
 export type Version = {
@@ -173,7 +178,7 @@ export type Revision = { rev: number; summary: string; request: string | null; b
 type IdeaRow = {
   id: string; env: Env; path: string; page_key: string; kind: PageKind; title: string; why: string; change: string; expect: string;
   source: "ai" | "person"; status: IdeaStatus; numbers: Numbers | null; created_by: string | null; created_at: Date;
-  decided_by: string | null; decided_at: Date | null;
+  decided_by: string | null; decided_at: Date | null; impact: number | null; confidence: number | null; effort: number | null;
 };
 type VersionRow = {
   id: string; idea_id: string; env: Env; path: string; rev: number; changes: Change[]; summary: string; status: VersionStatus;
@@ -183,6 +188,7 @@ const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 const toIdea = (r: IdeaRow): Idea => ({
   id: String(r.id), env: r.env, path: r.path, pageKey: r.page_key, kind: r.kind, title: r.title, why: r.why, change: r.change, expect: r.expect,
   source: r.source, status: r.status, numbers: r.numbers, createdBy: r.created_by, createdAt: iso(r.created_at)!, decidedBy: r.decided_by, decidedAt: iso(r.decided_at),
+  impact: r.impact ?? null, confidence: r.confidence ?? null, effort: r.effort ?? null,
 });
 const toVersion = (r: VersionRow): Version => ({
   id: String(r.id), ideaId: String(r.idea_id), env: r.env, path: r.path, rev: r.rev, changes: r.changes, summary: r.summary, status: r.status,
@@ -221,14 +227,15 @@ export async function setIdeaStatus(id: string, status: IdeaStatus, by: string):
   return r.rows[0] ? toIdea(r.rows[0]) : null;
 }
 
-export async function addIdea(env: Env, path: string, idea: { title: string; why: string; change: string; expect: string }, by: string, source: "ai" | "person", numbers: Numbers | null): Promise<Idea> {
+export async function addIdea(env: Env, path: string, idea: { title: string; why: string; change: string; expect: string; impact?: number; confidence?: number; effort?: number }, by: string, source: "ai" | "person", numbers: Numbers | null): Promise<Idea> {
   await ensureStudioSchema();
   const c = classify(path);
+  const one = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? Math.max(1, Math.min(5, Math.round(x))) : null);
   const r = await query<IdeaRow>(
-    `INSERT INTO apsomh_convert_ideas (env, path, page_key, kind, title, why, change, expect, source, status, numbers, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12) RETURNING *`,
+    `INSERT INTO apsomh_convert_ideas (env, path, page_key, kind, title, why, change, expect, source, status, numbers, created_by, impact, confidence, effort)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15) RETURNING *`,
     [env, path, pageKeyOf(path), c.kind, idea.title.slice(0, 200), idea.why.slice(0, 1500), idea.change.slice(0, 2000), idea.expect.slice(0, 600), source,
-      source === "person" ? "approved" : "proposed", numbers ? JSON.stringify(numbers) : null, by],
+      source === "person" ? "approved" : "proposed", numbers ? JSON.stringify(numbers) : null, by, one(idea.impact), one(idea.confidence), one(idea.effort)],
   );
   return toIdea(r.rows[0]);
 }
@@ -382,12 +389,15 @@ const IDEAS_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "why", "change", "expect"],
+        required: ["title", "why", "change", "expect", "impact", "confidence", "effort"],
         properties: {
           title: { type: "string", description: "The idea in under 10 words, English" },
           why: { type: "string", description: "Which number or which part of the page points to it, English, 1-2 sentences" },
           change: { type: "string", description: "What changes on the page, concretely, English, 1-3 sentences" },
           expect: { type: "string", description: "What should move if it works (add-to-carts, orders, fewer customers stopping at a step), English, 1 sentence" },
+          impact: { type: "integer", description: "1-5: how much add-to-carts should move if it works (5 = it removes the main reason buyers stop)" },
+          confidence: { type: "integer", description: "1-5: how strongly THIS page's numbers and content point to it (5 = the numbers say it plainly; 1 = a general hunch)" },
+          effort: { type: "integer", description: "1-5: how much the version takes (1 = a style or a moved block; 5 = new content or data the page does not have)" },
         },
       },
     },
@@ -410,7 +420,7 @@ ${RULES}`;
 
 ${numbersBrief(numbers)}
 ${existing ? `\nIDEAS ALREADY ON THIS PAGE (do not repeat them):\n${existing}` : ""}`;
-  const r = await ask<{ ideas: { title: string; why: string; change: string; expect: string }[] }>(system, user, IDEAS_SCHEMA, 8000);
+  const r = await ask<{ ideas: { title: string; why: string; change: string; expect: string; impact: number; confidence: number; effort: number }[] }>(system, user, IDEAS_SCHEMA, 8000);
   if (!r.ok) return r;
   const out: Idea[] = [];
   for (const i of (r.data.ideas ?? []).slice(0, 5)) {

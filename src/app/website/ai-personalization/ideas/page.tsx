@@ -20,6 +20,7 @@ import { GlassCard, HAIRLINE, INK, MUTED, glass } from "@/app/uc/report/ui";
 import { Chip, ago } from "@/app/connectors/parts";
 import { ENVS, KIND_LABEL } from "@/lib/convert/model";
 import type { BoardRow } from "@/lib/convert/studio";
+import { iceScore } from "@/lib/convert/ice";
 import { markerOf } from "@/lib/convert/handoff";
 import { previewHref } from "../Flow";
 
@@ -45,6 +46,7 @@ function Card({ r, inContent }: { r: BoardRow; inContent: boolean }) {
       <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center" }}>
         <Chip tint={r.env === "prod" ? "green" : "amber"}>{ENVS[r.env].label}</Chip>
         <Chip tint="slate">{KIND_LABEL[r.kind]}</Chip>
+        {iceScore(r) !== null && <Chip tint="blue">Score {iceScore(r)}</Chip>}
         {r.version && <Chip tint="blue">rev {r.version.rev}</Chip>}
         {inContent && <Chip tint="purple">In Content</Chip>}
         <Typography sx={{ fontSize: "0.72rem", color: MUTED, ml: "auto" }}>{r.source === "ai" ? "AI" : r.createdBy} · {since(r.version?.updatedAt ?? r.decidedAt ?? r.createdAt)}</Typography>
@@ -105,7 +107,7 @@ export default function ConvertIdeas() {
                 </Box>
                 <Typography sx={{ fontSize: "0.74rem", color: MUTED, px: 0.5, mt: -0.5 }}>{c.line}</Typography>
                 {rows.length === 0 && <Typography sx={{ fontSize: "0.8rem", color: MUTED, px: 0.5, py: 1 }}>None</Typography>}
-                {rows.map((x) => <Card key={x.id} r={x} inContent={inContent.has(`${x.env}:${x.path}`)} />)}
+                {[...rows].sort((a, b) => (iceScore(b) ?? -1) - (iceScore(a) ?? -1)).map((x) => <Card key={x.id} r={x} inContent={inContent.has(`${x.env}:${x.path}`)} />)}
               </Box>
             );
           })}
