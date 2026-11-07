@@ -3,8 +3,9 @@ import { test } from "node:test";
 import {
   apicMult, compute, editDelta, enrich, fnum, initialPotential, isAbsurd, isOwnMachine, labelVisits, markMass, parseSite, potentialEdits, potentialFormula,
   potentialSetter, prioBucket, prioWith, pyStr,
-  recalcDecision, revBucket, revProps, unlost, webUpdates, type Enums,
+  microForStarter, recalcDecision, revBucket, revProps, unlost, webUpdates, type Enums,
 } from "../src/lib/segmentation/engine";
+import { firstSegment } from "../src/lib/segmentation/newCompanies";
 
 const EN: Enums = {
   prio: { "1": "1- Prio", "2": "2- Prio", "3": "3- Prio", "4": "4- No priority" },
@@ -62,6 +63,16 @@ test("potentials: the starter value and the recalculation formula", () => {
   assert.equal(initialPotential({ apic_ap: "1.9 Pharma" }, REV), 800);
   assert.equal(initialPotential({ apic_ap: "4.1 Processing" }, REV), 600);
   assert.equal(initialPotential({}, REV), 500);
+  // no segment yet (the first comes 20 minutes after creation, the starter at 3): the first segment's rule decides
+  assert.equal(initialPotential({ domain: "gmail.com" }, REV), 300);
+  assert.equal(initialPotential({ domain: "mail.bluewin.ch", apic_ap: "1.9 Pharma" }, REV), 300);
+  assert.equal(initialPotential({ numberofemployees: "3", apic_ap: "1.9 Pharma" }, REV), 300);
+  assert.equal(initialPotential({ numberofemployees: "6", domain: "example-gmbh.de" }, REV), 500);
+  // a segment, once there, wins over the rule
+  assert.equal(initialPotential({ apso_customer: "APSOprospect", numberofemployees: "3" }, REV), 500);
+  // and the rule is the first segment's own
+  for (const q of [{ domain: "gmx.de" }, { numberofemployees: "5" }, { numberofemployees: "0" }, { domain: "acme.ch", numberofemployees: "40" }, {}])
+    assert.equal(microForStarter(q), firstSegment(q).segment === "APSOmicro", JSON.stringify(q));
   assert.equal(initialPotential({ revenue_2025: "1000", revenue_2019: "5000" }, REV), 6500); // floor 1.3 x best year
   assert.equal(potentialFormula({ revenue_2025: "1000", yearly_customer_potential: "2000" }, REV), 1300);
   assert.equal(potentialFormula({ revenue_2025: "10000", apic_ap: "1.10 x", yearly_customer_potential: "5000" }, REV), 7000); // +40% cap

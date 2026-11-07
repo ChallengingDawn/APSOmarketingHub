@@ -118,6 +118,26 @@ function Notes({ items }: { items: { tone: "bad" | "warn"; text: React.ReactNode
 type Prio = { p1: number; p2: number; p3: number; p4: number };
 
 /**
+ * What each APSO segment means, in a line under its bar (07.11.2026: "peux-tu ajouter la def de APSOprospect... à
+ * côté"). The rules behind them: the first segment at creation (lib/segmentation/newCompanies firstSegment) and the
+ * yearly waterfall (lib/segmentation/yearly YEARLY_RULES) - a segment says how big a company is and what it buys,
+ * never its potential; that is the priority's job.
+ */
+const SEGMENT_MEANS: Record<string, string> = {
+  APSOprospect: "New, or buys under 500 € a year",
+  APSOlost: "Bought before, nothing in 3 years",
+  APSOcore: "Buys 500 € or more a year",
+  APSOgrowth: "Buys 500 €+, potential 30 % higher",
+  APSOmicro: "1–5 employees or a free mail",
+  "Growth Engine Customer": "From the ERP, never changed here",
+  "ESO-Customer": "From the ERP, never changed here",
+  "DS Customer": "From the ERP, never changed here",
+  "No sales focus": "2+ years old, never bought",
+  [NO_SEGMENT]: "Not classified yet",
+  "Other values": "More than one segment",
+};
+
+/**
  * The portfolio: the priorities and the segments as the reporting pages draw a breakdown - a click on a bar opens its
  * companies in the window - and every company below, live from HubSpot (SARCLA 02.11.2026: "you don't have the button
  * on the modal and the design changes from page to page").
@@ -144,10 +164,12 @@ function Portfolio({ st, bd, p }: { st: Status; bd: Breakdown; p: Prio }) {
     <Box id="segmentation-panel-overview" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
       <Box sx={TWO}>
         <DimChart title="Sales priority, every company" rows={prios} cur={(x) => x.n} prev={() => 0} curLabel="Companies" prevLabel="" fmt={full} single fixedOrder labelWidth={210}
-          curNote={(x) => ({ text: pctText(x.n, st.total), color: MUTED })} companies={all} pickHint="From the higher of the yearly potential and the best revenue year since 2015 · a click on a bar lists its companies"
+          curNote={(x) => ({ text: pctText(x.n, st.total), color: MUTED })} companies={all} pickHint="From the higher of the yearly potential and the best revenue year since 2015 - it follows every change of the potential within minutes · a click on a bar lists its companies"
           selected={pick?.fixed.prio !== undefined ? [prios.find((x) => x.id === pick.fixed.prio)?.label ?? ""] : undefined} onPick={open(prios, (id) => ({ prio: id }), "Sales priority")} />
-        <DimChart title="APSO segment, every company" rows={segs} cur={(x) => x.n} prev={() => 0} curLabel="Companies" prevLabel="" fmt={full} single labelWidth={190}
-          curNote={(x) => ({ text: pctText(x.n, bd.total), color: MUTED })} companies={all} pickHint="A click on a bar lists its companies"
+        <DimChart title="APSO segment, every company" rows={segs} cur={(x) => x.n} prev={() => 0} curLabel="Companies" prevLabel="" fmt={full} single labelWidth={210}
+          labelNote={(x) => SEGMENT_MEANS[x.label]}
+          curNote={(x) => ({ text: pctText(x.n, bd.total), color: MUTED })} companies={all}
+          pickHint="Set when a company is created and again once a year, from its size and what it buys - not from its potential, so a small company can have a high priority · a click on a bar lists its companies"
           selected={pick?.fixed.seg !== undefined ? [pick.fixed.seg] : undefined} onPick={open(segs, (id) => (id ? { seg: id } : null), "APSO segment")} />
       </Box>
       <ListCard title="The companies" hint="Every company in HubSpot, live - the largest basis first; narrow it by segment, priority or a name, a click on a column orders by it"

@@ -899,7 +899,9 @@ async function watchInner() {
   // 02.11.2026: every chart with its companies)
   const moves: Move[] = [];
   if (found.size) {
-    const props = await batchRead([...found].sort(), READ_PROPS());
+    // domain and employees: a company still without a segment gets the micro starter when the first segment will make
+    // it micro (engine microForStarter)
+    const props = await batchRead([...found].sort(), [...READ_PROPS(), "domain", "numberofemployees"]);
     const changes: [string, Props][] = [];
     for (const [cid, p0] of props) {
       let p = p0;

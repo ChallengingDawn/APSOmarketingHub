@@ -253,8 +253,22 @@ export function initialPotential(p: Props, rev: string[]): number {
     const pot = Math.max(base * m, 1.3 * Math.max(...revs));
     return pyRound(Math.min(pot, 1_000_000), 0);
   }
-  if ((p.apso_customer ?? "") === "APSOmicro") return 300;
+  if (microForStarter(p)) return 300;
   return m >= 2.0 ? 800 : m >= 1.5 ? 600 : 500;
+}
+
+/**
+ * A micro customer, for the starter potential: its segment says so - or, while it has none yet, the first segment's
+ * rule will make it one (a free mail domain or 1-5 employees: segmentation/newCompanies firstSegment). The watcher
+ * seeds the potential 3 minutes after creation and the first segment comes at 20, so reading the segment alone gave
+ * every new micro company 500-800 € and P3 (07.11.2026: "APSOmicro... comment peut-on avoir des P1, P2 et même P3?").
+ */
+export function microForStarter(p: Props): boolean {
+  const seg = (p.apso_customer ?? "").trim();
+  if (seg) return seg === "APSOmicro";
+  const domain = (p.domain ?? "").toLowerCase().trim();
+  const employees = parseFloat(p.numberofemployees ?? "") || 0;
+  return (!!domain && [...GENERIC_DOMAINS].some((g) => domain === g || domain.endsWith(`.${g}`))) || (employees > 0 && employees <= 5);
 }
 
 /** _potential_formula: avg of the last three revenue years x APIC, floor 1.3x the best year, +40% cap, ceiling 1M. */
