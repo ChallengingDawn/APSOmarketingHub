@@ -44,8 +44,12 @@ const title: Record<LayerKey, string> = {
   customers: "Customers this year", newCustomers: "New customers this year", priority: "Sales priority", gdp: "GDP",
 };
 
-export function MapSummary({ cc, layer, prio, load, onMap = [], gdp, names, palette, hl, setHl, maxHeight, narrow }: {
+export function MapSummary({ cc, place, note, layer, prio, load, onMap = [], gdp, names, palette, hl, setHl, maxHeight, narrow }: {
   cc: string; layer: LayerKey; prio: Priority;
+  /** the name in the title, the GDP line and the note - else the country's (Europe: "Europe · ESO") */
+  place?: string;
+  /** the line at the end, instead of "every company of {country}" */
+  note?: string;
   /** the engine's figures per person (null = not read yet, or an older hub) */
   load: OwnerLoad[] | null;
   /** the people holding postcodes on the map: listed on Owners / Top customers even without a company, so every colour
@@ -95,7 +99,7 @@ export function MapSummary({ cc, layer, prio, load, onMap = [], gdp, names, pale
       <Box component="button" type="button" onClick={flip} aria-expanded={open}
         sx={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 1, px: 1.25, py: 0.75, "&:focus-visible": { outline: "2px solid #2459d1" } }}>
         <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.06em" }}>{countryName(cc)} · {title[layer]}</Typography>
+          <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.06em" }}>{place ?? countryName(cc)} · {title[layer]}</Typography>
           {!open && cols.length > 0 && load && (
             <Typography sx={{ fontSize: "0.78rem", color: INK, fontVariantNumeric: "tabular-nums" }}>
               {groups.map((g) => `${g.key === "other" ? "Other" : g.label} ${cols[0].fmt(g.sums[0])}`).join(" · ")}
@@ -108,7 +112,7 @@ export function MapSummary({ cc, layer, prio, load, onMap = [], gdp, names, pale
         <Box sx={{ overflowY: "auto", px: 1.25, pb: 1 }}>
           {layer === "gdp" ? (
             <Typography sx={{ fontSize: "0.8rem", color: INK }}>
-              {countryName(cc)}: <b>{gdpText(gdp)}</b>
+              {place ?? countryName(cc)}: <b>{gdpText(gdp)}</b>
               <Box component="span" sx={{ display: "block", fontSize: "0.72rem", color: MUTED, mt: 0.25 }}>GDP is known per region, not per person.</Box>
             </Typography>
           ) : !load ? (
@@ -152,7 +156,7 @@ export function MapSummary({ cc, layer, prio, load, onMap = [], gdp, names, pale
                 </Box>
               ))}
               <Typography sx={{ fontSize: "0.7rem", color: MUTED, mt: 0.6, lineHeight: 1.4 }}>
-                Per person the rules give each company - every company of {countryName(cc)}, with or without a postcode.
+                {note ?? `Per person the rules give each company - every company of ${countryName(cc)}, with or without a postcode.`}
                 {noPotential ? " No potential read yet: the engine's next full read of the companies brings it." : ""}
               </Typography>
             </>

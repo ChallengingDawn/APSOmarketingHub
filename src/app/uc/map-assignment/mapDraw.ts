@@ -55,6 +55,9 @@ export type Scene = {
   hover: Focus | null; pinned: Focus | null;
   regionLabel: (i: number) => string;
   markers: Marker[] | null; hoverMarker: number | null;
+  /** names placed before the regions' (Europe's countries): map units, w = how wide the place is - no name on a place
+   *  narrower on screen than 18 px */
+  labels?: { x: number; y: number; text: string; w: number }[];
 };
 
 export const LAND = "#eef1f5";
@@ -195,6 +198,15 @@ function labelsAndMarks(ctx: CanvasRenderingContext2D, s: Scene, scale: number) 
     for (const k of keys) { const l = taken.get(k); if (l) l.push(box); else taken.set(k, [box]); }
     return true;
   };
+  if (s.labels?.length) {
+    ctx.font = `700 12.5px ${FONT}`;
+    for (const l of s.labels) {
+      if (l.w * scale < 18) continue;
+      const [X, Y] = toScreen(f, v, l.x, l.y);
+      if (!inView(X, Y)) continue;
+      if (place(X, Y, ctx.measureText(l.text).width, 15)) halo(ctx, l.text, X, Y, INK);
+    }
+  }
   let zipLabels = 0;
   if (s.cells && base.smallCell * 2.5 * scale >= 30) {
     ctx.font = `600 10.5px ${FONT}`;

@@ -291,6 +291,25 @@ test("map assignment engine: the yearly potential per postcode and per person (t
   assert.equal(p.byOwner?.["9"]?.revenue, 40);
 });
 
+test("map assignment engine: Europe's map - companies per region, the sales priority per person (07.11.2026)", () => {
+  const row = (id: string, x: Partial<LayerRow> = {}): LayerRow =>
+    ({ id, name: `C${id}`, zip: "1011", owner: "1", revenue: null, lastOrder: null, firstOrder: null, priority: null, ...x });
+  const ix = zipIndex([["1000", 46.5, 6.6, "CH-VD"], ["8000", 47.4, 8.5, "CH-ZH"], ["6900", 46, 8.9]]);
+  const { points, unplaced } = layerPoints([
+    row("1", { zip: "1003", decided: "5", priority: "1 - Must win" }), // no such point: its neighbour 1000 -> Vaud
+    row("2", { zip: "8000", decided: "5", priority: "1 - Must win" }),
+    row("3", { zip: "8001", decided: "9", priority: "2 - Grow" }),
+    row("4", { zip: "6900", decided: "9" }), // a point without a region: not on Europe's map
+    row("5", { zip: null, decided: "9" }),
+  ], (z) => placeZip(ix, z)?.region ?? null, 2026);
+  assert.deepEqual(points.map((p) => [p.zip, p.companies]), [["CH-VD", 1], ["CH-ZH", 2]]);
+  assert.equal(unplaced, 2);
+  const zh = points[1];
+  assert.deepEqual(zh.byOwner?.["5"]?.priority, { P1: 1 });
+  assert.deepEqual(zh.byOwner?.["9"]?.priority, { P2: 1 });
+  assert.deepEqual(zh.priority, { P1: 1, P2: 1 });
+});
+
 test("map assignment engine: the Performis tab per country and SAE", () => {
   const rules: AssignRules = {
     defaultOwner: "9", sae: { "Borey Jeremy": "5", "Pielock Nancy": "2" },

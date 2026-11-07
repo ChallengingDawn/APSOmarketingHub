@@ -43,6 +43,8 @@ import { Chip, Info, when } from "@/app/connectors/parts";
 import type { AssignRules } from "@/lib/mapAssign/rules";
 import type { MapData } from "@/lib/mapAssign/api";
 import { CountryPicker, MapPanel, useCountryMap } from "./MapPanel";
+import { EuropePanel } from "./EuropePanel";
+import { EUROPE } from "./europeModel";
 import { RulesDialog, type Compare, type Mode, type Place } from "./RulesDialog";
 import { ContactsView, followPct, useContactsData } from "./ContactsView";
 import { LiveView } from "./LiveView";
@@ -53,7 +55,7 @@ import { PhoneView } from "./PhoneView";
 import { RegionsView } from "./RegionsView";
 import { DiffView } from "./DiffView";
 import {
-  API, OLD_VIEW_HASH, VIEW_HASH, assignInto, buildPalette, canon, checkRules, countryList, countryName, effectiveRules, namesOf, partName, rulesParts, saveRules, send,
+  API, OLD_VIEW_HASH, VIEW_HASH, assignInto, buildPalette, canon, checkRules, countryList, effectiveRules, mapName, namesOf, partName, rulesParts, saveRules, send, useMapCountries,
   type Names, type Palette, type SetDraft, type View,
 } from "./shared";
 
@@ -86,10 +88,19 @@ function MapView({ d, rules, setDraft, cc, setCc, names, palette, dirty, rev, n,
   const [place, setPlace] = useState<Place | null>(null);
   useEffect(() => { setPlace(null); }, [cc]);
   const compare: Compare | null = useMemo(() => (sandbox !== null ? { sandbox, live: { m: liveM, rules: liveRules } } : null), [sandbox, liveM, liveRules]);
+  // Europe first in the menu (SARCLA 07.11.2026: "une map de l'Europe complète"): its companies = the countries with a map
+  const maps = useMapCountries();
+  const list = useMemo(() => {
+    const l = countryList(d, rules);
+    const have = maps ? new Set(maps) : null;
+    return [{ cc: EUROPE, companies: have ? l.reduce((s, c) => s + (have.has(c.cc) ? c.companies : 0), 0) : null }, ...l];
+  }, [d, rules, maps]);
+  const picker = <CountryPicker list={list} cc={cc} onPick={setCc} />;
+  if (cc === EUROPE) return <EuropePanel d={d} names={names} palette={palette} top={picker} sandbox={sandbox} onCountry={setCc} />;
   return (
     <>
       <MapPanel m={m} cc={cc} rules={rules} d={d} names={names} palette={palette} onAssign={onAssign} setDraft={setDraft} sandbox={sandbox}
-        top={<CountryPicker list={countryList(d, rules)} cc={cc} onPick={setCc} />} onRules={() => { setPlace(null); setMode("rules"); setRulesOpen(true); }}
+        top={picker} onRules={() => { setPlace(null); setMode("rules"); setRulesOpen(true); }}
         onKpi={() => { setPlace(null); setMode("kpi"); setRulesOpen(true); }}
         onPlace={(p) => { setPlace(p); setMode("rules"); setRulesOpen(true); }} />
       <RulesDialog open={rulesOpen} onClose={() => { setRulesOpen(false); setPlace(null); }} place={place} onWholeCountry={() => setPlace(null)} cc={cc} setCc={setCc} d={d} rules={rules} setDraft={setDraft} names={names} palette={palette}
@@ -270,7 +281,7 @@ export default function MapAssignment() {
   const [picked, setPicked] = useState<string | null>(null);
   useEffect(() => { try { const v = window.localStorage.getItem(CC_KEY); if (v && /^[A-Z]{2}$/.test(v)) setPicked(v); } catch { /* no storage */ } }, []);
   const list = d && rules ? countryList(d, rules) : [];
-  const cc = picked && list.some((c) => c.cc === picked) ? picked : list[0]?.cc ?? "CH";
+  const cc = picked && (picked === EUROPE || list.some((c) => c.cc === picked)) ? picked : list[0]?.cc ?? "CH";
   const setCc = (v: string) => { setPicked(v); try { window.localStorage.setItem(CC_KEY, v); } catch { /* no storage */ } };
 
   const names = useMemo(() => namesOf(d?.owners ?? []), [d]);
@@ -389,7 +400,7 @@ export default function MapAssignment() {
         <SandboxBar d={d} sbRules={sbRules} admin={d.admin} busy={busy} onPromote={(part) => void promote(part)} onReset={(part) => void resetSandbox(part)} />
       )}
       {d && sandboxOn && msg?.ok && <Typography sx={{ fontSize: "0.8rem", color: "#1b7a55" }}>{msg.text}</Typography>}
-      <Box role="tabpanel" id={`mapassign-panel-${view}`} aria-label={`${VIEW_LABEL[view]} view${d && view === "map" ? ` - ${countryName(cc)}` : ""}`}
+      <Box role="tabpanel" id={`mapassign-panel-${view}`} aria-label={`${VIEW_LABEL[view]} view${d && view === "map" ? ` - ${mapName(cc)}` : ""}`}
         sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>{body}</Box>
     </Box>
   );

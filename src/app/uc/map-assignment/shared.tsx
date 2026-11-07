@@ -107,6 +107,9 @@ export const partName = (part: string) => (part === "sae" ? "the SAE table" : co
 
 /* ── countries ── */
 
+/** The map's name: a country, or "Europe" (europeModel.ts EUROPE - never a company's country). */
+export const mapName = (cc: string): string => (cc === "EU" ? "Europe" : countryName(cc));
+
 let regionNames: Intl.DisplayNames | null = null;
 export function countryName(cc: string): string {
   if (!/^[A-Za-z]{2}$/.test(cc ?? "")) return "No country"; // the engine's "??"
@@ -567,6 +570,31 @@ export function loadGeo(cc: string): Promise<GeoFiles> {
     geoCache.set(cc, p);
   }
   return p;
+}
+
+/** A country's regions and outline only (Europe's map - no postcodes, 4 MB less); null = none. */
+const shapeCache = new Map<string, Promise<ShapeFile | null>>();
+export function loadShapes(cc: string): Promise<ShapeFile | null> {
+  const had = geoCache.get(cc);
+  if (had) return had.then((f) => f.shapes);
+  let p = shapeCache.get(cc);
+  if (!p) {
+    p = getJson<ShapeFile>(`/geo/shapes/${cc}.json`).then((sh) => (sh && (sh.outline || Array.isArray(sh.regions))
+      ? { ...sh, country: cc, outline: sh.outline ?? null, regions: Array.isArray(sh.regions) ? sh.regions.filter((x) => x && x.geometry) : [] } : null));
+    shapeCache.set(cc, p);
+  }
+  return p;
+}
+
+/** The countries the hub has a map of (public/geo/index.json), by code; null while it loads. */
+export function useMapCountries(): string[] | null {
+  const [got, setGot] = useState<string[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    void geoIndex().then((s) => { if (live) setGot(s ? [...s].sort() : []); });
+    return () => { live = false; };
+  }, []);
+  return got;
 }
 
 /** The country's files; null while they load. */

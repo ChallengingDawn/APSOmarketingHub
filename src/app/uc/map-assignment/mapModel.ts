@@ -11,7 +11,7 @@
 // Voronoi cell clipped to the outline in an equal-area projection (postcodes on the very same spot share one cell: the
 // first in the file carries it, the others 0); shapes/<CC>.json regions [{code, name, geometry, km2, group?}].
 
-import { geoArea, geoMercator, geoPath, type GeoPermissibleObjects } from "d3-geo";
+import { geoArea, geoAzimuthalEqualArea, geoMercator, geoPath, type GeoPermissibleObjects } from "d3-geo";
 import { Delaunay, type Voronoi } from "d3-delaunay";
 import type { Feature, FeatureCollection, Geometry, MultiPoint, Polygon, Position } from "geojson";
 import { cleanZip, type CountryRule, type OwnerId } from "@/lib/mapAssign/rules";
@@ -112,7 +112,9 @@ export function regionAt(regions: MapRegion[], x: number, y: number): number {
 const num = (v: unknown) => (typeof v === "number" ? v : Number(v));
 
 /** The country fitted to the map width: regions, outline, every postcode, the Voronoi of the postcode spots. */
-export function buildBase(files: GeoInput, cc: string): MapBase | null {
+/** opts.europe: an equal-area view centred on Europe (as EPSG:3035) instead of Mercator - Europe's map, where Mercator
+ *  would blow Sweden up to twice Spain's size */
+export function buildBase(files: GeoInput, cc: string, opts: { europe?: boolean } = {}): MapBase | null {
   const regionsIn = (files.shapes?.regions ?? []).map((r) => {
     const extra = r as { km2?: unknown; group?: unknown };
     return { code: String(r.code ?? ""), name: String(r.name ?? r.code ?? ""), geometry: rewind(r.geometry), km2: extra.km2, group: extra.group };
@@ -124,7 +126,7 @@ export function buildBase(files: GeoInput, cc: string): MapBase | null {
   else if (regionsIn.length) fit = { type: "FeatureCollection", features: regionsIn.map((r) => ({ type: "Feature", geometry: r.geometry, properties: {} })) } as FeatureCollection;
   else if (rows.length > 1) fit = { type: "MultiPoint", coordinates: rows.map((r) => [num(r[2]), num(r[1])]) } as MultiPoint;
   else return null;
-  const projection = geoMercator().fitWidth(W - 2 * PAD, fit);
+  const projection = (opts.europe ? geoAzimuthalEqualArea().rotate([-10, -52]) : geoMercator()).fitWidth(W - 2 * PAD, fit);
   const [[, fy0], [, fy1]] = geoPath(projection).bounds(fit);
   const inner = Math.max(120, Math.min(MAX_H - 2 * PAD, Number.isFinite(fy1 - fy0) ? fy1 - fy0 : 400));
   projection.fitExtent([[PAD, PAD], [W - PAD, PAD + inner]], fit);

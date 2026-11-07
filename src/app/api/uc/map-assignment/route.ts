@@ -6,6 +6,8 @@
 // GET ?layers=CC              LayerData: the country's companies per postcode (companies, customers / new customers
 //                             this year, revenue this year, sales priority, top 3) and GDP per region
 //     &sandbox=1              the same with every company decided by the sandbox's rules (the KPIs compare the two)
+// GET ?europe=1(&sandbox=1)  EuropeData: every country with a map, its companies per region (SARCLA 07.11.2026: "une map
+//                             de l'Europe complète")
 // GET ?performis=1            PerformisData: companies and contacts per country and SAE, who the rules give each SAE
 // GET ?changes=1&country=&from=&to=&q=&offset=   ChangesPage: one move's companies, 50 a page ("from" empty = nobody)
 // GET ?companies=1&erp=id,id | &q=text (&country=CC)   CompanyRow[]: the key accounts' customers, or a search to add one
@@ -42,7 +44,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { query } from "@/lib/db/client";
 import { describeIntegrationError } from "@/lib/integrations/status";
-import { changesPage, companyRows, getRules, getSandbox, isRunning, kick, layerData, linkContact, mapData, noCompanyData, performisData, promoteSandbox, saveLive, saveRules, saveSandbox, saveSettings } from "@/lib/mapAssign/engine";
+import { changesPage, companyRows, europeData, getRules, getSandbox, isRunning, kick, layerData, linkContact, mapData, noCompanyData, performisData, promoteSandbox, saveLive, saveRules, saveSandbox, saveSettings } from "@/lib/mapAssign/engine";
 import { answerConflict } from "@/lib/mapAssign/redirections";
 import { validateLive, validateRules, type RulesPatch } from "@/lib/mapAssign/plan";
 import type { MapPost, MapPut } from "@/lib/mapAssign/api";
@@ -76,6 +78,10 @@ export async function GET(req: NextRequest) {
       // the sandbox's rules, or the live ones while there is no sandbox (it starts as their copy)
       const rules = sp.get("sandbox") ? ((await getSandbox())?.rules ?? (await getRules()).value) : undefined;
       return NextResponse.json({ configured: true, ok: true, data: await layerData(cc, rules ? { rules } : {}) });
+    }
+    if (sp.get("europe") !== null) {
+      const rules = sp.get("sandbox") ? ((await getSandbox())?.rules ?? (await getRules()).value) : undefined;
+      return NextResponse.json({ configured: true, ok: true, data: await europeData(rules ? { rules } : {}) });
     }
     if (sp.get("performis") !== null) return NextResponse.json({ configured: true, ok: true, data: await performisData() });
     if (sp.get("noCompany") !== null) return NextResponse.json({ configured: true, ok: true, data: await noCompanyData(access.role === "admin") });

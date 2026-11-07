@@ -108,8 +108,10 @@ export function CountryTabs({ list, cc, onPick, label }: {
 }
 
 /** The country as one button over the map (SARCLA 20.10.2026: "only the map"): a click lists every country, biggest first. */
-export function CountryMenu({ list, cc, onPick, label }: {
-  list: { cc: string; companies: number }[]; cc: string; onPick: (cc: string) => void; label: (cc: string) => string;
+export function CountryMenu({ list, cc, onPick, label, firstApart = false }: {
+  list: { cc: string; companies: number | null }[]; cc: string; onPick: (cc: string) => void; label: (cc: string) => string;
+  /** a line under the first entry (Europe, above the countries) */
+  firstApart?: boolean;
 }) {
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   const here = list.find((c) => c.cc === cc);
@@ -123,13 +125,13 @@ export function CountryMenu({ list, cc, onPick, label }: {
           fontSize: "0.95rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em", "&:hover": { bgcolor: "#fff" }, "&:focus-visible": { outline: `2px solid ${ON}`, outlineOffset: 1 },
         }}>
         {label(cc)}
-        {here && <Typography component="span" sx={countSx(false)}>{full(here.companies)}</Typography>}
+        {here && here.companies !== null && <Typography component="span" sx={countSx(false)}>{full(here.companies)}</Typography>}
         <ExpandMoreIcon sx={{ fontSize: 20, color: MUTED, ml: -0.25 }} />
       </Box>
       <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)} slotProps={{ paper: { sx: { maxHeight: 420, borderRadius: "12px", minWidth: 220 } } }}>
-        {list.map((c) => (
-          <MenuItem key={c.cc} selected={c.cc === cc} onClick={() => { setMenu(null); onPick(c.cc); }} sx={{ fontSize: "0.86rem", gap: 1.5, justifyContent: "space-between" }}>
-            <span>{label(c.cc)}</span><Typography component="span" sx={{ fontSize: "0.75rem", color: MUTED }}>{full(c.companies)}</Typography>
+        {list.map((c, i) => (
+          <MenuItem key={c.cc} selected={c.cc === cc} divider={firstApart && i === 0} onClick={() => { setMenu(null); onPick(c.cc); }} sx={{ fontSize: "0.86rem", gap: 1.5, justifyContent: "space-between", fontWeight: firstApart && i === 0 ? 700 : undefined }}>
+            <span>{label(c.cc)}</span><Typography component="span" sx={{ fontSize: "0.75rem", color: MUTED }}>{c.companies === null ? "" : full(c.companies)}</Typography>
           </MenuItem>
         ))}
       </Menu>

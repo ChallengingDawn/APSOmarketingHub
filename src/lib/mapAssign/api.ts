@@ -167,7 +167,11 @@ export type PostcodeStat = {
    *  revenue, orders incoming, new customers, number of tickets, number of sales tickets") */
   byOwner?: Record<string, PersonStat>;
 };
-export type PersonStat = { companies: number; customers: number; newCustomers: number; revenue: number; potential?: number; tickets: number; sales: number };
+export type PersonStat = {
+  companies: number; customers: number; newCustomers: number; revenue: number; potential?: number; tickets: number; sales: number;
+  /** sales_priority P1..P4 -> companies (07.11.2026, Europe's ESO / TSA view of the Priority layer); absent from an older hub */
+  priority?: Record<string, number>;
+};
 export type LayerData = {
   country: string; at: string | null;
   points: PostcodeStat[];
@@ -184,6 +188,11 @@ export type LayerData = {
   /** ESO + TSA tickets per owner, every country: open now, and created in the last 90 days */
   tickets?: TicketLoad | null;
 };
+
+/** GET ?europe=1 (SARCLA 07.11.2026: "une map de l'Europe complète - toute l'Europe, Europe ESO, Europe TSA"): every
+ *  country with a map, its LayerData per REGION - PostcodeStat.zip is the region's code (shapes/<CC>.json), and the SAE,
+ *  HubSpot owner and top customers per region are left out */
+export type EuropeData = { at: string | null; revenueField: string; countries: LayerData[] };
 
 export type OwnerLoad = {
   owner: OwnerId;

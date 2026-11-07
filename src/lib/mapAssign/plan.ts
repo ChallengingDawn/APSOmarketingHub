@@ -396,6 +396,8 @@ export function layerPoints(rows: LayerRow[], place: (zip: string | null) => str
       const rv = Number(r.revenue);
       if (Number.isFinite(rv)) ps.revenue += rv;
       if (r.potential !== null && r.potential !== undefined && Number.isFinite(Number(r.potential))) ps.potential = (ps.potential ?? 0) + Number(r.potential);
+      const pp = priorityKey(r.priority);
+      if (pp) { const pr = ps.priority ?? (ps.priority = {}); pr[pp] = (pr[pp] ?? 0) + 1; }
       ps.tickets += tk;
       ps.sales += sl;
     }

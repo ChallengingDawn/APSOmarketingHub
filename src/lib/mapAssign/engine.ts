@@ -38,7 +38,7 @@ import { hubChain } from "@/lib/connectors/chainStatus";
 import { SEED } from "./seed";
 import { REDIRECTIONS_FIX, applyFixes } from "./fixes";
 import { GENERIC_DOMAINS, cleanZip, contactCompany, countryOf, decide, type AssignRules, type CompanyFacts, type Decision, type OwnerId, type Via } from "./rules";
-import type { ChangesPage, CompanyChange, CompanyRow, CountrySummary, LayerData, MapData, MoveStat, NoCompany, Owner, OwnerLoad, PerformisData, RedirectionConflict, ScanInfo, TicketLoad } from "./api";
+import type { ChangesPage, CompanyChange, CompanyRow, CountrySummary, EuropeData, LayerData, MapData, MoveStat, NoCompany, Owner, OwnerLoad, PerformisData, RedirectionConflict, ScanInfo, TicketLoad } from "./api";
 import { listRules } from "@/lib/ownerRules/store";
 import { retireOwnerRedirection } from "@/lib/ownerRules/retire";
 import { publishedRules, type PubRule } from "@/lib/ownerRules/rules";
@@ -1422,7 +1422,9 @@ export async function changesPage(f: { country?: string | null; from?: string | 
  * A postcode is shown at its own point, else the nearest one with the same beginning (placeZip); none = `unplaced`.
  * Without a postcode file the cleaned postcode is the key (the page cannot place those).
  */
-export async function layerData(country: string, opts: { rules?: AssignRules } = {}): Promise<LayerData> {
+/** opts.byRegion: the companies per REGION (PostcodeStat.zip = the region's code of shapes/<CC>.json) - Europe's map;
+ *  opts.ix: the country's postcode index when the caller holds it already */
+export async function layerData(country: string, opts: { rules?: AssignRules; byRegion?: boolean; ix?: ZipIndex } = {}): Promise<LayerData> {
   await ensureMapAssign();
   const cc = country.trim().toUpperCase();
   const year = yearNow();
@@ -1451,8 +1453,9 @@ export async function layerData(country: string, opts: { rules?: AssignRules } =
     lastOrder: x.last_order, firstOrder: x.first_order, priority: x.priority, sae: x.sae, decided: x.owner_decided, region: x.region_now, via: x.via,
     tickets: x.tickets_90, sales: x.sales_90, category: x.apso_customer, potential: x.potential,
   }));
-  const ix = await zipsOf(cc);
-  const place = ix.keys.length ? (z: string | null) => placeZip(ix, z)?.code ?? null : (z: string | null) => cleanZip(z) || null;
+  const ix = opts.ix ?? await zipsOf(cc);
+  const place = opts.byRegion ? (z: string | null) => placeZip(ix, z)?.region ?? null
+    : ix.keys.length ? (z: string | null) => placeZip(ix, z)?.code ?? null : (z: string | null) => cleanZip(z) || null;
   const { points, unplaced } = layerPoints(rows, place, year);
   const last = await lastRun();
   // the workload per person: owner now and by the rules; of the companies by the rules, customers / revenue this year
@@ -1485,6 +1488,36 @@ export async function layerData(country: string, opts: { rules?: AssignRules } =
     revenueField: revenueField(year), customersField: CUSTOMERS_FIELD,
     load, tickets: (await kvGet<TicketLoad>(KV.tickets)) ?? null,
   };
+}
+
+/* ── Europe (SARCLA 07.11.2026: "une map de l'Europe complète - toute l'Europe, Europe ESO, Europe TSA") ── */
+
+let europeGeo: { at: number; p: Promise<Map<string, ZipIndex>> } | null = null;
+let europeLive: { at: number; key: string; p: Promise<EuropeData> } | null = null;
+/**
+ * Every country with a map (public/geo/postcodes), its companies per region - the figures of layerData, lighter (no SAE,
+ * HubSpot owner or top customers per region). Live: kept 3 minutes, so a page opened by several people reads once.
+ */
+export async function europeData(opts: { rules?: AssignRules } = {}): Promise<EuropeData> {
+  if (!europeGeo || Date.now() - europeGeo.at > 30 * 60_000) europeGeo = { at: Date.now(), p: loadGeo() };
+  const read = async (): Promise<EuropeData> => {
+    const geo = await europeGeo!.p;
+    const countries: LayerData[] = [];
+    // one country after the other: two small reads each, never 16 at once on the pool
+    for (const cc of [...geo.keys()].sort()) {
+      const d = await layerData(cc, { ...opts, byRegion: true, ix: geo.get(cc) });
+      countries.push({ ...d, tickets: null, points: d.points.map((x) => ({ ...x, top: [], sae: undefined, now: undefined, via: undefined })) });
+    }
+    return { at: countries[0]?.at ?? null, revenueField: countries[0]?.revenueField ?? revenueField(yearNow()), countries };
+  };
+  if (opts.rules) return read();
+  const key = String((await lastRun())?.at ?? "");
+  if (!europeLive || europeLive.key !== key || Date.now() - europeLive.at > 3 * 60_000) {
+    const p = read();
+    europeLive = { at: Date.now(), key, p };
+    p.catch(() => { if (europeLive?.p === p) europeLive = null; });
+  }
+  return europeLive.p;
 }
 
 /* ── the ticket workload (the KPI view) ────────────────────────────────── */

@@ -51,7 +51,7 @@ import { FAINT, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { Chip } from "@/app/connectors/parts";
 import { cleanZip, type AssignRules, type CountryRule, type OwnerId } from "@/lib/mapAssign/rules";
 import type { LayerData, MapData, PostcodeStat } from "@/lib/mapAssign/api";
-import { API, MAX_BODY, Swatch, bodyBytes, countryName, emptyRule, newId, useCountryGeo, withOverride, type Names, type Palette, type SetDraft } from "./shared";
+import { API, MAX_BODY, Swatch, bodyBytes, countryName, emptyRule, mapName, newId, useCountryGeo, withOverride, type Names, type Palette, type SetDraft } from "./shared";
 import {
   K_DETAIL, PRIORITIES, W, breaks, buildBase, cellAt, classOf, isLayerData, joinLayer, pickAll, regionAt, statValue, tally,
   type Decided, type Joined, type LayerKey, type MapBase, type Priority, type Tally, type ValueLayer,
@@ -151,7 +151,7 @@ export function useLayers(cc: string, sandbox: string | null = null): { data: La
 /* ── colours ── */
 
 /** The categorical hue mixed with white: t = 1 the hue, 0 white. */
-function mix(hex: string, t: number): string {
+export function mix(hex: string, t: number): string {
   const h = hex.replace("#", "");
   if (!/^[0-9a-f]{6}$/i.test(h)) return hex;
   const c = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
@@ -164,8 +164,9 @@ const LAYER_KEY = "apsomh:map-assignment:layer";
 
 /* ── the country picker ── */
 
-export function CountryPicker({ list, cc, onPick }: { list: { cc: string; companies: number }[]; cc: string; onPick: (cc: string) => void }) {
-  return <CountryMenu list={list} cc={cc} onPick={onPick} label={countryName} />;
+/** The countries as a menu button; Europe first when the list starts with it (europeModel.ts EUROPE). */
+export function CountryPicker({ list, cc, onPick }: { list: { cc: string; companies: number | null }[]; cc: string; onPick: (cc: string) => void }) {
+  return <CountryMenu list={list} cc={cc} onPick={onPick} label={mapName} firstApart={list[0]?.cc === "EU"} />;
 }
 
 /* ── the map ── */
