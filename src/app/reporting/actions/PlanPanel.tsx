@@ -23,7 +23,7 @@ import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrow
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 
 import { FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { LIVE, S2S_CHOICES, actionMatches, rollup, subMatches, type PlanFields, type PlanFilter, type PlanItem, type PlanSub } from "@/lib/reporting/actionPlanRules";
+import { LIVE, S2S_CHOICES, actionMatches, rollup, subMatches, treeOrder, type PlanFields, type PlanFilter, type PlanItem, type PlanSub } from "@/lib/reporting/actionPlanRules";
 import { carriersOf, linkChanges, rowOf } from "@/lib/reporting/kpiLinks";
 import { Gantt, type GRow } from "@/app/action-plan/Gantt";
 import { AddForm, type TrackKpi } from "@/app/action-plan/AddDialog";
@@ -116,7 +116,8 @@ export function PlanPanel({ data, kpi, onTracked, reload, open, setOpen, adding,
   const rolled = useMemo(() => rollup(items, subs, today), [items, subs, today]);
   const colors = useMemo(() => {
     const byId = new Map(items.map((i) => [i.id, i]));
-    const topics = items.filter((i) => i.kind === "topic").sort((a, b) => a.sort - b.sort || a.id - b.id);
+    // in the plan's order, as the plan page colours them (a category in a main category keeps its colour, 07.11.2026)
+    const topics = treeOrder(items).filter((i) => i.kind === "topic");
     const own = new Map(topics.map((t, k) => [t.id, PROJECT_COLORS[k % PROJECT_COLORS.length] as string]));
     const out = new Map<number, string>();
     for (const i of items) {
@@ -246,7 +247,7 @@ export function PlanPanel({ data, kpi, onTracked, reload, open, setOpen, adding,
             <Button size="small" startIcon={<ArrowBackIcon sx={{ fontSize: 18 }} />} onClick={() => setAdding(null)} sx={{ textTransform: "none", fontWeight: 650, color: MUTED }}>Back to the plan</Button>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" }}>
-                {parent.kind === "action" ? "New sub-action of" : parent.kind === "goal" ? "New main category under" : `New in this ${parent.kind === "topic" ? "main category" : "sub-category"}`}
+                {parent.kind === "action" ? "New sub-action of" : parent.kind === "goal" ? "New main category under" : `New in this ${parent.kind === "topic" ? "category" : "sub-category"}`}
               </Typography>
               <Typography noWrap sx={{ fontSize: "0.98rem", fontWeight: 750, color: INK }}>{parent.title}</Typography>
             </Box>

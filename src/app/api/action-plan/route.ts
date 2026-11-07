@@ -14,7 +14,7 @@
 //   DELETE ?id=                                  a row and what is under it; its own sub-actions go too
 // Every change to the tree reaches HubSpot's three plan properties a few seconds later (actionPlanHubspot.ts).
 import { NextRequest, NextResponse } from "next/server";
-import { actionToSub, addItem, copySub, datesFromSubs, deleteItems, foldImportedOnce, foldNotes, itemById, lankarToClaudio, mainsFollowSubs, moveSub, orderSub, salesLeadersOnce, segmentationToTopOnce, subToAction, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
+import { actionToSub, addItem, copySub, datesFromSubs, deleteItems, foldImportedOnce, foldNotes, fourMainCategoriesOnce, itemById, lankarToClaudio, mainsFollowSubs, moveSub, orderSub, salesLeadersOnce, segmentationToTopOnce, subToAction, matchOwnersOnce, moveItem, planItems, planLog, subtree, updateItem } from "@/lib/reporting/actionPlan";
 import { savedHierarchy } from "@/lib/hierarchy/store";
 import { freshFromTickets, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { PRIORITIES, S2S_CHOICES, STAGES, subOrder, type Opt, type PlanFields, type PlanKind, type PlanOwner, type PlanSub } from "@/lib/reporting/actionPlanRules";
@@ -80,6 +80,8 @@ export async function GET(req: NextRequest) {
     await foldNotes(ticketed).catch((e) => console.error("[action-plan] KPIs and next steps not moved:", (e as Error).message));
     await lankarToClaudio().catch((e) => console.error("[action-plan] LANKAR not replaced:", (e as Error).message));
     await segmentationToTopOnce().catch((e) => console.error("[action-plan] row 661 not put first:", (e as Error).message));
+    // only four main categories, the other four in BOOST TOP LINE (07.11.2026) - HubSpot's category choices follow the order
+    if ((await fourMainCategoriesOnce().catch((e) => { console.error("[action-plan] four main categories not set:", (e as Error).message); return []; })).length) queuePlanSync("main categories moved");
     const before = await planTasks();
     await mainsFollowSubs().catch((e) => console.error("[action-plan] main actions not given their sub-actions' status:", (e as Error).message));
     await datesFromSubs(before).catch((e) => console.error("[action-plan] dates from sub-actions not set:", (e as Error).message));

@@ -586,8 +586,17 @@ export function rollup(items: PlanItem[], subs: PlanSub[], today: string): Map<n
 
 /* ── where a dragged row may land ───────────────────────────────────────── */
 
-/** What may hold what: an action sits in a topic or a group, a group in a topic, a topic under the goal. */
-const HOLDS: Record<PlanKind, PlanKind[]> = { goal: ["topic"], topic: ["group", "action"], group: ["action"], action: [] };
+/** What may hold what: an action sits in a topic or a group, a group in a topic, a topic under the goal - or in a main
+ *  category, one level deep: a third level (07.11.2026, the team via SARCLA: "il n'y a que 4 grandes catégories - les numéros 2 vont sous Boost top line"; SARCLA:
+   "main action should stay main action - a 3 level, don't transform current action in subaction") */
+const HOLDS: Record<PlanKind, PlanKind[]> = { goal: ["topic"], topic: ["topic", "group", "action"], group: ["action"], action: [] };
+
+/** A category in another: only in a MAIN category (one under the goal), and only one that holds no category itself. */
+function nestOk(items: PlanItem[], byId: Map<number, PlanItem>, drag: PlanItem, parent: PlanItem): boolean {
+  if (drag.kind !== "topic" || parent.kind !== "topic") return true;
+  const up = parent.parentId == null ? undefined : byId.get(parent.parentId);
+  return !!up && up.kind === "goal" && !items.some((i) => i.parentId === drag.id && i.kind === "topic");
+}
 
 /**
  * Drop `drag` on `target`: "into" puts it last inside the target, "before" just above it among the
@@ -601,7 +610,7 @@ export function reorder(items: PlanItem[], dragId: number, targetId: number, whe
   const parentId = where === "into" ? target.id : target.parentId;
   if (parentId == null) return null;
   const parent = byId.get(parentId);
-  if (!parent || !HOLDS[parent.kind].includes(drag.kind)) return null;
+  if (!parent || !HOLDS[parent.kind].includes(drag.kind) || !nestOk(items, byId, drag, parent)) return null;
   // never under itself
   for (let p: PlanItem | undefined = parent; p; p = p.parentId == null ? undefined : byId.get(p.parentId)) {
     if (p.id === drag.id) return null;

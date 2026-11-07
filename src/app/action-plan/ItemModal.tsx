@@ -42,6 +42,9 @@ import { KpiTrackingField, type TrackChoice } from "./KpiPicker";
 const section = { fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" } as const;
 const card = { display: "grid", rowGap: 1.75, columnGap: 1.25, p: 2, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, alignContent: "start" } as const;
 export const KIND_LABEL: Record<PlanKind, string> = { goal: "The goal", topic: "Main category", group: "Sub-category", action: "Action" };
+/** A row's kind as said: a category inside a main category is a "Category" (07.11.2026, four main categories). */
+const kindLabel = (row: PlanItem, items: PlanItem[]) =>
+  row.kind === "topic" && items.find((i) => i.id === row.parentId)?.kind === "topic" ? "Category" : KIND_LABEL[row.kind];
 const byOrder = (a: PlanItem, b: PlanItem) => a.sort - b.sort || a.id - b.id;
 /** A tag, square as the Gantt's. */
 const TAG = { flexShrink: 0, px: 0.6, borderRadius: "3px", fontSize: "0.66rem", fontWeight: 800, lineHeight: "17px" } as const;
@@ -191,7 +194,7 @@ function Tile({ row, r, items, color, onOpen, today }: { row: PlanItem; r: Rolle
           "&:focus-visible": { outline: `2px solid ${TINT.blue.fg}`, outlineOffset: 2 },
         }}>
         <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
-          <Box sx={{ ...TAG, bgcolor: action ? c.soft : "#eef1f6", color: action ? c.ink : MUTED }}>{action ? stageOf(row.stage)?.label ?? "No status" : KIND_LABEL[row.kind]}</Box>
+          <Box sx={{ ...TAG, bgcolor: action ? c.soft : "#eef1f6", color: action ? c.ink : MUTED }}>{action ? stageOf(row.stage)?.label ?? "No status" : kindLabel(row, items)}</Box>
           {prio && <Box sx={{ ...TAG, bgcolor: PRIORITY_COLOR[row.priority].bg, color: PRIORITY_COLOR[row.priority].fg }}>{prio}</Box>}
           {late > 0 && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>{action ? "LATE" : `${late} LATE`}</Box>}
         </Box>
@@ -259,7 +262,7 @@ function Everything({ item, items, rolledAll, colorOf, onOpen, onAdd }: {
           {(r?.late ?? 0) > 0 && <Box sx={{ ...TAG, bgcolor: "#fde7e7", color: LATE }}>{r!.late} LATE</Box>}
         </Box>
         {grid(inside.filter((i) => i.kind === "action"), row)}
-        {depth < 2 && inside.filter((i) => i.kind !== "action").map((g) => cluster(g, depth + 1))}
+        {depth < 3 && inside.filter((i) => i.kind !== "action").map((g) => cluster(g, depth + 1))}
         {!inside.length && !onAdd && <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>Nothing in it yet.</Typography>}
       </Box>
     );
@@ -271,14 +274,14 @@ function Everything({ item, items, rolledAll, colorOf, onOpen, onAdd }: {
   return (
     <Box sx={{ ...card, gap: 2 }}>
       <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
-        <Typography sx={{ ...section, flex: 1 }}>Everything in it · {all} action{all === 1 ? "" : "s"}{cats.length ? ` in ${cats.length} ${item.kind === "goal" ? "main categor" : "sub-categor"}${cats.length === 1 ? "y" : "ies"}` : ""}</Typography>
+        <Typography sx={{ ...section, flex: 1 }}>Everything in it · {all} action{all === 1 ? "" : "s"}{cats.length ? ` in ${cats.length} ${item.kind === "goal" ? "main categor" : cats.some((c) => c.kind === "topic") ? "categor" : "sub-categor"}${cats.length === 1 ? "y" : "ies"}` : ""}</Typography>
         <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>Left edge = status · click one to open it</Typography>
       </Box>
       {!inside.length && !onAdd && <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Nothing in it yet.</Typography>}
       {cats.map((g) => cluster(g, 1))}
       {(direct.length > 0 || onAdd) && (
         <Box sx={{ display: "grid", gap: 1 }}>
-          {cats.length > 0 && <Typography sx={{ fontSize: "0.82rem", color: MUTED, fontWeight: 700 }}>{direct.length ? `Directly in this ${KIND_LABEL[item.kind].toLowerCase()}` : `Add in this ${KIND_LABEL[item.kind].toLowerCase()}`}</Typography>}
+          {cats.length > 0 && <Typography sx={{ fontSize: "0.82rem", color: MUTED, fontWeight: 700 }}>{direct.length ? `Directly in this ${kindLabel(item, items).toLowerCase()}` : `Add in this ${kindLabel(item, items).toLowerCase()}`}</Typography>}
           {grid(direct, item)}
         </Box>
       )}
@@ -388,14 +391,19 @@ export function ItemModal({ item, items, rolledAll, subs, allSubs, canWrite, peo
   for (let p = item.parentId != null ? byId.get(item.parentId) : undefined; p && path.length < 8; p = p.parentId != null ? byId.get(p.parentId) : undefined) path.unshift(p);
   const places = useMemo(() => {
     if (item.kind === "goal" || item.kind === "topic") return [];
-    const out: { id: number; label: string; depth: number }[] = [];
-    const topics = items.filter((i) => i.kind === "topic").sort(byOrder);
-    for (const t of topics) {
-      out.push({ id: t.id, label: t.title, depth: 0 });
-      if (item.kind === "action") {
-        for (const g of items.filter((i) => i.parentId === t.id && i.kind === "group").sort(byOrder)) out.push({ id: g.id, label: g.title, depth: 1 });
+    // the plan's categories as its tree: a category in a main category one step in, its sub-categories one more (07.11.2026)
+    const out: { id: number; label: string; depth: number; kind: PlanKind }[] = [];
+    const seen = new Set<number>();
+    const walk = (parent: number | null, depth: number) => {
+      for (const c of items.filter((i) => i.parentId === parent).sort(byOrder)) {
+        if (seen.has(c.id)) continue;
+        seen.add(c.id);
+        if (c.kind === "goal") { walk(c.id, depth); continue; }
+        if (c.kind === "topic") { out.push({ id: c.id, label: c.title, depth, kind: c.kind }); walk(c.id, depth + 1); }
+        else if (c.kind === "group" && item.kind === "action") out.push({ id: c.id, label: c.title, depth, kind: c.kind });
       }
-    }
+    };
+    walk(null, 0);
     return out;
   }, [items, item.kind]);
   const done = subs.filter((s) => s.status === "done").length;
@@ -414,7 +422,7 @@ export function ItemModal({ item, items, rolledAll, subs, allSubs, canWrite, peo
       onChange={(e) => { const to = Number(e.target.value); if (to && to !== item.parentId) void onMoveTo(item, to).then(() => setTick((t) => t + 1)); }}
       sx={{ ...field, gridColumn: "1 / -1" }} slotProps={{ inputLabel: { shrink: true } }}>
       {places.map((p) => (
-        <MenuItem key={p.id} value={p.id} sx={{ fontSize: "0.86rem", pl: 2 + p.depth * 2.5, fontWeight: p.depth ? 500 : 700 }}>{p.label}</MenuItem>
+        <MenuItem key={p.id} value={p.id} sx={{ fontSize: "0.86rem", pl: 2 + p.depth * 2.5, fontWeight: p.depth === 0 ? 700 : p.kind === "topic" ? 650 : 500 }}>{p.label}</MenuItem>
       ))}
     </TextField>
   );
@@ -427,7 +435,7 @@ export function ItemModal({ item, items, rolledAll, subs, allSubs, canWrite, peo
         <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", flexWrap: { xs: "wrap", md: "nowrap" } }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-              {[KIND_LABEL[item.kind], item.code].filter(Boolean).join(" · ")}
+              {[kindLabel(item, items), item.code].filter(Boolean).join(" · ")}
               {path.filter((p) => p.kind !== "goal").length > 0 && <Box component="span" sx={{ textTransform: "none", letterSpacing: 0, fontWeight: 600 }}> · {path.filter((p) => p.kind !== "goal").map((p) => p.title).join(" › ")}</Box>}
             </Typography>
             <Title value={item.title} canWrite={canWrite} onSave={(v) => save({ title: v })} />

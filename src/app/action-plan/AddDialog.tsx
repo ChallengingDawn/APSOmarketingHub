@@ -323,7 +323,7 @@ export function AddDialog({ parent, people, choices, onPatch, onClose, onDone }:
       <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", px: 2.5, pt: 2, pb: 1.5, bgcolor: "#fff", borderBottom: `1px solid ${HAIRLINE}` }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: FAINT, textTransform: "uppercase", letterSpacing: "0.07em" }}>
-            {sub ? "New sub-action of" : parent.kind === "goal" ? "New main category under" : `New in this ${NAME[parent.kind]}`}
+            {sub ? "New sub-action of" : parent.kind === "goal" ? "New main category under" : `New in this ${parent.kind === "topic" ? "category" : NAME[parent.kind]}`}
           </Typography>
           <Typography sx={{ fontSize: "1.05rem", fontWeight: 750, color: INK, lineHeight: 1.3, mt: 0.25, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{parent.title}</Typography>
         </Box>

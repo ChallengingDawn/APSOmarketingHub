@@ -580,6 +580,33 @@ export async function segmentationToTopOnce(): Promise<boolean> {
   return ok;
 }
 
+/**
+ * Only four main categories (07.11.2026, the team via SARCLA: "Il n'y a que 4 grandes catégories. Les numéros 2 vont sous
+ * Boost top line"): the four marked 2 - Right availability, Marketing & automation, Reliable leadtime, APSOparts branding -
+ * go INTO "BOOST TOP LINE" whole, last in it and in their order. What is in them stays as it is: their sub-categories,
+ * actions and sub-actions (SARCLA: "main action should stay main action - don't transform current action in subaction").
+ * Once (kv flag); a category already moved, renamed or gone is left alone.
+ */
+export async function fourMainCategoriesOnce(): Promise<string[]> {
+  const KEY = "actionPlan:fix:four-main-categories";
+  if (await kvGet<boolean>(KEY)) return [];
+  await kvSet(KEY, true);
+  await ensure();
+  const items = await planItems();
+  const goal = items.find((i) => i.kind === "goal");
+  const main = items.filter((i) => i.kind === "topic" && !!goal && i.parentId === goal.id);
+  const boost = main.find((i) => /^\s*BOOST TOP LINE/i.test(i.title));
+  const moved: string[] = [];
+  if (boost) {
+    for (const re of [/^\s*RIGHT AVAILABILITY/i, /^\s*MARKETING\b.*AUTOMATION/i, /^\s*RELIABLE LEAD ?TIME/i, /^\s*Increase APSOparts branding/i]) {
+      const t = main.find((i) => i.id !== boost.id && re.test(i.title));
+      if (t && (await moveItem(t.id, boost.id, "into", "Four main categories (07.11.2026)"))) moved.push(`${t.id} ${t.title.slice(0, 40)}`);
+    }
+  }
+  console.log(`[action-plan] four main categories: ${moved.length} put into ${boost ? `row ${boost.id} "${boost.title.slice(0, 30)}"` : "- no BOOST TOP LINE found"}${moved.length ? `: ${moved.join(" | ")}` : ""}`);
+  return moved;
+}
+
 export async function addItem(a: { parentId: number; kind: PlanKind; title: string; by: string }): Promise<PlanItem> {
   await ensure();
   const parent = await itemById(a.parentId);

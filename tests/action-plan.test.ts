@@ -277,6 +277,25 @@ test("action plan: a dragged row lands only where it may", () => {
   assert.equal(reorder(items, 2, 3, "into"), null); // never under itself
 });
 
+test("action plan: a main category goes into another, one level deep - what is in it stays as it is", () => {
+  const items = [
+    it(1, null, "goal"), it(2, 1, "topic"), it(3, 2, "group"), it(4, 3, "action"),
+    it(6, 1, "topic"), it(7, 6, "group"), it(8, 6, "action"), it(9, 1, "topic"),
+  ];
+  assert.deepEqual(reorder(items, 6, 2, "into"), { parentId: 2, order: [3, 6] }); // last in it
+  const nested = items.map((i) => (i.id === 6 ? { ...i, parentId: 2 } : i));
+  assert.equal(reorder(nested, 9, 6, "into"), null); // not into a category that is itself in one
+  assert.equal(reorder(nested, 2, 9, "into"), null); // nor one that holds a category itself
+  assert.deepEqual(reorder(nested, 9, 2, "into"), { parentId: 2, order: [3, 6, 9] });
+  assert.deepEqual(reorder(nested, 6, 9, "before"), { parentId: 1, order: [2, 6, 9] }); // back to a main category, above one
+  assert.deepEqual(reorder(nested, 4, 6, "into"), { parentId: 6, order: [7, 8, 4] }); // an action into it, still an action
+  // an action in it says where it is: its own category, as before
+  assert.deepEqual(planValuesOf(8, nested), { mkt_plan_category: "6", mkt_plan_subcategory: "", mkt_plan_action: "8" });
+  // the main category's % counts the actions of the category in it
+  const done = nested.map((i) => (i.id === 8 ? { ...i, percent: 100 } : i.id === 4 ? { ...i, percent: 0 } : i));
+  assert.equal(rollup(done, [], "2026-11-07").get(2)?.percent, 50);
+});
+
 test("summit: the climb from the last full year to 30 M€ in 2031, this year as an estimate", () => {
   // round made-up figures, not the company's
   const full = [{ year: 2023, value: 18_000_000 }, { year: 2024, value: 19_000_000 }, { year: 2025, value: 20_000_000 }];

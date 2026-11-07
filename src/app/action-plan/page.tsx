@@ -23,7 +23,7 @@ import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined
 
 import { HomeBar } from "@/app/HomeBar";
 import { FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
-import { KILLED, LIVE, NOBODY, PRIORITIES, S2S_CHOICES, STAGES, actionMatches, dueSoon, isClosed, isFiltering, isLate, placeSub, reorder, rollup, searchWords, subClosed, subOrder, subsFound, ticketsShown, type PlanFields, type PlanFilter, type PlanItem, type PlanSub } from "@/lib/reporting/actionPlanRules";
+import { KILLED, LIVE, NOBODY, PRIORITIES, S2S_CHOICES, STAGES, actionMatches, dueSoon, isClosed, isFiltering, isLate, placeSub, reorder, rollup, searchWords, treeOrder, subClosed, subOrder, subsFound, ticketsShown, type PlanFields, type PlanFilter, type PlanItem, type PlanSub } from "@/lib/reporting/actionPlanRules";
 import { Gantt, type GRow, type Where, type Zoom } from "./Gantt";
 import { ItemModal } from "./ItemModal";
 import { AddDialog } from "./AddDialog";
@@ -128,10 +128,11 @@ function ActionPlan() {
     return m;
   }, [subs]);
   const rolled = useMemo(() => rollup(items, subs, today), [items, subs, today]);
-  // each main category's colour, carried by everything under it; the goal has none
+  // each category's colour, carried by everything under it; the goal has none - in the plan's order, so a category put
+  // into a main category keeps its colour (07.11.2026)
   const colors = useMemo(() => {
     const byId = new Map(items.map((i) => [i.id, i]));
-    const topics = items.filter((i) => i.kind === "topic").sort((a, b) => a.sort - b.sort || a.id - b.id);
+    const topics = treeOrder(items).filter((i) => i.kind === "topic");
     const own = new Map(topics.map((t, k) => [t.id, PROJECT_COLORS[k % PROJECT_COLORS.length] as string]));
     const out = new Map<number, string>();
     for (const i of items) {
@@ -352,6 +353,8 @@ function ActionPlan() {
       return where === "sub" ? target.item.kind === "action" && target.item.id !== drag.parent.id : where === "into" && (target.item.kind === "group" || target.item.kind === "topic");
     }
     if (!data?.canWrite || drag.type !== "item" || drag.key === target.key) return false;
+    // a category goes into a category or above one, never by an action
+    if (drag.item.kind === "topic" && (target.type !== "item" || target.item.kind === "action")) return false;
     // an action onto another action: it becomes its sub-action
     if (where === "sub") return target.type === "item" && drag.item.kind === "action" && target.item.kind === "action";
     return target.type === "item" && where !== "after" && reorder(items, drag.item.id, target.item.id, where) != null;
@@ -426,10 +429,19 @@ function ActionPlan() {
       await load();
       return;
     }
+    // a category moves with everything in it: asked first, in two short lines (07.11.2026)
+    const to = where === "into" ? target.item : items.find((x) => x.id === target.item.parentId);
+    if (drag.item.kind === "topic" && to) {
+      const q = to.id === drag.item.parentId ? `Move it ${where === "before" ? `above “${cut(target.item.title)}”` : "to the end"}?`
+        : to.kind === "goal" ? "Make it a MAIN CATEGORY of its own? Everything in it goes with it."
+          : `Put it INTO “${cut(to.title)}”? Everything in it goes with it - its actions stay actions.`;
+      if (!confirm(`${q}\n\n“${cut(drag.item.title)}”`)) return;
+    }
     try {
       await send("/api/action-plan", "POST", { action: "move", id: drag.item.id, target: target.item.id, where });
       setNote(null);
       if (where === "into") setCollapsed((c) => { const n = new Set(c); n.delete(target.key); return n; });
+      if (drag.item.kind === "topic" && to && to.id !== drag.item.parentId) setSaid(to.kind === "goal" ? `“${cut(drag.item.title)}” is a main category now` : `“${cut(drag.item.title)}” is in “${cut(to.title)}” now`);
       show(drag.item.id);
     } catch (e) { setNote(`Not moved: ${(e as Error).message}`); }
     await load();
@@ -569,7 +581,7 @@ function ActionPlan() {
           onDuplicate={(s, parent) => setDupFor({ sub: s, parent })} hidden={hidden} onHide={hide} />
       )}
       <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
-        Drag a row by its handle onto another main category or sub-category - an action dropped on another action becomes its sub-action, on its top edge it goes before it; a sub-action dropped above or below another takes that place (the closed ones stay at the end), dropped on another action it moves there (Ctrl held: a copy goes there), on a category it becomes an action again, and the copy icon on its row duplicates it onto another action - the same ticket, not a new one; the + beside a row adds what goes under it - a sub-action under an action, an action in a category - and the eye hides a row (Hidden rows shows them again); drag a bar to move its dates, its right end to change the go-live date.
+        Drag a row by its handle onto another main category or sub-category - a category dropped on a main category goes into it with everything in it, on a category's top edge it goes above it; an action dropped on another action becomes its sub-action, on its top edge it goes before it; a sub-action dropped above or below another takes that place (the closed ones stay at the end), dropped on another action it moves there (Ctrl held: a copy goes there), on a category it becomes an action again, and the copy icon on its row duplicates it onto another action - the same ticket, not a new one; the + beside a row adds what goes under it - a sub-action under an action, an action in a category - and the eye hides a row (Hidden rows shows them again); drag a bar to move its dates, its right end to change the go-live date.
         A bar runs from the planned date to the go-live date, a diamond is an action with only a go-live date, a square a sub-action. The statuses and priorities are the &ldquo;From Scroll to Sale&rdquo; pipeline&apos;s.
       </Typography>
 

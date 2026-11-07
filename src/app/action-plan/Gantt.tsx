@@ -300,7 +300,15 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
       return e.clientY - box.top > box.height / 2 ? "after" : "before";
     }
     if (drag?.type === "sub") return r.type === "item" && r.item.kind === "action" ? "sub" : "into";
-    if (r.type === "item" && r.item.kind !== "action") return "into";
+    // a category onto one of its kind: on the row's top edge above it, else into it (a main category into another - a
+    // third level, 07.11.2026)
+    if (r.type === "item" && r.item.kind !== "action") {
+      if (drag?.type === "item" && drag.item.kind === r.item.kind) {
+        const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        if (e.clientY - box.top < box.height * 0.35) return "before";
+      }
+      return "into";
+    }
     if (r.type === "item" && drag?.type === "item" && drag.item.kind === "action") {
       const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
       if (e.clientY - box.top > box.height * 0.35) return "sub";
@@ -385,7 +393,7 @@ export function Gantt({ rows, rolled, today, zoom, canWrite, collapsed, toggle, 
               selected={(r.type === "item" && r.item.id === selected) || lit === r.key} onOpen={onOpen} onSubs={onSubs} onOpenSub={onOpenSub} onPatch={onPatch} onTrack={onTrack}
               dragging={drag?.key === r.key} over={over?.key === r.key ? over.where : null} copying={over?.key === r.key && over.copy}
               pick={pick && pick.can(r) ? { on: pick.on(r), toggle: () => pick.toggle(r), note: pick.note?.(r) } : undefined}
-              draggable={!pick && canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group")) || r.type === "sub")}
+              draggable={!pick && canWrite && ((r.type === "item" && (r.item.kind === "action" || r.item.kind === "group" || r.item.kind === "topic")) || r.type === "sub")}
               onDragStart={() => setDrag(r)} onDragEnd={() => { setDrag(null); setOver(null); }}
               onDragOver={(e) => {
                 if (!drag) return;
