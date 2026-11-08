@@ -36,6 +36,8 @@ export type Piece = {
   versions: number;
   lastVersionAt: string | null;
   lastVersionBy: string | null;
+  /** Its Action plan sub-action (apsomh_kpi_tasks.id), which carries its ticket. */
+  taskId: number | null;
 };
 
 export type ContentEvent = {
@@ -78,6 +80,8 @@ export function ensureWorkflow(): Promise<void> {
     await query(`CREATE INDEX IF NOT EXISTS idx_apsomh_content_pieces_writer ON apsomh_content_pieces(writer)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_apsomh_content_pieces_reviewer ON apsomh_content_pieces(reviewer)`);
     await query(`ALTER TABLE apsomh_content ADD COLUMN IF NOT EXISTS piece_id INTEGER`);
+    // a piece IS a to-do (08.11.2026): its Action plan sub-action, the row of apsomh_kpi_tasks that carries its ticket
+    await query(`ALTER TABLE apsomh_content_pieces ADD COLUMN IF NOT EXISTS task_id INTEGER`);
     await query(`
       CREATE TABLE IF NOT EXISTS apsomh_content_events (
         id SERIAL PRIMARY KEY,
@@ -106,16 +110,17 @@ export function cleanBrief(v: unknown): Brief {
 type PieceRow = {
   id: number; project_id: number; content_type: string | null; language: string | null; title: string;
   writer: string | null; reviewer: string | null; status: string; due_iso: string | null;
-  versions: string; last_at: Date | null; last_by: string | null;
+  versions: string; last_at: Date | null; last_by: string | null; task_id: number | null;
 };
 const toPiece = (r: PieceRow): Piece => ({
   id: r.id, projectId: r.project_id, contentType: r.content_type, language: r.language, title: r.title,
   writer: r.writer, reviewer: r.reviewer, status: isPieceStatus(r.status) ? r.status : "todo", dueDate: r.due_iso,
   versions: Number(r.versions ?? 0), lastVersionAt: r.last_at ? new Date(r.last_at).toISOString() : null, lastVersionBy: r.last_by,
+  taskId: r.task_id ?? null,
 });
 
 const PIECE_SELECT = `
-  SELECT pc.id, pc.project_id, pc.content_type, pc.language, pc.title, pc.writer, pc.reviewer, pc.status,
+  SELECT pc.id, pc.project_id, pc.content_type, pc.language, pc.title, pc.writer, pc.reviewer, pc.status, pc.task_id,
          TO_CHAR(pc.due_date, 'YYYY-MM-DD') AS due_iso,
          (SELECT COUNT(*) FROM apsomh_content c WHERE c.piece_id = pc.id) AS versions,
          (SELECT MAX(c.created_at) FROM apsomh_content c WHERE c.piece_id = pc.id) AS last_at,
@@ -381,4 +386,40 @@ export async function waitingFor(me: Me): Promise<Waiting[]> {
     });
   }
   return out;
+}
+
+export async function setPieceTask(pieceId: number, taskId: number | null): Promise<void> {
+  await ensureWorkflow();
+  await query(`UPDATE apsomh_content_pieces SET task_id = $2 WHERE id = $1`, [pieceId, taskId]);
+}
+
+/** A piece for a sub-action met without one (a to-do from before pieces were to-dos). */
+export async function addPieceForTask(p: { projectId: number; taskId: number; title: string; status: PieceStatus; writer: string | null; dueDate: string | null; by: string }): Promise<void> {
+  await ensureWorkflow();
+  await query(
+    `INSERT INTO apsomh_content_pieces (project_id, content_type, title, writer, status, due_date, task_id, sort, created_by)
+     VALUES ($1, 'task', $2, $3, $4, $5::date, $6, COALESCE((SELECT MAX(sort) + 1 FROM apsomh_content_pieces WHERE project_id = $1), 0), $7)`,
+    [p.projectId, p.title, p.writer, p.status, p.dueDate, p.taskId, p.by],
+  );
+}
+
+/**
+ * The project's head for its page, light: the project row and its comments - never every version's body
+ * (getProject reads them all, and the page does not show them).
+ */
+export async function projectHead(id: number): Promise<{
+  project: { id: number; title: string; brief: string | null; createdBy: string | null; contentType: string | null; dueDate: string | null; status: string };
+  comments: { id: number; author: string; body: string; createdAt: string }[];
+} | null> {
+  await ensureWorkflow();
+  const p = await query<{ id: number; title: string; brief: string | null; created_by: string | null; content_type: string | null; due_iso: string | null; status: string }>(
+    `SELECT id, title, brief, created_by, content_type, status, TO_CHAR(due_date, 'YYYY-MM-DD') AS due_iso FROM apsomh_content_projects WHERE id = $1`, [id]);
+  const r = p.rows[0];
+  if (!r) return null;
+  const c = await query<{ id: number; author: string; body: string; created_at: Date }>(
+    `SELECT id, author, body, created_at FROM apsomh_content_comments WHERE project_id = $1 ORDER BY created_at DESC LIMIT 300`, [id]);
+  return {
+    project: { id: r.id, title: r.title, brief: r.brief, createdBy: r.created_by, contentType: r.content_type, dueDate: r.due_iso, status: r.status },
+    comments: c.rows.map((x) => ({ id: x.id, author: x.author, body: x.body, createdAt: new Date(x.created_at).toISOString() })),
+  };
 }

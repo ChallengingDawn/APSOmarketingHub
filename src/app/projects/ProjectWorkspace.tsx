@@ -1,69 +1,36 @@
 "use client";
-// ONE CONTENT PROJECT AS THE TEAM'S WORK (SARCLA 07.11.2026: "this should look like a collaborative project").
+// ONE CONTENT PROJECT AS THE TEAM'S WORK (SARCLA 07.11.2026: "this should look like a collaborative project"; 08.11:
+// "for me a piece is a to-do", "the interface feels slow and it's not dynamic").
 //
-//   the head      what it is, where it stands (its pieces decide), who is on it, its place in the action plan
-//   the brief     one shared page everybody writes against
-//   the pieces    what it puts out - each with a writer, a reviewer, a status and a date; the reviewer approves or asks
-//                 for changes, and the people concerned get a mail
-//   the to-dos    Action plan sub-actions, each with its Scroll to Sale ticket made here or linked
-//   conversation  comments and everything that happened, in one stream; "@Name" tags someone and mails them
-// The studio and every version stay one click away ("Versions" on a piece).
+//   the head          what it is, where it stands (its to-dos decide), who is on it
+//   the brief         one shared page everybody writes against
+//   the to-dos        every piece of content and every task, each an Action plan sub-action with its ticket (TodoList)
+//   the conversation  comments and everything that happened; "@Name" tags someone and mails them
+// Every change shows at once and is saved behind it (act); the page reads the database only, and the tickets come from
+// HubSpot after it is drawn.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Autocomplete from "@mui/material/Autocomplete";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import Checkbox from "@mui/material/Checkbox";
-import Dialog from "@mui/material/Dialog";
-import DialogActions from "@mui/material/DialogActions";
-import DialogContent from "@mui/material/DialogContent";
-import DialogTitle from "@mui/material/DialogTitle";
-import IconButton from "@mui/material/IconButton";
-import MenuItem from "@mui/material/MenuItem";
+import Skeleton from "@mui/material/Skeleton";
 import TextField from "@mui/material/TextField";
-import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import ChecklistOutlinedIcon from "@mui/icons-material/ChecklistOutlined";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import CheckIcon from "@mui/icons-material/Check";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
-import LayersOutlinedIcon from "@mui/icons-material/LayersOutlined";
-import LinkOffIcon from "@mui/icons-material/LinkOff";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
-import CheckIcon from "@mui/icons-material/Check";
 
 import { Chip } from "@/app/connectors/parts";
 import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, Notice } from "@/app/uc/report/ui";
-import { TicketFields, field, type TicketsAnswer } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
-import { CONTENT_TYPES } from "@/lib/content/contentTypes";
-import { LANGUAGES } from "@/lib/content/languages";
-import { STAGES, STAGE_LABEL, STATUS_LABEL, moveError, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
+import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
+import { STAGES, STAGE_LABEL, STATUS_LABEL, stageOf, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
 import ShareDialog from "./ShareDialog";
-import { Face, Faces, PINK, PersonPick, STAGE_DOT, StageChip, StatusChip, dayLabel, dueSoon, postWork, type PersonOpt } from "./work/ui";
-
-type Piece = {
-  id: number; contentType: string | null; language: string | null; title: string; writer: string | null; reviewer: string | null;
-  status: PieceStatus; dueDate: string | null; versions: number; lastVersionAt: string | null; lastVersionBy: string | null;
-};
-type Brief = { goal: string; audience: string; message: string; keywords: string[]; channels: string[] };
-type EventRow = { id: number; pieceId: number | null; actor: string; kind: string; detail: Record<string, unknown>; createdAt: string };
-type CommentRow = { id: number; author: string; body: string; createdAt: string };
-type Todo = {
-  id: number; title: string; done: boolean; stageLabel: string; assignee: string | null; assigneeName: string; due: string | null;
-  ticket: { id: string; subject: string; stageLabel: string; open: boolean; url: string } | null; takesTicket: boolean;
-};
-type Place = { id: number; title: string; path: string; dg: boolean };
-type Member = { username: string; name: string; role: string };
-type Work = {
-  ok: boolean; error?: string; me: string; isAdmin: boolean; access: { role: string; canEdit: boolean; canComment: boolean; canShare: boolean };
-  project: { id: number; title: string; brief: string | null; createdBy: string | null; contentType: string | null; dueDate: string | null };
-  comments: CommentRow[]; pieces: Piece[]; events: EventRow[]; brief: Brief; source: string | null; stage: Stage;
-  members: Member[]; todos: Todo[]; place: Place | null; ticketsError: string | null; people: PersonOpt[];
-};
+import TodoList, { type Act } from "./work/TodoList";
+import { Face, Faces, PINK, STAGE_DOT, StageChip, dayLabel, postWork } from "./work/ui";
+import type { Brief, EventRow, PersonOpt, Tickets, Work } from "./work/types";
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const btn = { textTransform: "none" as const, fontWeight: 600, borderRadius: "10px", whiteSpace: "nowrap" as const };
@@ -71,18 +38,19 @@ const mainBtn = { ...btn, bgcolor: PINK, "&:hover": { bgcolor: "#a3245c" } };
 
 /** The line an event leaves in the stream. */
 function eventLine(e: EventRow, name: (u: string) => string): string | null {
-  const d = e.detail as Record<string, string | null | undefined>;
+  const d = e.detail as Record<string, string | boolean | null | undefined>;
+  const s = (k: string) => (typeof d[k] === "string" ? (d[k] as string) : "");
   switch (e.kind) {
-    case "status": return `moved ${d.piece ?? "a piece"} to ${STATUS_LABEL[(d.to ?? "todo") as PieceStatus] ?? d.to}`;
-    case "assign": return `asked ${name(d.to ?? "")} to ${d.role === "reviewer" ? "review" : "write"} ${d.piece ?? "a piece"}`;
-    case "piece": return `added ${d.piece ?? "a piece"}`;
-    case "piece-removed": return `removed ${d.piece ?? "a piece"}`;
-    case "stage": return `moved the project to ${STAGE_LABEL[(d.to ?? "planned") as Stage] ?? d.to}`;
+    case "status": return `moved ${s("piece") || "a to-do"} to ${STATUS_LABEL[(s("to") || "todo") as PieceStatus] ?? s("to")}`;
+    case "assign": return `asked ${name(s("to"))} to ${s("role") === "reviewer" ? "review" : "do"} ${s("piece") || "a to-do"}`;
+    case "piece": return `added ${s("piece") || "a to-do"}`;
+    case "piece-removed": return `removed ${s("piece") || "a to-do"}`;
+    case "stage": return `moved the project to ${STAGE_LABEL[(s("to") || "planned") as Stage] ?? s("to")}`;
     case "brief": return "changed the brief";
     case "place": return d.planItem ? "placed the project in the action plan" : "took the project out of the action plan";
-    case "todo": return `added the to-do “${d.todo}”${d.to ? ` for ${name(d.to)}` : ""}`;
-    case "todo-done": return `ticked off “${d.todo}”`;
-    case "todo-open": return `opened “${d.todo}” again`;
+    case "ticket": return `${d.made ? "made" : "linked"} the ticket of ${s("piece") || "a to-do"}`;
+    case "todo": return `added the to-do “${s("todo")}”`;
+    case "todo-done": return `ticked off “${s("todo")}”`;
     default: return null;
   }
 }
@@ -111,7 +79,9 @@ function Composer({ people, onSend }: { people: PersonOpt[]; onSend: (text: stri
   const send = async () => {
     if (!text.trim()) return;
     setBusy(true);
-    if (await onSend(text.trim())) setText("");
+    const t = text.trim();
+    setText("");
+    if (!(await onSend(t))) setText(t);
     setBusy(false);
   };
   return (
@@ -136,15 +106,14 @@ function Composer({ people, onSend }: { people: PersonOpt[]; onSend: (text: stri
   );
 }
 
-function BriefCard({ w, onSaved, setErr }: { w: Work; onSaved: () => void; setErr: (e: string | null) => void }) {
+function BriefCard({ w, act }: { w: Work; act: Act }) {
   const [edit, setEdit] = useState(false);
   const [b, setB] = useState<Brief>(w.brief);
-  useEffect(() => setB(w.brief), [w.brief]);
+  useEffect(() => { if (!edit) setB(w.brief); }, [w.brief, edit]);
   const empty = !w.brief.goal && !w.brief.audience && !w.brief.message && !w.brief.keywords.length && !w.brief.channels.length;
   const save = async () => {
-    const r = await postWork(w.project.id, { action: "brief", brief: b });
-    if (!r.ok) return setErr(r.error ?? "The brief did not save.");
-    setEdit(false); onSaved();
+    setEdit(false);
+    await act({ action: "brief", brief: b }, (x) => ({ ...x, brief: b }));
   };
   const row = (label: string, value: React.ReactNode) => (
     <Box><Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: MUTED }}>{label}</Typography>
@@ -182,276 +151,52 @@ function BriefCard({ w, onSaved, setErr }: { w: Work; onSaved: () => void; setEr
   );
 }
 
-/** The buttons a piece offers this person now - only the moves the rules allow them. */
-function moves(p: Piece, w: Work): { to: PieceStatus; label: string; main?: boolean; note?: boolean }[] {
-  const who = { username: w.me, canEdit: w.access.canEdit, lead: w.isAdmin || w.project.createdBy === w.me };
-  const all: { to: PieceStatus; label: string; main?: boolean; note?: boolean }[] =
-    p.status === "todo" ? [{ to: "writing", label: "Start writing" }, { to: "review", label: "Ask for review", main: true }]
-      : p.status === "writing" || p.status === "changes" ? [{ to: "review", label: "Ask for review", main: true }]
-        : p.status === "review" ? [{ to: "approved", label: "Approve", main: true }, { to: "changes", label: "Ask for changes", note: true }]
-          : p.status === "approved" ? [{ to: "live", label: "Mark live", main: true }, { to: "writing", label: "Reopen" }]
-            : [{ to: "writing", label: "Reopen" }];
-  return all.filter((m) => !moveError(p, m.to, who) || (m.to === "review" && !p.reviewer && w.access.canEdit));
-}
-
-function PiecesCard({ w, reload, setErr }: { w: Work; reload: () => void; setErr: (e: string | null) => void }) {
-  const [adding, setAdding] = useState(false);
-  const [np, setNp] = useState({ contentType: w.project.contentType ?? "landing-page", language: "DE", writer: null as string | null, reviewer: null as string | null, dueDate: "" });
-  const [asking, setAsking] = useState<{ piece: Piece; to: PieceStatus } | null>(null);
-  const [note, setNote] = useState("");
-  const canEdit = w.access.canEdit;
-  const send = async (body: Record<string, unknown>) => {
-    const r = await postWork(w.project.id, body);
-    if (!r.ok) setErr(r.error ?? "That did not save."); else { setErr(null); reload(); }
-    return r.ok;
-  };
-  const move = (p: Piece, to: PieceStatus, withNote?: string) => send({ action: "piece-move", pieceId: p.id, to, note: withNote ?? null });
-
+/** While the project is read: the page's shape, not a sentence. */
+function Loading() {
   return (
-    <GlassCard>
-      <CardTitle icon={<LayersOutlinedIcon />} tint="blue" title="Pieces" note="What this project puts out, and who does each one"
-        right={canEdit ? <Button size="small" startIcon={<AddIcon />} onClick={() => setAdding((a) => !a)} sx={btn}>Add a piece</Button> : undefined} />
-      {adding && (
-        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.25, alignItems: "center", mb: 2, p: 1.5, borderRadius: "14px", bgcolor: "rgba(255,255,255,.7)", border: `1px solid ${HAIRLINE}` }}>
-          <TextField select size="small" label="Piece" value={np.contentType} onChange={(e) => setNp({ ...np, contentType: e.target.value })} sx={{ ...field, minWidth: 200 }}>
-            {CONTENT_TYPES.map((t) => <MenuItem key={t.key} value={t.key}>{t.label}</MenuItem>)}
-          </TextField>
-          <TextField select size="small" label="Language" value={np.language} onChange={(e) => setNp({ ...np, language: e.target.value })} sx={{ ...field, minWidth: 130 }}>
-            {LANGUAGES.map((l) => <MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>)}
-          </TextField>
-          <PersonPick label="Writes" value={np.writer} onChange={(u) => setNp({ ...np, writer: u })} people={w.people} />
-          <PersonPick label="Reviews" value={np.reviewer} onChange={(u) => setNp({ ...np, reviewer: u })} people={w.people} />
-          <TextField size="small" type="date" label="Due" value={np.dueDate} onChange={(e) => setNp({ ...np, dueDate: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} sx={{ ...field, width: 160 }} />
-          <Button variant="contained" disableElevation sx={mainBtn}
-            onClick={async () => { if (await send({ action: "piece-add", ...np, dueDate: np.dueDate || null })) setAdding(false); }}>Add</Button>
+    <Box sx={{ display: "grid", gap: 2.25 }}>
+      <Skeleton variant="rounded" height={150} sx={{ borderRadius: "22px" }} />
+      <Box sx={{ display: "flex", gap: 2.25, flexWrap: "wrap" }}>
+        <Box sx={{ flex: "999 1 620px", display: "grid", gap: 2.25 }}>
+          <Skeleton variant="rounded" height={180} sx={{ borderRadius: "22px" }} />
+          <Skeleton variant="rounded" height={320} sx={{ borderRadius: "22px" }} />
         </Box>
-      )}
-      {w.pieces.length === 0 ? (
-        <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>No piece yet. Add what this project puts out - a landing page, a post, the ads - and who writes and reviews each.</Typography>
-      ) : (
-        <Box sx={{ display: "grid" }}>
-          {w.pieces.map((p) => (
-            // one row per piece, wrapping on a narrow screen - never a table that scrolls its names out of sight
-            <Box key={p.id} id={`piece-${p.id}`} sx={{ py: 1.5, borderTop: `1px solid ${HAIRLINE}`, display: "grid", gap: 1.1, "&:target": { bgcolor: "#fff7e8", borderRadius: "12px", px: 1 } }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap" }}>
-                <Box sx={{ flex: "1 1 220px", minWidth: 0 }}>
-                  <Typography sx={{ fontSize: "0.95rem", fontWeight: 650 }}>{p.title}</Typography>
-                  <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
-                    {p.versions ? `${p.versions} version${p.versions === 1 ? "" : "s"}${p.lastVersionAt ? ` · last ${when(p.lastVersionAt)}` : ""}` : "No version yet"}
-                  </Typography>
-                </Box>
-                <StatusChip status={p.status} />
-                {canEdit ? (
-                  <TextField size="small" type="date" label="Due" value={p.dueDate ?? ""} slotProps={{ inputLabel: { shrink: true } }}
-                    sx={{ ...field, width: 160, "& input": { color: dueSoon(p.dueDate) && p.status !== "live" ? "#c5221f" : INK } }}
-                    onChange={(e) => send({ action: "piece-edit", pieceId: p.id, dueDate: e.target.value || null })} />
-                ) : p.dueDate ? <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>Due {dayLabel(p.dueDate)}</Typography> : null}
-              </Box>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                {canEdit ? (
-                  <>
-                    <PersonPick label="Writes" value={p.writer} onChange={(u) => send({ action: "piece-edit", pieceId: p.id, writer: u })} people={w.people} />
-                    <PersonPick label="Reviews" value={p.reviewer} onChange={(u) => send({ action: "piece-edit", pieceId: p.id, reviewer: u })} people={w.people} />
-                  </>
-                ) : (
-                  <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>
-                    Writes <b style={{ color: INK }}>{p.writer ? w.people.find((x) => x.username === p.writer)?.name ?? p.writer : "nobody yet"}</b>
-                    {" · "}Reviews <b style={{ color: INK }}>{p.reviewer ? w.people.find((x) => x.username === p.reviewer)?.name ?? p.reviewer : "nobody yet"}</b>
-                  </Typography>
-                )}
-                <Box sx={{ ml: "auto", display: "inline-flex", gap: 0.75, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  {moves(p, w).map((m) => (
-                    <Button key={m.to} size="small" variant={m.main ? "contained" : "outlined"} disableElevation sx={m.main ? (m.to === "approved" ? { ...btn, bgcolor: "#1b7a55", "&:hover": { bgcolor: "#155c40" } } : mainBtn) : btn}
-                      onClick={() => (m.note ? (setNote(""), setAsking({ piece: p, to: m.to })) : m.to === "review" && !p.reviewer ? setErr("Give it a reviewer first.") : move(p, m.to))}>{m.label}</Button>
-                  ))}
-                  <Button size="small" component={Link} href={`/projects/${w.project.id}/versions?piece=${p.id}`} sx={btn}>Versions</Button>
-                  {canEdit && <Button size="small" component={Link} href={`/create?project=${w.project.id}&piece=${p.id}${p.contentType ? `&type=${p.contentType}` : ""}`} sx={btn}>Write it</Button>}
-                  {canEdit && (
-                    <Tooltip title="Remove the piece (its versions stay in the project)">
-                      <IconButton size="small" aria-label={`Remove ${p.title}`} onClick={() => send({ action: "piece-remove", pieceId: p.id })}><DeleteOutlineIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                  )}
-                </Box>
-              </Box>
-            </Box>
-          ))}
-        </Box>
-      )}
-      <Dialog open={!!asking} onClose={() => setAsking(null)} fullWidth maxWidth="sm">
-        <DialogTitle sx={{ fontWeight: 700 }}>What should change in {asking?.piece.title}?</DialogTitle>
-        <DialogContent sx={{ pt: "8px !important" }}>
-          <TextField autoFocus fullWidth multiline minRows={4} value={note} onChange={(e) => setNote(e.target.value)} sx={field}
-            placeholder="The writer gets this in a mail, and it stays in the conversation." />
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setAsking(null)} sx={btn}>Cancel</Button>
-          <Button variant="contained" disableElevation disabled={!note.trim()} sx={mainBtn}
-            onClick={async () => { if (asking && (await move(asking.piece, asking.to, note.trim()))) setAsking(null); }}>Send it back</Button>
-        </DialogActions>
-      </Dialog>
-    </GlassCard>
-  );
-}
-
-type Found = { id: string; subject: string; stageLabel: string; ownerName: string; url: string };
-
-/** A to-do's ticket: a new one, filled from the action as the plan fills it, or an existing one of From Scroll to Sale. */
-function TicketDialog({ projectId, todo, onClose, onDone }: { projectId: number; todo: Todo | null; onClose: () => void; onDone: () => void }) {
-  const [mode, setMode] = useState<"new" | "link">("new");
-  const [draft, setDraft] = useState<{ form: TicketsAnswer["form"]; values: Record<string, string> } | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [q, setQ] = useState("");
-  const [found, setFound] = useState<Found[] | null>(null);
-  useEffect(() => {
-    if (!todo) return;
-    setMode("new"); setDraft(null); setErr(null); setFound(null); setQ(todo.title);
-    fetch(`/api/content/projects/${projectId}/work?ticketDraft=${todo.id}`).then((r) => r.json())
-      .then((j) => (j.ok ? setDraft({ form: j.form, values: j.values }) : setErr(j.error ?? "The ticket form could not be read.")))
-      .catch((e) => setErr(String(e)));
-  }, [todo, projectId]);
-  const search = async () => {
-    setBusy(true);
-    const j = await fetch(`/api/content/projects/${projectId}/work?search=${encodeURIComponent(q)}&state=all`).then((r) => r.json()).catch(() => null);
-    setBusy(false);
-    if (!j?.ok) return setErr(j?.error ?? "The search did not answer.");
-    setFound(j.tickets);
-  };
-  const act = async (body: Record<string, unknown>) => {
-    setBusy(true); setErr(null);
-    const r = await postWork(projectId, { ...body, todoId: todo!.id });
-    setBusy(false);
-    if (!r.ok) return setErr(r.error ?? "That did not work.");
-    onDone();
-  };
-  return (
-    <Dialog open={!!todo} onClose={busy ? undefined : onClose} fullWidth maxWidth="md">
-      <DialogTitle sx={{ fontWeight: 700 }}>A ticket for “{todo?.title}”</DialogTitle>
-      <DialogContent sx={{ display: "grid", gap: 2, pt: "8px !important" }}>
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <Button variant={mode === "new" ? "contained" : "outlined"} disableElevation onClick={() => setMode("new")} sx={mode === "new" ? mainBtn : btn}>New ticket</Button>
-          <Button variant={mode === "link" ? "contained" : "outlined"} disableElevation onClick={() => setMode("link")} sx={mode === "link" ? mainBtn : btn}>Link an existing one</Button>
-        </Box>
-        <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>The ticket is the to-do's in From Scroll to Sale, under the project's action in the plan; the hub keeps the two in step.</Typography>
-        {err && <Notice tone="bad">{err}</Notice>}
-        {mode === "new" && draft && (
-          <TicketFields form={draft.form} values={draft.values} set={(k, v) => setDraft((d) => (d ? { ...d, values: { ...d.values, [k]: v } } : d))} />
-        )}
-        {mode === "new" && !draft && !err && <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>Filling the ticket from the action…</Typography>}
-        {mode === "link" && (
-          <Box sx={{ display: "grid", gap: 1.25 }}>
-            <Box sx={{ display: "flex", gap: 1 }}>
-              <TextField size="small" fullWidth label="Search the tickets" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void search(); }} sx={field} />
-              <Button variant="outlined" onClick={search} disabled={busy} sx={btn}>Search</Button>
-            </Box>
-            {found?.length === 0 && <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>No ticket matches.</Typography>}
-            {found?.map((t) => (
-              <Box key={t.id} sx={{ display: "flex", alignItems: "center", gap: 1.25, p: 1.25, borderRadius: "12px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff" }}>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography sx={{ fontSize: "0.9rem", fontWeight: 600 }}>{t.subject}</Typography>
-                  <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{t.stageLabel}{t.ownerName ? ` · ${t.ownerName}` : ""} · #{t.id}</Typography>
-                </Box>
-                <Button size="small" variant="contained" disableElevation disabled={busy} onClick={() => act({ action: "ticket-link", ticketId: t.id })} sx={mainBtn}>Link it</Button>
-              </Box>
-            ))}
-          </Box>
-        )}
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={onClose} disabled={busy} sx={btn}>Close</Button>
-        {mode === "new" && <Button variant="contained" disableElevation disabled={busy || !draft} onClick={() => act({ action: "ticket-create", values: draft!.values })} sx={mainBtn}>{busy ? "Making it…" : "Make the ticket"}</Button>}
-      </DialogActions>
-    </Dialog>
-  );
-}
-
-function TodosCard({ w, reload, setErr }: { w: Work; reload: () => void; setErr: (e: string | null) => void }) {
-  const [title, setTitle] = useState("");
-  const [who, setWho] = useState<string | null>(null);
-  const [due, setDue] = useState("");
-  const [ticketFor, setTicketFor] = useState<Todo | null>(null);
-  const [places, setPlaces] = useState<Place[] | null>(null);
-  const canEdit = w.access.canEdit;
-  const send = async (body: Record<string, unknown>) => {
-    const r = await postWork(w.project.id, body);
-    if (!r.ok) setErr(r.error ?? "That did not save."); else { setErr(null); reload(); }
-    return r.ok;
-  };
-  useEffect(() => {
-    if (!w.isAdmin || places) return;
-    fetch(`/api/content/projects/${w.project.id}/work?places`).then((r) => r.json()).then((j) => j.ok && setPlaces(j.places)).catch(() => undefined);
-  }, [w.isAdmin, w.project.id, places]);
-  const open = w.todos.filter((t) => !t.done).length;
-
-  return (
-    <GlassCard>
-      <CardTitle icon={<ChecklistOutlinedIcon />} tint="green" title="To-dos" note={`${open} open · each one a sub-action of the action plan, with its ticket`} />
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap", mb: 1.5, p: 1.25, borderRadius: "12px", bgcolor: "rgba(255,255,255,.65)", border: `1px solid ${HAIRLINE}` }}>
-        <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: MUTED }}>In the action plan</Typography>
-        {w.isAdmin && places ? (
-          <Autocomplete size="small" sx={{ flex: "1 1 360px" }} options={places} value={places.find((p) => p.id === w.place?.id) ?? null}
-            groupBy={(p) => p.path} getOptionLabel={(p) => p.title} isOptionEqualToValue={(a, b) => a.id === b.id}
-            renderOption={(props, p) => <li {...props} key={p.id}>{p.title}{p.dg && <Box component="span" sx={{ ml: 1 }}><Chip tint="purple">Digital Growth</Chip></Box>}</li>}
-            onChange={(_, p) => send({ action: "place", planItem: p?.id ?? null })}
-            renderInput={(p) => <TextField {...p} placeholder="Pick its action - its to-dos become that action's sub-actions" sx={field} />} />
-        ) : w.place ? (
-          <Typography sx={{ fontSize: "0.88rem", color: INK }}>{w.place.path ? `${w.place.path} › ` : ""}<b>{w.place.title}</b>{w.place.dg ? " · Digital Growth" : ""}</Typography>
-        ) : (
-          <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>Not placed yet - an admin picks its action; until then its to-dos take no ticket.</Typography>
-        )}
+        <Skeleton variant="rounded" height={520} sx={{ flex: "1 1 340px", borderRadius: "22px" }} />
       </Box>
-      {w.ticketsError && <Notice tone="warn">HubSpot did not answer for the tickets: {w.ticketsError}</Notice>}
-      {w.todos.map((t) => (
-        <Box key={t.id} sx={{ display: "flex", alignItems: "center", gap: 1.25, minHeight: 48, borderBottom: `1px solid ${HAIRLINE}`, flexWrap: "wrap" }}>
-          <Checkbox checked={t.done} disabled={!canEdit} onChange={(e) => send({ action: "todo-done", todoId: t.id, done: e.target.checked })}
-            slotProps={{ input: { "aria-label": `${t.done ? "Open again" : "Tick off"}: ${t.title}` } }} sx={{ p: 0.5, "&.Mui-checked": { color: "#1b7a55" } }} />
-          <Typography sx={{ flex: "1 1 180px", minWidth: 0, fontSize: "0.9rem", color: t.done ? MUTED : INK, textDecoration: t.done ? "line-through" : "none" }}>{t.title}</Typography>
-          {canEdit ? (
-            <PersonPick label="Who" value={t.assignee} onChange={(u) => send({ action: "todo-edit", todoId: t.id, assignee: u })} people={w.people} width={140} />
-          ) : t.assigneeName ? <Typography sx={{ fontSize: "0.85rem" }}>{t.assigneeName}</Typography> : null}
-          {canEdit ? (
-            <TextField size="small" type="date" value={t.due ?? ""} aria-label={`Due date of ${t.title}`} onChange={(e) => send({ action: "todo-edit", todoId: t.id, due: e.target.value || null })}
-              sx={{ ...field, width: 140, "& input": { color: !t.done && dueSoon(t.due) ? "#c5221f" : INK } }} />
-          ) : <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>{dayLabel(t.due)}</Typography>}
-          {t.ticket ? (
-            <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
-              <Button size="small" href={t.ticket.url} target="_blank" rel="noreferrer" endIcon={<OpenInNewIcon sx={{ fontSize: 15 }} />} sx={btn}>
-                {t.ticket.stageLabel ? `Ticket · ${t.ticket.stageLabel}` : `Ticket #${t.ticket.id}`}
-              </Button>
-              {canEdit && <Tooltip title="Unlink the ticket (it stays in HubSpot)"><IconButton size="small" aria-label="Unlink the ticket" onClick={() => send({ action: "ticket-unlink", todoId: t.id, ticketId: t.ticket!.id })}><LinkOffIcon fontSize="small" /></IconButton></Tooltip>}
-            </Box>
-          ) : t.takesTicket && canEdit ? (
-            <Button size="small" variant="outlined" onClick={() => setTicketFor(t)} sx={btn}>Ticket</Button>
-          ) : (
-            <Tooltip title={w.place ? "Only a to-do under an action led by Digital Growth, or a Digital Growth person's, takes a ticket" : "No ticket until the project has its place in the plan"}>
-              <Typography component="span" sx={{ fontSize: "0.76rem", color: MUTED }}>No ticket</Typography>
-            </Tooltip>
-          )}
-          {canEdit && <IconButton size="small" aria-label={`Remove ${t.title}`} onClick={() => send({ action: "todo-remove", todoId: t.id })}><DeleteOutlineIcon fontSize="small" /></IconButton>}
-        </Box>
-      ))}
-      {canEdit && (
-        <Box sx={{ display: "flex", gap: 1.25, alignItems: "center", flexWrap: "wrap", mt: 1.5 }}>
-          <TextField size="small" label="New to-do" value={title} onChange={(e) => setTitle(e.target.value)} sx={{ ...field, flex: "1 1 260px" }} />
-          <PersonPick label="Who" value={who} onChange={setWho} people={w.people} />
-          <TextField size="small" type="date" label="Due" value={due} onChange={(e) => setDue(e.target.value)} slotProps={{ inputLabel: { shrink: true } }} sx={{ ...field, width: 160 }} />
-          <Button variant="contained" disableElevation disabled={!title.trim()} startIcon={<AddIcon />} sx={mainBtn}
-            onClick={async () => { if (await send({ action: "todo-add", title, assignee: who, due: due || null })) { setTitle(""); setDue(""); } }}>Add</Button>
-        </Box>
-      )}
-      <TicketDialog projectId={w.project.id} todo={ticketFor} onClose={() => setTicketFor(null)} onDone={() => { setTicketFor(null); reload(); }} />
-    </GlassCard>
+    </Box>
   );
 }
 
 export default function ProjectWorkspace({ id }: { id: number }) {
   const [w, setW] = useState<Work | null>(null);
+  const [t, setT] = useState<Tickets | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
-  const load = useCallback(() => {
-    fetch(`/api/content/projects/${id}/work`).then((r) => r.json()).then((j: Work) => (j.ok ? setW(j) : setErr(j.error ?? "The project could not be read."))).catch((e) => setErr(String(e)));
+  const loads = useRef(0);
+
+  // the newest read wins: an older answer arriving late never puts back what a click just changed
+  const load = useCallback(async () => {
+    const n = ++loads.current;
+    const j = (await fetch(`/api/content/projects/${id}/work`).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }))) as Work;
+    if (n !== loads.current) return;
+    if (j.ok) setW(j); else setErr(j.error ?? "The project could not be read.");
   }, [id]);
-  useEffect(() => { load(); }, [load]);
+  const loadTickets = useCallback(async () => {
+    const j = await fetch(`/api/content/projects/${id}/work?tickets`).then((r) => r.json()).catch(() => null);
+    if (j?.ok) setT(j as Tickets); else setT({ tickets: {}, takes: {}, place: null, error: j?.error ?? "HubSpot did not answer." });
+  }, [id]);
+  useEffect(() => { void load().then(loadTickets); }, [load, loadTickets]);
+
+  // a change shows at once (optimistic), is saved, and the page reads itself again quietly behind it
+  const act: Act = useCallback(async (body, optimistic) => {
+    if (optimistic) setW((cur) => (cur ? (() => { const next = optimistic(cur); return { ...next, stage: stageOf(next.pieces.map((p) => p.status)) }; })() : cur));
+    const r = await postWork(id, body);
+    setErr(r.ok ? null : r.error ?? "That did not save.");
+    await load();
+    const a = String(body.action ?? "");
+    if (a.startsWith("ticket") || a === "place" || a === "piece-add" || a === "piece-remove" || (a === "piece-edit" && "writer" in body)) void loadTickets();
+    return r;
+  }, [id, load, loadTickets]);
 
   const names = useMemo(() => {
     const m: Record<string, string> = {};
@@ -468,21 +213,21 @@ export default function ProjectWorkspace({ id }: { id: number }) {
     for (const e of w.events) {
       if (e.kind === "mention") continue;
       const line = eventLine(e, name);
-      if (line) items.push({ at: e.createdAt, who: e.actor, line, dot: e.kind === "status" ? "#c97a10" : e.kind === "stage" ? STAGE_DOT[(e.detail.to as Stage) ?? "planned"] : "#5d6b85" });
+      if (line) items.push({ at: e.createdAt, who: e.actor, line, dot: e.kind === "status" ? "#c97a10" : e.kind === "stage" ? STAGE_DOT[(e.detail.to as Stage) ?? "planned"] : e.kind === "ticket" ? "#1b7a55" : "#5d6b85" });
     }
     return items.sort((a, b) => b.at.localeCompare(a.at));
   }, [w, name]);
 
   if (err && !w) return <Notice tone="bad">{err}</Notice>;
-  if (!w) return <Typography sx={{ fontSize: "0.9rem", color: MUTED }}>Reading the project…</Typography>;
+  if (!w) return <Loading />;
 
   const team = [...new Set([w.project.createdBy, ...w.members.map((m) => m.username), ...w.pieces.flatMap((p) => [p.writer, p.reviewer])].filter((x): x is string => !!x))];
-  const approved = w.pieces.filter((p) => p.status === "approved" || p.status === "live").length;
+  const done = w.pieces.filter((p) => p.status === "approved" || p.status === "live").length;
   const at = STAGES.indexOf(w.stage);
   const sendComment = async (text: string) => {
-    const r = await postWork(w.project.id, { action: "comment", body: text });
-    if (!r.ok) { setErr(r.error ?? "The comment did not save."); return false; }
-    setErr(null); load(); return true;
+    const temp = { id: -Date.now(), author: w.me, body: text, createdAt: new Date().toISOString() };
+    const r = await act({ action: "comment", body: text }, (x) => ({ ...x, comments: [temp, ...x.comments] }));
+    return r.ok;
   };
 
   return (
@@ -504,16 +249,16 @@ export default function ProjectWorkspace({ id }: { id: number }) {
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.25, alignItems: "center" }}>
             <Faces people={team} names={names} owner={w.project.createdBy} size={30} max={7} />
             {w.access.canShare && <Button variant="outlined" startIcon={<PersonAddAlt1Icon />} onClick={() => setSharing(true)} sx={btn}>Invite</Button>}
-            <Button variant="outlined" component={Link} href={`/projects/${w.project.id}/versions`} sx={btn}>Versions &amp; studio</Button>
+            <Button variant="outlined" component={Link} href={`/projects/${w.project.id}/versions`} sx={btn}>All versions</Button>
           </Box>
         </Box>
         <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: { xs: 1, md: 1.5 }, mt: 2, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
           {STAGES.map((s, i) => (
             <Box key={s} sx={{ display: "contents" }}>
-              {i > 0 && <Box aria-hidden sx={{ flex: "0 1 44px", height: 2, borderRadius: 2, bgcolor: i <= at ? "#1b7a55" : "#dfe4ec" }} />}
-              <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, fontSize: "0.84rem", fontWeight: 600, color: i < at ? "#17684a" : i === at ? STAGE_DOT[s] : MUTED, whiteSpace: "nowrap" }}>
-                <Box sx={{ width: 22, height: 22, borderRadius: "50%", display: "grid", placeItems: "center", boxSizing: "border-box",
-                  ...(i < at ? { bgcolor: "#1b7a55", color: "#fff" } : i === at ? { border: `2px solid ${STAGE_DOT[s]}` } : { border: "2px solid #c9d0db" }) }}>
+              {i > 0 && <Box aria-hidden sx={{ flex: "0 1 44px", height: 2, borderRadius: 2, bgcolor: i <= at ? "#1b7a55" : "#dfe4ec", transition: "background-color .4s ease" }} />}
+              <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, fontSize: "0.84rem", fontWeight: 600, color: i < at ? "#17684a" : i === at ? STAGE_DOT[s] : MUTED, whiteSpace: "nowrap", transition: "color .4s ease" }}>
+                <Box sx={{ width: 22, height: 22, borderRadius: "50%", display: "grid", placeItems: "center", boxSizing: "border-box", transition: "all .4s ease",
+                  ...(i < at ? { bgcolor: "#1b7a55", color: "#fff" } : i === at ? { border: `2px solid ${STAGE_DOT[s]}`, boxShadow: `0 0 0 4px ${STAGE_DOT[s]}22` } : { border: "2px solid #c9d0db" }) }}>
                   {i < at ? <CheckIcon sx={{ fontSize: 14 }} /> : i === at ? <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: STAGE_DOT[s] }} /> : null}
                 </Box>
                 {STAGE_LABEL[s]}
@@ -523,7 +268,7 @@ export default function ProjectWorkspace({ id }: { id: number }) {
           <Typography sx={{ ml: "auto", fontSize: "0.82rem", color: MUTED }}>
             Owner <b style={{ color: INK }}>{name(w.project.createdBy ?? "")}</b>
             {w.project.dueDate ? <> · goes live <b style={{ color: INK }}>{dayLabel(w.project.dueDate)}</b></> : null}
-            {w.pieces.length ? ` · ${approved} of ${w.pieces.length} pieces approved` : ""}
+            {w.pieces.length ? ` · ${done} of ${w.pieces.length} to-dos approved or done` : ""}
           </Typography>
         </Box>
       </GlassCard>
@@ -532,18 +277,17 @@ export default function ProjectWorkspace({ id }: { id: number }) {
 
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2.25, alignItems: "flex-start" }}>
         <Box sx={{ flex: "999 1 620px", minWidth: 0, display: "grid", gap: 2.25 }}>
-          <BriefCard w={w} onSaved={load} setErr={setErr} />
-          <PiecesCard w={w} reload={load} setErr={setErr} />
-          <TodosCard w={w} reload={load} setErr={setErr} />
+          <TodoList w={w} t={t} act={act} onTicketChanged={() => void loadTickets()} />
+          <BriefCard w={w} act={act} />
         </Box>
-        <Box sx={{ flex: "1 1 340px", minWidth: 0 }}>
+        <Box sx={{ flex: "1 1 340px", minWidth: 0, position: { lg: "sticky" }, top: { lg: 16 } }}>
           <GlassCard>
             <CardTitle icon={<ForumOutlinedIcon />} tint="purple" title="Conversation" note="Comments, and everything that happened" />
             {w.access.canComment && <Composer people={w.people} onSend={sendComment} />}
-            <Box sx={{ mt: 1.5 }}>
+            <Box sx={{ mt: 1.5, maxHeight: { lg: "calc(100vh - 330px)" }, overflowY: { lg: "auto" }, pr: { lg: 0.5 } }}>
               {feed.length === 0 && <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>Nothing yet.</Typography>}
               {feed.map((f, i) => (
-                <Box key={i} sx={{ display: "flex", gap: 1.25, py: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
+                <Box key={`${f.at}-${i}`} sx={{ display: "flex", gap: 1.25, py: 1.25, borderTop: `1px solid ${HAIRLINE}`, animation: "rowIn .3s ease", "@keyframes rowIn": { from: { opacity: 0, transform: "translateY(4px)" }, to: { opacity: 1, transform: "none" } } }}>
                   <Face username={f.who} name={name(f.who)} size={30} />
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Box sx={{ display: "flex", gap: 1, alignItems: "baseline" }}>
@@ -565,7 +309,7 @@ export default function ProjectWorkspace({ id }: { id: number }) {
         </Box>
       </Box>
 
-      <ShareDialog projectId={w.project.id} title={w.project.title} open={sharing} onClose={() => setSharing(false)} onChanged={load} me={w.me} />
+      <ShareDialog projectId={w.project.id} title={w.project.title} open={sharing} onClose={() => setSharing(false)} onChanged={() => void load()} me={w.me} />
     </Box>
   );
 }

@@ -135,3 +135,33 @@ export function mentionsIn(text: string, people: { username: string; name: strin
   }
   return out;
 }
+
+/* ── a piece IS a to-do (SARCLA 08.11.2026: "for me a piece is a to-do") ──────────────────────────────────────────────
+ * Each piece is also an Action plan sub-action (apsomh_kpi_tasks) with its ticket; its status is that sub-action's
+ * stage in the "From Scroll to Sale" pipeline, and back. */
+
+/** The pipeline's stages (actionPlanRules.STAGES ids), by name - kept here so this file stays free of the plan's code. */
+export const S2S_STAGE = {
+  idea: "6161860807", progress: "6161860808", waitingApso: "6161845476", waitingAgency: "6161845477",
+  ready: "6161860809", live: "6161856758", maintained: "6161856759", killed: "6161860810",
+} as const;
+
+/** The stage a piece's sub-action (and ticket) stands at for its status. */
+export const STATUS_STAGE: Record<PieceStatus, string> = {
+  todo: S2S_STAGE.idea, writing: S2S_STAGE.progress, changes: S2S_STAGE.progress,
+  review: S2S_STAGE.waitingApso, approved: S2S_STAGE.ready, live: S2S_STAGE.live,
+};
+
+/** A status for a sub-action met without its piece (a to-do from before, or moved in HubSpot). */
+export function statusOfStage(stage: string | null | undefined): PieceStatus {
+  switch (stage) {
+    case S2S_STAGE.progress: case S2S_STAGE.waitingAgency: return "writing";
+    case S2S_STAGE.waitingApso: return "review";
+    case S2S_STAGE.ready: return "approved";
+    case S2S_STAGE.live: case S2S_STAGE.maintained: case S2S_STAGE.killed: return "live";
+    default: return "todo";
+  }
+}
+
+/** A to-do that is not a piece of content: a plain task ("photos of the machine"). */
+export const TASK_KIND = "task";
