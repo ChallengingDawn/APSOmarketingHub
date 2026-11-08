@@ -7,6 +7,7 @@
 // "saved". Under it, the kind's own studio (studio/registry.tsx) - built from studio/parts.tsx.
 // The AI at work shows here for every kind (SARCLA 08.11.2026: "an AI animation as soon as it starts working"): from the
 // click, a light runs along the bar's lower edge and "AI is writing…" / "Making the picture…" stands beside "Saved".
+// (A slow action that is not the AI - reading the shop's pages, a send - is in api.working too, for its studio to show.)
 
 import { useState } from "react";
 import Link from "next/link";
@@ -192,6 +193,8 @@ function Bar({ api }: { api: StudioApi }) {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
+  // the AI writing, or a picture being made - not the quiet reads and saves a studio does on its own
+  const ai = api.working && api.working.kind !== "work" ? api.working : null;
   const w = { me: d.me, isAdmin: d.isAdmin, access: d.access, project: { id: p.projectId, title: d.project?.title ?? "", brief: null, createdBy: d.project?.createdBy ?? null, contentType: null, dueDate: d.project?.dueDate ?? null } };
   const go = async (to: PieceStatus, n?: string, reviewer?: string) => {
     setBusy(to); setErr(null);
@@ -220,7 +223,7 @@ function Bar({ api }: { api: StudioApi }) {
       <Box sx={{ display: { xs: "none", md: "block" } }}><People api={api} onError={setErr} /></Box>
       <Box sx={{ flex: 1 }} />
       {err && <Typography sx={{ fontSize: "0.8rem", color: "#c5221f", maxWidth: 260 }}>{err}</Typography>}
-      {api.working && <AiWorking variant="inline" label={api.working.label} />}
+      {ai && <AiWorking variant="inline" label={ai.label} />}
       <SaveBadge api={api} />
       <Versions api={api} />
       {moves(p, w).map((m) => (
@@ -230,7 +233,7 @@ function Bar({ api }: { api: StudioApi }) {
           {busy === m.to ? <CircularProgress size={14} color="inherit" /> : m.label}
         </Button>
       ))}
-      <Box sx={{ position: "absolute", left: 0, right: 0, bottom: -1 }}><AiLine on={!!api.working} /></Box>
+      <Box sx={{ position: "absolute", left: 0, right: 0, bottom: -1 }}><AiLine on={!!ai} /></Box>
       <PickReviewer api={api} open={picking} onClose={() => setPicking(false)} onPick={(u) => { setPicking(false); void go("review", undefined, u); }} />
       <Dialog open={asking} onClose={() => setAsking(false)} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 700 }}>What should change?</DialogTitle>

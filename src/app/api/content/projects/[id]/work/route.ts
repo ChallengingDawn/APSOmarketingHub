@@ -12,7 +12,7 @@ import { requireUser } from "@/lib/auth/guard";
 import { accessFor, membersOf, share, shareCandidates } from "@/lib/content/sharing";
 import { addComment } from "@/lib/content/projects";
 import {
-  addEvent, addPiece, cleanBrief, getPiece, listEvents, projectBrief, projectHead, removePiece, setBrief, setPlanItem,
+  addEvent, addPiece, cleanBrief, followSoleTodo, getPiece, listEvents, projectBrief, projectHead, removePiece, setBrief, setPlanItem,
   updatePiece, type Piece,
 } from "@/lib/content/workflow";
 import { isPieceStatus, mailsFor, mentionsIn, moveError, stageMail, stageOf, STATUS_LABEL, TASK_KIND, taskMoveError, type MailTo } from "@/lib/content/pieceRules";
@@ -217,6 +217,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       before = { writer: old.writer, reviewer: old.reviewer };
       await updatePiece(old.id, { ...sent, ...(sent.title !== undefined ? { title: sent.title || old.title } : {}) });
       piece = (await getPiece(old.id))!;
+      // a project of this one to-do (Make > <kind>) takes its new name too
+      if (sent.title) await followSoleTodo(id, old.title, piece.title);
       await pushPieceToTask(id, piece, { title: sent.title !== undefined, writer: sent.writer !== undefined, due: sent.dueDate !== undefined })
         .catch((e) => console.warn(`[content] sub-action of piece ${piece.id}: ${errText(e)}`));
     }

@@ -114,7 +114,8 @@ export function useStudio(pieceId: number): { api: StudioApi | null; error: stri
 
   const api: StudioApi = {
     data, doc, setDoc, save, saveError, working,
-    // the AI is shown at work from the click (the save before it included); an action only when it takes a moment
+    // the AI is at work from the click (the save before it included) - the frame shows it; an action counts once it
+    // takes over 1.2 s (kind "work": the frame leaves it to its studio - a quick read as a studio opens never shows)
     ai: (task, input = {}) => whileWorking({ label: AI_SAYS[task] ?? "AI is writing…", kind: "ai" }, async () => {
       await flush();
       const r = await post(pieceId, { action: "ai", task, input });
@@ -124,7 +125,7 @@ export function useStudio(pieceId: number): { api: StudioApi | null; error: stri
       await flush();
       const r = await post(pieceId, { action: "act", name, input });
       return r.ok ? { ok: true as const, result: r.result } : { ok: false as const, error: r.error ?? "That did not work." };
-    }, 600),
+    }, 1200),
     saveVersion: async (label) => {
       await flush();
       const r = await post(pieceId, { action: "version", label: label ?? null });

@@ -2,8 +2,9 @@
 // MAKE ONE THING, NOW (SARCLA 08.11.2026: "the Makes really don't work"). Make > Social post, Page, Blog article,
 // Newsletter, Banner, Video used to open the whole New project form with one line in it - and a second Make clicked kept
 // the first one's line. A person who clicks "Make > Video" wants to make a video: so one short screen - what it is about
-// (may stay empty), its language - and Start makes the project and its one to-do (owner: the person, no day, no plan, no
-// ticket) and opens its studio. Everything else is set later, from the studio's bar or the to-do's line.
+// (may stay empty: "Untitled video"), its language - and Start makes the project and its one to-do, both of that name
+// (owner: the person, no day, no plan, no ticket), and opens its studio. Everything else is set later, from the studio's
+// bar or the to-do's line; renaming the to-do in the studio renames this project too (workflow.ts followSoleTodo).
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -25,7 +26,6 @@ import { MAKE_KINDS } from "../makeKinds";
 type Setup = { ok: boolean; error?: string; me: string; canStart: boolean; languages: { code: string; label: string }[] };
 
 const LANG_KEY = "content:make-language";
-const today = () => new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
 export default function QuickMake({ kind }: { kind: string }) {
   const router = useRouter();
@@ -46,12 +46,12 @@ export default function QuickMake({ kind }: { kind: string }) {
     if (!setup || busy) return;
     setBusy(true); setErr(null);
     try { window.localStorage.setItem(LANG_KEY, lang); } catch { /* fine */ }
-    const name = title.trim();
-    const label = k.noun.charAt(0).toUpperCase() + k.noun.slice(1);
+    // unnamed, it is "Untitled video" until it is named in its studio - where the project takes the name too
+    const name = title.trim() || `Untitled ${k.noun}`;
     const r = await fetch("/api/content/projects/start", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        action: "start", title: name || `${label} · ${today()}`, goal: "", audience: "", message: "", ideas: [], planItem: null, tickets: false,
+        action: "start", title: name, goal: "", audience: "", message: "", ideas: [], planItem: null, tickets: false,
         lines: [{ contentType: kind, title: name, language: lang, writer: setup.me, reviewer: null, dueDate: null }],
       }),
     }).then((x) => x.json()).catch(() => ({ ok: false, error: "The hub did not answer." }));
@@ -80,6 +80,7 @@ export default function QuickMake({ kind }: { kind: string }) {
           <TextField autoFocus fullWidth label="What is it about?" placeholder={k.example} value={title}
             onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void start(); }}
             helperText="Optional - you can name it later in the studio." disabled={busy}
+            slotProps={{ inputLabel: { shrink: true } }}
             sx={{ ...field, "& .MuiInputBase-input": { fontSize: "1.05rem", py: 1.5 }, "& .MuiFormHelperText-root": { mx: 0.5 } }} />
 
           <SquareChoice label="Language" value={lang} onChange={setLang}

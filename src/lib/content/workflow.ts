@@ -262,6 +262,20 @@ export async function updatePiece(pieceId: number, patch: Partial<{
   if (r.rows[0]) await touch(r.rows[0].project_id);
 }
 
+/**
+ * A project made of one to-do (Make > <kind>: "Untitled video") goes by that to-do's name: renamed in its studio, the
+ * project follows - while the two have the same name and the project has no other to-do (a project named on its own,
+ * or one with several to-dos, keeps its name).
+ */
+export async function followSoleTodo(projectId: number, oldTitle: string, newTitle: string): Promise<void> {
+  await ensureWorkflow();
+  if (!newTitle.trim() || newTitle === oldTitle) return;
+  await query(
+    `UPDATE apsomh_content_projects p SET title = $3, updated_at = NOW()
+      WHERE p.id = $1 AND p.title = $2 AND (SELECT COUNT(*) FROM apsomh_content_pieces pc WHERE pc.project_id = p.id) = 1`,
+    [projectId, oldTitle, newTitle.trim().slice(0, 200)]);
+}
+
 /** Removes a piece; its versions stay in the project, without a piece (the library still has them). */
 export async function removePiece(pieceId: number): Promise<void> {
   await ensureWorkflow();

@@ -2,7 +2,8 @@
 // WHAT THE AI IS DOING, FOR WHOEVER SHOWS IT (SARCLA 08.11.2026: "it would also be great to have an AI animation as soon
 // as it starts working"). A call that makes the AI work says so here the moment it starts and stops saying it when it
 // ends - useStudio for every studio's ai/act calls, makePicture for a picture - and the studio's frame shows it (one
-// place, so every kind of studio gets it without a line of its own). Several at once: the newest is shown.
+// place, so every kind of studio gets it without a line of its own). Several at once: the newest AI or picture work is
+// shown, before any other (kind "work": a slow action, which the frame leaves to its studio).
 
 import { useSyncExternalStore } from "react";
 
@@ -13,7 +14,9 @@ let shown: Working | null = null;
 let seq = 0;
 const listeners = new Set<() => void>();
 const changed = () => {
-  shown = running.length ? running[running.length - 1].w : null;
+  // the AI and a picture before any other work; of those, the newest
+  const first = [...running].reverse();
+  shown = (first.find((x) => x.w.kind !== "work") ?? first[0])?.w ?? null;
   for (const l of listeners) l();
 };
 
