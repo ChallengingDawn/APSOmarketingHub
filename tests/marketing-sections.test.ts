@@ -58,3 +58,13 @@ test("no other app or report lists a Marketing page, so no tile here hands its p
   // section slugs are unique, and none is a page's own address
   assert.equal(new Set(MARKETING_SECTIONS.map((s) => s.slug)).size, MARKETING_SECTIONS.length);
 });
+
+test("Content opens on its calendar, a page of Projects (SARCLA 07.11.2026: \"calendar should be the first app\")", () => {
+  const content = MARKETING_SECTIONS.find((s) => s.slug === "content")!;
+  assert.equal(content.entry, "/projects/calendar");
+  assert.equal(appForPath("/projects/calendar"), "marketing");
+  assert.equal(nodeFor("marketing", "/projects/calendar")?.name, "Projects");
+  // the Projects grant decides it, as the list
+  const lv = levelsOf("user", { marketing: "read", "marketing:/projects": "none" });
+  assert.equal(accessAt("/projects/calendar", lv).level, "none");
+});

@@ -41,6 +41,8 @@ import { IntegrationError } from "@/lib/integrations/status";
 import { requestCollector, saveErpRequests } from "@/lib/certificates/erpData";
 import { deliveryCollector } from "@/lib/reporting/boDelivery";
 import { saveDelivery, zurichToday } from "@/lib/reporting/boDeliveryStore";
+import { ORDER_FACTS_LIVE, dimFactsOf, factsFor, factsHash, packDim, unpackDim } from "./orderFactsRules";
+import { loadErpFacts, loadWritten, saveWritten } from "./orderFactsStore";
 import { stat } from "node:fs/promises";
 import { addPending, knownArticles } from "../articleIds";
 import fixmapJson from "../data/article_fixmap.json";
@@ -477,8 +479,12 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
   // and each delivery's speed, for Back-Office Reports > OTD (lib/reporting/boDelivery.ts) - this year and last
   const today = zurichToday();
   const deliveries = deliveryCollector(today, Number(today.slice(0, 4)) - 1);
+  // and the ERP fields HubSpot's orders hold but nobody filled (./orderFactsRules.ts, SARCLA 08.11.2026) - from this file
+  // and from what the morning workbook's sheets gave; written only where they changed, and only once ORDER_FACTS_LIVE
+  const dimFacts = new Map<string, string>();
   const { targets } = await detailTargetsFromFile(opts.file, null, tick, (get, on) => {
     try { deliveries.row(get, on); } catch { /* never the chain's problem */ }
+    try { const f = dimFactsOf(get); if (f) dimFacts.set(on, packDim(f)); } catch { /* never the chain's problem */ }
     certs.row(on, get("OrderYear"), get("InternalComment"));
   });
   if (!targets.size) throw new Error("no order rows parsed (wrong file?)");
@@ -489,6 +495,10 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
   const deliveriesKept = await saveDelivery(deliveries, today).catch((e) => { console.warn(`[connectors] order_sync: the delivery speed was not kept - ${String((e as Error)?.message ?? e)}`); return -1; });
 
   const counts = { titles: 0, shipment_dates: 0, statuses: 0 };
+  // the order facts: what the sheets gave and what was written - a table that cannot be read leaves them out tonight
+  const fx = await Promise.all([loadErpFacts(), loadWritten()]).catch((e) => { console.warn(`[connectors] order_sync: order facts left out - ${String((e as Error)?.message ?? e)}`); return null; });
+  const facts = { live: ORDER_FACTS_LIVE, orders_from_file: dimFacts.size, with_facts: 0, to_write: 0, written: 0, by_property: {} as Record<string, number>, examples: [] as Record<string, string>[] };
+  const curHash = new Map<string, string>();
   const samples: string[] = [];
   let persons = 0, queued = 0, done = 0, err = 0, gone = 0;
   const errors: string[] = [];
@@ -506,16 +516,36 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
         return { id: u.id, stage: was.stage, title: p.hs_order_name ?? was.title, ship: p.order_shipment_date ?? was.ship, status: p.order_order_status ?? was.status };
       }));
       await deps.store.snapDelete(r.gone);
+      const kept = r.done.map((u) => [u.id, curHash.get(u.id)] as const).filter((x): x is readonly [string, string] => !!x[1]);
+      if (kept.length) {
+        facts.written += kept.length;
+        await saveWritten(kept.map(([i, h]) => [i, h])).catch((e) => console.warn(`[connectors] order_sync: order facts written but not remembered - ${String((e as Error)?.message ?? e)}`));
+      }
     }
     pending = [];
     cur.clear();
+    curHash.clear();
   };
   for await (const page of snapshotRows(null)) {
     for (const row of page) {
       const t = unpackDetail(targets.get(row.num));
       if (!t) continue;
       if (t.person) persons += 1;
-      const props = detailUpdate(row, t);
+      let props = detailUpdate(row, t);
+      if (fx) {
+        const f = factsFor(row.num, unpackDim(dimFacts.get(row.num)), fx[0].byBase, fx[0].byOrder);
+        const keys = Object.keys(f);
+        if (keys.length) {
+          facts.with_facts += 1;
+          const h = factsHash(f);
+          if (fx[1].get(row.id) !== h) {
+            facts.to_write += 1;
+            for (const k of keys) facts.by_property[k] = (facts.by_property[k] ?? 0) + 1;
+            if (facts.examples.length < 5) { const { order_your_reference: _r, order_customer_order_nr: _c, ...shown } = f; facts.examples.push({ order: row.num, ...shown }); }
+            if (ORDER_FACTS_LIVE) { props = { ...(props ?? {}), ...f }; curHash.set(row.id, h); }
+          }
+        }
+      }
       if (!props) continue;
       queued += 1;
       if (props.hs_order_name) counts.titles += 1;
@@ -532,7 +562,7 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
   return {
     orders_in_snapshot: await deps.store.snapCount(), snapshot: refreshed.how, erp_orders: targets.size, with_person: persons,
     to_update: queued, ...counts, updated: done, errors: err, deleted_dropped: gone, ...(errors.length ? { error_samples: errors } : {}),
-    examples: samples, certificate_requests: certificateRequests, deliveries_kept: deliveriesKept, seconds: Math.round((deps.now() - t0) / 1000),
+    examples: samples, certificate_requests: certificateRequests, deliveries_kept: deliveriesKept, order_facts: facts, seconds: Math.round((deps.now() - t0) / 1000),
   };
 }
 

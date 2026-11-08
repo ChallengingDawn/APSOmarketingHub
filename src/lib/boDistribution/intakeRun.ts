@@ -14,6 +14,7 @@ import { FROM, addressOf, esc, mailConfigured, sendHubMail, wrap } from "@/lib/n
 import { NOBODY, teamRecipients } from "@/lib/notify/teamRecipients";
 import { INTAKE_FROM, MAIL_SUBJECT, STAGE_NEW, intakeOf, type Intake, type IntakeConfig, type IntakeFacts } from "./intake";
 import { getIntakeSettings, type IntakeSettings } from "./intakeSettings";
+import { mergeAvorAnswer } from "@/lib/certificates/avorSend";
 
 const BO = "1726786777";
 const KV = { rows: "boDist:intake:rows", done: "boDist:intake:done", last: "boDist:intake:last" };
@@ -182,6 +183,16 @@ export async function intakePass(): Promise<{ pending: Set<string>; failed: bool
         }
         if ((p.source_type ?? "") === "EMAIL" && !emails.length && age < EMAIL_WAIT_MS) { pending.add(id); continue; }
         const email = [...emails].sort((a, b) => b.modified - a.modified)[0] ?? null;
+        // AVOR's answer to a mail sent from the certificate card (SARCLA 08.11.2026): merged into the request before
+        // anything is decided - it would else be taken in as a new Back Office ticket (certificates/avorSend.ts). A merge
+        // that fails leaves it to the way in, as any other ticket.
+        const avor = await mergeAvorAnswer(id, p.subject ?? null, email ? { from: email.from, subject: email.subject, at: email.created } : null)
+          .catch((e) => { last.error = `AVOR answer ${id}: ${(e as Error).message.slice(0, 160)}`; return null; });
+        if (avor) {
+          rows.unshift({ ...base, subjectBefore: p.subject ?? null, branch: null, team: null, props: {}, mail: false, what: "certificates", why: `AVOR's answer${avor.from ? ` (${avor.from})` : ""} - merged into the certificate request ${avor.merged}` });
+          done.add(id);
+          continue;
+        }
         const want = intakeOf(factsOf(p, email, names, p.hubspot_owner_id ?? null), cfg);
         // a certificate request: Certificates takes it on - the requester, then the steps (SARCLA 06.11.2026: "the
         // certificates part should be on certificates")

@@ -31,6 +31,11 @@ import {
   type CompanyValues, type FoundCompany, type KpiProps, type KpiRows,
 } from "./erpRules";
 import { readErpWorkbook } from "./erpWorkbook";
+import { SHEET_ERP_LINES } from "../../reporting/boErpLines";
+import { saveErpLines } from "@/lib/reporting/boErpLinesStore";
+import { SHEET_INVOICES, invoiceFacts, lineFacts } from "./orderFactsRules";
+import { saveErpFacts } from "./orderFactsStore";
+import { productFactsRun } from "./productFacts";
 
 type Beat = () => Promise<void>;
 type Obj = { id: string; properties?: Record<string, string | null | undefined> };
@@ -253,6 +258,27 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
     customers: data.size, month, pivots: wb.customers.pivots, dry_run: !live,
   };
   if (!data.size) throw new Error(`${wb.file}: no customer carries a figure - an empty or unfinished export, nothing written`);
+  // the Back Office's KPIs from the "KPI LINES" sheet (pass rate, manual prices, OTD) - kept before HubSpot, never its problem
+  if (!wb.erpLines) out.erp_lines = wb.sheets.some((s) => s.trim().toUpperCase() === SHEET_ERP_LINES) ? "sheet without the expected header" : "no KPI LINES sheet";
+  else if (!live) out.erp_lines = { lines: wb.erpLines.lines.length, rows: wb.erpLines.rows, kept: false };
+  else {
+    try { out.erp_lines = { ...(await saveErpLines(wb.erpLines.lines)), rows: wb.erpLines.rows, kept: true }; }
+    catch (e) { out.erp_lines = `not kept: ${(e as Error).message}`; }
+  }
+  // the order facts the sheets give (first confirmed date, special articles, the invoice) - order_sync writes them at night
+  if (wb.erpLines || wb.invoices) {
+    const byBase = wb.erpLines ? lineFacts(wb.erpLines.lines) : new Map(), byOrder = wb.invoices ? invoiceFacts(wb.invoices) : new Map();
+    if (!live) out.order_facts = { orders: byBase.size, deliveries_invoiced: byOrder.size, kept: false };
+    else {
+      try { out.order_facts = { ...(await saveErpFacts(byBase, byOrder)), kept: true }; }
+      catch (e) { out.order_facts = `not kept: ${(e as Error).message}`; }
+    }
+  } else out.order_facts = wb.sheets.some((s) => s.trim().toUpperCase() === SHEET_INVOICES) ? "KPI INVOICES without the expected header" : "no KPI LINES or KPI INVOICES sheet";
+  // the products' ERP fields (GWStdP, stock value, material ... - ./productFactsRules.ts): counted, and written once switched on
+  if (wb.articles) {
+    try { out.product_facts = await productFactsRun(wb.articles, live, beat); }
+    catch (e) { out.product_facts = `not run: ${(e as Error).message}`; }
+  }
   await beat();
 
   const pre = await preflight();

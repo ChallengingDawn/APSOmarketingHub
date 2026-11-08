@@ -121,7 +121,7 @@ function Conversation({
   );
 }
 
-export default function ProjectBoard({ id }: { id: number }) {
+export default function ProjectBoard({ id, pieceId }: { id: number; pieceId?: number | null }) {
   const [project, setProject] = useState<Project | null>(null);
   const [variants, setVariants] = useState<Variant[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -158,14 +158,15 @@ export default function ProjectBoard({ id }: { id: number }) {
       .then((j) => {
         if (!j.ok) return setError(j.error ?? "Could not load the project.");
         setProject(j.project);
-        setVariants(j.variants);
+        // opened from a piece: that piece's versions only (07.11.2026)
+        setVariants(pieceId ? (j.variants as (Variant & { pieceId?: number | null })[]).filter((v) => v.pieceId === pieceId) : j.variants);
         setComments(j.comments);
         setAccess(j.access ?? null);
         setMembers(j.members ?? []);
         setMe(j.me ?? null);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not load the project."));
-  }, [id]);
+  }, [id, pieceId]);
 
   useEffect(load, [load]);
 

@@ -145,6 +145,12 @@ export type Facts = {
   plan?: string | null;
   /** HOLD_PROP: put on hold on the ticket card ("who · when") - the hub leaves the request alone while it is set */
   hold?: string | null;
+  /** the declaration made on the ticket card (makerSend.ts MAKER_PROP) */
+  maker?: string | null;
+  /** a DEMO request (makerRules.ts DEMO_PROP): "name · owner id · e-mail" - every person and every mail is that user */
+  demo?: string | null;
+  /** the mail to AVOR queued on the ticket card (makerRules.ts AVOR_PROP) */
+  avor?: string | null;
 };
 
 export type Phase = "start" | "avor" | "backOffice" | "expert" | "sent" | "merged";
@@ -454,7 +460,7 @@ export type PlanStep = { n: StepName; at: string; w: string; s: "workflow" | "do
 /** who the request waits for, and from when (the "3 days before" of the Back Office) */
 export type Wait = { who: "hub" | "avor" | "owner" | "expert"; what: string; from?: string };
 /** v 2 = the hub also keeps the ticket card's hold (HOLD_PROP) - the card offers "Hold" only from v 2 */
-export type Plan = { v: 2; phase: Phase; held: boolean; wait: Wait; steps: PlanStep[]; experts: string[]; backOffice: string[] };
+export type Plan = { v: 2; phase: Phase; held: boolean; wait: Wait; steps: PlanStep[]; experts: string[]; backOffice: string[]; send?: "off" | "live" };
 
 export function waitOf(f: Facts, phase: Phase, steps: Step[], now: number): Wait {
   if (phase === "start") return { who: "hub", what: "The hub starts the request within 3 minutes" };
@@ -468,7 +474,7 @@ export function waitOf(f: Facts, phase: Phase, steps: Step[], now: number): Wait
 }
 
 /** The plan of one request as the card shows it; null = not in the process (resolved, or no certificate). */
-export function planOf(f: Facts, done: Set<string>, now: number, t: Timing, held: boolean, people: People, remindOffAt: number | null = null): Plan | null {
+export function planOf(f: Facts, done: Set<string>, now: number, t: Timing, held: boolean, people: People, remindOffAt: number | null = null, send: "off" | "live" = "off"): Plan | null {
   const p = stepsOf(f, t);
   if (!p) return null;
   let nextSeen = false;
@@ -480,5 +486,6 @@ export function planOf(f: Facts, done: Set<string>, now: number, t: Timing, held
     else if (!nextSeen) { s = "next"; nextSeen = true; } else s = "later";
     return { n: x.name, at: new Date(x.at).toISOString(), w: stepWords(x.name, t), s };
   });
-  return { v: 2, phase: p.phase, held, wait: waitOf(f, p.phase, p.steps, now), steps, experts: people.experts, backOffice: people.backOffice };
+  // send: whether the hub mails a declaration signed on the card (makerSend.ts) - the card says who sends it
+  return { v: 2, phase: p.phase, held, wait: waitOf(f, p.phase, p.steps, now), steps, experts: people.experts, backOffice: people.backOffice, send };
 }

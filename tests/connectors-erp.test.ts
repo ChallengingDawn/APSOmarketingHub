@@ -316,10 +316,33 @@ test("reader: no FIGURES (4) is no profit-centre rows; no FIGURES (3) is an erro
   writeFileSync(file, workbook([["FIGURES (3)", sheetXml(rows, "A1:V21")]], null, null));
   const wb = await readErpWorkbook(file);
   assert.equal(wb.profitCentres, null);
+  assert.equal(wb.erpLines, null);
   assert.equal(wb.customers.customers.size, 2);
   const other = join(dir, "b.xlsx");
   writeFileSync(other, workbook([["Sheet1", sheetXml([[1]], "A1")]], null, null));
   await assert.rejects(readErpWorkbook(other), /no sheet "FIGURES \(3\)".*Sheet1/);
+}));
+
+test("reader: the KPI LINES sheet - the ERP's order lines for the Back Office's KPIs, dates as Excel keeps them", withDir(async (dir) => {
+  const head = ["[Company]", "[Order]", "[OrderMain]", "[OrderSource]", "[OrderDate]", "[OrderStatus]", "[ShipmentDate]", "[ShippedToCountry]", "[Line]", "[LineType]", "[PriceSource]", "[ShippingDateInitial]", "[ShippingDateConfirmed]", "[Article]", "[ArticleType]", "[ProfitCenter]", "[OrderQty]", "[ShippedQty]"];
+  const day = (serial: number) => ({ xml: `<c r="@" s="1"><v>${serial}</v></c>` }); // 46297 = 2026-10-02
+  const lines = {
+    1: head,
+    2: [100, "A26.1.000", 1, "eShop", day(46297), "invoiced", day(46297), "Switzerland", 10, "Order", "automatically", day(46300), day(46300), "1026030704", "Standard", "DT", 1, 1],
+    3: [110, "A26.2.000", 2, "eShop", day(46297), "invoiced", day(46297), "Germany", 10, "Order", "manually", day(46300), day(46303), "1120033332", "Special", "KT", 2, 2],
+    4: [110, "A26.2.000", 2, "eShop", day(46297), "invoiced", day(46297), "Germany", 10, "Order", "manually", day(46300), day(46303), "1120033332", "Special", "KT", 2, 2],
+  };
+  const styles = `<styleSheet ${NS.split(" ")[0]}><numFmts><numFmt numFmtId="164" formatCode="dd.mm.yyyy"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>`;
+  const file = join(dir, "revenue_profit_center.xlsx");
+  writeFileSync(file, workbook([["FIGURES (3)", sheetXml(sheet3(), "A1:V21")], [" kpi lines ", sheetXml(lines, "A1:R4")]], null, styles));
+  const wb = await readErpWorkbook(file);
+  assert.equal(wb.customers.customers.size, 2); // the revenue read as before
+  assert.ok(wb.erpLines);
+  assert.equal(wb.erpLines!.rows, 3);
+  assert.equal(wb.erpLines!.lines.length, 2); // the same order line twice is one line
+  const [a, b] = wb.erpLines!.lines;
+  assert.deepEqual([a.company, a.order, a.orderDay, a.shipDay, a.firstDay, a.country, a.price, a.artType, a.pc], ["100", "A26.1.000", "2026-10-02", "2026-10-02", "2026-10-05", "Switzerland", "automatically", "Standard", "DT"]);
+  assert.deepEqual([b.company, b.price, b.confDay, b.line], ["110", "manually", "2026-10-08", "10"]);
 }));
 
 test("reader: a file that is not an .xlsx says what it is", withDir(async (dir) => {

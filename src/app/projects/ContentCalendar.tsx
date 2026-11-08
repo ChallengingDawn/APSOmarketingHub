@@ -34,6 +34,13 @@ import {
   unscheduled,
   WEEKDAYS,
 } from "@/lib/content/calendar";
+import { STATUS_LABEL, type PieceStatus } from "@/lib/content/pieceRules";
+import { TINT } from "@/app/uc/report/ui";
+import { STATUS_TINT } from "./work/ui";
+
+/** A piece of a project on its own date (07.11.2026: the calendar is Content's first page, and the pieces are the work). */
+type DatedPiece = { id: number; projectId: number; projectTitle: string; title: string; status: PieceStatus; dueDate: string | null };
+type Drag = { kind: "project" | "piece"; id: number } | null;
 
 type Project = {
   id: number;
@@ -56,7 +63,8 @@ export default function ContentCalendar() {
     return { year: d.getFullYear(), month: d.getMonth() + 1 };
   });
   const [projects, setProjects] = useState<Project[] | null>(null);
-  const [dragging, setDragging] = useState<number | null>(null);
+  const [pieces, setPieces] = useState<DatedPiece[]>([]);
+  const [dragging, setDragging] = useState<Drag>(null);
   const [over, setOver] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -64,12 +72,57 @@ export default function ContentCalendar() {
       .then((r) => r.json())
       .then((j) => setProjects(j.ok ? j.projects : []))
       .catch(() => setProjects([]));
+    fetch("/api/content/board")
+      .then((r) => r.json())
+      .then((j) => setPieces(j.ok ? (j.board as { id: number; title: string; pieces: Omit<DatedPiece, "projectId" | "projectTitle">[] }[])
+        .flatMap((p) => p.pieces.map((x) => ({ ...x, projectId: p.id, projectTitle: p.title }))) : []))
+      .catch(() => setPieces([]));
   }, []);
   useEffect(load, [load]);
 
   const weeks = useMemo(() => monthGrid(at.year, at.month), [at]);
-  const dated = useMemo(() => byDueDate(projects ?? []), [projects]);
+  // a project whose pieces have their dates shows through them, not a second time on its own date
+  const dated = useMemo(() => {
+    const withPieces = new Set(pieces.filter((x) => x.dueDate).map((x) => x.projectId));
+    return byDueDate((projects ?? []).filter((p) => !withPieces.has(p.id)));
+  }, [projects, pieces]);
   const loose = useMemo(() => unscheduled(projects ?? []), [projects]);
+  const piecesOn = useMemo(() => {
+    const m = new Map<string, DatedPiece[]>();
+    for (const x of pieces) if (x.dueDate) (m.get(x.dueDate) ?? m.set(x.dueDate, []).get(x.dueDate)!).push(x);
+    return m;
+  }, [pieces]);
+  const loosePieces = useMemo(() => pieces.filter((x) => !x.dueDate && x.status !== "live"), [pieces]);
+
+  const schedulePiece = async (x: DatedPiece, iso: string | null) => {
+    setPieces((all) => all.map((y) => (y.id === x.id ? { ...y, dueDate: iso } : y)));
+    await fetch(`/api/content/projects/${x.projectId}/work`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "piece-edit", pieceId: x.id, dueDate: iso }),
+    }).catch(() => {});
+    load();
+  };
+  const drop = (iso: string | null) => {
+    if (dragging?.kind === "project") void schedule(dragging.id, iso);
+    if (dragging?.kind === "piece") { const x = pieces.find((y) => y.id === dragging.id); if (x) void schedulePiece(x, iso); }
+    setDragging(null);
+  };
+
+  const pieceChip = (x: DatedPiece, late: boolean) => {
+    const t = TINT[late ? "pink" : STATUS_TINT[x.status]];
+    return (
+      <Box key={`p${x.id}`} draggable onDragStart={() => setDragging({ kind: "piece", id: x.id })} onDragEnd={() => { setDragging(null); setOver(null); }}
+        component={Link} href={`/projects/${x.projectId}#piece-${x.id}`}
+        title={`${x.title} · ${x.projectTitle} · ${STATUS_LABEL[x.status]}`}
+        sx={{
+          display: "block", textDecoration: "none", cursor: "grab", px: 0.75, py: 0.4, mb: 0.4, borderRadius: "7px",
+          fontSize: "0.72rem", fontWeight: 600, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          bgcolor: t.bg, color: t.fg, borderLeft: `3px solid ${t.fg}`, opacity: dragging?.kind === "piece" && dragging.id === x.id ? 0.4 : 1,
+        }}>
+        {x.title} <Box component="span" sx={{ fontWeight: 500, opacity: 0.8 }}>· {x.projectTitle}</Box>
+      </Box>
+    );
+  };
 
   const schedule = async (id: number, iso: string | null) => {
     // Optimistic: the chip lands on the square under the cursor and the
@@ -87,7 +140,7 @@ export default function ContentCalendar() {
     <Box
       key={p.id}
       draggable
-      onDragStart={() => setDragging(p.id)}
+      onDragStart={() => setDragging({ kind: "project", id: p.id })}
       onDragEnd={() => { setDragging(null); setOver(null); }}
       component={Link}
       href={`/projects/${p.id}`}
@@ -99,7 +152,7 @@ export default function ContentCalendar() {
         // Chosen is decided, late is late, everything else is ordinary work.
         bgcolor: p.chosenVariantId ? "rgba(27,122,85,.12)" : late ? "rgba(197,34,31,.1)" : "rgba(45,111,168,.1)",
         color: p.chosenVariantId ? "#17633f" : late ? "#a3211e" : "#245a88",
-        opacity: dragging === p.id ? 0.4 : 1,
+        opacity: dragging?.kind === "project" && dragging.id === p.id ? 0.4 : 1,
       }}
       title={`${p.title}${p.folder ? ` · ${p.folder}` : ""} · ${p.variantCount} version${p.variantCount === 1 ? "" : "s"}`}
     >
@@ -128,22 +181,24 @@ export default function ContentCalendar() {
         </Button>
         <Box sx={{ flex: 1 }} />
         <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
-          Drag a project onto a day to plan it.
+          Projects and their pieces on their dates. Drag one onto a day to plan it.
         </Typography>
       </Box>
 
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", lg: "1fr 280px" }, alignItems: "start" }}>
         <GlassCard sx={{ p: { xs: 1, sm: 1.5 } }}>
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0.5, mb: 0.5 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 0.5, mb: 0.5 }}>
             {WEEKDAYS.map((d) => (
               <Typography key={d} sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textAlign: "center", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                 {d}
               </Typography>
             ))}
           </Box>
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0.5 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 0.5 }}>
             {weeks.flat().map((day) => {
               const here = dated.get(day.iso) ?? [];
+              const herePieces = piecesOn.get(day.iso) ?? [];
+              const room = Math.max(0, 4 - here.length);
               const isToday = day.iso === today;
               return (
                 <Box
@@ -153,8 +208,7 @@ export default function ContentCalendar() {
                   onDrop={(e) => {
                     e.preventDefault();
                     setOver(null);
-                    if (dragging !== null) void schedule(dragging, day.iso);
-                    setDragging(null);
+                    drop(day.iso);
                   }}
                   sx={{
                     minHeight: 96, p: 0.5, borderRadius: "10px",
@@ -177,9 +231,10 @@ export default function ContentCalendar() {
                   {/* Four, then a count. A square that scrolls is a square
                       nobody can read at a glance. */}
                   {here.slice(0, 4).map((p) => chip(p, isPast(day.iso, today) && !p.chosenVariantId))}
-                  {here.length > 4 && (
+                  {herePieces.slice(0, room).map((x) => pieceChip(x, isPast(day.iso, today) && x.status !== "approved" && x.status !== "live"))}
+                  {here.length + herePieces.length > 4 && (
                     <Typography sx={{ fontSize: "0.68rem", color: FAINT, pl: 0.75 }}>
-                      + {here.length - 4} more
+                      + {here.length + herePieces.length - 4} more
                     </Typography>
                   )}
                 </Box>
@@ -196,8 +251,7 @@ export default function ContentCalendar() {
             setOver(null);
             // Dropping here takes the date OFF, which is how a plan gets
             // unmade without anybody having to clear a field.
-            if (dragging !== null) void schedule(dragging, null);
-            setDragging(null);
+            drop(null);
           }}
           sx={{ borderRadius: "18px", outline: over === "none" ? "2px solid #2d6fa8" : "none" }}
         >
@@ -208,17 +262,18 @@ export default function ContentCalendar() {
               No date yet
             </Typography>
             <Box sx={{ flex: 1 }} />
-            <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>{loose.length}</Typography>
+            <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>{loose.length + loosePieces.length}</Typography>
           </Box>
           {projects === null ? (
             <Typography sx={{ fontSize: "0.84rem", color: FAINT }}>Loading&hellip;</Typography>
-          ) : loose.length === 0 ? (
+          ) : loose.length + loosePieces.length === 0 ? (
             <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.6 }}>
               Everything has a date. Drop a project here to take its date off again.
             </Typography>
           ) : (
             <>
               {loose.map((p) => chip(p, false))}
+              {loosePieces.map((x) => pieceChip(x, false))}
               <Typography sx={{ fontSize: "0.74rem", color: FAINT, mt: 1, lineHeight: 1.5 }}>
                 These are the half of a plan a calendar usually hides. Drag one onto a day.
               </Typography>

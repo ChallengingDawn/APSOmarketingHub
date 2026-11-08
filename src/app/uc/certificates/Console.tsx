@@ -20,7 +20,7 @@ import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import PauseCircleOutlineIcon from "@mui/icons-material/PauseCircleOutline";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
-import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
+import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT, hsTicket } from "@/app/uc/report/ui";
 import { Chip, Choice, when } from "@/app/connectors/parts";
 import { full } from "@/app/charts/format";
 import type { BoardRow, Mails, Mode, RunInfo } from "@/lib/certificates/engine";
@@ -445,6 +445,47 @@ function ShopCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
   );
 }
 
+// ---------------- the declarations made on the ticket ----------------
+// The certificate maker on the ticket card "Certificate request" (SARCLA 07.11.2026): the issuer signs, the conformity
+// expert signs - then the hub mails the declaration to the customer and, separately, to EDA. Off until switched on here.
+function MakerCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const save = async (m: "off" | "live") => {
+    if (m === "live" && !window.confirm("Send the declarations signed on the ticket card?\n\nFrom now on, once the conformity expert has signed a declaration on a ticket, the hub mails it to the customer the expert named (in his language, the PDF attached) and, on a separate mail, to EDA (eda.apch@angst-pfister.com) - then sets \"Sent out to customer and EDA\". Never a test (a ticket on hold).")) return;
+    setBusy(true); setErr(null); const r = await put({ makerSend: m }); if (!r.ok) setErr(r.error ?? "failed"); setBusy(false); onChanged();
+  };
+  const rows = d.makerRows ?? [];
+  return (
+    <GlassCard>
+      <CardTitle icon={<TaskAltOutlinedIcon />} tint="green" title="Declarations made on the ticket" note="Signed by the issuer and the conformity expert on the card - then to the customer and EDA" />
+      <Box sx={{ display: "grid", gap: 1 }}>
+        {d.admin ? <Choice<"off" | "live"> value={d.settings.makerSend ?? "off"} onChange={(m) => void save(m)} options={[{ key: "off", label: "Off - the Back Office sends it" }, { key: "live", label: "Live - the hub sends it" }]} />
+          : <Chip tint={d.settings.makerSend === "live" ? "green" : "slate"}>{d.settings.makerSend ?? "off"}</Chip>}
+        <Typography sx={{ fontSize: "0.8rem", color: INK }}>
+          {d.settings.makerSend === "live" ? "Live: within 3 minutes of the expert's signature, the customer gets the declaration (the DoC mail, in his language) and EDA its own mail; the ticket is set to \"Sent out to customer and EDA\" and closes." : "Off: the declaration signed on the card stays on the ticket - the Back Office sends it and sets \"Sent out to customer and EDA\"."}
+          {busy ? " Saving…" : ""}
+        </Typography>
+        {rows.length > 0 && (
+          <Box sx={{ display: "grid", gap: 0.25 }}>
+            {rows.slice(0, 8).map((r) => (
+              <Typography key={`${r.ticketId}-${r.at}-${r.what}`} sx={{ fontSize: "0.76rem", color: r.what === "failed" || r.what === "avorFailed" ? RED : INK }}>
+                {when(r.at)} · <a href={hsTicket(r.ticketId)} target="_blank" rel="noopener" style={{ color: INK, fontWeight: 600 }}>{r.ticketId}</a> · {r.what === "sent" ? `sent to ${r.to}${r.eda ? " and EDA" : ""}`
+                  : r.what === "avor" ? `mail to AVOR sent (${r.to})` : r.what === "avorFailed" ? "mail to AVOR not sent"
+                  : r.what === "avorAnswer" ? `AVOR answered${r.from ? ` (${r.from})` : ""} - merged into the request` : "not sent"}{r.error ? ` - ${r.error}` : ""}
+              </Typography>
+            ))}
+          </Box>
+        )}
+        <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
+          Made from the newest declaration we sent for the A+P material code (or that FDA text), with the customer, dates, signatures and positions taken out. Only from 3 days before the delivery. Each signer picks his own signature and accepts signing; the expert is never the issuer. An article Products &amp; Pricing marks as not certified stops it. A ticket on hold makes a TEST that never goes out. EC 1935/2004: &quot;Send to AVOR&quot; on the card sends AVOR&apos;s mail within 3 minutes, in the sender&apos;s name (answers to support@) - this switch is for the declarations only; AVOR&apos;s answer comes in as a new support@ ticket and the way in merges it into the request before the rotation sees it.
+        </Typography>
+      </Box>
+      {err && <Typography sx={{ mt: 1, fontSize: "0.82rem", color: RED }}>{err}</Typography>}
+    </GlassCard>
+  );
+}
+
 // ---------------- the rules ----------------
 const RULES: { lane: string; steps: StepName[]; then?: string }[] = [
   { lane: "New request", steps: ["wayin", "start-avor", "start-bo"], then: "EC 1935/2004 → AVOR, else → Back Office" },
@@ -500,6 +541,7 @@ export function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }
         <ShopCard d={d} onChanged={onChanged} />
         <DatesCard d={d} onChanged={onChanged} />
       </Box>
+      <MakerCard d={d} onChanged={onChanged} />
       <StepsCard d={d} onChanged={onChanged} />
       <TimingCard key={d.settings.at ?? "t"} d={d} onChanged={onChanged} />
       <RulesCard d={d} />

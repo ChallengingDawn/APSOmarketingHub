@@ -62,6 +62,8 @@ export type WebsiteSection = {
   tint: string;
   fg: string;
   pages: Omit<SubApp, "group">[];
+  /** Where the section's tile leads when not its first page - Content opens on its calendar (SARCLA 07.11.2026: "calendar should be the first app"). */
+  entry?: string;
 };
 
 /**
@@ -222,7 +224,9 @@ export const ucSectionBySlug = (slug: string) => UC_SECTIONS.find((s) => s.slug 
  */
 export const MARKETING_SECTIONS: WebsiteSection[] = [
   {
-    slug: "content", name: "Content", line: "What we make, together: the projects, who does what, and every version", icon: "edit", ...PINK,
+    slug: "content", name: "Content", line: "What we make, together: the calendar, the projects, who does what", icon: "edit", ...PINK,
+    // the calendar first (SARCLA 07.11.2026: "calendar should be the first app"): a page of Projects, so the Projects grant
+    entry: "/projects/calendar",
     pages: [
       // Projects first: it is the door, and the studio is where you go FROM a project
       { name: "Projects", note: "What we are working on, and every version of it", href: "/projects", icon: "template", ...PINK },

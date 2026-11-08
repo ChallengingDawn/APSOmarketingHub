@@ -49,6 +49,8 @@ export type Variant = {
   title: string | null;
   body: string;
   imageUrl: string | null;
+  /** The piece of the project it is a version of (apsomh_content.piece_id), null before pieces. */
+  pieceId?: number | null;
   status: string;
   createdBy: string | null;
   createdAt: string;
@@ -103,7 +105,7 @@ function toProject(r: ProjectRow): Project {
 type VariantRow = {
   id: number; project_id: number | null; content_type: string | null; channel: string;
   language: string | null; label: string | null; title: string | null; body: string;
-  image_url: string | null; status: string; created_by: string | null;
+  image_url: string | null; status: string; created_by: string | null; piece_id?: number | null;
   created_at: Date; updated_by: string | null; updated_at: Date;
 };
 
@@ -118,6 +120,7 @@ function toVariant(r: VariantRow): Variant {
     title: r.title,
     body: r.body,
     imageUrl: r.image_url,
+    pieceId: r.piece_id ?? null,
     status: r.status,
     createdBy: r.created_by,
     createdAt: new Date(r.created_at).toISOString(),

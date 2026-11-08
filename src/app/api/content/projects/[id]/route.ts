@@ -15,9 +15,17 @@ import { getAnthropic } from "@/lib/ai/claude";
 import { translateVariant } from "@/lib/content/translate";
 import { LANGUAGE_BY_CODE, translatedLabel } from "@/lib/content/languages";
 import { accessFor, membersOf } from "@/lib/content/sharing";
+import { attachVersionToPiece, getPiece } from "@/lib/content/workflow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** A version saved from a piece's "Write it" lands on that piece - when the piece is this project's. */
+async function toPiece(projectId: number, variantId: number, pieceId: unknown): Promise<void> {
+  if (typeof pieceId !== "number") return;
+  const piece = await getPiece(pieceId);
+  if (piece?.projectId === projectId) await attachVersionToPiece(variantId, pieceId);
+}
 
 function idOf(raw: string): number | null {
   const n = Number.parseInt(raw, 10);
@@ -72,6 +80,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       imageUrl: str("imageUrl"),
       by: me.username,
     });
+    await toPiece(id, variant.id, body.pieceId);
     return NextResponse.json({ ok: true, variant });
   }
 
@@ -199,6 +208,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       return NextResponse.json({ ok: false, error: "Which draft?" }, { status: 400 });
     }
     const variant = await attachVariant(id, contentId, str("label"), me.username);
+    if (variant) await toPiece(id, variant.id, body.pieceId);
     return variant
       ? NextResponse.json({ ok: true, variant })
       : NextResponse.json({ ok: false, error: "No such draft." }, { status: 404 });
