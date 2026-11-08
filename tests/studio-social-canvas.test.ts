@@ -161,6 +161,37 @@ test("templates: at least twelve, each a real layout inside its board, in every 
   assert.doesNotMatch(all, /%|chemours/i);
 });
 
+test("templates: the words stay clear of every shape and picture, in every format", () => {
+  for (const t of TEMPLATES) {
+    for (const f of Object.values(FORMATS)) {
+      const size = { w: f.w, h: f.h };
+      const d = t.build(size);
+      // a text's box: its width, its lines' height (the measure the templates are laid out with)
+      const texts = d.nodes.filter((n) => n.kind === "text").map((n) => {
+        const fs = n.fontSize ?? 24;
+        const lay = layoutRich(n.listStyle ? (n.text ?? "").split("\n").map((l) => `0. ${l}`).join("\n") : n.text ?? "", {
+          width: n.width ?? f.w, fontSize: fs, lineHeight: n.lineHeight ?? 1.25, letterSpacing: n.letterSpacing ?? 0, measure: estimateMeasure(fs, Number(n.fontStyle) >= 600),
+        });
+        return { id: n.id, text: n.text, x0: n.x, y0: n.y, x1: n.x + (n.width ?? f.w), y1: n.y + lay.height };
+      });
+      // a shape drawn for its looks (a ring, a disc, a halo) or a picture, its stroke included, as far as it is on the board
+      const shapes = d.nodes.filter((n) => n.kind === "ellipse" || (n.kind === "image" && !n.src?.includes("logo"))).map((n) => {
+        const half = (n.strokeWidth ?? 0) / 2;
+        return {
+          id: n.id, x0: Math.max(0, n.x - half), y0: Math.max(0, n.y - half),
+          x1: Math.min(f.w, n.x + (n.width ?? 0) + half), y1: Math.min(f.h, n.y + (n.height ?? 0) + half),
+        };
+      });
+      for (const a of texts) {
+        for (const b of shapes) {
+          const overlap = a.x0 < b.x1 - 1 && b.x0 < a.x1 - 1 && a.y0 < b.y1 - 1 && b.y0 < a.y1 - 1;
+          assert.ok(!overlap, `${t.key} ${f.w}x${f.h}: "${(a.text ?? "").slice(0, 30)}" runs over ${b.id}`);
+        }
+      }
+    }
+  }
+});
+
 test("a template takes the words it is given", () => {
   const t = templateByKey("statement")!;
   const d = t.build({ w: 1080, h: 1080 }, { headline: "Hello *world*" });
