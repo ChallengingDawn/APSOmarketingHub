@@ -44,6 +44,7 @@ function mem(){var d={};return{getItem:function(k){return Object.prototype.hasOw
 ["localStorage","sessionStorage"].forEach(function(n){try{window[n].getItem("x");}catch(e){try{Object.defineProperty(window,n,{value:mem(),configurable:true});}catch(_){}}});
 try{document.cookie;}catch(e){var jar={};try{Object.defineProperty(document,"cookie",{configurable:true,get:function(){return Object.keys(jar).map(function(k){return k+"="+jar[k]}).join("; ")},set:function(v){var p=String(v).split(";")[0],i=p.indexOf("=");if(i>0)jar[p.slice(0,i).trim()]=p.slice(i+1);}});}catch(_){}}
 window.open=function(){return null;};
+try{Object.defineProperty(Navigator.prototype,"cookieEnabled",{configurable:true,get:function(){return true;}});}catch(e){}
 function tell(m){try{m.${PREVIEW_MARK}=m.t;delete m.t;parent.postMessage(m,"*");}catch(e){}}
 document.addEventListener("click",function(e){if(picking||e.defaultPrevented)return;var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;e.preventDefault();
 var raw=a.getAttribute("href")||"";if(raw.charAt(0)==="#"){var t=document.getElementById(raw.slice(1));if(t&&t.scrollIntoView)t.scrollIntoView({block:"start"});return;}
@@ -80,6 +81,7 @@ addEventListener("scroll",function(){if(Date.now()<quiet)return;var n=Date.now()
 addEventListener("message",function(e){if(e.source!==parent||!e.data||typeof e.data.${PREVIEW_MARK}Scroll!=="number")return;quiet=Date.now()+250;var h=document.documentElement.scrollHeight-innerHeight;scrollTo(0,Math.round(e.data.${PREVIEW_MARK}Scroll*Math.max(0,h)));});
 var SPRITE=window.__apsoSprite;if(SPRITE&&window.MutationObserver){var fix=function(root){var u=root.querySelectorAll?root.querySelectorAll("use"):[];for(var i=0;i<u.length;i++){["href","xlink:href"].forEach(function(a){var v=u[i].getAttribute(a);if(v&&v.indexOf(SPRITE+"#")===0)u[i].setAttribute(a,v.slice(SPRITE.length));});}};
 new MutationObserver(function(ms){ms.forEach(function(m){if(m.type==="attributes"){var t=m.target;if(t&&t.parentNode)fix(t.parentNode);return;}m.addedNodes.forEach(function(n){if(n.nodeType===1)fix(n);});});}).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:["href","xlink:href"]});}
+if(!document.body&&window.MutationObserver){var bo=new MutationObserver(function(){if(document.body){bo.disconnect();tell({t:"body"});}});bo.observe(document.documentElement,{childList:true});}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",ready);else ready();
 })();`;
 }

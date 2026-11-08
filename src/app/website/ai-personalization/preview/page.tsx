@@ -56,7 +56,7 @@ type StudioData = {
 };
 type Msg = { apsoPreview: "ready"; title: string } | { apsoPreview: "applied"; hit: number[] } | { apsoPreview: "go"; href: string } | { apsoPreview: "scroll"; y: number }
   | { apsoPreview: "picked"; selector: string; tag: string; text: string } | { apsoPreview: "styles"; total: number; nfailed: number; failed: string[] }
-  | { apsoPreview: "drawn"; lines: string[] };
+  | { apsoPreview: "drawn"; lines: string[] } | { apsoPreview: "body" };
 type Picked = { selector: string; tag: string; text: string; from: string };
 type Device = "desktop" | "phone";
 type Zoom = "fit" | "full";
@@ -79,6 +79,9 @@ function Frame({ src, device, zoom, label, address, name, sync, pick, marks, onM
   const [w, setW] = useState(0);
   const [vh, setVh] = useState(800);
   const [ready, setReady] = useState(false);
+  // the page's body has begun: it draws as its files come, so it is shown at once with a thin line on top (SARCLA
+  // 08.11.2026 - a minute behind "Reading the page from the shop…" read as a broken preview)
+  const [drawing, setDrawing] = useState(false);
   const [late, setLate] = useState(false);
   useEffect(() => {
     const el = wrap.current;
@@ -89,6 +92,7 @@ function Frame({ src, device, zoom, label, address, name, sync, pick, marks, onM
   }, []);
   useEffect(() => {
     setReady(false);
+    setDrawing(false);
     setLate(false);
     // a cold hub reads the page's ~130 files from the shop six at a time: up to ~30 s once a day, then from memory
     const t = setTimeout(() => setLate(true), 45_000);
@@ -100,6 +104,7 @@ function Frame({ src, device, zoom, label, address, name, sync, pick, marks, onM
       const d = e.data as Msg;
       if (!d || typeof d !== "object" || !("apsoPreview" in d)) return;
       if (d.apsoPreview === "ready") setReady(true);
+      if (d.apsoPreview === "body") { setDrawing(true); return; }
       onMsg(d, name);
     };
     window.addEventListener("message", on);
@@ -140,6 +145,7 @@ function Frame({ src, device, zoom, label, address, name, sync, pick, marks, onM
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
         <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: label.startsWith("Version") ? "#6a46c9" : MUTED, textTransform: "uppercase", letterSpacing: ".04em" }}>{label}</Typography>
         {ready && <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>· {phone ? "390 px wide" : zoom === "full" ? "actual size" : `${Math.round(scale * 100)}%`}</Typography>}
+        {!ready && drawing && <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>· still loading its files…</Typography>}
       </Box>
       <Box ref={wrap} sx={{ position: "relative", ...(phone ? { display: "grid", placeItems: "center", py: 1.5, bgcolor: "#eef1f5", borderRadius: "18px" } : {}) }}>
         <Box sx={{
@@ -154,7 +160,12 @@ function Frame({ src, device, zoom, label, address, name, sync, pick, marks, onM
               <iframe ref={frame} key={src} src={src} title={label} sandbox="allow-scripts" referrerPolicy="no-referrer"
                 style={{ width: W, height: H, border: 0, transform: `scale(${scale})`, transformOrigin: "0 0", background: "#fff", display: "block" }} />
             </Box>
-            {!ready && (
+            {!ready && drawing && (
+              <Box aria-hidden sx={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, overflow: "hidden", bgcolor: "rgba(36,89,209,.12)",
+                "&::after": { content: '""', position: "absolute", top: 0, bottom: 0, width: "30%", bgcolor: ACCENT, animation: "apsoLoad 1.1s ease-in-out infinite" },
+                "@keyframes apsoLoad": { from: { left: "-30%" }, to: { left: "100%" } } }} />
+            )}
+            {!ready && !drawing && (
               <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", bgcolor: "rgba(255,255,255,.82)", pointerEvents: late ? "auto" : "none" }}>
                 {late
                   ? <Box sx={{ display: "grid", gap: 1, justifyItems: "center", color: MUTED, fontSize: "0.84rem", textAlign: "center", px: 2 }}>

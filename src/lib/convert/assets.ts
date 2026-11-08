@@ -174,6 +174,27 @@ export async function shopFile(env: Env, path: string, hubOrigin: string): Promi
   return p;
 }
 
+/**
+ * Start reading a page's own files (its stylesheets, scripts, fonts, first pictures) while the page itself is on its way
+ * to the browser - the frame then finds them in the hub's memory instead of waiting for each in turn (SARCLA 08.11.2026:
+ * the preview sat on "Reading the page from the shop…" for a minute). The same six-at-a-time queue as the browser's own
+ * asks; nothing waits for it. Returns how many files were started.
+ */
+export function warmFiles(html: string, hubOrigin: string, max = 80): number {
+  const seen = new Set<string>();
+  const re = /https:\/\/(www|acc)\.apsoparts\.com(\/(?:static|media)\/[^"'\s)<>?#]+)/g;
+  for (let m = re.exec(html); m && seen.size < max; m = re.exec(html)) {
+    const env: Env = m[1] === "acc" ? "acc" : "prod";
+    const path = assetPath(m[2].slice(1).split("/"));
+    if (!path || !/\.(css|js|woff2?|ttf|svg|png|jpe?g|webp|gif)$/i.test(path)) continue;
+    const k = `${env}${path}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    void shopFile(env, path, hubOrigin).catch(() => undefined);
+  }
+  return seen.size;
+}
+
 /** The hub's own address as the browser sees it (behind the load balancer: its forwarded host and scheme). */
 export function hubOriginOf(headers: Headers, fallback: string): string {
   const host = headers.get("x-forwarded-host") ?? headers.get("host");
