@@ -16,6 +16,10 @@
 //   paste      what to paste into Magento, and where - one language. Nothing is written to Magento: its client is
 //              read-only, with production keys shared with other jobs
 //   ping       nothing - the studio waits on it so a big change goes in two steps (studio/doc.ts batches)
+//   winner     a test's winner (the brief's marker names the test): the tested change list, its figures, published yet,
+//              may this person publish (lib/convert/winner.ts)
+//   publish    a test's winner out to the shop - once approved, by someone with Edit on APSOconvert's Ship (as Ship
+//              itself was): the way is APSOconvert's (the Magento page, on for everyone, or the code for dotSource)
 // AI tasks (in the brand's voice and with the brand brain's facts - the route puts them first)
 //   rewrite    an existing page's change list from its outline and a request - the final words, never a placeholder;
 //              with a selected element, that element only
@@ -32,6 +36,8 @@ import type { Op } from "../../doc";
 import { saveOps } from "../../store";
 import { projectHead } from "@/lib/content/workflow";
 import { markerOf } from "@/lib/convert/handoff";
+import { publishFromContent, winnerFor, type Winner } from "@/lib/convert/winner";
+import { myAccess } from "@/lib/auth/appAccess";
 import { classify, isKind } from "@/lib/convert/model";
 import { pagesSummary } from "@/lib/convert/pages";
 import { cleanPath, pageWork } from "@/lib/convert/studio";
@@ -453,6 +459,22 @@ const start: ServerAction = async (ctx, raw, input) => {
   let imported: { env: string; path: string; version: { rev: number; status: string; summary: string } | null } | null = null;
   // a page from APSOconvert is taken over on the first open of an empty studio, or when asked again
   if (mark && path && (again || (!d.path && !d.changes.length))) {
+    // a test's winner: exactly the change list that was tested, and its figures
+    const won = mark.testId ? await winnerFor(mark.testId).catch(() => null) : null;
+    if (won) {
+      const c = classify(path);
+      ops.push(
+        { op: "set", path: ["source"], value: "convert" },
+        { op: "set", path: ["env"], value: mark.env },
+        { op: "set", path: ["path"], value: path },
+        { op: "set", path: ["store"], value: c.store ?? d.store },
+        { op: "set", path: ["pageKind"], value: c.kind },
+        { op: "set", path: ["origin"], value: originOfWinner(won) },
+        { op: "set", path: ["changes"], value: won.changes },
+      );
+      await write(ctx, ops);
+      return { imported: { env: mark.env, path, version: { rev: won.rev, status: "won", summary: won.summary } }, marker: true };
+    }
     const work = await pageWork(mark.env, path).catch(() => null);
     const newest = (list: NonNullable<typeof work>["versions"]) => [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
     const v = work ? newest(work.versions.filter((x) => x.status === "approved")) ?? newest(work.versions) : null;
@@ -471,6 +493,55 @@ const start: ServerAction = async (ctx, raw, input) => {
   }
   await write(ctx, ops);
   return { imported, marker: !!mark };
+};
+
+/** What the studio keeps of a winner: its version and the test's figures. */
+function originOfWinner(w: Winner) {
+  const r = w.result;
+  return {
+    versionId: w.versionId ?? "", rev: w.rev, status: "won", summary: w.summary.slice(0, 600), idea: w.name.slice(0, 200),
+    test: {
+      id: w.testId, rateA: r?.rateA ?? null, rateB: r?.rateB ?? null, uplift: r?.uplift ?? null, pB: r?.pB ?? null,
+      visitors: r?.visitors ?? 0, days: r?.days ?? 0, decidedBy: w.decidedBy, decidedAt: w.decidedAt,
+    },
+  };
+}
+
+/** Publishing a winner is Ship's - the person's level on that page, as APSOconvert's Ship asked it. */
+const SHIP_PAGE = "/website/ai-personalization/ship";
+async function mayShip(): Promise<boolean> {
+  const acc = await myAccess().catch(() => null);
+  return !!acc && acc.levelAt(SHIP_PAGE) === "write";
+}
+async function testIdOf(ctx: StudioCtx): Promise<string | null> {
+  const head = await projectHead(ctx.projectId);
+  return markerOf(head?.project.brief ?? "")?.testId ?? null;
+}
+
+const winner: ServerAction = async (ctx, raw) => {
+  const testId = await testIdOf(ctx);
+  if (!testId) return { winner: null };
+  const [w, may] = await Promise.all([winnerFor(testId), mayShip()]);
+  const d = pageDoc(raw, ctx.piece.language);
+  // figures as they are now (the test may have run on), kept in the document
+  if (d.origin?.test && JSON.stringify(d.origin.test) !== JSON.stringify(originOfWinner(w).test)) {
+    await write(ctx, [{ op: "set", path: ["origin", "test"], value: originOfWinner(w).test }]).catch(() => undefined);
+  }
+  return { winner: { testId: w.testId, tested: w.changes, result: w.result, shipped: w.shipped, name: w.name }, mayShip: may };
+};
+
+const publish: ServerAction = async (ctx, raw) => {
+  const testId = await testIdOf(ctx);
+  if (!testId) throw new Error("This page is not a test's winner - a page of the shop goes to Magento by the Magento step.");
+  if (!ctx.canEdit) throw new Error("You can comment on this project, not publish from it.");
+  if (ctx.piece.status !== "approved") throw new Error("It is published once approved - ask for review first.");
+  if (!(await mayShip())) throw new Error("Publishing a winner needs Edit on Website > AI testing & personalization > Ship - an admin gives it under Users.");
+  const d = pageDoc(raw, ctx.piece.language);
+  if (d.published) throw new Error("It is published already.");
+  const r = await publishFromContent({ testId, changes: d.changes, by: ctx.me.username, pieceId: String(ctx.pieceId) });
+  const published = { way: r.way, id: r.id ?? "", edited: r.edited, at: new Date().toISOString(), by: ctx.me.username, package: r.package ?? null };
+  await write(ctx, [{ op: "set", path: ["published"], value: published }]);
+  return { published };
 };
 
 let storesHeld: { at: number; list: { store: string; prod: number; acc: number }[] } | null = null;
@@ -555,6 +626,6 @@ export const pageKind: KindDef = {
     fill_cta: fillTask("cta"), fill_seo: fillTask("seo"), fill_field: fillField,
   },
   actions: {
-    start, stores, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, relink, ping: async () => ({ ok: true }),
+    start, winner, publish, stores, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, relink, ping: async () => ({ ok: true }),
   },
 };

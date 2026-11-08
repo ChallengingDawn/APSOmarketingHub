@@ -61,6 +61,44 @@ export type LangVersion = {
   at: string;
 };
 
+/** A test's figures as the page studio keeps them. */
+export type WinnerTest = {
+  id: string; rateA: number | null; rateB: number | null; uplift: number | null; pB: number | null;
+  visitors: number; days: number; decidedBy: string | null; decidedAt: string | null;
+};
+/** How a winner went out: on for everyone (the gateway), into the Magento CMS page, or the code for dotSource. */
+export type Published = {
+  way: "everyone" | "cms" | "dotsource"; id: string; edited: boolean; at: string; by: string;
+  package: { css: string; js: string; description: string } | null;
+};
+export const WAY_LABEL: Record<Published["way"], string> = {
+  everyone: "On for everyone on the shop", cms: "Written into the Magento page", dotsource: "Handed to dotSource as code",
+};
+
+/** True when two change lists say the same - the order counts (a later change can build on an earlier one). */
+export function sameChangeList(a: unknown[], b: unknown[]): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+function winnerTestOf(v: unknown): WinnerTest | null {
+  if (!isObj(v) || typeof v.id !== "string" || !v.id) return null;
+  return {
+    id: v.id.slice(0, 20), rateA: num(v.rateA), rateB: num(v.rateB), uplift: num(v.uplift), pB: num(v.pB),
+    visitors: num(v.visitors) ?? 0, days: num(v.days) ?? 0,
+    decidedBy: typeof v.decidedBy === "string" ? v.decidedBy.slice(0, 255) : null, decidedAt: typeof v.decidedAt === "string" ? v.decidedAt.slice(0, 40) : null,
+  };
+}
+function publishedOf(v: unknown): Published | null {
+  if (!isObj(v) || !["everyone", "cms", "dotsource"].includes(String(v.way))) return null;
+  const pk = isObj(v.package) ? v.package : null;
+  const s = (x: unknown, n: number) => (typeof x === "string" ? x.slice(0, n) : "");
+  return {
+    way: v.way as Published["way"], id: s(v.id, 40), edited: v.edited === true, at: s(v.at, 40), by: s(v.by, 255),
+    package: pk ? { css: s(pk.css, 120_000), js: s(pk.js, 120_000), description: s(pk.description, 20_000) } : null,
+  };
+}
+
 export type PageDoc = {
   v: 1;
   source: PageSource;
@@ -72,8 +110,10 @@ export type PageDoc = {
   pageKind: PageKind | null;
   /** the first open has looked for an APSOconvert page in the project's brief */
   started: boolean;
-  /** the APSOconvert version the changes came from */
-  origin: { versionId: string; rev: number; status: string; summary: string; idea: string } | null;
+  /** the APSOconvert version the changes came from - with its test's figures when it won a test (lib/convert/winner.ts) */
+  origin: { versionId: string; rev: number; status: string; summary: string; idea: string; test: WinnerTest | null } | null;
+  /** a test's winner published from here (SARCLA 08.11.2026: "content publish should go to Content") */
+  published: Published | null;
   /** an older new page: one block of HTML (kept so it still shows); new pages are `fields` */
   newPage: { title: string; urlKey: string; metaTitle: string; metaDescription: string; body: string };
   fields: Fields;
@@ -165,7 +205,7 @@ export function langState(d: PageDoc, lang: string): LangState {
 
 export function emptyPage(language?: string | null): PageDoc {
   return {
-    v: 1, source: "pick", env: "prod", path: "", store: storeForLanguage(language), pageKind: null, started: false, origin: null,
+    v: 1, source: "pick", env: "prod", path: "", store: storeForLanguage(language), pageKind: null, started: false, origin: null, published: null,
     newPage: { title: "", urlKey: "", metaTitle: "", metaDescription: "", body: "" },
     fields: emptyFields(),
     changes: [], texts: [], langs: {}, inserts: [],
@@ -232,7 +272,8 @@ export function pageDoc(raw: unknown, language?: string | null): PageDoc {
     store: str(d.store, 20) || e.store,
     pageKind: isKind(d.pageKind) ? d.pageKind : null,
     started: d.started === true,
-    origin: o ? { versionId: str(o.versionId, 40), rev: Number(o.rev) || 1, status: str(o.status, 20), summary: str(o.summary, 600), idea: str(o.idea, 200) } : null,
+    origin: o ? { versionId: str(o.versionId, 40), rev: Number(o.rev) || 1, status: str(o.status, 20), summary: str(o.summary, 600), idea: str(o.idea, 200), test: winnerTestOf(o.test) } : null,
+    published: publishedOf(d.published),
     newPage: { title: str(np.title, 200), urlKey: str(np.urlKey, 200), metaTitle: str(np.metaTitle, 200), metaDescription: str(np.metaDescription, 400), body: str(np.body, 60_000) },
     fields: normalizeFields(d.fields),
     changes: changesOf(d.changes),

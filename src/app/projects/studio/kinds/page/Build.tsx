@@ -4,7 +4,7 @@
 //   Changes    a page of the shop: its change list (APSOconvert's), each found or not on the page
 //   Selected   the element clicked in the preview: its words, picture, link, look - or the AI for it alone
 //   A/B test   a page of the shop: the test's plan
-//   Magento    what to paste, one language at a time
+//   Magento    what to paste, one language at a time - or, for a test's winner, Publish (./Winner.tsx)
 // Banners placed in the page by the banner studio are listed under Page, each with a way to take it out.
 
 import Box from "@mui/material/Box";
@@ -29,6 +29,7 @@ import { ElementPane, type Selection } from "./Element";
 import { FieldsEditor, type FillRun } from "./Fields";
 import { AbTest, Publish, Texts } from "./Sections";
 import { Block, Chip, Choice, Hint } from "./ui";
+import { WinnerCard, WinnerPublish, useWinner } from "./Winner";
 
 export type Step = "page" | "changes" | "element" | "texts" | "test" | "publish";
 
@@ -113,13 +114,16 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
   const holders = placeholdersOf(d).length;
   const open = unwritten(d).length;
   const main = mainLang(doc);
+  // a test's winner from APSOconvert is published from here (SARCLA 08.11.2026)
+  const isWinner = !!doc.origin?.test;
+  const won = useWinner(api, isWinner);
   const steps: { key: Step; label: string }[] = [
     { key: "page", label: isNew ? "Page" : "Page" },
     ...(!isNew ? [{ key: "changes" as Step, label: d.changes.length ? `Changes · ${d.changes.length}` : "Changes" }] : []),
     ...(sel ? [{ key: "element" as Step, label: "Element" }] : []),
     ...(holders ? [{ key: "texts" as Step, label: `Texts · ${holders - open}/${holders}` }] : []),
     ...(!isNew ? [{ key: "test" as Step, label: d.abTest.enabled ? "A/B · on" : "A/B" }] : []),
-    { key: "publish", label: "Magento" },
+    { key: "publish", label: isWinner ? (doc.published ? "Published" : "Publish") : "Magento" },
   ];
   const shown: Step = steps.some((s) => s.key === step) ? step : "page";
   const sources: { key: PageSource; label: string }[] = [
@@ -169,7 +173,8 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
                   {canEdit && <Button size="small" onClick={onPickPage} sx={{ ...btn, color: PINK, mt: 0.75 }}>Pick the page</Button>}
                 </Box>
               )}
-              {doc.source === "convert" && doc.origin && lang === main && (
+              {isWinner && lang === main && <WinnerCard doc={doc} info={won.info} />}
+              {!isWinner && doc.source === "convert" && doc.origin && lang === main && (
                 <Box sx={{ mb: 1.25 }}>
                   <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", mb: 0.5 }}>
                     <Chip tint={doc.origin.status === "approved" ? "green" : "amber"}>{doc.origin.status === "approved" ? "Approved version" : "Draft version"}</Chip>
@@ -197,7 +202,8 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
       )}
       {shown === "texts" && <Block first title="The texts"><Texts d={d} set={(v) => setView(v)} canEdit={canEdit} /></Block>}
       {shown === "test" && <Block first title="The A/B test"><AbTest d={d} set={(v) => setView(v)} canEdit={canEdit} /></Block>}
-      {shown === "publish" && <Block first title={`To Magento · ${langName(lang)}`}><Publish api={api} d={d} set={(v) => setView(v)} canEdit={canEdit} lang={lang} /></Block>}
+      {shown === "publish" && isWinner && <Block first title="Publish on the shop"><WinnerPublish api={api} doc={doc} {...won} /></Block>}
+      {shown === "publish" && !isWinner && <Block first title={`To Magento · ${langName(lang)}`}><Publish api={api} d={d} set={(v) => setView(v)} canEdit={canEdit} lang={lang} /></Block>}
     </Pane>
   );
 }
