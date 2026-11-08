@@ -1,7 +1,7 @@
 // Where the order facts live between the steps (rules in ./orderFactsRules.ts). Two Postgres tables, created on first use:
 // - apsomh_cx_erp_order_facts: what the morning workbook's sheets gave - per order ("B:" + the number without its
-//   suffix: first confirmed date, special articles) and per delivery ("O:" + its number: the invoice). Written by the
-//   ERP revenue step, replaced as a whole each morning; read by order_sync at night.
+//   suffix: first confirmed date, special articles, shipment status) and per delivery ("O:" + its number: the invoice).
+//   Written by the ERP revenue step each morning - added to, never emptied; read by order_sync at night.
 // - apsomh_cx_order_facts_written: per HubSpot order id, what order_sync last wrote (the facts' hash) - so a night
 //   writes only the orders whose facts changed.
 
@@ -21,7 +21,8 @@ function ensure(): Promise<void> {
   return ready;
 }
 
-/** The sheets' facts, replacing the last ones: kept first, then whatever this file no longer gives is dropped. */
+/** The sheets' facts, added to what is kept: a fact is replaced when a file gives it again, never dropped - so the history
+ *  loaded once (the invoices since 2020, SARCLA 08.11.2026: "also historicals") stays when the daily file covers 13 months. */
 export async function saveErpFacts(byBase: Map<string, Facts>, byOrder: Map<string, Facts>): Promise<{ orders: number; deliveries: number }> {
   await ensure();
   const at = new Date().toISOString();
@@ -31,7 +32,6 @@ export async function saveErpFacts(byBase: Map<string, Facts>, byOrder: Map<stri
     await query(`INSERT INTO ${ERP} (key, facts, at) SELECT k, f, $3::timestamptz FROM unnest($1::text[], $2::text[]) AS t(k, f)
       ON CONFLICT (key) DO UPDATE SET facts = EXCLUDED.facts, at = EXCLUDED.at`, [part.map((r) => r[0]), part.map((r) => r[1]), at]);
   }
-  if (rows.length) await query(`DELETE FROM ${ERP} WHERE at < $1::timestamptz`, [at]);
   return { orders: byBase.size, deliveries: byOrder.size };
 }
 

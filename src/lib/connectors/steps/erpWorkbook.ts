@@ -26,6 +26,7 @@ import { SaxesParser } from "saxes";
 import { Figures3, Figures4, PyFloat, SHEET_CUSTOMERS, SHEET_PROFIT_CENTRES, pyRound, type Cell, type Figures3Result, type Figures4Result } from "./erpRules";
 import { ErpLinesSheet, SHEET_ERP_LINES, type ErpLine } from "../../reporting/boErpLines";
 import { InvoicesSheet, SHEET_INVOICES, type InvoiceRow } from "./orderFactsRules";
+import { ArticlesSheet, SHEET_ARTICLES, type ArticleRow } from "./productFactsRules";
 
 export class WorkbookFormatError extends Error {
   constructor(message: string) {
@@ -495,6 +496,8 @@ export type ErpWorkbook = {
   erpLines: { lines: ErpLine[]; rows: number } | null;
   /** the ERP's invoices per delivery from its BI model (sheet "KPI INVOICES", ./orderFactsRules.ts) - null without it */
   invoices: InvoiceRow[] | null;
+  /** the ERP's articles from its BI model (sheet "KPI ARTICLES", ./productFactsRules.ts) - null without it */
+  articles: ArticleRow[] | null;
   rows: number;
   seconds: number;
 };
@@ -540,5 +543,12 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>):
     rows += await readSheet(file, part(it.name)!, book, (n, cells) => si.feed(n, cells), beat);
     invoices = si.finish();
   }
-  return { file: basename(file), mb: pyRound(size / 1048576, 1), sheets: names, customers, profitCentres, erpLines, invoices, rows, seconds: Math.round((Date.now() - t0) / 100) / 10 };
+  let articles: ArticleRow[] | null = null;
+  const at = book.sheets.find((x) => x.name.trim().toUpperCase() === SHEET_ARTICLES);
+  if (at) {
+    const sa = new ArticlesSheet();
+    rows += await readSheet(file, part(at.name)!, book, (n, cells) => sa.feed(n, cells), beat);
+    articles = sa.finish();
+  }
+  return { file: basename(file), mb: pyRound(size / 1048576, 1), sheets: names, customers, profitCentres, erpLines, invoices, articles, rows, seconds: Math.round((Date.now() - t0) / 100) / 10 };
 }

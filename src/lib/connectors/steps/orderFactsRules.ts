@@ -15,36 +15,37 @@
 import { cpSlice, pyStrip, shipIso, type Get } from "./orderRules";
 import { dayOf, type ErpLine } from "../../reporting/boErpLines";
 
-/** the orders filled: those of this year on (dim_order OrderYear) - not the 800,000 since 2014 */
-export const FACTS_FROM_YEAR = 2025;
+/** the orders filled: those of this year on (dim_order OrderYear) - history from 2020 (SARCLA 08.11.2026: "also historicals"),
+ *  not the 800,000 since 2014 - each kept packed in memory for the night (the repeated values kept once, by number) */
+export const FACTS_FROM_YEAR = 2020;
 /** OFF until SARCLA has seen the preview's figures and said go: order_sync then counts and reports, writes nothing */
 export const ORDER_FACTS_LIVE = false;
 export const SHEET_INVOICES = "KPI INVOICES";
 
-type Kind = "text" | "date" | "source" | "prepay";
+type Kind = "text" | "date" | "source" | "prepay" | "dict";
 /** dim_order column -> order property (all in the group sarcla_orders, checked 08.11.2026) */
 export const DIM_FACTS: readonly (readonly [prop: string, col: string, kind: Kind])[] = [
   ["order_customer_order_nr", "CustomerOrderNr", "text"],
   ["order_your_reference", "YourReference", "text"],
   ["order_delivery_note_nr", "DeliveryNoteNr", "text"],
-  ["order_incoterm", "IncoTerm", "text"],
-  ["order_payment_term", "PaymentTerm", "text"],
+  ["order_incoterm", "IncoTerm", "dict"],
+  ["order_payment_term", "PaymentTerm", "dict"],
   ["order_order_fixed_date", "OrderFixedDate", "date"],
   ["order_order_source", "OrderSource", "source"],
-  ["order_split_delivery", "SplitDelivery", "text"],
-  ["order_shipping_warehouse", "ShippingFromWarehouse", "text"],
-  ["order_sales_department", "SalesDepartment", "text"],
-  ["order_sales_team_id", "SalesTeamId", "text"],
-  ["order_sales_agent_code", "SA", "text"],
+  ["order_split_delivery", "SplitDelivery", "dict"],
+  ["order_shipping_warehouse", "ShippingFromWarehouse", "dict"],
+  ["order_sales_department", "SalesDepartment", "dict"],
+  ["order_sales_team_id", "SalesTeamId", "dict"],
+  ["order_sales_agent_code", "SA", "dict"],
   ["order_delivery_date_customer", "DeliveryDateCustomer", "date"],
   ["order_delivery_date_proposed", "DeliveryDateProp", "date"],
   ["order_advance_payment", "Prepayment", "prepay"],
-  ["order_value_class", "OrderValueClassificationLC", "text"],
-  ["order_margin_class", "OrderMarginLevelClassificationLC", "text"],
+  ["order_value_class", "OrderValueClassificationLC", "dict"],
+  ["order_margin_class", "OrderMarginLevelClassificationLC", "dict"],
 ];
 /** the properties the sheets fill */
-export const LINE_FACTS = ["order_first_confirmed_delivery", "order_has_special_articles"] as const;
-export const INVOICE_FACTS = ["order_invoice_date", "order_invoice_number", "order_invoice_booking_date", "order_invoice_canceled", "order_invoice_currency", "order_invoice_count", "order_invoiced_status"] as const;
+export const LINE_FACTS = ["order_first_confirmed_delivery", "order_has_special_articles", "order_shipment_status"] as const;
+export const INVOICE_FACTS = ["order_invoice_date", "order_invoice_number", "order_invoice_booking_date", "order_invoice_canceled", "order_invoice_currency", "order_invoice_count", "order_invoiced_status", "order_cogs_eur", "order_customer_class"] as const;
 
 export type Facts = Record<string, string>;
 
@@ -59,7 +60,7 @@ function value(kind: Kind, raw: string): string | null {
   const s = clean(raw ?? "");
   if (!s) return null;
   switch (kind) {
-    case "text": return s;
+    case "text": case "dict": return s;
     case "date": return realDate(s);
     case "source": return s === "eShop" || s === "manually entered" ? s : null; // the choice list's own options
     case "prepay": return s === "J" ? "checked" : s === "N" ? "unchecked" : null;
@@ -74,35 +75,55 @@ export function dimFactsOf(get: Get): Facts | null {
   for (const [prop, col, kind] of DIM_FACTS) { const v = value(kind, get(col)); if (v != null) f[prop] = v; }
   return f;
 }
-/** packed small for 70,000 orders in memory: the values in DIM_FACTS order */
-export const packDim = (f: Facts) => DIM_FACTS.map(([p]) => f[p] ?? "").join("\u0001");
+/** the values that repeat (incoterm, payment term, warehouse, team, classes ...) kept once, by number */
+const DIM_DICT: string[] = [];
+const DIM_INDEX = new Map<string, number>();
+const intern = (v: string) => { let i = DIM_INDEX.get(v); if (i === undefined) { i = DIM_DICT.length; DIM_DICT.push(v); DIM_INDEX.set(v, i); } return String(i); };
+/** packed small for ~400,000 orders in memory: the values in DIM_FACTS order, the repeated ones as their number */
+export const packDim = (f: Facts) => DIM_FACTS.map(([p, , kind]) => (f[p] == null ? "" : kind === "dict" ? intern(f[p]) : f[p])).join("\u0001");
 export function unpackDim(s: string | undefined): Facts {
   const f: Facts = {};
   if (!s) return f;
-  s.split("\u0001").forEach((v, i) => { if (v && DIM_FACTS[i]) f[DIM_FACTS[i][0]] = v; });
+  s.split("\u0001").forEach((v, i) => {
+    const d = DIM_FACTS[i];
+    if (!v || !d) return;
+    const val = d[2] === "dict" ? DIM_DICT[Number(v)] ?? "" : v;
+    if (val) f[d[0]] = val;
+  });
   return f;
 }
 
 /** "A26.661275.001" -> "A26.661275" */
 export const baseOfNumber = (num: string) => num.replace(/\.\d{3}$/, "");
 
-/** KPI LINES -> per order (base number): the earliest first confirmed date of its lines, special articles or not. */
-export function lineFacts(lines: Iterable<Pick<ErpLine, "order" | "firstDay" | "artType">>): Map<string, Facts> {
-  const out = new Map<string, { first: string; special: boolean }>();
+/** KPI LINES -> per order (base number): the earliest first confirmed date of its lines, special articles or not, and how
+ *  far it is shipped (the property's own options: every line shipped in full, some shipped, none yet). */
+export function lineFacts(lines: Iterable<Pick<ErpLine, "order" | "firstDay" | "artType" | "qty" | "shipped" | "lineType">>): Map<string, Facts> {
+  const out = new Map<string, { first: string; special: boolean; lines: number; full: number; some: number }>();
   for (const l of lines) {
     if (!l.order) continue;
     const b = baseOfNumber(l.order);
-    const x = out.get(b) ?? { first: "", special: false };
+    const x = out.get(b) ?? { first: "", special: false, lines: 0, full: 0, some: 0 };
     if (l.firstDay && l.firstDay < "2030-01-01" && (!x.first || l.firstDay < x.first)) x.first = l.firstDay;
     if (l.artType === "Special") x.special = true;
+    if (l.qty != null && l.qty > 0 && (!l.lineType || l.lineType === "Order")) {
+      x.lines++;
+      if ((l.shipped ?? 0) >= l.qty - 1e-9) x.full++;
+      else if ((l.shipped ?? 0) > 0) x.some++;
+    }
     out.set(b, x);
   }
-  return new Map([...out].map(([b, x]) => [b, { ...(x.first ? { order_first_confirmed_delivery: x.first } : {}), order_has_special_articles: x.special ? "true" : "false" }]));
+  return new Map([...out].map(([b, x]) => {
+    const f: Facts = { order_has_special_articles: x.special ? "true" : "false" };
+    if (x.first) f.order_first_confirmed_delivery = x.first;
+    if (x.lines) f.order_shipment_status = x.full === x.lines ? "Fully shipped" : x.full || x.some ? "Partially shipped" : "Open";
+    return [b, f];
+  }));
 }
 
 /* ── KPI INVOICES: one row per delivery and invoice ─────────────────────────────────── */
 
-export type InvoiceRow = { order: string; number: string; date: string; booked: string; canceled: string; currency: string };
+export type InvoiceRow = { order: string; number: string; date: string; booked: string; canceled: string; currency: string; customerClass?: string; cogs?: number | null };
 type Cell = Parameters<typeof dayOf>[0];
 const text = (c: Cell) => (c == null ? "" : c instanceof Date ? dayOf(c) : typeof c === "object" ? String((c as { v: number }).v) : String(c).trim());
 const norm = (s: string) => s.replace(/^\[|\]$/g, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
@@ -115,13 +136,17 @@ export class InvoicesSheet {
     if (!this.at) {
       const names = cells.map((c) => norm(text(c)));
       if (!names.includes("invoicenumber") || !names.includes("invoicedate")) return;
-      this.at = Object.fromEntries(["order", "invoicenumber", "invoicedate", "bookingdate", "invoicecanceled", "currency"].map((k) => [k, names.indexOf(k)]));
+      this.at = Object.fromEntries(["order", "invoicenumber", "invoicedate", "bookingdate", "invoicecanceled", "currency", "customerclass", "cogseur"].map((k) => [k, names.indexOf(k)]));
       return;
     }
     const g = (k: string) => (this.at![k] >= 0 ? cells[this.at![k]] : null);
     const order = text(g("order")), number = text(g("invoicenumber"));
     if (!order || !number) return;
-    this.rows.push({ order, number, date: dayOf(g("invoicedate")), booked: dayOf(g("bookingdate")), canceled: text(g("invoicecanceled")).toUpperCase(), currency: text(g("currency")) });
+    const cogsText = text(g("cogseur")), cogs = Number(cogsText);
+    this.rows.push({
+      order, number, date: dayOf(g("invoicedate")), booked: dayOf(g("bookingdate")), canceled: text(g("invoicecanceled")).toUpperCase(), currency: text(g("currency")),
+      customerClass: text(g("customerclass")), cogs: cogsText !== "" && Number.isFinite(cogs) ? cogs : null,
+    });
   }
   finish(): InvoiceRow[] | null { return this.at ? this.rows : null; }
 }
@@ -146,6 +171,9 @@ export function invoiceFacts(rows: Iterable<InvoiceRow>): Map<string, Facts> {
     if (pick.date && pick.date < "2030-01-01") f.order_invoice_date = pick.date;
     if (pick.booked && pick.booked < "2030-01-01") f.order_invoice_booking_date = pick.booked;
     if (pick.currency) f.order_invoice_currency = clean(pick.currency);
+    if (pick.customerClass) f.order_customer_class = clean(pick.customerClass);
+    const withCogs = live.filter((r) => r.cogs != null);
+    if (withCogs.length) f.order_cogs_eur = String(Math.round(withCogs.reduce((t, r) => t + (r.cogs ?? 0), 0) * 100) / 100);
     out.set(order, f);
   }
   return out;

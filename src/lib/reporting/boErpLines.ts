@@ -69,6 +69,8 @@ export function wdAfter(a: string, b: string): number {
 export type ErpLine = {
   company: string; order: string; source: string; orderDay: string; status: string; shipDay: string; country: string;
   line: string; lineType: string; price: string; firstDay: string; confDay: string; article: string; artType: string; pc: string;
+  /** the quantity ordered and shipped (the order facts' shipment status) */
+  qty?: number; shipped?: number;
 };
 
 type Cell = string | number | boolean | Date | { v: number } | null | undefined;
@@ -94,7 +96,7 @@ export function dayOf(c: Cell): string {
 const COLS = {
   company: "Company", order: "Order", source: "OrderSource", orderDay: "OrderDate", status: "OrderStatus", shipDay: "ShipmentDate",
   country: "ShippedToCountry", line: "Line", lineType: "LineType", price: "PriceSource", firstDay: "ShippingDateInitial",
-  confDay: "ShippingDateConfirmed", article: "Article", artType: "ArticleType", pc: "ProfitCenter",
+  confDay: "ShippingDateConfirmed", article: "Article", artType: "ArticleType", pc: "ProfitCenter", qty: "OrderQty", shipped: "ShippedQty",
 } as const;
 type Key = keyof typeof COLS;
 const norm = (s: string) => s.replace(/^\[|\]$/g, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
@@ -122,7 +124,7 @@ export class ErpLinesSheet {
       company: text(get("company")), order, source: text(get("source")), orderDay: dayOf(get("orderDay")), status: text(get("status")),
       shipDay: dayOf(get("shipDay")), country: text(get("country")), line: text(get("line")), lineType: text(get("lineType")),
       price: text(get("price")), firstDay: dayOf(get("firstDay")), confDay: dayOf(get("confDay")), article: text(get("article")),
-      artType: text(get("artType")), pc: text(get("pc")),
+      artType: text(get("artType")), pc: text(get("pc")), qty: Number(text(get("qty"))) || 0, shipped: Number(text(get("shipped"))) || 0,
     };
     this.lines.set(`${order}|${l.line}`, l);
   }

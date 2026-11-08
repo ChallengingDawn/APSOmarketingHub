@@ -35,6 +35,7 @@ import { SHEET_ERP_LINES } from "../../reporting/boErpLines";
 import { saveErpLines } from "@/lib/reporting/boErpLinesStore";
 import { SHEET_INVOICES, invoiceFacts, lineFacts } from "./orderFactsRules";
 import { saveErpFacts } from "./orderFactsStore";
+import { productFactsRun } from "./productFacts";
 
 type Beat = () => Promise<void>;
 type Obj = { id: string; properties?: Record<string, string | null | undefined> };
@@ -273,6 +274,11 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
       catch (e) { out.order_facts = `not kept: ${(e as Error).message}`; }
     }
   } else out.order_facts = wb.sheets.some((s) => s.trim().toUpperCase() === SHEET_INVOICES) ? "KPI INVOICES without the expected header" : "no KPI LINES or KPI INVOICES sheet";
+  // the products' ERP fields (GWStdP, stock value, material ... - ./productFactsRules.ts): counted, and written once switched on
+  if (wb.articles) {
+    try { out.product_facts = await productFactsRun(wb.articles, live, beat); }
+    catch (e) { out.product_facts = `not run: ${(e as Error).message}`; }
+  }
   await beat();
 
   const pre = await preflight();
