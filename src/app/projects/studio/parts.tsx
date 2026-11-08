@@ -27,18 +27,58 @@ export const btn = { textTransform: "none" as const, fontWeight: 600, borderRadi
 export const mainBtn = { ...btn, bgcolor: PINK, color: "#fff", "&:hover": { bgcolor: "#a3245c" } };
 export { field };
 
-/** The three columns under the studio's bar, each scrolling on its own. */
-export function StudioPanes({ build, preview, assist, buildWidth = 380, assistWidth = 340 }: {
+/** A side column's width, dragged by its edge and kept for next time (SARCLA 08.11.2026: the page list "should be visible", "sizeable"). */
+function usePaneWidth(key: string, initial: number, min: number, max: number) {
+  const [w, setW] = useState(initial);
+  useEffect(() => {
+    try { const v = Number(window.localStorage.getItem(`studio-pane:${key}`)); if (v >= min && v <= max) setW(v); } catch { /* no storage */ }
+  }, [key, min, max]);
+  const keep = (v: number) => { try { window.localStorage.setItem(`studio-pane:${key}`, String(Math.round(v))); } catch { /* no storage */ } };
+  return [w, setW, keep] as const;
+}
+
+/** The edge between two columns: drag it to make a side wider or narrower; a double-click puts it back. */
+function Gutter({ onDrag, onEnd, onReset, label }: { onDrag: (dx: number) => void; onEnd: () => void; onReset: () => void; label: string }) {
+  const start = useRef<number | null>(null);
+  return (
+    <Box role="separator" aria-orientation="vertical" aria-label={label} title="Drag to resize · double-click to reset"
+      onDoubleClick={onReset}
+      onPointerDown={(e) => { start.current = e.clientX; (e.target as HTMLElement).setPointerCapture(e.pointerId); }}
+      onPointerMove={(e) => { if (start.current === null) return; onDrag(e.clientX - start.current); start.current = e.clientX; }}
+      onPointerUp={() => { start.current = null; onEnd(); }}
+      sx={{
+        display: { xs: "none", lg: "block" }, width: 12, mx: -0.75, cursor: "col-resize", position: "relative", zIndex: 2, touchAction: "none",
+        "&::after": { content: '""', position: "absolute", top: "50%", left: 5, width: 2, height: 36, mt: "-18px", borderRadius: 2, bgcolor: "rgba(21,34,58,.14)", transition: "background-color .12s, height .12s" },
+        "&:hover::after, &:active::after": { bgcolor: "#2459d1", height: 64, mt: "-32px" },
+      }} />
+  );
+}
+
+/** The three columns under the studio's bar, each scrolling on its own; the side ones resized by dragging their edge. */
+export function StudioPanes({ build, preview, assist, buildWidth = 380, assistWidth = 340, id = "studio" }: {
   build: React.ReactNode; preview: React.ReactNode; assist?: React.ReactNode; buildWidth?: number; assistWidth?: number;
+  /** Keeps this studio's widths apart from another's. */
+  id?: string;
 }) {
+  const [bw, setBw, keepB] = usePaneWidth(`${id}:build`, buildWidth, 260, 760);
+  const [aw, setAw, keepA] = usePaneWidth(`${id}:assist`, assistWidth, 260, 620);
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
   return (
     <Box sx={{
       display: "grid", gap: 1.5, p: 1.5, boxSizing: "border-box", height: { lg: `calc(100vh - ${STUDIO_BAR}px)` },
-      gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: assist ? `${buildWidth}px minmax(0, 1fr) ${assistWidth}px` : `${buildWidth}px minmax(0, 1fr)` },
+      gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: assist ? `${bw}px 0 minmax(420px, 1fr) 0 ${aw}px` : `${bw}px 0 minmax(420px, 1fr)` },
     }}>
-      <Box sx={{ minHeight: 0, order: { xs: 2, lg: 1 } }}>{build}</Box>
-      <Box sx={{ minHeight: 0, order: { xs: 1, lg: 2 } }}>{preview}</Box>
-      {assist && <Box sx={{ minHeight: 0, order: 3 }}>{assist}</Box>}
+      <Box sx={{ minHeight: 0, minWidth: 0, order: { xs: 2, lg: 1 } }}>{build}</Box>
+      <Box sx={{ order: { xs: 9, lg: 2 }, display: { xs: "none", lg: "block" } }}>
+        <Gutter label="Resize the build column" onDrag={(dx) => setBw((v) => clamp(v + dx, 260, 760))} onEnd={() => keepB(bw)} onReset={() => { setBw(buildWidth); keepB(buildWidth); }} />
+      </Box>
+      <Box sx={{ minHeight: 0, minWidth: 0, order: { xs: 1, lg: 3 } }}>{preview}</Box>
+      {assist && (
+        <Box sx={{ order: { xs: 9, lg: 4 }, display: { xs: "none", lg: "block" } }}>
+          <Gutter label="Resize the assistant" onDrag={(dx) => setAw((v) => clamp(v - dx, 260, 620))} onEnd={() => keepA(aw)} onReset={() => { setAw(assistWidth); keepA(assistWidth); }} />
+        </Box>
+      )}
+      {assist && <Box sx={{ minHeight: 0, minWidth: 0, order: { xs: 3, lg: 5 } }}>{assist}</Box>}
     </Box>
   );
 }

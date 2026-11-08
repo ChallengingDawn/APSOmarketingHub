@@ -263,6 +263,15 @@ export const CONTENT_TYPES: ContentType[] = [
   },
 ];
 
+/**
+ * The kinds offered when something new is made, in this order (SARCLA 08.11.2026: "there are too many types of content":
+ * SEO landing page - it also comes from the SEO app; no product page copy for the moment; blog article; LinkedIn post
+ * becomes only "Social post" - its networks and formats are chosen when it is published; newsletter; and the others
+ * after; the consolidation brief out). The others stay defined, so a to-do made before keeps its name and its studio.
+ */
+export const OFFERED_KEYS = ["landing-page", "blog-article", "social-post", "newsletter", "banner", "video", "search-ad", "page-refresh"] as const;
+export const OFFERED_CONTENT_TYPES: ContentType[] = OFFERED_KEYS.map((k) => CONTENT_TYPES.find((t) => t.key === k)).filter((t): t is ContentType => !!t);
+
 export const CONTENT_BY_KEY: Record<string, ContentType> = Object.fromEntries(
   CONTENT_TYPES.map((t) => [t.key, t]),
 );

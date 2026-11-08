@@ -25,7 +25,7 @@ import HourglassTopOutlinedIcon from "@mui/icons-material/HourglassTopOutlined";
 import { Chip, Choice } from "@/app/connectors/parts";
 import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, Notice, headCell, bodyCell } from "@/app/uc/report/ui";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
-import { CONTENT_BY_KEY, CONTENT_TYPES } from "@/lib/content/contentTypes";
+import { CONTENT_BY_KEY, OFFERED_CONTENT_TYPES } from "@/lib/content/contentTypes";
 import { LANGUAGES } from "@/lib/content/languages";
 import { STAGES, STAGE_LABEL, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
 import { Faces, PINK, STAGE_DOT, StageChip, dayLabel, dueSoon, postWork } from "./work/ui";
@@ -133,7 +133,7 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
         <TextField size="small" label="Goal" placeholder="What should be different once it is out?" multiline minRows={2} value={goal} onChange={(e) => setGoal(e.target.value)} sx={field} />
         <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
           <TextField select size="small" label="First piece" value={kind} onChange={(e) => setKind(e.target.value)} sx={{ ...field, flex: "1 1 200px" }}>
-            {CONTENT_TYPES.map((t) => <MenuItem key={t.key} value={t.key}>{t.label}</MenuItem>)}
+            {OFFERED_CONTENT_TYPES.map((t) => <MenuItem key={t.key} value={t.key}>{t.label}</MenuItem>)}
           </TextField>
           <TextField select size="small" label="In" value={langs} onChange={(e) => setLangs(typeof e.target.value === "string" ? e.target.value.split(",") : (e.target.value as string[]))}
             slotProps={{ select: { multiple: true } }} sx={{ ...field, flex: "1 1 160px" }}>

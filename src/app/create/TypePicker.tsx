@@ -32,7 +32,7 @@ import AutorenewIcon from "@mui/icons-material/Autorenew";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
-import { CONTENT_GROUPS, CONTENT_TYPES, type ContentType } from "@/lib/content/contentTypes";
+import { CONTENT_GROUPS, CONTENT_TYPES, OFFERED_CONTENT_TYPES, type ContentType } from "@/lib/content/contentTypes";
 
 const INK = "#15223a";
 const MUTED = "#5d6b85";
@@ -127,7 +127,7 @@ export default function TypePicker({
           </Typography>
 
           {CONTENT_GROUPS.map((group) => {
-            const inGroup = CONTENT_TYPES.filter((t) => t.group === group);
+            const inGroup = OFFERED_CONTENT_TYPES.filter((t) => t.group === group);
             if (inGroup.length === 0) return null;
             return (
               <Box key={group} sx={{ mb: 2.5 }}>

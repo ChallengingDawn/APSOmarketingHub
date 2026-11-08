@@ -1,6 +1,6 @@
 "use client";
 // The kinds of to-do a content project holds (SARCLA 08.11.2026: "for me a piece is a to-do"; "each type of content
-// should be different"): every content type has its own face here - glyph and colour - and a plain task has one too.
+// should be different"): every content type has its own face here - glyph and colour - and a plain action has one too.
 
 import AdsClickOutlinedIcon from "@mui/icons-material/AdsClickOutlined";
 import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
@@ -15,7 +15,7 @@ import ViewDayOutlinedIcon from "@mui/icons-material/ViewDayOutlined";
 import WebOutlinedIcon from "@mui/icons-material/WebOutlined";
 
 import { TINT, type Tint } from "@/app/uc/report/ui";
-import { CONTENT_BY_KEY, CONTENT_TYPES } from "@/lib/content/contentTypes";
+import { CONTENT_BY_KEY, OFFERED_CONTENT_TYPES } from "@/lib/content/contentTypes";
 import { TASK_KIND } from "@/lib/content/pieceRules";
 
 const GLYPH: Record<string, React.ElementType> = {
@@ -32,13 +32,14 @@ const TONE: Record<string, Tint> = {
 
 export type Kind = { key: string; label: string; language: boolean };
 
-/** Every kind a to-do can be, a plain task first. */
+/** Every kind a new to-do can be: the content types offered, then a plain action (SARCLA 08.11.2026: "don't call it
+ * task, call it action" - it is an action of the plan, with its ticket). The stored key stays "task". */
 export const KINDS: Kind[] = [
-  { key: TASK_KIND, label: "Task", language: false },
-  ...CONTENT_TYPES.map((t) => ({ key: t.key, label: t.label, language: true })),
+  ...OFFERED_CONTENT_TYPES.map((t) => ({ key: t.key, label: t.label, language: true })),
+  { key: TASK_KIND, label: "Action", language: false },
 ];
 
-export const kindLabel = (key: string | null) => (key === TASK_KIND || !key ? "Task" : CONTENT_BY_KEY[key]?.label ?? key);
+export const kindLabel = (key: string | null) => (key === TASK_KIND || !key ? "Action" : CONTENT_BY_KEY[key]?.label ?? key);
 
 /** The kind's glyph on its tinted tile. */
 export function KindTile({ kind, size = 34 }: { kind: string | null; size?: number }) {
