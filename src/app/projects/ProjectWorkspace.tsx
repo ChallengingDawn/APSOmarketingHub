@@ -7,18 +7,23 @@
 //   the to-dos        every piece of content and every task, each an Action plan sub-action with its ticket (TodoList)
 //   the conversation  comments and everything that happened; "@Name" tags someone and mails them
 // Every change shows at once and is saved behind it (act); the page reads the database only, and the tickets come from
-// HubSpot after it is drawn.
+// HubSpot after it is drawn. Its owner or an admin deletes it from the head (SARCLA 08.11.2026: "I should be able to
+// delete projects") - DeleteProject.tsx says what goes and what stays first.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import Autocomplete from "@mui/material/Autocomplete";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
 import Skeleton from "@mui/material/Skeleton";
 import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CheckIcon from "@mui/icons-material/Check";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
@@ -29,6 +34,7 @@ import { InlineTitle } from "./work/InlineTitle";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { STAGES, STAGE_LABEL, STATUS_LABEL, stageOf, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
 import ShareDialog from "./ShareDialog";
+import { DeleteProject, canDelete } from "./DeleteProject";
 import TodoList, { type Act } from "./work/TodoList";
 import { Face, Faces, PINK, STAGE_DOT, StageChip, dayLabel, postWork } from "./work/ui";
 import type { Brief, EventRow, PersonOpt, Tickets, Work } from "./work/types";
@@ -52,6 +58,8 @@ function eventLine(e: EventRow, name: (u: string) => string): string | null {
     case "ticket": return `${d.made ? "made" : "linked"} the ticket of ${s("piece") || "a to-do"}`;
     case "todo": return `added the to-do “${s("todo")}”`;
     case "todo-done": return `ticked off “${s("todo")}”`;
+    case "deleted": return "deleted the project";
+    case "restored": return "brought the project back";
     default: return null;
   }
 }
@@ -173,6 +181,8 @@ export default function ProjectWorkspace({ id }: { id: number }) {
   const [t, setT] = useState<Tickets | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const router = useRouter();
   const loads = useRef(0);
 
   // the newest read wins: an older answer arriving late never puts back what a click just changed
@@ -260,6 +270,14 @@ export default function ProjectWorkspace({ id }: { id: number }) {
             <Faces people={team} names={names} owner={w.project.createdBy} size={30} max={7} />
             {w.access.canShare && <Button variant="outlined" startIcon={<PersonAddAlt1Icon />} onClick={() => setSharing(true)} sx={btn}>Invite</Button>}
             <Button variant="outlined" component={Link} href={`/projects/${w.project.id}/versions`} sx={btn}>All versions</Button>
+            {canDelete({ owner: w.project.createdBy }, w.me, w.isAdmin) && (
+              <Tooltip title="Delete the project">
+                <IconButton aria-label="Delete the project" onClick={() => setDeleting(true)}
+                  sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", color: MUTED, p: 0.9, "&:hover": { color: "#c5221f", borderColor: "#c5221f55" } }}>
+                  <DeleteOutlineIcon sx={{ fontSize: 20 }} />
+                </IconButton>
+              </Tooltip>
+            )}
           </Box>
         </Box>
         <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: { xs: 1, md: 1.5 }, mt: 2, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
@@ -320,6 +338,8 @@ export default function ProjectWorkspace({ id }: { id: number }) {
       </Box>
 
       <ShareDialog projectId={w.project.id} title={w.project.title} open={sharing} onClose={() => setSharing(false)} onChanged={() => void load()} me={w.me} />
+      <DeleteProject project={deleting ? { id: w.project.id, title: w.project.title } : null} onClose={() => setDeleting(false)}
+        onDeleted={() => router.push(`/projects?deleted=${encodeURIComponent(w.project.title.slice(0, 120))}`)} />
     </Box>
   );
 }

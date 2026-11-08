@@ -53,20 +53,26 @@ export function ensureSharing(): Promise<void> {
         PRIMARY KEY (project_id, username)
       )`);
     await query(`CREATE INDEX IF NOT EXISTS idx_apsomh_content_members_user ON apsomh_content_project_members(username)`);
+    // a deleted project (SARCLA 08.11.2026: "I should be able to delete projects") is kept, hidden: when, by whom, and
+    // the status it had - it is put in 'archived' meanwhile, so every list that already leaves archived projects out
+    // leaves it out too (deleting.ts)
+    await query(`ALTER TABLE apsomh_content_projects ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`);
+    await query(`ALTER TABLE apsomh_content_projects ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(255)`);
+    await query(`ALTER TABLE apsomh_content_projects ADD COLUMN IF NOT EXISTS deleted_status VARCHAR(16)`);
   })().catch((e) => { ready = null; throw e; });
   return ready;
 }
 
 export const isShareRole = (r: unknown): r is ShareRole => r === "editor" || r === "commenter";
 
-/** What this person may do in this project; null when it is not theirs to see. */
+/** What this person may do in this project; null when it is not theirs to see - or it was deleted (for everyone). */
 export async function accessFor(projectId: number, me: Me): Promise<Access | null> {
   await ensureSharing();
   const r = await query<{ created_by: string | null; role: string | null }>(
     `SELECT p.created_by, m.role
        FROM apsomh_content_projects p
        LEFT JOIN apsomh_content_project_members m ON m.project_id = p.id AND m.username = $2
-      WHERE p.id = $1`,
+      WHERE p.id = $1 AND p.deleted_at IS NULL`,
     [projectId, me.username],
   );
   const row = r.rows[0];
@@ -240,7 +246,8 @@ export async function listProjectsFor(me: Me, scope: ProjectScope): Promise<List
               : "p.created_by = $1";
   // Archived is its own view. Every other view hides them, which is the whole
   // point of putting one away.
-  const statusWhere = scope === "archived" ? "p.status = 'archived'" : "p.status <> 'archived'";
+  // A deleted project is in none of them (it waits in 'archived' until an admin brings it back).
+  const statusWhere = `${scope === "archived" ? "p.status = 'archived'" : "p.status <> 'archived'"} AND p.deleted_at IS NULL`;
   const r = await query<{
     id: number; title: string; brief: string | null; status: string; chosen_variant_id: number | null; created_by: string | null;
     owner_name: string | null; updated_at: Date; variant_count: string; comment_count: string; languages: (string | null)[] | null;

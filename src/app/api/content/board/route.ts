@@ -19,5 +19,6 @@ export async function GET() {
   const r = await query<{ username: string; full_name: string | null }>(
     `SELECT username, full_name FROM apsomh_users WHERE username = ANY($1::text[])`, [[...names]]);
   const people = Object.fromEntries(r.rows.map((u) => [u.username, u.full_name || u.username]));
-  return NextResponse.json({ ok: true, me: me.username, board, waiting, people });
+  // admin: may delete any project and bring deleted ones back (deleteRules.ts)
+  return NextResponse.json({ ok: true, me: me.username, admin: me.role === "admin", board, waiting, people });
 }
