@@ -467,27 +467,45 @@ function event(s: Size, words: Words, mf: MeasureFor): DesignDocument {
   return doc(s, bg(s, "grid-dark"), nodes);
 }
 
-/** "Did you know?": the question in red, the fact, and one of our parts drawn - an O-ring. */
+/** "Did you know?": the question in red, the fact, and one of our parts drawn - an O-ring, kept clear of the words. */
 function fact(s: Size, words: Words, mf: MeasureFor): DesignDocument {
   const g = gridOf(s);
   const w = W(words);
-  const nodes: DesignNode[] = [];
-  // the O-ring, a petrol ring with its light, half off the board on the right
-  const R = r(Math.min(g.W, g.H) * (g.shape === "wide" ? 0.62 : 0.46));
-  const ring = Math.max(8, r(R * 0.2));
-  const cx = g.W - R * 0.42;
-  const cy = g.shape === "wide" ? g.H * 0.5 : g.bottom - R * 0.3;
-  nodes.push({ id: nid("ring"), kind: "ellipse", x: r(cx - R), y: r(cy - R), width: R * 2, height: R * 2, fill: "rgba(0,0,0,0)", stroke: C.petrol, strokeWidth: ring, opacity: 0.95 });
-  nodes.push({ id: nid("ring"), kind: "ellipse", x: r(cx - R + ring * 0.2), y: r(cy - R + ring * 0.2), width: R * 2 - ring * 0.4, height: R * 2 - ring * 0.4, fill: "rgba(0,0,0,0)", stroke: "rgba(255,255,255,0.35)", strokeWidth: Math.max(2, r(ring * 0.14)) });
-  nodes.push(cornerLogo(g, false));
-  const colW = g.shape === "wide" ? r(g.W * 0.56) : g.W - g.m * 2 - r(g.W * 0.06);
-  const size = fitSize(w.headline, colW, r((g.shape === "wide" ? 62 : 80) * g.u), r(40 * g.u), 4, mf);
+  const wide = g.shape === "wide";
+  const colW = wide ? r(g.W * 0.5) : g.W - g.m * 2;
+  const size = fitSize(w.headline, colW, r((wide ? 62 : 80) * g.u), r(40 * g.u), 4, mf);
   const blocks = [
-    textBlock(w.eyebrow || "Did you know?", g.m, colW, { size: r((g.shape === "wide" ? 40 : 52) * g.u), weight: 500, color: C.red, lh: 1.1 }, mf),
+    textBlock(w.eyebrow || "Did you know?", g.m, colW, { size: r((wide ? 40 : 52) * g.u), weight: 500, color: C.red, lh: 1.1 }, mf),
     { ...textBlock(w.headline, g.m, colW, { size, color: C.ink, key: C.red }, mf), gap: r(28 * g.u) },
     ...(w.body ? [{ ...textBlock(w.body, g.m, colW * 0.9, { size: r(28 * g.u), weight: 500, color: C.mute }, mf), gap: r(24 * g.u) }] : []),
   ];
-  nodes.push(...stack(blocks, contentTop(g) + (g.shape === "wide" ? 0 : r(20 * g.u))));
+  const top = contentTop(g) + (wide ? 0 : r(20 * g.u));
+  const said = stack(blocks, top);
+  // the O-ring, a petrol ring with its light: beside the words on a wide board, under them on the others, running off the
+  // board's edge - its stroke included, it never touches a word (SARCLA 08.11.2026)
+  let R: number;
+  let ring: number;
+  let cx: number;
+  let cy: number;
+  if (wide) {
+    const x0 = g.m + colW + r(64 * g.u);
+    R = r(Math.min(g.H * 0.6, (g.W - x0) * 0.8));
+    ring = Math.max(8, r(R * 0.2));
+    cx = x0 + ring / 2 + R;
+    cy = g.H / 2;
+  } else {
+    const y0 = top + heightOf(blocks) + r(64 * g.u);
+    R = r(Math.min(g.W * 0.42, Math.max(g.W * 0.24, (g.H - y0) * 0.9)));
+    ring = Math.max(8, r(R * 0.2));
+    cx = g.W - R * 0.62;
+    cy = y0 + ring / 2 + R;
+  }
+  const nodes: DesignNode[] = [
+    { id: nid("ring"), kind: "ellipse", x: r(cx - R), y: r(cy - R), width: R * 2, height: R * 2, fill: "rgba(0,0,0,0)", stroke: C.petrol, strokeWidth: ring, opacity: 0.95 },
+    { id: nid("ring"), kind: "ellipse", x: r(cx - R + ring * 0.2), y: r(cy - R + ring * 0.2), width: R * 2 - ring * 0.4, height: R * 2 - ring * 0.4, fill: "rgba(0,0,0,0)", stroke: "rgba(255,255,255,0.35)", strokeWidth: Math.max(2, r(ring * 0.14)) },
+    cornerLogo(g, false),
+    ...said,
+  ];
   return doc(s, bg(s, "grid-light"), nodes);
 }
 
