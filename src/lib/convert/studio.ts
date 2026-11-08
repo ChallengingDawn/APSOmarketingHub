@@ -10,6 +10,7 @@ import { getPool, query } from "@/lib/db/client";
 import { readPage } from "@/lib/directup/check";
 import { shopGet } from "./assets";
 import { claudeText, getAnthropic } from "@/lib/ai/claude";
+import { buildPageFlow } from "@/lib/journeys/read";
 import { ENVS, classify, type Env, type PageKind } from "./model";
 import { outline, type Outline } from "./preview";
 import { validateChanges, type Change } from "./versions";
@@ -426,6 +427,34 @@ const IDEAS_SCHEMA = {
   },
 };
 
+/**
+ * Where a page's visitors come from and go next (Visitor journeys' page flow, Google Analytics) as lines for the AI -
+ * "56% left the shop after it" is the kind of evidence an idea should stand on. Empty when Google Analytics does not
+ * answer in time; the ideas go on without it.
+ */
+async function flowBrief(path: string, numbers: Numbers | null): Promise<string> {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const to = numbers?.to ?? day(Date.now() - 86_400_000);
+  const from = numbers?.from ?? day(Date.parse(to) - 27 * 86_400_000);
+  try {
+    const d = await Promise.race([
+      buildPageFlow(path, from, to),
+      new Promise<never>((_, no) => setTimeout(() => no(new Error("late")), 25_000)),
+    ]);
+    const f = d.flow;
+    if (!f.views) return "";
+    const share = (n: number) => `${Math.round((n / f.views) * 100)}%`;
+    const came = f.from.slice(0, 6).map((s) => `${s.label} ${share(s.views)}`).join(", ");
+    const sides = f.to.slice(0, 6).map((s) => `${s.label} ${share(s.views)}`);
+    if (!f.to.some((s) => String(s.kind) === "left") && f.left) sides.push(`left the shop ${share(f.left)}`);
+    const landing = d.landing.sessions ? ` Visits that came in on it: ${d.landing.sessions}; ${d.landing.carts} of them put something in the cart, ${d.landing.orders} ordered.` : "";
+    return `
+WHERE ITS VISITORS COME FROM AND GO NEXT (Google Analytics, ${from} to ${to}, ${f.views} views): came from ${came || "-"}; went next to ${sides.join(", ") || "-"}.${landing}`;
+  } catch {
+    return "";
+  }
+}
+
 export async function proposeIdeas(env: Env, path: string, numbers: Numbers | null, by: string, drawn: string[] | null = null): Promise<AiResult<Idea[]>> {
   const page = await shopPage(env, path);
   if (page.status !== 200) return { ok: false, error: `The shop answered ${page.status} for this page.` };
@@ -438,9 +467,10 @@ piece of information the page already has elsewhere). Rank them: the one most li
 ${SHOP_FACTS}
 
 ${RULES}`;
+  const flow = await flowBrief(path, numbers);
   const user = `${pageBrief(page, o, drawn)}
 
-${numbersBrief(numbers)}
+${numbersBrief(numbers)}${flow}
 ${existing ? `\nIDEAS ALREADY ON THIS PAGE (do not repeat them):\n${existing}` : ""}`;
   const r = await ask<{ ideas: { title: string; why: string; change: string; expect: string; impact: number; confidence: number; effort: number }[] }>(system, user, IDEAS_SCHEMA, 8000);
   if (!r.ok) return r;
