@@ -13,7 +13,7 @@ import { kvGet } from "@/lib/db/init";
 import { IntegrationError } from "@/lib/integrations/status";
 import { hubspotRetry } from "./hs";
 import {
-  PRODUCTS_OBJECT, PRODUCT_FACTS_LIVE, PRODUCT_KEYS, STOCK_STEP, checkFacts, factsHash, sameValues, stockUnitCall, unpackFacts,
+  PRODUCTS_OBJECT, PRODUCT_FACTS_LIVE, PRODUCT_FILL_ONLY, PRODUCT_KEYS, STOCK_STEP, checkFacts, factsHash, sameValues, stockUnitCall, unpackFacts,
   type Facts, type HubSpotSide,
 } from "./productFactsRules";
 
@@ -201,6 +201,7 @@ export async function productFactsRun(packed: Map<string, string>, copy: Product
       if (!c) continue; // gone since the copy
       const props = { ...f };
       if (props.stock_unit && stockUnitCall(props.stock_unit, c.stock_unit, c.sales_unit) !== "write") delete props.stock_unit;
+      for (const k of PRODUCT_FILL_ONLY) if (props[k] && (c[k] ?? "").trim()) delete props[k]; // HubSpot's own value stays
       const item = { id, art: a, props, hash: factsHash(f) };
       if (!Object.keys(props).length || sameValues(props, c)) { already++; current.push(item); } else go.push(item);
     }
