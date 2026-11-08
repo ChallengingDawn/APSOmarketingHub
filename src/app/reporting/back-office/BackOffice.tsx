@@ -2839,7 +2839,7 @@ const TABS: Record<Slug, TabDef[]> = {
   ],
   autonomy: [
     { id: "pass", label: "Pass rate", title: "Pass rate per mandant", note: "the eShop order lines whose price the ERP set by itself, counted every night · by the month ordered, service articles left out · target 95 % · the filters do not apply here", icon: <VerifiedOutlinedIcon />, tint: "green", unfiltered: true, charts: ["pass100", "pass110", "elMonths"],
-      warn: (d) => (d.erpLines ? null : "Not counted yet: the pass rate is counted from the ERP's order lines, which come with the morning file from the ERP once it carries the KPI LINES sheet - it does not yet. Until then the graphs show the Back Office's own typed figures.") },
+      warn: (d) => (d.erpLines ? null : "Waiting for the ERP's order lines: the pass rate and the manual prices are counted from them, and the first morning file carrying them has not reached the hub yet. Until it does, the graphs show the Back Office's own typed figures.") },
     { id: "price", label: "Manual prices", title: "Manual price adjustments per mandant", note: "the eShop order lines whose price was typed by hand in the ERP, counted every night · by the month ordered, service articles left out · target below 2.5 % · then the biggest changes from the shop's price · the filters do not apply here", icon: <PriceChangeOutlinedIcon />, tint: "amber", unfiltered: true,
       charts: ["price100", "price110", "elMonths", "prBig"] },
     { id: "logic", label: "How it's counted", title: "How the pass rate and the manual prices are counted", note: "where each eShop order line's price came from, as the ERP records it", icon: <RuleOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["passLogic"] },
@@ -2885,7 +2885,7 @@ function TabCard({ slug, c, extra }: { slug: Slug; c: Ctx; extra?: (tab: string)
         <CardTitle icon={t.id === "table" ? pageOf(slug).icon : t.icon} tint={t.id === "table" ? pageOf(slug).tint : t.tint} title={`${t.title}, ${periodOf(f)}`} note={t.note} />
         {(() => { const w = typeof t.warn === "function" ? t.warn(c.d) : t.warn; return w ? <OnHold text={w} /> : null; })()}
         {t.charts.length > 0 && !t.charts.some((id) => { const x = CHARTS.find((y) => y.page === slug && y.id === id); return x && !(x.needsCount && !c.d.erpLines); }) && (
-          <Typography sx={{ fontSize: "0.88rem", color: MUTED, py: 1 }}>These graphs are counted from the ERP&apos;s order lines - they show from the first morning file that carries the KPI LINES sheet.</Typography>
+          <Typography sx={{ fontSize: "0.88rem", color: MUTED, py: 1 }}>These graphs are counted from the ERP&apos;s order lines - they show as soon as the first morning file carrying them has reached the hub.</Typography>
         )}
         {t.charts.length > 0 && (() => {
           const grid = (
@@ -3288,7 +3288,7 @@ function TypedPage({ slug, note, warn }: { slug: Slug; note: string | ((d: Data)
 }
 
 export function BoOtdPage() {
-  return <TypedPage slug="otd" warn={(d) => (d.erpLines ? null : "Not counted yet: OTD is counted from the ERP's order lines, which come with the morning file from the ERP once it carries the KPI LINES sheet - it does not yet. Until then the graphs show the Back Office's own typed figures.")}
+  return <TypedPage slug="otd" warn={(d) => (d.erpLines ? null : "Waiting for the ERP's order lines: OTD is counted from them, and the first morning file carrying them has not reached the hub yet. Until it does, the graphs show the Back Office's own typed figures.")}
     note={(d) => (d.erpLines ? `Counted every night from the ERP's order lines (${ddmm(d.erpLines.at.slice(0, 10))}): an eShop order line is on time when its shipment plus the ERP's transport time to the country reaches its first confirmed date. The Back Office's typed figures stay beside it. The delivery speed comes from the ERP's order file.` : "The Back Office types each month in until the ERP's order lines come in. The delivery speed is counted from the ERP's order file every night.")} />;
 }
 export function BoAutonomyPage() {
