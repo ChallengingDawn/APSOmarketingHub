@@ -38,7 +38,8 @@ export function FormatGlyph({ f, d, size = 16, on }: { f: FormatKey; d: Pick<Soc
   const k = size / Math.max(s.w, s.h);
   return (
     <Box sx={{ width: size, height: size, display: "grid", placeItems: "center", flexShrink: 0 }}>
-      <Box sx={{ width: Math.max(4, s.w * k), height: Math.max(4, s.h * k), borderRadius: "2px", border: `1.5px solid ${on ? T.accent : "currentColor"}` }} />
+      {/* a filled shape, so it never reads as a checkbox */}
+      <Box sx={{ width: Math.max(4, s.w * k), height: Math.max(4, s.h * k), borderRadius: "2px", bgcolor: on ? T.accent : "currentColor", opacity: on ? 0.9 : 0.42 }} />
     </Box>
   );
 }

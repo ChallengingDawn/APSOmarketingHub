@@ -33,7 +33,7 @@ export default function PageStrip({ ctx }: { ctx: StudioCtx }) {
   };
   const act = (fn: () => void) => { setMenu(null); fn(); };
   return (
-    <Box sx={{ position: "absolute", left: 0, right: 0, bottom: 82, display: "flex", justifyContent: "center", pointerEvents: "none", zIndex: 4 }}>
+    <Box sx={{ position: "absolute", left: 0, right: 0, bottom: 82 + ctx.aiLift, transition: "bottom .2s cubic-bezier(.2,.8,.2,1)", display: "flex", justifyContent: "center", pointerEvents: "none", zIndex: 4 }}>
       <Box sx={{
         pointerEvents: "auto", display: "flex", alignItems: "center", gap: 0.75, p: 0.75, pl: 1.25, maxWidth: "calc(100% - 48px)", overflowX: "auto",
         bgcolor: "rgba(255,255,255,.9)", backdropFilter: "blur(10px)", borderRadius: "12px", border: `1px solid ${T.line}`, boxShadow: "0 6px 20px -10px rgba(16,24,40,.25)",

@@ -310,9 +310,9 @@ export default function PublishPanel({ ctx }: { ctx: StudioCtx }) {
             </Box>
           ) : (
             <>
-              <Btn main disabled={!live || !!busy} onClick={() => void publish()} icon={busy === "live" ? <CircularProgress size={14} color="inherit" /> : <CheckCircleIcon />} sx={{ width: "100%", bgcolor: live ? "#1b7a55" : undefined, "&:hover": { bgcolor: "#155c40" } }}>
-                Mark as published
-              </Btn>
+              {live
+                ? <Btn main disabled={!!busy} onClick={() => void publish()} icon={busy === "live" ? <CircularProgress size={14} color="inherit" /> : <CheckCircleIcon />} sx={{ width: "100%", bgcolor: "#1b7a55", "&:hover": { bgcolor: "#155c40" } }}>Mark as published</Btn>
+                : <Btn disabled icon={<CheckCircleIcon />} sx={{ width: "100%", bgcolor: "#fff", color: T.ink3 }}>Mark as published</Btn>}
               <Note sx={{ mt: 0.75, textAlign: "center" }}>{live ? "Once it is on the networks - the calendar shows it as live." : "It needs its approval first (step 4)."}</Note>
             </>
           )}

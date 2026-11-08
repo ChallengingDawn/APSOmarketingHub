@@ -180,41 +180,69 @@ export function adaptDoc(doc: DesignDocument, to: Size): DesignDocument {
   const from = doc.canvas;
   if (from.w === to.w && from.h === to.h) return JSON.parse(JSON.stringify(doc));
   const k = Math.min(to.w / from.w, to.h / from.h);
-  // a text column keeps its margins in the new board's own proportion
-  const nodes = doc.nodes.map((n): DesignNode => {
-    const w = n.width ?? (n.kind === "text" ? from.w - n.x - from.w * 0.08 : 100);
-    const h = n.height ?? (n.kind === "text" ? (n.fontSize ?? 24) * 2 : 100);
-    const full = n.x <= from.w * 0.02 && n.y <= from.h * 0.02 && w >= from.w * 0.98 && h >= from.h * 0.98;
-    if (full && n.kind !== "text") return { ...n, x: 0, y: 0, width: to.w, height: to.h, ...(n.kind === "image" ? { crop: undefined } : {}) };
-    const ax = anchorOf(n.x, w, from.w);
-    const ay = anchorOf(n.y, h, from.h);
-    let nw = w * k;
-    let nh = h * k;
+  const boxOf = (n: DesignNode) => ({
+    x: n.x, y: n.y,
+    w: n.width ?? (n.kind === "text" ? from.w - n.x - from.w * 0.08 : 100),
+    h: n.height ?? (n.kind === "text" ? (n.fontSize ?? 24) * 2 : 100),
+  });
+  /** Where a box lands: its corner kept, its middle kept, or (alone, `stretch`) still across the board. */
+  const place = (b: { x: number; y: number; w: number; h: number }, stretch: boolean, text: boolean) => {
+    const ax = anchorOf(b.x, b.w, from.w);
+    const ay = anchorOf(b.y, b.h, from.h);
+    let w = b.w * k;
+    let h = b.h * k;
     let x: number;
     let y: number;
-    if (ax === "span") {
-      const left = n.x * (to.w / from.w);
-      const right = (from.w - n.x - w) * (to.w / from.w);
-      x = left; nw = Math.max(40, to.w - left - right);
+    if (ax === "span" && stretch) {
+      const left = b.x * (to.w / from.w);
+      const right = (from.w - b.x - b.w) * (to.w / from.w);
+      x = left; w = Math.max(40, to.w - left - right);
       // a band (a shape or a picture across the board) keeps its height in the board's own proportion
-      if (n.kind !== "text") nh = h * (to.h / from.h) * (ay === "span" ? 1 : Math.min(1.6, Math.max(0.6, (to.w / from.w) / (to.h / from.h)))) ;
-    } else if (ax === "start") x = n.x * k;
-    else if (ax === "end") x = to.w - (from.w - n.x - w) * k - nw;
-    else x = to.w / 2 + (n.x + w / 2 - from.w / 2) * k - nw / 2;
-    if (ay === "span" && n.kind !== "text") { y = n.y * (to.h / from.h); nh = Math.max(16, to.h - y - (from.h - n.y - h) * (to.h / from.h)); }
-    else if (ay === "start" || (ay === "span" && n.kind === "text")) y = n.y * k;
-    else if (ay === "end") y = to.h - (from.h - n.y - h) * k - nh;
-    else y = to.h / 2 + (n.y + h / 2 - from.h / 2) * k - nh / 2;
+      if (!text) h = b.h * (to.h / from.h) * (ay === "span" ? 1 : Math.min(1.6, Math.max(0.6, (to.w / from.w) / (to.h / from.h))));
+    } else if (ax === "start") x = b.x * k;
+    else if (ax === "end") x = to.w - (from.w - b.x - b.w) * k - w;
+    else x = to.w / 2 + (b.x + b.w / 2 - from.w / 2) * k - w / 2;
+    if (ay === "span" && stretch && !text) { y = b.y * (to.h / from.h); h = Math.max(16, to.h - y - (from.h - b.y - b.h) * (to.h / from.h)); }
+    else if (ay === "start" || ay === "span") y = b.y * k;
+    else if (ay === "end") y = to.h - (from.h - b.y - b.h) * k - h;
+    else y = to.h / 2 + (b.y + b.h / 2 - from.h / 2) * k - h / 2;
+    return { x, y, w, h };
+  };
+  const scaled = (n: DesignNode, x: number, y: number, w: number, h: number): DesignNode => {
+    const b = boxOf(n);
     const out: DesignNode = { ...n, x: Math.round(x), y: Math.round(y) };
-    if (n.width !== undefined || n.kind === "text") out.width = Math.round(nw);
-    if (n.height !== undefined) out.height = Math.round(nh);
+    if (n.width !== undefined || n.kind === "text") out.width = Math.round(w);
+    if (n.height !== undefined) out.height = Math.round(h);
     if (n.fontSize !== undefined) out.fontSize = Math.max(8, Math.round(n.fontSize * k));
     if (n.letterSpacing !== undefined) out.letterSpacing = n.letterSpacing * k;
     if (n.strokeWidth !== undefined) out.strokeWidth = n.strokeWidth * k;
     if (n.cornerRadius !== undefined) out.cornerRadius = n.cornerRadius * k;
     // a picture whose frame changed shape shows its middle again (the old crop was for the old frame)
-    if (n.kind === "image" && n.crop && Math.abs(nw / Math.max(1, nh) - w / Math.max(1, h)) > 0.02) delete out.crop;
+    if (n.kind === "image" && n.crop && Math.abs(w / Math.max(1, h) - b.w / Math.max(1, b.h)) > 0.02) delete out.crop;
     return out;
+  };
+  // a group (a button and its words, a kicker and its bar) travels as one: one box, one place, one factor
+  const groups = new Map<string, { x: number; y: number; w: number; h: number }>();
+  for (const n of doc.nodes) {
+    if (!n.groupId) continue;
+    const b = boxOf(n);
+    const g = groups.get(n.groupId);
+    if (!g) { groups.set(n.groupId, { ...b }); continue; }
+    const x1 = Math.max(g.x + g.w, b.x + b.w); const y1 = Math.max(g.y + g.h, b.y + b.h);
+    g.x = Math.min(g.x, b.x); g.y = Math.min(g.y, b.y); g.w = x1 - g.x; g.h = y1 - g.y;
+  }
+  const landed = new Map([...groups].map(([id, g]) => [id, place(g, false, false)]));
+  const nodes = doc.nodes.map((n): DesignNode => {
+    const b = boxOf(n);
+    if (n.groupId && groups.has(n.groupId)) {
+      const g = groups.get(n.groupId)!;
+      const at = landed.get(n.groupId)!;
+      return scaled(n, at.x + (n.x - g.x) * k, at.y + (n.y - g.y) * k, b.w * k, b.h * k);
+    }
+    const full = n.x <= from.w * 0.02 && n.y <= from.h * 0.02 && b.w >= from.w * 0.98 && b.h >= from.h * 0.98;
+    if (full && n.kind !== "text") return { ...n, x: 0, y: 0, width: to.w, height: to.h, ...(n.kind === "image" ? { crop: undefined } : {}) };
+    const at = place(b, true, n.kind === "text");
+    return scaled(n, at.x, at.y, at.w, at.h);
   });
   return { ...doc, canvas: { w: to.w, h: to.h }, nodes };
 }

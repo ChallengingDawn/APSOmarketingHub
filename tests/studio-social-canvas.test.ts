@@ -60,6 +60,17 @@ test("a format made from another: the backdrop covers it, corners keep their thi
   assert.ok(by.btn.y + (by.btn.height ?? 0) <= 627 && by.btn.y > 627 / 2);
   // nothing off the board
   for (const n of wide.nodes) assert.ok(n.x >= -1 && n.y >= -1 && n.x + (n.width ?? 0) <= 1201, n.id);
+  // a kicker's bar and its words travel together
+  const kicker = doc(1080, 1080, [
+    { id: "bar", kind: "rect", x: 80, y: 460, width: 42, height: 6, fill: "#D80901", groupId: "g" },
+    { id: "kw", kind: "text", x: 138, y: 452, width: 862, text: "Kicker", fill: "#000", fontSize: 30, groupId: "g" },
+  ]);
+  for (const size of [{ w: 1080, h: 1920 }, { w: 1200, h: 627 }]) {
+    const t = Object.fromEntries(adaptDoc(kicker, size).nodes.map((n) => [n.id, n]));
+    const k = Math.min(size.w / 1080, size.h / 1080);
+    assert.ok(Math.abs((t.kw.x - t.bar.x) - 58 * k) < 1.5, "same gap across");
+    assert.ok(Math.abs((t.kw.y - t.bar.y) - -8 * k) < 1.5, "same gap down");
+  }
 });
 
 const design = (): SocialDesign => {

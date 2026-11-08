@@ -122,6 +122,9 @@ export type StudioCtx = {
   selection: string[];
   openPanel: (p: PanelKey | null) => void;
   canEdit: boolean;
+  /** How far the AI's answer rises above its box - the pages move up out of its way. */
+  aiLift: number;
+  setAiLift: (px: number) => void;
 };
 
 export default function Studio({ api }: StudioProps) {
@@ -140,6 +143,7 @@ export default function Studio({ api }: StudioProps) {
   const [zoom, setZoom] = useState({ scale: 1, fit: true });
   const [live, setLive] = useState<DesignDocument | null>(null);
   const [inspectorHost, setInspectorHost] = useState<HTMLElement | null>(null);
+  const [aiLift, setAiLift] = useState(0);
   // the studio fills the window under whatever sits above it (the studio's bar, a sandbox's banner)
   const [top, setTop] = useState(STUDIO_BAR);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -222,7 +226,7 @@ export default function Studio({ api }: StudioProps) {
   }
 
   const ctx: StudioCtx = {
-    api, doc, set, canvas, mf, fmt, goFormat, pageIx, goPage, reload, live, selection, canEdit,
+    api, doc, set, canvas, mf, fmt, goFormat, pageIx, goPage, reload, live, selection, canEdit, aiLift, setAiLift,
     openPanel: (p) => setPanel(p),
   };
   const open = PANELS.find((p) => p.key === panel) ?? null;

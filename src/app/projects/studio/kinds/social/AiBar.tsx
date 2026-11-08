@@ -45,6 +45,9 @@ export default function AiBar({ ctx }: { ctx: StudioCtx }) {
   const before = useRef<SocialDesign | null>(null);
   const gen = useRef(0);
   const box = useRef<HTMLTextAreaElement>(null);
+  // the answer above the box lifts the pages out of its way
+  const above = useRef<HTMLDivElement>(null);
+  const { setAiLift } = ctx;
   const enabled = ctx.api.data.ai && ctx.canEdit;
   useEffect(() => {
     const el = box.current;
@@ -137,12 +140,21 @@ export default function AiBar({ ctx }: { ctx: StudioCtx }) {
 
   const busy = phase.kind === "thinking" || phase.kind === "pictures";
   const showIdeas = focus && !text && !busy && enabled;
+  const showAbove = showIdeas || phase.kind === "done" || phase.kind === "error" || phase.kind === "pictures";
+  useEffect(() => {
+    const el = above.current;
+    if (!showAbove || !el) { setAiLift(0); return; }
+    const ro = new ResizeObserver(() => setAiLift(el.offsetHeight ? el.offsetHeight + 8 : 0));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showAbove, setAiLift]);
+  useEffect(() => () => setAiLift(0), [setAiLift]);
 
   return (
     <Box sx={{ position: "absolute", left: 0, right: 0, bottom: 16, display: "flex", justifyContent: "center", pointerEvents: "none", zIndex: 5 }}>
       <Box sx={{ width: "min(720px, calc(100% - 48px))", pointerEvents: "auto", position: "relative" }}>
         {(showIdeas || phase.kind === "done" || phase.kind === "error" || phase.kind === "pictures") && (
-          <Box sx={{ position: "absolute", left: 0, right: 0, bottom: "calc(100% + 8px)", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 0.75 }}>
+          <Box ref={above} sx={{ position: "absolute", left: 0, right: 0, bottom: "calc(100% + 8px)", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 0.75 }}>
             {showIdeas && (
               <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
                 {IDEAS.map((idea) => (
