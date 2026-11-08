@@ -48,3 +48,10 @@ test("AVOR's answer - one of ours, naming the request, after the hub's mail went
   assert.equal(isAvorAnswer({ from: "avor@angst-pfister.com", subject: `AW: ${queued.subject}`, at: Date.parse("2026-11-07T10:00:00Z") }, "A26.675846", sent), false);
   assert.equal(isAvorAnswer({ from: "avor@angst-pfister.com", subject: `AW: ${queued.subject}`, at }, "A26.675846", queued), false);
 });
+test("AVOR's answer in a DEMO - the demo user's reply counts, only on a DEMO request", () => {
+  const demo = { ...queued, status: "sent" as const, kind: "demo" as const, to: "claudio.saraiva@apsoparts.com", sent: [{ at: "2026-11-08T08:55:13Z", to: "claudio.saraiva@apsoparts.com", by: "Claudio Saraiva" }] };
+  const at = Date.parse("2026-11-08T09:10:00Z");
+  assert.equal(isAvorAnswer({ from: "Claudio.Saraiva@apsoparts.com", subject: `AW: [DEMO] ${queued.subject}`, at }, "A26.675846", demo), true);
+  assert.equal(isAvorAnswer({ from: "claudio.saraiva@apsoparts.com", subject: `AW: ${queued.subject}`, at }, "A26.675846", { ...demo, kind: "" }), false);
+  assert.equal(isAvorAnswer({ from: "someone@apsoparts.com", subject: `AW: ${queued.subject}`, at }, "A26.675846", demo), false);
+});

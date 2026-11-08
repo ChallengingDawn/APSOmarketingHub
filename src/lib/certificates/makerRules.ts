@@ -43,7 +43,8 @@ export type MakerRow = { at: string; ticketId: string; what: "sent" | "would" | 
 // Back Office rotation sees it.
 export const AVOR_PROP = "apsohub_certificate_avor";
 export const AVOR_TO = "avor@angst-pfister.com";
-export type AvorSent = { at: string; to: string; by: string; remind?: boolean };
+/** replyTo = where answers go (the card says "your answer comes onto this ticket" only when it is support@) */
+export type AvorSent = { at: string; to: string; by: string; remind?: boolean; replyTo?: string };
 export type AvorState = {
   v: 1;
   status: "queued" | "sending" | "sent" | "failed";
@@ -80,11 +81,12 @@ export function avorRefOf(subject: string | null | undefined): string | null {
   return m ? m[1].toUpperCase() : null;
 }
 
-/** AVOR's answer to a mail the hub sent: from one of ours (AVOR answers from avor@ or their own address), naming the
- *  A-number, after the hub's mail went out. */
+/** AVOR's answer to a mail the hub sent: from one of ours (AVOR answers from avor@ or their own address) - in a DEMO the
+ *  demo user, who got the mail - naming the A-number, after the hub's mail went out. */
 export function isAvorAnswer(email: { from: string | null; subject: string | null; at: number }, ref: string, s: AvorState | null): boolean {
   if (!s || !(s.sent ?? []).length) return false;
-  if (!/@angst-pfister\.com$/i.test(String(email.from ?? "").trim())) return false;
+  const from = String(email.from ?? "").trim().toLowerCase();
+  if (!/@angst-pfister\.com$/.test(from) && !(s.kind === "demo" && from === s.to.trim().toLowerCase())) return false;
   if (avorRefOf(email.subject) !== ref) return false;
   const first = Math.min(...(s.sent ?? []).map((x) => Date.parse(x.at)));
   return !Number.isNaN(first) && email.at >= first - 60_000;

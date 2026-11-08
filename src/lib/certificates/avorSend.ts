@@ -3,7 +3,8 @@
 //
 // avorPass (the engine's 3-minute look, in Live): a mail queued on the card is claimed ("sending" - never twice), sent in
 // the user's name to avor@angst-pfister.com, replies to support@apsoparts.com (as the mails written on the ticket), and
-// logged on the ticket. A DEMO goes to the demo user only, replies to him - never to AVOR or support@.
+// logged on the ticket. A DEMO goes to the demo user only - never to AVOR; his reply goes to support@ like AVOR's, so
+// the demo shows the answer merged in too (SARCLA 08.11.2026: "the answer will not be associated to this ticket").
 //
 // mergeAvorAnswer (the way in, boDistribution/intakeRun, before anything is decided on a new Back Office ticket): AVOR's
 // answer opens a new support@ ticket - HubSpot lets no app start a conversation from the inbox, so there is no thread to
@@ -69,13 +70,13 @@ export async function avorPass(facts: (Facts & { avor?: string | null })[], held
     await write(f.id, claim);
     const demo = demoOf(f.demo);
     const to = demo ? demo.email : AVOR_TO;
-    const replyTo = demo ? demo.email : addressOf(REPLY_TO);
+    const replyTo = addressOf(REPLY_TO);
     const subject = `${demo ? "[DEMO] " : ""}${s.subject}`.slice(0, 200);
     try {
       await sendHubMail({ to, subject, html: htmlOf(s.body), text: s.body, fromName: `${s.by.name} | APSOparts®`, replyTo });
       mailed++;
       await logOnTicket(f.id, s, to, replyTo, subject).catch((e) => console.warn(`[certificates] avor log ${f.id}: ${(e as Error).message}`));
-      const sent = [...(s.sent ?? []), { at: new Date().toISOString(), to, by: s.by.name, ...(s.remind ? { remind: true } : {}) }];
+      const sent = [...(s.sent ?? []), { at: new Date().toISOString(), to, by: s.by.name, replyTo, ...(s.remind ? { remind: true } : {}) }];
       await write(f.id, { ...claim, status: "sent", sent, error: undefined });
       rows.push({ at, ticketId: f.id, what: "avor", to, eda: null });
     } catch (e) {
