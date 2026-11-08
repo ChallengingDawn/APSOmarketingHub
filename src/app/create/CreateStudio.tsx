@@ -345,6 +345,15 @@ export default function CreateStudio({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState<DraftResult | null>(null);
+  // A version opened from the strip or made by the assistant carries its real revision, read from the server: with "1"
+  // the next save of anything but a first version was refused as a conflict (08.11.2026).
+  const followRevision = useCallback(async (id: number) => {
+    try {
+      const j = await fetch(`/api/content/${id}`).then((r) => r.json());
+      const rev = Number(j?.item?.revision);
+      if (Number.isFinite(rev) && rev > 0) setDraft((cur) => (cur && cur.draftId === id ? { ...cur, revision: rev } : cur));
+    } catch { /* the save will say so if it conflicts */ }
+  }, []);
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [refineText, setRefineText] = useState("");
   const [refining, setRefining] = useState(false);
@@ -1679,6 +1688,7 @@ export default function CreateStudio({
               // Opening another version does not lose this one: it is already
               // saved under the project, which is what saving there is for.
               setDraft({ content: v.body, draftId: v.id, revision: 1 });
+              void followRevision(v.id);
               setDesigning(null);
             }}
           />
@@ -1708,6 +1718,7 @@ export default function CreateStudio({
                 revision: 1,
                 imageUrl: fresh.imageUrl ?? undefined,
               });
+              void followRevision(fresh.id);
               setDesigning({ target: "draft" });
               // The canvas keys off this, so a new background actually paints
               // instead of being held behind the mounted editor.
