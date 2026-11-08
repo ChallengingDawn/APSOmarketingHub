@@ -18,6 +18,7 @@ import type { AiTask, KindDef, ServerAction, StudioCtx } from "../../contract";
 import { s } from "../../contract";
 import { addEvent, addPiece } from "@/lib/content/workflow";
 import { LANGUAGE_NAME, LIMITS, addDays, batchPlan, blogDoc, blogText, emptyBlog, newId, newSection, slugify, type BlogDoc } from "./model";
+import { oneLine, partLabel, partText, sectionOf } from "./parts";
 import { blogCards } from "./posts";
 
 const docOf = (ctx: StudioCtx, raw: unknown) => blogDoc(raw, { language: ctx.piece.language, author: ctx.me.name, title: ctx.piece.title });
@@ -26,14 +27,17 @@ const RULES = `Hard rules:
 - Use only what the brief, the post and the person give, and what is general engineering knowledge. NEVER invent prices,
   stock, delivery times, certificates, approvals, test results, figures, customer names or quotes. A fact that is
   missing is left out, never estimated.
-- Never show a discount value. Never name a chemical manufacturer's brand (Chemours in particular). Wherever chemical
-  compatibility or resistance comes up, add the line "for information only, no guarantee, no liability" (in the post's
-  language).
+- Never show a discount value. Never name a chemical manufacturer's brand (Chemours in particular). When chemical
+  compatibility or resistance comes up, the line "for information only, no guarantee, no liability" (in the post's
+  language) follows it as a paragraph of its own - once in a section, not after every sentence (an answer to a question
+  about it carries it too).
 - Plain, concrete, human words for engineers and buyers; no slogans, no hype, no exclamation marks.`;
 
 const FORMAT = `Section bodies are markdown WITHOUT the section's own heading: paragraphs, "-" lists, "1." lists, a table
 ("| a | b |" with a "|---|---|" line) where it helps, ### for a sub-heading. **bold** sparingly. ==word== marks a key
-word (shown in red on the page) - one or two in the whole post at most.`;
+word (shown in red on the page) - one or two in the whole post at most. A line starting with "> " is a callout box (a
+practical tip, a check, a caution) - one in a section at most, and not in every section. [words](/<store>/...) links to a
+shop page only when the brief or the post gives its address.`;
 
 function context(ctx: StudioCtx, d: BlogDoc, language?: string): string {
   const b = ctx.brief;
@@ -176,13 +180,58 @@ const faq: AiTask = {
   label: "Questions and answers",
   maxTokens: 4000,
   schema: { type: "object", additionalProperties: false, required: ["faq"], properties: { faq: FAQ } },
-  system: `You write the 3 to 5 questions a reader of this APSOparts blog article would still have, each answered in two to
+  system: `You write the questions a reader of this APSOparts blog article would still have, each answered in two to
 four sentences from what the post says and general engineering knowledge. Questions are phrased the way people search.
 Answers are plain text (no markdown headings).
 
 ${RULES}`,
-  user: (ctx, raw) => { const d = docOf(ctx, raw); return `${context(ctx, d)}\n\n${postNow(d)}`; },
+  // input.add: one or two questions the post's own questions do not cover yet (the studio adds them under those)
+  user: (ctx, raw, input) => {
+    const d = docOf(ctx, raw);
+    const ask = input.add === true
+      ? `Write ONE or TWO new questions the questions below do not cover yet. The questions the post has:\n${d.faq.map((f) => `- ${f.q}`).join("\n") || "(none)"}`
+      : "Write 3 to 5 questions.";
+    return `${context(ctx, d)}\n\n${postNow(d)}\n\n${ask}${s(input.request, 1000) ? `\nTHE PERSON ADDS: ${s(input.request, 1000)}` : ""}`;
+  },
   clean: (raw) => ({ faq: cleanFaq((raw as Record<string, unknown>)?.faq) }),
+};
+
+/** One part of the post changed as asked (Content v3: the part clicked in the preview - a paragraph, the lead, a
+ *  question's answer, the button). Its words are read here from the saved post, never sent by the browser. */
+const part: AiTask = {
+  label: "Change this part",
+  maxTokens: 5000,
+  schema: {
+    type: "object", additionalProperties: false, required: ["text"],
+    properties: { text: { type: "string", description: "the part's new words only, in the post's language and in the same form" } },
+  },
+  system: `You change ONE part of an APSOparts blog article as the person asks, so that it still fits the rest of the post.
+Answer with that part's new words only - never the whole post, never a heading the part did not have. Keep every fact
+unless asked otherwise; keep the language of the post.
+
+${FORMAT}
+
+${RULES}`,
+  user: (ctx, raw, input) => {
+    const d = docOf(ctx, raw);
+    const key = s(input.key, 80);
+    const now = partText(d, key);
+    if (now === null) throw new Error("That part is not in the post any more.");
+    const form = oneLine(key) ? "ONE line, no markdown, no full stop at the end of a heading or a button"
+      : key === "short" ? "3 to 4 short lines, one per line, no list marks, each under 110 characters"
+      : key.includes(":b:") ? "markdown: a paragraph, a list or a table, as the part is now (more than one block only when asked)"
+      : "plain sentences (**bold** sparingly)";
+    const sid = sectionOf(key);
+    const sec = sid ? d.sections.find((x) => x.id === sid) : null;
+    return [
+      context(ctx, d),
+      postNow(d),
+      sec ? `THE SECTION IT IS IN:\n## ${sec.heading}\n\n${sec.body}` : "",
+      `THE PART: ${partLabel(d, key)}\nIts form: ${form}\nIts words now:\n${now || "(empty - write it)"}`,
+      `WHAT THE PERSON ASKS: ${s(input.request, 2000) || "Write it better: clearer and more concrete."}`,
+    ].filter(Boolean).join("\n\n");
+  },
+  clean: (raw) => ({ text: s((raw as Record<string, unknown>)?.text, 20_000) }),
 };
 
 const meta: AiTask = {
@@ -235,6 +284,6 @@ export const blogKind: KindDef = {
   channel: "blog",
   empty: (ctx) => emptyBlog({ title: ctx.piece.title, language: ctx.piece.language, author: ctx.me.name }),
   toText: blogText,
-  tasks: { outline, section, faq, meta },
+  tasks: { outline, section, faq, meta, part },
   actions: { index, batch, ping: async () => ({ ok: true }) },
 };

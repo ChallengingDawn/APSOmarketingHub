@@ -13,7 +13,7 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import {
-  addDays, batchPlan, cardOf, homeCards, homePath, postPath, postWarnings, relatedCards, tagPath, topicsOf, type BlogCard, type BlogDoc,
+  addDays, batchPlan, cardOf, homeCards, homePath, postPath, postWarnings, tagPath, topicsOf, type BlogCard, type BlogDoc,
 } from "@/lib/content/studio/kinds/blog/model";
 import { hubPictures, pasteHome, pastePost, pasteTopic } from "@/lib/content/studio/kinds/blog/render";
 import { Field, btn, field, mainBtn } from "../../parts";
@@ -34,8 +34,8 @@ export function Publish({ api, d, cards }: { api: StudioApi; d: BlogDoc; cards: 
   const o = { store: d.store, language: d.language, topics: topicsOf(onHome) };
   // the hub's pictures go into the paste with the hub's full address
   const origin = typeof window === "undefined" ? undefined : window.location.origin;
-  const current = cardOf(d, { pieceId: p.id, projectId: p.projectId, status: p.status, due: p.dueDate });
-  const blocks = [...pastePost(d, { related: relatedCards(onHome, current), origin, due: p.dueDate }), pasteHome(onHome, { ...o, origin }), ...d.tags.map((t) => pasteTopic(onHome, { ...o, origin }, t))];
+  // the post's page is the page the preview shows - nothing under it but the shop's own newsletter band
+  const blocks = [...pastePost(d, { origin, due: p.dueDate }), pasteHome(onHome, { ...o, origin }), ...d.tags.map((t) => pasteTopic(onHome, { ...o, origin }, t))];
   const fromHub = hubPictures(d).length;
 
   return (

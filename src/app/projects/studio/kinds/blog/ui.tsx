@@ -1,13 +1,12 @@
 "use client";
 // THE BLOG AND NEWSLETTER STUDIOS' OWN SMALL PIECES (Content v2, 08.11.2026). SARCLA: "tags should be squared", the build
 // pane's tabs "wrap onto two lines", "pictures are not being generated".
-//   StepTabs     one squared row of equal steps that never wraps (a count in small type beside a label)
 //   PictureSlot  where a picture goes: the picture itself with Change / Remove, or - when there is none - the hub's picture
 //                panel open in place (make one from words, prefilled; upload; the galleries)
-//   Frame        the real page in a frame at its device's width, zoomed to fit, as tall as its content
+//   Working      the assistant at work: a moving band over the thing being made (Content v3)
 //   Block, Hint, PasteCard, useCopy, mono   the quiet structure of a build pane
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
@@ -18,7 +17,6 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
-import { md } from "@/lib/content/studio/kinds/blog/render";
 import { btn, field } from "../../parts";
 import { PicturePanel, type Picture, type PictureAspect } from "../../pictures";
 
@@ -43,33 +41,7 @@ export function Block({ title, right, children, first }: { title: string; right?
   );
 }
 
-/** The build pane's steps: one squared row, equal widths, never on two lines. */
-export function StepTabs<K extends string>({ value, onChange, options }: { value: K; onChange: (k: K) => void; options: { key: K; label: string; count?: number }[] }) {
-  return (
-    <Box role="tablist" sx={{ display: "flex", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "#fff" }}>
-      {options.map((o, i) => {
-        const on = o.key === value;
-        return (
-          <Box key={o.key} component="button" type="button" role="tab" aria-selected={on} onClick={() => onChange(o.key)} title={o.label}
-            sx={{
-              all: "unset", cursor: "pointer", boxSizing: "border-box", height: 36, px: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5,
-              flex: "1 0 auto", fontSize: "0.8rem", fontWeight: 600, whiteSpace: "nowrap",
-              borderLeft: i ? `1px solid ${HAIRLINE}` : "none", bgcolor: on ? BLUE : "transparent", color: on ? "#fff" : INK, transition: "background-color .12s, color .12s",
-              "&:hover": on ? {} : { bgcolor: "rgba(36,89,209,.07)", color: BLUE }, "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: -2 },
-            }}>
-            <span>{o.label}</span>
-            {o.count ? <Box component="span" sx={{ fontSize: "0.7rem", fontWeight: 700, opacity: on ? 0.85 : 0.55, fontVariantNumeric: "tabular-nums" }}>{o.count}</Box> : null}
-          </Box>
-        );
-      })}
-    </Box>
-  );
-}
-
-/** Small squared buttons in a row (a section's AI actions, a block's tools). */
-export function ToolRow({ children }: { children: React.ReactNode }) {
-  return <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>{children}</Box>;
-}
+/** Small squared buttons (a block's tools, a part's). */
 export const toolBtn = {
   ...btn, minWidth: 0, px: 1, py: 0.25, height: 28, fontSize: "0.76rem", borderRadius: "4px", color: INK, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff",
   "&:hover": { borderColor: BLUE, color: BLUE, bgcolor: "#fff" }, "& .MuiButton-startIcon": { mr: 0.5 },
@@ -123,43 +95,6 @@ export function PictureSlot({ url, alt, onPick, onAlt, onRemove, aspect = "16:9"
   );
 }
 
-/**
- * A section's text as it reads (lists, tables, bold, the red key words) - a click opens the markdown to edit, leaving it
- * shows it read again. So a section with a table does not look like a row of pipes.
- */
-export function MdField({ label, value, onChange, disabled, onFocus, rows = 7 }: {
-  label: string; value: string; onChange: (v: string) => void; disabled?: boolean; onFocus?: () => void; rows?: number;
-}) {
-  const [editing, setEditing] = useState(false);
-  if (editing || !value.trim()) {
-    return (
-      <TextField fullWidth size="small" label={label} value={value} disabled={disabled} multiline minRows={rows} autoFocus={editing}
-        onFocus={onFocus} onBlur={() => setEditing(false)} onChange={(e) => onChange(e.target.value)}
-        helperText={editing ? "Markdown: ### a sub-heading, - a list, | a | table |, **bold**, ==a key word== in red" : undefined}
-        sx={{ ...field, mb: 1.25, "& .MuiFormHelperText-root": { mx: 0.5 } }} />
-    );
-  }
-  return (
-    <Box sx={{ position: "relative", mb: 1.25 }}>
-      <Typography component="span" sx={{ position: "absolute", top: -8, left: 10, px: 0.5, bgcolor: "#fff", fontSize: "0.75rem", color: MUTED, lineHeight: 1.3, zIndex: 1 }}>{label}</Typography>
-      <Box role="button" tabIndex={disabled ? -1 : 0} onClick={() => { if (!disabled) { setEditing(true); onFocus?.(); } }}
-        onKeyDown={(e) => { if (!disabled && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setEditing(true); onFocus?.(); } }}
-        title={disabled ? undefined : "Click to edit"}
-        dangerouslySetInnerHTML={{ __html: md(value) }}
-        sx={{
-          border: `1px solid ${HAIRLINE}`, borderRadius: "8px", p: "12px 14px", cursor: disabled ? "default" : "text", color: INK, fontSize: "0.88rem", lineHeight: 1.6,
-          maxHeight: 360, overflowY: "auto", transition: "border-color .12s",
-          "&:hover": disabled ? {} : { borderColor: BLUE }, "&:focus-visible": { outline: `2px solid ${BLUE}` },
-          "& p": { m: "0 0 10px" }, "& p:last-child": { mb: 0 }, "& h3, & h4": { fontSize: "0.95rem", m: "12px 0 6px" },
-          "& ul, & ol": { m: "0 0 10px", pl: 2.5 }, "& ul": { listStyle: "disc" }, "& ol": { listStyle: "decimal" }, "& li": { mb: 0.25, display: "list-item" }, "& mark": { bgcolor: "transparent", color: "#d80901", fontWeight: 600 },
-          "& a": { color: "#274e64" }, "& blockquote": { m: "10px 0", pl: 1.5, borderLeft: "3px solid #d80901" },
-          "& .apx-table": { overflowX: "auto", m: "6px 0 10px" }, "& table": { borderCollapse: "collapse", width: "100%", fontSize: "0.8rem" },
-          "& th, & td": { border: `1px solid ${HAIRLINE}`, p: "5px 7px", textAlign: "left", verticalAlign: "top" }, "& th": { bgcolor: "#f4f6f7", color: "#274e64" },
-        }} />
-    </Box>
-  );
-}
-
 /** Copies a text; says "Copied" for a moment. */
 export function useCopy() {
   const [done, setDone] = useState<string | null>(null);
@@ -193,64 +128,38 @@ export function PasteCard({ label, steps, code, copied, onCopy }: { label: strin
   );
 }
 
-export type Device = "desktop" | "mobile";
-export const DEVICE_WIDTH: Record<Device, number> = { desktop: 1280, mobile: 390 };
-
-/**
- * One page in a frame: the HTML at the device's real width, zoomed down to the space it has, as tall as its content (the
- * pane scrolls, not the frame). No script runs in it; same-origin only so its height can be read - and so `onDoc` can
- * listen to it (a click on a block selects it in the build pane).
- */
-export function Frame({ html, device, title, width, onDoc }: { html: string; device: Device; title: string; width?: number; onDoc?: (d: Document) => void }) {
-  const box = useRef<HTMLDivElement | null>(null);
-  const frame = useRef<HTMLIFrameElement | null>(null);
-  const [avail, setAvail] = useState(800);
-  const [height, setHeight] = useState(900);
-  const w = device === "mobile" ? DEVICE_WIDTH.mobile : width ?? DEVICE_WIDTH.desktop;
-  const docCb = useRef(onDoc);
-  docCb.current = onDoc;
-
-  useEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setAvail(el.clientWidth));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  useEffect(() => {
-    let ro: ResizeObserver | null = null;
-    const measure = () => {
-      const d = frame.current?.contentDocument;
-      if (!d?.documentElement) return;
-      setHeight(Math.min(30_000, Math.max(400, d.documentElement.scrollHeight)));
-      if (!ro && d.body) { ro = new ResizeObserver(() => setHeight(Math.min(30_000, Math.max(400, d.documentElement.scrollHeight)))); ro.observe(d.body); }
-      docCb.current?.(d);
-    };
-    const f = frame.current;
-    f?.addEventListener("load", measure);
-    const t = setTimeout(measure, 300);
-    return () => { f?.removeEventListener("load", measure); clearTimeout(t); ro?.disconnect(); };
-  }, [html, device]);
-
-  const zoom = Math.min(1, (avail - 8) / w);
-  const mobile = device === "mobile";
-  return (
-    <Box ref={box} sx={{ display: "flex", justifyContent: "center", width: "100%", minWidth: 0 }}>
-      <Box sx={{
-        width: w * zoom + (mobile ? 16 : 2), height: height * zoom + (mobile ? 16 : 2), flexShrink: 0, borderRadius: mobile ? "26px" : "8px", overflow: "hidden",
-        boxShadow: "0 18px 50px rgba(31,45,78,.18)", border: mobile ? "8px solid #15223a" : `1px solid ${HAIRLINE}`, bgcolor: "#fff", boxSizing: "border-box", transition: "width .25s ease",
-      }}>
-        <iframe ref={frame} title={title} srcDoc={html} sandbox="allow-same-origin"
-          style={{ width: w, height, border: 0, transform: `scale(${zoom})`, transformOrigin: "0 0", display: "block", background: "#fff" }} />
-      </Box>
-    </Box>
-  );
-}
-
 /** The document a moment after the last keystroke - the frame is not rebuilt on every letter. */
 export function useSettled<T>(v: T, ms = 350): T {
   const [x, setX] = useState(v);
   useEffect(() => { const t = setTimeout(() => setX(v), ms); return () => clearTimeout(t); }, [v, ms]);
   return x;
+}
+
+/**
+ * The assistant at work, over the thing being made (SARCLA 08.11.2026: "an AI animation as soon as it starts working"):
+ * a band that moves, what it is doing, and the seconds since it started - a whole post takes a minute or two.
+ */
+export function Working({ label, since }: { label: string; since: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const s = Math.max(0, Math.round((now - since) / 1000));
+  return (
+    <Box role="status" aria-live="polite" sx={{
+      position: "sticky", top: 0, zIndex: 3, mx: "auto", mb: 1.5, maxWidth: 560, display: "flex", alignItems: "center", gap: 1.25, px: 1.75, py: 1,
+      borderRadius: "10px", bgcolor: "rgba(255,255,255,.96)", boxShadow: "0 8px 26px rgba(31,45,78,.16)", overflow: "hidden",
+      "&::after": {
+        content: '""', position: "absolute", left: 0, right: 0, bottom: 0, height: 3,
+        background: "linear-gradient(90deg, transparent, #c22c6e, #2459d1, transparent)", backgroundSize: "50% 100%", backgroundRepeat: "no-repeat",
+        animation: "xwork 1.6s ease-in-out infinite",
+      },
+      "@keyframes xwork": { "0%": { backgroundPosition: "-60% 0" }, "100%": { backgroundPosition: "160% 0" } },
+      "@keyframes xspark": { "0%, 100%": { transform: "scale(1) rotate(0deg)", opacity: 0.7 }, "50%": { transform: "scale(1.25) rotate(20deg)", opacity: 1 } },
+    }}>
+      <Box component="span" sx={{ display: "inline-flex", color: "#c22c6e", animation: "xspark 1.2s ease-in-out infinite" }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
+      </Box>
+      <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.86rem", fontWeight: 600, color: INK }}>{label}</Typography>
+      <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{s}s</Typography>
+    </Box>
+  );
 }
