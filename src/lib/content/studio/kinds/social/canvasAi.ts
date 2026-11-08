@@ -434,7 +434,11 @@ export function cleanWordsAnswer(raw: unknown): { blocks: { role: TextRole; text
 
 /** The words placed on the page: the texts there (not the logo) replaced, or added. */
 export function placeWords(page: DesignDocument, blocks: { role: TextRole; text: string }[], replace: boolean, mf: MeasureFor = estimateFor): DesignDocument {
-  const keep = replace ? page.nodes.filter((n) => n.kind !== "text" && !(n.kind === "rect" && n.groupId && page.nodes.some((t) => t.kind === "text" && t.groupId === n.groupId))) : page.nodes;
-  const placed = composeWords(blocks, page.canvas, mf, { dark: darkPage(page), place: replace ? "middle" : "middle" });
+  const gone = (n: DesignNode) => n.kind === "text" || (n.kind === "rect" && !!n.groupId && page.nodes.some((t) => t.kind === "text" && t.groupId === n.groupId));
+  const keep = replace ? page.nodes.filter((n) => !gone(n)) : page.nodes;
+  // the new words start where the old ones did (the picture and the logo keep their places)
+  const old = replace ? page.nodes.filter((n) => n.kind === "text") : [];
+  const top = old.length ? Math.min(...old.map((n) => n.y)) : undefined;
+  const placed = composeWords(blocks, page.canvas, mf, { dark: darkPage(page), place: "middle", top });
   return { ...page, nodes: [...keep, ...placed] };
 }

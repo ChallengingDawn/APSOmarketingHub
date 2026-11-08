@@ -117,8 +117,9 @@ test("the post: formats per network, only those a network takes; the formats tha
   assert.deepEqual(p.formats.facebook, ["square"]);
   assert.deepEqual(new Set(formatsInUse(p)), new Set(["landscape", "story", "square"]));
   assert.equal(p.published, null);
-  // a new post says it has no design yet; the design's words are in its text
-  assert.ok(checks(emptySocial()).some((c) => /No design yet/.test(c.text)));
+  // Instagram needs a picture until the post has a design; the design's words are in its text
+  assert.ok(checks(emptySocial()).some((c) => /Instagram needs a picture/.test(c.text)));
+  assert.ok(!checks({ ...emptySocial(), design: design() }).some((c) => /Instagram needs a picture/.test(c.text)));
   const withDesign = { ...emptySocial(), design: design() };
   assert.match(socialText(withDesign), /One two/);
 });

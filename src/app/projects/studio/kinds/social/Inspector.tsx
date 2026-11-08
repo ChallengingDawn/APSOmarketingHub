@@ -136,7 +136,9 @@ export default function Inspector({ ctx, onHost }: { ctx: StudioCtx; onHost: (el
           // the editor's selection card, made part of this column: no frame of its own, its controls in full
           "& > .MuiCard-root": { border: "0 !important", borderRadius: "0 !important", m: "0 !important", boxShadow: "none !important", bgcolor: "transparent !important" },
           "& > .MuiCard-root > .MuiBox-root": { maxHeight: "none !important" },
-          "& .MuiButton-root": { textTransform: "none", borderRadius: "8px" },
+          "& .MuiButton-root": { textTransform: "none", borderRadius: "6px" },
+          // the object's name on its own line, the sections under it
+          "& > .MuiCard-root > .MuiBox-root:first-of-type > .MuiTypography-root:first-of-type": { flex: "1 1 calc(100% - 32px)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
         }} />
         {empty && <Layers ctx={ctx} />}
       </Box>

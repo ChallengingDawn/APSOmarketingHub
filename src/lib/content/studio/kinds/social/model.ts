@@ -264,7 +264,6 @@ export function checks(d: SocialDoc): { network: Network | null; text: string }[
   }
   if (d.networks.linkedin.on) for (const flag of brandFlags(d.firstComment)) out.push({ network: "linkedin", text: `First comment: ${flag}` });
   const pages = d.design.pages;
-  if (!pages.length && d.media.kind === "none") out.push({ network: null, text: "No design yet - start from a template." });
   for (const [i, p] of pages.entries()) {
     const words = pageWords(pageIn(d.design, p, d.design.formats[0])).join("\n");
     for (const flag of brandFlags(words)) out.push({ network: null, text: `${pages.length > 1 ? `Page ${i + 1}` : "The design"}: ${flag}` });

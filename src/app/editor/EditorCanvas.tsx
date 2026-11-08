@@ -25,7 +25,6 @@ import MenuItem from "@mui/material/MenuItem";
 import Menu from "@mui/material/Menu";
 import Tooltip from "@mui/material/Tooltip";
 import IconButton from "@mui/material/IconButton";
-import Chip from "@mui/material/Chip";
 import Alert from "@mui/material/Alert";
 import Divider from "@mui/material/Divider";
 import Slider from "@mui/material/Slider";
@@ -76,6 +75,7 @@ import AlignVerticalTopIcon from "@mui/icons-material/AlignVerticalTop";
 import AlignVerticalCenterIcon from "@mui/icons-material/AlignVerticalCenter";
 import AlignVerticalBottomIcon from "@mui/icons-material/AlignVerticalBottom";
 import { TEMPLATES, type TemplateSpec } from "@/data/templates";
+import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { layoutsFor, type Layout } from "@/lib/content/layouts";
 import { applyReplace } from "@/lib/editor/findReplace";
 
@@ -2654,14 +2654,8 @@ export default function EditorCanvas({
         })}
       </Box>
 
-      <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mb: 1 }}>
-        Brand templates
-      </Typography>
-      <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, maxHeight: 220, overflow: "auto", mb: 1 }}>
-        {TEMPLATES.filter((t) => t.category === "LinkedIn event").map((t) => (
-          <Chip key={t.id} label={t.name} size="small" onClick={() => loadTemplate(t)} sx={{ justifyContent: "flex-start", fontWeight: 600, bgcolor: "#f0f1f3" }} />
-        ))}
-      </Box>
+      {/* The "Brand templates" (the LinkedIn-event pictures) are gone: SARCLA 08.11.2026, "take them out completely,
+          these are PA, not ours". The layouts above are the shop's own. */}
 
           <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mt: 2, mb: 1 }}>
             Layers
@@ -3107,7 +3101,7 @@ export default function EditorCanvas({
                   onClick={() => { setSection(s.key); setBarCollapsed(false); }}
                   sx={{
                     border: 0, cursor: "pointer", fontFamily: "inherit", fontSize: 12,
-                    px: 1.1, py: 0.5, borderRadius: "8px",
+                    px: 1.1, py: 0.5, borderRadius: "6px",
                     bgcolor: sec === s.key ? "#1a1d21" : "transparent",
                     color: sec === s.key ? "#ffffff" : "#5b6470",
                     fontWeight: sec === s.key ? 700 : 500,
@@ -3196,9 +3190,9 @@ export default function EditorCanvas({
                 <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mr: 0.5 }}>
                   Style
                 </Typography>
-                {TEXT_PRESETS.map((p) => (
-                  <Chip key={p.id} label={p.label} size="small" onClick={() => applyTextPreset(p.id)} sx={{ fontWeight: 600, bgcolor: "#f0f1f3" }} />
-                ))}
+                {/* squared, as every choice in the hub (SARCLA 08.11.2026: "tags should be squared") */}
+                <SquareChoice<(typeof TEXT_PRESETS)[number]["id"] | "none"> value="none" onChange={(k) => { if (k !== "none") applyTextPreset(k); }}
+                  options={TEXT_PRESETS.map((p) => ({ key: p.id, label: p.label }))} />
               </Box>
               {/* Lists. Most of what marketing writes is a list, and without
                   this people type "- " by hand and align the dash column by
@@ -3207,19 +3201,10 @@ export default function EditorCanvas({
                 <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.06em", mr: 0.5 }}>
                   List
                 </Typography>
-                {LIST_STYLES.map((l) => (
-                  <Button
-                    key={l.key}
-                    size="small"
-                    variant={selected.listStyle === l.key ? "contained" : "outlined"}
-                    // Pressing the style it already has turns the list off,
-                    // which is where everybody reaches for it.
-                    onClick={() => patch(selected.id, { listStyle: selected.listStyle === l.key ? undefined : l.key })}
-                    sx={{ fontWeight: 700, minWidth: 0, px: 1 }}
-                  >
-                    {l.sample} {l.label}
-                  </Button>
-                ))}
+                {/* Pressing the style it already has turns the list off, which is where everybody reaches for it. */}
+                <SquareChoice<NonNullable<NodeSpec["listStyle"]> | "none"> value={selected.listStyle ?? "none"}
+                  onChange={(k) => patch(selected.id, { listStyle: k === "none" || k === selected.listStyle ? undefined : k })}
+                  options={[{ key: "none" as const, label: "None" }, ...LIST_STYLES.map((l) => ({ key: l.key, label: `${l.sample} ${l.label}` }))]} />
                 {/* A paragraph is the usual starting point: the assistant
                     writes prose, and somebody then wants it as three proofs. */}
                 {itemCount(selected.text ?? "") <= 1 && (selected.text ?? "").trim().length > 0 && (

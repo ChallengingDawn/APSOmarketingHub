@@ -98,7 +98,8 @@ export default function AiBar({ ctx }: { ctx: StudioCtx }) {
     } else if (plan.doc) {
       now.canvas.current?.load(plan.doc);
     }
-    if (plan.format && plan.format !== now.fmt) now.goFormat(plan.format);
+    // the format after the canvas has saved what it just took
+    if (plan.format && plan.format !== now.fmt) { const f = plan.format; setTimeout(() => live.current.goFormat(f), 80); }
     const reply = r.result.reply || (plan.doc || plan.pages ? "Done." : "Nothing to change.");
     const extra = plan.skipped.length ? ` ${plan.skipped.join(" ")}` : "";
     setText("");

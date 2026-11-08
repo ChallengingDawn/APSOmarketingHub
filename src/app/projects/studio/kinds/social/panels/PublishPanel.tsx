@@ -40,8 +40,7 @@ import type { PieceStatus } from "@/lib/content/pieceRules";
 import { StatusChip, dayLabel } from "../../../../work/ui";
 import { moves } from "../../../../work/TodoList";
 import { ChipsInput, Checks, CopyButton } from "../../banner/ui";
-import { TextFor } from "../BuildPane";
-import { PostText } from "../FeedPreview";
+import { CaptionFor, PostText } from "../captions";
 import { Btn, Head, Note, PanelFrame, T } from "../look";
 import { FormatGlyph } from "../CanvasBar";
 import { fileStem } from "../actions";
@@ -242,7 +241,7 @@ export default function PublishPanel({ ctx }: { ctx: StudioCtx }) {
 
       <Step n={2} title="Texts" right={<Btn onClick={() => void write()} disabled={!ai || !!busy} icon={busy === "write" ? <CircularProgress size={14} /> : <AutoAwesomeIcon sx={{ color: T.accent }} />} sx={{ height: 30 }}>{nets.some((n) => doc.networks[n].text.trim()) ? "Rewrite with AI" : "Write with AI"}</Btn>}>
         {nets.length > 1 && <Box sx={{ mb: 1.25 }}><SquareChoice value={net} onChange={setTab} options={nets.map((k) => ({ key: k, label: NETWORK[k].label }))} /></Box>}
-        <TextFor doc={doc} set={set} canEdit={canEdit} textNet={net} setTextNet={setTab} slide={0} setSlide={() => undefined} adapt={ai ? adapt : null} adapting={adapting} />
+        <CaptionFor doc={doc} set={set} canEdit={canEdit} net={net} adapt={ai ? adapt : null} adapting={adapting} />
         <Head right={<Btn onClick={() => void tags()} disabled={!ai || !!busy} icon={busy === "tags" ? <CircularProgress size={13} /> : <AutoAwesomeIcon sx={{ color: T.accent }} />} sx={{ height: 28, fontSize: "0.76rem" }}>Suggest</Btn>}>Hashtags</Head>
         <ChipsInput values={doc.hashtags} comma max={30} disabled={!canEdit} placeholder="sealing technology, MRO…" clean={cleanTag} onChange={(v) => set((d) => ({ ...d, hashtags: v }))} />
         <Head>Link</Head>

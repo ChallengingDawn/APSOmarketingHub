@@ -709,7 +709,7 @@ export function roleNodes(role: TextRole, text: string, s: Size, at: { x: number
 }
 
 /** Blocks of words laid out as one composition on the board's grid (the AI's words; "make it like our films"). */
-export function composeWords(blocks: { role: TextRole; text: string }[], s: Size, mf: MeasureFor = estimateFor, o: { dark?: boolean; place?: "top" | "middle" | "bottom" } = {}): DesignNode[] {
+export function composeWords(blocks: { role: TextRole; text: string }[], s: Size, mf: MeasureFor = estimateFor, o: { dark?: boolean; place?: "top" | "middle" | "bottom"; top?: number } = {}): DesignNode[] {
   const g = gridOf(s);
   const colW = g.W - g.m * 2 - (g.shape === "wide" ? r(g.W * 0.12) : 0);
   const gapFor = (role: TextRole, prev: TextRole | null) => (prev === null ? 0 : role === "cta" ? r(44 * g.u) : prev === "eyebrow" ? r(24 * g.u) : prev === "number" ? r(28 * g.u) : r(26 * g.u));
@@ -722,7 +722,7 @@ export function composeWords(blocks: { role: TextRole; text: string }[], s: Size
   });
   const h = heightOf(placed);
   const top = contentTop(g);
-  const y = o.place === "top" ? top : o.place === "bottom" ? g.bottom - h : r(top + Math.max(0, (g.bottom - top - h) * 0.45));
+  const y = o.top !== undefined ? Math.min(o.top, Math.max(top, g.bottom - h)) : o.place === "top" ? top : o.place === "bottom" ? g.bottom - h : r(top + Math.max(0, (g.bottom - top - h) * 0.45));
   const group = nid("g");
   return stack(placed, Math.max(top, y)).map((n) => ({ ...n, groupId: n.groupId ?? group }));
 }

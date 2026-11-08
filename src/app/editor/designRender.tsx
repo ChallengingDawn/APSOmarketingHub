@@ -47,8 +47,10 @@ export function loadImage(src: string): Promise<HTMLImageElement | null> {
     p = new Promise((ok) => {
       const el = new window.Image();
       el.crossOrigin = "anonymous";
-      el.onload = () => ok(el);
-      el.onerror = () => ok(null);
+      // a picture that does not come within 20 s is drawn without (the page is not held back by it)
+      const t = setTimeout(() => ok(null), 20000);
+      el.onload = () => { clearTimeout(t); ok(el); };
+      el.onerror = () => { clearTimeout(t); ok(null); };
       el.src = src;
     });
     images.set(src, p);
