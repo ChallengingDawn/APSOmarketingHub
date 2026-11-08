@@ -149,6 +149,8 @@ export type Facts = {
   maker?: string | null;
   /** a DEMO request (makerRules.ts DEMO_PROP): "name · owner id · e-mail" - every person and every mail is that user */
   demo?: string | null;
+  /** the mail to AVOR queued on the ticket card (makerRules.ts AVOR_PROP) */
+  avor?: string | null;
 };
 
 export type Phase = "start" | "avor" | "backOffice" | "expert" | "sent" | "merged";

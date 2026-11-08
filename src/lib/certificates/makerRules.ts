@@ -32,7 +32,63 @@ export type MakerState = {
   log?: { at: string; what: string; by: string }[];
   at?: string; by?: string;
 };
-export type MakerRow = { at: string; ticketId: string; what: "sent" | "would" | "failed"; to: string; eda: string | null; error?: string };
+/** avor = the AVOR mail sent, avorFailed = not sent, avorAnswer = AVOR's answer merged into the request (to = who answered) */
+export type MakerRow = { at: string; ticketId: string; what: "sent" | "would" | "failed" | "avor" | "avorFailed" | "avorAnswer"; to: string; eda: string | null; error?: string; from?: string };
+
+// ---------------- the mail to AVOR (SARCLA 08.11.2026: "can we send the mail directly from here") ----------------
+// EC 1935/2004 needs a new article number from AVOR first. The ticket card queues the mail as the Back Office writes it
+// (apsohub_certificate_avor); the hub sends it in the user's name - replies to support@, as the mails written on the
+// ticket - and logs it on the ticket. HubSpot lets no app open a conversation from the support@ inbox, so AVOR's answer
+// comes in as a new support@ ticket: the way in (boDistribution/intakeRun) merges it into the request before the
+// Back Office rotation sees it.
+export const AVOR_PROP = "apsohub_certificate_avor";
+export const AVOR_TO = "avor@angst-pfister.com";
+export type AvorSent = { at: string; to: string; by: string; remind?: boolean };
+export type AvorState = {
+  v: 1;
+  status: "queued" | "sending" | "sent" | "failed";
+  kind?: "" | "demo";
+  remind?: boolean;
+  to: string; subject: string; body: string;
+  by: { name: string; email: string; owner: string | null };
+  at: string;
+  sent?: AvorSent[];
+  answered?: { at: string; ticket: string; from: string | null }[];
+  error?: string;
+};
+
+export function parseAvor(raw: string | null | undefined): AvorState | null {
+  if (!raw) return null;
+  try { const s = JSON.parse(raw) as AvorState; return s && s.v === 1 && s.status && s.subject ? s : null; } catch { return null; }
+}
+
+/** Why the queued AVOR mail does not go now - null = it goes. Never: on hold (a TEST), another address than AVOR's
+ *  (a DEMO: only the demo user's), no text. */
+export function avorNotSending(f: Pick<Facts, "id" | "hold" | "demo">, s: AvorState | null, held: Record<string, unknown>): string | null {
+  if (!s || s.status !== "queued") return "nothing queued";
+  if (isHeld(f, held)) return "on hold";
+  const demo = demoOf(f.demo);
+  if (demo ? s.to.toLowerCase() !== demo.email.toLowerCase() : s.to.toLowerCase() !== AVOR_TO) return "not AVOR's address";
+  if (!s.body.trim() || !s.subject.trim()) return "no text";
+  return null;
+}
+
+/** The A-number an AVOR mail names - its subject as the Back Office writes it ("WSMB | EG1935/2004 | M100 | A26.990002 | ...",
+ *  with any "AW:", "RE:", "Erinnerung:" in front). null = not an AVOR mail. */
+export function avorRefOf(subject: string | null | undefined): string | null {
+  const m = /EG\s?1935\s*\/\s*2004\s*\|\s*M\d{3}\s*\|\s*(A\d{2}\.\d{6})/i.exec(String(subject ?? ""));
+  return m ? m[1].toUpperCase() : null;
+}
+
+/** AVOR's answer to a mail the hub sent: from one of ours (AVOR answers from avor@ or their own address), naming the
+ *  A-number, after the hub's mail went out. */
+export function isAvorAnswer(email: { from: string | null; subject: string | null; at: number }, ref: string, s: AvorState | null): boolean {
+  if (!s || !(s.sent ?? []).length) return false;
+  if (!/@angst-pfister\.com$/i.test(String(email.from ?? "").trim())) return false;
+  if (avorRefOf(email.subject) !== ref) return false;
+  const first = Math.min(...(s.sent ?? []).map((x) => Date.parse(x.at)));
+  return !Number.isNaN(first) && email.at >= first - 60_000;
+}
 
 // the customer's mail never goes to an address of ours (a HubSpot inbox opens a ticket - the 05.11.2026 loop)
 const OURS = /(@apsoparts\.com|@angst-pfister\.com|hs-inbox\.com)$/i;

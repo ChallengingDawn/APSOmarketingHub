@@ -36,6 +36,8 @@ import { datePass, dateRows, erpReadAt, erpRequests, type DateInfo, type DateMod
 import { shopPass, shopRows, type ShopMode } from "./shopIntake";
 import { INBOX_OWNERS, teamRecipients, type Recipient } from "@/lib/notify/teamRecipients";
 import { DEMO_PROP, MAKER_PROP, demoOf, makerPass, type MakerRow, type MakerSend } from "./makerSend";
+import { AVOR_PROP } from "./makerRules";
+import { avorPass } from "./avorSend";
 
 const LOCK = 4_107_260;
 const EVERY_MS = 3 * 60_000;
@@ -346,7 +348,7 @@ export async function owners(): Promise<Owner[]> {
 const PROPS = [
   "subject", "hs_pipeline_stage", "hubspot_owner_id", "actions_for_certificates", "which_certificate__", "other_certificates",
   "sarcla_pm_witch_mandant__", "order_number", "delivery_date_for_certificate", "conformity_expert", "back_office_ticket_requester",
-  "enquiry_category", "hs_merged_object_ids", "createdate", "sarcla_article_number_order_pm", PLAN_PROP, HOLD_PROP, MAKER_PROP, DEMO_PROP,
+  "enquiry_category", "hs_merged_object_ids", "createdate", "sarcla_article_number_order_pm", PLAN_PROP, HOLD_PROP, MAKER_PROP, DEMO_PROP, AVOR_PROP,
 ];
 const HIST = ["actions_for_certificates", "hs_pipeline_stage", "hs_merged_object_ids", "delivery_date_for_certificate"];
 
@@ -400,6 +402,7 @@ function factsOf(t: Obj, company: string | null): Facts {
     hold: p[HOLD_PROP] ?? null,
     maker: p[MAKER_PROP] ?? null,
     demo: p[DEMO_PROP] ?? null,
+    avor: p[AVOR_PROP] ?? null,
   };
 }
 
@@ -583,6 +586,15 @@ async function run(): Promise<RunInfo> {
     for (const r of fresh.filter((x) => x.what === "failed")) info.notes.push(`Declaration of ${r.ticketId}: ${r.error}`);
   } catch (e) {
     info.notes.push(`Declarations: ${(e as Error).message.slice(0, 200)}`);
+  }
+  // EC 1935/2004: the mails to AVOR queued on the ticket card (avorSend.ts) - AVOR's answer is merged in by the way in
+  try {
+    const sent = await avorPass(facts, settings.held, writing);
+    info.mailed = (info.mailed ?? 0) + sent.mailed;
+    if (sent.rows.length) await kvSet(KV.makerRows, [...sent.rows, ...((await kvGet<MakerRow[]>(KV.makerRows)) ?? [])].slice(0, 200));
+    for (const r of sent.rows.filter((x) => x.what === "avorFailed")) info.notes.push(`AVOR mail of ${r.ticketId}: ${r.error}`);
+  } catch (e) {
+    info.notes.push(`AVOR mails: ${(e as Error).message.slice(0, 200)}`);
   }
   // tickets from the shop's orders with the declaration line (the rotation moves on only for a ticket created)
   try {

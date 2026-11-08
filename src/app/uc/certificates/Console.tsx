@@ -469,14 +469,16 @@ function MakerCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
         {rows.length > 0 && (
           <Box sx={{ display: "grid", gap: 0.25 }}>
             {rows.slice(0, 8).map((r) => (
-              <Typography key={`${r.ticketId}-${r.at}`} sx={{ fontSize: "0.76rem", color: r.what === "failed" ? RED : INK }}>
-                {when(r.at)} · <a href={hsTicket(r.ticketId)} target="_blank" rel="noopener" style={{ color: INK, fontWeight: 600 }}>{r.ticketId}</a> · {r.what === "sent" ? `sent to ${r.to}${r.eda ? " and EDA" : ""}` : "not sent"}{r.error ? ` - ${r.error}` : ""}
+              <Typography key={`${r.ticketId}-${r.at}-${r.what}`} sx={{ fontSize: "0.76rem", color: r.what === "failed" || r.what === "avorFailed" ? RED : INK }}>
+                {when(r.at)} · <a href={hsTicket(r.ticketId)} target="_blank" rel="noopener" style={{ color: INK, fontWeight: 600 }}>{r.ticketId}</a> · {r.what === "sent" ? `sent to ${r.to}${r.eda ? " and EDA" : ""}`
+                  : r.what === "avor" ? `mail to AVOR sent (${r.to})` : r.what === "avorFailed" ? "mail to AVOR not sent"
+                  : r.what === "avorAnswer" ? `AVOR answered${r.from ? ` (${r.from})` : ""} - merged into the request` : "not sent"}{r.error ? ` - ${r.error}` : ""}
               </Typography>
             ))}
           </Box>
         )}
         <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
-          Made from the newest declaration we sent for the A+P material code (or that FDA text), with the customer, dates, signatures and positions taken out. Only from 3 days before the delivery. Each signer picks his own signature and accepts signing; the expert is never the issuer. An article Products &amp; Pricing marks as not certified stops it. A ticket on hold makes a TEST that never goes out.
+          Made from the newest declaration we sent for the A+P material code (or that FDA text), with the customer, dates, signatures and positions taken out. Only from 3 days before the delivery. Each signer picks his own signature and accepts signing; the expert is never the issuer. An article Products &amp; Pricing marks as not certified stops it. A ticket on hold makes a TEST that never goes out. EC 1935/2004: &quot;Send to AVOR&quot; on the card sends AVOR&apos;s mail within 3 minutes, in the sender&apos;s name (answers to support@) - this switch is for the declarations only; AVOR&apos;s answer comes in as a new support@ ticket and the way in merges it into the request before the rotation sees it.
         </Typography>
       </Box>
       {err && <Typography sx={{ mt: 1, fontSize: "0.82rem", color: RED }}>{err}</Typography>}
