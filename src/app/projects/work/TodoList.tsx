@@ -19,6 +19,8 @@ import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
+import Divider from "@mui/material/Divider";
+import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Skeleton from "@mui/material/Skeleton";
 import TextField from "@mui/material/TextField";
@@ -29,6 +31,7 @@ import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import LinkOffIcon from "@mui/icons-material/LinkOff";
+import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import PlaceOutlinedIcon from "@mui/icons-material/PlaceOutlined";
 import TaskAltOutlinedIcon from "@mui/icons-material/TaskAltOutlined";
@@ -321,44 +324,72 @@ function TodoRow({ p, w, ticket, takes, ticketsLoading, act, onTicket, onAskChan
 }) {
   const canEdit = w.access.canEdit;
   const task = p.contentType === TASK_KIND;
+  const [menu, setMenu] = useState<HTMLElement | null>(null);
   const set = (patch: Partial<Piece>, body: Record<string, unknown>) =>
     act({ action: "piece-edit", pieceId: p.id, ...body }, (x) => ({ ...x, pieces: x.pieces.map((y) => (y.id === p.id ? { ...y, ...patch } : y)) }));
   const move = (to: PieceStatus) => act({ action: "piece-move", pieceId: p.id, to }, (x) => ({ ...x, pieces: x.pieces.map((y) => (y.id === p.id ? { ...y, status: to } : y)) }));
+  const go = (m: ReturnType<typeof moves>[number]) => (m.note ? onAskChanges(p) : m.to === "review" && !p.reviewer ? void act({ action: "piece-move", pieceId: p.id, to: "review" }) : void move(m.to));
+  // one main move on the line; the others - and removing it - in its "…" menu (two rows a line, not three)
+  const all = p.pending ? [] : moves(p, w);
+  const main = all.find((m) => m.main);
+  const more = all.filter((m) => m !== main);
 
   return (
     <Box id={`piece-${p.id}`} sx={{
-      py: 1.5, px: 1, mx: -1, borderTop: `1px solid ${HAIRLINE}`, display: "grid", gap: 1.1, borderRadius: "12px",
+      py: 1.25, px: 1, mx: -1, borderTop: `1px solid ${HAIRLINE}`, display: "grid", gap: 0.9, borderRadius: "10px",
       opacity: p.pending ? 0.55 : 1, transition: "background-color .25s ease, opacity .25s ease",
       "&:hover": { bgcolor: "rgba(255,255,255,.6)" }, "&:target": { bgcolor: "#fff7e8" },
       animation: "rowIn .3s ease", "@keyframes rowIn": { from: { opacity: 0, transform: "translateY(4px)" }, to: { opacity: 1, transform: "none" } },
     }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap" }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
         <KindTile kind={p.contentType} />
-        <Box sx={{ flex: "1 1 240px", minWidth: 0 }}>
+        <Box sx={{ flex: "1 1 auto", minWidth: 0 }}>
           <InlineTitle value={p.title} canEdit={canEdit && !p.pending} size="0.95rem" weight={650} maxWidth="100%"
             onSave={(t) => act({ action: "piece-edit", pieceId: p.id, title: t }, (x) => ({ ...x, pieces: x.pieces.map((y) => (y.id === p.id ? { ...y, title: t } : y)) }))} />
-          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
+          <Typography sx={{ fontSize: "0.76rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {kindLabel(p.contentType)}{p.language ? ` · ${p.language}` : ""}
             {!task && (p.versions ? ` · ${p.versions} version${p.versions === 1 ? "" : "s"}${p.lastVersionAt ? `, last ${when(p.lastVersionAt)}` : ""}` : " · no version yet")}
           </Typography>
         </Box>
-        <Box sx={{ transition: "transform .2s ease" }}><StatusChip status={task && p.status !== "live" ? (p.status === "todo" ? "todo" : "writing") : p.status} /></Box>
-        {canEdit ? (
-          <TextField size="small" type="date" label="Due" value={p.dueDate ?? ""} slotProps={{ inputLabel: { shrink: true } }} disabled={p.pending}
-            sx={{ ...field, width: 150, "& input": { color: dueSoon(p.dueDate) && p.status !== "live" ? "#c5221f" : INK } }}
-            onChange={(e) => set({ dueDate: e.target.value || null }, { dueDate: e.target.value || null })} />
-        ) : p.dueDate ? <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>Due {dayLabel(p.dueDate)}</Typography> : null}
+        <Box sx={{ flexShrink: 0 }}><StatusChip status={task && p.status !== "live" ? (p.status === "todo" ? "todo" : "writing") : p.status} /></Box>
+        {main && (
+          <Button size="small" variant="contained" disableElevation onClick={() => go(main)}
+            startIcon={main.to === "live" && task ? <TaskAltOutlinedIcon sx={{ fontSize: 17 }} /> : undefined}
+            sx={{ ...(main.to === "approved" || (task && main.to === "live") ? { ...btn, bgcolor: "#1b7a55", "&:hover": { bgcolor: "#155c40" } } : mainBtn), flexShrink: 0, borderRadius: "8px" }}>
+            {main.label}
+          </Button>
+        )}
+        {!task && !p.pending && <Button size="small" component={Link} href={`/projects/${w.project.id}/pieces/${p.id}`} variant="outlined" sx={{ ...btn, flexShrink: 0, borderRadius: "8px" }}>Open</Button>}
+        {!p.pending && (more.length > 0 || canEdit) && (
+          <>
+            <Tooltip title="More"><IconButton size="small" aria-label={`More for ${p.title}`} onClick={(e) => setMenu(e.currentTarget)} sx={{ flexShrink: 0 }}><MoreHorizIcon fontSize="small" /></IconButton></Tooltip>
+            <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)} slotProps={{ paper: { sx: { borderRadius: "10px", minWidth: 200 } } }}>
+              {more.map((m) => <MenuItem key={m.to} onClick={() => { setMenu(null); go(m); }} sx={{ fontSize: "0.88rem" }}>{m.label}</MenuItem>)}
+              {more.length > 0 && canEdit && <Divider />}
+              {canEdit && (
+                <MenuItem sx={{ fontSize: "0.88rem", color: "#c5221f" }}
+                  onClick={() => { setMenu(null); void act({ action: "piece-remove", pieceId: p.id }, (x) => ({ ...x, pieces: x.pieces.filter((y) => y.id !== p.id) })); }}>
+                  <DeleteOutlineIcon fontSize="small" sx={{ mr: 1 }} />{task ? "Remove the line" : "Remove the line (its versions stay)"}
+                </MenuItem>
+              )}
+            </Menu>
+          </>
+        )}
       </Box>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", pl: { md: "46px" } }}>
         {canEdit ? (
           <>
-            <PersonPick label="Owner" value={p.writer} people={w.people} width={170} disabled={p.pending} onChange={(u) => set({ writer: u }, { writer: u })} />
-            {!task && <PersonPick label="Reviewer" value={p.reviewer} people={w.people} width={170} disabled={p.pending} onChange={(u) => set({ reviewer: u }, { reviewer: u })} />}
+            <PersonPick label="Owner" value={p.writer} people={w.people} width={160} disabled={p.pending} onChange={(u) => set({ writer: u }, { writer: u })} />
+            {!task && <PersonPick label="Reviewer" value={p.reviewer} people={w.people} width={160} disabled={p.pending} onChange={(u) => set({ reviewer: u }, { reviewer: u })} />}
+            <TextField size="small" type="date" label="Due" value={p.dueDate ?? ""} slotProps={{ inputLabel: { shrink: true } }} disabled={p.pending}
+              sx={{ ...field, width: 148, "& input": { color: dueSoon(p.dueDate) && p.status !== "live" ? "#c5221f" : INK } }}
+              onChange={(e) => set({ dueDate: e.target.value || null }, { dueDate: e.target.value || null })} />
           </>
         ) : (
           <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>
             Owner <b style={{ color: INK }}>{p.writer ? w.people.find((x) => x.username === p.writer)?.name ?? p.writer : "nobody yet"}</b>
             {!task && <>{" · "}Reviewer <b style={{ color: INK }}>{p.reviewer ? w.people.find((x) => x.username === p.reviewer)?.name ?? p.reviewer : "nobody yet"}</b></>}
+            {p.dueDate && <>{" · "}Due <b style={{ color: INK }}>{dayLabel(p.dueDate)}</b></>}
           </Typography>
         )}
         {/* plan & ticket - one control (SARCLA 08.11.2026: "linking to the action plan and the ticket should be the same") */}
@@ -374,21 +405,6 @@ function TodoRow({ p, w, ticket, takes, ticketsLoading, act, onTicket, onAskChan
               </span>
             </Tooltip>
           )}
-        <Box sx={{ ml: "auto", display: "inline-flex", gap: 0.75, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          {!p.pending && moves(p, w).map((m) => (
-            <Button key={m.to} size="small" variant={m.main ? "contained" : "outlined"} disableElevation
-              startIcon={m.to === "live" && task ? <TaskAltOutlinedIcon sx={{ fontSize: 17 }} /> : undefined}
-              sx={m.main ? (m.to === "approved" || (task && m.to === "live") ? { ...btn, bgcolor: "#1b7a55", "&:hover": { bgcolor: "#155c40" } } : mainBtn) : btn}
-              onClick={() => (m.note ? onAskChanges(p) : m.to === "review" && !p.reviewer ? void act({ action: "piece-move", pieceId: p.id, to: "review" }) : move(m.to))}>{m.label}</Button>
-          ))}
-          {!task && !p.pending && <Button size="small" component={Link} href={`/projects/${w.project.id}/pieces/${p.id}`} variant="outlined" sx={btn}>Open</Button>}
-          {canEdit && !p.pending && (
-            <Tooltip title={task ? "Remove the to-do" : "Remove the to-do (its versions stay in the project)"}>
-              <IconButton size="small" aria-label={`Remove ${p.title}`}
-                onClick={() => act({ action: "piece-remove", pieceId: p.id }, (x) => ({ ...x, pieces: x.pieces.filter((y) => y.id !== p.id) }))}><DeleteOutlineIcon fontSize="small" /></IconButton>
-            </Tooltip>
-          )}
-        </Box>
       </Box>
     </Box>
   );
