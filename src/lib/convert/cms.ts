@@ -1,7 +1,9 @@
 // APSOconvert > SHIP > WRITE TO MAGENTO - for CMS pages only (product and category pages are the theme's code: they go
 // to dotSource as code, never written from here). The contract (08.11.2026): ONLY when the hub has its Magento CMS keys
-// (MAGENTO_CMS_ACC_TOKEN, MAGENTO_CMS_PROD_TOKEN - integration tokens with the CMS pages resource; they do not exist
-// yet, so this stays off and says why); ACC first - production only after the same test was written on ACC; a backup
+// (MAGENTO_CMS_ACC / MAGENTO_CMS_PROD = the integration's four values as JSON {consumer_key, consumer_secret,
+// access_token, access_token_secret}, requests signed OAuth 1.0 (./oauth1.ts) - SARCLA made the ACC integration
+// 08.11.2026, Content > Elements > Pages only; a plain MAGENTO_CMS_ACC_TOKEN / _PROD_TOKEN is still taken as Bearer if a
+// shop ever allows that; without either this stays off and says why); ACC first - production only after the same test was written on ACC; a backup
 // row in apsomh_convert_cms_backups before EVERY write; a person presses each write, one page at a time. A backup is
 // written back the same way (itself backed up first).
 //
@@ -14,6 +16,7 @@ import { ENVS, type Env } from "./model";
 import { applyToCms, cmsTarget, type CmsApplied } from "./ship";
 import { ConvertError, ensureTestsSchema, testById } from "./tests";
 import type { Change } from "./versions";
+import { isCreds, oauthHeader, type OAuthCreds } from "./oauth1";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS apsomh_convert_cms_backups (
@@ -41,23 +44,35 @@ function ensureCmsSchema(): Promise<void> {
   return ready;
 }
 
+const CREDS_VAR: Record<Env, string> = { acc: "MAGENTO_CMS_ACC", prod: "MAGENTO_CMS_PROD" };
 const TOKEN_VAR: Record<Env, string> = { acc: "MAGENTO_CMS_ACC_TOKEN", prod: "MAGENTO_CMS_PROD_TOKEN" };
-const token = (env: Env) => (process.env[TOKEN_VAR[env]] ?? "").trim() || null;
-export function cmsKeys(): { acc: boolean; prod: boolean; missing: string[] } {
-  const acc = !!token("acc"), prod = !!token("prod");
-  return { acc, prod, missing: [!acc ? TOKEN_VAR.acc : "", !prod ? TOKEN_VAR.prod : ""].filter(Boolean) };
+type Auth = { kind: "oauth"; creds: OAuthCreds } | { kind: "bearer"; token: string };
+/** The way into one shop's Magento: the integration's four values (signed), else a Bearer token, else none. */
+function auth(env: Env): Auth | null {
+  const raw = (process.env[CREDS_VAR[env]] ?? "").trim();
+  if (raw) {
+    try { const j = JSON.parse(raw); if (isCreds(j)) return { kind: "oauth", creds: j }; } catch { /* not JSON - try the token */ }
+  }
+  const t = (process.env[TOKEN_VAR[env]] ?? "").trim();
+  return t ? { kind: "bearer", token: t } : null;
 }
-export const CMS_OFF = "Writing to Magento needs the hub's Magento CMS keys (MAGENTO_CMS_ACC_TOKEN, then MAGENTO_CMS_PROD_TOKEN) - they are not set yet. Until then: the code for dotSource, or the winner kept on for everyone.";
+export function cmsKeys(): { acc: boolean; prod: boolean; missing: string[] } {
+  const acc = !!auth("acc"), prod = !!auth("prod");
+  return { acc, prod, missing: [!acc ? CREDS_VAR.acc : "", !prod ? CREDS_VAR.prod : ""].filter(Boolean) };
+}
+export const CMS_OFF = "Writing to Magento needs the hub's Magento CMS integration for that shop (MAGENTO_CMS_ACC, then MAGENTO_CMS_PROD) - not set yet. Until then: the code for dotSource, or the winner kept on for everyone.";
 
 type MagentoPage = { id: number | string; identifier: string; title?: string; content?: string; active?: boolean; store_id?: number[] | number; [k: string]: unknown };
 
 /** One call to Magento's REST API on that environment, all store views (rest/all). */
 async function magento<T>(env: Env, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
-  const t = token(env);
-  if (!t) throw new ConvertError(CMS_OFF, 503, [TOKEN_VAR[env]]);
-  const res = await fetch(`${ENVS[env].base}/rest/all/V1${path}`, {
-    method: init.method ?? "GET",
-    headers: { Authorization: `Bearer ${t}`, Accept: "application/json", ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}) },
+  const a = auth(env);
+  if (!a) throw new ConvertError(CMS_OFF, 503, [CREDS_VAR[env]]);
+  const url = `${ENVS[env].base}/rest/all/V1${path}`;
+  const method = init.method ?? "GET";
+  const res = await fetch(url, {
+    method,
+    headers: { Authorization: a.kind === "oauth" ? oauthHeader(method, url, a.creds) : `Bearer ${a.token}`, Accept: "application/json", ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}) },
     body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     signal: AbortSignal.timeout(30_000),
     cache: "no-store",
@@ -120,7 +135,7 @@ export async function cmsPlan(testId: string, env: Env, path: string, pageId: st
   const base: CmsPlan = { path, env, target, candidates: [], chosen: null, applied: null, sizes: null, accDone, canWrite: false, why: null };
   if (!target.ok) return { ...base, why: target.why };
   if (t.winner !== "b") return { ...base, why: "Only the version that won its test is written to Magento." };
-  if (!token(env)) return { ...base, why: CMS_OFF };
+  if (!auth(env)) return { ...base, why: CMS_OFF };
   if (!accDone) return { ...base, why: "ACC first: write this page on ACC, check it there, then production." };
   const candidates = await findPages(env, target.identifier);
   if (!candidates.length) return { ...base, candidates, why: `Magento (${ENVS[env].label}) has no CMS page "${target.identifier}".` };

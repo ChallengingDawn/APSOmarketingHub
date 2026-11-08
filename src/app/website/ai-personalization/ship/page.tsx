@@ -102,7 +102,7 @@ function CmsPage({ id, p, cms, canEdit, ask, reload }: { id: string; p: One["pag
         <Tooltip title={cms.acc ? "Read the page in Magento on ACC and show what the write would do" : (cms.off ?? "")}>
           <span><Button size="small" disabled={!cms.acc || !canEdit || busy !== null} onClick={() => void check("acc")} startIcon={busy === "acc" ? <CircularProgress size={13} /> : undefined}>Check on ACC</Button></span>
         </Tooltip>
-        <Tooltip title={cms.prod ? "Production, after the same page was written on ACC" : (cms.off ?? "MAGENTO_CMS_PROD_TOKEN is not set")}>
+        <Tooltip title={cms.prod ? "Production, after the same page was written on ACC" : (cms.off ?? "The production integration (MAGENTO_CMS_PROD) is not set yet")}>
           <span><Button size="small" disabled={!cms.prod || !canEdit || busy !== null} onClick={() => void check("prod")} startIcon={busy === "prod" ? <CircularProgress size={13} /> : undefined}>Check on production</Button></span>
         </Tooltip>
       </Box>
