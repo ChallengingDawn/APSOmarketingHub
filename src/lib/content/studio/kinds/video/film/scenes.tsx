@@ -1,22 +1,23 @@
 // THE SCENE LIBRARY (08.11.2026) - our kinds of shot, in the team's motion style: a camera that always moves (push,
 // pull, orbit, pan), words that rise out of masks or slam in on the beat, parts that roll, drop and hop like real
 // objects, a gloss on the bar line. Each kind lays itself out per format (layout.ts). CSS and SVG only.
-//   title    a headline rising word by word; an O-ring or shaft seal rolls in beside it and rocks to rest
+//   title    a headline rising word by word; one of our parts (the shop's photo) drops in beside it, bounces, turns
 //   words    two or three short lines, one slammed in on each beat, the camera kicking with each
 //   claim    one statement swept in: a bar grows, the words rise, a red line sweeps under them, a gloss crosses
 //   steps    three cards dropping on the beats 1-2-3, a line drawing between them; ticked on the next bar
-//   product  a card that spins in on a spring, a picture or a drawn part dropping onto it, a turntable after
+//   product  a card that spins in on a spring, a picture or one of our real parts dropping onto it, a turntable after
 //   quote    a customer's own words, word by word at reading pace, the mark dropping in
 //   feature, number, compare   a feature of the shop, a true figure, before / after (featureScenes.tsx)
 //   end      APSOparts big (the corner logo grows into it - Film.tsx), the line, the button pulsing on every beat
-//            and hopping every two, the part hopping between - it keeps moving while it holds
+//            and hopping every two, our part (a real O-ring by default) hopping between - it keeps moving while it holds
 import React from "react";
 import { AbsoluteFill, Img, useCurrentFrame } from "../engine/react";
 import { backOut, clamp, EASE, EASE_IO, lerp, p, SNAP, spring } from "../engine/math";
-import { barHop, drop, roll, wobble } from "../engine/physics";
+import { barHop, drop, wobble } from "../engine/physics";
 import { BAR, BEAT, beatPulse, FPS } from "../engine/timeline";
 import { fitBlock, fitFlow, fitFs, lineW, parse, plain, type Block } from "../engine/text";
 import type { Scene, VideoDoc } from "../model";
+import { DEFAULT_PART, partOf } from "../parts";
 import type { Layout } from "./layout";
 import { Button, card, Colored, GhostRing, Gloss, Kicker, Part, Rise, Unblur } from "./parts";
 import { B, BOLD, FONT, REG } from "./theme";
@@ -34,7 +35,6 @@ const Camera: React.FC<{ z?: number; rx?: number; ry?: number; rz?: number; x?: 
 );
 
 const blockH = (b: Block, lh: number) => b.lines.length * b.fs * lh;
-const shapeOf = (s: Scene): "oring" | "seal" | null => (s.shape === "oring" || s.shape === "seal" ? s.shape : null);
 const lines = (...v: (string | undefined)[]) => v.filter((x): x is string => !!x && !!plain(x));
 
 /** A red line drawn under a line of text from its left, `t` 0..1. */
@@ -43,10 +43,10 @@ const Underline: React.FC<{ x: number; y: number; w: number; fs: number; t: numb
 
 // ───────────────────────── title ─────────────────────────
 
-export const TitleScene: React.FC<SceneProps> = ({ s, L, dur, uid }) => {
+export const TitleScene: React.FC<SceneProps> = ({ s, L, dur, base }) => {
   const f = useCurrentFrame();
   const T = L.title;
-  const shape = shapeOf(s);
+  const shape = partOf(s);
   const box = shape || L.fmt !== "16:9" ? T.text : { ...T.text, w: L.safe.w };
   const kicker = plain(s.copy.kicker ?? "");
   const kfs = kicker ? fitFs([kicker], REG, L.fs.kicker, box.w - L.fs.kicker * 1.8) : 0;
@@ -56,11 +56,12 @@ export const TitleScene: React.FC<SceneProps> = ({ s, L, dur, uid }) => {
   const u = clamp(f / dur);
   // calm: a slow push in and a turn of the head
   const cam = { z: 1 + 0.045 * EASE_IO(u), ry: lerp(-4, 2, EASE_IO(u)), rx: lerp(3, 0, EASE(u)) };
-  // the part rolls in from beyond the right edge, rocks to rest; on a second bar it hops
+  // the part drops in from above the frame, bounces and rocks to rest, turning slowly on its axis; on a second bar it hops
   const P = T.part;
-  const rl = roll(f, 6, 36, L.W - P.cx + P.r * 1.3, P.r);
-  const rock = wobble(f, 42, 8, 20, 14);
+  const d = drop(f, 6, P.cy + P.r * 1.2, 16, 0.34, 2);
+  const rock = wobble(f, 22, 5, 18, 12);
   const up = dur > BAR ? barHop(f, BAR, BAR, P.r * 0.3, 14) : 0;
+  const turn = 16 * Math.sin((f - 20) / 26) * p(f, 18, 30);
   return (
     <>
       <Camera {...cam}>
@@ -69,7 +70,7 @@ export const TitleScene: React.FC<SceneProps> = ({ s, L, dur, uid }) => {
           {kicker && <Kicker text={kicker} fs={kfs} f={f} at={2} />}
           <Rise block={block} lh={lh} t={(i) => p(f, first + i * 3, 16, SNAP)} />
         </div>
-        {shape && <Part shape={shape} cx={P.cx} cy={P.cy} r={P.r} x={rl.x + (rock * Math.PI * P.r) / 180} y={up} mark={-40 + rl.angle + rock} uid={`${uid}-part`} opacity={f >= 6 ? 1 : 0} />}
+        {shape && <Part part={shape} base={base} cx={P.cx} cy={P.cy} r={P.r} y={d.y + up} squash={d.squash} tilt={rock} turn={turn} opacity={f >= 6 ? 1 : 0} />}
       </Camera>
       {dur > BAR && <Gloss f={f} at={BAR} strength={0.45} />}
     </>
@@ -203,7 +204,7 @@ export const StepsScene: React.FC<SceneProps> = ({ s, L, dur }) => {
 
 // ───────────────────────── product ─────────────────────────
 
-export const ProductScene: React.FC<SceneProps> = ({ s, L, dur, uid }) => {
+export const ProductScene: React.FC<SceneProps> = ({ s, L, dur, base }) => {
   const f = useCurrentFrame();
   const C = L.product.card;
   const Tb = L.product.text;
@@ -216,12 +217,11 @@ export const ProductScene: React.FC<SceneProps> = ({ s, L, dur, uid }) => {
   const k = spring({ frame: f - 2, fps: FPS, config: { damping: 13, stiffness: 120, mass: 1 } });
   const turn = 6 * Math.sin((f - 20) / 28) * p(f, 18, 24);
   const up = dur > BAR ? barHop(f, BAR, BAR, 34, 14) : 0;
-  const shape = shapeOf(s) ?? "oring";
-  const pr = Math.min(C.w, C.h) * 0.3;
+  const shape = partOf(s) ?? DEFAULT_PART;
+  const pr = Math.min(C.w * 0.62, C.h * 0.68) / 2;
   const d = drop(f, 10, C.h * 0.42, 14, 0.36, 3);
   const rock = wobble(f, 24, 7, 18, 12);
   const name0 = 12;
-  const h0 = C.h * 0.42;
   return (
     <>
       <GhostRing cx={C.x + C.w / 2} cy={C.y + C.h / 2} r={Math.max(C.w, C.h) * 0.62} f={f} opacity={p(f, 0, 30) * 0.8} />
@@ -239,7 +239,7 @@ export const ProductScene: React.FC<SceneProps> = ({ s, L, dur, uid }) => {
                 <Img src={s.image} alt="" onError={(e) => { e.currentTarget.style.opacity = "0"; }} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
               </div>
             ) : (
-              <Part shape={shape} cx={C.w / 2} cy={C.h * 0.5} r={pr} y={d.y} squash={d.squash} mark={-40 + rock - 120 * (d.landed ? 1 : 1 - d.y / h0)} tilt={rock * 0.3} uid={`${uid}-part`} opacity={f >= 10 ? 1 : 0} />
+              <Part part={shape} base={base} cx={C.w / 2} cy={C.h * 0.47} r={pr} y={d.y} squash={d.squash} tilt={rock * 0.4} turn={22 * Math.sin((f - 30) / 34) * p(f, 26, 30)} opacity={f >= 10 ? 1 : 0} />
             )}
           </div>
         </div>
@@ -288,7 +288,7 @@ export const QuoteScene: React.FC<SceneProps> = ({ s, L, dur }) => {
 
 // ───────────────────────── the end card ─────────────────────────
 
-export const EndScene: React.FC<{ doc: VideoDoc; L: Layout; dur: number; uid: string }> = ({ doc, L, uid }) => {
+export const EndScene: React.FC<{ doc: VideoDoc; L: Layout; dur: number; uid: string; base?: string }> = ({ doc, L, base = "" }) => {
   const f = useCurrentFrame();
   const E = L.end;
   const lh = 1.04;
@@ -305,7 +305,9 @@ export const EndScene: React.FC<{ doc: VideoDoc; L: Layout; dur: number; uid: st
   const P = E.part;
   const d = drop(f, 4, P.r * 2.4, 14, 0.36, 3);
   const partUp = barHop(f, 59, 2 * BEAT, P.r * 0.45, 13);
+  // each hop turns it a little further on its axis, so it reads as a real ring
   const hops = f >= 59 ? Math.floor((f - 59) / (2 * BEAT)) + clamp(((f - 59) % (2 * BEAT)) / 13) : 0;
+  const turn = 18 * Math.sin(hops * 1.7) + 6 * Math.sin(f / 30);
   return (
     <Camera z={1.02 - 0.02 * EASE(clamp(f / 40))} ry={1.5 * Math.sin(f / 45)}>
       <GhostRing cx={P.cx} cy={P.cy} r={P.r * 1.7} f={f} opacity={p(f, 0, 30) * 0.8} />
@@ -318,7 +320,7 @@ export const EndScene: React.FC<{ doc: VideoDoc; L: Layout; dur: number; uid: st
           <Button text={cta} h={E.cta.h} fs={ctaFs} pulse={pulse} nudge={pulse} />
         </div>
       )}
-      <Part shape="oring" cx={P.cx} cy={P.cy} r={P.r} y={d.y + partUp} squash={d.squash} mark={-40 + 90 * hops} uid={`${uid}-part`} opacity={f >= 4 ? 1 : 0} />
+      <Part part={partOf(doc.endCard) ?? DEFAULT_PART} base={base} cx={P.cx} cy={P.cy} r={P.r} y={d.y + partUp} squash={d.squash} turn={turn} opacity={f >= 4 ? 1 : 0} />
     </Camera>
   );
 };

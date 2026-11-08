@@ -7,7 +7,7 @@
 import type { AiTask, KindDef, StudioCtx } from "../../contract";
 import { readBrain } from "@/lib/brain";
 import { confirmedBy } from "./features";
-import { cleanStoryboard, cleanTighten, cleanVariant, FILM_RULES, reviseUser, STORYBOARD_SCHEMA, storyboardUser, TIGHTEN_SCHEMA, tightenUser, VARIANT_SCHEMA, variantUser } from "./ai";
+import { cleanScene, cleanStoryboard, cleanTighten, cleanVariant, FILM_RULES, reviseUser, SCENE_SCHEMA, sceneUser, STORYBOARD_SCHEMA, storyboardUser, TIGHTEN_SCHEMA, tightenUser, VARIANT_SCHEMA, variantUser } from "./ai";
 import { cleanVideo, emptyVideo, FORMATS, toSpec, validate, videoText, type Format } from "./model";
 
 const storyboard: AiTask = {
@@ -29,6 +29,7 @@ export const videoKind: KindDef = {
     tighten: { label: "Shorten every line", schema: TIGHTEN_SCHEMA, system: FILM_RULES, user: (ctx, doc) => tightenUser(ctx, doc), maxTokens: 5000, clean: (raw, doc) => cleanTighten(raw, doc) },
     variant: { label: "Another opening", schema: VARIANT_SCHEMA, system: FILM_RULES, user: variantUser, maxTokens: 3000, clean: (raw, doc, ctx, input) => cleanVariant(raw, doc, ctx, input) },
     revise: { label: "Change it", schema: STORYBOARD_SCHEMA, system: FILM_RULES, user: reviseUser, maxTokens: 6000, clean: (raw, doc, ctx, input) => cleanStoryboard(raw, doc, ctx, input) },
+    scene: { label: "Change one scene", schema: SCENE_SCHEMA, system: FILM_RULES, user: sceneUser, maxTokens: 2500, effort: "low", clean: (raw, doc, ctx, input) => cleanScene(raw, doc, ctx, input) },
   },
   actions: {
     features: async () => ({ confirmed: confirmedBy(JSON.stringify(await readBrain())) }),

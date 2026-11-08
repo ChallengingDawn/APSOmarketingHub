@@ -1,14 +1,16 @@
 "use client";
-// THE VIDEO STUDIO (08.11.2026; SARCLA: "if you could integrate video generation and the outcome would be like the
-// motion graphics video design we have been doing, this is also welcomed"). A to-do of kind "video" opens here:
-//   Features     APSOparts' own features and winning points to make the film around (SARCLA 08.11.2026: "you should be
-//                able to select a feature or key winning point of APSO") - a scene per feature: claim, proof, visual
-//   Storyboard   the film's scenes in order, each one of our kinds (title, words, claim, feature, big number, before /
-//                after, steps, product, quote), its bars, its few words, its picture; then the end card
-//   Film         the film itself, playing live in our motion style - 16:9, 9:16 or 1:1, the same story; "Export for
-//                rendering" hands the story to the render machine (the hub cannot render: no Chromium on Fargate)
-//   Assistant    a storyboard from the brief, every line shorter, another opening, or a change in your words - always
-//                within our rules (never a discount value, no prices, no invented quote); one click undoes it
+// THE VIDEO STUDIO (08.11.2026; Content v3 - SARCLA tonight: "button is not fit", "O-ring is not realistic on video,
+// and also here the controls are really hard"). The way a film is made, start to finish:
+//   1. The film (left): what it is about - our features as cards -, how long, the format; one button, "Make the film".
+//   2. It plays in the middle, big; under it the scenes as a strip of small pictures, then the end card.
+//   3. A click on a scene holds the film on it and opens it on the left: its words (the frame changes as you type), what
+//      it shows (one of our real parts - the shop's own product photo - or a photo), how long it lasts.
+//   4. Drag a scene in the strip to move it; "+" adds one after the one open.
+//   5. The assistant (right) works on what is open: this scene ("Shorter", "Another feature", your words) or the whole
+//      film. One click brings back what was there.
+//   6. "Export for rendering" hands the story to the render machine (the hub cannot render: no Chromium on Fargate).
+// Gone from the first studio: the bars, the cut and the icon pickers, the loop and back buttons, the scrub track, the
+// notes field (kept in the document, not on the way) - and the button that carried a feature's whole name.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -21,22 +23,22 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import UndoRoundedIcon from "@mui/icons-material/UndoRounded";
-import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
 
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
-import { SquareChoice as Choice } from "@/app/website/ai-personalization/SquareChoice";
-import { FEATURE, type FeatureKey } from "@/lib/content/studio/kinds/video/features";
+import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
+import type { FeatureKey } from "@/lib/content/studio/kinds/video/features";
 import { seconds } from "@/lib/content/studio/kinds/video/engine/timeline";
 import {
-  cleanVideo, featureScene, FORMAT_INFO, FORMATS, MAX_SCENES, segments, totalBars, totalFrames, validate,
-  type Format, type Issue, type VideoDoc, type VideoSpec,
+  cleanVideo, featureScene, FORMAT_INFO, MAX_SCENES, newScene, segments, totalFrames, validate,
+  type FilmLength, type Issue, type SceneKind, type VideoDoc, type VideoSpec,
 } from "@/lib/content/studio/kinds/video/model";
 import type { AiAnswer } from "@/lib/content/studio/kinds/video/ai";
 import { AssistantPanel, btn, mainBtn, Pane, StudioPanes } from "../../parts";
 import type { StudioProps } from "../../registry";
-import FeaturePicker, { LineIcon } from "./FeaturePicker";
+import FilmPanel from "./FilmPanel";
 import Player, { type PlayerHandle } from "./Player";
-import Storyboard from "./Storyboard";
+import { EndPanel, ScenePanel } from "./ScenePanel";
+import Strip, { holdFrame } from "./Strip";
 
 const isV2 = (v: unknown): v is VideoDoc => !!v && typeof v === "object" && (v as { v?: unknown }).v === 2 && Array.isArray((v as { scenes?: unknown }).scenes) && !!(v as { endCard?: unknown }).endCard;
 /** The document as it is being typed (spaces kept); anything older is brought up to date. */
@@ -94,26 +96,63 @@ export default function Studio({ api }: StudioProps) {
 
   const edit = useCallback((fn: (d: VideoDoc) => VideoDoc) => setDoc((cur: unknown) => fn(editable(cur, lang))), [setDoc, lang]);
 
+  // what is open: a scene (its index), the end card (-1), or the film as a whole (null)
+  const [sel, setSel] = useState<number | null>(null);
+  const open = sel !== null && (sel === -1 || sel < doc.scenes.length) ? sel : null;
+
   const player = useRef<PlayerHandle | null>(null);
-  const [current, setCurrent] = useState(0);
-  const startOf = (i: number) => (i === -1 ? segs[segs.length - 1] : segs[i]);
-  const play = (i: number) => { const s = startOf(i); if (s) player.current?.seek(s.start, true); };
-  // while typing in a scene, the player holds it where its words are in
-  // (its words are in by then; it stays clear of the cut out of it, which starts up to 10 frames before its end)
-  const show = (i: number) => { const s = startOf(i); if (s) player.current?.seek(s.start + Math.min(s.dur - 12, 54), false); };
+  const segOf = (i: number) => (i === -1 ? segs[segs.length - 1] : segs[i]);
+  /** The film held on a scene, its words in. */
+  const hold = (i: number) => { const s = segOf(i); if (s) player.current?.seek(holdFrame(s), false); };
+  const select = (i: number) => { setSel(i); hold(i); };
+  // on opening, the film shows its first scene with its words in - not an empty first frame
+  useEffect(() => { const t = setTimeout(() => { if (segs[0]) player.current?.seek(holdFrame(segs[0]), false); }, 120); return () => clearTimeout(t); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the assistant: its answer is applied at once and played; one click brings back what was there
   const [undo, setUndo] = useState<VideoDoc | null>(null);
-  const runAi = async (task: string, input?: Record<string, unknown>): Promise<string | null> => {
+  const runAi = async (task: string, input?: Record<string, unknown>, after?: (d: VideoDoc) => void): Promise<string | null> => {
     const before = doc;
     const r = await api.ai<AiAnswer>(task, input);
     if (!r.ok) return r.error;
     if (!r.result?.doc || !isV2(r.result.doc)) return "The assistant's answer could not be used - try again.";
     setUndo(before);
     setDoc(r.result.doc);
-    setTimeout(() => player.current?.seek(0, true), 50);
+    after?.(r.result.doc);
     const dropped = r.result.dropped?.length ? ` Left out: ${r.result.dropped.join("; ")}.` : "";
-    return `${r.result.note || "Done - it is playing."}${dropped}`;
+    return `${r.result.note || "Done."}${dropped}`;
+  };
+
+  // the film as a whole: what it is about, how long, the format - then "Make the film"
+  const picked = doc.features ?? [];
+  const length: FilmLength = doc.length ?? 20;
+  const [confirmed, setConfirmed] = useState<FeatureKey[] | null>(null);
+  const [making, setMaking] = useState(false);
+  const [makeMsg, setMakeMsg] = useState<string | null>(null);
+  useEffect(() => {
+    if (!canEdit) return;
+    void api.act<{ confirmed: FeatureKey[] }>("features").then((r) => { if (r.ok) setConfirmed(r.result.confirmed); });
+  }, [canEdit]); // eslint-disable-line react-hooks/exhaustive-deps
+  const makeFilm = async () => {
+    setMaking(true); setMakeMsg(null);
+    const msg = await runAi("storyboard", { features: picked, seconds: length }, () => { setSel(null); setTimeout(() => player.current?.seek(0, true), 60); });
+    setMaking(false); setMakeMsg(msg);
+  };
+  const addFeatureScenes = () => edit((d) => ({ ...d, scenes: [...d.scenes, ...picked.map((k) => featureScene(k))].slice(0, MAX_SCENES) }));
+
+  // the strip: move, add, take out
+  const move = (from: number, to: number) => {
+    edit((d) => { const a = [...d.scenes]; const [m] = a.splice(from, 1); a.splice(to, 0, m); return { ...d, scenes: a }; });
+    if (open === from) setSel(to);
+  };
+  const add = (k: SceneKind) => {
+    const at = open !== null && open >= 0 ? open + 1 : doc.scenes.length;
+    edit((d) => { const a = [...d.scenes]; a.splice(at, 0, newScene(k)); return { ...d, scenes: a }; });
+    setSel(at);
+    setTimeout(() => hold(at), 60);
+  };
+  const remove = (i: number) => {
+    edit((d) => ({ ...d, scenes: d.scenes.filter((_, k) => k !== i) }));
+    setSel(doc.scenes.length > 1 ? Math.max(0, i - 1) : null);
   };
 
   // export for the render machine
@@ -131,98 +170,91 @@ export default function Studio({ api }: StudioProps) {
     setHelpFile(file);
   };
 
-  // the features the film is made around; which of them the brand brain still names
-  const picked = doc.features ?? [];
-  const [confirmed, setConfirmed] = useState<FeatureKey[] | null>(null);
-  const [making, setMaking] = useState(false);
-  const [makeMsg, setMakeMsg] = useState<string | null>(null);
-  const [openFeatures, setOpenFeatures] = useState(!film.scenes.length);
-  useEffect(() => {
-    if (!canEdit) return;
-    void api.act<{ confirmed: FeatureKey[] }>("features").then((r) => { if (r.ok) setConfirmed(r.result.confirmed); });
-  }, [canEdit]); // eslint-disable-line react-hooks/exhaustive-deps
-  const setPicked = (keys: FeatureKey[]) => edit((d) => ({ ...d, features: keys }));
-  const makeFromFeatures = async () => {
-    setMaking(true); setMakeMsg(null);
-    const msg = await runAi("storyboard", { features: picked });
-    setMaking(false); setMakeMsg(msg);
-    setOpenFeatures(false);
-  };
-  const addFeatureScenes = () => edit((d) => ({ ...d, scenes: [...d.scenes, ...picked.map((k) => featureScene(k))].slice(0, MAX_SCENES) }));
-
   const stops = issues.filter((x) => x.level === "stop").length;
-  const warns = issues.filter((x) => x.level === "warn").length;
+  const where = { projectId: api.data.piece.projectId, pieceId: api.data.piece.id, me: api.data.me };
+  const sceneIssues = (i: Issue["scene"]) => issues.filter((x) => x.scene === i);
+  const aiOn = api.data.ai && canEdit;
+  const onScene = open !== null && open >= 0;
 
   return (
     <>
-      <StudioPanes
-        buildWidth={420}
-        assistWidth={320}
+      <StudioPanes id="video3" buildWidth={360} assistWidth={320}
         build={
-          <Pane title="Storyboard" right={<Typography sx={{ fontSize: "0.78rem", color: MUTED, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{seconds(totalFrames(film))} s · {totalBars(film)} bars</Typography>}>
-            <Box sx={{ mb: 2, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", overflow: "hidden" }}>
-              <Box component="button" type="button" onClick={() => setOpenFeatures((o) => !o)} sx={{ all: "unset", boxSizing: "border-box", cursor: "pointer", width: "100%", display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 1.1 }}>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Our features</Typography>
-                  <Typography sx={{ fontSize: "0.74rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {picked.length ? `The film tells: ${picked.map((k) => FEATURE[k].name).join(" · ")}` : "Pick what the film is about - APSOparts' own winning points"}
-                  </Typography>
-                </Box>
-                {!openFeatures && picked.length > 0 && (
-                  <Box sx={{ display: "flex", gap: 0.5 }}>
-                    {picked.map((k) => <Box key={k} sx={{ width: 24, height: 24, borderRadius: "5px", bgcolor: "#d80901", display: "grid", placeItems: "center" }}><LineIcon name={FEATURE[k].icon} size={15} color="#fff" /></Box>)}
-                  </Box>
-                )}
-                <KeyboardArrowDownRoundedIcon sx={{ fontSize: 20, color: MUTED, transform: openFeatures ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
-              </Box>
-              {openFeatures && (
-                <Box sx={{ px: 1.5, pb: 1.5 }}>
-                  <FeaturePicker picked={picked} onChange={setPicked} confirmed={confirmed} disabled={!canEdit} busy={making} aiReady={api.data.ai}
-                    onMake={makeFromFeatures} onAdd={addFeatureScenes} hasScenes={film.scenes.length > 0} />
-                </Box>
-              )}
-              {makeMsg && <Typography sx={{ mx: 1.5, mb: 1.25, fontSize: "0.8rem", color: "#7f4f0b", bgcolor: "#fff8ec", p: 1, borderRadius: "8px" }}>{makeMsg}</Typography>}
+          <Pane title={
+            <Box sx={{ textTransform: "none", letterSpacing: "normal" }}>
+              <SquareChoice<string> value={open === null ? "film" : "open"} onChange={(v) => { if (v === "film") setSel(null); }} options={[
+                { key: "film", label: "The film" },
+                ...(open !== null ? [{ key: "open", label: open === -1 ? "End card" : `Scene ${open + 1}` }] : []),
+              ]} />
             </Box>
-            <Storyboard doc={doc} segs={segs} issues={issues} edit={edit} disabled={!canEdit} current={current} onPlay={play} onShow={show}
-              where={{ projectId: api.data.piece.projectId, pieceId: api.data.piece.id, me: api.data.me }} />
+          }>
+            {open === null ? (
+              <>
+                <FilmPanel picked={picked} onPick={(keys) => edit((d) => ({ ...d, features: keys }))} confirmed={confirmed}
+                  length={length} onLength={(n) => edit((d) => ({ ...d, length: n }))} format={film.format} onFormat={(f) => edit((d) => ({ ...d, format: f }))}
+                  disabled={!canEdit} aiReady={api.data.ai} busy={making} hasScenes={film.scenes.length > 0} onMake={makeFilm} onAdd={addFeatureScenes}
+                  issues={film.scenes.length ? sceneIssues("film") : []} />
+                {makeMsg && <Typography sx={{ mt: 1.5, fontSize: "0.8rem", color: "#7f4f0b", bgcolor: "#fff8ec", p: 1, borderRadius: "8px" }}>{makeMsg}</Typography>}
+              </>
+            ) : open === -1 ? (
+              <EndPanel doc={doc} issues={sceneIssues("end")} edit={edit} disabled={!canEdit} onShow={() => hold(-1)} />
+            ) : (
+              <ScenePanel key={doc.scenes[open]?.id ?? open} doc={doc} i={open} issues={sceneIssues(open)} edit={edit} disabled={!canEdit} where={where}
+                onShow={() => hold(open)} onRemove={() => remove(open)} />
+            )}
           </Pane>
         }
         preview={
-          <Pane tone="stage" title="Film" right={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Choice<Format> value={film.format} onChange={(f) => edit((d) => ({ ...d, format: f }))} options={FORMATS.map((f) => ({ key: f, label: FORMAT_INFO[f].label }))} />
-              <Tooltip title={stops ? "The film holds something our films never show - see the storyboard" : "The story as a file for the render machine"}>
-                <span>
-                  <Button size="small" variant="outlined" disabled={exporting || !film.scenes.length} onClick={exportFilm}
-                    startIcon={exporting ? <CircularProgress size={14} /> : <FileDownloadOutlinedIcon sx={{ fontSize: 18 }} />}
-                    sx={{ ...btn, borderColor: HAIRLINE, color: INK, bgcolor: "#fff" }}>
-                    Export for rendering
-                  </Button>
-                </span>
-              </Tooltip>
-            </Box>
+          <Pane tone="stage" title={`Film · ${seconds(totalFrames(film))} s · ${FORMAT_INFO[film.format].label}`} right={
+            <Tooltip title={stops ? "The film holds something our films never show - see the scene marked red" : "The story as a file for the render machine"}>
+              <span>
+                <Button size="small" variant="outlined" disabled={exporting || !film.scenes.length} onClick={exportFilm}
+                  startIcon={exporting ? <CircularProgress size={14} /> : <FileDownloadOutlinedIcon sx={{ fontSize: 18 }} />}
+                  sx={{ ...btn, borderColor: HAIRLINE, color: INK, bgcolor: "#fff" }}>
+                  Export for rendering
+                </Button>
+              </span>
+            </Tooltip>
           }>
-            <Box sx={{ height: { xs: "auto", lg: "100%" }, minHeight: { xs: 420, lg: 0 }, display: "flex", flexDirection: "column", gap: 1 }}>
+            <Box sx={{ height: { xs: "auto", lg: "100%" }, minHeight: { xs: 520, lg: 0 }, display: "flex", flexDirection: "column", gap: 1 }}>
               {exportMsg && <Typography sx={{ fontSize: "0.82rem", color: "#7f4f0b", bgcolor: "#fff8ec", p: 1, borderRadius: "10px" }}>{exportMsg}</Typography>}
-              <Box sx={{ flex: 1, minHeight: 0 }}>
-                <Player doc={film} handle={player} onScene={setCurrent} />
+              <Box sx={{ flex: 1, minHeight: 0, position: "relative" }}>
+                {making && (
+                  <Box aria-live="polite" sx={{ position: "absolute", left: 0, right: 0, top: 0, zIndex: 2, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
+                    <Box sx={{ mt: 1, px: 2, py: 1, borderRadius: "8px", bgcolor: "rgba(21,34,58,.86)", color: "#fff", display: "flex", alignItems: "center", gap: 1.25, boxShadow: "0 10px 30px rgba(21,34,58,.25)", overflow: "hidden", position: "relative" }}>
+                      <CircularProgress size={16} sx={{ color: "#fff" }} />
+                      <Typography sx={{ fontSize: "0.84rem", fontWeight: 600 }}>Writing the scenes{picked.length ? ` around ${picked.length === 1 ? "your feature" : `your ${picked.length} features`}` : ""} - about half a minute</Typography>
+                      <Box sx={{ position: "absolute", left: 0, bottom: 0, height: 2, width: "40%", bgcolor: "#d80901", animation: "cv3make 1.6s ease-in-out infinite", "@keyframes cv3make": { "0%": { transform: "translateX(-100%)" }, "100%": { transform: "translateX(250%)" } } }} />
+                    </Box>
+                  </Box>
+                )}
+                <Player doc={film} handle={player} strip={(frame, seg, playing) => (
+                  <Strip film={film} segs={segs} selected={open} playing={playing ? seg.index : null} frame={frame} issues={issues} disabled={!canEdit}
+                    onSelect={select} onMove={move} onAdd={add} />
+                )} />
               </Box>
-              <Typography sx={{ fontSize: "0.74rem", color: MUTED, textAlign: "center" }}>
-                {FORMAT_INFO[film.format].w} x {FORMAT_INFO[film.format].h} · {FORMAT_INFO[film.format].use} · silent for now{stops || warns ? ` · ${stops ? `${stops} to fix` : ""}${stops && warns ? ", " : ""}${warns ? `${warns} to look at` : ""}` : ""}
-              </Typography>
             </Box>
           </Pane>
         }
         assist={
           <AssistantPanel
-            enabled={api.data.ai && canEdit}
-            placeholder="Change it in your words - e.g. a calmer opening, end on DirectCUT"
-            quick={[
-              { label: picked.length ? `The film around ${picked.length === 1 ? FEATURE[picked[0]].name : `our ${picked.length} features`}` : film.scenes.length ? "Write the storyboard again" : "Write the storyboard", run: () => runAi("storyboard", { features: picked }) },
+            enabled={aiOn}
+            top={onScene ? (
+              <Box sx={{ mb: 1.5 }}>
+                <Typography sx={{ fontSize: "0.72rem", color: MUTED, mb: 0.5 }}>Working on</Typography>
+                <SquareChoice<string> value="scene" onChange={(v) => { if (v === "film") setSel(null); }} options={[{ key: "scene", label: `Scene ${(open ?? 0) + 1}` }, { key: "film", label: "The whole film" }]} />
+              </Box>
+            ) : undefined}
+            placeholder={onScene ? "Change this scene in your words - e.g. for buyers in food plants" : "Change the film in your words - e.g. a calmer opening, end on DirectCUT"}
+            quick={onScene ? [
+              { label: "Shorter", run: () => runAi("scene", { index: open, how: "shorter" }, () => setTimeout(() => hold(open!), 60)) },
+              { label: "Another feature", run: () => runAi("scene", { index: open, how: "feature" }, () => setTimeout(() => hold(open!), 60)) },
+            ] : [
+              ...(film.scenes.length ? [] : [{ label: "Make the film", run: async () => { await makeFilm(); return null; } }]),
               { label: "Shorten every line", run: () => runAi("tighten") },
-              { label: "Another opening", run: () => runAi("variant") },
+              { label: "Another opening", run: () => runAi("variant", undefined, () => setTimeout(() => player.current?.seek(0, true), 60)) },
             ]}
-            onAsk={(text) => runAi("revise", { ask: text })}
+            onAsk={(text) => (onScene ? runAi("scene", { index: open, how: "ask", ask: text }, () => setTimeout(() => hold(open!), 60)) : runAi("revise", { ask: text }, () => setTimeout(() => player.current?.seek(0, true), 60)))}
           >
             {undo && (
               <Button fullWidth size="small" startIcon={<UndoRoundedIcon sx={{ fontSize: 18 }} />} onClick={() => { setDoc(undo); setUndo(null); }} sx={{ ...btn, mt: 1.5, color: INK, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff" }}>
@@ -230,7 +262,7 @@ export default function Studio({ api }: StudioProps) {
               </Button>
             )}
             <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 2, lineHeight: 1.5 }}>
-              The assistant writes from the project&apos;s brief and the features you picked, in the to-do&apos;s language, and keeps our rules: few words a line, never a discount value, no prices, no figure our features do not state, no quote nobody gave us.
+              It writes from the project&apos;s brief and the features you picked, in the to-do&apos;s language, and keeps our rules: few words a line, never a discount value, no prices, no figure our features do not state, no quote nobody gave us.
             </Typography>
           </AssistantPanel>
         }

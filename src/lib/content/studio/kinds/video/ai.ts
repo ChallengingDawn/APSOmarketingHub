@@ -6,6 +6,8 @@
 //   tighten     every line shorter (a customer's quote is never touched - those are their words)
 //   variant     another opening shot, the rest kept
 //   revise      the storyboard changed the way the person asks in their own words, the rest kept
+//   scene       ONE scene changed (SARCLA 08.11.2026: the controls "really hard" - the AI for one scene): shorter, another
+//               feature, or the person's own words; every other scene stays as it is
 // Whatever comes back is cleaned before the studio sees it: a discount value or a price is dropped, a quote that is
 // not word for word in what the team gave us is dropped, the kinds and bars are held to the library's.
 
@@ -14,6 +16,8 @@ import { photoByKey } from "../banner/brand";
 import { cleanVideo, COPY_KEYS, forbidden, KIND_INFO, SCENE_KINDS, SHAPES, END_FIELDS, videoText, type CopyKey, type Scene, type SceneKind, type VideoDoc } from "./model";
 import { plain } from "./engine/text";
 import { FEATURE, FEATURES, ICONS, featuresBrief, isFeature, isIcon, numberAllowed, type FeatureKey } from "./features";
+import { PARTS, isPart } from "./parts";
+import { wordCount } from "./engine/text";
 
 /** What the tasks read of the studio's context (StudioCtx has it all). */
 export type VideoCtx = {
@@ -45,7 +49,7 @@ export const FILM_RULES = [
   `- Nothing invented: no numbers, delivery times, stock levels, certifications, customer names or claims that are not in the brief, the to-do or the brand facts above. If you have no verified fact, say the benefit without a number.`,
   `- A "quote" scene ONLY with words a customer said that are given word for word in the brief; otherwise never use the quote kind.`,
   `- Sentence case, no all-caps words, no exclamation marks except at most one on the end card, no emoji.`,
-  `- The shape field (title and product scenes): "oring" or "seal" draws that part in the film; "none" for nothing. Other kinds: "none".`,
+  `- The part (title and product scenes): one of our real parts, shown as the shop's own product photo - ${PARTS.map((x) => `"${x.key}" (${x.name}, ${x.note.toLowerCase()})`).join(", ")}. Pick the one that suits the audience (e.g. red silicone for food plants, brown FKM for chemicals and heat, black NBR in general), or "" for none (a title may have none). Other kinds: "". Set "shape" to "oring" for an O-ring, X-ring or V-ring part, "seal" for the shaft seal, "none" without a part.`,
   `- APSOparts features: only the ones listed in the question, only their own facts. A scene that tells one sets "feature" to its key and "icon" to its icon; any other scene sets both to "". A "number" scene shows ONLY a figure listed for its feature - never another number.`,
   `- The end card shows the APSOparts logo big; give its line (max ${END_FIELDS[0].words} words, may carry one *key* word) and the button text (max ${END_FIELDS[1].words} words; the shop address "apsoparts.com" or a short action).`,
 ].join("\n");
@@ -59,10 +63,11 @@ const sceneSchema = {
     bars: { type: "integer", description: "1 to 4 - whole bars of 2 seconds" },
     kicker: { type: "string" }, line1: { type: "string" }, line2: { type: "string" }, line3: { type: "string" }, sub: { type: "string" },
     shape: { type: "string", enum: [...SHAPES] },
+    part: { type: "string", enum: ["", ...PARTS.map((x) => x.key)], description: "The real part the scene shows (title and product scenes), or empty" },
     feature: { type: "string", enum: ["", ...FEATURES.map((f) => f.key)], description: "The APSOparts feature this scene tells, or empty" },
     icon: { type: "string", enum: ["", ...ICONS], description: "The feature's icon (feature and number scenes), or empty" },
   },
-  required: ["kind", "bars", "kicker", "line1", "line2", "line3", "sub", "shape", "feature", "icon"],
+  required: ["kind", "bars", "kicker", "line1", "line2", "line3", "sub", "shape", "part", "feature", "icon"],
   additionalProperties: false,
 } as const;
 
@@ -95,6 +100,13 @@ export const TIGHTEN_SCHEMA: Record<string, unknown> = {
     note: { type: "string" },
   },
   required: ["scenes", "endLine", "cta", "note"],
+  additionalProperties: false,
+};
+
+export const SCENE_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: { scene: sceneSchema, note: { type: "string", description: "One short sentence to the person: what changed." } },
+  required: ["scene", "note"],
   additionalProperties: false,
 };
 
@@ -139,8 +151,17 @@ export function pickedFeatures(doc: unknown, input: Record<string, unknown> = {}
   return [...new Set(asked.length ? asked : held)].slice(0, 6);
 }
 
+/** The film's length in seconds: the one asked for, else the one the film keeps, else none. */
+export function lengthOf(doc: unknown, input: Record<string, unknown> = {}): number | null {
+  const n = Number(input.seconds ?? cleanVideo(doc).length);
+  return [15, 20, 30].includes(n) ? n : null;
+}
+
 export const storyboardUser = (ctx: VideoCtx, doc: unknown, input: Record<string, unknown>) => {
   const feats = pickedFeatures(doc, input);
+  const secs = lengthOf(doc, input);
+  // a bar is 2 s; the end card takes 2 of them
+  const aim = secs ? `The film lasts about ${secs} seconds in all: ${Math.round(secs / 2) - 2} bars of scenes, then the 2-bar end card (${secs <= 15 ? "3 or 4 scenes" : secs <= 20 ? "4 to 6 scenes" : "6 to 9 scenes"}).` : "";
   return [
     context(ctx, doc),
     ``,
@@ -149,9 +170,9 @@ export const storyboardUser = (ctx: VideoCtx, doc: unknown, input: Record<string
         `Make the film around these APSOparts features, in this order - ${feats.length === 1 ? "one feature, told in two or three scenes" : "one or two scenes per feature"}:`,
         featuresBrief(feats),
         ``,
-        `For each feature: its claim, its proof, its visual - use one of its scene kinds (a "feature" scene carries the claim, the proof and its icon; a "number" scene its figure; "compare" the old way against the APSOparts way; "steps" how it works). Translate the claim and the proof into the film's language; do not add facts. Open with one calm scene that says what the film is about, then the features, then the end card (its line sums them up). ${feats.length > 3 ? "Keep it under 30 seconds: one scene per feature." : "Aim for 16-26 seconds in all."}`,
+        `For each feature: its claim, its proof, its visual - use one of its scene kinds (a "feature" scene carries the claim, the proof and its icon; a "number" scene its figure; "compare" the old way against the APSOparts way; "steps" how it works). Translate the claim and the proof into the film's language; do not add facts. Open with one calm scene that says what the film is about, then the features, then the end card (its line sums them up). ${aim || (feats.length > 3 ? "Keep it under 30 seconds: one scene per feature." : "Aim for 16-26 seconds in all.")}`,
       ].join("\n")
-      : `Write the film's storyboard: 5 to 8 scenes of our kinds, then the end card. Aim for 18-26 seconds in all (the end card is 2 bars). Open calm (a title or a claim), build, land the benefit, then the end card. A new scene every bar or two.`,
+      : `Write the film's storyboard: 5 to 8 scenes of our kinds, then the end card. ${aim || "Aim for 18-26 seconds in all (the end card is 2 bars)."} Open calm (a title or a claim), build, land the benefit, then the end card. A new scene every bar or two.`,
     str(input.ask, 600) ? `What the person asks: ${str(input.ask, 600)}` : "",
   ].filter(Boolean).join("\n");
 };
@@ -174,6 +195,38 @@ export const tightenUser = (ctx: VideoCtx, doc: unknown) => {
     ...rows,
     `End card: endLine="${d.endCard.line}", cta="${d.endCard.cta}"`,
   ].join("\n");
+};
+
+/** The features one scene may tell when it is asked for "another feature": the film's own first, then the others. */
+export function featuresForScene(doc: unknown, index: number): FeatureKey[] {
+  const d = cleanVideo(doc);
+  const told = new Set(d.scenes.filter((_, i) => i !== index).map((x) => x.feature).filter(Boolean));
+  const own = d.features ?? [];
+  const mine = d.scenes[index]?.feature;
+  const order = [...own, ...FEATURES.map((f) => f.key).filter((k) => !own.includes(k))];
+  return order.filter((k) => k !== mine && !told.has(k));
+}
+
+export const sceneUser = (ctx: VideoCtx, doc: unknown, input: Record<string, unknown>) => {
+  const d = cleanVideo(doc, { language: ctx.piece.language });
+  const i = Math.max(0, Math.min(d.scenes.length - 1, Math.round(Number(input.index) || 0)));
+  const sc = d.scenes[i];
+  const how = String(input.how ?? "ask");
+  const row = sc ? `scene ${i + 1} (${sc.kind}, ${sc.bars} bar${sc.bars > 1 ? "s" : ""}${sc.feature ? `, tells "${sc.feature}"` : ""}): ${KIND_INFO[sc.kind].fields.map((f) => `${f.key}="${sc.copy[f.key] ?? ""}"`).join(", ")}` : "(no such scene)";
+  const others = featuresForScene(doc, i).slice(0, 6);
+  const ask = how === "shorter"
+    ? `Make it shorter: fewer words in every line, the same meaning, the same kind and language. Keep the *key* word mark where it still fits.`
+    : how === "feature"
+      ? `Make it tell ANOTHER APSOparts feature - the first of these that suits the film, in the kind that tells it best:\n${featuresBrief(others)}`
+      : `What the person asks for this scene: ${str(input.ask, 600) || "(nothing - make it stronger)"}`;
+  return [
+    context(ctx, doc),
+    pickedFeatures(doc).length && how !== "feature" ? `\nThe film's APSOparts features (only these, only their facts):\n${featuresBrief(pickedFeatures(doc))}` : "",
+    ``,
+    `Change ONLY this scene and give it back as "scene"; every other scene stays as it is.`,
+    row,
+    ask,
+  ].filter(Boolean).join("\n");
 };
 
 export const variantUser = (ctx: VideoCtx, doc: unknown, input: Record<string, unknown>) => {
@@ -242,10 +295,11 @@ export function sceneFrom(raw: unknown, id: string, sources: string[], dropped: 
     return null;
   }
   const icon = isIcon(raw.icon) ? raw.icon : feature ? FEATURE[feature].icon : undefined;
+  const part = info.shape && isPart(raw.part) ? raw.part : undefined;
   // a feature with a shop photo of its own shows it, where the scene takes a picture
   const photo = feature && info.image && FEATURE[feature].photo ? photoByKey(FEATURE[feature].photo!)?.url : undefined;
   const bars = typeof raw.bars === "number" ? raw.bars : info.bars.start;
-  return cleanVideo({ scenes: [{ id, kind, bars, copy, shape: raw.shape, feature, icon, image: photo }] }).scenes[0] ?? null;
+  return cleanVideo({ scenes: [{ id, kind, bars, copy, shape: raw.shape, part, feature, icon, image: photo }] }).scenes[0] ?? null;
 }
 
 export type AiAnswer = { doc: VideoDoc; note: string; dropped: string[] };
@@ -315,6 +369,32 @@ export function cleanVariant(raw: unknown, doc: unknown, ctx: VideoCtx, input: R
   const scene = sceneFrom(r.opening, fresh(cur.scenes.length + 1, taken), sourcesOf(ctx, doc, input), dropped, pickedFeatures(doc, input));
   if (!scene) return { doc: cur, note: str(r.note, 300) || "No opening came back that the film can use - try again.", dropped };
   return { doc: { ...cur, scenes: [scene, ...cur.scenes.slice(1)].slice(0, 12) }, note: str(r.note, 300), dropped };
+}
+
+/**
+ * One scene changed: laid on its place, keeping its id (so the studio keeps it selected). "Shorter" never lengthens it;
+ * "another feature" brings the new feature into the film's own list, so its figures may show.
+ */
+export function cleanScene(raw: unknown, doc: unknown, ctx: VideoCtx, input: Record<string, unknown> = {}): AiAnswer {
+  const cur = cleanVideo(doc, { language: ctx.piece.language });
+  const r = isObj(raw) ? raw : {};
+  const dropped: string[] = [];
+  const i = Math.round(Number(input.index));
+  const old = Number.isInteger(i) ? cur.scenes[i] : undefined;
+  if (!old) return { doc: cur, note: "That scene is not in the film any more.", dropped };
+  const how = String(input.how ?? "ask");
+  const allowed = how === "feature" ? [...pickedFeatures(doc), ...featuresForScene(doc, i)] : pickedFeatures(doc);
+  const scene = sceneFrom(r.scene, old.id, sourcesOf(ctx, doc, input), dropped, allowed);
+  if (!scene) return { doc: cur, note: str(r.note, 300) || "Nothing came back that the film can use - try again.", dropped };
+  const words = (x: Scene) => KIND_INFO[x.kind].fields.reduce((n, f) => n + wordCount(x.copy[f.key] ?? ""), 0);
+  if (how === "shorter" && (scene.kind !== old.kind || words(scene) > words(old))) {
+    return { doc: cur, note: "The answer was not shorter - the scene stays as it was.", dropped };
+  }
+  // what the scene had that the answer does not say: its picture, its part, its cut
+  const next: Scene = { ...scene, ...(old.image && KIND_INFO[scene.kind].image && !scene.image ? { image: old.image } : {}), ...(old.cut ? { cut: old.cut } : {}) };
+  if (!scene.part && old.part && KIND_INFO[scene.kind].shape) next.part = old.part;
+  const features = next.feature && !(cur.features ?? []).includes(next.feature) ? [...(cur.features ?? []), next.feature].slice(0, 6) : cur.features;
+  return { doc: { ...cur, ...(features ? { features } : {}), scenes: cur.scenes.map((x, k) => (k === i ? next : x)) }, note: str(r.note, 300), dropped };
 }
 
 /** COPY_KEYS, for the studio's own use. */
