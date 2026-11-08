@@ -14,7 +14,7 @@ import { Choice } from "@/app/connectors/parts";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { LANGUAGES } from "@/lib/content/languages";
 import { photoLabel, SHOP_PHOTOS } from "@/lib/content/studio/kinds/banner/brand";
-import { PRESET, PRESETS, THEMES, THEME_KEYS, sizeLabel, sizesOf, wordsFor, type BannerDoc, type OwnWords, type Picture, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
+import { PRESET, PRESETS, THEMES, THEME_KEYS, sizesOf, wordsFor, type BannerDoc, type OwnWords, type Picture, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
 import { Field, PINK, btn, field } from "../../parts";
 import { ChipsInput, Hint, PhotoPicker, Section, Swatches, pictureProblem } from "./ui";
 
@@ -55,17 +55,18 @@ function Sizes({ doc, set, active, setActive, canEdit }: BuildProps) {
         const on = made.includes(p.key);
         const here = active === p.key;
         return (
-          <Box key={p.key} onClick={() => { if (!on && canEdit) toggle(p.key); setActive(p.key); }} sx={{
+          <Box key={p.key} title={`${p.label} - ${p.note}. ${p.out === "html" ? "A paste block for the shop" : "A PNG"}.`} onClick={() => { if (!on && canEdit) toggle(p.key); setActive(p.key); }} sx={{
             position: "relative", display: "flex", alignItems: "center", gap: 1, p: 1, pr: 3.5, borderRadius: "12px", cursor: "pointer", minWidth: 0,
             border: `1px solid ${here ? PINK : HAIRLINE}`, bgcolor: here ? "rgba(194,44,110,.05)" : on ? "#fff" : "rgba(255,255,255,.5)",
             transition: "border-color .15s, background .15s", "&:hover": { borderColor: here ? PINK : "#9fb3c0" },
           }}>
             <Shape k={p.key} on={on} />
             <Box sx={{ minWidth: 0 }}>
-              <Typography sx={{ fontSize: "0.82rem", fontWeight: 650, color: on ? INK : MUTED, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {p.label}{doc.format === p.key && <Box component="span" sx={{ ml: 0.6, px: 0.6, py: "1px", borderRadius: "6px", bgcolor: "#e6eef2", color: "#274e64", fontSize: "0.64rem", fontWeight: 700, verticalAlign: "1px" }}>MAIN</Box>}
+              <Typography title={p.label} sx={{ fontSize: "0.82rem", fontWeight: 650, color: on ? INK : MUTED, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.short}</Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {doc.format === p.key && <Box component="span" sx={{ color: "#274e64", fontWeight: 700 }}>Main · </Box>}
+                {p.h ? (p.key === "mrec" || p.key === "leader" || p.key === "sky" ? "Display ad" : `${p.w} × ${p.h}`) : "Full width"}
               </Typography>
-              <Typography sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap" }}>{sizeLabel(p)}{p.out === "html" ? " · shop" : " · PNG"}</Typography>
             </Box>
             <Tooltip title={on ? (made.length === 1 ? "A banner keeps one size at least" : "Not in this size") : "Make it in this size too"}>
               <Box component="button" type="button" disabled={!canEdit} aria-label={on ? `Remove ${p.label}` : `Add ${p.label}`}
