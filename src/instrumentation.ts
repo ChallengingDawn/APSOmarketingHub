@@ -171,5 +171,10 @@ export async function register() {
     // environment (src/lib/convert/pages.ts) - read-only against the shop. CONVERT_PAGES=off stops it. SARCLA, 07.11.2026.
     const { startConvertPages } = await import("./lib/convert/pages");
     startConvertPages();
+
+    // AI testing & personalization > Insights: the AI reads the pages losing buyers by itself at night - 5 pages, none
+    // while 30 of its ideas wait for a person (src/lib/convert/scan.ts). CONVERT_SCAN=off stops it. SARCLA, 08.11.2026.
+    const { startConvertScan } = await import("./lib/convert/scan");
+    startConvertScan();
   }
 }

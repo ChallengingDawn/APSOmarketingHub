@@ -528,7 +528,7 @@ export default function ConvertProblems() {
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
-        title="Insights"
+        title="Problem pages"
         subtitle="The pages that lose buyers, as they look - with their numbers and the customers behind them"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>

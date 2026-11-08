@@ -29,6 +29,7 @@ import RouteIcon from "@mui/icons-material/Route";
 import QueryStatsIcon from "@mui/icons-material/QueryStats";
 import LinkOutlinedIcon from "@mui/icons-material/LinkOutlined";
 import SpaceDashboardOutlinedIcon from "@mui/icons-material/SpaceDashboardOutlined";
+import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import AssignmentIndOutlinedIcon from "@mui/icons-material/AssignmentIndOutlined";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
@@ -281,6 +282,7 @@ const WEBSITE_ICON: Record<string, React.ReactNode> = {
   "/website/journeys/funnel": <FilterAltOutlinedIcon fontSize="small" />,
   "/website/journeys/page": <CompareArrowsOutlinedIcon fontSize="small" />,
   "/website/ai-personalization": <SpaceDashboardOutlinedIcon fontSize="small" />,
+  "/website/ai-personalization/insights": <AutoAwesomeOutlinedIcon fontSize="small" />,
   "/website/ai-personalization/problems": <TroubleshootOutlinedIcon fontSize="small" />,
   "/website/ai-personalization/journeys": <RouteOutlinedIcon fontSize="small" />,
   "/website/ai-personalization/tests": <CompareOutlinedIcon fontSize="small" />,

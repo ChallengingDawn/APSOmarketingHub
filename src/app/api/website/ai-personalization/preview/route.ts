@@ -2,6 +2,7 @@
 // page as an HTML document for the preview's frame - cleaned (src/lib/convert/preview.ts: no tracking, no request out,
 // its own origin) and, with a version, the version laid over it (src/lib/convert/versions.ts). Its own headers: the
 // hub's "never in a frame" headers are left off this address in next.config.ts, it may be framed by the hub only.
+import { randomBytes } from "node:crypto";
 import { NextRequest } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { ENVS, isEnv } from "@/lib/convert/model";
@@ -63,13 +64,16 @@ export async function GET(req: NextRequest) {
   if (sp.get("still") === "1") {
     const hubStill = hubOriginOf(req.headers, req.nextUrl.origin);
     const { html: stillHtml } = cleanPage(page.html, { pageUrl: page.url, head: theme.css ? `<style data-apso-theme>${theme.css}</style>` : "", tail: "", sprite: theme.sprite });
-    const out = stillPage(stillHtml);
+    // ?focus=<selector>: the picture of one block (an AI idea), our own few lines under a nonce - nothing of the shop runs
+    const sel = (sp.get("focus") ?? "").trim();
+    const nonce = sel ? randomBytes(12).toString("base64url") : "";
+    const out = stillPage(stillHtml, sel && sel.length <= 200 && !/[<>{}]/.test(sel) ? { selector: sel, nonce } : null);
     warmFiles(out, hubStill);
     return new Response(rewriteShopUrls(out, hubStill), {
       status: 200,
       headers: {
         "Content-Type": "text/html; charset=utf-8",
-        "Content-Security-Policy": previewCsp(ENVS[env].base, hubStill).replace(/script-src [^;]*/, "script-src 'none'"),
+        "Content-Security-Policy": previewCsp(ENVS[env].base, hubStill).replace(/script-src [^;]*/, nonce ? `script-src 'nonce-${nonce}'` : "script-src 'none'"),
         "Cache-Control": "private, max-age=600",
         "X-Frame-Options": "SAMEORIGIN",
         "X-Content-Type-Options": "nosniff",

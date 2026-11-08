@@ -124,11 +124,19 @@ export type Cleaned = { html: string; removed: { scripts: number; trackers: numb
  * <noscript> notice ("JavaScript seems to be disabled"). The frame opens it at #maincontent, so the card shows the page's
  * own top (its title, picture, first lines), not the header every page shares.
  */
-export function stillPage(html: string): string {
+export function stillPage(html: string, focus?: { selector: string; nonce: string } | null): string {
   let out = html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, "").replace(/<noscript\b[\s\S]*?<\/noscript\s*>/gi, "");
-  const css = "<style data-apso-still>html,body{scrollbar-width:none;overflow:hidden!important}body::-webkit-scrollbar{display:none}body{pointer-events:none}.message.global,.page.messages{display:none!important}</style>";
+  const css = "<style data-apso-still>html,body{scrollbar-width:none;overflow:hidden!important}body::-webkit-scrollbar{display:none}body{pointer-events:none}.message.global,.page.messages,#cookie-status,.cookie-status-message{display:none!important}.apx-still-focus{outline:4px solid #c5221f!important;outline-offset:4px!important}</style>";
   out = /<\/head>/i.test(out) ? out.replace(/<\/head>/i, `${css}</head>`) : css + out;
+  // the picture of ONE block (an AI idea's): our own few lines, nothing of the shop's - the block scrolled to the top
+  // with a little of what is above it, and outlined (Webyn shows the section an insight is about)
+  if (focus) out += `<script nonce="${focus.nonce}">${focusSource(focus.selector)}</script>`;
   return out;
+}
+
+/** The few lines a still picture runs to show one block: found, scrolled to near the top, outlined. Pure, tested. */
+export function focusSource(selector: string): string {
+  return `(function(){var s=${JSON.stringify(selector).split("<").join("\\u003c")};function go(){var el=null;try{el=document.querySelector(s);}catch(e){}if(!el){var m=document.getElementById("maincontent");if(m)window.scrollTo(0,Math.max(0,m.getBoundingClientRect().top+window.scrollY));return;}el.classList.add("apx-still-focus");var r=el.getBoundingClientRect();window.scrollTo(0,Math.max(0,r.top+window.scrollY-60));}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",go);else go();window.addEventListener("load",go);})();`;
 }
 
 export function cleanPage(html: string, opts: { pageUrl: string; head: string; tail: string; sprite?: { url: string; svg: string } | null }): Cleaned {

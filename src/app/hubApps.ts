@@ -142,14 +142,15 @@ export const WEBSITE_SECTIONS: WebsiteSection[] = [
     // to other menu, it's really not correct ... look at Webyn even menu speaking": the page tests and a page's flow are
     // also served inside this app (Tests, Journeys - the same pages as A/B testing's and Visitor journeys').
     pages: [
-      { name: "Overview", note: "The whole loop: where buyers are lost, what is fixed, tested and shipped", href: "/website/ai-personalization", icon: "loop", ...PURPLE },
-      { name: "Insights", note: "The pages that lose buyers, shown as they look, down to the customer", href: "/website/ai-personalization/problems", icon: "target", ...PINK },
+      { name: "Performance", note: "What the tests did, and the whole loop from the problem to the winner", href: "/website/ai-personalization", icon: "bar", ...PURPLE },
+      { name: "Insights", note: "What the AI found on the pages and proposes to change, each shown on its block", href: "/website/ai-personalization/insights", icon: "bolt", ...PURPLE },
+      { name: "Problem pages", note: "The pages that lose buyers, shown as they look, down to the customer", href: "/website/ai-personalization/problems", icon: "target", ...PINK },
       { name: "Journeys", note: "One page: where its visitors came from and where they went next", href: "/website/ai-personalization/journeys", icon: "route", ...BLUE },
-      { name: "Ideas", note: "What to change on which page - the AI proposes, a person approves", href: "/website/ai-personalization/ideas", icon: "bolt", ...AMBER },
+      { name: "Plan", note: "Every optimization by page and by stage: to decide, approved, in preview, ready to test", href: "/website/ai-personalization/ideas", icon: "bolt", ...AMBER },
       { name: "Preview", note: "A shop page live, its version beside the original; its texts go to Content Studio", href: "/website/ai-personalization/preview", icon: "edit", ...PURPLE },
       { name: "Tests", note: "A version against the page as it is: the add-to-carts decide", href: "/website/ai-personalization/tests", icon: "science", ...PINK },
-      { name: "Personalise", note: "An audience always gets a version: signed-in customers, a store view, phones", href: "/website/ai-personalization/personalise", icon: "groups", ...GREEN },
-      { name: "Ship", note: "The winner for everyone, as code for dotSource, or into a Magento CMS page", href: "/website/ai-personalization/ship", icon: "shipping", ...TEAL },
+      { name: "Always on", note: "An audience always gets a version: signed-in customers, a store view, phones", href: "/website/ai-personalization/personalise", icon: "groups", ...GREEN },
+      { name: "Winners", note: "The versions that won their test - handed to Content to be published", href: "/website/ai-personalization/ship", icon: "shipping", ...TEAL },
       { name: "Pages", note: "Every page of the shop, on production and on ACC", href: "/website/ai-personalization/pages", icon: "layers", ...BLUE },
     ],
   },

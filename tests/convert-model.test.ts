@@ -134,3 +134,39 @@ test("storeCase: a store code in small letters is written as the shop writes it"
   assert.equal(storeCase("/de-CH/12202510-x.html"), "/de-CH/12202510-x.html");
   assert.equal(storeCase("/media/x.jpg"), "/media/x.jpg");
 });
+
+test("night scan: 5 pages a night, fewer as the waiting ideas near 30, none at 30", async () => {
+  const { pagesTonight, swissNow } = await import("../src/lib/convert/scanRules");
+  assert.equal(pagesTonight(0), 5);
+  assert.equal(pagesTonight(18), 3);
+  assert.equal(pagesTonight(29), 1);
+  assert.equal(pagesTonight(30), 0);
+  assert.equal(pagesTonight(44), 0);
+  assert.deepEqual(swissNow(new Date("2026-11-08T23:30:00Z")), { hour: 0, day: "2026-11-09" });
+  assert.deepEqual(swissNow(new Date("2026-07-01T01:15:00Z")), { hour: 3, day: "2026-07-01" });
+});
+
+test("performance: the tests added up - launched, won, running, the rates by week and the extra add-to-carts", async () => {
+  const { performanceOf, weekOf } = await import("../src/lib/convert/perf");
+  assert.equal(weekOf("2026-11-08"), "2026-11-02");
+  assert.equal(weekOf("2026-11-09"), "2026-11-09");
+  const p = performanceOf([
+    { id: "1", kind: "test", status: "running", winner: null, daily: [
+      { day: "2026-11-03", key: "a", visitors: 100, carts: 3 }, { day: "2026-11-03", key: "b", visitors: 100, carts: 5 },
+      { day: "2026-11-10", key: "a", visitors: 100, carts: 3 }, { day: "2026-11-10", key: "b", visitors: 100, carts: 4 },
+    ] },
+    { id: "2", kind: "test", status: "stopped", winner: "b", daily: [] },
+    { id: "3", kind: "test", status: "draft", winner: null, daily: [{ day: "2026-11-03", key: "b", visitors: 999, carts: 999 }] },
+    { id: "4", kind: "personalisation", status: "running", winner: null, daily: [] },
+  ]);
+  assert.equal(p.launched, 2);
+  assert.equal(p.winning, 1);
+  assert.equal(p.inProgress, 1);
+  assert.equal(p.drafts, 1);
+  assert.deepEqual(p.visitors, { a: 200, b: 200 });
+  assert.equal(p.rateA, 0.03);
+  assert.equal(p.rateB, 0.045);
+  assert.ok(Math.abs((p.uplift ?? 0) - 0.5) < 1e-9);
+  assert.equal(p.extra, 3);
+  assert.deepEqual(p.weeks.map((w) => [w.week, w.rateA, w.rateB]), [["2026-11-02", 0.03, 0.05], ["2026-11-09", 0.03, 0.04]]);
+});

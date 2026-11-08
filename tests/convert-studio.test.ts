@@ -286,3 +286,13 @@ test("handoff: a test's winner carries its test in the marker and a Winner line 
   assert.ok(p.brief.endsWith("[APSOconvert page prod:/de-CH/12202510-maschinenfuss.html test:7]"));
   assert.equal(markerOf(p.brief)?.testId, "7");
 });
+
+test("stillPage with a focus: only the hub's own lines run, under the nonce; a missing block falls back to the page's top", async () => {
+  const { focusSource } = await import("../src/lib/convert/preview");
+  const out = stillPage('<html><head></head><body><script>shop()</script><main id="maincontent"><div class="x">a</div></main></body></html>', { selector: "div.x</script>", nonce: "abc" });
+  assert.equal((out.match(/<script/g) ?? []).length, 1);
+  assert.match(out, /<script nonce="abc">/);
+  assert.ok(!out.includes("div.x</script>"), "a selector cannot close the script");
+  assert.match(focusSource("#a"), /getElementById\("maincontent"\)/);
+  assert.doesNotThrow(() => new Function(focusSource("div.x[data-y='1']")));
+});
