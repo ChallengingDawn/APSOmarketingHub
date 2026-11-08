@@ -157,6 +157,7 @@ export default function Studio({ api }: StudioProps) {
   const [step, setStep] = useState<Step>(d.sections.length ? "sections" : "post");
   const [view, setView] = useState<View>("post");
   const [cards, setCards] = useState<BlogCard[] | null>(null);
+  const [focus, setFocus] = useState<{ heading: string; at: number } | null>(null);
   const docRef = useRef(d);
   docRef.current = d;
 
@@ -182,8 +183,9 @@ export default function Studio({ api }: StudioProps) {
 
   return (
     <StudioPanes id="blog" buildWidth={430}
-      build={<Build api={api} d={d} set={(next) => api.setDoc(next)} step={step} onStep={setStep} cards={cards} runSection={runSection} />}
-      preview={<Stage api={api} d={d} cards={cards} view={view} onView={setView} onRefresh={() => { setCards(null); void readCards(); }} />}
+      build={<Build api={api} d={d} set={(next) => api.setDoc(next)} step={step} onStep={setStep} cards={cards} runSection={runSection}
+        onFocusSection={(heading) => setFocus((f) => (f && f.heading === heading && Date.now() - f.at < 1500 ? f : { heading, at: Date.now() }))} />}
+      preview={<Stage api={api} d={d} cards={cards} view={view} onView={setView} focus={focus} onRefresh={() => { setCards(null); void readCards(); }} />}
       assist={<Assistant api={api} d={d} latest={() => docRef.current} onStep={setStep} onView={setView} />}
     />
   );

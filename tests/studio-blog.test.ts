@@ -209,3 +209,9 @@ test("Content v2: more posts under a post - the same store's others, a shared to
   const d = blogDoc({ title: "T", store: "de-CH", language: "DE", tags: ["Seals"] });
   assert.match(postArticle(d, { related: relatedCards(cards, { pieceId: 1, store: "de-CH", tags: ["Seals"] }) }), /Weitere Beiträge[\s\S]*Post 3[\s\S]*Post 2/);
 });
+
+test("Content v2: a post without its own publishing day shows its day on the content calendar", () => {
+  const d = blogDoc({ title: "T", store: "de-CH", language: "DE", sections: [{ id: "a", heading: "H", body: "b" }] });
+  assert.match(postArticle(d, { due: "2026-11-17" }), /17\. November 2026/);
+  assert.doesNotMatch(postArticle({ ...d, publishAt: "2026-12-01" }, { due: "2026-11-17" }), /17\. November/);
+});

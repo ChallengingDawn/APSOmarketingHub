@@ -35,7 +35,7 @@ export function Publish({ api, d, cards }: { api: StudioApi; d: BlogDoc; cards: 
   // the hub's pictures go into the paste with the hub's full address
   const origin = typeof window === "undefined" ? undefined : window.location.origin;
   const current = cardOf(d, { pieceId: p.id, projectId: p.projectId, status: p.status, due: p.dueDate });
-  const blocks = [...pastePost(d, { related: relatedCards(onHome, current), origin }), pasteHome(onHome, { ...o, origin }), ...d.tags.map((t) => pasteTopic(onHome, { ...o, origin }, t))];
+  const blocks = [...pastePost(d, { related: relatedCards(onHome, current), origin, due: p.dueDate }), pasteHome(onHome, { ...o, origin }), ...d.tags.map((t) => pasteTopic(onHome, { ...o, origin }, t))];
   const fromHub = hubPictures(d).length;
 
   return (

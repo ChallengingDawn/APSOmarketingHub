@@ -18,6 +18,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
+import { md } from "@/lib/content/studio/kinds/blog/render";
 import { btn, field } from "../../parts";
 import { PicturePanel, type Picture, type PictureAspect } from "../../pictures";
 
@@ -118,6 +119,43 @@ export function PictureSlot({ url, alt, onPick, onAlt, onRemove, aspect = "16:9"
         <TextField fullWidth size="small" label={altLabel} value={alt} disabled={disabled} onChange={(e) => onAlt(e.target.value)} sx={{ ...field, mt: 1 }} />
       )}
       {changing && <Box sx={{ mt: 1 }}>{panel}</Box>}
+    </Box>
+  );
+}
+
+/**
+ * A section's text as it reads (lists, tables, bold, the red key words) - a click opens the markdown to edit, leaving it
+ * shows it read again. So a section with a table does not look like a row of pipes.
+ */
+export function MdField({ label, value, onChange, disabled, onFocus, rows = 7 }: {
+  label: string; value: string; onChange: (v: string) => void; disabled?: boolean; onFocus?: () => void; rows?: number;
+}) {
+  const [editing, setEditing] = useState(false);
+  if (editing || !value.trim()) {
+    return (
+      <TextField fullWidth size="small" label={label} value={value} disabled={disabled} multiline minRows={rows} autoFocus={editing}
+        onFocus={onFocus} onBlur={() => setEditing(false)} onChange={(e) => onChange(e.target.value)}
+        helperText={editing ? "Markdown: ### a sub-heading, - a list, | a | table |, **bold**, ==a key word== in red" : undefined}
+        sx={{ ...field, mb: 1.25, "& .MuiFormHelperText-root": { mx: 0.5 } }} />
+    );
+  }
+  return (
+    <Box sx={{ position: "relative", mb: 1.25 }}>
+      <Typography component="span" sx={{ position: "absolute", top: -8, left: 10, px: 0.5, bgcolor: "#fff", fontSize: "0.75rem", color: MUTED, lineHeight: 1.3, zIndex: 1 }}>{label}</Typography>
+      <Box role="button" tabIndex={disabled ? -1 : 0} onClick={() => { if (!disabled) { setEditing(true); onFocus?.(); } }}
+        onKeyDown={(e) => { if (!disabled && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setEditing(true); onFocus?.(); } }}
+        title={disabled ? undefined : "Click to edit"}
+        dangerouslySetInnerHTML={{ __html: md(value) }}
+        sx={{
+          border: `1px solid ${HAIRLINE}`, borderRadius: "8px", p: "12px 14px", cursor: disabled ? "default" : "text", color: INK, fontSize: "0.88rem", lineHeight: 1.6,
+          maxHeight: 360, overflowY: "auto", transition: "border-color .12s",
+          "&:hover": disabled ? {} : { borderColor: BLUE }, "&:focus-visible": { outline: `2px solid ${BLUE}` },
+          "& p": { m: "0 0 10px" }, "& p:last-child": { mb: 0 }, "& h3, & h4": { fontSize: "0.95rem", m: "12px 0 6px" },
+          "& ul, & ol": { m: "0 0 10px", pl: 2.5 }, "& ul": { listStyle: "disc" }, "& ol": { listStyle: "decimal" }, "& li": { mb: 0.25, display: "list-item" }, "& mark": { bgcolor: "transparent", color: "#d80901", fontWeight: 600 },
+          "& a": { color: "#274e64" }, "& blockquote": { m: "10px 0", pl: 1.5, borderLeft: "3px solid #d80901" },
+          "& .apx-table": { overflowX: "auto", m: "6px 0 10px" }, "& table": { borderCollapse: "collapse", width: "100%", fontSize: "0.8rem" },
+          "& th, & td": { border: `1px solid ${HAIRLINE}`, p: "5px 7px", textAlign: "left", verticalAlign: "top" }, "& th": { bgcolor: "#f4f6f7", color: "#274e64" },
+        }} />
     </Box>
   );
 }

@@ -6,7 +6,7 @@
 //   Google          the result as Google lists it, and the structured data it reads
 // Built in the browser from the document (pure render.ts): nothing big travels to the hub.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
@@ -15,7 +15,7 @@ import Typography from "@mui/material/Typography";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
-import { LIMITS, cardOf, homeCards, relatedCards, topicsOf, type BlogCard, type BlogDoc } from "@/lib/content/studio/kinds/blog/model";
+import { LIMITS, cardOf, homeCards, relatedCards, slugify, topicsOf, type BlogCard, type BlogDoc } from "@/lib/content/studio/kinds/blog/model";
 import { homeDocument, jsonLd, postDocument, serp } from "@/lib/content/studio/kinds/blog/render";
 import { Pane } from "../../parts";
 import type { StudioApi } from "../../useStudio";
@@ -57,7 +57,35 @@ function Google({ d }: { d: BlogDoc }) {
   );
 }
 
-export function Stage({ api, d, cards, onRefresh, view, onView }: { api: StudioApi; d: BlogDoc; cards: BlogCard[] | null; onRefresh: () => void; view: View; onView: (v: View) => void }) {
+/** The section clicked in the build pane, brought into view in the preview and outlined for a moment. */
+function useFocus(box: React.RefObject<HTMLDivElement | null>, focus: { heading: string; at: number } | null | undefined, view: View) {
+  useEffect(() => {
+    if (!focus || view !== "post" || !focus.heading.trim()) return;
+    const frame = box.current?.querySelector("iframe");
+    const doc = frame?.contentDocument;
+    const el = doc?.getElementById(slugify(focus.heading));
+    if (!frame || !el) return;
+    let scroller: HTMLElement | null = frame.parentElement;
+    while (scroller && !(scroller.scrollHeight > scroller.clientHeight && getComputedStyle(scroller).overflowY === "auto")) scroller = scroller.parentElement;
+    if (!scroller) return;
+    const zoom = frame.getBoundingClientRect().width / (frame.offsetWidth || 1);
+    const top = scroller.scrollTop + frame.getBoundingClientRect().top - scroller.getBoundingClientRect().top + el.getBoundingClientRect().top * zoom - 24;
+    scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    const sec = el.closest("section") as HTMLElement | null;
+    if (sec) {
+      sec.style.transition = "box-shadow .3s";
+      sec.style.boxShadow = "0 0 0 12px rgba(36,89,209,.10)";
+      setTimeout(() => { sec.style.boxShadow = "none"; }, 1400);
+    }
+  }, [box, focus, view]);
+}
+
+export function Stage({ api, d, cards, onRefresh, view, onView, focus }: {
+  api: StudioApi; d: BlogDoc; cards: BlogCard[] | null; onRefresh: () => void; view: View; onView: (v: View) => void;
+  focus?: { heading: string; at: number } | null;
+}) {
+  const box = useRef<HTMLDivElement | null>(null);
+  useFocus(box, focus, view);
   const [device, setDevice] = useState<Device>("desktop");
   const [tag, setTag] = useState<string>("");
   const settled = useSettled(d);
@@ -66,10 +94,10 @@ export function Stage({ api, d, cards, onRefresh, view, onView }: { api: StudioA
   const home = useMemo(() => homeCards(cards ?? [], current), [cards, current]);
   const topics = useMemo(() => topicsOf(home), [home]);
   const html = useMemo(() => {
-    if (view === "post") return postDocument(settled, { related: relatedCards(home, current), withState: true });
+    if (view === "post") return postDocument(settled, { related: relatedCards(home, current), withState: true, due: p.dueDate });
     if (view === "home") return homeDocument(home, { store: settled.store, language: settled.language, topics, tag: tag && topics.includes(tag) ? tag : null, withState: true, currentId: p.id });
     return "";
-  }, [view, settled, home, current, topics, tag, p.id]);
+  }, [view, settled, home, current, topics, tag, p.id, p.dueDate]);
   const others = home.filter((c) => c.pieceId !== p.id).length;
 
   return (
@@ -82,7 +110,7 @@ export function Stage({ api, d, cards, onRefresh, view, onView }: { api: StudioA
         </Tooltip>
       </Box>
     }>
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 3 }} ref={box}>
         {view === "home" && (
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2, mb: 2, flexWrap: "wrap" }}>
             <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
