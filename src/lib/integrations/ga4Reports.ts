@@ -64,7 +64,11 @@ export type Ga4ReportName =
   | "viewItemPages"
   | "transactionsChannel"
   | "bfPageChannels"
-  | "convertPages";
+  | "convertPages"
+  | "journeySteps"
+  | "journeyLanding"
+  | "journeyLandingEvents"
+  | "journeyEvents";
 
 type ReportSpec = {
   dimensions: string[];
@@ -326,6 +330,38 @@ export const GA4_REPORTS: Record<Ga4ReportName, ReportSpec> = {
     orderBy: { metric: "screenPageViews", desc: true },
     limit: 25000,
   },
+  // Website > Journeys (SARCLA 08.11.2026: "you should be able to visually display journeys, analyse the main journeys"):
+  // every page view with the page before it - the steps the journeys are chained from (src/lib/journeys/model.ts). The
+  // page before is a whole address; only the shop's own are steps, the rest are ways in. The most viewed pairs first.
+  journeySteps: {
+    dimensions: ["pagePath", "pageReferrer"],
+    metrics: ["screenPageViews"],
+    orderBy: { metric: "screenPageViews", desc: true },
+    limit: 100000,
+  },
+  // the visits by the page they came in on - with their add-to-carts and orders as events (sessions with one: below)
+  journeyLanding: {
+    dimensions: ["landingPage"],
+    metrics: ["sessions", "addToCarts", "transactions"],
+    orderBy: { metric: "sessions", desc: true },
+    limit: 25000,
+  },
+  // the visits by the page they came in on that put something in the cart, began the check-out, ordered - sessions, so
+  // a share of the visits is a share of visits
+  journeyLandingEvents: {
+    dimensions: ["landingPage", "eventName"],
+    metrics: ["sessions"],
+    filter: { field: "eventName", values: ["add_to_cart", "begin_checkout", "purchase"] },
+    orderBy: { metric: "sessions", desc: true },
+    limit: 50000,
+  },
+  // the shop's steps as visits: the sessions with each event (view_item fires on lists too - see viewItemPages)
+  journeyEvents: {
+    dimensions: ["eventName"],
+    metrics: ["sessions"],
+    filter: { field: "eventName", values: ["view_item_list", "view_item", "add_to_cart", "begin_checkout", "purchase"] },
+    limit: 10,
+  },
   viewItemPages: {
     // The pages view_item fires on, month by month: a category list (its name says the profit centre), a
     // product page (its address starts with the 8-digit product), the search results.
@@ -439,6 +475,8 @@ export function isGa4ReportName(value: unknown): value is Ga4ReportName {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(GA4_REPORTS, value);
 }
 
+export type Ga4Where = { field: string; match: "EXACT" | "BEGINS_WITH" | "CONTAINS" | "FULL_REGEXP"; value: string };
+
 export type Ga4TableRow = { keys: string[]; values: (number | null)[] };
 
 export type Ga4TableReport = {
@@ -482,6 +520,9 @@ export async function fetchGa4Report(params: {
   channelGroup?: string;
   /** Restrict the report to one event name (e.g. "sign_up"). */
   eventName?: string;
+  /** More conditions, ANDed: a field that is, begins with, contains or fully matches (RE2) a value - Website > Journeys:
+   *  a store view (pagePath begins with "/de-CH/"), one page and the pages after it (pageReferrer matches its address). */
+  where?: Ga4Where[];
   signal?: AbortSignal;
 }): Promise<Ga4TableReport> {
   const spec = GA4_REPORTS[params.name];
@@ -506,6 +547,7 @@ export async function fetchGa4Report(params: {
           ...(params.pagePath ? [exact("pagePath", params.pagePath)] : []),
           ...(params.channelGroup ? [exact("sessionDefaultChannelGroup", params.channelGroup)] : []),
           ...(params.eventName ? [exact("eventName", params.eventName)] : []),
+          ...(params.where ?? []).map((w) => ({ filter: { fieldName: w.field, stringFilter: { matchType: w.match, value: w.value } } })),
         ];
         if (filters.length === 0) return {};
         return { dimensionFilter: filters.length === 1 ? filters[0] : { andGroup: { expressions: filters } } };
