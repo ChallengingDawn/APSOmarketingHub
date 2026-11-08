@@ -113,17 +113,22 @@ export const esc = (s: unknown) =>
 
 export type RenderedEmail = { subject: string; html: string; text: string };
 
-export function renderEmail(p: { lang: DocLang; to: string; greeting?: string }): RenderedEmail {
+/** company: who signs the mail - the company that issued the declaration (the certificate maker: APSOparts® AG for a
+ *  Swiss request, M100); default APSOparts® GmbH, as the HubSpot emails always said.
+ *  subject + body: another text in the same frame (the certificate maker's - certificates/makerMail.ts), each paragraph
+ *  may hold line breaks; without them the approved DoC text below. */
+export function renderEmail(p: { lang: DocLang; to: string; greeting?: string; company?: string; subject?: string; body?: string[] }): RenderedEmail {
   const c = TEXTS[p.lang];
   const f = FOOTER[p.lang];
-  const paragraphs = [p.greeting || c.greeting, ...c.body];
+  const paragraphs = p.body ?? [p.greeting || c.greeting, ...c.body];
+  const subject = p.subject ?? c.subject;
   const u = {
     home: SHOP + f.urls.home, contact: SHOP + f.urls.contact,
     imprint: SHOP + f.urls.imprint, privacy: SHOP + f.urls.privacy,
   };
   const font = "font-family:Arial,Helvetica,sans-serif;";
-  const para = (s: string) => `<p style="${font}font-size:15px;line-height:1.6;color:#33475b;margin:0 0 14px">${esc(s)}</p>`;
-  const html = `<!doctype html><html lang="${p.lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(c.subject)}</title></head>
+  const para = (s: string) => `<p style="${font}font-size:15px;line-height:1.6;color:#33475b;margin:0 0 14px">${p.body ? esc(s).replace(/\n/g, "<br>") : esc(s)}</p>`;
+  const html = `<!doctype html><html lang="${p.lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(subject)}</title></head>
 <body style="margin:0;padding:0;background:#EAF0F6">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#EAF0F6"><tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #EAF0F6">
@@ -133,11 +138,11 @@ ${paragraphs.map(para).join("\n")}
 </td></tr>
 <tr><td style="padding:18px 32px 26px;border-top:1px solid #EAF0F6;text-align:center;${font}font-size:12px;line-height:1.7;color:#7c98b6">
 <a href="${u.contact}" style="color:#33475b;font-weight:bold;text-decoration:none">${esc(f.support)}</a> &nbsp;·&nbsp; <a href="${LINKEDIN}" style="color:#33475b;font-weight:bold;text-decoration:none">${esc(f.follow)}</a><br>
-APSOparts® GmbH<br>
+${esc(p.company ?? "APSOparts® GmbH")}<br>
 <a href="${u.imprint}" style="color:#7c98b6">${esc(f.imprint)}</a> | <a href="${u.privacy}" style="color:#7c98b6">${esc(f.privacy)}</a><br>
 ${esc(f.sentTo)} ${esc(p.to)}
 </td></tr>
 </table></td></tr></table></body></html>`;
-  const text = [...paragraphs, `APSOparts® GmbH · ${u.imprint} · ${u.privacy}`].join("\n\n");
-  return { subject: c.subject, html, text };
+  const text = [...paragraphs, `${p.company ?? "APSOparts® GmbH"} · ${u.imprint} · ${u.privacy}`].join("\n\n");
+  return { subject, html, text };
 }

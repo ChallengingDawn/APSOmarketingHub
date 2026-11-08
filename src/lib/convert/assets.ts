@@ -161,7 +161,13 @@ export async function shopFile(env: Env, path: string, hubOrigin: string): Promi
   const running = INFLIGHT.get(key);
   if (running) return running;
   const p = (async (): Promise<Held> => {
-    const r = await readOnce(`${ENVS[env].base}${path}`);
+    // the shop keeps only the minified scripts, and in the frame many modules are asked for as "x.js" (the config's first
+    // modules - mage/bootstrap, Magento_Ui/js/core/app - before Magento's ".min" resolver takes over, the knockout
+    // bindings after it): the shop answers 404, the page's own setup stops and its tables and buttons stay raw
+    // (08.11.2026). So "x.min.js" is read first, and "x.js" only when there is no minified one (hugerte, parser.js).
+    const plainJs = /^\/static\/.+(?<!\.min)\.js$/.test(path);
+    let r = plainJs ? await readOnce(`${ENVS[env].base}${path.replace(/\.js$/, ".min.js")}`) : null;
+    if (!r || r.status < 200 || r.status >= 300) r = await readOnce(`${ENVS[env].base}${path}`);
     const ok = r.status >= 200 && r.status < 300;
     let body = r.body;
     if (body.length > MAX_FILE) return { at: Date.now(), status: 413, type: "text/plain", body: Buffer.from("too big"), size: 7 };
@@ -172,6 +178,27 @@ export async function shopFile(env: Env, path: string, hubOrigin: string): Promi
   })().finally(() => INFLIGHT.delete(key));
   INFLIGHT.set(key, p);
   return p;
+}
+
+/**
+ * Start reading a page's own files (its stylesheets, scripts, fonts, first pictures) while the page itself is on its way
+ * to the browser - the frame then finds them in the hub's memory instead of waiting for each in turn (SARCLA 08.11.2026:
+ * the preview sat on "Reading the page from the shop…" for a minute). The same six-at-a-time queue as the browser's own
+ * asks; nothing waits for it. Returns how many files were started.
+ */
+export function warmFiles(html: string, hubOrigin: string, max = 80): number {
+  const seen = new Set<string>();
+  const re = /https:\/\/(www|acc)\.apsoparts\.com(\/(?:static|media)\/[^"'\s)<>?#]+)/g;
+  for (let m = re.exec(html); m && seen.size < max; m = re.exec(html)) {
+    const env: Env = m[1] === "acc" ? "acc" : "prod";
+    const path = assetPath(m[2].slice(1).split("/"));
+    if (!path || !/\.(css|js|woff2?|ttf|svg|png|jpe?g|webp|gif)$/i.test(path)) continue;
+    const k = `${env}${path}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    void shopFile(env, path, hubOrigin).catch(() => undefined);
+  }
+  return seen.size;
 }
 
 /** The hub's own address as the browser sees it (behind the load balancer: its forwarded host and scheme). */

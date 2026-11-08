@@ -100,6 +100,12 @@ const SYSTEM = new Set([
   "quickorder", "multishipping", "paypal", "persistent", "review", "sendfriend", "downloadable", "vault", "rma",
 ]);
 
+/** A store code typed in small letters ("/de-ch/...") written as the shop writes it ("/de-CH/...") - the shop sends the
+ *  small one to "/de-CH/de-ch/...", a 404 (SARCLA saw "The shop answered 302" on 08.11.2026). */
+export function storeCase(path: string): string {
+  return path.replace(/^\/([a-z]{2})-([a-z]{2,3})(?=\/|$)/i, (_m, l: string, c: string) => `/${l.toLowerCase()}-${c.toUpperCase()}`);
+}
+
 export function classify(address: string): Classified {
   let path: string;
   try {

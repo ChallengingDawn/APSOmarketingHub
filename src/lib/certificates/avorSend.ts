@@ -15,7 +15,7 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { FROM, REPLY_TO, addressOf, esc, sendHubMail, wrap } from "@/lib/notify/mailer";
 import { INBOX_OWNERS, isInbox } from "@/lib/notify/teamRecipients";
-import { AVOR_PROP, AVOR_TO, avorNotSending, avorRefOf, demoOf, isAvorAnswer, parseAvor, type AvorState, type MakerRow } from "./makerRules";
+import { AVOR_PROP, AVOR_TO, DEMO_PROP, avorNotSending, avorRefOf, demoOf, isAvorAnswer, parseAvor, type AvorState, type MakerRow } from "./makerRules";
 import type { Facts } from "./rules";
 
 const hs = <T>(path: string, method: "GET" | "POST" | "PATCH" | "PUT" = "GET", body?: unknown) => hubspotRetry<T>({ path, method, body });
@@ -48,21 +48,22 @@ async function logOnTicket(ticketId: string, s: AvorState, to: string, replyTo: 
   await hs(`/crm/v4/objects/emails/${e.id}/associations/tickets/${ticketId}`, "PUT", [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 224 }]);
 }
 
-/** One look: every request whose AVOR mail the card queued. writing = the engine is Live. */
-export async function avorPass(facts: (Facts & { avor?: string | null })[], held: Record<string, unknown>, writing: boolean): Promise<{ rows: MakerRow[]; mailed: number }> {
+/** One look: every request whose AVOR mail the card queued. writing = the engine is Live; on = the switch on Settings
+ *  (off: a queued mail is not sent and the card says to write it from the ticket - a DEMO goes whatever the switch). */
+export async function avorPass(facts: (Facts & { avor?: string | null })[], held: Record<string, unknown>, writing: boolean, on = true): Promise<{ rows: MakerRow[]; mailed: number }> {
   const rows: MakerRow[] = [];
   let mailed = 0;
   if (!writing) return { rows, mailed };
   for (const f of facts) {
     const s = parseAvor(f.avor);
     if (!s || s.status !== "queued") continue;
-    const why = avorNotSending(f, s, held);
+    const why = avorNotSending(f, s, held, on);
     const at = new Date().toISOString();
     // on hold: it waits (the card says so) and goes once released
     if (why === "on hold") continue;
     if (why) {
       await write(f.id, { ...s, status: "failed", error: `not sent: ${why}` }).catch(() => undefined);
-      rows.push({ at, ticketId: f.id, what: "avorFailed", to: s.to, eda: null, error: why });
+      rows.push({ at, ticketId: f.id, what: "avorFailed", to: s.to, eda: null, error: why, subject: s.subject });
       continue;
     }
     // claimed before anything goes out: never twice
@@ -78,17 +79,40 @@ export async function avorPass(facts: (Facts & { avor?: string | null })[], held
       await logOnTicket(f.id, s, to, replyTo, subject).catch((e) => console.warn(`[certificates] avor log ${f.id}: ${(e as Error).message}`));
       const sent = [...(s.sent ?? []), { at: new Date().toISOString(), to, by: s.by.name, replyTo, ...(s.remind ? { remind: true } : {}) }];
       await write(f.id, { ...claim, status: "sent", sent, error: undefined });
-      rows.push({ at, ticketId: f.id, what: "avor", to, eda: null });
+      rows.push({ at, ticketId: f.id, what: "avor", to, eda: null, subject });
     } catch (e) {
       const msg = (e as Error).message.slice(0, 200);
       await write(f.id, { ...claim, status: "failed", error: msg }).catch(() => undefined);
-      rows.push({ at, ticketId: f.id, what: "avorFailed", to, eda: null, error: msg });
+      rows.push({ at, ticketId: f.id, what: "avorFailed", to, eda: null, error: msg, subject });
     }
   }
   return { rows, mailed };
 }
 
 type Obj = { id: string; properties: Record<string, string | null> };
+
+/** The Mails tab's view of the mail to AVOR: the last one the hub sent (else the newest on a card), as it went out -
+ *  nothing is sent. */
+export async function avorPreview(ticketId: string | null): Promise<{ subject: string; html: string; to: string; ticket: { id: string; subject: string | null } | null; note?: string }> {
+  const props = ["subject", AVOR_PROP, DEMO_PROP];
+  let t: Obj | null = null;
+  if (ticketId) t = await hs<Obj>(`/crm/v3/objects/tickets/${ticketId}?properties=${props.join(",")}`).catch(() => null);
+  if (!t || !parseAvor(t.properties[AVOR_PROP])) {
+    const j = await hs<{ results?: Obj[] }>("/crm/v3/objects/tickets/search", "POST", {
+      filterGroups: [{ filters: [{ propertyName: AVOR_PROP, operator: "HAS_PROPERTY" }] }], properties: props,
+      sorts: [{ propertyName: "hs_lastmodifieddate", direction: "DESCENDING" }], limit: 1,
+    });
+    t = j.results?.[0] ?? null;
+  }
+  const s = t ? parseAvor(t.properties[AVOR_PROP]) : null;
+  if (!t || !s) return { subject: "WSMB | EG1935/2004 | M### | A##.###### | <customer> | APSOparts®", html: "", to: AVOR_TO, ticket: null, note: "No mail to AVOR sent from a ticket card yet - it shows here once one has gone." };
+  const demo = demoOf(t.properties[DEMO_PROP]);
+  return {
+    subject: `${demo ? "[DEMO] " : ""}${s.subject}`, html: htmlOf(s.body),
+    to: `${demo ? `${demo.email} (DEMO - never AVOR)` : AVOR_TO} · from "${s.by.name} | APSOparts®" · answers to ${addressOf(REPLY_TO)}`,
+    ticket: { id: String(t.id), subject: t.properties.subject ?? null },
+  };
+}
 
 /** The open request this AVOR answer belongs to: the Back Office ticket naming the A-number, with EC 1935/2004, whose
  *  AVOR mail the hub sent. */

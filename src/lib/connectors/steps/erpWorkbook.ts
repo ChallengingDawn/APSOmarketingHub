@@ -26,7 +26,7 @@ import { SaxesParser } from "saxes";
 import { Figures3, Figures4, PyFloat, SHEET_CUSTOMERS, SHEET_PROFIT_CENTRES, pyRound, type Cell, type Figures3Result, type Figures4Result } from "./erpRules";
 import { ErpLinesSheet, SHEET_ERP_LINES, type ErpLine } from "../../reporting/boErpLines";
 import { InvoicesSheet, SHEET_INVOICES, type InvoiceRow } from "./orderFactsRules";
-import { ArticlesSheet, SHEET_ARTICLES } from "./productFactsRules";
+import { ArticlesSheet, SHEET_ARTICLES, SHEET_SUPPLIERS, SuppliersSheet } from "./productFactsRules";
 
 export class WorkbookFormatError extends Error {
   constructor(message: string) {
@@ -547,17 +547,27 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>, 
     rows += await readSheet(file, part(lt.name)!, book, (n, cells) => sl.feed(n, cells), beat);
     erpLines = sl.finish();
   }
+  // the invoices: "KPI INVOICES", and any sheet whose name starts so ("KPI INVOICES 2020-2022") - the history from 2020 can
+  // pass Excel's 1,048,576 rows a sheet, so it may come split by years (SARCLA 08.11.2026: "correct all years")
   let invoices: InvoiceRow[] | null = null;
-  const it = book.sheets.find((x) => x.name.trim().toUpperCase() === SHEET_INVOICES);
-  if (it) {
+  for (const it of book.sheets.filter((x) => x.name.trim().toUpperCase().startsWith(SHEET_INVOICES))) {
     const si = new InvoicesSheet();
     rows += await readSheet(file, part(it.name)!, book, (n, cells) => si.feed(n, cells), beat);
-    invoices = si.finish();
+    const got = si.finish();
+    if (got) invoices = invoices ? invoices.concat(got) : got;
   }
   let articles: Map<string, string> | null = null;
   const at = book.sheets.find((x) => x.name.trim().toUpperCase() === SHEET_ARTICLES);
   if (at) {
-    const sa = new ArticlesSheet(opts.keepArticle ?? (() => false));
+    // the supplier list first: the articles carry only their lead supplier's number
+    let suppliers: Map<string, string> | null = null;
+    const su = book.sheets.find((x) => x.name.trim().toUpperCase() === SHEET_SUPPLIERS);
+    if (su) {
+      const ss = new SuppliersSheet();
+      rows += await readSheet(file, part(su.name)!, book, (n, cells) => ss.feed(n, cells), beat);
+      suppliers = ss.finish();
+    }
+    const sa = new ArticlesSheet(opts.keepArticle ?? (() => false), suppliers);
     rows += await readSheet(file, part(at.name)!, book, (n, cells) => sa.feed(n, cells), beat);
     articles = sa.finish();
   }

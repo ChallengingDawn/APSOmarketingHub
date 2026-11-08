@@ -16,7 +16,7 @@ import DialogTitle from "@mui/material/DialogTitle";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Typography from "@mui/material/Typography";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Chip } from "@/app/connectors/parts";
+import { Chip } from "@/app/website/ai-personalization/Tag";
 import { ACCENT, FAINT, GREEN, HAIRLINE, INK, MUTED, Notice, RED, TRACK } from "@/app/uc/report/ui";
 import { CHROME, FONT } from "@/app/charts/palette";
 import { STATUS_LABEL, STATUS_TINT, normAllocation, type Allocation, type Audience, type Host, type TestKind, type TestStatus } from "@/lib/convert/contract";

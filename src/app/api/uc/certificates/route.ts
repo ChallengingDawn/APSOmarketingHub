@@ -2,14 +2,14 @@
 // GET: the mode, the people, the last look, the open tickets with their step, what the hub did (or would do), the year.
 // PUT (admins) {mode} or {people}: off / preview (lists, writes nothing) / live (writes);
 //      the Back Office rotation, the conformity experts, who gets a ticket after 15 days.
-// PUT (admins) {mails: {owner?, team?, created?}} the console's mail switches; {timing: {...} | "default"} the times
+// PUT (admins) {mails: {owner?, team?, created?, avor?}} the console's mail switches (avor = the card's "Send to AVOR"); {timing: {...} | "default"} the times
 //      and waits (rules.ts TIMING_BOUNDS); {hold: ticketId} / {release: ticketId} - the hub leaves a ticket alone;
 //      {teamTo: [ownerId]} who also gets the reminder on every other ticket in Remind - its owner always does (never a
 //      queue user - its address is an inbox);
 //      {erpDates: "off" | "show" | "write"} follow the ERP's delivery date; {shop: "off" | "preview" | "live"} tickets
 //      from the shop's orders with the declaration line.
 // PUT (admins) {steps: {avor?, bo?, expert?, handover?}} the step groups on / off (off = skipped, not taken later).
-// GET ?preview=<bo3days|boToday|bo48|bo96|boWeek|boRose|team|created>: that mail as it would go out, nothing sent.
+// GET ?preview=<bo3days|boToday|bo48|bo96|boWeek|boRose|team|created|avor|declCustomer|declEda>[&lang=de]: that mail as it would go out, nothing sent.
 // POST (admins) {action: "run"} = look now; {action: "sample", mail?} = that mail (default "due today") for an open request, to
 //      the admin asking (never an inbox).
 
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
     const preview = req.nextUrl.searchParams.get("preview");
     if (preview !== null) {
       if (!MAIL_KEYS.includes(preview as MailKey)) return NextResponse.json({ ok: false, error: "Unknown mail" }, { status: 400 });
-      return NextResponse.json({ ok: true, data: await previewMail(preview as MailKey) });
+      return NextResponse.json({ ok: true, data: await previewMail(preview as MailKey, { lang: req.nextUrl.searchParams.get("lang") }) });
     }
     return NextResponse.json({ configured: true, ok: true, data: { ...(await pageState()), admin: access.role === "admin" } });
   } catch (err) {
@@ -70,7 +70,7 @@ export async function PUT(req: NextRequest) {
   }
   if (b.mails !== undefined) {
     const m: Partial<Mails> = {};
-    for (const k of ["owner", "team", "created"] as const) if (b.mails[k] !== undefined) { if (typeof b.mails[k] !== "boolean") return NextResponse.json({ ok: false, error: `mails.${k}: on or off` }, { status: 400 }); m[k] = b.mails[k]; }
+    for (const k of ["owner", "team", "created", "avor"] as const) if (b.mails[k] !== undefined) { if (typeof b.mails[k] !== "boolean") return NextResponse.json({ ok: false, error: `mails.${k}: on or off` }, { status: 400 }); m[k] = b.mails[k]; }
     patch.mails = m;
   }
   if (b.timing !== undefined) {

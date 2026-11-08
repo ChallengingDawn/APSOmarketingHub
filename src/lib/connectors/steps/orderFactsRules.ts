@@ -18,8 +18,9 @@ import { dayOf, type ErpLine } from "../../reporting/boErpLines";
 /** the orders filled: those of this year on (dim_order OrderYear) - history from 2020 (SARCLA 08.11.2026: "also historicals"),
  *  not the 800,000 since 2014 - each kept packed in memory for the night (the repeated values kept once, by number) */
 export const FACTS_FROM_YEAR = 2020;
-/** OFF until SARCLA has seen the preview's figures and said go: order_sync then counts and reports, writes nothing */
-export const ORDER_FACTS_LIVE = false;
+/** ON since 08.11.2026 (SARCLA: "switch writing on, correct all this") - after the check of his 2020-2026 invoices against all
+ *  413,008 orders (359,810 the same, 31,803 filled, 103 corrected) and of every HubSpot workflow (none on orders) */
+export const ORDER_FACTS_LIVE = true;
 export const SHEET_INVOICES = "KPI INVOICES";
 
 type Kind = "text" | "date" | "source" | "prepay" | "dict";
@@ -40,11 +41,17 @@ export const DIM_FACTS: readonly (readonly [prop: string, col: string, kind: Kin
   ["order_delivery_date_customer", "DeliveryDateCustomer", "date"],
   ["order_delivery_date_proposed", "DeliveryDateProp", "date"],
   ["order_advance_payment", "Prepayment", "prepay"],
-  ["order_value_class", "OrderValueClassificationLC", "dict"],
-  ["order_margin_class", "OrderMarginLevelClassificationLC", "dict"],
+  // the transaction currency's classes, as the 93.5 % of orders the connector's load filled hold them (its backfill_dim_order_hist)
+  ["order_value_class", "OrderValueClassificationTC", "dict"],
+  ["order_margin_class", "OrderMarginLevelClassificationTC", "dict"],
 ];
 /** the properties the sheets fill */
-export const LINE_FACTS = ["order_first_confirmed_delivery", "order_has_special_articles", "order_shipment_status"] as const;
+export const LINE_FACTS = ["order_first_confirmed_delivery", "order_has_special_articles", "cuttosize_order", "order_shipment_status"] as const;
+/** the choice list of order_customer_class - anything else would make HubSpot refuse the whole order's update */
+const CUSTOMER_CLASSES = new Set(["A", "B", "C", "D", "E"]);
+/** written only where HubSpot has no value: the order's COGS there comes from its order lines, as its margin does (the
+ *  invoices' cost differs by cents on 15-35 % of orders - a second rule, not a correction; checked 08.11.2026) */
+export const FILL_ONLY = ["order_cogs_eur"] as const;
 export const INVOICE_FACTS = ["order_invoice_date", "order_invoice_number", "order_invoice_booking_date", "order_invoice_canceled", "order_invoice_currency", "order_invoice_count", "order_invoiced_status", "order_cogs_eur", "order_customer_class"] as const;
 
 export type Facts = Record<string, string>;
@@ -96,16 +103,25 @@ export function unpackDim(s: string | undefined): Facts {
 /** "A26.661275.001" -> "A26.661275" */
 export const baseOfNumber = (num: string) => num.replace(/\.\d{3}$/, "");
 
-/** KPI LINES -> per order (base number): the earliest first confirmed date of its lines, special articles or not, and how
- *  far it is shipped (the property's own options: every line shipped in full, some shipped, none yet). */
-export function lineFacts(lines: Iterable<Pick<ErpLine, "order" | "firstDay" | "artType" | "qty" | "shipped" | "lineType">>): Map<string, Facts> {
-  const out = new Map<string, { first: string; special: boolean; lines: number; full: number; some: number }>();
+/** A special article as the connector's load counted it (load_orders_phase1.py, the 93.5 % of orders it filled): the ERP's
+ *  type "Special", or an article number starting 800 / 300. */
+export const isSpecialArticle = (artType: string | undefined, article: string | undefined) =>
+  (artType ?? "").toLowerCase() === "special" || /^(800|300)/.test((article ?? "").trim());
+
+/** KPI LINES -> per order (base number): the earliest first confirmed date of its lines, special articles or not, cut to
+ *  size or not (a special article in a KT profit centre - the connector's rule), and how far it is shipped (the property's
+ *  own options: every line shipped in full, some shipped, none yet). */
+export function lineFacts(lines: Iterable<Pick<ErpLine, "order" | "firstDay" | "artType" | "qty" | "shipped" | "lineType"> & Partial<Pick<ErpLine, "article" | "pc">>>): Map<string, Facts> {
+  const out = new Map<string, { first: string; special: boolean; c2s: boolean; lines: number; full: number; some: number }>();
   for (const l of lines) {
     if (!l.order) continue;
     const b = baseOfNumber(l.order);
-    const x = out.get(b) ?? { first: "", special: false, lines: 0, full: 0, some: 0 };
+    const x = out.get(b) ?? { first: "", special: false, c2s: false, lines: 0, full: 0, some: 0 };
     if (l.firstDay && l.firstDay < "2030-01-01" && (!x.first || l.firstDay < x.first)) x.first = l.firstDay;
-    if (l.artType === "Special") x.special = true;
+    if (isSpecialArticle(l.artType, l.article)) {
+      x.special = true;
+      if ((l.pc ?? "").toUpperCase().includes("KT")) x.c2s = true;
+    }
     if (l.qty != null && l.qty > 0 && (!l.lineType || l.lineType === "Order")) {
       x.lines++;
       if ((l.shipped ?? 0) >= l.qty - 1e-9) x.full++;
@@ -114,7 +130,7 @@ export function lineFacts(lines: Iterable<Pick<ErpLine, "order" | "firstDay" | "
     out.set(b, x);
   }
   return new Map([...out].map(([b, x]) => {
-    const f: Facts = { order_has_special_articles: x.special ? "true" : "false" };
+    const f: Facts = { order_has_special_articles: x.special ? "true" : "false", cuttosize_order: x.c2s ? "true" : "false" };
     if (x.first) f.order_first_confirmed_delivery = x.first;
     if (x.lines) f.order_shipment_status = x.full === x.lines ? "Fully shipped" : x.full || x.some ? "Partially shipped" : "Open";
     return [b, f];
@@ -152,8 +168,10 @@ export class InvoicesSheet {
 }
 
 /**
- * Per delivery: its invoice (the first one not cancelled, else the first), how many there were, and whether every one
- * was cancelled. A delivery invoiced twice keeps the first invoice's date and number - the count says there are more.
+ * Per delivery: its invoice date (the LAST one not cancelled, else the last - as the connector's load wrote it: checked
+ * 08.11.2026 on all 413,008 orders, 359,710 the same, every one of the 203 differences a delivery invoiced several times),
+ * its invoice numbers (all those not cancelled, ";"-joined - the property's own description), how many, and whether every
+ * one was cancelled.
  */
 export function invoiceFacts(rows: Iterable<InvoiceRow>): Map<string, Facts> {
   const by = new Map<string, Map<string, InvoiceRow>>();
@@ -166,12 +184,14 @@ export function invoiceFacts(rows: Iterable<InvoiceRow>): Map<string, Facts> {
   for (const [order, m] of by) {
     const inv = [...m.values()].sort((a, b) => (a.date || "9").localeCompare(b.date || "9") || a.number.localeCompare(b.number));
     const live = inv.filter((r) => r.canceled !== "J");
-    const pick = live[0] ?? inv[0];
-    const f: Facts = { order_invoice_number: clean(pick.number), order_invoice_count: String(inv.length), order_invoice_canceled: live.length ? "N" : "J", order_invoiced_status: live.length ? "invoiced" : "canceled" };
+    const pick = live.length ? live[live.length - 1] : inv[inv.length - 1];
+    const numbers = (live.length ? live : [pick]).map((r) => r.number).join(";");
+    const f: Facts = { order_invoice_number: clean(numbers), order_invoice_count: String(inv.length), order_invoice_canceled: live.length ? "N" : "J", order_invoiced_status: live.length ? "invoiced" : "canceled" };
     if (pick.date && pick.date < "2030-01-01") f.order_invoice_date = pick.date;
     if (pick.booked && pick.booked < "2030-01-01") f.order_invoice_booking_date = pick.booked;
     if (pick.currency) f.order_invoice_currency = clean(pick.currency);
-    if (pick.customerClass) f.order_customer_class = clean(pick.customerClass);
+    const cc = clean(pick.customerClass ?? "").toUpperCase();
+    if (CUSTOMER_CLASSES.has(cc)) f.order_customer_class = cc;
     const withCogs = live.filter((r) => r.cogs != null);
     if (withCogs.length) f.order_cogs_eur = String(Math.round(withCogs.reduce((t, r) => t + (r.cogs ?? 0), 0) * 100) / 100);
     out.set(order, f);
@@ -183,5 +203,40 @@ export function invoiceFacts(rows: Iterable<InvoiceRow>): Map<string, Facts> {
 export function factsFor(num: string, dim: Facts, byBase: Map<string, Facts>, byOrder: Map<string, Facts>): Facts {
   return { ...dim, ...(byBase.get(baseOfNumber(num)) ?? {}), ...(byOrder.get(num) ?? {}) };
 }
+/** the customer's own texts: counted, never shown as examples */
+const PRIVATE = new Set(["order_your_reference", "order_customer_order_nr", "order_delivery_note_nr"]);
+const sameValue = (ours: string, has: string) => {
+  if (ours === has) return true;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(ours) && has.slice(0, 10) === ours) return true; // a date HubSpot gives with its time
+  const a = Number(ours), b = Number(has);
+  return ours.trim() !== "" && has.trim() !== "" && Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.005;
+};
+/**
+ * What the facts would do to the values HubSpot holds today, property by property - the same, filling an empty one, or
+ * changing one (93.5 % of the orders up to June 2026 were filled by the connector's load: a change there is a correction,
+ * or a different rule - SARCLA sees which before anything is written). A few changes as examples, the customer's texts never.
+ */
+export function compareWithHubSpot(items: Iterable<{ order: string; facts: Facts; current: Record<string, string | null | undefined> }>): {
+  by_property: Record<string, { same: number; fills_empty: number; changes: number; kept?: number }>; change_examples: { order: string; property: string; hubspot: string; ours: string }[];
+} {
+  const by: Record<string, { same: number; fills_empty: number; changes: number; kept?: number }> = {};
+  const ex: { order: string; property: string; hubspot: string; ours: string }[] = [];
+  const shown: Record<string, number> = {};
+  for (const it of items) {
+    for (const [k, v] of Object.entries(it.facts)) {
+      const has = (it.current[k] ?? "").trim();
+      const b = (by[k] ??= { same: 0, fills_empty: 0, changes: 0 });
+      if (!has) b.fills_empty++;
+      else if (sameValue(v, has)) b.same++;
+      else if ((FILL_ONLY as readonly string[]).includes(k)) b.kept = (b.kept ?? 0) + 1; // HubSpot's value stays
+      else {
+        b.changes++;
+        if (!PRIVATE.has(k) && ex.length < 16 && (shown[k] ?? 0) < 2) { shown[k] = (shown[k] ?? 0) + 1; ex.push({ order: it.order, property: k, hubspot: has, ours: v }); }
+      }
+    }
+  }
+  return { by_property: by, change_examples: ex };
+}
+
 /** What was written for an order, to write again only what changed: the facts in a fixed order. */
 export const factsHash = (f: Facts) => Object.keys(f).sort().map((k) => `${k}=${f[k]}`).join("\u0001");

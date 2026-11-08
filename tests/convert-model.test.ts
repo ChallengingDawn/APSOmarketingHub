@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  classify, funnelOf, looksByProduct, nameFromRest, parseSitemap, productNumber, rankProblems, sitemapList, sortProblems,
+  classify, storeCase, funnelOf, looksByProduct, nameFromRest, parseSitemap, productNumber, rankProblems, sitemapList, sortProblems,
   typicalRates, type ShopLook,
 } from "../src/lib/convert/model";
 
@@ -125,4 +125,12 @@ test("rankProblems: a product only the shop's record knows is still on the list"
   assert.equal(pages[0].views, 0);
   assert.equal(pages[0].rate, null);
   assert.match(pages[0].reasons[0], /3 of 3 customers .* "left in the cart"/);
+});
+
+test("storeCase: a store code in small letters is written as the shop writes it", () => {
+  assert.equal(storeCase("/de-ch/o-ringe.html"), "/de-CH/o-ringe.html");
+  assert.equal(storeCase("/fr-ch/"), "/fr-CH/");
+  assert.equal(storeCase("/de-ch"), "/de-CH");
+  assert.equal(storeCase("/de-CH/12202510-x.html"), "/de-CH/12202510-x.html");
+  assert.equal(storeCase("/media/x.jpg"), "/media/x.jpg");
 });

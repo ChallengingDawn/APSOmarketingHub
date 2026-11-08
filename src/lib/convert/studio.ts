@@ -7,11 +7,10 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { getPool, query } from "@/lib/db/client";
-import { readPage } from "@/lib/directup/check";
 import { shopGet } from "./assets";
 import { claudeText, getAnthropic } from "@/lib/ai/claude";
 import { buildPageFlow } from "@/lib/journeys/read";
-import { ENVS, classify, type Env, type PageKind } from "./model";
+import { ENVS, classify, storeCase, type Env, type PageKind } from "./model";
 import { outline, type Outline } from "./preview";
 import { validateChanges, type Change } from "./versions";
 
@@ -94,6 +93,7 @@ export function cleanPath(raw: unknown): string | null {
   }
   p = p.split(/[?#]/)[0];
   if (!p.startsWith("/") || p.startsWith("//") || p.length > 400 || /[\s<>"'\\]|\.\.\//.test(p)) return null;
+  p = storeCase(p);
   return classify(p).kind === "system" ? null : p;
 }
 
@@ -104,9 +104,10 @@ export async function shopPage(env: Env, path: string, fresh = false): Promise<S
   const running = INFLIGHT.get(key);
   if (running) return running;
   const url = `${ENVS[env].base}${path}`;
-  const p = readPage(url, 25_000).then((r) => {
+  // shopGet follows the shop's own redirects (an old address, a store view) and never leaves the shop
+  const p = shopGet(url, 25_000, 4_000_000).then((r) => {
     const c = classify(path);
-    const page: ShopPage = { env, path, url, status: r.status, html: r.body.slice(0, 4_000_000), at: Date.now(), kind: c.kind, product: c.product };
+    const page: ShopPage = { env, path, url, status: r.status, html: r.body.toString("utf8").slice(0, 4_000_000), at: Date.now(), kind: c.kind, product: c.product };
     if (r.status === 200) {
       HELD.set(key, page);
       while (HELD.size > MAX_HELD) HELD.delete(HELD.keys().next().value as string);

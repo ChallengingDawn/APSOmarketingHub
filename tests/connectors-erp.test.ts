@@ -345,6 +345,21 @@ test("reader: the KPI LINES sheet - the ERP's order lines for the Back Office's 
   assert.deepEqual([b.company, b.price, b.confDay, b.line], ["110", "manually", "2026-10-08", "10"]);
 }));
 
+test("reader: the invoices may come split over several KPI INVOICES sheets (the history since 2020 passes a sheet's rows)", withDir(async (dir) => {
+  const head = ["[Order]", "[InvoiceNumber]", "[InvoiceDate]", "[BookingDate]", "[InvoiceCanceled]", "[Currency]"];
+  const day = (serial: number) => ({ xml: `<c r="@" s="1"><v>${serial}</v></c>` }); // 43900 = 2020-03-10, 46297 = 2026-10-02
+  const styles = `<styleSheet ${NS.split(" ")[0]}><numFmts><numFmt numFmtId="164" formatCode="dd.mm.yyyy"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>`;
+  const file = join(dir, "revenue_profit_center.xlsx");
+  writeFileSync(file, workbook([
+    ["FIGURES (3)", sheetXml(sheet3(), "A1:V21")],
+    ["KPI INVOICES", sheetXml({ 1: head, 2: ["A26.1.000", "R26-1", day(46297), day(46297), "N", "CHF"] }, "A1:F2")],
+    ["KPI INVOICES 2020-2022", sheetXml({ 1: head, 2: ["A20.5.000", "R20-5", day(43900), day(43900), "N", "EUR"] }, "A1:F2")],
+    ["Notes", sheetXml([["KPI INVOICES is not this one"]], "A1")],
+  ], null, styles));
+  const wb = await readErpWorkbook(file);
+  assert.deepEqual(wb.invoices!.map((r) => [r.order, r.number, r.date]), [["A26.1.000", "R26-1", "2026-10-02"], ["A20.5.000", "R20-5", "2020-03-10"]]);
+}));
+
 test("reader: a file that is not an .xlsx says what it is", withDir(async (dir) => {
   const put = (name: string, data: Buffer | string) => {
     const p = join(dir, name);
