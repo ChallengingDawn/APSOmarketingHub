@@ -480,14 +480,15 @@ export async function shippedAs(testId: string): Promise<Test | null> {
  * exactly the change list that was tested. The test is stopped first (two settings on one page would fight); undo
  * switches the personalisation off and the page is as it was.
  */
-export async function shipToEveryone(testId: string, by: string): Promise<Test> {
+/** `override`: a change list edited after the test (in Content) instead of the tested one - see ./winner.ts. */
+export async function shipToEveryone(testId: string, by: string, override?: Change[]): Promise<Test> {
   const t = await testById(testId);
   if (!t || t.kind !== "test") throw new ConvertError("No such test.", 404);
   if (t.winner !== "b") throw new ConvertError("Only a test the version won can be shipped - decide it first.");
   const prev = await shippedAs(testId);
   if (prev && (prev.status === "running" || prev.status === "paused")) throw new ConvertError(`It is on for everyone already (#${prev.id}).`);
   if (!adminKey()) throw new ConvertError(NO_KEY, 503, ["DIRECTUP_ADMIN_KEY"]);
-  const changes = await changesOf(testId);
+  const changes = override ?? await changesOf(testId);
   if (t.status === "running" || t.status === "paused") await act(testId, "stop", by);
   const r = await query<{ id: string }>(
     `INSERT INTO apsomh_convert_tests (name, kind, version_id, version_rev, changes, idea_id, env, host, pages, allocation, audience, created_by, from_test)

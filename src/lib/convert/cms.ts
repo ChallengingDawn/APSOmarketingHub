@@ -125,7 +125,8 @@ async function changesOf(testId: string): Promise<Change[]> {
 }
 
 /** What a write would do to one page, without writing: the page found in Magento, the changes placed or not. */
-export async function cmsPlan(testId: string, env: Env, path: string, pageId: string | null): Promise<CmsPlan> {
+/** `changes`: a list edited after the test (in Content) instead of the tested one - see ./winner.ts. */
+export async function cmsPlan(testId: string, env: Env, path: string, pageId: string | null, changes?: Change[]): Promise<CmsPlan> {
   await ensureCmsSchema();
   const t = await testById(testId);
   if (!t) throw new ConvertError("No such test.", 404);
@@ -143,18 +144,18 @@ export async function cmsPlan(testId: string, env: Env, path: string, pageId: st
   if (!chosen) return { ...base, candidates, why: `Magento has ${candidates.length} pages called "${target.identifier}" (one per store view) - pick the one to write.` };
   const page = await magento<MagentoPage>(env, `/cmsPage/${encodeURIComponent(chosen)}`);
   const before = String(page.content ?? "");
-  const { content, ...applied } = applyToCms(before, await changesOf(testId), `test-${testId}`);
+  const { content, ...applied } = applyToCms(before, changes ?? await changesOf(testId), `test-${testId}`);
   const why = applied.notPlaced.length ? `${applied.notPlaced.length} of the changes find no place in the page's content (${applied.notPlaced.map((x) => x.why).join("; ")}) - this page goes to dotSource as code.` : null;
   return { ...base, candidates, chosen, applied, sizes: { before: before.length, after: content.length }, canWrite: !why, why };
 }
 
 /** One write, pressed by a person: the page read again, its content kept in a backup row, then the new content. */
-export async function cmsWrite(testId: string, env: Env, path: string, pageId: string, by: string): Promise<{ backupId: string }> {
-  const plan = await cmsPlan(testId, env, path, pageId);
+export async function cmsWrite(testId: string, env: Env, path: string, pageId: string, by: string, changes?: Change[]): Promise<{ backupId: string }> {
+  const plan = await cmsPlan(testId, env, path, pageId, changes);
   if (!plan.canWrite || !plan.chosen) throw new ConvertError(plan.why ?? "This page cannot be written.");
   const page = await magento<MagentoPage>(env, `/cmsPage/${encodeURIComponent(plan.chosen)}`);
   const before = String(page.content ?? "");
-  const { content, notPlaced } = applyToCms(before, await changesOf(testId), `test-${testId}`);
+  const { content, notPlaced } = applyToCms(before, changes ?? await changesOf(testId), `test-${testId}`);
   if (notPlaced.length) throw new ConvertError("The page changed in Magento since it was read - read it again.");
   const ident = plan.target.ok ? plan.target.identifier : String(page.identifier);
   // the backup BEFORE the write

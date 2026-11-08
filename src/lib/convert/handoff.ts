@@ -20,12 +20,15 @@ export function languageOf(path: string): string | null {
   return store ? LANGUAGE[store.slice(0, 2)] ?? null : null;
 }
 
-/** The line a project made from a page carries, so the preview finds it again. */
-export const pageMarker = (env: Env, path: string) => `[APSOconvert page ${env}:${path}]`;
-const MARKER = /\[APSOconvert page (prod|acc):([^\]\s]+)\]/;
-export function markerOf(brief: string | null): { env: Env; path: string } | null {
+/** The line a project made from a page carries, so the preview finds it again - with the test, for a test's winner
+ *  handed to Content to be published there (SARCLA 08.11.2026: "ship should not come from here, content publish should
+ *  go to Content"); Content's page studio then lays exactly the tested change list over the page. */
+export const pageMarker = (env: Env, path: string, testId?: string | null) => `[APSOconvert page ${env}:${path}${testId ? ` test:${testId}` : ""}]`;
+const MARKER = /\[APSOconvert page (prod|acc):([^\]\s]+)(?: test:(\d+))?\]/;
+export function markerOf(brief: string | null): { env: Env; path: string; testId?: string } | null {
   const m = MARKER.exec(brief ?? "");
-  return m ? { env: m[1] as Env, path: m[2] } : null;
+  if (!m) return null;
+  return m[3] ? { env: m[1] as Env, path: m[2], testId: m[3] } : { env: m[1] as Env, path: m[2] };
 }
 
 export type HandoffIdea = { title: string; why: string; change: string; expect: string };
@@ -35,6 +38,8 @@ export type HandoffInput = {
   ideas: HandoffIdea[];
   version: { rev: number; summary: string } | null;
   previewPath: string;
+  /** a test's winner, handed to Content to be published there */
+  test?: { id: string; rateA: number | null; rateB: number | null; uplift: number | null; pB: number | null; visitors: number | null; days: number | null; decidedBy: string | null; decidedAt: string | null } | null;
 };
 
 const pct = (r: number | null | undefined) => (r === null || r === undefined ? "-" : `${(r * 100).toFixed(1)}%`);
@@ -43,18 +48,24 @@ export function projectForPage(x: HandoffInput): { title: string; brief: string;
   const lang = languageOf(x.path);
   const name = (x.h1 || x.title || x.path).replace(/\s+/g, " ").trim();
   const n = x.numbers;
+  const t = x.test ?? null;
+  const signed = (v: number | null) => (v === null ? "-" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`);
   const lines = [
-    `A shop page to improve, from APSOconvert (Website > AI testing & personalization): its numbers say visitors come and do not buy. The texts are written here; the page's layout and the test are done in APSOconvert.`,
+    t
+      ? `A tested winner from APSOconvert (Website > AI testing & personalization), to publish from here: page test #${t.id} showed the version sells better than the page as it is. Look at it laid over the page, adjust it with the AI if needed - a change after the test is marked as not tested - and publish it once approved.`
+      : `A shop page to improve, from APSOconvert (Website > AI testing & personalization): its numbers say visitors come and do not buy. The texts are written here; the page's layout and the test are done in APSOconvert.`,
     `Page: ${name}\n${x.url}${lang ? `\nWrite in ${lang} - the page's store view is ${classify(x.path).store}.` : ""}`,
     n ? `Numbers${n.from ? ` (${n.from} to ${n.to})` : ""}: ${n.views ?? "-"} views, cart rate ${pct(n.rate)} where similar pages make ${pct(n.typical)}${n.companies ? `; ${n.lost ?? 0} of ${n.companies} signed-in customers who opened it did not order${n.topLoss ? `, most stopped at "${n.topLoss}"` : ""}` : ""}.${n.reasons?.length ? `\n${n.reasons.map((r) => `- ${r}`).join("\n")}` : ""}` : null,
     x.ideas.length ? `Approved ideas - what the texts must do:\n${x.ideas.map((i, k) => `${k + 1}. ${i.title}\n   Change: ${i.change}${i.why ? `\n   Why: ${i.why}` : ""}${i.expect ? `\n   Should move: ${i.expect}` : ""}`).join("\n")}` : `No idea approved yet - start from the numbers and the page as it is.`,
+    t ? `Winner of page test #${t.id}: ${pct(t.rateB)} of the visitors who got the version put something in the cart, against ${pct(t.rateA)} for the page as it is (uplift ${signed(t.uplift)}${t.pB !== null ? `, ${Math.round(t.pB * 100)}% sure it is better` : ""})${t.visitors ? `, over ${t.visitors} visitors` : ""}${t.days ? ` and ${t.days} days` : ""}${t.decidedBy ? `; decided by ${t.decidedBy}${t.decidedAt ? ` on ${t.decidedAt.slice(0, 10)}` : ""}` : ""}.` : null,
     x.version ? `The page's new layout (version, revision ${x.version.rev}): ${x.version.summary}` : null,
     `See the page live, with its version beside the original: ${x.previewPath}`,
     `Use only what the page and the product data say: no invented price, stock, delivery time, certificate or approval.`,
     pageMarker(x.env, x.path),
   ].filter(Boolean) as string[];
+  const marker = pageMarker(x.env, x.path, t?.id ?? null);
+  lines[lines.length - 1] = marker;
   let brief = lines.join("\n\n");
-  const marker = pageMarker(x.env, x.path);
   if (brief.length > 6000) brief = `${brief.slice(0, 5900 - marker.length)}…\n\n${marker}`;
-  return { title: `Shop page: ${name}`.slice(0, 200), brief, contentType: contentTypeForPage(x.path) };
+  return { title: `${t ? "Winner" : "Shop page"}: ${name}`.slice(0, 200), brief, contentType: contentTypeForPage(x.path) };
 }

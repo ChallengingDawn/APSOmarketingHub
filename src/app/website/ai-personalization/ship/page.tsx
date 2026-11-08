@@ -18,23 +18,21 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import PublicOutlinedIcon from "@mui/icons-material/PublicOutlined";
-import CodeOutlinedIcon from "@mui/icons-material/CodeOutlined";
 import WebAssetOutlinedIcon from "@mui/icons-material/WebAssetOutlined";
-import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import EditNoteOutlinedIcon from "@mui/icons-material/EditNoteOutlined";
 import EmojiEventsOutlinedIcon from "@mui/icons-material/EmojiEventsOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
-import { ACCENT, CardTitle, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, RED, clip } from "@/app/uc/report/ui";
+import { ACCENT, CardTitle, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, clip } from "@/app/uc/report/ui";
 import { ago } from "@/app/connectors/parts";
 import { Chip } from "@/app/website/ai-personalization/Tag";
 import { ENVS, KIND_LABEL, type Env } from "@/lib/convert/model";
-import { projectForPage } from "@/lib/convert/handoff";
-import type { CmsBackup, CmsPlan } from "@/lib/convert/cms";
+import { markerOf, projectForPage } from "@/lib/convert/handoff";
+import type { CmsBackup } from "@/lib/convert/cms";
 import { convertPost, previewHref } from "../Flow";
 import { PageShot } from "../PageShot";
-import { ConfirmDialog, GatewayNotice, dayTime, envChip, n, pagesLine, pct, signed, type Confirm, type GatewayView, type TestView } from "../TestParts";
+import { ConfirmDialog, GatewayNotice, dayTime, envChip, n, pct, signed, type Confirm, type GatewayView, type TestView } from "../TestParts";
 
 const API = "/api/website/ai-personalization/ship";
 type ListData = { tests: (TestView & { shippedAs: { id: string; status: string } | null })[]; gateway: GatewayView; cms: { acc: boolean; prod: boolean; missing: string[] }; canEdit: boolean };
@@ -52,93 +50,6 @@ type One = {
 };
 const since = (iso: string | null) => (iso ? ago(Date.parse(iso) / 1000) : "–");
 
-function copy(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text).then(() => true, () => false);
-  return Promise.resolve(false);
-}
-
-function CodeBlock({ title, text, empty }: { title: string; text: string; empty: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <Box sx={{ display: "grid", gap: 0.5, minWidth: 0, alignContent: "start" }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, minHeight: 30 }}>
-        <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".04em", flex: 1 }}>{title}</Typography>
-        {text && <Button size="small" startIcon={<ContentCopyOutlinedIcon sx={{ fontSize: 15 }} />} onClick={async () => { setDone(await copy(text)); setTimeout(() => setDone(false), 1800); }}>{done ? "Copied" : "Copy"}</Button>}
-      </Box>
-      {text
-        ? <Box component="pre" sx={{ m: 0, p: 1.25, borderRadius: "10px", bgcolor: "#f6f8fb", border: `1px solid ${HAIRLINE}`, fontSize: "0.72rem", lineHeight: 1.45, color: INK, fontFamily: "ui-monospace, Consolas, monospace", whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 280, overflow: "auto" }}>{text}</Box>
-        : <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{empty}</Typography>}
-    </Box>
-  );
-}
-
-/** Way 3: one CMS page, read in Magento and written on a person's press. */
-function CmsPage({ id, p, cms, canEdit, ask, reload }: { id: string; p: One["pages"][number]; cms: One["cms"]; canEdit: boolean; ask: (c: Confirm) => void; reload: () => void }) {
-  const [plan, setPlan] = useState<CmsPlan | null>(null);
-  const [busy, setBusy] = useState<Env | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const check = async (env: Env, page?: string) => {
-    setBusy(env); setErr(null);
-    try {
-      const r = await fetch(`${API}?id=${id}&plan=${encodeURIComponent(p.path)}&env=${env}${page ? `&page=${page}` : ""}`);
-      const j = (await r.json()) as { ok?: boolean; data?: { plan: CmsPlan }; error?: string };
-      if (j.ok && j.data) setPlan(j.data.plan); else setErr(j.error ?? `The hub answered ${r.status}.`);
-    } catch { setErr("No answer."); }
-    setBusy(null);
-  };
-  if (!p.cms.ok) {
-    return (
-      <Box sx={{ py: 1, borderBottom: `1px solid ${HAIRLINE}` }}>
-        <Typography sx={{ fontSize: "0.82rem", color: INK, ...clip(900) }}>{p.path}</Typography>
-        <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{p.cms.why}</Typography>
-      </Box>
-    );
-  }
-  return (
-    <Box sx={{ py: 1, borderBottom: `1px solid ${HAIRLINE}`, display: "grid", gap: 0.75 }}>
-      <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-        <Box sx={{ minWidth: 0, flex: "1 1 260px" }}>
-          <Typography sx={{ fontSize: "0.82rem", color: INK, ...clip(900) }}>{p.path}</Typography>
-          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>CMS page &quot;{p.cms.identifier}&quot;</Typography>
-        </Box>
-        <Tooltip title={cms.acc ? "Read the page in Magento on ACC and show what the write would do" : (cms.off ?? "")}>
-          <span><Button size="small" disabled={!cms.acc || !canEdit || busy !== null} onClick={() => void check("acc")} startIcon={busy === "acc" ? <CircularProgress size={13} /> : undefined}>Check on ACC</Button></span>
-        </Tooltip>
-        <Tooltip title={cms.prod ? "Production, after the same page was written on ACC" : (cms.off ?? "The production integration (MAGENTO_CMS_PROD) is not set yet")}>
-          <span><Button size="small" disabled={!cms.prod || !canEdit || busy !== null} onClick={() => void check("prod")} startIcon={busy === "prod" ? <CircularProgress size={13} /> : undefined}>Check on production</Button></span>
-        </Tooltip>
-      </Box>
-      {err && <Typography sx={{ fontSize: "0.78rem", color: RED }}>{err}</Typography>}
-      {plan && (
-        <Box sx={{ p: 1.25, borderRadius: "10px", bgcolor: "rgba(36,89,209,.04)", border: `1px solid ${HAIRLINE}`, display: "grid", gap: 0.75 }}>
-          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK }}>{ENVS[plan.env].label}{plan.applied ? ` · ${plan.applied.placed.length} ${plan.applied.placed.length === 1 ? "change" : "changes"} placed${plan.applied.css ? " + the styles" : ""}` : ""}{plan.sizes ? ` · ${n(plan.sizes.before)} → ${n(plan.sizes.after)} characters` : ""}</Typography>
-          {plan.why && <Typography sx={{ fontSize: "0.8rem", color: plan.canWrite ? MUTED : RED }}>{plan.why}</Typography>}
-          {plan.applied?.placed.some((x) => x.via) && <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Some changes were placed inside the page&apos;s content without the shop page&apos;s outer frame ({plan.applied.placed.filter((x) => x.via).map((x) => x.via).join(", ")}).</Typography>}
-          {plan.candidates.length > 1 && (
-            <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-              {plan.candidates.map((c) => <Button key={c.id} size="small" variant={plan.chosen === c.id ? "contained" : "outlined"} disableElevation onClick={() => void check(plan.env, c.id)}>#{c.id} · store {c.stores.join(",") || "all"}</Button>)}
-            </Box>
-          )}
-          {plan.canWrite && plan.chosen && (
-            <Box>
-              <Button size="small" variant="contained" disableElevation onClick={() => ask({
-                title: `Write it into Magento on ${ENVS[plan.env].label}?`,
-                lines: [<>The CMS page &quot;{p.cms.ok ? p.cms.identifier : ""}&quot; (#{plan.chosen}) gets the version&apos;s changes, as tested.</>, "Its content as it is now is kept as a backup first - it can be put back from this page.", plan.env === "acc" ? "ACC first: check the page there before production." : "Production: the shop's visitors see it as soon as Magento's cache is refreshed."],
-                go: `Write on ${ENVS[plan.env].label}`,
-                run: async () => {
-                  const r = await convertPost<{ backupId: string }>(API, { action: "cms-write", id, env: plan.env, path: p.path, pageId: plan.chosen });
-                  if (!r.ok) { setErr(r.error); return true; }
-                  setPlan(null); reload(); return true;
-                },
-              })}>Write on {ENVS[plan.env].label}</Button>
-            </Box>
-          )}
-        </Box>
-      )}
-    </Box>
-  );
-}
-
 function ShipOne({ id, onChanged }: { id: string; onChanged: () => void }) {
   const router = useRouter();
   const [tick, setTick] = useState(0);
@@ -149,6 +60,16 @@ function ShipOne({ id, onChanged }: { id: string; onChanged: () => void }) {
   const [err, setErr] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const reload = () => { setTick((x) => x + 1); onChanged(); };
+  const [project, setProject] = useState<{ id: number; type: string } | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch("/api/content/projects?scope=visible").then((x) => x.json()).then((j: { ok?: boolean; projects?: { id: number; brief: string | null; content_type?: string; contentType?: string }[] }) => {
+      if (!live || !j.ok) return;
+      const mine = (j.projects ?? []).find((p) => markerOf(p.brief)?.testId === id);
+      setProject(mine ? { id: mine.id, type: mine.content_type ?? mine.contentType ?? "page-refresh" } : null);
+    }).catch(() => { /* no Content access: no link */ });
+    return () => { live = false; };
+  }, [id, tick]);
   if (r === null) return <LoadingPanel label="Reading the test, its code and its pages…" />;
   if (r.state !== "ok") return <UpstreamPanel source="Ship" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? (r.status ?? null) : null} onRetry={() => setTick((x) => x + 1)} />;
   const d = r.data;
@@ -164,6 +85,7 @@ function ShipOne({ id, onChanged }: { id: string; onChanged: () => void }) {
       ideas: d.idea ? [{ title: d.idea.title, why: d.idea.why, change: d.idea.change, expect: d.idea.expect }] : [],
       version: { rev: t.versionRev, summary: `${d.code.changes} changes; it won its test${f ? ` (${pct(f.rateB, 1)} against ${pct(f.rateA, 1)} put something in the cart)` : ""}` },
       previewPath: `${window.location.origin}${previewHref(t.env, t.pages[0], t.ideaId ?? undefined)}`,
+      test: { id: t.id, rateA: f?.rateA ?? null, rateB: f?.rateB ?? null, uplift: f?.uplift.mid ?? null, pB: f?.pB ?? null, visitors: f ? f.visitors.a + f.visitors.b : null, days: f?.days ?? null, decidedBy: t.decidedBy, decidedAt: t.decidedAt },
     });
     try {
       const res = await fetch("/api/content/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
@@ -187,71 +109,56 @@ function ShipOne({ id, onChanged }: { id: string; onChanged: () => void }) {
         <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", mt: 1.25 }}>
           <Button size="small" component={Link} href={`/website/ai-personalization/tests/${t.id}`}>The test</Button>
           <Button size="small" component={Link} href={previewHref(t.env, t.pages[0], t.ideaId ?? undefined)}>See it</Button>
-          {d.canContent
-            ? <Button size="small" disabled={sending} onClick={() => void toContent()} startIcon={sending ? <CircularProgress size={13} /> : <EditNoteOutlinedIcon sx={{ fontSize: 17 }} />}>Send the texts to Content</Button>
-            : <Tooltip title="Content Studio needs the Marketing access"><span><Button size="small" disabled>Send the texts to Content</Button></span></Tooltip>}
           {d.canEdit && t.winner === null && (
             <Button size="small" variant="contained" color="success" disableElevation onClick={() => setConfirm({
-              title: "End the test: the version won?", lines: ["The test stops - every visitor sees the page as it is until it is shipped one of the three ways below."], go: "The version won",
+              title: "End the test: the version won?", lines: ["The test stops - every visitor sees the page as it is until it is published from Content."], go: "The version won",
               run: () => post({ action: "decide" }),
             })}>Decide: the version won</Button>
           )}
         </Box>
       </GlassCard>
 
-      <GlassCard>
-        <CardTitle icon={<PublicOutlinedIcon />} tint="green" title="1 · Keep it on for everyone" note="At once, on the shop's gateway, on the test's pages - undone with one press" />
-        {live ? (
-          <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-            <Typography sx={{ fontSize: "0.86rem", color: INK, flex: "1 1 300px" }}>On for everyone on {t.host} since {dayTime(d.shippedAs!.startedAt)}{d.shippedAs!.startedBy ? ` (${d.shippedAs!.startedBy})` : ""} - <Box component={Link} href="/website/ai-personalization/personalise" sx={{ color: ACCENT }}>personalisation #{d.shippedAs!.id}</Box>.</Typography>
-            {d.canEdit && <Button size="small" color="error" onClick={() => setConfirm({ title: "Undo: switch it off for everyone?", lines: ["Everyone sees the page as it is again, at once."], go: "Undo", tone: "stop", run: () => post({ action: "undo" }) })}>Undo</Button>}
-          </Box>
-        ) : (
-          <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-            <Typography sx={{ fontSize: "0.84rem", color: MUTED, flex: "1 1 300px" }}>Until dotSource has built it in, every visitor (with statistics consent) can get the version - exactly the change list that won.</Typography>
-            {d.canEdit && (
-              <Button size="small" variant="contained" disableElevation disabled={t.winner !== "b" || !d.gateway.configured} onClick={() => setConfirm({
-                title: `Keep it on for everyone on ${ENVS[t.env].label}?`,
-                lines: [<>The version (rev {t.versionRev}) goes live for <b>everyone</b> on {t.host}:</>, pagesLine(t.host, t.pages), "This is the approval: the shop's gateway runs it within a minute. Undo it here any time."],
-                go: "Keep it on for everyone", run: () => post({ action: "everyone" }),
-              })}>Keep it on for everyone</Button>
-            )}
-          </Box>
-        )}
-        {t.winner !== "b" && <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.75 }}>Decide the test first (above).</Typography>}
-      </GlassCard>
-
-      <GlassCard>
-        <CardTitle icon={<CodeOutlinedIcon />} tint="blue" title="2 · The code for dotSource" note={t.pageKind === "product" || t.pageKind === "category" ? "Product and category pages are the theme's code: this is how the winner gets in for good" : "What the theme needs to keep the change for good"}
-          right={d.canEdit ? <Button size="small" onClick={() => setConfirm({ title: "Mark it as sent to dotSource?", lines: ["Written down in the test's history - nothing else changes."], go: "Mark as sent", run: () => post({ action: "handed" }) })}>Mark as sent</Button> : undefined} />
-        <Box sx={{ display: "grid", gap: 1.75 }}>
-          <CodeBlock title="What changes and why" text={d.code.description} empty="" />
-          <Box sx={{ display: "grid", gap: 1.75, alignItems: "start", gridTemplateColumns: { xs: "minmax(0,1fr)", lg: "minmax(0,1fr) minmax(0,1fr)" } }}>
-            <CodeBlock title="CSS" text={d.code.css} empty="No style in this version." />
-            <CodeBlock title="JavaScript (ES5)" text={d.code.js} empty="No element change - the CSS is all." />
-          </Box>
+      {/* PUBLISHED FROM CONTENT (SARCLA 08.11.2026: "Ship should not come from here; content publish should go to Content,
+          where we should be able to visualise, even slightly edit with AI recommendations") - src/lib/convert/winner.ts */}
+      <GlassCard sx={{ borderLeft: `3px solid ${GREEN}` }}>
+        <CardTitle icon={<EditNoteOutlinedIcon />} tint="green" title="Publish it from Content"
+          note="Content shows the winner laid over the page, lets you adjust it with the AI - a change after the test is marked as not tested - and publishes it once approved" />
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", mt: 1.25 }}>
+          {project
+            ? <Button variant="contained" disableElevation component={Link} href={`/create?project=${project.id}&type=${project.type}`} startIcon={<EditNoteOutlinedIcon sx={{ fontSize: 18 }} />} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>Open it in Content</Button>
+            : d.canContent
+              ? <Button variant="contained" disableElevation disabled={sending || t.winner !== "b"} onClick={() => void toContent()} startIcon={sending ? <CircularProgress size={14} sx={{ color: "inherit" }} /> : <EditNoteOutlinedIcon sx={{ fontSize: 18 }} />} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>Hand it over to Content</Button>
+              : <Tooltip title="Content Studio needs the Marketing access"><span><Button variant="contained" disabled>Hand it over to Content</Button></span></Tooltip>}
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED, flex: "1 1 280px" }}>
+            {t.winner !== "b" ? "Decide the test first (above) - only a winner goes to Content." : project ? `In Content as project #${project.id}.` : "One project per winner: its figures, its change list and the page come along."}
+          </Typography>
         </Box>
       </GlassCard>
 
-      <GlassCard>
-        <CardTitle icon={<WebAssetOutlinedIcon />} tint="amber" title="3 · Write it into Magento" note="CMS pages only - ACC first, a backup before every write, one page and one press at a time" />
-        {d.cms.off && <Box sx={{ mb: 1 }}><Notice tone="warn">{d.cms.off}</Notice></Box>}
-        {d.pages.map((p) => <CmsPage key={p.path} id={id} p={p} cms={d.cms} canEdit={d.canEdit && t.winner === "b"} ask={setConfirm} reload={reload} />)}
-        {d.backups.length > 0 && (
-          <Box sx={{ mt: 1.5 }}>
-            <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".04em", mb: 0.5 }}>Backups</Typography>
-            {d.backups.map((b) => (
-              <Box key={b.id} sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", py: 0.5, borderBottom: `1px solid ${HAIRLINE}` }}>
-                <Typography sx={{ fontSize: "0.78rem", color: INK, flex: "1 1 280px" }}>#{b.id} · {ENVS[b.env].label} · &quot;{b.identifier}&quot; · {b.kind === "restore" ? "put back" : "written"} {dayTime(b.at)} by {b.by ?? "–"}{b.error ? ` · failed: ${b.error}` : b.written ? "" : " · not written"}</Typography>
-                {d.canEdit && b.written && b.kind === "write" && (
-                  <Button size="small" onClick={() => setConfirm({ title: "Put the page back as it was?", lines: [`The CMS page "${b.identifier}" on ${ENVS[b.env].label} gets its content from before backup #${b.id}. Its content now is backed up first.`], go: "Put it back", tone: "stop",
-                    run: async () => { const x = await convertPost(API, { action: "cms-restore", backupId: b.id }); if (!x.ok) setErr(x.error); reload(); return true; } })}>Put it back</Button>
-                )}
-              </Box>
-            ))}
+      {live && (
+        <GlassCard>
+          <CardTitle icon={<PublicOutlinedIcon />} tint="purple" title="On for everyone" note="Through the shop's gateway, on the test's pages" />
+          <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+            <Typography sx={{ fontSize: "0.86rem", color: INK, flex: "1 1 300px" }}>On for everyone on {t.host} since {dayTime(d.shippedAs!.startedAt)}{d.shippedAs!.startedBy ? ` (${d.shippedAs!.startedBy})` : ""} - <Box component={Link} href="/website/ai-personalization/personalise" sx={{ color: ACCENT }}>personalisation #{d.shippedAs!.id}</Box>.</Typography>
+            {d.canEdit && <Button size="small" color="error" onClick={() => setConfirm({ title: "Switch it off for everyone?", lines: ["Everyone sees the page as it is again, at once."], go: "Switch off", tone: "stop", run: () => post({ action: "undo" }) })}>Switch off</Button>}
           </Box>
-        )}
-      </GlassCard>
+        </GlassCard>
+      )}
+
+      {d.backups.length > 0 && (
+        <GlassCard>
+          <CardTitle icon={<WebAssetOutlinedIcon />} tint="amber" title="Written into Magento" note="Every write kept its backup - a page can be put back as it was" />
+          {d.backups.map((b) => (
+            <Box key={b.id} sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", py: 0.5, borderBottom: `1px solid ${HAIRLINE}` }}>
+              <Typography sx={{ fontSize: "0.78rem", color: INK, flex: "1 1 280px" }}>#{b.id} · {ENVS[b.env].label} · &quot;{b.identifier}&quot; · {b.kind === "restore" ? "put back" : "written"} {dayTime(b.at)} by {b.by ?? "–"}{b.error ? ` · failed: ${b.error}` : b.written ? "" : " · not written"}</Typography>
+              {d.canEdit && b.written && b.kind === "write" && (
+                <Button size="small" onClick={() => setConfirm({ title: "Put the page back as it was?", lines: [`The CMS page "${b.identifier}" on ${ENVS[b.env].label} gets its content from before backup #${b.id}. Its content now is backed up first.`], go: "Put it back", tone: "stop",
+                  run: async () => { const x = await convertPost(API, { action: "cms-restore", backupId: b.id }); if (!x.ok) setErr(x.error); reload(); return true; } })}>Put it back</Button>
+              )}
+            </Box>
+          ))}
+        </GlassCard>
+      )}
       <ConfirmDialog c={confirm} onClose={() => setConfirm(null)} />
     </Box>
   );
@@ -324,7 +231,7 @@ export default function Ship() {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
         title="Ship"
-        subtitle="The versions that won their test: on for everyone, as code for dotSource, or written into a Magento CMS page"
+        subtitle="The versions that won their test - handed to Content, where they are seen on the page, adjusted with the AI and published"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}

@@ -270,3 +270,19 @@ test("stillPage: a page's still picture runs nothing and says nothing about Java
   assert.match(out, /<style data-apso-still>[^<]*<\/style><\/head>/);
   assert.match(out, /<main id="maincontent"><h1>Seite<\/h1><\/main>/);
 });
+
+test("handoff: a test's winner carries its test in the marker and a Winner line in the brief", async () => {
+  const { markerOf, pageMarker, projectForPage } = await import("../src/lib/convert/handoff");
+  assert.equal(pageMarker("prod", "/de-CH/x.html", "12"), "[APSOconvert page prod:/de-CH/x.html test:12]");
+  assert.deepEqual(markerOf("…\n[APSOconvert page prod:/de-CH/x.html test:12]"), { env: "prod", path: "/de-CH/x.html", testId: "12" });
+  assert.deepEqual(markerOf("[APSOconvert page acc:/de-CH/y.html]"), { env: "acc", path: "/de-CH/y.html" });
+  const p = projectForPage({
+    env: "prod", path: "/de-CH/12202510-maschinenfuss.html", url: "https://www.apsoparts.com/de-CH/12202510-maschinenfuss.html", h1: "Maschinenfuss", title: "",
+    numbers: null, ideas: [], version: { rev: 2, summary: "Article table first" }, previewPath: "/website/ai-personalization/preview",
+    test: { id: "7", rateA: 0.03, rateB: 0.042, uplift: 0.4, pB: 0.97, visitors: 1200, days: 15, decidedBy: "Claudio Saraiva", decidedAt: "2026-11-20T10:00:00Z" },
+  });
+  assert.match(p.title, /^Winner: Maschinenfuss/);
+  assert.match(p.brief, /Winner of page test #7: 4\.2% .* against 3\.0% .*uplift \+40\.0%, 97% sure/);
+  assert.ok(p.brief.endsWith("[APSOconvert page prod:/de-CH/12202510-maschinenfuss.html test:7]"));
+  assert.equal(markerOf(p.brief)?.testId, "7");
+});
