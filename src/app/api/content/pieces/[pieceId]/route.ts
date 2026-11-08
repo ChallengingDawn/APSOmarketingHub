@@ -18,6 +18,7 @@ import { KIND_DEFS } from "@/lib/content/studio/registry";
 import { docOrNew, readDoc, saveOps, saveVersion, studioVersions } from "@/lib/content/studio/store";
 import type { StudioCtx } from "@/lib/content/studio/contract";
 import { describeIntegrationError } from "@/lib/integrations/status";
+import { keepAlive } from "@/lib/http/keepAlive";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,6 +105,14 @@ export async function POST(req: NextRequest, c: { params: Promise<{ pieceId: str
     return NextResponse.json({ ok: true, id });
   }
 
+  // the slow ones (an AI writing, HubSpot, a picture...) are kept alive past the load balancer's 60 s (lib/http/keepAlive)
+  if (action === "ai" || action === "act") return keepAlive(() => slowAction(o, action, b, input));
+  return fail(`Unknown action "${action}".`);
+}
+
+type Opened = Exclude<Awaited<ReturnType<typeof open>>, { error: unknown }>;
+
+async function slowAction(o: Opened, action: string, b: Record<string, unknown>, input: Record<string, unknown>): Promise<Response> {
   if (action === "ai") {
     const task = o.def.tasks[String(b.task ?? "")];
     if (!task) return fail("This studio has no such AI task.");
@@ -116,7 +125,7 @@ export async function POST(req: NextRequest, c: { params: Promise<{ pieceId: str
       const system = `${brandSystemPrompt(brain, o.def.channel)}\n\n${task.system}`;
       const r = await claudeText({
         client, system: [{ type: "text", text: system }], user: task.user(o.ctx, stored?.doc, input),
-        budget: { maxTokens: task.maxTokens ?? 4000, effort: "low" }, outputFormat: { type: "json_schema", schema: task.schema },
+        budget: { maxTokens: task.maxTokens ?? 4000, effort: task.effort ?? ((task.maxTokens ?? 4000) >= 12_000 ? "medium" : "low") }, outputFormat: { type: "json_schema", schema: task.schema },
       });
       if (!r.ok) return fail(r.failure.error, r.failure.status);
       let raw: unknown;
