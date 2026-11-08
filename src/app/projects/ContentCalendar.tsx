@@ -63,6 +63,11 @@ export default function ContentCalendar() {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() + 1 };
   });
+  // a studio's "Open the calendar" sends the to-do's day (?day=2026-12-03): open on its month
+  useEffect(() => {
+    const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(new URLSearchParams(window.location.search).get("day") ?? "");
+    if (m) setAt({ year: Number(m[1]), month: Number(m[2]) });
+  }, []);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [pieces, setPieces] = useState<DatedPiece[]>([]);
   const [dragging, setDragging] = useState<Drag>(null);
