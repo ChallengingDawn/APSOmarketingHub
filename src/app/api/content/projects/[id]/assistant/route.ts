@@ -6,6 +6,7 @@
 //        { action: "dismiss", turnId } refuse it, on the record
 
 import { NextRequest, NextResponse } from "next/server";
+import { getContent, updateContent } from "@/lib/content";
 import { requireUser } from "@/lib/auth/guard";
 import { getAnthropic, channelBudget, claudeText } from "@/lib/ai/claude";
 import {
@@ -16,7 +17,13 @@ import { addVariant, getProject } from "@/lib/content/projects";
 import { readBrain } from "@/lib/brain";
 import { generateApsoImage } from "@/lib/images";
 import { buildImagePrompt } from "@/lib/imagePrompt";
-import { query } from "@/lib/db/client";
+
+/** A change to a version the way every editor makes one: its revision moves, the old one is kept in its history. */
+async function versioned(id: number, edit: { body?: string; imageUrl?: string }, by: string) {
+  const cur = await getContent(id);
+  if (!cur) return null;
+  return updateContent(id, { expectedRevision: cur.revision, ...edit }, by);
+}
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -159,10 +166,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
           { status: 409 },
         );
       }
-      await query(
-        `UPDATE apsomh_content SET body = $2, updated_by = $3, updated_at = NOW() WHERE id = $1`,
-        [target.id, next, me.username],
-      );
+      // through the versioned update: a revision, the old text kept in the history, a stale editor told (08.11.2026)
+      if (!(await versioned(target.id, { body: next }, me.username))) {
+        return NextResponse.json({ ok: false, error: "That version changed meanwhile - ask again." }, { status: 409 });
+      }
       await decideTurn(turnId, "accepted", me.username);
       return NextResponse.json({ ok: true, variantId: target.id });
     }
@@ -207,11 +214,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const target =
       found?.variants.find((v) => v.id === found.project.chosenVariantId) ??
       found?.variants[found.variants.length - 1];
-    if (target) {
-      await query(
-        `UPDATE apsomh_content SET image_url = $2, updated_by = $3, updated_at = NOW() WHERE id = $1`,
-        [target.id, drawn.dataUrl, me.username],
-      );
+    if (target && !(await versioned(target.id, { imageUrl: drawn.dataUrl }, me.username))) {
+      return NextResponse.json({ ok: false, error: "That version changed meanwhile - ask again." }, { status: 409 });
     }
 
     await decideTurn(turnId, "accepted", me.username);

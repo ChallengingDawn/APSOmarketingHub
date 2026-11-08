@@ -259,7 +259,9 @@ export default function EditorShell({
                 itemId={itemId}
                 initialImage={item?.imageUrl}
                 initialDocument={pages[activePage] ?? item?.designDocument}
-                initialRevision={item?.revision}
+                // the newest revision, not the one the page loaded with: a page operation saves too, and the canvas's
+                // next save would otherwise be refused as a conflict
+                initialRevision={revision || item?.revision}
                 initialTemplateId={templateId}
                 chromeHosts={{ actions: actionsHost, selection: selectionHost }}
                 toolsContainer={toolsHost}
@@ -270,12 +272,11 @@ export default function EditorShell({
                   setRevision(rev);
                   revisionRef.current = rev;
                   liveDoc.current = doc;
-                  setPages((cur) => {
-                    if (cur.length === 0) return [doc];
-                    const next = cur.slice();
-                    next[activePage] = doc;
-                    return next;
-                  });
+                  const next = pages.length === 0 ? [doc] : pages.map((p, i) => (i === activePage ? doc : p));
+                  setPages(next);
+                  // the page just saved goes into the stored list too: "Save design" stores the page on its own, and a
+                  // reload of a piece with several pages brought back the list as it was at the last page operation
+                  if (next.length > 1) void persistPages(next);
                 }}
               />
             )}

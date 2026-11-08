@@ -72,7 +72,8 @@ export default function AppShell({ children, sandbox = false }: { children: Reac
   // The canvas page runs the window itself: its own 48px app rail, title bar,
   // work rail and inspector. A 300px drawer beside all that is the hub's
   // navigation sitting on top of the work's own (SARCLA, 18.10.2026).
-  const isCanvas = matchPrefix(pathname, "/editor");
+  // a to-do's studio runs the whole window too, its own bar on top (08.11.2026)
+  const isCanvas = matchPrefix(pathname, "/editor") || /^\/projects\/\d+\/pieces\/\d+/.test(pathname ?? "");
   const isFullBleed = pathname === "/personality" || isCanvas;
   // The action plan is an application of its own and wants the whole width for its Gantt (SARCLA 01.11.2026: "full
   // width to see everything"; "its own application, different from the others"): no panel, the hub's bar on top.
