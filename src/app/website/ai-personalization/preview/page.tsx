@@ -627,6 +627,7 @@ function ConvertPreview() {
             )}
             <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
               <ToContent data={data} numbers={numbers} ideas={ideas} version={version} />
+              <Button size="small" href={`/website/journeys/page?path=${encodeURIComponent(data.path)}`} sx={{ textTransform: "none" }}>Its visitors' flow</Button>
               <Button size="small" onClick={() => router.push("/website/ai-personalization/preview")}>Other page</Button>
               {pg.url && <Tooltip title="Open on the shop"><IconButton size="small" component="a" href={pg.url} target="_blank" rel="noopener"><OpenInNewIcon sx={{ fontSize: 17, color: MUTED }} /></IconButton></Tooltip>}
             </Box>

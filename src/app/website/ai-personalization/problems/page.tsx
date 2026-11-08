@@ -342,6 +342,8 @@ export default function ConvertProblems() {
                         {p.kind === "product" ? `${p.product} · ${p.paths.length} ${p.paths.length === 1 ? "language" : "languages"}` : p.path}
                         {" · "}
                         <Box component={Link} href={previewHref("prod", p.path)} onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ color: ACCENT, fontWeight: 700, textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>Preview</Box>
+                        {" · "}
+                        <Box component={Link} href={`/website/journeys/page?path=${encodeURIComponent(p.path)}`} onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ color: ACCENT, fontWeight: 700, textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>Flow</Box>
                       </Typography>
                     </TableCell>
                     <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><Chip tint={p.kind === "product" ? "green" : p.kind === "category" ? "blue" : p.kind === "home" ? "purple" : "amber"}>{KIND_LABEL[p.kind]}</Chip></TableCell>
