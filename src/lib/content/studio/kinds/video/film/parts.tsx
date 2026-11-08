@@ -63,7 +63,7 @@ export const Rise: React.FC<{ block: Block; weight?: number; color?: string; lh?
           {line.map((w, wi) => {
             const u = clamp(t(k++));
             return (
-              <span key={wi} style={{ display: "inline-block", overflow: "hidden", verticalAlign: "top", paddingBottom: fs * 0.1, marginBottom: -fs * 0.1, marginRight: wi < line.length - 1 ? `${gap.toFixed(3)}em` : 0 }}>
+              <span key={wi} style={{ display: "inline-block", overflow: "hidden", verticalAlign: "top", paddingBottom: fs * 0.1, marginBottom: -fs * 0.1, marginRight: w.space && wi < line.length - 1 ? `${gap.toFixed(3)}em` : 0 }}>
                 <span style={{ display: "inline-block", color: tint(w.red, color), transform: `translateY(${((1 - u) * 112).toFixed(2)}%) rotate(${((1 - u) * 7).toFixed(2)}deg)`, transformOrigin: "0 100%" }}>{w.t}</span>
               </span>
             );
@@ -86,7 +86,7 @@ export const Unblur: React.FC<{ block: Block; weight?: number; color?: string; l
             return (
               <React.Fragment key={wi}>
                 <span style={{ display: "inline-block", color: tint(w.red, color), opacity: u, transform: `translateY(${((1 - u) * 0.4).toFixed(3)}em)`, filter: u < 1 ? `blur(${((1 - u) * 9).toFixed(1)}px)` : undefined }}>{w.t}</span>
-                {wi < line.length - 1 ? " " : null}
+                {w.space && wi < line.length - 1 ? " " : null}
               </React.Fragment>
             );
           })}
@@ -102,7 +102,7 @@ export const Colored: React.FC<{ line: Line; color?: string }> = ({ line, color 
     {line.map((w, i) => (
       <span key={i} style={{ color: tint(w.red, color) }}>
         {w.t}
-        {i < line.length - 1 ? " " : ""}
+        {w.space && i < line.length - 1 ? " " : ""}
       </span>
     ))}
   </>

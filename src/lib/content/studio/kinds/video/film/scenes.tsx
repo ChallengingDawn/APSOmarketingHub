@@ -185,7 +185,7 @@ export const StepsScene: React.FC<SceneProps> = ({ s, L, dur }) => {
         const tickT = dur > BAR ? clamp((f - (BAR + i * BEAT)) / 12) : 0;
         const b = blocks[i];
         return shown ? (
-          <div key={i} style={{ ...card, position: "absolute", left: c.x, top: c.y, width: c.w, height: c.h, boxSizing: "border-box", padding: pad, display: "flex", flexDirection: S.row ? "column" : "row", alignItems: S.row ? "flex-start" : "center", gap: S.row ? numFs * 0.15 : pad,
+          <div key={i} style={{ ...card, position: "absolute", left: c.x, top: c.y, width: c.w, height: c.h, boxSizing: "border-box", padding: pad, display: "flex", flexDirection: S.row ? "column" : "row", alignItems: S.row ? "flex-start" : "center", justifyContent: S.row ? "space-between" : "flex-start", gap: S.row ? numFs * 0.15 : pad,
             transformOrigin: "50% 100%", opacity: clamp((f - (land(i) - 10)) / 3), transform: `translateY(${(-d.y).toFixed(1)}px) rotate(${((1 - p(f, land(i) - 10, 16)) * (i % 2 ? 5 : -5)).toFixed(2)}deg) scale(${(1 + 0.05 * d.squash).toFixed(3)}, ${(1 - 0.06 * d.squash).toFixed(3)})` }}>
             <div style={{ font: `${BOLD} ${numFs}px/1 ${FONT}`, color: B.red, minWidth: numFs * 0.8 }}>{i + 1}</div>
             <div style={{ font: `${BOLD} ${b.fs}px/1.1 ${FONT}`, color: B.ink }}>
@@ -266,16 +266,19 @@ export const QuoteScene: React.FC<SceneProps> = ({ s, L, dur }) => {
   const m = spring({ frame: f - 2, fps: FPS, config: { damping: 11, stiffness: 140, mass: 1 } });
   const u = clamp(f / dur);
   const bh = blockH(block, lh);
+  const textTop = Q.text.y + (Q.text.h - bh) / 2;
+  // the mark sits just over the words, wherever they start
+  const markTop = Math.max(Q.mark.y, textTop - Q.mark.h * 0.62);
   return (
     <Camera z={1 + 0.05 * EASE_IO(u)} rx={lerp(2, 0, EASE(u))}>
-      <div style={{ position: "absolute", left: Q.mark.x, top: Q.mark.y, font: `${BOLD} ${Q.mark.h}px/1 ${FONT}`, color: B.red, height: Q.mark.h * 0.62, overflow: "visible", opacity: clamp(m * 3),
+      <div style={{ position: "absolute", left: Q.mark.x, top: markTop, font: `${BOLD} ${Q.mark.h}px/1 ${FONT}`, color: B.red, height: Q.mark.h * 0.62, overflow: "visible", opacity: clamp(m * 3),
         transformOrigin: "30% 40%", transform: `translateY(${((1 - m) * -140).toFixed(1)}px) rotate(${((1 - m) * -30).toFixed(2)}deg) scale(${(0.5 + 0.5 * m).toFixed(3)})` }}>“</div>
-      <div style={{ position: "absolute", left: Q.text.x, top: Q.text.y + (Q.text.h - bh) / 2, width: 6, height: bh * p(f, 6, 30, EASE_IO), background: B.red, borderRadius: 3 }} />
-      <div style={{ position: "absolute", left: Q.text.x + indent, top: Q.text.y + (Q.text.h - bh) / 2, width: Q.text.w - indent }}>
+      <div style={{ position: "absolute", left: Q.text.x, top: textTop, width: 6, height: bh * p(f, 6, 30, EASE_IO), background: B.red, borderRadius: 3 }} />
+      <div style={{ position: "absolute", left: Q.text.x + indent, top: textTop, width: Q.text.w - indent }}>
         <Unblur block={block} lh={lh} t={(i) => p(f, start + i * stagger, 12)} />
       </div>
       {who && (
-        <div style={{ position: "absolute", left: Q.who.x + indent, top: Q.who.y, font: `${REG} ${whoFs}px/1.2 ${FONT}`, color: B.petrol, whiteSpace: "nowrap", opacity: p(f, whoAt, 14), transform: `translateX(${((1 - p(f, whoAt, 18)) * -40).toFixed(1)}px)` }}>— {who}</div>
+        <div style={{ position: "absolute", left: Q.who.x + indent, top: Math.min(Q.who.y, textTop + bh + whoFs * 0.9), font: `${REG} ${whoFs}px/1.2 ${FONT}`, color: B.petrol, whiteSpace: "nowrap", opacity: p(f, whoAt, 14), transform: `translateX(${((1 - p(f, whoAt, 18)) * -40).toFixed(1)}px)` }}>— {who}</div>
       )}
     </Camera>
   );
