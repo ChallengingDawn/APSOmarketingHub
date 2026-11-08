@@ -2,7 +2,11 @@
 // be amazing"; "we have to be careful with purchasing price unit"; "did you have also the euro and the USD and the unit").
 // HubSpot's "Products & Pricing" records (object 2-200042439, one per article_number) get, from the ERP's BI model (the
 // morning workbook's sheet "KPI ARTICLES", one row per article), ONLY what no other step writes - one writer per property:
-//   unit_cost_chf (+ currency)        the GWStdP: the stock step (stock_load) owns it whenever that step is live
+//   unit_cost_chf                     the GWStdP in CHF: the stock step (stock_load) owns it whenever that step is live; ONLY
+//                                     where HubSpot has none until SARCLA has confirmed the source (08.11.2026: of 115,644
+//                                     articles holding one, only 31,461 within 10 % of the cube's - median HubSpot/cube 1.13)
+//   NOT currency: HubSpot's "currency" sits beside a CHF price - 105,000 articles say CHF where the lead currency is EUR,
+//   and writing the lead currency there would make their CHF price read as euros (PricingHub keeps it as the price's currency)
 //   unit_cost_eur, unit_cost_usd      the same cost in EUR / USD - written only once HubSpot has such a property
 //   stock_unit                        the unit the cost is per - ONLY where it does not move who writes the stock (below)
 //   article_status                    Liquidation / Running Article (DirectUP and the search bar show it to customers)
@@ -58,7 +62,9 @@ const COLS = ["article", "inliquidation", "gwstdpcurrency", "gwstdpchf", "gwstdp
 export type ArticleRow = Record<(typeof COLS)[number], string>;
 
 /** the properties written, in a fixed order - an article's facts are kept packed in it */
-export const PRODUCT_KEYS = ["unit_cost_chf", "unit_cost_eur", "unit_cost_usd", "currency", "stock_unit", "article_status", "main_supplier"] as const;
+export const PRODUCT_KEYS = ["unit_cost_chf", "unit_cost_eur", "unit_cost_usd", "stock_unit", "article_status", "main_supplier"] as const;
+/** written only where HubSpot has no value (see above) */
+export const PRODUCT_FILL_ONLY = ["unit_cost_chf"] as const;
 export const packFacts = (f: Facts) => PRODUCT_KEYS.map((k) => f[k] ?? "").join("\u0001");
 export function unpackFacts(s: string): Facts {
   const f: Facts = {};
@@ -70,13 +76,11 @@ export function unpackFacts(s: string): Facts {
 export function articleFacts(r: ArticleRow): Facts {
   const f: Facts = {};
   const put = (k: string, v: string | null | undefined) => { if (v != null && v !== "") f[k] = v; };
-  // the GWStdP per stock unit (the ERP's price per 100 units / 100), in CHF, EUR and USD, the lead currency beside it
+  // the GWStdP per stock unit (the ERP's price per 100 units / 100), in CHF, EUR and USD
   const cost = (k: string, s: string) => { const n = num(s); if (n != null && n > GWSTDP_MIN) put(k, r4(n / GWSTDP_PER)); };
   cost("unit_cost_chf", r.gwstdpchf);
   cost("unit_cost_eur", r.gwstdpeur);
   cost("unit_cost_usd", r.gwstdpusd);
-  const cur = r.gwstdpcurrency.toUpperCase();
-  if (/^[A-Z]{3}$/.test(cur)) put("currency", cur);
   // the unit the cost is per, as the ERP spells it (Stk, kg, m, m2, mm, Set); "Unknown" is none
   const su = clean(r.stockunit);
   if (su && su.toLowerCase() !== "unknown") put("stock_unit", su);
@@ -144,7 +148,9 @@ export class ArticlesSheet {
     if (this.facts.has(article)) return;
     if (!this.keep(article)) { this.skipped++; return; }
     const r = Object.fromEntries(COLS.map((k) => [k, at[k] >= 0 ? text(cells[at[k]]) : ""])) as ArticleRow;
-    if (!r.suppliername && r.leadsupplier && this.suppliers) r.suppliername = this.suppliers.get(supplierKey(r.leadsupplier)) ?? "";
+    // the supplier ONLY through the ERP's supplier list: a SupplierName column in this sheet is the earlier per-article
+    // lookup, which named "Zweifel Metall AG" for every article (08.11.2026) - never written
+    r.suppliername = r.leadsupplier && this.suppliers ? this.suppliers.get(supplierKey(r.leadsupplier)) ?? "" : "";
     this.facts.set(article, packFacts(articleFacts(r)));
   }
   /** article -> its packed facts; null when the sheet had no header the rules know */

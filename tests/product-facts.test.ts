@@ -22,7 +22,7 @@ test("product facts: the articles sheet - the header by its names, only the arti
   assert.equal(s.skipped, 1);
   assert.deepEqual(unpackFacts(m.get("1120030001")!), {
     // per stock unit = the ERP's price per 100 units / 100, in each currency; the lead currency beside it
-    unit_cost_chf: "12.345", unit_cost_eur: "13", unit_cost_usd: "14.502", currency: "EUR",
+    unit_cost_chf: "12.345", unit_cost_eur: "13", unit_cost_usd: "14.502", // the lead currency is not written: the price is CHF
     stock_unit: "kg", article_status: "Running Article",
   });
   const none = new ArticlesSheet();
@@ -33,8 +33,8 @@ test("product facts: the articles sheet - the header by its names, only the arti
 test("product facts: the GWStdP's placeholder never written, the ERP's 'Unknown' unit is none, nothing invented", () => {
   const base = { article: "", inliquidation: "", gwstdpcurrency: "", gwstdpchf: "", gwstdpeur: "", gwstdpusd: "", stockunit: "", salesunit: "", suppliername: "", leadsupplier: "" } satisfies ArticleRow;
   assert.deepEqual(articleFacts({ ...base, article: "1", gwstdpcurrency: "EUR", gwstdpchf: "200", inliquidation: "J", stockunit: "Stk" }),
-    { unit_cost_chf: "2", currency: "EUR", stock_unit: "Stk", article_status: "Liquidation" });
-  assert.deepEqual(articleFacts({ ...base, article: "2", gwstdpcurrency: "EUR", gwstdpchf: "0.01", gwstdpeur: "0.01", stockunit: "Unknown" }), { currency: "EUR" });
+    { unit_cost_chf: "2", stock_unit: "Stk", article_status: "Liquidation" });
+  assert.deepEqual(articleFacts({ ...base, article: "2", gwstdpcurrency: "EUR", gwstdpchf: "0.01", gwstdpeur: "0.01", stockunit: "Unknown" }), {});
   assert.deepEqual(articleFacts({ ...base, article: "3", gwstdpchf: "0" }), {});
   const f = articleFacts({ ...base, article: "4", gwstdpchf: "50", suppliername: "Trelleborg" });
   assert.deepEqual(unpackFacts(packFacts(f)), f);
@@ -83,6 +83,11 @@ test("product facts: the lead supplier named from the ERP's supplier list, whate
   s.feed(2, ["1", 100, 12345]);
   s.feed(3, ["2", 100, "700.0"]);
   s.feed(4, ["3", 100, "999"]); // not in the list: no supplier, nothing invented
+  // the earlier query's SupplierName column (the same name on every article) is never read
+  const old = new ArticlesSheet(() => true, null);
+  old.feed(1, ["[Article]", "[GwstdpCHF]", "[SupplierName]"]);
+  old.feed(2, ["9", 100, "Zweifel Metall AG"]);
+  assert.equal(unpackFacts(old.finish()!.get("9")!).main_supplier, undefined);
   const m = s.finish()!;
   assert.equal(unpackFacts(m.get("1")!).main_supplier, "Trelleborg Sealing Solutions");
   assert.equal(unpackFacts(m.get("2")!).main_supplier, "Ensinger GmbH");
