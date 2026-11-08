@@ -61,6 +61,9 @@ export type PngJob = {
   background?: string;
   /** How a picture's address becomes data: (the hub's route by default; a test passes its own). */
   picture?: (url: string) => Promise<string>;
+  /** PNG by default; JPEG where weight matters (a PDF of many slides). */
+  type?: "image/png" | "image/jpeg";
+  quality?: number;
 };
 
 /** The markup laid out as it will be drawn: pictures inlined, scripts out, serialised as XHTML in an SVG. */
@@ -108,10 +111,13 @@ export async function htmlToPng(job: PngJob): Promise<{ blob: Blob; missing: str
   if (!ctx) throw new Error("This browser cannot make PNGs.");
   if (job.background) { ctx.fillStyle = job.background; ctx.fillRect(0, 0, canvas.width, canvas.height); }
   ctx.drawImage(again, 0, 0, canvas.width, canvas.height);
-  const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, "image/png"));
-  if (!blob) throw new Error("The PNG could not be made.");
+  const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, job.type ?? "image/png", job.quality ?? 0.92));
+  if (!blob) throw new Error("The picture could not be made.");
   return { blob, missing };
 }
+
+/** A file made here as a data: address (for a PDF's pages). */
+export const blobData = asData;
 
 /** The browser's own download of a file made here. */
 export function download(data: Blob | string, name: string, type = "text/html;charset=utf-8") {
