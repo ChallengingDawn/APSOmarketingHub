@@ -128,7 +128,7 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
   const shown: Step = steps.some((s) => s.key === step) ? step : "page";
   const sources: { key: PageSource; label: string }[] = [
     { key: "new", label: "A new page" }, { key: "pick", label: "A page of the shop" },
-    ...(doc.origin || doc.source === "convert" ? [{ key: "convert" as PageSource, label: "From AI testing" }] : []),
+    ...(doc.origin || doc.source === "convert" ? [{ key: "convert" as PageSource, label: "From AI testing & personalization" }] : []),
   ];
   const changeSource = (source: PageSource) => {
     if (!canEdit || source === doc.source) return;

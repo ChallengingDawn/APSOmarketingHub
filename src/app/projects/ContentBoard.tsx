@@ -4,6 +4,8 @@
 // Every project the person may open, in a column per stage - and the stage is where its pieces are, never set by hand.
 // Above it, what waits for them: reviews asked of them, pieces they write, where they were tagged this week.
 // A new project starts with its brief and its pieces, not with an empty studio.
+// Its owner or an admin deletes a project from its card (SARCLA 08.11.2026: "I should be able to delete projects"); the
+// admins find the deleted ones at the foot of the board and bring one back (DeleteProject.tsx).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -11,6 +13,8 @@ import { useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
@@ -18,6 +22,7 @@ import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import LightbulbOutlinedIcon from "@mui/icons-material/LightbulbOutlined";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import ViewKanbanOutlinedIcon from "@mui/icons-material/ViewKanbanOutlined";
@@ -27,9 +32,11 @@ import { Chip, Choice } from "@/app/connectors/parts";
 import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, Notice, headCell, bodyCell } from "@/app/uc/report/ui";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { CONTENT_BY_KEY, OFFERED_CONTENT_TYPES } from "@/lib/content/contentTypes";
+import { projectSourceLabel } from "@/lib/content/ideaOrigins";
 import { LANGUAGES } from "@/lib/content/languages";
 import { STAGES, STAGE_LABEL, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
 import { Faces, PINK, STAGE_DOT, StageChip, dayLabel, dueSoon, postWork } from "./work/ui";
+import { DeleteProject, DeletedProjects, canDelete } from "./DeleteProject";
 
 type BoardProject = {
   id: number; title: string; stage: Stage; source: string | null; owner: string | null; team: string[]; dueDate: string | null;
@@ -40,9 +47,8 @@ type Waiting = {
   kind: "review" | "write" | "changes" | "mention"; projectId: number; projectTitle: string; pieceId: number | null;
   title: string; by: string | null; at: string | null; dueDate: string | null; text?: string;
 };
-type Answer = { ok: boolean; me: string; board: BoardProject[]; waiting: Waiting[]; people: Record<string, string>; error?: string };
+type Answer = { ok: boolean; me: string; admin?: boolean; board: BoardProject[]; waiting: Waiting[]; people: Record<string, string>; error?: string };
 
-const SOURCE_LABEL: Record<string, string> = { seo: "From SEO", geo: "From GEO", aeo: "From AEO", sea: "From SEA", team: "Team idea" };
 const KIND: Record<Waiting["kind"], { label: string; tint: "amber" | "blue" | "pink" | "purple" }> = {
   review: { label: "Review", tint: "amber" }, write: { label: "To write", tint: "blue" }, changes: { label: "Changes asked", tint: "pink" }, mention: { label: "Mention", tint: "purple" },
 };
@@ -55,10 +61,25 @@ function chipsOf(p: BoardProject): string[] {
   return [...kinds.slice(0, 4), ...(langs.length ? [langs.join(" ")] : [])];
 }
 
-function ProjectCard({ p, names, i = 0 }: { p: BoardProject; names: Record<string, string>; i?: number }) {
+/** The card's delete: there for its owner or an admin, seen when the card is pointed at (always on a touch screen). */
+function DeleteButton({ onClick, title }: { onClick: () => void; title: string }) {
+  return (
+    <Tooltip title="Delete the project">
+      <IconButton className="del" size="small" aria-label={`Delete ${title}`} onClick={onClick}
+        sx={{ color: MUTED, bgcolor: "rgba(255,255,255,.9)", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", p: 0.4, "&:hover": { color: "#c5221f", borderColor: "#c5221f55", bgcolor: "#fff" } }}>
+        <DeleteOutlineIcon sx={{ fontSize: 17 }} />
+      </IconButton>
+    </Tooltip>
+  );
+}
+
+function ProjectCard({ p, names, i = 0, onDelete }: { p: BoardProject; names: Record<string, string>; i?: number; onDelete?: () => void }) {
   const total = p.pieces.length;
   const ok = p.pieces.filter((x) => done(x.status)).length;
+  const source = projectSourceLabel(p.source);
   return (
+    <Box sx={{ position: "relative", "& .del": { opacity: 0, transition: "opacity .15s" }, "&:hover .del, & .del:focus-visible": { opacity: 1 }, "@media (hover: none)": { "& .del": { opacity: 1 } } }}>
+    {onDelete && <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}><DeleteButton onClick={onDelete} title={p.title} /></Box>}
     <Box component={Link} href={`/projects/${p.id}`} sx={{
       display: "flex", flexDirection: "column", gap: 1.1, p: 1.5, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`,
       textDecoration: "none", color: INK, boxShadow: "0 1px 2px rgba(31,45,78,.04)",
@@ -68,9 +89,9 @@ function ProjectCard({ p, names, i = 0 }: { p: BoardProject; names: Record<strin
       "@keyframes cardIn": { from: { opacity: 0, transform: "translateY(8px)" }, to: { opacity: 1, transform: "none" } },
     }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minHeight: 21 }}>
-        {p.source && SOURCE_LABEL[p.source] && <Chip tint="purple">{SOURCE_LABEL[p.source]}</Chip>}
+        {source && <Chip tint="purple">{source}</Chip>}
         {p.dueDate && (
-          <Typography sx={{ ml: "auto", fontSize: "0.76rem", fontWeight: 600, color: dueSoon(p.dueDate) && p.stage !== "live" ? "#c5221f" : MUTED }}>
+          <Typography sx={{ ml: "auto", mr: onDelete ? 4 : 0, fontSize: "0.76rem", fontWeight: 600, color: dueSoon(p.dueDate) && p.stage !== "live" ? "#c5221f" : MUTED }}>
             {p.stage === "live" ? "Live" : `Due ${dayLabel(p.dueDate)}`}
           </Typography>
         )}
@@ -95,6 +116,7 @@ function ProjectCard({ p, names, i = 0 }: { p: BoardProject; names: Record<strin
           <ChatBubbleOutlineIcon sx={{ fontSize: 15 }} />{p.comments}
         </Box>
       </Box>
+    </Box>
     </Box>
   );
 }
@@ -162,15 +184,24 @@ export default function ContentBoard() {
   const [view, setView] = useState<"board" | "list">("board");
   const [whose, setWhose] = useState<"all" | "mine">("all");
   const [making, setMaking] = useState(false);
+  const [deleting, setDeleting] = useState<{ id: number; title: string } | null>(null);
+  const [gone, setGone] = useState<string | null>(null);
+  const [bump, setBump] = useState(0);
 
   const load = useCallback(() => {
     fetch("/api/content/board").then((r) => r.json()).then((j: Answer) => (j.ok ? setData(j) : setErr(j.error ?? "The board could not be read."))).catch((e) => setErr(String(e)));
   }, []);
   useEffect(() => { load(); }, [load]);
+  // deleted from its own page: the board says so once
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("deleted");
+    if (t) { setGone(t); window.history.replaceState(null, "", "/projects"); }
+  }, []);
 
   const shown = useMemo(() => (data ? (whose === "mine" ? data.board.filter((p) => p.team.includes(data.me)) : data.board) : []), [data, whose]);
   const mineCount = data ? data.board.filter((p) => p.team.includes(data.me)).length : 0;
   const names = data?.people ?? {};
+  const mayDelete = (p: BoardProject) => (data ? canDelete(p, data.me, !!data.admin) : false);
   const counts = data ? data.waiting.reduce<Record<string, number>>((a, w) => ({ ...a, [w.kind]: (a[w.kind] ?? 0) + 1 }), {}) : {};
 
   return (
@@ -189,6 +220,12 @@ export default function ContentBoard() {
       </Box>
 
       {err && <Notice tone="bad">{err}</Notice>}
+      {gone && (
+        <Box role="status" sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 1, borderRadius: "8px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, fontSize: "0.86rem", color: INK }}>
+          <DeleteOutlineIcon sx={{ fontSize: 18, color: MUTED }} />“{gone}” was deleted.{!data ? "" : data.admin ? " It waits under Deleted projects, at the foot of the board." : " An admin can bring it back."}
+          <Button size="small" onClick={() => setGone(null)} sx={{ ml: "auto", textTransform: "none", color: MUTED }}>Close</Button>
+        </Box>
+      )}
 
       {data && data.waiting.length > 0 && (
         <GlassCard>
@@ -236,7 +273,7 @@ export default function ContentBoard() {
                     <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>{STAGE_LABEL[s]}</Typography>
                     <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{cards.length}</Typography>
                   </Box>
-                  {cards.map((p, i) => <ProjectCard key={p.id} p={p} names={names} i={i} />)}
+                  {cards.map((p, i) => <ProjectCard key={p.id} p={p} names={names} i={i} onDelete={mayDelete(p) ? () => setDeleting({ id: p.id, title: p.title }) : undefined} />)}
                 </Box>
               );
             })}
@@ -249,7 +286,7 @@ export default function ContentBoard() {
           <CardTitle icon={<ViewKanbanOutlinedIcon />} tint="pink" title="All projects" note={`${shown.length} project${shown.length === 1 ? "" : "s"}`} />
           <Box sx={{ overflowX: "auto" }}>
             <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
-              <thead><tr>{["Project", "Stage", "Owner", "Pieces", "Approved", "Due"].map((h) => <Box component="th" key={h} sx={headCell}>{h}</Box>)}</tr></thead>
+              <thead><tr>{["Project", "Stage", "Owner", "Pieces", "Approved", "Due", ""].map((h, i) => <Box component="th" key={i} sx={headCell}>{h}</Box>)}</tr></thead>
               <tbody>
                 {shown.map((p) => (
                   <tr key={p.id}>
@@ -259,6 +296,7 @@ export default function ContentBoard() {
                     <Box component="td" sx={{ ...bodyCell, color: MUTED }}>{chipsOf(p).join(" · ")}</Box>
                     <Box component="td" sx={bodyCell}>{p.pieces.filter((x) => done(x.status)).length} of {p.pieces.length}</Box>
                     <Box component="td" sx={{ ...bodyCell, fontWeight: 600, color: dueSoon(p.dueDate) && p.stage !== "live" ? "#c5221f" : INK }}>{dayLabel(p.dueDate)}</Box>
+                    <Box component="td" sx={{ ...bodyCell, width: 44 }}>{mayDelete(p) && <DeleteButton onClick={() => setDeleting({ id: p.id, title: p.title })} title={p.title} />}</Box>
                   </tr>
                 ))}
               </tbody>
@@ -271,7 +309,15 @@ export default function ContentBoard() {
         <Typography sx={{ fontSize: "0.9rem", color: MUTED }}>No project yet. “New project” starts one with its brief and its first pieces.</Typography>
       )}
 
+      {data?.admin && <DeletedProjects bump={bump} onRestored={() => { setGone(null); load(); }} />}
+
       <NewProject open={making} onClose={() => setMaking(false)} />
+      <DeleteProject project={deleting} onClose={() => setDeleting(null)} onDeleted={(id) => {
+        setGone(deleting?.title ?? "The project");
+        setDeleting(null);
+        setData((d) => (d ? { ...d, board: d.board.filter((x) => x.id !== id), waiting: d.waiting.filter((w) => w.projectId !== id) } : d));
+        setBump((n) => n + 1);
+      }} />
     </Box>
   );
 }

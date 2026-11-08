@@ -1,18 +1,18 @@
 "use client";
 // A NEW PROJECT (SARCLA 08.11.2026: "creating a project you should select the type of content you need and the task
-// assignment - an action - for each one, as a ticket"). One page, three parts, read top to bottom:
-//   1 What and why    its name and goal - or the ideas it starts from (from Ideas); the AI proposes the rest
+// assignment - an action - for each one"). One page, two parts, read top to bottom:
+//   1 What and why    its name and goal - or the ideas it starts from (from Ideas, each saying where it comes from); the
+//                     AI proposes the rest, and is seen at work while it does
 //   2 What it makes   one line per piece of content or action: its kind, its words, language, owner, reviewer, day
-//   3 Plan & tickets  where it sits in the action plan (admins; the AI suggests) and, ticked, each line's ticket made
-// Start makes it all at once (lib/content/start.ts) and opens the project. ?type=<kind> starts with one line of it.
+// Start makes it all at once (lib/content/start.ts) and opens the project. The action plan is not asked here (SARCLA
+// 08.11.2026: "Action plan should not be visible here"): a to-do's "Plan & ticket", on its line in the project, places it.
+// One thing alone is Make > <kind> (../make), which opens its studio at once.
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import Checkbox from "@mui/material/Checkbox";
 import CircularProgress from "@mui/material/CircularProgress";
-import FormControlLabel from "@mui/material/FormControlLabel";
 import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
@@ -23,18 +23,18 @@ import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import LightbulbOutlinedIcon from "@mui/icons-material/LightbulbOutlined";
-import PlaceOutlinedIcon from "@mui/icons-material/PlaceOutlined";
 
 import { GlassCard, HAIRLINE, INK, MUTED, Notice } from "@/app/uc/report/ui";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { KindTile } from "../work/kinds";
 import { IDEAS_FOR_PROJECT } from "../ideas/Ideas";
+import { AiWorking } from "../studio/parts";
 
 type Kind = { key: string; label: string; blurb: string; language: boolean };
 type Person = { username: string; name: string };
-type Place = { id: number; title: string; path: string; dg: boolean; why?: string };
-type IdeaRef = { key?: string; source: string; title: string; why?: string; kind?: string | null; url?: string };
-type Setup = { ok: boolean; error?: string; me: string; admin: boolean; ai: boolean; canStart: boolean; people: Person[]; kinds: Kind[]; languages: { code: string; label: string }[]; places: Place[] };
+/** An idea brought from Ideas: where it comes from (as the menus name it), and every kind it would make. */
+type IdeaRef = { key?: string; source: string; title: string; why?: string; kind?: string | null; kinds?: string[]; origin?: string; url?: string };
+type Setup = { ok: boolean; error?: string; me: string; admin: boolean; ai: boolean; canStart: boolean; people: Person[]; kinds: Kind[]; languages: { code: string; label: string }[] };
 type Line = { id: string; contentType: string; title: string; language: string | null; writer: string | null; reviewer: string | null; dueDate: string; why?: string };
 
 const PINK = "#c22c6e";
@@ -77,9 +77,6 @@ export default function NewProject() {
   const [message, setMessage] = useState("");
   const [langs, setLangs] = useState<string[]>(["DE"]);
   const [lines, setLines] = useState<Line[]>([]);
-  const [placeId, setPlaceId] = useState<number | "">("");
-  const [hints, setHints] = useState<Place[] | null>(null);
-  const [tickets, setTickets] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -87,19 +84,18 @@ export default function NewProject() {
     fetch("/api/content/projects/start").then((r) => r.json()).then((j: Setup) => {
       if (!j.ok) { setErr(j.error ?? "The page could not open."); return; }
       setSetup(j);
-      const type = sp.get("type");
       if (sp.get("from") === "ideas") {
         try {
           const raw = sessionStorage.getItem(IDEAS_FOR_PROJECT);
           if (raw) {
             const got = JSON.parse(raw) as IdeaRef[];
             setIdeas(got);
-            if (got.length === 1) setTitle(got[0].title.replace(/^Answer: /, "").slice(0, 120));
-            setLines(got.filter((i) => i.kind).slice(0, 6).map((i) => newLine(i.kind!, "DE", j.me, { title: i.title.slice(0, 160) })));
+            if (got.length === 1) { setTitle(got[0].title.replace(/^Answer: /, "").slice(0, 120)); if (got[0].why) setGoal(got[0].why.slice(0, 600)); }
+            // one line per kind each idea would make (an own idea can name several)
+            const offered = new Set(j.kinds.map((k) => k.key));
+            setLines(got.flatMap((i) => (i.kinds?.length ? i.kinds : i.kind ? [i.kind] : []).filter((k) => offered.has(k)).map((k) => newLine(k, "DE", j.me, { title: i.title.slice(0, 160) }))).slice(0, 8));
           }
         } catch { /* nothing kept */ }
-      } else if (type && j.kinds.some((k) => k.key === type)) {
-        setLines([newLine(type, "DE", j.me)]);
       }
     }).catch(() => setErr("The hub did not answer."));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -121,20 +117,18 @@ export default function NewProject() {
     if (!message.trim()) setMessage(p.message);
     // the AI's lines replace the empty ones; lines a person wrote stay
     setLines((ls) => [...ls.filter((l) => l.title.trim()), ...p.lines.map((l) => newLine(l.contentType, l.language, setup?.me ?? null, { title: l.title, why: l.why }))]);
-    if (r.places?.length) { setHints(r.places); if (placeId === "") setPlaceId(r.places[0].id); }
   };
 
   const start = async () => {
     setBusy("start"); setErr(null);
     const r = await post({
       action: "start", title, goal, audience, message, ideas: ideas.map(({ key, source, title: t, why, url }) => ({ key, source, title: t, why, url })),
-      planItem: placeId === "" ? null : placeId, tickets: tickets && placeId !== "",
+      planItem: null, tickets: false,
       lines: lines.map(({ contentType, title: t, language, writer, reviewer, dueDate }) => ({ contentType, title: t, language, writer, reviewer, dueDate: dueDate || null })),
     });
     if (!r.ok) { setBusy(null); return setErr(r.error ?? "The project was not made."); }
     try { sessionStorage.removeItem(IDEAS_FOR_PROJECT); } catch { /* fine */ }
-    const refused = (r.tickets?.refused ?? []) as string[];
-    router.push(`/projects/${r.id}${refused.length ? "?tickets=some" : ""}`);
+    router.push(`/projects/${r.id}`);
   };
 
   if (err && !setup) return <Notice tone="bad">{err}</Notice>;
@@ -152,6 +146,7 @@ export default function NewProject() {
               <Box key={i.key ?? i.title} sx={{ display: "flex", alignItems: "flex-start", gap: 1, p: 1, borderRadius: "8px", bgcolor: "#fffaf0", border: "1px solid #f3e2bd" }}>
                 <LightbulbOutlinedIcon sx={{ fontSize: 18, color: "#b26a00", mt: 0.2 }} />
                 <Box sx={{ flex: 1, minWidth: 0 }}>
+                  {i.origin && <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#8a5a00", letterSpacing: ".02em" }}>{i.origin}</Typography>}
                   <Typography sx={{ fontSize: "0.88rem", fontWeight: 600 }}>{i.title}</Typography>
                   {i.why && <Typography sx={{ fontSize: "0.78rem", color: "#5b6470" }}>{i.why}</Typography>}
                 </Box>
@@ -188,6 +183,7 @@ export default function NewProject() {
           </Button>
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{setup.ai ? "The name, the brief and the lines - you change anything after." : "The AI is not set up on this hub."}</Typography>
         </Box>
+        {busy === "propose" && <Box sx={{ mt: 1.75 }}><AiWorking label="AI is planning the project…" note="its name, its brief and what it makes" lines={4} /></Box>}
       </Step>
 
       <Step n={2} title="What it makes" note="One line per piece of content, or per action around it - each with its owner, and its day on the calendar"
@@ -239,36 +235,6 @@ export default function NewProject() {
             </Button>
           ))}
         </Box>
-      </Step>
-
-      <Step n={3} title="Action plan & tickets" note="Each line becomes a sub-action of the plan; under a Digital Growth action, each takes its ticket in From Scroll to Sale">
-        {setup.admin ? (
-          <Box sx={{ display: "grid", gap: 1.25 }}>
-            {hints && hints.length > 0 && (
-              <Box sx={{ display: "grid", gap: 1, gridTemplateColumns: { xs: "1fr", md: "repeat(3, minmax(0, 1fr))" } }}>
-                {hints.map((h) => (
-                  <Box key={h.id} component="button" type="button" onClick={() => setPlaceId(h.id)} sx={{
-                    all: "unset", cursor: "pointer", p: 1.25, borderRadius: "10px", bgcolor: "#fff", border: `1.5px solid ${placeId === h.id ? PINK : HAIRLINE}`, display: "grid", gap: 0.5,
-                  }}>
-                    <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{h.path}</Typography>
-                    <Typography sx={{ fontSize: "0.88rem", fontWeight: 650 }}>{h.title}{h.dg ? " · DG" : ""}</Typography>
-                    {h.why && <Typography sx={{ fontSize: "0.78rem", color: "#3d4a63" }}>{h.why}</Typography>}
-                  </Box>
-                ))}
-              </Box>
-            )}
-            <TextField select size="small" label="Its action in the plan" value={placeId} onChange={(e) => setPlaceId(e.target.value === "" ? "" : Number(e.target.value))} sx={{ ...field, maxWidth: 720 }}
-              slotProps={{ input: { startAdornment: <PlaceOutlinedIcon sx={{ fontSize: 18, color: MUTED, mr: 1 }} /> } }}>
-              <MenuItem value=""><em>Not in the plan yet</em></MenuItem>
-              {setup.places.map((p) => <MenuItem key={p.id} value={p.id}><Box component="span" sx={{ color: MUTED, mr: 1 }}>{p.path} ›</Box>{p.title}{p.dg ? " · DG" : ""}</MenuItem>)}
-            </TextField>
-            <FormControlLabel control={<Checkbox checked={tickets && placeId !== ""} disabled={placeId === ""} onChange={(e) => setTickets(e.target.checked)} />}
-              label={<Typography sx={{ fontSize: "0.88rem" }}>Make each line&apos;s ticket now (in From Scroll to Sale, its owner the line&apos;s owner)</Typography>} />
-            {!hints && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>&quot;Propose with AI&quot; above also suggests where it sits.</Typography>}
-          </Box>
-        ) : (
-          <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>An admin places the project in the action plan; its lines take their tickets then.</Typography>
-        )}
       </Step>
 
       {err && <Notice tone="bad">{err}</Notice>}

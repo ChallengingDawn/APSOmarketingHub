@@ -262,6 +262,20 @@ export async function updatePiece(pieceId: number, patch: Partial<{
   if (r.rows[0]) await touch(r.rows[0].project_id);
 }
 
+/**
+ * A project made of one to-do (Make > <kind>: "Untitled video") goes by that to-do's name: renamed in its studio, the
+ * project follows - while the two have the same name and the project has no other to-do (a project named on its own,
+ * or one with several to-dos, keeps its name).
+ */
+export async function followSoleTodo(projectId: number, oldTitle: string, newTitle: string): Promise<void> {
+  await ensureWorkflow();
+  if (!newTitle.trim() || newTitle === oldTitle) return;
+  await query(
+    `UPDATE apsomh_content_projects p SET title = $3, updated_at = NOW()
+      WHERE p.id = $1 AND p.title = $2 AND (SELECT COUNT(*) FROM apsomh_content_pieces pc WHERE pc.project_id = p.id) = 1`,
+    [projectId, oldTitle, newTitle.trim().slice(0, 200)]);
+}
+
 /** Removes a piece; its versions stay in the project, without a piece (the library still has them). */
 export async function removePiece(pieceId: number): Promise<void> {
   await ensureWorkflow();
@@ -325,7 +339,7 @@ export async function boardFor(me: Me): Promise<BoardProject[]> {
   // an admin sees every project - the parameter is still read, or Postgres refuses the one we send
   const visible = me.role === "admin" ? "$1::text IS NOT NULL" : `(p.created_by = $1 OR ${member})`;
   const ids = await query<{ id: number }>(
-    `SELECT p.id FROM apsomh_content_projects p WHERE p.status <> 'archived' AND ${visible} ORDER BY p.updated_at DESC LIMIT 200`,
+    `SELECT p.id FROM apsomh_content_projects p WHERE p.status <> 'archived' AND p.deleted_at IS NULL AND ${visible} ORDER BY p.updated_at DESC LIMIT 200`,
     [me.username]);
   // a project made before pieces gets its pieces on the way to the board
   for (const { id } of ids.rows) await piecesFromVersions(id);
@@ -385,7 +399,7 @@ export async function waitingFor(me: Me): Promise<Waiting[]> {
     `SELECT pc.id, pc.project_id, p.title AS project_title, pc.title, pc.status, pc.writer, pc.reviewer,
             TO_CHAR(pc.due_date, 'YYYY-MM-DD') AS due_iso, pc.updated_at
        FROM apsomh_content_pieces pc JOIN apsomh_content_projects p ON p.id = pc.project_id
-      WHERE p.status <> 'archived'
+      WHERE p.status <> 'archived' AND p.deleted_at IS NULL
         AND ((pc.reviewer = $1 AND pc.status = 'review')
           OR (pc.writer = $1 AND pc.status IN ('todo', 'writing', 'changes')))
       ORDER BY pc.due_date NULLS LAST, pc.updated_at DESC
@@ -400,7 +414,7 @@ export async function waitingFor(me: Me): Promise<Waiting[]> {
   const tags = await query<{ project_id: number; project_title: string; piece_id: number | null; actor: string; detail: { text?: string } | null; created_at: Date }>(
     `SELECT e.project_id, p.title AS project_title, e.piece_id, e.actor, e.detail, e.created_at
        FROM apsomh_content_events e JOIN apsomh_content_projects p ON p.id = e.project_id
-      WHERE e.kind = 'mention' AND e.detail->>'to' = $1 AND e.created_at > NOW() - INTERVAL '7 days' AND p.status <> 'archived'
+      WHERE e.kind = 'mention' AND e.detail->>'to' = $1 AND e.created_at > NOW() - INTERVAL '7 days' AND p.status <> 'archived' AND p.deleted_at IS NULL
       ORDER BY e.created_at DESC LIMIT 10`,
     [me.username]);
   for (const t of tags.rows) {

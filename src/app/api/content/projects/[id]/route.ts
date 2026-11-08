@@ -16,6 +16,8 @@ import { translateVariant } from "@/lib/content/translate";
 import { LANGUAGE_BY_CODE, translatedLabel } from "@/lib/content/languages";
 import { accessFor, membersOf } from "@/lib/content/sharing";
 import { attachVersionToPiece, getPiece } from "@/lib/content/workflow";
+import { deleteCounts, liveProject, softDeleteProject } from "@/lib/content/deleting";
+import { deleteSummary, mayDelete } from "@/lib/content/deleteRules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,6 +64,20 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // commenter may set one.
   if (action !== "comment" && action !== "star" && !access.canEdit) {
     return NextResponse.json({ ok: false, error: "You can comment on this project, not change it." }, { status: 403 });
+  }
+
+  // Deleting (SARCLA 08.11.2026: "I should be able to delete projects"): the owner or an admin. "delete-preview" says what
+  // goes and what stays, for the confirm; "delete" hides it everywhere, kept for an admin to bring back (deleting.ts).
+  if (action === "delete-preview" || action === "delete") {
+    const p = await liveProject(id);
+    if (!p) return NextResponse.json({ ok: false, error: "No such project." }, { status: 404 });
+    if (!mayDelete(p, me)) return NextResponse.json({ ok: false, error: "Only the project's owner or an admin deletes it." }, { status: 403 });
+    if (action === "delete-preview") {
+      const counts = await deleteCounts(id);
+      return NextResponse.json({ ok: true, title: p.title, counts, ...deleteSummary(counts) });
+    }
+    const done = await softDeleteProject(id, me.username);
+    return done ? NextResponse.json({ ok: true }) : NextResponse.json({ ok: false, error: "It was deleted already." }, { status: 409 });
   }
 
   if (action === "variant") {

@@ -1,47 +1,59 @@
 // IDEAS FROM EVERY APP (SARCLA 08.11.2026: "Ideas is missing - we should be able to review ideas from multiple apps and
-// then create a project"). The hub already finds them - each app in its own place; this reads them into one list:
+// then create a project"). The hub already finds them - each app in its own place; this reads them into one list. Every
+// idea says EXACTLY where it comes from, by the name the hub's menus give that app and page (ideaOrigins.ts - SARCLA
+// 08.11.2026: "if it comes from AI Personalization, call it like that"):
 //
-//   convert  APSOconvert's page ideas (apsomh_convert_ideas, prod, proposed/approved, ranked impact x confidence / effort)
-//   buyers   APSOconvert's "What stops buyers" themes (the newest apsomh_convert_briefs row - made on a person's click)
-//   aeo      AEO: HubSpot's recommendations, and the questions the AI assistants answer without citing us - read from
-//            the stored read only (kv slow_report:aeo:read:v1), never a rebuild
-//   seo      SEO: the work queue (quick wins, decay) worked out from Search Console - live, slow, kept 6 h in this process
-//   search   the shop's search bar: what people searched and found nothing (the smart-bar gateway, 30 days)
-//   chat     what customers ask in the chat (apsomh_chat_filing, 90 days) - FAQ and blog material
-//   brand    the brain: brand terms with no landing page, internal search trends
-//   plan     the Action plan's Idea box (admins, as the plan is)
-//   team     ideas a person of the team wrote here (apsomh_content_ideas)
+//   convert  AI testing & personalization · Insights - the AI's page ideas (apsomh_convert_ideas, prod, proposed/approved,
+//            ranked impact x confidence / effort)
+//   buyers   AI testing & personalization · What stops buyers - the themes of the newest apsomh_convert_briefs row
+//   aeo      AEO & LLM Optimizer · Recommendations (HubSpot's) and · Prompts and answers (the questions the AI assistants
+//            answer without citing us) - read from the stored read only (kv slow_report:aeo:read:v1), never a rebuild
+//   seo      SEO · Quick wins / Decay - the work queue worked out from Search Console - live, slow, kept 6 h in this process
+//   search   Search bar · Gaps - what people searched in the shop and found nothing (the smart-bar gateway, 30 days)
+//   chat     APSOassistant Chat · Filing - what customers ask in the chat (apsomh_chat_filing, 90 days)
+//   brand    Personality · Keyword Signals - brand terms with no landing page, internal search trends
+//   team     Own ideas - written here by a person (apsomh_content_ideas), "Write it with AI" from a few words (writeIdea)
+// The Action plan's Idea box is NOT a source (SARCLA 08.11.2026: "Action plan should not be visible here") - the plan is
+// reached from a to-do's "Plan & ticket" only.
 // Each idea has a stable key (source:id); "Not now" and "made into a project" are kept per key (apsomh_content_idea_marks)
-// so a dismissed idea stays dismissed and a used one points at its project. Each source answers alone: one that fails
-// says why and the others still show.
+// so a dismissed idea stays dismissed and a used one points at its project - unless that project was deleted: then the
+// idea is back in the list. Each source answers alone: one that fails says why and the others still show.
 
 import { query } from "@/lib/db/client";
 import { kvGet } from "@/lib/db/init";
-import { readBrain } from "@/lib/brain";
-import { TASK_KIND } from "@/lib/content/pieceRules";
+import { brandSystemPrompt, readBrain } from "@/lib/brain";
+import { claudeText, getAnthropic } from "@/lib/ai/claude";
+import { OFFERED_CONTENT_TYPES } from "@/lib/content/contentTypes";
+import { ensureSharing } from "@/lib/content/sharing";
+import { PLACE_ORIGIN, SOURCE_ORIGIN, sourceLabel, type IdeaSource, type Origin } from "@/lib/content/ideaOrigins";
 
-export type IdeaSource = "convert" | "buyers" | "aeo" | "seo" | "search" | "chat" | "brand" | "plan" | "team";
-export const SOURCES: { key: IdeaSource; label: string; app: "website" | "marketing" | "admin"; slow?: boolean; note: string }[] = [
-  { key: "team", label: "Ours", app: "marketing", note: "Written here by the team" },
-  { key: "convert", label: "Page ideas", app: "website", note: "APSOconvert - what would sell more on a shop page" },
-  { key: "buyers", label: "What stops buyers", app: "website", note: "APSOconvert's themes across the shop" },
-  { key: "aeo", label: "AI answers", app: "marketing", note: "AEO - what ChatGPT, Gemini & co. answer without us" },
-  { key: "seo", label: "SEO", app: "marketing", slow: true, note: "Search Console - pages close to page one, pages losing clicks" },
-  { key: "search", label: "Shop search", app: "website", note: "What people searched in the shop and found nothing" },
-  { key: "chat", label: "Customers ask", app: "website", note: "What customers ask in the chat" },
-  { key: "brand", label: "Brand", app: "marketing", note: "The brain - brand terms with no page, search trends" },
-  { key: "plan", label: "Action plan", app: "admin", note: "The plan's Idea box" },
-];
+export type { IdeaSource, Origin };
+export const SOURCES: { key: IdeaSource; label: string; app: "website" | "marketing"; slow?: boolean; note: string }[] = (
+  [
+    { key: "team", app: "marketing" },
+    { key: "convert", app: "website" },
+    { key: "buyers", app: "website" },
+    { key: "aeo", app: "marketing" },
+    { key: "seo", app: "marketing", slow: true },
+    { key: "search", app: "website" },
+    { key: "chat", app: "website" },
+    { key: "brand", app: "marketing" },
+  ] as { key: IdeaSource; app: "website" | "marketing"; slow?: boolean }[]
+).map((x) => ({ ...x, label: sourceLabel(x.key), note: SOURCE_ORIGIN[x.key].note }));
 
 export type Idea = {
   key: string; source: IdeaSource; title: string; why: string;
   /** the content type that fits it best (a key of contentTypes.ts), or "task" for an action */
   kind: string | null;
+  /** every content type it would make (an own idea can name several); kind is the first */
+  kinds: string[];
+  /** where exactly it comes from: the app and the page, as the menus name them, and the link to that page */
+  origin: Origin;
   /** the page, the query, the term it is about */
   target: string | null;
   /** 0-100 within its source */
   score: number;
-  /** where to read it in its own app */
+  /** where to read this very idea in its own app (more precise than the origin's page, when there is such a place) */
   href: string | null;
   at: string | null; by: string | null;
   mark: { status: "dismissed" | "project"; projectId: number | null; by: string | null; at: string } | null;
@@ -59,6 +71,8 @@ export function ensureIdeas(): Promise<void> {
         created_by VARCHAR(255),
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )`);
+    // an own idea names every kind of content it would make (08.11.2026 - "Write it with AI" offers several)
+    await query(`ALTER TABLE apsomh_content_ideas ADD COLUMN IF NOT EXISTS kinds TEXT[]`);
     await query(`
       CREATE TABLE IF NOT EXISTS apsomh_content_idea_marks (
         key VARCHAR(300) PRIMARY KEY,
@@ -72,7 +86,8 @@ export function ensureIdeas(): Promise<void> {
 }
 
 const clip = (s: unknown, n: number) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
-const idea = (x: Omit<Idea, "mark" | "at" | "by"> & Partial<Pick<Idea, "at" | "by">>): Idea => ({ at: null, by: null, ...x, mark: null });
+type Draft = Omit<Idea, "mark" | "at" | "by" | "kinds" | "origin"> & Partial<Pick<Idea, "at" | "by" | "kinds" | "origin">>;
+const idea = (x: Draft): Idea => ({ at: null, by: null, kinds: x.kind ? [x.kind] : [], origin: SOURCE_ORIGIN[x.source], ...x, mark: null });
 /** A table that is not there yet (an app never opened on this hub) is an empty source, not an error. */
 const missing = (e: unknown) => /does not exist|relation .* not found/i.test(e instanceof Error ? e.message : String(e));
 
@@ -86,7 +101,7 @@ async function fromConvert(): Promise<Idea[]> {
     return r.rows.map((x) => idea({
       key: `convert:${x.id}`, source: "convert", title: clip(x.title, 160), why: clip(x.why || x.change, 400), kind: "page-refresh", target: x.path,
       score: Math.round((100 * ((x.impact ?? 3) * (x.confidence ?? 3)) / Math.max(x.effort ?? 3, 1)) / best),
-      href: `/website/ai-personalization/preview?path=${encodeURIComponent(x.path)}`, at: new Date(x.created_at).toISOString(),
+      href: `/website/ai-personalization/preview?env=prod&path=${encodeURIComponent(x.path)}&idea=${x.id}`, at: new Date(x.created_at).toISOString(),
     }));
   } catch (e) { if (missing(e)) return []; throw e; }
 }
@@ -116,12 +131,12 @@ async function fromAeo(): Promise<Idea[]> {
   const recs = (v.recommendations ?? []).filter((r) => !/DONE|DISMISS|COMPLETE/i.test(r.status ?? "")).map((r) => idea({
     key: `aeo:${r.id}`, source: "aeo", title: clip(r.summary || r.topic || "An AI-answer recommendation", 160), why: clip(r.justification, 500),
     kind: r.action === "UPDATE_CONTENT" ? "page-refresh" : /BLOG/i.test(r.contentType ?? "") ? "blog-article" : "landing-page",
-    target: r.associatedUrl || r.url || r.topic, score: PRI[(r.priority ?? "").toUpperCase()] ?? 50, href: "/aeo/recommendations",
+    target: r.associatedUrl || r.url || r.topic, score: PRI[(r.priority ?? "").toUpperCase()] ?? 50, href: "/aeo/recommendations", origin: PLACE_ORIGIN.aeoRecommendation,
   }));
   const asks = (v.prompts ?? []).filter((p) => p.visibility != null && p.visibility < 0.2).sort((a, b) => (a.visibility ?? 0) - (b.visibility ?? 0)).slice(0, 25).map((p) => idea({
     key: `aeo-q:${p.id}`, source: "aeo", title: clip(`Answer: “${p.prompt}”`, 160),
     why: `The AI assistants answer this question but show APSOparts in ${Math.round((p.visibility ?? 0) * 100)}% of their answers - a page or a post that answers it plainly can change that.`,
-    kind: "blog-article", target: p.language, score: Math.round(60 * (1 - (p.visibility ?? 0))), href: "/aeo/prompts",
+    kind: "blog-article", target: p.language, score: Math.round(60 * (1 - (p.visibility ?? 0))), href: "/aeo/prompts", origin: PLACE_ORIGIN.aeoPrompt,
   }));
   return [...recs, ...asks];
 }
@@ -153,7 +168,7 @@ async function fromSeo(): Promise<Idea[]> {
     key: `seo:${w.id}`, source: "seo", title: clip(`${w.action}: ${w.subject}`, 160),
     why: clip(w.source === "quick-win" ? `Close to page one on Google for “${w.subject}” - ${w.impressions.toLocaleString("en")} impressions a month; a deeper page can take the clicks.` : `This page is losing clicks from Google (${w.impressions.toLocaleString("en")} impressions) - a refresh brings it back.`, 400),
     kind: w.source === "decay" ? "page-refresh" : "landing-page", target: w.subject, score: Math.round(w.priority),
-    href: w.source === "decay" ? "/seo/decay" : "/seo/quick-wins",
+    href: w.source === "decay" ? "/seo/decay" : "/seo/quick-wins", origin: w.source === "decay" ? PLACE_ORIGIN.seoDecay : PLACE_ORIGIN.seoQuickWin,
   }));
   seoCache = { at: Date.now(), ideas };
   return ideas;
@@ -168,7 +183,7 @@ async function fromSearch(): Promise<Idea[]> {
   return top.map((x) => idea({
     key: `search:${x.query_norm}`, source: "search", title: clip(`A page for “${x.query_norm}”`, 160),
     why: `Searched ${x.count} time${x.count === 1 ? "" : "s"} in the shop in 30 days${x.locale ? ` (${x.locale})` : ""} and found nothing${x.reason ? ` - ${x.reason}` : ""}.`,
-    kind: "landing-page", target: x.query_norm, score: Math.round((100 * x.count) / most), href: "/website/search-bar", at: x.last_seen,
+    kind: "landing-page", target: x.query_norm, score: Math.round((100 * x.count) / most), href: "/website/search-bar#gaps", at: x.last_seen,
   }));
 }
 
@@ -182,7 +197,7 @@ async function fromChat(): Promise<Idea[]> {
   return subs.map((x) => idea({
     key: `chat:${x.category}:${x.sub}`, source: "chat", title: clip(`Customers ask about ${x.sub}`, 160),
     why: `${x.chats} chat${x.chats === 1 ? "" : "s"} in 90 days on “${x.sub}” (${x.category}) - a blog post or a FAQ answers them before they ask.`,
-    kind: "blog-article", target: x.category, score: Math.round((100 * x.chats) / most), href: "/website/chat",
+    kind: "blog-article", target: x.category, score: Math.round((100 * x.chats) / most), href: "/website/chat#topics",
   }));
 }
 
@@ -202,30 +217,22 @@ async function fromBrand(): Promise<Idea[]> {
   return [...terms, ...trends];
 }
 
-async function fromPlan(): Promise<Idea[]> {
-  try {
-    const r = await query<{ id: number; title: string; detail: string | null; channel: string | null; updated_at: Date }>(
-      `SELECT id, title, detail, channel, updated_at FROM apsomh_action_plan WHERE kind = 'action' AND stage = '6161860807' ORDER BY updated_at DESC LIMIT 40`);
-    return r.rows.map((x, i) => idea({
-      key: `plan:${x.id}`, source: "plan", title: clip(x.title, 160), why: clip(x.detail || (x.channel ? `In the plan's Idea box - ${x.channel}.` : "In the plan's Idea box."), 400),
-      kind: /newsletter/i.test(x.channel ?? "") ? "newsletter" : /linkedin|social/i.test(x.channel ?? "") ? "social-post" : /seo|website/i.test(x.channel ?? "") ? "landing-page" : TASK_KIND,
-      target: x.channel, score: Math.max(20, 80 - i * 3), href: "/action-plan", at: new Date(x.updated_at).toISOString(),
-    }));
-  } catch (e) { if (missing(e)) return []; throw e; }
-}
-
 async function fromTeam(): Promise<Idea[]> {
   await ensureIdeas();
-  const r = await query<{ id: number; title: string; why: string; kind: string | null; created_by: string | null; created_at: Date }>(
-    `SELECT id, title, why, kind, created_by, created_at FROM apsomh_content_ideas ORDER BY created_at DESC LIMIT 200`);
-  return r.rows.map((x) => idea({
-    key: `team:${x.id}`, source: "team", title: x.title, why: x.why, kind: x.kind, target: null, score: 70, href: null,
-    at: new Date(x.created_at).toISOString(), by: x.created_by,
-  }));
+  const r = await query<{ id: number; title: string; why: string; kind: string | null; kinds: string[] | null; created_by: string | null; created_at: Date }>(
+    `SELECT i.id, i.title, i.why, i.kind, i.kinds, COALESCE(NULLIF(u.full_name, ''), i.created_by) AS created_by, i.created_at
+       FROM apsomh_content_ideas i LEFT JOIN apsomh_users u ON u.username = i.created_by ORDER BY i.created_at DESC LIMIT 200`);
+  return r.rows.map((x) => {
+    const kinds = x.kinds?.length ? x.kinds : x.kind ? [x.kind] : [];
+    return idea({
+      key: `team:${x.id}`, source: "team", title: x.title, why: x.why, kind: kinds[0] ?? null, kinds, target: null, score: 70, href: null,
+      at: new Date(x.created_at).toISOString(), by: x.created_by,
+    });
+  });
 }
 
 const READERS: Record<IdeaSource, () => Promise<Idea[]>> = {
-  convert: fromConvert, buyers: fromBuyers, aeo: fromAeo, seo: fromSeo, search: fromSearch, chat: fromChat, brand: fromBrand, plan: fromPlan, team: fromTeam,
+  convert: fromConvert, buyers: fromBuyers, aeo: fromAeo, seo: fromSeo, search: fromSearch, chat: fromChat, brand: fromBrand, team: fromTeam,
 };
 
 /** One source's ideas, each with what the team did with it. */
@@ -233,8 +240,13 @@ export async function ideasFrom(source: IdeaSource): Promise<Idea[]> {
   await ensureIdeas();
   const ideas = await READERS[source]();
   if (!ideas.length) return ideas;
+  await ensureSharing();
+  // an idea made into a project that was deleted since is an idea to look at again (the mark is kept: a project brought
+  // back takes its ideas back)
   const marks = await query<{ key: string; status: "dismissed" | "project"; project_id: number | null; by_whom: string | null; at: Date }>(
-    `SELECT key, status, project_id, by_whom, at FROM apsomh_content_idea_marks WHERE key = ANY($1::text[])`, [ideas.map((i) => i.key)]);
+    `SELECT m.key, m.status, m.project_id, m.by_whom, m.at FROM apsomh_content_idea_marks m
+       LEFT JOIN apsomh_content_projects p ON p.id = m.project_id
+      WHERE m.key = ANY($1::text[]) AND NOT (m.status = 'project' AND p.deleted_at IS NOT NULL)`, [ideas.map((i) => i.key)]);
   const by = new Map(marks.rows.map((m) => [m.key, m]));
   return ideas.map((i) => {
     const m = by.get(i.key);
@@ -242,11 +254,62 @@ export async function ideasFrom(source: IdeaSource): Promise<Idea[]> {
   });
 }
 
-export async function addTeamIdea(p: { title: string; why: string; kind: string | null; by: string }): Promise<number> {
+export async function addTeamIdea(p: { title: string; why: string; kinds: string[]; by: string }): Promise<number> {
   await ensureIdeas();
-  const r = await query<{ id: number }>(`INSERT INTO apsomh_content_ideas (title, why, kind, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
-    [clip(p.title, 200), clip(p.why, 1500), p.kind, p.by]);
+  const kinds = cleanKinds(p.kinds);
+  const r = await query<{ id: number }>(`INSERT INTO apsomh_content_ideas (title, why, kind, kinds, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [clip(p.title, 200), clip(p.why, 1500), kinds[0] ?? null, kinds, p.by]);
   return r.rows[0].id;
+}
+
+const OFFERED = OFFERED_CONTENT_TYPES.map((t) => t.key);
+/** Kinds as kept: offered ones only, each once, at most 6. */
+export const cleanKinds = (v: unknown): string[] => [...new Set((Array.isArray(v) ? v : []).map(String).filter((k) => OFFERED.includes(k)))].slice(0, 6);
+
+export type WrittenIdea = { title: string; why: string; kinds: string[]; facts: string[] };
+
+/**
+ * "Write it with AI" (SARCLA 08.11.2026: "Ideas should have + Idea - not of ours - and then create with AI"): a few words
+ * of a person -> a whole idea: a title, why it matters (for whom, what it changes), the content to make (of the kinds
+ * offered), and the brain's facts it leans on. Facts only from the brand brain; what the brain does not say is not said.
+ * Null when the AI is not set up.
+ */
+export async function writeIdea(words: string): Promise<WrittenIdea | null> {
+  const client = getAnthropic();
+  if (!client) return null;
+  const brain = await readBrain();
+  const kinds = OFFERED_CONTENT_TYPES.map((t) => `${t.key}: ${t.label} - ${t.blurb}`).join("\n");
+  const schema = {
+    type: "object", additionalProperties: false, required: ["title", "why", "kinds", "facts"],
+    properties: {
+      title: { type: "string" }, why: { type: "string" },
+      kinds: { type: "array", items: { type: "string", enum: OFFERED } },
+      facts: { type: "array", items: { type: "string" } },
+    },
+  };
+  const r = await claudeText({
+    client,
+    system: [{ type: "text", text: `${brandSystemPrompt(brain)}
+
+You turn a marketer's few words into ONE content idea for the APSOparts team. Write:
+- title: the idea itself, short and concrete (at most 12 words) - what we would publish or change, not its type.
+- why: 2-3 plain sentences - for whom, what it changes for them and for APSOparts. Say only what the words and the brand brain support.
+- kinds: 1 to 3 content types from the list that would carry it best, the best first.
+- facts: the facts from the brand brain above that the idea leans on, each one short line - or none. Only facts written above.
+Never invent product facts, figures, prices, stock, delivery times or certificates; never a discount value; never name Chemours. If the words need a fact the brain does not hold, write the idea without it. English, plain words, no slogans, no emojis.
+
+Content types:
+${kinds}` }],
+    user: `The words: ${words}`,
+    budget: { maxTokens: 1200, effort: "low" },
+    outputFormat: { type: "json_schema", schema },
+  });
+  if (!r.ok) throw new Error(r.failure.error);
+  const out = JSON.parse(r.text) as WrittenIdea;
+  return {
+    title: clip(out.title, 160), why: clip(out.why, 900),
+    kinds: cleanKinds(out.kinds).slice(0, 3), facts: (Array.isArray(out.facts) ? out.facts : []).map((f) => clip(f, 200)).filter(Boolean).slice(0, 5),
+  };
 }
 
 export async function removeTeamIdea(id: number, who: { username: string; admin: boolean }): Promise<boolean> {

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { batches, diffOps } from "@/lib/content/studio/doc";
 import type { StudioKind } from "@/lib/content/studio/kinds";
 import type { Brief, PersonOpt, Piece } from "../work/types";
+import { useWorking, whileWorking, type Working } from "./working";
 
 export type StudioData = {
   ok: boolean; error?: string; kind: StudioKind; me: string; isAdmin: boolean;
@@ -26,6 +27,8 @@ export type StudioApi = {
   setDoc: (next: unknown | ((cur: unknown) => unknown)) => void;
   save: SaveState;
   saveError: string | null;
+  /** The AI (or a slow action) at work right now - the frame shows it, a kind studio may too (parts.tsx AiWorking). */
+  working: Working | null;
   /** One of the kind's AI tasks; the answer comes back cleaned, for the studio to apply. */
   ai: <T = unknown>(task: string, input?: Record<string, unknown>) => Promise<{ ok: true; result: T } | { ok: false; error: string }>;
   /** One of the kind's server actions. */
@@ -38,6 +41,9 @@ export type StudioApi = {
   /** Changes the to-do itself - its title, its day on the calendar, who writes or reviews it - shown at once. */
   edit: (fields: { title?: string; dueDate?: string | null; writer?: string | null; reviewer?: string | null }) => Promise<{ ok: boolean; error?: string }>;
 };
+
+/** What the frame says while an AI task runs. */
+const AI_SAYS: Record<string, string> = { translate: "AI is translating…", design: "AI is laying it out…", variants: "AI is finding words…", subjects: "AI is finding words…", hashtags: "AI is finding words…", ideas: "AI is thinking…" };
 
 async function post(pieceId: number, body: Record<string, unknown>) {
   const r = await fetch(`/api/content/pieces/${pieceId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -54,6 +60,7 @@ export function useStudio(pieceId: number): { api: StudioApi | null; error: stri
   const latest = useRef<unknown>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushing = useRef<Promise<void> | null>(null);
+  const working = useWorking();
 
   const load = useCallback(async () => {
     const j = (await fetch(`/api/content/pieces/${pieceId}`).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }))) as StudioData;
@@ -106,17 +113,19 @@ export function useStudio(pieceId: number): { api: StudioApi | null; error: stri
   if (!data) return { api: null, error };
 
   const api: StudioApi = {
-    data, doc, setDoc, save, saveError,
-    ai: async (task, input = {}) => {
+    data, doc, setDoc, save, saveError, working,
+    // the AI is at work from the click (the save before it included) - the frame shows it; an action counts once it
+    // takes over 1.2 s (kind "work": the frame leaves it to its studio - a quick read as a studio opens never shows)
+    ai: (task, input = {}) => whileWorking({ label: AI_SAYS[task] ?? "AI is writing…", kind: "ai" }, async () => {
       await flush();
       const r = await post(pieceId, { action: "ai", task, input });
-      return r.ok ? { ok: true, result: r.result } : { ok: false, error: r.error ?? "The AI did not answer." };
-    },
-    act: async (name, input = {}) => {
+      return r.ok ? { ok: true as const, result: r.result } : { ok: false as const, error: r.error ?? "The AI did not answer." };
+    }),
+    act: (name, input = {}) => whileWorking({ label: "Working…", kind: "work" }, async () => {
       await flush();
       const r = await post(pieceId, { action: "act", name, input });
-      return r.ok ? { ok: true, result: r.result } : { ok: false, error: r.error ?? "That did not work." };
-    },
+      return r.ok ? { ok: true as const, result: r.result } : { ok: false as const, error: r.error ?? "That did not work." };
+    }, 1200),
     saveVersion: async (label) => {
       await flush();
       const r = await post(pieceId, { action: "version", label: label ?? null });

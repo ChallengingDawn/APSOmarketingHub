@@ -1,19 +1,20 @@
 // STARTING A PROJECT (08.11.2026) - lib/content/start.ts.
-//   GET            what the page needs: the people, the kinds offered, the languages, the plan's places (admins), AI on?
-//   POST propose   { goal, ideas[], languages[] }   the AI's project: name, brief, lines - and where in the plan (admins)
-//   POST start     { title, goal, audience, message, ideas[], planItem, tickets, lines[] }   made, in one go
+//   GET            what the page needs: the people, the kinds offered, the languages, AI on?
+//   POST propose   { goal, ideas[], languages[] }   the AI's project: name, brief, lines
+//   POST start     { title, goal, audience, message, ideas[], planItem, tickets, lines[] }   made, in one go; answers its id
+//                  and its to-dos' ids (Make > X opens the studio of its one to-do at once)
+// The action plan is not asked here any more (SARCLA 08.11.2026: "Action plan should not be visible here"): the pages
+// send planItem null and no tickets, and a to-do's "Plan & ticket" places it later. The route still takes them.
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guard";
 import { myAccess } from "@/lib/auth/appAccess";
 import { getAnthropic } from "@/lib/ai/claude";
-import { placesFor } from "@/lib/content/assist";
 import { OFFERED_CONTENT_TYPES } from "@/lib/content/contentTypes";
 import { LANGUAGES } from "@/lib/content/languages";
 import { TASK_KIND } from "@/lib/content/pieceRules";
 import { shareCandidates } from "@/lib/content/sharing";
 import { proposeProject, startProject, type IdeaRef, type Line } from "@/lib/content/start";
-import { planPlaces } from "@/lib/content/todos";
 import { describeIntegrationError } from "@/lib/integrations/status";
 import { keepAlive } from "@/lib/http/keepAlive";
 
@@ -42,13 +43,12 @@ async function canStart() {
 export async function GET() {
   const me = await requireUser();
   const admin = me.role === "admin";
-  const [people, places] = await Promise.all([shareCandidates(), admin ? planPlaces().catch(() => []) : Promise.resolve([])]);
+  const people = await shareCandidates();
   return NextResponse.json({
     ok: true, me: me.username, admin, ai: !!getAnthropic(), canStart: await canStart(),
     people: people.map((p) => ({ username: p.username, name: p.name })),
     kinds: [...OFFERED_CONTENT_TYPES.map((t) => ({ key: t.key, label: t.label, blurb: t.blurb, language: true })), { key: TASK_KIND, label: "Action", blurb: "Something to do around the content - brief the agency, get photos, check with product management", language: false }],
     languages: LANGUAGES.map((l) => ({ code: l.code, label: l.label })),
-    places,
   });
 }
 
@@ -67,12 +67,7 @@ export async function POST(req: NextRequest) {
     try {
       const proposal = await proposeProject({ goal, ideas, languages });
       if (!proposal) return fail("The AI is not set up on this hub.", 503);
-      let places = null;
-      if (admin) {
-        const all = await planPlaces().catch(() => []);
-        places = await placesFor({ title: proposal.title, goal: proposal.goal, audience: proposal.audience, message: proposal.message, pieces: proposal.lines.map((l) => l.title) }, all).catch(() => null);
-      }
-      return NextResponse.json({ ok: true, proposal, places });
+      return NextResponse.json({ ok: true, proposal });
     } catch (e) {
       return fail(describeIntegrationError(e).error, 502);
     }

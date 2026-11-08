@@ -27,6 +27,7 @@ import FileUploadOutlinedIcon from "@mui/icons-material/FileUploadOutlined";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { field, mainBtn } from "./parts";
+import { whileWorking } from "./working";
 
 export type Picture = {
   id: number; kind: "generated" | "upload" | "logo"; url: string; width: number | null; height: number | null;
@@ -42,7 +43,8 @@ async function post<T>(body: Record<string, unknown>): Promise<T & { ok: boolean
 
 /** A picture from a few words, in the house style. Takes 10-40 s. */
 export async function makePicture(prompt: string, aspect: PictureAspect, where: Where = {}): Promise<{ ok: true; picture: Picture } | { ok: false; error: string }> {
-  const r = await post<{ asset?: Picture }>({ action: "generate", prompt, aspect, ...where });
+  // the studio's frame shows it being made, from the click (working.ts)
+  const r = await whileWorking({ label: "Making the picture…", kind: "picture" }, () => post<{ asset?: Picture }>({ action: "generate", prompt, aspect, ...where }));
   return r.ok && r.asset ? { ok: true, picture: r.asset } : { ok: false, error: r.error ?? "No picture came back." };
 }
 

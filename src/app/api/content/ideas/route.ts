@@ -1,7 +1,8 @@
 // IDEAS FROM EVERY APP (08.11.2026) - lib/content/ideas.ts.
-//   GET                   the sources this person may read (each by its own app's grant; the plan's for admins)
-//   GET ?source=<key>     one source's ideas, each with what the team did with it
-//   POST add              { title, why?, kind? }      an idea of the team's own
+//   GET                   the sources this person may read (each by its own app's grant), named as the menus name them
+//   GET ?source=<key>     one source's ideas, each with where exactly it comes from and what the team did with it
+//   POST write            { words }                   "Write it with AI": a few words -> title, why, kinds (not kept yet)
+//   POST add              { title, why?, kinds[] }    an idea of the team's own
 //   POST remove           { id }                      one's own idea (an admin: any)
 //   POST mark             { keys[], status, projectId? }  "dismissed" (not now), "project" (added to a project), null (back in the list)
 
@@ -10,27 +11,26 @@ import { requireUser } from "@/lib/auth/guard";
 import { keepAlive } from "@/lib/http/keepAlive";
 import { myAccess } from "@/lib/auth/appAccess";
 import { accessFor } from "@/lib/content/sharing";
-import { addTeamIdea, ideasFrom, markIdeas, removeTeamIdea, SOURCES, type IdeaSource } from "@/lib/content/ideas";
+import { addTeamIdea, cleanKinds, ideasFrom, markIdeas, removeTeamIdea, SOURCES, writeIdea, type IdeaSource } from "@/lib/content/ideas";
 import { describeIntegrationError } from "@/lib/integrations/status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 const fail = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
 
 async function allowedSources() {
   const acc = await myAccess();
   if (!acc) return [];
-  const admin = acc.role === "admin";
-  return SOURCES.filter((s) => (s.app === "admin" ? admin : admin || acc.canOpen(s.app)));
+  return SOURCES.filter((s) => acc.role === "admin" || acc.canOpen(s.app));
 }
 
 export async function GET(req: NextRequest) {
-  await requireUser();
+  const me = await requireUser();
   const sources = await allowedSources();
   const want = req.nextUrl.searchParams.get("source");
-  if (!want) return NextResponse.json({ ok: true, sources: sources.map(({ key, label, note, slow }) => ({ key, label, note, slow: !!slow })) });
+  if (!want) return NextResponse.json({ ok: true, me: me.username, sources: sources.map(({ key, label, note, slow }) => ({ key, label, note, slow: !!slow })) });
   const s = sources.find((x) => x.key === want);
   if (!s) return fail("That source is not open to you.", 403);
   return keepAlive(async () => {
@@ -46,11 +46,25 @@ export async function POST(req: NextRequest) {
   const me = await requireUser();
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const action = String(b.action ?? "");
+  if (action === "write") {
+    const words = String(b.words ?? "").trim().slice(0, 1200);
+    if (words.length < 3) return fail("Write a few words first.");
+    return keepAlive(async () => {
+      try {
+        const idea = await writeIdea(words);
+        return idea ? NextResponse.json({ ok: true, idea }) : fail("The AI is not set up on this hub.", 503);
+      } catch (e) {
+        return fail(describeIntegrationError(e).error, 502);
+      }
+    });
+  }
   if (action === "add") {
     const title = String(b.title ?? "").trim();
     if (!title) return fail("Say the idea in a few words.");
-    const id = await addTeamIdea({ title, why: String(b.why ?? ""), kind: typeof b.kind === "string" && b.kind ? b.kind.slice(0, 48) : null, by: me.username });
-    return NextResponse.json({ ok: true, id });
+    // kinds[] (several); kind (one) from an older page
+    const kinds = cleanKinds(Array.isArray(b.kinds) ? b.kinds : typeof b.kind === "string" ? [b.kind] : []);
+    const id = await addTeamIdea({ title, why: String(b.why ?? ""), kinds, by: me.username });
+    return NextResponse.json({ ok: true, id, key: `team:${id}` });
   }
   if (action === "remove") {
     const ok = await removeTeamIdea(Number(b.id), { username: me.username, admin: me.role === "admin" });
