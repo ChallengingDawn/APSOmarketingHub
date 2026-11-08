@@ -274,12 +274,15 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
   // the order facts the sheets give (first confirmed date, special articles, the invoice) - order_sync writes them at night
   if (wb.erpLines || wb.invoices) {
     const byBase = wb.erpLines ? lineFacts(wb.erpLines.lines) : new Map(), byOrder = wb.invoices ? invoiceFacts(wb.invoices) : new Map();
-    if (!live) out.order_facts = { orders: byBase.size, deliveries_invoiced: byOrder.size, kept: false };
+    // the deliveries invoiced, by the invoice's year - the history (2020 on) shows here the morning it comes
+    const byYear: Record<string, number> = {};
+    for (const f of byOrder.values()) { const y = (f.order_invoice_date ?? "").slice(0, 4) || "no date"; byYear[y] = (byYear[y] ?? 0) + 1; }
+    if (!live) out.order_facts = { orders: byBase.size, deliveries_invoiced: byOrder.size, by_invoice_year: byYear, kept: false };
     else {
-      try { out.order_facts = { ...(await saveErpFacts(byBase, byOrder)), kept: true }; }
+      try { out.order_facts = { ...(await saveErpFacts(byBase, byOrder)), by_invoice_year: byYear, kept: true }; }
       catch (e) { out.order_facts = `not kept: ${(e as Error).message}`; }
     }
-  } else out.order_facts = wb.sheets.some((s) => s.trim().toUpperCase() === SHEET_INVOICES) ? "KPI INVOICES without the expected header" : "no KPI LINES or KPI INVOICES sheet";
+  } else out.order_facts = wb.sheets.some((s) => s.trim().toUpperCase().startsWith(SHEET_INVOICES)) ? "KPI INVOICES without the expected header" : "no KPI LINES or KPI INVOICES sheet";
   // the products' ERP fields (GWStdP, stock value, material ... - ./productFactsRules.ts): counted, and written once switched on
   if (wb.articles && productIds) {
     try { out.product_facts = { ...(await productFactsRun(wb.articles, productIds, live, beat)), hubspot_articles_copied: productIds.refreshed }; }
