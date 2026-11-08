@@ -210,19 +210,31 @@ export const unwritten = (doc: PageDoc) => {
 /** The new page's body as the one change that puts it in place. */
 export const bodyChange = (doc: PageDoc): Change => ({ op: "html", selector: SHELL_SELECTOR, html: doc.newPage.body, note: "The new page" });
 
+/** The most a version may weigh on the shop (src/lib/convert/versions.ts LIMITS.total). */
+const VERSION_MAX = 80_000;
+
 /**
- * The list the page gets: a new page's body first, then the changes, the written texts in their places - validated
- * (anything a version may not carry is left out, and said).
+ * The list the page gets: a new page's body first, then the changes, the written texts in their places - each
+ * validated on its own (anything a version may not carry is left out, and said), and `from` saying which of the
+ * document's changes each one is (-1 = the new page's body), so the studio shows what each change found.
  */
-export function finalChanges(doc: PageDoc): { changes: Change[]; problems: string[] } {
-  const list: unknown[] = [];
-  if (doc.source === "new" && doc.newPage.body.trim()) list.push(bodyChange(doc));
-  list.push(...doc.changes);
-  const filled = list.map((c) => {
-    if (!isObj(c) || typeof c.html !== "string") return c;
-    return { ...c, html: fillTexts(c.html, doc.texts) };
-  });
-  return validateChanges(filled);
+export function finalChanges(doc: PageDoc): { changes: Change[]; problems: string[]; from: number[] } {
+  const list: { c: unknown; from: number }[] = [];
+  if (doc.source === "new" && doc.newPage.body.trim()) list.push({ c: bodyChange(doc), from: -1 });
+  doc.changes.forEach((c, i) => list.push({ c, from: i }));
+  const changes: Change[] = [];
+  const from: number[] = [];
+  const problems: string[] = [];
+  for (const x of list) {
+    const c = isObj(x.c) && typeof x.c.html === "string" ? { ...x.c, html: fillTexts(x.c.html, doc.texts) } : x.c;
+    const v = validateChanges([c]);
+    const name = x.from < 0 ? "the page's body" : `change ${x.from + 1}`;
+    problems.push(...v.problems.map((p) => p.replace(/^change 1/, name)));
+    if (v.changes[0]) { changes.push(v.changes[0]); from.push(x.from); }
+  }
+  if (changes.length > 40) problems.push(`${changes.length} changes - the shop's test takes 40 at most`);
+  if (JSON.stringify(changes).length > VERSION_MAX) problems.push("the changes weigh over 80 KB - the shop's test would leave the last ones out");
+  return { changes, problems, from };
 }
 
 /** A change as a line - its note, else what it does. */
