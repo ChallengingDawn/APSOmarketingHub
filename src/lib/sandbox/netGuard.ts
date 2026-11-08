@@ -1,6 +1,6 @@
 // THE SANDBOX'S ONLY WAYS OUT - every TCP connection the sandbox opens goes through here, and only these are let
 // through: its own database, HubSpot (once the person has set their private app's token - writes are held back by
-// hubspot.ts), the read-only door to the microservices (SANDBOX_VIEWER_URL), and Anthropic while SANDBOX_AI=on.
+// hubspot.ts), the read-only door to the microservices (SANDBOX_VIEWER_URL), and Anthropic (and Gemini, for pictures) while SANDBOX_AI=on.
 // Magento, the SFTP server, SMTP, the connector, the gateways themselves: refused before a DNS lookup, so a job or a
 // button switched on in the sandbox changes nothing real (SARCLA 26.10.2026: "they should be off and if turned on they
 // should have no effect at all").
@@ -35,7 +35,8 @@ export function allowedHosts(env: NodeJS.ProcessEnv = process.env): Set<string> 
   } else if (env.PGHOST) {
     hosts.add(clean(env.PGHOST));
   }
-  if (env.SANDBOX_AI === "on") hosts.add("api.anthropic.com");
+  // the studios' pictures are made by Gemini (src/lib/images.ts) - AI too, so the same switch opens it
+  if (env.SANDBOX_AI === "on") { hosts.add("api.anthropic.com"); hosts.add("generativelanguage.googleapis.com"); }
   // the shop's public pages, production and ACC, while SANDBOX_SHOP=read: APSOconvert's page index and live preview
   // read them (GET, no key - the sandbox holds no Magento key, so nothing there can change)
   if (env.SANDBOX_SHOP === "read") for (const h of ["www.apsoparts.com", "acc.apsoparts.com"]) hosts.add(h);
