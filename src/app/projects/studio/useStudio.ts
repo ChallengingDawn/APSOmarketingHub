@@ -35,6 +35,8 @@ export type StudioApi = {
   reload: () => Promise<void>;
   /** Moves the to-do through its statuses (the project's route), then reads the studio again. */
   move: (to: string, note?: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Changes the to-do itself - its title, its day on the calendar, who writes or reviews it - shown at once. */
+  edit: (fields: { title?: string; dueDate?: string | null; writer?: string | null; reviewer?: string | null }) => Promise<{ ok: boolean; error?: string }>;
 };
 
 async function post(pieceId: number, body: Record<string, unknown>) {
@@ -133,6 +135,14 @@ export function useStudio(pieceId: number): { api: StudioApi | null; error: stri
       const r = await fetch(`/api/content/projects/${data.piece.projectId}/work`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "piece-move", pieceId, to, note: note ?? null }) })
         .then((x) => x.json()).catch(() => ({ ok: false, error: "The hub did not answer." }));
       if (r.ok) await load();
+      return r;
+    },
+    edit: async (fields) => {
+      const before = data.piece;
+      setData((d) => (d ? { ...d, piece: { ...d.piece, ...fields, title: fields.title?.trim() || d.piece.title } as Piece } : d));
+      const r = await fetch(`/api/content/projects/${data.piece.projectId}/work`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "piece-edit", pieceId, ...fields }) })
+        .then((x) => x.json()).catch(() => ({ ok: false, error: "The hub did not answer." }));
+      if (!r.ok) setData((d) => (d ? { ...d, piece: before } : d));
       return r;
     },
   };

@@ -28,7 +28,7 @@ export type PlayerHandle = {
 };
 
 const KIND_TONE: Record<string, string> = {
-  title: "#e6edfd", words: "#efe8fd", claim: "#fde8f1", steps: "#e7f6ee", product: "#fdf0e3", quote: "#e9eef5", end: "#f6e2e1",
+  title: "#e6edfd", words: "#efe8fd", claim: "#fde8f1", feature: "#fde3e2", number: "#fff1d6", compare: "#e3f0f6", steps: "#e7f6ee", product: "#fdf0e3", quote: "#e9eef5", end: "#f6e2e1",
 };
 
 export default function Player({ doc, handle, onScene }: {

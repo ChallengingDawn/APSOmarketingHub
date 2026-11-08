@@ -2,7 +2,8 @@
 // THE VIDEO STUDIO'S STORYBOARD (08.11.2026): the film's scenes in order - drag one by its handle or move it up and
 // down, set its kind and its bars, write its few words (each line counts its words against what can be read in under
 // two seconds), add one of our kinds, take one out; then the end card. Clicking a scene plays the film from it;
-// typing in one shows it on the player.
+// typing in one shows it on the player. A scene that tells one of APSOparts' features carries it (and its icon); a
+// picture comes from the shop's photos or the hub's picture panel (made from a few words, or uploaded) - never typed.
 import { useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -22,7 +23,8 @@ import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import RemoveRoundedIcon from "@mui/icons-material/RemoveRounded";
 
 import { AMBER, HAIRLINE, INK, MUTED, RED } from "@/app/uc/report/ui";
-import { Choice } from "@/app/connectors/parts";
+import { SquareChoice as Choice } from "@/app/website/ai-personalization/SquareChoice";
+import { FEATURE, ICONS, type IconKey } from "@/lib/content/studio/kinds/video/features";
 import { wordCount } from "@/lib/content/studio/kinds/video/engine/text";
 import { BAR, FPS, timecode } from "@/lib/content/studio/kinds/video/engine/timeline";
 import {
@@ -30,6 +32,12 @@ import {
   type CopyKey, type Cut, type FieldDef, type Issue, type Scene, type SceneKind, type Segment, type Shape, type VideoDoc,
 } from "@/lib/content/studio/kinds/video/model";
 import { btn, field, Label, PINK } from "../../parts";
+import { PicturePanel } from "../../pictures";
+import { PhotoPicker } from "../banner/ui";
+import { LineIcon } from "./FeaturePicker";
+
+/** Where the scene cards' pictures are kept: the to-do's project and piece, the person. */
+export type PicWhere = { projectId: number; pieceId: number; me: string };
 
 export type Edit = (fn: (d: VideoDoc) => VideoDoc) => void;
 
@@ -67,7 +75,7 @@ function KindMenu({ kind, onPick, disabled }: { kind: SceneKind; onPick: (k: Sce
   return (
     <>
       <Button size="small" disabled={disabled} onClick={(e) => { e.stopPropagation(); setAnchor(e.currentTarget); }} endIcon={<KeyboardArrowDownRoundedIcon sx={{ fontSize: 18 }} />}
-        sx={{ ...btn, color: INK, px: 1, minWidth: 0, fontSize: "0.86rem", fontWeight: 700 }}>
+        sx={{ ...btn, color: INK, px: 1, minWidth: 0, flexShrink: 0, fontSize: "0.86rem", fontWeight: 700 }}>
         {KIND_INFO[kind].label}
       </Button>
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} onClick={(e) => e.stopPropagation()} slotProps={{ paper: { sx: { width: 300, borderRadius: "14px" } } }}>
@@ -84,7 +92,7 @@ function KindMenu({ kind, onPick, disabled }: { kind: SceneKind; onPick: (k: Sce
 
 function Bars({ bars, onChange, disabled, min = MIN_BARS, max = MAX_BARS }: { bars: number; onChange: (n: number) => void; disabled?: boolean; min?: number; max?: number }) {
   return (
-    <Box onClick={(e) => e.stopPropagation()} sx={{ display: "inline-flex", alignItems: "center", border: `1px solid ${HAIRLINE}`, borderRadius: "999px", bgcolor: "#fff", height: 28 }}>
+    <Box onClick={(e) => e.stopPropagation()} sx={{ display: "inline-flex", alignItems: "center", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", bgcolor: "#fff", height: 28, flexShrink: 0 }}>
       <IconButton size="small" disabled={disabled || bars <= min} onClick={() => onChange(bars - 1)} aria-label="One bar less" sx={{ p: 0.25 }}><RemoveRoundedIcon sx={{ fontSize: 16 }} /></IconButton>
       <Tooltip title={`${bars * (BAR / FPS)} seconds - a bar is two`}>
         <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: INK, px: 0.5, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{bars} bar{bars > 1 ? "s" : ""}</Typography>
@@ -94,9 +102,61 @@ function Bars({ bars, onChange, disabled, min = MIN_BARS, max = MAX_BARS }: { ba
   );
 }
 
-function SceneCard({ s, i, n, seg, issues, active, disabled, edit, onPlay, onShow, dragging, onDragStart, onDropAt }: {
+/** The scene's picture: the shop's photos, or one made or uploaded in the hub - picked here, in the card. */
+function ScenePicture({ s, patch, disabled, onShow, where, lang }: { s: Scene; patch: (p: Partial<Scene>) => void; disabled: boolean; onShow: () => void; where: PicWhere; lang: string }) {
+  const [open, setOpen] = useState(false);
+  const [from, setFrom] = useState<"shop" | "hub">("shop");
+  const words = [s.copy.kicker, s.copy.line1].filter(Boolean).join(" - ").replace(/\*/g, "");
+  return (
+    <Box sx={{ mb: 1 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Box sx={{ width: 64, height: 44, borderRadius: "6px", overflow: "hidden", bgcolor: "#eef1f6", border: `1px solid ${HAIRLINE}`, flexShrink: 0, display: "grid", placeItems: "center" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {s.image ? <img src={s.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <Typography sx={{ fontSize: "0.66rem", color: MUTED }}>{s.kind === "product" ? "Drawn part" : "Icon"}</Typography>}
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: "0.78rem", fontWeight: 650, color: INK }}>Picture</Typography>
+          <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{s.image ? "Shown on its card" : s.kind === "product" ? "None - the part is drawn" : "None - the icon shows big"}</Typography>
+        </Box>
+        <Button size="small" disabled={disabled} onClick={() => { setOpen((o) => !o); onShow(); }} sx={{ ...btn, color: INK, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", py: 0.25 }}>{open ? "Done" : s.image ? "Change" : "Add"}</Button>
+        {s.image && <Button size="small" disabled={disabled} onClick={() => patch({ image: undefined })} sx={{ ...btn, color: MUTED, minWidth: 0, py: 0.25 }}>Out</Button>}
+      </Box>
+      {open && (
+        <Box sx={{ mt: 1, p: 1.25, borderRadius: "8px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fafbfc" }}>
+          <Box sx={{ mb: 1 }}><Choice value={from} onChange={setFrom} options={[{ key: "shop", label: "The shop's photos" }, { key: "hub", label: "Make or upload" }]} /></Box>
+          {from === "shop"
+            ? <PhotoPicker lang={lang} selected={s.image ? [s.image] : []} onPick={(p) => { patch({ image: p.url }); onShow(); }} />
+            : <PicturePanel onPick={(p) => { patch({ image: p.url }); onShow(); }} projectId={where.projectId} pieceId={where.pieceId} me={where.me} aspect={s.kind === "feature" ? "4:5" : "1:1"}
+              suggestion={words ? `${words}. Industrial components, real, calm light, for an APSOparts film.` : ""} columns={3} />}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+/** The icon a feature or number scene shows: the shop's own line icons. */
+function IconRow({ value, onChange, disabled }: { value: IconKey; onChange: (k: IconKey) => void; disabled: boolean }) {
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+      <Typography sx={{ fontSize: "0.76rem", color: MUTED, minWidth: 52 }}>Icon</Typography>
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+        {ICONS.map((k) => (
+          <Box key={k} component="button" type="button" disabled={disabled} aria-pressed={value === k} aria-label={k} onClick={() => onChange(k)} sx={{
+            all: "unset", cursor: disabled ? "default" : "pointer", width: 26, height: 26, borderRadius: "5px", display: "grid", placeItems: "center",
+            bgcolor: value === k ? "#d80901" : "#fff", border: `1px solid ${value === k ? "#d80901" : HAIRLINE}`, "&:hover": { borderColor: value === k ? "#d80901" : "#9fb3c0" },
+          }}>
+            <LineIcon name={k} size={16} color={value === k ? "#fff" : "#274e64"} />
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+function SceneCard({ s, i, n, seg, issues, active, disabled, edit, onPlay, onShow, dragging, onDragStart, onDropAt, where, lang }: {
   s: Scene; i: number; n: number; seg: Segment | undefined; issues: Issue[]; active: boolean; disabled: boolean; edit: Edit;
   onPlay: (i: number) => void; onShow: (i: number) => void; dragging: number | null; onDragStart: (i: number) => void; onDropAt: (i: number) => void;
+  where: PicWhere; lang: string;
 }) {
   const info = KIND_INFO[s.kind];
   const [over, setOver] = useState(false);
@@ -110,7 +170,10 @@ function SceneCard({ s, i, n, seg, issues, active, disabled, edit, onPlay, onSho
   });
   const setKind = (k: SceneKind) => {
     const ki = KIND_INFO[k];
-    patch({ kind: k, bars: Math.max(ki.bars.min, Math.min(ki.bars.max, s.bars)), shape: ki.shape ? (s.shape && s.shape !== "none" ? s.shape : k === "product" ? "oring" : "none") : undefined, image: ki.image ? s.image : undefined });
+    patch({
+      kind: k, bars: Math.max(ki.bars.min, Math.min(ki.bars.max, s.bars)), shape: ki.shape ? (s.shape && s.shape !== "none" ? s.shape : k === "product" ? "oring" : "none") : undefined, image: ki.image ? s.image : undefined,
+      icon: ki.icon ? s.icon ?? (s.feature ? FEATURE[s.feature].icon : "check") : undefined,
+    });
   };
   const stops = issues.some((x) => x.level === "stop");
   return (
@@ -119,7 +182,7 @@ function SceneCard({ s, i, n, seg, issues, active, disabled, edit, onPlay, onSho
       onDragLeave={() => setOver(false)}
       onDrop={(e) => { e.preventDefault(); setOver(false); onDropAt(i); }}
       sx={{
-        borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${stops ? "rgba(197,34,31,.45)" : active ? "rgba(194,44,110,.55)" : HAIRLINE}`,
+        borderRadius: "10px", bgcolor: "#fff", border: `1px solid ${stops ? "rgba(197,34,31,.45)" : active ? "rgba(194,44,110,.55)" : HAIRLINE}`,
         boxShadow: active ? "0 0 0 3px rgba(194,44,110,.10)" : "0 1px 2px rgba(31,45,78,.04)", mb: 1.25, opacity: dragging === i ? 0.45 : 1,
         borderTop: over && dragging !== i ? `3px solid ${PINK}` : undefined, transition: "box-shadow .2s, border-color .2s",
       }}>
@@ -128,27 +191,29 @@ function SceneCard({ s, i, n, seg, issues, active, disabled, edit, onPlay, onSho
           sx={{ display: "grid", placeItems: "center", cursor: disabled ? "default" : "grab", color: MUTED }} aria-label="Drag to move the scene">
           <DragIndicatorRoundedIcon sx={{ fontSize: 18 }} />
         </Box>
-        <Box sx={{ width: 22, height: 22, borderRadius: "50%", bgcolor: active ? PINK : "#eef1f6", color: active ? "#fff" : INK, display: "grid", placeItems: "center", fontSize: "0.74rem", fontWeight: 700, flexShrink: 0 }}>{i + 1}</Box>
+        <Box sx={{ width: 22, height: 22, borderRadius: "5px", bgcolor: active ? PINK : "#eef1f6", color: active ? "#fff" : INK, display: "grid", placeItems: "center", fontSize: "0.74rem", fontWeight: 700, flexShrink: 0 }}>{i + 1}</Box>
         <KindMenu kind={s.kind} onPick={setKind} disabled={disabled} />
         <Bars bars={s.bars} onChange={(b) => patch({ bars: b })} disabled={disabled} />
-        {seg && <Typography sx={{ fontSize: "0.72rem", color: MUTED, ml: 0.5, fontVariantNumeric: "tabular-nums" }}>{timecode(seg.start).replace(/\.\d+$/, "")}</Typography>}
+        {s.feature && (
+          <Tooltip title={`Tells: ${FEATURE[s.feature].name}`}>
+            <Box component="span" aria-label={`Tells: ${FEATURE[s.feature].name}`} sx={{ ml: 0.5, width: 20, height: 20, flexShrink: 0, display: "inline-grid", placeItems: "center", borderRadius: "4px", bgcolor: "#d80901" }}>
+              <LineIcon name={FEATURE[s.feature].icon} size={13} color="#fff" />
+            </Box>
+          </Tooltip>
+        )}
         <Box sx={{ flex: 1 }} />
-        <Tooltip title="Play from here"><IconButton size="small" onClick={(e) => { e.stopPropagation(); onPlay(i); }} aria-label="Play from here"><PlayArrowRoundedIcon sx={{ fontSize: 18, color: PINK }} /></IconButton></Tooltip>
-        <Tooltip title="Earlier"><span><IconButton size="small" disabled={disabled || i === 0} onClick={(e) => { e.stopPropagation(); move(i - 1); }} aria-label="Move earlier"><ArrowUpwardRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
-        <Tooltip title="Later"><span><IconButton size="small" disabled={disabled || i === n - 1} onClick={(e) => { e.stopPropagation(); move(i + 1); }} aria-label="Move later"><ArrowDownwardRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
-        <Tooltip title="Take it out"><span><IconButton size="small" disabled={disabled} onClick={(e) => { e.stopPropagation(); edit((d) => ({ ...d, scenes: d.scenes.filter((_, k) => k !== i) })); }} aria-label="Take the scene out"><DeleteOutlineRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
+        <Tooltip title={seg ? `Play from here - it starts at ${timecode(seg.start).replace(/\.\d+$/, "")}` : "Play from here"}><IconButton size="small" onClick={(e) => { e.stopPropagation(); onPlay(i); }} aria-label="Play from here" sx={{ p: 0.4 }}><PlayArrowRoundedIcon sx={{ fontSize: 18, color: PINK }} /></IconButton></Tooltip>
+        <Tooltip title="Earlier"><span><IconButton size="small" disabled={disabled || i === 0} onClick={(e) => { e.stopPropagation(); move(i - 1); }} aria-label="Move earlier" sx={{ p: 0.4 }}><ArrowUpwardRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
+        <Tooltip title="Later"><span><IconButton size="small" disabled={disabled || i === n - 1} onClick={(e) => { e.stopPropagation(); move(i + 1); }} aria-label="Move later" sx={{ p: 0.4 }}><ArrowDownwardRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
+        <Tooltip title="Take it out"><span><IconButton size="small" disabled={disabled} onClick={(e) => { e.stopPropagation(); edit((d) => ({ ...d, scenes: d.scenes.filter((_, k) => k !== i) })); }} aria-label="Take the scene out" sx={{ p: 0.4 }}><DeleteOutlineRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
       </Box>
       <Box sx={{ px: 1.5, pt: 1.5, pb: 1 }}>
         {info.fields.map((f: FieldDef) => (
           <WordField key={f.key} label={f.required ? f.label : `${f.label} (optional)`} value={s.copy[f.key] ?? ""} words={f.words} placeholder={f.placeholder}
             onChange={(v) => setCopy(f.key, v)} onFocus={() => onShow(i)} disabled={disabled} multiline={s.kind === "quote" && f.key === "line1"} />
         ))}
-        {info.image && (
-          <TextField fullWidth size="small" label="Picture's address (optional)" value={s.image ?? ""} placeholder="https://www.apsoparts.com/media/…" disabled={disabled}
-            onChange={(e) => patch({ image: e.target.value.trim() || undefined })} onFocus={() => onShow(i)}
-            helperText="The shop's pictures show here; a picture from elsewhere shows in the render only."
-            sx={{ ...field, mb: 1, "& .MuiFormHelperText-root": { mx: 0.5, mt: 0.25, fontSize: "0.72rem" } }} />
-        )}
+        {info.icon && <IconRow value={s.icon ?? "check"} onChange={(k) => { patch({ icon: k }); onShow(i); }} disabled={disabled} />}
+        {info.image && <ScenePicture s={s} patch={patch} disabled={disabled} onShow={() => onShow(i)} where={where} lang={lang} />}
         {info.shape && !(info.image && s.image) && (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
             <Typography sx={{ fontSize: "0.76rem", color: MUTED, minWidth: 52 }}>The part</Typography>
@@ -186,9 +251,9 @@ export function AddScene({ onAdd, disabled, full }: { onAdd: (k: SceneKind) => v
   );
 }
 
-export default function Storyboard({ doc, segs, issues, edit, disabled, current, onPlay, onShow }: {
+export default function Storyboard({ doc, segs, issues, edit, disabled, current, onPlay, onShow, where }: {
   doc: VideoDoc; segs: Segment[]; issues: Issue[]; edit: Edit; disabled: boolean; current: number;
-  onPlay: (index: number) => void; onShow: (index: number) => void;
+  onPlay: (index: number) => void; onShow: (index: number) => void; where: PicWhere;
 }) {
   const [dragging, setDragging] = useState<number | null>(null);
   const add = (k: SceneKind) => edit((d) => {
@@ -228,7 +293,7 @@ export default function Storyboard({ doc, segs, issues, edit, disabled, current,
       )}
       {doc.scenes.map((s, i) => (
         <SceneCard key={s.id} s={s} i={i} n={doc.scenes.length} seg={segs[i]} issues={issues.filter((x) => x.scene === i)} active={current === i}
-          disabled={disabled} edit={edit} onPlay={onPlay} onShow={onShow} dragging={dragging} onDragStart={setDragging} onDropAt={dropAt} />
+          disabled={disabled} edit={edit} onPlay={onPlay} onShow={onShow} dragging={dragging} onDragStart={setDragging} onDropAt={dropAt} where={where} lang={doc.language} />
       ))}
       {doc.scenes.length > 0 && (
         <>
@@ -237,7 +302,7 @@ export default function Storyboard({ doc, segs, issues, edit, disabled, current,
         </>
       )}
 
-      <Box onClick={() => onPlay(-1)} sx={{ mt: 2.5, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${current === -1 ? "rgba(194,44,110,.55)" : HAIRLINE}`, boxShadow: current === -1 ? "0 0 0 3px rgba(194,44,110,.10)" : undefined }}>
+      <Box onClick={() => onPlay(-1)} sx={{ mt: 2.5, borderRadius: "10px", bgcolor: "#fff", border: `1px solid ${current === -1 ? "rgba(194,44,110,.55)" : HAIRLINE}`, boxShadow: current === -1 ? "0 0 0 3px rgba(194,44,110,.10)" : undefined }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 0.75, borderBottom: `1px solid ${HAIRLINE}`, cursor: "pointer" }}>
           <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>End card</Typography>
           <Bars bars={e.bars} min={2} max={3} onChange={(b) => setEnd({ bars: b })} disabled={disabled} />

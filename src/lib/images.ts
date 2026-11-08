@@ -48,10 +48,15 @@ function extractInlineImage(parts: unknown[]): { data: string; mime: string } | 
 
 export type ReferenceImage = { dataUrl: string; note?: string };
 
+/** The model's own picture shapes; a shape it lacks goes to the nearest (4:5 portrait -> 3:4). */
+const MODEL_ASPECTS: Record<string, string> = { "1:1": "1:1", "4:5": "3:4", "3:4": "3:4", "2:3": "2:3", "3:2": "3:2", "4:3": "4:3", "16:9": "16:9", "9:16": "9:16", "21:9": "21:9" };
+
 export async function generateApsoImage(
   apiKey: string,
   prompt: string,
-  references: ReferenceImage[] = []
+  references: ReferenceImage[] = [],
+  /** The picture's shape, as a setting - the words alone gave squares (08.11.2026: a "16:9" ask came back 1024 x 1024). */
+  opts: { aspect?: string } = {},
 ): Promise<ImageResult> {
   const ai = new GoogleGenAI({ apiKey });
   const errors: string[] = [];
@@ -79,6 +84,9 @@ export async function generateApsoImage(
         contents: [{ role: "user", parts }],
         config: {
           responseModalities: ["TEXT", "IMAGE"],
+          ...(opts.aspect && MODEL_ASPECTS[opts.aspect]
+            ? { imageConfig: { aspectRatio: MODEL_ASPECTS[opts.aspect], ...(model.includes("pro") ? { imageSize: "2K" } : {}) } }
+            : {}),
         },
       });
       const responseParts = res.candidates?.[0]?.content?.parts ?? [];

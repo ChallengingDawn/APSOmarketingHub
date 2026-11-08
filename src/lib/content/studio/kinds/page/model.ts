@@ -2,20 +2,28 @@
 //
 // SARCLA 08.11.2026: "pages - can come from AI & Personalization (Webyn) or be created here, but should also contain A/B
 // testing possibility, live preview of the pages, editing page, select a page to modify; always trigger on the to-do".
+// And later that day: "a real AI-assisted CMS", "the new page should allow many more fields", "the design per language:
+// when we publish one page in multiple languages", "translate the complete page into another language".
 //
 // A page to-do is one shop page and what changes on it:
 //   source    "convert" - the page and its approved version came from APSOconvert (the project's brief carries its marker)
 //             "pick"    - a page of the shop picked here, from the pages APSOconvert keeps indexed
-//             "new"     - a new CMS page, shown inside an existing CMS page of the store (its body put into #maincontent)
+//             "new"     - a new CMS page, made of FIELDS (./fields.ts) drawn by one renderer (./newpage.ts). An older
+//                         new page kept its body as one block of HTML: it still shows, until its words move into fields
 //   changes   APSOconvert's change list (src/lib/convert/versions.ts) - the same declarative list the shop's test applies,
 //             so what is approved here is what visitors get
-//   texts     the words for the placeholders <span class="apx-text">[Text from Content: ...]</span> a version leaves
-//             for Content to write - by a key that never runs long (a doc path key must stay short: studio/doc.ts)
+//   texts     words for the placeholders <span class="apx-text">[Text from Content: ...]</span> an older version left
+//             (the AI no longer leaves any: it writes the final words; ./model.ts leftoversOf flags any that remain)
+//   langs     the page in its other languages (DE, FR, IT, EN - the shop's store views): each its own version with its
+//             own address, words, changes and preview. The document's top level is the MAIN language; `viewOf` gives
+//             one language as a whole page document, `withView` puts it back
+//   inserts   banners placed in the page by the banner studio (the shared contract: kind, piece, size, where)
 //   abTest    the test's plan; it runs from a gateway, not from the hub (the hub has no public address)
-//   publish   how it reaches Magento - a paste block today; a direct publish needs CMS keys for ACC first
+//   publish   how it reaches Magento - a paste block; nothing is written to Magento from the hub
 
 import { classify, isEnv, isKind, type Env, type PageKind } from "../../../../convert/model";
 import { describe, validateChanges, type Change } from "../../../../convert/versions";
+import { emptyFields, fieldStrings, filledCount, normalizeFields, type Fields, type Item } from "./fields";
 
 export type PageSource = "convert" | "pick" | "new";
 export const SOURCES: PageSource[] = ["convert", "pick", "new"];
@@ -34,22 +42,45 @@ export type TextSlot = { id: string; ask: string; text: string };
 
 export type PageOutline = { env: Env; path: string; title: string; description: string; h1: string[]; lines: string[]; truncated: boolean };
 
+/** A block placed in the page from another to-do of the project (the banner studio's "Put it in a page"). */
+export type InsertWhere = "top" | "after-intro" | "bottom";
+export const INSERT_WHERE: InsertWhere[] = ["top", "after-intro", "bottom"];
+export const INSERT_WHERE_LABEL: Record<InsertWhere, string> = { top: "At the top", "after-intro": "After the intro", bottom: "At the end" };
+export type Insert = { id: string; kind: "banner"; pieceId: number; preset: string; where: InsertWhere };
+
+/** The page in one more language: its own address (an existing page) or its own fields (a new page), its own changes. */
+export type LangVersion = {
+  path: string;
+  store: string;
+  changes: Change[];
+  texts: TextSlot[];
+  fields: Fields;
+  outline: PageOutline | null;
+  /** the main language's content this one was translated from (sourceHash) - it is out of date once that changes */
+  from: string;
+  at: string;
+};
+
 export type PageDoc = {
   v: 1;
   source: PageSource;
   env: Env;
-  /** the page's path on the shop ("/de-CH/dichtungstechnik.html"); for a new page, the CMS page it is shown inside */
+  /** the page's path on the shop ("/de-CH/dichtungstechnik.html"); for a new page "" */
   path: string;
-  /** its store view ("de-CH"); a new page's store */
+  /** its store view ("de-CH") - the main language's */
   store: string;
   pageKind: PageKind | null;
   /** the first open has looked for an APSOconvert page in the project's brief */
   started: boolean;
   /** the APSOconvert version the changes came from */
   origin: { versionId: string; rev: number; status: string; summary: string; idea: string } | null;
+  /** an older new page: one block of HTML (kept so it still shows); new pages are `fields` */
   newPage: { title: string; urlKey: string; metaTitle: string; metaDescription: string; body: string };
+  fields: Fields;
   changes: Change[];
   texts: TextSlot[];
+  langs: Record<string, LangVersion>;
+  inserts: Insert[];
   abTest: { enabled: boolean; split: number; goal: AbGoal; clickTarget: string; audience: AbAudience; notes: string; status: "draft" };
   publish: { mode: "paste" | "magento"; status: "draft" | "copied"; notes: string };
   notes: string;
@@ -59,23 +90,85 @@ export type PageDoc = {
   briefText: string;
 };
 
-/** Where a new page's body goes inside the CMS page it is shown in. */
+/** Where a new page's body goes inside the store's page it is shown in. */
 export const SHELL_SELECTOR = "#maincontent";
 /** The part of a Magento page that is the CMS page's own content. */
 export const MAIN_SELECTOR = "#maincontent .column.main";
 
-const STORE_OF_LANGUAGE: Record<string, string> = { DE: "de-CH", FR: "fr-CH", IT: "it-CH", EN: "en-CH", NL: "nl-NL", PL: "pl-PL" };
+/* ── languages ────────────────────────────────────────────────────────── */
+
+/** The languages a page is published in - the shop's store views (en-INT is the shop's English, x-default). */
+export const LANGS = ["de", "fr", "it", "en"] as const;
+const STORE_OF_LANGUAGE: Record<string, string> = { DE: "de-CH", FR: "fr-CH", IT: "it-CH", EN: "en-INT", NL: "nl-NL", PL: "pl-PL" };
 const LANGUAGE_NAME: Record<string, string> = { de: "German", fr: "French", it: "Italian", en: "English", nl: "Dutch", pl: "Polish", es: "Spanish" };
 
 export const storeForLanguage = (lang: string | null | undefined) => STORE_OF_LANGUAGE[String(lang ?? "").toUpperCase()] ?? "de-CH";
 /** The language a store view's visitors read: "de-CH" -> German. */
 export const languageOfStore = (store: string | null | undefined) => LANGUAGE_NAME[String(store ?? "").slice(0, 2).toLowerCase()] ?? null;
+/** A store view's language code: "fr-CH" -> "fr". */
+export const langOfStore = (store: string | null | undefined) => (/^[a-z]{2}/i.exec(String(store ?? ""))?.[0] ?? "de").toLowerCase();
+export const langName = (lang: string) => LANGUAGE_NAME[lang.toLowerCase()] ?? lang.toUpperCase();
+/** The page's own language - the top of the document. */
+export const mainLang = (d: PageDoc) => langOfStore(d.store);
+/** The languages the studio offers for this page: the four, and the main one when it is another (nl, pl). */
+export const langsOf = (d: PageDoc): string[] => { const m = mainLang(d); return (LANGS as readonly string[]).includes(m) ? [...LANGS] : [m, ...LANGS]; };
+
+function emptyLang(d: PageDoc, lang: string): LangVersion {
+  return { path: "", store: storeForLanguage(lang), changes: [], texts: [], fields: emptyFields(), outline: null, from: "", at: "" };
+}
+
+/** One language of the page as a whole page document (the main language is the document itself). */
+export function viewOf(d: PageDoc, lang: string | null | undefined): PageDoc {
+  if (!lang || lang === mainLang(d)) return d;
+  const v = d.langs[lang] ?? emptyLang(d, lang);
+  return { ...d, path: v.path, store: v.store || storeForLanguage(lang), changes: v.changes, texts: v.texts, fields: v.fields, outline: v.outline, newPage: { ...d.newPage, body: "" } };
+}
+
+/** The document with one language's view put back: its own parts into its place; the shared parts (test, Magento's
+ * notes, the banners in it) from the view too, so a change made in any language reaches every language. */
+export function withView(d: PageDoc, lang: string | null | undefined, view: PageDoc): PageDoc {
+  if (!lang || lang === mainLang(d)) return { ...view, langs: d.langs };
+  const old = d.langs[lang] ?? emptyLang(d, lang);
+  const next: LangVersion = { ...old, path: view.path, store: view.store, changes: view.changes, texts: view.texts, fields: view.fields, outline: view.outline };
+  return { ...d, abTest: view.abTest, publish: view.publish, notes: view.notes, inserts: view.inserts, langs: { ...d.langs, [lang]: next } };
+}
+
+/** A short stable hash of a text (FNV-1a, base 36). */
+export function hashOf(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(36);
+}
+
+/** What a translation is made from: the main language's words and changes. */
+export const sourceHash = (d: PageDoc) => hashOf(JSON.stringify(d.source === "new" ? fieldStrings(d.fields) : [d.changes, d.texts]));
+
+/** Has this view any content of its own? */
+export function hasContent(view: PageDoc): boolean {
+  if (view.source === "new") return filledCount(view.fields) > 0 || !!view.newPage.body.trim();
+  return view.changes.length > 0;
+}
+
+export type LangState = "main" | "done" | "stale" | "empty";
+/** Each language at a glance: the main one, done, out of date (the main one changed since), or not made yet. */
+export function langState(d: PageDoc, lang: string): LangState {
+  if (lang === mainLang(d)) return "main";
+  const v = d.langs[lang];
+  if (!v) return "empty";
+  const view = viewOf(d, lang);
+  if (!hasContent(view) && !(d.source !== "new" && v.path)) return "empty";
+  if (v.from && v.from !== sourceHash(d)) return "stale";
+  return hasContent(view) ? "done" : "empty";
+}
+
+/* ── the document ─────────────────────────────────────────────────────── */
 
 export function emptyPage(language?: string | null): PageDoc {
   return {
     v: 1, source: "pick", env: "prod", path: "", store: storeForLanguage(language), pageKind: null, started: false, origin: null,
     newPage: { title: "", urlKey: "", metaTitle: "", metaDescription: "", body: "" },
-    changes: [], texts: [],
+    fields: emptyFields(),
+    changes: [], texts: [], langs: {}, inserts: [],
     abTest: { enabled: false, split: 50, goal: "add-to-cart", clickTarget: "", audience: "all", notes: "", status: "draft" },
     publish: { mode: "paste", status: "draft", notes: "" },
     notes: "", outline: null, briefText: "",
@@ -85,6 +178,43 @@ export function emptyPage(language?: string | null): PageDoc {
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v: unknown, max = 20_000) => (typeof v === "string" ? v.slice(0, max) : "");
 
+function outlineOf(v: unknown): PageOutline | null {
+  const out = isObj(v) ? v : null;
+  return out && typeof out.path === "string" ? {
+    env: isEnv(out.env) ? out.env : "prod", path: str(out.path, 400), title: str(out.title, 400), description: str(out.description, 600),
+    h1: Array.isArray(out.h1) ? out.h1.map((x) => str(x, 300)).slice(0, 5) : [],
+    lines: Array.isArray(out.lines) ? out.lines.map((x) => str(x, 400)).slice(0, 300) : [], truncated: out.truncated === true,
+  } : null;
+}
+const textsOf = (v: unknown): TextSlot[] => (Array.isArray(v) ? v.filter(isObj).map((t) => ({ id: str(t.id, 40), ask: str(t.ask, 400), text: str(t.text, 8000) })).filter((t) => t.id) : []);
+// a change keeps whatever shape it has while a person edits it - the preview and the exports validate
+const changesOf = (v: unknown): Change[] => (Array.isArray(v) ? (v.filter(isObj) as unknown as Change[]) : []);
+
+function insertsOf(v: unknown): Insert[] {
+  if (!Array.isArray(v)) return [];
+  const out: Insert[] = [];
+  for (const x of v.filter(isObj).slice(0, 12)) {
+    const pieceId = Number(x.pieceId);
+    const id = str(x.id, 40);
+    if (!id || !Number.isInteger(pieceId) || pieceId <= 0 || x.kind !== "banner") continue;
+    out.push({ id, kind: "banner", pieceId, preset: str(x.preset, 20) || "band", where: INSERT_WHERE.includes(x.where as InsertWhere) ? (x.where as InsertWhere) : "after-intro" });
+  }
+  return out;
+}
+
+function langsOfRaw(v: unknown): Record<string, LangVersion> {
+  const out: Record<string, LangVersion> = {};
+  if (!isObj(v)) return out;
+  for (const [k, x] of Object.entries(v)) {
+    if (!/^[a-z]{2}$/.test(k) || !isObj(x)) continue;
+    out[k] = {
+      path: str(x.path, 400), store: str(x.store, 20) || storeForLanguage(k), changes: changesOf(x.changes), texts: textsOf(x.texts),
+      fields: normalizeFields(x.fields), outline: outlineOf(x.outline), from: str(x.from, 20), at: str(x.at, 40),
+    };
+  }
+  return out;
+}
+
 /** Any stored document as a page document: missing parts filled, unknown values put right (an older first shape too). */
 export function pageDoc(raw: unknown, language?: string | null): PageDoc {
   const d = isObj(raw) ? raw : {};
@@ -93,7 +223,6 @@ export function pageDoc(raw: unknown, language?: string | null): PageDoc {
   const ab = isObj(d.abTest) ? d.abTest : {};
   const pub = isObj(d.publish) ? d.publish : {};
   const o = isObj(d.origin) ? d.origin : null;
-  const out = isObj(d.outline) ? d.outline : null;
   const split = Number(ab.split);
   return {
     v: 1,
@@ -105,9 +234,11 @@ export function pageDoc(raw: unknown, language?: string | null): PageDoc {
     started: d.started === true,
     origin: o ? { versionId: str(o.versionId, 40), rev: Number(o.rev) || 1, status: str(o.status, 20), summary: str(o.summary, 600), idea: str(o.idea, 200) } : null,
     newPage: { title: str(np.title, 200), urlKey: str(np.urlKey, 200), metaTitle: str(np.metaTitle, 200), metaDescription: str(np.metaDescription, 400), body: str(np.body, 60_000) },
-    // a change keeps whatever shape it has while a person edits it - the preview and the exports validate
-    changes: Array.isArray(d.changes) ? (d.changes.filter(isObj) as unknown as Change[]) : [],
-    texts: Array.isArray(d.texts) ? d.texts.filter(isObj).map((t) => ({ id: str(t.id, 40), ask: str(t.ask, 400), text: str(t.text, 8000) })).filter((t) => t.id) : [],
+    fields: normalizeFields(d.fields),
+    changes: changesOf(d.changes),
+    texts: textsOf(d.texts),
+    langs: langsOfRaw(d.langs),
+    inserts: insertsOf(d.inserts),
     abTest: {
       enabled: ab.enabled === true,
       split: Number.isFinite(split) ? Math.max(5, Math.min(95, Math.round(split))) : e.abTest.split,
@@ -119,13 +250,18 @@ export function pageDoc(raw: unknown, language?: string | null): PageDoc {
     },
     publish: { mode: pub.mode === "magento" ? "magento" : "paste", status: pub.status === "copied" ? "copied" : "draft", notes: str(pub.notes, 2000) },
     notes: str(d.notes, 4000),
-    outline: out && typeof out.path === "string" ? {
-      env: isEnv(out.env) ? out.env : "prod", path: str(out.path, 400), title: str(out.title, 400), description: str(out.description, 600),
-      h1: Array.isArray(out.h1) ? out.h1.map((x) => str(x, 300)).slice(0, 5) : [],
-      lines: Array.isArray(out.lines) ? out.lines.map((x) => str(x, 400)).slice(0, 300) : [], truncated: out.truncated === true,
-    } : null,
+    outline: outlineOf(d.outline),
     briefText: str(d.briefText, 7000),
   };
+}
+
+/** An older new page: its words are one block of HTML, not fields yet. */
+export const isLegacyBody = (d: PageDoc) => d.source === "new" && !!d.newPage.body.trim() && filledCount(d.fields) === 0;
+
+/** The page's title as people read it. */
+export function pageTitleOf(d: PageDoc): string {
+  if (d.source === "new") return d.fields.hero.title.trim() || d.newPage.title.trim();
+  return d.outline?.h1[0] ?? "";
 }
 
 /* ── the page ─────────────────────────────────────────────────────────── */
@@ -149,17 +285,40 @@ export function urlKeyOf(title: string): string {
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
 }
 
-/* ── the texts Content writes ─────────────────────────────────────────── */
+/**
+ * The same page in another language, from the page's own hreflang links: the Swiss store view of that language first
+ * (the main page's country), then the language's international one; English is the shop's x-default (en-INT).
+ */
+export function counterpartIn(html: string, lang: string, mainStore: string): string | null {
+  const alts: { lang: string; href: string }[] = [];
+  for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
+    const tag = m[0];
+    if (!/\brel\s*=\s*["']?alternate/i.test(tag)) continue;
+    const hl = /\bhreflang\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1];
+    const href = /\bhref\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1];
+    if (hl && href) alts.push({ lang: hl.toLowerCase(), href });
+  }
+  const country = (/^[a-z]{2}-([A-Z]{2,3})/.exec(mainStore)?.[1] ?? "CH").toLowerCase();
+  const want = [`${lang}-${country}`, `${lang}-ch`, ...(lang === "en" ? ["x-default", "en-int"] : []), `${lang}-int`, lang];
+  for (const w of want) {
+    const a = alts.find((x) => x.lang === w);
+    if (!a) continue;
+    try {
+      const u = new URL(a.href.replace(/&amp;/g, "&"), "https://www.apsoparts.com");
+      if (/^(www|acc)\.apsoparts\.com$/.test(u.hostname) && pathInfo(u.pathname)) return u.pathname;
+    } catch { /* not an address */ }
+  }
+  return null;
+}
+
+/* ── the texts Content writes (an older version's placeholders) ───────── */
 
 /** <span class="apx-text" [data-key="t1"]>[Text from Content: what it must say]</span> - the placeholder a version leaves. */
 const PLACEHOLDER = /<span\b([^>]*\bclass\s*=\s*["'][^"']*\bapx-text\b[^"']*["'][^>]*)>\s*\[Text from Content:\s*([\s\S]*?)\]\s*<\/span\s*>/gi;
 
 /** A short stable id from the placeholder's key and its ask (FNV-1a, base 36) - same words, same id. */
 export function placeholderId(key: string | null, ask: string): string {
-  const s = `${key ?? ""}|${ask.replace(/\s+/g, " ").trim()}`;
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
-  return `t${h.toString(36)}`;
+  return `t${hashOf(`${key ?? ""}|${ask.replace(/\s+/g, " ").trim()}`)}`;
 }
 
 export type Placeholder = { id: string; key: string | null; ask: string; where: string };
@@ -205,22 +364,64 @@ export const unwritten = (doc: PageDoc) => {
   return placeholdersOf(doc).filter((p) => !have.has(p.id));
 };
 
+/* ── words that are not final: the check every page shows ─────────────── */
+
+// SARCLA 08.11.2026 (a page with "[Intro paragraph part 1 in German]" in it): "design generate is also shit". The AI is
+// told to write final words; this is the check that none slipped through - shown in the studio and in the preview.
+const LEFTOVER: RegExp[] = [
+  /\[Text from Content:[^\]]*\]/gi,
+  // "[Intro paragraph part 1 in German]", "[Product name]" - a capital, then words with small letters ("[NBR 70]" is not one)
+  /\[(?=[^\]\n]*[a-zäöüàâçéèêëîïôûùÿñ])[A-ZÄÖÜÀ-Ý][^\[\]\n<>]{2,160}\]/g,
+  /\[(?:x{2,}|\.{2,}|…|\?{2,}|_{2,}|#+|\d+\s*%?\s*x*)\]/gi,
+  /\blorem ipsum\b[^.<\n]{0,40}/gi,
+  /\b(?:TODO|TBD|FIXME)\b/g,
+  /\bXXX+\b/g,
+  /\{\{(?!\s*(?:store|media|widget|block|config|trans|var|customvar|depend|if|else|\/))[^}]{1,80}\}\}/g,
+  /<<[^<>\n]{2,80}>>/g,
+];
+
+/** The words in a text that look like a placeholder, not final copy ("[Intro paragraph in German]", "Lorem ipsum"). */
+export function leftoversIn(text: string): string[] {
+  const plain = text.replace(/<[^>]+>/g, " ");
+  const out: string[] = [];
+  for (const re of LEFTOVER) for (const m of plain.matchAll(re)) { const t = m[0].trim(); if (t && !out.includes(t)) out.push(t); }
+  return out;
+}
+
+export type Leftover = { text: string; where: string; path?: string; change?: number };
+
+/** Every placeholder left in a page (one language): in its fields, its changes and an older new page's body. */
+export function leftoversOf(d: PageDoc): Leftover[] {
+  const out: Leftover[] = [];
+  if (d.source === "new") {
+    for (const it of fieldStrings(d.fields)) for (const t of leftoversIn(it.text)) out.push({ text: t, where: it.id, path: it.id });
+    if (isLegacyBody(d)) for (const t of leftoversIn(fillTexts(d.newPage.body, d.texts))) out.push({ text: t, where: "the page's body" });
+  }
+  d.changes.forEach((c, i) => {
+    const x = c as { html?: unknown; text?: unknown; value?: unknown };
+    const words = [typeof x.html === "string" ? fillTexts(x.html, d.texts) : "", typeof x.text === "string" ? x.text : "", typeof x.value === "string" ? x.value : ""].join(" ");
+    for (const t of leftoversIn(words)) out.push({ text: t, where: `change ${i + 1}`, change: i });
+  });
+  return out;
+}
+
 /* ── the changes as the page gets them ────────────────────────────────── */
 
-/** The new page's body as the one change that puts it in place. */
+/** An older new page's body as the one change that puts it in place. */
 export const bodyChange = (doc: PageDoc): Change => ({ op: "html", selector: SHELL_SELECTOR, html: doc.newPage.body, note: "The new page" });
 
 /** The most a version may weigh on the shop (src/lib/convert/versions.ts LIMITS.total). */
 const VERSION_MAX = 80_000;
 
 /**
- * The list the page gets: a new page's body first, then the changes, the written texts in their places - each
+ * The list the page gets: an older new page's body first, then the changes, the written texts in their places - each
  * validated on its own (anything a version may not carry is left out, and said), and `from` saying which of the
- * document's changes each one is (-1 = the new page's body), so the studio shows what each change found.
+ * document's changes each one is (-1 = the body), so the studio shows what each change found. A new page made of
+ * fields is drawn by ./newpage.ts and put in place by the preview and the paste themselves.
  */
 export function finalChanges(doc: PageDoc): { changes: Change[]; problems: string[]; from: number[] } {
   const list: { c: unknown; from: number }[] = [];
-  if (doc.source === "new" && doc.newPage.body.trim()) list.push({ c: bodyChange(doc), from: -1 });
+  if (isLegacyBody(doc)) list.push({ c: bodyChange(doc), from: -1 });
   doc.changes.forEach((c, i) => list.push({ c, from: i }));
   const changes: Change[] = [];
   const from: number[] = [];
@@ -240,6 +441,48 @@ export function finalChanges(doc: PageDoc): { changes: Change[]; problems: strin
 /** A change as a line - its note, else what it does. */
 export function changeLine(c: Change): string {
   try { return describe(c); } catch { return "A change"; }
+}
+
+/* ── the changes' words: for the translation ──────────────────────────── */
+
+/** The words of a change list, by change: its HTML (tags kept), its text, an alt or title attribute. */
+export function changeStrings(changes: Change[]): (Item & { html: boolean })[] {
+  const out: (Item & { html: boolean })[] = [];
+  changes.forEach((c, i) => {
+    const x = c as { op?: string; html?: unknown; text?: unknown; name?: unknown; value?: unknown };
+    if (typeof x.html === "string" && x.html.replace(/<[^>]+>/g, "").trim()) out.push({ id: `c${i}.html`, text: x.html, html: true });
+    if (x.op === "text" && typeof x.text === "string" && x.text.trim()) out.push({ id: `c${i}.text`, text: x.text, html: false });
+    if (x.op === "attr" && typeof x.value === "string" && /^(alt|title|placeholder|aria-label)$/i.test(String(x.name ?? "")) && x.value.trim()) out.push({ id: `c${i}.value`, text: x.value, html: false });
+  });
+  return out;
+}
+
+/** The tags of an HTML text in order - a translation must keep them as they are. */
+export function tagSkeleton(html: string): string {
+  return [...html.matchAll(/<\/?([a-zA-Z][\w-]*)([^>]*)>/g)].map((m) => {
+    const cls = /\bclass\s*=\s*["']([^"']*)["']/i.exec(m[2])?.[1] ?? "";
+    return `${m[0][1] === "/" ? "/" : ""}${m[1].toLowerCase()}${cls ? `.${cls.trim().split(/\s+/).sort().join(".")}` : ""}`;
+  }).join(" ");
+}
+
+/** The changes with translated words put back; an HTML text whose tags changed is refused (the original is kept). */
+export function withChangeStrings(changes: Change[], items: Item[]): { changes: Change[]; problems: string[] } {
+  const by = new Map(items.map((x) => [x.id, x.text]));
+  const problems: string[] = [];
+  const out = changes.map((c, i) => {
+    const x = { ...(c as Record<string, unknown>) };
+    const h = by.get(`c${i}.html`);
+    if (typeof x.html === "string" && typeof h === "string" && h.trim()) {
+      if (tagSkeleton(h) === tagSkeleton(x.html as string)) x.html = h;
+      else problems.push(`change ${i + 1}: its translation changed the HTML - kept as it was`);
+    }
+    const t = by.get(`c${i}.text`);
+    if (x.op === "text" && typeof t === "string" && t.trim()) x.text = t.trim();
+    const v = by.get(`c${i}.value`);
+    if (x.op === "attr" && typeof v === "string" && v.trim()) x.value = v.trim();
+    return x as unknown as Change;
+  });
+  return { changes: out, problems };
 }
 
 /* ── the AI's answers ─────────────────────────────────────────────────── */
@@ -286,17 +529,24 @@ export function mergeTexts(old: TextSlot[], fresh: TextSlot[]): TextSlot[] {
 
 /* ── for the library and the exports ──────────────────────────────────── */
 
-/** The version's text: what page, what changes, the words written. */
+/** The version's text: what page, what changes, the words written - every language. */
 export function pageText(raw: unknown): string {
   const d = pageDoc(raw);
-  const head = d.source === "new"
-    ? `New page: ${d.newPage.title || "(no title)"}${d.newPage.urlKey ? ` (/${d.store}/${d.newPage.urlKey})` : ""}`
-    : `${SOURCE_LABEL[d.source]}: ${d.path ? shopUrl(d.env, d.path) : "(no page yet)"}`;
-  const lines = [head];
-  if (d.origin?.summary) lines.push(d.origin.summary);
-  if (d.changes.length) lines.push("", "Changes:", ...d.changes.map((c, i) => `${i + 1}. ${changeLine(c)}`));
-  const texts = d.texts.filter((t) => t.text.trim());
-  if (texts.length) lines.push("", "Texts:", ...texts.map((t) => `- ${t.ask}\n${t.text}`));
+  const one = (v: PageDoc, lang: string): string[] => {
+    const head = v.source === "new"
+      ? `New page${lang ? ` (${lang.toUpperCase()})` : ""}: ${pageTitleOf(v) || "(no title)"}${(v.fields.seo.urlKey || v.newPage.urlKey) ? ` (/${v.store}/${v.fields.seo.urlKey || v.newPage.urlKey})` : ""}`
+      : `${SOURCE_LABEL[v.source]}${lang ? ` (${lang.toUpperCase()})` : ""}: ${v.path ? shopUrl(v.env, v.path) : "(no page yet)"}`;
+    const lines = [head];
+    if (v.source === "new" && filledCount(v.fields)) lines.push(...fieldStrings(v.fields).map((x) => `${x.id}: ${x.text}`));
+    if (v.changes.length) lines.push("", "Changes:", ...v.changes.map((c, i) => `${i + 1}. ${changeLine(c)}`));
+    const texts = v.texts.filter((t) => t.text.trim());
+    if (texts.length) lines.push("", "Texts:", ...texts.map((t) => `- ${t.ask}\n${t.text}`));
+    return lines;
+  };
+  const lines = one(d, "");
+  // the first line stays "New page: ..." / "A page of the shop: ..." - the library reads it as the title
+  if (d.origin?.summary) lines.splice(1, 0, d.origin.summary);
+  for (const lang of Object.keys(d.langs)) { const v = viewOf(d, lang); if (hasContent(v) || v.path) lines.push("", ...one(v, lang)); }
   if (d.abTest.enabled) lines.push("", `A/B test: ${d.abTest.split}% see the new version; goal ${AB_GOAL_LABEL[d.abTest.goal].toLowerCase()}; ${AB_AUDIENCE_LABEL[d.abTest.audience].toLowerCase()}.`);
   if (d.notes.trim()) lines.push("", d.notes.trim());
   return lines.join("\n");
@@ -310,7 +560,7 @@ export function styleBlock(changes: Change[]): string {
 
 export type PasteBlock = { key: string; label: string; steps: string[]; code: string; lang: "html" | "text" };
 
-/** A new page for Magento: where each field goes, and its content as one HTML Code element. */
+/** An older new page for Magento: where each field goes, and its content as one HTML Code element. */
 export function newPagePaste(doc: PageDoc): PasteBlock[] {
   const { changes } = finalChanges(doc);
   const body = changes.find((c) => c.op === "html" && c.selector === SHELL_SELECTOR) as Extract<Change, { op: "html" }> | undefined;

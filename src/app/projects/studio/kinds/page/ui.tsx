@@ -1,6 +1,7 @@
 "use client";
 // SMALL PIECES THE PAGE AND BLOG STUDIOS SHARE (08.11.2026): a section heading, a quiet hint, a code box with its copy
 // button, a monospace field - in the UC design kit's tokens, with the studio's pink kept for the main actions.
+// SARCLA 08.11.2026: "all squared tags" - the chips and every choice row here are square-cornered (SquareChoice).
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
@@ -9,10 +10,23 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import CheckIcon from "@mui/icons-material/Check";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
+import { HAIRLINE, INK, MUTED, TINT } from "@/app/uc/report/ui";
+import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { btn, field } from "../../parts";
 
-export { Chip, Choice } from "@/app/connectors/parts";
+/** One choice at a time, squared (the same props as the round Choice it replaces). */
+export const Choice = SquareChoice;
+
+type Tint = keyof typeof TINT;
+/** A tag: square-cornered, tinted. */
+export function Chip({ tint, children }: { tint: Tint; children: React.ReactNode }) {
+  const t = TINT[tint] ?? TINT.slate;
+  return (
+    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, px: 0.85, py: 0.2, borderRadius: "4px", bgcolor: t.bg, color: t.fg, fontSize: "0.72rem", fontWeight: 700, whiteSpace: "nowrap", lineHeight: 1.45, letterSpacing: ".01em" }}>
+      {children}
+    </Box>
+  );
+}
 
 export const mono = { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: "0.78rem", lineHeight: 1.5 };
 
@@ -61,7 +75,7 @@ export function useCopy() {
 /** Code to paste, with how to paste it and a copy button. */
 export function PasteCard({ label, steps, code, copied, onCopy }: { label: string; steps: string[]; code: string; copied: boolean; onCopy: () => void }) {
   return (
-    <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "14px", p: 1.5, mb: 1.5, bgcolor: "#fff" }}>
+    <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", p: 1.5, mb: 1.5, bgcolor: "#fff" }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
         <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, flex: 1 }}>{label}</Typography>
         <Button size="small" onClick={onCopy} startIcon={copied ? <CheckIcon sx={{ fontSize: 16 }} /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
@@ -70,9 +84,14 @@ export function PasteCard({ label, steps, code, copied, onCopy }: { label: strin
       <Box component="ol" sx={{ m: 0, mb: 1, pl: 2.25, color: MUTED, fontSize: "0.8rem", lineHeight: 1.5 }}>
         {steps.map((s, i) => <li key={i}>{s}</li>)}
       </Box>
-      <Box component="pre" sx={{ ...mono, m: 0, p: 1.25, maxHeight: 220, overflow: "auto", bgcolor: "#f6f8fb", borderRadius: "10px", color: INK, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+      <Box component="pre" sx={{ ...mono, m: 0, p: 1.25, maxHeight: 220, overflow: "auto", bgcolor: "#f6f8fb", borderRadius: "6px", color: INK, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
         {code.length > 60_000 ? `${code.slice(0, 60_000)}\n… (the copy has it whole)` : code}
       </Box>
     </Box>
   );
 }
+
+/** A thin uppercase label over a group of fields. */
+export const Kicker = ({ children, mt = 1.5 }: { children: React.ReactNode; mt?: number }) => (
+  <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: MUTED, mt, mb: 0.75 }}>{children}</Typography>
+);

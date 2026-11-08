@@ -13,8 +13,8 @@
 // where futura-pt is not loaded), an eyebrow with a red bar, a photo card with a white label. The fixed sizes are drawn
 // in design pixels (--u = one pixel at the real size) so a 756 x 355 slot scales with its column and its PNG is exact.
 
-import { BRAND, esc, linkOf, logoSvg, mediaUrl, pasteHref } from "./brand";
-import { PRESET, THEMES, wordsFor, type BannerDoc, type PresetKey, type ThemeKey } from "./model";
+import { BRAND, absoluteMedia, esc, linkOf, logoSvg, mediaUrl, pasteHref } from "./brand";
+import { PRESET, THEMES, isBand, wordsFor, type BannerDoc, type PresetKey, type ThemeKey } from "./model";
 
 const u = (n: number) => `calc(var(--u)*${n})`;
 /** An address in a double-quoted attribute. Single quotes stay as they are: Magento's {{store direct_url='...'}} needs them. */
@@ -71,6 +71,20 @@ const BAND = `
 @media (max-width:900px){.@@-g{grid-template-columns:minmax(0,1fr);gap:24px;padding:34px 0 36px}.@@--band .@@-b{display:flex;width:100%}.@@--band .@@-c{height:190px;border-radius:18px}}
 `;
 
+// The category band: the band's rules, slimmer - it sits over a category's products and must not push them down.
+const CAT = `
+.@@.@@--cat{background:var(--bg)}
+.@@--cat .@@-g{grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:40px;padding:28px 0 30px}
+.@@--cat .@@-q,.@@--cat .@@-h{margin:8px 0 8px!important}
+.@@--cat .@@-q{font-size:clamp(18px,1.8vw,22px)!important}
+.@@--cat .@@-w{font-size:clamp(22px,2.3vw,28px)}
+.@@--cat .@@-h{font-size:clamp(22px,2.3vw,28px)!important}
+.@@--cat .@@-p{max-width:560px;font-size:14.5px!important;line-height:1.55!important}
+.@@--cat .@@-b{margin-top:14px;height:44px;padding:0 18px;font-size:15px!important;border-radius:10px}
+.@@--cat .@@-c{height:178px;border-radius:18px}
+@media (max-width:900px){.@@--cat .@@-g{grid-template-columns:minmax(0,1fr);gap:16px;padding:22px 0 24px}.@@--cat .@@-b{display:flex;width:100%}.@@--cat .@@-c{height:150px;border-radius:14px}}
+`;
+
 // A size with a size: drawn in design pixels. Without container units (old browsers) it shows at its design size.
 const FIXED = `
 .@@.@@--fx{container-type:inline-size;width:100%;margin:0 auto}
@@ -82,8 +96,21 @@ const FIXED = `
 .@@-s .@@-h{-webkit-line-clamp:3}.@@-s .@@-p{-webkit-line-clamp:3}
 `;
 
+/** The tall social pictures: the logo, the photo across the top, the words under it, the button at the foot. */
+const social = (k: string, w: number, h: number, o: { pad: number; top: number; logo: number; photo: number; text: number; bottom: number; eb: number; h: number; hc: number; p: number; pc: number; b: number; bf: number }) => `
+.@@--${k}{max-width:${w}px}.@@--${k} .@@-s{--w:${w};aspect-ratio:${w}/${h}}
+.@@--${k} .@@-lg{position:absolute;left:${u(o.pad)};top:${u(o.top)};height:${u(o.logo)}}
+.@@--${k} .@@-c{left:${u(o.pad)};right:${u(o.pad)};top:${u(o.top + o.logo + 40)};height:${u(o.photo)};border-radius:${u(36)};box-shadow:0 ${u(30)} ${u(60)} ${u(-34)} rgba(27,58,75,.55)}
+.@@--${k} .@@-t{left:${u(24)};bottom:${u(24)};padding:${u(12)} ${u(20)};border-radius:${u(16)};font-size:${u(26)}}
+.@@--${k} .@@-x{left:${u(o.pad)};right:${u(o.pad)};top:${u(o.text)};bottom:${u(o.bottom)};justify-content:flex-start}
+.@@--${k} .@@-eb{gap:${u(14)};font-size:${u(o.eb)}!important}.@@--${k} .@@-eb::before{width:${u(40)};height:${u(5)}}
+.@@--${k} .@@-h{margin:${u(16)} 0 ${u(14)}!important;font-size:${u(o.h)}!important;line-height:1.06!important;-webkit-line-clamp:${o.hc}}
+.@@--${k} .@@-p{font-size:${u(o.p)}!important;line-height:1.42!important;-webkit-line-clamp:${o.pc}}
+.@@--${k} .@@-b{margin-top:auto;height:${u(o.b)};padding:0 ${u(o.b * 0.46)};gap:${u(14)};border-radius:${u(18)};font-size:${u(o.bf)}!important}.@@--${k} .@@-b svg{width:${u(o.bf)};height:${u(o.bf)}}
+`;
+
 /** Each fixed size, in its own design pixels. */
-const SIZE_CSS: Record<Exclude<PresetKey, "band">, string> = {
+const SIZE_CSS: Record<Exclude<PresetKey, "band" | "cat">, string> = {
   home: `
 .@@--home{max-width:756px}.@@--home .@@-s{--w:756;aspect-ratio:756/355;border-radius:${u(18)}}
 .@@--home .@@-x{left:${u(36)};top:0;bottom:0;width:${u(372)}}
@@ -137,6 +164,12 @@ const SIZE_CSS: Record<Exclude<PresetKey, "band">, string> = {
 .@@--card .@@-c{right:${u(48)};top:${u(48)};bottom:${u(48)};width:${u(480)};border-radius:${u(28)}}
 .@@--card .@@-t{left:${u(18)};bottom:${u(18)};padding:${u(10)} ${u(16)};border-radius:${u(14)};font-size:${u(18)}}
 `,
+  // the square: 1080 x 1080 - logo 64, photo 144-584, words 624-1016
+  square: social("square", 1080, 1080, { pad: 72, top: 64, logo: 40, photo: 440, text: 624, bottom: 64, eb: 22, h: 64, hc: 2, p: 28, pc: 2, b: 76, bf: 28 }),
+  // the portrait: 1080 x 1350 - more room for the photo and a third line
+  portrait: social("portrait", 1080, 1350, { pad: 72, top: 64, logo: 40, photo: 600, text: 790, bottom: 72, eb: 23, h: 70, hc: 3, p: 30, pc: 3, b: 80, bf: 30 }),
+  // the story: 1080 x 1920 - everything between 250 and 1650, where the apps' own bars do not cover it
+  story: social("story", 1080, 1920, { pad: 90, top: 270, logo: 48, photo: 700, text: 1110, bottom: 280, eb: 26, h: 82, hc: 3, p: 32, pc: 3, b: 92, bf: 32 }),
   mrec: `
 .@@--mrec{max-width:300px}.@@--mrec .@@-s{--w:300;aspect-ratio:300/250}
 .@@--mrec .@@-c{left:${u(10)};top:${u(10)};right:${u(10)};height:${u(104)};border-radius:${u(10)};box-shadow:none}
@@ -169,28 +202,32 @@ const SIZE_CSS: Record<Exclude<PresetKey, "band">, string> = {
 
 /** The rules for these sizes, under the banner's class; nothing outside it. */
 export function bannerCss(prefix: string, theme: ThemeKey, keys: PresetKey[]): string {
-  const fixed = keys.filter((k): k is Exclude<PresetKey, "band"> => k !== "band");
+  const fixed = keys.filter((k): k is Exclude<PresetKey, "band" | "cat"> => !isBand(k));
   // home and hero share their phone rules - written once, with home's
-  const parts = [BASE.replace("__VARS__", themeVars(theme)), keys.includes("band") ? BAND : "", fixed.length ? FIXED : ""];
+  const parts = [BASE.replace("__VARS__", themeVars(theme)), keys.some(isBand) ? BAND : "", keys.includes("cat") ? CAT : "", fixed.length ? FIXED : ""];
   for (const k of fixed) parts.push(k === "hero" && !fixed.includes("home") ? SIZE_CSS.hero + phoneOf(SIZE_CSS.home) : SIZE_CSS[k]);
   return parts.join("\n").replace(/@@/g, prefix).split("\n").map((l) => l.trim()).filter(Boolean).join("\n");
 }
 const phoneOf = (homeCss: string) => homeCss.slice(homeCss.indexOf("@container"));
 
-type Mode = { still: boolean };
+/** How it is drawn: frozen on its first word and photo (PNG, overview), and where a hub picture is read from. */
+type Mode = { still: boolean; origin?: string | null };
+/** For a page outside the hub's own frames (Magento, a shop page's preview): hub pictures as full addresses. */
+export type RenderOpts = { origin?: string | null };
 
 /** The photos the card shows: the list (two or more crossfade), else the one picture. */
-function cardPhotos(d: BannerDoc): { url: string; label: string }[] {
-  const list = d.content.photos.map((p) => ({ url: mediaUrl(p.url), label: p.label.trim() })).filter((p) => p.url);
+function cardPhotos(d: BannerDoc, origin?: string | null): { url: string; label: string }[] {
+  const at = (u: string) => absoluteMedia(mediaUrl(u), origin);
+  const list = d.content.photos.map((p) => ({ url: at(p.url), label: p.label.trim() })).filter((p) => p.url);
   if (list.length >= 2) return list;
-  const one = { url: mediaUrl(d.content.image.url), label: d.content.image.label.trim() };
+  const one = { url: at(d.content.image.url), label: d.content.image.label.trim() };
   return one.url ? [one] : list;
 }
 
 function bodyHtml(d: BannerDoc, key: PresetKey, prefix: string, m: Mode, href: string): string {
   const p = PRESET[key];
   const w = wordsFor(d, key);
-  const photos = m.still ? cardPhotos(d).slice(0, 1) : cardPhotos(d);
+  const photos = m.still ? cardPhotos(d, m.origin).slice(0, 1) : cardPhotos(d, m.origin);
   const motion = !m.still && p.motion && (w.words.length > 1 || photos.length > 1);
   const lang = (d.language || "EN").toLowerCase().slice(0, 2);
   const P = prefix;
@@ -211,9 +248,10 @@ function bodyHtml(d: BannerDoc, key: PresetKey, prefix: string, m: Mode, href: s
     : "";
   const logo = p.logo ? (key === "mrec" ? `<span class="${P}-lgc">${logoSvg(`${P}-lg`)}</span>` : logoSvg(`${P}-lg`, THEMES[d.theme].dark ? "#ffffff" : BRAND.red)) : "";
   const data = motion ? `<script type="application/json" class="${P}-d">${JSON.stringify({ w: w.words, n: photos.map((x) => x.label) }).replace(/</g, "\\u003c")}</script>` : "";
-  const cls = `${P} ${P}--${key}${key === "band" ? "" : ` ${P}--fx`}${m.still ? " is-still" : ""}`;
+  const band = isBand(key);
+  const cls = `${P} ${P}--${key}${band ? "" : ` ${P}--fx`}${m.still ? " is-still" : ""}`;
   const attrs = `class="${cls}" lang="${esc(lang)}" aria-label="${label}"${motion ? " data-motion" : ""}`;
-  if (key === "band") return `<section ${attrs}><div class="${P}-g">${text}${card}</div>${data}</section>`;
+  if (band) return `<section ${attrs}><div class="${P}-g">${text}${card}</div>${data}</section>`;
   // the leaderboard and the skyscraper read in order (logo, words, photo, button); the others place each part themselves
   const inner = apart ? `${logo}${text}${card}${button}` : `${card}${logo}${text}`;
   return `<section ${attrs}><div class="${P}-s">${inner}</div>${data}</section>`;
@@ -249,10 +287,10 @@ export function bannerJs(prefix: string): string {
 }
 
 /** The block a Magento editor pastes: one row (no padding), one HTML Code element, this whole text. */
-export function pasteBlock(d: BannerDoc, key: PresetKey, prefix: string, title = ""): string {
+export function pasteBlock(d: BannerDoc, key: PresetKey, prefix: string, title = "", opts: RenderOpts = {}): string {
   const p = PRESET[key];
   const w = wordsFor(d, key);
-  const body = bodyHtml(d, key, prefix, { still: false }, pasteHref(w.url));
+  const body = bodyHtml(d, key, prefix, { still: false, origin: opts.origin }, pasteHref(w.url));
   const motion = body.includes(" data-motion");
   const name = title.replace(/--+/g, "-").replace(/[<>]/g, "").slice(0, 80);
   return [
@@ -264,9 +302,25 @@ export function pasteBlock(d: BannerDoc, key: PresetKey, prefix: string, title =
 }
 
 /** Any size frozen on its first word and photo, with the CSS it needs - for a PNG or a still view. */
-export function stillMarkup(d: BannerDoc, key: PresetKey, prefix: string): { css: string; html: string } {
+export function stillMarkup(d: BannerDoc, key: PresetKey, prefix: string, opts: RenderOpts = {}): { css: string; html: string } {
   const w = wordsFor(d, key);
-  return { css: bannerCss(prefix, d.theme, [key]), html: bodyHtml(d, key, prefix, { still: true }, linkOf(w.url).href) };
+  return { css: bannerCss(prefix, d.theme, [key]), html: bodyHtml(d, key, prefix, { still: true, origin: opts.origin }, linkOf(w.url).href) };
+}
+
+/**
+ * The banner for a page made elsewhere (a shop page's preview): its stylesheet, its markup without any script, and the
+ * script that changes its word (null without motion) - the page's preview takes markup and styles as changes, which
+ * may not carry a script, and adds the script itself where it runs scripts.
+ */
+export function pageParts(d: BannerDoc, key: PresetKey, prefix: string, opts: RenderOpts = {}): { css: string; html: string; script: string | null } {
+  const w = wordsFor(d, key);
+  const body = bodyHtml(d, key, prefix, { still: false, origin: opts.origin }, linkOf(w.url).href);
+  const data = new RegExp(`<script type="application/json" class="${prefix}-d">([\\s\\S]*?)</script>`).exec(body);
+  const html = body.replace(/<script\b[\s\S]*?<\/script>/g, "");
+  // the word's list rides on the section itself, as an attribute, so the markup carries no script
+  const withData = data ? html.replace(` data-motion`, ` data-motion data-list-json="${esc(data[1].replace(/\\u003c/g, "<"))}"`) : html;
+  const script = data ? bannerJs(prefix).replace(`L = JSON.parse(root.querySelector(".${prefix}-d").textContent)`, `L = JSON.parse(root.getAttribute("data-list-json"))`) : null;
+  return { css: bannerCss(prefix, d.theme, [key]), html: withData, script };
 }
 
 /** The motion-free markup of several sizes at once, sharing one stylesheet (the "All sizes" view). */

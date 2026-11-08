@@ -126,10 +126,19 @@ test("a stylesheet's relative addresses are made absolute against the stylesheet
   assert.match(out, /url\('\/\/cdn\/x\.woff'\)/);
 });
 
-test("a big page parses quickly", () => {
-  const big = `<html><body>${"<div class='r'><p>t<span>s</span></p><img src=x></div>".repeat(20000)}</body></html>`;
-  const t = Date.now();
-  const r = applyChanges(big, [{ op: "text", selector: "div.r:last-child span", text: "end" }]);
-  assert.equal(r.hits[0].state, "found");
-  assert.ok(Date.now() - t < 3000, `took ${Date.now() - t} ms`);
+test("a big page parses in time proportional to its size (no quadratic blow-up)", () => {
+  // the work is measured, not a tight wall clock: a laptop under load may be slow, but 4x the page must not be 16x the time
+  const page = (n: number) => `<html><body>${"<div class='r'><p>t<span>s</span></p><img src=x></div>".repeat(n)}</body></html>`;
+  const run = (n: number) => {
+    const html = page(n);
+    const t = process.hrtime.bigint();
+    const r = applyChanges(html, [{ op: "text", selector: "div.r:last-child span", text: "end" }]);
+    assert.equal(r.hits[0].state, "found");
+    return Number(process.hrtime.bigint() - t) / 1e6;
+  };
+  run(2000); // warm up
+  const small = Math.max(Math.min(run(5000), run(5000)), 1);
+  const big = Math.min(run(20000), run(20000));
+  assert.ok(big / small < 10, `5,000 rows took ${small.toFixed(0)} ms, 20,000 took ${big.toFixed(0)} ms - not linear`);
+  assert.ok(big < 15_000, `20,000 rows took ${big.toFixed(0)} ms`);
 });

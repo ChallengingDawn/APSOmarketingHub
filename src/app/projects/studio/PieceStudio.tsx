@@ -25,6 +25,8 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import HistoryIcon from "@mui/icons-material/History";
+import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
+import Popover from "@mui/material/Popover";
 
 import { INK, MUTED, Notice, HAIRLINE } from "@/app/uc/report/ui";
 import { STUDIO_LABEL } from "@/lib/content/studio/kinds";
@@ -32,6 +34,7 @@ import type { PieceStatus } from "@/lib/content/pieceRules";
 import { KindTile } from "../work/kinds";
 import { moves } from "../work/TodoList";
 import { Faces, StatusChip, dayLabel } from "../work/ui";
+import { InlineTitle } from "../work/InlineTitle";
 import { STUDIO_BAR, btn, field, mainBtn } from "./parts";
 import { STUDIOS } from "./registry";
 import { useStudio, type StudioApi } from "./useStudio";
@@ -86,6 +89,40 @@ function Versions({ api }: { api: StudioApi }) {
   );
 }
 
+/** Its day on the content calendar, set here (SARCLA 08.11.2026: "you should be able to place it on the content calendar"). */
+function OnCalendar({ api }: { api: StudioApi }) {
+  const p = api.data.piece;
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const set = async (day: string | null) => {
+    setErr(null);
+    const r = await api.edit({ dueDate: day });
+    if (!r.ok) setErr(r.error ?? "Not moved.");
+    else setAnchor(null);
+  };
+  return (
+    <>
+      <Tooltip title={p.dueDate ? "Its day on the content calendar - change it" : "Put it on the content calendar"}>
+        <Button size="small" onClick={(e) => setAnchor(e.currentTarget)} startIcon={<CalendarMonthOutlinedIcon sx={{ fontSize: 18 }} />}
+          sx={{ ...btn, color: p.dueDate ? INK : MUTED, border: `1px ${p.dueDate ? "solid" : "dashed"} ${HAIRLINE}`, borderRadius: "6px", px: 1.25 }}>
+          {p.dueDate ? dayLabel(p.dueDate) : "On the calendar"}
+        </Button>
+      </Tooltip>
+      <Popover open={!!anchor} anchorEl={anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        slotProps={{ paper: { sx: { p: 2, borderRadius: "10px", width: 280 } } }}>
+        <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".05em", mb: 1 }}>On the content calendar</Typography>
+        <TextField type="date" size="small" fullWidth value={p.dueDate ?? ""} disabled={!api.data.access.canEdit}
+          onChange={(e) => void set(e.target.value || null)} sx={field} slotProps={{ inputLabel: { shrink: true } }} label="Its day" />
+        {err && <Typography sx={{ fontSize: "0.78rem", color: "#c5221f", mt: 1 }}>{err}</Typography>}
+        <Box sx={{ display: "flex", justifyContent: "space-between", mt: 1.5 }}>
+          {p.dueDate && api.data.access.canEdit ? <Button size="small" onClick={() => void set(null)} sx={{ ...btn, color: MUTED }}>Take it off</Button> : <span />}
+          <Button size="small" component={Link} href={`/projects/calendar${p.dueDate ? `?day=${p.dueDate}` : ""}`} sx={btn}>Open the calendar</Button>
+        </Box>
+      </Popover>
+    </>
+  );
+}
+
 function Bar({ api }: { api: StudioApi }) {
   const d = api.data;
   const p = d.piece;
@@ -115,10 +152,11 @@ function Bar({ api }: { api: StudioApi }) {
         <Typography sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {d.project?.title} · {STUDIO_LABEL[d.kind]}{p.language ? ` · ${p.language}` : ""}
         </Typography>
-        <Typography sx={{ fontSize: "0.98rem", fontWeight: 700, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: { xs: 160, md: 360 } }}>{p.title}</Typography>
+        <InlineTitle value={p.title} canEdit={d.access.canEdit} maxWidth={{ xs: 160, md: 380 }}
+          onSave={async (title) => { const r = await api.edit({ title }); if (!r.ok) setErr(r.error ?? "Not renamed."); }} />
       </Box>
       <StatusChip status={p.status} />
-      {p.dueDate && <Typography sx={{ fontSize: "0.8rem", color: MUTED, display: { xs: "none", md: "block" } }}>Due {dayLabel(p.dueDate)}</Typography>}
+      <OnCalendar api={api} />
       <Box sx={{ display: { xs: "none", md: "block" } }}><Faces people={people} names={names} size={26} /></Box>
       <Box sx={{ flex: 1 }} />
       {err && <Typography sx={{ fontSize: "0.8rem", color: "#c5221f", maxWidth: 260 }}>{err}</Typography>}

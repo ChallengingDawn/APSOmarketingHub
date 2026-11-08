@@ -1,169 +1,195 @@
 "use client";
-// THE BANNER'S BUILD PANE (08.11.2026): its sizes, its words (the banner's, and shorter ones for one size), its picture
-// or the photos that change with the words, its background, its language. Every change saves on its own (useStudio).
+// THE BANNER'S BUILD PANE (08.11.2026; SARCLA: "the banner can be in multiple places"): where it is used (squared place
+// tiles, grouped: the shop, an e-mail, social media, ads), its words (the banner's - each place can carry shorter ones,
+// set beside its preview), its picture (the shop's photos, or one made from the banner's words or uploaded - the hub's
+// picture panel), its background, its language. Every change saves on its own (useStudio).
 
+import { useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
-import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import CheckIcon from "@mui/icons-material/Check";
 
-import { Choice } from "@/app/connectors/parts";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
+import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { LANGUAGES } from "@/lib/content/languages";
-import { photoLabel, SHOP_PHOTOS } from "@/lib/content/studio/kinds/banner/brand";
-import { PRESET, PRESETS, THEMES, THEME_KEYS, sizesOf, wordsFor, type BannerDoc, type OwnWords, type Picture, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
-import { Field, PINK, btn, field } from "../../parts";
+import { isHubPicture, photoLabel, SHOP_PHOTOS } from "@/lib/content/studio/kinds/banner/brand";
+import {
+  GROUPS, PRESET, PRESETS, THEMES, THEME_KEYS, sizesOf, togglePlace, roomiest,
+  type BannerDoc, type Picture, type PresetKey,
+} from "@/lib/content/studio/kinds/banner/model";
+import { Field, btn, field } from "../../parts";
+import { PicturePanel, type Picture as HubPicture, type PictureAspect } from "../../pictures";
 import { ChipsInput, Hint, PhotoPicker, Section, Swatches, pictureProblem } from "./ui";
+
+export const SEL = "#2459d1";
 
 export type BuildProps = {
   doc: BannerDoc;
   set: (fn: (d: BannerDoc) => BannerDoc) => void;
-  active: PresetKey;
-  setActive: (k: PresetKey) => void;
   canEdit: boolean;
+  /** A place was added: the stage shows it. */
+  onAdded: (k: PresetKey) => void;
+  projectId: number;
+  pieceId: number;
+  me: string;
 };
 
-/** A size's shape, drawn small and true to its proportions. */
-function Shape({ k, on }: { k: PresetKey; on: boolean }) {
+/** A place's shape, drawn small and true to its proportions. */
+export function Shape({ k, on, box = 30 }: { k: PresetKey; on: boolean; box?: number }) {
   const p = PRESET[k];
-  const h = p.h ?? Math.round(p.w * 0.3);
-  const s = Math.min(30 / p.w, 26 / h);
+  const h = p.h ?? Math.round(p.w * (k === "cat" ? 0.2 : 0.32));
+  const s = Math.min(box / p.w, (box - 4) / h);
   return (
-    <Box sx={{ width: 34, height: 30, display: "grid", placeItems: "center", flexShrink: 0 }}>
-      <Box sx={{ width: Math.max(4, p.w * s), height: Math.max(4, h * s), borderRadius: "3px", bgcolor: on ? "#274e64" : "#c9d3dc", transition: "background .15s" }} />
+    <Box sx={{ width: box + 4, height: box, display: "grid", placeItems: "center", flexShrink: 0 }}>
+      <Box sx={{ width: Math.max(4, p.w * s), height: Math.max(4, h * s), borderRadius: "2px", bgcolor: on ? "#274e64" : "#c9d3dc", transition: "background .15s" }} />
     </Box>
   );
 }
 
-function Sizes({ doc, set, active, setActive, canEdit }: BuildProps) {
+/** The places, as squared tiles: a click puts the banner there or takes it out. */
+function Places({ doc, set, canEdit, onAdded }: BuildProps) {
   const made = sizesOf(doc);
-  const toggle = (k: PresetKey) => set((d) => {
-    const all = sizesOf(d);
-    if (all.includes(k)) {
-      if (all.length === 1) return d;
-      const rest = all.filter((x) => x !== k);
-      return { ...d, format: rest[0], sizes: rest.slice(1) };
-    }
-    return { ...d, sizes: [...d.sizes, k] };
-  });
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 0.75 }}>
-      {PRESETS.map((p) => {
-        const on = made.includes(p.key);
-        const here = active === p.key;
-        return (
-          <Box key={p.key} title={`${p.label} - ${p.note}. ${p.out === "html" ? "A paste block for the shop" : "A PNG"}.`} onClick={() => { if (!on && canEdit) toggle(p.key); setActive(p.key); }} sx={{
-            position: "relative", display: "flex", alignItems: "center", gap: 1, p: 1, pr: 3.5, borderRadius: "12px", cursor: "pointer", minWidth: 0,
-            border: `1px solid ${here ? PINK : HAIRLINE}`, bgcolor: here ? "rgba(194,44,110,.05)" : on ? "#fff" : "rgba(255,255,255,.5)",
-            transition: "border-color .15s, background .15s", "&:hover": { borderColor: here ? PINK : "#9fb3c0" },
-          }}>
-            <Shape k={p.key} on={on} />
-            <Box sx={{ minWidth: 0 }}>
-              <Typography title={p.label} sx={{ fontSize: "0.82rem", fontWeight: 650, color: on ? INK : MUTED, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.short}</Typography>
-              <Typography sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {doc.format === p.key && <Box component="span" sx={{ color: "#274e64", fontWeight: 700 }}>Main · </Box>}
-                {p.h ? (p.key === "mrec" || p.key === "leader" || p.key === "sky" ? "Display ad" : `${p.w} × ${p.h}`) : "Full width"}
-              </Typography>
-            </Box>
-            <Tooltip title={on ? (made.length === 1 ? "A banner keeps one size at least" : "Not in this size") : "Make it in this size too"}>
-              <Box component="button" type="button" disabled={!canEdit} aria-label={on ? `Remove ${p.label}` : `Add ${p.label}`}
-                onClick={(e) => { e.stopPropagation(); toggle(p.key); }} sx={{
-                  all: "unset", cursor: canEdit ? "pointer" : "default", position: "absolute", top: 8, right: 8, width: 18, height: 18, borderRadius: "50%",
-                  display: "grid", placeItems: "center", bgcolor: on ? "#274e64" : "transparent", border: on ? "none" : "1.5px solid #b9c6d1", color: "#fff",
-                }}>
-                {on && <CheckIcon sx={{ fontSize: 13 }} />}
-              </Box>
-            </Tooltip>
+    <Box sx={{ display: "grid", gap: 1.5 }}>
+      {GROUPS.map((g) => (
+        <Box key={g.key}>
+          <Typography sx={{ fontSize: "0.7rem", fontWeight: 650, color: MUTED, mb: 0.6 }}>{g.label}</Typography>
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 0.75 }}>
+            {PRESETS.filter((p) => p.group === g.key).map((p) => {
+              const on = made.includes(p.key);
+              const last = on && made.length === 1;
+              return (
+                <Box key={p.key} component="button" type="button" disabled={!canEdit || last} aria-pressed={on}
+                  title={last ? "A banner keeps one place at least" : `${p.label} - ${p.note}. ${p.out === "html" ? "A paste block for the shop" : "A picture (PNG)"}.`}
+                  onClick={() => { set((d) => togglePlace(d, p.key)); if (!on) onAdded(p.key); }}
+                  sx={{
+                    all: "unset", boxSizing: "border-box", cursor: canEdit && !last ? "pointer" : "default", position: "relative", display: "flex", alignItems: "center", gap: 0.75,
+                    p: 0.9, pr: 3.25, borderRadius: "6px", minWidth: 0, border: `1px solid ${on ? "rgba(36,89,209,.55)" : HAIRLINE}`,
+                    bgcolor: on ? "rgba(36,89,209,.06)" : "rgba(255,255,255,.6)", transition: "border-color .15s, background .15s",
+                    "&:hover": canEdit && !last ? { borderColor: on ? SEL : "#9fb3c0" } : {}, "&:focus-visible": { outline: `2px solid ${SEL}`, outlineOffset: 1 },
+                  }}>
+                  <Shape k={p.key} on={on} />
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontSize: "0.8rem", fontWeight: 650, color: on ? INK : MUTED, lineHeight: 1.2 }}>{p.short}</Typography>
+                    <Typography sx={{ fontSize: "0.7rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontVariantNumeric: "tabular-nums" }}>
+                      {p.group === "ads" ? (p.key === "mrec" ? "Rectangle" : p.key === "leader" ? "Leaderboard" : "Skyscraper") : p.h ? `${p.w} × ${p.h}` : "Full width"}
+                    </Typography>
+                  </Box>
+                  <Box sx={{
+                    position: "absolute", top: 7, right: 7, width: 16, height: 16, borderRadius: "3px", display: "grid", placeItems: "center",
+                    bgcolor: on ? SEL : "transparent", border: on ? "none" : "1.5px solid #b9c6d1", color: "#fff",
+                  }}>{on && <CheckIcon sx={{ fontSize: 13 }} />}</Box>
+                </Box>
+              );
+            })}
           </Box>
-        );
-      })}
+        </Box>
+      ))}
     </Box>
   );
 }
 
-const OWN_EMPTY: OwnWords = { eyebrow: "", headline: "", line: "", button: "" };
-
-function OwnWordsFor({ doc, set, active, canEdit }: BuildProps) {
-  const p = PRESET[active];
-  const own = doc.own[active] ?? OWN_EMPTY;
-  const base = wordsFor({ ...doc, own: {} }, active);
-  const put = (k: keyof OwnWords, v: string) => set((d) => ({ ...d, own: { ...d.own, [active]: { ...(d.own[active] ?? OWN_EMPTY), [k]: v } } }));
-  return (
-    <Section title={`Words for ${p.label}`} right={canEdit && (
-      <Button size="small" onClick={() => set((d) => ({ ...d, format: active, sizes: sizesOf(d).filter((k) => k !== active) }))} sx={{ ...btn, fontSize: "0.76rem", color: MUTED, minWidth: 0, py: 0 }}>Make it the main size</Button>
-    )}>
-      <Hint sx={{ mb: 1.25 }}>Empty fields use the banner&apos;s words. Give this size shorter ones where they do not fit.</Hint>
-      {p.limits.eyebrow > 0 && <Field label="Eyebrow" value={own.eyebrow} onChange={(v) => put("eyebrow", v)} max={p.limits.eyebrow} placeholder={base.eyebrow} disabled={!canEdit} />}
-      <Field label="Headline" value={own.headline} onChange={(v) => put("headline", v)} max={p.limits.headline} placeholder={base.headline} disabled={!canEdit} />
-      {p.limits.line > 0 && <Field label="Line" value={own.line} onChange={(v) => put("line", v)} max={p.limits.line} multiline rows={2} placeholder={base.line} disabled={!canEdit} />}
-      {p.limits.button > 0 && <Field label="Button" value={own.button} onChange={(v) => put("button", v)} max={p.limits.button} placeholder={base.button} disabled={!canEdit} />}
-    </Section>
-  );
-}
-
-function PictureFields({ doc, set, canEdit }: BuildProps) {
+/** The picture the banner's places show: the shop's photos, or one made or uploaded (the hub's picture panel). */
+function PictureFields({ doc, set, canEdit, projectId, pieceId, me }: BuildProps) {
   const c = doc.content;
   const anyMotion = sizesOf(doc).some((k) => PRESET[k].motion);
   const many = c.photos.length >= 2;
   const lang = doc.language;
+  const [from, setFrom] = useState<"shop" | "hub">(isHubPicture(c.image.url) ? "hub" : "shop");
   const setImage = (img: Picture) => set((d) => ({ ...d, content: { ...d.content, image: img } }));
   const problem = pictureProblem(c.image.url);
+  // a picture for the places it is used in: wide for the shop's bands, square or tall for social media
+  const places = sizesOf(doc);
+  const aspect: PictureAspect = places.some((k) => k === "story" || k === "portrait") && !places.some((k) => PRESET[k].group === "shop") ? "4:5" : places.every((k) => k === "square") ? "1:1" : "3:2";
+  const words = [`${c.headline} ${c.rotatingWords[0] ?? ""}`.trim(), c.line].filter((x) => x && x.trim()).join(" ");
+  const suggestion = words ? `A photo for a banner that says: "${words}". Industrial components in use, real, calm light.` : "";
+  const pickHub = (p: HubPicture) => {
+    if (!canEdit) return;
+    const label = p.name && !/\.(png|jpe?g|webp|gif)$/i.test(p.name) ? p.name.slice(0, 40) : "";
+    if (many) set((d) => ({ ...d, content: { ...d.content, photos: d.content.photos.some((x) => x.url === p.url) ? d.content.photos : [...d.content.photos, { url: p.url, alt: "", label }] } }));
+    else setImage({ url: p.url, alt: "", label: c.image.url === p.url ? c.image.label : label });
+  };
+  const cur = many ? c.photos[0]?.url : c.image.url;
   return (
     <Section title="Picture" right={anyMotion ? (
-      <Choice value={many ? "many" : "one"} onChange={(k) => set((d) => ({
+      <SquareChoice value={many ? "many" : "one"} onChange={(k) => canEdit && set((d) => ({
         ...d, content: {
           ...d.content,
           photos: k === "many"
-            ? (d.content.photos.length >= 2 ? d.content.photos : SHOP_PHOTOS.slice(0, 3).map((p) => ({ url: p.url, alt: "", label: photoLabel(p, lang) })))
+            ? (d.content.photos.length >= 2 ? d.content.photos : [d.content.image, ...SHOP_PHOTOS.filter((p) => p.url !== d.content.image.url).slice(0, 2).map((p) => ({ url: p.url, alt: "", label: photoLabel(p, lang) }))].filter((p) => p.url))
             : [],
         },
       }))} options={[{ key: "one", label: "One" }, { key: "many", label: "Changing" }]} />
     ) : undefined}>
+      {cur ? (
+        <Box sx={{ position: "relative", aspectRatio: "16 / 7", borderRadius: "8px", overflow: "hidden", bgcolor: "#e9ebed", mb: 1.25, border: `1px solid ${HAIRLINE}` }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={cur} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+          {many && <Box sx={{ position: "absolute", top: 8, left: 8, px: 0.9, py: 0.25, borderRadius: "4px", bgcolor: "rgba(21,34,58,.78)", color: "#fff", fontSize: "0.72rem", fontWeight: 650 }}>{c.photos.length} in turn</Box>}
+        </Box>
+      ) : (
+        <Box sx={{ aspectRatio: "16 / 7", borderRadius: "8px", border: `1.5px dashed ${HAIRLINE}`, display: "grid", placeItems: "center", mb: 1.25, color: MUTED, fontSize: "0.82rem" }}>No picture</Box>
+      )}
       {many ? (
         <>
-          <Hint sx={{ mb: 1 }}>The card shows these in turn, in step with the changing words - in this order. Pick two or more.</Hint>
-          <PhotoPicker multi lang={lang} selected={c.photos.map((p) => p.url)} onPick={(p) => canEdit && set((d) => {
-            const has = d.content.photos.some((x) => x.url === p.url);
-            const photos = has ? d.content.photos.filter((x) => x.url !== p.url) : [...d.content.photos, { url: p.url, alt: "", label: photoLabel(p, lang) }];
-            return { ...d, content: { ...d.content, photos: photos.length >= 2 ? photos : d.content.photos } };
-          })} />
-          <Box sx={{ mt: 1.25, display: "grid", gap: 0.75 }}>
+          <Hint sx={{ mb: 1 }}>The card shows these in turn, in step with the changing words - in this order. Two or more.</Hint>
+          <Box sx={{ display: "grid", gap: 0.75, mb: 1.25 }}>
             {c.photos.map((p, i) => (
-              <TextField key={p.url} size="small" fullWidth label={`Label ${i + 1}`} value={p.label} disabled={!canEdit} sx={field}
-                onChange={(e) => set((d) => ({ ...d, content: { ...d.content, photos: d.content.photos.map((x, k) => (k === i ? { ...x, label: e.target.value.slice(0, 80) } : x)) } }))} />
+              <Box key={`${p.url}-${i}`} sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={p.url} alt="" style={{ width: 44, height: 34, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} />
+                <TextField size="small" fullWidth label={`Label ${i + 1}`} value={p.label} disabled={!canEdit} sx={field}
+                  onChange={(e) => set((d) => ({ ...d, content: { ...d.content, photos: d.content.photos.map((x, k) => (k === i ? { ...x, label: e.target.value.slice(0, 80) } : x)) } }))} />
+                <Button size="small" disabled={!canEdit || c.photos.length <= 2} onClick={() => set((d) => ({ ...d, content: { ...d.content, photos: d.content.photos.filter((_, k) => k !== i) } }))} sx={{ ...btn, minWidth: 0, color: MUTED }}>Out</Button>
+              </Box>
             ))}
           </Box>
         </>
       ) : (
+        cur && <Field label="Label on the photo" value={c.image.label} onChange={(v) => setImage({ ...c.image, label: v })} max={40} placeholder="Empty = no label" disabled={!canEdit} />
+      )}
+      <Box sx={{ mb: 1 }}>
+        <SquareChoice value={from} onChange={setFrom} options={[{ key: "shop", label: "The shop's photos" }, { key: "hub", label: "Make or upload" }]} />
+      </Box>
+      {from === "shop" ? (
         <>
-          <PhotoPicker lang={lang} selected={[c.image.url]} onPick={(p) => canEdit && setImage({ url: p.url, alt: "", label: photoLabel(p, lang) })} />
-          <TextField size="small" fullWidth label="Or the address of a shop picture" value={c.image.url} disabled={!canEdit} sx={{ ...field, mt: 1.5 }}
-            placeholder="https://www.apsoparts.com/media/…" onChange={(e) => setImage({ ...c.image, url: e.target.value.trim() })}
-            error={!!problem} helperText={problem ?? undefined} />
-          <Field label="Label on the photo" value={c.image.label} onChange={(v) => setImage({ ...c.image, label: v })} max={40} placeholder="Empty = no label" disabled={!canEdit} />
-          <Box sx={{ display: "flex", gap: 1 }}>
-            {c.image.url && <Button size="small" disabled={!canEdit} onClick={() => setImage({ url: "", alt: "", label: "" })} sx={{ ...btn, color: MUTED }}>No picture</Button>}
-          </Box>
+          <PhotoPicker multi={many} lang={lang} selected={many ? c.photos.map((p) => p.url) : [c.image.url]} onPick={(p) => canEdit && (many
+            ? set((d) => {
+              const has = d.content.photos.some((x) => x.url === p.url);
+              const photos = has ? d.content.photos.filter((x) => x.url !== p.url) : [...d.content.photos, { url: p.url, alt: "", label: photoLabel(p, lang) }];
+              return { ...d, content: { ...d.content, photos: photos.length >= 2 ? photos : d.content.photos } };
+            })
+            : setImage({ url: p.url, alt: "", label: photoLabel(p, lang) }))} />
+          {!many && (
+            <TextField size="small" fullWidth label="Or a shop picture's address" value={isHubPicture(c.image.url) ? "" : c.image.url} disabled={!canEdit} sx={{ ...field, mt: 1.25 }}
+              placeholder="https://www.apsoparts.com/media/…" onChange={(e) => setImage({ ...c.image, url: e.target.value.trim() })}
+              error={!!problem} helperText={problem ?? undefined} />
+          )}
         </>
+      ) : (
+        <PicturePanel key={suggestion ? "s" : "e"} onPick={pickHub} projectId={projectId} pieceId={pieceId} me={me} aspect={aspect} suggestion={suggestion} columns={3} />
+      )}
+      {!many && c.image.url && (
+        <Button size="small" disabled={!canEdit} onClick={() => setImage({ url: "", alt: "", label: "" })} sx={{ ...btn, color: MUTED, mt: 0.5 }}>No picture</Button>
       )}
     </Section>
   );
 }
 
 export default function BuildPane(props: BuildProps) {
-  const { doc, set, active, canEdit } = props;
+  const { doc, set, canEdit } = props;
   const c = doc.content;
-  const main = PRESET[doc.format];
+  const main = PRESET[roomiest(doc)];
   const anyMotion = sizesOf(doc).some((k) => PRESET[k].motion);
   const put = (fn: (c: BannerDoc["content"]) => BannerDoc["content"]) => set((d) => ({ ...d, content: fn(d.content) }));
   return (
     <Box>
-      <Section first title="Sizes">
-        <Sizes {...props} />
-        <Hint sx={{ mt: 1 }}>The shop&apos;s sizes become a paste block for Magento; the others a PNG.</Hint>
+      <Section first title="Where it goes">
+        <Places {...props} />
+        <Hint sx={{ mt: 1.25 }}>The shop&apos;s places give a paste block for Magento; the others a picture at its real size.</Hint>
       </Section>
 
       <Section title="Words">
@@ -176,7 +202,7 @@ export default function BuildPane(props: BuildProps) {
               onChange={(v) => put((x) => ({ ...x, rotatingWords: v }))} clean={(s) => s.trim().slice(0, 60)} />
             <Hint sx={{ mt: 0.75 }}>
               {c.rotatingWords.length
-                ? `Each word ends the headline and changes every 2.6 s while the banner is on screen. Sizes without room show "${`${c.headline} ${c.rotatingWords[0]}`.trim()}".`
+                ? `Each ends the headline and changes every 2.6 s on the shop. Pictures show "${`${c.headline} ${c.rotatingWords[0]}`.trim()}".`
                 : "Endings for the headline that take turns on the shop - like the newsletter band's technologies."}
             </Hint>
           </Box>
@@ -186,10 +212,8 @@ export default function BuildPane(props: BuildProps) {
           <Field label="Button" value={c.button.label} onChange={(v) => put((x) => ({ ...x, button: { ...x.button, label: v } }))} max={main.limits.button || 24} placeholder="Shop seals" disabled={!canEdit} />
           <Field label="It goes to" value={c.button.url} onChange={(v) => put((x) => ({ ...x, button: { ...x.button, url: v.trim() } }))} placeholder="black-friday" disabled={!canEdit} />
         </Box>
-        <Hint>A shop page (&quot;dichtungstechnik.html&quot;) links to itself in every store view; a full address stays as it is.</Hint>
+        <Hint>Counted against {main.label}, the place with the most room. Smaller places get their own shorter words beside their preview.</Hint>
       </Section>
-
-      {active !== doc.format && sizesOf(doc).includes(active) && <OwnWordsFor {...props} />}
 
       <PictureFields {...props} />
 
@@ -204,7 +228,7 @@ export default function BuildPane(props: BuildProps) {
           onChange={(e) => set((d) => ({ ...d, language: e.target.value }))}>
           {LANGUAGES.map((l) => <MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>)}
         </TextField>
-        <Hint sx={{ mt: 0.75 }}>The AI writes in it; the photo labels follow when you pick a photo.</Hint>
+        <Hint sx={{ mt: 0.75 }}>The AI writes in it; the shop photos&apos; labels follow when you pick one.</Hint>
       </Section>
 
       <Section title="Notes">

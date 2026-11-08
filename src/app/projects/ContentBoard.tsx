@@ -18,6 +18,7 @@ import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
+import LightbulbOutlinedIcon from "@mui/icons-material/LightbulbOutlined";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import ViewKanbanOutlinedIcon from "@mui/icons-material/ViewKanbanOutlined";
 import HourglassTopOutlinedIcon from "@mui/icons-material/HourglassTopOutlined";
@@ -25,7 +26,7 @@ import HourglassTopOutlinedIcon from "@mui/icons-material/HourglassTopOutlined";
 import { Chip, Choice } from "@/app/connectors/parts";
 import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, Notice, headCell, bodyCell } from "@/app/uc/report/ui";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
-import { CONTENT_BY_KEY, CONTENT_TYPES } from "@/lib/content/contentTypes";
+import { CONTENT_BY_KEY, OFFERED_CONTENT_TYPES } from "@/lib/content/contentTypes";
 import { LANGUAGES } from "@/lib/content/languages";
 import { STAGES, STAGE_LABEL, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
 import { Faces, PINK, STAGE_DOT, StageChip, dayLabel, dueSoon, postWork } from "./work/ui";
@@ -133,7 +134,7 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
         <TextField size="small" label="Goal" placeholder="What should be different once it is out?" multiline minRows={2} value={goal} onChange={(e) => setGoal(e.target.value)} sx={field} />
         <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
           <TextField select size="small" label="First piece" value={kind} onChange={(e) => setKind(e.target.value)} sx={{ ...field, flex: "1 1 200px" }}>
-            {CONTENT_TYPES.map((t) => <MenuItem key={t.key} value={t.key}>{t.label}</MenuItem>)}
+            {OFFERED_CONTENT_TYPES.map((t) => <MenuItem key={t.key} value={t.key}>{t.label}</MenuItem>)}
           </TextField>
           <TextField select size="small" label="In" value={langs} onChange={(e) => setLangs(typeof e.target.value === "string" ? e.target.value.split(",") : (e.target.value as string[]))}
             slotProps={{ select: { multiple: true } }} sx={{ ...field, flex: "1 1 160px" }}>
@@ -179,8 +180,12 @@ export default function ContentBoard() {
           <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontSize: { xs: "1.5rem", md: "1.8rem" }, fontWeight: 600, letterSpacing: "-0.025em", color: INK }}>Projects</Typography>
           <Typography sx={{ fontSize: "0.95rem", color: MUTED, mt: 0.5 }}>Everything the team is making: who is on it, where it stands, and what waits for whom.</Typography>
         </Box>
-        <Button variant="contained" disableElevation startIcon={<AddIcon />} onClick={() => setMaking(true)}
-          sx={{ textTransform: "none", fontWeight: 600, borderRadius: "11px", bgcolor: PINK, "&:hover": { bgcolor: "#a3245c" } }}>New project</Button>
+        {/* the ideas every app found, and a new project with its lines, owners and tickets (SARCLA 08.11.2026) */}
+        <Button component={Link} href="/projects/ideas" variant="outlined" startIcon={<LightbulbOutlinedIcon />}
+          sx={{ textTransform: "none", fontWeight: 600, borderRadius: "8px", color: INK, borderColor: HAIRLINE, bgcolor: "#fff" }}>Ideas</Button>
+        <Button component={Link} href="/projects/new" variant="contained" disableElevation startIcon={<AddIcon />}
+          sx={{ textTransform: "none", fontWeight: 600, borderRadius: "8px", bgcolor: PINK, "&:hover": { bgcolor: "#a3245c" } }}>New project</Button>
+        <Button size="small" onClick={() => setMaking(true)} sx={{ textTransform: "none", fontWeight: 600, color: MUTED }}>Quick one</Button>
       </Box>
 
       {err && <Notice tone="bad">{err}</Notice>}

@@ -278,9 +278,20 @@ function nthOk(pos: number, a: number, b: number): boolean {
   return Number.isInteger(k) && k >= 0;
 }
 
-function siblings(el: Node, type: boolean): Node[] {
-  const all = el.parent ? el.parent.children : [el];
-  return type ? all.filter((x) => x.tag === el.tag) : all;
+/** An element's place among its siblings (of its type, or all), and how many there are - counted once per parent, so a
+ * page with 20,000 rows is not read 20,000 times over (:last-child, :nth-of-type). */
+const TYPES = new WeakMap<Node, { lists: Map<string, number>; pos: Map<Node, number> }>();
+function placeOf(el: Node, type: boolean): { at: number; len: number } {
+  const parent = el.parent;
+  if (!parent) return { at: 0, len: 1 };
+  if (!type) return { at: el.index, len: parent.children.length };
+  let c = TYPES.get(parent);
+  if (!c) {
+    c = { lists: new Map(), pos: new Map() };
+    for (const ch of parent.children) { const n = c.lists.get(ch.tag) ?? 0; c.pos.set(ch, n); c.lists.set(ch.tag, n + 1); }
+    TYPES.set(parent, c);
+  }
+  return { at: c.pos.get(el) ?? 0, len: c.lists.get(el.tag) ?? 1 };
 }
 
 function matchCompound(el: Node, c: Compound): boolean {
@@ -307,10 +318,9 @@ function matchCompound(el: Node, c: Compound): boolean {
   for (const ps of c.pseudos) {
     if (ps.kind === "root") { if (el.parent?.tag !== "#root") return false; continue; }
     if (ps.kind === "not") { if (ps.list.some((x) => matchCompound(el, x))) return false; continue; }
-    const sib = siblings(el, ps.type);
-    if (ps.kind === "only") { if (sib.length !== 1) return false; continue; }
-    const at = sib.indexOf(el);
-    const pos = ps.last ? sib.length - at : at + 1;
+    const { at, len } = placeOf(el, ps.type);
+    if (ps.kind === "only") { if (len !== 1) return false; continue; }
+    const pos = ps.last ? len - at : at + 1;
     if (!nthOk(pos, ps.a, ps.b)) return false;
   }
   return true;
@@ -363,15 +373,32 @@ export type Hit = { state: "css" | "found" | "missing" | "unread"; count: number
 const escText = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const escAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 
-/** HTML put in by replace / insert, its top elements marked data-apso-v so later changes leave them alone. */
-export function markFragment(html: string): string {
+/** HTML put in by replace / insert, its top elements marked data-apso-v so later changes leave them alone - in the
+ * studio's preview also with the change they came from (`from`, data-apx-c) and their place in it (data-apx-k), so a
+ * click on them edits that change. */
+export function markFragment(html: string, from?: number): string {
   const root = parseHtml(html);
   let out = html;
-  for (const el of [...root.children].reverse()) {
+  const tops = root.children;
+  for (let k = tops.length - 1; k >= 0; k--) {
+    const el = tops[k];
     const at = el.start + 1 + el.tag.length;
-    out = `${out.slice(0, at)} data-apso-v=""${out.slice(at)}`;
+    out = `${out.slice(0, at)} data-apso-v=""${from === undefined ? "" : ` data-apx-c="${from}" data-apx-k="${k}"`}${out.slice(at)}`;
   }
   return out;
+}
+
+/** The top-level elements of a fragment, as [start, end) places in it - for putting one edited element back. */
+export function fragmentTops(html: string): { start: number; end: number; tag: string }[] {
+  return parseHtml(html).children.map((el) => ({ start: el.start, end: el.end, tag: el.tag }));
+}
+
+/** A fragment with its k-th top element replaced (an element edited in the preview); null when it has no such one. */
+export function replaceTop(html: string, k: number, next: string): string | null {
+  const tops = fragmentTops(html);
+  const t = tops[k];
+  if (!t) return null;
+  return html.slice(0, t.start) + next + html.slice(t.end);
 }
 
 type Edit = { from: number; to: number; text: string; seq: number };
@@ -384,17 +411,21 @@ function withAttr(el: Node, name: string, value: (old: string | null) => string)
   return { from: at, to: at, text: ` ${name}="${escAttr(value(null))}"`, seq: 0 };
 }
 
-function editsFor(c: AnyChange, els: Node[]): Edit[] {
+function editsFor(c: AnyChange, els: Node[], from?: number): Edit[] {
   const out: Edit[] = [];
   els.forEach((el, seq) => {
     const isVoid = VOID.has(el.tag);
     let e: Edit | null = null;
+    // the preview's mark: the shop's element a change works on says which change(s) (data-apx-x="2 5")
+    if (from !== undefined && c.op !== "replace" && c.op !== "insert" && (c.op === "attr" || c.op === "hide" || !isVoid)) {
+      out.push({ ...withAttr(el, "data-apx-x", (old) => (old ? `${old} ${from}` : String(from))), seq: seq + 0.5 });
+    }
     switch (c.op) {
       case "html": if (!isVoid) e = { from: el.openEnd, to: el.closeStart, text: c.html, seq }; break;
       case "text": if (!isVoid) e = { from: el.openEnd, to: el.closeStart, text: escText(c.text), seq }; break;
-      case "replace": e = { from: el.start, to: el.end, text: markFragment(c.html), seq }; break;
+      case "replace": e = { from: el.start, to: el.end, text: markFragment(c.html, from), seq }; break;
       case "insert": {
-        const f = markFragment(c.html);
+        const f = markFragment(c.html, from);
         if (c.where === "before") e = { from: el.start, to: el.start, text: f, seq };
         else if (c.where === "after") e = { from: el.end, to: el.end, text: f, seq };
         else if (!isVoid) e = c.where === "prepend" ? { from: el.openEnd, to: el.openEnd, text: f, seq } : { from: el.closeStart, to: el.closeStart, text: f, seq };
@@ -417,19 +448,25 @@ function splice(html: string, edits: Edit[]): string {
   return out;
 }
 
-/** The page with the changes laid over it, and what each change found. */
-export function applyChanges(html: string, changes: AnyChange[]): { html: string; hits: Hit[] } {
+/**
+ * The page with the changes laid over it, and what each change found. `marks` (the studio's preview only): the
+ * document's index of each change - the elements a change wrote or works on say so (data-apx-c / data-apx-x), so a
+ * click in the preview edits that change.
+ */
+export function applyChanges(html: string, changes: AnyChange[], opts: { marks?: number[] } = {}): { html: string; hits: Hit[] } {
   const hits: Hit[] = [];
   const css: string[] = [];
   let out = html;
-  for (const c of changes) {
+  for (let i = 0; i < changes.length; i++) {
+    const c = changes[i];
     if (c.op === "css") { css.push(c.css); hits.push({ state: "css", count: 1 }); continue; }
     const groups = parseSelector(c.selector);
     if (!groups) { hits.push({ state: "unread", count: 0 }); continue; }
     const found = selectAll(parseHtml(out), groups);
     const els = c.all ? found : found.slice(0, 1);
     if (!els.length) { hits.push({ state: "missing", count: 0 }); continue; }
-    out = splice(out, editsFor(c, els));
+    const mark = opts.marks?.[i];
+    out = splice(out, editsFor(c, els, mark !== undefined && mark >= 0 ? mark : undefined));
     hits.push({ state: "found", count: els.length });
   }
   if (css.length) {
@@ -531,5 +568,5 @@ export function stillPage(html: string, o: { pageUrl: string; sheets: Record<str
 /** The preview's own styles: links and buttons quiet (a click would leave the frame), the shop's loaders off, the
  * placeholders still to write marked. */
 export const STILL_CSS = `a,button,input,select,textarea,label,summary,[role=button]{pointer-events:none!important}
-[data-role="main-css-loader"],.loading-mask{display:none!important}
+[data-role="main-css-loader"],.loading-mask,.message.global.cookie,.message.global.noscript,#cookie-status,.cookie-status-message{display:none!important}
 .apx-text{background:#fff1b8;outline:1px dashed #c99a12;outline-offset:1px}`;

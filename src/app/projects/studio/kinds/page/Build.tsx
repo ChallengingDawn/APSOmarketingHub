@@ -1,156 +1,203 @@
 "use client";
-// THE PAGE STUDIO'S BUILD PANE (08.11.2026), in five steps: the page (from AI testing & personalization, picked from the
-// shop, or new), its changes, the texts Content writes, the A/B test, and Magento.
+// THE PAGE STUDIO'S LEFT PANE (08.11.2026): what the page is and what is in it.
+//   Page       a new page: its fields (each with "Write with AI"); a page of the shop: which page, in which language
+//   Changes    a page of the shop: its change list (APSOconvert's), each found or not on the page
+//   Selected   the element clicked in the preview: its words, picture, link, look - or the AI for it alone
+//   A/B test   a page of the shop: the test's plan
+//   Magento    what to paste, one language at a time
+// Banners placed in the page by the banner studio are listed under Page, each with a way to take it out.
 
-import { useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
-import MenuItem from "@mui/material/MenuItem";
-import TextField from "@mui/material/TextField";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { KIND_LABEL } from "@/lib/convert/model";
 import type { Change } from "@/lib/convert/versions";
 import {
-  SOURCE_LABEL, placeholdersOf, shopUrl, unwritten, urlKeyOf, type PageDoc, type PageSource,
+  INSERT_WHERE_LABEL, SOURCE_LABEL, isLegacyBody, langName, langState, langsOf, mainLang, placeholdersOf, shopUrl, unwritten,
+  type PageDoc, type PageSource,
 } from "@/lib/content/studio/kinds/page/model";
-import type { ChangeHit } from "@/lib/content/studio/kinds/page/shop";
-import { Field, Pane, btn, field } from "../../parts";
+import type { ChangeHit, InsertOut } from "@/lib/content/studio/kinds/page/shop";
+import { Field, Pane, PINK, btn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { Changes } from "./Changes";
-import { PagePicker, type Picked } from "./PagePicker";
+import { ElementPane, type Selection } from "./Element";
+import { FieldsEditor, type FillRun } from "./Fields";
 import { AbTest, Publish, Texts } from "./Sections";
-import { Block, Chip, Choice, CodeField, Hint } from "./ui";
+import { Block, Chip, Choice, Hint } from "./ui";
 
-export type Step = "page" | "changes" | "texts" | "test" | "publish";
-const STORES = ["de-CH", "fr-CH", "it-CH", "en-CH", "fr-FR", "it-IT", "nl-NL", "pl-PL"];
+export type Step = "page" | "changes" | "element" | "texts" | "test" | "publish";
 
-function PageCard({ d }: { d: PageDoc }) {
+function PageCard({ d, onAnother, canEdit }: { d: PageDoc; onAnother: () => void; canEdit: boolean }) {
   const o = d.outline && d.outline.path === d.path ? d.outline : null;
   return (
-    <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", p: 1.5, bgcolor: "#fff", mb: 1.25 }}>
-      <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", mb: 0.5, flexWrap: "wrap" }}>
+    <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", p: 1.5, bgcolor: "#fff", mb: 1.25 }}>
+      <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", mb: 0.75, flexWrap: "wrap" }}>
         {d.pageKind && <Chip tint="slate">{KIND_LABEL[d.pageKind]}</Chip>}
-        <Chip tint={d.env === "acc" ? "amber" : "green"}>{d.env === "acc" ? "ACC" : "Production"}</Chip>
-        {d.store && <Chip tint="blue">{d.store}</Chip>}
+        <Chip tint="blue">{d.store}</Chip>
+        {d.env === "acc" && <Chip tint="amber">ACC</Chip>}
       </Box>
-      {o?.h1[0] && <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: INK }}>{o.h1[0]}</Typography>}
+      {o?.h1[0] && <Typography sx={{ fontSize: "0.95rem", fontWeight: 650, color: INK, mb: 0.25 }}>{o.h1[0]}</Typography>}
       <Typography component="a" href={shopUrl(d.env, d.path)} target="_blank" rel="noopener noreferrer"
-        sx={{ fontSize: "0.78rem", color: MUTED, wordBreak: "break-all", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>{d.path}</Typography>
+        sx={{ fontSize: "0.78rem", color: MUTED, wordBreak: "break-all", textDecoration: "none", fontFamily: "ui-monospace, Consolas, monospace", "&:hover": { textDecoration: "underline" } }}>{d.path}</Typography>
+      {canEdit && <Box><Button size="small" onClick={onAnother} sx={{ ...btn, px: 0, mt: 0.75, color: PINK }}>Another page</Button></Box>}
     </Box>
   );
 }
 
-function PageStep({ api, d, set, canEdit }: { api: StudioApi; d: PageDoc; set: (next: PageDoc) => void; canEdit: boolean }) {
-  const [picking, setPicking] = useState(!d.path);
-  const [again, setAgain] = useState<"idle" | "busy" | string>("idle");
-  const sources: { key: PageSource; label: string }[] = [
-    ...(d.origin || d.source === "convert" ? [{ key: "convert" as PageSource, label: "From AI testing" }] : []),
-    { key: "pick", label: "A page of the shop" }, { key: "new", label: "A new page" },
-  ];
-  const pick = (p: Picked) => { set({ ...d, env: p.env, path: p.path, store: d.source === "new" ? d.store : p.store ?? d.store, pageKind: d.source === "new" ? d.pageKind : p.kind }); setPicking(false); };
-  const takeAgain = async () => {
-    if (!window.confirm("Bring the page's latest version from AI testing & personalization? It takes the place of the changes here.")) return;
-    setAgain("busy");
-    const r = await api.act<{ imported: unknown }>("start", { again: true });
-    if (!r.ok) { setAgain(r.error); return; }
-    await api.reload();
-    setAgain("idle");
-  };
-  const np = d.newPage;
+function Inserts({ d, list, remove, canEdit }: { d: PageDoc; list: InsertOut[] | null; remove: (id: string) => void; canEdit: boolean }) {
+  if (!d.inserts.length) return null;
   return (
-    <Box>
-      <Block first title="Where it comes from">
-        <Choice value={d.source} options={sources}
-          onChange={(source) => { if (!canEdit) return; const across = (source === "new") !== (d.source === "new"); set({ ...d, source, path: across ? "" : d.path }); if (across) setPicking(true); }} />
-      </Block>
-
-      {d.source === "convert" && (
-        <Block title={SOURCE_LABEL.convert}>
-          {d.path && <PageCard d={d} />}
-          {d.origin ? (
-            <Box sx={{ mb: 1.25 }}>
-              <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", mb: 0.5 }}>
-                <Chip tint={d.origin.status === "approved" ? "green" : "amber"}>{d.origin.status === "approved" ? "Approved version" : "Draft version"}</Chip>
-                <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>revision {d.origin.rev}</Typography>
-              </Box>
-              {d.origin.idea && <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>{d.origin.idea}</Typography>}
-              {d.origin.summary && <Typography sx={{ fontSize: "0.82rem", color: MUTED, mt: 0.25 }}>{d.origin.summary}</Typography>}
+    <Block title={`Banners in this page · ${d.inserts.length}`}>
+      {d.inserts.map((ins) => {
+        const out = list?.find((x) => x.id === ins.id);
+        return (
+          <Box key={ins.id} sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.9, borderBottom: `1px solid ${HAIRLINE}` }}>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{out?.title ?? "A banner"}</Typography>
+              <Typography sx={{ fontSize: "0.74rem", color: out && !out.ok ? "#a96a12" : MUTED }}>{out && !out.ok ? out.error : `${INSERT_WHERE_LABEL[ins.where]} · ${ins.preset}`}</Typography>
             </Box>
-          ) : <Hint mt={0}>The page has no version in AI testing & personalization yet - its changes are made here.</Hint>}
-          {canEdit && (
-            <Button size="small" variant="outlined" disabled={again === "busy"} onClick={takeAgain} startIcon={again === "busy" ? <CircularProgress size={13} /> : undefined}
-              sx={{ ...btn, borderColor: HAIRLINE, color: INK }}>Bring its latest version again</Button>
-          )}
-          {again !== "idle" && again !== "busy" && <Typography sx={{ fontSize: "0.8rem", color: "#c5221f", mt: 0.75 }}>{again}</Typography>}
-        </Block>
-      )}
-
-      {d.source === "pick" && (
-        <Block title="The page" right={d.path && canEdit && !picking ? <Button size="small" onClick={() => setPicking(true)} sx={btn}>Another page</Button> : undefined}>
-          {d.path && <PageCard d={d} />}
-          {canEdit && (picking || !d.path) && <PagePicker api={api} env={d.env} onEnv={(env) => set({ ...d, env })} onPick={pick} store={d.store} />}
-        </Block>
-      )}
-
-      {d.source === "new" && (
-        <>
-          <Block title="The new page">
-            <Field label="Its title" value={np.title} disabled={!canEdit} max={80}
-              onChange={(v) => set({ ...d, newPage: { ...np, title: v, urlKey: np.urlKey && np.urlKey !== urlKeyOf(np.title) ? np.urlKey : urlKeyOf(v) } })} />
-            <Field label="Its address key" value={np.urlKey} disabled={!canEdit} helper={`/${d.store}/${np.urlKey || urlKeyOf(np.title) || "…"}`}
-              onChange={(v) => set({ ...d, newPage: { ...np, urlKey: urlKeyOf(v) || v.toLowerCase() } })} />
-            <Field label="Meta title" value={np.metaTitle} max={60} disabled={!canEdit} placeholder={np.title} onChange={(v) => set({ ...d, newPage: { ...np, metaTitle: v } })} />
-            <Field label="Meta description" value={np.metaDescription} max={155} multiline rows={2} disabled={!canEdit} onChange={(v) => set({ ...d, newPage: { ...np, metaDescription: v } })} />
-            <TextField select fullWidth size="small" label="Store view" value={STORES.includes(d.store) ? d.store : ""} disabled={!canEdit} sx={{ ...field, mb: 1.25 }}
-              onChange={(e) => set({ ...d, store: e.target.value, path: "" })}>
-              {STORES.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-            </TextField>
-            <CodeField label="The page (HTML)" value={np.body} rows={8} disabled={!canEdit} onChange={(v) => set({ ...d, newPage: { ...np, body: v } })}
-              placeholder="The assistant writes it from the brief - or write it here." />
-          </Block>
-          <Block title="Shown inside" right={d.path && canEdit && !picking ? <Button size="small" onClick={() => setPicking(true)} sx={btn}>Another page</Button> : undefined}>
-            <Hint mt={0}>The preview puts the new page inside one of the store&apos;s CMS pages, so it has the shop&apos;s header and footer around it.</Hint>
-            {d.path && <Box sx={{ mt: 1 }}><PageCard d={{ ...d, pageKind: "cms" }} /></Box>}
-            {canEdit && (picking || !d.path) && <Box sx={{ mt: 1 }}><PagePicker api={api} env={d.env} onEnv={(env) => set({ ...d, env })} onPick={pick} onlyKind="cms" store={d.store} /></Box>}
-          </Block>
-        </>
-      )}
-
-      <Block title="Notes">
-        <Field label="For the team" value={d.notes} multiline rows={3} disabled={!canEdit} onChange={(v) => set({ ...d, notes: v })} />
-      </Block>
-    </Box>
+            {!list && <CircularProgress size={13} />}
+            {canEdit && <Tooltip title="Take it out of the page"><IconButton size="small" onClick={() => remove(ins.id)} aria-label="Take it out of the page"><DeleteOutlineIcon sx={{ fontSize: 17 }} /></IconButton></Tooltip>}
+          </Box>
+        );
+      })}
+      <Hint>A banner is put in a page from its own to-do (Banner &gt; Put it in a page).</Hint>
+    </Block>
   );
 }
 
-export function Build({ api, d, set, hits, step, onStep }: {
-  api: StudioApi; d: PageDoc; set: (next: PageDoc) => void; hits: ChangeHit[] | null; step: Step; onStep: (s: Step) => void;
+function Languages({ doc, lang, onLang }: { doc: PageDoc; lang: string; onLang: (l: string) => void }) {
+  const LABEL = { main: "Main language", done: "Made", stale: "Out of date", empty: "Not made yet" } as const;
+  const TINT = { main: "pink", done: "green", stale: "amber", empty: "slate" } as const;
+  return (
+    <Block title="Languages">
+      {langsOf(doc).map((l) => {
+        const st = langState(doc, l);
+        const v = doc.langs[l];
+        return (
+          <Box key={l} component="button" type="button" onClick={() => onLang(l)} sx={{
+            all: "unset", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 1, width: "100%", cursor: "pointer", px: 1, py: 0.75, borderRadius: "6px",
+            bgcolor: l === lang ? "rgba(36,89,209,.07)" : "transparent", "&:hover": { bgcolor: "rgba(36,89,209,.05)" },
+          }}>
+            <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: INK, width: 26 }}>{l.toUpperCase()}</Typography>
+            <Typography sx={{ fontSize: "0.82rem", color: INK, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {langName(l)}{doc.source !== "new" && st !== "main" && v?.path ? <Box component="span" sx={{ color: MUTED }}> · {v.path}</Box> : null}
+            </Typography>
+            <Chip tint={TINT[st]}>{LABEL[st]}</Chip>
+          </Box>
+        );
+      })}
+      <Hint>Each language is its own page on the shop. The assistant translates the whole page into one.</Hint>
+    </Block>
+  );
+}
+
+export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onStep, sel, setSel, fill, busy, canAi, onEditInPage, onAskAi, inserts, record, onPickPage, removeInsert }: {
+  api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void;
+  /** the whole document (source, shared parts) */
+  set: (next: PageDoc, label?: string) => void;
+  /** this language's view */
+  setView: (next: PageDoc, label?: string) => void;
+  hits: ChangeHit[] | null; step: Step; onStep: (s: Step) => void;
+  sel: Selection | null; setSel: (s: Selection | null) => void;
+  fill: FillRun; busy: string | null; canAi: boolean; onEditInPage: () => void; onAskAi: () => void;
+  inserts: InsertOut[] | null; record: (label: string) => void; onPickPage: () => void; removeInsert: (id: string) => void;
 }) {
   const canEdit = api.data.access.canEdit;
+  const isNew = d.source === "new";
   const holders = placeholdersOf(d).length;
   const open = unwritten(d).length;
+  const main = mainLang(doc);
   const steps: { key: Step; label: string }[] = [
-    { key: "page", label: "Page" },
-    { key: "changes", label: d.changes.length ? `Changes · ${d.changes.length}` : "Changes" },
-    { key: "texts", label: holders ? `Texts · ${holders - open}/${holders}` : "Texts" },
-    { key: "test", label: d.abTest.enabled ? "A/B test · on" : "A/B test" },
+    { key: "page", label: isNew ? "Page" : "Page" },
+    ...(!isNew ? [{ key: "changes" as Step, label: d.changes.length ? `Changes · ${d.changes.length}` : "Changes" }] : []),
+    ...(sel ? [{ key: "element" as Step, label: "Element" }] : []),
+    ...(holders ? [{ key: "texts" as Step, label: `Texts · ${holders - open}/${holders}` }] : []),
+    ...(!isNew ? [{ key: "test" as Step, label: d.abTest.enabled ? "A/B · on" : "A/B" }] : []),
     { key: "publish", label: "Magento" },
   ];
+  const shown: Step = steps.some((s) => s.key === step) ? step : "page";
+  const sources: { key: PageSource; label: string }[] = [
+    { key: "new", label: "A new page" }, { key: "pick", label: "A page of the shop" },
+    ...(doc.origin || doc.source === "convert" ? [{ key: "convert" as PageSource, label: "From AI testing" }] : []),
+  ];
+  const changeSource = (source: PageSource) => {
+    if (!canEdit || source === doc.source) return;
+    const across = (source === "new") !== (doc.source === "new");
+    if (across && !window.confirm(source === "new" ? "Start a new page here? The page of the shop and its changes stay in the version history." : "Work on a page of the shop instead? The new page's fields stay in the version history.")) return;
+    set({ ...doc, source, path: across ? "" : doc.path, changes: across ? [] : doc.changes, langs: across ? {} : doc.langs }, across ? `Switched to ${SOURCE_LABEL[source].toLowerCase()}` : undefined);
+    if (across && source !== "new") onPickPage();
+  };
+
   return (
-    <Pane title="Build">
-      <Box sx={{ mb: 2.25 }}><Choice value={step} onChange={onStep} options={steps} /></Box>
-      {step === "page" && <PageStep api={api} d={d} set={set} canEdit={canEdit} />}
-      {step === "changes" && (
-        <Block first title={d.source === "new" ? "Its styles and changes" : "The changes"}>
-          {d.source === "new" && <Hint mt={0}>The page itself is in Page; here go its styles and any change to the store&apos;s page around it.</Hint>}
-          <Box sx={{ mt: d.source === "new" ? 1 : 0 }}><Changes changes={d.changes} set={(changes: Change[]) => set({ ...d, changes })} hits={hits} canEdit={canEdit} /></Box>
+    <Pane title={<Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>Build{lang !== main && <Chip tint="blue">{lang.toUpperCase()}</Chip>}</Box>}>
+      <Box sx={{ mb: 2 }}><Choice value={shown} onChange={onStep} options={steps} /></Box>
+
+      {shown === "element" && sel && (
+        <ElementPane api={api} view={d} setView={setView} sel={sel} onClose={() => setSel(null)} fill={fill} busy={busy} canAi={canAi}
+          onEditInPage={onEditInPage} onAskAi={onAskAi} inserts={inserts} record={record} />
+      )}
+
+      {shown === "page" && (
+        <Box>
+          <Box sx={{ mb: 2 }}>
+            <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>The page</Typography>
+            <Choice value={doc.source} onChange={changeSource} options={sources} />
+          </Box>
+          {isNew ? (
+            <>
+              {isLegacyBody(d) && (
+                <Box sx={{ p: 1.5, mb: 1.5, borderRadius: "8px", bgcolor: "#fff8ec", border: "1px solid #f1d9ad" }}>
+                  <Typography sx={{ fontSize: "0.84rem", color: INK, fontWeight: 600 }}>An earlier draft of this page is one block of HTML.</Typography>
+                  <Hint>It still shows in the preview. &quot;Write the whole page with AI&quot; moves its good parts into the fields below - final words, no placeholders.</Hint>
+                </Box>
+              )}
+              <FieldsEditor api={api} f={d.fields} set={(fields) => setView({ ...d, fields })} store={d.store} canEdit={canEdit} canAi={canAi} fill={fill} busy={busy}
+                focusPath={sel?.key.startsWith("f:") ? sel.key.slice(2) : null} onFocusPath={(p) => setSel({ key: `f:${p}`, picked: null })} />
+            </>
+          ) : (
+            <>
+              {d.path ? <PageCard d={d} canEdit={canEdit} onAnother={onPickPage} /> : (
+                <Box sx={{ p: 2, borderRadius: "10px", border: `1.5px dashed ${HAIRLINE}`, textAlign: "center", mb: 1.25 }}>
+                  <Typography sx={{ fontSize: "0.88rem", color: INK, fontWeight: 600 }}>{lang === main ? "Pick the page in the middle" : `The ${langName(lang)} page is not set yet`}</Typography>
+                  <Hint>{lang === main ? "Search the shop's pages there, or paste its address." : "Translate the page into this language, or pick its page."}</Hint>
+                  {canEdit && <Button size="small" onClick={onPickPage} sx={{ ...btn, color: PINK, mt: 0.75 }}>Pick the page</Button>}
+                </Box>
+              )}
+              {doc.source === "convert" && doc.origin && lang === main && (
+                <Box sx={{ mb: 1.25 }}>
+                  <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", mb: 0.5 }}>
+                    <Chip tint={doc.origin.status === "approved" ? "green" : "amber"}>{doc.origin.status === "approved" ? "Approved version" : "Draft version"}</Chip>
+                    <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>revision {doc.origin.rev}</Typography>
+                  </Box>
+                  {doc.origin.idea && <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>{doc.origin.idea}</Typography>}
+                  {doc.origin.summary && <Typography sx={{ fontSize: "0.82rem", color: MUTED, mt: 0.25 }}>{doc.origin.summary}</Typography>}
+                </Box>
+              )}
+              <Languages doc={doc} lang={lang} onLang={onLang} />
+            </>
+          )}
+          <Inserts d={d} list={inserts} remove={removeInsert} canEdit={canEdit} />
+          {isNew && <Languages doc={doc} lang={lang} onLang={onLang} />}
+          <Block title="Notes">
+            <Field label="For the team" value={d.notes} multiline rows={3} disabled={!canEdit} onChange={(v) => setView({ ...d, notes: v })} />
+          </Block>
+        </Box>
+      )}
+
+      {shown === "changes" && (
+        <Block first title={lang === main ? "The changes" : `The changes in ${langName(lang)}`}>
+          <Changes changes={d.changes} set={(changes: Change[]) => setView({ ...d, changes }, undefined)} hits={hits} canEdit={canEdit} />
         </Block>
       )}
-      {step === "texts" && <Block first title="The texts"><Texts d={d} set={set} canEdit={canEdit} /></Block>}
-      {step === "test" && <Block first title="The A/B test"><AbTest d={d} set={set} canEdit={canEdit} /></Block>}
-      {step === "publish" && <Block first title="To Magento"><Publish api={api} d={d} set={set} canEdit={canEdit} /></Block>}
+      {shown === "texts" && <Block first title="The texts"><Texts d={d} set={(v) => setView(v)} canEdit={canEdit} /></Block>}
+      {shown === "test" && <Block first title="The A/B test"><AbTest d={d} set={(v) => setView(v)} canEdit={canEdit} /></Block>}
+      {shown === "publish" && <Block first title={`To Magento · ${langName(lang)}`}><Publish api={api} d={d} set={(v) => setView(v)} canEdit={canEdit} lang={lang} /></Block>}
     </Pane>
   );
 }

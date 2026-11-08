@@ -37,15 +37,31 @@ export const Hint = ({ children, sx }: { children: React.ReactNode; sx?: object 
   <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.45, ...sx }}>{children}</Typography>
 );
 
-/** The brand's type, loaded once for the whole studio: null while it comes, "" when the hub could not load it. */
-export function useBrandFont(): string | null {
-  const [css, setCss] = useState<string | null>(null);
+export type BrandFont = { css: string; state: "loading" | "ready" | "failed" };
+let known: BrandFont = { css: "", state: "loading" };
+
+/**
+ * The brand's type, loaded once for the whole hub - NEVER waited on (lead 08.11.2026: the preview stuck on "Loading the
+ * brand's type" when the font route answered 503): everything draws at once in the look-alike stack (futura-pt, Jost,
+ * Century Gothic, Arial), and the brand's file is swapped in when it arrives. A failed font is a quiet note.
+ */
+export function useBrandFontState(): BrandFont {
+  const [f, setF] = useState<BrandFont>(known);
   useEffect(() => {
     let live = true;
-    void brandFontCss().then((c) => { if (!live) return; putFontInPage(c); setCss(c); });
+    void brandFontCss().then((c) => {
+      known = { css: c, state: c ? "ready" : "failed" };
+      if (c) putFontInPage(c);
+      if (live) setF(known);
+    });
     return () => { live = false; };
   }, []);
-  return css;
+  return f;
+}
+
+/** The brand's type as CSS: "" until it comes, or when it cannot (draw in the look-alike stack) - never null now. */
+export function useBrandFont(): string | null {
+  return useBrandFontState().css;
 }
 
 /** The width of a box, kept up to date. */
@@ -133,11 +149,11 @@ export function ChipsInput({ values, onChange, placeholder, max, clean = (s) => 
       {values.length > 0 && (
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 1 }}>
           {values.map((v, i) => (
-            <Box key={`${v}-${i}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, pl: 1.1, pr: 0.4, py: 0.35, borderRadius: "999px", bgcolor: bg, color: fg, fontSize: "0.82rem", fontWeight: 600, maxWidth: "100%" }}>
+            <Box key={`${v}-${i}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, pl: 1.1, pr: 0.4, py: 0.35, borderRadius: "5px", bgcolor: bg, color: fg, fontSize: "0.82rem", fontWeight: 600, maxWidth: "100%" }}>
               <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</Box>
               {!disabled && (
                 <Box component="button" type="button" aria-label={`Remove ${v}`} onClick={() => onChange(values.filter((_, k) => k !== i))}
-                  sx={{ all: "unset", cursor: "pointer", display: "grid", placeItems: "center", width: 20, height: 20, borderRadius: "50%", "&:hover": { bgcolor: "rgba(0,0,0,.07)" } }}>
+                  sx={{ all: "unset", cursor: "pointer", display: "grid", placeItems: "center", width: 20, height: 20, borderRadius: "4px", "&:hover": { bgcolor: "rgba(0,0,0,.07)" } }}>
                   <CloseIcon sx={{ fontSize: 14 }} />
                 </Box>
               )}
@@ -186,6 +202,7 @@ export function PhotoPicker({ selected, onPick, multi, lang }: { selected: strin
 export function pictureProblem(url: string): string | null {
   const u = url.trim();
   if (!u) return null;
+  if (/^\/api\/content\/picture\/\d+-[\w-]+$/.test(u)) return null;
   if (u.startsWith("data:")) return "A picture pasted as data is too heavy to keep - put it in the shop's media and use its address.";
   if (/^(wysiwyg|catalog)\//.test(u) || u.startsWith("/media/") || /^\{\{\s*media/.test(u)) return null;
   try {
@@ -220,7 +237,7 @@ export function Swatches<K extends string>({ value, onChange, options, disabled 
       {options.map((o) => (
         <Tooltip key={o.key} title={o.label}>
           <Box component="button" type="button" disabled={disabled} aria-label={o.label} aria-pressed={value === o.key} onClick={() => onChange(o.key)} sx={{
-            all: "unset", cursor: disabled ? "default" : "pointer", width: 34, height: 34, borderRadius: "50%", background: o.fill,
+            all: "unset", cursor: disabled ? "default" : "pointer", width: 34, height: 34, borderRadius: "8px", background: o.fill,
             boxShadow: value === o.key ? `0 0 0 2px #fff, 0 0 0 4px ${PINK}` : `inset 0 0 0 1px ${o.ring ?? "rgba(21,34,58,.14)"}`,
             transition: "box-shadow .15s", "&:focus-visible": { boxShadow: `0 0 0 2px #fff, 0 0 0 4px ${PINK}` },
           }} />

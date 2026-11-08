@@ -15,7 +15,7 @@ export const BRAND = {
   mut: "#4a5257",
   pale: "#e6eef2",
   /** futura-pt is the shop's (Adobe Fonts, loaded by the shop); Jost is the free look-alike the hub embeds for previews and PNGs. */
-  head: `"futura-pt", "Jost", Arial, sans-serif`,
+  head: `"futura-pt", "Jost", "Century Gothic", Arial, sans-serif`,
   body: `Arial, system-ui, sans-serif`,
 } as const;
 
@@ -51,14 +51,23 @@ export function esc(s: unknown): string {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+/** A picture kept in the hub (made from words or uploaded - lib/content/assets.ts): its own path, public, no cookie. */
+const HUB_PICTURE = /^\/api\/content\/picture\/\d{1,12}-[A-Za-z0-9_-]{4,40}$/;
+export const isHubPicture = (raw: unknown) => HUB_PICTURE.test(String(raw ?? "").trim());
+
+/** A hub picture's full address on `origin` (the hub's), for a page that lives elsewhere; any other address as it is. */
+export const absoluteMedia = (url: string, origin: string | null | undefined) =>
+  origin && isHubPicture(url) ? `${origin.replace(/\/+$/, "")}${url}` : url;
+
 /**
- * A picture's full address, or "" when it cannot be one: the shop's media paths (`wysiwyg/...`, `/media/...`, a
+ * A picture's full address, or "" when it cannot be one: a hub picture keeps its own path; the shop's media paths (`wysiwyg/...`, `/media/...`, a
  * `{{media url='...'}}` directive) become full shop addresses; any other https address stays; nothing else is kept
  * (no data: pictures in a paste block - they would weigh the page down and break Magento's editor).
  */
 export function mediaUrl(raw: unknown): string {
   const s = String(raw ?? "").trim();
   if (!s) return "";
+  if (isHubPicture(s)) return s;
   const directive = /^\{\{\s*media\s+url=['"]([^'"]+)['"]\s*\}\}$/.exec(s);
   if (directive) return MEDIA_BASE + directive[1].replace(/^\/+/, "");
   if (/^https:\/\/[^\s"'<>]+$/i.test(s)) return s;

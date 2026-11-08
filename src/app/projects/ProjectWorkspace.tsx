@@ -25,6 +25,7 @@ import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
 
 import { Chip } from "@/app/connectors/parts";
 import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, Notice } from "@/app/uc/report/ui";
+import { InlineTitle } from "./work/InlineTitle";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { STAGES, STAGE_LABEL, STATUS_LABEL, stageOf, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
 import ShareDialog from "./ShareDialog";
@@ -243,7 +244,16 @@ export default function ProjectWorkspace({ id }: { id: number }) {
               <StageChip stage={w.stage} />
               {[...new Set(w.pieces.map((p) => p.language).filter(Boolean))].map((l) => <Chip key={l} tint="slate">{l}</Chip>)}
             </Box>
-            <Typography component="h1" sx={{ mt: 1, fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontSize: { xs: "1.5rem", md: "1.85rem" }, fontWeight: 600, letterSpacing: "-0.025em", color: INK }}>{w.project.title}</Typography>
+            {/* the project's name, changed where it is read (SARCLA 08.11.2026: "changing the title is still hard") */}
+            <Box component="h1" sx={{ mt: 1, mb: 0, fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", letterSpacing: "-0.025em", display: "flex", minWidth: 0 }}>
+              <InlineTitle value={w.project.title} canEdit={w.access.canEdit} size="1.85rem" weight={600} maxWidth="100%" label="Project name"
+                onSave={async (title) => {
+                  setW((cur) => (cur ? { ...cur, project: { ...cur.project, title } } : cur));
+                  const r = await fetch(`/api/content/projects/${w.project.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "rename", title }) })
+                    .then((x) => x.json()).catch(() => ({ ok: false }));
+                  if (!r.ok) void load();
+                }} />
+            </Box>
             {w.brief.goal && <Typography sx={{ fontSize: "0.95rem", color: MUTED, mt: 0.5 }}>{w.brief.goal}</Typography>}
           </Box>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.25, alignItems: "center" }}>

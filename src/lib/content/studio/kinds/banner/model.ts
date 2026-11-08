@@ -1,21 +1,29 @@
 // BANNER - THE STUDIO'S DOCUMENT (08.11.2026; SARCLA: "banners - like the newsletter banner the other session made").
 // Pure, shared with the browser and tests/studio-banner.test.ts.
 //
-// One banner, one set of words, made in several sizes: the shop's full-width band (like the newsletter band), the home
-// page slot, a landing hero, a newsletter header, a LinkedIn card and three display ads. Each size has its own room, so
-// a size can carry its own shorter words (`own`) over the banner's. The shop's sizes become a paste block for Magento's
-// Page Builder; the others a PNG.
+// One banner, one set of words, used in several PLACES at once (SARCLA 08.11.2026: "the banner can be in multiple
+// places"): the shop's home band, a category band, a page hero, the home slot, a newsletter header, a LinkedIn card,
+// Instagram square and portrait, a story, three display ads. Each place has its own room, so it can carry its own
+// shorter words (`own`) over the banner's; each gives its own output - the shop's places a paste block for Magento's
+// Page Builder, the others a PNG at their real size. Stored as `format` (the first place) + `sizes` (the others), the
+// shape the first studio saved, so every banner made this morning opens as it was.
 
 import { SHOP_PHOTOS, photoLabel } from "./brand";
 
-export type PresetKey = "band" | "home" | "hero" | "mail" | "card" | "mrec" | "leader" | "sky";
+export type PresetKey = "band" | "cat" | "hero" | "home" | "mail" | "card" | "square" | "portrait" | "story" | "mrec" | "leader" | "sky";
 /** The room for each piece of text in a size (characters). 0 = that size has no place for it. */
 export type Limits = { eyebrow: number; headline: number; word: number; line: number; button: number };
+/** Where a place is: the shop, an e-mail, social media, ads. */
+export type PlaceGroup = "shop" | "mail" | "social" | "ads";
+export const GROUPS: { key: PlaceGroup; label: string }[] = [
+  { key: "shop", label: "On the shop" }, { key: "mail", label: "In an e-mail" }, { key: "social", label: "On social media" }, { key: "ads", label: "Display ads" },
+];
 export type Preset = {
   key: PresetKey; label: string; note: string;
-  /** Its name where room is short (the size tiles). */
+  /** Its name where room is short (the place tiles). */
   short: string;
-  /** Its size; h null = full width, as tall as its content (the band). */
+  group: PlaceGroup;
+  /** Its size; h null = full width, as tall as its content (the bands). */
   w: number; h: number | null;
   /** html = a paste block for the shop (and a PNG where it has a size); image = a PNG only. */
   out: "html" | "image";
@@ -26,18 +34,26 @@ export type Preset = {
 };
 
 export const PRESETS: Preset[] = [
-  { key: "band", label: "Shop band", short: "Shop band", note: "Full width on the shop, like the newsletter band - stacks on phones", w: 1150, h: null, out: "html", motion: true, logo: false, limits: { eyebrow: 28, headline: 60, word: 30, line: 220, button: 24 } },
-  { key: "home", label: "Home slot", short: "Home slot", note: "The home page's campaign slot", w: 756, h: 355, out: "html", motion: true, logo: false, limits: { eyebrow: 24, headline: 44, word: 26, line: 120, button: 22 } },
-  { key: "hero", label: "Landing hero", short: "Landing hero", note: "The top of a landing page", w: 1092, h: 800, out: "html", motion: true, logo: false, limits: { eyebrow: 28, headline: 60, word: 28, line: 200, button: 24 } },
-  { key: "mail", label: "Newsletter header", short: "E-mail header", note: "A picture at the top of an e-mail", w: 600, h: 200, out: "image", motion: false, logo: true, limits: { eyebrow: 24, headline: 42, word: 0, line: 70, button: 0 } },
-  { key: "card", label: "LinkedIn card", short: "LinkedIn card", note: "A picture for a post or an event", w: 1200, h: 627, out: "image", motion: false, logo: true, limits: { eyebrow: 28, headline: 60, word: 0, line: 120, button: 22 } },
-  { key: "mrec", label: "Display 300×250", short: "300 × 250", note: "Medium rectangle ad", w: 300, h: 250, out: "image", motion: false, logo: true, limits: { eyebrow: 0, headline: 36, word: 0, line: 56, button: 16 } },
-  { key: "leader", label: "Display 728×90", short: "728 × 90", note: "Leaderboard ad", w: 728, h: 90, out: "image", motion: false, logo: true, limits: { eyebrow: 0, headline: 40, word: 0, line: 0, button: 16 } },
-  { key: "sky", label: "Display 160×600", short: "160 × 600", note: "Skyscraper ad", w: 160, h: 600, out: "image", motion: false, logo: true, limits: { eyebrow: 18, headline: 40, word: 0, line: 70, button: 14 } },
+  { key: "band", group: "shop", label: "Home band", short: "Home band", note: "Full width on the home page, like the newsletter band - stacks on phones", w: 1150, h: null, out: "html", motion: true, logo: false, limits: { eyebrow: 28, headline: 60, word: 30, line: 220, button: 24 } },
+  { key: "cat", group: "shop", label: "Category band", short: "Category band", note: "A slim band over a category's products - stacks on phones", w: 1150, h: null, out: "html", motion: true, logo: false, limits: { eyebrow: 24, headline: 50, word: 26, line: 120, button: 22 } },
+  { key: "hero", group: "shop", label: "Page hero", short: "Page hero", note: "The top of a landing page", w: 1092, h: 800, out: "html", motion: true, logo: false, limits: { eyebrow: 28, headline: 60, word: 28, line: 200, button: 24 } },
+  { key: "home", group: "shop", label: "Home slot", short: "Home slot", note: "The home page's campaign slot", w: 756, h: 355, out: "html", motion: true, logo: false, limits: { eyebrow: 24, headline: 44, word: 26, line: 120, button: 22 } },
+  { key: "mail", group: "mail", label: "Newsletter header", short: "Newsletter", note: "A picture at the top of an e-mail", w: 600, h: 200, out: "image", motion: false, logo: true, limits: { eyebrow: 24, headline: 42, word: 0, line: 70, button: 0 } },
+  { key: "card", group: "social", label: "LinkedIn card", short: "LinkedIn card", note: "A picture for a post or an event", w: 1200, h: 627, out: "image", motion: false, logo: true, limits: { eyebrow: 28, headline: 60, word: 0, line: 120, button: 22 } },
+  { key: "square", group: "social", label: "Instagram square", short: "Square", note: "A feed post on Instagram or LinkedIn", w: 1080, h: 1080, out: "image", motion: false, logo: true, limits: { eyebrow: 24, headline: 44, word: 0, line: 90, button: 20 } },
+  { key: "portrait", group: "social", label: "Instagram portrait", short: "Portrait", note: "The tall feed post - the most room on a phone", w: 1080, h: 1350, out: "image", motion: false, logo: true, limits: { eyebrow: 24, headline: 52, word: 0, line: 110, button: 20 } },
+  { key: "story", group: "social", label: "Story", short: "Story", note: "Instagram and LinkedIn stories - the words stay clear of the app's bars", w: 1080, h: 1920, out: "image", motion: false, logo: true, limits: { eyebrow: 24, headline: 48, word: 0, line: 100, button: 20 } },
+  { key: "mrec", group: "ads", label: "Display 300×250", short: "300 × 250", note: "Medium rectangle ad", w: 300, h: 250, out: "image", motion: false, logo: true, limits: { eyebrow: 0, headline: 36, word: 0, line: 56, button: 16 } },
+  { key: "leader", group: "ads", label: "Display 728×90", short: "728 × 90", note: "Leaderboard ad", w: 728, h: 90, out: "image", motion: false, logo: true, limits: { eyebrow: 0, headline: 40, word: 0, line: 0, button: 16 } },
+  { key: "sky", group: "ads", label: "Display 160×600", short: "160 × 600", note: "Skyscraper ad", w: 160, h: 600, out: "image", motion: false, logo: true, limits: { eyebrow: 18, headline: 40, word: 0, line: 70, button: 14 } },
 ];
 export const PRESET: Record<PresetKey, Preset> = Object.fromEntries(PRESETS.map((p) => [p.key, p])) as Record<PresetKey, Preset>;
 export const isPreset = (k: unknown): k is PresetKey => typeof k === "string" && k in PRESET;
 export const sizeLabel = (p: Preset) => (p.h ? `${p.w} × ${p.h}` : `up to ${p.w} wide`);
+/** The full-width places (no fixed height): drawn as a band, never a PNG. */
+export const isBand = (k: PresetKey) => PRESET[k].h === null;
+/** The places a banner can be put into a page with (the shop's own). */
+export const PAGE_PLACES: PresetKey[] = ["band", "cat", "hero", "home"];
 
 /** The backgrounds - the newsletter band's (newsletter_block.py THEMES) and plain white. */
 export type ThemeKey = "pale" | "white" | "grey" | "sand" | "petrol" | "ink" | "clouds";
@@ -141,8 +157,29 @@ export function normalizeBanner(raw: unknown): BannerDoc {
   };
 }
 
-/** Every size this banner is made in, the main one first. */
+/** Every place this banner is used in, the first one first. */
 export const sizesOf = (d: BannerDoc): PresetKey[] => [d.format, ...d.sizes.filter((k) => k !== d.format)];
+export const placesOf = sizesOf;
+
+/** The banner with these places, in the order given (one at least - when all would go, it keeps what it had). */
+export function withPlaces(d: BannerDoc, keys: PresetKey[]): BannerDoc {
+  const list = [...new Set(keys.filter(isPreset))];
+  if (!list.length) return d;
+  return { ...d, format: list[0], sizes: list.slice(1) };
+}
+
+/** A place added or taken out; the order of the others kept. */
+export function togglePlace(d: BannerDoc, k: PresetKey): BannerDoc {
+  const all = sizesOf(d);
+  return withPlaces(d, all.includes(k) ? all.filter((x) => x !== k) : [...all, k]);
+}
+
+/** The place with the most room for words - the banner's own words are measured against it. */
+export function roomiest(d: BannerDoc): PresetKey {
+  const all = sizesOf(d);
+  const room = (k: PresetKey) => PRESET[k].limits.headline + PRESET[k].limits.line;
+  return all.reduce((best, k) => (room(k) > room(best) ? k : best), all[0]);
+}
 
 export type Words = { eyebrow: string; headline: string; words: string[]; line: string; button: string; url: string };
 
