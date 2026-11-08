@@ -1,15 +1,14 @@
 // THE FILM'S PIECES (08.11.2026), in the team's style: the light stage with its drifting blueprint grid (compat-video
 // Blueprint), words rising out of their masks (BF26 RiseLine), words unblurring (compat Words), the shop's button,
-// and our parts drawn - an O-ring, a radial shaft seal - so a film has a real object to move even without a picture.
-// CSS and SVG only: it plays in the studio and renders frame by frame on the render machine, the same.
+// and our real parts - the shop's own product photos, cut out (parts.ts) - so a film has a real object to move even
+// without a picture. CSS and pictures only: it plays in the studio and renders frame by frame on the render machine, the same.
 import React from "react";
 import { AbsoluteFill, Img } from "../engine/react";
 import { clamp, EASE, EASE_IN, p, SNAP } from "../engine/math";
 import { measure, type Block, type Line } from "../engine/text";
 import { asset, B, BOLD, FONT, LOGO, LOGO_RATIO, REG } from "./theme";
+import { DEFAULT_PART, PART, type PartKey } from "../parts";
 import type { Layout } from "./layout";
-
-const safeId = (s: string) => s.replace(/[^a-zA-Z0-9-]/g, "-");
 
 // ───────────────────────── the stage ─────────────────────────
 
@@ -139,89 +138,27 @@ export const Button: React.FC<{ text: string; h: number; fs: number; pulse?: num
   </div>
 );
 
-// ───────────────────────── our parts, drawn ─────────────────────────
-
-/** Point on a circle of radius r at angle a (degrees, 0 = right, clockwise). */
-const at = (r: number, a: number): [number, number] => [r * Math.cos((a * Math.PI) / 180), r * Math.sin((a * Math.PI) / 180)];
-const arc = (r: number, a0: number, a1: number) => {
-  const [x0, y0] = at(r, a0);
-  const [x1, y1] = at(r, a1);
-  return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
-};
+// ───────────────────────── our parts, real ─────────────────────────
 
 /**
- * An O-ring, seen face on: black rubber with the light from the top left, and a red colour-code dot at `mark` degrees -
- * the dot is how you see it roll.
+ * One of our parts standing on the floor - the shop's own product photo, cut out (parts.ts; SARCLA 08.11.2026: "O-ring
+ * is not realistic on video" - nothing is drawn any more). Centred on (cx, cy) with half-height r, lifted `y` px, moved
+ * `x` px, squashed by `squash` on impact (from its foot), turned `turn` degrees on its own axis, tilted `tilt`; its
+ * shadow on the floor (the light from the top left, as in the shop's photos) shrinks and fades as it rises.
  */
-export const ORing: React.FC<{ r: number; mark?: number; uid: string }> = ({ r, mark = -40, uid }) => {
-  const id = safeId(uid);
-  const k = r * 0.25;
-  const mid = r - k / 2;
-  const [mx, my] = at(mid, mark);
-  return (
-    <svg width={2 * r} height={2 * r} viewBox={`${-r} ${-r} ${2 * r} ${2 * r}`} style={{ display: "block", overflow: "visible" }}>
-      <defs>
-        <radialGradient id={`${id}-t`} gradientUnits="userSpaceOnUse" cx="0" cy="0" r={r}>
-          <stop offset={(r - k) / r} stopColor="#050607" />
-          <stop offset={(mid - k * 0.22) / r} stopColor="#262b30" />
-          <stop offset={(mid - k * 0.05) / r} stopColor="#3d444b" />
-          <stop offset={(mid + k * 0.18) / r} stopColor="#15181b" />
-          <stop offset="1" stopColor="#030304" />
-        </radialGradient>
-        <filter id={`${id}-b`} x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation={k * 0.06} /></filter>
-      </defs>
-      <circle r={mid} fill="none" stroke={`url(#${id}-t)`} strokeWidth={k} />
-      <path d={arc(mid - k * 0.08, 196, 288)} fill="none" stroke="rgba(255,255,255,.62)" strokeWidth={k * 0.11} strokeLinecap="round" filter={`url(#${id}-b)`} />
-      <path d={arc(mid + k * 0.18, 20, 70)} fill="none" stroke="rgba(255,255,255,.16)" strokeWidth={k * 0.08} strokeLinecap="round" filter={`url(#${id}-b)`} />
-      <circle cx={mx} cy={my} r={k * 0.15} fill={B.red} />
-    </svg>
-  );
-};
-
-/** A radial shaft seal, face on: the metal case, the rubber, the lip and its spring; a mark at `mark` degrees. */
-export const Seal: React.FC<{ r: number; mark?: number; uid: string }> = ({ r, mark = -40, uid }) => {
-  const id = safeId(uid);
-  const ring = (r0: number, r1: number) => ({ r: (r0 + r1) / 2, strokeWidth: r1 - r0 });
-  const [mx, my] = at(r * 0.71, mark);
-  return (
-    <svg width={2 * r} height={2 * r} viewBox={`${-r} ${-r} ${2 * r} ${2 * r}`} style={{ display: "block", overflow: "visible" }}>
-      <defs>
-        <linearGradient id={`${id}-m`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#f2f4f6" />
-          <stop offset=".45" stopColor="#a7afb7" />
-          <stop offset=".7" stopColor="#d9dee3" />
-          <stop offset="1" stopColor="#7d868f" />
-        </linearGradient>
-        <radialGradient id={`${id}-r`} gradientUnits="userSpaceOnUse" cx="0" cy="0" r={r}>
-          <stop offset=".5" stopColor="#0d0f11" />
-          <stop offset=".66" stopColor="#2e3439" />
-          <stop offset=".84" stopColor="#14171a" />
-        </radialGradient>
-      </defs>
-      <circle {...ring(r * 0.84, r)} fill="none" stroke={`url(#${id}-m)`} />
-      <circle r={r - 1} fill="none" stroke="rgba(29,42,51,.35)" strokeWidth={2} />
-      <circle {...ring(r * 0.5, r * 0.845)} fill="none" stroke={`url(#${id}-r)`} />
-      <circle r={r * 0.62} fill="none" stroke="#9aa3ab" strokeWidth={r * 0.035} strokeDasharray={`${r * 0.03} ${r * 0.02}`} opacity={0.85} />
-      <circle r={r * 0.5} fill="none" stroke="rgba(255,255,255,.18)" strokeWidth={r * 0.015} />
-      <path d={arc(r * 0.92, 200, 280)} fill="none" stroke="rgba(255,255,255,.9)" strokeWidth={r * 0.03} strokeLinecap="round" />
-      <rect x={mx - r * 0.05} y={my - r * 0.018} width={r * 0.1} height={r * 0.036} rx={r * 0.01} fill={B.red} transform={`rotate(${mark + 90} ${mx} ${my})`} />
-    </svg>
-  );
-};
-
-/**
- * A drawn part standing on the floor: centred on (cx, cy) with radius r, lifted `y` px, moved `x` px, squashed by
- * `squash` on impact (from its foot), its shadow shrinking as it rises.
- */
-export const Part: React.FC<{ shape: "oring" | "seal"; cx: number; cy: number; r: number; x?: number; y?: number; squash?: number; mark?: number; tilt?: number; opacity?: number; uid: string }> = ({ shape, cx, cy, r, x = 0, y = 0, squash = 0, mark, tilt = 0, opacity = 1, uid }) => {
-  const sx = 1 + 0.12 * squash;
-  const sy = 1 - 0.14 * squash;
-  const lift = clamp(y / (r * 3));
+export const Part: React.FC<{ part: PartKey; base: string; cx: number; cy: number; r: number; x?: number; y?: number; squash?: number; tilt?: number; turn?: number; opacity?: number }> = ({ part, base, cx, cy, r, x = 0, y = 0, squash = 0, tilt = 0, turn = 0, opacity = 1 }) => {
+  const P = PART[part] ?? PART[DEFAULT_PART];
+  const h = 2 * r;
+  const w = h * P.ratio;
+  const sx = 1 + 0.1 * squash;
+  const sy = 1 - 0.12 * squash;
+  const lift = clamp(y / (r * 2.2));
+  const sw = w * 1.15;
   return (
     <>
-      <div style={{ position: "absolute", left: cx - r * 0.9 + x, top: cy + r - r * 0.07, width: r * 1.8, height: r * 0.16, borderRadius: "50%", background: "radial-gradient(closest-side, rgba(29,42,51,.34), rgba(29,42,51,0))", transform: `scale(${(1 - 0.55 * lift).toFixed(3)})`, opacity: opacity * (1 - 0.6 * lift) }} />
-      <div style={{ position: "absolute", left: cx - r + x, top: cy - r - y, width: 2 * r, height: 2 * r, transformOrigin: "50% 100%", transform: `rotate(${tilt.toFixed(2)}deg) scale(${sx.toFixed(3)}, ${sy.toFixed(3)})`, opacity, filter: "drop-shadow(0 18px 24px rgba(29,42,51,.22))" }}>
-        {shape === "seal" ? <Seal r={r} mark={mark} uid={uid} /> : <ORing r={r} mark={mark} uid={uid} />}
+      <div style={{ position: "absolute", left: cx - sw / 2 + w * 0.16 + x, top: cy + r - r * 0.09, width: sw, height: r * 0.2, borderRadius: "50%", background: "radial-gradient(closest-side, rgba(29,42,51,.30), rgba(29,42,51,.10) 60%, rgba(29,42,51,0))", transform: `scale(${(1 - 0.5 * lift).toFixed(3)})`, opacity: opacity * (1 - 0.65 * lift) }} />
+      <div style={{ position: "absolute", left: cx - w / 2 + x, top: cy - r - y, width: w, height: h, transformOrigin: "50% 100%", transform: `perspective(${(h * 4).toFixed(0)}px) rotate(${tilt.toFixed(2)}deg) rotateY(${turn.toFixed(2)}deg) scale(${sx.toFixed(3)}, ${sy.toFixed(3)})`, opacity }}>
+        <Img src={asset(base, P.cut)} alt={P.name} style={{ display: "block", width: "100%", height: "100%", objectFit: "contain" }} />
       </div>
     </>
   );

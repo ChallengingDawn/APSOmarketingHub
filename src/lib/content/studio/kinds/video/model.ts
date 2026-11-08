@@ -15,6 +15,7 @@
 import { BAR, BPM, FPS, seconds, timecode } from "./engine/timeline";
 import { plain, wordCount } from "./engine/text";
 import { FEATURE, isFeature, isIcon, numberAllowed, type FeatureKey, type IconKey } from "./features";
+import { DEFAULT_PART, PART, isPart, partOf, type PartKey } from "./parts";
 
 export const FORMATS = ["16:9", "9:16", "1:1"] as const;
 export type Format = (typeof FORMATS)[number];
@@ -29,7 +30,7 @@ export type SceneKind = (typeof SCENE_KINDS)[number];
 /** How a scene cuts in on its bar line. "auto" takes turns: whip, sweep, lift. */
 export const CUTS = ["auto", "whip", "sweep", "lift"] as const;
 export type Cut = (typeof CUTS)[number];
-/** A part drawn in the film when there is no picture (an O-ring, a shaft seal). */
+/** The part a scene showed before the photos (an O-ring, a shaft seal) - kept for films made then; `part` wins. */
 export const SHAPES = ["none", "oring", "seal"] as const;
 export type Shape = (typeof SHAPES)[number];
 
@@ -45,12 +46,14 @@ export type Scene = {
   /** A picture's address (product and feature scenes): the shop's or the hub's - never the picture itself. */
   image?: string;
   shape?: Shape;
+  /** The real part it shows (parts.ts - the shop's product photo, cut out), where it has no picture. */
+  part?: PartKey;
   cut?: Cut;
   /** The APSOparts feature the scene tells (features.ts), and the icon it shows. */
   feature?: FeatureKey;
   icon?: IconKey;
 };
-export type EndCard = { line: string; cta: string; bars: number };
+export type EndCard = { line: string; cta: string; bars: number; part?: PartKey };
 
 export type VideoDoc = {
   v: 2;
@@ -65,7 +68,14 @@ export type VideoDoc = {
   notes?: string;
   /** The features the film is made around, in the order picked. */
   features?: FeatureKey[];
+  /** How long the film should be, in seconds, when it is made (SARCLA 08.11.2026: "the controls are really hard"). */
+  length?: FilmLength;
 };
+
+/** The lengths a film is made in, as the studio offers them. */
+export const LENGTHS = [15, 20, 30] as const;
+export type FilmLength = (typeof LENGTHS)[number];
+export const isLength = (v: unknown): v is FilmLength => (LENGTHS as readonly number[]).includes(Number(v));
 
 export const MAX_SCENES = 12;
 export const MIN_BARS = 1;
@@ -192,7 +202,11 @@ export const sceneId = () => Math.random().toString(36).slice(2, 10);
 
 export function newScene(kind: SceneKind, id = sceneId()): Scene {
   const info = KIND_INFO[kind];
-  return { id, kind, bars: info.bars.start, copy: {}, ...(info.shape ? { shape: kind === "product" ? "oring" : "none" } : {}), ...(info.icon ? { icon: "check" as IconKey } : {}) };
+  return {
+    id, kind, bars: info.bars.start, copy: {},
+    ...(info.shape ? (kind === "product" ? { shape: "oring" as Shape, part: DEFAULT_PART } : { shape: "none" as Shape }) : {}),
+    ...(info.icon ? { icon: "check" as IconKey } : {}),
+  };
 }
 
 /** A scene that tells a feature, written from the feature's own claim and proof (features.ts) - the person's to edit. */
@@ -231,7 +245,10 @@ export function cleanVideo(raw: unknown, dflt: { language?: string | null } = {}
     }
     const out: Scene = { id, kind, bars: int(s.bars, MIN_BARS, MAX_BARS, info.bars.start), copy };
     if (info.image) { const img = cleanImage(s.image); if (img) out.image = img; }
-    if (info.shape) out.shape = oneOf(s.shape, SHAPES, kind === "product" ? "oring" : "none");
+    if (info.shape) {
+      out.shape = oneOf(s.shape, SHAPES, kind === "product" ? "oring" : "none");
+      if (isPart(s.part)) out.part = s.part;
+    }
     const cut = oneOf(s.cut, CUTS, "auto");
     if (cut !== "auto") out.cut = cut;
     if (isFeature(s.feature)) out.feature = s.feature;
@@ -243,8 +260,9 @@ export function cleanVideo(raw: unknown, dflt: { language?: string | null } = {}
     ...base,
     format: oneOf(d.format, FORMATS, "16:9"),
     scenes,
-    endCard: { line: str(e.line, 120), cta: str(e.cta, 60) || (isObj(d.endCard) ? "" : DEFAULT_CTA), bars: int(e.bars, 2, 3, 2) },
+    endCard: { line: str(e.line, 120), cta: str(e.cta, 60) || (isObj(d.endCard) ? "" : DEFAULT_CTA), bars: int(e.bars, 2, 3, 2), ...(isPart(e.part) ? { part: e.part } : {}) },
   };
+  if (isLength(d.length)) doc.length = Number(d.length) as FilmLength;
   const notes = str(d.notes, 2000);
   if (notes) doc.notes = notes;
   const features = Array.isArray(d.features) ? [...new Set(d.features.filter(isFeature))].slice(0, 6) : [];
@@ -360,12 +378,13 @@ export function videoText(raw: unknown): string {
   const head = `Video · ${doc.format} · ${doc.language} · ${seconds(totalFrames(doc))} s (${totalBars(doc)} bars)${doc.features?.length ? ` · about ${doc.features.map((k) => FEATURE[k].name).join(", ")}` : ""}`;
   const lines = doc.scenes.map((s, i) => {
     const words = KIND_INFO[s.kind].fields.map((f) => plain(s.copy[f.key] ?? "")).filter(Boolean).join(" / ");
-    const pic = s.image ? ` [picture: ${s.image}]` : s.shape && s.shape !== "none" ? ` [${s.shape === "oring" ? "O-ring" : "shaft seal"}]` : "";
+    const part = partOf(s);
+    const pic = s.image ? ` [picture: ${s.image}]` : part ? ` [${PART[part].name}]` : "";
     const feat = s.feature ? ` [feature: ${FEATURE[s.feature].name}]` : "";
     return `${i + 1}. ${KIND_INFO[s.kind].label} · ${s.bars} bar${s.bars > 1 ? "s" : ""} · ${timecode(segs[i].start)} - ${words || "(no words yet)"}${pic}${feat}`;
   });
   const end = segs[segs.length - 1];
-  lines.push(`End card · ${end.bars} bars · ${timecode(end.start)} - APSOparts / ${plain(doc.endCard.line) || "(no line)"} / [${plain(doc.endCard.cta) || "no button"}]`);
+  lines.push(`End card · ${end.bars} bars · ${timecode(end.start)} - APSOparts / ${plain(doc.endCard.line) || "(no line)"} / [${plain(doc.endCard.cta) || "no button"}] / ${PART[partOf(doc.endCard) ?? DEFAULT_PART].name}`);
   return [head, ...lines, ...(doc.notes ? ["", `Notes: ${doc.notes}`] : [])].join("\n");
 }
 

@@ -226,7 +226,7 @@ test("every kind has its fields and bars; a new scene starts in its kind's range
 test("the script reads the film: kinds, bars, time codes, the end card", () => {
   const t = videoText(film());
   assert.match(t, /^Video · 16:9 · EN · 14 s \(7 bars\)/);
-  assert.match(t, /1\. Title · 2 bars · 0:00\.00 - APSOparts DirectCUT \/ Cut to your size \[O-ring\]/);
+  assert.match(t, /1\. Title · 2 bars · 0:00\.00 - APSOparts DirectCUT \/ Cut to your size \[O-ring NBR\]/);
   assert.match(t, /End card · 2 bars · 0:10\.00 - APSOparts \/ Sealing parts, one click away\. \/ \[apsoparts\.com\]/);
 });
 
