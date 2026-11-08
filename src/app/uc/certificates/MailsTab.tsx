@@ -3,7 +3,8 @@
 // CERTIFICATES > Mails (SARCLA 07.11.2026: "put another tab mails so we can see each mail and preview the design").
 // Every mail the hub sends for the Back Office, one tile each - when it goes, to whom, on or off, how many went out -
 // and the one picked shown as it goes out today, on a real ticket (GET ?preview=, nothing sent), with "send it to me".
-// Under it: every mail sent, newest first.
+// Under it: every mail sent, newest first. The mail to AVOR from the ticket card too, switched on its tile (SARCLA
+// 08.11.2026: "on the e-mails sent on Certificates put also the one sent to AVOR, with a toggle").
 
 import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -15,6 +16,7 @@ import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import CircularProgress from "@mui/material/CircularProgress";
+import Switch from "@mui/material/Switch";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, RED, TINT, bodyCell, headCell } from "@/app/uc/report/ui";
@@ -22,10 +24,11 @@ import { Chip, usePaged, when } from "@/app/connectors/parts";
 import { full } from "@/app/charts/format";
 import type { MailKey, MailPreview } from "@/lib/certificates/engine";
 import { stepWords, type MailName } from "@/lib/certificates/rules";
-import { TicketLink, type Data } from "./shared";
+import { TicketLink, put, type Data } from "./shared";
 
 const GREEN = "#1b7a55";
-type Def = { key: MailKey; title: string; to: string; when: (d: Data) => string; on: (d: Data) => boolean; switchOn: string };
+/** toggle: the tile carries its own switch (the mail's own setting) */
+type Def = { key: MailKey; title: string; to: string; when: (d: Data) => string; on: (d: Data) => boolean; switchOn: string; toggle?: "avor" };
 const OWNER_STEP = (k: MailName) => (d: Data) => stepWords(k, d.settings.timing).split(" (")[0];
 const DEFS: Def[] = [
   { key: "bo3days", title: "3 days before delivery", to: "the ticket's owner", when: OWNER_STEP("bo3days"), on: (d) => d.settings.mails.owner && d.settings.steps.bo, switchOn: "Settings: Reminders to the ticket's owner, Back Office reminders" },
@@ -36,6 +39,7 @@ const DEFS: Def[] = [
   { key: "boRose", title: "The hand-over", to: "the hand-over person", when: OWNER_STEP("boRose"), on: (d) => d.settings.mails.owner && d.settings.steps.handover, switchOn: "Settings: Reminders to the ticket's owner, The hand-over" },
   { key: "team", title: "⚠️REMINDER: Back Office Ticket", to: "the ticket's owner (and the people picked)", when: () => "Every other Back Office ticket that goes to stage Remind Back Office", on: (d) => d.settings.mails.team, switchOn: "Settings: Reminder on every other ticket in Remind" },
   { key: "created", title: "❗Back Office Ticket Created", to: "the people picked on the Way in tab", when: () => "Every new Back Office ticket: e-mail, form, created by hand", on: () => true, switchOn: "Back Office distribution > Way in" },
+  { key: "avor", title: "Mail to AVOR", to: "AVOR (avor@angst-pfister.com), in the user's name", when: () => "EC 1935/2004: \"Send to AVOR\" on the ticket card - the new article number", on: (d) => d.settings.mails.avor !== false, switchOn: "this tile or Settings: The mails", toggle: "avor" },
 ];
 
 /** One sent (or failed) mail, from the steps and the reminders. */
@@ -49,6 +53,12 @@ function sentMails(d: Data): Sent[] {
     out.push({ at: r.at, key: k, ticketId: r.ticketId, subject: r.props.subject ?? r.subject, text: r.mail, ok: !r.mailFailed });
   }
   for (const r of d.others.rows) if (r.what !== "would") out.push({ at: r.at, key: "team", ticketId: r.ticketId, subject: r.subject, text: r.mail, ok: r.what === "done" });
+  // the mails to AVOR from the ticket card (the declarations' rows hold them too)
+  const subjectOf = new Map(d.open.map((t) => [t.id, t.subject]));
+  for (const r of d.makerRows ?? []) {
+    if (r.what !== "avor" && r.what !== "avorFailed") continue;
+    out.push({ at: r.at, key: "avor", ticketId: r.ticketId, subject: subjectOf.get(r.ticketId) ?? r.subject ?? null, text: r.what === "avor" ? `mail to ${r.to}` : `not sent${r.error ? ` - ${r.error}` : ""}`, ok: r.what === "avor" });
+  }
   return out.sort((a, b) => b.at.localeCompare(a.at));
 }
 
@@ -131,7 +141,29 @@ function SentTable({ rows }: { rows: Sent[] }) {
   );
 }
 
-export function MailsTab({ d }: { d: Data }) {
+/** The switch on a tile - the mail's own setting (Settings > The mails shows the same). */
+function TileSwitch({ d, def, onChanged }: { d: Data; def: Def; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const on = def.on(d);
+  const flip = async (next: boolean) => {
+    if (!next && !window.confirm(`Switch off: ${def.title}?\n\nThe card no longer sends it: the Back Office writes to AVOR from the ticket, as before.`)) return;
+    setBusy(true); setErr(null);
+    const r = await put({ mails: { [def.toggle!]: next } });
+    if (!r.ok) setErr(r.error ?? "failed");
+    setBusy(false); onChanged();
+  };
+  return (
+    <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
+      {busy && <CircularProgress size={12} />}
+      {err && <Typography sx={{ fontSize: "0.7rem", color: RED }}>{err}</Typography>}
+      <Switch size="small" checked={on} disabled={!d.admin || busy} onChange={(e) => void flip(e.target.checked)} inputProps={{ "aria-label": `${def.title}: ${on ? "on" : "off"}` }} />
+      <Chip tint={on ? "green" : "slate"}>{on ? "on" : "off"}</Chip>
+    </Box>
+  );
+}
+
+export function MailsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
   const [k, setK] = useState<MailKey>("boToday");
   const sent = useMemo(() => sentMails(d), [d]);
   const week = Date.now() - 7 * 86400_000;
@@ -145,18 +177,20 @@ export function MailsTab({ d }: { d: Data }) {
             const sel = x.key === k;
             const on = x.on(d);
             return (
-              <Box key={x.key} component="button" type="button" onClick={() => setK(x.key)} sx={{
-                all: "unset", cursor: "pointer", display: "grid", gap: 0.4, p: 1.25, borderRadius: "12px", minWidth: 0,
+              <Box key={x.key} role="button" tabIndex={0} aria-pressed={sel} onClick={() => setK(x.key)}
+                onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setK(x.key); } }} sx={{
+                cursor: "pointer", display: "grid", gap: 0.4, p: 1.25, borderRadius: "12px", minWidth: 0, textAlign: "left",
                 border: `1px solid ${sel ? TINT.purple.fg : HAIRLINE}`, bgcolor: sel ? TINT.purple.bg : "rgba(255,255,255,.75)",
                 "&:hover": { borderColor: TINT.purple.fg }, "&:focus-visible": { outline: `2px solid ${INK}`, outlineOffset: 2 },
               }}>
                 <Box sx={{ display: "flex", gap: 1, alignItems: "center", minWidth: 0 }}>
                   <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.title}</Typography>
-                  <Chip tint={on ? "green" : "slate"}>{on ? "on" : "off"}</Chip>
+                  {x.toggle ? <TileSwitch d={d} def={x} onChanged={onChanged} /> : <Chip tint={on ? "green" : "slate"}>{on ? "on" : "off"}</Chip>}
                 </Box>
                 <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{x.when(d)}</Typography>
                 <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>To {x.to}{x.key !== "created" ? ` · ${full(count(x.key))} sent in 7 days` : ""}</Typography>
-                {!on && <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>Switched on at {x.switchOn}</Typography>}
+                {x.key === "avor" && !on && <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>Off: the card shows the mail to write from the ticket (a DEMO still goes to the demo user)</Typography>}
+                {!on && !x.toggle && <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>Switched on at {x.switchOn}</Typography>}
               </Box>
             );
           })}
@@ -165,7 +199,7 @@ export function MailsTab({ d }: { d: Data }) {
       </Box>
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>
-          <CardTitle icon={<HistoryOutlinedIcon />} tint="blue" title={`Every mail sent: ${full(sent.length)}`} note={'Newest first - the owners\' reminders and "⚠️REMINDER: Back Office Ticket"; the way in\'s mails are on Back Office distribution > Way in'} />
+          <CardTitle icon={<HistoryOutlinedIcon />} tint="blue" title={`Every mail sent: ${full(sent.length)}`} note={'Newest first - the owners\' reminders, "⚠️REMINDER: Back Office Ticket" and the mails to AVOR; the way in\'s mails are on Back Office distribution > Way in'} />
         </Box>
         <SentTable rows={sent} />
       </GlassCard>

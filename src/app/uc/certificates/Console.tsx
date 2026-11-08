@@ -228,7 +228,15 @@ function RunCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
 const MAILS: { key: keyof Mails; label: string; text: string }[] = [
   { key: "owner", label: "Reminders to the ticket's owner", text: "Certificates: 3 days before delivery, due today, 48 h, 96 h, more than a week - and the hand-over person's mail after the 15 days." },
   { key: "team", label: "Reminder on every other ticket in Remind", text: "Every other Back Office ticket that goes to stage Remind Back Office: \"⚠️REMINDER: Back Office Ticket\" to its owner, straight to the person." },
+  { key: "avor", label: "Mail to AVOR from the ticket card", text: "EC 1935/2004: \"Send to AVOR\" on the card - APSOhub sends it to avor@angst-pfister.com in the user's name, logs it on the ticket, and AVOR's answer comes onto the ticket. Off: the card shows the mail to write from the ticket, as before (a DEMO still goes to the demo user)." },
 ];
+/** what switching a mail off means */
+const OFF_TEXT: Record<keyof Mails, string> = {
+  owner: "The hub still writes the subjects, stages and owners - only the mail stops.",
+  team: "The hub still writes the subjects, stages and owners - only the mail stops.",
+  created: "The way in still runs - only the mail stops.",
+  avor: "The card no longer sends it: the Back Office writes to AVOR from the ticket, as before.",
+};
 /** Queue users: their address is a HubSpot inbox - never a recipient (05.11.2026: 120 tickets in 44 minutes) */
 const INBOX_OWNERS = ["76164822", "1202569408"];
 function MailsCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
@@ -245,7 +253,7 @@ function MailsCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
   };
   const saveTo = async (ids: string[]) => { setBusy("to"); setErr(null); const r = await put({ teamTo: ids }); if (!r.ok) setErr(r.error ?? "failed"); setBusy(null); onChanged(); };
   const flip = async (k: keyof Mails, on: boolean) => {
-    if (!on && !window.confirm(`Switch off: ${MAILS.find((m) => m.key === k)!.label}?\n\nThe hub still writes the subjects, stages and owners - only the mail stops.`)) return;
+    if (!on && !window.confirm(`Switch off: ${MAILS.find((m) => m.key === k)!.label}?\n\n${OFF_TEXT[k]}`)) return;
     setBusy(k); setErr(null);
     const r = await put({ mails: { [k]: on } });
     if (!r.ok) setErr(r.error ?? "failed");

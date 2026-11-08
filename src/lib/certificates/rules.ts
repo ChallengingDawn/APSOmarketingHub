@@ -460,7 +460,8 @@ export type PlanStep = { n: StepName; at: string; w: string; s: "workflow" | "do
 /** who the request waits for, and from when (the "3 days before" of the Back Office) */
 export type Wait = { who: "hub" | "avor" | "owner" | "expert"; what: string; from?: string };
 /** v 2 = the hub also keeps the ticket card's hold (HOLD_PROP) - the card offers "Hold" only from v 2 */
-export type Plan = { v: 2; phase: Phase; held: boolean; wait: Wait; steps: PlanStep[]; experts: string[]; backOffice: string[]; send?: "off" | "live" };
+/** send: whether the hub mails a declaration signed on the card; avor: whether the card's "Send to AVOR" is on (Settings) */
+export type Plan = { v: 2; phase: Phase; held: boolean; wait: Wait; steps: PlanStep[]; experts: string[]; backOffice: string[]; send?: "off" | "live"; avor?: boolean };
 
 export function waitOf(f: Facts, phase: Phase, steps: Step[], now: number): Wait {
   if (phase === "start") return { who: "hub", what: "The hub starts the request within 3 minutes" };
@@ -474,7 +475,7 @@ export function waitOf(f: Facts, phase: Phase, steps: Step[], now: number): Wait
 }
 
 /** The plan of one request as the card shows it; null = not in the process (resolved, or no certificate). */
-export function planOf(f: Facts, done: Set<string>, now: number, t: Timing, held: boolean, people: People, remindOffAt: number | null = null, send: "off" | "live" = "off"): Plan | null {
+export function planOf(f: Facts, done: Set<string>, now: number, t: Timing, held: boolean, people: People, remindOffAt: number | null = null, send: "off" | "live" = "off", avor = true): Plan | null {
   const p = stepsOf(f, t);
   if (!p) return null;
   let nextSeen = false;
@@ -487,5 +488,5 @@ export function planOf(f: Facts, done: Set<string>, now: number, t: Timing, held
     return { n: x.name, at: new Date(x.at).toISOString(), w: stepWords(x.name, t), s };
   });
   // send: whether the hub mails a declaration signed on the card (makerSend.ts) - the card says who sends it
-  return { v: 2, phase: p.phase, held, wait: waitOf(f, p.phase, p.steps, now), steps, experts: people.experts, backOffice: people.backOffice, send };
+  return { v: 2, phase: p.phase, held, wait: waitOf(f, p.phase, p.steps, now), steps, experts: people.experts, backOffice: people.backOffice, send, avor };
 }

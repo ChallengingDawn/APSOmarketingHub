@@ -55,3 +55,9 @@ test("AVOR's answer in a DEMO - the demo user's reply counts, only on a DEMO req
   assert.equal(isAvorAnswer({ from: "claudio.saraiva@apsoparts.com", subject: `AW: ${queued.subject}`, at }, "A26.675846", { ...demo, kind: "" }), false);
   assert.equal(isAvorAnswer({ from: "someone@apsoparts.com", subject: `AW: ${queued.subject}`, at }, "A26.675846", demo), false);
 });
+test("AVOR mail - switched off on Settings: a real request's mail does not go, a DEMO's still does", () => {
+  assert.match(String(avorNotSending(f, queued, {}, false)), /off on Certificates > Settings/);
+  assert.equal(avorNotSending({ ...f, demo: DEMO }, { ...queued, to: "claudio.saraiva@apsoparts.com" }, {}, false), null);
+  // on hold stays on hold (it waits), whatever the switch
+  assert.match(String(avorNotSending({ ...f, hold: "SARCLA · 2026-11-08" }, queued, {}, false)), /hold/);
+});
