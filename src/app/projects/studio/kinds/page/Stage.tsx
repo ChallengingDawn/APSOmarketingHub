@@ -239,7 +239,7 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
     mode: (isNew ? "field" : "element") as "field" | "element",
     selected, onPick, onEdit, editNonce, reveal,
   };
-  const label = !selected ? "" : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())
+  const label = !selected ? "" : selected === "b:sections" ? "Sections" : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())
     : selected.startsWith("i:") ? "Banner" : picked ? `<${picked.tag}>${picked.text ? ` ${picked.text.slice(0, 28)}` : ""}` : "";
   const canWords = !!selected && (selected.startsWith("f:") ? !/picture$|\.button$|^f:links\./.test(selected) || selected.endsWith(".label") : !!picked?.editable);
   const toolbar = selected ? <SelBar label={label} canWords={canWords} onWords={onEditWords} onAi={onAskAi} onClose={() => onPick(null)} /> : undefined;
