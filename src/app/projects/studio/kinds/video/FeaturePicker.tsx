@@ -42,7 +42,7 @@ export default function FeaturePicker({ picked, onChange, confirmed, disabled, b
           const known = !confirmed || confirmed.includes(f.key);
           return (
             <Tooltip key={f.key} title={known ? f.proof : "The brand brain does not name this one now - check it is still true before using it."} enterDelay={400}>
-              <Box component="button" type="button" disabled={disabled || (!known && !on)} aria-pressed={on} onClick={() => toggle(f.key)} sx={{
+              <Box component="button" type="button" disabled={disabled || (!known && !on)} aria-pressed={on} aria-label={f.name} onClick={() => toggle(f.key)} sx={{
                 all: "unset", boxSizing: "border-box", position: "relative", cursor: disabled ? "default" : "pointer", display: "flex", gap: 1, alignItems: "flex-start",
                 p: 1, pr: 3, borderRadius: "6px", minWidth: 0, opacity: known ? 1 : 0.5,
                 border: `1px solid ${on ? "rgba(36,89,209,.6)" : HAIRLINE}`, bgcolor: on ? "rgba(36,89,209,.06)" : "rgba(255,255,255,.7)",

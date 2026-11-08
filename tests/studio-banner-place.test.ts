@@ -141,3 +141,9 @@ test("in a page's preview the banner comes as markup and styles without a script
   assert.equal(anchorOf("after-intro", false).where, "after");
   assert.match(anchorOf("after-intro", false).selector, /\[data-content-type="row"\]/);
 });
+
+test("the category band stacks on a phone, as the home band does", () => {
+  const css = bannerCss("apbz", "pale", ["cat"]);
+  const phone = css.slice(css.lastIndexOf("@media (max-width:900px)"));
+  assert.match(phone, /\.apbz--cat \.apbz-g\{grid-template-columns:minmax\(0,1fr\)/);
+});

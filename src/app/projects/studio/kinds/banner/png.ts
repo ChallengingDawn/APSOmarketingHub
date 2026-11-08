@@ -38,7 +38,8 @@ export function pictureData(url: string): Promise<string> {
 let fontCss: Promise<string> | null = null;
 /** The brand's type (Jost, as data:) - "" when the hub could not load it; the PNG then falls back to Arial. */
 export function brandFontCss(): Promise<string> {
-  fontCss ??= fetch("/api/content/studio/banner/font").then((r) => (r.ok ? r.text() : "")).catch(() => "");
+  // never hangs: a font that does not come in 20 s is no font (the studios draw in the look-alike stack meanwhile)
+  fontCss ??= fetch("/api/content/studio/banner/font", { signal: AbortSignal.timeout(20000) }).then((r) => (r.ok ? r.text() : "")).catch(() => "");
   return fontCss;
 }
 

@@ -82,7 +82,7 @@ const CAT = `
 .@@--cat .@@-p{max-width:560px;font-size:14.5px!important;line-height:1.55!important}
 .@@--cat .@@-b{margin-top:14px;height:44px;padding:0 18px;font-size:15px!important;border-radius:10px}
 .@@--cat .@@-c{height:178px;border-radius:18px}
-@media (max-width:900px){.@@--cat .@@-g{gap:16px;padding:22px 0 24px}.@@--cat .@@-b{display:flex;width:100%}.@@--cat .@@-c{height:150px;border-radius:14px}}
+@media (max-width:900px){.@@--cat .@@-g{grid-template-columns:minmax(0,1fr);gap:16px;padding:22px 0 24px}.@@--cat .@@-b{display:flex;width:100%}.@@--cat .@@-c{height:150px;border-radius:14px}}
 `;
 
 // A size with a size: drawn in design pixels. Without container units (old browsers) it shows at its design size.

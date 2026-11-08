@@ -75,7 +75,7 @@ function KindMenu({ kind, onPick, disabled }: { kind: SceneKind; onPick: (k: Sce
   return (
     <>
       <Button size="small" disabled={disabled} onClick={(e) => { e.stopPropagation(); setAnchor(e.currentTarget); }} endIcon={<KeyboardArrowDownRoundedIcon sx={{ fontSize: 18 }} />}
-        sx={{ ...btn, color: INK, px: 1, minWidth: 0, fontSize: "0.86rem", fontWeight: 700 }}>
+        sx={{ ...btn, color: INK, px: 1, minWidth: 0, flexShrink: 0, fontSize: "0.86rem", fontWeight: 700 }}>
         {KIND_INFO[kind].label}
       </Button>
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} onClick={(e) => e.stopPropagation()} slotProps={{ paper: { sx: { width: 300, borderRadius: "14px" } } }}>
@@ -92,7 +92,7 @@ function KindMenu({ kind, onPick, disabled }: { kind: SceneKind; onPick: (k: Sce
 
 function Bars({ bars, onChange, disabled, min = MIN_BARS, max = MAX_BARS }: { bars: number; onChange: (n: number) => void; disabled?: boolean; min?: number; max?: number }) {
   return (
-    <Box onClick={(e) => e.stopPropagation()} sx={{ display: "inline-flex", alignItems: "center", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", bgcolor: "#fff", height: 28 }}>
+    <Box onClick={(e) => e.stopPropagation()} sx={{ display: "inline-flex", alignItems: "center", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", bgcolor: "#fff", height: 28, flexShrink: 0 }}>
       <IconButton size="small" disabled={disabled || bars <= min} onClick={() => onChange(bars - 1)} aria-label="One bar less" sx={{ p: 0.25 }}><RemoveRoundedIcon sx={{ fontSize: 16 }} /></IconButton>
       <Tooltip title={`${bars * (BAR / FPS)} seconds - a bar is two`}>
         <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: INK, px: 0.5, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{bars} bar{bars > 1 ? "s" : ""}</Typography>
@@ -194,16 +194,15 @@ function SceneCard({ s, i, n, seg, issues, active, disabled, edit, onPlay, onSho
         <Box sx={{ width: 22, height: 22, borderRadius: "5px", bgcolor: active ? PINK : "#eef1f6", color: active ? "#fff" : INK, display: "grid", placeItems: "center", fontSize: "0.74rem", fontWeight: 700, flexShrink: 0 }}>{i + 1}</Box>
         <KindMenu kind={s.kind} onPick={setKind} disabled={disabled} />
         <Bars bars={s.bars} onChange={(b) => patch({ bars: b })} disabled={disabled} />
-        {seg && <Typography sx={{ fontSize: "0.72rem", color: MUTED, ml: 0.5, fontVariantNumeric: "tabular-nums" }}>{timecode(seg.start).replace(/\.\d+$/, "")}</Typography>}
         {s.feature && (
           <Tooltip title={`Tells: ${FEATURE[s.feature].name}`}>
-            <Box component="span" sx={{ ml: 0.5, display: "inline-flex", alignItems: "center", gap: 0.4, px: 0.6, py: 0.1, borderRadius: "4px", bgcolor: "#fde3e2", color: "#a30700", fontSize: "0.68rem", fontWeight: 700, maxWidth: 110, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
-              <LineIcon name={FEATURE[s.feature].icon} size={12} color="#a30700" />{FEATURE[s.feature].name}
+            <Box component="span" aria-label={`Tells: ${FEATURE[s.feature].name}`} sx={{ ml: 0.5, width: 20, height: 20, flexShrink: 0, display: "inline-grid", placeItems: "center", borderRadius: "4px", bgcolor: "#d80901" }}>
+              <LineIcon name={FEATURE[s.feature].icon} size={13} color="#fff" />
             </Box>
           </Tooltip>
         )}
         <Box sx={{ flex: 1 }} />
-        <Tooltip title="Play from here"><IconButton size="small" onClick={(e) => { e.stopPropagation(); onPlay(i); }} aria-label="Play from here"><PlayArrowRoundedIcon sx={{ fontSize: 18, color: PINK }} /></IconButton></Tooltip>
+        <Tooltip title={seg ? `Play from here - it starts at ${timecode(seg.start).replace(/\.\d+$/, "")}` : "Play from here"}><IconButton size="small" onClick={(e) => { e.stopPropagation(); onPlay(i); }} aria-label="Play from here"><PlayArrowRoundedIcon sx={{ fontSize: 18, color: PINK }} /></IconButton></Tooltip>
         <Tooltip title="Earlier"><span><IconButton size="small" disabled={disabled || i === 0} onClick={(e) => { e.stopPropagation(); move(i - 1); }} aria-label="Move earlier"><ArrowUpwardRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
         <Tooltip title="Later"><span><IconButton size="small" disabled={disabled || i === n - 1} onClick={(e) => { e.stopPropagation(); move(i + 1); }} aria-label="Move later"><ArrowDownwardRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
         <Tooltip title="Take it out"><span><IconButton size="small" disabled={disabled} onClick={(e) => { e.stopPropagation(); edit((d) => ({ ...d, scenes: d.scenes.filter((_, k) => k !== i) })); }} aria-label="Take the scene out"><DeleteOutlineRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>

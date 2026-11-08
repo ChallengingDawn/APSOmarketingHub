@@ -121,7 +121,7 @@ export function PlaceGet({ doc, k, prefix, title, font, png }: { doc: BannerDoc;
           {[1, 2].map((sc) => {
             const main = p.out === "image" && sc === 1;
             return (
-              <Button key={sc} size="small" variant={main ? "contained" : "outlined"} disableElevation disabled={!!png.busy || font === null}
+              <Button key={sc} size="small" variant={main ? "contained" : "outlined"} disableElevation disabled={!!png.busy}
                 startIcon={png.busy === `${k}${sc}` ? <CircularProgress size={14} color="inherit" /> : <DownloadIcon sx={{ fontSize: 17 }} />}
                 onClick={() => png.run([k], sc, `${k}${sc}`)}
                 sx={main ? { ...btn, bgcolor: PINK, color: "#fff", "&:hover": { bgcolor: "#a3245c" } } : { ...btn, color: INK, borderColor: HAIRLINE, bgcolor: "#fff" }}>

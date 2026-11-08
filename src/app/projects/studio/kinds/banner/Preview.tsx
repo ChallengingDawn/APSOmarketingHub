@@ -77,8 +77,8 @@ function Overview({ doc, prefix, open, avail, png }: { doc: BannerDoc; prefix: s
   const made = sizesOf(doc);
   const sheet = useMemo(() => stillSheet(doc, made, prefix), [doc, prefix, made.join()]); // eslint-disable-line react-hooks/exhaustive-deps
   const pictures = made.filter((k) => PRESET[k].h);
-  // every card the same frame; a band as wide as two
-  const cell = Math.max(220, Math.min(320, (avail - 48) / 3));
+  // every card the same frame, two or three a row; a band across the whole row
+  const cell = Math.max(240, Math.min(380, (avail - 32) / (avail > 1150 ? 3 : 2)));
   return (
     <Box>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2.5 }}>
@@ -99,7 +99,7 @@ function Overview({ doc, prefix, open, avail, png }: { doc: BannerDoc; prefix: s
               const q = PRESET[k];
               const band = isBand(k);
               const w = band ? 1200 : q.w;
-              const boxW = band ? Math.min(avail - 8, cell * 2 + 16) : cell;
+              const boxW = band ? Math.max(cell, avail - 8) : cell;
               const boxH = band ? 400 : cell * 0.78;
               const scale = band ? (boxW - 24) / w : Math.min((boxW - 24) / q.w, (boxH - 24) / (q.h ?? 1));
               const checks = placeChecks(doc, k);
@@ -128,8 +128,8 @@ function Overview({ doc, prefix, open, avail, png }: { doc: BannerDoc; prefix: s
   );
 }
 
-export default function Stage({ doc, set, prefix, view, setView, font, title, canEdit, pages, pageId, setPageId, saved, pieceId, projectId }: {
-  doc: BannerDoc; set: (fn: (d: BannerDoc) => BannerDoc) => void; prefix: string; view: View; setView: (v: View) => void; font: string | null; title: string; canEdit: boolean;
+export default function Stage({ doc, set, prefix, view, setView, font, fontFailed, title, canEdit, pages, pageId, setPageId, saved, pieceId, projectId }: {
+  doc: BannerDoc; set: (fn: (d: BannerDoc) => BannerDoc) => void; prefix: string; view: View; setView: (v: View) => void; font: string | null; fontFailed: boolean; title: string; canEdit: boolean;
   pages: Pages; pageId: number | null; setPageId: (id: number) => void; saved: boolean; pieceId: number; projectId: number;
 }) {
   const [box, width] = useWidth<HTMLDivElement>();
@@ -169,9 +169,7 @@ export default function Stage({ doc, set, prefix, view, setView, font, title, ca
             <InPage pieceId={pieceId} projectId={projectId} pages={pages} pageId={pageId} setPageId={setPageId} saved={saved} />
           ) : (
             <Box ref={box} sx={{ height: "100%", overflowY: "auto", p: 3, boxSizing: "border-box" }}>
-              {font === null ? (
-                <Typography sx={{ color: MUTED, fontSize: "0.9rem" }}>Loading the brand&apos;s type…</Typography>
-              ) : !k || !p ? (
+              {!k || !p ? (
                 <Overview doc={doc} prefix={prefix} open={(x) => setView(x)} avail={avail} png={png} />
               ) : (
                 <>
@@ -181,14 +179,18 @@ export default function Stage({ doc, set, prefix, view, setView, font, title, ca
                   </Box>
                   <Box sx={{ display: "flex", justifyContent: "center" }}>
                     {live ? (
-                      <LiveFrame key={`${k}-${phone ? "p" : "d"}`} block={block} width={frameWidth} font={font} avail={avail} phone={phone} />
+                      <LiveFrame key={`${k}-${phone ? "p" : "d"}`} block={block} width={frameWidth} font={font ?? ""} avail={avail} phone={phone} />
                     ) : still && (
                       <Scaled css={still.css} html={still.html} w={p.w} h={p.h} scale={Math.min(1, avail / p.w, k === "story" || k === "portrait" || k === "sky" ? 620 / (p.h ?? 1) : 1)} radius={4} />
                     )}
                   </Box>
-                  {!font && <Typography sx={{ mt: 1, textAlign: "center", fontSize: "0.78rem", color: MUTED }}>The brand&apos;s type did not load - drawn in Arial here; the shop uses its own.</Typography>}
                   <PlaceSheet doc={doc} set={set} k={k} canEdit={canEdit} prefix={prefix} title={title} font={font} png={png} />
                 </>
+              )}
+              {fontFailed && (
+                <Typography sx={{ mt: 2.5, textAlign: "center", fontSize: "0.74rem", color: MUTED }}>
+                  The brand&apos;s type could not be loaded here - drawn in the nearest look-alike. The shop draws in its own.
+                </Typography>
               )}
             </Box>
           )}
