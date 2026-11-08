@@ -56,6 +56,7 @@ export default function Ideas() {
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
+  const [addTo, setAddTo] = useState<Idea[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const loadSource = useCallback(async (key: string) => {
@@ -169,6 +170,7 @@ export default function Ideas() {
                 ) : (
                   <>
                     <Button size="small" variant="contained" disableElevation onClick={() => makeProject([i])} sx={mainBtn}>Make a project</Button>
+                    <Button size="small" variant="outlined" onClick={() => setAddTo([i])} sx={{ ...btn, color: INK, borderColor: HAIRLINE }}>Add to a project</Button>
                     <Button size="small" onClick={() => void mark([i.key], "dismissed")} sx={{ ...btn, color: MUTED }}>Not now</Button>
                   </>
                 )}
@@ -198,10 +200,16 @@ export default function Ideas() {
           <Typography sx={{ fontSize: "0.9rem", fontWeight: 600 }}>{picked.size} idea{picked.size === 1 ? "" : "s"} picked</Typography>
           <Button size="small" onClick={() => setPicked(new Set())} sx={{ ...btn, color: "rgba(255,255,255,.75)" }}>Clear</Button>
           <Button size="small" onClick={() => void mark([...picked], "dismissed")} sx={{ ...btn, color: "rgba(255,255,255,.9)" }}>Not now</Button>
+          <Button size="small" onClick={() => setAddTo(pickedIdeas)} sx={{ ...btn, color: "#fff", border: "1px solid rgba(255,255,255,.35)" }}>Add to a project</Button>
           <Button size="small" variant="contained" disableElevation onClick={() => makeProject(pickedIdeas)} sx={mainBtn}>Make one project from them</Button>
         </Box>
       )}
 
+      <AddToProject ideas={addTo} onClose={() => setAddTo(null)} onDone={(keys, projectId) => {
+        setAddTo(null);
+        setPicked(new Set());
+        setLoaded((l) => Object.fromEntries(Object.entries(l).map(([k, v]) => [k, { ...v, ideas: v.ideas.map((i) => (keys.includes(i.key) ? { ...i, mark: { status: "project" as const, projectId, by: null, at: new Date().toISOString() } } : i)) }])));
+      }} />
       <AddIdea open={adding} onClose={() => setAdding(false)} onAdded={() => { setAdding(false); void loadSource("team"); setFilter("team"); setShow("open"); }} />
     </Box>
   );
@@ -237,6 +245,52 @@ function AddIdea({ open, onClose, onAdded }: { open: boolean; onClose: () => voi
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} sx={btn}>Cancel</Button>
         <Button variant="contained" disableElevation disabled={!title.trim() || busy} onClick={add} sx={mainBtn}>{busy ? "Adding…" : "Add it"}</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+/** Ideas into a project that already exists: each one a line of it (its kind, or an action), then marked as used. */
+function AddToProject({ ideas, onClose, onDone }: { ideas: Idea[] | null; onClose: () => void; onDone: (keys: string[], projectId: number) => void }) {
+  const [projects, setProjects] = useState<{ id: number; title: string }[] | null>(null);
+  const [pick, setPick] = useState<number | "">("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!ideas) return;
+    setErr(null); setPick("");
+    fetch("/api/content/board").then((r) => r.json()).then((j) => setProjects(j.ok ? j.board.map((p: { id: number; title: string }) => ({ id: p.id, title: p.title })) : []))
+      .catch(() => setProjects([]));
+  }, [ideas]);
+  const add = async () => {
+    if (!ideas || pick === "") return;
+    setBusy(true); setErr(null);
+    for (const i of ideas) {
+      const j = await fetch(`/api/content/projects/${pick}/work`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "piece-add", contentType: i.kind ?? "task", title: i.title.slice(0, 200), language: i.kind && i.kind !== "task" ? "DE" : null }),
+      }).then((r) => r.json()).catch(() => ({ ok: false, error: "The hub did not answer." }));
+      if (!j.ok) { setBusy(false); return setErr(j.error ?? "Not added."); }
+    }
+    const keys = ideas.map((i) => i.key);
+    await fetch("/api/content/ideas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "mark", keys, status: "project", projectId: pick }) }).catch(() => undefined);
+    setBusy(false);
+    onDone(keys, pick);
+  };
+  return (
+    <Dialog open={!!ideas} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle sx={{ fontWeight: 700 }}>Add {ideas && ideas.length > 1 ? `these ${ideas.length} ideas` : "this idea"} to a project</DialogTitle>
+      <DialogContent sx={{ display: "grid", gap: 1.5, pt: "8px !important" }}>
+        <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>Each idea becomes a line of the project - its kind of content, or an action. Give each its owner and its day there.</Typography>
+        <TextField select size="small" label="The project" value={pick} onChange={(e) => setPick(e.target.value === "" ? "" : Number(e.target.value))} sx={field} disabled={!projects}>
+          {(projects ?? []).map((p) => <MenuItem key={p.id} value={p.id}>{p.title}</MenuItem>)}
+        </TextField>
+        {projects?.length === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No project you may change yet - make one instead.</Typography>}
+        {err && <Typography sx={{ fontSize: "0.84rem", color: "#c5221f" }}>{err}</Typography>}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} sx={btn}>Cancel</Button>
+        <Button variant="contained" disableElevation disabled={pick === "" || busy} onClick={add} sx={mainBtn}>{busy ? "Adding…" : "Add"}</Button>
       </DialogActions>
     </Dialog>
   );

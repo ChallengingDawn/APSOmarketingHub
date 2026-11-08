@@ -3,11 +3,12 @@
 //   GET ?source=<key>     one source's ideas, each with what the team did with it
 //   POST add              { title, why?, kind? }      an idea of the team's own
 //   POST remove           { id }                      one's own idea (an admin: any)
-//   POST mark             { keys[], status }          "dismissed" (not now), null (back in the list)
+//   POST mark             { keys[], status, projectId? }  "dismissed" (not now), "project" (added to a project), null (back in the list)
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guard";
 import { myAccess } from "@/lib/auth/appAccess";
+import { accessFor } from "@/lib/content/sharing";
 import { addTeamIdea, ideasFrom, markIdeas, removeTeamIdea, SOURCES, type IdeaSource } from "@/lib/content/ideas";
 import { describeIntegrationError } from "@/lib/integrations/status";
 
@@ -54,6 +55,14 @@ export async function POST(req: NextRequest) {
   }
   if (action === "mark") {
     const keys = Array.isArray(b.keys) ? b.keys.map(String) : [];
+    // "project": the idea went into a project the person may change (added as a line there)
+    if (b.status === "project") {
+      const projectId = Number(b.projectId);
+      const access = Number.isInteger(projectId) && projectId > 0 ? await accessFor(projectId, me) : null;
+      if (!access?.canEdit) return fail("You cannot add to that project.", 403);
+      await markIdeas(keys, "project", me.username, projectId);
+      return NextResponse.json({ ok: true });
+    }
     const status = b.status === "dismissed" ? "dismissed" : null;
     await markIdeas(keys, status, me.username);
     return NextResponse.json({ ok: true });
