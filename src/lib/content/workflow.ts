@@ -12,6 +12,8 @@ import { query } from "@/lib/db/client";
 import { ensureSharing } from "@/lib/content/sharing";
 import { isPieceStatus, stageOf, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
 import { CONTENT_BY_KEY } from "@/lib/content/contentTypes";
+import { contentTypeForPage, markerOf } from "@/lib/convert/handoff";
+import { classify } from "@/lib/convert/model";
 
 export type Brief = {
   goal: string;
@@ -165,9 +167,31 @@ export function pieceTitle(contentType: string | null, language: string | null):
   return language ? `${kind} · ${language.toUpperCase()}` : kind;
 }
 
+/**
+ * A page sent from AI testing & personalization (APSOconvert) arrives as a project whose brief carries the page's marker
+ * and nothing else: it gets its Page to-do the first time it is read, so it opens straight into the Page studio
+ * (SARCLA 08.11.2026: "pages can come from AI & Personalization ... always trigger on the to-do").
+ */
+async function pieceFromConvert(projectId: number): Promise<void> {
+  const r = await query<{ brief: string | null; created_by: string | null; has: boolean }>(
+    `SELECT p.brief, p.created_by, EXISTS (SELECT 1 FROM apsomh_content_pieces x WHERE x.project_id = p.id) AS has
+       FROM apsomh_content_projects p WHERE p.id = $1`, [projectId]);
+  const row = r.rows[0];
+  const page = row && !row.has ? markerOf(row.brief) : null;
+  if (!page) return;
+  const kind = contentTypeForPage(page.path);
+  // the store view's language, as the to-dos write it: de-CH -> DE
+  const language = classify(page.path).store?.slice(0, 2).toUpperCase() || null;
+  await query(
+    `INSERT INTO apsomh_content_pieces (project_id, content_type, language, title, writer, status, sort, created_by)
+     SELECT $1, $2, $3, $4, $5, 'todo', 0, $5 WHERE NOT EXISTS (SELECT 1 FROM apsomh_content_pieces WHERE project_id = $1)`,
+    [projectId, kind, language, `${CONTENT_BY_KEY[kind]?.label ?? "Page"} · ${page.path}`.slice(0, 200), row.created_by]);
+}
+
 export async function listPieces(projectId: number): Promise<Piece[]> {
   await ensureWorkflow();
   await piecesFromVersions(projectId);
+  await pieceFromConvert(projectId);
   const r = await query<PieceRow>(`${PIECE_SELECT} WHERE pc.project_id = $1 ORDER BY pc.sort, pc.id`, [projectId]);
   return r.rows.map(toPiece);
 }
