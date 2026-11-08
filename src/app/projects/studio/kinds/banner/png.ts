@@ -41,7 +41,7 @@ export function brandFontCss(): Promise<string> {
 }
 
 /** The brand font in the hub's own page too, once, so the studios' inline previews draw in it. */
-export function useFontInPage(css: string) {
+export function putFontInPage(css: string) {
   if (!css || typeof document === "undefined" || document.getElementById("apso-brand-font")) return;
   const el = document.createElement("style");
   el.id = "apso-brand-font";
