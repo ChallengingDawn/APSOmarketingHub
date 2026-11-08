@@ -9,7 +9,7 @@
 //      {erpDates: "off" | "show" | "write"} follow the ERP's delivery date; {shop: "off" | "preview" | "live"} tickets
 //      from the shop's orders with the declaration line.
 // PUT (admins) {steps: {avor?, bo?, expert?, handover?}} the step groups on / off (off = skipped, not taken later).
-// GET ?preview=<bo3days|boToday|bo48|bo96|boWeek|boRose|team|created|avor>: that mail as it would go out, nothing sent.
+// GET ?preview=<bo3days|boToday|bo48|bo96|boWeek|boRose|team|created|avor|declCustomer|declEda>[&lang=de]: that mail as it would go out, nothing sent.
 // POST (admins) {action: "run"} = look now; {action: "sample", mail?} = that mail (default "due today") for an open request, to
 //      the admin asking (never an inbox).
 
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
     const preview = req.nextUrl.searchParams.get("preview");
     if (preview !== null) {
       if (!MAIL_KEYS.includes(preview as MailKey)) return NextResponse.json({ ok: false, error: "Unknown mail" }, { status: 400 });
-      return NextResponse.json({ ok: true, data: await previewMail(preview as MailKey) });
+      return NextResponse.json({ ok: true, data: await previewMail(preview as MailKey, { lang: req.nextUrl.searchParams.get("lang") }) });
     }
     return NextResponse.json({ configured: true, ok: true, data: { ...(await pageState()), admin: access.role === "admin" } });
   } catch (err) {

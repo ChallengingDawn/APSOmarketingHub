@@ -35,7 +35,10 @@ import { INTAKE_FROM } from "@/lib/boDistribution/intake";
 import { datePass, dateRows, erpReadAt, erpRequests, type DateInfo, type DateMode } from "./erpData";
 import { shopPass, shopRows, type ShopMode } from "./shopIntake";
 import { INBOX_OWNERS, teamRecipients, type Recipient } from "@/lib/notify/teamRecipients";
-import { DEMO_PROP, MAKER_PROP, demoOf, makerPass, type MakerRow, type MakerSend } from "./makerSend";
+import { DEMO_PROP, EDA, MAKER_PROP, demoOf, makerPass, parseMaker, type MakerRow, type MakerSend, type MakerState } from "./makerSend";
+import { SAMPLE, companyOf, customerMail, edaMail, plainHtml } from "./makerMail";
+import { isDocLang, renderEmail } from "@/lib/doc/email";
+import type { DocLang } from "@/lib/doc/texts";
 import { AVOR_PROP } from "./makerRules";
 import { avorPass, avorPreview } from "./avorSend";
 
@@ -178,12 +181,39 @@ async function sendReminder(m: MailName, f: Facts, subject: string, to: Owner | 
 /** Every mail the hub sends for the Back Office (the Mails tab - SARCLA 07.11.2026: "a tab mails so we can see each mail
  *  and preview the design"). The owner's reminders, the reminder on every other ticket in Remind, and the way in's
  *  "❗Back Office Ticket Created" (boDistribution/intakeRun, steered on its Way in tab). */
-export type MailKey = MailName | "team" | "created" | "avor";
-export const MAIL_KEYS: MailKey[] = ["bo3days", "boToday", "bo48", "bo96", "boWeek", "boRose", "team", "created", "avor"];
+export type MailKey = MailName | "team" | "created" | "avor" | "declCustomer" | "declEda";
+export const MAIL_KEYS: MailKey[] = ["bo3days", "boToday", "bo48", "bo96", "boWeek", "boRose", "team", "created", "avor", "declCustomer", "declEda"];
 export type MailPreview = { key: MailKey; subject: string; html: string; to: string; ticket: { id: string; subject: string | null } | null; note?: string };
 
 /** A mail as it would go out today, on a real ticket - nothing is sent. */
-export async function previewMail(key: MailKey): Promise<MailPreview> {
+export async function previewMail(key: MailKey, opts: { lang?: string | null } = {}): Promise<MailPreview> {
+  // the declaration made on the card: the customer's mail (in a language picked) and EDA's - on the last one sent, else a sample
+  if (key === "declCustomer" || key === "declEda") {
+    const rows = (await kvGet<MakerRow[]>(KV.makerRows)) ?? [];
+    const last = rows.find((r) => r.what === "sent");
+    let made: MakerState | null = null;
+    let ticket: MailPreview["ticket"] = null;
+    let certs = "FDA";
+    if (last) {
+      const t = await hs<Obj>(`/crm/v3/objects/tickets/${last.ticketId}?properties=subject,which_certificate__,other_certificates,${MAKER_PROP}`).catch(() => null);
+      made = t ? parseMaker(t.properties[MAKER_PROP]) : null;
+      if (t && made) {
+        ticket = { id: String(t.id), subject: t.properties.subject ?? null };
+        certs = certsText({ certs: (t.properties.which_certificate__ ?? "").split(";").filter(Boolean), other: t.properties.other_certificates ?? null });
+      }
+    }
+    const src = made ?? SAMPLE;
+    const issuer = src.signers?.issuer?.name ?? src.decl.issuer.name;
+    const sample = made ? "" : " · a sample - no declaration made on a card sent yet";
+    if (key === "declCustomer") {
+      const lang = isDocLang(opts.lang) ? opts.lang : isDocLang(src.send?.lang) ? src.send!.lang as DocLang : "de";
+      const c = customerMail(src, lang);
+      const m = renderEmail({ lang, to: src.send?.to ?? "", company: companyOf(src.decl), subject: c.subject, body: c.body });
+      return { key, subject: m.subject, html: m.html, to: `the customer (${src.send?.to ?? "-"}) · from "${issuer} | APSOparts®" · ${companyOf(src.decl)}${sample}`, ticket };
+    }
+    const m = edaMail(src, certs, null);
+    return { key, subject: m.subject, html: plainHtml(m.text), to: `${EDA} · from "${issuer} | APSOparts®" · answers to ${issuer}${sample}`, ticket };
+  }
   if (key === "team") {
     // the latest ticket that went to Remind without a certificate
     const rows = (await kvGet<OthersRow[]>(KV.othersRows)) ?? [];

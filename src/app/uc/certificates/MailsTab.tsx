@@ -39,6 +39,8 @@ const DEFS: Def[] = [
   { key: "boRose", title: "The hand-over", to: "the hand-over person", when: OWNER_STEP("boRose"), on: (d) => d.settings.mails.owner && d.settings.steps.handover, switchOn: "Settings: Reminders to the ticket's owner, The hand-over" },
   { key: "team", title: "⚠️REMINDER: Back Office Ticket", to: "the ticket's owner (and the people picked)", when: () => "Every other Back Office ticket that goes to stage Remind Back Office", on: (d) => d.settings.mails.team, switchOn: "Settings: Reminder on every other ticket in Remind" },
   { key: "created", title: "❗Back Office Ticket Created", to: "the people picked on the Way in tab", when: () => "Every new Back Office ticket: e-mail, form, created by hand", on: () => true, switchOn: "Back Office distribution > Way in" },
+  { key: "declCustomer", title: "Declaration to the customer", to: "the customer, in the issuer's name - the PDF attached", when: () => "Within 3 minutes of the conformity expert's signature on the card, in the language the expert picked", on: (d) => d.settings.makerSend === "live", switchOn: "Settings: Declarations made on the ticket" },
+  { key: "declEda", title: "Declaration to EDA", to: "EDA (eda.apch@angst-pfister.com), in the issuer's name", when: () => "Right after the customer's mail - the same PDF", on: (d) => d.settings.makerSend === "live", switchOn: "Settings: Declarations made on the ticket" },
   { key: "avor", title: "Mail to AVOR", to: "AVOR (avor@angst-pfister.com), in the user's name", when: () => "EC 1935/2004: \"Send to AVOR\" on the ticket card - the new article number", on: (d) => d.settings.mails.avor !== false, switchOn: "this tile or Settings: The mails", toggle: "avor" },
 ];
 
@@ -53,8 +55,15 @@ function sentMails(d: Data): Sent[] {
     out.push({ at: r.at, key: k, ticketId: r.ticketId, subject: r.props.subject ?? r.subject, text: r.mail, ok: !r.mailFailed });
   }
   for (const r of d.others.rows) if (r.what !== "would") out.push({ at: r.at, key: "team", ticketId: r.ticketId, subject: r.subject, text: r.mail, ok: r.what === "done" });
-  // the mails to AVOR from the ticket card (the declarations' rows hold them too)
   const subjectOf = new Map(d.open.map((t) => [t.id, t.subject]));
+  // the declarations made on the card: the customer's mail and EDA's
+  for (const r of d.makerRows ?? []) {
+    if (r.what !== "sent" && r.what !== "failed") continue;
+    const subject = subjectOf.get(r.ticketId) ?? null;
+    out.push({ at: r.at, key: "declCustomer", ticketId: r.ticketId, subject, text: r.what === "sent" ? `mail to ${r.to}` : `not sent${r.error ? ` - ${r.error}` : ""}`, ok: r.what === "sent" });
+    if (r.what === "sent") out.push({ at: r.at, key: "declEda", ticketId: r.ticketId, subject, text: r.eda ? `mail to ${r.eda}` : `not sent${r.error ? ` - ${r.error}` : ""}`, ok: !!r.eda });
+  }
+  // the mails to AVOR from the ticket card (the declarations' rows hold them too)
   for (const r of d.makerRows ?? []) {
     if (r.what !== "avor" && r.what !== "avorFailed") continue;
     out.push({ at: r.at, key: "avor", ticketId: r.ticketId, subject: subjectOf.get(r.ticketId) ?? r.subject ?? null, text: r.what === "avor" ? `mail to ${r.to}` : `not sent${r.error ? ` - ${r.error}` : ""}`, ok: r.what === "avor" });
@@ -62,7 +71,9 @@ function sentMails(d: Data): Sent[] {
   return out.sort((a, b) => b.at.localeCompare(a.at));
 }
 
+const LANGS: { key: string; label: string }[] = [{ key: "de", label: "Deutsch" }, { key: "fr", label: "Français" }, { key: "it", label: "Italiano" }, { key: "en", label: "English" }, { key: "nl", label: "Nederlands" }, { key: "pl", label: "Polski" }];
 function Preview({ k, d }: { k: MailKey; d: Data }) {
+  const [lang, setLang] = useState<string>("");
   const [p, setP] = useState<MailPreview | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -70,12 +81,12 @@ function Preview({ k, d }: { k: MailKey; d: Data }) {
   useEffect(() => {
     let live = true;
     setP(null); setErr(null); setSample(null);
-    fetch(`/api/uc/certificates?preview=${k}`).then((r) => r.json()).then((j: { ok: boolean; data?: MailPreview; error?: string }) => {
+    fetch(`/api/uc/certificates?preview=${k}${k === "declCustomer" && lang ? `&lang=${lang}` : ""}`).then((r) => r.json()).then((j: { ok: boolean; data?: MailPreview; error?: string }) => {
       if (!live) return;
       if (j.ok && j.data) setP(j.data); else setErr(j.error ?? "could not be built");
     }).catch((e) => live && setErr(String((e as Error).message)));
     return () => { live = false; };
-  }, [k]);
+  }, [k, lang]);
   const send = async () => {
     setBusy(true); setSample(null);
     try {
@@ -90,6 +101,13 @@ function Preview({ k, d }: { k: MailKey; d: Data }) {
       <CardTitle icon={<MailOutlineIcon />} tint="purple" title={def.title} note="As it goes out today, on a real ticket - nothing is sent from this view" />
       {err && <Typography sx={{ fontSize: "0.84rem", color: RED }}>{err}</Typography>}
       {!p && !err && <Box sx={{ display: "flex", gap: 1, alignItems: "center", py: 2 }}><CircularProgress size={14} /><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Building the mail…</Typography></Box>}
+      {k === "declCustomer" && (
+        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", mb: 1.25 }}>
+          {LANGS.map((l) => (
+            <Button key={l.key} size="small" variant={(lang || "de") === l.key ? "contained" : "outlined"} onClick={() => setLang(l.key)} sx={{ textTransform: "none", minWidth: 0, px: 1.25 }}>{l.label}</Button>
+          ))}
+        </Box>
+      )}
       {p && (
         <>
           <Box sx={{ display: "grid", gridTemplateColumns: "84px minmax(0, 1fr)", rowGap: 0.5, columnGap: 1, mb: 1.25, fontSize: "0.82rem" }}>
@@ -199,7 +217,7 @@ export function MailsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
       </Box>
       <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
         <Box sx={{ px: { xs: 2, md: 2.75 } }}>
-          <CardTitle icon={<HistoryOutlinedIcon />} tint="blue" title={`Every mail sent: ${full(sent.length)}`} note={'Newest first - the owners\' reminders, "⚠️REMINDER: Back Office Ticket" and the mails to AVOR; the way in\'s mails are on Back Office distribution > Way in'} />
+          <CardTitle icon={<HistoryOutlinedIcon />} tint="blue" title={`Every mail sent: ${full(sent.length)}`} note={'Newest first - the owners\' reminders, "⚠️REMINDER: Back Office Ticket", the declarations to the customer and EDA, and the mails to AVOR; the way in\'s mails are on Back Office distribution > Way in'} />
         </Box>
         <SentTable rows={sent} />
       </GlassCard>

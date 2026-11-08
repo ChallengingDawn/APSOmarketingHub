@@ -13,16 +13,15 @@
 
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { hubspotToken } from "@/lib/integrations/status";
-import { esc, sendHubMail, wrap } from "@/lib/notify/mailer";
+import { esc, sendHubMail } from "@/lib/notify/mailer";
 import { isDocLang, renderEmail } from "@/lib/doc/email";
-import { ACT, type Facts } from "./rules";
+import { ACT, certsText, type Facts } from "./rules";
+import { companyOf, customerMail, edaMail, plainHtml } from "./makerMail";
 import { DEMO_PROP, EDA, MAKER_PROP, demoOf, notSending, parseMaker, type MakerFile, type MakerRow, type MakerSend, type MakerState } from "./makerRules";
 
 export { DEMO_PROP, EDA, MAKER_PROP, demoOf, parseMaker, type MakerRow, type MakerSend, type MakerState } from "./makerRules";
 
 const hs = <T>(path: string, method: "GET" | "POST" | "PATCH" | "PUT" = "GET", body?: unknown) => hubspotRetry<T>({ path, method, body });
-const ticketUrl = (id: string) => `https://app-eu1.hubspot.com/contacts/26492587/record/0-5/${id}`;
-const HUB_URL = process.env.HUB_PUBLIC_URL ?? "https://apsomarketinghub-dev.awssandbox.angst-pfister.com";
 
 async function write(id: string, s: MakerState, extra: Record<string, string> = {}) {
   await hs(`/crm/v3/objects/tickets/${id}`, "PATCH", { properties: { [MAKER_PROP]: JSON.stringify(s), ...extra } });
@@ -57,29 +56,6 @@ async function logOnTicket(ticketId: string, to: string, mail: { subject: string
   await hs(`/crm/v4/objects/emails/${e.id}/associations/tickets/${ticketId}`, "PUT", [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 224 }]);
 }
 
-function edaMail(ticketId: string, s: MakerState, company: string | null) {
-  const d = s.decl;
-  const row = (k: string, v: string) => `<tr><td style="padding:5px 12px 5px 0;color:#8b97ac;font-size:13px;white-space:nowrap;vertical-align:top">${esc(k)}</td><td style="padding:5px 0;font-size:14px;color:#15223a">${esc(v)}</td></tr>`;
-  const rows = [
-    ["Customer", `${d.customer[0] ?? company ?? "-"}${d.customerNo ? ` (${d.customerNo})` : ""}`],
-    ["Order / job", [d.order, d.job].filter(Boolean).join(" / ") || "-"],
-    ["Articles", d.positions.map((p) => p.article).join(", ")],
-    ["Issuer", s.signers.issuer ? `${s.signers.issuer.name}, signed ${new Date(s.signers.issuer.at).toLocaleString("de-CH", { timeZone: "Europe/Zurich" })}` : "-"],
-    ["Conformity expert", s.signers.expert ? `${s.signers.expert.name}, signed ${new Date(s.signers.expert.at).toLocaleString("de-CH", { timeZone: "Europe/Zurich" })}` : "-"],
-    ["Sent to the customer", s.send?.to ?? "-"],
-  ];
-  const subject = `Declaration of Conformity | ${d.job || d.order} | ${d.customer[0] ?? company ?? ""}`.trim();
-  const html = wrap({
-    heading: "Declaration of Conformity sent",
-    intro: `The declaration${s.files.length > 1 ? "s" : ""} attached went to the customer today - for EDA's records.`,
-    rows: `<table style="border-collapse:collapse">${rows.map(([k, v]) => row(k, v)).join("")}</table>`,
-    cta: { label: "Open the ticket", href: ticketUrl(ticketId), red: true }, hubUrl: HUB_URL,
-    footer: "Sent by APSOhub (UC & HubSpot Apps > Certificates): every declaration signed on a ticket goes to EDA.",
-  });
-  const text = [`Declaration of Conformity sent - for EDA's records.`, "", ...rows.map(([k, v]) => `${k}: ${v}`), "", ticketUrl(ticketId)].join("\n");
-  return { subject, html, text };
-}
-
 /**
  * One look: every open request whose declaration the conformity expert signed. writing = the engine is Live.
  * company(f) = the ticket's company name, for the EDA subject.
@@ -106,16 +82,21 @@ export async function makerPass(facts: (Facts & { maker?: string | null })[], he
     try {
       const files = await download(s.files);
       const lang = isDocLang(s.send!.lang) ? s.send!.lang : "en";
-      // signed by the company that issued the declaration (SARCLA 08.11.2026: Swiss vs European entity)
-      const mail = renderEmail({ lang, to, company: s.decl?.entity === "ch" ? "APSOparts® AG" : "APSOparts® GmbH" });
-      await sendHubMail({ to, subject: `${tag}${mail.subject}`, html: mail.html, text: mail.text, attachments: files });
+      // the Back Office's own short text, in the issuer's name, signed by the company that issued the declaration
+      // (SARCLA 08.11.2026: Swiss vs European entity; "it should be much less" than the shop's DoC text - makerMail.ts)
+      const issuer = s.signers.issuer?.name ?? s.decl.issuer.name;
+      const c = customerMail(s, lang);
+      const mail = renderEmail({ lang, to, company: companyOf(s.decl), subject: c.subject, body: c.body });
+      await sendHubMail({ to, subject: `${tag}${mail.subject}`, html: mail.html, text: mail.text, attachments: files, fromName: `${issuer} | APSOparts®` });
       customerSent = true;
       mailed++;
       await logOnTicket(f.id, to, mail, files.map((x) => x.filename)).catch((e) => console.warn(`[certificates] maker log ${f.id}: ${(e as Error).message}`));
       let edaError: string | undefined;
       try {
-        const m = edaMail(f.id, s, f.company);
-        await sendHubMail({ to: eda, subject: `${tag}${m.subject}`.slice(0, 180), html: m.html, text: m.text, attachments: files });
+        // as the Back Office writes to EDA - answers go to the issuer (a person, never an inbox; a DEMO: the demo user)
+        const m = edaMail(s, certsText(f), f.company);
+        const replyTo = demo ? demo.email : s.signers.issuer?.email || s.decl.issuer.email || undefined;
+        await sendHubMail({ to: eda, subject: `${tag}${m.subject}`.slice(0, 180), html: plainHtml(m.text), text: m.text, attachments: files, fromName: `${issuer} | APSOparts®`, ...(replyTo ? { replyTo } : {}) });
         mailed++;
       } catch (e) { edaError = (e as Error).message.slice(0, 160); }
       const done: MakerState = { ...claim, status: "sent", sent: { at: new Date().toISOString(), to, eda: edaError ? null : eda, ...(edaError ? { edaError } : {}) }, log: [...(claim.log ?? []), { at: new Date().toISOString(), what: edaError ? `sent to ${to} - EDA failed` : demo ? `DEMO: sent to ${to} (as the customer and as EDA)` : `sent to ${to} and EDA`, by: "APSOhub" }] };
