@@ -7,10 +7,18 @@
 //           hubspot (send the e-mail to HubSpot as a DRAFT - switched off until SARCLA tests it: CONTENT_HUBSPOT_PUSH=on;
 //           a draft is never sent by the hub, a person schedules it)
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
+import { kvGet, kvSet } from "@/lib/db/init";
 import { readBrain } from "@/lib/brain";
 import { s, type KindDef, type StudioCtx } from "../../contract";
 import { asNewsletter, editable, emptyNewsletter, newBlock, newsletterText, renderEmail, textFields, PREHEADER_MAX, SUBJECT_MAX } from "./model";
 import { blocksFrom, digestOf, draftInHubspot, emailParts, ourEmails } from "./hubspotEmails";
+
+/** Drafts to HubSpot: an admin switches them on in the studio (kv), or the hub's CONTENT_HUBSPOT_PUSH=on - no server change. */
+const PUSH_KEY = "content:hubspot_push";
+async function pushOn(): Promise<boolean> {
+  if (process.env.CONTENT_HUBSPOT_PUSH === "on") return true;
+  return (await kvGet<{ on?: boolean }>(PUSH_KEY).catch(() => undefined))?.on === true;
+}
 
 const LANGUAGE: Record<string, string> = { DE: "German", FR: "French", IT: "Italian", EN: "English", NL: "Dutch", PL: "Polish" };
 
@@ -189,9 +197,16 @@ a fact's figure (keep the figure, translate only its unit words).`,
     /** A DRAFT in HubSpot - never sent by the hub. Made from the e-mail the newsletter was started from (its look, footer,
      *  subscription settings) with what was changed here; a person checks it and schedules it in HubSpot.
      *  Switched on by CONTENT_HUBSPOT_PUSH=on (SARCLA's "go" 08.11.2026 for the test). */
+    /** Whether drafts go to HubSpot - and, for an admin, the switch. */
+    pushState: async (ctx) => ({ on: await pushOn(), byEnv: process.env.CONTENT_HUBSPOT_PUSH === "on", admin: ctx.me.admin }),
+    pushSwitch: async (ctx, _doc, input) => {
+      if (!ctx.me.admin) return { ok: false, why: "Only an admin switches HubSpot drafts on or off." };
+      await kvSet(PUSH_KEY, { on: input.on === true, by: ctx.me.username, at: new Date().toISOString() });
+      return { ok: true, on: await pushOn() };
+    },
     hubspot: async (ctx, doc, input) => {
-      if (process.env.CONTENT_HUBSPOT_PUSH !== "on") {
-        return { done: false, why: "Sending drafts to HubSpot is not switched on yet. Download the HTML and paste it into a HubSpot e-mail (custom HTML), or ask an admin to switch it on." };
+      if (!(await pushOn())) {
+        return { done: false, why: "Sending drafts to HubSpot is not switched on yet. Download the HTML and paste it into a HubSpot e-mail (custom HTML), or ask an admin to switch it on (here, under Send it out)." };
       }
       if (input.confirm !== true) return { done: false, why: "Confirm first." };
       const d = asNewsletter(doc);

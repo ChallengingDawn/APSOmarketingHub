@@ -83,6 +83,11 @@ export default function Studio({ api }: StudioProps) {
   const [lang, setLang] = useState(() => (d.language.toUpperCase() === "EN" ? "DE" : "EN"));
   const [translating, setTranslating] = useState(false);
   const [sending, setSending] = useState(false);
+  // drafts to HubSpot: on or off, and the admin's switch (SARCLA 08.11.2026 "go" after the test draft)
+  const [push, setPush] = useState<{ on: boolean; byEnv: boolean; admin: boolean } | null>(null);
+  // once per to-do (the api object is new on every render)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void api.act<{ on: boolean; byEnv: boolean; admin: boolean }>("pushState").then((r) => { if (r.ok) setPush(r.result); }); }, [api.data.piece.id]);
   const [note, setNote] = useState<string | null>(null);
   const docRef = useRef(d);
   docRef.current = d;
@@ -275,6 +280,18 @@ export default function Studio({ api }: StudioProps) {
 
       <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}`, display: "grid", gap: 1 }}>
         <Label mt={0}>Send it out</Label>
+        {push && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, fontSize: "0.8rem", color: MUTED }}>
+            <Box component="span" sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: push.on ? "#1b7a55" : "#9aa5b8" }} />
+            <Box component="span" sx={{ flex: 1 }}>{push.on ? "Drafts go to HubSpot - a person schedules them there" : "Drafts to HubSpot are off"}</Box>
+            {push.admin && !push.byEnv && (
+              <Button size="small" sx={{ ...toolBtn, height: 26 }}
+                onClick={async () => { const r = await api.act<{ ok: boolean; on?: boolean; why?: string }>("pushSwitch", { on: !push.on }); if (r.ok && r.result.ok) setPush({ ...push, on: !!r.result.on }); else setNote(r.ok ? r.result.why ?? null : r.error); }}>
+                {push.on ? "Switch off" : "Switch on"}
+              </Button>
+            )}
+          </Box>
+        )}
         {hub > 0 && (
           <Typography sx={{ fontSize: "0.78rem", color: "#7f4f0b", bgcolor: "#fff8ec", p: 1, borderRadius: "6px" }}>
             {hub === 1 ? "One picture is" : `${hub} pictures are`} kept in the hub. The e-mail carries the hub&apos;s address for {hub === 1 ? "it" : "them"}; readers only see {hub === 1 ? "it" : "them"} once that address is public - or put {hub === 1 ? "it" : "them"} in HubSpot&apos;s files and swap the address.
