@@ -23,7 +23,8 @@ export type MakerState = {
   v: 1;
   status: "draft" | "issuer" | "signed" | "sending" | "sent" | "failed";
   test?: boolean;
-  decl: { date: string; customer: string[]; customerNo: string; order: string; job: string; issuer: { name: string; email: string; code: string }; positions: { article: string; text: string; master: string }[] };
+  /** entity: the issuing company - "ch" APSOparts AG (mandant M100), "eu" APSOparts GmbH (M110); the card sets it from the ticket */
+  decl: { date: string; customer: string[]; customerNo: string; order: string; job: string; issuer: { name: string; email: string; code: string }; positions: { article: string; text: string; master: string }[]; entity?: "ch" | "eu" };
   files: MakerFile[];
   signers: { issuer?: Signer; expert?: Signer };
   send?: { to: string; lang: string; at: string; by: string };
