@@ -211,7 +211,8 @@ export default function Storyboard({ doc, segs, issues, edit, disabled, current,
   const e = doc.endCard;
   const endSeg = segs[segs.length - 1];
   const setEnd = (p: Partial<VideoDoc["endCard"]>) => edit((d) => ({ ...d, endCard: { ...d.endCard, ...p } }));
-  const film = issues.filter((x) => x.scene === "film");
+  // "no scenes yet" is said by the empty storyboard itself
+  const film = doc.scenes.length ? issues.filter((x) => x.scene === "film") : [];
   return (
     <Box onDragEnd={() => setDragging(null)}>
       <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 1.5, lineHeight: 1.45 }}>

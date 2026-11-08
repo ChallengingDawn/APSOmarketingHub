@@ -62,8 +62,8 @@ export const MAX_SCENES = 12;
 export const MIN_BARS = 1;
 export const MAX_BARS = 4;
 export const DEFAULT_CTA = "apsoparts.com";
-/** On-screen reading pace: words a second (subtitles read at ~3; a scene also needs its entrance). */
-export const READ_WPS = 3;
+/** On-screen reading pace: words a second - short kinetic lines read faster than subtitles (~3); plus the entrance. */
+export const READ_WPS = 4;
 
 export type FieldDef = { key: CopyKey; label: string; words: number; chars: number; required?: boolean; placeholder?: string };
 
@@ -254,7 +254,7 @@ export function forbidden(text: string): string | null {
 /** Seconds a scene needs to be read: its words at our pace, plus its entrance. */
 export function readSeconds(s: Pick<Scene, "kind" | "copy">): number {
   const n = KIND_INFO[s.kind].fields.reduce((k, f) => k + wordCount(s.copy[f.key] ?? ""), 0);
-  return n / READ_WPS + 0.5;
+  return n / READ_WPS + 0.3;
 }
 
 /** What to look at before the film goes out: "stop" blocks the export, "warn" is advice. */

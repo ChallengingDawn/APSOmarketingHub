@@ -184,7 +184,7 @@ function keep(v: unknown, max: number, dropped: string[]): string {
   const s = str(v, max);
   if (!s) return "";
   const bad = forbidden(s);
-  if (bad) { dropped.push(`"${plain(s)}" - ${bad}`); return ""; }
+  if (bad) { dropped.push(`"${plain(s)}" (${bad.replace(/\.$/, "").replace(/^\w/, (c) => c.toLowerCase())})`); return ""; }
   return s;
 }
 
