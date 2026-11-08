@@ -244,7 +244,7 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
           <Inserts d={d} list={inserts} remove={removeInsert} canEdit={canEdit} />
         </Row>
       )}
-      <Row id="languages" title="Languages" count={madeLangs.length} state="none" accent="blue" summary={madeLine} open={open === "languages"} onToggle={() => onOpen(open === "languages" ? null : "languages")}>
+      <Row id="languages" title="Languages" count={madeLangs.length > 1 ? madeLangs.length : null} state="none" accent="blue" summary={madeLine} open={open === "languages"} onToggle={() => onOpen(open === "languages" ? null : "languages")}>
         <Languages doc={doc} lang={lang} onLang={onLang} offered={offered} />
       </Row>
       <Row id="notes" title="Notes for the team" state="none" summary={d.notes.trim() ? d.notes.trim().slice(0, 80) : "None"} open={open === "notes"} onToggle={() => onOpen(open === "notes" ? null : "notes")}>
@@ -334,7 +334,7 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
                 </Typography>
               ) : !atStart && canEdit ? (
                 <Button size="small" disabled={!canAi || !!busy} onClick={() => void fill("all")} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />}
-                  sx={{ ...btn, color: PINK, px: 0.75, py: 0.1, fontSize: "0.76rem", minWidth: 0 }}>{isLegacyBody(d) ? "Move the draft in with AI" : "Write it all again"}</Button>
+                  sx={{ ...btn, color: PINK, px: 0.75, py: 0.1, fontSize: "0.76rem", minWidth: 0 }}>{isLegacyBody(d) ? "Move the draft in with AI" : empty ? "Write it all with AI" : "Write it all again"}</Button>
               ) : undefined}>
                 The page{writingAll ? "" : ` · ${writtenParts} of ${parts.length} written`}
               </Kick>

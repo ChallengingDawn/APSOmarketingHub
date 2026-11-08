@@ -117,7 +117,9 @@ export function PictureSlot({ api, pic, set, disabled, aspect = "3:2", path, ctl
   const [up, setUp] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const file = useRef<HTMLInputElement | null>(null);
-  const m = path && ctl ? ctl.making(path) : null;
+  const m0 = path && ctl ? ctl.making(path) : null;
+  // a picture put in after a failed try: the failure is history
+  const m = m0?.state === "error" && pic.url ? null : m0;
   const making = m?.state === "making";
   const canMake = !!ctl && !!path && !!pic.idea.trim() && ctl.imagesOn !== false;
   const upload = async (f: File | undefined) => {

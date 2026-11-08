@@ -443,8 +443,10 @@ ${SELECT_CSS}`;
       if (!el || !dev || !host) return;
       const r = el.getBoundingClientRect();
       const devTop = dev.getBoundingClientRect().top - host.getBoundingClientRect().top + host.scrollTop;
-      const y = devTop + borderRef.current + r.top * zoomRef.current - 64;
-      host.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+      const top = devTop + borderRef.current + r.top * zoomRef.current;
+      // already in view: no jump
+      if (top >= host.scrollTop + 48 && top + Math.min(r.height * zoomRef.current, 160) <= host.scrollTop + host.clientHeight - 24) return;
+      host.scrollTo({ top: Math.max(0, top - 64), behavior: "smooth" });
     }, 90);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps

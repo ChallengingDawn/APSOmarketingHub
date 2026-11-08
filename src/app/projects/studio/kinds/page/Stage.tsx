@@ -359,7 +359,7 @@ function Working({ since }: { since: number }) {
 /** The studio's own marks for the AI at work inside a new page (never in Magento's copy). */
 const BUSY_CSS = `[data-apx-busy]{position:relative!important}
 [data-apx-busy]::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:5;border-radius:inherit;background:linear-gradient(100deg,rgba(255,255,255,0) 25%,rgba(194,44,110,.16) 42%,rgba(255,255,255,.8) 50%,rgba(36,89,209,.14) 58%,rgba(255,255,255,0) 75%);background-size:260% 100%;animation:apx-sheen 1.5s linear infinite}
-section[data-apx-busy]::before{content:"Writing…";position:absolute;top:14px;right:18px;z-index:6;font:600 13px/1 system-ui,"Segoe UI",sans-serif;letter-spacing:.02em;color:#fff;background:#c22c6e;padding:7px 11px;border-radius:5px;box-shadow:0 6px 16px rgba(194,44,110,.3)}
+section[data-apx-busy]::before{content:"Writing…";position:absolute;top:16px;right:20px;z-index:6;font:600 19px/1 system-ui,"Segoe UI",sans-serif;letter-spacing:.02em;color:#fff;background:#c22c6e;padding:10px 16px;border-radius:6px;box-shadow:0 8px 20px rgba(194,44,110,.3)}
 [data-apx-making]{background:linear-gradient(100deg,#e9edf1 25%,#f8e9f0 45%,#ffffff 50%,#e7edf9 55%,#e9edf1 75%)!important;background-size:260% 100%!important;animation:apx-sheen 1.4s linear infinite;border:1.5px solid rgba(194,44,110,.35)!important;color:#c22c6e!important;font-weight:600!important}
 @keyframes apx-sheen{from{background-position:140% 0}to{background-position:-140% 0}}`;
 

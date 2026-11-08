@@ -178,6 +178,14 @@ export default function Studio({ api }: StudioProps) {
     void fetch(`/api/content/assets?scope=project&project=${api.data.piece.projectId}`).then((r) => r.json()).then((j: { ok?: boolean; images?: boolean }) => setImagesOn(j.ok ? j.images !== false : null)).catch(() => setImagesOn(null));
   }, [api.data.piece.projectId]);
   const slotKey = (l: string, path: string) => `${l}|${path}`;
+  // a picture still being made is lost when the page closes (it stays in the project's pictures): say so before
+  const anyMaking = Object.values(making).some((m) => m.state === "making");
+  useEffect(() => {
+    if (!anyMaking) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [anyMaking]);
 
   /** One picture made and put in its slot - unless the person put one there meanwhile (`again`: "Make another" replaces
    * the one there), or the slot is gone. */
@@ -191,7 +199,8 @@ export default function Studio({ api }: StudioProps) {
       const v = viewOf(cur, forLang);
       const pic = getField(v.fields, job.path) as Pic | undefined;
       if (!pic || (pic.url && !again)) return raw;
-      record(`AI made ${fieldLabel(v.fields, job.path).replace(/ · picture$/, "").toLowerCase()}'s picture`, cur, "ai", job.idea);
+      const whose = job.path === "hero.picture" ? "the hero's picture" : `the picture of ${fieldLabel(v.fields, job.path).replace(/ · picture$/, "").toLowerCase()}`;
+      record(`AI made ${whose}`, cur, "ai", job.idea.length > 110 ? `${job.idea.slice(0, 108)}…` : job.idea);
       return withView(cur, forLang, { ...v, fields: setField(v.fields, job.path, { ...pic, url: r.picture.url, alt: pic.alt || job.idea.slice(0, 120) }) });
     });
     setMaking((m) => { const n = { ...m }; delete n[key]; return n; });

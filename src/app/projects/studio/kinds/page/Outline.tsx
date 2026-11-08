@@ -118,9 +118,10 @@ export function PartsOutline({ api, f, set, store, canEdit, canAi, fill, busy, o
     <RowList>
       {parts.map((p) => {
         const isBusy = writing.includes(p.key);
+        const pics = makingIn(p.key);
         return (
-          <Row key={p.key} id={p.key} title={p.name} count={p.count} state={isBusy ? "busy" : p.state} summary={summaryOf(p, makingIn(p.key))}
-            busyLabel={busy === "all" ? "Writing with the whole page…" : "Writing…"} open={open === p.key} onToggle={() => onOpen(open === p.key ? null : p.key)}
+          <Row key={p.key} id={p.key} title={p.name} count={p.count} state={isBusy || pics ? "busy" : p.state} summary={summaryOf(p, pics)}
+            busyLabel={isBusy ? "Writing…" : `Making ${pics === 1 ? "the picture" : `${pics} pictures`}…`} open={open === p.key} onToggle={() => onOpen(open === p.key ? null : p.key)}
             onAi={canEdit ? () => void fill(PART_RUN[p.key]) : undefined} aiLabel={AI_LABEL[p.key]} canAi={canAi && !busy}>
             <PartBody api={api} part={p.key} f={f} set={set} store={store} canEdit={canEdit} canAi={canAi} fill={fill} busy={busy}
               focusPath={focusPath} selBlock={selBlock} onFocusPath={onFocusPath} pictures={pictures} />
