@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { markerOf } from "@/lib/convert/handoff";
 import Autocomplete from "@mui/material/Autocomplete";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -153,6 +154,22 @@ function BriefCard({ w, act }: { w: Work; act: Act }) {
 }
 
 /** While the project is read: the page's shape, not a sentence. */
+/** A project made by AI testing & personalization says so, with the way back: its test and the page in Preview
+ *  (08.11.2026 - the brief's marker "[APSOconvert page env:path test:<id>]", lib/convert/handoff.ts). */
+function FromConvert({ brief }: { brief: string | null }) {
+  const m = markerOf(brief);
+  if (!m) return null;
+  const link = { color: INK, fontWeight: 600, textDecoration: "underline", textUnderlineOffset: "2px" } as const;
+  return (
+    <Typography sx={{ fontSize: "0.84rem", color: MUTED, mt: 0.75 }}>
+      From <b style={{ color: INK }}>AI testing &amp; personalization</b>:{" "}
+      {m.testId && <><Box component={Link} href={`/website/ai-personalization/tests/${m.testId}`} sx={link}>test #{m.testId}</Box> · </>}
+      <Box component={Link} href={`/website/ai-personalization/preview?env=${m.env}&path=${encodeURIComponent(m.path)}`} sx={link}>the page in Preview</Box>
+      <Box component="span" sx={{ color: MUTED }}> ({m.env === "acc" ? "ACC " : ""}{m.path})</Box>
+    </Typography>
+  );
+}
+
 function Loading() {
   return (
     <Box sx={{ display: "grid", gap: 2.25 }}>
@@ -255,6 +272,7 @@ export default function ProjectWorkspace({ id }: { id: number }) {
                 }} />
             </Box>
             {w.brief.goal && <Typography sx={{ fontSize: "0.95rem", color: MUTED, mt: 0.5 }}>{w.brief.goal}</Typography>}
+            <FromConvert brief={w.project.brief} />
           </Box>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.25, alignItems: "center" }}>
             <Faces people={team} names={names} owner={w.project.createdBy} size={30} max={7} />

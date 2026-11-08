@@ -11,6 +11,10 @@
 // empty while half the plan is missing from it. Dragging from that column
 // onto a square is how a project gets scheduled, which is the one gesture
 // worth building here.
+//
+// Other apps put their own dated entries here too (08.11.2026, lib/content/calendarEvents.ts): AI testing &
+// personalization's page tests - when one starts, its planned end, a winner published - squared and named after the
+// app they come from, so a page change is planned with the content around it.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -22,6 +26,7 @@ import Typography from "@mui/material/Typography";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import EventBusyIcon from "@mui/icons-material/EventBusy";
+import FolderOpenOutlinedIcon from "@mui/icons-material/FolderOpenOutlined";
 
 import { FAINT, GlassCard, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import {
@@ -35,6 +40,7 @@ import {
   WEEKDAYS,
 } from "@/lib/content/calendar";
 import { STATUS_LABEL, type PieceStatus } from "@/lib/content/pieceRules";
+import { KIND_LABEL, SOURCE_NAME, type CalendarEvent } from "@/lib/content/calendarEventRules";
 import { TINT } from "@/app/uc/report/ui";
 import { STATUS_TINT } from "./work/ui";
 import { KindTile } from "./work/kinds";
@@ -72,6 +78,7 @@ export default function ContentCalendar() {
   const [pieces, setPieces] = useState<DatedPiece[]>([]);
   const [dragging, setDragging] = useState<Drag>(null);
   const [over, setOver] = useState<string | null>(null);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
 
   const load = useCallback(() => {
     fetch("/api/content/projects?scope=visible")
@@ -87,6 +94,22 @@ export default function ContentCalendar() {
   useEffect(load, [load]);
 
   const weeks = useMemo(() => monthGrid(at.year, at.month), [at]);
+  // the other apps' entries for the days on screen
+  useEffect(() => {
+    const days = weeks.flat();
+    if (!days.length) return;
+    let gone = false;
+    fetch(`/api/content/calendar/events?from=${days[0].iso}&to=${days[days.length - 1].iso}`)
+      .then((r) => r.json())
+      .then((j) => { if (!gone) setEvents(j.ok ? j.events : []); })
+      .catch(() => { if (!gone) setEvents([]); });
+    return () => { gone = true; };
+  }, [weeks]);
+  const eventsOn = useMemo(() => {
+    const m = new Map<string, CalendarEvent[]>();
+    for (const e of events) (m.get(e.day) ?? m.set(e.day, []).get(e.day)!).push(e);
+    return m;
+  }, [events]);
   // a project whose pieces have their dates shows through them, not a second time on its own date
   const dated = useMemo(() => {
     const withPieces = new Set(pieces.filter((x) => x.dueDate).map((x) => x.projectId));
@@ -130,6 +153,27 @@ export default function ContentCalendar() {
       </Box>
     );
   };
+
+  // another app's entry: squared, in petrol, named after its app; a click opens it there, the small square its Content project
+  const eventChip = (e: CalendarEvent) => (
+    <Box key={`e${e.source}:${e.key}`} sx={{
+      display: "flex", alignItems: "center", gap: 0.4, mb: 0.4, borderRadius: "3px", border: "1px solid rgba(39,78,100,.35)",
+      bgcolor: "rgba(39,78,100,.07)", color: "#274e64", overflow: "hidden",
+    }}>
+      <Box component={Link} href={e.href} title={`${SOURCE_NAME[e.source]} · ${KIND_LABEL[e.kind]}\n${e.title}${e.path ? `\n${e.env === "acc" ? "ACC " : ""}${e.path}` : ""}`}
+        sx={{ flex: 1, minWidth: 0, px: 0.75, py: 0.35, textDecoration: "none", color: "inherit", fontSize: "0.7rem", fontWeight: 600, lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <Box component="span" sx={{ fontWeight: 800, letterSpacing: ".02em" }}>{e.kind === "winner-published" ? "WINNER" : "TEST"}</Box> {e.title}
+      </Box>
+      {e.projectId && (
+        <Tooltip title="Its Content project">
+          <Box component={Link} href={`/projects/${e.projectId}`} aria-label="Its Content project"
+            sx={{ flex: "0 0 auto", alignSelf: "stretch", display: "grid", placeItems: "center", px: 0.5, borderLeft: "1px solid rgba(39,78,100,.25)", color: "inherit", textDecoration: "none", fontSize: "0.66rem", fontWeight: 800 }}>
+            <FolderOpenOutlinedIcon sx={{ fontSize: 13 }} />
+          </Box>
+        </Tooltip>
+      )}
+    </Box>
+  );
 
   const schedule = async (id: number, iso: string | null) => {
     // Optimistic: the chip lands on the square under the cursor and the
@@ -188,7 +232,7 @@ export default function ContentCalendar() {
         </Button>
         <Box sx={{ flex: 1 }} />
         <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
-          Projects and their pieces on their dates. Drag one onto a day to plan it.
+          Projects and their pieces on their dates, with AI testing &amp; personalization&apos;s page tests. Drag one onto a day to plan it.
         </Typography>
       </Box>
 
@@ -205,7 +249,8 @@ export default function ContentCalendar() {
             {weeks.flat().map((day) => {
               const here = dated.get(day.iso) ?? [];
               const herePieces = piecesOn.get(day.iso) ?? [];
-              const room = Math.max(0, 4 - here.length);
+              const hereEvents = eventsOn.get(day.iso) ?? [];
+              const room = Math.max(0, 4 - here.length - Math.min(2, hereEvents.length));
               const isToday = day.iso === today;
               return (
                 <Box
@@ -237,11 +282,12 @@ export default function ContentCalendar() {
                   </Typography>
                   {/* Four, then a count. A square that scrolls is a square
                       nobody can read at a glance. */}
-                  {here.slice(0, 4).map((p) => chip(p, isPast(day.iso, today) && !p.chosenVariantId))}
+                  {hereEvents.slice(0, 2).map(eventChip)}
+                  {here.slice(0, 4 - Math.min(2, hereEvents.length)).map((p) => chip(p, isPast(day.iso, today) && !p.chosenVariantId))}
                   {herePieces.slice(0, room).map((x) => pieceChip(x, isPast(day.iso, today) && x.status !== "approved" && x.status !== "live"))}
-                  {here.length + herePieces.length > 4 && (
+                  {here.length + herePieces.length + hereEvents.length > 4 && (
                     <Typography sx={{ fontSize: "0.68rem", color: FAINT, pl: 0.75 }}>
-                      + {here.length + herePieces.length - 4} more
+                      + {here.length + herePieces.length + hereEvents.length - 4} more
                     </Typography>
                   )}
                 </Box>
