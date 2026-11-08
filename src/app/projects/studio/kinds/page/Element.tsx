@@ -10,7 +10,6 @@ import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
-import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
@@ -316,12 +315,13 @@ export function ElementPane({ api, view, setView, sel, onClose, fill, busy, canA
   fill: FillRun; busy: string | null; canAi: boolean; onEditInPage: () => void; onAskAi: () => void; inserts: InsertOut[] | null; record: (label: string) => void;
 }) {
   const isField = sel.key.startsWith("f:") || sel.key.startsWith("b:");
+  // inside the outline's "Selected" row (./Build.tsx): its title says what it is - here only the way to the AI and out
   return (
     <Box>
-      <Box sx={{ display: "flex", alignItems: "center", mb: 1.5, gap: 1 }}>
-        <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: PINK, flex: 1 }}>Selected</Typography>
-        <Button size="small" onClick={onAskAi} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, color: PINK }}>Change it with AI</Button>
-        <IconButton size="small" onClick={onClose} aria-label="Unselect"><CloseIcon sx={{ fontSize: 18 }} /></IconButton>
+      <Box sx={{ display: "flex", alignItems: "center", mb: 1, gap: 0.5, mx: -0.75 }}>
+        <Button size="small" onClick={onAskAi} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, color: PINK, px: 0.75 }}>Change it with AI</Button>
+        <Box sx={{ flex: 1 }} />
+        <Button size="small" onClick={onClose} startIcon={<CloseIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, color: MUTED, px: 0.75 }}>Unselect</Button>
       </Box>
       {sel.key.startsWith("i:") ? (
         <InsertPanel view={view} setView={(v) => setView(v)} id={sel.key.slice(2)} inserts={inserts} record={record} />

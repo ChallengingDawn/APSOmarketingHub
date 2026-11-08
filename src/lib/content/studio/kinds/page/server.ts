@@ -53,7 +53,8 @@ import { convertPages, counterpartOf, findPages, insertsOf, outlineOf, pasteOf, 
 
 const SHOP = `APSOparts (apsoparts.com) is the online shop of Angst+Pfister: technical parts for industry - seals and O-rings,
 plastics, fluid handling, drive technology, anti-vibration, sensors. Buyers are companies: engineers, purchasers,
-maintenance. Store views are language-COUNTRY (de-CH, fr-CH, it-CH, en-INT, fr-FR, it-IT, nl-NL, pl-PL). The shop's look:
+maintenance. Store views are language-COUNTRY (de-CH, de-DE, de-AT, de-INT, fr-CH, fr-FR, fr-INT, it-CH, it-IT, it-INT,
+en-INT, nl-NL, nl-INT, pl-PL). The shop's look:
 petrol #274e64 (headings, main buttons), red #d80901 only for small accents, text #5e5e5e, font futura-pt, white cards
 on a light grey ground (#f2f4f5), product photos on white, generous white space. Product pages list ARTICLES (sizes,
 variants) in a table with quantity, availability, delivery date and price - the theme draws that table after loading.`;
@@ -545,8 +546,9 @@ const publish: ServerAction = async (ctx, raw) => {
 };
 
 let storesHeld: { at: number; list: { store: string; prod: number; acc: number }[] } | null = null;
-const stores: ServerAction = async () => {
-  if (storesHeld && Date.now() - storesHeld.at < 10 * 60_000) return { stores: storesHeld.list };
+/** The store views the shop's page index holds, with their pages - kept ten minutes. */
+async function storeList(): Promise<{ store: string; prod: number; acc: number }[]> {
+  if (storesHeld && Date.now() - storesHeld.at < 10 * 60_000) return storesHeld.list;
   const sum = await pagesSummary();
   const by = new Map<string, { store: string; prod: number; acc: number }>();
   for (const c of sum.cells) {
@@ -557,8 +559,11 @@ const stores: ServerAction = async () => {
   }
   const list = [...by.values()].sort((a, b) => a.store.localeCompare(b.store));
   storesHeld = { at: Date.now(), list };
-  return { stores: list };
-};
+  return list;
+}
+const stores: ServerAction = async () => ({ stores: await storeList() });
+/** The shop's store views as names ("de-CH", ...) - none when the index cannot be read (the model's own list stands in). */
+const shopStores = async () => (await storeList().catch(() => [])).map((x) => x.store);
 
 const STORE_RE = /^[a-z]{2}-[A-Z]{2,3}(\/[a-z]{3})?$/;
 const pages: ServerAction = async (_ctx, _raw, input) => {
@@ -590,8 +595,9 @@ const readOutline: ServerAction = async (ctx, raw, input) => {
 const langIn = (input: Record<string, unknown>) => (typeof input.lang === "string" && /^[a-z]{2}$/.test(input.lang) ? input.lang : null);
 const preview: ServerAction = async (_ctx, raw, input) =>
   previewOf(raw, input.side === "before" ? "before" : input.side === "shell" ? "shell" : "after", input.fresh === true, langIn(input));
-const paste: ServerAction = async (_ctx, raw, input) => pasteOf(raw, langIn(input));
-const counterpart: ServerAction = async (_ctx, raw, input) => counterpartOf(raw, langIn(input) ?? "fr");
+const paste: ServerAction = async (_ctx, raw, input) => pasteOf(raw, langIn(input), await shopStores());
+const counterpart: ServerAction = async (_ctx, raw, input) =>
+  counterpartOf(raw, langIn(input) ?? "fr", typeof input.store === "string" && STORE_RE.test(input.store) ? input.store : null);
 
 /** The category and product pages a new page may link to: the words of the brief and the page's title, in its store. */
 const candidates: ServerAction = async (ctx, raw, input) => {

@@ -42,6 +42,8 @@ export type SelectOpts = {
   onEdit?: (p: Picked, v: { text: string; inner: string; outer: string }) => void;
   /** a request to start editing the selected element's words in place (the toolbar's "Edit words") */
   editNonce?: number;
+  /** a selection made outside the page (the outline): the stage scrolls to it, smoothly */
+  reveal?: number;
 };
 
 /* ── the studio's own look inside the page ────────────────────────────── */
@@ -240,7 +242,8 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
     const v = key.slice(2);
     try {
       if (key.startsWith("f:")) return d.querySelector(`[data-apx-f="${CSS.escape(v)}"]`);
-      if (key.startsWith("b:")) return d.querySelector(`[data-apx-b="${CSS.escape(v)}"]`);
+      // a list part opened in the outline ("b:sections"): its first item when it has items
+      if (key.startsWith("b:")) return d.querySelector(`[data-apx-b="${CSS.escape(v)}"]`) ?? (v.includes(".") ? null : d.querySelector(`[data-apx-b^="${CSS.escape(v)}."]`));
       if (key.startsWith("i:")) return d.querySelector(`[data-apx-insert="${CSS.escape(v)}"]`);
       return v ? d.querySelector(v) : null;
     } catch { return null; }
@@ -425,6 +428,30 @@ ${SELECT_CSS}`;
   const zoom = fit ? Math.min(1, (Math.min(avail, maxWidth ?? avail) - 8) / w) : 1;
   const mobile = device === "mobile";
   const border = mobile ? 8 : 1;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const borderRef = useRef(border);
+  borderRef.current = border;
+
+  // a part opened in the outline: the stage scrolls to it (SARCLA 08.11.2026: "more fluid")
+  useEffect(() => {
+    if (!select?.reveal) return;
+    const t = setTimeout(() => {
+      const d = docOf();
+      const el = d ? findSelected(d, sel.current?.selected ?? null) : null;
+      const dev = deviceBox.current;
+      const host = box.current?.closest("[data-stage-scroll]") as HTMLElement | null;
+      if (!el || !dev || !host) return;
+      const r = el.getBoundingClientRect();
+      const devTop = dev.getBoundingClientRect().top - host.getBoundingClientRect().top + host.scrollTop;
+      const top = devTop + borderRef.current + r.top * zoomRef.current;
+      // already in view: no jump
+      if (top >= host.scrollTop + 48 && top + Math.min(r.height * zoomRef.current, 160) <= host.scrollTop + host.clientHeight - 24) return;
+      host.scrollTo({ top: Math.max(0, top - 64), behavior: "smooth" });
+    }, 90);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [select?.reveal]);
   const dev = deviceBox.current;
   const tbLeft = dev && selRect ? dev.offsetLeft + border + selRect.x * zoom : 0;
   const tbTopRaw = dev && selRect ? dev.offsetTop + border + selRect.y * zoom - 44 : 0;

@@ -3,27 +3,34 @@
 // also contain A/B testing possibility, live preview of the pages, editing page, select a page to modify"; then, the
 // same day: "it should be a real AI-assisted CMS").
 //
-// Build on the left (a new page's fields, or a shop page and its changes; the element selected; the test; Magento), the
-// page itself in the middle - in the language chosen, as the shop will show it, every element selectable and its words
-// editable in place - and the assistant on the right, for the whole page or the element selected, every change it makes
-// listed with an Undo. A page is published in several languages: each is its own version, made by translating the
-// whole page (the assistant) and then changed as it needs.
+// Build on the left - the page's parts as one short outline, a click opens one part (./Build.tsx, ./Outline.tsx), the
+// last step (Magento, or Publish for a test's winner) pinned at its foot; the page itself in the middle - in the
+// language chosen, as the shop will show it, every element selectable and its words editable in place - and the
+// assistant on the right, for the whole page or the element selected, every change it makes listed with an Undo. A page
+// is published in every language the shop has (SARCLA that evening: "we should have all locales: NL, PL"): each is its own
+// version, made by translating the whole page and then changed as it needs.
+//
+// When the AI writes, the parts it writes shimmer in the outline and in the page from the moment of the click; once it
+// wrote, the pictures it had an idea for are made, a few side by side, each landing in its slot (SARCLA: "AI wrote the
+// whole page ... It's not generating photos").
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fieldLabel, setField } from "@/lib/content/studio/kinds/page/fields";
+import { fieldLabel, getField, setField, type Pic } from "@/lib/content/studio/kinds/page/fields";
 import { PART_LABEL, mergeField, mergeFill, type Candidate, type FillAnswer, type Part } from "@/lib/content/studio/kinds/page/fill";
 import {
-  emptyPage, isLegacyBody, langName, langsOf, mainLang, pageDoc, sourceHash, storeForLanguage, viewOf, withView,
-  type LangVersion, type Leftover, type PageDoc,
+  emptyPage, isLegacyBody, langName, mainLang, pageDoc, shopLanguages, sourceHash, storeForLanguage, viewOf, withView,
+  type LangOption, type LangVersion, type Leftover, type PageDoc,
 } from "@/lib/content/studio/kinds/page/model";
+import { BLOCK_OF, PART_KEYS, PART_NAME, busyOf, partOfPath, picturesToMake, type PartKey, type PictureJob } from "@/lib/content/studio/kinds/page/outline";
 import type { Change } from "@/lib/convert/versions";
 import { StudioPanes, type QuickAsk } from "../../parts";
+import { makePicture } from "../../pictures";
 import type { StudioProps } from "../../registry";
 import { Assistant, type Entry, type Idea, type SeoCard } from "./Assistant";
 import { Build, type Step } from "./Build";
 import { applyElementEdit } from "./edits";
 import type { Selection } from "./Element";
-import type { FillRun } from "./Fields";
+import type { FillRun, Making, PictureCtl } from "./Fields";
 import type { Picked } from "./Frame";
 import { PagePicker, type Picked as PickedPage } from "./PagePicker";
 import { setDocSafely } from "./safeSet";
@@ -33,6 +40,9 @@ type Rewrite = { summary: string; changes: Change[]; problems: string[]; leftove
 type Translated = { fields?: PageDoc["fields"]; changes?: Change[]; from: string; missing: number; leftovers: string[]; problems: string[] };
 
 let entryId = 0;
+
+/** Pictures made side by side, at most. */
+const AT_ONCE = 3;
 
 export default function Studio({ api }: StudioProps) {
   const doc = useMemo(() => pageDoc(api.doc, api.data.piece.language), [api.doc, api.data.piece.language]);
@@ -48,11 +58,15 @@ export default function Studio({ api }: StudioProps) {
   const isNew = d.source === "new";
 
   const [step, setStep] = useState<Step>("page");
+  const [open, setOpen] = useState<string | null>(null);
   const [sel, setSelState] = useState<Selection | null>(null);
   const [editNonce, setEditNonce] = useState(0);
+  const [reveal, setReveal] = useState(0);
   const [view, setViewMode] = useState<View>("after");
   const [picking, setPicking] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusyState] = useState<string | null>(null);
+  const [since, setSince] = useState<number | null>(null);
+  const setBusy = (b: string | null) => { setBusyState(b); setSince(b ? Date.now() : null); };
   const [history, setHistory] = useState<Entry[]>([]);
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [seo, setSeo] = useState<SeoCard | null>(null);
@@ -65,8 +79,20 @@ export default function Studio({ api }: StudioProps) {
   const preview = usePagePreview(api, d, lang, view);
   const { shell, inserts } = useShell(api, d, preview.fresh);
 
+  /* ── the shop's languages: every store view it has ───────────────────── */
+
+  const [stores, setStores] = useState<string[]>([]);
+  useEffect(() => {
+    void api.act<{ stores: { store: string }[] }>("stores").then((r) => { if (r.ok) setStores(r.result.stores.map((s) => s.store)); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const offered: LangOption[] = useMemo(() => shopLanguages(stores, doc.store), [stores, doc.store]);
+  const offeredRef = useRef(offered);
+  offeredRef.current = offered;
+  const storeFor = (l: string) => offeredRef.current.find((o) => o.lang === l)?.store ?? storeForLanguage(l, docRef.current.store, stores);
+
   // the main language follows the page (a page picked in fr-CH makes French the main one)
-  useEffect(() => { if (!langsOf(doc).includes(lang)) setLangState(main); }, [main, doc, lang]);
+  useEffect(() => { if (!offered.some((o) => o.lang === lang)) setLangState(main); }, [main, offered, lang]);
 
   // the first open: the brief kept for the AI; a landing page starts as a new page; a page from AI testing taken over
   const started = useRef(false);
@@ -97,9 +123,36 @@ export default function Studio({ api }: StudioProps) {
     setSelState(null);
   };
 
-  const setLang = (l: string) => { setLangState(l); setSelState(null); setPicking(false); if (step === "element") setStep("page"); };
-  const setSel = (s: Selection | null) => { setSelState(s); if (!s && step === "element") setStep("page"); };
-  const onPick = (p: Picked | null) => { if (!p) { setSel(null); return; } setSelState({ key: p.key, picked: p }); setStep("element"); };
+  /* ── what is selected: the outline and the page say the same ─────────── */
+
+  const setLang = (l: string) => { setLangState(l); setSelState(null); setPicking(false); setStep("page"); if (open === "selected") setOpen(null); };
+  const setSel = (s: Selection | null) => { setSelState(s); if (!s && open === "selected") setOpen(null); };
+  /** a click in the page: its part opens on the left (a new page), or the element selected (a page of the shop) */
+  const onPick = (p: Picked | null) => {
+    if (!p) { setSel(null); return; }
+    setSelState({ key: p.key, picked: p });
+    setStep("page");
+    if (p.key.startsWith("f:") || p.key.startsWith("b:")) { const part = partOfPath(p.key.slice(2)); if (part) setOpen(part); }
+    else setOpen("selected");
+  };
+  /** a part opened on the left: selected in the page, which scrolls to it */
+  const onOpenPart = (part: PartKey | null) => {
+    setOpen(part);
+    const block = part ? BLOCK_OF[part] : null;
+    if (part && block) { setSelState({ key: `b:${block}`, picked: null }); setReveal((n) => n + 1); }
+    else setSelState(null);
+  };
+  /** a field in focus on the left: selected in the page */
+  const onFocusPath = (path: string) => {
+    const key = `f:${path}`;
+    if (sel?.key === key) return;
+    setSelState({ key, picked: null });
+    setReveal((n) => n + 1);
+  };
+  const onOpenRow = (row: string | null) => {
+    if ((PART_KEYS as readonly string[]).includes(row ?? "")) { onOpenPart(row as PartKey); return; }
+    setOpen(row);
+  };
   const askAi = () => { if (fold.assist) toggleFold("assist"); setTimeout(() => askRef.current?.focus(), 60); };
 
   /* ── an element's words edited in the page ───────────────────────────── */
@@ -115,6 +168,68 @@ export default function Studio({ api }: StudioProps) {
     setSelState((s) => (s && s.key === p.key && s.picked ? { ...s, picked: { ...s.picked, text: v.text, inner: v.inner, outer: v.outer } } : s));
   };
 
+  /* ── pictures: made from the AI's idea, each in its slot ─────────────── */
+
+  const [making, setMaking] = useState<Record<string, Making>>({});
+  const makingRef = useRef(making);
+  makingRef.current = making;
+  const [imagesOn, setImagesOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    void fetch(`/api/content/assets?scope=project&project=${api.data.piece.projectId}`).then((r) => r.json()).then((j: { ok?: boolean; images?: boolean }) => setImagesOn(j.ok ? j.images !== false : null)).catch(() => setImagesOn(null));
+  }, [api.data.piece.projectId]);
+  const slotKey = (l: string, path: string) => `${l}|${path}`;
+  // a picture still being made is lost when the page closes (it stays in the project's pictures): say so before
+  const anyMaking = Object.values(making).some((m) => m.state === "making");
+  useEffect(() => {
+    if (!anyMaking) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [anyMaking]);
+
+  /** One picture made and put in its slot - unless the person put one there meanwhile (`again`: "Make another" replaces
+   * the one there), or the slot is gone. */
+  const makeOne = async (forLang: string, job: PictureJob, again = false) => {
+    const key = slotKey(forLang, job.path);
+    setMaking((m) => ({ ...m, [key]: { state: "making" } }));
+    const r = await makePicture(job.idea, job.aspect, { projectId: api.data.piece.projectId, pieceId: api.data.piece.id });
+    if (!r.ok) { setMaking((m) => ({ ...m, [key]: { state: "error", error: r.error } })); return false; }
+    api.setDoc((raw: unknown) => {
+      const cur = pageDoc(raw, api.data.piece.language);
+      const v = viewOf(cur, forLang);
+      const pic = getField(v.fields, job.path) as Pic | undefined;
+      if (!pic || (pic.url && !again)) return raw;
+      const whose = job.path === "hero.picture" ? "the hero's picture" : `the picture of ${fieldLabel(v.fields, job.path).replace(/ · picture$/, "").toLowerCase()}`;
+      record(`AI made ${whose}`, cur, "ai", job.idea.length > 110 ? `${job.idea.slice(0, 108)}…` : job.idea);
+      return withView(cur, forLang, { ...v, fields: setField(v.fields, job.path, { ...pic, url: r.picture.url, alt: pic.alt || job.idea.slice(0, 120) }) });
+    });
+    setMaking((m) => { const n = { ...m }; delete n[key]; return n; });
+    return true;
+  };
+
+  /** The pictures of what the AI just wrote, made a few side by side, each landing in its slot as it comes. */
+  const autoPictures = async (forLang: string, run: string, id?: string | null) => {
+    const v = viewOf(docRef.current, forLang);
+    const jobs = picturesToMake(v.fields, run, id).filter((j) => makingRef.current[slotKey(forLang, j.path)]?.state !== "making");
+    if (!jobs.length) return;
+    if (imagesOn === false) {
+      setMaking((m) => ({ ...m, ...Object.fromEntries(jobs.map((j) => [slotKey(forLang, j.path), { state: "error", error: "Pictures cannot be made on this hub - its image model is not set up. Upload one instead." } as Making])) }));
+      return;
+    }
+    setMaking((m) => ({ ...m, ...Object.fromEntries(jobs.map((j) => [slotKey(forLang, j.path), { state: "making" } as Making])) }));
+    let next = 0;
+    const worker = async () => { while (next < jobs.length) { const j = jobs[next++]; await makeOne(forLang, j); } };
+    await Promise.all(Array.from({ length: Math.min(AT_ONCE, jobs.length) }, worker));
+  };
+
+  const pictures: PictureCtl = {
+    making: (path) => making[slotKey(lang, path)] ?? null,
+    make: (path, idea) => { void makeOne(langRef.current, { path, idea, aspect: "3:2" }, true); },
+    imagesOn,
+  };
+  const makingPaths = Object.entries(making).filter(([k, m]) => m.state === "making" && k.startsWith(`${lang}|`)).map(([k]) => k.slice(lang.length + 1));
+  const makingIn = (part: PartKey) => makingPaths.filter((p) => partOfPath(p) === part).length;
+
   /* ── the AI ──────────────────────────────────────────────────────────── */
 
   const candidates = async (): Promise<Candidate[]> => {
@@ -128,6 +243,7 @@ export default function Studio({ api }: StudioProps) {
     const key = part === "section" ? `section:${opts.id}` : part === "field" ? `field:${opts.id}` : part;
     setBusy(key);
     const forLang = langRef.current;
+    let wrote = false;
     try {
       if (part === "field") {
         const path = opts.id ?? "";
@@ -142,8 +258,13 @@ export default function Studio({ api }: StudioProps) {
       if (!r.ok) return r.error;
       if (!Object.keys(r.result.answer).length) return "Nothing came back - ask again.";
       await applyView((cur) => ({ ...cur, fields: mergeFill(cur.fields, r.result.answer, opts.id) }), `AI wrote ${PART_LABEL[part as Part]}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
+      wrote = true;
       return checkNote(r.result.leftovers);
-    } finally { setBusy(null); }
+    } finally {
+      setBusy(null);
+      // its pictures, made without another click - once the words are saved
+      if (wrote && (part === "all" || part === "hero" || part === "sections" || part === "section")) setTimeout(() => void autoPictures(forLang, part, opts.id), 50);
+    }
   };
 
   const ensureOutline = async (forLang: string) => {
@@ -165,7 +286,7 @@ export default function Studio({ api }: StudioProps) {
       if (!r.result.changes.length) return `No usable change came back${r.result.problems.length ? `: ${r.result.problems.join("; ")}` : ""}. Ask again, in other words.`;
       await applyView((cur) => ({ ...cur, changes: r.result.changes }), scope ? "AI changed the element" : "AI changed the page", r.result.summary || request, forLang);
       setIdeas([]);
-      if (!scope) setStep("changes");
+      if (!scope) { setStep("page"); setOpen("changes"); }
       const left = checkNote(r.result.leftovers);
       return [r.result.problems.length ? `Left out: ${r.result.problems.join("; ")}` : null, left].filter(Boolean).join(" ") || null;
     } finally { setBusy(null); }
@@ -176,17 +297,20 @@ export default function Studio({ api }: StudioProps) {
     const cur0 = docRef.current;
     const from = mainLang(cur0);
     if (to === from) return `${langName(to)} is the page's own language.`;
+    setLangState(to);
+    setSelState(null);
+    setStep("page");
     setBusy(`translate:${to}`);
     try {
       let path = "";
-      let store = storeForLanguage(to);
+      let store = storeFor(to);
       if (cur0.source !== "new") {
         path = cur0.langs[to]?.path ?? "";
         if (!path) {
-          const c = await api.act<{ ok: boolean; path: string | null; store: string | null; error?: string }>("counterpart", { lang: to });
+          const c = await api.act<{ ok: boolean; path: string | null; store: string | null; error?: string }>("counterpart", { lang: to, store });
           if (!c.ok) return c.error;
           if (!c.result.ok) return c.result.error ?? "The page could not be read.";
-          if (!c.result.path) { setLangState(to); setPicking(true); return `The shop's ${langName(to)} page could not be found by itself - pick it in the middle, then translate again.`; }
+          if (!c.result.path) { setPicking(true); return `The shop's ${langName(to)} page could not be found by itself - pick it in the middle, then translate again.`; }
           path = c.result.path;
         }
         store = path.split("/")[1] || store;
@@ -218,7 +342,7 @@ export default function Studio({ api }: StudioProps) {
         }
         if (rl.ok && rl.result.missing.length) relinked = ` ${rl.result.missing.length} link${rl.result.missing.length === 1 ? " has" : "s have"} no ${langName(to)} page on the shop and still point${rl.result.missing.length === 1 ? "s" : ""} to the ${langName(from)} one.`;
       }
-      return [r.result.problems.length ? r.result.problems.join("; ") : null, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || `The ${langName(to)} page is made - it shows now, its links to the shop's ${langName(to)} pages. Change what you like; it is its own page.${relinked}`;
+      return [r.result.problems.length ? r.result.problems.join("; ") : null, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || `The ${langName(to)} page is made (${store}) - its links go to the shop's ${langName(to)} pages. Change what you like; it is its own page.${relinked}`;
     } finally { setBusy(null); }
   };
 
@@ -237,16 +361,15 @@ export default function Studio({ api }: StudioProps) {
 
   /* ── the quick asks ──────────────────────────────────────────────────── */
 
-  const others = langsOf(doc).filter((l) => l !== main);
-  const translateAsks: QuickAsk[] = others.map((l) => ({
-    label: doc.langs[l] ? `Translate into ${langName(l)} again` : `Translate the whole page into ${langName(l)}`,
-    run: () => translate(l),
-  }));
+  const others = offered.map((o) => o.lang).filter((l) => l !== main);
   const scope = sel?.picked ?? null;
-  const scopeLabel = !sel ? null : sel.key.startsWith("f:") || sel.key.startsWith("b:") ? fieldLabel(d.fields, sel.key.slice(2)) : sel.key.startsWith("i:") ? "A banner" : scope ? `<${scope.tag}> ${scope.text.slice(0, 60)}` : null;
+  const wholePart = sel?.key.startsWith("b:") ? partOfPath(sel.key.slice(2)) : null;
+  const scopeLabel = !sel ? null : wholePart && !sel.key.slice(2).includes(".") ? PART_NAME[wholePart]
+    : sel.key.startsWith("f:") || sel.key.startsWith("b:") ? fieldLabel(d.fields, sel.key.slice(2)) : sel.key.startsWith("i:") ? "A banner" : scope ? `<${scope.tag}> ${scope.text.slice(0, 60)}` : null;
   const fieldPath = sel?.key.startsWith("f:") ? sel.key.slice(2) : null;
   const blockPart = sel?.key.startsWith("b:") ? sel.key.slice(2) : null;
   const pictureField = !!fieldPath && /picture$|\.button$|^links\.[^.]+$/.test(fieldPath);
+  const againAsk: QuickAsk[] = lang === main ? [] : [{ label: `Translate it from ${langName(main)} again`, run: () => translate(lang) }];
 
   const quick: QuickAsk[] = sel && !sel.key.startsWith("i:") ? (
     isNew ? (
@@ -266,7 +389,7 @@ export default function Studio({ api }: StudioProps) {
     { label: "Make it more convincing", run: () => fill("all", { request: "Make every part more convincing for a buyer: concrete benefits, the reasons to order here, no hype. Keep the structure." }) },
     { label: "Make it shorter", run: () => fill("all", { request: "Make the whole page shorter and easier to scan: fewer words, the same structure." }) },
     { label: "Search engine fields", run: () => fill("seo") },
-    ...(lang === main ? translateAsks : [{ label: `Translate it from ${langName(main)} again`, run: () => translate(lang) }]),
+    ...againAsk,
   ] : [
     { label: "Ideas for this page", run: async () => {
       if (!d.path) return "Pick the page first.";
@@ -288,7 +411,7 @@ export default function Studio({ api }: StudioProps) {
       setSeo(s);
       return null;
     } },
-    ...(lang === main ? translateAsks : [{ label: `Translate it from ${langName(main)} again`, run: () => translate(lang) }]),
+    ...againAsk,
   ];
 
   const onAsk = async (text: string): Promise<string | null> => {
@@ -300,7 +423,7 @@ export default function Studio({ api }: StudioProps) {
       }
       return rewrite(text, scope);
     }
-    if (/^(translate|übersetz|tradu)/i.test(text.trim())) {
+    if (/^(translate|übersetz|tradu|vertaal|przetłum)/i.test(text.trim())) {
       const to = others.find((l) => new RegExp(langName(l), "i").test(text) || new RegExp(`\\b${l}\\b`, "i").test(text));
       if (to) return translate(to);
     }
@@ -325,37 +448,43 @@ export default function Studio({ api }: StudioProps) {
 
   const findCounterpart = async () => {
     setFinding(true);
-    const c = await api.act<{ ok: boolean; path: string | null; error?: string }>("counterpart", { lang });
+    const c = await api.act<{ ok: boolean; path: string | null; error?: string }>("counterpart", { lang, store: storeFor(lang) });
     setFinding(false);
     if (c.ok && c.result.ok && c.result.path) { const v = viewOf(docRef.current, lang); setView({ ...v, path: c.result.path, store: c.result.path.split("/")[1] || v.store }, `Found the ${langName(lang)} page`); }
     else setPicking(true);
   };
 
+  const translating = busy === `translate:${lang}`;
   const langEmpty = lang !== main && (isNew ? !d.fields.hero.title && !d.fields.intro && !d.fields.sections.length : !d.path || !d.changes.length);
   const needsPage = !isNew && lang === main && !d.path;
   const empty = picking || needsPage ? (
-    <PagePicker api={api} store={lang === main ? d.store || "de-CH" : storeForLanguage(lang)} lockStore={lang !== main} current={d.path}
+    <PagePicker api={api} store={lang === main ? d.store || "de-CH" : storeFor(lang)} lockStore={lang !== main} current={d.path}
       title={lang === main ? undefined : `Which is the ${langName(lang)} page?`} onPick={onPicked} onClose={d.path || lang !== main ? () => setPicking(false) : undefined} />
   ) : langEmpty ? (
-    <LangEmpty d={d} lang={lang} main={main} busy={busy === `translate:${lang}`} canAi={canAi} onTranslate={() => void translate(lang).then((m) => { if (m && !/is made/.test(m)) window.alert(m); })}
+    <LangEmpty d={d} lang={lang} main={main} store={storeFor(lang)} busy={translating} since={translating ? since : null} canAi={canAi}
+      onTranslate={() => void translate(lang).then((m) => { if (m && !/is made/.test(m)) window.alert(m); })}
       onFind={!isNew && !d.path ? () => void findCounterpart() : undefined} finding={finding} />
   ) : undefined;
 
   const after = preview.held.after?.out;
   const hits = after?.ok ? after.hits : null;
   const placeholder = sel ? "What should change in this element?" : isNew ? "What should the page say or do?" : "What should change on this page?";
+  const marks = busyOf(busy, d.fields);
 
   return (
     <StudioPanes id="page" buildWidth={410} assistWidth={340} hideBuild={fold.build} hideAssist={fold.assist}
       build={<Build api={api} doc={doc} d={d} lang={lang} onLang={setLang} set={setDoc} setView={setView} hits={hits} step={step} onStep={setStep}
         sel={sel} setSel={setSel} fill={fill} busy={busy} canAi={canAi} onEditInPage={() => setEditNonce((n) => n + 1)} onAskAi={askAi}
-        inserts={inserts} record={(label) => record(label)} onPickPage={() => setPicking(true)} removeInsert={removeInsert} />}
-      preview={<Stage api={api} doc={doc} d={d} lang={lang} onLang={setLang} view={view} onView={setViewMode} preview={preview} selected={sel?.key ?? null} picked={sel?.picked ?? null}
-        onPick={onPick} onEdit={onEdit} editNonce={editNonce} onEditWords={() => setEditNonce((n) => n + 1)} onAskAi={askAi}
+        inserts={inserts} record={(label) => record(label)} onPickPage={() => setPicking(true)} removeInsert={removeInsert}
+        offered={offered} open={open} onOpen={onOpenRow} onOpenPart={onOpenPart} onFocusPath={onFocusPath} pictures={pictures} makingIn={makingIn} since={since} />}
+      preview={<Stage api={api} doc={doc} d={d} lang={lang} onLang={setLang} offered={offered} view={view} onView={setViewMode} preview={preview} selected={sel?.key ?? null} picked={sel?.picked ?? null}
+        onPick={onPick} onEdit={onEdit} editNonce={editNonce} reveal={reveal} onEditWords={() => setEditNonce((n) => n + 1)} onAskAi={askAi}
         inserts={inserts} shell={shell} onFix={(left) => void fixLeftovers(left)} empty={empty}
+        writing={{ blocks: marks.blocks, fields: marks.fields, pictures: makingPaths }} working={busy === "rewrite" ? since : null}
         fold={{ ...fold, onBuild: () => toggleFold("build"), onAssist: () => toggleFold("assist") }} />}
       assist={<Assistant quick={quick} onAsk={onAsk} enabled={canAi} context={scopeLabel} onClearContext={() => setSel(null)} history={history} onUndo={(e) => void undo(e)}
         ideas={ideas} onIdea={(i) => void rewrite(`${i.title}: ${i.change}`)} seo={seo} lang={lang} inputRef={askRef} placeholder={placeholder}
+        translate={lang === main ? { doc, offered, busy, onTranslate: (l) => translate(l) } : null}
         onUseSeo={(s) => { setView({ ...d, fields: { ...d.fields, seo: { title: s.title, description: s.description, urlKey: s.urlKey } } }, "Kept the search engine fields"); setSeo(null); }} />}
     />
   );
