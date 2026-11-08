@@ -9,6 +9,7 @@ import {
   readFigures3, readFigures4, realignTargets, shortPrio, type Cell,
 } from "../src/lib/connectors/steps/erpRules";
 import { WorkbookFormatError, isDateFormat, readErpWorkbook } from "../src/lib/connectors/steps/erpWorkbook";
+import { unpackFacts } from "../src/lib/connectors/steps/productFactsRules";
 
 /* ── Python's arithmetic (expected values printed by CPython 3.13) ─────── */
 
@@ -358,6 +359,34 @@ test("reader: the invoices may come split over several KPI INVOICES sheets (the 
   ], null, styles));
   const wb = await readErpWorkbook(file);
   assert.deepEqual(wb.invoices!.map((r) => [r.order, r.number, r.date]), [["A26.1.000", "R26-1", "2026-10-02"], ["A20.5.000", "R20-5", "2020-03-10"]]);
+}));
+
+test("reader: the BI sheets recognised by their columns when they keep the names Excel gave them (Query1..Query4)", withDir(async (dir) => {
+  const day = (serial: number) => ({ xml: `<c r="@" s="1"><v>${serial}</v></c>` }); // 46297 = 2026-10-02
+  const styles = `<styleSheet ${NS.split(" ")[0]}><numFmts><numFmt numFmtId="164" formatCode="dd.mm.yyyy"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>`;
+  const lines = { 1: ["[Company]", "[Order]", "[OrderDate]", "[Line]", "[LineType]", "[PriceSource]", "[ShippingDateInitial]", "[Article]", "[ArticleType]", "[ProfitCenter]"],
+    2: [100, "A26.1.000", day(46297), 10, "Order", "automatically", day(46300), "1026030704", "Standard", "DT"] };
+  const inv = { 1: ["[Order]", "[InvoiceNumber]", "[InvoiceDate]", "[BookingDate]", "[InvoiceCanceled]", "[Currency]"], 2: ["A26.1.000", "R26-1", day(46297), day(46297), "N", "CHF"] };
+  const art = { 1: ["[Article]", "[InLiquidation]", "[GwstdpCurrency]", "[StockUnit]", "[SalesUnit]", "[LeadSupplier]", "[GwstdpCHF]"], 2: ["1120030001", "N", "EUR", "Stk", "Stk", "10019", 250] };
+  const sup = { 1: ["[SupplierNumber]", "[SupplierName]"], 2: ["10019", "Airex AG"] };
+  const file = join(dir, "revenue_profit_center.xlsx");
+  writeFileSync(file, workbook([
+    ["FIGURES (3)", sheetXml(sheet3(), "A1:V21")], ["Query4", sheetXml(sup, "A1:B2")], ["Query3", sheetXml(art, "A1:G2")],
+    ["Query2", sheetXml(inv, "A1:F2")], ["Query1", sheetXml(lines, "A1:J2")], ["Sheet1", sheetXml([["notes"]], "A1")],
+  ], null, styles));
+  let asked = 0;
+  const wb = await readErpWorkbook(file, undefined, { articleFilter: async () => { asked++; return () => true; } });
+  assert.deepEqual(wb.kpiSheets, { lines: "Query1", invoices: ["Query2"], articles: "Query3", suppliers: "Query4" });
+  assert.equal(wb.erpLines!.lines.length, 1);
+  assert.equal(wb.invoices![0].number, "R26-1");
+  assert.equal(asked, 1);
+  assert.equal(unpackFacts(wb.articles!.get("1120030001")!).main_supplier, "Airex AG"); // the supplier list read first, whatever the order
+  // a workbook without them: nothing read, HubSpot's articles never asked for
+  const bare = join(dir, "b.xlsx");
+  writeFileSync(bare, workbook([["FIGURES (3)", sheetXml(sheet3(), "A1:V21")], ["Sheet1", sheetXml([["notes"]], "A1")]], null, null));
+  const wb2 = await readErpWorkbook(bare, undefined, { articleFilter: async () => { asked++; return () => true; } });
+  assert.deepEqual(wb2.kpiSheets, { lines: null, invoices: [], articles: null, suppliers: null });
+  assert.equal(asked, 1);
 }));
 
 test("reader: a file that is not an .xlsx says what it is", withDir(async (dir) => {
