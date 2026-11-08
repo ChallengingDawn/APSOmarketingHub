@@ -436,7 +436,7 @@ function VersionCard({ version, idea, hit, canEdit, busy, rev, prefill, onRev, o
               {version.status === "approved"
                 ? <>
                     <Button size="small" onClick={() => onStatus("reopen")}>Back to draft</Button>
-                    <Button size="small" variant="contained" disableElevation href={`/website/ab-testing/pages?make=${version.id}`}
+                    <Button size="small" variant="contained" disableElevation href={`/website/ai-personalization/tests?make=${version.id}`}
                       sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Test it on the shop</Button>
                   </>
                 : <Button size="small" variant="contained" color="success" disableElevation disabled={busy} onClick={() => onStatus("approve")}>Approve the version</Button>}
@@ -682,7 +682,7 @@ function ConvertPreview() {
             )}
             <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
               <ToContent data={data} numbers={numbers} ideas={ideas} version={version} />
-              <Button size="small" href={`/website/journeys/page?path=${encodeURIComponent(data.path)}`} sx={{ textTransform: "none" }}>Its visitors' flow</Button>
+              <Button size="small" href={`/website/ai-personalization/journeys?path=${encodeURIComponent(data.path)}`} sx={{ textTransform: "none" }}>Its visitors' flow</Button>
               <Button size="small" onClick={() => router.push("/website/ai-personalization/preview")}>Other page</Button>
               {pg.url && <Tooltip title="Open on the shop"><IconButton size="small" component="a" href={pg.url} target="_blank" rel="noopener"><OpenInNewIcon sx={{ fontSize: 17, color: MUTED }} /></IconButton></Tooltip>}
             </Box>

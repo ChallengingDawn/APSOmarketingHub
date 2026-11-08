@@ -42,6 +42,7 @@ import { Chip } from "@/app/website/ai-personalization/Tag";
 import { KIND_LABEL, type Env } from "@/lib/convert/model";
 import { ANY_AUDIENCE } from "@/lib/convert/contract";
 import { convertPost, previewHref } from "../../ai-personalization/Flow";
+import { testsBase, useInConvert } from "../../ai-personalization/base";
 import { SquareChoice } from "../../ai-personalization/SquareChoice";
 import {
   COLOR, GatewayNotice, PagePicker, StatusChip, VerdictChip, envChip, n, pct, splitOf,
@@ -55,6 +56,7 @@ const since = (iso: string | null) => (iso ? ago(Date.parse(iso) / 1000) : "–"
 
 function CreateDialog({ c, onClose }: { c: CandidateView | null; onClose: () => void }) {
   const router = useRouter();
+  const base = testsBase(useInConvert());
   const [name, setName] = useState("");
   const [env, setEnv] = useState<Env>("acc");
   const [pages, setPages] = useState<string[]>([]);
@@ -71,7 +73,7 @@ function CreateDialog({ c, onClose }: { c: CandidateView | null; onClose: () => 
     const r = await convertPost<{ id: string }>(API, { action: "create", versionId: c.versionId, env, pages, name, allocation: splitOf(split, Number(floor)), audience: ANY_AUDIENCE });
     setBusy(false);
     if (!r.ok) { setErr(r.error); return; }
-    router.push(`/website/ab-testing/pages/${r.data.id}`);
+    router.push(`${base}/${r.data.id}`);
   };
   return (
     <Dialog open={open} onClose={() => !busy && onClose()} maxWidth="sm" fullWidth slotProps={{ paper: { sx: { borderRadius: "18px", m: { xs: 1.5, sm: 4 }, width: { xs: "calc(100% - 24px)", sm: undefined } } } }}>
@@ -109,6 +111,7 @@ function CreateDialog({ c, onClose }: { c: CandidateView | null; onClose: () => 
 
 export default function PageTests() {
   const router = useRouter();
+  const base = testsBase(useInConvert());
   const [tick, setTick] = useState(0);
   const [show, setShow] = useState<Show>("all");
   const [making, setMaking] = useState<CandidateView | null>(null);
@@ -212,7 +215,7 @@ export default function PageTests() {
                       const f = t.figures?.counted ? t.figures : null;
                       const err = t.figures?.error ?? null;
                       return (
-                        <TableRow key={t.id} hover onClick={() => router.push(`/website/ab-testing/pages/${t.id}`)} sx={{ cursor: "pointer" }}>
+                        <TableRow key={t.id} hover onClick={() => router.push(`${base}/${t.id}`)} sx={{ cursor: "pointer" }}>
                           <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><StatusChip status={t.status} kind={t.kind} />{t.drift && <Box sx={{ mt: 0.5 }}><Chip tint="pink">{t.drift === "missing" ? "Not on the gateway" : "Gateway behind"}</Chip></Box>}</TableCell>
                           <TableCell sx={{ ...bodyCell, fontSize: "0.84rem" }}>
                             <Box sx={{ ...clip(320), fontWeight: 700, color: INK }} title={t.name}>{t.name}</Box>
@@ -250,7 +253,7 @@ export default function PageTests() {
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
-        title="Page tests"
+        title={base.startsWith("/website/ai-personalization") ? "Tests" : "Page tests"}
         subtitle="A version of a shop page against the page as it is: a share of the visitors gets it, the add-to-carts decide"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>

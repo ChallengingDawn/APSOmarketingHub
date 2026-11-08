@@ -184,7 +184,7 @@ function ShipOne({ id, onChanged }: { id: string; onChanged: () => void }) {
         <Typography sx={{ fontSize: { xs: "1.15rem", md: "1.35rem" }, fontWeight: 700, color: INK, letterSpacing: "-0.02em" }}>{t.name}</Typography>
         {f && <Typography sx={{ fontSize: "0.88rem", color: INK, mt: 0.5 }}>{pct(f.rateB, 2)} of the visitors who saw the version put something in the cart, against {pct(f.rateA, 2)} on the page as it is - <b style={{ color: GREEN }}>{signed(f.uplift.mid)}</b>{f.pB !== null ? `, ${pct(f.pB, 0)} certain` : ""} · {n(f.visitors.a + f.visitors.b)} visitors over {n(f.days)} days.</Typography>}
         <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", mt: 1.25 }}>
-          <Button size="small" component={Link} href={`/website/ab-testing/pages/${t.id}`}>The test</Button>
+          <Button size="small" component={Link} href={`/website/ai-personalization/tests/${t.id}`}>The test</Button>
           <Button size="small" component={Link} href={previewHref(t.env, t.pages[0], t.ideaId ?? undefined)}>See it</Button>
           {d.canContent
             ? <Button size="small" disabled={sending} onClick={() => void toContent()} startIcon={sending ? <CircularProgress size={13} /> : <EditNoteOutlinedIcon sx={{ fontSize: 17 }} />}>Send the texts to Content</Button>
@@ -280,7 +280,7 @@ export default function Ship() {
         <GlassCard>
           <Typography sx={{ fontSize: "0.9rem", color: INK, fontWeight: 600 }}>Nothing to ship yet.</Typography>
           <Typography sx={{ fontSize: "0.84rem", color: MUTED, mt: 0.5 }}>
-            A version lands here when it wins its test - see the <Box component={Link} href="/website/ab-testing/pages" sx={{ color: ACCENT, fontWeight: 600 }}>Page tests</Box>.
+            A version lands here when it wins its test - see the <Box component={Link} href="/website/ai-personalization/tests" sx={{ color: ACCENT, fontWeight: 600 }}>Tests</Box>.
           </Typography>
         </GlassCard>
       </>
