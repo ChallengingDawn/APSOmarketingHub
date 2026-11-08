@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cleanPage, outline, previewCsp, selectorOf, shimSource, staticBase } from "../src/lib/convert/preview";
+import { cleanPage, outline, previewCsp, selectorOf, shimSource, staticBase, stillPage } from "../src/lib/convert/preview";
 import { describe, runtimeSource, scriptJson, validateChanges } from "../src/lib/convert/versions";
 
 test("validateChanges: keeps what a version may do, says why the rest is left out", () => {
@@ -260,4 +260,13 @@ test("assets: the day key, the files it opens, and the shop's addresses in their
   const h = new Headers({ host: "internal:3000", "x-forwarded-host": "apsomarketinghub-dev.awssandbox.angst-pfister.com", "x-forwarded-proto": "https" });
   assert.equal(hubOriginOf(h, "http://internal:3000"), "https://apsomarketinghub-dev.awssandbox.angst-pfister.com");
   assert.equal(hubOriginOf(new Headers({ host: "localhost:3100" }), "http://localhost:3100"), "http://localhost:3100");
+});
+
+test("stillPage: a page's still picture runs nothing and says nothing about JavaScript", () => {
+  const html = '<html><head><script src="/static/x.js"></script><title>T</title></head><body><noscript><div>JavaScript seems to be disabled</div></noscript><main id="maincontent"><h1>Seite</h1></main><script>alert(1)</script></body></html>';
+  const out = stillPage(html);
+  assert.equal(/<script/i.test(out), false);
+  assert.equal(/noscript|JavaScript seems/i.test(out), false);
+  assert.match(out, /<style data-apso-still>[^<]*<\/style><\/head>/);
+  assert.match(out, /<main id="maincontent"><h1>Seite<\/h1><\/main>/);
 });

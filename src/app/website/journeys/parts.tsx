@@ -10,6 +10,7 @@ import Link from "next/link";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import { full } from "@/app/charts/format";
+import { flowHref, useInConvert } from "@/app/website/ai-personalization/base";
 import { FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TRACK } from "@/app/uc/report/ui";
 import {
   KIND_COLOR, KIND_NAME, KIND_ON, layoutFlow, ribbonPath,
@@ -319,6 +320,7 @@ export function PageFlowChart({ flow, onOpen }: { flow: PageFlow; onOpen: (path:
 
 /** One side of a page's flow as a list: a bar per row, the exact views, a shop page opening its own flow. */
 export function SideList({ items, total, empty }: { items: FlowSide[]; total: number; empty: string }) {
+  const inConvert = useInConvert();
   if (!items.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{empty}</Typography>;
   const max = Math.max(1, ...items.map((x) => x.views));
   return (
@@ -328,7 +330,7 @@ export function SideList({ items, total, empty }: { items: FlowSide[]; total: nu
           <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, minWidth: 0 }}>
             <Box aria-hidden sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: SIDE_COLOR[it.kind], flexShrink: 0, alignSelf: "center" }} />
             {it.path
-              ? <Box component={Link} href={pageFlowHref(it.path)} title={it.path} sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, textDecoration: "none", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", "&:hover": { color: "#2459d1", textDecoration: "underline" } }}>{it.label}</Box>
+              ? <Box component={Link} href={flowHref(inConvert, it.path)} title={it.path} sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, textDecoration: "none", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", "&:hover": { color: "#2459d1", textDecoration: "underline" } }}>{it.label}</Box>
               : <Typography component="span" sx={{ fontSize: "0.84rem", fontWeight: 600, color: it.kind === "left" ? MUTED : INK, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.label}</Typography>}
             <Typography component="span" sx={{ ml: "auto", fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
               <Box component="span" sx={{ color: INK, fontWeight: 700 }}>{full(it.views)}</Box> · {pct(it.views / Math.max(1, total))}

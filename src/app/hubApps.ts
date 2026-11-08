@@ -137,11 +137,17 @@ export const WEBSITE_SECTIONS: WebsiteSection[] = [
     slug: "ai-personalization", name: "AI testing & personalization", line: "Find what stops buyers, test the fix, ship the winner", icon: "brain", ...PURPLE,
     // APSOconvert, modelled on Webyn (SARCLA 07.11.2026: "let's start building this ... under /website/ai-personalization"):
     // the shop's pages on production and ACC, then the problems on them down to the customer; the ideas, the page code,
-    // the A/B test (in A/B testing above) and the Magento pages follow (src/lib/convert)
+    // the A/B test and the Magento pages follow (src/lib/convert). ONE app with ONE menu, in the order of the work, as Webyn
+    // tells it (insight, recommendations, the version, the test, personalisation) - SARCLA 08.11.2026: "then it changes
+    // to other menu, it's really not correct ... look at Webyn even menu speaking": the page tests and a page's flow are
+    // also served inside this app (Tests, Journeys - the same pages as A/B testing's and Visitor journeys').
     pages: [
-      { name: "Problems", note: "Pages with a lot of traffic and little buying, down to the customer", href: "/website/ai-personalization/problems", icon: "target", ...PINK },
+      { name: "Overview", note: "The whole loop: where buyers are lost, what is fixed, tested and shipped", href: "/website/ai-personalization", icon: "loop", ...PURPLE },
+      { name: "Insights", note: "The pages that lose buyers, shown as they look, down to the customer", href: "/website/ai-personalization/problems", icon: "target", ...PINK },
+      { name: "Journeys", note: "One page: where its visitors came from and where they went next", href: "/website/ai-personalization/journeys", icon: "route", ...BLUE },
       { name: "Ideas", note: "What to change on which page - the AI proposes, a person approves", href: "/website/ai-personalization/ideas", icon: "bolt", ...AMBER },
       { name: "Preview", note: "A shop page live, its version beside the original; its texts go to Content Studio", href: "/website/ai-personalization/preview", icon: "edit", ...PURPLE },
+      { name: "Tests", note: "A version against the page as it is: the add-to-carts decide", href: "/website/ai-personalization/tests", icon: "science", ...PINK },
       { name: "Personalise", note: "An audience always gets a version: signed-in customers, a store view, phones", href: "/website/ai-personalization/personalise", icon: "groups", ...GREEN },
       { name: "Ship", note: "The winner for everyone, as code for dotSource, or into a Magento CMS page", href: "/website/ai-personalization/ship", icon: "shipping", ...TEAL },
       { name: "Pages", note: "Every page of the shop, on production and on ACC", href: "/website/ai-personalization/pages", icon: "layers", ...BLUE },

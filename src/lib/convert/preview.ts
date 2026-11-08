@@ -105,6 +105,19 @@ export type Cleaned = { html: string; removed: { scripts: number; trackers: numb
  * (they would open real pages on the shop when the mouse rests on a link - learnt on the home page work), the page's
  * own address as the base for its relative links, then `head` first in <head> and `tail` last.
  */
+/**
+ * A still picture of a cleaned page, for the page cards on Insights (SARCLA 08.11.2026: "we should really show the
+ * pages"): no script at all - the shop's styles draw the page, nothing runs, nothing is asked for after it - and no
+ * <noscript> notice ("JavaScript seems to be disabled"). The frame opens it at #maincontent, so the card shows the page's
+ * own top (its title, picture, first lines), not the header every page shares.
+ */
+export function stillPage(html: string): string {
+  let out = html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, "").replace(/<noscript\b[\s\S]*?<\/noscript\s*>/gi, "");
+  const css = "<style data-apso-still>html,body{scrollbar-width:none;overflow:hidden!important}body::-webkit-scrollbar{display:none}body{pointer-events:none}.message.global,.page.messages{display:none!important}</style>";
+  out = /<\/head>/i.test(out) ? out.replace(/<\/head>/i, `${css}</head>`) : css + out;
+  return out;
+}
+
 export function cleanPage(html: string, opts: { pageUrl: string; head: string; tail: string; sprite?: { url: string; svg: string } | null }): Cleaned {
   const origin = new URL(opts.pageUrl).origin;
   const removed = { scripts: 0, trackers: 0, prefetch: 0 };

@@ -1,6 +1,6 @@
 "use client";
 
-// APSOconvert > PROBLEMS (Website > AI testing & personalization). Pages with a lot of traffic and little buying, down to
+// APSOconvert > INSIGHTS (was Problems; Website > AI testing & personalization). Pages with a lot of traffic and little buying, down to
 // the customers behind them (src/lib/convert/problems.ts). Two lenses, side by side because they see different people:
 // Google Analytics' views and add-to-carts (consented visitors, every page) and the shop's own record of every signed-in
 // customer on a product page - the company, and the step where it stopped. A row opens its customers.
@@ -27,12 +27,14 @@ import TroubleshootOutlinedIcon from "@mui/icons-material/TroubleshootOutlined";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import PsychologyOutlinedIcon from "@mui/icons-material/PsychologyOutlined";
 import Button from "@mui/material/Button";
+import Switch from "@mui/material/Switch";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import Link from "next/link";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import { ACCENT, CardTitle, GREEN, GlassCard, KpiTile, MUTED, Notice, RED, TRACK, bodyCell, clip, headCell } from "@/app/uc/report/ui";
+import { ACCENT, AMBER, CardTitle, GREEN, GlassCard, KpiTile, MUTED, Notice, RED, TRACK, bodyCell, clip, headCell } from "@/app/uc/report/ui";
 import { ago, usePaged } from "@/app/connectors/parts";
 import { Chip } from "@/app/website/ai-personalization/Tag";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
@@ -41,6 +43,10 @@ import type { PageCustomers, ProblemsData } from "@/lib/convert/problems";
 import type { Brief } from "@/lib/convert/brief";
 import { convertPost, previewHref } from "../Flow";
 import { SquareChoice } from "../SquareChoice";
+import { PageShot } from "../PageShot";
+import { flowHref } from "../base";
+
+const KIND_PLURAL: Record<PageKind, string> = { product: "Products", category: "Categories", cms: "CMS pages", home: "Home pages", system: "Other" };
 
 const PORTAL = "26492587";
 const hsCompany = (id: string) => `https://app-eu1.hubspot.com/contacts/${PORTAL}/record/0-2/${id}`;
@@ -258,12 +264,138 @@ function Customers({ row, from, to }: { row: Row; from: string; to: string }) {
   );
 }
 
+// THE PAGES, SHOWN (SARCLA 08.11.2026: "we should really show the pages, please improve a lot this multiple tabs with
+// logic"): each page a card with its picture, the one reason it is on the list, three numbers, and where its
+// customers stopped; one row of choices - which pages (by kind, with counts), the order, problems only - that never
+// offers an empty choice; the table stays one click away for the long list.
+type Sort = "missed" | "lost" | "views";
+type Mode = "cards" | "table";
+const KIND_TINT: Record<PageKind, "green" | "blue" | "purple" | "amber" | "slate"> = { product: "green", category: "blue", home: "purple", cms: "amber", system: "slate" };
+const STEP_COLOR: Record<Step, string> = { looked: "#9aa6b8", shelf: "#d64b7a", moq: "#e07a9a", price: "#d99a2b", cart: "#7c4dff", won: "#1b7a55" };
+const STEP_ORDER: Step[] = ["looked", "shelf", "moq", "price", "cart", "won"];
+const PAGE_SIZE = 12;
+
+function Stat({ k, v, sub, color }: { k: string; v: string; sub?: string; color?: string }) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".04em", whiteSpace: "nowrap" }}>{k}</Typography>
+      <Typography sx={{ fontSize: "1.02rem", fontWeight: 700, color: color ?? "#15223a", fontVariantNumeric: "tabular-nums", lineHeight: 1.3 }}>{v}</Typography>
+      {sub && <Typography sx={{ fontSize: "0.7rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</Typography>}
+    </Box>
+  );
+}
+
+/** Where the signed-in customers of a product got to, as one bar: each colour a furthest step. */
+function StepBar({ f }: { f: NonNullable<Row["shop"]> }) {
+  const total = Math.max(1, f.companies);
+  return (
+    <Tooltip title={STEP_ORDER.filter((s) => f.furthest[s] > 0).map((s) => `${STEP_LABEL[s]}: ${f.furthest[s]}`).join(" · ")}>
+      <Box sx={{ display: "flex", height: 8, borderRadius: "2px", overflow: "hidden", bgcolor: TRACK }}>
+        {STEP_ORDER.map((s) => f.furthest[s] > 0 && <Box key={s} sx={{ width: `${(f.furthest[s] / total) * 100}%`, bgcolor: STEP_COLOR[s] }} />)}
+      </Box>
+    </Tooltip>
+  );
+}
+
+function PageCard({ p, selected, onSelect }: { p: Row; selected: boolean; onSelect: () => void }) {
+  const low = p.rate !== null && p.typical ? p.rate < p.typical / 2 : false;
+  const rateColor = p.rate === null || !p.typical ? undefined : low ? RED : p.rate < p.typical ? AMBER : GREEN;
+  return (
+    <Box sx={{
+      display: "flex", flexDirection: "column", minWidth: 0, borderRadius: "14px", overflow: "hidden", bgcolor: "rgba(255,255,255,.92)",
+      border: `1px solid ${selected ? ACCENT : "rgba(21,34,58,.10)"}`, boxShadow: selected ? `0 0 0 2px ${ACCENT}` : "0 6px 18px rgba(21,34,58,.06)",
+      transition: "box-shadow .15s, transform .15s", "&:hover": { boxShadow: selected ? `0 0 0 2px ${ACCENT}` : "0 10px 26px rgba(21,34,58,.12)", transform: "translateY(-1px)" },
+    }}>
+      <Box component={Link} href={previewHref("prod", p.path)} title="Open it in Preview" sx={{ position: "relative", display: "block", "&:hover .apx-open": { opacity: 1 } }}>
+        <PageShot env="prod" path={p.path} label={p.name || p.path} />
+        <Box sx={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 0.5 }}>
+          <Chip tint={KIND_TINT[p.kind]}>{KIND_LABEL[p.kind]}</Chip>
+          {p.kind === "product" && p.paths.length > 1 && <Chip tint="slate">{p.paths.length} languages</Chip>}
+        </Box>
+        <Box className="apx-open" sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", bgcolor: "rgba(21,34,58,.38)", opacity: 0, transition: "opacity .15s" }}>
+          <Box sx={{ px: 1.5, py: 0.6, borderRadius: "6px", bgcolor: "#fff", color: ACCENT, fontSize: "0.82rem", fontWeight: 700 }}>Open in Preview</Box>
+        </Box>
+      </Box>
+      <Box sx={{ p: 1.5, display: "grid", gap: 1.1, flex: 1, alignContent: "start" }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: "#15223a", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={p.name || p.path}>{p.name || p.path}</Typography>
+          <Typography sx={{ fontSize: "0.72rem", color: MUTED, ...clip(9999) }} title={p.path}>{p.kind === "product" ? `Product ${p.product}` : p.path}</Typography>
+        </Box>
+        {p.reasons[0]
+          ? <Box sx={{ display: "flex", gap: 0.75, alignItems: "flex-start" }}>
+              <ReportProblemOutlinedIcon sx={{ fontSize: 16, color: RED, mt: "2px", flexShrink: 0 }} />
+              <Typography sx={{ fontSize: "0.8rem", color: "#15223a", lineHeight: 1.35 }}>{p.reasons[0]}</Typography>
+            </Box>
+          : <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Not on the problem list in this period.</Typography>}
+        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 1 }}>
+          <Stat k="Views" v={p.views ? full(p.views) : "–"} />
+          <Stat k="Cart rate" v={pct(p.rate)} sub={p.typical !== null ? `typical ${pct(p.typical)}` : undefined} color={rateColor} />
+          {p.shop
+            ? <Stat k="Customers lost" v={`${full(p.shop.lost)} of ${full(p.shop.companies)}`} sub={p.shop.topLoss ? STEP_LABEL[p.shop.topLoss] : undefined} color={p.shop.lost ? RED : undefined} />
+            : <Stat k="Carts missed" v={p.missed ? full(p.missed) : "–"} color={p.missed ? RED : undefined} />}
+        </Box>
+        {p.shop && p.shop.companies > 0 && <StepBar f={p.shop} />}
+        <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap", mt: "auto", pt: 0.25 }}>
+          <Button size="small" variant="contained" disableElevation component={Link} href={previewHref("prod", p.path)} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>Preview</Button>
+          <Button size="small" component={Link} href={flowHref(true, p.path)} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Journeys</Button>
+          <Button size="small" onClick={onSelect} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600, ml: "auto", color: selected ? ACCENT : MUTED }}>
+            {selected ? "Hide customers" : p.kind === "product" ? "Customers" : "Contacts"}
+          </Button>
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
+function PagesTable({ rows, sel, onSelect }: { rows: Row[]; sel: string | null; onSelect: (k: string) => void }) {
+  const { slice, pager } = usePaged(rows, 25);
+  return (
+    <>
+      <Box sx={{ overflowX: "auto" }}>
+        <Table size="small" sx={{ minWidth: 980 }}>
+          <TableHead>
+            <TableRow>{["Page", "Kind", "Views", "Cart rate", "Missed", "Customers", "Most stopped at", "Why"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow>
+          </TableHead>
+          <TableBody>
+            {slice.map((p) => (
+              <TableRow key={p.key} hover selected={p.key === sel} onClick={() => onSelect(p.key)} sx={{ cursor: "pointer" }}>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.84rem" }}>
+                  <Box sx={{ ...clip(300), fontWeight: 600 }} title={p.path}>{p.name || p.path}</Box>
+                  <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
+                    {p.kind === "product" ? `${p.product} · ${p.paths.length} ${p.paths.length === 1 ? "language" : "languages"}` : p.path}
+                    {" · "}
+                    <Box component={Link} href={previewHref("prod", p.path)} onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ color: ACCENT, fontWeight: 700, textDecoration: "none" }}>Preview</Box>
+                    {" · "}
+                    <Box component={Link} href={flowHref(true, p.path)} onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ color: ACCENT, fontWeight: 700, textDecoration: "none" }}>Journeys</Box>
+                  </Typography>
+                </TableCell>
+                <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><Chip tint={KIND_TINT[p.kind]}>{KIND_LABEL[p.kind]}</Chip></TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{p.views ? full(p.views) : "–"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                  {pct(p.rate)}{p.typical !== null && p.rate !== null && <Typography component="span" sx={{ fontSize: "0.74rem", color: MUTED }}> / {pct(p.typical)}</Typography>}
+                </TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{p.missed ? full(p.missed) : "–"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{p.shop ? `${full(p.shop.lost)} of ${full(p.shop.companies)} lost` : "–"}</TableCell>
+                <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}>{p.shop?.topLoss ? <Chip tint={STEP_TINT[p.shop.topLoss]}>{STEP_LABEL[p.shop.topLoss]}</Chip> : "–"}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED }}><Box sx={clip(320)} title={p.reasons.join(" · ")}>{p.reasons[0] ?? "–"}</Box></TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Box>
+      {pager}
+    </>
+  );
+}
+
 export default function ConvertProblems() {
   const { window: win } = useReportingWindow();
   const [tick, setTick] = useState(0);
-  const [by, setBy] = useState<RankBy>("missed");
+  const [sort, setSort] = useState<Sort>("missed");
   const [kind, setKind] = useState<PageKind | "all">("all");
-  const [flagged, setFlagged] = useState<"flagged" | "all">("flagged");
+  const [only, setOnly] = useState(true);
+  const [mode, setMode] = useState<Mode>("cards");
+  const [shown, setShown] = useState(PAGE_SIZE);
   const [sel, setSel] = useState<string | null>(null);
   const url = `/api/website/ai-personalization/problems?from=${win.from}&to=${win.to}&n=${tick}`;
   const held = useHeld<ProblemsData>(url, [url]);
@@ -278,26 +410,33 @@ export default function ConvertProblems() {
   }, [d?.shop.state, tick]);
 
   const view = useMemo(() => {
-    const all = d?.pages ?? [];
-    const rows = sortProblems(all.filter((p) => (kind === "all" || p.kind === kind) && (flagged === "all" || p.reasons.length > 0)), by) as Row[];
-    const flaggedRows = all.filter((p) => p.reasons.length > 0);
+    const all = (d?.pages ?? []) as Row[];
+    const problems = all.filter((p) => p.reasons.length > 0);
+    // no page crosses the problem line: the most viewed pages, said so, instead of an empty list
+    const onlyProblems = only && problems.length > 0;
+    const pool = onlyProblems ? problems : all;
+    const kinds = (["product", "category", "cms", "home"] as PageKind[]).map((k) => ({ key: k, n: pool.filter((p) => p.kind === k).length })).filter((k) => k.n > 0);
+    const k: PageKind | "all" = kind !== "all" && kinds.some((x) => x.key === kind) ? kind : "all";
+    const inKind = pool.filter((p) => k === "all" || p.kind === k);
+    const withShop = inKind.some((p) => p.shop && p.shop.companies > 0);
+    const s: Sort = sort === "lost" && !withShop ? "missed" : sort;
+    const rows = s === "views" ? [...inKind].sort((a, b) => b.views - a.views) : (sortProblems(inKind, s) as Row[]);
     return {
-      rows,
-      flagged: flaggedRows.length,
-      missed: flaggedRows.reduce((s, p) => s + p.missed, 0),
-      lost: all.reduce((s, p) => s + (p.shop?.lost ?? 0), 0),
-      looked: all.reduce((s, p) => s + (p.shop?.companies ?? 0), 0),
-      kinds: (["product", "category", "cms", "home"] as PageKind[]).map((k) => ({ key: k, n: all.filter((p) => p.kind === k && (flagged === "all" || p.reasons.length > 0)).length })),
+      rows, k, s, kinds, withShop, onlyProblems, noProblems: only && problems.length === 0 && all.length > 0, pool: pool.length,
+      flagged: problems.length,
+      missed: problems.reduce((sum, p) => sum + p.missed, 0),
+      lost: all.reduce((sum, p) => sum + (p.shop?.lost ?? 0), 0),
+      looked: all.reduce((sum, p) => sum + (p.shop?.companies ?? 0), 0),
     };
-  }, [d, by, kind, flagged]);
-  const { slice, pager, setPage } = usePaged(view.rows, 25);
-  useEffect(() => { setPage(0); }, [by, kind, flagged, setPage]);
+  }, [d, sort, kind, only]);
+  useEffect(() => { setShown(PAGE_SIZE); }, [view.k, view.s, only]);
   const selected = sel ? (d?.pages.find((p) => p.key === sel) ?? null) : null;
+  const pick = (k: string) => setSel((cur) => (cur === k ? null : k));
 
   let body: React.ReactNode;
   if (r === null) body = <LoadingPanel label="Reading Google Analytics and the shop's record…" />;
   else if (r.state === "not-configured") body = <NotConnectedPanel source="the hub" missing={r.missing} />;
-  else if (r.state === "error") body = <UpstreamPanel source="Problems" error={r.error} status={r.status} onRetry={() => setTick((n) => n + 1)} />;
+  else if (r.state === "error") body = <UpstreamPanel source="Insights" error={r.error} status={r.status} onRetry={() => setTick((n) => n + 1)} />;
   else {
     const data = r.data;
     body = (
@@ -310,63 +449,53 @@ export default function ConvertProblems() {
         {data.from < SHOP_FROM && <Notice tone="warn">The shop&apos;s record of customers starts on 2 October 2026 - before that, Google Analytics only.</Notice>}
 
         <Grid container spacing={2}>
-          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ReportProblemOutlinedIcon />} tint="pink" label="Pages with a problem" value={full(view.flagged)} note={`of ${full(data.pages.length)} with traffic or customers`} /></Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ReportProblemOutlinedIcon />} tint="pink" label="Pages losing buyers" value={full(view.flagged)} note={`of ${full(data.pages.length)} with traffic or customers`} /></Grid>
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<RemoveShoppingCartOutlinedIcon />} tint="amber" label="Add-to-carts missed" value={full(view.missed)} note="on those pages, at the typical rate" /></Grid>
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<PersonOffOutlinedIcon />} tint="purple" label="Customers lost" value={full(view.lost)} note={`did not order, of ${full(view.looked)} who opened a product`} /></Grid>
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<AddShoppingCartOutlinedIcon />} tint="green" label="Typical cart rate" value={pct(data.typical.product)} note={`product pages · categories ${pct(data.typical.category)}`} /></Grid>
         </Grid>
 
-        {view.flagged > 0 && <WhatStops from={data.from} to={data.to} rows={data.pages as Row[]} />}
-
-        <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
-          <Box sx={{ px: { xs: 2, md: 2.75 }, display: "grid", gap: 1.5 }}>
-            <CardTitle icon={<ReportProblemOutlinedIcon />} tint="pink" title={`Pages · ${full(view.rows.length)}`}
-              note={`A problem: ${full(data.minViews)}+ views and less than half the typical cart rate, or ${data.minCompanies}+ customers opened it and most did not order`} />
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
-              <SquareChoice<RankBy> label="Rank by" value={by} onChange={setBy} options={[{ key: "missed", label: "Most add-to-carts missed" }, { key: "lost", label: "Most customers lost" }]} />
-              <SquareChoice<"flagged" | "all"> label="Show" value={flagged} onChange={setFlagged} options={[{ key: "flagged", label: "Problems", count: view.flagged }, { key: "all", label: "Every page" }]} />
-            </Box>
-            <SquareChoice<PageKind | "all"> label="Kind" value={kind} onChange={setKind} options={[{ key: "all", label: "Every kind" }, ...view.kinds.filter((k) => k.n > 0).map((k) => ({ key: k.key, label: KIND_LABEL[k.key], count: k.n }))]} />
+        <GlassCard sx={{ p: { xs: 1.5, md: 2 } }}>
+          <Box sx={{ display: "flex", gap: 1.5, rowGap: 1.25, alignItems: "center", flexWrap: "wrap" }}>
+            <SquareChoice<PageKind | "all"> label="Pages" value={view.k} onChange={setKind}
+              options={[{ key: "all", label: "All", count: view.pool }, ...view.kinds.map((x) => ({ key: x.key, label: KIND_PLURAL[x.key], count: x.n }))]} />
+            <Box sx={{ flex: 1 }} />
+            <SquareChoice<Sort> label="Order" value={view.s} onChange={setSort}
+              options={[{ key: "missed", label: "Carts missed" }, { key: "lost", label: "Customers lost", disabled: !view.withShop }, { key: "views", label: "Views" }]} />
+            <FormControlLabel sx={{ m: 0, "& .MuiFormControlLabel-label": { fontSize: "0.8rem", fontWeight: 600, color: "#15223a" } }}
+              control={<Switch size="small" checked={only && view.flagged > 0} disabled={view.flagged === 0} onChange={(e) => setOnly(e.target.checked)} />}
+              label={`Only problems · ${full(view.flagged)}`} />
+            <SquareChoice<Mode> value={mode} onChange={setMode} options={[{ key: "cards", label: "Pages" }, { key: "table", label: "Table" }]} />
           </Box>
-          <Box sx={{ overflowX: "auto", mt: 1.5 }}>
-            <Table size="small" sx={{ minWidth: 980 }}>
-              <TableHead>
-                <TableRow>{["Page", "Kind", "Views", "Cart rate", "Missed", "Customers", "Most stopped at", "Why"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}</TableRow>
-              </TableHead>
-              <TableBody>
-                {slice.length === 0 && <TableRow><TableCell colSpan={8} sx={{ ...bodyCell, fontSize: "0.84rem", color: MUTED }}>No page on this list for this period.</TableCell></TableRow>}
-                {slice.map((p) => (
-                  <TableRow key={p.key} hover selected={p.key === sel} onClick={() => setSel(p.key === sel ? null : p.key)} sx={{ cursor: "pointer" }}>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem" }}>
-                      <Box sx={{ ...clip(300), fontWeight: 600 }} title={p.path}>{p.name || p.path}</Box>
-                      <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
-                        {p.kind === "product" ? `${p.product} · ${p.paths.length} ${p.paths.length === 1 ? "language" : "languages"}` : p.path}
-                        {" · "}
-                        <Box component={Link} href={previewHref("prod", p.path)} onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ color: ACCENT, fontWeight: 700, textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>Preview</Box>
-                        {" · "}
-                        <Box component={Link} href={`/website/journeys/page?path=${encodeURIComponent(p.path)}`} onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ color: ACCENT, fontWeight: 700, textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>Flow</Box>
-                      </Typography>
-                    </TableCell>
-                    <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><Chip tint={p.kind === "product" ? "green" : p.kind === "category" ? "blue" : p.kind === "home" ? "purple" : "amber"}>{KIND_LABEL[p.kind]}</Chip></TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{p.views ? full(p.views) : "–"}</TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
-                      {pct(p.rate)}{p.typical !== null && p.rate !== null && <Typography component="span" sx={{ fontSize: "0.74rem", color: MUTED }}> / {pct(p.typical)}</Typography>}
-                    </TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{p.missed ? full(p.missed) : "–"}</TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
-                      {p.shop ? `${full(p.shop.lost)} of ${full(p.shop.companies)} lost` : "–"}
-                    </TableCell>
-                    <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}>{p.shop?.topLoss ? <Chip tint={STEP_TINT[p.shop.topLoss]}>{STEP_LABEL[p.shop.topLoss]}</Chip> : "–"}</TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED }}><Box sx={clip(320)} title={p.reasons.join(" · ")}>{p.reasons[0] ?? "–"}</Box></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Box>
-          {pager}
+          <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1 }}>
+            {view.noProblems
+              ? `No page crosses the problem line in this period - the pages with the most views instead.`
+              : `A problem: ${full(data.minViews)}+ views and less than half the typical cart rate, or ${data.minCompanies}+ customers opened it and most did not order.`}
+          </Typography>
         </GlassCard>
 
+        {view.rows.length === 0 && <Notice tone="warn">No page with traffic or customers in this period.</Notice>}
+        {mode === "cards" && view.rows.length > 0 && (
+          <>
+            <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))" }}>
+              {view.rows.slice(0, shown).map((p) => <PageCard key={p.key} p={p} selected={p.key === sel} onSelect={() => pick(p.key)} />)}
+            </Box>
+            {view.rows.length > shown && (
+              <Box sx={{ display: "flex", justifyContent: "center" }}>
+                <Button variant="outlined" onClick={() => setShown((n) => n + PAGE_SIZE)} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>
+                  Show {Math.min(PAGE_SIZE, view.rows.length - shown)} more · {full(view.rows.length - shown)} left
+                </Button>
+              </Box>
+            )}
+          </>
+        )}
+        {mode === "table" && view.rows.length > 0 && (
+          <GlassCard sx={{ p: 0, pt: 1 }}><PagesTable rows={view.rows} sel={sel} onSelect={pick} /></GlassCard>
+        )}
+
         {selected && <Customers key={selected.key} row={selected} from={data.from} to={data.to} />}
+
+        {view.flagged > 0 && <WhatStops from={data.from} to={data.to} rows={data.pages as Row[]} />}
       </>
     );
   }
@@ -374,8 +503,8 @@ export default function ConvertProblems() {
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
-        title="Problems"
-        subtitle="Pages with a lot of traffic and little buying, down to the customers behind them"
+        title="Insights"
+        subtitle="The pages that lose buyers, as they look - with their numbers and the customers behind them"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <WindowPicker />

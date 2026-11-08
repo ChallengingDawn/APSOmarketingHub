@@ -45,6 +45,7 @@ import { RULES, SEGMENT_LABEL, VERDICT_TINT, type Analysis, type SegmentDim } fr
 import { OP_LABEL, describe, type Change } from "@/lib/convert/versions";
 import { convertPost, previewHref } from "../../../ai-personalization/Flow";
 import { SquareChoice } from "../../../ai-personalization/SquareChoice";
+import { testsBase, useInConvert } from "../../../ai-personalization/base";
 import {
   AudienceBuilder, COLOR, ConfirmDialog, DailyCharts, Gauge, GatewayNotice, IntervalBars, NAME, PagePicker, StatusChip, UpliftBar,
   dayTime, envChip, n, pagesLine, pct, signed, splitKeyOf, splitOf, type Confirm, type GatewayView, type SplitKey, type TestView,
@@ -113,6 +114,7 @@ function DraftSettings({ d, onSaved }: { d: Detail; onSaved: () => void }) {
 }
 
 function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
+  const base = testsBase(useInConvert());
   const t = d.test;
   const an = d.analysis;
   const c = an?.comparison ?? null;
@@ -145,7 +147,7 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
     restart: () => setConfirm({ title: "Restart, counted from zero?", lines: [<>A new round (round {t.v + 1}): every visitor gets a variant again and the figures start from zero. It runs the version as it is approved now.</>, ...startLines.slice(0, 2)], go: "Restart", run: () => run({ action: "restart" }) }),
     sync: () => setConfirm({ title: "Send it to the shop's gateway again?", lines: ["The hub's record of this test is handed to the gateway as it is - for when the gateway lost it or holds an older round."], go: "Send again", run: () => run({ action: "sync" }) }),
     remove: () => setConfirm({ title: "Take it off the shop's gateway?", lines: ["Its setting is removed from the gateway; the visitors counted stay there for the record and the figures here stay as last read."], go: "Take it off", tone: "stop", run: () => run({ action: "remove" }) }),
-    del: () => setConfirm({ title: "Delete this draft?", lines: ["It never ran - nothing on the shop changes. The version stays approved and waits for a test again."], go: "Delete", tone: "stop", run: () => run({ action: "delete" }, () => { window.location.href = "/website/ab-testing/pages"; }) }),
+    del: () => setConfirm({ title: "Delete this draft?", lines: ["It never ran - nothing on the shop changes. The version stays approved and waits for a test again."], go: "Delete", tone: "stop", run: () => run({ action: "delete" }, () => { window.location.href = base; }) }),
     decide: (w: "a" | "b" | "none") => setConfirm({
       title: w === "b" ? "End it: the version won?" : w === "a" ? "End it: the page as it is won?" : "End it: no real difference?",
       lines: [
@@ -155,7 +157,7 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
       ].filter(Boolean),
       go: "End it", tone: w === "b" ? "go" : "stop", run: () => run({ action: "decide", winner: w }),
     }),
-    copy: (env: "acc" | "prod") => setConfirm({ title: `Copy it as a new draft on ${ENVS[env].label}?`, lines: [`The same version, pages and split, as a draft on ${env === "prod" ? "www.apsoparts.com" : "acc.apsoparts.com"} - nothing starts until somebody starts it.`], go: "Make the copy", run: () => run({ action: "copy", env }, (x) => { if (x.id) window.location.href = `/website/ab-testing/pages/${x.id}`; }) }),
+    copy: (env: "acc" | "prod") => setConfirm({ title: `Copy it as a new draft on ${ENVS[env].label}?`, lines: [`The same version, pages and split, as a draft on ${env === "prod" ? "www.apsoparts.com" : "acc.apsoparts.com"} - nothing starts until somebody starts it.`], go: "Make the copy", run: () => run({ action: "copy", env }, (x) => { if (x.id) window.location.href = `${base}/${x.id}`; }) }),
   };
 
   const verdictLine = (() => {
@@ -327,7 +329,7 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
             <Row k="Who takes part">{audienceWords(t.audience)} <Typography component="span" sx={{ fontSize: "0.76rem", color: MUTED }}>· with statistics consent only</Typography></Row>
             <Row k="Goal">The first add-to-cart on the page view</Row>
             <Row k="Made">{t.createdBy ?? "–"} · {dayTime(t.createdAt)}</Row>
-            {d.copies.length > 0 && <Row k="Copies">{d.copies.map((x) => <Box key={x.id} component={Link} href={`/website/ab-testing/pages/${x.id}`} sx={{ color: ACCENT, textDecoration: "none", mr: 1.5, fontSize: "0.82rem" }}>#{x.id} on {x.env === "prod" ? "production" : "ACC"} ({x.status})</Box>)}</Row>}
+            {d.copies.length > 0 && <Row k="Copies">{d.copies.map((x) => <Box key={x.id} component={Link} href={`${base}/${x.id}`} sx={{ color: ACCENT, textDecoration: "none", mr: 1.5, fontSize: "0.82rem" }}>#{x.id} on {x.env === "prod" ? "production" : "ACC"} ({x.status})</Box>)}</Row>}
           </GlassCard>
         </Grid>
         <Grid size={{ xs: 12, lg: 6 }}>
@@ -371,6 +373,7 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
 }
 
 export default function PageTest() {
+  const base = testsBase(useInConvert());
   const params = useParams<{ id: string }>();
   const id = String(params?.id ?? "");
   const [tick, setTick] = useState(0);
@@ -390,7 +393,7 @@ export default function PageTest() {
         subtitle={d ? `Page test #${d.test.id} on ${ENVS[d.test.env].label} · ${d.test.pages.length} ${d.test.pages.length === 1 ? "page" : "pages"} · ${allocationWords(d.test.allocation).toLowerCase()}` : undefined}
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <Button size="small" component={Link} href="/website/ab-testing/pages">All page tests</Button>
+            <Button size="small" component={Link} href={base}>All page tests</Button>
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
             <Tooltip title="Ask again"><IconButton size="small" onClick={() => setTick((x) => x + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
           </Box>

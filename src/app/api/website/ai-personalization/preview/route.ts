@@ -5,7 +5,7 @@
 import { NextRequest } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { ENVS, isEnv } from "@/lib/convert/model";
-import { cleanPage, previewCsp, shimSource, staticBase } from "@/lib/convert/preview";
+import { cleanPage, previewCsp, shimSource, staticBase, stillPage } from "@/lib/convert/preview";
 import { hubOriginOf, rewriteShopUrls, warmFiles } from "@/lib/convert/assets";
 import { cleanPath, revisionChanges, shopPage, themeAssets, versionById } from "@/lib/convert/studio";
 import { runtimeSource, type Change } from "@/lib/convert/versions";
@@ -59,6 +59,24 @@ export async function GET(req: NextRequest) {
   if (page.status !== 200) return message(env, `The shop answered ${page.status} for ${path}.`, 200);
 
   const theme = await themeAssets(staticBase(page.html));
+  // ?still=1: the page as a still picture for the cards on Insights - the shop's styles only, no script (preview.ts)
+  if (sp.get("still") === "1") {
+    const hubStill = hubOriginOf(req.headers, req.nextUrl.origin);
+    const { html: stillHtml } = cleanPage(page.html, { pageUrl: page.url, head: theme.css ? `<style data-apso-theme>${theme.css}</style>` : "", tail: "", sprite: theme.sprite });
+    const out = stillPage(stillHtml);
+    warmFiles(out, hubStill);
+    return new Response(rewriteShopUrls(out, hubStill), {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": previewCsp(ENVS[env].base, hubStill).replace(/script-src [^;]*/, "script-src 'none'"),
+        "Cache-Control": "private, max-age=600",
+        "X-Frame-Options": "SAMEORIGIN",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+      },
+    });
+  }
   const head = `<script>${shimSource()}</script>${theme.css ? `<style data-apso-theme>${theme.css}</style>` : ""}`;
   const tail = changes ? `<script>${runtimeSource(changes, { report: true })}</script>` : "";
   const { html } = cleanPage(page.html, { pageUrl: page.url, head, tail, sprite: theme.sprite });
