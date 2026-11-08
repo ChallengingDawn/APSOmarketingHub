@@ -206,6 +206,8 @@ export const UC_SECTIONS: WebsiteSection[] = [
       { name: "Duplicates & merges", note: "The same request twice, another ticket on the same order - flagged on the ticket, merged by a click", href: "/uc/ticket-duplicates", icon: "copy", ...PURPLE },
       { name: "Certificates", note: "The Back Office's certificate requests: AVOR, the Back Office, the conformity experts - reminders and hand-overs", href: "/uc/certificates", icon: "verified", ...GREEN },
       { name: "Ticket value", note: "Each ticket's sales potential - shadow mode, side by side with the TICKET VALUE CALCULATION workflow", href: "/uc/ticket-value", icon: "tag", ...AMBER },
+      // the Railway translator brought into the hub (SARCLA 08.11.2026: "kill Railway and bring all to the hub")
+      { name: "APSO Translator", note: "Customers' chats and e-mails in English for the agent, replies in the customer's language - DeepL", href: "/uc/translator", icon: "globe", ...BLUE },
     ],
   },
   {
