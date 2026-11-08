@@ -124,19 +124,46 @@ export type Cleaned = { html: string; removed: { scripts: number; trackers: numb
  * <noscript> notice ("JavaScript seems to be disabled"). The frame opens it at #maincontent, so the card shows the page's
  * own top (its title, picture, first lines), not the header every page shares.
  */
-export function stillPage(html: string, focus?: { selector: string; nonce: string } | null): string {
+// NO SCRIPT AT ALL, so the picture's frame may share the hub's origin (sandbox="allow-same-origin", never with
+// allow-scripts): the browser then keeps the shop's files ONCE for every picture. A frame with an opaque origin gets a
+// cache of its own each time, and a page of cards asked for hundreds of files again and again - the load balancer's
+// limit (2,000 requests in 5 minutes per address, the office shares one) shut SARCLA out of the hub, 08.11.2026.
+// Pictures load only the images of their first screen (loading="lazy" on the rest).
+export function stillPage(html: string, focus?: string | null): string {
   let out = html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, "").replace(/<noscript\b[\s\S]*?<\/noscript\s*>/gi, "");
-  const css = "<style data-apso-still>html,body{scrollbar-width:none;overflow:hidden!important}body::-webkit-scrollbar{display:none}body{pointer-events:none}.message.global,.page.messages,#cookie-status,.cookie-status-message{display:none!important}.apx-still-focus{outline:4px solid #c5221f!important;outline-offset:4px!important}</style>";
+  out = out.replace(/<img\b(?![^>]*\bloading=)/gi, '<img loading="lazy" decoding="async"');
+  const css = "<style data-apso-still>html,body{scrollbar-width:none;overflow:hidden!important}body::-webkit-scrollbar{display:none}body{pointer-events:none}.message.global,.page.messages,#cookie-status,.cookie-status-message{display:none!important}.apx-still-focus{outline:4px solid #c5221f!important;outline-offset:4px!important}#apso-focus{display:block;position:relative;top:-60px;height:0;visibility:hidden}</style>";
   out = /<\/head>/i.test(out) ? out.replace(/<\/head>/i, `${css}</head>`) : css + out;
-  // the picture of ONE block (an AI idea's): our own few lines, nothing of the shop's - the block scrolled to the top
-  // with a little of what is above it, and outlined (Webyn shows the section an insight is about)
-  if (focus) out += `<script nonce="${focus.nonce}">${focusSource(focus.selector)}</script>`;
-  return out;
+  // the picture of ONE block (an AI idea's): an anchor put just before it and the block outlined, by the hub on the
+  // way out - the frame opens at #apso-focus with nothing running (Webyn shows the section an insight is about)
+  return focus ? markFocus(out, focus) : out;
 }
 
-/** The few lines a still picture runs to show one block: found, scrolled to near the top, outlined. Pure, tested. */
-export function focusSource(selector: string): string {
-  return `(function(){var s=${JSON.stringify(selector).split("<").join("\\u003c")};function go(){var el=null;try{el=document.querySelector(s);}catch(e){}if(!el){var m=document.getElementById("maincontent");if(m)window.scrollTo(0,Math.max(0,m.getBoundingClientRect().top+window.scrollY));return;}el.classList.add("apx-still-focus");var r=el.getBoundingClientRect();window.scrollTo(0,Math.max(0,r.top+window.scrollY-60));}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",go);else go();window.addEventListener("load",go);})();`;
+/**
+ * Put the anchor #apso-focus before the first element a simple selector names ("#id", "tag", ".a.b", "tag.a.b",
+ * "tag#id.a") and outline it; a selector it cannot place puts the anchor before #maincontent. Pure, tested.
+ */
+export function markFocus(html: string, selector: string): string {
+  const anchor = '<a id="apso-focus"></a>';
+  const last = selector.trim().split(/\s*[>\s+~]\s*/).pop() ?? "";
+  const m = /^([a-z][a-z0-9-]*)?(?:#([\w-]+))?((?:\.[\w-]+)*)$/i.exec(last);
+  if (m && (m[1] || m[2] || m[3])) {
+    const tag = m[1] ?? "[a-z][a-z0-9-]*";
+    const re = new RegExp(`<(${tag})\\b([^>]*)>`, "gi");
+    const classes = (m[3] ?? "").split(".").filter(Boolean);
+    for (let x = re.exec(html); x; x = re.exec(html)) {
+      const attrs = x[2];
+      if (m[2] && !new RegExp(`\\bid=["']${m[2]}["']`).test(attrs)) continue;
+      const cls = /\bclass=["']([^"']*)["']/i.exec(attrs)?.[1].split(/\s+/) ?? [];
+      if (!classes.every((c) => cls.includes(c))) continue;
+      const tagged = /\bclass=["']/i.test(attrs)
+        ? x[0].replace(/\bclass=(["'])/i, 'class=$1apx-still-focus ')
+        : x[0].replace(/^<([a-z][a-z0-9-]*)/i, '<$1 class="apx-still-focus"');
+      return html.slice(0, x.index) + anchor + tagged + html.slice(x.index + x[0].length);
+    }
+  }
+  const main = /<[a-z][a-z0-9-]*\b[^>]*\bid=["']maincontent["'][^>]*>/i.exec(html);
+  return main ? html.slice(0, main.index) + anchor + html.slice(main.index) : html;
 }
 
 export function cleanPage(html: string, opts: { pageUrl: string; head: string; tail: string; sprite?: { url: string; svg: string } | null }): Cleaned {

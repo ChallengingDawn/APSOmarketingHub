@@ -139,7 +139,7 @@ export default function ConvertOverview() {
       g.n += 1;
       waiting.set(k, g);
     }
-    for (const [k, g] of waiting) out.push({ key: `i${k}`, tone: "#a96a12", head: `${g.n} ${g.n === 1 ? "idea waits" : "ideas wait"} for a yes or no`, line: `${g.path} - first: ${g.top}`, href: previewHref(g.env, g.path), go: "Decide" });
+    for (const [k, g] of waiting) out.push({ key: `i${k}`, tone: "#a96a12", head: `${g.n} ${g.n === 1 ? "optimization waits" : "optimizations wait"} for a yes or no`, line: `${g.path} - first: ${g.top}`, href: previewHref(g.env, g.path), go: "Decide" });
     return out.slice(0, 6);
   }, [ideas, t]);
 
@@ -179,7 +179,7 @@ export default function ConvertOverview() {
 
       <Box sx={{ display: "grid", gap: { xs: 1.25, lg: 0 }, gridTemplateColumns: { xs: "minmax(0,1fr)", sm: "repeat(2, minmax(0,1fr))", lg: "repeat(5, minmax(0,1fr))" } }}>
         <Step n={1} icon={<TroubleshootOutlinedIcon />} tint="#c2185b" title="Problem pages" value={num(n.flagged)} line={n.flagged === null ? "Reading Google Analytics…" : `pages losing buyers · ${full(n.missed)} add-to-carts missed`} href={`${CONVERT}/problems`} />
-        <Step n={2} icon={<TipsAndUpdatesOutlinedIcon />} tint="#a96a12" title="Ideas" value={num(n.waiting)} line={`waiting for a yes or no · ${n.approved} approved, no version yet`} href={`${CONVERT}/ideas`} />
+        <Step n={2} icon={<TipsAndUpdatesOutlinedIcon />} tint="#a96a12" title="Optimizations" value={num(n.waiting)} line={`waiting for a yes or no · ${n.approved} approved, no version yet`} href={`${CONVERT}/insights`} />
         <Step n={3} icon={<PreviewOutlinedIcon />} tint="#6a46c9" title="Versions" value={num(n.ready)} line={`ready to test · ${n.shaping} being shaped`} href={`${CONVERT}/preview`} />
         <Step n={4} icon={<CompareOutlinedIcon />} tint="#2459d1" title="Tests" value={num(n.running)} line={`running on the shop · ${n.drafts} ${n.drafts === 1 ? "draft" : "drafts"}`} href={`${CONVERT}/tests`} />
         <Step n={5} icon={<RocketLaunchOutlinedIcon />} tint="#1b7a55" title="Ship" value={num(n.won)} line={`winners to ship · ${n.shipped} shipped`} href={`${CONVERT}/ship`} last />
@@ -249,7 +249,7 @@ export default function ConvertOverview() {
 
         <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
           <GlassCard>
-            <CardTitle icon={<HistoryOutlinedIcon />} tint="purple" title="Pages in work" note="Their ideas and versions" />
+            <CardTitle icon={<HistoryOutlinedIcon />} tint="purple" title="Pages in work" note="Their optimizations and versions" />
             <Box sx={{ display: "grid", gap: 0.5, mt: 1.25 }}>
               {ideas && worked.length === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No page in work yet - start from Insights.</Typography>}
               {worked.map((w) => (
@@ -258,7 +258,7 @@ export default function ConvertOverview() {
                     <Chip tint={w.env === "prod" ? "green" : "amber"}>{ENVS[w.env].label}</Chip>
                     <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, ...clip(9999) }}>{w.top}</Typography>
                   </Box>
-                  <Typography sx={{ fontSize: "0.74rem", color: MUTED, ...clip(9999) }}>{w.ideas} {w.ideas === 1 ? "idea" : "ideas"}{w.ready ? ` · ${w.ready} ready to test` : ""} · {ago(Date.parse(w.last) / 1000)} · {w.path}</Typography>
+                  <Typography sx={{ fontSize: "0.74rem", color: MUTED, ...clip(9999) }}>{w.ideas} {w.ideas === 1 ? "optimization" : "optimizations"}{w.ready ? ` · ${w.ready} ready to test` : ""} · {ago(Date.parse(w.last) / 1000)} · {w.path}</Typography>
                 </Box>
               ))}
             </Box>

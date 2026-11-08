@@ -240,7 +240,7 @@ function Picker({ env, onOpen, problems }: { env: Env; onOpen: (env: Env, path: 
     <>
     {worked.length > 0 && (
       <GlassCard>
-        <CardTitle icon={<HistoryOutlinedIcon />} tint="purple" title="Pages in work" note="Their ideas and versions - open one where it was left" />
+        <CardTitle icon={<HistoryOutlinedIcon />} tint="purple" title="Pages in work" note="Their optimizations and versions - open one where it was left" />
         <Box sx={{ display: "grid", gap: 1, mt: 1.5, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(2, minmax(0,1fr))" } }}>
           {worked.map((w) => (
             <Box key={`${w.env}${w.path}`} component="button" type="button" onClick={() => onOpen(w.env, w.path)} sx={{
@@ -256,7 +256,7 @@ function Picker({ env, onOpen, problems }: { env: Env; onOpen: (env: Env, path: 
               </Box>
               <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, ...clip(560) }}>{w.top}</Typography>
               <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
-                {w.ideas} {w.ideas === 1 ? "idea" : "ideas"}{w.approved ? ` · ${w.approved} approved` : ""}{w.ready ? ` · ${w.ready} ready to test` : ""} · {ago(Date.parse(w.last) / 1000)}
+                {w.ideas} {w.ideas === 1 ? "optimization" : "optimizations"}{w.approved ? ` · ${w.approved} approved` : ""}{w.ready ? ` · ${w.ready} ready to test` : ""} · {ago(Date.parse(w.last) / 1000)}
               </Typography>
               </Box>
             </Box>
@@ -340,10 +340,12 @@ function IdeaCard({ idea, version, selected, canEdit, busy, onSelect, onStatus, 
         </Box>
         <Chip tint={IDEA_TINT[idea.status]}>{IDEA_LABEL[idea.status]}</Chip>
       </Box>
-      {idea.why && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}><b>Why</b> {idea.why}</Typography>}
-      {idea.change && <Typography sx={{ fontSize: "0.8rem", color: INK }}><b>Change</b> {idea.change}</Typography>}
-      {idea.expect && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}><b>Should move</b> {idea.expect}</Typography>}
-      {iceScore(idea) !== null && (
+      {/* compact until chosen (SARCLA 08.11.2026: "proposals don't look great"): the chosen one says why, what and what for */}
+      {!selected && idea.why && <Typography sx={{ fontSize: "0.78rem", color: MUTED, display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{idea.why}</Typography>}
+      {selected && idea.why && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}><b>Diagnostic</b> {idea.why}</Typography>}
+      {selected && idea.change && <Typography sx={{ fontSize: "0.8rem", color: INK }}><b>Suggested optimization</b> {idea.change}</Typography>}
+      {selected && idea.expect && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}><b>Objectives</b> {idea.expect}</Typography>}
+      {selected && iceScore(idea) !== null && (
         <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
           <Tooltip title="Impact x confidence / effort - the higher, the sooner to try it">
             <Box component="span" sx={{ px: 0.9, py: 0.15, borderRadius: "5px", bgcolor: "#2459d1", color: "#fff", fontSize: "0.72rem", fontWeight: 700 }}>Score {iceScore(idea)}</Box>
@@ -381,7 +383,7 @@ function OwnIdea({ onAdd }: { onAdd: (title: string, change: string) => Promise<
   const [title, setTitle] = useState("");
   const [change, setChange] = useState("");
   const [busy, setBusy] = useState(false);
-  if (!open) return <Button size="small" onClick={() => setOpen(true)} sx={{ justifySelf: "start" }}>+ Your own idea</Button>;
+  if (!open) return <Button size="small" onClick={() => setOpen(true)} sx={{ justifySelf: "start" }}>+ Your own optimization</Button>;
   return (
     <Box sx={{ display: "grid", gap: 1, p: 1.5, borderRadius: "14px", border: `1px dashed ${HAIRLINE}` }}>
       <TextField size="small" label="The idea" value={title} onChange={(e) => setTitle(e.target.value)} inputProps={{ maxLength: 200 }} />
@@ -586,7 +588,9 @@ function ConvertPreview() {
   const [device, setDevice] = useState<Device>("desktop");
   const [zoom, setZoom] = useState<Zoom>("fit");
   const [sync, setSync] = useState<Sync | null>(null);
-  const [view, setView] = useState<View>("both");
+  // one view when it opens: the optimization (SARCLA 08.11.2026: "when you open you should only see one version of the
+  // optimization") - the original and the two side by side one click away; one frame also asks the hub for half the files
+  const [view, setView] = useState<View>("version");
   const [hit, setHit] = useState<number[] | null>(null);
   const [rev, setRev] = useState<number | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -629,7 +633,7 @@ function ConvertPreview() {
   const version = idea ? versionOf.get(idea.id) ?? null : null;
   useEffect(() => { setHit(null); setRev(null); }, [version?.id, version?.rev]);
   useEffect(() => { setPicked(null); setPick(false); setStyles(null); told.current = false; drawn.current = null; }, [path, env]);
-  useEffect(() => { if (!version && view !== "original") setView("original"); else if (version && view === "original") setView("both"); }, [version?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!version && view !== "original") setView("original"); else if (version && view === "original") setView("version"); }, [version?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const base = path ? `/api/website/ai-personalization/preview?env=${env}&path=${encodeURIComponent(path)}${fresh ? `&fresh=1&f=${fresh}` : ""}` : "";
   const vSrc = version ? `${base}&v=${version.id}&r=${rev ?? version.rev}&at=${encodeURIComponent(version.updatedAt)}` : "";
@@ -783,14 +787,14 @@ function ConvertPreview() {
           <GlassCard sx={{ p: { xs: 1.5, md: 2 } }}>
             <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap", mb: 1.5 }}>
               <SquareChoice<View> label="Show" value={version ? view : "original"} onChange={setView}
-                options={version ? [{ key: "both", label: "Side by side" }, { key: "version", label: "Version" }, { key: "original", label: "Original" }] : [{ key: "original", label: "The page as it is" }]} />
+                options={version ? [{ key: "version", label: "The optimization" }, { key: "original", label: "The page as it is" }, { key: "both", label: "Side by side" }] : [{ key: "original", label: "The page as it is" }]} />
               <SquareChoice<Device> label="On" value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "phone", label: "Phone" }]} />
               {device === "desktop" && <SquareChoice<Zoom> label="Size" value={zoom} onChange={setZoom} options={[{ key: "fit", label: "Fit" }, { key: "full", label: "Actual size" }]} />}
               <Box sx={{ flex: 1 }} />
               {ideas.some((i) => i.target && i.status !== "dropped") && (
-                <Tooltip title="Each idea's block marked on the page with its number - point at an idea to see its block">
+                <Tooltip title="Each optimization's block marked on the page with its number - point at one to see its block">
                   <Button size="small" variant={showSpots ? "contained" : "outlined"} disableElevation onClick={() => setShowSpots((x) => !x)} startIcon={<TipsAndUpdatesOutlinedIcon sx={{ fontSize: 17 }} />}
-                    sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{showSpots ? "Ideas on the page" : "Show the ideas on the page"}</Button>
+                    sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{showSpots ? "Optimizations on the page" : "Show them on the page"}</Button>
                 </Tooltip>
               )}
               {version && (
@@ -818,7 +822,7 @@ function ConvertPreview() {
                     ? <Button size="small" variant="contained" disableElevation disabled={busy === `build:${idea.id}`} onClick={() => void act(`build:${idea.id}`, { action: "build", ideaId: idea.id, request: `Start from this element - ${picked.selector}${picked.text ? ` (it reads “${picked.text.slice(0, 80)}”)` : ""}.` })}>
                         {busy === `build:${idea.id}` ? "The AI is writing…" : "Write the version from here"}
                       </Button>
-                    : <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>Approve an idea first - its version can then change this element.</Typography>}
+                    : <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>Approve an optimization first - its version can then change this element.</Typography>}
                 <Button size="small" onClick={() => setPicked(null)}>Clear</Button>
               </Box>
             )}
@@ -827,8 +831,8 @@ function ConvertPreview() {
             )}
             {pg.status === 200 && (
               <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: version && view === "both" ? { xs: "minmax(0,1fr)", md: "minmax(0,1fr) minmax(0,1fr)" } : "minmax(0,1fr)" }}>
-                {(!version || view !== "version") && <Frame src={base} device={device} zoom={zoom} name="original" sync={sync} pick={pick} marks={false} spots={spots} address={pg.url ?? path} label={version ? "Original" : "The page"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
-                {version && view !== "original" && <Frame src={vSrc} device={device} zoom={zoom} name="version" sync={sync} pick={pick} marks={marks} address={pg.url ?? path} label={`Version · rev ${rev ?? version.rev}`} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
+                {(!version || view !== "version") && <Frame src={base} device={device} zoom={zoom} name="original" sync={sync} pick={pick} marks={false} spots={view === "version" ? null : spots} address={pg.url ?? path} label={version ? "Original" : "The page"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
+                {version && view !== "original" && <Frame src={vSrc} device={device} zoom={zoom} name="version" sync={sync} pick={pick} marks={marks} spots={view === "version" ? spots : null} address={pg.url ?? path} label={`Version · rev ${rev ?? version.rev}`} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
               </Box>
             )}
             <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 1 }}>
@@ -855,8 +859,8 @@ function ConvertPreview() {
                 }} />
             )}
             <GlassCard>
-              <CardTitle icon={<TipsAndUpdatesOutlinedIcon />} tint="amber" title={`Ideas · ${ideas.filter((i) => i.status !== "dropped").length}`}
-                note={counts.proposed ? `${counts.proposed} waiting for a yes or no` : "Approve one and the AI writes its version"} />
+              <CardTitle icon={<TipsAndUpdatesOutlinedIcon />} tint="amber" title={`Optimizations · ${ideas.filter((i) => i.status !== "dropped").length}`}
+                note={counts.proposed ? `${counts.proposed} waiting for a yes or no - choose one to see why` : "Approve one and the AI writes its version"} />
               <Box sx={{ display: "grid", gap: 1.25, mt: 1.5 }}>
                 {data.analysis && (
                   <Box sx={{ p: 1.25, borderRadius: "10px", borderLeft: "3px solid #6a46c9", bgcolor: "rgba(106,70,201,.06)" }}>
@@ -868,17 +872,17 @@ function ConvertPreview() {
                 {busy === "ideas" && !ideas.length && (
                   <Box sx={{ display: "flex", gap: 1, alignItems: "center", p: 1.25, borderRadius: "10px", bgcolor: "rgba(36,89,209,.06)" }}>
                     <CircularProgress size={16} />
-                    <Typography sx={{ fontSize: "0.84rem", color: INK }}>The AI is reading the page and its numbers - its ideas come in about half a minute, the strongest first.</Typography>
+                    <Typography sx={{ fontSize: "0.84rem", color: INK }}>The AI is reading the page and its numbers - its optimizations come in about half a minute, the strongest first.</Typography>
                   </Box>
                 )}
                 {data.canEdit && (
                   <Button variant={ideas.length ? "outlined" : "contained"} disableElevation disabled={!data.ai || busy === "ideas" || pg.status !== 200} onClick={() => void act("ideas", { action: "ideas", env, path, numbers })}
                     startIcon={busy === "ideas" ? <CircularProgress size={14} /> : <TipsAndUpdatesOutlinedIcon sx={{ fontSize: 17 }} />}>
-                    {busy === "ideas" ? "The AI is reading the page… about half a minute" : ideas.length ? "Ask the AI for more ideas" : "Ask the AI for ideas"}
+                    {busy === "ideas" ? "The AI is reading the page… about half a minute" : ideas.length ? "Find more optimizations" : "Find optimizations"}
                   </Button>
                 )}
-                {!data.ai && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No AI key on this hub - ideas can be added by hand.</Typography>}
-                {ideas.length === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No idea for this page yet.</Typography>}
+                {!data.ai && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No AI key on this hub - optimizations can be added by hand.</Typography>}
+                {ideas.length === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No optimization for this page yet.</Typography>}
                 {ranked.map((i) => (
                   <Box key={i.id} data-idea-n={numberOf.get(i.id) ?? ""}>
                   <IdeaCard idea={i} version={versionOf.get(i.id) ?? null} selected={idea?.id === i.id} canEdit={data.canEdit} busy={busy === `build:${i.id}`}
@@ -908,7 +912,7 @@ function ConvertPreview() {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
         title="Preview"
-        subtitle="A shop page live, its ideas, and the version beside the original"
+        subtitle="A shop page live, its optimizations, and the version beside the original"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {(held.stale || busy) && <CircularProgress size={14} sx={{ color: MUTED }} />}

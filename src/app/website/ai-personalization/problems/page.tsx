@@ -332,7 +332,7 @@ function PageCard({ p, selected, onSelect, work }: { p: Row; selected: boolean; 
         </Box>
         {work && (
           <Box sx={{ position: "absolute", top: 8, right: 8 }}>
-            <Chip tint={work.ready ? "green" : "purple"}>{work.ready ? `${work.ready} ready to test` : `In work · ${work.ideas} ${work.ideas === 1 ? "idea" : "ideas"}`}</Chip>
+            <Chip tint={work.ready ? "green" : "purple"}>{work.ready ? `${work.ready} ready to test` : `In work · ${work.ideas} ${work.ideas === 1 ? "optimization" : "optimizations"}`}</Chip>
           </Box>
         )}
         <Box className="apx-open" sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", bgcolor: "rgba(21,34,58,.38)", opacity: 0, transition: "opacity .15s" }}>
@@ -359,7 +359,7 @@ function PageCard({ p, selected, onSelect, work }: { p: Row; selected: boolean; 
         </Box>
         {p.shop && p.shop.companies > 0 && <StepBar f={p.shop} />}
         <Box sx={{ display: "flex", gap: 0.25, alignItems: "center", flexWrap: "nowrap", mt: "auto", pt: 0.25, "& .MuiButton-root": { minWidth: 0, whiteSpace: "nowrap" } }}>
-          <Button size="small" variant="contained" disableElevation component={Link} href={work ? previewHref("prod", p.path, work.idea ?? undefined) : `${previewHref("prod", p.path)}&ask=1`} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700, mr: 0.5 }}>{work ? "Continue" : "Find ideas"}</Button>
+          <Button size="small" variant="contained" disableElevation component={Link} href={work ? previewHref("prod", p.path, work.idea ?? undefined) : `${previewHref("prod", p.path)}&ask=1`} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700, mr: 0.5 }}>{work ? "Continue" : "Find optimizations"}</Button>
           <Button size="small" component={Link} href={flowHref(true, p.path)} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Journeys</Button>
           <Button size="small" onClick={onSelect} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600, ml: "auto", color: selected ? ACCENT : MUTED }}>
             {selected ? "Hide customers" : p.kind === "product" ? "Customers" : "Contacts"}

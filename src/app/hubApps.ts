@@ -146,7 +146,6 @@ export const WEBSITE_SECTIONS: WebsiteSection[] = [
       { name: "Insights", note: "What the AI found on the pages and proposes to change, each shown on its block", href: "/website/ai-personalization/insights", icon: "bolt", ...PURPLE },
       { name: "Problem pages", note: "The pages that lose buyers, shown as they look, down to the customer", href: "/website/ai-personalization/problems", icon: "target", ...PINK },
       { name: "Journeys", note: "One page: where its visitors came from and where they went next", href: "/website/ai-personalization/journeys", icon: "route", ...BLUE },
-      { name: "Plan", note: "Every optimization by page and by stage: to decide, approved, in preview, ready to test", href: "/website/ai-personalization/ideas", icon: "bolt", ...AMBER },
       { name: "Preview", note: "A shop page live, its version beside the original; its texts go to Content Studio", href: "/website/ai-personalization/preview", icon: "edit", ...PURPLE },
       { name: "Tests", note: "A version against the page as it is: the add-to-carts decide", href: "/website/ai-personalization/tests", icon: "science", ...PINK },
       { name: "Always on", note: "An audience always gets a version: signed-in customers, a store view, phones", href: "/website/ai-personalization/personalise", icon: "groups", ...GREEN },
