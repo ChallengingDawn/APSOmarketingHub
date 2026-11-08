@@ -28,6 +28,7 @@ import { ENVS, KIND_LABEL, type Env } from "@/lib/convert/model";
 import { ANY_AUDIENCE, audienceWords, type Audience } from "@/lib/convert/contract";
 import { convertPost, previewHref } from "../Flow";
 import { SquareChoice } from "../SquareChoice";
+import { PageShot } from "../PageShot";
 import {
   AudienceBuilder, ConfirmDialog, GatewayNotice, PagePicker, StatusChip, dayTime, envChip, n, pagesLine, pct,
   type CandidateView, type Confirm, type GatewayView, type TestView,
@@ -132,7 +133,10 @@ function Item({ t, canEdit, ask, run }: { t: TestView; canEdit: boolean; ask: (c
     ? { title: "Switch it off?", lines: ["Everyone sees the page as it is until it is switched on again. The figures stay."], go: "Switch off", tone: "stop", run: () => run({ action: "off", id: t.id }) }
     : { title: `Switch it on, on ${ENVS[t.env].label}?`, lines: [<>The version (rev {t.versionRev}) goes live for <b>{audienceWords(t.audience)}</b> on {t.host}:</>, pagesLine(t.host, t.pages), "Switching it on is the approval: the shop's gateway runs it within a minute."], go: "Switch on", run: () => run({ action: "on", id: t.id }) });
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0,1fr)", md: "minmax(0,1fr) auto auto" }, gap: { xs: 1, md: 2 }, alignItems: "center", py: 1.25, borderBottom: `1px solid ${HAIRLINE}` }}>
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0,1fr)", md: "150px minmax(0,1fr) auto auto" }, gap: { xs: 1, md: 2 }, alignItems: "center", py: 1.25, borderBottom: `1px solid ${HAIRLINE}` }}>
+      {t.pages[0]
+        ? <Box component={Link} href={previewHref(t.env, t.pages[0], t.ideaId ?? undefined)} sx={{ display: { xs: "none", md: "block" }, borderRadius: "8px", overflow: "hidden", border: `1px solid ${HAIRLINE}` }}><PageShot env={t.env} path={t.pages[0]} /></Box>
+        : <Box sx={{ display: { xs: "none", md: "block" } }} />}
       <Box sx={{ minWidth: 0 }}>
         <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
           <StatusChip status={t.status} kind={t.kind} />

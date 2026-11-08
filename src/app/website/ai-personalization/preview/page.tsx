@@ -644,6 +644,22 @@ function ConvertPreview() {
     return true;
   };
 
+  // "Find ideas" on an Insights card opens the page with ?ask=1: a page without ideas asks the AI by itself, once - after
+  // a few seconds, so the frame has sent the page as it is drawn (the AI aims its ideas at it); the address then loses
+  // its ask=1, so a reload never asks twice. A person's click, the hub's daily AI budget as for the button.
+  const asked = useRef(false);
+  const askTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (askTimer.current) clearTimeout(askTimer.current); }, []);
+  useEffect(() => {
+    if (asked.current || sp.get("ask") !== "1" || !d || !path) return;
+    if (!d.canEdit || !d.ai || d.page.status !== 200 || d.ideas.length > 0) return;
+    asked.current = true;
+    askTimer.current = setTimeout(() => {
+      router.replace(`/website/ai-personalization/preview?env=${env}&path=${encodeURIComponent(path)}`);
+      void act("ideas", { action: "ideas", env, path, numbers });
+    }, 8000);
+  }, [d]); // eslint-disable-line react-hooks/exhaustive-deps
+
   let body: React.ReactNode;
   if (!path) {
     body = <Picker env={env} onOpen={(e, p) => go(e, p)} problems={problems} />;
@@ -775,7 +791,7 @@ function ConvertPreview() {
                 note={counts.proposed ? `${counts.proposed} waiting for a yes or no` : "Approve one and the AI writes its version"} />
               <Box sx={{ display: "grid", gap: 1.25, mt: 1.5 }}>
                 {data.canEdit && (
-                  <Button variant="outlined" disabled={!data.ai || busy === "ideas" || pg.status !== 200} onClick={() => void act("ideas", { action: "ideas", env, path, numbers })}
+                  <Button variant={ideas.length ? "outlined" : "contained"} disableElevation disabled={!data.ai || busy === "ideas" || pg.status !== 200} onClick={() => void act("ideas", { action: "ideas", env, path, numbers })}
                     startIcon={busy === "ideas" ? <CircularProgress size={14} /> : <TipsAndUpdatesOutlinedIcon sx={{ fontSize: 17 }} />}>
                     {busy === "ideas" ? "The AI is reading the page… about half a minute" : ideas.length ? "Ask the AI for more ideas" : "Ask the AI for ideas"}
                   </Button>

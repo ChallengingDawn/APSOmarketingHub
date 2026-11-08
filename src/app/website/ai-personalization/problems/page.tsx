@@ -38,7 +38,25 @@ import { ACCENT, AMBER, CardTitle, GREEN, GlassCard, KpiTile, MUTED, Notice, RED
 import { ago, usePaged } from "@/app/connectors/parts";
 import { Chip } from "@/app/website/ai-personalization/Tag";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
-import { KIND_LABEL, STEP_LABEL, sortProblems, type PageKind, type RankBy, type Step } from "@/lib/convert/model";
+import { KIND_LABEL, STEP_LABEL, classify, sortProblems, type PageKind, type RankBy, type Step } from "@/lib/convert/model";
+import type { BoardRow } from "@/lib/convert/studio";
+
+/** What is already being done on a page: its ideas (not dropped) and the versions ready to test. */
+type Work = { ideas: number; ready: number; idea: string | null };
+/** The ideas board by Insights' page key: a product is one page in every language ("product:12202510"). */
+function workByKey(rows: BoardRow[]): Map<string, Work> {
+  const out = new Map<string, Work>();
+  for (const r of rows) {
+    if (r.status === "dropped") continue;
+    const c = classify(r.path);
+    const key = c.kind === "product" && c.product ? `product:${c.product}` : `page:${r.path}`;
+    const w = out.get(key) ?? { ideas: 0, ready: 0, idea: null };
+    w.ideas += 1;
+    if (r.version?.status === "approved") { w.ready += 1; w.idea = r.id; }
+    out.set(key, w);
+  }
+  return out;
+}
 import type { PageCustomers, ProblemsData } from "@/lib/convert/problems";
 import type { Brief } from "@/lib/convert/brief";
 import { convertPost, previewHref } from "../Flow";
@@ -297,7 +315,7 @@ function StepBar({ f }: { f: NonNullable<Row["shop"]> }) {
   );
 }
 
-function PageCard({ p, selected, onSelect }: { p: Row; selected: boolean; onSelect: () => void }) {
+function PageCard({ p, selected, onSelect, work }: { p: Row; selected: boolean; onSelect: () => void; work: Work | null }) {
   const low = p.rate !== null && p.typical ? p.rate < p.typical / 2 : false;
   const rateColor = p.rate === null || !p.typical ? undefined : low ? RED : p.rate < p.typical ? AMBER : GREEN;
   return (
@@ -312,6 +330,11 @@ function PageCard({ p, selected, onSelect }: { p: Row; selected: boolean; onSele
           <Chip tint={KIND_TINT[p.kind]}>{KIND_LABEL[p.kind]}</Chip>
           {p.kind === "product" && p.paths.length > 1 && <Chip tint="slate">{p.paths.length} languages</Chip>}
         </Box>
+        {work && (
+          <Box sx={{ position: "absolute", top: 8, right: 8 }}>
+            <Chip tint={work.ready ? "green" : "purple"}>{work.ready ? `${work.ready} ready to test` : `In work · ${work.ideas} ${work.ideas === 1 ? "idea" : "ideas"}`}</Chip>
+          </Box>
+        )}
         <Box className="apx-open" sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", bgcolor: "rgba(21,34,58,.38)", opacity: 0, transition: "opacity .15s" }}>
           <Box sx={{ px: 1.5, py: 0.6, borderRadius: "6px", bgcolor: "#fff", color: ACCENT, fontSize: "0.82rem", fontWeight: 700 }}>Open in Preview</Box>
         </Box>
@@ -331,12 +354,12 @@ function PageCard({ p, selected, onSelect }: { p: Row; selected: boolean; onSele
           <Stat k="Views" v={p.views ? full(p.views) : "–"} />
           <Stat k="Cart rate" v={pct(p.rate)} sub={p.typical !== null ? `typical ${pct(p.typical)}` : undefined} color={rateColor} />
           {p.shop
-            ? <Stat k="Customers lost" v={`${full(p.shop.lost)} of ${full(p.shop.companies)}`} sub={p.shop.topLoss ? STEP_LABEL[p.shop.topLoss] : undefined} color={p.shop.lost ? RED : undefined} />
+            ? <Stat k="Lost" v={`${full(p.shop.lost)} of ${full(p.shop.companies)}`} sub={p.shop.topLoss ? STEP_LABEL[p.shop.topLoss] : undefined} color={p.shop.lost ? RED : undefined} />
             : <Stat k="Carts missed" v={p.missed ? full(p.missed) : "–"} color={p.missed ? RED : undefined} />}
         </Box>
         {p.shop && p.shop.companies > 0 && <StepBar f={p.shop} />}
-        <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap", mt: "auto", pt: 0.25 }}>
-          <Button size="small" variant="contained" disableElevation component={Link} href={previewHref("prod", p.path)} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>Preview</Button>
+        <Box sx={{ display: "flex", gap: 0.25, alignItems: "center", flexWrap: "nowrap", mt: "auto", pt: 0.25, "& .MuiButton-root": { minWidth: 0, whiteSpace: "nowrap" } }}>
+          <Button size="small" variant="contained" disableElevation component={Link} href={work ? previewHref("prod", p.path, work.idea ?? undefined) : `${previewHref("prod", p.path)}&ask=1`} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700, mr: 0.5 }}>{work ? "Continue" : "Find ideas"}</Button>
           <Button size="small" component={Link} href={flowHref(true, p.path)} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Journeys</Button>
           <Button size="small" onClick={onSelect} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600, ml: "auto", color: selected ? ACCENT : MUTED }}>
             {selected ? "Hide customers" : p.kind === "product" ? "Customers" : "Contacts"}
@@ -409,6 +432,8 @@ export default function ConvertProblems() {
     return () => clearTimeout(t);
   }, [d?.shop.state, tick]);
 
+  const board = useHeld<{ ideas: BoardRow[] }>("/api/website/ai-personalization/ideas", []);
+  const work = useMemo(() => workByKey(board.result?.state === "ok" ? board.result.data.ideas : []), [board.result]);
   const view = useMemo(() => {
     const all = (d?.pages ?? []) as Row[];
     const problems = all.filter((p) => p.reasons.length > 0);
@@ -478,7 +503,7 @@ export default function ConvertProblems() {
         {mode === "cards" && view.rows.length > 0 && (
           <>
             <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))" }}>
-              {view.rows.slice(0, shown).map((p) => <PageCard key={p.key} p={p} selected={p.key === sel} onSelect={() => pick(p.key)} />)}
+              {view.rows.slice(0, shown).map((p) => <PageCard key={p.key} p={p} selected={p.key === sel} onSelect={() => pick(p.key)} work={work.get(p.key) ?? null} />)}
             </Box>
             {view.rows.length > shown && (
               <Box sx={{ display: "flex", justifyContent: "center" }}>

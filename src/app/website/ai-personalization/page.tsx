@@ -18,6 +18,9 @@ import CompareOutlinedIcon from "@mui/icons-material/CompareOutlined";
 import RocketLaunchOutlinedIcon from "@mui/icons-material/RocketLaunchOutlined";
 import ReportProblemOutlinedIcon from "@mui/icons-material/ReportProblemOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
+import PendingActionsOutlinedIcon from "@mui/icons-material/PendingActionsOutlined";
+import PsychologyOutlinedIcon from "@mui/icons-material/PsychologyOutlined";
+import type { Brief } from "@/lib/convert/brief";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER } from "@/app/analytics/Shell";
@@ -43,7 +46,7 @@ function Step({ n, icon, title, value, line, href, tint, last }: {
   return (
     <Box sx={{ display: "flex", alignItems: "stretch", minWidth: 0 }}>
       <Box component={Link} href={href} sx={{
-        flex: 1, minWidth: 0, display: "grid", gap: 0.5, p: 1.75, borderRadius: "14px", textDecoration: "none", color: "inherit",
+        flex: 1, minWidth: 0, display: "grid", alignContent: "start", gap: 0.5, p: 1.75, borderRadius: "14px", textDecoration: "none", color: "inherit",
         bgcolor: "rgba(255,255,255,.88)", border: `1px solid ${HAIRLINE}`, transition: "border-color .15s, transform .15s",
         "&:hover": { borderColor: tint, transform: "translateY(-1px)" },
       }}>
@@ -68,6 +71,10 @@ export default function ConvertOverview() {
   const p = prob.result?.state === "ok" ? prob.result.data : null;
   const ideas = board.result?.state === "ok" ? board.result.data.ideas : null;
   const t = tests.result?.state === "ok" ? tests.result.data.tests.filter((x) => x.kind === "test") : null;
+  // the AI's reading of the period's problem pages (Insights > What stops buyers), when somebody asked for it
+  const briefUrl = `/api/website/ai-personalization/problems/brief?from=${win.from}&to=${win.to}`;
+  const briefHeld = useHeld<{ brief: Brief | null }>(briefUrl, [briefUrl]);
+  const brief = briefHeld.result?.state === "ok" ? briefHeld.result.data.brief : null;
 
   const n = useMemo(() => {
     const flagged = (p?.pages ?? []).filter((x) => x.reasons.length > 0);
@@ -104,6 +111,29 @@ export default function ConvertOverview() {
     return [...by.values()].sort((a, b) => b.last.localeCompare(a.last)).slice(0, 5);
   }, [ideas]);
 
+  // WAITING FOR YOU - the next yes each step needs, as Webyn's recommendations read: the page's ideas to decide, a
+  // version ready for its test, a winner to ship - each with the button that does it
+  const todo = useMemo(() => {
+    const out: { key: string; tone: string; head: string; line: string; href: string; go: string }[] = [];
+    const withTest = new Set((t ?? []).map((x) => x.versionId).filter(Boolean));
+    for (const x of t ?? []) {
+      if (x.winner === "b" && x.status !== "shipped") out.push({ key: `w${x.id}`, tone: "#1b7a55", head: "A version won", line: x.name, href: `${CONVERT}/ship`, go: "Ship it" });
+    }
+    for (const r of ideas ?? []) {
+      if (r.version?.status === "approved" && !withTest.has(r.version.id)) out.push({ key: `v${r.version.id}`, tone: "#2459d1", head: "Ready for its test", line: r.title, href: `${CONVERT}/tests?make=${r.version.id}`, go: "Make the test" });
+    }
+    const waiting = new Map<string, { env: Env; path: string; n: number; top: string }>();
+    for (const r of ideas ?? []) {
+      if (r.status !== "proposed") continue;
+      const k = `${r.env}${r.path}`;
+      const g = waiting.get(k) ?? { env: r.env, path: r.path, n: 0, top: r.title };
+      g.n += 1;
+      waiting.set(k, g);
+    }
+    for (const [k, g] of waiting) out.push({ key: `i${k}`, tone: "#a96a12", head: `${g.n} ${g.n === 1 ? "idea waits" : "ideas wait"} for a yes or no`, line: `${g.path} - first: ${g.top}`, href: previewHref(g.env, g.path), go: "Decide" });
+    return out.slice(0, 6);
+  }, [ideas, t]);
+
   const num = (v: number | null) => (v === null ? "…" : full(v));
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
@@ -116,6 +146,40 @@ export default function ConvertOverview() {
         <Step n={4} icon={<CompareOutlinedIcon />} tint="#2459d1" title="Tests" value={num(n.running)} line={`running on the shop · ${n.drafts} ${n.drafts === 1 ? "draft" : "drafts"}`} href={`${CONVERT}/tests`} />
         <Step n={5} icon={<RocketLaunchOutlinedIcon />} tint="#1b7a55" title="Ship" value={num(n.won)} line={`winners to ship · ${n.shipped} shipped`} href={`${CONVERT}/ship`} last />
       </Box>
+
+      {brief && (
+        <GlassCard sx={{ borderLeft: "3px solid #6a46c9" }}>
+          <CardTitle icon={<PsychologyOutlinedIcon />} tint="purple" title="What stops buyers" note={`The AI's reading of ${brief.pages} problem pages · ${ago(Date.parse(brief.at) / 1000)}`}
+            right={<Button size="small" component={Link} href={`${CONVERT}/problems`} sx={{ textTransform: "none", fontWeight: 600 }}>In Insights</Button>} />
+          {brief.headline && <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: INK, mt: 1 }}>{brief.headline}</Typography>}
+          <Box sx={{ display: "grid", gap: 1.25, mt: 1.25, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(3, minmax(0,1fr))" } }}>
+            {brief.themes.slice(0, 3).map((x, i) => (
+              <Box key={i} sx={{ display: "grid", gap: 0.5, alignContent: "start", p: 1.25, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.7)" }}>
+                <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>{i + 1}. {x.title}</Typography>
+                <Typography sx={{ fontSize: "0.78rem", color: INK }}><b>Test first</b> {x.test}</Typography>
+              </Box>
+            ))}
+          </Box>
+        </GlassCard>
+      )}
+
+      {todo.length > 0 && (
+        <GlassCard>
+          <CardTitle icon={<PendingActionsOutlinedIcon />} tint="amber" title={`Waiting for you · ${todo.length}`} note="Nothing moves on the shop without a person's yes - these are the next ones" />
+          <Box sx={{ display: "grid", gap: 0.75, mt: 1.25, gridTemplateColumns: { xs: "minmax(0,1fr)", lg: "repeat(2, minmax(0,1fr))" } }}>
+            {todo.map((x) => (
+              <Box key={x.key} sx={{ display: "flex", gap: 1.25, alignItems: "center", p: 1.1, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.75)", minWidth: 0 }}>
+                <Box sx={{ width: 4, alignSelf: "stretch", borderRadius: "2px", bgcolor: x.tone, flexShrink: 0 }} />
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>{x.head}</Typography>
+                  <Typography sx={{ fontSize: "0.76rem", color: MUTED, ...clip(9999) }} title={x.line}>{x.line}</Typography>
+                </Box>
+                <Button size="small" variant="outlined" component={Link} href={x.href} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700, flexShrink: 0 }}>{x.go}</Button>
+              </Box>
+            ))}
+          </Box>
+        </GlassCard>
+      )}
 
       <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "minmax(0,1fr)", xl: "minmax(0,2fr) minmax(0,1fr)" }, alignItems: "start" }}>
         <GlassCard>
