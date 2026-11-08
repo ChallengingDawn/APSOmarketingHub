@@ -29,6 +29,7 @@ import { STEP_LABEL } from "@/lib/convert/model";
 import { SHOP_STOP, STORE_VIEWS, dropWords, type Drop } from "@/lib/journeys/model";
 import type { FunnelData } from "@/lib/journeys/read";
 import { StepFunnel } from "../parts";
+import { journeysBase, useInConvert } from "@/app/website/ai-personalization/base";
 
 const linkSx = { color: ACCENT, fontWeight: 700, textDecoration: "none", "&:hover": { textDecoration: "underline" } } as const;
 const SHOP_FROM_WORDS = "2 October 2026";
@@ -46,6 +47,7 @@ function DropLine({ who, drop, none }: { who: string; drop: Drop | null; none: s
 }
 
 export default function JourneysFunnel() {
+  const jb = journeysBase(useInConvert());
   const { window: win } = useReportingWindow();
   const [tick, setTick] = useState(0);
   const [store, setStore] = useState<string>("all");
@@ -163,7 +165,7 @@ export default function JourneysFunnel() {
       />
       {body}
       <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-        See <Box component={Link} href="/website/journeys" sx={linkSx}>how visitors move</Box> between the pages, or the pages that lose buyers in{" "}
+        See <Box component={Link} href={jb} sx={linkSx}>how visitors move</Box> between the pages, or the pages that lose buyers in{" "}
         <Box component={Link} href="/website/ai-personalization/problems" sx={linkSx}>Problems</Box>.
       </Typography>
     </Box>

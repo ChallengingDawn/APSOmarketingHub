@@ -293,6 +293,16 @@ const WEBSITE_ICON: Record<string, React.ReactNode> = {
   "/website/ab-testing/pages": <CompareOutlinedIcon fontSize="small" />,
   "/website/ai-personalization/pages": <ListAltOutlinedIcon fontSize="small" />,
 };
+// A Website page's own sub-pages, drawn under it in the panel (SARCLA 08.11.2026: "journeys sub-app navigation doesn't
+// exist") - APSOconvert's Journeys: the main journeys, the funnel, one page's flow.
+const WEBSITE_CHILDREN: Record<string, { label: string; href: string }[]> = {
+  "/website/ai-personalization/journeys": [
+    { label: "Main journeys", href: "/website/ai-personalization/journeys" },
+    { label: "Funnel", href: "/website/ai-personalization/journeys/funnel" },
+    { label: "Page flow", href: "/website/ai-personalization/journeys/page" },
+  ],
+};
+
 
 const navSections: NavSection[] = [
   {
@@ -315,7 +325,7 @@ const navSections: NavSection[] = [
     back: { href: "/website", label: "Website" },
     icon: <HubIconGlyph name={x.icon} fontSize={22} />,
     color: x.fg,
-    items: x.pages.map((pg) => ({ label: pg.name, href: pg.href, icon: WEBSITE_ICON[pg.href] ?? <HubIconGlyph name={pg.icon} fontSize={20} />, ...(pg.href === "/live" ? { badge: "Live" } : {}) })),
+    items: x.pages.map((pg) => ({ label: pg.name, href: pg.href, icon: WEBSITE_ICON[pg.href] ?? <HubIconGlyph name={pg.icon} fontSize={20} />, ...(pg.href === "/live" ? { badge: "Live" } : {}), ...(WEBSITE_CHILDREN[pg.href] ? { children: WEBSITE_CHILDREN[pg.href] } : {}) })),
   })),
   // Marketing & Content, a section per main topic (SARCLA 07.11.2026: "split it like website or UC by main categories" -
   // Content, SEO, SEA, GEO, AEO and LLM Optimizer), from MARKETING_SECTIONS in hubApps.ts: inside one, the panel shows
