@@ -34,7 +34,7 @@ import { previewHref } from "@/app/website/ai-personalization/Flow";
 import { JKINDS, KIND_NAME, type TopPage } from "@/lib/journeys/model";
 import type { JourneysData, PageFlowData } from "@/lib/journeys/read";
 import { KindTag, PROBLEMS_HREF, PageFlowChart, SideList, pct } from "../parts";
-import { flowHref, useInConvert } from "@/app/website/ai-personalization/base";
+import { flowHref, journeysBase, useInConvert } from "@/app/website/ai-personalization/base";
 
 const linkSx = { color: ACCENT, fontWeight: 700, textDecoration: "none", "&:hover": { textDecoration: "underline" } } as const;
 
@@ -119,7 +119,7 @@ function Flow({ path }: { path: string }) {
 
   const head = (
     <PageHeader
-      title={inConvert ? "Journeys" : "Page flow"}
+      title="Page flow"
       subtitle="Where one page's visitors came from, and where they went next"
       rightSlot={
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -200,7 +200,7 @@ function Flow({ path }: { path: string }) {
           <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", fontSize: "0.84rem" }}>
             <Box component={Link} href={previewHref("prod", path)} sx={linkSx}>Preview</Box>
             <Box component={Link} href={PROBLEMS_HREF} sx={linkSx}>Insights</Box>
-            {!inConvert && <Box component={Link} href="/website/journeys" sx={linkSx}>Main journeys</Box>}
+            <Box component={Link} href={journeysBase(inConvert)} sx={linkSx}>Main journeys</Box>
           </Box>
         </Box>
         <Box sx={{ mt: 1.5 }}><PathBox key={path} initial={path} /></Box>
@@ -220,7 +220,7 @@ function PageFlowInner() {
   if (path) return <Flow key={path} path={path} />;
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-      <PageHeader title={inConvert ? "Journeys" : "Page flow"} subtitle="Where one page's visitors came from, and where they went next" rightSlot={<WindowPicker />} />
+      <PageHeader title="Page flow" subtitle="Where one page's visitors came from, and where they went next" rightSlot={<WindowPicker />} />
       <Start />
     </Box>
   );

@@ -19,4 +19,7 @@ export const testsBase = (inConvert: boolean) => (inConvert ? `${CONVERT}/tests`
 
 /** One page's flow, in the app the person is in. */
 export const flowHref = (inConvert: boolean, path: string) =>
-  `${inConvert ? `${CONVERT}/journeys` : "/website/journeys/page"}?path=${encodeURIComponent(path)}`;
+  `${inConvert ? `${CONVERT}/journeys/page` : "/website/journeys/page"}?path=${encodeURIComponent(path)}`;
+
+/** Visitor journeys' pages, in the app the person is in: the main journeys, the funnel, one page's flow. */
+export const journeysBase = (inConvert: boolean) => (inConvert ? `${CONVERT}/journeys` : "/website/journeys");

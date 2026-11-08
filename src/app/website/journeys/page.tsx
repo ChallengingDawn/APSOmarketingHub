@@ -36,9 +36,11 @@ import { usePaged } from "@/app/connectors/parts";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { previewHref } from "@/app/website/ai-personalization/Flow";
+import { PageShot } from "@/app/website/ai-personalization/PageShot";
 import { FLOW_KINDS, KIND_COLOR, KIND_NAME, KIND_ON, journeyWords, type FlowKind, type JKind, type Journey } from "@/lib/journeys/model";
 import type { JourneysData } from "@/lib/journeys/read";
-import { JourneyFlowChart, KindLegend, KindTag, NextBar, pageFlowHref, pct } from "./parts";
+import { JourneyFlowChart, KindLegend, KindTag, NextBar, pct } from "./parts";
+import { flowHref, journeysBase, useInConvert } from "@/app/website/ai-personalization/base";
 
 const linkSx = { color: ACCENT, fontWeight: 700, textDecoration: "none", "&:hover": { textDecoration: "underline" } } as const;
 
@@ -58,6 +60,54 @@ function JourneyLine({ j }: { j: Journey }) {
         </Box>
       )}
       {j.end === "on" && <Typography component="span" sx={{ fontSize: "0.8rem", color: FAINT }}>→ …</Typography>}
+    </Box>
+  );
+}
+
+// A JOURNEY, SEEN (SARCLA 08.11.2026: "I should be able to reproduce visually a journey"): the chosen main journey as
+// the pages visitors walk through - for each step the most viewed page of that kind, as it looks, with what follows.
+// The journeys are Google Analytics' page-to-page steps by kind of page; one visitor's own clicks come with the shop
+// gateway's click map. The shop's own functions (search, cart, check-out, account) are drawn as tiles, not pages.
+const FUNCTION_KINDS = new Set<JKind>(["search", "cart", "checkout", "order", "account", "other"]);
+function JourneyFilm({ rows, pages }: { rows: Journey[]; pages: JourneysData["pages"] }) {
+  const [n, setN] = useState(0);
+  const j = rows[Math.min(n, rows.length - 1)];
+  if (!j) return null;
+  const steps = j.kinds.map((k) => ({ kind: k, page: FUNCTION_KINDS.has(k) ? null : (pages[k] ?? [])[0] ?? null }));
+  const tile = (k: FlowKind, label: string, sub: string) => (
+    <Box sx={{ aspectRatio: "1.6", borderRadius: "10px", display: "grid", placeItems: "center", textAlign: "center", p: 1, bgcolor: `${KIND_COLOR[k]}18`, border: `1px solid ${KIND_COLOR[k]}55` }}>
+      <Box><Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{label}</Typography><Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{sub}</Typography></Box>
+    </Box>
+  );
+  return (
+    <Box sx={{ display: "grid", gap: 1.5 }}>
+      <SquareChoice<string> label="Journey" value={String(Math.min(n, rows.length - 1))} onChange={(v) => setN(Number(v))}
+        options={rows.slice(0, 6).map((r, i) => ({ key: String(i), label: `${i + 1} · ${pct(r.share)}` }))} />
+      <Box sx={{ display: "grid", gap: 1, alignItems: "start", gridTemplateColumns: { xs: "minmax(0,1fr)", md: `repeat(${steps.length + (j.end === "on" ? 0 : 1)}, minmax(0,1fr))` } }}>
+        {steps.map((st, i) => (
+          <Box key={i} sx={{ display: "grid", gap: 0.5, minWidth: 0, position: "relative" }}>
+            <Box sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>
+              <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: FAINT }}>STEP {i + 1}</Typography>
+              <KindTag kind={st.kind} />
+            </Box>
+            {st.page
+              ? <Box component={Link} href={previewHref("prod", st.page.path)} title={`${st.page.name} - open it in the Preview`} sx={{ display: "block", borderRadius: "10px", overflow: "hidden", border: "1px solid rgba(21,34,58,.12)" }}>
+                  <PageShot env="prod" path={st.page.path} ratio={0.62} label={st.page.name} />
+                </Box>
+              : tile(st.kind, KIND_NAME[st.kind], "a shop function")}
+            <Typography sx={{ fontSize: "0.76rem", color: INK, fontWeight: 600, ...clip(9999) }} title={st.page?.path}>{st.page ? `e.g. ${st.page.name}` : " "}</Typography>
+          </Box>
+        ))}
+        {j.end !== "on" && (
+          <Box sx={{ display: "grid", gap: 0.5, minWidth: 0 }}>
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: FAINT }}>THEN</Typography>
+            {j.end === "left" ? tile("left", "They leave", `${full(j.visits)} visits end here`) : tile("order", "They order", `${pct(j.order / Math.max(1, j.visits))} of these visits`)}
+          </Box>
+        )}
+      </Box>
+      <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
+        {full(j.visits)} visits ({pct(j.share)} of all) · {j.cart > 0 ? `${pct(j.cart / j.visits)} went to the cart` : "none went to the cart"} · {j.order > 0 ? `${pct(j.order / j.visits)} ordered` : "none ordered"} - each step shows the most viewed page of its kind
+      </Typography>
     </Box>
   );
 }
@@ -106,6 +156,7 @@ function Journeys({ rows, depth }: { rows: Journey[]; depth: number }) {
 }
 
 function KindPages({ data, kind, setKind }: { data: JourneysData; kind: JKind; setKind: (k: JKind) => void }) {
+  const inConvert = useInConvert();
   const rows = data.pages[kind] ?? [];
   const { slice, pager, setPage } = usePaged(rows, 10);
   useEffect(() => { setPage(0); }, [kind, setPage]);
@@ -127,7 +178,7 @@ function KindPages({ data, kind, setKind }: { data: JourneysData; kind: JKind; s
             {slice.map((p) => (
               <TableRow key={p.path} hover>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.84rem" }}>
-                  <Box component={Link} href={pageFlowHref(p.path)} sx={{ ...clip(330), display: "block", color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { color: ACCENT } }} title={p.path}>{p.name}</Box>
+                  <Box component={Link} href={flowHref(inConvert, p.path)} sx={{ ...clip(330), display: "block", color: INK, fontWeight: 600, textDecoration: "none", "&:hover": { color: ACCENT } }} title={p.path}>{p.name}</Box>
                   <Typography sx={{ ...clip(330), fontSize: "0.74rem", color: MUTED }} title={p.path}>{p.path}</Typography>
                 </TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{full(p.views)}</TableCell>
@@ -140,7 +191,8 @@ function KindPages({ data, kind, setKind }: { data: JourneysData; kind: JKind; s
                 </TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{pct(p.left)}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>
-                  <Box component={Link} href={pageFlowHref(p.path)} sx={linkSx}>Page flow</Box>
+                  <Box component={Link} href={flowHref(inConvert, p.path)} sx={linkSx}>Page flow</Box>
+                  {inConvert && <>{" · "}<Box component={Link} href={`/website/ai-personalization/preview?env=prod&path=${encodeURIComponent(p.path)}`} sx={linkSx}>See it</Box></>}
                   <Box component="span" sx={{ color: FAINT }}> · </Box>
                   <Box component={Link} href={previewHref("prod", p.path)} sx={linkSx}>Preview</Box>
                 </TableCell>
@@ -155,6 +207,7 @@ function KindPages({ data, kind, setKind }: { data: JourneysData; kind: JKind; s
 }
 
 export default function MainJourneys() {
+  const jb = journeysBase(useInConvert());
   const { window: win } = useReportingWindow();
   const [tick, setTick] = useState(0);
   const [store, setStore] = useState<string>("all");
@@ -225,6 +278,14 @@ export default function MainJourneys() {
           </GlassCard>
         )}
 
+        {t.visits > 0 && data.journeys.length > 0 && (
+          <GlassCard>
+            <CardTitle icon={<RouteOutlinedIcon />} tint="purple" title="A journey, as visitors see it"
+              note="Pick a main journey: its pages in order, as they look - click one to open it in the Preview" />
+            <JourneyFilm rows={data.journeys} pages={data.pages} />
+          </GlassCard>
+        )}
+
         {t.visits > 0 && (
           <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
             <Box sx={{ px: { xs: 2, md: 2.75 } }}>
@@ -285,8 +346,8 @@ export default function MainJourneys() {
       />
       {body}
       <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-        Next: <Box component={Link} href="/website/journeys/funnel" sx={linkSx}>the funnel</Box> - the shop&apos;s steps and where most are lost
-        {" · "}<Box component={Link} href="/website/journeys/page" sx={linkSx}>one page&apos;s flow</Box>
+        Next: <Box component={Link} href={`${jb}/funnel`} sx={linkSx}>the funnel</Box> - the shop&apos;s steps and where most are lost
+        {" · "}<Box component={Link} href={`${jb}/page`} sx={linkSx}>one page&apos;s flow</Box>
       </Typography>
     </Box>
   );

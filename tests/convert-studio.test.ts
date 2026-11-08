@@ -287,12 +287,13 @@ test("handoff: a test's winner carries its test in the marker and a Winner line 
   assert.equal(markerOf(p.brief)?.testId, "7");
 });
 
-test("stillPage with a focus: only the hub's own lines run, under the nonce; a missing block falls back to the page's top", async () => {
-  const { focusSource } = await import("../src/lib/convert/preview");
-  const out = stillPage('<html><head></head><body><script>shop()</script><main id="maincontent"><div class="x">a</div></main></body></html>', { selector: "div.x</script>", nonce: "abc" });
-  assert.equal((out.match(/<script/g) ?? []).length, 1);
-  assert.match(out, /<script nonce="abc">/);
-  assert.ok(!out.includes("div.x</script>"), "a selector cannot close the script");
-  assert.match(focusSource("#a"), /getElementById\("maincontent"\)/);
-  assert.doesNotThrow(() => new Function(focusSource("div.x[data-y='1']")));
+test("stillPage with a focus: nothing runs - an anchor and an outline before the block, else before #maincontent; lazy images", () => {
+  const out = stillPage('<html><head></head><body><script>shop()</script><main id="maincontent"><div class="a x b">a</div><img src="p.jpg"></main></body></html>', "div.x");
+  assert.equal(/<script/i.test(out), false);
+  assert.ok(out.includes('<a id="apso-focus"></a><div class="apx-still-focus a x b">'));
+  assert.ok(out.includes('<img loading="lazy" decoding="async" src="p.jpg">'));
+  const miss = stillPage('<html><head></head><body><main id="maincontent"><p>x</p></main></body></html>', "section.none");
+  assert.ok(miss.includes('<a id="apso-focus"></a><main id="maincontent">'));
+  const byId = stillPage('<html><head></head><body><div id="q" class="k">x</div></body></html>', "#q");
+  assert.ok(byId.includes('<a id="apso-focus"></a><div id="q" class="apx-still-focus k">'));
 });
