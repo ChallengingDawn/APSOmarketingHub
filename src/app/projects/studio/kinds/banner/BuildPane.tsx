@@ -73,9 +73,9 @@ function Places({ doc, set, canEdit, onAdded }: BuildProps) {
                   }}>
                   <Shape k={p.key} on={on} />
                   <Box sx={{ minWidth: 0 }}>
-                    <Typography sx={{ fontSize: "0.8rem", fontWeight: 650, color: on ? INK : MUTED, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.short}</Typography>
+                    <Typography sx={{ fontSize: "0.8rem", fontWeight: 650, color: on ? INK : MUTED, lineHeight: 1.2 }}>{p.short}</Typography>
                     <Typography sx={{ fontSize: "0.7rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontVariantNumeric: "tabular-nums" }}>
-                      {p.h ? `${p.w} × ${p.h}` : "Full width"}
+                      {p.group === "ads" ? (p.key === "mrec" ? "Rectangle" : p.key === "leader" ? "Leaderboard" : "Skyscraper") : p.h ? `${p.w} × ${p.h}` : "Full width"}
                     </Typography>
                   </Box>
                   <Box sx={{
@@ -104,7 +104,7 @@ function PictureFields({ doc, set, canEdit, projectId, pieceId, me }: BuildProps
   // a picture for the places it is used in: wide for the shop's bands, square or tall for social media
   const places = sizesOf(doc);
   const aspect: PictureAspect = places.some((k) => k === "story" || k === "portrait") && !places.some((k) => PRESET[k].group === "shop") ? "4:5" : places.every((k) => k === "square") ? "1:1" : "3:2";
-  const words = [c.headline, c.rotatingWords[0], c.line].filter((x) => x && x.trim()).join(" - ");
+  const words = [`${c.headline} ${c.rotatingWords[0] ?? ""}`.trim(), c.line].filter((x) => x && x.trim()).join(" ");
   const suggestion = words ? `A photo for a banner that says: "${words}". Industrial components in use, real, calm light.` : "";
   const pickHub = (p: HubPicture) => {
     if (!canEdit) return;

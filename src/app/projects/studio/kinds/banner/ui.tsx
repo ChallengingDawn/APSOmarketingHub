@@ -37,15 +37,31 @@ export const Hint = ({ children, sx }: { children: React.ReactNode; sx?: object 
   <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.45, ...sx }}>{children}</Typography>
 );
 
-/** The brand's type, loaded once for the whole studio: null while it comes, "" when the hub could not load it. */
-export function useBrandFont(): string | null {
-  const [css, setCss] = useState<string | null>(null);
+export type BrandFont = { css: string; state: "loading" | "ready" | "failed" };
+let known: BrandFont = { css: "", state: "loading" };
+
+/**
+ * The brand's type, loaded once for the whole hub - NEVER waited on (lead 08.11.2026: the preview stuck on "Loading the
+ * brand's type" when the font route answered 503): everything draws at once in the look-alike stack (futura-pt, Jost,
+ * Century Gothic, Arial), and the brand's file is swapped in when it arrives. A failed font is a quiet note.
+ */
+export function useBrandFontState(): BrandFont {
+  const [f, setF] = useState<BrandFont>(known);
   useEffect(() => {
     let live = true;
-    void brandFontCss().then((c) => { if (!live) return; putFontInPage(c); setCss(c); });
+    void brandFontCss().then((c) => {
+      known = { css: c, state: c ? "ready" : "failed" };
+      if (c) putFontInPage(c);
+      if (live) setF(known);
+    });
     return () => { live = false; };
   }, []);
-  return css;
+  return f;
+}
+
+/** The brand's type as CSS: "" until it comes, or when it cannot (draw in the look-alike stack) - never null now. */
+export function useBrandFont(): string | null {
+  return useBrandFontState().css;
 }
 
 /** The width of a box, kept up to date. */

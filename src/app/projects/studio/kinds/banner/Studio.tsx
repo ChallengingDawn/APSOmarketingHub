@@ -16,7 +16,7 @@ import BuildPane from "./BuildPane";
 import { BannerAssistant } from "./Output";
 import { PutInPage, usePages } from "./Place";
 import Stage, { type View } from "./Preview";
-import { useBrandFont } from "./ui";
+import { useBrandFontState } from "./ui";
 
 export default function Studio({ api }: StudioProps) {
   const doc = useMemo(() => normalizeBanner(api.doc), [api.doc]);
@@ -24,7 +24,9 @@ export default function Studio({ api }: StudioProps) {
   const set = useCallback((fn: (d: BannerDoc) => BannerDoc) => setDoc((cur: unknown) => fn(normalizeBanner(cur))), [setDoc]);
   const [view, setView] = useState<View>("all");
   const [pageId, setPageId] = useState<number | null>(null);
-  const font = useBrandFont();
+  // the brand's type is never waited on: drawn at once in its look-alike stack, swapped in when it comes
+  const brandFont = useBrandFontState();
+  const font = brandFont.css;
   const piece = api.data.piece;
   const prefix = prefixFor(piece.id);
   const canEdit = api.data.access.canEdit;
@@ -39,7 +41,7 @@ export default function Studio({ api }: StudioProps) {
         </Pane>
       )}
       preview={(
-        <Stage doc={doc} set={set} prefix={prefix} view={view} setView={setView} font={font} title={piece.title} canEdit={canEdit}
+        <Stage doc={doc} set={set} prefix={prefix} view={view} setView={setView} font={font} fontFailed={brandFont.state === "failed"} title={piece.title} canEdit={canEdit}
           pages={pages} pageId={pageId} setPageId={setPageId} saved={api.save === "saved"} pieceId={piece.id} projectId={piece.projectId} />
       )}
       assist={(

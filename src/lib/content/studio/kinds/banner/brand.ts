@@ -15,7 +15,7 @@ export const BRAND = {
   mut: "#4a5257",
   pale: "#e6eef2",
   /** futura-pt is the shop's (Adobe Fonts, loaded by the shop); Jost is the free look-alike the hub embeds for previews and PNGs. */
-  head: `"futura-pt", "Jost", Arial, sans-serif`,
+  head: `"futura-pt", "Jost", "Century Gothic", Arial, sans-serif`,
   body: `Arial, system-ui, sans-serif`,
 } as const;
 
