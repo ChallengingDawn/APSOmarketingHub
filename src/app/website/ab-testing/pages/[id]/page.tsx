@@ -130,9 +130,11 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
   };
   const changesLine = `revision ${t.status === "draft" && d.version ? d.version.rev : t.versionRev}, ${t.changeCount} ${t.changeCount === 1 ? "change" : "changes"}`;
   const startLines = [
-    <>The version ({changesLine}) goes live on <b>{t.host}</b> for <b>{shareWords(t.allocation)}</b> who give statistics consent{audienceWords(t.audience) === "Everyone" ? "" : <> - only <b>{audienceWords(t.audience)}</b></>}, on:</>,
+    <>The version ({changesLine}) goes live on <b>{t.host}</b> for <b>{shareWords(t.allocation)}</b> who give statistics consent (or where none is asked){audienceWords(t.audience) === "Everyone" ? "" : <> - only <b>{audienceWords(t.audience)}</b></>}, on:</>,
     pagesLine(t.host, t.pages),
     "Starting is the approval: the shop's gateway runs it within a minute. Pause or stop it any time; the page is then as it is for everyone.",
+    // SARCLA 08.11.2026: "Webyn doesn't change any page until a human says so and accepts" - so the one rule is a person's
+    "Webyn: accept no Webyn change on these pages while the test runs - both at once and the figures cannot say which one did it.",
   ];
   const ask = {
     start: () => setConfirm({ title: `Start the test on ${ENVS[t.env].label}?`, lines: startLines, go: "Start the test", run: () => run({ action: "start" }) }),
