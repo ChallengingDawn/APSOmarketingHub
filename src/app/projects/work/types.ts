@@ -2,7 +2,7 @@
 import type { PieceStatus, Stage } from "@/lib/content/pieceRules";
 
 export type Piece = {
-  id: number; contentType: string | null; language: string | null; title: string; writer: string | null; reviewer: string | null;
+  id: number; projectId: number; contentType: string | null; language: string | null; title: string; writer: string | null; reviewer: string | null;
   status: PieceStatus; dueDate: string | null; versions: number; lastVersionAt: string | null; lastVersionBy: string | null;
   taskId: number | null;
   /** Shown before the hub answered (a to-do just added). */

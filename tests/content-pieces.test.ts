@@ -82,3 +82,11 @@ test("the stage ids are the plan's own", async () => {
   const { STAGES } = await import("../src/lib/reporting/actionPlanRules");
   for (const id of Object.values(S2S_STAGE)) assert.ok(STAGES.some((s) => s.id === id), id);
 });
+
+test("a task is ticked off by whoever may edit - no review", async () => {
+  const { taskMoveError } = await import("../src/lib/content/pieceRules");
+  assert.equal(taskMoveError("live", writer), null);
+  assert.equal(taskMoveError("writing", writer), null);
+  assert.match(taskMoveError("live", commenter)!, /comment on this project/);
+  assert.match(taskMoveError("review", writer)!, /no review/);
+});
