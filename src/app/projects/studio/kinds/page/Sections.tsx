@@ -8,7 +8,6 @@ import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Slider from "@mui/material/Slider";
 import Switch from "@mui/material/Switch";
-import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import {
@@ -101,33 +100,21 @@ export function Publish({ api, d, set, canEdit, lang }: { api: StudioApi; d: Pag
   };
   return (
     <Box>
-      <Box sx={{ mb: 1.5 }}>
-        <Choice value={d.publish.mode} onChange={(mode: "paste" | "magento") => canEdit && set({ ...d, publish: { ...d.publish, mode } })}
-          options={[{ key: "paste", label: "Copy for Magento" }, { key: "magento", label: "Publish to Magento" }]} />
+      <Box>
+        <Hint mt={0}>The {languageOfStore(d.store) ?? lang.toUpperCase()} page ({d.store}) as it will be, with where each part goes in Magento. Each language is its own page there - switch the language above the preview for the others. Nothing is sent to the shop from here.</Hint>
+        <Button fullWidth variant={out ? "outlined" : "contained"} disableElevation disabled={busy || !canEdit} onClick={prepare}
+          startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}
+          sx={out ? { ...btn, mt: 1.25, mb: 1.5, borderColor: HAIRLINE, color: INK } : { ...mainBtn, mt: 1.25, mb: 1.5 }}>
+          {out ? "Prepare it again" : "Prepare the copy for Magento"}
+        </Button>
+        {err && <Typography sx={{ fontSize: "0.84rem", color: "#c5221f", mb: 1 }}>{err}</Typography>}
+        {out?.warnings.map((w) => <Typography key={w} sx={{ fontSize: "0.8rem", color: AMBER, mb: 0.75 }}>{w}</Typography>)}
+        {out?.blocks.map((b) => (
+          <PasteCard key={b.key} label={b.label} steps={b.steps} code={b.code} copied={done === b.key}
+            onCopy={() => { void copy(b.key, b.code); if (canEdit && d.publish.status !== "copied") set({ ...d, publish: { ...d.publish, status: "copied" } }); }} />
+        ))}
+        <Hint mt={0.5}>Publishing straight into Magento waits for its CMS keys (ACC first) - until then it is copied in by hand.</Hint>
       </Box>
-      {d.publish.mode === "magento" ? (
-        <Box>
-          <Tooltip title="Needs CMS keys for ACC first">
-            <span><Button fullWidth variant="contained" disableElevation disabled sx={mainBtn}>Publish to Magento</Button></span>
-          </Tooltip>
-          <Hint>Needs CMS keys for ACC first: the hub reads Magento with keys other jobs share, and writes nothing there. Until then, copy the page into Magento.</Hint>
-        </Box>
-      ) : (
-        <Box>
-          <Hint mt={0}>The {languageOfStore(d.store) ?? lang.toUpperCase()} page ({d.store}) as it will be, with where each part goes in Magento. Each language is its own page there - switch the language above the preview for the others. Nothing is sent to the shop from here.</Hint>
-          <Button fullWidth variant={out ? "outlined" : "contained"} disableElevation disabled={busy || !canEdit} onClick={prepare}
-            startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}
-            sx={out ? { ...btn, mt: 1.25, mb: 1.5, borderColor: HAIRLINE, color: INK } : { ...mainBtn, mt: 1.25, mb: 1.5 }}>
-            {out ? "Prepare it again" : "Prepare the copy"}
-          </Button>
-          {err && <Typography sx={{ fontSize: "0.84rem", color: "#c5221f", mb: 1 }}>{err}</Typography>}
-          {out?.warnings.map((w) => <Typography key={w} sx={{ fontSize: "0.8rem", color: AMBER, mb: 0.75 }}>{w}</Typography>)}
-          {out?.blocks.map((b) => (
-            <PasteCard key={b.key} label={b.label} steps={b.steps} code={b.code} copied={done === b.key}
-              onCopy={() => { void copy(b.key, b.code); if (canEdit && d.publish.status !== "copied") set({ ...d, publish: { ...d.publish, status: "copied" } }); }} />
-          ))}
-        </Box>
-      )}
       <Block title="Notes for the hand-over">
         <Field label="For whoever puts it live" value={d.publish.notes} onChange={(v) => set({ ...d, publish: { ...d.publish, notes: v } })} multiline rows={2} disabled={!canEdit} />
       </Block>

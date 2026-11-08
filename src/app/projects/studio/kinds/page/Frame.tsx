@@ -42,6 +42,8 @@ export type SelectOpts = {
   onEdit?: (p: Picked, v: { text: string; inner: string; outer: string }) => void;
   /** a request to start editing the selected element's words in place (the toolbar's "Edit words") */
   editNonce?: number;
+  /** a selection made outside the page (the outline): the stage scrolls to it, smoothly */
+  reveal?: number;
 };
 
 /* ── the studio's own look inside the page ────────────────────────────── */
@@ -425,6 +427,28 @@ ${SELECT_CSS}`;
   const zoom = fit ? Math.min(1, (Math.min(avail, maxWidth ?? avail) - 8) / w) : 1;
   const mobile = device === "mobile";
   const border = mobile ? 8 : 1;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const borderRef = useRef(border);
+  borderRef.current = border;
+
+  // a part opened in the outline: the stage scrolls to it (SARCLA 08.11.2026: "more fluid")
+  useEffect(() => {
+    if (!select?.reveal) return;
+    const t = setTimeout(() => {
+      const d = docOf();
+      const el = d ? findSelected(d, sel.current?.selected ?? null) : null;
+      const dev = deviceBox.current;
+      const host = box.current?.closest("[data-stage-scroll]") as HTMLElement | null;
+      if (!el || !dev || !host) return;
+      const r = el.getBoundingClientRect();
+      const devTop = dev.getBoundingClientRect().top - host.getBoundingClientRect().top + host.scrollTop;
+      const y = devTop + borderRef.current + r.top * zoomRef.current - 64;
+      host.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+    }, 90);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [select?.reveal]);
   const dev = deviceBox.current;
   const tbLeft = dev && selRect ? dev.offsetLeft + border + selRect.x * zoom : 0;
   const tbTopRaw = dev && selRect ? dev.offsetTop + border + selRect.y * zoom - 44 : 0;

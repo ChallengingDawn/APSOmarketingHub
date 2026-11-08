@@ -4,7 +4,10 @@
 // Shown from ..." setting: "this makes no sense" - gone: a new page simply shows inside its store's own page, an
 // existing page as the shop has it.
 //
-//   languages   one squared choice: DE · FR · IT · EN, each saying whether it is made, out of date or still to make
+//   languages   the languages made, each saying whether it is up to date, and "+ Language" for every other language the
+//               shop has (SARCLA 08.11.2026: "we should have all locales: NL, PL") - never a row of twelve buttons
+//   AI at work  the blocks the AI is writing shimmer in the page, a picture being made says so in its slot; a page of the
+//               shop being changed is veiled with the same sheen (SARCLA: "an AI animation as soon as it starts working")
 //   select      hover outlines, a click selects (the left pane shows it), a double-click edits the words in place
 //   a new page  drawn into its store's page as it is typed (no reload); an existing page is built by the server from
 //               the SAVED document (the GET route, so a reviewer who only comments sees it too) once the studio saved
@@ -15,8 +18,11 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
+import AddIcon from "@mui/icons-material/Add";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import CheckIcon from "@mui/icons-material/Check";
 import CloseIcon from "@mui/icons-material/Close";
@@ -28,12 +34,13 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { fieldLabel } from "@/lib/content/studio/kinds/page/fields";
 import {
-  langName, langState, langsOf, leftoversOf, shopUrl, type LangState, type Leftover, type PageDoc,
+  langName, langState, langsOf, leftoversOf, shopUrl, type LangOption, type LangState, type Leftover, type PageDoc,
 } from "@/lib/content/studio/kinds/page/model";
 import { renderNewPage } from "@/lib/content/studio/kinds/page/newpage";
 import type { InsertOut, PreviewOut } from "@/lib/content/studio/kinds/page/shop";
 import { PINK, btn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
+import { SHEEN_BG, sheen } from "./Fields";
 import { Frame, type Device, type Picked } from "./Frame";
 import { Choice } from "./ui";
 
@@ -120,20 +127,27 @@ const STATE_NOTE: Record<LangState, string> = {
   main: "The page's own language", done: "Made", stale: "Out of date - the main language changed since it was translated", empty: "Not made yet",
 };
 
-export function LangSwitch({ d, lang, onLang }: { d: PageDoc; lang: string; onLang: (l: string) => void }) {
-  const langs = langsOf(d);
+/** The languages made (and the one shown), then "+ Language" for every other language the shop publishes in. */
+export function LangSwitch({ d, lang, onLang, offered }: { d: PageDoc; lang: string; onLang: (l: string) => void; offered: LangOption[] }) {
+  const [menu, setMenu] = useState<HTMLElement | null>(null);
+  const made = langsOf(d);
+  const shown = made.includes(lang) ? made : [...made, lang];
+  const rest = offered.filter((o) => !shown.includes(o.lang));
+  const btnSx = (on: boolean, i: number, st: LangState | null) => ({
+    all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.5, px: 1.1, py: 0.55, fontSize: "0.8rem", fontWeight: 700,
+    borderLeft: i ? `1px solid ${HAIRLINE}` : "none", color: on ? "#fff" : st === "empty" ? "#9aa5b8" : INK, bgcolor: on ? BLUE : "transparent",
+    transition: "background-color .15s, color .15s",
+    "&:hover": on ? {} : { bgcolor: "rgba(36,89,209,.07)" }, "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: -2 },
+  });
   return (
     <Box role="radiogroup" aria-label="Language" sx={{ display: "inline-flex", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "rgba(255,255,255,.85)" }}>
-      {langs.map((l, i) => {
+      {shown.map((l, i) => {
         const on = l === lang;
         const st = langState(d, l);
+        const store = i === 0 ? d.store : d.langs[l]?.store || offered.find((o) => o.lang === l)?.store || "";
         return (
-          <Tooltip key={l} title={`${langName(l)} · ${STATE_NOTE[st]}`}>
-            <Box component="button" type="button" role="radio" aria-checked={on} onClick={() => onLang(l)} sx={{
-              all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.5, px: 1.1, py: 0.55, fontSize: "0.8rem", fontWeight: 700,
-              borderLeft: i ? `1px solid ${HAIRLINE}` : "none", color: on ? "#fff" : st === "empty" ? "#9aa5b8" : INK, bgcolor: on ? BLUE : "transparent",
-              "&:hover": on ? {} : { bgcolor: "rgba(36,89,209,.07)" }, "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: -2 },
-            }}>
+          <Tooltip key={l} title={`${langName(l)} · ${store} · ${STATE_NOTE[st]}`}>
+            <Box component="button" type="button" role="radio" aria-checked={on} onClick={() => onLang(l)} sx={btnSx(on, i, st)}>
               {l.toUpperCase()}
               {st === "main" && <Box component="span" sx={{ width: 6, height: 6, borderRadius: "1px", bgcolor: on ? "#fff" : PINK }} />}
               {st === "done" && <CheckIcon sx={{ fontSize: 14, color: on ? "#fff" : "#1b7a55" }} />}
@@ -142,6 +156,26 @@ export function LangSwitch({ d, lang, onLang }: { d: PageDoc; lang: string; onLa
           </Tooltip>
         );
       })}
+      {rest.length > 0 && (
+        <>
+          <Tooltip title={`${rest.length} more language${rest.length === 1 ? "" : "s"} on the shop`}>
+            <Box component="button" type="button" onClick={(e: React.MouseEvent<HTMLElement>) => setMenu(e.currentTarget)} aria-label="Another language" sx={{ ...btnSx(false, 1, null), color: MUTED, fontWeight: 600 }}>
+              <AddIcon sx={{ fontSize: 15 }} />Language
+            </Box>
+          </Tooltip>
+          <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)} slotProps={{ paper: { sx: { borderRadius: "8px", minWidth: 260 } } }}>
+            {rest.map((o) => (
+              <MenuItem key={o.lang} dense onClick={() => { setMenu(null); onLang(o.lang); }} sx={{ gap: 1.25, py: 0.9 }}>
+                <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: INK, width: 22 }}>{o.lang.toUpperCase()}</Typography>
+                <Box sx={{ flex: 1 }}>
+                  <Typography sx={{ fontSize: "0.86rem", color: INK, lineHeight: 1.25 }}>{o.name}</Typography>
+                  <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{o.stores.join(", ")} · not made yet</Typography>
+                </Box>
+              </MenuItem>
+            ))}
+          </Menu>
+        </>
+      )}
     </Box>
   );
 }
@@ -163,11 +197,18 @@ function SelBar({ label, canWords, onWords, onAi, onClose }: { label: string; ca
 
 /* ── the stage ────────────────────────────────────────────────────────── */
 
-export function Stage({ api, doc, d, lang, onLang, view, onView, preview, selected, picked, onPick, onEdit, editNonce, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold }: {
-  api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void; view: View; onView: (v: View) => void;
+export function Stage({ api, doc, d, lang, onLang, offered, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working }: {
+  api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void; offered: LangOption[]; view: View; onView: (v: View) => void;
   preview: ReturnType<typeof usePagePreview>; selected: string | null; picked: Picked | null;
   onPick: (p: Picked | null) => void; onEdit: (p: Picked, v: { text: string; inner: string; outer: string }) => void;
-  editNonce: number; onEditWords: () => void; onAskAi: () => void; inserts: InsertOut[] | null; shell: PreviewOut | null;
+  editNonce: number;
+  /** a selection made on the left: the page scrolls to it */
+  reveal: number;
+  onEditWords: () => void; onAskAi: () => void; inserts: InsertOut[] | null; shell: PreviewOut | null;
+  /** what the AI is writing now in a new page (blocks, fields) and the pictures being made - they shimmer */
+  writing?: { blocks: string[]; fields: string[]; pictures: string[] };
+  /** a page of the shop being changed by the AI: since when */
+  working?: number | null;
   onFix: (left: Leftover[]) => void;
   /** what shows in place of the page (the page list, a language still to make) */
   empty?: React.ReactNode;
@@ -189,13 +230,14 @@ export function Stage({ api, doc, d, lang, onLang, view, onView, preview, select
   // a new page, drawn here from its fields as they are typed
   const patch = useMemo(() => {
     if (!isNew) return undefined;
-    const r = renderNewPage(d.fields, { marks: true, inserts: (inserts ?? []).filter((x) => x.ok).map((x) => ({ id: x.id, where: x.where, html: x.html })) });
-    return `<style>${r.css}</style>${r.html}`;
-  }, [isNew, d.fields, inserts]);
+    const r = renderNewPage(d.fields, { marks: true, busy: writing, inserts: (inserts ?? []).filter((x) => x.ok).map((x) => ({ id: x.id, where: x.where, html: x.html })) });
+    return `<style>${r.css}\n${BUSY_CSS}</style>${r.html}`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNew, d.fields, inserts, JSON.stringify(writing ?? null)]);
 
   const selectOpts = {
     mode: (isNew ? "field" : "element") as "field" | "element",
-    selected, onPick, onEdit, editNonce,
+    selected, onPick, onEdit, editNonce, reveal,
   };
   const label = !selected ? "" : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())
     : selected.startsWith("i:") ? "Banner" : picked ? `<${picked.tag}>${picked.text ? ` ${picked.text.slice(0, 28)}` : ""}` : "";
@@ -218,6 +260,7 @@ export function Stage({ api, doc, d, lang, onLang, view, onView, preview, select
           <Box sx={{ position: "relative", opacity: b ? 0.6 : 1, transition: "opacity .2s" }}>
             <Frame html={out.html} device={device} title={side === "before" ? "The page as it is" : "The page with its changes"}
               select={side === "after" ? selectOpts : undefined} toolbar={side === "after" ? toolbar : undefined} fit={fit || want.length === 2} />
+            {side === "after" && working && <Working since={working} />}
           </Box>
         )}
       </Box>
@@ -232,7 +275,7 @@ export function Stage({ api, doc, d, lang, onLang, view, onView, preview, select
             <IconButton size="small" onClick={fold.onBuild} aria-label="Fold the build column" sx={{ color: fold.build ? BLUE : MUTED }}><ViewSidebarOutlinedIcon sx={{ fontSize: 19, transform: "scaleX(-1)" }} /></IconButton>
           </Tooltip>
         )}
-        <LangSwitch d={doc} lang={lang} onLang={onLang} />
+        <LangSwitch d={doc} lang={lang} onLang={onLang} offered={offered} />
         <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, flexWrap: "wrap", minWidth: 0 }}>
         {views.length > 0 && !empty && <Choice value={view} onChange={onView} options={views} />}
         {!empty && <Choice value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "mobile", label: "Phone" }]} />}
@@ -252,7 +295,7 @@ export function Stage({ api, doc, d, lang, onLang, view, onView, preview, select
         )}
         </Box>
       </Box>
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+      <Box data-stage-scroll sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {children}
         {empty ?? (
           <Box sx={{ p: { xs: 1.5, md: 2.5 } }}>
@@ -297,26 +340,63 @@ export function Stage({ api, doc, d, lang, onLang, view, onView, preview, select
   );
 }
 
-/** What the middle shows for a language whose page is not made yet. */
-export function LangEmpty({ d, lang, main, busy, canAi, onTranslate, onFind, onPick, finding }: {
-  d: PageDoc; lang: string; main: string; busy: boolean; canAi: boolean; onTranslate: () => void; onFind?: () => void; onPick?: React.ReactNode; finding?: boolean;
+/** The sheen over a page of the shop while the AI changes it, with how long it has been at it. */
+function Working({ since }: { since: number }) {
+  const [, setTick] = useState(0);
+  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 1000); return () => clearInterval(t); }, []);
+  const secs = Math.max(0, Math.round((Date.now() - since) / 1000));
+  return (
+    <Box sx={{ position: "absolute", inset: 0, pointerEvents: "none", borderRadius: "10px", backgroundImage: SHEEN_BG, backgroundSize: "260% 100%", animation: `${sheen} 1.6s linear infinite`, bgcolor: "rgba(255,255,255,.25)" }}>
+      <Box sx={{ position: "sticky", top: 12, display: "flex", justifyContent: "center", pt: 1.5 }}>
+        <Box sx={{ display: "inline-flex", alignItems: "center", gap: 1, bgcolor: "#15223a", color: "#fff", px: 1.5, py: 0.75, borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, boxShadow: "0 10px 26px rgba(21,34,58,.3)", fontVariantNumeric: "tabular-nums" }}>
+          <CircularProgress size={13} thickness={6} sx={{ color: "#fff" }} />The AI is changing the page · {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
+/** The studio's own marks for the AI at work inside a new page (never in Magento's copy). */
+const BUSY_CSS = `[data-apx-busy]{position:relative!important}
+[data-apx-busy]::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:5;border-radius:inherit;background:linear-gradient(100deg,rgba(255,255,255,0) 25%,rgba(194,44,110,.16) 42%,rgba(255,255,255,.8) 50%,rgba(36,89,209,.14) 58%,rgba(255,255,255,0) 75%);background-size:260% 100%;animation:apx-sheen 1.5s linear infinite}
+section[data-apx-busy]::before{content:"Writing…";position:absolute;top:14px;right:18px;z-index:6;font:600 13px/1 system-ui,"Segoe UI",sans-serif;letter-spacing:.02em;color:#fff;background:#c22c6e;padding:7px 11px;border-radius:5px;box-shadow:0 6px 16px rgba(194,44,110,.3)}
+[data-apx-making]{background:linear-gradient(100deg,#e9edf1 25%,#f8e9f0 45%,#ffffff 50%,#e7edf9 55%,#e9edf1 75%)!important;background-size:260% 100%!important;animation:apx-sheen 1.4s linear infinite;border:1.5px solid rgba(194,44,110,.35)!important;color:#c22c6e!important;font-weight:600!important}
+@keyframes apx-sheen{from{background-position:140% 0}to{background-position:-140% 0}}`;
+
+/** What the middle shows for a language whose page is not made yet - and, while it is translated, the page coming. */
+export function LangEmpty({ d, lang, main, store, busy, since, canAi, onTranslate, onFind, onPick, finding }: {
+  d: PageDoc; lang: string; main: string; store: string; busy: boolean; since?: number | null; canAi: boolean; onTranslate: () => void; onFind?: () => void; onPick?: React.ReactNode; finding?: boolean;
 }) {
   const isNew = d.source === "new";
+  const [, setTick] = useState(0);
+  useEffect(() => { if (!busy) return; const t = setInterval(() => setTick((x) => x + 1), 1000); return () => clearInterval(t); }, [busy]);
+  const secs = since ? Math.max(0, Math.round((Date.now() - since) / 1000)) : 0;
   return (
     <Box sx={{ maxWidth: 640, mx: "auto", textAlign: "center", py: 8, px: 2 }}>
-      <Typography sx={{ fontSize: "1.25rem", fontWeight: 750, color: INK, mb: 0.75 }}>The {langName(lang)} page is not made yet</Typography>
+      <Typography sx={{ fontSize: "1.25rem", fontWeight: 750, color: INK, mb: 0.75 }}>{busy ? `Translating the page into ${langName(lang)}` : `The ${langName(lang)} page is not made yet`}</Typography>
       <Typography sx={{ fontSize: "0.9rem", color: MUTED, mb: 2.5 }}>
         {isNew
-          ? `It will be its own page in ${d.store}, with its own words and address. Translate the ${langName(main)} page into it - the structure and pictures stay, every word is translated - then change what you like.`
-          : `The shop's ${langName(lang)} page is its own page, with its own address. The changes made in ${langName(main)} are translated onto it - the same structure, the words in ${langName(lang)}.`}
+          ? `It will be its own page in ${store}, with its own words and address. Translate the ${langName(main)} page into it - the structure and pictures stay, every word is translated - then change what you like.`
+          : `The shop's ${langName(lang)} page is its own page, with its own address (${store}). The changes made in ${langName(main)} are translated onto it - the same structure, the words in ${langName(lang)}.`}
       </Typography>
-      <Box sx={{ display: "flex", gap: 1, justifyContent: "center", flexWrap: "wrap" }}>
-        <Button variant="contained" disableElevation disabled={!canAi || busy} onClick={onTranslate} startIcon={busy ? <CircularProgress size={15} color="inherit" /> : <AutoAwesomeOutlinedIcon />}
-          sx={{ ...btn, bgcolor: PINK, borderRadius: "8px", height: 44, px: 2.5, "&:hover": { bgcolor: "#a3245c" } }}>
-          {busy ? "Translating… (about a minute)" : `Translate the whole page into ${langName(lang)}`}
-        </Button>
-        {onFind && <Button variant="outlined" disabled={finding} onClick={onFind} sx={{ ...btn, borderRadius: "8px", height: 44, borderColor: HAIRLINE, color: INK }}>{finding ? "Looking…" : `Find the ${langName(lang)} page`}</Button>}
-      </Box>
+      {busy ? (
+        <Box sx={{ textAlign: "left", maxWidth: 520, mx: "auto" }}>
+          {[0.92, 0.6, 0.98, 0.84, 0.7].map((w, i) => (
+            <Box key={i} sx={{ height: i === 0 ? 26 : 14, width: `${w * 100}%`, mb: i === 0 ? 2 : 1.1, borderRadius: "4px", bgcolor: "#e6ebf1", backgroundImage: SHEEN_BG, backgroundSize: "260% 100%", animation: `${sheen} 1.5s linear infinite`, animationDelay: `${i * 0.08}s` }} />
+          ))}
+          <Typography sx={{ mt: 2, fontSize: "0.82rem", color: PINK, fontWeight: 600, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
+            Every word into {langName(lang)} · {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")} · about a minute
+          </Typography>
+        </Box>
+      ) : (
+        <Box sx={{ display: "flex", gap: 1, justifyContent: "center", flexWrap: "wrap" }}>
+          <Button variant="contained" disableElevation disabled={!canAi} onClick={onTranslate} startIcon={<AutoAwesomeOutlinedIcon />}
+            sx={{ ...btn, bgcolor: PINK, borderRadius: "8px", height: 44, px: 2.5, "&:hover": { bgcolor: "#a3245c" } }}>
+            {`Translate the whole page into ${langName(lang)}`}
+          </Button>
+          {onFind && <Button variant="outlined" disabled={finding} onClick={onFind} sx={{ ...btn, borderRadius: "8px", height: 44, borderColor: HAIRLINE, color: INK }}>{finding ? "Looking…" : `Find the ${langName(lang)} page`}</Button>}
+        </Box>
+      )}
       {onPick}
     </Box>
   );
