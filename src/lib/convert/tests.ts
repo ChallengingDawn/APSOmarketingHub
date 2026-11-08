@@ -28,6 +28,7 @@ import {
 } from "./contract";
 import { DEFAULT_MDE, analyse, type Analysis } from "./stats";
 import type { Change } from "./versions";
+import { calendarEnded, calendarStarted } from "./calendar";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS apsomh_convert_tests (
@@ -388,6 +389,7 @@ export async function act(id: string, action: Action, by: string, extra: { winne
       await query(`UPDATE apsomh_convert_tests SET status = 'running', changes = $2::jsonb, version_rev = $3, started_by = $4, started_at = now(), synced_at = now(), sync_error = NULL, updated_at = now() WHERE id = $1`,
         [id, JSON.stringify(changes), rev, by]);
       await log(id, by, "started", `Version rev ${rev} live on ${t.host}: ${t.pages.join(", ")}`);
+      await calendarStarted(t);
       break;
     }
     case "pause": {
@@ -410,6 +412,7 @@ export async function act(id: string, action: Action, by: string, extra: { winne
       await push(t, await changesOf(id), "stopped");
       await query(`UPDATE apsomh_convert_tests SET status = 'stopped', stopped_by = $2, stopped_at = now(), synced_at = now(), sync_error = NULL, updated_at = now() WHERE id = $1`, [id, by]);
       await log(id, by, "stopped", "Every visitor sees the page as it is; the figures stay");
+      await calendarEnded(t);
       break;
     }
     case "restart": {
@@ -422,6 +425,7 @@ export async function act(id: string, action: Action, by: string, extra: { winne
         winner = NULL, decided_by = NULL, decided_at = NULL, results = NULL, results_at = NULL, synced_at = now(), sync_error = NULL, updated_at = now() WHERE id = $1`,
         [id, v, JSON.stringify(changes), rev, by]);
       await log(id, by, "restarted", `Round ${v}, counted from zero - version rev ${rev}`);
+      await calendarStarted(t);
       break;
     }
     case "sync": {
@@ -446,6 +450,7 @@ export async function act(id: string, action: Action, by: string, extra: { winne
       if (t.status !== "stopped") await push(t, await changesOf(id), "stopped");
       await query(`UPDATE apsomh_convert_tests SET status = 'stopped', winner = $2, decided_by = $3, decided_at = now(), stopped_by = COALESCE(stopped_by, $3), stopped_at = COALESCE(stopped_at, now()), updated_at = now() WHERE id = $1`, [id, w, by]);
       await log(id, by, "decided", w === "b" ? "The version won - ready to ship" : w === "a" ? "The page as it is won - the version is dropped" : "No real difference - nothing to ship");
+      await calendarEnded(t);
       break;
     }
     case "delete": {

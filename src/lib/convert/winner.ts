@@ -17,6 +17,7 @@ import { cmsTarget, cssBlock, description, jsSnippet, type ShipInfo } from "./sh
 import { versionById } from "./studio";
 import { ConvertError, baseRateOf, gatewayState, ideaOf, markHanded, resultsOf, shipToEveryone, shippedAs, testById, type Test } from "./tests";
 import { validateChanges, type Change } from "./versions";
+import { calendarPublished } from "./calendar";
 
 export type WinnerResult = { rateA: number | null; rateB: number | null; uplift: number | null; pB: number | null; visitors: number; days: number };
 export type Winner = {
@@ -92,12 +93,14 @@ export async function publishFromContent(x: { testId: string; changes: unknown; 
     const plan = await cmsPlan(t.id, t.env, path, null, changes);
     if (plan.canWrite && plan.chosen) {
       const w = await cmsWrite(t.id, t.env, path, plan.chosen, x.by, changes);
+      await calendarPublished(t, "cms");
       return { ok: true, way: "cms", id: w.backupId, edited };
     }
   }
   // on for everyone through the shop's gateway
   if (gatewayState().configured) {
     const p = await shipToEveryone(t.id, x.by, changes);
+    await calendarPublished(t, "everyone");
     return { ok: true, way: "everyone", id: p.id, edited };
   }
   // the code for dotSource
@@ -107,5 +110,6 @@ export async function publishFromContent(x: { testId: string; changes: unknown; 
     idea: idea ? { title: idea.title, why: idea.why, change: idea.change, expect: idea.expect } : null, result,
   };
   await markHanded(t.id, "dotsource", x.by);
+  await calendarPublished(t, "dotsource");
   return { ok: true, way: "dotsource", edited, package: { css: cssBlock(changes, info), js: jsSnippet(changes, info), description: description(changes, info) } };
 }
