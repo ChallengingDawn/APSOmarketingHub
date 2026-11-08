@@ -326,14 +326,14 @@ function spend(): boolean {
   return true;
 }
 
-const SHOP_FACTS = `APSOparts (apsoparts.com) is the online shop of Angst+Pfister: technical parts for industry - seals and O-rings,
+export const SHOP_FACTS = `APSOparts (apsoparts.com) is the online shop of Angst+Pfister: technical parts for industry - seals and O-rings,
 plastics, fluid handling (hoses), drive technology (belts), anti-vibration, sensors. Buyers are companies (engineers,
 purchasers, maintenance). Store views are language-COUNTRY (de-CH, fr-CH, it-CH, en-CH, fr-FR, it-IT, nl-NL, pl-PL, en-...).
 The shop's look: petrol #274e64 (headers, main buttons), red #d80901 (small accents, the logo), text #5e5e5e, font futura-pt,
 white cards on a light grey (#f2f4f5) ground, product photos on white. Product pages list ARTICLES (sizes/variants) in a table
 with quantity, availability, delivery date and total price; prices can depend on quantity and on the customer.`;
 
-const RULES = `Hard rules:
+export const RULES = `Hard rules:
 - Use only what the page and the numbers show. NEVER invent prices, discounts, stock, delivery times, certificates,
   approvals (FDA, KTW, ...), test results, customer names or quotes. If an idea needs a fact the page does not give,
   say so in the idea ("needs: ...") instead of making it up.
@@ -341,9 +341,9 @@ const RULES = `Hard rules:
 - Keep what the page needs for search engines: its H1 text, its links, its product data.
 - Plain, concrete, human words; no slogans, no hype, no exclamation marks.`;
 
-type AiResult<T> = { ok: true; data: T } | { ok: false; error: string };
+export type AiResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
-async function ask<T>(system: string, user: string, schema: Record<string, unknown>, maxTokens: number): Promise<AiResult<T>> {
+export async function ask<T>(system: string, user: string, schema: Record<string, unknown>, maxTokens: number): Promise<AiResult<T>> {
   const client = getAnthropic();
   if (!client) return { ok: false, error: "No Anthropic key on this hub (ANTHROPIC_API_KEY)." };
   if (!spend()) return { ok: false, error: `The AI was asked ${AI_PER_DAY} times today on this hub - again tomorrow.` };

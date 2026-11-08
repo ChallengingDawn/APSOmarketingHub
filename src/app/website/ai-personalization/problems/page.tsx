@@ -25,17 +25,20 @@ import PersonOffOutlinedIcon from "@mui/icons-material/PersonOffOutlined";
 import AddShoppingCartOutlinedIcon from "@mui/icons-material/AddShoppingCartOutlined";
 import TroubleshootOutlinedIcon from "@mui/icons-material/TroubleshootOutlined";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
+import PsychologyOutlinedIcon from "@mui/icons-material/PsychologyOutlined";
+import Button from "@mui/material/Button";
 import Link from "next/link";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
 import { ACCENT, CardTitle, GREEN, GlassCard, KpiTile, MUTED, Notice, RED, TRACK, bodyCell, clip, headCell } from "@/app/uc/report/ui";
-import { Chip, usePaged } from "@/app/connectors/parts";
+import { Chip, ago, usePaged } from "@/app/connectors/parts";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { KIND_LABEL, STEP_LABEL, sortProblems, type PageKind, type RankBy, type Step } from "@/lib/convert/model";
 import type { PageCustomers, ProblemsData } from "@/lib/convert/problems";
-import { previewHref } from "../Flow";
+import type { Brief } from "@/lib/convert/brief";
+import { convertPost, previewHref } from "../Flow";
 import { SquareChoice } from "../SquareChoice";
 
 const PORTAL = "26492587";
@@ -51,6 +54,72 @@ const STEP_TINT: Record<Step, "green" | "blue" | "amber" | "pink" | "slate" | "p
 };
 
 type Row = ProblemsData["pages"][number];
+
+// WHAT STOPS BUYERS - the AI's reading of the period's problem pages, grouped into themes, each with what to test first and
+// its pages (src/lib/convert/brief.ts). Asked at a click, kept per period.
+function WhatStops({ from, to, rows }: { from: string; to: string; rows: Row[] }) {
+  const [tick, setTick] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const url = `/api/website/ai-personalization/problems/brief?from=${from}&to=${to}&n=${tick}`;
+  const held = useHeld<{ brief: Brief | null; canAsk: boolean; ai: boolean }>(url, [url]);
+  const d = held.result?.state === "ok" ? held.result.data : null;
+  const byKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);
+  if (!d) return null;
+  const b = d.brief;
+  const ask = async () => {
+    setBusy(true);
+    setErr(null);
+    const r = await convertPost<Brief>("/api/website/ai-personalization/problems/brief", { from, to });
+    setBusy(false);
+    if (!r.ok) setErr(r.error);
+    else setTick((n) => n + 1);
+  };
+  return (
+    <GlassCard>
+      <CardTitle icon={<PsychologyOutlinedIcon />} tint="purple" title="What stops buyers"
+        note={b ? `The AI's reading of ${b.pages} problem pages · ${ago(Date.parse(b.at) / 1000)}${b.by ? ` · asked by ${b.by}` : ""}` : "The AI groups this period's problem pages into themes, each with what to test first"}
+        right={d.canAsk && d.ai ? (
+          <Button size="small" variant={b ? "outlined" : "contained"} disableElevation disabled={busy} onClick={() => void ask()} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}
+            startIcon={busy ? <CircularProgress size={13} sx={{ color: "inherit" }} /> : <PsychologyOutlinedIcon sx={{ fontSize: 17 }} />}>
+            {busy ? "The AI is reading… about half a minute" : b ? "Ask again" : "Ask the AI"}
+          </Button>
+        ) : undefined} />
+      {err && <Box sx={{ mt: 1.5 }}><Notice tone="bad">{err}</Notice></Box>}
+      {b && (
+        <Box sx={{ mt: 1.5, display: "grid", gap: 1.5 }}>
+          {b.headline && <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: "#15223a" }}>{b.headline}</Typography>}
+          <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(2, minmax(0,1fr))", xl: "repeat(3, minmax(0,1fr))" } }}>
+            {b.themes.map((t, i) => (
+              <Box key={i} sx={{ p: 1.75, borderRadius: "14px", border: "1px solid rgba(21,34,58,.10)", bgcolor: "rgba(255,255,255,.65)", display: "grid", gap: 0.75, alignContent: "start" }}>
+                <Box sx={{ display: "flex", gap: 1, alignItems: "baseline" }}>
+                  <Box component="span" sx={{ flex: "0 0 auto", width: 22, height: 22, borderRadius: "6px", bgcolor: "#6a46c9", color: "#fff", fontSize: "0.76rem", fontWeight: 700, display: "grid", placeItems: "center" }}>{i + 1}</Box>
+                  <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: "#15223a", lineHeight: 1.3 }}>{t.title}</Typography>
+                </Box>
+                <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{t.why}</Typography>
+                <Typography sx={{ fontSize: "0.8rem", color: "#15223a" }}><b>Test first</b> {t.test}</Typography>
+                <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.25 }}>
+                  {t.keys.map((k) => {
+                    const row = byKey.get(k);
+                    if (!row) return null;
+                    return (
+                      <Box key={k} component={Link} href={previewHref("prod", row.path)} title={`${row.path} - open it in Preview`} sx={{
+                        px: 0.9, py: 0.25, borderRadius: "6px", border: "1px solid rgba(36,89,209,.25)", bgcolor: "rgba(36,89,209,.06)", color: ACCENT,
+                        fontSize: "0.72rem", fontWeight: 600, textDecoration: "none", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        "&:hover": { bgcolor: "rgba(36,89,209,.12)" },
+                      }}>{row.name || row.path}{row.missed ? ` · ${full(row.missed)} missed` : ""}</Box>
+                    );
+                  })}
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      )}
+      {!b && !d.ai && <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1 }}>No AI key on this hub.</Typography>}
+    </GlassCard>
+  );
+}
 
 function Funnel({ f }: { f: NonNullable<Row["shop"]> }) {
   const max = Math.max(1, f.companies);
@@ -245,6 +314,8 @@ export default function ConvertProblems() {
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<PersonOffOutlinedIcon />} tint="purple" label="Customers lost" value={full(view.lost)} note={`did not order, of ${full(view.looked)} who opened a product`} /></Grid>
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<AddShoppingCartOutlinedIcon />} tint="green" label="Typical cart rate" value={pct(data.typical.product)} note={`product pages · categories ${pct(data.typical.category)}`} /></Grid>
         </Grid>
+
+        {view.flagged > 0 && <WhatStops from={data.from} to={data.to} rows={data.pages as Row[]} />}
 
         <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
           <Box sx={{ px: { xs: 2, md: 2.75 }, display: "grid", gap: 1.5 }}>
