@@ -189,16 +189,19 @@ function ElementPanel({ api, view, setChanges, picked, onEditInPage }: {
 }) {
   const canEdit = api.data.access.canEdit;
   const [words, setWords] = useState(picked.text);
+  // the words the page has now (after "Use these words" the button rests until they change again)
+  const [kept, setKept] = useState(picked.text);
   const [href, setHref] = useState(picked.href ?? "");
   const [alt, setAlt] = useState(picked.alt ?? "");
   const [err, setErr] = useState<string | null>(null);
   const [pics, setPics] = useState(false);
-  useEffect(() => { setWords(picked.text); setHref(picked.href ?? ""); setAlt(picked.alt ?? ""); setErr(null); setPics(false); }, [picked.key, picked.text, picked.href, picked.alt]);
+  useEffect(() => { setWords(picked.text); setKept(picked.text); setHref(picked.href ?? ""); setAlt(picked.alt ?? ""); setErr(null); setPics(false); }, [picked.key, picked.text, picked.href, picked.alt]);
 
   const run = (e: ElementEdit) => {
     const r = applyElementEdit(view, picked, e);
     if ("error" in r) { setErr(r.error); return; }
     setErr(null);
+    if (e.kind === "words") setKept(e.text);
     setChanges(r.changes, r.label);
   };
   const origin = picked.frag ? `Put in by change ${picked.frag.change + 1}` : picked.host?.changes.length ? `Changed by change ${picked.host.changes.map((n) => n + 1).join(", ")}` : "The shop's own element";
@@ -225,7 +228,7 @@ function ElementPanel({ api, view, setChanges, picked, onEditInPage }: {
           <Kicker mt={0.5}>Its words</Kicker>
           <TextField fullWidth multiline minRows={2} maxRows={14} size="small" value={words} disabled={!canEdit} onChange={(e) => setWords(e.target.value)} sx={{ ...field, mb: 0.75 }} />
           <Box sx={{ display: "flex", gap: 0.75, mb: 1.75 }}>
-            <Button size="small" variant="contained" disableElevation disabled={!canEdit || words.trim() === picked.text.trim() || !words.trim()} onClick={() => run({ kind: "words", text: words.trim() })} sx={{ ...mainBtn, borderRadius: "6px" }}>Use these words</Button>
+            <Button size="small" variant="contained" disableElevation disabled={!canEdit || words.trim() === kept.trim() || !words.trim()} onClick={() => run({ kind: "words", text: words.trim() })} sx={{ ...mainBtn, borderRadius: "6px" }}>Use these words</Button>
             <Button size="small" disabled={!canEdit} onClick={onEditInPage} startIcon={<EditOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, color: INK, border: `1px solid ${HAIRLINE}`, borderRadius: "6px" }}>Edit in the page</Button>
           </Box>
         </>

@@ -12,6 +12,7 @@
 //   counterpart  the same page in another language (the page's hreflang links)
 //   candidates the shop's category and product pages a new page may link to (the AI picks among them, never invents)
 //   inserts    the banners placed in the page, drawn
+//   relink     a translated new page's links moved to the same pages in its language (their hreflang links)
 //   paste      what to paste into Magento, and where - one language. Nothing is written to Magento: its client is
 //              read-only, with production keys shared with other jobs
 //   ping       nothing - the studio waits on it so a big change goes in two steps (studio/doc.ts batches)
@@ -40,7 +41,7 @@ import {
   changeStrings, emptyPage, fillTexts, fromAi, isLegacyBody, langName, languageOfStore, leftoversIn, mainLang, pageDoc, pageText,
   placeholdersOf, shopUrl, sourceHash, textsFromAi, urlKeyOf, viewOf, withChangeStrings, type AiChange, type PageDoc,
 } from "./model";
-import { convertPages, counterpartOf, findPages, insertsOf, outlineOf, pasteOf, previewOf } from "./shop";
+import { convertPages, counterpartOf, findPages, insertsOf, outlineOf, pasteOf, previewOf, relinkOf } from "./shop";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
@@ -540,6 +541,7 @@ const candidates: ServerAction = async (ctx, raw, input) => {
 };
 
 const inserts: ServerAction = async (ctx, raw, input) => ({ inserts: await insertsOf(viewFor(ctx, raw, input)) });
+const relink: ServerAction = async (_ctx, raw, input) => relinkOf(raw, langIn(input) ?? "fr");
 
 export const pageKind: KindDef = {
   kind: "page",
@@ -553,6 +555,6 @@ export const pageKind: KindDef = {
     fill_cta: fillTask("cta"), fill_seo: fillTask("seo"), fill_field: fillField,
   },
   actions: {
-    start, stores, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, ping: async () => ({ ok: true }),
+    start, stores, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, relink, ping: async () => ({ ok: true }),
   },
 };

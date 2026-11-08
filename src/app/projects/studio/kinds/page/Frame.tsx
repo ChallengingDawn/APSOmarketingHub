@@ -316,8 +316,9 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
     if (!d.getElementById("apx-studio-css")) {
       const st = d.createElement("style");
       st.id = "apx-studio-css";
-      st.textContent = SELECT_CSS;
-      (d.head ?? d.documentElement).appendChild(st);
+      st.textContent = `${SHOP_FONT_STANDINS}
+${SELECT_CSS}`;
+      (d.head ?? d.documentElement).insertBefore(st, (d.head ?? d.documentElement).firstChild);
     }
     // once per document (the first, empty about:blank one and the page share a window - the flag is the document's)
     const doc = d as Document & { __apx?: boolean };

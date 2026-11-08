@@ -204,7 +204,21 @@ export default function Studio({ api }: StudioProps) {
       setLangState(to);
       setSelState(null);
       setPicking(false);
-      return [r.result.problems.length ? r.result.problems.join("; ") : null, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || `The ${langName(to)} page is made - it shows now. Change what you like; it is its own page.`;
+      // a new page's links to the shop: the same pages in this language
+      let relinked = "";
+      if (latest.source === "new") {
+        const rl = await api.act<{ map: Record<string, string>; missing: string[] }>("relink", { lang: to });
+        if (rl.ok && Object.keys(rl.result.map).length) {
+          const m = rl.result.map;
+          const cur = docRef.current;
+          const v = viewOf(cur, to);
+          const fx = (u: string) => m[u] ?? u;
+          const fields = { ...v.fields, hero: { ...v.fields.hero, button: { ...v.fields.hero.button, url: fx(v.fields.hero.button.url) } }, cta: { ...v.fields.cta, button: { ...v.fields.cta.button, url: fx(v.fields.cta.button.url) } }, links: v.fields.links.map((l) => ({ ...l, url: fx(l.url) })) };
+          await setDocSafely(api, cur, withView(cur, to, { ...v, fields }));
+        }
+        if (rl.ok && rl.result.missing.length) relinked = ` ${rl.result.missing.length} link${rl.result.missing.length === 1 ? " has" : "s have"} no ${langName(to)} page on the shop and still point${rl.result.missing.length === 1 ? "s" : ""} to the ${langName(from)} one.`;
+      }
+      return [r.result.problems.length ? r.result.problems.join("; ") : null, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || `The ${langName(to)} page is made - it shows now, its links to the shop's ${langName(to)} pages. Change what you like; it is its own page.${relinked}`;
     } finally { setBusy(null); }
   };
 
@@ -225,7 +239,7 @@ export default function Studio({ api }: StudioProps) {
 
   const others = langsOf(doc).filter((l) => l !== main);
   const translateAsks: QuickAsk[] = others.map((l) => ({
-    label: doc.langs[l] ? `Translate the whole page into ${langName(l)} again` : `Translate the whole page into ${langName(l)}`,
+    label: doc.langs[l] ? `Translate into ${langName(l)} again` : `Translate the whole page into ${langName(l)}`,
     run: () => translate(l),
   }));
   const scope = sel?.picked ?? null;
