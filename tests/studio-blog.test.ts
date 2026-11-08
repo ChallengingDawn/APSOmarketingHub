@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  batchPlan, blogDoc, blogText, brandWarnings, cardOf, emptyBlog, homeCards, postPath, postWarnings, readingMinutes, slugify, sortCards, topicsOf,
+  batchPlan, blogDoc, blogText, brandWarnings, cardOf, emptyBlog, homeCards, initials, postPath, postWarnings, readingMinutes, relatedCards, slugify, sortCards, topicsOf,
   type BlogCard,
 } from "../src/lib/content/studio/kinds/blog/model";
-import { cut, homeSection, inline, jsonLd, jsonLdScript, md, pasteHome, pastePost, postArticle, postDocument, serp } from "../src/lib/content/studio/kinds/blog/render";
+import {
+  cut, homeDocument, homeSection, hubPictures, inline, jsonLd, jsonLdScript, md, pasteHome, pastePost, postArticle, postDocument, serp,
+} from "../src/lib/content/studio/kinds/blog/render";
 
 // The blog studio (08.11.2026): a post, the blog's home that lists every post, a page per topic, Google's snippet.
 
@@ -100,7 +102,7 @@ test("the post's page: its parts in order, links to the blog's home and its topi
     relatedProducts: [{ id: "p", name: "O-Ringe FKM", url: "/de-CH/o-ringe.html" }, { id: "q", name: "Bad", url: "javascript:x" }], tags: ["O-Ringe", "Werkstoffe"],
   });
   const a = postArticle(d);
-  const order = ["apx-crumbs", "apx-eyebrow", "<h1>", "apx-meta", "apx-hero", "apx-lead", "<h2 id=\"was-entscheidet\">", "apx-faq", "apx-related", "apx-tags", "apx-back"].map((k) => a.indexOf(k));
+  const order = ["apx-crumbs", "apx-eyebrow", "<h1>", "apx-lead", "apx-meta", "apx-hero", "<h2 id=\"was-entscheidet\">", "apx-cta", "apx-faq", "apx-related", "apx-tags", "apx-back", "apx-nl"].map((k) => a.indexOf(k));
   assert.ok(order.every((x, i) => x >= 0 && (i === 0 || x > order[i - 1])), `in order: ${order.join(",")}`);
   assert.match(a, /href="\/de-CH\/blog">Blog<\/a>/);
   assert.match(a, /href="\/de-CH\/blog\/tag\/o-ringe">O-Ringe<\/a>/);
@@ -117,7 +119,7 @@ test("the post's page: its parts in order, links to the blog's home and its topi
 
 test("the blog's home: this store's posts newest first, the one being written as typed, topics by use", () => {
   const card = (pieceId: number, date: string | null, tags: string[], store = "de-CH"): BlogCard => ({
-    pieceId, projectId: 1, title: `Post ${pieceId}`, slug: `post-${pieceId}`, excerpt: "", hero: { url: "", alt: "" }, date, tags, status: "live", language: "DE", store, minutes: 3,
+    pieceId, projectId: 1, title: `Post ${pieceId}`, slug: `post-${pieceId}`, excerpt: "", hero: { url: "", alt: "" }, date, tags, status: "live", language: "DE", store, minutes: 3, author: "",
   });
   const stored = [card(1, "2026-10-01", ["Seals"]), card(2, null, []), card(3, "2026-11-01", ["Seals", "Plastics"]), card(4, "2026-12-01", [], "fr-CH")];
   assert.deepEqual(sortCards(stored).map((c) => c.pieceId), [4, 3, 1, 2]);
@@ -127,7 +129,83 @@ test("the blog's home: this store's posts newest first, the one being written as
   assert.deepEqual(topicsOf(home), ["Seals", "Plastics"]);
   const html = homeSection(home, { store: "de-CH", language: "DE", topics: topicsOf(home), withState: true });
   assert.match(html, /Alle Beiträge/);
-  assert.match(html, /<span class="apx-state">Writing<\/span>/);
+  assert.match(html, /<span class="apx-state s-writing">Writing<\/span>/);
   assert.doesNotMatch(pasteHome(home, { store: "de-CH", language: "DE", topics: [] }).code, /class="apx-state"/, "the paste never carries the hub's states");
   assert.match(homeSection(home, { store: "de-CH", language: "DE", topics: ["Seals"], tag: "Plastics" }), /Post 3[\s\S]*<\/div>/);
+});
+
+const card = (pieceId: number, date: string | null, tags: string[], store = "de-CH", status = "live"): BlogCard => ({
+  pieceId, projectId: 1, title: `Post ${pieceId}`, slug: `post-${pieceId}`, excerpt: "", hero: { url: "", alt: "" }, date, tags, status, language: "DE", store, minutes: 3, author: "",
+});
+
+test("Content v2: an older post gains its new parts empty; nothing is invented", () => {
+  const d = blogDoc({ title: "T", sections: [{ id: "a", heading: "H", body: "b" }], hero: { url: "/x.jpg", alt: "x" } });
+  assert.deepEqual(d.sections[0].image, { url: "", alt: "", caption: "", prompt: "" });
+  assert.equal(d.sections[0].quote, "");
+  assert.deepEqual(d.takeaways, []);
+  assert.deepEqual(d.cta, { title: "", text: "", label: "", url: "" });
+  assert.equal(d.hero.caption, "");
+  assert.equal(d.authorRole, "");
+  assert.equal(initials("Claudio Saraiva"), "CS");
+  assert.equal(initials(""), "AP");
+});
+
+test("Content v2: the blog's home - the newest post leads, a card per other post, free slots for the team only", () => {
+  const cards = [card(1, "2026-11-01", ["Seals"], "de-CH", "writing"), card(2, "2026-11-20", ["Seals"], "de-CH", "review")];
+  const o = { store: "de-CH", language: "DE", topics: topicsOf(cards) };
+  const team = homeSection(sortCards(cards), { ...o, withState: true, currentId: 1 });
+  assert.ok(team.indexOf("Post 2") < team.indexOf("Post 1"), "the newest leads");
+  assert.match(team, /class="apx-feature"[\s\S]*Post 2/);
+  // a post with a picture leads before a newer one without
+  const pictured = [{ ...card(1, "2026-11-01", ["Seals"]), hero: { url: "/x.jpg", alt: "x" } }, card(2, "2026-11-20", ["Seals"])];
+  const lead = homeSection(sortCards(pictured), o);
+  assert.ok(lead.indexOf("Post 1") < lead.indexOf("Post 2") && /class="apx-feature" href="\/de-CH\/blog\/post-1"/.test(lead));
+  assert.equal((team.match(/Free slot/g) ?? []).length, 2, "the row of three is filled with marked slots");
+  assert.match(team, /<span class="apx-this">This post<\/span>/);
+  assert.match(team, /href="https:\/\/www\.apsoparts\.com\/de-CH\/newsletter"/, "the newsletter band leads to the shop's newsletter page");
+  const shop = pasteHome(sortCards(cards), o).code;
+  assert.doesNotMatch(shop, /Free slot|apx-slot|apx-state|apx-this/, "the shop never sees slots or states");
+  // no post at all: the lead story's place is a marked slot, never a made-up post
+  const empty = homeSection([], { ...o, withState: true });
+  assert.match(empty, /apx-feature apx-slot/);
+  assert.doesNotMatch(homeSection([], o), /apx-slot/);
+  // the preview is a whole page in the shop's header and footer
+  const doc = homeDocument(cards, o);
+  assert.match(doc, /^<!doctype html>/);
+  assert.match(doc, /class="apx-shop"[\s\S]*class="apx-blog apx-home"[\s\S]*class="apx-shop-foot"/);
+});
+
+test("Content v2: a post's pictures, pull quotes and contents", () => {
+  const d = blogDoc({
+    title: "T", store: "de-CH", language: "DE", takeaways: ["One", "Two"],
+    hero: { url: "/api/content/picture/12-abcdef0123456789ab", alt: "Hero", caption: "Unter dem Bild" },
+    sections: [
+      { id: "a", heading: "Erstens", body: "P1\n\nP2\n\nP3", quote: "Gross gesagt", image: { url: "/api/content/picture/13-abcdef0123456789ab", alt: "Im Text", caption: "", prompt: "" } },
+      { id: "b", heading: "Zweitens", body: "Text" },
+    ],
+  });
+  const a = postArticle(d);
+  assert.match(a, /<aside class="apx-toc"><b>Inhalt<\/b><ol><li><a href="#erstens">Erstens<\/a><\/li><li><a href="#zweitens">/);
+  assert.match(a, /<div class="apx-short"><b>Das Wichtigste in Kürze<\/b><ul><li>One<\/li><li>Two<\/li><\/ul><\/div>/);
+  // the picture after the first paragraph, the pull quote after the second
+  const sec = a.slice(a.indexOf('id="erstens"'), a.indexOf('id="zweitens"'));
+  const at = ["<p>P1</p>", "apx-fig", "<p>P2</p>", "apx-pull", "<p>P3</p>"].map((k) => sec.indexOf(k));
+  assert.ok(at.every((x, i) => x >= 0 && (i === 0 || x > at[i - 1])), `in order: ${at.join(",")}`);
+  assert.match(a, /<figcaption>Unter dem Bild<\/figcaption>/);
+  // the band to the shop says its words when nobody wrote them
+  assert.match(a, /<aside class="apx-cta"><div><b>Das passende Teil im Shop<\/b>[\s\S]*href="https:\/\/www\.apsoparts\.com\/de-CH\/">Zum Shop<\/a>/);
+  // the hub's pictures: a path in the preview, the hub's full address in the paste - and listed to be moved to the shop
+  assert.match(postDocument(d), /src="\/api\/content\/picture\/12-/);
+  const paste = pastePost(d, { origin: "https://hub.example.com" })[1].code;
+  assert.match(paste, /src="https:\/\/hub\.example\.com\/api\/content\/picture\/12-/);
+  assert.match(paste, /"image":\["https:\/\/hub\.example\.com\/api\/content\/picture\/12-/);
+  assert.equal(hubPictures(d).length, 2);
+  assert.ok(postWarnings(blogDoc({ ...d, sections: [{ id: "x", heading: "H", body: "b", image: { url: "/a.jpg", alt: "" } }] })).some((w) => /picture in the text/.test(w)));
+});
+
+test("Content v2: more posts under a post - the same store's others, a shared topic first", () => {
+  const cards = [card(1, "2026-11-01", ["Seals"]), card(2, "2026-12-01", ["Plastics"]), card(3, "2026-10-01", ["Seals"]), card(4, "2026-12-05", ["Seals"], "fr-CH"), card(5, "2026-09-01", [])];
+  assert.deepEqual(relatedCards(cards, { pieceId: 1, store: "de-CH", tags: ["Seals"] }).map((c) => c.pieceId), [3, 2, 5]);
+  const d = blogDoc({ title: "T", store: "de-CH", language: "DE", tags: ["Seals"] });
+  assert.match(postArticle(d, { related: relatedCards(cards, { pieceId: 1, store: "de-CH", tags: ["Seals"] }) }), /Weitere Beiträge[\s\S]*Post 3[\s\S]*Post 2/);
 });

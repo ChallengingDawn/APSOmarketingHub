@@ -13,12 +13,12 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import {
-  addDays, batchPlan, cardOf, homeCards, homePath, postPath, postWarnings, tagPath, topicsOf, type BlogCard, type BlogDoc,
+  addDays, batchPlan, cardOf, homeCards, homePath, postPath, postWarnings, relatedCards, tagPath, topicsOf, type BlogCard, type BlogDoc,
 } from "@/lib/content/studio/kinds/blog/model";
-import { pasteHome, pastePost, pasteTopic } from "@/lib/content/studio/kinds/blog/render";
+import { hubPictures, pasteHome, pastePost, pasteTopic } from "@/lib/content/studio/kinds/blog/render";
 import { Field, btn, field, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
-import { Block, Hint, PasteCard, mono, useCopy } from "../page/ui";
+import { Block, Hint, PasteCard, mono, useCopy } from "./ui";
 
 const PUBLISHED = new Set(["approved", "live"]);
 
@@ -32,7 +32,11 @@ export function Publish({ api, d, cards }: { api: StudioApi; d: BlogDoc; cards: 
     return homeCards(cards ?? [], current).filter((c) => PUBLISHED.has(c.status) || c.pieceId === p.id);
   }, [cards, d, p.id, p.projectId, p.status, p.dueDate]);
   const o = { store: d.store, language: d.language, topics: topicsOf(onHome) };
-  const blocks = [...pastePost(d), pasteHome(onHome, o), ...d.tags.map((t) => pasteTopic(onHome, o, t))];
+  // the hub's pictures go into the paste with the hub's full address
+  const origin = typeof window === "undefined" ? undefined : window.location.origin;
+  const current = cardOf(d, { pieceId: p.id, projectId: p.projectId, status: p.status, due: p.dueDate });
+  const blocks = [...pastePost(d, { related: relatedCards(onHome, current), origin }), pasteHome(onHome, { ...o, origin }), ...d.tags.map((t) => pasteTopic(onHome, { ...o, origin }, t))];
+  const fromHub = hubPictures(d).length;
 
   return (
     <Box>
@@ -46,6 +50,11 @@ export function Publish({ api, d, cards }: { api: StudioApi; d: BlogDoc; cards: 
 
       <Block title="Copy for Magento">
         {warnings.map((w) => <Typography key={w} sx={{ fontSize: "0.8rem", color: AMBER, mb: 0.5 }}>{w}</Typography>)}
+        {fromHub > 0 && (
+          <Typography sx={{ fontSize: "0.8rem", color: AMBER, mb: 0.5 }}>
+            {fromHub === 1 ? "Its picture is" : `${fromHub} of its pictures are`} kept in the hub, which the shop&apos;s visitors cannot reach: upload {fromHub === 1 ? "it" : "them"} to Magento (Content &gt; Media Gallery) and put {fromHub === 1 ? "its" : "their"} shop address in place of the hub&apos;s before the page goes live.
+          </Typography>
+        )}
         <Hint mt={warnings.length ? 1 : 0}>The home lists the posts approved or live, and this one{cards === null ? " (the other posts are still being read)" : ""}.</Hint>
         <Box sx={{ mt: 1.25 }}>
           {blocks.map((b) => <PasteCard key={b.key} label={b.label} steps={b.steps} code={b.code} copied={done === b.key} onCopy={() => void copy(b.key, b.code)} />)}
