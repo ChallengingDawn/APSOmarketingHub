@@ -14,6 +14,7 @@ import {
   getTurn, listTurns, type Proposal,
 } from "@/lib/content/assistant";
 import { addVariant, getProject } from "@/lib/content/projects";
+import { accessFor } from "@/lib/content/sharing";
 import { readBrain } from "@/lib/brain";
 import { generateApsoImage } from "@/lib/images";
 import { buildImagePrompt } from "@/lib/imagePrompt";
@@ -118,9 +119,11 @@ function replaceSection(body: string, heading: string, content: string): string 
 }
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  const me = await requireUser();
   const id = idOf((await ctx.params).id);
   if (id === null) return NextResponse.json({ ok: false, error: "Bad id" }, { status: 400 });
+  // only the people of the project read its assistant (08.11.2026: it was any signed-in person)
+  if (!(await accessFor(id, me))) return NextResponse.json({ ok: false, error: "No such project." }, { status: 404 });
   return NextResponse.json({ ok: true, turns: await listTurns(id) });
 }
 
@@ -129,8 +132,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const id = idOf((await ctx.params).id);
   if (id === null) return NextResponse.json({ ok: false, error: "Bad id" }, { status: 400 });
 
+  // the project's people ask; its editors take or drop a proposal (08.11.2026: it was any signed-in person)
+  const access = await accessFor(id, me);
+  if (!access) return NextResponse.json({ ok: false, error: "No such project." }, { status: 404 });
+
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const action = typeof body.action === "string" ? body.action : "ask";
+  if ((action === "accept" || action === "dismiss") && !access.canEdit) {
+    return NextResponse.json({ ok: false, error: "You can comment on this project, not change it." }, { status: 403 });
+  }
 
   /* ── accept / dismiss ─────────────────────────────────────────────── */
 

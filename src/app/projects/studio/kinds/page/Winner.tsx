@@ -135,7 +135,7 @@ export function WinnerPublish({ api, doc, info, may, err, reload }: { api: Studi
   return (
     <Box>
       <Typography sx={{ fontSize: "0.84rem", color: INK, mb: 1 }}>
-        The page goes out the way APSOconvert takes for it: written into the Magento page when it is a CMS page and the hub has its keys, else on for everyone through the shop&apos;s gateway, else as code for dotSource (downloaded here).
+        The page goes out the way AI testing &amp; personalization takes for it: written into the Magento page when it is a CMS page and the hub has its keys, else on for everyone through the shop&apos;s gateway, else as code for dotSource (downloaded here).
       </Typography>
       {info?.shipped && (info.shipped.status === "running" || info.shipped.status === "paused") && (
         <Typography sx={{ fontSize: "0.8rem", color: "#a96a12", mb: 1 }}>It is on for everyone already (#{info.shipped.id}) - set in AI testing &amp; personalization.</Typography>
