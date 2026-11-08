@@ -15,6 +15,7 @@ import { shareCandidates } from "@/lib/content/sharing";
 import { proposeProject, startProject, type IdeaRef, type Line } from "@/lib/content/start";
 import { planPlaces } from "@/lib/content/todos";
 import { describeIntegrationError } from "@/lib/integrations/status";
+import { keepAlive } from "@/lib/http/keepAlive";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
   const action = String(b.action ?? "");
   const admin = me.role === "admin";
 
-  if (action === "propose") {
+  if (action === "propose") return keepAlive(async () => {
     const ideas = ideasOf(b.ideas);
     const goal = str(b.goal, 1200);
     if (!goal && !ideas.length) return fail("Say what the project should achieve, or start from ideas.");
@@ -75,9 +76,9 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       return fail(describeIntegrationError(e).error, 502);
     }
-  }
+  });
 
-  if (action === "start") {
+  if (action === "start") return keepAlive(async () => {
     const lines: Line[] = (Array.isArray(b.lines) ? b.lines : []).slice(0, 20).map((x) => {
       const o = (x ?? {}) as Record<string, unknown>;
       const kind = KINDS.has(String(o.contentType)) ? String(o.contentType) : TASK_KIND;
@@ -97,6 +98,6 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       return fail(describeIntegrationError(e).error, 502);
     }
-  }
+  });
   return fail("Unknown action.");
 }

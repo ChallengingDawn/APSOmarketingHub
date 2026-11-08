@@ -29,6 +29,9 @@ export type AiTask = {
   /** The question: the context, the document as it is, what the person asked. */
   user: (ctx: StudioCtx, doc: unknown, input: Record<string, unknown>) => string;
   maxTokens?: number;
+  /** How hard the model thinks. Unset: "medium" for the big writing tasks (12,000+ tokens - a whole page, a whole post,
+   *  a translation: SARCLA 08.11.2026 "design generate is ... shit"), "low" for the quick asks. */
+  effort?: "low" | "medium" | "high";
   /** The answer kept only where it makes sense - the studio applies it. */
   clean?: (raw: unknown, doc: unknown, ctx: StudioCtx, input: Record<string, unknown>) => unknown;
 };

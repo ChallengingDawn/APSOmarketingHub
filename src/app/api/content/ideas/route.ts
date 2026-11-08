@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guard";
+import { keepAlive } from "@/lib/http/keepAlive";
 import { myAccess } from "@/lib/auth/appAccess";
 import { accessFor } from "@/lib/content/sharing";
 import { addTeamIdea, ideasFrom, markIdeas, removeTeamIdea, SOURCES, type IdeaSource } from "@/lib/content/ideas";
@@ -32,11 +33,13 @@ export async function GET(req: NextRequest) {
   if (!want) return NextResponse.json({ ok: true, sources: sources.map(({ key, label, note, slow }) => ({ key, label, note, slow: !!slow })) });
   const s = sources.find((x) => x.key === want);
   if (!s) return fail("That source is not open to you.", 403);
-  try {
-    return NextResponse.json({ ok: true, ideas: await ideasFrom(s.key as IdeaSource) });
-  } catch (e) {
-    return fail(describeIntegrationError(e).error, 502);
-  }
+  return keepAlive(async () => {
+    try {
+      return NextResponse.json({ ok: true, ideas: await ideasFrom(s.key as IdeaSource) });
+    } catch (e) {
+      return fail(describeIntegrationError(e).error, 502);
+    }
+  });
 }
 
 export async function POST(req: NextRequest) {

@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guard";
+import { keepAlive } from "@/lib/http/keepAlive";
 import { accessFor } from "@/lib/content/sharing";
 import {
   addUploadPart, ASPECTS, finishUpload, generatePicture, imagesReady, listAssets, newUploadToken, removeAsset,
@@ -51,8 +52,11 @@ export async function POST(req: NextRequest) {
   try {
     if (action === "generate") {
       const aspect = (ASPECTS as readonly string[]).includes(String(b.aspect)) ? (b.aspect as Aspect) : "1:1";
-      const r = await generatePicture({ prompt: String(b.prompt ?? ""), aspect, overlaySpace: b.overlaySpace === true, projectId, pieceId, by: me.username });
-      return r.ok ? NextResponse.json({ ok: true, asset: r.asset }) : fail(r.error, 502);
+      // the Pro model can take a minute: kept alive past the load balancer's 60 s
+      return keepAlive(async () => {
+        const r = await generatePicture({ prompt: String(b.prompt ?? ""), aspect, overlaySpace: b.overlaySpace === true, projectId, pieceId, by: me.username });
+        return r.ok ? NextResponse.json({ ok: true, asset: r.asset }) : fail(r.error, 502);
+      });
     }
     if (action === "upload-start") return NextResponse.json({ ok: true, token: newUploadToken() });
     if (action === "upload-part") {
