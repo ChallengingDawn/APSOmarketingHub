@@ -7,6 +7,7 @@
 //   steps    three cards dropping on the beats 1-2-3, a line drawing between them; ticked on the next bar
 //   product  a card that spins in on a spring, a picture or a drawn part dropping onto it, a turntable after
 //   quote    a customer's own words, word by word at reading pace, the mark dropping in
+//   feature, number, compare   a feature of the shop, a true figure, before / after (featureScenes.tsx)
 //   end      APSOparts big (the corner logo grows into it - Film.tsx), the line, the button pulsing on every beat
 //            and hopping every two, the part hopping between - it keeps moving while it holds
 import React from "react";
@@ -19,8 +20,9 @@ import type { Scene, VideoDoc } from "../model";
 import type { Layout } from "./layout";
 import { Button, card, Colored, GhostRing, Gloss, Kicker, Part, Rise, Unblur } from "./parts";
 import { B, BOLD, FONT, REG } from "./theme";
+import { CompareScene, FeatureScene, NumberScene } from "./featureScenes";
 
-export type SceneProps = { s: Scene; L: Layout; dur: number; uid: string; base: string };
+export type SceneProps = { s: Scene; L: Layout; dur: number; uid: string; base: string; lang?: string };
 
 /** The scene's camera: it pushes, pulls, turns and pans the whole shot. */
 const Camera: React.FC<{ z?: number; rx?: number; ry?: number; rz?: number; x?: number; y?: number; children: React.ReactNode }> = ({ z = 1, rx = 0, ry = 0, rz = 0, x = 0, y = 0, children }) => (
@@ -330,6 +332,9 @@ export const SceneOf: React.FC<SceneProps> = (props) => {
     case "steps": return <StepsScene {...props} />;
     case "product": return <ProductScene {...props} />;
     case "quote": return <QuoteScene {...props} />;
+    case "feature": return <FeatureScene {...props} />;
+    case "number": return <NumberScene {...props} />;
+    case "compare": return <CompareScene {...props} />;
     default: return null;
   }
 };

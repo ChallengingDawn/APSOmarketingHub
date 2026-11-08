@@ -2,7 +2,7 @@
 // The prompts and the call live in server.ts; here the answer's shape and the cleaning, so a model that runs long or
 // answers for a size the banner is not made in cannot break the banner.
 
-import { PRESET, sizesOf, type BannerDoc, type OwnWords, type PresetKey } from "./model";
+import { PRESET, roomiest, sizesOf, type BannerDoc, type OwnWords, type PresetKey } from "./model";
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").replace(/^["'“”„«»]+|["'“”„«»]+$/g, "").trim().slice(0, max) : "");
 // an answer a little over its room is kept (the studio shows it in red); one far over is cut
@@ -36,10 +36,10 @@ export const COPY_SCHEMA = {
 
 export type CopyAnswer = { content: { eyebrow: string; headline: string; rotatingWords: string[]; line: string; button: string }; own: Partial<Record<PresetKey, OwnWords>> };
 
-/** The answer as the banner can take it: the main size's room, own words only for this banner's sizes and only where they differ. */
+/** The answer as the banner can take it: the roomiest place's room, own words only for this banner's places and only where they differ. */
 export function cleanCopy(raw: unknown, docRaw: BannerDoc): CopyAnswer {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const main = PRESET[docRaw.format].limits;
+  const main = PRESET[roomiest(docRaw)].limits;
   const content = {
     eyebrow: str(r.eyebrow, room(main.eyebrow || 28)),
     headline: str(r.headline, room(main.headline)),
@@ -90,7 +90,7 @@ export const VARIANTS_SCHEMA = {
 export type Variant = { headline: string; angle: string };
 export function cleanVariants(raw: unknown, d: BannerDoc): { headlines: Variant[] } {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const max = room(PRESET[d.format].limits.headline);
+  const max = room(PRESET[roomiest(d)].limits.headline);
   const seen = new Set<string>();
   const headlines = (Array.isArray(r.headlines) ? r.headlines : []).map((x) => {
     const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
@@ -105,6 +105,6 @@ export function sizesBrief(d: BannerDoc): string {
     const p = PRESET[k];
     const l = p.limits;
     const parts = [l.eyebrow ? `eyebrow ${l.eyebrow}` : "no eyebrow", `headline ${l.headline}`, l.word ? `changing words ${l.word} each` : "no changing words", l.line ? `line ${l.line}` : "no line", l.button ? `button ${l.button}` : "no button"];
-    return `- ${k} (${p.label}${p.h ? `, ${p.w}x${p.h}` : ", full width"}${k === d.format ? ", the main size" : ""}): ${parts.join(", ")} characters`;
+    return `- ${k} (${p.label}${p.h ? `, ${p.w}x${p.h}` : ", full width"}${k === roomiest(d) ? ", the most room - the banner's own words" : ""}): ${parts.join(", ")} characters`;
   }).join("\n");
 }

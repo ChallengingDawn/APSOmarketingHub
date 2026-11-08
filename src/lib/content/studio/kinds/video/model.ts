@@ -1,16 +1,20 @@
 // VIDEO - THE STUDIO'S DOCUMENT (08.11.2026). Pure, shared with the browser - tests/studio-video.test.ts.
 //
 // A film in our motion-graphics style (the Black Friday, compatibility and APSOhub films): a story of scenes, each a
-// kind from our library (title, words, claim, steps, product, quote), each lasting whole bars of the 120 BPM beat, so
+// kind from our library (title, words, claim, steps, product, quote, and for a feature of the shop: feature, big
+// number, before/after), each lasting whole bars of the 120 BPM beat, so
 // every cut lands on a bar line; then the end card - APSOparts big, a line, the button. One story, three formats
 // (16:9, 9:16, 1:1): the format only changes the layout.
 //
 // The rules it keeps (SARCLA): few words - a line is read in under two seconds; never a discount value; no prices on
 // screen; nothing invented (a quote is only words someone gave us); a new scene every bar or two.
 // Small on purpose: pictures are addresses, never the picture itself (the hub's firewall refuses a request over 8 KB).
+// A film can be made around APSOparts' own features (features.ts - SARCLA 08.11.2026: "you should be able to select a
+// feature or key winning point of APSO"): the picked ones are kept in `features`, and a scene that tells one carries it.
 
 import { BAR, BPM, FPS, seconds, timecode } from "./engine/timeline";
 import { plain, wordCount } from "./engine/text";
+import { FEATURE, isFeature, isIcon, numberAllowed, type FeatureKey, type IconKey } from "./features";
 
 export const FORMATS = ["16:9", "9:16", "1:1"] as const;
 export type Format = (typeof FORMATS)[number];
@@ -20,7 +24,7 @@ export const FORMAT_INFO: Record<Format, { w: number; h: number; label: string; 
   "1:1": { w: 1080, h: 1080, label: "1:1", use: "LinkedIn and Instagram feeds" },
 };
 
-export const SCENE_KINDS = ["title", "words", "claim", "steps", "product", "quote"] as const;
+export const SCENE_KINDS = ["title", "words", "claim", "feature", "number", "compare", "steps", "product", "quote"] as const;
 export type SceneKind = (typeof SCENE_KINDS)[number];
 /** How a scene cuts in on its bar line. "auto" takes turns: whip, sweep, lift. */
 export const CUTS = ["auto", "whip", "sweep", "lift"] as const;
@@ -38,10 +42,13 @@ export type Scene = {
   /** Whole bars of two seconds: 1 to 4. */
   bars: number;
   copy: Partial<Record<CopyKey, string>>;
-  /** A picture's address (product scene): the shop's or the hub's - never the picture itself. */
+  /** A picture's address (product and feature scenes): the shop's or the hub's - never the picture itself. */
   image?: string;
   shape?: Shape;
   cut?: Cut;
+  /** The APSOparts feature the scene tells (features.ts), and the icon it shows. */
+  feature?: FeatureKey;
+  icon?: IconKey;
 };
 export type EndCard = { line: string; cta: string; bars: number };
 
@@ -56,6 +63,8 @@ export type VideoDoc = {
   music: "none";
   /** What the team noted for the film (the first studio's one field), kept. */
   notes?: string;
+  /** The features the film is made around, in the order picked. */
+  features?: FeatureKey[];
 };
 
 export const MAX_SCENES = 12;
@@ -67,7 +76,7 @@ export const READ_WPS = 4;
 
 export type FieldDef = { key: CopyKey; label: string; words: number; chars: number; required?: boolean; placeholder?: string };
 
-export const KIND_INFO: Record<SceneKind, { label: string; blurb: string; fields: FieldDef[]; bars: { min: number; max: number; start: number }; image?: boolean; shape?: boolean }> = {
+export const KIND_INFO: Record<SceneKind, { label: string; blurb: string; fields: FieldDef[]; bars: { min: number; max: number; start: number }; image?: boolean; shape?: boolean; icon?: boolean }> = {
   title: {
     label: "Title", blurb: "A headline that rises word by word; a part drops in beside it.",
     fields: [
@@ -93,6 +102,33 @@ export const KIND_INFO: Record<SceneKind, { label: string; blurb: string; fields
       { key: "sub", label: "Under it", words: 7, chars: 56 },
     ],
     bars: { min: 1, max: 2, start: 2 },
+  },
+  feature: {
+    label: "Feature", blurb: "A feature of the shop: its icon pops in, the claim rises, the proof under it - its picture beside it.",
+    fields: [
+      { key: "kicker", label: "Feature", words: 4, chars: 32, placeholder: "DirectCUT" },
+      { key: "line1", label: "Claim", words: 6, chars: 40, required: true, placeholder: "Cut to *your* size" },
+      { key: "sub", label: "Proof", words: 12, chars: 80, placeholder: "Configure plastics online" },
+    ],
+    bars: { min: 2, max: 3, start: 2 }, image: true, icon: true,
+  },
+  number: {
+    label: "Big number", blurb: "One true figure slams in and counts up; what it means under it.",
+    fields: [
+      { key: "line1", label: "The figure", words: 2, chars: 10, required: true, placeholder: "48/72h" },
+      { key: "line2", label: "What it is", words: 5, chars: 36, required: true, placeholder: "delivery across *Europe*" },
+      { key: "sub", label: "Proof", words: 10, chars: 70 },
+    ],
+    bars: { min: 1, max: 2, start: 2 }, icon: true,
+  },
+  compare: {
+    label: "Before / after", blurb: "The old way, crossed out - then the APSOparts way, in red.",
+    fields: [
+      { key: "kicker", label: "Heading", words: 4, chars: 32 },
+      { key: "line1", label: "Before", words: 6, chars: 40, required: true, placeholder: "A thirty-line reorder" },
+      { key: "line2", label: "After", words: 6, chars: 40, required: true, placeholder: "A *two-minute* review" },
+    ],
+    bars: { min: 2, max: 3, start: 2 },
   },
   steps: {
     label: "Steps", blurb: "Three steps building on the beat.",
@@ -156,7 +192,24 @@ export const sceneId = () => Math.random().toString(36).slice(2, 10);
 
 export function newScene(kind: SceneKind, id = sceneId()): Scene {
   const info = KIND_INFO[kind];
-  return { id, kind, bars: info.bars.start, copy: {}, ...(info.shape ? { shape: kind === "product" ? "oring" : "none" } : {}) };
+  return { id, kind, bars: info.bars.start, copy: {}, ...(info.shape ? { shape: kind === "product" ? "oring" : "none" } : {}), ...(info.icon ? { icon: "check" as IconKey } : {}) };
+}
+
+/** A scene that tells a feature, written from the feature's own claim and proof (features.ts) - the person's to edit. */
+export function featureScene(key: FeatureKey, kind?: SceneKind, id = sceneId()): Scene {
+  const f = FEATURE[key];
+  const k = kind ?? f.scenes[0];
+  const s = newScene(k, id);
+  s.feature = key;
+  if (KIND_INFO[k].icon) s.icon = f.icon;
+  if (k === "feature") s.copy = { kicker: f.name, line1: f.claim, sub: f.proof };
+  else if (k === "number") s.copy = { line1: f.numbers[0] ?? "", line2: f.figure ?? f.claim, sub: f.proof };
+  else if (k === "claim") s.copy = { line1: f.claim, sub: f.proof };
+  else if (k === "words") s.copy = { line1: f.claim };
+  else if (k === "compare") s.copy = { kicker: f.name, line1: "", line2: f.claim };
+  else if (k === "steps") s.copy = { kicker: f.name };
+  else if (k === "product") s.copy = { kicker: f.name, line1: f.claim };
+  return s;
 }
 
 /** Anything (a stored document, the first studio's {notes}, an AI's answer) as a document the film can play. */
@@ -181,6 +234,8 @@ export function cleanVideo(raw: unknown, dflt: { language?: string | null } = {}
     if (info.shape) out.shape = oneOf(s.shape, SHAPES, kind === "product" ? "oring" : "none");
     const cut = oneOf(s.cut, CUTS, "auto");
     if (cut !== "auto") out.cut = cut;
+    if (isFeature(s.feature)) out.feature = s.feature;
+    if (info.icon) out.icon = isIcon(s.icon) ? s.icon : out.feature ? FEATURE[out.feature].icon : "check";
     return out;
   });
   const e = isObj(d.endCard) ? d.endCard : {};
@@ -192,6 +247,8 @@ export function cleanVideo(raw: unknown, dflt: { language?: string | null } = {}
   };
   const notes = str(d.notes, 2000);
   if (notes) doc.notes = notes;
+  const features = Array.isArray(d.features) ? [...new Set(d.features.filter(isFeature))].slice(0, 6) : [];
+  if (features.length) doc.features = features;
   return doc;
 }
 
@@ -277,6 +334,10 @@ export function validate(doc: VideoDoc): Issue[] {
     const need = readSeconds(s);
     if (need > (s.bars * BAR) / FPS + 0.01) out.push({ scene: i, level: "warn", text: `Needs about ${Math.ceil(need)} s to read and lasts ${(s.bars * BAR) / FPS} s - cut words or give it a bar more.` });
     if (s.image && !cleanImage(s.image)) out.push({ scene: i, field: "image", level: "stop", text: "A picture's address (https://...), never the picture itself." });
+    // a figure on screen is a fact: it must be one the shop already states (features.ts)
+    if (s.kind === "number" && plain(s.copy.line1 ?? "") && !numberAllowed(plain(s.copy.line1 ?? ""), s.feature ? [s.feature] : (doc.features ?? []))) {
+      out.push({ scene: i, field: "line1", level: "warn", text: s.feature ? `"${plain(s.copy.line1 ?? "")}" is not a figure ${FEATURE[s.feature].name} states - use its own, or check it is true.` : "A figure on screen must be true - tie the scene to a feature, or check where the figure comes from." });
+    }
   });
   const e = doc.endCard;
   for (const k of ["line", "cta"] as const) {
@@ -296,11 +357,12 @@ export function validate(doc: VideoDoc): Issue[] {
 export function videoText(raw: unknown): string {
   const doc = cleanVideo(raw);
   const segs = segments(doc);
-  const head = `Video · ${doc.format} · ${doc.language} · ${seconds(totalFrames(doc))} s (${totalBars(doc)} bars)`;
+  const head = `Video · ${doc.format} · ${doc.language} · ${seconds(totalFrames(doc))} s (${totalBars(doc)} bars)${doc.features?.length ? ` · about ${doc.features.map((k) => FEATURE[k].name).join(", ")}` : ""}`;
   const lines = doc.scenes.map((s, i) => {
     const words = KIND_INFO[s.kind].fields.map((f) => plain(s.copy[f.key] ?? "")).filter(Boolean).join(" / ");
     const pic = s.image ? ` [picture: ${s.image}]` : s.shape && s.shape !== "none" ? ` [${s.shape === "oring" ? "O-ring" : "shaft seal"}]` : "";
-    return `${i + 1}. ${KIND_INFO[s.kind].label} · ${s.bars} bar${s.bars > 1 ? "s" : ""} · ${timecode(segs[i].start)} - ${words || "(no words yet)"}${pic}`;
+    const feat = s.feature ? ` [feature: ${FEATURE[s.feature].name}]` : "";
+    return `${i + 1}. ${KIND_INFO[s.kind].label} · ${s.bars} bar${s.bars > 1 ? "s" : ""} · ${timecode(segs[i].start)} - ${words || "(no words yet)"}${pic}${feat}`;
   });
   const end = segs[segs.length - 1];
   lines.push(`End card · ${end.bars} bars · ${timecode(end.start)} - APSOparts / ${plain(doc.endCard.line) || "(no line)"} / [${plain(doc.endCard.cta) || "no button"}]`);
