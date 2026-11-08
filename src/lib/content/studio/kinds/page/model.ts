@@ -14,7 +14,7 @@
 //             so what is approved here is what visitors get
 //   texts     words for the placeholders <span class="apx-text">[Text from Content: ...]</span> an older version left
 //             (the AI no longer leaves any: it writes the final words; ./model.ts leftoversOf flags any that remain)
-//   langs     the page in its other languages (DE, FR, IT, EN - the shop's store views): each its own version with its
+//   langs     the page in its other languages (every language the shop's store views have - DE FR IT EN NL PL): each its own version with its
 //             own address, words, changes and preview. The document's top level is the MAIN language; `viewOf` gives
 //             one language as a whole page document, `withView` puts it back
 //   inserts   banners placed in the page by the banner studio (the shared contract: kind, piece, size, where)
@@ -137,12 +137,66 @@ export const MAIN_SELECTOR = "#maincontent .column.main";
 
 /* ── languages ────────────────────────────────────────────────────────── */
 
-/** The languages a page is published in - the shop's store views (en-INT is the shop's English, x-default). */
+// SARCLA 08.11.2026 (evening): "On the page builder: DE FR IT EN - we should have all locales: NL, PL". A page is published
+// in every language the shop has - its store views, read from APSOconvert's page index (the `stores` action); when the
+// index is empty, the shop's own list below (the locale home pages, src/lib/seo/hreflang.ts). One version per LANGUAGE;
+// in Magento a CMS page is given every store view of its language (German: de-CH, de-DE, de-AT, de-INT).
+
+/** The shop's store views when the page index has none yet (src/lib/seo/hreflang.ts LOCALE_HOMEPAGES). */
+export const SHOP_STORES = [
+  "de-CH", "de-DE", "de-AT", "de-INT", "fr-CH", "fr-FR", "fr-INT", "it-CH", "it-IT", "it-INT", "en-INT", "nl-NL", "nl-INT", "pl-PL",
+] as const;
+/** The languages in the order the studio shows them (the page's own first). */
+export const LANG_ORDER = ["de", "fr", "it", "en", "nl", "pl"] as const;
+/** @deprecated the four the studio offered before 08.11.2026 - the shop's languages come from its store views now */
 export const LANGS = ["de", "fr", "it", "en"] as const;
-const STORE_OF_LANGUAGE: Record<string, string> = { DE: "de-CH", FR: "fr-CH", IT: "it-CH", EN: "en-INT", NL: "nl-NL", PL: "pl-PL" };
+/** Each language's own store view: the Swiss one where the shop has it, English the international one (x-default). */
+const HOME_STORE: Record<string, string> = { de: "de-CH", fr: "fr-CH", it: "it-CH", en: "en-INT", nl: "nl-NL", pl: "pl-PL", es: "es-ES" };
 const LANGUAGE_NAME: Record<string, string> = { de: "German", fr: "French", it: "Italian", en: "English", nl: "Dutch", pl: "Polish", es: "Spanish" };
 
-export const storeForLanguage = (lang: string | null | undefined) => STORE_OF_LANGUAGE[String(lang ?? "").toUpperCase()] ?? "de-CH";
+/** A store view as the shop writes it, without its currency ("de-CH/eur" -> "de-CH"); null when it is not one. */
+export function baseStore(store: string | null | undefined): string | null {
+  const m = /^([a-z]{2})-([a-z]{2,3})(?:\/[a-z]{3})?$/i.exec(String(store ?? "").trim());
+  return m ? `${m[1].toLowerCase()}-${m[2].toUpperCase()}` : null;
+}
+
+/** The store views of one language, as the shop has them: "fr" -> fr-CH, fr-FR, fr-INT. */
+export function storesOf(lang: string, stores: readonly string[] = SHOP_STORES): string[] {
+  const l = lang.toLowerCase();
+  return [...new Set(stores.map(baseStore).filter((s): s is string => !!s && s.startsWith(`${l}-`)))].sort();
+}
+
+/**
+ * The store view a page in this language goes in: English in the international one (the shop's x-default); else the
+ * main page's own country when the shop has the language there (a page of fr-FR in Italian: it-FR does not exist), the
+ * language's own store view, its international one, the first the shop has. `stores` is the shop's list (the index's).
+ */
+export function storeForLanguage(lang: string | null | undefined, mainStore?: string | null, stores: readonly string[] = SHOP_STORES): string {
+  const l = String(lang ?? "").slice(0, 2).toLowerCase() || "de";
+  const have = storesOf(l, stores.length ? stores : SHOP_STORES);
+  const country = /^[a-z]{2}-([a-z]{2,3})/i.exec(String(mainStore ?? ""))?.[1]?.toUpperCase() ?? "CH";
+  const want = [l === "en" ? "en-INT" : "", `${l}-${country}`, HOME_STORE[l] ?? "", `${l}-INT`].filter(Boolean);
+  return want.find((s) => have.includes(s)) ?? have[0] ?? HOME_STORE[l] ?? `${l}-INT`;
+}
+
+/** One language the page can be published in: its store view for this page, and every store view of it on the shop. */
+export type LangOption = { lang: string; name: string; store: string; stores: string[] };
+
+/** Every language the shop publishes in (from its store views), the page's own first - each with its store view. */
+export function shopLanguages(stores: readonly string[], mainStore: string): LangOption[] {
+  const list = stores.length ? stores : SHOP_STORES;
+  const main = langOfStore(mainStore);
+  const langs = [...new Set(list.map(baseStore).filter((s): s is string => !!s).map((s) => s.slice(0, 2)))];
+  if (!langs.includes(main)) langs.push(main);
+  const rank = (l: string) => (l === main ? -1 : (LANG_ORDER as readonly string[]).indexOf(l) < 0 ? 50 : (LANG_ORDER as readonly string[]).indexOf(l));
+  langs.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  return langs.map((l) => {
+    const store = l === main ? (baseStore(mainStore) ?? storeForLanguage(l, mainStore, list)) : storeForLanguage(l, mainStore, list);
+    const all = storesOf(l, list);
+    return { lang: l, name: langName(l), store, stores: [store, ...all.filter((s) => s !== store)] };
+  });
+}
+
 /** The language a store view's visitors read: "de-CH" -> German. */
 export const languageOfStore = (store: string | null | undefined) => LANGUAGE_NAME[String(store ?? "").slice(0, 2).toLowerCase()] ?? null;
 /** A store view's language code: "fr-CH" -> "fr". */
@@ -150,18 +204,23 @@ export const langOfStore = (store: string | null | undefined) => (/^[a-z]{2}/i.e
 export const langName = (lang: string) => LANGUAGE_NAME[lang.toLowerCase()] ?? lang.toUpperCase();
 /** The page's own language - the top of the document. */
 export const mainLang = (d: PageDoc) => langOfStore(d.store);
-/** The languages the studio offers for this page: the four, and the main one when it is another (nl, pl). */
-export const langsOf = (d: PageDoc): string[] => { const m = mainLang(d); return (LANGS as readonly string[]).includes(m) ? [...LANGS] : [m, ...LANGS]; };
+/** The languages this page HAS: its own, then those made or started (a translation, a page picked) - in the studio's order. */
+export const langsOf = (d: PageDoc): string[] => {
+  const m = mainLang(d);
+  const rank = (l: string) => (l === m ? -1 : (LANG_ORDER as readonly string[]).indexOf(l) < 0 ? 50 : (LANG_ORDER as readonly string[]).indexOf(l));
+  const made = Object.keys(d.langs).filter((l) => l !== m && (hasContent(viewOf(d, l)) || (d.source !== "new" && !!d.langs[l].path)));
+  return [m, ...made].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+};
 
 function emptyLang(d: PageDoc, lang: string): LangVersion {
-  return { path: "", store: storeForLanguage(lang), changes: [], texts: [], fields: emptyFields(), outline: null, from: "", at: "" };
+  return { path: "", store: storeForLanguage(lang, d.store), changes: [], texts: [], fields: emptyFields(), outline: null, from: "", at: "" };
 }
 
 /** One language of the page as a whole page document (the main language is the document itself). */
 export function viewOf(d: PageDoc, lang: string | null | undefined): PageDoc {
   if (!lang || lang === mainLang(d)) return d;
   const v = d.langs[lang] ?? emptyLang(d, lang);
-  return { ...d, path: v.path, store: v.store || storeForLanguage(lang), changes: v.changes, texts: v.texts, fields: v.fields, outline: v.outline, newPage: { ...d.newPage, body: "" } };
+  return { ...d, path: v.path, store: v.store || storeForLanguage(lang, d.store), changes: v.changes, texts: v.texts, fields: v.fields, outline: v.outline, newPage: { ...d.newPage, body: "" } };
 }
 
 /** The document with one language's view put back: its own parts into its place; the shared parts (test, Magento's
@@ -330,7 +389,7 @@ export function urlKeyOf(title: string): string {
  * The same page in another language, from the page's own hreflang links: the Swiss store view of that language first
  * (the main page's country), then the language's international one; English is the shop's x-default (en-INT).
  */
-export function counterpartIn(html: string, lang: string, mainStore: string): string | null {
+export function counterpartIn(html: string, lang: string, mainStore: string, prefer?: string | null): string | null {
   const alts: { lang: string; href: string }[] = [];
   for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
     const tag = m[0];
@@ -340,7 +399,8 @@ export function counterpartIn(html: string, lang: string, mainStore: string): st
     if (hl && href) alts.push({ lang: hl.toLowerCase(), href });
   }
   const country = (/^[a-z]{2}-([A-Z]{2,3})/.exec(mainStore)?.[1] ?? "CH").toLowerCase();
-  const want = [`${lang}-${country}`, `${lang}-ch`, ...(lang === "en" ? ["x-default", "en-int"] : []), `${lang}-int`, lang];
+  // the store view this language's page goes in first (./model.ts storeForLanguage), then the shop's own order
+  const want = [...(prefer ? [prefer.toLowerCase()] : []), `${lang}-${country}`, `${lang}-ch`, ...(lang === "en" ? ["x-default", "en-int"] : []), `${lang}-int`, lang];
   for (const w of want) {
     const a = alts.find((x) => x.lang === w);
     if (!a) continue;

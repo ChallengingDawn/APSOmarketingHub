@@ -26,8 +26,8 @@ import { pasteBlock, prefixFor, stillMarkup } from "../banner/render";
 import { STILL_CSS, absoluteCss, applyChanges, innerOf, insideOf, stillPage, stylesheetsOf, type AnyChange, type Hit } from "./apply";
 import { fieldPictures } from "./fields";
 import {
-  INSERT_WHERE_LABEL, MAIN_SELECTOR, changeLine, counterpartIn, finalChanges, isLegacyBody, newPagePaste, pageDoc, styleBlock, unwritten,
-  leftoversOf, urlKeyOf, viewOf, type Insert, type PageDoc, type PageOutline, type PasteBlock,
+  INSERT_WHERE_LABEL, MAIN_SELECTOR, changeLine, counterpartIn, finalChanges, isLegacyBody, langOfStore, languageOfStore, newPagePaste, pageDoc, shopLanguages,
+  styleBlock, unwritten, leftoversOf, urlKeyOf, viewOf, type Insert, type PageDoc, type PageOutline, type PasteBlock,
 } from "./model";
 import { renderNewPage, type InsertHtml } from "./newpage";
 
@@ -249,12 +249,12 @@ export async function outlineOf(raw: unknown, lang: string | null = null): Promi
 }
 
 /** The same page in another language, from the main page's hreflang links. */
-export async function counterpartOf(raw: unknown, lang: string): Promise<{ ok: true; path: string | null; store: string | null } | { ok: false; error: string }> {
+export async function counterpartOf(raw: unknown, lang: string, prefer: string | null = null): Promise<{ ok: true; path: string | null; store: string | null } | { ok: false; error: string }> {
   const d = pageDoc(raw);
   if (d.source === "new") return { ok: true, path: null, store: null };
   const r = await readShopPage(d);
   if (!r.ok) return r;
-  const path = counterpartIn(r.page.html, lang, d.store);
+  const path = counterpartIn(r.page.html, lang, d.store, prefer);
   return { ok: true, path, store: path ? classify(path).store : null };
 }
 
@@ -273,7 +273,7 @@ export async function relinkOf(raw: unknown, lang: string): Promise<{ map: Recor
   const missing: string[] = [];
   for (const u of urls) {
     const r = await readPath(doc.env, u, false);
-    const to = r.ok ? counterpartIn(r.page.html, lang, store) : null;
+    const to = r.ok ? counterpartIn(r.page.html, lang, store, store) : null;
     if (to) map[u] = to; else missing.push(u);
   }
   return { map, missing };
@@ -387,8 +387,12 @@ async function pictureFiles(urls: string[]): Promise<Map<string, { file: string;
 }
 
 /** What a person pastes into Magento, with where it goes - one language. Nothing is written to Magento from here. */
-export async function pasteOf(raw: unknown, lang: string | null = null): Promise<PasteOut> {
+export async function pasteOf(raw: unknown, lang: string | null = null, shopStores: readonly string[] = []): Promise<PasteOut> {
   const d = viewOf(pageDoc(raw), lang);
+  // a CMS page is given every store view of its language (SARCLA 08.11.2026: "we should have all locales")
+  const views = shopLanguages(shopStores, d.store).find((x) => x.lang === langOfStore(d.store))?.stores ?? [d.store];
+  const storeViews = [d.store, ...views.filter((x) => x !== d.store)];
+  const storeLine = storeViews.length > 1 ? `Store View: ${storeViews.join(", ")} - every ${languageOfStore(d.store) ?? ""} store view of the shop (Ctrl-click to pick several)` : `Store View: ${d.store}`;
   const final = finalChanges(d);
   const warnings = [...final.problems];
   const open = unwritten(d).length;
@@ -416,7 +420,7 @@ export async function pasteOf(raw: unknown, lang: string | null = null): Promise
         key: "fields", label: "The page's fields", lang: "text",
         steps: [
           "Content > Pages > Add New Page.",
-          `Copy each value into its field; Store View: ${d.store}. Leave "Content Heading" empty - the page's title is in its content.`,
+          `Copy each value into its field. ${storeLine}. Leave "Content Heading" empty - the page's title is in its content.`,
         ],
         code: [
           `Page Title: ${f.hero.title.trim()}`, `URL Key: ${f.seo.urlKey.trim() || urlKeyOf(f.hero.title)}`,

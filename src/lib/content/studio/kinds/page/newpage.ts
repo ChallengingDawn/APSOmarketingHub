@@ -18,6 +18,9 @@ export type RenderOpts = {
   /** a picture's address as it is written (the preview makes the hub's own absolute; the paste names Magento's media) */
   picture?: (url: string) => string;
   link?: (url: string) => string;
+  /** the preview only (`marks`): what the AI is writing now - those blocks and fields shimmer - and the pictures being
+   * made (SARCLA 08.11.2026: "an AI animation as soon as it starts working") */
+  busy?: { blocks?: string[]; fields?: string[]; pictures?: string[] };
 };
 
 export const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -40,8 +43,11 @@ export function renderNewPage(f: Fields, o: RenderOpts = {}): { css: string; htm
   const pic = o.picture ?? ((u: string) => u);
   const link = o.link ?? ((u: string) => u);
   const lk = (path: string): Look => f.looks[path] ?? {};
-  const fa = (path: string) => (m ? ` data-apx-f="${esc(path)}"` : "");
-  const ba = (path: string) => (m ? ` data-apx-b="${esc(path)}"` : "");
+  const busyB = new Set(m ? o.busy?.blocks ?? [] : []);
+  const busyF = new Set(m ? o.busy?.fields ?? [] : []);
+  const making = new Set(m ? o.busy?.pictures ?? [] : []);
+  const fa = (path: string) => (m ? ` data-apx-f="${esc(path)}"${busyF.has(path) ? " data-apx-busy" : ""}` : "");
+  const ba = (path: string) => (m ? ` data-apx-b="${esc(path)}"${busyB.has(path) ? " data-apx-busy" : ""}` : "");
   const textCls = (path: string, base: string) => {
     const l = lk(path);
     return [base, l.size ? `apx-np-s-${l.size}` : "", l.align === "center" ? "apx-np-ac" : "", l.color ? `apx-np-c-${l.color}` : ""].filter(Boolean).join(" ");
@@ -59,6 +65,7 @@ export function renderNewPage(f: Fields, o: RenderOpts = {}): { css: string; htm
     return `<div class="apx-np-btns${lk(path).align === "center" ? " apx-np-ac" : ""}"><a class="apx-np-btn apx-np-btn-${look}" href="${esc(href)}"${fa(path)}>${esc(b.label.trim())}${ARROW}</a></div>`;
   };
   const picture = (path: string, p: Pic, hint: string) => {
+    if (!p.url && making.has(path)) return `<div class="apx-np-pic apx-np-pic-empty"${fa(path)} data-apx-making><span>Making the picture…</span></div>`;
     if (!p.url) return m ? `<div class="apx-np-pic apx-np-pic-empty"${fa(path)}><span>${esc(hint)}</span></div>` : "";
     return `<div class="apx-np-pic"${fa(path)}><img src="${esc(pic(p.url))}" alt="${esc(p.alt)}" loading="lazy"></div>`;
   };
