@@ -349,7 +349,8 @@ export async function addComment(
  * Choosing does not delete the others, and the project stays readable: the
  * argument for the chosen one is the comments under the ones that lost.
  */
-/** Rename a project, or fix the brief it was started with. */
+/** Rename a project, or fix the brief it was started with. (Its placeholders lacked their "$" until 08.11.2026 - every rename
+ * failed: SARCLA "changing the title is still hard".) */
 export async function updateProject(
   id: number,
   fields: { title?: string; brief?: string | null },
@@ -359,11 +360,11 @@ export async function updateProject(
   const values: unknown[] = [id];
   if (fields.title !== undefined) {
     values.push(fields.title.slice(0, 200));
-    sets.push(`title = ${values.length}`);
+    sets.push(`title = $${values.length}`);
   }
   if (fields.brief !== undefined) {
     values.push(fields.brief);
-    sets.push(`brief = ${values.length}`);
+    sets.push(`brief = $${values.length}`);
   }
   if (sets.length === 0) return;
   await query(
