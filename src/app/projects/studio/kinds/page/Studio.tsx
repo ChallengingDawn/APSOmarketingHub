@@ -21,7 +21,7 @@ import {
   emptyPage, isLegacyBody, langName, mainLang, pageDoc, shopLanguages, sourceHash, storeForLanguage, viewOf, withView,
   type LangOption, type LangVersion, type Leftover, type PageDoc,
 } from "@/lib/content/studio/kinds/page/model";
-import { BLOCK_OF, PART_KEYS, busyOf, partOfPath, picturesToMake, type PartKey, type PictureJob } from "@/lib/content/studio/kinds/page/outline";
+import { BLOCK_OF, PART_KEYS, PART_NAME, busyOf, partOfPath, picturesToMake, type PartKey, type PictureJob } from "@/lib/content/studio/kinds/page/outline";
 import type { Change } from "@/lib/convert/versions";
 import { StudioPanes, type QuickAsk } from "../../parts";
 import { makePicture } from "../../pictures";
@@ -363,7 +363,9 @@ export default function Studio({ api }: StudioProps) {
 
   const others = offered.map((o) => o.lang).filter((l) => l !== main);
   const scope = sel?.picked ?? null;
-  const scopeLabel = !sel ? null : sel.key.startsWith("f:") || sel.key.startsWith("b:") ? fieldLabel(d.fields, sel.key.slice(2)) : sel.key.startsWith("i:") ? "A banner" : scope ? `<${scope.tag}> ${scope.text.slice(0, 60)}` : null;
+  const wholePart = sel?.key.startsWith("b:") ? partOfPath(sel.key.slice(2)) : null;
+  const scopeLabel = !sel ? null : wholePart && !sel.key.slice(2).includes(".") ? PART_NAME[wholePart]
+    : sel.key.startsWith("f:") || sel.key.startsWith("b:") ? fieldLabel(d.fields, sel.key.slice(2)) : sel.key.startsWith("i:") ? "A banner" : scope ? `<${scope.tag}> ${scope.text.slice(0, 60)}` : null;
   const fieldPath = sel?.key.startsWith("f:") ? sel.key.slice(2) : null;
   const blockPart = sel?.key.startsWith("b:") ? sel.key.slice(2) : null;
   const pictureField = !!fieldPath && /picture$|\.button$|^links\.[^.]+$/.test(fieldPath);

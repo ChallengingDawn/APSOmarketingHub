@@ -131,7 +131,7 @@ export function PictureSlot({ api, pic, set, disabled, aspect = "3:2", path, ctl
     set({ ...pic, url: r.picture.url, alt: pic.alt || f.name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").slice(0, 120) });
   };
   const lineColor = m?.state === "error" ? "#a96a12" : MUTED;
-  const line = making ? "Making the picture… (up to 40 s)"
+  const line = making ? "Up to 40 seconds - it lands here and in the page."
     : m?.state === "error" ? m.error
     : !pic.url && ctl?.imagesOn === false && pic.idea ? "Pictures cannot be made on this hub - its image model is not set up. Upload one instead."
     : pic.idea ? `Idea: ${pic.idea}` : pic.url ? "" : "No idea for it yet - upload one, or choose one already made.";

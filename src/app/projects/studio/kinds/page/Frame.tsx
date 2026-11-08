@@ -242,7 +242,8 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
     const v = key.slice(2);
     try {
       if (key.startsWith("f:")) return d.querySelector(`[data-apx-f="${CSS.escape(v)}"]`);
-      if (key.startsWith("b:")) return d.querySelector(`[data-apx-b="${CSS.escape(v)}"]`);
+      // a list part opened in the outline ("b:sections"): its first item when it has items
+      if (key.startsWith("b:")) return d.querySelector(`[data-apx-b="${CSS.escape(v)}"]`) ?? (v.includes(".") ? null : d.querySelector(`[data-apx-b^="${CSS.escape(v)}."]`));
       if (key.startsWith("i:")) return d.querySelector(`[data-apx-insert="${CSS.escape(v)}"]`);
       return v ? d.querySelector(v) : null;
     } catch { return null; }
