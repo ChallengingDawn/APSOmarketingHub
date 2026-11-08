@@ -1,20 +1,34 @@
 // PRODUCT FACTS (SARCLA 08.11.2026: "products is also a night mare if we could get gwstdp purchase price and so forth would
-// be amazing"; "unit_cost_chf but there is more properties we never received"; "we have to be careful with purchasing
-// price unit"). HubSpot's "Products & Pricing" records (object 2-200042439, one per article_number) carry ERP fields that are
-// empty on most articles (measured 08.11.2026: GWSTDP 33 %, stock value 33 %, material 47 %, main supplier 4 % ...). The BI
-// model holds them: the morning workbook's sheet "KPI ARTICLES" (one row per article: the article, its product properties,
-// its current GWStdP, its stock on the latest day). Each value is checked against its property: numbers as numbers, dates as
-// dates, a choice list's value only when HubSpot lists it (the writer reads the options). Pure; the I/O is ./productFacts.ts.
+// be amazing"; "we have to be careful with purchasing price unit"; "did you have also the euro and the USD and the unit").
+// HubSpot's "Products & Pricing" records (object 2-200042439, one per article_number) get, from the ERP's BI model (the
+// morning workbook's sheet "KPI ARTICLES", one row per article), ONLY what no other step writes - one writer per property:
+//   unit_cost_chf (+ currency)        the GWStdP: the stock step (stock_load) owns it whenever that step is live
+//   unit_cost_eur, unit_cost_usd      the same cost in EUR / USD - written only once HubSpot has such a property
+//   stock_unit                        the unit the cost is per - ONLY where it does not move who writes the stock (below)
+//   article_status                    Liquidation / Running Article (DirectUP and the search bar show it to customers)
+//   main_supplier                     when the sheet carries a supplier name
+// NOT here, because another step already writes them every day: the article master from dim_article.csv (material,
+// hardness, colour, compounds, conformities, tariff number, replenishment days, country of origin, consumption driven,
+// sales unit - ./filesRules.ts STR_MAP / ENUM_MAP) and the stock (stock_quantity: the search bar's gateway, or stock_load for
+// cross-unit articles; stock_sales: the gateway; stock values, consumption, movement: stock_load). Pure; I/O in ./productFacts.ts.
 //
 // THE GWStdP's UNIT (checked 08.11.2026 on 1,422 articles HubSpot already held a value for): HubSpot's unit_cost_chf (label
 // "GWSTDP") is the cost of ONE STOCK UNIT IN CHF = the ERP's GWStdP in CHF / 100 - the ERP's price is per 100 stock units.
-// Median ratio 1.0000 against CHF/100 (1.10 against EUR/100: the exchange rate), whatever the "currency" field says; 37 %
-// within 2 % today, the rest older values loaded once and never refreshed. The unit is the STOCK unit (m, Pcs, kg, m2 - the
-// record's stock_unit), not the sales unit: a plate stocked in kg and sold per piece has its cost per kg; nothing converts
-// it (no weight per piece in the model). 0.01 is the ERP's placeholder for "no cost": nothing at or under 0.05 is written.
+// Median ratio 1.0000 against CHF/100 for every stock unit (m 561 articles, Stk 216, kg 204, m2 16); 1.10 against EUR/100
+// (the exchange rate), whatever the "currency" field says. The stock step's own source (fct_article_quantity_and_consumption
+// GwstdpCHF) is already per one unit, so both writers agree. The unit is the STOCK unit (m, Stk, kg, m2), not the sales unit:
+// a plate stocked in kg and sold per piece has its cost per kg; nothing converts it (no weight per piece in the model).
+// 0.01 is the ERP's placeholder for "no cost": nothing at or under 0.05 is written.
+//
+// THE STOCK UNIT moves the stock's writer: an article whose stock unit and sales unit differ (kg held, sold by the piece) has
+// its stock_quantity written by stock_load in kg, every other one by the search bar's gateway in pieces (isCrossUnit, the
+// same rule in the gateway's stock.js). Filling an empty stock unit with "kg" on a piece-sold article would hand its stock to
+// stock_load - off today - and freeze it. So the ERP's stock unit is written only where that answer stays the same; the
+// others are counted and held for SARCLA. The same unit in another spelling (Pcs / Stk, Kg / kg) is left as HubSpot has it.
 
 import { cpSlice, pyStrip } from "./orderRules";
 import { dayOf } from "../../reporting/boErpLines";
+import { isCrossUnit, normUnit } from "./stockRules";
 
 export const SHEET_ARTICLES = "KPI ARTICLES";
 export const PRODUCTS_OBJECT = "2-200042439";
@@ -24,6 +38,9 @@ export const PRODUCT_FACTS_LIVE = false;
 export const GWSTDP_PER = 100;
 /** the ERP's "no cost" placeholder is 0.01 per 100 units: nothing this low is a cost */
 export const GWSTDP_MIN = 0.05;
+/** the step that owns the GWStdP when it is live (./stock.ts) */
+export const STOCK_STEP = "stock_load";
+export const STOCK_STEP_PROPS = ["unit_cost_chf"] as const;
 
 export type Facts = Record<string, string>;
 type Cell = Parameters<typeof dayOf>[0];
@@ -31,18 +48,14 @@ const text = (c: Cell) => (c == null ? "" : c instanceof Date ? dayOf(c) : typeo
 const norm = (s: string) => s.replace(/^\[|\]$/g, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
 const clean = (s: string) => cpSlice(pyStrip(s.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/ {2,}/g, " ")), 0, 500);
 const num = (s: string) => { if (s === "") return null; const n = Number(s.replace(/'/g, "")); return Number.isFinite(n) ? n : null; };
-const r2 = (n: number) => String(Math.round(n * 100) / 100);
 const r4 = (n: number) => String(Math.round(n * 10000) / 10000);
 
-const COLS = ["article", "articletype", "inliquidation", "countryoforigin", "consumptiondriven", "replenishmentdays", "tariffnumber", "suppliername",
-  "gwstdpcurrency", "gwstdpchf", "stockday", "stockvaluechf", "stockvalueeur", "consumption", "movement",
-  "material", "hardness", "colour", "compoundap", "compoundsupplier", "conformity"] as const;
+/** the sheet's columns the rules read (an older sheet's other columns are ignored) */
+const COLS = ["article", "inliquidation", "gwstdpcurrency", "gwstdpchf", "gwstdpeur", "gwstdpusd", "stockunit", "salesunit", "suppliername"] as const;
 export type ArticleRow = Record<(typeof COLS)[number], string>;
 
 /** the properties written, in a fixed order - an article's facts are kept packed in it */
-export const PRODUCT_KEYS = ["unit_cost_chf", "currency", "stock_value_chf", "stock_value_eur", "consumption", "stock_movement", "stock_as_of_date",
-  "replenishment_days", "country_of_origin", "consumption_driven", "tarifs_number", "article_status", "c2s_article", "main_supplier",
-  "material", "hardness", "colour", "ap_compound_designation", "supplier_compound_designation", "conformities"] as const;
+export const PRODUCT_KEYS = ["unit_cost_chf", "unit_cost_eur", "unit_cost_usd", "currency", "stock_unit", "article_status", "main_supplier"] as const;
 export const packFacts = (f: Facts) => PRODUCT_KEYS.map((k) => f[k] ?? "").join("\u0001");
 export function unpackFacts(s: string): Facts {
   const f: Facts = {};
@@ -50,48 +63,41 @@ export function unpackFacts(s: string): Facts {
   return f;
 }
 
-/** One article's facts, before the choice lists are checked against HubSpot's options (./productFacts.ts). */
+/** One article's facts, before they are checked against HubSpot (its properties, options and units - ./productFacts.ts). */
 export function articleFacts(r: ArticleRow): Facts {
   const f: Facts = {};
   const put = (k: string, v: string | null | undefined) => { if (v != null && v !== "") f[k] = v; };
-  // the GWStdP: CHF per stock unit (the ERP's CHF price per 100 units / 100), the article's lead currency beside it
-  const chf = num(r.gwstdpchf);
-  if (chf != null && chf > GWSTDP_MIN) put("unit_cost_chf", r4(chf / GWSTDP_PER));
+  // the GWStdP per stock unit (the ERP's price per 100 units / 100), in CHF, EUR and USD, the lead currency beside it
+  const cost = (k: string, s: string) => { const n = num(s); if (n != null && n > GWSTDP_MIN) put(k, r4(n / GWSTDP_PER)); };
+  cost("unit_cost_chf", r.gwstdpchf);
+  cost("unit_cost_eur", r.gwstdpeur);
+  cost("unit_cost_usd", r.gwstdpusd);
   const cur = r.gwstdpcurrency.toUpperCase();
   if (/^[A-Z]{3}$/.test(cur)) put("currency", cur);
-  // the stock on the latest day
-  const sv = num(r.stockvaluechf), se = num(r.stockvalueeur), co = num(r.consumption), mv = num(r.movement);
-  if (sv != null) put("stock_value_chf", r2(sv));
-  if (se != null) put("stock_value_eur", r2(se));
-  if (co != null) put("consumption", r2(co));
-  if (mv != null) put("stock_movement", r2(mv));
-  const sd = dayOf(r.stockday);
-  if (sd && sd < "2100-01-01") put("stock_as_of_date", sd);
-  // the article
-  const rd = num(r.replenishmentdays);
-  if (rd != null && rd >= 0) put("replenishment_days", String(Math.round(rd)));
-  put("country_of_origin", clean(r.countryoforigin));
-  const cd = clean(r.consumptiondriven).toUpperCase();
-  if (cd === "J" || cd === "N") put("consumption_driven", cd);
-  put("tarifs_number", clean(r.tariffnumber));
+  // the unit the cost is per, as the ERP spells it (Stk, kg, m, m2, mm, Set); "Unknown" is none
+  const su = clean(r.stockunit);
+  if (su && su.toLowerCase() !== "unknown") put("stock_unit", su);
   const liq = clean(r.inliquidation).toUpperCase();
   if (liq === "J" || liq === "Y" || liq === "1" || liq === "TRUE") put("article_status", "Liquidation");
   else if (liq === "N" || liq === "0" || liq === "FALSE") put("article_status", "Running Article");
-  if (r.articletype === "Special" || r.articletype === "Standard") put("c2s_article", r.articletype === "Special" ? "true" : "false");
   put("main_supplier", clean(r.suppliername));
-  // its product properties
-  put("material", clean(r.material));
-  put("hardness", clean(r.hardness));
-  put("colour", clean(r.colour));
-  put("ap_compound_designation", clean(r.compoundap));
-  put("supplier_compound_designation", clean(r.compoundsupplier));
-  put("conformities", clean(r.conformity));
   return f;
 }
 
 /**
+ * The ERP's stock unit against HubSpot's units: write it, or why not. "same" = HubSpot already says it (maybe in another
+ * spelling); "moves_stock" = it would change which writer owns the article's stock_quantity (see above) - held for SARCLA.
+ */
+export function stockUnitCall(erp: string | undefined, hsStock: string | null | undefined, hsSales: string | null | undefined): "write" | "same" | "moves_stock" | "none" {
+  if (!erp) return "none";
+  if (hsStock && normUnit(hsStock) === normUnit(erp)) return "same";
+  if (isCrossUnit(hsStock, hsSales) !== isCrossUnit(erp, hsSales)) return "moves_stock";
+  return "write";
+}
+
+/**
  * The sheet, row by row: the header (the first row naming Article and GwstdpCHF), then one article a row - the first wins.
- * Only the articles `keep` names are kept (the BI model has ~860,000, HubSpot ~142,000), each as its packed facts.
+ * Only the articles `keep` names are kept (the BI model has ~860,000, HubSpot ~227,000), each as its packed facts.
  */
 export class ArticlesSheet {
   private at: Record<string, number> | null = null;
@@ -119,15 +125,35 @@ export class ArticlesSheet {
   finish(): Map<string, string> | null { return this.at ? this.facts : null; }
 }
 
-/** Keeps only the values a choice-list property lists (HubSpot refuses the whole record's update for one wrong option). */
-export function checkOptions(f: Facts, options: ReadonlyMap<string, ReadonlySet<string>>): { facts: Facts; dropped: string[] } {
-  const out: Facts = {}, dropped: string[] = [];
+/** HubSpot's side of the check: its properties (a choice list's options, or null), and who else writes what. */
+export type HubSpotSide = { props: ReadonlyMap<string, ReadonlySet<string> | null>; stockStepLive: boolean };
+
+/**
+ * Keeps only what may be written: a property HubSpot has (unit_cost_eur / _usd wait for an admin to create them), a value a
+ * choice list lists (HubSpot refuses the whole record's update for one wrong option), nothing the stock step owns while it
+ * is live. The stock unit is decided per record by stockUnitCall, with HubSpot's units at that moment.
+ */
+export function checkFacts(f: Facts, hs: HubSpotSide): { facts: Facts; dropped: Record<string, string> } {
+  const out: Facts = {}, dropped: Record<string, string> = {};
   for (const [k, v] of Object.entries(f)) {
-    const o = options.get(k);
-    if (o && !o.has(v)) { dropped.push(k); continue; }
+    if (!hs.props.has(k)) { dropped[k] = "no such property in HubSpot"; continue; }
+    if (hs.stockStepLive && (STOCK_STEP_PROPS as readonly string[]).includes(k)) { dropped[k] = "the stock step writes it"; continue; }
+    const o = hs.props.get(k);
+    if (o && !o.has(v)) { dropped[k] = "not one of its options"; continue; }
     out[k] = v;
   }
   return { facts: out, dropped };
+}
+
+/** Does HubSpot already hold these values? Numbers compared as numbers ("1.50" is "1.5"). */
+export function sameValues(f: Facts, current: Record<string, string | null | undefined>): boolean {
+  for (const [k, v] of Object.entries(f)) {
+    const c = (current[k] ?? "").trim();
+    const a = Number(v), b = Number(c);
+    if (c !== "" && Number.isFinite(a) && Number.isFinite(b) && v.trim() !== "" && Math.abs(a - b) < 1e-6) continue;
+    if (c !== v) return false;
+  }
+  return true;
 }
 
 export const factsHash = (f: Facts) => Object.keys(f).sort().map((k) => `${k}=${f[k]}`).join("\u0001");
