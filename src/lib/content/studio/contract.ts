@@ -11,6 +11,8 @@ export type StudioCtx = {
   projectId: number;
   pieceId: number;
   projectTitle: string;
+  /** The project's own notes, free text (the brief as first written; a page from APSOconvert carries its marker here). */
+  projectNotes: string | null;
   brief: Brief;
   piece: Piece;
   /** The person working - their username and name. */
