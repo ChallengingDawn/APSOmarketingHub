@@ -144,7 +144,9 @@ export class ArticlesSheet {
     if (this.facts.has(article)) return;
     if (!this.keep(article)) { this.skipped++; return; }
     const r = Object.fromEntries(COLS.map((k) => [k, at[k] >= 0 ? text(cells[at[k]]) : ""])) as ArticleRow;
-    if (!r.suppliername && r.leadsupplier && this.suppliers) r.suppliername = this.suppliers.get(supplierKey(r.leadsupplier)) ?? "";
+    // the supplier ONLY through the ERP's supplier list: a SupplierName column in this sheet is the earlier per-article
+    // lookup, which named "Zweifel Metall AG" for every article (08.11.2026) - never written
+    r.suppliername = r.leadsupplier && this.suppliers ? this.suppliers.get(supplierKey(r.leadsupplier)) ?? "" : "";
     this.facts.set(article, packFacts(articleFacts(r)));
   }
   /** article -> its packed facts; null when the sheet had no header the rules know */

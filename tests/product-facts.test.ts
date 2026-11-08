@@ -83,6 +83,11 @@ test("product facts: the lead supplier named from the ERP's supplier list, whate
   s.feed(2, ["1", 100, 12345]);
   s.feed(3, ["2", 100, "700.0"]);
   s.feed(4, ["3", 100, "999"]); // not in the list: no supplier, nothing invented
+  // the earlier query's SupplierName column (the same name on every article) is never read
+  const old = new ArticlesSheet(() => true, null);
+  old.feed(1, ["[Article]", "[GwstdpCHF]", "[SupplierName]"]);
+  old.feed(2, ["9", 100, "Zweifel Metall AG"]);
+  assert.equal(unpackFacts(old.finish()!.get("9")!).main_supplier, undefined);
   const m = s.finish()!;
   assert.equal(unpackFacts(m.get("1")!).main_supplier, "Trelleborg Sealing Solutions");
   assert.equal(unpackFacts(m.get("2")!).main_supplier, "Ensinger GmbH");
