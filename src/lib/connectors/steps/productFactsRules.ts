@@ -2,9 +2,11 @@
 // be amazing"; "we have to be careful with purchasing price unit"; "did you have also the euro and the USD and the unit").
 // HubSpot's "Products & Pricing" records (object 2-200042439, one per article_number) get, from the ERP's BI model (the
 // morning workbook's sheet "KPI ARTICLES", one row per article), ONLY what no other step writes - one writer per property:
-//   unit_cost_chf                     the GWStdP in CHF: the stock step (stock_load) owns it whenever that step is live; ONLY
-//                                     where HubSpot has none until SARCLA has confirmed the source (08.11.2026: of 115,644
-//                                     articles holding one, only 31,461 within 10 % of the cube's - median HubSpot/cube 1.13)
+//   unit_cost_chf                     the GWStdP in CHF, kept current every morning (the stock step, stock_load, owns it
+//                                     whenever that step is live). The cube is the source - SARCLA 08.11.2026 "correct" after
+//                                     the check: of the 27,720 articles in the ERP's own July stock file, 9,847 had the cube's
+//                                     price there and another in HubSpot (the connector's one-shot load of 07.07 mixed in a
+//                                     second warehouse row in another unit, e.g. 1010010212: ERP 83.7624, HubSpot 93.7522)
 //   NOT currency: HubSpot's "currency" sits beside a CHF price - 105,000 articles say CHF where the lead currency is EUR,
 //   and writing the lead currency there would make their CHF price read as euros (PricingHub keeps it as the price's currency)
 //   unit_cost_eur, unit_cost_usd      the same cost in EUR / USD - written only once HubSpot has such a property
@@ -63,8 +65,8 @@ export type ArticleRow = Record<(typeof COLS)[number], string>;
 
 /** the properties written, in a fixed order - an article's facts are kept packed in it */
 export const PRODUCT_KEYS = ["unit_cost_chf", "unit_cost_eur", "unit_cost_usd", "stock_unit", "article_status", "main_supplier"] as const;
-/** written only where HubSpot has no value (see above) */
-export const PRODUCT_FILL_ONLY = ["unit_cost_chf"] as const;
+/** written only where HubSpot has no value - none since SARCLA confirmed the cube as the GWStdP's source (see above) */
+export const PRODUCT_FILL_ONLY = [] as readonly string[];
 export const packFacts = (f: Facts) => PRODUCT_KEYS.map((k) => f[k] ?? "").join("\u0001");
 export function unpackFacts(s: string): Facts {
   const f: Facts = {};
