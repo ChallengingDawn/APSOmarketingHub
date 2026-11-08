@@ -18,8 +18,9 @@ import { dayOf, type ErpLine } from "../../reporting/boErpLines";
 /** the orders filled: those of this year on (dim_order OrderYear) - history from 2020 (SARCLA 08.11.2026: "also historicals"),
  *  not the 800,000 since 2014 - each kept packed in memory for the night (the repeated values kept once, by number) */
 export const FACTS_FROM_YEAR = 2020;
-/** OFF until SARCLA has seen the preview's figures and said go: order_sync then counts and reports, writes nothing */
-export const ORDER_FACTS_LIVE = false;
+/** ON since 08.11.2026 (SARCLA: "switch writing on, correct all this") - after the check of his 2020-2026 invoices against all
+ *  413,008 orders (359,810 the same, 31,803 filled, 103 corrected) and of every HubSpot workflow (none on orders) */
+export const ORDER_FACTS_LIVE = true;
 export const SHEET_INVOICES = "KPI INVOICES";
 
 type Kind = "text" | "date" | "source" | "prepay" | "dict";

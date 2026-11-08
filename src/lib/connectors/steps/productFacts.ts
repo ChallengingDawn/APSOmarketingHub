@@ -20,7 +20,7 @@ import {
 const IDS = "apsomh_cx_product_ids";
 const WRITTEN = "apsomh_cx_product_facts_written";
 const IDS_TTL_MS = 7 * 86_400_000;
-const PER_RUN = 20_000;
+const PER_RUN = 60_000;
 const SAMPLE = 300;
 type Props = Record<string, string | null | undefined>;
 type Obj = { id: string | number; properties?: Props };

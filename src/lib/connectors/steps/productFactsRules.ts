@@ -34,8 +34,9 @@ import { isCrossUnit, normUnit } from "./stockRules";
 export const SHEET_ARTICLES = "KPI ARTICLES";
 export const SHEET_SUPPLIERS = "KPI SUPPLIERS";
 export const PRODUCTS_OBJECT = "2-200042439";
-/** OFF until SARCLA has seen the preview's figures */
-export const PRODUCT_FACTS_LIVE = false;
+/** ON since 08.11.2026 (SARCLA: "switch writing on ... it's also important that we have purchasing price") - the unit checked
+ *  on 1,422 articles, the stock unit on all 226,812 (35 held), no HubSpot workflow watches these properties */
+export const PRODUCT_FACTS_LIVE = true;
 /** the ERP's GWStdP is per 100 stock units; HubSpot's unit_cost_chf is per stock unit (checked 08.11.2026, see above) */
 export const GWSTDP_PER = 100;
 /** the ERP's "no cost" placeholder is 0.01 per 100 units: nothing this low is a cost */
