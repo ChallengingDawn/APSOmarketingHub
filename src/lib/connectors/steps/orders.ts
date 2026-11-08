@@ -41,7 +41,7 @@ import { IntegrationError } from "@/lib/integrations/status";
 import { requestCollector, saveErpRequests } from "@/lib/certificates/erpData";
 import { deliveryCollector } from "@/lib/reporting/boDelivery";
 import { saveDelivery, zurichToday } from "@/lib/reporting/boDeliveryStore";
-import { ORDER_FACTS_LIVE, compareWithHubSpot, dimFactsOf, factsFor, factsHash, packDim, unpackDim, type Facts } from "./orderFactsRules";
+import { FILL_ONLY, ORDER_FACTS_LIVE, compareWithHubSpot, dimFactsOf, factsFor, factsHash, packDim, unpackDim, type Facts } from "./orderFactsRules";
 import { loadErpFacts, loadWritten, saveWritten } from "./orderFactsStore";
 import { stat } from "node:fs/promises";
 import { addPending, knownArticles } from "../articleIds";
@@ -503,8 +503,10 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
   } = { live: ORDER_FACTS_LIVE, orders_from_file: dimFacts.size, with_facts: 0, to_write: 0, written: 0, by_property: {}, examples: [] };
   // the first night after the history (2020 on) writes at most FACTS_PER_NIGHT orders, the rest the nights after (their hash
   // is kept only once written); a sample of the orders to write is read back from HubSpot, to show what would change
+  // this year's orders always go (the ones empty since June among them), the older years at most FACTS_PER_NIGHT a night
   const FACTS_PER_NIGHT = 60_000, COMPARE = 400;
-  let factsMerged = 0;
+  const thisYear = String(new Date().getUTCFullYear()).slice(2);
+  let factsMerged = 0, factsHeld = 0;
   const compare: { id: string; order: string; f: Facts }[] = [];
   const curHash = new Map<string, string>();
   const samples: string[] = [];
@@ -515,6 +517,14 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
   const flush = async () => {
     if (!pending.length) return;
     if (live) {
+      // the facts HubSpot keeps when it has a value (orderFactsRules FILL_ONLY): read first; unread = left out tonight
+      const fill = pending.filter((u) => FILL_ONLY.some((k) => k in u.properties));
+      if (fill.length) {
+        const has = await hs<{ results?: { id: string | number; properties?: Record<string, string | null> }[] }>({
+          path: "/crm/v3/objects/orders/batch/read", method: "POST", body: { inputs: fill.map((u) => ({ id: u.id })), properties: [...FILL_ONLY] },
+        }).then((j) => new Map((j.results ?? []).map((o) => [String(o.id), o.properties ?? {}]))).catch(() => null);
+        for (const u of fill) for (const k of FILL_ONLY) if (!has || (has.get(u.id)?.[k] ?? "").trim()) delete u.properties[k];
+      }
       const r = await updateOrders(pending, tick);
       done += r.done.length; err += r.failed; gone += r.gone.length;
       errors.push(...r.errors.slice(0, 3 - errors.length));
@@ -552,7 +562,9 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
             if (facts.examples.length < 5) { const { order_your_reference: _r, order_customer_order_nr: _c, ...shown } = f; facts.examples.push({ order: row.num, ...shown }); }
             if (compare.length < COMPARE) compare.push({ id: row.id, order: row.num, f });
             else { const j = Math.floor(Math.random() * facts.to_write); if (j < COMPARE) compare[j] = { id: row.id, order: row.num, f }; }
-            if (ORDER_FACTS_LIVE && factsMerged < FACTS_PER_NIGHT) { props = { ...(props ?? {}), ...f }; curHash.set(row.id, h); factsMerged += 1; }
+            const current = /^[A-Z](\d{2})\./.exec(row.num)?.[1] === thisYear;
+            if (ORDER_FACTS_LIVE && (current || factsMerged < FACTS_PER_NIGHT)) { props = { ...(props ?? {}), ...f }; curHash.set(row.id, h); if (!current) factsMerged += 1; }
+            else if (ORDER_FACTS_LIVE) factsHeld += 1;
           }
         }
       }
@@ -569,7 +581,7 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
     await tick();
   }
   await flush();
-  if (ORDER_FACTS_LIVE && facts.to_write > factsMerged) facts.left_for_next_nights = facts.to_write - factsMerged;
+  if (factsHeld) facts.left_for_next_nights = factsHeld;
   if (compare.length) {
     try {
       const keys = [...new Set(compare.flatMap((c) => Object.keys(c.f)))];

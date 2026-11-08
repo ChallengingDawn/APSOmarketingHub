@@ -54,13 +54,20 @@ test("order facts: the invoices sheet, and a delivery's invoice - the first one 
   s.feed(4, ["A26.1.001", 9002, new Date(Date.UTC(2026, 9, 7)), new Date(Date.UTC(2026, 9, 7)), "N", "CHF", "B", 12.346]); // the same invoice again
   s.feed(5, ["A26.2.001", 9003, 46297, null, "J", "EUR", "Unknown"]); // not one of the choice list's classes
   s.feed(6, [null, null, null, null, null, null]);
+  // invoiced in two parts: the last one's date, both numbers (as the connector's load wrote the date)
+  s.feed(7, ["A26.3.001", 9010, new Date(Date.UTC(2026, 9, 1)), new Date(Date.UTC(2026, 9, 1)), "N", "CHF", "A", 5]);
+  s.feed(8, ["A26.3.001", 9011, new Date(Date.UTC(2026, 9, 20)), new Date(Date.UTC(2026, 9, 21)), "N", "CHF", "A", 7]);
   const rows = s.finish()!;
-  assert.equal(rows.length, 4);
+  assert.equal(rows.length, 6);
   const m = invoiceFacts(rows);
   assert.deepEqual(m.get("A26.1.001"), {
     order_invoice_number: "9002", order_invoice_count: "2", order_invoice_canceled: "N", order_invoiced_status: "invoiced",
     order_invoice_date: "2026-10-07", order_invoice_booking_date: "2026-10-07", order_invoice_currency: "CHF",
     order_customer_class: "B", order_cogs_eur: "12.35", // the cancelled invoice's cost left out
+  });
+  assert.deepEqual(m.get("A26.3.001"), {
+    order_invoice_number: "9010;9011", order_invoice_count: "2", order_invoice_canceled: "N", order_invoiced_status: "invoiced",
+    order_invoice_date: "2026-10-20", order_invoice_booking_date: "2026-10-21", order_invoice_currency: "CHF", order_customer_class: "A", order_cogs_eur: "12",
   });
   assert.deepEqual(m.get("A26.2.001"), {
     order_invoice_number: "9003", order_invoice_count: "1", order_invoice_canceled: "J", order_invoiced_status: "canceled",
@@ -85,9 +92,10 @@ test("order facts: against HubSpot's values - the same, filling an empty one, or
   const r = compareWithHubSpot([
     { order: "A20.1.000", facts: { order_invoice_date: "2020-03-10", order_cogs_eur: "12.5", order_your_reference: "Anna" }, current: { order_invoice_date: "2020-03-10T00:00:00Z", order_cogs_eur: "12.50", order_your_reference: "Bob" } },
     { order: "A26.2.000", facts: { order_invoice_date: "2026-07-02", order_has_special_articles: "true" }, current: { order_invoice_date: "2026-07-01", order_has_special_articles: null } },
+    { order: "A26.3.000", facts: { order_cogs_eur: "24.6" }, current: { order_cogs_eur: "24.95" } }, // HubSpot's COGS stays (fill only)
   ]);
   assert.deepEqual(r.by_property, {
-    order_invoice_date: { same: 1, fills_empty: 0, changes: 1 }, order_cogs_eur: { same: 1, fills_empty: 0, changes: 0 },
+    order_invoice_date: { same: 1, fills_empty: 0, changes: 1 }, order_cogs_eur: { same: 1, fills_empty: 0, changes: 0, kept: 1 },
     order_your_reference: { same: 0, fills_empty: 0, changes: 1 }, order_has_special_articles: { same: 0, fills_empty: 1, changes: 0 },
   });
   assert.deepEqual(r.change_examples, [{ order: "A26.2.000", property: "order_invoice_date", hubspot: "2026-07-01", ours: "2026-07-02" }]);
