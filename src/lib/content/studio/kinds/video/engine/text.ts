@@ -4,34 +4,38 @@
 // word instead. Pure - the measuring is handed in (the browser's canvas with the loaded font; a close estimate in
 // tests and on the server) - tests/studio-video.test.ts.
 
-export type Tok = { t: string; red: boolean };
+export type Tok = { t: string; red: boolean; space: boolean };
 /** A line of words with their colour. */
 export type Line = Tok[];
 
-/** "Cut to *your* size" -> words with their colour. An unclosed * runs to the end of the line. */
+/**
+ * "Cut to *your* size" -> words with their colour; `space` = a space follows the word, so "*away*." keeps its full stop
+ * against the word. An unclosed * runs to the end of the line.
+ */
 export function parse(line: string): Line {
   const out: Tok[] = [];
   let red = false;
   let buf = "";
-  const flush = () => {
-    if (buf) out.push({ t: buf, red });
+  const flush = (space: boolean) => {
+    if (buf) out.push({ t: buf, red, space });
+    else if (space && out.length) out[out.length - 1].space = true;
     buf = "";
   };
   for (const ch of line ?? "") {
     if (ch === "*") {
-      flush();
+      flush(false);
       red = !red;
-    } else if (/\s/.test(ch)) flush();
+    } else if (/\s/.test(ch)) flush(true);
     else buf += ch;
   }
-  flush();
-  // "*your*." -> the full stop stays with its word
+  flush(false);
+  if (out.length) out[out.length - 1].space = false;
   return out;
 }
 
 /** The words without their markup. */
 export const plain = (s: string) => (s ?? "").replace(/\*/g, "").replace(/\s+/g, " ").trim();
-export const lineText = (l: Line) => l.map((w) => w.t).join(" ");
+export const lineText = (l: Line) => l.map((w, i) => w.t + (w.space && i < l.length - 1 ? " " : "")).join("");
 /** How many words a line or text has. */
 export const wordCount = (s: string) => (plain(s) ? plain(s).split(" ").length : 0);
 
@@ -88,6 +92,7 @@ export function splitBest(l: Line, weight: number): [Line, Line] | null {
   let best: [Line, Line] | null = null;
   let score = Infinity;
   for (let i = 1; i < l.length; i++) {
+    if (!l[i - 1].space) continue;
     const a = l.slice(0, i);
     const b = l.slice(i);
     const s = Math.max(lineW(a, weight, 1), lineW(b, weight, 1));
@@ -136,7 +141,7 @@ export function wrap(l: Line, weight: number, fs: number, maxW: number): Line[] 
   let cur: Line = [];
   for (const w of l) {
     const next = [...cur, w];
-    if (cur.length && lineW(next, weight, fs) > maxW) {
+    if (cur.length && cur[cur.length - 1].space && lineW(next, weight, fs) > maxW) {
       out.push(cur);
       cur = [w];
     } else cur = next;

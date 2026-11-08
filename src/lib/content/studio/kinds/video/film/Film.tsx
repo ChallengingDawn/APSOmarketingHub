@@ -105,9 +105,10 @@ export const Film: React.FC<{ doc: VideoDoc; frame: number; base?: string }> = (
             <Shot seg={sg} next={segs[i + 1] ?? null} L={L} doc={doc} base={base} n={i} />
           </Sequence>
         ))}
-        {segs.map((sg, i) => (sg.cut === "sweep" && Math.abs(f - sg.start) <= CUT_FRAMES.sweepHalf ? <Sweep key={`sw-${i}`} f={f} at={sg.start} L={L} /> : null))}
         {segs.map((sg, i) => ((sg.cut === "whip" || sg.cut === "lift") && Math.abs(f - sg.start) <= 4 ? <Streaks key={`st-${i}`} f={f} at={sg.start} L={L} vertical={sg.cut === "lift"} /> : null))}
         <FilmLogo f={f} end={end} L={L} base={base} />
+        {/* the sweep wipes the whole frame, the logo too, for the few frames it crosses */}
+        {segs.map((sg, i) => (sg.cut === "sweep" && Math.abs(f - sg.start) <= CUT_FRAMES.sweepHalf ? <Sweep key={`sw-${i}`} f={f} at={sg.start} L={L} /> : null))}
       </div>
     </TimelineProvider>
   );

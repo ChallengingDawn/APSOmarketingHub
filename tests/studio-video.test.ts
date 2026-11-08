@@ -110,8 +110,11 @@ test("physics: a roll comes to rest at 0, turning as far as it travelled; rocks 
 });
 
 test("text: *red* markup, plain text and word counts", () => {
-  assert.deepEqual(parse("Cut to *your* size"), [{ t: "Cut", red: false }, { t: "to", red: false }, { t: "your", red: true }, { t: "size", red: false }]);
-  assert.deepEqual(parse("*one click away*.").map((w) => w.red), [true, true, true, false]);
+  assert.deepEqual(parse("Cut to *your* size"), [{ t: "Cut", red: false, space: true }, { t: "to", red: false, space: true }, { t: "your", red: true, space: true }, { t: "size", red: false, space: false }]);
+  const end = parse("Sealing parts, *one click away*.");
+  assert.deepEqual(end.map((w) => w.red), [false, false, true, true, true, false]);
+  assert.equal(end[4].space, false, "the full stop stays against its word");
+  assert.equal(lineW(end, 500, 10), lineW("Sealing parts, one click away.", 500, 10));
   assert.equal(plain("Cut to *your*  size"), "Cut to your size");
   assert.equal(wordCount("Cut to *your* size"), 4);
   assert.equal(wordCount("  "), 0);
