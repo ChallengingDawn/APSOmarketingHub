@@ -223,9 +223,7 @@ export default function Studio({ api }: StudioProps) {
   /* ── blocks: added, moved, copied, removed - in the e-mail and in the outline ── */
   const insert = (at: number, k: BlockKind, layout?: "stacked" | "left" | "right") => {
     const b = made(docRef.current, k, layout);
-    const blocks = [...docRef.current.blocks];
-    blocks.splice(at, 0, b);
-    set({ ...docRef.current, blocks });
+    api.setDoc((cur: unknown) => { const n = asNewsletter(cur); const blocks = [...n.blocks]; blocks.splice(at, 0, b); return { ...n, blocks }; });
     setSel(b.id);
     setFocus({ key: b.id, at: Date.now() });
   };
@@ -296,7 +294,7 @@ export default function Studio({ api }: StudioProps) {
     if (!r) return null;
     const plus = (at: number, top: number, label: string) => (
       <Tooltip title={label} placement="left">
-        <Box component="button" type="button" aria-label={label} onMouseDown={(e) => e.preventDefault()} onClick={(e) => setAdder({ el: e.currentTarget, at })}
+        <Box component="button" type="button" aria-label={label} onClick={(e) => setAdder({ el: e.currentTarget, at })}
           sx={{ all: "unset", pointerEvents: "auto", cursor: "pointer", position: "absolute", left: r.left + r.width / 2 - 13, top: top - 13, width: 26, height: 26, borderRadius: "50%", bgcolor: BLUE, color: "#fff", display: "grid", placeItems: "center", boxShadow: "0 2px 8px rgba(36,89,209,.4)", "&:hover": { bgcolor: "#1d47a8" } }}>
           <AddIcon sx={{ fontSize: 18 }} />
         </Box>
@@ -305,7 +303,7 @@ export default function Studio({ api }: StudioProps) {
     const tool = (label: string, icon: React.ReactNode, on: () => void, disabled = false) => (
       <Tooltip title={label} placement="right">
         <span>
-          <IconButton size="small" aria-label={label} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={on}
+          <IconButton size="small" aria-label={label} disabled={disabled} onClick={on}
             sx={{ pointerEvents: "auto", bgcolor: "#fff", borderRadius: "6px", width: 28, height: 28, "&:hover": { bgcolor: "#eef3ff", color: BLUE } }}>{icon}</IconButton>
         </span>
       </Tooltip>
@@ -316,10 +314,14 @@ export default function Studio({ api }: StudioProps) {
         {plus(bi, r.top, "Add a block above")}
         {plus(bi + 1, r.top + r.height, "Add a block below")}
         <Box sx={{ position: "absolute", left: right, top: r.top + 4, display: "flex", flexDirection: "column", gap: 0.5, p: 0.5, borderRadius: "8px", bgcolor: "#fff", boxShadow: "0 4px 16px rgba(31,45,78,.18)", pointerEvents: "auto" }}>
-          {tool("Move up", <ArrowUpwardIcon sx={{ fontSize: 16 }} />, () => set(moveBlock(docRef.current, block.id, -1)), bi === 0)}
-          {tool("Move down", <ArrowDownwardIcon sx={{ fontSize: 16 }} />, () => set(moveBlock(docRef.current, block.id, 1)), bi === d.blocks.length - 1)}
-          {tool("Duplicate", <ContentCopyOutlinedIcon sx={{ fontSize: 15 }} />, () => { const c = copyBlock(block); const blocks = [...docRef.current.blocks]; blocks.splice(bi + 1, 0, c); set({ ...docRef.current, blocks }); setSel(c.id); })}
-          {tool("Remove", <DeleteOutlineIcon sx={{ fontSize: 16 }} />, () => { set({ ...docRef.current, blocks: docRef.current.blocks.filter((x) => x.id !== block.id) }); setSel(null); })}
+          {tool("Move up", <ArrowUpwardIcon sx={{ fontSize: 16 }} />, () => api.setDoc((cur: unknown) => moveBlock(cur, block.id, -1)), bi === 0)}
+          {tool("Move down", <ArrowDownwardIcon sx={{ fontSize: 16 }} />, () => api.setDoc((cur: unknown) => moveBlock(cur, block.id, 1)), bi === d.blocks.length - 1)}
+          {tool("Duplicate", <ContentCopyOutlinedIcon sx={{ fontSize: 15 }} />, () => {
+            const c = copyBlock(block);
+            api.setDoc((cur: unknown) => { const n = asNewsletter(cur); const blocks = [...n.blocks]; const at = blocks.findIndex((x) => x.id === block.id); blocks.splice(at + 1, 0, c); return { ...n, blocks }; });
+            setSel(c.id);
+          })}
+          {tool("Remove", <DeleteOutlineIcon sx={{ fontSize: 16 }} />, () => { api.setDoc((cur: unknown) => { const n = asNewsletter(cur); return { ...n, blocks: n.blocks.filter((x) => x.id !== block.id) }; }); setSel(null); })}
         </Box>
       </>
     );
@@ -344,7 +346,7 @@ export default function Studio({ api }: StudioProps) {
           </Box>
         )}
         <EditFrame html={html} device={device} width={680} title="The e-mail" texts={(k) => partText(docRef.current, k)} oneLine={oneLine}
-          selected={sel} onSelect={setSel} onCommit={(k, t) => set(setPart(docRef.current, k, t))} readOnly={!canEdit} focus={focus} busy={work?.key ?? null}
+          selected={sel} onSelect={setSel} onCommit={(k, t) => api.setDoc((cur: unknown) => setPart(cur, k, t))} readOnly={!canEdit} focus={focus} busy={work?.key ?? null}
           overlay={overlay} />
       </Box>
     </Pane>

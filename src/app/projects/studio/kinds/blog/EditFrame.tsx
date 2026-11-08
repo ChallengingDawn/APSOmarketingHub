@@ -269,7 +269,8 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
       d.addEventListener("focusout", (ev) => {
         const e = editing.current;
         if (!e || ev.target !== e.el) return;
-        setTimeout(() => { if (editing.current === e && d.activeElement !== e.el) end(true); }, 0);
+        // (a frame that lost the focus to the studio around it keeps its own activeElement: ask the document too)
+        setTimeout(() => { if (editing.current === e && (!d.hasFocus() || d.activeElement !== e.el)) end(true); }, 0);
       }, true);
       const ro = new ResizeObserver(() => measure());
       if (d.body) ro.observe(d.body);

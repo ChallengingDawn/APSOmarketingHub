@@ -266,12 +266,13 @@ export default function Studio({ api }: StudioProps) {
   });
 
   /* ── the words edited in place ── */
-  const commit = (key: string, text: string) => {
-    const cur = docRef.current;
+  // on the document as it is this instant (a move or a removal may have just been made): never on an older copy
+  const commit = (key: string, text: string) => api.setDoc((raw: unknown) => {
+    const cur = blogDoc(raw, { language: p.language, author: me, title: p.title });
     const next = setPart(cur, key, text);
     // the address follows the title while nobody set one of its own
-    set(key === "title" && (!cur.slug || cur.slug === slugify(cur.title)) ? { ...next, slug: slugify(next.title) } : next);
-  };
+    return key === "title" && (!cur.slug || cur.slug === slugify(cur.title)) ? { ...next, slug: slugify(next.title) } : next;
+  });
 
   const newSection = () => {
     const r = addSection(docRef.current, sectionOf(sel));
@@ -344,6 +345,11 @@ export default function Studio({ api }: StudioProps) {
       </Box>
       {!sel && <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.45 }}>Click any part of the page to edit its words there - the assistant then works on that part.</Typography>}
       {sel && words !== null && <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.45 }}>{canEdit ? `Edit the words right on the page${oneLine(sel) ? " - Enter keeps them" : " - a click elsewhere keeps them"}, Esc drops the change. Or ask:` : "Read only."}</Typography>}
+      {sel && words !== null && canEdit && !oneLine(sel) && sel !== "short" && (
+        <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.45, mt: 0.5, p: 0.75, borderRadius: "6px", bgcolor: "rgba(21,34,58,.04)", fontFamily: "ui-monospace, Menlo, Consolas, monospace" }}>
+          **bold** · ==a key word in red== · - a list · &gt; a tip box · [words](address) - shown as written while you edit
+        </Typography>
+      )}
       {isPicture(sel) && <Picture api={api} d={d} set={set} pkey={sel!} canEdit={canEdit} />}
       {sel === "tags" && <TopicEditor d={d} set={set} canEdit={canEdit} />}
       {sel === "author" && <Author api={api} d={d} set={set} canEdit={canEdit} />}
