@@ -8,7 +8,9 @@ import { reflow, sizeLabel } from "@/lib/editor/resize";
 import { cutoutBackdrop, cutoutVerdict, fitWithin } from "@/lib/editor/cutout";
 import { describeStyle, readStyle, styleFor, type Style } from "@/lib/editor/styleClipboard";
 import { parseSeries, parseTable } from "@/lib/editor/dataShapes";
+import { hasKeyWords } from "@/lib/editor/richText";
 import { ChartNode, TableNode } from "./DataNodes";
+import { FUTURA_STACK, RichText } from "./richKonva";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -240,9 +242,37 @@ const SCRIM_BOTTOM = "rgba(10,20,28,0.88)";
  */
 const DROP_SHADOW = { color: "rgba(0,0,0,0.55)", blur: 8, offsetY: 2 };
 
-type FontKey = "inter" | "outfit" | "georgia" | "mono";
+type FontKey = "inter" | "outfit" | "georgia" | "mono" | "futura";
 
 type NodeSpec = DesignNode;
+
+/**
+ * What a page around the canvas may do to it (the social studio, 08.11.2026: its own panels, its own AI, its own top
+ * bar - the canvas is the engine). Every change made through here is one step of the canvas's own undo.
+ */
+export type CanvasApi = {
+  /** The scene as it is now. */
+  scene: () => DesignDocument;
+  /** The whole scene replaced - board, background, objects - as one undo step. */
+  load: (doc: DesignDocument) => void;
+  /** The objects changed, as one undo step. */
+  commit: (fn: (nodes: DesignNode[]) => DesignNode[]) => void;
+  /** The background changed, as one undo step. */
+  setBackground: (bg: Partial<DesignDocument["background"]>) => void;
+  undo: () => void;
+  redo: () => void;
+  /** "fit", a scale (1 = real pixels), or a step in or out. */
+  zoom: (z: number | "fit" | "in" | "out") => void;
+  select: (ids: string[]) => void;
+  /** The board as a picture at its real size; null while a picture on it is still loading. */
+  exportPng: (mime?: "image/png" | "image/jpeg") => string | null;
+  /** Where a point of the window falls on the board, in board pixels; null when off it. */
+  toCanvas: (clientX: number, clientY: number) => { x: number; y: number } | null;
+};
+
+type Bg = DesignDocument["background"];
+/** One step of the undo: the objects, and the board and background they sat on. */
+type Scene = { nodes: NodeSpec[]; canvas: { w: number; h: number }; bg: Bg };
 
 /** Seed text placed on the canvas by the studio after generation. */
 export type SeedText = {
@@ -386,7 +416,40 @@ export default function EditorCanvas({
   onDocumentChange,
   chromeHosts,
   fillHeight,
+  apiRef,
+  bare,
+  fitArea,
+  palette,
+  onSelectionChange,
+  onHistoryChange,
+  onZoomChange,
+  storeImage,
+  coverImages,
 }: {
+  /** A picture with no crop of its own fills its frame (cut to it, centred) instead of being stretched into it. */
+  coverImages?: boolean;
+  /** The page's handle on the canvas (see CanvasApi). */
+  apiRef?: React.MutableRefObject<CanvasApi | null>;
+  /**
+   * The canvas without its own document bar and its "unsaved" warning: the page around it has its own bar and saves
+   * the design itself (the social studio autosaves every change).
+   */
+  bare?: boolean;
+  /**
+   * The board fits the whole area of its parent (which sets the height), less these margins - not 640 px. The work
+   * area then fills the parent, with no card around it.
+   */
+  fitArea?: { top: number; bottom: number; side: number };
+  /** The colours the swatches offer (the brand's), instead of the editor's own. */
+  palette?: string[];
+  onSelectionChange?: (ids: string[]) => void;
+  onHistoryChange?: (h: { past: number; future: number }) => void;
+  onZoomChange?: (z: { scale: number; fit: boolean }) => void;
+  /**
+   * Keeps a picture (an upload, a cut-out) and gives back its address - so a design never carries a picture's bytes.
+   * Without it the editor keeps pictures inline as before.
+   */
+  storeImage?: (data: Blob, name: string) => Promise<string | null>;
   itemId?: number;
   initialImage?: string | null;
   initialTemplateId?: string;
@@ -446,9 +509,10 @@ export default function EditorCanvas({
   const fonts = useResolvedFonts();
   const fontFamilyOf = useCallback(
     (n: NodeSpec) =>
-      n.fontKey === "outfit" ? fonts.outfit : n.fontKey === "georgia" ? GEORGIA_STACK : n.fontKey === "mono" ? MONO_STACK : fonts.inter,
+      n.fontKey === "futura" ? FUTURA_STACK : n.fontKey === "outfit" ? fonts.outfit : n.fontKey === "georgia" ? GEORGIA_STACK : n.fontKey === "mono" ? MONO_STACK : fonts.inter,
     [fonts]
   );
+  const swatchColors = palette?.length ? palette : BRAND_COLORS;
 
   const [canvas, setCanvas] = useState(initialDocument?.canvas ?? { w: 1200, h: 627 });
   const [bgColor, setBgColor] = useState(initialDocument?.background.color ?? "#ffffff");
@@ -527,11 +591,11 @@ export default function EditorCanvas({
   const [savedDocument, setSavedDocument] = useState(() => canonicalDesign(initialDocument ?? sceneDocument));
   const dirty = canonical !== savedDocument;
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty || bare) return;
     const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
+  }, [dirty, bare]);
   const [textSizes, setTextSizes] = useState<Record<string, { w: number; h: number }>>({});
 
   const stageRef = useRef<Konva.Stage>(null);
@@ -554,15 +618,35 @@ export default function EditorCanvas({
   }, []);
 
   /* ── history (undo / redo) ── */
-  const pastRef = useRef<NodeSpec[][]>([]);
-  const futureRef = useRef<NodeSpec[][]>([]);
+  // Each step keeps the objects AND the board and background they sat on, so undoing a template, a resize or a new
+  // background takes the whole scene back - not the objects alone onto a board they no longer fit (08.11.2026).
+  const pastRef = useRef<Scene[]>([]);
+  const futureRef = useRef<Scene[]>([]);
   const coalesceRef = useRef<{ key: string; t: number } | null>(null);
   const [histSizes, setHistSizes] = useState({ past: 0, future: 0 });
+  const bgNow: Bg = { color: bgColor, gradientId: bgGradientId, customGradient: customGrad, src: bgSrc, scrim: bgScrim };
+  const liveRef = useRef<{ canvas: { w: number; h: number }; bg: Bg }>({ canvas, bg: bgNow });
+  liveRef.current = { canvas, bg: bgNow };
+  const sceneNow = (): Scene => ({ nodes: nodesRef.current, canvas: liveRef.current.canvas, bg: liveRef.current.bg });
 
   const applyNodes = useCallback((next: NodeSpec[]) => {
     nodesRef.current = next;
     setNodesState(next);
   }, []);
+
+  /** The board and background of a step put back (the objects go through applyNodes). */
+  const applyStage = useCallback((c: { w: number; h: number }, bg: Bg) => {
+    const cur = liveRef.current;
+    if (cur.canvas.w !== c.w || cur.canvas.h !== c.h) setCanvas({ w: c.w, h: c.h });
+    if (JSON.stringify(cur.bg) !== JSON.stringify(bg)) {
+      setBgColor(bg.color); setBgGradientId(bg.gradientId); setCustomGrad(bg.customGradient); setBgSrc(bg.src); setBgScrim(bg.scrim);
+    }
+    liveRef.current = { canvas: { w: c.w, h: c.h }, bg };
+  }, []);
+
+  const onHist = useRef(onHistoryChange);
+  onHist.current = onHistoryChange;
+  useEffect(() => { onHist.current?.(histSizes); }, [histSizes]);
 
   /**
    * Committed mutation: snapshots the current nodes into history, then applies.
@@ -578,42 +662,66 @@ export default function EditorCanvas({
       const last = coalesceRef.current;
       const merge = Boolean(coalesceKey && last && last.key === coalesceKey && now - last.t < COALESCE_MS && pastRef.current.length);
       coalesceRef.current = coalesceKey ? { key: coalesceKey, t: now } : null;
-      if (!merge) pastRef.current = [...pastRef.current, prev].slice(-HISTORY_MAX);
+      if (!merge) pastRef.current = [...pastRef.current, sceneNow()].slice(-HISTORY_MAX);
       futureRef.current = [];
       applyNodes(next);
       setHistSizes({ past: pastRef.current.length, future: 0 });
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [applyNodes]
   );
+
+  /** A whole scene (or part of it) as one undo step. */
+  const commitScene = useCallback((next: Partial<Scene>) => {
+    const cur = sceneNow();
+    pastRef.current = [...pastRef.current, cur].slice(-HISTORY_MAX);
+    futureRef.current = [];
+    coalesceRef.current = null;
+    if (next.nodes) applyNodes(next.nodes);
+    applyStage(next.canvas ?? cur.canvas, next.bg ?? cur.bg);
+    setHistSizes({ past: pastRef.current.length, future: 0 });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyNodes, applyStage]);
 
   const undo = useCallback(() => {
     if (!pastRef.current.length) return;
     const prev = pastRef.current[pastRef.current.length - 1];
     pastRef.current = pastRef.current.slice(0, -1);
-    futureRef.current = [nodesRef.current, ...futureRef.current].slice(0, HISTORY_MAX);
+    futureRef.current = [sceneNow(), ...futureRef.current].slice(0, HISTORY_MAX);
     coalesceRef.current = null;
-    applyNodes(prev);
+    applyNodes(prev.nodes);
+    applyStage(prev.canvas, prev.bg);
     setGuides({});
     setHistSizes({ past: pastRef.current.length, future: futureRef.current.length });
-  }, [applyNodes]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyNodes, applyStage]);
 
   const redo = useCallback(() => {
     if (!futureRef.current.length) return;
     const [next, ...rest] = futureRef.current;
     futureRef.current = rest;
-    pastRef.current = [...pastRef.current, nodesRef.current].slice(-HISTORY_MAX);
+    pastRef.current = [...pastRef.current, sceneNow()].slice(-HISTORY_MAX);
     coalesceRef.current = null;
-    applyNodes(next);
+    applyNodes(next.nodes);
+    applyStage(next.canvas, next.bg);
     setGuides({});
     setHistSizes({ past: pastRef.current.length, future: futureRef.current.length });
-  }, [applyNodes]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyNodes, applyStage]);
 
   /* fit-to-viewport scale + zoom */
   const [viewW, setViewW] = useState(900);
+  const [viewH, setViewH] = useState(640);
   const wrapRef = useRef<HTMLDivElement>(null);
   const workRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const measure = () => {
+      // A page that gives the board its whole area (fitArea) fits it to that area's width AND height, less its margins.
+      if (fitArea && workRef.current) {
+        setViewW(Math.max(200, workRef.current.clientWidth - fitArea.side * 2));
+        setViewH(Math.max(160, workRef.current.clientHeight - fitArea.top - fitArea.bottom));
+        return;
+      }
       if (wrapRef.current) setViewW(Math.max(360, wrapRef.current.clientWidth - 4));
     };
     measure();
@@ -621,13 +729,15 @@ export default function EditorCanvas({
     // the studio sidebar collapses without a window resize — track the wrapper itself too
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
     if (ro && wrapRef.current) ro.observe(wrapRef.current);
+    if (ro && fitArea && workRef.current) ro.observe(workRef.current);
     return () => {
       window.removeEventListener("resize", measure);
       ro?.disconnect();
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitArea?.side, fitArea?.top, fitArea?.bottom]);
 
-  const fitScale = Math.min(viewW / canvas.w, 640 / canvas.h, 1);
+  const fitScale = fitArea ? Math.min(viewW / canvas.w, viewH / canvas.h, 1) : Math.min(viewW / canvas.w, 640 / canvas.h, 1);
   /** null = fit to viewport; a number = absolute canvas zoom (1 = native pixels). */
   const [zoomScale, setZoomScale] = useState<number | null>(null);
   const scale = zoomScale ?? fitScale;
@@ -871,11 +981,34 @@ export default function EditorCanvas({
     if (selectedId && !nodes.some((n) => n.id === selectedId)) setSelectedId(null);
   }, [nodes, selectedId]);
 
+  /** A picture kept by the page (storeImage) and its address back; null when it could not be kept (said in a notice). */
+  const keepPicture = async (data: Blob, name: string): Promise<string | null> => {
+    if (!storeImage) return null;
+    try {
+      const url = await storeImage(data, name);
+      if (!url) setNotice("The picture could not be kept - try again.");
+      return url;
+    } catch {
+      setNotice("The picture could not be kept - try again.");
+      return null;
+    }
+  };
+
   const importImage = (file: File) => {
+    // A page that keeps pictures gets the file, and the design gets its address - never its bytes.
+    if (storeImage) {
+      void keepPicture(file, file.name).then((url) => { if (url) placeImageSrc(url); });
+      return;
+    }
     const reader = new FileReader();
-    reader.onload = () => {
-      const src = String(reader.result);
+    reader.onload = () => placeImageSrc(String(reader.result));
+    reader.readAsDataURL(file);
+  };
+
+  const placeImageSrc = (src: string) => {
+    {
       const el = new window.Image();
+      el.crossOrigin = "anonymous";
       el.onload = () => {
         const id = nid();
         setImgEls((cur) => ({ ...cur, [id]: el }));
@@ -917,8 +1050,7 @@ export default function EditorCanvas({
         setSelectedId(id);
       };
       el.src = src;
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
   /**
@@ -1013,6 +1145,16 @@ export default function EditorCanvas({
 
   /** Swap the bitmap of an existing image node, keeping its frame size. */
   const replaceImage = (id: string, file: File) => {
+    if (storeImage) {
+      void keepPicture(file, file.name).then((url) => {
+        if (!url) return;
+        const el = new window.Image();
+        el.crossOrigin = "anonymous";
+        el.onload = () => { setImgEls((cur) => ({ ...cur, [url]: el })); patch(id, { src: url }); };
+        el.src = url;
+      });
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const src = String(reader.result);
@@ -1316,7 +1458,14 @@ export default function EditorCanvas({
       ctx.putImageData(frame, 0, 0);
       // PNG, not JPG: a JPEG has no alpha channel, so the whole point would
       // be flattened back onto white on the way out.
-      patch(n.id, { src: cv.toDataURL("image/png") });
+      if (storeImage) {
+        const blob = await new Promise<Blob | null>((ok) => cv.toBlob(ok, "image/png"));
+        const url = blob ? await keepPicture(blob, "cut-out.png") : null;
+        if (!url) return;
+        patch(n.id, { src: url });
+      } else {
+        patch(n.id, { src: cv.toDataURL("image/png") });
+      }
       setNotice(verdict.why + " Ctrl+Z puts the background back.");
     } catch {
       // A picture from another origin taints the canvas and getImageData
@@ -1366,10 +1515,15 @@ export default function EditorCanvas({
           references: [{ dataUrl: reference }],
         }),
       }).then((x) => x.json());
-      const url: string | undefined = r?.image ?? r?.dataUrl ?? r?.url;
+      let url: string | undefined = r?.image ?? r?.dataUrl ?? r?.url;
       if (!url) {
         setNotice(r?.error ? String(r.error) : "The assistant could not redraw this picture.");
         return;
+      }
+      if (storeImage && url.startsWith("data:")) {
+        const kept = await keepPicture(await (await fetch(url)).blob(), "redrawn.png");
+        if (!kept) return;
+        url = kept;
       }
       patch(n.id, { src: url });
       setCutFailed(null);
@@ -1702,7 +1856,7 @@ export default function EditorCanvas({
         width: `${boxW}px`,
         fontSize: `${fs}px`,
         fontFamily: fontFamilyOf(node),
-        fontWeight: node.fontStyle?.includes("bold") ? "700" : node.fontStyle?.includes("600") ? "600" : "400",
+        fontWeight: node.fontStyle?.includes("bold") ? "700" : /[1-9]00/.exec(node.fontStyle ?? "")?.[0] ?? "400",
         fontStyle: node.fontStyle?.includes("italic") ? "italic" : "normal",
         textDecoration: node.underline ? "underline" : "none",
         textTransform: node.upper ? "uppercase" : "none",
@@ -1931,6 +2085,54 @@ export default function EditorCanvas({
       }
     });
   };
+
+  /* ── the page's handle on the canvas (CanvasApi) ── */
+  // A zoom step glides there in a few frames rather than jumping (SARCLA 08.11.2026: "smooth zoom").
+  const zoomAnim = useRef<number | null>(null);
+  const glideZoom = (target: number | null) => {
+    if (zoomAnim.current) cancelAnimationFrame(zoomAnim.current);
+    const from = scale;
+    const to = target ?? fitScaleRef.current;
+    const t0 = performance.now();
+    const step = (t: number) => {
+      const u = Math.min(1, (t - t0) / 180);
+      const e = 1 - Math.pow(1 - u, 3);
+      if (u < 1) { setZoomScale(from + (to - from) * e); zoomAnim.current = requestAnimationFrame(step); }
+      else { setZoomScale(target); zoomAnim.current = null; }
+    };
+    zoomAnim.current = requestAnimationFrame(step);
+  };
+  const onZoom = useRef(onZoomChange);
+  onZoom.current = onZoomChange;
+  useEffect(() => { onZoom.current?.({ scale, fit: zoomScale === null }); }, [scale, zoomScale]);
+  const onSel = useRef(onSelectionChange);
+  onSel.current = onSelectionChange;
+  useEffect(() => { onSel.current?.(selectedIds); }, [selectedIds]);
+  useEffect(() => {
+    if (!apiRef) return;
+    apiRef.current = {
+      scene: () => ({ schemaVersion: 1, canvas: liveRef.current.canvas, background: liveRef.current.bg, nodes: nodesRef.current }),
+      load: (d) => { commitScene({ nodes: d.nodes as NodeSpec[], canvas: { w: d.canvas.w, h: d.canvas.h }, bg: d.background }); setSelectedIds([]); },
+      commit: (fn) => commit((cur) => fn(cur) as NodeSpec[]),
+      setBackground: (bg) => commitScene({ bg: { ...liveRef.current.bg, ...bg } }),
+      undo, redo,
+      zoom: (z) => {
+        if (z === "fit") glideZoom(null);
+        else if (z === "in") glideZoom(Math.min(3, scale * 1.25));
+        else if (z === "out") glideZoom(Math.max(0.1, scale / 1.25));
+        else glideZoom(Math.min(3, Math.max(0.1, z)));
+      },
+      select: (ids) => setSelectedIds(expandSelection(nodesRef.current, ids)),
+      exportPng: (mime = "image/png") => exportDataUrl(mime),
+      toCanvas: (cx, cy) => {
+        const st = stageRef.current;
+        if (!st) return null;
+        const r = st.container().getBoundingClientRect();
+        if (cx < r.left || cy < r.top || cx > r.right || cy > r.bottom) return null;
+        return { x: (cx - r.left) / scale, y: (cy - r.top) / scale };
+      },
+    };
+  });
 
   const downloadSource = () => {
     const url = URL.createObjectURL(new Blob([serialized], { type: "application/json" }));
@@ -2298,7 +2500,7 @@ export default function EditorCanvas({
       </TextField>
       <Typography sx={{ fontSize: 11.5, color: "#5b6470", mb: 0.5 }}>Background colour</Typography>
       <Box sx={{ display: "flex", gap: 0.5, mb: 1.25, flexWrap: "wrap", alignItems: "center" }}>
-        {BRAND_COLORS.map((c) =>
+        {swatchColors.map((c) =>
           swatch(
             c,
             !bgGradientId && bgColor === c,
@@ -2520,7 +2722,7 @@ export default function EditorCanvas({
   );
 
   return (
-    <Box sx={{ display: "flex", gap: 2.5, flexDirection: { xs: "column", lg: "row" } }}>
+    <Box sx={{ display: "flex", gap: 2.5, flexDirection: { xs: "column", lg: "row" }, ...(fitArea ? { height: "100%" } : null) }}>
       {/* ── left: tools ── */}
       {toolsContainers ? (
         // Split: each panel goes to its own host. A host that is not given
@@ -2537,7 +2739,7 @@ export default function EditorCanvas({
       ) : null}
 
       {/* ── center: stage ── */}
-      <Box ref={wrapRef} sx={{ flex: 1, minWidth: 0 }}>
+      <Box ref={wrapRef} sx={{ flex: 1, minWidth: 0, ...(fitArea ? { height: "100%", display: "flex", flexDirection: "column", position: "relative" } : null) }}>
         {/* selection toolbar */}
         {/* ── the document's own bar ──
             Undo, the zoom and Download used to sit at the END of the
@@ -2545,7 +2747,7 @@ export default function EditorCanvas({
             selection changed the width of anything to their left. They are
             the document's buttons, not the object's, so they have their own
             row and never move. */}
-        {hostOr(chromeHosts?.actions,
+        {!bare && hostOr(chromeHosts?.actions,
         <Card sx={chromeHosts?.actions
           ? { mb: 1, boxShadow: "none", border: "1px solid rgba(21,34,58,.11)", borderRadius: "10px" }
           : { mb: 1 }}>
@@ -2823,13 +3025,14 @@ export default function EditorCanvas({
         )}
 
         {notice && (
-          <Alert severity={notice.startsWith("Design") ? "success" : "warning"} onClose={() => setNotice("")} sx={{ mb: 1.5 }}>
+          <Alert severity={notice.startsWith("Design") ? "success" : "warning"} onClose={() => setNotice("")}
+            sx={bare ? { position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 12, maxWidth: "min(560px, 90%)", borderRadius: "10px", boxShadow: "0 10px 30px rgba(16,24,40,.16)" } : { mb: 1.5 }}>
             {notice}
           </Alert>
         )}
 
         {/* ── the selection's bar, floating on the workspace ── */}
-        <Box sx={{ position: "relative" }}>
+        <Box sx={{ position: "relative", ...(fitArea ? { flex: 1, minHeight: 0 } : null) }}>
         {hostOr(chromeHosts?.selection,
         <Card
           ref={barRef}
@@ -3084,6 +3287,7 @@ export default function EditorCanvas({
                       onChange={(e) => patch(selected.id, { fontKey: e.target.value as FontKey })}
                       sx={{ width: 110 }}
                     >
+                      <MenuItem value="futura">Futura</MenuItem>
                       <MenuItem value="outfit">Outfit</MenuItem>
                       <MenuItem value="inter">Inter</MenuItem>
                       <MenuItem value="georgia">Georgia</MenuItem>
@@ -3251,8 +3455,16 @@ export default function EditorCanvas({
                   )}
                 {(selected.kind === "text" || isShape(selected.kind)) && (
                   <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-                    {BRAND_COLORS.map((c) => swatch(c, selected.fill === c, () => patch(selected.id, { fill: c })))}
+                    {swatchColors.map((c) => swatch(c, selected.fill === c, () => patch(selected.id, { fill: c })))}
                     <input type="color" value={selected.fill.startsWith("#") ? selected.fill : "#000000"} onChange={(e) => patch(selected.id, { fill: e.target.value }, `fill-${selected.id}`)} style={colorInputStyle} title="Custom colour" />
+                  </Box>
+                )}
+                {/* The key words' own colour - the words between stars (08.11.2026). */}
+                {selected.kind === "text" && hasKeyWords(selected.text) && (
+                  <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", width: "100%" }}>
+                    <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470", mr: 0.5 }}>Key words</Typography>
+                    {swatchColors.map((c) => swatch(c, (selected.keyFill ?? "#D80901") === c, () => patch(selected.id, { keyFill: c })))}
+                    <input type="color" value={(selected.keyFill ?? "#D80901").startsWith("#") ? selected.keyFill ?? "#D80901" : "#D80901"} onChange={(e) => patch(selected.id, { keyFill: e.target.value }, `key-${selected.id}`)} style={colorInputStyle} title="Key words colour" />
                   </Box>
                 )}
                     <Tooltip title="Background pill behind the text">
@@ -3279,7 +3491,7 @@ export default function EditorCanvas({
                     <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
                     <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: "#5b6470" }}>Stroke</Typography>
                     <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-                      {BRAND_COLORS.slice(0, 4).map((c) =>
+                      {swatchColors.slice(0, 4).map((c) =>
                         swatch(c, selected.stroke === c, () => patch(selected.id, { stroke: c, strokeWidth: selected.strokeWidth || 4 }), 18)
                       )}
                       <input
@@ -3909,9 +4121,15 @@ export default function EditorCanvas({
             overflow: "auto",
             maxHeight: fillHeight ? "none" : 720,
             minHeight: fillHeight ? "calc(100vh - 84px)" : undefined,
+            // The whole area is the stage: a calm dotted ground, the board in its middle, room around it (08.11.2026).
+            ...(fitArea ? {
+              height: "100%", maxHeight: "none", minHeight: 0, boxSizing: "border-box", border: 0, borderRadius: 0,
+              bgcolor: "transparent", backgroundImage: "none",
+              p: `${fitArea.top}px ${fitArea.side}px ${fitArea.bottom}px`,
+            } : null),
           }}
         >
-        <Box sx={{ display: "inline-block", m: "auto", boxShadow: "0 8px 32px rgba(22,48,63,0.18)", borderRadius: 0.5, overflow: "hidden", bgcolor: "#fff", position: "relative", flexShrink: 0 }}>
+        <Box sx={{ display: "inline-block", m: "auto", boxShadow: fitArea ? "0 1px 2px rgba(16,24,40,.06), 0 28px 64px -18px rgba(16,24,40,.30)" : "0 8px 32px rgba(22,48,63,0.18)", borderRadius: 0.5, overflow: "hidden", bgcolor: "#fff", position: "relative", flexShrink: 0 }}>
           {painting && !bgImage && (
             <Box
               className="shimmer"
@@ -4029,6 +4247,41 @@ export default function EditorCanvas({
                           t.scaleY(1);
                         }}
                       />
+                    ) : hasKeyWords(n.text) && !n.listStyle ? (
+                      // Key words between stars, drawn in their own colour (08.11.2026) - otherwise the same text.
+                      <RichText
+                        id={n.id}
+                        x={n.x}
+                        y={n.y}
+                        rotation={n.rotation ?? 0}
+                        style={{
+                          text: n.text ?? "", width: n.width ?? Math.max(40, canvas.w - n.x - canvas.w * 0.04),
+                          fontSize: n.fontSize ?? 24, fontFamily: fontFamilyOf(n), fontStyle: n.fontStyle, fill: n.fill,
+                          keyFill: n.keyFill, align: n.align, lineHeight: n.lineHeight ?? 1.25, letterSpacing: n.letterSpacing ?? 0, upper: n.upper,
+                        }}
+                        opacity={n.opacity ?? 1}
+                        draggable={!n.locked}
+                        onClick={(e) => setSelectedId(n.id, e.evt.shiftKey)}
+                        onTap={() => setSelectedId(n.id)}
+                        onDblClick={() => editTextInline(n)}
+                        onMouseEnter={(e) => setCursor(e, n.locked ? "default" : "text")}
+                        onMouseLeave={(e) => setCursor(e, "default")}
+                        onDragMove={onDragMove}
+                        onDragEnd={(e) => onDragEnd(e, n.id)}
+                        onTransform={(e) => syncPillDuringTransform(n, e.target)}
+                        onTransformEnd={(e) => {
+                          const t = e.target;
+                          patch(n.id, {
+                            x: t.x(),
+                            y: t.y(),
+                            rotation: t.rotation(),
+                            width: Math.max(40, (n.width ?? t.width()) * Math.abs(t.scaleX())),
+                            fontSize: Math.max(8, Math.round((n.fontSize ?? 24) * Math.abs(t.scaleY()))),
+                          });
+                          t.scaleX(1);
+                          t.scaleY(1);
+                        }}
+                      />
                     ) : (
                     <KText
                       id={n.id}
@@ -4106,7 +4359,9 @@ export default function EditorCanvas({
                     // pixels, so the conversion happens here, where the real
                     // image is and its natural size is finally known.
                     crop={cropToPixels(
-                      n.crop,
+                      n.crop ?? (coverImages && imgEls[n.src ?? ""] && !/\.svg(\?|$)|^data:image\/svg/i.test(n.src ?? "")
+                        ? coverCrop(imgEls[n.src ?? ""].naturalWidth, imgEls[n.src ?? ""].naturalHeight, n.width ?? 0, n.height ?? 0)
+                        : undefined),
                       imgEls[n.src ?? ""]?.naturalWidth ?? 0,
                       imgEls[n.src ?? ""]?.naturalHeight ?? 0,
                     )}

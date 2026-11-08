@@ -38,7 +38,7 @@ function Avatar({ size, round }: { size: number; round?: boolean }) {
 }
 
 /** A post's words with the feed's cut; hashtags and links in the network's link colour. */
-function PostText({ text, net, lead }: { text: string; net: Network; lead?: string }) {
+export function PostText({ text, net, lead }: { text: string; net: Network; lead?: string }) {
   const [open, setOpen] = useState(false);
   const f = fold(text, net);
   const link = net === "linkedin" ? "#0a66c2" : net === "instagram" ? "#00376b" : "#385898";

@@ -14,6 +14,10 @@ import {
   CAROUSEL_SCHEMA, HASHTAG_SCHEMA, TEXT_SCHEMA, WRITE_SCHEMA, askedNetworks, cleanCarousel, cleanTags, cleanText, cleanWrite,
 } from "./ai";
 import { NETWORK, NETWORKS, emptySocial, enabled, exportPack, isNetwork, normalizeSocial, slidesOf, socialText, type Network, type SocialDoc } from "./model";
+import {
+  DESIGN_SCHEMA, STYLE_GUIDE, TEMPLATE_CATALOGUE, WORDS_ANSWER_SCHEMA, WORDS_STYLES, cleanDesign, cleanWordsAnswer, describePage, type WordsStyle,
+} from "./canvasAi";
+import { FORMATS, isFormat, pageIn, pageWords, type FormatKey } from "./design";
 
 const MANNER: Record<Network, string> = {
   linkedin: "LinkedIn: 80-160 words, short paragraphs with a blank line between them. The FIRST line is the hook and must work alone before \"…see more\" (about 210 characters, often less on a phone): a concrete observation, a number we really have, or a situation from the reader's day. End with a light question or a pointer a peer would answer.",
@@ -44,7 +48,12 @@ function context(ctx: StudioCtx, d: SocialDoc): string {
     d.link.url ? `The link it points to: ${d.link.url}${d.link.label ? ` (${d.link.label})` : ""}` : "",
   ];
   for (const n of enabled(d)) if (d.networks[n].text.trim()) lines.push(`\nIts ${NETWORK[n].label} text now:\n${d.networks[n].text.trim().slice(0, 3000)}`);
-  const slides = slidesOf(d);
+  // the design's words, page by page - what the post shows
+  if (d.design.pages.length) {
+    const f = d.design.formats[0];
+    lines.push(`\nThe design's words now:\n${d.design.pages.map((p, i) => `${i + 1}. ${pageWords(pageIn(d.design, p, f)).join(" | ") || "(no words)"}`).join("\n")}`);
+  }
+  const slides = d.design.pages.length ? [] : slidesOf(d);
   if (slides.length) lines.push(`\nIts ${d.media.kind === "card" ? "card" : "slides"} now:\n${slides.map((s, i) => `${i + 1}. ${[s.eyebrow, s.headline, s.text].filter((x) => x.trim()).join(" | ")}`).join("\n")}`);
   if (d.hashtags.length) lines.push(`\nIts hashtags now: ${d.hashtags.join(" ")}`);
   if (d.notes.trim()) lines.push(`\nNotes on this post: ${d.notes.trim().slice(0, 1500)}`);
@@ -53,6 +62,38 @@ function context(ctx: StudioCtx, d: SocialDoc): string {
 
 const ask = (input: Record<string, unknown>) => (typeof input.ask === "string" && input.ask.trim() ? `\n\nWhat the person asks: ${input.ask.trim().slice(0, 1200)}` : "");
 const netOf = (v: unknown, fallback: Network): Network => (isNetwork(v) ? v : fallback);
+
+/** The canvas's rules for the model: what it may do, how our designs look, what it must never do. */
+const CANVAS_RULES = [
+  "# THIS TASK: CHANGE THE POST'S DESIGN ON THE CANVAS",
+  "You work on a design canvas for an APSOparts social post. Answer only in the JSON schema: a short reply and the operations that do what the person asks. The studio applies them on the canvas at once (with undo).",
+  "- Do exactly what is asked, nothing more. A small ask (\"shorter headline\") is one operation on the object it names (set_text with its id).",
+  "- Refer to objects by their id from the list. Change words with set_text (keep the key words' stars), never by removing and adding.",
+  "- Our look, as in our motion-graphics films: Futura-like bold type, few words, ONE or two key words per text between *stars* (drawn in APSOparts red), ink on the light blueprint grid or white on petrol, the logo top left, clean margins. A headline has at most about 8 words.",
+  "- A new page layout or a page from scratch: use a template (op template) with its words - never build a page from many add_text operations. A carousel: op pages, 4 to 8 pages - first a cover, then one idea per page (slide, tip, checklist, stat, fact, quote ...), the last one points to the shop.",
+  "- Pictures: op picture (into a frame by its id with position frame, a new one at a position, or position background) or background with a prompt. The prompt says what the photo shows - industrial, real, no text, no logos, no faces in close-up. At most two pictures per ask: they take time and cost money.",
+  "- Our logo: op logo with a position (it replaces the logo there).",
+  "- Formats: op format switches the canvas to that size (landscape 1200x627, square 1080x1080, portrait 1080x1350, story 1080x1920, wide 1600x900).",
+  "- Unused fields: empty strings, none, 1, an empty list and empty words.",
+  "- Never show a discount value (no percentage, no \"up to\", no amount off). Never name Chemours. Never invent figures, prices, delivery times, certificates, customers or quotes: use what the brief and the post say, or what the shop really offers (standard components, its six technologies, DirectCUT cut to size, Quickorder); otherwise leave a placeholder the person replaces.",
+  "",
+  "# THE TEMPLATES",
+  TEMPLATE_CATALOGUE,
+].join("\n");
+
+const WORDS_RULES = [
+  "# THIS TASK: THE WORDS OF A SOCIAL POST'S DESIGN",
+  "Write the words that go ON the picture of an APSOparts social post, from the person's description. Answer only in the JSON schema.",
+  "- Few words, as in our motion-graphics films: every word earns its place; sentence case, no exclamation marks, no emojis, no hashtags.",
+  "- Mark the one or two key words of a text between *stars* - they are drawn in APSOparts red.",
+  "- Never show a discount value. Never name Chemours. Never invent figures, prices, delivery times, certificates, customers or quotes - only what the description, the brief or the shop's real offer says.",
+].join("\n");
+
+const pageOf = (d: SocialDoc, input: Record<string, unknown>) => {
+  const i = typeof input.page === "number" && Number.isInteger(input.page) ? Math.max(0, Math.min(d.design.pages.length - 1, input.page)) : 0;
+  const f: FormatKey = isFormat(input.format) ? input.format : d.design.formats[0];
+  return { i, f, page: d.design.pages[i] };
+};
 
 export const socialKind: KindDef = {
   kind: "social",
@@ -103,6 +144,34 @@ export const socialKind: KindDef = {
       user: (ctx, doc, input) => `${context(ctx, normalizeSocial(doc))}\n\nSuggest the hashtags.${ask(input)}`,
       maxTokens: 600,
       clean: (raw) => ({ hashtags: cleanTags((raw as { hashtags?: unknown })?.hashtags) }),
+    },
+    design: {
+      label: "Change the design",
+      schema: DESIGN_SCHEMA as unknown as Record<string, unknown>,
+      system: CANVAS_RULES,
+      user: (ctx, doc, input) => {
+        const d = normalizeSocial(doc);
+        const { i, f, page } = pageOf(d, input);
+        const board = page
+          ? describePage(pageIn(d.design, page, f), i, d.design.pages.length, f)
+          : `The canvas is empty (format ${f}${f === "custom" ? "" : `, ${FORMATS[f].w} x ${FORMATS[f].h}`}).`;
+        return `${context(ctx, d)}\n\n${board}${ask(input)}`;
+      },
+      maxTokens: 6000,
+      clean: (raw) => cleanDesign(raw),
+    },
+    words: {
+      label: "Write the words on the design",
+      schema: WORDS_ANSWER_SCHEMA as unknown as Record<string, unknown>,
+      system: WORDS_RULES,
+      user: (ctx, doc, input) => {
+        const d = normalizeSocial(doc);
+        const style: WordsStyle = (WORDS_STYLES as readonly string[]).includes(String(input.style)) ? (input.style as WordsStyle) : "headline";
+        const what = typeof input.describe === "string" ? input.describe.trim().slice(0, 1500) : "";
+        return `${context(ctx, d)}\n\nThe shape of the words: ${STYLE_GUIDE[style]}\n\nWhat the person describes: ${what || "(nothing - use the post's brief)"}`;
+      },
+      maxTokens: 1500,
+      clean: (raw) => cleanWordsAnswer(raw),
     },
     ask: {
       label: "Change the text",

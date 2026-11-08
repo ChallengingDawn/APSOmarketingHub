@@ -7,6 +7,7 @@
 // posted from the hub: the text and the slides are made ready to copy and post by hand.
 
 import { brandFlags, SHOP_PHOTOS } from "../banner/brand";
+import { designText, emptyDesign, isFormat, normalizeDesign, pageIn, pageWords, type FormatKey, type SocialDesign } from "./design";
 
 export const NETWORKS = ["linkedin", "instagram", "facebook"] as const;
 export type Network = (typeof NETWORKS)[number];
@@ -49,6 +50,16 @@ export const CARD_SIZE: Record<Network, { w: number; h: number }> = { linkedin: 
 export const MAX_SLIDES = 20;
 
 export type NetworkPost = { on: boolean; text: string; tags: boolean };
+
+/** The formats each network takes, the first its usual one (SARCLA 08.11.2026: "multiple formats for publishing"). */
+export const NETWORK_FORMATS: Record<Network, FormatKey[]> = {
+  linkedin: ["landscape", "square", "portrait"],
+  instagram: ["square", "portrait", "story"],
+  facebook: ["landscape", "square", "story"],
+};
+
+/** Where it went out, and who said so (nothing is posted from the hub - "mark as published"). */
+export type Published = { at: string; by: string };
 export type SocialDoc = {
   v: 2;
   networks: Record<Network, NetworkPost>;
@@ -59,6 +70,11 @@ export type SocialDoc = {
   link: { url: string; label: string; inComment: boolean };
   schedule: { date: string; time: string };
   notes: string;
+  /** The design: its pages, in every format it goes out in (design.ts). */
+  design: SocialDesign;
+  /** Per network, the formats it is posted in. */
+  formats: Record<Network, FormatKey[]>;
+  published: Published | null;
 };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -107,6 +123,9 @@ export function emptySocial(o: { contentType?: string | null; dueDate?: string |
     link: { url: "", label: "", inComment: false },
     schedule: { date: /^\d{4}-\d{2}-\d{2}$/.test(o.dueDate ?? "") ? (o.dueDate as string) : "", time: "" },
     notes: "",
+    design: emptyDesign(),
+    formats: { linkedin: ["square"], instagram: ["square"], facebook: ["square"] },
+    published: null,
   };
 }
 
@@ -140,7 +159,30 @@ export function normalizeSocial(raw: unknown): SocialDoc {
     link: { url: str(l.url, 1000).trim(), label: str(l.label, 120), inComment: l.inComment === true },
     schedule: { date: /^\d{4}-\d{2}-\d{2}$/.test(str(s.date)) ? str(s.date) : "", time: /^\d{2}:\d{2}$/.test(str(s.time)) ? str(s.time) : "" },
     notes: str(d.notes, 20000),
+    ...designParts(d),
   };
+}
+
+/** The design, the formats per network (each one the design has), and whether it went out. */
+function designParts(d: Record<string, unknown>): Pick<SocialDoc, "design" | "formats" | "published"> {
+  const design = normalizeDesign(d.design);
+  const f = isObj(d.formats) ? d.formats : {};
+  const formats = {} as SocialDoc["formats"];
+  for (const n of NETWORKS) {
+    const list = Array.isArray(f[n]) ? [...new Set((f[n] as unknown[]).filter(isFormat))].filter((x) => NETWORK_FORMATS[n].includes(x)) : [];
+    formats[n] = list.length ? list : [design.formats.find((x) => NETWORK_FORMATS[n].includes(x)) ?? NETWORK_FORMATS[n][0]];
+  }
+  const p = isObj(d.published) ? d.published : null;
+  const published = p && typeof p.at === "string" && p.at ? { at: p.at.slice(0, 40), by: str(p.by, 80) } : null;
+  return { design, formats, published };
+}
+
+/** The formats the post goes out in, over the networks it goes to, in the design's order. */
+export function formatsInUse(d: SocialDoc): FormatKey[] {
+  const used = new Set(enabled(d).flatMap((n) => d.formats[n]));
+  const ordered = d.design.formats.filter((f) => used.has(f));
+  for (const f of used) if (!ordered.includes(f)) ordered.push(f);
+  return ordered;
 }
 
 /** "sealing technology", "#sealing-technology" -> "#SealingTechnology"; "" when nothing is left. */
@@ -221,7 +263,14 @@ export function checks(d: SocialDoc): { network: Network | null; text: string }[
     for (const flag of brandFlags(full)) out.push({ network: n, text: `${spec.label}: ${flag}` });
   }
   if (d.networks.linkedin.on) for (const flag of brandFlags(d.firstComment)) out.push({ network: "linkedin", text: `First comment: ${flag}` });
-  const slides = slidesOf(d);
+  const pages = d.design.pages;
+  if (!pages.length && d.media.kind === "none") out.push({ network: null, text: "No design yet - start from a template." });
+  for (const [i, p] of pages.entries()) {
+    const words = pageWords(pageIn(d.design, p, d.design.formats[0])).join("\n");
+    for (const flag of brandFlags(words)) out.push({ network: null, text: `${pages.length > 1 ? `Page ${i + 1}` : "The design"}: ${flag}` });
+  }
+  if (pages.length > 10 && d.networks.instagram.on) out.push({ network: "instagram", text: "Instagram shows 20 pages at most; past 10, few people swipe on." });
+  const slides = pages.length ? [] : slidesOf(d);
   for (const [i, s] of slides.entries()) {
     const where = d.media.kind === "card" ? "The card" : `Slide ${i + 1}`;
     if (!s.headline.trim() && s.layout !== "photo") out.push({ network: null, text: `${where} has no headline.` });
@@ -231,7 +280,7 @@ export function checks(d: SocialDoc): { network: Network | null; text: string }[
   if (d.media.kind === "carousel" && slides.length > 10 && d.networks.instagram.on) out.push({ network: "instagram", text: "Instagram shows 20 slides at most; past 10, few people swipe on." });
   if (d.media.kind === "image" && !d.media.image.url) out.push({ network: null, text: "No picture chosen yet." });
   if (d.media.kind === "image" && d.media.image.url && !d.media.image.alt.trim()) out.push({ network: null, text: "The picture has no description (alt text) for people who cannot see it." });
-  if (d.media.kind === "none" && d.networks.instagram.on) out.push({ network: "instagram", text: "Instagram needs a picture - choose one, a brand card or a carousel." });
+  if (d.media.kind === "none" && !pages.length && d.networks.instagram.on) out.push({ network: "instagram", text: "Instagram needs a picture - choose one, a brand card or a carousel." });
   return out;
 }
 
@@ -244,7 +293,9 @@ export function socialText(doc: unknown): string {
     if (t.trim()) blocks.push(`${NETWORK[n].label}\n${t}`);
   }
   if (d.networks.linkedin.on && composedComment(d)) blocks.push(`LinkedIn - first comment\n${composedComment(d)}`);
-  const slides = slidesOf(d);
+  const words = designText(d.design);
+  if (words) blocks.push(words);
+  const slides = d.design.pages.length ? [] : slidesOf(d);
   if (slides.length) blocks.push(slides.map((s, i) => `${d.media.kind === "card" ? "Card" : `Slide ${i + 1}`}: ${[s.eyebrow, s.headline, s.text].filter((x) => x.trim()).join(" - ")}`).join("\n"));
   if (d.notes.trim()) blocks.push(d.notes.trim());
   return blocks.join("\n\n");
@@ -262,7 +313,10 @@ export function exportPack(doc: unknown, title = ""): string {
     if (n === "instagram" && d.link.url) out.push(`(Instagram: the link goes in the bio - ${d.link.url})`, "");
   }
   if (d.media.kind === "image" && d.media.image.url) out.push("--- Picture ---", d.media.image.url, d.media.image.alt ? `Alt text: ${d.media.image.alt}` : "", "");
-  const slides = slidesOf(d);
+  if (d.design.pages.length) {
+    out.push(`--- The design: ${d.design.pages.length} page${d.design.pages.length > 1 ? "s" : ""}, in ${formatsInUse(d).join(", ")} ---`, designText(d.design), "");
+  }
+  const slides = d.design.pages.length ? [] : slidesOf(d);
   if (slides.length) {
     out.push(d.media.kind === "card" ? "--- Brand card ---" : `--- Carousel, ${slides.length} slides (${SLIDE_SIZE[d.media.size].label}) ---`);
     slides.forEach((s, i) => out.push(`${i + 1}. ${[s.eyebrow, s.headline, s.text.replace(/\n/g, " / ")].filter((x) => x.trim()).join(" | ")}`));

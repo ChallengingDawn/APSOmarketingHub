@@ -65,7 +65,7 @@ function NetworkPills({ doc, set, canEdit, setTextNet }: SocialBuildProps) {
 }
 
 /** The text of one network, with its two numbers: what the feed shows before its cut, and the whole length. */
-function TextFor({ doc, set, canEdit, textNet: n, adapt, adapting }: SocialBuildProps) {
+export function TextFor({ doc, set, canEdit, textNet: n, adapt, adapting }: SocialBuildProps) {
   const p = doc.networks[n];
   const spec = NETWORK[n];
   // measured on the post as it goes out - its link and hashtags included - as the feed and the checks see it
