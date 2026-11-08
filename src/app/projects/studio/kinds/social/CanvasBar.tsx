@@ -21,6 +21,7 @@ import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import CheckIcon from "@mui/icons-material/Check";
+import FitScreenOutlinedIcon from "@mui/icons-material/FitScreenOutlined";
 
 import { applyReplace } from "@/lib/editor/findReplace";
 import {
@@ -81,7 +82,7 @@ export default function CanvasBar({ ctx, hist, zoom }: { ctx: StudioCtx; hist: {
 
       {/* the format */}
       <Box component="button" type="button" onClick={(e) => setFmtAnchor(e.currentTarget)} sx={{
-        all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 1, height: 34, px: 1.25, borderRadius: "8px", color: T.ink,
+        all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 1, height: 34, px: 1.25, borderRadius: "8px", color: T.ink, whiteSpace: "nowrap", minWidth: 0, overflow: "hidden",
         fontSize: "0.86rem", fontWeight: 600, "&:hover": { bgcolor: T.hover }, "&:focus-visible": { outline: `2px solid ${T.focus}` },
       }}>
         <FormatGlyph f={ctx.fmt} d={d} />
@@ -134,7 +135,7 @@ export default function CanvasBar({ ctx, hist, zoom }: { ctx: StudioCtx; hist: {
         <MenuItem selected={zoom.fit} onClick={() => { setZoomAnchor(null); c?.zoom("fit"); }}>Fit to the screen</MenuItem>
         {[0.5, 0.75, 1, 1.5, 2].map((z) => <MenuItem key={z} onClick={() => { setZoomAnchor(null); c?.zoom(z); }}>{z * 100}%</MenuItem>)}
       </Menu>
-      <Btn onClick={() => c?.zoom("fit")} disabled={zoom.fit} sx={{ height: 30, ml: 0.25, border: 0, color: zoom.fit ? T.ink3 : T.ink }}>Fit</Btn>
+      <IconBtn title="Fit to the screen" onClick={() => c?.zoom("fit")} disabled={zoom.fit}><FitScreenOutlinedIcon /></IconBtn>
       <Divider orientation="vertical" flexItem sx={{ mx: 0.75, my: 1.25, borderColor: T.line }} />
 
       {/* the rare things */}
