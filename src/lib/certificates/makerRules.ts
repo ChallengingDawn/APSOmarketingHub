@@ -2,7 +2,7 @@
 // SARCLA 07.11.2026: the certificate maker - the issuer and the conformity expert sign on the card, "then sent
 // automatically to the customer and EDA, in separate mails".
 
-import { isHeld, type Facts } from "./rules";
+import { ACT, isHeld, type Facts } from "./rules";
 
 export const MAKER_PROP = "apsohub_certificate_maker";
 /** A DEMO request (SARCLA 07.11.2026, the demo of the certificate process on three demo orders): "name · owner id · e-mail".
@@ -68,9 +68,12 @@ export function parseAvor(raw: string | null | undefined): AvorState | null {
 /** Why the queued AVOR mail does not go now - null = it goes. Never: on hold (a TEST), switched off on Settings (a DEMO
  *  goes to the demo user whatever the switch, as the declarations do), another address than AVOR's (a DEMO: only the
  *  demo user's), no text. */
-export function avorNotSending(f: Pick<Facts, "id" | "hold" | "demo">, s: AvorState | null, held: Record<string, unknown>, on = true): string | null {
+export function avorNotSending(f: Pick<Facts, "id" | "hold" | "demo"> & { actions?: string | null }, s: AvorState | null, held: Record<string, unknown>, on = true): string | null {
   if (!s || s.status !== "queued") return "nothing queued";
   if (isHeld(f, held)) return "on hold";
+  // "Article received" (or a later step) set after the mail was queued: AVOR has nothing left to do (SARCLA's test
+  // 08.11.2026: Send to AVOR, then "Article received" 8 s later - the mail would still have gone)
+  if (f.actions && f.actions !== ACT.avor) return "the article was already received - not needed any more";
   const demo = demoOf(f.demo);
   if (!on && !demo) return "the mail to AVOR is off on Certificates > Settings - write it from the ticket";
   if (demo ? s.to.toLowerCase() !== demo.email.toLowerCase() : s.to.toLowerCase() !== AVOR_TO) return "not AVOR's address";

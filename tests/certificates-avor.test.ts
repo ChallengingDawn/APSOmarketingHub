@@ -67,3 +67,10 @@ test("The declaration's mail - signed by the company that issued it: AG for a Sw
   assert.doesNotMatch(renderEmail({ lang: "de", to: "x@y.ch", company: "APSOparts® AG" }).text, /GmbH/);
   assert.match(renderEmail({ lang: "en", to: "x@y.de" }).html, /APSOparts® GmbH<br>/);
 });
+test("AVOR mail - not sent once the article was received (queued, then \"Article received\" before the hub's look)", () => {
+  assert.match(String(avorNotSending({ ...f, actions: "Article received and order changed" }, queued, {})), /already received/);
+  assert.match(String(avorNotSending({ ...f, actions: "Assign to Confirmity Expert" }, queued, {})), /already received/);
+  // waiting for AVOR, or not started yet: it goes
+  assert.equal(avorNotSending({ ...f, actions: "New article number for 1935 - AVOR" }, queued, {}), null);
+  assert.equal(avorNotSending({ ...f, actions: null }, queued, {}), null);
+});
