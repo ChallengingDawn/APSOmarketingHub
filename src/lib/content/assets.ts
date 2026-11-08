@@ -142,10 +142,10 @@ export async function listAssets(f: { by?: string | null; projectId?: number | n
 
 export async function removeAsset(id: number, who: { username: string; admin: boolean }): Promise<boolean> {
   await ensureAssets();
-  const r = await query(
-    `UPDATE apsomh_content_assets SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL AND ($2::boolean OR created_by = $3)`,
+  const r = await query<{ id: number }>(
+    `UPDATE apsomh_content_assets SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL AND ($2::boolean OR created_by = $3) RETURNING id`,
     [id, who.admin, who.username]);
-  return (r.rowCount ?? 0) > 0;
+  return r.rows.length > 0;
 }
 
 /* ---- an upload in parts ---- */
