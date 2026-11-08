@@ -33,7 +33,7 @@ import { STUDIO_LABEL } from "@/lib/content/studio/kinds";
 import type { PieceStatus } from "@/lib/content/pieceRules";
 import { KindTile } from "../work/kinds";
 import { moves } from "../work/TodoList";
-import { Faces, StatusChip, dayLabel } from "../work/ui";
+import { Face, Faces, PersonPick, StatusChip, dayLabel } from "../work/ui";
 import { InlineTitle } from "../work/InlineTitle";
 import { STUDIO_BAR, btn, field, mainBtn } from "./parts";
 import { STUDIOS } from "./registry";
@@ -123,6 +123,65 @@ function OnCalendar({ api }: { api: StudioApi }) {
   );
 }
 
+/** Who does it and who checks it, changed here (SARCLA 08.11.2026: "the owner directly") - a click on the faces. */
+function People({ api, onError }: { api: StudioApi; onError: (e: string | null) => void }) {
+  const d = api.data;
+  const p = d.piece;
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const names = Object.fromEntries(d.people.map((x) => [x.username, x.name]));
+  const people = [p.writer, p.reviewer].filter((x): x is string => !!x);
+  const set = async (f: { writer?: string | null; reviewer?: string | null }) => {
+    onError(null);
+    const r = await api.edit(f);
+    if (!r.ok) onError(r.error ?? "Not changed.");
+  };
+  const who = (u: string | null) => (u ? names[u] ?? u : "nobody yet");
+  return (
+    <>
+      <Tooltip title={`Owner: ${who(p.writer)} · Reviewer: ${who(p.reviewer)}`}>
+        <Button size="small" aria-label="Owner and reviewer" onClick={(e) => setAnchor(e.currentTarget)}
+          sx={{ ...btn, minWidth: 0, px: people.length ? 0.5 : 1.25, color: people.length ? INK : MUTED, border: people.length ? "1px solid transparent" : `1px dashed ${HAIRLINE}`, borderRadius: "6px" }}>
+          {people.length ? <Faces people={people} names={names} size={26} /> : "Owner · reviewer"}
+        </Button>
+      </Tooltip>
+      <Popover open={!!anchor} anchorEl={anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        slotProps={{ paper: { sx: { p: 2, borderRadius: "10px", width: 290, display: "grid", gap: 1.5 } } }}>
+        <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".05em" }}>Who does it</Typography>
+        <PersonPick label="Owner" value={p.writer} onChange={(u) => void set({ writer: u })} people={d.people} disabled={!d.access.canEdit} width={258} />
+        <PersonPick label="Reviewer" value={p.reviewer} onChange={(u) => void set({ reviewer: u })} people={d.people} disabled={!d.access.canEdit} width={258} />
+        <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Each gets a mail when it is theirs: the owner now, the reviewer when you ask for review.</Typography>
+      </Popover>
+    </>
+  );
+}
+
+/** "Ask for review" with nobody to ask: the people, a click sends it (one mail to them). */
+function PickReviewer({ api, open, onClose, onPick }: { api: StudioApi; open: boolean; onClose: () => void; onPick: (u: string) => void }) {
+  const d = api.data;
+  const others = d.people.filter((x) => x.username !== d.piece.writer);
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle sx={{ fontWeight: 700, pb: 0.5 }}>Who reviews it?</DialogTitle>
+      <DialogContent>
+        <Typography sx={{ fontSize: "0.82rem", color: MUTED, mb: 1.5 }}>They get a mail with the link, and approve it or send it back with a note.</Typography>
+        <Box sx={{ display: "grid", gap: 0.75 }}>
+          {others.map((x) => (
+            <Box key={x.username} component="button" type="button" onClick={() => onPick(x.username)} sx={{
+              all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 1.25, px: 1.25, py: 0.9,
+              border: `1px solid ${HAIRLINE}`, borderRadius: "6px", fontSize: "0.88rem", fontWeight: 600, color: INK,
+              "&:hover": { borderColor: INK, bgcolor: "rgba(15,23,42,.03)" }, "&:focus-visible": { outline: `2px solid ${INK}`, outlineOffset: 1 },
+            }}>
+              <Face username={x.username} name={x.name} size={28} />{x.name}
+            </Box>
+          ))}
+          {!others.length && <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>Nobody else has Marketing & Content in the hub yet - an admin gives it under Users.</Typography>}
+        </Box>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}><Button onClick={onClose} sx={btn}>Cancel</Button></DialogActions>
+    </Dialog>
+  );
+}
+
 function Bar({ api }: { api: StudioApi }) {
   const d = api.data;
   const p = d.piece;
@@ -130,15 +189,14 @@ function Bar({ api }: { api: StudioApi }) {
   const [note, setNote] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
   const w = { me: d.me, isAdmin: d.isAdmin, access: d.access, project: { id: p.projectId, title: d.project?.title ?? "", brief: null, createdBy: d.project?.createdBy ?? null, contentType: null, dueDate: d.project?.dueDate ?? null } };
-  const go = async (to: PieceStatus, n?: string) => {
+  const go = async (to: PieceStatus, n?: string, reviewer?: string) => {
     setBusy(to); setErr(null);
-    const r = await api.move(to, n);
+    const r = await api.move(to, n, reviewer);
     setBusy(null);
     if (!r.ok) setErr(r.error ?? "That did not work.");
   };
-  const people = [p.writer, p.reviewer].filter((x): x is string => !!x);
-  const names = Object.fromEntries(d.people.map((x) => [x.username, x.name]));
   return (
     <Box component="header" sx={{
       position: "sticky", top: 0, zIndex: 20, height: STUDIO_BAR, boxSizing: "border-box", px: 1.5, display: "flex", alignItems: "center", gap: 1.25,
@@ -157,18 +215,19 @@ function Bar({ api }: { api: StudioApi }) {
       </Box>
       <StatusChip status={p.status} />
       <OnCalendar api={api} />
-      <Box sx={{ display: { xs: "none", md: "block" } }}><Faces people={people} names={names} size={26} /></Box>
+      <Box sx={{ display: { xs: "none", md: "block" } }}><People api={api} onError={setErr} /></Box>
       <Box sx={{ flex: 1 }} />
       {err && <Typography sx={{ fontSize: "0.8rem", color: "#c5221f", maxWidth: 260 }}>{err}</Typography>}
       <SaveBadge api={api} />
       <Versions api={api} />
       {moves(p, w).map((m) => (
         <Button key={m.to} size="small" variant={m.main ? "contained" : "outlined"} disableElevation disabled={!!busy}
-          onClick={() => (m.note ? (setNote(""), setAsking(true)) : go(m.to))}
+          onClick={() => (m.to === "review" && !p.reviewer ? setPicking(true) : m.note ? (setNote(""), setAsking(true)) : go(m.to))}
           sx={m.main ? (m.to === "approved" ? { ...btn, bgcolor: "#1b7a55", color: "#fff", "&:hover": { bgcolor: "#155c40" } } : mainBtn) : btn}>
           {busy === m.to ? <CircularProgress size={14} color="inherit" /> : m.label}
         </Button>
       ))}
+      <PickReviewer api={api} open={picking} onClose={() => setPicking(false)} onPick={(u) => { setPicking(false); void go("review", undefined, u); }} />
       <Dialog open={asking} onClose={() => setAsking(false)} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 700 }}>What should change?</DialogTitle>
         <DialogContent sx={{ pt: "8px !important" }}>

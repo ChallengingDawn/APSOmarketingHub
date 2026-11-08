@@ -1,4 +1,5 @@
 "use client";
+import { dataUrlToBlob } from "@/lib/dataUrl";
 import { canonicalDesign, designDocumentSchema, type DesignDocument, type DesignNode } from "@/lib/design-document";
 import { coverCrop, cropToPixels, isWholeImage, panCrop, zoomCrop, zoomOf } from "@/lib/editor/crop";
 import { arcPath } from "@/lib/editor/curvedText";
@@ -1521,7 +1522,8 @@ export default function EditorCanvas({
         return;
       }
       if (storeImage && url.startsWith("data:")) {
-        const kept = await keepPicture(await (await fetch(url)).blob(), "redrawn.png");
+        const blob = dataUrlToBlob(url); // the hub's CSP refuses fetch("data:…")
+        const kept = blob ? await keepPicture(blob, "redrawn.png") : null;
         if (!kept) return;
         url = kept;
       }

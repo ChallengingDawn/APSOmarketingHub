@@ -4,6 +4,7 @@
 // panel, every page and format exported at once. Read-only: no selection, no handles. Tables and charts are left out
 // (no social layout uses them).
 
+import { dataUrlToBlob } from "@/lib/dataUrl";
 import { useEffect, useState } from "react";
 import Konva from "konva";
 import type { DesignDocument, DesignNode } from "@/lib/design-document";
@@ -196,7 +197,8 @@ export async function renderDesign(doc: DesignDocument, o: { pixelRatio?: number
 export async function designBlob(doc: DesignDocument, mime: "image/png" | "image/jpeg" = "image/png"): Promise<Blob | null> {
   const url = await renderDesign(doc, { mime });
   if (!url) return null;
-  return (await fetch(url)).blob();
+  // decoded in place - the hub's CSP refuses fetch("data:…") (lib/dataUrl.ts)
+  return dataUrlToBlob(url);
 }
 
 const thumbs = new Map<string, Promise<string | null>>();

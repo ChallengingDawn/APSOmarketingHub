@@ -137,13 +137,21 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   // a reviewer decides on their piece, whatever their role in the project
   if (action === "piece-move") {
-    const piece = await pieceOf(b.pieceId);
-    if (!piece) return fail("That to-do is not in this project.", 404);
+    const found = await pieceOf(b.pieceId);
+    if (!found) return fail("That to-do is not in this project.", 404);
     if (!isPieceStatus(b.to)) return fail("Which status?");
     const to = b.to;
+    // "Ask for review" names its reviewer in the same click (08.11.2026): they get one mail, "please review", not two
+    const named = to === "review" && access.canEdit && typeof b.reviewer === "string" && b.reviewer ? b.reviewer.slice(0, 255) : null;
+    const piece = named ? { ...found, reviewer: named } : found;
     const mover = { username: me.username, canEdit: access.canEdit, lead };
     const why = piece.contentType === TASK_KIND ? taskMoveError(to, mover) : moveError(piece, to, mover);
     if (why) return fail(why, 403);
+    if (named && named !== found.reviewer) {
+      await updatePiece(piece.id, { reviewer: named });
+      await join(named, "commenter");
+      await addEvent(id, piece.id, me.username, "assign", { role: "reviewer", to: named, piece: piece.title });
+    }
     const note = text(b.note, 2000) || null;
     const before = await stageNow();
     await updatePiece(piece.id, { status: to });

@@ -73,7 +73,8 @@ export function avorNotSending(f: Pick<Facts, "id" | "hold" | "demo"> & { action
   if (isHeld(f, held)) return "on hold";
   // "Article received" (or a later step) set after the mail was queued: AVOR has nothing left to do (SARCLA's test
   // 08.11.2026: Send to AVOR, then "Article received" 8 s later - the mail would still have gone)
-  if (f.actions && f.actions !== ACT.avor) return "the article was already received - not needed any more";
+  if (f.actions === ACT.article) return "the article was already received - not needed any more";
+  if (f.actions === ACT.expert || f.actions === ACT.sent) return "the request is already past AVOR (with the conformity expert or sent out) - not needed any more";
   const demo = demoOf(f.demo);
   if (!on && !demo) return "the mail to AVOR is off on Certificates > Settings - write it from the ticket";
   if (demo ? s.to.toLowerCase() !== demo.email.toLowerCase() : s.to.toLowerCase() !== AVOR_TO) return "not AVOR's address";
