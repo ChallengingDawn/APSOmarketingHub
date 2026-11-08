@@ -3,7 +3,7 @@ import { test } from "node:test";
 import {
   RULES, analyse, arm, compare, dailySeries, daysRunning, lgamma, probBBeatsA, segmentRows, seeded, verdictOf, visitorsNeeded, wilson,
 } from "../src/lib/convert/stats";
-import { ANY_AUDIENCE, allocationWords, audienceWords, buildConfig, cleanPages, normAllocation, normAudience, normResults, sharedPages } from "../src/lib/convert/contract";
+import { ANY_AUDIENCE, allocationWords, audienceWords, shareWords, buildConfig, cleanPages, normAllocation, normAudience, normResults, sharedPages } from "../src/lib/convert/contract";
 import { applyToCms, cmsTarget, cssBlock, description, jsSnippet } from "../src/lib/convert/ship";
 import type { Change } from "../src/lib/convert/versions";
 
@@ -189,7 +189,9 @@ test("analyse puts it together", () => {
 test("audience and allocation: unknown values fall back, words read plainly", () => {
   const a = normAudience({ stores: ["de-CH", "bad", "fr-CH", "de-CH"], device: "phone", login: "customer", visitor: "x", source: "ads" });
   assert.deepEqual(a, { stores: ["de-CH", "fr-CH"], device: "phone", visitor: "any", login: "customer", source: "ads" });
-  assert.equal(audienceWords(a), "Signed-in customers in de-CH, fr-CH on a phone from an ad");
+  assert.equal(audienceWords(a), "Signed-in customers in de-CH and fr-CH, on a phone, from an ad");
+  assert.equal(audienceWords(normAudience({ stores: ["it-CH"], login: "guest", visitor: "new" })), "Guests (not signed in) in it-CH, new to the shop");
+  assert.equal(shareWords(normAllocation({ split: { b: 30 } })), "30% of the visitors");
   assert.equal(audienceWords(ANY_AUDIENCE), "Everyone");
   assert.deepEqual(normAllocation({ mode: "bandit", split: { b: 99 }, floor: 70 }), { mode: "bandit", split: { a: 5, b: 95 }, floor: 45 });
   assert.equal(allocationWords(normAllocation({})), "Half and half");

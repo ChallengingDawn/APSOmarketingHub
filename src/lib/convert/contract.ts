@@ -109,15 +109,19 @@ const VISITOR: Record<Audience["visitor"], string> = { any: "", new: "new to the
 const LOGIN: Record<Audience["login"], string> = { any: "", guest: "not signed in", customer: "signed-in customers" };
 const SOURCE: Record<Audience["source"], string> = { any: "", search: "from a search engine", ads: "from an ad", direct: "who typed the address", email: "from an e-mail", other: "from another site" };
 
-/** The audience in a line: "Signed-in customers in de-CH, fr-CH, on a phone". */
+/** The audience in a line: "Signed-in customers in de-CH and fr-CH, on a phone, from an ad". */
 export function audienceWords(a: Audience): string {
   if (isEveryone(a)) return "Everyone";
-  const who = a.login === "customer" ? "Signed-in customers" : a.login === "guest" ? "Visitors not signed in" : "Visitors";
-  const parts = [
-    a.stores.length ? `in ${a.stores.join(", ")}` : "",
-    DEVICE[a.device], VISITOR[a.visitor], SOURCE[a.source],
-  ].filter(Boolean);
-  return [who, ...parts].join(" ").replace(/\s+/g, " ").trim();
+  const who = a.login === "customer" ? "Signed-in customers" : a.login === "guest" ? "Guests (not signed in)" : "Visitors";
+  const stores = a.stores.length > 1 ? `${a.stores.slice(0, -1).join(", ")} and ${a.stores[a.stores.length - 1]}` : a.stores[0] ?? "";
+  const parts = [DEVICE[a.device], VISITOR[a.visitor], SOURCE[a.source]].filter(Boolean);
+  return `${who}${stores ? ` in ${stores}` : ""}${parts.length ? `, ${parts.join(", ")}` : ""}`;
+}
+
+/** Who gets the version when it starts, for the confirm: "half of the visitors", "30% of the visitors"... */
+export function shareWords(a: Allocation): string {
+  if (a.mode === "bandit") return `half of the visitors at first, then more to the better one (at least ${a.floor}% each)`;
+  return a.split.b === 50 ? "half of the visitors" : `${a.split.b}% of the visitors`;
 }
 
 /** The split in words: "Half and half", "30% get the version", "More to the better one (at least 10% each)". */

@@ -2,7 +2,8 @@
 
 // APSOconvert's steps, one strip on each of its pages: where the page you are on sits, what comes before and after.
 // Find the problem -> the ideas -> the page live with its version (its texts are written in Content Studio) -> test it
-// -> ship the winner to Magento. The last two are being built (SARCLA 07.11.2026: the A/B testing section, then Magento) - they show as "next", not as links.
+// -> ship the winner (for everyone, as code for dotSource, or into Magento's CMS pages). The test lives in Website > A/B
+// testing > Page tests (SARCLA 07.11.2026: "the approved idea goes to the A/B testing app").
 
 import Link from "next/link";
 import Box from "@mui/material/Box";
@@ -14,8 +15,8 @@ const STEPS: { key: FlowStep; name: string; line: string; href: string | null }[
   { key: "problems", name: "Find", line: "Pages with traffic and little buying", href: "/website/ai-personalization/problems" },
   { key: "ideas", name: "Ideas", line: "What to change, approved by a person", href: "/website/ai-personalization/ideas" },
   { key: "preview", name: "Preview", line: "The page live with its version; texts to Content", href: "/website/ai-personalization/preview" },
-  { key: "test", name: "Test", line: "Half the visitors see it, then more", href: null },
-  { key: "ship", name: "Ship", line: "The winner goes into Magento", href: null },
+  { key: "test", name: "Test", line: "A share of the visitors see it, then more", href: "/website/ab-testing/pages" },
+  { key: "ship", name: "Ship", line: "The winner for everyone, to dotSource or Magento", href: "/website/ai-personalization/ship" },
 ];
 
 export function Flow({ at, counts }: { at: FlowStep | null; counts?: Partial<Record<FlowStep, number>> }) {
