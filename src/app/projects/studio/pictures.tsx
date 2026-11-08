@@ -142,7 +142,7 @@ export function PictureGrid({ pictures, onPick, onRemove, me, columns = 3, empty
   );
 }
 
-type Tab = "make" | "upload" | "mine" | "project" | "logos";
+type Tab = "make" | "upload" | "mine" | "project" | "logos" | "all";
 
 /** The panel: make one, upload one, or pick from the galleries. */
 export function PicturePanel({ onPick, projectId, pieceId, aspect: initialAspect = "1:1", me, tabs = ["make", "upload", "mine", "project"], start = "make", suggestion, columns = 3 }: {
@@ -157,7 +157,7 @@ export function PicturePanel({ onPick, projectId, pieceId, aspect: initialAspect
   const [err, setErr] = useState<string | null>(null);
   const [made, setMade] = useState<Picture[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
-  const gallery = usePictures(tab === "logos" ? "logos" : tab === "project" ? "project" : "mine", projectId);
+  const gallery = usePictures(tab === "logos" ? "logos" : tab === "project" ? "project" : tab === "all" ? "all" : "mine", projectId);
   const where = { projectId: projectId ?? null, pieceId: pieceId ?? null };
 
   const make = async () => {
@@ -186,7 +186,7 @@ export function PicturePanel({ onPick, projectId, pieceId, aspect: initialAspect
     const r = await post({ action: "remove", id: p.id });
     if (r.ok) gallery.drop(p.id); else setErr(r.error ?? "Not removed.");
   };
-  const LABEL: Record<Tab, string> = { make: "Make one", upload: "Upload", mine: "Mine", project: "This project", logos: "Logos" };
+  const LABEL: Record<Tab, string> = { make: "Make one", upload: "Upload", mine: "Mine", project: "This project", logos: "Logos", all: "Everyone's" };
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25, minWidth: 0 }}
@@ -226,9 +226,9 @@ export function PicturePanel({ onPick, projectId, pieceId, aspect: initialAspect
           {tab === "logos" && <PictureGrid pictures={gallery.pictures} onPick={onPick} onRemove={remove} me={me} columns={columns} empty="No logo added yet." />}
         </>
       )}
-      {(tab === "mine" || tab === "project") && (
+      {(tab === "mine" || tab === "project" || tab === "all") && (
         <PictureGrid pictures={gallery.pictures} onPick={onPick} onRemove={remove} me={me} columns={columns}
-          empty={tab === "mine" ? "The pictures you make or upload come here." : "No picture in this project yet."} />
+          empty={tab === "mine" ? "The pictures you make or upload come here." : tab === "all" ? "No picture in the hub yet." : "No picture in this project yet."} />
       )}
       {err && <Typography sx={{ fontSize: "0.8rem", color: "#c5221f" }}>{err}</Typography>}
     </Box>

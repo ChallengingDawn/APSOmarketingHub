@@ -46,6 +46,14 @@ import ShoppingBagOutlinedIcon from "@mui/icons-material/ShoppingBagOutlined";
 import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import ArticleIcon from "@mui/icons-material/Article";
+import LightbulbOutlinedIcon from "@mui/icons-material/LightbulbOutlined";
+import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
+import ShareOutlinedIcon from "@mui/icons-material/ShareOutlined";
+import WebOutlinedIcon from "@mui/icons-material/WebOutlined";
+import ViewDayOutlinedIcon from "@mui/icons-material/ViewDayOutlined";
+import MovieOutlinedIcon from "@mui/icons-material/MovieOutlined";
+import PhotoLibraryOutlinedIcon from "@mui/icons-material/PhotoLibraryOutlined";
+import LibraryBooksOutlinedIcon from "@mui/icons-material/LibraryBooksOutlined";
 import PublicIcon from "@mui/icons-material/Public";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import BuildCircleIcon from "@mui/icons-material/BuildCircle";
@@ -217,11 +225,21 @@ const UC_NAV: Record<string, { label: string; icon: React.ReactNode }> = {
  */
 const MARKETING_NAV: Record<string, NavSection["items"]> = {
   content: [
-    // The calendar first (SARCLA 07.11.2026: "calendar should be the first app"), then the projects; how we write after.
-    // Create Studio and the Content Library are deliberately NOT here: the studio is where you arrive after choosing what
-    // to make (a link to it is an empty editor), and the library is what a project holds, reached through the project.
+    // The calendar first (SARCLA 07.11.2026: "calendar should be the first app"); then the ideas every app finds, the
+    // projects and a new one; what can be made, each opening a new project with its first line; the pictures and the
+    // library; how we write (SARCLA 08.11.2026: "the side bar of the app should be much more populated"; "Ideas is missing").
     { label: "Calendar", href: "/projects/calendar", icon: <CalendarMonthOutlinedIcon fontSize="small" /> },
+    { label: "Ideas", href: "/projects/ideas", icon: <LightbulbOutlinedIcon fontSize="small" /> },
     { label: "Projects", href: "/projects", icon: <FolderOpenIcon fontSize="small" /> },
+    { label: "New project", href: "/projects/new", icon: <AddCircleOutlineIcon fontSize="small" /> },
+    { group: "Make", label: "Social post", href: "/projects/new?type=social-post", icon: <ShareOutlinedIcon fontSize="small" /> },
+    { group: "Make", label: "Page", href: "/projects/new?type=landing-page", icon: <WebOutlinedIcon fontSize="small" /> },
+    { group: "Make", label: "Blog article", href: "/projects/new?type=blog-article", icon: <ArticleIcon fontSize="small" /> },
+    { group: "Make", label: "Newsletter", href: "/projects/new?type=newsletter", icon: <MailOutlineIcon fontSize="small" /> },
+    { group: "Make", label: "Banner", href: "/projects/new?type=banner", icon: <ViewDayOutlinedIcon fontSize="small" /> },
+    { group: "Make", label: "Video", href: "/projects/new?type=video", icon: <MovieOutlinedIcon fontSize="small" /> },
+    { group: "Library", label: "Pictures", href: "/projects/pictures", icon: <PhotoLibraryOutlinedIcon fontSize="small" /> },
+    { group: "Library", label: "Content Library", href: "/library", icon: <LibraryBooksOutlinedIcon fontSize="small" /> },
     { group: "How we write", label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
     { group: "How we write", label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
   ],

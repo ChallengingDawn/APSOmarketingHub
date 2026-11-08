@@ -3,9 +3,10 @@
 // "action plan and association should also be assisted and AI assistant as in the other model").
 //
 // One list. Each to-do is a piece of content of its kind - a page, a post, a newsletter, a banner, a video - or a plain
-// task; each has who does it, who reviews it, a status and a date, and each is an Action plan sub-action with its ticket.
-// Where the project sits in the plan, and which ticket a to-do is, the AI proposes; a person picks.
-// Every change shows at once and is saved behind it; the tickets arrive after the page.
+// ACTION (SARCLA 08.11.2026: "don't call it task, call it action"); each has its OWNER right on the line, who reviews it,
+// a status and a date, and ONE ticket - an Action plan sub-action. "Linking to the action plan and the ticket should be
+// the same": one control on the line, "Plan & ticket", opens one window - where the project sits in the plan, then the
+// line's ticket. The AI proposes both; a person picks. Every change shows at once; the tickets arrive after the page.
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -37,6 +38,8 @@ import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, Notice } from "@/app/uc/rep
 import { TicketFields, field, type TicketsAnswer } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { LANGUAGES } from "@/lib/content/languages";
 import { moveError, TASK_KIND, type PieceStatus } from "@/lib/content/pieceRules";
+import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
+import { InlineTitle } from "./InlineTitle";
 import { KINDS, KindTile, kindLabel } from "./kinds";
 import { PINK, PersonPick, StatusChip, dayLabel, dueSoon, postWork } from "./ui";
 import type { Piece, Place, TodoTicket, Tickets, Work } from "./types";
@@ -140,11 +143,31 @@ export function PlaceAssist({ w, place, act, compact }: { w: Work; place: Place 
   );
 }
 
-/* ── a to-do's ticket ───────────────────────────────────────────────────────────────────────────────────────────── */
+/** The project's place in the plan, one quiet line over the list; "Change" opens the same window as a line's ticket. */
+function PlanLine({ place, isAdmin, onOpen }: { place: Place | null; isAdmin: boolean; onOpen: () => void }) {
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.25, py: 0.9, borderRadius: "8px", border: `1px solid ${place ? HAIRLINE : "#f0d6a8"}`, bgcolor: place ? "rgba(255,255,255,.6)" : "#fff8ec" }}>
+      <PlaceOutlinedIcon sx={{ fontSize: 17, color: place ? "#1b7a55" : "#a96a12" }} />
+      <Typography sx={{ fontSize: "0.84rem", color: place ? INK : "#7f4f0b", flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {place
+          ? <>Action plan: {place.path ? <Box component="span" sx={{ color: MUTED }}>{place.path} › </Box> : null}<b>{place.title}</b></>
+          : <><b>Not in the action plan yet</b> - its lines take their ticket once it is.</>}
+      </Typography>
+      {place?.dg && <Chip tint="purple">Digital Growth</Chip>}
+      {isAdmin
+        ? <Button size="small" onClick={onOpen} sx={btn}>{place ? "Change" : "Place it"}</Button>
+        : !place ? <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>An admin places it.</Typography> : null}
+    </Box>
+  );
+}
+
+/* ── a to-do's plan & ticket ────────────────────────────────────────────────────────────────────────────────────── */
 
 type Found = { id: string; subject: string; stageLabel: string; ownerName: string; url: string; why?: string };
 
-function TicketDialog({ w, piece, place, act, onClose, onDone }: { w: Work; piece: Piece | null; place: Place | null; act: Act; onClose: () => void; onDone: () => void }) {
+function PlanTicketDialog({ w, open, piece, ticket, place, act, onClose, onDone }: {
+  w: Work; open: boolean; piece: Piece | null; ticket: TodoTicket | undefined; place: Place | null; act: Act; onClose: () => void; onDone: () => void;
+}) {
   const [tab, setTab] = useState<"suggested" | "search" | "new">("suggested");
   const [draft, setDraft] = useState<{ form: TicketsAnswer["form"]; values: Record<string, string> } | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
@@ -162,13 +185,13 @@ function TicketDialog({ w, piece, place, act, onClose, onDone }: { w: Work; piec
     if (j?.ok) setDraft({ form: j.form, values: j.values }); else setRefused(j?.error ?? "The ticket form could not be read.");
   };
   useEffect(() => {
-    if (!piece) return;
+    if (!open || !piece || ticket || !place) return;
     setTab("suggested"); setErr(null); setHints(null); setFound(null); setQ(piece.title); setDescribe("");
     void loadDraft(piece);
     setBusy("suggest");
     postWork(pid, { action: "ai-tickets", pieceId: piece.id }).then((r) => { setBusy(null); if (r.ok) setHints(r.hints as Found[]); else setErr(r.error ?? null); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [piece?.id, place?.id]);
+  }, [open, piece?.id, place?.id, ticket?.id]);
 
   const run = async (label: string, body: Record<string, unknown>) => {
     setBusy(label); setErr(null);
@@ -195,7 +218,7 @@ function TicketDialog({ w, piece, place, act, onClose, onDone }: { w: Work; piec
   };
 
   const row = (t: Found) => (
-    <Box key={t.id} sx={{ display: "flex", alignItems: "center", gap: 1.25, p: 1.25, borderRadius: "12px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff" }}>
+    <Box key={t.id} sx={{ display: "flex", alignItems: "center", gap: 1.25, p: 1.25, borderRadius: "8px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff" }}>
       <ConfirmationNumberOutlinedIcon sx={{ fontSize: 20, color: MUTED }} />
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Typography sx={{ fontSize: "0.9rem", fontWeight: 600 }}>{t.subject}</Typography>
@@ -206,63 +229,81 @@ function TicketDialog({ w, piece, place, act, onClose, onDone }: { w: Work; piec
       <Button size="small" variant="contained" disableElevation disabled={!!busy} onClick={() => run("link", { action: "ticket-link", ticketId: t.id })} sx={mainBtn}>Link it</Button>
     </Box>
   );
+  const step = (n: number, title: string, done: boolean) => (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+      <Box sx={{ width: 22, height: 22, borderRadius: "6px", display: "grid", placeItems: "center", fontSize: "0.75rem", fontWeight: 800, bgcolor: done ? "#1b7a55" : "#eef1f6", color: done ? "#fff" : MUTED }}>{done ? "✓" : n}</Box>
+      <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".05em" }}>{title}</Typography>
+    </Box>
+  );
 
   return (
-    <Dialog open={!!piece} onClose={busy ? undefined : onClose} fullWidth maxWidth="md">
+    <Dialog open={open} onClose={busy && busy !== "suggest" ? undefined : onClose} fullWidth maxWidth="md">
       <DialogTitle sx={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 1.25 }}>
-        {piece && <KindTile kind={piece.contentType} size={30} />}A ticket for “{piece?.title}”
+        {piece ? <><KindTile kind={piece.contentType} size={30} />Plan & ticket - “{piece.title}”</> : <>Where this project sits in the action plan</>}
       </DialogTitle>
       <DialogContent sx={{ display: "grid", gap: 2, pt: "8px !important" }}>
-        {refused ? (
+        {step(1, "In the action plan", !!place)}
+        <PlaceAssist w={w} place={place} act={act} compact />
+        {piece && (
           <>
-            <Notice tone="warn">{refused}</Notice>
-            {!place && <PlaceAssist w={w} place={place} act={act} compact />}
-          </>
-        ) : (
-          <>
-            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-              {(["suggested", "search", "new"] as const).map((k) => (
-                <Button key={k} variant={tab === k ? "contained" : "outlined"} disableElevation onClick={() => setTab(k)} sx={tab === k ? mainBtn : btn}>
-                  {k === "suggested" ? "Suggested" : k === "search" ? "Search the tickets" : "New ticket"}
-                </Button>
-              ))}
-            </Box>
-            {err && <Notice tone="bad">{err}</Notice>}
-            {tab === "suggested" && (
-              <Box sx={{ display: "grid", gap: 1 }}>
-                {busy === "suggest" && <Box sx={{ display: "flex", alignItems: "center", gap: 1, color: MUTED, fontSize: "0.88rem" }}><CircularProgress size={16} /> The AI is looking for this work in From Scroll to Sale…</Box>}
-                {hints?.length === 0 && <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>No ticket tracks this yet - make a new one.</Typography>}
-                {hints?.map(row)}
-                {hints && <Button onClick={() => setTab("new")} sx={{ ...btn, justifySelf: "start" }}>None of these - make a new ticket</Button>}
-              </Box>
-            )}
-            {tab === "search" && (
-              <Box sx={{ display: "grid", gap: 1.25 }}>
-                <Box sx={{ display: "flex", gap: 1 }}>
-                  <TextField size="small" fullWidth label="Words of the ticket" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void search(); }} sx={field} />
-                  <Button variant="outlined" onClick={search} disabled={!!busy} sx={btn}>Search</Button>
+            {step(2, "Its ticket", !!ticket)}
+            {ticket ? (
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, p: 1.25, borderRadius: "8px", border: "1px solid #bfe3d2", bgcolor: "#f1faf5" }}>
+                <ConfirmationNumberOutlinedIcon sx={{ fontSize: 20, color: "#1b7a55" }} />
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography sx={{ fontSize: "0.9rem", fontWeight: 600 }}>Ticket #{ticket.id}</Typography>
+                  <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{ticket.stageLabel || "In From Scroll to Sale"} · the line&apos;s owner owns its action in the plan</Typography>
                 </Box>
-                {found?.length === 0 && <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>No ticket matches.</Typography>}
-                {found?.map(row)}
+                <Button size="small" href={ticket.url} target="_blank" rel="noreferrer" endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />} sx={btn}>Open in HubSpot</Button>
+                {w.access.canEdit && (
+                  <Button size="small" startIcon={<LinkOffIcon sx={{ fontSize: 16 }} />} disabled={!!busy} onClick={() => run("unlink", { action: "ticket-unlink", ticketId: ticket.id })} sx={{ ...btn, color: MUTED }}>Unlink</Button>
+                )}
               </Box>
-            )}
-            {tab === "new" && (
-              <Box sx={{ display: "grid", gap: 1.5 }}>
-                <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
-                  <TextField size="small" fullWidth multiline minRows={2} label="Say what the ticket is for - the AI fills the form" value={describe} onChange={(e) => setDescribe(e.target.value)} sx={field} />
-                  <Button variant="outlined" onClick={fill} disabled={!!busy || !draft}
-                    startIcon={busy === "fill" ? <CircularProgress size={14} /> : <AutoAwesomeOutlinedIcon sx={{ fontSize: 17 }} />} sx={{ ...btn, mt: 0.25 }}>Fill with AI</Button>
-                </Box>
-                {draft ? <TicketFields form={draft.form} values={draft.values} set={(k, v) => setDraft((d) => (d ? { ...d, values: { ...d.values, [k]: v } } : d))} />
-                  : <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>Filling the ticket from the project's action…</Typography>}
-              </Box>
+            ) : !place ? (
+              <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>Once the project has its place above, this line gets its ticket here.</Typography>
+            ) : refused ? (
+              <Notice tone="warn">{refused}</Notice>
+            ) : (
+              <>
+                <SquareChoice value={tab} onChange={setTab} options={[{ key: "suggested", label: "Suggested" }, { key: "search", label: "Search the tickets" }, { key: "new", label: "New ticket" }]} />
+                {err && <Notice tone="bad">{err}</Notice>}
+                {tab === "suggested" && (
+                  <Box sx={{ display: "grid", gap: 1 }}>
+                    {busy === "suggest" && <Box sx={{ display: "flex", alignItems: "center", gap: 1, color: MUTED, fontSize: "0.88rem" }}><CircularProgress size={16} /> The AI is looking for this work in From Scroll to Sale…</Box>}
+                    {hints?.length === 0 && <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>No ticket tracks this yet - make a new one.</Typography>}
+                    {hints?.map(row)}
+                    {hints && <Button onClick={() => setTab("new")} sx={{ ...btn, justifySelf: "start" }}>None of these - make a new ticket</Button>}
+                  </Box>
+                )}
+                {tab === "search" && (
+                  <Box sx={{ display: "grid", gap: 1.25 }}>
+                    <Box sx={{ display: "flex", gap: 1 }}>
+                      <TextField size="small" fullWidth label="Words of the ticket" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void search(); }} sx={field} />
+                      <Button variant="outlined" onClick={search} disabled={!!busy} sx={btn}>Search</Button>
+                    </Box>
+                    {found?.length === 0 && <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>No ticket matches.</Typography>}
+                    {found?.map(row)}
+                  </Box>
+                )}
+                {tab === "new" && (
+                  <Box sx={{ display: "grid", gap: 1.5 }}>
+                    <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
+                      <TextField size="small" fullWidth multiline minRows={2} label="Say what the ticket is for - the AI fills the form" value={describe} onChange={(e) => setDescribe(e.target.value)} sx={field} />
+                      <Button variant="outlined" onClick={fill} disabled={!!busy || !draft}
+                        startIcon={busy === "fill" ? <CircularProgress size={14} /> : <AutoAwesomeOutlinedIcon sx={{ fontSize: 17 }} />} sx={{ ...btn, mt: 0.25 }}>Fill with AI</Button>
+                    </Box>
+                    {draft ? <TicketFields form={draft.form} values={draft.values} set={(k, v) => setDraft((d) => (d ? { ...d, values: { ...d.values, [k]: v } } : d))} />
+                      : <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>Filling the ticket from the project&apos;s action…</Typography>}
+                  </Box>
+                )}
+              </>
             )}
           </>
         )}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={!!busy && busy !== "suggest"} sx={btn}>Close</Button>
-        {!refused && tab === "new" && (
+        {piece && place && !ticket && !refused && tab === "new" && (
           <Button variant="contained" disableElevation disabled={!!busy || !draft} onClick={() => run("create", { action: "ticket-create", values: draft!.values })} sx={mainBtn}>
             {busy === "create" ? "Making it…" : "Make the ticket"}
           </Button>
@@ -273,25 +314,6 @@ function TicketDialog({ w, piece, place, act, onClose, onDone }: { w: Work; piec
 }
 
 /* ── one to-do ──────────────────────────────────────────────────────────────────────────────────────────────────── */
-
-function Title({ p, canEdit, act }: { p: Piece; canEdit: boolean; act: Act }) {
-  const [edit, setEdit] = useState(false);
-  const [v, setV] = useState(p.title);
-  useEffect(() => setV(p.title), [p.title]);
-  const save = () => {
-    setEdit(false);
-    const t = v.trim();
-    if (t && t !== p.title) void act({ action: "piece-edit", pieceId: p.id, title: t }, (w) => ({ ...w, pieces: w.pieces.map((x) => (x.id === p.id ? { ...x, title: t } : x)) }));
-    else setV(p.title);
-  };
-  if (edit) return <TextField autoFocus size="small" fullWidth value={v} onChange={(e) => setV(e.target.value)} onBlur={save} onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") { setV(p.title); setEdit(false); } }} sx={field} />;
-  return (
-    <Typography onClick={() => canEdit && setEdit(true)} title={canEdit ? "Click to rename" : undefined}
-      sx={{ fontSize: "0.95rem", fontWeight: 650, color: INK, cursor: canEdit ? "text" : "default", borderRadius: "6px", px: 0.5, mx: -0.5, "&:hover": canEdit ? { bgcolor: "rgba(21,34,58,.05)" } : {} }}>
-      {p.title}
-    </Typography>
-  );
-}
 
 function TodoRow({ p, w, ticket, takes, ticketsLoading, act, onTicket, onAskChanges }: {
   p: Piece; w: Work; ticket: TodoTicket | undefined; takes: boolean | undefined; ticketsLoading: boolean; act: Act;
@@ -313,7 +335,8 @@ function TodoRow({ p, w, ticket, takes, ticketsLoading, act, onTicket, onAskChan
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap" }}>
         <KindTile kind={p.contentType} />
         <Box sx={{ flex: "1 1 240px", minWidth: 0 }}>
-          <Title p={p} canEdit={canEdit && !p.pending} act={act} />
+          <InlineTitle value={p.title} canEdit={canEdit && !p.pending} size="0.95rem" weight={650} maxWidth="100%"
+            onSave={(t) => act({ action: "piece-edit", pieceId: p.id, title: t }, (x) => ({ ...x, pieces: x.pieces.map((y) => (y.id === p.id ? { ...y, title: t } : y)) }))} />
           <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
             {kindLabel(p.contentType)}{p.language ? ` · ${p.language}` : ""}
             {!task && (p.versions ? ` · ${p.versions} version${p.versions === 1 ? "" : "s"}${p.lastVersionAt ? `, last ${when(p.lastVersionAt)}` : ""}` : " · no version yet")}
@@ -329,29 +352,28 @@ function TodoRow({ p, w, ticket, takes, ticketsLoading, act, onTicket, onAskChan
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", pl: { md: "46px" } }}>
         {canEdit ? (
           <>
-            <PersonPick label={task ? "Who" : "Writes"} value={p.writer} people={w.people} width={150} disabled={p.pending} onChange={(u) => set({ writer: u }, { writer: u })} />
-            {!task && <PersonPick label="Reviews" value={p.reviewer} people={w.people} width={150} disabled={p.pending} onChange={(u) => set({ reviewer: u }, { reviewer: u })} />}
+            <PersonPick label="Owner" value={p.writer} people={w.people} width={170} disabled={p.pending} onChange={(u) => set({ writer: u }, { writer: u })} />
+            {!task && <PersonPick label="Reviewer" value={p.reviewer} people={w.people} width={170} disabled={p.pending} onChange={(u) => set({ reviewer: u }, { reviewer: u })} />}
           </>
         ) : (
           <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>
-            {task ? "Who" : "Writes"} <b style={{ color: INK }}>{p.writer ? w.people.find((x) => x.username === p.writer)?.name ?? p.writer : "nobody yet"}</b>
-            {!task && <>{" · "}Reviews <b style={{ color: INK }}>{p.reviewer ? w.people.find((x) => x.username === p.reviewer)?.name ?? p.reviewer : "nobody yet"}</b></>}
+            Owner <b style={{ color: INK }}>{p.writer ? w.people.find((x) => x.username === p.writer)?.name ?? p.writer : "nobody yet"}</b>
+            {!task && <>{" · "}Reviewer <b style={{ color: INK }}>{p.reviewer ? w.people.find((x) => x.username === p.reviewer)?.name ?? p.reviewer : "nobody yet"}</b></>}
           </Typography>
         )}
-        {/* the ticket: shown when HubSpot has answered */}
-        {ticketsLoading ? <Skeleton variant="rounded" width={120} height={30} sx={{ borderRadius: "10px" }} />
-          : ticket ? (
-            <Box sx={{ display: "inline-flex", alignItems: "center" }}>
-              <Button size="small" href={ticket.url} target="_blank" rel="noreferrer" startIcon={<ConfirmationNumberOutlinedIcon sx={{ fontSize: 17 }} />} endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />} sx={{ ...btn, color: "#1b7a55" }}>
-                {ticket.stageLabel || `#${ticket.id}`}
-              </Button>
-              {canEdit && <Tooltip title="Unlink the ticket (it stays in HubSpot)"><IconButton size="small" aria-label="Unlink the ticket" onClick={() => act({ action: "ticket-unlink", pieceId: p.id, ticketId: ticket.id })}><LinkOffIcon fontSize="small" /></IconButton></Tooltip>}
-            </Box>
-          ) : canEdit && !p.pending ? (
-            <Tooltip title={takes ? "Link its ticket, or make one - the AI suggests" : w.place ? "Under this action only a Digital Growth person's to-do takes a ticket" : "Put the project in the action plan first - the window helps"}>
-              <Button size="small" variant="outlined" startIcon={<ConfirmationNumberOutlinedIcon sx={{ fontSize: 17 }} />} onClick={() => onTicket(p)} sx={{ ...btn, borderStyle: takes ? "solid" : "dashed" }}>Ticket</Button>
+        {/* plan & ticket - one control (SARCLA 08.11.2026: "linking to the action plan and the ticket should be the same") */}
+        {ticketsLoading ? <Skeleton variant="rounded" width={150} height={32} sx={{ borderRadius: "6px" }} />
+          : (
+            <Tooltip title={ticket ? `Ticket #${ticket.id} in From Scroll to Sale${w.place ? ` - under "${w.place.title}"` : ""}` : !w.place ? "Place the project in the action plan, then this line takes its ticket" : takes ? "Link this line's ticket, or make one - the AI suggests" : "Under this action only a Digital Growth person's line takes a ticket"}>
+              <span>
+                <Button size="small" variant="outlined" disabled={p.pending || (!canEdit && !ticket)} onClick={() => onTicket(p)}
+                  startIcon={<ConfirmationNumberOutlinedIcon sx={{ fontSize: 17 }} />}
+                  sx={{ ...btn, borderRadius: "6px", borderStyle: ticket ? "solid" : "dashed", ...(ticket ? { color: "#1b7a55", borderColor: "#bfe3d2", bgcolor: "#f1faf5" } : { color: MUTED, borderColor: HAIRLINE }) }}>
+                  {ticket ? `#${ticket.id} · ${ticket.stageLabel || "ticket"}` : "Plan & ticket"}
+                </Button>
+              </span>
             </Tooltip>
-          ) : null}
+          )}
         <Box sx={{ ml: "auto", display: "inline-flex", gap: 0.75, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
           {!p.pending && moves(p, w).map((m) => (
             <Button key={m.to} size="small" variant={m.main ? "contained" : "outlined"} disableElevation
@@ -398,14 +420,14 @@ function AddTodo({ w, act }: { w: Work; act: Act }) {
       <TextField select size="small" label="Kind" value={kind} onChange={(e) => setKind(e.target.value)} sx={{ ...field, width: 190 }}>
         {KINDS.map((x) => <MenuItem key={x.key} value={x.key}><Box sx={{ display: "flex", alignItems: "center", gap: 1 }}><KindTile kind={x.key} size={22} />{x.label}</Box></MenuItem>)}
       </TextField>
-      <TextField inputRef={ref} size="small" label={kind === TASK_KIND ? "What is to be done" : "Name (optional)"} value={title} onChange={(e) => setTitle(e.target.value)}
+      <TextField inputRef={ref} size="small" label={kind === TASK_KIND ? "The action - what is to be done" : "Name (optional)"} value={title} onChange={(e) => setTitle(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") void add(); }} sx={{ ...field, flex: "1 1 220px" }} />
       {k.language && (
         <TextField select size="small" label="Language" value={lang} onChange={(e) => setLang(e.target.value)} sx={{ ...field, width: 130 }}>
           {LANGUAGES.map((l) => <MenuItem key={l.code} value={l.code}>{l.label}</MenuItem>)}
         </TextField>
       )}
-      <PersonPick label="Who" value={who} onChange={setWho} people={w.people} width={150} />
+      <PersonPick label="Owner" value={who} onChange={setWho} people={w.people} width={170} />
       <TextField size="small" type="date" label="Due" value={due} onChange={(e) => setDue(e.target.value)} slotProps={{ inputLabel: { shrink: true } }} sx={{ ...field, width: 150 }} />
       <Button variant="contained" disableElevation startIcon={<AddIcon />} onClick={add} sx={mainBtn}>Add</Button>
     </Box>
@@ -414,6 +436,7 @@ function AddTodo({ w, act }: { w: Work; act: Act }) {
 
 export default function TodoList({ w, t, act, onTicketChanged }: { w: Work; t: Tickets | null; act: Act; onTicketChanged: () => void }) {
   const [ticketFor, setTicketFor] = useState<Piece | null>(null);
+  const [planOpen, setPlanOpen] = useState(false);
   const [asking, setAsking] = useState<Piece | null>(null);
   const [note, setNote] = useState("");
   const open = w.pieces.filter((p) => p.status !== "live").length;
@@ -421,18 +444,19 @@ export default function TodoList({ w, t, act, onTicketChanged }: { w: Work; t: T
   return (
     <GlassCard>
       <CardTitle icon={<TaskAltOutlinedIcon />} tint="pink" title="To-dos"
-        note={`${open} open · each one is a piece of content, or a task - an action plan sub-action with its ticket`} />
-      <PlaceAssist w={w} place={place} act={act} />
+        note={`${open} open · each line is a piece of content or an action, with its owner and its ticket`} />
+      <PlanLine place={place} isAdmin={w.isAdmin} onOpen={() => setPlanOpen(true)} />
       {t?.error && <Box sx={{ mt: 1.5 }}><Notice tone="warn">HubSpot did not answer for the tickets: {t.error}</Notice></Box>}
       <Box sx={{ mt: 1.5 }}>
-        {w.pieces.length === 0 && <Typography sx={{ fontSize: "0.88rem", color: MUTED, py: 1 }}>No to-do yet. Add the pieces this project puts out - a page, a post, the newsletter - and the tasks around them.</Typography>}
+        {w.pieces.length === 0 && <Typography sx={{ fontSize: "0.88rem", color: MUTED, py: 1 }}>No to-do yet. Add the pieces this project puts out - a page, a post, the newsletter - and the actions around them.</Typography>}
         {w.pieces.map((p) => (
           <TodoRow key={p.id} p={p} w={w} ticket={t?.tickets[p.id]} takes={t?.takes[p.id]} ticketsLoading={!t && !p.pending}
             act={act} onTicket={setTicketFor} onAskChanges={(x) => { setNote(""); setAsking(x); }} />
         ))}
       </Box>
       {w.access.canEdit && <AddTodo w={w} act={act} />}
-      <TicketDialog w={w} piece={ticketFor} place={place} act={act} onClose={() => setTicketFor(null)} onDone={() => { setTicketFor(null); onTicketChanged(); }} />
+      <PlanTicketDialog w={w} open={!!ticketFor || planOpen} piece={ticketFor} ticket={ticketFor ? t?.tickets[ticketFor.id] : undefined} place={place} act={act}
+        onClose={() => { setTicketFor(null); setPlanOpen(false); }} onDone={() => { setTicketFor(null); setPlanOpen(false); onTicketChanged(); }} />
       <Dialog open={!!asking} onClose={() => setAsking(null)} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 700 }}>What should change in {asking?.title}?</DialogTitle>
         <DialogContent sx={{ pt: "8px !important" }}>
