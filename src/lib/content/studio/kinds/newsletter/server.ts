@@ -9,7 +9,7 @@
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { readBrain } from "@/lib/brain";
 import { s, type KindDef, type StudioCtx } from "../../contract";
-import { asNewsletter, editable, emptyNewsletter, newsletterText, renderEmail, textFields, PREHEADER_MAX, SUBJECT_MAX } from "./model";
+import { asNewsletter, editable, emptyNewsletter, newBlock, newsletterText, renderEmail, textFields, PREHEADER_MAX, SUBJECT_MAX } from "./model";
 import { blocksFrom, digestOf, emailParts, ourEmails } from "./hubspotEmails";
 
 const LANGUAGE: Record<string, string> = { DE: "German", FR: "French", IT: "Italian", EN: "English", NL: "Dutch", PL: "Polish" };
@@ -147,7 +147,8 @@ a fact's figure (keep the figure, translate only its unit words).`,
       const all = await ourEmails().catch(() => [] as Awaited<ReturnType<typeof ourEmails>>);
       const v = all.flatMap((g) => g.variants).find((x) => x.id === id);
       return {
-        ok: true, subject: e.subject, preheader: e.preheader, language: e.language, blocks: blocksFrom(e.parts, e.subject),
+        // HubSpot's footer is the e-mail's frame, not one of its parts: ours closes it (the unsubscribe link, the address)
+        ok: true, subject: e.subject, preheader: e.preheader, language: e.language, blocks: [...blocksFrom(e.parts, e.subject), newBlock("footer", undefined, e.language)],
         startedFrom: { emailId: e.id, subject: e.subject, language: e.language, date: v?.date ?? "" },
       };
     },

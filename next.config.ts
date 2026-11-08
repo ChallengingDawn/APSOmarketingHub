@@ -10,9 +10,12 @@ const csp = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://www.apsoparts.com",
+  // ...and our HubSpot portal's files: a newsletter started from one of our e-mails keeps its pictures (08.11.2026)
+  "img-src 'self' data: blob: https://www.apsoparts.com https://26492587.fs1.hubspotusercontent-eu1.net",
   "font-src 'self' data:",
   "connect-src 'self'",
+  // our e-mails' web versions, shown as they went out in the newsletter studio's "Our e-mails" (08.11.2026)
+  "frame-src 'self' https://campaigns.apsoparts.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
