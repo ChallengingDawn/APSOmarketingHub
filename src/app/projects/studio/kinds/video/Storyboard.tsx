@@ -202,10 +202,10 @@ function SceneCard({ s, i, n, seg, issues, active, disabled, edit, onPlay, onSho
           </Tooltip>
         )}
         <Box sx={{ flex: 1 }} />
-        <Tooltip title={seg ? `Play from here - it starts at ${timecode(seg.start).replace(/\.\d+$/, "")}` : "Play from here"}><IconButton size="small" onClick={(e) => { e.stopPropagation(); onPlay(i); }} aria-label="Play from here"><PlayArrowRoundedIcon sx={{ fontSize: 18, color: PINK }} /></IconButton></Tooltip>
-        <Tooltip title="Earlier"><span><IconButton size="small" disabled={disabled || i === 0} onClick={(e) => { e.stopPropagation(); move(i - 1); }} aria-label="Move earlier"><ArrowUpwardRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
-        <Tooltip title="Later"><span><IconButton size="small" disabled={disabled || i === n - 1} onClick={(e) => { e.stopPropagation(); move(i + 1); }} aria-label="Move later"><ArrowDownwardRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
-        <Tooltip title="Take it out"><span><IconButton size="small" disabled={disabled} onClick={(e) => { e.stopPropagation(); edit((d) => ({ ...d, scenes: d.scenes.filter((_, k) => k !== i) })); }} aria-label="Take the scene out"><DeleteOutlineRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
+        <Tooltip title={seg ? `Play from here - it starts at ${timecode(seg.start).replace(/\.\d+$/, "")}` : "Play from here"}><IconButton size="small" onClick={(e) => { e.stopPropagation(); onPlay(i); }} aria-label="Play from here" sx={{ p: 0.4 }}><PlayArrowRoundedIcon sx={{ fontSize: 18, color: PINK }} /></IconButton></Tooltip>
+        <Tooltip title="Earlier"><span><IconButton size="small" disabled={disabled || i === 0} onClick={(e) => { e.stopPropagation(); move(i - 1); }} aria-label="Move earlier" sx={{ p: 0.4 }}><ArrowUpwardRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
+        <Tooltip title="Later"><span><IconButton size="small" disabled={disabled || i === n - 1} onClick={(e) => { e.stopPropagation(); move(i + 1); }} aria-label="Move later" sx={{ p: 0.4 }}><ArrowDownwardRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
+        <Tooltip title="Take it out"><span><IconButton size="small" disabled={disabled} onClick={(e) => { e.stopPropagation(); edit((d) => ({ ...d, scenes: d.scenes.filter((_, k) => k !== i) })); }} aria-label="Take the scene out" sx={{ p: 0.4 }}><DeleteOutlineRoundedIcon sx={{ fontSize: 17 }} /></IconButton></span></Tooltip>
       </Box>
       <Box sx={{ px: 1.5, pt: 1.5, pb: 1 }}>
         {info.fields.map((f: FieldDef) => (
