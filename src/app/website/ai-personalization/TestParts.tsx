@@ -89,7 +89,15 @@ export function GatewayNotice({ g, what = "tests" }: { g: GatewayView; what?: st
       </Notice>
     );
   }
-  if (g.error) return <Notice tone="bad">The shop&apos;s gateway did not answer: {g.error}. The figures shown are the last ones read.</Notice>;
+  // the gateway runs, but without the test runner yet (its convert routes answer 404): said plainly, never its HTML
+  // (SARCLA 08.11.2026 saw the gateway's raw "Cannot GET /api/admin/convert/tests" page twice)
+  if (g.error && /answered 404|Cannot GET \/api\/admin\/convert/i.test(g.error)) {
+    return <Notice tone="warn">The test runner is not on the shop&apos;s gateway yet - {what} can be prepared as drafts; starting them waits for the gateway update.</Notice>;
+  }
+  if (g.error) {
+    const said = g.error.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
+    return <Notice tone="bad">The shop&apos;s gateway did not answer ({said}). The figures shown are the last ones read.</Notice>;
+  }
   return null;
 }
 

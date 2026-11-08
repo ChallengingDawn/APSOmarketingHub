@@ -25,7 +25,7 @@ import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import { ACCENT, CardTitle, GlassCard, HAIRLINE, INK, MUTED, RED, clip } from "@/app/uc/report/ui";
+import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, RED, clip } from "@/app/uc/report/ui";
 import { ago } from "@/app/connectors/parts";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { ENVS, KIND_LABEL, type Env, type PageKind } from "@/lib/convert/model";
@@ -241,9 +241,6 @@ export default function ConvertOverview() {
           </GlassCard>
         </Box>
       </Box>
-      <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
-        Nothing reaches the shop until a person approves it: ideas, versions, the start of a test and the winner each wait for a yes. <Box component={Link} href={`${CONVERT}/pages`} sx={{ color: ACCENT, fontWeight: 600, textDecoration: "none" }}>The shop&apos;s pages</Box> are read from its sitemaps.
-      </Typography>
     </Box>
   );
 }

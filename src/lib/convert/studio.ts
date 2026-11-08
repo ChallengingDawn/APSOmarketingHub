@@ -37,6 +37,15 @@ CREATE INDEX IF NOT EXISTS apsomh_convert_ideas_page ON apsomh_convert_ideas (en
 ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS impact int;
 ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS confidence int;
 ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS effort int;
+ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS target text;
+CREATE TABLE IF NOT EXISTS apsomh_convert_analyses (
+  env text NOT NULL,
+  path text NOT NULL,
+  text text NOT NULL DEFAULT '',
+  by_whom text,
+  at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (env, path)
+);
 CREATE TABLE IF NOT EXISTS apsomh_convert_versions (
   id bigserial PRIMARY KEY,
   idea_id bigint NOT NULL UNIQUE REFERENCES apsomh_convert_ideas(id) ON DELETE CASCADE,
@@ -169,7 +178,12 @@ export type Idea = {
   decidedBy: string | null; decidedAt: string | null;
   /** The AI's ranking, 1-5 each (ICE): how much it should move, how sure the numbers make it, how much work. null = by hand. */
   impact?: number | null; confidence?: number | null; effort?: number | null;
+  /** The block of the page it is about, as the AI read it from the drawn page (a CSS selector) - the preview marks it
+   *  with the idea's number (SARCLA 08.11.2026: "ideas should underline the block"). null = the whole page / by hand. */
+  target?: string | null;
 };
+/** The AI's reading of one page, written with its ideas: what works, what stops buyers. */
+export type Analysis = { text: string; at: string; by: string | null };
 export type VersionStatus = "draft" | "approved";
 export type Version = {
   id: string; ideaId: string; env: Env; path: string; rev: number; changes: Change[]; summary: string; status: VersionStatus;
@@ -180,7 +194,7 @@ export type Revision = { rev: number; summary: string; request: string | null; b
 type IdeaRow = {
   id: string; env: Env; path: string; page_key: string; kind: PageKind; title: string; why: string; change: string; expect: string;
   source: "ai" | "person"; status: IdeaStatus; numbers: Numbers | null; created_by: string | null; created_at: Date;
-  decided_by: string | null; decided_at: Date | null; impact: number | null; confidence: number | null; effort: number | null;
+  decided_by: string | null; decided_at: Date | null; impact: number | null; confidence: number | null; effort: number | null; target: string | null;
 };
 type VersionRow = {
   id: string; idea_id: string; env: Env; path: string; rev: number; changes: Change[]; summary: string; status: VersionStatus;
@@ -190,7 +204,7 @@ const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 const toIdea = (r: IdeaRow): Idea => ({
   id: String(r.id), env: r.env, path: r.path, pageKey: r.page_key, kind: r.kind, title: r.title, why: r.why, change: r.change, expect: r.expect,
   source: r.source, status: r.status, numbers: r.numbers, createdBy: r.created_by, createdAt: iso(r.created_at)!, decidedBy: r.decided_by, decidedAt: iso(r.decided_at),
-  impact: r.impact ?? null, confidence: r.confidence ?? null, effort: r.effort ?? null,
+  impact: r.impact ?? null, confidence: r.confidence ?? null, effort: r.effort ?? null, target: r.target ?? null,
 });
 const toVersion = (r: VersionRow): Version => ({
   id: String(r.id), ideaId: String(r.idea_id), env: r.env, path: r.path, rev: r.rev, changes: r.changes, summary: r.summary, status: r.status,
@@ -203,13 +217,15 @@ export function pageKeyOf(path: string): string {
   return c.kind === "product" && c.product ? `product:${c.product}` : `page:${path}`;
 }
 
-export async function pageWork(env: Env, path: string): Promise<{ ideas: Idea[]; versions: Version[] }> {
+export async function pageWork(env: Env, path: string): Promise<{ ideas: Idea[]; versions: Version[]; analysis: Analysis | null }> {
   await ensureStudioSchema();
-  const [ideas, versions] = await Promise.all([
+  const [ideas, versions, analysis] = await Promise.all([
     query<IdeaRow>(`SELECT * FROM apsomh_convert_ideas WHERE env = $1 AND path = $2 ORDER BY (status = 'dropped'), id DESC`, [env, path]),
     query<VersionRow>(`SELECT * FROM apsomh_convert_versions WHERE env = $1 AND path = $2 ORDER BY id DESC`, [env, path]),
+    query<{ text: string; by_whom: string | null; at: Date }>(`SELECT text, by_whom, at FROM apsomh_convert_analyses WHERE env = $1 AND path = $2`, [env, path]),
   ]);
-  return { ideas: ideas.rows.map(toIdea), versions: versions.rows.map(toVersion) };
+  const a = analysis.rows[0];
+  return { ideas: ideas.rows.map(toIdea), versions: versions.rows.map(toVersion), analysis: a && a.text ? { text: a.text, by: a.by_whom, at: iso(a.at)! } : null };
 }
 
 export type BoardRow = Idea & { version: Pick<Version, "id" | "rev" | "status" | "updatedAt"> | null };
@@ -229,15 +245,23 @@ export async function setIdeaStatus(id: string, status: IdeaStatus, by: string):
   return r.rows[0] ? toIdea(r.rows[0]) : null;
 }
 
-export async function addIdea(env: Env, path: string, idea: { title: string; why: string; change: string; expect: string; impact?: number; confidence?: number; effort?: number }, by: string, source: "ai" | "person", numbers: Numbers | null): Promise<Idea> {
+/** A block's selector as the AI gave it: short, one line, no markup - else none (the idea stays, unmarked). */
+export function cleanTarget(x: unknown): string | null {
+  if (typeof x !== "string") return null;
+  const t = x.trim();
+  if (!t || t.length > 200 || /[<>{}]|javascript:/i.test(t) || t.includes(String.fromCharCode(10))) return null;
+  return t;
+}
+
+export async function addIdea(env: Env, path: string, idea: { title: string; why: string; change: string; expect: string; impact?: number; confidence?: number; effort?: number; target?: string | null }, by: string, source: "ai" | "person", numbers: Numbers | null): Promise<Idea> {
   await ensureStudioSchema();
   const c = classify(path);
   const one = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? Math.max(1, Math.min(5, Math.round(x))) : null);
   const r = await query<IdeaRow>(
-    `INSERT INTO apsomh_convert_ideas (env, path, page_key, kind, title, why, change, expect, source, status, numbers, created_by, impact, confidence, effort)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15) RETURNING *`,
+    `INSERT INTO apsomh_convert_ideas (env, path, page_key, kind, title, why, change, expect, source, status, numbers, created_by, impact, confidence, effort, target)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16) RETURNING *`,
     [env, path, pageKeyOf(path), c.kind, idea.title.slice(0, 200), idea.why.slice(0, 1500), idea.change.slice(0, 2000), idea.expect.slice(0, 600), source,
-      source === "person" ? "approved" : "proposed", numbers ? JSON.stringify(numbers) : null, by, one(idea.impact), one(idea.confidence), one(idea.effort)],
+      source === "person" ? "approved" : "proposed", numbers ? JSON.stringify(numbers) : null, by, one(idea.impact), one(idea.confidence), one(idea.effort), cleanTarget(idea.target)],
   );
   return toIdea(r.rows[0]);
 }
@@ -406,14 +430,15 @@ function numbersBrief(n: Numbers | null): string {
 const IDEAS_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["ideas"],
+  required: ["analysis", "ideas"],
   properties: {
+    analysis: { type: "string", description: "Your reading of the page for the marketing team, English, 2-3 sentences: what the page does well, and the one thing that most likely stops buyers here - grounded in the numbers and what is on the page" },
     ideas: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "why", "change", "expect", "impact", "confidence", "effort"],
+        required: ["title", "why", "change", "expect", "impact", "confidence", "effort", "target"],
         properties: {
           title: { type: "string", description: "The idea in under 10 words, English" },
           why: { type: "string", description: "Which number or which part of the page points to it, English, 1-2 sentences" },
@@ -422,6 +447,7 @@ const IDEAS_SCHEMA = {
           impact: { type: "integer", description: "1-5: how much add-to-carts should move if it works (5 = it removes the main reason buyers stop)" },
           confidence: { type: "integer", description: "1-5: how strongly THIS page's numbers and content point to it (5 = the numbers say it plainly; 1 = a general hunch)" },
           effort: { type: "integer", description: "1-5: how much the version takes (1 = a style or a moved block; 5 = new content or data the page does not have)" },
+          target: { type: "string", description: "The block of the page this idea changes, as a CSS selector copied EXACTLY from the page as drawn (the part before ' · ' of one of its lines, e.g. '#maincontent' or 'div.product-info-main'); empty when it is about the whole page" },
         },
       },
     },
@@ -463,7 +489,9 @@ export async function proposeIdeas(env: Env, path: string, numbers: Numbers | nu
   const existing = (await pageWork(env, path)).ideas.map((i) => `- ${i.title} (${i.status})`).join("\n");
   const system = `You are the conversion specialist of a B2B web shop. You look at one page and its numbers and propose
 3 to 5 ideas to test, each one a change on THIS page that a version can make (layout, wording, order, emphasis, a missing
-piece of information the page already has elsewhere). Rank them: the one most likely to move add-to-carts first.
+piece of information the page already has elsewhere). Rank them: the one most likely to move add-to-carts first - it
+leads. Say for each the block of the page it is about (its selector, copied from the page as drawn), and write a short
+reading of the page first: what it does well and what most likely stops buyers.
 
 ${SHOP_FACTS}
 
@@ -473,8 +501,13 @@ ${RULES}`;
 
 ${numbersBrief(numbers)}${flow}
 ${existing ? `\nIDEAS ALREADY ON THIS PAGE (do not repeat them):\n${existing}` : ""}`;
-  const r = await ask<{ ideas: { title: string; why: string; change: string; expect: string; impact: number; confidence: number; effort: number }[] }>(system, user, IDEAS_SCHEMA, 8000);
+  const r = await ask<{ analysis?: string; ideas: { title: string; why: string; change: string; expect: string; impact: number; confidence: number; effort: number; target?: string }[] }>(system, user, IDEAS_SCHEMA, 8000);
   if (!r.ok) return r;
+  const reading = (r.data.analysis ?? "").trim().slice(0, 1200);
+  if (reading) {
+    await query(`INSERT INTO apsomh_convert_analyses (env, path, text, by_whom, at) VALUES ($1, $2, $3, $4, now())
+                 ON CONFLICT (env, path) DO UPDATE SET text = EXCLUDED.text, by_whom = EXCLUDED.by_whom, at = now()`, [env, path, reading, by]);
+  }
   const out: Idea[] = [];
   for (const i of (r.data.ideas ?? []).slice(0, 5)) {
     if (!i.title?.trim()) continue;

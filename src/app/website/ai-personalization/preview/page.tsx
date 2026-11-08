@@ -42,7 +42,7 @@ import { useReportingWindow } from "@/app/window/ReportingWindow";
 import { ENVS, KIND_LABEL, STEP_LABEL, classify, type Env, type PageKind, type Step } from "@/lib/convert/model";
 import type { ProblemsData } from "@/lib/convert/problems";
 import type { PageRow, PagesList } from "@/lib/convert/pages";
-import type { BoardRow, Idea, Numbers, Revision, Version } from "@/lib/convert/studio";
+import type { Analysis, BoardRow, Idea, Numbers, Revision, Version } from "@/lib/convert/studio";
 import { iceScore } from "@/lib/convert/ice";
 import { OP_LABEL, describe, type Change } from "@/lib/convert/versions";
 import { projectForPage, markerOf, pageMarker } from "@/lib/convert/handoff";
@@ -53,11 +53,13 @@ import { PageShot } from "../PageShot";
 type StudioData = {
   env: Env; path: string;
   page: { status: number; error: string | null; title: string; h1: string[]; description: string; lines: string[]; truncated: boolean; kind: PageKind | null; product: string | null; url: string | null };
-  ideas: Idea[]; versions: Version[]; canEdit: boolean; canContent: boolean; ai: boolean;
+  ideas: Idea[]; versions: Version[]; analysis: Analysis | null; canEdit: boolean; canContent: boolean; ai: boolean;
 };
+/** The ideas' numbered callouts on the page (the frame draws them, ../../../lib/convert/preview.ts shimSource). */
+type Spots = { list: { n: number; sel: string; lead: boolean; title: string }[]; focus: number | null };
 type Msg = { apsoPreview: "ready"; title: string } | { apsoPreview: "applied"; hit: number[] } | { apsoPreview: "go"; href: string } | { apsoPreview: "scroll"; y: number }
   | { apsoPreview: "picked"; selector: string; tag: string; text: string } | { apsoPreview: "styles"; total: number; nfailed: number; failed: string[] }
-  | { apsoPreview: "drawn"; lines: string[] } | { apsoPreview: "body" };
+  | { apsoPreview: "drawn"; lines: string[] } | { apsoPreview: "body" } | { apsoPreview: "spot"; n: number };
 type Picked = { selector: string; tag: string; text: string; from: string };
 type Device = "desktop" | "phone";
 type Zoom = "fit" | "full";
@@ -71,9 +73,9 @@ const pct = (r: number | null | undefined) => (r === null || r === undefined ? "
 // ---------------------------------------------------------------------------------------------------------------------
 // THE FRAME
 
-function Frame({ src, device, zoom, label, address, name, sync, pick, marks, onMsg, onRetry }: {
+function Frame({ src, device, zoom, label, address, name, sync, pick, marks, spots, onMsg, onRetry }: {
   src: string; device: Device; zoom: Zoom; label: string; address: string; name: string; sync: Sync | null;
-  pick: boolean; marks: boolean; onMsg: (m: Msg, from: string) => void; onRetry: () => void;
+  pick: boolean; marks: boolean; spots?: Spots | null; onMsg: (m: Msg, from: string) => void; onRetry: () => void;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
@@ -125,6 +127,12 @@ function Frame({ src, device, zoom, label, address, name, sync, pick, marks, onM
     if (!ready) return;
     frame.current?.contentWindow?.postMessage({ apsoPreviewMarks: marks }, "*");
   }, [marks, ready]);
+  // the ideas' numbered callouts on the page, the one pointed at outlined and scrolled to
+  const spotsKey = spots ? JSON.stringify(spots) : "";
+  useEffect(() => {
+    if (!ready) return;
+    frame.current?.contentWindow?.postMessage({ apsoPreviewSpots: spots ?? { list: [], focus: null } }, "*");
+  }, [spotsKey, ready]); // eslint-disable-line react-hooks/exhaustive-deps
   const phone = device === "phone";
   const W = phone ? 390 : 1280;
   const inner = phone ? Math.min(W, Math.max(0, w - 24)) : w;
@@ -307,17 +315,29 @@ function Picker({ env, onOpen, problems }: { env: Env; onOpen: (env: Env, path: 
 const IDEA_TINT = { proposed: "amber", approved: "green", dropped: "slate" } as const;
 const IDEA_LABEL = { proposed: "Proposed", approved: "Approved", dropped: "Dropped" } as const;
 
-function IdeaCard({ idea, version, selected, canEdit, busy, onSelect, onStatus, onBuild }: {
+function IdeaCard({ idea, version, selected, canEdit, busy, onSelect, onStatus, onBuild, n, lead, focused, onPoint }: {
   idea: Idea; version: Version | null; selected: boolean; canEdit: boolean; busy: boolean;
   onSelect: () => void; onStatus: (s: Idea["status"]) => void; onBuild: () => void;
+  n?: number; lead?: boolean; focused?: boolean; onPoint?: (on: boolean) => void;
 }) {
+  const marked = !!idea.target && n !== undefined;
   return (
-    <Box onClick={onSelect} sx={{
-      p: 1.5, borderRadius: "14px", border: `1px solid ${selected ? ACCENT : HAIRLINE}`, bgcolor: selected ? "rgba(36,89,209,.04)" : "rgba(255,255,255,.6)",
-      cursor: "pointer", opacity: idea.status === "dropped" ? 0.6 : 1, display: "grid", gap: 0.75,
+    <Box id={`idea-card-${idea.id}`} onClick={onSelect} onMouseEnter={() => onPoint?.(true)} onMouseLeave={() => onPoint?.(false)} sx={{
+      p: 1.5, borderRadius: "14px", border: `1px solid ${focused ? RED : selected ? ACCENT : HAIRLINE}`,
+      bgcolor: focused ? "rgba(197,34,31,.04)" : selected ? "rgba(36,89,209,.04)" : "rgba(255,255,255,.6)",
+      boxShadow: focused ? "0 0 0 3px rgba(197,34,31,.12)" : "none", transition: "border-color .12s, box-shadow .12s",
+      cursor: "pointer", opacity: idea.status === "dropped" ? 0.6 : 1, display: "grid", gap: 0.75, scrollMarginTop: 16,
     }}>
       <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
-        <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK, flex: 1, lineHeight: 1.3 }}>{idea.title}</Typography>
+        {n !== undefined && (
+          <Tooltip title={marked ? "Its block is marked with this number on the page - point at the card to see it" : "About the page as a whole"}>
+            <Box component="span" sx={{ flexShrink: 0, minWidth: 24, height: 24, px: 0.6, borderRadius: "12px", display: "grid", placeItems: "center", fontSize: "0.76rem", fontWeight: 700, color: "#fff", bgcolor: lead ? RED : marked ? "#6a46c9" : "#9aa6b8" }}>{n}</Box>
+          </Tooltip>
+        )}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          {lead && <Typography sx={{ fontSize: "0.66rem", fontWeight: 800, color: RED, textTransform: "uppercase", letterSpacing: ".06em" }}>The lead - most likely to move add-to-carts</Typography>}
+          <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>{idea.title}</Typography>
+        </Box>
         <Chip tint={IDEA_TINT[idea.status]}>{IDEA_LABEL[idea.status]}</Chip>
       </Box>
       {idea.why && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}><b>Why</b> {idea.why}</Typography>}
@@ -577,6 +597,8 @@ function ConvertPreview() {
   const [picked, setPicked] = useState<Picked | null>(null);
   const [prefill, setPrefill] = useState<{ text: string; n: number } | null>(null);
   const [styles, setStyles] = useState<{ total: number; nfailed: number } | null>(null);
+  const [spotFocus, setSpotFocus] = useState<number | null>(null);
+  const [showSpots, setShowSpots] = useState(true);
   const told = useRef(false);
   // the page as the browser drew it, from the original's frame (else the version's) - the AI aims its changes at it
   const drawn = useRef<{ from: string; lines: string[] } | null>(null);
@@ -595,6 +617,13 @@ function ConvertPreview() {
   const numbers = path ? numbersFor(problems, path) : null;
 
   const ideas = d?.ideas ?? [];
+  // the ideas in the order shown (dropped last, the best score first); numbered, the first the lead
+  const ranked = useMemo(() => [...ideas].sort((x, y) => (x.status === "dropped" ? 1 : 0) - (y.status === "dropped" ? 1 : 0) || (iceScore(y) ?? -1) - (iceScore(x) ?? -1)), [ideas]);
+  const numberOf = useMemo(() => new Map(ranked.filter((i) => i.status !== "dropped").map((i, k) => [i.id, k + 1])), [ranked]);
+  const spots: Spots = useMemo(() => ({
+    list: showSpots ? ranked.filter((i) => i.status !== "dropped" && i.target).map((i) => ({ n: numberOf.get(i.id)!, sel: i.target!, lead: numberOf.get(i.id) === 1 && i.source === "ai", title: i.title })) : [],
+    focus: spotFocus,
+  }), [ranked, numberOf, showSpots, spotFocus]);
   const versionOf = useMemo(() => new Map((d?.versions ?? []).map((v) => [v.ideaId, v])), [d]);
   const idea = ideas.find((i) => i.id === ideaSel) ?? ideas.find((i) => versionOf.has(i.id)) ?? null;
   const version = idea ? versionOf.get(idea.id) ?? null : null;
@@ -606,6 +635,11 @@ function ConvertPreview() {
   const vSrc = version ? `${base}&v=${version.id}&r=${rev ?? version.rev}&at=${encodeURIComponent(version.updatedAt)}` : "";
 
   const onMsg = useCallback((m: Msg, from: string) => {
+    if (m.apsoPreview === "spot" && typeof m.n === "number") {
+      setSpotFocus(m.n);
+      const card = document.querySelector(`[data-idea-n="${m.n}"]`);
+      card?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
     if (m.apsoPreview === "scroll" && typeof m.y === "number") setSync((s) => ({ y: m.y, from, n: (s?.n ?? 0) + 1 }));
     if (m.apsoPreview === "applied" && Array.isArray(m.hit)) setHit(m.hit);
     if (m.apsoPreview === "drawn" && Array.isArray(m.lines) && (from === "original" || drawn.current?.from !== "original")) drawn.current = { from, lines: m.lines.slice(0, 160) };
@@ -651,14 +685,17 @@ function ConvertPreview() {
   const askTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (askTimer.current) clearTimeout(askTimer.current); }, []);
   useEffect(() => {
-    if (asked.current || sp.get("ask") !== "1" || !d || !path) return;
+    if (asked.current || !d || !path) return;
+    // by itself on a page Insights lists as losing buyers (SARCLA 08.11.2026: "ideas and page analysis should come from
+    // the AI itself"), or when asked from an Insights card; any other page keeps its button
+    if (sp.get("ask") !== "1" && !(numbers?.reasons?.length)) return;
     if (!d.canEdit || !d.ai || d.page.status !== 200 || d.ideas.length > 0) return;
     asked.current = true;
     askTimer.current = setTimeout(() => {
       router.replace(`/website/ai-personalization/preview?env=${env}&path=${encodeURIComponent(path)}`);
       void act("ideas", { action: "ideas", env, path, numbers });
     }, 8000);
-  }, [d]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [d, numbers?.reasons?.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   let body: React.ReactNode;
   if (!path) {
@@ -673,41 +710,61 @@ function ConvertPreview() {
     const counts = { proposed: ideas.filter((i) => i.status === "proposed").length, approved: ideas.filter((i) => i.status === "approved").length };
     body = (
       <>
-        {/* the page and its numbers */}
-        <GlassCard sx={{ py: { xs: 1.5, md: 1.75 } }}>
-          <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
+        {/* the page and its numbers (SARCLA 08.11.2026: "improve this menu on preview on top") */}
+        <GlassCard sx={{ p: 0, overflow: "hidden" }}>
+          <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", px: { xs: 2, md: 2.5 }, pt: 1.75, pb: 1.5 }}>
             <Box sx={{ minWidth: 0, flex: "1 1 360px" }}>
-              <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+              <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap", mb: 0.4 }}>
                 <Chip tint={env === "prod" ? "green" : "amber"}>{ENVS[env].label}</Chip>
                 {pg.kind && <Chip tint={pg.kind === "product" ? "green" : pg.kind === "category" ? "blue" : pg.kind === "home" ? "purple" : "amber"}>{KIND_LABEL[pg.kind]}</Chip>}
-                <Typography sx={{ fontSize: "0.98rem", fontWeight: 700, color: INK, ...clip(640) }}>{pg.h1[0] || pg.title || path}</Typography>
+                <Typography sx={{ fontSize: "0.74rem", color: MUTED, ...clip(560) }} title={path}>{path}</Typography>
               </Box>
-              <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.25, ...clip(760) }}>{path}</Typography>
+              <Typography sx={{ fontSize: "1.12rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em", ...clip(820) }}>{pg.h1[0] || pg.title || path}</Typography>
             </Box>
-            {numbers ? (
-              <Box sx={{ display: "flex", gap: 2.5, flexWrap: "wrap" }}>
-                {[
-                  ["Views", numbers.views ? full(numbers.views) : "–"],
-                  ["Cart rate", `${pct(numbers.rate)} / ${pct(numbers.typical)} typical`],
-                  ["Customers lost", numbers.companies ? `${full(numbers.lost ?? 0)} of ${full(numbers.companies)}` : "–"],
-                  ["Most stopped at", numbers.topLoss ?? "–"],
-                ].map(([k, v]) => (
-                  <Box key={k}><Typography sx={{ fontSize: "0.7rem", color: MUTED, fontWeight: 700, textTransform: "uppercase" }}>{k}</Typography><Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK }}>{v}</Typography></Box>
-                ))}
-              </Box>
-            ) : (
-              <Typography sx={{ fontSize: "0.78rem", color: MUTED, display: "flex", gap: 0.5, alignItems: "center" }}>
-                <InsightsOutlinedIcon sx={{ fontSize: 16 }} />{prob.result === null ? "Reading its numbers…" : "Not on Problems in this period"}
-              </Typography>
-            )}
             <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
               <ToContent data={data} numbers={numbers} ideas={ideas} version={version} />
-              <Button size="small" href={`/website/ai-personalization/journeys?path=${encodeURIComponent(data.path)}`} sx={{ textTransform: "none" }}>Its visitors' flow</Button>
-              <Button size="small" onClick={() => router.push("/website/ai-personalization/preview")}>Other page</Button>
+              <Button size="small" href={`/website/ai-personalization/journeys?path=${encodeURIComponent(data.path)}`} sx={{ textTransform: "none", fontWeight: 600 }}>Journeys</Button>
+              <Button size="small" onClick={() => router.push("/website/ai-personalization/preview")} sx={{ textTransform: "none", fontWeight: 600 }}>Other page</Button>
               {pg.url && <Tooltip title="Open on the shop"><IconButton size="small" component="a" href={pg.url} target="_blank" rel="noopener"><OpenInNewIcon sx={{ fontSize: 17, color: MUTED }} /></IconButton></Tooltip>}
             </Box>
           </Box>
-          {numbers?.reasons?.[0] && <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 1 }}>{numbers.reasons.join(" · ")}</Typography>}
+          {numbers ? (
+            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, minmax(0,1fr))", md: "repeat(4, minmax(0,1fr))" }, borderTop: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.55)" }}>
+              {(() => {
+                const low = numbers.rate != null && numbers.typical ? numbers.rate < numbers.typical / 2 : false;
+                const share = numbers.rate != null && numbers.typical ? Math.min(1, numbers.rate / numbers.typical) : null;
+                const cells: { k: string; v: string; sub: string; tone?: string; bar?: number | null }[] = [
+                  { k: "Views", v: numbers.views ? full(numbers.views) : "–", sub: "in the period, every language" },
+                  { k: "Cart rate", v: pct(numbers.rate ?? null), sub: `typical ${pct(numbers.typical ?? null)} for this kind of page`, tone: numbers.rate == null || !numbers.typical ? undefined : low ? RED : numbers.rate < numbers.typical ? AMBER : GREEN, bar: share },
+                  { k: "Customers lost", v: numbers.companies ? `${full(numbers.lost ?? 0)} of ${full(numbers.companies)}` : "–", sub: "signed-in customers who opened it and did not order", tone: numbers.lost ? RED : undefined },
+                  { k: "Most stopped at", v: numbers.topLoss ?? "–", sub: "their furthest step on the page" },
+                ];
+                return cells.map((c, i) => (
+                  <Box key={c.k} sx={{ px: { xs: 2, md: 2.5 }, py: 1.4, borderLeft: { xs: i % 2 ? `1px solid ${HAIRLINE}` : "none", md: i ? `1px solid ${HAIRLINE}` : "none" }, borderTop: { xs: i > 1 ? `1px solid ${HAIRLINE}` : "none", md: "none" }, minWidth: 0 }}>
+                    <Typography sx={{ fontSize: "0.68rem", color: MUTED, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>{c.k}</Typography>
+                    <Typography sx={{ fontSize: "1.35rem", fontWeight: 700, color: c.tone ?? INK, lineHeight: 1.25, fontVariantNumeric: "tabular-nums", ...clip(9999) }}>{c.v}</Typography>
+                    {c.bar != null && (
+                      <Box sx={{ height: 5, borderRadius: "2px", bgcolor: "rgba(21,34,58,.08)", overflow: "hidden", my: 0.5 }}>
+                        <Box sx={{ width: `${Math.max(2, c.bar * 100)}%`, height: "100%", bgcolor: c.tone ?? ACCENT }} />
+                      </Box>
+                    )}
+                    <Typography sx={{ fontSize: "0.72rem", color: MUTED, lineHeight: 1.35 }}>{c.sub}</Typography>
+                  </Box>
+                ));
+              })()}
+            </Box>
+          ) : (
+            <Box sx={{ px: { xs: 2, md: 2.5 }, py: 1.25, borderTop: `1px solid ${HAIRLINE}`, display: "flex", gap: 0.75, alignItems: "center" }}>
+              <InsightsOutlinedIcon sx={{ fontSize: 16, color: MUTED }} />
+              <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{prob.result === null ? "Reading its numbers…" : "Not on Insights in this period - few views or customers, or it sells as expected."}</Typography>
+            </Box>
+          )}
+          {numbers?.reasons?.length ? (
+            <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", px: { xs: 2, md: 2.5 }, py: 1.1, borderTop: `1px solid ${HAIRLINE}`, bgcolor: "rgba(197,34,31,.045)" }}>
+              <ErrorOutlineIcon sx={{ fontSize: 17, color: RED, mt: "1px" }} />
+              <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.4 }}>{numbers.reasons.join(" · ")}</Typography>
+            </Box>
+          ) : null}
         </GlassCard>
 
         {pg.status !== 200 && <Notice tone="bad">{pg.error ? `The shop did not answer: ${pg.error}` : `The shop answered ${pg.status} for this page.`}</Notice>}
@@ -721,7 +778,7 @@ function ConvertPreview() {
           </Notice>
         )}
 
-        <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: "minmax(0,1fr)", alignItems: "start" }}>
+        <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "minmax(0,1fr)", xl: version && view === "both" ? "minmax(0,1fr)" : "minmax(0,1fr) 440px" }, alignItems: "start" }}>
           {/* the preview */}
           <GlassCard sx={{ p: { xs: 1.5, md: 2 } }}>
             <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap", mb: 1.5 }}>
@@ -730,6 +787,12 @@ function ConvertPreview() {
               <SquareChoice<Device> label="On" value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "phone", label: "Phone" }]} />
               {device === "desktop" && <SquareChoice<Zoom> label="Size" value={zoom} onChange={setZoom} options={[{ key: "fit", label: "Fit" }, { key: "full", label: "Actual size" }]} />}
               <Box sx={{ flex: 1 }} />
+              {ideas.some((i) => i.target && i.status !== "dropped") && (
+                <Tooltip title="Each idea's block marked on the page with its number - point at an idea to see its block">
+                  <Button size="small" variant={showSpots ? "contained" : "outlined"} disableElevation onClick={() => setShowSpots((x) => !x)} startIcon={<TipsAndUpdatesOutlinedIcon sx={{ fontSize: 17 }} />}
+                    sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{showSpots ? "Ideas on the page" : "Show the ideas on the page"}</Button>
+                </Tooltip>
+              )}
               {version && (
                 <Button size="small" variant={marks ? "contained" : "outlined"} disableElevation onClick={() => setMarks((x) => !x)} startIcon={<HighlightAltOutlinedIcon sx={{ fontSize: 17 }} />}
                   sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{marks ? "Changes shown" : "Show the changes"}</Button>
@@ -764,7 +827,7 @@ function ConvertPreview() {
             )}
             {pg.status === 200 && (
               <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: version && view === "both" ? { xs: "minmax(0,1fr)", md: "minmax(0,1fr) minmax(0,1fr)" } : "minmax(0,1fr)" }}>
-                {(!version || view !== "version") && <Frame src={base} device={device} zoom={zoom} name="original" sync={sync} pick={pick} marks={false} address={pg.url ?? path} label={version ? "Original" : "The page"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
+                {(!version || view !== "version") && <Frame src={base} device={device} zoom={zoom} name="original" sync={sync} pick={pick} marks={false} spots={spots} address={pg.url ?? path} label={version ? "Original" : "The page"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
                 {version && view !== "original" && <Frame src={vSrc} device={device} zoom={zoom} name="version" sync={sync} pick={pick} marks={marks} address={pg.url ?? path} label={`Version · rev ${rev ?? version.rev}`} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
               </Box>
             )}
@@ -774,7 +837,12 @@ function ConvertPreview() {
           </GlassCard>
 
           {/* the version and the ideas */}
-          <Box sx={{ display: "grid", gap: 2.5, minWidth: 0, gridTemplateColumns: { xs: "minmax(0,1fr)", lg: version ? "minmax(0,1fr) minmax(0,1fr)" : "minmax(0,1fr)" }, alignItems: "start" }}>
+          <Box sx={{
+            display: "grid", gap: 2.5, minWidth: 0, alignItems: "start",
+            gridTemplateColumns: { xs: "minmax(0,1fr)", lg: version && view === "both" ? "minmax(0,1fr) minmax(0,1fr)" : "minmax(0,1fr)" },
+            // beside the page: stays in view while the page scrolls
+            ...(version && view === "both" ? {} : { position: { xl: "sticky" }, top: { xl: 16 }, maxHeight: { xl: "calc(100vh - 32px)" }, overflowY: { xl: "auto" }, pr: { xl: 0.5 } }),
+          }}>
             {version && idea && (
               <VersionCard version={version} idea={idea} hit={hit} canEdit={data.canEdit} busy={busy === `build:${idea.id}`} rev={rev} prefill={prefill} onRev={setRev}
                 onAsk={(request) => act(`build:${idea.id}`, { action: "build", ideaId: idea.id, request })}
@@ -790,6 +858,19 @@ function ConvertPreview() {
               <CardTitle icon={<TipsAndUpdatesOutlinedIcon />} tint="amber" title={`Ideas · ${ideas.filter((i) => i.status !== "dropped").length}`}
                 note={counts.proposed ? `${counts.proposed} waiting for a yes or no` : "Approve one and the AI writes its version"} />
               <Box sx={{ display: "grid", gap: 1.25, mt: 1.5 }}>
+                {data.analysis && (
+                  <Box sx={{ p: 1.25, borderRadius: "10px", borderLeft: "3px solid #6a46c9", bgcolor: "rgba(106,70,201,.06)" }}>
+                    <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: "#6a46c9", textTransform: "uppercase", letterSpacing: ".06em" }}>The AI&apos;s reading of the page</Typography>
+                    <Typography sx={{ fontSize: "0.84rem", color: INK, lineHeight: 1.45, mt: 0.25 }}>{data.analysis.text}</Typography>
+                    <Typography sx={{ fontSize: "0.7rem", color: MUTED, mt: 0.5 }}>{since(data.analysis.at)}</Typography>
+                  </Box>
+                )}
+                {busy === "ideas" && !ideas.length && (
+                  <Box sx={{ display: "flex", gap: 1, alignItems: "center", p: 1.25, borderRadius: "10px", bgcolor: "rgba(36,89,209,.06)" }}>
+                    <CircularProgress size={16} />
+                    <Typography sx={{ fontSize: "0.84rem", color: INK }}>The AI is reading the page and its numbers - its ideas come in about half a minute, the strongest first.</Typography>
+                  </Box>
+                )}
                 {data.canEdit && (
                   <Button variant={ideas.length ? "outlined" : "contained"} disableElevation disabled={!data.ai || busy === "ideas" || pg.status !== 200} onClick={() => void act("ideas", { action: "ideas", env, path, numbers })}
                     startIcon={busy === "ideas" ? <CircularProgress size={14} /> : <TipsAndUpdatesOutlinedIcon sx={{ fontSize: 17 }} />}>
@@ -798,11 +879,15 @@ function ConvertPreview() {
                 )}
                 {!data.ai && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No AI key on this hub - ideas can be added by hand.</Typography>}
                 {ideas.length === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No idea for this page yet.</Typography>}
-                {[...ideas].sort((x, y) => (x.status === "dropped" ? 1 : 0) - (y.status === "dropped" ? 1 : 0) || (iceScore(y) ?? -1) - (iceScore(x) ?? -1)).map((i) => (
-                  <IdeaCard key={i.id} idea={i} version={versionOf.get(i.id) ?? null} selected={idea?.id === i.id} canEdit={data.canEdit} busy={busy === `build:${i.id}`}
+                {ranked.map((i) => (
+                  <Box key={i.id} data-idea-n={numberOf.get(i.id) ?? ""}>
+                  <IdeaCard idea={i} version={versionOf.get(i.id) ?? null} selected={idea?.id === i.id} canEdit={data.canEdit} busy={busy === `build:${i.id}`}
+                    n={numberOf.get(i.id)} lead={numberOf.get(i.id) === 1 && i.source === "ai"} focused={spotFocus !== null && spotFocus === numberOf.get(i.id)}
+                    onPoint={(on) => { const k = numberOf.get(i.id); if (k !== undefined && i.target) setSpotFocus(on ? k : null); }}
                     onSelect={() => go(env, path, i.id)}
                     onStatus={(s) => void act(`i:${i.id}`, { action: "idea", id: i.id, status: s })}
                     onBuild={() => { go(env, path, i.id); void act(`build:${i.id}`, { action: "build", ideaId: i.id }); }} />
+                  </Box>
                 ))}
                 {data.canEdit && <OwnIdea onAdd={(title, change) => act("add", { action: "add", env, path, title, change, numbers })} />}
               </Box>
