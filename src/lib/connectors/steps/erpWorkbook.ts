@@ -168,7 +168,7 @@ const local = (n: string) => {
 };
 
 /** Stream one XML part through saxes; `between` runs between chunks (beats). */
-async function parseXml(file: string, e: ZipEntry, h: Handlers, between?: () => Promise<void>): Promise<void> {
+async function parseXml(file: string, e: ZipEntry, h: Handlers, between?: () => Promise<void>, until?: () => boolean): Promise<void> {
   const p = new SaxesParser({ xmlns: false, position: false });
   p.on("opentag", (t) => h.open(local(t.name), t.attributes as Record<string, string>));
   p.on("text", (t) => h.text(t));
@@ -177,6 +177,7 @@ async function parseXml(file: string, e: ZipEntry, h: Handlers, between?: () => 
   try {
     for await (const chunk of await entryText(file, e)) {
       p.write(chunk as string);
+      if (until?.()) return; // enough read: the loop's exit closes the stream, the half-read tags are never checked
       if (between) await between();
     }
     p.close();
@@ -331,7 +332,7 @@ function excelDate(x: number): Cell {
 type Sink = (n: number, cells: Cell[]) => void;
 
 /** One sheet as openpyxl's read-only iter_rows gives it: rows in order, padded to the dimension, data rows cut at it. */
-async function readSheet(file: string, e: ZipEntry, book: Book, sink: Sink, beat?: () => Promise<void>): Promise<number> {
+async function readSheet(file: string, e: ZipEntry, book: Book, sink: Sink, beat?: () => Promise<void>, stopWhen?: () => boolean): Promise<number> {
   let dims: { maxCol: number | null; maxRow: number | null } | null = null;
   let seenData = false, inData = false, inRow = false, inCell = false, stopped = false;
   let rowNo = 0, colCounter = 0, last = 0, rows = 0, beatAt = 0;
@@ -466,6 +467,7 @@ async function readSheet(file: string, e: ZipEntry, book: Book, sink: Sink, beat
           for (let i = 0; i < pairs.length; i++) if (pairs[i] >= 1 && pairs[i] <= width) cells[pairs[i] - 1] = vals[i];
           sink(rowNo, cells);
           rows += 1;
+          if (stopWhen?.()) stopped = true;
           break;
         }
         case "sheetData":
@@ -478,8 +480,28 @@ async function readSheet(file: string, e: ZipEntry, book: Book, sink: Sink, beat
       beatAt = rows;
       await beat();
     }
-  } : undefined);
+  } : undefined, () => stopped);
   return rows;
+}
+
+/* -- the BI sheets, recognised by their columns -------------------------- */
+
+export type KpiKind = "lines" | "invoices" | "articles" | "suppliers";
+const headName = (c: Cell) => String(c instanceof Date ? "" : c ?? "").replace(/^\[|\]$/g, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+/** A row's column names -> which BI sheet it heads (each reader's own header test), or null. */
+export function kpiKindOf(cells: Cell[]): KpiKind | null {
+  const n = new Set(cells.map(headName));
+  if (n.has("pricesource") && n.has("shippingdateinitial")) return "lines";
+  if (n.has("invoicenumber") && n.has("invoicedate")) return "invoices";
+  if (n.has("suppliernumber") && n.has("suppliername")) return "suppliers";
+  if (n.has("article") && n.has("gwstdpchf")) return "articles";
+  return null;
+}
+/** The first 30 rows of a sheet tell what it is (the rest is never read here). */
+async function sheetKind(file: string, e: ZipEntry, book: Book): Promise<KpiKind | null> {
+  let kind: KpiKind | null = null, seen = 0;
+  await readSheet(file, e, book, (_n, cells) => { kind ??= kpiKindOf(cells); }, undefined, () => kind !== null || ++seen >= 30);
+  return kind;
 }
 
 /* ── the morning workbook ──────────────────────────────────────────────── */
@@ -499,6 +521,8 @@ export type ErpWorkbook = {
   /** the ERP's articles from its BI model (sheet "KPI ARTICLES", ./productFactsRules.ts): article -> its packed facts,
    *  only those `keepArticle` names - null without the sheet */
   articles: Map<string, string> | null;
+  /** which sheet was read as what - by its name ("KPI LINES" ...) or, named otherwise ("Query1"), by its columns */
+  kpiSheets: { lines: string | null; invoices: string[]; articles: string | null; suppliers: string | null };
   rows: number;
   seconds: number;
 };
@@ -514,7 +538,11 @@ export async function sheetNamesOf(file: string): Promise<string[]> {
   return names;
 }
 
-export async function readErpWorkbook(file: string, beat?: () => Promise<void>, opts: { keepArticle?: (article: string) => boolean } = {}): Promise<ErpWorkbook> {
+export async function readErpWorkbook(file: string, beat?: () => Promise<void>, opts: {
+  keepArticle?: (article: string) => boolean;
+  /** asked only when the workbook carries an articles sheet (HubSpot's articles are copied for it - ~2,300 calls a week) */
+  articleFilter?: () => Promise<(article: string) => boolean>;
+} = {}): Promise<ErpWorkbook> {
   const t0 = Date.now();
   const entries = await assertXlsx(file);
   const { size } = await stat(file);
@@ -539,37 +567,54 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>, 
     rows += await readSheet(file, e4, book, (n, cells) => f4.feed(n, cells), beat);
     profitCentres = f4.finish();
   }
+  // the BI sheets: by their name ("KPI LINES", "KPI INVOICES...", "KPI ARTICLES", "KPI SUPPLIERS"), else by their columns -
+  // the queries land as "Query1".."Query4" and stay so (SARCLA 08.11.2026: "I don't want to rename, the hub can detect it")
+  const up = (x: { name: string }) => x.name.trim().toUpperCase();
+  const kpi: ErpWorkbook["kpiSheets"] = {
+    lines: book.sheets.find((x) => up(x) === SHEET_ERP_LINES)?.name ?? null,
+    invoices: book.sheets.filter((x) => up(x).startsWith(SHEET_INVOICES)).map((x) => x.name),
+    articles: book.sheets.find((x) => up(x) === SHEET_ARTICLES)?.name ?? null,
+    suppliers: book.sheets.find((x) => up(x) === SHEET_SUPPLIERS)?.name ?? null,
+  };
+  for (const x of book.sheets) {
+    if (/^FIGURES\b/.test(up(x)) || up(x).startsWith("KPI ")) continue;
+    let kind: KpiKind | null = null;
+    // a sheet that cannot be read (a chart, a broken part) is no BI sheet - never the revenue's problem
+    try { const e = part(x.name); if (e) kind = await sheetKind(file, e, book); } catch { kind = null; }
+    if (kind === "lines") kpi.lines ??= x.name;
+    else if (kind === "invoices") kpi.invoices.push(x.name);
+    else if (kind === "articles") kpi.articles ??= x.name;
+    else if (kind === "suppliers") kpi.suppliers ??= x.name;
+  }
   // the order lines for the Back Office's KPIs: optional, and never the revenue's problem
   let erpLines: { lines: ErpLine[]; rows: number } | null = null;
-  const lt = book.sheets.find((x) => x.name.trim().toUpperCase() === SHEET_ERP_LINES);
-  if (lt) {
+  if (kpi.lines) {
     const sl = new ErpLinesSheet();
-    rows += await readSheet(file, part(lt.name)!, book, (n, cells) => sl.feed(n, cells), beat);
+    rows += await readSheet(file, part(kpi.lines)!, book, (n, cells) => sl.feed(n, cells), beat);
     erpLines = sl.finish();
   }
-  // the invoices: "KPI INVOICES", and any sheet whose name starts so ("KPI INVOICES 2020-2022") - the history from 2020 can
-  // pass Excel's 1,048,576 rows a sheet, so it may come split by years (SARCLA 08.11.2026: "correct all years")
+  // the invoices: every invoices sheet - the history from 2020 can pass Excel's 1,048,576 rows a sheet, so it may come
+  // split by years (SARCLA 08.11.2026: "correct all years")
   let invoices: InvoiceRow[] | null = null;
-  for (const it of book.sheets.filter((x) => x.name.trim().toUpperCase().startsWith(SHEET_INVOICES))) {
+  for (const name of kpi.invoices) {
     const si = new InvoicesSheet();
-    rows += await readSheet(file, part(it.name)!, book, (n, cells) => si.feed(n, cells), beat);
+    rows += await readSheet(file, part(name)!, book, (n, cells) => si.feed(n, cells), beat);
     const got = si.finish();
     if (got) invoices = invoices ? invoices.concat(got) : got;
   }
   let articles: Map<string, string> | null = null;
-  const at = book.sheets.find((x) => x.name.trim().toUpperCase() === SHEET_ARTICLES);
-  if (at) {
+  if (kpi.articles) {
     // the supplier list first: the articles carry only their lead supplier's number
     let suppliers: Map<string, string> | null = null;
-    const su = book.sheets.find((x) => x.name.trim().toUpperCase() === SHEET_SUPPLIERS);
-    if (su) {
+    if (kpi.suppliers) {
       const ss = new SuppliersSheet();
-      rows += await readSheet(file, part(su.name)!, book, (n, cells) => ss.feed(n, cells), beat);
+      rows += await readSheet(file, part(kpi.suppliers)!, book, (n, cells) => ss.feed(n, cells), beat);
       suppliers = ss.finish();
     }
-    const sa = new ArticlesSheet(opts.keepArticle ?? (() => false), suppliers);
-    rows += await readSheet(file, part(at.name)!, book, (n, cells) => sa.feed(n, cells), beat);
+    const keep = opts.articleFilter ? await opts.articleFilter() : opts.keepArticle ?? (() => false);
+    const sa = new ArticlesSheet(keep, suppliers);
+    rows += await readSheet(file, part(kpi.articles)!, book, (n, cells) => sa.feed(n, cells), beat);
     articles = sa.finish();
   }
-  return { file: basename(file), mb: pyRound(size / 1048576, 1), sheets: names, customers, profitCentres, erpLines, invoices, articles, rows, seconds: Math.round((Date.now() - t0) / 100) / 10 };
+  return { file: basename(file), mb: pyRound(size / 1048576, 1), sheets: names, customers, profitCentres, erpLines, invoices, articles, kpiSheets: kpi, rows, seconds: Math.round((Date.now() - t0) / 100) / 10 };
 }

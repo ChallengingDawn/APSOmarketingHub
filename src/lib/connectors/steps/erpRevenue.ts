@@ -30,13 +30,12 @@ import {
   COMPANY_PROPS, KPI_CATEGORIES, KPI_PROPS, METRIC_NAMES, REALIGN_CATEGORY, customerPlan, planErp, realignTargets,
   type CompanyValues, type FoundCompany, type KpiProps, type KpiRows,
 } from "./erpRules";
-import { readErpWorkbook, sheetNamesOf } from "./erpWorkbook";
+import { readErpWorkbook } from "./erpWorkbook";
 import { SHEET_ERP_LINES } from "../../reporting/boErpLines";
 import { saveErpLines } from "@/lib/reporting/boErpLinesStore";
 import { SHEET_INVOICES, invoiceFacts, lineFacts } from "./orderFactsRules";
 import { saveErpFacts } from "./orderFactsStore";
 import { loadProductIds, productFactsRun } from "./productFacts";
-import { SHEET_ARTICLES } from "./productFactsRules";
 
 type Beat = () => Promise<void>;
 type Obj = { id: string; properties?: Record<string, string | null | undefined> };
@@ -251,17 +250,22 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
   const year = Number(today.slice(0, 4));
 
   // the whole file first: a layout change or a wrong file stops the run before HubSpot
-  // HubSpot's articles first, when the workbook carries KPI ARTICLES: the sheet keeps only those (~227,000 of ~860,000)
+  // HubSpot's articles, read only once the workbook shows an articles sheet (by name or by its columns): the sheet keeps
+  // only those (~227,000 of ~860,000)
   let productIds: Awaited<ReturnType<typeof loadProductIds>> | null = null, productIdsError = "";
-  const carriesArticles = (await sheetNamesOf(opts.file).catch(() => [] as string[])).some((s) => s.trim().toUpperCase() === SHEET_ARTICLES);
-  if (carriesArticles) productIds = await loadProductIds(beat).catch((e) => { productIdsError = String((e as Error)?.message ?? e); return null; });
-  const ids = productIds?.ids;
-  const wb = await readErpWorkbook(opts.file, beat, { keepArticle: ids ? (a) => ids.has(a) : () => false });
+  const wb = await readErpWorkbook(opts.file, beat, {
+    articleFilter: async () => {
+      productIds = await loadProductIds(beat).catch((e) => { productIdsError = String((e as Error)?.message ?? e); return null; });
+      const ids = productIds?.ids;
+      return ids ? (a) => ids.has(a) : () => false;
+    },
+  });
+  const carriesArticles = !!wb.kpiSheets.articles;
   const data = wb.customers.customers;
   const { month, rows } = customerPlan(data);
   const out: StepResult = {
     file: wb.file, mb: wb.mb, sheets: wb.sheets, rows_read: wb.rows, read_seconds: wb.seconds,
-    customers: data.size, month, pivots: wb.customers.pivots, dry_run: !live,
+    customers: data.size, month, pivots: wb.customers.pivots, dry_run: !live, kpi_sheets: wb.kpiSheets,
   };
   if (!data.size) throw new Error(`${wb.file}: no customer carries a figure - an empty or unfinished export, nothing written`);
   // the Back Office's KPIs from the "KPI LINES" sheet (pass rate, manual prices, OTD) - kept before HubSpot, never its problem
@@ -284,8 +288,10 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
     }
   } else out.order_facts = wb.sheets.some((s) => s.trim().toUpperCase().startsWith(SHEET_INVOICES)) ? "KPI INVOICES without the expected header" : "no KPI LINES or KPI INVOICES sheet";
   // the products' ERP fields (GWStdP, stock value, material ... - ./productFactsRules.ts): counted, and written once switched on
-  if (wb.articles && productIds) {
-    try { out.product_facts = { ...(await productFactsRun(wb.articles, productIds, live, beat)), hubspot_articles_copied: productIds.refreshed }; }
+  // (set inside the reader's callback - read back through a cast, TypeScript cannot follow the assignment there)
+  const copy = productIds as Awaited<ReturnType<typeof loadProductIds>> | null;
+  if (wb.articles && copy) {
+    try { out.product_facts = { ...(await productFactsRun(wb.articles, copy, live, beat)), hubspot_articles_copied: copy.refreshed }; }
     catch (e) { out.product_facts = `not run: ${(e as Error).message}`; }
   } else if (carriesArticles) out.product_facts = `not run: HubSpot's articles could not be read - ${productIdsError || "no article sheet"}`;
   await beat();
