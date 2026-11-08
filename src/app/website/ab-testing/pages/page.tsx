@@ -258,6 +258,9 @@ export default function PageTests() {
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
+            {base.startsWith("/website/ai-personalization") && (
+              <Button variant="contained" disableElevation size="small" onClick={() => router.push("/website/ai-personalization/tests/new")} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>Create an optimization</Button>
+            )}
             <Tooltip title="Ask again"><IconButton size="small" onClick={() => setTick((x) => x + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
           </Box>
         }
