@@ -41,7 +41,7 @@ import { IntegrationError } from "@/lib/integrations/status";
 import { requestCollector, saveErpRequests } from "@/lib/certificates/erpData";
 import { deliveryCollector } from "@/lib/reporting/boDelivery";
 import { saveDelivery, zurichToday } from "@/lib/reporting/boDeliveryStore";
-import { ORDER_FACTS_LIVE, dimFactsOf, factsFor, factsHash, packDim, unpackDim } from "./orderFactsRules";
+import { ORDER_FACTS_LIVE, compareWithHubSpot, dimFactsOf, factsFor, factsHash, packDim, unpackDim, type Facts } from "./orderFactsRules";
 import { loadErpFacts, loadWritten, saveWritten } from "./orderFactsStore";
 import { stat } from "node:fs/promises";
 import { addPending, knownArticles } from "../articleIds";
@@ -497,7 +497,15 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
   const counts = { titles: 0, shipment_dates: 0, statuses: 0 };
   // the order facts: what the sheets gave and what was written - a table that cannot be read leaves them out tonight
   const fx = await Promise.all([loadErpFacts(), loadWritten()]).catch((e) => { console.warn(`[connectors] order_sync: order facts left out - ${String((e as Error)?.message ?? e)}`); return null; });
-  const facts = { live: ORDER_FACTS_LIVE, orders_from_file: dimFacts.size, with_facts: 0, to_write: 0, written: 0, by_property: {} as Record<string, number>, examples: [] as Record<string, string>[] };
+  const facts: {
+    live: boolean; orders_from_file: number; with_facts: number; to_write: number; written: number; by_property: Record<string, number>;
+    examples: Record<string, string>[]; left_for_next_nights?: number; compare_sample?: unknown;
+  } = { live: ORDER_FACTS_LIVE, orders_from_file: dimFacts.size, with_facts: 0, to_write: 0, written: 0, by_property: {}, examples: [] };
+  // the first night after the history (2020 on) writes at most FACTS_PER_NIGHT orders, the rest the nights after (their hash
+  // is kept only once written); a sample of the orders to write is read back from HubSpot, to show what would change
+  const FACTS_PER_NIGHT = 60_000, COMPARE = 400;
+  let factsMerged = 0;
+  const compare: { id: string; order: string; f: Facts }[] = [];
   const curHash = new Map<string, string>();
   const samples: string[] = [];
   let persons = 0, queued = 0, done = 0, err = 0, gone = 0;
@@ -542,7 +550,9 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
             facts.to_write += 1;
             for (const k of keys) facts.by_property[k] = (facts.by_property[k] ?? 0) + 1;
             if (facts.examples.length < 5) { const { order_your_reference: _r, order_customer_order_nr: _c, ...shown } = f; facts.examples.push({ order: row.num, ...shown }); }
-            if (ORDER_FACTS_LIVE) { props = { ...(props ?? {}), ...f }; curHash.set(row.id, h); }
+            if (compare.length < COMPARE) compare.push({ id: row.id, order: row.num, f });
+            else { const j = Math.floor(Math.random() * facts.to_write); if (j < COMPARE) compare[j] = { id: row.id, order: row.num, f }; }
+            if (ORDER_FACTS_LIVE && factsMerged < FACTS_PER_NIGHT) { props = { ...(props ?? {}), ...f }; curHash.set(row.id, h); factsMerged += 1; }
           }
         }
       }
@@ -559,6 +569,23 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
     await tick();
   }
   await flush();
+  if (ORDER_FACTS_LIVE && facts.to_write > factsMerged) facts.left_for_next_nights = facts.to_write - factsMerged;
+  if (compare.length) {
+    try {
+      const keys = [...new Set(compare.flatMap((c) => Object.keys(c.f)))];
+      const items: { order: string; facts: Facts; current: Record<string, string | null | undefined> }[] = [];
+      for (let i = 0; i < compare.length; i += 100) {
+        const part = compare.slice(i, i + 100);
+        const j = await hs<{ results?: { id: string | number; properties?: Record<string, string | null> }[] }>({
+          path: "/crm/v3/objects/orders/batch/read", method: "POST", body: { inputs: part.map((c) => ({ id: c.id })), properties: keys },
+        });
+        const now = new Map((j.results ?? []).map((o) => [String(o.id), o.properties ?? {}]));
+        for (const c of part) { const cur = now.get(c.id); if (cur) items.push({ order: c.order, facts: c.f, current: cur }); }
+        await tick();
+      }
+      facts.compare_sample = { orders: items.length, ...compareWithHubSpot(items) };
+    } catch (e) { facts.compare_sample = `not read: ${String((e as Error)?.message ?? e).slice(0, 160)}`; }
+  }
   return {
     orders_in_snapshot: await deps.store.snapCount(), snapshot: refreshed.how, erp_orders: targets.size, with_person: persons,
     to_update: queued, ...counts, updated: done, errors: err, deleted_dropped: gone, ...(errors.length ? { error_samples: errors } : {}),
