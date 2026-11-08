@@ -39,6 +39,11 @@ export type NewsletterDoc = {
   layout?: string;
   /** What happened in HubSpot - set by the server action, shown in the studio. */
   hubspot?: { emailId?: string; url?: string; state?: string; at?: string };
+  /** The HubSpot e-mail it started from - its look is what a HubSpot draft copies (SARCLA 08.11.2026: "look at the
+   *  latest we sent"). */
+  startedFrom?: { emailId: string; subject: string; language: string; date: string };
+  /** Our e-mails the assistant writes like (picked in "Our e-mails"; "we should be able to select more"). */
+  learnFrom?: { emailId: string; subject: string }[];
 };
 
 export const SUBJECT_MAX = 55;
@@ -166,6 +171,8 @@ export function asNewsletter(doc: unknown): NewsletterDoc {
     blocks: Array.isArray(d.blocks) ? (d.blocks.filter((b) => isObj(b) && typeof b.kind === "string" && typeof b.id === "string" && b.kind in BLOCK_LABEL) as Block[]) : base.blocks,
     layout: typeof d.layout === "string" ? d.layout : Array.isArray(d.blocks) ? undefined : base.layout,
     hubspot: isObj(d.hubspot) ? (d.hubspot as NewsletterDoc["hubspot"]) : undefined,
+    startedFrom: isObj(d.startedFrom) && typeof d.startedFrom.emailId === "string" ? (d.startedFrom as NewsletterDoc["startedFrom"]) : undefined,
+    learnFrom: Array.isArray(d.learnFrom) ? (d.learnFrom.filter((x) => isObj(x) && typeof x.emailId === "string").slice(0, 8) as NewsletterDoc["learnFrom"]) : undefined,
   };
 }
 

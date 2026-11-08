@@ -36,6 +36,7 @@ import type { StudioProps } from "../../registry";
 import { setDocSafely } from "../blog/safeSet";
 import { BLUE, Frame, toolBtn, useSettled, type Device } from "../blog/ui";
 import { BuildPane } from "./Blocks";
+import { OurEmails, type Learned } from "./OurEmails";
 
 const LANGS: { key: string; label: string }[] = [{ key: "DE", label: "German" }, { key: "FR", label: "French" }, { key: "IT", label: "Italian" }, { key: "EN", label: "English" }, { key: "NL", label: "Dutch" }, { key: "PL", label: "Polish" }];
 
@@ -75,7 +76,8 @@ export default function Studio({ api }: StudioProps) {
   const [view, setView] = useState<"email" | "inbox">("email");
   const [device, setDevice] = useState<Device>("desktop");
   const [subjects, setSubjects] = useState<{ subject: string; preheader: string; why: string }[] | null>(null);
-  const [learned, setLearned] = useState<{ from: string; newsletters?: { subject: string; date: string; opens: string; clicks: string }[]; why?: string } | null>(null);
+  const [learned, setLearned] = useState<Learned | null>(null);
+  const [ours, setOurs] = useState(false);
   const [changes, setChanges] = useState<Change[]>([]);
   const [scope, setScope] = useState<"block" | "all">("block");
   const [lang, setLang] = useState(() => (d.language.toUpperCase() === "EN" ? "DE" : "EN"));
@@ -125,7 +127,8 @@ export default function Studio({ api }: StudioProps) {
     if (open) doc.querySelector(`[data-block="${CSS.escape(open)}"]`)?.classList.add("sel");
   }, [open, html]);
 
-  const learnedText = learned?.newsletters?.map((n) => `${n.subject} - ${n.opens} - ${n.clicks}`).join("\n") ?? "";
+  // what the assistant knows of our e-mails: subject and figures - and, for the ones picked, their words
+  const learnedText = (learned?.newsletters?.map((n) => `${n.subject} - ${n.opens} - ${n.clicks}${n.words ? `\n${n.words}` : ""}`).join("\n\n") ?? "").slice(0, 3000);
 
   const draft = async (request: string): Promise<string | null> => {
     const r = await api.ai<DraftAnswer>("draft", { learned: learnedText, request });
@@ -246,23 +249,28 @@ export default function Studio({ api }: StudioProps) {
       )}
 
       <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-        <Label mt={0}>Learn from our last newsletters</Label>
-        {!learned && (
-          <Button fullWidth size="small" disabled={!canEdit} sx={{ ...toolBtn, height: 34 }} onClick={async () => { const r = await api.act<typeof learned>("learn"); if (r.ok) setLearned(r.result); else setNote(r.error); }}>
-            What our last newsletters did
-          </Button>
+        <Label mt={0}>Our e-mails</Label>
+        {d.startedFrom && (
+          <Typography sx={{ fontSize: "0.8rem", color: INK, mb: 0.75 }}>
+            Started from <b>“{d.startedFrom.subject}”</b>{d.startedFrom.date ? ` (${d.startedFrom.date})` : ""} - its look is the one a HubSpot draft copies.
+          </Typography>
         )}
-        {learned && (
-          <>
-            {learned.newsletters?.map((n, i) => (
+        {learned?.newsletters && learned.newsletters.length > 0 && (
+          <Box sx={{ mb: 1 }}>
+            <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 0.5 }}>{learned.picked ? "The assistant writes like these:" : "Our last ones, and how they did:"}</Typography>
+            {learned.newsletters.map((n, i) => (
               <Box key={i} sx={{ display: "flex", gap: 1, fontSize: "0.8rem", py: 0.5, borderBottom: `1px solid ${HAIRLINE}` }}>
                 <Box sx={{ flex: 1, minWidth: 0, color: INK }}>{n.subject}</Box><Box sx={{ color: MUTED, whiteSpace: "nowrap" }}>{n.opens} · {n.clicks}</Box>
               </Box>
             ))}
-            {learned.from !== "hubspot" && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>HubSpot did not let the hub read them ({learned.why}). The assistant writes from our two best letters in the brand brain meanwhile.</Typography>}
-            {learned.from === "hubspot" && <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.75 }}>The assistant now writes with these in mind.</Typography>}
-          </>
+          </Box>
         )}
+        {learned && learned.from !== "hubspot" && <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 1 }}>HubSpot did not let the hub read them ({learned.why}). The assistant writes from our two best letters in the brand brain meanwhile.</Typography>}
+        <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
+          <Button size="small" variant="outlined" disabled={!canEdit} onClick={() => setOurs(true)} sx={{ ...toolBtn, height: 34 }}>Look at them</Button>
+          <Button size="small" variant="outlined" disabled={!canEdit} sx={{ ...toolBtn, height: 34 }}
+            onClick={async () => { const r = await api.act<Learned>("learn"); if (r.ok) setLearned(r.result); else setNote(r.error); }}>How the last did</Button>
+        </Box>
       </Box>
 
       <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}`, display: "grid", gap: 1 }}>
@@ -308,12 +316,20 @@ export default function Studio({ api }: StudioProps) {
           }}>Send the draft</Button>
         </DialogActions>
       </Dialog>
+      <OurEmails api={api} open={ours} onClose={() => setOurs(false)} language={d.language}
+        onStart={(r) => {
+          if (!blank && !window.confirm(`Start from “${r.subject}”? Its stories, pictures and buttons replace this newsletter's - Undo brings them back.`)) return;
+          void apply({ ...docRef.current, subject: r.subject, preheader: r.preheader, language: r.language || docRef.current.language, blocks: r.blocks as NewsletterDoc["blocks"], startedFrom: r.startedFrom, layout: undefined },
+            `Started from our e-mail “${r.subject}” - its stories, pictures and buttons.`);
+          setOpen(null);
+        }}
+        onLearn={(l, picked) => { setLearned(l); set({ ...docRef.current, learnFrom: picked }); }} />
     </AssistantPanel>
   );
 
   return (
     <StudioPanes id="newsletter" buildWidth={420} assistWidth={340}
-      build={<BuildPane api={api} d={d} set={set} open={open} onOpen={setOpen} issues={issues} blank={blank}
+      build={<BuildPane api={api} d={d} set={set} open={open} onOpen={setOpen} issues={issues} blank={blank} onOurEmails={canEdit ? () => setOurs(true) : undefined}
         onLayout={(key) => void apply(applyTemplate(docRef.current, key), `Layout: ${TEMPLATES.find((t) => t.key === key)?.name ?? key} - the words already written are kept.`)} />}
       preview={preview}
       assist={assist}

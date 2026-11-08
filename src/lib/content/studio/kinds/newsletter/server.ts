@@ -10,6 +10,7 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { readBrain } from "@/lib/brain";
 import { s, type KindDef, type StudioCtx } from "../../contract";
 import { asNewsletter, editable, emptyNewsletter, newsletterText, renderEmail, textFields, PREHEADER_MAX, SUBJECT_MAX } from "./model";
+import { blocksFrom, digestOf, emailParts, ourEmails } from "./hubspotEmails";
 
 const LANGUAGE: Record<string, string> = { DE: "German", FR: "French", IT: "Italian", EN: "English", NL: "Dutch", PL: "Polish" };
 
@@ -130,8 +131,41 @@ a fact's figure (keep the figure, translate only its unit words).`,
     },
   },
   actions: {
-    /** Our last newsletters in HubSpot, when the app may read them; otherwise the gold examples the brain keeps. */
-    learn: async () => {
+    /** Our e-mails in HubSpot, newest first, one group per campaign across its languages - to look at and start from. */
+    ourEmails: async () => {
+      try {
+        return { ok: true, groups: (await ourEmails()).slice(0, 80) };
+      } catch (e) {
+        return { ok: false, why: e instanceof Error ? e.message.slice(0, 240) : "HubSpot did not answer", groups: [] };
+      }
+    },
+    /** One of our e-mails as this studio's blocks - its subject, preheader, stories, pictures and buttons. */
+    fromEmail: async (_ctx, _doc, input) => {
+      const id = s(input.emailId, 24);
+      if (!/^\d+$/.test(id)) return { ok: false, why: "Which e-mail?" };
+      const e = await emailParts(id);
+      const all = await ourEmails().catch(() => [] as Awaited<ReturnType<typeof ourEmails>>);
+      const v = all.flatMap((g) => g.variants).find((x) => x.id === id);
+      return {
+        ok: true, subject: e.subject, preheader: e.preheader, language: e.language, blocks: blocksFrom(e.parts, e.subject),
+        startedFrom: { emailId: e.id, subject: e.subject, language: e.language, date: v?.date ?? "" },
+      };
+    },
+    /** Our last newsletters in HubSpot, when the app may read them; otherwise the gold examples the brain keeps.
+     *  With `emailIds`, the e-mails picked: their words in short, for the assistant to write like them. */
+    learn: async (_ctx, _doc, input) => {
+      const ids = (Array.isArray(input.emailIds) ? input.emailIds : []).map((x) => String(x)).filter((x) => /^\d+$/.test(x)).slice(0, 4);
+      if (ids.length) {
+        const all = await ourEmails().catch(() => [] as Awaited<ReturnType<typeof ourEmails>>);
+        const variants = all.flatMap((g) => g.variants);
+        const read = await Promise.all(ids.map((id) => emailParts(id).catch(() => null)));
+        const pct = (n: number | null) => (n === null ? "not tracked" : `${Math.round(n * 100)}%`);
+        const newsletters = read.filter((x): x is NonNullable<typeof x> => !!x).map((e) => {
+          const v = variants.find((x) => x.id === e.id);
+          return { subject: e.subject, date: v?.date ?? "", opens: pct(v?.openRate ?? null), clicks: pct(v?.clickRate ?? null), words: digestOf(e, 700) };
+        });
+        return { from: "hubspot", picked: true, newsletters };
+      }
       try {
         const j = await hubspotFetchJson<{ results?: { name?: string; subject?: string; publishDate?: string; stats?: { counters?: { open?: number; click?: number; delivered?: number } } }[] }>({
           path: "/marketing/v3/emails?limit=30&includeStats=true&sort=-publishDate",

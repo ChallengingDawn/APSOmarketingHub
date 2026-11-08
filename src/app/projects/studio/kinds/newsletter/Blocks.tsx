@@ -19,6 +19,7 @@ import AddIcon from "@mui/icons-material/Add";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import DashboardCustomizeOutlinedIcon from "@mui/icons-material/DashboardCustomizeOutlined";
+import MarkEmailReadOutlinedIcon from "@mui/icons-material/MarkEmailReadOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
@@ -230,12 +231,14 @@ function Between({ onAdd, drop, disabled }: { onAdd: (el: HTMLElement) => void; 
   );
 }
 
-export function BuildPane({ api, d, set, open, onOpen, issues, onLayout, blank }: {
+export function BuildPane({ api, d, set, open, onOpen, issues, onLayout, blank, onOurEmails }: {
   api: StudioApi; d: NewsletterDoc; set: (next: NewsletterDoc) => void; open: string | null; onOpen: (id: string | null) => void; issues: Check[];
   /** A layout picked: the studio lays it over the newsletter (with Undo). */
   onLayout: (key: string) => void;
   /** Nothing written yet: the layouts show first. */
   blank?: boolean;
+  /** Our e-mails in HubSpot, to start from one (SARCLA 08.11.2026: "look at the latest we sent"). */
+  onOurEmails?: () => void;
 }) {
   const canEdit = api.data.access.canEdit;
   const where: Where = { projectId: api.data.piece.projectId, pieceId: api.data.piece.id, me: api.data.me };
@@ -271,7 +274,10 @@ export function BuildPane({ api, d, set, open, onOpen, issues, onLayout, blank }
 
   return (
     <Pane title="Build" right={canEdit ? (
-      <Button size="small" startIcon={<DashboardCustomizeOutlinedIcon sx={{ fontSize: 16 }} />} onClick={(e) => setLayouts(e.currentTarget)} sx={toolBtn}>Layouts</Button>
+      <Box sx={{ display: "flex", gap: 0.75 }}>
+        {onOurEmails && <Button size="small" startIcon={<MarkEmailReadOutlinedIcon sx={{ fontSize: 16 }} />} onClick={onOurEmails} sx={toolBtn}>Our e-mails</Button>}
+        <Button size="small" startIcon={<DashboardCustomizeOutlinedIcon sx={{ fontSize: 16 }} />} onClick={(e) => setLayouts(e.currentTarget)} sx={toolBtn}>Layouts</Button>
+      </Box>
     ) : undefined}>
       <Popover open={!!layouts} anchorEl={layouts} onClose={() => setLayouts(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}
         slotProps={{ paper: { sx: { p: 1.5, width: 400, borderRadius: "8px" } } }}>
