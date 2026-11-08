@@ -157,7 +157,7 @@ export function Outline({ api, d, set, sel, onPick, onAddSection, cards }: {
           {AROUND.map((a) => {
             const isOn = around === a.key;
             return (
-              <Tooltip key={a.key} title={a.detail}>
+              <Tooltip key={a.key} title={a.detail} describeChild>
                 <Box component="button" type="button" onClick={() => setAround(isOn ? null : a.key)} sx={{
                   all: "unset", cursor: "pointer", boxSizing: "border-box", textAlign: "center", py: 0.75, px: 0.5, borderRadius: "4px", fontSize: "0.78rem", fontWeight: 600,
                   border: `1px solid ${isOn ? BLUE : HAIRLINE}`, bgcolor: isOn ? BLUE : "#fff", color: isOn ? "#fff" : INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",

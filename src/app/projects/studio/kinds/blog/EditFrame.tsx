@@ -194,7 +194,8 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
       // the new page comes with the next render; should the change make no difference to it, draw it again anyway
       setTimeout(() => { if (stale.current) lay(true); }, 450);
     } else {
-      if (e.swapped) e.el.innerHTML = e.html;
+      // dropped (Esc) or the same words: the part as it was drawn
+      e.el.innerHTML = e.html;
       lay();
     }
   }, [lay]);

@@ -303,8 +303,11 @@ export default function Studio({ api }: StudioProps) {
           return write("");
         },
       },
-      { label: d.faq.length ? "Add a question" : "Questions and answers", run: () => questions(d.faq.length > 0) },
-      { label: "Title and description for Google", run: meta },
+      // with nothing written yet, writing it is the one next step
+      ...(d.sections.length ? [
+        { label: d.faq.length ? "Add a question" : "Questions and answers", run: () => questions(d.faq.length > 0) },
+        { label: "Title and description for Google", run: meta },
+      ] : []),
     ];
     onAsk = (t) => write(t);
     placeholder = d.sections.length ? "Ask for a change to the whole post - e.g. add a section on storage, for buyers rather than engineers" : "What should the post say? Or ask the assistant to write it from the brief";
