@@ -37,7 +37,7 @@ import { shopPass, shopRows, type ShopMode } from "./shopIntake";
 import { INBOX_OWNERS, teamRecipients, type Recipient } from "@/lib/notify/teamRecipients";
 import { DEMO_PROP, MAKER_PROP, demoOf, makerPass, type MakerRow, type MakerSend } from "./makerSend";
 import { AVOR_PROP } from "./makerRules";
-import { avorPass } from "./avorSend";
+import { avorPass, avorPreview } from "./avorSend";
 
 const LOCK = 4_107_260;
 const EVERY_MS = 3 * 60_000;
@@ -53,8 +53,10 @@ const KV = {
 export type Mode = "off" | "preview" | "live";
 /** The mail switches (SARCLA 05.11.2026): the reminders to the owners, the reminder on every other ticket in Remind,
  *  and "❗Back Office Ticket Created" (sent by the way in, boDistribution/intakeRun - steered on its Way in tab). */
-export type Mails = { owner: boolean; team: boolean; created: boolean };
-export const DEFAULT_MAILS: Mails = { owner: true, team: true, created: true };
+// avor = the mail to AVOR from the ticket card (avorSend.ts - SARCLA 08.11.2026: "put also the one sent to AVOR with a
+// toggle"; off = the card shows the mail to write from the ticket, as before)
+export type Mails = { owner: boolean; team: boolean; created: boolean; avor: boolean };
+export const DEFAULT_MAILS: Mails = { owner: true, team: true, created: true, avor: true };
 /** A ticket on hold: the hub leaves it alone until it is released. */
 export type Hold = { by: string; at: string };
 /** teamTo: who also gets the reminder on every other ticket in Remind (its owner always does; when the owner is not a
@@ -176,8 +178,8 @@ async function sendReminder(m: MailName, f: Facts, subject: string, to: Owner | 
 /** Every mail the hub sends for the Back Office (the Mails tab - SARCLA 07.11.2026: "a tab mails so we can see each mail
  *  and preview the design"). The owner's reminders, the reminder on every other ticket in Remind, and the way in's
  *  "❗Back Office Ticket Created" (boDistribution/intakeRun, steered on its Way in tab). */
-export type MailKey = MailName | "team" | "created";
-export const MAIL_KEYS: MailKey[] = ["bo3days", "boToday", "bo48", "bo96", "boWeek", "boRose", "team", "created"];
+export type MailKey = MailName | "team" | "created" | "avor";
+export const MAIL_KEYS: MailKey[] = ["bo3days", "boToday", "bo48", "bo96", "boWeek", "boRose", "team", "created", "avor"];
 export type MailPreview = { key: MailKey; subject: string; html: string; to: string; ticket: { id: string; subject: string | null } | null; note?: string };
 
 /** A mail as it would go out today, on a real ticket - nothing is sent. */
@@ -197,6 +199,10 @@ export async function previewMail(key: MailKey): Promise<MailPreview> {
   if (key === "created") {
     const p = await createdPreview();
     return { key, ...p };
+  }
+  if (key === "avor") {
+    const rows = (await kvGet<MakerRow[]>(KV.makerRows)) ?? [];
+    return { key, ...(await avorPreview(rows.find((r) => r.what === "avor")?.ticketId ?? null)) };
   }
   // the owner's reminders: on an open request - one at that step if there is one, else one with a delivery date
   const open = (await kvGet<OpenTicket[]>(KV.open)) ?? [];
@@ -559,7 +565,7 @@ async function run(): Promise<RunInfo> {
     }
     if (done.size) nextDone[f.id] = [...done];
     if (writing) {
-      const plan = planOf(f, done, now, tm, held, settings.people, remindOffAt, settings.makerSend);
+      const plan = planOf(f, done, now, tm, held, settings.people, remindOffAt, settings.makerSend, settings.mails.avor);
       const text = plan ? JSON.stringify(plan) : "";
       if (plan && text !== (f.plan ?? "")) {
         try { await ensurePlanProp(); await hs(`/crm/v3/objects/tickets/${f.id}`, "PATCH", { properties: { [PLAN_PROP]: text } }); info.plans = (info.plans ?? 0) + 1; }
@@ -589,7 +595,7 @@ async function run(): Promise<RunInfo> {
   }
   // EC 1935/2004: the mails to AVOR queued on the ticket card (avorSend.ts) - AVOR's answer is merged in by the way in
   try {
-    const sent = await avorPass(facts, settings.held, writing);
+    const sent = await avorPass(facts, settings.held, writing, settings.mails.avor);
     info.mailed = (info.mailed ?? 0) + sent.mailed;
     if (sent.rows.length) await kvSet(KV.makerRows, [...sent.rows, ...((await kvGet<MakerRow[]>(KV.makerRows)) ?? [])].slice(0, 200));
     for (const r of sent.rows.filter((x) => x.what === "avorFailed")) info.notes.push(`AVOR mail of ${r.ticketId}: ${r.error}`);

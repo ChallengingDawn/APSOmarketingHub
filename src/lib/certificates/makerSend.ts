@@ -106,7 +106,8 @@ export async function makerPass(facts: (Facts & { maker?: string | null })[], he
     try {
       const files = await download(s.files);
       const lang = isDocLang(s.send!.lang) ? s.send!.lang : "en";
-      const mail = renderEmail({ lang, to });
+      // signed by the company that issued the declaration (SARCLA 08.11.2026: Swiss vs European entity)
+      const mail = renderEmail({ lang, to, company: s.decl?.entity === "ch" ? "APSOparts® AG" : "APSOparts® GmbH" });
       await sendHubMail({ to, subject: `${tag}${mail.subject}`, html: mail.html, text: mail.text, attachments: files });
       customerSent = true;
       mailed++;

@@ -113,7 +113,9 @@ export const esc = (s: unknown) =>
 
 export type RenderedEmail = { subject: string; html: string; text: string };
 
-export function renderEmail(p: { lang: DocLang; to: string; greeting?: string }): RenderedEmail {
+/** company: who signs the mail - the company that issued the declaration (the certificate maker: APSOparts® AG for a
+ *  Swiss request, M100); default APSOparts® GmbH, as the HubSpot emails always said. */
+export function renderEmail(p: { lang: DocLang; to: string; greeting?: string; company?: string }): RenderedEmail {
   const c = TEXTS[p.lang];
   const f = FOOTER[p.lang];
   const paragraphs = [p.greeting || c.greeting, ...c.body];
@@ -133,11 +135,11 @@ ${paragraphs.map(para).join("\n")}
 </td></tr>
 <tr><td style="padding:18px 32px 26px;border-top:1px solid #EAF0F6;text-align:center;${font}font-size:12px;line-height:1.7;color:#7c98b6">
 <a href="${u.contact}" style="color:#33475b;font-weight:bold;text-decoration:none">${esc(f.support)}</a> &nbsp;·&nbsp; <a href="${LINKEDIN}" style="color:#33475b;font-weight:bold;text-decoration:none">${esc(f.follow)}</a><br>
-APSOparts® GmbH<br>
+${esc(p.company ?? "APSOparts® GmbH")}<br>
 <a href="${u.imprint}" style="color:#7c98b6">${esc(f.imprint)}</a> | <a href="${u.privacy}" style="color:#7c98b6">${esc(f.privacy)}</a><br>
 ${esc(f.sentTo)} ${esc(p.to)}
 </td></tr>
 </table></td></tr></table></body></html>`;
-  const text = [...paragraphs, `APSOparts® GmbH · ${u.imprint} · ${u.privacy}`].join("\n\n");
+  const text = [...paragraphs, `${p.company ?? "APSOparts® GmbH"} · ${u.imprint} · ${u.privacy}`].join("\n\n");
   return { subject: c.subject, html, text };
 }

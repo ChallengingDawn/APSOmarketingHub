@@ -55,3 +55,15 @@ test("AVOR's answer in a DEMO - the demo user's reply counts, only on a DEMO req
   assert.equal(isAvorAnswer({ from: "claudio.saraiva@apsoparts.com", subject: `AW: ${queued.subject}`, at }, "A26.675846", { ...demo, kind: "" }), false);
   assert.equal(isAvorAnswer({ from: "someone@apsoparts.com", subject: `AW: ${queued.subject}`, at }, "A26.675846", demo), false);
 });
+test("AVOR mail - switched off on Settings: a real request's mail does not go, a DEMO's still does", () => {
+  assert.match(String(avorNotSending(f, queued, {}, false)), /off on Certificates > Settings/);
+  assert.equal(avorNotSending({ ...f, demo: DEMO }, { ...queued, to: "claudio.saraiva@apsoparts.com" }, {}, false), null);
+  // on hold stays on hold (it waits), whatever the switch
+  assert.match(String(avorNotSending({ ...f, hold: "SARCLA · 2026-11-08" }, queued, {}, false)), /hold/);
+});
+test("The declaration's mail - signed by the company that issued it: AG for a Swiss request, GmbH by default", async () => {
+  const { renderEmail } = await import("../src/lib/doc/email");
+  assert.match(renderEmail({ lang: "de", to: "x@y.ch", company: "APSOparts® AG" }).html, /APSOparts® AG<br>/);
+  assert.doesNotMatch(renderEmail({ lang: "de", to: "x@y.ch", company: "APSOparts® AG" }).text, /GmbH/);
+  assert.match(renderEmail({ lang: "en", to: "x@y.de" }).html, /APSOparts® GmbH<br>/);
+});

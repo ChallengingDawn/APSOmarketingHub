@@ -571,7 +571,7 @@ export default function Certificates() {
   else if (view === "tickets") body = <TicketsTab key={ticketFilter} d={r.data} onChanged={reload} initial={ticketFilter} />;
   else if (view === "agenda") body = <Agenda d={r.data} />;
   else if (view === "activity") body = <ActivityTab d={r.data} />;
-  else if (view === "mails") body = <MailsTab d={r.data} />;
+  else if (view === "mails") body = <MailsTab d={r.data} onChanged={reload} />;
   else if (view === "shop") body = <ShopTab d={r.data} />;
   else if (view === "console") body = <Console d={r.data} onChanged={reload} />;
   else if (view === "settings") body = <SettingsTab d={r.data} onChanged={reload} />;

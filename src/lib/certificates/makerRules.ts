@@ -23,7 +23,8 @@ export type MakerState = {
   v: 1;
   status: "draft" | "issuer" | "signed" | "sending" | "sent" | "failed";
   test?: boolean;
-  decl: { date: string; customer: string[]; customerNo: string; order: string; job: string; issuer: { name: string; email: string; code: string }; positions: { article: string; text: string; master: string }[] };
+  /** entity: the issuing company - "ch" APSOparts AG (mandant M100), "eu" APSOparts GmbH (M110); the card sets it from the ticket */
+  decl: { date: string; customer: string[]; customerNo: string; order: string; job: string; issuer: { name: string; email: string; code: string }; positions: { article: string; text: string; master: string }[]; entity?: "ch" | "eu" };
   files: MakerFile[];
   signers: { issuer?: Signer; expert?: Signer };
   send?: { to: string; lang: string; at: string; by: string };
@@ -32,8 +33,9 @@ export type MakerState = {
   log?: { at: string; what: string; by: string }[];
   at?: string; by?: string;
 };
-/** avor = the AVOR mail sent, avorFailed = not sent, avorAnswer = AVOR's answer merged into the request (to = who answered) */
-export type MakerRow = { at: string; ticketId: string; what: "sent" | "would" | "failed" | "avor" | "avorFailed" | "avorAnswer"; to: string; eda: string | null; error?: string; from?: string };
+/** avor = the AVOR mail sent, avorFailed = not sent, avorAnswer = AVOR's answer merged into the request (to = who answered);
+ *  subject = the mail's (the Mails tab lists the AVOR mails) */
+export type MakerRow = { at: string; ticketId: string; what: "sent" | "would" | "failed" | "avor" | "avorFailed" | "avorAnswer"; to: string; eda: string | null; error?: string; from?: string; subject?: string };
 
 // ---------------- the mail to AVOR (SARCLA 08.11.2026: "can we send the mail directly from here") ----------------
 // EC 1935/2004 needs a new article number from AVOR first. The ticket card queues the mail as the Back Office writes it
@@ -63,12 +65,14 @@ export function parseAvor(raw: string | null | undefined): AvorState | null {
   try { const s = JSON.parse(raw) as AvorState; return s && s.v === 1 && s.status && s.subject ? s : null; } catch { return null; }
 }
 
-/** Why the queued AVOR mail does not go now - null = it goes. Never: on hold (a TEST), another address than AVOR's
- *  (a DEMO: only the demo user's), no text. */
-export function avorNotSending(f: Pick<Facts, "id" | "hold" | "demo">, s: AvorState | null, held: Record<string, unknown>): string | null {
+/** Why the queued AVOR mail does not go now - null = it goes. Never: on hold (a TEST), switched off on Settings (a DEMO
+ *  goes to the demo user whatever the switch, as the declarations do), another address than AVOR's (a DEMO: only the
+ *  demo user's), no text. */
+export function avorNotSending(f: Pick<Facts, "id" | "hold" | "demo">, s: AvorState | null, held: Record<string, unknown>, on = true): string | null {
   if (!s || s.status !== "queued") return "nothing queued";
   if (isHeld(f, held)) return "on hold";
   const demo = demoOf(f.demo);
+  if (!on && !demo) return "the mail to AVOR is off on Certificates > Settings - write it from the ticket";
   if (demo ? s.to.toLowerCase() !== demo.email.toLowerCase() : s.to.toLowerCase() !== AVOR_TO) return "not AVOR's address";
   if (!s.body.trim() || !s.subject.trim()) return "no text";
   return null;
