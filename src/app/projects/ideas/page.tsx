@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default function IdeasPage() {
   return (
     <Box sx={{ px: { xs: 2, sm: 2.5, md: 3, lg: 4 }, py: { xs: 2.5, md: 3.5 } }}>
-      <PageHeader title="Ideas" subtitle="What the hub's apps found worth doing - pick the good ones and make a project of them" />
+      <PageHeader title="Ideas" subtitle="What the hub's apps found worth doing, and your own - each says where it comes from. Pick the good ones and make a project of them" />
       <Ideas />
     </Box>
   );
