@@ -16,7 +16,7 @@ export const designNodeSchema = z.object({
   x: number.min(-100000).max(100000), y: number.min(-100000).max(100000),
   fill: color,
   text: z.string().max(200000).optional(),
-  fontKey: z.enum(["inter", "outfit", "georgia", "mono"]).optional(),
+  fontKey: z.enum(["inter", "outfit", "georgia", "mono", "futura"]).optional(),
   fontSize: number.positive().max(5000).optional(),
   fontStyle: z.string().max(100).optional(),
   width: number.nonnegative().max(20000).optional(),
@@ -51,6 +51,11 @@ export const designNodeSchema = z.object({
    * editable as the words somebody wrote - see src/lib/editor/lists.ts.
    */
   listStyle: z.enum(["bullet", "number", "check", "dash"]).optional(),
+  /**
+   * The colour of a text's key words - the words written between stars ("cut to *your size*"), drawn in it as our
+   * films draw them (src/lib/editor/richText.ts). Unset: the APSOparts red.
+   */
+  keyFill: color.optional(),
   stroke: color.optional(), strokeWidth: number.nonnegative().max(1000).optional(),
   flipH: z.boolean().optional(), flipV: z.boolean().optional(),
   /**

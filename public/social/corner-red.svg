@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1920" viewBox="0 0 1920 1920">
+  <rect width="1920" height="1920" fill="#FFFFFF"/>
+  <path d="M1920 1180V1920H1180Z" fill="#D80901"/>
+  <path d="M1920 1500V1920H1500Z" fill="#B00700"/>
+  <rect x="0" y="0" width="1920" height="22" fill="#D80901"/>
+</svg>
