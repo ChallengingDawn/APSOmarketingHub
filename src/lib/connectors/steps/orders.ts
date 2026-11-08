@@ -41,7 +41,7 @@ import { IntegrationError } from "@/lib/integrations/status";
 import { requestCollector, saveErpRequests } from "@/lib/certificates/erpData";
 import { deliveryCollector } from "@/lib/reporting/boDelivery";
 import { saveDelivery, zurichToday } from "@/lib/reporting/boDeliveryStore";
-import { ORDER_FACTS_LIVE, compareWithHubSpot, dimFactsOf, factsFor, factsHash, packDim, unpackDim, type Facts } from "./orderFactsRules";
+import { FILL_ONLY, ORDER_FACTS_LIVE, compareWithHubSpot, dimFactsOf, factsFor, factsHash, packDim, unpackDim, type Facts } from "./orderFactsRules";
 import { loadErpFacts, loadWritten, saveWritten } from "./orderFactsStore";
 import { stat } from "node:fs/promises";
 import { addPending, knownArticles } from "../articleIds";
@@ -515,6 +515,14 @@ export async function orderSync(live: boolean, beat: Beat, opts: { file: string 
   const flush = async () => {
     if (!pending.length) return;
     if (live) {
+      // the facts HubSpot keeps when it has a value (orderFactsRules FILL_ONLY): read first; unread = left out tonight
+      const fill = pending.filter((u) => FILL_ONLY.some((k) => k in u.properties));
+      if (fill.length) {
+        const has = await hs<{ results?: { id: string | number; properties?: Record<string, string | null> }[] }>({
+          path: "/crm/v3/objects/orders/batch/read", method: "POST", body: { inputs: fill.map((u) => ({ id: u.id })), properties: [...FILL_ONLY] },
+        }).then((j) => new Map((j.results ?? []).map((o) => [String(o.id), o.properties ?? {}]))).catch(() => null);
+        for (const u of fill) for (const k of FILL_ONLY) if (!has || (has.get(u.id)?.[k] ?? "").trim()) delete u.properties[k];
+      }
       const r = await updateOrders(pending, tick);
       done += r.done.length; err += r.failed; gone += r.gone.length;
       errors.push(...r.errors.slice(0, 3 - errors.length));

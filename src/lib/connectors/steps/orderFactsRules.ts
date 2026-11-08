@@ -48,6 +48,9 @@ export const DIM_FACTS: readonly (readonly [prop: string, col: string, kind: Kin
 export const LINE_FACTS = ["order_first_confirmed_delivery", "order_has_special_articles", "cuttosize_order", "order_shipment_status"] as const;
 /** the choice list of order_customer_class - anything else would make HubSpot refuse the whole order's update */
 const CUSTOMER_CLASSES = new Set(["A", "B", "C", "D", "E"]);
+/** written only where HubSpot has no value: the order's COGS there comes from its order lines, as its margin does (the
+ *  invoices' cost differs by cents on 15-35 % of orders - a second rule, not a correction; checked 08.11.2026) */
+export const FILL_ONLY = ["order_cogs_eur"] as const;
 export const INVOICE_FACTS = ["order_invoice_date", "order_invoice_number", "order_invoice_booking_date", "order_invoice_canceled", "order_invoice_currency", "order_invoice_count", "order_invoiced_status", "order_cogs_eur", "order_customer_class"] as const;
 
 export type Facts = Record<string, string>;
@@ -164,8 +167,10 @@ export class InvoicesSheet {
 }
 
 /**
- * Per delivery: its invoice (the first one not cancelled, else the first), how many there were, and whether every one
- * was cancelled. A delivery invoiced twice keeps the first invoice's date and number - the count says there are more.
+ * Per delivery: its invoice date (the LAST one not cancelled, else the last - as the connector's load wrote it: checked
+ * 08.11.2026 on all 413,008 orders, 359,710 the same, every one of the 203 differences a delivery invoiced several times),
+ * its invoice numbers (all those not cancelled, ";"-joined - the property's own description), how many, and whether every
+ * one was cancelled.
  */
 export function invoiceFacts(rows: Iterable<InvoiceRow>): Map<string, Facts> {
   const by = new Map<string, Map<string, InvoiceRow>>();
@@ -178,8 +183,9 @@ export function invoiceFacts(rows: Iterable<InvoiceRow>): Map<string, Facts> {
   for (const [order, m] of by) {
     const inv = [...m.values()].sort((a, b) => (a.date || "9").localeCompare(b.date || "9") || a.number.localeCompare(b.number));
     const live = inv.filter((r) => r.canceled !== "J");
-    const pick = live[0] ?? inv[0];
-    const f: Facts = { order_invoice_number: clean(pick.number), order_invoice_count: String(inv.length), order_invoice_canceled: live.length ? "N" : "J", order_invoiced_status: live.length ? "invoiced" : "canceled" };
+    const pick = live.length ? live[live.length - 1] : inv[inv.length - 1];
+    const numbers = (live.length ? live : [pick]).map((r) => r.number).join(";");
+    const f: Facts = { order_invoice_number: clean(numbers), order_invoice_count: String(inv.length), order_invoice_canceled: live.length ? "N" : "J", order_invoiced_status: live.length ? "invoiced" : "canceled" };
     if (pick.date && pick.date < "2030-01-01") f.order_invoice_date = pick.date;
     if (pick.booked && pick.booked < "2030-01-01") f.order_invoice_booking_date = pick.booked;
     if (pick.currency) f.order_invoice_currency = clean(pick.currency);
@@ -210,9 +216,9 @@ const sameValue = (ours: string, has: string) => {
  * or a different rule - SARCLA sees which before anything is written). A few changes as examples, the customer's texts never.
  */
 export function compareWithHubSpot(items: Iterable<{ order: string; facts: Facts; current: Record<string, string | null | undefined> }>): {
-  by_property: Record<string, { same: number; fills_empty: number; changes: number }>; change_examples: { order: string; property: string; hubspot: string; ours: string }[];
+  by_property: Record<string, { same: number; fills_empty: number; changes: number; kept?: number }>; change_examples: { order: string; property: string; hubspot: string; ours: string }[];
 } {
-  const by: Record<string, { same: number; fills_empty: number; changes: number }> = {};
+  const by: Record<string, { same: number; fills_empty: number; changes: number; kept?: number }> = {};
   const ex: { order: string; property: string; hubspot: string; ours: string }[] = [];
   const shown: Record<string, number> = {};
   for (const it of items) {
@@ -221,6 +227,7 @@ export function compareWithHubSpot(items: Iterable<{ order: string; facts: Facts
       const b = (by[k] ??= { same: 0, fills_empty: 0, changes: 0 });
       if (!has) b.fills_empty++;
       else if (sameValue(v, has)) b.same++;
+      else if ((FILL_ONLY as readonly string[]).includes(k)) b.kept = (b.kept ?? 0) + 1; // HubSpot's value stays
       else {
         b.changes++;
         if (!PRIVATE.has(k) && ex.length < 16 && (shown[k] ?? 0) < 2) { shown[k] = (shown[k] ?? 0) + 1; ex.push({ order: it.order, property: k, hubspot: has, ours: v }); }
