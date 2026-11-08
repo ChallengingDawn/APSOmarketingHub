@@ -112,6 +112,16 @@ export const WEBSITE_SECTIONS: WebsiteSection[] = [
     pages: [{ name: "Cookie consent", note: "What consent allows us to see", href: "/analytics/consent", icon: "cookie", ...TEAL }],
   },
   {
+    // a stand-alone app (SARCLA 08.11.2026: "you should be able to visually display journeys, analyse the main journeys;
+    // this should be a stand-alone app") - "Visitor" keeps it apart from the Customer Journey app (/journey)
+    slug: "journeys", name: "Visitor journeys", line: "How visitors move through the shop, and where they are lost", icon: "route", ...BLUE,
+    pages: [
+      { name: "Main journeys", note: "How visitors move: where they come in, the pages after, the cart and the order - or where they leave", href: "/website/journeys", icon: "route", ...PURPLE },
+      { name: "Funnel", note: "The shop's steps for the visits and the signed-in customers, and where most are lost", href: "/website/journeys/funnel", icon: "filter", ...PINK },
+      { name: "Page flow", note: "One page: where its visitors came from and where they went next", href: "/website/journeys/page", icon: "tree", ...TEAL },
+    ],
+  },
+  {
     slug: "ab-testing", name: "A/B testing", line: "What we test on the site, and what it shows", icon: "science", ...PINK,
     // the first one: the shop chat's e-mail before the chat, as APSOassistant Chat > A/B test has it (SARCLA 03.11.2026:
     // "contains a copy of the first A/B test on the chat, and then more")
