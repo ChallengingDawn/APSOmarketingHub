@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guard";
 import { FROM, REPLY_TO, addressOf, mailConfigured, sendHubMail, smtp } from "@/lib/notify/mailer";
 import { SAMPLE_INVITE, renderInviteMail } from "@/lib/content/shareMail";
+import { renderContentMail, type MailContext } from "@/lib/content/workflowMail";
 import { renderEmail } from "@/lib/doc/email";
 import { SAMPLE_ORDER_ALERT, renderOrderAlert } from "@/lib/ticketAssoc/mail";
 import { SAMPLE_PARTNER_STOCK, renderPartnerStockMail } from "@/lib/partnerStock/mail";
@@ -19,6 +20,18 @@ type Template = {
   from: string; replyTo: string; subject: string; html: string; text: string;
 };
 
+const CONTENT_SAMPLE: MailContext = {
+  actorName: "Anna Rossi", actorEmail: null, projectId: 1, projectTitle: "DirectCut in Italy", pieceTitle: "Landing page · IT", dueDate: "2026-11-18",
+};
+const CONTENT_MAILS: { kind: Parameters<typeof renderContentMail>[0]; name: string; when: string; note?: string }[] = [
+  { kind: "write", name: "A to-do for you to do", when: "When somebody in a content project makes you the one who does a piece (a page, a post, a newsletter) or a task." },
+  { kind: "review", name: "Ready for your review", when: "When the writer of a piece asks you, its reviewer, to approve it or ask for changes." },
+  { kind: "changes", name: "Changes asked", when: "When the reviewer sends your piece back - with what should change.", note: "Take Daniel's “senza attese”, and keep the delivery paragraph." },
+  { kind: "approved", name: "Approved", when: "When the reviewer approves your piece." },
+  { kind: "mention", name: "You were mentioned", when: "When somebody tags you with @ in a project's conversation.", note: "@Claudio can you check the Italian prices before Tuesday?" },
+  { kind: "stage", name: "Your project moved", when: "When your project changes stage because its to-dos moved (in review, approved, live)." },
+];
+
 function templates(me: { full_name: string; username: string; email: string | null }): Template[] {
   const first = (me.full_name || me.username).split(" ")[0];
   const invite = renderInviteMail({ ...SAMPLE_INVITE, inviteeName: first });
@@ -30,6 +43,12 @@ function templates(me: { full_name: string; username: string; email: string | nu
       from: `"${SAMPLE_INVITE.inviterName} via APSOhub" <${addressOf(FROM)}>`, replyTo: "the person who shared",
       ...invite,
     },
+    // a content project's to-dos: who is asked to do, review, change, and who is tagged (08.11.2026)
+    ...CONTENT_MAILS.map((m) => ({
+      key: `content-${m.kind}`, name: m.name, audience: "Colleagues in a content project", when: m.when,
+      from: `"${CONTENT_SAMPLE.actorName} via APSOhub" <${addressOf(FROM)}>`, replyTo: "the person who acted",
+      ...renderContentMail(m.kind, { ...CONTENT_SAMPLE, note: m.note ?? null, ...(m.kind === "stage" ? { stage: "review" as const } : {}) }, first),
+    })),
     {
       key: "doc-declaration", name: "Declaration of conformity", audience: "Customers",
       when: "When a shop order asked for a declaration of conformity and the order is invoiced. In the customer's language; shown here in English.",
