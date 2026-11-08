@@ -13,6 +13,8 @@ export type PresetKey = "band" | "home" | "hero" | "mail" | "card" | "mrec" | "l
 export type Limits = { eyebrow: number; headline: number; word: number; line: number; button: number };
 export type Preset = {
   key: PresetKey; label: string; note: string;
+  /** Its name where room is short (the size tiles). */
+  short: string;
   /** Its size; h null = full width, as tall as its content (the band). */
   w: number; h: number | null;
   /** html = a paste block for the shop (and a PNG where it has a size); image = a PNG only. */
@@ -24,14 +26,14 @@ export type Preset = {
 };
 
 export const PRESETS: Preset[] = [
-  { key: "band", label: "Shop band", note: "Full width on the shop, like the newsletter band - stacks on phones", w: 1150, h: null, out: "html", motion: true, logo: false, limits: { eyebrow: 28, headline: 60, word: 30, line: 220, button: 24 } },
-  { key: "home", label: "Home slot", note: "The home page's campaign slot", w: 756, h: 355, out: "html", motion: true, logo: false, limits: { eyebrow: 24, headline: 44, word: 26, line: 120, button: 22 } },
-  { key: "hero", label: "Landing hero", note: "The top of a landing page", w: 1092, h: 800, out: "html", motion: true, logo: false, limits: { eyebrow: 28, headline: 60, word: 28, line: 200, button: 24 } },
-  { key: "mail", label: "Newsletter header", note: "A picture at the top of an e-mail", w: 600, h: 200, out: "image", motion: false, logo: true, limits: { eyebrow: 24, headline: 42, word: 0, line: 70, button: 0 } },
-  { key: "card", label: "LinkedIn card", note: "A picture for a post or an event", w: 1200, h: 627, out: "image", motion: false, logo: true, limits: { eyebrow: 28, headline: 60, word: 0, line: 120, button: 22 } },
-  { key: "mrec", label: "Display 300×250", note: "Medium rectangle ad", w: 300, h: 250, out: "image", motion: false, logo: true, limits: { eyebrow: 0, headline: 36, word: 0, line: 56, button: 16 } },
-  { key: "leader", label: "Display 728×90", note: "Leaderboard ad", w: 728, h: 90, out: "image", motion: false, logo: true, limits: { eyebrow: 0, headline: 40, word: 0, line: 0, button: 16 } },
-  { key: "sky", label: "Display 160×600", note: "Skyscraper ad", w: 160, h: 600, out: "image", motion: false, logo: true, limits: { eyebrow: 18, headline: 40, word: 0, line: 70, button: 14 } },
+  { key: "band", label: "Shop band", short: "Shop band", note: "Full width on the shop, like the newsletter band - stacks on phones", w: 1150, h: null, out: "html", motion: true, logo: false, limits: { eyebrow: 28, headline: 60, word: 30, line: 220, button: 24 } },
+  { key: "home", label: "Home slot", short: "Home slot", note: "The home page's campaign slot", w: 756, h: 355, out: "html", motion: true, logo: false, limits: { eyebrow: 24, headline: 44, word: 26, line: 120, button: 22 } },
+  { key: "hero", label: "Landing hero", short: "Landing hero", note: "The top of a landing page", w: 1092, h: 800, out: "html", motion: true, logo: false, limits: { eyebrow: 28, headline: 60, word: 28, line: 200, button: 24 } },
+  { key: "mail", label: "Newsletter header", short: "E-mail header", note: "A picture at the top of an e-mail", w: 600, h: 200, out: "image", motion: false, logo: true, limits: { eyebrow: 24, headline: 42, word: 0, line: 70, button: 0 } },
+  { key: "card", label: "LinkedIn card", short: "LinkedIn card", note: "A picture for a post or an event", w: 1200, h: 627, out: "image", motion: false, logo: true, limits: { eyebrow: 28, headline: 60, word: 0, line: 120, button: 22 } },
+  { key: "mrec", label: "Display 300×250", short: "300 × 250", note: "Medium rectangle ad", w: 300, h: 250, out: "image", motion: false, logo: true, limits: { eyebrow: 0, headline: 36, word: 0, line: 56, button: 16 } },
+  { key: "leader", label: "Display 728×90", short: "728 × 90", note: "Leaderboard ad", w: 728, h: 90, out: "image", motion: false, logo: true, limits: { eyebrow: 0, headline: 40, word: 0, line: 0, button: 16 } },
+  { key: "sky", label: "Display 160×600", short: "160 × 600", note: "Skyscraper ad", w: 160, h: 600, out: "image", motion: false, logo: true, limits: { eyebrow: 18, headline: 40, word: 0, line: 70, button: 14 } },
 ];
 export const PRESET: Record<PresetKey, Preset> = Object.fromEntries(PRESETS.map((p) => [p.key, p])) as Record<PresetKey, Preset>;
 export const isPreset = (k: unknown): k is PresetKey => typeof k === "string" && k in PRESET;

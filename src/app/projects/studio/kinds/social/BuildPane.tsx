@@ -16,7 +16,7 @@ import LinkedInIcon from "@mui/icons-material/LinkedIn";
 
 import { Choice } from "@/app/connectors/parts";
 import { HAIRLINE, INK, MUTED, RED } from "@/app/uc/report/ui";
-import { NETWORK, NETWORKS, cleanTag, enabled, fold, type Network, type SocialDoc } from "@/lib/content/studio/kinds/social/model";
+import { NETWORK, NETWORKS, cleanTag, composed, enabled, fold, type Network, type SocialDoc } from "@/lib/content/studio/kinds/social/model";
 import { Field, PINK, btn, field } from "../../parts";
 import { ChipsInput, Hint, Section } from "../banner/ui";
 import MediaEditor from "./MediaEditor";
@@ -68,8 +68,10 @@ function NetworkPills({ doc, set, canEdit, setTextNet }: SocialBuildProps) {
 function TextFor({ doc, set, canEdit, textNet: n, adapt, adapting }: SocialBuildProps) {
   const p = doc.networks[n];
   const spec = NETWORK[n];
-  const f = fold(p.text, n);
-  const over = p.text.length > spec.max;
+  // measured on the post as it goes out - its link and hashtags included - as the feed and the checks see it
+  const posted = composed(doc, n);
+  const f = fold(posted, n);
+  const over = posted.length > spec.max;
   const others = enabled(doc).filter((x) => x !== n && doc.networks[x].text.trim());
   const put = (patch: Partial<SocialDoc["networks"][Network]>) => set((d) => ({ ...d, networks: { ...d.networks, [n]: { ...d.networks[n], ...patch } } }));
   return (
@@ -86,7 +88,7 @@ function TextFor({ doc, set, canEdit, textNet: n, adapt, adapting }: SocialBuild
           </Typography>
         </Box>
         <Typography sx={{ fontSize: "0.76rem", fontWeight: over ? 700 : 500, color: over ? RED : MUTED, whiteSpace: "nowrap" }}>
-          {over ? `${(p.text.length - spec.max).toLocaleString("en-GB")} too many` : `${p.text.length.toLocaleString("en-GB")} / ${spec.max.toLocaleString("en-GB")}`}
+          {over ? `${(posted.length - spec.max).toLocaleString("en-GB")} too many` : `${posted.length.toLocaleString("en-GB")} / ${spec.max.toLocaleString("en-GB")}`}
         </Typography>
       </Box>
       <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.5, mt: 1 }}>
