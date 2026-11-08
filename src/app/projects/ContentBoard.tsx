@@ -222,7 +222,7 @@ export default function ContentBoard() {
       {err && <Notice tone="bad">{err}</Notice>}
       {gone && (
         <Box role="status" sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 1, borderRadius: "8px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, fontSize: "0.86rem", color: INK }}>
-          <DeleteOutlineIcon sx={{ fontSize: 18, color: MUTED }} />“{gone}” was deleted.{data?.admin ? " It waits under Deleted projects, at the foot of the board." : " An admin can bring it back."}
+          <DeleteOutlineIcon sx={{ fontSize: 18, color: MUTED }} />“{gone}” was deleted.{!data ? "" : data.admin ? " It waits under Deleted projects, at the foot of the board." : " An admin can bring it back."}
           <Button size="small" onClick={() => setGone(null)} sx={{ ml: "auto", textTransform: "none", color: MUTED }}>Close</Button>
         </Box>
       )}

@@ -37,15 +37,16 @@ test("brought back, a project takes back the status it had", () => {
 
 test("the confirm says what goes and that HubSpot tickets stay", () => {
   const s = deleteSummary({ todos: 3, documents: 2, tickets: 2, versions: 4 });
-  assert.deepEqual(s.goes, ["its 3 to-dos", "what was made in their 2 studios (pages, posts, mails, banners, films)"]);
+  assert.deepEqual(s.goes, ["its 3 to-dos", "what was made in their 2 studios"]);
   assert.match(s.stays[0], /^its 2 HubSpot tickets - not touched, they stay as they are in HubSpot$/);
   assert.equal(s.stays[1], "4 versions kept in the Content Library");
 });
 
 test("one of each reads as one, and nothing to keep still says HubSpot is not touched", () => {
   const one = deleteSummary({ todos: 1, documents: 1, tickets: 1, versions: 1 });
-  assert.deepEqual(one.goes, ["its 1 to-do", "what was made in its studio (pages, posts, mails, banners, films)"]);
-  assert.equal(one.stays[0], "its 1 HubSpot ticket - not touched, it stays as it is in HubSpot");
+  assert.deepEqual(one.goes, ["its to-do", "what was made in its studio"]);
+  assert.equal(one.stays[0], "its HubSpot ticket - not touched, it stays as it is in HubSpot");
+  assert.equal(one.stays[1], "1 version kept in the Content Library");
   const none = deleteSummary({ todos: 0, documents: 0, tickets: 0, versions: 0 });
   assert.deepEqual(none.goes, ["the project itself (it has no to-do)"]);
   assert.deepEqual(none.stays, ["HubSpot - no ticket is touched"]);

@@ -28,15 +28,15 @@ export type DeleteCounts = { todos: number; documents: number; tickets: number; 
 
 /** What the confirm says: what goes with the project, and what stays - in plain words. */
 export function deleteSummary(c: DeleteCounts): { goes: string[]; stays: string[] } {
-  const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
   const goes = [
-    c.todos ? `its ${n(c.todos, "to-do", "to-dos")}` : "the project itself (it has no to-do)",
-    ...(c.documents ? [`what was made in ${c.documents === 1 ? "its studio" : `their ${c.documents} studios`} (pages, posts, mails, banners, films)`] : []),
+    c.todos === 0 ? "the project itself (it has no to-do)" : c.todos === 1 ? "its to-do" : `its ${c.todos} to-dos`,
+    ...(c.documents ? [c.documents === 1 ? "what was made in its studio" : `what was made in their ${c.documents} studios`] : []),
   ];
   const stays = [
-    c.tickets ? `its ${n(c.tickets, "HubSpot ticket", "HubSpot tickets")} - not touched, ${c.tickets === 1 ? "it stays" : "they stay"} as ${c.tickets === 1 ? "it is" : "they are"} in HubSpot`
-      : "HubSpot - no ticket is touched",
-    ...(c.versions ? [`${n(c.versions, "version", "versions")} kept in the Content Library`] : []),
+    c.tickets === 0 ? "HubSpot - no ticket is touched"
+      : c.tickets === 1 ? "its HubSpot ticket - not touched, it stays as it is in HubSpot"
+        : `its ${c.tickets} HubSpot tickets - not touched, they stay as they are in HubSpot`,
+    ...(c.versions ? [`${c.versions} version${c.versions === 1 ? "" : "s"} kept in the Content Library`] : []),
   ];
   return { goes, stays };
 }
