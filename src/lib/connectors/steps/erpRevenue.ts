@@ -30,12 +30,13 @@ import {
   COMPANY_PROPS, KPI_CATEGORIES, KPI_PROPS, METRIC_NAMES, REALIGN_CATEGORY, customerPlan, planErp, realignTargets,
   type CompanyValues, type FoundCompany, type KpiProps, type KpiRows,
 } from "./erpRules";
-import { readErpWorkbook } from "./erpWorkbook";
+import { readErpWorkbook, sheetNamesOf } from "./erpWorkbook";
 import { SHEET_ERP_LINES } from "../../reporting/boErpLines";
 import { saveErpLines } from "@/lib/reporting/boErpLinesStore";
 import { SHEET_INVOICES, invoiceFacts, lineFacts } from "./orderFactsRules";
 import { saveErpFacts } from "./orderFactsStore";
-import { productFactsRun } from "./productFacts";
+import { loadProductIds, productFactsRun } from "./productFacts";
+import { SHEET_ARTICLES } from "./productFactsRules";
 
 type Beat = () => Promise<void>;
 type Obj = { id: string; properties?: Record<string, string | null | undefined> };
@@ -250,7 +251,12 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
   const year = Number(today.slice(0, 4));
 
   // the whole file first: a layout change or a wrong file stops the run before HubSpot
-  const wb = await readErpWorkbook(opts.file, beat);
+  // HubSpot's articles first, when the workbook carries KPI ARTICLES: the sheet keeps only those (~142,000 of ~860,000)
+  let productIds: Awaited<ReturnType<typeof loadProductIds>> | null = null, productIdsError = "";
+  const carriesArticles = (await sheetNamesOf(opts.file).catch(() => [] as string[])).some((s) => s.trim().toUpperCase() === SHEET_ARTICLES);
+  if (carriesArticles) productIds = await loadProductIds(beat).catch((e) => { productIdsError = String((e as Error)?.message ?? e); return null; });
+  const ids = productIds?.ids;
+  const wb = await readErpWorkbook(opts.file, beat, { keepArticle: ids ? (a) => ids.has(a) : () => false });
   const data = wb.customers.customers;
   const { month, rows } = customerPlan(data);
   const out: StepResult = {
@@ -275,10 +281,10 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
     }
   } else out.order_facts = wb.sheets.some((s) => s.trim().toUpperCase() === SHEET_INVOICES) ? "KPI INVOICES without the expected header" : "no KPI LINES or KPI INVOICES sheet";
   // the products' ERP fields (GWStdP, stock value, material ... - ./productFactsRules.ts): counted, and written once switched on
-  if (wb.articles) {
-    try { out.product_facts = await productFactsRun(wb.articles, live, beat); }
+  if (wb.articles && productIds) {
+    try { out.product_facts = { ...(await productFactsRun(wb.articles, productIds.ids, live, beat)), hubspot_articles_copied: productIds.refreshed }; }
     catch (e) { out.product_facts = `not run: ${(e as Error).message}`; }
-  }
+  } else if (carriesArticles) out.product_facts = `not run: HubSpot's articles could not be read - ${productIdsError || "no article sheet"}`;
   await beat();
 
   const pre = await preflight();

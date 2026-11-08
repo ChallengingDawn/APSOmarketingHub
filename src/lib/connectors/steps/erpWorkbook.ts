@@ -26,7 +26,7 @@ import { SaxesParser } from "saxes";
 import { Figures3, Figures4, PyFloat, SHEET_CUSTOMERS, SHEET_PROFIT_CENTRES, pyRound, type Cell, type Figures3Result, type Figures4Result } from "./erpRules";
 import { ErpLinesSheet, SHEET_ERP_LINES, type ErpLine } from "../../reporting/boErpLines";
 import { InvoicesSheet, SHEET_INVOICES, type InvoiceRow } from "./orderFactsRules";
-import { ArticlesSheet, SHEET_ARTICLES, type ArticleRow } from "./productFactsRules";
+import { ArticlesSheet, SHEET_ARTICLES } from "./productFactsRules";
 
 export class WorkbookFormatError extends Error {
   constructor(message: string) {
@@ -496,14 +496,25 @@ export type ErpWorkbook = {
   erpLines: { lines: ErpLine[]; rows: number } | null;
   /** the ERP's invoices per delivery from its BI model (sheet "KPI INVOICES", ./orderFactsRules.ts) - null without it */
   invoices: InvoiceRow[] | null;
-  /** the ERP's articles from its BI model (sheet "KPI ARTICLES", ./productFactsRules.ts) - null without it */
-  articles: ArticleRow[] | null;
+  /** the ERP's articles from its BI model (sheet "KPI ARTICLES", ./productFactsRules.ts): article -> its packed facts,
+   *  only those `keepArticle` names - null without the sheet */
+  articles: Map<string, string> | null;
   rows: number;
   seconds: number;
 };
 
 /** Read revenue_profit_center.xlsx: FIGURES (3) and FIGURES (4), one streaming pass each. */
-export async function readErpWorkbook(file: string, beat?: () => Promise<void>): Promise<ErpWorkbook> {
+/** The workbook's sheet names, from workbook.xml alone - no strings, no cells (to know before the read what it carries). */
+export async function sheetNamesOf(file: string): Promise<string[]> {
+  const entries = await assertXlsx(file);
+  const e = entries.find((x) => x.name.toLowerCase() === "xl/workbook.xml");
+  if (!e) return [];
+  const names: string[] = [];
+  await parseXml(file, e, { open: (n, a) => { if (n === "sheet" && a.name) names.push(a.name); }, text: () => {}, close: () => {} });
+  return names;
+}
+
+export async function readErpWorkbook(file: string, beat?: () => Promise<void>, opts: { keepArticle?: (article: string) => boolean } = {}): Promise<ErpWorkbook> {
   const t0 = Date.now();
   const entries = await assertXlsx(file);
   const { size } = await stat(file);
@@ -543,10 +554,10 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>):
     rows += await readSheet(file, part(it.name)!, book, (n, cells) => si.feed(n, cells), beat);
     invoices = si.finish();
   }
-  let articles: ArticleRow[] | null = null;
+  let articles: Map<string, string> | null = null;
   const at = book.sheets.find((x) => x.name.trim().toUpperCase() === SHEET_ARTICLES);
   if (at) {
-    const sa = new ArticlesSheet();
+    const sa = new ArticlesSheet(opts.keepArticle ?? (() => false));
     rows += await readSheet(file, part(at.name)!, book, (n, cells) => sa.feed(n, cells), beat);
     articles = sa.finish();
   }
