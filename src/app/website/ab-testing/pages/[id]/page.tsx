@@ -228,7 +228,7 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
             <Button size="small" variant={an?.verdict.key === "b-wins" ? "contained" : "outlined"} color="success" disableElevation onClick={() => ask.decide("b")}>The version won</Button>
             <Button size="small" variant={an?.verdict.key === "a-wins" || an?.verdict.key === "harm" ? "contained" : "outlined"} disableElevation onClick={() => ask.decide("a")}>The original won</Button>
             <Button size="small" variant={an?.verdict.key === "no-difference" ? "contained" : "outlined"} disableElevation onClick={() => ask.decide("none")}>No difference</Button>
-            {an && !an.verdict.decided && <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>The figures have not decided yet - a winner needs {Math.round(RULES.winP * 100)}%, {RULES.minVisitors} visitors each and {RULES.minDays} days.</Typography>}
+            {an && !an.verdict.decided && <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>The figures have not decided yet - a winner needs {Math.round(RULES.winP * 100)}% certainty, a small risk if it is the wrong pick, {RULES.minVisitors} visitors each, {RULES.minCarts} add-to-carts in all and {RULES.minDays} days.</Typography>}
           </Box>
         )}
         {editing && t.status === "draft" && <DraftSettings d={d} onSaved={() => { setEditing(false); reload(); }} />}

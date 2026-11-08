@@ -10,14 +10,22 @@
 //   - a verdict in plain words, and the visitors still needed to see the smallest uplift worth having.
 // The Monte Carlo draws are seeded: the same counts give the same figures on every screen and in every test.
 //
-// RULES (SARCLA / the contract, 08.11.2026): a winner needs P >= 95%, >= 300 visitors in each variant and >= 7 days;
-// the version is stopped as harmful when P(b worse) >= 99% with >= 200 visitors in each variant (no wait for the days).
+// RULES (08.11.2026 - SARCLA, asked how strict: "what you think is best"): decide on RISK, not on proof. Proving a +10%
+// lift at a 3% cart rate takes ~50,000 visitors per variant - a year and more on this shop's pages - while the question
+// a team has is "which one do we keep". So a winner needs: P(better) >= 95%; the cart rate it may give away if it is the
+// wrong pick (expected loss) at most 0.1 point, or 5% of the original's rate when that is more; >= 300 visitors in each
+// variant and >= 20 add-to-carts in all (never a winner on 3 against 6); and >= 14 days - two full weeks, because B2B
+// buying swings by weekday and by week of the month. The visitors needed for the smallest uplift worth having stay on
+// screen as information, not as a gate. The version is stopped as harmful when P(b worse) >= 99% with >= 200 visitors
+// in each variant (no wait for the days).
 
 export type Arm = { visitors: number; carts: number };
 export type Interval = { mid: number | null; low: number | null; high: number | null };
 export type ArmStats = Arm & { rate: number | null; low: number | null; high: number | null };
 
-export const RULES = { winP: 0.95, minVisitors: 300, minDays: 7, harmP: 0.99, harmMinVisitors: 200 } as const;
+export const RULES = { winP: 0.95, minVisitors: 300, minCarts: 20, minDays: 14, maxLoss: 0.001, maxLossShare: 0.05, harmP: 0.99, harmMinVisitors: 200 } as const;
+/** The cart rate a pick may give away if it is the wrong one: 0.1 point, or 5% of the original's rate when that is more. */
+export const lossCap = (baseRate: number | null | undefined) => Math.max(RULES.maxLoss, RULES.maxLossShare * (baseRate ?? 0));
 /** The smallest uplift worth having, by default: +10% on the original's cart rate. */
 export const DEFAULT_MDE = 0.1;
 const Z95 = 1.959963984540054;
@@ -241,11 +249,14 @@ export function verdictOf(c: Comparison, days: number, opts: { mde?: number; bas
   if (p && minN >= RULES.harmMinVisitors && p.a >= RULES.harmP) {
     return ok("harm", `With ${certainty(p.a)} certainty the version makes fewer visitors put something in the cart (${pctTxt(c.b.rate ?? 0)} against ${pctTxt(c.a.rate ?? 0)}) - stop it.`, true);
   }
-  const enough = minN >= RULES.minVisitors && days >= RULES.minDays;
-  if (p && enough && p.b >= RULES.winP) {
+  const carts = c.a.carts + c.b.carts;
+  const enough = minN >= RULES.minVisitors && days >= RULES.minDays && carts >= RULES.minCarts;
+  const cap = lossCap(c.a.rate);
+  const safe = (k: "a" | "b") => !c.loss || c.loss[k] <= cap;
+  if (p && enough && p.b >= RULES.winP && safe("b")) {
     return ok("b-wins", `With ${certainty(p.b)} certainty the version brings more add-to-carts: ${pctTxt(c.b.rate ?? 0)} against ${pctTxt(c.a.rate ?? 0)}.`, true);
   }
-  if (p && enough && p.a >= RULES.winP) {
+  if (p && enough && p.a >= RULES.winP && safe("a")) {
     return ok("a-wins", `With ${certainty(p.a)} certainty the page as it is does better: ${pctTxt(c.a.rate ?? 0)} against ${pctTxt(c.b.rate ?? 0)} for the version.`, true);
   }
   const narrow = c.uplift.low !== null && c.uplift.high !== null && c.uplift.low > -mde && c.uplift.high < mde;
@@ -255,12 +266,17 @@ export function verdictOf(c: Comparison, days: number, opts: { mde?: number; bas
   }
   // still running: say what is missing
   const missing: string[] = [];
-  if (days < RULES.minDays) missing.push(`${RULES.minDays - days} more ${RULES.minDays - days === 1 ? "day" : "days"} (a full week of shop days)`);
+  if (days < RULES.minDays) missing.push(`${RULES.minDays - days} more ${RULES.minDays - days === 1 ? "day" : "days"} (two full weeks of shop days)`);
+  if (carts < RULES.minCarts) missing.push(`${RULES.minCarts - carts} more add-to-carts in all`);
   if (more.a || more.b) {
     const f = (x: number) => x.toLocaleString("en-US");
     missing.push(more.a && more.b
       ? `${f(more.a)} more visitors on the original and ${f(more.b)} on the version`
       : more.a ? `${f(more.a)} more visitors on the original` : `${f(more.b)} more visitors on the version`);
+  }
+  const lead: "a" | "b" = p && p.b >= p.a ? "b" : "a";
+  if (p && missing.length === 0 && Math.max(p.a, p.b) >= RULES.winP && !safe(lead)) {
+    missing.push(`a smaller risk - picking the ${lead === "b" ? "version" : "original"} now could still give away ${(c.loss![lead] * 100).toFixed(2)} points of cart rate, ${(cap * 100).toFixed(2)} at most`);
   }
   if (p && missing.length === 0) missing.push(`more certainty - ${certainty(Math.max(p.a, p.b))} now, ${certainty(RULES.winP)} needed`);
   const why = !p

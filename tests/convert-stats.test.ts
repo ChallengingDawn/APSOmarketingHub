@@ -90,14 +90,14 @@ test("daysRunning counts whole days", () => {
   assert.equal(daysRunning(null, "2026-11-08T10:00:00Z"), 0);
 });
 
-test("verdict: the version wins only with P >= 95%, 300+ visitors each and 7+ days", () => {
+test("verdict: the version wins only with P >= 95%, a small risk, 300+ visitors each, 20+ carts and 14+ days", () => {
   const a = { visitors: 1500, carts: 45 }, b = { visitors: 1500, carts: 75 };
   const c = compare(a, b);
   assert.ok(c.pBest!.b >= 0.99);
-  assert.equal(verdictOf(c, 7, { mde: 0.3 }).key, "b-wins");
-  const early = verdictOf(c, 5, { mde: 0.3 });
+  assert.equal(verdictOf(c, 14, { mde: 0.3 }).key, "b-wins");
+  const early = verdictOf(c, 7, { mde: 0.3 });
   assert.equal(early.key, "running");
-  assert.match(early.why, /2 more days/);
+  assert.match(early.why, /7 more days \(two full weeks/);
   // too few visitors
   const small = compare({ visitors: 250, carts: 5 }, { visitors: 250, carts: 20 });
   assert.ok(small.pBest!.b > 0.99);
@@ -108,7 +108,7 @@ test("verdict: the version wins only with P >= 95%, 300+ visitors each and 7+ da
 
 test("verdict: the original wins, and the harm stop needs 99% and 200 each - no wait for the days", () => {
   const c = compare({ visitors: 1500, carts: 75 }, { visitors: 1500, carts: 52 });
-  assert.equal(verdictOf(c, 8).key, "a-wins");
+  assert.equal(verdictOf(c, 14).key, "a-wins");
   const harm = compare({ visitors: 220, carts: 30 }, { visitors: 220, carts: 8 });
   assert.ok(harm.pBest!.a >= 0.99);
   const v = verdictOf(harm, 1);
@@ -284,4 +284,21 @@ test("applyToCms: edits spliced in place, the rest kept byte for byte, wrappers 
   // a second write replaces the block, never doubles it
   const again = applyToCms(r.content, [VERSION[0]], "test-12");
   assert.equal((again.content.match(/data-apso-version/g) ?? []).length, 1);
+});
+
+test("verdict: 95% is not enough while the pick is still risky, or with too few add-to-carts", async () => {
+  const { lossCap } = await import("../src/lib/convert/stats");
+  assert.equal(lossCap(0.03), 0.0015);
+  assert.equal(lossCap(0.01), 0.001);
+  // few add-to-carts: 6 against 15 at 400 each is 95%+ but on 21 carts in all - and a wide risk
+  const thin = compare({ visitors: 400, carts: 6 }, { visitors: 400, carts: 15 });
+  assert.ok(thin.pBest!.b >= 0.95);
+  const v = verdictOf(thin, 20);
+  if (v.key === "running") assert.match(v.why, /smaller risk|more certainty/);
+  // under 20 carts in all: never decided
+  const tiny = compare({ visitors: 600, carts: 3 }, { visitors: 600, carts: 14 });
+  assert.ok(tiny.pBest!.b >= 0.99);
+  const t = verdictOf(tiny, 20);
+  assert.equal(t.key, "running");
+  assert.match(t.why, /3 more add-to-carts in all/);
 });
