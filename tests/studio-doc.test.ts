@@ -71,3 +71,14 @@ test("only well-formed changes are taken; nothing reaches an object's prototype"
 test("a whole new document replaces the old", () => {
   assert.deepEqual(applyWithRoot(doc, diffOps(doc, [1, 2])), [1, 2]);
 });
+
+test("a big new block goes in empty, then its fields - every request under the limit (08.11.2026)", () => {
+  const big = { id: "n", kind: "text", text: "z".repeat(20_000), parts: ["p".repeat(7_000), "q"] };
+  const ops: Op[] = [{ op: "insert", path: ["blocks"], index: 1, value: big }];
+  const b = batches(ops, 6_500);
+  for (const one of b) assert.ok(new TextEncoder().encode(JSON.stringify(one)).length <= 6_500 + 200);
+  const out = b.reduce((d, one) => applyOps(d, one), doc);
+  assert.deepEqual(out.blocks[1], big);
+  assert.equal(out.blocks.length, 3);
+});
+

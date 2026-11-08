@@ -130,7 +130,25 @@ export function batches(ops: Op[], max = BATCH_MAX_BYTES): Op[][] {
       }
       continue;
     }
-    flat.push(o); // an insert of one huge item: the server refuses it with a clear message
+    if (o.op === "insert" && (isObj(o.value) || Array.isArray(o.value))) {
+      // a big new item (a block with a long text): an empty one goes in, then its fields, each sliced as above
+      const at = [...o.path, o.index];
+      if (Array.isArray(o.value)) {
+        flat.push({ op: "insert", path: o.path, index: o.index, value: [] });
+        o.value.forEach((v, i) => flat.push(...batches([{ op: "insert", path: at, index: i, value: v }], max).flat()));
+      } else {
+        flat.push({ op: "insert", path: o.path, index: o.index, value: {} });
+        for (const [k, v] of Object.entries(o.value)) flat.push(...batches([{ op: "set", path: [...at, k], value: v }], max).flat());
+      }
+      continue;
+    }
+    if (o.op === "insert" && typeof o.value === "string") {
+      // a long text put into a list: an empty one, then the text in slices
+      flat.push({ op: "insert", path: o.path, index: o.index, value: "" });
+      flat.push(...batches([{ op: "append", path: [...o.path, o.index], value: o.value }], max).flat());
+      continue;
+    }
+    flat.push(o); // one huge plain value: the server refuses it with a clear message
   }
   const out: Op[][] = [];
   let cur: Op[] = [];
