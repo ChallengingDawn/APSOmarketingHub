@@ -154,7 +154,8 @@ test("the AI's words are kept within reason, only for this banner's sizes, and o
   assert.equal(a.own.mrec?.button, "", "the same as the main words = no own words");
   const v = cleanVariants({ headlines: [{ headline: "A", angle: "x" }, { headline: "a", angle: "dup" }, { headline: "B", angle: "" }, { headline: "C", angle: "" }, { headline: "D", angle: "" }] }, d);
   assert.deepEqual(v.headlines.map((x) => x.headline), ["A", "B", "C"]);
-  assert.match(sizesBrief(d), /band \(Shop band, full width, the main size\)/);
+  // 08.11.2026 "the banner can be in multiple places": no main size - the banner's own words fit the roomiest place
+  assert.match(sizesBrief(d), /band \(Home band, full width, the most room - the banner's own words\)/);
   assert.match(sizesBrief(d), /leader \(Display 728×90, 728x90\): no eyebrow/);
 });
 

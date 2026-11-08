@@ -20,7 +20,9 @@ export function pictureData(url: string): Promise<string> {
   if (url.startsWith("data:")) return Promise.resolve(url);
   let p = pictures.get(url);
   if (!p) {
-    p = fetch(`/api/content/studio/banner/picture?u=${encodeURIComponent(url)}`).then(async (r) => {
+    // a picture kept in the hub comes from the hub itself; a shop picture through the hub's pass (no CORS on the shop)
+    const own = /^\/api\/content\/picture\//.test(url) || (typeof location !== "undefined" && url.startsWith(`${location.origin}/api/content/picture/`));
+    p = fetch(own ? url : `/api/content/studio/banner/picture?u=${encodeURIComponent(url)}`).then(async (r) => {
       if (!r.ok) {
         const j = (await r.json().catch(() => null)) as { error?: string } | null;
         throw new Error(j?.error ?? `The picture did not come (${r.status}).`);
