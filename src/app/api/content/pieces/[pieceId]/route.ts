@@ -24,6 +24,17 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 const fail = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
+
+/** The studios' AI asks a day, for this process - a loop or a stuck button must not spend the month (as APSOconvert's). */
+const AI_PER_DAY = Number(process.env.STUDIO_AI_PER_DAY ?? 400);
+let aiDay = { day: "", asked: 0 };
+function aiAllowed(): boolean {
+  const today = new Date().toISOString().slice(0, 10);
+  if (aiDay.day !== today) aiDay = { day: today, asked: 0 };
+  if (aiDay.asked >= AI_PER_DAY) return false;
+  aiDay.asked += 1;
+  return true;
+}
 const errText = (e: unknown) => describeIntegrationError(e).error;
 
 async function open(rawId: string) {
@@ -37,7 +48,7 @@ async function open(rawId: string) {
   if (!kind) return { error: fail("This kind of to-do has no studio of its own - it opens in Create Studio.", 400) } as const;
   const [head, brief] = await Promise.all([projectHead(piece.projectId), projectBrief(piece.projectId)]);
   const ctx: StudioCtx = {
-    projectId: piece.projectId, pieceId: piece.id, projectTitle: head?.project.title ?? "", brief: brief.brief, piece,
+    projectId: piece.projectId, pieceId: piece.id, projectTitle: head?.project.title ?? "", projectNotes: head?.project.brief ?? null, brief: brief.brief, piece,
     me: { username: me.username, name: me.full_name || me.username, email: me.email, admin: me.role === "admin" }, canEdit: access.canEdit,
   };
   return { me, piece, access, kind, def: KIND_DEFS[kind], ctx, head } as const;
@@ -98,6 +109,7 @@ export async function POST(req: NextRequest, c: { params: Promise<{ pieceId: str
     if (!task) return fail("This studio has no such AI task.");
     const client = getAnthropic();
     if (!client) return fail("The AI is not set up on this hub.", 503);
+    if (!aiAllowed()) return fail("The studios have used today's AI asks - it opens again tomorrow, or an admin raises STUDIO_AI_PER_DAY.", 429);
     const stored = await readDoc(o.piece.id);
     try {
       const brain = await readBrain();
