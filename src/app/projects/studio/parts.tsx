@@ -5,6 +5,8 @@
 //   PreviewFrame    the real thing rendered in a frame: desktop / mobile, zoomed to fit, never a mock of it
 //   AssistantPanel  the AI beside the work: quick asks for this kind, a free ask, its answers to take or leave
 //   Counter, Field  a text field that counts against its limit (a subject under 55, a headline under 30)
+//   AiLine, AiWorking  the AI at work (SARCLA 08.11.2026: "an AI animation as soon as it starts working"): a moving line
+//                   in the brand's pink and red, and a block or a line saying what it does - still for reduced motion
 
 import { useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -220,6 +222,85 @@ export function AssistantPanel({ quick, onAsk, enabled, placeholder, children, t
       {msg && <Typography sx={{ mt: 1.5, fontSize: "0.84rem", color: "#7f4f0b", bgcolor: "#fff8ec", p: 1.25, borderRadius: "10px" }}>{msg}</Typography>}
       {children}
     </Pane>
+  );
+}
+
+/* ── the AI at work ─────────────────────────────────────────────────────────────────────────────────────────────── */
+
+export const AI_RED = "#D80901";
+const still = { "@media (prefers-reduced-motion: reduce)": { animation: "none" } };
+
+/** The moving line of the AI at work: a pink-to-red light running along a faint track. Fades out when `on` ends. */
+export function AiLine({ on, height = 3 }: { on: boolean; height?: number }) {
+  return (
+    <Box aria-hidden sx={{ position: "relative", height, overflow: "hidden", opacity: on ? 1 : 0, transition: "opacity .3s ease", bgcolor: on ? "rgba(194,44,110,.12)" : "transparent" }}>
+      <Box sx={{
+        position: "absolute", top: 0, bottom: 0, left: 0, width: "42%", borderRadius: height,
+        backgroundImage: `linear-gradient(90deg, rgba(194,44,110,0), ${PINK} 30%, ${AI_RED} 60%, rgba(216,9,1,0))`,
+        animation: on ? "aiRun 1.5s cubic-bezier(.45,.05,.55,.95) infinite" : "none",
+        "@keyframes aiRun": { from: { transform: "translateX(-100%)" }, to: { transform: "translateX(240%)" } },
+        // less motion asked: the line stands, whole
+        "@media (prefers-reduced-motion: reduce)": { animation: "none", width: "100%", backgroundImage: `linear-gradient(90deg, ${PINK}, ${AI_RED})` },
+      }} />
+    </Box>
+  );
+}
+
+/** The spark that breathes while the AI works. */
+function AiSpark({ size = 17 }: { size?: number }) {
+  return (
+    <AutoAwesomeOutlinedIcon aria-hidden sx={{
+      fontSize: size, color: PINK, animation: "aiBreathe 1.6s ease-in-out infinite",
+      "@keyframes aiBreathe": { "0%, 100%": { transform: "scale(.88) rotate(0deg)", opacity: 0.75 }, "50%": { transform: "scale(1.08) rotate(8deg)", opacity: 1 } }, ...still,
+    }} />
+  );
+}
+
+/** Words in the brand's pink and red with a light passing over them. */
+function AiWords({ children, size = "0.84rem" }: { children: React.ReactNode; size?: string }) {
+  return (
+    <Box component="span" sx={{
+      fontSize: size, fontWeight: 700, whiteSpace: "nowrap", color: PINK,
+      backgroundImage: `linear-gradient(90deg, ${PINK} 0%, ${AI_RED} 35%, #f08aa8 50%, ${AI_RED} 65%, ${PINK} 100%)`, backgroundSize: "220% 100%",
+      WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent",
+      animation: "aiShine 2.2s linear infinite", "@keyframes aiShine": { from: { backgroundPosition: "100% 0" }, to: { backgroundPosition: "-120% 0" } },
+      "@media (prefers-reduced-motion: reduce)": { animation: "none", backgroundImage: "none", WebkitTextFillColor: PINK },
+    }}>{children}</Box>
+  );
+}
+
+/**
+ * The AI at work, where its answer will come (SARCLA 08.11.2026). `inline`: the spark and the words, for a bar or a button
+ * row. `block` (the default): the moving line on top, the words, and the shape of what is coming - for a form or a pane the
+ * answer fills. A kind studio puts it where its answer lands; the studio's frame already shows the line under its bar.
+ */
+export function AiWorking({ label = "AI is writing…", note, variant = "block", lines = 3 }: {
+  label?: string; note?: string; variant?: "block" | "inline"; lines?: number;
+}) {
+  if (variant === "inline") {
+    return (
+      <Box role="status" aria-live="polite" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, minWidth: 0 }}>
+        <AiSpark /><AiWords>{label}</AiWords>
+      </Box>
+    );
+  }
+  return (
+    <Box role="status" aria-live="polite" sx={{ borderRadius: "12px", overflow: "hidden", border: "1px solid rgba(194,44,110,.22)", bgcolor: "#fffafc", animation: "aiIn .25s ease", "@keyframes aiIn": { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+      <AiLine on />
+      <Box sx={{ p: 1.75, display: "grid", gap: 1.1 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+          <AiSpark /><AiWords size="0.9rem">{label}</AiWords>
+          {note && <Typography component="span" sx={{ fontSize: "0.8rem", color: MUTED, ml: 0.5, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{note}</Typography>}
+        </Box>
+        {Array.from({ length: lines }, (_, i) => (
+          <Box key={i} aria-hidden sx={{
+            height: 10, borderRadius: "5px", width: ["94%", "78%", "86%", "62%"][i % 4],
+            backgroundImage: "linear-gradient(90deg, #f6e9ef 0%, #fbeff4 40%, #fff 50%, #fbeff4 60%, #f6e9ef 100%)", backgroundSize: "300% 100%",
+            animation: `aiShimmer 1.6s ease-in-out ${i * 0.12}s infinite`, "@keyframes aiShimmer": { from: { backgroundPosition: "100% 0" }, to: { backgroundPosition: "0 0" } }, ...still,
+          }} />
+        ))}
+      </Box>
+    </Box>
   );
 }
 

@@ -5,6 +5,8 @@
 // The whole window (no hub panel). The bar says what this is and where it stands, and carries what the team does with it:
 // its status moves (ask for review, approve, ask for changes, mark live), who does it, its date, the versions and
 // "saved". Under it, the kind's own studio (studio/registry.tsx) - built from studio/parts.tsx.
+// The AI at work shows here for every kind (SARCLA 08.11.2026: "an AI animation as soon as it starts working"): from the
+// click, a light runs along the bar's lower edge and "AI is writing…" / "Making the picture…" stands beside "Saved".
 
 import { useState } from "react";
 import Link from "next/link";
@@ -35,7 +37,7 @@ import { KindTile } from "../work/kinds";
 import { moves } from "../work/TodoList";
 import { Face, Faces, PersonPick, StatusChip, dayLabel } from "../work/ui";
 import { InlineTitle } from "../work/InlineTitle";
-import { STUDIO_BAR, btn, field, mainBtn } from "./parts";
+import { AiLine, AiWorking, STUDIO_BAR, btn, field, mainBtn } from "./parts";
 import { STUDIOS } from "./registry";
 import { useStudio, type StudioApi } from "./useStudio";
 
@@ -218,6 +220,7 @@ function Bar({ api }: { api: StudioApi }) {
       <Box sx={{ display: { xs: "none", md: "block" } }}><People api={api} onError={setErr} /></Box>
       <Box sx={{ flex: 1 }} />
       {err && <Typography sx={{ fontSize: "0.8rem", color: "#c5221f", maxWidth: 260 }}>{err}</Typography>}
+      {api.working && <AiWorking variant="inline" label={api.working.label} />}
       <SaveBadge api={api} />
       <Versions api={api} />
       {moves(p, w).map((m) => (
@@ -227,6 +230,7 @@ function Bar({ api }: { api: StudioApi }) {
           {busy === m.to ? <CircularProgress size={14} color="inherit" /> : m.label}
         </Button>
       ))}
+      <Box sx={{ position: "absolute", left: 0, right: 0, bottom: -1 }}><AiLine on={!!api.working} /></Box>
       <PickReviewer api={api} open={picking} onClose={() => setPicking(false)} onPick={(u) => { setPicking(false); void go("review", undefined, u); }} />
       <Dialog open={asking} onClose={() => setAsking(false)} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 700 }}>What should change?</DialogTitle>
