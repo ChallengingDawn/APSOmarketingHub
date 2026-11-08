@@ -187,7 +187,8 @@ export type TextField = { name: string; value: string };
 /** A block's words, by name (what the assistant may change - never an address or a picture). */
 export function textFields(b: Block): TextField[] {
   switch (b.kind) {
-    case "header": return [{ name: "tagline", value: b.tagline }];
+    // our logo carries its own line ("the Online Shop of Angst+Pfister"): the header has no words to change
+    case "header": return [];
     case "hero": return [{ name: "eyebrow", value: b.eyebrow }, { name: "headline", value: b.headline }, { name: "text", value: b.text }, { name: "button", value: b.button.label }, { name: "imageAlt", value: b.imageAlt }];
     case "article": return [{ name: "title", value: b.title }, { name: "text", value: b.text }, { name: "link", value: b.link.label }, { name: "imageAlt", value: b.imageAlt }];
     case "products": return [{ name: "title", value: b.title }, ...b.items.flatMap((x, i) => [{ name: `item${i + 1}Name`, value: x.name }, { name: `item${i + 1}Text`, value: x.text }])];
@@ -252,8 +253,21 @@ export function pictureIdea(b: Block): string {
 
 /* ── the e-mail ─────────────────────────────────────────────────────────────────────────────────────────────────── */
 
-export const BRAND = { petrol: "#274e64", deep: "#1b3a4b", red: "#d80901", ink: "#1d2326", muted: "#5b6670", line: "#e3e8ec", page: "#eef1f3", pale: "#f4f6f7" };
+export const BRAND = { petrol: "#274e64", deep: "#1b3a4b", red: "#d80901", ink: "#1d2326", muted: "#5b6670", line: "#e3e8ec", page: "#eaf0f6", pale: "#f5f6f7", foot: "#274259" };
 const FONT = "Arial, Helvetica, sans-serif";
+/** A text's own look, so its words keep it while they are edited as written (the studio shows the markdown then). */
+const TEXT = `font-family:${FONT};font-size:16px;line-height:25px;color:${BRAND.ink}`;
+const TEXT_SIDE = `font-family:${FONT};font-size:15px;line-height:23px;color:${BRAND.ink}`;
+
+/**
+ * OUR LOGO, as our e-mails carry it (SARCLA 08.11.2026: "the logo is not the true one, though we have it"): the header
+ * picture of the newsletters we sent from HubSpot ("Source smarter with the latest APSOparts updates", 07.10.2026, and
+ * the service e-mails) - APSOparts® over "the Online Shop of Angst+Pfister", 1200 x 160, shown 600 wide. Kept in our
+ * HubSpot portal's files (the hub may show pictures from there).
+ */
+export const OUR_LOGO = "https://26492587.fs1.hubspotusercontent-eu1.net/hubfs/26492587/Logo2.jpg";
+/** True for our own e-mail logo, wherever HubSpot serves it from (its files, the campaigns domain). */
+export const isOurLogo = (u: string) => !u || /\/hubfs\/(26492587\/)?Logo2\.jpg/i.test(u);
 
 export const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 /** A link the e-mail may carry: http(s) or mailto, or HubSpot's own tokens; anything else becomes "#". */
@@ -273,104 +287,167 @@ export function richText(text: string, color: string = BRAND.ink, size = 16, lin
   return paras.map((p) => {
     let h = esc(p);
     h = h.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-    h = h.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label: string, url: string) => `<a href="${esc(safeUrl(url.replace(/&amp;/g, "&")))}" style="color:${BRAND.petrol};text-decoration:underline">${label}</a>`);
+    h = h.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label: string, url: string) => `<a href="${esc(safeUrl(url.replace(/&amp;/g, "&")))}" style="color:${BRAND.red};text-decoration:none;font-weight:bold">${label}</a>`);
     h = h.replace(/\n/g, "<br>");
     return `<p style="margin:0 0 14px;font-family:${FONT};font-size:${size}px;line-height:${line}px;color:${color}">${h}</p>`;
   }).join("");
 }
 
-const button = (l: Link, align: "left" | "center" = "left") => !l.label ? "" : `
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="${align}" style="margin:10px ${align === "center" ? "auto" : "0"} 0">
-  <tr><td bgcolor="${BRAND.red}" style="border-radius:2px">
-    <a href="${esc(safeUrl(l.url))}" target="_blank" style="display:inline-block;padding:14px 28px;font-family:${FONT};font-size:15px;font-weight:bold;letter-spacing:.3px;color:#ffffff;text-decoration:none;border-radius:2px">${esc(l.label)}</a>
+type R = { preview: boolean; edit: boolean; origin?: string; lang: string; sel?: string | null };
+/** In the studio, a part a block may leave out (a line over the headline, a button) shows where it would go only while
+ *  its block is picked - so an e-mail started from one of ours reads as it went out. */
+const offered = (r: R, b: Block) => r.edit && r.sel === b.id;
+
+/** The studio's marks (Content v3: a click on words in the preview edits them there; on a picture, picks it) - never in
+ *  the e-mail itself. Keys: "<block id>:<field>" as textFields names them; pictures "<id>:image", "<id>:item<n>Image",
+ *  "<id>:logo". */
+const ed = (r: R, b: Block, name: string, ph?: string) => (r.edit ? ` data-ed="${esc(`${b.id}:${name}`)}"${ph ? ` data-ph="${esc(ph)}"` : ""}` : "");
+const pk = (r: R, b: Block, name: string) => (r.edit ? ` data-pic="${esc(`${b.id}:${name}`)}"` : "");
+
+/** Our e-mails' button: red, round-ended, white bold words. In the studio an empty one shows where it would be. */
+function button(l: Link, r: R, b: Block, align: "left" | "center" = "center"): string {
+  if (!l.label && !offered(r, b)) return "";
+  const empty = !l.label;
+  return `
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="${align}" style="margin:12px ${align === "center" ? "auto" : "0"} 0">
+  <tr><td bgcolor="${empty ? "#ffffff" : BRAND.red}" style="border-radius:24px;${empty ? "border:1px dashed #b9c3c9;" : ""}">
+    <a href="${esc(safeUrl(l.url))}" target="_blank"${ed(r, b, b.kind === "article" ? "link" : "button", "A button")} style="display:inline-block;padding:12px 26px;font-family:${FONT};font-size:15px;font-weight:bold;color:${empty ? "#9aa4ab" : "#ffffff"};text-decoration:none;border-radius:24px">${esc(l.label)}</a>
   </td></tr>
 </table>`;
+}
 
-type R = { preview: boolean; origin?: string; lang: string };
-
-/** In the preview a missing picture shows as a quiet box saying so; in the e-mail it is left out. */
+/** In the preview a missing picture shows as a quiet frame saying so; in the e-mail it is left out. */
 const image = (url: string, alt: string, r: R, width = 600, height = 260) =>
   url ? `<img src="${esc(pictureUrl(url, r.origin))}" width="${width}" alt="${esc(alt)}" style="display:block;width:100%;max-width:${width}px;height:auto;border:0">`
-    : r.preview ? `<div style="height:${height}px;background:repeating-linear-gradient(135deg,#f4f6f7 0 12px,#eceff1 12px 24px);border:1px dashed #c3ccd1;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-family:${FONT};font-size:13px;color:${BRAND.muted}">Picture to add</div>` : "";
+    : r.preview ? `<div style="height:${height}px;background:repeating-linear-gradient(135deg,#f4f6f7 0 12px,#eceff1 12px 24px);border:1px dashed #c3ccd1;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;align-items:center;justify-content:center;font-family:${FONT};font-size:13px;color:${BRAND.muted}"><b>Picture to add</b>${r.edit ? `<span style="font-size:12px">Click to make or upload it</span>` : ""}</div>` : "";
 
-const row = (inner: string, pad = "28px 40px", bg = "#ffffff") =>
-  `<tr><td class="px" style="padding:${pad};background:${bg}">${inner}</td></tr>`;
+const row = (inner: string, pad = "28px 40px", bg = "#ffffff", align: "left" | "center" = "left") =>
+  `<tr><td class="px" align="${align}" style="padding:${pad};background:${bg};text-align:${align}">${inner}</td></tr>`;
 
-const ghost = (r: R, s: string) => (r.preview ? `<span style="color:#9aa4ab">${s}</span>` : "");
+/** Words still to write: in the studio an empty place that says what goes there; in a plain preview a grey word. */
+const words = (r: R, b: Block, name: string, value: string, ph: string, html?: string) =>
+  r.edit ? { attr: ed(r, b, name, ph), inner: value ? html ?? esc(value) : "" } : { attr: "", inner: value ? html ?? esc(value) : r.preview ? `<span style="color:#9aa4ab">${esc(ph)}</span>` : "" };
 
 function blockHtml(b: Block, r: R): string {
   const w = wordsOf(r.lang);
   switch (b.kind) {
-    case "header":
-      return `<tr><td style="background:${BRAND.red};height:4px;line-height:4px;font-size:0">&nbsp;</td></tr>` + row(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-        <td style="font-family:${FONT};font-size:26px;font-weight:bold;letter-spacing:-.5px;color:${BRAND.red}">${b.logoUrl ? `<img src="${esc(pictureUrl(b.logoUrl, r.origin))}" height="34" alt="APSOparts" style="display:block;height:34px;width:auto;border:0">` : `APSO<span style="color:${BRAND.ink}">parts</span>`}</td>
-        <td align="right" style="font-family:${FONT};font-size:13px;color:${BRAND.muted}">${esc(b.tagline)}<br><a href="{{ view_as_page_url }}" style="font-size:11px;color:#9aa4ab;text-decoration:underline">${esc(w.browser)}</a></td></tr></table>`, "22px 40px", "#ffffff");
-    case "hero":
-      return `${b.imageUrl || r.preview ? `<tr><td>${image(b.imageUrl, b.imageAlt, r, 600, 300)}</td></tr>` : ""}` + row(
-        `${b.eyebrow ? `<div style="font-family:${FONT};font-size:12px;font-weight:bold;letter-spacing:1.6px;text-transform:uppercase;color:${BRAND.red};margin:0 0 12px"><span style="display:inline-block;width:26px;height:3px;background:${BRAND.red};vertical-align:middle;margin-right:10px"></span>${esc(b.eyebrow)}</div>` : ""}
-        <h1 style="margin:0 0 16px;font-family:${FONT};font-size:30px;line-height:36px;font-weight:bold;color:${BRAND.ink}">${esc(b.headline) || ghost(r, "The headline")}</h1>
-        ${richText(b.text)}${button(b.button)}`, "34px 40px 38px");
+    case "header": {
+      const ours = isOurLogo(b.logoUrl);
+      const logo = ours
+        ? `<img src="${OUR_LOGO}" width="600" alt="APSOparts® - the Online Shop of Angst+Pfister" style="display:block;width:100%;max-width:600px;height:auto;border:0">`
+        : `<img src="${esc(pictureUrl(b.logoUrl, r.origin))}" height="56" alt="APSOparts" style="display:block;height:56px;width:auto;max-width:100%;border:0;margin:0 auto">`;
+      return `<tr><td align="right" style="padding:0 2px 10px;background:${BRAND.page};font-family:${FONT};font-size:11px;line-height:14px"><a href="{{ view_as_page_url }}" style="color:#5b6670;text-decoration:underline">${esc(w.browser)}</a></td></tr>`
+        + `<tr><td align="center"${pk(r, b, "logo")} style="padding:${ours ? "0" : "22px 40px"};background:#ffffff"><a href="https://www.apsoparts.com/" target="_blank" style="display:block">${logo}</a></td></tr>`;
+    }
+    case "hero": {
+      const ey = words(r, b, "eyebrow", b.eyebrow, "A short line above the headline");
+      const hl = words(r, b, "headline", b.headline, "The headline");
+      const tx = words(r, b, "text", b.text, "What it is about, in two short paragraphs", richText(b.text, BRAND.ink, 16, 25));
+      return `${b.imageUrl || r.preview ? `<tr><td${pk(r, b, "image")}>${image(b.imageUrl, b.imageAlt, r, 600, 300)}</td></tr>` : ""}` + row(
+        `${ey.inner || offered(r, b) ? `<div${ey.attr} style="font-family:${FONT};font-size:12px;font-weight:bold;letter-spacing:1.6px;text-transform:uppercase;color:${BRAND.red};margin:0 0 10px">${ey.inner}</div>` : ""}
+        <h1${hl.attr} style="margin:0 0 14px;font-family:${FONT};font-size:28px;line-height:34px;font-weight:bold;color:${BRAND.ink}">${hl.inner}</h1>
+        <div${tx.attr} style="${TEXT}">${tx.inner}</div>${button(b.button, r, b)}`, "32px 44px 34px", BRAND.pale, "center");
+    }
     case "article": {
-      const title = `<h2 style="margin:0 0 10px;font-family:${FONT};font-size:20px;line-height:26px;font-weight:bold;color:${BRAND.ink}">${esc(b.title) || ghost(r, "A story")}</h2>`;
-      const link = b.link.label ? `<a href="${esc(safeUrl(b.link.url))}" style="font-family:${FONT};font-size:15px;font-weight:bold;color:${BRAND.red};text-decoration:none">${esc(b.link.label)} &rarr;</a>` : "";
+      const side = b.layout === "left" || b.layout === "right";
+      const ti = words(r, b, "title", b.title, "A story");
+      const tx = words(r, b, "text", b.text, "What it says", richText(b.text, BRAND.ink, side ? 15 : 16, side ? 23 : 25));
+      const title = `<h2${ti.attr} style="margin:0 0 10px;font-family:${FONT};font-size:${side ? 19 : 21}px;line-height:${side ? 25 : 28}px;font-weight:bold;color:${BRAND.red}">${ti.inner}</h2>`;
       const pic = b.imageUrl || r.preview;
-      if (b.layout === "left" || b.layout === "right") {
-        const picCell = pic ? `<td class="col" valign="top" width="200" style="width:200px;padding:0 ${b.layout === "left" ? "24px" : "0"} 0 ${b.layout === "right" ? "24px" : "0"}">${image(b.imageUrl, b.imageAlt, r, 200, 200)}</td>` : "";
-        const textCell = `<td class="col" valign="top" style="padding:0">${title}${richText(b.text, BRAND.ink, 15, 23)}${link}</td>`;
-        return row(`<table role="presentation" class="stack" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${b.layout === "left" ? picCell + textCell : textCell + picCell}</tr></table>`, "14px 40px 26px");
+      if (side) {
+        const link = b.link.label || offered(r, b) ? `<a href="${esc(safeUrl(b.link.url))}"${ed(r, b, "link", "A link")} style="font-family:${FONT};font-size:15px;font-weight:bold;color:${BRAND.red};text-decoration:none">${esc(b.link.label)}${b.link.label ? " &rarr;" : ""}</a>` : "";
+        const picCell = pic ? `<td class="col" valign="top" width="200"${pk(r, b, "image")} style="width:200px;padding:0 ${b.layout === "left" ? "24px" : "0"} 0 ${b.layout === "right" ? "24px" : "0"}">${image(b.imageUrl, b.imageAlt, r, 200, 200)}</td>` : "";
+        const textCell = `<td class="col" valign="top" style="padding:0">${title}<div${tx.attr} style="${TEXT_SIDE}">${tx.inner}</div>${link}</td>`;
+        return row(`<table role="presentation" class="stack" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${b.layout === "left" ? picCell + textCell : textCell + picCell}</tr></table>`, "16px 40px 26px");
       }
-      return row(`${pic ? `<div style="margin:0 0 18px">${image(b.imageUrl, b.imageAlt, r, 520, 260)}</div>` : ""}${title}${richText(b.text)}${link}`, "14px 40px 30px");
+      return row(`${title}${pic ? `<div${pk(r, b, "image")} style="margin:6px 0 18px">${image(b.imageUrl, b.imageAlt, r, 520, 260)}</div>` : ""}<div${tx.attr} style="${TEXT}">${tx.inner}</div>${button(b.link, r, b)}`, "24px 40px 30px", "#ffffff", "center");
     }
     case "products": {
       const items = b.items.filter((x) => x.name || r.preview).slice(0, 3);
       const wd = Math.floor(100 / Math.max(1, items.length));
-      return row(`${b.title ? `<h2 style="margin:0 0 18px;font-family:${FONT};font-size:20px;font-weight:bold;color:${BRAND.ink}">${esc(b.title)}</h2>` : ""}
-        <table role="presentation" class="stack" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${items.map((x) => `
+      const ti = words(r, b, "title", b.title, "A title over the products");
+      return row(`${b.title || offered(r, b) ? `<h2${ti.attr} style="margin:0 0 18px;font-family:${FONT};font-size:21px;font-weight:bold;color:${BRAND.red};text-align:center">${ti.inner}</h2>` : ""}
+        <table role="presentation" class="stack" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${items.map((x, i) => {
+          const n = words(r, b, `item${i + 1}Name`, x.name, "A product");
+          const t = words(r, b, `item${i + 1}Text`, x.text, "One line");
+          return `
           <td class="col" valign="top" width="${wd}%" style="padding:0 8px 16px">
-            <div style="border:1px solid ${BRAND.line};padding:10px;background:#ffffff">${image(x.imageUrl, x.name, r, 160, 150)}</div>
-            <div style="font-family:${FONT};font-size:15px;font-weight:bold;color:${BRAND.ink};margin:12px 0 4px">${esc(x.name) || ghost(r, "A product")}</div>
-            <div style="font-family:${FONT};font-size:14px;line-height:20px;color:${BRAND.muted};margin:0 0 6px">${esc(x.text)}</div>
+            <div${pk(r, b, `item${i + 1}Image`)} style="border:1px solid ${BRAND.line};padding:10px;background:#ffffff">${image(x.imageUrl, x.name, r, 160, 150)}</div>
+            <div${n.attr} style="font-family:${FONT};font-size:15px;font-weight:bold;color:${BRAND.ink};margin:12px 0 4px">${n.inner}</div>
+            <div${t.attr} style="font-family:${FONT};font-size:14px;line-height:20px;color:${BRAND.muted};margin:0 0 6px">${t.inner}</div>
             ${x.url ? `<a href="${esc(safeUrl(x.url))}" style="font-family:${FONT};font-size:14px;font-weight:bold;color:${BRAND.red};text-decoration:none">${esc(w.view)} &rarr;</a>` : ""}
-          </td>`).join("")}</tr></table>`, "14px 32px 22px");
+          </td>`;
+        }).join("")}</tr></table>`, "20px 32px 22px");
     }
     case "banner":
-      return b.imageUrl || r.preview ? `<tr><td style="padding:0">${b.url && b.imageUrl ? `<a href="${esc(safeUrl(b.url))}">` : ""}${image(b.imageUrl, b.imageAlt, r, 600, 220)}${b.url && b.imageUrl ? "</a>" : ""}</td></tr>` : "";
-    case "text":
-      return row(richText(b.text) || (r.preview ? `<p style="margin:0;font-family:${FONT};color:#9aa4ab">Some text</p>` : ""), "14px 40px 20px");
+      return b.imageUrl || r.preview ? `<tr><td${pk(r, b, "image")} style="padding:0">${b.url && b.imageUrl ? `<a href="${esc(safeUrl(b.url))}">` : ""}${image(b.imageUrl, b.imageAlt, r, 600, 220)}${b.url && b.imageUrl ? "</a>" : ""}</td></tr>` : "";
+    case "text": {
+      const tx = words(r, b, "text", b.text, "Some text", richText(b.text));
+      return tx.inner || r.edit || r.preview ? row(`<div${tx.attr} style="${TEXT}">${tx.inner}</div>`, "18px 44px 14px", "#ffffff", "center") : "";
+    }
     case "facts": {
-      const items = b.items.filter((x) => x.big || x.label).slice(0, 3);
+      const items = b.items.filter((x) => x.big || x.label || r.edit).slice(0, 3);
       if (!items.length) return "";
       return row(`<table role="presentation" class="stack" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${items.map((x, i) => `
         <td class="col" valign="top" width="${Math.floor(100 / items.length)}%" style="padding:4px 12px;${i ? "border-left:1px solid rgba(255,255,255,.18);" : ""}">
-          <div style="font-family:${FONT};font-size:26px;line-height:32px;font-weight:bold;color:#ffffff">${esc(x.big)}</div>
-          <div style="font-family:${FONT};font-size:13px;line-height:19px;color:#c9dbe4;margin-top:4px">${esc(x.label)}</div>
+          <div${ed(r, b, `item${i + 1}Big`, "A figure")} style="font-family:${FONT};font-size:26px;line-height:32px;font-weight:bold;color:#ffffff">${esc(x.big)}</div>
+          <div${ed(r, b, `item${i + 1}Label`, "What it means")} style="font-family:${FONT};font-size:13px;line-height:19px;color:#c9dbe4;margin-top:4px">${esc(x.label)}</div>
         </td>`).join("")}</tr></table>`, "30px 28px", BRAND.petrol);
     }
-    case "cta":
-      return row(`<div style="text-align:center">${b.text ? `<p style="margin:0 0 6px;font-family:${FONT};font-size:20px;line-height:28px;font-weight:bold;color:${BRAND.ink}">${esc(b.text)}</p>` : ""}${button(b.button, "center")}</div>`, "36px 40px 38px", BRAND.pale);
+    case "cta": {
+      const tx = words(r, b, "text", b.text, "One line that leads to the button");
+      return row(`${b.text || offered(r, b) ? `<p${tx.attr} style="margin:0 0 6px;font-family:${FONT};font-size:20px;line-height:28px;font-weight:bold;color:${BRAND.ink}">${tx.inner}</p>` : ""}${button(b.button, r, b)}`, "34px 40px 36px", BRAND.pale, "center");
+    }
     case "divider":
       return `<tr><td style="padding:10px 40px;background:#ffffff"><div style="border-top:1px solid ${BRAND.line};font-size:0;line-height:0">&nbsp;</div></td></tr>`;
-    case "footer":
-      return `<tr><td class="px" style="padding:30px 40px 36px;background:#ffffff;border-top:1px solid ${BRAND.line};font-family:${FONT};font-size:12px;line-height:18px;color:${BRAND.muted};text-align:center">
-        <div style="font-size:16px;font-weight:bold;color:${BRAND.red};margin:0 0 10px">APSO<span style="color:${BRAND.ink}">parts</span></div>${esc(b.text)}<br><br>
-        <a href="{{ unsubscribe_link }}" style="color:${BRAND.muted};text-decoration:underline">${esc(w.unsubscribe)}</a> &middot; <a href="https://www.apsoparts.com" style="color:${BRAND.muted};text-decoration:underline">apsoparts.com</a></td></tr>`;
+    case "footer": {
+      const L = FOOT[(r.lang || "EN").toUpperCase()] ?? FOOT.EN;
+      const link = (href: string, label: string, color: string) => `<a href="${href}" target="_blank" style="color:${color};text-decoration:underline">${esc(label)}</a>`;
+      const tx = words(r, b, "footer", b.text, "Why the reader gets this newsletter");
+      return `<tr><td style="padding:22px 24px 18px;background:${BRAND.pale}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+          <td class="col" align="center" width="50%" style="font-family:${FONT};font-size:13px;font-weight:bold;letter-spacing:.6px;color:#425b76"><a href="https://www.linkedin.com/company/2573330" target="_blank" style="color:#425b76;text-decoration:none">${esc(L.follow)}</a></td>
+          <td class="col" align="center" width="50%" style="font-family:${FONT};font-size:13px;font-weight:bold;letter-spacing:.6px;color:#425b76"><a href="https://www.apsoparts.com/${L.contact}" target="_blank" style="color:#425b76;text-decoration:none">${esc(L.support)}</a></td>
+        </tr></table></td></tr>
+        <tr><td class="px" align="center" style="padding:26px 40px 30px;background:${BRAND.foot};font-family:${FONT};font-size:12px;line-height:19px;color:#ffffff;text-align:center">
+        <div${tx.attr} style="margin:0 0 12px;color:#d5dee6">${tx.inner}</div>
+        <div style="font-weight:bold;margin:0 0 4px">APSOparts®</div>
+        ${link(`https://www.apsoparts.com/${L.imprint}`, L.masthead, "#ffffff")} | ${link(`https://www.apsoparts.com/${L.privacy}`, L.privacyLabel, "#ffffff")}<br><br>
+        ${esc(L.sentTo)} ${r.preview ? "you@company.com" : "{{ contact.email }}"}<br><br>
+        <a href="{{ unsubscribe_link }}" style="color:#ffffff;text-decoration:underline">${esc(w.unsubscribe)}</a></td></tr>`;
+    }
   }
 }
 
+/** HubSpot's personal words, as the preview names them. */
+const TOKEN: Record<string, string> = { salutation_phrase: "Salutation", lastname: "Last name", firstname: "First name", company: "Company", email: "E-mail" };
+
+/** Our e-mails' footer, in the letter's language (the words of our HubSpot e-mails' own footer). */
+const FOOT: Record<string, { follow: string; support: string; masthead: string; privacyLabel: string; sentTo: string; contact: string; imprint: string; privacy: string }> = {
+  DE: { follow: "UNSERER SEITE FOLGEN", support: "UNSEREN SUPPORT KONTAKTIEREN", masthead: "Impressum", privacyLabel: "Datenschutzbestimmungen", sentTo: "Diese E-Mail wurde gesendet an", contact: "de-INT/contact", imprint: "de-DE/imprint", privacy: "de-INT/privacy" },
+  EN: { follow: "FOLLOW OUR PAGE", support: "CONTACT OUR SUPPORT", masthead: "Masthead", privacyLabel: "Data Protection Policy", sentTo: "This email has been sent to", contact: "en-INT/contact", imprint: "en-INT/imprint", privacy: "en-INT/privacy" },
+  FR: { follow: "SUIVEZ NOTRE PAGE", support: "CONTACTEZ NOTRE ASSISTANCE", masthead: "Infos légales", privacyLabel: "Politique de protection des données", sentTo: "Cet e-mail a été envoyé à", contact: "fr-INT/contact", imprint: "fr-INT/imprint", privacy: "fr-INT/privacy" },
+  IT: { follow: "SEGUI LA NOSTRA PAGINA", support: "CONTATTA L’ASSISTENZA", masthead: "Colophon", privacyLabel: "Tutela dei dati personali", sentTo: "Questa e-mail è stata inviata a", contact: "it-INT/contact", imprint: "it-INT/imprint", privacy: "it-INT/privacy" },
+  NL: { follow: "VOLG ONZE PAGINA", support: "CONTACT MET ONDERSTEUNING", masthead: "Colofon", privacyLabel: "Privacyverklaring", sentTo: "Deze e-mail is verstuurd naar", contact: "nl-INT/contact", imprint: "nl-INT/imprint", privacy: "nl-INT/privacy" },
+  PL: { follow: "OBSERWUJ NASZĄ STRONĘ", support: "SKONTAKTUJ SIĘ Z NAMI", masthead: "Najważniejsze informacje", privacyLabel: "Polityka ochrony danych", sentTo: "Ta wiadomość e-mail została wysłana do", contact: "pl-PL/contact", imprint: "pl-PL/imprint", privacy: "pl-PL/privacy" },
+};
+
 /**
- * The newsletter as e-mail HTML. `preview` shows where pictures and words are still missing (never in the real e-mail),
- * and marks each block so a click in the preview picks it (`selected` is outlined); `origin` is the hub's address, for
- * the pictures kept in it. The unsubscribe link carries HubSpot's own token, filled in by HubSpot when it sends.
+ * The newsletter as e-mail HTML. `preview` shows where pictures and words are still missing (never in the real e-mail)
+ * and marks each block (data-block); `edit` marks each block's words and pictures for the studio to edit in place;
+ * `origin` is the hub's address, for the pictures kept in it. The unsubscribe link carries HubSpot's own token, filled
+ * in by HubSpot when it sends.
  */
-export function renderEmail(docIn: unknown, opts: { preview?: boolean; origin?: string; selected?: string | null } = {}): string {
+export function renderEmail(docIn: unknown, opts: { preview?: boolean; edit?: boolean; origin?: string; selected?: string | null } = {}): string {
   const d = asNewsletter(docIn);
-  const r: R = { preview: !!opts.preview, origin: opts.origin, lang: d.language };
+  const r: R = { preview: !!opts.preview || !!opts.edit, edit: !!opts.edit, origin: opts.origin, lang: d.language, sel: opts.selected ?? null };
   const lang = (d.language || "en").toLowerCase();
-  const body = d.blocks.map((b) => {
+  let body = d.blocks.map((b) => {
     const h = blockHtml(b, r);
     // in the preview each block is its own row, to point at and to click
-    return r.preview && h ? `<tr><td data-block="${esc(b.id)}" class="blk${opts.selected === b.id ? " sel" : ""}" style="padding:0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${h}</table></td></tr>` : h;
+    return r.preview && h ? `<tr><td data-block="${esc(b.id)}"${r.edit ? ` data-sel="${esc(b.id)}"` : ""} class="blk${opts.selected === b.id ? " sel" : ""}" style="padding:0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${h}</table></td></tr>` : h;
   }).join("\n");
+  // HubSpot's personal words ({{ contact.lastname }}) show in the preview as what they are; the e-mail keeps the token
+  if (r.preview) body = body.replace(/\{\{\s*contact\.(\w+)\s*\}\}/g, (_m, f: string) => `<span style="display:inline-block;padding:0 6px;border-radius:3px;background:#e8eefc;color:#2459d1;font-size:.85em;font-weight:bold;line-height:1.5">${esc(TOKEN[f] ?? f)}</span>`);
   return `<!doctype html>
 <html lang="${esc(lang)}" xmlns="http://www.w3.org/1999/xhtml">
 <head>
@@ -385,18 +462,19 @@ export function renderEmail(docIn: unknown, opts: { preview?: boolean; origin?: 
     .w { width:100% !important; }
     .px { padding-left:22px !important; padding-right:22px !important; }
     .stack td.col { display:block !important; width:100% !important; box-sizing:border-box; padding:0 0 16px !important; border-left:0 !important; }
-    h1 { font-size:25px !important; line-height:31px !important; }
+    h1 { font-size:24px !important; line-height:30px !important; }
   }${r.preview ? `
-  .blk { cursor:pointer; position:relative; outline:2px solid transparent; outline-offset:-2px; transition:outline-color .12s; }
-  .blk:hover { outline:2px dashed rgba(36,89,209,.55); }
-  .blk.sel { outline:2px solid #2459d1; }
-  a { pointer-events:none; }` : ""}
+  .blk { position:relative; }
+  a { pointer-events:none; }
+  [data-ph]:empty:before { content:attr(data-ph); color:#9aa4ab; font-style:italic; font-weight:normal; font-family:${FONT}; }
+  [data-ph]:empty { min-height:1.3em; display:block; }
+  a[data-ph]:empty { display:inline-block; min-width:90px; }` : ""}
 </style>
 </head>
 <body style="margin:0;padding:0;background:${BRAND.page}">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${esc(d.preheader)}${"&nbsp;&zwnj;".repeat(40)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${BRAND.page}">
-  <tr><td align="center" style="padding:28px 12px">
+  <tr><td align="center" style="padding:20px 12px 28px">
     <table role="presentation" class="w" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background:#ffffff">
 ${body}
     </table>
@@ -404,6 +482,46 @@ ${body}
 </table>
 </body>
 </html>`;
+}
+
+/* ── the words of the e-mail, edited in place (Content v3) ───────────────────────────────────────────────────────── */
+
+/** A block's words by their key ("<block id>:<field>"), as written - or null when there is no such part. */
+export function partText(docIn: unknown, key: string): string | null {
+  const d = asNewsletter(docIn);
+  const at = key.indexOf(":");
+  if (at < 0) return null;
+  const b = d.blocks.find((x) => x.id === key.slice(0, at));
+  const f = b ? textFields(b).find((x) => x.name === key.slice(at + 1)) : undefined;
+  return f ? f.value : null;
+}
+
+/** The newsletter with one block's words changed (a button's words, a title: one line). */
+export function setPart(docIn: unknown, key: string, text: string): NewsletterDoc {
+  const d = asNewsletter(docIn);
+  const at = key.indexOf(":");
+  if (at < 0) return d;
+  const id = key.slice(0, at);
+  const name = key.slice(at + 1);
+  const value = oneLine(key) ? text.replace(/\s*\n+\s*/g, " ").trim() : text.replace(/\r\n?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return { ...d, blocks: d.blocks.map((b) => (b.id === id ? setTextField(b, name, value) : b)) };
+}
+
+/** A part of one line: Enter keeps it. */
+export const oneLine = (key: string) => /:(eyebrow|headline|title|button|link|item\dName|item\dBig|item\dLabel|imageAlt)$/.test(key);
+
+/** The block a key belongs to. */
+export const blockOf = (key: string | null) => (key ? key.split(":")[0] : null);
+
+/** Blocks moved: the one at `from` one place up (-1) or down (+1). */
+export function moveBlock(docIn: unknown, id: string, by: -1 | 1): NewsletterDoc {
+  const d = asNewsletter(docIn);
+  const i = d.blocks.findIndex((b) => b.id === id);
+  const j = i + by;
+  if (i < 0 || j < 0 || j >= d.blocks.length) return d;
+  const blocks = [...d.blocks];
+  [blocks[i], blocks[j]] = [blocks[j], blocks[i]];
+  return { ...d, blocks };
 }
 
 /** The newsletter's words, plain - for the version, the library and the search. */
@@ -442,6 +560,7 @@ export function checks(doc: unknown): Check[] {
   const pics = d.blocks.flatMap((b) => (b.kind === "hero" || b.kind === "article" || b.kind === "banner" ? [b] : []));
   if (pics.some((b) => b.imageUrl && !b.imageAlt)) out.push({ level: "warn", text: "A picture has no alternative text (many inboxes block pictures at first)." });
   if (!d.blocks.some((b) => b.kind === "footer")) out.push({ level: "bad", text: "No footer - a newsletter must carry the unsubscribe link." });
+  if (d.blocks.some((b) => b.kind === "header" && /\.svg(\?|$)/i.test(b.logoUrl))) out.push({ level: "warn", text: "The logo is an SVG - Outlook and Gmail do not show it. Use our logo, or a PNG." });
   const links = d.blocks.flatMap((b) => (b.kind === "hero" || b.kind === "cta" ? [b.button] : b.kind === "article" ? [b.link] : []));
   if (links.some((l) => l.label && safeUrl(l.url) === "#")) out.push({ level: "bad", text: "A button or link has no valid address." });
   if (/\b\d{1,2}\s?%/.test(newsletterText(d)) && /(rabatt|discount|remise|sconto|off)\b/i.test(newsletterText(d))) out.push({ level: "bad", text: "A discount value is named - we never show one." });

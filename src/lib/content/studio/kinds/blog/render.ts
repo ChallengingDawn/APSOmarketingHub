@@ -52,25 +52,32 @@ export function inline(src: string): string {
 }
 
 const BLOCK = /^(\s*#{1,6}\s|\s*[-*+]\s+|\s*\d+[.)]\s+|\s*>|\s*\|)/;
+const FINE = /^\*{0,2}(for information only|nur zur information|à titre (purement )?informatif|a titolo (puramente )?informativo|wyłącznie informacyjnie|tylko w celach informacyjnych|uitsluitend ter informatie|alleen ter informatie)/i;
 
-/** A section's markdown as HTML blocks: sub-headings (h3/h4 - the section's own heading is the h2), lists, tables, quotes. */
-export function mdBlocks(src: string): string[] {
+/**
+ * A section's markdown as its blocks - each block's HTML and the markdown it was made from (Content v3: a click on one
+ * paragraph, list or table in the preview edits that block's own words, in place). Sub-headings are h3/h4 (the section's
+ * own heading is the h2), lists, tables, quotes (shown as a callout in a post).
+ */
+export function mdParts(src: string): { raw: string; html: string }[] {
   const lines = src.replace(/\r\n?/g, "\n").split("\n");
-  const out: string[] = [];
+  const out: { raw: string; html: string }[] = [];
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
     if (!line.trim()) { i++; continue; }
+    const start = i;
+    const push = (html: string) => out.push({ raw: lines.slice(start, i).join("\n").trim(), html });
     const h = /^\s*(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
-    if (h) { const tag = h[1].length >= 4 ? "h4" : "h3"; out.push(`<${tag}>${inline(h[2])}</${tag}>`); i++; continue; }
-    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { out.push("<hr>"); i++; continue; }
+    if (h) { const tag = h[1].length >= 4 ? "h4" : "h3"; i++; push(`<${tag}>${inline(h[2])}</${tag}>`); continue; }
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { i++; push("<hr>"); continue; }
     if (/^\s*\|/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1])) {
       const cells = (l: string) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
       const head = cells(line);
       i += 2;
       const rows: string[][] = [];
       while (i < lines.length && /^\s*\|/.test(lines[i])) rows.push(cells(lines[i++]));
-      out.push(`<div class="apx-table"><table><thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${head.map((_, k) => `<td>${inline(r[k] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+      push(`<div class="apx-table"><table><thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${head.map((_, k) => `<td>${inline(r[k] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
       continue;
     }
     const ul = /^\s*[-*+]\s+/;
@@ -83,21 +90,29 @@ export function mdBlocks(src: string): string[] {
         if (re.test(lines[i])) items.push(lines[i].replace(re, "")); else items[items.length - 1] += ` ${lines[i].trim()}`;
         i++;
       }
-      out.push(`<${tag}>${items.map((x) => `<li>${inline(x)}</li>`).join("")}</${tag}>`);
+      push(`<${tag}>${items.map((x) => `<li>${inline(x)}</li>`).join("")}</${tag}>`);
       continue;
     }
     if (/^\s*>/.test(line)) {
       const q: string[] = [];
       while (i < lines.length && /^\s*>/.test(lines[i])) q.push(lines[i++].replace(/^\s*>\s?/, ""));
-      out.push(`<blockquote><p>${inline(q.join(" "))}</p></blockquote>`);
+      push(`<blockquote><p>${inline(q.join(" "))}</p></blockquote>`);
       continue;
     }
     const p: string[] = [];
     while (i < lines.length && lines[i].trim() && !(p.length && BLOCK.test(lines[i]))) p.push(lines[i++].trim());
-    out.push(`<p>${p.map(inline).join("<br>")}</p>`);
+    // the line every word on chemical compatibility carries ("for information only, no guarantee, no liability"), in small type
+    const fine = p.length === 1 && p[0].length < 200 && FINE.test(p[0]);
+    push(`<p${fine ? ' class="apx-fine"' : ""}>${p.map(inline).join("<br>")}</p>`);
   }
   return out;
 }
+
+/** A section's markdown as HTML blocks. */
+export const mdBlocks = (src: string): string[] => mdParts(src).map((x) => x.html);
+
+/** A section's markdown as the markdown of each of its blocks (what one click in the preview edits). */
+export const mdChunks = (src: string): string[] => mdParts(src).map((x) => x.raw);
 
 export const md = (src: string): string => mdBlocks(src).join("\n");
 
@@ -112,7 +127,7 @@ export const BLOG_CSS = `.apx-blog{--ink:#1d2326;--petrol:#274e64;--deep:#1b3a4b
 .apx-blog .apx-crumbs a{color:inherit;text-decoration:none}
 .apx-blog .apx-crumbs span{margin:0 10px;color:#aab3b8}
 .apx-blog .apx-eyebrow{display:inline-block;color:var(--red);font-size:13px;line-height:1.3;font-weight:600;letter-spacing:.14em;text-transform:uppercase;margin:0 0 14px}
-.apx-blog h1{font-size:52px;line-height:1.06;font-weight:500;letter-spacing:-.02em;margin:0 0 22px}
+.apx-blog h1{font-size:48px;line-height:1.08;font-weight:500;letter-spacing:-.02em;margin:0 0 22px}
 .apx-blog h2{font-size:32px;line-height:1.18;font-weight:500;letter-spacing:-.012em;margin:56px 0 18px}
 .apx-blog h3{font-size:23px;line-height:1.3;font-weight:600;margin:36px 0 10px}
 .apx-blog h4{font-size:19px;font-weight:600;margin:28px 0 8px}
@@ -122,8 +137,9 @@ export const BLOG_CSS = `.apx-blog{--ink:#1d2326;--petrol:#274e64;--deep:#1b3a4b
 .apx-blog li::marker{color:var(--red)}
 .apx-blog mark{background:none;color:var(--red);font-weight:600}
 .apx-blog code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.86em;background:var(--paper);padding:1px 5px}
-.apx-blog blockquote{margin:36px 0;padding:2px 0 2px 28px;border-left:4px solid var(--red);font-size:26px;line-height:1.38;font-weight:500;letter-spacing:-.01em;color:var(--ink)}
+.apx-blog blockquote{margin:30px 0;padding:18px 24px 18px 22px;background:var(--paper);border-left:4px solid var(--petrol);font-size:17px;line-height:1.6;color:#2f393e}
 .apx-blog blockquote p{margin:0}
+.apx-blog blockquote.apx-pull{margin:44px 0;padding:6px 0 6px 30px;background:none;border-left:4px solid var(--red);font-size:28px;line-height:1.34;font-weight:500;letter-spacing:-.012em;color:var(--ink)}
 .apx-blog hr{border:0;border-top:1px solid var(--line);margin:44px 0}
 .apx-blog .apx-table{overflow-x:auto;margin:8px 0 28px;border:1px solid var(--line)}
 .apx-blog table{border-collapse:collapse;width:100%;font-size:16px;line-height:1.5}
@@ -177,6 +193,11 @@ export const BLOG_CSS = `.apx-blog{--ink:#1d2326;--petrol:#274e64;--deep:#1b3a4b
 .apx-blog .apx-nl h2{font-size:30px;margin:0 0 6px}
 .apx-blog .apx-nl p{margin:0;color:#424c51;font-size:17px;max-width:620px}
 .apx-post .apx-post-head{padding:40px 0 0}
+.apx-post .apx-post-head .apx-wrap{display:grid;grid-template-columns:230px minmax(0,740px);gap:0 80px;justify-content:center}
+.apx-post .apx-head-in{grid-column:2;min-width:0}
+.apx-post.apx-solo .apx-post-head .apx-wrap{grid-template-columns:minmax(0,760px)}
+.apx-post.apx-solo .apx-head-in{grid-column:1}
+.apx-blog p.apx-fine{font-size:14px;line-height:1.5;color:var(--muted);margin:-6px 0 22px}
 .apx-post .apx-lead{font-size:23px;line-height:1.5;color:#3c464b;margin:0 0 30px}
 .apx-post .apx-post-head .apx-byline{padding:18px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 .apx-blog .apx-byline .apx-who{display:flex;flex-direction:column;line-height:1.3;min-width:0}
@@ -209,10 +230,13 @@ export const BLOG_CSS = `.apx-blog{--ink:#1d2326;--petrol:#274e64;--deep:#1b3a4b
 .apx-post .apx-faq summary:after{content:"+";position:absolute;right:20px;top:50%;margin-top:-15px;width:30px;height:30px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--petrol);font-weight:400;font-size:20px;line-height:1}
 .apx-post .apx-faq details[open] summary:after{content:"\\2212"}
 .apx-post .apx-faq details>div{padding:0 24px 8px;color:#3c464b}
-.apx-post .apx-related ul{list-style:none;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.apx-post .apx-related{margin-top:56px}
+.apx-post .apx-related ul{list-style:none;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .apx-post .apx-related li{margin:0}
-.apx-post .apx-related a{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:18px 20px;border:1px solid var(--line);text-decoration:none;font-weight:600;color:var(--ink);line-height:1.35}
-.apx-post .apx-related a:after{content:"\\2192";color:var(--red);font-weight:400}
+.apx-post .apx-related a{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:16px;padding:20px 22px;border:1px solid var(--line);border-top:3px solid var(--petrol);text-decoration:none;color:var(--ink);background:#fff;line-height:1.35;height:100%}
+.apx-post .apx-related a b{font-weight:600;font-size:18px}
+.apx-post .apx-related a small{grid-column:1;font-size:13px;color:var(--muted);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.apx-post .apx-related a:after{content:"\\2192";grid-column:2;grid-row:1/span 2;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:var(--red);color:#fff;font-size:18px}
 .apx-post .apx-related a:hover{border-color:var(--petrol)}
 .apx-blog .apx-tags{margin:44px 0 0;display:flex;flex-wrap:wrap;gap:8px}
 .apx-blog .apx-tags a{display:inline-block;padding:7px 14px;border:1px solid #cfd6da;font-size:14px;line-height:1.3;color:var(--petrol);text-decoration:none;border-radius:2px}
@@ -226,8 +250,8 @@ export const BLOG_CSS = `.apx-blog{--ink:#1d2326;--petrol:#274e64;--deep:#1b3a4b
 .apx-post .apx-others{margin:88px 0 0;padding:0}
 .apx-post .apx-others .apx-h-sec{margin-top:0}
 .apx-empty{color:var(--muted);font-size:17px}
-@media (max-width:1023px){.apx-blog .apx-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.apx-post .apx-body{grid-template-columns:minmax(0,1fr);gap:0}.apx-post .apx-toc{position:static;background:var(--paper);padding:20px 22px;margin:0 0 40px}.apx-post .apx-toc ol{border:0}.apx-post .apx-toc a{padding-left:0;border:0!important}}
-@media (max-width:767px){.apx-blog{font-size:17px}.apx-blog .apx-wrap,.apx-post .apx-hero,.apx-post .apx-body{padding-left:16px;padding-right:16px}.apx-blog h1,.apx-home .apx-band h1{font-size:34px}.apx-blog h2{font-size:26px;margin-top:44px}.apx-post .apx-lead{font-size:19px}.apx-blog blockquote{font-size:21px}.apx-blog .apx-cards{grid-template-columns:minmax(0,1fr);gap:40px}.apx-blog .apx-feature{grid-template-columns:minmax(0,1fr)}.apx-blog .apx-feature .apx-pic{min-height:0;aspect-ratio:16/10}.apx-blog .apx-feature-body{padding:24px}.apx-blog .apx-feature-title{font-size:27px}.apx-blog .apx-nl .apx-wrap{grid-template-columns:minmax(0,1fr)}.apx-post .apx-cta{flex-direction:column;align-items:flex-start;padding:26px}.apx-post .apx-related ul{grid-template-columns:minmax(0,1fr)}.apx-home .apx-band p{font-size:18px}}`;
+@media (max-width:1023px){.apx-post .apx-post-head .apx-wrap{grid-template-columns:minmax(0,1fr)}.apx-post .apx-head-in{grid-column:1}.apx-blog .apx-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.apx-post .apx-body{grid-template-columns:minmax(0,1fr);gap:0}.apx-post .apx-toc{position:static;background:var(--paper);padding:20px 22px;margin:0 0 40px}.apx-post .apx-toc ol{border:0}.apx-post .apx-toc a{padding-left:0;border:0!important}}
+@media (max-width:767px){.apx-blog{font-size:17px}.apx-blog .apx-wrap,.apx-post .apx-hero,.apx-post .apx-body{padding-left:16px;padding-right:16px}.apx-blog h1,.apx-home .apx-band h1{font-size:34px}.apx-blog h2{font-size:26px;margin-top:44px}.apx-post .apx-lead{font-size:19px}.apx-blog blockquote.apx-pull{font-size:22px}.apx-blog .apx-cards{grid-template-columns:minmax(0,1fr);gap:40px}.apx-blog .apx-feature{grid-template-columns:minmax(0,1fr)}.apx-blog .apx-feature .apx-pic{min-height:0;aspect-ratio:16/10}.apx-blog .apx-feature-body{padding:24px}.apx-blog .apx-feature-title{font-size:27px}.apx-blog .apx-nl .apx-wrap{grid-template-columns:minmax(0,1fr)}.apx-post .apx-cta{flex-direction:column;align-items:flex-start;padding:26px}.apx-post .apx-related ul{grid-template-columns:minmax(0,1fr)}.apx-home .apx-band p{font-size:18px}}`;
 
 /* ── the shop around it (preview only) ────────────────────────────────── */
 
@@ -248,9 +272,6 @@ const PREVIEW_CSS = `@font-face{font-family:Jost;font-weight:400 500;src:url(/vi
 body{margin:0;background:#fff}
 a{pointer-events:none}
 .apx-shop{font-family:futura-pt,Jost,system-ui,sans-serif;color:#1d2326;border-bottom:1px solid #e3e7e9;background:#fff}
-.apx-shop-url{display:flex;align-items:center;gap:8px;padding:9px 20px;background:#f4f6f7;border-bottom:1px solid #e3e7e9;font:12px/1 system-ui,sans-serif;color:#7b858b}
-.apx-shop-url i{display:inline-block;width:9px;height:9px;border-radius:50%;background:#d6dcdf}
-.apx-shop-url span{margin-left:10px;background:#fff;border:1px solid #e3e7e9;padding:5px 12px;min-width:320px}
 .apx-shop-row{max-width:1200px;margin:0 auto;padding:16px 24px;display:flex;align-items:center;gap:32px}
 .apx-shop-row img{height:46px;width:auto;display:block;margin:-6px 0}
 .apx-shop-search{flex:1;display:flex;height:44px;border:1px solid #cfd6da;max-width:620px}
@@ -273,16 +294,16 @@ a{pointer-events:none}
 .apx-slot i{width:40px;height:40px;border:2px solid #c3ccd1;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:24px;color:#8a949a;margin-bottom:6px}
 .apx-feature.apx-slot{min-height:380px;display:flex}
 .apx-unwritten{font:italic 14px/1.5 system-ui,sans-serif!important;color:#8a949a!important}
-@media (max-width:767px){.apx-shop-row{gap:14px;padding:12px 16px}.apx-shop-row img{height:34px}.apx-shop-icons{display:none}.apx-shop-nav{padding:0 16px;gap:18px;font-size:14px}.apx-shop-url span{min-width:0;flex:1;overflow:hidden;white-space:nowrap}}`;
+@media (max-width:767px){.apx-shop-row{gap:14px;padding:12px 16px}.apx-shop-row img{height:34px}.apx-shop-icons{display:none}.apx-shop-nav{padding:0 16px;gap:18px;font-size:14px}}`;
 
 const ICON_USER = `<svg viewBox="0 0 24 24" fill="none" stroke="#1d2326" stroke-width="1.6"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>`;
 const ICON_CART = `<svg viewBox="0 0 24 24" fill="none" stroke="#1d2326" stroke-width="1.6"><path d="M3 4h2.5l2.2 11h10.6L20.5 7H7"/><circle cx="9.5" cy="19.5" r="1.4"/><circle cx="17" cy="19.5" r="1.4"/></svg>`;
 const ICON_SEARCH = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>`;
 
-function shopHeader(language: string, address: string): string {
+function shopHeader(language: string): string {
   const L = language.toUpperCase();
   const cats = CATEGORIES[L] ?? CATEGORIES.EN;
-  return `<div class="apx-shop"><div class="apx-shop-url"><i></i><i></i><i></i><span>${esc(address)}</span></div>
+  return `<div class="apx-shop">
 <div class="apx-shop-row"><img src="/brand/apsoparts-logo.svg" alt="APSOparts"><div class="apx-shop-search"><span>${esc(SEARCH[L] ?? SEARCH.EN)}</span><b>${ICON_SEARCH}</b></div><div class="apx-shop-icons">${ICON_USER}${ICON_CART}</div></div>
 <nav class="apx-shop-nav"><span>${esc(PRODUCTS[L] ?? PRODUCTS.EN)}</span>${cats.map((c) => `<span>${esc(c)}</span>`).join("")}<span class="on">Blog</span></nav></div>`;
 }
@@ -350,33 +371,66 @@ function newsletterBand(store: string, language: string): string {
 
 /* ── the post ─────────────────────────────────────────────────────────── */
 
-function figure(p: BlogPicture, origin: string | undefined, cls: string): string {
-  const u = p.url ? picUrl(p.url, origin) : null;
-  if (!u) return "";
+/**
+ * The studio's marks on the post (Content v3, SARCLA 08.11.2026: "the editing is really not yet fully clear"). In the
+ * studio's preview only - never in the paste: each part says what it is, so a click on it edits its words right there
+ * (data-ed), picks a picture (data-pic) or a part with no words of its own (data-sel); an empty part shows what goes
+ * there (data-ph), and a picture the post plans but does not have yet shows as its empty frame.
+ */
+export type PostEdit = {
+  /** Parts shown empty to be filled although nothing is in them yet: "s:<id>:q" (a pull quote), "s:<id>:img" (a picture). */
+  open?: string[];
+};
+
+const ed = (o: PostOpts, key: string, ph?: string) => (o.edit ? ` data-ed="${esc(key)}"${ph ? ` data-ph="${esc(ph)}"` : ""}` : "");
+const pick = (o: PostOpts, key: string) => (o.edit ? ` data-sel="${esc(key)}"` : "");
+const isOpen = (o: PostOpts, key: string) => !!o.edit?.open?.includes(key);
+
+/** A picture of the post; in the studio, a picture planned but not made yet is its empty frame with the idea for it. */
+function figure(p: BlogPicture, o: PostOpts, cls: string, key: string, open = false): string {
+  const u = p.url ? picUrl(p.url, o.origin) : null;
+  const mark = o.edit ? ` data-pic="${esc(key)}"` : "";
+  if (!u) {
+    if (!o.edit || !(open || p.prompt.trim())) return "";
+    const what = cls === "apx-hero" ? "The post's picture" : "A picture";
+    return `<figure class="${cls} apx-ph"${mark}><span class="apx-ph-box"><b>${what}</b>${p.prompt.trim() ? `<span>${esc(p.prompt.trim().slice(0, 220))}</span>` : ""}<i>Click to make it or upload one</i></span></figure>`;
+  }
+  const cap = p.caption.trim() ? `<figcaption${ed(o, `${key}:cap`)}>${esc(p.caption.trim())}</figcaption>` : "";
   // the post's own picture is the first thing seen - never lazy
-  return `<figure class="${cls}"><img src="${u}" alt="${esc(p.alt)}"${cls === "apx-hero" ? ' fetchpriority="high"' : ' loading="lazy"'}>${p.caption.trim() ? `<figcaption>${esc(p.caption.trim())}</figcaption>` : ""}</figure>`;
+  return `<figure class="${cls}"${mark}><img src="${u}" alt="${esc(p.alt)}"${cls === "apx-hero" ? ' fetchpriority="high"' : ' loading="lazy"'}>${cap}</figure>`;
 }
 
-/** A section: its heading, its text - its picture after the first paragraph, its pull quote after the second. */
-function sectionHtml(s: BlogDoc["sections"][number], origin?: string): string {
-  const blocks = mdBlocks(s.body);
-  const fig = figure(s.image, origin, "apx-fig");
-  const quote = s.quote.trim() ? `<blockquote class="apx-pull"><p>${inline(s.quote.trim())}</p></blockquote>` : "";
+/** A section: its heading, its text - its picture after the first block, its pull quote after the second. */
+function sectionHtml(s: BlogDoc["sections"][number], o: PostOpts): string {
+  const k = `s:${s.id}`;
+  const parts = mdParts(s.body);
+  const blocks = o.edit
+    ? (parts.length ? parts : [{ raw: "", html: "" }]).map((b, i) => `<div class="apx-chunk"${ed(o, `${k}:b:${i}`, "Write this section here - or ask the assistant on the right")}>${b.html}</div>`)
+    : parts.map((b) => b.html);
+  const fig = figure(s.image, o, "apx-fig", `${k}:img`, isOpen(o, `${k}:img`));
+  const quoteOn = s.quote.trim() || (o.edit && isOpen(o, `${k}:q`));
+  const quote = quoteOn ? `<blockquote class="apx-pull"><p${ed(o, `${k}:q`, "One sentence worth reading twice")}>${inline(s.quote.trim())}</p></blockquote>` : "";
   const out = [...blocks];
   if (quote) out.splice(Math.min(2, out.length), 0, quote);
   if (fig) out.splice(Math.min(1, out.length), 0, fig);
-  return `<section>${s.heading.trim() ? `<h2 id="${slugify(s.heading)}">${inline(s.heading)}</h2>` : ""}\n${out.join("\n")}</section>`;
+  const head = s.heading.trim() || o.edit ? `<h2 id="${slugify(s.heading)}"${ed(o, `${k}:h`, "The section's heading")}>${inline(s.heading)}</h2>` : "";
+  return `<section${o.edit ? ` data-sec="${esc(s.id)}"` : ""}>${head}\n${out.join("\n")}</section>`;
 }
 
 export type PostOpts = {
-  /** Other posts to show under it (approved or live ones in the paste; every one the person can see in the preview). */
+  /** Other posts to show under it (the studio shows none: SARCLA 08.11.2026 "on the preview, show just the blog page"). */
   related?: BlogCard[];
   /** The hub's address, for pictures kept in the hub - the paste only. */
   origin?: string;
   withState?: boolean;
   /** Its day on the content calendar - shown when the post has no publishing day of its own. */
   due?: string | null;
+  /** The studio's preview, edited in place. */
+  edit?: PostEdit;
 };
+
+/** A product's address, short, as the card shows it under its name. */
+const shortUrl = (u: string) => u.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
 
 /** The post's page content, as it is pasted: the article with its links to the blog's home and topics. */
 export function postArticle(d: BlogDoc, o: PostOpts = {}): string {
@@ -384,31 +438,51 @@ export function postArticle(d: BlogDoc, o: PostOpts = {}): string {
   const meta = [fmtDate(d.publishAt || o.due || null, d.store), `${readingMinutes(d)} ${w.read}`].filter(Boolean).map(esc).join(`<span class="apx-dot"></span>`);
   const author = d.author.trim();
   const who = author ? `<span class="apx-avatar">${esc(initials(author))}</span><span class="apx-who"><b>${esc(author)}</b>${d.authorRole.trim() ? `<small>${esc(d.authorRole.trim())}</small>` : ""}</span><span class="apx-dot"></span>` : "";
-  const hero = figure(d.hero, o.origin, "apx-hero");
+  const hero = figure(d.hero, o, "apx-hero", "hero", true);
   const heads = d.sections.filter((s) => s.heading.trim());
   const toc = heads.length >= 2 ? `<aside class="apx-toc"><b>${esc(w.toc)}</b><ol>${heads.map((s) => `<li><a href="#${slugify(s.heading)}">${inline(s.heading)}</a></li>`).join("")}</ol></aside>` : "";
-  const short = d.takeaways.length ? `<div class="apx-short"><b>${esc(w.inShort)}</b><ul>${d.takeaways.map((t) => `<li>${inline(t)}</li>`).join("")}</ul></div>` : "";
-  const sections = d.sections.map((s) => sectionHtml(s, o.origin)).join("\n");
+  const lines = d.takeaways.length ? `<ul>${d.takeaways.map((t) => `<li>${inline(t)}</li>`).join("")}</ul>` : "";
+  const short = o.edit
+    ? `<div class="apx-short"><b>${esc(w.inShort)}</b><div${ed(o, "short", "Three or four lines a reader takes away - one per line")}>${lines}</div></div>`
+    : lines ? `<div class="apx-short"><b>${esc(w.inShort)}</b>${lines}</div>` : "";
+  const sections = d.sections.map((s) => sectionHtml(s, o)).join("\n");
   const ctaUrl = safeUrl(d.cta.url.trim() || shopUrl(d.store)) ?? esc(shopUrl(d.store));
   const cta = d.sections.length
-    ? `<aside class="apx-cta"><div><b>${esc(d.cta.title.trim() || w.ctaTitle)}</b><p>${esc(d.cta.text.trim() || w.ctaText)}</p></div><a class="apx-btn" href="${ctaUrl}">${esc(d.cta.label.trim() || w.ctaLabel)}</a></aside>`
+    ? `<aside class="apx-cta"${pick(o, "cta")}><div><b${ed(o, "cta:t")}>${esc(d.cta.title.trim() || w.ctaTitle)}</b><p${ed(o, "cta:x")}>${esc(d.cta.text.trim() || w.ctaText)}</p></div><a class="apx-btn" href="${ctaUrl}"${ed(o, "cta:l")}>${esc(d.cta.label.trim() || w.ctaLabel)}</a></aside>`
     : "";
-  const qs = d.faq.filter((f) => f.q.trim());
-  const faq = qs.length ? `<section class="apx-faq"><h2 id="faq">${esc(w.faq)}</h2>${qs.map((f, i) => `<details${i === 0 ? " open" : ""}><summary>${inline(f.q)}</summary><div>${md(f.a)}</div></details>`).join("")}</section>` : "";
-  const products = d.relatedProducts.filter((p) => p.name.trim() && safeUrl(p.url));
-  const related = products.length ? `<section class="apx-related"><h2>${esc(w.related)}</h2><ul>${products.map((p) => `<li><a href="${safeUrl(p.url)}">${esc(p.name)}</a></li>`).join("")}</ul></section>` : "";
-  const tags = d.tags.length ? `<p class="apx-tags">${d.tags.map((t) => `<a href="${tagPath(d.store, t)}">${esc(t)}</a>`).join("")}</p>` : "";
-  const authorBox = author ? `<div class="apx-author"><span class="apx-avatar">${esc(initials(author))}</span><div><b>${esc(author)}</b>${d.authorRole.trim() ? `<span>${esc(d.authorRole.trim())}</span>` : ""}</div></div>` : "";
+  const qs = o.edit ? d.faq : d.faq.filter((f) => f.q.trim());
+  // in the studio every answer shows, to be edited where it is read
+  const faq = qs.length
+    ? o.edit
+      ? `<section class="apx-faq"${pick(o, "faq")}><h2 id="faq">${esc(w.faq)}</h2>${qs.map((f) => `<div class="apx-qa"><div class="apx-q"${ed(o, `faq:${f.id}:q`, "The question")}>${inline(f.q)}</div><div class="apx-a"${ed(o, `faq:${f.id}:a`, "Its answer")}>${md(f.a)}</div></div>`).join("")}</section>`
+      : `<section class="apx-faq"><h2 id="faq">${esc(w.faq)}</h2>${qs.map((f, i) => `<details${i === 0 ? " open" : ""}><summary>${inline(f.q)}</summary><div>${md(f.a)}</div></details>`).join("")}</section>`
+    : o.edit && d.sections.length ? `<section class="apx-faq apx-slot-sec"${pick(o, "faq")}><h2>${esc(w.faq)}</h2><p class="apx-slot-line">No questions yet - the assistant writes them from the post.</p></section>` : "";
+  const products = o.edit ? d.relatedProducts : d.relatedProducts.filter((p) => p.name.trim() && safeUrl(p.url));
+  const card = (p: BlogDoc["relatedProducts"][number]) => {
+    const u = safeUrl(p.url);
+    return `<li><a href="${u ?? "#"}"${pick(o, `prod:${p.id}`)}><b${ed(o, `prod:${p.id}`, "The product's name")}>${esc(p.name)}</b><small>${u ? esc(shortUrl(p.url)) : o.edit ? "No address on the shop yet" : ""}</small></a></li>`;
+  };
+  const related = products.length
+    ? `<section class="apx-related"${pick(o, "prods")}><h2>${esc(w.related)}</h2><ul>${products.map(card).join("")}</ul></section>`
+    : o.edit && d.sections.length ? `<section class="apx-related apx-slot-sec"${pick(o, "prods")}><h2>${esc(w.related)}</h2><p class="apx-slot-line">The shop pages this post leads to - click to add them.</p></section>` : "";
+  const tags = d.tags.length ? `<p class="apx-tags"${pick(o, "tags")}>${d.tags.map((t) => `<a href="${tagPath(d.store, t)}">${esc(t)}</a>`).join("")}</p>` : "";
+  const authorBox = author
+    ? `<div class="apx-author"${pick(o, "author")}><span class="apx-avatar">${esc(initials(author))}</span><div><b>${esc(author)}</b>${d.authorRole.trim() ? `<span>${esc(d.authorRole.trim())}</span>` : ""}</div></div>`
+    : "";
   const others = (o.related ?? []).slice(0, 3);
   const more = others.length ? `<section class="apx-others"><div class="apx-wrap"><h2 class="apx-h-sec">${esc(w.more)}</h2><div class="apx-cards">${others.map((c) => cardHtml(c, { withState: o.withState, origin: o.origin })).join("\n")}</div></div></section>` : "";
   const crumbs = `<nav class="apx-crumbs"><a href="/${d.store}/">${esc(w.shopHome)}</a><span>/</span><a href="${homePath(d.store)}">${esc(w.home)}</a>${d.tags[0] ? `<span>/</span><a href="${tagPath(d.store, d.tags[0])}">${esc(d.tags[0])}</a>` : ""}</nav>`;
-  return `<article class="apx-blog apx-post" lang="${langOf(d.store)}">
-<header class="apx-post-head"><div class="apx-wrap apx-narrow">
+  const eyebrow = d.tags[0] ? `<span class="apx-eyebrow"${pick(o, "tags")}>${esc(d.tags[0])}</span>` : o.edit ? `<span class="apx-eyebrow apx-ghost"${pick(o, "tags")}>Its topic</span>` : "";
+  const title = o.edit ? `<h1${ed(o, "title", "The post's title")}>${esc(d.title)}</h1>` : `<h1>${esc(d.title || "…")}</h1>`;
+  const lead = d.excerpt.trim() || o.edit ? `<p class="apx-lead"${ed(o, "lead", "The lead: the answer at once, in one or two sentences")}>${inline(d.excerpt.trim())}</p>` : "";
+  const byline = who || meta ? `<div class="apx-byline apx-meta"${pick(o, "author")}>${who || (o.edit ? `<span class="apx-ghost">Its author</span><span class="apx-dot"></span>` : "")}${meta}</div>` : "";
+  return `<article class="apx-blog apx-post${toc ? "" : " apx-solo"}" lang="${langOf(d.store)}">
+<header class="apx-post-head"><div class="apx-wrap"><div class="apx-head-in">
 ${crumbs}
-${d.tags[0] ? `<span class="apx-eyebrow">${esc(d.tags[0])}</span>` : ""}<h1>${esc(d.title || "…")}</h1>
-${d.excerpt.trim() ? `<p class="apx-lead">${inline(d.excerpt.trim())}</p>` : ""}
-<div class="apx-byline apx-meta">${who}${meta}</div>
-</div></header>
+${eyebrow}${title}
+${lead}
+${byline}
+</div></div></header>
 ${hero}
 <div class="apx-body${toc ? "" : " apx-body-solo"}">
 ${toc}<div class="apx-main">
@@ -427,12 +501,30 @@ ${newsletterBand(d.store, d.language)}
 </article>`;
 }
 
-const page = (lang: string, title: string, body: string, language: string, address: string) =>
-  `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${BLOG_CSS}\n${PREVIEW_CSS}</style></head><body>${shopHeader(language, address)}${body}${shopFooter()}</body></html>`;
+/** The studio's own look in the preview: the empty frames and slots, the words still to write. */
+const EDIT_CSS = `.apx-post .apx-ph{position:relative;margin:36px 0;aspect-ratio:3/2;border:2px dashed #b9c3c9;background:repeating-linear-gradient(135deg,#f7f9fa 0 14px,#f0f3f5 14px 28px);display:flex;align-items:center;justify-content:center;text-align:center}
+.apx-post .apx-hero.apx-ph{aspect-ratio:16/9;width:calc(100% - 48px);max-width:1152px;margin:44px auto 0}
+.apx-post .apx-ph-box{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:520px;padding:24px;font-family:system-ui,sans-serif}
+.apx-post .apx-ph-box b{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#4a5257}
+.apx-post .apx-ph-box span{font-size:15px;line-height:1.5;color:#5f6a70;font-style:italic}
+.apx-post .apx-ph-box i{font-style:normal;font-size:14px;font-weight:600;color:#fff;background:#2459d1;padding:8px 14px;border-radius:4px;margin-top:4px}
+.apx-blog .apx-ghost{color:#9aa4ab!important;font-style:italic}
+.apx-post .apx-slot-sec{border:2px dashed #c9d1d6;padding:22px 26px;margin-top:48px}
+.apx-post .apx-slot-sec h2{margin:0 0 6px;font-size:22px;color:#5f6a70}
+.apx-post .apx-slot-line{margin:0;font:italic 15px/1.5 system-ui,sans-serif;color:#7b858b}
+.apx-post .apx-qa{border:1px solid var(--line);margin:0 0 -1px;background:#fff;padding:18px 24px 8px}
+.apx-post .apx-q{font-weight:600;font-size:19px;line-height:1.4;margin:0 0 8px}
+.apx-post .apx-a{color:#3c464b}
+.apx-post [data-ph]:empty{min-height:1.4em}
+[data-ph]:empty:before{content:attr(data-ph);color:#9aa4ab;font-style:italic;font-weight:400;pointer-events:none}
+@media (max-width:767px){.apx-post .apx-hero.apx-ph{width:calc(100% - 32px);margin:32px auto 0}}`;
 
-/** The post as a whole page in the shop, for the preview frame. */
+const page = (lang: string, title: string, body: string, language: string, extraCss = "") =>
+  `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${BLOG_CSS}\n${PREVIEW_CSS}${extraCss ? `\n${extraCss}` : ""}</style></head><body>${shopHeader(language)}${body}${shopFooter()}</body></html>`;
+
+/** The post as a whole page in the shop, for the preview frame (the studio's marks on it when `edit` is given). */
 export function postDocument(d: BlogDoc, o: PostOpts = {}): string {
-  return page(langOf(d.store), d.metaTitle || d.title, postArticle(d, { ...o, origin: undefined }), d.language, `apsoparts.com${postPath(d)}`);
+  return page(langOf(d.store), d.metaTitle || d.title, postArticle(d, { ...o, origin: undefined }), d.language, o.edit ? EDIT_CSS : "");
 }
 
 /* ── the blog's home and its topics ───────────────────────────────────── */
@@ -475,8 +567,7 @@ ${newsletterBand(o.store, o.language)}
 }
 
 export function homeDocument(cards: BlogCard[], o: HomeOpts): string {
-  const path = o.tag ? tagPath(o.store, o.tag) : homePath(o.store);
-  return page(langOf(o.store), o.tag ?? "Blog", homeSection(cards, { ...o, withState: o.withState ?? true, origin: undefined }), o.language, `apsoparts.com${path}`);
+  return page(langOf(o.store), o.tag ?? "Blog", homeSection(cards, { ...o, withState: o.withState ?? true, origin: undefined }), o.language);
 }
 
 /* ── Google ───────────────────────────────────────────────────────────── */
@@ -544,7 +635,7 @@ export function pastePost(d: BlogDoc, o: PostOpts = {}): PasteBlock[] {
     {
       key: "post-content", label: "The post's content",
       steps: ["In Content, drag one HTML Code element (Elements) onto the stage.", "Paste this into it and Save. Leave the page disabled until it is read on the shop."],
-      code: `<style>\n${BLOG_CSS}\n</style>\n${postArticle(d, { ...o, withState: false })}\n${jsonLdScript(d, o.origin)}`,
+      code: `<style>\n${BLOG_CSS}\n</style>\n${postArticle(d, { ...o, withState: false, edit: undefined })}\n${jsonLdScript(d, o.origin)}`,
     },
   ];
 }
