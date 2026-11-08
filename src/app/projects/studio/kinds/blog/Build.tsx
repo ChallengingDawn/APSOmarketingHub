@@ -32,7 +32,7 @@ import {
 import { Field, PINK, Pane, btn, field } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { Publish } from "./Publish";
-import { BLUE, Block, Hint, PictureSlot, StepTabs, ToolRow, toolBtn } from "./ui";
+import { BLUE, Block, Hint, MdField, PictureSlot, StepTabs, ToolRow, toolBtn } from "./ui";
 
 export type Step = "post" | "sections" | "faq" | "google" | "publish";
 export type SectionMode = "write" | "shorter" | "concrete" | "translate";
@@ -54,7 +54,9 @@ const card = { border: `1px solid ${HAIRLINE}`, borderRadius: "8px", p: 1.5, pb:
 const SQUARE_TAG = { display: "inline-flex", alignItems: "center", gap: 0.5, pl: 1, pr: 0.25, height: 28, border: `1px solid ${HAIRLINE}`, borderRadius: "4px", bgcolor: "#fff", fontSize: "0.8rem", fontWeight: 600, color: INK };
 export const LANGS = ["DE", "FR", "IT", "EN", "NL", "PL"] as const;
 
-type Ctx = { api: StudioApi; d: BlogDoc; set: (next: BlogDoc) => void; canEdit: boolean; me: string };
+type Ctx = { api: StudioApi; d: BlogDoc; set: (next: BlogDoc) => void; canEdit: boolean; me: string;
+  /** The preview shows this section (by its heading). */
+  focus?: (heading: string) => void };
 
 function PostStep({ api, d, set, canEdit, me }: Ctx) {
   const [topic, setTopic] = useState("");
@@ -162,7 +164,7 @@ function SectionCard({ s, i, n, ctx, runSection }: {
   };
   const p = api.data.piece;
   return (
-    <Box sx={card} id={`section-${s.id}`}>
+    <Box sx={card} id={`section-${s.id}`} onFocusCapture={() => ctx.focus?.(s.heading)} onClickCapture={() => ctx.focus?.(s.heading)}>
       <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
         <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, letterSpacing: "0.07em", textTransform: "uppercase", flex: 1 }}>Section {i + 1}</Typography>
         {canEdit && <Rows i={i} n={n} onMove={(to) => set({ ...d, sections: moved(d.sections, i, to) })} onRemove={() => set({ ...d, sections: d.sections.filter((x) => x.id !== s.id) })} />}
@@ -175,7 +177,7 @@ function SectionCard({ s, i, n, ctx, runSection }: {
         </Box>
       )}
       <Field label="Heading" value={s.heading} disabled={!canEdit} onChange={(v) => up({ heading: v })} />
-      <Field label="Text" value={s.body} multiline rows={7} disabled={!canEdit} onChange={(v) => up({ body: v })} />
+      <MdField label="Text" value={s.body} disabled={!canEdit} onChange={(v) => up({ body: v })} />
       <Field label="Pull quote (optional)" value={s.quote} disabled={!canEdit} helper="One sentence shown large, with a red line, inside the section" onChange={(v) => up({ quote: v })} />
       <Box sx={{ mb: 1.25 }}>
         <PictureSlot url={s.image.url} alt={s.image.alt} aspect="3:2" startOpen={false} suggestion={s.image.prompt || `${s.heading}${d.title ? ` - for a blog article "${d.title}"` : ""}`}
@@ -193,7 +195,7 @@ function SectionsStep({ ctx, runSection }: { ctx: Ctx; runSection: (i: number, m
   const { d, set, canEdit } = ctx;
   return (
     <Block first title="Sections" right={canEdit ? <Button size="small" startIcon={<AddIcon />} onClick={() => set({ ...d, sections: [...d.sections, newSection()] })} sx={toolBtn}>Add one</Button> : undefined}>
-      <Hint mt={0}>Markdown: ### a sub-heading, - a list, | a | table |, **bold**, ==a key word== in red.</Hint>
+      <Hint mt={0}>Click a section to see it in the preview; click its text to edit it.</Hint>
       <Box sx={{ mt: 1.5 }}>
         {d.sections.map((s, i) => <SectionCard key={s.id} s={s} i={i} n={d.sections.length} ctx={ctx} runSection={runSection} />)}
       </Box>
@@ -251,13 +253,14 @@ function GoogleStep({ d, set, canEdit }: Ctx) {
   );
 }
 
-export function Build({ api, d, set, step, onStep, cards, runSection }: {
+export function Build({ api, d, set, step, onStep, cards, runSection, onFocusSection }: {
   api: StudioApi; d: BlogDoc; set: (next: BlogDoc) => void; step: Step; onStep: (s: Step) => void; cards: BlogCard[] | null;
+  onFocusSection?: (heading: string) => void;
   runSection: (i: number, mode: SectionMode, language?: string) => Promise<{ error: string | null; before?: BlogSection }>;
 }) {
   const canEdit = api.data.access.canEdit;
   const me = api.data.me;
-  const ctx: Ctx = { api, d, set, canEdit, me };
+  const ctx: Ctx = { api, d, set, canEdit, me, focus: onFocusSection };
   return (
     <Pane title="Build" pad={false}>
       <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>

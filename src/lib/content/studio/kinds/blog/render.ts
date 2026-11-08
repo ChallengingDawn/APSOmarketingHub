@@ -374,12 +374,14 @@ export type PostOpts = {
   /** The hub's address, for pictures kept in the hub - the paste only. */
   origin?: string;
   withState?: boolean;
+  /** Its day on the content calendar - shown when the post has no publishing day of its own. */
+  due?: string | null;
 };
 
 /** The post's page content, as it is pasted: the article with its links to the blog's home and topics. */
 export function postArticle(d: BlogDoc, o: PostOpts = {}): string {
   const w = wordsOf(d.language);
-  const meta = [fmtDate(d.publishAt || null, d.store), `${readingMinutes(d)} ${w.read}`].filter(Boolean).map(esc).join(`<span class="apx-dot"></span>`);
+  const meta = [fmtDate(d.publishAt || o.due || null, d.store), `${readingMinutes(d)} ${w.read}`].filter(Boolean).map(esc).join(`<span class="apx-dot"></span>`);
   const author = d.author.trim();
   const who = author ? `<span class="apx-avatar">${esc(initials(author))}</span><span class="apx-who"><b>${esc(author)}</b>${d.authorRole.trim() ? `<small>${esc(d.authorRole.trim())}</small>` : ""}</span><span class="apx-dot"></span>` : "";
   const hero = figure(d.hero, o.origin, "apx-hero");
