@@ -2,7 +2,7 @@
 // grouping the e-mails we sent by campaign, reading one e-mail's parts in the order it shows, turning them into the
 // studio's blocks, and its words in short for the assistant. tests/newsletter-our-emails.test.ts.
 
-import type { Block, NewsletterDoc } from "./model";
+import { isOurLogo, type Block, type NewsletterDoc } from "./model";
 
 export type RawEmail = {
   id: string | number; name?: string; subject?: string; language?: string; type?: string; state?: string; publishDate?: string;
@@ -92,6 +92,9 @@ export function readEmail(e: RawEmailFull): ReadEmail {
   return { id: String(e.id), subject: e.subject ?? "", preheader: typeof pre === "string" ? pre : "", language: (e.language ?? "en").toUpperCase().slice(0, 2), name: e.name ?? "", parts };
 }
 
+/** The first words of our e-mails' footer, in every language we send in. */
+const OUR_FOOTER = /^\s*(FOLLOW OUR PAGE|CONTACT OUR SUPPORT|UNSERER SEITE FOLGEN|UNSEREN SUPPORT KONTAKTIEREN|SUIVEZ NOTRE PAGE|CONTACTEZ NOTRE ASSISTANCE|SEGUI LA NOSTRA PAGINA|CONTATTA L.ASSISTENZA|VOLG ONZE PAGINA|CONTACT MET ONDERSTEUNING|OBSERWUJ NASZ. STRON.|SKONTAKTUJ SI. Z)/i;
+
 let seq = 0;
 const nid = () => `h${Date.now().toString(36)}${(seq++).toString(36)}`;
 /** A text's first line as a title when it reads like one (short, no full stop), the rest as the text. */
@@ -117,12 +120,21 @@ export function blocksFrom(parts: EmailPart[], subject = ""): Block[] {
   const lastWithLink = () => [...out].reverse().find((b) => b.kind === "hero" || b.kind === "article");
   for (const p of body) {
     if (p.kind === "image") {
+      // the footer's icons (LinkedIn, the envelope) are our footer's - not pictures of the e-mail
+      if (/^(mail|linkedin|facebook|twitter|x|xing|instagram|youtube)$/i.test(p.alt.trim())) continue;
+      // our logo at the top (Logo2.jpg in our e-mails) is the header - never the lead story's picture
+      if (!out.length && !pendingImage && /logo/i.test(`${p.alt} ${p.src}`)) {
+        out.push({ id: nid(), kind: "header", tagline: "", logoUrl: isOurLogo(p.src) ? "" : p.src, hs: { image: p.widget } });
+        continue;
+      }
       if (pendingImage) out.push({ id: nid(), kind: "banner", imageUrl: pendingImage.src, imageAlt: pendingImage.alt, url: pendingImage.url, hs: { image: pendingImage.widget } });
       pendingImage = p;
       continue;
     }
     if (p.kind === "text") {
       if (!p.text) continue;
+      // our footer starts here (follow us, our support, masthead): the studio's own footer closes the e-mail
+      if (OUR_FOOTER.test(p.text)) break;
       // the greeting between the header picture and the first words waits for the lead story
       if (pendingImage && !out.some((b) => b.kind === "hero") && /\{\{\s*contact\./.test(p.text) && p.text.length < 140) { greeting = p.text; continue; }
       const w = p.widget;

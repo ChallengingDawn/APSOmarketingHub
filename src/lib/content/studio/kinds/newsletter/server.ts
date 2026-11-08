@@ -154,9 +154,12 @@ a fact's figure (keep the figure, translate only its unit words).`,
       const e = await emailParts(id);
       const all = await ourEmails().catch(() => [] as Awaited<ReturnType<typeof ourEmails>>);
       const v = all.flatMap((g) => g.variants).find((x) => x.id === id);
+      // as it went out: our logo on top when it had it (Logo2 - the header block); a campaign's own header picture,
+      // which carries the logo in it, stays its lead story's picture
+      const blocks = blocksFrom(e.parts, e.subject);
       return {
         // HubSpot's footer is the e-mail's frame, not one of its parts: ours closes it (the unsubscribe link, the address)
-        ok: true, subject: e.subject, preheader: e.preheader, language: e.language, blocks: [...blocksFrom(e.parts, e.subject), newBlock("footer", undefined, e.language)],
+        ok: true, subject: e.subject, preheader: e.preheader, language: e.language, blocks: [...blocks, newBlock("footer", undefined, e.language)],
         startedFrom: { emailId: e.id, subject: e.subject, language: e.language, date: v?.date ?? "" },
       };
     },
