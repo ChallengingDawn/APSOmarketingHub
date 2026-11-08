@@ -45,18 +45,18 @@ export function Block({ title, right, children, first }: { title: string; right?
 /** The build pane's steps: one squared row, equal widths, never on two lines. */
 export function StepTabs<K extends string>({ value, onChange, options }: { value: K; onChange: (k: K) => void; options: { key: K; label: string; count?: number }[] }) {
   return (
-    <Box role="tablist" sx={{ display: "grid", gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))`, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "#fff" }}>
+    <Box role="tablist" sx={{ display: "flex", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "#fff" }}>
       {options.map((o, i) => {
         const on = o.key === value;
         return (
           <Box key={o.key} component="button" type="button" role="tab" aria-selected={on} onClick={() => onChange(o.key)} title={o.label}
             sx={{
-              all: "unset", cursor: "pointer", boxSizing: "border-box", height: 36, px: 0.75, display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5,
-              fontSize: "0.8rem", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", minWidth: 0,
+              all: "unset", cursor: "pointer", boxSizing: "border-box", height: 36, px: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5,
+              flex: "1 0 auto", fontSize: "0.8rem", fontWeight: 600, whiteSpace: "nowrap",
               borderLeft: i ? `1px solid ${HAIRLINE}` : "none", bgcolor: on ? BLUE : "transparent", color: on ? "#fff" : INK, transition: "background-color .12s, color .12s",
               "&:hover": on ? {} : { bgcolor: "rgba(36,89,209,.07)", color: BLUE }, "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: -2 },
             }}>
-            <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis" }}>{o.label}</Box>
+            <span>{o.label}</span>
             {o.count ? <Box component="span" sx={{ fontSize: "0.7rem", fontWeight: 700, opacity: on ? 0.85 : 0.55, fontVariantNumeric: "tabular-nums" }}>{o.count}</Box> : null}
           </Box>
         );
@@ -80,29 +80,33 @@ const RATIO: Record<PictureAspect, string> = { "1:1": "1 / 1", "4:5": "4 / 5", "
  * Where a picture goes. With one: the picture, what it shows, and Change / Remove. Without: the picture panel open in
  * place - "Make one" prefilled with `suggestion` (the AI's idea, or the text around it), so one click makes it.
  */
-export function PictureSlot({ url, alt, onPick, onAlt, onRemove, aspect = "16:9", suggestion, projectId, pieceId, me, disabled, altLabel = "What it shows", startOpen = true }: {
+export function PictureSlot({ url, alt, onPick, onAlt, onRemove, aspect = "16:9", suggestion, projectId, pieceId, me, disabled, altLabel = "What it shows", startOpen = true, tabs, fit = "cover", addLabel = "Add a picture" }: {
   url: string; alt: string; onPick: (p: Picture) => void; onAlt?: (alt: string) => void; onRemove: () => void;
   aspect?: PictureAspect; suggestion?: string; projectId?: number | null; pieceId?: number | null; me?: string; disabled?: boolean; altLabel?: string;
   /** Without a picture: the panel shows at once (true), or behind an "Add a picture" button. */
   startOpen?: boolean;
+  tabs?: ("make" | "upload" | "mine" | "project" | "logos")[];
+  /** "contain" for a logo. */
+  fit?: "cover" | "contain";
+  addLabel?: string;
 }) {
   const [changing, setChanging] = useState(false);
   const [adding, setAdding] = useState(startOpen);
   const panel = (
     <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "8px", p: 1.25, bgcolor: "#fbfcfd" }}>
-      <PicturePanel key={suggestion ?? ""} onPick={(p) => { onPick(p); setChanging(false); }} projectId={projectId} pieceId={pieceId} me={me} aspect={aspect}
-        suggestion={suggestion} columns={4} />
+      <PicturePanel key={suggestion ?? ""} onPick={(p) => { onPick(p); setChanging(false); setAdding(false); }} projectId={projectId} pieceId={pieceId} me={me} aspect={aspect}
+        suggestion={suggestion} columns={4} {...(tabs ? { tabs, start: tabs[0] } : {})} />
     </Box>
   );
   if (!url) {
     if (disabled) return <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>No picture.</Typography>;
-    if (!adding) return <Button size="small" startIcon={<ImageOutlinedIcon sx={{ fontSize: 17 }} />} onClick={() => setAdding(true)} sx={toolBtn}>Add a picture</Button>;
+    if (!adding) return <Button size="small" startIcon={<ImageOutlinedIcon sx={{ fontSize: 17 }} />} onClick={() => setAdding(true)} sx={toolBtn}>{addLabel}</Button>;
     return panel;
   }
   return (
     <Box>
-      <Box sx={{ position: "relative", aspectRatio: RATIO[aspect], borderRadius: "6px", overflow: "hidden", bgcolor: "#eef1f6", border: `1px solid ${HAIRLINE}`, "&:hover .tools": { opacity: 1 } }}>
-        <Box component="img" src={url} alt={alt} sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+      <Box sx={{ position: "relative", aspectRatio: RATIO[aspect], borderRadius: "6px", overflow: "hidden", bgcolor: fit === "contain" ? "#fff" : "#eef1f6", border: `1px solid ${HAIRLINE}`, "&:hover .tools": { opacity: 1 } }}>
+        <Box component="img" src={url} alt={alt} sx={{ width: "100%", height: "100%", objectFit: fit, display: "block", p: fit === "contain" ? 1.5 : 0, boxSizing: "border-box" }} />
         {!disabled && (
           <Box className="tools" sx={{ position: "absolute", right: 8, bottom: 8, display: "flex", gap: 0.5, opacity: { xs: 1, md: 0.92 }, transition: "opacity .15s" }}>
             <Button size="small" startIcon={<SwapHorizIcon sx={{ fontSize: 16 }} />} onClick={() => setChanging((v) => !v)} sx={{ ...toolBtn, bgcolor: "rgba(255,255,255,.95)" }}>{changing ? "Keep it" : "Change"}</Button>

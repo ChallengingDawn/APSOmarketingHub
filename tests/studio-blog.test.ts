@@ -156,6 +156,10 @@ test("Content v2: the blog's home - the newest post leads, a card per other post
   const team = homeSection(sortCards(cards), { ...o, withState: true, currentId: 1 });
   assert.ok(team.indexOf("Post 2") < team.indexOf("Post 1"), "the newest leads");
   assert.match(team, /class="apx-feature"[\s\S]*Post 2/);
+  // a post with a picture leads before a newer one without
+  const pictured = [{ ...card(1, "2026-11-01", ["Seals"]), hero: { url: "/x.jpg", alt: "x" } }, card(2, "2026-11-20", ["Seals"])];
+  const lead = homeSection(sortCards(pictured), o);
+  assert.ok(lead.indexOf("Post 1") < lead.indexOf("Post 2") && /class="apx-feature" href="\/de-CH\/blog\/post-1"/.test(lead));
   assert.equal((team.match(/Free slot/g) ?? []).length, 2, "the row of three is filled with marked slots");
   assert.match(team, /<span class="apx-this">This post<\/span>/);
   assert.match(team, /href="https:\/\/www\.apsoparts\.com\/de-CH\/newsletter"/, "the newsletter band leads to the shop's newsletter page");

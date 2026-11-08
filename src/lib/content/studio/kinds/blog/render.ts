@@ -272,6 +272,7 @@ a{pointer-events:none}
 .apx-slot span{font-size:14px;line-height:1.5;max-width:260px}
 .apx-slot i{width:40px;height:40px;border:2px solid #c3ccd1;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:24px;color:#8a949a;margin-bottom:6px}
 .apx-feature.apx-slot{min-height:380px;display:flex}
+.apx-unwritten{font:italic 14px/1.5 system-ui,sans-serif!important;color:#8a949a!important}
 @media (max-width:767px){.apx-shop-row{gap:14px;padding:12px 16px}.apx-shop-row img{height:34px}.apx-shop-icons{display:none}.apx-shop-nav{padding:0 16px;gap:18px;font-size:14px}.apx-shop-url span{min-width:0;flex:1;overflow:hidden;white-space:nowrap}}`;
 
 const ICON_USER = `<svg viewBox="0 0 24 24" fill="none" stroke="#1d2326" stroke-width="1.6"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>`;
@@ -330,7 +331,8 @@ function byline(c: { author: string; date: string | null; store: string; minutes
 const cardPath = (c: BlogCard) => `/${c.store}/blog/${esc(c.slug)}`;
 
 function cardHtml(c: BlogCard, o: CardOpts): string {
-  return `<a class="apx-card" href="${cardPath(c)}">${picture(c, o.origin)}${stateTag(c, o)}${c.tags[0] ? `<span class="apx-eyebrow">${esc(c.tags[0])}</span>` : `<span class="apx-eyebrow">&nbsp;</span>`}<span class="apx-card-title">${esc(c.title || "…")}</span>${c.excerpt ? `<span class="apx-card-text">${esc(c.excerpt)}</span>` : ""}${byline(c)}</a>`;
+  const text = c.excerpt ? `<span class="apx-card-text">${esc(c.excerpt)}</span>` : o.withState ? `<span class="apx-card-text apx-unwritten">Not written yet.</span>` : "";
+  return `<a class="apx-card" href="${cardPath(c)}">${picture(c, o.origin)}${stateTag(c, o)}${c.tags[0] ? `<span class="apx-eyebrow">${esc(c.tags[0])}</span>` : `<span class="apx-eyebrow">&nbsp;</span>`}<span class="apx-card-title">${esc(c.title || "…")}</span>${text}${byline(c)}</a>`;
 }
 
 function featureHtml(c: BlogCard, o: CardOpts): string {
@@ -351,7 +353,8 @@ function newsletterBand(store: string, language: string): string {
 function figure(p: BlogPicture, origin: string | undefined, cls: string): string {
   const u = p.url ? picUrl(p.url, origin) : null;
   if (!u) return "";
-  return `<figure class="${cls}"><img src="${u}" alt="${esc(p.alt)}" loading="lazy">${p.caption.trim() ? `<figcaption>${esc(p.caption.trim())}</figcaption>` : ""}</figure>`;
+  // the post's own picture is the first thing seen - never lazy
+  return `<figure class="${cls}"><img src="${u}" alt="${esc(p.alt)}"${cls === "apx-hero" ? ' fetchpriority="high"' : ' loading="lazy"'}>${p.caption.trim() ? `<figcaption>${esc(p.caption.trim())}</figcaption>` : ""}</figure>`;
 }
 
 /** A section: its heading, its text - its picture after the first paragraph, its pull quote after the second. */
@@ -438,7 +441,8 @@ export type HomeOpts = {
   withState?: boolean; currentId?: number; origin?: string;
 };
 
-/** The blog's home (or one topic's page): the band, the topics, the newest post as the lead story, a card per other post. */
+/** The blog's home (or one topic's page): the band, the topics, the newest post with a picture as the lead story, a card
+ *  per other post, newest first. */
 export function homeSection(cards: BlogCard[], o: HomeOpts): string {
   const w = wordsOf(o.language);
   const list = o.tag ? cards.filter((c) => c.tags.includes(o.tag!)) : cards;
@@ -447,7 +451,10 @@ export function homeSection(cards: BlogCard[], o: HomeOpts): string {
     ? `<nav class="apx-topics"><div class="apx-wrap"><a href="${homePath(o.store)}"${o.tag ? "" : ' class="apx-on"'}>${esc(w.all)}</a>${o.topics.map((t) => `<a href="${tagPath(o.store, t)}"${o.tag === t ? ' class="apx-on"' : ""}>${esc(t)}</a>`).join("")}</div></nav>`
     : "";
   const crumbs = `<nav class="apx-crumbs"><a href="/${o.store}/">${esc(w.shopHome)}</a><span>/</span>${o.tag ? `<a href="${homePath(o.store)}">${esc(w.home)}</a><span>/</span>${esc(o.tag)}` : esc(w.home)}</nav>`;
-  const [first, ...rest] = list;
+  // the lead story: the newest post with a picture, else the newest with a lead, else the newest
+  const leadAt = Math.max(0, [(c: BlogCard) => !!c.hero.url, (c: BlogCard) => !!c.excerpt.trim()].map((f) => list.findIndex(f)).find((i) => i >= 0) ?? 0);
+  const first = list[leadAt];
+  const rest = list.filter((_, i) => i !== leadAt);
   const lead = first ? featureHtml(first, co) : o.withState ? slotHtml(true) : `<p class="apx-empty">…</p>`;
   // the grid's free places, for the team: the row filled up, at least one
   const free = o.withState ? (rest.length % 3 === 0 ? (rest.length ? 0 : 3) : 3 - (rest.length % 3)) : 0;

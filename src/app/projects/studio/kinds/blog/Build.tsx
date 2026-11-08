@@ -259,8 +259,9 @@ export function Build({ api, d, set, step, onStep, cards, runSection }: {
   const me = api.data.me;
   const ctx: Ctx = { api, d, set, canEdit, me };
   return (
-    <Pane title="Build">
-      <Box sx={{ mb: 2.25, position: "sticky", top: -16, zIndex: 3, mx: -2, px: 2, pt: 2, mt: -2, pb: 1.25, bgcolor: "rgba(255,255,255,.96)", borderBottom: `1px solid ${HAIRLINE}` }}>
+    <Pane title="Build" pad={false}>
+      <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <Box sx={{ flexShrink: 0, px: 2, py: 1.25, borderBottom: `1px solid ${HAIRLINE}` }}>
         <StepTabs value={step} onChange={onStep} options={[
           { key: "post", label: "Post" },
           { key: "sections", label: "Sections", count: d.sections.length },
@@ -269,11 +270,14 @@ export function Build({ api, d, set, step, onStep, cards, runSection }: {
           { key: "publish", label: "Publish" },
         ]} />
       </Box>
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", p: 2 }}>
       {step === "post" && <PostStep {...ctx} />}
       {step === "sections" && <SectionsStep ctx={ctx} runSection={runSection} />}
       {step === "faq" && <FaqStep {...ctx} />}
       {step === "google" && <GoogleStep {...ctx} />}
       {step === "publish" && <Publish api={api} d={d} cards={cards} />}
+      </Box>
+      </Box>
     </Pane>
   );
 }
