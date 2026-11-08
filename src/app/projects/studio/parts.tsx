@@ -177,8 +177,12 @@ export type QuickAsk = { label: string; run: () => Promise<string | null> };
  * The AI beside the work. Quick asks are the studio's own (each returns null when done, or a message); the free ask goes
  * to `onAsk`. Every answer is applied by the studio as a change the person sees - and can undo with the version history.
  */
-export function AssistantPanel({ quick, onAsk, enabled, placeholder, children }: {
+export function AssistantPanel({ quick, onAsk, enabled, placeholder, children, top, inputRef }: {
   quick: QuickAsk[]; onAsk?: (text: string) => Promise<string | null>; enabled: boolean; placeholder?: string; children?: React.ReactNode;
+  /** shown above the quick asks - what the assistant works on (a selected element, the language) */
+  top?: React.ReactNode;
+  /** the free ask's field, for a studio that puts the cursor there ("Change it with AI") */
+  inputRef?: React.Ref<HTMLTextAreaElement>;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -191,6 +195,7 @@ export function AssistantPanel({ quick, onAsk, enabled, placeholder, children }:
   return (
     <Pane title={<Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75 }}><AutoAwesomeOutlinedIcon sx={{ fontSize: 16, color: PINK }} />Assistant</Box>}>
       {!enabled && <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>The AI is not set up on this hub.</Typography>}
+      {top}
       <Box sx={{ display: "grid", gap: 1 }}>
         {quick.map((q) => (
           <Button key={q.label} variant="outlined" disabled={!enabled || !!busy} onClick={() => run(q.label, q.run)}
@@ -202,7 +207,7 @@ export function AssistantPanel({ quick, onAsk, enabled, placeholder, children }:
       </Box>
       {onAsk && (
         <Box sx={{ mt: 2 }}>
-          <TextField fullWidth multiline minRows={3} size="small" value={text} onChange={(e) => setText(e.target.value)} disabled={!enabled}
+          <TextField fullWidth multiline minRows={3} size="small" value={text} onChange={(e) => setText(e.target.value)} disabled={!enabled} inputRef={inputRef}
             placeholder={placeholder ?? "Ask for a change in your words"} sx={field}
             onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && text.trim()) void run("ask", async () => { const r = await onAsk(text.trim()); if (!r) setText(""); return r; }); }} />
           <Button fullWidth variant="contained" disableElevation disabled={!enabled || !!busy || !text.trim()} sx={{ ...mainBtn, mt: 1 }}

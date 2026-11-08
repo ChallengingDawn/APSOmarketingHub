@@ -2,7 +2,7 @@
 // THE PAGE STUDIO'S SMALLER SECTIONS (08.11.2026): the texts Content writes for the version's placeholders, the A/B test's
 // plan, and the way to Magento (a paste block today; publishing waits for CMS keys for ACC).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -12,7 +12,7 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import {
-  AB_AUDIENCE_LABEL, AB_GOAL_LABEL, mergeTexts, placeholdersOf, type AbAudience, type AbGoal, type PageDoc, type PasteBlock,
+  AB_AUDIENCE_LABEL, AB_GOAL_LABEL, languageOfStore, mergeTexts, placeholdersOf, type AbAudience, type AbGoal, type PageDoc, type PasteBlock,
 } from "@/lib/content/studio/kinds/page/model";
 import type { PasteOut } from "@/lib/content/studio/kinds/page/shop";
 import { Field, PINK, btn, mainBtn } from "../../parts";
@@ -84,14 +84,16 @@ export function AbTest({ d, set, canEdit }: { d: PageDoc; set: (next: PageDoc) =
 
 /* ── Magento ──────────────────────────────────────────────────────────── */
 
-export function Publish({ api, d, set, canEdit }: { api: StudioApi; d: PageDoc; set: (next: PageDoc) => void; canEdit: boolean }) {
+export function Publish({ api, d, set, canEdit, lang }: { api: StudioApi; d: PageDoc; set: (next: PageDoc) => void; canEdit: boolean; lang: string }) {
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState<{ blocks: PasteBlock[]; warnings: string[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const { done, copy } = useCopy();
+  // another language is another page in Magento: what was prepared belongs to the one it was prepared for
+  useEffect(() => { setOut(null); setErr(null); }, [lang]);
   const prepare = async () => {
     setBusy(true); setErr(null);
-    const r = await api.act<PasteOut>("paste");
+    const r = await api.act<PasteOut>("paste", { lang });
     setBusy(false);
     if (!r.ok) { setErr(r.error); return; }
     if (!r.result.ok) { setErr(r.result.error); return; }
@@ -112,7 +114,7 @@ export function Publish({ api, d, set, canEdit }: { api: StudioApi; d: PageDoc; 
         </Box>
       ) : (
         <Box>
-          <Hint mt={0}>The page as it will be, with where each part goes in Magento. Nothing is sent to the shop from here.</Hint>
+          <Hint mt={0}>The {languageOfStore(d.store) ?? lang.toUpperCase()} page ({d.store}) as it will be, with where each part goes in Magento. Each language is its own page there - switch the language above the preview for the others. Nothing is sent to the shop from here.</Hint>
           <Button fullWidth variant={out ? "outlined" : "contained"} disableElevation disabled={busy || !canEdit} onClick={prepare}
             startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}
             sx={out ? { ...btn, mt: 1.25, mb: 1.5, borderColor: HAIRLINE, color: INK } : { ...mainBtn, mt: 1.25, mb: 1.5 }}>

@@ -1,20 +1,29 @@
 // PAGE - WHAT ITS STUDIO ASKS OF THE SERVER (08.11.2026). Behind the project's own access (the to-do's route).
 //
 // Actions
-//   start     on the first open: the project's brief kept for the AI, and - when the brief carries APSOconvert's marker
-//             ("[APSOconvert page prod:/de-CH/...]") - that page and its approved version's changes taken over.
-//             Written here, not sent from the browser: a version can weigh 80 KB, the hub's firewall takes 8 KB a request
-//   pages     the shop's pages APSOconvert keeps indexed, searched (store view, kind, words)
-//   stores    the store views the index holds
-//   outline   the page's outline read and kept in the document - what the AI tasks are shown
-//   preview   the page as a still picture, as it is or with the changes over it (./shop.ts) - also a GET route for readers
-//   paste     what to paste into Magento, and where. Nothing is written to Magento: its client is read-only, with
-//             production keys shared with other jobs
-//   ping      nothing - the studio waits on it so a big change goes in two steps (studio/doc.ts batches)
-// AI tasks (in the brand's voice, the route adds it)
-//   rewrite   the change list from the page's outline and a request - long words as placeholders, written in `texts`
-//   ideas     three improvements for this page
-//   texts     the words for the placeholders, in the page's language
+//   start      on the first open: the project's brief kept for the AI, and - when the brief carries APSOconvert's marker
+//              ("[APSOconvert page prod:/de-CH/...]") - that page and its approved version's changes taken over.
+//              Written here, not sent from the browser: a version can weigh 80 KB, the hub's firewall takes 8 KB a request
+//   pages      the shop's pages APSOconvert keeps indexed, searched (words, store view, kind) - 40 at a time
+//   convert    the pages AI testing & personalization has a version for
+//   stores     the store views the index holds
+//   outline    one language's page outline read and kept in the document - what the AI tasks are shown
+//   preview    one language's page as a still picture (./shop.ts) - also a GET route for readers
+//   counterpart  the same page in another language (the page's hreflang links)
+//   candidates the shop's category and product pages a new page may link to (the AI picks among them, never invents)
+//   inserts    the banners placed in the page, drawn
+//   paste      what to paste into Magento, and where - one language. Nothing is written to Magento: its client is
+//              read-only, with production keys shared with other jobs
+//   ping       nothing - the studio waits on it so a big change goes in two steps (studio/doc.ts batches)
+// AI tasks (in the brand's voice and with the brand brain's facts - the route puts them first)
+//   rewrite    an existing page's change list from its outline and a request - the final words, never a placeholder;
+//              with a selected element, that element only
+//   fill_*     a new page's fields: everything, one part, or one field ("change this")
+//   translate  the whole page into another language: a new page's words, or an existing page's changes - the
+//              structure kept, the words translated
+//   ideas      three improvements for this page
+//   seo        a meta title and description for an existing page
+//   texts      words for an older version's placeholders
 
 import type { AiTask, KindDef, ServerAction, StudioCtx } from "../../contract";
 import { s } from "../../contract";
@@ -22,34 +31,42 @@ import type { Op } from "../../doc";
 import { saveOps } from "../../store";
 import { projectHead } from "@/lib/content/workflow";
 import { markerOf } from "@/lib/convert/handoff";
-import { classify, isKind, nameFromRest } from "@/lib/convert/model";
-import { listPages, pagesSummary } from "@/lib/convert/pages";
+import { classify, isKind } from "@/lib/convert/model";
+import { pagesSummary } from "@/lib/convert/pages";
 import { cleanPath, pageWork } from "@/lib/convert/studio";
+import { LIMIT, fieldLabel, fieldStrings, getField, withFieldStrings, type Fields, type Item } from "./fields";
+import { FIELD_SCHEMA, FILL_SCHEMA, PART_LABEL, cleanFill, type Candidate, type Part } from "./fill";
 import {
-  SHELL_SELECTOR, emptyPage, fromAi, languageOfStore, pageDoc, pageText, placeholdersIn, placeholdersOf, shopUrl, textsFromAi,
-  type AiChange, type PageDoc,
+  changeStrings, emptyPage, fillTexts, fromAi, isLegacyBody, langName, languageOfStore, leftoversIn, mainLang, pageDoc, pageText,
+  placeholdersOf, shopUrl, sourceHash, textsFromAi, urlKeyOf, viewOf, withChangeStrings, type AiChange, type PageDoc,
 } from "./model";
-import { outlineOf, pasteOf, previewOf } from "./shop";
+import { convertPages, counterpartOf, findPages, insertsOf, outlineOf, pasteOf, previewOf } from "./shop";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
 const SHOP = `APSOparts (apsoparts.com) is the online shop of Angst+Pfister: technical parts for industry - seals and O-rings,
 plastics, fluid handling, drive technology, anti-vibration, sensors. Buyers are companies: engineers, purchasers,
-maintenance. Store views are language-COUNTRY (de-CH, fr-CH, it-CH, fr-FR, it-IT, nl-NL, pl-PL, ...). The shop's look:
+maintenance. Store views are language-COUNTRY (de-CH, fr-CH, it-CH, en-INT, fr-FR, it-IT, nl-NL, pl-PL). The shop's look:
 petrol #274e64 (headings, main buttons), red #d80901 only for small accents, text #5e5e5e, font futura-pt, white cards
 on a light grey ground (#f2f4f5), product photos on white, generous white space. Product pages list ARTICLES (sizes,
 variants) in a table with quantity, availability, delivery date and price - the theme draws that table after loading.`;
 
 const RULES = `Hard rules:
-- Use only what the page, the brief and the person give. NEVER invent prices, stock, delivery times, certificates,
-  approvals (FDA, KTW, ...), test results, figures, customer names or quotes. A fact that is missing is asked for
-  ("needs: ..."), never made up.
+- Write the FINAL words a visitor reads, ready to publish, in the page's language. NEVER a placeholder: no text in
+  square brackets ("[Intro paragraph in German]", "[Product name]"), no "Lorem ipsum", no "TODO", no "XX", no note about
+  what should go there. Every field you fill is finished copy.
+- Facts about APSOparts, Angst+Pfister and their products come ONLY from the brand facts above, the page, the brief and
+  the person's ask. NEVER invent prices, stock, delivery times, certificates, approvals (FDA, KTW, ...), test results,
+  figures, customer names or quotes. When a fact is missing, write well about what IS known - leave the claim out,
+  never leave a gap.
 - Never show a discount value (no "% off", no amount off).
 - Never name a chemical manufacturer's brand (Chemours in particular). Chemical compatibility is always "for information
   only, no guarantee, no liability" - say so wherever it appears.
-- Words a visitor reads are in the page's own language (its store view: de-CH = German, fr-CH = French, ...).
 - Keep what search engines need: the H1's words, the links, the product data.
-- Plain, concrete, human words; no slogans, no hype, no exclamation marks.`;
+- Plain, concrete, human words for engineers and buyers; no slogans, no hype ("revolutionary", "unleash", "seamless"),
+  no exclamation marks, no emojis.`;
+
+const langOf = (d: PageDoc) => languageOfStore(d.store) ?? "German";
 
 function context(ctx: StudioCtx, d: PageDoc): string {
   const b = ctx.brief;
@@ -66,10 +83,9 @@ function context(ctx: StudioCtx, d: PageDoc): string {
 
 function pageBlock(d: PageDoc): string {
   if (d.source === "new") {
-    return `A NEW PAGE for the store view ${d.store} (language: ${languageOfStore(d.store) ?? "-"}), shown inside a CMS page of the store:
-its body replaces ${SHELL_SELECTOR}. Title: ${d.newPage.title || "-"}. Meta description: ${d.newPage.metaDescription || "-"}.
-THE BODY AS IT IS NOW:
-${d.newPage.body.slice(0, 30_000) || "(empty)"}`;
+    return `A NEW PAGE for the store view ${d.store} (language: ${langOf(d)}).
+THE PAGE'S FIELDS NOW (path: words):
+${fieldStrings(d.fields).map((x) => `${x.id}: ${x.text}`).join("\n").slice(0, 20_000) || "(all empty)"}${isLegacyBody(d) ? `\n\nAN EARLIER DRAFT OF THIS PAGE (one block of HTML - take its good parts, never its placeholders):\n${d.newPage.body.slice(0, 16_000)}` : ""}`;
   }
   const o = d.outline && d.outline.path === d.path && d.outline.env === d.env ? d.outline : null;
   const c = classify(d.path);
@@ -85,10 +101,13 @@ ${o.lines.join("\n")}${o.truncated ? "\n(... cut here)" : ""}` : "(the page's ou
 
 function changesBlock(d: PageDoc): string {
   if (!d.changes.length) return "THE CHANGES NOW: none yet.";
-  return `THE CHANGES NOW (${d.changes.length}):\n${JSON.stringify(d.changes).slice(0, 40_000)}`;
+  const filled = d.changes.map((c) => (typeof (c as { html?: unknown }).html === "string" ? { ...c, html: fillTexts((c as { html: string }).html, d.texts) } : c));
+  return `THE CHANGES NOW (${d.changes.length}):\n${JSON.stringify(filled).slice(0, 40_000)}`;
 }
 
-/* ── rewrite ──────────────────────────────────────────────────────────── */
+const viewFor = (ctx: StudioCtx, raw: unknown, input: Record<string, unknown>) => viewOf(pageDoc(raw, ctx.piece.language), typeof input.lang === "string" ? input.lang : null);
+
+/* ── rewrite: an existing page's changes ──────────────────────────────── */
 
 const CHANGE_ITEM = {
   type: "object", additionalProperties: false,
@@ -107,19 +126,6 @@ const CHANGE_ITEM = {
   },
 };
 
-const REWRITE_SCHEMA = {
-  type: "object", additionalProperties: false, required: ["summary", "body", "changes", "texts"],
-  properties: {
-    summary: { type: "string", description: "What the list does now, for the person approving it, English, 1-2 sentences" },
-    body: { type: "string", description: "Only for a NEW page: its whole HTML for the main area. Else empty." },
-    changes: { type: "array", items: CHANGE_ITEM },
-    texts: {
-      type: "array", description: "The words for each placeholder you left, by its data-key",
-      items: { type: "object", additionalProperties: false, required: ["key", "text"], properties: { key: { type: "string" }, text: { type: "string" } } },
-    },
-  },
-};
-
 const REWRITE_SYSTEM = `You write the changes for one page of the shop: a list laid over the page in the browser after it
 loads - the same list runs the page's A/B test, so what is approved is what visitors get. Kinds of change: css (a
 stylesheet added), html (new inner HTML of an element), replace (an element replaced), insert (new HTML before, after,
@@ -129,15 +135,11 @@ How to write it:
 - Aim at selectors from the page's outline (ids first, then tag.class). Scope CSS to the page's own classes or yours;
   never restyle body, html or the whole header.
 - Few, clean changes that do what is asked, nothing else. Answer with the WHOLE list: keep every change the person did
-  not ask to change, as it is.
+  not ask to change, exactly as it is.
 - Class names you add start with "apx-". Every new block reads well on a phone (390 px wide): give it a mobile rule.
 - New HTML: no <script>, no on...= handlers, no javascript: links, no frames, no pictures from outside the shop.
-- WORDS: a short label (a heading, a button, a column name) of at most six words is written in place, in the page's
-  language. Anything longer - a sentence, a paragraph - goes in as a placeholder
-  <span class="apx-text" data-key="t1">[Text from Content: what these words must do, in English]</span>
-  (keys t1, t2, ... unique in the whole answer), and you write its words in "texts" under the same key.
-- A NEW page: "body" is the page's whole HTML for the main area - one h1, then its sections in the shop's look - and
-  "changes" holds only its CSS. For an existing page "body" is empty.
+- Every word you put on the page is the final copy, written in the page's language - headings, paragraphs, buttons.
+  The page's own facts are the ones to use.
 
 ${SHOP}
 
@@ -145,28 +147,191 @@ ${RULES}`;
 
 const rewrite: AiTask = {
   label: "Change the page",
-  schema: REWRITE_SCHEMA,
+  schema: {
+    type: "object", additionalProperties: false, required: ["summary", "changes"],
+    properties: {
+      summary: { type: "string", description: "What the list does now, for the person approving it, English, 1-2 sentences" },
+      changes: { type: "array", items: CHANGE_ITEM },
+    },
+  },
   system: REWRITE_SYSTEM,
   maxTokens: 16_000,
   user: (ctx, raw, input) => {
-    const d = pageDoc(raw, ctx.piece.language);
+    const d = viewFor(ctx, raw, input);
     const ask = s(input.request, 3000) || "Make the page do what the brief asks.";
+    const sel = s(input.selector, 300);
+    const only = sel ? `\n\nTHE PERSON SELECTED ONE ELEMENT: ${sel}${s(input.text, 400) ? ` (it reads: "${s(input.text, 400)}")` : ""}${s(input.html, 3000) ? `\nITS HTML NOW: ${s(input.html, 3000)}` : ""}
+Change THIS element only (a change aimed at it, or the change that made it); every other change stays as it is.` : "";
     return `${context(ctx, d)}
 
 ${pageBlock(d)}
 
-${d.source === "new" ? "" : `${changesBlock(d)}\n\n`}THE PERSON ASKS: ${ask}`;
+${changesBlock(d)}
+
+WRITE IN: ${langOf(d)}${only}
+
+THE PERSON ASKS: ${ask}`;
   },
-  clean: (raw, docRaw) => {
-    const d = pageDoc(docRaw);
-    const r = (raw ?? {}) as { summary?: string; body?: string; changes?: AiChange[]; texts?: { key: string; text: string }[] };
+  clean: (raw) => {
+    const r = (raw ?? {}) as { summary?: string; changes?: AiChange[] };
     const { changes, problems } = fromAi(r.changes);
-    const body = d.source === "new" ? s(r.body, 60_000) : "";
-    const next: PageDoc = { ...d, changes, newPage: { ...d.newPage, body: body || d.newPage.body } };
-    const holders = [...(body ? placeholdersIn(body, "the page's body") : []), ...placeholdersOf({ ...next, source: "pick" })];
-    return { summary: s(r.summary, 600), body, changes, texts: textsFromAi(holders, r.texts), problems };
+    const left = leftoversIn(changes.map((c) => JSON.stringify(c)).join(" "));
+    return { summary: s(r.summary, 600), changes, problems, leftovers: left };
   },
 };
+
+/* ── fill: a new page's fields ────────────────────────────────────────── */
+
+const FILL_SYSTEM = `You write a new page of the shop, field by field. The page is drawn from these fields in the shop's
+look (hero with its title as the page's H1, intro, benefit cards, sections of text with a picture, links to the shop's
+own category and product pages, questions and answers, a call to action, the search engine fields), so you write words
+only - never HTML, never markdown.
+
+- Write for engineers, maintenance and purchasers who want to find the right part and order it. Concrete, useful,
+  specific to this page's subject; each part says something the others do not.
+- Respect each field's length. Short paragraphs; a list as lines starting "- " where a list helps.
+- A link or a button points ONLY to an address from THE SHOP'S PAGES YOU MAY LINK; when none fits, leave its address empty.
+- A picture idea is in English, for a photographer: a real industrial scene that fits the words, no text in the picture.
+
+${SHOP}
+
+${RULES}`;
+
+function candidatesOf(input: Record<string, unknown>): Candidate[] {
+  return (Array.isArray(input.candidates) ? input.candidates : [])
+    .filter((c): c is Record<string, unknown> => !!c && typeof c === "object")
+    .map((c) => ({ url: s(c.url, 300), name: s(c.name, 120), kind: s(c.kind, 20) }))
+    .filter((c) => c.url.startsWith("/"))
+    .slice(0, 30);
+}
+
+function fillUser(part: Exclude<Part, "field">) {
+  return (ctx: StudioCtx, raw: unknown, input: Record<string, unknown>) => {
+    const d = viewFor(ctx, raw, input);
+    const cands = candidatesOf(input);
+    const sectionId = s(input.id, 20);
+    const sec = part === "section" ? d.fields.sections.find((x) => x.id === sectionId) : null;
+    const what = part === "all" ? "Write the WHOLE page: every part, all of it final copy."
+      : part === "section" ? `Write THIS section only (${sec ? `now: "${sec.title}"` : "a new one"}) - it must say something the other sections do not.`
+        : `Write ${PART_LABEL[part]} only. The rest of the page stays as it is - fit in with it.`;
+    return `${context(ctx, d)}
+
+${pageBlock(d)}
+
+THE SHOP'S PAGES YOU MAY LINK (address · name · kind):
+${cands.map((c) => `${c.url} · ${c.name} · ${c.kind}`).join("\n") || "(none - leave every address empty)"}
+
+WRITE IN: ${langOf(d)} (store view ${d.store})
+${what}${s(input.request, 1500) ? `\n\nTHE PERSON ASKS: ${s(input.request, 1500)}` : ""}`;
+  };
+}
+
+function fillTask(part: Exclude<Part, "field">): AiTask {
+  return {
+    label: `Write ${PART_LABEL[part]}`,
+    schema: FILL_SCHEMA[part],
+    system: FILL_SYSTEM,
+    maxTokens: part === "all" ? 12_000 : 5_000,
+    user: fillUser(part),
+    clean: (raw, _doc, _ctx, input) => cleanFill(raw, candidatesOf(input)),
+  };
+}
+
+const ROLE: Record<string, string> = {
+  "hero.eyebrow": `a small line above the page's title, at most ${LIMIT.eyebrow} characters`,
+  "hero.title": `the page's H1, at most ${LIMIT.heroTitle} characters`,
+  "hero.sub": `one or two sentences under the title, at most ${LIMIT.heroSub} characters`,
+  "hero.button.label": `a button's words, at most ${LIMIT.button} characters`,
+  intro: `the intro paragraph, at most ${LIMIT.intro} characters`,
+  "seo.title": `the meta title, at most ${LIMIT.seoTitle} characters`,
+  "seo.description": `the meta description, at most ${LIMIT.seoDescription} characters`,
+};
+
+const fillField: AiTask = {
+  label: "Write this field",
+  schema: FIELD_SCHEMA,
+  system: FILL_SYSTEM,
+  maxTokens: 2500,
+  user: (ctx, raw, input) => {
+    const d = viewFor(ctx, raw, input);
+    const path = s(input.path, 80);
+    const now = getField(d.fields, path);
+    return `${context(ctx, d)}
+
+${pageBlock(d)}
+
+WRITE IN: ${langOf(d)}
+THE FIELD: ${path} - ${fieldLabel(d.fields, path)}${ROLE[path] ? ` (${ROLE[path]})` : ""}
+IT READS NOW: ${typeof now === "string" && now.trim() ? now : "(empty)"}
+
+Write this one field's new words only.${s(input.request, 1500) ? `\nTHE PERSON ASKS: ${s(input.request, 1500)}` : ""}`;
+  },
+  clean: (raw) => {
+    const text = s((raw as { text?: unknown })?.text, 4000);
+    return { text, leftovers: leftoversIn(text) };
+  },
+};
+
+/* ── translate: the whole page into another language ──────────────────── */
+
+const TRANSLATE_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["items", "urlKey"],
+  properties: {
+    items: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "text"], properties: { id: { type: "string" }, text: { type: "string" } } } },
+    urlKey: { type: "string", description: "A new page only: its URL key in the target language (lower case, dashes); else empty" },
+  },
+};
+
+const translate: AiTask = {
+  label: "Translate the page",
+  schema: TRANSLATE_SCHEMA,
+  maxTokens: 16_000,
+  system: `You translate one page of the shop into another language for the shop's store view in that language. You are
+given its texts by id; answer every id with its translation.
+- Translate the meaning for engineers and buyers in that country: natural, the shop's own terms (Dichtung = joint
+  d'étanchéité = guarnizione = seal), the same length roughly. Not word for word.
+- An HTML text keeps EVERY tag, attribute and class exactly as it is, in the same order: only the words between the
+  tags change (and alt / title texts).
+- Product names, brand names (APSOparts, Angst+Pfister, APSOvib, ...), article numbers, norms (DIN, ISO), units and
+  material codes (NBR, EPDM, FKM) stay as they are.
+- Nothing added, nothing left out, no note of your own.
+
+${RULES}`,
+  user: (ctx, raw, input) => {
+    const doc = pageDoc(raw, ctx.piece.language);
+    const to = s(input.to, 2).toLowerCase();
+    const items = translateSource(doc);
+    return `TRANSLATE FROM ${langName(mainLang(doc))} INTO ${langName(to)} (store view ${s(input.store, 20) || "-"}).
+${doc.source === "new" ? "A new page: also give its URL key in the new language." : "An existing page's changes: urlKey stays empty."}
+
+THE TEXTS (JSON):
+${JSON.stringify(items)}`;
+  },
+  clean: (raw, docRaw, ctx) => {
+    const doc = pageDoc(docRaw, ctx.piece.language);
+    const r = (raw ?? {}) as { items?: { id?: unknown; text?: unknown }[]; urlKey?: unknown };
+    const items: Item[] = (Array.isArray(r.items) ? r.items : []).map((x) => ({ id: String(x?.id ?? ""), text: String(x?.text ?? "") })).filter((x) => x.id && x.text.trim());
+    const from = sourceHash(doc);
+    const source = translateSource(doc);
+    const missing = source.filter((x) => !items.some((y) => y.id === x.id)).length;
+    const leftovers = leftoversIn(items.map((x) => x.text).join(" "));
+    if (doc.source === "new") {
+      const fields: Fields = withFieldStrings(doc.fields, items);
+      const key = urlKeyOf(s(r.urlKey, 160)) || urlKeyOf(fields.hero.title);
+      return { fields: { ...fields, seo: { ...fields.seo, urlKey: key } }, from, missing, leftovers, problems: [] as string[] };
+    }
+    const filled = doc.changes.map((c) => (typeof (c as { html?: unknown }).html === "string" ? { ...c, html: fillTexts((c as { html: string }).html, doc.texts) } : c));
+    const out = withChangeStrings(filled, items);
+    return { changes: out.changes, problems: out.problems, from, missing, leftovers };
+  },
+};
+
+/** What a translation starts from: the main language's words (a new page) or its changes, with any written texts in. */
+function translateSource(doc: PageDoc): { id: string; text: string }[] {
+  if (doc.source === "new") return fieldStrings(doc.fields);
+  const filled = doc.changes.map((c) => (typeof (c as { html?: unknown }).html === "string" ? { ...c, html: fillTexts((c as { html: string }).html, doc.texts) } : c));
+  return changeStrings(filled).map(({ id, text }) => ({ id, text }));
+}
 
 /* ── ideas ────────────────────────────────────────────────────────────── */
 
@@ -196,8 +361,8 @@ help a buyer decide comes first. Never one that needs a fact nobody gave.
 ${SHOP}
 
 ${RULES}`,
-  user: (ctx, raw) => {
-    const d = pageDoc(raw, ctx.piece.language);
+  user: (ctx, raw, input) => {
+    const d = viewFor(ctx, raw, input);
     return `${context(ctx, d)}\n\n${pageBlock(d)}\n\n${d.source === "new" ? "" : changesBlock(d)}`;
   },
   clean: (raw) => {
@@ -206,7 +371,26 @@ ${RULES}`,
   },
 };
 
-/* ── texts ────────────────────────────────────────────────────────────── */
+/* ── seo: an existing page's meta title and description ───────────────── */
+
+const seo: AiTask = {
+  label: "Search engine fields",
+  maxTokens: 1500,
+  schema: FILL_SCHEMA.seo,
+  system: `You write the search engine fields of one page of the shop: its meta title and meta description (what Google
+shows) and a URL key, in the page's language, from the page's own words and the brief's keywords.
+
+${SHOP}
+
+${RULES}`,
+  user: (ctx, raw, input) => {
+    const d = viewFor(ctx, raw, input);
+    return `${context(ctx, d)}\n\n${pageBlock(d)}\n\nWRITE IN: ${langOf(d)}${s(input.request, 800) ? `\nTHE PERSON ASKS: ${s(input.request, 800)}` : ""}`;
+  },
+  clean: (raw) => cleanFill(raw, []),
+};
+
+/* ── texts: an older version's placeholders ───────────────────────────── */
 
 const texts: AiTask = {
   label: "Write the texts",
@@ -229,21 +413,20 @@ ${SHOP}
 
 ${RULES}`,
   user: (ctx, raw, input) => {
-    const d = pageDoc(raw, ctx.piece.language);
+    const d = viewFor(ctx, raw, input);
     const only = Array.isArray(input.ids) ? new Set(input.ids.map(String)) : null;
     const holders = placeholdersOf(d).filter((p) => !only || only.has(p.id));
-    const lang = languageOfStore(d.source === "new" ? d.store : classify(d.path).store ?? d.store) ?? "the page's language";
     return `${context(ctx, d)}
 
 ${pageBlock(d)}
 
-WRITE IN: ${lang}
+WRITE IN: ${langOf(d)}
 THE PLACEHOLDERS (key · where · what the words must do):
 ${holders.map((p) => `${p.id} · ${p.where} · ${p.ask}`).join("\n") || "(none)"}
 ${s(input.request, 1000) ? `\nTHE PERSON ADDS: ${s(input.request, 1000)}` : ""}`;
   },
-  clean: (raw, docRaw) => {
-    const d = pageDoc(docRaw);
+  clean: (raw, docRaw, ctx, input) => {
+    const d = viewOf(pageDoc(docRaw, ctx.piece.language), typeof input.lang === "string" ? input.lang : null);
     return { texts: textsFromAi(placeholdersOf(d), (raw as { texts?: { key: string; text: string }[] })?.texts) };
   },
 };
@@ -262,6 +445,8 @@ const start: ServerAction = async (ctx, raw, input) => {
   const head = await projectHead(ctx.projectId);
   const brief = head?.project.brief ?? "";
   const ops: Op[] = [{ op: "set", path: ["started"], value: true }, { op: "set", path: ["briefText"], value: brief.slice(0, 7000) }];
+  // a page "created here" (a landing page) starts as a new page; a page refresh starts by picking the shop's page
+  if (!again && !d.path && !d.changes.length && ctx.piece.contentType === "landing-page") ops.push({ op: "set", path: ["source"], value: "new" });
   const mark = markerOf(brief);
   const path = mark ? cleanPath(mark.path) : null;
   let imported: { env: string; path: string; version: { rev: number; status: string; summary: string } | null } | null = null;
@@ -303,41 +488,71 @@ const stores: ServerAction = async () => {
   return { stores: list };
 };
 
-const pathOf = (url: string) => { try { return new URL(url).pathname; } catch { return null; } };
+const STORE_RE = /^[a-z]{2}-[A-Z]{2,3}(\/[a-z]{3})?$/;
 const pages: ServerAction = async (_ctx, _raw, input) => {
-  const store = typeof input.store === "string" && /^[a-z]{2}-[A-Z]{2,3}(\/[a-z]{3})?$/.test(input.store) ? input.store : null;
+  const store = typeof input.store === "string" && STORE_RE.test(input.store) ? input.store : null;
   const page = Math.max(0, Math.min(500, Math.floor(Number(input.page) || 0)));
-  const list = await listPages({ kind: isKind(input.kind) ? input.kind : null, store, where: "all", q: s(input.q, 120), page, perPage: 20 });
-  return {
-    total: list.total, page: list.page, perPage: list.perPage,
-    rows: list.rows.filter((r) => r.kind !== "system").map((r) => ({
-      store: r.store, rest: r.rest, kind: r.kind, product: r.product, name: r.kind === "home" ? "Home page" : nameFromRest(r.rest) || r.rest,
-      prod: r.prod ? pathOf(r.prod.url) : null, acc: r.acc ? pathOf(r.acc.url) : null,
-    })),
-  };
+  return findPages({ q: s(input.q, 120), store, kind: isKind(input.kind) && input.kind !== "system" ? input.kind : null, page, perPage: 40 });
 };
 
-const readOutline: ServerAction = async (ctx, raw) => {
-  const d = pageDoc(raw, ctx.piece.language);
+const convert: ServerAction = async () => ({ rows: await convertPages() });
+
+/** The path in the document where one language's part lives. */
+const at = (d: PageDoc, lang: string | null, key: string): (string | number)[] => (!lang || lang === mainLang(d) ? [key] : ["langs", lang, key]);
+
+const readOutline: ServerAction = async (ctx, raw, input) => {
+  const doc = pageDoc(raw, ctx.piece.language);
+  const lang = typeof input.lang === "string" ? input.lang : null;
+  const d = viewOf(doc, lang);
   if (d.source === "new") return { ok: true, outline: null };
-  const r = await outlineOf(d);
+  const r = await outlineOf(raw, lang);
   if (!r.ok) return r;
   const head = await projectHead(ctx.projectId);
   await write(ctx, [
-    { op: "set", path: ["outline"], value: r.outline },
+    { op: "set", path: at(doc, lang, "outline"), value: r.outline },
     { op: "set", path: ["briefText"], value: (head?.project.brief ?? "").slice(0, 7000) },
   ]);
   return { ok: true, title: r.outline.title, h1: r.outline.h1, lines: r.outline.lines.length };
 };
 
-const preview: ServerAction = async (_ctx, raw, input) => previewOf(raw, input.side === "before" ? "before" : "after", input.fresh === true);
-const paste: ServerAction = async (_ctx, raw) => pasteOf(raw);
+const langIn = (input: Record<string, unknown>) => (typeof input.lang === "string" && /^[a-z]{2}$/.test(input.lang) ? input.lang : null);
+const preview: ServerAction = async (_ctx, raw, input) =>
+  previewOf(raw, input.side === "before" ? "before" : input.side === "shell" ? "shell" : "after", input.fresh === true, langIn(input));
+const paste: ServerAction = async (_ctx, raw, input) => pasteOf(raw, langIn(input));
+const counterpart: ServerAction = async (_ctx, raw, input) => counterpartOf(raw, langIn(input) ?? "fr");
+
+/** The category and product pages a new page may link to: the words of the brief and the page's title, in its store. */
+const candidates: ServerAction = async (ctx, raw, input) => {
+  const d = viewFor(ctx, raw, input);
+  const words = [s(input.q, 120), ...ctx.brief.keywords, d.fields.hero.title, ctx.projectTitle].join(" ")
+    .toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[^a-z0-9-]+/).filter((w) => w.length > 3).slice(0, 12);
+  const seen = new Set<string>();
+  const out: Candidate[] = [];
+  const add = (rows: Awaited<ReturnType<typeof findPages>>["rows"]) => {
+    for (const r of rows) if (!seen.has(r.path) && (r.kind === "category" || r.kind === "product" || r.kind === "cms")) { seen.add(r.path); out.push({ url: r.path, name: r.name, kind: r.kind }); }
+  };
+  for (const w of [...new Set(words)]) {
+    if (out.length >= 24) break;
+    add((await findPages({ q: w.slice(0, 8), store: d.store, kind: null, page: 0, perPage: 8 })).rows);
+  }
+  if (out.length < 8) add((await findPages({ q: "", store: d.store, kind: "category", page: 0, perPage: 16 })).rows);
+  return { candidates: out.slice(0, 24) };
+};
+
+const inserts: ServerAction = async (ctx, raw, input) => ({ inserts: await insertsOf(viewFor(ctx, raw, input)) });
 
 export const pageKind: KindDef = {
   kind: "page",
   channel: "seo",
   empty: (ctx) => emptyPage(ctx.piece.language),
   toText: pageText,
-  tasks: { rewrite, ideas, texts },
-  actions: { start, stores, pages, outline: readOutline, preview, paste, ping: async () => ({ ok: true }) },
+  tasks: {
+    rewrite, ideas, texts, translate, seo,
+    fill_all: fillTask("all"), fill_hero: fillTask("hero"), fill_intro: fillTask("intro"), fill_benefits: fillTask("benefits"),
+    fill_sections: fillTask("sections"), fill_section: fillTask("section"), fill_links: fillTask("links"), fill_faq: fillTask("faq"),
+    fill_cta: fillTask("cta"), fill_seo: fillTask("seo"), fill_field: fillField,
+  },
+  actions: {
+    start, stores, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, ping: async () => ({ ok: true }),
+  },
 };
