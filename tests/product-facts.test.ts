@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  ArticlesSheet, PRODUCT_KEYS, articleFacts, checkFacts, factsHash, packFacts, sameValues, stockUnitCall, unpackFacts, type ArticleRow,
+  ArticlesSheet, PRODUCT_KEYS, SuppliersSheet, articleFacts, checkFacts, factsHash, packFacts, sameValues, stockUnitCall, supplierKey, unpackFacts,
+  type ArticleRow,
 } from "../src/lib/connectors/steps/productFactsRules";
 
 const HEAD = ["[Article]", "[InLiquidation]", "[GwstdpCurrency]", "[GwstdpCHF]", "[GwstdpEUR]", "[GwstdpUSD]", "[StockUnit]", "[SalesUnit]",
@@ -30,7 +31,7 @@ test("product facts: the articles sheet - the header by its names, only the arti
 });
 
 test("product facts: the GWStdP's placeholder never written, the ERP's 'Unknown' unit is none, nothing invented", () => {
-  const base = { article: "", inliquidation: "", gwstdpcurrency: "", gwstdpchf: "", gwstdpeur: "", gwstdpusd: "", stockunit: "", salesunit: "", suppliername: "" } satisfies ArticleRow;
+  const base = { article: "", inliquidation: "", gwstdpcurrency: "", gwstdpchf: "", gwstdpeur: "", gwstdpusd: "", stockunit: "", salesunit: "", suppliername: "", leadsupplier: "" } satisfies ArticleRow;
   assert.deepEqual(articleFacts({ ...base, article: "1", gwstdpcurrency: "EUR", gwstdpchf: "200", inliquidation: "J", stockunit: "Stk" }),
     { unit_cost_chf: "2", currency: "EUR", stock_unit: "Stk", article_status: "Liquidation" });
   assert.deepEqual(articleFacts({ ...base, article: "2", gwstdpcurrency: "EUR", gwstdpchf: "0.01", gwstdpeur: "0.01", stockunit: "Unknown" }), { currency: "EUR" });
@@ -68,4 +69,24 @@ test("product facts: what HubSpot already holds is not written again (numbers as
   assert.equal(sameValues({ unit_cost_chf: "1.5" }, { unit_cost_chf: "1.6" }), false);
   assert.equal(sameValues({ unit_cost_chf: "1.5" }, { unit_cost_chf: null }), false);
   assert.equal(sameValues({ stock_unit: "kg" }, { stock_unit: "Kg" }), false);
+});
+
+test("product facts: the lead supplier named from the ERP's supplier list, whatever way each sheet writes its number", () => {
+  const ss = new SuppliersSheet();
+  ss.feed(1, ["[SupplierNumber]", "[SupplierName]"]);
+  ss.feed(2, ["0012345", " Trelleborg  Sealing Solutions "]);
+  ss.feed(3, [700, "Ensinger GmbH"]);
+  const names = ss.finish()!;
+  assert.equal(names.size, 2);
+  const s = new ArticlesSheet(() => true, names);
+  s.feed(1, ["[Article]", "[GwstdpCHF]", "[LeadSupplier]"]);
+  s.feed(2, ["1", 100, 12345]);
+  s.feed(3, ["2", 100, "700.0"]);
+  s.feed(4, ["3", 100, "999"]); // not in the list: no supplier, nothing invented
+  const m = s.finish()!;
+  assert.equal(unpackFacts(m.get("1")!).main_supplier, "Trelleborg Sealing Solutions");
+  assert.equal(unpackFacts(m.get("2")!).main_supplier, "Ensinger GmbH");
+  assert.equal(unpackFacts(m.get("3")!).main_supplier, undefined);
+  assert.equal(supplierKey("00042"), "42");
+  assert.equal(new SuppliersSheet().finish(), null);
 });

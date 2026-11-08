@@ -6,7 +6,8 @@
 //   unit_cost_eur, unit_cost_usd      the same cost in EUR / USD - written only once HubSpot has such a property
 //   stock_unit                        the unit the cost is per - ONLY where it does not move who writes the stock (below)
 //   article_status                    Liquidation / Running Article (DirectUP and the search bar show it to customers)
-//   main_supplier                     when the sheet carries a supplier name
+//   main_supplier                     the article's lead supplier (KPI ARTICLES LeadSupplier) named by the sheet "KPI SUPPLIERS"
+//                                     (the ERP's supplier list) - 1 % filled in HubSpot; 78 % of a sample of 1,496 articles has one
 // NOT here, because another step already writes them every day: the article master from dim_article.csv (material,
 // hardness, colour, compounds, conformities, tariff number, replenishment days, country of origin, consumption driven,
 // sales unit - ./filesRules.ts STR_MAP / ENUM_MAP) and the stock (stock_quantity: the search bar's gateway, or stock_load for
@@ -31,6 +32,7 @@ import { dayOf } from "../../reporting/boErpLines";
 import { isCrossUnit, normUnit } from "./stockRules";
 
 export const SHEET_ARTICLES = "KPI ARTICLES";
+export const SHEET_SUPPLIERS = "KPI SUPPLIERS";
 export const PRODUCTS_OBJECT = "2-200042439";
 /** OFF until SARCLA has seen the preview's figures */
 export const PRODUCT_FACTS_LIVE = false;
@@ -51,7 +53,7 @@ const num = (s: string) => { if (s === "") return null; const n = Number(s.repla
 const r4 = (n: number) => String(Math.round(n * 10000) / 10000);
 
 /** the sheet's columns the rules read (an older sheet's other columns are ignored) */
-const COLS = ["article", "inliquidation", "gwstdpcurrency", "gwstdpchf", "gwstdpeur", "gwstdpusd", "stockunit", "salesunit", "suppliername"] as const;
+const COLS = ["article", "inliquidation", "gwstdpcurrency", "gwstdpchf", "gwstdpeur", "gwstdpusd", "stockunit", "salesunit", "suppliername", "leadsupplier"] as const;
 export type ArticleRow = Record<(typeof COLS)[number], string>;
 
 /** the properties written, in a fixed order - an article's facts are kept packed in it */
@@ -95,16 +97,38 @@ export function stockUnitCall(erp: string | undefined, hsStock: string | null | 
   return "write";
 }
 
+/** a supplier number as both sheets may give it: "0012345", 12345 and "12345" are one supplier */
+export const supplierKey = (v: string) => { const t = v.trim().replace(/\.0+$/, ""); return /^\d+$/.test(t) ? t.replace(/^0+(?=\d)/, "") : t.toUpperCase(); };
+
+/** The ERP's supplier list, row by row: the header (the first row naming SupplierNumber and SupplierName), then a supplier
+ *  a row - number -> name. (One query per article for the name took ages and named every article's supplier the same.) */
+export class SuppliersSheet {
+  private at: { n: number; name: number } | null = null;
+  private names = new Map<string, string>();
+  feed(_n: number, cells: Cell[]): void {
+    if (!this.at) {
+      const names = cells.map((c) => norm(text(c)));
+      const n = names.indexOf("suppliernumber"), name = names.indexOf("suppliername");
+      if (n >= 0 && name >= 0) this.at = { n, name };
+      return;
+    }
+    const k = supplierKey(text(cells[this.at.n])), v = clean(text(cells[this.at.name]));
+    if (k && v && !this.names.has(k)) this.names.set(k, v);
+  }
+  finish(): Map<string, string> | null { return this.at ? this.names : null; }
+}
+
 /**
  * The sheet, row by row: the header (the first row naming Article and GwstdpCHF), then one article a row - the first wins.
- * Only the articles `keep` names are kept (the BI model has ~860,000, HubSpot ~227,000), each as its packed facts.
+ * Only the articles `keep` names are kept (the BI model has ~860,000, HubSpot ~227,000), each as its packed facts; the lead
+ * supplier's name from `suppliers` (the sheet KPI SUPPLIERS, read first).
  */
 export class ArticlesSheet {
   private at: Record<string, number> | null = null;
   private facts = new Map<string, string>();
   rows = 0;
   skipped = 0;
-  constructor(private keep: (article: string) => boolean = () => true) {}
+  constructor(private keep: (article: string) => boolean = () => true, private suppliers: ReadonlyMap<string, string> | null = null) {}
   feed(_n: number, cells: Cell[]): void {
     if (!this.at) {
       const names = cells.map((c) => norm(text(c)));
@@ -119,6 +143,7 @@ export class ArticlesSheet {
     if (this.facts.has(article)) return;
     if (!this.keep(article)) { this.skipped++; return; }
     const r = Object.fromEntries(COLS.map((k) => [k, at[k] >= 0 ? text(cells[at[k]]) : ""])) as ArticleRow;
+    if (!r.suppliername && r.leadsupplier && this.suppliers) r.suppliername = this.suppliers.get(supplierKey(r.leadsupplier)) ?? "";
     this.facts.set(article, packFacts(articleFacts(r)));
   }
   /** article -> its packed facts; null when the sheet had no header the rules know */
