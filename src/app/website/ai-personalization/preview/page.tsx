@@ -48,6 +48,7 @@ import { OP_LABEL, describe, type Change } from "@/lib/convert/versions";
 import { projectForPage, markerOf, pageMarker } from "@/lib/convert/handoff";
 import { convertPost, previewHref } from "../Flow";
 import { SquareChoice } from "../SquareChoice";
+import { PageShot } from "../PageShot";
 
 type StudioData = {
   env: Env; path: string;
@@ -235,9 +236,11 @@ function Picker({ env, onOpen, problems }: { env: Env; onOpen: (env: Env, path: 
         <Box sx={{ display: "grid", gap: 1, mt: 1.5, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(2, minmax(0,1fr))" } }}>
           {worked.map((w) => (
             <Box key={`${w.env}${w.path}`} component="button" type="button" onClick={() => onOpen(w.env, w.path)} sx={{
-              all: "unset", cursor: "pointer", display: "grid", gap: 0.5, p: 1.25, borderRadius: "6px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.7)", minWidth: 0,
+              all: "unset", cursor: "pointer", display: "grid", gridTemplateColumns: "180px minmax(0,1fr)", gap: 1.5, alignItems: "center", p: 1, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.7)", minWidth: 0,
               transition: "border-color .15s", "&:hover": { borderColor: ACCENT },
             }}>
+              <Box sx={{ borderRadius: "6px", overflow: "hidden", border: `1px solid ${HAIRLINE}` }}><PageShot env={w.env} path={w.path} /></Box>
+              <Box sx={{ display: "grid", gap: 0.5, minWidth: 0 }}>
               <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", minWidth: 0 }}>
                 <Chip tint={w.env === "prod" ? "green" : "amber"}>{ENVS[w.env].label}</Chip>
                 <Chip tint="slate">{KIND_LABEL[w.kind]}</Chip>
@@ -247,6 +250,7 @@ function Picker({ env, onOpen, problems }: { env: Env; onOpen: (env: Env, path: 
               <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
                 {w.ideas} {w.ideas === 1 ? "idea" : "ideas"}{w.approved ? ` · ${w.approved} approved` : ""}{w.ready ? ` · ${w.ready} ready to test` : ""} · {ago(Date.parse(w.last) / 1000)}
               </Typography>
+              </Box>
             </Box>
           ))}
         </Box>

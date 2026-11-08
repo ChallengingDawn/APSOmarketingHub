@@ -33,6 +33,7 @@ import { ENVS, KIND_LABEL, type Env } from "@/lib/convert/model";
 import { projectForPage } from "@/lib/convert/handoff";
 import type { CmsBackup, CmsPlan } from "@/lib/convert/cms";
 import { convertPost, previewHref } from "../Flow";
+import { PageShot } from "../PageShot";
 import { ConfirmDialog, GatewayNotice, dayTime, envChip, n, pagesLine, pct, signed, type Confirm, type GatewayView, type TestView } from "../TestParts";
 
 const API = "/api/website/ai-personalization/ship";
@@ -300,6 +301,7 @@ export default function Ship() {
                   border: `1px solid ${on ? ACCENT : HAIRLINE}`, bgcolor: on ? "rgba(36,89,209,.05)" : "rgba(255,255,255,.65)",
                   "&:focus-visible": { outline: `2px solid ${ACCENT}`, outlineOffset: 2 },
                 }}>
+                  {t.pages[0] && <Box sx={{ borderRadius: "8px", overflow: "hidden", border: `1px solid ${HAIRLINE}`, mb: 0.5 }}><PageShot env={t.env} path={t.pages[0]} ratio={0.42} /></Box>}
                   <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: on ? ACCENT : INK, ...clip(1000) }}>{t.name}</Typography>
                   <Typography sx={{ fontSize: "0.74rem", color: MUTED, ...clip(1000) }}>{t.pages[0]}</Typography>
                   <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>

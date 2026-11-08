@@ -46,6 +46,7 @@ import { OP_LABEL, describe, type Change } from "@/lib/convert/versions";
 import { convertPost, previewHref } from "../../../ai-personalization/Flow";
 import { SquareChoice } from "../../../ai-personalization/SquareChoice";
 import { testsBase, useInConvert } from "../../../ai-personalization/base";
+import { PageShot } from "../../../ai-personalization/PageShot";
 import {
   AudienceBuilder, COLOR, ConfirmDialog, DailyCharts, Gauge, GatewayNotice, IntervalBars, NAME, PagePicker, StatusChip, UpliftBar,
   dayTime, envChip, n, pagesLine, pct, signed, splitKeyOf, splitOf, type Confirm, type GatewayView, type SplitKey, type TestView,
@@ -183,9 +184,14 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
       {d.resultsError && t.status !== "draft" && d.gateway.configured && <Notice tone="warn">{d.resultsError}{d.resultsAt ? ` - the figures below are from ${dayTime(d.resultsAt)}.` : ""}</Notice>}
       {err && <Notice tone="bad">{err}</Notice>}
 
-      {/* the verdict, and what can be done */}
+      {/* the verdict, and what can be done - beside the tested page as it looks */}
       <GlassCard>
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start", flexWrap: "wrap" }}>
+          {t.pages[0] && (
+            <Box component={Link} href={previewHref(t.env, t.pages[0], t.ideaId ?? undefined)} title="See it in the Preview" sx={{ width: { xs: "100%", sm: 220 }, flexShrink: 0, borderRadius: "10px", overflow: "hidden", border: `1px solid ${HAIRLINE}`, display: "block" }}>
+              <PageShot env={t.env} path={t.pages[0]} />
+            </Box>
+          )}
           <Box sx={{ flex: "1 1 420px", minWidth: 0 }}>
             <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", mb: 0.75 }}>
               <StatusChip status={t.status} kind={t.kind} />
@@ -393,7 +399,7 @@ export default function PageTest() {
         subtitle={d ? `Page test #${d.test.id} on ${ENVS[d.test.env].label} · ${d.test.pages.length} ${d.test.pages.length === 1 ? "page" : "pages"} · ${allocationWords(d.test.allocation).toLowerCase()}` : undefined}
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <Button size="small" component={Link} href={base}>All page tests</Button>
+            <Button size="small" component={Link} href={base}>{base.startsWith("/website/ai-personalization") ? "All tests" : "All page tests"}</Button>
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
             <Tooltip title="Ask again"><IconButton size="small" onClick={() => setTick((x) => x + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
           </Box>
