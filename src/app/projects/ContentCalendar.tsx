@@ -37,9 +37,10 @@ import {
 import { STATUS_LABEL, type PieceStatus } from "@/lib/content/pieceRules";
 import { TINT } from "@/app/uc/report/ui";
 import { STATUS_TINT } from "./work/ui";
+import { KindTile } from "./work/kinds";
 
 /** A piece of a project on its own date (07.11.2026: the calendar is Content's first page, and the pieces are the work). */
-type DatedPiece = { id: number; projectId: number; projectTitle: string; title: string; status: PieceStatus; dueDate: string | null };
+type DatedPiece = { id: number; projectId: number; projectTitle: string; title: string; status: PieceStatus; dueDate: string | null; contentType: string | null };
 type Drag = { kind: "project" | "piece"; id: number } | null;
 
 type Project = {
@@ -119,6 +120,7 @@ export default function ContentCalendar() {
           fontSize: "0.72rem", fontWeight: 600, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           bgcolor: t.bg, color: t.fg, borderLeft: `3px solid ${t.fg}`, opacity: dragging?.kind === "piece" && dragging.id === x.id ? 0.4 : 1,
         }}>
+        <Box component="span" sx={{ display: "inline-flex", verticalAlign: "-3px", mr: 0.5 }}><KindTile kind={x.contentType} size={15} /></Box>
         {x.title} <Box component="span" sx={{ fontWeight: 500, opacity: 0.8 }}>· {x.projectTitle}</Box>
       </Box>
     );

@@ -124,7 +124,7 @@ function blockHtml(b: Block, preview: boolean): string {
   switch (b.kind) {
     case "header":
       return row(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-        <td style="font-family:${FONT};font-size:24px;font-weight:bold;color:${BRAND.petrol}">${b.logoUrl ? `<img src="${esc(safeUrl(b.logoUrl))}" height="32" alt="APSOparts" style="display:block;height:32px;border:0">` : `APSO<span style="color:${BRAND.red}">parts</span>`}</td>
+        <td style="font-family:${FONT};font-size:24px;font-weight:bold;color:${BRAND.petrol}">${b.logoUrl ? `<img src="${esc(safeUrl(b.logoUrl))}" height="32" alt="APSOparts" style="display:block;height:32px;border:0">` : "APSOparts"}</td>
         <td align="right" style="font-family:${FONT};font-size:13px;color:${BRAND.muted}">${esc(b.tagline)}</td></tr></table>`, "22px 40px", "#ffffff");
     case "hero":
       return `${b.imageUrl || preview ? `<tr><td>${image(b.imageUrl, b.imageAlt, preview, 600, 280)}</td></tr>` : ""}` + row(
