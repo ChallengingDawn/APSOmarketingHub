@@ -94,7 +94,8 @@ export default function Studio({ api }: StudioProps) {
   const startOf = (i: number) => (i === -1 ? segs[segs.length - 1] : segs[i]);
   const play = (i: number) => { const s = startOf(i); if (s) player.current?.seek(s.start, true); };
   // while typing in a scene, the player holds it where its words are in
-  const show = (i: number) => { const s = startOf(i); if (s) player.current?.seek(s.start + Math.min(s.dur - 6, 54), false); };
+  // (its words are in by then; it stays clear of the cut out of it, which starts up to 10 frames before its end)
+  const show = (i: number) => { const s = startOf(i); if (s) player.current?.seek(s.start + Math.min(s.dur - 12, 54), false); };
 
   // the assistant: its answer is applied at once and played; one click brings back what was there
   const [undo, setUndo] = useState<VideoDoc | null>(null);
