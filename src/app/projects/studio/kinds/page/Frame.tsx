@@ -53,13 +53,15 @@ a,button,summary,label,[role=button],[data-apx-f],[data-apx-b]{pointer-events:au
 mark[data-apx-left]{background:#ffe1dc!important;color:#b3261e!important;outline:2px solid #d80901;outline-offset:1px;border-radius:2px;padding:0 2px}`;
 
 // the shop's body face (Open Sans) cannot come in from the shop either: the computer's own sans-serif stands in, never Times
-const SHOP_FONT_STANDINS = [300, 400, 600, 700].map((w) => `@font-face{font-family:"Open Sans";font-weight:${w};src:local("Segoe UI"),local("Helvetica Neue"),local("Arial")}`).join("\n");
+// (one regular face each: the browser draws the bold itself - a face said to be bold would draw thin)
+const SHOP_FONT_STANDINS = ["Open Sans", "futura-pt"].map((f) => `@font-face{font-family:"${f}";src:local("Segoe UI"),local("Helvetica Neue"),local("Arial")}`).join("\n");
 
 let fontHeld: Promise<string> | null = null;
 /** The brand's type (futura-pt's look-alike, as data: - the hub lets no font in from outside), once per window. */
 function brandFont(): Promise<string> {
   fontHeld ??= fetch("/api/content/studio/banner/font").then((r) => (r.ok ? r.text() : ""))
-    .then((css) => `${css ? `${css}\n${css.replace(/font-family:"Jost"/g, 'font-family:"futura-pt"')}` : ""}\n${SHOP_FONT_STANDINS}`)
+    // the stand-ins first: a face declared later wins, so Jost (where the hub could load it) stands for futura-pt
+    .then((css) => `${SHOP_FONT_STANDINS}\n${css ? `${css}\n${css.replace(/font-family:"Jost"/g, 'font-family:"futura-pt"')}` : ""}`)
     .catch(() => SHOP_FONT_STANDINS);
   return fontHeld;
 }
@@ -148,8 +150,10 @@ function markLeftovers(root: Element | null) {
   }
 }
 
-export function Frame({ html, device, title, maxWidth, select, patch, toolbar }: {
+export function Frame({ html, device, title, maxWidth, select, patch, toolbar, fit = true }: {
   html: string; device: Device; title: string; maxWidth?: number;
+  /** false = the page at its real size (100%), scrolled sideways; true = zoomed to fit the space */
+  fit?: boolean;
   select?: SelectOpts;
   /** a new page's HTML, drawn into #apx-root without reloading */
   patch?: string;
@@ -170,6 +174,11 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar }:
   const editing = useRef<{ el: HTMLElement; before: string; picked: Picked } | null>(null);
   const patchRef = useRef(patch);
   patchRef.current = patch;
+  // the HTML shown is held while words are being edited - the frame never reloads under the caret
+  const [shown, setShown] = useState(html);
+  const htmlRef = useRef(html);
+  htmlRef.current = html;
+  useEffect(() => { if (!editing.current) setShown(html); }, [html]);
 
   useEffect(() => { void brandFont().then(setFont); }, []);
 
@@ -276,11 +285,13 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar }:
     const el = e.el;
     el.removeAttribute("contenteditable");
     el.removeAttribute("data-apx-editing");
-    if (!keep) { el.innerHTML = e.before; draw(); return; }
+    el.ownerDocument.getSelection()?.removeAllRanges();
+    if (!keep) { el.innerHTML = e.before; draw(); setShown(htmlRef.current); return; }
     const clean = cleanCopy(el);
     const text = (el.innerText ?? "").replace(/ /g, " ").replace(/\n{3,}/g, "\n\n").trim();
     if (text !== e.picked.text) sel.current?.onEdit?.(e.picked, { text, inner: clean.innerHTML, outer: clean.outerHTML });
     draw();
+    setShown(htmlRef.current);
   };
 
   const startEdit = (el: Element) => {
@@ -308,9 +319,10 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar }:
       st.textContent = SELECT_CSS;
       (d.head ?? d.documentElement).appendChild(st);
     }
-    const w = d.defaultView as (Window & { __apx?: boolean }) | null;
-    if (w && !w.__apx) {
-      w.__apx = true;
+    // once per document (the first, empty about:blank one and the page share a window - the flag is the document's)
+    const doc = d as Document & { __apx?: boolean };
+    if (!doc.__apx) {
+      doc.__apx = true;
       let hov: Element | null = null;
       const unhov = () => { hov?.removeAttribute("data-apx-hover"); hov = null; };
       d.addEventListener("mouseover", (e) => {
@@ -323,7 +335,8 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar }:
       d.addEventListener("mouseleave", unhov, true);
       d.documentElement.addEventListener("mouseleave", unhov);
       d.addEventListener("click", (e) => {
-        if (editing.current && editing.current.el.contains(e.target as Node)) return;
+        // inside the words being edited a click places the caret - and never follows a link or opens a question
+        if (editing.current && editing.current.el.contains(e.target as Node)) { if ((e.target as Element).closest?.("a,summary,label,button")) e.preventDefault(); return; }
         e.preventDefault();
         if (editing.current) endEdit(true);
         const s = sel.current;
@@ -344,6 +357,13 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar }:
       d.addEventListener("keydown", (e) => {
         if (!editing.current) return;
         if (e.key === "Escape") { e.preventDefault(); endEdit(false); return; }
+        // "select all" selects this element's words, not the page
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+          e.preventDefault();
+          const r = d.createRange(); r.selectNodeContents(editing.current.el);
+          const sl = d.getSelection(); sl?.removeAllRanges(); sl?.addRange(r);
+          return;
+        }
         if (e.key === "Enter" && ((!e.shiftKey && SINGLE_LINE.has(editing.current.el.tagName)) || e.ctrlKey || e.metaKey)) { e.preventDefault(); endEdit(true); }
       }, true);
       d.addEventListener("focusout", (e) => { if (editing.current && e.target === editing.current.el) endEdit(true); }, true);
@@ -364,13 +384,28 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar }:
     d.head.appendChild(st);
   }, [font, loaded]);
 
+  // the page is ready to work on once its own document (about:srcdoc) is parsed - a big shop page keeps loading its
+  // pictures long after that, so "load" alone comes late (or, a picture hanging, never)
   useEffect(() => {
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    // the page before this one stays until the new one replaces it: wait for the new one
+    const prev = docOf() as (Document & { __apx?: boolean }) | null;
+    const tick = (n: number) => {
+      if (stop) return;
+      const d = docOf() as (Document & { __apx?: boolean }) | null;
+      if (d && (d !== prev || !d.__apx) && d.URL === "about:srcdoc" && d.readyState !== "loading" && d.body) {
+        if (!d.__apx) { setup(); setLoaded((x) => x + 1); }
+        if (d.readyState === "complete") { measure(); return; }
+      }
+      if (n < 400) timer = setTimeout(() => tick(n + 1), 120);
+    };
+    tick(0);
     const f = frame.current;
-    const on = () => { setLoaded((n) => n + 1); setup(); };
+    const on = () => { setup(); setLoaded((x) => x + 1); measure(); };
     f?.addEventListener("load", on);
-    const t = setTimeout(() => { if (docOf()?.readyState === "complete") on(); }, 300);
-    return () => { f?.removeEventListener("load", on); clearTimeout(t); };
-  }, [html, setup]);
+    return () => { stop = true; if (timer) clearTimeout(timer); f?.removeEventListener("load", on); };
+  }, [shown, setup, measure]);
 
   useEffect(() => { draw(); }, [patch, draw]);
   useEffect(() => { markSelected(); }, [select?.selected, markSelected, device, avail]);
@@ -386,7 +421,7 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [select?.editNonce]);
 
-  const zoom = Math.min(1, (Math.min(avail, maxWidth ?? avail) - 8) / w);
+  const zoom = fit ? Math.min(1, (Math.min(avail, maxWidth ?? avail) - 8) / w) : 1;
   const mobile = device === "mobile";
   const border = mobile ? 8 : 1;
   const dev = deviceBox.current;
@@ -394,16 +429,17 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar }:
   const tbTopRaw = dev && selRect ? dev.offsetTop + border + selRect.y * zoom - 44 : 0;
   const tbTop = selRect && tbTopRaw < 0 && dev ? dev.offsetTop + border + (selRect.y + selRect.h) * zoom + 8 : tbTopRaw;
   return (
-    <Box ref={box} sx={{ position: "relative", display: "flex", justifyContent: "center", width: "100%", minWidth: 0 }}>
+    <Box ref={box} sx={{ position: "relative", width: "100%", minWidth: 0, overflowX: fit ? "visible" : "auto", pb: fit ? 0 : 1 }}>
       <Box ref={deviceBox} sx={{
+        mx: "auto", position: "relative",
         width: w * zoom + border * 2, height: height * zoom + border * 2, flexShrink: 0, borderRadius: mobile ? "26px" : "10px", overflow: "hidden",
         boxShadow: "0 18px 50px rgba(31,45,78,.18)", border: mobile ? "8px solid #15223a" : `1px solid ${HAIRLINE}`, bgcolor: "#fff", boxSizing: "border-box",
       }}>
-        <iframe ref={frame} title={title} srcDoc={hubAbsolute(html)} sandbox="allow-same-origin"
+        <iframe ref={frame} title={title} srcDoc={hubAbsolute(shown)} sandbox="allow-same-origin"
           style={{ width: w, height, border: 0, transform: `scale(${zoom})`, transformOrigin: "0 0", display: "block", background: "#fff" }} />
       </Box>
       {toolbar && selRect && select?.selected && (
-        <Box sx={{ position: "absolute", left: Math.max(0, Math.min(tbLeft, (box.current?.clientWidth ?? 800) - 340)), top: Math.max(0, tbTop), zIndex: 3 }}>{toolbar}</Box>
+        <Box sx={{ position: "absolute", left: Math.max(0, fit ? Math.min(tbLeft, (box.current?.clientWidth ?? 800) - 340) : tbLeft), top: Math.max(0, tbTop), zIndex: 3 }}>{toolbar}</Box>
       )}
     </Box>
   );
