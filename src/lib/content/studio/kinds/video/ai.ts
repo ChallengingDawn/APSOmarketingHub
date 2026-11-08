@@ -1,6 +1,8 @@
 // VIDEO - WHAT THE AI IS ASKED, AND WHAT IS KEPT OF ITS ANSWER (08.11.2026). Pure - tests/studio-video.test.ts.
 // The route puts the brand's voice in front (brandSystemPrompt); these add the film's own rules:
-//   storyboard  from the brief and the to-do: 5-8 scenes of our kinds, few words a line, the piece's language, an end card
+//   storyboard  from the brief and the to-do: 5-8 scenes of our kinds, few words a line, the piece's language, an end card;
+//               with features picked (features.ts - SARCLA 08.11.2026: "select a feature or key winning point of APSO"),
+//               a film around them: a scene per feature (its claim, its proof, its visual), then the end card
 //   tighten     every line shorter (a customer's quote is never touched - those are their words)
 //   variant     another opening shot, the rest kept
 //   revise      the storyboard changed the way the person asks in their own words, the rest kept
@@ -8,8 +10,10 @@
 // not word for word in what the team gave us is dropped, the kinds and bars are held to the library's.
 
 import { LANGUAGE_BY_CODE } from "../../../languages";
+import { photoByKey } from "../banner/brand";
 import { cleanVideo, COPY_KEYS, forbidden, KIND_INFO, SCENE_KINDS, SHAPES, END_FIELDS, videoText, type CopyKey, type Scene, type SceneKind, type VideoDoc } from "./model";
 import { plain } from "./engine/text";
+import { FEATURE, FEATURES, ICONS, featuresBrief, isFeature, isIcon, numberAllowed, type FeatureKey } from "./features";
 
 /** What the tasks read of the studio's context (StudioCtx has it all). */
 export type VideoCtx = {
@@ -42,6 +46,7 @@ export const FILM_RULES = [
   `- A "quote" scene ONLY with words a customer said that are given word for word in the brief; otherwise never use the quote kind.`,
   `- Sentence case, no all-caps words, no exclamation marks except at most one on the end card, no emoji.`,
   `- The shape field (title and product scenes): "oring" or "seal" draws that part in the film; "none" for nothing. Other kinds: "none".`,
+  `- APSOparts features: only the ones listed in the question, only their own facts. A scene that tells one sets "feature" to its key and "icon" to its icon; any other scene sets both to "". A "number" scene shows ONLY a figure listed for its feature - never another number.`,
   `- The end card shows the APSOparts logo big; give its line (max ${END_FIELDS[0].words} words, may carry one *key* word) and the button text (max ${END_FIELDS[1].words} words; the shop address "apsoparts.com" or a short action).`,
 ].join("\n");
 
@@ -54,8 +59,10 @@ const sceneSchema = {
     bars: { type: "integer", description: "1 to 4 - whole bars of 2 seconds" },
     kicker: { type: "string" }, line1: { type: "string" }, line2: { type: "string" }, line3: { type: "string" }, sub: { type: "string" },
     shape: { type: "string", enum: [...SHAPES] },
+    feature: { type: "string", enum: ["", ...FEATURES.map((f) => f.key)], description: "The APSOparts feature this scene tells, or empty" },
+    icon: { type: "string", enum: ["", ...ICONS], description: "The feature's icon (feature and number scenes), or empty" },
   },
-  required: ["kind", "bars", "kicker", "line1", "line2", "line3", "sub", "shape"],
+  required: ["kind", "bars", "kicker", "line1", "line2", "line3", "sub", "shape", "feature", "icon"],
   additionalProperties: false,
 } as const;
 
@@ -125,15 +132,33 @@ export function context(ctx: VideoCtx, doc: unknown): string {
   ].join("\n");
 }
 
-export const storyboardUser = (ctx: VideoCtx, doc: unknown, input: Record<string, unknown>) => [
-  context(ctx, doc),
-  ``,
-  `Write the film's storyboard: 5 to 8 scenes of our kinds, then the end card. Aim for 18-26 seconds in all (the end card is 2 bars). Open calm (a title or a claim), build, land the benefit, then the end card. A new scene every bar or two.`,
-  str(input.ask, 600) ? `What the person asks: ${str(input.ask, 600)}` : "",
-].filter(Boolean).join("\n");
+/** The features a film is made around: the ones asked for, else the ones the film already holds. */
+export function pickedFeatures(doc: unknown, input: Record<string, unknown> = {}): FeatureKey[] {
+  const asked = Array.isArray(input.features) ? input.features.filter(isFeature) : [];
+  const held = cleanVideo(doc).features ?? [];
+  return [...new Set(asked.length ? asked : held)].slice(0, 6);
+}
+
+export const storyboardUser = (ctx: VideoCtx, doc: unknown, input: Record<string, unknown>) => {
+  const feats = pickedFeatures(doc, input);
+  return [
+    context(ctx, doc),
+    ``,
+    feats.length
+      ? [
+        `Make the film around these APSOparts features, in this order - ${feats.length === 1 ? "one feature, told in two or three scenes" : "one or two scenes per feature"}:`,
+        featuresBrief(feats),
+        ``,
+        `For each feature: its claim, its proof, its visual - use one of its scene kinds (a "feature" scene carries the claim, the proof and its icon; a "number" scene its figure; "compare" the old way against the APSOparts way; "steps" how it works). Translate the claim and the proof into the film's language; do not add facts. Open with one calm scene that says what the film is about, then the features, then the end card (its line sums them up). ${feats.length > 3 ? "Keep it under 30 seconds: one scene per feature." : "Aim for 16-26 seconds in all."}`,
+      ].join("\n")
+      : `Write the film's storyboard: 5 to 8 scenes of our kinds, then the end card. Aim for 18-26 seconds in all (the end card is 2 bars). Open calm (a title or a claim), build, land the benefit, then the end card. A new scene every bar or two.`,
+    str(input.ask, 600) ? `What the person asks: ${str(input.ask, 600)}` : "",
+  ].filter(Boolean).join("\n");
+};
 
 export const reviseUser = (ctx: VideoCtx, doc: unknown, input: Record<string, unknown>) => [
   context(ctx, doc),
+  pickedFeatures(doc, input).length ? `\nThe film's APSOparts features (only these, only their facts):\n${featuresBrief(pickedFeatures(doc, input))}` : "",
   ``,
   `Change the storyboard the way the person asks; keep every scene they did not ask about exactly as it is (same kind, bars and words). Give back the whole storyboard.`,
   `What the person asks: ${str(input.ask, 800) || "(nothing - make it stronger)"}`,
@@ -188,8 +213,8 @@ function keep(v: unknown, max: number, dropped: string[]): string {
   return s;
 }
 
-/** One scene of an answer, as a scene of the film (null when nothing of it can be kept). */
-export function sceneFrom(raw: unknown, id: string, sources: string[], dropped: string[]): Scene | null {
+/** One scene of an answer, as a scene of the film (null when nothing of it can be kept). `allowed` = the film's features. */
+export function sceneFrom(raw: unknown, id: string, sources: string[], dropped: string[], allowed: FeatureKey[] = []): Scene | null {
   if (!isObj(raw)) return null;
   const kind = (SCENE_KINDS as readonly string[]).includes(String(raw.kind)) ? (raw.kind as SceneKind) : null;
   if (!kind) return null;
@@ -210,8 +235,17 @@ export function sceneFrom(raw: unknown, id: string, sources: string[], dropped: 
     return null;
   }
   if (!info.fields.some((f) => f.required && copy[f.key])) return null;
+  // a feature only of the film's own; a figure only one its feature states
+  const feature = isFeature(raw.feature) && allowed.includes(raw.feature) ? raw.feature : undefined;
+  if (kind === "number" && !numberAllowed(plain(copy.line1 ?? ""), feature ? [feature] : allowed)) {
+    dropped.push(`a figure no feature of ours states ("${plain(copy.line1 ?? "")}")`);
+    return null;
+  }
+  const icon = isIcon(raw.icon) ? raw.icon : feature ? FEATURE[feature].icon : undefined;
+  // a feature with a shop photo of its own shows it, where the scene takes a picture
+  const photo = feature && info.image && FEATURE[feature].photo ? photoByKey(FEATURE[feature].photo!)?.url : undefined;
   const bars = typeof raw.bars === "number" ? raw.bars : info.bars.start;
-  return cleanVideo({ scenes: [{ id, kind, bars, copy, shape: raw.shape }] }).scenes[0] ?? null;
+  return cleanVideo({ scenes: [{ id, kind, bars, copy, shape: raw.shape, feature, icon, image: photo }] }).scenes[0] ?? null;
 }
 
 export type AiAnswer = { doc: VideoDoc; note: string; dropped: string[] };
@@ -229,6 +263,7 @@ export function cleanStoryboard(raw: unknown, doc: unknown, ctx: VideoCtx, input
   const r = isObj(raw) ? raw : {};
   const dropped: string[] = [];
   const sources = sourcesOf(ctx, doc, input);
+  const allowed = pickedFeatures(doc, input);
   const matched = new Set<string>();
   const all = new Set(cur.scenes.map((s) => s.id));
   // a scene the person did not ask to change keeps its id, so its place in the studio stays put
@@ -236,10 +271,10 @@ export function cleanStoryboard(raw: unknown, doc: unknown, ctx: VideoCtx, input
     .map((x, i) => {
       const same = cur.scenes.find((s) => !matched.has(s.id) && isObj(x) && s.kind === x.kind && plain(s.copy.line1 ?? "") === plain(str(x.line1)));
       const id = same ? (matched.add(same.id), same.id) : fresh(i + 1, all);
-      return sceneFrom(x, id, sources, dropped);
+      return sceneFrom(x, id, sources, dropped, allowed);
     })
     .filter((s): s is Scene => !!s);
-  const next = cleanVideo({ ...cur, scenes, endCard: { line: keep(r.endLine, 120, dropped), cta: keep(r.cta, 60, dropped) || cur.endCard.cta || "apsoparts.com", bars: cur.endCard.bars } }, { language: cur.language });
+  const next = cleanVideo({ ...cur, features: allowed, scenes, endCard: { line: keep(r.endLine, 120, dropped), cta: keep(r.cta, 60, dropped) || cur.endCard.cta || "apsoparts.com", bars: cur.endCard.bars } }, { language: cur.language });
   return { doc: next, note: str(r.note, 300), dropped };
 }
 
@@ -277,7 +312,7 @@ export function cleanVariant(raw: unknown, doc: unknown, ctx: VideoCtx, input: R
   const r = isObj(raw) ? raw : {};
   const dropped: string[] = [];
   const taken = new Set(cur.scenes.map((s) => s.id));
-  const scene = sceneFrom(r.opening, fresh(cur.scenes.length + 1, taken), sourcesOf(ctx, doc, input), dropped);
+  const scene = sceneFrom(r.opening, fresh(cur.scenes.length + 1, taken), sourcesOf(ctx, doc, input), dropped, pickedFeatures(doc, input));
   if (!scene) return { doc: cur, note: str(r.note, 300) || "No opening came back that the film can use - try again.", dropped };
   return { doc: { ...cur, scenes: [scene, ...cur.scenes.slice(1)].slice(0, 12) }, note: str(r.note, 300), dropped };
 }

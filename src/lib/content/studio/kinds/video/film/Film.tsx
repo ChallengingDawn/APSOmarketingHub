@@ -27,7 +27,7 @@ const Shot: React.FC<{ seg: Segment; next: Segment | null; L: Layout; doc: Video
   const bx = moving ? (horizontal ? fx.blur : fx.blur * 0.25) : fx.blur;
   const by = moving ? (horizontal ? fx.blur * 0.25 : fx.blur) : fx.blur;
   const blur = fx.blur > 0.4;
-  const scene = seg.kind === "end" ? <EndScene doc={doc} L={L} dur={seg.dur} uid={id} /> : doc.scenes[seg.index] ? <SceneOf s={doc.scenes[seg.index]} L={L} dur={seg.dur} uid={id} base={base} /> : null;
+  const scene = seg.kind === "end" ? <EndScene doc={doc} L={L} dur={seg.dur} uid={id} /> : doc.scenes[seg.index] ? <SceneOf s={doc.scenes[seg.index]} L={L} dur={seg.dur} uid={id} base={base} lang={doc.language} /> : null;
   return (
     <>
       {blur && (

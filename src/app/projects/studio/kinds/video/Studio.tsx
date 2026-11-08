@@ -1,8 +1,10 @@
 "use client";
 // THE VIDEO STUDIO (08.11.2026; SARCLA: "if you could integrate video generation and the outcome would be like the
 // motion graphics video design we have been doing, this is also welcomed"). A to-do of kind "video" opens here:
-//   Storyboard   the film's scenes in order, each one of our kinds (title, words, claim, steps, product, quote), its bars,
-//                its few words; then the end card
+//   Features     APSOparts' own features and winning points to make the film around (SARCLA 08.11.2026: "you should be
+//                able to select a feature or key winning point of APSO") - a scene per feature: claim, proof, visual
+//   Storyboard   the film's scenes in order, each one of our kinds (title, words, claim, feature, big number, before /
+//                after, steps, product, quote), its bars, its few words, its picture; then the end card
 //   Film         the film itself, playing live in our motion style - 16:9, 9:16 or 1:1, the same story; "Export for
 //                rendering" hands the story to the render machine (the hub cannot render: no Chromium on Fargate)
 //   Assistant    a storyboard from the brief, every line shorter, another opening, or a change in your words - always
@@ -19,17 +21,20 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import UndoRoundedIcon from "@mui/icons-material/UndoRounded";
+import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
 
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
-import { Choice } from "@/app/connectors/parts";
+import { SquareChoice as Choice } from "@/app/website/ai-personalization/SquareChoice";
+import { FEATURE, type FeatureKey } from "@/lib/content/studio/kinds/video/features";
 import { seconds } from "@/lib/content/studio/kinds/video/engine/timeline";
 import {
-  cleanVideo, FORMAT_INFO, FORMATS, segments, totalBars, totalFrames, validate,
+  cleanVideo, featureScene, FORMAT_INFO, FORMATS, MAX_SCENES, segments, totalBars, totalFrames, validate,
   type Format, type Issue, type VideoDoc, type VideoSpec,
 } from "@/lib/content/studio/kinds/video/model";
 import type { AiAnswer } from "@/lib/content/studio/kinds/video/ai";
 import { AssistantPanel, btn, mainBtn, Pane, StudioPanes } from "../../parts";
 import type { StudioProps } from "../../registry";
+import FeaturePicker, { LineIcon } from "./FeaturePicker";
 import Player, { type PlayerHandle } from "./Player";
 import Storyboard from "./Storyboard";
 
@@ -126,6 +131,25 @@ export default function Studio({ api }: StudioProps) {
     setHelpFile(file);
   };
 
+  // the features the film is made around; which of them the brand brain still names
+  const picked = doc.features ?? [];
+  const [confirmed, setConfirmed] = useState<FeatureKey[] | null>(null);
+  const [making, setMaking] = useState(false);
+  const [makeMsg, setMakeMsg] = useState<string | null>(null);
+  const [openFeatures, setOpenFeatures] = useState(!film.scenes.length);
+  useEffect(() => {
+    if (!canEdit) return;
+    void api.act<{ confirmed: FeatureKey[] }>("features").then((r) => { if (r.ok) setConfirmed(r.result.confirmed); });
+  }, [canEdit]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setPicked = (keys: FeatureKey[]) => edit((d) => ({ ...d, features: keys }));
+  const makeFromFeatures = async () => {
+    setMaking(true); setMakeMsg(null);
+    const msg = await runAi("storyboard", { features: picked });
+    setMaking(false); setMakeMsg(msg);
+    setOpenFeatures(false);
+  };
+  const addFeatureScenes = () => edit((d) => ({ ...d, scenes: [...d.scenes, ...picked.map((k) => featureScene(k))].slice(0, MAX_SCENES) }));
+
   const stops = issues.filter((x) => x.level === "stop").length;
   const warns = issues.filter((x) => x.level === "warn").length;
 
@@ -136,7 +160,31 @@ export default function Studio({ api }: StudioProps) {
         assistWidth={320}
         build={
           <Pane title="Storyboard" right={<Typography sx={{ fontSize: "0.78rem", color: MUTED, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{seconds(totalFrames(film))} s · {totalBars(film)} bars</Typography>}>
-            <Storyboard doc={doc} segs={segs} issues={issues} edit={edit} disabled={!canEdit} current={current} onPlay={play} onShow={show} />
+            <Box sx={{ mb: 2, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", overflow: "hidden" }}>
+              <Box component="button" type="button" onClick={() => setOpenFeatures((o) => !o)} sx={{ all: "unset", boxSizing: "border-box", cursor: "pointer", width: "100%", display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 1.1 }}>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Our features</Typography>
+                  <Typography sx={{ fontSize: "0.74rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {picked.length ? `The film tells: ${picked.map((k) => FEATURE[k].name).join(" · ")}` : "Pick what the film is about - APSOparts' own winning points"}
+                  </Typography>
+                </Box>
+                {!openFeatures && picked.length > 0 && (
+                  <Box sx={{ display: "flex", gap: 0.5 }}>
+                    {picked.map((k) => <Box key={k} sx={{ width: 24, height: 24, borderRadius: "5px", bgcolor: "#d80901", display: "grid", placeItems: "center" }}><LineIcon name={FEATURE[k].icon} size={15} color="#fff" /></Box>)}
+                  </Box>
+                )}
+                <KeyboardArrowDownRoundedIcon sx={{ fontSize: 20, color: MUTED, transform: openFeatures ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+              </Box>
+              {openFeatures && (
+                <Box sx={{ px: 1.5, pb: 1.5 }}>
+                  <FeaturePicker picked={picked} onChange={setPicked} confirmed={confirmed} disabled={!canEdit} busy={making} aiReady={api.data.ai}
+                    onMake={makeFromFeatures} onAdd={addFeatureScenes} hasScenes={film.scenes.length > 0} />
+                </Box>
+              )}
+              {makeMsg && <Typography sx={{ mx: 1.5, mb: 1.25, fontSize: "0.8rem", color: "#7f4f0b", bgcolor: "#fff8ec", p: 1, borderRadius: "8px" }}>{makeMsg}</Typography>}
+            </Box>
+            <Storyboard doc={doc} segs={segs} issues={issues} edit={edit} disabled={!canEdit} current={current} onPlay={play} onShow={show}
+              where={{ projectId: api.data.piece.projectId, pieceId: api.data.piece.id, me: api.data.me }} />
           </Pane>
         }
         preview={
@@ -170,7 +218,7 @@ export default function Studio({ api }: StudioProps) {
             enabled={api.data.ai && canEdit}
             placeholder="Change it in your words - e.g. a calmer opening, end on DirectCUT"
             quick={[
-              { label: film.scenes.length ? "Write the storyboard again" : "Write the storyboard", run: () => runAi("storyboard") },
+              { label: picked.length ? `The film around ${picked.length === 1 ? FEATURE[picked[0]].name : `our ${picked.length} features`}` : film.scenes.length ? "Write the storyboard again" : "Write the storyboard", run: () => runAi("storyboard", { features: picked }) },
               { label: "Shorten every line", run: () => runAi("tighten") },
               { label: "Another opening", run: () => runAi("variant") },
             ]}
@@ -182,7 +230,7 @@ export default function Studio({ api }: StudioProps) {
               </Button>
             )}
             <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 2, lineHeight: 1.5 }}>
-              The assistant writes from the project&apos;s brief, in the to-do&apos;s language, and keeps our rules: few words a line, never a discount value, no prices, no quote nobody gave us.
+              The assistant writes from the project&apos;s brief and the features you picked, in the to-do&apos;s language, and keeps our rules: few words a line, never a discount value, no prices, no figure our features do not state, no quote nobody gave us.
             </Typography>
           </AssistantPanel>
         }
