@@ -48,7 +48,7 @@ const when = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "nume
 export type Act = (body: Record<string, unknown>, optimistic?: (w: Work) => Work) => Promise<{ ok: boolean; error?: string; [k: string]: unknown }>;
 
 /** The moves this person may make on a to-do now - only what the rules allow them. */
-function moves(p: Piece, w: Work): { to: PieceStatus; label: string; main?: boolean; note?: boolean }[] {
+export function moves(p: Piece, w: Pick<Work, "me" | "access" | "isAdmin" | "project">): { to: PieceStatus; label: string; main?: boolean; note?: boolean }[] {
   const who = { username: w.me, canEdit: w.access.canEdit, lead: w.isAdmin || w.project.createdBy === w.me };
   const task = p.contentType === TASK_KIND;
   const all: { to: PieceStatus; label: string; main?: boolean; note?: boolean }[] =
@@ -385,7 +385,7 @@ function AddTodo({ w, act }: { w: Work; act: Act }) {
   const add = async () => {
     if (kind === TASK_KIND && !title.trim()) return ref.current?.focus();
     const temp: Piece = {
-      id: -Date.now(), contentType: kind, language: k.language ? lang : null, title: title.trim() || `${k.label}${k.language ? ` · ${lang}` : ""}`,
+      id: -Date.now(), projectId: w.project.id, contentType: kind, language: k.language ? lang : null, title: title.trim() || `${k.label}${k.language ? ` · ${lang}` : ""}`,
       writer: who, reviewer: null, status: "todo", dueDate: due || null, versions: 0, lastVersionAt: null, lastVersionBy: null, taskId: null, pending: true,
     };
     setTitle(""); setDue("");

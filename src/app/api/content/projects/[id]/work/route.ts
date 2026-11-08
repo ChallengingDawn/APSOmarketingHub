@@ -15,7 +15,7 @@ import {
   addEvent, addPiece, cleanBrief, getPiece, listEvents, projectBrief, projectHead, removePiece, setBrief, setPlanItem,
   updatePiece, type Piece,
 } from "@/lib/content/workflow";
-import { isPieceStatus, mailsFor, mentionsIn, moveError, stageMail, stageOf, STATUS_LABEL, TASK_KIND, type MailTo } from "@/lib/content/pieceRules";
+import { isPieceStatus, mailsFor, mentionsIn, moveError, stageMail, stageOf, STATUS_LABEL, TASK_KIND, taskMoveError, type MailTo } from "@/lib/content/pieceRules";
 import { sendContentMails, type MailContext } from "@/lib/content/workflowMail";
 import {
   createTodoTicket, findTickets, linkTodoTicket, movePlace, piecesTickets, planPlaces, pushPieceToTask, removeTodo,
@@ -141,7 +141,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (!piece) return fail("That to-do is not in this project.", 404);
     if (!isPieceStatus(b.to)) return fail("Which status?");
     const to = b.to;
-    const why = moveError(piece, to, { username: me.username, canEdit: access.canEdit, lead });
+    const mover = { username: me.username, canEdit: access.canEdit, lead };
+    const why = piece.contentType === TASK_KIND ? taskMoveError(to, mover) : moveError(piece, to, mover);
     if (why) return fail(why, 403);
     const note = text(b.note, 2000) || null;
     const before = await stageNow();
