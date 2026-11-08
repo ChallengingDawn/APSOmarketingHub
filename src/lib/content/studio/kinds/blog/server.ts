@@ -7,15 +7,17 @@
 //           as every to-do does). Each opens its own studio.
 //   ping    nothing - the studio waits on it so a big change goes in two steps
 // AI tasks (in the brand's voice for the blog, the route adds it)
-//   outline  the post from the brief and its topic: title, meta, excerpt, sections, questions - in the post's language
-//   section  one section written again from its heading (and a wish)
+//   outline  the post from the brief and its topic: title, meta, lead, "in short", sections (each with a pull quote and
+//            a picture idea), questions, the band to the shop, the post's picture idea - in the post's language (or
+//            another one: the whole post translated)
+//   section  one section again: written from its heading, shorter, more concrete, or translated (and a wish)
 //   faq      the questions a reader would still have, answered from the post
 //   meta     the meta title and description, the excerpt and the address
 
 import type { AiTask, KindDef, ServerAction, StudioCtx } from "../../contract";
 import { s } from "../../contract";
 import { addEvent, addPiece } from "@/lib/content/workflow";
-import { LANGUAGE_NAME, LIMITS, addDays, batchPlan, blogDoc, blogText, emptyBlog, newId, slugify, type BlogDoc } from "./model";
+import { LANGUAGE_NAME, LIMITS, addDays, batchPlan, blogDoc, blogText, emptyBlog, newId, newSection, slugify, type BlogDoc } from "./model";
 import { blogCards } from "./posts";
 
 const docOf = (ctx: StudioCtx, raw: unknown) => blogDoc(raw, { language: ctx.piece.language, author: ctx.me.name, title: ctx.piece.title });
@@ -33,7 +35,7 @@ const FORMAT = `Section bodies are markdown WITHOUT the section's own heading: p
 ("| a | b |" with a "|---|---|" line) where it helps, ### for a sub-heading. **bold** sparingly. ==word== marks a key
 word (shown in red on the page) - one or two in the whole post at most.`;
 
-function context(ctx: StudioCtx, d: BlogDoc): string {
+function context(ctx: StudioCtx, d: BlogDoc, language?: string): string {
   const b = ctx.brief;
   return [
     `PROJECT: ${ctx.projectTitle}`,
@@ -42,16 +44,35 @@ function context(ctx: StudioCtx, d: BlogDoc): string {
     b.message && `Key message: ${b.message}`,
     b.keywords.length ? `Keywords: ${b.keywords.join(", ")}` : null,
     `THE TO-DO: ${ctx.piece.title}`,
-    `WRITE IN: ${LANGUAGE_NAME[d.language] ?? d.language} (store view ${d.store})`,
+    language && language !== d.language
+      ? `WRITE IN: ${LANGUAGE_NAME[language] ?? language} - a translation of the post as it is now, for that language's readers`
+      : `WRITE IN: ${LANGUAGE_NAME[d.language] ?? d.language} (store view ${d.store})`,
   ].filter(Boolean).join("\n");
 }
 
 const postNow = (d: BlogDoc) => (blogText(d).trim() ? `THE POST AS IT IS NOW:\n${blogText(d).slice(0, 40_000)}` : "THE POST: nothing written yet.");
 
-const SECTIONS = { type: "array", items: { type: "object", additionalProperties: false, required: ["heading", "body"], properties: { heading: { type: "string" }, body: { type: "string", description: "markdown" } } } };
+const SECTIONS = {
+  type: "array",
+  items: {
+    type: "object", additionalProperties: false, required: ["heading", "body", "quote", "picture", "pictureAlt"],
+    properties: {
+      heading: { type: "string" },
+      body: { type: "string", description: "markdown" },
+      quote: { type: "string", description: "one sentence of this section worth pulling out in large type, said in other words than the text - or \"\" for most sections (two in the post at most)" },
+      picture: { type: "string", description: "for one or two sections only: what a photo in the section would show (in English, concrete: the part, the hands, the place, the light) - else \"\"" },
+      pictureAlt: { type: "string", description: "what that photo shows, in the post's language, one short line - or \"\"" },
+    },
+  },
+};
 const FAQ = { type: "array", items: { type: "object", additionalProperties: false, required: ["q", "a"], properties: { q: { type: "string" }, a: { type: "string" } } } };
 
-const cleanSections = (v: unknown) => (Array.isArray(v) ? v : []).slice(0, 12).map((x: Record<string, unknown>) => ({ id: newId(), heading: s(x?.heading, 200), body: s(x?.body, 20_000) })).filter((x) => x.heading || x.body);
+const cleanSections = (v: unknown) => (Array.isArray(v) ? v : []).slice(0, 12)
+  .map((x: Record<string, unknown>) => newSection({
+    heading: s(x?.heading, 200), body: s(x?.body, 20_000), quote: s(x?.quote, 300),
+    image: { url: "", alt: s(x?.pictureAlt, 200), caption: "", prompt: s(x?.picture, 1000) },
+  }))
+  .filter((x) => x.heading || x.body);
 const cleanFaq = (v: unknown) => (Array.isArray(v) ? v : []).slice(0, 10).map((x: Record<string, unknown>) => ({ id: newId(), q: s(x?.q, 300), a: s(x?.a, 3000) })).filter((x) => x.q && x.a);
 /** A text within its limit, cut at a word - the AI is asked to keep to it; this only makes sure. */
 const within = (t: string, max: number) => (t.length <= max ? t : t.slice(0, max).replace(/\s+\S*$/, ""));
@@ -61,22 +82,37 @@ const outline: AiTask = {
   maxTokens: 16_000,
   schema: {
     type: "object", additionalProperties: false,
-    required: ["title", "metaTitle", "metaDescription", "excerpt", "sections", "faq", "tags"],
+    required: ["title", "metaTitle", "metaDescription", "excerpt", "takeaways", "sections", "faq", "tags", "cta", "picture", "pictureAlt"],
     properties: {
       title: { type: "string", description: `the post's title, under ${LIMITS.title} characters` },
       metaTitle: { type: "string", description: `under ${LIMITS.metaTitle} characters` },
       metaDescription: { type: "string", description: `under ${LIMITS.metaDescription} characters` },
       excerpt: { type: "string", description: "the lead: one or two sentences that answer the question at once" },
+      takeaways: { type: "array", items: { type: "string" }, description: "3 to 4 short lines a reader takes away (each under 110 characters, no markdown)" },
       sections: SECTIONS,
       faq: FAQ,
       tags: { type: "array", items: { type: "string" }, description: "2-4 topics (product families, applications), short" },
+      cta: {
+        type: "object", additionalProperties: false, required: ["title", "text", "label"],
+        properties: {
+          title: { type: "string", description: "the band after the article that leads to the shop: a short title naming what the reader can now order (no price, no discount)" },
+          text: { type: "string", description: "one sentence: what they find in the shop (only what the brief or general shop facts say)" },
+          label: { type: "string", description: "the button: two to four words, a verb first" },
+        },
+      },
+      picture: { type: "string", description: "the post's main photo: what it shows, in English, concrete (the part in use, hands and tools, the setting, the light)" },
+      pictureAlt: { type: "string", description: "what that photo shows, in the post's language, one short line" },
     },
   },
   system: `You write one article for the APSOparts blog: an explainer that answers one question properly, for engineers,
-purchasers and maintenance people. The short answer comes first (the excerpt); then 3 to 6 sections of real substance,
-each ending somewhere useful; then 3 to 5 questions a reader would still have, answered briefly. The title names the
-question the way a person would search it. When the post already has text and the person asks for a change, answer with
-the whole post and keep, word for word, every part they did not ask to change.
+purchasers and maintenance people. The short answer comes first (the excerpt), then 3 to 4 "in short" lines; then 4 to 6
+sections of real substance (each 120 to 300 words: the reasoning, a list or a table where it helps, an ending that leads
+somewhere useful); then 3 to 5 questions a reader would still have, answered briefly; then the band to the shop. Give one
+or two sections a pull quote and one or two a photo idea; the post a main photo idea (real, honest workshop or plant
+scenes, natural light, no lettering, never a product shot on white). The title names the question the way a person would
+search it. When the post already has text and the person asks for a change, answer with the whole post and keep, word
+for word, every part they did not ask to change. When asked to translate, translate everything faithfully - meaning,
+structure and markdown kept - and write the topics and the meta texts for the new language's readers.
 
 ${FORMAT}
 
@@ -84,7 +120,7 @@ ${RULES}`,
   user: (ctx, raw, input) => {
     const d = docOf(ctx, raw);
     const topic = s(input.topic, 500) || d.title || ctx.piece.title;
-    return `${context(ctx, d)}\n\nTHE TOPIC: ${topic}\n${s(input.request, 2000) ? `THE PERSON ADDS: ${s(input.request, 2000)}\n` : ""}\n${postNow(d)}`;
+    return `${context(ctx, d, s(input.language, 4).toUpperCase() || undefined)}\n\nTHE TOPIC: ${topic}\n${s(input.request, 2000) ? `THE PERSON ADDS: ${s(input.request, 2000)}\n` : ""}\n${postNow(d)}`;
   },
   clean: (raw) => {
     const r = (raw ?? {}) as Record<string, unknown>;
@@ -92,17 +128,33 @@ ${RULES}`,
     return {
       title, slug: slugify(title), metaTitle: within(s(r.metaTitle, 200), LIMITS.metaTitle), metaDescription: within(s(r.metaDescription, 400), LIMITS.metaDescription),
       excerpt: within(s(r.excerpt, 800), LIMITS.excerpt), sections: cleanSections(r.sections), faq: cleanFaq(r.faq),
+      takeaways: (Array.isArray(r.takeaways) ? r.takeaways : []).map((t) => s(t, 200)).filter(Boolean).slice(0, 5),
       tags: (Array.isArray(r.tags) ? r.tags : []).map((t) => s(t, 40)).filter(Boolean).slice(0, 4),
+      cta: (() => { const c = (r.cta ?? {}) as Record<string, unknown>; return { title: s(c.title, 120), text: s(c.text, 300), label: s(c.label, 40) }; })(),
+      picture: s(r.picture, 1000), pictureAlt: s(r.pictureAlt, 200),
     };
   },
+};
+
+/** What each of a section's own buttons asks. */
+const SECTION_ASK: Record<string, string> = {
+  write: "Write this section (again) from its heading and the rest of the post: substance, an engineer's precision, an ending that leads somewhere.",
+  shorter: "Make this section about a third shorter: keep every fact, the structure and the language; cut repetition and padding.",
+  concrete: "Make this section more concrete: replace general statements with the specific mechanism, typical values (SI units, ranges where general engineering knowledge gives them), an example from a plant or a workshop, a check the reader can do. Never invent figures about APSOparts.",
+  translate: "Translate this section faithfully into the language named, keeping the markdown, the meaning and the length.",
 };
 
 const section: AiTask = {
   label: "Write this section",
   maxTokens: 6000,
-  schema: { type: "object", additionalProperties: false, required: ["heading", "body"], properties: { heading: { type: "string" }, body: { type: "string" } } },
-  system: `You write ONE section of an APSOparts blog article again, so it fits the rest of the post: substance, an engineer's
-precision, an ending that leads somewhere.
+  schema: {
+    type: "object", additionalProperties: false, required: ["heading", "body", "quote"],
+    properties: {
+      heading: { type: "string" }, body: { type: "string" },
+      quote: { type: "string", description: "the section's pull quote in the same language - the one it has, made to fit, or \"\" when it has none" },
+    },
+  },
+  system: `You work on ONE section of an APSOparts blog article, so it fits the rest of the post.
 
 ${FORMAT}
 
@@ -111,9 +163,13 @@ ${RULES}`,
     const d = docOf(ctx, raw);
     const i = Math.max(0, Math.floor(Number(input.index) || 0));
     const sec = d.sections[i];
-    return `${context(ctx, d)}\n\n${postNow(d)}\n\nWRITE AGAIN: section ${i + 1}, "${sec?.heading ?? ""}"${s(input.request, 2000) ? `\nTHE PERSON ASKS: ${s(input.request, 2000)}` : ""}`;
+    const mode = SECTION_ASK[s(input.mode, 20)] ? s(input.mode, 20) : "write";
+    const lang = s(input.language, 4).toUpperCase();
+    const ask = `${SECTION_ASK[mode]}${mode === "translate" ? ` Into: ${LANGUAGE_NAME[lang] ?? lang}.` : ""}`;
+    const now = sec ? `THE SECTION NOW:\n## ${sec.heading}\n\n${sec.body}${sec.quote ? `\n\nPull quote: ${sec.quote}` : ""}` : "";
+    return `${context(ctx, d)}\n\n${postNow(d)}\n\nTHE TASK, for section ${i + 1} ("${sec?.heading ?? ""}"): ${ask}\n${now}${s(input.request, 2000) ? `\nTHE PERSON ADDS: ${s(input.request, 2000)}` : ""}`;
   },
-  clean: (raw) => ({ heading: s((raw as Record<string, unknown>)?.heading, 200), body: s((raw as Record<string, unknown>)?.body, 20_000) }),
+  clean: (raw) => { const r = (raw ?? {}) as Record<string, unknown>; return { heading: s(r.heading, 200), body: s(r.body, 20_000), quote: s(r.quote, 300) }; },
 };
 
 const faq: AiTask = {
