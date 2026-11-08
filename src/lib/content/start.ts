@@ -70,7 +70,7 @@ export async function proposeProject(p: { goal: string; ideas: IdeaRef[]; langua
 export type StartInput = {
   title: string; goal: string; audience: string; message: string; ideas: IdeaRef[]; planItem: number | null; tickets: boolean; lines: Line[];
 };
-export type StartResult = { id: number; pieces: number; tickets: { made: number; refused: string[] } };
+export type StartResult = { id: number; pieces: number; pieceIds: number[]; tickets: { made: number; refused: string[] } };
 
 export async function startProject(input: StartInput, me: { username: string; admin: boolean }): Promise<StartResult> {
   const title = input.title.trim() || input.lines[0]?.title || "New project";
@@ -121,5 +121,5 @@ export async function startProject(input: StartInput, me: { username: string; ad
       }
     }
   }
-  return { id, pieces: made.length, tickets };
+  return { id, pieces: made.length, pieceIds: made, tickets };
 }

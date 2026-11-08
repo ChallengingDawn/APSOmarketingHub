@@ -228,18 +228,18 @@ const UC_NAV: Record<string, { label: string; icon: React.ReactNode }> = {
 const MARKETING_NAV: Record<string, NavSection["items"]> = {
   content: [
     // The calendar first (SARCLA 07.11.2026: "calendar should be the first app"); then the ideas every app finds, the
-    // projects and a new one; what can be made, each opening a new project with its first line; the pictures and the
-    // library; how we write (SARCLA 08.11.2026: "the side bar of the app should be much more populated"; "Ideas is missing").
+    // projects and a new one; what can be made, each made at once and opened in its studio (SARCLA 08.11.2026: "the Makes
+    // really don't work" - /projects/make/<kind>); the pictures and the library; how we write (SARCLA 08.11.2026: "the side bar of the app should be much more populated"; "Ideas is missing").
     { label: "Calendar", href: "/projects/calendar", icon: <CalendarMonthOutlinedIcon fontSize="small" /> },
     { label: "Ideas", href: "/projects/ideas", icon: <LightbulbOutlinedIcon fontSize="small" /> },
     { label: "Projects", href: "/projects", icon: <FolderOpenIcon fontSize="small" /> },
     { label: "New project", href: "/projects/new", icon: <AddCircleOutlineIcon fontSize="small" /> },
-    { group: "Make", label: "Social post", href: "/projects/new?type=social-post", icon: <ShareOutlinedIcon fontSize="small" /> },
-    { group: "Make", label: "Page", href: "/projects/new?type=landing-page", icon: <WebOutlinedIcon fontSize="small" /> },
-    { group: "Make", label: "Blog article", href: "/projects/new?type=blog-article", icon: <ArticleIcon fontSize="small" /> },
-    { group: "Make", label: "Newsletter", href: "/projects/new?type=newsletter", icon: <MailOutlineIcon fontSize="small" /> },
-    { group: "Make", label: "Banner", href: "/projects/new?type=banner", icon: <ViewDayOutlinedIcon fontSize="small" /> },
-    { group: "Make", label: "Video", href: "/projects/new?type=video", icon: <MovieOutlinedIcon fontSize="small" /> },
+    { group: "Make", label: "Social post", href: "/projects/make/social-post", icon: <ShareOutlinedIcon fontSize="small" /> },
+    { group: "Make", label: "Page", href: "/projects/make/landing-page", icon: <WebOutlinedIcon fontSize="small" /> },
+    { group: "Make", label: "Blog article", href: "/projects/make/blog-article", icon: <ArticleIcon fontSize="small" /> },
+    { group: "Make", label: "Newsletter", href: "/projects/make/newsletter", icon: <MailOutlineIcon fontSize="small" /> },
+    { group: "Make", label: "Banner", href: "/projects/make/banner", icon: <ViewDayOutlinedIcon fontSize="small" /> },
+    { group: "Make", label: "Video", href: "/projects/make/video", icon: <MovieOutlinedIcon fontSize="small" /> },
     { group: "Library", label: "Pictures", href: "/projects/pictures", icon: <PhotoLibraryOutlinedIcon fontSize="small" /> },
     { group: "Library", label: "Content Library", href: "/library", icon: <LibraryBooksOutlinedIcon fontSize="small" /> },
     { group: "How we write", label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
