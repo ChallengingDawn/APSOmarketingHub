@@ -128,7 +128,7 @@ export const NumberScene: React.FC<SceneProps> = ({ s, L, dur }) => {
       <GhostRing cx={L.W * (L.fmt === "9:16" ? 0.8 : 0.86)} cy={L.H * (L.fmt === "9:16" ? 0.3 : 0.32)} r={Math.min(L.W, L.H) * 0.36} f={f + 120} opacity={0.8} />
       <Camera z={1 + 0.04 * EASE_IO(u) + kick} rx={lerp(3, 0, EASE(u))}>
         <div style={{ position: "absolute", left: N.fig.x, top: figTop, height: ffs, display: "flex", alignItems: "center", gap: iconW * 0.3 }}>
-          <div style={{ font: `${BOLD} ${ffs}px/1 ${FONT}`, letterSpacing: "-0.03em", color: B.red, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums",
+          <div style={{ fontWeight: BOLD, fontSize: ffs, lineHeight: 1, fontFamily: FONT, letterSpacing: "-0.03em", color: B.red, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums",
             opacity: cnt ? clamp(f / 4) : clamp(slam * 2), transformOrigin: "0 70%",
             transform: cnt ? `scale(${(1 + 0.06 * Math.exp(-Math.max(0, f - land) / 4) * (f >= land ? 1 : 0)).toFixed(4)})` : `scale(${lerp(1.5, 1, slam).toFixed(4)})`,
             filter: !cnt && slam < 1 ? `blur(${((1 - slam) * 18).toFixed(1)}px)` : undefined }}>{shown}</div>
