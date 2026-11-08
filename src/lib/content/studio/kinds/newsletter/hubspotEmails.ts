@@ -6,7 +6,10 @@
 // HubSpot's own e-mails are AUTOMATED_EMAIL (sent by workflows) since 2024; the last BATCH_EMAIL is from 2023.
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
-import { groupEmails, readEmail, type EmailGroup, type RawEmail, type RawEmailFull, type ReadEmail } from "./ourEmails";
+import { hubspotToken } from "@/lib/integrations/status";
+import { assetBytes } from "@/lib/content/assets";
+import type { NewsletterDoc } from "./model";
+import { draftFrom, groupEmails, picturesToUpload, readEmail, type EmailGroup, type RawEmail, type RawEmailFull, type ReadEmail, type SourceEmail } from "./ourEmails";
 
 export { blocksFrom, digestOf } from "./ourEmails";
 export type { EmailGroup, EmailPart, EmailVariant } from "./ourEmails";
@@ -34,4 +37,41 @@ export async function ourEmails(): Promise<EmailGroup[]> {
 /** One e-mail, read in the order it shows. */
 export async function emailParts(id: string): Promise<ReadEmail> {
   return readEmail(await hubspotFetchJson<RawEmailFull>({ path: `/marketing/v3/emails/${encodeURIComponent(id)}` }));
+}
+
+/* ── a draft in HubSpot (SARCLA 08.11.2026: "go") ───────────────────────────────────────────────────────────────── */
+
+const PORTAL = "26492587";
+export const draftUrl = (id: string) => `https://app-eu1.hubspot.com/email/${PORTAL}/edit/${id}/content`;
+
+/** A picture kept in the hub, into HubSpot's files (public, not indexed) - its address there. */
+async function toHubspotFiles(url: string): Promise<string | null> {
+  const m = /\/api\/content\/picture\/(\d+)-([a-f0-9]{18})/.exec(url);
+  const found = m ? await assetBytes(Number(m[1]), m[2]) : null;
+  const token = hubspotToken();
+  if (!found || !token) return null;
+  const fd = new FormData();
+  const ext = found.mime === "image/png" ? "png" : "jpg";
+  fd.append("file", new Blob([new Uint8Array(found.data)], { type: found.mime }), `apsohub-${m![1]}.${ext}`);
+  fd.append("folderPath", "/APSOhub/newsletters");
+  fd.append("options", JSON.stringify({ access: "PUBLIC_NOT_INDEXABLE", overwrite: false, duplicateValidationStrategy: "RETURN_EXISTING", duplicateValidationScope: "EXACT_FOLDER" }));
+  const r = await fetch("https://api.hubapi.com/files/v3/files", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
+  if (!r.ok) return null;
+  return ((await r.json()) as { url?: string }).url ?? null;
+}
+
+/** The newsletter as a DRAFT in HubSpot, made from the e-mail it was started from: that e-mail's look, footer and
+ *  subscription settings, the changed words, buttons and pictures. Nothing is sent - a person schedules it in HubSpot. */
+export async function draftInHubspot(doc: NewsletterDoc, name: string): Promise<{ id: string; url: string; changed: string[]; notes: string[] }> {
+  if (!doc.startedFrom?.emailId) throw new Error("Start the newsletter from one of our e-mails first - the draft copies its look.");
+  const source = await hubspotFetchJson<SourceEmail>({ path: `/marketing/v3/emails/${encodeURIComponent(doc.startedFrom.emailId)}` });
+  const uploaded: Record<string, string> = {};
+  for (const u of picturesToUpload(doc)) {
+    const at = await toHubspotFiles(u).catch(() => null);
+    if (at) uploaded[u] = at;
+  }
+  const plan = draftFrom(source, doc, { name, uploaded });
+  const made = await hubspotFetchJson<{ id?: string }>({ path: "/marketing/v3/emails", method: "POST", body: plan.body });
+  if (!made.id) throw new Error("HubSpot made no draft.");
+  return { id: String(made.id), url: draftUrl(String(made.id)), changed: plan.changed, notes: plan.notes };
 }

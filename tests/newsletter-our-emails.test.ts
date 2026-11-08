@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { blocksFrom, digestOf, groupEmails, readEmail, type RawEmail, type RawEmailFull } from "../src/lib/content/studio/kinds/newsletter/ourEmails";
+import { blocksFrom, digestOf, draftFrom, groupEmails, picturesToUpload, readEmail, type RawEmail, type RawEmailFull } from "../src/lib/content/studio/kinds/newsletter/ourEmails";
 
 // Our e-mails in HubSpot, read for the newsletter studio (08.11.2026). Made-up e-mails in HubSpot's shape.
 
@@ -100,4 +100,35 @@ test("a short line alone titles the story under it; a lead text with no short fi
   assert.ok(hero.kind === "hero" && hero.headline === "Turn your order document into a webshop order" && hero.text.startsWith("We keep making"));
   const step = blocks[1];
   assert.ok(step.kind === "article" && step.title === "From your order document to your cart in 3 steps" && step.imageUrl.endsWith("step1.png"));
+});
+
+test("a HubSpot draft: the original's content, only what was changed rewritten, the rest said", () => {
+  const source = { ...email, from: { fromName: "APSOparts" }, subscriptionDetails: { subscriptionId: 9 }, content: { ...email.content, templatePath: "@hubspot/email/dnd/Start_from_scratch.html", styleSettings: { bodyColor: "#fff" } } };
+  const blocks = blocksFrom(readEmail(email).parts, "Gaskets made to measure");
+  // unchanged: nothing rewritten
+  const same = draftFrom(source, { subject: "S", preheader: "P", language: "EN", blocks }, { name: "N", uploaded: {} });
+  assert.deepEqual(same.changed, []);
+  const w = (same.body.content as { widgets: Record<string, { body: Record<string, unknown> }> }).widgets;
+  assert.equal(w.intro.body.html, email.content!.widgets!.intro.body!.html);
+  assert.equal(w.preview_text.body.value, "P");
+  assert.equal(same.body.subcategory, "batch");
+  assert.deepEqual(same.body.from, { fromName: "APSOparts" });
+  // the story's words, its button and the lead picture changed; a block added; the greeting never written over
+  const hero = blocks[0];
+  const story = blocks[1];
+  assert.ok(hero.kind === "hero" && story.kind === "article");
+  const edited = [
+    { ...hero, imageUrl: "/api/content/picture/12-0123456789abcdef01" },
+    { ...story, text: "Upload a **PDF** order - the parts are found for you.", link: { label: "TRY IT NOW", url: "https://shop.example.com/up2" } },
+    { id: "new", kind: "text" as const, text: "A new paragraph" },
+  ];
+  const plan = draftFrom(source, { subject: "S", preheader: "P", language: "EN", blocks: edited }, { name: "N", uploaded: { "/api/content/picture/12-0123456789abcdef01": "https://cdn.example.com/up/12.jpg" } });
+  const pw = (plan.body.content as { widgets: Record<string, { body: Record<string, unknown> }> }).widgets;
+  assert.equal(pw.story2.body.html, "<p><strong>Already tried DirectUP?</strong></p><p>Upload a <strong>PDF</strong> order - the parts are found for you.</p>");
+  assert.equal(pw.btn2.body.text, "TRY IT NOW");
+  assert.equal(pw.btn2.body.destination, "https://shop.example.com/up2");
+  assert.equal((pw.hero.body.img as { src: string }).src, "https://cdn.example.com/up/12.jpg");
+  assert.equal(pw.hi.body.html, email.content!.widgets!.hi.body!.html);
+  assert.ok(plan.notes.some((n) => /1 block added/.test(n)));
+  assert.deepEqual(picturesToUpload({ blocks: edited }), ["/api/content/picture/12-0123456789abcdef01"]);
 });

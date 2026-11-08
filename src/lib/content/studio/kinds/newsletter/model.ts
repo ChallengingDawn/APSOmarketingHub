@@ -14,7 +14,11 @@
 import { brandWarnings } from "../blog/model";
 
 export type Link = { label: string; url: string };
-export type Block =
+/** Where a block came from in the HubSpot e-mail it was started from (ourEmails.ts): the widgets its words, title,
+ *  picture and button were read from, and its words as read - a HubSpot draft rewrites only what was changed. */
+export type HsRef = { text?: string; title?: string; image?: string; button?: string; was?: string };
+
+export type Block = ({ hs?: HsRef }) & (
   | { id: string; kind: "header"; tagline: string; logoUrl: string }
   | { id: string; kind: "hero"; eyebrow: string; headline: string; text: string; imageUrl: string; imageAlt: string; imagePrompt?: string; button: Link }
   | { id: string; kind: "article"; title: string; text: string; imageUrl: string; imageAlt: string; imagePrompt?: string; link: Link; layout?: "stacked" | "left" | "right" }
@@ -24,7 +28,7 @@ export type Block =
   | { id: string; kind: "facts"; items: { big: string; label: string }[] }
   | { id: string; kind: "cta"; text: string; button: Link }
   | { id: string; kind: "divider" }
-  | { id: string; kind: "footer"; text: string };
+  | { id: string; kind: "footer"; text: string });
 export type BlockKind = Block["kind"];
 
 export type NewsletterDoc = {

@@ -10,7 +10,7 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { readBrain } from "@/lib/brain";
 import { s, type KindDef, type StudioCtx } from "../../contract";
 import { asNewsletter, editable, emptyNewsletter, newBlock, newsletterText, renderEmail, textFields, PREHEADER_MAX, SUBJECT_MAX } from "./model";
-import { blocksFrom, digestOf, emailParts, ourEmails } from "./hubspotEmails";
+import { blocksFrom, digestOf, draftInHubspot, emailParts, ourEmails } from "./hubspotEmails";
 
 const LANGUAGE: Record<string, string> = { DE: "German", FR: "French", IT: "Italian", EN: "English", NL: "Dutch", PL: "Polish" };
 
@@ -186,19 +186,23 @@ a fact's figure (keep the figure, translate only its unit words).`,
     /** The e-mail as HTML, built here - the browser never sends it (the 8 KB limit). Pictures kept in the hub carry the
      *  hub's full address: HubSpot can only show them once that address is public (or the pictures are in HubSpot's files). */
     html: async (_ctx, doc) => ({ html: renderEmail(doc, { origin: (process.env.HUB_PUBLIC_URL ?? "https://apsomarketinghub-dev.awssandbox.angst-pfister.com").replace(/\/+$/, "") }) }),
-    /** A DRAFT in HubSpot - never sent by the hub. Off until SARCLA has tested it with the app's e-mail scope. */
+    /** A DRAFT in HubSpot - never sent by the hub. Made from the e-mail the newsletter was started from (its look, footer,
+     *  subscription settings) with what was changed here; a person checks it and schedules it in HubSpot.
+     *  Switched on by CONTENT_HUBSPOT_PUSH=on (SARCLA's "go" 08.11.2026 for the test). */
     hubspot: async (ctx, doc, input) => {
       if (process.env.CONTENT_HUBSPOT_PUSH !== "on") {
         return { done: false, why: "Sending drafts to HubSpot is not switched on yet. Download the HTML and paste it into a HubSpot e-mail (custom HTML), or ask an admin to switch it on." };
       }
       if (input.confirm !== true) return { done: false, why: "Confirm first." };
       const d = asNewsletter(doc);
-      const made = await hubspotFetchJson<{ id?: string }>({
-        path: "/marketing/v3/emails", method: "POST",
-        body: { name: `${ctx.projectTitle} - ${ctx.piece.title}`.slice(0, 200), subject: d.subject, language: d.language.toLowerCase(), subcategory: "batch" },
-      });
-      return { done: !!made.id, emailId: made.id ?? null, url: made.id ? `https://app-eu1.hubspot.com/email/26492587/edit/${made.id}/content` : null,
-        note: "Made as a draft with its subject. Its body is pasted from the hub's HTML (Download HTML) until HubSpot's template is connected." };
+      if (!d.startedFrom?.emailId) {
+        return { done: false, why: "Start the newsletter from one of our e-mails (Our e-mails) - the HubSpot draft copies its look, footer and subscription settings." };
+      }
+      const r = await draftInHubspot(d, `${ctx.projectTitle} - ${ctx.piece.title}`.slice(0, 200));
+      return {
+        done: true, emailId: r.id, url: r.url,
+        note: [r.changed.length ? `In the draft: ${r.changed.length} change${r.changed.length === 1 ? "" : "s"} from here.` : "The draft is the original with this subject and preheader.", ...r.notes].join(" "),
+      };
     },
   },
 };
