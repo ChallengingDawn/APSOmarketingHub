@@ -75,7 +75,8 @@ const outline: AiTask = {
   system: `You write one article for the APSOparts blog: an explainer that answers one question properly, for engineers,
 purchasers and maintenance people. The short answer comes first (the excerpt); then 3 to 6 sections of real substance,
 each ending somewhere useful; then 3 to 5 questions a reader would still have, answered briefly. The title names the
-question the way a person would search it.
+question the way a person would search it. When the post already has text and the person asks for a change, answer with
+the whole post and keep, word for word, every part they did not ask to change.
 
 ${FORMAT}
 
