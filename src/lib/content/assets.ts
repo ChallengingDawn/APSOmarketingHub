@@ -211,7 +211,7 @@ export async function generatePicture(p: {
   if (!imageAllowed()) return { ok: false, error: `Today's ${IMAGES_PER_DAY} pictures are made - more tomorrow.` };
   const brain = await readBrain();
   const input: ImagePromptInput = { brief, aspect: p.aspect ?? "1:1", overlaySpace: p.overlaySpace ?? false };
-  const made = await generateApsoImage(key, buildImagePrompt(brain, input));
+  const made = await generateApsoImage(key, buildImagePrompt(brain, input), [], { aspect: input.aspect });
   if (!made.ok) return { ok: false, error: made.error };
   const m = /^data:[^;]+;base64,(.+)$/.exec(made.dataUrl);
   if (!m) return { ok: false, error: "The image model answered without a picture." };

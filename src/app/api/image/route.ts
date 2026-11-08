@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     isolate: body.isolate === true,
   });
 
-  const result = await generateApsoImage(geminiKey, fullPrompt, body.references ?? []);
+  const result = await generateApsoImage(geminiKey, fullPrompt, body.references ?? [], { aspect: body.aspect });
   if (result.ok) {
     return NextResponse.json({
       imageUrl: result.dataUrl,
