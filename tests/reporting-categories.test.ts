@@ -33,7 +33,7 @@ test("a click on a category goes straight into its first report - the overview w
   assert.equal(categoryEntry(bo), "/reporting/back-office");
   assert.deepEqual(bo.reports[0].children!.map((r) => r.href.replace("/reporting/back-office/", "")), ["figures", "topics", "sales-tickets", "gqs", "otd", "autonomy", "stopped"]);
   // the workbook's blocks, in its order (SARCLA 03.11.2026: "rethink based on the excel file all the view")
-  assert.deepEqual(bo.reports[0].children!.map((r) => r.name), ["Team totals", "Topics", "ESO & TSA tickets", "GQS", "OTD", "KPI autonomy", "Stopped orders"]);
+  assert.deepEqual(bo.reports[0].children!.map((r) => r.name), ["Team totals", "Topics", "ESO & TSA tickets", "GQS", "OTD", "Pass rate", "Stopped orders"]);
   // nothing in it yet: the category's own page, which names what comes first
   assert.equal(categoryEntry(categoryBySlug("otd")!), "/reporting/otd");
 });

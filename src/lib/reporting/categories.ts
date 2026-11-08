@@ -139,7 +139,7 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     // not hold typed in - the hours on Team totals, the OTD, the pass rate, the manual prices, the stopped orders
     reports: [
       {
-        name: "Back Office KPIs", href: "/reporting/back-office", note: "Team totals, topics, ESO & TSA tickets, GQS, OTD, KPI autonomy, stopped orders - month by month", icon: "bar",
+        name: "Back Office KPIs", href: "/reporting/back-office", note: "Team totals, topics, ESO & TSA tickets, GQS, OTD, pass rate, stopped orders - month by month", icon: "bar",
         overview: "BUC View", overviewHref: "/reporting/back-office",
         children: [
           // each page's glyph the one its BUC View panel wears (SARCLA 04.11.2026: "Team totals icon should be the same as in BUC View")
@@ -148,7 +148,7 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           { name: "ESO & TSA tickets", href: "/reporting/back-office/sales-tickets", icon: "groups" },
           { name: "GQS", href: "/reporting/back-office/gqs", icon: "assignment" },
           { name: "OTD", href: "/reporting/back-office/otd", icon: "shipping" },
-          { name: "KPI autonomy", href: "/reporting/back-office/autonomy", icon: "verified" },
+          { name: "Pass rate", href: "/reporting/back-office/autonomy", icon: "verified" },
           { name: "Stopped orders", href: "/reporting/back-office/stopped", icon: "block" },
         ],
       },

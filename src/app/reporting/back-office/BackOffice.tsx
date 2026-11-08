@@ -69,6 +69,7 @@ import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined
 import InventoryOutlinedIcon from "@mui/icons-material/InventoryOutlined";
 import BuildOutlinedIcon from "@mui/icons-material/BuildOutlined";
 import EventRepeatOutlinedIcon from "@mui/icons-material/EventRepeatOutlined";
+import RuleOutlinedIcon from "@mui/icons-material/RuleOutlined";
 import VerifiedOutlinedIcon from "@mui/icons-material/VerifiedOutlined";
 import PriceChangeOutlinedIcon from "@mui/icons-material/PriceChangeOutlined";
 import BlockOutlinedIcon from "@mui/icons-material/BlockOutlined";
@@ -116,7 +117,7 @@ import type { ArtInfo, BoRead, ChatRow } from "@/lib/reporting/boReport";
 import { IN, inZero, type InDetail, type InRow } from "@/lib/reporting/boInbound";
 import { HIST, LATE, bands, both, byDate, histSum, medianWd, sumDMonths, within, type DMonth, type DeliveryKept } from "@/lib/reporting/boDelivery";
 import { PRICES_FROM, handRows, ownPriceCustomers, type PricesKept } from "@/lib/reporting/boPrices";
-import { LATE_BANDS, otdSum, priceSum, transitOf, type ErpLinesKept, type OtdCounts, type OtdPick, type PriceCounts } from "@/lib/reporting/boErpLines";
+import { LATE_BANDS, addWd, otdSum, priceSum, transitOf, type ErpLinesKept, type OtdCounts, type OtdPick, type PriceCounts } from "@/lib/reporting/boErpLines";
 import { FIRST_MONTH as GQS_FIRST, FLOW_COLUMNS, STAGE_LABEL, STAGE_WHO, WORK, daysTo, flowOf, offersOf, refusalsOf, stageTimes, sumOf, winRate, type FlowNode, type GSum, type GStage, type GqsTask } from "@/lib/reporting/boGqs";
 import { GqsOpenBars } from "@/app/reporting/eso-benchmark/TicketsGqs";
 import type { GOpen } from "@/lib/reporting/esoGqs";
@@ -295,7 +296,7 @@ export const BO_PAGES: PageDef[] = [
   { slug: "sales-tickets", title: "ESO & TSA tickets", line: "inbound, without the sales actions, against the orders - and APSOparts in total", icon: <GroupsOutlinedIcon />, tint: "purple" },
   { slug: "gqs", title: "GQS", line: "special tasks with the GQS team: how many, how long before sent, how long to close", icon: <AssignmentOutlinedIcon />, tint: "green" },
   { slug: "otd", title: "OTD", line: "on time against the first confirmed date, counted from the ERP · the late lines · the delivery speed", icon: <LocalShippingOutlinedIcon />, tint: "pink" },
-  { slug: "autonomy", title: "KPI autonomy", line: "the pass rate and the manual price adjustments per mandant, counted from the ERP", icon: <VerifiedOutlinedIcon />, tint: "slate" },
+  { slug: "autonomy", title: "Pass rate", line: "the pass rate and the manual price adjustments per mandant, counted from the ERP", icon: <VerifiedOutlinedIcon />, tint: "slate" },
   { slug: "stopped", title: "Stopped orders", line: "the orders stopped and why - typed in", icon: <BlockOutlinedIcon />, tint: "amber" },
 ];
 const pageOf = (slug: Slug) => BO_PAGES.find((p) => p.slug === slug)!;
@@ -407,6 +408,8 @@ type ChartDef = {
   /** the graph's headline figure for the period shown - its tile's summary opens with it, and the Action plan reads it as the
    *  KPI's real figure (SARCLA 03.11.2026: "we should see the real KPIs") */
   figure?: (c: Ctx) => string | null;
+  /** counted from the ERP's order lines only: not drawn on its tab before the first of them is in (SARCLA 08.11.2026: "graphs show nothing") */
+  needsCount?: boolean;
 };
 /** a person board: the Back Office team ranked, each against the same number of months right before; the other owners folded */
 type BoardSpec = { rows: BoardRow[]; others: BoardRow[]; fmt: (v: number) => string; ratio?: boolean; lower?: boolean; diff?: (n: number) => string; summary: string; prevLabel: string; noChange: boolean };
@@ -1938,7 +1941,7 @@ function elCharts(): ChartDef[] {
   return [
     /* OTD */
     wide({
-      id: "otdFigs", page: "otd", title: "OTD in figures",
+      id: "otdFigs", needsCount: true, page: "otd", title: "OTD in figures",
       hint: ({ f }) => `${periodOf(f)} · the eShop order lines shipped: on time when the shipment plus the ERP's transport time to the country reaches the first confirmed date`,
       figure: ({ f, d }) => (d.erpLines ? share(otdAt(otdSum(d.erpLines, elYms(f)))) : null),
       body: ({ f, d }) => {
@@ -1961,7 +1964,7 @@ function elCharts(): ChartDef[] {
     otdTrend("otdStandard", "OTD online, standard", "otd.online-standard", { type: "S" }, "Standard articles"),
     otdTrend("otdSpecial", "OTD online, special", "otd.online-special", { type: "P" }, "Special articles"),
     {
-      id: "otdPushed", page: "otd", title: "First date pushed later",
+      id: "otdPushed", page: "otd", needsCount: true, title: "First date pushed later",
       figure: ({ f, d }) => (d.erpLines ? share(pushedAt(otdSum(d.erpLines, elYms(f)))) : null),
       hint: () => "Of the month's lines, those whose confirmed date was moved after the first one - by the month of the first date",
       body: ({ f, d }) => {
@@ -1972,7 +1975,7 @@ function elCharts(): ChartDef[] {
       },
     },
     wide({
-      id: "otdMonths", page: "otd", title: "OTD, month by month",
+      id: "otdMonths", needsCount: true, page: "otd", title: "OTD, month by month",
       hint: () => "By the month of the first confirmed date · the eShop order lines shipped · the last column: typed in by the Back Office",
       body: ({ f, d }) => {
         const k = d.erpLines;
@@ -2019,7 +2022,7 @@ function elCharts(): ChartDef[] {
       },
     }),
     {
-      id: "otdCountry", page: "otd", title: "On time per delivery country", hint: ({ f }) => `${periodOf(f)} · in brackets the ERP's transport time, in working days`,
+      id: "otdCountry", page: "otd", needsCount: true, title: "On time per delivery country", hint: ({ f }) => `${periodOf(f)} · in brackets the ERP's transport time, in working days`,
       body: ({ f, d }) => {
         const k = d.erpLines;
         if (!k) return <ElNone what="this is not counted" />;
@@ -2030,7 +2033,7 @@ function elCharts(): ChartDef[] {
       },
     },
     {
-      id: "otdLate", page: "otd", title: "The late lines: how late", hint: ({ f }) => `${periodOf(f)} · the working days after the first confirmed date that the line could have arrived`,
+      id: "otdLate", page: "otd", needsCount: true, title: "The late lines: how late", hint: ({ f }) => `${periodOf(f)} · the working days after the first confirmed date that the line could have arrived`,
       body: ({ f, d }) => {
         const k = d.erpLines;
         if (!k) return <ElNone what="this is not counted" />;
@@ -2041,7 +2044,7 @@ function elCharts(): ChartDef[] {
       },
     },
     wide({
-      id: "otdList", page: "otd", title: "The late lines, last 3 months", hint: () => "The eShop order lines that arrived after their first confirmed date · the latest first date first, whatever the period",
+      id: "otdList", needsCount: true, page: "otd", title: "The late lines, last 3 months", hint: () => "The eShop order lines that arrived after their first confirmed date · the latest first date first, whatever the period",
       body: ({ d }) => {
         const k = d.erpLines;
         if (!k) return <ElNone what="this is not counted" />;
@@ -2059,7 +2062,7 @@ function elCharts(): ChartDef[] {
     elTrend("price100", "price", "100"),
     elTrend("price110", "price", "110"),
     wide({
-      id: "elMonths", page: "autonomy", title: "Pass rate and manual prices, month by month",
+      id: "elMonths", needsCount: true, page: "autonomy", title: "Pass rate and manual prices, month by month",
       hint: () => "eShop order lines by the month ordered, service articles left out · counted from the ERP",
       body: ({ f, d }) => {
         const k = d.erpLines;
@@ -2077,6 +2080,108 @@ function elCharts(): ChartDef[] {
         if (!rows.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>No eShop order line in this period.</Typography>;
         return <FullTable first="Month" cols={cols} rows={rows} total={{ label: periodOf(f), a: priceSum(k, "100", elYms(f)), b: priceSum(k, "110", elYms(f)) }} natural />;
       },
+    }),
+  ];
+}
+
+/* ── How it's counted: OTD and the pass rate, in words, with the ERP's own dates and examples ── */
+
+function Rule({ children }: { children: React.ReactNode }) {
+  return <Box sx={{ px: 1.75, py: 1.25, borderRadius: "12px", bgcolor: TINT.blue.bg, border: `1px solid ${TINT.blue.fg}`, fontSize: "0.95rem", fontWeight: 700, color: INK }}>{children}</Box>;
+}
+function Points({ items }: { items: [string, string][] }) {
+  return (
+    <Box component="dl" sx={{ m: 0, mt: 1.5, display: "grid", gridTemplateColumns: "max-content 1fr", columnGap: 2, rowGap: 0.75 }}>
+      {items.map(([k, v]) => (
+        <Box key={k} sx={{ display: "contents" }}>
+          <Box component="dt" sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>{k}</Box>
+          <Box component="dd" sx={{ m: 0, fontSize: "0.84rem", color: MUTED }}>{v}</Box>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+function logicCharts(): ChartDef[] {
+  return [
+    wide({
+      id: "otdLogic", page: "otd", title: "The rule", hint: () => "How a line counts as on time - the same rule for every month, every country and every profit centre",
+      body: () => (
+        <Box>
+          <Rule>On time = the shipment date + the ERP&apos;s transport time to the delivery country (working days) is on or before the first confirmed date</Rule>
+          <Points items={[
+            ["Which lines", "Every order line of an eShop order in mandants 100 and 110 - standard and special articles; services (freight, certificates) left out; credit notes left out."],
+            ["When counted", "Once the line is shipped and invoiced. A line not shipped yet waits - it is neither on time nor late."],
+            ["Which month", "The month of the first confirmed date - so a month's OTD is the lines that were due that month."],
+            ["Late by", "The working days between the first confirmed date and the day the line could arrive (shipment + transport)."],
+            ["Pushed later", "A line whose confirmed date was moved after the first one. It still counts against the FIRST date."],
+            ["Why the first date", "It is the promise made to the customer. The confirmed date moves when the delivery moves, so measured against it nearly everything would be on time."],
+            ["Checked", "Against the Back Office's typed OTD, Jan-Sep 2026: within about 1.5 points every month (Jan 72.8 against 74, Jun 68.3 against 68, Sep 81.0 against 80.8)."],
+          ]} />
+        </Box>
+      ),
+    }),
+    wide({
+      id: "otdDates", page: "otd", title: "Which dates", hint: () => "Every date OTD reads, where it comes from in the ERP, and what it is used for",
+      body: () => (
+        <Table head={["Date", "In the ERP", "What it is", "Used for"]} left={[0, 1, 2, 3]} minWidth={900}
+          rows={[
+            ["First confirmed date", "Order line · ShippingDateInitial", "The delivery date first confirmed to the customer - the day at the customer's door", "The target, and the month OTD is counted in"],
+            ["Shipment date", "Delivery · ShipmentDate", "The day the delivery left the warehouse (Embrach)", "The actual: shipment + transport = when it arrives"],
+            ["Transport time", "The ERP's table per delivery country", "Working days from the warehouse to the customer - Switzerland 1, Germany 2, Italy 4, France 5 ...", "Added to the shipment date"],
+            ["Confirmed date now", "Order line · ShippingDateConfirmed", "The date as it stands today, after every change", "Only to see which lines were pushed later"],
+            ["Order date", "Order · OrderDate", "The day the order came in", "Not in OTD (the pass rate's month)"],
+            ["Customer's wish date", "Order line · CustomerWishDate", "What the customer asked for - the same as the first date on 86 % of lines", "Not used: the first confirmed date is the promise"],
+            ["Delivery date initial", "Order · DeliveryDateInitial", "Empty on every order since 2025", "Not used"],
+          ].map((r) => ({ key: r[0], cells: r }))} />
+      ),
+    }),
+    {
+      id: "otdTransit", page: "otd", title: "Transport time per country", hint: ({ f, d }) => (d.erpLines ? `${periodOf(f)} · the ERP's working days, the lines and the share on time` : "The ERP's working days - a country it does not know counts 6"),
+      body: ({ f, d }) => {
+        const k = d.erpLines;
+        const t = new Map<string, [number, number]>();
+        if (k) for (const ym of elYms(f)) for (const [c, v] of Object.entries(k.country[ym] ?? {})) { const x = t.get(c) ?? [0, 0]; x[0] += v[0]; x[1] += v[1]; t.set(c, x); }
+        const names = k ? [...t].sort((a, b) => b[1][0] - a[1][0]).map(([c]) => c) : ["Switzerland", "Liechtenstein", "Germany", "Netherlands", "Belgium", "Austria", "Italy", "Czech Republic", "Slovenia", "Hungary", "France", "Spain", "Romania", "Poland"];
+        return <Table head={k ? ["Country", "Working days", "Lines", "On time"] : ["Country", "Working days"]} left={[0]} pageSize={12}
+          rows={names.map((c) => { const v = t.get(c); return { key: c, cells: k ? [c, String(transitOf(c)), int(v?.[0] ?? 0), pct(v && v[0] ? v[1] / v[0] : null)] : [c, String(transitOf(c))] }; })} />;
+      },
+    },
+    wide({
+      id: "otdExamples", page: "otd", title: "Lines as counted", needsCount: true, hint: () => "Real lines of the last 3 months, each date as the rule reads it · late ones first",
+      body: ({ d }) => {
+        const k = d.erpLines;
+        if (!k) return null;
+        const rows = [...k.lateRows.slice(0, 6).map((r) => [r, false] as const), ...(k.okRows ?? []).slice(0, 6).map((r) => [r, true] as const)];
+        return <Table head={["Order", "Country", "Shipped", "+ transport", "Arrives", "First date", "Result"]} left={[0, 1]} minWidth={760}
+          rows={rows.map(([r, ok], i) => ({
+            key: `${r[0]}-${r[1]}-${i}`,
+            cells: [r[0], r[2] || "—", ddmm(r[4]), `${transitOf(r[2])} wd`, ddmm(addWd(r[4], transitOf(r[2]))), ddmm(r[3]),
+              <Box key="r" component="span" sx={{ fontWeight: 700, color: ok ? GOOD : BAD }}>{ok ? (r[5] ? `on time, ${r[5]} wd to spare` : "on time, on the day") : `late by ${r[5]} wd`}</Box>],
+          }))} />;
+      },
+    }),
+    wide({
+      id: "passLogic", page: "autonomy", title: "The rule", hint: () => "Where each line's price came from, as the ERP records it on the order line (PriceSource)",
+      body: () => (
+        <Box>
+          <Rule>Pass rate = the share of eShop order lines whose price the ERP set by itself · manual prices = the share typed by a person</Rule>
+          <Box sx={{ mt: 1.5 }}>
+            <Table head={["Price source in the ERP", "What it means", "Counts as"]} left={[0, 1, 2]} minWidth={700}
+              rows={[
+                ["automatically", "The ERP found the price itself - its price list and the customer's conditions", "Pass rate - no hand on the price"],
+                ["manually", "A person typed the price in the ERP", "Manual price adjustment"],
+                ["calculated", "The ERP calculated it - about 0.1 % of the lines", "Neither"],
+              ].map((r) => ({ key: r[0], cells: r }))} />
+          </Box>
+          <Points items={[
+            ["Which lines", "Every order line of an eShop order in mandants 100 and 110; services (freight, certificates) left out; credit notes left out."],
+            ["Which month", "The month the order came in."],
+            ["Targets", "Pass rate 95 % or more; manual prices below 2.5 %."],
+            ["Checked", "Against the Back Office's typed figures, Jan-Sep 2026: 0.3 points apart on average. Per ORDER it would be 6-10 % by hand - their figure is per line."],
+            ["The biggest changes", "The list under Manual prices is another source: the shop's price against the price the ERP invoiced, for the lines that moved most."],
+          ]} />
+        </Box>
+      ),
     }),
   ];
 }
@@ -2623,6 +2728,7 @@ export const CHARTS: ChartDef[] = [
 
   /* OTD and KPI autonomy - counted from the ERP's order lines, the typed figures beside them */
   ...elCharts(),
+  ...logicCharts(),
   /* OTD > Delivery speed - from the ERP's order file */
   ...dvCharts(),
 
@@ -2726,15 +2832,17 @@ const TABS: Record<Slug, TabDef[]> = {
       charts: ["otdFigs", "otdAll", "otdStandard", "otdSpecial", "otdPushed", "otdMonths"] },
     { id: "pcs", label: "Profit centres", title: "OTD per profit centre", note: "standard and special articles, counted from the ERP · the filters do not apply here", icon: <ApartmentOutlinedIcon />, tint: "blue", unfiltered: true, charts: ["otdMinis", "otdPc"] },
     { id: "late", label: "Late lines", title: "Where and how late", note: "the lines that arrived after their first confirmed date: per country, how late, and each one of the last 3 months · the filters do not apply here", icon: <EventRepeatOutlinedIcon />, tint: "amber", unfiltered: true, charts: ["otdCountry", "otdLate", "otdList"] },
+    { id: "logic", label: "How it's counted", title: "How OTD is counted", note: "the rule, the ERP's dates it reads and the transport time per country - and real lines as the rule reads them", icon: <RuleOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["otdLogic", "otdDates", "otdTransit", "otdExamples"] },
     { id: "speed", label: "Delivery speed", title: "Delivery speed", note: "every delivery in the ERP's order file, read every night: the working days from the order to the shipment - the filters do not apply here", icon: <TimerOutlinedIcon />, tint: "green", unfiltered: true,
       charts: ["spdFigs", "spdMix", "spdFast", "spdMedian", "spdByDate", "spdLate", "spdCountry", "spdMode", "spdTable", "spdSlow"] },
     TYPE_IN,
   ],
   autonomy: [
     { id: "pass", label: "Pass rate", title: "Pass rate per mandant", note: "the eShop order lines whose price the ERP set by itself, counted every night · by the month ordered, service articles left out · target 95 % · the filters do not apply here", icon: <VerifiedOutlinedIcon />, tint: "green", unfiltered: true, charts: ["pass100", "pass110", "elMonths"],
-      warn: (d) => (d.erpLines ? null : "The pass rate is on hold until the ERP's order lines come in - until then these are the Back Office's own figures, not checked.") },
+      warn: (d) => (d.erpLines ? null : "Not counted yet: the pass rate is counted from the ERP's order lines, which come with the morning file from the ERP once it carries the KPI LINES sheet - it does not yet. Until then the graphs show the Back Office's own typed figures.") },
     { id: "price", label: "Manual prices", title: "Manual price adjustments per mandant", note: "the eShop order lines whose price was typed by hand in the ERP, counted every night · by the month ordered, service articles left out · target below 2.5 % · then the biggest changes from the shop's price · the filters do not apply here", icon: <PriceChangeOutlinedIcon />, tint: "amber", unfiltered: true,
       charts: ["price100", "price110", "elMonths", "prBig"] },
+    { id: "logic", label: "How it's counted", title: "How the pass rate and the manual prices are counted", note: "where each eShop order line's price came from, as the ERP records it", icon: <RuleOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["passLogic"] },
     TYPE_IN,
   ],
   stopped: [
@@ -2776,11 +2884,15 @@ function TabCard({ slug, c, extra }: { slug: Slug; c: Ctx; extra?: (tab: string)
       <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
         <CardTitle icon={t.id === "table" ? pageOf(slug).icon : t.icon} tint={t.id === "table" ? pageOf(slug).tint : t.tint} title={`${t.title}, ${periodOf(f)}`} note={t.note} />
         {(() => { const w = typeof t.warn === "function" ? t.warn(c.d) : t.warn; return w ? <OnHold text={w} /> : null; })()}
+        {t.charts.length > 0 && !t.charts.some((id) => { const x = CHARTS.find((y) => y.page === slug && y.id === id); return x && !(x.needsCount && !c.d.erpLines); }) && (
+          <Typography sx={{ fontSize: "0.88rem", color: MUTED, py: 1 }}>These graphs are counted from the ERP&apos;s order lines - they show from the first morning file that carries the KPI LINES sheet.</Typography>
+        )}
         {t.charts.length > 0 && (() => {
           const grid = (
             <Box sx={{ ...TWO, mt: -0.5 }}>
               {t.charts.map((id) => {
                 const def = CHARTS.find((x) => x.page === slug && x.id === id);
+                if (def?.needsCount && !c.d.erpLines) return null;
                 return def ? <Box key={id} sx={{ minWidth: 0, ...(def.wide ? { gridColumn: "1 / -1" } : {}), ...(def.tall ? { gridRow: { lg: "span 2" } } : {}) }}><Card def={def} c={c} where="tab" /></Box> : null;
               })}
             </Box>
@@ -3176,7 +3288,7 @@ function TypedPage({ slug, note, warn }: { slug: Slug; note: string | ((d: Data)
 }
 
 export function BoOtdPage() {
-  return <TypedPage slug="otd" warn={(d) => (d.erpLines ? null : "OTD is on hold until the ERP's order lines come in - until then these are the Back Office's own figures, not checked.")}
+  return <TypedPage slug="otd" warn={(d) => (d.erpLines ? null : "Not counted yet: OTD is counted from the ERP's order lines, which come with the morning file from the ERP once it carries the KPI LINES sheet - it does not yet. Until then the graphs show the Back Office's own typed figures.")}
     note={(d) => (d.erpLines ? `Counted every night from the ERP's order lines (${ddmm(d.erpLines.at.slice(0, 10))}): an eShop order line is on time when its shipment plus the ERP's transport time to the country reaches its first confirmed date. The Back Office's typed figures stay beside it. The delivery speed comes from the ERP's order file.` : "The Back Office types each month in until the ERP's order lines come in. The delivery speed is counted from the ERP's order file every night.")} />;
 }
 export function BoAutonomyPage() {

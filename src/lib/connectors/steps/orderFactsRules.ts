@@ -39,6 +39,8 @@ export const DIM_FACTS: readonly (readonly [prop: string, col: string, kind: Kin
   ["order_delivery_date_customer", "DeliveryDateCustomer", "date"],
   ["order_delivery_date_proposed", "DeliveryDateProp", "date"],
   ["order_advance_payment", "Prepayment", "prepay"],
+  ["order_value_class", "OrderValueClassificationLC", "text"],
+  ["order_margin_class", "OrderMarginLevelClassificationLC", "text"],
 ];
 /** the properties the sheets fill */
 export const LINE_FACTS = ["order_first_confirmed_delivery", "order_has_special_articles"] as const;

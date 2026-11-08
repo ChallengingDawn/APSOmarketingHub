@@ -159,6 +159,8 @@ export type ErpLinesKept = {
   late: Record<string, number[]>;
   /** the latest late lines, the latest first date first */
   lateRows: LateRow[];
+  /** a sample of the latest lines on time (the 6th field: working days to spare), for the page that shows how it is counted */
+  okRows?: LateRow[];
   lines: number; skipped: Record<string, number>;
 };
 
@@ -174,7 +176,7 @@ export function summarizeErpLines(lines: Iterable<ErpLine>, today: string): ErpL
   const k: ErpLinesKept = { v: ERP_LINES_VERSION, at: new Date().toISOString(), from: "", to: "", price: {}, otd: {}, country: {}, late: {}, lateRows: [], lines: 0, skipped: {} };
   const skip = (why: string) => { k.skipped[why] = (k.skipped[why] ?? 0) + 1; };
   const lateFrom = iso(ms(today) - LATE_DAYS * DAY);
-  const late: LateRow[] = [];
+  const late: LateRow[] = [], ok: LateRow[] = [];
   for (const l of lines) {
     k.lines++;
     const ym = l.orderDay.slice(0, 7);
@@ -193,20 +195,23 @@ export function summarizeErpLines(lines: Iterable<ErpLine>, today: string): ErpL
     if (l.status !== "invoiced" || !l.shipDay) { skip("not shipped yet"); continue; }
     if (!l.firstDay) { skip("no first date"); continue; }
     const fm = l.firstDay.slice(0, 7);
-    const ok = onTime(l), pushed = !!l.confDay && l.confDay > l.firstDay;
+    const isOk = onTime(l), pushed = !!l.confDay && l.confDay > l.firstDay;
     const g = `${l.artType === "Standard" ? "S" : "P"}|${l.pc || "?"}`;
     const o = (((k.otd[l.company] ??= {})[fm] ??= {})[g] ??= [0, 0, 0]);
-    o[0]++; if (ok) o[1]++; if (pushed) o[2]++;
+    o[0]++; if (isOk) o[1]++; if (pushed) o[2]++;
     const c = ((k.country[fm] ??= {})[l.country || "Unknown"] ??= [0, 0]);
-    c[0]++; if (ok) c[1]++;
-    if (!ok) {
-      const wd = Math.max(1, wdAfter(l.firstDay, addWd(l.shipDay, transitOf(l.country))));
+    c[0]++; if (isOk) c[1]++;
+    const arrives = addWd(l.shipDay, transitOf(l.country));
+    if (isOk && l.firstDay >= lateFrom && l.firstDay <= today) ok.push([l.order, l.article, l.country, l.firstDay, l.shipDay, wdAfter(arrives, l.firstDay), l.artType === "Standard" ? "S" : "P", l.pc, l.company]);
+    if (!isOk) {
+      const wd = Math.max(1, wdAfter(l.firstDay, arrives));
       (k.late[fm] ??= [0, 0, 0, 0, 0, 0])[lateBand(wd)]++;
       // the list: lines whose first date has passed - a later one is late only on its way, not yet arrived
       if (l.firstDay >= lateFrom && l.firstDay <= today) late.push([l.order, l.article, l.country, l.firstDay, l.shipDay, wd, l.artType === "Standard" ? "S" : "P", l.pc, l.company]);
     }
   }
   k.lateRows = late.sort((a, b) => (b[3] > a[3] ? 1 : b[3] < a[3] ? -1 : b[5] - a[5])).slice(0, LATE_KEEP);
+  k.okRows = ok.sort((a, b) => (b[3] > a[3] ? 1 : b[3] < a[3] ? -1 : 0)).slice(0, 30);
   return k;
 }
 
