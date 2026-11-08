@@ -66,3 +66,19 @@ test("who a comment tags", () => {
   assert.deepEqual(mentionsIn("@Bert", people, "BERT"), []);
   assert.deepEqual(mentionsIn("mail anna@rossi.ch", people, "BERT"), []);
 });
+
+test("a piece's status and its sub-action's stage go both ways", async () => {
+  const { STATUS_STAGE, statusOfStage, PIECE_STATUSES } = await import("../src/lib/content/pieceRules");
+  for (const s of PIECE_STATUSES) {
+    // "changes asked" is back at writing in the pipeline; every other status comes back as itself
+    assert.equal(statusOfStage(STATUS_STAGE[s]), s === "changes" ? "writing" : s);
+  }
+  assert.equal(statusOfStage(null), "todo");
+  assert.equal(statusOfStage("6161860810"), "live"); // killed is closed
+});
+
+test("the stage ids are the plan's own", async () => {
+  const { S2S_STAGE } = await import("../src/lib/content/pieceRules");
+  const { STAGES } = await import("../src/lib/reporting/actionPlanRules");
+  for (const id of Object.values(S2S_STAGE)) assert.ok(STAGES.some((s) => s.id === id), id);
+});

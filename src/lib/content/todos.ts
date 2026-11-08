@@ -18,6 +18,8 @@ import { IDEA, IN_PROGRESS, LIVE, PLAN_PROPS, STAGES, planOptions, takesTicket, 
 import { createTicket, ownerOf, readTickets, s2sForm, searchTickets, ticketUrl, type S2sTicket, type TicketState } from "@/lib/reporting/scrollToSale";
 import { PLAN_FIELDS, missingRequired } from "@/lib/reporting/scrollToSaleRules";
 import { hubPublicUrl } from "@/lib/content/shareMail";
+import { STATUS_STAGE, statusOfStage, type PieceStatus } from "@/lib/content/pieceRules";
+import { addPieceForTask, listPieces, setPieceTask, type Piece } from "@/lib/content/workflow";
 
 export const todoTile = (projectId: number) => `content:${projectId}`;
 
@@ -103,7 +105,7 @@ export async function planPlaces(): Promise<PlanPlace[]> {
 }
 
 /** The person a to-do is given to, as the plan stores it: their HubSpot owner id when they have one, else their e-mail. */
-async function ownerFields(username: string | null): Promise<{ owner: string; ownerName: string }> {
+export async function ownerFields(username: string | null): Promise<{ owner: string; ownerName: string }> {
   if (!username) return { owner: "", ownerName: "" };
   const p = (await hubPeople()).find((x) => x.username === username);
   if (!p) return { owner: "", ownerName: "" };
@@ -230,3 +232,81 @@ export async function unlinkTodoTicket(projectId: number, todoId: number, ticket
 }
 
 export const findTickets = (q: string, state: TicketState) => searchTickets(q, state);
+
+/* ── a piece IS a to-do (SARCLA 08.11.2026: "for me a piece is a to-do") ──────────────────────────────────────────────
+ * Each piece has its sub-action (pieces.task_id); a sub-action of the project met without its piece - a to-do made before
+ * - gets a piece of kind "task", so the page has one list. The piece leads: its title, writer, date and status are pushed
+ * to the sub-action, and the plan's sync takes them on to the ticket. */
+
+/** Every piece with its sub-action, every sub-action with its piece. Cheap when nothing is missing (one read of each). */
+export async function syncPieceTasks(projectId: number, by: string): Promise<Piece[]> {
+  const tile = todoTile(projectId);
+  let pieces = await listPieces(projectId);
+  const tasks = (await tasksOf(tile)).filter((t) => t.tile === tile);
+  const action = pieces.some((p) => !p.taskId) ? await planActionOf(projectId) : null;
+  let changed = false;
+  for (const p of pieces.filter((x) => !x.taskId || !tasks.some((t) => t.id === x.taskId))) {
+    const made = await addTask({
+      tile, page: "content", title: p.title.slice(0, 300), ...(await ownerFields(p.writer)), due: p.dueDate,
+      href: `/projects/${projectId}#piece-${p.id}`, planItem: action?.id ?? null, stage: STATUS_STAGE[p.status], by,
+    });
+    await setPieceTask(p.id, made.id);
+    changed = true;
+  }
+  const people = tasks.some((t) => !pieces.some((p) => p.taskId === t.id)) ? await hubPeople() : [];
+  const form = people.length && tasks.some((t) => /^\d+$/.test(t.owner)) ? await s2sForm().catch(() => null) : null;
+  for (const t of tasks.filter((x) => !pieces.some((p) => p.taskId === x.id))) {
+    const email = (/^\d+$/.test(t.owner) ? form?.owners.find((o) => o.id === t.owner)?.email : t.owner)?.toLowerCase() ?? null;
+    const writer = email ? people.find((u) => u.email === email)?.username ?? null : null;
+    await addPieceForTask({ projectId, taskId: t.id, title: t.title, status: statusOfStage(t.stage), writer, dueDate: t.due, by });
+    changed = true;
+  }
+  if (changed) {
+    pieces = await listPieces(projectId);
+    if (action) queuePlanSync("content pieces became to-dos");
+  }
+  return pieces;
+}
+
+/** The piece changed: its sub-action follows (title, who, go-live date, stage) - and the plan's sync takes the ticket. */
+export async function pushPieceToTask(projectId: number, p: { taskId: number | null; title: string; writer: string | null; dueDate: string | null; status: PieceStatus }, fields: { title?: boolean; writer?: boolean; due?: boolean; status?: boolean }): Promise<void> {
+  if (!p.taskId) return;
+  const t = await todoOf(projectId, p.taskId);
+  if (!t) return;
+  const patch: Parameters<typeof updateTask>[1] = {};
+  if (fields.title) patch.title = p.title.slice(0, 300);
+  if (fields.due) patch.due = p.dueDate;
+  if (fields.writer) Object.assign(patch, await ownerFields(p.writer));
+  if (fields.status) patch.stage = STATUS_STAGE[p.status];
+  if (!Object.keys(patch).length) return;
+  await updateTask(p.taskId, patch);
+  if (t.planItem != null) queuePlanSync("content piece changed");
+}
+
+/** The tickets of the project's to-dos, read from HubSpot - asked for after the page is drawn, never before. */
+export async function piecesTickets(projectId: number): Promise<{ tickets: Record<number, TodoTicket>; takes: Record<number, boolean>; place: PlanPlace | null; error: string | null }> {
+  const tile = todoTile(projectId);
+  const [pieces, links, action, tasks] = await Promise.all([listPieces(projectId), ticketsOf(tile), planActionOf(projectId), tasksOf(tile)]);
+  let read: S2sTicket[] = [];
+  let error: string | null = null;
+  if (links.length) {
+    try { read = await readTickets(links.map((l) => l.ticketId)); } catch (e) { error = e instanceof Error ? e.message : String(e); }
+  }
+  const tickets: Record<number, TodoTicket> = {};
+  const takes: Record<number, boolean> = {};
+  for (const p of pieces) {
+    const t = tasks.find((x) => x.id === p.taskId);
+    takes[p.id] = !!action && takesTicket(action, t?.ownerName ?? null);
+    const l = links.find((x) => x.taskId === p.taskId);
+    if (!l) continue;
+    const tk = read.find((x) => x.id === l.ticketId);
+    tickets[p.id] = { id: l.ticketId, subject: tk?.subject ?? `Ticket ${l.ticketId}`, stageLabel: tk?.stageLabel ?? "", open: tk?.open ?? true, url: tk?.url ?? ticketUrl(l.ticketId) };
+  }
+  return { tickets, takes, place: action ? await placeOf(action) : null, error };
+}
+
+/** Why a piece's to-do takes no ticket, in words for the page, or null when it may take one. */
+export async function whyNoTicket(projectId: number, taskId: number | null): Promise<string | null> {
+  if (!taskId) return "This to-do is still being set up - try again in a moment.";
+  return ticketRefusal(projectId, taskId);
+}
