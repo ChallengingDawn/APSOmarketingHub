@@ -19,7 +19,8 @@ export function BlockThumb({ kind, layout, w = 120 }: { kind: BlockKind; layout?
   let body: React.ReactNode;
   switch (kind) {
     case "header":
-      body = <><rect x={0} y={0} width={120} height={2.5} fill={RED} /><rect x={8} y={9} width={30} height={6} rx={1} fill={RED} /><rect x={82} y={11} width={30} height={2.6} rx={1} fill={LINE} /></>;
+      // our logo, centred, its line under it - as our e-mails open
+      body = <><rect x={44} y={7} width={32} height={6} rx={1} fill={RED} /><rect x={48} y={16} width={24} height={2} rx={1} fill={LINE} /></>;
       break;
     case "hero":
       body = <><rect x={0} y={0} width={120} height={34} fill={PIC} /><rect x={8} y={40} width={14} height={2.5} fill={RED} /><rect x={8} y={46} width={80} height={5} rx={1} fill={INK} />{lines(8, 56, 2, 96)}<rect x={8} y={66} width={26} height={7} rx={1} fill={RED} /></>;
@@ -48,7 +49,8 @@ export function BlockThumb({ kind, layout, w = 120 }: { kind: BlockKind; layout?
       body = <rect x={8} y={9} width={104} height={1.4} fill={LINE} />;
       break;
     case "footer":
-      body = <><rect x={46} y={6} width={28} height={4} rx={1} fill={RED} />{lines(25, 15, 2, 70)}<rect x={40} y={29} width={40} height={2.4} rx={1} fill={LINE} /></>;
+      // our footer: follow us / our support, then the dark band with the masthead and the unsubscribe link
+      body = <><rect x={0} y={0} width={120} height={12} fill="#f1f3f5" /><rect x={18} y={5} width={30} height={2.4} rx={1} fill={LINE} /><rect x={72} y={5} width={30} height={2.4} rx={1} fill={LINE} /><rect x={0} y={12} width={120} height={24} fill="#274259" /><rect x={40} y={18} width={40} height={2.4} rx={1} fill="#8fa7b8" /><rect x={46} y={26} width={28} height={2.4} rx={1} fill="#8fa7b8" /></>;
       break;
   }
   return (
