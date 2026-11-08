@@ -1,6 +1,7 @@
 "use client";
 // PUT THE BANNER IN A PAGE (08.11.2026; SARCLA: "the banner design: we should be able to push it inside a page visually
-// as well"). Pick one of the project's page to-dos, the shop place it takes there and where in the page; the banner goes
+// as well"; Content v3: it is one of the banner's places, "In a page", on the stage's row). Pick one of the project's
+// page to-dos, the shop place it takes there and where in the page; the banner goes
 // into that page's document (an insert - the page studio owns the page and renders it in its preview and its paste
 // block), then the page shows here with the banner in it, live: the shop's page read through the page studio's reader,
 // the banner's word changing as on the shop.
@@ -16,7 +17,6 @@ import Typography from "@mui/material/Typography";
 import CloseIcon from "@mui/icons-material/Close";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import WebOutlinedIcon from "@mui/icons-material/WebOutlined";
 
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
@@ -47,8 +47,11 @@ export type Pages = ReturnType<typeof usePages>;
 const pageName = (p: PageRow) => (p.isNew ? p.newTitle || p.title : p.title);
 const pageWhere = (p: PageRow) => (p.isNew ? "A new page" : p.path || "No shop page picked yet");
 
-/** The card beside the banner: which page, which place, where - and the pages it is in already. */
-export function PutInPage({ api, doc, set, pages, onShow }: {
+/**
+ * The bar over the page (Content v3: "Put it in a page" is a place of the banner now, beside its others): which page
+ * to-do, as which of the shop's places, where in it - "Put it in" - and the pages it is in already, each with its x.
+ */
+export function PageBar({ api, doc, set, pages, onShow }: {
   api: StudioApi; doc: BannerDoc; set: (fn: (d: BannerDoc) => BannerDoc) => void; pages: Pages; onShow: (pageId: number) => void;
 }) {
   const canEdit = api.data.access.canEdit;
@@ -80,63 +83,46 @@ export function PutInPage({ api, doc, set, pages, onShow }: {
     if (!r.ok) { setMsg(r.error); return; }
     pages.set(r.result.pages);
   };
+  const lbl = { fontSize: "0.7rem", fontWeight: 650, color: MUTED, mb: 0.4 };
 
   return (
-    <Box sx={{ bgcolor: "rgba(255,255,255,.82)", border: "1px solid rgba(255,255,255,.9)", boxShadow: "0 1px 2px rgba(31,45,78,.04), 0 12px 32px rgba(31,45,78,.07)", borderRadius: "18px", p: 2, minHeight: 0, overflowY: "auto" }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 1.25 }}>
-        <WebOutlinedIcon sx={{ fontSize: 17, color: "#274e64" }} />
-        <Typography sx={{ flex: 1, fontSize: "0.78rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED }}>Put it in a page</Typography>
-      </Box>
+    <Box sx={{ px: 3, pt: 2, pb: 1.25, borderBottom: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.45)" }}>
       {list === null ? (
-        <Box sx={{ py: 2, display: "grid", placeItems: "center" }}><CircularProgress size={18} /></Box>
+        <Box sx={{ py: 1, display: "flex", alignItems: "center", gap: 1, color: MUTED, fontSize: "0.84rem" }}><CircularProgress size={16} /> Reading the project&apos;s pages…</Box>
       ) : !list.length ? (
         <Hint>This project has no page to-do yet. Add a Page to the project, then put the banner in it here.</Hint>
       ) : (
         <>
-          <Box sx={{ display: "grid", gap: 0.5, mb: 1.25, maxHeight: 156, overflowY: "auto" }}>
-            {list.map((p) => {
-              const on = picked?.id === p.id;
-              return (
-                <Box key={p.id} component="button" type="button" onClick={() => setPageId(p.id)} aria-pressed={on} sx={{
-                  all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", alignItems: "center", gap: 1, px: 1.1, py: 0.75, borderRadius: "6px",
-                  border: `1px solid ${on ? "rgba(36,89,209,.55)" : HAIRLINE}`, bgcolor: on ? "rgba(36,89,209,.06)" : "#fff",
-                  "&:hover": { borderColor: on ? SEL : "#9fb3c0" }, "&:focus-visible": { outline: `2px solid ${SEL}` },
-                }}>
-                  <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Typography sx={{ fontSize: "0.84rem", fontWeight: 650, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pageName(p)}</Typography>
-                    <Typography sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pageWhere(p)}</Typography>
-                  </Box>
-                  {p.mine.length > 0 && <Box sx={{ px: 0.7, py: 0.15, borderRadius: "4px", bgcolor: "#e7f6ee", color: "#1b7a55", fontSize: "0.7rem", fontWeight: 700, flexShrink: 0 }}>In it</Box>}
-                </Box>
-              );
-            })}
+          <Box sx={{ display: "flex", alignItems: "flex-end", gap: 2, flexWrap: "wrap" }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={lbl}>Page</Typography>
+              <SquareChoice<string> value={String(picked?.id ?? "")} onChange={(v) => setPageId(Number(v))} options={list.map((p) => ({ key: String(p.id), label: `${pageName(p).slice(0, 26)}${pageName(p).length > 26 ? "…" : ""}` }))} />
+            </Box>
+            <Box>
+              <Typography sx={lbl}>As</Typography>
+              <SquareChoice value={place} onChange={setPlace} options={PAGE_PLACES.map((k) => ({ key: k, label: PRESET[k].short }))} />
+            </Box>
+            <Box>
+              <Typography sx={lbl}>Where</Typography>
+              <SquareChoice value={where} onChange={setWhere} options={WHERES.map((w) => ({ key: w.key, label: w.label }))} />
+            </Box>
+            <Button variant="contained" disableElevation disabled={!canEdit || !picked || !!busy} onClick={put}
+              startIcon={busy === "put" ? <CircularProgress size={14} color="inherit" /> : undefined} sx={{ ...mainBtn, borderRadius: "6px" }}>
+              Put it in
+            </Button>
           </Box>
-          <Typography sx={{ fontSize: "0.7rem", fontWeight: 650, color: MUTED, mb: 0.5 }}>As</Typography>
-          <Box sx={{ mb: 1 }}>
-            <SquareChoice value={place} onChange={setPlace} options={PAGE_PLACES.map((k) => ({ key: k, label: PRESET[k].short }))} />
-          </Box>
-          <Typography sx={{ fontSize: "0.7rem", fontWeight: 650, color: MUTED, mb: 0.5 }}>Where</Typography>
-          <Box sx={{ mb: 1.5 }}>
-            <SquareChoice value={where} onChange={setWhere} options={WHERES.map((w) => ({ key: w.key, label: w.label }))} />
-          </Box>
-          <Button fullWidth variant="contained" disableElevation disabled={!canEdit || !picked || !!busy} onClick={put}
-            startIcon={busy === "put" ? <CircularProgress size={14} color="inherit" /> : undefined} sx={mainBtn}>
-            Put it in {picked ? `“${pageName(picked).slice(0, 28)}${pageName(picked).length > 28 ? "…" : ""}”` : "the page"}
-          </Button>
-          {!canEdit && <Hint sx={{ mt: 0.75 }}>You can comment on this project, not change its pages.</Hint>}
           {pages.placed.length > 0 && (
-            <Box sx={{ mt: 1.75, pt: 1.25, borderTop: `1px solid ${HAIRLINE}`, display: "grid", gap: 0.75 }}>
-              <Typography sx={{ fontSize: "0.7rem", fontWeight: 650, color: MUTED }}>In these pages</Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", mt: 1.25 }}>
+              <Typography sx={{ fontSize: "0.74rem", color: MUTED, mr: 0.25 }}>In</Typography>
               {pages.placed.flatMap((p) => p.mine.map((m) => (
-                <Box key={m.id} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                  <Box component="button" type="button" onClick={() => onShow(p.id)} sx={{ all: "unset", cursor: "pointer", flex: 1, minWidth: 0, "&:hover .t": { color: SEL } }}>
-                    <Typography className="t" sx={{ fontSize: "0.82rem", fontWeight: 650, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pageName(p)}</Typography>
-                    <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{insertLine({ preset: m.preset, where: m.where as Where })}</Typography>
+                <Box key={m.id} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, pl: 1, pr: 0.25, py: 0.15, borderRadius: "4px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", maxWidth: "100%" }}>
+                  <Box component="button" type="button" onClick={() => onShow(p.id)} sx={{ all: "unset", cursor: "pointer", fontSize: "0.78rem", color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", "&:hover": { color: SEL } }}>
+                    <b>{pageName(p).slice(0, 30)}</b> · {insertLine({ preset: m.preset, where: m.where as Where }).toLowerCase()}
                   </Box>
                   <Tooltip title="Take it out of this page">
                     <span>
-                      <IconButton size="small" disabled={!canEdit || !!busy} onClick={() => out(p, m.id)} aria-label="Take it out of this page">
-                        {busy === m.id ? <CircularProgress size={14} /> : <CloseIcon sx={{ fontSize: 16 }} />}
+                      <IconButton size="small" disabled={!canEdit || !!busy} onClick={() => out(p, m.id)} aria-label="Take it out of this page" sx={{ p: 0.3 }}>
+                        {busy === m.id ? <CircularProgress size={12} /> : <CloseIcon sx={{ fontSize: 15 }} />}
                       </IconButton>
                     </span>
                   </Tooltip>
@@ -144,6 +130,7 @@ export function PutInPage({ api, doc, set, pages, onShow }: {
               )))}
             </Box>
           )}
+          {!canEdit && <Hint sx={{ mt: 0.75 }}>You can comment on this project, not change its pages.</Hint>}
         </>
       )}
       {(msg || pages.error) && <Typography sx={{ mt: 1, fontSize: "0.8rem", color: "#7f4f0b" }}>{msg ?? pages.error}</Typography>}
@@ -209,10 +196,8 @@ export function InPage({ pieceId, projectId, pages, pageId, setPageId, saved }: 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", px: 3, pt: 2, pb: 1.25 }}>
-        {placed.length > 1 ? (
-          <SquareChoice value={String(id)} onChange={(v) => setPageId(Number(v))} options={placed.map((p) => ({ key: String(p.id), label: pageName(p).slice(0, 30) }))} />
-        ) : row ? (
-          <Typography sx={{ fontSize: "0.9rem", fontWeight: 650, color: INK }}>{pageName(row)} <Box component="span" sx={{ color: MUTED, fontWeight: 500 }}>· {pageWhere(row)}</Box></Typography>
+        {row ? (
+          <Typography sx={{ fontSize: "0.9rem", fontWeight: 650, color: INK, minWidth: 0 }}>{pageName(row)} <Box component="span" sx={{ color: MUTED, fontWeight: 500 }}>· {pageWhere(row)}</Box></Typography>
         ) : null}
         <Box sx={{ flex: 1 }} />
         <SquareChoice value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "mobile", label: "Phone" }]} />
@@ -227,13 +212,13 @@ export function InPage({ pieceId, projectId, pages, pageId, setPageId, saved }: 
         {!id ? (
           <Box sx={{ textAlign: "center", color: MUTED, py: 12 }}>
             <Typography sx={{ fontSize: "1.05rem", fontWeight: 600, color: INK, mb: 0.75 }}>Not in a page yet</Typography>
-            <Typography sx={{ fontSize: "0.88rem" }}>Pick a page to-do on the right, the place it takes and where - it shows here, inside the page.</Typography>
+            <Typography sx={{ fontSize: "0.88rem" }}>Pick a page above, the place it takes and where, then &quot;Put it in&quot; - it shows here, inside the page.</Typography>
           </Box>
         ) : !shown ? (
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1.25, color: MUTED, py: 10 }}><CircularProgress size={16} /> Reading the page…</Box>
         ) : !shown.ok ? (
           <Box sx={{ maxWidth: 460, mx: "auto", my: 6, p: 2, borderRadius: "14px", bgcolor: "#fff", color: INK, fontSize: "0.88rem", textAlign: "center", boxShadow: "0 8px 24px rgba(31,45,78,.08)" }}>
-            {shown.error}{/Pick a page|store's page/.test(shown.error) ? " Open the page's studio and pick its page first." : ""}
+            {/Pick a page|store's page/.test(shown.error) ? "This page to-do has no page yet - open the page's studio and pick one, or start a new one there." : shown.error}
           </Box>
         ) : (
           <>

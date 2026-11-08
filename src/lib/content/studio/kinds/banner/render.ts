@@ -333,19 +333,60 @@ export function stillSheet(d: BannerDoc, keys: PresetKey[], prefix: string): { c
 /** The paste block with its shop links made full addresses - what a page outside Magento can open. */
 const openable = (block: string) => block.replace(/\{\{store direct_url='([^']*)'\}\}/g, (_, path: string) => linkOf(path).href);
 
+/** The banner's parts a person can click to change in place (Content v3; SARCLA 08.11.2026: "banner also" - the editing
+ *  was "very confusing"), by the class each carries under the banner's prefix. */
+export const PICK_PARTS = { eb: "eyebrow", q: "headline", w: "headline", h: "headline", p: "line", b: "button", c: "picture", t: "label" } as const;
+export type PickPart = (typeof PICK_PARTS)[keyof typeof PICK_PARTS] | "background";
+
+/** The CSS that shows what can be clicked (`z`: the zoom it is seen at, so the outline stays 2 px on screen). */
+export function pickCss(prefix: string, scope = "", z = 1): string {
+  const P = prefix;
+  const sel = (suffix: string) => ["eb", "q", "h", "p", "b", "c"].map((k) => `${scope}.${P} .${P}-${k}${suffix}`).join(",");
+  const line = (2 / Math.max(0.05, z)).toFixed(2);
+  return `${sel("")}{cursor:pointer}${scope}.${P}{cursor:pointer}${sel(":hover")}{outline:${line}px dashed rgba(36,89,209,.75);outline-offset:${(3 / Math.max(0.05, z)).toFixed(2)}px}`
+    + `${scope}.${P} .is-picked{outline:${line}px solid #2459d1!important;outline-offset:${(3 / Math.max(0.05, z)).toFixed(2)}px}${scope}.${P}.is-picked{outline:${line}px solid #2459d1;outline-offset:-${line}px}`;
+}
+
+/** The frame's half of a click on a part: which part and where it is, told to the studio; the part open, marked. */
+const PICK_JS = `  function partOf(el) {
+    for (var n = el; n && n !== stage; n = n.parentElement) {
+      var c = " " + (n.getAttribute && n.getAttribute("class") || "") + " ", m = P && c.match(new RegExp(" " + P + "-(eb|q|w|h|p|b|c|t) "));
+      if (m) return { el: m[1] === "w" ? n.closest("." + P + "-q") || n : n, part: PARTS[m[1]] };
+      if (P && c.indexOf(" " + P + " ") >= 0) return { el: n, part: "background" };
+    }
+    return null;
+  }
+  function rect(el) { var r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; }
+  function mark(part) {
+    [].forEach.call(stage.querySelectorAll(".is-picked"), function (n) { n.classList.remove("is-picked"); });
+    picked = part; if (!part || !P) return;
+    var keys = Object.keys(PARTS).filter(function (k) { return PARTS[k] === part && k !== "w"; });
+    var el = part === "background" ? stage.querySelector("." + P) : stage.querySelector(keys.map(function (k) { return "." + P + "-" + k; }).join(","));
+    if (el) { el.classList.add("is-picked"); parent.postMessage({ apsoBanner: "where", part: part, rect: rect(el) }, "*"); }
+  }
+  if (P) document.addEventListener("click", function (e) {
+    var hit = partOf(e.target);
+    parent.postMessage({ apsoBanner: "pick", part: hit ? hit.part : null, rect: hit ? rect(hit.el) : null }, "*");
+  });
+`;
+
 /**
  * The paste block in a page of its own, for the studio's frame: the brand's font (data: - the hub lets nothing else
  * in), its height told to the studio, links kept in place, and a way to swap the banner without reloading the frame.
+ * With `pick` (the banner's prefix), a click on a part of the banner tells the studio which part and where it is, so
+ * the studio can open its words right there; the studio marks the part it has open.
  */
-export function previewDoc(block: string, fontCss: string, background = "#ffffff"): string {
+export function previewDoc(block: string, fontCss: string, background = "#ffffff", pick?: string): string {
+  const P = pick ? pick.replace(/[^A-Za-z0-9]/g, "") : "";
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>${fontCss}</style><style>html,body{margin:0;padding:0;background:${background}}</style></head><body><div id="stage">${openable(block)}</div>
+<style>${fontCss}</style><style>html,body{margin:0;padding:0;background:${background}}${P ? pickCss(P) : ""}</style></head><body><div id="stage">${openable(block)}</div>
 <script>
 (function () {
-  var stage = document.getElementById("stage"), last = 0;
+  var stage = document.getElementById("stage"), last = 0, P = ${JSON.stringify(P)}, PARTS = ${JSON.stringify(PICK_PARTS)}, picked = null;
   function tell() { var h = Math.ceil(stage.getBoundingClientRect().height); if (h !== last) { last = h; parent.postMessage({ apsoBanner: "height", h: h }, "*"); } }
   if ("ResizeObserver" in window) new ResizeObserver(tell).observe(stage); setTimeout(tell, 60);
   document.addEventListener("click", function (e) { if (e.target.closest && e.target.closest("a")) e.preventDefault(); }, true);
+${P ? PICK_JS : "  function mark() {}"}
   window.addEventListener("message", function (e) {
     var m = e.data; if (!m || m.apsoBanner !== "swap" || typeof m.html !== "string") return;
     [].forEach.call(stage.querySelectorAll("[data-on]"), function (r) { if (r.__stop) r.__stop(); });
@@ -353,8 +394,9 @@ export function previewDoc(block: string, fontCss: string, background = "#ffffff
     [].slice.call(box.childNodes).forEach(function (n) {
       if (n.tagName === "SCRIPT") { var s = document.createElement("script"); s.textContent = n.textContent; stage.appendChild(s); } else stage.appendChild(n);
     });
-    tell();
+    tell(); if (picked) mark(picked);
   });
+  ${P ? `window.addEventListener("message", function (e) { var m = e.data; if (m && m.apsoBanner === "mark") mark(m.part || null); });` : ""}
 })();
 </script></body></html>`;
 }

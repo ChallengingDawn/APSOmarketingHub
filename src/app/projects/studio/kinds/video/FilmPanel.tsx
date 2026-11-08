@@ -62,7 +62,7 @@ export default function FilmPanel({ picked, onPick, confirmed, length, onLength,
       </Button>
       {!aiReady && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.75 }}>The AI is not set up on this hub - add the scenes yourself.</Typography>}
       {picked.length > 0 && (
-        <Button fullWidth size="small" disabled={disabled} onClick={onAdd} sx={{ ...btn, mt: 0.75, color: MUTED }}>Add them as scenes to write myself</Button>
+        <Button fullWidth size="small" disabled={disabled} onClick={onAdd} sx={{ ...btn, mt: 0.75, color: MUTED, whiteSpace: "normal", lineHeight: 1.3 }}>Add them as scenes to write myself</Button>
       )}
       {hasScenes && !busy && <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 0.5, textAlign: "center" }}>Making it again replaces the scenes - one click brings them back.</Typography>}
 
