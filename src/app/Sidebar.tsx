@@ -99,6 +99,9 @@ import AllInclusiveOutlinedIcon from "@mui/icons-material/AllInclusiveOutlined";
 import TroubleshootOutlinedIcon from "@mui/icons-material/TroubleshootOutlined";
 import ListAltOutlinedIcon from "@mui/icons-material/ListAltOutlined";
 import PreviewOutlinedIcon from "@mui/icons-material/PreviewOutlined";
+import PersonPinCircleOutlinedIcon from "@mui/icons-material/PersonPinCircleOutlined";
+import RocketLaunchOutlinedIcon from "@mui/icons-material/RocketLaunchOutlined";
+import CompareOutlinedIcon from "@mui/icons-material/CompareOutlined";
 import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined";
 import FilterAltOutlinedIcon from "@mui/icons-material/FilterAltOutlined";
 import RouteOutlinedIcon from "@mui/icons-material/RouteOutlined";
@@ -259,6 +262,9 @@ const WEBSITE_ICON: Record<string, React.ReactNode> = {
   "/website/ai-personalization/problems": <TroubleshootOutlinedIcon fontSize="small" />,
   "/website/ai-personalization/ideas": <TipsAndUpdatesOutlinedIcon fontSize="small" />,
   "/website/ai-personalization/preview": <PreviewOutlinedIcon fontSize="small" />,
+  "/website/ai-personalization/personalise": <PersonPinCircleOutlinedIcon fontSize="small" />,
+  "/website/ai-personalization/ship": <RocketLaunchOutlinedIcon fontSize="small" />,
+  "/website/ab-testing/pages": <CompareOutlinedIcon fontSize="small" />,
   "/website/ai-personalization/pages": <ListAltOutlinedIcon fontSize="small" />,
 };
 

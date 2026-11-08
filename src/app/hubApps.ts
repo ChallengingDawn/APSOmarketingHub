@@ -125,7 +125,11 @@ export const WEBSITE_SECTIONS: WebsiteSection[] = [
     slug: "ab-testing", name: "A/B testing", line: "What we test on the site, and what it shows", icon: "science", ...PINK,
     // the first one: the shop chat's e-mail before the chat, as APSOassistant Chat > A/B test has it (SARCLA 03.11.2026:
     // "contains a copy of the first A/B test on the chat, and then more")
-    pages: [{ name: "Chat: e-mail first", note: "E-mail before the chat or during it: do we lose chats, do we gain e-mails", href: "/website/ab-testing", icon: "chat", ...PINK }],
+    pages: [
+      { name: "Chat: e-mail first", note: "E-mail before the chat or during it: do we lose chats, do we gain e-mails", href: "/website/ab-testing", icon: "chat", ...PINK },
+      // APSOconvert's tests of shop pages (SARCLA 07.11.2026: the approved idea goes to "the A/B testing app")
+      { name: "Page tests", note: "A version of a shop page against the page as it is: the add-to-carts decide", href: "/website/ab-testing/pages", icon: "science", ...PINK },
+    ],
   },
   {
     slug: "ai-personalization", name: "AI testing & personalization", line: "Find what stops buyers, test the fix, ship the winner", icon: "brain", ...PURPLE,
@@ -136,6 +140,8 @@ export const WEBSITE_SECTIONS: WebsiteSection[] = [
       { name: "Problems", note: "Pages with a lot of traffic and little buying, down to the customer", href: "/website/ai-personalization/problems", icon: "target", ...PINK },
       { name: "Ideas", note: "What to change on which page - the AI proposes, a person approves", href: "/website/ai-personalization/ideas", icon: "bolt", ...AMBER },
       { name: "Preview", note: "A shop page live, its version beside the original; its texts go to Content Studio", href: "/website/ai-personalization/preview", icon: "edit", ...PURPLE },
+      { name: "Personalise", note: "An audience always gets a version: signed-in customers, a store view, phones", href: "/website/ai-personalization/personalise", icon: "groups", ...GREEN },
+      { name: "Ship", note: "The winner for everyone, as code for dotSource, or into a Magento CMS page", href: "/website/ai-personalization/ship", icon: "shipping", ...TEAL },
       { name: "Pages", note: "Every page of the shop, on production and on ACC", href: "/website/ai-personalization/pages", icon: "layers", ...BLUE },
     ],
   },

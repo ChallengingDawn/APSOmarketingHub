@@ -379,7 +379,11 @@ function VersionCard({ version, idea, hit, canEdit, busy, rev, prefill, onRev, o
               <Box sx={{ flex: 1 }} />
               <Button size="small" onClick={() => { setHand((h) => !h); setJson(JSON.stringify(version.changes, null, 2)); setJsonErr(null); }}>{hand ? "Close the code" : "Edit the code"}</Button>
               {version.status === "approved"
-                ? <Button size="small" onClick={() => onStatus("reopen")}>Back to draft</Button>
+                ? <>
+                    <Button size="small" onClick={() => onStatus("reopen")}>Back to draft</Button>
+                    <Button size="small" variant="contained" disableElevation href={`/website/ab-testing/pages?make=${version.id}`}
+                      sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Test it on the shop</Button>
+                  </>
                 : <Button size="small" variant="contained" color="success" disableElevation disabled={busy} onClick={() => onStatus("approve")}>Approve the version</Button>}
             </Box>
             {hand && (
