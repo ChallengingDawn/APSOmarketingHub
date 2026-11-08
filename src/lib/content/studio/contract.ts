@@ -30,7 +30,7 @@ export type AiTask = {
   user: (ctx: StudioCtx, doc: unknown, input: Record<string, unknown>) => string;
   maxTokens?: number;
   /** The answer kept only where it makes sense - the studio applies it. */
-  clean?: (raw: unknown, doc: unknown, ctx: StudioCtx) => unknown;
+  clean?: (raw: unknown, doc: unknown, ctx: StudioCtx, input: Record<string, unknown>) => unknown;
 };
 
 export type ServerAction = (ctx: StudioCtx, doc: unknown, input: Record<string, unknown>) => Promise<unknown>;

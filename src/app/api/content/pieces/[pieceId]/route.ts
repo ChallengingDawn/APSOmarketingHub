@@ -122,7 +122,7 @@ export async function POST(req: NextRequest, c: { params: Promise<{ pieceId: str
       let raw: unknown;
       try { raw = JSON.parse(r.text); } catch { return fail("The AI's answer could not be read - try again.", 502); }
       console.log(`[studio] ${o.kind}.${String(b.task)} for piece ${o.piece.id} by ${o.me.username}: ${r.usage.input_tokens}+${r.usage.output_tokens} tokens`);
-      return NextResponse.json({ ok: true, result: task.clean ? task.clean(raw, stored?.doc, o.ctx) : raw });
+      return NextResponse.json({ ok: true, result: task.clean ? task.clean(raw, stored?.doc, o.ctx, input) : raw });
     } catch (e) { return fail(errText(e), 502); }
   }
 
