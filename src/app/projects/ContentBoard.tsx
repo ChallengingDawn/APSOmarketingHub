@@ -54,15 +54,17 @@ function chipsOf(p: BoardProject): string[] {
   return [...kinds.slice(0, 4), ...(langs.length ? [langs.join(" ")] : [])];
 }
 
-function ProjectCard({ p, names }: { p: BoardProject; names: Record<string, string> }) {
+function ProjectCard({ p, names, i = 0 }: { p: BoardProject; names: Record<string, string>; i?: number }) {
   const total = p.pieces.length;
   const ok = p.pieces.filter((x) => done(x.status)).length;
   return (
     <Box component={Link} href={`/projects/${p.id}`} sx={{
       display: "flex", flexDirection: "column", gap: 1.1, p: 1.5, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`,
       textDecoration: "none", color: INK, boxShadow: "0 1px 2px rgba(31,45,78,.04)",
-      transition: "box-shadow .15s ease, border-color .15s ease",
-      "&:hover": { boxShadow: "0 10px 24px rgba(31,45,78,.11)", borderColor: `${PINK}55` },
+      transition: "box-shadow .2s ease, border-color .2s ease, transform .2s ease",
+      "&:hover": { boxShadow: "0 14px 30px rgba(31,45,78,.13)", borderColor: `${PINK}55`, transform: "translateY(-2px)" },
+      animation: `cardIn .4s cubic-bezier(.22,1,.36,1) ${Math.min(i, 8) * 0.04}s backwards`,
+      "@keyframes cardIn": { from: { opacity: 0, transform: "translateY(8px)" }, to: { opacity: 1, transform: "none" } },
     }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minHeight: 21 }}>
         {p.source && SOURCE_LABEL[p.source] && <Chip tint="purple">{SOURCE_LABEL[p.source]}</Chip>}
@@ -229,7 +231,7 @@ export default function ContentBoard() {
                     <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>{STAGE_LABEL[s]}</Typography>
                     <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{cards.length}</Typography>
                   </Box>
-                  {cards.map((p) => <ProjectCard key={p.id} p={p} names={names} />)}
+                  {cards.map((p, i) => <ProjectCard key={p.id} p={p} names={names} i={i} />)}
                 </Box>
               );
             })}
