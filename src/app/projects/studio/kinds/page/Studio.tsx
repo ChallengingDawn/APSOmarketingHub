@@ -57,6 +57,10 @@ export default function Studio({ api }: StudioProps) {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [seo, setSeo] = useState<SeoCard | null>(null);
   const [finding, setFinding] = useState(false);
+  // the side columns folded away for a bigger page (SARCLA: the page "should be visible") - kept for next time
+  const [fold, setFold] = useState<{ build: boolean; assist: boolean }>({ build: false, assist: false });
+  useEffect(() => { try { const f = JSON.parse(window.localStorage.getItem("page-studio:fold") ?? "null"); if (f) setFold({ build: !!f.build, assist: !!f.assist }); } catch { /* no storage */ } }, []);
+  const toggleFold = (k: "build" | "assist") => setFold((f) => { const n = { ...f, [k]: !f[k] }; try { window.localStorage.setItem("page-studio:fold", JSON.stringify(n)); } catch { /* no storage */ } return n; });
   const askRef = useRef<HTMLTextAreaElement | null>(null);
   const preview = usePagePreview(api, d, lang, view);
   const { shell, inserts } = useShell(api, d, preview.fresh);
@@ -96,6 +100,7 @@ export default function Studio({ api }: StudioProps) {
   const setLang = (l: string) => { setLangState(l); setSelState(null); setPicking(false); if (step === "element") setStep("page"); };
   const setSel = (s: Selection | null) => { setSelState(s); if (!s && step === "element") setStep("page"); };
   const onPick = (p: Picked | null) => { if (!p) { setSel(null); return; } setSelState({ key: p.key, picked: p }); setStep("element"); };
+  const askAi = () => { if (fold.assist) toggleFold("assist"); setTimeout(() => askRef.current?.focus(), 60); };
 
   /* ── an element's words edited in the page ───────────────────────────── */
 
@@ -106,6 +111,8 @@ export default function Studio({ api }: StudioProps) {
     const r = applyElementEdit(cur, p, { kind: "words", text: v.text, inner: rich ? v.inner : undefined });
     if ("error" in r) { window.alert(r.error); return; }
     setView({ ...cur, changes: r.changes }, r.label);
+    // the panel shows the element's new words at once
+    setSelState((s) => (s && s.key === p.key && s.picked ? { ...s, picked: { ...s.picked, text: v.text, inner: v.inner, outer: v.outer } } : s));
   };
 
   /* ── the AI ──────────────────────────────────────────────────────────── */
@@ -197,7 +204,21 @@ export default function Studio({ api }: StudioProps) {
       setLangState(to);
       setSelState(null);
       setPicking(false);
-      return [r.result.problems.length ? r.result.problems.join("; ") : null, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || `The ${langName(to)} page is made - it shows now. Change what you like; it is its own page.`;
+      // a new page's links to the shop: the same pages in this language
+      let relinked = "";
+      if (latest.source === "new") {
+        const rl = await api.act<{ map: Record<string, string>; missing: string[] }>("relink", { lang: to });
+        if (rl.ok && Object.keys(rl.result.map).length) {
+          const m = rl.result.map;
+          const cur = docRef.current;
+          const v = viewOf(cur, to);
+          const fx = (u: string) => m[u] ?? u;
+          const fields = { ...v.fields, hero: { ...v.fields.hero, button: { ...v.fields.hero.button, url: fx(v.fields.hero.button.url) } }, cta: { ...v.fields.cta, button: { ...v.fields.cta.button, url: fx(v.fields.cta.button.url) } }, links: v.fields.links.map((l) => ({ ...l, url: fx(l.url) })) };
+          await setDocSafely(api, cur, withView(cur, to, { ...v, fields }));
+        }
+        if (rl.ok && rl.result.missing.length) relinked = ` ${rl.result.missing.length} link${rl.result.missing.length === 1 ? " has" : "s have"} no ${langName(to)} page on the shop and still point${rl.result.missing.length === 1 ? "s" : ""} to the ${langName(from)} one.`;
+      }
+      return [r.result.problems.length ? r.result.problems.join("; ") : null, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || `The ${langName(to)} page is made - it shows now, its links to the shop's ${langName(to)} pages. Change what you like; it is its own page.${relinked}`;
     } finally { setBusy(null); }
   };
 
@@ -218,7 +239,7 @@ export default function Studio({ api }: StudioProps) {
 
   const others = langsOf(doc).filter((l) => l !== main);
   const translateAsks: QuickAsk[] = others.map((l) => ({
-    label: doc.langs[l] ? `Translate the whole page into ${langName(l)} again` : `Translate the whole page into ${langName(l)}`,
+    label: doc.langs[l] ? `Translate into ${langName(l)} again` : `Translate the whole page into ${langName(l)}`,
     run: () => translate(l),
   }));
   const scope = sel?.picked ?? null;
@@ -325,13 +346,14 @@ export default function Studio({ api }: StudioProps) {
   const placeholder = sel ? "What should change in this element?" : isNew ? "What should the page say or do?" : "What should change on this page?";
 
   return (
-    <StudioPanes id="page" buildWidth={410} assistWidth={340}
+    <StudioPanes id="page" buildWidth={410} assistWidth={340} hideBuild={fold.build} hideAssist={fold.assist}
       build={<Build api={api} doc={doc} d={d} lang={lang} onLang={setLang} set={setDoc} setView={setView} hits={hits} step={step} onStep={setStep}
-        sel={sel} setSel={setSel} fill={fill} busy={busy} canAi={canAi} onEditInPage={() => setEditNonce((n) => n + 1)} onAskAi={() => askRef.current?.focus()}
+        sel={sel} setSel={setSel} fill={fill} busy={busy} canAi={canAi} onEditInPage={() => setEditNonce((n) => n + 1)} onAskAi={askAi}
         inserts={inserts} record={(label) => record(label)} onPickPage={() => setPicking(true)} removeInsert={removeInsert} />}
       preview={<Stage api={api} doc={doc} d={d} lang={lang} onLang={setLang} view={view} onView={setViewMode} preview={preview} selected={sel?.key ?? null} picked={sel?.picked ?? null}
-        onPick={onPick} onEdit={onEdit} editNonce={editNonce} onEditWords={() => setEditNonce((n) => n + 1)} onAskAi={() => askRef.current?.focus()}
-        inserts={inserts} shell={shell} onFix={(left) => void fixLeftovers(left)} empty={empty} />}
+        onPick={onPick} onEdit={onEdit} editNonce={editNonce} onEditWords={() => setEditNonce((n) => n + 1)} onAskAi={askAi}
+        inserts={inserts} shell={shell} onFix={(left) => void fixLeftovers(left)} empty={empty}
+        fold={{ ...fold, onBuild: () => toggleFold("build"), onAssist: () => toggleFold("assist") }} />}
       assist={<Assistant quick={quick} onAsk={onAsk} enabled={canAi} context={scopeLabel} onClearContext={() => setSel(null)} history={history} onUndo={(e) => void undo(e)}
         ideas={ideas} onIdea={(i) => void rewrite(`${i.title}: ${i.change}`)} seo={seo} lang={lang} inputRef={askRef} placeholder={placeholder}
         onUseSeo={(s) => { setView({ ...d, fields: { ...d.fields, seo: { title: s.title, description: s.description, urlKey: s.urlKey } } }, "Kept the search engine fields"); setSeo(null); }} />}

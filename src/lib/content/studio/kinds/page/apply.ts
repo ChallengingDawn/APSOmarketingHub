@@ -278,9 +278,20 @@ function nthOk(pos: number, a: number, b: number): boolean {
   return Number.isInteger(k) && k >= 0;
 }
 
-function siblings(el: Node, type: boolean): Node[] {
-  const all = el.parent ? el.parent.children : [el];
-  return type ? all.filter((x) => x.tag === el.tag) : all;
+/** An element's place among its siblings (of its type, or all), and how many there are - counted once per parent, so a
+ * page with 20,000 rows is not read 20,000 times over (:last-child, :nth-of-type). */
+const TYPES = new WeakMap<Node, { lists: Map<string, number>; pos: Map<Node, number> }>();
+function placeOf(el: Node, type: boolean): { at: number; len: number } {
+  const parent = el.parent;
+  if (!parent) return { at: 0, len: 1 };
+  if (!type) return { at: el.index, len: parent.children.length };
+  let c = TYPES.get(parent);
+  if (!c) {
+    c = { lists: new Map(), pos: new Map() };
+    for (const ch of parent.children) { const n = c.lists.get(ch.tag) ?? 0; c.pos.set(ch, n); c.lists.set(ch.tag, n + 1); }
+    TYPES.set(parent, c);
+  }
+  return { at: c.pos.get(el) ?? 0, len: c.lists.get(el.tag) ?? 1 };
 }
 
 function matchCompound(el: Node, c: Compound): boolean {
@@ -307,10 +318,9 @@ function matchCompound(el: Node, c: Compound): boolean {
   for (const ps of c.pseudos) {
     if (ps.kind === "root") { if (el.parent?.tag !== "#root") return false; continue; }
     if (ps.kind === "not") { if (ps.list.some((x) => matchCompound(el, x))) return false; continue; }
-    const sib = siblings(el, ps.type);
-    if (ps.kind === "only") { if (sib.length !== 1) return false; continue; }
-    const at = sib.indexOf(el);
-    const pos = ps.last ? sib.length - at : at + 1;
+    const { at, len } = placeOf(el, ps.type);
+    if (ps.kind === "only") { if (len !== 1) return false; continue; }
+    const pos = ps.last ? len - at : at + 1;
     if (!nthOk(pos, ps.a, ps.b)) return false;
   }
   return true;
@@ -558,5 +568,5 @@ export function stillPage(html: string, o: { pageUrl: string; sheets: Record<str
 /** The preview's own styles: links and buttons quiet (a click would leave the frame), the shop's loaders off, the
  * placeholders still to write marked. */
 export const STILL_CSS = `a,button,input,select,textarea,label,summary,[role=button]{pointer-events:none!important}
-[data-role="main-css-loader"],.loading-mask,.message.global.cookie,.message.global.noscript{display:none!important}
+[data-role="main-css-loader"],.loading-mask,.message.global.cookie,.message.global.noscript,#cookie-status,.cookie-status-message{display:none!important}
 .apx-text{background:#fff1b8;outline:1px dashed #c99a12;outline-offset:1px}`;

@@ -23,11 +23,12 @@ import CloseIcon from "@mui/icons-material/Close";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import ViewSidebarOutlinedIcon from "@mui/icons-material/ViewSidebarOutlined";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { fieldLabel } from "@/lib/content/studio/kinds/page/fields";
 import {
-  langName, langState, langsOf, leftoversOf, mainLang, shopUrl, type LangState, type Leftover, type PageDoc,
+  langName, langState, langsOf, leftoversOf, shopUrl, type LangState, type Leftover, type PageDoc,
 } from "@/lib/content/studio/kinds/page/model";
 import { renderNewPage } from "@/lib/content/studio/kinds/page/newpage";
 import type { InsertOut, PreviewOut } from "@/lib/content/studio/kinds/page/shop";
@@ -162,7 +163,7 @@ function SelBar({ label, canWords, onWords, onAi, onClose }: { label: string; ca
 
 /* ── the stage ────────────────────────────────────────────────────────── */
 
-export function Stage({ api, doc, d, lang, onLang, view, onView, preview, selected, picked, onPick, onEdit, editNonce, onEditWords, onAskAi, inserts, shell, onFix, empty, children }: {
+export function Stage({ api, doc, d, lang, onLang, view, onView, preview, selected, picked, onPick, onEdit, editNonce, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void; view: View; onView: (v: View) => void;
   preview: ReturnType<typeof usePagePreview>; selected: string | null; picked: Picked | null;
   onPick: (p: Picked | null) => void; onEdit: (p: Picked, v: { text: string; inner: string; outer: string }) => void;
@@ -171,14 +172,18 @@ export function Stage({ api, doc, d, lang, onLang, view, onView, preview, select
   /** what shows in place of the page (the page list, a language still to make) */
   empty?: React.ReactNode;
   children?: React.ReactNode;
+  /** the side columns folded away, for a bigger page */
+  fold?: { build: boolean; assist: boolean; onBuild: () => void; onAssist: () => void };
 }) {
   const [device, setDevice] = useState<Device>("desktop");
+  const [zoom, setZoom] = useState<"fit" | "full">("fit");
+  const fit = zoom === "fit" || device === "mobile";
   const isNew = d.source === "new";
   const { held, busy, want } = preview;
   const after = held.after?.out;
   const notes = [...new Set([...(after?.ok ? after.notes : []), ...(held.before?.out.ok ? held.before.out.notes : []), ...(isNew && shell?.ok ? shell.notes : [])])];
   const problems = after?.ok ? after.problems : [];
-  const views = isNew ? [] : [{ key: "before" as View, label: "Before" }, { key: "after" as View, label: "After" }, { key: "both" as View, label: "Side by side" }];
+  const views = isNew ? [] : [{ key: "before" as View, label: "Before" }, { key: "after" as View, label: "After" }, { key: "both" as View, label: "Both" }];
   const left = useMemo(() => leftoversOf(d), [d]);
 
   // a new page, drawn here from its fields as they are typed
@@ -212,7 +217,7 @@ export function Stage({ api, doc, d, lang, onLang, view, onView, preview, select
         {out?.ok && (
           <Box sx={{ position: "relative", opacity: b ? 0.6 : 1, transition: "opacity .2s" }}>
             <Frame html={out.html} device={device} title={side === "before" ? "The page as it is" : "The page with its changes"}
-              select={side === "after" ? selectOpts : undefined} toolbar={side === "after" ? toolbar : undefined} />
+              select={side === "after" ? selectOpts : undefined} toolbar={side === "after" ? toolbar : undefined} fit={fit || want.length === 2} />
           </Box>
         )}
       </Box>
@@ -222,10 +227,16 @@ export function Stage({ api, doc, d, lang, onLang, view, onView, preview, select
   return (
     <Box sx={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column", borderRadius: "18px", overflow: "hidden", bgcolor: "#eef1f6", border: `1px solid ${HAIRLINE}`, backgroundImage: "radial-gradient(rgba(21,34,58,.07) 1px, transparent 1px)", backgroundSize: "18px 18px" }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 1, flexWrap: "wrap", borderBottom: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.6)", backdropFilter: "blur(6px)", flexShrink: 0 }}>
+        {fold && (
+          <Tooltip title={fold.build ? "Show the build column" : "Fold the build column away"}>
+            <IconButton size="small" onClick={fold.onBuild} aria-label="Fold the build column" sx={{ color: fold.build ? BLUE : MUTED }}><ViewSidebarOutlinedIcon sx={{ fontSize: 19, transform: "scaleX(-1)" }} /></IconButton>
+          </Tooltip>
+        )}
         <LangSwitch d={doc} lang={lang} onLang={onLang} />
-        <Box sx={{ flex: 1 }} />
+        <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, flexWrap: "wrap", minWidth: 0 }}>
         {views.length > 0 && !empty && <Choice value={view} onChange={onView} options={views} />}
         {!empty && <Choice value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "mobile", label: "Phone" }]} />}
+        {!empty && device === "desktop" && <Choice value={zoom} onChange={setZoom} options={[{ key: "fit", label: "Fit" }, { key: "full", label: "100%" }]} />}
         <Tooltip title="Read the page from the shop again">
           <span><IconButton size="small" disabled={!!empty || busy.before || busy.after} onClick={preview.readAgain} aria-label="Read again"><RefreshIcon sx={{ fontSize: 18 }} /></IconButton></span>
         </Tooltip>
@@ -234,6 +245,12 @@ export function Stage({ api, doc, d, lang, onLang, view, onView, preview, select
             <IconButton size="small" component="a" href={shopUrl(d.env, d.path)} target="_blank" rel="noopener noreferrer" aria-label="Open on the shop"><OpenInNewIcon sx={{ fontSize: 17 }} /></IconButton>
           </Tooltip>
         )}
+        {fold && (
+          <Tooltip title={fold.assist ? "Show the assistant" : "Fold the assistant away"}>
+            <IconButton size="small" onClick={fold.onAssist} aria-label="Fold the assistant" sx={{ color: fold.assist ? BLUE : MUTED }}><ViewSidebarOutlinedIcon sx={{ fontSize: 19 }} /></IconButton>
+          </Tooltip>
+        )}
+        </Box>
       </Box>
       <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {children}
@@ -258,9 +275,9 @@ export function Stage({ api, doc, d, lang, onLang, view, onView, preview, select
                 : !shell.ok ? (
                   <Box sx={{ maxWidth: 520, mx: "auto", my: 4 }}>
                     <Typography sx={{ fontSize: "0.82rem", color: AMBER, textAlign: "center", mb: 1.5 }}>{shell.error} The page shows without the shop around it.</Typography>
-                    <Frame html={`<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;font-family:Jost,Arial,sans-serif"><div id="apx-root"></div></body></html>`} device={device} title="The new page" select={selectOpts} patch={patch} toolbar={toolbar} />
+                    <Frame html={`<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;font-family:Jost,Arial,sans-serif"><div id="apx-root"></div></body></html>`} device={device} title="The new page" select={selectOpts} patch={patch} toolbar={toolbar} fit={fit} />
                   </Box>
-                ) : <Frame html={shell.html} device={device} title="The new page" select={selectOpts} patch={patch} toolbar={toolbar} />
+                ) : <Frame html={shell.html} device={device} title="The new page" select={selectOpts} patch={patch} toolbar={toolbar} fit={fit} />
             ) : want.length === 2 ? (
               <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 2, alignItems: "start" }}>
                 {frameOf("before", held.before, busy.before, "Before")}

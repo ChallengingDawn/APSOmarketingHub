@@ -116,9 +116,9 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
   const steps: { key: Step; label: string }[] = [
     { key: "page", label: isNew ? "Page" : "Page" },
     ...(!isNew ? [{ key: "changes" as Step, label: d.changes.length ? `Changes · ${d.changes.length}` : "Changes" }] : []),
-    ...(sel ? [{ key: "element" as Step, label: "Selected" }] : []),
+    ...(sel ? [{ key: "element" as Step, label: "Element" }] : []),
     ...(holders ? [{ key: "texts" as Step, label: `Texts · ${holders - open}/${holders}` }] : []),
-    ...(!isNew ? [{ key: "test" as Step, label: d.abTest.enabled ? "A/B · on" : "A/B test" }] : []),
+    ...(!isNew ? [{ key: "test" as Step, label: d.abTest.enabled ? "A/B · on" : "A/B" }] : []),
     { key: "publish", label: "Magento" },
   ];
   const shown: Step = steps.some((s) => s.key === step) ? step : "page";

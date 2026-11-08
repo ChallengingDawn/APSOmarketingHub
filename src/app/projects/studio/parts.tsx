@@ -55,10 +55,12 @@ function Gutter({ onDrag, onEnd, onReset, label }: { onDrag: (dx: number) => voi
 }
 
 /** The three columns under the studio's bar, each scrolling on its own; the side ones resized by dragging their edge. */
-export function StudioPanes({ build, preview, assist, buildWidth = 380, assistWidth = 340, id = "studio" }: {
+export function StudioPanes({ build, preview, assist, buildWidth = 380, assistWidth = 340, id = "studio", hideBuild = false, hideAssist = false }: {
   build: React.ReactNode; preview: React.ReactNode; assist?: React.ReactNode; buildWidth?: number; assistWidth?: number;
   /** Keeps this studio's widths apart from another's. */
   id?: string;
+  /** A side column folded away (the preview takes its room) - on wide screens; a narrow one stacks them anyway. */
+  hideBuild?: boolean; hideAssist?: boolean;
 }) {
   const [bw, setBw, keepB] = usePaneWidth(`${id}:build`, buildWidth, 260, 760);
   const [aw, setAw, keepA] = usePaneWidth(`${id}:assist`, assistWidth, 260, 620);
@@ -66,19 +68,19 @@ export function StudioPanes({ build, preview, assist, buildWidth = 380, assistWi
   return (
     <Box sx={{
       display: "grid", gap: 1.5, p: 1.5, boxSizing: "border-box", height: { lg: `calc(100vh - ${STUDIO_BAR}px)` },
-      gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: assist ? `${bw}px 0 minmax(420px, 1fr) 0 ${aw}px` : `${bw}px 0 minmax(420px, 1fr)` },
+      gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: [hideBuild ? "" : `${bw}px 0`, "minmax(420px, 1fr)", assist && !hideAssist ? `0 ${aw}px` : ""].filter(Boolean).join(" ") },
     }}>
-      <Box sx={{ minHeight: 0, minWidth: 0, order: { xs: 2, lg: 1 } }}>{build}</Box>
-      <Box sx={{ order: { xs: 9, lg: 2 }, display: { xs: "none", lg: "block" } }}>
+      <Box sx={{ minHeight: 0, minWidth: 0, order: { xs: 2, lg: 1 }, display: { lg: hideBuild ? "none" : "block" } }}>{build}</Box>
+      <Box sx={{ order: { xs: 9, lg: 2 }, display: { xs: "none", lg: hideBuild ? "none" : "block" } }}>
         <Gutter label="Resize the build column" onDrag={(dx) => setBw((v) => clamp(v + dx, 260, 760))} onEnd={() => keepB(bw)} onReset={() => { setBw(buildWidth); keepB(buildWidth); }} />
       </Box>
       <Box sx={{ minHeight: 0, minWidth: 0, order: { xs: 1, lg: 3 } }}>{preview}</Box>
       {assist && (
-        <Box sx={{ order: { xs: 9, lg: 4 }, display: { xs: "none", lg: "block" } }}>
+        <Box sx={{ order: { xs: 9, lg: 4 }, display: { xs: "none", lg: hideAssist ? "none" : "block" } }}>
           <Gutter label="Resize the assistant" onDrag={(dx) => setAw((v) => clamp(v - dx, 260, 620))} onEnd={() => keepA(aw)} onReset={() => { setAw(assistWidth); keepA(assistWidth); }} />
         </Box>
       )}
-      {assist && <Box sx={{ minHeight: 0, minWidth: 0, order: { xs: 3, lg: 5 } }}>{assist}</Box>}
+      {assist && <Box sx={{ minHeight: 0, minWidth: 0, order: { xs: 3, lg: 5 }, display: { lg: hideAssist ? "none" : "block" } }}>{assist}</Box>}
     </Box>
   );
 }

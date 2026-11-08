@@ -258,6 +258,27 @@ export async function counterpartOf(raw: unknown, lang: string): Promise<{ ok: t
   return { ok: true, path, store: path ? classify(path).store : null };
 }
 
+/**
+ * A translated new page's links, moved to its own language: each shop page it links to, read once, gives its
+ * counterpart from its hreflang links (/de-CH/dichtungstechnik.html -> /fr-CH/technologie-de-l-etancheite.html).
+ * A page with no counterpart keeps its address (and is said).
+ */
+export async function relinkOf(raw: unknown, lang: string): Promise<{ map: Record<string, string>; missing: string[] }> {
+  const doc = pageDoc(raw);
+  const d = viewOf(doc, lang);
+  const f = d.fields;
+  const store = d.store;
+  const urls = [...new Set([f.hero.button.url, f.cta.button.url, ...f.links.map((l) => l.url)].filter((u) => /^\/[a-z]{2}-[A-Z]{2,3}\//.test(u) &&!u.startsWith(`/${store}/`)))].slice(0, 16);
+  const map: Record<string, string> = {};
+  const missing: string[] = [];
+  for (const u of urls) {
+    const r = await readPath(doc.env, u, false);
+    const to = r.ok ? counterpartIn(r.page.html, lang, store) : null;
+    if (to) map[u] = to; else missing.push(u);
+  }
+  return { map, missing };
+}
+
 /* ── the shop's pages, for the list to pick from ──────────────────────── */
 
 export type PageRow = { store: string; rest: string; kind: PageKind; product: string | null; name: string; path: string; env: Env; convert: { status: string; rev: number; idea: string } | null };
