@@ -194,6 +194,14 @@ const isDark = (hex: string) => {
   return 0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255) < 140;
 };
 
+/** How much to darken a photo put behind the page: enough for light words to read on it, nothing for dark words. */
+export function scrimFor(doc: DesignDocument): number {
+  const texts = doc.nodes.filter((n) => n.kind === "text" && !n.hidden);
+  if (!texts.length) return 30;
+  const light = texts.filter((n) => !isDark(n.fill.startsWith("#") && n.fill.length === 7 ? n.fill : "#000000")).length;
+  return light >= texts.length / 2 ? 40 : 0;
+}
+
 /** Whether the page reads as dark (white words, the white logo). */
 export function darkPage(doc: DesignDocument): boolean {
   const b = doc.background;
@@ -434,7 +442,11 @@ export function cleanWordsAnswer(raw: unknown): { blocks: { role: TextRole; text
 
 /** The words placed on the page: the texts there (not the logo) replaced, or added. */
 export function placeWords(page: DesignDocument, blocks: { role: TextRole; text: string }[], replace: boolean, mf: MeasureFor = estimateFor): DesignDocument {
-  const gone = (n: DesignNode) => n.kind === "text" || (n.kind === "rect" && !!n.groupId && page.nodes.some((t) => t.kind === "text" && t.groupId === n.groupId));
+  const { w: W, h: H } = page.canvas;
+  // the words, their buttons and kicker bars (grouped with them), and the thin red rules that only dress words
+  const gone = (n: DesignNode) => n.kind === "text"
+    || (n.kind === "rect" && !!n.groupId && page.nodes.some((t) => t.kind === "text" && t.groupId === n.groupId))
+    || (n.kind === "rect" && /^#d80901$/i.test(n.fill) && (n.height ?? 0) <= H * 0.012 && (n.width ?? 0) <= W * 0.15);
   const keep = replace ? page.nodes.filter((n) => !gone(n)) : page.nodes;
   // the new words start where the old ones did (the picture and the logo keep their places)
   const old = replace ? page.nodes.filter((n) => n.kind === "text") : [];

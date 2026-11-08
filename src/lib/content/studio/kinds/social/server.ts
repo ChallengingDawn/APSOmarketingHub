@@ -84,6 +84,8 @@ const CANVAS_RULES = [
 const WORDS_RULES = [
   "# THIS TASK: THE WORDS OF A SOCIAL POST'S DESIGN",
   "Write the words that go ON the picture of an APSOparts social post, from the person's description. Answer only in the JSON schema.",
+  "- The person's description says what the words are about: it wins over the project's brief and over the words on the design now (those are only context).",
+  "- A call to action names a real place or step (apsoparts.com, the shop, a search) - never a feature the description does not name.",
   "- Few words, as in our motion-graphics films: every word earns its place; sentence case, no exclamation marks, no emojis, no hashtags.",
   "- Mark the one or two key words of a text between *stars* - they are drawn in APSOparts red.",
   "- Never show a discount value. Never name Chemours. Never invent figures, prices, delivery times, certificates, customers or quotes - only what the description, the brief or the shop's real offer says.",

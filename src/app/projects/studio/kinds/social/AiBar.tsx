@@ -19,7 +19,7 @@ import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import UndoIcon from "@mui/icons-material/Undo";
 import CloseIcon from "@mui/icons-material/Close";
 
-import { planOps, type DesignAnswer } from "@/lib/content/studio/kinds/social/canvasAi";
+import { planOps, scrimFor, type DesignAnswer } from "@/lib/content/studio/kinds/social/canvasAi";
 import { pageFrom, setPageDoc, type SocialDesign } from "@/lib/content/studio/kinds/social/design";
 import { makePicture } from "../../pictures";
 import { T } from "./look";
@@ -69,7 +69,8 @@ export default function AiBar({ ctx }: { ctx: StudioCtx }) {
       return { ...x, design };
     });
     if (onCanvas) {
-      if (into === "background") c.canvas.current?.setBackground({ src: url, gradientId: null });
+      const scene = c.canvas.current?.scene();
+      if (into === "background") c.canvas.current?.setBackground({ src: url, gradientId: null, scrim: scene ? scrimFor(scene) : 30 });
       else c.canvas.current?.commit((nodes) => fillFrame(nodes, into.node, url, nat));
     }
   };
