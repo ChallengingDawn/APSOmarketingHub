@@ -18,7 +18,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import CloseIcon from "@mui/icons-material/Close";
+import FormatBoldIcon from "@mui/icons-material/FormatBold";
 import { HAIRLINE } from "@/app/uc/report/ui";
+import { htmlToMarks, type RichMode } from "@/lib/content/studio/kinds/blog/richEdit";
 
 export type Device = "desktop" | "mobile";
 export type Rect = { left: number; top: number; width: number; height: number };
@@ -26,8 +33,8 @@ export type Rect = { left: number; top: number; width: number; height: number };
 const STUDIO_CSS = `[data-ed],[data-pic],[data-sel]{cursor:pointer;transition:outline-color .12s,background-color .12s}
 [data-ed]{cursor:text}
 a[data-ed],a [data-ed],[data-ed] a{pointer-events:auto!important}
-[data-x-hov]{outline:2px dashed rgba(36,89,209,.55)!important;outline-offset:3px}
-[data-x-sel]{outline:2px solid #2459d1!important;outline-offset:3px}
+[data-x-hov]{outline:2px dashed rgba(194,44,110,.45)!important;outline-offset:3px}
+[data-x-sel]{outline:2px solid #c22c6e!important;outline-offset:3px}
 [data-x-edit]{outline:2px solid #c22c6e!important;outline-offset:3px;background-color:rgba(194,44,110,.045)!important;cursor:text!important}
 [data-x-busy]{animation:xbusy 1.3s ease-in-out infinite}
 @keyframes xbusy{0%,100%{outline:2px solid rgba(194,44,110,.2);outline-offset:3px}50%{outline:2px solid rgba(194,44,110,.85);outline-offset:6px}}`;
@@ -67,15 +74,24 @@ export type EditFrameProps = {
   focus?: { key: string; at: number } | null;
   /** a part whose words to start editing (a section just added: its heading), and when it was asked */
   editKey?: { key: string; at: number } | null;
-  /** the part the assistant is working on: its outline breathes */
+  /** the part the assistant is working on: its outline breathes ("*": the whole thing is being written - every part) */
   busy?: string | null;
   /** drawn over the page at the parts' places (pointer events on its own controls) */
   overlay?: (o: { rect: (selector: string) => Rect | null; zoom: number; tick: number }) => React.ReactNode;
   /** the frame's chrome: a phone's rounded edge and shadow */
   framed?: boolean;
+  /** parts edited AS they look (bold bold, red red - Content v4): how their words are kept ("inline" or "blocks"); the
+   *  others are edited as plain words */
+  rich?: (key: string) => RichMode | null;
+  /** the red key word (==...==) and slanted words exist here (the blog; a newsletter knows bold and links only) */
+  redMarks?: boolean;
+  /** the small dark label over the picked part: its name ("<Part> · Ask AI · x"); null: no label */
+  label?: (key: string) => string | null;
+  /** "Ask AI" in the label: the assistant's box, for the part picked */
+  onAskAi?: () => void;
 };
 
-export function EditFrame({ html, device, width, title, texts, oneLine, selected, onSelect, onCommit, readOnly, focus, editKey, busy, overlay, framed = true }: EditFrameProps) {
+export function EditFrame({ html, device, width, title, texts, oneLine, selected, onSelect, onCommit, readOnly, focus, editKey, busy, overlay, framed = true, rich, redMarks, label, onAskAi }: EditFrameProps) {
   const box = useRef<HTMLDivElement | null>(null);
   const frame = useRef<HTMLIFrameElement | null>(null);
   const [src, setSrc] = useState(html);
@@ -85,14 +101,16 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
   const w = device === "mobile" ? 390 : width;
 
   // the latest of everything, for the listeners on the page (set once per document)
-  const props = useRef({ texts, oneLine, onSelect, onCommit, readOnly, selected });
-  props.current = { texts, oneLine, onSelect, onCommit, readOnly, selected };
+  const props = useRef({ texts, oneLine, onSelect, onCommit, readOnly, selected, rich, redMarks });
+  props.current = { texts, oneLine, onSelect, onCommit, readOnly, selected, rich, redMarks };
+  /** the part being edited, for the label's buttons */
+  const [edKey, setEdKey] = useState<string | null>(null);
   const want = useRef(html);
   const head = useRef(split(html).head);
   /** the document the listeners and the page are in (a reloaded frame is a new one) */
   const readyDoc = useRef<Document | null>(null);
   const lastBody = useRef<string | null>(null);
-  const editing = useRef<{ el: HTMLElement; key: string; raw: string; html: string; swapped: boolean } | null>(null);
+  const editing = useRef<{ el: HTMLElement; key: string; raw: string; html: string; swapped: boolean; mode: RichMode | null } | null>(null);
   /** a change kept, its new page not laid in yet */
   const stale = useRef(false);
   /** the part to edit once the page is laid in, and where it was clicked */
@@ -123,7 +141,8 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
     d.querySelectorAll("[data-x-busy]").forEach((x) => x.removeAttribute("data-x-busy"));
     const s = props.current.selected;
     if (s) marked(d, s).forEach((x) => { if (!x.hasAttribute("data-x-edit")) x.setAttribute("data-x-sel", ""); });
-    if (busyRef.current) marked(d, busyRef.current).forEach((x) => x.setAttribute("data-x-busy", ""));
+    if (busyRef.current === "*") d.querySelectorAll("[data-ed],[data-pic]").forEach((x) => x.setAttribute("data-x-busy", ""));
+    else if (busyRef.current) marked(d, busyRef.current).forEach((x) => x.setAttribute("data-x-busy", ""));
   }, []);
   const busyRef = useRef(busy);
   busyRef.current = busy;
@@ -134,16 +153,22 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
     const d = el.ownerDocument;
     const raw = props.current.texts(key);
     if (raw === null) return;
-    const swapped = norm(raw) !== norm(el.innerText ?? "");
+    // edited as it looks (bold bold, red red): the drawn words themselves; else the words as written
+    const mode = props.current.rich?.(key) ?? null;
+    const swapped = !mode && norm(raw) !== norm(el.innerText ?? "");
     const before = el.innerHTML;
     if (swapped) { el.textContent = raw; el.style.whiteSpace = "pre-wrap"; }
     el.removeAttribute("data-x-sel");
     el.removeAttribute("data-x-hov");
     el.setAttribute("data-x-edit", "");
-    try { el.contentEditable = "plaintext-only"; } catch { el.contentEditable = "true"; }
-    if (el.contentEditable !== "plaintext-only" && el.contentEditable !== "true") el.contentEditable = "true";
+    if (mode) el.contentEditable = "true";
+    else {
+      try { el.contentEditable = "plaintext-only"; } catch { el.contentEditable = "true"; }
+      if (el.contentEditable !== "plaintext-only" && el.contentEditable !== "true") el.contentEditable = "true";
+    }
     el.spellcheck = true;
-    editing.current = { el, key, raw, html: before, swapped };
+    editing.current = { el, key, raw, html: before, swapped, mode };
+    setEdKey(key);
     el.focus({ preventScroll: true });
     const sel = d.getSelection();
     if (!sel) return;
@@ -183,7 +208,10 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
     const e = editing.current;
     if (!e) return;
     editing.current = null;
-    const text = (e.el.innerText ?? "").replace(/ /g, " ").replace(/\n+$/, "");
+    setEdKey(null);
+    // a part edited as it looks and left as it was: nothing to keep (its markdown is not written again)
+    const same = !!e.mode && e.el.innerHTML === e.html;
+    const text = same ? e.raw : e.mode ? htmlToMarks(e.el.innerHTML, e.mode) : (e.el.innerText ?? "").replace(/ /g, " ").replace(/\n+$/, "");
     e.el.removeAttribute("contenteditable");
     e.el.removeAttribute("data-x-edit");
     e.el.style.whiteSpace = "";
@@ -264,7 +292,21 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
         const e = editing.current;
         if (!e) return;
         if (ev.key === "Escape") { ev.preventDefault(); end(false); return; }
-        if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey || props.current.oneLine?.(e.key))) { ev.preventDefault(); end(true); }
+        if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey || props.current.oneLine?.(e.key))) { ev.preventDefault(); end(true); return; }
+        // words edited as they look: Ctrl+B bold, Ctrl+E a red key word (the blog), Ctrl+I slanted (the blog); nothing
+        // the part cannot keep (underline)
+        if (e.mode && (ev.ctrlKey || ev.metaKey) && !ev.altKey) {
+          const k = ev.key.toLowerCase();
+          if (k === "e") { ev.preventDefault(); if (props.current.redMarks) toggleRed(d); }
+          else if (k === "u" || (k === "i" && !props.current.redMarks)) ev.preventDefault();
+        }
+      }, true);
+      // a paste brings words, never another page's look
+      d.addEventListener("paste", (ev) => {
+        const e = editing.current;
+        if (!e?.mode || !ev.clipboardData) return;
+        ev.preventDefault();
+        d.execCommand("insertText", false, ev.clipboardData.getData("text/plain"));
       }, true);
       // the focus left the page (a click in the studio around it): the words are kept
       d.addEventListener("focusout", (ev) => {
@@ -314,6 +356,11 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
 
   const zoom = Math.min(1, (avail - 8) / w);
   const mobile = device === "mobile";
+  // the picked part's place, for its label (read again on every draw of the page: tick)
+  const selEl = selected && label ? (() => { const dd = doc(); return dd ? marked(dd, selected)[0] ?? null : null; })() : null;
+  const selName = selected && label ? label(selected) : null;
+  const selBox = selEl && selName ? (() => { const r = selEl.getBoundingClientRect(); return { left: r.left * zoom, top: r.top * zoom, width: r.width * zoom }; })() : null;
+  const richOn = !!edKey && !!editing.current?.mode;
   const rect = (selector: string): Rect | null => {
     const el = doc()?.querySelector(selector);
     if (!el) return null;
@@ -332,8 +379,61 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
           <iframe ref={frame} title={title} srcDoc={src} sandbox="allow-same-origin" onLoad={onLoad}
             style={{ width: w, height, border: 0, transform: `scale(${zoom})`, transformOrigin: "0 0", display: "block", background: "#fff" }} />
         </Box>
-        {overlay && <Box sx={{ position: "absolute", left: 0, top: 0, width: w * zoom, height: height * zoom, pointerEvents: "none" }}>{overlay({ rect, zoom, tick })}</Box>}
+        {overlay && <Box data-x-overlay="" sx={{ position: "absolute", left: 0, top: 0, width: w * zoom, height: height * zoom, pointerEvents: "none" }}>{overlay({ rect, zoom, tick })}</Box>}
+        {selBox && selName && (
+          <SelLabel name={selName} left={Math.max(0, Math.min(selBox.left, w * zoom - 330))} top={Math.max(-34, selBox.top - 34)}
+            rich={richOn} red={!!redMarks} onBold={() => { doc()?.execCommand("bold"); }} onRed={() => { const dd = doc(); if (dd) toggleRed(dd); }}
+            onAi={onAskAi} onClose={() => { if (editing.current) end(true); onSelect(null); }} />
+        )}
       </Box>
+    </Box>
+  );
+}
+
+/** A red key word (==...==) on the words picked while editing - or, inside one, the red taken off. */
+function toggleRed(d: Document) {
+  const sel = d.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const r = sel.getRangeAt(0);
+  const c = r.commonAncestorContainer;
+  const host = (c.nodeType === 1 ? (c as Element) : c.parentElement)?.closest("mark");
+  if (host) {
+    const parent = host.parentNode;
+    if (!parent) return;
+    while (host.firstChild) parent.insertBefore(host.firstChild, host);
+    parent.removeChild(host);
+    return;
+  }
+  if (r.collapsed) return;
+  const m = d.createElement("mark");
+  m.appendChild(r.extractContents());
+  r.insertNode(m);
+  sel.removeAllRanges();
+  const nr = d.createRange();
+  nr.selectNodeContents(m);
+  sel.addRange(nr);
+}
+
+/** The small dark label over the picked part (the flow standard): its name, Ask AI, x - and while its words are edited
+ *  as they look, Bold and Red. Mouse-down keeps the focus (and the words picked) in the page. */
+function SelLabel({ name, left, top, rich, red, onBold, onRed, onAi, onClose }: {
+  name: string; left: number; top: number; rich: boolean; red: boolean; onBold: () => void; onRed: () => void; onAi?: () => void; onClose: () => void;
+}) {
+  const b = { textTransform: "none" as const, fontWeight: 600, color: "#fff", minWidth: 0, px: 0.9, py: 0.2, fontSize: "0.74rem", borderRadius: "4px", lineHeight: 1.6, whiteSpace: "nowrap" as const, "&:hover": { bgcolor: "rgba(255,255,255,.14)" } };
+  return (
+    <Box onMouseDown={(e) => e.preventDefault()} sx={{
+      position: "absolute", left, top, zIndex: 4, display: "inline-flex", alignItems: "center", gap: 0.25, height: 28, px: 0.5,
+      bgcolor: "#15223a", color: "#fff", borderRadius: "6px", boxShadow: "0 8px 22px rgba(21,34,58,.3)", pointerEvents: "auto", maxWidth: 330,
+    }}>
+      <Box component="span" sx={{ fontSize: "0.74rem", fontWeight: 700, px: 0.75, color: "rgba(255,255,255,.82)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150 }}>{name}</Box>
+      {rich && (
+        <>
+          <Tooltip title="Bold (Ctrl+B)"><Button size="small" onClick={onBold} sx={b} aria-label="Bold"><FormatBoldIcon sx={{ fontSize: 16 }} /></Button></Tooltip>
+          {red && <Tooltip title="A key word in red (Ctrl+E)"><Button size="small" onClick={onRed} sx={{ ...b, color: "#ff8a85", fontWeight: 800 }}>Red</Button></Tooltip>}
+        </>
+      )}
+      {onAi && <Button size="small" onClick={onAi} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: "14px !important" }} />} sx={{ ...b, "& .MuiButton-startIcon": { mr: 0.4 } }}>Ask AI</Button>}
+      <IconButton size="small" onClick={onClose} aria-label="Unselect" sx={{ color: "rgba(255,255,255,.7)", p: 0.4 }}><CloseIcon sx={{ fontSize: 15 }} /></IconButton>
     </Box>
   );
 }

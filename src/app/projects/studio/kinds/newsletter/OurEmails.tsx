@@ -93,7 +93,7 @@ export function OurEmails({ api, open, onClose, onStart, onLearn, language }: {
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xl" slotProps={{ paper: { sx: { borderRadius: "14px", height: "88vh" } } }}>
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xl" slotProps={{ paper: { sx: { borderRadius: "14px", height: "88vh", overflow: "hidden" } } }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, px: 2.5, py: 1.5, borderBottom: `1px solid ${HAIRLINE}` }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK }}>Our e-mails</Typography>
@@ -101,19 +101,19 @@ export function OurEmails({ api, open, onClose, onStart, onLearn, language }: {
         </Box>
         <IconButton aria-label="Close" onClick={onClose}><CloseIcon /></IconButton>
       </Box>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(360px, 440px) minmax(0, 1fr)" }, minHeight: 0, flex: 1 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(360px, 440px) minmax(0, 1fr)" }, minHeight: 0, minWidth: 0, flex: 1, overflow: "hidden" }}>
         {/* the list */}
-        <Box sx={{ borderRight: `1px solid ${HAIRLINE}`, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <Box sx={{ borderRight: `1px solid ${HAIRLINE}`, display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0 }}>
           <Box sx={{ p: 1.5, display: "grid", gap: 1, borderBottom: `1px solid ${HAIRLINE}` }}>
             <TextField size="small" placeholder="Search the subjects" value={q} onChange={(e) => setQ(e.target.value)} sx={field} />
             <SquareChoice value={kind} onChange={setKind} options={[{ key: "campaign", label: "Newsletters & features" }, { key: "all", label: "Every e-mail" }]} />
             <SquareChoice label="Language" value={lang} onChange={setLang} options={[{ key: "ALL", label: "All" }, ...langs.map((l) => ({ key: l, label: l }))]} />
           </Box>
-          <Box sx={{ overflow: "auto", flex: 1, p: 1.25, display: "grid", gap: 1, alignContent: "start" }}>
+          <Box sx={{ overflowY: "auto", overflowX: "hidden", flex: 1, p: 1.25, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1, alignContent: "start" }}>
             {!groups && <Box sx={{ display: "flex", alignItems: "center", gap: 1, color: MUTED, p: 2 }}><CircularProgress size={16} /> Reading HubSpot…</Box>}
             {groups && shown.length === 0 && <Typography sx={{ fontSize: "0.85rem", color: MUTED, p: 1.5 }}>{why ?? "No e-mail matches."}</Typography>}
             {shown.map((g) => (
-              <Box key={g.key} sx={{ p: 1.25, borderRadius: "10px", border: `1px solid ${g.variants.some((v) => v.id === showing?.id) ? "#2459d1" : HAIRLINE}`, bgcolor: "#fff" }}>
+              <Box key={g.key} sx={{ minWidth: 0, p: 1.25, borderRadius: "10px", border: `1px solid ${g.variants.some((v) => v.id === showing?.id) ? "#2459d1" : HAIRLINE}`, bgcolor: "#fff" }}>
                 <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{day(g.date)}{g.kind !== "campaign" ? ` · ${g.kind === "survey" ? "survey" : "service e-mail"}` : ""}</Typography>
                 <Typography sx={{ fontSize: "0.9rem", fontWeight: 650, color: INK, lineHeight: 1.3, mb: 0.75 }}>{g.label}</Typography>
                 <Box sx={{ display: "grid", gap: 0.4 }}>
@@ -137,7 +137,7 @@ export function OurEmails({ api, open, onClose, onStart, onLearn, language }: {
           </Box>
         </Box>
         {/* the one picked, as it went out */}
-        <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, bgcolor: "#eef1f6" }}>
+        <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0, bgcolor: "#eef1f6" }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2, py: 1.25, borderBottom: `1px solid ${HAIRLINE}`, bgcolor: "#fff" }}>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography sx={{ fontSize: "0.9rem", fontWeight: 650, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{showing?.subject ?? "Pick an e-mail"}</Typography>

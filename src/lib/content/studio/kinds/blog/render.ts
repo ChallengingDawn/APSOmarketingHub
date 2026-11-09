@@ -393,7 +393,7 @@ function figure(p: BlogPicture, o: PostOpts, cls: string, key: string, open = fa
   if (!u) {
     if (!o.edit || !(open || p.prompt.trim())) return "";
     const what = cls === "apx-hero" ? "The post's picture" : "A picture";
-    return `<figure class="${cls} apx-ph"${mark}><span class="apx-ph-box"><b>${what}</b>${p.prompt.trim() ? `<span>${esc(p.prompt.trim().slice(0, 220))}</span>` : ""}<i>Click to make it or upload one</i></span></figure>`;
+    return `<figure class="${cls} apx-ph"${mark}><span class="apx-ph-box"><b>${what}</b>${p.prompt.trim() ? `<span>${esc(p.prompt.trim().slice(0, 220))}</span>` : ""}<i>Click - make it or upload one</i></span></figure>`;
   }
   const cap = p.caption.trim() ? `<figcaption${ed(o, `${key}:cap`)}>${esc(p.caption.trim())}</figcaption>` : "";
   // the post's own picture is the first thing seen - never lazy
@@ -507,7 +507,7 @@ const EDIT_CSS = `.apx-post .apx-ph{position:relative;margin:36px 0;aspect-ratio
 .apx-post .apx-ph-box{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:520px;padding:24px;font-family:system-ui,sans-serif}
 .apx-post .apx-ph-box b{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#4a5257}
 .apx-post .apx-ph-box span{font-size:15px;line-height:1.5;color:#5f6a70;font-style:italic}
-.apx-post .apx-ph-box i{font-style:normal;font-size:14px;font-weight:600;color:#fff;background:#2459d1;padding:8px 14px;border-radius:4px;margin-top:4px}
+.apx-post .apx-ph-box i{font-style:normal;font-size:14px;font-weight:600;color:#fff;background:#c22c6e;padding:8px 14px;border-radius:4px;margin-top:4px}
 .apx-blog .apx-ghost{color:#9aa4ab!important;font-style:italic}
 .apx-post .apx-slot-sec{border:2px dashed #c9d1d6;padding:22px 26px;margin-top:48px}
 .apx-post .apx-slot-sec h2{margin:0 0 6px;font-size:22px;color:#5f6a70}

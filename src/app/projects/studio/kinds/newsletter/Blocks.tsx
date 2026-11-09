@@ -11,6 +11,7 @@
 import { useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Collapse from "@mui/material/Collapse";
 import IconButton from "@mui/material/IconButton";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
@@ -18,6 +19,9 @@ import Popover from "@mui/material/Popover";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
@@ -27,9 +31,10 @@ import {
   BLOCK_HINT, BLOCK_LABEL, OUR_LOGO, TEMPLATES, blockOf, isOurLogo, newBlock, pictureIdea,
   type Block, type BlockKind, type NewsletterDoc,
 } from "@/lib/content/studio/kinds/newsletter/model";
-import { Field, Label, Pane } from "../../parts";
+import { Field, Label, PINK, Pane, btn } from "../../parts";
 import { PicturePanel } from "../../pictures";
 import type { StudioApi } from "../../useStudio";
+import { StateMark } from "../blog/Outline";
 import { BLUE, Hint, PictureSlot, toolBtn } from "../blog/ui";
 import { BlockThumb, LayoutThumb } from "./thumbs";
 
@@ -95,6 +100,14 @@ const summary = (b: Block): string => {
     default: return "";
   }
 };
+/** A block's state in the map: written, empty, or its picture missing. */
+const stateOf = (b: Block): { state: "done" | "todo"; picture: boolean } => {
+  const words = b.kind === "hero" ? !!b.headline.trim() : b.kind === "article" ? !!(b.title.trim() || b.text.trim()) : b.kind === "text" ? !!b.text.trim()
+    : b.kind === "cta" ? !!b.button.label.trim() : b.kind === "products" ? b.items.some((x) => x.name.trim()) : true;
+  const needsPic = b.kind === "hero" || b.kind === "article" || b.kind === "banner";
+  const pic = needsPic && "imageUrl" in b && !b.imageUrl;
+  return { state: words && !pic ? "done" : "todo", picture: pic && words };
+};
 const picOf = (b: Block) => ("imageUrl" in b && b.imageUrl ? b.imageUrl : b.kind === "products" ? b.items.find((x) => x.imageUrl)?.imageUrl ?? "" : "");
 
 /** A new block of a kind, made in the newsletter's language (a story with its picture's side). */
@@ -103,19 +116,27 @@ export function made(d: NewsletterDoc, k: BlockKind, layout?: "stacked" | "left"
   return nb.kind === "article" && layout ? { ...nb, layout } : nb;
 }
 
-export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout, out }: {
-  d: NewsletterDoc; set: (d: NewsletterDoc) => void; sel: string | null; onPick: (id: string) => void; canEdit: boolean;
+export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout, out, fields, startCard, onWriteAll, busy }: {
+  d: NewsletterDoc; set: (d: NewsletterDoc) => void; sel: string | null; onPick: (id: string | null) => void; canEdit: boolean;
   /** opens the gallery at a place */
   onAdd: (el: HTMLElement, at: number) => void;
   onOurs?: () => void; onLayout: (key: string) => void;
-  /** the way out, under the blocks */
+  /** the way out: the last step's own view */
   out: React.ReactNode;
+  /** the picked block's own fields (its picture, where its button goes, a story's side) - under its row */
+  fields?: React.ReactNode;
+  /** the start card, while nothing is written */
+  startCard?: React.ReactNode;
+  /** "Write it all again" in the header, once something is written */
+  onWriteAll?: () => void;
+  /** the block the assistant is writing ("all": the whole e-mail) */
+  busy?: string | null;
 }) {
   const [drag, setDrag] = useState<number | null>(null);
   const [dropAt, setDropAt] = useState<number | null>(null);
   const [start, setStart] = useState<HTMLElement | null>(null);
   const [layouts, setLayouts] = useState<HTMLElement | null>(null);
-  const [showOut, setShowOut] = useState(false);
+  const [step, setStep] = useState<"blocks" | "out">("blocks");
   const addRef = useRef<HTMLButtonElement | null>(null);
   const on = blockOf(sel);
   const moveTo = (from: number, to: number) => {
@@ -125,9 +146,26 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
     blocks.splice(to > from ? to - 1 : to, 0, b);
     set({ ...d, blocks });
   };
+  /* ── the last step, as its own view ── */
+  if (step === "out") {
+    return (
+      <Pane title="Blocks" pad={false}>
+        <Box sx={{ p: 2 }}>
+          <Button size="small" startIcon={<ArrowBackIcon sx={{ fontSize: 17 }} />} onClick={() => setStep("blocks")} sx={{ ...btn, color: INK, px: 0.5, ml: -0.5, mb: 1.25 }}>Blocks</Button>
+          <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: PINK }}>Last step</Typography>
+          <Typography sx={{ fontSize: "1.05rem", fontWeight: 750, color: INK, mb: 1.5, letterSpacing: "-0.01em" }}>Send it out</Typography>
+          {out}
+        </Box>
+      </Pane>
+    );
+  }
+  const linkBtn = { ...btn, minWidth: 0, px: 0.75, py: 0.1, fontSize: "0.74rem", color: PINK, "& .MuiButton-startIcon": { mr: 0.4 } };
   return (
     <Pane title="Blocks" right={canEdit ? (
-      <Button size="small" endIcon={<KeyboardArrowDownIcon sx={{ fontSize: 16 }} />} onClick={(e) => setStart(e.currentTarget)} sx={toolBtn}>Start from</Button>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
+        {onWriteAll && <Tooltip title="The assistant writes the whole e-mail again from the brief - Undo brings this one back"><Button size="small" disabled={!!busy} onClick={onWriteAll} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: "14px !important" }} />} sx={linkBtn}>Write it all again</Button></Tooltip>}
+        <Tooltip title="Start from one of our e-mails, or a layout"><Button size="small" onClick={(e) => setStart(e.currentTarget)} sx={{ ...linkBtn, color: MUTED, px: 0.5 }} aria-label="Start from"><KeyboardArrowDownIcon sx={{ fontSize: 18 }} /></Button></Tooltip>
+      </Box>
     ) : undefined} pad={false}>
       <Menu anchorEl={start} open={!!start} onClose={() => setStart(null)} slotProps={{ paper: { sx: { borderRadius: "8px" } } }}>
         {onOurs && <MenuItem dense onClick={() => { setStart(null); onOurs(); }}>One of our e-mails…</MenuItem>}
@@ -141,40 +179,48 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
 
       <Box sx={{ p: 1.25 }} onDragOver={(e) => { if (drag !== null) e.preventDefault(); }}
         onDrop={(e) => { e.preventDefault(); if (drag !== null && dropAt !== null) moveTo(drag, dropAt); setDrag(null); setDropAt(null); }}>
+        {startCard}
         {d.blocks.map((b, i) => {
           const active = on === b.id;
           const pic = picOf(b);
+          const st = stateOf(b);
           return (
             <Box key={b.id} sx={{ position: "relative" }}>
               {dropAt === i && drag !== null && <Box sx={{ position: "absolute", left: 6, right: 6, top: -2, height: 2, bgcolor: BLUE, borderRadius: 1 }} />}
-              <Box role="button" tabIndex={0} draggable={canEdit} onClick={() => onPick(b.id)} onKeyDown={(e) => { if (e.key === "Enter") onPick(b.id); }}
+              <Box role="button" tabIndex={0} aria-expanded={active} draggable={canEdit} onClick={() => onPick(active ? null : b.id)} onKeyDown={(e) => { if (e.key === "Enter") onPick(active ? null : b.id); }}
                 onDragStart={(e) => { setDrag(i); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", b.id); }}
                 onDragEnd={() => { setDrag(null); setDropAt(null); }}
                 onDragOver={(e) => { if (drag === null) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setDropAt(e.clientY < r.top + r.height / 2 ? i : i + 1); }}
                 sx={{
                   display: "flex", alignItems: "center", gap: 1, p: 0.75, pr: 0.5, mb: 0.5, borderRadius: "6px", cursor: "pointer", opacity: drag === i ? 0.4 : 1,
-                  border: `1px solid ${active ? BLUE : "transparent"}`, bgcolor: active ? "rgba(36,89,209,.06)" : "transparent",
-                  "&:hover": { bgcolor: active ? "rgba(36,89,209,.08)" : "rgba(21,34,58,.04)" }, "&:hover .grip, &:hover .tools": { opacity: 1 },
+                  border: `1px solid ${active ? "rgba(194,44,110,.35)" : "transparent"}`, bgcolor: active ? "rgba(194,44,110,.06)" : "transparent",
+                  "&:hover": { bgcolor: active ? "rgba(194,44,110,.08)" : "rgba(21,34,58,.04)" }, "&:hover .grip, &:hover .tools": { opacity: 1 },
                 }}>
                 {canEdit && <DragIndicatorIcon className="grip" sx={{ fontSize: 16, color: "#a7b0bb", opacity: 0.4, cursor: "grab", flexShrink: 0 }} />}
+                <StateMark state={st.state} picture={st.picture} busy={busy === "all" || busy === b.id} />
                 <Box sx={{ width: 52, height: 34, flexShrink: 0, bgcolor: "#eef1f3", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", border: `1px solid ${HAIRLINE}` }}>
                   {pic ? <Box component="img" src={pic} alt="" sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
                     : b.kind === "header" ? <Box component="img" src={isOurLogo(b.logoUrl) ? OUR_LOGO : b.logoUrl} alt="" sx={{ width: "100%", height: "100%", objectFit: "contain", bgcolor: "#fff" }} />
                     : <BlockThumb kind={b.kind} layout={b.kind === "article" ? b.layout : undefined} w={48} />}
                 </Box>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: active ? BLUE : MUTED, textTransform: "uppercase", letterSpacing: "0.06em" }}>{BLOCK_LABEL[b.kind]}</Typography>
+                  <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: active ? PINK : MUTED, textTransform: "uppercase", letterSpacing: "0.06em" }}>{BLOCK_LABEL[b.kind]}</Typography>
                   <Typography sx={{ fontSize: "0.84rem", color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{summary(b)}</Typography>
                 </Box>
                 {canEdit && (
                   <Tooltip title="Remove the block">
-                    <IconButton className="tools" size="small" aria-label="Remove the block" sx={{ opacity: active ? 1 : 0 }}
+                    <IconButton className="tools" size="small" aria-label="Remove the block" sx={{ display: active ? "inline-flex" : "none", p: 0.25 }}
                       onClick={(e) => { e.stopPropagation(); set({ ...d, blocks: d.blocks.filter((x) => x.id !== b.id) }); }}>
                       <DeleteOutlineIcon sx={{ fontSize: 16 }} />
                     </IconButton>
                   </Tooltip>
                 )}
+                <KeyboardArrowDownIcon sx={{ fontSize: 18, color: active ? PINK : "#a7b0bb", flexShrink: 0, transform: active ? "rotate(180deg)" : "none", transition: "transform .18s" }} />
               </Box>
+              {/* the picked block's own fields, under its row (one open at a time) */}
+              <Collapse in={active && !!fields} timeout={200} unmountOnExit>
+                <Box sx={{ ml: 0.5, mr: 0.25, mt: 0.25, mb: 1.25, p: 1.25, borderRadius: "8px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>{active ? fields : null}</Box>
+              </Collapse>
             </Box>
           );
         })}
@@ -183,20 +229,18 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
           <Button ref={addRef} size="small" fullWidth startIcon={<AddIcon />} sx={{ ...toolBtn, height: 34, mt: 0.5 }}
             onClick={(e) => { const f = d.blocks.findIndex((x) => x.kind === "footer"); onAdd(e.currentTarget, f >= 0 ? f : d.blocks.length); }}>Add a block</Button>
         )}
-        <Hint mt={1}>Drag to move. In the e-mail: click a block to pick it, click its words to edit them.</Hint>
+        <Hint mt={1}>Drag to move - here, or by the handle beside the block picked in the e-mail. Click its words there to edit them.</Hint>
       </Box>
 
-      {/* the way out stays at the foot of the column, however long the e-mail */}
-      <Box sx={{ position: "sticky", bottom: 0, zIndex: 2, borderTop: `1px solid ${HAIRLINE}`, px: 1.25, py: 1, bgcolor: "rgba(250,251,252,.97)", backdropFilter: "blur(6px)" }}>
-        {showOut && <Box sx={{ px: 0.75, pt: 0.5, pb: 1.25, maxHeight: "55vh", overflowY: "auto" }}>{out}</Box>}
-        <Box role="button" tabIndex={0} onClick={() => setShowOut((v) => !v)} onKeyDown={(e) => { if (e.key === "Enter") setShowOut((v) => !v); }}
-          sx={{ display: "flex", alignItems: "center", gap: 1, px: 0.75, py: 0.75, borderRadius: "6px", cursor: "pointer", "&:hover": { bgcolor: "rgba(21,34,58,.05)" } }}>
-          <Box sx={{ flex: 1 }}>
-            <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>Send it out</Typography>
-            <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>The checks, the HTML, a HubSpot draft</Typography>
+      {/* the last step, always in view at the foot of the column */}
+      <Box sx={{ position: "sticky", bottom: 0, zIndex: 2, px: 1.5, py: 1.25, borderTop: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.94)", backdropFilter: "blur(6px)" }}>
+        <Button fullWidth variant="contained" disableElevation onClick={() => setStep("out")} endIcon={<ArrowForwardIcon sx={{ fontSize: 18 }} />}
+          sx={{ ...btn, height: 40, borderRadius: "8px", bgcolor: "#15223a", color: "#fff", justifyContent: "space-between", px: 1.75, "&:hover": { bgcolor: "#24344f" } }}>
+          <Box component="span" sx={{ display: "inline-flex", alignItems: "baseline", gap: 1 }}>
+            <Box component="span" sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "rgba(255,255,255,.6)" }}>Last step</Box>
+            Send it out
           </Box>
-          <KeyboardArrowDownIcon sx={{ fontSize: 18, color: MUTED, transform: showOut ? "none" : "rotate(180deg)", transition: "transform .15s" }} />
-        </Box>
+        </Button>
       </Box>
     </Pane>
   );
@@ -205,7 +249,12 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
 type Where = { projectId: number; pieceId: number; me: string };
 
 /** What the picked block needs besides its words: its picture, where its button goes, a story's side, the logo. */
-export function BlockTools({ b, set, disabled, where, picked }: { b: Block; set: (b: Block) => void; disabled: boolean; where: Where; picked: string | null }) {
+export function BlockTools({ b, set, disabled, where, picked, patch, onMaking }: {
+  b: Block; set: (b: Block) => void; disabled: boolean; where: Where; picked: string | null;
+  /** fields changed on the block as it is when they land (a picture comes up to 40 s later) */
+  patch?: (id: string, p: Partial<Block>) => void;
+  onMaking?: (key: string | null) => void;
+}) {
   const [otherLogo, setOtherLogo] = useState(false);
   const pic = (aspect: "16:9" | "1:1" | "3:2") => {
     if (!("imageUrl" in b)) return null;
@@ -213,7 +262,8 @@ export function BlockTools({ b, set, disabled, where, picked }: { b: Block; set:
       <Box sx={{ mb: 1.25 }}>
         <Label mt={0}>Its picture</Label>
         <PictureSlot url={b.imageUrl} alt={b.imageAlt} aspect={aspect} suggestion={pictureIdea(b)} disabled={disabled} startOpen={picked === `${b.id}:image` || !b.imageUrl} {...where}
-          onPick={(p) => set({ ...b, imageUrl: p.url, imageAlt: b.imageAlt || (b.kind === "hero" ? b.headline : b.kind === "article" ? b.title : ""), imagePrompt: p.prompt ?? ("imagePrompt" in b ? b.imagePrompt : "") } as Block)}
+          onMaking={(on) => onMaking?.(on ? `${b.id}:image` : null)}
+          onPick={(p) => { const f = { imageUrl: p.url, imageAlt: b.imageAlt || (b.kind === "hero" ? b.headline : b.kind === "article" ? b.title : ""), imagePrompt: p.prompt ?? ("imagePrompt" in b ? b.imagePrompt : "") } as Partial<Block>; if (patch) patch(b.id, f); else set({ ...b, ...f } as Block); }}
           onAlt={(alt) => set({ ...b, imageAlt: alt } as Block)} onRemove={() => set({ ...b, imageUrl: "" } as Block)} altLabel="What it shows (inboxes that hide pictures show this)" />
       </Box>
     );
@@ -269,7 +319,7 @@ export function BlockTools({ b, set, disabled, where, picked }: { b: Block; set:
       })}
     </>;
     case "banner": return <>{pic("16:9")}{link("Where it leads", b.url, (v) => set({ ...b, url: v }))}<Hint>600 px wide - a Banner to-do of this project can make it too.</Hint></>;
-    case "text": return <Hint mt={0}>Its words are edited in the e-mail: **bold**, [a link](https://…), a blank line for a new paragraph.</Hint>;
+    case "text": return <Hint mt={0}>Its words are edited in the e-mail, as they look: pick words and B in the label over them (Ctrl+B) makes them bold; Enter starts a new paragraph.</Hint>;
     case "facts": return <Hint mt={0}>The shop&apos;s facts, from the brand brain. Change a word in the e-mail - never invent a figure.</Hint>;
     case "cta": return link("Where the button goes", b.button.url, (v) => set({ ...b, button: { ...b.button, url: v } }));
     case "divider": return <Hint mt={0}>A thin line between two blocks.</Hint>;

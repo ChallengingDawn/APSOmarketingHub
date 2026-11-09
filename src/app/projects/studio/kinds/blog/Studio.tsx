@@ -34,7 +34,8 @@ import {
 } from "@/lib/content/studio/kinds/blog/model";
 import { addFaq, addProduct, addSection, moveSection, oneLine, partLabel, partText, sectionOf, setPart } from "@/lib/content/studio/kinds/blog/parts";
 import { postDocument } from "@/lib/content/studio/kinds/blog/render";
-import { AssistantPanel, Field, Label, Pane, StudioPanes, btn, field, mainBtn, type QuickAsk } from "../../parts";
+import type { RichMode } from "@/lib/content/studio/kinds/blog/richEdit";
+import { AssistantPanel, Field, Label, PINK, Pane, StudioPanes, btn, field, mainBtn, type QuickAsk } from "../../parts";
 import type { StudioProps } from "../../registry";
 import type { StudioApi } from "../../useStudio";
 import { EditFrame, type Device } from "./EditFrame";
@@ -58,6 +59,14 @@ function keepPictures(next: BlogSection[], cur: BlogSection[]): BlogSection[] {
 }
 
 const isPicture = (key: string | null) => !!key && (key === "hero" || /^s:[^:]+:img$/.test(key));
+
+/** The parts whose words are edited AS they look (bold bold, red red - Content v4) and how their words are kept; the
+ *  title, the band's words, a caption and a product's name have no marks: plain words. */
+function richOf(key: string): RichMode | null {
+  if (key === "lead" || /^s:[^:]+:(h|q)$/.test(key) || /^faq:[^:]+:q$/.test(key)) return "inline";
+  if (key === "short" || /^s:[^:]+:b:\d+$/.test(key) || /^faq:[^:]+:a$/.test(key)) return "blocks";
+  return null;
+}
 
 /* ── what the picked part needs besides its words (on the right, above the assistant's asks) ─────────────────────── */
 
@@ -126,17 +135,26 @@ function Author({ api, d, set, canEdit }: { api: StudioApi; d: BlogDoc; set: (d:
 
 /** A picture of the post: the picture with Change / Remove, what it shows, the line under it - or, without one, the
  *  hub's picture panel: make it from the idea (prefilled), upload one, or pick one already made. */
-function Picture({ api, d, set, pkey, canEdit }: { api: StudioApi; d: BlogDoc; set: (d: BlogDoc) => void; pkey: string; canEdit: boolean }) {
+function Picture({ api, d, set, pkey, canEdit, onMaking }: { api: StudioApi; d: BlogDoc; set: (d: BlogDoc) => void; pkey: string; canEdit: boolean; onMaking?: (on: boolean) => void }) {
   const p = api.data.piece;
   const sid = sectionOf(pkey);
   const s = sid ? d.sections.find((x) => x.id === sid) : null;
   const pic = s ? s.image : d.hero;
   const put = (next: BlogDoc["hero"]) => set(s ? { ...d, sections: d.sections.map((x) => (x.id === s.id ? { ...x, image: next } : x)) } : { ...d, hero: next });
+  // a picture made or uploaded lands up to 40 s later: on the post as it is then, never on this older copy
+  const land = (x: { url: string; prompt?: string | null }) => api.setDoc((raw: unknown) => {
+    const cur = blogDoc(raw, { language: d.language, author: d.author, title: d.title });
+    const sec = sid ? cur.sections.find((y) => y.id === sid) : null;
+    if (sid && !sec) return cur;
+    const was = sec ? sec.image : cur.hero;
+    const next = { ...was, url: x.url, alt: was.alt || (sec ? sec.heading : cur.title), prompt: x.prompt ?? was.prompt };
+    return sec ? { ...cur, sections: cur.sections.map((y) => (y.id === sec.id ? { ...y, image: next } : y)) } : { ...cur, hero: next };
+  });
   const idea = pic.prompt || (s ? `${s.heading}${d.title ? ` - for a blog article "${d.title}"` : ""}` : [d.title, d.excerpt].filter(Boolean).join(" - "));
   return (
     <Box>
       <PictureSlot url={pic.url} alt={pic.alt} aspect={s ? "3:2" : "16:9"} suggestion={idea} projectId={p.projectId} pieceId={p.id} me={api.data.me} disabled={!canEdit}
-        onPick={(x) => put({ ...pic, url: x.url, alt: pic.alt || (s ? s.heading : d.title), prompt: x.prompt ?? pic.prompt })}
+        onPick={(x) => land(x)} onMaking={onMaking}
         onAlt={(alt) => put({ ...pic, alt })} onRemove={() => put({ ...pic, url: "" })} altLabel="What it shows (for Google and screen readers)" />
       {pic.url && <Box sx={{ mt: 1 }}><Field label="A line under it (optional)" value={pic.caption} disabled={!canEdit} onChange={(v) => put({ ...pic, caption: v })} /></Box>}
     </Box>
@@ -155,6 +173,8 @@ export default function Studio({ api }: StudioProps) {
   const set = useCallback((next: BlogDoc) => api.setDoc(next), [api]);
 
   const [sel, setSel] = useState<string | null>(null);
+  /** the picture being made: it breathes in the page */
+  const [picBusy, setPicBusy] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ key: string; at: number } | null>(null);
   const [editKey, setEditKey] = useState<{ key: string; at: number } | null>(null);
   const [open, setOpen] = useState<string[]>([]);
@@ -162,7 +182,10 @@ export default function Studio({ api }: StudioProps) {
   const [work, setWork] = useState<Work>(null);
   const [changes, setChanges] = useState<Change[]>([]);
   const [lang, setLang] = useState<string>(() => (d.language === "EN" ? "DE" : "EN"));
+  // translated into the language picked: another one is offered next
+  useEffect(() => { if (lang === d.language) setLang(lang === "EN" ? "DE" : "EN"); }, [d.language, lang]);
   const [cards, setCards] = useState<BlogCard[] | null>(null);
+  const askRef = useRef<HTMLTextAreaElement | null>(null);
 
   // every blog post of the hub this person can see - for the blog's home in the paste
   const readCards = useCallback(async () => {
@@ -335,10 +358,10 @@ export default function Studio({ api }: StudioProps) {
 
   const top = (
     <Box sx={{ mb: 1.75 }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: sel ? 1.25 : 0.5 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED }}>Working on</Typography>
-          <Typography sx={{ fontSize: "0.98rem", fontWeight: 700, color: sel ? BLUE : INK, lineHeight: 1.3 }}>{partLabel(d, sel)}</Typography>
+          <Typography sx={{ fontSize: "0.98rem", fontWeight: 700, color: sel ? PINK : INK, lineHeight: 1.3 }}>{partLabel(d, sel)}</Typography>
         </Box>
         {sel && (
           <Tooltip title="Back to the whole post">
@@ -348,33 +371,39 @@ export default function Studio({ api }: StudioProps) {
       </Box>
       {!sel && <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.45 }}>Click any part of the page to edit its words there - the assistant then works on that part.</Typography>}
       {sel && words !== null && <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.45 }}>{canEdit ? `Edit the words right on the page${oneLine(sel) ? " - Enter keeps them" : " - a click elsewhere keeps them"}, Esc drops the change. Or ask:` : "Read only."}</Typography>}
-      {sel && words !== null && canEdit && !oneLine(sel) && sel !== "short" && (
-        <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.45, mt: 0.5, p: 0.75, borderRadius: "6px", bgcolor: "rgba(21,34,58,.04)", fontFamily: "ui-monospace, Menlo, Consolas, monospace" }}>
-          **bold** · ==a key word in red== · - a list · &gt; a tip box · [words](address) - shown as written while you edit
+      {sel && words !== null && canEdit && richOf(sel) && (
+        <Typography sx={{ fontSize: "0.76rem", color: MUTED, lineHeight: 1.45, mt: 0.5, p: 0.75, borderRadius: "6px", bgcolor: "rgba(21,34,58,.04)" }}>
+          Pick words, then <b>B</b> for bold or <Box component="b" sx={{ color: "#d80901" }}>Red</Box> for a key word in the label over the part (Ctrl+B, Ctrl+E).
         </Typography>
       )}
-      {isPicture(sel) && <Picture api={api} d={d} set={set} pkey={sel!} canEdit={canEdit} />}
+      {sel && words === null && <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.45 }}>Its fields are open on the left, under its row.</Typography>}
+    </Box>
+  );
+
+  /* ── the picked part's own fields: under its row in the map (the flow standard) ── */
+  const fields = (
+    <Box>
+      {isPicture(sel) && <Picture api={api} d={d} set={set} pkey={sel!} canEdit={canEdit} onMaking={(on) => setPicBusy(on ? sel : null)} />}
       {sel === "tags" && <TopicEditor d={d} set={set} canEdit={canEdit} />}
       {sel === "author" && <Author api={api} d={d} set={set} canEdit={canEdit} />}
       {(sel === "prods" || sel?.startsWith("prod:")) && <Products d={d} set={set} canEdit={canEdit} picked={sel} onPick={(k) => setSel(k)} />}
-      {sel?.startsWith("cta") && (
-        <Box sx={{ mt: 1 }}>
-          <Field label="Where the button goes" value={d.cta.url} placeholder={shopUrl(d.store)} disabled={!canEdit} onChange={(v) => set({ ...d, cta: { ...d.cta, url: v.trim() } })} />
-        </Box>
-      )}
+      {sel?.startsWith("cta") && <Field label="Where the button goes" value={d.cta.url} placeholder={shopUrl(d.store)} disabled={!canEdit} onChange={(v) => set({ ...d, cta: { ...d.cta, url: v.trim() } })} />}
       {sel?.startsWith("faq") && canEdit && (
-        <Box sx={{ display: "flex", gap: 0.75, mt: 1 }}>
+        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
           <Button size="small" startIcon={<AddIcon />} onClick={() => { const r = addFaq(docRef.current); set(r.doc); const k = `faq:${r.id}:q`; setSel(k); setFocus({ key: k, at: Date.now() }); setEditKey({ key: k, at: Date.now() }); }} sx={toolBtn}>Add one yourself</Button>
           {/^faq:[^:]+/.test(sel) && <Button size="small" startIcon={<DeleteOutlineIcon />} onClick={() => { const id = sel.split(":")[1]; set({ ...d, faq: d.faq.filter((f) => f.id !== id) }); setSel("faq"); }} sx={toolBtn}>Remove this question</Button>}
         </Box>
       )}
-      {section && canEdit && (
-        <Box sx={{ mt: 1.25, pt: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
-          <Label mt={0}>Section {si + 1}</Label>
+      {section && canEdit && !isPicture(sel) && (
+        <Box>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
             {!section.image.url && !open.includes(`s:${section.id}:img`) && !section.image.prompt && <Button size="small" startIcon={<ImageOutlinedIcon sx={{ fontSize: 16 }} />} onClick={() => openPart(`s:${section.id}:img`)} sx={toolBtn}>Add a picture</Button>}
+            {(section.image.url || section.image.prompt || open.includes(`s:${section.id}:img`)) && <Button size="small" startIcon={<ImageOutlinedIcon sx={{ fontSize: 16 }} />} onClick={() => pick(`s:${section.id}:img`, true)} sx={toolBtn}>Its picture</Button>}
             {!section.quote.trim() && !open.includes(`s:${section.id}:q`) && <Button size="small" startIcon={<FormatQuoteIcon sx={{ fontSize: 16 }} />} onClick={() => openPart(`s:${section.id}:q`)} sx={toolBtn}>Add a pull quote</Button>}
             <Button size="small" startIcon={<AddIcon sx={{ fontSize: 16 }} />} onClick={newSection} sx={toolBtn}>A section after it</Button>
+          </Box>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, mt: 0.75 }}>
+            <Typography sx={{ fontSize: "0.74rem", color: MUTED, flex: 1 }}>Section {si + 1} of {d.sections.length}</Typography>
             <Tooltip title="Up"><span><IconButton size="small" disabled={si === 0} onClick={() => set(moveSection(d, section.id, -1))} aria-label="Move the section up"><ArrowUpwardIcon sx={{ fontSize: 16 }} /></IconButton></span></Tooltip>
             <Tooltip title="Down"><span><IconButton size="small" disabled={si === d.sections.length - 1} onClick={() => set(moveSection(d, section.id, 1))} aria-label="Move the section down"><ArrowDownwardIcon sx={{ fontSize: 16 }} /></IconButton></span></Tooltip>
             <Tooltip title="Remove the section">
@@ -383,11 +412,14 @@ export default function Studio({ api }: StudioProps) {
           </Box>
         </Box>
       )}
+      {sel && !isPicture(sel) && !section && !["tags", "author", "prods", "faq"].includes(sel) && !sel.startsWith("prod:") && !sel.startsWith("cta") && !sel.startsWith("faq") && (
+        <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>Its words are edited on the page - click them there.</Typography>
+      )}
     </Box>
   );
 
   const assist = (
-    <AssistantPanel quick={quick} enabled={enabled} onAsk={onAsk} placeholder={placeholder} top={top}>
+    <AssistantPanel quick={quick} enabled={enabled} onAsk={onAsk} placeholder={placeholder} top={top} inputRef={askRef}>
       {!sel && d.sections.length > 0 && (
         <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
           <Label mt={0}>Translate the whole post</Label>
@@ -402,7 +434,7 @@ export default function Studio({ api }: StudioProps) {
       )}
       {changes.length > 0 && (
         <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-          <Label mt={0}>What the assistant changed</Label>
+          <Label mt={0}>Changes made here</Label>
           {changes.map((ch) => (
             <Box key={ch.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", p: 1.25, mb: 0.75, borderRadius: "6px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
               <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -424,23 +456,32 @@ export default function Studio({ api }: StudioProps) {
     }>
       <Box sx={{ p: 2.5, position: "relative" }}>
         {work && <Working label={work.label} since={work.since} />}
-        {empty && !work && canEdit && (
-          <Box sx={{ mx: "auto", mb: 2, maxWidth: 560, p: 2.25, borderRadius: "12px", bgcolor: "#fff", boxShadow: "0 8px 26px rgba(31,45,78,.12)", textAlign: "center" }}>
-            <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, mb: 0.5 }}>Nothing written yet</Typography>
-            <Typography sx={{ fontSize: "0.86rem", color: MUTED, mb: 1.5 }}>The assistant writes the whole post from the project&apos;s brief - title, lead, sections, questions - in a minute or two. Or click the title below and start yourself.</Typography>
-            <Button variant="contained" disableElevation disabled={!enabled} startIcon={<AutoAwesomeOutlinedIcon />} onClick={() => void write("")} sx={mainBtn}>Write the post from the brief</Button>
-          </Box>
-        )}
         <EditFrame html={html} device={device} width={DESKTOP} title="The blog post" texts={(k) => partText(docRef.current, k)} oneLine={oneLine}
-          selected={sel} onSelect={(k) => setSel(k)} onCommit={commit} readOnly={!canEdit} focus={focus} editKey={editKey} busy={work?.key ?? null} />
+          selected={sel} onSelect={(k) => setSel(k)} onCommit={commit} readOnly={!canEdit} focus={focus} editKey={editKey} busy={work ? work.key ?? "*" : picBusy}
+          rich={richOf} redMarks label={(k) => partLabel(docRef.current, k)} onAskAi={enabled ? () => askRef.current?.focus() : undefined} />
       </Box>
     </Pane>
   );
 
+  /* ── the start, at the top of the map while nothing is written (the flow standard) ── */
+  const start = empty && canEdit && !work ? (
+    <Box sx={{ p: 1.5, mb: 1.25, borderRadius: "10px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, boxShadow: "0 6px 18px rgba(31,45,78,.08)" }}>
+      <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>What are you making?</Typography>
+      <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>A post for the shop&apos;s blog, from the project&apos;s brief - in</Typography>
+      <SquareChoice value={d.language} onChange={(l: string) => set({ ...d, language: l, store: storeOf(l) })} options={LANGS.map((l) => ({ key: l, label: l }))} />
+      <Button fullWidth variant="contained" disableElevation disabled={!enabled} startIcon={<AutoAwesomeOutlinedIcon />} onClick={() => void write("")} sx={{ ...mainBtn, mt: 1.25, minHeight: 38, height: "auto", py: 0.75, whiteSpace: "normal", lineHeight: 1.25 }}>Write the whole post with AI</Button>
+      <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.75, textAlign: "center" }}>or open a part below and write it yourself</Typography>
+    </Box>
+  ) : null;
+  const writeAll = !empty && enabled ? () => {
+    if (docRef.current.sections.some((x) => x.body.trim()) && !window.confirm("Write the post again? It takes the place of what is written - Undo brings it back.")) return;
+    void write("");
+  } : undefined;
+
   return (
-    <StudioPanes id="blog3" buildWidth={270} assistWidth={330}
+    <StudioPanes id="blog4" buildWidth={300} assistWidth={330}
       build={<Outline api={api} d={d} set={set} sel={sel} cards={cards} onAddSection={newSection}
-        onPick={(key) => pick(key, true)} />}
+        onPick={(key) => pick(key, true)} fields={fields} start={start} onWriteAll={writeAll} busy={work ? work.key ?? "all" : null} />}
       preview={preview}
       assist={assist}
     />

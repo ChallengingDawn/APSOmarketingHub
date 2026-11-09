@@ -37,6 +37,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import DashboardCustomizeOutlinedIcon from "@mui/icons-material/DashboardCustomizeOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import MarkEmailReadOutlinedIcon from "@mui/icons-material/MarkEmailReadOutlined";
 import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
@@ -50,7 +51,7 @@ import {
   BLOCK_LABEL, PREHEADER_MAX, SUBJECT_MAX, TEMPLATES, applyDraft, applyEdits, applyTemplate, asNewsletter, blockOf, checks, copyBlock, hubPictures,
   isBlank, moveBlock, oneLine, partText, renderEmail, sendDay, setPart, type BlockKind, type DraftAnswer, type Edits, type NewsletterDoc,
 } from "@/lib/content/studio/kinds/newsletter/model";
-import { AssistantPanel, Label, Pane, StudioPanes, btn, mainBtn, type QuickAsk } from "../../parts";
+import { AssistantPanel, Label, PINK, Pane, StudioPanes, btn, mainBtn, type QuickAsk } from "../../parts";
 import type { StudioProps } from "../../registry";
 import type { StudioApi } from "../../useStudio";
 import { EditFrame, type Device } from "../blog/EditFrame";
@@ -64,6 +65,16 @@ const LANGS: { key: string; label: string }[] = [{ key: "DE", label: "German" },
 type Change = { id: number; text: string; before: NewsletterDoc; at: string };
 type EditAnswer = Edits & { note: string };
 type Work = { label: string; key: string | null; since: number } | null;
+
+/** A part's name in the label over it: the block, and which of its words. */
+const FIELD: Record<string, string> = { headline: "headline", eyebrow: "line over it", title: "title", text: "words", button: "button", link: "button", tagline: "line", image: "picture", logo: "logo", imageAlt: "picture's words" };
+function nameOf(d: NewsletterDoc, key: string): string | null {
+  const [id, field] = key.split(":");
+  const b = d.blocks.find((x) => x.id === id);
+  if (!b) return null;
+  const f = field ? FIELD[field] ?? (/^item\d/.test(field) ? `product ${field.slice(4, 5)}` : field) : "";
+  return `${BLOCK_LABEL[b.kind]}${f ? ` · ${f}` : ""}`;
+}
 
 /** The inbox's line over the e-mail: who it is from, its subject, its preview text, the day it goes out. Typed in place. */
 function InboxLine({ api, d, set, width }: { api: StudioApi; d: NewsletterDoc; set: (d: NewsletterDoc) => void; width: number }) {
@@ -130,8 +141,17 @@ export default function Studio({ api }: StudioProps) {
   const [ours, setOurs] = useState(false);
   const [changes, setChanges] = useState<Change[]>([]);
   const [lang, setLang] = useState(() => (d.language.toUpperCase() === "EN" ? "DE" : "EN"));
+  // translated into the language picked: another one is offered next
+  useEffect(() => { if (lang === d.language.toUpperCase()) setLang(lang === "EN" ? "DE" : "EN"); }, [d.language, lang]);
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const askRef = useRef<HTMLTextAreaElement | null>(null);
+  /** the picture being made: it breathes in the e-mail */
+  const [picBusy, setPicBusy] = useState<string | null>(null);
+  // a block dragged in the e-mail itself (SARCLA 08.11.2026 "editing is very confusing" - it moved by arrows only there):
+  // which, and where it would land
+  const [drag, setDrag] = useState<{ id: string; to: number | null; y: number | null } | null>(null);
+  const rectRef = useRef<((s: string) => { left: number; top: number; width: number; height: number } | null) | null>(null);
   // drafts to HubSpot: on or off, and the admin's switch (SARCLA 08.11.2026 "go" after the test draft)
   const [push, setPush] = useState<{ on: boolean; byEnv: boolean; admin: boolean } | null>(null);
   // once per to-do (the api object is new on every render)
@@ -227,7 +247,7 @@ export default function Studio({ api }: StudioProps) {
     setSel(b.id);
     setFocus({ key: b.id, at: Date.now() });
   };
-  const pickBlock = (id: string) => { setSel(id); setFocus({ key: id, at: Date.now() }); };
+  const pickBlock = (id: string | null) => { setSel(id); if (id) setFocus({ key: id, at: Date.now() }); };
 
   const getHtml = async () => {
     const r = await api.act<{ html: string }>("html");
@@ -287,8 +307,74 @@ export default function Studio({ api }: StudioProps) {
     </Box>
   );
 
+  /* ── a block dragged by its handle, in the e-mail ── */
+  const startDrag = (e: React.PointerEvent<HTMLElement>, id: string) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const layer = e.currentTarget.closest("[data-x-overlay]") as HTMLElement | null;
+    if (!layer) return;
+    let scroller: HTMLElement | null = layer.parentElement;
+    while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /(auto|scroll)/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
+    const ids = docRef.current.blocks.map((b) => b.id);
+    const from = ids.indexOf(id);
+    let to: number | null = null;
+    const where = (clientY: number) => {
+      const y = clientY - layer.getBoundingClientRect().top;
+      const rs = ids.map((x) => rectRef.current?.(`[data-block="${CSS.escape(x)}"]`) ?? null);
+      let at = ids.length;
+      for (let i = 0; i < rs.length; i++) { const r = rs[i]; if (r && y < r.top + r.height / 2) { at = i; break; } }
+      const r = at < rs.length ? rs[at] : rs[rs.length - 1];
+      const lineY = r ? (at < rs.length ? r.top : r.top + r.height) : null;
+      // where it is already: no move
+      to = at === from || at === from + 1 ? null : at;
+      setDrag({ id, to, y: to === null ? null : lineY });
+    };
+    const move = (ev: PointerEvent) => {
+      where(ev.clientY);
+      if (scroller) {
+        const sr = scroller.getBoundingClientRect();
+        if (ev.clientY < sr.top + 70) scroller.scrollBy(0, -16);
+        else if (ev.clientY > sr.bottom - 70) scroller.scrollBy(0, 16);
+      }
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      const at = to;
+      setDrag(null);
+      if (at === null) return;
+      api.setDoc((cur: unknown) => {
+        const n = asNewsletter(cur);
+        const i = n.blocks.findIndex((b) => b.id === id);
+        if (i < 0) return n;
+        const blocks = [...n.blocks];
+        const [b] = blocks.splice(i, 1);
+        blocks.splice(at > i ? at - 1 : at, 0, b);
+        return { ...n, blocks };
+      });
+      setSel(id);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    setDrag({ id, to: null, y: null });
+  };
+
   /* ── the e-mail in the middle ── */
   const overlay = ({ rect }: { rect: (s: string) => { left: number; top: number; width: number; height: number } | null }) => {
+    rectRef.current = rect;
+    if (drag) {
+      const r = rect(`[data-block="${CSS.escape(drag.id)}"]`);
+      return (
+        <>
+          {/* while a block is dragged, the e-mail under the pointer is the studio's: the move is followed over it */}
+          <Box sx={{ position: "absolute", inset: 0, pointerEvents: "auto", cursor: "grabbing" }} />
+          {r && <Box sx={{ position: "absolute", left: r.left, top: r.top, width: r.width, height: r.height, bgcolor: "rgba(194,44,110,.08)", outline: "2px dashed #c22c6e", outlineOffset: 2 }} />}
+          {drag.y !== null && r && <Box sx={{ position: "absolute", left: r.left - 6, width: r.width + 12, top: drag.y - 2, height: 4, borderRadius: 2, bgcolor: "#c22c6e", boxShadow: "0 0 0 3px rgba(194,44,110,.18)" }} />}
+        </>
+      );
+    }
     if (!block || !canEdit) return null;
     const r = rect(`[data-block="${CSS.escape(block.id)}"]`);
     if (!r) return null;
@@ -308,12 +394,19 @@ export default function Studio({ api }: StudioProps) {
         </span>
       </Tooltip>
     );
-    const right = device === "mobile" ? r.left + r.width - 34 : r.left + r.width + 8;
+    // beside the e-mail, never over its words (on a phone too: outside its frame)
+    const right = r.left + r.width + (device === "mobile" ? 18 : 8);
     return (
       <>
         {plus(bi, r.top, "Add a block above")}
         {plus(bi + 1, r.top + r.height, "Add a block below")}
         <Box sx={{ position: "absolute", left: right, top: r.top + 4, display: "flex", flexDirection: "column", gap: 0.5, p: 0.5, borderRadius: "8px", bgcolor: "#fff", boxShadow: "0 4px 16px rgba(31,45,78,.18)", pointerEvents: "auto" }}>
+          <Tooltip title="Drag to move the block" placement="right">
+            <Box component="button" type="button" aria-label="Drag to move the block" onPointerDown={(e: React.PointerEvent<HTMLElement>) => startDrag(e, block.id)}
+              sx={{ all: "unset", width: 28, height: 28, display: "grid", placeItems: "center", borderRadius: "6px", cursor: "grab", color: "#5f6a70", touchAction: "none", "&:hover": { bgcolor: "#fbeef4", color: "#c22c6e" } }}>
+              <DragIndicatorIcon sx={{ fontSize: 18 }} />
+            </Box>
+          </Tooltip>
           {tool("Move up", <ArrowUpwardIcon sx={{ fontSize: 16 }} />, () => api.setDoc((cur: unknown) => moveBlock(cur, block.id, -1)), bi === 0)}
           {tool("Move down", <ArrowDownwardIcon sx={{ fontSize: 16 }} />, () => api.setDoc((cur: unknown) => moveBlock(cur, block.id, 1)), bi === d.blocks.length - 1)}
           {tool("Duplicate", <ContentCopyOutlinedIcon sx={{ fontSize: 15 }} />, () => {
@@ -334,20 +427,11 @@ export default function Studio({ api }: StudioProps) {
       <Box sx={{ p: 2.5 }}>
         {work && <Working label={work.label} since={work.since} />}
         <InboxLine api={api} d={d} set={set} width={frameW + (device === "mobile" ? 16 : 2)} />
-        {blank && canEdit && !work && (
-          <Box sx={{ width: frameW, maxWidth: "100%", mx: "auto", mb: 1.5, p: 2, borderRadius: "10px", bgcolor: "#fff", boxShadow: "0 8px 24px rgba(31,45,78,.10)", boxSizing: "border-box" }}>
-            <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>Nothing written yet - where do you start?</Typography>
-            <Typography sx={{ fontSize: "0.82rem", color: MUTED, mb: 1.25 }}>Or click any block below and write.</Typography>
-            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 1 }}>
-              <Button variant="outlined" startIcon={<MarkEmailReadOutlinedIcon />} onClick={() => setOurs(true)} sx={{ ...toolBtn, height: 40, whiteSpace: "normal", lineHeight: 1.2 }}>One of our e-mails</Button>
-              <Button variant="contained" disableElevation disabled={!enabled} startIcon={<AutoAwesomeOutlinedIcon />} onClick={() => void draft("")} sx={{ ...mainBtn, height: 40, whiteSpace: "normal", lineHeight: 1.2, fontSize: "0.82rem" }}>Write it from the brief</Button>
-              <Button variant="outlined" startIcon={<DashboardCustomizeOutlinedIcon />} onClick={(e) => setLayouts(e.currentTarget)} sx={{ ...toolBtn, height: 40, whiteSpace: "normal", lineHeight: 1.2 }}>A layout</Button>
-            </Box>
-          </Box>
-        )}
         <EditFrame html={html} device={device} width={680} title="The e-mail" texts={(k) => partText(docRef.current, k)} oneLine={oneLine}
-          selected={sel} onSelect={setSel} onCommit={(k, t) => api.setDoc((cur: unknown) => setPart(cur, k, t))} readOnly={!canEdit} focus={focus} busy={work?.key ?? null}
-          overlay={overlay} />
+          selected={sel} onSelect={setSel} onCommit={(k, t) => api.setDoc((cur: unknown) => setPart(cur, k, t))} readOnly={!canEdit} focus={focus} busy={work ? work.key ?? "*" : picBusy}
+          overlay={overlay}
+          rich={(k) => { const b = docRef.current.blocks.find((x) => x.id === k.split(":")[0]); return k.endsWith(":text") && b && (b.kind === "hero" || b.kind === "article" || b.kind === "text") ? "blocks" : null; }}
+          label={drag ? undefined : (k) => nameOf(docRef.current, k)} onAskAi={enabled ? () => askRef.current?.focus() : undefined} />
       </Box>
     </Pane>
   );
@@ -358,20 +442,42 @@ export default function Studio({ api }: StudioProps) {
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED }}>Working on</Typography>
-          <Typography sx={{ fontSize: "0.98rem", fontWeight: 700, color: block ? BLUE : INK, lineHeight: 1.3 }}>{block ? `${BLOCK_LABEL[block.kind]} · block ${bi + 1}` : "The whole e-mail"}</Typography>
+          <Typography sx={{ fontSize: "0.98rem", fontWeight: 700, color: block ? PINK : INK, lineHeight: 1.3 }}>{block ? `${BLOCK_LABEL[block.kind]} · block ${bi + 1}` : "The whole e-mail"}</Typography>
         </Box>
         {block && <Tooltip title="Back to the whole e-mail"><IconButton size="small" onClick={() => setSel(null)} aria-label="Back to the whole e-mail"><CloseIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>}
       </Box>
-      <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.45, mb: block ? 1.25 : 0 }}>
-        {block ? (hasWords ? "Its words are edited in the e-mail - click them. Here: what it needs besides, and the assistant for this block." : "Here: what it needs.") : "Click a block in the e-mail to work on it; click its words to edit them there."}
+      <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.45 }}>
+        {block ? (hasWords ? "Its words are edited in the e-mail, as they look - click them. Its picture and links are open on the left, under its row." : "What it needs is open on the left, under its row.") : "Click a block in the e-mail to work on it; click its words to edit them there."}
       </Typography>
-      {block && <BlockTools b={block} picked={sel} disabled={!canEdit} where={{ projectId: p.projectId, pieceId: p.id, me: api.data.me }}
-        set={(nb) => set({ ...docRef.current, blocks: docRef.current.blocks.map((x) => (x.id === nb.id ? nb : x)) })} />}
     </Box>
   );
+  // the picked block's own fields: under its row in the map (the flow standard)
+  const fields = block ? (
+    <BlockTools b={block} picked={sel} disabled={!canEdit} where={{ projectId: p.projectId, pieceId: p.id, me: api.data.me }} onMaking={setPicBusy}
+      patch={(id, f) => api.setDoc((cur: unknown) => { const n = asNewsletter(cur); return { ...n, blocks: n.blocks.map((x) => (x.id === id ? ({ ...x, ...f } as typeof x) : x)) }; })}
+      set={(nb) => set({ ...docRef.current, blocks: docRef.current.blocks.map((x) => (x.id === nb.id ? nb : x)) })} />
+  ) : null;
+  // the start, at the top of the map while nothing is written (the flow standard)
+  const start = blank && canEdit && !work ? (
+    <Box sx={{ p: 1.5, mb: 1.25, borderRadius: "10px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, boxShadow: "0 6px 18px rgba(31,45,78,.08)" }}>
+      <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>What are you making?</Typography>
+      <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>A newsletter from the project&apos;s brief - in</Typography>
+      <SquareChoice value={d.language.toUpperCase()} onChange={(l: string) => set({ ...docRef.current, language: l })} options={LANGS.map((l) => ({ key: l.key, label: l.key }))} />
+      <Button fullWidth variant="contained" disableElevation disabled={!enabled} startIcon={<AutoAwesomeOutlinedIcon />} onClick={() => void draft("")} sx={{ ...mainBtn, mt: 1.25, minHeight: 38, height: "auto", py: 0.75, whiteSpace: "normal", lineHeight: 1.25 }}>Write the newsletter with AI</Button>
+      <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.75, mt: 1 }}>
+        <Button size="small" startIcon={<MarkEmailReadOutlinedIcon sx={{ fontSize: 16 }} />} onClick={() => setOurs(true)} sx={{ ...toolBtn, height: 32 }}>One of ours</Button>
+        <Button size="small" startIcon={<DashboardCustomizeOutlinedIcon sx={{ fontSize: 16 }} />} onClick={(e) => setLayouts(e.currentTarget)} sx={{ ...toolBtn, height: 32 }}>A layout</Button>
+      </Box>
+      <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.75, textAlign: "center" }}>or click any block and write it yourself</Typography>
+    </Box>
+  ) : null;
+  const writeAll = !blank && enabled ? () => {
+    if (!window.confirm("Write the whole newsletter again? Its words are replaced - Undo brings them back; pictures stay.")) return;
+    void draft("");
+  } : undefined;
 
   const assist = (
-    <AssistantPanel enabled={enabled} quick={quick} onAsk={onAsk} top={top}
+    <AssistantPanel enabled={enabled} quick={quick} onAsk={onAsk} top={top} inputRef={askRef}
       placeholder={block ? `What should change in this ${kind}? e.g. for buyers, not engineers` : blank ? "Say what this newsletter should say" : "Ask for a change to the whole e-mail"}>
       {!block && subjects && (
         <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
@@ -422,7 +528,7 @@ export default function Studio({ api }: StudioProps) {
       )}
       {changes.length > 0 && (
         <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-          <Label mt={0}>What the assistant changed</Label>
+          <Label mt={0}>Changes made here</Label>
           {changes.map((ch, i) => (
             <Box key={ch.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", p: 1.25, mb: 0.75, borderRadius: "6px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
               <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -442,8 +548,9 @@ export default function Studio({ api }: StudioProps) {
 
   return (
     <>
-      <StudioPanes id="newsletter3" buildWidth={280} assistWidth={340}
+      <StudioPanes id="newsletter4" buildWidth={300} assistWidth={340}
         build={<Outline d={d} set={set} sel={sel} onPick={pickBlock} canEdit={canEdit} onAdd={(el, at) => setAdder({ el, at })} onOurs={canEdit ? () => setOurs(true) : undefined}
+          fields={fields} startCard={start} onWriteAll={writeAll} busy={work ? work.key ?? "all" : null}
           onLayout={(key) => void apply(applyTemplate(docRef.current, key), `Layout: ${TEMPLATES.find((t) => t.key === key)?.name ?? key} - the words already written are kept.`)} out={out} />}
         preview={preview}
         assist={assist}
