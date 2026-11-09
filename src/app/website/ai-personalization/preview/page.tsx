@@ -824,10 +824,6 @@ function ConvertPreview() {
                 options={version ? [{ key: "version", label: "The optimization" }, { key: "original", label: "The page as it is" }, { key: "both", label: "Side by side" }] : [{ key: "original", label: "The page as it is" }]} />
               <SquareChoice<Device> value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "phone", label: "Phone" }]} />
               {device === "desktop" && <SquareChoice<Zoom> value={zoom} onChange={setZoom} options={[{ key: "fit", label: "Fit" }, { key: "full", label: "Actual size" }]} />}
-              <Box sx={{ flex: 1 }} />
-              <Tooltip title="Read the page from the shop again">
-                <IconButton size="small" onClick={() => setFresh((n) => n + 1)} aria-label="Read again"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
-              </Tooltip>
             </Box>
             {/* what is drawn over the page: a row of its own, so the controls above never wrap into it */}
             <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap", mb: 1.5, mt: -0.5 }}>
@@ -853,6 +849,9 @@ function ConvertPreview() {
               <Tooltip title="Click an element in the page to ask the AI to change it">
                 <Button size="small" variant={pick ? "contained" : "outlined"} color="secondary" disableElevation onClick={() => setPick((x) => !x)} startIcon={<AdsClickOutlinedIcon sx={{ fontSize: 17 }} />}
                   sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{pick ? "Click an element…" : "Pick an element"}</Button>
+              </Tooltip>
+              <Tooltip title="Read the page from the shop again">
+                <IconButton size="small" onClick={() => setFresh((n) => n + 1)} aria-label="Read again"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
               </Tooltip>
             </Box>
             {clicks && path && (
