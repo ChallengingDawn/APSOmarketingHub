@@ -181,12 +181,13 @@ export function PictureActions({ onMake, onUpload, onGallery, onRemove, dark, ca
 }
 
 /** "Make it" (pink) and "Upload" - what an empty slot offers. */
-export function EmptyActions({ onMake, onUpload, onGallery, canMake = true, compact }: Omit<SlotActions, "onRemove"> & { canMake?: boolean; compact?: boolean }) {
+/** `makeDisabled`: "Make it" shows but waits - the picture has no words yet to be made from. */
+export function EmptyActions({ onMake, onUpload, onGallery, canMake = true, compact, makeDisabled = false }: Omit<SlotActions, "onRemove"> & { canMake?: boolean; compact?: boolean; makeDisabled?: boolean }) {
   const pick = useFilePick(onUpload);
   return (
     <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 0.75 }}>
       {canMake && (
-        <Box component="button" type="button" onClick={onMake} sx={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.5, px: compact ? 1 : 1.25, height: compact ? 28 : 32, borderRadius: "6px", bgcolor: PINK, color: "#fff", fontSize: "0.8rem", fontWeight: 700, whiteSpace: "nowrap", boxShadow: "0 2px 8px -3px rgba(194,44,110,.6)", "&:hover": { bgcolor: "#a3245c" }, "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: 2 }, "& svg": { fontSize: 16 } }}>
+        <Box component="button" type="button" onClick={onMake} disabled={makeDisabled} title={makeDisabled ? "Write what the picture should show first" : undefined} sx={{ all: "unset", cursor: makeDisabled ? "default" : "pointer", opacity: makeDisabled ? 0.45 : 1, display: "inline-flex", alignItems: "center", gap: 0.5, px: compact ? 1 : 1.25, height: compact ? 28 : 32, borderRadius: "6px", bgcolor: PINK, color: "#fff", fontSize: "0.8rem", fontWeight: 700, whiteSpace: "nowrap", boxShadow: makeDisabled ? "none" : "0 2px 8px -3px rgba(194,44,110,.6)", "&:hover": { bgcolor: makeDisabled ? PINK : "#a3245c" }, "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: 2 }, "& svg": { fontSize: 16 } }}>
           <AutoAwesomeOutlinedIcon />Make it
         </Box>
       )}
@@ -219,8 +220,8 @@ export function MakingFrame({ label = "Making the picture…", height = 112, not
  * ONE picture slot (flow standard §3), as a card in the left pane. Empty: the dashed frame with the picture's idea (the
  * person may change it) and Make it / Upload. Making: the frame shimmers. Filled: the picture and its four actions.
  */
-export function PictureSlot({ url, idea, onIdea, making, uploading, error, canEdit = true, canMake = true, height = 112, circle, ...acts }: SlotActions & {
-  url: string | null; idea: string; onIdea?: (v: string) => void; making: boolean; uploading?: boolean; error?: string | null; canEdit?: boolean; canMake?: boolean; height?: number; circle?: boolean;
+export function PictureSlot({ url, idea, onIdea, making, uploading, error, canEdit = true, canMake = true, makeDisabled = false, height = 112, circle, ...acts }: SlotActions & {
+  url: string | null; idea: string; onIdea?: (v: string) => void; making: boolean; uploading?: boolean; error?: string | null; canEdit?: boolean; canMake?: boolean; makeDisabled?: boolean; height?: number; circle?: boolean;
 }) {
   if (making) return uploading ? <MakingFrame height={height} label="Uploading the picture…" note="A big picture goes up in small parts - it can take a little while." /> : <MakingFrame height={height} />;
   if (url) {
@@ -239,12 +240,12 @@ export function PictureSlot({ url, idea, onIdea, making, uploading, error, canEd
       <Box sx={{ minHeight: height, boxSizing: "border-box", borderRadius: "8px", border: "1.5px dashed rgba(17,24,39,.22)", bgcolor: "#fafbfc", p: 1.25, display: "flex", flexDirection: "column", justifyContent: "center", gap: 1 }}>
         {onIdea && canEdit ? (
           <Box component="textarea" rows={2} value={idea} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => onIdea(e.target.value)} aria-label="The picture's idea"
-            placeholder="What the picture shows…"
+            placeholder="What should the picture show?"
             sx={{ all: "unset", boxSizing: "border-box", width: "100%", resize: "none", fontSize: "0.78rem", lineHeight: 1.4, color: MUTED, textAlign: "center", "&:focus": { color: INK }, "&::placeholder": { color: MUTED } }} />
         ) : (
           <Typography sx={{ fontSize: "0.78rem", color: MUTED, textAlign: "center", lineHeight: 1.4 }}>{idea || "No picture yet."}</Typography>
         )}
-        {canEdit && <EmptyActions {...acts} canMake={canMake} />}
+        {canEdit && <EmptyActions {...acts} canMake={canMake} makeDisabled={makeDisabled} />}
       </Box>
       {error && <Typography sx={{ mt: 0.5, fontSize: "0.76rem", color: "#b42318" }}>{error}</Typography>}
     </Box>
