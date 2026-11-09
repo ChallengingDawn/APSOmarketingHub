@@ -16,6 +16,7 @@ import Typography from "@mui/material/Typography";
 import CheckIcon from "@mui/icons-material/Check";
 import CloseIcon from "@mui/icons-material/Close";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import TranslateOutlinedIcon from "@mui/icons-material/TranslateOutlined";
 import UndoIcon from "@mui/icons-material/Undo";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
@@ -26,6 +27,35 @@ import { Chip, useCopy } from "./ui";
 export type Entry = { id: number; label: string; note?: string; at: number; lang: string; before: PageDoc; undone: boolean; by: "ai" | "you" };
 export type Idea = { title: string; why: string; change: string };
 export type SeoCard = { title: string; description: string; urlKey: string };
+/** What a part of the page says, in English - to read it (Content v5), never a change */
+export type Said = { scope: string; items: { label: string; text: string }[] };
+
+/** "What does it say? (in English)": the English words in a card to read - copy, close. The page does not change. */
+function SaidCard({ said, onClose }: { said: Said; onClose: () => void }) {
+  const { done, copy } = useCopy();
+  const all = said.items.map((x) => (x.label ? `${x.label}: ${x.text}` : x.text)).join("\n\n");
+  return (
+    <Box data-said sx={{ mt: 2, borderRadius: "10px", bgcolor: "#fff", border: "1px solid rgba(36,89,209,.28)", boxShadow: "0 6px 18px rgba(31,45,78,.07)", overflow: "hidden" }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1.5, py: 0.9, bgcolor: "rgba(36,89,209,.05)", borderBottom: `1px solid ${HAIRLINE}` }}>
+        <TranslateOutlinedIcon sx={{ fontSize: 16, color: "#2459d1" }} />
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "#2459d1" }}>In English · to read</Typography>
+          <Typography sx={{ fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{said.scope} · the page is not changed</Typography>
+        </Box>
+        <Tooltip title={done === "said" ? "Copied" : "Copy the English words"}><IconButton size="small" onClick={() => void copy("said", all)} aria-label="Copy the English words"><ContentCopyIcon sx={{ fontSize: 15, color: done === "said" ? "#1b7a55" : MUTED }} /></IconButton></Tooltip>
+        <Tooltip title="Close"><IconButton size="small" onClick={onClose} aria-label="Close the English words"><CloseIcon sx={{ fontSize: 16 }} /></IconButton></Tooltip>
+      </Box>
+      <Box sx={{ px: 1.5, py: 1.1, maxHeight: 340, overflowY: "auto" }}>
+        {said.items.map((x, i) => (
+          <Box key={i} sx={{ mb: i < said.items.length - 1 ? 1 : 0 }}>
+            {x.label && <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: MUTED }}>{x.label}</Typography>}
+            <Typography sx={{ fontSize: "0.84rem", color: INK, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{x.text}</Typography>
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  );
+}
 
 const ago = (t: number) => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`; };
 
@@ -63,7 +93,7 @@ function TranslateRow({ doc, offered, busy, onTranslate, enabled }: { doc: PageD
   );
 }
 
-export function Assistant({ quick, onAsk, enabled, context, contextKind, onClearContext, history, onUndo, ideas, onIdea, seo, onUseSeo, inputRef, placeholder, lang, translate }: {
+export function Assistant({ quick, onAsk, enabled, context, contextKind, onClearContext, history, onUndo, ideas, onIdea, seo, onUseSeo, inputRef, placeholder, lang, translate, said, onCloseSaid }: {
   quick: QuickAsk[]; onAsk: (text: string) => Promise<string | null>; enabled: boolean;
   context: string | null; onClearContext: () => void;
   /** what the selection is: "This element only" (the default), "This part only" */
@@ -74,6 +104,8 @@ export function Assistant({ quick, onAsk, enabled, context, contextKind, onClear
   inputRef: React.Ref<HTMLTextAreaElement>; placeholder: string; lang: string;
   /** the main language shown: translating the whole page into the shop's other languages */
   translate: { doc: PageDoc; offered: LangOption[]; busy: string | null; onTranslate: (l: string) => Promise<string | null> } | null;
+  /** what the selection says in English, to read (Content v5) */
+  said?: Said | null; onCloseSaid?: () => void;
 }) {
   const { done, copy } = useCopy();
   const top = (
@@ -98,6 +130,7 @@ export function Assistant({ quick, onAsk, enabled, context, contextKind, onClear
   );
   return (
     <AssistantPanel quick={quick} enabled={enabled} onAsk={onAsk} placeholder={placeholder} top={top} inputRef={inputRef}>
+      {said && <SaidCard said={said} onClose={() => onCloseSaid?.()} />}
       {translate && !context && <TranslateRow {...translate} enabled={enabled} />}
       {seo && (
         <Box sx={{ mt: 2, p: 1.5, borderRadius: "10px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>

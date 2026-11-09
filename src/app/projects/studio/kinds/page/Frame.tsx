@@ -53,6 +53,10 @@ export type SelectOpts = {
   seek?: { nonce: number; heading: string } | null;
   /** a picture slot's own buttons in a new page ("Make it", "Upload"): its field and which */
   onAct?: (path: string, act: string) => void;
+  /** the "+" between two blocks of a new page (Content v5): the place in the order, and where on the screen it was */
+  onAdd?: (at: number, pos: { top: number; left: number }) => void;
+  /** "+ Tile" / "+ Question" / "+ Link" in a block with items */
+  onAddItem?: (list: string) => void;
 };
 
 /** A page of the shop's section headings as the outline cuts it (headings a change put in are not sections). */
@@ -399,6 +403,18 @@ ${SELECT_CSS}`;
         const s = sel.current;
         if (!s) return;
         e.stopPropagation();
+        // the studio's "+": a block added there, or an item to a block (Content v5) - nothing selected by the click
+        const plus = (e.target as Element).closest?.("[data-apx-add]");
+        if (plus && s.onAdd) {
+          const r = plus.getBoundingClientRect();
+          const fr = frame.current?.getBoundingClientRect();
+          const z = zoomRef.current;
+          unhov();
+          s.onAdd(Number(plus.getAttribute("data-apx-add")) || 1, { top: (fr?.top ?? 0) + r.top * z + 18, left: (fr?.left ?? 0) + (r.left + r.width / 2) * z });
+          return;
+        }
+        const more = (e.target as Element).closest?.("[data-apx-additem]");
+        if (more && s.onAddItem) { unhov(); s.onAddItem(more.getAttribute("data-apx-additem") ?? ""); return; }
         const c = candidate(e.target);
         unhov();
         s.onPick(c ? pickedOf(c) : null);

@@ -1,8 +1,10 @@
 "use client";
 // THE PAGE STUDIO'S LEFT PANE (08.11.2026; reworked that evening - SARCLA: "The UX and the Build on the left: can we
 // improve it to be more fluid, subdivided"). The way through it, top to bottom:
-//   start      only while the page is empty: what it is (a new page | a page of the shop) and, for a new page, "Write the
-//              whole page with AI" - gone once the page has words (the choice stays in the menu, top right)
+//   start      only while the page is empty: what it is (a new page | a page of the shop) and, for a new page, "What page
+//              do you want?" - a box and "Write the page with AI" (Content v5: written by itself only when the project
+//              came with an app's brief, SEO and the others) - gone once the page has words; then "Write it all again"
+//              stays small in the map's header (the choice stays in the menu, top right)
 //   outline    the page's parts in one short list, each with its state; a click opens that part alone and selects it in
 //              the preview (./Outline.tsx). A page of the shop: its card, the element selected, its changes, its texts,
 //              the A/B test. Then the banners in it, its languages, the notes
@@ -10,6 +12,7 @@
 //              "Publish" (./Winner.tsx), the winner's card first in the outline
 
 import { useEffect, useState } from "react";
+import TextField from "@mui/material/TextField";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -32,20 +35,22 @@ import {
   INSERT_WHERE_LABEL, SOURCE_LABEL, isLegacyBody, langName, langState, langsOf, mainLang, placeholdersOf, shopUrl, unwritten,
   type LangOption, type PageDoc, type PageSource,
 } from "@/lib/content/studio/kinds/page/model";
-import { partsOf, type PartKey } from "@/lib/content/studio/kinds/page/outline";
+import { blocksOf } from "@/lib/content/studio/kinds/page/outline";
 import type { ChangeHit, InsertOut } from "@/lib/content/studio/kinds/page/shop";
 import type { ShopPart } from "@/lib/content/studio/kinds/page/shopParts";
-import { Field, Pane, PINK, btn, mainBtn } from "../../parts";
+import { Field, Pane, PINK, btn, field, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { Changes } from "./Changes";
 import { ElementPane, type Selection } from "./Element";
 import type { FillRun, PictureCtl } from "./Fields";
-import { PartsOutline, Row, RowList, ShopPartsOutline } from "./Outline";
+import { BlocksOutline, Row, RowList, ShopPartsOutline } from "./Outline";
 import { AbTest, Publish, Texts } from "./Sections";
 import { Chip, Choice, Hint } from "./ui";
 import { WinnerCard, WinnerPublish, useWinner } from "./Winner";
 
 export type Step = "page" | "publish";
+/** Where the project came from (Content v5): an app's brief writes the page by itself; an own idea asks first. */
+export type AppBrief = { source: string | null; app: string | null; text: string; auto: boolean };
 
 const slideIn = keyframes`from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; }`;
 const fadeIn = keyframes`from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; }`;
@@ -128,7 +133,7 @@ function Languages({ doc, lang, onLang, offered }: { doc: PageDoc; lang: string;
 }
 
 export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onStep, sel, setSel, fill, busy, canAi, onEditInPage, onAskAi, inserts, record, onPickPage, removeInsert,
-  offered, open, onOpen, onOpenPart, onFocusPath, pictures, makingIn, since, shop }: {
+  offered, open, onOpen, onOpenBlock, onSelectKey, onFocusPath, pictures, makingIn, since, shop, onAdd, onAddText, onRefine, appBrief }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void;
   /** the whole document (source, shared parts) */
   set: (next: PageDoc, label?: string) => void;
@@ -143,10 +148,20 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
   /** the row open in the outline (a part of a new page, or "selected", "changes", "texts", "test", "banners", "languages", "notes") */
   open: string | null; onOpen: (row: string | null) => void;
   /** a part opened from here: selected in the preview, which scrolls to it */
-  onOpenPart: (part: PartKey | null) => void;
+  onOpenBlock: (block: string | null) => void;
+  /** an item of a block (a tile, a question, a link) selected from its row (null = the block) */
+  onSelectKey: (key: string | null) => void;
+  /** the "+" between two blocks: the squared menu, at that place */
+  onAdd: (at: number, el: HTMLElement) => void;
+  /** a text-and-picture block put in the sections' empty slot */
+  onAddText: (at: number) => void;
+  /** "Fine-tune" on a picture */
+  onRefine?: (path: string) => void;
+  /** where the project came from - its app and brief (null while asked) */
+  appBrief: AppBrief | null;
   /** a field in focus here: selected in the preview */
   onFocusPath: (path: string) => void;
-  pictures: PictureCtl; makingIn: (part: PartKey) => number;
+  pictures: PictureCtl; makingIn: (block: string) => number;
   /** when the AI started on what it is doing now */
   since: number | null;
   /** a page of the shop: its own parts (SARCLA's night list, 09.11.2026), each with its changes */
@@ -191,9 +206,14 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
   const secs = since ? Math.max(0, Math.round((Date.now() - since) / 1000)) : 0;
   const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 
-  const parts = isNew ? partsOf(d.fields) : [];
+  // the page's blocks (the search engine fields are not one of them)
+  const parts = isNew ? blocksOf(d.fields).filter((b) => b.num) : [];
   const writtenParts = parts.filter((p) => p.state === "written" || p.state === "picture").length;
   const missing = parts.reduce((n, p) => n + p.missing, 0);
+  // what the person wants, typed in the start card (SARCLA 09.11.2026: "the user should prompt each page he wants")
+  const [want, setWant] = useState("");
+  const fromApp = !!appBrief?.app;
+  const canStart = !!want.trim() || !!appBrief?.text.trim();
   const madeLangs = langsOf(doc);
 
   /* ── the last step, as its own view ─────────────────────────────────── */
@@ -287,7 +307,7 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
 
   // the line over the last step: how far the page is
   const ready = isWinner ? (doc.published ? "Published" : api.data.piece.status === "approved" ? "Approved - ready to publish" : "Published once its reviewer approves it")
-    : isNew ? `${writtenParts} of ${parts.length} parts written${missing ? ` · ${missing} picture${missing === 1 ? "" : "s"} missing` : ""}`
+    : isNew ? `${writtenParts} of ${parts.length} blocks written${missing ? ` · ${missing} picture${missing === 1 ? "" : "s"} missing` : ""}`
       : d.changes.length ? `${d.changes.length} change${d.changes.length === 1 ? "" : "s"} on the ${langName(lang)} page` : "No change yet";
 
   const menuItems = canEdit && !atStart ? sources.filter((s) => (s.key === "new") !== isNew && s.key !== "convert") : [];
@@ -314,15 +334,26 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
           {/* the start: what the page is - only while it is empty */}
           {atStart && (
             <Box sx={{ mb: 2, p: 1.75, borderRadius: "12px", border: "1px solid rgba(194,44,110,.22)", background: "linear-gradient(135deg, rgba(194,44,110,.06), rgba(36,89,209,.05))", animation: `${fadeIn} .25s ease-out` }}>
-              <Typography sx={{ fontSize: "0.95rem", fontWeight: 750, color: INK, mb: 1 }}>What are you making?</Typography>
-              <Box sx={{ mb: 1.5 }}><Choice value={doc.source} onChange={changeSource} options={sources} /></Box>
+              <Typography sx={{ fontSize: "0.95rem", fontWeight: 750, color: INK, mb: 1 }}>{isNew ? "What page do you want?" : "What are you making?"}</Typography>
+              {(!isNew || sources.length > 1) && <Box sx={{ mb: 1.5 }}><Choice value={doc.source} onChange={changeSource} options={sources} /></Box>}
               {isNew ? (
                 <>
-                  <Button fullWidth variant="contained" disableElevation disabled={!canAi || !canEdit || !!busy} onClick={() => void fill("all")}
+                  {/* an app's brief: the page is written from it (by itself, at the first open); an own idea: say what page */}
+                  {fromApp && appBrief && (
+                    <Box sx={{ mb: 1.25, p: 1.25, borderRadius: "8px", bgcolor: "rgba(255,255,255,.75)", border: `1px solid ${HAIRLINE}` }}>
+                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED }}>The brief from {appBrief.app}</Typography>
+                      <Typography sx={{ fontSize: "0.82rem", color: INK, mt: 0.25, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{appBrief.text}</Typography>
+                    </Box>
+                  )}
+                  <TextField fullWidth multiline minRows={fromApp ? 2 : 3} maxRows={8} size="small" value={want} disabled={!canEdit} onChange={(e) => setWant(e.target.value)}
+                    placeholder={fromApp ? "Anything to add? (optional)" : "What it is about, for whom, and the words people search - e.g. O-rings for food machines, for maintenance buyers; \"fda o-ring\", \"food grade seal\""}
+                    sx={{ ...field, mb: 1, "& .MuiInputBase-root": { bgcolor: "#fff" } }}
+                    onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && canStart && canAi && !busy) void fill("all", want.trim() ? { request: `THE PAGE THE PERSON WANTS: ${want.trim()}` } : undefined); }} />
+                  <Button fullWidth variant="contained" disableElevation disabled={!canAi || !canEdit || !!busy || !canStart} onClick={() => void fill("all", want.trim() ? { request: `THE PAGE THE PERSON WANTS: ${want.trim()}` } : undefined)}
                     startIcon={<AutoAwesomeOutlinedIcon />} sx={{ ...mainBtn, borderRadius: "8px", height: 42 }}>
-                    Write the whole page with AI
+                    Write the page with AI
                   </Button>
-                  <Hint mt={0.75}>From the brief and the brand&apos;s facts, in {langName(lang)} - final words, and its pictures made. Or open a part below and write it yourself.</Hint>
+                  <Hint mt={0.75}>{canStart ? `In ${langName(lang)}, final words, its pictures made. ` : "Say what the page is for first. "}Or open a block below and write it yourself.</Hint>
                 </>
               ) : (
                 <Hint mt={0}>Pick the page in the middle: search the shop&apos;s pages, or paste its address. It opens there as the shop shows it, ready to change.</Hint>
@@ -368,11 +399,11 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
                 <Button size="small" disabled={!canAi || !!busy} onClick={() => void fill("all")} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />}
                   sx={{ ...btn, color: PINK, px: 0.75, py: 0.1, fontSize: "0.76rem", minWidth: 0 }}>{isLegacyBody(d) ? "Move the draft in with AI" : empty ? "Write it all with AI" : "Write it all again"}</Button>
               ) : undefined}>
-                The page{writingAll ? "" : ` · ${writtenParts} of ${parts.length} written`}
+                The page{writingAll ? "" : ` · ${parts.length} blocks · ${writtenParts} written`}
               </Kick>
-              <PartsOutline api={api} f={d.fields} set={(fields, label) => setView({ ...d, fields }, label)} store={d.store} canEdit={canEdit} canAi={canAi} fill={fill} busy={busy}
-                open={open} onOpen={onOpenPart} focusPath={sel?.key.startsWith("f:") ? sel.key.slice(2) : null} selBlock={sel?.key.startsWith("b:") ? sel.key.slice(2) : null}
-                onFocusPath={onFocusPath} pictures={pictures} makingIn={makingIn} />
+              <BlocksOutline api={api} f={d.fields} set={(fields, label) => setView({ ...d, fields }, label)} store={d.store} canEdit={canEdit} canAi={canAi} fill={fill} busy={busy}
+                open={open} onOpen={onOpenBlock} focusPath={sel?.key.startsWith("f:") ? sel.key.slice(2) : null} selKey={sel?.key ?? null} onSelect={onSelectKey}
+                onFocusPath={onFocusPath} pictures={pictures} makingIn={makingIn} onAdd={onAdd} onAddText={onAddText} onRefine={onRefine} />
               {sel?.key.startsWith("i:") && (
                 <Box sx={{ mt: 1.5 }}>
                   <RowList>

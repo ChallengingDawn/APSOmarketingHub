@@ -25,18 +25,20 @@ import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import FileUploadOutlinedIcon from "@mui/icons-material/FileUploadOutlined";
 import PhotoLibraryOutlinedIcon from "@mui/icons-material/PhotoLibraryOutlined";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import TuneIcon from "@mui/icons-material/Tune";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import {
-  LIMIT, addItem, moveItem, removeItem, setField, setLook,
+  LIMIT, addItem, moveItem, moveItemTo, removeItem, setField, setLook,
   type BlockBg, type Btn, type Fields, type ListKey, type Look, type Pic, type TextAlign, type TextColor, type TextSize,
 } from "@/lib/content/studio/kinds/page/fields";
 import type { Part } from "@/lib/content/studio/kinds/page/fill";
 import { urlKeyOf } from "@/lib/content/studio/kinds/page/model";
-import type { PartKey } from "@/lib/content/studio/kinds/page/outline";
+import { ITEM_NAME, blocksOf, itemOfPath, itemsOf } from "@/lib/content/studio/kinds/page/outline";
 import type { PageRow } from "@/lib/content/studio/kinds/page/shop";
 import { PicturePanel, uploadPicture, type PictureAspect } from "../../pictures";
 import { Field, PINK, btn, field } from "../../parts";
@@ -47,7 +49,7 @@ import { Choice, Hint } from "./ui";
 export type FillRun = (part: Part, opts?: { id?: string; request?: string }) => Promise<string | null>;
 
 /** A picture slot being made, or what went wrong (the studio keeps it by language and path). */
-export type Making = { state: "making" | "error"; error?: string };
+export type Making = { state: "making" | "error"; error?: string; label?: string };
 /** What the studio offers every picture slot: its state, "make it now", and whether the hub makes pictures at all. */
 export type PictureCtl = {
   making: (path: string) => Making | null;
@@ -114,8 +116,10 @@ export function LinkInput({ api, value, onChange, store, disabled, label = "Wher
  * A picture of the page: what it shows, being made (its own animation), then "Make another", "Upload", "Choose" -
  * or, when the hub cannot make pictures, that said plainly with "Upload" beside it.
  */
-export function PictureSlot({ api, pic, set, disabled, aspect = "3:2", path, ctl }: {
+export function PictureSlot({ api, pic, set, disabled, aspect = "3:2", path, ctl, onRefine }: {
   api: StudioApi; pic: Pic; set: (p: Pic) => void; disabled?: boolean; aspect?: PictureAspect; path?: string; ctl?: PictureCtl;
+  /** "Fine-tune": the same picture with one change, asked in the assistant (Content v5) */
+  onRefine?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const askedGallery = ctl?.gallery && ctl.gallery.path === path ? ctl.gallery.nonce : 0;
@@ -166,7 +170,7 @@ export function PictureSlot({ api, pic, set, disabled, aspect = "3:2", path, ctl
     );
   }
   const lineColor = m?.state === "error" ? "#a96a12" : MUTED;
-  const line = making ? "Up to 40 seconds - it lands here and in the page."
+  const line = making ? (m?.label ? `${m.label} Up to 40 seconds - it lands here and in the page.` : "Up to 40 seconds - it lands here and in the page.")
     : m?.state === "error" ? m.error
     : !pic.url && ctl?.imagesOn === false && pic.idea ? "Pictures cannot be made on this hub - its image model is not set up. Upload one instead."
     : pic.idea ? `Idea: ${pic.idea}` : pic.url ? "" : "No idea for it yet - upload one, or choose one already made.";
@@ -181,15 +185,18 @@ export function PictureSlot({ api, pic, set, disabled, aspect = "3:2", path, ctl
             : making ? <AutoAwesomeOutlinedIcon sx={{ color: PINK, fontSize: 20 }} /> : <ImageOutlinedIcon sx={{ color: MUTED }} />}
         </Box>
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography sx={{ fontSize: "0.82rem", fontWeight: 650, color: INK }}>{making ? "Making the picture" : pic.url ? "The picture" : "No picture yet"}</Typography>
+          <Typography sx={{ fontSize: "0.82rem", fontWeight: 650, color: INK }}>{making ? (m?.label?.startsWith("Fine") ? "Fine-tuning the picture" : "Making the picture") : pic.url ? "The picture" : "No picture yet"}</Typography>
           {line && <Typography sx={{ fontSize: "0.74rem", color: lineColor, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{line}</Typography>}
           {making && <LinearProgress sx={{ mt: 0.75, height: 3, borderRadius: 2, bgcolor: "rgba(194,44,110,.12)", "& .MuiLinearProgress-bar": { bgcolor: PINK } }} />}
           {!making && (
             // one tidy line (SARCLA's night list): the slot's main action in words, the other three as icons with their names
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, mt: 0.25, flexWrap: "nowrap", mx: -0.75 }}>
+              {pic.url && onRefine && ctl?.imagesOn !== false && (
+                <Button size="small" disabled={disabled} onClick={onRefine} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, px: 0.75, color: PINK, whiteSpace: "nowrap" }}>Fine-tune</Button>
+              )}
               {canMake && (
-                <Button size="small" disabled={disabled} onClick={() => ctl!.make(path!, pic.idea)} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, px: 0.75, color: PINK, whiteSpace: "nowrap" }}>
-                  {pic.url ? "Make another" : m?.state === "error" ? "Try again" : "Make it"}
+                <Button size="small" disabled={disabled} onClick={() => ctl!.make(path!, pic.idea)} startIcon={pic.url && onRefine ? undefined : <AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, px: 0.75, color: pic.url && onRefine ? INK : PINK, whiteSpace: "nowrap" }}>
+                  {pic.url ? (onRefine ? "Another" : "Make another") : m?.state === "error" ? "Try again" : "Make it"}
                 </Button>
               )}
               <Tooltip title="Upload a picture"><span><IconButton size="small" aria-label="Upload a picture" disabled={disabled || up !== null} onClick={() => file.current?.click()} sx={{ color: INK }}><FileUploadOutlinedIcon sx={{ fontSize: 18 }} /></IconButton></span></Tooltip>
@@ -252,57 +259,133 @@ function Background({ path, f, setF, disabled }: { path: string; f: Fields; setF
   );
 }
 
-function ItemHead({ label, onUp, onDown, onRemove, onAi, busy, canAi, disabled }: {
-  label: string; onUp?: () => void; onDown?: () => void; onRemove: () => void; onAi?: () => void; busy?: boolean; canAi?: boolean; disabled?: boolean;
+/* ── a block's items as rows (Content v5) ─────────────────────────────── */
+//
+// SARCLA 09.11.2026: "block 4 should be subdivided". A block with items (the tiles, the questions, the links) opens into
+// them: each its own row - a click selects it in the page and opens its fields here; it moves by dragging or up / down,
+// it goes with the bin, and "+ Tile" adds one.
+
+const rowBtn = { p: 0.4, color: MUTED, "&:hover": { color: INK } } as const;
+
+function ItemRows({ list, f, set, openItem, onSelect, canEdit, children }: {
+  list: ListKey; f: Fields; set: (next: Fields, label?: string) => void; openItem: string | null; onSelect: (sel: string | null) => void; canEdit: boolean;
+  /** the open item's fields */
+  children: (id: string) => React.ReactNode;
 }) {
+  const items = itemsOf(f, list);
+  const [drag, setDrag] = useState<{ id: string; over: number | null } | null>(null);
+  const name = ITEM_NAME[list] ?? "Item";
+  const drop = (to: number) => {
+    if (!drag) return;
+    const from = items.findIndex((x) => x.id === drag.id);
+    setDrag(null);
+    if (from < 0 || to === from || to === from + 1) return;
+    set(moveItemTo(f, list, drag.id, to > from ? to - 1 : to), `Moved ${name.toLowerCase()} ${from + 1}`);
+  };
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, mb: 0.25 }}>
-      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: MUTED, flex: 1 }}>{label}</Typography>
-      {onAi && <Tooltip title="Write it with AI"><span><IconButton size="small" disabled={!canAi || busy || disabled} onClick={onAi} sx={{ color: PINK }}>{busy ? <CircularProgress size={13} /> : <AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />}</IconButton></span></Tooltip>}
-      <Tooltip title="Up"><span><IconButton size="small" disabled={!onUp || disabled} onClick={onUp}><ArrowUpwardIcon sx={{ fontSize: 15 }} /></IconButton></span></Tooltip>
-      <Tooltip title="Down"><span><IconButton size="small" disabled={!onDown || disabled} onClick={onDown}><ArrowDownwardIcon sx={{ fontSize: 15 }} /></IconButton></span></Tooltip>
-      <Tooltip title="Remove"><span><IconButton size="small" disabled={disabled} onClick={onRemove}><DeleteOutlineIcon sx={{ fontSize: 16 }} /></IconButton></span></Tooltip>
+    <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "8px", bgcolor: "#fff", overflow: "hidden", mb: 1 }} onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDrag((d) => (d ? { ...d, over: null } : d)); }}>
+      {items.map((it, i) => {
+        const open = openItem === it.key;
+        return (
+          <Box key={it.id} data-item={it.key} sx={{ borderTop: i ? `1px solid ${HAIRLINE}` : "none", position: "relative", bgcolor: open ? "rgba(194,44,110,.035)" : "transparent",
+            ...(drag?.over === i ? { boxShadow: `inset 0 2px 0 ${PINK}` } : drag?.over === i + 1 && i === items.length - 1 ? { boxShadow: `inset 0 -2px 0 ${PINK}` } : {}) }}
+            onDragOver={(e) => { if (!drag) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); const over = e.clientY < r.top + r.height / 2 ? i : i + 1; if (over !== drag.over) setDrag({ ...drag, over }); }}
+            onDrop={(e) => { e.preventDefault(); if (drag?.over !== null && drag?.over !== undefined) drop(drag.over); }}>
+            <Box role="button" tabIndex={0} aria-expanded={open} onClick={() => onSelect(open ? null : it.sel)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(open ? null : it.sel); } }}
+              sx={{ display: "flex", alignItems: "center", gap: 0.75, pl: 0.5, pr: 0.5, py: 0.6, cursor: "pointer", outline: "none", "&:hover": { bgcolor: "rgba(21,34,58,.03)" }, "&:hover .acts": { opacity: 1 }, "&:focus-visible": { boxShadow: `inset 0 0 0 2px ${PINK}` }, ...(open ? { boxShadow: `inset 3px 0 0 ${PINK}` } : {}) }}>
+              {canEdit ? (
+                <Box className="acts" draggable onDragStart={(e: React.DragEvent) => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", it.key); setDrag({ id: it.id, over: null }); }}
+                  onDragEnd={() => setDrag(null)} onClick={(e: React.MouseEvent) => e.stopPropagation()} title="Drag to move"
+                  sx={{ display: "grid", placeItems: "center", cursor: "grab", color: MUTED, opacity: 0.35, transition: "opacity .12s" }}>
+                  <DragIndicatorIcon sx={{ fontSize: 16 }} />
+                </Box>
+              ) : <Box sx={{ width: 16 }} />}
+              <StateDot state={it.state} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{ fontSize: "0.8rem", lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: INK }}>
+                  <Box component="span" sx={{ fontWeight: 700 }}>{it.name}</Box>
+                  <Box component="span" sx={{ color: MUTED }}>{it.line ? ` · ${it.line}` : " · not written yet"}</Box>
+                </Typography>
+              </Box>
+              {canEdit && (
+                <Box className="acts" onClick={(e) => e.stopPropagation()} sx={{ display: "flex", opacity: { xs: 1, md: open ? 1 : 0 }, transition: "opacity .12s" }}>
+                  <Tooltip title="Up"><span><IconButton size="small" disabled={i === 0} onClick={() => set(moveItem(f, list, it.id, -1), `Moved ${it.name.toLowerCase()} up`)} sx={rowBtn}><ArrowUpwardIcon sx={{ fontSize: 15 }} /></IconButton></span></Tooltip>
+                  <Tooltip title="Down"><span><IconButton size="small" disabled={i === items.length - 1} onClick={() => set(moveItem(f, list, it.id, 1), `Moved ${it.name.toLowerCase()} down`)} sx={rowBtn}><ArrowDownwardIcon sx={{ fontSize: 15 }} /></IconButton></span></Tooltip>
+                  <Tooltip title={`Remove ${it.name.toLowerCase()}`}><IconButton size="small" onClick={() => { if (open) onSelect(null); set(removeItem(f, list, it.id), `Removed ${it.name.toLowerCase()}`); }} sx={rowBtn}><DeleteOutlineIcon sx={{ fontSize: 16 }} /></IconButton></Tooltip>
+                </Box>
+              )}
+              <ExpandMoreIcon sx={{ fontSize: 18, color: MUTED, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+            </Box>
+            <Collapse in={open} timeout={200} unmountOnExit>
+              <Box sx={{ px: 1.25, pb: 1, pt: 0.25 }}>{children(it.id)}</Box>
+            </Collapse>
+          </Box>
+        );
+      })}
+      {!items.length && <Typography sx={{ fontSize: "0.8rem", color: MUTED, px: 1.25, py: 1 }}>No {name.toLowerCase()} yet.</Typography>}
     </Box>
   );
 }
 
-/** One item of a list part (a benefit, a section, a link, a question), selected when its block is. */
-const itemBox = (on: boolean) => ({
-  p: 1.25, pt: 0.75, mb: 1, borderRadius: "8px", border: `1px solid ${on ? "rgba(194,44,110,.35)" : HAIRLINE}`, bgcolor: on ? "rgba(194,44,110,.03)" : "#fbfcfd",
-  transition: "border-color .2s, background-color .2s",
-});
+function StateDot({ state }: { state: string }) {
+  const c = state === "written" ? "#1b7a55" : state === "partly" ? "#b7791f" : null;
+  return <Box sx={{ width: 8, height: 8, flexShrink: 0, borderRadius: "50%", bgcolor: c ?? "transparent", border: c ? "none" : "1.5px solid #b9c3cf", boxSizing: "border-box" }} />;
+}
 
-/* ── a part's fields ──────────────────────────────────────────────────── */
+/** "+ Tile", "+ Question", "+ Link" - the item is added at the end, selected, its fields open. */
+function AddItemBtn({ label, onClick, disabled }: { label: string; onClick: () => void; disabled?: boolean }) {
+  return (
+    <Button size="small" startIcon={<AddIcon />} disabled={disabled} onClick={onClick}
+      sx={{ ...btn, color: INK, border: `1px dashed ${HAIRLINE}`, borderRadius: "6px", px: 1.25, "&:hover": { borderColor: PINK, color: PINK, bgcolor: "rgba(194,44,110,.04)" } }}>{label}</Button>
+  );
+}
 
-export function PartBody({ api, part, f, set, store, canEdit, canAi, fill, busy, focusPath, selBlock, onFocusPath, pictures }: {
-  api: StudioApi; part: PartKey; f: Fields; set: (next: Fields, label?: string) => void; store: string; canEdit: boolean; canAi: boolean;
-  fill: FillRun; busy: string | null; focusPath: string | null; selBlock: string | null; onFocusPath: (p: string) => void; pictures: PictureCtl;
+/* ── a block's fields ─────────────────────────────────────────────────── */
+
+/** The AI's run for a block: "sections.ab12" is that section alone, "sections" (the empty slot) writes a few. */
+export function fillOfBlock(block: string): { part: Part; id?: string } | null {
+  if (block.startsWith("sections.")) return { part: "section", id: block.slice(9) };
+  const k = block === "intro-block" ? "intro" : block;
+  return (["hero", "intro", "benefits", "sections", "links", "faq", "cta", "seo"] as string[]).includes(k) ? { part: k as Part } : null;
+}
+
+export function BlockBody({ api, block, f, set, store, canEdit, canAi, fill, busy, focusPath, selKey, onFocusPath, onSelect, pictures, onAddText, onRefine }: {
+  api: StudioApi; block: string; f: Fields; set: (next: Fields, label?: string) => void; store: string; canEdit: boolean; canAi: boolean;
+  fill: FillRun; busy: string | null; focusPath: string | null;
+  /** what is selected in the page ("b:benefits.x", "f:faq.y.q"...) - an item of this block opens its row */
+  selKey: string | null;
+  onFocusPath: (p: string) => void;
+  /** an item row clicked: selected in the page (null = the block itself) */
+  onSelect: (sel: string | null) => void;
+  pictures: PictureCtl;
+  /** the sections' empty slot: one text-and-picture block put in its place */
+  onAddText?: () => void;
+  /** a picture fine-tuned: selected, the assistant offers its asks */
+  onRefine?: (path: string) => void;
 }) {
   const top = useRef<HTMLDivElement | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const d = !canEdit;
   const up = (path: string, v: unknown) => set(setField(f, path, v));
   const run = async (p: Part, opts?: { id?: string; request?: string }) => { setMsg(null); const r = await fill(p, opts); if (r) setMsg(r); };
+  const selPath = selKey ? selKey.slice(2) : null;
+  const openItem = itemOfPath(selPath);
 
   // a field (or an item) selected in the preview comes into view here
   useEffect(() => {
-    const key = focusPath ?? selBlock;
+    const key = focusPath ?? selPath;
     if (!key) return;
     const t = setTimeout(() => {
-      const el = top.current?.querySelector(`[data-field="${CSS.escape(key)}"]`) ?? top.current?.querySelector(`[data-item="${CSS.escape(key)}"]`);
+      const el = top.current?.querySelector(`[data-field="${CSS.escape(key)}"]`) ?? top.current?.querySelector(`[data-item="${CSS.escape(itemOfPath(key) ?? key)}"]`);
       el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }, 240);
     return () => clearTimeout(t);
-  }, [focusPath, selBlock]);
+  }, [focusPath, selPath]);
 
   const look = (path: string) => (focusPath === path && canEdit ? <LookToggle path={path} f={f} setF={set} disabled={d} /> : undefined);
   const fp = (path: string) => ({ path, onFocusPath, focused: focusPath === path, look: look(path) });
-  const list = <K extends ListKey>(key: K) => ({
-    add: () => { const r = addItem(f, key); set(r.fields); onFocusPath(`${key}.${r.id}`); },
-    up: (id: string) => set(moveItem(f, key, id, -1)),
-    down: (id: string) => set(moveItem(f, key, id, 1)),
-    remove: (id: string) => set(removeItem(f, key, id), "Removed an item"),
-  });
+  const add = (key: ListKey) => { const r = addItem(f, key); set(r.fields, `Added ${(ITEM_NAME[key] ?? "an item").toLowerCase()}`); onSelect(key === "links" ? `f:links.${r.id}` : `b:${key}.${r.id}`); };
   const btnFields = (path: string, b: Btn) => (
     <>
       <F {...fp(`${path}.label`)} label="Button words" value={b.label} max={LIMIT.button} disabled={d} onChange={(v) => up(`${path}.label`, v)} />
@@ -311,12 +394,25 @@ export function PartBody({ api, part, f, set, store, canEdit, canAi, fill, busy,
   );
   const pic = (path: string, p: Pic) => (
     <Box data-field={path} onFocus={() => onFocusPath(path)}>
-      <PictureSlot api={api} pic={p} disabled={d} path={path} ctl={pictures} set={(n) => set(setField(f, path, n), n.url !== p.url ? "Changed a picture" : undefined)} />
+      <PictureSlot api={api} pic={p} disabled={d} path={path} ctl={pictures} onRefine={onRefine ? () => onRefine(path) : undefined}
+        set={(n) => set(setField(f, path, n), n.url !== p.url ? "Changed a picture" : undefined)} />
     </Box>
   );
 
+  // "Write this block" - the AI writes this block alone (Content v5)
+  const ai = fillOfBlock(block);
+  const info = blocksOf(f).find((x) => x.key === block);
+  const writing = busy === (ai?.part === "section" ? `section:${ai.id}` : ai?.part);
+  const aiRow = ai && canEdit ? (
+    <Button size="small" disabled={!canAi || !!busy} onClick={() => void run(ai.part, ai.id ? { id: ai.id } : undefined)}
+      startIcon={writing ? <CircularProgress size={13} sx={{ color: PINK }} /> : <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />}
+      sx={{ ...btn, color: PINK, px: 0.75, ml: -0.75, mb: 0.75 }}>
+      {writing ? "Writing…" : block === "sections" ? "Write a few with AI" : block === "seo" ? "Write them with AI" : info && info.state !== "empty" ? "Write this block again with AI" : "Write this block with AI"}
+    </Button>
+  ) : null;
+
   let body: React.ReactNode = null;
-  if (part === "hero") {
+  if (block === "hero") {
     body = (
       <>
         <F {...fp("hero.eyebrow")} label="Small line above the title" value={f.hero.eyebrow} max={LIMIT.eyebrow} disabled={d} onChange={(v) => up("hero.eyebrow", v)} />
@@ -327,81 +423,93 @@ export function PartBody({ api, part, f, set, store, canEdit, canAi, fill, busy,
         <Background path="hero" f={f} setF={set} disabled={d} />
       </>
     );
-  } else if (part === "intro") {
+  } else if (block === "intro") {
     body = (
       <>
         <F {...fp("intro")} label="Intro paragraph" value={f.intro} max={LIMIT.intro} multiline rows={4} disabled={d} onChange={(v) => up("intro", v)} />
         <Background path="intro-block" f={f} setF={set} disabled={d} />
       </>
     );
-  } else if (part === "benefits") {
+  } else if (block === "benefits") {
     body = (
       <>
         <F {...fp("benefitsTitle")} label="Heading" value={f.benefitsTitle} max={LIMIT.blockTitle} disabled={d} onChange={(v) => up("benefitsTitle", v)} />
-        {f.benefits.map((b, i) => (
-          <Box key={b.id} data-item={`benefits.${b.id}`} sx={itemBox(selBlock === `benefits.${b.id}`)}>
-            <ItemHead label={`Benefit ${i + 1}`} disabled={d} onUp={i ? () => list("benefits").up(b.id) : undefined} onDown={i < f.benefits.length - 1 ? () => list("benefits").down(b.id) : undefined} onRemove={() => list("benefits").remove(b.id)} />
-            <F {...fp(`benefits.${b.id}.title`)} label="Title" value={b.title} max={LIMIT.benefitTitle} disabled={d} onChange={(v) => up(`benefits.${b.id}.title`, v)} />
-            <F {...fp(`benefits.${b.id}.text`)} label="Text" value={b.text} max={LIMIT.benefitText} multiline rows={2} disabled={d} onChange={(v) => up(`benefits.${b.id}.text`, v)} />
-          </Box>
-        ))}
-        {f.benefits.length < 8 && <Button size="small" startIcon={<AddIcon />} disabled={d} onClick={list("benefits").add} sx={{ ...btn, color: INK }}>Add a benefit</Button>}
+        <ItemRows list="benefits" f={f} set={set} openItem={openItem} onSelect={onSelect} canEdit={canEdit}>
+          {(id) => {
+            const b = f.benefits.find((x) => x.id === id);
+            return b ? (
+              <>
+                <F {...fp(`benefits.${id}.title`)} label="Title" value={b.title} max={LIMIT.benefitTitle} disabled={d} onChange={(v) => up(`benefits.${id}.title`, v)} />
+                <F {...fp(`benefits.${id}.text`)} label="Text" value={b.text} max={LIMIT.benefitText} multiline rows={2} disabled={d} onChange={(v) => up(`benefits.${id}.text`, v)} />
+              </>
+            ) : null;
+          }}
+        </ItemRows>
+        {f.benefits.length < 8 && canEdit && <AddItemBtn label="Tile" onClick={() => add("benefits")} />}
         <Background path="benefits" f={f} setF={set} disabled={d} />
       </>
     );
-  } else if (part === "sections") {
+  } else if (block.startsWith("sections.")) {
+    const s = f.sections.find((x) => `sections.${x.id}` === block);
+    body = s ? (
+      <>
+        <F {...fp(`sections.${s.id}.title`)} label="Heading" value={s.title} max={LIMIT.sectionTitle} disabled={d} onChange={(v) => up(`sections.${s.id}.title`, v)} />
+        <F {...fp(`sections.${s.id}.text`)} label="Text (a blank line = a new paragraph, - = a list)" value={s.text} max={LIMIT.sectionText} multiline rows={4} disabled={d} onChange={(v) => up(`sections.${s.id}.text`, v)} />
+        {pic(`sections.${s.id}.picture`, s.picture)}
+        <Box sx={{ display: "grid", gap: 0.75 }}>
+          <Choice label="Picture" value={s.side} onChange={(side) => !d && set(setField(f, `sections.${s.id}.side`, side), "Moved the picture")} options={[{ key: "left", label: "Left" }, { key: "right", label: "Right" }]} />
+          <Background path={`sections.${s.id}`} f={f} setF={set} disabled={d} />
+        </Box>
+      </>
+    ) : <Hint mt={0}>This block is gone.</Hint>;
+  } else if (block === "sections") {
     body = (
       <>
-        {f.sections.length === 0 && <Hint mt={0}>Text with a picture beside it - each section one idea.</Hint>}
-        {f.sections.map((s, i) => (
-          <Box key={s.id} data-item={`sections.${s.id}`} sx={itemBox(selBlock === `sections.${s.id}`)}>
-            <ItemHead label={`Section ${i + 1}`} disabled={d} canAi={canAi} busy={busy === `section:${s.id}`} onAi={() => void run("section", { id: s.id })}
-              onUp={i ? () => list("sections").up(s.id) : undefined} onDown={i < f.sections.length - 1 ? () => list("sections").down(s.id) : undefined} onRemove={() => list("sections").remove(s.id)} />
-            <F {...fp(`sections.${s.id}.title`)} label="Heading" value={s.title} max={LIMIT.sectionTitle} disabled={d} onChange={(v) => up(`sections.${s.id}.title`, v)} />
-            <F {...fp(`sections.${s.id}.text`)} label="Text (a blank line = a new paragraph, - = a list)" value={s.text} max={LIMIT.sectionText} multiline rows={4} disabled={d} onChange={(v) => up(`sections.${s.id}.text`, v)} />
-            {pic(`sections.${s.id}.picture`, s.picture)}
-            <Box sx={{ display: "grid", gap: 0.75 }}>
-              <Choice label="Picture" value={s.side} onChange={(side) => !d && set(setField(f, `sections.${s.id}.side`, side), "Moved the picture")} options={[{ key: "left", label: "Left" }, { key: "right", label: "Right" }]} />
-              <Background path={`sections.${s.id}`} f={f} setF={set} disabled={d} />
-            </Box>
-          </Box>
-        ))}
-        {f.sections.length < 10 && <Button size="small" startIcon={<AddIcon />} disabled={d} onClick={list("sections").add} sx={{ ...btn, color: INK }}>Add a section</Button>}
+        <Hint mt={0}>Text with a picture beside it - each one an idea of its own. The AI writes two to four, or add one and write it yourself.</Hint>
+        {canEdit && onAddText && <Box sx={{ mt: 1 }}><AddItemBtn label="Text and picture" onClick={onAddText} /></Box>}
       </>
     );
-  } else if (part === "links") {
+  } else if (block === "links") {
     body = (
       <>
         <Hint mt={0}>Categories and products of {store}. The AI picks only among the shop&apos;s real pages.</Hint>
         <Box sx={{ mt: 0.5 }}><F {...fp("linksTitle")} label="Heading" value={f.linksTitle} max={LIMIT.blockTitle} disabled={d} onChange={(v) => up("linksTitle", v)} /></Box>
-        {f.links.map((l, i) => (
-          <Box key={l.id} data-item={`links.${l.id}`} data-field={`links.${l.id}`} onFocus={() => onFocusPath(`links.${l.id}`)} sx={itemBox(focusPath === `links.${l.id}`)}>
-            <ItemHead label={`Link ${i + 1}`} disabled={d} onUp={i ? () => list("links").up(l.id) : undefined} onDown={i < f.links.length - 1 ? () => list("links").down(l.id) : undefined} onRemove={() => list("links").remove(l.id)} />
-            <Field label="Words" value={l.label} max={LIMIT.linkLabel} disabled={d} onChange={(v) => up(`links.${l.id}.label`, v)} />
-            <LinkInput api={api} store={store} value={l.url} disabled={d} label="The page" onChange={(v) => up(`links.${l.id}.url`, v)} />
-            <Field label="What the visitor finds there" value={l.note} max={LIMIT.linkNote} disabled={d} onChange={(v) => up(`links.${l.id}.note`, v)} />
-          </Box>
-        ))}
-        {f.links.length < 16 && <Button size="small" startIcon={<AddIcon />} disabled={d} onClick={list("links").add} sx={{ ...btn, color: INK }}>Add a link</Button>}
+        <ItemRows list="links" f={f} set={set} openItem={openItem} onSelect={onSelect} canEdit={canEdit}>
+          {(id) => {
+            const l = f.links.find((x) => x.id === id);
+            return l ? (
+              <Box data-field={`links.${id}`} onFocus={() => onFocusPath(`links.${id}`)}>
+                <Field label="Words" value={l.label} max={LIMIT.linkLabel} disabled={d} onChange={(v) => up(`links.${id}.label`, v)} />
+                <LinkInput api={api} store={store} value={l.url} disabled={d} label="The page" onChange={(v) => up(`links.${id}.url`, v)} />
+                <Field label="What the visitor finds there" value={l.note} max={LIMIT.linkNote} disabled={d} onChange={(v) => up(`links.${id}.note`, v)} />
+              </Box>
+            ) : null;
+          }}
+        </ItemRows>
+        {f.links.length < 16 && canEdit && <AddItemBtn label="Link" onClick={() => add("links")} />}
         <Background path="links" f={f} setF={set} disabled={d} />
       </>
     );
-  } else if (part === "faq") {
+  } else if (block === "faq") {
     body = (
       <>
         <F {...fp("faqTitle")} label="Heading" value={f.faqTitle} max={LIMIT.blockTitle} disabled={d} onChange={(v) => up("faqTitle", v)} />
-        {f.faq.map((q, i) => (
-          <Box key={q.id} data-item={`faq.${q.id}`} sx={itemBox(selBlock === `faq.${q.id}`)}>
-            <ItemHead label={`Question ${i + 1}`} disabled={d} onUp={i ? () => list("faq").up(q.id) : undefined} onDown={i < f.faq.length - 1 ? () => list("faq").down(q.id) : undefined} onRemove={() => list("faq").remove(q.id)} />
-            <F {...fp(`faq.${q.id}.q`)} label="Question" value={q.q} max={LIMIT.faqQ} disabled={d} onChange={(v) => up(`faq.${q.id}.q`, v)} />
-            <F {...fp(`faq.${q.id}.a`)} label="Answer" value={q.a} max={LIMIT.faqA} multiline rows={3} disabled={d} onChange={(v) => up(`faq.${q.id}.a`, v)} />
-          </Box>
-        ))}
-        {f.faq.length < 14 && <Button size="small" startIcon={<AddIcon />} disabled={d} onClick={list("faq").add} sx={{ ...btn, color: INK }}>Add a question</Button>}
+        <ItemRows list="faq" f={f} set={set} openItem={openItem} onSelect={onSelect} canEdit={canEdit}>
+          {(id) => {
+            const q = f.faq.find((x) => x.id === id);
+            return q ? (
+              <>
+                <F {...fp(`faq.${id}.q`)} label="Question" value={q.q} max={LIMIT.faqQ} disabled={d} onChange={(v) => up(`faq.${id}.q`, v)} />
+                <F {...fp(`faq.${id}.a`)} label="Answer" value={q.a} max={LIMIT.faqA} multiline rows={3} disabled={d} onChange={(v) => up(`faq.${id}.a`, v)} />
+              </>
+            ) : null;
+          }}
+        </ItemRows>
+        {f.faq.length < 14 && canEdit && <AddItemBtn label="Question" onClick={() => add("faq")} />}
         <Background path="faq" f={f} setF={set} disabled={d} />
       </>
     );
-  } else if (part === "cta") {
+  } else if (block === "cta") {
     body = (
       <>
         <F {...fp("cta.title")} label="Title" value={f.cta.title} max={LIMIT.ctaTitle} disabled={d} onChange={(v) => up("cta.title", v)} />
@@ -410,7 +518,7 @@ export function PartBody({ api, part, f, set, store, canEdit, canAi, fill, busy,
         <Background path="cta" f={f} setF={set} disabled={d} />
       </>
     );
-  } else if (part === "seo") {
+  } else if (block === "seo") {
     body = (
       <>
         <Hint mt={0}>What Google shows - not on the page itself.</Hint>
@@ -424,9 +532,9 @@ export function PartBody({ api, part, f, set, store, canEdit, canAi, fill, busy,
   }
   return (
     <Box ref={top}>
+      {aiRow}
       {msg && <Typography sx={{ fontSize: "0.8rem", color: "#7f4f0b", bgcolor: "#fff8ec", p: 1, borderRadius: "8px", mb: 1 }}>{msg}</Typography>}
       {body}
     </Box>
   );
 }
-
