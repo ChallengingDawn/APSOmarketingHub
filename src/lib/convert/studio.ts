@@ -15,6 +15,7 @@ import { buildPageFlow } from "@/lib/journeys/read";
 import { ENVS, classify, storeCase, type Env, type PageKind } from "./model";
 import { outline, type Outline } from "./preview";
 import { validateChanges, type Change } from "./versions";
+import { cleanChangeType, typeOfIdea, type ChangeType } from "./changeTypes";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS apsomh_convert_ideas (
@@ -79,6 +80,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS apsomh_convert_versions_idea_letter ON apsomh_
 ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS sent_by text;
 ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS sent_at timestamptz;
 ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS project_id bigint;
+ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS content_type text;
+ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS block text;
 `;
 
 let schemaReady: Promise<void> | null = null;
@@ -191,6 +194,9 @@ export type Idea = {
   target?: string | null;
   /** Sent to a Content project (with its versions, approved by the send): who, when, which project. */
   sentBy?: string | null; sentAt?: string | null; projectId?: string | null;
+  /** The type of content change it proposes - Content's own type (./changeTypes.ts): Page builder, SEO landing page,
+   *  Banner, Newsletter. And the shop block it is about, when it was asked for one (./blocks.ts key). */
+  contentType: ChangeType; block?: string | null;
 };
 /** The AI's reading of one page, written with its ideas: what works, what stops buyers. */
 export type Analysis = { text: string; at: string; by: string | null };
@@ -207,7 +213,7 @@ type IdeaRow = {
   id: string; env: Env; path: string; page_key: string; kind: PageKind; title: string; why: string; change: string; expect: string;
   source: "ai" | "person"; status: IdeaStatus; numbers: Numbers | null; created_by: string | null; created_at: Date;
   decided_by: string | null; decided_at: Date | null; impact: number | null; confidence: number | null; effort: number | null; target: string | null;
-  sent_by?: string | null; sent_at?: Date | null; project_id?: string | null;
+  sent_by?: string | null; sent_at?: Date | null; project_id?: string | null; content_type?: string | null; block?: string | null;
 };
 type VersionRow = {
   id: string; idea_id: string; env: Env; path: string; rev: number; changes: Change[]; summary: string; status: VersionStatus;
@@ -219,6 +225,7 @@ const toIdea = (r: IdeaRow): Idea => ({
   source: r.source, status: r.status, numbers: r.numbers, createdBy: r.created_by, createdAt: iso(r.created_at)!, decidedBy: r.decided_by, decidedAt: iso(r.decided_at),
   impact: r.impact ?? null, confidence: r.confidence ?? null, effort: r.effort ?? null, target: r.target ?? null,
   sentBy: r.sent_by ?? null, sentAt: iso(r.sent_at ?? null), projectId: r.project_id ? String(r.project_id) : null,
+  contentType: typeOfIdea({ contentType: r.content_type, block: r.block }), block: r.block ?? null,
 });
 const toVersion = (r: VersionRow): Version => ({
   id: String(r.id), ideaId: String(r.idea_id), env: r.env, path: r.path, rev: r.rev, changes: r.changes, summary: r.summary, status: r.status,
@@ -271,15 +278,16 @@ export function cleanTarget(x: unknown): string | null {
   return t;
 }
 
-export async function addIdea(env: Env, path: string, idea: { title: string; why: string; change: string; expect: string; impact?: number; confidence?: number; effort?: number; target?: string | null }, by: string, source: "ai" | "person", numbers: Numbers | null): Promise<Idea> {
+export async function addIdea(env: Env, path: string, idea: { title: string; why: string; change: string; expect: string; impact?: number; confidence?: number; effort?: number; target?: string | null; type?: unknown; block?: string | null }, by: string, source: "ai" | "person", numbers: Numbers | null): Promise<Idea> {
   await ensureStudioSchema();
   const c = classify(path);
   const one = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? Math.max(1, Math.min(5, Math.round(x))) : null);
   const r = await query<IdeaRow>(
-    `INSERT INTO apsomh_convert_ideas (env, path, page_key, kind, title, why, change, expect, source, status, numbers, created_by, impact, confidence, effort, target)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16) RETURNING *`,
+    `INSERT INTO apsomh_convert_ideas (env, path, page_key, kind, title, why, change, expect, source, status, numbers, created_by, impact, confidence, effort, target, content_type, block)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
     [env, path, pageKeyOf(path), c.kind, idea.title.slice(0, 200), idea.why.slice(0, 1500), idea.change.slice(0, 2000), idea.expect.slice(0, 600), source,
-      source === "person" ? "approved" : "proposed", numbers ? JSON.stringify(numbers) : null, by, one(idea.impact), one(idea.confidence), one(idea.effort), cleanTarget(idea.target)],
+      source === "person" ? "approved" : "proposed", numbers ? JSON.stringify(numbers) : null, by, one(idea.impact), one(idea.confidence), one(idea.effort), cleanTarget(idea.target),
+      cleanChangeType(idea.type, idea.block ?? null), idea.block ?? null],
   );
   return toIdea(r.rows[0]);
 }
@@ -456,7 +464,7 @@ const IDEAS_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "why", "change", "expect", "impact", "confidence", "effort", "target"],
+        required: ["title", "why", "change", "expect", "impact", "confidence", "effort", "target", "type"],
         properties: {
           title: { type: "string", description: "The idea in under 10 words, English" },
           why: { type: "string", description: "Which number or which part of the page points to it, English, 1-2 sentences" },
@@ -466,6 +474,7 @@ const IDEAS_SCHEMA = {
           confidence: { type: "integer", description: "1-5: how strongly THIS page's numbers and content point to it (5 = the numbers say it plainly; 1 = a general hunch)" },
           effort: { type: "integer", description: "1-5: how much the version takes (1 = a style or a moved block; 5 = new content or data the page does not have)" },
           target: { type: "string", description: "The block of the page this idea changes, as a CSS selector copied EXACTLY from the page as drawn (the part before ' · ' of one of its lines, e.g. '#maincontent' or 'div.product-info-main'); empty when it is about the whole page" },
+          type: { type: "string", enum: ["page-refresh", "landing-page", "banner", "newsletter"], description: "The kind of content the marketing team makes for it: page-refresh = a change of THIS page or block as it is (layout, texts, order, emphasis, a block added or moved); landing-page = a NEW page for searches the shop does not answer (only when the evidence is what people search on Google); banner = the home slider or a banner; newsletter = the newsletter band or its sign-up" },
         },
       },
     },
@@ -501,7 +510,7 @@ WHERE ITS VISITORS COME FROM AND GO NEXT (Google Analytics, ${from} to ${to}, ${
 }
 
 /** A block of the shop shown on many pages (the newsletter band, the home slider...): ./blocks.ts. */
-export type BlockFocus = { name: string; selector: string; about: string; goal: string };
+export type BlockFocus = { key?: string; name: string; selector: string; about: string; goal: string };
 
 export async function proposeIdeas(env: Env, path: string, numbers: Numbers | null, by: string, drawn: string[] | null = null, block: BlockFocus | null = null): Promise<AiResult<Idea[]>> {
   const page = await shopPage(env, path);
@@ -538,7 +547,7 @@ Look at the lines of the page under that selector; the rest of the page is only 
 
 ${numbersBrief(numbers)}${flow}${focus}
 ${existing ? `\nIDEAS ALREADY ON THIS PAGE (do not repeat them):\n${existing}` : ""}`;
-  const r = await ask<{ analysis?: string; ideas: { title: string; why: string; change: string; expect: string; impact: number; confidence: number; effort: number; target?: string }[] }>(system, user, IDEAS_SCHEMA, 8000);
+  const r = await ask<{ analysis?: string; ideas: { title: string; why: string; change: string; expect: string; impact: number; confidence: number; effort: number; target?: string; type?: string }[] }>(system, user, IDEAS_SCHEMA, 8000);
   if (!r.ok) return r;
   const reading = (r.data.analysis ?? "").trim().slice(0, 1200);
   if (reading) {
@@ -548,7 +557,7 @@ ${existing ? `\nIDEAS ALREADY ON THIS PAGE (do not repeat them):\n${existing}` :
   const out: Idea[] = [];
   for (const i of (r.data.ideas ?? []).slice(0, 5)) {
     if (!i.title?.trim()) continue;
-    out.push(await addIdea(env, path, i, by, "ai", numbers));
+    out.push(await addIdea(env, path, { ...i, block: block?.key ?? null }, by, "ai", numbers));
   }
   return { ok: true, data: out };
 }

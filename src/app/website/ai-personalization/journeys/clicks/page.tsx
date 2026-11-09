@@ -102,13 +102,13 @@ export default function ClickMapPage() {
         <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
           <Box sx={{ mb: 1.5 }}>
             <CardTitle icon={<TouchAppOutlinedIcon />} tint="amber" right={<HeatLegend />}
-              title={d.deployed ? `${counted.size} page${counted.size === 1 ? "" : "s"} counted` : "The click map fills once the shop's gateway is deployed"} />
+              title={d.deployed ? `${counted.size} page${counted.size === 1 ? "" : "s"} counted` : "The shop's gateway does not answer for the click map"} />
           </Box>
           {!d.deployed && (
             d.error
               ? <Notice tone="warn">The shop&apos;s gateway could not be read: {d.error}</Notice>
               : <Typography sx={{ fontSize: "0.86rem", color: INK, lineHeight: 1.5, p: 1.25, borderRadius: "10px", bgcolor: "rgba(36,89,209,.05)", border: "1px solid rgba(36,89,209,.18)" }}>
-                  The shop counts clicks once its gateway runs the new version (SARCLA deploys it). Until then nothing is counted - no number on this page is guessed. Everything else is ready: the pages below can be chosen the day it runs.
+                  The shop counts clicks through its gateway; it does not answer for the click map right now, so nothing is counted - no number on this page is guessed.
                 </Typography>
           )}
           <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(3, minmax(0,1fr))" }, mt: d.deployed ? 0 : 1.5 }}>

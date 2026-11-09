@@ -62,7 +62,7 @@ export function ClicksBar({ data, error, loading, dev, onDev, env, path, focus, 
   } else if (error || (data && !data.deployed && data.error)) {
     status = <Box component="span" sx={{ color: RED }}>The clicks could not be read: {error ?? data?.error}</Box>;
   } else if (data && !data.deployed) {
-    status = <><b>Not counting yet.</b> The shop counts clicks once its gateway runs the new version (SARCLA deploys it). Nothing is counted before that, and nothing here is guessed.</>;
+    status = <><b>Not counting yet.</b> The shop&apos;s gateway does not answer for the click map - nothing is counted, and nothing here is guessed.</>;
   } else if (data) {
     const counted = heat?.total ?? 0;
     status = (

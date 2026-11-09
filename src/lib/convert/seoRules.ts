@@ -82,6 +82,10 @@ export function seoPages(pages: GscPageRow[], pairs: GscPairRow[], opts: { host?
     const impressions = n(p.impressions);
     if (impressions <= 0) continue;
     const path = shopPathOf(p.key, host)!;
+    // SEO pages are the pages people find on Google to land on - categories, landing and content pages, the home -
+    // never a product page (SARCLA 09.11.2026: "SEO pages are getting product pages"); products still count in what
+    // is typical at a position.
+    if (classify(path).kind === "product") continue;
     const clicks = n(p.clicks);
     const position = n(p.position) || 0;
     const ctr = clicks / impressions;

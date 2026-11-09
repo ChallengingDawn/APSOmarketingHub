@@ -9,6 +9,7 @@
 // Pages keep their addresses: a move is a move in the menu, so every link and
 // bookmark still works, and each page keeps the access rule it already had.
 
+import { OTD_PAGES } from "./otdPages";
 import type { IconKey } from "../../app/hubApps"; // relative: the unit tests compile this file
 import { SHOWN_STAGES, stageName } from "../marketingKpis/stageNames";
 
@@ -165,7 +166,16 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
   },
   {
     slug: "otd", name: "OTD Reports", line: "On-time delivery: promised against shipped",
-    reports: [], next: "First report: share of order lines shipped on the promised date, by month.",
+    // the supply chain's OTD analysis file worked out live - its rule, its categories and every one of its views - on the
+    // ERP's order lines every morning, its own lines for the months before (SARCLA 09.11.2026: "should be used to create
+    // OTD advanced reports on its own and then bring to back office the main features")
+    reports: [
+      {
+        name: "OTD analysis", href: "/reporting/otd", note: "On time, late categories, suppliers' impact, products, what makes an order late, lead and transport time", icon: "bar",
+        overview: "Overview", overviewHref: "/reporting/otd",
+        children: OTD_PAGES.filter((p) => p.slug !== "overview").map((p) => ({ name: p.name, href: p.href, icon: p.icon })),
+      },
+    ],
   },
   {
     slug: "satisfaction", name: "Satisfaction Reports", line: "What customers say about us",
