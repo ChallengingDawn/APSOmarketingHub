@@ -300,6 +300,7 @@ const WEBSITE_CHILDREN: Record<string, { label: string; href: string }[]> = {
     { label: "Main journeys", href: "/website/ai-personalization/journeys" },
     { label: "Funnel", href: "/website/ai-personalization/journeys/funnel" },
     { label: "Page flow", href: "/website/ai-personalization/journeys/page" },
+    { label: "Click map", href: "/website/ai-personalization/journeys/clicks" },
   ],
 };
 

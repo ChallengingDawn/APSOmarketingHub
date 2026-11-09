@@ -31,6 +31,7 @@ import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
 import AdsClickOutlinedIcon from "@mui/icons-material/AdsClickOutlined";
 import HighlightAltOutlinedIcon from "@mui/icons-material/HighlightAltOutlined";
 import EditNoteOutlinedIcon from "@mui/icons-material/EditNoteOutlined";
+import TouchAppOutlinedIcon from "@mui/icons-material/TouchAppOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
@@ -49,6 +50,7 @@ import { projectForPage, markerOf, pageMarker } from "@/lib/convert/handoff";
 import { convertPost, previewHref } from "../Flow";
 import { SquareChoice } from "../SquareChoice";
 import { PageShot } from "../PageShot";
+import { ClicksBar, type ClickDev, type ClicksData } from "../ClicksBar";
 
 type StudioData = {
   env: Env; path: string;
@@ -65,6 +67,8 @@ type Device = "desktop" | "phone";
 type Zoom = "fit" | "full";
 type Sync = { y: number; from: string; n: number };
 type View = "version" | "original" | "both";
+/** The click map's heat on the page as it is (the frame draws it): an item per element and its tenths. */
+type HeatMsg = { list: { s: string; n: number; c: number[] }[]; max: number };
 
 const API = "/api/website/ai-personalization/work";
 const since = (iso: string) => ago(Date.parse(iso) / 1000);
@@ -73,9 +77,9 @@ const pct = (r: number | null | undefined) => (r === null || r === undefined ? "
 // ---------------------------------------------------------------------------------------------------------------------
 // THE FRAME
 
-function Frame({ src, device, zoom, label, address, name, sync, pick, marks, spots, onMsg, onRetry }: {
+function Frame({ src, device, zoom, label, address, name, sync, pick, marks, spots, heat, onMsg, onRetry }: {
   src: string; device: Device; zoom: Zoom; label: string; address: string; name: string; sync: Sync | null;
-  pick: boolean; marks: boolean; spots?: Spots | null; onMsg: (m: Msg, from: string) => void; onRetry: () => void;
+  pick: boolean; marks: boolean; spots?: Spots | null; heat?: HeatMsg | null; onMsg: (m: Msg, from: string) => void; onRetry: () => void;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
@@ -133,6 +137,12 @@ function Frame({ src, device, zoom, label, address, name, sync, pick, marks, spo
     if (!ready) return;
     frame.current?.contentWindow?.postMessage({ apsoPreviewSpots: spots ?? { list: [], focus: null } }, "*");
   }, [spotsKey, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the click map: each clicked element tinted where it was clicked, its count above it
+  const heatKey = heat ? JSON.stringify(heat) : "";
+  useEffect(() => {
+    if (!ready) return;
+    frame.current?.contentWindow?.postMessage({ apsoPreviewHeat: heat ?? { list: [], max: 0 } }, "*");
+  }, [heatKey, ready]); // eslint-disable-line react-hooks/exhaustive-deps
   const phone = device === "phone";
   const W = phone ? 390 : 1280;
   const inner = phone ? Math.min(W, Math.max(0, w - 24)) : w;
@@ -603,6 +613,11 @@ function ConvertPreview() {
   const [styles, setStyles] = useState<{ total: number; nfailed: number } | null>(null);
   const [spotFocus, setSpotFocus] = useState<number | null>(null);
   const [showSpots, setShowSpots] = useState(true);
+  // the click map (SARCLA 08.11.2026: "click like Microsoft Clarity" - "our own click map"): where people click, drawn on
+  // the page as it is; ?clicks=1 opens with it (Journeys > Click map)
+  const [clicks, setClicks] = useState(sp.get("clicks") === "1");
+  const [clickDev, setClickDev] = useState<ClickDev>("all");
+  const [clickTick, setClickTick] = useState(0);
   const told = useRef(false);
   // the page as the browser drew it, from the original's frame (else the version's) - the AI aims its changes at it
   const drawn = useRef<{ from: string; lines: string[] } | null>(null);
@@ -620,6 +635,12 @@ function ConvertPreview() {
   const problems = prob.result?.state === "ok" ? prob.result.data : null;
   const numbers = path ? numbersFor(problems, path) : null;
 
+  const clicksUrl = path ? `/api/website/ai-personalization/clicks?env=${env}&path=${encodeURIComponent(path)}&dev=${clickDev}&n=${clickTick}` : null;
+  const ch = useHeld<ClicksData>(clicks ? clicksUrl : null, [clicks, clicksUrl]);
+  const clickData = ch.result?.state === "ok" ? ch.result.data : null;
+  const clickErr = ch.result && ch.result.state !== "ok" ? (ch.result.state === "error" ? ch.result.error : "The hub could not read the clicks.") : null;
+  const heatMsg: HeatMsg | null = clicks && clickData?.heat?.list.length ? { list: clickData.heat.list.map((i) => ({ s: i.s, n: i.n, c: i.c })), max: clickData.heat.max } : null;
+
   const ideas = d?.ideas ?? [];
   // the ideas in the order shown (dropped last, the best score first); numbered, the first the lead
   const ranked = useMemo(() => [...ideas].sort((x, y) => (x.status === "dropped" ? 1 : 0) - (y.status === "dropped" ? 1 : 0) || (iceScore(y) ?? -1) - (iceScore(x) ?? -1)), [ideas]);
@@ -633,7 +654,7 @@ function ConvertPreview() {
   const version = idea ? versionOf.get(idea.id) ?? null : null;
   useEffect(() => { setHit(null); setRev(null); }, [version?.id, version?.rev]);
   useEffect(() => { setPicked(null); setPick(false); setStyles(null); told.current = false; drawn.current = null; }, [path, env]);
-  useEffect(() => { if (!version && view !== "original") setView("original"); else if (version && view === "original") setView("version"); }, [version?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!version && view !== "original") setView("original"); else if (version && view === "original" && !clicks) setView("version"); }, [version?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const base = path ? `/api/website/ai-personalization/preview?env=${env}&path=${encodeURIComponent(path)}${fresh ? `&fresh=1&f=${fresh}` : ""}` : "";
   const vSrc = version ? `${base}&v=${version.id}&r=${rev ?? version.rev}&at=${encodeURIComponent(version.updatedAt)}` : "";
@@ -791,6 +812,11 @@ function ConvertPreview() {
               <SquareChoice<Device> label="On" value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "phone", label: "Phone" }]} />
               {device === "desktop" && <SquareChoice<Zoom> label="Size" value={zoom} onChange={setZoom} options={[{ key: "fit", label: "Fit" }, { key: "full", label: "Actual size" }]} />}
               <Box sx={{ flex: 1 }} />
+              <Tooltip title="Where people click on this page - counted by the shop, only with the visitor's statistics consent">
+                <Button size="small" variant={clicks ? "contained" : "outlined"} color="warning" disableElevation
+                  onClick={() => { if (!clicks && view === "version") setView("original"); setClicks(!clicks); }} startIcon={<TouchAppOutlinedIcon sx={{ fontSize: 17 }} />}
+                  sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{clicks ? "Clicks shown" : "Clicks"}</Button>
+              </Tooltip>
               {ideas.some((i) => i.target && i.status !== "dropped") && (
                 <Tooltip title="Each optimization's block marked on the page with its number - point at one to see its block">
                   <Button size="small" variant={showSpots ? "contained" : "outlined"} disableElevation onClick={() => setShowSpots((x) => !x)} startIcon={<TipsAndUpdatesOutlinedIcon sx={{ fontSize: 17 }} />}
@@ -809,6 +835,10 @@ function ConvertPreview() {
                 <IconButton size="small" onClick={() => setFresh((n) => n + 1)} aria-label="Read again"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
               </Tooltip>
             </Box>
+            {clicks && path && (
+              <ClicksBar data={clickData} error={clickErr} loading={!ch.result || ch.stale} dev={clickDev} onDev={setClickDev} env={env} path={path}
+                onChanged={() => setClickTick((n) => n + 1)} />
+            )}
             {picked && (
               <Box sx={{ display: "flex", gap: 1.25, alignItems: "center", flexWrap: "wrap", mb: 1.5, p: 1.25, borderRadius: "10px", border: "1px solid rgba(124,77,255,.35)", bgcolor: "rgba(124,77,255,.06)" }}>
                 <AdsClickOutlinedIcon sx={{ fontSize: 18, color: "#6a46c9" }} />
@@ -831,7 +861,7 @@ function ConvertPreview() {
             )}
             {pg.status === 200 && (
               <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: version && view === "both" ? { xs: "minmax(0,1fr)", md: "minmax(0,1fr) minmax(0,1fr)" } : "minmax(0,1fr)" }}>
-                {(!version || view !== "version") && <Frame src={base} device={device} zoom={zoom} name="original" sync={sync} pick={pick} marks={false} spots={view === "version" ? null : spots} address={pg.url ?? path} label={version ? "Original" : "The page"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
+                {(!version || view !== "version") && <Frame src={base} device={device} zoom={zoom} name="original" sync={sync} pick={pick} marks={false} spots={view === "version" || clicks ? null : spots} heat={heatMsg} address={pg.url ?? path} label={version ? "Original" : "The page"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
                 {version && view !== "original" && <Frame src={vSrc} device={device} zoom={zoom} name="version" sync={sync} pick={pick} marks={marks} spots={view === "version" ? spots : null} address={pg.url ?? path} label={`Version · rev ${rev ?? version.rev}`} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
               </Box>
             )}
