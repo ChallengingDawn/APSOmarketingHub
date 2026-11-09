@@ -179,7 +179,8 @@ export default function Studio({ api }: StudioProps) {
   // it be gone back from after a reload too
   const apply = async (next: NewsletterDoc, text: string, lang?: string) => {
     const entry: StudioChange = { id: Date.now(), text, at: new Date().toISOString(), ...(lang ? { lang, from: docRef.current.language.toUpperCase() } : {}) };
-    await api.saveVersion(versionLabel(entry));
+    // kept quietly (09.11.2026): no line on the project's feed per change, the newest 20 kept, Versions names it
+    await api.keepVersion?.(versionLabel(entry));
     const before = docRef.current;
     befores.current.set(entry.id, before);
     await setDocSafely(api, before, { ...next, changes: addChange(before.changes, entry) });

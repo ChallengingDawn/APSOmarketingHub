@@ -105,7 +105,7 @@ const rec = (over: Partial<AeoRecommendation>): AeoRecommendation => ({
 
 test("the Content Studio type a recommendation is made as", () => {
   assert.equal(contentTypeFor(rec({})), "blog-article");
-  assert.equal(contentTypeFor(rec({ contentType: "PRODUCT_PAGE" })), "product-page");
+  assert.equal(contentTypeFor(rec({ contentType: "PRODUCT_PAGE" })), "page-refresh"); // the Page builder: product pages are on the shop
   assert.equal(contentTypeFor(rec({ contentType: "COMPARISON" })), "landing-page");
   assert.equal(contentTypeFor(rec({ action: "UPDATE_CONTENT" })), "page-refresh");
   assert.equal(contentTypeFor(rec({ action: "BUILD_BACKLINKS" })), null);       // not content we write

@@ -8,7 +8,7 @@ import { requireUser } from "@/lib/auth/guard";
 import { accessFor } from "@/lib/content/sharing";
 import { getPiece } from "@/lib/content/workflow";
 import { studioKindOf } from "@/lib/content/studio/kinds";
-import { readDoc } from "@/lib/content/studio/store";
+import { readDoc, studioVersions } from "@/lib/content/studio/store";
 import { previewOf } from "@/lib/content/studio/kinds/page/shop";
 
 export const runtime = "nodejs";
@@ -24,7 +24,10 @@ export async function GET(req: NextRequest, c: { params: Promise<{ pieceId: stri
   if (!piece || !(await accessFor(piece.projectId, me))) return fail("No such to-do.", 404);
   if (studioKindOf(piece.contentType) !== "page") return fail("This to-do is not a page.");
   const sp = req.nextUrl.searchParams;
-  const stored = await readDoc(piece.id);
+  // ?version=<id>: one of its versions, looked at before it is brought back (09.11.2026)
+  const version = Number(sp.get("version") ?? "");
+  const stored = version > 0 ? await studioVersions(piece.id).then((all) => all.find((x) => x.id === version) ?? null) : await readDoc(piece.id);
+  if (version > 0 && !stored) return fail("That version is not this to-do's.", 404);
   const side = sp.get("side") === "before" ? "before" : sp.get("side") === "shell" ? "shell" : "after";
   const lang = /^[a-z]{2}$/.test(sp.get("lang") ?? "") ? sp.get("lang") : null;
   const out = await previewOf(stored?.doc ?? null, side, sp.get("fresh") === "1", lang);

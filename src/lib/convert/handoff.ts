@@ -8,10 +8,15 @@
 // Pure (no "@/" imports), so it is tested.
 
 import { classify, type Env } from "./model";
+import { PAGE_BUILDER } from "../content/contentTypes";
 
-/** Which Content Studio type a page's texts are written as: product copy for a product page, else edits to the page. */
-export function contentTypeForPage(path: string): "product-page" | "page-refresh" {
-  return classify(path).kind === "product" ? "product-page" : "page-refresh";
+/**
+ * Which Content type a page handed over becomes: the Page builder, for every page of the shop - a product page too
+ * (SARCLA 09.11.2026: "Page refresh becomes only Page builder", the editor for the webshop's pages, "the ones where we
+ * should lead optimization"). The page is already on the shop; Content changes it, it does not write a new one.
+ */
+export function contentTypeForPage(_path: string): typeof PAGE_BUILDER {
+  return PAGE_BUILDER;
 }
 
 const LANGUAGE: Record<string, string> = { de: "German", fr: "French", it: "Italian", en: "English", nl: "Dutch", pl: "Polish", es: "Spanish" };

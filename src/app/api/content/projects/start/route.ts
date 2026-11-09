@@ -3,6 +3,9 @@
 //   POST propose   { goal, ideas[], languages[] }   the AI's project: name, brief, lines
 //   POST start     { title, goal, audience, message, ideas[], planItem, tickets, lines[] }   made, in one go; answers its id
 //                  and its to-dos' ids (Make > X opens the studio of its one to-do at once)
+// Every line starts with its owner = the person who starts it and, a piece of content, its reviewer = Claudio (SARCLA
+// 09.11.2026: "on all projects the owner is the person who creates it and the reviewer is Claudio - keep the dropdown but
+// prefill"): GET says who that is (defaultReviewer); a line that does not say its people gets them; null = nobody, chosen.
 // The action plan is not asked here any more (SARCLA 08.11.2026: "Action plan should not be visible here"): the pages
 // send planItem null and no tickets, and a to-do's "Plan & ticket" places it later. The route still takes them.
 
@@ -14,6 +17,7 @@ import { OFFERED_CONTENT_TYPES } from "@/lib/content/contentTypes";
 import { LANGUAGES } from "@/lib/content/languages";
 import { TASK_KIND } from "@/lib/content/pieceRules";
 import { shareCandidates } from "@/lib/content/sharing";
+import { defaultReviewerOf, newTodoPeople } from "@/lib/content/people";
 import { proposeProject, startProject, type IdeaRef, type Line } from "@/lib/content/start";
 import { describeIntegrationError } from "@/lib/integrations/status";
 import { keepAlive } from "@/lib/http/keepAlive";
@@ -46,7 +50,7 @@ export async function GET() {
   const people = await shareCandidates();
   return NextResponse.json({
     ok: true, me: me.username, admin, ai: !!getAnthropic(), canStart: await canStart(),
-    people: people.map((p) => ({ username: p.username, name: p.name })),
+    people: people.map((p) => ({ username: p.username, name: p.name })), defaultReviewer: defaultReviewerOf(people),
     kinds: [...OFFERED_CONTENT_TYPES.map((t) => ({ key: t.key, label: t.label, blurb: t.blurb, language: true })), { key: TASK_KIND, label: "Action", blurb: "Something to do around the content - brief the agency, get photos, check with product management", language: false }],
     languages: LANGUAGES.map((l) => ({ code: l.code, label: l.label })),
   });
@@ -74,13 +78,16 @@ export async function POST(req: NextRequest) {
   });
 
   if (action === "start") return keepAlive(async () => {
+    const defaultReviewer = defaultReviewerOf(await shareCandidates());
+    const person = (v: unknown) => (v === undefined ? undefined : str(v, 255) || null);
     const lines: Line[] = (Array.isArray(b.lines) ? b.lines : []).slice(0, 20).map((x) => {
       const o = (x ?? {}) as Record<string, unknown>;
       const kind = KINDS.has(String(o.contentType)) ? String(o.contentType) : TASK_KIND;
       const lang = String(o.language ?? "").toUpperCase();
       return {
         contentType: kind, title: str(o.title, 200), language: kind === TASK_KIND || !LANGS.has(lang) ? null : lang,
-        writer: str(o.writer, 255) || null, reviewer: str(o.reviewer, 255) || null, dueDate: day(o.dueDate),
+        ...newTodoPeople({ kind, me: me.username, defaultReviewer, writer: person(o.writer), reviewer: person(o.reviewer), task: TASK_KIND }),
+        dueDate: day(o.dueDate),
       };
     }).filter((l) => l.contentType !== TASK_KIND || l.title);
     if (!lines.length) return fail("Add at least one line - a piece of content or an action.");

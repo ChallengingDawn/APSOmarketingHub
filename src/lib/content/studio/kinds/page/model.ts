@@ -31,6 +31,31 @@ export const SOURCE_LABEL: Record<PageSource, string> = {
   convert: "From AI testing & personalization", pick: "A page of the shop", new: "A new page",
 };
 
+/**
+ * The ways a page to-do of a type is made (SARCLA 09.11.2026). An SEO landing page is a NEW page ("SEO landing page should
+ * only have the SEO pages"); the Page builder changes a page already on the webshop ("Page refresh becomes only Page
+ * builder" - a product page's copy made before opens the same way); a page to-do of no such type offers both. The first
+ * is where a new document starts. ("From AI testing & personalization" is no choice: a page handed over arrives so.)
+ */
+export function pageModesFor(contentType: string | null | undefined): PageSource[] {
+  if (contentType === "landing-page") return ["new"];
+  if (contentType === "page-refresh" || contentType === "product-page") return ["pick"];
+  return ["pick", "new"];
+}
+
+/**
+ * The way a document should be switched to as it opens, or null when it is fine: one whose way its type does not offer
+ * AND that holds nothing in it yet (a landing page left on "a page of the shop" with no page picked). A document that
+ * holds work keeps its way - a landing page that picked a shop page before still shows it, a page handed over from AI
+ * testing & personalization stays "convert".
+ */
+export function pageSourceFix(contentType: string | null | undefined, d: Pick<PageDoc, "source" | "path" | "changes" | "fields" | "newPage">): PageSource | null {
+  const modes = pageModesFor(contentType);
+  if (d.source === "convert" || modes.includes(d.source)) return null;
+  const holds = d.source === "new" ? filledCount(d.fields) > 0 || !!d.newPage.body.trim() : !!d.path || d.changes.length > 0;
+  return holds ? null : modes[0];
+}
+
 export type AbGoal = "orders" | "add-to-cart" | "clicks";
 export const AB_GOAL_LABEL: Record<AbGoal, string> = { orders: "Orders", "add-to-cart": "Add to cart", clicks: "Clicks on one element" };
 export type AbAudience = "all" | "new" | "returning" | "customers";

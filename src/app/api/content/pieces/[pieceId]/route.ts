@@ -1,5 +1,6 @@
 // A TO-DO'S STUDIO (08.11.2026: "each type of content should be different"). One route for every kind:
 //   GET                     the to-do, its project's brief, its studio document (made empty the first time), its versions
+//   GET ?version=<id>       one version's document, to look at before bringing it back (09.11.2026)
 //   POST ops                small changes laid over the document (studio/doc.ts - never the whole document: 8 KB limit)
 //   POST version / restore  a version of the document into the project's versions; one brought back
 //   POST ai                 one of the kind's AI tasks, in the brand's voice, with the brief and the to-do in front of it
@@ -11,6 +12,7 @@ import { requireUser } from "@/lib/auth/guard";
 import { claudeText, getAnthropic } from "@/lib/ai/claude";
 import { brandSystemPrompt, readBrain } from "@/lib/brain";
 import { accessFor, shareCandidates } from "@/lib/content/sharing";
+import { defaultReviewerOf } from "@/lib/content/people";
 import { addEvent, getPiece, projectBrief, projectHead } from "@/lib/content/workflow";
 import { cleanOps } from "@/lib/content/studio/doc";
 import { studioKindOf } from "@/lib/content/studio/kinds";
@@ -55,9 +57,14 @@ async function open(rawId: string) {
   return { me, piece, access, kind, def: KIND_DEFS[kind], ctx, head } as const;
 }
 
-export async function GET(_req: NextRequest, c: { params: Promise<{ pieceId: string }> }) {
+export async function GET(req: NextRequest, c: { params: Promise<{ pieceId: string }> }) {
   const o = await open((await c.params).pieceId);
   if ("error" in o) return o.error;
+  const asked = req.nextUrl.searchParams.get("version");
+  if (asked) {
+    const v = (await studioVersions(o.piece.id)).find((x) => x.id === Number(asked));
+    return v ? NextResponse.json({ ok: true, id: v.id, doc: v.doc }) : fail("That version is not this to-do's.", 404);
+  }
   const stored = await docOrNew(o.piece.id, o.kind, () => o.def.empty(o.ctx), o.me.username);
   const [versions, people] = await Promise.all([studioVersions(o.piece.id), shareCandidates()]);
   return NextResponse.json({
@@ -65,7 +72,7 @@ export async function GET(_req: NextRequest, c: { params: Promise<{ pieceId: str
     project: o.head?.project ?? null, brief: o.ctx.brief, piece: o.piece, doc: stored.doc, rev: stored.rev,
     updatedBy: stored.updatedBy, updatedAt: stored.updatedAt,
     versions: versions.map((v) => ({ id: v.id, label: v.label, by: v.by, at: v.at })),
-    people: people.map((p) => ({ username: p.username, name: p.name })),
+    people: people.map((p) => ({ username: p.username, name: p.name })), defaultReviewer: defaultReviewerOf(people),
     ai: !!getAnthropic(), tasks: Object.entries(o.def.tasks).map(([k, t]) => ({ key: k, label: t.label })),
   });
 }

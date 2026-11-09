@@ -189,7 +189,7 @@ test("outline: the main column in page order, own text per element, no hidden fi
 
 test("projectForPage: a Content Studio project of a page - its type, its language, its ideas, its marker", async () => {
   const { contentTypeForPage, languageOf, markerOf, pageMarker, projectForPage } = await import("../src/lib/convert/handoff");
-  assert.equal(contentTypeForPage("/de-CH/12202510-maschinenfuss.html"), "product-page");
+  assert.equal(contentTypeForPage("/de-CH/12202510-maschinenfuss.html"), "page-refresh"); // the Page builder, a product page too
   assert.equal(contentTypeForPage("/fr-CH/etancheite.html"), "page-refresh");
   assert.equal(languageOf("/fr-CH/etancheite.html"), "French");
   assert.equal(languageOf("/"), null);
@@ -202,7 +202,7 @@ test("projectForPage: a Content Studio project of a page - its type, its languag
     previewPath: "https://hub/website/ai-personalization/preview?env=prod&path=%2Fde-CH%2F12202510-maschinenfuss.html",
   });
   assert.equal(p.title, "Shop page: APSOvib® Maschinenfuss NIVOBLOC");
-  assert.equal(p.contentType, "product-page");
+  assert.equal(p.contentType, "page-refresh");
   assert.match(p.brief, /Write in German - the page's store view is de-CH/);
   assert.match(p.brief, /cart rate 1\.0% where similar pages make 8\.0%; 3 of 4 signed-in customers .* "priced and left"/);
   assert.match(p.brief, /1\. Put the table first\n {3}Change: Move the articles table up/);

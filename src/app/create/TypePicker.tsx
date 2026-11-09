@@ -28,7 +28,7 @@ import InventoryIcon from "@mui/icons-material/Inventory";
 import LinkedInIcon from "@mui/icons-material/LinkedIn";
 import NewspaperIcon from "@mui/icons-material/Newspaper";
 import CampaignIcon from "@mui/icons-material/Campaign";
-import AutorenewIcon from "@mui/icons-material/Autorenew";
+import ViewQuiltIcon from "@mui/icons-material/ViewQuilt";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
@@ -47,7 +47,7 @@ const ICONS: Record<string, React.ReactNode> = {
   "linkedin-post": <LinkedInIcon />,
   newsletter: <NewspaperIcon />,
   "search-ad": <CampaignIcon />,
-  "page-refresh": <AutorenewIcon />,
+  "page-refresh": <ViewQuiltIcon />,
   "consolidation-brief": <CallSplitIcon />,
 };
 

@@ -25,7 +25,7 @@ import { brandSystemPrompt, readBrain } from "@/lib/brain";
 import { claudeText, getAnthropic } from "@/lib/ai/claude";
 import { OFFERED_CONTENT_TYPES } from "@/lib/content/contentTypes";
 import { ensureSharing } from "@/lib/content/sharing";
-import { PLACE_ORIGIN, SOURCE_ORIGIN, sourceLabel, type IdeaSource, type Origin } from "@/lib/content/ideaOrigins";
+import { PLACE_ORIGIN, SOURCE_ORIGIN, ideaKind, sourceLabel, type IdeaSource, type Origin } from "@/lib/content/ideaOrigins";
 
 export type { IdeaSource, Origin };
 export const SOURCES: { key: IdeaSource; label: string; app: "website" | "marketing"; slow?: boolean; note: string }[] = (
@@ -99,7 +99,7 @@ async function fromConvert(): Promise<Idea[]> {
         ORDER BY (COALESCE(impact, 3) * COALESCE(confidence, 3))::float / GREATEST(COALESCE(effort, 3), 1) DESC, created_at DESC LIMIT 60`);
     const best = Math.max(1, ...r.rows.map((x) => ((x.impact ?? 3) * (x.confidence ?? 3)) / Math.max(x.effort ?? 3, 1)));
     return r.rows.map((x) => idea({
-      key: `convert:${x.id}`, source: "convert", title: clip(x.title, 160), why: clip(x.why || x.change, 400), kind: "page-refresh", target: x.path,
+      key: `convert:${x.id}`, source: "convert", title: clip(x.title, 160), why: clip(x.why || x.change, 400), kind: ideaKind("convert"), target: x.path,
       score: Math.round((100 * ((x.impact ?? 3) * (x.confidence ?? 3)) / Math.max(x.effort ?? 3, 1)) / best),
       href: `/website/ai-personalization/preview?env=prod&path=${encodeURIComponent(x.path)}&idea=${x.id}`, at: new Date(x.created_at).toISOString(),
     }));
@@ -115,7 +115,7 @@ async function fromBuyers(): Promise<Idea[]> {
     const themes = row.data?.themes ?? [];
     return themes.map((t, i) => idea({
       key: `buyers:${row.win}:${i}`, source: "buyers", title: clip(t.title, 160), why: clip([t.why, t.test && `Test first: ${t.test}`].filter(Boolean).join(" "), 500),
-      kind: "landing-page", target: t.keys?.length ? `${t.keys.length} page${t.keys.length === 1 ? "" : "s"}` : null,
+      kind: ideaKind("buyers"), target: t.keys?.length ? `${t.keys.length} page${t.keys.length === 1 ? "" : "s"}` : null,
       score: Math.round(100 - (i * 100) / Math.max(themes.length, 1)), href: "/website/ai-personalization/problems", at: new Date(row.at).toISOString(),
     }));
   } catch (e) { if (missing(e)) return []; throw e; }
@@ -130,7 +130,7 @@ async function fromAeo(): Promise<Idea[]> {
   const PRI: Record<string, number> = { HIGH: 100, MEDIUM: 66, LOW: 33 };
   const recs = (v.recommendations ?? []).filter((r) => !/DONE|DISMISS|COMPLETE/i.test(r.status ?? "")).map((r) => idea({
     key: `aeo:${r.id}`, source: "aeo", title: clip(r.summary || r.topic || "An AI-answer recommendation", 160), why: clip(r.justification, 500),
-    kind: r.action === "UPDATE_CONTENT" ? "page-refresh" : /BLOG/i.test(r.contentType ?? "") ? "blog-article" : "landing-page",
+    kind: ideaKind("aeo", { action: r.action, contentType: r.contentType }),
     target: r.associatedUrl || r.url || r.topic, score: PRI[(r.priority ?? "").toUpperCase()] ?? 50, href: "/aeo/recommendations", origin: PLACE_ORIGIN.aeoRecommendation,
   }));
   const asks = (v.prompts ?? []).filter((p) => p.visibility != null && p.visibility < 0.2).sort((a, b) => (a.visibility ?? 0) - (b.visibility ?? 0)).slice(0, 25).map((p) => idea({
@@ -166,8 +166,8 @@ async function fromSeo(): Promise<Idea[]> {
   } catch { /* SEO actions never used here */ }
   const ideas = items.filter((w) => w.source !== "cannibalisation" && !started.has(w.id)).slice(0, 40).map((w) => idea({
     key: `seo:${w.id}`, source: "seo", title: clip(`${w.action}: ${w.subject}`, 160),
-    why: clip(w.source === "quick-win" ? `Close to page one on Google for “${w.subject}” - ${w.impressions.toLocaleString("en")} impressions a month; a deeper page can take the clicks.` : `This page is losing clicks from Google (${w.impressions.toLocaleString("en")} impressions) - a refresh brings it back.`, 400),
-    kind: w.source === "decay" ? "page-refresh" : "landing-page", target: w.subject, score: Math.round(w.priority),
+    why: clip(w.source === "quick-win" ? `Close to page one on Google for “${w.subject}” - ${w.impressions.toLocaleString("en")} impressions a month; a deeper page can take the clicks.` : `This page is losing clicks from Google (${w.impressions.toLocaleString("en")} impressions) - changing the page in the Page builder can win them back.`, 400),
+    kind: ideaKind("seo", { seo: w.source }), target: w.subject, score: Math.round(w.priority),
     href: w.source === "decay" ? "/seo/decay" : "/seo/quick-wins", origin: w.source === "decay" ? PLACE_ORIGIN.seoDecay : PLACE_ORIGIN.seoQuickWin,
   }));
   seoCache = { at: Date.now(), ideas };
