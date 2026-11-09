@@ -10,6 +10,7 @@
 //   PUT    /api/admin/convert/clickmaps/:id      {host, paths, until?, by?} -> the map
 //   DELETE /api/admin/convert/clickmaps/:id      -> { ok } (its counts stay)
 //   GET    /api/admin/convert/clicks?host&path&from&to -> { rows: {s,x,y,dev,n}[], total }
+//   GET    /api/admin/convert/clicks/pages?from&to   -> { pages: {host,path,n,d,m,days}[] }
 
 import { adminKey, gateway } from "@/lib/directup/gateway";
 import { HOST } from "./contract";
@@ -24,6 +25,20 @@ export type ClickState = { deployed: boolean; error: string | null };
 const NO_KEY = "DIRECTUP_ADMIN_KEY is not set on the hub - it cannot read the shop's gateway.";
 export const NOT_YET = "The shop's gateway does not count clicks yet - it counts once its new version is deployed.";
 const notThere = (e: unknown) => (e as { status?: number })?.status === 404 || /answered 404/.test(String((e as Error)?.message ?? ""));
+
+/** A counted page's clicks over the period: all, desktop, phone, on how many days. */
+export type PageTotal = { host: string; path: string; n: number; d: number; m: number; days: number };
+
+/** Every counted page's clicks over the last `days` (one read), or none when the gateway cannot say. */
+export async function pageTotals(days: number = CLICKMAP.days): Promise<{ from: string; to: string; pages: PageTotal[] }> {
+  const { from, to } = dayRange(swissNow().day, days);
+  try {
+    const r = await gateway<{ pages: PageTotal[] }>(`/convert/clicks/pages?from=${from}&to=${to}`, { timeoutMs: 12_000 });
+    return { from, to, pages: Array.isArray(r?.pages) ? r.pages : [] };
+  } catch {
+    return { from, to, pages: [] };
+  }
+}
 
 /** Every click map the gateway holds, or why not. */
 export async function clickMaps(): Promise<ClickState & { maps: ClickMap[] }> {

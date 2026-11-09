@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { isEnv } from "@/lib/convert/model";
-import { clickMaps, clicksOf, switchClicks } from "@/lib/convert/clicks";
+import { clickMaps, clicksOf, pageTotals, switchClicks } from "@/lib/convert/clicks";
 import { CLICKMAP, type Dev } from "@/lib/convert/clickRules";
 import { body, fail, failOf, ok, who } from "@/lib/convert/api";
 
@@ -25,7 +25,8 @@ export async function GET(req: NextRequest) {
     const raw = q.get("path");
     if (raw === null) {
       const st = await clickMaps();
-      return ok({ ...st, canEdit });
+      const totals = st.deployed ? await pageTotals() : null;
+      return ok({ ...st, totals, canEdit });
     }
     const path = cleanPath(raw);
     if (!path) return fail("Which page?", 400);

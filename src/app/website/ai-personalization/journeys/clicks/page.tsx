@@ -29,7 +29,8 @@ import type { Env } from "@/lib/convert/model";
 import type { ProblemsData } from "@/lib/convert/problems";
 
 type Map = { id: string; host: string; paths: string[]; until: string | null; by: string | null };
-type MapsData = { deployed: boolean; error: string | null; maps: Map[]; canEdit: boolean };
+type Total = { host: string; path: string; n: number; d: number; m: number; days: number };
+type MapsData = { deployed: boolean; error: string | null; maps: Map[]; totals: { from: string; to: string; pages: Total[] } | null; canEdit: boolean };
 
 const ORANGE = "#b45309";
 const envOf = (host: string): Env => (host === "acc.apsoparts.com" ? "acc" : "prod");
@@ -83,6 +84,8 @@ export default function ClickMapPage() {
   };
 
   const counted = new Set((d?.maps ?? []).flatMap((m) => m.paths.map((p) => `${envOf(m.host)}:${p}`)));
+  // pages counted earlier whose map is off: their clicks stay and can still be seen
+  const before = (d?.totals?.pages ?? []).filter((x) => !counted.has(`${envOf(x.host)}:${x.path}`)).slice(0, 9);
   const worth = (problems?.pages ?? []).filter((p) => p.views > 0 && !counted.has(`prod:${p.path}`)).sort((a, b) => b.views - a.views).slice(0, 6);
 
   let body: React.ReactNode;
@@ -123,9 +126,13 @@ export default function ClickMapPage() {
             <Box sx={{ display: "grid", gap: 2, mt: 1.5, gridTemplateColumns: { xs: "minmax(0,1fr)", sm: "repeat(2, minmax(0,1fr))", lg: "repeat(3, minmax(0,1fr))" } }}>
               {d.maps.flatMap((m) => m.paths.map((p) => {
                 const env = envOf(m.host);
+                const tot = d.totals?.pages.find((x) => x.host === m.host && x.path === p) ?? null;
                 return (
                   <PageCard key={`${m.id}:${p}`} env={env} path={p}
-                    note={<><Chip tint="green">Counting until {day(m.until)}</Chip>{env === "acc" && <Chip tint="slate">ACC</Chip>}{m.by && <Chip tint="slate">{m.by}</Chip>}</>}>
+                    note={<>
+                      <Chip tint="amber">{tot ? `${full(tot.n)} click${tot.n === 1 ? "" : "s"} · ${full(tot.d)} desktop · ${full(tot.m)} phone` : "No click yet"}</Chip>
+                      <Chip tint="green">Counting until {day(m.until)}</Chip>{env === "acc" && <Chip tint="slate">ACC</Chip>}{m.by && <Chip tint="slate">{m.by}</Chip>}
+                    </>}>
                     <Button component={Link} href={clicksHref(env, p)} size="small" variant="contained" color="warning" disableElevation startIcon={<TouchAppOutlinedIcon sx={{ fontSize: 16 }} />}
                       sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>See the clicks on the page</Button>
                     {d.canEdit && (
@@ -135,6 +142,24 @@ export default function ClickMapPage() {
                   </PageCard>
                 );
               }))}
+            </Box>
+          </GlassCard>
+        )}
+
+        {before.length > 0 && (
+          <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
+            <CardTitle icon={<TouchAppOutlinedIcon />} tint="slate" title="Counted before" note="Switched off - their clicks of the last 30 days stay" />
+            <Box sx={{ display: "grid", gap: 2, mt: 1.5, gridTemplateColumns: { xs: "minmax(0,1fr)", sm: "repeat(2, minmax(0,1fr))", lg: "repeat(3, minmax(0,1fr))" } }}>
+              {before.map((x) => {
+                const env = envOf(x.host);
+                return (
+                  <PageCard key={`${x.host}:${x.path}`} env={env} path={x.path}
+                    note={<><Chip tint="amber">{full(x.n)} click{x.n === 1 ? "" : "s"} · {full(x.d)} desktop · {full(x.m)} phone</Chip>{env === "acc" && <Chip tint="slate">ACC</Chip>}</>}>
+                    <Button component={Link} href={clicksHref(env, x.path)} size="small" variant="outlined" color="warning" startIcon={<TouchAppOutlinedIcon sx={{ fontSize: 16 }} />}
+                      sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>See the clicks on the page</Button>
+                  </PageCard>
+                );
+              })}
             </Box>
           </GlassCard>
         )}

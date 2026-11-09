@@ -66,11 +66,12 @@ export function ClicksBar({ data, error, loading, dev, onDev, env, path, onChang
   } else if (data) {
     const counted = heat?.total ?? 0;
     status = (
-      <>
+      <Box component="span" sx={{ display: "grid", gap: 0.25 }}>
         <b>{data.map ? `Counting on this page${data.map.until ? ` until ${day(data.map.until)}` : ""}` : "Not counting on this page"}</b>
-        {" · "}{counted ? `${full(counted)} click${counted === 1 ? "" : "s"}` : "no click"} from {day(data.from)} to {day(data.to)}
-        {data.map?.by ? ` · switched on by ${data.map.by}` : ""}
-      </>
+        <Box component="span" sx={{ color: MUTED, fontSize: "0.78rem" }}>
+          {counted ? `${full(counted)} click${counted === 1 ? "" : "s"}` : "No click"} from {day(data.from)} to {day(data.to)}{data.map?.by ? ` · switched on by ${data.map.by}` : ""}
+        </Box>
+      </Box>
     );
   }
 
