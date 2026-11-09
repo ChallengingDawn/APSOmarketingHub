@@ -392,7 +392,8 @@ export default function Studio({ api }: StudioProps) {
         </span>
       </Tooltip>
     );
-    const right = device === "mobile" ? r.left + r.width - 34 : r.left + r.width + 8;
+    // beside the e-mail, never over its words (on a phone too: outside its frame)
+    const right = r.left + r.width + (device === "mobile" ? 18 : 8);
     return (
       <>
         {plus(bi, r.top, "Add a block above")}
