@@ -143,6 +143,12 @@ export async function register() {
     const { startCertificates } = await import("./lib/certificates/engine");
     startCertificates();
 
+    // HubSpot Apps > APSO Translator: every customer message in the inboxes not in English gets a comment in English for the
+    // agent, "!" notes translate or reply in the customer's language - the Railway translator brought into the hub
+    // (src/lib/translator); starts in Preview. TRANSLATOR=off stops it. SARCLA, 08.11.2026.
+    const { startTranslator } = await import("./lib/translator/engine");
+    startTranslator();
+
     // The Enquiry Category at the end of each Back Office ticket left "Others" or empty - the whole conversation, no
     // customer request stays Others, the AI reads the rest; replaces the workflow SARCLA | CLASSIFIER END OF TICKET and
     // writes once that workflow is switched off (src/lib/ticketClose). TICKET_CLOSE=off stops it. SARCLA, 25.10.2026.
