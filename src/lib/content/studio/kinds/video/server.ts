@@ -1,4 +1,4 @@
-// VIDEO - WHAT ITS STUDIO ASKS OF THE SERVER (08.11.2026). The AI tasks (ai.ts holds their words and their cleaning,
+// VIDEO - WHAT ITS STUDIO ASKS OF THE SERVER (08.11.2026; 09.11.2026 the end card's own asks). The AI tasks (ai.ts holds their words and their cleaning,
 // tested) and one action:
 //   export   "Export for rendering": the story as a spec for the render machine (scripts/content-video/render.mjs) -
 //            the hub itself cannot render (AWS Fargate: no Chromium, no GPU). Refused while the film holds a discount
@@ -7,7 +7,7 @@
 import type { AiTask, KindDef, StudioCtx } from "../../contract";
 import { readBrain } from "@/lib/brain";
 import { confirmedBy } from "./features";
-import { cleanScene, cleanStoryboard, cleanTighten, cleanVariant, FILM_RULES, reviseUser, SCENE_SCHEMA, sceneUser, STORYBOARD_SCHEMA, storyboardUser, TIGHTEN_SCHEMA, tightenUser, VARIANT_SCHEMA, variantUser } from "./ai";
+import { cleanEnd, cleanScene, cleanStoryboard, cleanTighten, cleanVariant, END_SCHEMA, endUser, FILM_RULES, reviseUser, SCENE_SCHEMA, sceneUser, STORYBOARD_SCHEMA, storyboardUser, TIGHTEN_SCHEMA, tightenUser, VARIANT_SCHEMA, variantUser } from "./ai";
 import { cleanVideo, emptyVideo, FORMATS, toSpec, validate, videoText, type Format } from "./model";
 
 const storyboard: AiTask = {
@@ -29,6 +29,7 @@ export const videoKind: KindDef = {
     tighten: { label: "Shorten every line", schema: TIGHTEN_SCHEMA, system: FILM_RULES, user: (ctx, doc) => tightenUser(ctx, doc), maxTokens: 5000, clean: (raw, doc) => cleanTighten(raw, doc) },
     variant: { label: "Another opening", schema: VARIANT_SCHEMA, system: FILM_RULES, user: variantUser, maxTokens: 3000, clean: (raw, doc, ctx, input) => cleanVariant(raw, doc, ctx, input) },
     revise: { label: "Change it", schema: STORYBOARD_SCHEMA, system: FILM_RULES, user: reviseUser, maxTokens: 6000, clean: (raw, doc, ctx, input) => cleanStoryboard(raw, doc, ctx, input) },
+    end: { label: "Change the end card", schema: END_SCHEMA, system: FILM_RULES, user: endUser, maxTokens: 1200, effort: "low", clean: (raw, doc, _ctx, input) => cleanEnd(raw, doc, input) },
     scene: { label: "Change one scene", schema: SCENE_SCHEMA, system: FILM_RULES, user: sceneUser, maxTokens: 2500, effort: "low", clean: (raw, doc, ctx, input) => cleanScene(raw, doc, ctx, input) },
   },
   actions: {

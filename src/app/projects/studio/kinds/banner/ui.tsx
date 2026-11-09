@@ -3,7 +3,7 @@
 // the shop's photos to pick from, words as chips, a copy button, a banner or slide drawn at its real size and zoomed to
 // fit, and the brand's type loaded once.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
@@ -87,6 +87,9 @@ export function Scaled({ css, html, w, h, scale, radius = 0, shadow = true, onCl
   css: string; html: string; w: number; h?: number | null; scale: number; radius?: number; shadow?: boolean; onClick?: () => void; title?: string;
 }) {
   const inner = useRef<HTMLDivElement | null>(null);
+  // the same markup object while the markup is the same: React sets the inner HTML again whenever this object is new,
+  // which would redraw the banner on every click (and drop the words being typed on it)
+  const markup = useMemo(() => ({ __html: `<style>${css}</style>${html}` }), [css, html]);
   const [natural, setNatural] = useState(h ?? 0);
   useLayoutEffect(() => {
     if (h) { setNatural(h); return; }
@@ -104,7 +107,7 @@ export function Scaled({ css, html, w, h, scale, radius = 0, shadow = true, onCl
       ...(onClick ? { "&:hover": { boxShadow: `0 0 0 2px ${PINK}, 0 14px 40px rgba(31,45,78,.18)` } } : {}),
     }}>
       <div ref={inner} style={{ width: w, height: h ?? undefined, transform: `scale(${scale})`, transformOrigin: "0 0" }}
-        dangerouslySetInnerHTML={{ __html: `<style>${css}</style>${html}` }} />
+        dangerouslySetInnerHTML={markup} />
     </Box>
   );
 }

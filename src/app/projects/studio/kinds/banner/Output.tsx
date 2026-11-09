@@ -154,7 +154,7 @@ export type BannerBusy = { part: PickPart | "all"; label: string; since: number 
 export function useBannerAi(api: StudioApi, doc: BannerDoc, set: (fn: (d: BannerDoc) => BannerDoc) => void) {
   const [busy, setBusy] = useState<BannerBusy | null>(null);
   const [variants, setVariants] = useState<Variant[]>([]);
-  const changes = useChanges<BannerDoc>();
+  const changes = useChanges<BannerDoc>(`banner-${api.data.piece.id}`, api.doc ? doc : undefined);
   const copy = async (part: PickPart | null, label: string, askText?: string): Promise<string | null> => {
     const before = doc;
     setBusy({ part: part ?? "all", label, since: Date.now() });
@@ -196,7 +196,9 @@ export function useBannerAi(api: StudioApi, doc: BannerDoc, set: (fn: (d: Banner
     set((d) => ({ ...d, content: { ...d.content, headline: v.headline } }));
   };
   const undo = (e: Change<BannerDoc>) => { const b = changes.undo(e); set(() => b); };
-  return { busy, copy, fitPlace, headlines, variants, pickVariant, changes: changes.list, undo };
+  /** A change made by hand (words typed on the banner), listed with its Undo like the AI's. */
+  const note = (label: string, before: BannerDoc) => changes.record(label, before, undefined, "you");
+  return { busy, copy, fitPlace, headlines, variants, pickVariant, changes: changes.list, undo, note };
 }
 export type BannerAi = ReturnType<typeof useBannerAi>;
 

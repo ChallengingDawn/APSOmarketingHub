@@ -29,15 +29,17 @@ const clock = (f: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-export default function Player({ doc, handle, onScene, strip, onOpen }: {
+export default function Player({ doc, handle, onScene, strip, onOpen, overlay }: {
   doc: VideoDoc;
   handle: React.MutableRefObject<PlayerHandle | null>;
   /** The scene showing changed (its index; -1 = the end card). */
   onScene?: (index: number) => void;
   /** What sits under the controls, given the frame and the scene playing. */
   strip?: (frame: number, seg: Segment, playing: boolean) => React.ReactNode;
-  /** A double-click on the film: the scene showing opens in the map, ready to type in (-1 = the end card). */
-  onOpen?: (index: number) => void;
+  /** A double-click on the film: the scene showing (-1 = the end card) and where, in the film's own pixels. */
+  onOpen?: (index: number, at: { x: number; y: number }) => void;
+  /** Drawn over the film, in the film's own pixels scaled to the stage (the words typed on it). */
+  overlay?: (scale: number) => React.ReactNode;
 }) {
   const L = LAYOUTS[doc.format];
   const segs = useMemo(() => segments(doc), [doc]);
@@ -105,14 +107,15 @@ export default function Player({ doc, handle, onScene, strip, onOpen }: {
     if (clickTimer.current) clearTimeout(clickTimer.current);
     clickTimer.current = setTimeout(() => { clickTimer.current = null; setPlaying((x) => !x); }, 230);
   };
-  const dbl = () => {
+  const dbl = (e: React.MouseEvent<HTMLElement>) => {
     if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; }
     setPlaying(false);
-    onOpen?.(segIndex);
+    const r = e.currentTarget.getBoundingClientRect();
+    onOpen?.(segIndex, { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale });
   };
 
   const keys = (e: React.KeyboardEvent) => {
-    if ((e.target as HTMLElement).closest("input, textarea")) return;
+    if ((e.target as HTMLElement).closest("input, textarea, [contenteditable], [role=textbox]")) return;
     if (e.key === " " || e.key === "k") { e.preventDefault(); setPlaying((x) => !x); }
   };
 
@@ -124,7 +127,8 @@ export default function Player({ doc, handle, onScene, strip, onOpen }: {
           <div style={{ width: L.W, height: L.H, transform: `scale(${scale})`, transformOrigin: "0 0" }}>
             <Film doc={doc} frame={frame} />
           </div>
-          {!playing && (
+          {overlay?.(scale)}
+          {!playing && !overlay && (
             <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", opacity: 0, transition: "opacity .15s", "&:hover": { opacity: 1 } }}>
               <Box sx={{ width: 60, height: 60, borderRadius: "50%", bgcolor: "rgba(255,255,255,.92)", display: "grid", placeItems: "center", boxShadow: "0 8px 24px rgba(31,45,78,.2)" }}>
                 <PlayArrowRoundedIcon sx={{ fontSize: 36, color: INK }} />

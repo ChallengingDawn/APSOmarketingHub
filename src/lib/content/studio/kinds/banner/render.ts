@@ -344,7 +344,8 @@ export function pickCss(prefix: string, scope = "", z = 1): string {
   const sel = (suffix: string) => ["eb", "q", "h", "p", "b", "c"].map((k) => `${scope}.${P} .${P}-${k}${suffix}`).join(",");
   const line = (2 / Math.max(0.05, z)).toFixed(2);
   return `${sel("")}{cursor:pointer}${scope}.${P}{cursor:pointer}${sel(":hover")}{outline:${line}px dashed rgba(36,89,209,.75);outline-offset:${(3 / Math.max(0.05, z)).toFixed(2)}px}`
-    + `${scope}.${P} .is-picked{outline:${line}px solid #2459d1!important;outline-offset:${(3 / Math.max(0.05, z)).toFixed(2)}px}${scope}.${P}.is-picked{outline:${line}px solid #2459d1;outline-offset:-${line}px}`;
+    + `${scope}.${P} .is-picked{outline:${line}px solid #c22c6e!important;outline-offset:${(3 / Math.max(0.05, z)).toFixed(2)}px}${scope}.${P}.is-picked{outline:${line}px solid #c22c6e;outline-offset:-${line}px}`
+    + `${scope}.${P} .is-editing{outline:none;cursor:text;caret-color:currentColor;-webkit-user-modify:read-write-plaintext-only}${scope}.${P} .is-editing:empty::before{content:"\\200b"}`;
 }
 
 /** The frame's half of a click on a part: which part and where it is, told to the studio; the part open, marked. */
@@ -358,6 +359,7 @@ const PICK_JS = `  function partOf(el) {
   }
   function rect(el) { var r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; }
   function mark(part) {
+    if (editing) return;
     [].forEach.call(stage.querySelectorAll(".is-picked"), function (n) { n.classList.remove("is-picked"); });
     picked = part; if (!part || !P) return;
     var keys = Object.keys(PARTS).filter(function (k) { return PARTS[k] === part && k !== "w"; });
@@ -365,8 +367,65 @@ const PICK_JS = `  function partOf(el) {
     if (el) { el.classList.add("is-picked"); parent.postMessage({ apsoBanner: "where", part: part, rect: rect(el) }, "*"); }
   }
   if (P) document.addEventListener("click", function (e) {
+    if (editing && editing.span.contains(e.target)) return;
     var hit = partOf(e.target);
     parent.postMessage({ apsoBanner: "pick", part: hit ? hit.part : null, rect: hit ? rect(hit.el) : null }, "*");
+  });
+  // words typed right on the banner (09.11.2026): a double-click on a part asks the studio; the studio answers "edit"
+  // with the words as they are (an empty part: nothing), and the part becomes a field in place - Enter or a click
+  // outside keeps it, Esc drops it; every key is told to the studio, which writes the same field as the left card
+  var editing = null;
+  // the field opens at once (nothing typed is lost waiting for the studio); the studio may close it again ("end")
+  var WORDS = { eyebrow: 1, headline: 1, line: 1, button: 1, label: 1 };
+  if (P) document.addEventListener("dblclick", function (e) {
+    var hit = partOf(e.target);
+    if (!hit || editing) return;
+    e.preventDefault();
+    parent.postMessage({ apsoBanner: "dbl", part: hit.part, rect: rect(hit.el) }, "*");
+    if (WORDS[hit.part]) startEdit(hit.part, null);
+  });
+  function ownText(el) {
+    var w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, { acceptNode: function (n) { return n.parentElement && n.parentElement.closest("." + P + "-w") ? NodeFilter.FILTER_REJECT : (n.textContent.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP); } });
+    return w.nextNode();
+  }
+  function startEdit(part, text) {
+    if (editing) finish(true);
+    var keys = Object.keys(PARTS).filter(function (k) { return PARTS[k] === part && k !== "w"; });
+    var el = stage.querySelector(keys.map(function (k) { return "." + P + "-" + k; }).join(","));
+    if (!el) return;
+    var span = document.createElement("span");
+    span.className = "is-editing";
+    try { span.contentEditable = "plaintext-only"; } catch (x) { span.contentEditable = "true"; }
+    if (span.contentEditable !== "plaintext-only") span.contentEditable = "true";
+    var tn = ownText(el);
+    // a part not written yet shows its hint greyed in a span of its own: the field takes the hint's place, empty
+    var hint = !!(tn && tn.parentElement !== el && tn.parentElement.getAttribute("style") && /opacity/.test(tn.parentElement.getAttribute("style")));
+    var host = hint ? tn.parentElement : tn;
+    span.textContent = typeof text === "string" ? text : hint ? "" : (tn ? tn.textContent : "");
+    if (host) host.parentNode.replaceChild(span, host); else el.insertBefore(span, el.firstChild);
+    editing = { part: part, span: span, host: host };
+    span.addEventListener("input", function () { parent.postMessage({ apsoBanner: "typing", part: part, text: span.textContent }, "*"); tell(); });
+    span.addEventListener("keydown", function (k) {
+      if (k.key === "Enter") { k.preventDefault(); finish(true); }
+      else if (k.key === "Escape") { k.preventDefault(); finish(false); }
+    });
+    span.addEventListener("blur", function () { finish(true); });
+    span.addEventListener("paste", function (k) { k.preventDefault(); document.execCommand("insertText", false, (k.clipboardData.getData("text/plain") || "").replace(/\\s+/g, " ")); });
+    span.focus();
+    var r = document.createRange(); r.selectNodeContents(span); var sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  }
+  function finish(keep) {
+    if (!editing) return;
+    var ed = editing; editing = null;
+    ed.span.removeAttribute("contenteditable");
+    // dropped: the words as they were, at once (the studio redraws the banner too)
+    if (!keep && ed.host && ed.span.parentNode) ed.span.parentNode.replaceChild(ed.host, ed.span);
+    parent.postMessage({ apsoBanner: "done", part: ed.part, text: ed.span.textContent, keep: keep }, "*");
+  }
+  window.addEventListener("message", function (e) {
+    var m = e.data; if (!m) return;
+    if (m.apsoBanner === "edit" && typeof m.text === "string" && !editing) startEdit(m.part, m.text);
+    if (m.apsoBanner === "end") finish(!!m.keep);
   });
 `;
 
