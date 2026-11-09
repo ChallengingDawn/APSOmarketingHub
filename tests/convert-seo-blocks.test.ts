@@ -42,6 +42,12 @@ test("seoPages: shown a lot and clicked under half the typical rate at its posit
   assert.equal(d.missed, 0);
 });
 
+test("seoPages: a product page is never an SEO page, but it counts in what is typical at a position", () => {
+  const { rows, bands } = seoPages([page("/de-CH/12202510-nivobloc.html", 3000, 30, 1.2), page("/de-CH/a.html", 1000, 300, 1.1), page("/de-CH/b.html", 1000, 200, 1.3)], []);
+  assert.deepEqual(rows.map((r) => r.path), ["/de-CH/a.html", "/de-CH/b.html"]);
+  assert.equal(bands.find((x) => x.key === "1")!.impressions, 5000);
+});
+
 test("seoPages: just below Google's first page with many showings is said so", () => {
   const { rows } = seoPages([page("/de-CH/p.html", 5000, 50, 11.5)], []);
   assert.ok(rows[0].reasons.some((t) => t.startsWith("Almost on Google's first page: position 11.5")));

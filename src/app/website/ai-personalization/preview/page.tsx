@@ -19,6 +19,7 @@ import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import TextField from "@mui/material/TextField";
 import CircularProgress from "@mui/material/CircularProgress";
+import LinearProgress from "@mui/material/LinearProgress";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import TipsAndUpdatesOutlinedIcon from "@mui/icons-material/TipsAndUpdatesOutlined";
@@ -36,6 +37,9 @@ import MyLocationOutlinedIcon from "@mui/icons-material/MyLocationOutlined";
 import ViewModuleOutlinedIcon from "@mui/icons-material/ViewModuleOutlined";
 import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
+import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
+import TrackChangesOutlinedIcon from "@mui/icons-material/TrackChangesOutlined";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
@@ -51,12 +55,14 @@ import type { Analysis, BoardRow, Idea, Numbers, Revision, Version } from "@/lib
 import { iceScore } from "@/lib/convert/ice";
 import { OP_LABEL, describe, type Change } from "@/lib/convert/versions";
 import { projectForPage } from "@/lib/convert/handoff";
-import { blockByKey } from "@/lib/convert/blocks";
+import { blockByKey, type ShopBlock } from "@/lib/convert/blocks";
+import { CHANGE_LABEL, typeOfIdea } from "@/lib/convert/changeTypes";
 import type { SeoData } from "@/lib/convert/seo";
 import { convertPost, previewHref } from "../Flow";
 import { SquareChoice } from "../SquareChoice";
 import { PageShot } from "../PageShot";
 import { ClicksBar, type ClickDev, type ClicksData } from "../ClicksBar";
+import { AI_GRADIENT, AiButton } from "../AiButton";
 
 type StudioData = {
   env: Env; path: string;
@@ -475,13 +481,20 @@ function WhatChanges({ version, hit, onGo }: { version: Version; hit: number[] |
 // so approve is more sent to project"): a Content project with the page, its numbers, the optimization and every
 // version; the send approves them, and Content's page studio opens on the version sent (the marker's v:<id>)
 
-async function sendToProject(x: { data: StudioData; numbers: Numbers | null; idea: Idea; versions: Version[]; first: Version | null }): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+async function sendToProject(x: { data: StudioData; numbers: Numbers | null; idea: Idea; versions: Version[]; first: Version | null; block: ShopBlock | null }): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   const ordered = x.first ? [x.first, ...x.versions.filter((v) => v.id !== x.first!.id)] : x.versions;
+  // the brief carries the type of change (Content's type) and the block with the ADDRESS of its picture - agreed with
+  // Content (3b, 09.11.2026): no change list and no picture in the brief, the studio loads the version by its marker
+  const blk = x.block ?? (x.idea.block ? blockByKey(x.idea.block) : null);
+  const focus = blk?.focus ?? x.idea.target ?? null;
+  const picture = `${window.location.origin}/api/website/ai-personalization/preview?env=${x.data.env}&path=${encodeURIComponent(x.data.path)}&still=1${focus ? `&focus=${encodeURIComponent(focus)}` : ""}`;
   const p = projectForPage({
     env: x.data.env, path: x.data.path, url: x.data.page.url ?? `${ENVS[x.data.env].base}${x.data.path}`, h1: x.data.page.h1[0] ?? "", title: x.data.page.title,
     numbers: x.numbers, ideas: [{ title: x.idea.title, why: x.idea.why, change: x.idea.change, expect: x.idea.expect }],
     version: null, versions: ordered.map((v) => ({ id: v.id, letter: v.letter, rev: v.rev, summary: v.summary })),
     previewPath: `${window.location.origin}${previewHref(x.data.env, x.data.path, x.idea.id)}`,
+    contentType: typeOfIdea(x.idea),
+    block: blk ? { name: blk.name, picture } : focus ? { name: "The part of the page it changes", picture } : null,
   });
   try {
     const r = await fetch("/api/content/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
@@ -690,6 +703,32 @@ function ConvertPreview() {
     setCompare(true);
   };
 
+  // The Preview opens on the lead optimization and shows its proposed version at once (SARCLA 09.11.2026: "Choose one to
+  // see it - the optimization is not shown, no preview of the proposed alternatives"): no optimization chosen = the
+  // lead is; one without a version gets its Version A from the AI by itself, once, after the frame drew the page (the
+  // AI reads the drawn outline). A block with versions to compare opens on them side by side instead.
+  const autoPicked = useRef(false);
+  useEffect(() => {
+    if (autoPicked.current || !d || !path || ideaSel || compare) return;
+    const lead = ranked.find((i) => i.status !== "dropped");
+    if (!lead) return;
+    autoPicked.current = true;
+    const compared = ranked.filter((i) => i.status !== "dropped" && (versionsOf.get(i.id)?.length ?? 0) > 0).length;
+    if (block && compared >= 2) return;
+    select(lead.id);
+  }, [d, path, ideaSel, ranked, versionsOf, block, compare, select]);
+  const autoBuilt = useRef(new Set<string>());
+  useEffect(() => {
+    if (!idea || !d || !d.canEdit || !d.ai || d.page.status !== 200 || busy || making) return;
+    if (idea.status === "dropped" || versions.length > 0 || autoBuilt.current.has(idea.id)) return;
+    const t = setTimeout(() => {
+      if (autoBuilt.current.has(idea.id)) return;
+      autoBuilt.current.add(idea.id);
+      void build(idea);
+    }, drawn.current ? 600 : 4000);
+    return () => clearTimeout(t);
+  }, [idea?.id, versions.length, d, busy, making]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // "Find optimizations" from a card: a page (or a block) without optimizations asks the AI once, after the frame drew it
   const asked = useRef(false);
   const askTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -860,7 +899,7 @@ function ConvertPreview() {
           {/* the optimizations - the same list wherever the page is opened from */}
           <GlassCard sx={{ p: { xs: 1.5, md: 1.75 }, position: { xl: "sticky" }, top: { xl: 16 }, maxHeight: { xl: "calc(100vh - 32px)" }, overflowY: { xl: "auto" } }}>
             <CardTitle icon={<TipsAndUpdatesOutlinedIcon />} tint="amber" title={`Optimizations · ${live.length}`}
-              note={block ? `of the ${block.name.toLowerCase()} - many different ones, then pick` : live.length ? "Choose one to see it Before | After" : "The AI reads the page and its numbers"} />
+              note={block ? `of the ${block.name.toLowerCase()} - many different ones, then pick` : live.length ? "Each one shown Before | After with its proposed version" : "The AI reads the page and its numbers"} />
             <Box sx={{ display: "grid", gap: 1, mt: 1.25 }}>
               <Box component="button" type="button" onClick={() => { select(null); setCompare(false); }} sx={{
                 all: "unset", cursor: "pointer", px: 1.25, py: 0.9, borderRadius: "12px", border: `1px solid ${!idea && !gallery ? ACCENT : HAIRLINE}`,
@@ -893,11 +932,10 @@ function ConvertPreview() {
                 </Box>
               ))}
               {data.canEdit && (
-                <Button variant={live.length ? "outlined" : "contained"} disableElevation disabled={!data.ai || busy === "ideas" || pg.status !== 200}
-                  onClick={() => void act("ideas", { action: "ideas", env, path, numbers, ...(block ? { block: block.key } : {}) })}
-                  startIcon={busy === "ideas" ? <CircularProgress size={14} /> : <TipsAndUpdatesOutlinedIcon sx={{ fontSize: 17 }} />} sx={{ textTransform: "none", fontWeight: 700 }}>
+                <AiButton busy={busy === "ideas"} disabled={!data.ai || pg.status !== 200}
+                  onClick={() => void act("ideas", { action: "ideas", env, path, numbers, ...(block ? { block: block.key } : {}) })}>
                   {busy === "ideas" ? "The AI is reading…" : live.length ? "Find more optimizations" : "Find optimizations"}
-                </Button>
+                </AiButton>
               )}
               {data.canEdit && block && live.some((i) => !(versionsOf.get(i.id)?.length)) && (
                 <Button variant="contained" color="secondary" disableElevation disabled={!!making || !!busy} onClick={() => void makeAll()}
@@ -920,6 +958,7 @@ function ConvertPreview() {
                     <Typography sx={{ fontSize: "1.05rem", fontWeight: 800, color: INK, lineHeight: 1.3 }}>{idea.title}</Typography>
                     <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.5 }}>
                       <Chip tint={STATE_TINT[st!]}>{STATE_LABEL[st!]}</Chip>
+                      <Chip tint="purple">{CHANGE_LABEL[typeOfIdea(idea)]}</Chip>
                       {idea.sentAt && <Chip tint="slate">{`by ${idea.sentBy ?? "someone"} · ${since(idea.sentAt)}`}</Chip>}
                       {iceScore(idea) !== null && <Chip tint="blue">{`Score ${iceScore(idea)} · impact ${idea.impact}/5 · confidence ${idea.confidence}/5 · effort ${idea.effort}/5`}</Chip>}
                     </Box>
@@ -930,12 +969,12 @@ function ConvertPreview() {
                     {idea.projectId && <Button size="small" variant="outlined" href={`/projects/${idea.projectId}`} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>Open the project</Button>}
                     {st === "sent" && version && <Button size="small" variant="outlined" href={`/website/ai-personalization/tests?make=${version.id}`} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>Test Version {version.letter} on the shop</Button>}
                     {data.canEdit && st !== "dropped" && versions.length > 0 && (
-                      <Tooltip title={!data.canContent ? "Content needs the Marketing access" : "A Content project with the page, this optimization and its versions - the texts and the look are brought to life there; the send approves the versions"}>
+                      <Tooltip title={!data.canContent ? "Content needs the Marketing access" : `A ${CHANGE_LABEL[typeOfIdea(idea)]} project in Content with a brief to rebuild it there - the page, this optimization and its versions; the send approves the versions`}>
                         <span>
                           <Button size="small" variant="contained" disableElevation disabled={!data.canContent || busy === "send"} startIcon={busy === "send" ? <CircularProgress size={13} sx={{ color: "inherit" }} /> : <SendOutlinedIcon sx={{ fontSize: 16 }} />}
                             onClick={async () => {
                               setBusy("send"); setErr(null);
-                              const res = await sendToProject({ data, numbers, idea, versions, first: version });
+                              const res = await sendToProject({ data, numbers, idea, versions, first: version, block });
                               if (!res.ok) { setBusy(null); setErr(res.error); return; }
                               router.push(res.url);
                             }} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>
@@ -946,11 +985,18 @@ function ConvertPreview() {
                     )}
                   </Box>
                 </Box>
-                <Box sx={{ display: "grid", gap: 0.5, mt: 1.25, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(3, minmax(0,1fr))" } }}>
-                  {([["Diagnostic", idea.why], ["The optimization", idea.change], ["Should move", idea.expect]] as const).filter(([, t]) => t).map(([k, t]) => (
-                    <Box key={k} sx={{ p: 1.1, borderRadius: "10px", bgcolor: "rgba(21,34,58,.035)", minWidth: 0 }}>
-                      <Typography sx={{ fontSize: "0.66rem", fontWeight: 800, color: MUTED, textTransform: "uppercase", letterSpacing: ".05em" }}>{k}</Typography>
-                      <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.4 }}>{t}</Typography>
+                <Box sx={{ display: "grid", gap: 1, mt: 1.25, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(3, minmax(0,1fr))" } }}>
+                  {([
+                    ["Diagnostic", idea.why, <ErrorOutlineIcon key="d" />, "#c5221f"],
+                    ["The optimization", idea.change, <ScienceOutlinedIcon key="o" />, "#2459d1"],
+                    ["Should move", idea.expect, <TrackChangesOutlinedIcon key="m" />, "#1b7a55"],
+                  ] as const).filter(([, t]) => t).map(([k, t, icon, tone]) => (
+                    <Box key={k} sx={{ p: 1.25, borderRadius: "10px", bgcolor: `${tone}0d`, border: `1px solid ${tone}26`, minWidth: 0 }}>
+                      <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", mb: 0.5 }}>
+                        <Box sx={{ width: 24, height: 24, borderRadius: "50%", display: "grid", placeItems: "center", bgcolor: `${tone}1f`, color: tone, "& svg": { fontSize: 15 } }}>{icon}</Box>
+                        <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: tone }}>{k}</Typography>
+                      </Box>
+                      <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.45 }}>{t}</Typography>
                     </Box>
                   ))}
                 </Box>
@@ -961,10 +1007,9 @@ function ConvertPreview() {
                       options={versions.map((v) => ({ key: v.letter, label: `Version ${v.letter}${v.status === "approved" ? " ✓" : ""}` }))} />
                   )}
                   {data.canEdit && st !== "dropped" && (versions.length === 0
-                    ? <Button size="small" variant="contained" disableElevation disabled={busy === `build:${idea.id}` || !data.ai} onClick={() => void build(idea)}
-                        startIcon={busy === `build:${idea.id}` ? <CircularProgress size={13} sx={{ color: "inherit" }} /> : <AutoFixHighOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>
+                    ? <AiButton size="small" busy={busy === `build:${idea.id}`} disabled={!data.ai} onClick={() => void build(idea)}>
                         {busy === `build:${idea.id}` ? "The AI is making the version… about a minute" : "Make the version"}
-                      </Button>
+                      </AiButton>
                     : versions.length < 4 && (
                       <Tooltip title="A clearly different way to make the same optimization - to test against the page and the other versions">
                         <span>
@@ -977,6 +1022,10 @@ function ConvertPreview() {
                     ))}
                   {version && <Typography sx={{ fontSize: "0.78rem", color: MUTED, flex: "1 1 240px" }}>{version.summary}</Typography>}
                 </Box>
+                {data.canEdit && st !== "dropped" && data.ai && (
+                  <AiHelper version={version} ask={ask} setAsk={setAsk} busy={busy === `build:${idea.id}`} picked={picked}
+                    onSend={async () => { if (await build(idea, { request: ask.trim(), ...(version ? { letter: version.letter } : {}) })) setAsk(""); }} />
+                )}
               </GlassCard>
             )}
 
@@ -997,7 +1046,7 @@ function ConvertPreview() {
                     <Typography sx={{ fontSize: "0.72rem", color: MUTED, fontFamily: "ui-monospace, Consolas, monospace", overflowWrap: "anywhere" }}>{picked.selector}</Typography>
                   </Box>
                   {data.canEdit && idea && version
-                    ? <Button size="small" variant="contained" disableElevation onClick={() => setAsk(`Change this element - ${picked.selector}${picked.text ? ` (it reads “${picked.text.slice(0, 80)}”)` : ""}: `)}>Ask the AI to change it</Button>
+                    ? <Button size="small" variant="contained" disableElevation onClick={() => { setAsk(`Change this element - ${picked.selector}${picked.text ? ` (it reads “${picked.text.slice(0, 80)}”)` : ""}: `); document.getElementById("apso-ai-helper")?.scrollIntoView({ behavior: "smooth", block: "center" }); }}>Ask the AI helper to change it</Button>
                     : data.canEdit && idea
                       ? <Button size="small" variant="contained" disableElevation disabled={busy === `build:${idea.id}`} onClick={() => void build(idea, { request: `Start from this element - ${picked.selector}${picked.text ? ` (it reads “${picked.text.slice(0, 80)}”)` : ""}.` })}>Make the version from here</Button>
                       : <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>Choose an optimization first - its version can then change this element.</Typography>}
@@ -1006,6 +1055,16 @@ function ConvertPreview() {
               )}
               {styles && styles.nfailed > 0 && (
                 <Box sx={{ mt: 1.5 }}><Notice tone="warn">Your browser drew {styles.total - styles.nfailed} of the shop&apos;s {styles.total} stylesheets - the page can look raw. Reading the page again usually helps.</Notice></Box>
+              )}
+              {idea && versions.length === 0 && busy === `build:${idea.id}` && (
+                <Box sx={{ mt: 1.5, p: 1.5, borderRadius: "10px", border: "1px solid rgba(106,70,201,.3)", bgcolor: "rgba(106,70,201,.06)", display: "grid", gap: 1 }}>
+                  <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                    <AutoAwesomeIcon sx={{ fontSize: 18, color: "#6a46c9" }} />
+                    <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK }}>The AI is writing the proposed version - about a minute</Typography>
+                  </Box>
+                  <LinearProgress sx={{ height: 4, borderRadius: 2, bgcolor: "rgba(106,70,201,.12)", "& .MuiLinearProgress-bar": { backgroundImage: AI_GRADIENT } }} />
+                  <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Below, the page as it is. Its version appears beside it, at the change.</Typography>
+                </Box>
               )}
               <Box sx={{ mt: 1.5 }}>{frames}</Box>
               <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 1 }}>
@@ -1020,14 +1079,7 @@ function ConvertPreview() {
                   <WhatChanges version={version} hit={hit && (rev === null || rev === version.rev) ? hit : null} onGo={(sel) => { setGoSel(sel); setGoN((n) => n + 1); }} />
                   {data.canEdit && st !== "dropped" && (
                     <Box sx={{ display: "grid", gap: 1 }}>
-                      <TextField size="small" multiline minRows={2} value={ask} onChange={(e) => setAsk(e.target.value)} disabled={busy === `build:${idea.id}`}
-                        placeholder={`Change Version ${version.letter} in a sentence - e.g. “make the delivery line bigger, under the title”`} inputProps={{ maxLength: 1500 }} />
                       <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
-                        <Button size="small" variant="contained" disableElevation disabled={!ask.trim() || busy === `build:${idea.id}`}
-                          startIcon={busy === `build:${idea.id}` ? <CircularProgress size={13} sx={{ color: "inherit" }} /> : <AutoFixHighOutlinedIcon sx={{ fontSize: 16 }} />}
-                          onClick={async () => { if (await build(idea, { request: ask.trim(), letter: version.letter })) setAsk(""); }} sx={{ textTransform: "none", fontWeight: 700 }}>
-                          {busy === `build:${idea.id}` ? "The AI is writing…" : "Send to the AI"}
-                        </Button>
                         <Box sx={{ flex: 1 }} />
                         <Button size="small" onClick={() => { setHand((h) => !h); setJson(JSON.stringify(version.changes, null, 2)); setJsonErr(null); }} sx={{ textTransform: "none" }}>{hand ? "Close the code" : "The code"}</Button>
                       </Box>
@@ -1070,7 +1122,7 @@ function ConvertPreview() {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
         title="Preview"
-        subtitle="A shop page live, its optimizations Before | After, their versions - then sent to a Content project"
+        subtitle="An optimization on its page, Before | After with its versions - then sent to Content to be rebuilt there"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {(held.stale || busy) && <CircularProgress size={14} sx={{ color: MUTED }} />}
@@ -1079,6 +1131,47 @@ function ConvertPreview() {
         }
       />
       {body}
+    </Box>
+  );
+}
+
+// THE AI HELPER (SARCLA 09.11.2026: "your optimization should have an AI helper"): beside the optimization, what to change
+// in its version in a sentence - or, before there is one, how to make it. A few ready requests; a picked element
+// lands here. Each answer is a new revision of the version, so nothing is lost.
+const HELPER_ASKS = ["Make it stand out more", "Shorter, clearer text", "Move it higher on the page", "Closer to the shop's own look", "Better on a phone"];
+
+function AiHelper({ version, ask, setAsk, busy, picked, onSend }: {
+  version: Version | null; ask: string; setAsk: (s: string) => void; busy: boolean; picked: Picked | null; onSend: () => Promise<void>;
+}) {
+  return (
+    <Box id="apso-ai-helper" sx={{ mt: 1.5, p: 1.5, borderRadius: "12px", border: "1px solid rgba(106,70,201,.28)", background: "linear-gradient(135deg, rgba(106,70,201,.07), rgba(36,89,209,.05) 55%, rgba(181,53,154,.05))", display: "grid", gap: 1, scrollMarginTop: 80 }}>
+      <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+        <Box sx={{ width: 28, height: 28, borderRadius: "8px", display: "grid", placeItems: "center", backgroundImage: AI_GRADIENT, color: "#fff", flexShrink: 0 }}><AutoAwesomeIcon sx={{ fontSize: 17 }} /></Box>
+        <Typography sx={{ fontWeight: 800, color: INK, fontSize: "0.92rem" }}>AI helper</Typography>
+        <Typography sx={{ fontSize: "0.78rem", color: MUTED, flex: "1 1 260px" }}>
+          {version ? `Say what to change in Version ${version.letter} - it writes a new revision, the old one stays` : "Say how to make the version - or let it make it as proposed"}
+        </Typography>
+      </Box>
+      <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap" }}>
+        {HELPER_ASKS.map((h) => (
+          <Box key={h} component="button" type="button" disabled={busy} onClick={() => setAsk(h)} sx={{
+            all: "unset", cursor: "pointer", px: 1, py: 0.35, borderRadius: "6px", border: "1px solid rgba(106,70,201,.3)", bgcolor: ask === h ? "rgba(106,70,201,.14)" : "rgba(255,255,255,.7)",
+            color: "#5b3fd0", fontSize: "0.76rem", fontWeight: 600, "&:hover": { bgcolor: "rgba(106,70,201,.1)" },
+          }}>{h}</Box>
+        ))}
+      </Box>
+      <TextField size="small" multiline minRows={2} value={ask} onChange={(e) => setAsk(e.target.value)} disabled={busy} fullWidth
+        placeholder={version ? `e.g. “make the delivery line bigger, under the title”` : "e.g. “keep the shop's red, put the button under the price”"}
+        inputProps={{ maxLength: 1500 }} sx={{ "& .MuiOutlinedInput-root": { bgcolor: "#fff" } }}
+        onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && ask.trim() && !busy) void onSend(); }} />
+      <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+        <AiButton size="small" busy={busy} disabled={!ask.trim()} onClick={() => void onSend()}>
+          {busy ? "The AI is writing…" : version ? `Change Version ${version.letter}` : "Make the version"}
+        </AiButton>
+        <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
+          {picked ? `Picked: ${picked.text ? `“${picked.text.slice(0, 60)}”` : picked.selector}` : "Tip: Pick an element on the page, then ask about it."}
+        </Typography>
+      </Box>
     </Box>
   );
 }

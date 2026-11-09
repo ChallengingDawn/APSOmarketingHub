@@ -9,6 +9,7 @@
 
 import { classify, type Env } from "./model";
 import { PAGE_BUILDER } from "../content/contentTypes";
+import { CHANGE_LABEL, type ChangeType } from "./changeTypes";
 
 /**
  * Which Content type a page handed over becomes: the Page builder, for every page of the shop - a product page too
@@ -48,14 +49,36 @@ export type HandoffInput = {
   /** An optimization sent to a project with its versions (A, B...) - the first one is the marker's version. */
   versions?: { id: string; letter: string; rev: number; summary: string }[];
   previewPath: string;
+  /** The type of content change (./changeTypes.ts) - the Content type the project is made as; a winner is always the
+   *  Page builder. And the shop block it is about, with the address of its picture (never the picture itself). */
+  contentType?: ChangeType | null;
+  block?: { name: string; picture: string | null } | null;
   /** a test's winner, handed to Content to be published there */
   test?: { id: string; rateA: number | null; rateB: number | null; uplift: number | null; pB: number | null; visitors: number | null; days: number | null; decidedBy: string | null; decidedAt: string | null } | null;
 };
 
 const pct = (r: number | null | undefined) => (r === null || r === undefined ? "-" : `${(r * 100).toFixed(1)}%`);
 
+/** The brief's first lines by the type of change (SARCLA 09.11.2026: "it's displayed on the app, then a brief is sent to
+ *  reproduce it on Content, and the content people can work it better") - the AI's version is a draft to start from. */
+function opening(type: ChangeType, block: boolean): string {
+  const from = "From APSOconvert (Website > AI testing & personalization), where the change is shown before and after on the shop's page.";
+  switch (type) {
+    case "landing-page":
+      return `A NEW SEO landing page to write. ${from} Google shows the shop for the searches below, but no page answers them well - the page named here is where the problem was seen, not the page to change.`;
+    case "banner":
+      return `A banner to make. ${from} Rebuild it here and make it better: the AI's version is a draft to start from.`;
+    case "newsletter":
+      return `The newsletter band and its sign-up to improve. ${from} Rebuild it here and make it better: the AI's version is a draft to start from.`;
+    default:
+      return `${block ? "A block of a shop page" : "A shop page"} to improve in the Page builder. ${from} Its numbers say visitors come and do not buy. Rebuild the change here and make it better: the AI's version is a draft to start from.`;
+  }
+}
+const TITLE: Record<ChangeType, string> = { "page-refresh": "Shop page", "landing-page": "SEO landing page", banner: "Banner", newsletter: "Newsletter", "blog-article": "Blog" };
+
 export function projectForPage(x: HandoffInput): { title: string; brief: string; contentType: string } {
   const lang = languageOf(x.path);
+  const type: ChangeType = x.contentType ?? "page-refresh";
   const name = (x.h1 || x.title || x.path).replace(/\s+/g, " ").trim();
   const n = x.numbers;
   const t = x.test ?? null;
@@ -63,10 +86,12 @@ export function projectForPage(x: HandoffInput): { title: string; brief: string;
   const lines = [
     t
       ? `A tested winner from APSOconvert (Website > AI testing & personalization), to publish from here: page test #${t.id} showed the version sells better than the page as it is. Look at it laid over the page, adjust it with the AI if needed - a change after the test is marked as not tested - and publish it once approved.`
-      : `A shop page to improve, from APSOconvert (Website > AI testing & personalization): its numbers say visitors come and do not buy. The texts are written here; the page's layout and the test are done in APSOconvert.`,
+      : opening(type, !!x.block),
+    x.block ? `Block: ${x.block.name}${x.block.picture ? `\nAs it is now: ${x.block.picture}` : ""}` : null,
     `Page: ${name}\n${x.url}${lang ? `\nWrite in ${lang} - the page's store view is ${classify(x.path).store}.` : ""}`,
     n ? `Numbers${n.from ? ` (${n.from} to ${n.to})` : ""}: ${n.views ?? "-"} views, cart rate ${pct(n.rate)} where similar pages make ${pct(n.typical)}${n.companies ? `; ${n.lost ?? 0} of ${n.companies} signed-in customers who opened it did not order${n.topLoss ? `, most stopped at "${n.topLoss}"` : ""}` : ""}.${n.reasons?.length ? `\n${n.reasons.map((r) => `- ${r}`).join("\n")}` : ""}` : null,
-    x.ideas.length ? `Approved ideas - what the texts must do:\n${x.ideas.map((i, k) => `${k + 1}. ${i.title}\n   Change: ${i.change}${i.why ? `\n   Why: ${i.why}` : ""}${i.expect ? `\n   Should move: ${i.expect}` : ""}`).join("\n")}` : `No idea approved yet - start from the numbers and the page as it is.`,
+    !t ? `Type of change: ${CHANGE_LABEL[type]}` : null,
+    x.ideas.length ? `The optimization - what it must do:\n${x.ideas.map((i, k) => `${k + 1}. ${i.title}\n   Change: ${i.change}${i.why ? `\n   Why: ${i.why}` : ""}${i.expect ? `\n   Should move: ${i.expect}` : ""}`).join("\n")}` : `No idea approved yet - start from the numbers and the page as it is.`,
     t ? `Winner of page test #${t.id}: ${pct(t.rateB)} of the visitors who got the version put something in the cart, against ${pct(t.rateA)} for the page as it is (uplift ${signed(t.uplift)}${t.pB !== null ? `, ${Math.round(t.pB * 100)}% sure it is better` : ""})${t.visitors ? `, over ${t.visitors} visitors` : ""}${t.days ? ` and ${t.days} days` : ""}${t.decidedBy ? `; decided by ${t.decidedBy}${t.decidedAt ? ` on ${t.decidedAt.slice(0, 10)}` : ""}` : ""}.` : null,
     x.versions?.length
       ? `${x.versions.length > 1 ? `Its ${x.versions.length} versions, to test against the page as it is` : "Its version"} (laid over the page in the studio):\n${x.versions.map((v) => `- Version ${v.letter} (revision ${v.rev}): ${v.summary}`).join("\n")}`
@@ -79,5 +104,5 @@ export function projectForPage(x: HandoffInput): { title: string; brief: string;
   lines[lines.length - 1] = marker;
   let brief = lines.join("\n\n");
   if (brief.length > 6000) brief = `${brief.slice(0, 5900 - marker.length)}…\n\n${marker}`;
-  return { title: `${t ? "Winner" : "Shop page"}: ${name}`.slice(0, 200), brief, contentType: contentTypeForPage(x.path) };
+  return { title: `${t ? "Winner" : TITLE[type]}: ${x.block && !t ? `${x.block.name} · ` : ""}${name}`.slice(0, 200), brief, contentType: t ? contentTypeForPage(x.path) : type };
 }

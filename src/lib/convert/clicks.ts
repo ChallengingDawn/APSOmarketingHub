@@ -3,7 +3,7 @@
 // and only with the visitor's statistics consent, the shop's head.js counts which element is clicked and where inside it.
 // The hub reads the counts back and the Preview draws them over the page.
 //
-// Until the gateway runs the version that counts (SARCLA deploys it), its admin API answers 404 on these paths: that is
+// A gateway without the version that counts (before 09.11.2026 22:20) answers 404 on these paths: that is
 // said as it is ("not on the shop's gateway yet"), never as zero clicks.
 //
 //   GET    /api/admin/convert/clickmaps          -> { maps }

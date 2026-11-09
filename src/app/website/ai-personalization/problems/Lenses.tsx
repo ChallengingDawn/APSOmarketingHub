@@ -31,6 +31,7 @@ import { perThousand, type ShopBlock } from "@/lib/convert/blocks";
 import type { Signups } from "@/lib/convert/blocksRead";
 import { previewHref } from "../Flow";
 import { PageShot } from "../PageShot";
+import { AiButton } from "../AiButton";
 
 export const PER_PAGE = 10;
 const INK = "#15223a";
@@ -131,7 +132,7 @@ function SeoCard({ r, name }: { r: SeoRow; name: string | null }) {
         </Box>
       )}
       <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap", mt: 0.25 }}>
-        <Button size="small" variant="contained" disableElevation component={Link} href={`${previewHref("prod", r.path)}&ask=1&seo=1`} sx={btn}>Find optimizations</Button>
+        <AiButton size="small" href={`${previewHref("prod", r.path)}&ask=1&seo=1`}>Find optimizations</AiButton>
         <Button size="small" component="a" href={r.url} target="_blank" rel="noopener" sx={btn}>Open on the shop</Button>
       </Box>
     </WideCard>
@@ -187,24 +188,29 @@ function BlockCard({ b, views, signups }: { b: ShopBlock; views: number | null; 
         <Stat k={b.where === "every" ? "Views, all pages" : "Home page views"} v={views === null ? "–" : full(views)} sub="Google Analytics" />
         {nl
           ? <Stat k="Sign-ups" v={signups ? full(signups.total) : "–"} sub={signups?.error ? "HubSpot did not say" : signups ? `${signups.forms.length} newsletter forms` : "reading HubSpot…"} />
-          : <Stat k="Clicks on it" v="–" sub="after the gateway deploy" />}
+          : <Stat k="Clicks on it" v="–" sub="counted once switched on in Click map" />}
         {nl ? <Stat k="Per 1,000 views" v={rate === null ? "–" : rate.toFixed(2)} sub="sign-ups" /> : <Stat k="Where" v="Home" sub="de-CH page" />}
       </Box>
       <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap", mt: 0.25 }}>
-        <Button size="small" variant="contained" disableElevation component={Link} href={`${previewHref("prod", b.page)}&block=${b.key}&ask=1`} sx={btn}>Find optimizations</Button>
+        <AiButton size="small" href={`${previewHref("prod", b.page)}&block=${b.key}&ask=1`}>Find optimizations</AiButton>
         <Button size="small" component={Link} href={`${previewHref("prod", b.page)}&block=${b.key}&clicks=1`} sx={btn}>Click map</Button>
       </Box>
     </WideCard>
   );
 }
 
-export function BlocksLens({ from, to, totalViews, homeViews }: { from: string; to: string; totalViews: number | null; homeViews: number | null }) {
+/** The shop's blocks - `only` the ones of one type of change (Insights: the slider = Banner, the newsletter band =
+ *  Newsletter, the home page's rows = Page builder); `compact` = the cards alone, without the tiles. */
+export function BlocksLens({ from, to, totalViews, homeViews, only, compact }: { from: string; to: string; totalViews: number | null; homeViews: number | null; only?: string[]; compact?: boolean }) {
   const url = `/api/website/ai-personalization/blocks?from=${from}&to=${to}`;
   const held = useHeld<{ blocks: ShopBlock[]; signups: Signups }>(url, [url]);
   const r = held.result;
   if (r === null) return <LoadingPanel label="Reading the shop's blocks and HubSpot's newsletter forms…" />;
   if (r.state !== "ok") return <UpstreamPanel source="Blocks" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? (r.status ?? null) : null} onRetry={() => {}} />;
-  const { blocks, signups } = r.data;
+  const { signups } = r.data;
+  const blocks = only ? r.data.blocks.filter((b) => only.includes(b.key)) : r.data.blocks;
+  const cards = <CardPages rows={blocks} keyOf={(b) => b.key} resetKey={`blocks:${(only ?? []).join(",")}`} render={(b) => <BlockCard b={b} views={b.where === "every" ? totalViews : homeViews} signups={b.measure === "signups" ? signups : null} />} />;
+  if (compact) return cards;
   const nlRate = totalViews ? perThousand(signups.total, totalViews) : null;
   return (
     <>
@@ -217,7 +223,7 @@ export function BlocksLens({ from, to, totalViews, homeViews }: { from: string; 
       <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
         A block&apos;s optimizations come as many clearly different versions side by side - pick one, then refine it - as the newsletter band was made.
       </Typography>
-      <CardPages rows={blocks} keyOf={(b) => b.key} resetKey="blocks" render={(b) => <BlockCard b={b} views={b.where === "every" ? totalViews : homeViews} signups={b.measure === "signups" ? signups : null} />} />
+      {cards}
     </>
   );
 }

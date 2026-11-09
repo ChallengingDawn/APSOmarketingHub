@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
         const drawn = cleanDrawn(b.drawn);
         // a block of the shop (the newsletter band, the home slider...): the AI looks at that block only
         const blk = typeof b.block === "string" ? blockByKey(b.block) : null;
-        return slow(() => proposeIdeas(env, path, numbersOf(b.numbers), by, drawn, blk ? { name: blk.name, selector: blk.selector, about: blk.about, goal: blk.goal } : null));
+        return slow(() => proposeIdeas(env, path, numbersOf(b.numbers), by, drawn, blk ? { key: blk.key, name: blk.name, selector: blk.selector, about: blk.about, goal: blk.goal } : null));
       }
       case "add": {
         const path = cleanPath(b.path);

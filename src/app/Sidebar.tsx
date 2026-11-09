@@ -303,6 +303,12 @@ const WEBSITE_ICON: Record<string, React.ReactNode> = {
 // A Website page's own sub-pages, drawn under it in the panel (SARCLA 08.11.2026: "journeys sub-app navigation doesn't
 // exist") - APSOconvert's Journeys: the main journeys, the funnel, one page's flow.
 const WEBSITE_CHILDREN: Record<string, { label: string; href: string }[]> = {
+  // Tests, then what follows a test: an audience that always gets a version, the winners (SARCLA 09.11.2026: less menu)
+  "/website/ai-personalization/tests": [
+    { label: "Tests", href: "/website/ai-personalization/tests" },
+    { label: "Always on", href: "/website/ai-personalization/personalise" },
+    { label: "Winners", href: "/website/ai-personalization/ship" },
+  ],
   "/website/ai-personalization/journeys": [
     { label: "Main journeys", href: "/website/ai-personalization/journeys" },
     { label: "Funnel", href: "/website/ai-personalization/journeys/funnel" },
@@ -335,7 +341,7 @@ const navSections: NavSection[] = [
     back: { href: "/website", label: "Website" },
     icon: <HubIconGlyph name={x.icon} fontSize={22} />,
     color: x.fg,
-    items: x.pages.map((pg) => ({ label: pg.name, href: pg.href, icon: WEBSITE_ICON[pg.href] ?? <HubIconGlyph name={pg.icon} fontSize={20} />, ...(pg.href === "/live" ? { badge: "Live" } : {}), ...(WEBSITE_CHILDREN[pg.href] ? { children: WEBSITE_CHILDREN[pg.href] } : {}) })),
+    items: x.pages.filter((pg) => pg.menu !== false).map((pg) => ({ label: pg.name, href: pg.href, icon: WEBSITE_ICON[pg.href] ?? <HubIconGlyph name={pg.icon} fontSize={20} />, ...(pg.href === "/live" ? { badge: "Live" } : {}), ...(WEBSITE_CHILDREN[pg.href] ? { children: WEBSITE_CHILDREN[pg.href] } : {}) })),
   })),
   // Marketing & Content, a section per main topic (SARCLA 07.11.2026: "split it like website or UC by main categories" -
   // Content, SEO, SEA, GEO, AEO and LLM Optimizer), from MARKETING_SECTIONS in hubApps.ts: inside one, the panel shows
