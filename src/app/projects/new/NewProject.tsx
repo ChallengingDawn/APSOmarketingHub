@@ -29,12 +29,13 @@ import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { KindTile } from "../work/kinds";
 import { IDEAS_FOR_PROJECT } from "../ideas/Ideas";
 import { AiWorking } from "../studio/parts";
+import { newTodoPeople } from "@/lib/content/people";
 
 type Kind = { key: string; label: string; blurb: string; language: boolean };
 type Person = { username: string; name: string };
 /** An idea brought from Ideas: where it comes from (as the menus name it), and every kind it would make. */
 type IdeaRef = { key?: string; source: string; title: string; why?: string; kind?: string | null; kinds?: string[]; origin?: string; url?: string };
-type Setup = { ok: boolean; error?: string; me: string; admin: boolean; ai: boolean; canStart: boolean; people: Person[]; kinds: Kind[]; languages: { code: string; label: string }[] };
+type Setup = { ok: boolean; error?: string; me: string; admin: boolean; ai: boolean; canStart: boolean; people: Person[]; kinds: Kind[]; languages: { code: string; label: string }[]; defaultReviewer?: string | null };
 type Line = { id: string; contentType: string; title: string; language: string | null; writer: string | null; reviewer: string | null; dueDate: string; why?: string };
 
 const PINK = "#c22c6e";
@@ -42,8 +43,12 @@ const btn = { textTransform: "none" as const, fontWeight: 600, borderRadius: "8p
 const mainBtn = { ...btn, bgcolor: PINK, color: "#fff", "&:hover": { bgcolor: "#a3245c" } };
 const TASK = "task";
 let seq = 0;
-const newLine = (contentType: string, language: string | null, me: string | null, extra: Partial<Line> = {}): Line =>
-  ({ id: `l${++seq}`, contentType, title: "", language: contentType === TASK ? null : language, writer: me, reviewer: null, dueDate: "", ...extra });
+/** A new line, its people prefilled (SARCLA 09.11.2026): the owner is who makes it, the reviewer Claudio - changed in the dropdowns. */
+const newLine = (contentType: string, language: string | null, s: Pick<Setup, "me" | "defaultReviewer"> | null, extra: Partial<Line> = {}): Line =>
+  ({
+    id: `l${++seq}`, contentType, title: "", language: contentType === TASK ? null : language, dueDate: "",
+    ...newTodoPeople({ kind: contentType, me: s?.me ?? "", defaultReviewer: s?.defaultReviewer ?? null, task: TASK }), ...extra,
+  });
 
 async function post(body: Record<string, unknown>) {
   const r = await fetch("/api/content/projects/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -93,7 +98,7 @@ export default function NewProject() {
             if (got.length === 1) { setTitle(got[0].title.replace(/^Answer: /, "").slice(0, 120)); if (got[0].why) setGoal(got[0].why.slice(0, 600)); }
             // one line per kind each idea would make (an own idea can name several)
             const offered = new Set(j.kinds.map((k) => k.key));
-            setLines(got.flatMap((i) => (i.kinds?.length ? i.kinds : i.kind ? [i.kind] : []).filter((k) => offered.has(k)).map((k) => newLine(k, "DE", j.me, { title: i.title.slice(0, 160) }))).slice(0, 8));
+            setLines(got.flatMap((i) => (i.kinds?.length ? i.kinds : i.kind ? [i.kind] : []).filter((k) => offered.has(k)).map((k) => newLine(k, "DE", j, { title: i.title.slice(0, 160) }))).slice(0, 8));
           }
         } catch { /* nothing kept */ }
       }
@@ -103,7 +108,11 @@ export default function NewProject() {
 
   const names = useMemo(() => Object.fromEntries((setup?.people ?? []).map((p) => [p.username, p.name])), [setup]);
   const kindOf = (key: string) => setup?.kinds.find((k) => k.key === key);
-  const set = (id: string, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch, ...(patch.contentType === TASK ? { language: null, reviewer: null } : {}) } : l)));
+  // an action has no reviewer; a line made a piece of content again gets the default one back
+  const set = (id: string, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.id === id ? {
+    ...l, ...patch,
+    ...(patch.contentType === TASK ? { language: null, reviewer: null } : patch.contentType && l.contentType === TASK ? { language: l.language ?? "DE", reviewer: setup?.defaultReviewer ?? null } : {}),
+  } : l)));
 
   const propose = async () => {
     setBusy("propose"); setErr(null);
@@ -116,7 +125,7 @@ export default function NewProject() {
     if (!audience.trim()) setAudience(p.audience);
     if (!message.trim()) setMessage(p.message);
     // the AI's lines replace the empty ones; lines a person wrote stay
-    setLines((ls) => [...ls.filter((l) => l.title.trim()), ...p.lines.map((l) => newLine(l.contentType, l.language, setup?.me ?? null, { title: l.title, why: l.why }))]);
+    setLines((ls) => [...ls.filter((l) => l.title.trim()), ...p.lines.map((l) => newLine(l.contentType, l.language, setup, { title: l.title, why: l.why }))]);
   };
 
   const start = async () => {
@@ -229,7 +238,7 @@ export default function NewProject() {
         </Box>
         <Box sx={{ mt: 1.5, display: "flex", gap: 0.75, flexWrap: "wrap" }}>
           {setup.kinds.map((k) => (
-            <Button key={k.key} size="small" variant="outlined" onClick={() => setLines((ls) => [...ls, newLine(k.key, langs[0] ?? "DE", setup.me)])}
+            <Button key={k.key} size="small" variant="outlined" onClick={() => setLines((ls) => [...ls, newLine(k.key, langs[0] ?? "DE", setup)])}
               startIcon={<KindTile kind={k.key} size={18} />} sx={{ ...btn, borderRadius: "6px", color: INK, borderColor: HAIRLINE, bgcolor: "#fff" }}>
               <AddIcon sx={{ fontSize: 14, mr: 0.25, color: MUTED }} />{k.label}
             </Button>

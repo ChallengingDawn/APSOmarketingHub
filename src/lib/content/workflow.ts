@@ -9,7 +9,8 @@
 // Tables are created here on first use, after ensureSharing - never from inside ensureSchema.
 
 import { query } from "@/lib/db/client";
-import { ensureSharing } from "@/lib/content/sharing";
+import { ensureSharing, share, shareCandidates } from "@/lib/content/sharing";
+import { defaultReviewerOf } from "@/lib/content/people";
 import { isPieceStatus, stageOf, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
 import { CONTENT_BY_KEY } from "@/lib/content/contentTypes";
 import { contentTypeForPage, markerOf } from "@/lib/convert/handoff";
@@ -182,10 +183,15 @@ async function pieceFromConvert(projectId: number): Promise<void> {
   const kind = contentTypeForPage(page.path);
   // the store view's language, as the to-dos write it: de-CH -> DE
   const language = classify(page.path).store?.slice(0, 2).toUpperCase() || null;
-  await query(
-    `INSERT INTO apsomh_content_pieces (project_id, content_type, language, title, writer, status, sort, created_by)
-     SELECT $1, $2, $3, $4, $5, 'todo', 0, $5 WHERE NOT EXISTS (SELECT 1 FROM apsomh_content_pieces WHERE project_id = $1)`,
-    [projectId, kind, language, `${CONTENT_BY_KEY[kind]?.label ?? "Page"} · ${page.path}`.slice(0, 200), row.created_by]);
+  // its people as every new to-do's (SARCLA 09.11.2026): the owner who sent it, the reviewer Claudio (lib/content/people.ts)
+  const reviewer = defaultReviewerOf(await shareCandidates());
+  const made = await query<{ id: number }>(
+    `INSERT INTO apsomh_content_pieces (project_id, content_type, language, title, writer, reviewer, status, sort, created_by)
+     SELECT $1, $2, $3, $4, $5, $6, 'todo', 0, $5 WHERE NOT EXISTS (SELECT 1 FROM apsomh_content_pieces WHERE project_id = $1)
+     RETURNING id`,
+    [projectId, kind, language, `${CONTENT_BY_KEY[kind]?.label ?? "Page"} · ${page.path}`.slice(0, 200), row.created_by, reviewer]);
+  // the reviewer joins the project, as a reviewer named in the project does, so the link opens for them
+  if (made.rows.length && reviewer && reviewer !== row.created_by) await share(projectId, row.created_by ?? reviewer, [reviewer], "commenter", null);
 }
 
 export async function listPieces(projectId: number): Promise<Piece[]> {
