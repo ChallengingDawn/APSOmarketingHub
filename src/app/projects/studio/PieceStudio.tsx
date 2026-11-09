@@ -60,19 +60,34 @@ function Versions({ api }: { api: StudioApi }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [naming, setNaming] = useState(false);
   const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
   const v = api.data.versions;
+  const keep = async (name?: string) => {
+    setBusy("Keeping it…");
+    try { await api.saveVersion(name); } finally { setBusy(null); }
+  };
+  // what is there now is kept first (QA 09.11.2026: a version brought back by a slip of the mouse wiped the work since)
+  const bringBack = async (x: { id: number; label: string | null }) => {
+    setAnchor(null);
+    setBusy("Bringing it back…");
+    try {
+      await api.saveVersion(`Before bringing back “${x.label?.replace(/\s#\d{6,}$/, "") || "a version"}”`.slice(0, 120));
+      await api.restore(x.id);
+    } finally { setBusy(null); }
+  };
   return (
     <>
-      <Button size="small" startIcon={<HistoryIcon sx={{ fontSize: 18 }} />} onClick={(e) => setAnchor(e.currentTarget)} sx={{ ...btn, color: INK }}>
-        Versions{v.length ? ` · ${v.length}` : ""}
+      <Button size="small" disabled={!!busy} startIcon={busy ? <CircularProgress size={14} thickness={6} color="inherit" /> : <HistoryIcon sx={{ fontSize: 18 }} />} onClick={(e) => setAnchor(e.currentTarget)} sx={{ ...btn, color: INK }}>
+        {busy ?? `Versions${v.length ? ` · ${v.length}` : ""}`}
       </Button>
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} slotProps={{ paper: { sx: { width: 320, borderRadius: "14px" } } }}>
         <MenuItem disabled={!api.data.access.canEdit} onClick={() => { setAnchor(null); setLabel(""); setNaming(true); }} sx={{ fontWeight: 600 }}>Keep this as a version…</MenuItem>
         {v.length > 0 && <Divider />}
         {v.length === 0 && <MenuItem disabled sx={{ fontSize: "0.85rem" }}>No version kept yet</MenuItem>}
         {v.map((x) => (
-          <MenuItem key={x.id} disabled={!api.data.access.canEdit} onClick={async () => { setAnchor(null); await api.restore(x.id); }} sx={{ display: "block" }}>
-            <Typography sx={{ fontSize: "0.86rem", fontWeight: 600 }}>{x.label || "Version"}</Typography>
+          <MenuItem key={x.id} disabled={!api.data.access.canEdit} onClick={() => void bringBack(x)} sx={{ display: "block", whiteSpace: "normal" }}>
+            {/* a version kept before an AI change ends in its change's number ("… #1794201096866", found again by it): not for the eye */}
+            <Typography sx={{ fontSize: "0.86rem", fontWeight: 600 }}>{x.label?.replace(/\s#\d{6,}$/, "") || "Version"}</Typography>
             <Typography sx={{ fontSize: "0.75rem", color: MUTED }}>{when(x.at)}{x.by ? ` · ${api.data.people.find((p) => p.username === x.by)?.name ?? x.by}` : ""} · bring it back</Typography>
           </MenuItem>
         ))}
@@ -81,11 +96,11 @@ function Versions({ api }: { api: StudioApi }) {
         <DialogTitle sx={{ fontWeight: 700 }}>Keep this as a version</DialogTitle>
         <DialogContent sx={{ pt: "8px !important" }}>
           <TextField autoFocus fullWidth size="small" label="Its name (optional)" placeholder="Shorter subject" value={label} onChange={(e) => setLabel(e.target.value)} sx={field}
-            onKeyDown={async (e) => { if (e.key === "Enter") { setNaming(false); await api.saveVersion(label.trim() || undefined); } }} />
+            onKeyDown={async (e) => { if (e.key === "Enter") { setNaming(false); await keep(label.trim() || undefined); } }} />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setNaming(false)} sx={btn}>Cancel</Button>
-          <Button variant="contained" disableElevation onClick={async () => { setNaming(false); await api.saveVersion(label.trim() || undefined); }} sx={mainBtn}>Keep it</Button>
+          <Button variant="contained" disableElevation onClick={async () => { setNaming(false); await keep(label.trim() || undefined); }} sx={mainBtn}>Keep it</Button>
         </DialogActions>
       </Dialog>
     </>
