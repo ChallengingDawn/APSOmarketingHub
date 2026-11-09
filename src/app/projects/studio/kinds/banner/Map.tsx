@@ -25,7 +25,7 @@ import type { PickPart } from "@/lib/content/studio/kinds/banner/render";
 import { PINK, btn, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { Kick, LastStep, MapList, MapPane, MapRow, StartCard, Writing, useClock, type Mark } from "../video/map";
-import PartFields, { PART_NAME, type Set } from "./Editor";
+import PartFields, { PART_NAME, inLine, type Set } from "./Editor";
 import { CheckLines, GetItView, type BannerAi, type usePng } from "./Output";
 import type { Pages } from "./Place";
 import { AddPlace, Shape, type View } from "./Preview";
@@ -41,6 +41,7 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
 }) {
   const [step, setStep] = useState<"map" | "get">("map");
   const [placeOpen, setPlaceOpen] = useState<PresetKey | null>(null);
+  const [fitMsg, setFitMsg] = useState<string | null>(null);
   const piece = api.data.piece;
   const canEdit = api.data.access.canEdit;
   const canAi = api.data.ai && canEdit;
@@ -142,8 +143,15 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
           return (
             <MapRow key={k} id={`p-${k}`} title={PRESET[k].label} summary={`${sizeLabel(PRESET[k])} · ${STATE_TEXT[s]}${ch.length ? ` · ${ch.length}` : ""}`} state={s === "ready" ? "written" : s === "stop" ? "stop" : "warn"}
               accent="blue" thumb={<Shape k={k} on={on} box={22} />} open={placeOpen === k}
-              onToggle={() => { setView(k); setPlaceOpen(placeOpen === k ? null : k); }}>
-              <CheckLines items={ch} ok={`Ready for the ${PRESET[k].short.toLowerCase()}: it fits, and the brand's rules are kept.`} />
+              onToggle={() => { setView(k); setFitMsg(null); setPlaceOpen(placeOpen === k ? null : k); }}>
+              <CheckLines items={ch} ok={`Ready for the ${inLine(PRESET[k].short)}: it fits, and the brand's rules are kept.`} />
+              {ch.some((x) => x.text.includes("too long")) && canAi && (
+                <Button size="small" disabled={!!busy} onClick={async () => setFitMsg(await ai.fitPlace(k))} startIcon={busy?.label.startsWith("Shorter words") ? <CircularProgress size={12} color="inherit" /> : <AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />}
+                  sx={{ ...btn, color: PINK, px: 0.5, mt: 0.75, whiteSpace: "normal", textAlign: "left", lineHeight: 1.3 }}>
+                  Shorter words for the {inLine(PRESET[k].short)}, with AI
+                </Button>
+              )}
+              {fitMsg && <Typography sx={{ fontSize: "0.76rem", color: "#7f4f0b", mt: 0.5 }}>{fitMsg}</Typography>}
               <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1 }}>{PRESET[k].note}.</Typography>
               {made.length > 1 && canEdit && (
                 <Button size="small" onClick={() => { set((d) => togglePlace(d, k)); setPlaceOpen(null); setView(made.find((x) => x !== k) ?? made[0]); }} sx={{ ...btn, color: MUTED, px: 0.5, mt: 0.75 }}>
@@ -154,9 +162,9 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
           );
         })}
         <MapRow id="p-pages" title="In a page" summary={placedN ? `In ${pages.placed.length} page${pages.placed.length === 1 ? "" : "s"} of the project` : "Put it in a page of the project and see it there"} state="none"
-          accent="blue" open={false} onToggle={() => { setPick(null); setView("pages"); }} />
+          accent="blue" open={false} onToggle={() => { setPick(null); setPlaceOpen(null); setView("pages"); }} />
         {made.length > 1 && (
-          <MapRow id="p-all" title="All places" summary={`${made.length} places side by side`} state="none" accent="blue" open={false} onToggle={() => { setPick(null); setView("all"); }} />
+          <MapRow id="p-all" title="All places" summary={`${made.length} places side by side`} state="none" accent="blue" open={false} onToggle={() => { setPick(null); setPlaceOpen(null); setView("all"); }} />
         )}
       </MapList>
       <Box sx={{ mt: 1 }}>

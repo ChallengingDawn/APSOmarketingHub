@@ -138,3 +138,10 @@ export function applyCopy(d: BannerDoc, a: CopyAnswer, part: string | null): Ban
   }
   return { ...d, content, own };
 }
+
+/** One place's own words from the AI's answer (09.11.2026: "Shorter words for this place"), everything else as it is now. */
+export function applyPlace(d: BannerDoc, a: CopyAnswer, k: PresetKey): BannerDoc {
+  const w = a.own[k];
+  if (!w) return d;
+  return { ...d, own: { ...d.own, [k]: w } };
+}

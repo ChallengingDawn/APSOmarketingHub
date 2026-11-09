@@ -36,7 +36,7 @@ import { placeChecks, placeState } from "@/lib/content/studio/kinds/banner/check
 import { GROUPS, PRESET, PRESETS, isBand, sizeLabel, sizesOf, togglePlace, wordsFor, type BannerDoc, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
 import { pasteBlock, pickCss, previewDoc, previewSwap, stillMarkup, stillSheet, type PickPart } from "@/lib/content/studio/kinds/banner/render";
 import { Pane, btn, type Device } from "../../parts";
-import { PART_NAME, type Set } from "./Editor";
+import { PART_NAME, inLine, type Set } from "./Editor";
 import { CheckLines, type BannerBusy, type usePng } from "./Output";
 import { shimmer, useClock } from "../video/map";
 import { InPage, PageBar, type Pages } from "./Place";
@@ -358,7 +358,7 @@ export default function Stage({ doc, set, prefix, view, setView, font, fontFaile
                         // the AI at work on the banner: its words shimmer, with what it does and the clock
                         <Box aria-live="polite" sx={{ position: "absolute", inset: 0, zIndex: 2, pointerEvents: "none", borderRadius: "10px", ...shimmer, display: "flex", justifyContent: "center", alignItems: "flex-start" }}>
                           <Box sx={{ mt: -1.5, px: 1.5, py: 0.6, borderRadius: "6px", bgcolor: "rgba(21,34,58,.88)", color: "#fff", fontSize: "0.8rem", fontWeight: 650, display: "inline-flex", alignItems: "center", gap: 1, fontVariantNumeric: "tabular-nums", boxShadow: "0 8px 24px rgba(21,34,58,.25)" }}>
-                            <CircularProgress size={13} sx={{ color: "#fff" }} />{busy.part === "all" ? "Writing the banner" : busy.label} · {clock}
+                            <CircularProgress size={13} sx={{ color: "#fff" }} />{busy.part === "all" && !busy.label.startsWith("Shorter words") ? "Writing the banner" : busy.label} · {clock}
                           </Box>
                         </Box>
                       )}
@@ -388,7 +388,7 @@ export default function Stage({ doc, set, prefix, view, setView, font, fontFaile
                       </Typography>
                     )}
                     <Box sx={{ bgcolor: "rgba(255,255,255,.8)", border: `1px solid ${HAIRLINE}`, borderRadius: "8px", px: 2, py: 1.25 }}>
-                      <CheckLines items={checks} ok={`Ready for the ${p.short.toLowerCase()}: it fits, and the brand's rules are kept.`} />
+                      <CheckLines items={checks} ok={`Ready for the ${inLine(p.short)}: it fits, and the brand's rules are kept.`} />
                     </Box>
                     {png.note && <Typography sx={{ mt: 1, fontSize: "0.8rem", color: "#7f4f0b", textAlign: "center" }}>{png.note}</Typography>}
                   </Box>

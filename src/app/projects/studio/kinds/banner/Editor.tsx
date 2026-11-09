@@ -28,6 +28,9 @@ import { ChipsInput, Hint, PhotoPicker, Swatches } from "./ui";
 
 export type Set = (fn: (d: BannerDoc) => BannerDoc) => void;
 
+/** A place's name inside a sentence: "the home band" - a name with a capital inside ("LinkedIn card") stays as it is written. */
+export const inLine = (name: string) => (/[A-Z]/.test(name.slice(1)) ? name : name.charAt(0).toLowerCase() + name.slice(1));
+
 export const PART_NAME: Record<PickPart, string> = {
   eyebrow: "Small line over the headline", headline: "Headline", line: "Line", button: "Button", picture: "Picture", label: "Label on the picture", background: "Background",
 };
@@ -58,14 +61,14 @@ function Words({ doc, set, k, f, canEdit }: { doc: BannerDoc; set: Set; k: Prese
     <Box>
       <TextField autoFocus fullWidth size="small" multiline={f === "line"} minRows={f === "line" ? 2 : undefined} value={value} disabled={!canEdit} placeholder={PLACEHOLDER[f]}
         onChange={(e) => change(f === "line" ? e.target.value : e.target.value.replace(/\n/g, " "))} sx={field}
-        helperText={max != null ? <Box component="span" sx={{ display: "flex", justifyContent: "flex-end" }}><span style={{ color: over ? "#c5221f" : MUTED, fontWeight: over ? 700 : 500 }}>{over ? `${value.length - max} too many for the ${PRESET[k].short.toLowerCase()}` : `${value.length} / ${max}`}</span></Box> : undefined} />
+        helperText={max != null ? <Box component="span" sx={{ display: "flex", justifyContent: "flex-end" }}><span style={{ color: over ? "#c5221f" : MUTED, fontWeight: over ? 700 : 500 }}>{over ? `${value.length - max} too many for the ${inLine(PRESET[k].short)}` : `${value.length} / ${max}`}</span></Box> : undefined} />
       {many && (
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.75, flexWrap: "wrap" }}>
           <SquareChoice<string> value={only ? "here" : "all"} onChange={(v) => {
             if (!canEdit) return;
             if (v === "here" && !only) setOwn(CONTENT_OF[f](doc) || " ");
             if (v === "all" && only) set((d) => ({ ...d, own: { ...d.own, [k]: { ...(d.own[k] ?? EMPTY_OWN), [f]: "" } } }));
-          }} options={[{ key: "all", label: "Everywhere" }, { key: "here", label: `Only the ${PRESET[k].short.toLowerCase()}` }]} />
+          }} options={[{ key: "all", label: "Everywhere" }, { key: "here", label: `Only the ${inLine(PRESET[k].short)}` }]} />
         </Box>
       )}
     </Box>

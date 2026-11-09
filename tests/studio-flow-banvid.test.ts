@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { applyCopy, type CopyAnswer } from "../src/lib/content/studio/kinds/banner/ai";
+import { applyCopy, applyPlace, type CopyAnswer } from "../src/lib/content/studio/kinds/banner/ai";
 import { SHOP_PHOTOS } from "../src/lib/content/studio/kinds/banner/brand";
 import { normalizeBanner } from "../src/lib/content/studio/kinds/banner/model";
 import { FEATURES, featurePhoto } from "../src/lib/content/studio/kinds/video/features";
@@ -48,6 +48,16 @@ test("a button or line ask touches nothing else; every word takes the whole answ
   assert.deepEqual(all.own, answer.own);
   // the picture or the background is no words: the whole answer
   assert.equal(applyCopy(banner(), answer, "picture").content.headline, "A new headline");
+});
+
+test("shorter words for one place change that place's own words only", () => {
+  const d = applyPlace(banner(), answer, "mail");
+  assert.deepEqual(d.own.mail, answer.own.mail);
+  assert.equal(d.content.headline, "The right seal");
+  assert.equal(d.content.line, "One line of substance.");
+  const same = banner();
+  assert.equal(applyPlace(same, answer, "card"), same, "no answer for the place: the banner as it was");
+  assert.equal(applyPlace(banner(), answer, "card").own.card, undefined);
 });
 
 test("every feature has a shop photo of its own - a feature scene never falls back to an icon in a disc", () => {

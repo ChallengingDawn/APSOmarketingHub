@@ -23,10 +23,10 @@ import { isHubPicture } from "@/lib/content/studio/kinds/banner/brand";
 import { picturesOf, placeChecks, type Check } from "@/lib/content/studio/kinds/banner/checks";
 import { PRESET, sizesOf, type BannerDoc, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
 import { htmlFile, pasteBlock, stillMarkup, type PickPart } from "@/lib/content/studio/kinds/banner/render";
-import { applyCopy, type CopyAnswer, type Variant } from "@/lib/content/studio/kinds/banner/ai";
+import { applyCopy, applyPlace, type CopyAnswer, type Variant } from "@/lib/content/studio/kinds/banner/ai";
 import { AssistantPanel, PINK, btn, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
-import { PART_NAME } from "./Editor";
+import { PART_NAME, inLine } from "./Editor";
 import { download, fileName, htmlToPng } from "./png";
 import { ChangesList, StepView, WorkingOn, useChanges, type Change } from "../video/map";
 
@@ -109,7 +109,7 @@ export function GetItView({ doc, k, prefix, title, png, onBack, onPlace }: {
       <Typography sx={{ fontSize: "0.84rem", color: INK, fontWeight: 650 }}>{p.label}</Typography>
       <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 1.25 }}>{p.h ? `${p.w} × ${p.h}` : `up to ${p.w} wide`} · {p.out === "html" ? "a paste block for Magento" : "a picture"}</Typography>
       <Box sx={{ mb: 1.5, p: 1.25, borderRadius: "8px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff" }}>
-        <CheckLines items={checks} ok={`Ready for the ${p.short.toLowerCase()}.`} />
+        <CheckLines items={checks} ok={`Ready for the ${inLine(p.short)}.`} />
       </Box>
       <Box sx={{ display: "grid", gap: 0.75 }}>
         {p.out === "html" && (
@@ -168,6 +168,19 @@ export function useBannerAi(api: StudioApi, doc: BannerDoc, set: (fn: (d: Banner
       return null;
     } finally { setBusy(null); }
   };
+  /** Shorter words of its own for a place where the banner's do not fit - the banner's own words stay as they are. */
+  const fitPlace = async (k: PresetKey): Promise<string | null> => {
+    const before = doc;
+    setBusy({ part: "all", label: `Shorter words for the ${inLine(PRESET[k].short)}`, since: Date.now() });
+    try {
+      const r = await api.ai<CopyAnswer>("copy", { ask: `Give the ${PRESET[k].label} ("${k}") its own shorter words where the banner's words do not fit its room. Keep the banner's own words exactly as they are.` });
+      if (!r.ok) return r.error;
+      if (!r.result.own[k]) return "No shorter words came back for this place - try again, or shorten them yourself.";
+      set((d) => applyPlace(d, r.result, k));
+      changes.record(`${PRESET[k].label}: shorter words of its own`, before);
+      return null;
+    } finally { setBusy(null); }
+  };
   const headlines = async (): Promise<string | null> => {
     setBusy({ part: "headline", label: "Finding headlines", since: Date.now() });
     try {
@@ -183,7 +196,7 @@ export function useBannerAi(api: StudioApi, doc: BannerDoc, set: (fn: (d: Banner
     set((d) => ({ ...d, content: { ...d.content, headline: v.headline } }));
   };
   const undo = (e: Change<BannerDoc>) => { const b = changes.undo(e); set(() => b); };
-  return { busy, copy, headlines, variants, pickVariant, changes: changes.list, undo };
+  return { busy, copy, fitPlace, headlines, variants, pickVariant, changes: changes.list, undo };
 }
 export type BannerAi = ReturnType<typeof useBannerAi>;
 
