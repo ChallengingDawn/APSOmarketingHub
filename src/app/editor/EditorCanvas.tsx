@@ -269,6 +269,8 @@ export type CanvasApi = {
   exportPng: (mime?: "image/png" | "image/jpeg") => string | null;
   /** Where a point of the window falls on the board, in board pixels; null when off it. */
   toCanvas: (clientX: number, clientY: number) => { x: number; y: number } | null;
+  /** Where an object is drawn in the window (client pixels, its whole box as shown); null when it is not on the board. */
+  rectOf: (id: string) => { left: number; top: number; width: number; height: number } | null;
 };
 
 type Bg = DesignDocument["background"];
@@ -2132,6 +2134,14 @@ export default function EditorCanvas({
         const r = st.container().getBoundingClientRect();
         if (cx < r.left || cy < r.top || cx > r.right || cy > r.bottom) return null;
         return { x: (cx - r.left) / scale, y: (cy - r.top) / scale };
+      },
+      rectOf: (id) => {
+        const st = stageRef.current;
+        const node = st?.findOne(`#${id}`);
+        if (!st || !node) return null;
+        const b = node.getClientRect();
+        const r = st.container().getBoundingClientRect();
+        return { left: r.left + b.x, top: r.top + b.y, width: b.width, height: b.height };
       },
     };
   });

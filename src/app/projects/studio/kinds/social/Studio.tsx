@@ -5,18 +5,23 @@
 // complete", "Brand templates: take them out completely", "the gallery of photos that I've generated", "on the side bar
 // you should have Publish", "improve the AI window a lot ... just put it on the canvas", "improve the canvas design page").
 //
-// The canvas in the middle is the hub's Konva editor (src/app/editor/EditorCanvas.tsx), with its own bars switched off:
-//   left    a rail of panels, one open at a time - Templates, Text, Pictures, Photos, Brand, Size & colour, Publish
-//   top     a minimal bar: undo, redo, the format, zoom, Export, and a "…" for the rare things
-//   middle  the board on a calm dotted stage; the pages of a carousel under it; the AI's prompt box at the bottom
-//   right   the selected object's properties (the editor's own sections), docked - or floating, dragged by its handle
+// Night of 09.11.2026, the flow standard (one way of working in all six studios):
+//   rail    the tools - Templates, Text, Pictures, Photos, Brand, Size & colour: a click opens the tool in the left pane,
+//           "<- Build" (or the tool's icon again) goes back to the map
+//   left    THE MAP: the post's pages and, under the open page, its elements with their state; a click selects on the
+//           canvas and opens the element's fields (its picture slot, its properties) under its row. At the foot, always:
+//           LAST STEP - Publish (captions per network, the day on the calendar, the approval) and the Export
+//   middle  the board on a calm dotted stage, the bar above it (undo, redo, format, zoom, "..."); over it the selected
+//           element's label (Ask AI), the picture slots in their frames, the shimmer of what the AI writes
+//   right   the assistant: works on the selection or the whole post, quick asks, the free box, the changes with Undo
+// Why the tools stay a rail and not the map: they ADD to the post (a template, words, a picture, the logo) or set the
+// board (size, colour) - they are not parts of it. The map shows what the post IS; the rail what can be put on it.
 // Every change saves itself (api.setDoc, small ops); pictures are kept by their address, never their bytes.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Box from "@mui/material/Box";
 import CircularProgress from "@mui/material/CircularProgress";
-import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import AutoAwesomeMosaicOutlinedIcon from "@mui/icons-material/AutoAwesomeMosaicOutlined";
 import TitleIcon from "@mui/icons-material/Title";
@@ -24,8 +29,6 @@ import AddPhotoAlternateOutlinedIcon from "@mui/icons-material/AddPhotoAlternate
 import PhotoLibraryOutlinedIcon from "@mui/icons-material/PhotoLibraryOutlined";
 import WorkspacePremiumOutlinedIcon from "@mui/icons-material/WorkspacePremiumOutlined";
 import AspectRatioOutlinedIcon from "@mui/icons-material/AspectRatioOutlined";
-import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
-import CloseIcon from "@mui/icons-material/Close";
 
 import type { CanvasApi } from "@/app/editor/EditorCanvas";
 import { FUTURA_STACK } from "@/app/editor/richKonva";
@@ -40,13 +43,16 @@ import {
 import { templateByKey, type MeasureFor, type Words } from "@/lib/content/studio/kinds/social/templates";
 import { placePicture, templatePage } from "./actions";
 import { STUDIO_BAR } from "../../parts";
-import { uploadPicture } from "../../pictures";
+import { PictureDialog, uploadPicture } from "../../pictures";
+import { BackRow } from "../../standard";
 import type { StudioProps } from "../../registry";
-import { BAR_H, RAIL_W, T } from "./look";
+import { RAIL_W, T } from "./look";
 import CanvasBar from "./CanvasBar";
-import Inspector from "./Inspector";
-import AiBar from "./AiBar";
-import PageStrip from "./PageStrip";
+import PostMap from "./Map";
+import Assistant from "./Assistant";
+import Overlay from "./Overlay";
+import { useDesignAi, type DesignAi } from "./useDesignAi";
+import { aspectFor } from "@/lib/content/studio/kinds/social/canvasAi";
 import TemplatesPanel from "./panels/TemplatesPanel";
 import TextPanel from "./panels/TextPanel";
 import PicturesPanel from "./panels/PicturesPanel";
@@ -58,15 +64,19 @@ import PublishPanel from "./panels/PublishPanel";
 const EditorCanvas = dynamic(() => import("@/app/editor/EditorCanvas"), { ssr: false, loading: () => null });
 
 export type PanelKey = "templates" | "text" | "pictures" | "photos" | "brand" | "size" | "publish";
-const PANELS: { key: PanelKey; label: string; icon: React.ReactNode; width: number }[] = [
-  { key: "templates", label: "Templates", icon: <AutoAwesomeMosaicOutlinedIcon />, width: 344 },
-  { key: "text", label: "Text", icon: <TitleIcon />, width: 344 },
-  { key: "pictures", label: "Pictures", icon: <AddPhotoAlternateOutlinedIcon />, width: 344 },
-  { key: "photos", label: "Photos", icon: <PhotoLibraryOutlinedIcon />, width: 344 },
-  { key: "brand", label: "Brand", icon: <WorkspacePremiumOutlinedIcon />, width: 344 },
-  { key: "size", label: "Size & colour", icon: <AspectRatioOutlinedIcon />, width: 344 },
-  { key: "publish", label: "Publish", icon: <SendOutlinedIcon />, width: 460 },
+/** The tools on the rail (Publish is the last step, at the foot of the map - not a tool). */
+const TOOLS: { key: Exclude<PanelKey, "publish">; label: string; icon: React.ReactNode }[] = [
+  { key: "templates", label: "Templates", icon: <AutoAwesomeMosaicOutlinedIcon /> },
+  { key: "text", label: "Text", icon: <TitleIcon /> },
+  { key: "pictures", label: "Pictures", icon: <AddPhotoAlternateOutlinedIcon /> },
+  { key: "photos", label: "Photos", icon: <PhotoLibraryOutlinedIcon /> },
+  { key: "brand", label: "Brand", icon: <WorkspacePremiumOutlinedIcon /> },
+  { key: "size", label: "Size & colour", icon: <AspectRatioOutlinedIcon /> },
 ];
+const MAP_W = 336;
+const TOOL_W = 344;
+const PUBLISH_W = 460;
+const ASSIST_W = 320;
 
 /** The brand font's real measure, once the font is in (the templates lay their words out with it). */
 function useMeasureFor(): MeasureFor | null {
@@ -122,9 +132,8 @@ export type StudioCtx = {
   selection: string[];
   openPanel: (p: PanelKey | null) => void;
   canEdit: boolean;
-  /** How far the AI's answer rises above its box - the pages move up out of its way. */
-  aiLift: number;
-  setAiLift: (px: number) => void;
+  /** The AI on the canvas: asks, picture slots, what it is writing, the changes with Undo. */
+  ai: DesignAi;
 };
 
 export default function Studio({ api }: StudioProps) {
@@ -137,13 +146,19 @@ export default function Studio({ api }: StudioProps) {
   const [fmtWanted, setFmt] = useState<FormatKey>(doc.design.formats[0]);
   const [pageWanted, setPage] = useState(0);
   const [epoch, setEpoch] = useState(0);
-  const [panel, setPanel] = useState<PanelKey | null>("templates");
+  // the left pane: the map, a tool, or the last step
+  const [panel, setPanel] = useState<PanelKey | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
   const [hist, setHist] = useState({ past: 0, future: 0 });
   const [zoom, setZoom] = useState({ scale: 1, fit: true });
   const [live, setLive] = useState<DesignDocument | null>(null);
-  const [inspectorHost, setInspectorHost] = useState<HTMLElement | null>(null);
-  const [aiLift, setAiLift] = useState(0);
+  // the editor's properties of the selection: one element, carried into the open row of the map
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useEffect(() => { setHost(document.createElement("div")); }, []);
+  const ctxRef = useRef<StudioCtx | null>(null);
+  const ai = useDesignAi(ctxRef);
+  const [gallery, setGallery] = useState<string | null>(null);
+  const askBox = useRef<HTMLTextAreaElement>(null);
   // the studio fills the window under whatever sits above it (the studio's bar, a sandbox's banner)
   const [top, setTop] = useState(STUDIO_BAR);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -226,27 +241,28 @@ export default function Studio({ api }: StudioProps) {
   }
 
   const ctx: StudioCtx = {
-    api, doc, set, canvas, mf, fmt, goFormat, pageIx, goPage, reload, live, selection, canEdit, aiLift, setAiLift,
+    api, doc, set, canvas, mf, fmt, goFormat, pageIx, goPage, reload, live, selection, canEdit, ai,
     openPanel: (p) => setPanel(p),
   };
-  const open = PANELS.find((p) => p.key === panel) ?? null;
+  ctxRef.current = ctx;
+  const leftW = panel === "publish" ? PUBLISH_W : panel ? TOOL_W : MAP_W;
+  const galleryNode = gallery ? live?.nodes.find((n) => n.id === gallery) ?? null : null;
 
   return (
     <Box ref={rootRef} sx={{
       height: `calc(100vh - ${top}px)`, display: "grid", overflow: "hidden", bgcolor: T.stage,
-      gridTemplateColumns: `${RAIL_W}px ${open ? `${open.width}px` : "0px"} minmax(0, 1fr) auto`, transition: "grid-template-columns .22s cubic-bezier(.2,.8,.2,1)",
+      gridTemplateColumns: `${RAIL_W}px ${leftW}px minmax(0, 1fr) ${ASSIST_W}px`, transition: "grid-template-columns .22s cubic-bezier(.2,.8,.2,1)",
     }}>
-      {/* the rail */}
-      <Box component="nav" aria-label="Panels" sx={{ bgcolor: "#fff", borderRight: `1px solid ${T.line}`, display: "flex", flexDirection: "column", alignItems: "stretch", py: 1, gap: 0.25, zIndex: 3 }}>
-        {PANELS.map((p) => {
+      {/* the tools */}
+      <Box component="nav" aria-label="Tools" sx={{ bgcolor: "#fff", borderRight: `1px solid ${T.line}`, display: "flex", flexDirection: "column", alignItems: "stretch", py: 1, gap: 0.25, zIndex: 3 }}>
+        {TOOLS.map((p) => {
           const on = panel === p.key;
-          const last = p.key === "publish";
           return (
-            <Box key={p.key} sx={last ? { mt: 1, pt: 1, borderTop: `1px solid ${T.line}`, mx: 1 } : { mx: 1 }}>
+            <Box key={p.key} sx={{ mx: 1 }}>
               <Box component="button" type="button" aria-pressed={on} onClick={() => setPanel(on ? null : p.key)} sx={{
-                all: "unset", boxSizing: "border-box", cursor: "pointer", width: "100%", py: 0.9, borderRadius: "10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 0.4,
-                color: on ? (last ? T.accent : T.ink) : T.ink2, bgcolor: on ? (last ? T.accentSoft : T.hover) : "transparent",
-                "&:hover": { bgcolor: on ? undefined : T.sunken, color: last ? T.accent : T.ink }, "&:focus-visible": { outline: `2px solid ${T.focus}` },
+                all: "unset", boxSizing: "border-box", cursor: "pointer", width: "100%", py: 0.9, borderRadius: "8px", display: "flex", flexDirection: "column", alignItems: "center", gap: 0.4,
+                color: on ? T.ink : T.ink2, bgcolor: on ? T.hover : "transparent",
+                "&:hover": { bgcolor: on ? undefined : T.sunken, color: T.ink }, "&:focus-visible": { outline: `2px solid ${T.focus}` },
                 "& svg": { fontSize: 22 },
               }}>
                 {p.icon}
@@ -257,23 +273,26 @@ export default function Studio({ api }: StudioProps) {
         })}
       </Box>
 
-      {/* the open panel */}
-      <Box sx={{ bgcolor: "#fff", borderRight: open ? `1px solid ${T.line}` : "none", overflow: "hidden", minWidth: 0, position: "relative", zIndex: 2, boxShadow: open ? "8px 0 24px -20px rgba(16,24,40,.35)" : "none" }}>
-        {open && (
-          <Box sx={{ width: open.width, height: "100%", position: "relative" }}>
-            <Tooltip title="Close the panel">
-              <Box component="button" type="button" aria-label="Close the panel" onClick={() => setPanel(null)} sx={{ all: "unset", cursor: "pointer", position: "absolute", top: 14, right: 12, zIndex: 2, width: 30, height: 30, borderRadius: "8px", display: "grid", placeItems: "center", color: T.ink3, "&:hover": { bgcolor: T.hover, color: T.ink } }}>
-                <CloseIcon sx={{ fontSize: 18 }} />
-              </Box>
-            </Tooltip>
-            {panel === "templates" && <TemplatesPanel ctx={ctx} />}
-            {panel === "text" && <TextPanel ctx={ctx} />}
-            {panel === "pictures" && <PicturesPanel ctx={ctx} />}
-            {panel === "photos" && <PhotosPanel ctx={ctx} />}
-            {panel === "brand" && <BrandPanel ctx={ctx} />}
-            {panel === "size" && <SizePanel ctx={ctx} />}
-            {panel === "publish" && <PublishPanel ctx={ctx} />}
-          </Box>
+      {/* the left pane: the map - or a tool, or the last step, each with its way back */}
+      <Box sx={{ bgcolor: "#fff", borderRight: `1px solid ${T.line}`, overflow: "hidden", minWidth: 0, position: "relative", zIndex: 2, display: "flex", flexDirection: "column" }}>
+        <Box sx={{ display: panel ? "none" : "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+          <PostMap ctx={ctx} host={host} onPublish={() => setPanel("publish")} onGallery={setGallery} />
+        </Box>
+        {panel && (
+          <>
+            <BackRow label="Build" onClick={() => setPanel(null)} right={panel === "publish"
+              ? <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: T.accent, pr: 0.75 }}>Last step · Publish</Typography>
+              : undefined} />
+            <Box sx={{ flex: 1, minHeight: 0, width: leftW }}>
+              {panel === "templates" && <TemplatesPanel ctx={ctx} />}
+              {panel === "text" && <TextPanel ctx={ctx} />}
+              {panel === "pictures" && <PicturesPanel ctx={ctx} />}
+              {panel === "photos" && <PhotosPanel ctx={ctx} />}
+              {panel === "brand" && <BrandPanel ctx={ctx} />}
+              {panel === "size" && <SizePanel ctx={ctx} />}
+              {panel === "publish" && <PublishPanel ctx={ctx} />}
+            </Box>
+          </>
         )}
       </Box>
 
@@ -294,15 +313,15 @@ export default function Studio({ api }: StudioProps) {
               void placePicture(ctx, pic, canvas.current?.toCanvas(e.clientX, e.clientY) ?? undefined);
             } catch { /* not a picture */ }
           }}>
-          {inspectorHost && <EditorCanvas
+          {host && <EditorCanvas
             key={key}
             initialDocument={initial.current.doc}
             apiRef={canvas}
             bare
             coverImages
-            fitArea={{ top: 36, side: 44, bottom: 152 }}
+            fitArea={{ top: 56, side: 44, bottom: 40 }}
             palette={PALETTE}
-            chromeHosts={{ selection: inspectorHost }}
+            chromeHosts={{ selection: host }}
             toolsContainers={{}}
             storeImage={storeImage}
             onDocumentChange={onDocument}
@@ -310,13 +329,24 @@ export default function Studio({ api }: StudioProps) {
             onHistoryChange={setHist}
             onZoomChange={setZoom}
           />}
-          <PageStrip ctx={ctx} />
-          <AiBar ctx={ctx} />
+          <Overlay ctx={ctx} onAskAi={() => askBox.current?.focus()} onGallery={setGallery} />
         </Box>
       </Box>
 
-      {/* the properties of what is selected - docked, or floating over the stage */}
-      <Inspector ctx={ctx} onHost={setInspectorHost} />
+      {/* the assistant */}
+      <Box component="aside" aria-label="Assistant" sx={{
+        minWidth: 0, minHeight: 0, bgcolor: "#fff", borderLeft: `1px solid ${T.line}`, zIndex: 2, display: "flex", flexDirection: "column",
+        "& > *": { borderRadius: "0 !important", border: "0 !important", boxShadow: "none !important", bgcolor: "#fff !important" },
+      }}>
+        <Assistant ctx={ctx} inputRef={askBox} />
+      </Box>
+
+      {/* the gallery, for a picture slot */}
+      <PictureDialog open={!!gallery} onClose={() => setGallery(null)} title="A picture for the frame"
+        onPick={(p) => { const id = gallery; setGallery(null); if (id) void ai.pickFor(id, p); }}
+        projectId={api.data.piece.projectId} pieceId={api.data.piece.id} me={api.data.me}
+        aspect={galleryNode ? aspectFor(galleryNode.width ?? 1, galleryNode.height ?? 1) : "1:1"}
+        tabs={["project", "mine", "upload", "make"]} start="project" />
     </Box>
   );
 }

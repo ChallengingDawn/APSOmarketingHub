@@ -1,6 +1,7 @@
 "use client";
 // THE CANVAS'S BAR (SARCLA 08.11.2026: "this top bar needs to be completely reworked, I don't like it"). Minimal: undo and
-// redo, the format the board is in (and the post's other formats), the zoom, and Export. No "Use design", no "unsaved
+// redo, the format the board is in (and the post's other formats), the zoom. Export sits at the foot of the map since
+// 09.11 (beside the last step, flow standard §5). No "Use design", no "unsaved
 // changes" - every change saves itself. The rare things (the editable file, an import, replacing a word everywhere, the
 // keys) wait behind "…".
 
@@ -12,13 +13,11 @@ import MenuItem from "@mui/material/MenuItem";
 import Popover from "@mui/material/Popover";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
-import CircularProgress from "@mui/material/CircularProgress";
 import UndoIcon from "@mui/icons-material/Undo";
 import RedoIcon from "@mui/icons-material/Redo";
 import RemoveIcon from "@mui/icons-material/Remove";
 import AddIcon from "@mui/icons-material/Add";
 import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
-import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import CheckIcon from "@mui/icons-material/Check";
 import FitScreenOutlinedIcon from "@mui/icons-material/FitScreenOutlined";
@@ -30,7 +29,6 @@ import {
 import { formatsInUse } from "@/lib/content/studio/kinds/social/model";
 import { Btn, IconBtn, BAR_H, T } from "./look";
 import { fileStem, save } from "./actions";
-import { exportEverything, exportPages, exportPdf } from "./exportDesign";
 import type { StudioCtx } from "./Studio";
 
 /** A small picture of a format's shape. */
@@ -56,23 +54,14 @@ export default function CanvasBar({ ctx, hist, zoom }: { ctx: StudioCtx; hist: {
   const [fmtAnchor, setFmtAnchor] = useState<HTMLElement | null>(null);
   const [zoomAnchor, setZoomAnchor] = useState<HTMLElement | null>(null);
   const [more, setMore] = useState<HTMLElement | null>(null);
-  const [exp, setExp] = useState<HTMLElement | null>(null);
   const [replace, setReplace] = useState<HTMLElement | null>(null);
   const [keys, setKeys] = useState<HTMLElement | null>(null);
   const [find, setFind] = useState("");
   const [rep, setRep] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
   const stem = fileStem(ctx.api.data.piece.title);
-  const run = async (tag: string, fn: () => Promise<string | null>) => {
-    setBusy(tag); setNote(null); setExp(null);
-    try { setNote(await fn()); } catch (e) { setNote(e instanceof Error ? e.message : String(e)); }
-    setBusy(null);
-  };
-  const pages = d.pages.length;
   const used = formatsInUse(ctx.doc);
-  const everyFormat = [...new Set([...d.formats, ...used])];
 
   return (
     <Box sx={{ height: BAR_H, flexShrink: 0, display: "flex", alignItems: "center", gap: 0.5, px: 1.5, bgcolor: "rgba(255,255,255,.86)", backdropFilter: "blur(12px)", borderBottom: `1px solid ${T.line}`, zIndex: 2 }}>
@@ -201,49 +190,7 @@ export default function CanvasBar({ ctx, hist, zoom }: { ctx: StudioCtx; hist: {
         ))}
       </Popover>
 
-      {/* export */}
-      <Btn main icon={busy ? <CircularProgress size={15} color="inherit" /> : <FileDownloadOutlinedIcon />} onClick={(e) => setExp(e.currentTarget)} disabled={!!busy} sx={{ ml: 0.5, pr: 1, gap: 0.5 }}>
-        {busy ? "Exporting…" : "Export"}<KeyboardArrowDownIcon sx={{ fontSize: 18 }} />
-      </Btn>
-      <Menu anchorEl={exp} open={!!exp} onClose={() => setExp(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}
-        slotProps={{ paper: { sx: { width: 300, borderRadius: "12px", mt: 0.5, boxShadow: T.shadow } } }}>
-        <Typography sx={{ px: 2, pt: 1, pb: 0.5, fontSize: "0.72rem", fontWeight: 700, color: T.ink3, textTransform: "uppercase", letterSpacing: ".06em" }}>{formatLabel(ctx.fmt, d)}</Typography>
-        <MenuItem onClick={() => run("png", async () => (await exportPages(d, ctx.fmt, stem, "image/png", ctx.pageIx)) ? null : "Not exported - a picture did not load.")}>
-          <ExportLine title="This page · PNG" sub="Sharp, for every network" />
-        </MenuItem>
-        <MenuItem onClick={() => run("jpg", async () => (await exportPages(d, ctx.fmt, stem, "image/jpeg", ctx.pageIx)) ? null : "Not exported - a picture did not load.")}>
-          <ExportLine title="This page · JPG" sub="Lighter, for a mail" />
-        </MenuItem>
-        {pages > 1 && (
-          <MenuItem onClick={() => run("all", async () => `${await exportPages(d, ctx.fmt, stem)} pictures saved.`)}>
-            <ExportLine title={`Every page · PNG (${pages})`} sub="One picture per page - an Instagram carousel" />
-          </MenuItem>
-        )}
-        {pages > 1 && (
-          <MenuItem onClick={() => run("pdf", async () => ((await exportPdf(d, ctx.fmt, stem)) ? null : "The PDF could not be made."))}>
-            <ExportLine title="The carousel · PDF" sub="LinkedIn shows a carousel as a document" />
-          </MenuItem>
-        )}
-        {everyFormat.length > 1 && <Divider />}
-        {everyFormat.length > 1 && (
-          <MenuItem onClick={() => run("every", async () => `${await exportEverything(d, everyFormat, stem)} pictures saved.`)}>
-            <ExportLine title={`Every format · PNG (${everyFormat.length})`} sub={everyFormat.map((f) => (f === "custom" ? "custom" : FORMATS[f].label.toLowerCase())).join(", ")} />
-          </MenuItem>
-        )}
-        <Divider />
-        <MenuItem onClick={() => { setExp(null); ctx.openPanel("publish"); }}>
-          <ExportLine title="Publish…" sub="Texts per network, the day, the approval" />
-        </MenuItem>
-      </Menu>
     </Box>
   );
 }
 
-function ExportLine({ title, sub }: { title: string; sub: string }) {
-  return (
-    <Box sx={{ py: 0.25 }}>
-      <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: T.ink }}>{title}</Typography>
-      <Typography sx={{ fontSize: "0.74rem", color: T.ink3 }}>{sub}</Typography>
-    </Box>
-  );
-}
