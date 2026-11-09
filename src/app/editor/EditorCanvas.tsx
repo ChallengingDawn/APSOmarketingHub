@@ -320,11 +320,19 @@ function useHtmlImage(src: string | null): HTMLImageElement | null {
       setImg(null);
       return;
     }
-    const el = new window.Image();
-    el.crossOrigin = "anonymous";
-    el.onload = () => setImg(el);
-    el.src = src;
-    return () => { el.onload = null; };
+    // a picture that fails (a slow shop, a busy hub) is asked for again - twice, after 3 s and 10 s - instead of
+    // leaving its frame empty for good (09.11.2026)
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tryLoad = (attempt: number) => {
+      const el = new window.Image();
+      el.crossOrigin = "anonymous";
+      el.onload = () => { if (live) setImg(el); };
+      el.onerror = () => { if (live && attempt < 2) timer = setTimeout(() => tryLoad(attempt + 1), attempt ? 10000 : 3000); };
+      el.src = src;
+    };
+    tryLoad(0);
+    return () => { live = false; if (timer) clearTimeout(timer); };
   }, [src]);
   return img?.getAttribute("src") === src ? img : null;
 }

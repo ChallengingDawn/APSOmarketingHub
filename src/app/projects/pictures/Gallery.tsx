@@ -109,7 +109,7 @@ function Large({ p, mine, onClose, onRemoved }: { p: Picture; mine: boolean; onC
         </Typography>
         <Box>
           <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, letterSpacing: ".07em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>Where it is used</Typography>
-          {!uses && <CircularProgress size={16} />}
+          {!uses && <Box sx={{ display: "flex", alignItems: "center", gap: 1, color: MUTED, fontSize: "0.82rem" }}><CircularProgress size={14} sx={{ color: MUTED }} />Looking through the to-dos…</Box>}
           {uses && !uses.length && <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>In no to-do yet.</Typography>}
           {uses?.map((u) => (
             <Box key={u.pieceId} component={Link} href={`/projects/${u.projectId}/pieces/${u.pieceId}`} sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.75, borderTop: `1px solid ${HAIRLINE}`, textDecoration: "none", color: INK, "&:hover .t": { color: PINK } }}>

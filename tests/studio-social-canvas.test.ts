@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { estimateMeasure, hasKeyWords, layoutRich, lineStart, plainText, spans } from "../src/lib/editor/richText";
 import { freeBand, placeLabel } from "../src/lib/content/studio/kinds/social/place";
+import { pictureCache } from "../src/lib/content/shopPictureCache";
 import { PH_INK, PH_MUTE, PLACEHOLDER_WORDS, greyPlaceholders, hasOwnWords, isPlaceholder, realColours } from "../src/lib/content/studio/kinds/social/start";
 import {
   FORMATS, adaptDoc, blankDoc, clonePage, designText, emptyDesign, insertPage, isInlinePicture, movePage, normalizeDesign, pageFrom, pageIn,
@@ -313,4 +314,21 @@ test("a new post starts clean: placeholders in grey, real colours once written, 
   assert.equal(hasOwnWords([written]), true);
   const real = realColours(written)!;
   assert.deepEqual(real.map((n) => n.fill), ["#1D2A33", PH_MUTE, "#FFFFFF"]);
+});
+
+test("the shop's pictures are kept once fetched: the oldest go first, none older than its time (09.11.2026)", () => {
+  let t = 1000;
+  const c = pictureCache({ maxItems: 2, maxBytes: 10, ttlMs: 100, now: () => t });
+  c.put("a", new Uint8Array(4), "image/jpeg");
+  c.put("b", new Uint8Array(4), "image/jpeg");
+  assert.ok(c.get("a"), "a is there");
+  c.put("c", new Uint8Array(4), "image/jpeg");
+  // a was used last, so b (the oldest use) went
+  assert.equal(c.get("b"), null);
+  assert.ok(c.get("a") && c.get("c"));
+  assert.equal(c.size, 2);
+  c.put("big", new Uint8Array(11), "image/jpeg");
+  assert.equal(c.get("big"), null, "over the byte cap: not kept");
+  t += 101;
+  assert.equal(c.get("a"), null, "too old: asked again");
 });
