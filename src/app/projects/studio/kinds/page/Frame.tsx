@@ -524,6 +524,17 @@ ${SELECT_CSS}`;
     setTimeout(() => revealEl(el), 90);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [select?.seek?.nonce, loaded]);
+  // the bar over the selection stays inside the stage, whatever it holds (a picture's four actions are wider)
+  const tbBox = useRef<HTMLDivElement | null>(null);
+  const [tbW, setTbW] = useState(340);
+  useEffect(() => {
+    const el = tbBox.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setTbW(el.offsetWidth || 340));
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!toolbar, !!selRect]);
   const dev = deviceBox.current;
   const tbLeft = dev && selRect ? dev.offsetLeft + border + selRect.x * zoom : 0;
   const tbTopRaw = dev && selRect ? dev.offsetTop + border + selRect.y * zoom - 44 : 0;
@@ -539,7 +550,7 @@ ${SELECT_CSS}`;
           style={{ width: w, height, border: 0, transform: `scale(${zoom})`, transformOrigin: "0 0", display: "block", background: "#fff" }} />
       </Box>
       {toolbar && selRect && select?.selected && (
-        <Box sx={{ position: "absolute", left: Math.max(0, fit ? Math.min(tbLeft, (box.current?.clientWidth ?? 800) - 340) : tbLeft), top: Math.max(0, tbTop), zIndex: 3 }}>{toolbar}</Box>
+        <Box ref={tbBox} sx={{ position: "absolute", left: Math.max(0, fit ? Math.min(tbLeft, (box.current?.clientWidth ?? 800) - tbW - 4) : tbLeft), top: Math.max(0, tbTop), zIndex: 3, whiteSpace: "nowrap" }}>{toolbar}</Box>
       )}
     </Box>
   );
