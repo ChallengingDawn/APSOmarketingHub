@@ -66,4 +66,8 @@ test("shop parts: a page with words before its first heading starts with 'Top of
   assert.deepEqual(r.parts.map((p) => p.name), ["Top of the page", "Erste", "Zweite"]);
   const quiet = shopPartsOf(outline(["  span · 1", "  h2 · Erste", "  h2 · Zweite"]), [], null);
   assert.equal(quiet.parts[0].name, "Erste", "nothing worth showing above: no top part");
+  // a CMS page with no heading at all: one part, the whole page, its changes in it
+  const flat = shopPartsOf(outline(["  p · Unsere Lieferbedingungen gelten für alle Bestellungen.", "  a.link · Zum Kontakt"]), [{ op: "text", selector: "p", text: "x" } as unknown as Change], [{ heading: "", changes: [0] }]);
+  assert.deepEqual(flat.parts.map((p) => [p.name, p.changes]), [["The whole page", [0]]]);
+  assert.deepEqual(flat.elsewhere, []);
 });

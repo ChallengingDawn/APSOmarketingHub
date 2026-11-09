@@ -47,3 +47,32 @@ export function projectSourceLabel(source: string | null | undefined): string | 
   const older: Record<string, string> = { geo: "From GEO", sea: "From SEA" };
   return older[source] ?? null;
 }
+
+/* ── a project's ideas, read back ───────────────────────────────────────────────────────────────────────────────── */
+
+/** Where an idea is from, by its key ("convert:12", "aeo-q:7", "seo:3", "team:5"...) - the menu names as above. */
+export function originOfKey(key: string): Origin {
+  const prefix = key.split(":")[0];
+  if (prefix === "aeo-q") return PLACE_ORIGIN.aeoPrompt;
+  if (prefix === "aeo") return PLACE_ORIGIN.aeoRecommendation;
+  if (prefix in SOURCE_ORIGIN) { const o = SOURCE_ORIGIN[prefix as IdeaSource]; return { app: o.app, place: o.place, href: o.href }; }
+  return { app: "Own ideas", place: null, href: null };
+}
+
+export type ProjectIdea = { key: string; title: string; why: string; origin: Origin };
+
+/**
+ * The ideas a project was made from - every one, not only the first (SARCLA's night list, 09.11.2026) - out of the
+ * lines start.ts keeps in its notes ("[idea convert:12] Title - why"); `rest` = the notes' other lines.
+ */
+export function projectIdeas(notes: string | null | undefined): { ideas: ProjectIdea[]; rest: string } {
+  const ideas: ProjectIdea[] = [];
+  const rest: string[] = [];
+  for (const line of String(notes ?? "").split(/\r?\n/)) {
+    const m = /^\[idea ([^\]]+)\]\s*(.*)$/.exec(line.trim());
+    if (!m) { rest.push(line); continue; }
+    const cut = m[2].indexOf(" - ");
+    ideas.push({ key: m[1].trim(), title: (cut >= 0 ? m[2].slice(0, cut) : m[2]).trim(), why: cut >= 0 ? m[2].slice(cut + 3).trim() : "", origin: originOfKey(m[1].trim()) });
+  }
+  return { ideas, rest: rest.join("\n").trim() };
+}

@@ -27,6 +27,7 @@ import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
+import CheckIcon from "@mui/icons-material/Check";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -36,7 +37,6 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import PlaceOutlinedIcon from "@mui/icons-material/PlaceOutlined";
 import TaskAltOutlinedIcon from "@mui/icons-material/TaskAltOutlined";
 
-import { Chip } from "@/app/connectors/parts";
 import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, Notice } from "@/app/uc/report/ui";
 import { TicketFields, field, type TicketsAnswer } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { LANGUAGES } from "@/lib/content/languages";
@@ -44,7 +44,8 @@ import { moveError, TASK_KIND, type PieceStatus } from "@/lib/content/pieceRules
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { InlineTitle } from "./InlineTitle";
 import { KINDS, KindTile, kindLabel } from "./kinds";
-import { PINK, PersonPick, StatusChip, dayLabel, dueSoon, postWork } from "./ui";
+import { pieceStep } from "@/lib/content/nextStep";
+import { Chip, PINK, PersonPick, StatusChip, dayLabel, dueSoon, postWork } from "./ui";
 import type { Piece, Place, TodoTicket, Tickets, Work } from "./types";
 
 const btn = { textTransform: "none" as const, fontWeight: 600, borderRadius: "10px", whiteSpace: "nowrap" as const };
@@ -234,7 +235,7 @@ function PlanTicketDialog({ w, open, piece, ticket, place, act, onClose, onDone 
   );
   const step = (n: number, title: string, done: boolean) => (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-      <Box sx={{ width: 22, height: 22, borderRadius: "6px", display: "grid", placeItems: "center", fontSize: "0.75rem", fontWeight: 800, bgcolor: done ? "#1b7a55" : "#eef1f6", color: done ? "#fff" : MUTED }}>{done ? "✓" : n}</Box>
+      <Box sx={{ width: 22, height: 22, borderRadius: "6px", display: "grid", placeItems: "center", fontSize: "0.75rem", fontWeight: 800, bgcolor: done ? "#1b7a55" : "#eef1f6", color: done ? "#fff" : MUTED }}>{done ? <CheckIcon sx={{ fontSize: 15 }} /> : n}</Box>
       <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".05em" }}>{title}</Typography>
     </Box>
   );
@@ -329,21 +330,27 @@ function TodoRow({ p, w, ticket, takes, ticketsLoading, act, onTicket, onAskChan
     act({ action: "piece-edit", pieceId: p.id, ...body }, (x) => ({ ...x, pieces: x.pieces.map((y) => (y.id === p.id ? { ...y, ...patch } : y)) }));
   const move = (to: PieceStatus) => act({ action: "piece-move", pieceId: p.id, to }, (x) => ({ ...x, pieces: x.pieces.map((y) => (y.id === p.id ? { ...y, status: to } : y)) }));
   const go = (m: ReturnType<typeof moves>[number]) => (m.note ? onAskChanges(p) : m.to === "review" && !p.reviewer ? void act({ action: "piece-move", pieceId: p.id, to: "review" }) : void move(m.to));
-  // one main move on the line; the others - and removing it - in its "…" menu (two rows a line, not three)
+  // ONE next step on the line, by where it stands and who is looking (lib/content/nextStep.ts): "Write it" / "Review it" /
+  // "Make the changes" / "Publish it" open the studio, "Ask for review" / "Done" move it here; what someone else has to do
+  // is said, not offered. The other moves the rules allow - and removing it - stay in its "…" menu.
   const all = p.pending ? [] : moves(p, w);
-  const main = all.find((m) => m.main);
+  const step = p.pending ? null : pieceStep(p, w.me, canEdit, (u) => w.people.find((x) => x.username === u)?.name ?? u);
+  const studio = `/projects/${w.project.id}/pieces/${p.id}`;
+  const toStudio = !!step && step.inStudio && step.mine && !task;
+  const main = step && !step.inStudio && step.mine ? all.find((m) => m.main) : undefined;
   const more = all.filter((m) => m !== main);
 
   return (
     <Box id={`piece-${p.id}`} sx={{
-      py: 1.25, px: 1, mx: -1, borderTop: `1px solid ${HAIRLINE}`, display: "grid", gap: 0.9, borderRadius: "10px",
+      py: 1.25, px: 1, mx: -1, borderTop: `1px solid ${HAIRLINE}`, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.9, borderRadius: "10px",
       opacity: p.pending ? 0.55 : 1, transition: "background-color .25s ease, opacity .25s ease",
       "&:hover": { bgcolor: "rgba(255,255,255,.6)" }, "&:target": { bgcolor: "#fff7e8" },
       animation: "rowIn .3s ease", "@keyframes rowIn": { from: { opacity: 0, transform: "translateY(4px)" }, to: { opacity: 1, transform: "none" } },
     }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+      {/* a phone: the title takes its line, the next step and the menu go under it - always in reach */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: { xs: "wrap", sm: "nowrap" } }}>
         <KindTile kind={p.contentType} />
-        <Box sx={{ flex: "1 1 auto", minWidth: 0 }}>
+        <Box sx={{ flex: { xs: "1 1 calc(100% - 52px)", sm: "1 1 auto" }, minWidth: 0 }}>
           <InlineTitle value={p.title} canEdit={canEdit && !p.pending} size="0.95rem" weight={650} maxWidth="100%"
             onSave={(t) => act({ action: "piece-edit", pieceId: p.id, title: t }, (x) => ({ ...x, pieces: x.pieces.map((y) => (y.id === p.id ? { ...y, title: t } : y)) }))} />
           <Typography sx={{ fontSize: "0.76rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -352,6 +359,12 @@ function TodoRow({ p, w, ticket, takes, ticketsLoading, act, onTicket, onAskChan
           </Typography>
         </Box>
         <Box sx={{ flexShrink: 0 }}><StatusChip status={task && p.status !== "live" ? (p.status === "todo" ? "todo" : "writing") : p.status} /></Box>
+        {toStudio && (
+          <Button size="small" variant="contained" disableElevation component={Link} href={studio} sx={{ ...mainBtn, flexShrink: 0, borderRadius: "8px" }}>{step!.label}</Button>
+        )}
+        {!toStudio && !main && step?.kind === "wait" && (
+          <Typography sx={{ flexShrink: 1, minWidth: 0, maxWidth: 220, fontSize: "0.8rem", color: MUTED, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{step.label}</Typography>
+        )}
         {main && (
           <Button size="small" variant="contained" disableElevation onClick={() => go(main)}
             startIcon={main.to === "live" && task ? <TaskAltOutlinedIcon sx={{ fontSize: 17 }} /> : undefined}
@@ -359,7 +372,7 @@ function TodoRow({ p, w, ticket, takes, ticketsLoading, act, onTicket, onAskChan
             {main.label}
           </Button>
         )}
-        {!task && !p.pending && <Button size="small" component={Link} href={`/projects/${w.project.id}/pieces/${p.id}`} variant="outlined" sx={{ ...btn, flexShrink: 0, borderRadius: "8px" }}>Open</Button>}
+        {!task && !p.pending && !toStudio && <Button size="small" component={Link} href={studio} variant="outlined" sx={{ ...btn, flexShrink: 0, borderRadius: "8px" }}>Open</Button>}
         {!p.pending && (more.length > 0 || canEdit) && (
           <>
             <Tooltip title="More"><IconButton size="small" aria-label={`More for ${p.title}`} onClick={(e) => setMenu(e.currentTarget)} sx={{ flexShrink: 0 }}><MoreHorizIcon fontSize="small" /></IconButton></Tooltip>

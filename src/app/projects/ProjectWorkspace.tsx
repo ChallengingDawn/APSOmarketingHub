@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { originLabel, projectIdeas } from "@/lib/content/ideaOrigins";
 import { useRouter } from "next/navigation";
 import { markerOf } from "@/lib/convert/handoff";
 import Autocomplete from "@mui/material/Autocomplete";
@@ -29,7 +30,6 @@ import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
 
-import { Chip } from "@/app/connectors/parts";
 import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, Notice } from "@/app/uc/report/ui";
 import { InlineTitle } from "./work/InlineTitle";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
@@ -37,7 +37,7 @@ import { STAGES, STAGE_LABEL, STATUS_LABEL, stageOf, type PieceStatus, type Stag
 import ShareDialog from "./ShareDialog";
 import { DeleteProject, canDelete } from "./DeleteProject";
 import TodoList, { type Act } from "./work/TodoList";
-import { Face, Faces, PINK, STAGE_DOT, StageChip, dayLabel, postWork } from "./work/ui";
+import { Chip, Face, Faces, PINK, STAGE_DOT, StageChip, dayLabel, postWork } from "./work/ui";
 import type { Brief, EventRow, PersonOpt, Tickets, Work } from "./work/types";
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -154,7 +154,7 @@ function BriefCard({ w, act }: { w: Work; act: Act }) {
           {row("Key message", w.brief.message)}
           {row("Keywords", w.brief.keywords.length ? <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>{w.brief.keywords.map((k) => <Chip key={k} tint="slate">{k}</Chip>)}</Box> : null)}
           {row("Channels", w.brief.channels.join(" · "))}
-          {w.project.brief && row("Notes", <Box sx={{ whiteSpace: "pre-wrap" }}>{w.project.brief}</Box>)}
+          {projectIdeas(w.project.brief).rest && row("Notes", <Box sx={{ whiteSpace: "pre-wrap" }}>{projectIdeas(w.project.brief).rest}</Box>)}
         </Box>
       )}
     </GlassCard>
@@ -175,6 +175,33 @@ function FromConvert({ brief }: { brief: string | null }) {
       <Box component={Link} href={`/website/ai-personalization/preview?env=${m.env}&path=${encodeURIComponent(m.path)}`} sx={link}>the page in Preview</Box>
       <Box component="span" sx={{ color: MUTED }}> ({m.env === "acc" ? "ACC " : ""}{m.path})</Box>
     </Typography>
+  );
+}
+
+/** The ideas the project was made from - each one, with the app and place it came from by the menus' names, a click
+ *  away (SARCLA's night list, 09.11.2026: "the project page shows where each idea came from, not only the first"). */
+function FromIdeas({ brief }: { brief: string | null }) {
+  const { ideas } = projectIdeas(brief);
+  if (!ideas.length) return null;
+  return (
+    <Box sx={{ mt: 1.25 }}>
+      <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED, mb: 0.6 }}>
+        It comes from {ideas.length === 1 ? "this idea" : `these ${ideas.length} ideas`}
+      </Typography>
+      <Box component="ul" sx={{ m: 0, p: 0, listStyle: "none", display: "grid", gap: 0.6 }}>
+        {ideas.map((i) => (
+          <Box component="li" key={i.key} sx={{ display: "flex", gap: 1, alignItems: "baseline", flexWrap: "wrap", minWidth: 0 }}>
+            {i.origin.href ? (
+              <Box component={Link} href={i.origin.href} title={`Open ${originLabel(i.origin)}`} sx={{
+                flexShrink: 0, px: 0.8, py: 0.2, borderRadius: "4px", bgcolor: "rgba(106,70,201,.1)", color: "#5a3aa8", fontSize: "0.74rem", fontWeight: 700,
+                textDecoration: "none", whiteSpace: "nowrap", "&:hover": { bgcolor: "rgba(106,70,201,.18)", textDecoration: "underline" },
+              }}>{originLabel(i.origin)}</Box>
+            ) : <Chip tint="slate">{originLabel(i.origin)}</Chip>}
+            <Typography component="span" sx={{ fontSize: "0.86rem", color: INK, minWidth: 0, overflowWrap: "anywhere" }}>{i.title}</Typography>
+          </Box>
+        ))}
+      </Box>
+    </Box>
   );
 }
 
@@ -273,7 +300,7 @@ export default function ProjectWorkspace({ id }: { id: number }) {
             </Box>
             {/* the project's name, changed where it is read (SARCLA 08.11.2026: "changing the title is still hard") */}
             <Box component="h1" sx={{ mt: 1, mb: 0, fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", letterSpacing: "-0.025em", display: "flex", minWidth: 0 }}>
-              <InlineTitle value={w.project.title} canEdit={w.access.canEdit} size="1.85rem" weight={600} maxWidth="100%" label="Project name"
+              <InlineTitle value={w.project.title} canEdit={w.access.canEdit} size="1.85rem" weight={600} maxWidth="100%" label="Project name" wrapOnPhone
                 onSave={async (title) => {
                   setW((cur) => (cur ? { ...cur, project: { ...cur.project, title } } : cur));
                   const r = await fetch(`/api/content/projects/${w.project.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "rename", title }) })
@@ -283,6 +310,7 @@ export default function ProjectWorkspace({ id }: { id: number }) {
             </Box>
             {w.brief.goal && <Typography sx={{ fontSize: "0.95rem", color: MUTED, mt: 0.5 }}>{w.brief.goal}</Typography>}
             <FromConvert brief={w.project.brief} />
+            <FromIdeas brief={w.project.brief} />
           </Box>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.25, alignItems: "center" }}>
             <Faces people={team} names={names} owner={w.project.createdBy} size={30} max={7} />

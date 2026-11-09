@@ -22,25 +22,27 @@ import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import LightbulbOutlinedIcon from "@mui/icons-material/LightbulbOutlined";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import ViewKanbanOutlinedIcon from "@mui/icons-material/ViewKanbanOutlined";
 import HourglassTopOutlinedIcon from "@mui/icons-material/HourglassTopOutlined";
 
-import { Chip, Choice } from "@/app/connectors/parts";
+import { SquareChoice as Choice } from "@/app/website/ai-personalization/SquareChoice";
 import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, Notice, headCell, bodyCell } from "@/app/uc/report/ui";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { CONTENT_BY_KEY, OFFERED_CONTENT_TYPES } from "@/lib/content/contentTypes";
 import { projectSourceLabel } from "@/lib/content/ideaOrigins";
+import { projectStep } from "@/lib/content/nextStep";
 import { LANGUAGES } from "@/lib/content/languages";
 import { STAGES, STAGE_LABEL, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
-import { Faces, PINK, STAGE_DOT, StageChip, dayLabel, dueSoon, postWork } from "./work/ui";
+import { Chip, Faces, PINK, STAGE_DOT, StageChip, dayLabel, dueSoon, postWork } from "./work/ui";
 import { DeleteProject, DeletedProjects, canDelete } from "./DeleteProject";
 
 type BoardProject = {
   id: number; title: string; stage: Stage; source: string | null; owner: string | null; team: string[]; dueDate: string | null;
-  pieces: { title: string; status: PieceStatus; contentType: string | null; language: string | null; dueDate: string | null; writer: string | null }[];
+  pieces: { id: number; title: string; status: PieceStatus; contentType: string | null; language: string | null; dueDate: string | null; writer: string | null; reviewer?: string | null }[];
   comments: number; updatedAt: string;
 };
 type Waiting = {
@@ -53,6 +55,11 @@ const KIND: Record<Waiting["kind"], { label: string; tint: "amber" | "blue" | "p
   review: { label: "Review", tint: "amber" }, write: { label: "To write", tint: "blue" }, changes: { label: "Changes asked", tint: "pink" }, mention: { label: "Mention", tint: "purple" },
 };
 const done = (s: PieceStatus) => s === "approved" || s === "live";
+/** What an empty column means - and how a project gets there. */
+const EMPTY_COL: Record<Stage, string> = {
+  planned: "New projects start here.", making: "Here once a to-do is being written.", review: "Here when a to-do waits for its reviewer.",
+  approved: "Here when every to-do is approved.", live: "Here once it is published.",
+};
 
 /** "Landing page", "LinkedIn", "IT DE" - what a card says it holds. */
 function chipsOf(p: BoardProject): string[] {
@@ -73,21 +80,44 @@ function DeleteButton({ onClick, title }: { onClick: () => void; title: string }
   );
 }
 
-function ProjectCard({ p, names, i = 0, onDelete }: { p: BoardProject; names: Record<string, string>; i?: number; onDelete?: () => void }) {
+/** The card's one next step (lib/content/nextStep.ts): what waits for the person looking first, else what the project
+ * needs - a button that opens that to-do's studio, or a line saying who has it. */
+function CardStep({ p, me, canEdit, names }: { p: BoardProject; me: string; canEdit: boolean; names: Record<string, string> }) {
+  const s = projectStep(p.pieces, me, canEdit, (u) => names[u] ?? u);
+  if (s.kind === "done") return null;
+  const href = !s.piece ? `/projects/${p.id}` : s.inStudio ? `/projects/${p.id}/pieces/${s.piece.id}` : `/projects/${p.id}#piece-${s.piece.id}`;
+  const many = !!s.piece && p.pieces.length > 1;
+  if (!s.mine) {
+    return <Typography sx={{ fontSize: "0.76rem", color: MUTED, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.label}{many ? ` · ${s.piece!.title}` : ""}</Typography>;
+  }
+  return (
+    <Box component={Link} href={href} sx={{
+      display: "flex", alignItems: "center", gap: 0.75, minWidth: 0, px: 1, py: 0.6, borderRadius: "6px", textDecoration: "none",
+      border: `1px solid ${PINK}40`, color: PINK, fontSize: "0.8rem", fontWeight: 700, bgcolor: "rgba(194,44,110,.04)",
+      "&:hover": { bgcolor: "rgba(194,44,110,.09)" }, "&:focus-visible": { outline: `2px solid ${PINK}`, outlineOffset: 1 },
+    }}>
+      <Box component="span" sx={{ flexShrink: 0 }}>{s.label}</Box>
+      {many && <Box component="span" sx={{ color: MUTED, fontWeight: 500, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.piece!.title}</Box>}
+      <ArrowForwardIcon sx={{ fontSize: 15, ml: "auto", flexShrink: 0 }} />
+    </Box>
+  );
+}
+
+function ProjectCard({ p, names, i = 0, onDelete, me, canEdit }: { p: BoardProject; names: Record<string, string>; i?: number; onDelete?: () => void; me: string; canEdit: boolean }) {
   const total = p.pieces.length;
   const ok = p.pieces.filter((x) => done(x.status)).length;
   const source = projectSourceLabel(p.source);
   return (
-    <Box sx={{ position: "relative", "& .del": { opacity: 0, transition: "opacity .15s" }, "&:hover .del, & .del:focus-visible": { opacity: 1 }, "@media (hover: none)": { "& .del": { opacity: 1 } } }}>
-    {onDelete && <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}><DeleteButton onClick={onDelete} title={p.title} /></Box>}
-    <Box component={Link} href={`/projects/${p.id}`} sx={{
-      display: "flex", flexDirection: "column", gap: 1.1, p: 1.5, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`,
-      textDecoration: "none", color: INK, boxShadow: "0 1px 2px rgba(31,45,78,.04)",
-      transition: "box-shadow .2s ease, border-color .2s ease, transform .2s ease",
+    <Box sx={{
+      position: "relative", display: "flex", flexDirection: "column", gap: 1.1, p: 1.5, borderRadius: "14px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`,
+      boxShadow: "0 1px 2px rgba(31,45,78,.04)", transition: "box-shadow .2s ease, border-color .2s ease, transform .2s ease",
       "&:hover": { boxShadow: "0 14px 30px rgba(31,45,78,.13)", borderColor: `${PINK}55`, transform: "translateY(-2px)" },
       animation: `cardIn .4s cubic-bezier(.22,1,.36,1) ${Math.min(i, 8) * 0.04}s backwards`,
       "@keyframes cardIn": { from: { opacity: 0, transform: "translateY(8px)" }, to: { opacity: 1, transform: "none" } },
+      "& .del": { opacity: 0, transition: "opacity .15s" }, "&:hover .del, & .del:focus-visible": { opacity: 1 }, "@media (hover: none)": { "& .del": { opacity: 1 } },
     }}>
+    {onDelete && <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}><DeleteButton onClick={onDelete} title={p.title} /></Box>}
+    <Box component={Link} href={`/projects/${p.id}`} sx={{ display: "flex", flexDirection: "column", gap: 1.1, textDecoration: "none", color: INK, borderRadius: "8px", "&:focus-visible": { outline: `2px solid ${PINK}`, outlineOffset: 3 } }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minHeight: 21 }}>
         {source && <Chip tint="purple">{source}</Chip>}
         {p.dueDate && (
@@ -117,6 +147,7 @@ function ProjectCard({ p, names, i = 0, onDelete }: { p: BoardProject; names: Re
         </Box>
       </Box>
     </Box>
+    <CardStep p={p} me={me} canEdit={canEdit} names={names} />
     </Box>
   );
 }
@@ -262,18 +293,20 @@ export default function ContentBoard() {
       {!data && !err && <Typography sx={{ fontSize: "0.9rem", color: MUTED }}>Reading the projects…</Typography>}
 
       {data && view === "board" && (
-        <Box sx={{ overflowX: "auto", pb: 1 }}>
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(196px, 1fr))", gap: 1.5, minWidth: 1000 }}>
+        // a phone: the stages one under the other, the empty ones left out (five columns side by side need 1000 px)
+        <Box sx={{ overflowX: { xs: "visible", sm: "auto" }, pb: 1 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(5, minmax(196px, 1fr))" }, gap: 1.5, minWidth: { xs: 0, sm: 1000 } }}>
             {STAGES.map((s) => {
               const cards = shown.filter((p) => p.stage === s);
               return (
-                <Box key={s} sx={{ display: "flex", flexDirection: "column", gap: 1.25, p: 1.25, borderRadius: "18px", bgcolor: "rgba(255,255,255,.5)", border: "1px solid rgba(255,255,255,.8)", minHeight: 160 }}>
+                <Box key={s} sx={{ display: { xs: cards.length ? "flex" : "none", sm: "flex" }, flexDirection: "column", gap: 1.25, p: 1.25, borderRadius: "18px", bgcolor: "rgba(255,255,255,.5)", border: "1px solid rgba(255,255,255,.8)", minHeight: { xs: 0, sm: 160 } }}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 0.5 }}>
                     <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: STAGE_DOT[s] }} />
                     <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>{STAGE_LABEL[s]}</Typography>
                     <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{cards.length}</Typography>
                   </Box>
-                  {cards.map((p, i) => <ProjectCard key={p.id} p={p} names={names} i={i} onDelete={mayDelete(p) ? () => setDeleting({ id: p.id, title: p.title }) : undefined} />)}
+                  {cards.map((p, i) => <ProjectCard key={p.id} p={p} names={names} i={i} me={data.me} canEdit={!!data.admin || p.team.includes(data.me)} onDelete={mayDelete(p) ? () => setDeleting({ id: p.id, title: p.title }) : undefined} />)}
+                  {cards.length === 0 && <Typography sx={{ fontSize: "0.78rem", color: "#9aa5b8", px: 0.5 }}>{EMPTY_COL[s]}</Typography>}
                 </Box>
               );
             })}

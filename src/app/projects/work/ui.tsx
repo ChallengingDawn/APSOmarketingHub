@@ -7,9 +7,8 @@ import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 
-import { Chip } from "@/app/connectors/parts";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
-import type { Tint } from "@/app/uc/report/ui";
+import { TINT, type Tint } from "@/app/uc/report/ui";
 import { STAGE_LABEL, STATUS_LABEL, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
 
 export const PINK = "#c22c6e";
@@ -17,6 +16,16 @@ export const PINK = "#c22c6e";
 export const STAGE_TINT: Record<Stage, Tint> = { planned: "slate", making: "blue", review: "amber", approved: "green", live: "purple" };
 export const STAGE_DOT: Record<Stage, string> = { planned: "#4a5a70", making: "#2459d1", review: "#c97a10", approved: "#1b7a55", live: "#6a46c9" };
 export const STATUS_TINT: Record<PieceStatus, Tint> = { todo: "slate", writing: "blue", review: "amber", changes: "pink", approved: "green", live: "purple" };
+
+/** A tag on the content pages - SQUARED (SARCLA 08.11.2026: "tags should be squared"), the UC kit's tints. */
+export function Chip({ tint, children }: { tint: Tint; children: React.ReactNode }) {
+  const t = TINT[tint];
+  return (
+    <Box component="span" sx={{ display: "inline-block", px: 0.8, py: 0.2, borderRadius: "4px", bgcolor: t.bg, color: t.fg, fontSize: "0.74rem", fontWeight: 700, whiteSpace: "nowrap", lineHeight: 1.5 }}>
+      {children}
+    </Box>
+  );
+}
 
 export const StageChip = ({ stage }: { stage: Stage }) => <Chip tint={STAGE_TINT[stage]}>{STAGE_LABEL[stage]}</Chip>;
 export const StatusChip = ({ status }: { status: PieceStatus }) => <Chip tint={STATUS_TINT[status]}>{STATUS_LABEL[status]}</Chip>;

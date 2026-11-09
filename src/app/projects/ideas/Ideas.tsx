@@ -151,7 +151,8 @@ export default function Ideas() {
           {loading && <Box sx={{ display: "flex", alignItems: "center", gap: 1, color: MUTED, fontSize: "0.82rem" }}><CircularProgress size={14} /> Reading the apps…</Box>}
           <Button variant="contained" disableElevation startIcon={<AddIcon />} onClick={() => setAdding(true)} sx={{ ...mainBtn, px: 2 }}>Idea</Button>
         </Box>
-        <Box sx={{ mt: 1.5 }}>
+        {/* a phone: a long app name wraps inside its square instead of running out of the box */}
+        <Box sx={{ mt: 1.5, "& [role=radio]": { whiteSpace: { xs: "normal", sm: "nowrap" } } }}>
           <SquareChoice label="From" value={filter} onChange={setFilter}
             options={[{ key: "all", label: "Everywhere", count: Object.values(counts).reduce((a, b) => a + b, 0) }, ...(sources ?? []).map((s) => ({ key: s.key, label: s.label, count: counts[s.key] }))]} />
         </Box>
@@ -235,7 +236,8 @@ export default function Ideas() {
 
       {picked.size > 0 && (
         <Box sx={{
-          position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", zIndex: 30, display: "flex", alignItems: "center", gap: 1.5,
+          position: "fixed", bottom: { xs: 10, sm: 20 }, left: { xs: 10, sm: "50%" }, right: { xs: 10, sm: "auto" }, transform: { xs: "none", sm: "translateX(-50%)" },
+          zIndex: 30, display: "flex", alignItems: "center", gap: { xs: 0.75, sm: 1.5 }, flexWrap: "wrap", justifyContent: "center",
           px: 2, py: 1.25, borderRadius: "12px", bgcolor: "#15223a", color: "#fff", boxShadow: "0 16px 40px rgba(21,34,58,.35)",
         }}>
           <Typography sx={{ fontSize: "0.9rem", fontWeight: 600 }}>{picked.size} idea{picked.size === 1 ? "" : "s"} picked</Typography>

@@ -169,5 +169,5 @@ export const TASK_KIND = "task";
 /** A plain task has no review: whoever may edit the project ticks it off or opens it again. */
 export function taskMoveError(to: PieceStatus, who: Mover): string | null {
   if (!who.canEdit) return "You can comment on this project, not change it.";
-  return to === "live" || to === "writing" || to === "todo" ? null : "A task is done or not done - it has no review.";
+  return to === "live" || to === "writing" || to === "todo" ? null : "An action is done or not done - it has no review.";
 }
