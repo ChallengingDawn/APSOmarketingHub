@@ -135,17 +135,26 @@ function Author({ api, d, set, canEdit }: { api: StudioApi; d: BlogDoc; set: (d:
 
 /** A picture of the post: the picture with Change / Remove, what it shows, the line under it - or, without one, the
  *  hub's picture panel: make it from the idea (prefilled), upload one, or pick one already made. */
-function Picture({ api, d, set, pkey, canEdit }: { api: StudioApi; d: BlogDoc; set: (d: BlogDoc) => void; pkey: string; canEdit: boolean }) {
+function Picture({ api, d, set, pkey, canEdit, onMaking }: { api: StudioApi; d: BlogDoc; set: (d: BlogDoc) => void; pkey: string; canEdit: boolean; onMaking?: (on: boolean) => void }) {
   const p = api.data.piece;
   const sid = sectionOf(pkey);
   const s = sid ? d.sections.find((x) => x.id === sid) : null;
   const pic = s ? s.image : d.hero;
   const put = (next: BlogDoc["hero"]) => set(s ? { ...d, sections: d.sections.map((x) => (x.id === s.id ? { ...x, image: next } : x)) } : { ...d, hero: next });
+  // a picture made or uploaded lands up to 40 s later: on the post as it is then, never on this older copy
+  const land = (x: { url: string; prompt?: string | null }) => api.setDoc((raw: unknown) => {
+    const cur = blogDoc(raw, { language: d.language, author: d.author, title: d.title });
+    const sec = sid ? cur.sections.find((y) => y.id === sid) : null;
+    if (sid && !sec) return cur;
+    const was = sec ? sec.image : cur.hero;
+    const next = { ...was, url: x.url, alt: was.alt || (sec ? sec.heading : cur.title), prompt: x.prompt ?? was.prompt };
+    return sec ? { ...cur, sections: cur.sections.map((y) => (y.id === sec.id ? { ...y, image: next } : y)) } : { ...cur, hero: next };
+  });
   const idea = pic.prompt || (s ? `${s.heading}${d.title ? ` - for a blog article "${d.title}"` : ""}` : [d.title, d.excerpt].filter(Boolean).join(" - "));
   return (
     <Box>
       <PictureSlot url={pic.url} alt={pic.alt} aspect={s ? "3:2" : "16:9"} suggestion={idea} projectId={p.projectId} pieceId={p.id} me={api.data.me} disabled={!canEdit}
-        onPick={(x) => put({ ...pic, url: x.url, alt: pic.alt || (s ? s.heading : d.title), prompt: x.prompt ?? pic.prompt })}
+        onPick={(x) => land(x)} onMaking={onMaking}
         onAlt={(alt) => put({ ...pic, alt })} onRemove={() => put({ ...pic, url: "" })} altLabel="What it shows (for Google and screen readers)" />
       {pic.url && <Box sx={{ mt: 1 }}><Field label="A line under it (optional)" value={pic.caption} disabled={!canEdit} onChange={(v) => put({ ...pic, caption: v })} /></Box>}
     </Box>
@@ -164,6 +173,8 @@ export default function Studio({ api }: StudioProps) {
   const set = useCallback((next: BlogDoc) => api.setDoc(next), [api]);
 
   const [sel, setSel] = useState<string | null>(null);
+  /** the picture being made: it breathes in the page */
+  const [picBusy, setPicBusy] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ key: string; at: number } | null>(null);
   const [editKey, setEditKey] = useState<{ key: string; at: number } | null>(null);
   const [open, setOpen] = useState<string[]>([]);
@@ -372,7 +383,7 @@ export default function Studio({ api }: StudioProps) {
   /* ── the picked part's own fields: under its row in the map (the flow standard) ── */
   const fields = (
     <Box>
-      {isPicture(sel) && <Picture api={api} d={d} set={set} pkey={sel!} canEdit={canEdit} />}
+      {isPicture(sel) && <Picture api={api} d={d} set={set} pkey={sel!} canEdit={canEdit} onMaking={(on) => setPicBusy(on ? sel : null)} />}
       {sel === "tags" && <TopicEditor d={d} set={set} canEdit={canEdit} />}
       {sel === "author" && <Author api={api} d={d} set={set} canEdit={canEdit} />}
       {(sel === "prods" || sel?.startsWith("prod:")) && <Products d={d} set={set} canEdit={canEdit} picked={sel} onPick={(k) => setSel(k)} />}
@@ -446,7 +457,7 @@ export default function Studio({ api }: StudioProps) {
       <Box sx={{ p: 2.5, position: "relative" }}>
         {work && <Working label={work.label} since={work.since} />}
         <EditFrame html={html} device={device} width={DESKTOP} title="The blog post" texts={(k) => partText(docRef.current, k)} oneLine={oneLine}
-          selected={sel} onSelect={(k) => setSel(k)} onCommit={commit} readOnly={!canEdit} focus={focus} editKey={editKey} busy={work ? work.key ?? "*" : null}
+          selected={sel} onSelect={(k) => setSel(k)} onCommit={commit} readOnly={!canEdit} focus={focus} editKey={editKey} busy={work ? work.key ?? "*" : picBusy}
           rich={richOf} redMarks label={(k) => partLabel(docRef.current, k)} onAskAi={enabled ? () => askRef.current?.focus() : undefined} />
       </Box>
     </Pane>

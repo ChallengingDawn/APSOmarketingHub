@@ -66,7 +66,7 @@ function useSince(since: number | null): number {
  * "Making the picture..." and the seconds. With one: the picture, and Make another / Upload / Gallery / Remove. "Gallery":
  * the hub's pictures (made, uploaded, the project's, the logos) and the words for a new one.
  */
-export function PictureSlot({ url, alt, onPick, onAlt, onRemove, aspect = "16:9", suggestion, projectId, pieceId, me, disabled, altLabel = "What it shows", startOpen = true, tabs, fit = "cover", addLabel = "Add a picture" }: {
+export function PictureSlot({ url, alt, onPick, onAlt, onRemove, aspect = "16:9", suggestion, projectId, pieceId, me, disabled, altLabel = "What it shows", startOpen = true, tabs, fit = "cover", addLabel = "Add a picture", onMaking }: {
   url: string; alt: string; onPick: (p: Picture) => void; onAlt?: (alt: string) => void; onRemove: () => void;
   aspect?: PictureAspect; suggestion?: string; projectId?: number | null; pieceId?: number | null; me?: string; disabled?: boolean; altLabel?: string;
   /** Without a picture: the slot shows at once (true), or behind an "Add a picture" button. */
@@ -75,6 +75,8 @@ export function PictureSlot({ url, alt, onPick, onAlt, onRemove, aspect = "16:9"
   /** "contain" for a logo. */
   fit?: "cover" | "contain";
   addLabel?: string;
+  /** a picture is being made (true) or done (false): the studio shows it in the page too */
+  onMaking?: (on: boolean) => void;
 }) {
   const [adding, setAdding] = useState(startOpen);
   const [gallery, setGallery] = useState(false);
@@ -87,9 +89,9 @@ export function PictureSlot({ url, alt, onPick, onAlt, onRemove, aspect = "16:9"
   const canMake = !disabled && !!idea && (!tabs || tabs.includes("make"));
   const make = async () => {
     if (!canMake || making) return;
-    setErr(null); setGallery(false); setMaking(Date.now());
+    setErr(null); setGallery(false); setMaking(Date.now()); onMaking?.(true);
     const r = await makePicture(idea, aspect, { projectId, pieceId });
-    setMaking(null);
+    setMaking(null); onMaking?.(false);
     if (!r.ok) { setErr(r.error); return; }
     onPick(r.picture);
   };

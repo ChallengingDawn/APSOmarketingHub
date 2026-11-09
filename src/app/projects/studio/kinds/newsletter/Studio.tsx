@@ -146,6 +146,8 @@ export default function Studio({ api }: StudioProps) {
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const askRef = useRef<HTMLTextAreaElement | null>(null);
+  /** the picture being made: it breathes in the e-mail */
+  const [picBusy, setPicBusy] = useState<string | null>(null);
   // a block dragged in the e-mail itself (SARCLA 08.11.2026 "editing is very confusing" - it moved by arrows only there):
   // which, and where it would land
   const [drag, setDrag] = useState<{ id: string; to: number | null; y: number | null } | null>(null);
@@ -426,7 +428,7 @@ export default function Studio({ api }: StudioProps) {
         {work && <Working label={work.label} since={work.since} />}
         <InboxLine api={api} d={d} set={set} width={frameW + (device === "mobile" ? 16 : 2)} />
         <EditFrame html={html} device={device} width={680} title="The e-mail" texts={(k) => partText(docRef.current, k)} oneLine={oneLine}
-          selected={sel} onSelect={setSel} onCommit={(k, t) => api.setDoc((cur: unknown) => setPart(cur, k, t))} readOnly={!canEdit} focus={focus} busy={work ? work.key ?? "*" : null}
+          selected={sel} onSelect={setSel} onCommit={(k, t) => api.setDoc((cur: unknown) => setPart(cur, k, t))} readOnly={!canEdit} focus={focus} busy={work ? work.key ?? "*" : picBusy}
           overlay={overlay}
           rich={(k) => { const b = docRef.current.blocks.find((x) => x.id === k.split(":")[0]); return k.endsWith(":text") && b && (b.kind === "hero" || b.kind === "article" || b.kind === "text") ? "blocks" : null; }}
           label={drag ? undefined : (k) => nameOf(docRef.current, k)} onAskAi={enabled ? () => askRef.current?.focus() : undefined} />
@@ -451,7 +453,8 @@ export default function Studio({ api }: StudioProps) {
   );
   // the picked block's own fields: under its row in the map (the flow standard)
   const fields = block ? (
-    <BlockTools b={block} picked={sel} disabled={!canEdit} where={{ projectId: p.projectId, pieceId: p.id, me: api.data.me }}
+    <BlockTools b={block} picked={sel} disabled={!canEdit} where={{ projectId: p.projectId, pieceId: p.id, me: api.data.me }} onMaking={setPicBusy}
+      patch={(id, f) => api.setDoc((cur: unknown) => { const n = asNewsletter(cur); return { ...n, blocks: n.blocks.map((x) => (x.id === id ? ({ ...x, ...f } as typeof x) : x)) }; })}
       set={(nb) => set({ ...docRef.current, blocks: docRef.current.blocks.map((x) => (x.id === nb.id ? nb : x)) })} />
   ) : null;
   // the start, at the top of the map while nothing is written (the flow standard)

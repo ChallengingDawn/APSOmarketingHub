@@ -249,7 +249,12 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
 type Where = { projectId: number; pieceId: number; me: string };
 
 /** What the picked block needs besides its words: its picture, where its button goes, a story's side, the logo. */
-export function BlockTools({ b, set, disabled, where, picked }: { b: Block; set: (b: Block) => void; disabled: boolean; where: Where; picked: string | null }) {
+export function BlockTools({ b, set, disabled, where, picked, patch, onMaking }: {
+  b: Block; set: (b: Block) => void; disabled: boolean; where: Where; picked: string | null;
+  /** fields changed on the block as it is when they land (a picture comes up to 40 s later) */
+  patch?: (id: string, p: Partial<Block>) => void;
+  onMaking?: (key: string | null) => void;
+}) {
   const [otherLogo, setOtherLogo] = useState(false);
   const pic = (aspect: "16:9" | "1:1" | "3:2") => {
     if (!("imageUrl" in b)) return null;
@@ -257,7 +262,8 @@ export function BlockTools({ b, set, disabled, where, picked }: { b: Block; set:
       <Box sx={{ mb: 1.25 }}>
         <Label mt={0}>Its picture</Label>
         <PictureSlot url={b.imageUrl} alt={b.imageAlt} aspect={aspect} suggestion={pictureIdea(b)} disabled={disabled} startOpen={picked === `${b.id}:image` || !b.imageUrl} {...where}
-          onPick={(p) => set({ ...b, imageUrl: p.url, imageAlt: b.imageAlt || (b.kind === "hero" ? b.headline : b.kind === "article" ? b.title : ""), imagePrompt: p.prompt ?? ("imagePrompt" in b ? b.imagePrompt : "") } as Block)}
+          onMaking={(on) => onMaking?.(on ? `${b.id}:image` : null)}
+          onPick={(p) => { const f = { imageUrl: p.url, imageAlt: b.imageAlt || (b.kind === "hero" ? b.headline : b.kind === "article" ? b.title : ""), imagePrompt: p.prompt ?? ("imagePrompt" in b ? b.imagePrompt : "") } as Partial<Block>; if (patch) patch(b.id, f); else set({ ...b, ...f } as Block); }}
           onAlt={(alt) => set({ ...b, imageAlt: alt } as Block)} onRemove={() => set({ ...b, imageUrl: "" } as Block)} altLabel="What it shows (inboxes that hide pictures show this)" />
       </Box>
     );
