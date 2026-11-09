@@ -41,7 +41,8 @@ import {
   PALETTE, insertPage, isInlinePicture, pageIn, setPageDoc, withFormat, type FormatKey, type SocialDesign,
 } from "@/lib/content/studio/kinds/social/design";
 import { templateByKey, type MeasureFor, type Words } from "@/lib/content/studio/kinds/social/templates";
-import { placePicture, templatePage } from "./actions";
+import { placePicture, startPage, templatePage } from "./actions";
+import { realColours } from "@/lib/content/studio/kinds/social/start";
 import { STUDIO_BAR } from "../../parts";
 import { PictureDialog, uploadPicture } from "../../pictures";
 import { BackRow } from "../../standard";
@@ -150,6 +151,8 @@ export default function Studio({ api }: StudioProps) {
   const [panel, setPanel] = useState<PanelKey | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
   const [hist, setHist] = useState({ past: 0, future: 0 });
+  const histRef = useRef(hist);
+
   const [zoom, setZoom] = useState({ scale: 1, fit: true });
   const [live, setLive] = useState<DesignDocument | null>(null);
   // the editor's properties of the selection: one element, carried into the open row of the map
@@ -183,10 +186,11 @@ export default function Studio({ api }: StudioProps) {
     set((cur) => {
       if (cur.design.pages.length) return cur;
       let design: SocialDesign = { ...cur.design, pages: [] };
-      const starts = old.length ? old.map(slideWords) : [{ key: "spotlight", words: undefined as Words | undefined }];
-      for (const s of starts) {
+      // a brand-new post: a clean layout, its words still placeholders in grey, its picture an empty frame (09.11.2026)
+      if (!old.length) design = insertPage(design, 0, { id: `p${Date.now().toString(36)}0`, by: startPage(design, templateByKey("spotlight")!, mf) });
+      for (const s of old.map(slideWords)) {
         const t = templateByKey(s.key) ?? templateByKey("spotlight")!;
-        design = insertPage(design, design.pages.length, { id: `p${Date.now().toString(36)}${design.pages.length}`, by: templatePage(design, t, s.words ? { ...t.words, ...s.words } : undefined, mf) });
+        design = insertPage(design, design.pages.length, { id: `p${Date.now().toString(36)}${design.pages.length}`, by: templatePage(design, t, { ...t.words, ...s.words }, mf) });
       }
       return { ...cur, design };
     });
@@ -205,6 +209,12 @@ export default function Studio({ api }: StudioProps) {
   const onDocument = useCallback((d: DesignDocument) => {
     setLive(d);
     if (!canEdit) return;
+    // a placeholder that got real words takes its real colour (the grey was only "not written yet")
+    // - never right after an undo (something waiting to be redone), or Ctrl+Z could never get past it
+    if (realColours(d.nodes)) {
+      setTimeout(() => { if (histRef.current.future === 0) canvas.current?.commit((nodes) => realColours(nodes) ?? nodes); }, 0);
+      if (histRef.current.future === 0) return;
+    }
     const w = where.current;
     const cur = docRef.current;
     const at = cur.design.pages.findIndex((p) => p.id === w.pageId);
@@ -326,7 +336,7 @@ export default function Studio({ api }: StudioProps) {
             storeImage={storeImage}
             onDocumentChange={onDocument}
             onSelectionChange={setSelection}
-            onHistoryChange={setHist}
+            onHistoryChange={(h) => { histRef.current = h; setHist(h); }}
             onZoomChange={setZoom}
           />}
           <Overlay ctx={ctx} onAskAi={() => askBox.current?.focus()} onGallery={setGallery} />

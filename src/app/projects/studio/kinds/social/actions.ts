@@ -7,10 +7,24 @@ import { coverCrop } from "@/lib/editor/crop";
 import { LOGOS, setPageDoc, sizeOf, type LogoKey } from "@/lib/content/studio/kinds/social/design";
 import { boxAt, darkPage, type Position } from "@/lib/content/studio/kinds/social/canvasAi";
 import { logoNode, roleNodes, type Template, type TextRole, type Words } from "@/lib/content/studio/kinds/social/templates";
+import { PLACEHOLDER_WORDS, greyPlaceholders } from "@/lib/content/studio/kinds/social/start";
 import { loadImage } from "@/app/editor/designRender";
 import type { MeasureFor } from "@/lib/content/studio/kinds/social/templates";
 import type { FormatKey, SocialDesign } from "@/lib/content/studio/kinds/social/design";
 import type { StudioCtx } from "./Studio";
+
+/** A brand-new post's first page: the spotlight layout with placeholders in grey and an empty picture frame. */
+export function startPage(design: SocialDesign, t: Template, mf: MeasureFor) {
+  const by = templatePage(design, t, PLACEHOLDER_WORDS, mf);
+  for (const [f, d] of Object.entries(by)) {
+    if (!d) continue;
+    const nodes = greyPlaceholders(d.nodes).map((n): DesignNode => (n.kind === "image" && !isLogo(n)
+      ? { id: n.id, kind: "rect", x: n.x, y: n.y, width: n.width ?? 100, height: n.height ?? 100, fill: "#DDE5EB", ...(n.cornerRadius ? { cornerRadius: n.cornerRadius } : {}), ...(n.groupId ? { groupId: n.groupId } : {}) }
+      : n));
+    by[f as FormatKey] = { ...d, nodes };
+  }
+  return by;
+}
 
 /** A page made from a template in every format the post has - each built for its own board, not stretched. */
 export function templatePage(design: SocialDesign, t: Template, words: Words | undefined, mf: MeasureFor) {
@@ -122,6 +136,20 @@ export function addText(ctx: StudioCtx, role: TextRole, text: string) {
   const nodes = placed.nodes.map((n) => ({ ...n, y: n.y + y }));
   c.commit((cur) => [...cur, ...nodes]);
   c.select(nodes.map((n) => n.id));
+}
+
+/** Every element's box on the board, in board pixels, as drawn (a text's real height) - for placing new things. */
+export function boardBoxes(ctx: StudioCtx): { id: string; x: number; y: number; w: number; h: number }[] {
+  const c = ctx.canvas.current;
+  if (!c) return [];
+  const scene = c.scene();
+  const b = c.boardRect();
+  const k = b && scene.canvas.w ? b.width / scene.canvas.w : 0;
+  return scene.nodes.filter((n) => !n.hidden && n.kind !== "scrim").map((n) => {
+    const r = k ? c.rectOf(n.id) : null;
+    if (r && b) return { id: n.id, x: (r.left - b.left) / k, y: (r.top - b.top) / k, w: r.width / k, h: r.height / k };
+    return { id: n.id, x: n.x, y: n.y, w: n.width ?? 0, h: n.height ?? (n.fontSize ?? 0) * 1.3 };
+  });
 }
 
 /** The size of the board on the canvas now. */

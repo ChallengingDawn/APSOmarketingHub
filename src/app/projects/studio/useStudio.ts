@@ -35,6 +35,9 @@ export type StudioApi = {
   act: <T = unknown>(name: string, input?: Record<string, unknown>) => Promise<{ ok: true; result: T } | { ok: false; error: string }>;
   saveVersion: (label?: string) => Promise<boolean>;
   restore: (versionId: number) => Promise<boolean>;
+  /** A version kept quietly (no event on the project's feed, the studio not read again) - its id, or null. For an
+   *  AI change a studio may want to take back after a reload (the social studio's "Changes made here", 09.11.2026). */
+  keepVersion?: (label: string) => Promise<number | null>;
   reload: () => Promise<void>;
   /** Moves the to-do through its statuses (the project's route), then reads the studio again. */
   move: (to: string, note?: string, reviewer?: string) => Promise<{ ok: boolean; error?: string }>;
@@ -131,6 +134,13 @@ export function useStudio(pieceId: number): { api: StudioApi | null; error: stri
       const r = await post(pieceId, { action: "version", label: label ?? null });
       if (r.ok) await load();
       return !!r.ok;
+    },
+    keepVersion: async (label) => {
+      await flush();
+      const r = await post(pieceId, { action: "version", label, quiet: true });
+      if (!r.ok || typeof r.id !== "number") return null;
+      setData((d) => (d ? { ...d, versions: [{ id: r.id as number, label, by: d.me, at: new Date().toISOString() }, ...d.versions] } : d));
+      return r.id as number;
     },
     restore: async (versionId) => {
       await flush();

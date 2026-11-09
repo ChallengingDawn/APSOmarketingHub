@@ -14,13 +14,16 @@ import { useCallback, useRef, useState } from "react";
 import type { DesignNode } from "@/lib/design-document";
 import { plainText } from "@/lib/editor/richText";
 import { aspectFor, planOps, scrimFor, type DesignAnswer } from "@/lib/content/studio/kinds/social/canvasAi";
+import { isPlaceholder, realColours } from "@/lib/content/studio/kinds/social/start";
 import { LOGOS, pageFrom, setPageDoc, type SocialDesign } from "@/lib/content/studio/kinds/social/design";
 import { loadImage } from "@/app/editor/designRender";
 import { makePicture, uploadPicture, type Picture } from "../../pictures";
+import { MAX_LOG, type LogEntry } from "@/lib/content/studio/kinds/social/model";
 import { fillFrame } from "./actions";
 import type { StudioCtx } from "./Studio";
 
-export type AiEntry = { id: number; label: string; note?: string; at: number; before: SocialDesign; undone: boolean; by: "ai" | "you" };
+/** A line of "Changes made here" - kept in the post's document (model.ts LogEntry), so it is there after a reload. */
+export type AiEntry = LogEntry;
 /** What the AI is writing now: its words, the objects it works on (on the page with that id), since when. */
 export type Working = { label: string; ids: string[] | "all"; pageId: string; since: number } | null;
 export type Scope = { id: string; name: string; text?: string } | null;
@@ -46,7 +49,9 @@ export function headlineOf(nodes: DesignNode[]): string {
 
 /** The picture's idea, before the person writes their own: what the page is about, in the house style. */
 export function defaultIdea(nodes: DesignNode[], title: string): string {
-  const about = headlineOf(nodes) || title || "industrial components";
+  // a headline still a placeholder says nothing about the picture: the to-do's title does
+  const h = headlineOf(nodes);
+  const about = (h && !isPlaceholder(h) ? h : "") || title || "industrial components";
   return `A real, industrial photo for "${about.slice(0, 90)}" - no text, no logos.`;
 }
 
@@ -63,18 +68,27 @@ export type DesignAi = ReturnType<typeof useDesignAi>;
 
 export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
   const [working, setWorking] = useState<Working>(null);
-  const [history, setHistory] = useState<AiEntry[]>([]);
+  // the post as it was before each change, while the studio is open: Undo at once; after a reload, the version kept
+  // before an AI change takes its place
+  const befores = useRef(new Map<number, SocialDesign>());
   const [making, setMaking] = useState<Record<string, number>>({});
   const [slotError, setSlotError] = useState<Record<string, string>>({});
   const [ideas, setIdeas] = useState<Record<string, string>>({});
   const gen = useRef(0);
-  const seq = useRef(0);
 
-  const record = useCallback((label: string, before: SocialDesign, note?: string, by: "ai" | "you" = "ai") => {
-    seq.current += 1;
-    const e: AiEntry = { id: seq.current, label, note, at: Date.now(), before, undone: false, by };
-    setHistory((h) => [e, ...h].slice(0, 30));
-  }, []);
+  const record = useCallback((label: string, before: SocialDesign, note?: string, by: "ai" | "you" = "ai", versionId: number | null = null) => {
+    const id = Date.now();
+    befores.current.set(id, before);
+    const e: LogEntry = { id, label: label.slice(0, 90), note: (note ?? "").slice(0, 240), at: new Date().toISOString(), by, versionId, undone: false };
+    ctxRef.current?.set((x) => ({ ...x, log: [e, ...x.log].slice(0, MAX_LOG) }));
+  }, [ctxRef]);
+  /** Whether a line can still be taken back: its before-state is in hand, or a version was kept before it. */
+  const canUndo = useCallback((e: LogEntry) => !e.undone && (befores.current.has(e.id) || !!e.versionId), []);
+  /** A version of the post as it is, kept quietly before an AI change (its Undo after a reload). */
+  const keepBefore = async (label: string): Promise<number | null> => {
+    const c = ctxRef.current;
+    try { return c?.api.keepVersion ? await c.api.keepVersion(`Before the AI: ${label}`.slice(0, 110)) : null; } catch { return null; }
+  };
 
   /** A picture that came: into its frame (or behind its page), on the canvas when the page is there, in every format. */
   const put = useCallback((pageId: string, into: { node: string } | "background", url: string, nat?: { w: number; h: number }) => {
@@ -108,7 +122,10 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
     const run = (gen.current += 1);
     const pageId = c.doc.design.pages[c.pageIx]?.id ?? "";
     setWorking({ label: scope ? `Changing the ${scope.name.toLowerCase()}` : "Writing the post", ids: scope ? [scope.id] : "all", pageId, since: Date.now() });
-    const snapshot = c.doc.design;
+    const entryLabel = label ?? (q.trim().length > 70 ? `${q.trim().slice(0, 68)}…` : q.trim());
+    const versionId = await keepBefore(entryLabel);
+    if (run !== gen.current) return null;
+    const snapshot = ctxRef.current?.doc.design ?? c.doc.design;
     const said = scope
       ? `Work only on the selected object ${scope.id} (${scope.name}${scope.text ? `: "${scope.text.slice(0, 160)}"` : ""}); leave the rest as it is. ${q.trim()}`
       : q.trim();
@@ -118,7 +135,13 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
     const now = ctxRef.current!;
     const scene = now.canvas.current?.scene();
     if (!scene) { setWorking(null); return "The canvas is not ready - try again."; }
-    const plan = planOps(r.result.ops, scene, now.mf);
+    const planned = planOps(r.result.ops, scene, now.mf);
+    // words the AI wrote over placeholders take their real colour at once
+    const plan = {
+      ...planned,
+      doc: planned.doc ? { ...planned.doc, nodes: realColours(planned.doc.nodes) ?? planned.doc.nodes } : planned.doc,
+      pages: planned.pages ? planned.pages.map((d) => ({ ...d, nodes: realColours(d.nodes) ?? d.nodes })) : planned.pages,
+    };
     const pageIds: string[] = [];
     if (plan.pages) {
       const made = plan.pages.map((d) => pageFrom(now.doc.design, now.fmt, d));
@@ -136,8 +159,7 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
     const reply = r.result.reply || (changed ? "Done." : "Nothing to change.");
     const extra = plan.skipped.length ? ` ${plan.skipped.join(" ")}` : "";
     if (!changed) { setWorking(null); return reply + extra; }
-    const entryLabel = label ?? (q.trim().length > 70 ? `${q.trim().slice(0, 68)}…` : q.trim());
-    if (!plan.pictures.length) { setWorking(null); record(entryLabel, snapshot, reply + extra); return null; }
+    if (!plan.pictures.length) { setWorking(null); record(entryLabel, snapshot, reply + extra, "ai", versionId); return null; }
     // the pictures, made side by side; each lands in its frame as it comes - the frames shimmer meanwhile
     const currentId = now.doc.design.pages[now.pageIx]?.id ?? "";
     const frameIds = plan.pictures.map((j) => (j.into === "background" ? null : j.into.node)).filter((x): x is string => !!x);
@@ -155,19 +177,26 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
     }));
     if (run !== gen.current) return null;
     setWorking(null);
-    record(entryLabel, snapshot, failed ? `${reply} A picture was not made: ${failed}` : reply + extra);
+    record(entryLabel, snapshot, failed ? `${reply} A picture was not made: ${failed}` : reply + extra, "ai", versionId);
     return failed ? `A picture was not made: ${failed}` : null;
   }, [ctxRef, put, record]);
 
   /** Put the post back as it was before this change (and every later one). */
-  const undo = useCallback((e: AiEntry) => {
+  const undo = useCallback(async (e: AiEntry) => {
     const c = ctxRef.current;
     if (!c) return;
+    const before = befores.current.get(e.id);
     gen.current += 1;
     setWorking(null);
-    c.set((x) => ({ ...x, design: e.before }));
-    c.reload();
-    setHistory((h) => h.map((x) => (x.id >= e.id ? { ...x, undone: true } : x)));
+    if (before) {
+      c.set((x) => ({ ...x, design: before, log: x.log.map((y) => (y.id >= e.id ? { ...y, undone: true } : y)) }));
+      c.reload();
+      return;
+    }
+    // after a reload: the version kept just before the change - the whole post goes back, captions included
+    if (!e.versionId) return;
+    if (!window.confirm("Put the post back as it was before this change? Everything changed after it - words, pictures, captions - goes back too.")) return;
+    if (await c.api.restore(e.versionId)) c.reload();
   }, [ctxRef]);
 
   /* ── the picture slots ── */
@@ -181,14 +210,14 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
   const setIdea = useCallback((id: string, v: string) => setIdeas((m) => ({ ...m, [id]: v })), []);
   const clearError = (id: string) => setSlotError((m) => { const n = { ...m }; delete n[id]; return n; });
 
-  const landIn = useCallback(async (id: string, pic: Picture | { url: string; width?: number | null; height?: number | null }, label: string) => {
+  const landIn = useCallback(async (id: string, pic: Picture | { url: string; width?: number | null; height?: number | null }, label: string, versionId: number | null = null) => {
     const c = ctxRef.current;
     if (!c) return;
     const pageId = c.doc.design.pages[c.pageIx]?.id ?? "";
     await loadImage(pic.url);
     const before = c.doc.design;
     put(pageId, { node: id }, pic.url, pic.width && pic.height ? { w: pic.width, h: pic.height } : undefined);
-    record(label, before, undefined, label.startsWith("Picture made") ? "ai" : "you");
+    record(label, before, undefined, label.startsWith("Picture made") ? "ai" : "you", versionId);
   }, [ctxRef, put, record]);
 
   /** Make it / Make another: the picture from its idea, in the frame's own shape. */
@@ -202,8 +231,9 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
     const pageId = c.doc.design.pages[c.pageIx]?.id ?? "";
     setMaking((m) => ({ ...m, [id]: Date.now() }));
     setWorking((w) => w ?? { label: "Making the picture", ids: [id], pageId, since: Date.now() });
+    const versionId = await keepBefore("a picture for the frame");
     const res = await makePicture(prompt, aspectFor(n.width ?? 1, n.height ?? 1), { projectId: c.api.data.piece.projectId, pieceId: c.api.data.piece.id });
-    if (res.ok) await landIn(id, res.picture, "Picture made for the frame");
+    if (res.ok) await landIn(id, res.picture, "Picture made for the frame", versionId);
     setMaking((m) => { const x = { ...m }; delete x[id]; return x; });
     setWorking((w) => (w && w.ids !== "all" && w.ids.length === 1 && w.ids[0] === id ? null : w));
     if (!res.ok) setSlotError((m) => ({ ...m, [id]: res.error }));
@@ -230,5 +260,5 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
     record("Picture taken out of the frame", before, undefined, "you");
   }, [ctxRef, record]);
 
-  return { ask, working, history, undo, making, slotError, ideaFor, setIdea, makeFor, uploadFor, pickFor, removeFrom };
+  return { ask, working, canUndo, undo, making, slotError, ideaFor, setIdea, makeFor, uploadFor, pickFor, removeFrom };
 }

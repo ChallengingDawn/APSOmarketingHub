@@ -13,7 +13,9 @@ import type { DesignNode } from "@/lib/design-document";
 import { aspectFor } from "@/lib/content/studio/kinds/social/canvasAi";
 import { PicturePanel, type Picture, type PictureAspect } from "../../../pictures";
 import { Head, Note, PanelFrame, T, Tile } from "../look";
-import { backgroundPicture, boardOf, frameOf, placePicture } from "../actions";
+import { backgroundPicture, boardBoxes, boardOf, frameOf, placePicture } from "../actions";
+import { freeBand } from "@/lib/content/studio/kinds/social/place";
+import { isEmptyFrame, isLogoNode } from "../useDesignAi";
 import type { StudioCtx } from "../Studio";
 
 const FRAME = "#DDE5EB";
@@ -29,12 +31,58 @@ const FRAMES: { key: FrameKind; label: string; view: React.ReactNode }[] = [
   { key: "three", label: "Three", view: <Box sx={{ display: "flex", gap: "3px" }}>{[0, 1, 2].map((i) => <Box key={i} sx={{ width: 13, height: 30, borderRadius: "3px", bgcolor: FRAME }} />)}</Box> },
 ];
 
+/** N frames side by side in a box, with a gap; each as tall as the box allows (never taller than 1.25 x its width). */
+function framesIn(area: { x: number; y: number; w: number; h: number }, n: number, gap: number, r: number): DesignNode[] {
+  const w = (area.w - gap * (n - 1)) / n;
+  const h = Math.round(Math.min(area.h, w * 1.25));
+  const y = Math.round(area.y + (area.h - h) / 2);
+  return Array.from({ length: n }, (_, i) => ({ id: nid(), kind: "rect" as const, x: Math.round(area.x + i * (w + gap)), y, width: Math.round(w), height: h, fill: FRAME, cornerRadius: r }));
+}
+
+/**
+ * New frames never fall on the post's words (the lead's review, 09.11.2026): two or three frames take the place of the
+ * page's picture (split into two or three), else they go in the tallest free stretch of the page; a single frame goes in
+ * free space too when there is some.
+ */
 export function addFrames(ctx: StudioCtx, kind: FrameKind) {
   const c = ctx.canvas.current;
   if (!c) return;
   const s = boardOf(ctx);
   const m = Math.round(Math.min(s.w, s.h) * 0.075);
   const r = Math.round(Math.min(s.w, s.h) * 0.026);
+  const gap = Math.round(s.w * 0.02);
+  const scene = c.scene();
+  const boxes = boardBoxes(ctx);
+  const band = freeBand(boxes, s.w, s.h, m, Math.round(s.h * 0.16));
+  if (kind === "two" || kind === "three") {
+    const n = kind === "two" ? 2 : 3;
+    // the page's picture (or an empty frame) - the biggest one that is not the background
+    const pics = scene.nodes.filter((x) => !x.hidden && ((x.kind === "image" && !isLogoNode(x)) || isEmptyFrame(x)) && (x.width ?? 0) * (x.height ?? 0) < s.w * s.h * 0.5);
+    const pic = [...pics].sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0))[0];
+    if (pic) {
+      const made = framesIn({ x: pic.x, y: pic.y, w: pic.width ?? s.w / 2, h: pic.height ?? s.h / 3 }, n, gap, pic.cornerRadius ?? r);
+      c.commit((cur) => cur.flatMap((x) => (x.id === pic.id ? made : [x])));
+      c.select(made.slice(0, 1).map((x) => x.id));
+      return;
+    }
+    if (band) {
+      const pad = Math.round(s.h * 0.02);
+      const made = framesIn({ x: m, y: band.y + pad, w: s.w - m * 2, h: band.h - pad * 2 }, n, gap, r);
+      c.commit((cur) => [...cur, ...made]);
+      c.select(made.slice(0, 1).map((x) => x.id));
+      return;
+    }
+  }
+  if ((kind === "rounded" || kind === "circle") && band) {
+    const pad = Math.round(s.h * 0.02);
+    const h = band.h - pad * 2;
+    const made: DesignNode[] = kind === "circle"
+      ? [{ id: nid(), kind: "ellipse", x: Math.round((s.w - Math.min(h, s.w * 0.6)) / 2), y: band.y + pad, width: Math.round(Math.min(h, s.w * 0.6)), height: Math.round(Math.min(h, s.w * 0.6)), fill: FRAME }]
+      : [{ id: nid(), kind: "rect", x: m, y: band.y + pad, width: s.w - m * 2, height: h, fill: FRAME, cornerRadius: r }];
+    c.commit((cur) => [...cur, ...made]);
+    c.select(made.slice(0, 1).map((x) => x.id));
+    return;
+  }
   let made: DesignNode[] = [];
   if (kind === "rounded") made = [{ id: nid(), kind: "rect", x: Math.round(s.w * 0.2), y: Math.round(s.h * 0.25), width: Math.round(s.w * 0.6), height: Math.round(s.h * 0.5), fill: FRAME, cornerRadius: r }];
   if (kind === "circle") { const d = Math.round(Math.min(s.w, s.h) * 0.5); made = [{ id: nid(), kind: "ellipse", x: Math.round((s.w - d) / 2), y: Math.round((s.h - d) / 2), width: d, height: d, fill: FRAME }]; }

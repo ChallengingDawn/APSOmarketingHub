@@ -88,6 +88,21 @@ export async function saveVersion(p: {
   return r.rows[0].id;
 }
 
+/**
+ * A studio's automatic version, kept just before an AI change so its "Changes made here" can take it back after a
+ * reload (09.11.2026). Its label starts with this; the Content Library leaves these out, and a piece keeps its newest
+ * AUTO_KEEP of them.
+ */
+export const AUTO_VERSION = "Before the AI:";
+export const AUTO_KEEP = 20;
+export async function pruneAutoVersions(pieceId: number, keep = AUTO_KEEP): Promise<void> {
+  await ensureStudio();
+  await query(
+    `DELETE FROM apsomh_content WHERE piece_id = $1 AND piece_doc IS NOT NULL AND label LIKE $2
+       AND id NOT IN (SELECT id FROM apsomh_content WHERE piece_id = $1 AND piece_doc IS NOT NULL AND label LIKE $2 ORDER BY id DESC LIMIT $3)`,
+    [pieceId, `${AUTO_VERSION}%`, keep]);
+}
+
 /** The piece's versions made in its studio, newest first - their document, to look back or restore. */
 export async function studioVersions(pieceId: number): Promise<{ id: number; label: string | null; by: string | null; at: string; doc: unknown }[]> {
   await ensureStudio();

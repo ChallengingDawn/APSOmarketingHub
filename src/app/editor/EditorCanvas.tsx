@@ -271,6 +271,8 @@ export type CanvasApi = {
   toCanvas: (clientX: number, clientY: number) => { x: number; y: number } | null;
   /** Where an object is drawn in the window (client pixels, its whole box as shown); null when it is not on the board. */
   rectOf: (id: string) => { left: number; top: number; width: number; height: number } | null;
+  /** Where the board is drawn in the window (client pixels); null before the canvas is up. */
+  boardRect: () => { left: number; top: number; width: number; height: number } | null;
 };
 
 type Bg = DesignDocument["background"];
@@ -2217,6 +2219,12 @@ export default function EditorCanvas({
         const b = node.getClientRect();
         const r = st.container().getBoundingClientRect();
         return { left: r.left + b.x, top: r.top + b.y, width: b.width, height: b.height };
+      },
+      boardRect: () => {
+        const st = stageRef.current;
+        if (!st) return null;
+        const r = st.container().getBoundingClientRect();
+        return { left: r.left, top: r.top, width: liveRef.current.canvas.w * scale, height: liveRef.current.canvas.h * scale };
       },
     };
   });
