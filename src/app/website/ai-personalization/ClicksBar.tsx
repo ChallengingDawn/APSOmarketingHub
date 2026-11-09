@@ -41,9 +41,9 @@ export function HeatLegend() {
   );
 }
 
-export function ClicksBar({ data, error, loading, dev, onDev, env, path, focus, onFocus, missing = [], onChanged }: {
+export function ClicksBar({ data, error, loading, dev, onDev, env, path, focus, onFocus, missing = [], names = {}, onChanged }: {
   data: ClicksData | null; error: string | null; loading: boolean; dev: ClickDev; onDev: (d: ClickDev) => void;
-  env: Env; path: string; focus?: string | null; onFocus?: (s: string) => void; missing?: string[]; onChanged: () => void;
+  env: Env; path: string; focus?: string | null; onFocus?: (s: string) => void; missing?: string[]; names?: Record<string, string>; onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -100,7 +100,7 @@ export function ClicksBar({ data, error, loading, dev, onDev, env, path, focus, 
                 bgcolor: focus === i.s ? "rgba(197,34,31,.08)" : "transparent", outline: focus === i.s ? "1px solid rgba(197,34,31,.45)" : "none", "&:hover": { bgcolor: "rgba(180,83,9,.08)" } }}>
               <Box sx={{ width: 10, height: 10, borderRadius: "2px", flex: "none", bgcolor: heatColor(i.n / Math.max(1, heat.max)) }} />
               <Typography sx={{ fontSize: "0.78rem", color: missing.includes(i.s) ? MUTED : INK, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {i.label}{missing.includes(i.s) ? " · not on the page as drawn" : ""}
+                {names[i.s] ? `${i.label.split(" · ")[0]} · “${names[i.s]}”` : i.label}{missing.includes(i.s) ? " · not on the page as drawn" : ""}
               </Typography>
               <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{full(i.n)} · {Math.round((i.n / Math.max(1, heat.total)) * 100)}%</Typography>
             </Box>

@@ -61,7 +61,7 @@ type StudioData = {
 type Spots = { list: { n: number; sel: string; lead: boolean; title: string }[]; focus: number | null };
 type Msg = { apsoPreview: "ready"; title: string } | { apsoPreview: "applied"; hit: number[] } | { apsoPreview: "go"; href: string } | { apsoPreview: "scroll"; y: number }
   | { apsoPreview: "picked"; selector: string; tag: string; text: string } | { apsoPreview: "styles"; total: number; nfailed: number; failed: string[] }
-  | { apsoPreview: "drawn"; lines: string[] } | { apsoPreview: "body" } | { apsoPreview: "spot"; n: number } | { apsoPreview: "heat"; missing: string[] };
+  | { apsoPreview: "drawn"; lines: string[] } | { apsoPreview: "body" } | { apsoPreview: "spot"; n: number } | { apsoPreview: "heat"; missing: string[]; names?: Record<string, string> };
 type Picked = { selector: string; tag: string; text: string; from: string };
 type Device = "desktop" | "phone";
 type Zoom = "fit" | "full";
@@ -621,6 +621,8 @@ function ConvertPreview() {
   const [heatFocus, setHeatFocus] = useState<string | null>(null);
   // the clicked elements the page as drawn does not show (a menu that opens on a click, a page changed since)
   const [heatMissing, setHeatMissing] = useState<string[]>([]);
+  // their own words as the page shows them ("Schnellbestellung", a button's text) - the gateway keeps no text
+  const [heatNames, setHeatNames] = useState<Record<string, string>>({});
   // the clicks of the device the page is shown on (a phone's taps on the phone view); "Both" stays one click away
   useEffect(() => { setClickDev(device === "phone" ? "m" : "d"); }, [device]);
   const told = useRef(false);
@@ -672,7 +674,12 @@ function ConvertPreview() {
     }
     if (m.apsoPreview === "scroll" && typeof m.y === "number") setSync((s) => ({ y: m.y, from, n: (s?.n ?? 0) + 1 }));
     if (m.apsoPreview === "applied" && Array.isArray(m.hit)) setHit(m.hit);
-    if (m.apsoPreview === "heat" && Array.isArray(m.missing) && from === "original") setHeatMissing(m.missing.filter((x) => typeof x === "string").slice(0, 40));
+    if (m.apsoPreview === "heat" && Array.isArray(m.missing) && from === "original") {
+      setHeatMissing(m.missing.filter((x) => typeof x === "string").slice(0, 40));
+      const nm: Record<string, string> = {};
+      for (const [k, v] of Object.entries(m.names && typeof m.names === "object" ? m.names : {}).slice(0, 40)) if (typeof v === "string" && v) nm[k] = v.slice(0, 48);
+      setHeatNames(nm);
+    }
     if (m.apsoPreview === "drawn" && Array.isArray(m.lines) && (from === "original" || drawn.current?.from !== "original")) drawn.current = { from, lines: m.lines.slice(0, 160) };
     if (m.apsoPreview === "picked" && typeof m.selector === "string") { setPicked({ selector: m.selector.slice(0, 300), tag: String(m.tag).slice(0, 20), text: String(m.text ?? "").slice(0, 160), from }); setPick(false); }
     if (m.apsoPreview === "styles" && typeof m.total === "number") {
@@ -850,7 +857,7 @@ function ConvertPreview() {
             </Box>
             {clicks && path && (
               <ClicksBar data={clickData} error={clickErr} loading={!ch.result || ch.stale} dev={clickDev} onDev={setClickDev} env={env} path={path}
-                focus={heatFocus} onFocus={(s) => setHeatFocus((f) => (f === s ? null : s))} missing={heatMissing}
+                focus={heatFocus} onFocus={(s) => setHeatFocus((f) => (f === s ? null : s))} missing={heatMissing} names={heatNames}
                 onChanged={() => setClickTick((n) => n + 1)} />
             )}
             {picked && (
