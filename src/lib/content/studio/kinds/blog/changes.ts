@@ -4,7 +4,8 @@
 // just before the change and found again by the change's number in its label ("... #<id>"), so a change made before a
 // reload can still be gone back from (Versions keeps the state of now). Pure; tests/studio-changes.test.ts.
 
-export type StudioChange = { id: number; text: string; at: string; lang?: string };
+/** `lang`: a translation's language; `from`: the one it was translated from */
+export type StudioChange = { id: number; text: string; at: string; lang?: string; from?: string };
 
 export const CHANGES_KEPT = 20;
 
@@ -19,6 +20,7 @@ export function changesOf(v: unknown): StudioChange[] {
       text: typeof x.text === "string" ? x.text.replace(/data:[^\s"')]+/g, "").slice(0, 300) : "",
       at: typeof x.at === "string" ? x.at.slice(0, 40) : "",
       ...(typeof x.lang === "string" && /^[A-Z]{2}$/.test(x.lang) ? { lang: x.lang } : {}),
+      ...(typeof x.from === "string" && /^[A-Z]{2}$/.test(x.from) ? { from: x.from } : {}),
     }))
     .filter((x) => x.id > 0 && x.text)
     .sort((a, b) => b.id - a.id)
@@ -39,7 +41,7 @@ export function versionOf<V extends { id: number; label: string | null }>(versio
 /** The languages the thing has been translated into here (the newest first), its own language first. */
 export function madeLanguages(list: unknown, current: string): string[] {
   const cur = current.toUpperCase();
-  return [...new Set([cur, ...changesOf(list).flatMap((c) => (c.lang ? [c.lang] : []))])];
+  return [...new Set([cur, ...changesOf(list).flatMap((c) => [c.lang, c.from].filter((x): x is string => !!x))])];
 }
 
 /** When, as the list shows it: the hour today, the day and the hour before. */

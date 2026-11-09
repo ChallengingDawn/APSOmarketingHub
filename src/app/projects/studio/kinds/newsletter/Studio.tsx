@@ -178,7 +178,7 @@ export default function Studio({ api }: StudioProps) {
   // listed in "Changes made here" (kept in the e-mail, it survives a reload); a version saved just before each change lets
   // it be gone back from after a reload too
   const apply = async (next: NewsletterDoc, text: string, lang?: string) => {
-    const entry: StudioChange = { id: Date.now(), text, at: new Date().toISOString(), ...(lang ? { lang } : {}) };
+    const entry: StudioChange = { id: Date.now(), text, at: new Date().toISOString(), ...(lang ? { lang, from: docRef.current.language.toUpperCase() } : {}) };
     await api.saveVersion(versionLabel(entry));
     const before = docRef.current;
     befores.current.set(entry.id, before);
@@ -192,7 +192,7 @@ export default function Studio({ api }: StudioProps) {
     const v = versionOf(api.data.versions, c.id);
     if (!v || !window.confirm("Go back to the e-mail as it was before this change? What was done after it goes too - the e-mail as it is now is kept in Versions.")) return;
     await api.saveVersion("Before going back");
-    await api.restore(v.id);
+    if (!(await api.restore(v.id))) window.alert("Going back did not work - try again, or pick the version in Versions in the bar.");
   };
   const busyRun = async (label: string, key: string | null, fn: () => Promise<string | null>) => {
     setWork({ label, key, since: Date.now() });

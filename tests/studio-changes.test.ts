@@ -30,8 +30,8 @@ test("the version saved before a change is found by its number", () => {
 });
 
 test("the languages made: its own first, then those translated into here", () => {
-  const list = changesOf([{ id: 3, text: "Into French", at: "", lang: "FR" }, { id: 2, text: "Shorter", at: "" }, { id: 1, text: "Into German", at: "", lang: "DE" }]);
-  assert.deepEqual(madeLanguages(list, "en"), ["EN", "FR", "DE"]);
+  const list = changesOf([{ id: 3, text: "Into French", at: "", lang: "FR", from: "DE" }, { id: 2, text: "Shorter", at: "" }, { id: 1, text: "Into German", at: "", lang: "DE", from: "EN" }]);
+  assert.deepEqual(madeLanguages(list, "fr"), ["FR", "DE", "EN"], "the language it was translated from counts as made too");
 });
 
 test("both documents keep the list through their own reading (it survives a reload)", () => {

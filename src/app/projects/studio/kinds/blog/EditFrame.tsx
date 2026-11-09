@@ -497,7 +497,7 @@ function SelLabel({ name, left, top, rich, red, onBold, onRed, onLink, linkOn, o
         <>
           <Tooltip title="Bold (Ctrl+B)"><Button size="small" onClick={onBold} sx={b} aria-label="Bold"><FormatBoldIcon sx={{ fontSize: 16 }} /></Button></Tooltip>
           {red && <Tooltip title="A key word in red (Ctrl+E)"><Button size="small" onClick={onRed} sx={{ ...b, color: "#ff8a85", fontWeight: 800 }}>Red</Button></Tooltip>}
-          <Tooltip title="A link on the words picked - or change or take off the link the caret is in"><Button size="small" onClick={onLink} startIcon={<LinkIcon sx={{ fontSize: "15px !important" }} />} sx={{ ...b, bgcolor: linkOn ? "rgba(255,255,255,.16)" : "transparent", "& .MuiButton-startIcon": { mr: 0.3 } }}>Link</Button></Tooltip>
+          <Tooltip title={linkOn ? "" : "A link on the words picked - or change or take off the link the caret is in"}><Button size="small" onClick={onLink} startIcon={<LinkIcon sx={{ fontSize: "15px !important" }} />} sx={{ ...b, bgcolor: linkOn ? "rgba(255,255,255,.16)" : "transparent", "& .MuiButton-startIcon": { mr: 0.3 } }}>Link</Button></Tooltip>
         </>
       )}
       {onAi && <Button size="small" onClick={onAi} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: "14px !important" }} />} sx={{ ...b, "& .MuiButton-startIcon": { mr: 0.4 } }}>Ask AI</Button>}

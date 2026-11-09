@@ -177,9 +177,9 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
     ) : undefined} pad={false}>
       <Menu anchorEl={start} open={!!start} onClose={() => setStart(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}
         slotProps={{ paper: { sx: { borderRadius: "8px", width: 300 } } }}>
-        {onWrite && <MenuItem disabled={!!busy} onClick={() => { setStart(null); onWrite(); }}>{item(<AutoAwesomeOutlinedIcon sx={{ fontSize: 18 }} />, d.blocks.some((b) => b.kind !== "header" && b.kind !== "footer" && stateOf(b).state === "done") ? "Write it all again with AI" : "Write it with AI", "From the project's brief - Undo brings this one back")}</MenuItem>}
-        {onOurs && <MenuItem onClick={() => { setStart(null); onOurs(); }}>{item(<MarkEmailReadOutlinedIcon sx={{ fontSize: 18 }} />, "One of our e-mails…", "Its stories, pictures and buttons, as it went out")}</MenuItem>}
-        <MenuItem onClick={(e) => { setLayouts(start ?? e.currentTarget); setStart(null); }}>{item(<DashboardCustomizeOutlinedIcon sx={{ fontSize: 18 }} />, "A layout…", "The blocks of a layout - the words written stay")}</MenuItem>
+        {onWrite && <MenuItem sx={{ whiteSpace: "normal" }} disabled={!!busy} onClick={() => { setStart(null); onWrite(); }}>{item(<AutoAwesomeOutlinedIcon sx={{ fontSize: 18 }} />, d.blocks.some((b) => b.kind !== "header" && b.kind !== "footer" && stateOf(b).state === "done") ? "Write it all again with AI" : "Write it with AI", "From the project's brief - Undo brings this one back")}</MenuItem>}
+        {onOurs && <MenuItem sx={{ whiteSpace: "normal" }} onClick={() => { setStart(null); onOurs(); }}>{item(<MarkEmailReadOutlinedIcon sx={{ fontSize: 18 }} />, "One of our e-mails…", "Its stories, pictures and buttons, as it went out")}</MenuItem>}
+        <MenuItem sx={{ whiteSpace: "normal" }} onClick={(e) => { setLayouts(start ?? e.currentTarget); setStart(null); }}>{item(<DashboardCustomizeOutlinedIcon sx={{ fontSize: 18 }} />, "A layout…", "The blocks of a layout - the words written stay")}</MenuItem>
       </Menu>
       <Popover open={!!layouts} anchorEl={layouts} onClose={() => setLayouts(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}
         slotProps={{ paper: { sx: { p: 1.5, width: 360, borderRadius: "8px" } } }}>

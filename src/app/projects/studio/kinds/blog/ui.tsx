@@ -299,7 +299,7 @@ export function TranslateRow({ what, langs, names, current, made, busy, disabled
           );
         })}
       </Box>
-      <Hint mt={0.75}>{busy ? `Translating the whole ${what} into ${names[busy] ?? busy} - the page shows it at work.` : `A click translates everything; Undo below brings the ${names[current.toUpperCase()] ?? current} back.`}</Hint>
+      <Hint mt={0.75}>{busy ? `Translating the whole ${what} into ${names[busy] ?? busy} - the page shows it at work.` : `A click translates everything (ticked: made here before); Undo below brings this ${names[current.toUpperCase()] ?? current} back.`}</Hint>
     </Box>
   );
 }
