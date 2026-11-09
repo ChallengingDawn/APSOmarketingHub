@@ -29,7 +29,7 @@ import { KIND_LABEL } from "@/lib/convert/model";
 import type { Change } from "@/lib/convert/versions";
 import { filledCount } from "@/lib/content/studio/kinds/page/fields";
 import {
-  INSERT_WHERE_LABEL, SOURCE_LABEL, isLegacyBody, langName, langState, langsOf, mainLang, placeholdersOf, shopUrl, unwritten,
+  INSERT_WHERE_LABEL, SOURCE_LABEL, isLegacyBody, langName, langState, langsOf, mainLang, pageModesFor, pageSourceFix, placeholdersOf, shopUrl, unwritten,
   type LangOption, type PageDoc, type PageSource,
 } from "@/lib/content/studio/kinds/page/model";
 import { partsOf, type PartKey } from "@/lib/content/studio/kinds/page/outline";
@@ -166,10 +166,14 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
   // a test's winner from APSOconvert is published from here (SARCLA 08.11.2026)
   const isWinner = !!doc.origin?.test;
   const won = useWinner(api, isWinner);
+  // only the ways its type offers (SARCLA 09.11.2026): an SEO landing page is a new page, the Page builder a page of the shop
+  const modes = pageModesFor(api.data.piece.contentType);
   const sources: { key: PageSource; label: string }[] = [
-    { key: "new", label: "A new page" }, { key: "pick", label: "A page of the shop" },
+    { key: "new" as PageSource, label: "A new page" }, { key: "pick" as PageSource, label: "A page of the shop" },
     ...(doc.origin || doc.source === "convert" ? [{ key: "convert" as PageSource, label: "From AI testing & personalization" }] : []),
-  ];
+  ].filter((s) => s.key === "convert" || s.key === doc.source || modes.includes(s.key));
+  const fix = pageSourceFix(api.data.piece.contentType, doc);
+  useEffect(() => { if (fix && canEdit) set({ ...doc, source: fix }); }, [fix, canEdit]); // eslint-disable-line react-hooks/exhaustive-deps
   const changeSource = (source: PageSource) => {
     if (!canEdit || source === doc.source) return;
     const across = (source === "new") !== (doc.source === "new");
@@ -314,8 +318,8 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
           {/* the start: what the page is - only while it is empty */}
           {atStart && (
             <Box sx={{ mb: 2, p: 1.75, borderRadius: "12px", border: "1px solid rgba(194,44,110,.22)", background: "linear-gradient(135deg, rgba(194,44,110,.06), rgba(36,89,209,.05))", animation: `${fadeIn} .25s ease-out` }}>
-              <Typography sx={{ fontSize: "0.95rem", fontWeight: 750, color: INK, mb: 1 }}>What are you making?</Typography>
-              <Box sx={{ mb: 1.5 }}><Choice value={doc.source} onChange={changeSource} options={sources} /></Box>
+              <Typography sx={{ fontSize: "0.95rem", fontWeight: 750, color: INK, mb: 1 }}>{sources.length > 1 ? "What are you making?" : SOURCE_LABEL[doc.source]}</Typography>
+              {sources.length > 1 && <Box sx={{ mb: 1.5 }}><Choice value={doc.source} onChange={changeSource} options={sources} /></Box>}
               {isNew ? (
                 <>
                   <Button fullWidth variant="contained" disableElevation disabled={!canAi || !canEdit || !!busy} onClick={() => void fill("all")}

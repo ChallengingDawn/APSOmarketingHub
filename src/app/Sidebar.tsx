@@ -55,6 +55,7 @@ import LightbulbOutlinedIcon from "@mui/icons-material/LightbulbOutlined";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import ShareOutlinedIcon from "@mui/icons-material/ShareOutlined";
 import WebOutlinedIcon from "@mui/icons-material/WebOutlined";
+import ViewQuiltOutlinedIcon from "@mui/icons-material/ViewQuiltOutlined";
 import ViewDayOutlinedIcon from "@mui/icons-material/ViewDayOutlined";
 import MovieOutlinedIcon from "@mui/icons-material/MovieOutlined";
 import PhotoLibraryOutlinedIcon from "@mui/icons-material/PhotoLibraryOutlined";
@@ -239,7 +240,9 @@ const MARKETING_NAV: Record<string, NavSection["items"]> = {
     { label: "Projects", href: "/projects", icon: <FolderOpenIcon fontSize="small" /> },
     { label: "New project", href: "/projects/new", icon: <AddCircleOutlineIcon fontSize="small" /> },
     { group: "Make", label: "Social post", href: "/projects/make/social-post", icon: <ShareOutlinedIcon fontSize="small" /> },
-    { group: "Make", label: "Page", href: "/projects/make/landing-page", icon: <WebOutlinedIcon fontSize="small" /> },
+    // a new page, or a page already on the webshop (SARCLA 09.11.2026: "Page refresh becomes only Page builder")
+    { group: "Make", label: "SEO landing page", href: "/projects/make/landing-page", icon: <WebOutlinedIcon fontSize="small" /> },
+    { group: "Make", label: "Page builder", href: "/projects/make/page-refresh", icon: <ViewQuiltOutlinedIcon fontSize="small" /> },
     { group: "Make", label: "Blog article", href: "/projects/make/blog-article", icon: <ArticleIcon fontSize="small" /> },
     { group: "Make", label: "Newsletter", href: "/projects/make/newsletter", icon: <MailOutlineIcon fontSize="small" /> },
     { group: "Make", label: "Banner", href: "/projects/make/banner", icon: <ViewDayOutlinedIcon fontSize="small" /> },

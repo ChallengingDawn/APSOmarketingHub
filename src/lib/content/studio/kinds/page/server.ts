@@ -45,7 +45,7 @@ import { LIMIT, fieldLabel, fieldStrings, getField, withFieldStrings, type Field
 import { FIELD_SCHEMA, FILL_SCHEMA, PART_LABEL, cleanFill, type Candidate, type Part } from "./fill";
 import { fitField, fitFields, limitOf } from "./fit";
 import {
-  changeStrings, emptyPage, fillTexts, fromAi, isLegacyBody, langName, languageOfStore, leftoversIn, mainLang, pageDoc, pageText,
+  changeStrings, emptyPage, fillTexts, fromAi, isLegacyBody, langName, languageOfStore, leftoversIn, mainLang, pageDoc, pageModesFor, pageSourceFix, pageText,
   placeholdersOf, shopUrl, sourceHash, textsFromAi, urlKeyOf, viewOf, withChangeStrings, type AiChange, type PageDoc,
 } from "./model";
 import { convertPages, counterpartOf, findPages, insertsOf, outlineOf, pasteOf, previewOf, relinkOf } from "./shop";
@@ -457,8 +457,10 @@ const start: ServerAction = async (ctx, raw, input) => {
   const head = await projectHead(ctx.projectId);
   const brief = head?.project.brief ?? "";
   const ops: Op[] = [{ op: "set", path: ["started"], value: true }, { op: "set", path: ["briefText"], value: brief.slice(0, 7000) }];
-  // a page "created here" (a landing page) starts as a new page; a page refresh starts by picking the shop's page
-  if (!again && !d.path && !d.changes.length && ctx.piece.contentType === "landing-page") ops.push({ op: "set", path: ["source"], value: "new" });
+  // a page starts the way its type makes it (model.ts pageModesFor): an SEO landing page as a new page, the Page builder by
+  // picking the shop's page (SARCLA 09.11.2026)
+  const fix = again ? null : pageSourceFix(ctx.piece.contentType, d);
+  if (fix) ops.push({ op: "set", path: ["source"], value: fix });
   const mark = markerOf(brief);
   const path = mark ? cleanPath(mark.path) : null;
   let imported: { env: string; path: string; version: { rev: number; status: string; summary: string } | null } | null = null;
@@ -627,7 +629,8 @@ const relink: ServerAction = async (_ctx, raw, input) => relinkOf(raw, langIn(in
 export const pageKind: KindDef = {
   kind: "page",
   channel: "seo",
-  empty: (ctx) => emptyPage(ctx.piece.language),
+  // made the way its type makes a page from the first open (an SEO landing page never shows the shop's page picker)
+  empty: (ctx) => ({ ...emptyPage(ctx.piece.language), source: pageModesFor(ctx.piece.contentType)[0] }),
   toText: pageText,
   tasks: {
     rewrite, ideas, texts, translate, seo,
