@@ -89,7 +89,7 @@ function InboxLine({ api, d, set, width }: { api: StudioApi; d: NewsletterDoc; s
   const count = (n: number, max: number, on: boolean) => (on || n > max ? (
     <Typography component="span" sx={{ fontSize: "0.72rem", color: n > max ? "#c5221f" : MUTED, fontWeight: n > max ? 700 : 500, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{n > max ? `${n - max} too many` : `${n} / ${max}`}</Typography>
   ) : null);
-  const input = { fontFamily: "inherit", color: INK, p: 0, "& input": { p: "2px 4px", mx: "-4px", borderRadius: "4px", transition: "background-color .12s" }, "& input:hover": canEdit ? { bgcolor: "rgba(36,89,209,.06)" } : {}, "& input:focus": { bgcolor: "rgba(36,89,209,.08)" } };
+  const input = { fontFamily: "inherit", color: INK, p: 0, "& input": { p: "2px 4px", mx: "-4px", borderRadius: "4px", transition: "background-color .12s", textOverflow: "ellipsis" }, "& input:hover": canEdit ? { bgcolor: "rgba(36,89,209,.06)" } : {}, "& input:focus": { bgcolor: "rgba(36,89,209,.08)" } };
   return (
     <Box sx={{ width, maxWidth: "100%", mx: "auto", mb: 1.5, bgcolor: "#fff", borderRadius: "8px", boxShadow: "0 1px 2px rgba(31,45,78,.06), 0 8px 24px rgba(31,45,78,.08)", px: 2, py: 1.5, display: "flex", gap: 1.5, boxSizing: "border-box" }}>
       <Box sx={{ width: 38, height: 38, borderRadius: "50%", flexShrink: 0, bgcolor: "#d80901", color: "#fff", display: "grid", placeItems: "center", fontSize: "0.9rem", fontWeight: 700 }}>{(d.fromName || "A")[0]}</Box>

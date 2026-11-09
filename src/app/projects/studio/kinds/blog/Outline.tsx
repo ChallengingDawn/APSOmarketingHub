@@ -166,7 +166,8 @@ export function Outline({ api, d, set, sel, onPick, onAddSection, cards, fields,
   return (
     <Pane title="Build" pad={false} right={onWriteAll ? (
       <Tooltip title="The assistant writes the whole post again from the brief - Undo brings this one back">
-        <Button size="small" onClick={onWriteAll} disabled={busy !== null && busy !== undefined} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: "14px !important" }} />} sx={linkBtn}>Write it all again</Button>
+        {/* a span: the tooltip still hears the pointer while the button is off (the AI writing) */}
+        <span><Button size="small" onClick={onWriteAll} disabled={busy !== null && busy !== undefined} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: "14px !important" }} />} sx={linkBtn}>Write it all again</Button></span>
       </Tooltip>
     ) : undefined}>
       <Box ref={fit.ref} sx={{ height: fit.height ?? "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
