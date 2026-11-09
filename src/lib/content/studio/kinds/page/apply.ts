@@ -4,7 +4,8 @@
 // The studio's preview cannot run one: it is a srcDoc frame without scripts, inside the hub's own rules. So the same
 // change list is applied here, to the page's HTML, the way that script applies it:
 //   - the stylesheets go in at once; each element change finds its element(s) by the selector, in page order;
-//   - html = new inner HTML, replace = the element replaced, insert = before / after / prepend / append, text = new text,
+//   - html = new inner HTML, replace = the new block put in exactly where the element is and the element HIDDEN (kept:
+//     Undo and "Show the old one" work - Content v6), insert = before / after / prepend / append, text = new text,
 //     hide = display:none !important, attr = an attribute set;
 //   - what replace and insert put in is marked data-apso-v, and later changes do not touch marked parts;
 //   - changes run one after the other, so a change may aim at what an earlier "html" change wrote.
@@ -411,8 +412,14 @@ function withAttr(el: Node, name: string, value: (old: string | null) => string)
   return { from: at, to: at, text: ` ${name}="${escAttr(value(null))}"`, seq: 0 };
 }
 
+/** The hide a replace (and a hide) writes into an element's style. */
+const HIDDEN = "display:none !important";
+const hiddenStyle = (old: string | null) => `${old ? `${old.replace(/;\s*$/, "")};` : ""}${HIDDEN}`;
+
 function editsFor(c: AnyChange, els: Node[], from?: number): Edit[] {
   const out: Edit[] = [];
+  // a replace of `all` that finds an element inside another it finds: the outer one only (the inner goes with it)
+  if (c.op === "replace" && els.length > 1) els = els.filter((el) => !els.some((o) => o !== el && o.start <= el.start && el.end <= o.end));
   els.forEach((el, seq) => {
     const isVoid = VOID.has(el.tag);
     let e: Edit | null = null;
@@ -423,7 +430,14 @@ function editsFor(c: AnyChange, els: Node[], from?: number): Edit[] {
     switch (c.op) {
       case "html": if (!isVoid) e = { from: el.openEnd, to: el.closeStart, text: c.html, seq }; break;
       case "text": if (!isVoid) e = { from: el.openEnd, to: el.closeStart, text: escText(c.text), seq }; break;
-      case "replace": e = { from: el.start, to: el.end, text: markFragment(c.html, from), seq }; break;
+      // Content v6 (SARCLA 09.11.2026, point 10): the element is HIDDEN, never deleted - kept for Undo and "Show the old
+      // one" (the preview says which change hid it: data-apx-hid) - and the new block stands exactly where it was
+      case "replace": {
+        out.push({ from: el.start, to: el.start, text: markFragment(c.html, from), seq });
+        if (from !== undefined) out.push({ ...withAttr(el, "data-apx-hid", (old) => (old ? `${old} ${from}` : String(from))), seq: seq + 0.5 });
+        e = { ...withAttr(el, "style", hiddenStyle), seq };
+        break;
+      }
       case "insert": {
         const f = markFragment(c.html, from);
         if (c.where === "before") e = { from: el.start, to: el.start, text: f, seq };
@@ -431,7 +445,7 @@ function editsFor(c: AnyChange, els: Node[], from?: number): Edit[] {
         else if (!isVoid) e = c.where === "prepend" ? { from: el.openEnd, to: el.openEnd, text: f, seq } : { from: el.closeStart, to: el.closeStart, text: f, seq };
         break;
       }
-      case "hide": e = { ...withAttr(el, "style", (old) => `${old ? `${old.replace(/;\s*$/, "")};` : ""}display:none !important`), seq }; break;
+      case "hide": e = { ...withAttr(el, "style", hiddenStyle), seq }; break;
       case "attr": e = { ...withAttr(el, c.name.toLowerCase(), () => c.value), seq }; break;
     }
     if (e) out.push(e);
