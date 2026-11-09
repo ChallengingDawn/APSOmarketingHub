@@ -3,7 +3,9 @@
 // right, then approves. Every revision is kept, so a version can be read back step by step. Nothing here reaches the
 // shop: the test (the A/B testing section) and Magento come after an approval.
 //
-// Tables: apsomh_convert_ideas, apsomh_convert_versions (one per idea), apsomh_convert_revisions.
+// Tables: apsomh_convert_ideas, apsomh_convert_versions (A, B, C... per idea - SARCLA 09.11.2026: "always multiple or 1
+// version for a/b testing"), apsomh_convert_revisions. An idea is SENT TO A PROJECT (Content) with its versions - "so
+// approve is more sent to project" (SARCLA 09.11.2026): the send approves its versions and keeps the project's id.
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { getPool, query } from "@/lib/db/client";
@@ -71,6 +73,12 @@ CREATE TABLE IF NOT EXISTS apsomh_convert_revisions (
   at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (version_id, rev)
 );
+ALTER TABLE apsomh_convert_versions ADD COLUMN IF NOT EXISTS letter text NOT NULL DEFAULT 'A';
+ALTER TABLE apsomh_convert_versions DROP CONSTRAINT IF EXISTS apsomh_convert_versions_idea_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS apsomh_convert_versions_idea_letter ON apsomh_convert_versions (idea_id, letter);
+ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS sent_by text;
+ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS sent_at timestamptz;
+ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS project_id bigint;
 `;
 
 let schemaReady: Promise<void> | null = null;
@@ -181,6 +189,8 @@ export type Idea = {
   /** The block of the page it is about, as the AI read it from the drawn page (a CSS selector) - the preview marks it
    *  with the idea's number (SARCLA 08.11.2026: "ideas should underline the block"). null = the whole page / by hand. */
   target?: string | null;
+  /** Sent to a Content project (with its versions, approved by the send): who, when, which project. */
+  sentBy?: string | null; sentAt?: string | null; projectId?: string | null;
 };
 /** The AI's reading of one page, written with its ideas: what works, what stops buyers. */
 export type Analysis = { text: string; at: string; by: string | null };
@@ -188,6 +198,8 @@ export type VersionStatus = "draft" | "approved";
 export type Version = {
   id: string; ideaId: string; env: Env; path: string; rev: number; changes: Change[]; summary: string; status: VersionStatus;
   createdBy: string | null; createdAt: string; updatedAt: string; approvedBy: string | null; approvedAt: string | null;
+  /** A, B, C... - an optimization's versions, the first "A". */
+  letter: string;
 };
 export type Revision = { rev: number; summary: string; request: string | null; by: string | null; at: string; count: number };
 
@@ -195,20 +207,23 @@ type IdeaRow = {
   id: string; env: Env; path: string; page_key: string; kind: PageKind; title: string; why: string; change: string; expect: string;
   source: "ai" | "person"; status: IdeaStatus; numbers: Numbers | null; created_by: string | null; created_at: Date;
   decided_by: string | null; decided_at: Date | null; impact: number | null; confidence: number | null; effort: number | null; target: string | null;
+  sent_by?: string | null; sent_at?: Date | null; project_id?: string | null;
 };
 type VersionRow = {
   id: string; idea_id: string; env: Env; path: string; rev: number; changes: Change[]; summary: string; status: VersionStatus;
-  created_by: string | null; created_at: Date; updated_at: Date; approved_by: string | null; approved_at: Date | null;
+  created_by: string | null; created_at: Date; updated_at: Date; approved_by: string | null; approved_at: Date | null; letter: string | null;
 };
 const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 const toIdea = (r: IdeaRow): Idea => ({
   id: String(r.id), env: r.env, path: r.path, pageKey: r.page_key, kind: r.kind, title: r.title, why: r.why, change: r.change, expect: r.expect,
   source: r.source, status: r.status, numbers: r.numbers, createdBy: r.created_by, createdAt: iso(r.created_at)!, decidedBy: r.decided_by, decidedAt: iso(r.decided_at),
   impact: r.impact ?? null, confidence: r.confidence ?? null, effort: r.effort ?? null, target: r.target ?? null,
+  sentBy: r.sent_by ?? null, sentAt: iso(r.sent_at ?? null), projectId: r.project_id ? String(r.project_id) : null,
 });
 const toVersion = (r: VersionRow): Version => ({
   id: String(r.id), ideaId: String(r.idea_id), env: r.env, path: r.path, rev: r.rev, changes: r.changes, summary: r.summary, status: r.status,
   createdBy: r.created_by, createdAt: iso(r.created_at)!, updatedAt: iso(r.updated_at)!, approvedBy: r.approved_by, approvedAt: iso(r.approved_at),
+  letter: r.letter || "A",
 });
 
 /** The key ideas share across a product's languages (like Problems): "product:<8 digits>", else "page:<path>". */
@@ -221,22 +236,25 @@ export async function pageWork(env: Env, path: string): Promise<{ ideas: Idea[];
   await ensureStudioSchema();
   const [ideas, versions, analysis] = await Promise.all([
     query<IdeaRow>(`SELECT * FROM apsomh_convert_ideas WHERE env = $1 AND path = $2 ORDER BY (status = 'dropped'), id DESC`, [env, path]),
-    query<VersionRow>(`SELECT * FROM apsomh_convert_versions WHERE env = $1 AND path = $2 ORDER BY id DESC`, [env, path]),
+    query<VersionRow>(`SELECT * FROM apsomh_convert_versions WHERE env = $1 AND path = $2 ORDER BY idea_id DESC, letter`, [env, path]),
     query<{ text: string; by_whom: string | null; at: Date }>(`SELECT text, by_whom, at FROM apsomh_convert_analyses WHERE env = $1 AND path = $2`, [env, path]),
   ]);
   const a = analysis.rows[0];
   return { ideas: ideas.rows.map(toIdea), versions: versions.rows.map(toVersion), analysis: a && a.text ? { text: a.text, by: a.by_whom, at: iso(a.at)! } : null };
 }
 
-export type BoardRow = Idea & { version: Pick<Version, "id" | "rev" | "status" | "updatedAt"> | null };
+export type BoardRow = Idea & { version: Pick<Version, "id" | "rev" | "status" | "updatedAt"> | null; versions: number };
 export async function board(): Promise<BoardRow[]> {
   await ensureStudioSchema();
-  const r = await query<IdeaRow & { v_id: string | null; v_rev: number | null; v_status: VersionStatus | null; v_updated: Date | null }>(
-    `SELECT i.*, v.id AS v_id, v.rev AS v_rev, v.status AS v_status, v.updated_at AS v_updated
-       FROM apsomh_convert_ideas i LEFT JOIN apsomh_convert_versions v ON v.idea_id = i.id
+  // an idea once, with its first version (A) and how many it has
+  const r = await query<IdeaRow & { v_id: string | null; v_rev: number | null; v_status: VersionStatus | null; v_updated: Date | null; v_n: number | null }>(
+    `SELECT i.*, v.id AS v_id, v.rev AS v_rev, v.status AS v_status, v.updated_at AS v_updated,
+            (SELECT count(*)::int FROM apsomh_convert_versions x WHERE x.idea_id = i.id) AS v_n
+       FROM apsomh_convert_ideas i
+       LEFT JOIN LATERAL (SELECT * FROM apsomh_convert_versions y WHERE y.idea_id = i.id ORDER BY y.letter LIMIT 1) v ON true
       ORDER BY COALESCE(v.updated_at, i.decided_at, i.created_at) DESC LIMIT 500`,
   );
-  return r.rows.map((x) => ({ ...toIdea(x), version: x.v_id ? { id: String(x.v_id), rev: x.v_rev ?? 1, status: x.v_status ?? "draft", updatedAt: iso(x.v_updated)! } : null }));
+  return r.rows.map((x) => ({ ...toIdea(x), version: x.v_id ? { id: String(x.v_id), rev: x.v_rev ?? 1, status: x.v_status ?? "draft", updatedAt: iso(x.v_updated)! } : null, versions: Number(x.v_n ?? 0) }));
 }
 
 export async function setIdeaStatus(id: string, status: IdeaStatus, by: string): Promise<Idea | null> {
@@ -288,12 +306,12 @@ export async function revisions(versionId: string): Promise<Revision[]> {
 }
 
 /** A new revision of a version (or its first): the list replaced, the old one kept in the revisions. */
-async function saveRevision(idea: Idea, changes: Change[], summary: string, request: string | null, by: string): Promise<Version> {
+async function saveRevision(idea: Idea, changes: Change[], summary: string, request: string | null, by: string, letter = "A"): Promise<Version> {
   const pool = getPool();
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const cur = await client.query<VersionRow>(`SELECT * FROM apsomh_convert_versions WHERE idea_id = $1 FOR UPDATE`, [idea.id]);
+    const cur = await client.query<VersionRow>(`SELECT * FROM apsomh_convert_versions WHERE idea_id = $1 AND letter = $2 FOR UPDATE`, [idea.id, letter]);
     let v: VersionRow;
     if (cur.rows[0]) {
       const u = await client.query<VersionRow>(
@@ -302,8 +320,8 @@ async function saveRevision(idea: Idea, changes: Change[], summary: string, requ
       v = u.rows[0];
     } else {
       const i = await client.query<VersionRow>(
-        `INSERT INTO apsomh_convert_versions (idea_id, env, path, changes, summary, created_by) VALUES ($1, $2, $3, $4::jsonb, $5, $6) RETURNING *`,
-        [idea.id, idea.env, idea.path, JSON.stringify(changes), summary, by]);
+        `INSERT INTO apsomh_convert_versions (idea_id, env, path, changes, summary, created_by, letter) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7) RETURNING *`,
+        [idea.id, idea.env, idea.path, JSON.stringify(changes), summary, by, letter]);
       v = i.rows[0];
     }
     await client.query(`INSERT INTO apsomh_convert_revisions (version_id, rev, changes, summary, request, by_whom) VALUES ($1, $2, $3::jsonb, $4, $5, $6)`,
@@ -336,7 +354,7 @@ export async function editVersion(versionId: string, input: unknown, by: string)
   if (!idea) return { version: null, problems: ["its idea is gone"] };
   const { changes, problems } = validateChanges(input);
   if (!changes.length) return { version: null, problems: problems.length ? problems : ["the list is empty"] };
-  return { version: await saveRevision(idea, changes, v.summary, "edited by hand", by), problems };
+  return { version: await saveRevision(idea, changes, v.summary, "edited by hand", by, v.letter), problems };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -482,12 +500,25 @@ WHERE ITS VISITORS COME FROM AND GO NEXT (Google Analytics, ${from} to ${to}, ${
   }
 }
 
-export async function proposeIdeas(env: Env, path: string, numbers: Numbers | null, by: string, drawn: string[] | null = null): Promise<AiResult<Idea[]>> {
+/** A block of the shop shown on many pages (the newsletter band, the home slider...): ./blocks.ts. */
+export type BlockFocus = { name: string; selector: string; about: string; goal: string };
+
+export async function proposeIdeas(env: Env, path: string, numbers: Numbers | null, by: string, drawn: string[] | null = null, block: BlockFocus | null = null): Promise<AiResult<Idea[]>> {
   const page = await shopPage(env, path);
   if (page.status !== 200) return { ok: false, error: `The shop answered ${page.status} for this page.` };
   const o = pageOutline(page);
   const existing = (await pageWork(env, path)).ideas.map((i) => `- ${i.title} (${i.status})`).join("\n");
-  const system = `You are the conversion specialist of a B2B web shop. You look at one page and its numbers and propose
+  const system = block
+    ? `You are the conversion specialist of a B2B web shop. You look at ONE BLOCK the shop shows on many pages - not the
+page around it - and propose 3 to 5 optimizations of that block to test, each one a clearly different direction a
+version can make (layout, order, emphasis, a picture, the call to action, its words). Rank them: the one most likely to
+move the block's goal first - it leads. Every idea's target is the block's selector or a selector inside it, copied from
+the page as drawn. Write a short reading of the block first: what it does well and what most likely holds it back.
+
+${SHOP_FACTS}
+
+${RULES}`
+    : `You are the conversion specialist of a B2B web shop. You look at one page and its numbers and propose
 3 to 5 ideas to test, each one a change on THIS page that a version can make (layout, wording, order, emphasis, a missing
 piece of information the page already has elsewhere). Rank them: the one most likely to move add-to-carts first - it
 leads. Say for each the block of the page it is about (its selector, copied from the page as drawn), and write a short
@@ -496,10 +527,16 @@ reading of the page first: what it does well and what most likely stops buyers.
 ${SHOP_FACTS}
 
 ${RULES}`;
-  const flow = await flowBrief(path, numbers);
+  const flow = block ? "" : await flowBrief(path, numbers);
+  const focus = block ? `
+
+THE BLOCK TO OPTIMIZE: ${block.name} - selector ${block.selector}
+What it is: ${block.about}
+Its goal: ${block.goal}
+Look at the lines of the page under that selector; the rest of the page is only its surroundings.` : "";
   const user = `${pageBrief(page, o, drawn)}
 
-${numbersBrief(numbers)}${flow}
+${numbersBrief(numbers)}${flow}${focus}
 ${existing ? `\nIDEAS ALREADY ON THIS PAGE (do not repeat them):\n${existing}` : ""}`;
   const r = await ask<{ analysis?: string; ideas: { title: string; why: string; change: string; expect: string; impact: number; confidence: number; effort: number; target?: string }[] }>(system, user, IDEAS_SCHEMA, 8000);
   if (!r.ok) return r;
@@ -558,10 +595,6 @@ How to write it:
   a button, a column name) of at most six words is fine. Anything longer - a sentence, a paragraph, a description -
   goes in as a visible placeholder <span class="apx-text">[Text from Content: what it must say]</span>, and the
   note says so.
-- WORDS: the page's texts are written in Content Studio, not here. Reuse the page's own words; a new label (a heading,
-  a button, a column name) of at most six words is fine. Anything longer - a sentence, a paragraph, a description -
-  goes in as a visible placeholder <span class="apx-text">[Text from Content: what it must say]</span>, and the
-  note says so.
 - New HTML: no <script>, no on...= handlers, no javascript: links, no frames. Use the shop's look (below); class names
   you add start with "apx-". Every new block also reads well on a phone (390 px): give it a mobile rule in the CSS.
 - Parts the theme draws after loading (articles' prices, availability) are not in the outline: you may aim at their
@@ -589,26 +622,52 @@ function fromAi(list: AiChange[]): unknown[] {
   });
 }
 
-/** The first version of an approved idea, or a new revision from a person's request in plain words. */
-export async function writeVersion(ideaId: string, request: string | null, by: string, drawn: string[] | null = null): Promise<AiResult<{ version: Version; problems: string[] }>> {
+/** The letters an optimization's versions take, in order: A first, at most four. */
+export const VERSION_LETTERS = ["A", "B", "C", "D"] as const;
+export const nextLetter = (taken: string[]): string | null => VERSION_LETTERS.find((l) => !taken.includes(l)) ?? null;
+
+/**
+ * An optimization's version, written by the AI: its first (A), a new revision of one of them from a person's request in
+ * plain words, or ANOTHER version (B, C, D) - a different way to make the same optimization, so they can be tested
+ * against the page (SARCLA 09.11.2026: "always multiple or 1 version for a/b testing"). Writing a version is a yes to
+ * the optimization: a proposed one becomes approved.
+ */
+export async function writeVersion(ideaId: string, request: string | null, by: string, drawn: string[] | null = null, opts: { letter?: string | null; another?: boolean } = {}): Promise<AiResult<{ version: Version; problems: string[] }>> {
   await ensureStudioSchema();
-  const idea = await ideaById(ideaId);
-  if (!idea) return { ok: false, error: "No such idea." };
-  if (idea.status !== "approved") return { ok: false, error: "Approve the idea first." };
+  let idea = await ideaById(ideaId);
+  if (!idea) return { ok: false, error: "No such optimization." };
+  if (idea.status === "dropped") return { ok: false, error: "This optimization was dropped - bring it back first." };
+  if (idea.status === "proposed") idea = (await setIdeaStatus(idea.id, "approved", by)) ?? idea;
   const page = await shopPage(idea.env, idea.path);
   if (page.status !== 200) return { ok: false, error: `The shop answered ${page.status} for this page.` };
   const o = pageOutline(page);
-  const cur = (await query<VersionRow>(`SELECT * FROM apsomh_convert_versions WHERE idea_id = $1`, [idea.id])).rows[0];
+  const all = (await query<VersionRow>(`SELECT * FROM apsomh_convert_versions WHERE idea_id = $1 ORDER BY letter`, [idea.id])).rows;
+  const taken = all.map((v) => v.letter || "A");
+  let letter: string;
+  if (opts.another && all.length) {
+    const next = nextLetter(taken);
+    if (!next) return { ok: false, error: `This optimization has ${VERSION_LETTERS.length} versions already - revise one of them instead.` };
+    letter = next;
+  } else {
+    letter = opts.letter && taken.includes(opts.letter) ? opts.letter : taken[0] ?? "A";
+  }
+  const cur = all.find((v) => (v.letter || "A") === letter) ?? null;
+  const others = all.filter((v) => (v.letter || "A") !== letter);
   const user = `${pageBrief(page, o, drawn)}
 
 ${numbersBrief(idea.numbers)}
 
-THE IDEA (approved): ${idea.title}
+THE OPTIMIZATION (approved): ${idea.title}
 Why: ${idea.why}
 Change: ${idea.change}
-Expected: ${idea.expect}
-${cur && request ? `
-THE VERSION AS IT IS NOW (revision ${cur.rev}):
+Expected: ${idea.expect}${idea.target ? `\nThe block it is about: ${idea.target}` : ""}
+${opts.another && others.length ? `
+THE VERSIONS IT HAS ALREADY:
+${others.map((v) => `Version ${v.letter || "A"}: ${v.summary}`).join("\n")}
+
+WRITE VERSION ${letter}: ANOTHER way to make the same optimization - a clearly different layout, order or emphasis, not a
+copy with small changes - so the versions can be tested against the page and against each other.${request ? `\nTHE PERSON ADDS: ${request}` : ""}` : cur && request ? `
+VERSION ${letter} AS IT IS NOW (revision ${cur.rev}):
 ${JSON.stringify(cur.changes, null, 1)}
 
 THE PERSON ASKS: ${request}
@@ -617,6 +676,24 @@ Answer with the WHOLE new list (keep what they did not ask to change).` : reques
   if (!r.ok) return r;
   const { changes, problems } = validateChanges(fromAi(r.data.changes));
   if (!changes.length) return { ok: false, error: `The AI's version had no usable change${problems.length ? `: ${problems.join("; ")}` : ""} - ask again.` };
-  const version = await saveRevision(idea, changes, (r.data.summary ?? "").slice(0, 600), request, by);
+  const version = await saveRevision(idea, changes, (r.data.summary ?? "").slice(0, 600), opts.another ? (request ?? "another version") : request, by, letter);
   return { ok: true, data: { version, problems } };
+}
+
+/**
+ * SEND TO PROJECT (SARCLA 09.11.2026: "then send to project and on project is the really editor that bring to life -
+ * so approve is more sent to project"): the optimization and every version it has are approved by the send, and the
+ * Content project made for it is kept with them. The project itself is made by the caller (Content's own API).
+ */
+export async function markSent(ideaId: string, projectId: string | null, by: string): Promise<{ idea: Idea; versions: Version[] } | null> {
+  await ensureStudioSchema();
+  const i = await query<IdeaRow>(
+    `UPDATE apsomh_convert_ideas SET status = 'approved', decided_by = COALESCE(decided_by, $2), decided_at = COALESCE(decided_at, now()),
+            sent_by = $2, sent_at = now(), project_id = COALESCE($3::bigint, project_id) WHERE id = $1 AND status <> 'dropped' RETURNING *`,
+    [ideaId, by, projectId]);
+  if (!i.rows[0]) return null;
+  const v = await query<VersionRow>(
+    `UPDATE apsomh_convert_versions SET status = 'approved', approved_by = COALESCE(approved_by, $2), approved_at = COALESCE(approved_at, now()), updated_at = now()
+      WHERE idea_id = $1 RETURNING *`, [ideaId, by]);
+  return { idea: toIdea(i.rows[0]), versions: v.rows.map(toVersion).sort((a, b) => a.letter.localeCompare(b.letter)) };
 }

@@ -6,8 +6,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { isEnv } from "@/lib/convert/model";
+import { blockByKey } from "@/lib/convert/blocks";
 import {
-  addIdea, cleanDrawn, cleanPath, editVersion, pageOutline, pageWork, proposeIdeas, revisions, setIdeaStatus, setVersionStatus, shopPage, writeVersion,
+  addIdea, cleanDrawn, cleanPath, editVersion, markSent, pageOutline, pageWork, proposeIdeas, revisions, setIdeaStatus, setVersionStatus, shopPage, writeVersion,
   type IdeaStatus, type Numbers,
 } from "@/lib/convert/studio";
 
@@ -101,7 +102,9 @@ export async function POST(req: NextRequest) {
         if (!isEnv(b.env) || !path) return fail("env and path, please", 400);
         const env = b.env;
         const drawn = cleanDrawn(b.drawn);
-        return slow(() => proposeIdeas(env, path, numbersOf(b.numbers), by, drawn));
+        // a block of the shop (the newsletter band, the home slider...): the AI looks at that block only
+        const blk = typeof b.block === "string" ? blockByKey(b.block) : null;
+        return slow(() => proposeIdeas(env, path, numbersOf(b.numbers), by, drawn, blk ? { name: blk.name, selector: blk.selector, about: blk.about, goal: blk.goal } : null));
       }
       case "add": {
         const path = cleanPath(b.path);
@@ -122,7 +125,8 @@ export async function POST(req: NextRequest) {
         if (!ideaId) return fail("Which optimization?", 400);
         const request = text(b.request, 1500) || null;
         const drawn = cleanDrawn(b.drawn);
-        return slow(() => writeVersion(ideaId, request, by, drawn));
+        const letter = typeof b.letter === "string" && /^[A-D]$/.test(b.letter) ? b.letter : null;
+        return slow(() => writeVersion(ideaId, request, by, drawn, { letter, another: b.another === true }));
       }
       case "edit": {
         const versionId = id("versionId");
@@ -136,6 +140,15 @@ export async function POST(req: NextRequest) {
         if (!versionId) return fail("versionId, please", 400);
         const v = await setVersionStatus(versionId, b.action === "approve" ? "approved" : "draft", by);
         return v ? NextResponse.json({ ok: true, data: v }) : fail("no such version", 404);
+      }
+      case "sent": {
+        // the optimization went to a Content project (made by the page through Content's own API): it and its versions
+        // are approved by the send, and the project is kept with it
+        const ideaId = id("ideaId");
+        if (!ideaId) return fail("Which optimization?", 400);
+        const project = typeof b.projectId === "number" || typeof b.projectId === "string" ? String(b.projectId) : null;
+        const r = await markSent(ideaId, project && /^\d{1,12}$/.test(project) ? project : null, by);
+        return r ? NextResponse.json({ ok: true, data: r }) : fail("No such optimization (or it was dropped).", 404);
       }
       default:
         return fail("unknown action", 400);

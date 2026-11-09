@@ -23,12 +23,15 @@ export function languageOf(path: string): string | null {
 /** The line a project made from a page carries, so the preview finds it again - with the test, for a test's winner
  *  handed to Content to be published there (SARCLA 08.11.2026: "ship should not come from here, content publish should
  *  go to Content"); Content's page studio then lays exactly the tested change list over the page. */
-export const pageMarker = (env: Env, path: string, testId?: string | null) => `[APSOconvert page ${env}:${path}${testId ? ` test:${testId}` : ""}]`;
-const MARKER = /\[APSOconvert page (prod|acc):([^\]\s]+)(?: test:(\d+))?\]/;
-export function markerOf(brief: string | null): { env: Env; path: string; testId?: string } | null {
+export const pageMarker = (env: Env, path: string, testId?: string | null, versionId?: string | null) =>
+  `[APSOconvert page ${env}:${path}${testId ? ` test:${testId}` : ""}${!testId && versionId ? ` v:${versionId}` : ""}]`;
+const MARKER = /\[APSOconvert page (prod|acc):([^\]\s]+)(?: test:(\d+))?(?: v:(\d+))?\]/;
+/** The page a project was made from, and - when the marker says - the test (a winner) or the version it was sent with. */
+export function markerOf(brief: string | null): { env: Env; path: string; testId?: string; versionId?: string } | null {
   const m = MARKER.exec(brief ?? "");
   if (!m) return null;
-  return m[3] ? { env: m[1] as Env, path: m[2], testId: m[3] } : { env: m[1] as Env, path: m[2] };
+  if (m[3]) return { env: m[1] as Env, path: m[2], testId: m[3] };
+  return m[4] ? { env: m[1] as Env, path: m[2], versionId: m[4] } : { env: m[1] as Env, path: m[2] };
 }
 
 export type HandoffIdea = { title: string; why: string; change: string; expect: string };
@@ -37,6 +40,8 @@ export type HandoffInput = {
   numbers: { views?: number | null; rate?: number | null; typical?: number | null; companies?: number | null; lost?: number | null; topLoss?: string | null; reasons?: string[]; from?: string; to?: string } | null;
   ideas: HandoffIdea[];
   version: { rev: number; summary: string } | null;
+  /** An optimization sent to a project with its versions (A, B...) - the first one is the marker's version. */
+  versions?: { id: string; letter: string; rev: number; summary: string }[];
   previewPath: string;
   /** a test's winner, handed to Content to be published there */
   test?: { id: string; rateA: number | null; rateB: number | null; uplift: number | null; pB: number | null; visitors: number | null; days: number | null; decidedBy: string | null; decidedAt: string | null } | null;
@@ -58,12 +63,14 @@ export function projectForPage(x: HandoffInput): { title: string; brief: string;
     n ? `Numbers${n.from ? ` (${n.from} to ${n.to})` : ""}: ${n.views ?? "-"} views, cart rate ${pct(n.rate)} where similar pages make ${pct(n.typical)}${n.companies ? `; ${n.lost ?? 0} of ${n.companies} signed-in customers who opened it did not order${n.topLoss ? `, most stopped at "${n.topLoss}"` : ""}` : ""}.${n.reasons?.length ? `\n${n.reasons.map((r) => `- ${r}`).join("\n")}` : ""}` : null,
     x.ideas.length ? `Approved ideas - what the texts must do:\n${x.ideas.map((i, k) => `${k + 1}. ${i.title}\n   Change: ${i.change}${i.why ? `\n   Why: ${i.why}` : ""}${i.expect ? `\n   Should move: ${i.expect}` : ""}`).join("\n")}` : `No idea approved yet - start from the numbers and the page as it is.`,
     t ? `Winner of page test #${t.id}: ${pct(t.rateB)} of the visitors who got the version put something in the cart, against ${pct(t.rateA)} for the page as it is (uplift ${signed(t.uplift)}${t.pB !== null ? `, ${Math.round(t.pB * 100)}% sure it is better` : ""})${t.visitors ? `, over ${t.visitors} visitors` : ""}${t.days ? ` and ${t.days} days` : ""}${t.decidedBy ? `; decided by ${t.decidedBy}${t.decidedAt ? ` on ${t.decidedAt.slice(0, 10)}` : ""}` : ""}.` : null,
-    x.version ? `The page's new layout (version, revision ${x.version.rev}): ${x.version.summary}` : null,
+    x.versions?.length
+      ? `${x.versions.length > 1 ? `Its ${x.versions.length} versions, to test against the page as it is` : "Its version"} (laid over the page in the studio):\n${x.versions.map((v) => `- Version ${v.letter} (revision ${v.rev}): ${v.summary}`).join("\n")}`
+      : x.version ? `The page's new layout (version, revision ${x.version.rev}): ${x.version.summary}` : null,
     `See the page live, with its version beside the original: ${x.previewPath}`,
     `Use only what the page and the product data say: no invented price, stock, delivery time, certificate or approval.`,
     pageMarker(x.env, x.path),
   ].filter(Boolean) as string[];
-  const marker = pageMarker(x.env, x.path, t?.id ?? null);
+  const marker = pageMarker(x.env, x.path, t?.id ?? null, x.versions?.[0]?.id ?? null);
   lines[lines.length - 1] = marker;
   let brief = lines.join("\n\n");
   if (brief.length > 6000) brief = `${brief.slice(0, 5900 - marker.length)}…\n\n${marker}`;

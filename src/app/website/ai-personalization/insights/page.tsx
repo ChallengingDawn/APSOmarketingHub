@@ -126,7 +126,7 @@ function Discover({ r, onClose, onDone }: { r: BoardRow; onClose: () => void; on
           <Button variant="outlined" component={Link} href={previewHref(r.env, r.path, r.id)} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>See it on the page</Button>
           {r.status === "proposed" && (
             <Button variant="contained" disableElevation disabled={!!busy} onClick={() => void decide("approved")} startIcon={busy === "approved" ? <CircularProgress size={14} sx={{ color: "inherit" }} /> : undefined}
-              sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>Approve</Button>
+              sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>Yes, work on it</Button>
           )}
         </Box>
       </Box>
@@ -171,7 +171,7 @@ export default function ConvertInsights() {
         <GlassCard sx={{ p: { xs: 1.5, md: 2 } }}>
           <Box sx={{ display: "flex", gap: 1.5, rowGap: 1.25, alignItems: "center", flexWrap: "wrap" }}>
             <SquareChoice<Show> label="Show" value={show} onChange={setShow} options={[
-              { key: "decide", label: "To decide", count: view.counts.decide }, { key: "approved", label: "Approved", count: view.counts.approved }, { key: "all", label: "All", count: view.counts.all },
+              { key: "decide", label: "To decide", count: view.counts.decide }, { key: "approved", label: "In work", count: view.counts.approved }, { key: "all", label: "All", count: view.counts.all },
             ]} />
             <SquareChoice<Priority | "all"> label="Priority" value={view.pr} onChange={setPrio} options={[
               { key: "all", label: "All" }, ...view.prios.map((p) => ({ key: p.key, label: PRIO[p.key].label, count: p.n, disabled: p.n === 0 })),
@@ -210,7 +210,7 @@ export default function ConvertInsights() {
                 <Box sx={{ p: 1.5, display: "grid", gap: 1, flex: 1, alignContent: "start", bgcolor: "rgba(36,89,209,.025)" }}>
                   <Box sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>
                     <PrioTag p={p} />
-                    {x.status !== "proposed" && <Chip tint={x.status === "approved" ? "green" : "slate"}>{x.status === "approved" ? "Approved" : "Dropped"}</Chip>}
+                    {x.status !== "proposed" && <Chip tint={x.status === "approved" ? "green" : "slate"}>{x.status === "approved" ? "In work" : "Dropped"}</Chip>}
                     {x.source === "ai" && <Tooltip title="Found by the AI"><AutoAwesomeOutlinedIcon sx={{ fontSize: 16, color: "#6a46c9", ml: "auto" }} /></Tooltip>}
                   </Box>
                   <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK, lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{x.title}</Typography>

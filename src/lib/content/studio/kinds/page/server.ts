@@ -482,7 +482,9 @@ const start: ServerAction = async (ctx, raw, input) => {
     }
     const work = await pageWork(mark.env, path).catch(() => null);
     const newest = (list: NonNullable<typeof work>["versions"]) => [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
-    const v = work ? newest(work.versions.filter((x) => x.status === "approved")) ?? newest(work.versions) : null;
+    // the version the optimization was sent with (APSOconvert's "Send to project", marker v:<id>), else the newest approved
+    const sent = mark.versionId && work ? work.versions.find((x) => x.id === mark.versionId) ?? null : null;
+    const v = sent ?? (work ? newest(work.versions.filter((x) => x.status === "approved")) ?? newest(work.versions) : null);
     const idea = v && work ? work.ideas.find((i) => i.id === v.ideaId) : null;
     const c = classify(path);
     ops.push(

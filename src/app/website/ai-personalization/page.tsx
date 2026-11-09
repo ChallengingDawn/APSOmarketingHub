@@ -179,8 +179,8 @@ export default function ConvertOverview() {
 
       <Box sx={{ display: "grid", gap: { xs: 1.25, lg: 0 }, gridTemplateColumns: { xs: "minmax(0,1fr)", sm: "repeat(2, minmax(0,1fr))", lg: "repeat(5, minmax(0,1fr))" } }}>
         <Step n={1} icon={<TroubleshootOutlinedIcon />} tint="#c2185b" title="Problem pages" value={num(n.flagged)} line={n.flagged === null ? "Reading Google Analytics…" : `pages losing buyers · ${full(n.missed)} add-to-carts missed`} href={`${CONVERT}/problems`} />
-        <Step n={2} icon={<TipsAndUpdatesOutlinedIcon />} tint="#a96a12" title="Optimizations" value={num(n.waiting)} line={`waiting for a yes or no · ${n.approved} approved, no version yet`} href={`${CONVERT}/insights`} />
-        <Step n={3} icon={<PreviewOutlinedIcon />} tint="#6a46c9" title="Versions" value={num(n.ready)} line={`ready to test · ${n.shaping} being shaped`} href={`${CONVERT}/preview`} />
+        <Step n={2} icon={<TipsAndUpdatesOutlinedIcon />} tint="#a96a12" title="Optimizations" value={num(n.waiting)} line={`waiting for a yes or no · ${n.approved} in work, no version yet`} href={`${CONVERT}/insights`} />
+        <Step n={3} icon={<PreviewOutlinedIcon />} tint="#6a46c9" title="Versions" value={num(n.ready)} line={`sent to a project, ready to test · ${n.shaping} being shaped`} href={`${CONVERT}/preview`} />
         <Step n={4} icon={<CompareOutlinedIcon />} tint="#2459d1" title="Tests" value={num(n.running)} line={`running on the shop · ${n.drafts} ${n.drafts === 1 ? "draft" : "drafts"}`} href={`${CONVERT}/tests`} />
         <Step n={5} icon={<RocketLaunchOutlinedIcon />} tint="#1b7a55" title="Winners" value={num(n.won)} line={`to publish from Content · ${n.shipped} published`} href={`${CONVERT}/ship`} last />
       </Box>

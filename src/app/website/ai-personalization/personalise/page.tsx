@@ -71,7 +71,7 @@ function Maker({ d, onMade, ask }: { d: Data; onMade: () => void; ask: (c: Confi
       <CardTitle icon={<AddCircleOutlineIcon />} tint="purple" title="A new personalisation" note="An approved version, for an audience - everyone in it gets the version" />
       {d.candidates.length === 0 ? (
         <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>
-          No approved version yet - approve one in the <Box component={Link} href="/website/ai-personalization/preview" sx={{ color: ACCENT, fontWeight: 600 }}>Preview</Box> first.
+          No version sent to a project yet - send one from the <Box component={Link} href="/website/ai-personalization/preview" sx={{ color: ACCENT, fontWeight: 600 }}>Preview</Box> first.
         </Typography>
       ) : (
         <Box sx={{ display: "grid", gap: 1.5 }}>

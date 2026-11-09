@@ -31,7 +31,7 @@ import type { Env, PageKind } from "@/lib/convert/model";
 
 // BY PAGE (SARCLA 08.11.2026: "we should really show the pages"): the ideas of each page beside its picture, the page
 // with the newest work first; the board by stage stays one click away.
-const SHORT: Record<Column, string> = { proposed: "Waiting", approved: "Approved", building: "In preview", ready: "Ready to test" };
+const SHORT: Record<Column, string> = { proposed: "Waiting", approved: "Yes", building: "In preview", ready: "Sent to project" };
 const ORDER: Record<Column, number> = { ready: 0, building: 1, approved: 2, proposed: 3 };
 type PageGroup = { env: Env; path: string; kind: PageKind; last: string; rows: BoardRow[] };
 
@@ -87,9 +87,9 @@ function ByPage({ groups, inContent }: { groups: PageGroup[]; inContent: Set<str
 type Column = "proposed" | "approved" | "building" | "ready";
 const COLUMNS: { key: Column; name: string; line: string; tint: "amber" | "green" | "blue" | "purple" }[] = [
   { key: "proposed", name: "Waiting for a yes or no", line: "The AI proposed them", tint: "amber" },
-  { key: "approved", name: "Approved", line: "Its version is not written yet", tint: "green" },
+  { key: "approved", name: "Yes, no version yet", line: "Its version is not made yet", tint: "green" },
   { key: "building", name: "In preview", line: "The version is being shaped", tint: "blue" },
-  { key: "ready", name: "Ready to test", line: "The version is approved", tint: "purple" },
+  { key: "ready", name: "Sent to project", line: "With its versions, in Content - ready to test", tint: "purple" },
 ];
 const columnOf = (r: BoardRow): Column | null =>
   r.status === "dropped" ? null : r.status === "proposed" ? "proposed" : !r.version ? "approved" : r.version.status === "approved" ? "ready" : "building";
@@ -200,7 +200,7 @@ export default function ConvertIdeas() {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
         title="Optimizations"
-        subtitle="What to change on which page: the AI proposes, a person approves, the preview shows the version"
+        subtitle="What to change on which page: the AI proposes, the preview shows it Before | After, a person sends it to a project"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}

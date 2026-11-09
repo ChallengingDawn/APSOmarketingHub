@@ -79,6 +79,7 @@ if(typeof e.data.${PREVIEW_MARK}Marks==="boolean"){if(e.data.${PREVIEW_MARK}Mark
 var quiet=0,sent=0;function ratio(){var h=document.documentElement.scrollHeight-innerHeight;return h>0?scrollY/h:0;}
 addEventListener("scroll",function(){if(Date.now()<quiet)return;var n=Date.now();if(n-sent<60)return;sent=n;tell({t:"scroll",y:ratio()});},{passive:true});
 addEventListener("message",function(e){if(e.source!==parent||!e.data||typeof e.data.${PREVIEW_MARK}Scroll!=="number")return;quiet=Date.now()+250;var h=document.documentElement.scrollHeight-innerHeight;scrollTo(0,Math.round(e.data.${PREVIEW_MARK}Scroll*Math.max(0,h)));});
+addEventListener("message",function(e){if(e.source!==parent||!e.data||typeof e.data.${PREVIEW_MARK}Goto!=="string")return;quiet=Date.now()+900;var found=false;try{var gl=document.querySelectorAll(e.data.${PREVIEW_MARK}Goto);for(var q=0;q<gl.length;q++){if(gl[q].checkVisibility&&!gl[q].checkVisibility({opacityProperty:true,visibilityProperty:true}))continue;var gr=gl[q].getBoundingClientRect();if(!gr.width&&!gr.height)continue;scrollTo(0,Math.max(0,scrollY+gr.top-Math.min(120,innerHeight*0.15)));found=true;break;}}catch(er){}tell({t:"goto",found:found});});
 var SPRITE=window.__apsoSprite;if(SPRITE&&window.MutationObserver){var fix=function(root){var u=root.querySelectorAll?root.querySelectorAll("use"):[];for(var i=0;i<u.length;i++){["href","xlink:href"].forEach(function(a){var v=u[i].getAttribute(a);if(v&&v.indexOf(SPRITE+"#")===0)u[i].setAttribute(a,v.slice(SPRITE.length));});}};
 new MutationObserver(function(ms){ms.forEach(function(m){if(m.type==="attributes"){var t=m.target;if(t&&t.parentNode)fix(t.parentNode);return;}m.addedNodes.forEach(function(n){if(n.nodeType===1)fix(n);});});}).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:["href","xlink:href"]});}
 var spots=[],spotFocus=null,spotLayer=null,spotTimer=null,spotCss=document.createElement("style");
@@ -161,6 +162,17 @@ export function stillPage(html: string, focus?: string | null): string {
  */
 export function markFocus(html: string, selector: string): string {
   const anchor = '<a id="apso-focus"></a>';
+  // a block by its position among the page's Page Builder rows (./blocks.ts: div[data-content-type="row"]:nth-of-type(3))
+  const nth = /^([a-z][a-z0-9-]*)?\[([a-z-]+)=["']?([\w-]+)["']?\]:nth-of-type\((\d{1,3})\)$/i.exec(selector.trim());
+  if (nth) {
+    const re = new RegExp(`<(${nth[1] ?? "[a-z][a-z0-9-]*"})\\b([^>]*\\b${nth[2]}=["']${nth[3]}["'][^>]*)>`, "gi");
+    let k = 0;
+    for (let x = re.exec(html); x; x = re.exec(html)) {
+      if (++k < Number(nth[4])) continue;
+      const tagged = /\bclass=["']/i.test(x[2]) ? x[0].replace(/\bclass=(["'])/i, 'class=$1apx-still-focus ') : x[0].replace(/^<([a-z][a-z0-9-]*)/i, '<$1 class="apx-still-focus"');
+      return html.slice(0, x.index) + anchor + tagged + html.slice(x.index + x[0].length);
+    }
+  }
   const last = selector.trim().split(/\s*[>\s+~]\s*/).pop() ?? "";
   const m = /^([a-z][a-z0-9-]*)?(?:#([\w-]+))?((?:\.[\w-]+)*)$/i.exec(last);
   if (m && (m[1] || m[2] || m[3])) {
