@@ -67,9 +67,20 @@ export function StudioPanes({ build, preview, assist, buildWidth = 380, assistWi
   const [bw, setBw, keepB] = usePaneWidth(`${id}:build`, buildWidth, 260, 760);
   const [aw, setAw, keepA] = usePaneWidth(`${id}:assist`, assistWidth, 260, 620);
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  // the panes fill the window under whatever sits above them (the studio's bar, a sandbox's banner) - with the fixed
+  // bar height alone, the sandbox's banner pushed the foot of every pane (the LAST STEP) under the window's edge
+  const [top, setTop] = useState(STUDIO_BAR);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const measure = () => { const el = rootRef.current; if (el) setTop(Math.max(0, Math.round(el.getBoundingClientRect().top + window.scrollY))); };
+    measure();
+    window.addEventListener("resize", measure);
+    const t = setTimeout(measure, 400);
+    return () => { window.removeEventListener("resize", measure); clearTimeout(t); };
+  }, []);
   return (
-    <Box sx={{
-      display: "grid", gap: 1.5, p: 1.5, boxSizing: "border-box", height: { lg: `calc(100vh - ${STUDIO_BAR}px)` },
+    <Box ref={rootRef} sx={{
+      display: "grid", gap: 1.5, p: 1.5, boxSizing: "border-box", height: { lg: `calc(100vh - ${top}px)` },
       gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: [hideBuild ? "" : `${bw}px 0`, "minmax(420px, 1fr)", assist && !hideAssist ? `0 ${aw}px` : ""].filter(Boolean).join(" ") },
     }}>
       <Box sx={{ minHeight: 0, minWidth: 0, order: { xs: 2, lg: 1 }, display: { lg: hideBuild ? "none" : "block" } }}>{build}</Box>
