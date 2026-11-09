@@ -107,3 +107,16 @@ test("a whole page written again: changes that came back the same keep their id 
   assert.equal(next[1].off, "Looks wrong - not applied: grey on petrol");
   assert.match(next[2].id ?? "", /^c/);
 });
+
+test("Text and picture (the +, no AI): the kit's way under its prefix, a photo of the page, its words marked as still to write", async () => {
+  const { textPictureBlock } = await import("../src/lib/content/studio/kinds/page/block");
+  const { leftoversIn } = await import("../src/lib/content/studio/kinds/page/model");
+  const html = textPictureBlock("apx-tp0001", { src: "https://www.apsoparts.com/media/wysiwyg/1_ORings_XRings_1.jpg", alt: "O-Ringe" });
+  const c = cleanBlock(html, "apx-tp0001");
+  assert.deepEqual(c.problems.filter((p) => !/placeholder/.test(p)), [], "nothing but its words to write");
+  assert.deepEqual(c.fixed, [], "nothing to put right");
+  assert.match(html, /max-width:1170px;margin:36px auto;padding:0 10px/);
+  assert.match(html, /<img src="https:\/\/www\.apsoparts\.com\/media\/wysiwyg\/1_ORings_XRings_1\.jpg" alt="O-Ringe"/);
+  assert.deepEqual(leftoversIn(html), ["[Heading]", "[Your words: one or two sentences]"]);
+  assert.doesNotMatch(textPictureBlock("apx-tp0002", null), /<img/);
+});

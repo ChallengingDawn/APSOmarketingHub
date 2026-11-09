@@ -159,7 +159,7 @@ export function lookLine(l: Look): string {
 
 /* ── the check of a new block ─────────────────────────────────────────── */
 
-export type Problem = { kind: "contrast" | "same" | "invisible" | "clipped" | "overflow" | "empty"; text: string; why: string };
+export type Problem = { kind: "contrast" | "same" | "invisible" | "clipped" | "overflow" | "empty" | "split"; text: string; why: string };
 
 const MIN_RATIO = 4.5;
 const words = (el: Element) => Array.from(el.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent ?? "").join(" ").replace(/\s+/g, " ").trim();
@@ -193,6 +193,13 @@ export function checkBlock(doc: Document, win: Win, index: number): Problem[] {
       const t = words(el);
       if (!t || t.length < 2) continue;
       const cs = win.getComputedStyle(el);
+      // words beside a <b> (a link, an <em>) in a flex or grid row: the browser puts them in columns of their own
+      const inlineKid = /(^|-)(flex|grid)$/.test(cs.display) && /\p{L}{3}/u.test(t)
+        ? Array.from(el.children).find((k) => /^(B|STRONG|EM|I|SPAN|A|SMALL|SUP|U)$/.test(k.tagName) && /\p{L}{3}/u.test(k.textContent ?? "")) : undefined;
+      if (inlineKid) {
+        const all = ((el as HTMLElement).innerText ?? t).replace(/\s+/g, " ").trim();
+        add({ kind: "split", text: cut(all), why: `"${cut(all)}" falls apart into columns: its words stand in a flex or grid row beside a <${inlineKid.tagName.toLowerCase()}> - they must sit in one element (a <span> or <p>) inside that row.` });
+      }
       if (cs.display === "none" || cs.visibility === "hidden") { add({ kind: "invisible", text: cut(t), why: `"${cut(t)}" is hidden.` }); continue; }
       let op = 1;
       for (let cur: Element | null = el; cur; cur = cur.parentElement) op *= Number(win.getComputedStyle(cur).opacity || 1);
