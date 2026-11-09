@@ -371,8 +371,9 @@ export default function ProjectWorkspace({ id }: { id: number }) {
                     {f.comment ? (
                       <Typography sx={{ mt: 0.4, fontSize: "0.9rem", lineHeight: 1.5, p: "8px 11px", borderRadius: "4px 12px 12px 12px", bgcolor: "#f3f5f9", whiteSpace: "pre-wrap", wordBreak: "break-word" }}><Tagged text={f.comment} people={w.people} /></Typography>
                     ) : (
-                      <Box sx={{ mt: 0.3, display: "flex", gap: 0.75, alignItems: "center", fontSize: "0.84rem", color: "#3d4a63" }}>
-                        <Box aria-hidden sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: f.dot, flexShrink: 0 }} />{f.line}
+                      <Box sx={{ mt: 0.3, display: "flex", gap: 0.75, alignItems: "flex-start", fontSize: "0.84rem", lineHeight: 1.5, color: "#3d4a63" }}>
+                        {/* the dot by the first line - centred on a long line that wraps, it sat mid-text like a bullet */}
+                        <Box aria-hidden sx={{ width: 7, height: 7, mt: "7px", borderRadius: "50%", bgcolor: f.dot, flexShrink: 0 }} /><Box component="span" sx={{ minWidth: 0 }}>{f.line}</Box>
                       </Box>
                     )}
                   </Box>
