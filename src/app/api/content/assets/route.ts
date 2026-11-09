@@ -5,6 +5,7 @@
 //   POST upload-part     { token, n, data }                                    one part (base64, < 6000 chars)
 //   POST upload-finish   { token, parts, kind?, name?, projectId?, pieceId? }  joined, checked, kept
 //   POST remove          { id }                                                your own picture (an admin: any)
+//   GET  ?usage=<id>                                                           where it is used (the to-dos you may open)
 // Every body stays under the 8 KB limit; a picture's bytes are read from /api/content/assets/<id>.
 
 import { NextRequest, NextResponse } from "next/server";
@@ -12,7 +13,7 @@ import { requireUser } from "@/lib/auth/guard";
 import { keepAlive } from "@/lib/http/keepAlive";
 import { accessFor } from "@/lib/content/sharing";
 import {
-  addUploadPart, ASPECTS, finishUpload, generatePicture, imagesReady, listAssets, newUploadToken, removeAsset,
+  addUploadPart, ASPECTS, finishUpload, generatePicture, imagesReady, listAssets, newUploadToken, pictureUsage, removeAsset,
   type Aspect, type AssetKind,
 } from "@/lib/content/assets";
 
@@ -29,6 +30,13 @@ export async function GET(req: NextRequest) {
   const scope = sp.get("scope") ?? "mine";
   const before = int(sp.get("before"));
   const project = int(sp.get("project"));
+  const usage = int(sp.get("usage"));
+  if (usage) {
+    const all = await pictureUsage(usage);
+    const may = new Map<number, boolean>();
+    for (const u of all) if (!may.has(u.projectId)) may.set(u.projectId, !!(await accessFor(u.projectId, me)));
+    return NextResponse.json({ ok: true, usage: all.filter((u) => may.get(u.projectId)) });
+  }
   if (scope === "project") {
     if (!project || !(await accessFor(project, me))) return fail("No such project.", 404);
     return NextResponse.json({ ok: true, images: imagesReady(), assets: await listAssets({ projectId: project, before }) });

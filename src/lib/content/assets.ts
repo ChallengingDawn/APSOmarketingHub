@@ -140,6 +140,22 @@ export async function listAssets(f: { by?: string | null; projectId?: number | n
   return r.rows.map(toAsset);
 }
 
+/**
+ * Where a picture is used (09.11.2026, the Pictures page): the to-dos whose studio document holds its address - newest
+ * first. The caller keeps only the projects the person may open.
+ */
+export async function pictureUsage(id: number): Promise<{ pieceId: number; projectId: number; title: string; project: string; contentType: string | null }[]> {
+  await ensureAssets();
+  const r = await query<{ piece_id: number; project_id: number; title: string; project: string; content_type: string | null }>(
+    `SELECT d.piece_id, p.project_id, p.title, pr.title AS project, p.content_type
+       FROM apsomh_content_piece_docs d
+       JOIN apsomh_content_pieces p ON p.id = d.piece_id
+       JOIN apsomh_content_projects pr ON pr.id = p.project_id
+      WHERE d.doc::text LIKE $1
+      ORDER BY d.updated_at DESC LIMIT 30`, [`%/api/content/picture/${id}-%`]);
+  return r.rows.map((x) => ({ pieceId: x.piece_id, projectId: x.project_id, title: x.title, project: x.project, contentType: x.content_type }));
+}
+
 export async function removeAsset(id: number, who: { username: string; admin: boolean }): Promise<boolean> {
   await ensureAssets();
   const r = await query<{ id: number }>(
