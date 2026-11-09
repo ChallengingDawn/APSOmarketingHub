@@ -144,7 +144,8 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
   const fillWith = (items: Card[], fill: ModuleSettings["fill"], patch: Partial<ModuleSettings>, label: string, note: string, missing: Missing[] = []) => {
     const c = mRef.current;
     if (!c) return;
-    const r = fitWeight({ ...c, settings: { ...c.settings, ...patch, items, fill } });
+    // what is read is the store view shown: the module is its own from then on (its links, its interface words)
+    const r = fitWeight({ ...c, settings: { ...c.settings, ...patch, items, fill, store: ctl.store } });
     change(normalizeModule(r.m) ?? r.m, label, true);
     setMsg({ tone: missing.length ? "warn" : "ok", text: `${note}${r.dropped ? ` ${r.dropped} left out - one element of the page takes 20 KB.` : ""}`, missing });
   };
@@ -231,6 +232,25 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
     return null;
   });
 
+  /** a module made in another store view (a page copied or translated): the same products, as THIS store view's shop
+   * has them (their names in its language, its addresses) - looked up by their numbers */
+  const otherStore = s.store !== ctl.store ? s.store : null;
+  const refillHere = () => run(`Finding the same products in ${ctl.store}…`, async () => {
+    const cur0 = mRef.current!;
+    const nums = [cur0.settings.feature, ...cur0.settings.items].filter((c): c is Card => !!c && c.kind === "product" && !!c.number).map((c) => c.number);
+    if (!nums.length) return `Its products carry no numbers - fill it again for ${ctl.store}.`;
+    const r = await api.act<{ cards: Card[]; missing: Missing[] }>("module_numbers", { store: ctl.store, text: nums.join(" "), count: k.max || 12 });
+    if (!r.ok) return r.error;
+    const featureIsProduct = cur0.settings.feature?.kind === "product";
+    const cards = r.result.cards;
+    const feature = featureIsProduct ? cards.shift() ?? null : null;
+    fillWith(cards, cur0.settings.fill ? { ...cur0.settings.fill, at: now() } : null,
+      { store: ctl.store, feature, link: { label: cur0.settings.link.label, url: "" } },
+      `Filled the ${k.name.toLowerCase()} for ${ctl.store}`,
+      `The same products as the ${ctl.store} shop has them.${cur0.settings.feature && !featureIsProduct ? " Its big tile was a category of " + otherStore + " - pick one of " + ctl.store + "." : ""} Its link at the top goes nowhere until you give it a ${ctl.store} page.`, r.result.missing);
+    return null;
+  });
+
   const moveItem = (i: number, by: -1 | 1) => {
     const items = [...s.items];
     const j = i + by;
@@ -257,6 +277,21 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
         </Typography>
         <Typography sx={{ fontSize: "0.72rem", color: html.length > MODULE_MAX ? "#c5221f" : MUTED, fontVariantNumeric: "tabular-nums" }} title="One element of the page takes 20 KB at most">{kb} of 20 KB</Typography>
       </Box>
+      {otherStore && ctl.canEdit && (
+        <Box sx={{ mb: 1.5, p: 1.25, borderRadius: "6px", border: `1px solid ${AMBER}55`, bgcolor: "#fdf8ef" }}>
+          <Typography sx={{ fontSize: "0.8rem", color: INK, lineHeight: 1.45 }}>
+            Made for {otherStore}: its links go to the {otherStore} shop{k.takes !== "none" ? ` and its ${k.takes} carry ${otherStore}'s names` : ""}.
+          </Typography>
+          {k.takes === "products" ? (
+            <Button size="small" disabled={!!busy} onClick={() => void refillHere()} sx={{ ...btn, mt: 0.75, px: 1, color: PINK, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", borderRadius: "6px" }}>The same products, as {ctl.store} has them</Button>
+          ) : (
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center", mt: 0.75, flexWrap: "wrap" }}>
+              <Typography sx={{ fontSize: "0.76rem", color: MUTED, flex: 1, minWidth: 180 }}>{k.takes === "categories" ? `Pick its categories again from the ${ctl.store} tree below.` : `Give its button a ${ctl.store} page below.`}</Typography>
+              <Button size="small" onClick={() => set({ store: ctl.store }, `Made the ${k.name.toLowerCase()} ${ctl.store}'s`, true)} sx={{ ...btn, px: 1, color: PINK, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", borderRadius: "6px" }}>Use {ctl.store}&apos;s words</Button>
+            </Box>
+          )}
+        </Box>
+      )}
 
       {k.takes !== "none" && (
         <>
