@@ -4,7 +4,7 @@ import {
   STORE_VIEWS, codesInSwitcher, countryGroups, countryStore, currencyOf, storeCodeOf, storeKey, storeViewByCode, viewName, viewShort,
 } from "../src/lib/content/studio/kinds/page/storeViews";
 import {
-  SHOP_STORES, abLine, addVersion, convertVersionsOf, dropVersion, howToAdd, lettersOf, mainView, opensMarkerPage, openVersion, pageDoc, pageText,
+  SHOP_STORES, abLine, addVersion, pathIn, convertVersionsOf, dropVersion, howToAdd, lettersOf, mainView, opensMarkerPage, openVersion, pageDoc, pageText,
   shopCountries, sourceHash, versionList, viewOf, viewsOf, withView, type PageDoc,
 } from "../src/lib/content/studio/kinds/page/model";
 import { CHECK_PATH, checkConnection, connectionLine, verdictOf } from "../src/lib/content/studio/kinds/page/magentoCheck";
@@ -82,6 +82,15 @@ test("an older document opens as before; a version kept under de-CH whose page i
   const eur = pageDoc({ source: "pick", store: "de-CH/eur", path: "/de-CH/eur/ueber-uns" });
   assert.equal(mainView(eur), "de-CH/eur");
   assert.deepEqual(viewsOf(eur), ["de-CH/eur"]);
+});
+
+test("the same page in a store view's second currency: under its own prefix (the hreflang links know no currency)", () => {
+  assert.equal(pathIn("/fr-CH/a-propos", "fr-CH/eur"), "/fr-CH/eur/a-propos");
+  assert.equal(pathIn("/fr-CH/eur/a-propos", "fr-CH/eur"), "/fr-CH/eur/a-propos");
+  assert.equal(pathIn("/fr-CH/a-propos", "fr-CH"), "/fr-CH/a-propos");
+  assert.equal(pathIn("/fr-FR/a-propos", "fr-CH/eur"), null, "another country's page is not it");
+  assert.equal(pathIn("/de-CH/", "de-CH/eur"), "/de-CH/eur/", "the home page too");
+  assert.equal(pathIn(null, "de-CH"), null);
 });
 
 test("the EUR twin of a store view is a copy of it (no AI), never a translation", () => {

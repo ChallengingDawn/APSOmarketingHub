@@ -4,9 +4,9 @@
 // SARCLA 09.11.2026: "the Magento connection is not working yet". It was not: the hub has no CMS key for ACC nor for
 // production yet (MAGENTO_CMS_ACC / MAGENTO_CMS_PROD are not in its task definition), so the last step could only wait.
 // It says so now per environment, and "Check the connection" - once a key is there - makes ONE read: the first CMS page
-// (GET /rest/all/V1/cmsPage/search?searchCriteria[pageSize]=1). Magento's REST API guards reading and saving a CMS page
-// with the same right (Magento_Cms::page = Content > Elements > Pages), so a key that may read pages may save them; a
-// 401 or 403 is a key Magento refuses, or an integration without that right. Never anything but a GET.
+// (GET /rest/all/V1/cmsPage/search?searchCriteria[pageSize]=1). Reading pages needs the integration's right Content >
+// Elements > Pages (Magento_Cms::page); saving one may also need its "Save Page" right - no read can tell, so the line says what
+// was proven and names the right. A 401 or 403 is a key Magento refuses, or an integration without the right. GET only.
 
 export type ConnEnv = "acc" | "prod";
 
@@ -33,7 +33,7 @@ export function verdictOf(env: ConnEnv, status: number, text: string, at = new D
   const msg = body && typeof body === "object" && "message" in body ? String((body as { message: unknown }).message) : text.slice(0, 200);
   if (status >= 200 && status < 300) {
     const total = body && typeof body === "object" && "total_count" in body ? Number((body as { total_count: unknown }).total_count) : NaN;
-    return { env, state: "connected", line: "Connected - the key may read and save pages", detail: Number.isFinite(total) ? `Magento holds ${total} CMS pages.` : null, pages: Number.isFinite(total) ? total : null, at };
+    return { env, state: "connected", line: "Connected - the key may read pages", detail: `${Number.isFinite(total) ? `Magento holds ${total} CMS pages. ` : ""}Writing also needs "Save Page" ticked under Content > Elements > Pages in the integration.`, pages: Number.isFinite(total) ? total : null, at };
   }
   if (status === 401 || status === 403) {
     // Magento says "The consumer isn't authorized to access %resources." when the integration lacks the right; a wrong or

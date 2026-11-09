@@ -779,6 +779,20 @@ export function counterpartIn(html: string, lang: string, mainStore: string, pre
   return null;
 }
 
+/**
+ * An address of the shop as the same page in one store view: itself when it is there already; the same page under the
+ * store view's own prefix when only the currency differs ("/fr-CH/a-propos" in fr-CH/eur -> "/fr-CH/eur/a-propos" - the
+ * shop's hreflang links know no currency); null when it is another store view's.
+ */
+export function pathIn(path: string | null | undefined, store: string): string | null {
+  if (!path) return null;
+  const c = classify(path);
+  const k = baseStore(store);
+  if (!k || !c.store) return null;
+  if (baseStore(c.store) === k) return path;
+  return countryStore(c.store) === countryStore(k) ? `/${k}/${c.rest}` : null;
+}
+
 /** The page's hreflang links, by the store view their address is in ("/fr-INT/x" -> fr-INT). */
 export function alternatesByStore(html: string): Record<string, string> {
   const out: Record<string, string> = {};

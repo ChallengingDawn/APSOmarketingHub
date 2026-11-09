@@ -27,7 +27,7 @@ import {
 } from "@/lib/content/studio/kinds/page/fields";
 import { PART_LABEL, mergeField, mergeFill, type Candidate, type FillAnswer, type Part } from "@/lib/content/studio/kinds/page/fill";
 import {
-  addVersion, baseStore, copyView, dropVersion, emptyPage, howToAdd, isLegacyBody, langName, langOfStore, mainView, nextPageLetter, openVersion, pageDoc, shopLanguages, shopViews, sourceHash, storeForLanguage,
+  addVersion, baseStore, copyView, dropVersion, pathIn, emptyPage, howToAdd, isLegacyBody, langName, langOfStore, mainView, nextPageLetter, openVersion, pageDoc, shopLanguages, shopViews, sourceHash, storeForLanguage,
   viewOf, viewsOf, withView, type LangOption, type LangVersion, type Leftover, type PageDoc,
 } from "@/lib/content/studio/kinds/page/model";
 import { ITEM_NAME, PICTURE_ASPECT, blockOfPath, blocksOf, busyOf, previewOf, picturesToMake, type PictureJob } from "@/lib/content/studio/kinds/page/outline";
@@ -531,8 +531,10 @@ export default function Studio({ api }: StudioProps) {
           const c = await api.act<{ ok: boolean; path: string | null; store: string | null; error?: string }>("counterpart", { lang: to, store: to });
           if (!c.ok) return c.error;
           if (!c.result.ok) return c.result.error ?? "The page could not be read.";
-          if (!c.result.path || baseStore(c.result.path.split("/")[1]) !== to) { setPicking(true); return `The shop's page in ${to} could not be found by itself - pick it in the middle, then translate again.`; }
-          path = c.result.path;
+          // the shop's hreflang links know no currency: a page of fr-CH is the fr-CH/eur one under its own prefix (Content v6)
+          const there = pathIn(c.result.path, to);
+          if (!there) { setPicking(true); return `The shop's page in ${to} could not be found by itself - pick it in the middle, then translate again.`; }
+          path = there;
         }
       }
       const r = await api.ai<Translated>("translate", { to, store: to });
@@ -804,7 +806,7 @@ export default function Studio({ api }: StudioProps) {
     const there = presenceRef.current[lang]?.path;
     const c = there ? null : await api.act<{ ok: boolean; path: string | null; error?: string }>("counterpart", { lang, store: lang });
     setFinding(false);
-    const path = there ?? (c?.ok && c.result.ok && c.result.path && baseStore(c.result.path.split("/")[1]) === lang ? c.result.path : null);
+    const path = there ?? (c?.ok && c.result.ok ? pathIn(c.result.path, lang) : null);
     if (path) { const v = viewOf(docRef.current, lang); setView({ ...v, path }, `Found the ${lang} page`); }
     else setPicking(true);
   };

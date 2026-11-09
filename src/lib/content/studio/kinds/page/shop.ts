@@ -28,7 +28,7 @@ import { pasteBlock, prefixFor, stillMarkup } from "../banner/render";
 import { STILL_CSS, absoluteCss, applyChanges, innerOf, insideOf, stillPage, stylesheetsOf, type AnyChange, type Hit } from "./apply";
 import { fieldPictures } from "./fields";
 import {
-  INSERT_WHERE_LABEL, MAIN_SELECTOR, alternatesByStore, baseStore, changeLine, countryStore, counterpartIn, finalChanges, isLegacyBody, langOfStore, languageOfStore, newPagePaste, pageDoc,
+  INSERT_WHERE_LABEL, MAIN_SELECTOR, alternatesByStore, baseStore, changeLine, countryStore, pathIn, counterpartIn, finalChanges, isLegacyBody, langOfStore, languageOfStore, newPagePaste, pageDoc,
   styleBlock, unwritten, leftoversOf, urlKeyOf, viewName, viewOf, type Insert, type PageDoc, type PageOutline, type PasteBlock,
 } from "./model";
 import { renderNewPage, type InsertHtml } from "./newpage";
@@ -277,7 +277,9 @@ export async function relinkOf(raw: unknown, lang: string): Promise<{ map: Recor
   const missing: string[] = [];
   for (const u of urls) {
     const r = await readPath(doc.env, u, false);
-    const to = r.ok ? counterpartIn(r.page.html, lang, store, store) : null;
+    // a store view in its second currency (fr-CH/eur): the same page under its own prefix (pathIn)
+    const found = r.ok ? counterpartIn(r.page.html, lang, store, store) : null;
+    const to = pathIn(found, store) ?? found;
     if (to) map[u] = to; else missing.push(u);
   }
   return { map, missing };
