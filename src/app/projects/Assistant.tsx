@@ -226,7 +226,7 @@ export default function Assistant({
                   onClick={() => ask(o)}
                   sx={{
                     cursor: "pointer", fontFamily: "inherit", fontSize: "0.78rem",
-                    px: 1.1, py: 0.6, borderRadius: "999px",
+                    px: 1.1, py: 0.6, borderRadius: "6px",
                     border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", color: MUTED,
                     "&:hover": { borderColor: ACCENT, color: ACCENT },
                   }}

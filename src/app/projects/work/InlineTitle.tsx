@@ -8,9 +8,11 @@ import InputBase from "@mui/material/InputBase";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import { INK, MUTED } from "@/app/uc/report/ui";
 
-export function InlineTitle({ value, onSave, canEdit, size = "0.98rem", weight = 700, maxWidth, placeholder = "Give it a title", label = "Title" }: {
+export function InlineTitle({ value, onSave, canEdit, size = "0.98rem", weight = 700, maxWidth, placeholder = "Give it a title", label = "Title", wrapOnPhone = false }: {
   value: string; onSave: (next: string) => Promise<unknown> | void; canEdit: boolean;
   size?: string; weight?: number; maxWidth?: number | string | Record<string, number | string>; placeholder?: string; label?: string;
+  /** on a phone the words wrap instead of ending in "…" (a page's own name) */
+  wrapOnPhone?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -43,7 +45,7 @@ export function InlineTitle({ value, onSave, canEdit, size = "0.98rem", weight =
         "& .pen": { opacity: 0, transition: "opacity .12s" },
         ...(canEdit ? { "&:hover": { bgcolor: "rgba(36,89,209,.07)" }, "&:hover .pen, &:focus-visible .pen": { opacity: 1 }, "&:focus-visible": { outline: "2px solid #2459d1" } } : {}),
       }}>
-      <Box component="span" sx={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, color: value ? INK : MUTED }}>{value || placeholder}</Box>
+      <Box component="span" sx={{ whiteSpace: wrapOnPhone ? { xs: "normal", sm: "nowrap" } : "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, color: value ? INK : MUTED }}>{value || placeholder}</Box>
       {canEdit && <EditOutlinedIcon className="pen" sx={{ fontSize: "1em", color: MUTED, flexShrink: 0 }} />}
     </Box>
   );

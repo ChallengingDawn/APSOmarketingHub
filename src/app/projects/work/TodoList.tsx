@@ -27,6 +27,7 @@ import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
+import CheckIcon from "@mui/icons-material/Check";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -234,7 +235,7 @@ function PlanTicketDialog({ w, open, piece, ticket, place, act, onClose, onDone 
   );
   const step = (n: number, title: string, done: boolean) => (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-      <Box sx={{ width: 22, height: 22, borderRadius: "6px", display: "grid", placeItems: "center", fontSize: "0.75rem", fontWeight: 800, bgcolor: done ? "#1b7a55" : "#eef1f6", color: done ? "#fff" : MUTED }}>{done ? "✓" : n}</Box>
+      <Box sx={{ width: 22, height: 22, borderRadius: "6px", display: "grid", placeItems: "center", fontSize: "0.75rem", fontWeight: 800, bgcolor: done ? "#1b7a55" : "#eef1f6", color: done ? "#fff" : MUTED }}>{done ? <CheckIcon sx={{ fontSize: 15 }} /> : n}</Box>
       <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".05em" }}>{title}</Typography>
     </Box>
   );
