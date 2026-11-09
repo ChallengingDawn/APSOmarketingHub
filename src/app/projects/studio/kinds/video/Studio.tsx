@@ -181,6 +181,9 @@ function OnFilm({ box, scale, title, fields, onKeep, onDrop }: {
     return () => { clearTimeout(t); document.removeEventListener("mousedown", down, true); };
   }, []);
   const w = Math.max(300, Math.min(440, box.w * scale));
+  // the cursor lands in the scene's big words (the claim, the headline), not in the small line over them - a double-click
+  // on the film is nearly always on those (QA 09.11: it went to "Feature" and the words typed landed there)
+  const main = Math.max(0, fields.findIndex((f) => f.red));
   return (
     <Box ref={card} role="dialog" aria-label={`${title} - typed on the film`}
       onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
@@ -196,7 +199,7 @@ function OnFilm({ box, scale, title, fields, onKeep, onDrop }: {
         {title} <Box component="span" sx={{ fontWeight: 500, color: MUTED }}>· Enter keeps it, Esc drops it</Box>
       </Typography>
       {fields.map((f, i) => (
-        <WordField key={f.key} label={f.label} value={f.value} words={f.words} red={f.red} multiline={f.multiline} autoFocus={i === 0} onChange={f.onChange} />
+        <WordField key={f.key} label={f.label} value={f.value} words={f.words} red={f.red} multiline={f.multiline} autoFocus={i === main} onChange={f.onChange} />
       ))}
     </Box>
   );
@@ -371,7 +374,7 @@ export default function Studio({ api }: StudioProps) {
       {hasScenes && (
         <Kick right={makingFilm ? <Writing label={busy?.label === "Made the film again" ? "Making it again" : "Writing the film"} since={busy?.since ?? null} /> : canEdit ? (
           <Button size="small" disabled={!api.data.ai || !!busy} onClick={() => void makeFilm()} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />}
-            sx={{ ...btn, color: PINK, px: 0.75, py: 0.1, fontSize: "0.76rem", minWidth: 0 }}>Make it all again</Button>
+            sx={{ ...btn, color: PINK, px: 0.75, py: 0.1, fontSize: "0.76rem", minWidth: 0 }}>Write it all again</Button>
         ) : undefined}>
           The film · {film.scenes.length} scene{film.scenes.length === 1 ? "" : "s"} · {seconds(totalFrames(film))} s
         </Kick>

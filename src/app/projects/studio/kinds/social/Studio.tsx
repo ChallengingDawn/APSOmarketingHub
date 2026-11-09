@@ -290,7 +290,7 @@ export default function Studio({ api }: StudioProps) {
         </Box>
         {panel && (
           <>
-            <BackRow label="Build" onClick={() => setPanel(null)} right={panel === "publish"
+            <BackRow label={panel === "publish" ? "The post" : "Build"} onClick={() => setPanel(null)} right={panel === "publish"
               ? <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: T.accent, pr: 0.75 }}>Last step · Publish</Typography>
               : undefined} />
             <Box sx={{ flex: 1, minHeight: 0, width: leftW }}>
