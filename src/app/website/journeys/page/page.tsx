@@ -199,7 +199,8 @@ function Flow({ path }: { path: string }) {
           </Box>
           <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", fontSize: "0.84rem" }}>
             <Box component={Link} href={previewHref("prod", path)} sx={linkSx}>Preview</Box>
-            <Box component={Link} href={PROBLEMS_HREF} sx={linkSx}>Insights</Box>
+            {inConvert && <Box component={Link} href={`${previewHref("prod", path)}&clicks=1`} sx={linkSx}>Clicks</Box>}
+            <Box component={Link} href={PROBLEMS_HREF} sx={linkSx}>Problem pages</Box>
             <Box component={Link} href={journeysBase(inConvert)} sx={linkSx}>Main journeys</Box>
           </Box>
         </Box>

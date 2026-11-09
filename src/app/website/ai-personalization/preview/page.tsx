@@ -783,7 +783,7 @@ function ConvertPreview() {
           ) : (
             <Box sx={{ px: { xs: 2, md: 2.5 }, py: 1.25, borderTop: `1px solid ${HAIRLINE}`, display: "flex", gap: 0.75, alignItems: "center" }}>
               <InsightsOutlinedIcon sx={{ fontSize: 16, color: MUTED }} />
-              <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{prob.result === null ? "Reading its numbers…" : "Not on Insights in this period - few views or customers, or it sells as expected."}</Typography>
+              <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{prob.result === null ? "Reading its numbers…" : "Not among the problem pages in this period - few views or customers, or it sells as expected."}</Typography>
             </Box>
           )}
           {numbers?.reasons?.length ? (
