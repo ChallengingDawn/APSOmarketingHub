@@ -32,8 +32,8 @@ import { CHANNEL, EMPTY, Frame, dm, lang, lastDays, n0, pct, useTranslator, type
 
 type Period = "7" | "30" | "90" | "365";
 const PERIODS: { key: Period; label: string }[] = [{ key: "7", label: "7 days" }, { key: "30", label: "30 days" }, { key: "90", label: "90 days" }, { key: "365", label: "12 months" }];
-type Tab = "time" | "langs" | "inboxes" | "agents" | "hours" | "speed";
-const HASH: Record<Tab, string> = { time: "#over-time", langs: "#languages", inboxes: "#inboxes", agents: "#agents", hours: "#hours", speed: "#speed" };
+type Tab = "time" | "coverage" | "langs" | "inboxes" | "agents" | "hours" | "speed";
+const HASH: Record<Tab, string> = { time: "#over-time", coverage: "#coverage", langs: "#languages", inboxes: "#inboxes", agents: "#agents", hours: "#hours", speed: "#speed" };
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 /** A day's figures as the pages count them - a day before 09.11.2026 knows only its totals. */
@@ -43,23 +43,25 @@ function figures(d: Day) {
     inc: k ? k.incoming ?? 0 : d.n - d.replies,
     notes: k ? (k.lang ?? 0) + (k.reply ?? 0) : d.replies,
     replies: d.replies, convs: d.convs ?? 0, english: d.english ?? 0, failed: d.failed ?? 0, chars: d.chars,
+    // not translated: customer messages in another language left without a comment (the days the translator was down)
+    missed: d.missed ?? 0,
   };
 }
 type Fig = ReturnType<typeof figures>;
 const ZERO: Fig = figures(EMPTY);
-const plus = (a: Fig, b: Fig): Fig => ({ inc: a.inc + b.inc, notes: a.notes + b.notes, replies: a.replies + b.replies, convs: a.convs + b.convs, english: a.english + b.english, failed: a.failed + b.failed, chars: a.chars + b.chars });
+const plus = (a: Fig, b: Fig): Fig => ({ inc: a.inc + b.inc, notes: a.notes + b.notes, replies: a.replies + b.replies, convs: a.convs + b.convs, english: a.english + b.english, failed: a.failed + b.failed, chars: a.chars + b.chars, missed: a.missed + b.missed });
 const merge = (into: Record<string, number>, from?: Record<string, number> | Partial<Record<string, number>>) => {
   for (const [k, v] of Object.entries(from ?? {})) into[k] = (into[k] ?? 0) + (v ?? 0);
   return into;
 };
-/** The breakdowns a day may not have: the hub counts them from 09.11.2026 on, the Railway translator's days have some. */
+/** The breakdowns a day may not have: the hub counts them from 09.11.2026 on (the days read back from HubSpot have them all). */
 type Field = "inboxes" | "channels" | "agents" | "hours" | "convs" | "english" | "replyLangs";
 const FIELDS: Field[] = ["inboxes", "channels", "agents", "hours", "convs", "english", "replyLangs"];
 /** The period's days merged into one: the counts, and each breakdown summed. */
 function together(xs: { d: Day }[]) {
   const t = { fig: ZERO, langs: {} as Record<string, number>, replyLangs: {} as Record<string, number>, inboxes: {} as Record<string, number>, channels: {} as Record<string, number>,
     agents: {} as Record<string, number>, kinds: {} as Record<string, number>, hours: Array(24).fill(0) as number[], weekdays: Array(7).fill(0) as number[], broken: 0,
-    railway: 0, lacks: Object.fromEntries(FIELDS.map((k) => [k, 0])) as Record<Field, number> };
+    history: 0, lacks: Object.fromEntries(FIELDS.map((k) => [k, 0])) as Record<Field, number> };
   for (const x of xs as { key?: string; d: Day }[]) {
     const f = figures(x.d);
     t.fig = plus(t.fig, f);
@@ -68,9 +70,8 @@ function together(xs: { d: Day }[]) {
     x.d.hours?.forEach((v, h) => { t.hours[h] += v; });
     if (x.key) { const wd = (new Date(`${x.key}T12:00:00Z`).getUTCDay() + 6) % 7; t.weekdays[wd] += f.inc + f.notes; }
     if (x.d.n && !x.d.kinds) t.broken++;
-    if (x.d.src === "railway") t.railway++;
-    // a day of the hub's knows "english" only from 09.11.2026 on; the Railway translator never read the English ones
-    if (x.d.n) for (const k of FIELDS) if (x.d[k] === undefined || (k === "english" && x.d.src === "railway")) t.lacks[k]++;
+    if (x.d.src === "history") t.history++;
+    if (x.d.n) for (const k of FIELDS) if (x.d[k] === undefined) t.lacks[k]++;
   }
   return t;
 }
@@ -144,24 +145,25 @@ function Board({ d }: { d: Data }) {
   const versus = `the ${word} before`;
   // a breakdown counted only from some day on (the hub's from 09.11.2026): say so where the period starts earlier
   const keys = Object.keys(d.days).sort();
-  const sinceOf = (k: Field) => keys.find((x) => d.days[x][k] !== undefined && !(k === "english" && d.days[x].src === "railway"));
+  const sinceOf = (k: Field) => keys.find((x) => d.days[x][k] !== undefined);
   const partlyOf = (k: Field) => (cur.lacks[k] > 0 ? `counted since ${sinceOf(k) ? dm(sinceOf(k)!) : "today"}` : "");
   const hint = (s: string, k?: Field) => [s, k ? partlyOf(k) : ""].filter(Boolean).join(" · ");
   const partly = partlyOf("convs");
-  // the Railway translator's days, before the hub: named on the graphs that show them
-  const railLast = [...keys].reverse().find((x) => d.days[x].src === "railway");
+  // the days before the hub, read back from HubSpot's conversations: named on the graphs that show them
+  const histLast = [...keys].reverse().find((x) => d.days[x].src === "history");
   const hubFirst = keys.find((x) => !d.days[x].src && d.days[x].n > 0);
-  const before = cur.railway > 0 && railLast ? `until ${dm(railLast)} the Railway translator${hubFirst ? `, from ${dm(hubFirst)} the hub` : ""}` : "";
+  const before = cur.history > 0 && histLast ? `until ${dm(histLast)} read back from the HubSpot conversations${hubFirst ? `, from ${dm(hubFirst)} counted by the hub` : ""}` : "";
   const custTotal = f.inc + f.english;
   const langCount = Object.values(cur.langs).filter((v) => v > 0).length;
   const topLangs = ranked(cur.langs, lang).slice(0, 2).map((r) => `${r.label} ${pct(r.value, Object.values(cur.langs).reduce((a, b) => a + b, 0))}`).join(", ");
   const unit = cols.by === "day" ? "per day" : cols.by === "week" ? "per week" : "per month";
   const inboxName = (id: string) => d.inboxes[id] ?? `Inbox ${id}`;
-  // the hub's agents are HubSpot actors (A-123); the Railway translator's days carry their names
+  // the agents are HubSpot actors (A-123), named by HubSpot
   const agentName = (id: string) => (/^A-\d+$/.test(id) ? d.agents[id] ?? `Agent ${id.slice(2)}` : id);
 
   const tabs = [
     { id: "time" as const, label: "Over time", count: n0(f.inc + f.notes) },
+    { id: "coverage" as const, label: "Coverage", count: f.inc + f.missed ? pct(f.inc, f.inc + f.missed) : null },
     { id: "langs" as const, label: "Languages", count: n0(langCount) },
     { id: "inboxes" as const, label: "Inboxes & channels", count: n0(Object.keys(cur.inboxes).length) },
     { id: "agents" as const, label: "Agents", count: n0(Object.keys(cur.agents).length) },
@@ -175,17 +177,38 @@ function Board({ d }: { d: Data }) {
       <>
         <Box sx={TWO}>
           <ChartBox title={`Translations ${unit}, last ${word}`} hint={["customer messages in English for the agent, and the agents' ! notes", before].filter(Boolean).join(" · ")}>
-            <StackedColumns height={260} format={n0} data={cols.rows.map((r) => ({ x: r.label, inc: r.fig.inc, notes: r.fig.notes }))}
-              parts={[{ key: "inc", label: "Customer messages" }, { key: "notes", label: "! notes by agents" }]} />
+            <StackedColumns height={260} format={n0} data={cols.rows.map((r) => ({ x: r.label, inc: r.fig.inc, notes: r.fig.notes, missed: r.fig.missed }))}
+              parts={[{ key: "inc", label: "Customer messages" }, { key: "notes", label: "! notes by agents" }, ...(f.missed ? [{ key: "missed", label: "Not translated (translator down)", color: "#c4ccd8" }] : [])]} />
           </ChartBox>
           <ChartBox title={`Conversations ${unit}, last ${word}`} hint={hint("a conversation with a translation, once a day", "convs")}>
             <StackedColumns height={260} format={n0} data={cols.rows.map((r) => ({ x: r.label, convs: r.fig.convs }))} parts={[{ key: "convs", label: "Conversations" }]} />
           </ChartBox>
         </Box>
         <TableCard title={`All the figures, ${unit}`} note={`Last ${word}, newest first`}>
-          <FigureTable head={[cols.by === "day" ? "Day" : cols.by === "week" ? "Week" : "Month", "Translated", "Already English", "Conversations", "! notes", "Replies sent", "Characters", "Failed"]}
-            rows={[...cols.rows].reverse().map((r) => [r.label, r.fig.inc, r.fig.english, r.fig.convs, r.fig.notes, r.fig.replies, r.fig.chars, r.fig.failed])}
-            total={["Total", f.inc, f.english, f.convs, f.notes, f.replies, f.chars, f.failed]} />
+          <FigureTable head={[cols.by === "day" ? "Day" : cols.by === "week" ? "Week" : "Month", "Translated", "Not translated", "Already English", "Conversations", "! notes", "Replies sent", "Characters", "Failed"]}
+            rows={[...cols.rows].reverse().map((r) => [r.label, r.fig.inc, r.fig.missed, r.fig.english, r.fig.convs, r.fig.notes, r.fig.replies, r.fig.chars, r.fig.failed])}
+            total={["Total", f.inc, f.missed, f.english, f.convs, f.notes, f.replies, f.chars, f.failed]} />
+        </TableCard>
+      </>
+    );
+  } else if (tab === "coverage") {
+    // of the customer messages in another language, how many got their comment in English
+    body = (
+      <>
+        <Box sx={TWO}>
+          <ChartBox title={`Customer messages in another language ${unit}, last ${word}`} hint={["translated for the agent, or left without a translation", before].filter(Boolean).join(" · ")}>
+            <StackedColumns height={260} format={n0} data={cols.rows.map((r) => ({ x: r.label, inc: r.fig.inc, missed: r.fig.missed }))}
+              parts={[{ key: "inc", label: "Translated" }, { key: "missed", label: "Not translated", color: "#c4ccd8" }]} />
+          </ChartBox>
+          <ChartBox title={`All customer messages ${unit}, last ${word}`} hint={hint("in English already, or in another language", "english")}>
+            <StackedColumns height={260} format={n0} data={cols.rows.map((r) => ({ x: r.label, english: r.fig.english, other: r.fig.inc + r.fig.missed }))}
+              parts={[{ key: "english", label: "In English" }, { key: "other", label: "In another language" }]} />
+          </ChartBox>
+        </Box>
+        <TableCard title={`Coverage, ${unit}`} note={`Last ${word}, newest first - the share of messages in another language that got their translation`}>
+          <FigureTable head={[cols.by === "day" ? "Day" : cols.by === "week" ? "Week" : "Month", "In another language", "Translated", "Not translated", "Coverage", "In English"]}
+            rows={[...cols.rows].reverse().map((r) => [r.label, r.fig.inc + r.fig.missed, r.fig.inc, r.fig.missed, pct(r.fig.inc, r.fig.inc + r.fig.missed), r.fig.english])}
+            total={["Total", f.inc + f.missed, f.inc, f.missed, pct(f.inc, f.inc + f.missed), f.english]} />
         </TableCard>
       </>
     );
@@ -233,7 +256,7 @@ function Board({ d }: { d: Data }) {
     body = (
       <>
         <Box sx={TWO}>
-          <ChartBox title={`! notes by agent, last ${word}`} hint={hint(cur.railway ? "who asked for a translation (on Railway: whoever translated in the side panel)" : "the agents who asked for a translation on a conversation", "agents")}>
+          <ChartBox title={`! notes by agent, last ${word}`} hint={hint("the agents who asked for a translation on a conversation", "agents")}>
             <BarList rows={ranked(cur.agents, agentName, all)} format={n0} labelWidth={190} emptyMessage="No agent used ! in this period." />
           </ChartBox>
           <ChartBox title={`What the agents asked for, last ${word}`} hint={hint("!FR, !DE … or a reply written with !", "agents")}>

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { COMMENT, cleanForTranslation, customerOf, isInternal, messageText, parseCommand, targetOf, toRichText, type RawMessage } from "../src/lib/translator/text";
+import { COMMENT, cleanForTranslation, customerOf, guessLanguage, isInternal, messageText, parseCommand, targetOf, toRichText, type RawMessage } from "../src/lib/translator/text";
 
 test("APSO Translator - an agent's note: !help, !FR, a reply; a shout at a colleague is none of them", () => {
   assert.deepEqual(parseCommand("!help"), { kind: "help" });
@@ -61,4 +61,15 @@ test("APSO Translator - the comments read as the Back Office knows them; nothing
   assert.equal(COMMENT.incoming("IT", "I would like the price"), "🌐 Auto-translation (IT → EN):\n\nI would like the price");
   assert.equal(COMMENT.lang("DE", "FR", "Bonjour"), "🌐 Translation (DE → FR):\n\nBonjour");
   assert.equal(toRichText("a <b>\nb\n\nc & d"), "<p>a &lt;b&gt;<br>b</p><p>c &amp; d</p>");
+});
+
+test("APSO Translator - the language a customer wrote in, from its common words (the history count); unsure = none", () => {
+  assert.equal(guessLanguage("Guten Tag, ich brauche bitte ein Angebot für die O-Ringe und die Dichtungen. Vielen Dank"), "DE");
+  assert.equal(guessLanguage("Bonjour, pouvez-vous nous envoyer le délai de livraison pour cette commande ? Merci et cordialement"), "FR");
+  assert.equal(guessLanguage("Buongiorno, avete questo articolo? Grazie per la vostra risposta, cordiali saluti"), "IT");
+  assert.equal(guessLanguage("Hello, could you please send us the declaration for this order? Thank you and regards"), "EN");
+  assert.equal(guessLanguage("Hola, necesito el certificado para mi pedido, gracias y saludos"), "ES");
+  assert.equal(guessLanguage("Goedendag, kunnen jullie ons een offerte sturen? Alvast bedankt, met vriendelijke groet"), "NL");
+  assert.equal(guessLanguage("OK"), null);
+  assert.equal(guessLanguage("Angst + Pfister 1234-567"), null);
 });

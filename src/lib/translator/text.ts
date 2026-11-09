@@ -114,6 +114,34 @@ export function cleanForTranslation(text: string): string {
   return c;
 }
 
+// The common words of the languages customers write in - what guessLanguage counts. A word shared by two languages
+// ("la", "de", "is") is left out: it would only blur the count.
+const STOP: Record<string, string> = {
+  EN: "the and you for with have this that please are our your will would can thank thanks regards we not from could should what when which there been was were",
+  DE: "der die das und ist nicht mit für ich wir sie ein eine bitte danke haben wird auf auch von zu den dem des sehr gerne freundlichen grüssen grüßen guten können möchten uns ihre bei noch oder hallo vielen dank",
+  FR: "les est pour avec vous nous une des du pas merci bonjour cordialement sur dans qui cette mais sont avons pouvez votre vos aux je suis bien commande",
+  IT: "il gli che per non sono della grazie buongiorno saluti cordiali vostro vostra nostro nostra abbiamo può potete anche alla delle dei salve questo questa",
+  ES: "el los las para por del gracias hola saludos nuestro nuestra está pero como muy también necesito usted pedido",
+  NL: "het een van voor niet wij ons uw graag bedankt groet groeten zijn kunnen hebben ook bij alvast vriendelijke",
+  PT: "os não uma obrigado obrigada bom dia cumprimentos nosso você pelo pela encomenda",
+  PL: "nie jest się że dla oraz dzień dobry dziękuję pozdrawiam proszę czy",
+};
+const STOP_SETS = Object.entries(STOP).map(([lang, words]) => [lang, new Set(words.split(" "))] as const);
+/**
+ * The language a text is written in, from its common words - free, for counting (the history of 09.11.2026), never for
+ * a translation: DeepL reads the language when it translates. Null when the text is too short or the count is not clear.
+ */
+export function guessLanguage(text: string): string | null {
+  const words = cleanForTranslation(text).toLowerCase().match(/\p{L}+/gu) ?? [];
+  if (words.length < 4) return null;
+  const score: Record<string, number> = {};
+  for (const w of words) for (const [lang, set] of STOP_SETS) if (set.has(w)) score[lang] = (score[lang] ?? 0) + 1;
+  const ranked = Object.entries(score).sort((a, b) => b[1] - a[1]);
+  if (!ranked.length || ranked[0][1] < 2) return null;
+  if (ranked[1] && ranked[0][1] < ranked[1][1] * 1.5) return null;
+  return ranked[0][0];
+}
+
 export type Command = { kind: "help" } | { kind: "lang"; code: string; target: string | null } | { kind: "reply"; text: string } | null;
 /** A note an agent wrote: "!help", "!FR" (the customer's last message in French), "!<text>" (the text sent in the customer's language). */
 export function parseCommand(raw: string): Command {

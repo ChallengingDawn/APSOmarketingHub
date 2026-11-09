@@ -24,7 +24,7 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { deeplConfigured, translate, usage } from "./deepl";
-import railway from "./railway-history.json";
+import history from "./history.json";
 import { COMMENT, base, cleanForTranslation, customerOf, isInternal, messageText, parseCommand, sameText, stripHtml, targetOf, toRichText, type RawMessage } from "./text";
 
 const LOCK = 4_107_271;
@@ -80,8 +80,12 @@ export type Day = {
   convs?: number;
   /** customer messages already in English (nothing to translate), failures */
   english?: number; failed?: number;
-  /** a day of the Railway translator, before the hub (its translation log, counted - SARCLA 09.11.2026: history "do it") */
-  src?: "railway";
+  /** customer messages in another language that got no translation (the Railway translator was down from 11.10.2026) */
+  missed?: number;
+  /** every customer message read that day, in any language */
+  customer?: number;
+  /** a day before the hub, read back from HubSpot's conversations (SARCLA 10.11.2026: "back fill now the data") */
+  src?: "history";
 };
 export type RunInfo = { at: string; seconds: number; threads: number; translated: number; replies: number; live: boolean; error?: string };
 
@@ -456,6 +460,37 @@ async function agentNames(ids: string[]): Promise<Record<string, string>> {
   return Object.fromEntries(ids.filter((id) => agentCache.has(id)).map((id) => [id, agentCache.get(id)!]));
 }
 
+/** One message of a conversation as the Help Desk shows it - for the Conversations page's preview. */
+export type PreviewMessage = {
+  id: string; at: string; kind: "customer" | "agent" | "comment" | "bot"; who: string | null; text: string; channel: Row["channel"];
+  /** a comment the translator itself wrote (🌐, ✅, ❌, ℹ️) */
+  ours: boolean;
+};
+/**
+ * A conversation as the agent sees it in HubSpot's Help Desk, oldest first (the last 40 messages): the customer's
+ * messages, the agents' replies, the comments - the translator's own among them (SARCLA 10.11.2026: "card preview in HS").
+ * Read only.
+ */
+export async function threadPreview(thread: string): Promise<{ thread: string; ticket: string | null; inbox: string | null; messages: PreviewMessage[] }> {
+  const id = String(thread).replace(/\D/g, "");
+  if (!id) throw new Error("no conversation");
+  const [t, msgs, inboxes] = await Promise.all([threadOf(id), messagesOf(id), inboxNames()]);
+  if (!t) throw new Error("HubSpot does not know this conversation");
+  const ticket = await ticketOf(id, {});
+  const shown = msgs.filter((m) => m.type === "MESSAGE" || m.type === "COMMENT").sort((a, b) => at(a) - at(b));
+  const agents = await agentNames(shown.map((m) => m.senders?.[0]?.actorId ?? "").filter((a) => a.startsWith("A-")));
+  const messages: PreviewMessage[] = shown.map((m) => {
+    const actor = m.senders?.[0]?.actorId ?? "";
+    const raw = m.type === "COMMENT" ? stripHtml(m.text || m.richText) : messageText(m);
+    const text = clip(m.type === "MESSAGE" && isCustomer(m) ? cleanForTranslation(raw) || raw : raw, 1500);
+    const ours = m.type === "COMMENT" && /^(🌐|✅|❌|ℹ️|⚠️)/u.test(text.trim());
+    const kind: PreviewMessage["kind"] = m.type === "COMMENT" ? "comment" : isCustomer(m) ? "customer" : /^(B|X)-/.test(actor) ? "bot" : "agent";
+    const who = ours ? "APSO Translator" : agents[actor] ?? m.senders?.[0]?.name ?? (kind === "bot" ? "Chat bot" : null);
+    return { id: String(m.id), at: m.createdAt ?? "", kind, who, text, channel: channelOf(m, t), ours };
+  });
+  return { thread: id, ticket, inbox: t.inboxId != null ? inboxes[String(t.inboxId)] ?? String(t.inboxId) : null, messages };
+}
+
 /** How long a customer waited for the comment: from their message to the translation, seconds - the median and the slowest tenth. */
 export type Speed = { n: number; median: number | null; p90: number | null; since: string | null; bands: { label: string; n: number }[] };
 const BANDS: [number, string][] = [[60, "Within a minute"], [120, "1 to 2 minutes"], [300, "2 to 5 minutes"], [Infinity, "Over 5 minutes"]];
@@ -478,8 +513,8 @@ export async function pageState(part: "overview" | "rows" = "overview") {
   const [settings, last, rows, days, inboxes, use] = await Promise.all([
     getSettings(), kvGet<RunInfo>(KV.last), kvGet<Row[]>(KV.rows), kvGet<Record<string, Day>>(KV.days), inboxNames(), deeplConfigured() ? usage() : Promise.resolve(null),
   ]);
-  // the Railway translator's days first, the hub's over them (they never overlap: Railway stopped before the hub started)
-  const all = rows ?? [], byDay: Record<string, Day> = { ...(railway.days as Record<string, Day>), ...(days ?? {}) };
+  // the days before the hub (read back from HubSpot, up to 08.11.2026) first, the hub's own over them (from 09.11.2026)
+  const all = rows ?? [], byDay: Record<string, Day> = { ...(history.days as Record<string, Day>), ...(days ?? {}) };
   const list = part === "rows" ? all.slice(0, 500) : [];
   const agents = await agentNames([...list.map((r) => r.agent ?? ""), ...Object.values(byDay).flatMap((d) => Object.keys(d.agents ?? {}))].filter(Boolean));
   return {

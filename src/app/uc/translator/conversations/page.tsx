@@ -13,12 +13,16 @@ import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import InputBase from "@mui/material/InputBase";
+import Drawer from "@mui/material/Drawer";
+import IconButton from "@mui/material/IconButton";
+import CloseIcon from "@mui/icons-material/Close";
 import SearchIcon from "@mui/icons-material/Search";
 import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import { CardTitle, GlassCard, INK, MUTED, bodyCell, headCell, hsTicket } from "@/app/uc/report/ui";
 import { Chip, Choice, usePaged, when } from "@/app/connectors/parts";
 import type { Row } from "@/lib/translator/engine";
 import { CHANNEL, Frame, OUTCOME, lang, n0, useTranslator, type Data } from "../shared";
+import { ConversationPreview } from "../HubSpotPreview";
 
 type View = "all" | "customer" | "notes" | "problems";
 const isMade = (r: Row) => r.outcome !== "skipped" && r.outcome !== "failed";
@@ -33,7 +37,7 @@ function List({ d }: { d: Data }) {
   const [view, setView] = useState<View>("all");
   const [channel, setChannel] = useState<"any" | Row["channel"]>("any");
   const [q, setQ] = useState("");
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<Row | null>(null);
   const agentName = (id: string | null | undefined) => (id ? d.agents[id] ?? "an agent" : null);
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -48,7 +52,7 @@ function List({ d }: { d: Data }) {
   return (
     <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
       <Box sx={{ px: { xs: 2, md: 2.75 }, pb: 1.5, display: "grid", gap: 1.25 }}>
-        <CardTitle icon={<ForumOutlinedIcon />} tint="purple" title="Every translation" note={`Newest first, the last ${n0(d.rows.length)} - click a row for the whole text`} />
+        <CardTitle icon={<ForumOutlinedIcon />} tint="purple" title="Every translation" note={`Newest first, the last ${n0(d.rows.length)} - click a row to see the conversation as the agent sees it in HubSpot`} />
         <Box sx={{ display: "flex", gap: 1.25, flexWrap: "wrap", alignItems: "center" }}>
           <Choice value={view} onChange={setView} options={[
             { key: "all", label: `All ${n0(count("all"))}` },
@@ -77,9 +81,9 @@ function List({ d }: { d: Data }) {
             </TableRow></TableHead>
             <TableBody>
               {slice.map((r) => {
-                const key = `${r.thread}-${r.msgAt}-${r.kind}`, isOpen = open === key, o = OUTCOME[r.outcome];
+                const key = `${r.thread}-${r.msgAt}-${r.kind}`, isOpen = open === r, o = OUTCOME[r.outcome];
                 return (
-                  <TableRow key={key} hover onClick={() => setOpen(isOpen ? null : key)} sx={{ cursor: "pointer", verticalAlign: "top" }}>
+                  <TableRow key={key} hover selected={isOpen} onClick={() => setOpen(r)} sx={{ cursor: "pointer", verticalAlign: "top" }}>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED }}>{when(r.msgAt)}</TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>
                       {r.ticket ? <a href={hsTicket(r.ticket)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: "#2459d1", textDecoration: "none" }}>Ticket {r.ticket}</a> : <span style={{ color: MUTED }}>No ticket</span>}
@@ -90,8 +94,8 @@ function List({ d }: { d: Data }) {
                       {r.agent && <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{agentName(r.agent)}</Typography>}
                     </TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>
-                      <Typography sx={{ fontSize: "0.8rem", color: MUTED, whiteSpace: isOpen ? "pre-wrap" : "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.original}</Typography>
-                      {r.translated && <Typography sx={{ fontSize: "0.8rem", color: INK, whiteSpace: isOpen ? "pre-wrap" : "nowrap", overflow: "hidden", textOverflow: "ellipsis", mt: 0.25 }}>{r.translated}</Typography>}
+                      <Typography sx={{ fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.original}</Typography>
+                      {r.translated && <Typography sx={{ fontSize: "0.8rem", color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", mt: 0.25 }}>{r.translated}</Typography>}
                     </TableCell>
                     <TableCell sx={bodyCell}>
                       <Chip tint={o.tint}>{o.label}</Chip>
@@ -105,6 +109,24 @@ function List({ d }: { d: Data }) {
         </Box>
       ) : <Box sx={{ px: { xs: 2, md: 2.75 }, pb: 2 }}><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{d.rows.length ? "None matches." : "Nothing yet - the first customer message in another language shows up within a minute."}</Typography></Box>}
       {pager}
+      <Drawer anchor="right" open={!!open} onClose={() => setOpen(null)} PaperProps={{ sx: { width: { xs: "100vw", sm: 600 }, p: { xs: 2, md: 2.5 }, bgcolor: "#f6f8fb" } }}>
+        {open && (
+          <Box sx={{ display: "grid", gap: 1.5 }}>
+            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK }}>{what(open)}</Typography>
+                <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+                  {when(open.msgAt)} · {CHANNEL[open.channel]}{open.inbox && d.inboxes[open.inbox] ? ` · ${d.inboxes[open.inbox]}` : ""}
+                  {open.ticket && <> · <a href={hsTicket(open.ticket)} target="_blank" rel="noreferrer" style={{ color: "#2459d1", textDecoration: "none" }}>Ticket {open.ticket} in HubSpot</a></>}
+                </Typography>
+              </Box>
+              <Chip tint={OUTCOME[open.outcome].tint}>{OUTCOME[open.outcome].label}</Chip>
+              <IconButton size="small" aria-label="Close" onClick={() => setOpen(null)}><CloseIcon fontSize="small" /></IconButton>
+            </Box>
+            <ConversationPreview row={open} preview={d.settings.mode !== "live"} />
+          </Box>
+        )}
+      </Drawer>
     </GlassCard>
   );
 }

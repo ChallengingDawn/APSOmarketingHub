@@ -18,6 +18,9 @@ import { CardTitle, GlassCard, INK, MUTED, Notice } from "@/app/uc/report/ui";
 import { Chip, Choice, when } from "@/app/connectors/parts";
 import type { Mode } from "@/lib/translator/engine";
 import { Frame, MODE, pct, useTranslator, type Data } from "../shared";
+import { CommentCard, SidebarCard } from "../HubSpotPreview";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import type { PreviewMessage } from "@/lib/translator/engine";
 
 type Act = (b: Record<string, unknown>, method?: "PUT" | "POST") => void;
 const RULE = "1px solid rgba(21,34,58,.08)";
@@ -120,6 +123,35 @@ function HowTo() {
   );
 }
 
+// an example conversation - what an agent sees in HubSpot, drawn with the cards of the Conversations page's preview
+const EXAMPLE_AT = "2026-11-10T08:14:00.000Z";
+const EXAMPLE: PreviewMessage[] = [
+  { id: "x1", at: EXAMPLE_AT, kind: "customer", who: "Example customer", text: "Guten Tag, können Sie mir bitte die Konformitätserklärung für die Bestellung senden? Vielen Dank", channel: "email", ours: false },
+  { id: "x2", at: "2026-11-10T08:15:00.000Z", kind: "comment", who: "APSO Translator", text: "🌐 Auto-translation (DE → EN):\n\nGood day, could you please send me the declaration of conformity for the order? Thank you very much", channel: "email", ours: true },
+];
+function WhatAgentsSee() {
+  return (
+    <GlassCard>
+      <CardTitle icon={<VisibilityOutlinedIcon />} tint="purple" title="What the agents see in HubSpot" note="An example - Conversations shows each real one" />
+      <Grid container spacing={2} sx={{ mt: 0.5 }}>
+        <Grid size={{ xs: 12, lg: 7 }}>
+          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED, mb: 1 }}>THE CONVERSATION: A COMMENT ONLY AGENTS SEE</Typography>
+          <Box sx={{ bgcolor: "#fff", border: "1px solid #cbd6e2", borderRadius: "4px", p: 2, display: "grid", gap: 1.5 }}>
+            <Box sx={{ bgcolor: "#f5f8fa", border: "1px solid #cbd6e2", borderRadius: "8px", px: 1.5, py: 1, maxWidth: "82%" }}>
+              <Typography sx={{ fontSize: 13, color: "#33475b" }}>{EXAMPLE[0].text}</Typography>
+            </Box>
+            <CommentCard who="APSO Translator" at={EXAMPLE[1].at} text={EXAMPLE[1].text} />
+          </Box>
+        </Grid>
+        <Grid size={{ xs: 12, lg: 5 }}>
+          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED, mb: 1 }}>THE CARD IN THE HELP DESK SIDEBAR</Typography>
+          <SidebarCard messages={EXAMPLE} customerLang="DE" />
+        </Grid>
+      </Grid>
+    </GlassCard>
+  );
+}
+
 export default function TranslatorSettings() {
   const { d, wait, act, busy, note } = useTranslator("overview");
   return (
@@ -135,6 +167,7 @@ export default function TranslatorSettings() {
             <Grid size={{ xs: 12, lg: 6 }}><SettingsCard d={d} act={act} /></Grid>
             <Grid size={{ xs: 12, lg: 6 }}><HowTo /></Grid>
           </Grid>
+          <WhatAgentsSee />
         </>
       ) : wait}
     </Frame>
