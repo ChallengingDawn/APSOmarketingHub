@@ -171,6 +171,8 @@ export default function Studio({ api }: StudioProps) {
   const [work, setWork] = useState<Work>(null);
   const [changes, setChanges] = useState<Change[]>([]);
   const [lang, setLang] = useState<string>(() => (d.language === "EN" ? "DE" : "EN"));
+  // translated into the language picked: another one is offered next
+  useEffect(() => { if (lang === d.language) setLang(lang === "EN" ? "DE" : "EN"); }, [d.language, lang]);
   const [cards, setCards] = useState<BlogCard[] | null>(null);
   const askRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -456,7 +458,7 @@ export default function Studio({ api }: StudioProps) {
       <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>What are you making?</Typography>
       <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>A post for the shop&apos;s blog, from the project&apos;s brief - in</Typography>
       <SquareChoice value={d.language} onChange={(l: string) => set({ ...d, language: l, store: storeOf(l) })} options={LANGS.map((l) => ({ key: l, label: l }))} />
-      <Button fullWidth variant="contained" disableElevation disabled={!enabled} startIcon={<AutoAwesomeOutlinedIcon />} onClick={() => void write("")} sx={{ ...mainBtn, mt: 1.25, height: 38 }}>Write the whole post with AI</Button>
+      <Button fullWidth variant="contained" disableElevation disabled={!enabled} startIcon={<AutoAwesomeOutlinedIcon />} onClick={() => void write("")} sx={{ ...mainBtn, mt: 1.25, minHeight: 38, height: "auto", py: 0.75, whiteSpace: "normal", lineHeight: 1.25 }}>Write the whole post with AI</Button>
       <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.75, textAlign: "center" }}>or open a part below and write it yourself</Typography>
     </Box>
   ) : null;

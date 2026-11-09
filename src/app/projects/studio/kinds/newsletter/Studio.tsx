@@ -141,6 +141,8 @@ export default function Studio({ api }: StudioProps) {
   const [ours, setOurs] = useState(false);
   const [changes, setChanges] = useState<Change[]>([]);
   const [lang, setLang] = useState(() => (d.language.toUpperCase() === "EN" ? "DE" : "EN"));
+  // translated into the language picked: another one is offered next
+  useEffect(() => { if (lang === d.language.toUpperCase()) setLang(lang === "EN" ? "DE" : "EN"); }, [d.language, lang]);
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const askRef = useRef<HTMLTextAreaElement | null>(null);
@@ -457,7 +459,7 @@ export default function Studio({ api }: StudioProps) {
       <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>What are you making?</Typography>
       <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>A newsletter from the project&apos;s brief - in</Typography>
       <SquareChoice value={d.language.toUpperCase()} onChange={(l: string) => set({ ...docRef.current, language: l })} options={LANGS.map((l) => ({ key: l.key, label: l.key }))} />
-      <Button fullWidth variant="contained" disableElevation disabled={!enabled} startIcon={<AutoAwesomeOutlinedIcon />} onClick={() => void draft("")} sx={{ ...mainBtn, mt: 1.25, height: 38 }}>Write the whole newsletter with AI</Button>
+      <Button fullWidth variant="contained" disableElevation disabled={!enabled} startIcon={<AutoAwesomeOutlinedIcon />} onClick={() => void draft("")} sx={{ ...mainBtn, mt: 1.25, minHeight: 38, height: "auto", py: 0.75, whiteSpace: "normal", lineHeight: 1.25 }}>Write the newsletter with AI</Button>
       <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.75, mt: 1 }}>
         <Button size="small" startIcon={<MarkEmailReadOutlinedIcon sx={{ fontSize: 16 }} />} onClick={() => setOurs(true)} sx={{ ...toolBtn, height: 32 }}>One of ours</Button>
         <Button size="small" startIcon={<DashboardCustomizeOutlinedIcon sx={{ fontSize: 16 }} />} onClick={(e) => setLayouts(e.currentTarget)} sx={{ ...toolBtn, height: 32 }}>A layout</Button>

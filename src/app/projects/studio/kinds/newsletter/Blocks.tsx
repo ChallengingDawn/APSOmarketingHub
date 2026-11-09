@@ -209,7 +209,7 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
                 </Box>
                 {canEdit && (
                   <Tooltip title="Remove the block">
-                    <IconButton className="tools" size="small" aria-label="Remove the block" sx={{ opacity: active ? 1 : 0 }}
+                    <IconButton className="tools" size="small" aria-label="Remove the block" sx={{ display: active ? "inline-flex" : "none", p: 0.25 }}
                       onClick={(e) => { e.stopPropagation(); set({ ...d, blocks: d.blocks.filter((x) => x.id !== b.id) }); }}>
                       <DeleteOutlineIcon sx={{ fontSize: 16 }} />
                     </IconButton>

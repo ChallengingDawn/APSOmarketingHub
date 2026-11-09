@@ -142,10 +142,9 @@ export function PictureSlot({ url, alt, onPick, onAlt, onRemove, aspect = "16:9"
             <LinearProgress sx={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 3, bgcolor: "rgba(194,44,110,.12)", "& .MuiLinearProgress-bar": { bgcolor: PINK } }} />
           </Box>
         )}
-        {url && !making && (
-          <Box className="tools" sx={{ position: "absolute", right: 6, bottom: 6, left: 6, display: "flex", gap: 0.5, justifyContent: "flex-end", flexWrap: "wrap", opacity: { xs: 1, md: 0.94 }, transition: "opacity .15s" }}>{actions}</Box>
-        )}
       </Box>
+      {/* with a picture: its actions under it, the picture itself left clear */}
+      {url && !making && <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.75 }}>{actions}</Box>}
       {up !== null && <LinearProgress variant="determinate" value={up * 100} sx={{ mt: 0.5, height: 3, borderRadius: 2 }} />}
       {err && <Typography sx={{ fontSize: "0.76rem", color: "#c5221f", mt: 0.5 }}>{err}</Typography>}
       <input ref={file} type="file" hidden accept="image/png,image/jpeg,image/webp" onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} />
