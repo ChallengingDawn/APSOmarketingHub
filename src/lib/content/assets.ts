@@ -237,3 +237,51 @@ export async function generatePicture(p: {
   const asset = await saveAsset({ bytes: Buffer.from(url.slice(comma + 1), "base64"), kind: "generated", prompt: brief, projectId: p.projectId, pieceId: p.pieceId, by: p.by });
   return { ok: true, asset };
 }
+
+/* ---- a picture fine-tuned (Content v5, 09.11.2026) ---- */
+
+/** The hub's own picture an address names (/api/content/picture/<id>-<key>, relative or with the hub's origin). */
+export function pictureRef(url: string): { id: number; key: string } | null {
+  const m = /^(?:https?:\/\/[^/\s]+)?\/api\/content\/picture\/(\d{1,9})-([A-Za-z0-9]{4,40})$/.exec(String(url ?? "").trim());
+  return m ? { id: Number(m[1]), key: m[2] } : null;
+}
+
+/** What the image model is told to fine-tune a picture: the same picture, one thing changed - never a new one. */
+export function refinePrompt(ask: string): string {
+  return [
+    "The attached picture is the current picture of a page. Make THE SAME picture again with one change.",
+    "",
+    "Keep exactly: the subject, the composition, the camera angle and framing, the shape and proportions of every part, the materials and colours, the setting - everything the change below does not name.",
+    `Change only: ${ask.trim()}`,
+    "",
+    "Photorealistic, the same quality or better. No text, no lettering, no logos added, no watermark.",
+  ].join("\n");
+}
+
+/**
+ * A picture fine-tuned (SARCLA 09.11.2026: "Ask AI under a photo should give you the option to fine-tune the photo"): the
+ * image model gets the picture as it is with "keep everything, change only <ask>". A new picture is kept beside the old
+ * one (the old stays in the gallery, the page's Undo puts it back).
+ */
+export async function refinePicture(p: {
+  url: string; ask: string; aspect?: Aspect; projectId?: number | null; pieceId?: number | null; by: string;
+}): Promise<{ ok: true; asset: Asset } | { ok: false; error: string }> {
+  const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!key) return { ok: false, error: "Pictures cannot be fine-tuned here: the image model's key (GEMINI_API_KEY) is not set." };
+  const ask = p.ask.trim().slice(0, 600);
+  if (!ask) return { ok: false, error: "Say what should change in the picture." };
+  const ref = pictureRef(p.url);
+  if (!ref) return { ok: false, error: "Only a picture kept in the hub can be fine-tuned - upload this one first, then fine-tune it." };
+  const [bytes, src] = await Promise.all([assetBytes(ref.id, ref.key), getAsset(ref.id)]);
+  if (!bytes || !src) return { ok: false, error: "That picture is not in the hub any more." };
+  if (bytes.mime === "image/svg+xml") return { ok: false, error: "A logo (SVG) cannot be fine-tuned." };
+  if (!imageAllowed()) return { ok: false, error: `Today's ${IMAGES_PER_DAY} pictures are made - more tomorrow.` };
+  const made = await generateApsoImage(key, refinePrompt(ask), [{ dataUrl: `data:${bytes.mime};base64,${bytes.data.toString("base64")}` }], { aspect: p.aspect ?? "3:2" });
+  if (!made.ok) return { ok: false, error: made.error };
+  const url = made.dataUrl;
+  const comma = url.indexOf(",");
+  if (!url.startsWith("data:") || comma < 0 || !url.slice(0, comma).includes(";base64")) return { ok: false, error: "The image model answered without a picture." };
+  const prompt = `${src.prompt ? `${src.prompt.slice(0, 3000)}\n` : ""}Fine-tuned: ${ask}`;
+  const asset = await saveAsset({ bytes: Buffer.from(url.slice(comma + 1), "base64"), kind: "generated", prompt, projectId: p.projectId ?? src.projectId, pieceId: p.pieceId ?? src.pieceId, by: p.by });
+  return { ok: true, asset };
+}

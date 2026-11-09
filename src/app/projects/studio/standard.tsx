@@ -166,11 +166,13 @@ const actBtn = (dark?: boolean) => ({
   color: dark ? "#fff" : INK, "&:hover": { bgcolor: dark ? "rgba(255,255,255,.14)" : "#f3f4f6" }, "&:focus-visible": { outline: "2px solid #2459d1" }, "& svg": { fontSize: 15 },
 }) as const;
 
-/** The four actions on a picture that is there: Make another · Upload · Gallery · Remove. `dark` = on the canvas. */
-export function PictureActions({ onMake, onUpload, onGallery, onRemove, dark, canMake = true }: SlotActions & { dark?: boolean; canMake?: boolean }) {
+/** The four actions on a picture that is there: Make another · Upload · Gallery · Remove. `dark` = on the canvas.
+ * `onRefine` (Content v5): "Fine-tune" too - the same picture with one change, asked in the studio's assistant. */
+export function PictureActions({ onMake, onUpload, onGallery, onRemove, dark, canMake = true, onRefine }: SlotActions & { dark?: boolean; canMake?: boolean; onRefine?: () => void }) {
   const pick = useFilePick(onUpload);
   return (
     <Box sx={dark ? { display: "flex", flexWrap: "nowrap", alignItems: "center", gap: 0.25 } : { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.25, "& > button": { justifyContent: "flex-start" } }}>
+      {canMake && onRefine && <Box component="button" type="button" onClick={onRefine} sx={actBtn(dark)}><AutoAwesomeOutlinedIcon />Fine-tune</Box>}
       {canMake && <Box component="button" type="button" onClick={onMake} sx={actBtn(dark)}><RefreshIcon />Make another</Box>}
       <Box component="button" type="button" onClick={pick.open} sx={actBtn(dark)}><FileUploadOutlinedIcon />Upload</Box>
       <Box component="button" type="button" onClick={onGallery} sx={actBtn(dark)}><PhotoLibraryOutlinedIcon />Gallery</Box>
