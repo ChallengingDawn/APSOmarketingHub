@@ -396,7 +396,7 @@ function OwnIdea({ onAdd }: { onAdd: (title: string, change: string) => Promise<
   if (!open) return <Button size="small" onClick={() => setOpen(true)} sx={{ justifySelf: "start" }}>+ Your own optimization</Button>;
   return (
     <Box sx={{ display: "grid", gap: 1, p: 1.5, borderRadius: "14px", border: `1px dashed ${HAIRLINE}` }}>
-      <TextField size="small" label="The idea" value={title} onChange={(e) => setTitle(e.target.value)} inputProps={{ maxLength: 200 }} />
+      <TextField size="small" label="The optimization" value={title} onChange={(e) => setTitle(e.target.value)} inputProps={{ maxLength: 200 }} />
       <TextField size="small" label="What changes on the page" value={change} onChange={(e) => setChange(e.target.value)} multiline minRows={2} inputProps={{ maxLength: 2000 }} />
       <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end" }}>
         <Button size="small" onClick={() => setOpen(false)}>Cancel</Button>
@@ -558,7 +558,7 @@ function ToContent({ data, numbers, ideas, version }: { data: StudioData; number
   return (
     <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
       {made !== null && <Button size="small" variant="contained" disableElevation href={`/projects/${made}`}>Open in Content</Button>}
-      <Tooltip title={made !== null ? "A project for this page is in Content already - this makes another" : "Content Studio writes the page's texts from its numbers, approved ideas and version"}>
+      <Tooltip title={made !== null ? "A project for this page is in Content already - this makes another" : "Content Studio writes the page's texts from its numbers, approved optimizations and version"}>
         <span>
           <Button size="small" variant={made !== null ? "text" : "contained"} disableElevation disabled={busy} onClick={() => void send()}
             startIcon={busy ? <CircularProgress size={13} sx={{ color: "inherit" }} /> : <EditNoteOutlinedIcon sx={{ fontSize: 17 }} />}>

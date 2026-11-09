@@ -71,7 +71,7 @@ function ShipOne({ id, onChanged }: { id: string; onChanged: () => void }) {
     return () => { live = false; };
   }, [id, tick]);
   if (r === null) return <LoadingPanel label="Reading the test, its code and its pages…" />;
-  if (r.state !== "ok") return <UpstreamPanel source="Ship" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? (r.status ?? null) : null} onRetry={() => setTick((x) => x + 1)} />;
+  if (r.state !== "ok") return <UpstreamPanel source="Winners" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? (r.status ?? null) : null} onRetry={() => setTick((x) => x + 1)} />;
   const d = r.data;
   const t = d.test;
   const f = d.figures;
@@ -180,13 +180,13 @@ export default function Ship() {
 
   let body: React.ReactNode;
   if (r === null) body = <LoadingPanel label="Reading the tests that were won…" />;
-  else if (r.state !== "ok") body = <UpstreamPanel source="Ship" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? (r.status ?? null) : null} onRetry={() => setTick((x) => x + 1)} />;
+  else if (r.state !== "ok") body = <UpstreamPanel source="Winners" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? (r.status ?? null) : null} onRetry={() => setTick((x) => x + 1)} />;
   else if (!list.length) {
     body = (
       <>
         <GatewayNotice g={r.data.gateway} />
         <GlassCard>
-          <Typography sx={{ fontSize: "0.9rem", color: INK, fontWeight: 600 }}>Nothing to ship yet.</Typography>
+          <Typography sx={{ fontSize: "0.9rem", color: INK, fontWeight: 600 }}>No winner yet.</Typography>
           <Typography sx={{ fontSize: "0.84rem", color: MUTED, mt: 0.5 }}>
             A version lands here when it wins its test - see the <Box component={Link} href="/website/ai-personalization/tests" sx={{ color: ACCENT, fontWeight: 600 }}>Tests</Box>.
           </Typography>
@@ -230,7 +230,7 @@ export default function Ship() {
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
-        title="Ship"
+        title="Winners"
         subtitle="The versions that won their test - handed to Content, where they are seen on the page, adjusted with the AI and published"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>

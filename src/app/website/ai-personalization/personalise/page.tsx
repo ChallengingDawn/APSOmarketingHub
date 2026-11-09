@@ -214,7 +214,7 @@ export default function Personalise() {
             <Box sx={{ mt: 1 }}>
               {rows.shown.length === 0 && (
                 <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>
-                  {rows.all.length ? "None here." : "No personalisation yet. Make one beside this list - or ship a test's winner for everyone from Ship."}
+                  {rows.all.length ? "None here." : "No personalisation yet. Make one beside this list - or put a test's winner on for everyone from Winners."}
                 </Typography>
               )}
               {rows.shown.map((t) => <Item key={t.id} t={t} canEdit={d.canEdit} ask={setConfirm} run={run} />)}

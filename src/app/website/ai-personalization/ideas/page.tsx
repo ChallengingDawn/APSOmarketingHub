@@ -58,7 +58,7 @@ function ByPage({ groups, inContent }: { groups: PageGroup[]; inContent: Set<str
             </Box>
             <Box sx={{ display: "grid", gap: 0.5, minWidth: 0 }}>
               <Typography sx={{ fontSize: "0.78rem", color: MUTED, px: 1 }}>
-                {g.rows.length} {g.rows.length === 1 ? "idea" : "ideas"} · {(Object.keys(SHORT) as Column[]).map((c) => [c, g.rows.filter((x) => columnOf(x) === c).length] as const).filter(([, n]) => n > 0).map(([c, n]) => `${n} ${SHORT[c].toLowerCase()}`).join(" · ")} · {since(g.last)}
+                {g.rows.length} {g.rows.length === 1 ? "optimization" : "optimizations"} · {(Object.keys(SHORT) as Column[]).map((c) => [c, g.rows.filter((x) => columnOf(x) === c).length] as const).filter(([, n]) => n > 0).map(([c, n]) => `${n} ${SHORT[c].toLowerCase()}`).join(" · ")} · {since(g.last)}
               </Typography>
               {[...g.rows].sort((a, b) => ORDER[columnOf(a)!] - ORDER[columnOf(b)!] || (iceScore(b) ?? -1) - (iceScore(a) ?? -1)).map((x) => {
                 const c = columnOf(x)!;
@@ -156,14 +156,14 @@ export default function ConvertIdeas() {
   }, [r]);
 
   let body: React.ReactNode;
-  if (r === null) body = <LoadingPanel label="Reading the ideas…" />;
-  else if (r.state !== "ok") body = <UpstreamPanel source="Ideas" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? (r.status ?? null) : null} onRetry={() => setTick((n) => n + 1)} />;
+  if (r === null) body = <LoadingPanel label="Reading the optimizations…" />;
+  else if (r.state !== "ok") body = <UpstreamPanel source="Optimizations" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? (r.status ?? null) : null} onRetry={() => setTick((n) => n + 1)} />;
   else if (total === 0) {
     body = (
       <GlassCard>
-        <Typography sx={{ fontSize: "0.9rem", color: INK, fontWeight: 600 }}>No idea yet.</Typography>
+        <Typography sx={{ fontSize: "0.9rem", color: INK, fontWeight: 600 }}>No optimization yet.</Typography>
         <Typography sx={{ fontSize: "0.84rem", color: MUTED, mt: 0.5 }}>
-          Open a page in the <Box component={Link} href="/website/ai-personalization/preview" sx={{ color: "#2459d1", fontWeight: 600 }}>Preview</Box> - from Problems, or any page of the shop - and ask the AI for ideas.
+          Open a page in the <Box component={Link} href="/website/ai-personalization/preview" sx={{ color: "#2459d1", fontWeight: 600 }}>Preview</Box> - from Problem pages, or any page of the shop - and ask the AI for optimizations.
         </Typography>
       </GlassCard>
     );
@@ -191,7 +191,7 @@ export default function ConvertIdeas() {
             );
           })}
         </Box>}
-        {cols.dropped > 0 && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{cols.dropped} dropped {cols.dropped === 1 ? "idea stays" : "ideas stay"} on {cols.dropped === 1 ? "its page" : "their pages"} in the preview.</Typography>}
+        {cols.dropped > 0 && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{cols.dropped} dropped {cols.dropped === 1 ? "optimization stays" : "optimizations stay"} on {cols.dropped === 1 ? "its page" : "their pages"} in the preview.</Typography>}
       </>
     );
   }
@@ -199,7 +199,7 @@ export default function ConvertIdeas() {
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
-        title="Ideas"
+        title="Optimizations"
         subtitle="What to change on which page: the AI proposes, a person approves, the preview shows the version"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>

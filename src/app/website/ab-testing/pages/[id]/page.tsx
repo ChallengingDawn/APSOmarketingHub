@@ -47,6 +47,7 @@ import { convertPost, previewHref } from "../../../ai-personalization/Flow";
 import { SquareChoice } from "../../../ai-personalization/SquareChoice";
 import { testsBase, useInConvert } from "../../../ai-personalization/base";
 import { PageShot } from "../../../ai-personalization/PageShot";
+import { ContentProjectLink } from "../../../ai-personalization/ContentLink";
 import {
   AudienceBuilder, COLOR, ConfirmDialog, DailyCharts, Gauge, GatewayNotice, IntervalBars, NAME, PagePicker, StatusChip, UpliftBar,
   dayTime, envChip, n, pagesLine, pct, signed, splitKeyOf, splitOf, type Confirm, type GatewayView, type SplitKey, type TestView,
@@ -166,7 +167,7 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
     if (t.winner) return {
       tint: t.winner === "b" ? "green" as const : "slate" as const,
       head: t.winner === "b" ? "The version won" : t.winner === "a" ? "The original won" : "No real difference",
-      text: `Decided by ${t.decidedBy ?? "someone"} on ${dayTime(t.decidedAt)}.${t.winner === "b" ? (t.status === "shipped" ? " It is shipped - see Ship." : " It waits in Ship.") : ""}`,
+      text: `Decided by ${t.decidedBy ?? "someone"} on ${dayTime(t.decidedAt)}.${t.winner === "b" ? (t.status === "shipped" ? " It is published - see Winners." : " It waits in Winners.") : ""}`,
     };
     if (!an) return { tint: "slate" as const, head: t.status === "paused" ? "Paused" : "No figures yet", text: d.resultsError ?? "The shop's gateway has counted nobody in this round yet." };
     return { tint: VERDICT_TINT[an.verdict.key], head: an.verdict.text, text: an.verdict.why };
@@ -209,6 +210,7 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
           </Box>
           <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center", justifyContent: { xs: "flex-start", md: "flex-end" }, flex: "1 1 300px" }}>
             <Button size="small" component={Link} href={previewHref(t.env, t.pages[0], t.ideaId ?? undefined)}>See it</Button>
+            <ContentProjectLink env={t.env} path={t.pages[0]} testId={t.id} />
             {d.canEdit && t.status === "draft" && <>
               <Button size="small" onClick={() => setEditing((x) => !x)}>{editing ? "Close the settings" : "Change the settings"}</Button>
               <Button size="small" color="error" onClick={ask.del}>Delete</Button>
@@ -230,7 +232,7 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
               <Button size="small" onClick={ask.remove}>Take it off the gateway</Button>
             </>}
             {d.canEdit && d.drift && <Button size="small" variant="outlined" onClick={ask.sync}>Send it again</Button>}
-            {(t.status === "shipped" || (t.winner === "b" && t.status === "stopped")) && <Button size="small" variant="contained" disableElevation component={Link} href="/website/ai-personalization/ship">Open in Ship</Button>}
+            {(t.status === "shipped" || (t.winner === "b" && t.status === "stopped")) && <Button size="small" variant="contained" disableElevation component={Link} href="/website/ai-personalization/ship">Open in Winners</Button>}
           </Box>
         </Box>
         {d.canEdit && !t.winner && (t.status === "running" || t.status === "paused" || t.status === "stopped") && (

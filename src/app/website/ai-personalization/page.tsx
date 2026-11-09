@@ -126,7 +126,7 @@ export default function ConvertOverview() {
     const out: { key: string; tone: string; head: string; line: string; href: string; go: string }[] = [];
     const withTest = new Set((t ?? []).map((x) => x.versionId).filter(Boolean));
     for (const x of t ?? []) {
-      if (x.winner === "b" && x.status !== "shipped") out.push({ key: `w${x.id}`, tone: "#1b7a55", head: "A version won", line: x.name, href: `${CONVERT}/ship`, go: "Ship it" });
+      if (x.winner === "b" && x.status !== "shipped") out.push({ key: `w${x.id}`, tone: "#1b7a55", head: "A version won", line: x.name, href: `${CONVERT}/ship`, go: "Hand it to Content" });
     }
     for (const r of ideas ?? []) {
       if (r.version?.status === "approved" && !withTest.has(r.version.id)) out.push({ key: `v${r.version.id}`, tone: "#2459d1", head: "Ready for its test", line: r.title, href: `${CONVERT}/tests?make=${r.version.id}`, go: "Make the test" });
@@ -182,7 +182,7 @@ export default function ConvertOverview() {
         <Step n={2} icon={<TipsAndUpdatesOutlinedIcon />} tint="#a96a12" title="Optimizations" value={num(n.waiting)} line={`waiting for a yes or no · ${n.approved} approved, no version yet`} href={`${CONVERT}/insights`} />
         <Step n={3} icon={<PreviewOutlinedIcon />} tint="#6a46c9" title="Versions" value={num(n.ready)} line={`ready to test · ${n.shaping} being shaped`} href={`${CONVERT}/preview`} />
         <Step n={4} icon={<CompareOutlinedIcon />} tint="#2459d1" title="Tests" value={num(n.running)} line={`running on the shop · ${n.drafts} ${n.drafts === 1 ? "draft" : "drafts"}`} href={`${CONVERT}/tests`} />
-        <Step n={5} icon={<RocketLaunchOutlinedIcon />} tint="#1b7a55" title="Ship" value={num(n.won)} line={`winners to ship · ${n.shipped} shipped`} href={`${CONVERT}/ship`} last />
+        <Step n={5} icon={<RocketLaunchOutlinedIcon />} tint="#1b7a55" title="Winners" value={num(n.won)} line={`to publish from Content · ${n.shipped} published`} href={`${CONVERT}/ship`} last />
       </Box>
 
       {brief && (
@@ -220,6 +220,7 @@ export default function ConvertOverview() {
       )}
 
       <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "minmax(0,1fr)", xl: "minmax(0,2fr) minmax(0,1fr)" }, alignItems: "start" }}>
+        <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
         <GlassCard>
           <CardTitle icon={<ReportProblemOutlinedIcon />} tint="pink" title="The pages losing the most"
             note={p ? `${full(n.lost)} customers opened a product and did not order, in this period` : "Reading Google Analytics and the shop's record…"}
@@ -246,6 +247,21 @@ export default function ConvertOverview() {
             ))}
           </Box>
         </GlassCard>
+        <GlassCard>
+          <CardTitle icon={<CompareOutlinedIcon />} tint="blue" title="Tests" note="A version against the page as it is"
+            right={<Button size="small" component={Link} href={`${CONVERT}/tests`} sx={{ textTransform: "none", fontWeight: 600 }}>All tests</Button>} />
+          <Box sx={{ display: "grid", gap: 0.5, mt: 1.25 }}>
+            {t && t.length === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No test yet - a version that is ready goes to Tests from the Preview.</Typography>}
+            {(t ?? []).slice(0, 5).map((x) => (
+              <Box key={x.id} component={Link} href={`${CONVERT}/tests/${x.id}`} sx={{ display: "flex", gap: 1, alignItems: "center", p: 1, borderRadius: "8px", textDecoration: "none", color: "inherit", minWidth: 0, "&:hover": { bgcolor: "rgba(36,89,209,.06)" } }}>
+                <StatusChip status={x.status} kind={x.kind} />
+                <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, ...clip(9999), flex: 1 }}>{x.name}</Typography>
+                <Typography sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap" }}>{ENVS[x.env].label}</Typography>
+              </Box>
+            ))}
+          </Box>
+        </GlassCard>
+        </Box>
 
         <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
           <GlassCard>
@@ -259,20 +275,6 @@ export default function ConvertOverview() {
                     <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, ...clip(9999) }}>{w.top}</Typography>
                   </Box>
                   <Typography sx={{ fontSize: "0.74rem", color: MUTED, ...clip(9999) }}>{w.ideas} {w.ideas === 1 ? "optimization" : "optimizations"}{w.ready ? ` · ${w.ready} ready to test` : ""} · {ago(Date.parse(w.last) / 1000)} · {w.path}</Typography>
-                </Box>
-              ))}
-            </Box>
-          </GlassCard>
-          <GlassCard>
-            <CardTitle icon={<CompareOutlinedIcon />} tint="blue" title="Tests" note="A version against the page as it is"
-              right={<Button size="small" component={Link} href={`${CONVERT}/tests`} sx={{ textTransform: "none", fontWeight: 600 }}>All tests</Button>} />
-            <Box sx={{ display: "grid", gap: 0.5, mt: 1.25 }}>
-              {t && t.length === 0 && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No test yet - a version that is ready goes to Tests from the Preview.</Typography>}
-              {(t ?? []).slice(0, 5).map((x) => (
-                <Box key={x.id} component={Link} href={`${CONVERT}/tests/${x.id}`} sx={{ display: "flex", gap: 1, alignItems: "center", p: 1, borderRadius: "8px", textDecoration: "none", color: "inherit", minWidth: 0, "&:hover": { bgcolor: "rgba(36,89,209,.06)" } }}>
-                  <StatusChip status={x.status} kind={x.kind} />
-                  <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, ...clip(9999), flex: 1 }}>{x.name}</Typography>
-                  <Typography sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap" }}>{ENVS[x.env].label}</Typography>
                 </Box>
               ))}
             </Box>
