@@ -300,6 +300,12 @@ const WEBSITE_ICON: Record<string, React.ReactNode> = {
   "/website/ab-testing/pages": <CompareOutlinedIcon fontSize="small" />,
   "/website/ai-personalization/pages": <ListAltOutlinedIcon fontSize="small" />,
 };
+// Pages out of the menu (hubApps.ts menu: false) and the entry that lights up for them.
+const MENU_ALIAS: Record<string, string> = {
+  "/website/ai-personalization/preview": "/website/ai-personalization/insights",
+  "/website/ai-personalization/problems": "/website/ai-personalization/insights",
+  "/website/ai-personalization/pages": "/website/ai-personalization/insights",
+};
 // A Website page's own sub-pages, drawn under it in the panel (SARCLA 08.11.2026: "journeys sub-app navigation doesn't
 // exist") - APSOconvert's Journeys: the main journeys, the funnel, one page's flow.
 const WEBSITE_CHILDREN: Record<string, { label: string; href: string }[]> = {
@@ -622,8 +628,10 @@ export default function Sidebar() {
       ...(s.home ? [s.home] : []),
       ...s.items.filter((i) => !i.placeholder).flatMap((i) => [i.href, ...(i.children?.map((c) => c.href) ?? [])]),
     ]);
+    // a page kept out of the menu lights up the entry it is opened from (APSOconvert's Preview = Insights' cards)
+    const at = Object.entries(MENU_ALIAS).find(([k]) => pathname === k || pathname?.startsWith(`${k}/`))?.[1] ?? pathname;
     const matches = all.filter((h) =>
-      h.includes("?") ? here === h : pathname === h || (h !== "/" && pathname?.startsWith(h + "/")),
+      h.includes("?") ? here === h : at === h || (h !== "/" && at?.startsWith(h + "/")),
     );
     return matches.sort((a, b) => b.length - a.length)[0] ?? "/";
   })();
@@ -709,10 +717,12 @@ export default function Sidebar() {
 
   const renderItem = (item: Item) => {
     if (item.placeholder) return <SlotRow key={item.href} icon={item.icon} label={item.label} />;
+    // a page's sub-pages show only while one of them is open (SARCLA 09.11.2026: "there is a lot of menu")
+    const open = item.href === activeHref || !!item.children?.some((c) => c.href === activeHref) || pathname.startsWith(`${item.href}/`);
     return (
       <Fragment key={item.href}>
         <Row href={item.href} icon={item.icon} label={item.label} badge={item.badge} active={item.href === activeHref} tone={tone} />
-        {item.children?.map((c) => (
+        {open && item.children?.map((c) => (
           <Box key={c.href} sx={{ pl: 3.5 }}>
             <Row href={c.href} icon={<Box component="span" sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: c.href === activeHref ? (tone ?? ACCENT) : "#c9ced6" }} />}
               label={c.label} active={c.href === activeHref} tone={tone} />

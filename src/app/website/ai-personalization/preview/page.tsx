@@ -12,6 +12,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
@@ -37,6 +38,9 @@ import MyLocationOutlinedIcon from "@mui/icons-material/MyLocationOutlined";
 import ViewModuleOutlinedIcon from "@mui/icons-material/ViewModuleOutlined";
 import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
+import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
+import ChevronLeftRoundedIcon from "@mui/icons-material/ChevronLeftRounded";
+import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import TrackChangesOutlinedIcon from "@mui/icons-material/TrackChangesOutlined";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
@@ -62,6 +66,7 @@ import { convertPost, previewHref } from "../Flow";
 import { SquareChoice } from "../SquareChoice";
 import { PageShot } from "../PageShot";
 import { ClicksBar, type ClickDev, type ClicksData } from "../ClicksBar";
+import { CONVERT } from "../base";
 import { AI_GRADIENT, AiButton } from "../AiButton";
 
 type StudioData = {
@@ -648,7 +653,11 @@ function ConvertPreview() {
       setHeatNames(nm);
     }
     if (m.apsoPreview === "drawn" && Array.isArray(m.lines) && (from === "before" || drawn.current?.from !== "before")) drawn.current = { from, lines: m.lines.slice(0, 160) };
-    if (m.apsoPreview === "picked" && typeof m.selector === "string") { setPicked({ selector: m.selector.slice(0, 300), tag: String(m.tag).slice(0, 20), text: String(m.text ?? "").slice(0, 160), from }); setPick(false); }
+    if (m.apsoPreview === "picked" && typeof m.selector === "string") {
+      const pk = { selector: m.selector.slice(0, 300), tag: String(m.tag).slice(0, 20), text: String(m.text ?? "").slice(0, 160), from };
+      setPicked(pk); setPick(false);
+      setAsk(`Change this element - ${pk.selector}${pk.text ? ` (it reads “${pk.text.slice(0, 80)}”)` : ""}: `);
+    }
     if (m.apsoPreview === "styles" && typeof m.total === "number") {
       setStyles((s) => (s && s.nfailed >= m.nfailed ? s : { total: m.total, nfailed: m.nfailed }));
       if (m.nfailed > 0 && !told.current) {
@@ -709,14 +718,14 @@ function ConvertPreview() {
   // AI reads the drawn outline). A block with versions to compare opens on them side by side instead.
   const autoPicked = useRef(false);
   useEffect(() => {
-    if (autoPicked.current || !d || !path || ideaSel || compare) return;
+    if (autoPicked.current || !d || !path || ideaSel || compare || clicks) return;
     const lead = ranked.find((i) => i.status !== "dropped");
     if (!lead) return;
     autoPicked.current = true;
     const compared = ranked.filter((i) => i.status !== "dropped" && (versionsOf.get(i.id)?.length ?? 0) > 0).length;
     if (block && compared >= 2) return;
     select(lead.id);
-  }, [d, path, ideaSel, ranked, versionsOf, block, compare, select]);
+  }, [d, path, ideaSel, ranked, versionsOf, block, compare, clicks, select]);
   const autoBuilt = useRef(new Set<string>());
   useEffect(() => {
     if (!idea || !d || !d.canEdit || !d.ai || d.page.status !== 200 || busy || making) return;
@@ -752,136 +761,116 @@ function ConvertPreview() {
   } else if (r.state !== "ok") {
     body = <UpstreamPanel source="Preview" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? (r.status ?? null) : null} onRetry={() => setTick((n) => n + 1)} />;
   } else {
+    // ONE OPTIMIZATION, ONE SCREEN (SARCLA 09.11.2026: "editor and preview are even worse, it's still too complicated"):
+    // on top the optimization - back to Insights, the previous / next one, Drop, Send to Content - and why / what / what it
+    // should move; then its pictures, Before | After at the change, with only the versions and the device above them,
+    // and the AI helper beside them with what the version changes. Everything else (all the page's optimizations, the
+    // code, the revisions, the clicks, what the AI reads) folded under "More".
     const data = r.data;
     const pg = data.page;
-    const live = ideas.filter((i) => i.status !== "dropped");
+    const live = ranked.filter((i) => i.status !== "dropped");
     const withVersions = live.filter((i) => (versionsOf.get(i.id)?.length ?? 0) > 0);
-    const gallery = compare ?? (!!block && !idea && withVersions.length >= 2);
-    const shown = idea ? (view === "after" && version ? "after" : view === "before" || !version ? "before" : "both") : "page";
+    const gallery = !!compare && withVersions.length >= 2;
     const st = idea ? stateOf(idea) : null;
-    const bar = (
-      <Box sx={{ display: "flex", gap: 1.25, rowGap: 1, alignItems: "center", flexWrap: "wrap" }}>
-        {idea && version && (
-          <SquareChoice<View> label="Show" value={shown as View} onChange={setView}
-            options={[{ key: "both", label: "Before | After" }, { key: "after", label: "After" }, { key: "before", label: "Before" }]} />
-        )}
-        <SquareChoice<Device> value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "phone", label: "Phone" }]} />
-        {device === "desktop" && <SquareChoice<Zoom> value={zoom} onChange={setZoom} options={[{ key: "fit", label: "Fit" }, { key: "full", label: "Actual size" }]} />}
-        <Box sx={{ flex: 1 }} />
-        {(idea || block) && (
-          <Tooltip title="Both pictures to the change (or the block) again">
-            <Button size="small" variant="outlined" onClick={() => { setGoSel(null); setGoN((n) => n + 1); }} startIcon={<MyLocationOutlinedIcon sx={{ fontSize: 17 }} />} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>To the change</Button>
-          </Tooltip>
-        )}
-        {version && (
-          <Tooltip title="The version's changes outlined">
-            <Button size="small" variant={marks ? "contained" : "outlined"} disableElevation onClick={() => setMarks((x) => !x)} startIcon={<HighlightAltOutlinedIcon sx={{ fontSize: 17 }} />}
-              sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Outline</Button>
-          </Tooltip>
-        )}
-        {!idea && live.some((i) => i.target) && (
-          <Button size="small" variant={showSpots && !clicks ? "contained" : "outlined"} disableElevation onClick={() => { if (clicks) { setClicks(false); setShowSpots(true); } else setShowSpots((x) => !x); }} startIcon={<TipsAndUpdatesOutlinedIcon sx={{ fontSize: 17 }} />}
-            sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Numbers</Button>
-        )}
-        {!idea && (
-          <Tooltip title="Where people click on this page - counted by the shop, only with the visitor's statistics consent">
-            <Button size="small" variant={clicks ? "contained" : "outlined"} color="warning" disableElevation onClick={() => setClicks(!clicks)} startIcon={<TouchAppOutlinedIcon sx={{ fontSize: 17 }} />}
-              sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Clicks</Button>
-          </Tooltip>
-        )}
-        <Tooltip title="Click an element in the page to ask the AI about it">
-          <Button size="small" variant={pick ? "contained" : "outlined"} color="secondary" disableElevation onClick={() => setPick((x) => !x)} startIcon={<AdsClickOutlinedIcon sx={{ fontSize: 17 }} />}
-            sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{pick ? "Click an element…" : "Pick"}</Button>
-        </Tooltip>
-        <Tooltip title="Read the page from the shop again">
-          <IconButton size="small" onClick={() => setFresh((n) => n + 1)} aria-label="Read again"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
-        </Tooltip>
-      </Box>
-    );
+    const pos = idea ? live.findIndex((i) => i.id === idea.id) : -1;
+    const step = (dir: number) => { const k = pos + dir; if (k >= 0 && k < live.length) { setCompare(false); select(live[k].id); } };
+    const building = idea ? busy === `build:${idea.id}` : false;
+    const btn = { borderRadius: "6px", textTransform: "none", fontWeight: 700 } as const;
+    const nums = numbers ? [
+      numbers.views ? `${full(numbers.views)} views` : null,
+      numbers.rate != null ? `cart rate ${pct(numbers.rate)}${numbers.typical ? ` - ${pct(numbers.typical)} is typical` : ""}` : null,
+      numbers.companies ? `${full(numbers.lost ?? 0)} of ${full(numbers.companies)} signed-in customers did not order` : null,
+    ].filter(Boolean).join(" · ") : "";
+    const send = async () => {
+      if (!idea) return;
+      setBusy("send"); setErr(null);
+      const res = await sendToProject({ data, numbers, idea, versions, first: version, block });
+      if (!res.ok) { setBusy(null); setErr(res.error); return; }
+      router.push(res.url);
+    };
 
-    const frames = pg.status !== 200 ? null : gallery ? (
-      // every version side by side, each at its block - pick one to work on it
+    const pictures = pg.status !== 200 ? null : gallery ? (
+      // a block's versions side by side - pick one to work on it
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(2, minmax(0,1fr))", xl: "repeat(3, minmax(0,1fr))" } }}>
         <StillBefore env={env} path={path} focus={block?.focus ?? beforeGoto?.sel ?? null} label="Before · the page as it is" />
         {withVersions.flatMap((i) => (versionsOf.get(i.id) ?? []).map((v) => ({ i, v }))).slice(0, 4).map(({ i, v }) => (
           <Box key={v.id} sx={{ minWidth: 0, cursor: "pointer", borderRadius: "12px", "&:hover": { boxShadow: `0 0 0 2px ${ACCENT}` } }} onClick={() => { setCompare(false); select(i.id, v.letter); }}>
             <OnScreen h={470}>
               <Frame src={srcOf(v)} device={device} zoom="fit" name={`g${v.id}`} sync={null} pick={false} marks={false} goto={{ sel: block?.selector ?? i.target ?? "[data-apso-c],[data-apso-v]", n: goN }} tall={420}
-                address={pg.url ?? path} label={`${numberOf.get(i.id) ?? ""} · ${i.title} · Version ${v.letter}`} onMsg={() => {}} onRetry={() => setFresh((n) => n + 1)} />
+                address={pg.url ?? path} label={`${i.title} · Version ${v.letter}`} onMsg={() => {}} onRetry={() => setFresh((n) => n + 1)} />
             </OnScreen>
           </Box>
         ))}
       </Box>
     ) : (
-      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: shown === "both" ? { xs: "minmax(0,1fr)", lg: "minmax(0,1fr) minmax(0,1fr)" } : "minmax(0,1fr)" }}>
-        {shown === "both" && <StillBefore env={env} path={path} focus={goSel ?? idea?.target ?? firstSel ?? block?.focus ?? null} label="Before · the page as it is" />}
-        {(shown === "before" || shown === "page") && (
-          <Frame src={base} device={device} zoom={zoom} name="before" sync={null} pick={pick} marks={false}
-            spots={idea || clicks ? null : spots} heat={shown === "page" ? heatMsg : null} goto={beforeGoto}
-            address={pg.url ?? path} label={idea ? "Before · the page as it is" : "The page as it is"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />
-        )}
-        {version && shown !== "before" && shown !== "page" && (
-          <Frame src={srcOf(version, rev)} device={device} zoom={zoom} name="after" sync={null} pick={pick} marks={marks} goto={afterGoto}
-            address={pg.url ?? path} label={`After · Version ${version.letter} · revision ${rev ?? version.rev}`} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />
-        )}
+      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: version ? { xs: "minmax(0,1fr)", lg: "minmax(0,1fr) minmax(0,1fr)" } : "minmax(0,1fr)" }}>
+        {version && <StillBefore env={env} path={path} focus={goSel ?? idea?.target ?? firstSel ?? block?.focus ?? null} label="Before" />}
+        {version
+          ? <Frame src={srcOf(version, rev)} device={device} zoom="fit" name="after" sync={null} pick={pick} marks={marks} goto={afterGoto}
+              address={pg.url ?? path} label={`After · Version ${version.letter}${rev !== null && rev !== version.rev ? ` · revision ${rev}` : ""}`} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />
+          : <Frame src={base} device={device} zoom="fit" name="before" sync={null} pick={pick} marks={false} spots={null} heat={!idea && clicks ? heatMsg : null} goto={beforeGoto}
+              address={pg.url ?? path} label={idea ? "The page as it is - the version comes beside it" : "The page as it is"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
       </Box>
     );
 
     body = (
       <>
-        {/* the page and its numbers */}
-        <GlassCard sx={{ p: 0, overflow: "hidden" }}>
-          <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", px: { xs: 2, md: 2.5 }, pt: 1.75, pb: 1.5 }}>
-            <Box sx={{ minWidth: 0, flex: "1 1 360px" }}>
-              <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap", mb: 0.4 }}>
-                <Chip tint={env === "prod" ? "green" : "amber"}>{ENVS[env].label}</Chip>
-                {pg.kind && <Chip tint={pg.kind === "product" ? "green" : pg.kind === "category" ? "blue" : pg.kind === "home" ? "purple" : "amber"}>{KIND_LABEL[pg.kind]}</Chip>}
-                {block && <Chip tint="amber">Block · {block.name}</Chip>}
-                <Typography sx={{ fontSize: "0.74rem", color: MUTED, overflowWrap: "anywhere" }}>{path}</Typography>
+        {/* the optimization */}
+        <GlassCard sx={{ p: { xs: 1.5, md: 2 } }}>
+          <Box sx={{ display: "flex", gap: 1, rowGap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
+            <Button size="small" component={Link} href={`${CONVERT}/insights`} startIcon={<ArrowBackRoundedIcon />} sx={{ ...btn, fontWeight: 600, color: MUTED }}>Insights</Button>
+            {idea && live.length > 1 && pos >= 0 && (
+              <Box sx={{ display: "flex", alignItems: "center" }}>
+                <IconButton size="small" disabled={pos <= 0} onClick={() => step(-1)} aria-label="Previous optimization"><ChevronLeftRoundedIcon /></IconButton>
+                <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED, fontVariantNumeric: "tabular-nums" }}>{pos + 1} of {live.length} on this page</Typography>
+                <IconButton size="small" disabled={pos >= live.length - 1} onClick={() => step(1)} aria-label="Next optimization"><ChevronRightRoundedIcon /></IconButton>
               </Box>
-              <Typography sx={{ fontSize: "1.12rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em", overflowWrap: "anywhere" }}>{block ? `${block.name} - ${block.goal}` : pg.h1[0] || pg.title || path}</Typography>
-            </Box>
-            <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
-              <Button size="small" href={`/website/ai-personalization/journeys/page?path=${encodeURIComponent(data.path)}`} sx={{ textTransform: "none", fontWeight: 600 }}>Page flow</Button>
-              <Button size="small" onClick={() => router.push("/website/ai-personalization/preview")} sx={{ textTransform: "none", fontWeight: 600 }}>Other page</Button>
-              {pg.url && <Tooltip title="Open on the shop"><IconButton size="small" component="a" href={pg.url} target="_blank" rel="noopener"><OpenInNewIcon sx={{ fontSize: 17, color: MUTED }} /></IconButton></Tooltip>}
-            </Box>
+            )}
+            <Box sx={{ flex: 1 }} />
+            {idea && data.canEdit && st !== "dropped" && <Button size="small" onClick={() => void act(`i:${idea.id}`, { action: "idea", id: idea.id, status: "dropped" })} sx={{ ...btn, fontWeight: 600, color: MUTED }}>Drop</Button>}
+            {idea && data.canEdit && st === "dropped" && <Button size="small" onClick={() => void act(`i:${idea.id}`, { action: "idea", id: idea.id, status: "proposed" })} sx={{ ...btn, fontWeight: 600 }}>Bring back</Button>}
+            {idea?.projectId && <Button size="small" variant="outlined" href={`/projects/${idea.projectId}`} sx={btn}>Open the project</Button>}
+            {idea && st === "sent" && version && <Button size="small" variant="outlined" href={`${CONVERT}/tests?make=${version.id}`} sx={btn}>Test Version {version.letter}</Button>}
+            {idea && data.canEdit && st !== "dropped" && (
+              <Tooltip title={!data.canContent ? "Content needs the Marketing access" : !versions.length ? "Its version comes first - the AI is making it" : `A ${CHANGE_LABEL[typeOfIdea(idea)]} project in Content with a brief to rebuild it there`}>
+                <span>
+                  <Button size="small" variant="contained" disableElevation disabled={!data.canContent || !versions.length || busy === "send"} onClick={() => void send()}
+                    startIcon={busy === "send" ? <CircularProgress size={13} sx={{ color: "inherit" }} /> : <SendOutlinedIcon sx={{ fontSize: 16 }} />} sx={btn}>
+                    {st === "sent" ? "Send to Content again" : "Send to Content"}
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
           </Box>
-          {numbers && (numbers.views != null || numbers.companies != null) ? (
-            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, minmax(0,1fr))", md: "repeat(4, minmax(0,1fr))" }, borderTop: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.55)" }}>
-              {(() => {
-                const low = numbers.rate != null && numbers.typical ? numbers.rate < numbers.typical / 2 : false;
-                const cells: { k: string; v: string; sub: string; tone?: string }[] = [
-                  { k: "Views", v: numbers.views ? full(numbers.views) : "–", sub: "in the period, every language" },
-                  { k: "Cart rate", v: pct(numbers.rate ?? null), sub: `typical ${pct(numbers.typical ?? null)} for this kind of page`, tone: numbers.rate == null || !numbers.typical ? undefined : low ? RED : numbers.rate < numbers.typical ? AMBER : GREEN },
-                  { k: "Customers lost", v: numbers.companies ? `${full(numbers.lost ?? 0)} of ${full(numbers.companies)}` : "–", sub: "signed-in customers who opened it and did not order", tone: numbers.lost ? RED : undefined },
-                  { k: "Most stopped at", v: numbers.topLoss ?? "–", sub: "their furthest step on the page" },
-                ];
-                return cells.map((c, i) => (
-                  <Box key={c.k} sx={{ px: { xs: 2, md: 2.5 }, py: 1.25, borderLeft: { xs: i % 2 ? `1px solid ${HAIRLINE}` : "none", md: i ? `1px solid ${HAIRLINE}` : "none" }, borderTop: { xs: i > 1 ? `1px solid ${HAIRLINE}` : "none", md: "none" }, minWidth: 0 }}>
-                    <Typography sx={{ fontSize: "0.68rem", color: MUTED, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>{c.k}</Typography>
-                    <Typography sx={{ fontSize: "1.3rem", fontWeight: 700, color: c.tone ?? INK, lineHeight: 1.25, fontVariantNumeric: "tabular-nums" }}>{c.v}</Typography>
-                    <Typography sx={{ fontSize: "0.72rem", color: MUTED, lineHeight: 1.35 }}>{c.sub}</Typography>
+          <Typography sx={{ fontSize: "1.25rem", fontWeight: 800, color: INK, lineHeight: 1.25, mt: 1, letterSpacing: "-0.01em" }}>
+            {idea ? idea.title : block ? `${block.name} - ${block.goal}` : pg.h1[0] || pg.title || path}
+          </Typography>
+          <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap", alignItems: "center", mt: 0.75 }}>
+            {idea && <Chip tint="purple">{CHANGE_LABEL[typeOfIdea(idea)]}</Chip>}
+            {st && <Chip tint={STATE_TINT[st]}>{STATE_LABEL[st]}</Chip>}
+            {block && <Chip tint="amber">Block · {block.name}</Chip>}
+            <Chip tint={env === "prod" ? "green" : "amber"}>{ENVS[env].label}</Chip>
+            <Typography component="span" sx={{ fontSize: "0.78rem", color: MUTED, overflowWrap: "anywhere" }}>{pg.h1[0] || pg.title || path}</Typography>
+            {pg.url && <Tooltip title="Open on the shop"><IconButton size="small" component="a" href={pg.url} target="_blank" rel="noopener"><OpenInNewIcon sx={{ fontSize: 15, color: MUTED }} /></IconButton></Tooltip>}
+          </Box>
+          {nums && <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.25 }}>{nums}</Typography>}
+          {idea && (
+            <Box sx={{ display: "grid", gap: 1, mt: 1.5, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(3, minmax(0,1fr))" } }}>
+              {([
+                ["Diagnostic", idea.why, <ErrorOutlineIcon key="d" />, "#c5221f"],
+                ["The optimization", idea.change, <ScienceOutlinedIcon key="o" />, "#2459d1"],
+                ["Should move", idea.expect, <TrackChangesOutlinedIcon key="m" />, "#1b7a55"],
+              ] as const).filter(([, t]) => t).map(([k, t, icon, tone]) => (
+                <Box key={k} sx={{ p: 1.25, borderRadius: "10px", bgcolor: `${tone}0d`, border: `1px solid ${tone}26`, minWidth: 0 }}>
+                  <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", mb: 0.5 }}>
+                    <Box sx={{ width: 24, height: 24, borderRadius: "50%", display: "grid", placeItems: "center", bgcolor: `${tone}1f`, color: tone, "& svg": { fontSize: 15 } }}>{icon}</Box>
+                    <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: tone }}>{k}</Typography>
                   </Box>
-                ));
-              })()}
-            </Box>
-          ) : !block && (
-            <Box sx={{ px: { xs: 2, md: 2.5 }, py: 1.1, borderTop: `1px solid ${HAIRLINE}`, display: "flex", gap: 0.75, alignItems: "center" }}>
-              <InsightsOutlinedIcon sx={{ fontSize: 16, color: MUTED }} />
-              <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{prob.result === null ? "Reading its numbers…" : "Not among the problem pages in this period."}</Typography>
-            </Box>
-          )}
-          {numbers?.reasons?.length ? (
-            <Box sx={{ display: "grid", gap: 0.5, px: { xs: 2, md: 2.5 }, py: 1.1, borderTop: `1px solid ${HAIRLINE}`, bgcolor: "rgba(197,34,31,.045)" }}>
-              {numbers.reasons.map((t) => (
-                <Box key={t} sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
-                  <ErrorOutlineIcon sx={{ fontSize: 17, color: RED, mt: "1px", flexShrink: 0 }} />
-                  <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.4 }}>{t}</Typography>
+                  <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.45 }}>{t}</Typography>
                 </Box>
               ))}
             </Box>
-          ) : null}
+          )}
         </GlassCard>
 
         {pg.status !== 200 && <Notice tone="bad">{pg.error ? `The shop did not answer: ${pg.error}` : `The shop answered ${pg.status} for this page.`}</Notice>}
@@ -895,217 +884,144 @@ function ConvertPreview() {
           </Notice>
         )}
 
-        <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "minmax(0,1fr)", xl: "360px minmax(0,1fr)" }, alignItems: "start" }}>
-          {/* the optimizations - the same list wherever the page is opened from */}
-          <GlassCard sx={{ p: { xs: 1.5, md: 1.75 }, position: { xl: "sticky" }, top: { xl: 16 }, maxHeight: { xl: "calc(100vh - 32px)" }, overflowY: { xl: "auto" } }}>
-            <CardTitle icon={<TipsAndUpdatesOutlinedIcon />} tint="amber" title={`Optimizations · ${live.length}`}
-              note={block ? `of the ${block.name.toLowerCase()} - many different ones, then pick` : live.length ? "Each one shown Before | After with its proposed version" : "The AI reads the page and its numbers"} />
-            <Box sx={{ display: "grid", gap: 1, mt: 1.25 }}>
-              <Box component="button" type="button" onClick={() => { select(null); setCompare(false); }} sx={{
-                all: "unset", cursor: "pointer", px: 1.25, py: 0.9, borderRadius: "12px", border: `1px solid ${!idea && !gallery ? ACCENT : HAIRLINE}`,
-                bgcolor: !idea && !gallery ? "rgba(36,89,209,.06)" : "transparent", fontSize: "0.84rem", fontWeight: 700, color: INK, display: "flex", alignItems: "center", gap: 1,
-              }}><WebOutlinedIcon sx={{ fontSize: 18, color: MUTED }} /> The page as it is{live.some((i) => i.target) ? " · numbered" : ""}</Box>
-              {withVersions.length >= 2 && (
-                <Box component="button" type="button" onClick={() => { select(null); setCompare(true); }} sx={{
-                  all: "unset", cursor: "pointer", px: 1.25, py: 0.9, borderRadius: "12px", border: `1px solid ${gallery ? ACCENT : HAIRLINE}`,
-                  bgcolor: gallery ? "rgba(36,89,209,.06)" : "transparent", fontSize: "0.84rem", fontWeight: 700, color: INK, display: "flex", alignItems: "center", gap: 1,
-                }}><ViewModuleOutlinedIcon sx={{ fontSize: 18, color: MUTED }} /> All versions side by side · {withVersions.reduce((s, i) => s + (versionsOf.get(i.id)?.length ?? 0), 0)}</Box>
+        {/* no optimization yet: the page, and the AI's button */}
+        {live.length === 0 && pg.status === 200 && (
+          <GlassCard sx={{ display: "grid", gap: 1.25, justifyItems: "start" }}>
+            <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{busy === "ideas" ? `The AI is reading ${block ? "the block" : "the page and its numbers"} - about half a minute` : "No optimization on this page yet"}</Typography>
+            {busy === "ideas" && <LinearProgress sx={{ width: "100%", height: 4, borderRadius: 2, bgcolor: "rgba(106,70,201,.12)", "& .MuiLinearProgress-bar": { backgroundImage: AI_GRADIENT } }} />}
+            {data.canEdit && <AiButton busy={busy === "ideas"} disabled={!data.ai} onClick={() => void act("ideas", { action: "ideas", env, path, numbers, ...(block ? { block: block.key } : {}) })}>Find optimizations</AiButton>}
+            {!data.ai && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No AI key on this hub - optimizations can be added by hand, under More.</Typography>}
+          </GlassCard>
+        )}
+
+        {/* the work: its pictures, the AI helper beside them */}
+        <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "minmax(0,1fr)", xl: idea ? "minmax(0,1fr) 360px" : "minmax(0,1fr)" }, alignItems: "start" }}>
+          <GlassCard sx={{ p: { xs: 1.5, md: 2 }, minWidth: 0 }}>
+            <Box sx={{ display: "flex", gap: 1, rowGap: 1, alignItems: "center", flexWrap: "wrap" }}>
+              {idea && versions.length > 0 && (
+                <SquareChoice<string> label="Version" value={gallery ? "" : version?.letter ?? ""} onChange={(l) => { setCompare(false); select(idea.id, l); }}
+                  options={versions.map((v) => ({ key: v.letter, label: v.letter }))} />
               )}
-              {data.analysis && !idea && (
-                <Box sx={{ p: 1.25, borderRadius: "10px", borderLeft: "3px solid #6a46c9", bgcolor: "rgba(106,70,201,.06)" }}>
-                  <Typography sx={{ fontSize: "0.66rem", fontWeight: 800, color: "#6a46c9", textTransform: "uppercase", letterSpacing: ".06em" }}>The AI&apos;s reading</Typography>
+              {idea && data.canEdit && st !== "dropped" && data.ai && versions.length > 0 && versions.length < 4 && (
+                <Tooltip title="A clearly different way to make the same optimization - for the A/B test">
+                  <span>
+                    <Button size="small" variant="outlined" disabled={building} onClick={() => void build(idea, { another: true })}
+                      startIcon={building ? <CircularProgress size={13} /> : <AddCircleOutlineIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, fontWeight: 600 }}>
+                      {building ? "The AI is writing…" : `Another version (${["A", "B", "C", "D"].find((l) => !versions.some((v) => v.letter === l))})`}
+                    </Button>
+                  </span>
+                </Tooltip>
+              )}
+              {withVersions.length >= 2 && (
+                <Button size="small" variant={gallery ? "contained" : "outlined"} disableElevation onClick={() => { if (gallery) setCompare(false); else { setCompare(true); } }}
+                  startIcon={<ViewModuleOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, fontWeight: 600 }}>All side by side</Button>
+              )}
+              <Box sx={{ flex: 1 }} />
+              <SquareChoice<Device> value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "phone", label: "Phone" }]} />
+            </Box>
+            {clicks && !idea && path && (
+              <Box sx={{ mt: 1.5 }}>
+                <ClicksBar data={clickData} error={clickErr} loading={!ch.result || ch.stale} dev={clickDev} onDev={setClickDev} env={env} path={path}
+                  focus={heatFocus} onFocus={(s) => setHeatFocus((f) => (f === s ? null : s))} missing={heatMissing} names={heatNames}
+                  onChanged={() => setClickTick((n) => n + 1)} />
+              </Box>
+            )}
+            {idea && !version && building && (
+              <Box sx={{ mt: 1.5, p: 1.5, borderRadius: "10px", border: "1px solid rgba(106,70,201,.3)", bgcolor: "rgba(106,70,201,.06)", display: "grid", gap: 1 }}>
+                <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                  <AutoAwesomeIcon sx={{ fontSize: 18, color: "#6a46c9" }} />
+                  <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK }}>The AI is writing the proposed version - about a minute</Typography>
+                </Box>
+                <LinearProgress sx={{ height: 4, borderRadius: 2, bgcolor: "rgba(106,70,201,.12)", "& .MuiLinearProgress-bar": { backgroundImage: AI_GRADIENT } }} />
+              </Box>
+            )}
+            {idea && !version && !building && data.canEdit && st !== "dropped" && (
+              <Box sx={{ mt: 1.5 }}><AiButton disabled={!data.ai} onClick={() => void build(idea)}>Make the version</AiButton></Box>
+            )}
+            {styles && styles.nfailed > 0 && (
+              <Box sx={{ mt: 1.5 }}><Notice tone="warn">Your browser drew {styles.total - styles.nfailed} of the shop&apos;s {styles.total} stylesheets - the page can look raw. Read it again under More.</Notice></Box>
+            )}
+            <Box sx={{ mt: 1.5 }}>{pictures}</Box>
+            {version && !gallery && <Typography sx={{ fontSize: "0.78rem", color: INK, mt: 1.25 }}><b>Version {version.letter}:</b> {version.summary}</Typography>}
+          </GlassCard>
+
+          {idea && (
+            <Box sx={{ display: "grid", gap: 2, minWidth: 0, position: { xl: "sticky" }, top: { xl: 16 } }}>
+              {data.canEdit && st !== "dropped" && data.ai && (
+                <AiHelper version={version} ask={ask} setAsk={setAsk} busy={building} picked={picked} pick={pick} onPick={() => setPick((x) => !x)}
+                  onSend={async () => { if (await build(idea, { request: ask.trim(), ...(version ? { letter: version.letter } : {}) })) setAsk(""); }} />
+              )}
+              {version && (
+                <GlassCard sx={{ p: { xs: 1.5, md: 1.75 } }}>
+                  {rev !== null && rev !== version.rev && <Box sx={{ mb: 1 }}><Notice tone="warn">After shows revision {rev}. <Box component="button" type="button" onClick={() => setRev(null)} sx={{ all: "unset", cursor: "pointer", color: ACCENT, fontWeight: 600 }}>Back to the latest</Box></Notice></Box>}
+                  <WhatChanges version={version} hit={hit && (rev === null || rev === version.rev) ? hit : null} onGo={(sel) => { setGoSel(sel); setGoN((n) => n + 1); }} />
+                </GlassCard>
+              )}
+            </Box>
+          )}
+        </Box>
+
+        {/* everything else, folded */}
+        <Box component="details" sx={{ px: 0.5, "& > summary": { cursor: "pointer", fontSize: "0.84rem", fontWeight: 700, color: MUTED, py: 0.5 } }}>
+          <summary>More - every optimization of this page, the version&apos;s code and revisions, the clicks, what the AI reads</summary>
+          <Box sx={{ display: "grid", gap: 2, mt: 1.5 }}>
+            <GlassCard sx={{ p: { xs: 1.5, md: 1.75 } }}>
+              <CardTitle icon={<TipsAndUpdatesOutlinedIcon />} tint="amber" title={`Optimizations of this page · ${live.length}`} note={block ? `of the ${block.name.toLowerCase()}` : "The lead first"} />
+              <Box sx={{ display: "grid", gap: 1, mt: 1.25, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(2, minmax(0,1fr))" } }}>
+                {ranked.map((i) => (
+                  <IdeaCard key={i.id} idea={i} versions={versionsOf.get(i.id) ?? []} selected={idea?.id === i.id} n={numberOf.get(i.id)} lead={numberOf.get(i.id) === 1 && i.source === "ai"}
+                    onSelect={() => { setCompare(false); select(i.id); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+                ))}
+              </Box>
+              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center", mt: 1.5 }}>
+                {data.canEdit && live.length > 0 && <AiButton size="small" busy={busy === "ideas"} disabled={!data.ai || pg.status !== 200} onClick={() => void act("ideas", { action: "ideas", env, path, numbers, ...(block ? { block: block.key } : {}) })}>{busy === "ideas" ? "The AI is reading…" : "Find more optimizations"}</AiButton>}
+                {data.canEdit && block && live.some((i) => !(versionsOf.get(i.id)?.length)) && (
+                  <Button size="small" variant="outlined" disabled={!!making || !!busy} onClick={() => void makeAll()} startIcon={making ? <CircularProgress size={13} /> : <AutoFixHighOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, fontWeight: 600 }}>
+                    {making ? `Writing version ${Math.min(making.done + 1, making.of)} of ${making.of}…` : "A version of each, side by side"}
+                  </Button>
+                )}
+              </Box>
+              {data.canEdit && <Box sx={{ mt: 1 }}><OwnIdea onAdd={async (title, change) => act("add", { action: "add", env, path, title, change, numbers })} /></Box>}
+              {data.analysis && (
+                <Box sx={{ mt: 1.5, p: 1.25, borderRadius: "10px", borderLeft: "3px solid #6a46c9", bgcolor: "rgba(106,70,201,.06)" }}>
+                  <Typography sx={{ fontSize: "0.66rem", fontWeight: 800, color: "#6a46c9", textTransform: "uppercase", letterSpacing: ".06em" }}>The AI&apos;s reading of the page</Typography>
                   <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.45, mt: 0.25 }}>{data.analysis.text}</Typography>
                 </Box>
               )}
-              {busy === "ideas" && (
-                <Box sx={{ display: "flex", gap: 1, alignItems: "center", p: 1.25, borderRadius: "10px", bgcolor: "rgba(36,89,209,.06)" }}>
-                  <CircularProgress size={16} />
-                  <Typography sx={{ fontSize: "0.82rem", color: INK }}>The AI is reading {block ? "the block" : "the page and its numbers"} - about half a minute.</Typography>
-                </Box>
-              )}
-              {ranked.map((i) => (
-                <Box key={i.id} data-idea-n={numberOf.get(i.id) ?? ""}>
-                  <IdeaCard idea={i} versions={versionsOf.get(i.id) ?? []} selected={idea?.id === i.id} n={numberOf.get(i.id)} lead={numberOf.get(i.id) === 1 && i.source === "ai"}
-                    focused={spotFocus !== null && spotFocus === numberOf.get(i.id)}
-                    onPoint={(on) => { const k = numberOf.get(i.id); if (k !== undefined && i.target) setSpotFocus(on ? k : null); }}
-                    onSelect={() => { setCompare(false); setView("both"); select(i.id); }} />
-                </Box>
-              ))}
-              {data.canEdit && (
-                <AiButton busy={busy === "ideas"} disabled={!data.ai || pg.status !== 200}
-                  onClick={() => void act("ideas", { action: "ideas", env, path, numbers, ...(block ? { block: block.key } : {}) })}>
-                  {busy === "ideas" ? "The AI is reading…" : live.length ? "Find more optimizations" : "Find optimizations"}
-                </AiButton>
-              )}
-              {data.canEdit && block && live.some((i) => !(versionsOf.get(i.id)?.length)) && (
-                <Button variant="contained" color="secondary" disableElevation disabled={!!making || !!busy} onClick={() => void makeAll()}
-                  startIcon={making ? <CircularProgress size={14} sx={{ color: "inherit" }} /> : <AutoFixHighOutlinedIcon sx={{ fontSize: 17 }} />} sx={{ textTransform: "none", fontWeight: 700 }}>
-                  {making ? `Writing version ${Math.min(making.done + 1, making.of)} of ${making.of}…` : "Make a version of each, side by side"}
-                </Button>
-              )}
-              {!data.ai && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No AI key on this hub - optimizations can be added by hand.</Typography>}
-              {data.canEdit && <OwnIdea onAdd={async (title, change) => { const ok = await act("add", { action: "add", env, path, title, change, numbers }); return ok; }} />}
-            </Box>
-          </GlassCard>
-
-          {/* the work: the chosen optimization Before | After, its versions, what changes, the send to the project */}
-          <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
-            {idea && (
-              <GlassCard>
-                <Box sx={{ display: "flex", gap: 1.25, alignItems: "flex-start", flexWrap: "wrap" }}>
-                  <Box component="span" sx={{ flexShrink: 0, minWidth: 30, height: 30, borderRadius: "8px", display: "grid", placeItems: "center", fontSize: "0.9rem", fontWeight: 800, color: "#fff", bgcolor: numberOf.get(idea.id) === 1 ? RED : "#6a46c9" }}>{numberOf.get(idea.id) ?? "–"}</Box>
-                  <Box sx={{ flex: "1 1 320px", minWidth: 0 }}>
-                    <Typography sx={{ fontSize: "1.05rem", fontWeight: 800, color: INK, lineHeight: 1.3 }}>{idea.title}</Typography>
-                    <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.5 }}>
-                      <Chip tint={STATE_TINT[st!]}>{STATE_LABEL[st!]}</Chip>
-                      <Chip tint="purple">{CHANGE_LABEL[typeOfIdea(idea)]}</Chip>
-                      {idea.sentAt && <Chip tint="slate">{`by ${idea.sentBy ?? "someone"} · ${since(idea.sentAt)}`}</Chip>}
-                      {iceScore(idea) !== null && <Chip tint="blue">{`Score ${iceScore(idea)} · impact ${idea.impact}/5 · confidence ${idea.confidence}/5 · effort ${idea.effort}/5`}</Chip>}
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
-                    {data.canEdit && st !== "dropped" && <Button size="small" onClick={() => void act(`i:${idea.id}`, { action: "idea", id: idea.id, status: "dropped" })} sx={{ textTransform: "none", fontWeight: 600, color: MUTED }}>Drop</Button>}
-                    {data.canEdit && st === "dropped" && <Button size="small" onClick={() => void act(`i:${idea.id}`, { action: "idea", id: idea.id, status: "proposed" })} sx={{ textTransform: "none", fontWeight: 600 }}>Bring back</Button>}
-                    {idea.projectId && <Button size="small" variant="outlined" href={`/projects/${idea.projectId}`} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>Open the project</Button>}
-                    {st === "sent" && version && <Button size="small" variant="outlined" href={`/website/ai-personalization/tests?make=${version.id}`} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>Test Version {version.letter} on the shop</Button>}
-                    {data.canEdit && st !== "dropped" && versions.length > 0 && (
-                      <Tooltip title={!data.canContent ? "Content needs the Marketing access" : `A ${CHANGE_LABEL[typeOfIdea(idea)]} project in Content with a brief to rebuild it there - the page, this optimization and its versions; the send approves the versions`}>
-                        <span>
-                          <Button size="small" variant="contained" disableElevation disabled={!data.canContent || busy === "send"} startIcon={busy === "send" ? <CircularProgress size={13} sx={{ color: "inherit" }} /> : <SendOutlinedIcon sx={{ fontSize: 16 }} />}
-                            onClick={async () => {
-                              setBusy("send"); setErr(null);
-                              const res = await sendToProject({ data, numbers, idea, versions, first: version, block });
-                              if (!res.ok) { setBusy(null); setErr(res.error); return; }
-                              router.push(res.url);
-                            }} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>
-                            {st === "sent" ? "Send again" : "Send to project"}
-                          </Button>
-                        </span>
-                      </Tooltip>
-                    )}
-                  </Box>
-                </Box>
-                <Box sx={{ display: "grid", gap: 1, mt: 1.25, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(3, minmax(0,1fr))" } }}>
-                  {([
-                    ["Diagnostic", idea.why, <ErrorOutlineIcon key="d" />, "#c5221f"],
-                    ["The optimization", idea.change, <ScienceOutlinedIcon key="o" />, "#2459d1"],
-                    ["Should move", idea.expect, <TrackChangesOutlinedIcon key="m" />, "#1b7a55"],
-                  ] as const).filter(([, t]) => t).map(([k, t, icon, tone]) => (
-                    <Box key={k} sx={{ p: 1.25, borderRadius: "10px", bgcolor: `${tone}0d`, border: `1px solid ${tone}26`, minWidth: 0 }}>
-                      <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", mb: 0.5 }}>
-                        <Box sx={{ width: 24, height: 24, borderRadius: "50%", display: "grid", placeItems: "center", bgcolor: `${tone}1f`, color: tone, "& svg": { fontSize: 15 } }}>{icon}</Box>
-                        <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: tone }}>{k}</Typography>
-                      </Box>
-                      <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.45 }}>{t}</Typography>
-                    </Box>
-                  ))}
-                </Box>
-                {/* its versions: one or more, for the A/B test */}
-                <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", mt: 1.5 }}>
-                  {versions.length > 0 && (
-                    <SquareChoice<string> label="Versions" value={version?.letter ?? ""} onChange={(l) => select(idea.id, l)}
-                      options={versions.map((v) => ({ key: v.letter, label: `Version ${v.letter}${v.status === "approved" ? " ✓" : ""}` }))} />
-                  )}
-                  {data.canEdit && st !== "dropped" && (versions.length === 0
-                    ? <AiButton size="small" busy={busy === `build:${idea.id}`} disabled={!data.ai} onClick={() => void build(idea)}>
-                        {busy === `build:${idea.id}` ? "The AI is making the version… about a minute" : "Make the version"}
-                      </AiButton>
-                    : versions.length < 4 && (
-                      <Tooltip title="A clearly different way to make the same optimization - to test against the page and the other versions">
-                        <span>
-                          <Button size="small" variant="outlined" disabled={busy === `build:${idea.id}` || !data.ai} onClick={() => void build(idea, { another: true })}
-                            startIcon={busy === `build:${idea.id}` ? <CircularProgress size={13} /> : <AddCircleOutlineIcon sx={{ fontSize: 16 }} />} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>
-                            {busy === `build:${idea.id}` ? "The AI is writing…" : `Another version (${["A", "B", "C", "D"].find((l) => !versions.some((v) => v.letter === l))})`}
-                          </Button>
-                        </span>
-                      </Tooltip>
-                    ))}
-                  {version && <Typography sx={{ fontSize: "0.78rem", color: MUTED, flex: "1 1 240px" }}>{version.summary}</Typography>}
-                </Box>
-                {data.canEdit && st !== "dropped" && data.ai && (
-                  <AiHelper version={version} ask={ask} setAsk={setAsk} busy={busy === `build:${idea.id}`} picked={picked}
-                    onSend={async () => { if (await build(idea, { request: ask.trim(), ...(version ? { letter: version.letter } : {}) })) setAsk(""); }} />
-                )}
-              </GlassCard>
-            )}
-
-            <GlassCard sx={{ p: { xs: 1.5, md: 2 } }}>
-              {bar}
-              {clicks && !idea && path && (
-                <Box sx={{ mt: 1.5 }}>
-                  <ClicksBar data={clickData} error={clickErr} loading={!ch.result || ch.stale} dev={clickDev} onDev={setClickDev} env={env} path={path}
-                    focus={heatFocus} onFocus={(s) => setHeatFocus((f) => (f === s ? null : s))} missing={heatMissing} names={heatNames}
-                    onChanged={() => setClickTick((n) => n + 1)} />
-                </Box>
-              )}
-              {picked && (
-                <Box sx={{ display: "flex", gap: 1.25, alignItems: "center", flexWrap: "wrap", mt: 1.5, p: 1.25, borderRadius: "10px", border: "1px solid rgba(124,77,255,.35)", bgcolor: "rgba(124,77,255,.06)" }}>
-                  <AdsClickOutlinedIcon sx={{ fontSize: 18, color: "#6a46c9" }} />
-                  <Box sx={{ minWidth: 0, flex: "1 1 320px" }}>
-                    <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, overflowWrap: "anywhere" }}>{picked.text ? `“${picked.text}”` : `A <${picked.tag}> element`}</Typography>
-                    <Typography sx={{ fontSize: "0.72rem", color: MUTED, fontFamily: "ui-monospace, Consolas, monospace", overflowWrap: "anywhere" }}>{picked.selector}</Typography>
-                  </Box>
-                  {data.canEdit && idea && version
-                    ? <Button size="small" variant="contained" disableElevation onClick={() => { setAsk(`Change this element - ${picked.selector}${picked.text ? ` (it reads “${picked.text.slice(0, 80)}”)` : ""}: `); document.getElementById("apso-ai-helper")?.scrollIntoView({ behavior: "smooth", block: "center" }); }}>Ask the AI helper to change it</Button>
-                    : data.canEdit && idea
-                      ? <Button size="small" variant="contained" disableElevation disabled={busy === `build:${idea.id}`} onClick={() => void build(idea, { request: `Start from this element - ${picked.selector}${picked.text ? ` (it reads “${picked.text.slice(0, 80)}”)` : ""}.` })}>Make the version from here</Button>
-                      : <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>Choose an optimization first - its version can then change this element.</Typography>}
-                  <Button size="small" onClick={() => setPicked(null)}>Clear</Button>
-                </Box>
-              )}
-              {styles && styles.nfailed > 0 && (
-                <Box sx={{ mt: 1.5 }}><Notice tone="warn">Your browser drew {styles.total - styles.nfailed} of the shop&apos;s {styles.total} stylesheets - the page can look raw. Reading the page again usually helps.</Notice></Box>
-              )}
-              {idea && versions.length === 0 && busy === `build:${idea.id}` && (
-                <Box sx={{ mt: 1.5, p: 1.5, borderRadius: "10px", border: "1px solid rgba(106,70,201,.3)", bgcolor: "rgba(106,70,201,.06)", display: "grid", gap: 1 }}>
-                  <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-                    <AutoAwesomeIcon sx={{ fontSize: 18, color: "#6a46c9" }} />
-                    <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK }}>The AI is writing the proposed version - about a minute</Typography>
-                  </Box>
-                  <LinearProgress sx={{ height: 4, borderRadius: 2, bgcolor: "rgba(106,70,201,.12)", "& .MuiLinearProgress-bar": { backgroundImage: AI_GRADIENT } }} />
-                  <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Below, the page as it is. Its version appears beside it, at the change.</Typography>
-                </Box>
-              )}
-              <Box sx={{ mt: 1.5 }}>{frames}</Box>
-              <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 1 }}>
-                Nothing here is counted, ordered or sent - prices, availability and the cart stay empty.
-              </Typography>
             </GlassCard>
-
-            {idea && version && (
-              <GlassCard>
-                <Box sx={{ display: "grid", gap: 1.5 }}>
-                  {rev !== null && rev !== version.rev && <Notice tone="warn">After shows revision {rev}. <Box component="button" type="button" onClick={() => setRev(null)} sx={{ all: "unset", cursor: "pointer", color: ACCENT, fontWeight: 600 }}>Back to the latest</Box></Notice>}
-                  <WhatChanges version={version} hit={hit && (rev === null || rev === version.rev) ? hit : null} onGo={(sel) => { setGoSel(sel); setGoN((n) => n + 1); }} />
-                  {data.canEdit && st !== "dropped" && (
-                    <Box sx={{ display: "grid", gap: 1 }}>
-                      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
-                        <Box sx={{ flex: 1 }} />
-                        <Button size="small" onClick={() => { setHand((h) => !h); setJson(JSON.stringify(version.changes, null, 2)); setJsonErr(null); }} sx={{ textTransform: "none" }}>{hand ? "Close the code" : "The code"}</Button>
-                      </Box>
-                      {hand && (
-                        <Box sx={{ display: "grid", gap: 1 }}>
-                          <TextField multiline minRows={10} maxRows={28} value={json} onChange={(e) => setJson(e.target.value)}
-                            sx={{ "& textarea": { fontFamily: "ui-monospace, Consolas, monospace", fontSize: "0.76rem" } }} />
-                          {jsonErr && <Typography sx={{ fontSize: "0.8rem", color: RED }}>{jsonErr}</Typography>}
-                          <Button size="small" variant="contained" disableElevation sx={{ justifySelf: "end" }} onClick={async () => {
-                            let parsed: unknown;
-                            try { parsed = JSON.parse(json); } catch (e) { setJsonErr(`Not valid JSON: ${(e as Error).message}`); return; }
-                            const res = await convertPost<{ problems: string[] }>(API, { action: "edit", versionId: version.id, changes: parsed });
-                            if (!res.ok) { setJsonErr(res.error); return; }
-                            setTick((n) => n + 1);
-                            setJsonErr(res.data.problems.length ? `Saved; left out: ${res.data.problems.join("; ")}` : null);
-                            if (!res.data.problems.length) setHand(false);
-                          }}>Save as a new revision</Button>
-                        </Box>
-                      )}
-                    </Box>
-                  )}
-                  <Revisions version={version} shown={rev ?? version.rev} onRev={(x) => setRev(x === version.rev ? null : x)} />
+            {idea && version && data.canEdit && st !== "dropped" && (
+              <GlassCard sx={{ p: { xs: 1.5, md: 1.75 }, display: "grid", gap: 1 }}>
+                <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+                  <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, flex: 1 }}>Version {version.letter}&apos;s code</Typography>
+                  <Button size="small" onClick={() => { setHand((h) => !h); setJson(JSON.stringify(version.changes, null, 2)); setJsonErr(null); }} sx={{ textTransform: "none" }}>{hand ? "Close" : "Open the code"}</Button>
                 </Box>
+                {hand && (
+                  <Box sx={{ display: "grid", gap: 1 }}>
+                    <TextField multiline minRows={10} maxRows={28} value={json} onChange={(e) => setJson(e.target.value)}
+                      sx={{ "& textarea": { fontFamily: "ui-monospace, Consolas, monospace", fontSize: "0.76rem" } }} />
+                    {jsonErr && <Typography sx={{ fontSize: "0.8rem", color: RED }}>{jsonErr}</Typography>}
+                    <Button size="small" variant="contained" disableElevation sx={{ justifySelf: "end" }} onClick={async () => {
+                      let parsed: unknown;
+                      try { parsed = JSON.parse(json); } catch (e) { setJsonErr(`Not valid JSON: ${(e as Error).message}`); return; }
+                      const res = await convertPost<{ problems: string[] }>(API, { action: "edit", versionId: version.id, changes: parsed });
+                      if (!res.ok) { setJsonErr(res.error); return; }
+                      setTick((n) => n + 1);
+                      setJsonErr(res.data.problems.length ? `Saved; left out: ${res.data.problems.join("; ")}` : null);
+                      if (!res.data.problems.length) setHand(false);
+                    }}>Save as a new revision</Button>
+                  </Box>
+                )}
+                <Revisions version={version} shown={rev ?? version.rev} onRev={(x) => setRev(x === version.rev ? null : x)} />
               </GlassCard>
             )}
-
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+              <Button size="small" variant={clicks ? "contained" : "outlined"} color="warning" disableElevation onClick={() => { if (!clicks) { setCompare(false); select(null); } setClicks(!clicks); }}
+                startIcon={<TouchAppOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, fontWeight: 600 }}>{clicks ? "Hide the clicks" : "Where people click"}</Button>
+              {version && <Button size="small" variant={marks ? "contained" : "outlined"} disableElevation onClick={() => setMarks((x) => !x)} startIcon={<HighlightAltOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, fontWeight: 600 }}>Outline the changes</Button>}
+              <Button size="small" href={`${CONVERT}/journeys/page?path=${encodeURIComponent(data.path)}`} sx={{ ...btn, fontWeight: 600 }}>Page flow</Button>
+              <Button size="small" onClick={() => router.push(`${CONVERT}/preview`)} sx={{ ...btn, fontWeight: 600 }}>Another page</Button>
+              <Button size="small" onClick={() => setFresh((n) => n + 1)} startIcon={<RefreshIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, fontWeight: 600 }}>Read the page again</Button>
+            </Box>
             {pg.lines.length > 0 && (
               <Box component="details" sx={{ px: 1, "& summary": { cursor: "pointer", fontSize: "0.8rem", fontWeight: 600, color: MUTED } }}>
                 <summary>What the AI reads of this page ({pg.lines.length} lines)</summary>
@@ -1114,22 +1030,14 @@ function ConvertPreview() {
             )}
           </Box>
         </Box>
+        <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>Nothing here is counted, ordered or sent - prices, availability and the cart stay empty.</Typography>
       </>
     );
   }
 
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-      <PageHeader
-        title="Preview"
-        subtitle="An optimization on its page, Before | After with its versions - then sent to Content to be rebuilt there"
-        rightSlot={
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            {(held.stale || busy) && <CircularProgress size={14} sx={{ color: MUTED }} />}
-            {path && <Tooltip title="Ask again"><IconButton size="small" onClick={() => setTick((n) => n + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>}
-          </Box>
-        }
-      />
+      {!path && <PageHeader title="Preview" subtitle="An optimization on its page, Before | After with its versions - then sent to Content to be rebuilt there" />}
       {body}
     </Box>
   );
@@ -1140,8 +1048,8 @@ function ConvertPreview() {
 // lands here. Each answer is a new revision of the version, so nothing is lost.
 const HELPER_ASKS = ["Make it stand out more", "Shorter, clearer text", "Move it higher on the page", "Closer to the shop's own look", "Better on a phone"];
 
-function AiHelper({ version, ask, setAsk, busy, picked, onSend }: {
-  version: Version | null; ask: string; setAsk: (s: string) => void; busy: boolean; picked: Picked | null; onSend: () => Promise<void>;
+function AiHelper({ version, ask, setAsk, busy, picked, pick, onPick, onSend }: {
+  version: Version | null; ask: string; setAsk: (s: string) => void; busy: boolean; picked: Picked | null; pick: boolean; onPick: () => void; onSend: () => Promise<void>;
 }) {
   return (
     <Box id="apso-ai-helper" sx={{ mt: 1.5, p: 1.5, borderRadius: "12px", border: "1px solid rgba(106,70,201,.28)", background: "linear-gradient(135deg, rgba(106,70,201,.07), rgba(36,89,209,.05) 55%, rgba(181,53,154,.05))", display: "grid", gap: 1, scrollMarginTop: 80 }}>
@@ -1168,9 +1076,10 @@ function AiHelper({ version, ask, setAsk, busy, picked, onSend }: {
         <AiButton size="small" busy={busy} disabled={!ask.trim()} onClick={() => void onSend()}>
           {busy ? "The AI is writing…" : version ? `Change Version ${version.letter}` : "Make the version"}
         </AiButton>
-        <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
-          {picked ? `Picked: ${picked.text ? `“${picked.text.slice(0, 60)}”` : picked.selector}` : "Tip: Pick an element on the page, then ask about it."}
-        </Typography>
+        <Button size="small" onClick={onPick} startIcon={<AdsClickOutlinedIcon sx={{ fontSize: 15 }} />} sx={{ textTransform: "none", fontWeight: 600, color: pick ? "#5b3fd0" : MUTED }}>
+          {pick ? "Click an element in the page…" : "Point at the page"}
+        </Button>
+        {picked && !pick && <Typography sx={{ fontSize: "0.74rem", color: MUTED, flex: "1 1 100%" }}>{`Pointed at: ${picked.text ? `“${picked.text.slice(0, 60)}”` : picked.selector}`}</Typography>}
       </Box>
     </Box>
   );

@@ -187,7 +187,7 @@ function BlockCard({ b, views, signups }: { b: ShopBlock; views: number | null; 
       <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 1 }}>
         <Stat k={b.where === "every" ? "Views, all pages" : "Home page views"} v={views === null ? "–" : full(views)} sub="Google Analytics" />
         {nl
-          ? <Stat k="Sign-ups" v={signups ? full(signups.total) : "–"} sub={signups?.error ? "HubSpot did not say" : signups ? `${signups.forms.length} newsletter forms` : "reading HubSpot…"} />
+          ? <Stat k="Sign-ups" v={signups ? full(signups.total) : "–"} sub={signups?.error ? "HubSpot did not say" : signups ? `${signups.forms.length} newsletter ${signups.forms.length === 1 ? "form" : "forms"}` : "reading HubSpot…"} />
           : <Stat k="Clicks on it" v="–" sub="counted once switched on in Click map" />}
         {nl ? <Stat k="Per 1,000 views" v={rate === null ? "–" : rate.toFixed(2)} sub="sign-ups" /> : <Stat k="Where" v="Home" sub="de-CH page" />}
       </Box>
