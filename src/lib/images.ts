@@ -69,9 +69,13 @@ export async function generateApsoImage(
     { text: string } | { inlineData: { data: string; mimeType: string } }
   > = [{ text: prompt }];
   for (const ref of references) {
-    const m = /^data:([^;]+);base64,(.+)$/.exec(ref.dataUrl);
-    if (!m) continue;
-    parts.push({ inlineData: { mimeType: m[1], data: m[2] } });
+    // read after the comma, never by a regular expression over the picture: /(.+)$/ over megabytes of base64 (with line
+    // breaks, or simply large) ended in "Maximum call stack size exceeded" in generatePicture (09.11.2026)
+    const url = ref.dataUrl;
+    const comma = url.indexOf(",");
+    const head = comma > 5 && url.startsWith("data:") ? url.slice(5, comma) : "";
+    if (!head.endsWith(";base64")) continue;
+    parts.push({ inlineData: { mimeType: head.slice(0, -";base64".length) || "image/png", data: url.slice(comma + 1).replace(/\s+/g, "") } });
     if (ref.note?.trim()) {
       parts.push({ text: `Reference note: ${ref.note.trim()}` });
     }

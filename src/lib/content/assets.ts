@@ -213,8 +213,11 @@ export async function generatePicture(p: {
   const input: ImagePromptInput = { brief, aspect: p.aspect ?? "1:1", overlaySpace: p.overlaySpace ?? false };
   const made = await generateApsoImage(key, buildImagePrompt(brain, input), [], { aspect: input.aspect });
   if (!made.ok) return { ok: false, error: made.error };
-  const m = /^data:[^;]+;base64,(.+)$/.exec(made.dataUrl);
-  if (!m) return { ok: false, error: "The image model answered without a picture." };
-  const asset = await saveAsset({ bytes: Buffer.from(m[1], "base64"), kind: "generated", prompt: brief, projectId: p.projectId, pieceId: p.pieceId, by: p.by });
+  // the picture's bytes after the data URL's comma - never by a regular expression: the model's base64 can carry line
+  // breaks, and /(.+)$/ over megabytes of it ended in "Maximum call stack size exceeded" (Content v4, 09.11.2026)
+  const url = made.dataUrl;
+  const comma = url.indexOf(",");
+  if (!url.startsWith("data:") || comma < 0 || !url.slice(0, comma).includes(";base64")) return { ok: false, error: "The image model answered without a picture." };
+  const asset = await saveAsset({ bytes: Buffer.from(url.slice(comma + 1), "base64"), kind: "generated", prompt: brief, projectId: p.projectId, pieceId: p.pieceId, by: p.by });
   return { ok: true, asset };
 }
