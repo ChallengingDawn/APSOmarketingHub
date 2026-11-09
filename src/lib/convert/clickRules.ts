@@ -58,8 +58,9 @@ export function elementLabel(sel: string): string {
   const tag = /^([a-z][a-z0-9-]*)/.exec(last)?.[1] ?? "";
   const classes = [...last.matchAll(/\.([A-Za-z_][\w-]*)/g)].map((m) => m[1]);
   const what = TAG_WORD[tag] ?? (tag ? tag : "Element");
-  // an id names the element best; else its classes; else the block it sits in
-  const name = id ? words(id) : classes.length ? words(classes.join(" ")) : parts.length > 1 ? words((/[#.]([A-Za-z_][\w-]*)/.exec(parts[parts.length - 2]) ?? [])[1] ?? "") : "";
+  // an id names the element best; else its first class (the rest are the theme's: "ui-menu-item-wrapper"); else the block
+  // it sits in
+  const name = id ? words(id) : classes.length ? words(classes[0]) : parts.length > 1 ? words((/[#.]([A-Za-z_][\w-]*)/.exec(parts[parts.length - 2]) ?? [])[1] ?? "") : "";
   return name ? `${what} · ${name}` : what;
 }
 

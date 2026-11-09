@@ -53,6 +53,8 @@ test("elementLabel: what the element is, and its own name", () => {
   assert.equal(elementLabel("html > body > footer"), "Page footer");
   assert.equal(elementLabel("div.product-info-main > a"), "Link · product info main");
   assert.equal(elementLabel("img"), "Picture");
+  // the theme's extra classes stay out of the name
+  assert.equal(elementLabel("ul.ui-menu.ui-widget > li.level0.nav-9 > a.level-top.ui-menu-item-wrapper"), "Link · level top");
 });
 
 test("mapIdFor: one id per page and host, the gateway's letters, the same every time", () => {
