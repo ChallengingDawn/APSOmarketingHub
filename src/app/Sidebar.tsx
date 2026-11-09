@@ -40,7 +40,6 @@ import BoltIcon from "@mui/icons-material/Bolt";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import VerifiedOutlinedIcon from "@mui/icons-material/VerifiedOutlined";
-import TranslateOutlinedIcon from "@mui/icons-material/TranslateOutlined";
 import ViewInArOutlinedIcon from "@mui/icons-material/ViewInArOutlined";
 import CampaignOutlinedIcon from "@mui/icons-material/CampaignOutlined";
 import PhoneCallbackOutlinedIcon from "@mui/icons-material/PhoneCallbackOutlined";
@@ -219,7 +218,9 @@ const UC_NAV: Record<string, { label: string; icon: React.ReactNode }> = {
   "/uc/ticket-duplicates": { label: "Duplicates & Merges", icon: <ContentCopyOutlinedIcon fontSize="small" /> },
   "/uc/certificates": { label: "Certificates", icon: <VerifiedOutlinedIcon fontSize="small" /> },
   "/uc/ticket-value": { label: "Ticket Value", icon: <PaidOutlinedIcon fontSize="small" /> },
-  "/uc/translator": { label: "APSO Translator", icon: <TranslateOutlinedIcon fontSize="small" /> },
+  "/uc/translator": { label: "Overview", icon: <BarChartIcon fontSize="small" /> },
+  "/uc/translator/conversations": { label: "Conversations", icon: <ForumOutlinedIcon fontSize="small" /> },
+  "/uc/translator/settings": { label: "Settings & help", icon: <TuneIcon fontSize="small" /> },
   "/uc/sept-push": { label: "September Push", icon: <CampaignOutlinedIcon fontSize="small" /> },
   "/uc/marc-push": { label: "Marc CH Push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
   "/uc/nancy-push": { label: "Nancy CH Push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },

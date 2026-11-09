@@ -1,4 +1,4 @@
-// APSO TRANSLATOR - the engine (HubSpot Apps > APSO Translator; the words in text.ts, DeepL in deepl.ts). Replaces the
+// APSO TRANSLATOR - the engine (UC & HubSpot Apps > APSO Translator; the words in text.ts, DeepL in deepl.ts). Replaces the
 // Railway translator (project APSOTranslator: hubspot-translator-v2 + dashboard apsotranslator.com + Postgres), SARCLA
 // 08.11.2026: "check why it's not working anymore ... nothing as comment and nothing on the side panel - then migrate to
 // the hub ... kill Railway and bring all to the hub".
@@ -47,6 +47,8 @@ const SHORT = 25;
 const KV = {
   settings: "translator:settings", cursor: "translator:cursor", watch: "translator:watch", done: "translator:done", langs: "translator:langs",
   rows: "translator:rows", days: "translator:days", last: "translator:last", tickets: "translator:tickets",
+  /** the day each conversation was last counted in (a conversation counts once a day) */
+  convDay: "translator:conv-day",
 };
 
 export type Mode = "off" | "preview" | "live";
@@ -67,7 +69,17 @@ export type Row = {
   kind: Kind; from: string | null; to: string | null; original: string; translated: string | null; chars: number;
   outcome: Outcome; why?: string; agent?: string | null;
 };
-export type Day = { n: number; chars: number; replies: number; langs: Record<string, number> };
+export type Day = {
+  n: number; chars: number; replies: number; langs: Record<string, number>;
+  // counted since 09.11.2026 (the Overview's tabs - SARCLA: "bring more graphs as KPI and much more by tabs"): what each
+  // translation was, where it came from, who asked for it, the hour the customer wrote; a day before has none of them
+  kinds?: Partial<Record<Kind, number>>; inboxes?: Record<string, number>; channels?: Partial<Record<Row["channel"], number>>;
+  agents?: Record<string, number>; replyLangs?: Record<string, number>; hours?: number[];
+  /** conversations with a translation that day */
+  convs?: number;
+  /** customer messages already in English (nothing to translate), failures */
+  english?: number; failed?: number;
+};
 export type RunInfo = { at: string; seconds: number; threads: number; translated: number; replies: number; live: boolean; error?: string };
 
 type Thread = { id: string; inboxId?: string | number; status?: string; spam?: boolean; archived?: boolean; latestMessageTimestamp?: string; originalChannelId?: string | number; originalChannelAccountId?: string | number };
@@ -162,7 +174,7 @@ const today = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Z
 type Ctx = {
   live: boolean; s: Settings; calls: number;
   done: Record<string, number>; langs: Record<string, { lang: string; at: number }>; tickets: Record<string, string | null>;
-  rows: Row[]; days: Record<string, Day>; translated: number; replies: number;
+  rows: Row[]; days: Record<string, Day>; convDay: Record<string, string>; translated: number; replies: number;
 };
 
 async function deepl(ctx: Ctx, text: string, target: string, source?: string | null) {
@@ -170,11 +182,33 @@ async function deepl(ctx: Ctx, text: string, target: string, source?: string | n
   ctx.calls++;
   return translate(text, target, source);
 }
-function count(ctx: Ctx, lang: string | null, chars: number, reply = false) {
-  const d = (ctx.days[today()] ??= { n: 0, chars: 0, replies: 0, langs: {} });
+type Meta = { kind: Kind; thread: string; inbox: string | null; channel: Row["channel"]; agent?: string | null; msgAt?: string | null };
+const dayOf = (ctx: Ctx) => (ctx.days[today()] ??= { n: 0, chars: 0, replies: 0, langs: {} });
+const add = <K extends string>(m: Partial<Record<K, number>>, k: K) => { m[k] = (m[k] ?? 0) + 1; };
+const hourOf = (iso: string | null | undefined) => {
+  const t = Date.parse(iso ?? "");
+  return Number.isFinite(t) ? Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Zurich", hour: "numeric", hourCycle: "h23" }).format(t)) % 24 : null;
+};
+/** One translation made (or, in Preview, that would be posted): the day's figures, and what it was, where from, who asked. */
+function count(ctx: Ctx, lang: string | null, chars: number, reply: boolean, meta: Meta) {
+  const d = dayOf(ctx);
   d.n++; d.chars += chars;
   if (reply) d.replies++;
   if (lang) d.langs[base(lang)] = (d.langs[base(lang)] ?? 0) + 1;
+  if (reply && lang) add((d.replyLangs ??= {}), base(lang));
+  add((d.kinds ??= {}), meta.kind);
+  add((d.channels ??= {}), meta.channel);
+  if (meta.inbox) add((d.inboxes ??= {}), meta.inbox);
+  if (meta.agent) add((d.agents ??= {}), meta.agent);
+  const h = hourOf(meta.msgAt);
+  if (h !== null) { d.hours ??= Array(24).fill(0); d.hours[h]++; }
+  // a conversation counts once a day
+  if (ctx.convDay[meta.thread] !== today()) { ctx.convDay[meta.thread] = today(); d.convs = (d.convs ?? 0) + 1; }
+}
+/** A customer message already in English, or a translation that failed: counted, nothing made. */
+function tally(ctx: Ctx, what: "english" | "failed") {
+  const d = dayOf(ctx);
+  d[what] = (d[what] ?? 0) + 1;
 }
 /**
  * The language the customer writes in: the conversation's known one, else read from the customer's longest message -
@@ -206,6 +240,8 @@ async function onThread(ctx: Ctx, t: Thread): Promise<boolean> {
   const row = async (r: Omit<Row, "at" | "thread" | "ticket" | "inbox" | "channel">, m?: RawMessage) =>
     ctx.rows.unshift({ at: now, thread: t.id, ticket: await ticketOf(t.id, ctx.tickets), inbox: t.inboxId != null ? String(t.inboxId) : null, channel: channelOf(m, t), ...r });
   const comment = async (text: string) => { if (ctx.live) await postComment(t.id, text); };
+  const inbox = t.inboxId != null ? String(t.inboxId) : null;
+  const meta = (kind: Kind, m: RawMessage | undefined, agent?: string | null): Meta => ({ kind, thread: t.id, inbox, channel: channelOf(m, t), agent, msgAt: m?.createdAt ?? null });
 
   // 1. the customer's messages that came since: one comment in English
   const inc = fresh.filter(isCustomer);
@@ -224,14 +260,16 @@ async function onThread(ctx: Ctx, t: Thread): Promise<boolean> {
         const r = english ? null : await deepl(ctx, text, "EN-US", text.length < SHORT && known ? known : null);
         if (r && text.length >= SHORT) ctx.langs[t.id] = { lang: r.detected, at: Date.now() };
         if (!r || base(r.detected) === "EN" || sameText(r.text, text)) {
+          tally(ctx, "english");
           await row({ msgAt: last.createdAt ?? now, kind: "incoming", from: r?.detected ?? known, to: "EN", original: clip(text), translated: null, chars: text.length, outcome: "skipped", why: "already in English" }, last);
         } else {
           await comment(COMMENT.incoming(r.detected, r.text));
-          count(ctx, r.detected, text.length);
+          count(ctx, r.detected, text.length, false, meta("incoming", last));
           ctx.translated++;
           await row({ msgAt: last.createdAt ?? now, kind: "incoming", from: r.detected, to: "EN", original: clip(text), translated: clip(r.text), chars: text.length, outcome: ctx.live ? "posted" : "would" }, last);
         }
       } catch (e) {
+        tally(ctx, "failed");
         await row({ msgAt: last.createdAt ?? now, kind: "incoming", from: null, to: "EN", original: clip(text), translated: null, chars: text.length, outcome: "failed", why: (e as Error).message.slice(0, 200) }, last);
       }
     }
@@ -260,14 +298,14 @@ async function onThread(ctx: Ctx, t: Thread): Promise<boolean> {
         } else {
           const r = await deepl(ctx, text, cmd.target);
           await comment(COMMENT.lang(r.detected, cmd.code, r.text));
-          count(ctx, r.detected, text.length);
+          count(ctx, r.detected, text.length, false, meta("lang", m, agent));
           ctx.translated++;
           await row({ ...base0, kind: "lang", from: r.detected, to: base(cmd.target), original: clip(text), translated: clip(r.text), chars: text.length, outcome: ctx.live ? "posted" : "would" });
         }
       } else {
         const r0 = { ...base0, kind: "reply" as const, original: clip(cmd.text), chars: cmd.text.length };
         if (!ctx.s.replies) {
-          await comment(COMMENT.notSent("replies with ! are switched off on the hub (HubSpot Apps > APSO Translator)"));
+          await comment(COMMENT.notSent("replies with ! are switched off on the hub (APSO Translator > Settings)"));
           await row({ ...r0, from: null, to: null, translated: null, outcome: "skipped", why: "replies switched off" });
           continue;
         }
@@ -292,12 +330,13 @@ async function onThread(ctx: Ctx, t: Thread): Promise<boolean> {
           continue;
         }
         if (ctx.live) await sendReply(t.id, tr.text, { sender: sender!, channelId: who.channelId ?? (t.originalChannelId != null ? String(t.originalChannelId) : null), channelAccountId: who.channelAccountId ?? (t.originalChannelAccountId != null ? String(t.originalChannelAccountId) : null), email: who.email, actorId: who.actorId });
-        count(ctx, lang, cmd.text.length, true);
+        count(ctx, lang, cmd.text.length, true, meta("reply", m, agent));
         ctx.replies++;
         await row({ ...r0, from: tr.detected, to: base(lang), translated: clip(tr.text), outcome: ctx.live ? "sent" : "would" });
       }
     } catch (e) {
       const why = (e as Error).message.slice(0, 200);
+      tally(ctx, "failed");
       if (ctx.live) await postComment(t.id, cmd.kind === "reply" ? COMMENT.failed(why) : `❌ ${why}`).catch(() => {});
       await row({ ...base0, kind: cmd.kind, from: null, to: null, original: cmd.kind === "reply" ? clip(cmd.text) : "!", translated: null, chars: 0, outcome: "failed", why });
     }
@@ -311,10 +350,11 @@ async function save(ctx: Ctx) {
   const now = Date.now();
   for (const [k, v] of Object.entries(ctx.done)) if (now - v > DONE_KEEP_MS) delete ctx.done[k];
   for (const [k, v] of Object.entries(ctx.langs)) if (now - v.at > LANG_KEEP_MS) delete ctx.langs[k];
+  for (const [k, v] of Object.entries(ctx.convDay)) if (v !== today()) delete ctx.convDay[k];
   const days = Object.keys(ctx.days).sort().slice(-DAYS_KEPT);
   await Promise.all([
     kvSet(KV.done, ctx.done), kvSet(KV.langs, ctx.langs), kvSet(KV.tickets, ctx.tickets),
-    kvSet(KV.rows, ctx.rows.slice(0, ROWS_KEPT)), kvSet(KV.days, Object.fromEntries(days.map((d) => [d, ctx.days[d]]))),
+    kvSet(KV.rows, ctx.rows.slice(0, ROWS_KEPT)), kvSet(KV.days, Object.fromEntries(days.map((d) => [d, ctx.days[d]]))), kvSet(KV.convDay, ctx.convDay),
   ]);
 }
 
@@ -323,11 +363,11 @@ async function run(): Promise<RunInfo> {
   const s = await getSettings();
   const live = s.mode === "live";
   if (!deeplConfigured()) throw new Error("no DeepL key on the hub yet (DEEPL_API_KEY) - nothing can be translated");
-  const [cursor, watch, done, langs, tickets, rows, days] = await Promise.all([
+  const [cursor, watch, done, langs, tickets, rows, days, convDay] = await Promise.all([
     kvGet<string>(KV.cursor), kvGet<Record<string, number>>(KV.watch), kvGet<Record<string, number>>(KV.done), kvGet<Record<string, { lang: string; at: number }>>(KV.langs),
-    kvGet<Record<string, string | null>>(KV.tickets), kvGet<Row[]>(KV.rows), kvGet<Record<string, Day>>(KV.days),
+    kvGet<Record<string, string | null>>(KV.tickets), kvGet<Row[]>(KV.rows), kvGet<Record<string, Day>>(KV.days), kvGet<Record<string, string>>(KV.convDay),
   ]);
-  const ctx: Ctx = { live, s, calls: 0, done: done ?? {}, langs: langs ?? {}, tickets: tickets ?? {}, rows: rows ?? [], days: days ?? {}, translated: 0, replies: 0 };
+  const ctx: Ctx = { live, s, calls: 0, done: done ?? {}, langs: langs ?? {}, tickets: tickets ?? {}, rows: rows ?? [], days: days ?? {}, convDay: convDay ?? {}, translated: 0, replies: 0 };
   const from = Math.max(Date.parse(cursor ?? s.since) - OVERLAP_MS, Date.parse(s.since), Date.now() - MAX_AGE_MS);
   const changed = await changedThreads(new Date(from).toISOString());
   const w: Record<string, number> = {};
@@ -413,11 +453,31 @@ async function agentNames(ids: string[]): Promise<Record<string, string>> {
   return Object.fromEntries(ids.filter((id) => agentCache.has(id)).map((id) => [id, agentCache.get(id)!]));
 }
 
-export async function pageState() {
+/** How long a customer waited for the comment: from their message to the translation, seconds - the median and the slowest tenth. */
+export type Speed = { n: number; median: number | null; p90: number | null; since: string | null };
+function speedOf(rows: Row[]): Speed {
+  const from = Date.now() - 30 * 86400_000;
+  const xs = rows
+    .filter((r) => r.kind === "incoming" && (r.outcome === "posted" || r.outcome === "would") && Date.parse(r.msgAt) >= from)
+    .map((r) => (Date.parse(r.at) - Date.parse(r.msgAt)) / 1000).filter((s) => Number.isFinite(s) && s >= 0).sort((a, b) => a - b);
+  const q = (p: number) => (xs.length ? Math.round(xs[Math.min(xs.length - 1, Math.floor(p * xs.length))]) : null);
+  const oldest = rows.length ? rows[rows.length - 1].msgAt : null;
+  return { n: xs.length, median: q(0.5), p90: q(0.9), since: oldest };
+}
+
+/**
+ * What the pages read. The Overview and Settings: the figures by day (no message text); Conversations ("rows"): every
+ * comment and reply it made, newest first, with the texts.
+ */
+export async function pageState(part: "overview" | "rows" = "overview") {
   const [settings, last, rows, days, inboxes, use] = await Promise.all([
     getSettings(), kvGet<RunInfo>(KV.last), kvGet<Row[]>(KV.rows), kvGet<Record<string, Day>>(KV.days), inboxNames(), deeplConfigured() ? usage() : Promise.resolve(null),
   ]);
-  const list = (rows ?? []).slice(0, 400);
-  const agents = await agentNames(list.map((r) => r.agent ?? "").filter(Boolean));
-  return { settings, last: last ?? null, rows: list, days: days ?? {}, inboxes, agents, usage: use, configured: deeplConfigured(), everySeconds: EVERY_MS / 1000 };
+  const all = rows ?? [], byDay = days ?? {};
+  const list = part === "rows" ? all.slice(0, 500) : [];
+  const agents = await agentNames([...list.map((r) => r.agent ?? ""), ...Object.values(byDay).flatMap((d) => Object.keys(d.agents ?? {}))].filter(Boolean));
+  return {
+    settings, last: last ?? null, rows: list, days: byDay, inboxes, agents, usage: use, configured: deeplConfigured(), everySeconds: EVERY_MS / 1000,
+    speed: speedOf(all), kept: all.length,
+  };
 }

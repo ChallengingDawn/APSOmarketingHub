@@ -27,12 +27,13 @@ export default function UcFront() {
         fontSize: { xs: "1.45rem", md: "1.75rem" }, fontWeight: 600, letterSpacing: "-0.025em", color: INK, lineHeight: { xs: "30px", md: "34px" },
       }}>UC &amp; HubSpot Apps</Typography>
       <Typography sx={{ mt: 0.5, fontSize: { xs: "0.9rem", md: "0.98rem" }, color: MUTED }}>
-        The use cases, the HubSpot workflows the hub runs, and the one-shot pushes.
+        The use cases, the HubSpot workflows the hub runs, the one-shot pushes and the translator.
       </Typography>
 
       <Box sx={{
         display: "grid", gap: { xs: 1.5, md: 2 }, alignItems: "stretch", mt: { xs: 1.75, md: 2.25 },
-        gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(3, minmax(0, 1fr))" },
+        // one row on a wide screen: four sections since APSO Translator became one (09.11.2026)
+        gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: `repeat(${Math.min(4, Math.max(3, shown.length))}, minmax(0, 1fr))` },
         gridAutoRows: "1fr",
       }}>
         {shown.map((s, i) => <SectionTile key={s.slug} s={s} canOpen={canOpen} i={i} base="/uc" />)}
