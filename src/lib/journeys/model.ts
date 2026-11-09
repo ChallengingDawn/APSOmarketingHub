@@ -63,10 +63,43 @@ export function journeyKind(path: string): JKind {
   return "other";
 }
 
-/** The shop's store views (as the Black Friday page's report lists them). */
-export const STORE_VIEWS = ["de-CH", "fr-CH", "it-CH", "en-CH", "fr-FR", "it-IT", "nl-NL", "pl-PL", "en-INT", "fr-INT", "it-INT", "nl-INT"];
+/**
+ * The shop's store views: the 14 its sitemaps and language sets publish (src/lib/seo/hreflang.ts LOCALE_HOMEPAGES), by
+ * language - ONE list for every page of Journeys (SARCLA 09.11.2026: "not all store views are in Store view"). Each is
+ * offered with its visits; one without visits is shown, never hidden. A store view the shop answers on but publishes in
+ * no sitemap (en-CH) is not in the list: storeChoices adds it after the 14 when Google Analytics has visits on it.
+ */
+export const STORE_VIEWS: readonly string[] = [
+  "de-CH", "de-DE", "de-AT", "de-INT", "fr-CH", "fr-FR", "fr-INT", "it-CH", "it-IT", "it-INT", "en-INT", "nl-NL", "nl-INT", "pl-PL",
+];
 /** A store view as a request may name one: "de-CH", "en-INT". */
 export const isStoreView = (x: unknown): x is string => typeof x === "string" && /^[a-z]{2}-[A-Z]{2,3}$/.test(x);
+
+export type StoreChoice = { key: string; sessions: number; listed: boolean };
+
+/** Every store view of the list with its visits (none: 0), then any other with visits, the most first. */
+export function storeChoices(counts: { key: string; sessions: number }[]): StoreChoice[] {
+  const m = new Map<string, number>();
+  for (const c of counts) m.set(c.key, (m.get(c.key) ?? 0) + Math.max(0, c.sessions));
+  const listed = STORE_VIEWS.map((key) => ({ key, sessions: m.get(key) ?? 0, listed: true }));
+  const extra = [...m].filter(([k, n]) => !STORE_VIEWS.includes(k) && n > 0)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([key, sessions]) => ({ key, sessions, listed: false }));
+  return [...listed, ...extra];
+}
+
+/** The devices as Google Analytics names them (deviceCategory), and as the pages say them. */
+export const DEVICES = ["desktop", "mobile", "tablet"] as const;
+export type Device = (typeof DEVICES)[number];
+export const DEVICE_NAME: Record<Device, string> = { desktop: "Desktop", mobile: "Phone", tablet: "Tablet" };
+export const isDevice = (x: unknown): x is Device => typeof x === "string" && (DEVICES as readonly string[]).includes(x);
+
+/** The period of the same length just before (from and to included): what a figure is compared with. */
+export function periodBefore(from: string, to: string): { from: string; to: string } {
+  const d = (s: string) => Date.parse(`${s}T00:00:00Z`);
+  const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+  const days = Math.round((d(to) - d(from)) / 86_400_000) + 1;
+  return { from: iso(d(from) - days * 86_400_000), to: iso(d(from) - 86_400_000) };
+}
 
 /** The store view of an address ("de-CH" - a currency segment left off), or null. */
 export function storeOf(path: string): string | null {
@@ -252,19 +285,25 @@ export function reachChances(t: Transitions, targets: JKind[], rounds = 40): Rec
 
 /* ── the ways in ──────────────────────────────────────────────────────── */
 
-/** A landing page's visits (sessions), those with an add to cart, those with an order - Google Analytics' own counts. */
-export type LandingRow = { path: string; sessions: number; carts: number; orders: number };
+/** A landing page's visits (sessions), those with an add to cart, those with an order, its orders (transactions) -
+ *  Google Analytics' own counts. */
+export type LandingRow = { path: string; sessions: number; carts: number; orders: number; transactions?: number };
 
 /** The landing totals and the sessions per event (add_to_cart, purchase) merged into one row per page. */
-export function landingRows(totals: { path: string; sessions: number }[], byEvent: { path: string; event: string; sessions: number }[]): LandingRow[] {
+export function landingRows(totals: { path: string; sessions: number; transactions?: number }[], byEvent: { path: string; event: string; sessions: number }[]): LandingRow[] {
   const m = new Map<string, LandingRow>();
   const get = (path: string) => {
     const key = pathKey(path);
     let r = m.get(key);
-    if (!r) { r = { path, sessions: 0, carts: 0, orders: 0 }; m.set(key, r); }
+    if (!r) { r = { path, sessions: 0, carts: 0, orders: 0, transactions: 0 }; m.set(key, r); }
     return r;
   };
-  for (const t of totals) if (t.path.startsWith("/") && t.sessions > 0) get(t.path).sessions += t.sessions;
+  for (const t of totals) {
+    if (!t.path.startsWith("/") || !(t.sessions > 0)) continue;
+    const r = get(t.path);
+    r.sessions += t.sessions;
+    r.transactions = (r.transactions ?? 0) + Math.max(0, t.transactions ?? 0);
+  }
   for (const e of byEvent) {
     if (!e.path.startsWith("/") || !(e.sessions > 0)) continue;
     if (e.event === "add_to_cart") get(e.path).carts += e.sessions;
@@ -677,4 +716,483 @@ export function biggestDrop(steps: FunnelStep[]): Drop | null {
 export function dropWords(d: Drop, fmt: (n: number) => string = (n) => Math.round(n).toLocaleString("en-US")): string {
   const pct = d.share >= 0.995 ? "almost all" : `${Math.round(d.share * 100)}%`;
   return `Of the ${fmt(d.from.n ?? 0)} ${d.from.who}, ${pct} did not ${d.to.did}.`;
+}
+
+/* ══ v2 (SARCLA 09.11.2026: "The main journeys are to complete", "funnels needs to be completely redeveloped") ══ */
+
+const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
+
+/* ── the main journeys, complete: from the way in to the order, or to where they leave ── */
+
+/**
+ * The shares with a run of one kind taken as one step: of the visits on categories, where they go when they leave the
+ * categories - another category is the same step. A kind they never leave once on it ends there.
+ */
+export function collapseRuns(t: Transitions): Transitions {
+  const p = Object.fromEntries(JKINDS.map((k) => [k, zeroKinds()])) as Record<JKind, Record<JKind, number>>;
+  const exit = zeroKinds();
+  for (const k of JKINDS) {
+    const stay = t.p[k][k];
+    if (k === "order" || stay >= 0.999) { exit[k] = 1; continue; }
+    for (const k2 of JKINDS) p[k][k2] = k2 === k ? 0 : t.p[k][k2] / (1 - stay);
+    exit[k] = t.exit[k] / (1 - stay);
+  }
+  return { p, exit };
+}
+
+export type JourneySet = {
+  /** the journeys that end in an order, the most first */
+  won: Journey[];
+  /** the journeys that end with the visitor leaving the shop, the most first */
+  lost: Journey[];
+  /** all visits, and the orders chained from the steps */
+  total: number;
+  orders: number;
+  /** the share of all visits the journeys listed cover */
+  covered: number;
+  depth: number;
+};
+
+/**
+ * The main journeys from the way in to the end: each a row of kinds of page (a run of one kind is one step), up to
+ * `depth` steps, ending in an order or with the visitor gone. A lost journey needs `minLost` of all visits, a won one
+ * `minWon` of the orders - an order is rare, its ways would never pass the bar of all visits. Built from page-to-page
+ * steps: the shares chained, not visitors followed.
+ */
+export function completeJourneys(entries: Record<JKind, number>, t: Transitions, o: { depth: number; won: number; lost: number; minLost: number; minWon: number }): JourneySet {
+  const total = JKINDS.reduce((a, k) => a + Math.max(0, entries[k]), 0);
+  if (total <= 0) return { won: [], lost: [], total: 0, orders: 0, covered: 0, depth: o.depth };
+  const c = collapseRuns(t);
+  const toOrder = reachChances(c, ["order"]);
+  const orders = JKINDS.reduce((a, k) => a + Math.max(0, entries[k]) * toOrder[k], 0);
+  const minL = total * o.minLost;
+  const minW = Math.max(1e-9, orders * o.minWon);
+  const won: Journey[] = [], lost: Journey[] = [];
+  const rec = (kinds: JKind[], end: "left" | "order", v: number) => {
+    const sawCart = kinds.some((k) => CART_KINDS.includes(k));
+    (end === "order" ? won : lost).push({ kinds, end, visits: v, share: v / total, cart: sawCart ? v : 0, order: end === "order" ? v : 0 });
+  };
+  let guard = 0;
+  const walk = (kinds: JKind[], v: number) => {
+    if (++guard > 200_000) return;
+    const last = kinds[kinds.length - 1];
+    if (last === "order") { if (v >= minW) rec(kinds, "order", v); return; }
+    const e = v * c.exit[last];
+    if (e >= minL) rec(kinds, "left", e);
+    if (kinds.length >= o.depth) return;
+    for (const k2 of JKINDS) {
+      const v2 = v * c.p[last][k2];
+      if (v2 > 0 && (v2 >= minL || v2 * toOrder[k2] >= minW)) walk([...kinds, k2], v2);
+    }
+  };
+  for (const k of JKINDS) if (entries[k] > 0) walk([k], entries[k]);
+  const by = (a: Journey, b: Journey) => b.visits - a.visits || a.kinds.length - b.kinds.length;
+  const w = won.sort(by).slice(0, o.won), l = lost.sort(by).slice(0, o.lost);
+  return { won: w, lost: l, total, orders, covered: (sum(w.map((j) => j.visits)) + sum(l.map((j) => j.visits))) / total, depth: o.depth };
+}
+
+/** Where the visits leave the shop, by the kind of page they were on last - the order placed is an end, not a leaving. */
+export function leavesByKind(f: KindFlow): { kind: JKind; visits: number; share: number }[] {
+  const out = JKINDS.filter((k) => k !== "order").map((k) => {
+    const went = JKINDS.reduce((a, k2) => a + f.steps[k][k2], 0);
+    return { kind: k, visits: Math.max(0, f.views[k] - went), share: 0 };
+  });
+  const all = sum(out.map((x) => x.visits));
+  return out.filter((x) => x.visits > 0).map((x) => ({ ...x, share: all ? x.visits / all : 0 })).sort((a, b) => b.visits - a.visits);
+}
+
+/* ── a funnel of steps the person picks ───────────────────────────────── */
+
+/** A step: every visit (the way in), one or more kinds of page, or one page. */
+export type StepDef = { type: "in" } | { type: "kinds"; kinds: JKind[] } | { type: "page"; path: string };
+
+/** The kinds a step can be made of ("other" - the shop's odd functions - is never one). */
+export const STEP_KINDS: JKind[] = ["home", "category", "search", "product", "cms", "account", "cart", "checkout", "order"];
+/** The shop's own path: the way in, a category or the search, a product, the cart, the check-out, the order placed. */
+export const SHOP_PATH = ["in", "category.search", "product", "cart", "checkout", "order"];
+export const MAX_STEPS = 6;
+
+/** "in", "category.search", "page:/de-CH/x.html" - as the address keeps them (?step=...). */
+export function parseStep(token: string): StepDef | null {
+  const t = String(token ?? "").trim();
+  if (t === "in") return { type: "in" };
+  if (t.startsWith("page:")) {
+    const p = t.slice(5).split(/[?#]/)[0];
+    return p.startsWith("/") && !p.startsWith("//") && p.length <= 300 && !/\s/.test(p) ? { type: "page", path: p } : null;
+  }
+  const kinds = [...new Set(t.split("."))];
+  return kinds.length && kinds.every((k) => (STEP_KINDS as string[]).includes(k)) ? { type: "kinds", kinds: STEP_KINDS.filter((k) => kinds.includes(k)) } : null;
+}
+
+export function stepToken(d: StepDef): string {
+  return d.type === "in" ? "in" : d.type === "page" ? `page:${d.path}` : d.kinds.join(".");
+}
+
+/** The steps an address asks for: the valid ones, the way in first only, no step twice in a row, six at most - fewer than two: the shop's path. */
+export function parseSteps(tokens: string[]): StepDef[] {
+  const out: StepDef[] = [];
+  for (const tok of tokens) {
+    const d = parseStep(tok);
+    if (!d || (d.type === "in" && out.length)) continue;
+    if (out.length && stepToken(out[out.length - 1]) === stepToken(d)) continue;
+    out.push(d);
+    if (out.length === MAX_STEPS) break;
+  }
+  return out.length >= 2 ? out : SHOP_PATH.map((x) => parseStep(x)!);
+}
+
+export const isShopPath = (steps: StepDef[]) => steps.map(stepToken).join(",") === SHOP_PATH.join(",");
+
+/** "Way in", "Category or search", the page's name. */
+export function stepName(d: StepDef): string {
+  if (d.type === "in") return "Way in";
+  if (d.type === "page") return pageName(d.path);
+  const names = d.kinds.map((k) => KIND_NAME[k]);
+  return names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} or ${names[names.length - 1].toLowerCase()}`;
+}
+
+/** On the way to the order the mini cart goes straight to the check-out: the check-out and the order count as the
+ *  cart reached, the order as the check-out reached. */
+const KIND_REACH: Partial<Record<JKind, JKind[]>> = { cart: ["cart", "checkout", "order"], checkout: ["checkout", "order"] };
+
+/* the steps as a chain of nodes: the kinds of page, and each page a step names on its own */
+
+export type Chain = {
+  /** the kinds first (JKINDS), then "page:<key>" */
+  nodes: string[];
+  kinds: JKind[];
+  /** the visits that came in on each node (Google Analytics' sessions) */
+  entries: number[];
+  views: number[];
+  /** of a node's views, the share whose next page is on each node, and the share that left */
+  p: number[][];
+  exit: number[];
+};
+
+function nodeFinder(own: string[]) {
+  const at = new Map<string, number>();
+  own.forEach((k, i) => at.set(k, JKINDS.length + i));
+  const memo = new Map<string, number>();
+  return (key: string) => {
+    let n = memo.get(key);
+    if (n === undefined) { n = at.get(key) ?? JKINDS.indexOf(journeyKind(key)); memo.set(key, n); }
+    return n;
+  };
+}
+
+/** The steps of one store view (null: all) as a chain: both ends of a step in the store view, the pages in `pages` apart. */
+export function buildChain(g: StepGraph, landing: LandingRow[], store: string | null, pages: string[] = []): Chain {
+  const ok = inStore(store);
+  const own = [...new Set(pages.map(pathKey))];
+  const nodes = [...(JKINDS as string[]), ...own.map((k) => `page:${k}`)];
+  const kinds: JKind[] = [...JKINDS, ...own.map((k) => journeyKind(k))];
+  const nodeOf = nodeFinder(own);
+  const N = nodes.length;
+  const views = new Array<number>(N).fill(0), entries = new Array<number>(N).fill(0);
+  const steps = Array.from({ length: N }, () => new Array<number>(N).fill(0));
+  for (const [key, t] of g.pages) if (ok(key)) views[nodeOf(key)] += t.views - t.again;
+  for (const [from, out] of g.steps) {
+    if (!ok(from)) continue;
+    const a = nodeOf(from);
+    for (const [to, n] of out) if (ok(to)) steps[a][nodeOf(to)] += n;
+  }
+  for (const r of landing) if (r.path.startsWith("/") && ok(r.path)) entries[nodeOf(pathKey(r.path))] += r.sessions;
+  const p = Array.from({ length: N }, () => new Array<number>(N).fill(0));
+  const exit = new Array<number>(N).fill(1);
+  for (let a = 0; a < N; a++) {
+    if (kinds[a] === "order") continue;
+    const out = sum(steps[a]);
+    const base = Math.max(views[a], out);
+    if (base <= 0) continue;
+    for (let b = 0; b < N; b++) p[a][b] = steps[a][b] / base;
+    exit[a] = Math.max(0, 1 - out / base);
+  }
+  return { nodes, kinds, entries, views, p, exit };
+}
+
+/** The nodes a step counts (`reach`: the cart counts the check-out and the order) and the ones it is made of (`own`). */
+export function stepNodes(c: Chain, d: StepDef): { reach: Set<number>; own: Set<number> } {
+  const reach = new Set<number>(), own = new Set<number>();
+  if (d.type === "in") return { reach, own };
+  if (d.type === "page") {
+    const i = c.nodes.indexOf(`page:${pathKey(d.path)}`);
+    if (i >= 0) { reach.add(i); own.add(i); }
+    return { reach, own };
+  }
+  const base = new Set(d.kinds), wide = new Set(d.kinds.flatMap((k) => KIND_REACH[k] ?? [k]));
+  c.kinds.forEach((k, i) => { if (wide.has(k)) reach.add(i); if (base.has(k)) own.add(i); });
+  return { reach, own };
+}
+
+const ROUNDS = 40;
+
+/** One page more: the visits on each node move on by the shares; who leaves is gone. */
+function moveOn(c: Chain, m: number[]): number[] {
+  const next = new Array<number>(m.length).fill(0);
+  for (let a = 0; a < m.length; a++) {
+    if (!(m[a] > 0)) continue;
+    const row = c.p[a];
+    for (let b = 0; b < m.length; b++) if (row[b] > 0) next[b] += m[a] * row[b];
+  }
+  return next;
+}
+
+/** The visits walked on until they reach `target`: where they reached it, node by node. */
+function reachOn(c: Chain, start: number[], target: Set<number>): number[] {
+  const hit = new Array<number>(start.length).fill(0);
+  let m = start.slice();
+  for (let r = 0; r <= ROUNDS; r++) {
+    let still = 0;
+    for (let i = 0; i < m.length; i++) {
+      if (target.has(i)) { hit[i] += m[i]; m[i] = 0; }
+      still += m[i];
+    }
+    if (still < 1e-9) break;
+    m = moveOn(c, m);
+  }
+  return hit;
+}
+
+/**
+ * The visits through the steps, CHAINED from the page-to-page steps: every visit at the way in, of those the ones that
+ * reach the first step (the page they came in on counts), of those the ones that go on to the next, in this order. A
+ * visit that reached a step on a node the next one counts and this one is not made of (the check-out, when the step
+ * was the cart) has reached the next one too; the others need a page more.
+ */
+export function chainFunnel(c: Chain, steps: StepDef[]): number[] {
+  const out: number[] = [];
+  let at: number[] = c.entries.slice();
+  let prev: { type: StepDef["type"]; own: Set<number> } | null = null;
+  for (const d of steps) {
+    if (d.type === "in") { out.push(sum(c.entries)); at = c.entries.slice(); prev = { type: "in", own: new Set() }; continue; }
+    const { reach, own } = stepNodes(c, d);
+    let start = at;
+    if (prev && prev.type !== "in") {
+      const before = prev.own;
+      const now = at.map((v, i) => (reach.has(i) && !before.has(i) ? v : 0));
+      const rest = at.map((v, i) => (reach.has(i) && !before.has(i) ? 0 : v));
+      start = moveOn(c, rest).map((v, i) => v + now[i]);
+    }
+    at = reachOn(c, start, reach);
+    out.push(sum(at));
+    prev = { type: d.type, own };
+  }
+  return out;
+}
+
+/** From each node, the chance of reaching `target` on this page or a later one. */
+export function reachFrom(c: Chain, target: Set<number>): number[] {
+  let r: number[] = c.nodes.map((_, i) => (target.has(i) ? 1 : 0));
+  for (let k = 0; k < ROUNDS; k++) {
+    r = c.nodes.map((_, a) => (target.has(a) ? 1 : c.p[a].reduce((x, pab, b) => x + pab * r[b], 0)));
+  }
+  return r;
+}
+
+export type DropPage = {
+  path: string; name: string; kind: JKind; store: string | null;
+  /** its views at this step - at the way in, the visits that came in on it */
+  views: number;
+  /** of them, the share that went on to the next step (chained) */
+  on: number;
+  /** of its views, the share no step out of it follows: they left the shop there */
+  left: number;
+  /** the views that did not go on to the next step */
+  lost: number;
+};
+
+/**
+ * WHERE they dropped between step `i` and the next: the pages of step i that lose the most - their views times the
+ * share that did not reach the next step after them (chained from their own next pages). At the way in, the pages the
+ * visits came in on.
+ */
+export function dropPages(g: StepGraph, landing: LandingRow[], c: Chain, steps: StepDef[], i: number, store: string | null, limit = 10): DropPage[] {
+  if (i < 0 || i >= steps.length - 1) return [];
+  const ok = inStore(store);
+  const here = steps[i];
+  const next = stepNodes(c, steps[i + 1]);
+  const r = reachFrom(c, next.reach);
+  const nodeOf = nodeFinder(c.nodes.slice(JKINDS.length).map((n) => n.slice(5)));
+  const hereOwn = here.type === "in" ? null : stepNodes(c, here).own;
+  const weight = new Map<string, { w: number; path: string }>();
+  if (hereOwn === null) {
+    for (const row of landing) {
+      if (!row.path.startsWith("/") || !ok(row.path) || !(row.sessions > 0)) continue;
+      const k = pathKey(row.path);
+      const cur = weight.get(k);
+      if (cur) cur.w += row.sessions; else weight.set(k, { w: row.sessions, path: row.path });
+    }
+  } else {
+    for (const [key, t] of g.pages) if (ok(key) && hereOwn.has(nodeOf(key)) && t.views - t.again > 0) weight.set(key, { w: t.views - t.again, path: t.path });
+  }
+  const rows: DropPage[] = [];
+  for (const [key, { w, path }] of weight) {
+    const n = nodeOf(key);
+    let on = 0, left = 1;
+    if (hereOwn === null && next.reach.has(n)) { on = 1; left = 0; }
+    else {
+      const t = g.pages.get(key);
+      const views = t ? t.views - t.again : 0;
+      let out = 0, went = 0;
+      for (const [to, v] of g.steps.get(key) ?? []) { if (!ok(to)) continue; out += v; went += v * r[nodeOf(to)]; }
+      const base = Math.max(views, out);
+      if (base > 0) { on = Math.min(1, went / base); left = Math.max(0, 1 - out / base); }
+    }
+    const lost = w * (1 - on);
+    if (lost > 1e-9) rows.push({ path, name: pageName(path), kind: journeyKind(key), store: storeOf(key), views: w, on, left, lost });
+  }
+  return rows.sort((a, b) => b.lost - a.lost || a.path.localeCompare(b.path)).slice(0, limit);
+}
+
+/* ── Google Analytics' own funnel report: the same steps as its filters ── */
+
+/** One page's address as Google Analytics may write it - with or without the trailing slash, as typed or encoded. */
+export function pagePathPattern(path: string): string {
+  const re2 = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const key = pathKey(path);
+  const bare = key === "/" ? "" : key;
+  const forms = [...new Set([bare, encodeURI(bare)])].map(re2);
+  return `${forms.length > 1 ? `(?:${forms.join("|")})` : forms[0]}/?`;
+}
+
+// the kinds of page as patterns of the address (RE2, matched whole and without case), as journeyKind reads them
+const PRE = "(?:/[a-z]{2}-[a-z]{2,3}(?:/(?:eur|chf|pln|usd|gbp))?)?";
+const SYS = "checkout|customer|catalogsearch|sales|wishlist|requisition_list|company|negotiable_quote|quickorder|multishipping|paypal|persistent|review|sendfriend|downloadable|vault|rma";
+const PAT = {
+  home: `${PRE}/?`,
+  product: `${PRE}/[0-9]{8}(?:-[^/]*|\\.html)?(?:/.*)?`,
+  system: `${PRE}/(?:${SYS})(?:/.*)?`,
+  html: `${PRE}/.+\\.html/?`,
+  catalog: `${PRE}/catalog/category/view/.*`,
+  any: `${PRE}/.+`,
+  search: `${PRE}/catalogsearch(?:/.*)?`,
+  order: `${PRE}/(?:checkout/onepage/success|multishipping/checkout/success).*`,
+  cart: `${PRE}/checkout/cart(?:/.*)?`,
+  checkout: `${PRE}/(?:checkout|multishipping|paypal)(?:/.*)?`,
+  account: `${PRE}/(?:customer|sales|wishlist|requisition_list|company|negotiable_quote|rma|downloadable|vault|review)(?:/.*)?`,
+};
+/** A kind of page: an address matching one of `yes` and none of `no`. */
+export const KIND_PATTERNS: Record<Exclude<JKind, "other">, { yes: string[]; no: string[] }> = {
+  home: { yes: [PAT.home], no: [] },
+  product: { yes: [PAT.product], no: [] },
+  category: { yes: [PAT.html, PAT.catalog], no: [PAT.product, PAT.system] },
+  cms: { yes: [PAT.any], no: [PAT.home, PAT.product, PAT.system, PAT.html, PAT.catalog] },
+  search: { yes: [PAT.search], no: [] },
+  order: { yes: [PAT.order], no: [] },
+  cart: { yes: [PAT.cart], no: [] },
+  checkout: { yes: [PAT.checkout], no: [PAT.order, PAT.cart] },
+  account: { yes: [PAT.account], no: [] },
+};
+/** The patterns read here as Google Analytics reads them (the tests hold them to journeyKind). */
+export function kindMatches(kind: Exclude<JKind, "other">, path: string): boolean {
+  const whole = (p: string) => new RegExp(`^(?:${p})$`, "i").test(path);
+  const k = KIND_PATTERNS[kind];
+  return k.yes.some(whole) && !k.no.some(whole);
+}
+
+export type FunnelExpr = Record<string, unknown>;
+const fx = {
+  re: (value: string): FunnelExpr => ({ funnelFieldFilter: { fieldName: "pagePath", stringFilter: { matchType: "FULL_REGEXP", value, caseSensitive: false } } }),
+  ev: (eventName: string): FunnelExpr => ({ funnelEventFilter: { eventName } }),
+  and: (...e: FunnelExpr[]): FunnelExpr => (e.length === 1 ? e[0] : { andGroup: { expressions: e } }),
+  or: (...e: FunnelExpr[]): FunnelExpr => (e.length === 1 ? e[0] : { orGroup: { expressions: e } }),
+  not: (e: FunnelExpr): FunnelExpr => ({ notExpression: e }),
+};
+/** The shop's own signal for a step, besides the page: the mini cart adds without the cart page. */
+const KIND_EVENT: Partial<Record<JKind, string>> = { cart: "add_to_cart", checkout: "begin_checkout", order: "purchase" };
+
+/** A step as Google Analytics' funnel report filters it: a page view of the kind (or its own event), in the store view. */
+export function ga4StepExpr(d: StepDef, store: string | null): FunnelExpr {
+  const where = store ? [fx.re(`/${store}(?:/.*)?`)] : [];
+  if (d.type === "in") return fx.and(fx.ev("session_start"), ...where);
+  if (d.type === "page") return fx.and(fx.ev("page_view"), fx.re(pagePathPattern(d.path)));
+  const kind = (k: JKind): FunnelExpr => {
+    const pat = KIND_PATTERNS[k as Exclude<JKind, "other">];
+    const page = fx.and(fx.ev("page_view"), fx.or(...pat.yes.map(fx.re)), ...pat.no.map((n) => fx.not(fx.re(n))));
+    const ev = KIND_EVENT[k];
+    return ev ? fx.or(fx.ev(ev), page) : page;
+  };
+  return fx.and(fx.or(...d.kinds.map(kind)), ...where);
+}
+
+/** Google Analytics' funnel table read: per step the visitors, in all and by device (rows "1. Way in", the device second;
+ *  its total rows, RESERVED_TOTAL, are "all" - without them the devices are added up). */
+export function readFunnelTable(rows: { step: string; by: string | null; users: number | null }[], steps: number): { all: (number | null)[]; by: Record<string, (number | null)[]> } {
+  const all: (number | null)[] = new Array(steps).fill(null);
+  const by: Record<string, (number | null)[]> = {};
+  let totals = false;
+  for (const r of rows) {
+    const m = /^(\d+)\.\s*/.exec(r.step);
+    const i = m ? Number(m[1]) - 1 : -1;
+    if (i < 0 || i >= steps || r.users === null || !Number.isFinite(r.users)) continue;
+    if (!r.by || r.by === "RESERVED_TOTAL") { all[i] = (all[i] ?? 0) + r.users; totals = true; continue; }
+    const key = r.by.toLowerCase();
+    const row = (by[key] ??= new Array(steps).fill(null));
+    row[i] = (row[i] ?? 0) + r.users;
+  }
+  if (!totals) {
+    for (let i = 0; i < steps; i++) {
+      const vals = Object.values(by).map((v) => v[i]).filter((v): v is number => v !== null);
+      all[i] = vals.length ? sum(vals) : null;
+    }
+  }
+  return { all, by };
+}
+
+/* ── the pages' answers, put together (pure: the reads give the rows; the tests and the samples run the same code) ── */
+
+/** the columns of the flow: the way in and four pages more */
+export const FLOW_COLUMNS = 5;
+/** a kind under this share of the visits in a column is drawn with the other pages */
+export const FOLD_SHARE = 0.01;
+/** the main journeys: six steps at most, a lost one with 0.2% of the visits, a won one with 1% of the orders */
+export const JOURNEY_RULES = { depth: 6, won: 8, lost: 10, minLost: 0.002, minWon: 0.01 };
+
+export type Totals = { visits: number; carts: number; orders: number; transactions: number };
+
+/** Google Analytics' own: the visits, those with an add to cart, those with an order, the orders - one store view (null: all). */
+export function landingTotals(landing: LandingRow[], store: string | null): Totals {
+  const ok = inStore(store);
+  const t: Totals = { visits: 0, carts: 0, orders: 0, transactions: 0 };
+  for (const r of landing) {
+    if (!r.path.startsWith("/") || !ok(r.path)) continue;
+    t.visits += r.sessions; t.carts += r.carts; t.orders += r.orders; t.transactions += r.transactions ?? 0;
+  }
+  return t;
+}
+
+export type JourneysBody = {
+  totals: Totals;
+  /** by the kind of page they came in on, the most first */
+  entries: Entry[];
+  /** chained from the steps */
+  flow: FlowGraph;
+  journeys: JourneySet;
+  /** where the visits leave the shop, by kind */
+  leaves: { kind: JKind; visits: number; share: number }[];
+  /** page views by kind, a page again not counted */
+  views: Record<JKind, number>;
+  pages: Record<JKind, TopPage[]>;
+};
+
+export function journeysOf(g: StepGraph, landing: LandingRow[], store: string | null): JourneysBody {
+  const byKind = entriesOf(landing, store);
+  const counts = Object.fromEntries(JKINDS.map((k) => [k, byKind[k].sessions])) as Record<JKind, number>;
+  const kf = kindFlow(g, store);
+  const t = transitionsOf(kf);
+  return {
+    totals: landingTotals(landing, store),
+    entries: JKINDS.map((k) => byKind[k]).filter((e) => e.sessions > 0).sort((a, b) => b.sessions - a.sessions),
+    flow: foldFlow(chainFlow(counts, t, FLOW_COLUMNS), FOLD_SHARE),
+    journeys: completeJourneys(counts, t, JOURNEY_RULES),
+    leaves: leavesByKind(kf),
+    views: kf.views,
+    pages: topPagesByKind(g, landing, store, 30),
+  };
+}
+
+/** A funnel chained from the steps: each step's visits, and for each step but the last the pages that lose the most. */
+export function funnelOf(g: StepGraph, landing: LandingRow[], store: string | null, steps: StepDef[], dropLimit = 10): { n: number[]; drops: DropPage[][] } {
+  const c = buildChain(g, landing, store, steps.flatMap((d) => (d.type === "page" ? [d.path] : [])));
+  return { n: chainFunnel(c, steps), drops: steps.slice(0, -1).map((_, i) => dropPages(g, landing, c, steps, i, store, dropLimit)) };
 }

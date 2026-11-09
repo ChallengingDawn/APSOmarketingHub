@@ -1,10 +1,12 @@
-// Website > Journeys > Funnel: the visits through the shop's steps (Google Analytics: sessions with each event, and its
-// own in-order funnel where it answers) beside the signed-in customers' own steps (the shop's record), for the reporting
-// window (src/lib/journeys/read.ts). Without Google Analytics the shop's half still answers - the page says which is missing.
+// Website > Journeys > Funnel: the visits through the steps asked (?step=in&step=category.search&step=product... - the
+// shop's path when none; src/lib/journeys/model.ts parseSteps): Google Analytics' own funnel report where it answers, the
+// funnel chained from its page-to-page steps always, with the pages that lose the most at each step, both compared with
+// the period before; and the signed-in customers' own steps from the shop's record (src/lib/journeys/read.ts). Without
+// Google Analytics the shop's half still answers - the page says which is missing.
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { buildFunnel } from "@/lib/journeys/read";
-import { isStoreView } from "@/lib/journeys/model";
+import { isDevice, isStoreView, parseSteps } from "@/lib/journeys/model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,8 +25,11 @@ export async function GET(req: NextRequest) {
   }
   const rawStore = sp.get("store");
   const store = isStoreView(rawStore) ? rawStore : null;
+  const rawDevice = sp.get("device");
+  const device = isDevice(rawDevice) ? rawDevice : null;
+  const steps = parseSteps(sp.getAll("step"));
   try {
-    return NextResponse.json({ configured: true, ok: true, data: await buildFunnel(from, to, store) });
+    return NextResponse.json({ configured: true, ok: true, data: await buildFunnel(from, to, store, device, steps) });
   } catch (e) {
     return NextResponse.json({ configured: true, ok: false, error: String((e as Error)?.message ?? e) });
   }

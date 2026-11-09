@@ -1,9 +1,11 @@
 // Website > Journeys > Page flow: one page of the shop - where its visitors came from and where they went next, from
-// Google Analytics' page-to-page steps on that page alone (src/lib/journeys/read.ts), for the reporting window.
+// Google Analytics' page-to-page steps on that page alone (src/lib/journeys/read.ts), for the reporting window and a
+// device (?device=desktop|mobile|tablet, all when none).
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { describeIntegrationError, integrationStatus } from "@/lib/integrations/status";
 import { buildPageFlow } from "@/lib/journeys/read";
+import { isDevice } from "@/lib/journeys/model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,8 +29,10 @@ export async function GET(req: NextRequest) {
   if (!path.startsWith("/") || path.startsWith("//") || path.length > 300 || /[?#\s]/.test(path)) {
     return NextResponse.json({ configured: true, ok: false, error: "path must be a page of the shop, like /de-CH/dichtungstechnik.html.", status: 400 });
   }
+  const rawDevice = sp.get("device");
+  const device = isDevice(rawDevice) ? rawDevice : null;
   try {
-    return NextResponse.json({ configured: true, ok: true, data: await buildPageFlow(path, from, to) });
+    return NextResponse.json({ configured: true, ok: true, data: await buildPageFlow(path, from, to, device) });
   } catch (e) {
     const { error, status } = describeIntegrationError(e);
     return NextResponse.json({ configured: true, ok: false, error, status });
