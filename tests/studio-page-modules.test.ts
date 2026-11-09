@@ -30,7 +30,7 @@ function filled(type: ModuleType): ModuleRef {
   const s = m.settings;
   s.eyebrow = "Sortiment"; s.title = "Dichtungstechnik"; s.text = "Zeile darunter."; s.link = { label: "Alle anzeigen", url: `${B}/de-CH/dichtungstechnik.html` };
   s.link2 = { label: "Schnellbestellung", url: `${B}/de-CH/quickorder/` };
-  const k = MODULE_KINDS.find((x) => x.type === type)!;
+  const k = MODULE_KINDS.find((x) => x.id === type)!;
   if (k.takes === "products") s.items = [1, 2, 3, 4, 5, 6, 7, 8].map(product).slice(0, k.max);
   if (k.takes === "categories") s.items = [1, 2, 3, 4, 5, 6].map((n) => category(n, [1, 2, 3, 4].map(product))).slice(0, type === "finder" ? 5 : k.max);
   s.feature = category(9, []);
@@ -57,20 +57,20 @@ function selectors(css: string): string[] {
 
 test("every module is ONE element, every rule under its own class, no script - a version takes it as it is", () => {
   for (const k of MODULE_KINDS) {
-    const m = filled(k.type);
+    const m = filled(k.id);
     for (const layout of k.layouts.map((l) => l.key)) {
       const mm = { ...m, settings: { ...m.settings, layout } };
       const html = renderModule(mm);
-      assert.match(html, /^<div class="apx-mtest" data-apx-module="[a-z]+"><style>/, `${k.type}: one root with its style first`);
+      assert.match(html, /^<div class="apx-mtest" data-apx-module="[a-z0-9-]+"><style>/, `${k.id}: one root with its style first`);
       assert.ok(html.endsWith("</div>"));
       const css = /<style>([\s\S]*?)<\/style>/.exec(html)![1];
-      for (const sel of selectors(css)) assert.ok(sel.startsWith(".apx-mtest"), `${k.type}/${layout}: "${sel}" is not under the module's class`);
-      assert.doesNotMatch(html, /<script|\son[a-z]+=|javascript:/i, `${k.type}: no script`);
-      assert.match(css, /@media \(max-width:900px\)/, `${k.type}: a phone rule`);
+      for (const sel of selectors(css)) assert.ok(sel.startsWith(".apx-mtest"), `${k.id}/${layout}: "${sel}" is not under the module's class`);
+      assert.doesNotMatch(html, /<script|\son[a-z]+=|javascript:/i, `${k.id}: no script`);
+      assert.match(css, /@media \(max-width:900px\)/, `${k.id}: a phone rule`);
       const v = validateChanges([{ op: "insert", selector: "#maincontent .column.main", where: "prepend", html }]);
-      assert.deepEqual(v.problems, [], `${k.type}/${layout}: ${v.problems.join("; ")}`);
-      assert.ok(html.length <= MODULE_MAX, `${k.type}/${layout}: ${html.length} bytes - over a version's 20 KB per element`);
-      assert.doesNotMatch(html.replace(/<style>[\s\S]*?<\/style>/, ""), /CHF|EUR|€|\d+\s*%/, `${k.type}: never a price or a discount`);
+      assert.deepEqual(v.problems, [], `${k.id}/${layout}: ${v.problems.join("; ")}`);
+      assert.ok(html.length <= MODULE_MAX, `${k.id}/${layout}: ${html.length} bytes - over a version's 20 KB per element`);
+      assert.doesNotMatch(html.replace(/<style>[\s\S]*?<\/style>/, ""), /CHF|EUR|€|\d+\s*%/, `${k.id}: never a price or a discount`);
     }
   }
 });

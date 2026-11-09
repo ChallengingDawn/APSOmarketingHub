@@ -1,0 +1,12 @@
+// THE MODULE LIBRARY: every module file, in one list (Content v7, 10.11.2026). ./registry.ts reads it; nothing else should.
+//
+// To add modules: a file in ./lib/ exporting a `ModuleDef[]` (./types.ts), drawn with the kit (./kit.ts), and ONE line
+// here. Builder B owns heroes, showcases, bentos, navigation, campaigns, trust; builder B2 stories, technical, tools, help,
+// cta, industries, references, media (each its own files - add your import and your spread below, nothing else).
+
+import type { ModuleDef } from "./types";
+import { V6 } from "./lib/v6";
+
+export const LIBRARY: ModuleDef[] = [
+  ...V6,
+];
