@@ -48,7 +48,7 @@ import {
   changeStrings, emptyPage, fillTexts, fromAi, isLegacyBody, langName, languageOfStore, leftoversIn, mainLang, pageDoc, pageText,
   placeholdersOf, shopUrl, sourceHash, textsFromAi, urlKeyOf, viewOf, withChangeStrings, type AiChange, type PageDoc,
 } from "./model";
-import { blockOfPath, blocksOf } from "./outline";
+import { blockOfPath, blocksOf, itemOfPath } from "./outline";
 import { convertPages, counterpartOf, findPages, insertsOf, outlineOf, pasteOf, previewOf, relinkOf } from "./shop";
 import { SOURCE_ORIGIN, type IdeaSource } from "@/lib/content/ideaOrigins";
 import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
@@ -469,9 +469,12 @@ function saidOf(ctx: StudioCtx, raw: unknown, input: Record<string, unknown>): S
     const path = s(input.path, 80);
     const block = s(input.block, 40);
     const all = fieldStrings(d.fields).filter((x) => !x.id.endsWith(".alt"));
+    // one item of a block (a tile, a question): its words only; a block: all of its words
+    const item = block && itemOfPath(block) === block ? block : null;
     const pick = path ? all.filter((x) => x.id === path || x.id.startsWith(`${path}.`))
-      : block ? all.filter((x) => blockOfPath(x.id) === (blockOfPath(block) ?? block) || x.id.startsWith(`${block}.`))
-        : all;
+      : item ? all.filter((x) => x.id.startsWith(`${item}.`))
+        : block ? all.filter((x) => blockOfPath(x.id) === (blockOfPath(block) ?? block))
+          : all;
     return pick.slice(0, 40).map((x) => ({ label: fieldLabel(d.fields, x.id), text: x.text.slice(0, 2000) }));
   }
   const o = d.outline && d.outline.path === d.path ? d.outline : null;

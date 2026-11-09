@@ -204,7 +204,7 @@ export function BlocksOutline({ api, f, set, store, canEdit, canAi, fill, busy, 
             sx={{ display: "grid", placeItems: "center", cursor: "grab", color: MUTED, opacity: { xs: 0.6, md: 0.25 }, transition: "opacity .12s", mr: -0.5 }}>
             <DragIndicatorIcon sx={{ fontSize: 17 }} />
           </Box>
-        ) : b.num && canEdit ? <Box sx={{ width: 17, mr: -0.5 }} /> : undefined;
+        ) : canEdit ? <Box sx={{ width: 17, mr: -0.5, flexShrink: 0 }} /> : undefined;
         const row = (
           <Row key={b.key} id={b.key} num={b.num} title={b.name} count={b.count} state={isBusy || pics ? "busy" : b.state} summary={summaryOf(b, pics)}
             busyLabel={isBusy ? "Writing…" : `Making ${pics === 1 ? "the picture" : `${pics} pictures`}…`} open={open === b.key} onToggle={() => onOpen(open === b.key ? null : b.key)}
