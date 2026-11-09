@@ -155,7 +155,7 @@ export function PictureSlot({ url, alt, onPick, onAlt, onRemove, aspect = "16:9"
         </Box>
       </Collapse>
       {url && onAlt && (
-        <TextField fullWidth size="small" label={altLabel} value={alt} disabled={disabled} onChange={(e) => onAlt(e.target.value)} sx={{ ...field, mt: 1 }} />
+        <TextField fullWidth size="small" label={altLabel} value={alt} disabled={disabled} onChange={(e) => onAlt(e.target.value)} sx={{ ...field, mt: 1.75 }} />
       )}
     </Box>
   );
