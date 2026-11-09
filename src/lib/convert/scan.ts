@@ -32,7 +32,7 @@ export async function runScan(by = "the AI's night scan"): Promise<{ read: strin
   await query(SCHEMA);
   const waiting = Number((await query<{ n: string }>(`SELECT count(*) AS n FROM apsomh_convert_ideas WHERE status = 'proposed' AND source = 'ai'`)).rows[0]?.n ?? 0);
   const room = pagesTonight(waiting);
-  if (room === 0) return { read: [], note: `${waiting} of the AI's ideas wait for a yes or no - none added until fewer than ${SCAN.waitingCap} wait` };
+  if (room === 0) return { read: [], note: `${waiting} of the AI's optimizations wait for a yes or no - none added until fewer than ${SCAN.waitingCap} wait` };
   const to = isoDay(Date.now() - 86_400_000);
   const from = isoDay(Date.parse(to) - 27 * 86_400_000);
   const data = await buildProblems(from, to);
@@ -56,7 +56,7 @@ export async function runScan(by = "the AI's night scan"): Promise<{ read: strin
     read.push(p.path);
     console.log(`[convert-scan] ${p.path}: ${r.data.length} ideas`);
   }
-  return { read, note: `${read.length} of ${room} pages read; ${waiting} ideas were waiting` };
+  return { read, note: `${read.length} of ${room} pages read; ${waiting} optimizations were waiting` };
 }
 
 async function tick(): Promise<void> {

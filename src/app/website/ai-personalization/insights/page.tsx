@@ -55,6 +55,14 @@ function pageName(path: string): string {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : path;
 }
 
+/** The AI's last night scan in a few words: when, and what it read (or why nothing). */
+function scanWords(s: { day: string; pages: string[]; note: string }): string {
+  const d = `${s.day.slice(8, 10)}.${s.day.slice(5, 7)}.`;
+  if (s.pages.length) return `night of ${d}: ${s.pages.length} ${s.pages.length === 1 ? "page" : "pages"} read`;
+  if (s.note === "started") return `night of ${d}: reading`;
+  return `night of ${d}: ${s.note}`;
+}
+
 function PrioTag({ p }: { p: Priority }) {
   const c = PRIO[p];
   return (
@@ -133,9 +141,10 @@ export default function ConvertInsights() {
   const [kind, setKind] = useState<PageKind | "all">("all");
   const [open, setOpen] = useState<string | null>(null);
   const url = `/api/website/ai-personalization/ideas?n=${tick}`;
-  const held = useHeld<{ ideas: BoardRow[] }>(url, [url]);
+  const held = useHeld<{ ideas: BoardRow[]; scans?: { day: string; pages: string[]; note: string }[] }>(url, [url]);
   const r = held.result;
   const all = r?.state === "ok" ? r.data.ideas : [];
+  const lastScan = r?.state === "ok" ? (r.data.scans ?? [])[0] ?? null : null;
   const view = useMemo(() => {
     const byShow = all.filter((x) => (show === "decide" ? x.status === "proposed" : show === "approved" ? x.status === "approved" : x.status !== "dropped"));
     const kinds = (["product", "category", "cms", "home"] as PageKind[]).map((k) => ({ key: k, n: byShow.filter((x) => x.kind === k).length })).filter((k) => k.n > 0);
@@ -173,6 +182,7 @@ export default function ConvertInsights() {
           </Box>
           <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1 }}>
             {view.rows.length} {view.rows.length === 1 ? "optimization" : "optimizations"} on {view.pages} {view.pages === 1 ? "page" : "pages"} · the AI reads the pages losing buyers every night, 5 at a time, while fewer than 30 wait for a decision
+            {" · "}{lastScan ? scanWords(lastScan) : "its first night shows here"}
           </Typography>
         </GlassCard>
 
