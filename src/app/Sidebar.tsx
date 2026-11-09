@@ -7,6 +7,8 @@ import { toneOf } from "@/app/reporting/ui";
 import SpaceDashboardIcon from "@mui/icons-material/SpaceDashboard";
 import { usePathname, useSearchParams } from "next/navigation";
 import Drawer from "@mui/material/Drawer";
+import IconButton from "@mui/material/IconButton";
+import MenuIcon from "@mui/icons-material/Menu";
 import ListItemButton from "@mui/material/ListItemButton";
 import Collapse from "@mui/material/Collapse";
 import Box from "@mui/material/Box";
@@ -595,6 +597,9 @@ function SearchProbe({ onChange }: { onChange: (search: string) => void }) {
 export default function Sidebar() {
   const pathname = usePathname();
   const [search, setSearch] = useState("");
+  // a phone: the panel slides in from the bar's menu button, and goes again once a page is picked
+  const [phoneOpen, setPhoneOpen] = useState(false);
+  useEffect(() => { setPhoneOpen(false); }, [pathname]);
   const here = search ? `${pathname}?${search}` : pathname;
 
   // Only ONE item active: the longest href that is an exact or parent-prefix
@@ -707,10 +712,72 @@ export default function Sidebar() {
 
   if (nowhere) return null;
 
+  const panelBody = (
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <Box sx={{ flex: 1, overflowY: "auto", px: 1.5, pt: 2, pb: 1 }}>
+        {scoped ? (
+          <>
+            {/* The way out. Without it entering an app is a trapdoor: the
+                panel is the app's, and nothing else says there are others. */}
+            <Row href={activeSection!.back?.href ?? "/"} icon={<ChevronLeftIcon />} label={activeSection!.back?.label ?? "All apps"} />
+            <Box sx={{ mt: 1.25, mb: 2.25 }}>
+              {/* The app's own page only for those who may open it: Website's
+                  reports sit under Advanced reporting, which is granted apart. */}
+              <Row href={(activeSection!.home && allowed({ href: activeSection!.home }) ? activeSection!.home : visibleItems(activeSection!)[0]?.href) ?? activeSection!.items[0]?.href ?? "/"} icon={activeSection!.icon} label={activeSection!.title} active strong tone={tone} />
+            </Box>
+          </>
+        ) : (
+          // The same mark as the launch pad and the sign-in card. It used to be
+          // a third version here: stretched, red, with the letters cycling
+          // through colours on a nine-second loop.
+          <Box component={Link} href="/" sx={{ display: "block", textDecoration: "none", px: 1.25, pb: 2.25 }}>
+            <Wordmark size={26} subtitle={null} />
+          </Box>
+        )}
+
+        {blocks.map((b, i) => (
+          <Box key={b.name ?? `block-${i}`} sx={{ mb: 2 }}>
+            {b.name ? (
+              <>
+                <Heading name={b.name} collapsed={isCollapsed(b.name)} onToggle={() => toggle(b.name!)} />
+                <Collapse in={!isCollapsed(b.name)} timeout={200}>
+                  {b.items.map(renderItem)}
+                </Collapse>
+              </>
+            ) : (
+              b.items.map(renderItem)
+            )}
+          </Box>
+        ))}
+      </Box>
+
+      <Box sx={{ px: 1.5, py: 1.25, borderTop: "1px solid rgba(15,23,42,0.06)" }}>
+        <Row href="/api/auth/signout" icon={<LogoutIcon />} label="Sign out" anchor />
+        <BuildStamp />
+      </Box>
+    </Box>
+  );
+
   return (
+    <>
+    {/* a phone (< 900 px, SARCLA's night list 09.11.2026): a slim bar on top with the menu; the panel slides in */}
+    <Box sx={{
+      display: { xs: "flex", md: "none" }, alignItems: "center", gap: 1, position: "sticky", top: 0, zIndex: 1100, px: 1, py: 0.75,
+      bgcolor: "rgba(255,255,255,0.9)", backdropFilter: "blur(14px)", borderBottom: "1px solid rgba(15,23,42,0.08)",
+    }}>
+      <IconButton aria-label="Open the menu" onClick={() => setPhoneOpen(true)} sx={{ color: "#1f2a44" }}><MenuIcon /></IconButton>
+      <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: "#1f2a44", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {scoped ? activeSection!.title : "APSOhub"}
+      </Typography>
+    </Box>
+    <Drawer variant="temporary" open={phoneOpen} onClose={() => setPhoneOpen(false)}
+      sx={{ display: { xs: "block", md: "none" }, "& .MuiDrawer-paper": { width: 300, maxWidth: "86vw", boxSizing: "border-box", bgcolor: "rgba(255,255,255,0.97)" } }}>
+      {panelBody}
+    </Drawer>
     <Drawer
       variant="permanent"
       sx={{
+        display: { xs: "none", md: "block" },
         width: DRAWER_WIDTH,
         flexShrink: 0,
         alignSelf: "flex-start",
@@ -733,50 +800,9 @@ export default function Sidebar() {
       }}
     >
       <Suspense fallback={null}><SearchProbe onChange={setSearch} /></Suspense>
-      <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-        <Box sx={{ flex: 1, overflowY: "auto", px: 1.5, pt: 2, pb: 1 }}>
-          {scoped ? (
-            <>
-              {/* The way out. Without it entering an app is a trapdoor: the
-                  panel is the app's, and nothing else says there are others. */}
-              <Row href={activeSection!.back?.href ?? "/"} icon={<ChevronLeftIcon />} label={activeSection!.back?.label ?? "All apps"} />
-              <Box sx={{ mt: 1.25, mb: 2.25 }}>
-                {/* The app's own page only for those who may open it: Website's
-                    reports sit under Advanced reporting, which is granted apart. */}
-                <Row href={(activeSection!.home && allowed({ href: activeSection!.home }) ? activeSection!.home : visibleItems(activeSection!)[0]?.href) ?? activeSection!.items[0]?.href ?? "/"} icon={activeSection!.icon} label={activeSection!.title} active strong tone={tone} />
-              </Box>
-            </>
-          ) : (
-            // The same mark as the launch pad and the sign-in card. It used to be
-            // a third version here: stretched, red, with the letters cycling
-            // through colours on a nine-second loop.
-            <Box component={Link} href="/" sx={{ display: "block", textDecoration: "none", px: 1.25, pb: 2.25 }}>
-              <Wordmark size={26} subtitle={null} />
-            </Box>
-          )}
-
-          {blocks.map((b, i) => (
-            <Box key={b.name ?? `block-${i}`} sx={{ mb: 2 }}>
-              {b.name ? (
-                <>
-                  <Heading name={b.name} collapsed={isCollapsed(b.name)} onToggle={() => toggle(b.name!)} />
-                  <Collapse in={!isCollapsed(b.name)} timeout={200}>
-                    {b.items.map(renderItem)}
-                  </Collapse>
-                </>
-              ) : (
-                b.items.map(renderItem)
-              )}
-            </Box>
-          ))}
-        </Box>
-
-        <Box sx={{ px: 1.5, py: 1.25, borderTop: "1px solid rgba(15,23,42,0.06)" }}>
-          <Row href="/api/auth/signout" icon={<LogoutIcon />} label="Sign out" anchor />
-          <BuildStamp />
-        </Box>
-      </Box>
+      {panelBody}
     </Drawer>
+    </>
   );
 }
 

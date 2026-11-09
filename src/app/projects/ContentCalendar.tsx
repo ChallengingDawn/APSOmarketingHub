@@ -144,7 +144,7 @@ export default function ContentCalendar() {
         component={Link} href={`/projects/${x.projectId}#piece-${x.id}`}
         title={`${x.title} · ${x.projectTitle} · ${STATUS_LABEL[x.status]}`}
         sx={{
-          display: "block", textDecoration: "none", cursor: "grab", px: 0.75, py: 0.4, mb: 0.4, borderRadius: "7px",
+          display: "block", textDecoration: "none", cursor: "grab", px: 0.75, py: 0.4, mb: 0.4, borderRadius: "4px",
           fontSize: "0.72rem", fontWeight: 600, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           bgcolor: t.bg, color: t.fg, borderLeft: `3px solid ${t.fg}`, opacity: dragging?.kind === "piece" && dragging.id === x.id ? 0.4 : 1,
         }}>
@@ -197,7 +197,7 @@ export default function ContentCalendar() {
       href={`/projects/${p.id}`}
       sx={{
         display: "block", textDecoration: "none", cursor: "grab",
-        px: 0.75, py: 0.4, mb: 0.4, borderRadius: "7px",
+        px: 0.75, py: 0.4, mb: 0.4, borderRadius: "4px",
         fontSize: "0.72rem", fontWeight: 600, lineHeight: 1.3,
         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         // Chosen is decided, late is late, everything else is ordinary work.
@@ -211,13 +211,15 @@ export default function ContentCalendar() {
     </Box>
   );
 
+  const monthDays = weeks.flat().filter((d) => d.inMonth && ((dated.get(d.iso)?.length ?? 0) + (piecesOn.get(d.iso)?.length ?? 0) + (eventsOn.get(d.iso)?.length ?? 0)) > 0);
+
   return (
     <Box>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
+      <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", columnGap: 1, rowGap: 0.5, mb: 2 }}>
         <Tooltip title="Previous month">
           <IconButton onClick={() => setAt(shiftMonth(at.year, at.month, -1))}><ChevronLeftIcon /></IconButton>
         </Tooltip>
-        <Typography sx={{ fontSize: "1.1rem", fontWeight: 700, color: INK, minWidth: 180 }}>
+        <Typography sx={{ fontSize: "1.1rem", fontWeight: 700, color: INK, minWidth: { xs: 0, sm: 180 }, whiteSpace: "nowrap" }}>
           {monthLabel(at.year, at.month)}
         </Typography>
         <Tooltip title="Next month">
@@ -226,26 +228,45 @@ export default function ContentCalendar() {
         <Button
           size="small"
           onClick={() => { const d = new Date(); setAt({ year: d.getFullYear(), month: d.getMonth() + 1 }); }}
-          sx={{ textTransform: "none", fontWeight: 600, borderRadius: "10px" }}
+          sx={{ textTransform: "none", fontWeight: 600, borderRadius: "6px", whiteSpace: "nowrap", flexShrink: 0 }}
         >
           This month
         </Button>
-        <Box sx={{ flex: 1 }} />
-        <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>
+        <Typography sx={{ flex: "1 1 320px", textAlign: { xs: "left", md: "right" }, fontSize: "0.78rem", color: FAINT, minWidth: 0 }}>
           Projects and their pieces on their dates, with AI testing &amp; personalization&apos;s page tests. Drag one onto a day to plan it.
         </Typography>
       </Box>
 
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", lg: "1fr 280px" }, alignItems: "start" }}>
-        <GlassCard sx={{ p: { xs: 1, sm: 1.5 } }}>
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 0.5, mb: 0.5 }}>
+        <GlassCard sx={{ p: { xs: 1.25, sm: 1.5 } }}>
+          {projects !== null && monthDays.length === 0 && (
+            <Typography sx={{ fontSize: "0.84rem", color: MUTED, px: 0.5, pb: 1 }}>
+              Nothing planned in {monthLabel(at.year, at.month)} yet. Give a to-do its day in its project, or drag one here from &ldquo;No date yet&rdquo;.
+            </Typography>
+          )}
+          {/* a phone: the days with something on them, as a list (seven columns of 45 px say nothing) */}
+          <Box sx={{ display: { xs: "grid", sm: "none" }, gap: 1 }}>
+            {monthDays.map((day) => (
+              <Box key={day.iso} sx={{ display: "grid", gridTemplateColumns: "54px minmax(0, 1fr)", gap: 1, alignItems: "start", py: 0.75, borderTop: `1px solid ${HAIRLINE}` }}>
+                <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: day.iso === today ? "#2d6fa8" : INK, pt: 0.4 }}>
+                  {new Date(`${day.iso}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric" })}
+                </Typography>
+                <Box sx={{ minWidth: 0 }}>
+                  {(eventsOn.get(day.iso) ?? []).map(eventChip)}
+                  {(dated.get(day.iso) ?? []).map((p) => chip(p, isPast(day.iso, today) && !p.chosenVariantId))}
+                  {(piecesOn.get(day.iso) ?? []).map((x) => pieceChip(x, isPast(day.iso, today) && x.status !== "approved" && x.status !== "live"))}
+                </Box>
+              </Box>
+            ))}
+          </Box>
+          <Box sx={{ display: { xs: "none", sm: "grid" }, gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 0.5, mb: 0.5 }}>
             {WEEKDAYS.map((d) => (
               <Typography key={d} sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textAlign: "center", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                 {d}
               </Typography>
             ))}
           </Box>
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 0.5 }}>
+          <Box sx={{ display: { xs: "none", sm: "grid" }, gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 0.5 }}>
             {weeks.flat().map((day) => {
               const here = dated.get(day.iso) ?? [];
               const herePieces = piecesOn.get(day.iso) ?? [];

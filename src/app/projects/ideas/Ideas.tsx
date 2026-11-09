@@ -235,7 +235,8 @@ export default function Ideas() {
 
       {picked.size > 0 && (
         <Box sx={{
-          position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", zIndex: 30, display: "flex", alignItems: "center", gap: 1.5,
+          position: "fixed", bottom: { xs: 10, sm: 20 }, left: { xs: 10, sm: "50%" }, right: { xs: 10, sm: "auto" }, transform: { xs: "none", sm: "translateX(-50%)" },
+          zIndex: 30, display: "flex", alignItems: "center", gap: { xs: 0.75, sm: 1.5 }, flexWrap: "wrap", justifyContent: "center",
           px: 2, py: 1.25, borderRadius: "12px", bgcolor: "#15223a", color: "#fff", boxShadow: "0 16px 40px rgba(21,34,58,.35)",
         }}>
           <Typography sx={{ fontSize: "0.9rem", fontWeight: 600 }}>{picked.size} idea{picked.size === 1 ? "" : "s"} picked</Typography>

@@ -87,7 +87,8 @@ export default function AppShell({ children, sandbox = false }: { children: Reac
     // door onto a grey room — and the frosted panels on top need something to
     // be glass over.
     <ViewAsProvider>
-    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: surface, position: "relative" }}>
+    {/* a phone (< 900 px): the panel folds into a bar on top (Sidebar.tsx) - the page gets the whole width */}
+    <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, minHeight: "100vh", bgcolor: surface, position: "relative" }}>
       {/* Quiet here: an app screen is mostly empty below its content, so the
           wash would be the whole lower half of the window at full strength. */}
       <MeshBackground strength="quiet" />

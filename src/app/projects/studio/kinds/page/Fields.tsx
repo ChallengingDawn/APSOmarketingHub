@@ -26,6 +26,7 @@ import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import FileUploadOutlinedIcon from "@mui/icons-material/FileUploadOutlined";
+import PhotoLibraryOutlinedIcon from "@mui/icons-material/PhotoLibraryOutlined";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import TuneIcon from "@mui/icons-material/Tune";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
@@ -154,15 +155,16 @@ export function PictureSlot({ api, pic, set, disabled, aspect = "3:2", path, ctl
           {line && <Typography sx={{ fontSize: "0.74rem", color: lineColor, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{line}</Typography>}
           {making && <LinearProgress sx={{ mt: 0.75, height: 3, borderRadius: 2, bgcolor: "rgba(194,44,110,.12)", "& .MuiLinearProgress-bar": { bgcolor: PINK } }} />}
           {!making && (
-            <Box sx={{ display: "flex", gap: 0.25, mt: 0.25, flexWrap: "wrap", mx: -0.75 }}>
+            // one tidy line (SARCLA's night list): the slot's main action in words, the other three as icons with their names
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, mt: 0.25, flexWrap: "nowrap", mx: -0.75 }}>
               {canMake && (
-                <Button size="small" disabled={disabled} onClick={() => ctl!.make(path!, pic.idea)} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, px: 0.75, color: PINK }}>
+                <Button size="small" disabled={disabled} onClick={() => ctl!.make(path!, pic.idea)} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, px: 0.75, color: PINK, whiteSpace: "nowrap" }}>
                   {pic.url ? "Make another" : m?.state === "error" ? "Try again" : "Make it"}
                 </Button>
               )}
-              <Button size="small" disabled={disabled || up !== null} onClick={() => file.current?.click()} startIcon={<FileUploadOutlinedIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, px: 0.75, color: INK }}>Upload</Button>
-              <Button size="small" disabled={disabled} onClick={() => setOpen((x) => !x)} sx={{ ...btn, px: 0.75, color: INK }}>{open ? "Close the gallery" : "Gallery"}</Button>
-              {pic.url && <Button size="small" disabled={disabled} onClick={() => set({ ...pic, url: "" })} sx={{ ...btn, px: 0.75, color: MUTED }}>Remove</Button>}
+              <Tooltip title="Upload a picture"><span><IconButton size="small" aria-label="Upload a picture" disabled={disabled || up !== null} onClick={() => file.current?.click()} sx={{ color: INK }}><FileUploadOutlinedIcon sx={{ fontSize: 18 }} /></IconButton></span></Tooltip>
+              <Tooltip title={open ? "Close the gallery" : "Gallery - pictures already made"}><span><IconButton size="small" aria-label="Gallery" disabled={disabled} onClick={() => setOpen((x) => !x)} sx={{ color: open ? PINK : INK }}><PhotoLibraryOutlinedIcon sx={{ fontSize: 18 }} /></IconButton></span></Tooltip>
+              {pic.url && <Tooltip title="Take the picture out"><span><IconButton size="small" aria-label="Take the picture out" disabled={disabled} onClick={() => set({ ...pic, url: "" })} sx={{ color: MUTED }}><DeleteOutlineIcon sx={{ fontSize: 18 }} /></IconButton></span></Tooltip>}
             </Box>
           )}
           {up !== null && <LinearProgress variant="determinate" value={up * 100} sx={{ mt: 0.5, height: 3, borderRadius: 2 }} />}
