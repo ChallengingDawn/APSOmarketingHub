@@ -57,6 +57,8 @@ function keepPictures(next: BlogSection[], cur: BlogSection[]): BlogSection[] {
 }
 
 const isPicture = (key: string | null) => !!key && (key === "hero" || /^s:[^:]+:img$/.test(key));
+/** The name a to-do gets when nobody typed one ("Untitled blog article"): never the post's topic. */
+const untitled = (t: string) => !t.trim() || /^untitled\b/i.test(t.trim());
 
 /** The parts whose words are edited AS they look (bold bold, red red - Content v4) and how their words are kept; the
  *  title, the band's words, a caption and a product's name have no marks: plain words. */
@@ -153,7 +155,7 @@ function Picture({ api, d, set, pkey, canEdit, onMaking }: { api: StudioApi; d: 
     <Box>
       <PictureSlot url={pic.url} alt={pic.alt} aspect={s ? "3:2" : "16:9"} suggestion={idea} projectId={p.projectId} pieceId={p.id} me={api.data.me} disabled={!canEdit}
         onPick={(x) => land(x)} onMaking={onMaking}
-        onAlt={(alt) => put({ ...pic, alt })} onRemove={() => put({ ...pic, url: "" })} altLabel="What it shows (for Google and screen readers)" />
+        onAlt={(alt) => put({ ...pic, alt })} onRemove={() => put({ ...pic, url: "" })} altLabel="What it shows (for Google)" />
       {pic.url && <Box sx={{ mt: 1 }}><Field label="A line under it (optional)" value={pic.caption} disabled={!canEdit} onChange={(v) => put({ ...pic, caption: v })} /></Box>}
     </Box>
   );
@@ -234,7 +236,9 @@ export default function Studio({ api }: StudioProps) {
 
   const write = (request: string, language?: string) => { if (language) setTl(language); return busyRun(language ? `Translating the post into ${LANGUAGE_NAME[language] ?? language}…` : docRef.current.sections.length ? "Writing the post again…" : "Writing the post from the brief - about a minute or two…", null, async () => {
     const ask = language ? `Translate the whole post into ${LANGUAGE_NAME[language] ?? language}, faithfully.${request ? ` ${request}` : ""}` : request;
-    const r = await api.ai<Outline>("outline", { topic: docRef.current.title || p.title, request: ask, ...(language ? { language } : {}) });
+    // the to-do's name in the bar is the topic while the post's own title is still "Untitled …"
+    const topic = untitled(docRef.current.title) ? p.title : docRef.current.title;
+    const r = await api.ai<Outline>("outline", { topic, request: ask, ...(language ? { language } : {}) });
     if (!r.ok) return r.error;
     const x = r.result;
     if (!x.sections.length) return "No post came back - ask again.";
@@ -308,6 +312,12 @@ export default function Studio({ api }: StudioProps) {
     return key === "title" && (!cur.slug || cur.slug === slugify(cur.title)) ? { ...next, slug: slugify(next.title) } : next;
   });
 
+  // named in the bar while the post is still "Untitled …": the page's title follows (one name, not two)
+  useEffect(() => {
+    if (canEdit && untitled(d.title) && !untitled(p.title)) commit("title", p.title);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.title, canEdit]);
+
   const newSection = () => {
     const r = addSection(docRef.current, sectionOf(sel));
     set(r.doc);
@@ -331,7 +341,8 @@ export default function Studio({ api }: StudioProps) {
   if (!sel) {
     quick = [
       {
-        label: d.sections.length ? "Write the post again" : "Write the post from the brief",
+        // the same words as the start card and the map's header (the flow standard)
+        label: d.sections.length ? "Write it all again" : "Write the whole post with AI",
         run: async () => {
           if (docRef.current.sections.some((s) => s.body.trim()) && !window.confirm("Write the post again? It takes the place of what is written - Undo brings it back.")) return null;
           return write("");
@@ -450,7 +461,7 @@ export default function Studio({ api }: StudioProps) {
         {work && <Working label={work.label} since={work.since} />}
         <EditFrame html={html} device={device} width={DESKTOP} title="The blog post" texts={(k) => partText(docRef.current, k)} oneLine={oneLine}
           selected={sel} onSelect={(k) => setSel(k)} onCommit={commit} readOnly={!canEdit} focus={focus} editKey={editKey} busy={work ? work.key ?? "*" : picBusy}
-          rich={richOf} redMarks linkSearch={linkSearch} label={(k) => partLabel(docRef.current, k)} onAskAi={enabled ? () => askRef.current?.focus() : undefined} />
+          rich={richOf} redMarks linkSearch={linkSearch} label={(k) => partLabel(docRef.current, k)} onAskAi={enabled && onAsk ? () => askRef.current?.focus() : undefined} />
       </Box>
     </Pane>
   );

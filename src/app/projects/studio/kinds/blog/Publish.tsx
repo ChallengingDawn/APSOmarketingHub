@@ -41,7 +41,7 @@ export function Publish({ api, d, cards }: { api: StudioApi; d: BlogDoc; cards: 
   return (
     <Box>
       <Block first title="Where it lives">
-        <Box sx={{ ...mono, fontSize: "0.76rem", color: INK, bgcolor: "#f6f8fb", border: `1px solid ${HAIRLINE}`, borderRadius: "10px", p: 1.25, lineHeight: 1.8, overflowX: "auto", whiteSpace: "nowrap" }}>
+        <Box sx={{ ...mono, fontSize: "0.76rem", color: INK, bgcolor: "#f6f8fb", border: `1px solid ${HAIRLINE}`, borderRadius: "10px", p: 1.25, lineHeight: 1.6, overflowWrap: "anywhere", "& > div + div": { mt: 0.5 } }}>
           <div>{homePath(d.store)} <span style={{ color: MUTED }}>· the blog&apos;s home, every post</span></div>
           <div>&nbsp;&nbsp;└ {postPath(d)} <span style={{ color: MUTED }}>· this post</span></div>
           {d.tags.map((t) => <div key={t}>&nbsp;&nbsp;└ {tagPath(d.store, t)} <span style={{ color: MUTED }}>· {t}</span></div>)}
