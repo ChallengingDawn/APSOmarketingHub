@@ -8,16 +8,16 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Slider from "@mui/material/Slider";
-import Switch from "@mui/material/Switch";
 import Typography from "@mui/material/Typography";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import {
-  AB_AUDIENCE_LABEL, AB_GOAL_LABEL, languageOfStore, mergeTexts, placeholdersOf, type AbAudience, type AbGoal, type PageDoc, type PasteBlock,
+  AB_AUDIENCE_LABEL, AB_GOAL_LABEL, abLine, languageOfStore, lettersOf, mergeTexts, placeholdersOf, sideName, type AbAudience, type AbGoal, type PageDoc, type PasteBlock,
 } from "@/lib/content/studio/kinds/page/model";
 import type { PasteOut } from "@/lib/content/studio/kinds/page/shop";
 import { Field, PINK, btn, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
-import { Block, Chip, Choice, Hint, PasteCard, useCopy } from "./ui";
+import { Block, Choice, Hint, PasteCard, useCopy } from "./ui";
 
 /* ── texts ────────────────────────────────────────────────────────────── */
 
@@ -42,42 +42,53 @@ export function Texts({ d, set, canEdit }: { d: PageDoc; set: (next: PageDoc) =>
 }
 
 /* ── the A/B test ─────────────────────────────────────────────────────── */
+// SARCLA 09.11.2026 on the panel as it was ("Test the new version against the page as it is · Running it · Not running ·
+// The new version reaches visitors through a small script served from a gateway on Railway ..."): "Too much
+// information here". One line of state, one obvious action; the plan once it is on (which two run - the page as it is
+// or a version A, B, C - who sees the second, what decides it); how it runs behind "How it works", in two lines.
 
 export function AbTest({ d, set, canEdit }: { d: PageDoc; set: (next: PageDoc) => void; canEdit: boolean }) {
   const ab = d.abTest;
+  const [how, setHow] = useState(false);
   const up = (p: Partial<PageDoc["abTest"]>) => set({ ...d, abTest: { ...ab, ...p } });
+  const letters = lettersOf(d);
+  // the two that run: what is tested (a version), and what it is tested against (the page as it is, or another version)
+  const tested = ab.b === "page" ? ab.a : ab.b;
+  const against = ab.b === "page" ? "page" : ab.a;
+  const pair = (t: string, x: string) => up({ a: x === t ? "page" : x, b: t });
   return (
     <Box>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
-        <Typography sx={{ fontSize: "0.88rem", color: INK, flex: 1 }}>Test the new version against the page as it is</Typography>
-        <Switch checked={ab.enabled} disabled={!canEdit} onChange={(e) => up({ enabled: e.target.checked })}
-          sx={{ "& .Mui-checked": { color: `${PINK} !important` }, "& .Mui-checked + .MuiSwitch-track": { bgcolor: `${PINK} !important` } }} />
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: ab.enabled ? 1.5 : 0.75 }}>
+        <Typography sx={{ fontSize: "0.88rem", color: INK, fontWeight: 650, flex: 1, minWidth: 0 }}>{abLine(d)}</Typography>
+        {canEdit && (ab.enabled
+          ? <Button size="small" onClick={() => up({ enabled: false })} sx={{ ...btn, color: MUTED, px: 0.75 }}>Switch off</Button>
+          : <Button size="small" variant="contained" disableElevation onClick={() => up({ enabled: true, a: "page", b: d.letter || "A" })} sx={{ ...mainBtn, borderRadius: "6px", px: 1.5 }}>Plan an A/B test</Button>)}
       </Box>
       {ab.enabled && (
         <>
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.5 }}>Visitors who see the new version: <b style={{ color: INK }}>{ab.split}%</b></Typography>
+          {letters.length > 1 && (
+            <>
+              <Box sx={{ mb: 1 }}><Choice label="Test" value={tested} onChange={(t: string) => canEdit && pair(t, against === t ? "page" : against)} options={letters.map((l) => ({ key: l, label: `Version ${l}` }))} /></Box>
+              <Box sx={{ mb: 1.5 }}><Choice label="Against" value={against} onChange={(x: string) => canEdit && pair(tested, x)}
+                options={[{ key: "page", label: "The page as it is" }, ...letters.filter((l) => l !== tested).map((l) => ({ key: l, label: `Version ${l}` }))]} /></Box>
+            </>
+          )}
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.25 }}>Visitors who see {sideName(ab.b).replace(/^The/, "the")}: <b style={{ color: INK }}>{ab.split}%</b></Typography>
           <Slider value={ab.split} min={10} max={90} step={5} disabled={!canEdit} onChange={(_, v) => up({ split: v as number })}
-            sx={{ color: PINK, mb: 1.5, mx: 1, width: "calc(100% - 16px)" }} />
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.75 }}>What decides it</Typography>
-          <Box sx={{ mb: 1.25 }}><Choice value={ab.goal} onChange={(goal: AbGoal) => canEdit && up({ goal })} options={(Object.keys(AB_GOAL_LABEL) as AbGoal[]).map((k) => ({ key: k, label: AB_GOAL_LABEL[k] }))} /></Box>
+            sx={{ color: PINK, mb: 1, mx: 1, width: "calc(100% - 16px)" }} />
+          <Box sx={{ mb: 1 }}><Choice label="Decided by" value={ab.goal} onChange={(goal: AbGoal) => canEdit && up({ goal })} options={(Object.keys(AB_GOAL_LABEL) as AbGoal[]).map((k) => ({ key: k, label: AB_GOAL_LABEL[k] }))} /></Box>
           {ab.goal === "clicks" && <Field label="Which element (its words or a selector)" value={ab.clickTarget} onChange={(v) => up({ clickTarget: v })} disabled={!canEdit} />}
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.75 }}>Who takes part</Typography>
-          <Box sx={{ mb: 1.5 }}><Choice value={ab.audience} onChange={(audience: AbAudience) => canEdit && up({ audience })} options={(Object.keys(AB_AUDIENCE_LABEL) as AbAudience[]).map((k) => ({ key: k, label: AB_AUDIENCE_LABEL[k] }))} /></Box>
-          <Field label="Notes for the test" value={ab.notes} onChange={(v) => up({ notes: v })} multiline rows={2} disabled={!canEdit} />
+          <Box sx={{ mb: 1 }}><Choice label="Who" value={ab.audience} onChange={(audience: AbAudience) => canEdit && up({ audience })} options={(Object.keys(AB_AUDIENCE_LABEL) as AbAudience[]).map((k) => ({ key: k, label: AB_AUDIENCE_LABEL[k] }))} /></Box>
+          {ab.notes.trim() && <Field label="Notes for the test" value={ab.notes} onChange={(v) => up({ notes: v })} multiline rows={2} disabled={!canEdit} />}
         </>
       )}
-      <Box sx={{ mt: 1, p: 1.5, borderRadius: "12px", bgcolor: "#f6f8fb", border: `1px solid ${HAIRLINE}` }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
-          <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, flex: 1 }}>Running it</Typography>
-          <Chip tint="amber">Not running</Chip>
+      <Button size="small" onClick={() => setHow(!how)} endIcon={<KeyboardArrowDownIcon sx={{ fontSize: 16, transform: how ? "rotate(180deg)" : "none", transition: "transform .15s" }} />} sx={{ ...btn, px: 0, minWidth: 0, color: MUTED, fontSize: "0.76rem" }}>How it works</Button>
+      {how && (
+        <Box sx={{ mt: 0.25, color: MUTED, fontSize: "0.78rem", lineHeight: 1.5 }}>
+          <div>Visitors get the version from a small script the shop&apos;s footer loads (a gateway - the hub itself is not public).</div>
+          <div>The gateway counts each side&apos;s visitors and goal; the hub reads the results here.</div>
         </Box>
-        <Box component="ol" sx={{ m: 0, pl: 2.25, color: MUTED, fontSize: "0.8rem", lineHeight: 1.55 }}>
-          <li>The new version reaches visitors through a small script served from a gateway on Railway - the hub has no public address. The chat&apos;s A/B test works this way.</li>
-          <li>The shop&apos;s footer loads that script once.</li>
-          <li>The gateway counts visitors and the goal for each version; the hub reads the results.</li>
-        </Box>
-        <Hint mt={1}>The plan is kept here with the page, so the test starts from it.</Hint>
-      </Box>
+      )}
     </Box>
   );
 }

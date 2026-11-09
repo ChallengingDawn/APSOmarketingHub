@@ -43,7 +43,9 @@ import { saveOps } from "../../store";
 import { projectBrief, projectHead } from "@/lib/content/workflow";
 import { markerOf } from "@/lib/convert/handoff";
 import { publishFromContent, winnerFor, type Winner } from "@/lib/convert/winner";
-import { KEY_WAITING, cmsKeys, cmsPageBackups, cmsPagePlans, cmsPageRestore, cmsPageWrite } from "@/lib/convert/cms";
+import { KEY_WAITING, cmsConnectionCheck, cmsKeys, cmsPageBackups, cmsPagePlans, cmsPageRestore, cmsPageWrite } from "@/lib/convert/cms";
+import { seoFieldsOf } from "@/lib/convert/cmsPage";
+import { connectionLine, type Check } from "./magentoCheck";
 import { gateOf } from "@/lib/convert/cmsPage";
 import { myAccess } from "@/lib/auth/appAccess";
 import { ENVS, classify, isKind, type Env } from "@/lib/convert/model";
@@ -53,14 +55,14 @@ import { LIMIT, blockOrder, fieldLabel, fieldStrings, getField, withFieldStrings
 import { FIELD_SCHEMA, FILL_SCHEMA, PART_LABEL, cleanFill, type Candidate, type Part } from "./fill";
 import { fitField, fitFields, limitOf } from "./fit";
 import {
-  baseStore, changeStrings, emptyPage, fillTexts, fromAi, isLegacyBody, langName, langOfStore, languageOfStore, leftoversIn, mainLang, mainView, pageDoc,
-  pageModesFor, pageSourceFix, pageText, placeholdersOf, shopUrl, sourceHash, textsFromAi, urlKeyOf, viewKey, viewOf, viewsOf, withChangeStrings,
+  baseStore, changeStrings, convertVersionsOf, emptyPage, opensMarkerPage, fillTexts, fromAi, isLegacyBody, langName, langOfStore, languageOfStore, leftoversIn, mainLang, mainView, pageDoc,
+  pageModesFor, pageSourceFix, pageText, shopList, placeholdersOf, shopUrl, sourceHash, textsFromAi, urlKeyOf, viewKey, viewOf, viewsOf, withChangeStrings,
   type AiChange, type MagentoRecord, type PageDoc,
 } from "./model";
 import { blockOfPath, blocksOf, itemOfPath } from "./outline";
 import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, presenceOf, previewOf, relinkOf } from "./shop";
-import { SOURCE_ORIGIN, type IdeaSource } from "@/lib/content/ideaOrigins";
 import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
+import { appBriefOf } from "./appBrief";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
@@ -534,14 +536,10 @@ const englishAction: ServerAction = async (ctx, raw, input) => {
 // one of the apps carries that app as its source (lib/content/start.ts): SEO, AEO & LLM Optimizer, Search bar,
 // Personality, AI testing & personalization. With a brief from one of them the studio writes the new page on its own.
 
-const APP_SOURCES: IdeaSource[] = ["seo", "aeo", "search", "brand", "convert", "buyers"];
-
+// A project sent from AI testing & personalization (its brief carries the page's marker) is an app's brief too (./appBrief.ts).
 const brief: ServerAction = async (ctx) => {
   const { source } = await projectBrief(ctx.projectId).catch(() => ({ source: null as string | null }));
-  const app = source && (APP_SOURCES as string[]).includes(source) ? SOURCE_ORIGIN[source as IdeaSource].app : null;
-  const notes = (ctx.projectNotes ?? "").replace(/^\[idea [^\]]+\]\s*/gm, "").trim();
-  const text = [ctx.brief.goal, notes].map((x) => (x ?? "").trim()).filter(Boolean).join("\n").slice(0, 600);
-  return { source, app, text, auto: !!app && !!text };
+  return appBriefOf({ source, goal: ctx.brief.goal, notes: ctx.projectNotes });
 };
 
 /* ── actions ──────────────────────────────────────────────────────────── */
@@ -565,8 +563,9 @@ const start: ServerAction = async (ctx, raw, input) => {
   const mark = markerOf(brief);
   const path = mark ? cleanPath(mark.path) : null;
   let imported: { env: string; path: string; version: { rev: number; status: string; summary: string } | null } | null = null;
-  // a page from APSOconvert is taken over on the first open of an empty studio, or when asked again
-  if (mark && path && (again || (!d.path && !d.changes.length))) {
+  // a page from APSOconvert is taken over on the first open of an empty studio, or when asked again - by a to-do that
+  // changes a page of the shop; a landing page makes a NEW page, the marker's page being only context in its brief
+  if (mark && path && opensMarkerPage(ctx.piece.contentType) && (again || (!d.path && !d.changes.length))) {
     // a test's winner: exactly the change list that was tested, and its figures
     const won = mark.testId ? await winnerFor(mark.testId).catch(() => null) : null;
     if (won) {
@@ -596,13 +595,34 @@ const start: ServerAction = async (ctx, raw, input) => {
       { op: "set", path: ["path"], value: path },
       { op: "set", path: ["store"], value: c.store ?? d.store },
       { op: "set", path: ["pageKind"], value: c.kind },
-      { op: "set", path: ["origin"], value: v ? { versionId: v.id, rev: v.rev, status: v.status, summary: v.summary.slice(0, 600), idea: (idea?.title ?? "").slice(0, 200) } : null },
+      { op: "set", path: ["origin"], value: v ? { versionId: v.id, rev: v.rev, status: v.status, summary: v.summary.slice(0, 600), idea: (idea?.title ?? "").slice(0, 200), letter: v.letter || "A" } : null },
     );
-    if (v) ops.push({ op: "set", path: ["changes"], value: v.changes });
+    if (v) {
+      // every version of the optimization comes along under its own letter (A, B ...), the one it was sent with open
+      // (SARCLA 09.11.2026: "another version of the same page" - AI testing & personalization names them so)
+      const mine = convertVersionsOf(work?.versions ?? [], v);
+      ops.push({ op: "set", path: ["changes"], value: v.changes }, { op: "set", path: ["letter"], value: v.letter || "A" }, { op: "set", path: ["versions"], value: mine });
+    }
     imported = { env: mark.env, path, version: v ? { rev: v.rev, status: v.status, summary: v.summary } : null };
   }
   await write(ctx, ops);
   return { imported, marker: !!mark };
+};
+
+/**
+ * A page taken over from AI testing & personalization before its letter was kept (before 10.11.2026): the letter of the
+ * version it came with, read from that app and kept - so the studio says "version B" as that app does. Its other
+ * versions are listed (letter, revision, summary) for the studio to offer; nothing else of the page changes here.
+ */
+const convertLetter: ServerAction = async (ctx, raw) => {
+  const d = pageDoc(raw, ctx.piece.language);
+  if (!d.origin?.versionId || !d.path) return { letter: d.origin?.letter ?? "", others: [] };
+  const work = await pageWork(d.env, d.path).catch(() => null);
+  const v = work?.versions.find((x) => x.id === d.origin!.versionId) ?? null;
+  if (!v) return { letter: d.origin.letter, others: [] };
+  if (!d.origin.letter && ctx.canEdit) await write(ctx, [{ op: "set", path: ["origin", "letter"], value: v.letter || "A" }]);
+  const others = (work?.versions ?? []).filter((x) => x.ideaId === v.ideaId && x.id !== v.id).map((x) => ({ letter: x.letter || "A", rev: x.rev, summary: x.summary.slice(0, 200) }));
+  return { letter: v.letter || "A", others };
 };
 
 /** What the studio keeps of a winner: its version and the test's figures. */
@@ -705,7 +725,7 @@ const readOutline: ServerAction = async (ctx, raw, input) => {
 };
 
 /** The store view asked for ("fr-CH"; an older caller: a language, "fr"). */
-const langIn = (input: Record<string, unknown>) => (typeof input.lang === "string" && /^[a-z]{2}(-[A-Z]{2,3})?$/.test(input.lang) ? input.lang : null);
+const langIn = (input: Record<string, unknown>) => (typeof input.lang === "string" && /^[a-z]{2}(-[A-Z]{2,3}(\/[a-z]{3})?)?$/.test(input.lang) ? input.lang : null);
 const preview: ServerAction = async (_ctx, raw, input) =>
   previewOf(raw, input.side === "before" ? "before" : input.side === "shell" ? "shell" : "after", input.fresh === true, langIn(input));
 const paste: ServerAction = async (_ctx, raw, input) => pasteOf(raw, langIn(input), await shopStores());
@@ -736,7 +756,7 @@ const candidates: ServerAction = async (ctx, raw, input) => {
 const inserts: ServerAction = async (ctx, raw, input) => ({ inserts: await insertsOf(viewFor(ctx, raw, input)) });
 const relink: ServerAction = async (_ctx, raw, input) => relinkOf(raw, langIn(input) ?? "fr");
 /** For each store view of the shop: is this page of the shop there (the page index; its own address there)? */
-const views: ServerAction = async (ctx, raw) => ({ presence: await presenceOf(pageDoc(raw, ctx.piece.language), await shopStores()) });
+const views: ServerAction = async (ctx, raw) => ({ presence: await presenceOf(pageDoc(raw, ctx.piece.language), shopList(await shopStores())) });
 
 /* ── the last step: into Magento, by store view ───────────────────────── */
 
@@ -766,11 +786,34 @@ const magento: ServerAction = async (ctx, raw) => {
     views: views.map(({ want: _want, ...v }) => v),
     envs: (["acc", "prod"] as Env[]).map((env) => ({
       env, label: ENVS[env].label, base: ENVS[env].base, key: keys[env], waiting: keys[env] ? null : KEY_WAITING[env], why: gate(env), restoreWhy: gate(env, true),
+      // the connection in plain words (Content v6, SARCLA 09.11.2026: "the Magento connection is not working yet"), and
+      // the last check's answer while it is fresh
+      from: keys.from[env], connection: connectionLine(env, keys.from[env]).line, check: checkHeld(env, keys.from[env]),
     })),
     // what keeps this person from writing, whatever the target (the key is said per target)
     gate: { canEdit: ctx.canEdit, approved: ctx.piece.status === "approved" || ctx.piece.status === "live", grant, why: gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant, key: true, env: "acc" }) },
     backups,
   };
+};
+
+/* ── the connection checked (Content v6): ONE read, never a write ──────── */
+
+const CHECKS = new Map<Env, { check: Check; from: string }>();
+/** The last check of an environment while it is fresh (ten minutes) and made with the key it has now. */
+function checkHeld(env: Env, from: string): Check | null {
+  const h = CHECKS.get(env);
+  return h && h.from === from && Date.now() - Date.parse(h.check.at) < 10 * 60_000 ? h.check : null;
+}
+/** "Check the connection": one GET of Magento's CMS pages with the environment's key (src/lib/convert/cms.ts) - at most
+ * one a minute per environment, whoever asks; anyone in the project may ask (it reads nothing of the shop's pages). */
+const magentoCheck: ServerAction = async (_ctx, _raw, input) => {
+  const env = envIn(input);
+  const from = cmsKeys().from[env];
+  const held = CHECKS.get(env);
+  if (held && held.from === from && Date.now() - Date.parse(held.check.at) < 60_000) return { check: held.check };
+  const check = await cmsConnectionCheck(env);
+  if (check.state !== "no-key") CHECKS.set(env, { check, from });
+  return { check };
 };
 
 const magentoPlan: ServerAction = async (ctx, raw, input) => {
@@ -794,18 +837,23 @@ const magentoPublish: ServerAction = async (ctx, raw, input) => {
   if (!views.length) throw new Error("Pick the store views to write.");
   const results: { view: string; ok: boolean; action?: string; pageId?: string; error?: string }[] = [];
   const records: MagentoRecord[] = [];
+  const moved: Op[] = [];
   for (const v of views) {
     const m = await magentoOf(raw, v);
     if (!m.cms || !m.want || m.why || m.blocked) { results.push({ view: v, ok: false, error: m.why ?? m.blocked ?? "Not a CMS page." }); continue; }
     try {
       const w = await cmsPageWrite(String(ctx.pieceId), env, { view: v, want: m.want }, ctx.me.username);
       results.push({ view: v, ok: true, action: w.action, pageId: w.pageId });
-      records.push({ env, store: v, pageId: w.pageId, identifier: m.want.identifier, action: w.action, at: new Date().toISOString(), by: ctx.me.username, backupId: w.backupId, url: `${ENVS[env].base}/${v}/${m.want.identifier}` });
+      // a page of the shop given a new URL key: it is at its new address from now on (the studio follows it there)
+      const newKey = m.want.kind === "changes" ? seoFieldsOf(m.want.seo, m.want.identifier).identifier : undefined;
+      const identifier = newKey ?? m.want.identifier;
+      records.push({ env, store: v, pageId: w.pageId, identifier, action: w.action, at: new Date().toISOString(), by: ctx.me.username, backupId: w.backupId, url: `${ENVS[env].base}/${v}/${identifier}` });
+      if (newKey && env === doc.env) moved.push({ op: "set", path: at(doc, v, "path"), value: `/${v}/${newKey}` }, { op: "set", path: [...at(doc, v, "fields"), "seo", "urlKey"], value: "" });
     } catch (e) {
       results.push({ view: v, ok: false, error: (e as Error).message });
     }
   }
-  if (records.length) await write(ctx, [{ op: "set", path: ["magento"], value: [...records, ...doc.magento].slice(0, 40) }]);
+  if (records.length) await write(ctx, [{ op: "set", path: ["magento"], value: [...records, ...doc.magento].slice(0, 40) }, ...moved]);
   return { env, results, records };
 };
 
@@ -837,6 +885,7 @@ export const pageKind: KindDef = {
   actions: {
     start, winner, publish, stores, views, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, relink, ping: async () => ({ ok: true }),
     english: englishAction, brief,
-    magento, magento_plan: magentoPlan, magento_publish: magentoPublish, magento_restore: magentoRestore,
+    magento, magento_plan: magentoPlan, magento_publish: magentoPublish, magento_restore: magentoRestore, magento_check: magentoCheck,
+    convert_letter: convertLetter,
   },
 };

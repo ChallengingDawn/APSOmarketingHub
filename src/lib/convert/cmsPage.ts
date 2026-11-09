@@ -134,8 +134,21 @@ export type Want =
   /** a page made in the studio: created, or - where this to-do made it before - updated */
   | { kind: "page"; identifier: string; title: string; metaTitle: string; metaDescription: string; content: string; active: boolean }
   /** an existing CMS page of the shop: the change list put into its content, the banners at its top, after its first
-   * paragraph, at its end */
-  | { kind: "changes"; identifier: string; changes: Change[]; tag: string; inserts?: { top: string; afterIntro: string; bottom: string } };
+   * paragraph, at its end; `seo`: its search engine fields (Content v6, SARCLA 09.11.2026) - each only when set, a new
+   * URL key the page's new identifier */
+  | { kind: "changes"; identifier: string; changes: Change[]; tag: string; inserts?: { top: string; afterIntro: string; bottom: string }; seo?: SeoFields };
+
+/** A page's search engine fields as the studio sends them: an empty one leaves Magento's as it is. */
+export type SeoFields = { metaTitle?: string; metaDescription?: string; urlKey?: string };
+
+/** The fields of Magento's page the search engine fields set (only those given, and a URL key only when it changes). */
+export function seoFieldsOf(seo: SeoFields | undefined, identifier: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (seo?.metaTitle?.trim()) out.meta_title = seo.metaTitle.trim();
+  if (seo?.metaDescription?.trim()) out.meta_description = seo.metaDescription.trim();
+  if (seo?.urlKey?.trim() && seo.urlKey.trim() !== identifier) out.identifier = seo.urlKey.trim();
+  return out;
+}
 
 /** A page's content with the banners put in: at its top, after its first paragraph, at its end. */
 export function withInserts(content: string, ins?: { top: string; afterIntro: string; bottom: string }): string {
@@ -157,7 +170,7 @@ function pageAfter(want: Want, page: MagentoPage | null): { fields: Record<strin
     };
   }
   const applied = applyToCms(String(page?.content ?? ""), want.changes, want.tag);
-  return { fields: { content: withInserts(applied.content, want.inserts) }, notPlaced: applied.notPlaced.map((x) => x.why), placed: applied.placed.length };
+  return { fields: { content: withInserts(applied.content, want.inserts), ...seoFieldsOf(want.seo, want.identifier) }, notPlaced: applied.notPlaced.map((x) => x.why), placed: applied.placed.length };
 }
 
 export type PagePlan = {
@@ -216,6 +229,12 @@ export async function planPage(m: MagentoRequest, x: {
       ...base, pageId: id, now, page: found, placed: { placed: after.placed, total: after.placed + after.notPlaced.length },
       why: `${after.notPlaced.length} of the changes find no place in the page's content (${after.notPlaced.slice(0, 2).join("; ")}) - this page goes to dotSource as code.`,
     };
+  }
+  // a new URL key (the search engine fields): never one another page of this store view has
+  const newKey = want.kind === "changes" ? seoFieldsOf(want.seo, want.identifier).identifier : undefined;
+  if (newKey) {
+    const taken = await pageIn(m, newKey, x.store.id);
+    if (taken && String(taken.id) !== id) return { ...base, pageId: id, now, page: found, why: `Magento has a page "${newKey}" in ${x.view} already (#${taken.id}) - give this page another URL key.` };
   }
   const shared: string[] = [];
   for (const o of x.others ?? []) {
@@ -306,6 +325,8 @@ export async function restorePage(m: MagentoRequest, b: Backup, x: { by: string;
       ...(b.page && typeof b.page.title === "string" ? { title: b.page.title } : {}),
       ...(b.page && typeof b.page.meta_title === "string" ? { meta_title: b.page.meta_title } : {}),
       ...(b.page && typeof b.page.meta_description === "string" ? { meta_description: b.page.meta_description } : {}),
+      // its URL key too, when the write gave it a new one (the search engine fields)
+      ...(b.page && typeof b.page.identifier === "string" && b.page.identifier ? { identifier: b.page.identifier } : {}),
       ...(b.page && typeof b.page.active === "boolean" ? { active: b.page.active } : {}),
     };
   const backupId = await x.backups.add({

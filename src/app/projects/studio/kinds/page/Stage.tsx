@@ -18,7 +18,6 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
-import ListSubheader from "@mui/material/ListSubheader";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Tooltip from "@mui/material/Tooltip";
@@ -36,7 +35,7 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { fieldLabel } from "@/lib/content/studio/kinds/page/fields";
 import {
-  howToAdd, langName, leftoversOf, mainView, shopUrl, viewState, viewsOf, type LangState, type Leftover, type PageDoc, type StoreGroup,
+  howToAdd, langName, leftoversOf, mainView, shopUrl, viewName, viewShort, viewState, viewsOf, type LangState, type Leftover, type PageDoc, type StoreGroup,
 } from "@/lib/content/studio/kinds/page/model";
 import { ADD_CSS, renderNewPage } from "@/lib/content/studio/kinds/page/newpage";
 import { PART_NAME, partOfPath } from "@/lib/content/studio/kinds/page/outline";
@@ -47,6 +46,7 @@ import type { StudioApi } from "../../useStudio";
 import { SHEEN_BG, sheen } from "./Fields";
 import { Frame, type Device, type Picked } from "./Frame";
 import { Choice } from "./ui";
+import { StoreViewPicker } from "./StoreViewPicker";
 
 export type View = "before" | "after" | "both";
 type Side = "before" | "after";
@@ -79,7 +79,7 @@ export function usePagePreview(api: StudioApi, d: PageDoc, lang: string, view: V
         asked.current[side] = key;
         setBusy((b) => ({ ...b, [side]: true }));
         // a version looked at (Versions, 09.11.2026) is drawn from that version, not from the page as it is now
-        const out = await fetch(`/api/content/studio/page/${pieceId}/preview?side=${side}&lang=${lang}${fresh ? "&fresh=1" : ""}${api.looking ? `&version=${api.looking}` : ""}`)
+        const out = await fetch(`/api/content/studio/page/${pieceId}/preview?side=${side}&lang=${encodeURIComponent(lang)}${fresh ? "&fresh=1" : ""}${api.looking ? `&version=${api.looking}` : ""}`)
           .then((r) => r.json() as Promise<PreviewOut>)
           .catch(() => ({ ok: false as const, error: "The hub did not answer - try again." }));
         if (asked.current[side] === key) setHeld((h) => ({ ...h, [side]: { key, out } }));
@@ -109,7 +109,7 @@ export function useShell(api: StudioApi, d: PageDoc, fresh: number) {
     const key = `${d.store}|${fresh}`;
     if (shell?.key === key) return;
     let gone = false;
-    void fetch(`/api/content/studio/page/${pieceId}/preview?side=shell&lang=${lang}${fresh ? "&fresh=1" : ""}`)
+    void fetch(`/api/content/studio/page/${pieceId}/preview?side=shell&lang=${encodeURIComponent(lang)}${fresh ? "&fresh=1" : ""}`)
       .then((r) => r.json() as Promise<PreviewOut>)
       .catch(() => ({ ok: false as const, error: "The hub did not answer - try again." }))
       .then((out) => { if (!gone) setShell({ key, out }); });
@@ -174,9 +174,9 @@ export function LangSwitch({ d, lang, onLang, groups, presence }: { d: PageDoc; 
         const on = k === lang;
         const st = viewState(d, k);
         return (
-          <Tooltip key={k} title={`${langName(k)} · ${k} · ${STATE_NOTE[st]}`}>
+          <Tooltip key={k} title={`${viewName(k)} · ${k} · ${STATE_NOTE[st]}`}>
             <Box component="button" type="button" role="radio" aria-checked={on} onClick={() => onLang(k)} sx={btnSx(on, i, st)}>
-              {k.toUpperCase()}
+              {viewShort(k)}
               {st === "main" && <Box component="span" sx={{ width: 6, height: 6, borderRadius: "1px", bgcolor: on ? "#fff" : PINK }} />}
               {st === "done" && <CheckIcon sx={{ fontSize: 14, color: on ? "#fff" : "#1b7a55" }} />}
               {st === "stale" && <WarningAmberIcon sx={{ fontSize: 14, color: on ? "#fff" : AMBER }} />}
@@ -189,25 +189,8 @@ export function LangSwitch({ d, lang, onLang, groups, presence }: { d: PageDoc; 
           <AddIcon sx={{ fontSize: 15 }} />Store view{more ? ` · ${more} more` : ""}
         </Box>
       </Tooltip>
-      <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)} slotProps={{ paper: { sx: { borderRadius: "8px", minWidth: 330, maxHeight: 520 } } }}>
-        {groups.flatMap((g) => [
-          <ListSubheader key={`h-${g.lang}`} sx={{ lineHeight: "30px", fontSize: "0.7rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED, bgcolor: "#fff" }}>{g.name}</ListSubheader>,
-          ...g.stores.map((k) => {
-            const st = viewState(d, k);
-            const isMadeHere = made.includes(k);
-            const off = d.source !== "new" && presence[k]?.exists === false;
-            return (
-              <MenuItem key={k} dense selected={k === lang} onClick={() => { setMenu(null); onLang(k); }} sx={{ gap: 1.25, py: 0.75 }}>
-                <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: off && !isMadeHere ? "#9aa5b8" : INK, width: 52, letterSpacing: ".02em" }}>{k.toUpperCase()}</Typography>
-                <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.76rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{viewNote(d, k, presence)}</Typography>
-                {st === "main" && <Box component="span" sx={{ width: 7, height: 7, borderRadius: "1px", bgcolor: PINK }} />}
-                {st === "done" && <CheckIcon sx={{ fontSize: 15, color: "#1b7a55" }} />}
-                {st === "stale" && <WarningAmberIcon sx={{ fontSize: 15, color: AMBER }} />}
-              </MenuItem>
-            );
-          }),
-        ])}
-      </Menu>
+      {/* every store view of the shop by country and currency, as Magento has them (Content v6: ./StoreViewPicker.tsx) */}
+      <StoreViewPicker anchor={menu} onClose={() => setMenu(null)} d={d} lang={lang} onPick={onLang} groups={groups} presence={presence} />
     </Box>
   );
 }
@@ -241,7 +224,7 @@ function SelBar({ label, canWords, onWords, onAi, onClose, pic }: { label: strin
 
 /* ── the stage ────────────────────────────────────────────────────────── */
 
-export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, onMap, seek, selLabel, picActs, onAct, adds }: {
+export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, onMap, seek, selLabel, picActs, onAct, adds, strip }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void; view: View; onView: (v: View) => void;
   /** every store view of the shop, by language; for a page of the shop, whether it is there */
   groups: StoreGroup[]; presence: Record<string, Presence>;
@@ -271,6 +254,8 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   children?: React.ReactNode;
   /** the side columns folded away, for a bigger page */
   fold?: { build: boolean; assist: boolean; onBuild: () => void; onAssist: () => void };
+  /** a slim row under the toolbar: the page's versions A / B / C (Content v6, ./Versions.tsx) */
+  strip?: React.ReactNode;
 }) {
   const [device, setDevice] = useState<Device>("desktop");
   const [zoom, setZoom] = useState<"fit" | "full">("fit");
@@ -364,6 +349,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
         )}
         </Box>
       </Box>
+      {strip}
       <Box data-stage-scroll sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {children}
         {empty ?? (
@@ -380,7 +366,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
               </Box>
             )}
             <Typography sx={{ fontSize: "0.74rem", color: MUTED, textAlign: "center", mb: 1.25 }}>
-              {d.store} · {langName(lang)}{isNew ? " · a new page" : ""} · click an element to select it, double-click to edit its words
+              {viewName(d.store)}{isNew ? " · a new page" : ""} · click an element to select it, double-click to edit its words
             </Typography>
             {isNew ? (
               !shell ? <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1.25, color: MUTED, py: 10 }}><CircularProgress size={16} /> Opening the store&apos;s page…</Box>

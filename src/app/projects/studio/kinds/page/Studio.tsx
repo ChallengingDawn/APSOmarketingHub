@@ -27,7 +27,7 @@ import {
 } from "@/lib/content/studio/kinds/page/fields";
 import { PART_LABEL, mergeField, mergeFill, type Candidate, type FillAnswer, type Part } from "@/lib/content/studio/kinds/page/fill";
 import {
-  baseStore, copyView, emptyPage, howToAdd, isLegacyBody, langName, langOfStore, mainView, pageDoc, shopLanguages, shopViews, sourceHash, storeForLanguage,
+  addVersion, baseStore, copyView, dropVersion, emptyPage, howToAdd, isLegacyBody, langName, langOfStore, mainView, nextPageLetter, openVersion, pageDoc, shopLanguages, shopViews, sourceHash, storeForLanguage,
   viewOf, viewsOf, withView, type LangOption, type LangVersion, type Leftover, type PageDoc,
 } from "@/lib/content/studio/kinds/page/model";
 import { ITEM_NAME, PICTURE_ASPECT, blockOfPath, blocksOf, busyOf, previewOf, picturesToMake, type PictureJob } from "@/lib/content/studio/kinds/page/outline";
@@ -47,6 +47,8 @@ import type { Picked } from "./Frame";
 import { PagePicker, type Picked as PickedPage } from "./PagePicker";
 import { setDocSafely } from "./safeSet";
 import { LangEmpty, Stage, usePagePreview, useShell, type View } from "./Stage";
+import type { SeoProposal } from "./Seo";
+import { VersionStrip } from "./Versions";
 
 type Rewrite = { summary: string; changes: Change[]; problems: string[]; leftovers: string[] };
 type Translated = { fields?: PageDoc["fields"]; changes?: Change[]; from: string; missing: number; leftovers: string[]; problems: string[] };
@@ -107,6 +109,42 @@ export default function Studio({ api }: StudioProps) {
     if (heading === undefined || !shop) return null;
     return shop.parts.find((x) => headKey(x.heading) === headKey(heading)) ?? (heading === "" ? shop.parts.find((x) => x.id === "top") ?? null : null);
   };
+
+  /* ── the page's versions A / B / C (Content v6, SARCLA 09.11.2026: "another version of the same") ── */
+
+  /** another version opened: the open one's list kept under its letter, the other's laid in its place (not an edit) */
+  const openLetter = async (letter: string) => {
+    const cur = docRef.current;
+    const v = viewOf(cur, langRef.current);
+    if ((v.letter || "A") === letter) return;
+    setSelState(null); setSelPart(null); setLocated(null);
+    await setDocSafely(api, cur, withView(cur, langRef.current, openVersion(v, letter)));
+  };
+  /** "+ Another version": a copy of the open one under the next letter, opened to change on its own */
+  const addLetter = async () => {
+    const cur = docRef.current;
+    const v = viewOf(cur, langRef.current);
+    const next = nextPageLetter(v);
+    if (!next) return;
+    record(`Made version ${next} from ${v.letter || "A"}`, cur);
+    setSelState(null); setSelPart(null); setLocated(null);
+    await setDocSafely(api, cur, withView(cur, langRef.current, addVersion(v)));
+  };
+  const dropLetter = async (letter: string) => {
+    if (!window.confirm(`Remove version ${letter}? Its changes stay in the version history.`)) return;
+    const cur = docRef.current;
+    record(`Removed version ${letter}`, cur);
+    setSelState(null); setSelPart(null); setLocated(null);
+    await setDocSafely(api, cur, withView(cur, langRef.current, dropVersion(viewOf(cur, langRef.current), letter)));
+  };
+  // a page taken over from AI testing & personalization before its letter was kept: read it once ("version B")
+  const letterAsked = useRef(false);
+  useEffect(() => {
+    if (letterAsked.current || !canEdit || doc.source !== "convert" || !doc.origin?.versionId || doc.origin.letter) return;
+    letterAsked.current = true;
+    void api.act("convert_letter").then((r) => { if (r.ok) void api.reload(); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEdit, doc.source, doc.origin?.versionId, doc.origin?.letter]);
 
   /* ── the shop's languages: every store view it has ───────────────────── */
 
@@ -504,6 +542,7 @@ export default function Studio({ api }: StudioProps) {
       const lv: LangVersion = {
         path, store: to, texts: [], outline: old?.path === path ? old.outline : null, from: r.result.from || sourceHash(latest), source: mainView(latest), made: "translate",
         at: new Date().toISOString(), changes: r.result.changes ?? old?.changes ?? [], fields: r.result.fields ?? old?.fields ?? emptyPage().fields,
+        letter: old?.letter || "A", versions: old?.versions ?? [],
       };
       record(`Translated the page into ${to}`, latest, "ai", r.result.missing ? `${r.result.missing} text${r.result.missing === 1 ? "" : "s"} came back untranslated - check them` : undefined);
       await setDocSafely(api, latest, { ...latest, langs: { ...latest.langs, [to]: lv } });
@@ -526,6 +565,17 @@ export default function Studio({ api }: StudioProps) {
       }
       return [r.result.problems.length ? r.result.problems.join("; ") : null, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || `The ${to} page is made - its links go to the shop's ${langName(to)} pages. Change what you like; it is its own page.${relinked}`;
     } finally { setBusy(null); }
+  };
+
+  /** a page of the shop's search engine fields, proposed by the AI for the store view shown (the `seo` ask - Content v6) */
+  const seoPropose = async (): Promise<SeoProposal | string> => {
+    if (!canAi) return "The AI is not set up on this hub.";
+    const forLang = langRef.current;
+    if (!viewOf(docRef.current, forLang).path) return "Pick the page first.";
+    await ensureOutline(forLang);
+    const r = await api.ai<{ answer: FillAnswer }>("seo", { lang: forLang });
+    if (!r.ok) return r.error;
+    return r.result.answer.seo ?? "Nothing came back - ask again.";
   };
 
   const fixLeftovers = async (left: Leftover[]) => {
@@ -681,6 +731,8 @@ export default function Studio({ api }: StudioProps) {
       const s = r.result.answer.seo;
       if (!s) return "Nothing came back - ask again.";
       setSeo(s);
+      // the page's own search engine fields open on the left, beside the proposal (Content v6)
+      setOpen("seo");
       return null;
     } },
     ...(d.path ? englishAsk : []),
@@ -789,7 +841,7 @@ export default function Studio({ api }: StudioProps) {
           sel={sel} setSel={setSel} fill={fill} busy={busyHere} canAi={aiHere} onEditInPage={() => setEditNonce((n) => n + 1)} onAskAi={askAi}
           inserts={inserts} record={(label) => record(label)} onPickPage={() => setPicking(true)} removeInsert={removeInsert}
           open={open} onOpen={onOpenRow} onOpenBlock={onOpenBlock} onSelectKey={onSelectKey} onFocusPath={onFocusPath} pictures={pictures} makingIn={makingIn} since={busyHere ? since : null}
-          onAdd={(at, el) => setAddWhere({ at, anchor: el })} onAddText={(at) => addBlockAt("text", at)} onRefine={canAi ? askRefine : undefined} appBrief={appBrief}
+          onAdd={(at, el) => setAddWhere({ at, anchor: el })} onAddText={(at) => addBlockAt("text", at)} onRefine={canAi ? askRefine : undefined} appBrief={appBrief} onSeoPropose={seoPropose}
           shop={shop ? {
             ...shop, busyPart: busyHere ? busyPart : null, onOpen: onOpenShopPart, selPart: selPart?.id ?? null,
             selIn: sel?.picked && !selPart ? partOfSection(sel.picked.section)?.id ?? null : null,
@@ -802,6 +854,7 @@ export default function Studio({ api }: StudioProps) {
           writing={{ blocks: marks.blocks, fields: marks.fields, pictures: makingPaths, tuning: tuningPaths }} working={busyHere === "rewrite" ? since : null}
           onMap={isNew ? undefined : setLocated} seek={seek} selLabel={selPart && sel?.picked ? selPart.name : wholeBlock ? `${wholeBlock.num} · ${wholeBlock.name}` : null}
           picActs={picActs} onAct={isNew ? onAct : undefined}
+          strip={!isNew && d.path && !empty ? <VersionStrip view={d} docOrigin={lang === main ? doc.origin : null} canEdit={canEdit} busy={!!busy} onOpen={(l) => void openLetter(l)} onAdd={() => void addLetter()} onDrop={(l) => void dropLetter(l)} /> : undefined}
           adds={isNew && canEdit ? { onAdd: (at, pos) => setAddWhere({ at, pos }), onAddItem: addItemTo } : undefined}
           fold={{ ...fold, onBuild: () => toggleFold("build"), onAssist: () => toggleFold("assist") }}>
           <input ref={upInput} type="file" hidden accept="image/png,image/jpeg,image/webp" onChange={(e) => { void onUploadFile(e.target.files?.[0]); e.target.value = ""; }} />
@@ -810,7 +863,8 @@ export default function Studio({ api }: StudioProps) {
           ideas={ideas} onIdea={(i) => void rewrite(`${i.title}: ${i.change}`)} seo={seo} lang={lang} inputRef={askRef} placeholder={placeholder}
           said={said} onCloseSaid={() => setSaid(null)}
           translate={lang === main ? { doc, groups, busy, onTranslate: (l) => translate(l) } : null}
-          onUseSeo={(s) => { setView({ ...d, fields: { ...d.fields, seo: { title: s.title, description: s.description, urlKey: s.urlKey } } }, "Kept the search engine fields"); setSeo(null); }} />}
+          // a page of the shop keeps its URL key: a new one moves the page - it is taken on the left, on purpose (Content v6)
+          onUseSeo={(s) => { setView({ ...d, fields: { ...d.fields, seo: { title: s.title, description: s.description, urlKey: isNew ? s.urlKey : d.fields.seo.urlKey } } }, "Kept the search engine fields"); setSeo(null); if (!isNew) setOpen("seo"); }} />}
       />
       <AddBlockMenu where={addWhere} onClose={() => setAddWhere(null)} onPick={addBlockAt} onPage={blockOrder(d.fields)} />
     </>

@@ -25,14 +25,19 @@ import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import type { PagePlan } from "@/lib/convert/cmsPage";
 import type { Env } from "@/lib/convert/model";
 import type { PageBackup } from "@/lib/convert/cms";
-import { viewsOf, type MagentoRecord, type PageDoc } from "@/lib/content/studio/kinds/page/model";
+import type { Check } from "@/lib/content/studio/kinds/page/magentoCheck";
+import { versionList, viewName, viewsOf, type MagentoRecord, type PageDoc } from "@/lib/content/studio/kinds/page/model";
 import type { MagentoView } from "@/lib/content/studio/kinds/page/shop";
 import { PINK, btn, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { Publish as HandOver } from "./Sections";
 import { Hint, mono } from "./ui";
 
-type EnvState = { env: Env; label: string; base: string; key: boolean; waiting: string | null; why: string | null; restoreWhy: string | null };
+type EnvState = {
+  env: Env; label: string; base: string; key: boolean; waiting: string | null; why: string | null; restoreWhy: string | null;
+  /** where its key for pages comes from, the connection in plain words, the last check (Content v6) */
+  from?: "cms" | "order" | "none"; connection?: string; check?: Check | null;
+};
 type Status = { views: Omit<MagentoView, "want">[]; envs: EnvState[]; gate: { canEdit: boolean; approved: boolean; grant: boolean; why: string | null }; backups: PageBackup[] };
 type PlanOut = PagePlan | { view: string; env: Env; action: "none"; why: string; error: true };
 type Result = { view: string; ok: boolean; action?: string; pageId?: string; error?: string };
@@ -95,10 +100,15 @@ function WhatIsSent({ api, v, envs, plans, on }: { api: StudioApi; v: Status["vi
   if (!s) return null;
   const isNew = s.kind === "page";
   const rows: [string, React.ReactNode][] = [
-    ["Store view", v.view],
+    ["Store view", `${v.view} · ${viewName(v.view)}`],
+    ...(s.letter ? [["Version", `Version ${s.letter} - the one open in the studio`] as [string, React.ReactNode]] : []),
     ...(s.title ? [["Title", s.title] as [string, React.ReactNode]] : []),
     ["URL key", <Box key="u" component="span" sx={{ ...mono, fontSize: "0.76rem" }}>{s.identifier}</Box>],
     ...(isNew ? [["Meta title", s.metaTitle || "-"], ["Meta description", s.metaDescription || "-"]] as [string, React.ReactNode][] : []),
+    // a page of the shop's search engine fields (Content v6): only those set here change in Magento
+    ...(!isNew && s.metaTitle ? [["Meta title", s.metaTitle] as [string, React.ReactNode]] : []),
+    ...(!isNew && s.metaDescription ? [["Meta description", s.metaDescription] as [string, React.ReactNode]] : []),
+    ...(!isNew && s.newIdentifier ? [["New URL key", <Box key="n" component="span"><Box component="span" sx={{ ...mono, fontSize: "0.76rem" }}>{s.newIdentifier}</Box> - the page moves; its old address stops working</Box>] as [string, React.ReactNode]] : []),
     ["Content", isNew
       ? `${kb(s.size)} of HTML - the page as the preview draws it${s.banners ? `, ${s.banners} banner${s.banners === 1 ? "" : "s"} in it` : ""}`
       : `Magento's content of the page, with ${s.changes} change${s.changes === 1 ? "" : "s"}${s.banners ? ` and ${s.banners} banner${s.banners === 1 ? "" : "s"}` : ""} put in place`],
@@ -158,6 +168,51 @@ function HtmlOf({ api, view }: { api: StudioApi; view: string }) {
   );
 }
 
+/** The connection to Magento, per environment, in plain words (Content v6 - SARCLA 09.11.2026: "the Magento connection is
+ * not working yet"): no key on the hub yet, a key not checked yet, connected, refused - and "Check the connection", ONE
+ * read of Magento's CMS pages with that key, nothing written. */
+function Connection({ api, envs }: { api: StudioApi; envs: EnvState[] }) {
+  const [checks, setChecks] = useState<Partial<Record<Env, Check>>>({});
+  const [busy, setBusy] = useState<Env | null>(null);
+  const check = async (env: Env) => {
+    setBusy(env);
+    const r = await api.act<{ check: Check }>("magento_check", { env });
+    setBusy(null);
+    setChecks((c) => ({ ...c, [env]: r.ok ? r.result.check : { env, state: "unreachable", line: r.error, detail: null, pages: null, at: new Date().toISOString() } }));
+  };
+  const DOT: Record<string, string> = { "no-key": "#9aa5b8", key: BLUE, connected: GREEN, refused: "#c5221f", "no-right": "#c5221f", unreachable: AMBER };
+  return (
+    <Box sx={{ mt: 1.25, border: `1px solid ${HAIRLINE}`, borderRadius: "8px", bgcolor: "#fff", overflow: "hidden" }}>
+      <Typography sx={{ px: 1.25, pt: 0.9, pb: 0.25, fontSize: "0.66rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED }}>Connection</Typography>
+      {envs.map((e) => {
+        const c = checks[e.env] ?? e.check ?? null;
+        const state = c?.state ?? (e.key ? "key" : "no-key");
+        const line = c?.line ?? e.connection ?? (e.key ? "Key set - not checked yet" : "No key on the hub yet");
+        return (
+          <Box key={e.env} sx={{ px: 1.25, py: 0.75, borderTop: `1px solid ${HAIRLINE}`, "&:first-of-type": { borderTop: "none" } }}>
+            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+              <Box sx={{ mt: 0.65, width: 8, height: 8, borderRadius: "2px", bgcolor: DOT[state] ?? MUTED, flexShrink: 0 }} />
+              <Typography sx={{ width: 76, flexShrink: 0, fontSize: "0.8rem", fontWeight: 700, color: INK }}>{e.label}</Typography>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{ fontSize: "0.8rem", color: state === "connected" ? GREEN : state === "refused" || state === "no-right" ? "#c5221f" : INK }}>{line}</Typography>
+                {c?.detail && <Typography sx={{ fontSize: "0.74rem", color: MUTED, overflowWrap: "anywhere" }}>{c.detail}</Typography>}
+                {e.from === "order" && <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>The order connector&apos;s Magento integration, used for pages too (switched on for the hub).</Typography>}
+                {e.key && (
+                  <Button size="small" disabled={busy === e.env} onClick={() => void check(e.env)} startIcon={busy === e.env ? <CircularProgress size={12} /> : undefined}
+                    sx={{ ...btn, px: 0, minWidth: 0, mt: 0.25, color: BLUE, fontSize: "0.76rem" }}>
+                    {busy === e.env ? "Asking Magento…" : c ? "Check again" : "Check the connection"}
+                  </Button>
+                )}
+              </Box>
+            </Box>
+          </Box>
+        );
+      })}
+      <Typography sx={{ px: 1.25, pb: 0.9, pt: 0.25, fontSize: "0.72rem", color: MUTED }}>A check reads one page list from Magento - nothing is written.</Typography>
+    </Box>
+  );
+}
+
 export function ToMagento({ api, doc, d, setView, canEdit, lang }: { api: StudioApi; doc: PageDoc; d: PageDoc; setView: (next: PageDoc) => void; canEdit: boolean; lang: string }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -183,6 +238,8 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang }: { api: Studio
   useEffect(() => { void load(); }, [load, madeKey]);
 
   const cmsViews = useMemo(() => (status?.views ?? []).filter((v) => v.cms && !v.why), [status]);
+  // a page with versions (A, B ...): the one open is the one written - said once, above the store views
+  const multi = versionList(d).length > 1;
   const sel = picked ?? cmsViews.map((v) => v.view);
   const envs = status?.envs ?? [];
 
@@ -247,6 +304,7 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang }: { api: Studio
       <Box>
         <Typography sx={{ fontSize: "0.86rem", color: INK, mb: 1.25 }}>{notCms.why ?? "This page is not a CMS page."} The hub does not write it into Magento - its change list is the hand-over for dotSource, below.</Typography>
         <HandOver api={api} d={d} set={setView} canEdit={canEdit} lang={lang} />
+        <Connection api={api} envs={envs} />
       </Box>
     );
   }
@@ -262,9 +320,8 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang }: { api: Studio
 
       <Kick>Where to</Kick>
       <Targets envs={envs} on={on} onToggle={toggleEnv} />
-      {envs.filter((e) => on.includes(e.env) && e.waiting).map((e) => (
-        <Typography key={e.env} sx={{ mt: 0.75, fontSize: "0.78rem", color: AMBER }}>{e.waiting}</Typography>
-      ))}
+      <Connection api={api} envs={envs} />
+      {multi && <Typography sx={{ mt: 1, fontSize: "0.78rem", color: INK }}>Version <b>{d.letter || "A"}</b> of the page goes to Magento - the one open above the page. Open another there to send it instead.</Typography>}
 
       <Kick right={envs.some((e) => on.includes(e.env) && e.key) ? (
         <Button size="small" onClick={() => { for (const e of envs) if (on.includes(e.env) && e.key) void read(e.env, sel); }} startIcon={<RefreshIcon sx={{ fontSize: 15 }} />}

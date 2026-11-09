@@ -59,7 +59,7 @@ test("a key: a store view, or an older language", () => {
   assert.equal(viewKey(d, "fr"), "fr-FR", "a language the page has: its version there");
   assert.equal(viewKey(d, "it"), "it-CH", "a language it does not have: where the language goes");
   assert.equal(viewKey(d, "de-at"), "de-AT");
-  assert.equal(viewKey(d, "de-CH/eur"), "de-CH", "a currency view is its store view");
+  assert.equal(viewKey(d, "de-CH/eur"), "de-CH/eur", "the Swiss shop in EUR is a store view of its own (Content v6)");
 });
 
 test("three store views: a copy of the same language (no AI), a translation of another", () => {
@@ -108,14 +108,16 @@ test("a page of the shop: a copy takes its own address in that store view", () =
 test("the shop's store views by language, and the line that says how far the page is", () => {
   const groups = shopViews(INDEX, "de-CH");
   assert.deepEqual(groups.map((g) => g.lang), ["de", "fr", "it", "en", "nl", "pl"]);
-  assert.deepEqual(groups[0].stores, ["de-CH", "de-DE", "de-AT", "de-INT"], "the shop's order, the currency views folded in");
-  assert.deepEqual(groups[1].stores, ["fr-CH", "fr-FR", "fr-INT"]);
-  assert.equal(groups.reduce((n, g) => n + g.stores.length, 0), 14);
+  // the shop's own 25 (Content v6): the Swiss shop in EUR beside its CHF one, the English store view of every country
+  assert.deepEqual(groups[0].stores, ["de-CH", "de-CH/eur", "de-DE", "de-AT", "de-INT"], "the shop's order, the EUR twin beside its store view");
+  assert.deepEqual(groups[1].stores, ["fr-CH", "fr-CH/eur", "fr-FR", "fr-INT"]);
+  assert.deepEqual(groups[3].stores, ["en-INT", "en-CH", "en-CH/eur", "en-DE", "en-AT", "en-FR", "en-IT", "en-NL", "en-PL"]);
+  assert.equal(groups.reduce((n, g) => n + g.stores.length, 0), 25);
   const d = pageDoc({ source: "new", store: "de-CH", fields: { hero: { title: "Dichtungen" } } });
-  assert.equal(viewsLine(d, groups), "Only de-CH so far · 14 store views on the shop");
+  assert.equal(viewsLine(d, groups), "Only de-CH so far · 25 store views on the shop");
   const two = copyView(withView(d, "fr-CH", { ...viewOf(d, "fr-CH"), fields: { ...d.fields, hero: { ...d.fields.hero, title: "Joints" } } }), "de-AT", "de-CH");
-  assert.equal(viewsLine(two, groups), "de-CH · de-AT · fr-CH · 3 of 14 store views");
-  assert.deepEqual(shopViews([], "fr-FR")[0], { lang: "fr", name: "French", stores: ["fr-CH", "fr-FR", "fr-INT"] }, "without the index: the shop's own list");
+  assert.equal(viewsLine(two, groups), "de-CH · de-AT · fr-CH · 3 of 25 store views");
+  assert.deepEqual(shopViews([], "fr-FR")[0], { lang: "fr", name: "French", stores: ["fr-CH", "fr-CH/eur", "fr-FR", "fr-INT"] }, "without the index: the shop's own list, in its order");
 });
 
 test("the page's hreflang links by the store view their address is in - what the shop says the page is called there", () => {

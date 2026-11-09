@@ -19,7 +19,7 @@ import { ensureConvertSchema } from "@/lib/convert/pages";
 import { outline, staticBase } from "@/lib/convert/preview";
 import { board, cleanPath, shopPage, themeAssets, type ShopPage } from "@/lib/convert/studio";
 import { cmsTarget } from "@/lib/convert/ship";
-import type { Want } from "@/lib/convert/cmsPage";
+import type { SeoFields, Want } from "@/lib/convert/cmsPage";
 import { getAsset } from "@/lib/content/assets";
 import { getPiece } from "@/lib/content/workflow";
 import { readDoc } from "../../store";
@@ -28,8 +28,8 @@ import { pasteBlock, prefixFor, stillMarkup } from "../banner/render";
 import { STILL_CSS, absoluteCss, applyChanges, innerOf, insideOf, stillPage, stylesheetsOf, type AnyChange, type Hit } from "./apply";
 import { fieldPictures } from "./fields";
 import {
-  INSERT_WHERE_LABEL, MAIN_SELECTOR, alternatesByStore, baseStore, changeLine, counterpartIn, finalChanges, isLegacyBody, langOfStore, languageOfStore, newPagePaste, pageDoc,
-  styleBlock, unwritten, leftoversOf, urlKeyOf, viewOf, type Insert, type PageDoc, type PageOutline, type PasteBlock,
+  INSERT_WHERE_LABEL, MAIN_SELECTOR, alternatesByStore, baseStore, changeLine, countryStore, counterpartIn, finalChanges, isLegacyBody, langOfStore, languageOfStore, newPagePaste, pageDoc,
+  styleBlock, unwritten, leftoversOf, urlKeyOf, viewName, viewOf, type Insert, type PageDoc, type PageOutline, type PasteBlock,
 } from "./model";
 import { renderNewPage, type InsertHtml } from "./newpage";
 
@@ -316,7 +316,14 @@ export async function presenceOf(d: PageDoc, stores: readonly string[]): Promise
       else out[s] = { exists: indexed.has(s) ? false : null, path: null };
     }
   } catch { /* the index cannot be read: not known */ }
-  if (baseStore(d.store)) out[baseStore(d.store)!] = { exists: true, path: d.path };
+  // the same store view in its other currency (de-CH/eur beside de-CH) is the same page at the same address under its
+  // own prefix - the sitemaps the index reads do not list the Swiss EUR shop, so it is not known there, only likely
+  const own = baseStore(d.store);
+  for (const s of list) {
+    if (s === own || out[s]?.path || countryStore(s) !== countryStore(own)) continue;
+    out[s] = { exists: out[s]?.exists ?? null, path: `/${s}/${rest}` };
+  }
+  if (own) out[own] = { exists: true, path: d.path };
   return out;
 }
 
@@ -485,10 +492,17 @@ export async function pasteOf(raw: unknown, lang: string | null = null, _shopSto
     return { ok: true, blocks, warnings, store: d.store };
   }
   // the search engine fields the assistant wrote for an existing page (Magento: the page's Search Engine Optimization)
-  const seo = d.fields.seo.title.trim() || d.fields.seo.description.trim() ? [{
+  const so = seoOfView(d);
+  const seoKind = d.path ? classify(d.path).kind : null;
+  const seo = so.metaTitle || so.metaDescription || so.urlKey ? [{
     key: "seo", label: "Its search engine fields", lang: "text" as const,
-    steps: ["Open the page in Magento (Content > Pages, or the category / product), section Search Engine Optimization.", "Copy each value into its field and Save."],
-    code: [`Meta Title: ${d.fields.seo.title.trim()}`, `Meta Description: ${d.fields.seo.description.trim()}`].join("\n"),
+    steps: [
+      seoKind === "category" ? `Catalog > Categories: open the category, store view ${viewName(d.store)} ("Use Default Value" off), section Search Engine Optimization.`
+        : seoKind === "product" ? `Catalog > Products: open the product, store view ${viewName(d.store)} ("Use Default Value" off), section Search Engine Optimization.`
+          : `Content > Pages: open the page of store view ${viewName(d.store)}, section Search Engine Optimization.`,
+      `Copy each value into its field and Save.${so.urlKey ? " A new URL key moves the page: its old address stops working unless a redirect is made (Marketing > URL Rewrites)." : ""}`,
+    ],
+    code: [so.metaTitle ? `Meta Title: ${so.metaTitle}` : "", so.metaDescription ? `Meta Description: ${so.metaDescription}` : "", so.urlKey ? `URL Key: ${so.urlKey}` : ""].filter(Boolean).join("\n"),
   }] : [];
   if (!final.changes.length && !inserts.some((x) => x.ok)) {
     if (seo.length) return { ok: true, blocks: seo, warnings, store: d.store };
@@ -560,7 +574,23 @@ export type MagentoSent = {
   pictures: { file: string; url: string }[];
   /** an existing page: its changes and banners */
   changes: number; banners: number;
+  /** an existing page given a new URL key (its search engine fields) - "" when it keeps its own */
+  newIdentifier?: string;
+  /** the version of the page it is (A, B ...) when it has more than one - "" when it has one */
+  letter?: string;
 };
+
+/** A page of the shop's search engine fields as set in the studio (fields.seo of its store view): each only when set. */
+export function seoOfView(d: PageDoc): SeoFields {
+  const s = d.fields.seo;
+  const out: SeoFields = {};
+  if (s.title.trim()) out.metaTitle = s.title.trim();
+  if (s.description.trim()) out.metaDescription = s.description.trim();
+  // a CMS page's identifier may hold a "/" ("service/o-ring-expert") - kept; anything else as a URL key writes it
+  const key = s.urlKey.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9/_.-]+/g, "").replace(/\/{2,}/g, "/").replace(/^\/+|\/+$/g, "");
+  if (key) out.urlKey = key.slice(0, 200);
+  return out;
+}
 export type MagentoView = {
   view: string;
   /** a CMS page the hub writes, or not (then `why`, and the hand-over) */
@@ -614,7 +644,10 @@ export async function magentoOf(raw: unknown, view: string): Promise<MagentoView
   const target = cmsTarget(d.path);
   if (!target.ok) return { ...base, why: target.why, path: d.path };
   const final = finalChanges(d);
-  if (!final.changes.length && !inserts.length) return { ...base, cms: true, why: "There are no changes to write yet.", path: d.path };
+  // its search engine fields (Content v6): what was set for it here goes with it - an empty one leaves Magento's
+  const seo = seoOfView(d);
+  const hasSeo = !!(seo.metaTitle || seo.metaDescription || (seo.urlKey && seo.urlKey !== target.identifier));
+  if (!final.changes.length && !inserts.length && !hasSeo) return { ...base, cms: true, why: "There are no changes to write yet.", path: d.path };
   const box = (x: InsertOut) => `<div class="apx-ins" style="margin:24px 0">${x.paste}</div>`;
   const want: Want = {
     kind: "changes", identifier: target.identifier, changes: final.changes, tag: `content-${view}`,
@@ -623,9 +656,14 @@ export async function magentoOf(raw: unknown, view: string): Promise<MagentoView
       afterIntro: inserts.filter((x) => x.where === "after-intro").map(box).join(""),
       bottom: inserts.filter((x) => x.where === "bottom").map(box).join(""),
     },
+    ...(hasSeo ? { seo } : {}),
   };
   return {
     ...base, cms: true, blocked: blocked ?? (final.problems.length ? `Some changes cannot go out: ${final.problems.slice(0, 2).join("; ")}` : null), want, path: d.path,
-    sent: { kind: "changes", title: d.outline?.h1[0] ?? "", identifier: target.identifier, metaTitle: "", metaDescription: "", size: 0, active: true, pictures: [], changes: final.changes.length, banners: inserts.length },
+    sent: {
+      kind: "changes", title: d.outline?.h1[0] ?? "", identifier: target.identifier, metaTitle: seo.metaTitle ?? "", metaDescription: seo.metaDescription ?? "",
+      newIdentifier: seo.urlKey && seo.urlKey !== target.identifier ? seo.urlKey : "", size: 0, active: true, pictures: [], changes: final.changes.length, banners: inserts.length,
+      letter: d.versions.length ? d.letter : "",
+    },
   };
 }

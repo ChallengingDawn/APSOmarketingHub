@@ -10,12 +10,17 @@ import {
 // the store views as APSOconvert's page index reads them from the shop's sitemaps (currencies too)
 const INDEX = ["de-CH", "de-CH/eur", "de-DE", "de-AT", "de-INT", "fr-CH", "fr-FR", "fr-INT", "it-CH", "it-IT", "it-INT", "en-INT", "nl-NL", "nl-INT", "pl-PL"];
 
-test("a store view as the shop writes it", () => {
-  assert.equal(baseStore("de-CH/eur"), "de-CH");
+test("a store view as the shop writes it - its currency kept where the shop has two (Content v6)", () => {
+  // SARCLA 09.11.2026: "store views are still missing - e.g. the EUR versions of the store": the Swiss shop in EUR is
+  // its own store view (switzerland_eur_de), no longer merged into de-CH
+  assert.equal(baseStore("de-CH/eur"), "de-CH/eur");
+  assert.equal(baseStore("de-ch/EUR"), "de-CH/eur");
+  assert.equal(baseStore("de-CH/chf"), "de-CH", "the country's own currency is the plain address");
+  assert.equal(baseStore("de-DE/eur"), "de-DE", "Germany has one currency: its plain address");
   assert.equal(baseStore("nl-nl"), "nl-NL");
   assert.equal(baseStore("en-INT"), "en-INT");
   assert.equal(baseStore("checkout"), null);
-  assert.deepEqual(storesOf("de", INDEX), ["de-AT", "de-CH", "de-DE", "de-INT"], "the currency views are the same store view");
+  assert.deepEqual(storesOf("de", INDEX), ["de-AT", "de-CH", "de-CH/eur", "de-DE", "de-INT"], "the Swiss EUR store view is one of its own");
   assert.deepEqual(storesOf("pl", INDEX), ["pl-PL"]);
 });
 
@@ -29,7 +34,10 @@ test("each language's store view: the page's own country first, English the inte
   assert.equal(storeForLanguage("it", "fr-FR", INDEX), "it-CH");
   assert.equal(storeForLanguage("fr", "de-DE", INDEX), "fr-CH", "no fr-DE: French's own store view");
   assert.equal(storeForLanguage("de", "de-AT", INDEX), "de-AT");
-  assert.equal(storeForLanguage("nl", "de-CH", ["de-CH", "nl-INT"]), "nl-INT", "only what the shop has");
+  // the shop's own list (its switcher) always stands - an index that lacks nl-NL does not make it go away
+  assert.equal(storeForLanguage("nl", "de-CH", ["de-CH", "nl-INT"]), "nl-NL", "the shop's list, not only the index");
+  assert.equal(storeForLanguage("fr", "de-CH/eur", INDEX), "fr-CH/eur", "a page of the Swiss shop in EUR: French in EUR too");
+  assert.equal(storeForLanguage("es", "de-CH", ["es-ES"]), "es-ES", "a store view the index holds that the list lacks still counts");
   // without the index (empty) the shop's own list stands in
   assert.equal(storeForLanguage("nl", "de-CH", []), "nl-NL");
   assert.equal(storeForLanguage("pl"), "pl-PL");
@@ -41,13 +49,13 @@ test("every language the shop publishes in, the page's own first", () => {
   const de = shopLanguages(INDEX, "de-CH");
   assert.deepEqual(de.map((x) => x.lang), ["de", "fr", "it", "en", "nl", "pl"]);
   assert.deepEqual(de.map((x) => x.store), ["de-CH", "fr-CH", "it-CH", "en-INT", "nl-NL", "pl-PL"]);
-  assert.deepEqual(de[0].stores, ["de-CH", "de-AT", "de-DE", "de-INT"], "the page's store view first, then the others of its language");
+  assert.deepEqual(de[0].stores, ["de-CH", "de-AT", "de-CH/eur", "de-DE", "de-INT"], "the page's store view first, then the others of its language");
   assert.equal(de[4].name, "Dutch");
   const nl = shopLanguages(INDEX, "nl-NL");
   assert.equal(nl[0].lang, "nl", "a Dutch page: Dutch first");
   assert.equal(nl[0].store, "nl-NL");
   assert.deepEqual(shopLanguages([], "de-CH").map((x) => x.lang), ["de", "fr", "it", "en", "nl", "pl"], "the index empty: the shop's own list");
-  assert.deepEqual(shopLanguages(["de-CH", "fr-CH"], "es-ES").map((x) => x.lang), ["es", "de", "fr"], "the page's own language is always there");
+  assert.deepEqual(shopLanguages(["de-CH", "fr-CH"], "es-ES").map((x) => x.lang), ["es", "de", "fr", "it", "en", "nl", "pl"], "the page's own language is always there, the shop's all with it");
 });
 
 test("a page's languages: its own, then those made - a language not made yet is offered, not listed", () => {
