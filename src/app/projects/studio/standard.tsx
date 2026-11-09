@@ -219,10 +219,10 @@ export function MakingFrame({ label = "Making the picture…", height = 112, not
  * ONE picture slot (flow standard §3), as a card in the left pane. Empty: the dashed frame with the picture's idea (the
  * person may change it) and Make it / Upload. Making: the frame shimmers. Filled: the picture and its four actions.
  */
-export function PictureSlot({ url, idea, onIdea, making, error, canEdit = true, canMake = true, height = 112, circle, ...acts }: SlotActions & {
-  url: string | null; idea: string; onIdea?: (v: string) => void; making: boolean; error?: string | null; canEdit?: boolean; canMake?: boolean; height?: number; circle?: boolean;
+export function PictureSlot({ url, idea, onIdea, making, uploading, error, canEdit = true, canMake = true, height = 112, circle, ...acts }: SlotActions & {
+  url: string | null; idea: string; onIdea?: (v: string) => void; making: boolean; uploading?: boolean; error?: string | null; canEdit?: boolean; canMake?: boolean; height?: number; circle?: boolean;
 }) {
-  if (making) return <MakingFrame height={height} />;
+  if (making) return uploading ? <MakingFrame height={height} label="Uploading the picture…" note="A big picture goes up in small parts - it can take a little while." /> : <MakingFrame height={height} />;
   if (url) {
     return (
       <Box>

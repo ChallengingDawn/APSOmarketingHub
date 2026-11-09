@@ -23,12 +23,12 @@ import type { StudioCtx } from "./Studio";
 
 type R = { x: number; y: number; w: number; h: number };
 
-function MakingOver({ r }: { r: R }) {
+function MakingOver({ r, upload }: { r: R; upload?: boolean }) {
   const clock = useClock(true);
   return (
     <Box sx={{ position: "absolute", left: r.x, top: r.y, width: r.w, height: r.h, borderRadius: "6px", outline: `2px solid ${PINK}`, display: "grid", placeItems: "center", overflow: "hidden", ...shimmerSx, bgcolor: "rgba(255,255,255,.35)" }}>
       <Box sx={{ px: 1.25, py: 0.6, borderRadius: "6px", bgcolor: "rgba(22,32,42,.86)", color: "#fff", fontSize: "0.78rem", fontWeight: 700, whiteSpace: "nowrap" }}>
-        Making the picture… <Box component="span" sx={{ opacity: 0.7, fontVariantNumeric: "tabular-nums" }}>{clock}</Box>
+        {upload ? "Uploading the picture…" : "Making the picture…"} <Box component="span" sx={{ opacity: 0.7, fontVariantNumeric: "tabular-nums" }}>{clock}</Box>
       </Box>
     </Box>
   );
@@ -53,6 +53,8 @@ export default function Overlay({ ctx, onAskAi, onGallery }: { ctx: StudioCtx; o
   want.current = ids;
   const [rects, setRects] = useState<Record<string, R>>({});
   const [board, setBoard] = useState<R | null>(null);
+  // while words are typed right on the canvas, the label steps aside (it showed through the typing box as a ghost)
+  const [typing, setTyping] = useState(false);
   const labelRef = useRef<HTMLDivElement>(null);
 
   // follow the canvas: zoom, drag and resize move the boxes
@@ -71,8 +73,9 @@ export default function Overlay({ ctx, onAskAi, onGallery }: { ctx: StudioCtx; o
         }
         const br = c.boardRect();
         const bd = br ? { x: Math.round(br.left - o.left), y: Math.round(br.top - o.top), w: Math.round(br.width), h: Math.round(br.height) } : null;
-        const k = JSON.stringify([next, bd]);
-        if (k !== last) { last = k; setRects(next); setBoard(bd); }
+        const ed = !!document.querySelector("[contenteditable=true][role=textbox]");
+        const k = JSON.stringify([next, bd, ed]);
+        if (k !== last) { last = k; setRects(next); setBoard(bd); setTyping(ed); }
       }
       raf = requestAnimationFrame(loop);
     };
@@ -102,7 +105,7 @@ export default function Overlay({ ctx, onAskAi, onGallery }: { ctx: StudioCtx; o
       {frames.map((f) => {
         const r = rects[f.id];
         if (!r) return null;
-        if (ai.making[f.id]) return <MakingOver key={f.id} r={r} />;
+        if (ai.making[f.id]) return <MakingOver key={f.id} r={r} upload={!!ai.uploading[f.id]} />;
         if (!ctx.canEdit || f.locked || r.w < 120 || r.h < 70) return null;
         return (
           <Box key={f.id} sx={{ position: "absolute", left: r.x, top: r.y, width: r.w, height: r.h, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 0.75, p: 1, boxSizing: "border-box", outline: "1.5px dashed rgba(39,78,100,.35)", outlineOffset: -6, borderRadius: "6px" }}>
@@ -119,10 +122,10 @@ export default function Overlay({ ctx, onAskAi, onGallery }: { ctx: StudioCtx; o
         );
       })}
       {/* a picture being made again */}
-      {makingIds.filter((id) => !frames.some((f) => f.id === id)).map((id) => rects[id] && <MakingOver key={`m-${id}`} r={rects[id]} />)}
+      {makingIds.filter((id) => !frames.some((f) => f.id === id)).map((id) => rects[id] && <MakingOver key={`m-${id}`} r={rects[id]} upload={!!ai.uploading[id]} />)}
 
       {/* the selected element: its label, and a picture's actions */}
-      {sel && sr && (
+      {sel && sr && !typing && (
         <Box ref={labelRef} sx={{ position: "absolute", left: label?.x ?? sr.x, top: label?.y ?? sr.y - 32, display: "inline-flex", alignItems: "center", gap: 0.25, height: 26, pl: 1, pr: 0.25, borderRadius: "6px", bgcolor: "#16202a", color: "#fff", boxShadow: "0 6px 16px -8px rgba(0,0,0,.5)", pointerEvents: "auto", whiteSpace: "nowrap" }}>
           <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: "#fff", pr: 0.5 }}>{elementName(sel, headlineId)}</Typography>
           {ctx.canEdit && ctx.api.data.ai && (

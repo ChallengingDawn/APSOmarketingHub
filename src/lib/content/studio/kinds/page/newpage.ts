@@ -79,7 +79,7 @@ export function renderNewPage(f: Fields, o: RenderOpts = {}): { css: string; htm
 
   // the hero
   const h = f.hero;
-  const heroPic = picture("hero.picture", h.picture, "Hero picture - make one or upload one");
+  const heroPic = picture("hero.picture", h.picture, "Hero picture - upload one, or let the AI write this part");
   const heroHasPic = !!h.picture.url || m;
   parts.push(`<section class="apx-np-blk apx-np-hero apx-np-bg-${bgOf("hero")}${heroHasPic ? "" : " apx-np-hero-solo"}"${ba("hero")}><div class="apx-np-in">
 <div class="apx-np-hero-t">${h.eyebrow.trim() ? `<div class="${textCls("hero.eyebrow", "apx-np-eb")}"${fa("hero.eyebrow")}>${esc(h.eyebrow.trim())}</div>` : m ? slot("hero.eyebrow", "Small line above the title", "div") : ""}
@@ -106,7 +106,7 @@ ${f.benefitsTitle.trim() ? one("benefitsTitle", "h2", "apx-np-h2", f.benefitsTit
     const hasPic = !!s.picture.url || m;
     parts.push(`<section class="apx-np-blk apx-np-sec apx-np-bg-${bg}${side === "left" ? " is-left" : ""}${hasPic ? "" : " is-solo"}"${ba(`sections.${s.id}`)}><div class="apx-np-in">
 <div class="apx-np-sec-t">${one(`sections.${s.id}.title`, "h2", "apx-np-h2", s.title, "Section heading")}${many(`sections.${s.id}.text`, "apx-np-p", s.text, "The section's text")}</div>
-${hasPic ? picture(`sections.${s.id}.picture`, s.picture, "Picture - make one or upload one") : ""}</div></section>`);
+${hasPic ? picture(`sections.${s.id}.picture`, s.picture, "Picture - upload one, or let the AI write this part") : ""}</div></section>`);
   });
   if (!f.sections.length && m) parts.push(`<section class="apx-np-blk apx-np-bg-white"${ba("sections")}><div class="apx-np-in">${slot("sections", "Sections - text with a picture")}</div></section>`);
 

@@ -72,6 +72,8 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
   // before an AI change takes its place
   const befores = useRef(new Map<number, SocialDesign>());
   const [making, setMaking] = useState<Record<string, number>>({});
+  // the frames whose picture is an upload going up (a frame in `making` too) - said as an upload, not "Making the picture"
+  const [uploading, setUploading] = useState<Record<string, true>>({});
   const [slotError, setSlotError] = useState<Record<string, string>>({});
   const [ideas, setIdeas] = useState<Record<string, string>>({});
   const gen = useRef(0);
@@ -244,9 +246,11 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
     if (!c) return;
     clearError(id);
     setMaking((m) => ({ ...m, [id]: Date.now() }));
+    setUploading((m) => ({ ...m, [id]: true }));
     const r = await uploadPicture(file, { projectId: c.api.data.piece.projectId, pieceId: c.api.data.piece.id });
     if (r.ok) await landIn(id, r.picture, "Picture uploaded into the frame");
     setMaking((m) => { const x = { ...m }; delete x[id]; return x; });
+    setUploading((m) => { const x = { ...m }; delete x[id]; return x; });
     if (!r.ok) setSlotError((m) => ({ ...m, [id]: r.error }));
   }, [ctxRef, landIn]);
 
@@ -260,5 +264,5 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
     record("Picture taken out of the frame", before, undefined, "you");
   }, [ctxRef, record]);
 
-  return { ask, working, canUndo, undo, making, slotError, ideaFor, setIdea, makeFor, uploadFor, pickFor, removeFrom };
+  return { ask, working, canUndo, undo, making, uploading, slotError, ideaFor, setIdea, makeFor, uploadFor, pickFor, removeFrom };
 }

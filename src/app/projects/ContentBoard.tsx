@@ -247,7 +247,7 @@ export default function ContentBoard() {
           sx={{ textTransform: "none", fontWeight: 600, borderRadius: "8px", color: INK, borderColor: HAIRLINE, bgcolor: "#fff" }}>Ideas</Button>
         <Button component={Link} href="/projects/new" variant="contained" disableElevation startIcon={<AddIcon />}
           sx={{ textTransform: "none", fontWeight: 600, borderRadius: "8px", bgcolor: PINK, "&:hover": { bgcolor: "#a3245c" } }}>New project</Button>
-        <Button size="small" onClick={() => setMaking(true)} sx={{ textTransform: "none", fontWeight: 600, color: MUTED }}>Quick one</Button>
+        <Button size="small" onClick={() => setMaking(true)} sx={{ textTransform: "none", fontWeight: 600, color: MUTED }}>Quick project</Button>
       </Box>
 
       {err && <Notice tone="bad">{err}</Notice>}
@@ -275,9 +275,13 @@ export default function ContentBoard() {
                 <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, lineHeight: 1.35 }}>
                   {w.kind === "mention" ? `${names[w.by ?? ""] ?? w.by}: “${(w.text ?? "").slice(0, 90)}${(w.text ?? "").length > 90 ? "…" : ""}”` : w.title}
                 </Typography>
-                <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
-                  {w.projectTitle}{w.kind === "review" && w.by ? ` · ${names[w.by] ?? w.by} asks you` : w.kind !== "mention" && w.by ? ` · reviewed by ${names[w.by] ?? w.by}` : ""}
-                </Typography>
+                {(() => {
+                  // the project's name under the to-do's - not twice the same words (a quick make names both alike)
+                  const proj = w.kind !== "mention" && w.projectTitle === w.title ? "" : w.projectTitle;
+                  const who = w.kind === "review" && w.by ? `${names[w.by] ?? w.by} asks you` : w.kind !== "mention" && w.by ? `reviewed by ${names[w.by] ?? w.by}` : "";
+                  const sub = [proj, who].filter(Boolean).join(" · ");
+                  return sub ? <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{sub}</Typography> : null;
+                })()}
               </Box>
             ))}
           </Box>

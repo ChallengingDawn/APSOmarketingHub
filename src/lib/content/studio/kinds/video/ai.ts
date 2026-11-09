@@ -77,7 +77,7 @@ export const STORYBOARD_SCHEMA: Record<string, unknown> = {
     scenes: { type: "array", items: sceneSchema },
     endLine: { type: "string" },
     cta: { type: "string" },
-    note: { type: "string", description: "One short sentence to the person: what the film says, or what fact is missing to make it stronger." },
+    note: { type: "string", description: "One short sentence to the person, in English whatever the film's language: what the film says, or what fact is missing to make it stronger." },
   },
   required: ["scenes", "endLine", "cta", "note"],
   additionalProperties: false,
@@ -97,7 +97,7 @@ export const TIGHTEN_SCHEMA: Record<string, unknown> = {
     },
     endLine: { type: "string" },
     cta: { type: "string" },
-    note: { type: "string" },
+    note: { type: "string", description: "One short sentence to the person, in English whatever the film's language: what changed." },
   },
   required: ["scenes", "endLine", "cta", "note"],
   additionalProperties: false,
@@ -105,14 +105,14 @@ export const TIGHTEN_SCHEMA: Record<string, unknown> = {
 
 export const SCENE_SCHEMA: Record<string, unknown> = {
   type: "object",
-  properties: { scene: sceneSchema, note: { type: "string", description: "One short sentence to the person: what changed." } },
+  properties: { scene: sceneSchema, note: { type: "string", description: "One short sentence to the person, in English whatever the film's language: what changed." } },
   required: ["scene", "note"],
   additionalProperties: false,
 };
 
 export const VARIANT_SCHEMA: Record<string, unknown> = {
   type: "object",
-  properties: { opening: sceneSchema, note: { type: "string" } },
+  properties: { opening: sceneSchema, note: { type: "string", description: "One short sentence to the person, in English whatever the film's language: what changed." } },
   required: ["opening", "note"],
   additionalProperties: false,
 };
@@ -407,7 +407,7 @@ export const END_SCHEMA: Record<string, unknown> = {
   properties: {
     endLine: { type: "string", description: "The end card's line: few words, may carry one *key* word." },
     cta: { type: "string", description: "The button: the shop address \"apsoparts.com\" or a short action." },
-    note: { type: "string", description: "One short sentence to the person: what changed." },
+    note: { type: "string", description: "One short sentence to the person, in English whatever the film's language: what changed." },
   },
   required: ["endLine", "cta", "note"],
   additionalProperties: false,

@@ -142,14 +142,15 @@ export default function ContentCalendar() {
     return (
       <Box key={`p${x.id}`} draggable onDragStart={() => setDragging({ kind: "piece", id: x.id })} onDragEnd={() => { setDragging(null); setOver(null); }}
         component={Link} href={`/projects/${x.projectId}#piece-${x.id}`}
-        title={`${x.title} · ${x.projectTitle} · ${STATUS_LABEL[x.status]}`}
+        title={`${x.title}${x.projectTitle !== x.title ? ` · ${x.projectTitle}` : ""} · ${STATUS_LABEL[x.status]}`}
         sx={{
           display: "block", textDecoration: "none", cursor: "grab", px: 0.75, py: 0.4, mb: 0.4, borderRadius: "4px",
           fontSize: "0.72rem", fontWeight: 600, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           bgcolor: t.bg, color: t.fg, borderLeft: `3px solid ${t.fg}`, opacity: dragging?.kind === "piece" && dragging.id === x.id ? 0.4 : 1,
         }}>
         <Box component="span" sx={{ display: "inline-flex", verticalAlign: "-3px", mr: 0.5 }}><KindTile kind={x.contentType} size={15} /></Box>
-        {x.title} <Box component="span" sx={{ fontWeight: 500, opacity: 0.8 }}>· {x.projectTitle}</Box>
+        {/* its project's name only when it is not the same words (a Make names both alike) */}
+        {x.title}{x.projectTitle !== x.title && <Box component="span" sx={{ fontWeight: 500, opacity: 0.8 }}> · {x.projectTitle}</Box>}
       </Box>
     );
   };
@@ -232,7 +233,7 @@ export default function ContentCalendar() {
         >
           This month
         </Button>
-        <Typography sx={{ flex: "1 1 320px", textAlign: { xs: "left", md: "right" }, fontSize: "0.78rem", color: FAINT, minWidth: 0 }}>
+        <Typography sx={{ flex: "1 1 320px", textAlign: { xs: "left", md: "right" }, textWrap: "balance", fontSize: "0.78rem", color: FAINT, minWidth: 0 }}>
           Projects and their pieces on their dates, with AI testing &amp; personalization&apos;s page tests. Drag one onto a day to plan it.
         </Typography>
       </Box>

@@ -1,6 +1,6 @@
 "use client";
 // THE SOCIAL STUDIO'S ASSISTANT (night of 09.11.2026, flow standard §1: right = the assistant, as in the page studio).
-// "Works on" the selection ("Headline" with ×) or the whole post; 3-4 quick asks for that; the free box; then "Changes
+// "Working on" the selection ("Headline" with ×) or the whole post; 3-4 quick asks for that; the free box; then "Changes
 // made here", each with an Undo. Whatever is asked still lands ON the canvas at once (SARCLA 08.11: "it opens another
 // window. Just put it on the canvas, not there") - the assistant only says what it did.
 
@@ -65,7 +65,7 @@ export default function Assistant({ ctx, inputRef }: { ctx: StudioCtx; inputRef:
 
   const top = (
     <Box sx={{ mb: 1.5 }}>
-      <Typography sx={{ fontSize: "0.76rem", color: T.ink3, mb: 0.75 }}>Works on</Typography>
+      <Typography sx={{ fontSize: "0.76rem", color: T.ink3, mb: 0.75 }}>Working on</Typography>
       {scope ? (
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, p: 1, pl: 1.25, borderRadius: "8px", bgcolor: "rgba(194,44,110,.07)", border: "1px solid rgba(194,44,110,.25)" }}>
           <Box sx={{ width: 3, alignSelf: "stretch", borderRadius: 2, bgcolor: PINK }} />

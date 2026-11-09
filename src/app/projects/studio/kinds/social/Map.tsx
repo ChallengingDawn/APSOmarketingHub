@@ -160,7 +160,7 @@ export default function PostMap({ ctx, host, onPublish, onGallery }: {
   // the last step in one line: the approval, the day, the captions written
   const nets = enabled(ctx.doc);
   const captions = nets.filter((n) => ctx.doc.networks[n].text.trim()).length;
-  const approval = p.status === "review" ? "Awaiting validation" : p.status === "changes" ? "Changes asked" : STATUS_LABEL[p.status] ?? "To do";
+  const approval = STATUS_LABEL[p.status] ?? "To do"; // the bar's own words ("In review"), never a second name for the same state
   const lastSub = `${approval} · ${p.dueDate ? dayLabel(p.dueDate) : "no day yet"} · ${nets.length ? `${captions} of ${nets.length} captions` : "no network yet"}`;
 
   return (
@@ -229,7 +229,7 @@ export default function PostMap({ ctx, host, onPublish, onGallery }: {
                       onClick={() => ctx.canvas.current?.select(open ? [] : [n.id])}>
                       {(frame || pic) && (
                         <Box sx={{ pt: 0.5 }}>
-                          <PictureSlot url={pic ? (n.src ?? null) : null} idea={ai.ideaFor(n.id)} onIdea={(v) => ai.setIdea(n.id, v)} making={!!ai.making[n.id]} error={ai.slotError[n.id]}
+                          <PictureSlot url={pic ? (n.src ?? null) : null} idea={ai.ideaFor(n.id)} onIdea={(v) => ai.setIdea(n.id, v)} making={!!ai.making[n.id]} uploading={!!ai.uploading[n.id]} error={ai.slotError[n.id]}
                             canEdit={ctx.canEdit && !n.locked} canMake={ctx.api.data.ai} height={pic ? 120 : 96} circle={n.kind === "ellipse" || n.mask === "circle"}
                             onMake={() => void ai.makeFor(n.id)} onUpload={(f) => void ai.uploadFor(n.id, f)} onGallery={() => onGallery(n.id)} onRemove={() => ai.removeFrom(n.id)} />
                         </Box>
