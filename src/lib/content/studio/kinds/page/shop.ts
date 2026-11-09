@@ -18,6 +18,8 @@ import { ENVS, classify, isKind, nameFromRest, type Env, type PageKind } from "@
 import { ensureConvertSchema } from "@/lib/convert/pages";
 import { outline, staticBase } from "@/lib/convert/preview";
 import { board, cleanPath, shopPage, themeAssets, type ShopPage } from "@/lib/convert/studio";
+import { cmsTarget } from "@/lib/convert/ship";
+import type { Want } from "@/lib/convert/cmsPage";
 import { getAsset } from "@/lib/content/assets";
 import { getPiece } from "@/lib/content/workflow";
 import { readDoc } from "../../store";
@@ -26,7 +28,7 @@ import { pasteBlock, prefixFor, stillMarkup } from "../banner/render";
 import { STILL_CSS, absoluteCss, applyChanges, innerOf, insideOf, stillPage, stylesheetsOf, type AnyChange, type Hit } from "./apply";
 import { fieldPictures } from "./fields";
 import {
-  INSERT_WHERE_LABEL, MAIN_SELECTOR, changeLine, counterpartIn, finalChanges, isLegacyBody, langOfStore, languageOfStore, newPagePaste, pageDoc, shopLanguages,
+  INSERT_WHERE_LABEL, MAIN_SELECTOR, alternatesByStore, baseStore, changeLine, counterpartIn, finalChanges, isLegacyBody, langOfStore, languageOfStore, newPagePaste, pageDoc,
   styleBlock, unwritten, leftoversOf, urlKeyOf, viewOf, type Insert, type PageDoc, type PageOutline, type PasteBlock,
 } from "./model";
 import { renderNewPage, type InsertHtml } from "./newpage";
@@ -268,6 +270,8 @@ export async function relinkOf(raw: unknown, lang: string): Promise<{ map: Recor
   const d = viewOf(doc, lang);
   const f = d.fields;
   const store = d.store;
+  // the key is a store view now ("fr-CH"): its language finds the links' counterparts
+  lang = langOfStore(store);
   const urls = [...new Set([f.hero.button.url, f.cta.button.url, ...f.links.map((l) => l.url)].filter((u) => /^\/[a-z]{2}-[A-Z]{2,3}\//.test(u) &&!u.startsWith(`/${store}/`)))].slice(0, 16);
   const map: Record<string, string> = {};
   const missing: string[] = [];
@@ -277,6 +281,43 @@ export async function relinkOf(raw: unknown, lang: string): Promise<{ map: Recor
     if (to) map[u] = to; else missing.push(u);
   }
   return { map, missing };
+}
+
+/* ── the page in each store view: is it on the shop there? ────────────── */
+
+// SARCLA 09.11.2026: "the locales are not all complete in Magento - we select by store view". A page of the shop is in
+// some store views and not in others: the page index says which (the same address in that store view, or the address
+// the page's own hreflang links give for it). Nothing found while the index holds that store view = not on the shop
+// there; a store view the index does not hold at all = not known.
+
+export type Presence = { exists: boolean | null; path: string | null };
+
+export async function presenceOf(d: PageDoc, stores: readonly string[]): Promise<Record<string, Presence>> {
+  const list = [...new Set(stores.map(baseStore).filter((s): s is string => !!s))];
+  const out: Record<string, Presence> = Object.fromEntries(list.map((s) => [s, { exists: null, path: null }]));
+  if (d.source === "new" || !d.path) return out;
+  const c = classify(d.path);
+  const rest = c.rest;
+  const alts = await readShopPage(d).then((r) => (r.ok ? alternatesByStore(r.page.html) : {})).catch(() => ({} as Record<string, string>));
+  try {
+    await ensureConvertSchema();
+    const want = list.flatMap((s) => [`${s}|${rest}`, ...(alts[s] ? [`${s}|${classify(alts[s]).rest}`] : [])]);
+    const r = await query<{ store: string; rest: string; url: string; env: string }>(
+      `SELECT DISTINCT ON (store, rest) store, rest, url, env FROM apsomh_convert_pages
+        WHERE gone_at IS NULL AND kind <> 'system' AND (store || '|' || rest) = ANY($1::text[]) ORDER BY store, rest, (env = $2) DESC`,
+      [want, d.env]);
+    const held = await query<{ store: string }>(`SELECT DISTINCT store FROM apsomh_convert_pages WHERE gone_at IS NULL`);
+    const indexed = new Set(held.rows.map((x) => baseStore(x.store)).filter(Boolean));
+    for (const s of list) {
+      const same = r.rows.find((x) => x.store === s && x.rest === rest);
+      const alt = alts[s] ? r.rows.find((x) => x.store === s && x.rest === classify(alts[s]).rest) : undefined;
+      const hit = same ?? alt;
+      if (hit) { let p = hit.url; try { p = new URL(hit.url).pathname; } catch { /* kept */ } out[s] = { exists: true, path: p }; }
+      else out[s] = { exists: indexed.has(s) ? false : null, path: null };
+    }
+  } catch { /* the index cannot be read: not known */ }
+  if (baseStore(d.store)) out[baseStore(d.store)!] = { exists: true, path: d.path };
+  return out;
 }
 
 /* ── the shop's pages, for the list to pick from ──────────────────────── */
@@ -386,13 +427,11 @@ async function pictureFiles(urls: string[]): Promise<Map<string, { file: string;
   return out;
 }
 
-/** What a person pastes into Magento, with where it goes - one language. Nothing is written to Magento from here. */
-export async function pasteOf(raw: unknown, lang: string | null = null, shopStores: readonly string[] = []): Promise<PasteOut> {
+/** What a person pastes into Magento, with where it goes - one store view (each store view is its own version since
+ * 09.11.2026: SARCLA "we select by store view"). Nothing is written to Magento from here. */
+export async function pasteOf(raw: unknown, lang: string | null = null, _shopStores: readonly string[] = []): Promise<PasteOut> {
   const d = viewOf(pageDoc(raw), lang);
-  // a CMS page is given every store view of its language (SARCLA 08.11.2026: "we should have all locales")
-  const views = shopLanguages(shopStores, d.store).find((x) => x.lang === langOfStore(d.store))?.stores ?? [d.store];
-  const storeViews = [d.store, ...views.filter((x) => x !== d.store)];
-  const storeLine = storeViews.length > 1 ? `Store View: ${storeViews.join(", ")} - every ${languageOfStore(d.store) ?? ""} store view of the shop (Ctrl-click to pick several)` : `Store View: ${d.store}`;
+  const storeLine = `Store View: ${d.store} (${languageOfStore(d.store) ?? d.store}) - its other store views are their own versions`;
   const final = finalChanges(d);
   const warnings = [...final.problems];
   const open = unwritten(d).length;
@@ -503,5 +542,90 @@ export async function pasteOf(raw: unknown, lang: string | null = null, shopStor
       steps: [`A ${c.kind} page is the theme's code, not a CMS page: hand this list to the developers, or run it as an A/B test.`],
       code: spec,
     }, ...seo],
+  };
+}
+
+/* ── what Magento gets, store view by store view (the last step) ──────── */
+
+// SARCLA 09.11.2026: "The Magento publish should occur via the API". Each store view's version as the one Magento page
+// it becomes: a page made here - its URL key, title, search engine fields and the content the renderer draws (the same
+// renderer as the preview); an existing CMS page of the shop - its change list, put into the content Magento holds
+// (src/lib/convert/cmsPage.ts). A category, a product or the home page is not a CMS page: it stays the hand-over.
+
+export type MagentoSent = {
+  /** a page made here (created or updated whole), or an existing page's changes put into its content */
+  kind: "page" | "changes";
+  title: string; identifier: string; metaTitle: string; metaDescription: string; size: number; active: boolean;
+  /** the hub's pictures the content names in Magento's media (wysiwyg/content) - uploaded there by hand first */
+  pictures: { file: string; url: string }[];
+  /** an existing page: its changes and banners */
+  changes: number; banners: number;
+};
+export type MagentoView = {
+  view: string;
+  /** a CMS page the hub writes, or not (then `why`, and the hand-over) */
+  cms: boolean;
+  why: string | null;
+  /** what keeps it from being written now (placeholders left in the words) */
+  blocked: string | null;
+  sent: MagentoSent | null;
+  want: Want | null;
+  /** its address on the shop (after the environment's base) */
+  path: string | null;
+};
+
+const bytesOf = (s: string) => new TextEncoder().encode(s).length;
+
+export async function magentoOf(raw: unknown, view: string): Promise<MagentoView> {
+  const d = viewOf(pageDoc(raw), view);
+  const base: MagentoView = { view: d.store, cms: false, why: null, blocked: null, sent: null, want: null, path: null };
+  const left = leftoversOf(d);
+  const open = unwritten(d).length;
+  const blocked = left.length ? `${left.length} placeholder${left.length === 1 ? "" : "s"} still in the words (${left.slice(0, 2).map((x) => `"${x.text.slice(0, 40)}"`).join(", ")}) - write them first.`
+    : open ? `${open} text${open === 1 ? "" : "s"} still to write.` : null;
+  const inserts = (await insertsOf(d)).filter((x) => x.ok);
+  if (d.source === "new") {
+    if (isLegacyBody(d)) {
+      const np = d.newPage;
+      if (!np.title.trim()) return { ...base, cms: true, why: "Give the page its title first." };
+      const content = newPagePaste(d).find((b) => b.key === "content")?.code ?? "";
+      const identifier = np.urlKey.trim() || urlKeyOf(np.title);
+      const want: Want = { kind: "page", identifier, title: np.title.trim(), metaTitle: np.metaTitle.trim() || np.title.trim(), metaDescription: np.metaDescription.trim(), content, active: true };
+      return { ...base, cms: true, blocked, want, path: `/${d.store}/${identifier}`, sent: { kind: "page", title: want.title, identifier, metaTitle: want.metaTitle, metaDescription: want.metaDescription, size: bytesOf(content), active: true, pictures: [], changes: 0, banners: 0 } };
+    }
+    const f = d.fields;
+    if (!f.hero.title.trim()) return { ...base, cms: true, why: "Give the page its title first (the hero's title)." };
+    const files = await pictureFiles(fieldPictures(f).map((p) => p.pic.url));
+    const body = renderNewPage(f, {
+      inserts: inserts.map((x): InsertHtml => ({ id: x.id, where: x.where, html: x.paste })),
+      picture: (u) => { const p = files.get(u); return p ? `{{media url="wysiwyg/content/${p.file}"}}` : u; },
+    });
+    const content = `<style>\n${body.css}\n</style>\n${styleBlock(finalChanges(d).changes)}${body.html}`;
+    const identifier = f.seo.urlKey.trim() || urlKeyOf(f.hero.title);
+    const want: Want = {
+      kind: "page", identifier, title: f.hero.title.trim(), metaTitle: f.seo.title.trim() || f.hero.title.trim(), metaDescription: f.seo.description.trim(), content, active: true,
+    };
+    return {
+      ...base, cms: true, blocked, want, path: `/${d.store}/${identifier}`,
+      sent: { kind: "page", title: want.title, identifier, metaTitle: want.metaTitle, metaDescription: want.metaDescription, size: bytesOf(content), active: true, pictures: [...files.values()], changes: 0, banners: inserts.length },
+    };
+  }
+  if (!d.path) return { ...base, why: `The ${d.store} page is not picked yet.` };
+  const target = cmsTarget(d.path);
+  if (!target.ok) return { ...base, why: target.why, path: d.path };
+  const final = finalChanges(d);
+  if (!final.changes.length && !inserts.length) return { ...base, cms: true, why: "There are no changes to write yet.", path: d.path };
+  const box = (x: InsertOut) => `<div class="apx-ins" style="margin:24px 0">${x.paste}</div>`;
+  const want: Want = {
+    kind: "changes", identifier: target.identifier, changes: final.changes, tag: `content-${view}`,
+    inserts: {
+      top: inserts.filter((x) => x.where === "top").map(box).join(""),
+      afterIntro: inserts.filter((x) => x.where === "after-intro").map(box).join(""),
+      bottom: inserts.filter((x) => x.where === "bottom").map(box).join(""),
+    },
+  };
+  return {
+    ...base, cms: true, blocked: blocked ?? (final.problems.length ? `Some changes cannot go out: ${final.problems.slice(0, 2).join("; ")}` : null), want, path: d.path,
+    sent: { kind: "changes", title: d.outline?.h1[0] ?? "", identifier: target.identifier, metaTitle: "", metaDescription: "", size: 0, active: true, pictures: [], changes: final.changes.length, banners: inserts.length },
   };
 }

@@ -8,8 +8,9 @@
 //   outline    the page's parts in one short list, each with its state; a click opens that part alone and selects it in
 //              the preview (./Outline.tsx). A page of the shop: its card, the element selected, its changes, its texts,
 //              the A/B test. Then the banners in it, its languages, the notes
-//   last step  pinned at the bottom: "To Magento" - what to paste, one language at a time - or, for a test's winner,
-//              "Publish" (./Winner.tsx), the winner's card first in the outline
+//   last step  pinned at the bottom: "To Magento" - each store view written into ACC and/or production through
+//              Magento's API (./Publish.tsx; SARCLA 09.11.2026), the hand-over for what is not a CMS page - or, for a
+//              test's winner, "Publish" (./Winner.tsx), the winner's card first in the outline
 
 import { useEffect, useState } from "react";
 import TextField from "@mui/material/TextField";
@@ -32,11 +33,11 @@ import { KIND_LABEL } from "@/lib/convert/model";
 import type { Change } from "@/lib/convert/versions";
 import { filledCount } from "@/lib/content/studio/kinds/page/fields";
 import {
-  INSERT_WHERE_LABEL, SOURCE_LABEL, isLegacyBody, langName, langState, langsOf, mainLang, pageModesFor, pageSourceFix, placeholdersOf, shopUrl, unwritten,
-  type LangOption, type PageDoc, type PageSource,
+  INSERT_WHERE_LABEL, SOURCE_LABEL, isLegacyBody, langName, mainView, pageModesFor, pageSourceFix, placeholdersOf, shopUrl, unwritten, viewState, viewsLine, viewsOf,
+  type PageDoc, type PageSource, type StoreGroup,
 } from "@/lib/content/studio/kinds/page/model";
 import { blocksOf } from "@/lib/content/studio/kinds/page/outline";
-import type { ChangeHit, InsertOut } from "@/lib/content/studio/kinds/page/shop";
+import type { ChangeHit, InsertOut, Presence } from "@/lib/content/studio/kinds/page/shop";
 import type { ShopPart } from "@/lib/content/studio/kinds/page/shopParts";
 import { Field, Pane, PINK, btn, field, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
@@ -44,8 +45,10 @@ import { Changes } from "./Changes";
 import { ElementPane, type Selection } from "./Element";
 import type { FillRun, PictureCtl } from "./Fields";
 import { BlocksOutline, Row, RowList, ShopPartsOutline } from "./Outline";
-import { AbTest, Publish, Texts } from "./Sections";
+import { ToMagento } from "./Publish";
+import { AbTest, Texts } from "./Sections";
 import { Chip, Choice, Hint } from "./ui";
+import { viewNote } from "./Stage";
 import { WinnerCard, WinnerPublish, useWinner } from "./Winner";
 
 export type Step = "page" | "publish";
@@ -100,41 +103,46 @@ function Inserts({ d, list, remove, canEdit }: { d: PageDoc; list: InsertOut[] |
   );
 }
 
-/** Every language the shop publishes in: made, out of date or still to make - and the store views it goes in. */
-function Languages({ doc, lang, onLang, offered }: { doc: PageDoc; lang: string; onLang: (l: string) => void; offered: LangOption[] }) {
-  const LABEL = { main: "Main language", done: "Made", stale: "Out of date", empty: "Not made yet" } as const;
+/** Every store view of the shop, by language: made, out of date or still to make - and, for a page of the shop, whether
+ * the page is there at all (SARCLA 09.11.2026: "the locales are not all complete in Magento - we select by store view"). */
+function StoreViews({ doc, lang, onLang, groups, presence }: { doc: PageDoc; lang: string; onLang: (k: string) => void; groups: StoreGroup[]; presence: Record<string, Presence> }) {
+  const LABEL = { main: "The page's own", done: "Made", stale: "Out of date", empty: "Not made" } as const;
   const TINT = { main: "pink", done: "green", stale: "amber", empty: "slate" } as const;
   return (
     <Box>
-      {offered.map((o) => {
-        const st = langState(doc, o.lang);
-        const v = doc.langs[o.lang];
-        const store = st === "main" ? doc.store : v?.store || o.store;
-        const others = o.stores.filter((s) => s !== store);
-        return (
-          <Box key={o.lang} component="button" type="button" onClick={() => onLang(o.lang)} sx={{
-            all: "unset", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 1, width: "100%", cursor: "pointer", px: 1, py: 0.7, borderRadius: "6px",
-            bgcolor: o.lang === lang ? "rgba(36,89,209,.07)" : "transparent", "&:hover": { bgcolor: "rgba(36,89,209,.05)" },
-          }}>
-            <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: INK, width: 24 }}>{o.lang.toUpperCase()}</Typography>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography sx={{ fontSize: "0.83rem", color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</Typography>
-              <Typography sx={{ fontSize: "0.7rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {doc.source !== "new" && st !== "main" && v?.path ? v.path : `${store}${others.length ? ` · also ${others.join(", ")}` : ""}`}
-              </Typography>
-            </Box>
-            <Chip tint={TINT[st]}>{LABEL[st]}</Chip>
-          </Box>
-        );
-      })}
-      <Hint>Each language is its own page on the shop, in every store view of that language. Pick a language above the page; the assistant translates the whole page into it.</Hint>
+      {groups.map((g) => (
+        <Box key={g.lang} sx={{ mb: 0.75 }}>
+          <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED, px: 1, pt: 0.5, pb: 0.25 }}>{g.name}</Typography>
+          {g.stores.map((k) => {
+            const st = viewState(doc, k);
+            const off = doc.source !== "new" && presence[k]?.exists === false && st === "empty";
+            return (
+              <Box key={k} component="button" type="button" onClick={() => onLang(k)} sx={{
+                all: "unset", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 1, width: "100%", cursor: "pointer", px: 1, py: 0.55, borderRadius: "6px",
+                bgcolor: k === lang ? "rgba(36,89,209,.07)" : "transparent", "&:hover": { bgcolor: "rgba(36,89,209,.05)" },
+              }}>
+                <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: off ? "#9aa5b8" : INK, width: 50, letterSpacing: ".02em" }}>{k}</Typography>
+                <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {doc.source !== "new" && st !== "main" && st !== "empty" && doc.langs[k]?.path ? `${doc.langs[k].path} · ${viewNote(doc, k)}` : viewNote(doc, k, presence)}
+                </Typography>
+                <Chip tint={TINT[st]}>{LABEL[st]}</Chip>
+              </Box>
+            );
+          })}
+        </Box>
+      ))}
+      <Hint>Each store view is its own page in Magento. A store view of a language the page has starts as a copy (no AI); another language is translated by the assistant. Then change each as it needs.</Hint>
     </Box>
   );
 }
 
-export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onStep, sel, setSel, fill, busy, canAi, onEditInPage, onAskAi, inserts, record, onPickPage, removeInsert,
-  offered, open, onOpen, onOpenBlock, onSelectKey, onFocusPath, pictures, makingIn, since, shop, onAdd, onAddText, onRefine, appBrief }: {
-  api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void;
+export function Build({ api, doc, d, lang, onLang, groups, presence, set, setView, hits, step, onStep, sel, setSel, fill, busy, canAi, onEditInPage, onAskAi, inserts, record, onPickPage, removeInsert,
+  open, onOpen, onOpenBlock, onSelectKey, onFocusPath, pictures, makingIn, since, shop, onAdd, onAddText, onRefine, appBrief }: {
+  api: StudioApi; doc: PageDoc; d: PageDoc;
+  /** the store view shown, and opening one (made at once as a copy when it is of a language the page has) */
+  lang: string; onLang: (l: string) => void;
+  /** every store view of the shop by language; for a page of the shop, whether it is there */
+  groups: StoreGroup[]; presence: Record<string, Presence>;
   /** the whole document (source, shared parts) */
   set: (next: PageDoc, label?: string) => void;
   /** this language's view */
@@ -143,8 +151,6 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
   sel: Selection | null; setSel: (s: Selection | null) => void;
   fill: FillRun; busy: string | null; canAi: boolean; onEditInPage: () => void; onAskAi: () => void;
   inserts: InsertOut[] | null; record: (label: string) => void; onPickPage: () => void; removeInsert: (id: string) => void;
-  /** every language the shop publishes in */
-  offered: LangOption[];
   /** the row open in the outline (a part of a new page, or "selected", "changes", "texts", "test", "banners", "languages", "notes") */
   open: string | null; onOpen: (row: string | null) => void;
   /** a part opened from here: selected in the preview, which scrolls to it */
@@ -176,7 +182,7 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
   const isNew = d.source === "new";
   const holders = placeholdersOf(d).length;
   const openTexts = unwritten(d).length;
-  const main = mainLang(doc);
+  const main = mainView(doc);
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   // a test's winner from APSOconvert is published from here (SARCLA 08.11.2026)
   const isWinner = !!doc.origin?.test;
@@ -218,19 +224,19 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
   const [want, setWant] = useState("");
   const fromApp = !!appBrief?.app;
   const canStart = !!want.trim() || !!appBrief?.text.trim();
-  const madeLangs = langsOf(doc);
+  const madeViews = viewsOf(doc);
 
   /* ── the last step, as its own view ─────────────────────────────────── */
   if (step === "publish") {
     return (
-      <Pane pad={false} title={<Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>Build{lang !== main && <Chip tint="blue">{lang.toUpperCase()}</Chip>}</Box>}>
+      <Pane pad={false} title={<Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>Build{lang !== main && <Chip tint="blue">{lang}</Chip>}</Box>}>
         <Box sx={{ p: 2, animation: `${slideIn} .22s ease-out` }}>
           <Button size="small" startIcon={<ArrowBackIcon sx={{ fontSize: 17 }} />} onClick={() => onStep("page")} sx={{ ...btn, color: INK, px: 0.5, ml: -0.5, mb: 1.25 }}>The page</Button>
           <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: PINK }}>Last step</Typography>
           <Typography sx={{ fontSize: "1.05rem", fontWeight: 750, color: INK, mb: 1.5, letterSpacing: "-0.01em" }}>
-            {isWinner ? (doc.published ? "Published on the shop" : "Publish on the shop") : `To Magento · ${langName(lang)}`}
+            {isWinner ? (doc.published ? "Published on the shop" : "Publish on the shop") : "To Magento"}
           </Typography>
-          {isWinner ? <WinnerPublish api={api} doc={doc} {...won} /> : <Publish api={api} d={d} set={(v) => setView(v)} canEdit={canEdit} lang={lang} />}
+          {isWinner ? <WinnerPublish api={api} doc={doc} {...won} /> : <ToMagento api={api} doc={doc} d={d} setView={(v) => setView(v)} canEdit={canEdit} lang={lang} />}
         </Box>
       </Pane>
     );
@@ -292,7 +298,7 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
   ) : null;
 
   /* ── the rows every page has ────────────────────────────────────────── */
-  const madeLine = madeLangs.length > 1 ? madeLangs.map((l) => langName(l)).join(" · ") : `Only ${langName(main)} so far · ${offered.length} languages on the shop`;
+  const madeLine = viewsLine(doc, groups);
   const moreRows = (
     <>
       {d.inserts.length > 0 && (
@@ -300,8 +306,8 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
           <Inserts d={d} list={inserts} remove={removeInsert} canEdit={canEdit} />
         </Row>
       )}
-      <Row id="languages" title="Languages" count={madeLangs.length > 1 ? madeLangs.length : null} state="none" accent="blue" summary={madeLine} open={open === "languages"} onToggle={() => onOpen(open === "languages" ? null : "languages")}>
-        <Languages doc={doc} lang={lang} onLang={onLang} offered={offered} />
+      <Row id="languages" title="Store views" count={madeViews.length > 1 ? madeViews.length : null} state="none" accent="blue" summary={madeLine} open={open === "languages"} onToggle={() => onOpen(open === "languages" ? null : "languages")}>
+        <StoreViews doc={doc} lang={lang} onLang={onLang} groups={groups} presence={presence} />
       </Row>
       <Row id="notes" title="Notes for the team" state="none" summary={d.notes.trim() ? d.notes.trim().slice(0, 80) : "None"} open={open === "notes"} onToggle={() => onOpen(open === "notes" ? null : "notes")}>
         <Field label="For the team" value={d.notes} multiline rows={3} disabled={!canEdit} onChange={(v) => setView({ ...d, notes: v })} />
@@ -309,16 +315,18 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
     </>
   );
 
-  // the line over the last step: how far the page is
-  const ready = isWinner ? (doc.published ? "Published" : api.data.piece.status === "approved" ? "Approved - ready to publish" : "Published once its reviewer approves it")
+  // the line over the last step: how far the page is - or where it went in Magento
+  const lastWrite = doc.magento.find((r) => r.action === "created" || r.action === "updated");
+  const onMagento = lastWrite ? `On ${lastWrite.env === "acc" ? "ACC" : "production"} · ${[...new Set(doc.magento.filter((r) => r.env === lastWrite.env && (r.action === "created" || r.action === "updated")).map((r) => r.store))].join(", ")}` : null;
+  const ready = !isWinner && onMagento ? onMagento : isWinner ? (doc.published ? "Published" : api.data.piece.status === "approved" ? "Approved - ready to publish" : "Published once its reviewer approves it")
     : isNew ? `${writtenParts} of ${parts.length} blocks written${missing ? ` · ${missing} picture${missing === 1 ? "" : "s"} missing` : ""}`
-      : d.changes.length ? `${d.changes.length} change${d.changes.length === 1 ? "" : "s"} on the ${langName(lang)} page` : "No change yet";
+      : d.changes.length ? `${d.changes.length} change${d.changes.length === 1 ? "" : "s"} on the ${lang} page` : "No change yet";
 
   const menuItems = canEdit && !atStart ? sources.filter((s) => (s.key === "new") !== isNew && s.key !== "convert") : [];
 
   return (
     <Pane pad={false}
-      title={<Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>Build{lang !== main && <Chip tint="blue">{lang.toUpperCase()}</Chip>}</Box>}
+      title={<Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>Build{lang !== main && <Chip tint="blue">{lang}</Chip>}</Box>}
       right={menuItems.length ? (
         <>
           <Tooltip title="More"><IconButton size="small" onClick={(e) => setMenu(e.currentTarget)} aria-label="More" sx={{ my: -0.5 }}><MoreHorizIcon sx={{ fontSize: 19 }} /></IconButton></Tooltip>
@@ -369,8 +377,8 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
           {!isNew && d.path && <PageCard d={d} canEdit={canEdit} onAnother={onPickPage} />}
           {!isNew && !d.path && lang !== main && (
             <Box sx={{ p: 2, borderRadius: "10px", border: `1.5px dashed ${HAIRLINE}`, textAlign: "center", mb: 1.25 }}>
-              <Typography sx={{ fontSize: "0.88rem", color: INK, fontWeight: 600 }}>The {langName(lang)} page is not set yet</Typography>
-              <Hint>Translate the page into this language, or pick its page.</Hint>
+              <Typography sx={{ fontSize: "0.88rem", color: INK, fontWeight: 600 }}>The {lang} page is not set yet</Typography>
+              <Hint>{presence[lang]?.exists === false ? `The shop's index has no such page in ${lang}. Pick its page if it has another address.` : "Copy or translate the page into this store view, or pick its page."}</Hint>
               {canEdit && <Button size="small" onClick={onPickPage} sx={{ ...btn, color: PINK, mt: 0.75 }}>Pick the page</Button>}
             </Box>
           )}
@@ -438,7 +446,7 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
               sx={{ ...btn, height: 40, borderRadius: "8px", bgcolor: "#15223a", color: "#fff", justifyContent: "space-between", px: 1.75, "&:hover": { bgcolor: "#24344f" } }}>
               <Box component="span" sx={{ display: "inline-flex", alignItems: "baseline", gap: 1 }}>
                 <Box component="span" sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "rgba(255,255,255,.6)" }}>Last step</Box>
-                {isWinner ? (doc.published ? "Published" : "Publish") : `To Magento · ${lang.toUpperCase()}`}
+                {isWinner ? (doc.published ? "Published" : "Publish") : "To Magento"}
               </Box>
             </Button>
           </Box>

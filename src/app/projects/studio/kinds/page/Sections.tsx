@@ -1,6 +1,7 @@
 "use client";
 // THE PAGE STUDIO'S SMALLER SECTIONS (08.11.2026): the texts Content writes for the version's placeholders, the A/B test's
-// plan, and the way to Magento (a paste block today; publishing waits for CMS keys for ACC).
+// plan, and the hand-over to Magento (what to copy in by hand - since 09.11.2026 the last step writes CMS pages through
+// Magento's API itself, ./Publish.tsx; the hand-over stays for what it does not write, and the pictures).
 
 import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
@@ -88,7 +89,7 @@ export function Publish({ api, d, set, canEdit, lang }: { api: StudioApi; d: Pag
   const [out, setOut] = useState<{ blocks: PasteBlock[]; warnings: string[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const { done, copy } = useCopy();
-  // another language is another page in Magento: what was prepared belongs to the one it was prepared for
+  // another store view is another page in Magento: what was prepared belongs to the one it was prepared for
   useEffect(() => { setOut(null); setErr(null); }, [lang]);
   const prepare = async () => {
     setBusy(true); setErr(null);
@@ -101,7 +102,7 @@ export function Publish({ api, d, set, canEdit, lang }: { api: StudioApi; d: Pag
   return (
     <Box>
       <Box>
-        <Hint mt={0}>The {languageOfStore(d.store) ?? lang.toUpperCase()} page ({d.store}) as it will be, with where each part goes in Magento. Each language is its own page there - switch the language above the preview for the others. Nothing is sent to the shop from here.</Hint>
+        <Hint mt={0}>The {d.store} page ({languageOfStore(d.store) ?? lang}) as it will be, with where each part goes in Magento - to copy in by hand. Each store view is its own page there: switch the store view above the preview for the others.</Hint>
         <Button fullWidth variant={out ? "outlined" : "contained"} disableElevation disabled={busy || !canEdit} onClick={prepare}
           startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}
           sx={out ? { ...btn, mt: 1.25, mb: 1.5, borderColor: HAIRLINE, color: INK } : { ...mainBtn, mt: 1.25, mb: 1.5 }}>
@@ -113,7 +114,6 @@ export function Publish({ api, d, set, canEdit, lang }: { api: StudioApi; d: Pag
           <PasteCard key={b.key} label={b.label} steps={b.steps} code={b.code} copied={done === b.key}
             onCopy={() => { void copy(b.key, b.code); if (canEdit && d.publish.status !== "copied") set({ ...d, publish: { ...d.publish, status: "copied" } }); }} />
         ))}
-        <Hint mt={0.5}>Publishing straight into Magento waits for its CMS keys (ACC first) - until then it is copied in by hand.</Hint>
       </Box>
       <Block title="Notes for the hand-over">
         <Field label="For whoever puts it live" value={d.publish.notes} onChange={(v) => set({ ...d, publish: { ...d.publish, notes: v } })} multiline rows={2} disabled={!canEdit} />

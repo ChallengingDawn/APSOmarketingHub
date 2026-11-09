@@ -12,11 +12,18 @@
 // dotSource as code instead.
 
 import { getPool, query } from "@/lib/db/client";
+import { isSandbox } from "@/lib/sandbox/mode";
 import { ENVS, type Env } from "./model";
 import { applyToCms, cmsTarget, type CmsApplied } from "./ship";
 import { ConvertError, ensureTestsSchema, testById } from "./tests";
 import type { Change } from "./versions";
 import { isCreds, oauthHeader, type OAuthCreds } from "./oauth1";
+import {
+  KEY_WAITING, MagentoError, magentoRequest, planPage, restorePage, storeRefIn, writePage,
+  type Backup, type Backups, type MagentoRequest, type PagePlan, type StoreRef, type Want, type Written,
+} from "./cmsPage";
+import { magentoFetch } from "./magentoHttp";
+import { shopPage } from "./studio";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS apsomh_convert_cms_backups (
@@ -37,6 +44,11 @@ CREATE TABLE IF NOT EXISTS apsomh_convert_cms_backups (
   error text
 );
 CREATE INDEX IF NOT EXISTS apsomh_convert_cms_backups_test ON apsomh_convert_cms_backups (test_id, at DESC);
+-- Content's page studio writes whole CMS pages by store view (./cmsPage.ts, 09.11.2026): its rows say which to-do and
+-- store view; kind 'create' | 'update' | 'restore' there
+ALTER TABLE apsomh_convert_cms_backups ADD COLUMN IF NOT EXISTS piece_id bigint;
+ALTER TABLE apsomh_convert_cms_backups ADD COLUMN IF NOT EXISTS store text;
+CREATE INDEX IF NOT EXISTS apsomh_convert_cms_backups_piece ON apsomh_convert_cms_backups (piece_id, env, store, at DESC);
 `;
 let ready: Promise<void> | null = null;
 function ensureCmsSchema(): Promise<void> {
@@ -61,8 +73,22 @@ export function cmsKeys(): { acc: boolean; prod: boolean; missing: string[] } {
   return { acc, prod, missing: [!acc ? CREDS_VAR.acc : "", !prod ? CREDS_VAR.prod : ""].filter(Boolean) };
 }
 export const CMS_OFF = "Writing to Magento needs the hub's Magento CMS integration for that shop (MAGENTO_CMS_ACC, then MAGENTO_CMS_PROD) - not set yet. Until then: the code for dotSource, or the winner kept on for everyone.";
+/** What a target without its key says, plainly (the page studio's last step - ./cmsPage.ts). */
+export { KEY_WAITING } from "./cmsPage";
 
 type MagentoPage = { id: number | string; identifier: string; title?: string; content?: string; active?: boolean; store_id?: number[] | number; [k: string]: unknown };
+
+/** The request function for one environment's Magento: signed with its keys, read leniently (./magentoHttp.ts - ACC
+ * pads some chunk sizes, which fetch refuses). The sandbox never writes: anything but a read is refused here too. */
+function connection(env: Env): MagentoRequest {
+  const a = auth(env);
+  if (!a) throw new ConvertError(KEY_WAITING[env], 503, [CREDS_VAR[env]]);
+  const req = magentoRequest({ base: ENVS[env].base, fetch: magentoFetch, authorize: (method, url) => (a.kind === "oauth" ? oauthHeader(method, url, a.creds) : `Bearer ${a.token}`) });
+  return async (method, store, path, body) => {
+    if (method !== "GET" && isSandbox()) throw new ConvertError("The sandbox never writes to Magento.", 403);
+    return req(method, store, path, body);
+  };
+}
 
 /** One call to Magento's REST API on that environment, all store views (rest/all). */
 async function magento<T>(env: Env, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
@@ -70,17 +96,17 @@ async function magento<T>(env: Env, path: string, init: { method?: string; body?
   if (!a) throw new ConvertError(CMS_OFF, 503, [CREDS_VAR[env]]);
   const url = `${ENVS[env].base}/rest/all/V1${path}`;
   const method = init.method ?? "GET";
-  const res = await fetch(url, {
+  if (method !== "GET" && isSandbox()) throw new ConvertError("The sandbox never writes to Magento.", 403);
+  // read leniently: ACC pads some chunk sizes ("C6C \r\n"), which fetch refuses (./magentoHttp.ts)
+  const res = await magentoFetch(url, {
     method,
     headers: { Authorization: a.kind === "oauth" ? oauthHeader(method, url, a.creds) : `Bearer ${a.token}`, Accept: "application/json", ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}) },
     body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-    signal: AbortSignal.timeout(30_000),
-    cache: "no-store",
   });
   const text = await res.text();
   let body: unknown = null;
   try { body = JSON.parse(text); } catch { /* not JSON */ }
-  if (!res.ok) {
+  if (res.status < 200 || res.status >= 300) {
     const said = body && typeof body === "object" && "message" in body ? String((body as { message: unknown }).message) : text.slice(0, 160);
     throw new ConvertError(`Magento (${ENVS[env].label}) answered ${res.status}: ${said}`, 502);
   }
@@ -211,4 +237,118 @@ export async function cmsRestore(backupId: string, by: string): Promise<{ backup
     throw e;
   }
   return { backupId: id };
+}
+
+/* ── Content's page studio: whole CMS pages, by store view (09.11.2026) ── */
+
+// SARCLA 09.11.2026: "The Magento publish should occur via the API ... also be able to update ACC and/or PROD". The rules
+// are ./cmsPage.ts's (tested against a fake Magento); here: the keys, the store views' codes read from the shop, and the
+// backups in the same table as a test's writes - each row with its to-do and store view.
+
+const REFS = new Map<string, { at: number; ref: StoreRef | null }>();
+/** A store view's code and id in one environment, read from its front page on the shop - kept a day (an hour when the
+ * read failed). */
+export async function storeRefOf(env: Env, view: string): Promise<StoreRef | null> {
+  const key = `${env}|${view}`;
+  const held = REFS.get(key);
+  if (held && Date.now() - held.at < (held.ref ? 24 : 1) * 3600_000) return held.ref;
+  const page = await shopPage(env, `/${view}/`).catch(() => null);
+  const ref = page && page.status === 200 ? storeRefIn(page.html, view) : null;
+  REFS.set(key, { at: Date.now(), ref });
+  return ref;
+}
+
+function pageBackups(pieceId: string): Backups {
+  return {
+    add: async (b) => {
+      const r = await query<{ id: string }>(
+        `INSERT INTO apsomh_convert_cms_backups (piece_id, env, store, path, page_id, identifier, title, page, content_before, content_after, by_whom, kind)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12) RETURNING id`,
+        [pieceId, b.env, b.view, `/${b.view}/${b.identifier}`, b.pageId ?? "", b.identifier, b.title, b.page ? JSON.stringify(b.page) : null, b.before, b.after, b.by, b.action]);
+      return String(r.rows[0].id);
+    },
+    written: async (id, pageId) => { await query(`UPDATE apsomh_convert_cms_backups SET written = true, page_id = $2 WHERE id = $1`, [id, pageId]); },
+    failed: async (id, error) => { await query(`UPDATE apsomh_convert_cms_backups SET error = $2 WHERE id = $1`, [id, error]); },
+  };
+}
+
+/** The Magento pages this to-do created, by environment - a later write may update them (and no other page). */
+async function oursOf(pieceId: string, env: Env): Promise<Set<string>> {
+  const r = await query<{ page_id: string }>(
+    `SELECT DISTINCT page_id FROM apsomh_convert_cms_backups WHERE piece_id = $1 AND env = $2 AND kind = 'create' AND written AND page_id <> ''`, [pieceId, env]);
+  return new Set(r.rows.map((x) => x.page_id));
+}
+
+/** The other store views of the same language, read too: one Magento page may serve several (a write changes them all). */
+const SAME_LANGUAGE: Record<string, string[]> = {
+  de: ["de-CH", "de-DE", "de-AT", "de-INT"], fr: ["fr-CH", "fr-FR", "fr-INT"], it: ["it-CH", "it-IT", "it-INT"], en: ["en-INT"], nl: ["nl-NL", "nl-INT"], pl: ["pl-PL"],
+};
+async function othersOf(env: Env, view: string): Promise<StoreRef[]> {
+  const out: StoreRef[] = [];
+  for (const v of SAME_LANGUAGE[view.slice(0, 2)] ?? []) {
+    if (v === view) continue;
+    const r = await storeRefOf(env, v);
+    if (r) out.push(r);
+  }
+  return out;
+}
+
+const said = (e: unknown) => (e instanceof MagentoError || e instanceof ConvertError ? e.message : `Magento could not be reached (${String((e as Error)?.message ?? e).slice(0, 120)}).`);
+
+export type PagePlanOut = PagePlan | { view: string; env: Env; action: "none"; why: string; error: true };
+
+/** What a write would do in each store view, read from Magento - nothing written. */
+export async function cmsPagePlans(pieceId: string, env: Env, items: { view: string; want: Want }[]): Promise<PagePlanOut[]> {
+  await ensureCmsSchema();
+  const m = connection(env);
+  const ours = await oursOf(pieceId, env);
+  const out: PagePlanOut[] = [];
+  for (const it of items) {
+    try {
+      const store = await storeRefOf(env, it.view);
+      const { page: _page, ...plan } = await planPage(m, { env, view: it.view, store, want: it.want, others: await othersOf(env, it.view), ours: (id) => ours.has(id) });
+      out.push(plan);
+    } catch (e) {
+      out.push({ view: it.view, env, action: "none", why: said(e), error: true });
+    }
+  }
+  return out;
+}
+
+/** One store view written into Magento, pressed by a person - the page backed up first. The gate (the review, the
+ * person's grant) is the caller's. */
+export async function cmsPageWrite(pieceId: string, env: Env, it: { view: string; want: Want }, by: string): Promise<Written> {
+  await ensureCmsSchema();
+  const m = connection(env);
+  const ours = await oursOf(pieceId, env);
+  try {
+    return await writePage(m, { env, view: it.view, store: await storeRefOf(env, it.view), want: it.want, others: await othersOf(env, it.view), ours: (id) => ours.has(id), by, backups: pageBackups(pieceId) });
+  } catch (e) {
+    throw new ConvertError(said(e), 409);
+  }
+}
+
+export type PageBackup = { id: string; env: Env; view: string; identifier: string; pageId: string; action: string; by: string | null; at: string; written: boolean; error: string | null };
+export async function cmsPageBackups(pieceId: string): Promise<PageBackup[]> {
+  await ensureCmsSchema();
+  const r = await query<{ id: string; env: Env; store: string; identifier: string; page_id: string; kind: string; by_whom: string | null; at: Date; written: boolean; error: string | null }>(
+    `SELECT id, env, store, identifier, page_id, kind, by_whom, at, written, error FROM apsomh_convert_cms_backups WHERE piece_id = $1 ORDER BY at DESC LIMIT 60`, [pieceId]);
+  return r.rows.map((x) => ({ id: String(x.id), env: x.env, view: x.store, identifier: x.identifier, pageId: x.page_id, action: x.kind, by: x.by_whom, at: new Date(x.at).toISOString(), written: x.written, error: x.error }));
+}
+
+/** A store view's page brought back as it was before this to-do's last write there (a page it created: switched off). */
+export async function cmsPageRestore(pieceId: string, env: Env, view: string, by: string): Promise<{ action: "restored" | "switched-off"; backupId: string; pageId: string; identifier: string }> {
+  await ensureCmsSchema();
+  const r = await query<{ id: string; identifier: string; page_id: string; kind: string; page: Record<string, unknown> | null; content_before: string; written: boolean }>(
+    `SELECT id, identifier, page_id, kind, page, content_before, written FROM apsomh_convert_cms_backups
+      WHERE piece_id = $1 AND env = $2 AND store = $3 AND kind IN ('create', 'update') AND written ORDER BY at DESC LIMIT 1`, [pieceId, env, view]);
+  const row = r.rows[0];
+  if (!row) throw new ConvertError(`Nothing of this page was written to ${ENVS[env].label} in ${view}.`, 404);
+  const b: Backup = { id: String(row.id), env, view, identifier: row.identifier, pageId: row.page_id, action: row.kind as Backup["action"], page: row.page, before: row.content_before, written: row.written };
+  try {
+    const out = await restorePage(connection(env), b, { by, backups: pageBackups(pieceId) });
+    return { ...out, pageId: row.page_id, identifier: row.identifier };
+  } catch (e) {
+    throw new ConvertError(said(e), 409);
+  }
 }
