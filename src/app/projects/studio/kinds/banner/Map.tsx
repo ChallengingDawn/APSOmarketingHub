@@ -100,7 +100,7 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
   const placedN = pages.placed.reduce((n, x) => n + x.mine.length, 0);
 
   return (
-    <MapPane foot={!empty ? <LastStep name="Get it" line={line} onClick={() => { setPick(null); setStep("get"); }} /> : undefined}>
+    <MapPane foot={!empty ? <LastStep name="Get it" line={line} onClick={() => { setPick(null); if (view === "all" || view === "pages") setView(shown); setStep("get"); }} /> : undefined}>
       {empty && (
         <StartCard>
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>Where it is for</Typography>

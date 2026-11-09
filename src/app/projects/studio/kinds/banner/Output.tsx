@@ -215,6 +215,7 @@ export function BannerAssistant({ api, doc, ai, pick, setPick, inputRef }: {
 }) {
   const enabled = api.data.ai && api.data.access.canEdit;
   const n = sizesOf(doc).length;
+  const written = !!(doc.content.headline.trim() || doc.content.line.trim() || doc.content.eyebrow.trim());
   const asks = pick ? ASK_FOR[pick] : undefined;
   const name = pick ? PART_NAME[pick] : "";
   const forPart = (text: string) => (pick && asks ? `About the ${name.toLowerCase()} only: ${text} Keep everything else word for word.` : text);
@@ -227,7 +228,8 @@ export function BannerAssistant({ api, doc, ai, pick, setPick, inputRef }: {
         { label: "Shorter", run: () => ai.copy(pick, `${name}: shorter`, asks.shorter) },
         pick === "headline" ? { label: "Three other headlines", run: ai.headlines } : { label: "Another one", run: () => ai.copy(pick, `${name}: another one`, asks.another) },
       ] : pick ? [] : [
-        { label: n > 1 ? `Write every word, for the ${n} places` : "Write every word", run: () => ai.copy(null, "Every word written") },
+        // the same words as the start card and the map's header (the flow standard)
+        { label: `${written ? "Write it all again" : "Write the whole banner with AI"}${n > 1 ? `, for the ${n} places` : ""}`, run: () => ai.copy(null, "Every word written") },
         { label: "Three other headlines", run: ai.headlines },
       ]}>
       {pick && !asks && <Typography sx={{ mt: 1.5, fontSize: "0.8rem", color: MUTED }}>The AI writes words; change the {name.toLowerCase()} on the left, or let it go to ask about every word.</Typography>}
