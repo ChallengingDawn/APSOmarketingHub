@@ -37,8 +37,7 @@ import { fieldLabel } from "@/lib/content/studio/kinds/page/fields";
 import {
   langName, langState, langsOf, leftoversOf, shopUrl, type LangOption, type LangState, type Leftover, type PageDoc,
 } from "@/lib/content/studio/kinds/page/model";
-import { renderNewPage } from "@/lib/content/studio/kinds/page/newpage";
-import { PART_NAME, partOfPath } from "@/lib/content/studio/kinds/page/outline";
+import { ADD_CSS, renderNewPage } from "@/lib/content/studio/kinds/page/newpage";
 import type { InsertOut, PreviewOut } from "@/lib/content/studio/kinds/page/shop";
 import type { Located } from "@/lib/content/studio/kinds/page/shopParts";
 import { PINK, btn } from "../../parts";
@@ -186,7 +185,9 @@ export function LangSwitch({ d, lang, onLang, offered }: { d: PageDoc; lang: str
 /* ── the toolbar over the selected element ────────────────────────────── */
 
 /** A picture selected in the page: the slot's actions over it (the flow standard: Make another · Upload · Gallery · Remove). */
-export type PicActs = { has: boolean; canMake: boolean; onMake: () => void; onUpload: () => void; onGallery: () => void; onRemove: () => void };
+export type PicActs = { has: boolean; canMake: boolean; onMake: () => void; onUpload: () => void; onGallery: () => void; onRemove: () => void;
+  /** "Fine-tune with AI": the same picture with one change, asked in the assistant (Content v5) */
+  onRefine?: () => void };
 
 function SelBar({ label, canWords, onWords, onAi, onClose, pic }: { label: string; canWords: boolean; onWords: () => void; onAi: () => void; onClose: () => void; pic?: PicActs | null }) {
   const b = { ...btn, color: "#fff", minWidth: 0, px: 1, py: 0.25, fontSize: "0.76rem", borderRadius: "5px", "&:hover": { bgcolor: "rgba(255,255,255,.12)" } };
@@ -197,7 +198,8 @@ function SelBar({ label, canWords, onWords, onAi, onClose, pic }: { label: strin
       {canWords && <Button size="small" onClick={onWords} startIcon={<EditOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>Edit words</Button>}
       {pic ? (
         <>
-          {pic.canMake && <Button size="small" onClick={pic.onMake} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>{pic.has ? "Make another" : "Make it"}</Button>}
+          {pic.onRefine && <Button size="small" onClick={pic.onRefine} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>Fine-tune with AI</Button>}
+          {pic.canMake && <Button size="small" onClick={pic.onMake} startIcon={pic.onRefine ? undefined : <AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>{pic.has ? "Make another" : "Make it"}</Button>}
           <Button size="small" onClick={pic.onUpload} sx={b}>Upload</Button>
           <Button size="small" onClick={pic.onGallery} sx={b}>Gallery</Button>
           {pic.has && <Button size="small" onClick={pic.onRemove} sx={b}>Remove</Button>}
@@ -210,7 +212,7 @@ function SelBar({ label, canWords, onWords, onAi, onClose, pic }: { label: strin
 
 /* ── the stage ────────────────────────────────────────────────────────── */
 
-export function Stage({ api, doc, d, lang, onLang, offered, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, onMap, seek, selLabel, picActs, onAct }: {
+export function Stage({ api, doc, d, lang, onLang, offered, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, onMap, seek, selLabel, picActs, onAct, adds }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void; offered: LangOption[]; view: View; onView: (v: View) => void;
   preview: ReturnType<typeof usePagePreview>; selected: string | null; picked: Picked | null;
   onPick: (p: Picked | null) => void; onEdit: (p: Picked, v: { text: string; inner: string; outer: string }) => void;
@@ -219,7 +221,7 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
   reveal: number;
   onEditWords: () => void; onAskAi: () => void; inserts: InsertOut[] | null; shell: PreviewOut | null;
   /** what the AI is writing now in a new page (blocks, fields) and the pictures being made - they shimmer */
-  writing?: { blocks: string[]; fields: string[]; pictures: string[] };
+  writing?: { blocks: string[]; fields: string[]; pictures: string[]; tuning?: string[] };
   /** a page of the shop being changed by the AI: since when */
   working?: number | null;
   /** a page of the shop: where the preview found each change (the outline's parts), and a part to find and select */
@@ -230,6 +232,8 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
   /** a picture selected: its actions over it; a slot's own buttons in the page ("Make it", "Upload") */
   picActs?: PicActs | null;
   onAct?: (path: string, act: string) => void;
+  /** a new page someone may change: the "+" between its blocks ("Add a block here") and in a block with items (Content v5) */
+  adds?: { onAdd: (at: number, pos: { top: number; left: number }) => void; onAddItem: (list: string) => void };
   onFix: (left: Leftover[]) => void;
   /** what shows in place of the page (the page list, a language still to make) */
   empty?: React.ReactNode;
@@ -253,18 +257,17 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
   // a new page, drawn here from its fields as they are typed
   const patch = useMemo(() => {
     if (!isNew) return undefined;
-    const r = renderNewPage(d.fields, { marks: true, busy: writing, inserts: (inserts ?? []).filter((x) => x.ok).map((x) => ({ id: x.id, where: x.where, html: x.html })) });
-    return `<style>${r.css}\n${BUSY_CSS}</style>${r.html}`;
+    const r = renderNewPage(d.fields, { marks: true, adds: !!adds, busy: writing, inserts: (inserts ?? []).filter((x) => x.ok).map((x) => ({ id: x.id, where: x.where, html: x.html })) });
+    return `<style>${r.css}\n${BUSY_CSS}\n${ADD_CSS}</style>${r.html}`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNew, d.fields, inserts, JSON.stringify(writing ?? null)]);
+  }, [isNew, d.fields, inserts, JSON.stringify(writing ?? null), !!adds]);
 
   const selectOpts = {
     mode: (isNew ? "field" : "element") as "field" | "element",
-    selected, onPick, onEdit, editNonce, reveal, onMap, seek, onAct,
+    selected, onPick, onEdit, editNonce, reveal, onMap, seek, onAct, onAdd: adds?.onAdd, onAddItem: adds?.onAddItem,
   };
-  // a whole part opened on the left says its name ("Benefits"), a field its own ("Benefit 2 · title")
-  const wholeBlock = selected?.startsWith("b:") && !selected.slice(2).includes(".") ? partOfPath(selected.slice(2)) : null;
-  const label = !selected ? "" : selLabel ? selLabel : wholeBlock ? PART_NAME[wholeBlock] : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())
+  // a whole block says its number and name ("4 · Proof tiles" - the studio's selLabel), a field its own ("Tile 2 · title")
+  const label = !selected ? "" : selLabel ? selLabel : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())
     : selected.startsWith("i:") ? "Banner" : picked ? `<${picked.tag}>${picked.text ? ` ${picked.text.slice(0, 28)}` : ""}` : "";
   const canWords = !!selected && (selected.startsWith("f:") ? !/picture$|\.button$|^f:links\./.test(selected) || selected.endsWith(".label") : !!picked?.editable);
   const toolbar = selected ? <SelBar label={label} canWords={canWords} onWords={onEditWords} onAi={onAskAi} onClose={() => onPick(null)} pic={picActs} /> : undefined;

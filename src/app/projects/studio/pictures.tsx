@@ -48,6 +48,24 @@ export async function makePicture(prompt: string, aspect: PictureAspect, where: 
   return r.ok && r.asset ? { ok: true, picture: r.asset } : { ok: false, error: r.error ?? "No picture came back." };
 }
 
+/**
+ * A picture fine-tuned (Content v5, SARCLA 09.11.2026: "Ask AI under a photo should give you the option to fine-tune the
+ * photo"): the SAME picture with one change - the image model is given the picture as it is. The old one stays in the
+ * gallery. Only a picture kept in the hub (its /api/content/picture/ address). Takes 10-40 s.
+ */
+export async function refinePicture(url: string, ask: string, aspect: PictureAspect, where: Where = {}): Promise<{ ok: true; picture: Picture } | { ok: false; error: string }> {
+  const r = await whileWorking({ label: "Fine-tuning the picture…", kind: "picture" }, () => post<{ asset?: Picture }>({ action: "refine", url, ask, aspect, ...where }));
+  return r.ok && r.asset ? { ok: true, picture: r.asset } : { ok: false, error: r.error ?? "No picture came back." };
+}
+
+/** The quick fine-tunes every studio offers for a picture (the free ask covers the rest). */
+export const PICTURE_TUNES: { label: string; ask: string }[] = [
+  { label: "Plain white background", ask: "Put the part on a plain, even white background - nothing else around it, a soft shadow under it." },
+  { label: "Closer on the part", ask: "Come closer: the part fills most of the frame, the same angle, the background less visible." },
+  { label: "Brighter and sharper", ask: "Brighter, cleaner light and crisper detail on the part; the same colours and contents." },
+  { label: "In a real machine", ask: "Show the same part fitted in a real industrial machine where it is used, in a clean, well-lit setting." },
+];
+
 /** The file, made at most 2400 px wide here (PNG kept when it has transparency), as base64. */
 async function shrink(file: File): Promise<string> {
   const raw = await new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = () => rej(fr.error); fr.readAsDataURL(file); });

@@ -34,21 +34,24 @@ import type { AiTask, KindDef, ServerAction, StudioCtx } from "../../contract";
 import { s } from "../../contract";
 import type { Op } from "../../doc";
 import { saveOps } from "../../store";
-import { projectHead } from "@/lib/content/workflow";
+import { projectBrief, projectHead } from "@/lib/content/workflow";
 import { markerOf } from "@/lib/convert/handoff";
 import { publishFromContent, winnerFor, type Winner } from "@/lib/convert/winner";
 import { myAccess } from "@/lib/auth/appAccess";
 import { classify, isKind } from "@/lib/convert/model";
 import { pagesSummary } from "@/lib/convert/pages";
 import { cleanPath, pageWork } from "@/lib/convert/studio";
-import { LIMIT, fieldLabel, fieldStrings, getField, withFieldStrings, type Fields, type Item } from "./fields";
+import { LIMIT, blockOrder, fieldLabel, fieldStrings, getField, withFieldStrings, type Fields, type Item } from "./fields";
 import { FIELD_SCHEMA, FILL_SCHEMA, PART_LABEL, cleanFill, type Candidate, type Part } from "./fill";
 import { fitField, fitFields, limitOf } from "./fit";
 import {
   changeStrings, emptyPage, fillTexts, fromAi, isLegacyBody, langName, languageOfStore, leftoversIn, mainLang, pageDoc, pageText,
   placeholdersOf, shopUrl, sourceHash, textsFromAi, urlKeyOf, viewOf, withChangeStrings, type AiChange, type PageDoc,
 } from "./model";
+import { blockOfPath, blocksOf, itemOfPath } from "./outline";
 import { convertPages, counterpartOf, findPages, insertsOf, outlineOf, pasteOf, previewOf, relinkOf } from "./shop";
+import { SOURCE_ORIGIN, type IdeaSource } from "@/lib/content/ideaOrigins";
+import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
@@ -93,6 +96,7 @@ function context(ctx: StudioCtx, d: PageDoc): string {
 function pageBlock(d: PageDoc): string {
   if (d.source === "new") {
     return `A NEW PAGE for the store view ${d.store} (language: ${langOf(d)}).
+THE PAGE'S BLOCKS, IN THEIR ORDER ON THE PAGE: ${blocksOf(d.fields).filter((b) => b.num).map((b) => `${b.num} ${b.name}${b.key.startsWith("sections.") ? ` (sections.${b.key.slice(9)})` : ""}`).join(" · ")}
 THE PAGE'S FIELDS NOW (path: words):
 ${fieldStrings(d.fields).map((x) => `${x.id}: ${x.text}`).join("\n").slice(0, 20_000) || "(all empty)"}${isLegacyBody(d) ? `\n\nAN EARLIER DRAFT OF THIS PAGE (one block of HTML - take its good parts, never its placeholders):\n${d.newPage.body.slice(0, 16_000)}` : ""}`;
   }
@@ -221,8 +225,13 @@ function fillUser(part: Exclude<Part, "field">) {
     const cands = candidatesOf(input);
     const sectionId = s(input.id, 20);
     const sec = part === "section" ? d.fields.sections.find((x) => x.id === sectionId) : null;
-    const what = part === "all" ? "Write the WHOLE page: every part, all of it final copy."
-      : part === "section" ? `Write THIS section only (${sec ? `now: "${sec.title}"` : "a new one"}) - it must say something the other sections do not.`
+    // where a section sits among the blocks (Content v5: a block added anywhere with the +)
+    const order = blockOrder(d.fields);
+    const at = sec ? order.indexOf(`sections.${sec.id}`) : -1;
+    const near = (k: string | undefined) => { const b = k ? blocksOf(d.fields).find((x) => x.key === k) : null; return b ? `${b.name}${b.line ? ` ("${b.line}")` : ""}` : null; };
+    const where = at > 0 ? ` It is block ${at + 1} of the page, after ${near(order[at - 1]) ?? "the hero"}${order[at + 1] ? ` and before ${near(order[at + 1])}` : ""}.` : "";
+    const what = part === "all" ? "Write the WHOLE page: every block it has (listed above), all of it final copy. A part whose block is not listed is not on the page: give it no items and empty words."
+      : part === "section" ? `Write THIS section only (${sec?.title.trim() ? `now: "${sec.title}"` : "a new one"}) - it must say something the other sections do not.${where}`
         : `Write ${PART_LABEL[part]} only. The rest of the page stays as it is - fit in with it.`;
     return `${context(ctx, d)}
 
@@ -443,6 +452,88 @@ ${s(input.request, 1000) ? `\nTHE PERSON ADDS: ${s(input.request, 1000)}` : ""}`
   },
 };
 
+/* ── english: what a part of the page says, in English (Content v5) ───── */
+//
+// SARCLA 09.11.2026: "I should have Ask: translate to English, if I want to understand what is written". To READ it: the
+// page does not change, nothing goes into its history. DeepL when the hub has it (the `english` action), else one short
+// Claude call (this task).
+
+type Said = { label: string; text: string };
+
+/** The texts a selection holds, labelled: a field, a block, an element of a page of the shop - or the whole page. */
+function saidOf(ctx: StudioCtx, raw: unknown, input: Record<string, unknown>): Said[] {
+  const d = viewFor(ctx, raw, input);
+  const text = s(input.text, 3000);
+  if (text) return [{ label: s(input.label, 80) || "The element", text }];
+  if (d.source === "new") {
+    const path = s(input.path, 80);
+    const block = s(input.block, 40);
+    const all = fieldStrings(d.fields).filter((x) => !x.id.endsWith(".alt"));
+    // one item of a block (a tile, a question): its words only; a block: all of its words
+    const item = block && itemOfPath(block) === block ? block : null;
+    const pick = path ? all.filter((x) => x.id === path || x.id.startsWith(`${path}.`))
+      : item ? all.filter((x) => x.id.startsWith(`${item}.`))
+        : block ? all.filter((x) => blockOfPath(x.id) === (blockOfPath(block) ?? block))
+          : all;
+    return pick.slice(0, 40).map((x) => ({ label: fieldLabel(d.fields, x.id), text: x.text.slice(0, 2000) }));
+  }
+  const o = d.outline && d.outline.path === d.path ? d.outline : null;
+  if (!o) return [];
+  return [
+    ...(o.h1[0] ? [{ label: "Title (H1)", text: o.h1[0] }] : []),
+    ...o.lines.map((l) => l.trim().split(" · ").slice(1).join(" · ").trim()).filter((t) => t.length > 2).slice(0, 60).map((t) => ({ label: "", text: t.replace(/…$/, "") })),
+  ];
+}
+const capSaid = (list: Said[], max = 9000) => { let n = 0; return list.filter((x) => (n += x.text.length) <= max); };
+
+const english: AiTask = {
+  label: "What it says, in English",
+  maxTokens: 4000,
+  effort: "low",
+  schema: { type: "object", additionalProperties: false, required: ["items"], properties: { items: { type: "array", items: { type: "object", additionalProperties: false, required: ["n", "text"], properties: { n: { type: "integer" }, text: { type: "string" } } } } } },
+  system: "You translate a few texts of a web page into plain English, so a colleague who does not read the language understands what they say. Faithful and natural; product names, brands, norms and material codes stay as they are. Nothing added, nothing left out, no comment. Answer every text by its number.",
+  user: (ctx, raw, input) => `THE TEXTS (number: text):\n${capSaid(saidOf(ctx, raw, input)).map((x, i) => `${i + 1}: ${x.text}`).join("\n")}`,
+  clean: (raw, docRaw, ctx, input) => {
+    const said = capSaid(saidOf(ctx, docRaw, input));
+    const got = Array.isArray((raw as { items?: unknown })?.items) ? (raw as { items: { n?: unknown; text?: unknown }[] }).items : [];
+    return { items: said.map((x, i) => ({ label: x.label, text: s(got.find((g) => Number(g.n) === i + 1)?.text, 4000) || x.text })), by: "ai" };
+  },
+};
+
+/** The same through DeepL, when the hub has it - else { items: null } and the studio asks the AI task above. */
+const englishAction: ServerAction = async (ctx, raw, input) => {
+  const said = capSaid(saidOf(ctx, raw, input));
+  if (!said.length) return { items: [], by: "none" };
+  if (!deeplConfigured()) return { items: null };
+  try {
+    const out: Said[] = [];
+    for (let i = 0; i < said.length; i += 4) {
+      const part = await Promise.all(said.slice(i, i + 4).map(async (x) => ({ label: x.label, text: (await deepl(x.text, "EN-GB")).text })));
+      out.push(...part);
+    }
+    return { items: out, by: "deepl" };
+  } catch {
+    return { items: null };
+  }
+};
+
+/* ── where the project came from: written by itself only from an app's brief (Content v5) ──── */
+//
+// SARCLA 09.11.2026: "write the new page with AI: it depends - if the project was created via an SEO brief, writing the
+// page should be by default; otherwise the user should prompt each page he wants". A project started from an idea of
+// one of the apps carries that app as its source (lib/content/start.ts): SEO, AEO & LLM Optimizer, Search bar,
+// Personality, AI testing & personalization. With a brief from one of them the studio writes the new page on its own.
+
+const APP_SOURCES: IdeaSource[] = ["seo", "aeo", "search", "brand", "convert", "buyers"];
+
+const brief: ServerAction = async (ctx) => {
+  const { source } = await projectBrief(ctx.projectId).catch(() => ({ source: null as string | null }));
+  const app = source && (APP_SOURCES as string[]).includes(source) ? SOURCE_ORIGIN[source as IdeaSource].app : null;
+  const notes = (ctx.projectNotes ?? "").replace(/^\[idea [^\]]+\]\s*/gm, "").trim();
+  const text = [ctx.brief.goal, notes].map((x) => (x ?? "").trim()).filter(Boolean).join("\n").slice(0, 600);
+  return { source, app, text, auto: !!app && !!text };
+};
+
 /* ── actions ──────────────────────────────────────────────────────────── */
 
 async function write(ctx: StudioCtx, ops: Op[]) {
@@ -630,12 +721,13 @@ export const pageKind: KindDef = {
   empty: (ctx) => emptyPage(ctx.piece.language),
   toText: pageText,
   tasks: {
-    rewrite, ideas, texts, translate, seo,
+    rewrite, ideas, texts, translate, seo, english,
     fill_all: fillTask("all"), fill_hero: fillTask("hero"), fill_intro: fillTask("intro"), fill_benefits: fillTask("benefits"),
     fill_sections: fillTask("sections"), fill_section: fillTask("section"), fill_links: fillTask("links"), fill_faq: fillTask("faq"),
     fill_cta: fillTask("cta"), fill_seo: fillTask("seo"), fill_field: fillField,
   },
   actions: {
     start, winner, publish, stores, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, relink, ping: async () => ({ ok: true }),
+    english: englishAction, brief,
   },
 };
