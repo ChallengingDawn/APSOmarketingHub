@@ -24,5 +24,5 @@ export function studioKindOf(contentType: string | null | undefined): StudioKind
 }
 
 export const STUDIO_LABEL: Record<StudioKind, string> = {
-  page: "Page", blog: "Blog post", social: "Social post", newsletter: "Newsletter", banner: "Banner", video: "Video",
+  page: "Page", blog: "Blog article", social: "Social post", newsletter: "Newsletter", banner: "Banner", video: "Video",
 };
