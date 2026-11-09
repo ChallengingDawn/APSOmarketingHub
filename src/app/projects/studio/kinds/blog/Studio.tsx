@@ -25,8 +25,6 @@ import CloseIcon from "@mui/icons-material/Close";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import FormatQuoteIcon from "@mui/icons-material/FormatQuote";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
-import TranslateIcon from "@mui/icons-material/Translate";
-import UndoIcon from "@mui/icons-material/Undo";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import {
@@ -41,7 +39,8 @@ import type { StudioApi } from "../../useStudio";
 import { EditFrame, type Device } from "./EditFrame";
 import { Outline } from "./Outline";
 import { setDocSafely } from "./safeSet";
-import { BLUE, Hint, PictureSlot, Working, toolBtn, useSettled } from "./ui";
+import { addChange, madeLanguages, versionLabel, versionOf, type StudioChange } from "@/lib/content/studio/kinds/blog/changes";
+import { BLUE, ChangesList, Hint, PictureSlot, TranslateRow, Working, shopPageSearch, toolBtn, useSettled } from "./ui";
 
 export const LANGS = ["DE", "FR", "IT", "EN", "NL", "PL"] as const;
 /** The page's width on a computer: the article's column and its contents at their real size, zoomed less. */
@@ -50,7 +49,6 @@ const DESKTOP = 1040;
 type Outline = Pick<BlogDoc, "title" | "slug" | "metaTitle" | "metaDescription" | "excerpt" | "sections" | "faq" | "tags" | "takeaways"> & {
   cta: { title: string; text: string; label: string }; picture: string; pictureAlt: string;
 };
-type Change = { id: number; text: string; before: Partial<BlogDoc>; at: string };
 type Work = { label: string; key: string | null; since: number } | null;
 
 /** The AI's sections laid over the post's: a picture already in place stays with the section at the same place. */
@@ -180,12 +178,14 @@ export default function Studio({ api }: StudioProps) {
   const [open, setOpen] = useState<string[]>([]);
   const [device, setDevice] = useState<Device>("desktop");
   const [work, setWork] = useState<Work>(null);
-  const [changes, setChanges] = useState<Change[]>([]);
-  const [lang, setLang] = useState<string>(() => (d.language === "EN" ? "DE" : "EN"));
-  // translated into the language picked: another one is offered next
-  useEffect(() => { if (lang === d.language) setLang(lang === "EN" ? "DE" : "EN"); }, [d.language, lang]);
+  // what each change of this sitting replaced, for its Undo (the list itself is kept in the post: it survives a reload)
+  const befores = useRef(new Map<number, Partial<BlogDoc>>());
+  /** the language being made by a translation */
+  const [tl, setTl] = useState<string | null>(null);
   const [cards, setCards] = useState<BlogCard[] | null>(null);
   const askRef = useRef<HTMLTextAreaElement | null>(null);
+  // a link's address: the shop's pages in the post's store view, found as it is typed
+  const linkSearch = useMemo(() => shopPageSearch(d.store), [d.store]);
 
   // every blog post of the hub this person can see - for the blog's home in the paste
   const readCards = useCallback(async () => {
@@ -202,18 +202,29 @@ export default function Studio({ api }: StudioProps) {
 
   const pick = (key: string | null, scroll = false) => { setSel(key); if (key && scroll) setFocus({ key, at: Date.now() }); };
 
-  /** An answer laid over the post as it is now; what it replaced kept for Undo. */
-  const lay = async (patch: Partial<BlogDoc>, text: string) => {
+  /** An answer laid over the post as it is now: listed in "Changes made here" (kept in the post), what it replaced kept for
+   *  Undo in this sitting and, as a version saved just before, for going back after a reload. */
+  const lay = async (patch: Partial<BlogDoc>, text: string, lang?: string) => {
+    const entry: StudioChange = { id: Date.now(), text, at: new Date().toISOString(), ...(lang ? { lang, from: docRef.current.language.toUpperCase() } : {}) };
+    await api.saveVersion(versionLabel(entry));
     const cur = docRef.current;
     const keys = Object.keys(patch) as (keyof BlogDoc)[];
-    const before = Object.fromEntries(keys.map((k) => [k, cur[k]])) as Partial<BlogDoc>;
-    await setDocSafely(api, cur, { ...cur, ...patch });
-    setChanges((c) => [{ id: Date.now(), text, before, at: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) }, ...c].slice(0, 12));
+    befores.current.set(entry.id, Object.fromEntries(keys.map((k) => [k, cur[k]])) as Partial<BlogDoc>);
+    await setDocSafely(api, cur, { ...cur, ...patch, changes: addChange(cur.changes, entry) });
   };
-  const undo = async (ch: Change) => {
+  const undoMode = (c: StudioChange): "undo" | "back" | null => (befores.current.has(c.id) ? "undo" : versionOf(api.data.versions, c.id) ? "back" : null);
+  const undo = async (c: StudioChange) => {
     const cur = docRef.current;
-    await setDocSafely(api, cur, { ...cur, ...ch.before });
-    setChanges((c) => c.filter((x) => x.id !== ch.id));
+    const before = befores.current.get(c.id);
+    if (before) {
+      befores.current.delete(c.id);
+      await setDocSafely(api, cur, { ...cur, ...before, changes: (cur.changes ?? []).filter((x) => x.id !== c.id) });
+      return;
+    }
+    const v = versionOf(api.data.versions, c.id);
+    if (!v || !window.confirm("Go back to the post as it was before this change? What was done after it goes too - the post as it is now is kept in Versions.")) return;
+    await api.saveVersion("Before going back");
+    if (!(await api.restore(v.id))) window.alert("Going back did not work - try again, or pick the version in Versions in the bar.");
   };
   /** The assistant at work: the band over the preview, the part it works on breathing. */
   const busyRun = async (label: string, key: string | null, fn: () => Promise<string | null>) => {
@@ -221,7 +232,7 @@ export default function Studio({ api }: StudioProps) {
     try { return await fn(); } finally { setWork(null); }
   };
 
-  const write = (request: string, language?: string) => busyRun(language ? `Translating the post into ${LANGUAGE_NAME[language] ?? language}…` : docRef.current.sections.length ? "Writing the post again…" : "Writing the post from the brief - about a minute or two…", null, async () => {
+  const write = (request: string, language?: string) => { if (language) setTl(language); return busyRun(language ? `Translating the post into ${LANGUAGE_NAME[language] ?? language}…` : docRef.current.sections.length ? "Writing the post again…" : "Writing the post from the brief - about a minute or two…", null, async () => {
     const ask = language ? `Translate the whole post into ${LANGUAGE_NAME[language] ?? language}, faithfully.${request ? ` ${request}` : ""}` : request;
     const r = await api.ai<Outline>("outline", { topic: docRef.current.title || p.title, request: ask, ...(language ? { language } : {}) });
     if (!r.ok) return r.error;
@@ -239,10 +250,10 @@ export default function Studio({ api }: StudioProps) {
       ...(language ? { language: lg, store: storeOf(lg) } : {}),
     }, language
       ? `Translated into ${LANGUAGE_NAME[lg] ?? lg}: ${x.sections.length} sections, ${x.faq.length} questions, store view ${storeOf(lg)}.`
-      : `The post: ${x.sections.length} sections, ${x.takeaways.length} lines "in short", ${x.faq.length} questions, Google's texts and the band to the shop.${cur.hero.url ? "" : " Its picture: click the empty frame under the title."}`);
+      : `The post: ${x.sections.length} sections, ${x.takeaways.length} lines "in short", ${x.faq.length} questions, Google's texts and the band to the shop.${cur.hero.url ? "" : " Its picture: click the empty frame under the title."}`, language);
     setSel(null);
     return null;
-  });
+  }).finally(() => setTl(null)); };
 
   /** One part changed by the assistant (the part task), or a section written again (the section task). */
   const changePart = (key: string, request: string, label: string) => busyRun(`${label} - ${partLabel(docRef.current, key).toLowerCase()}…`, key, async () => {
@@ -422,30 +433,11 @@ export default function Studio({ api }: StudioProps) {
     <AssistantPanel quick={quick} enabled={enabled} onAsk={onAsk} placeholder={placeholder} top={top} inputRef={askRef}>
       {!sel && d.sections.length > 0 && (
         <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-          <Label mt={0}>Translate the whole post</Label>
-          <SquareChoice value={lang} onChange={setLang} options={LANGS.filter((l) => l !== d.language).map((l) => ({ key: l, label: l }))} />
-          <Button fullWidth variant="outlined" disabled={!enabled || !!work} startIcon={<TranslateIcon sx={{ fontSize: 17 }} />}
-            onClick={() => void write("", lang)}
-            sx={{ ...btn, mt: 1, justifyContent: "flex-start", borderColor: HAIRLINE, color: INK, bgcolor: "#fff", "&:hover": { borderColor: BLUE, bgcolor: "#fff" } }}>
-            Into {LANGUAGE_NAME[lang]} - this to-do
-          </Button>
-          <Hint mt={0.75}>Everything is translated and its store view follows; Undo brings the {LANGUAGE_NAME[d.language] ?? d.language} back.</Hint>
+          <TranslateRow what="post" langs={LANGS} names={LANGUAGE_NAME} current={d.language} made={madeLanguages(d.changes, d.language)} busy={tl}
+            disabled={!enabled || (!!work && !tl)} onPick={(l) => void write("", l)} />
         </Box>
       )}
-      {changes.length > 0 && (
-        <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-          <Label mt={0}>Changes made here</Label>
-          {changes.map((ch) => (
-            <Box key={ch.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", p: 1.25, mb: 0.75, borderRadius: "6px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.45 }}>{ch.text}</Typography>
-                <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{ch.at}</Typography>
-              </Box>
-              <Button size="small" onClick={() => void undo(ch)} startIcon={<UndoIcon sx={{ fontSize: 15 }} />} sx={toolBtn}>Undo</Button>
-            </Box>
-          ))}
-        </Box>
-      )}
+      <ChangesList changes={d.changes ?? []} mode={undoMode} onUndo={(c) => void undo(c)} disabled={!canEdit || !!work} />
     </AssistantPanel>
   );
 
@@ -458,7 +450,7 @@ export default function Studio({ api }: StudioProps) {
         {work && <Working label={work.label} since={work.since} />}
         <EditFrame html={html} device={device} width={DESKTOP} title="The blog post" texts={(k) => partText(docRef.current, k)} oneLine={oneLine}
           selected={sel} onSelect={(k) => setSel(k)} onCommit={commit} readOnly={!canEdit} focus={focus} editKey={editKey} busy={work ? work.key ?? "*" : picBusy}
-          rich={richOf} redMarks label={(k) => partLabel(docRef.current, k)} onAskAi={enabled ? () => askRef.current?.focus() : undefined} />
+          rich={richOf} redMarks linkSearch={linkSearch} label={(k) => partLabel(docRef.current, k)} onAskAi={enabled ? () => askRef.current?.focus() : undefined} />
       </Box>
     </Pane>
   );

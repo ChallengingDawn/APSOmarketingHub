@@ -32,7 +32,7 @@ import { serp } from "@/lib/content/studio/kinds/blog/render";
 import { Field, PINK, Pane, btn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { Publish } from "./Publish";
-import { BLUE, toolBtn } from "./ui";
+import { BLUE, toolBtn, useFitHeight } from "./ui";
 
 /** Where a picked part shows in the map: its row's key (a section's parts all show on its row). */
 export function rowOf(key: string | null): string | null {
@@ -139,6 +139,8 @@ export function Outline({ api, d, set, sel, onPick, onAddSection, cards, fields,
   const canEdit = api.data.access.canEdit;
   const [around, setAround] = useState<"google" | "notes" | null>(null);
   const [step, setStep] = useState<"map" | "publish">("map");
+  // the map scrolls inside the left pane and the last step stands at its foot, at any height
+  const fit = useFitHeight(14, step);
   const rows = outlineOf(d);
   const on = rowOf(sel);
   const busyRow = busy === "all" ? "all" : rowOf(busy ?? null);
@@ -167,6 +169,8 @@ export function Outline({ api, d, set, sel, onPick, onAddSection, cards, fields,
         <Button size="small" onClick={onWriteAll} disabled={busy !== null && busy !== undefined} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: "14px !important" }} />} sx={linkBtn}>Write it all again</Button>
       </Tooltip>
     ) : undefined}>
+      <Box ref={fit.ref} sx={{ height: fit.height ?? "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
       <Box sx={{ p: 1.25 }}>
         {start}
         {rows.map((r) => {
@@ -210,9 +214,10 @@ export function Outline({ api, d, set, sel, onPick, onAddSection, cards, fields,
           <Field label="For the team" value={d.notes} multiline rows={3} disabled={!canEdit} onChange={(v) => set({ ...d, notes: v })} />
         </Row>
       </Box>
+      </Box>
 
       {/* the last step, always in view at the foot of the column */}
-      <Box sx={{ position: "sticky", bottom: 0, zIndex: 2, px: 1.5, py: 1.25, borderTop: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.94)", backdropFilter: "blur(6px)" }}>
+      <Box sx={{ flexShrink: 0, px: 1.5, py: 1.25, borderTop: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.94)" }}>
         <Typography sx={{ fontSize: "0.74rem", color: warnings.length ? AMBER : MUTED, mb: 0.75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {!n ? "Nothing written yet" : warnings.length ? `${warnings.length} thing${warnings.length === 1 ? "" : "s"} to look at before it goes live` : "Ready for the shop"}
         </Typography>
@@ -223,6 +228,7 @@ export function Outline({ api, d, set, sel, onPick, onAddSection, cards, fields,
             Publish
           </Box>
         </Button>
+      </Box>
       </Box>
     </Pane>
   );

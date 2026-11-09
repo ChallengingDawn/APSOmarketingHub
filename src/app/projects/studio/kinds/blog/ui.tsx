@@ -9,7 +9,9 @@
 import { useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
 import Collapse from "@mui/material/Collapse";
+import Tooltip from "@mui/material/Tooltip";
 import LinearProgress from "@mui/material/LinearProgress";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
@@ -20,8 +22,10 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import FileUploadOutlinedIcon from "@mui/icons-material/FileUploadOutlined";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
+import UndoIcon from "@mui/icons-material/Undo";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
-import { PINK, btn, field } from "../../parts";
+import { whenOf, type StudioChange } from "@/lib/content/studio/kinds/blog/changes";
+import { Label, PINK, btn, field } from "../../parts";
 import { PicturePanel, makePicture, uploadPicture, type Picture, type PictureAspect } from "../../pictures";
 
 export const BLUE = "#2459d1";
@@ -231,3 +235,119 @@ export function Working({ label, since }: { label: string; since: number }) {
     </Box>
   );
 }
+
+/**
+ * The map's own height (Content v4 - the lead: "the pinned last step must never sit under the fold"): the left pane's
+ * column is as tall as what is left of the window under its top, never taller than its pane - so the map scrolls inside
+ * it and the last step stands at its foot at any height (a page made taller by a banner above it too).
+ */
+export function useFitHeight(gap = 14, key: unknown = null) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [h, setH] = useState<number | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    const parent = el?.parentElement;
+    if (!el || !parent) return;
+    const fit = () => {
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      const byWindow = window.innerHeight - top - gap;
+      setH(Math.max(260, Math.min(parent.clientHeight, byWindow)));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(parent);
+    window.addEventListener("resize", fit);
+    return () => { ro.disconnect(); window.removeEventListener("resize", fit); };
+  }, [gap, key]);
+  return { ref, height: h };
+}
+
+/**
+ * Translation as ONE squared row (Content v4): "Translate the whole <post> into", every language; the one it is in now
+ * dark, those made here before with a tick; a click starts it (the band and the page show it at work).
+ */
+export function TranslateRow({ what, langs, names, current, made, busy, disabled, onPick }: {
+  what: string; langs: readonly string[]; names: Record<string, string>; current: string; made: string[];
+  /** the language being made now */
+  busy: string | null; disabled: boolean; onPick: (lang: string) => void;
+}) {
+  return (
+    <Box>
+      <Label mt={0}>Translate the whole {what} into</Label>
+      <Box role="group" aria-label={`Translate the whole ${what}`} sx={{ display: "flex" }}>
+        {langs.map((l, i) => {
+          const now = l === current.toUpperCase();
+          const done = !now && made.includes(l);
+          const tip = now ? `The ${what} is in ${names[l] ?? l} now` : busy === l ? `Translating into ${names[l] ?? l}…` : done ? `Made here before - a click translates it into ${names[l] ?? l} again` : `Translate the whole ${what} into ${names[l] ?? l}`;
+          return (
+            <Tooltip key={l} title={tip}>
+              <Box component="span" sx={{ flex: 1, minWidth: 0, ml: i ? "-1px" : 0, display: "flex" }}>
+                <Box component="button" type="button" disabled={disabled || now || !!busy} onClick={() => onPick(l)} aria-label={tip} sx={{
+                  all: "unset", boxSizing: "border-box", flex: 1, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 0.4,
+                  border: `1px solid ${now ? "#15223a" : HAIRLINE}`, bgcolor: now ? "#15223a" : busy === l ? "#fbeef4" : "#fff", color: now ? "#fff" : INK,
+                  fontSize: "0.8rem", fontWeight: 700, letterSpacing: ".02em", cursor: now || busy || disabled ? "default" : "pointer",
+                  opacity: disabled && !now ? 0.5 : 1, position: "relative", zIndex: now ? 1 : 0,
+                  "&:hover": now || busy || disabled ? {} : { borderColor: PINK, color: PINK, zIndex: 2 },
+                  "&:focus-visible": { outline: `2px solid ${PINK}`, outlineOffset: 1, zIndex: 3 },
+                }}>
+                  {l}
+                  {done && busy !== l && <CheckIcon sx={{ fontSize: 13, color: "#1b7a55" }} />}
+                  {busy === l && <CircularProgress size={11} sx={{ color: PINK }} />}
+                </Box>
+              </Box>
+            </Tooltip>
+          );
+        })}
+      </Box>
+      <Hint mt={0.75}>{busy ? `Translating the whole ${what} into ${names[busy] ?? busy} - the page shows it at work.` : `A click translates everything (ticked: made here before); Undo below brings this ${names[current.toUpperCase()] ?? current} back.`}</Hint>
+    </Box>
+  );
+}
+
+/**
+ * "Changes made here", kept with the document (Content v4: it survives a reload). Undo for a change made in this sitting;
+ * "Go back" for one made before (back to the version saved just before it - what came after goes too, and the state of
+ * now is kept in Versions); no button when no version of it is found - the list says to use Versions.
+ */
+export function ChangesList({ changes, mode, onUndo, disabled }: {
+  changes: StudioChange[]; mode: (c: StudioChange) => "undo" | "back" | null; onUndo: (c: StudioChange) => void; disabled?: boolean;
+}) {
+  if (!changes.length) return null;
+  const anyOld = changes.some((c) => mode(c) !== "undo");
+  return (
+    <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
+      <Label mt={0}>Changes made here</Label>
+      {changes.map((c, i) => {
+        const m = mode(c);
+        return (
+          <Box key={c.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", p: 1.25, mb: 0.75, borderRadius: "6px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.45, overflowWrap: "anywhere" }}>{c.text}</Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{whenOf(c.at)}</Typography>
+            </Box>
+            {m && (
+              <Tooltip title={m === "undo" ? (i === 0 ? "Undo this change" : "Undo this change - the others stay") : "Back to before this change: what came after it goes too (the state of now is kept in Versions)"}>
+                <span><Button size="small" disabled={disabled} onClick={() => onUndo(c)} startIcon={<UndoIcon sx={{ fontSize: 15 }} />} sx={toolBtn}>{m === "undo" ? "Undo" : "Go back"}</Button></span>
+              </Tooltip>
+            )}
+          </Box>
+        );
+      })}
+      {anyOld && <Hint mt={0.25}>Changes from before a reload go back by the version saved with them; older states are in Versions in the bar.</Hint>}
+    </Box>
+  );
+}
+
+/** The shop's pages whose address holds the words typed (AI testing & personalization's index of the shop's pages, on
+ *  production) - for a link's address. Nothing when the index is empty or not open to this person: the address is typed. */
+export const shopPageSearch = (store?: string) => async (q: string): Promise<{ label: string; href: string }[]> => {
+  const sp = new URLSearchParams({ q, where: "prod" });
+  if (store && /^[a-z]{2}-[A-Z]{2,3}(\/[a-z]{3})?$/.test(store)) sp.set("store", store);
+  const r = (await fetch(`/api/website/ai-personalization/pages?${sp}`).then((x) => (x.ok ? x.json() : null)).catch(() => null)) as
+    { ok?: boolean; data?: { list?: { rows?: { prod?: { url: string } | null }[] } } } | null;
+  const rows = r?.ok ? r.data?.list?.rows ?? [] : [];
+  return rows.flatMap((row) => {
+    if (!row.prod?.url) return [];
+    try { const path = new URL(row.prod.url).pathname; return [{ label: path, href: path }]; } catch { return []; }
+  });
+};

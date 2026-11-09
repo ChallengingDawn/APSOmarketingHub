@@ -12,6 +12,7 @@
 // Pure and shared with the browser (relative imports only): tests/studio-newsletter.test.ts.
 
 import { brandWarnings } from "../blog/model";
+import { changesOf, type StudioChange } from "../blog/changes";
 
 export type Link = { label: string; url: string };
 /** Where a block came from in the HubSpot e-mail it was started from (ourEmails.ts): the widgets its words, title,
@@ -48,6 +49,8 @@ export type NewsletterDoc = {
   startedFrom?: { emailId: string; subject: string; language: string; date: string };
   /** Our e-mails the assistant writes like (picked in "Our e-mails"; "we should be able to select more"). */
   learnFrom?: { emailId: string; subject: string }[];
+  /** "Changes made here": the assistant's changes, kept with the e-mail (Content v4 - never a picture or the text itself) */
+  changes?: StudioChange[];
 };
 
 export const SUBJECT_MAX = 55;
@@ -177,6 +180,7 @@ export function asNewsletter(doc: unknown): NewsletterDoc {
     hubspot: isObj(d.hubspot) ? (d.hubspot as NewsletterDoc["hubspot"]) : undefined,
     startedFrom: isObj(d.startedFrom) && typeof d.startedFrom.emailId === "string" ? (d.startedFrom as NewsletterDoc["startedFrom"]) : undefined,
     learnFrom: Array.isArray(d.learnFrom) ? (d.learnFrom.filter((x) => isObj(x) && typeof x.emailId === "string").slice(0, 8) as NewsletterDoc["learnFrom"]) : undefined,
+    changes: changesOf(d.changes),
   };
 }
 

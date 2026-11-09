@@ -22,7 +22,9 @@ import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import DashboardCustomizeOutlinedIcon from "@mui/icons-material/DashboardCustomizeOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import MarkEmailReadOutlinedIcon from "@mui/icons-material/MarkEmailReadOutlined";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
@@ -35,7 +37,7 @@ import { Field, Label, PINK, Pane, btn } from "../../parts";
 import { PicturePanel } from "../../pictures";
 import type { StudioApi } from "../../useStudio";
 import { StateMark } from "../blog/Outline";
-import { BLUE, Hint, PictureSlot, toolBtn } from "../blog/ui";
+import { BLUE, Hint, PictureSlot, toolBtn, useFitHeight } from "../blog/ui";
 import { BlockThumb, LayoutThumb } from "./thumbs";
 
 const GALLERY: BlockKind[] = ["hero", "article", "text", "banner", "products", "facts", "cta", "divider", "header", "footer"];
@@ -116,7 +118,7 @@ export function made(d: NewsletterDoc, k: BlockKind, layout?: "stacked" | "left"
   return nb.kind === "article" && layout ? { ...nb, layout } : nb;
 }
 
-export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout, out, fields, startCard, onWriteAll, busy }: {
+export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout, out, fields, startCard, onWrite, busy }: {
   d: NewsletterDoc; set: (d: NewsletterDoc) => void; sel: string | null; onPick: (id: string | null) => void; canEdit: boolean;
   /** opens the gallery at a place */
   onAdd: (el: HTMLElement, at: number) => void;
@@ -127,8 +129,8 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
   fields?: React.ReactNode;
   /** the start card, while nothing is written */
   startCard?: React.ReactNode;
-  /** "Write it all again" in the header, once something is written */
-  onWriteAll?: () => void;
+  /** "Write it with AI" in "Start from…" (written already: it writes it all again) */
+  onWrite?: () => void;
   /** the block the assistant is writing ("all": the whole e-mail) */
   busy?: string | null;
 }) {
@@ -138,6 +140,9 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
   const [layouts, setLayouts] = useState<HTMLElement | null>(null);
   const [step, setStep] = useState<"blocks" | "out">("blocks");
   const addRef = useRef<HTMLButtonElement | null>(null);
+  // the map scrolls inside the left pane and the last step stands at its foot, at any height
+  const fit = useFitHeight(14, step);
+  const hasHeader = d.blocks.some((b) => b.kind === "header");
   const on = blockOf(sel);
   const moveTo = (from: number, to: number) => {
     if (from === to || from + 1 === to) return;
@@ -159,17 +164,22 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
       </Pane>
     );
   }
-  const linkBtn = { ...btn, minWidth: 0, px: 0.75, py: 0.1, fontSize: "0.74rem", color: PINK, "& .MuiButton-startIcon": { mr: 0.4 } };
+  const linkBtn = { ...btn, minWidth: 0, px: 0.75, py: 0.1, fontSize: "0.76rem", color: PINK, "& .MuiButton-startIcon": { mr: 0.4 }, "& .MuiButton-endIcon": { ml: 0.25 } };
+  const item = (icon: React.ReactNode, label: string, hint: string) => (
+    <Box sx={{ display: "flex", gap: 1.25, alignItems: "flex-start", py: 0.25 }}>
+      <Box sx={{ color: PINK, display: "flex", mt: "2px" }}>{icon}</Box>
+      <Box><Typography sx={{ fontSize: "0.86rem", fontWeight: 650, color: INK }}>{label}</Typography><Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{hint}</Typography></Box>
+    </Box>
+  );
   return (
     <Pane title="Blocks" right={canEdit ? (
-      <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
-        {onWriteAll && <Tooltip title="The assistant writes the whole e-mail again from the brief - Undo brings this one back"><Button size="small" disabled={!!busy} onClick={onWriteAll} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: "14px !important" }} />} sx={linkBtn}>Write it all again</Button></Tooltip>}
-        <Tooltip title="Start from one of our e-mails, or a layout"><Button size="small" onClick={(e) => setStart(e.currentTarget)} sx={{ ...linkBtn, color: MUTED, px: 0.5 }} aria-label="Start from"><KeyboardArrowDownIcon sx={{ fontSize: 18 }} /></Button></Tooltip>
-      </Box>
+      <Button size="small" onClick={(e) => setStart(e.currentTarget)} endIcon={<KeyboardArrowDownIcon sx={{ fontSize: "17px !important" }} />} sx={linkBtn} aria-haspopup="menu">Start from…</Button>
     ) : undefined} pad={false}>
-      <Menu anchorEl={start} open={!!start} onClose={() => setStart(null)} slotProps={{ paper: { sx: { borderRadius: "8px" } } }}>
-        {onOurs && <MenuItem dense onClick={() => { setStart(null); onOurs(); }}>One of our e-mails…</MenuItem>}
-        <MenuItem dense onClick={(e) => { setLayouts(start ?? e.currentTarget); setStart(null); }}>A layout…</MenuItem>
+      <Menu anchorEl={start} open={!!start} onClose={() => setStart(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{ paper: { sx: { borderRadius: "8px", width: 300 } } }}>
+        {onWrite && <MenuItem sx={{ whiteSpace: "normal" }} disabled={!!busy} onClick={() => { setStart(null); onWrite(); }}>{item(<AutoAwesomeOutlinedIcon sx={{ fontSize: 18 }} />, d.blocks.some((b) => b.kind !== "header" && b.kind !== "footer" && stateOf(b).state === "done") ? "Write it all again with AI" : "Write it with AI", "From the project's brief - Undo brings this one back")}</MenuItem>}
+        {onOurs && <MenuItem sx={{ whiteSpace: "normal" }} onClick={() => { setStart(null); onOurs(); }}>{item(<MarkEmailReadOutlinedIcon sx={{ fontSize: 18 }} />, "One of our e-mails…", "Its stories, pictures and buttons, as it went out")}</MenuItem>}
+        <MenuItem sx={{ whiteSpace: "normal" }} onClick={(e) => { setLayouts(start ?? e.currentTarget); setStart(null); }}>{item(<DashboardCustomizeOutlinedIcon sx={{ fontSize: 18 }} />, "A layout…", "The blocks of a layout - the words written stay")}</MenuItem>
       </Menu>
       <Popover open={!!layouts} anchorEl={layouts} onClose={() => setLayouts(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}
         slotProps={{ paper: { sx: { p: 1.5, width: 360, borderRadius: "8px" } } }}>
@@ -177,9 +187,19 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
         <Layouts current={d.layout} onPick={(k) => { setLayouts(null); onLayout(k); }} />
       </Popover>
 
+      <Box ref={fit.ref} sx={{ height: fit.height ?? "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
       <Box sx={{ p: 1.25 }} onDragOver={(e) => { if (drag !== null) e.preventDefault(); }}
         onDrop={(e) => { e.preventDefault(); if (drag !== null && dropAt !== null) moveTo(drag, dropAt); setDrag(null); setDropAt(null); }}>
         {startCard}
+        {/* no logo on top (an e-mail of ours whose first picture carries it): our header, one click away */}
+        {canEdit && !hasHeader && !startCard && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, p: 1, mb: 1, borderRadius: "8px", border: `1px dashed ${HAIRLINE}`, bgcolor: "#fff" }}>
+            <Box component="img" src={OUR_LOGO} alt="" sx={{ width: 64, height: 26, objectFit: "contain", flexShrink: 0 }} />
+            <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.76rem", color: MUTED, lineHeight: 1.35 }}>No logo block on top of this e-mail.</Typography>
+            <Button size="small" startIcon={<AddIcon sx={{ fontSize: 15 }} />} onClick={() => { const h = made(d, "header"); set({ ...d, blocks: [h, ...d.blocks] }); onPick(h.id); }} sx={{ ...toolBtn, flexShrink: 0 }}>Our logo</Button>
+          </Box>
+        )}
         {d.blocks.map((b, i) => {
           const active = on === b.id;
           const pic = picOf(b);
@@ -231,9 +251,10 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
         )}
         <Hint mt={1}>Drag to move - here, or by the handle beside the block picked in the e-mail. Click its words there to edit them.</Hint>
       </Box>
+      </Box>
 
       {/* the last step, always in view at the foot of the column */}
-      <Box sx={{ position: "sticky", bottom: 0, zIndex: 2, px: 1.5, py: 1.25, borderTop: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.94)", backdropFilter: "blur(6px)" }}>
+      <Box sx={{ flexShrink: 0, px: 1.5, py: 1.25, borderTop: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.94)" }}>
         <Button fullWidth variant="contained" disableElevation onClick={() => setStep("out")} endIcon={<ArrowForwardIcon sx={{ fontSize: 18 }} />}
           sx={{ ...btn, height: 40, borderRadius: "8px", bgcolor: "#15223a", color: "#fff", justifyContent: "space-between", px: 1.75, "&:hover": { bgcolor: "#24344f" } }}>
           <Box component="span" sx={{ display: "inline-flex", alignItems: "baseline", gap: 1 }}>
@@ -241,6 +262,7 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
             Send it out
           </Box>
         </Button>
+      </Box>
       </Box>
     </Pane>
   );

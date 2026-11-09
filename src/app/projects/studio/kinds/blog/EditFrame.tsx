@@ -20,10 +20,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
+import InputBase from "@mui/material/InputBase";
 import Tooltip from "@mui/material/Tooltip";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import FormatBoldIcon from "@mui/icons-material/FormatBold";
+import LinkIcon from "@mui/icons-material/Link";
 import { HAIRLINE } from "@/app/uc/report/ui";
 import { htmlToMarks, type RichMode } from "@/lib/content/studio/kinds/blog/richEdit";
 
@@ -89,9 +91,13 @@ export type EditFrameProps = {
   label?: (key: string) => string | null;
   /** "Ask AI" in the label: the assistant's box, for the part picked */
   onAskAi?: () => void;
+  /** shop pages offered while a link's address is typed (none: the address is typed) */
+  linkSearch?: (q: string) => Promise<{ label: string; href: string }[]>;
+  /** a shop path ("/de/...") made whole with this (an e-mail needs the full address) */
+  linkBase?: string;
 };
 
-export function EditFrame({ html, device, width, title, texts, oneLine, selected, onSelect, onCommit, readOnly, focus, editKey, busy, overlay, framed = true, rich, redMarks, label, onAskAi }: EditFrameProps) {
+export function EditFrame({ html, device, width, title, texts, oneLine, selected, onSelect, onCommit, readOnly, focus, editKey, busy, overlay, framed = true, rich, redMarks, label, onAskAi, linkSearch, linkBase }: EditFrameProps) {
   const box = useRef<HTMLDivElement | null>(null);
   const frame = useRef<HTMLIFrameElement | null>(null);
   const [src, setSrc] = useState(html);
@@ -105,6 +111,12 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
   props.current = { texts, oneLine, onSelect, onCommit, readOnly, selected, rich, redMarks };
   /** the part being edited, for the label's buttons */
   const [edKey, setEdKey] = useState<string | null>(null);
+  /** a link being set on the words picked: the address, and whether the words are a link already */
+  const [linking, setLinking] = useState<{ href: string; existing: boolean } | null>(null);
+  const [linkNote, setLinkNote] = useState<string | null>(null);
+  const linkRange = useRef<Range | null>(null);
+  /** the focus is in the link's field: the words stay in editing (the frame lost the focus on purpose) */
+  const hold = useRef(false);
   const want = useRef(html);
   const head = useRef(split(html).head);
   /** the document the listeners and the page are in (a reloaded frame is a new one) */
@@ -265,6 +277,7 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
       d.addEventListener("mousedown", (ev) => {
         const t = ev.target as Element;
         const e = editing.current;
+        if (hold.current) { hold.current = false; linkRange.current = null; setLinking(null); }
         if (e && e.el.contains(t)) return; // the caret moves inside the words being edited
         ev.preventDefault();
         unhov();
@@ -311,9 +324,9 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
       // the focus left the page (a click in the studio around it): the words are kept
       d.addEventListener("focusout", (ev) => {
         const e = editing.current;
-        if (!e || ev.target !== e.el) return;
+        if (!e || ev.target !== e.el || hold.current) return;
         // (a frame that lost the focus to the studio around it keeps its own activeElement: ask the document too)
-        setTimeout(() => { if (editing.current === e && (!d.hasFocus() || d.activeElement !== e.el)) end(true); }, 0);
+        setTimeout(() => { if (!hold.current && editing.current === e && (!d.hasFocus() || d.activeElement !== e.el)) end(true); }, 0);
       }, true);
       const ro = new ResizeObserver(() => measure());
       if (d.body) ro.observe(d.body);
@@ -361,6 +374,53 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
   const selName = selected && label ? label(selected) : null;
   const selBox = selEl && selName ? (() => { const r = selEl.getBoundingClientRect(); return { left: r.left * zoom, top: r.top * zoom, width: r.width * zoom }; })() : null;
   const richOn = !!edKey && !!editing.current?.mode;
+
+  /** "Link" in the label: the words picked (or the link the caret is in) get an address, or lose theirs. */
+  const anchorIn = (r: Range, root: HTMLElement): HTMLAnchorElement | null => {
+    let n: Node | null = r.commonAncestorContainer;
+    while (n && n !== root) { if (n.nodeType === 1 && (n as Element).tagName === "A") return n as HTMLAnchorElement; n = n.parentNode; }
+    return null;
+  };
+  const startLink = () => {
+    const d = doc();
+    const e = editing.current;
+    const s = d?.getSelection();
+    if (!d || !e || !s || !s.rangeCount) return;
+    const r = s.getRangeAt(0);
+    if (!e.el.contains(r.commonAncestorContainer)) return;
+    const a = anchorIn(r, e.el);
+    if (!a && r.collapsed) { setLinkNote("Pick the words for the link first."); setTimeout(() => setLinkNote(null), 2500); return; }
+    linkRange.current = r.cloneRange();
+    hold.current = true;
+    setLinkNote(null);
+    setLinking({ href: a?.getAttribute("href") ?? "", existing: !!a });
+  };
+  /** null: nothing changed; "": the link taken off; else the address set. The words stay in editing. */
+  const finishLink = (href: string | null) => {
+    const d = doc();
+    const e = editing.current;
+    const r = linkRange.current;
+    hold.current = false;
+    linkRange.current = null;
+    setLinking(null);
+    if (!d || !e || !r) return;
+    const a = anchorIn(r, e.el);
+    const url = href && linkBase && href.startsWith("/") ? `${linkBase.replace(/\/+$/, "")}${href}` : href;
+    if (url !== null) {
+      if (a) {
+        if (url) a.setAttribute("href", url);
+        else { const parent = a.parentNode; if (parent) { while (a.firstChild) parent.insertBefore(a.firstChild, a); parent.removeChild(a); } }
+      } else if (url) {
+        const el = d.createElement("a");
+        el.setAttribute("href", url);
+        el.appendChild(r.extractContents());
+        r.insertNode(el);
+      }
+    }
+    e.el.focus({ preventScroll: true });
+    const s = d.getSelection();
+    if (s) { const nr = d.createRange(); nr.selectNodeContents(e.el); nr.collapse(false); s.removeAllRanges(); s.addRange(nr); }
+  };
   const rect = (selector: string): Rect | null => {
     const el = doc()?.querySelector(selector);
     if (!el) return null;
@@ -381,9 +441,16 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
         </Box>
         {overlay && <Box data-x-overlay="" sx={{ position: "absolute", left: 0, top: 0, width: w * zoom, height: height * zoom, pointerEvents: "none" }}>{overlay({ rect, zoom, tick })}</Box>}
         {selBox && selName && (
-          <SelLabel name={selName} left={Math.max(0, Math.min(selBox.left, w * zoom - 330))} top={Math.max(-34, selBox.top - 34)}
+          <SelLabel name={selName} left={Math.max(0, Math.min(selBox.left, w * zoom - 430))} top={Math.max(-34, selBox.top - 34)}
             rich={richOn} red={!!redMarks} onBold={() => { doc()?.execCommand("bold"); }} onRed={() => { const dd = doc(); if (dd) toggleRed(dd); }}
-            onAi={onAskAi} onClose={() => { if (editing.current) end(true); onSelect(null); }} />
+            onLink={startLink} linkOn={!!linking}
+            onAi={onAskAi} onClose={() => { if (hold.current) finishLink(null); if (editing.current) end(true); onSelect(null); }} />
+        )}
+        {selBox && (linking || linkNote) && (
+          <Box sx={{ position: "absolute", left: Math.max(0, Math.min(selBox.left, w * zoom - 340)), top: Math.max(-2, selBox.top - 2), zIndex: 5 }}>
+            {linking ? <LinkBox start={linking.href} existing={linking.existing} search={linkSearch} onDone={finishLink} />
+              : <Box sx={{ px: 1.25, py: 0.75, bgcolor: "#15223a", color: "#fff", fontSize: "0.76rem", borderRadius: "6px", boxShadow: "0 8px 22px rgba(21,34,58,.3)" }}>{linkNote}</Box>}
+          </Box>
         )}
       </Box>
     </Box>
@@ -416,24 +483,64 @@ function toggleRed(d: Document) {
 
 /** The small dark label over the picked part (the flow standard): its name, Ask AI, x - and while its words are edited
  *  as they look, Bold and Red. Mouse-down keeps the focus (and the words picked) in the page. */
-function SelLabel({ name, left, top, rich, red, onBold, onRed, onAi, onClose }: {
-  name: string; left: number; top: number; rich: boolean; red: boolean; onBold: () => void; onRed: () => void; onAi?: () => void; onClose: () => void;
+function SelLabel({ name, left, top, rich, red, onBold, onRed, onLink, linkOn, onAi, onClose }: {
+  name: string; left: number; top: number; rich: boolean; red: boolean; onBold: () => void; onRed: () => void; onLink: () => void; linkOn: boolean; onAi?: () => void; onClose: () => void;
 }) {
   const b = { textTransform: "none" as const, fontWeight: 600, color: "#fff", minWidth: 0, px: 0.9, py: 0.2, fontSize: "0.74rem", borderRadius: "4px", lineHeight: 1.6, whiteSpace: "nowrap" as const, "&:hover": { bgcolor: "rgba(255,255,255,.14)" } };
   return (
     <Box onMouseDown={(e) => e.preventDefault()} sx={{
       position: "absolute", left, top, zIndex: 4, display: "inline-flex", alignItems: "center", gap: 0.25, height: 28, px: 0.5,
-      bgcolor: "#15223a", color: "#fff", borderRadius: "6px", boxShadow: "0 8px 22px rgba(21,34,58,.3)", pointerEvents: "auto", maxWidth: 330,
+      bgcolor: "#15223a", color: "#fff", borderRadius: "6px", boxShadow: "0 8px 22px rgba(21,34,58,.3)", pointerEvents: "auto", maxWidth: 430,
     }}>
       <Box component="span" sx={{ fontSize: "0.74rem", fontWeight: 700, px: 0.75, color: "rgba(255,255,255,.82)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150 }}>{name}</Box>
       {rich && (
         <>
           <Tooltip title="Bold (Ctrl+B)"><Button size="small" onClick={onBold} sx={b} aria-label="Bold"><FormatBoldIcon sx={{ fontSize: 16 }} /></Button></Tooltip>
           {red && <Tooltip title="A key word in red (Ctrl+E)"><Button size="small" onClick={onRed} sx={{ ...b, color: "#ff8a85", fontWeight: 800 }}>Red</Button></Tooltip>}
+          <Tooltip title={linkOn ? "" : "A link on the words picked - or change or take off the link the caret is in"}><Button size="small" onClick={onLink} startIcon={<LinkIcon sx={{ fontSize: "15px !important" }} />} sx={{ ...b, bgcolor: linkOn ? "rgba(255,255,255,.16)" : "transparent", "& .MuiButton-startIcon": { mr: 0.3 } }}>Link</Button></Tooltip>
         </>
       )}
       {onAi && <Button size="small" onClick={onAi} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: "14px !important" }} />} sx={{ ...b, "& .MuiButton-startIcon": { mr: 0.4 } }}>Ask AI</Button>}
       <IconButton size="small" onClick={onClose} aria-label="Unselect" sx={{ color: "rgba(255,255,255,.7)", p: 0.4 }}><CloseIcon sx={{ fontSize: 15 }} /></IconButton>
+    </Box>
+  );
+}
+
+/** The address of a link: typed, or one of the shop's pages found as it is typed; Enter keeps it, Esc leaves it. */
+function LinkBox({ start, existing, search, onDone }: {
+  start: string; existing: boolean; search?: (q: string) => Promise<{ label: string; href: string }[]>; onDone: (href: string | null) => void;
+}) {
+  const [v, setV] = useState(start);
+  const [found, setFound] = useState<{ label: string; href: string }[]>([]);
+  const ok = /^(https?:\/\/[^\s]+|\/[^\s]*|#[\w-]+|mailto:[^\s]+)$/i.test(v.trim());
+  useEffect(() => {
+    const q = v.trim();
+    if (!search || q.length < 2 || /^https?:/i.test(q)) { setFound([]); return; }
+    let live = true;
+    const t = setTimeout(() => { void search(q).then((r) => { if (live) setFound(r.slice(0, 6)); }).catch(() => { if (live) setFound([]); }); }, 250);
+    return () => { live = false; clearTimeout(t); };
+  }, [v, search]);
+  const b = { textTransform: "none" as const, fontWeight: 600, fontSize: "0.76rem", minWidth: 0, px: 1, py: 0.25, borderRadius: "4px" };
+  return (
+    <Box sx={{ width: 330, p: 1, bgcolor: "#fff", borderRadius: "8px", boxShadow: "0 12px 30px rgba(21,34,58,.25)", border: "1px solid #dde3ea" }}>
+      <InputBase autoFocus fullWidth value={v} placeholder="A shop page (/de/...) or https://..." onChange={(e) => setV(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && ok) { e.preventDefault(); onDone(v.trim()); } if (e.key === "Escape") { e.preventDefault(); onDone(null); } }}
+        inputProps={{ "aria-label": "The link's address" }}
+        sx={{ fontSize: "0.84rem", px: 1, py: 0.5, border: `1px solid ${ok || !v ? "#cfd6dd" : "#e0a3a0"}`, borderRadius: "4px" }} />
+      {found.length > 0 && (
+        <Box sx={{ mt: 0.5, maxHeight: 170, overflowY: "auto" }}>
+          {found.map((f) => (
+            <Box key={f.href} component="button" type="button" onClick={() => onDone(f.href)} sx={{ all: "unset", boxSizing: "border-box", display: "block", width: "100%", cursor: "pointer", px: 1, py: 0.5, borderRadius: "4px", fontSize: "0.78rem", color: "#15223a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", "&:hover": { bgcolor: "#f3f5f8" } }}>
+              {f.label}
+            </Box>
+          ))}
+        </Box>
+      )}
+      <Box sx={{ display: "flex", gap: 0.5, mt: 0.75, justifyContent: "flex-end" }}>
+        {existing && <Button size="small" onClick={() => onDone("")} sx={{ ...b, color: "#8f1d1b", mr: "auto" }}>Remove link</Button>}
+        <Button size="small" onClick={() => onDone(null)} sx={{ ...b, color: "#5f6a70" }}>Cancel</Button>
+        <Button size="small" disabled={!ok} onClick={() => onDone(v.trim())} sx={{ ...b, bgcolor: "#c22c6e", color: "#fff", "&:hover": { bgcolor: "#a3245c" }, "&.Mui-disabled": { bgcolor: "#e9c4d5", color: "#fff" } }}>{existing ? "Save" : "Add link"}</Button>
+      </Box>
     </Box>
   );
 }

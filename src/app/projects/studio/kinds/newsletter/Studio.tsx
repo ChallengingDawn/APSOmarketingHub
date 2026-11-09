@@ -56,13 +56,15 @@ import type { StudioProps } from "../../registry";
 import type { StudioApi } from "../../useStudio";
 import { EditFrame, type Device } from "../blog/EditFrame";
 import { setDocSafely } from "../blog/safeSet";
-import { BLUE, Working, toolBtn, useSettled } from "../blog/ui";
+import { addChange, madeLanguages, versionLabel, versionOf, type StudioChange } from "@/lib/content/studio/kinds/blog/changes";
+import { BLUE, ChangesList, TranslateRow, Working, shopPageSearch, toolBtn, useSettled } from "../blog/ui";
 import { BlockTools, Gallery, Layouts, Outline, made } from "./Blocks";
 import { OurEmails, type Learned } from "./OurEmails";
 
 const LANGS: { key: string; label: string }[] = [{ key: "DE", label: "German" }, { key: "FR", label: "French" }, { key: "IT", label: "Italian" }, { key: "EN", label: "English" }, { key: "NL", label: "Dutch" }, { key: "PL", label: "Polish" }];
 
-type Change = { id: number; text: string; before: NewsletterDoc; at: string };
+const LANG_KEYS = LANGS.map((l) => l.key);
+const LANG_NAME: Record<string, string> = Object.fromEntries(LANGS.map((l) => [l.key, l.label]));
 type EditAnswer = Edits & { note: string };
 type Work = { label: string; key: string | null; since: number } | null;
 
@@ -139,13 +141,15 @@ export default function Studio({ api }: StudioProps) {
   const [subjects, setSubjects] = useState<{ subject: string; preheader: string; why: string }[] | null>(null);
   const [learned, setLearned] = useState<Learned | null>(null);
   const [ours, setOurs] = useState(false);
-  const [changes, setChanges] = useState<Change[]>([]);
-  const [lang, setLang] = useState(() => (d.language.toUpperCase() === "EN" ? "DE" : "EN"));
-  // translated into the language picked: another one is offered next
-  useEffect(() => { if (lang === d.language.toUpperCase()) setLang(lang === "EN" ? "DE" : "EN"); }, [d.language, lang]);
+  // the e-mail as it was before each change of this sitting, for its Undo (the list itself is kept in the e-mail)
+  const befores = useRef(new Map<number, NewsletterDoc>());
+  /** the language being made by a translation */
+  const [tl, setTl] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const askRef = useRef<HTMLTextAreaElement | null>(null);
+  // a link's address: the shop's pages, found as it is typed (an e-mail carries the full address)
+  const linkSearch = useMemo(() => shopPageSearch(), []);
   /** the picture being made: it breathes in the e-mail */
   const [picBusy, setPicBusy] = useState<string | null>(null);
   // a block dragged in the e-mail itself (SARCLA 08.11.2026 "editing is very confusing" - it moved by arrows only there):
@@ -171,14 +175,24 @@ export default function Studio({ api }: StudioProps) {
   useEffect(() => { if (blockId && !d.blocks.some((b) => b.id === blockId)) setSel(null); }, [d, blockId]);
 
   /** A change by the assistant (or a layout, or one of our e-mails): laid over the newsletter as it is now, with Undo. */
-  const apply = async (next: NewsletterDoc, text: string) => {
+  // listed in "Changes made here" (kept in the e-mail, it survives a reload); a version saved just before each change lets
+  // it be gone back from after a reload too
+  const apply = async (next: NewsletterDoc, text: string, lang?: string) => {
+    const entry: StudioChange = { id: Date.now(), text, at: new Date().toISOString(), ...(lang ? { lang, from: docRef.current.language.toUpperCase() } : {}) };
+    await api.saveVersion(versionLabel(entry));
     const before = docRef.current;
-    await setDocSafely(api, before, next);
-    setChanges((c) => [{ id: Date.now(), text, before, at: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) }, ...c].slice(0, 12));
+    befores.current.set(entry.id, before);
+    await setDocSafely(api, before, { ...next, changes: addChange(before.changes, entry) });
   };
-  const undo = async (ch: Change) => {
-    await setDocSafely(api, docRef.current, ch.before);
-    setChanges((c) => c.filter((x) => (x.id > ch.id ? false : x.id !== ch.id)));
+  const undoMode = (c: StudioChange): "undo" | "back" | null => (befores.current.has(c.id) ? "undo" : versionOf(api.data.versions, c.id) ? "back" : null);
+  /** Back to before a change: the e-mail as it was then (the later changes go too). */
+  const undo = async (c: StudioChange) => {
+    const before = befores.current.get(c.id);
+    if (before) { befores.current.delete(c.id); await setDocSafely(api, docRef.current, before); return; }
+    const v = versionOf(api.data.versions, c.id);
+    if (!v || !window.confirm("Go back to the e-mail as it was before this change? What was done after it goes too - the e-mail as it is now is kept in Versions.")) return;
+    await api.saveVersion("Before going back");
+    if (!(await api.restore(v.id))) window.alert("Going back did not work - try again, or pick the version in Versions in the bar.");
   };
   const busyRun = async (label: string, key: string | null, fn: () => Promise<string | null>) => {
     setWork({ label, key, since: Date.now() });
@@ -203,7 +217,7 @@ export default function Studio({ api }: StudioProps) {
       if (!r.result.blocks.length && !r.result.subject && !r.result.preheader) return "Nothing came back to change - ask again, in other words.";
       const next = applyEdits(docRef.current, r.result);
       const b = o.block ? docRef.current.blocks.find((x) => x.id === o.block) : null;
-      await apply(o.language ? { ...next, language: o.language } : next, `${o.label}${b ? ` - ${BLOCK_LABEL[b.kind].toLowerCase()}` : ""}${r.result.note ? `: ${r.result.note}` : ""}`);
+      await apply(o.language ? { ...next, language: o.language } : next, `${o.label}${b ? ` - ${BLOCK_LABEL[b.kind].toLowerCase()}` : ""}${r.result.note ? `: ${r.result.note}` : ""}`, o.language);
       return null;
     });
 
@@ -431,6 +445,7 @@ export default function Studio({ api }: StudioProps) {
           selected={sel} onSelect={setSel} onCommit={(k, t) => api.setDoc((cur: unknown) => setPart(cur, k, t))} readOnly={!canEdit} focus={focus} busy={work ? work.key ?? "*" : picBusy}
           overlay={overlay}
           rich={(k) => { const b = docRef.current.blocks.find((x) => x.id === k.split(":")[0]); return k.endsWith(":text") && b && (b.kind === "hero" || b.kind === "article" || b.kind === "text") ? "blocks" : null; }}
+          linkSearch={linkSearch} linkBase="https://www.apsoparts.com"
           label={drag ? undefined : (k) => nameOf(docRef.current, k)} onAskAi={enabled ? () => askRef.current?.focus() : undefined} />
       </Box>
     </Pane>
@@ -494,13 +509,9 @@ export default function Studio({ api }: StudioProps) {
       )}
       {!block && !blank && (
         <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-          <Label mt={0}>Translate the whole e-mail</Label>
-          <SquareChoice value={lang} onChange={setLang} options={LANGS.filter((l) => l.key !== d.language.toUpperCase()).map((l) => ({ key: l.key, label: l.key }))} />
-          <Button fullWidth variant="outlined" disabled={!enabled || !!work} startIcon={<TranslateIcon sx={{ fontSize: 17 }} />}
-            onClick={async () => setNote(await edit("Translate every word of the newsletter faithfully.", { language: lang, label: `Into ${LANGS.find((l) => l.key === lang)?.label}` }))}
-            sx={{ ...btn, mt: 1, justifyContent: "flex-start", borderColor: HAIRLINE, color: INK, bgcolor: "#fff", "&:hover": { borderColor: BLUE, bgcolor: "#fff" } }}>
-            Into {LANGS.find((l) => l.key === lang)?.label}
-          </Button>
+          <TranslateRow what="e-mail" langs={LANG_KEYS} names={LANG_NAME} current={d.language} made={madeLanguages(d.changes, d.language.toUpperCase())} busy={tl}
+            disabled={!enabled || (!!work && !tl)}
+            onPick={async (l) => { setTl(l); try { setNote(await edit("Translate every word of the newsletter faithfully.", { language: l, label: `Into ${LANG_NAME[l]}` })); } finally { setTl(null); } }} />
         </Box>
       )}
       {!block && (
@@ -526,22 +537,7 @@ export default function Studio({ api }: StudioProps) {
           </Button>
         </Box>
       )}
-      {changes.length > 0 && (
-        <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-          <Label mt={0}>Changes made here</Label>
-          {changes.map((ch, i) => (
-            <Box key={ch.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", p: 1.25, mb: 0.75, borderRadius: "6px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.45 }}>{ch.text}</Typography>
-                <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{ch.at}</Typography>
-              </Box>
-              <Tooltip title={i === 0 ? "Undo this change" : "Back to before this change (the later ones go too)"}>
-                <Button size="small" onClick={() => void undo(ch)} startIcon={<UndoIcon sx={{ fontSize: 15 }} />} sx={toolBtn}>Undo</Button>
-              </Tooltip>
-            </Box>
-          ))}
-        </Box>
-      )}
+      <ChangesList changes={d.changes ?? []} mode={undoMode} onUndo={(c) => void undo(c)} disabled={!canEdit || !!work} />
       {note && <Typography sx={{ mt: 1.5, fontSize: "0.8rem", color: MUTED }}>{note}</Typography>}
     </AssistantPanel>
   );
@@ -550,7 +546,7 @@ export default function Studio({ api }: StudioProps) {
     <>
       <StudioPanes id="newsletter4" buildWidth={300} assistWidth={340}
         build={<Outline d={d} set={set} sel={sel} onPick={pickBlock} canEdit={canEdit} onAdd={(el, at) => setAdder({ el, at })} onOurs={canEdit ? () => setOurs(true) : undefined}
-          fields={fields} startCard={start} onWriteAll={writeAll} busy={work ? work.key ?? "all" : null}
+          fields={fields} startCard={start} onWrite={enabled ? () => (blank ? void draft("") : writeAll?.()) : undefined} busy={work ? work.key ?? "all" : null}
           onLayout={(key) => void apply(applyTemplate(docRef.current, key), `Layout: ${TEMPLATES.find((t) => t.key === key)?.name ?? key} - the words already written are kept.`)} out={out} />}
         preview={preview}
         assist={assist}
