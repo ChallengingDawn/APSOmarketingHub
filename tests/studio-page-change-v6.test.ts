@@ -117,7 +117,7 @@ test("the document: a change's id, its module and its check are kept beside it; 
   let list: PageChange[] = withChange([], a);
   list = withChange(list, b);
   // the same id: in its place, not added twice; a replace of the same element: in its place too
-  list = withChange(list, { ...a, html: "<div class='apx-a2'>2</div>" });
+  list = withChange(list, { ...a, html: "<div class='apx-a2'>2</div>" } as PageChange);
   list = withChange(list, replaceChange(".page-title-wrapper", "<div class='apx-a3'>3</div>"));
   assert.equal(list.length, 2);
   assert.match(String((list[0] as { html: string }).html), /apx-a3/);

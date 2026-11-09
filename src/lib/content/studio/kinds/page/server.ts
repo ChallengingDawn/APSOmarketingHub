@@ -53,10 +53,11 @@ import { LIMIT, blockOrder, fieldLabel, fieldStrings, getField, withFieldStrings
 import { FIELD_SCHEMA, FILL_SCHEMA, PART_LABEL, cleanFill, type Candidate, type Part } from "./fill";
 import { fitField, fitFields, limitOf } from "./fit";
 import {
-  baseStore, changeStrings, emptyPage, fillTexts, fromAi, isLegacyBody, langName, langOfStore, languageOfStore, leftoversIn, mainLang, mainView, pageDoc,
+  baseStore, changeId, changeLine, changeStrings, emptyPage, fillTexts, fromAi, hashOf, isLegacyBody, langName, langOfStore, languageOfStore, leftoversIn, mainLang, mainView, pageDoc,
   pageModesFor, pageSourceFix, pageText, placeholdersOf, shopUrl, sourceHash, textsFromAi, urlKeyOf, viewKey, viewOf, viewsOf, withChangeStrings,
-  type AiChange, type MagentoRecord, type PageDoc,
+  type AiChange, type MagentoRecord, type PageChange, type PageDoc,
 } from "./model";
+import { BLOCK_SCHEMA, BLOCK_SYSTEM, KIT_EXAMPLES, SHOP_TOKENS, blockAsk, blockChange, blockRules, cleanBlock, prefixIn, prefixOf, type BlockMode } from "./block";
 import { blockOfPath, blocksOf, itemOfPath } from "./outline";
 import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, presenceOf, previewOf, relinkOf } from "./shop";
 import { SOURCE_ORIGIN, type IdeaSource } from "@/lib/content/ideaOrigins";
@@ -150,20 +151,29 @@ const CHANGE_ITEM = {
 
 const REWRITE_SYSTEM = `You write the changes for one page of the shop: a list laid over the page in the browser after it
 loads - the same list runs the page's A/B test, so what is approved is what visitors get. Kinds of change: css (a
-stylesheet added), html (new inner HTML of an element), replace (an element replaced), insert (new HTML before, after,
-prepended or appended to an element), text (new text of an element), hide (an element hidden), attr (an attribute set).
+stylesheet added), html (new inner HTML of an element), replace (an element HIDDEN and your block put exactly in its
+place), insert (a new block before, after, prepended or appended to an element), text (new text of an element), hide
+(an element hidden), attr (an attribute set).
 
 How to write it:
-- Aim at selectors from the page's outline (ids first, then tag.class). Scope CSS to the page's own classes or yours;
-  never restyle body, html or the whole header.
+- Aim at selectors from the page's outline (ids first, then tag.class). Never restyle body, html or the whole header.
 - Few, clean changes that do what is asked, nothing else. Answer with the WHOLE list: keep every change the person did
   not ask to change, exactly as it is.
-- Class names you add start with "apx-". Every new block reads well on a phone (390 px wide): give it a mobile rule.
-- New HTML: no <script>, no on...= handlers, no javascript: links, no frames, no pictures from outside the shop.
+- To change how a part of the page looks or what it holds, REPLACE that element with one finished block (op replace) -
+  never a loose fragment inserted into a band whose colours you do not set (the night's failure: grey words added inside
+  the dark petrol title band - unreadable). A new part of the page is an insert of one finished block.
+- Every block you write (replace, insert) is built the kit's way - the rules below, with its own prefix class
+  "apx-<short name>" (apx-hero2, apx-facts ...).
 - Every word you put on the page is the final copy, written in the page's language - headings, paragraphs, buttons.
   The page's own facts are the ones to use.
 
+${blockRules("apx-<name>")}
+
 ${SHOP}
+
+${SHOP_TOKENS}
+
+${KIT_EXAMPLES}
 
 ${RULES}`;
 
@@ -196,11 +206,80 @@ THE PERSON ASKS: ${ask}`;
   },
   clean: (raw) => {
     const r = (raw ?? {}) as { summary?: string; changes?: AiChange[] };
-    const { changes, problems } = fromAi(r.changes);
+    const { changes: list, problems } = fromAi(r.changes);
+    // a block with its own stylesheet: its rules kept inside it, its root's own colour and font (./block.ts)
+    const changes = list.map((c) => {
+      if ((c.op !== "replace" && c.op !== "insert") || !/<style\b/i.test(c.html)) return c;
+      const prefix = prefixIn(c.html) ?? prefixOf(hashOf(c.html));
+      return { ...c, html: cleanBlock(c.html, prefix).html };
+    });
     const left = leftoversIn(changes.map((c) => JSON.stringify(c)).join(" "));
     return { summary: s(r.summary, 600), changes, problems, leftovers: left };
   },
 };
+
+/* ── block: one element of a page of the shop replaced, or a block added at a place (Content v6) ──────── */
+//
+// SARCLA 09.11.2026 (points 2, 9, 10). The AI designs ONE block the kit's way (./block.ts): for an element of the page
+// the block that takes its place (the element hidden, kept), at a place of the page a new block, for a block the hub
+// put there before that block written again. It is given the element's own HTML and how it looks on the page now (read
+// from the preview by the studio), the shop's tokens and two finished blocks. `block_fix`: the same block once more,
+// with what the check after applying saw wrong (text that cannot be read, a block that runs out of its place).
+
+const lookIn = (input: Record<string, unknown>) => s(input.look, 600);
+const groundOf = (look: string) => /ground (#[0-9a-f]{6})/i.exec(look)?.[1] ?? null;
+const modeIn = (input: Record<string, unknown>): BlockMode => (input.mode === "insert" ? "insert" : input.mode === "rework" ? "rework" : "replace");
+const idIn = (input: Record<string, unknown>) => { const v = s(input.id, 24); return /^c[a-z0-9]{4,22}$/.test(v) ? v : null; };
+
+/** The change a block is written again for: by its id, else by its number. */
+function baseChange(d: PageDoc, input: Record<string, unknown>): PageChange | null {
+  const id = idIn(input);
+  const byId = id ? d.changes.find((c) => c.id === id) : undefined;
+  const n = Number(input.change);
+  const c = byId ?? (Number.isInteger(n) && n >= 0 ? d.changes[n] : undefined);
+  return c && (c.op === "replace" || c.op === "insert") ? c : null;
+}
+
+function blockTask(fix: boolean): AiTask {
+  return {
+    label: fix ? "Fix the block" : "Design a block",
+    schema: BLOCK_SCHEMA,
+    system: `${BLOCK_SYSTEM}\n\n${RULES}`,
+    maxTokens: 12_000,
+    user: (ctx, raw, input) => {
+      const d = viewFor(ctx, raw, input);
+      const base = fix || modeIn(input) === "rework" ? baseChange(d, input) : null;
+      const mode: BlockMode = base ? "rework" : modeIn(input);
+      const id = base?.id ?? idIn(input) ?? "c0";
+      const others = d.changes.filter((c) => c !== base);
+      return `${context(ctx, d)}
+
+${pageBlock(d)}
+
+${others.length ? `THE PAGE'S OTHER CHANGES (they stay as they are): ${others.map((c, i) => `${i + 1}. ${changeLine(c)}`).join(" · ").slice(0, 2000)}` : ""}
+
+${blockAsk({
+    mode, prefix: base ? prefixIn((base as { html: string }).html) ?? prefixOf(id) : prefixOf(id),
+    selector: base ? (base as { selector: string }).selector : s(input.selector, 300), where: base?.op === "insert" ? base.where : s(input.where, 10),
+    html: base ? (base as { html: string }).html : s(input.html, 4000), look: lookIn(input), near: s(input.near, 600),
+    request: fix ? "Make it read well and fit its place - the words stay." : s(input.request, 2000) || "Make this part clearer and more useful for a buyer.",
+    language: langOf(d), problems: fix ? s(input.problems, 1500) || "It could not be read well." : undefined,
+  })}`;
+    },
+    clean: (raw, docRaw, ctx, input) => {
+      const d = viewFor(ctx, docRaw, input);
+      const base = fix || modeIn(input) === "rework" ? baseChange(d, input) : null;
+      const mode: BlockMode = base ? "rework" : modeIn(input);
+      const id = base?.id ?? idIn(input) ?? changeId();
+      const prefix = base ? prefixIn((base as { html: string }).html) ?? prefixOf(id) : prefixOf(id);
+      const r = blockChange(raw, {
+        id, mode, prefix, base, ground: groundOf(lookIn(input)), hadH1: input.hadH1 === true || (!!base && /<h1\b/i.test((base as { html: string }).html)),
+        selector: base ? (base as { selector: string }).selector : s(input.selector, 300), where: s(input.where, 10),
+      });
+      return { ...r, leftovers: r.change ? leftoversIn(JSON.stringify(r.change)) : [] };
+    },
+  };
+}
 
 /* ── fill: a new page's fields ────────────────────────────────────────── */
 
@@ -829,7 +908,7 @@ export const pageKind: KindDef = {
   empty: (ctx) => ({ ...emptyPage(ctx.piece.language), source: pageModesFor(ctx.piece.contentType)[0] }),
   toText: pageText,
   tasks: {
-    rewrite, ideas, texts, translate, seo, english,
+    rewrite, ideas, texts, translate, seo, english, block: blockTask(false), block_fix: blockTask(true),
     fill_all: fillTask("all"), fill_hero: fillTask("hero"), fill_intro: fillTask("intro"), fill_benefits: fillTask("benefits"),
     fill_sections: fillTask("sections"), fill_section: fillTask("section"), fill_links: fillTask("links"), fill_faq: fillTask("faq"),
     fill_cta: fillTask("cta"), fill_seo: fillTask("seo"), fill_field: fillField,

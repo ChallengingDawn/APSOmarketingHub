@@ -165,6 +165,20 @@ export function withChange(changes: PageChange[], c: PageChange): PageChange[] {
   return changes.map((x, k) => (k === i ? next : x));
 }
 
+/** A whole list written again (the AI's "the whole page"): a change that came back the same keeps its id and module; a
+ * replace or insert on the same place keeps its id and module too (it was rewritten); a new one gets an id. */
+export function carryMeta(old: PageChange[], next: Change[]): PageChange[] {
+  const core = (c: unknown) => { const { id: _i, module: _m, off: _o, ...rest } = (c ?? {}) as Record<string, unknown>; return JSON.stringify(rest); };
+  const used = new Set<number>();
+  const take = (pred: (c: PageChange) => boolean) => { const i = old.findIndex((c, k) => !used.has(k) && pred(c)); if (i >= 0) used.add(i); return i >= 0 ? old[i] : null; };
+  return next.map((c) => {
+    const same = take((o) => core(o) === core(c));
+    const place = same ?? ((c.op === "replace" || c.op === "insert") ? take((o) => o.op === c.op && (o as { selector?: string }).selector === c.selector && (o as { where?: string }).where === (c as { where?: string }).where) : null);
+    // one the check held back stays held back while it is the same
+    return { ...c, id: place?.id || changeId(), ...(place?.module ? { module: place.module } : {}), ...(same?.off ? { off: same.off } : {}) } as PageChange;
+  });
+}
+
 /** True when two change lists say the same - the order counts (a later change can build on an earlier one). */
 export function sameChangeList(a: unknown[], b: unknown[]): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
