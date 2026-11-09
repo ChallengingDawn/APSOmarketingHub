@@ -17,6 +17,11 @@
 //
 // A field's PATH names it everywhere (the preview's data-apx-f, the properties panel, the AI's single-field ask):
 // "hero.title", "intro", "sections.<item id>.text", "faq.<item id>.a", "cta.button.label", "seo.description".
+//
+// Content v6 (SARCLA 09.11.2026, point 7): a new page may also hold MODULES of the gallery (./modules/model.ts) - each
+// after one of its blocks (`after`: a block key, "" = above them all), drawn by the module's own renderer.
+
+import { normalizeModule, type ModuleRef } from "./modules/model";
 
 export type Pic = { url: string; alt: string; idea: string };
 export type Btn = { label: string; url: string };
@@ -48,7 +53,12 @@ export type Fields = {
   /** the blocks in their order on the page (Content v5, 09.11.2026 - ./fields.ts blockOrder); unset = the order every
    * page had before: hero, intro, tiles, the sections, links, questions, call to action */
   order?: string[];
+  /** the gallery's modules on the page (Content v6), each after a block - absent on a page without any */
+  modules?: PageModule[];
 };
+
+/** A module of the gallery on a new page: its id, the block it stands after ("" = at the top), its type and settings. */
+export type PageModule = { id: string; after: string; module: ModuleRef };
 
 export const LIST_KEYS = ["benefits", "sections", "links", "faq"] as const;
 export type ListKey = (typeof LIST_KEYS)[number];
@@ -144,7 +154,19 @@ export function normalizeFields(raw: unknown): Fields {
     seo: { title: str(s.title, 200), description: str(s.description, 400), urlKey: str(s.urlKey, 200) },
     looks,
     ...(Array.isArray(d.order) && d.order.length ? { order: d.order.filter((k): k is string => typeof k === "string" && /^[\w.]{1,40}$/.test(k)).slice(0, 40) } : {}),
+    ...(Array.isArray(d.modules) && d.modules.length ? { modules: modulesOf(d.modules) } : {}),
   };
+}
+
+/** The modules kept as they may be: each with its id, its place and a module that reads (twelve at most). */
+function modulesOf(v: unknown[]): PageModule[] {
+  const out: PageModule[] = [];
+  for (const x of v.slice(0, 12)) {
+    if (!isObj(x) || typeof x.id !== "string" || !/^[a-z0-9]{2,16}$/i.test(x.id) || out.some((o) => o.id === x.id)) continue;
+    const module = normalizeModule(x.module);
+    if (module) out.push({ id: x.id, after: typeof x.after === "string" && /^[\w.]{0,40}$/.test(x.after) ? x.after : "", module });
+  }
+  return out;
 }
 
 /* ── a field by its path ──────────────────────────────────────────────── */

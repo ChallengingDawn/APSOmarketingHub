@@ -42,11 +42,12 @@ export const KIT_EXAMPLES = `EXAMPLE 1 - a dark band (it replaced a page title b
 .apx-k1 h1{margin:0 0 8px;font:600 32px/1.15 "futura-pt",Arial,sans-serif;color:#ffffff}
 .apx-k1 .apx-k1-lead{margin:0 0 18px;max-width:720px;font-size:17px;color:#e8f0f4}
 .apx-k1 ul{display:flex;flex-wrap:wrap;gap:10px 28px;margin:0;padding:0;list-style:none}
-.apx-k1 li{display:flex;align-items:center;gap:10px;margin:0;font:500 15px/1.3 "futura-pt",Arial,sans-serif;color:#ffffff}
-.apx-k1 li::before{content:"";flex:none;width:18px;height:3px;border-radius:2px;background:#d80901}
+.apx-k1 li{display:flex;align-items:flex-start;gap:10px;margin:0;font:400 15px/1.4 "futura-pt",Arial,sans-serif;color:#ffffff}
+.apx-k1 li::before{content:"";flex:none;width:18px;height:3px;margin-top:9px;border-radius:2px;background:#d80901}
+.apx-k1 li b{font-weight:600;color:#ffffff}
 @media (max-width:767px){.apx-k1 .apx-k1-in{padding:20px 10px 22px}.apx-k1 h1{font-size:24px}.apx-k1 ul{flex-direction:column;gap:8px}}
 </style>
-<div class="apx-k1"><div class="apx-k1-in"><h1>(the page's H1, its words unchanged)</h1><p class="apx-k1-lead">(one or two sentences)</p><ul><li>(a fact of the page)</li><li>(another)</li></ul></div></div>
+<div class="apx-k1"><div class="apx-k1-in"><h1>(the page's H1, its words unchanged)</h1><p class="apx-k1-lead">(one or two sentences)</p><ul><li><span><b>(a key word)</b> (the rest of a fact the page states)</span></li><li><span>(another)</span></li></ul></div></div>
 
 EXAMPLE 2 - cards on white (a row of the shop's own categories, their own photos and addresses from the page):
 <style>
@@ -82,6 +83,8 @@ export function blockRules(prefix: string): string {
   across the page (as the element it replaces did) keeps that ground full width and its content in the container.
   box-sizing:border-box on the root and all inside it; pictures max-width:100%; no fixed width over 360px; nothing that
   runs out of its place.
+- In a flex or grid row the words stand in ONE element (a <span> or <p>): words left loose beside a <b> or a link are
+  split by the browser into columns of their own.
 - Finished at 375, 1024 and 1440 px wide: one @media (max-width:767px) rule set for the phone (one or two columns,
   smaller headings, less padding).
 - Calm, clean, product-first: white space, the shop's colours only (below), red as a small accent; no emojis, no icon
@@ -290,6 +293,29 @@ function topElements(html: string): { start: number; openEnd: number; end: numbe
     }
   }
   return out;
+}
+
+/**
+ * "Text and picture" added with the "+" (Content v6, SARCLA point 9: "we should really be able to add elements") - a
+ * block in the kit's way at once, no AI: a heading with the shop's small red line, words, and a photo of the page itself
+ * (none found: the words alone). Its words are marked as still to write ("[Heading]") until they are: double-click to
+ * write them, or "Write them with AI".
+ */
+export function textPictureBlock(prefix: string, img: { src: string; alt: string } | null): string {
+  const p = prefix;
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  return `<style>
+.${p},.${p} *{box-sizing:border-box}
+.${p}{max-width:1170px;margin:36px auto;padding:0 10px;background:transparent;color:#5e5e5e;font-family:"futura-pt",Arial,sans-serif;font-size:16px;line-height:1.55}
+.${p} .${p}-in{display:grid;grid-template-columns:${img ? "minmax(0,1.25fr) minmax(0,1fr)" : "minmax(0,1fr)"};gap:40px;align-items:center}
+.${p} h2{margin:0;font:600 26px/1.2 "futura-pt",Arial,sans-serif;color:#274e64}
+.${p} h2::after{content:"";display:block;width:36px;height:3px;margin:14px 0 14px;border-radius:2px;background:#d80901}
+.${p} p{margin:0;max-width:640px;font-size:16px;line-height:1.6;color:#5e5e5e}
+.${p} .${p}-ph{aspect-ratio:4/3;max-height:360px;border-radius:12px;background:#f3f4f5;overflow:hidden;box-shadow:inset 0 0 0 1px #e5e8ea}
+.${p} .${p}-ph img{display:block;width:100%;height:100%;object-fit:cover}
+@media (max-width:767px){.${p}{margin:26px auto}.${p} .${p}-in{grid-template-columns:1fr;gap:18px}.${p} h2{font-size:21px}}
+</style>
+<div class="${p}"><div class="${p}-in"><div class="${p}-tx"><h2>[Heading]</h2><p>[Your words: one or two sentences]</p></div>${img ? `<div class="${p}-ph"><img src="${esc(img.src)}" alt="${esc(img.alt)}" loading="lazy"></div>` : ""}</div></div>`;
 }
 
 /** The AI's answer as the change the studio keeps: the block cleaned, its id and the way it goes on the page. */

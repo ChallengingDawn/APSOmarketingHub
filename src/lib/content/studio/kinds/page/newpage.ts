@@ -10,6 +10,8 @@
 // to click. Nothing of that reaches Magento.
 
 import { blockOrder, type BlockBg, type ButtonLook, type Fields, type Look, type Pic } from "./fields";
+import { kindOf as moduleKind, moduleGap } from "./modules/model";
+import { renderModule } from "./modules/render";
 
 export type InsertHtml = { id: string; where: "top" | "after-intro" | "bottom"; html: string; label?: string };
 export type RenderOpts = {
@@ -151,14 +153,28 @@ ${one("cta.title", "h2", "apx-np-h2", c.title, "The call to action")}${many("cta
   };
 
   const order = blockOrder(f);
+  // the gallery's modules (Content v6): each after its block, one whose block is gone at the end; in the preview each
+  // says which it is (data-apx-mod) - Magento's copy is the module alone
+  const mods = f.modules ?? [];
+  const modsAfter = (key: string) => mods.filter((x) => (key === "~end" ? x.after && !order.includes(x.after) : x.after === key))
+    .map((x) => {
+      // one that still lacks something: a quiet slot in the preview, nothing in Magento's copy
+      const gap = moduleGap(x.module);
+      if (gap) return m ? `<div data-apx-mod="${esc(x.id)}" class="apx-np-in"><span class="apx-np-slot">${esc(moduleKind(x.module.type).name)} - ${esc(gap.toLowerCase())} (on the left)</span></div>` : "";
+      const h = renderModule(x.module, o.picture ? { picture: o.picture } : {});
+      return m ? `<div data-apx-mod="${esc(x.id)}">${h}</div>` : h;
+    }).join("\n");
   const parts: string[] = [];
   parts.push(inserts("top"));
+  parts.push(modsAfter(""));
   order.forEach((key, i) => {
     parts.push(block(key));
+    parts.push(modsAfter(key));
     // a banner placed "after the intro" stays after it (after the hero when the page has no intro)
     if (key === "intro" || (key === "hero" && !order.includes("intro"))) parts.push(inserts("after-intro"));
     if (adds) parts.push(`<div class="apx-np-add" data-apx-add="${i + 1}" title="Add a block here"><b>+</b></div>`);
   });
+  parts.push(modsAfter("~end"));
   parts.push(inserts("bottom"));
 
   return { css: NEW_PAGE_CSS, html: `<div class="apx-np">\n${parts.filter(Boolean).join("\n")}\n</div>` };
@@ -254,7 +270,9 @@ export const NEW_PAGE_CSS = `.apx-np{--red:#d80901;--red-d:#b00701;--petrol:#274
 .apx-np .apx-np-c-red{color:var(--red)!important}.apx-np .apx-np-c-muted{color:var(--muted)!important}
 .apx-np .apx-np-slot{display:block;margin:10px 0;padding:14px 16px;border:1.5px dashed #b6c2cb;border-radius:10px;background:rgba(255,255,255,.55);color:#7d8b95;font:500 15px/1.4 var(--head);letter-spacing:0;text-transform:none}
 .apx-np .apx-np-pic-empty{display:flex;align-items:center;justify-content:center;border:1.5px dashed #b6c2cb;background:rgba(255,255,255,.5);box-shadow:none;color:#7d8b95;font:500 15px/1.4 var(--head);text-align:center;padding:24px}
+.apx-np [data-apx-module]{max-width:1180px;padding:0 32px;margin:40px auto}
 @media (max-width:767px){
+.apx-np [data-apx-module]{padding:0 20px;margin:28px auto}
 .apx-np .apx-np-blk{padding:40px 0}
 .apx-np .apx-np-in{padding:0 20px}
 .apx-np .apx-np-hero{border-radius:0;margin:0}

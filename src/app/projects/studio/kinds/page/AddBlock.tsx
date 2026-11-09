@@ -13,6 +13,7 @@ import HelpOutlineOutlinedIcon from "@mui/icons-material/HelpOutlineOutlined";
 import LinkOutlinedIcon from "@mui/icons-material/LinkOutlined";
 import NotesOutlinedIcon from "@mui/icons-material/NotesOutlined";
 import VerticalSplitOutlinedIcon from "@mui/icons-material/VerticalSplitOutlined";
+import DashboardCustomizeOutlinedIcon from "@mui/icons-material/DashboardCustomizeOutlined";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import type { NewBlock } from "@/lib/content/studio/kinds/page/fields";
 import { PINK } from "../../parts";
@@ -29,8 +30,10 @@ export const ADD_CHOICES: { kind: NewBlock; name: string; note: string; Icon: ty
 export type AddAt = { at: number; anchor?: HTMLElement | null; pos?: { top: number; left: number } };
 
 /** The squared menu of blocks. `onPage` = the blocks the page has (a single one is moved, not added twice). */
-export function AddBlockMenu({ where, onClose, onPick, onPage }: {
+export function AddBlockMenu({ where, onClose, onPick, onPage, onGallery }: {
   where: AddAt | null; onClose: () => void; onPick: (kind: NewBlock, at: number) => void; onPage: string[];
+  /** the module gallery opened for this place (Content v6, ./modules/Gallery.tsx) */
+  onGallery?: (at: number) => void;
 }) {
   const open = !!where && (!!where.anchor || !!where.pos);
   return (
@@ -58,6 +61,20 @@ export function AddBlockMenu({ where, onClose, onPick, onPage }: {
             </Box>
           );
         })}
+        {onGallery && (
+          <Box component="button" type="button" data-add="gallery" onClick={() => { if (where) onGallery(where.at); onClose(); }} sx={{
+            all: "unset", boxSizing: "border-box", cursor: "pointer", gridColumn: "1 / -1", display: "flex", gap: 1, alignItems: "center", p: 1.1, borderRadius: "6px",
+            border: `1px dashed ${PINK}`, bgcolor: "rgba(194,44,110,.03)", "&:hover": { bgcolor: "rgba(194,44,110,.07)" }, "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: 1 },
+          }}>
+            <Box sx={{ width: 30, height: 30, flexShrink: 0, borderRadius: "6px", display: "grid", placeItems: "center", bgcolor: "rgba(194,44,110,.08)", color: PINK }}>
+              <DashboardCustomizeOutlinedIcon sx={{ fontSize: 18 }} />
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>A module from the gallery</Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: MUTED, lineHeight: 1.35 }}>Bentos, product rows, mosaics, banners - filled from the shop</Typography>
+            </Box>
+          </Box>
+        )}
       </Box>
     </Popover>
   );

@@ -249,11 +249,11 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
 
   return (
     <PanelFrame onBack={() => { flush(); onBack(); }} title={k.name}
-      right={ctl.canEdit ? <Tooltip title={m.settings && s && (cur?.change.op === "replace") ? "Take the module out - the page's element shows again" : "Take the module out of the page"}><IconButton size="small" onClick={() => { flush(); ctl.remove(); }}><DeleteOutlineIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip> : null}>
+      right={ctl.canEdit ? <Tooltip title={cur?.replace ? "Take the module out - the page's element shows again" : "Take the module out of the page"}><IconButton size="small" onClick={() => { flush(); ctl.remove(); }}><DeleteOutlineIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip> : null}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
         <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: gap ? AMBER : GREEN, flexShrink: 0 }} />
         <Typography sx={{ fontSize: "0.8rem", color: gap ? AMBER : GREEN, fontWeight: 600, flex: 1 }}>
-          {gap ? `Not on the page yet - ${gap.toLowerCase()}` : cur?.change.op === "replace" ? "On the page, in place of the element it replaces" : "On the page"}
+          {gap ? `Not on the page yet - ${gap.toLowerCase()}` : cur?.replace ? "On the page, in place of the element it replaces" : "On the page"}
         </Typography>
         <Typography sx={{ fontSize: "0.72rem", color: html.length > MODULE_MAX ? "#c5221f" : MUTED, fontVariantNumeric: "tabular-nums" }} title="One element of the page takes 20 KB at most">{kb} of 20 KB</Typography>
       </Box>

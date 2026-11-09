@@ -7,6 +7,8 @@ import {
 import { MODULE_MAX, href, minifyCss, moduleParts, renderModule, sharpImg } from "../src/lib/content/studio/kinds/page/modules/render";
 import { countOf, findNode, numbersIn, parseCategory, parseMenu, parseProduct, tilePhotos } from "../src/lib/content/studio/kinds/page/modules/parse";
 import { candidatesIn, cleanPick, moduleFillUser } from "../src/lib/content/studio/kinds/page/modules/ai";
+import { blockOrder, normalizeFields } from "../src/lib/content/studio/kinds/page/fields";
+import { renderNewPage } from "../src/lib/content/studio/kinds/page/newpage";
 
 // Content v6 (SARCLA 09.11.2026, points 7-9): "a gallery of forms like bentos and much more", "fill ... by hierarchy, most
 // viewed / most bought, by article or product number, with AI". Modules from the home page kit, drawn as ONE element with
@@ -227,4 +229,30 @@ test("Fill with AI keeps only the numbers it was shown, once each, at most as ma
   assert.match(user, /11400101 · HITEC O-Ring · 900 views · 40 bought · bought/);
   assert.match(user, /it shows 4 products/);
   assert.match(user, /für Lebensmittel/);
+});
+
+/* ── a new page: its modules after its blocks ─────────────────────────── */
+
+test("a new page keeps its modules, each after a block; a module still lacking something is a slot in the preview, absent in Magento", () => {
+  const f = normalizeFields({
+    hero: { title: "O-Ringe" }, intro: "Kurz.", order: ["hero", "intro"],
+    modules: [
+      { id: "ab12", after: "intro", module: filled("row") },
+      { id: "cd34", after: "", module: newModule("row", "de-CH", "mempty") },
+      { id: "ef56", after: "faq", module: filled("usp") },
+      { id: "bad id!", after: "intro", module: filled("row") },
+      { id: "gh78", after: "intro", module: { type: "nope" } },
+    ],
+  });
+  assert.deepEqual(f.modules!.map((x) => x.id), ["ab12", "cd34", "ef56"]);
+  const preview = renderNewPage(f, { marks: true }).html;
+  const magento = renderNewPage(f).html;
+  // after the intro block, the row; the empty one at the top only as a slot; one whose block is gone at the end
+  assert.ok(magento.indexOf('data-apx-module="row"') > magento.indexOf("Kurz."));
+  assert.equal((magento.match(/data-apx-module="row"/g) ?? []).length, 1, "the empty row is not in Magento's copy");
+  assert.match(preview, /data-apx-mod="cd34" class="apx-np-in"><span class="apx-np-slot">Product row - fill it with products first/);
+  assert.ok(magento.lastIndexOf('data-apx-module="usp"') > magento.indexOf('data-apx-module="row"'));
+  assert.doesNotMatch(magento, /data-apx-mod=/, "the studio's marks stay out of Magento");
+  assert.deepEqual(blockOrder(f), ["hero", "intro"], "the blocks' order is the blocks'");
+  assert.equal(normalizeFields({ hero: { title: "x" } }).modules, undefined, "a page without modules has none");
 });

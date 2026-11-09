@@ -44,7 +44,7 @@ import type { StudioApi } from "../../useStudio";
 import { Changes } from "./Changes";
 import { ElementPane, type Selection } from "./Element";
 import type { FillRun, PictureCtl } from "./Fields";
-import { BlocksOutline, Row, RowList, ShopPartsOutline } from "./Outline";
+import { BlocksOutline, Row, RowList, ShopPartsOutline, type ChangeExtra } from "./Outline";
 import { ToMagento } from "./Publish";
 import { AbTest, Texts } from "./Sections";
 import { Chip, Choice, Hint } from "./ui";
@@ -176,6 +176,8 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
   shop?: {
     parts: ShopPart[]; whole: number[]; elsewhere: number[]; busyPart: string | null;
     onOpen: (p: ShopPart | null) => void; onAsk: (p: ShopPart) => void; onRemove: (i: number) => void;
+    /** Content v6: "Show the old one" for a replace, "Show it anyway" for a change the check held back */
+    extra?: ChangeExtra;
     /** the part selected as a whole, and the part an element selected in the page is in */
     selPart: string | null; selIn: string | null;
   } | null;
@@ -268,7 +270,7 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
       {!sel && moduleSlot}
       {shop.parts.length ? (
         <ShopPartsOutline parts={shop.parts} whole={shop.whole} elsewhere={shop.elsewhere} changes={d.changes} hits={hits} open={open} onOpen={shop.onOpen}
-          busyPart={shop.busyPart} canEdit={canEdit} canAi={canAi} onAsk={shop.onAsk} onRemove={shop.onRemove}
+          busyPart={shop.busyPart} canEdit={canEdit} canAi={canAi} onAsk={shop.onAsk} onRemove={shop.onRemove} extra={shop.extra}
           selected={sel && shop.selIn && !shop.selPart ? { part: shop.selIn, node: selPane } : null} />
       ) : (
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, p: 1.5, borderRadius: "10px", border: `1px dashed ${HAIRLINE}`, color: MUTED, fontSize: "0.82rem" }}>
@@ -419,6 +421,7 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
               <BlocksOutline api={api} f={d.fields} set={(fields, label) => setView({ ...d, fields }, label)} store={d.store} canEdit={canEdit} canAi={canAi} fill={fill} busy={busy}
                 open={open} onOpen={onOpenBlock} focusPath={sel?.key.startsWith("f:") ? sel.key.slice(2) : null} selKey={sel?.key ?? null} onSelect={onSelectKey}
                 onFocusPath={onFocusPath} pictures={pictures} makingIn={makingIn} onAdd={onAdd} onAddText={onAddText} onRefine={onRefine} />
+              {!sel && moduleSlot}
               {sel?.key.startsWith("i:") && (
                 <Box sx={{ mt: 1.5 }}>
                   <RowList>
