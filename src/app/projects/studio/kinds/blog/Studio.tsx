@@ -446,7 +446,7 @@ export default function Studio({ api }: StudioProps) {
       <Box sx={{ p: 2.5, position: "relative" }}>
         {work && <Working label={work.label} since={work.since} />}
         <EditFrame html={html} device={device} width={DESKTOP} title="The blog post" texts={(k) => partText(docRef.current, k)} oneLine={oneLine}
-          selected={sel} onSelect={(k) => setSel(k)} onCommit={commit} readOnly={!canEdit} focus={focus} editKey={editKey} busy={work?.key ?? null}
+          selected={sel} onSelect={(k) => setSel(k)} onCommit={commit} readOnly={!canEdit} focus={focus} editKey={editKey} busy={work ? work.key ?? "*" : null}
           rich={richOf} redMarks label={(k) => partLabel(docRef.current, k)} onAskAi={enabled ? () => askRef.current?.focus() : undefined} />
       </Box>
     </Pane>

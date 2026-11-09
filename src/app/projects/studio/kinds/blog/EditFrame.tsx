@@ -74,7 +74,7 @@ export type EditFrameProps = {
   focus?: { key: string; at: number } | null;
   /** a part whose words to start editing (a section just added: its heading), and when it was asked */
   editKey?: { key: string; at: number } | null;
-  /** the part the assistant is working on: its outline breathes */
+  /** the part the assistant is working on: its outline breathes ("*": the whole thing is being written - every part) */
   busy?: string | null;
   /** drawn over the page at the parts' places (pointer events on its own controls) */
   overlay?: (o: { rect: (selector: string) => Rect | null; zoom: number; tick: number }) => React.ReactNode;
@@ -141,7 +141,8 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
     d.querySelectorAll("[data-x-busy]").forEach((x) => x.removeAttribute("data-x-busy"));
     const s = props.current.selected;
     if (s) marked(d, s).forEach((x) => { if (!x.hasAttribute("data-x-edit")) x.setAttribute("data-x-sel", ""); });
-    if (busyRef.current) marked(d, busyRef.current).forEach((x) => x.setAttribute("data-x-busy", ""));
+    if (busyRef.current === "*") d.querySelectorAll("[data-ed],[data-pic]").forEach((x) => x.setAttribute("data-x-busy", ""));
+    else if (busyRef.current) marked(d, busyRef.current).forEach((x) => x.setAttribute("data-x-busy", ""));
   }, []);
   const busyRef = useRef(busy);
   busyRef.current = busy;

@@ -425,7 +425,7 @@ export default function Studio({ api }: StudioProps) {
         {work && <Working label={work.label} since={work.since} />}
         <InboxLine api={api} d={d} set={set} width={frameW + (device === "mobile" ? 16 : 2)} />
         <EditFrame html={html} device={device} width={680} title="The e-mail" texts={(k) => partText(docRef.current, k)} oneLine={oneLine}
-          selected={sel} onSelect={setSel} onCommit={(k, t) => api.setDoc((cur: unknown) => setPart(cur, k, t))} readOnly={!canEdit} focus={focus} busy={work?.key ?? null}
+          selected={sel} onSelect={setSel} onCommit={(k, t) => api.setDoc((cur: unknown) => setPart(cur, k, t))} readOnly={!canEdit} focus={focus} busy={work ? work.key ?? "*" : null}
           overlay={overlay}
           rich={(k) => { const b = docRef.current.blocks.find((x) => x.id === k.split(":")[0]); return k.endsWith(":text") && b && (b.kind === "hero" || b.kind === "article" || b.kind === "text") ? "blocks" : null; }}
           label={drag ? undefined : (k) => nameOf(docRef.current, k)} onAskAi={enabled ? () => askRef.current?.focus() : undefined} />
