@@ -35,14 +35,23 @@ import { LastStep, MapRow, PictureSlot, shimmerSx, useClock, type PartState } fr
 import { PINK } from "../../parts";
 import { T } from "./look";
 import { templatePage } from "./actions";
-import { headlineOf, isEmptyFrame, isLogoNode, isPictureNode } from "./useDesignAi";
+import { headlineNode, headlineOf, isEmptyFrame, isLogoNode, isPictureNode } from "./useDesignAi";
 import ExportMenu from "./ExportMenu";
 import type { StudioCtx } from "./Studio";
 
 /* ── the elements ── */
 
 const COLOUR_NAMES: Record<string, string> = { "#D80901": "APSOparts red", "#274E64": "Petrol", "#16303F": "Dark petrol", "#FFFFFF": "White", "#000000": "Black", "#16202A": "Ink", "#F4F6F8": "Light grey", "#DDE5EB": "Mist" };
-const colourName = (c: string | undefined) => (c ? COLOUR_NAMES[c.toUpperCase()] ?? c : "");
+function colourName(c: string | undefined): string {
+  if (!c) return "";
+  const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)$/i.exec(c.replace(/\s+/g, ""));
+  if (m) {
+    const hex = `#${[m[1], m[2], m[3]].map((v) => Number(v).toString(16).padStart(2, "0")).join("")}`.toUpperCase();
+    const soft = m[4] !== undefined && Number(m[4]) < 1;
+    return `${COLOUR_NAMES[hex] ?? hex}${soft ? ", see-through" : ""}`;
+  }
+  return COLOUR_NAMES[c.toUpperCase()] ?? c;
+}
 
 export function elementName(n: DesignNode, headlineId: string | null): string {
   if (n.kind === "text") return n.id === headlineId ? "Headline" : "Text";
@@ -64,9 +73,7 @@ function elementLine(n: DesignNode): string {
 }
 /** The id of the page's headline (its biggest words). */
 export function headlineIdOf(nodes: DesignNode[]): string | null {
-  const t = nodes.filter((n) => n.kind === "text" && !n.hidden && plainText(n.text).trim());
-  if (!t.length) return null;
-  return [...t].sort((a, b) => (b.fontSize ?? 0) - (a.fontSize ?? 0))[0].id;
+  return headlineNode(nodes)?.id ?? null;
 }
 
 /** The editor's properties of the selection, moved into the open row (one host element, carried where it is needed). */

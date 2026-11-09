@@ -32,12 +32,16 @@ export const isEmptyFrame = (n: DesignNode) => (n.kind === "rect" || n.kind === 
 /** A picture on the page (not the logo). */
 export const isPictureNode = (n: DesignNode) => n.kind === "image" && !isLogoNode(n);
 
-/** The page's headline: its biggest words. */
-export function headlineOf(nodes: DesignNode[]): string {
+/** The page's headline: its biggest words - words, not a slide's number ("02"). */
+export function headlineNode(nodes: DesignNode[]): DesignNode | null {
   const texts = nodes.filter((n) => n.kind === "text" && !n.hidden && plainText(n.text).trim());
-  if (!texts.length) return "";
-  const top = [...texts].sort((a, b) => (b.fontSize ?? 0) - (a.fontSize ?? 0))[0];
-  return plainText(top.text).replace(/\s+/g, " ").trim();
+  const worded = texts.filter((n) => /[A-Za-zÀ-ɏ]{2,}/.test(plainText(n.text)));
+  const pool = worded.length ? worded : texts;
+  return pool.length ? [...pool].sort((a, b) => (b.fontSize ?? 0) - (a.fontSize ?? 0))[0] : null;
+}
+export function headlineOf(nodes: DesignNode[]): string {
+  const top = headlineNode(nodes);
+  return top ? plainText(top.text).replace(/\s+/g, " ").trim() : "";
 }
 
 /** The picture's idea, before the person writes their own: what the page is about, in the house style. */
