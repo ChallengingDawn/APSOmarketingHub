@@ -355,7 +355,11 @@ export default function Studio({ api }: StudioProps) {
               <IconButton size="small" onClick={() => setSel(null)} aria-label="Let go of the scene" sx={{ color: "rgba(255,255,255,.75)", p: 0.4 }}><CloseIcon sx={{ fontSize: 15 }} /></IconButton>
             </Box>
           )}
-          <Player doc={film} handle={player} strip={(frame, seg, playing) => (
+          <Player doc={film} handle={player} onOpen={(i) => {
+            // the scene showing opens in the map with the cursor in its first line - the words changed where they are
+            select(i);
+            setTimeout(() => (document.querySelector(`[data-row="v-${i}"] [role="textbox"]`) as HTMLElement | null)?.focus(), 320);
+          }} strip={(frame, seg, playing) => (
             <Strip film={film} segs={segs} selected={open !== null && open >= -1 ? open : null} playing={playing ? seg.index : null} frame={frame} issues={issues} disabled={!canEdit}
               onSelect={select} onMove={move} onAdd={add} />
           )} />

@@ -1,11 +1,12 @@
 "use client";
 // THE VIDEO STUDIO'S SMALL PIECES (08.11.2026, Content v3; SARCLA: "button is not fit", "O-ring is not realistic on
-// video", "the controls are really hard"): the shop's line icons, a line of the film with its word count, our real parts
+// video", "the controls are really hard"): the shop's line icons, a line of the film with its word count and its red word
+// shown red (never the raw *stars*, 09.11.2026), our real parts
 // to pick (the shop's own product photos), a quiet heading. Every button here carries a short fixed text - a feature's
 // long name is never put in a button, it sits on its card.
 
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
-import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import CheckIcon from "@mui/icons-material/Check";
@@ -15,7 +16,6 @@ import { wordCount } from "@/lib/content/studio/kinds/video/engine/text";
 import type { IconKey } from "@/lib/content/studio/kinds/video/features";
 import { ICON_PATHS } from "@/lib/content/studio/kinds/video/film/iconPaths";
 import { PARTS, type PartKey } from "@/lib/content/studio/kinds/video/parts";
-import { field } from "../../parts";
 
 export const SEL = "#2459d1";
 
@@ -35,18 +35,113 @@ export const Head = ({ children, mt = 2.25, right }: { children: React.ReactNode
   </Box>
 );
 
-/** A line of the film: its words counted against what is read in under two seconds. */
-export function WordField({ label, value, words, placeholder, onChange, onFocus, disabled, multiline, autoFocus }: {
+/**
+ * A line of the film: its words counted against what is read in under two seconds, and its key word shown RED while it
+ * is typed (09.11.2026, the flow standard: "never raw ** marks in front of the person"). Kept in the document as
+ * *word*, as before; here the person selects a word (or puts the cursor in it) and presses "Red" - once more, plain.
+ */
+export function WordField({ label, value, words, placeholder, onChange, onFocus, disabled, multiline, autoFocus, red = true }: {
   label: string; value: string; words: number; placeholder?: string; onChange: (v: string) => void; onFocus?: () => void; disabled?: boolean; multiline?: boolean; autoFocus?: boolean;
+  /** the film shows a red word in this line (a kicker, a proof or a button never does) */
+  red?: boolean;
 }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const drawn = useRef<string | null>(null);
+  const [focused, setFocused] = useState(false);
+  // the words drawn with their red word, only when they change from outside (typing keeps the cursor where it is)
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || value === drawn.current) return;
+    el.innerHTML = red ? redHtml(value) : escHtml(value.replace(/\*/g, "")).replace(/\n/g, "<br>");
+    drawn.current = value;
+  }, [value]);
+  useEffect(() => { if (autoFocus && !disabled) ref.current?.focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const emit = () => {
+    const el = ref.current;
+    if (!el) return;
+    const v = readRed(el, !!multiline).replace(/ /g, " ");
+    drawn.current = v;
+    onChange(v);
+  };
+  /** The selected words - or the word the cursor is in - red; pressed again on the red word, plain. One red word a line. */
+  const toggleRed = () => {
+    const el = ref.current;
+    const sel = window.getSelection();
+    if (!el || !sel || !sel.rangeCount || !el.contains(sel.anchorNode)) return;
+    const text = el.textContent ?? "";
+    const r = sel.getRangeAt(0);
+    const pre = document.createRange();
+    pre.selectNodeContents(el);
+    pre.setEnd(r.startContainer, r.startOffset);
+    let a = pre.toString().length;
+    let b = a + r.toString().length;
+    if (a === b) { // the word around the cursor
+      while (a > 0 && /\S/.test(text[a - 1])) a--;
+      while (b < text.length && /\S/.test(text[b])) b++;
+    }
+    while (a < b && /\s/.test(text[a])) a++;
+    while (b > a && /\s/.test(text[b - 1])) b--;
+    const red = redRange(value);
+    const plainText = value.replace(/\*([^*]+)\*/g, "$1");
+    const next = a < b && !(red && red[0] === a && red[1] === b) ? `${plainText.slice(0, a)}*${plainText.slice(a, b)}*${plainText.slice(b)}` : plainText;
+    drawn.current = null;
+    onChange(next);
+    el.focus();
+  };
   const n = wordCount(value);
   const over = n > words;
+  const empty = !value.trim();
   return (
-    <TextField fullWidth size="small" label={label} value={value} placeholder={placeholder} disabled={disabled} multiline={multiline} minRows={multiline ? 2 : undefined} autoFocus={autoFocus}
-      onChange={(e) => onChange(e.target.value)} onFocus={onFocus}
-      helperText={<Box component="span" sx={{ display: "flex", justifyContent: "flex-end" }}><span style={{ color: over ? RED : MUTED, fontWeight: over ? 700 : 500 }}>{over ? `${n - words} word${n - words > 1 ? "s" : ""} too many` : `${n} / ${words} words`}</span></Box>}
-      sx={{ ...field, mb: 1, "& .MuiFormHelperText-root": { mx: 0.5, mt: 0.25 } }} />
+    <Box sx={{ mb: 1.25 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.4 }}>
+        <Typography component="label" sx={{ flex: 1, fontSize: "0.74rem", fontWeight: 600, color: focused ? SEL : MUTED }}>{label}</Typography>
+        {red && <Tooltip title="Select a word, then Red: it shows red in the film. Again: plain.">
+          <span>
+            <Box component="button" type="button" disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={toggleRed} aria-label="Make the word red"
+              sx={{ all: "unset", cursor: disabled ? "default" : "pointer", px: 0.75, py: 0.1, borderRadius: "4px", border: `1px solid ${HAIRLINE}`, fontSize: "0.7rem", fontWeight: 800, color: RED, bgcolor: "#fff", lineHeight: 1.5, opacity: focused ? 1 : 0.6, "&:hover": { borderColor: RED } }}>
+              Red
+            </Box>
+          </span>
+        </Tooltip>}
+      </Box>
+      <Box sx={{ position: "relative" }}>
+        <Box ref={ref} role="textbox" aria-label={label} aria-multiline={multiline ? "true" : "false"} contentEditable={!disabled} suppressContentEditableWarning
+          onInput={emit} onFocus={() => { setFocused(true); onFocus?.(); }} onBlur={() => setFocused(false)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !multiline) e.preventDefault(); }}
+          onPaste={(e) => { e.preventDefault(); document.execCommand("insertText", false, e.clipboardData.getData("text/plain").replace(/\s*\n\s*/g, multiline ? "\n" : " ")); }}
+          sx={{
+            minHeight: multiline ? 58 : 38, boxSizing: "border-box", px: 1.5, py: 0.9, fontSize: "0.9rem", lineHeight: 1.45, color: INK, bgcolor: disabled ? "#f6f7f9" : "#fff",
+            borderRadius: "8px", border: `1px solid ${focused ? SEL : "rgba(21,34,58,.23)"}`, boxShadow: focused ? `inset 0 0 0 1px ${SEL}` : "none", outline: "none",
+            whiteSpace: multiline ? "pre-wrap" : "nowrap", overflowX: "auto", overflowWrap: multiline ? "anywhere" : "normal", "&:hover": disabled || focused ? {} : { borderColor: "rgba(21,34,58,.6)" },
+          }} />
+        {empty && placeholder && <Typography aria-hidden sx={{ position: "absolute", left: 13, top: 8, fontSize: "0.9rem", color: "#a3acb7", pointerEvents: "none" }}>{placeholder.replace(/\*/g, "")}</Typography>}
+      </Box>
+      <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 0.25, px: 0.5 }}>
+        <Typography component="span" sx={{ fontSize: "0.72rem", color: over ? RED : MUTED, fontWeight: over ? 700 : 500 }}>{over ? `${n - words} word${n - words > 1 ? "s" : ""} too many` : `${n} / ${words} words`}</Typography>
+      </Box>
+    </Box>
   );
+}
+
+const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+/** The words as the field draws them: the *red* word in red, nothing else marked. */
+export const redHtml = (v: string) => escHtml(v).replace(/\*([^*]+)\*/g, `<span data-red="1" style="color:${RED};font-weight:700">$1</span>`).replace(/\n/g, "<br>");
+/** Where the red word sits in the plain words (no stars), or null. */
+export function redRange(v: string): [number, number] | null {
+  const m = /\*([^*]+)\*/.exec(v);
+  return m ? [m.index, m.index + m[1].length] : null;
+}
+/** The field's words back as the document keeps them: the red word between stars. */
+function readRed(el: HTMLElement, multiline: boolean): string {
+  let out = "";
+  el.childNodes.forEach((n) => {
+    if (n.nodeType === Node.TEXT_NODE) { out += n.textContent ?? ""; return; }
+    if (!(n instanceof HTMLElement)) return;
+    if (n.tagName === "BR") { out += multiline ? "\n" : " "; return; }
+    if (n.dataset.red) { const t = n.textContent ?? ""; out += t.trim() ? `*${t}*` : t; return; }
+    out += readRed(n, multiline);
+  });
+  return out;
 }
 
 /** A squared tile that can be picked: a picture or an icon, a name, a tick when picked. */

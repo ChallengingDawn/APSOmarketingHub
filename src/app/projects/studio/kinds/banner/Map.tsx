@@ -93,7 +93,7 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
   const checks = placeChecks(doc, shown);
   const st = placeState(checks);
   const line = st === "ready" ? `${PRESET[shown].label} · ready to go out`
-    : <><Box component="span" sx={{ color: st === "stop" ? "#c5221f" : "#8a5a00", fontWeight: 600 }}>{STATE_TEXT[st]}</Box>{` · ${PRESET[shown].label} · ${checks.length} thing${checks.length === 1 ? "" : "s"} to look at`}</>;
+    : <><Box component="span" sx={{ color: st === "stop" ? "#c5221f" : "#8a5a00", fontWeight: 600 }}>{STATE_TEXT[st]}</Box>{` · ${PRESET[shown].label} · ${checks.length} thing${checks.length === 1 ? "" : "s"}`}</>;
   const placedN = pages.placed.reduce((n, x) => n + x.mine.length, 0);
 
   return (

@@ -29,13 +29,15 @@ const clock = (f: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-export default function Player({ doc, handle, onScene, strip }: {
+export default function Player({ doc, handle, onScene, strip, onOpen }: {
   doc: VideoDoc;
   handle: React.MutableRefObject<PlayerHandle | null>;
   /** The scene showing changed (its index; -1 = the end card). */
   onScene?: (index: number) => void;
   /** What sits under the controls, given the frame and the scene playing. */
   strip?: (frame: number, seg: Segment, playing: boolean) => React.ReactNode;
+  /** A double-click on the film: the scene showing opens in the map, ready to type in (-1 = the end card). */
+  onOpen?: (index: number) => void;
 }) {
   const L = LAYOUTS[doc.format];
   const segs = useMemo(() => segments(doc), [doc]);
@@ -96,6 +98,19 @@ export default function Player({ doc, handle, onScene, strip }: {
   }, []);
   const scale = Math.max(0.05, Math.min(avail.w / L.W, avail.h / L.H));
 
+  // one click plays or pauses; a double-click opens the scene showing (the click waits a moment to know which)
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const click = () => {
+    if (!onOpen) { setPlaying((x) => !x); return; }
+    if (clickTimer.current) clearTimeout(clickTimer.current);
+    clickTimer.current = setTimeout(() => { clickTimer.current = null; setPlaying((x) => !x); }, 230);
+  };
+  const dbl = () => {
+    if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; }
+    setPlaying(false);
+    onOpen?.(segIndex);
+  };
+
   const keys = (e: React.KeyboardEvent) => {
     if ((e.target as HTMLElement).closest("input, textarea")) return;
     if (e.key === " " || e.key === "k") { e.preventDefault(); setPlaying((x) => !x); }
@@ -105,7 +120,7 @@ export default function Player({ doc, handle, onScene, strip }: {
     <Box tabIndex={0} onKeyDown={keys} aria-label="The film - space plays and pauses"
       sx={{ height: "100%", display: "flex", flexDirection: "column", gap: 1.25, outline: "none", minHeight: 0 }}>
       <Box ref={box} sx={{ flex: 1, minHeight: 200, display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
-        <Box onClick={() => setPlaying((x) => !x)} sx={{ width: L.W * scale, height: L.H * scale, flexShrink: 0, overflow: "hidden", borderRadius: "10px", boxShadow: "0 18px 50px rgba(31,45,78,.20)", border: `1px solid ${HAIRLINE}`, cursor: "pointer", position: "relative", bgcolor: "#F4F6F8" }}>
+        <Box onClick={click} onDoubleClick={dbl} title={onOpen ? "Click: play or pause · double-click: change this scene" : undefined} sx={{ width: L.W * scale, height: L.H * scale, flexShrink: 0, overflow: "hidden", borderRadius: "10px", boxShadow: "0 18px 50px rgba(31,45,78,.20)", border: `1px solid ${HAIRLINE}`, cursor: "pointer", position: "relative", bgcolor: "#F4F6F8" }}>
           <div style={{ width: L.W, height: L.H, transform: `scale(${scale})`, transformOrigin: "0 0" }}>
             <Film doc={doc} frame={frame} />
           </div>
@@ -128,7 +143,7 @@ export default function Player({ doc, handle, onScene, strip }: {
           <Typography sx={{ fontSize: "0.86rem", fontWeight: 650, color: INK, fontVariantNumeric: "tabular-nums" }}>{clock(frame)}</Typography>
           <Typography sx={{ fontSize: "0.86rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>/ {clock(total)}</Typography>
           <Box sx={{ flex: 1 }} />
-          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Click a scene to open it · drag to move it</Typography>
+          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{onOpen ? "Double-click the film to change the scene showing · drag a scene to move it" : "Click a scene to open it · drag to move it"}</Typography>
         </Box>
         {strip?.(frame, seg, playing)}
       </Box>

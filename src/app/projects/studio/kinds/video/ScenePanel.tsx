@@ -114,6 +114,9 @@ function Shows({ s, patch, disabled, where, lang }: { s: Scene; patch: (p: Parti
   );
 }
 
+/** The lines the film draws with their red word (a kicker, a proof, a quote and a figure are drawn plain). */
+const redLine = (kind: SceneKind, key: string) => (key === "line1" || key === "line2" || key === "line3") && kind !== "quote" && !(kind === "number" && key === "line1");
+
 export function ScenePanel({ doc, i, issues, edit, disabled, where, onShow, onRemove }: {
   doc: VideoDoc; i: number; issues: Issue[]; edit: Edit; disabled: boolean; where: PicWhere; onShow: () => void; onRemove: () => void;
 }) {
@@ -146,9 +149,9 @@ export function ScenePanel({ doc, i, issues, edit, disabled, where, onShow, onRe
       )}
       {info.fields.map((f, k) => (
         <WordField key={`${s.id}-${f.key}`} label={f.required ? f.label : `${f.label} (optional)`} value={s.copy[f.key] ?? ""} words={f.words} placeholder={f.placeholder}
-          onChange={(v) => setCopy(f.key, v)} onFocus={onShow} disabled={disabled} multiline={s.kind === "quote" && f.key === "line1"} autoFocus={k === 0 && !s.copy[f.key]} />
+          onChange={(v) => setCopy(f.key, v)} onFocus={onShow} disabled={disabled} multiline={s.kind === "quote" && f.key === "line1"} autoFocus={k === 0 && !s.copy[f.key]} red={redLine(s.kind, f.key)} />
       ))}
-      <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: -0.25 }}>A word between *stars* turns red.</Typography>
+      {info.fields.some((f) => redLine(s.kind, f.key)) && <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: -0.5 }}>One word a scene can be red: select it, then Red.</Typography>}
 
       <Shows s={s} patch={patch} disabled={disabled} where={where} lang={doc.language} />
 
@@ -172,7 +175,7 @@ export function EndPanel({ doc, issues, edit, disabled, onShow }: { doc: VideoDo
       <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 1.5 }}>APSOparts big, your line, the button - it keeps moving while it holds.</Typography>
       {END_FIELDS.map((f) => (
         <WordField key={f.key} label={f.label} value={e[f.key]} words={f.words} placeholder={f.placeholder} disabled={disabled}
-          onChange={(v) => setEnd({ [f.key]: v } as Partial<VideoDoc["endCard"]>)} onFocus={onShow} />
+          onChange={(v) => setEnd({ [f.key]: v } as Partial<VideoDoc["endCard"]>)} onFocus={onShow} red={f.key === "line"} />
       ))}
       <Head>The part beside it</Head>
       <PartPicker value={partOf(e) ?? DEFAULT_PART} onChange={(k) => { setEnd({ part: k ?? DEFAULT_PART }); onShow(); }} disabled={disabled} />
