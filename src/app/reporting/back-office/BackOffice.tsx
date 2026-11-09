@@ -89,8 +89,6 @@ import MarkEmailUnreadOutlinedIcon from "@mui/icons-material/MarkEmailUnreadOutl
 import EmojiEventsOutlinedIcon from "@mui/icons-material/EmojiEventsOutlined";
 import BoltOutlinedIcon from "@mui/icons-material/BoltOutlined";
 import HourglassEmptyOutlinedIcon from "@mui/icons-material/HourglassEmptyOutlined";
-import FactoryOutlinedIcon from "@mui/icons-material/FactoryOutlined";
-import PendingActionsOutlinedIcon from "@mui/icons-material/PendingActionsOutlined";
 
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { Badge, CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, TINT, glass, type Tint } from "@/app/uc/report/ui";
@@ -119,10 +117,7 @@ import type { ArtInfo, BoRead, ChatRow } from "@/lib/reporting/boReport";
 import { IN, inZero, type InDetail, type InRow } from "@/lib/reporting/boInbound";
 import { HIST, LATE, bands, both, byDate, histSum, medianWd, sumDMonths, within, type DMonth, type DeliveryKept } from "@/lib/reporting/boDelivery";
 import { PRICES_FROM, handRows, ownPriceCustomers, type PricesKept } from "@/lib/reporting/boPrices";
-import {
-  LATE_BANDS, LEAD_BANDS, NO_SUPPLIER, OPEN_DUE_WD, OTHER_SUPPLIERS, addWd, keysOf, otdSum, pairOf, priceOf, priceSum, transitOf,
-  type ErpLinesKept, type OtdCounts, type OtdPick, type PriceCounts,
-} from "@/lib/reporting/boErpLines";
+import { LATE_BANDS, addWd, otdSum, priceSum, transitOf, type ErpLinesKept, type OtdCounts, type OtdPick, type PriceCounts } from "@/lib/reporting/boErpLines";
 import { FIRST_MONTH as GQS_FIRST, FLOW_COLUMNS, STAGE_LABEL, STAGE_WHO, WORK, daysTo, flowOf, offersOf, refusalsOf, stageTimes, sumOf, winRate, type FlowNode, type GSum, type GStage, type GqsTask } from "@/lib/reporting/boGqs";
 import { GqsOpenBars } from "@/app/reporting/eso-benchmark/TicketsGqs";
 import type { GOpen } from "@/lib/reporting/esoGqs";
@@ -2053,10 +2048,10 @@ function elCharts(): ChartDef[] {
       body: ({ d }) => {
         const k = d.erpLines;
         if (!k) return <ElNone what="this is not counted" />;
-        return <Table head={["Order", "Article", "Supplier", "Country", "First date", "Shipped", "Late by", "Article type", "Profit centre", "Mandant"]} left={[1, 2, 3]} pageSize={15} minWidth={1150}
+        return <Table head={["Order", "Article", "Country", "First date", "Shipped", "Late by", "Article type", "Profit centre", "Mandant"]} left={[1, 2]} pageSize={15} minWidth={1000}
           rows={k.lateRows.map((r, i) => ({
             key: `${r[0]}-${r[1]}-${i}`,
-            cells: [r[0], r[1], r[9] ? supName(r[9]) : "—", r[2] || "—", ddmm(r[3]), ddmm(r[4]), <Box key="l" component="span" sx={{ fontWeight: 700, color: BAD }}>{`${int(r[5])} working day${r[5] === 1 ? "" : "s"}`}</Box>, r[6] === "S" ? "Standard" : "Special", r[7] || "—", r[8]],
+            cells: [r[0], r[1], r[2] || "—", ddmm(r[3]), ddmm(r[4]), <Box key="l" component="span" sx={{ fontWeight: 700, color: BAD }}>{`${int(r[5])} working day${r[5] === 1 ? "" : "s"}`}</Box>, r[6] === "S" ? "Standard" : "Special", r[7] || "—", r[8]],
           }))} />;
       },
     }),
@@ -2084,261 +2079,6 @@ function elCharts(): ChartDef[] {
         ];
         if (!rows.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>No eShop order line in this period.</Typography>;
         return <FullTable first="Month" cols={cols} rows={rows} total={{ label: periodOf(f), a: priceSum(k, "100", elYms(f)), b: priceSum(k, "110", elYms(f)) }} natural />;
-      },
-    }),
-  ];
-}
-
-
-/* ── More from the order lines (SARCLA 09.11.2026: "not yet developed enough, we need more and logic is missing"):
-   suppliers, open lines, every order source, the promised lead time; manual prices per profit centre, per article,
-   per company owner - all from the same nightly summary (lib/reporting/boErpLines.ts, v2) ── */
-
-const supName = (x: string) => (x.length > 36 ? `${x.slice(0, 35)}…` : x);
-/** a share drawn from 20 lines on (an order source or a profit centre has fewer than the mandants) */
-const share20 = (n: number, of: number) => (of >= 20 ? n / of : null);
-const handOf = (p: PriceCounts) => share20(p[1], p[0]);
-const passOf = (p: PriceCounts) => share20(p[2], p[0]);
-const otd20 = (c: number[]) => share20(c[1], c[0]);
-/** the promised lead time summed: [lines, working days, ...LEAD_BANDS] - every profit centre, or one */
-function leadOf(k: ErpLinesKept | null | undefined, yms: string[], pc?: string): number[] {
-  const t = [0, 0, 0, 0, 0, 0, 0];
-  for (const ym of yms) for (const [p, c] of Object.entries(k?.lead?.[ym] ?? {})) { if (pc && p !== pc) continue; c.forEach((x, i) => { t[i] += x; }); }
-  return t;
-}
-const wdAvg = (c: number[]) => (c[0] ? `${(c[1] / c[0]).toFixed(1)} wd` : "—");
-type ElMonth = { label: string; yms: string[] };
-const monthRows = (f: Frame, has: (yms: string[]) => boolean): ElMonth[] => f.yms.map((ym, i) => ({ label: f.labels[i], yms: [ym] })).filter((r) => has(r.yms));
-function Note({ children }: { children: React.ReactNode }) {
-  return <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>{children}</Typography>;
-}
-
-function el2Charts(): ChartDef[] {
-  const S = 14;
-  return [
-    /* OTD - every order source */
-    wide({
-      id: "otdSources", needsCount: true, page: "otd", title: "OTD per order source",
-      hint: () => "Every order of mandants 100 and 110 shipped - the eShop's and those typed in by the Back Office - the same rule · by the month of the first confirmed date",
-      body: ({ f, d }) => {
-        const k = d.erpLines;
-        if (!k?.srcOtd) return <ElNone what="this is not counted" />;
-        const ys = elYms(f), srcs = keysOf(k.srcOtd, ys);
-        const all = (yms: string[]) => srcs.reduce((t, x) => { const v = pairOf(k.srcOtd, yms, x); return [t[0] + v[0], t[1] + v[1]]; }, [0, 0]);
-        const cols: Col<ElMonth>[] = [
-          { key: "n", head: "Lines", cell: (r) => int(all(r.yms)[0]), sort: (r) => all(r.yms)[0] },
-          { key: "a", head: "On time, all", cell: (r) => pct(otd20(all(r.yms))), sort: (r) => otd20(all(r.yms)) ?? -1 },
-          ...srcs.flatMap((x): Col<ElMonth>[] => [
-            { key: `n-${x}`, head: `Lines, ${x}`, cell: (r) => int(pairOf(k.srcOtd, r.yms, x)[0]), sort: (r) => pairOf(k.srcOtd, r.yms, x)[0] },
-            { key: `o-${x}`, head: `On time, ${x}`, cell: (r) => pct(otd20(pairOf(k.srcOtd, r.yms, x))), sort: (r) => otd20(pairOf(k.srcOtd, r.yms, x)) ?? -1 },
-          ]),
-        ];
-        return <FullTable first="Month" cols={cols} rows={monthRows(f, (y) => keysOf(k.srcOtd, y).length > 0)} total={{ label: periodOf(f), yms: ys }} natural />;
-      },
-    }),
-
-    /* OTD - suppliers */
-    {
-      id: "otdSupplier", needsCount: true, page: "otd", title: "On time per supplier",
-      hint: ({ f }) => `${periodOf(f)} · the eShop lines shipped, by each article's main supplier in the ERP · the most lines first`,
-      body: ({ f, d }) => {
-        const k = d.erpLines;
-        if (!k?.supplier) return <ElNone what="this is not counted" />;
-        const ys = elYms(f);
-        const rows = keysOf(k.supplier, ys).map((x) => ({ x, v: pairOf(k.supplier, ys, x) })).filter((r) => r.v[0] >= OTD_MIN)
-          .map((r) => ({ label: supName(r.x), value: r.v[1] / r.v[0], secondary: `${int(r.v[0])} lines · ${int(r.v[0] - r.v[1])} late` }));
-        return <BarList rows={rows.slice(0, 25)} format={(v) => pct(v ?? null)} labelWidth={270} emptyMessage="No supplier with enough lines in this period." />;
-      },
-    },
-    {
-      id: "otdSupplierLate", needsCount: true, page: "otd", title: "Who the late lines come from",
-      hint: ({ f }) => `${periodOf(f)} · each supplier's late eShop lines, and their share of all the late lines - where fixing counts most`,
-      body: ({ f, d }) => {
-        const k = d.erpLines;
-        if (!k?.supplier) return <ElNone what="this is not counted" />;
-        const ys = elYms(f);
-        const all = keysOf(k.supplier, ys).map((x) => ({ x, v: pairOf(k.supplier, ys, x) }));
-        const lateAll = all.reduce((t, r) => t + r.v[0] - r.v[1], 0);
-        const rows = all.map((r) => ({ label: supName(r.x), value: r.v[0] - r.v[1], secondary: lateAll ? `${pct((r.v[0] - r.v[1]) / lateAll)} of the late lines` : "" }))
-          .filter((r) => r.value > 0).sort((a, b) => b.value - a.value);
-        return <BarList rows={rows.slice(0, 20)} format={(v) => int(v ?? 0)} labelWidth={270} emptyMessage="No late line in this period." />;
-      },
-    },
-    wide({
-      id: "otdSupplierMonths", needsCount: true, page: "otd", title: "The main suppliers, month by month",
-      hint: () => "On time per month of the first confirmed date · the 8 suppliers with the most lines (a month with fewer than 10 lines left empty)",
-      body: ({ f, d }) => {
-        const k = d.erpLines;
-        if (!k?.supplier) return <ElNone what="this is not counted" />;
-        const ys = elYms(f), top = keysOf(k.supplier, ys).filter((x) => x !== NO_SUPPLIER && x !== OTHER_SUPPLIERS).slice(0, 8);
-        const at = (yms: string[], x: string) => { const v = pairOf(k.supplier, yms, x); return v[0] >= 10 ? v[1] / v[0] : null; };
-        const cols: Col<ElMonth>[] = top.map((x) => ({ key: x, head: supName(x), cell: (r: ElMonth) => pct(at(r.yms, x)), sort: (r: ElMonth) => at(r.yms, x) ?? -1 }));
-        return <FullTable first="Month" cols={cols} rows={monthRows(f, (y) => keysOf(k.supplier, y).length > 0)} total={{ label: periodOf(f), yms: ys }} natural />;
-      },
-    }),
-
-    /* OTD - the open lines to act on */
-    wide({
-      id: "openFigs", needsCount: true, page: "otd", title: "Open lines to act on",
-      hint: ({ d }) => `Every order of mandants 100 and 110 not shipped yet - standard and special articles - as the morning file had them${d.erpLines?.open ? ` on ${ddmm(d.erpLines.open.day)}` : ""}`,
-      body: ({ d }) => {
-        const o = d.erpLines?.open;
-        if (!o) return <ElNone what="this is not counted" />;
-        return <Tiles items={[
-          { label: "Overdue", value: int(o.overdue), lower: true, sub: "lines whose first confirmed date has passed", icon: <EventRepeatOutlinedIcon sx={{ fontSize: S }} />, tint: "pink" },
-          { label: `Due within ${OPEN_DUE_WD} working days`, value: int(o.due), lower: true, sub: "to ship now to arrive on time", icon: <TimerOutlinedIcon sx={{ fontSize: S }} />, tint: "amber" },
-        ]} />;
-      },
-    }),
-    wide({
-      id: "openList", needsCount: true, page: "otd", title: "The open lines, the most overdue first",
-      hint: () => `Not shipped yet: overdue, or due within ${OPEN_DUE_WD} working days · the first confirmed date, the date it stands at now, what is still to ship`,
-      body: ({ d }) => {
-        const o = d.erpLines?.open;
-        if (!o) return <ElNone what="this is not counted" />;
-        if (!o.rows.length) return <Note>No open line overdue or due within {OPEN_DUE_WD} working days.</Note>;
-        return <Table head={["Order", "Article", "Supplier", "Country", "First date", "Date now", "Ordered", "Shipped", "Overdue", "Article", "Mandant · source"]} left={[0, 1, 2, 3]} pageSize={15} minWidth={1200}
-          rows={o.rows.map((r, i) => ({
-            key: `${r[0]}-${r[1]}-${i}`,
-            cells: [r[0], r[1], r[12] ? supName(r[12]) : "—", r[2] || "—", ddmm(r[3]), r[4] ? ddmm(r[4]) : "—", int(r[5]), int(r[6]),
-              <Box key="o" component="span" sx={{ fontWeight: 700, color: r[7] > 0 ? BAD : MUTED, whiteSpace: "nowrap" }}>{r[7] > 0 ? `${int(r[7])} wd overdue` : r[7] === 0 ? "due today" : `due in ${int(-r[7])} wd`}</Box>,
-              `${r[8] === "S" ? "Standard" : "Special"} · ${r[9] || "—"}`, `${r[10]} · ${r[11]}`],
-          }))} />;
-      },
-    }),
-
-    /* OTD - the promised lead time */
-    {
-      id: "leadMonths", needsCount: true, page: "otd", title: "Promised lead time, month by month",
-      hint: () => "The working days from the order to the first confirmed date, on average · eShop lines by the month ordered",
-      figure: ({ f, d }) => { const c = leadOf(d.erpLines, elYms(f)); return c[0] ? wdAvg(c) : null; },
-      body: ({ f, d }) => {
-        const k = d.erpLines;
-        if (!k?.lead) return <ElNone what="this is not counted" />;
-        const n = drawn(f);
-        return <MonthTrend values={f.yms.slice(0, n).map((ym) => { const c = leadOf(k, [ym]); return c[0] >= OTD_MIN ? c[1] / c[0] : null; })} compare={null} labels={f.labels.slice(0, n)}
-          label="Working days promised, on average" fmt={(v) => (v == null ? "—" : `${v.toFixed(1)} wd`)} tick={(v) => (v == null ? "" : `${Math.round(v)}`)} />;
-      },
-    },
-    {
-      id: "leadBands", needsCount: true, page: "otd", title: "How long we promise",
-      hint: ({ f }) => `${periodOf(f)} · the eShop lines per promised lead time, from the order to the first confirmed date`,
-      body: ({ f, d }) => {
-        const k = d.erpLines;
-        if (!k?.lead) return <ElNone what="this is not counted" />;
-        const c = leadOf(k, elYms(f));
-        return <BarList rows={LEAD_BANDS.map((label, i) => ({ label, value: c[2 + i], secondary: c[0] ? `${pct(c[2 + i] / c[0])} of the lines` : "" }))} format={(v) => int(v ?? 0)} labelWidth={180} emptyMessage="No line in this period." />;
-      },
-    },
-    wide({
-      id: "leadPc", needsCount: true, page: "otd", title: "Promised lead time per profit centre",
-      hint: ({ f }) => `${periodOf(f)} · the average working days, and the share promised within 5 and beyond 20`,
-      body: ({ f, d }) => {
-        const k = d.erpLines;
-        if (!k?.lead) return <ElNone what="this is not counted" />;
-        const ys = elYms(f);
-        type R = { label: string; pc?: string };
-        const c = (r: R) => leadOf(k, ys, r.pc);
-        const cols: Col<R>[] = [
-          { key: "n", head: "Lines", cell: (r) => int(c(r)[0]), sort: (r) => c(r)[0] },
-          { key: "avg", head: "Average", cell: (r) => wdAvg(c(r)), sort: (r) => (c(r)[0] ? c(r)[1] / c(r)[0] : -1) },
-          { key: "f5", head: "Within 5 wd", cell: (r) => pct(c(r)[0] ? (c(r)[2] + c(r)[3]) / c(r)[0] : null), sort: (r) => (c(r)[0] ? (c(r)[2] + c(r)[3]) / c(r)[0] : -1) },
-          { key: "g20", head: "Beyond 20 wd", cell: (r) => pct(c(r)[0] ? c(r)[6] / c(r)[0] : null), sort: (r) => (c(r)[0] ? c(r)[6] / c(r)[0] : -1) },
-        ];
-        return <FullTable first="Profit centre" cols={cols} rows={PCS.map((pc) => ({ label: pc, pc })).filter((r) => c(r)[0] > 0)} total={{ label: "All" }} natural />;
-      },
-    }),
-
-    /* Pass rate - eShop and typed-in orders */
-    wide({
-      id: "prSources", needsCount: true, page: "autonomy", title: "eShop orders and orders typed in by the Back Office",
-      hint: () => "The pass rate and the manual prices per order source, by the month ordered, service articles left out",
-      body: ({ f, d }) => {
-        const k = d.erpLines;
-        if (!k?.srcPrice) return <ElNone what="this is not counted" />;
-        const ys = elYms(f), srcs = keysOf(k.srcPrice, ys);
-        const cols: Col<ElMonth>[] = srcs.flatMap((x): Col<ElMonth>[] => [
-          { key: `l-${x}`, head: `Lines, ${x}`, cell: (r) => int(priceOf(k.srcPrice, r.yms, x)[0]), sort: (r) => priceOf(k.srcPrice, r.yms, x)[0] },
-          { key: `p-${x}`, head: `Pass rate, ${x}`, cell: (r) => pct(passOf(priceOf(k.srcPrice, r.yms, x))), sort: (r) => passOf(priceOf(k.srcPrice, r.yms, x)) ?? -1 },
-          { key: `m-${x}`, head: `By hand, ${x}`, cell: (r) => pct(handOf(priceOf(k.srcPrice, r.yms, x))), sort: (r) => handOf(priceOf(k.srcPrice, r.yms, x)) ?? -1 },
-        ]);
-        return <FullTable first="Month" cols={cols} rows={monthRows(f, (y) => keysOf(k.srcPrice, y).length > 0)} total={{ label: periodOf(f), yms: ys }} natural />;
-      },
-    }),
-
-    /* Manual prices - per profit centre, per article, per owner */
-    wide({
-      id: "pricePc", needsCount: true, page: "autonomy", title: "Manual prices per profit centre",
-      own: ({ f, d }, box) => {
-        const k = d.erpLines, ys = elYms(f);
-        if (!k?.pcPrice) return <ElNone what="this is not counted" />;
-        const rows = PCS.map((pc) => ({ label: pc, std: handOf(priceOf(k.pcPrice, ys, `S|${pc}`)) ?? 0, spc: handOf(priceOf(k.pcPrice, ys, `P|${pc}`)) ?? 0 }));
-        return <DimChart {...box} rows={rows} cur={(r) => r.std} prev={(r) => r.spc} curLabel={`Standard, ${periodOf(f)}`} prevLabel="Special" fmt={(v) => pct(v)} fixedOrder />;
-      },
-    }),
-    wide({
-      id: "pricePcMonths", needsCount: true, page: "autonomy", title: "Manual prices per profit centre, month by month",
-      hint: () => "The share of eShop lines priced by hand, standard and special articles together, by the month ordered (a month with fewer than 20 lines left empty)",
-      body: ({ f, d }) => {
-        const k = d.erpLines;
-        if (!k?.pcPrice) return <ElNone what="this is not counted" />;
-        const ys = elYms(f);
-        const of = (yms: string[], pc: string) => priceOf(k.pcPrice, yms, (g) => g.endsWith(`|${pc}`));
-        const cols: Col<ElMonth>[] = PCS.map((pc) => ({ key: pc, head: pc, cell: (r: ElMonth) => pct(handOf(of(r.yms, pc))), sort: (r: ElMonth) => handOf(of(r.yms, pc)) ?? -1 }));
-        return <FullTable first="Month" cols={cols} rows={monthRows(f, (y) => keysOf(k.pcPrice, y).length > 0)} total={{ label: periodOf(f), yms: ys }} natural />;
-      },
-    }),
-    wide({
-      id: "priceArticles", needsCount: true, page: "autonomy", title: "The articles priced by hand most",
-      hint: () => "The last 3 months, eShop lines · priced by hand at least twice - candidates for the price list",
-      body: ({ d }) => {
-        const a = d.erpLines?.manualArticles;
-        if (!a) return <ElNone what="this is not counted" />;
-        if (!a.length) return <Note>No article priced by hand twice in the last 3 months.</Note>;
-        return <Table head={["Article", "By hand", "Of its lines", "Share", "Last time", "Profit centre", "Type", "Supplier"]} left={[0, 7]} pageSize={15} minWidth={1000}
-          rows={a.map((r) => ({ key: r[0], cells: [r[0], int(r[1]), int(r[2]), pct(r[2] ? r[1] / r[2] : null), ddmm(r[4]), r[3] || "—", r[6] === "S" ? "Standard" : r[6] === "P" ? "Special" : "—", r[5] ? supName(r[5]) : "—"] }))} />;
-      },
-    }),
-    {
-      id: "priceOwner", needsCount: true, page: "autonomy", title: "Manual prices per company owner",
-      hint: ({ f }) => `${periodOf(f)} · the eShop lines of each owner's customers, priced by hand (from 20 lines)`,
-      body: ({ f, d }) => {
-        const k = d.erpLines;
-        if (!k?.ownerPrice) return <Note>Counted once the ERP&apos;s order lines carry the customer - then each line goes to its customer&apos;s company owner in HubSpot.</Note>;
-        const ys = elYms(f);
-        const rows = keysOf(k.ownerPrice, ys).map((o) => ({ o, p: priceOf(k.ownerPrice, ys, o) })).filter((r) => handOf(r.p) != null)
-          .map((r) => ({ label: r.o, value: handOf(r.p) ?? 0, secondary: `${int(r.p[1])} of ${int(r.p[0])} lines by hand` })).sort((a, b) => b.value - a.value);
-        return <BarList rows={rows} format={(v) => pct(v ?? null)} labelWidth={220} emptyMessage="No owner with enough lines in this period." />;
-      },
-    },
-
-    /* Pass rate - how it's counted, with the figures and real lines */
-    wide({
-      id: "passSources", needsCount: true, page: "autonomy", title: "Every month's lines per price source",
-      hint: () => "The eShop order lines of mandants 100 and 110 as the ERP records their price source, by the month ordered, service articles left out - what the pass rate and the manual prices are made of",
-      body: ({ f, d }) => {
-        const k = d.erpLines;
-        if (!k) return <ElNone what="this is not counted" />;
-        const p = (yms: string[]) => { const a = priceSum(k, "100", yms), b = priceSum(k, "110", yms); return a.map((x, i) => x + b[i]) as PriceCounts; };
-        const cols: Col<ElMonth>[] = [
-          { key: "n", head: "Lines", cell: (r) => int(p(r.yms)[0]), sort: (r) => p(r.yms)[0] },
-          { key: "a", head: "automatically", cell: (r) => int(p(r.yms)[2]), sort: (r) => p(r.yms)[2] },
-          { key: "m", head: "manually", cell: (r) => int(p(r.yms)[1]), sort: (r) => p(r.yms)[1] },
-          { key: "c", head: "calculated", cell: (r) => int(p(r.yms)[3]), sort: (r) => p(r.yms)[3] },
-          { key: "pr", head: "Pass rate", cell: (r) => pct(passOf(p(r.yms))), sort: (r) => passOf(p(r.yms)) ?? -1 },
-          { key: "mp", head: "Manual prices", cell: (r) => pct(handOf(p(r.yms))), sort: (r) => handOf(p(r.yms)) ?? -1 },
-        ];
-        return <FullTable first="Month" cols={cols} rows={monthRows(f, (y) => p(y)[0] > 0)} total={{ label: periodOf(f), yms: elYms(f) }} natural />;
-      },
-    }),
-    wide({
-      id: "passExamples", needsCount: true, page: "autonomy", title: "Lines priced by hand, the latest",
-      hint: () => "Real eShop order lines whose price was typed in the ERP (price source \"manually\") - each one counts against the pass rate",
-      body: ({ d }) => {
-        const m = d.erpLines?.manualRows;
-        if (!m) return <ElNone what="this is not counted" />;
-        return <Table head={["Order", "Article", "Ordered", "Profit centre", "Type", "Mandant", "Supplier"]} left={[0, 1, 6]} pageSize={10} minWidth={900}
-          rows={m.map((r, i) => ({ key: `${r[0]}-${r[1]}-${i}`, cells: [r[0], r[1], ddmm(r[2]), r[3] || "—", r[5] === "S" ? "Standard" : r[5] === "P" ? "Special" : "—", r[4], r[6] ? supName(r[6]) : "—"] }))} />;
       },
     }),
   ];
@@ -2376,10 +2116,6 @@ function logicCharts(): ChartDef[] {
             ["Pushed later", "A line whose confirmed date was moved after the first one. It still counts against the FIRST date."],
             ["Why the first date", "It is the promise made to the customer. The confirmed date moves when the delivery moves, so measured against it nearly everything would be on time."],
             ["Checked", "Against the Back Office's typed OTD, Jan-Sep 2026: within about 1.5 points every month (Jan 72.8 against 74, Jun 68.3 against 68, Sep 81.0 against 80.8)."],
-            ["Order sources", "The KPI is the eShop's. \"OTD per order source\" adds the orders typed in by the Back Office, with the same rule."],
-            ["Suppliers", "Each article's main supplier in the ERP (its lead supplier, named from the ERP's supplier list). An article without one counts as \"No supplier known\"."],
-            ["Open lines", `Not shipped yet (ordered more than shipped, the order not invoiced or cancelled), with a first confirmed date that has passed or comes within ${OPEN_DUE_WD} working days - every order source, as the morning file had them.`],
-            ["Lead time", "The working days from the order date to the first confirmed date - what was promised, not what happened. By the month ordered."],
           ]} />
         </Box>
       ),
@@ -2992,7 +2728,6 @@ export const CHARTS: ChartDef[] = [
 
   /* OTD and KPI autonomy - counted from the ERP's order lines, the typed figures beside them */
   ...elCharts(),
-  ...el2Charts(),
   ...logicCharts(),
   /* OTD > Delivery speed - from the ERP's order file */
   ...dvCharts(),
@@ -3094,23 +2829,20 @@ const TABS: Record<Slug, TabDef[]> = {
   ],
   otd: [
     { id: "online", label: "On time", title: "OTD online", note: "the eShop order lines shipped, counted from the ERP every night: on time when the shipment plus the ERP's transport time to the country reaches the first confirmed date · by the month of that date · the Back Office's typed figures beside them · the filters do not apply here", icon: <LocalShippingOutlinedIcon />, tint: "pink", unfiltered: true,
-      charts: ["otdFigs", "otdAll", "otdStandard", "otdSpecial", "otdPushed", "otdMonths", "otdSources"] },
+      charts: ["otdFigs", "otdAll", "otdStandard", "otdSpecial", "otdPushed", "otdMonths"] },
     { id: "pcs", label: "Profit centres", title: "OTD per profit centre", note: "standard and special articles, counted from the ERP · the filters do not apply here", icon: <ApartmentOutlinedIcon />, tint: "blue", unfiltered: true, charts: ["otdMinis", "otdPc"] },
     { id: "late", label: "Late lines", title: "Where and how late", note: "the lines that arrived after their first confirmed date: per country, how late, and each one of the last 3 months · the filters do not apply here", icon: <EventRepeatOutlinedIcon />, tint: "amber", unfiltered: true, charts: ["otdCountry", "otdLate", "otdList"] },
-    { id: "suppliers", label: "Suppliers", title: "OTD per supplier", note: "the eShop lines shipped, by each article's main supplier in the ERP: on time, who the late lines come from, the main ones month by month · the filters do not apply here", icon: <FactoryOutlinedIcon />, tint: "blue", unfiltered: true, charts: ["otdSupplier", "otdSupplierLate", "otdSupplierMonths"] },
-    { id: "open", label: "Open lines", title: "Open lines to act on", note: "the lines not shipped yet whose first confirmed date has passed or comes within 3 working days - every order source, as the morning file had them", icon: <PendingActionsOutlinedIcon />, tint: "pink", unfiltered: true, charts: ["openFigs", "openList"] },
-    { id: "lead", label: "Lead time", title: "Promised lead time", note: "the working days from the order to the first confirmed date: what we promise, month by month and per profit centre · the filters do not apply here", icon: <HourglassEmptyOutlinedIcon />, tint: "green", unfiltered: true, charts: ["leadMonths", "leadBands", "leadPc"] },
     { id: "logic", label: "How it's counted", title: "How OTD is counted", note: "the rule, the ERP's dates it reads and the transport time per country - and real lines as the rule reads them", icon: <RuleOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["otdLogic", "otdDates", "otdTransit", "otdExamples"] },
     { id: "speed", label: "Delivery speed", title: "Delivery speed", note: "every delivery in the ERP's order file, read every night: the working days from the order to the shipment - the filters do not apply here", icon: <TimerOutlinedIcon />, tint: "green", unfiltered: true,
       charts: ["spdFigs", "spdMix", "spdFast", "spdMedian", "spdByDate", "spdLate", "spdCountry", "spdMode", "spdTable", "spdSlow"] },
     TYPE_IN,
   ],
   autonomy: [
-    { id: "pass", label: "Pass rate", title: "Pass rate per mandant", note: "the eShop order lines whose price the ERP set by itself, counted every night · by the month ordered, service articles left out · target 95 % · the filters do not apply here", icon: <VerifiedOutlinedIcon />, tint: "green", unfiltered: true, charts: ["pass100", "pass110", "elMonths", "prSources"],
+    { id: "pass", label: "Pass rate", title: "Pass rate per mandant", note: "the eShop order lines whose price the ERP set by itself, counted every night · by the month ordered, service articles left out · target 95 % · the filters do not apply here", icon: <VerifiedOutlinedIcon />, tint: "green", unfiltered: true, charts: ["pass100", "pass110", "elMonths"],
       warn: (d) => (d.erpLines ? null : "Waiting for the ERP's order lines: the pass rate and the manual prices are counted from them, and the first morning file carrying them has not reached the hub yet. Until it does, the graphs show the Back Office's own typed figures.") },
     { id: "price", label: "Manual prices", title: "Manual price adjustments per mandant", note: "the eShop order lines whose price was typed by hand in the ERP, counted every night · by the month ordered, service articles left out · target below 2.5 % · then the biggest changes from the shop's price · the filters do not apply here", icon: <PriceChangeOutlinedIcon />, tint: "amber", unfiltered: true,
-      charts: ["price100", "price110", "elMonths", "pricePc", "pricePcMonths", "priceArticles", "priceOwner", "prBig"] },
-    { id: "logic", label: "How it's counted", title: "How the pass rate and the manual prices are counted", note: "where each eShop order line's price came from, as the ERP records it", icon: <RuleOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["passLogic", "passSources", "passExamples"] },
+      charts: ["price100", "price110", "elMonths", "prBig"] },
+    { id: "logic", label: "How it's counted", title: "How the pass rate and the manual prices are counted", note: "where each eShop order line's price came from, as the ERP records it", icon: <RuleOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["passLogic"] },
     TYPE_IN,
   ],
   stopped: [

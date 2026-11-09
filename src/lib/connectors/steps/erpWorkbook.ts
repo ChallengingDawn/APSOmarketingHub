@@ -612,9 +612,7 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>, 
       suppliers = ss.finish();
     }
     const keep = opts.articleFilter ? await opts.articleFilter() : opts.keepArticle ?? (() => false);
-    // the order lines' articles too: their supplier, for OTD per supplier on the Back-Office Reports (SARCLA 09.11.2026)
-    const lineArts = new Set((erpLines?.lines ?? []).map((l) => l.article).filter(Boolean));
-    const sa = new ArticlesSheet((a) => keep(a) || lineArts.has(a), suppliers);
+    const sa = new ArticlesSheet(keep, suppliers);
     rows += await readSheet(file, part(kpi.articles)!, book, (n, cells) => sa.feed(n, cells), beat);
     articles = sa.finish();
   }
