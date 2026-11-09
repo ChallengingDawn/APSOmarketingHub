@@ -28,7 +28,7 @@ import { convertPost, previewHref } from "@/app/website/ai-personalization/Flow"
 import type { Env } from "@/lib/convert/model";
 import type { ProblemsData } from "@/lib/convert/problems";
 
-type Map = { id: string; host: string; paths: string[]; until: string | null; by: string | null };
+type Map = { id: string; host: string; paths: string[]; until: string | null; by: string | null; counting?: boolean };
 type Total = { host: string; path: string; n: number; d: number; m: number; days: number };
 type MapsData = { deployed: boolean; error: string | null; maps: Map[]; totals: { from: string; to: string; pages: Total[] } | null; canEdit: boolean };
 
@@ -83,7 +83,9 @@ export default function ClickMapPage() {
     if (!res.ok) setErr(res.error); else setTick((n) => n + 1);
   };
 
-  const counted = new Set((d?.maps ?? []).flatMap((m) => m.paths.map((p) => `${envOf(m.host)}:${p}`)));
+  // the maps that count today; one past its end day is "counted before", like one switched off
+  const live = (d?.maps ?? []).filter((m) => m.counting !== false);
+  const counted = new Set(live.flatMap((m) => m.paths.map((p) => `${envOf(m.host)}:${p}`)));
   // pages counted earlier whose map is off: their clicks stay and can still be seen
   const before = (d?.totals?.pages ?? []).filter((x) => !counted.has(`${envOf(x.host)}:${x.path}`)).slice(0, 9);
   // the pages losing buyers first (most add-to-carts missed), then the most viewed - where clicks explain the most
@@ -100,7 +102,7 @@ export default function ClickMapPage() {
         <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
           <Box sx={{ mb: 1.5 }}>
             <CardTitle icon={<TouchAppOutlinedIcon />} tint="amber" right={<HeatLegend />}
-              title={d.deployed ? `${d.maps.length} page${d.maps.length === 1 ? "" : "s"} counted` : "The click map fills once the shop's gateway is deployed"} />
+              title={d.deployed ? `${counted.size} page${counted.size === 1 ? "" : "s"} counted` : "The click map fills once the shop's gateway is deployed"} />
           </Box>
           {!d.deployed && (
             d.error
@@ -123,11 +125,11 @@ export default function ClickMapPage() {
           {err && <Box sx={{ mt: 1.5 }}><Notice tone="warn">{err}</Notice></Box>}
         </GlassCard>
 
-        {d.deployed && d.maps.length > 0 && (
+        {d.deployed && live.length > 0 && (
           <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
             <CardTitle icon={<TouchAppOutlinedIcon />} tint="green" title="Counting now" />
             <Box sx={{ display: "grid", gap: 2, mt: 1.5, gridTemplateColumns: { xs: "minmax(0,1fr)", sm: "repeat(2, minmax(0,1fr))", lg: "repeat(3, minmax(0,1fr))" } }}>
-              {d.maps.flatMap((m) => m.paths.map((p) => {
+              {live.flatMap((m) => m.paths.map((p) => {
                 const env = envOf(m.host);
                 const tot = d.totals?.pages.find((x) => x.host === m.host && x.path === p) ?? null;
                 return (
@@ -151,7 +153,7 @@ export default function ClickMapPage() {
 
         {before.length > 0 && (
           <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-            <CardTitle icon={<TouchAppOutlinedIcon />} tint="slate" title="Counted before" note="Switched off - their clicks of the last 30 days stay" />
+            <CardTitle icon={<TouchAppOutlinedIcon />} tint="slate" title="Counted before" note="Switched off or ended - their clicks of the last 30 days stay" />
             <Box sx={{ display: "grid", gap: 2, mt: 1.5, gridTemplateColumns: { xs: "minmax(0,1fr)", sm: "repeat(2, minmax(0,1fr))", lg: "repeat(3, minmax(0,1fr))" } }}>
               {before.map((x) => {
                 const env = envOf(x.host);

@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { isEnv } from "@/lib/convert/model";
 import { clickMaps, clicksOf, pageTotals, switchClicks } from "@/lib/convert/clicks";
+import { swissNow } from "@/lib/convert/scanRules";
 import { CLICKMAP, type Dev } from "@/lib/convert/clickRules";
 import { body, fail, failOf, ok, who } from "@/lib/convert/api";
 
@@ -26,7 +27,10 @@ export async function GET(req: NextRequest) {
     if (raw === null) {
       const st = await clickMaps();
       const totals = st.deployed ? await pageTotals() : null;
-      return ok({ ...st, totals, canEdit });
+      // a map past its end day stays in the gateway's list but counts no more (the Swiss day)
+      const today = swissNow().day;
+      const maps = st.maps.map((m) => ({ ...m, counting: m.until === null || m.until >= today }));
+      return ok({ ...st, maps, totals, canEdit });
     }
     const path = cleanPath(raw);
     if (!path) return fail("Which page?", 400);
