@@ -297,9 +297,11 @@ function NewIdea({ open, me, onClose, onSaved, onProject, onChooseKinds }: {
 }) {
   const [words, setWords] = useState("");
   const [idea, setIdea] = useState<Written | null>(null);
+  // the AI wrote it (then its button says "Write it again"), or the person did (then it is still "Write it with AI")
+  const [byAi, setByAi] = useState(false);
   const [busy, setBusy] = useState<"write" | "save" | "project" | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  useEffect(() => { if (open) { setWords(""); setIdea(null); setErr(null); setBusy(null); } }, [open]);
+  useEffect(() => { if (open) { setWords(""); setIdea(null); setByAi(false); setErr(null); setBusy(null); } }, [open]);
 
   const write = async () => {
     setBusy("write"); setErr(null);
@@ -307,6 +309,7 @@ function NewIdea({ open, me, onClose, onSaved, onProject, onChooseKinds }: {
     setBusy(null);
     if (!j.ok) return setErr(j.error ?? "The AI did not answer.");
     setIdea(j.idea as Written);
+    setByAi(true);
   };
   const keep = async (): Promise<string | null> => {
     if (!idea) return null;
@@ -352,10 +355,10 @@ function NewIdea({ open, me, onClose, onSaved, onProject, onChooseKinds }: {
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
           <Button variant={idea ? "outlined" : "contained"} disableElevation disabled={!!busy || words.trim().length < 3} onClick={() => void write()}
             startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 18 }} />} sx={idea ? { ...btn, color: PINK, borderColor: `${PINK}66` } : mainBtn}>
-            {idea ? "Write it again" : "Write it with AI"}
+            {idea && byAi ? "Write it again" : "Write it with AI"}
           </Button>
           {!idea && !busy && (
-            <Button onClick={() => setIdea({ title: words.trim().slice(0, 160), why: "", kinds: [], facts: [] })} disabled={!words.trim()} sx={{ ...btn, color: MUTED }}>
+            <Button onClick={() => { setIdea({ title: words.trim().slice(0, 160), why: "", kinds: [], facts: [] }); setByAi(false); }} disabled={!words.trim()} sx={{ ...btn, color: MUTED }}>
               or write it yourself
             </Button>
           )}

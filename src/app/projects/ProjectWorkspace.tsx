@@ -300,7 +300,7 @@ export default function ProjectWorkspace({ id }: { id: number }) {
             </Box>
             {/* the project's name, changed where it is read (SARCLA 08.11.2026: "changing the title is still hard") */}
             <Box component="h1" sx={{ mt: 1, mb: 0, fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", letterSpacing: "-0.025em", display: "flex", minWidth: 0 }}>
-              <InlineTitle value={w.project.title} canEdit={w.access.canEdit} size="1.85rem" weight={600} maxWidth="100%" label="Project name" wrapOnPhone
+              <InlineTitle value={w.project.title} canEdit={w.access.canEdit} size="1.85rem" weight={600} maxWidth="100%" label="Project name" wrap
                 onSave={async (title) => {
                   setW((cur) => (cur ? { ...cur, project: { ...cur.project, title } } : cur));
                   const r = await fetch(`/api/content/projects/${w.project.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "rename", title }) })
