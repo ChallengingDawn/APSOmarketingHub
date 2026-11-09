@@ -305,6 +305,8 @@ const WEBSITE_CHILDREN: Record<string, { label: string; href: string }[]> = {
     { label: "Funnel", href: "/website/ai-personalization/journeys/funnel" },
     { label: "Page flow", href: "/website/ai-personalization/journeys/page" },
     { label: "Click map", href: "/website/ai-personalization/journeys/clicks" },
+    // each customer's visits played back, and what to do next (SARCLA 09.11.2026)
+    { label: "Visits", href: "/website/ai-personalization/journeys/visits" },
   ],
 };
 
