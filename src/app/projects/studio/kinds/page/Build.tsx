@@ -34,12 +34,13 @@ import {
 } from "@/lib/content/studio/kinds/page/model";
 import { partsOf, type PartKey } from "@/lib/content/studio/kinds/page/outline";
 import type { ChangeHit, InsertOut } from "@/lib/content/studio/kinds/page/shop";
+import type { ShopPart } from "@/lib/content/studio/kinds/page/shopParts";
 import { Field, Pane, PINK, btn, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { Changes } from "./Changes";
 import { ElementPane, type Selection } from "./Element";
 import type { FillRun, PictureCtl } from "./Fields";
-import { PartsOutline, Row, RowList } from "./Outline";
+import { PartsOutline, Row, RowList, ShopPartsOutline } from "./Outline";
 import { AbTest, Publish, Texts } from "./Sections";
 import { Chip, Choice, Hint } from "./ui";
 import { WinnerCard, WinnerPublish, useWinner } from "./Winner";
@@ -127,7 +128,7 @@ function Languages({ doc, lang, onLang, offered }: { doc: PageDoc; lang: string;
 }
 
 export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onStep, sel, setSel, fill, busy, canAi, onEditInPage, onAskAi, inserts, record, onPickPage, removeInsert,
-  offered, open, onOpen, onOpenPart, onFocusPath, pictures, makingIn, since }: {
+  offered, open, onOpen, onOpenPart, onFocusPath, pictures, makingIn, since, shop }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void;
   /** the whole document (source, shared parts) */
   set: (next: PageDoc, label?: string) => void;
@@ -148,6 +149,13 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
   pictures: PictureCtl; makingIn: (part: PartKey) => number;
   /** when the AI started on what it is doing now */
   since: number | null;
+  /** a page of the shop: its own parts (SARCLA's night list, 09.11.2026), each with its changes */
+  shop?: {
+    parts: ShopPart[]; whole: number[]; elsewhere: number[]; busyPart: string | null;
+    onOpen: (p: ShopPart | null) => void; onAsk: (p: ShopPart) => void; onRemove: (i: number) => void;
+    /** the part selected as a whole, and the part an element selected in the page is in */
+    selPart: string | null; selIn: string | null;
+  } | null;
 }) {
   const canEdit = api.data.access.canEdit;
   const isNew = d.source === "new";
@@ -211,16 +219,40 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
     const lost = hits.filter((h) => h.state === "missing").length;
     return lost ? `${d.changes.length - lost} found on the page · ${lost} not found` : `All ${d.changes.length} found on the page`;
   })();
+  const changed = shop ? shop.parts.filter((p) => p.changes.length).length : 0;
+  const selPane = sel ? (
+    <ElementPane api={api} view={d} setView={setView} sel={sel} onClose={() => setSel(null)} fill={fill} busy={busy} canAi={canAi}
+      onEditInPage={onEditInPage} onAskAi={onAskAi} inserts={inserts} record={record} />
+  ) : null;
+  const shopParts = !isNew && d.path && shop ? (
+    <Box sx={{ mb: 2 }}>
+      <Kick right={busy === "rewrite" ? (
+        <Typography sx={{ fontSize: "0.76rem", color: PINK, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 0.75, fontVariantNumeric: "tabular-nums" }}>
+          <CircularProgress size={12} thickness={6} sx={{ color: PINK }} />Changing the page · {clock}
+        </Typography>
+      ) : undefined}>
+        The page{shop.parts.length ? ` · ${shop.parts.length} parts${changed ? ` · ${changed} changed` : ""}` : ""}
+      </Kick>
+      {shop.parts.length ? (
+        <ShopPartsOutline parts={shop.parts} whole={shop.whole} elsewhere={shop.elsewhere} changes={d.changes} hits={hits} open={open} onOpen={shop.onOpen}
+          busyPart={shop.busyPart} canEdit={canEdit} canAi={canAi} onAsk={shop.onAsk} onRemove={shop.onRemove}
+          selected={sel && shop.selIn && !shop.selPart ? { part: shop.selIn, node: selPane } : null} />
+      ) : (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, p: 1.5, borderRadius: "10px", border: `1px dashed ${HAIRLINE}`, color: MUTED, fontSize: "0.82rem" }}>
+          {d.outline && d.outline.path === d.path ? "This page has no headings to cut it into parts - its changes are listed below." : <><CircularProgress size={13} /> Reading the page&apos;s parts…</>}
+        </Box>
+      )}
+    </Box>
+  ) : null;
   const shopRows = !isNew && d.path ? (
     <>
-      {sel && (
+      {sel && !(shop?.selIn && !shop.selPart) && !shop?.selPart && (
         <Row id="selected" title="Selected" accent="pink" state="none" open={open === "selected"} onToggle={() => onOpen(open === "selected" ? null : "selected")}
           summary={sel.picked ? `<${sel.picked.tag}> ${sel.picked.text.slice(0, 60)}` : sel.key.startsWith("i:") ? "A banner" : ""}>
-          <ElementPane api={api} view={d} setView={setView} sel={sel} onClose={() => setSel(null)} fill={fill} busy={busy} canAi={canAi}
-            onEditInPage={onEditInPage} onAskAi={onAskAi} inserts={inserts} record={record} />
+          {selPane}
         </Row>
       )}
-      <Row id="changes" title="Changes" count={d.changes.length || null} state={busy === "rewrite" ? "busy" : d.changes.length ? "written" : "empty"} busyLabel="The AI is changing the page…"
+      <Row id="changes" title="All changes" count={d.changes.length || null} state={busy === "rewrite" ? "busy" : d.changes.length ? "written" : "empty"} busyLabel="The AI is changing the page…"
         summary={hitLine} open={open === "changes"} onToggle={() => onOpen(open === "changes" ? null : "changes")}>
         <Changes changes={d.changes} set={(changes: Change[]) => setView({ ...d, changes }, undefined)} hits={hits} canEdit={canEdit} />
       </Row>
@@ -354,6 +386,7 @@ export function Build({ api, doc, d, lang, onLang, set, setView, hits, step, onS
             </>
           )}
 
+          {shopParts}
           {shopRows && <RowList>{shopRows}</RowList>}
 
           <Box sx={{ mt: 2 }}>

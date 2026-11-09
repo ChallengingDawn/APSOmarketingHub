@@ -65,8 +65,10 @@ export function renderNewPage(f: Fields, o: RenderOpts = {}): { css: string; htm
     return `<div class="apx-np-btns${lk(path).align === "center" ? " apx-np-ac" : ""}"><a class="apx-np-btn apx-np-btn-${look}" href="${esc(href)}"${fa(path)}>${esc(b.label.trim())}${ARROW}</a></div>`;
   };
   const picture = (path: string, p: Pic, hint: string) => {
-    if (!p.url && making.has(path)) return `<div class="apx-np-pic apx-np-pic-empty"${fa(path)} data-apx-making><span>Making the picture…</span></div>`;
-    if (!p.url) return m ? `<div class="apx-np-pic apx-np-pic-empty"${fa(path)}><span>${esc(hint)}</span></div>` : "";
+    // the studio's slot (the flow standard, 09.11.2026): empty - the idea in small grey words, "Make it" and "Upload";
+    // being made - "Making the picture…" over a moving bar (the studio's marks only, never in Magento's copy)
+    if (!p.url && making.has(path)) return `<div class="apx-np-pic apx-np-pic-empty"${fa(path)} data-apx-making><span>Making the picture…</span><i class="apx-np-bar"></i></div>`;
+    if (!p.url) return m ? `<div class="apx-np-pic apx-np-pic-empty"${fa(path)}><span class="apx-np-slot"><span class="apx-np-idea">${esc(p.idea.trim() ? `Idea: ${p.idea.trim().slice(0, 160)}${p.idea.trim().length > 160 ? "…" : ""}` : hint)}</span><span class="apx-np-acts">${p.idea.trim() ? `<b data-apx-act="make">Make it</b>` : ""}<b data-apx-act="upload">Upload</b></span></span></div>` : "";
     return `<div class="apx-np-pic"${fa(path)}><img src="${esc(pic(p.url))}" alt="${esc(p.alt)}" loading="lazy"></div>`;
   };
   const inserts = (where: InsertHtml["where"]) => (o.inserts ?? []).filter((x) => x.where === where)

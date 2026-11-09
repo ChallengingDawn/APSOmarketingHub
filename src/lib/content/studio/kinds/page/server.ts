@@ -43,6 +43,7 @@ import { pagesSummary } from "@/lib/convert/pages";
 import { cleanPath, pageWork } from "@/lib/convert/studio";
 import { LIMIT, fieldLabel, fieldStrings, getField, withFieldStrings, type Fields, type Item } from "./fields";
 import { FIELD_SCHEMA, FILL_SCHEMA, PART_LABEL, cleanFill, type Candidate, type Part } from "./fill";
+import { fitField, fitFields, limitOf } from "./fit";
 import {
   changeStrings, emptyPage, fillTexts, fromAi, isLegacyBody, langName, languageOfStore, leftoversIn, mainLang, pageDoc, pageText,
   placeholdersOf, shopUrl, sourceHash, textsFromAi, urlKeyOf, viewOf, withChangeStrings, type AiChange, type PageDoc,
@@ -197,7 +198,8 @@ only - never HTML, never markdown.
 
 - Write for engineers, maintenance and purchasers who want to find the right part and order it. Concrete, useful,
   specific to this page's subject; each part says something the others do not.
-- Respect each field's length. Short paragraphs; a list as lines starting "- " where a list helps.
+- Each field's "at most N characters" is a hard limit (spaces count): stay clearly under it - a field that runs over
+  is cut. Short paragraphs; a list as lines starting "- " where a list helps.
 - A link or a button points ONLY to an address from THE SHOP'S PAGES YOU MAY LINK; when none fits, leave its address empty.
 - A picture idea is in English, for a photographer: a real industrial scene that fits the words, no text in the picture.
 
@@ -269,13 +271,14 @@ const fillField: AiTask = {
 ${pageBlock(d)}
 
 WRITE IN: ${langOf(d)}
-THE FIELD: ${path} - ${fieldLabel(d.fields, path)}${ROLE[path] ? ` (${ROLE[path]})` : ""}
+THE FIELD: ${path} - ${fieldLabel(d.fields, path)}${ROLE[path] ? ` (${ROLE[path]})` : limitOf(path) ? ` (at most ${limitOf(path)} characters - a hard limit, spaces count)` : ""}
 IT READS NOW: ${typeof now === "string" && now.trim() ? now : "(empty)"}
 
 Write this one field's new words only.${s(input.request, 1500) ? `\nTHE PERSON ASKS: ${s(input.request, 1500)}` : ""}`;
   },
-  clean: (raw) => {
-    const text = s((raw as { text?: unknown })?.text, 4000);
+  clean: (raw, _doc, _ctx, input) => {
+    // within the field's limit, whatever came back (./fit.ts)
+    const text = fitField(s(input.path, 80), s((raw as { text?: unknown })?.text, 6000));
     return { text, leftovers: leftoversIn(text) };
   },
 };
@@ -324,7 +327,8 @@ ${JSON.stringify(items)}`;
     const missing = source.filter((x) => !items.some((y) => y.id === x.id)).length;
     const leftovers = leftoversIn(items.map((x) => x.text).join(" "));
     if (doc.source === "new") {
-      const fields: Fields = withFieldStrings(doc.fields, items);
+      // a translation runs longer (German, French): every field brought back within its limit
+      const fields: Fields = fitFields(withFieldStrings(doc.fields, items));
       const key = urlKeyOf(s(r.urlKey, 160)) || urlKeyOf(fields.hero.title);
       return { fields: { ...fields, seo: { ...fields.seo, urlKey: key } }, from, missing, leftovers, problems: [] as string[] };
     }

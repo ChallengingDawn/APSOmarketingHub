@@ -6,6 +6,7 @@
 // address is only ever one of the shop's own pages the server offered (never one the AI made up).
 
 import { LIMIT, emptyPic, itemId, setField, type Fields } from "./fields";
+import { fitText } from "./fit";
 import { leftoversIn, urlKeyOf } from "./model";
 
 export const PARTS = ["hero", "intro", "benefits", "sections", "section", "links", "faq", "cta", "seo"] as const;
@@ -72,6 +73,8 @@ export const FIELD_SCHEMA = obj({ text: S("The field's new words, final, in the 
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const t = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+/** words within their field's limit - cut where they read whole, never "21 too many" (./fit.ts) */
+const w = (v: unknown, limit: number) => (typeof v === "string" ? fitText(v.slice(0, 6000), limit) : "");
 const arr = (v: unknown, max: number) => (Array.isArray(v) ? v.filter(isObj).slice(0, max) : []);
 
 export type Candidate = { url: string; name: string; kind: string };
@@ -89,27 +92,27 @@ export type FillAnswer = {
   seo?: { title: string; description: string; urlKey: string };
 };
 
-/** The model's answer kept only where it makes sense: words capped, addresses only from the offered pages. */
+/** The model's answer kept only where it makes sense: words within their limits, addresses only from the offered pages. */
 export function cleanFill(raw: unknown, candidates: Candidate[]): { answer: FillAnswer; leftovers: string[] } {
   const r = isObj(raw) ? raw : {};
   const allowed = new Set(candidates.map((c) => c.url));
   const url = (v: unknown) => { const u = t(v, 400); return allowed.has(u) ? u : ""; };
-  const btn = (v: unknown): Btn => { const b = isObj(v) ? v : {}; return { label: t(b.label, 60), url: url(b.url) }; };
-  const sec = (s: Record<string, unknown>) => ({ title: t(s.title, 160), text: t(s.text, 2400), pictureIdea: t(s.pictureIdea, 600), pictureAlt: t(s.pictureAlt, 240) });
+  const btn = (v: unknown): Btn => { const b = isObj(v) ? v : {}; return { label: w(b.label, LIMIT.button), url: url(b.url) }; };
+  const sec = (s: Record<string, unknown>) => ({ title: w(s.title, LIMIT.sectionTitle), text: w(s.text, LIMIT.sectionText), pictureIdea: t(s.pictureIdea, 600), pictureAlt: w(s.pictureAlt, LIMIT.alt) });
   const a: FillAnswer = {};
   if (typeof r.summary === "string") a.summary = t(r.summary, 300);
-  if (isObj(r.hero)) { const h = r.hero; a.hero = { eyebrow: t(h.eyebrow, 80), title: t(h.title, 160), sub: t(h.sub, 400), button: btn(h.button), pictureIdea: t(h.pictureIdea, 600), pictureAlt: t(h.pictureAlt, 240) }; }
-  if (typeof r.intro === "string") a.intro = t(r.intro, 1600);
-  if (isObj(r.benefits)) a.benefits = { title: t(r.benefits.title, 160), items: arr(r.benefits.items, 6).map((b) => ({ title: t(b.title, 120), text: t(b.text, 500) })).filter((b) => b.title || b.text) };
+  if (isObj(r.hero)) { const h = r.hero; a.hero = { eyebrow: w(h.eyebrow, LIMIT.eyebrow), title: w(h.title, LIMIT.heroTitle), sub: w(h.sub, LIMIT.heroSub), button: btn(h.button), pictureIdea: t(h.pictureIdea, 600), pictureAlt: w(h.pictureAlt, LIMIT.alt) }; }
+  if (typeof r.intro === "string") a.intro = w(r.intro, LIMIT.intro);
+  if (isObj(r.benefits)) a.benefits = { title: w(r.benefits.title, LIMIT.blockTitle), items: arr(r.benefits.items, 6).map((b) => ({ title: w(b.title, LIMIT.benefitTitle), text: w(b.text, LIMIT.benefitText) })).filter((b) => b.title || b.text) };
   if (isObj(r.sections)) a.sections = { items: arr(r.sections.items, 6).map(sec).filter((s) => s.title || s.text) };
   if (isObj(r.section)) a.section = sec(r.section);
   if (isObj(r.links)) {
     const seen = new Set<string>();
-    a.links = { title: t(r.links.title, 160), items: arr(r.links.items, 10).map((l) => ({ url: url(l.url), label: t(l.label, 120), note: t(l.note, 240) })).filter((l) => l.url && !seen.has(l.url) && (seen.add(l.url), true)) };
+    a.links = { title: w(r.links.title, LIMIT.blockTitle), items: arr(r.links.items, 10).map((l) => ({ url: url(l.url), label: w(l.label, LIMIT.linkLabel), note: w(l.note, LIMIT.linkNote) })).filter((l) => l.url && !seen.has(l.url) && (seen.add(l.url), true)) };
   }
-  if (isObj(r.faq)) a.faq = { title: t(r.faq.title, 160), items: arr(r.faq.items, 8).map((q) => ({ q: t(q.q, 300), a: t(q.a, 1400) })).filter((q) => q.q && q.a) };
-  if (isObj(r.cta)) a.cta = { title: t(r.cta.title, 160), text: t(r.cta.text, 500), button: btn(r.cta.button) };
-  if (isObj(r.seo)) a.seo = { title: t(r.seo.title, 120), description: t(r.seo.description, 320), urlKey: urlKeyOf(t(r.seo.urlKey, 160)) };
+  if (isObj(r.faq)) a.faq = { title: w(r.faq.title, LIMIT.blockTitle), items: arr(r.faq.items, 8).map((q) => ({ q: w(q.q, LIMIT.faqQ), a: w(q.a, LIMIT.faqA) })).filter((q) => q.q && q.a) };
+  if (isObj(r.cta)) a.cta = { title: w(r.cta.title, LIMIT.ctaTitle), text: w(r.cta.text, LIMIT.ctaText), button: btn(r.cta.button) };
+  if (isObj(r.seo)) a.seo = { title: w(r.seo.title, LIMIT.seoTitle), description: w(r.seo.description, LIMIT.seoDescription), urlKey: urlKeyOf(t(r.seo.urlKey, 160)) };
   const words = JSON.stringify(a);
   return { answer: a, leftovers: leftoversIn(words.replace(/\\n/g, " ")) };
 }

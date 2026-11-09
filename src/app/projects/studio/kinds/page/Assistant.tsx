@@ -63,9 +63,11 @@ function TranslateRow({ doc, offered, busy, onTranslate, enabled }: { doc: PageD
   );
 }
 
-export function Assistant({ quick, onAsk, enabled, context, onClearContext, history, onUndo, ideas, onIdea, seo, onUseSeo, inputRef, placeholder, lang, translate }: {
+export function Assistant({ quick, onAsk, enabled, context, contextKind, onClearContext, history, onUndo, ideas, onIdea, seo, onUseSeo, inputRef, placeholder, lang, translate }: {
   quick: QuickAsk[]; onAsk: (text: string) => Promise<string | null>; enabled: boolean;
   context: string | null; onClearContext: () => void;
+  /** what the selection is: "This element only" (the default), "This part only" */
+  contextKind?: string;
   history: Entry[]; onUndo: (e: Entry) => void;
   ideas: Idea[]; onIdea: (i: Idea) => void;
   seo: SeoCard | null; onUseSeo: (s: SeoCard) => void;
@@ -77,14 +79,14 @@ export function Assistant({ quick, onAsk, enabled, context, onClearContext, hist
   const top = (
     <Box sx={{ mb: 1.5 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: context ? 1 : 0 }}>
-        <Typography sx={{ fontSize: "0.76rem", color: MUTED, flex: 1 }}>Works on</Typography>
+        <Typography sx={{ fontSize: "0.76rem", color: MUTED, flex: 1 }}>Working on</Typography>
         <Chip tint="blue">{lang.toUpperCase()}</Chip>
       </Box>
       {context ? (
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, p: 1, pl: 1.25, borderRadius: "8px", bgcolor: "rgba(194,44,110,.07)", border: "1px solid rgba(194,44,110,.25)" }}>
           <Box sx={{ width: 3, alignSelf: "stretch", borderRadius: 2, bgcolor: PINK }} />
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: PINK }}>This element only</Typography>
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: PINK }}>{contextKind ?? "This element only"}</Typography>
             <Typography sx={{ fontSize: "0.84rem", color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{context}</Typography>
           </Box>
           <Tooltip title="The whole page again"><IconButton size="small" onClick={onClearContext}><CloseIcon sx={{ fontSize: 16 }} /></IconButton></Tooltip>

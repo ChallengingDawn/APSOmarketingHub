@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import { HAIRLINE } from "@/app/uc/report/ui";
 import { leftoversIn } from "@/lib/content/studio/kinds/page/model";
+import { headKey, sectionLevels, type Located } from "@/lib/content/studio/kinds/page/shopParts";
 
 export type Device = "desktop" | "mobile";
 export const DEVICE_WIDTH: Record<Device, number> = { desktop: 1280, mobile: 390 };
@@ -33,6 +34,8 @@ export type Picked = {
   host: { changes: number[]; path: number[] } | null;
   src?: string; alt?: string; href?: string;
   editable: boolean;
+  /** a page of the shop: the section it is in (its heading's words, "" = above the first heading) */
+  section?: string;
 };
 
 export type SelectOpts = {
@@ -44,7 +47,56 @@ export type SelectOpts = {
   editNonce?: number;
   /** a selection made outside the page (the outline): the stage scrolls to it, smoothly */
   reveal?: number;
+  /** a page of the shop: where the preview found each change, section by section (the outline's parts) */
+  onMap?: (m: Located) => void;
+  /** a section of a page of the shop opened in the outline: found here by its heading, selected and scrolled to */
+  seek?: { nonce: number; heading: string } | null;
+  /** a picture slot's own buttons in a new page ("Make it", "Upload"): its field and which */
+  onAct?: (path: string, act: string) => void;
 };
+
+/** A page of the shop's section headings as the outline cuts it (headings a change put in are not sections). */
+function sectionHeads(d: Document): Element[] {
+  const root = d.getElementById("maincontent") ?? d.body;
+  if (!root) return [];
+  const all = [...root.querySelectorAll("h1,h2,h3")].filter((h) => !h.closest("[data-apx-c]") && (h.textContent ?? "").trim().length > 1);
+  const levels = sectionLevels(all.map((h) => h.tagName.toLowerCase()));
+  return all.filter((h) => levels.has(h.tagName.toLowerCase()));
+}
+
+/** Where each change landed: under the last section heading before it (or the first one it holds). */
+function mapOf(d: Document): Located {
+  const heads = sectionHeads(d);
+  const out: Located = [{ heading: "", changes: [] }, ...heads.map((h) => ({ heading: (h.textContent ?? "").replace(/\s+/g, " ").trim(), changes: [] as number[] }))];
+  const root = d.getElementById("maincontent") ?? d.body;
+  for (const m of root?.querySelectorAll("[data-apx-c],[data-apx-x]") ?? []) {
+    const ns = m.hasAttribute("data-apx-c") ? [Number(m.getAttribute("data-apx-c"))] : (m.getAttribute("data-apx-x") ?? "").split(/\s+/).map(Number);
+    let k = heads.findIndex((h) => m === h || m.contains(h));
+    if (k < 0) for (let j = 0; j < heads.length; j++) { if (heads[j].compareDocumentPosition(m) & Node.DOCUMENT_POSITION_FOLLOWING) k = j; else break; }
+    for (const n of ns) if (Number.isInteger(n) && !out[k + 1].changes.includes(n)) out[k + 1].changes.push(n);
+  }
+  return out;
+}
+
+/** The section an element is in: the last section heading before it (or the one it holds) - "" above the first. */
+function sectionOf(el: Element): string {
+  const heads = sectionHeads(el.ownerDocument);
+  let k = heads.findIndex((h) => el === h || el.contains(h));
+  if (k < 0) for (let j = 0; j < heads.length; j++) { if (heads[j].compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) k = j; else break; }
+  return k < 0 ? "" : (heads[k].textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
+/** A section's block: its heading, widened to the biggest element around it that holds no other section heading. */
+function sectionBlock(d: Document, heading: string): Element | null {
+  const heads = sectionHeads(d);
+  const key = headKey(heading);
+  const h = heads.find((x) => headKey(x.textContent ?? "") === key) ?? heads.find((x) => key && headKey(x.textContent ?? "").startsWith(key.slice(0, 30)));
+  if (!h) return null;
+  let el: Element = h;
+  const root = d.getElementById("maincontent") ?? d.body;
+  while (el.parentElement && el.parentElement !== root && el.parentElement !== d.body && !heads.some((x) => x !== h && el.parentElement!.contains(x))) el = el.parentElement;
+  return el;
+}
 
 /* ── the studio's own look inside the page ────────────────────────────── */
 
@@ -233,6 +285,7 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
       alt: isImg ? (el as HTMLImageElement).getAttribute("alt") ?? "" : undefined,
       href: el.closest("a")?.getAttribute("href") ?? undefined,
       editable: !isImg && !ins && !b && !!text && !el.querySelector("img,video,iframe,table") && !(f && /picture$|\.button$|^links\./.test(f) && !f.endsWith(".label")),
+      section: sel.current?.mode === "element" && !ins ? sectionOf(el) : undefined,
     };
   };
 
@@ -349,6 +402,10 @@ ${SELECT_CSS}`;
         const c = candidate(e.target);
         unhov();
         s.onPick(c ? pickedOf(c) : null);
+        // a picture slot's button: the slot is selected, and its action runs
+        const act = (e.target as Element).closest?.("[data-apx-act]");
+        const slot = act?.closest("[data-apx-f]");
+        if (act && slot && s.onAct) s.onAct(slot.getAttribute("data-apx-f") ?? "", act.getAttribute("data-apx-act") ?? "");
       }, true);
       d.addEventListener("dblclick", (e) => {
         const s = sel.current;
@@ -375,6 +432,8 @@ ${SELECT_CSS}`;
       if (d.body) { const ro = new ResizeObserver(() => measure()); ro.observe(d.body); }
     }
     draw();
+    // a page of the shop: where its changes landed, section by section (the outline's parts on the left)
+    if (sel.current?.onMap && sel.current.mode === "element") { try { sel.current.onMap(mapOf(d)); } catch { /* the outline stays without */ } }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draw, measure]);
 
@@ -433,25 +492,49 @@ ${SELECT_CSS}`;
   const borderRef = useRef(border);
   borderRef.current = border;
 
+  /** the stage scrolled to an element of the page, smoothly - unless it is in view already */
+  const revealEl = (el: Element | null) => {
+    const dev = deviceBox.current;
+    const host = box.current?.closest("[data-stage-scroll]") as HTMLElement | null;
+    if (!el || !dev || !host) return;
+    const r = el.getBoundingClientRect();
+    const devTop = dev.getBoundingClientRect().top - host.getBoundingClientRect().top + host.scrollTop;
+    const top = devTop + borderRef.current + r.top * zoomRef.current;
+    // already in view: no jump
+    if (top >= host.scrollTop + 48 && top + Math.min(r.height * zoomRef.current, 160) <= host.scrollTop + host.clientHeight - 24) return;
+    host.scrollTo({ top: Math.max(0, top - 64), behavior: "smooth" });
+  };
   // a part opened in the outline: the stage scrolls to it (SARCLA 08.11.2026: "more fluid")
   useEffect(() => {
     if (!select?.reveal) return;
-    const t = setTimeout(() => {
-      const d = docOf();
-      const el = d ? findSelected(d, sel.current?.selected ?? null) : null;
-      const dev = deviceBox.current;
-      const host = box.current?.closest("[data-stage-scroll]") as HTMLElement | null;
-      if (!el || !dev || !host) return;
-      const r = el.getBoundingClientRect();
-      const devTop = dev.getBoundingClientRect().top - host.getBoundingClientRect().top + host.scrollTop;
-      const top = devTop + borderRef.current + r.top * zoomRef.current;
-      // already in view: no jump
-      if (top >= host.scrollTop + 48 && top + Math.min(r.height * zoomRef.current, 160) <= host.scrollTop + host.clientHeight - 24) return;
-      host.scrollTo({ top: Math.max(0, top - 64), behavior: "smooth" });
-    }, 90);
+    const t = setTimeout(() => { const d = docOf(); revealEl(d ? findSelected(d, sel.current?.selected ?? null) : null); }, 90);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [select?.reveal]);
+  // a section of a page of the shop opened in the outline: found by its heading, selected, scrolled to (once per ask)
+  const sought = useRef(0);
+  useEffect(() => {
+    const sk = select?.seek;
+    if (!sk?.nonce || sought.current === sk.nonce) return;
+    const d = docOf();
+    const el = d?.body ? sectionBlock(d, sk.heading) : null;
+    if (!el) return;
+    sought.current = sk.nonce;
+    sel.current?.onPick(pickedOf(el));
+    setTimeout(() => revealEl(el), 90);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [select?.seek?.nonce, loaded]);
+  // the bar over the selection stays inside the stage, whatever it holds (a picture's four actions are wider)
+  const tbBox = useRef<HTMLDivElement | null>(null);
+  const [tbW, setTbW] = useState(340);
+  useEffect(() => {
+    const el = tbBox.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setTbW(el.offsetWidth || 340));
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!toolbar, !!selRect]);
   const dev = deviceBox.current;
   const tbLeft = dev && selRect ? dev.offsetLeft + border + selRect.x * zoom : 0;
   const tbTopRaw = dev && selRect ? dev.offsetTop + border + selRect.y * zoom - 44 : 0;
@@ -467,7 +550,7 @@ ${SELECT_CSS}`;
           style={{ width: w, height, border: 0, transform: `scale(${zoom})`, transformOrigin: "0 0", display: "block", background: "#fff" }} />
       </Box>
       {toolbar && selRect && select?.selected && (
-        <Box sx={{ position: "absolute", left: Math.max(0, fit ? Math.min(tbLeft, (box.current?.clientWidth ?? 800) - 340) : tbLeft), top: Math.max(0, tbTop), zIndex: 3 }}>{toolbar}</Box>
+        <Box ref={tbBox} sx={{ position: "absolute", left: Math.max(0, fit ? Math.min(tbLeft, (box.current?.clientWidth ?? 800) - tbW - 4) : tbLeft), top: Math.max(0, tbTop), zIndex: 3, whiteSpace: "nowrap" }}>{toolbar}</Box>
       )}
     </Box>
   );
