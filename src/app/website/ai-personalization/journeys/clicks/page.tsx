@@ -86,7 +86,10 @@ export default function ClickMapPage() {
   const counted = new Set((d?.maps ?? []).flatMap((m) => m.paths.map((p) => `${envOf(m.host)}:${p}`)));
   // pages counted earlier whose map is off: their clicks stay and can still be seen
   const before = (d?.totals?.pages ?? []).filter((x) => !counted.has(`${envOf(x.host)}:${x.path}`)).slice(0, 9);
-  const worth = (problems?.pages ?? []).filter((p) => p.views > 0 && !counted.has(`prod:${p.path}`)).sort((a, b) => b.views - a.views).slice(0, 6);
+  // the pages losing buyers first (most add-to-carts missed), then the most viewed - where clicks explain the most
+  const worth = (problems?.pages ?? []).filter((p) => p.views > 0 && !counted.has(`prod:${p.path}`))
+    .sort((a, b) => (b.reasons.length > 0 ? 1 : 0) - (a.reasons.length > 0 ? 1 : 0) || (b.reasons.length > 0 ? b.missed - a.missed : 0) || b.views - a.views)
+    .slice(0, 6);
 
   let body: React.ReactNode;
   if (!r) body = <LoadingPanel label="Asking the shop's gateway which pages it counts…" />;
@@ -167,7 +170,7 @@ export default function ClickMapPage() {
         <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
           <CardTitle icon={<VisibilityOutlinedIcon />} tint="slate" title="Pages worth counting" />
           <Typography sx={{ fontSize: "0.8rem", color: MUTED, mt: 0.5 }}>
-            The most viewed pages of the period{problems ? ` (${day(problems.from)} - ${day(problems.to)})` : ""} - where a click map says the most.
+            The pages losing buyers first, then the most viewed{problems ? ` (${day(problems.from)} - ${day(problems.to)})` : ""} - where a click map says the most.
           </Typography>
           {!prob.result ? <Box sx={{ mt: 1.5 }}><LoadingPanel label="Reading the most viewed pages…" /></Box>
             : !problems ? <Box sx={{ mt: 1.5 }}><Notice tone="warn">The pages&apos; views could not be read.</Notice></Box>
@@ -177,7 +180,7 @@ export default function ClickMapPage() {
                   <Box sx={{ display: "grid", gap: 2, mt: 1.5, gridTemplateColumns: { xs: "minmax(0,1fr)", sm: "repeat(2, minmax(0,1fr))", lg: "repeat(3, minmax(0,1fr))" } }}>
                     {worth.map((p) => (
                       <PageCard key={p.key} env="prod" path={p.path}
-                        note={<><Chip tint="slate">{full(p.views)} views</Chip><Chip tint="slate">{full(p.addToCarts)} add-to-carts</Chip></>}>
+                        note={<>{p.reasons.length > 0 && <Chip tint="pink">Problem page · {full(p.missed)} carts missed</Chip>}<Chip tint="slate">{full(p.views)} views</Chip><Chip tint="slate">{full(p.addToCarts)} add-to-carts</Chip></>}>
                         {d.deployed && d.canEdit
                           ? <Button size="small" variant="contained" color="warning" disableElevation disabled={busy === `prod:${p.path}`} onClick={() => void switchIt("prod", p.path, true)}
                               startIcon={<TouchAppOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>
