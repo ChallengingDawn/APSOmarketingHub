@@ -156,7 +156,8 @@ function pageAfter(want: Want, page: MagentoPage | null): { fields: Record<strin
       notPlaced: [], placed: 0,
     };
   }
-  const applied = applyToCms(String(page?.content ?? ""), want.changes, want.tag);
+  // Content's publish: an element replaced is swapped for the block, its own HTML kept beside it (./ship.ts "keep")
+  const applied = applyToCms(String(page?.content ?? ""), want.changes, want.tag, { replace: "keep" });
   return { fields: { content: withInserts(applied.content, want.inserts) }, notPlaced: applied.notPlaced.map((x) => x.why), placed: applied.placed.length };
 }
 
