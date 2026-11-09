@@ -326,7 +326,7 @@ export type BoardProject = {
   owner: string | null;
   team: string[];
   dueDate: string | null;
-  pieces: { id: number; title: string; status: PieceStatus; contentType: string | null; language: string | null; dueDate: string | null; writer: string | null }[];
+  pieces: { id: number; title: string; status: PieceStatus; contentType: string | null; language: string | null; dueDate: string | null; writer: string | null; reviewer: string | null }[];
   comments: number;
   updatedAt: string;
 };
@@ -363,7 +363,7 @@ export async function boardFor(me: Me): Promise<BoardProject[]> {
   return r.rows.map((p) => {
     const pieces = (p.pieces ?? []).map((x) => ({
       id: x.id, title: x.title, status: (isPieceStatus(x.status) ? x.status : "todo") as PieceStatus, contentType: x.content_type,
-      language: x.language, dueDate: x.due, writer: x.writer,
+      language: x.language, dueDate: x.due, writer: x.writer, reviewer: x.reviewer,
     }));
     const people = new Set<string>();
     if (p.created_by) people.add(p.created_by);
