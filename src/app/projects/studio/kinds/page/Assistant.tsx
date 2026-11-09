@@ -24,7 +24,9 @@ import { langOfStore, mainView, viewState, viewsLine, viewsOf, type PageDoc, typ
 import { AssistantPanel, PINK, btn, type QuickAsk } from "../../parts";
 import { Chip, useCopy } from "./ui";
 
-export type Entry = { id: number; label: string; note?: string; at: number; lang: string; before: PageDoc; undone: boolean; by: "ai" | "you" };
+export type Entry = { id: number; label: string; note?: string; at: number; lang: string; before: PageDoc; undone: boolean; by: "ai" | "you";
+  /** the check after applying (Content v6): "Looks wrong - not applied: ..." */
+  warn?: string };
 export type Idea = { title: string; why: string; change: string };
 export type SeoCard = { title: string; description: string; urlKey: string };
 /** What a part of the page says, in English - to read it (Content v5), never a change */
@@ -175,6 +177,7 @@ export function Assistant({ quick, onAsk, enabled, context, contextKind, onClear
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography sx={{ fontSize: "0.83rem", color: INK, fontWeight: 600, textDecoration: e.undone ? "line-through" : "none" }}>{e.label}</Typography>
                 {e.note && <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{e.note}</Typography>}
+                {e.warn && <Typography sx={{ fontSize: "0.76rem", color: "#c5221f", fontWeight: 600, mt: 0.25 }}>{e.warn}</Typography>}
                 <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{e.lang} · {ago(e.at)}{e.undone ? " · undone" : ""}</Typography>
               </Box>
               {!e.undone && (

@@ -292,6 +292,29 @@ function topElements(html: string): { start: number; openEnd: number; end: numbe
   return out;
 }
 
+/**
+ * "Text and picture" added with the "+" (Content v6, SARCLA point 9: "we should really be able to add elements") - a
+ * block in the kit's way at once, no AI: a heading with the shop's small red line, words, and a photo of the page itself
+ * (none found: the words alone). Its words are marked as still to write ("[Heading]") until they are: double-click to
+ * write them, or "Write them with AI".
+ */
+export function textPictureBlock(prefix: string, img: { src: string; alt: string } | null): string {
+  const p = prefix;
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  return `<style>
+.${p},.${p} *{box-sizing:border-box}
+.${p}{max-width:1170px;margin:36px auto;padding:0 10px;background:transparent;color:#5e5e5e;font-family:"futura-pt",Arial,sans-serif;font-size:16px;line-height:1.55}
+.${p} .${p}-in{display:grid;grid-template-columns:${img ? "minmax(0,1.1fr) minmax(0,1fr)" : "minmax(0,1fr)"};gap:36px;align-items:center}
+.${p} h2{margin:0;font:600 26px/1.2 "futura-pt",Arial,sans-serif;color:#274e64}
+.${p} h2::after{content:"";display:block;width:36px;height:3px;margin:14px 0 14px;border-radius:2px;background:#d80901}
+.${p} p{margin:0;max-width:640px;font-size:16px;line-height:1.6;color:#5e5e5e}
+.${p} .${p}-ph{display:flex;align-items:center;justify-content:center;aspect-ratio:4/3;border-radius:12px;background:#f3f4f5;overflow:hidden}
+.${p} .${p}-ph img{display:block;max-width:82%;max-height:82%;object-fit:contain;mix-blend-mode:multiply}
+@media (max-width:767px){.${p}{margin:26px auto}.${p} .${p}-in{grid-template-columns:1fr;gap:18px}.${p} h2{font-size:21px}}
+</style>
+<div class="${p}"><div class="${p}-in"><div class="${p}-tx"><h2>[Heading]</h2><p>[Your words: one or two sentences]</p></div>${img ? `<div class="${p}-ph"><img src="${esc(img.src)}" alt="${esc(img.alt)}" loading="lazy"></div>` : ""}</div></div>`;
+}
+
 /** The AI's answer as the change the studio keeps: the block cleaned, its id and the way it goes on the page. */
 export function blockChange(raw: unknown, a: { id: string; mode: BlockMode; prefix: string; selector: string; where?: string; base?: PageChange | null; ground?: string | null; hadH1?: boolean }): {
   summary: string; change: PageChange | null; problems: string[]; fixed: string[];
