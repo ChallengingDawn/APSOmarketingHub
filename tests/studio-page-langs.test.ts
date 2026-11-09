@@ -56,7 +56,7 @@ test("a page's languages: its own, then those made - a language not made yet is 
   const nl = viewOf(base, "nl");
   assert.equal(nl.store, "nl-NL", "a Dutch page goes in the Dutch store view");
   const made = withView(base, "nl", { ...nl, fields: { ...nl.fields, hero: { ...nl.fields.hero, title: "Afdichtingen" } } });
-  assert.equal(made.langs.nl.store, "nl-NL");
+  assert.equal(made.langs["nl-NL"].store, "nl-NL", "kept under its store view");
   assert.deepEqual(langsOf(made), ["de", "nl"]);
   const pl = viewOf(made, "pl");
   const both = withView(made, "pl", { ...pl, fields: { ...pl.fields, hero: { ...pl.fields.hero, title: "Uszczelnienia" } } });

@@ -125,7 +125,7 @@ test("one page in several languages: each its own view, the main one the documen
   assert.equal(fr.fields.hero.title, "", "a language not made yet is empty");
   assert.equal(langState(base, "fr"), "empty");
   const made = withView(base, "fr", { ...fr, fields: { ...fr.fields, hero: { ...fr.fields.hero, title: "Joints" } } });
-  made.langs.fr.from = sourceHash(made);
+  made.langs["fr-CH"].from = sourceHash(made);
   assert.equal(made.fields.hero.title, "Dichtungen", "the main language is untouched");
   assert.equal(viewOf(made, "fr").fields.hero.title, "Joints");
   assert.equal(langState(made, "fr"), "done");
@@ -133,9 +133,9 @@ test("one page in several languages: each its own view, the main one the documen
   assert.equal(langState(changed, "fr"), "stale", "the main language changed since the translation");
   assert.equal(langState(made, "de"), "main");
   assert.ok(hasContent(viewOf(made, "fr")));
-  assert.match(pageText(made), /New page \(FR\): Joints/);
+  assert.match(pageText(made), /New page \(FR-CH\): Joints/, "a version is named by its store view");
   const stored = pageDoc(JSON.parse(JSON.stringify(made)));
-  assert.equal(stored.langs.fr.fields.hero.title, "Joints", "a language survives the round trip");
+  assert.equal(stored.langs["fr-CH"].fields.hero.title, "Joints", "a store view survives the round trip");
   assert.deepEqual(emptyPage("DE").langs, {});
 });
 
