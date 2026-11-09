@@ -133,6 +133,8 @@ test("erp lines v2: every order source, open lines, suppliers, lead time, manual
   assert.deepEqual(k.ownerPrice!["2026-10"], { "Anna Muster": [1, 1, 0, 0] });
   assert.deepEqual(k.manualArticles, []); // A2 priced by hand once only
   assert.deepEqual(k.manualRows!.map((r) => [r[0], r[1], r[6]]), [["A26.2.000", "A2", "Anyseals NV"]]);
+  // the late products: only the articles with a late line, month by month [shipped, late]
+  assert.deepEqual(k.lateProducts, [{ a: "A2", pc: "DT", st: "S", sup: "Anyseals NV", m: { "2026-10": [1, 1] } }]);
   // a summary without customers carries no owner part
   assert.equal(summarizeErpLines([L({})], "2026-11-09").ownerPrice, undefined);
 });

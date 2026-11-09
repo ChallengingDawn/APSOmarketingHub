@@ -280,7 +280,7 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
     const supplierOf = arts ? (a: string) => unpackFacts(arts.get(a) ?? "").main_supplier : undefined;
     const customers = [...new Set(wb.erpLines.lines.map((l) => l.customer ?? "").filter(Boolean))];
     const ownerOf = customers.length ? await customerOwners(customers).catch(() => undefined) : undefined;
-    try { out.erp_lines = { ...(await saveErpLines(wb.erpLines.lines, { supplierOf, ownerOf })), rows: wb.erpLines.rows, kept: true, customers: customers.length }; }
+    try { out.erp_lines = { ...(await saveErpLines(wb.erpLines.lines, { supplierOf, ownerOf }, articleTexts)), rows: wb.erpLines.rows, kept: true, customers: customers.length }; }
     catch (e) { out.erp_lines = `not kept: ${(e as Error).message}`; }
   }
   // the order facts the sheets give (first confirmed date, special articles, the invoice) - order_sync writes them at night
@@ -386,4 +386,17 @@ async function customerOwners(customers: string[]): Promise<(customer: string) =
   }
   const names = await ownerNames();
   return (c) => { const co = companyOf.get(c); const own = co ? ownerOfCompany.get(co) : undefined; return own ? names.get(own) ?? own : undefined; };
+}
+
+/** Articles -> their description in HubSpot's Products & Pricing (article_description), 100 a search. */
+async function articleTexts(articles: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (let i = 0; i < articles.length; i += 100) {
+    const j = await hubspotFetchJson<{ results?: { properties?: Record<string, string | null> }[] }>({
+      path: "/crm/v3/objects/2-200042439/search", method: "POST",
+      body: { filterGroups: [{ filters: [{ propertyName: "article_number", operator: "IN", values: articles.slice(i, i + 100) }] }], properties: ["article_number", "article_description"], limit: 100 },
+    });
+    for (const o of j.results ?? []) { const a = (o.properties?.article_number ?? "").trim(), t = (o.properties?.article_description ?? "").trim(); if (a && t) out.set(a, t); }
+  }
+  return out;
 }

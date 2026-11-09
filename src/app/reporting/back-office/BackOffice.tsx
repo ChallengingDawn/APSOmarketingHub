@@ -1961,7 +1961,7 @@ function elCharts(): ChartDef[] {
           { label: "Special articles", value: share(otdAt(spe)), sub: `${int(spe[0])} lines`, icon: <BuildOutlinedIcon sx={{ fontSize: S }} />, tint: "amber" },
           { label: "Mandant 100", value: share(otdAt(m100)), sub: `${int(m100[0])} lines`, icon: <ApartmentOutlinedIcon sx={{ fontSize: S }} />, tint: "slate" },
           { label: "Mandant 110", value: share(otdAt(m110)), sub: `${int(m110[0])} lines`, icon: <ApartmentOutlinedIcon sx={{ fontSize: S }} />, tint: "slate" },
-          { label: "First date pushed later", value: share(pushedAt(all)), lower: true, sub: `${int(all[2])} lines got a later date after the first one`, icon: <EventRepeatOutlinedIcon sx={{ fontSize: S }} />, tint: "pink" },
+          { label: "Delivery date postponed", value: share(pushedAt(all)), lower: true, sub: `${int(all[2])} lines: we moved their delivery date later after promising it`, icon: <EventRepeatOutlinedIcon sx={{ fontSize: S }} />, tint: "pink" },
         ]} />;
       },
     }),
@@ -1969,9 +1969,9 @@ function elCharts(): ChartDef[] {
     otdTrend("otdStandard", "OTD online, standard", "otd.online-standard", { type: "S" }, "Standard articles"),
     otdTrend("otdSpecial", "OTD online, special", "otd.online-special", { type: "P" }, "Special articles"),
     {
-      id: "otdPushed", page: "otd", needsCount: true, title: "First date pushed later",
+      id: "otdPushed", page: "otd", needsCount: true, title: "Delivery date postponed",
       figure: ({ f, d }) => (d.erpLines ? share(pushedAt(otdSum(d.erpLines, elYms(f)))) : null),
-      hint: () => "Of the month's lines, those whose confirmed date was moved after the first one - by the month of the first date",
+      hint: () => "Of the lines due in the month, the share whose delivery date we moved later after first confirming it to the customer · they still count as late or on time against the date first promised",
       body: ({ f, d }) => {
         const k = d.erpLines;
         if (!k) return <ElNone what="this is not counted" />;
@@ -1995,7 +1995,7 @@ function elCharts(): ChartDef[] {
           { key: "p", head: "Special", cell: (r) => pct(at(r, { type: "P" })), sort: (r) => at(r, { type: "P" }) ?? -1 },
           { key: "m1", head: "100", cell: (r) => pct(at(r, { mandant: "100" })), sort: (r) => at(r, { mandant: "100" }) ?? -1 },
           { key: "m2", head: "110", cell: (r) => pct(at(r, { mandant: "110" })), sort: (r) => at(r, { mandant: "110" }) ?? -1 },
-          { key: "pu", head: "Pushed later", cell: (r) => pct(pushedAt(otdSum(k, r.yms))), sort: (r) => pushedAt(otdSum(k, r.yms)) ?? -1 },
+          { key: "pu", head: "Date postponed", cell: (r) => pct(pushedAt(otdSum(k, r.yms))), sort: (r) => pushedAt(otdSum(k, r.yms)) ?? -1 },
           { key: "ty", head: "Typed in", cell: (r) => pct(meanOf(typedOf(d, "otd.online-all", r.yms))), sort: (r) => meanOf(typedOf(d, "otd.online-all", r.yms)) ?? -1 },
         ];
         if (!rows.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>No eShop order line with a first date in this period.</Typography>;
@@ -2176,6 +2176,47 @@ function el2Charts(): ChartDef[] {
         return <FullTable first="Month" cols={cols} rows={monthRows(f, (y) => keysOf(k.supplier, y).length > 0)} total={{ label: periodOf(f), yms: ys }} natural />;
       },
     }),
+
+    /* OTD - the late products (SARCLA 09.11.2026: "put another tab late product") */
+    wide({
+      id: "lateProducts", needsCount: true, page: "otd", title: "The products late most often",
+      hint: ({ f }) => `${periodOf(f)} · the eShop lines shipped per article: how many arrived after their first confirmed date · the most late lines first`,
+      body: ({ f, d }) => {
+        const p = d.erpLines?.lateProducts;
+        if (!p) return <ElNone what="this is not counted" />;
+        const ys = elYms(f);
+        const rows = p.map((x) => { let n = 0, late = 0; for (const ym of ys) { const v = x.m[ym]; if (v) { n += v[0]; late += v[1]; } } return { x, n, late }; })
+          .filter((r) => r.late > 0).sort((a, b) => b.late - a.late || b.n - a.n);
+        if (!rows.length) return <Note>No late line in this period.</Note>;
+        return <Table head={["Article", "Description", "Lines", "Late", "On time", "Supplier", "Profit centre", "Type"]} left={[0, 1, 5]} pageSize={20} minWidth={1150}
+          rows={rows.map(({ x, n, late }) => ({ key: x.a, cells: [x.a, x.text ? supName(x.text) : "—", int(n),
+            <Box key="l" component="span" sx={{ fontWeight: 700, color: BAD }}>{int(late)}</Box>, pct(n ? (n - late) / n : null), x.sup ? supName(x.sup) : "—", x.pc || "—", x.st === "S" ? "Standard" : x.st === "P" ? "Special" : "—"] }))} />;
+      },
+    }),
+    {
+      id: "lateProductsBar", needsCount: true, page: "otd", title: "Late lines per product",
+      hint: ({ f }) => `${periodOf(f)} · the 15 articles with the most late lines`,
+      body: ({ f, d }) => {
+        const p = d.erpLines?.lateProducts;
+        if (!p) return <ElNone what="this is not counted" />;
+        const ys = elYms(f);
+        const rows = p.map((x) => { let n = 0, late = 0; for (const ym of ys) { const v = x.m[ym]; if (v) { n += v[0]; late += v[1]; } } return { label: x.text ? `${x.a} · ${supName(x.text)}` : x.a, value: late, secondary: n ? `of ${int(n)} lines · ${pct(late / n)} late` : "" }; })
+          .filter((r) => r.value > 0).sort((a, b) => b.value - a.value).slice(0, 15);
+        return <BarList rows={rows} format={(v) => int(v ?? 0)} labelWidth={330} emptyMessage="No late line in this period." />;
+      },
+    },
+    {
+      id: "lateProductsPc", needsCount: true, page: "otd", title: "Late products per profit centre",
+      hint: ({ f }) => `${periodOf(f)} · the late lines of the articles above, per profit centre`,
+      body: ({ f, d }) => {
+        const p = d.erpLines?.lateProducts;
+        if (!p) return <ElNone what="this is not counted" />;
+        const ys = elYms(f), t = new Map<string, [number, number]>();
+        for (const x of p) for (const ym of ys) { const v = x.m[ym]; if (!v) continue; const c = t.get(x.pc || "?") ?? [0, 0]; c[0] += v[0]; c[1] += v[1]; t.set(x.pc || "?", c); }
+        const rows = [...t].filter(([, v]) => v[1] > 0).sort((a, b) => b[1][1] - a[1][1]).map(([pc, v]) => ({ label: pc, value: v[1], secondary: `of ${int(v[0])} lines · ${pct(v[1] / v[0])} late` }));
+        return <BarList rows={rows} format={(v) => int(v ?? 0)} labelWidth={120} emptyMessage="No late line in this period." />;
+      },
+    },
 
     /* OTD - the open lines to act on */
     wide({
@@ -2373,7 +2414,7 @@ function logicCharts(): ChartDef[] {
             ["When counted", "Once the line is shipped and invoiced. A line not shipped yet waits - it is neither on time nor late."],
             ["Which month", "The month of the first confirmed date - so a month's OTD is the lines that were due that month."],
             ["Late by", "The working days between the first confirmed date and the day the line could arrive (shipment + transport)."],
-            ["Pushed later", "A line whose confirmed date was moved after the first one. It still counts against the FIRST date."],
+            ["Date postponed", "A line whose delivery date we moved later after first confirming it to the customer. It still counts against the date first promised."],
             ["Why the first date", "It is the promise made to the customer. The confirmed date moves when the delivery moves, so measured against it nearly everything would be on time."],
             ["Checked", "Against the Back Office's typed OTD, Jan-Sep 2026: within about 1.5 points every month (Jan 72.8 against 74, Jun 68.3 against 68, Sep 81.0 against 80.8)."],
             ["Order sources", "The KPI is the eShop's. \"OTD per order source\" adds the orders typed in by the Back Office, with the same rule."],
@@ -2392,7 +2433,7 @@ function logicCharts(): ChartDef[] {
             ["First confirmed date", "Order line · ShippingDateInitial", "The delivery date first confirmed to the customer - the day at the customer's door", "The target, and the month OTD is counted in"],
             ["Shipment date", "Delivery · ShipmentDate", "The day the delivery left the warehouse (Embrach)", "The actual: shipment + transport = when it arrives"],
             ["Transport time", "The ERP's table per delivery country", "Working days from the warehouse to the customer - Switzerland 1, Germany 2, Italy 4, France 5 ...", "Added to the shipment date"],
-            ["Confirmed date now", "Order line · ShippingDateConfirmed", "The date as it stands today, after every change", "Only to see which lines were pushed later"],
+            ["Confirmed date now", "Order line · ShippingDateConfirmed", "The date as it stands today, after every change", "Only to see which lines had their date postponed"],
             ["Order date", "Order · OrderDate", "The day the order came in", "Not in OTD (the pass rate's month)"],
             ["Customer's wish date", "Order line · CustomerWishDate", "What the customer asked for - the same as the first date on 86 % of lines", "Not used: the first confirmed date is the promise"],
             ["Delivery date initial", "Order · DeliveryDateInitial", "Empty on every order since 2025", "Not used"],
@@ -3097,21 +3138,22 @@ const TABS: Record<Slug, TabDef[]> = {
       charts: ["otdFigs", "otdAll", "otdStandard", "otdSpecial", "otdPushed", "otdMonths", "otdSources"] },
     { id: "pcs", label: "Profit centres", title: "OTD per profit centre", note: "standard and special articles, counted from the ERP · the filters do not apply here", icon: <ApartmentOutlinedIcon />, tint: "blue", unfiltered: true, charts: ["otdMinis", "otdPc"] },
     { id: "late", label: "Late lines", title: "Where and how late", note: "the lines that arrived after their first confirmed date: per country, how late, and each one of the last 3 months · the filters do not apply here", icon: <EventRepeatOutlinedIcon />, tint: "amber", unfiltered: true, charts: ["otdCountry", "otdLate", "otdList"] },
+    { id: "products", label: "Late products", title: "The products late most often", note: "the eShop lines shipped per article: the ones that most often arrive after their first confirmed date, with their supplier and profit centre · the filters do not apply here", icon: <InventoryOutlinedIcon />, tint: "amber", unfiltered: true, charts: ["lateProductsBar", "lateProductsPc", "lateProducts"] },
     { id: "suppliers", label: "Suppliers", title: "OTD per supplier", note: "the eShop lines shipped, by each article's main supplier in the ERP: on time, who the late lines come from, the main ones month by month · the filters do not apply here", icon: <FactoryOutlinedIcon />, tint: "blue", unfiltered: true, charts: ["otdSupplier", "otdSupplierLate", "otdSupplierMonths"] },
     { id: "open", label: "Open lines", title: "Open lines to act on", note: "the lines not shipped yet whose first confirmed date has passed or comes within 3 working days - every order source, as the morning file had them", icon: <PendingActionsOutlinedIcon />, tint: "pink", unfiltered: true, charts: ["openFigs", "openList"] },
     { id: "lead", label: "Lead time", title: "Promised lead time", note: "the working days from the order to the first confirmed date: what we promise, month by month and per profit centre · the filters do not apply here", icon: <HourglassEmptyOutlinedIcon />, tint: "green", unfiltered: true, charts: ["leadMonths", "leadBands", "leadPc"] },
-    { id: "logic", label: "How it's counted", title: "How OTD is counted", note: "the rule, the ERP's dates it reads and the transport time per country - and real lines as the rule reads them", icon: <RuleOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["otdLogic", "otdDates", "otdTransit", "otdExamples"] },
     { id: "speed", label: "Delivery speed", title: "Delivery speed", note: "every delivery in the ERP's order file, read every night: the working days from the order to the shipment - the filters do not apply here", icon: <TimerOutlinedIcon />, tint: "green", unfiltered: true,
       charts: ["spdFigs", "spdMix", "spdFast", "spdMedian", "spdByDate", "spdLate", "spdCountry", "spdMode", "spdTable", "spdSlow"] },
     TYPE_IN,
+    { id: "logic", label: "How it's counted", title: "How OTD is counted", note: "the rule, the ERP's dates it reads and the transport time per country - and real lines as the rule reads them", icon: <RuleOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["otdLogic", "otdDates", "otdTransit", "otdExamples"] },
   ],
   autonomy: [
     { id: "pass", label: "Pass rate", title: "Pass rate per mandant", note: "the eShop order lines whose price the ERP set by itself, counted every night · by the month ordered, service articles left out · target 95 % · the filters do not apply here", icon: <VerifiedOutlinedIcon />, tint: "green", unfiltered: true, charts: ["pass100", "pass110", "elMonths", "prSources"],
       warn: (d) => (d.erpLines ? null : "Waiting for the ERP's order lines: the pass rate and the manual prices are counted from them, and the first morning file carrying them has not reached the hub yet. Until it does, the graphs show the Back Office's own typed figures.") },
     { id: "price", label: "Manual prices", title: "Manual price adjustments per mandant", note: "the eShop order lines whose price was typed by hand in the ERP, counted every night · by the month ordered, service articles left out · target below 2.5 % · then the biggest changes from the shop's price · the filters do not apply here", icon: <PriceChangeOutlinedIcon />, tint: "amber", unfiltered: true,
       charts: ["price100", "price110", "elMonths", "pricePc", "pricePcMonths", "priceArticles", "priceOwner", "prBig"] },
-    { id: "logic", label: "How it's counted", title: "How the pass rate and the manual prices are counted", note: "where each eShop order line's price came from, as the ERP records it", icon: <RuleOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["passLogic", "passSources", "passExamples"] },
     TYPE_IN,
+    { id: "logic", label: "How it's counted", title: "How the pass rate and the manual prices are counted", note: "where each eShop order line's price came from, as the ERP records it", icon: <RuleOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["passLogic", "passSources", "passExamples"] },
   ],
   stopped: [
     { id: "stopped", label: "Stopped orders", title: "Stopped orders", note: "the share of the orders transferred that was stopped, and why", icon: <BlockOutlinedIcon />, tint: "pink", charts: ["stopped", "stoppedWhy"] },

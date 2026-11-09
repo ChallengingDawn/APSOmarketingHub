@@ -30,6 +30,8 @@ export const OPEN_KEEP = 300;
 export const SUPPLIER_KEEP = 40;
 export const OTHER_SUPPLIERS = "Other suppliers";
 export const NO_SUPPLIER = "No supplier known";
+/** the late products kept: the articles with the most late eShop lines over the sheet's months */
+export const LATE_PRODUCTS_KEEP = 300;
 
 /** The ERP's transport time per delivery country, in working days ("Transportation times from GLC by country",
  *  Performis, 07.11.2026 - the column "Transportation Time (days)"). */
@@ -169,6 +171,9 @@ export type LeadCounts = number[];
 export type ManualArticleRow = [string, number, number, string, string, string, string];
 /** [order, article, order day, profit centre, mandant, "S"|"P", supplier] */
 export type ManualRow = [string, string, string, string, string, string, string];
+/** a late product: the article, its profit centre, "S"|"P", its supplier, its description (from HubSpot), and per month of
+ *  the first date [lines shipped, late] */
+export type LateProduct = { a: string; pc: string; st: string; sup: string; text?: string; m: Record<string, [number, number]> };
 
 export type ErpLinesKept = {
   v: number; at: string;
@@ -207,6 +212,8 @@ export type ErpLinesKept = {
   manualRows?: ManualRow[];
   /** eShop: yyyy-mm ordered -> the customer's company owner -> price counts (when the sheet carries the customer) */
   ownerPrice?: Record<string, Record<string, PriceCounts>>;
+  /** eShop: the articles with the most late lines (LATE_PRODUCTS_KEEP), month by month */
+  lateProducts?: LateProduct[];
 };
 
 /** What the summary may know beside the lines: each article's main supplier, each customer's company owner. */
@@ -234,6 +241,7 @@ export function summarizeErpLines(lines: Iterable<ErpLine>, today: string, ctx: 
   const late: LateRow[] = [], ok: LateRow[] = [], open: OpenRow[] = [], manual: ManualRow[] = [];
   let overdue = 0, due = 0;
   const arts = new Map<string, { hand: number; all: number; pc: string; last: string; st: string }>();
+  const prods = new Map<string, LateProduct & { late: number }>();
   for (const l of lines) {
     k.lines++;
     const ym = l.orderDay.slice(0, 7);
@@ -293,6 +301,12 @@ export function summarizeErpLines(lines: Iterable<ErpLine>, today: string, ctx: 
     c[0]++; if (isOk) c[1]++;
     const su = ((k.supplier![fm] ??= {})[sup || NO_SUPPLIER] ??= [0, 0]);
     su[0]++; if (isOk) su[1]++;
+    if (l.article) {
+      const pr = prods.get(l.article) ?? { a: l.article, pc: l.pc, st, sup, m: {}, late: 0 };
+      const pm = (pr.m[fm] ??= [0, 0]);
+      pm[0]++; if (!isOk) { pm[1]++; pr.late++; }
+      prods.set(l.article, pr);
+    }
     const arrives = addWd(l.shipDay, transitOf(l.country));
     if (isOk && l.firstDay >= lateFrom && l.firstDay <= today) ok.push([l.order, l.article, l.country, l.firstDay, l.shipDay, wdAfter(arrives, l.firstDay), st, l.pc, l.company, sup]);
     if (!isOk) {
@@ -322,6 +336,9 @@ export function summarizeErpLines(lines: Iterable<ErpLine>, today: string, ctx: 
     }
   }
   if (!Object.keys(k.ownerPrice!).length) delete k.ownerPrice;
+  // the late products: the articles with the most late lines, their months kept
+  k.lateProducts = [...prods.values()].filter((p) => p.late > 0).sort((a, b) => b.late - a.late).slice(0, LATE_PRODUCTS_KEEP)
+    .map(({ late: _late, ...p }) => p);
   return k;
 }
 
