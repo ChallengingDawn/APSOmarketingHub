@@ -14,11 +14,16 @@ import Typography from "@mui/material/Typography";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import CloseIcon from "@mui/icons-material/Close";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
+import type { Change } from "@/lib/convert/versions";
 import type { Fields } from "@/lib/content/studio/kinds/page/fields";
 import type { Part } from "@/lib/content/studio/kinds/page/fill";
+import { changeLine } from "@/lib/content/studio/kinds/page/model";
 import { busyOf, partsOf, type PartInfo, type PartKey } from "@/lib/content/studio/kinds/page/outline";
+import type { ChangeHit } from "@/lib/content/studio/kinds/page/shop";
+import type { ShopPart } from "@/lib/content/studio/kinds/page/shopParts";
 import { PINK } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { PartBody, SHEEN_BG, sheen, type FillRun, type PictureCtl } from "./Fields";
@@ -128,6 +133,84 @@ export function PartsOutline({ api, f, set, store, canEdit, canAi, fill, busy, o
           </Row>
         );
       })}
+    </RowList>
+  );
+}
+
+/* ── a page of the shop: its own sections ─────────────────────────────── */
+
+/** One change, as a line under its part: its number, what it does, whether the preview found it, and Remove. */
+function ChangeItem({ i, c, hit, canEdit, onRemove }: { i: number; c: Change; hit: ChangeHit | undefined; canEdit: boolean; onRemove: (i: number) => void }) {
+  const lost = hit?.state === "missing";
+  return (
+    <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, py: 0.75, borderTop: `1px solid ${HAIRLINE}` }}>
+      <Typography sx={{ fontSize: "0.74rem", color: MUTED, width: 16, pt: 0.15, textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{i + 1}</Typography>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.35, wordBreak: "break-word" }}>{changeLine(c)}</Typography>
+        {lost && <Typography sx={{ fontSize: "0.72rem", color: AMBER, fontWeight: 600 }}>Not found on the page</Typography>}
+      </Box>
+      {canEdit && (
+        <Tooltip title="Take this change out">
+          <IconButton size="small" onClick={() => onRemove(i)} aria-label={`Take change ${i + 1} out`} sx={{ mt: -0.4 }}><CloseIcon sx={{ fontSize: 15 }} /></IconButton>
+        </Tooltip>
+      )}
+    </Box>
+  );
+}
+
+/**
+ * A page of the shop as its parts (SARCLA's night list, 09.11.2026: "shop pages get a parts outline too, not only the
+ * change list"): its sections as the server read them, each with its state (changed / not changed / being changed by the
+ * AI), a line of what it says and its changes. A click opens one and selects it in the page, which scrolls there; a click
+ * in the page opens the part it is in, with the element selected at its top.
+ */
+export function ShopPartsOutline({ parts, whole, elsewhere, changes, hits, open, onOpen, busyPart, canEdit, canAi, onAsk, onRemove, selected }: {
+  parts: ShopPart[]; whole: number[]; elsewhere: number[]; changes: Change[]; hits: ChangeHit[] | null;
+  open: string | null; onOpen: (p: ShopPart | null) => void;
+  /** the part the AI is changing ("page": all of them) */
+  busyPart: string | null;
+  canEdit: boolean; canAi: boolean;
+  onAsk: (p: ShopPart) => void; onRemove: (i: number) => void;
+  /** the element selected in the page, shown at the top of the part it is in */
+  selected: { part: string | null; node: React.ReactNode } | null;
+}) {
+  const hitOf = (i: number) => hits?.find((h) => h.index === i);
+  const across = [...whole, ...elsewhere];
+  const rowOf = (p: ShopPart) => {
+    const id = `part:${p.id}`;
+    const isOpen = open === id;
+    const busy = busyPart === p.id || busyPart === "page";
+    const lost = p.changes.filter((i) => hitOf(i)?.state === "missing").length;
+    const n = p.changes.length;
+    const summary = n ? <><Box component="span" sx={{ color: GREEN, fontWeight: 600 }}>{n} change{n === 1 ? "" : "s"}</Box>{p.summary ? ` · ${p.summary}` : ""}</> : (p.summary || "Not changed");
+    const here = selected && selected.part === p.id ? selected.node : null;
+    return (
+      <Row key={p.id} id={id} title={p.name} state={busy ? "busy" : n ? (lost ? "partly" : "written") : "empty"} summary={summary} busyLabel="The AI is changing it…"
+        open={isOpen} onToggle={() => onOpen(isOpen ? null : p)} onAi={canEdit ? () => onAsk(p) : undefined} aiLabel="Change this part with AI" canAi={canAi && !busyPart}>
+        {here && <Box sx={{ mb: 1.25, p: 1.25, borderRadius: "8px", border: "1px solid rgba(194,44,110,.25)", bgcolor: "rgba(194,44,110,.04)" }}>{here}</Box>}
+        {p.summary && !here && <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 1, lineHeight: 1.4 }}>{p.tag !== "top" ? `${p.tag.toUpperCase()} · ` : ""}{p.summary}</Typography>}
+        {n > 0 ? p.changes.map((i) => <ChangeItem key={i} i={i} c={changes[i]} hit={hitOf(i)} canEdit={canEdit} onRemove={onRemove} />)
+          : <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No change here yet. Ask the AI on the right - it works on this part alone - or double-click its words in the page.</Typography>}
+        {canEdit && (
+          <Box component="button" type="button" disabled={!canAi || !!busyPart} onClick={() => onAsk(p)} sx={{
+            all: "unset", boxSizing: "border-box", mt: 1.25, display: "flex", alignItems: "center", gap: 0.75, width: "100%", px: 1.25, py: 0.8, borderRadius: "7px", cursor: canAi && !busyPart ? "pointer" : "default",
+            border: "1px solid rgba(194,44,110,.3)", color: canAi && !busyPart ? PINK : "#b3bccb", fontSize: "0.82rem", fontWeight: 650, "&:hover": canAi && !busyPart ? { bgcolor: "rgba(194,44,110,.06)" } : {},
+          }}>
+            <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />Change this part with AI
+          </Box>
+        )}
+      </Row>
+    );
+  };
+  return (
+    <RowList>
+      {parts.map(rowOf)}
+      {across.length > 0 && (
+        <Row id="part:across" title="Across the page" count={across.length} state={busyPart === "page" ? "busy" : "written"} summary={whole.length ? "Its look (styles), and changes not in one part" : "Changes not in one part"}
+          open={open === "part:across"} onToggle={() => onOpen(open === "part:across" ? null : { id: "across", name: "Across the page", tag: "top", selector: "", heading: "", summary: "", size: 0, changes: across })}>
+          {across.map((i) => <ChangeItem key={i} i={i} c={changes[i]} hit={hitOf(i)} canEdit={canEdit} onRemove={onRemove} />)}
+        </Row>
+      )}
     </RowList>
   );
 }

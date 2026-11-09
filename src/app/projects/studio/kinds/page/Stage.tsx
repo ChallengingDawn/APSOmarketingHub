@@ -27,6 +27,7 @@ import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import CheckIcon from "@mui/icons-material/Check";
 import CloseIcon from "@mui/icons-material/Close";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
+import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import ViewSidebarOutlinedIcon from "@mui/icons-material/ViewSidebarOutlined";
@@ -38,6 +39,7 @@ import {
 } from "@/lib/content/studio/kinds/page/model";
 import { renderNewPage } from "@/lib/content/studio/kinds/page/newpage";
 import type { InsertOut, PreviewOut } from "@/lib/content/studio/kinds/page/shop";
+import type { Located } from "@/lib/content/studio/kinds/page/shopParts";
 import { PINK, btn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { SHEEN_BG, sheen } from "./Fields";
@@ -197,7 +199,7 @@ function SelBar({ label, canWords, onWords, onAi, onClose }: { label: string; ca
 
 /* ── the stage ────────────────────────────────────────────────────────── */
 
-export function Stage({ api, doc, d, lang, onLang, offered, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working }: {
+export function Stage({ api, doc, d, lang, onLang, offered, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, onMap, seek, selLabel }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void; offered: LangOption[]; view: View; onView: (v: View) => void;
   preview: ReturnType<typeof usePagePreview>; selected: string | null; picked: Picked | null;
   onPick: (p: Picked | null) => void; onEdit: (p: Picked, v: { text: string; inner: string; outer: string }) => void;
@@ -209,6 +211,11 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
   writing?: { blocks: string[]; fields: string[]; pictures: string[] };
   /** a page of the shop being changed by the AI: since when */
   working?: number | null;
+  /** a page of the shop: where the preview found each change (the outline's parts), and a part to find and select */
+  onMap?: (m: Located) => void;
+  seek?: { nonce: number; heading: string } | null;
+  /** the selection's name when it is a part of the page (not just an element) */
+  selLabel?: string | null;
   onFix: (left: Leftover[]) => void;
   /** what shows in place of the page (the page list, a language still to make) */
   empty?: React.ReactNode;
@@ -218,6 +225,8 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
 }) {
   const [device, setDevice] = useState<Device>("desktop");
   const [zoom, setZoom] = useState<"fit" | "full">("fit");
+  // the toolbar keeps one row at 1480 px (SARCLA's night list): the rarer tools in a "More" menu
+  const [more, setMore] = useState<HTMLElement | null>(null);
   const fit = zoom === "fit" || device === "mobile";
   const isNew = d.source === "new";
   const { held, busy, want } = preview;
@@ -237,9 +246,9 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
 
   const selectOpts = {
     mode: (isNew ? "field" : "element") as "field" | "element",
-    selected, onPick, onEdit, editNonce, reveal,
+    selected, onPick, onEdit, editNonce, reveal, onMap, seek,
   };
-  const label = !selected ? "" : selected === "b:sections" ? "Sections" : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())
+  const label = !selected ? "" : selLabel ? selLabel : selected === "b:sections" ? "Sections" : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())
     : selected.startsWith("i:") ? "Banner" : picked ? `<${picked.tag}>${picked.text ? ` ${picked.text.slice(0, 28)}` : ""}` : "";
   const canWords = !!selected && (selected.startsWith("f:") ? !/picture$|\.button$|^f:links\./.test(selected) || selected.endsWith(".label") : !!picked?.editable);
   const toolbar = selected ? <SelBar label={label} canWords={canWords} onWords={onEditWords} onAi={onAskAi} onClose={() => onPick(null)} /> : undefined;
@@ -269,25 +278,35 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
 
   return (
     <Box sx={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column", borderRadius: "18px", overflow: "hidden", bgcolor: "#eef1f6", border: `1px solid ${HAIRLINE}`, backgroundImage: "radial-gradient(rgba(21,34,58,.07) 1px, transparent 1px)", backgroundSize: "18px 18px" }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 1, flexWrap: "wrap", borderBottom: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.6)", backdropFilter: "blur(6px)", flexShrink: 0 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 1, flexWrap: "nowrap", minWidth: 0, borderBottom: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.6)", backdropFilter: "blur(6px)", flexShrink: 0 }}>
         {fold && (
           <Tooltip title={fold.build ? "Show the build column" : "Fold the build column away"}>
             <IconButton size="small" onClick={fold.onBuild} aria-label="Fold the build column" sx={{ color: fold.build ? BLUE : MUTED }}><ViewSidebarOutlinedIcon sx={{ fontSize: 19, transform: "scaleX(-1)" }} /></IconButton>
           </Tooltip>
         )}
         <LangSwitch d={doc} lang={lang} onLang={onLang} offered={offered} />
-        <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, flexWrap: "wrap", minWidth: 0 }}>
+        <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, flexWrap: "nowrap", minWidth: 0 }}>
         {views.length > 0 && !empty && <Choice value={view} onChange={onView} options={views} />}
         {!empty && <Choice value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "mobile", label: "Phone" }]} />}
-        {!empty && device === "desktop" && <Choice value={zoom} onChange={setZoom} options={[{ key: "fit", label: "Fit" }, { key: "full", label: "100%" }]} />}
-        <Tooltip title="Read the page from the shop again">
-          <span><IconButton size="small" disabled={!!empty || busy.before || busy.after} onClick={preview.readAgain} aria-label="Read again"><RefreshIcon sx={{ fontSize: 18 }} /></IconButton></span>
+        <Tooltip title="More: zoom, read the page again, open it on the shop">
+          <IconButton size="small" onClick={(e) => setMore(e.currentTarget)} aria-label="More" sx={{ color: MUTED }}><MoreHorizIcon sx={{ fontSize: 19 }} /></IconButton>
         </Tooltip>
-        {d.path && !isNew && (
-          <Tooltip title="Open the page on the shop">
-            <IconButton size="small" component="a" href={shopUrl(d.env, d.path)} target="_blank" rel="noopener noreferrer" aria-label="Open on the shop"><OpenInNewIcon sx={{ fontSize: 17 }} /></IconButton>
-          </Tooltip>
-        )}
+        <Menu anchorEl={more} open={!!more} onClose={() => setMore(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}
+          slotProps={{ paper: { sx: { borderRadius: "8px", minWidth: 240 } } }}>
+          {!empty && device === "desktop" && (
+            <MenuItem dense onClick={() => { setZoom(zoom === "fit" ? "full" : "fit"); setMore(null); }} sx={{ gap: 1.25, fontSize: "0.86rem" }}>
+              {zoom === "fit" ? "Show at 100% (real size)" : "Fit the page to the space"}
+            </MenuItem>
+          )}
+          <MenuItem dense disabled={!!empty || busy.before || busy.after} onClick={() => { preview.readAgain(); setMore(null); }} sx={{ gap: 1.25, fontSize: "0.86rem" }}>
+            <RefreshIcon sx={{ fontSize: 17, color: MUTED }} />{isNew ? "Read the store's page again" : "Read the page from the shop again"}
+          </MenuItem>
+          {d.path && !isNew && (
+            <MenuItem dense component="a" href={shopUrl(d.env, d.path)} target="_blank" rel="noopener noreferrer" onClick={() => setMore(null)} sx={{ gap: 1.25, fontSize: "0.86rem" }}>
+              <OpenInNewIcon sx={{ fontSize: 16, color: MUTED }} />Open the page on the shop
+            </MenuItem>
+          )}
+        </Menu>
         {fold && (
           <Tooltip title={fold.assist ? "Show the assistant" : "Fold the assistant away"}>
             <IconButton size="small" onClick={fold.onAssist} aria-label="Fold the assistant" sx={{ color: fold.assist ? BLUE : MUTED }}><ViewSidebarOutlinedIcon sx={{ fontSize: 19 }} /></IconButton>
