@@ -156,7 +156,7 @@ export default function PageTests() {
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<PlayCircleOutlineIcon />} tint="green" label="Running now" value={n(view.running.length)} note={view.counts.live > view.running.length ? `${view.counts.live - view.running.length} paused` : "on the shop's pages"} /></Grid>
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<GroupsOutlinedIcon />} tint="blue" label="Visitors in them" value={data.gateway.configured && (view.counted || !view.counts.live) ? n(view.visitors) : "—"} note={!data.gateway.configured ? "the gateway is not connected" : view.counted || !view.counts.live ? "with statistics consent, this round" : "not read from the gateway"} /></Grid>
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<HourglassEmptyOutlinedIcon />} tint="amber" label="Waiting for a test" value={n(data.candidates.length)} note="approved versions without one" /></Grid>
-          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<EmojiEventsOutlinedIcon />} tint="purple" label="The version won" value={n(view.decided + view.wins)} note={view.wins ? `${view.wins} to decide · ready in Ship` : "ready in Ship"} /></Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<EmojiEventsOutlinedIcon />} tint="purple" label="The version won" value={n(view.decided + view.wins)} note={view.wins ? `${view.wins} to decide · ready in Winners` : "ready in Winners"} /></Grid>
         </Grid>
 
         {data.candidates.length > 0 && (
@@ -179,7 +179,7 @@ export default function PageTests() {
                   </Box>
                 </Box>
               ))}
-              {data.candidates.length > 12 && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>and {data.candidates.length - 12} more in Ideas (column &quot;Ready to test&quot;).</Typography>}
+              {data.candidates.length > 12 && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>and {data.candidates.length - 12} more - every one on <Box component={Link} href="/website/ai-personalization/ideas" sx={{ color: "#2459d1", fontWeight: 600 }}>the optimizations board</Box> (column &quot;Ready to test&quot;).</Typography>}
             </Box>
           </GlassCard>
         )}

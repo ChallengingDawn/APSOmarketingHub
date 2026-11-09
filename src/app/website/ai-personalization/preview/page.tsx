@@ -31,6 +31,7 @@ import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
 import AdsClickOutlinedIcon from "@mui/icons-material/AdsClickOutlined";
 import HighlightAltOutlinedIcon from "@mui/icons-material/HighlightAltOutlined";
 import EditNoteOutlinedIcon from "@mui/icons-material/EditNoteOutlined";
+import TouchAppOutlinedIcon from "@mui/icons-material/TouchAppOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
@@ -49,6 +50,7 @@ import { projectForPage, markerOf, pageMarker } from "@/lib/convert/handoff";
 import { convertPost, previewHref } from "../Flow";
 import { SquareChoice } from "../SquareChoice";
 import { PageShot } from "../PageShot";
+import { ClicksBar, type ClickDev, type ClicksData } from "../ClicksBar";
 
 type StudioData = {
   env: Env; path: string;
@@ -59,12 +61,14 @@ type StudioData = {
 type Spots = { list: { n: number; sel: string; lead: boolean; title: string }[]; focus: number | null };
 type Msg = { apsoPreview: "ready"; title: string } | { apsoPreview: "applied"; hit: number[] } | { apsoPreview: "go"; href: string } | { apsoPreview: "scroll"; y: number }
   | { apsoPreview: "picked"; selector: string; tag: string; text: string } | { apsoPreview: "styles"; total: number; nfailed: number; failed: string[] }
-  | { apsoPreview: "drawn"; lines: string[] } | { apsoPreview: "body" } | { apsoPreview: "spot"; n: number };
+  | { apsoPreview: "drawn"; lines: string[] } | { apsoPreview: "body" } | { apsoPreview: "spot"; n: number } | { apsoPreview: "heat"; missing: string[]; names?: Record<string, string> };
 type Picked = { selector: string; tag: string; text: string; from: string };
 type Device = "desktop" | "phone";
 type Zoom = "fit" | "full";
 type Sync = { y: number; from: string; n: number };
 type View = "version" | "original" | "both";
+/** The click map's heat on the page as it is (the frame draws it): an item per element and its tenths. */
+type HeatMsg = { list: { s: string; n: number; c: number[] }[]; max: number; focus: string | null };
 
 const API = "/api/website/ai-personalization/work";
 const since = (iso: string) => ago(Date.parse(iso) / 1000);
@@ -73,9 +77,9 @@ const pct = (r: number | null | undefined) => (r === null || r === undefined ? "
 // ---------------------------------------------------------------------------------------------------------------------
 // THE FRAME
 
-function Frame({ src, device, zoom, label, address, name, sync, pick, marks, spots, onMsg, onRetry }: {
+function Frame({ src, device, zoom, label, address, name, sync, pick, marks, spots, heat, onMsg, onRetry }: {
   src: string; device: Device; zoom: Zoom; label: string; address: string; name: string; sync: Sync | null;
-  pick: boolean; marks: boolean; spots?: Spots | null; onMsg: (m: Msg, from: string) => void; onRetry: () => void;
+  pick: boolean; marks: boolean; spots?: Spots | null; heat?: HeatMsg | null; onMsg: (m: Msg, from: string) => void; onRetry: () => void;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
@@ -133,6 +137,12 @@ function Frame({ src, device, zoom, label, address, name, sync, pick, marks, spo
     if (!ready) return;
     frame.current?.contentWindow?.postMessage({ apsoPreviewSpots: spots ?? { list: [], focus: null } }, "*");
   }, [spotsKey, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the click map: each clicked element tinted where it was clicked, its count above it
+  const heatKey = heat ? JSON.stringify(heat) : "";
+  useEffect(() => {
+    if (!ready) return;
+    frame.current?.contentWindow?.postMessage({ apsoPreviewHeat: heat ?? { list: [], max: 0 } }, "*");
+  }, [heatKey, ready]); // eslint-disable-line react-hooks/exhaustive-deps
   const phone = device === "phone";
   const W = phone ? 390 : 1280;
   const inner = phone ? Math.min(W, Math.max(0, w - 24)) : w;
@@ -386,7 +396,7 @@ function OwnIdea({ onAdd }: { onAdd: (title: string, change: string) => Promise<
   if (!open) return <Button size="small" onClick={() => setOpen(true)} sx={{ justifySelf: "start" }}>+ Your own optimization</Button>;
   return (
     <Box sx={{ display: "grid", gap: 1, p: 1.5, borderRadius: "14px", border: `1px dashed ${HAIRLINE}` }}>
-      <TextField size="small" label="The idea" value={title} onChange={(e) => setTitle(e.target.value)} inputProps={{ maxLength: 200 }} />
+      <TextField size="small" label="The optimization" value={title} onChange={(e) => setTitle(e.target.value)} inputProps={{ maxLength: 200 }} />
       <TextField size="small" label="What changes on the page" value={change} onChange={(e) => setChange(e.target.value)} multiline minRows={2} inputProps={{ maxLength: 2000 }} />
       <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end" }}>
         <Button size="small" onClick={() => setOpen(false)}>Cancel</Button>
@@ -548,7 +558,7 @@ function ToContent({ data, numbers, ideas, version }: { data: StudioData; number
   return (
     <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
       {made !== null && <Button size="small" variant="contained" disableElevation href={`/projects/${made}`}>Open in Content</Button>}
-      <Tooltip title={made !== null ? "A project for this page is in Content already - this makes another" : "Content Studio writes the page's texts from its numbers, approved ideas and version"}>
+      <Tooltip title={made !== null ? "A project for this page is in Content already - this makes another" : "Content Studio writes the page's texts from its numbers, approved optimizations and version"}>
         <span>
           <Button size="small" variant={made !== null ? "text" : "contained"} disableElevation disabled={busy} onClick={() => void send()}
             startIcon={busy ? <CircularProgress size={13} sx={{ color: "inherit" }} /> : <EditNoteOutlinedIcon sx={{ fontSize: 17 }} />}>
@@ -603,6 +613,18 @@ function ConvertPreview() {
   const [styles, setStyles] = useState<{ total: number; nfailed: number } | null>(null);
   const [spotFocus, setSpotFocus] = useState<number | null>(null);
   const [showSpots, setShowSpots] = useState(true);
+  // the click map (SARCLA 08.11.2026: "click like Microsoft Clarity" - "our own click map"): where people click, drawn on
+  // the page as it is; ?clicks=1 opens with it (Journeys > Click map)
+  const [clicks, setClicks] = useState(sp.get("clicks") === "1");
+  const [clickDev, setClickDev] = useState<ClickDev>("d");
+  const [clickTick, setClickTick] = useState(0);
+  const [heatFocus, setHeatFocus] = useState<string | null>(null);
+  // the clicked elements the page as drawn does not show (a menu that opens on a click, a page changed since)
+  const [heatMissing, setHeatMissing] = useState<string[]>([]);
+  // their own words as the page shows them ("Schnellbestellung", a button's text) - the gateway keeps no text
+  const [heatNames, setHeatNames] = useState<Record<string, string>>({});
+  // the clicks of the device the page is shown on (a phone's taps on the phone view); "Both" stays one click away
+  useEffect(() => { setClickDev(device === "phone" ? "m" : "d"); }, [device]);
   const told = useRef(false);
   // the page as the browser drew it, from the original's frame (else the version's) - the AI aims its changes at it
   const drawn = useRef<{ from: string; lines: string[] } | null>(null);
@@ -620,6 +642,12 @@ function ConvertPreview() {
   const problems = prob.result?.state === "ok" ? prob.result.data : null;
   const numbers = path ? numbersFor(problems, path) : null;
 
+  const clicksUrl = path ? `/api/website/ai-personalization/clicks?env=${env}&path=${encodeURIComponent(path)}&dev=${clickDev}&n=${clickTick}` : null;
+  const ch = useHeld<ClicksData>(clicks ? clicksUrl : null, [clicks, clicksUrl]);
+  const clickData = ch.result?.state === "ok" ? ch.result.data : null;
+  const clickErr = ch.result && ch.result.state !== "ok" ? (ch.result.state === "error" ? ch.result.error : "The hub could not read the clicks.") : null;
+  const heatMsg: HeatMsg | null = clicks && clickData?.heat?.list.length ? { list: clickData.heat.list.map((i) => ({ s: i.s, n: i.n, c: i.c })), max: clickData.heat.max, focus: heatFocus } : null;
+
   const ideas = d?.ideas ?? [];
   // the ideas in the order shown (dropped last, the best score first); numbered, the first the lead
   const ranked = useMemo(() => [...ideas].sort((x, y) => (x.status === "dropped" ? 1 : 0) - (y.status === "dropped" ? 1 : 0) || (iceScore(y) ?? -1) - (iceScore(x) ?? -1)), [ideas]);
@@ -633,7 +661,7 @@ function ConvertPreview() {
   const version = idea ? versionOf.get(idea.id) ?? null : null;
   useEffect(() => { setHit(null); setRev(null); }, [version?.id, version?.rev]);
   useEffect(() => { setPicked(null); setPick(false); setStyles(null); told.current = false; drawn.current = null; }, [path, env]);
-  useEffect(() => { if (!version && view !== "original") setView("original"); else if (version && view === "original") setView("version"); }, [version?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!version && view !== "original") setView("original"); else if (version && view === "original" && !clicks) setView("version"); }, [version?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const base = path ? `/api/website/ai-personalization/preview?env=${env}&path=${encodeURIComponent(path)}${fresh ? `&fresh=1&f=${fresh}` : ""}` : "";
   const vSrc = version ? `${base}&v=${version.id}&r=${rev ?? version.rev}&at=${encodeURIComponent(version.updatedAt)}` : "";
@@ -646,6 +674,12 @@ function ConvertPreview() {
     }
     if (m.apsoPreview === "scroll" && typeof m.y === "number") setSync((s) => ({ y: m.y, from, n: (s?.n ?? 0) + 1 }));
     if (m.apsoPreview === "applied" && Array.isArray(m.hit)) setHit(m.hit);
+    if (m.apsoPreview === "heat" && Array.isArray(m.missing) && from === "original") {
+      setHeatMissing(m.missing.filter((x) => typeof x === "string").slice(0, 40));
+      const nm: Record<string, string> = {};
+      for (const [k, v] of Object.entries(m.names && typeof m.names === "object" ? m.names : {}).slice(0, 40)) if (typeof v === "string" && v) nm[k] = v.slice(0, 48);
+      setHeatNames(nm);
+    }
     if (m.apsoPreview === "drawn" && Array.isArray(m.lines) && (from === "original" || drawn.current?.from !== "original")) drawn.current = { from, lines: m.lines.slice(0, 160) };
     if (m.apsoPreview === "picked" && typeof m.selector === "string") { setPicked({ selector: m.selector.slice(0, 300), tag: String(m.tag).slice(0, 20), text: String(m.text ?? "").slice(0, 160), from }); setPick(false); }
     if (m.apsoPreview === "styles" && typeof m.total === "number") {
@@ -760,7 +794,7 @@ function ConvertPreview() {
           ) : (
             <Box sx={{ px: { xs: 2, md: 2.5 }, py: 1.25, borderTop: `1px solid ${HAIRLINE}`, display: "flex", gap: 0.75, alignItems: "center" }}>
               <InsightsOutlinedIcon sx={{ fontSize: 16, color: MUTED }} />
-              <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{prob.result === null ? "Reading its numbers…" : "Not on Insights in this period - few views or customers, or it sells as expected."}</Typography>
+              <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{prob.result === null ? "Reading its numbers…" : "Not among the problem pages in this period - few views or customers, or it sells as expected."}</Typography>
             </Box>
           )}
           {numbers?.reasons?.length ? (
@@ -788,19 +822,30 @@ function ConvertPreview() {
             <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap", mb: 1.5 }}>
               <SquareChoice<View> label="Show" value={version ? view : "original"} onChange={setView}
                 options={version ? [{ key: "version", label: "The optimization" }, { key: "original", label: "The page as it is" }, { key: "both", label: "Side by side" }] : [{ key: "original", label: "The page as it is" }]} />
-              <SquareChoice<Device> label="On" value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "phone", label: "Phone" }]} />
-              {device === "desktop" && <SquareChoice<Zoom> label="Size" value={zoom} onChange={setZoom} options={[{ key: "fit", label: "Fit" }, { key: "full", label: "Actual size" }]} />}
-              <Box sx={{ flex: 1 }} />
+              <SquareChoice<Device> value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "phone", label: "Phone" }]} />
+              {device === "desktop" && <SquareChoice<Zoom> value={zoom} onChange={setZoom} options={[{ key: "fit", label: "Fit" }, { key: "full", label: "Actual size" }]} />}
+            </Box>
+            {/* what is drawn over the page: a row of its own, so the controls above never wrap into it */}
+            <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap", mb: 1.5, mt: -0.5 }}>
+              <Typography component="span" sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".04em", mr: 0.5 }}>On the page</Typography>
               {ideas.some((i) => i.target && i.status !== "dropped") && (
                 <Tooltip title="Each optimization's block marked on the page with its number - point at one to see its block">
-                  <Button size="small" variant={showSpots ? "contained" : "outlined"} disableElevation onClick={() => setShowSpots((x) => !x)} startIcon={<TipsAndUpdatesOutlinedIcon sx={{ fontSize: 17 }} />}
-                    sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{showSpots ? "Optimizations on the page" : "Show them on the page"}</Button>
+                  <Button size="small" variant={showSpots && !clicks ? "contained" : "outlined"} disableElevation onClick={() => { if (clicks) { setClicks(false); setShowSpots(true); } else setShowSpots((x) => !x); }} startIcon={<TipsAndUpdatesOutlinedIcon sx={{ fontSize: 17 }} />}
+                    sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Optimizations</Button>
                 </Tooltip>
               )}
               {version && (
-                <Button size="small" variant={marks ? "contained" : "outlined"} disableElevation onClick={() => setMarks((x) => !x)} startIcon={<HighlightAltOutlinedIcon sx={{ fontSize: 17 }} />}
-                  sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{marks ? "Changes shown" : "Show the changes"}</Button>
+                <Tooltip title="The version's changes outlined">
+                  <Button size="small" variant={marks ? "contained" : "outlined"} disableElevation onClick={() => setMarks((x) => !x)} startIcon={<HighlightAltOutlinedIcon sx={{ fontSize: 17 }} />}
+                    sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Changes</Button>
+                </Tooltip>
               )}
+              <Tooltip title="Where people click on this page - counted by the shop, only with the visitor's statistics consent">
+                <Button size="small" variant={clicks ? "contained" : "outlined"} color="warning" disableElevation
+                  onClick={() => { if (!clicks && view === "version") setView("original"); setClicks(!clicks); }} startIcon={<TouchAppOutlinedIcon sx={{ fontSize: 17 }} />}
+                  sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Clicks</Button>
+              </Tooltip>
+              <Box sx={{ flex: 1 }} />
               <Tooltip title="Click an element in the page to ask the AI to change it">
                 <Button size="small" variant={pick ? "contained" : "outlined"} color="secondary" disableElevation onClick={() => setPick((x) => !x)} startIcon={<AdsClickOutlinedIcon sx={{ fontSize: 17 }} />}
                   sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{pick ? "Click an element…" : "Pick an element"}</Button>
@@ -809,6 +854,11 @@ function ConvertPreview() {
                 <IconButton size="small" onClick={() => setFresh((n) => n + 1)} aria-label="Read again"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
               </Tooltip>
             </Box>
+            {clicks && path && (
+              <ClicksBar data={clickData} error={clickErr} loading={!ch.result || ch.stale} dev={clickDev} onDev={setClickDev} env={env} path={path}
+                focus={heatFocus} onFocus={(s) => setHeatFocus((f) => (f === s ? null : s))} missing={heatMissing} names={heatNames}
+                onChanged={() => setClickTick((n) => n + 1)} />
+            )}
             {picked && (
               <Box sx={{ display: "flex", gap: 1.25, alignItems: "center", flexWrap: "wrap", mb: 1.5, p: 1.25, borderRadius: "10px", border: "1px solid rgba(124,77,255,.35)", bgcolor: "rgba(124,77,255,.06)" }}>
                 <AdsClickOutlinedIcon sx={{ fontSize: 18, color: "#6a46c9" }} />
@@ -831,7 +881,7 @@ function ConvertPreview() {
             )}
             {pg.status === 200 && (
               <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: version && view === "both" ? { xs: "minmax(0,1fr)", md: "minmax(0,1fr) minmax(0,1fr)" } : "minmax(0,1fr)" }}>
-                {(!version || view !== "version") && <Frame src={base} device={device} zoom={zoom} name="original" sync={sync} pick={pick} marks={false} spots={view === "version" ? null : spots} address={pg.url ?? path} label={version ? "Original" : "The page"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
+                {(!version || view !== "version") && <Frame src={base} device={device} zoom={zoom} name="original" sync={sync} pick={pick} marks={false} spots={view === "version" || clicks ? null : spots} heat={heatMsg} address={pg.url ?? path} label={version ? "Original" : "The page"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
                 {version && view !== "original" && <Frame src={vSrc} device={device} zoom={zoom} name="version" sync={sync} pick={pick} marks={marks} spots={view === "version" ? spots : null} address={pg.url ?? path} label={`Version · rev ${rev ?? version.rev}`} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
               </Box>
             )}

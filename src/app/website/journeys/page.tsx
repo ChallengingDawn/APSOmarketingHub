@@ -192,7 +192,7 @@ function KindPages({ data, kind, setKind }: { data: JourneysData; kind: JKind; s
                 <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", fontVariantNumeric: "tabular-nums" }}>{pct(p.left)}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>
                   <Box component={Link} href={flowHref(inConvert, p.path)} sx={linkSx}>Page flow</Box>
-                  {inConvert && <>{" · "}<Box component={Link} href={`/website/ai-personalization/preview?env=prod&path=${encodeURIComponent(p.path)}`} sx={linkSx}>See it</Box></>}
+                  {inConvert && <>{" · "}<Box component={Link} href={`${previewHref("prod", p.path)}&clicks=1`} sx={linkSx}>Clicks</Box></>}
                   <Box component="span" sx={{ color: FAINT }}> · </Box>
                   <Box component={Link} href={previewHref("prod", p.path)} sx={linkSx}>Preview</Box>
                 </TableCell>

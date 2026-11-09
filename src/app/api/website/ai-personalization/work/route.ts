@@ -82,7 +82,7 @@ function numbersOf(v: unknown): Numbers | null {
 export async function POST(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (access.levelAt(PAGE) !== "write") return fail("Changing ideas and versions needs the Preview's write access.", 403);
+  if (access.levelAt(PAGE) !== "write") return fail("Changing optimizations and versions needs the Preview's write access.", 403);
   const user = await getOptionalUser();
   const by = user?.full_name || user?.username || "someone";
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -115,11 +115,11 @@ export async function POST(req: NextRequest) {
         const status = b.status as IdeaStatus;
         if (!ideaId || !["proposed", "approved", "dropped"].includes(status)) return fail("id and status, please", 400);
         const idea = await setIdeaStatus(ideaId, status, by);
-        return idea ? NextResponse.json({ ok: true, data: idea }) : fail("no such idea", 404);
+        return idea ? NextResponse.json({ ok: true, data: idea }) : fail("No such optimization.", 404);
       }
       case "build": {
         const ideaId = id("ideaId");
-        if (!ideaId) return fail("ideaId, please", 400);
+        if (!ideaId) return fail("Which optimization?", 400);
         const request = text(b.request, 1500) || null;
         const drawn = cleanDrawn(b.drawn);
         return slow(() => writeVersion(ideaId, request, by, drawn));

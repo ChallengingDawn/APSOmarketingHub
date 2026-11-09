@@ -223,6 +223,10 @@ test("shimSource keeps its regular expressions whole (a template string once ate
   assert.ok(s.includes("/" + BS + "s+/g"));
   assert.ok(s.includes("[" + BS + "w-]"));
   assert.ok(!s.includes("[w-]"));
+  // every whitespace squeeze whole - not one that became /s+/ (09.11: the click map's element names nearly lost theirs)
+  assert.ok(!s.includes("(/s+/g"), "a /s+/ (letters s) instead of /" + BS + "s+/ (white space)");
+  assert.ok(!s.includes(String.fromCharCode(0)), "no NUL byte");
+  assert.ok(s.includes("apsoPreviewHeat") && s.includes("t:\"heat\""), "the click map's heat and its report back");
   assert.doesNotThrow(() => new Function(s));
 });
 
