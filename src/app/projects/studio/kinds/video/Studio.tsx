@@ -30,7 +30,7 @@ import type { FeatureKey } from "@/lib/content/studio/kinds/video/features";
 import { seconds } from "@/lib/content/studio/kinds/video/engine/timeline";
 import { plain } from "@/lib/content/studio/kinds/video/engine/text";
 import {
-  cleanVideo, featureScene, FORMAT_INFO, FORMATS, KIND_INFO, MAX_SCENES, newScene, SCENE_KINDS, segments, totalFrames, validate,
+  cleanVideo, END_FIELDS, featureScene, FORMAT_INFO, FORMATS, KIND_INFO, MAX_SCENES, newScene, SCENE_KINDS, segments, totalFrames, validate,
   type FilmLength, type Format, type Issue, type Scene, type SceneKind, type VideoDoc, type VideoSpec,
 } from "@/lib/content/studio/kinds/video/model";
 import type { AiAnswer } from "@/lib/content/studio/kinds/video/ai";
@@ -38,9 +38,14 @@ import { AssistantPanel, PINK, btn, mainBtn, Pane, StudioPanes } from "../../par
 import type { StudioProps } from "../../registry";
 import FilmPanel, { filmLine } from "./FilmPanel";
 import Player, { type PlayerHandle } from "./Player";
+import { LAYOUTS } from "@/lib/content/studio/kinds/video/film/layout";
+import { WordField } from "./ui";
 import { EndPanel, ScenePanel } from "./ScenePanel";
 import Strip, { holdFrame } from "./Strip";
 import { ChangesList, Kick, LastStep, MapList, MapPane, MapRow, StartCard, StepView, WorkingOn, Writing, useChanges, useClock, type Mark } from "./map";
+
+/** The lines the film draws with a red word (a kicker, a proof, a quote and a figure are drawn plain). */
+const redOnFilm = (kind: SceneKind, key: string) => (key === "line1" || key === "line2" || key === "line3") && kind !== "quote" && !(kind === "number" && key === "line1");
 
 const isV2 = (v: unknown): v is VideoDoc => !!v && typeof v === "object" && (v as { v?: unknown }).v === 2 && Array.isArray((v as { scenes?: unknown }).scenes) && !!(v as { endCard?: unknown }).endCard;
 /** The document as it is being typed (spaces kept); anything older is brought up to date. */
@@ -141,7 +146,63 @@ function ExportView({ film, issues, onBack, onFormat, onExport, exporting, msg, 
   );
 }
 
-type Busy = { what: "film" | "scene"; index?: number; label: string; since: number };
+/** Where a scene's words sit on the film (its layout's text box), for the words typed on the film. */
+type Box4 = { x: number; y: number; w: number; h: number };
+function wordsBox(fmt: Format, kind: SceneKind | "end"): Box4 {
+  const L = LAYOUTS[fmt];
+  if (kind === "end") return L.end.line;
+  if (kind === "title") return L.title.text;
+  if (kind === "words") return L.words.text;
+  if (kind === "claim") return L.claim.text;
+  if (kind === "feature") return L.feature.text;
+  if (kind === "number") return { x: L.number.fig.x, y: L.number.fig.y, w: L.number.fig.w, h: L.number.label.y + L.number.label.h - L.number.fig.y };
+  if (kind === "compare") return L.compare.before;
+  if (kind === "steps") return { x: L.steps.head.x, y: L.steps.head.y, w: L.steps.head.w, h: L.steps.cards[0].y + L.steps.cards[0].h - L.steps.head.y };
+  if (kind === "product") return L.product.text;
+  return L.quote.text;
+}
+
+/**
+ * The words of the scene showing, typed right on the film (09.11.2026, the flow standard): a field for each of its
+ * lines, set over the scene's words; each key writes the same field as the left card (which follows) and the film
+ * behind it. Enter or a click outside keeps them, Esc puts the scene back as it was.
+ */
+function OnFilm({ box, scale, title, fields, onKeep, onDrop }: {
+  box: Box4; scale: number; title: string; onKeep: () => void; onDrop: () => void;
+  fields: { key: string; label: string; value: string; words: number; red: boolean; multiline?: boolean; onChange: (v: string) => void }[];
+}) {
+  const card = useRef<HTMLDivElement | null>(null);
+  const keep = useRef(onKeep);
+  keep.current = onKeep;
+  // a click anywhere else keeps the words
+  useEffect(() => {
+    const down = (e: MouseEvent) => { if (card.current && !card.current.contains(e.target as Node)) keep.current(); };
+    const t = setTimeout(() => document.addEventListener("mousedown", down, true), 50);
+    return () => { clearTimeout(t); document.removeEventListener("mousedown", down, true); };
+  }, []);
+  const w = Math.max(300, Math.min(440, box.w * scale));
+  return (
+    <Box ref={card} role="dialog" aria-label={`${title} - typed on the film`}
+      onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        const multi = (e.target as HTMLElement).getAttribute("aria-multiline") === "true";
+        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onDrop(); } else if (e.key === "Enter" && !e.shiftKey && !multi) { e.preventDefault(); e.stopPropagation(); onKeep(); }
+      }}
+      sx={{
+        position: "absolute", zIndex: 3, left: Math.max(8, box.x * scale - 12), top: Math.max(8, box.y * scale - 12), width: w, maxHeight: "calc(100% - 16px)", overflowY: "auto",
+        p: 1.25, pb: 0.5, borderRadius: "10px", bgcolor: "rgba(255,255,255,.97)", border: "1.5px solid #c22c6e", boxShadow: "0 16px 40px rgba(21,34,58,.28)", cursor: "default",
+      }}>
+      <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: INK, mb: 0.75 }}>
+        {title} <Box component="span" sx={{ fontWeight: 500, color: MUTED }}>· Enter keeps it, Esc drops it</Box>
+      </Typography>
+      {fields.map((f, i) => (
+        <WordField key={f.key} label={f.label} value={f.value} words={f.words} red={f.red} multiline={f.multiline} autoFocus={i === 0} onChange={f.onChange} />
+      ))}
+    </Box>
+  );
+}
+
+type Busy = { what: "film" | "scene" | "end"; index?: number; label: string; since: number };
 
 export default function Studio({ api }: StudioProps) {
   const lang = api.data.piece.language;
@@ -179,14 +240,24 @@ export default function Studio({ api }: StudioProps) {
   // on opening, the film shows its first scene with its words in - not an empty first frame
   useEffect(() => { const t = setTimeout(() => { if (segs[0]) player.current?.seek(holdFrame(segs[0]), false); }, 120); return () => clearTimeout(t); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // the words of the scene showing, typed right on the film (a double-click on it)
+  const [onFilm, setOnFilm] = useState<{ index: number; before: VideoDoc } | null>(null);
+  const onFilmRef = useRef(onFilm);
+  onFilmRef.current = onFilm;
+  const docRef = useRef(doc);
+  docRef.current = doc;
+  // another scene opened: the words typed are kept
+  useEffect(() => { if (onFilm && open !== onFilm.index) setOnFilm(null); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // the AI: its answer is applied at once and played; every change is listed with an Undo
-  const changes = useChanges<VideoDoc>();
+  const changes = useChanges<VideoDoc>(`video-${api.data.piece.id}`, raw ? doc : undefined);
   const [busy, setBusy] = useState<Busy | null>(null);
   const ask = useRef<HTMLTextAreaElement | null>(null);
   const runAi = async (task: string, label: string, input: Record<string, unknown> = {}, after?: () => void): Promise<string | null> => {
     const before = doc;
     const scene = task === "scene" ? before.scenes[Number(input.index)] : undefined;
-    setBusy({ what: scene ? "scene" : "film", index: scene ? Number(input.index) : undefined, label, since: Date.now() });
+    const end = task === "end";
+    setBusy({ what: scene ? "scene" : end ? "end" : "film", index: scene ? Number(input.index) : undefined, label, since: Date.now() });
     try {
       const r = await api.ai<AiAnswer>(task, input);
       if (!r.ok) return r.error;
@@ -198,6 +269,10 @@ export default function Studio({ api }: StudioProps) {
         const next = ans.scenes.find((x) => x.id === scene.id);
         if (!next || JSON.stringify(next) === JSON.stringify(scene)) return [r.result.note || "The scene stays as it was.", dropped].filter(Boolean).join(" ");
         edit((d) => ({ ...d, features: ans.features ?? d.features, scenes: d.scenes.map((x) => (x.id === scene.id ? next : x)) }));
+      } else if (end) {
+        // the end card's ask changes the end card only: its line and its button
+        if (ans.endCard.line === before.endCard.line && ans.endCard.cta === before.endCard.cta) return [r.result.note || "The end card stays as it was.", dropped].filter(Boolean).join(" ");
+        edit((d) => ({ ...d, endCard: { ...d.endCard, line: ans.endCard.line, cta: ans.endCard.cta } }));
       } else {
         setDoc(ans);
       }
@@ -262,6 +337,7 @@ export default function Studio({ api }: StudioProps) {
   const sceneIssues = (i: Issue["scene"]) => issues.filter((x) => x.scene === i);
   const aiOn = api.data.ai && canEdit;
   const onScene = open !== null && open >= 0 && !!doc.scenes[open];
+  const onEnd = open === -1 && film.scenes.length > 0;
   const hasScenes = film.scenes.length > 0;
   const makingFilm = busy?.what === "film";
   const clock = useClock(busy?.since ?? null);
@@ -316,8 +392,8 @@ export default function Studio({ api }: StudioProps) {
               </MapRow>
             );
           })}
-          <MapRow id="v--1" title="End card" summary={plain(doc.endCard.line) || "Not written yet"} state={makingFilm ? "busy" : sceneIssues("end").some((x) => x.level === "stop") ? "stop" : plain(doc.endCard.line) ? "written" : "empty"}
-            busyLabel="Writing…" open={open === -1} onToggle={() => toggle(-1)}>
+          <MapRow id="v--1" title="End card" summary={plain(doc.endCard.line) || "Not written yet"} state={makingFilm || busy?.what === "end" ? "busy" : sceneIssues("end").some((x) => x.level === "stop") ? "stop" : plain(doc.endCard.line) ? "written" : "empty"}
+            busyLabel={busy?.what === "end" ? `${busy.label}…` : "Writing…"} open={open === -1} onToggle={() => toggle(-1)}>
             <EndPanel doc={doc} issues={sceneIssues("end")} edit={edit} disabled={!canEdit} onShow={() => hold(-1)} />
           </MapRow>
         </MapList>
@@ -339,7 +415,7 @@ export default function Studio({ api }: StudioProps) {
               <Box sx={{ mt: 1, px: 2, py: 1, borderRadius: "8px", bgcolor: "rgba(21,34,58,.86)", color: "#fff", display: "flex", alignItems: "center", gap: 1.25, boxShadow: "0 10px 30px rgba(21,34,58,.25)", overflow: "hidden", position: "relative" }}>
                 <CircularProgress size={16} sx={{ color: "#fff" }} />
                 <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: "#fff", fontVariantNumeric: "tabular-nums" }}>
-                  {busy.what === "scene" ? `${busy.label} · scene ${(busy.index ?? 0) + 1} · ${clock}` : `Writing the scenes${picked.length ? ` around ${picked.length === 1 ? "your feature" : `your ${picked.length} features`}` : ""} · ${clock}`}
+                  {busy.what === "end" ? `${busy.label} · ${clock}` : busy.what === "scene" ? `${busy.label} · scene ${(busy.index ?? 0) + 1} · ${clock}` : `Writing the scenes${picked.length ? ` around ${picked.length === 1 ? "your feature" : `your ${picked.length} features`}` : ""} · ${clock}`}
                 </Typography>
                 <Box sx={{ position: "absolute", left: 0, bottom: 0, height: 2, width: "40%", bgcolor: "#d80901", animation: "cv3make 1.6s ease-in-out infinite", "@keyframes cv3make": { "0%": { transform: "translateX(-100%)" }, "100%": { transform: "translateX(250%)" } } }} />
               </Box>
@@ -349,17 +425,33 @@ export default function Studio({ api }: StudioProps) {
             // what is selected, on the film: "<Scene> · Ask AI · ×" (the flow standard's label)
             <Box sx={{ position: "absolute", left: 12, top: 10, zIndex: 2, display: "inline-flex", alignItems: "center", gap: 0.25, pl: 1.25, pr: 0.25, py: 0.25, borderRadius: "6px", bgcolor: "#15223a", color: "#fff", boxShadow: "0 6px 18px rgba(21,34,58,.25)" }}>
               <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: "#fff", mr: 0.5, whiteSpace: "nowrap" }}>{selLabel}</Typography>
-              {onScene && aiOn && (
+              {(onScene || onEnd) && aiOn && (
                 <Button size="small" onClick={() => ask.current?.focus()} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={{ ...btn, color: "#f7b6cf", fontSize: "0.74rem", py: 0, px: 0.75, minWidth: 0 }}>Ask AI</Button>
               )}
               <IconButton size="small" onClick={() => setSel(null)} aria-label="Let go of the scene" sx={{ color: "rgba(255,255,255,.75)", p: 0.4 }}><CloseIcon sx={{ fontSize: 15 }} /></IconButton>
             </Box>
           )}
           <Player doc={film} handle={player} onOpen={(i) => {
-            // the scene showing opens in the map with the cursor in its first line - the words changed where they are
+            // the scene showing opens in the map, and its words become fields right on the film
             select(i);
-            setTimeout(() => (document.querySelector(`[data-row="v-${i}"] [role="textbox"]`) as HTMLElement | null)?.focus(), 320);
-          }} strip={(frame, seg, playing) => (
+            if (canEdit && (i === -1 || doc.scenes[i])) setOnFilm({ index: i, before: doc });
+          }} overlay={onFilm ? (scale) => {
+            const i = onFilm.index;
+            const sc = i >= 0 ? doc.scenes[i] : null;
+            const fields = sc
+              ? KIND_INFO[sc.kind].fields.map((f) => ({ key: f.key, label: f.label, value: sc.copy[f.key] ?? "", words: f.words, red: redOnFilm(sc.kind, f.key), multiline: sc.kind === "quote" && f.key === "line1",
+                onChange: (v: string) => edit((d) => ({ ...d, scenes: d.scenes.map((x) => (x.id === sc.id ? { ...x, copy: { ...x.copy, [f.key]: v } } : x)) })) }))
+              : END_FIELDS.map((f) => ({ key: f.key, label: f.label, value: doc.endCard[f.key], words: f.words, red: f.key === "line", onChange: (v: string) => edit((d) => ({ ...d, endCard: { ...d.endCard, [f.key]: v } })) }));
+            return (
+              <OnFilm box={wordsBox(film.format, sc ? sc.kind : "end")} scale={scale} title={sc ? sceneName(i) : "End card"} fields={fields}
+                onKeep={() => {
+                  const was = onFilmRef.current;
+                  setOnFilm(null);
+                  if (was && JSON.stringify(was.before) !== JSON.stringify(docRef.current)) changes.record(`${sc ? `Scene ${i + 1}` : "End card"}: typed on the film`, was.before, undefined, "you");
+                }}
+                onDrop={() => { const was = onFilmRef.current; setOnFilm(null); if (was) setDoc(was.before); }} />
+            );
+          } : undefined} strip={(frame, seg, playing) => (
             <Strip film={film} segs={segs} selected={open !== null && open >= -1 ? open : null} playing={playing ? seg.index : null} frame={frame} issues={issues} disabled={!canEdit}
               onSelect={select} onMove={move} onAdd={add} />
           )} />
@@ -374,9 +466,12 @@ export default function Studio({ api }: StudioProps) {
     <AssistantPanel
       enabled={aiOn}
       inputRef={ask}
-      top={<WorkingOn selection={onScene ? sceneName(open!) : null} whole="The whole film" hint="click a scene to work on it alone" onClear={() => setSel(null)} />}
-      placeholder={onScene ? "What should change in this scene? E.g. for buyers in food plants" : "What should change in the film? E.g. a calmer opening, end on DirectCUT"}
-      quick={onScene ? [
+      top={<WorkingOn selection={onScene ? sceneName(open!) : onEnd ? "End card" : null} whole="The whole film" hint="click a scene to work on it alone" onClear={() => setSel(null)} />}
+      placeholder={onScene ? "What should change in this scene? E.g. for buyers in food plants" : onEnd ? "What should change in the end card? E.g. end on DirectCUT" : "What should change in the film? E.g. a calmer opening, end on DirectCUT"}
+      quick={onEnd ? [
+        { label: "Shorter", run: () => runAi("end", "End card: shorter", { how: "shorter" }, () => setTimeout(() => hold(-1), 60)) },
+        { label: "Another closing line", run: () => runAi("end", "End card: another closing line", { how: "another" }, () => setTimeout(() => hold(-1), 60)) },
+      ] : onScene ? [
         { label: "Shorter", run: () => runAi("scene", `Scene ${open! + 1}: shorter`, { index: open, how: "shorter" }, holdAfter(open!)) },
         { label: "Another feature", run: () => runAi("scene", `Scene ${open! + 1}: another feature`, { index: open, how: "feature" }, holdAfter(open!)) },
       ] : [
@@ -386,7 +481,9 @@ export default function Studio({ api }: StudioProps) {
           { label: "Another opening", run: () => runAi("variant", "Another opening", {}, () => setTimeout(() => player.current?.seek(0, true), 60)) },
         ] : []),
       ]}
-      onAsk={(text) => (onScene
+      onAsk={(text) => (onEnd
+        ? runAi("end", `End card: "${text.slice(0, 60)}"`, { how: "ask", ask: text }, () => setTimeout(() => hold(-1), 60))
+        : onScene
         ? runAi("scene", `Scene ${open! + 1}: "${text.slice(0, 60)}"`, { index: open, how: "ask", ask: text }, holdAfter(open!))
         : runAi(hasScenes ? "revise" : "storyboard", hasScenes ? `"${text.slice(0, 60)}"` : "Made the film", hasScenes ? { ask: text } : { features: picked, seconds: length, ask: text }, () => setTimeout(() => player.current?.seek(0, true), 60)))}
     >

@@ -35,9 +35,11 @@ const START_PLACES: PresetKey[] = ["band", "cat", "hero", "mail", "card", "story
 
 const STATE_TEXT = { ready: "Ready", look: "To look at", stop: "Not yet" } as const;
 
-export default function BannerMap({ api, doc, set, view, setView, pick, setPick, pages, ai, png, prefix, title }: {
+export default function BannerMap({ api, doc, set, view, setView, pick, setPick, pages, ai, png, prefix, title, focusLeft = true }: {
   api: StudioApi; doc: BannerDoc; set: Set; view: View; setView: (v: View) => void; pick: PickPart | null; setPick: (p: PickPart | null) => void;
   pages: Pages; ai: BannerAi; png: ReturnType<typeof usePng>; prefix: string; title: string;
+  /** the part opened from the map takes the cursor; one selected on the banner does not */
+  focusLeft?: boolean;
 }) {
   const [step, setStep] = useState<"map" | "get">("map");
   const [placeOpen, setPlaceOpen] = useState<PresetKey | null>(null);
@@ -129,7 +131,7 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
         {parts.map((p) => (
           <MapRow key={p} id={`b-${p}`} title={PART_NAME[p]} summary={summary(p)} state={mark(p)} busyLabel={busy?.part === "all" ? "Writing…" : `${busy?.label ?? "Writing"}…`}
             open={pick === p} onToggle={() => openPart(p)}>
-            <PartFields doc={doc} set={set} k={shown} part={p} canEdit={canEdit} projectId={piece.projectId} pieceId={piece.id} me={api.data.me} />
+            <PartFields doc={doc} set={set} k={shown} part={p} canEdit={canEdit} projectId={piece.projectId} pieceId={piece.id} me={api.data.me} autoFocus={focusLeft} />
           </MapRow>
         ))}
       </MapList>

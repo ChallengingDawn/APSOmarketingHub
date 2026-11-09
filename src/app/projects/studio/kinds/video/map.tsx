@@ -208,15 +208,62 @@ export function WorkingOn({ selection, whole, hint, onClear }: { selection: stri
 
 /* ── the changes made here ─────────────────────────────────────────────────────────────────────────────────────── */
 
-export type Change<T> = { id: number; label: string; note?: string; at: number; before: T; undone: boolean };
+export type Change<T> = { id: number; label: string; note?: string; at: number; before: T; undone: boolean; by?: "ai" | "you";
+  /** back after a reload on a document that changed since: shown, not undone from here */
+  old?: boolean };
 
 const ago = (t: number) => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`; };
 
 /** The AI's changes, newest first; Undo puts the thing back as it was before one (and every later one). */
-export function useChanges<T>() {
+/** A short fingerprint of a document, to know whether it changed since the list was kept. */
+function fingerprint(v: unknown): string {
+  // keys in a fixed order: the saved document comes back with its keys in another order than the one typed here
+  const sorted = (x: unknown): unknown => (Array.isArray(x) ? x.map(sorted) : x && typeof x === "object"
+    ? Object.fromEntries(Object.keys(x as Record<string, unknown>).sort().filter((k) => (x as Record<string, unknown>)[k] !== undefined && (x as Record<string, unknown>)[k] !== null).map((k) => [k, sorted((x as Record<string, unknown>)[k])]))
+    : x);
+  const t = JSON.stringify(sorted(v ?? null));
+  let h = 5381;
+  for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
+  return `${t.length}:${h >>> 0}`;
+}
+
+/**
+ * The changes made here, newest first; Undo puts the thing back as it was before one (and every later one).
+ * With `store` (the to-do's id) and `doc`, the last 20 are kept in this browser and come back after a reload
+ * (09.11.2026): with their Undo while the document is still the one they were made on, read-only once it changed
+ * since (someone else's edit, another browser) - "Versions" goes back then. Never in the document itself: a picture
+ * of the whole thing per change would weigh every save down (the 8 KB limit).
+ */
+export function useChanges<T>(store?: string, doc?: T) {
+  const key = store ? `studio-changes:${store}` : null;
   const [list, setList] = useState<Change<T>[]>([]);
-  const record = useCallback((label: string, before: T, note?: string) => {
-    setList((l) => [{ id: Date.now() + Math.random(), label, note, at: Date.now(), before, undone: false }, ...l].slice(0, 30));
+  const loaded = useRef(false);
+  // back after a reload: the list, and whether the document is still the one it was kept with
+  useEffect(() => {
+    if (!key || loaded.current || doc === undefined || doc === null) return;
+    loaded.current = true;
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return;
+      const kept = JSON.parse(raw) as { list?: Change<T>[]; print?: string };
+      if (!Array.isArray(kept.list) || !kept.list.length) return;
+      const changed = kept.print !== fingerprint(doc);
+      setList(kept.list.slice(0, 20).map((x) => (changed || x.old ? { ...x, old: true } : x)));
+    } catch { /* no storage, or not ours */ }
+  }, [key, doc]);
+  // kept as it changes, with the document's fingerprint now
+  useEffect(() => {
+    if (!key || !loaded.current) return;
+    const t = setTimeout(() => {
+      try {
+        if (!list.length) window.localStorage.removeItem(key);
+        else window.localStorage.setItem(key, JSON.stringify({ list: list.slice(0, 20), print: fingerprint(doc) }));
+      } catch { /* full or blocked: the list stays for this visit */ }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [key, list, doc]);
+  const record = useCallback((label: string, before: T, note?: string, by: "ai" | "you" = "ai") => {
+    setList((l) => [{ id: Date.now() + Math.random(), label, note, at: Date.now(), before, undone: false, by }, ...l].slice(0, 20));
   }, []);
   /** The state to go back to, the entry and every later one marked undone. */
   const undo = useCallback((e: Change<T>): T => {
@@ -228,18 +275,20 @@ export function useChanges<T>() {
 
 export function ChangesList<T>({ list, onUndo, what }: { list: Change<T>[]; onUndo: (e: Change<T>) => void; what: string }) {
   if (!list.length) return null;
+  const stale = list.some((x) => x.old && !x.undone);
   return (
     <Box sx={{ mt: 2.5 }}>
       <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>Changes made here</Typography>
+      {stale && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mb: 0.75, lineHeight: 1.45 }}>The {what} changed since these were made - to go back, use Versions at the top.</Typography>}
       {list.map((e) => (
         <Box key={e.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", py: 0.9, borderTop: `1px solid ${HAIRLINE}`, opacity: e.undone ? 0.45 : 1 }}>
-          <Box sx={{ mt: 0.6, width: 7, height: 7, borderRadius: "2px", bgcolor: PINK, flexShrink: 0 }} />
+          <Box sx={{ mt: 0.6, width: 7, height: 7, borderRadius: "2px", bgcolor: e.by === "you" ? "#2459d1" : PINK, flexShrink: 0 }} />
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography sx={{ fontSize: "0.83rem", color: INK, fontWeight: 600, textDecoration: e.undone ? "line-through" : "none" }}>{e.label}</Typography>
             {e.note && <Typography title={e.note} sx={{ fontSize: "0.76rem", color: MUTED, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{e.note}</Typography>}
             <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{ago(e.at)}{e.undone ? " · undone" : ""}</Typography>
           </Box>
-          {!e.undone && (
+          {!e.undone && !e.old && (
             <Tooltip title={`Put the ${what} back as it was before this (and every later change)`}>
               <Button size="small" onClick={() => onUndo(e)} startIcon={<UndoIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, color: INK, minWidth: 0, px: 1 }}>Undo</Button>
             </Tooltip>

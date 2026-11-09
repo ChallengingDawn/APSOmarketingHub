@@ -35,7 +35,12 @@ export default function Studio({ api }: StudioProps) {
   // the first place the banner is used in, at its real size - not an overview
   const [view, setView] = useState<View>(() => sizesOf(doc)[0]);
   const [pageId, setPageId] = useState<number | null>(null);
-  const [pick, setPick] = useState<PickPart | null>(null);
+  const [pick, setPickState] = useState<PickPart | null>(null);
+  // a part opened from the map takes the cursor into its words; one selected on the banner does not (a double-click
+  // there types right on the banner)
+  const [focusLeft, setFocusLeft] = useState(true);
+  const pickFromMap = useCallback((p: PickPart | null) => { setFocusLeft(true); setPickState(p); }, []);
+  const pickOnBanner = useCallback((p: PickPart | null) => { setFocusLeft(false); setPickState(p); }, []);
   // the brand's type is never waited on: drawn at once in its look-alike stack, swapped in when it comes
   const brandFont = useBrandFontState();
   const piece = api.data.piece;
@@ -59,15 +64,15 @@ export default function Studio({ api }: StudioProps) {
     <StudioPanes id="banner4" buildWidth={360} assistWidth={320}
       build={(
         <Pane pad={false} title="Build">
-          <BannerMap api={api} doc={doc} set={set} view={view} setView={setView} pick={pick} setPick={setPick} pages={pages} ai={ai} png={png} prefix={prefix} title={piece.title} />
+          <BannerMap api={api} doc={doc} set={set} view={view} setView={setView} pick={pick} setPick={pickFromMap} pages={pages} ai={ai} png={png} prefix={prefix} title={piece.title} focusLeft={focusLeft} />
         </Pane>
       )}
       preview={(
         <Stage doc={doc} set={set} prefix={prefix} view={view} setView={setView} font={brandFont.css} fontFailed={brandFont.state === "failed"} title={piece.title} canEdit={canEdit}
           pages={pages} pageId={pageId} setPageId={(id) => { setPageId(id); setView("pages"); }} saved={api.save === "saved"} pieceId={piece.id} projectId={piece.projectId} me={api.data.me}
-          api={api} pick={pick} setPick={setPick} language={language} busy={ai.busy} onAskAi={() => ask.current?.focus()} png={png} />
+          api={api} pick={pick} setPick={pickOnBanner} language={language} busy={ai.busy} onAskAi={() => ask.current?.focus()} png={png} onTyped={ai.note} />
       )}
-      assist={<BannerAssistant api={api} doc={doc} ai={ai} pick={pick} setPick={setPick} inputRef={ask} />}
+      assist={<BannerAssistant api={api} doc={doc} ai={ai} pick={pick} setPick={pickFromMap} inputRef={ask} />}
     />
   );
 }

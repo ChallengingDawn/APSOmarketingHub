@@ -87,3 +87,39 @@ test("our parts are never drawn taller than the cut-out's own pixels", () => {
     assert.ok(Math.abs(p.ratio - w / h) < 0.01, `${p.key}: its ratio`);
   }
 });
+
+// ── round 2 (09.11.2026): words typed on the banner, the video's end card asks ──
+
+import { readPart, targetOf, writePart } from "../src/lib/content/studio/kinds/banner/edit";
+import { cleanEnd } from "../src/lib/content/studio/kinds/video/ai";
+
+test("words typed on the banner go where the words shown came from - the place's own, else the banner's", () => {
+  const d = banner();
+  assert.equal(readPart(d, "band", "headline"), "The right seal");
+  assert.equal(readPart(d, "mail", "headline"), "Right seal", "the newsletter shows its own words");
+  assert.equal(targetOf(d, "mail", "headline"), "own");
+  assert.equal(targetOf(d, "band", "headline"), "banner");
+  const own = writePart(d, "mail", "headline", "Seals", "own");
+  assert.equal(own.own.mail?.headline, "Seals");
+  assert.equal(own.content.headline, "The right seal", "the banner's own words untouched");
+  const all = writePart(d, "band", "headline", "Hygienic seals");
+  assert.equal(all.content.headline, "Hygienic seals");
+  assert.equal(all.own.mail?.headline, "Right seal");
+  // emptied while typing, the field stays where it started (no jump to the banner's words)
+  assert.equal(writePart(d, "mail", "headline", "", "own").own.mail?.headline, "");
+  assert.equal(writePart(d, "band", "button", "Shop now").content.button.label, "Shop now");
+  assert.equal(writePart(d, "band", "button", "Shop now").content.button.url, "seals");
+  assert.equal(writePart(d, "band", "headline", "Two\nlines").content.headline, "Two lines", "one line, as the left card keeps it");
+});
+
+test("the end card's ask changes the end card only; Shorter is never longer", () => {
+  const film = { v: 2, format: "16:9", scenes: [{ id: "a", kind: "claim", bars: 2, copy: { line1: "Seals that *fit*" } }], endCard: { line: "Order online today", cta: "apsoparts.com", bars: 2 } };
+  const r = cleanEnd({ endLine: "Your seal, *found*", cta: "Shop seals", note: "Shorter." }, film, { how: "another" });
+  assert.equal(r.doc.endCard.line, "Your seal, *found*");
+  assert.equal(r.doc.endCard.cta, "Shop seals");
+  assert.equal(r.doc.scenes[0].copy.line1, "Seals that *fit*");
+  const longer = cleanEnd({ endLine: "Order your seals online today, fast", cta: "", note: "" }, film, { how: "shorter" });
+  assert.equal(longer.doc.endCard.line, "Order online today", "not shorter: as it was");
+  const off = cleanEnd({ endLine: "20% off every seal", cta: "", note: "" }, film, { how: "another" });
+  assert.equal(off.doc.endCard.line, "Order online today", "a discount value never lands");
+});

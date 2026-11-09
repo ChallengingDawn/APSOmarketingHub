@@ -48,7 +48,7 @@ const LIMIT: Record<OwnField, "eyebrow" | "headline" | "line" | "button"> = { ey
 const PLACEHOLDER: Record<OwnField, string> = { eyebrow: "Newsletter", headline: "The one line the banner is for", line: "One sentence of substance", button: "Shop seals" };
 
 /** A text of the banner, for this place: the banner's words everywhere, or this place's own. */
-function Words({ doc, set, k, f, canEdit }: { doc: BannerDoc; set: Set; k: PresetKey; f: OwnField; canEdit: boolean }) {
+function Words({ doc, set, k, f, canEdit, autoFocus = true }: { doc: BannerDoc; set: Set; k: PresetKey; f: OwnField; canEdit: boolean; autoFocus?: boolean }) {
   const own = doc.own[k]?.[f] ?? "";
   const only = !!own.trim();
   const many = sizesOf(doc).length > 1;
@@ -59,7 +59,7 @@ function Words({ doc, set, k, f, canEdit }: { doc: BannerDoc; set: Set; k: Prese
   const change = (v: string) => (only ? setOwn(v) : set((d) => putContent(d, f, v)));
   return (
     <Box>
-      <TextField autoFocus fullWidth size="small" multiline={f === "line"} minRows={f === "line" ? 2 : undefined} value={value} disabled={!canEdit} placeholder={PLACEHOLDER[f]}
+      <TextField autoFocus={autoFocus} fullWidth size="small" multiline={f === "line"} minRows={f === "line" ? 2 : undefined} value={value} disabled={!canEdit} placeholder={PLACEHOLDER[f]}
         onChange={(e) => change(f === "line" ? e.target.value : e.target.value.replace(/\n/g, " "))} sx={field}
         helperText={max != null ? <Box component="span" sx={{ display: "flex", justifyContent: "flex-end" }}><span style={{ color: over ? "#c5221f" : MUTED, fontWeight: over ? 700 : 500 }}>{over ? `${value.length - max} too many for the ${inLine(PRESET[k].short)}` : `${value.length} / ${max}`}</span></Box> : undefined} />
       {many && (
@@ -152,17 +152,19 @@ function PictureEditor({ doc, set, canEdit, projectId, pieceId, me }: { doc: Ban
 }
 
 /** A part's fields, under its row in the map (09.11.2026, the flow standard: the left opens the part that is selected). */
-export default function PartFields({ doc, set, k, part, canEdit, projectId, pieceId, me }: {
+export default function PartFields({ doc, set, k, part, canEdit, projectId, pieceId, me, autoFocus = true }: {
   doc: BannerDoc; set: Set; k: PresetKey; part: PickPart; canEdit: boolean; projectId: number; pieceId: number; me: string;
+  /** the cursor into its words (opened from the map; not when the part is selected on the banner) */
+  autoFocus?: boolean;
 }) {
   const c = doc.content;
   const anyMotion = sizesOf(doc).some((x) => PRESET[x].motion);
   return (
     <Box data-part-editor={part}>
-      {(part === "eyebrow" || part === "line") && <Words doc={doc} set={set} k={k} f={part} canEdit={canEdit} />}
+      {(part === "eyebrow" || part === "line") && <Words doc={doc} set={set} k={k} f={part} canEdit={canEdit} autoFocus={autoFocus} />}
       {part === "headline" && (
         <>
-          <Words doc={doc} set={set} k={k} f="headline" canEdit={canEdit} />
+          <Words doc={doc} set={set} k={k} f="headline" canEdit={canEdit} autoFocus={autoFocus} />
           {anyMotion && (
             <Box sx={{ mt: 1.5 }}>
               <Typography sx={{ fontSize: "0.72rem", fontWeight: 650, color: MUTED, mb: 0.6 }}>Endings that take turns on the shop</Typography>
@@ -175,14 +177,14 @@ export default function PartFields({ doc, set, k, part, canEdit, projectId, piec
       )}
       {part === "button" && (
         <>
-          <Words doc={doc} set={set} k={k} f="button" canEdit={canEdit} />
+          <Words doc={doc} set={set} k={k} f="button" canEdit={canEdit} autoFocus={autoFocus} />
           <TextField fullWidth size="small" label="It goes to" value={c.button.url} disabled={!canEdit} placeholder="black-friday, or a full address" sx={{ ...field, mt: 1.5 }}
             onChange={(e) => set((d) => ({ ...d, content: { ...d.content, button: { ...d.content.button, url: e.target.value.trim() } } }))}
             helperText="A shop page's path links each store view to its own page." />
         </>
       )}
       {part === "label" && (
-        <TextField autoFocus fullWidth size="small" value={c.photos.length >= 2 ? c.photos[0].label : c.image.label} disabled={!canEdit} placeholder="Empty = no label" sx={field}
+        <TextField autoFocus={autoFocus} fullWidth size="small" value={c.photos.length >= 2 ? c.photos[0].label : c.image.label} disabled={!canEdit} placeholder="Empty = no label" sx={field}
           onChange={(e) => {
             const v = e.target.value.slice(0, 80);
             set((d) => (d.content.photos.length >= 2

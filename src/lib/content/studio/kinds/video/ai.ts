@@ -399,3 +399,47 @@ export function cleanScene(raw: unknown, doc: unknown, ctx: VideoCtx, input: Rec
 
 /** COPY_KEYS, for the studio's own use. */
 export { COPY_KEYS };
+
+// ───────────────────────── the end card alone (09.11.2026) ─────────────────────────
+
+export const END_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    endLine: { type: "string", description: "The end card's line: few words, may carry one *key* word." },
+    cta: { type: "string", description: "The button: the shop address \"apsoparts.com\" or a short action." },
+    note: { type: "string", description: "One short sentence to the person: what changed." },
+  },
+  required: ["endLine", "cta", "note"],
+  additionalProperties: false,
+};
+
+/** The end card asked again: shorter, another closing line, or the person's own words - the scenes are not touched. */
+export const endUser = (ctx: VideoCtx, doc: unknown, input: Record<string, unknown>) => {
+  const d = cleanVideo(doc, { language: ctx.piece.language });
+  const how = String(input.how ?? "ask");
+  const ask = how === "shorter"
+    ? "Make the end card shorter: fewer words in its line, the same meaning and language; keep the button unless it can be shorter too."
+    : how === "another"
+      ? "Write another closing line for the end card - a different angle that sums up the film; the button stays an action or the shop address."
+      : `What the person asks for the end card: ${str(input.ask, 600) || "(nothing - make it stronger)"}`;
+  return [
+    context(ctx, doc),
+    pickedFeatures(doc).length ? `\nThe film's APSOparts features (only these, only their facts):\n${featuresBrief(pickedFeatures(doc))}` : "",
+    ``,
+    `Change ONLY the end card (its line and its button). Every scene stays exactly as it is.`,
+    `End card now: line="${d.endCard.line}", button="${d.endCard.cta}"`,
+    ask,
+  ].filter(Boolean).join("\n");
+};
+
+/** The end card's answer laid on the film: its line and button only; "shorter" never longer than before. */
+export function cleanEnd(raw: unknown, doc: unknown, input: Record<string, unknown> = {}): AiAnswer {
+  const cur = cleanVideo(doc);
+  const r = isObj(raw) ? raw : {};
+  const dropped: string[] = [];
+  const line = keep(r.endLine, 120, dropped);
+  const cta = keep(r.cta, 60, dropped);
+  if (!line) return { doc: cur, note: str(r.note, 300) || "No closing line came back that the film can use - try again.", dropped };
+  if (String(input.how) === "shorter" && wordCount(line) > wordCount(cur.endCard.line)) return { doc: cur, note: "The answer was not shorter - the end card stays as it was.", dropped };
+  return { doc: { ...cur, endCard: { ...cur.endCard, line, cta: cta || cur.endCard.cta } }, note: str(r.note, 300), dropped };
+}
