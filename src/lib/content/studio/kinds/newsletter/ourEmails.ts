@@ -56,7 +56,7 @@ export function groupEmails(rows: RawEmail[]): EmailGroup[] {
 
 export type EmailPart =
   | { kind: "text"; widget: string; html: string; text: string }
-  | { kind: "image"; widget: string; src: string; alt: string; url: string }
+  | { kind: "image"; widget: string; src: string; alt: string; url: string; w?: number; h?: number }
   | { kind: "button"; widget: string; text: string; url: string }
   | { kind: "divider"; widget: string }
   | { kind: "chrome"; widget: string; module: string };
@@ -71,19 +71,47 @@ const plain = (html: string) => html.replace(/<br\s*\/?>/gi, "\n").replace(/<\/(
   .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&rsquo;/g, "'")
   .replace(/[ \t]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 
+type Section = { columns?: { widgets?: string[] }[] };
+/**
+ * The widgets in the order a reader takes them in (Content v4, 09.11.2026). A run of rows with the same two or more
+ * columns is a grid of stories side by side (our feature e-mails: the titles in one row, the pictures in the next, the
+ * texts in the one after): read column by column, so each story's title, picture and text stay together. One column:
+ * top to bottom.
+ */
+export function readingOrder(sections: Section[], isFooter: (widget: string) => boolean = () => false): string[] {
+  const out: string[] = [];
+  let i = 0;
+  while (i < sections.length) {
+    const n = sections[i].columns?.length ?? 0;
+    if (n < 2) { out.push(...(sections[i].columns ?? []).flatMap((c) => c.widgets ?? [])); i++; continue; }
+    let j = i;
+    // our footer (follow us | our support) is a row of two columns too: never part of the stories' grid
+    const foot = (k: number) => (sections[k].columns ?? []).some((c) => (c.widgets ?? []).some(isFooter));
+    if (foot(i)) { out.push(...(sections[i].columns ?? []).flatMap((c) => c.widgets ?? [])); i++; continue; }
+    while (j < sections.length && (sections[j].columns?.length ?? 0) === n && !foot(j)) j++;
+    for (let c = 0; c < n; c++) for (let k = i; k < j; k++) out.push(...(sections[k].columns?.[c]?.widgets ?? []));
+    i = j;
+  }
+  return out;
+}
+
 /** One e-mail (HubSpot's drag-and-drop shape), read in the order it shows. */
 export function readEmail(e: RawEmailFull): ReadEmail {
   const widgets = e.content?.widgets ?? {};
-  const order = (e.content?.flexAreas?.main?.sections ?? []).flatMap((s) => (s.columns ?? []).flatMap((c) => c.widgets ?? []));
+  const order = readingOrder(e.content?.flexAreas?.main?.sections ?? [], (w) => {
+    const b = widgets[w]?.body ?? {};
+    return /follow_me|email_footer/.test(String(b.path ?? b.module_id ?? "")) || (typeof b.html === "string" && OUR_FOOTER.test(plain(b.html)));
+  });
   const parts: EmailPart[] = [];
+  const px = (v: unknown) => { const n = typeof v === "number" ? v : typeof v === "string" ? parseInt(v, 10) : NaN; return Number.isFinite(n) && n > 0 ? n : undefined; };
   for (const wid of order) {
     const b = widgets[wid]?.body ?? {};
     const path = String(b.path ?? b.module_id ?? "");
     const html = typeof b.html === "string" ? b.html : "";
-    const img = (b.img ?? null) as { src?: string; alt?: string } | null;
+    const img = (b.img ?? null) as { src?: string; alt?: string; width?: number | string; height?: number | string } | null;
     const link = (b.link ?? null) as { url?: { href?: string } } | null;
     if (/button_email/.test(path)) parts.push({ kind: "button", widget: wid, text: String(b.text ?? ""), url: String(b.destination ?? "") });
-    else if (img?.src) parts.push({ kind: "image", widget: wid, src: img.src, alt: img.alt ?? "", url: link?.url?.href ?? "" });
+    else if (img?.src) parts.push({ kind: "image", widget: wid, src: img.src, alt: img.alt ?? "", url: link?.url?.href ?? "", w: px(img.width), h: px(img.height) });
     else if (html && !/email_footer|web_version|follow_me/.test(path)) parts.push({ kind: "text", widget: wid, html, text: plain(html) });
     else if (/divider|spacer/.test(path) || (b.style && !html && !img)) parts.push({ kind: "divider", widget: wid });
     else parts.push({ kind: "chrome", widget: wid, module: path });
@@ -100,8 +128,21 @@ const nid = () => `h${Date.now().toString(36)}${(seq++).toString(36)}`;
 /** A text's first line as a title when it reads like one (short, no full stop), the rest as the text. */
 function split(text: string): { title: string; rest: string } {
   const [first, ...more] = text.split("\n").map((x) => x.trim()).filter(Boolean);
-  if (first && first.length <= 90 && !/[.:]$/.test(first) && more.length) return { title: first, rest: more.join("\n\n") };
+  // a greeting ("Dear Customer,") opens the words - it is not their title
+  if (first && first.length <= 90 && !/[.:,]$/.test(first) && more.length) return { title: first, rest: more.join("\n\n") };
   return { title: "", rest: text };
+}
+
+/**
+ * A picture that is not a story's picture (Content v4, 09.11.2026): our step numbers (1_Arial.png, 45 px), the footer's
+ * small icons - anything under ~120 px on a side, or named as a step number when its size is not given.
+ */
+export function isIcon(p: { src: string; alt: string; w?: number; h?: number }): boolean {
+  if ((p.w && p.w < 120) || (p.h && p.h < 120)) return true;
+  if (p.w || p.h) return false;
+  let file = p.src.split("?")[0].split("/").pop() ?? "";
+  try { file = decodeURIComponent(file); } catch { /* as it is */ }
+  return /^\d{1,2}([_-](arial|icon|step|nr|num|number)\w*)?\.(png|jpe?g|gif|svg)$/i.test(file) || /^\d{1,2}([_-]?(arial|icon|step))?$/i.test(p.alt.trim());
 }
 
 /** The e-mail as the studio's blocks: the first picture with its words a hero, each picture + words a story, a button
@@ -114,11 +155,18 @@ export function blocksFrom(parts: EmailPart[], subject = ""): Block[] {
   let headingWidget: string | undefined;
   const isHeading = (t: string) => t.length <= 80 && !t.includes("\n") && !/[.!]$/.test(t) && !/\{\{/.test(t);
   const flushHeading = () => { if (heading) { out.push({ id: nid(), kind: "text", text: heading, hs: { text: headingWidget, was: heading } }); heading = null; } };
-  const body = parts.filter((p) => p.kind !== "chrome");
+  // the step numbers and small icons are not pictures of the e-mail (Content v4: "1_Arial.png" became a story's picture)
+  const body = parts.filter((p) => p.kind !== "chrome" && !(p.kind === "image" && isIcon(p)));
   let pendingImage: Extract<EmailPart, { kind: "image" }> | null = null;
   let greeting: string | null = null;
+  /** the story just made from words alone - a picture right under them is its own */
+  let bare: Extract<Block, { kind: "article" }> | null = null;
   const lastWithLink = () => [...out].reverse().find((b) => b.kind === "hero" || b.kind === "article");
-  for (const p of body) {
+  /** a part that starts a story of its own: words with a title of their own, a short heading, or no words at all */
+  const startsStory = (q: EmailPart | undefined) => !q || q.kind !== "text" || !q.text || OUR_FOOTER.test(q.text) || !!split(q.text).title || isHeading(q.text);
+  for (let pi = 0; pi < body.length; pi++) {
+    const p = body[pi];
+    if (p.kind !== "image") bare = null;
     if (p.kind === "image") {
       // the footer's icons (LinkedIn, the envelope) are our footer's - not pictures of the e-mail
       if (/^(mail|linkedin|facebook|twitter|x|xing|instagram|youtube)$/i.test(p.alt.trim())) continue;
@@ -127,6 +175,14 @@ export function blocksFrom(parts: EmailPart[], subject = ""): Block[] {
         out.push({ id: nid(), kind: "header", tagline: "", logoUrl: isOurLogo(p.src) ? "" : p.src, hs: { image: p.widget } });
         continue;
       }
+      // a picture right under a story's words, the next words a story of their own: the picture is that story's
+      // (our step-by-step e-mails: a step's title and text, then its screenshot)
+      if (bare && !pendingImage && !heading && startsStory(body[pi + 1])) {
+        bare.imageUrl = p.src; bare.imageAlt = p.alt; bare.hs = { ...bare.hs, image: p.widget };
+        bare = null;
+        continue;
+      }
+      bare = null;
       if (pendingImage) out.push({ id: nid(), kind: "banner", imageUrl: pendingImage.src, imageAlt: pendingImage.alt, url: pendingImage.url, hs: { image: pendingImage.widget } });
       pendingImage = p;
       continue;
@@ -150,16 +206,27 @@ export function blocksFrom(parts: EmailPart[], subject = ""): Block[] {
           out.push({ id: nid(), kind: "hero", eyebrow: "", headline: title || subject || rest.slice(0, 70), text, imageUrl: img.src, imageAlt: img.alt, button: { label: "", url: "" },
             hs: { image: img.widget, text: w, title: title ? w : undefined, was: [title, title ? rest : p.text].filter(Boolean).join("\n") } });
         } else {
-          out.push({ id: nid(), kind: "article", title: title || heading || "", text: rest, imageUrl: img.src, imageAlt: img.alt, link: { label: "", url: "" }, layout: "stacked",
-            hs: { image: img.widget, text: w, title: title ? w : heading ? headingWidget : undefined, was: [title || heading || "", rest].filter(Boolean).join("\n") } });
-          if (!title) heading = null;
+          // a short heading above is the story's title; the story's own first line then opens its words, in bold
+          const t = heading || title;
+          const words = heading && title ? `**${title}**\n\n${rest}` : rest;
+          out.push({ id: nid(), kind: "article", title: t, text: words, imageUrl: img.src, imageAlt: img.alt, link: { label: "", url: "" }, layout: "stacked",
+            hs: { image: img.widget, text: w, title: heading ? headingWidget : title ? w : undefined, was: [t, words].filter(Boolean).join("\n") } });
+          heading = null;
         }
       } else if (title && rest.length > 60) {
-        flushHeading();
-        out.push({ id: nid(), kind: "article", title, text: rest, imageUrl: "", imageAlt: "", link: { label: "", url: "" }, layout: "stacked", hs: { text: w, title: w, was: `${title}\n${rest}` } });
-      } else if (heading) {
-        out.push({ id: nid(), kind: "article", title: heading, text: p.text, imageUrl: "", imageAlt: "", link: { label: "", url: "" }, layout: "stacked", hs: { text: w, title: headingWidget, was: `${heading}\n${p.text}` } });
+        // a short heading above titles this story (Content v4: it was left alone as a text block)
+        const t = heading || title;
+        const words = heading ? `**${title}**\n\n${rest}` : rest;
+        const a: Extract<Block, { kind: "article" }> = { id: nid(), kind: "article", title: t, text: words, imageUrl: "", imageAlt: "", link: { label: "", url: "" }, layout: "stacked",
+          hs: { text: w, title: heading ? headingWidget : w, was: `${t}\n${words}` } };
         heading = null;
+        out.push(a);
+        bare = a;
+      } else if (heading) {
+        const a: Extract<Block, { kind: "article" }> = { id: nid(), kind: "article", title: heading, text: p.text, imageUrl: "", imageAlt: "", link: { label: "", url: "" }, layout: "stacked", hs: { text: w, title: headingWidget, was: `${heading}\n${p.text}` } };
+        heading = null;
+        out.push(a);
+        bare = a;
       } else {
         out.push({ id: nid(), kind: "text", text: p.text, hs: { text: w, was: p.text } });
       }

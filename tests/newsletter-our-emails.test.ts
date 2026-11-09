@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { blocksFrom, digestOf, draftFrom, groupEmails, picturesToUpload, readEmail, type RawEmail, type RawEmailFull } from "../src/lib/content/studio/kinds/newsletter/ourEmails";
+import { blocksFrom, digestOf, draftFrom, groupEmails, isIcon, picturesToUpload, readEmail, readingOrder, type RawEmail, type RawEmailFull } from "../src/lib/content/studio/kinds/newsletter/ourEmails";
 
 // Our e-mails in HubSpot, read for the newsletter studio (08.11.2026). Made-up e-mails in HubSpot's shape.
 
@@ -131,4 +131,78 @@ test("a HubSpot draft: the original's content, only what was changed rewritten, 
   assert.equal(pw.hi.body.html, email.content!.widgets!.hi.body!.html);
   assert.ok(plan.notes.some((n) => /1 block added/.test(n)));
   assert.deepEqual(picturesToUpload({ blocks: edited }), ["/api/content/picture/12-0123456789abcdef01"]);
+});
+
+
+/* ── Content v4 (09.11.2026): our step-by-step and side-by-side e-mails, read as SARCLA would ─────────────────────── */
+
+test("step numbers and small icons are not story pictures", () => {
+  assert.equal(isIcon({ src: "https://cdn.example.com/1_Arial.png", alt: "1_Arial", w: 45, h: 45 }), true);
+  assert.equal(isIcon({ src: "https://cdn.example.com/1_Arial.png", alt: "1_Arial" }), true, "named as a step, size not given");
+  assert.equal(isIcon({ src: "https://cdn.example.com/02_DirectCUT.png", alt: "02_DirectCUT", w: 260, h: 260 }), false, "a numbered picture of a size is a picture");
+  assert.equal(isIcon({ src: "https://cdn.example.com/Img1.png", alt: "", w: 560, h: 285 }), false);
+  assert.equal(isIcon({ src: "https://cdn.example.com/MAIL.jpg", alt: "MAIL", w: 30, h: 30 }), true);
+});
+
+test("a grid of stories side by side is read column by column; our footer row stays out of it", () => {
+  const order = readingOrder([
+    { columns: [{ widgets: ["intro"] }] },
+    { columns: [{ widgets: ["t1"] }, { widgets: ["t2"] }] },
+    { columns: [{ widgets: ["p1"] }, { widgets: ["p2"] }] },
+    { columns: [{ widgets: ["x1"] }, { widgets: ["x2"] }] },
+    { columns: [{ widgets: ["follow"] }, { widgets: ["support"] }] },
+  ], (w) => w === "follow");
+  assert.deepEqual(order, ["intro", "t1", "p1", "x1", "t2", "p2", "x2", "follow", "support"]);
+});
+
+const row = (id: string) => ({ columns: [{ widgets: [id] }] });
+const steps: RawEmailFull = {
+  id: 88, name: "EN_New_Features_DirectUP_2610", subject: "Turn your order document into a shop order", language: "en",
+  content: {
+    flexAreas: { main: { sections: ["head", "hi", "intro", "btn1", "h3steps", "n1", "s1", "img1", "n2", "s2", "img2", "more", "btn2"].map(row) } },
+    widgets: {
+      head: { body: { path: "@hubspot/image_email", img: { src: "https://cdn.example.com/Header.png", alt: "Header", width: 600, height: 588 } } },
+      hi: { body: { html: "<p>{{ contact.salutation_phrase }} {{ contact.lastname }}</p>" } },
+      intro: { body: { html: "<p>We keep making your everyday work in the shop easier. This time: DirectUP, improved.</p>" } },
+      btn1: { body: { path: "@hubspot/button_email", text: "TRY DIRECTUP", destination: "https://shop.example.com/up" } },
+      h3steps: { body: { html: "<p><strong>From your order document to your cart in 3 steps</strong></p>" } },
+      n1: { body: { module_id: 1367093, img: { src: "https://cdn.example.com/1_Arial.png", alt: "1_Arial", width: 45, height: 45 } } },
+      s1: { body: { html: "<p><strong>Upload the document you already have</strong></p><p>Use a PDF, an Excel file, a scan or a photo - from your computer or your phone.</p>" } },
+      img1: { body: { module_id: 1367093, img: { src: "https://cdn.example.com/Img1.png", alt: "Img1", width: 500, height: 255 } } },
+      n2: { body: { module_id: 1367093, img: { src: "https://cdn.example.com/2_Arial.png", alt: "2_Arial", width: 45, height: 45 } } },
+      s2: { body: { html: "<p><strong>Check the articles found</strong></p><p>DirectUP knows our article numbers and your own, and shows what it found for you to check.</p>" } },
+      img2: { body: { module_id: 1367093, img: { src: "https://cdn.example.com/Img2.png", alt: "Img2", width: 560, height: 285 } } },
+      more: { body: { html: "<p><strong>More tools for your everyday work</strong></p><p>Discover the other tools and features we added to the shop lately, each a click away.</p>" } },
+      btn2: { body: { path: "@hubspot/button_email", text: "DIRECTCUT", destination: "https://shop.example.com/cut" } },
+    },
+  },
+};
+
+test("a step-by-step e-mail: the short heading titles the next story, each screenshot stays with its step, no step number is a picture", () => {
+  const e = readEmail(steps);
+  const blocks = blocksFrom(e.parts, e.subject);
+  const pics = blocks.flatMap((b) => ("imageUrl" in b && b.imageUrl ? [b.imageUrl] : []));
+  assert.ok(!pics.some((u) => /_Arial/.test(u)), "no step number became a picture");
+  const stories = blocks.filter((b) => b.kind === "article") as Extract<typeof blocks[number], { kind: "article" }>[];
+  assert.equal(stories[0].title, "From your order document to your cart in 3 steps");
+  assert.match(stories[0].text, /^\*\*Upload the document you already have\*\*\n\nUse a PDF/);
+  assert.equal(stories[0].imageUrl, "https://cdn.example.com/Img1.png");
+  assert.equal(stories[1].title, "Check the articles found");
+  assert.equal(stories[1].imageUrl, "https://cdn.example.com/Img2.png", "the screenshot under step 2 is step 2's");
+  assert.equal(stories[2].title, "More tools for your everyday work");
+  assert.equal(stories[2].link.label, "DIRECTCUT");
+  assert.ok(!blocks.some((b) => b.kind === "text" && /3 steps/.test(b.text)), "the heading is not left alone as a text block");
+  const hero = blocks.find((b) => b.kind === "hero");
+  assert.ok(hero && hero.kind === "hero" && hero.headline === "Turn your order document into a shop order");
+});
+
+test("a greeting is never a story's title", () => {
+  const blocks = blocksFrom([
+    { kind: "image", widget: "a", src: "https://cdn.example.com/big.jpg", alt: "", url: "", w: 600, h: 600 },
+    { kind: "text", widget: "b", html: "", text: "Dear Customer,\n\nProcurement teams often spend more time preparing orders than placing them." },
+  ], "Three ways to spend less time placing orders");
+  const hero = blocks[0];
+  assert.ok(hero.kind === "hero");
+  assert.equal(hero.headline, "Three ways to spend less time placing orders");
+  assert.match(hero.text, /^Dear Customer,/);
 });
