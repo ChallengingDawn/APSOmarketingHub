@@ -190,8 +190,13 @@ async function pieceFromConvert(projectId: number): Promise<void> {
      SELECT $1, $2, $3, $4, $5, $6, 'todo', 0, $5 WHERE NOT EXISTS (SELECT 1 FROM apsomh_content_pieces WHERE project_id = $1)
      RETURNING id`,
     [projectId, kind, language, `${CONTENT_BY_KEY[kind]?.label ?? "Page"} · ${page.path}`.slice(0, 200), row.created_by, reviewer]);
-  // the reviewer joins the project, as a reviewer named in the project does, so the link opens for them
-  if (made.rows.length && reviewer && reviewer !== row.created_by) await share(projectId, row.created_by ?? reviewer, [reviewer], "commenter", null);
+  // the reviewer joins the project, as a reviewer named in the project does, so the link opens for them -
+  // only when not in it yet: share() sets the role, and someone who can edit must not become a commenter (b8, 09.11.2026)
+  if (made.rows.length && reviewer && reviewer !== row.created_by) {
+    await ensureSharing();
+    const already = await query(`SELECT 1 FROM apsomh_content_project_members WHERE project_id = $1 AND username = $2`, [projectId, reviewer]);
+    if (!already.rows.length) await share(projectId, row.created_by ?? reviewer, [reviewer], "commenter", null);
+  }
 }
 
 export async function listPieces(projectId: number): Promise<Piece[]> {
