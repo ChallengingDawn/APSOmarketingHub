@@ -454,7 +454,8 @@ async function agentNames(ids: string[]): Promise<Record<string, string>> {
 }
 
 /** How long a customer waited for the comment: from their message to the translation, seconds - the median and the slowest tenth. */
-export type Speed = { n: number; median: number | null; p90: number | null; since: string | null };
+export type Speed = { n: number; median: number | null; p90: number | null; since: string | null; bands: { label: string; n: number }[] };
+const BANDS: [number, string][] = [[60, "Within a minute"], [120, "1 to 2 minutes"], [300, "2 to 5 minutes"], [Infinity, "Over 5 minutes"]];
 function speedOf(rows: Row[]): Speed {
   const from = Date.now() - 30 * 86400_000;
   const xs = rows
@@ -462,7 +463,8 @@ function speedOf(rows: Row[]): Speed {
     .map((r) => (Date.parse(r.at) - Date.parse(r.msgAt)) / 1000).filter((s) => Number.isFinite(s) && s >= 0).sort((a, b) => a - b);
   const q = (p: number) => (xs.length ? Math.round(xs[Math.min(xs.length - 1, Math.floor(p * xs.length))]) : null);
   const oldest = rows.length ? rows[rows.length - 1].msgAt : null;
-  return { n: xs.length, median: q(0.5), p90: q(0.9), since: oldest };
+  const bands = BANDS.map(([, label], i) => ({ label, n: xs.filter((s) => s <= BANDS[i][0] && (i === 0 || s > BANDS[i - 1][0])).length }));
+  return { n: xs.length, median: q(0.5), p90: q(0.9), since: oldest, bands };
 }
 
 /**

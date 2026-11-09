@@ -10,6 +10,7 @@ import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
@@ -91,7 +92,10 @@ const secs = (s: number | null) => (s === null ? "—" : s < 90 ? `${s} s` : s <
 const ranked = (m: Record<string, number>, name: (k: string) => string, total?: number) =>
   Object.entries(m).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ label: name(k), value: v, secondary: total ? pct(v, total) : undefined }));
 
+/** The figures as a table: the first ten rows, the rest a click away, and the total. */
 function FigureTable({ head, rows, total }: { head: string[]; rows: (string | number)[][]; total?: (string | number)[] }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? rows : rows.slice(0, 10);
   const cell = (v: string | number, i: number, strong = false) => (
     <TableCell key={i} align={i ? "right" : "left"} sx={{ ...bodyCell, fontSize: "0.84rem", color: INK, fontWeight: strong ? 700 : 400, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
       {typeof v === "number" ? n0(v) : v}
@@ -102,10 +106,15 @@ function FigureTable({ head, rows, total }: { head: string[]; rows: (string | nu
       <Table size="small" sx={{ minWidth: 520 }}>
         <TableHead><TableRow>{head.map((h, i) => <TableCell key={h} align={i ? "right" : "left"} sx={headCell}>{h}</TableCell>)}</TableRow></TableHead>
         <TableBody>
-          {rows.map((r, j) => <TableRow key={j} hover>{r.map((v, i) => cell(v, i))}</TableRow>)}
+          {shown.map((r, j) => <TableRow key={j} hover>{r.map((v, i) => cell(v, i))}</TableRow>)}
           {total && <TableRow>{total.map((v, i) => cell(v, i, true))}</TableRow>}
         </TableBody>
       </Table>
+      {rows.length > 10 && (
+        <Box sx={{ px: 2, py: 1.25 }}>
+          <Button size="small" onClick={() => setAll((x) => !x)}>{all ? "Show the first 10" : `Show all ${rows.length}`}</Button>
+        </Box>
+      )}
     </Box>
   );
 }
@@ -215,9 +224,9 @@ function Board({ d }: { d: Data }) {
           </ChartBox>
           <ChartBox title={`What the agents asked for, last ${word}`} hint={hint("!FR, !DE … or a reply written with !")}>
             <BarList rows={[
-              { label: "The customer's message in another language", value: cur.kinds.lang ?? 0 },
-              { label: "A reply sent in the customer's language", value: cur.kinds.reply ?? 0 },
-            ]} format={n0} labelWidth={290} maxLabel={46} />
+              { label: "Message in another language", value: cur.kinds.lang ?? 0, secondary: "!FR, !DE …" },
+              { label: "Reply in the customer's language", value: cur.kinds.reply ?? 0, secondary: "!text" },
+            ]} format={n0} labelWidth={230} maxLabel={40} />
           </ChartBox>
         </Box>
         <TableCard title="All the figures, by agent" note={`Last ${word}`}>
@@ -243,6 +252,12 @@ function Board({ d }: { d: Data }) {
       <Box sx={TWO}>
         <ChartBox title="How long a customer's message waited for its comment" hint={`the last 30 days, ${n0(d.speed.n)} message${d.speed.n === 1 ? "" : "s"} · it looks every ${d.everySeconds} seconds`}>
           <BarList rows={[{ label: "Half of them within", value: d.speed.median }, { label: "Nine in ten within", value: d.speed.p90 }]} format={(v) => secs(v)} labelWidth={170} emptyMessage="No comment made in the last 30 days." />
+          {d.speed.n > 0 && (
+            <>
+              <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, mt: 1.5 }}>Comments, by how long the message waited</Typography>
+              <BarList rows={(d.speed.bands ?? []).map((b) => ({ label: b.label, value: b.n, secondary: pct(b.n, d.speed.n) }))} format={n0} labelWidth={170} />
+            </>
+          )}
         </ChartBox>
         <ChartBox title={`Characters sent to DeepL ${unit}, last ${word}`} hint={u ? (u.limit ? `${n0(u.used)} of ${n0(u.limit)} used this DeepL period (${pct(u.used, u.limit)})` : `${n0(u.used)} used this DeepL period`) : "DeepL did not answer"}>
           <StackedColumns height={260} format={n0} data={cols.rows.map((r) => ({ x: r.label, chars: r.fig.chars }))} parts={[{ key: "chars", label: "Characters" }]} />
