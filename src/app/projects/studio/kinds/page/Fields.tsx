@@ -40,6 +40,7 @@ import type { PartKey } from "@/lib/content/studio/kinds/page/outline";
 import type { PageRow } from "@/lib/content/studio/kinds/page/shop";
 import { PicturePanel, uploadPicture, type PictureAspect } from "../../pictures";
 import { Field, PINK, btn, field } from "../../parts";
+import { PictureSlot as StandardSlot } from "../../standard";
 import type { StudioApi } from "../../useStudio";
 import { Choice, Hint } from "./ui";
 
@@ -135,6 +136,35 @@ export function PictureSlot({ api, pic, set, disabled, aspect = "3:2", path, ctl
     if (!r.ok) { setErr(r.error); return; }
     set({ ...pic, url: r.picture.url, alt: pic.alt || f.name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").slice(0, 120) });
   };
+  // no picture and no idea yet: the studios' one slot (flow standard §3) - the idea typed right there ("What should the
+  // picture show?"), "Make it" once it has words, "Upload". It stays that slot while the person types the idea (no jump
+  // to the card below at the first letter); an idea the AI wrote keeps the card below, as before.
+  // the words typed stay here (no letter lost to a redraw) and reach the page half a second after the last key
+  const [draft, setDraft] = useState<string | null>(null);
+  useEffect(() => { if (pic.url) setDraft(null); }, [pic.url]);
+  useEffect(() => {
+    if (draft === null || draft === pic.idea) return;
+    const t = setTimeout(() => set({ ...pic, idea: draft }), 500);
+    return () => clearTimeout(t);
+  }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
+  const typed = draft ?? pic.idea;
+  if (ctl && path && !pic.url && !making && m?.state !== "error" && (!pic.idea.trim() || draft !== null)) {
+    return (
+      <Box sx={{ mb: 1.25 }}>
+        <StandardSlot url={null} idea={typed} onIdea={setDraft} making={up !== null} uploading={up !== null}
+          error={err} canEdit={!disabled} canMake={ctl.imagesOn !== false} makeDisabled={!typed.trim()} height={96}
+          onMake={() => { const idea = typed.trim(); if (!idea) return; if (idea !== pic.idea) set({ ...pic, idea }); ctl.make(path, idea); }} onUpload={(f) => void upload(f)}
+          onGallery={() => setOpen((x) => !x)} onRemove={() => set({ ...pic, url: "" })} />
+        <Collapse in={open} timeout={200} unmountOnExit>
+          <Box sx={{ mt: 1, p: 1.25, border: `1px solid ${HAIRLINE}`, borderRadius: "8px", bgcolor: "#fff" }}>
+            <PicturePanel projectId={api.data.piece.projectId} pieceId={api.data.piece.id} me={api.data.me} aspect={aspect} suggestion={pic.idea} columns={3}
+              tabs={["project", "mine", "make"]} start="project"
+              onPick={(p) => { set({ ...pic, url: p.url, alt: pic.alt || p.prompt?.slice(0, 120) || "" }); setOpen(false); }} />
+          </Box>
+        </Collapse>
+      </Box>
+    );
+  }
   const lineColor = m?.state === "error" ? "#a96a12" : MUTED;
   const line = making ? "Up to 40 seconds - it lands here and in the page."
     : m?.state === "error" ? m.error
