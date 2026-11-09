@@ -66,7 +66,7 @@ const netOf = (v: unknown, fallback: Network): Network => (isNetwork(v) ? v : fa
 /** The canvas's rules for the model: what it may do, how our designs look, what it must never do. */
 const CANVAS_RULES = [
   "# THIS TASK: CHANGE THE POST'S DESIGN ON THE CANVAS",
-  "You work on a design canvas for an APSOparts social post. Answer only in the JSON schema: a short reply and the operations that do what the person asks. The studio applies them on the canvas at once (with undo).",
+  "You work on a design canvas for an APSOparts social post. Answer only in the JSON schema: a short reply (in English, whatever the post's language: it is for the person in the studio) and the operations that do what the person asks. The studio applies them on the canvas at once (with undo).",
   "- Do exactly what is asked, nothing more. A small ask (\"shorter headline\") is one operation on the object it names (set_text with its id).",
   "- Refer to objects by their id from the list. Change words with set_text (keep the key words' stars), never by removing and adding.",
   "- Our look, as in our motion-graphics films: Futura-like bold type, few words, ONE or two key words per text between *stars* (drawn in APSOparts red), ink on the light blueprint grid or white on petrol, the logo top left, clean margins. A headline has at most about 8 words.",
