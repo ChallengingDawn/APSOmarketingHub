@@ -616,8 +616,10 @@ function ConvertPreview() {
   // the click map (SARCLA 08.11.2026: "click like Microsoft Clarity" - "our own click map"): where people click, drawn on
   // the page as it is; ?clicks=1 opens with it (Journeys > Click map)
   const [clicks, setClicks] = useState(sp.get("clicks") === "1");
-  const [clickDev, setClickDev] = useState<ClickDev>("all");
+  const [clickDev, setClickDev] = useState<ClickDev>("d");
   const [clickTick, setClickTick] = useState(0);
+  // the clicks of the device the page is shown on (a phone's taps on the phone view); "Both" stays one click away
+  useEffect(() => { setClickDev(device === "phone" ? "m" : "d"); }, [device]);
   const told = useRef(false);
   // the page as the browser drew it, from the original's frame (else the version's) - the AI aims its changes at it
   const drawn = useRef<{ from: string; lines: string[] } | null>(null);
