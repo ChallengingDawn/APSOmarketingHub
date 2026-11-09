@@ -69,16 +69,10 @@ export default function CanvasBar({ ctx, hist, zoom }: { ctx: StudioCtx; hist: {
       <IconBtn title="Redo (Ctrl+Y)" onClick={() => c?.redo()} disabled={!hist.future || !ctx.canEdit}><RedoIcon /></IconBtn>
       <Divider orientation="vertical" flexItem sx={{ mx: 0.75, my: 1.25, borderColor: T.line }} />
 
-      {/* the format */}
-      <Box component="button" type="button" onClick={(e) => setFmtAnchor(e.currentTarget)} sx={{
-        all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 1, height: 34, px: 1.25, borderRadius: "8px", color: T.ink, whiteSpace: "nowrap", minWidth: 0, overflow: "hidden",
-        fontSize: "0.86rem", fontWeight: 600, "&:hover": { bgcolor: T.hover }, "&:focus-visible": { outline: `2px solid ${T.focus}` },
-      }}>
+      {/* the board's size, quietly; the formats themselves are the squared choices on the right (flow standard §1) */}
+      <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, px: 0.5, color: T.ink3, fontSize: "0.82rem", fontWeight: 600, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", minWidth: 0, flexShrink: 1, overflow: "hidden" }}>
         <FormatGlyph f={ctx.fmt} d={d} />
-        {ctx.fmt === "custom" ? "Custom" : FORMATS[ctx.fmt].label}
-        <Box component="span" sx={{ color: T.ink3, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{sizeOf(ctx.fmt, d).w} × {sizeOf(ctx.fmt, d).h}</Box>
-        {d.formats.length > 1 && <Box component="span" sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.ink2, bgcolor: T.hover, borderRadius: "5px", px: 0.6, py: 0.1 }}>{d.formats.length} formats</Box>}
-        <KeyboardArrowDownIcon sx={{ fontSize: 18, color: T.ink3 }} />
+        {sizeOf(ctx.fmt, d).w} × {sizeOf(ctx.fmt, d).h}
       </Box>
       <Menu anchorEl={fmtAnchor} open={!!fmtAnchor} onClose={() => setFmtAnchor(null)} slotProps={{ paper: { sx: { width: 320, borderRadius: "12px", mt: 0.5, boxShadow: T.shadow } } }}>
         <Typography sx={{ px: 2, pt: 1, pb: 0.5, fontSize: "0.72rem", fontWeight: 700, color: T.ink3, textTransform: "uppercase", letterSpacing: ".06em" }}>This post's formats</Typography>
@@ -113,6 +107,22 @@ export default function CanvasBar({ ctx, hist, zoom }: { ctx: StudioCtx; hist: {
 
       <Box sx={{ flex: 1 }} />
       {note && <Typography sx={{ fontSize: "0.8rem", color: T.ink2, mr: 1, maxWidth: 360 }} noWrap title={note}>{note}</Typography>}
+
+      {/* the post's formats, squared; adding, remaking, removing one behind the small arrow */}
+      <Box role="radiogroup" aria-label="The post's formats" sx={{ display: "inline-flex", flexShrink: 0, border: `1px solid ${T.line2}`, borderRadius: "6px", overflow: "hidden", bgcolor: "#fff" }}>
+        {d.formats.map((f, i) => {
+          const on = f === ctx.fmt;
+          return (
+            <Box key={f} component="button" type="button" role="radio" aria-checked={on} onClick={() => { if (!on) ctx.goFormat(f); }} sx={{
+              all: "unset", cursor: on ? "default" : "pointer", px: 1.1, height: 30, display: "inline-flex", alignItems: "center", fontSize: "0.78rem", fontWeight: 650, whiteSpace: "nowrap",
+              borderLeft: i ? `1px solid ${T.line2}` : "none", color: on ? "#fff" : T.ink, bgcolor: on ? "#2459d1" : "transparent",
+              "&:hover": on ? {} : { bgcolor: "rgba(36,89,209,.07)", color: "#2459d1" }, "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: -2 },
+            }}>{f === "custom" ? "Custom" : FORMATS[f].label}</Box>
+          );
+        })}
+      </Box>
+      <IconBtn title="Add, remake or remove a format" onClick={(e) => setFmtAnchor(e.currentTarget)} active={!!fmtAnchor}><KeyboardArrowDownIcon /></IconBtn>
+      <Divider orientation="vertical" flexItem sx={{ mx: 0.75, my: 1.25, borderColor: T.line }} />
 
       {/* zoom */}
       <IconBtn title="Zoom out" onClick={() => c?.zoom("out")}><RemoveIcon /></IconBtn>
