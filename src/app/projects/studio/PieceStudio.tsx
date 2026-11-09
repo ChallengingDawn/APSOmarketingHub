@@ -28,21 +28,26 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import HistoryIcon from "@mui/icons-material/History";
+import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import BookmarkAddOutlinedIcon from "@mui/icons-material/BookmarkAddOutlined";
+import BookmarkBorderOutlinedIcon from "@mui/icons-material/BookmarkBorderOutlined";
+import RestoreIcon from "@mui/icons-material/Restore";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
 import Popover from "@mui/material/Popover";
 
 import { INK, MUTED, Notice, HAIRLINE } from "@/app/uc/report/ui";
 import { STUDIO_LABEL } from "@/lib/content/studio/kinds";
+import { versionName, type VersionRow } from "@/lib/content/studio/versionNames";
 import type { PieceStatus } from "@/lib/content/pieceRules";
-import { KindTile } from "../work/kinds";
+import { KindTile, kindLabel } from "../work/kinds";
 import { moves } from "../work/TodoList";
-import { Face, Faces, PersonPick, StatusChip, dayLabel } from "../work/ui";
+import { Faces, PersonPick, StatusChip, dayLabel } from "../work/ui";
+import { ReviewerPick } from "../work/ReviewerPick";
 import { InlineTitle } from "../work/InlineTitle";
-import { AiLine, AiWorking, STUDIO_BAR, btn, field, mainBtn } from "./parts";
+import { AiLine, AiWorking, PINK, STUDIO_BAR, btn, field, mainBtn } from "./parts";
 import { STUDIOS } from "./registry";
-import { useStudio, type StudioApi } from "./useStudio";
-
-const when = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+import { lookApi, useStudio, type StudioApi } from "./useStudio";
 
 function SaveBadge({ api }: { api: StudioApi }) {
   const s = api.save;
@@ -56,41 +61,50 @@ function SaveBadge({ api }: { api: StudioApi }) {
   );
 }
 
-function Versions({ api }: { api: StudioApi }) {
+type Look = { v: VersionRow; doc: unknown };
+
+/**
+ * VERSIONS (SARCLA 09.11.2026: "Versions is not working correctly as it should"). Each says what it is and when ("Kept
+ * by Claudio · 10:12", "Before the AI wrote the page" - lib/content/studio/versionNames.ts). A click LOOKS at it: the
+ * studio shows it read-only, and the bar says "Bring it back" / "Close" - nothing is brought back by a slip of the mouse.
+ */
+function Versions({ api, onLook, opening }: { api: StudioApi; onLook: (v: VersionRow) => void; opening: number | null }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [naming, setNaming] = useState(false);
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
-  const v = api.data.versions;
+  const d = api.data;
+  const v = d.versions;
+  const nameOf = (u: string) => d.people.find((p) => p.username === u)?.name ?? u;
   const keep = async (name?: string) => {
     setBusy("Keeping it…");
     try { await api.saveVersion(name); } finally { setBusy(null); }
   };
-  // what is there now is kept first (QA 09.11.2026: a version brought back by a slip of the mouse wiped the work since)
-  const bringBack = async (x: { id: number; label: string | null }) => {
-    setAnchor(null);
-    setBusy("Bringing it back…");
-    try {
-      await api.saveVersion(`Before bringing back “${x.label?.replace(/\s#\d{6,}$/, "") || "a version"}”`.slice(0, 120));
-      await api.restore(x.id);
-    } finally { setBusy(null); }
-  };
   return (
     <>
-      <Button size="small" disabled={!!busy} startIcon={busy ? <CircularProgress size={14} thickness={6} color="inherit" /> : <HistoryIcon sx={{ fontSize: 18 }} />} onClick={(e) => setAnchor(e.currentTarget)} sx={{ ...btn, color: INK }}>
-        {busy ?? `Versions${v.length ? ` · ${v.length}` : ""}`}
+      <Button size="small" disabled={!!busy || opening !== null} startIcon={busy || opening !== null ? <CircularProgress size={14} thickness={6} color="inherit" /> : <HistoryIcon sx={{ fontSize: 18 }} />} onClick={(e) => setAnchor(e.currentTarget)} sx={{ ...btn, color: INK }}>
+        {busy ?? (opening !== null ? "Opening it…" : `Versions${v.length ? ` · ${v.length}` : ""}`)}
       </Button>
-      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} slotProps={{ paper: { sx: { width: 320, borderRadius: "14px" } } }}>
-        <MenuItem disabled={!api.data.access.canEdit} onClick={() => { setAnchor(null); setLabel(""); setNaming(true); }} sx={{ fontWeight: 600 }}>Keep this as a version…</MenuItem>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} slotProps={{ paper: { sx: { width: 360, borderRadius: "12px", maxHeight: "70vh" } } }}>
+        <MenuItem disabled={!d.access.canEdit} onClick={() => { setAnchor(null); setLabel(""); setNaming(true); }} sx={{ fontWeight: 600, gap: 1 }}>
+          <BookmarkAddOutlinedIcon sx={{ fontSize: 18 }} />Keep this as a version…
+        </MenuItem>
         {v.length > 0 && <Divider />}
+        {v.length > 0 && <Typography sx={{ px: 2, pt: 0.5, pb: 0.75, fontSize: "0.72rem", color: MUTED }}>Click one to look at it - then bring it back, or close it.</Typography>}
         {v.length === 0 && <MenuItem disabled sx={{ fontSize: "0.85rem" }}>No version kept yet</MenuItem>}
-        {v.map((x) => (
-          <MenuItem key={x.id} disabled={!api.data.access.canEdit} onClick={() => void bringBack(x)} sx={{ display: "block", whiteSpace: "normal" }}>
-            {/* a version kept before an AI change ends in its change's number ("… #1794201096866", found again by it): not for the eye */}
-            <Typography sx={{ fontSize: "0.86rem", fontWeight: 600 }}>{x.label?.replace(/\s#\d{6,}$/, "") || "Version"}</Typography>
-            <Typography sx={{ fontSize: "0.75rem", color: MUTED }}>{when(x.at)}{x.by ? ` · ${api.data.people.find((p) => p.username === x.by)?.name ?? x.by}` : ""} · bring it back</Typography>
-          </MenuItem>
-        ))}
+        {v.map((x) => {
+          const n = versionName(x, { nameOf, me: d.me });
+          return (
+            <MenuItem key={x.id} onClick={() => { setAnchor(null); onLook(x); }} sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, whiteSpace: "normal", py: 1 }}>
+              {n.auto ? <AutoAwesomeOutlinedIcon sx={{ fontSize: 17, color: MUTED, mt: 0.2 }} /> : <BookmarkBorderOutlinedIcon sx={{ fontSize: 17, color: INK, mt: 0.2 }} />}
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, lineHeight: 1.35 }}>{n.title}</Typography>
+                <Typography sx={{ fontSize: "0.75rem", color: MUTED }}>{n.sub}</Typography>
+              </Box>
+              <Typography component="span" sx={{ fontSize: "0.75rem", fontWeight: 600, color: MUTED, mt: 0.2, flexShrink: 0 }}>Look</Typography>
+            </MenuItem>
+          );
+        })}
       </Menu>
       <Dialog open={naming} onClose={() => setNaming(false)} fullWidth maxWidth="xs">
         <DialogTitle sx={{ fontWeight: 700 }}>Keep this as a version</DialogTitle>
@@ -104,6 +118,32 @@ function Versions({ api }: { api: StudioApi }) {
         </DialogActions>
       </Dialog>
     </>
+  );
+}
+
+/** The bar while a version is looked at: what it is, and the two ways out. */
+function LookBar({ api, look, busy, onBringBack, onClose }: { api: StudioApi; look: Look; busy: boolean; onBringBack: () => void; onClose: () => void }) {
+  const d = api.data;
+  const n = versionName(look.v, { nameOf: (u) => d.people.find((p) => p.username === u)?.name ?? u, me: d.me });
+  // an AI answer still coming would be laid over the version brought back - it waits for the AI
+  const aiAtWork = !!api.working && api.working.kind !== "work";
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, minWidth: 0 }}>
+      <VisibilityOutlinedIcon sx={{ fontSize: 19, color: PINK, flexShrink: 0 }} />
+      <Box sx={{ minWidth: 0 }}>
+        <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: PINK, lineHeight: 1.2 }}>Looking at a version · read-only</Typography>
+        <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 420 }}>{n.title} <Box component="span" sx={{ color: MUTED, fontWeight: 500 }}>· {n.sub}</Box></Typography>
+      </Box>
+      <Button size="small" variant="outlined" onClick={onClose} disabled={busy} sx={{ ...btn, color: INK, borderColor: HAIRLINE }}>Close</Button>
+      <Tooltip title={!d.access.canEdit ? "Bringing a version back is for the project's editors" : aiAtWork ? "The AI is still writing - bring it back once it is done" : "The to-do becomes this version - what is there now is kept in Versions first"}>
+        <span>
+          <Button size="small" variant="contained" disableElevation onClick={onBringBack} disabled={busy || !d.access.canEdit || aiAtWork}
+            startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <RestoreIcon sx={{ fontSize: 18 }} />} sx={mainBtn}>
+            {busy ? "Bringing it back…" : "Bring it back"}
+          </Button>
+        </span>
+      </Tooltip>
+    </Box>
   );
 }
 
@@ -173,34 +213,11 @@ function People({ api, onError }: { api: StudioApi; onError: (e: string | null) 
   );
 }
 
-/** "Ask for review" with nobody to ask: the people, a click sends it (one mail to them). */
-function PickReviewer({ api, open, onClose, onPick }: { api: StudioApi; open: boolean; onClose: () => void; onPick: (u: string) => void }) {
-  const d = api.data;
-  const others = d.people.filter((x) => x.username !== d.piece.writer);
-  return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
-      <DialogTitle sx={{ fontWeight: 700, pb: 0.5 }}>Who reviews it?</DialogTitle>
-      <DialogContent>
-        <Typography sx={{ fontSize: "0.82rem", color: MUTED, mb: 1.5 }}>They get a mail with the link, and approve it or send it back with a note.</Typography>
-        <Box sx={{ display: "grid", gap: 0.75 }}>
-          {others.map((x) => (
-            <Box key={x.username} component="button" type="button" onClick={() => onPick(x.username)} sx={{
-              all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 1.25, px: 1.25, py: 0.9,
-              border: `1px solid ${HAIRLINE}`, borderRadius: "6px", fontSize: "0.88rem", fontWeight: 600, color: INK,
-              "&:hover": { borderColor: INK, bgcolor: "rgba(15,23,42,.03)" }, "&:focus-visible": { outline: `2px solid ${INK}`, outlineOffset: 1 },
-            }}>
-              <Face username={x.username} name={x.name} size={28} />{x.name}
-            </Box>
-          ))}
-          {!others.length && <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>Nobody else has Marketing & Content in the hub yet - an admin gives it under Users.</Typography>}
-        </Box>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}><Button onClick={onClose} sx={btn}>Cancel</Button></DialogActions>
-    </Dialog>
-  );
-}
 
-function Bar({ api }: { api: StudioApi }) {
+function Bar({ api, look, lookBusy, opening, onLook, onBringBack, onCloseLook }: {
+  api: StudioApi; look: Look | null; lookBusy: boolean; opening: number | null;
+  onLook: (v: VersionRow) => void; onBringBack: () => void; onCloseLook: () => void;
+}) {
   const d = api.data;
   const p = d.piece;
   const [asking, setAsking] = useState(false);
@@ -220,7 +237,8 @@ function Bar({ api }: { api: StudioApi }) {
   return (
     <Box component="header" sx={{
       position: "sticky", top: 0, zIndex: 20, height: STUDIO_BAR, boxSizing: "border-box", px: 1.5, display: "flex", alignItems: "center", gap: 1.25,
-      bgcolor: "rgba(255,255,255,.88)", backdropFilter: "blur(16px) saturate(140%)", borderBottom: `1px solid ${HAIRLINE}`,
+      bgcolor: look ? "rgba(253,242,247,.95)" : "rgba(255,255,255,.88)", backdropFilter: "blur(16px) saturate(140%)",
+      borderBottom: `1px solid ${look ? "rgba(194,44,110,.35)" : HAIRLINE}`,
     }}>
       <Tooltip title={`Back to ${d.project?.title ?? "the project"}`}>
         <Button component={Link} href={`/projects/${p.projectId}#piece-${p.id}`} sx={{ minWidth: 0, p: 1, borderRadius: "10px", color: INK }} aria-label="Back to the project"><ArrowBackIcon /></Button>
@@ -228,7 +246,7 @@ function Bar({ api }: { api: StudioApi }) {
       <KindTile kind={p.contentType} size={34} />
       <Box sx={{ minWidth: 0, flex: "0 1 auto" }}>
         <Typography sx={{ fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {d.project?.title} · {STUDIO_LABEL[d.kind]}{p.language ? ` · ${p.language}` : ""}
+          {d.project?.title} · {p.contentType ? kindLabel(p.contentType) : STUDIO_LABEL[d.kind]}{p.language ? ` · ${p.language}` : ""}
         </Typography>
         <InlineTitle value={p.title} canEdit={d.access.canEdit} maxWidth={{ xs: 160, md: 380 }}
           onSave={async (title) => { const r = await api.edit({ title }); if (!r.ok) setErr(r.error ?? "Not renamed."); }} />
@@ -238,10 +256,11 @@ function Bar({ api }: { api: StudioApi }) {
       <Box sx={{ display: { xs: "none", md: "block" } }}><People api={api} onError={setErr} /></Box>
       <Box sx={{ flex: 1 }} />
       {err && <Typography sx={{ fontSize: "0.8rem", color: "#c5221f", maxWidth: 260 }}>{err}</Typography>}
-      {ai && <AiWorking variant="inline" label={ai.label} />}
-      <SaveBadge api={api} />
-      <Versions api={api} />
-      {moves(p, w).map((m) => (
+      {look && <LookBar api={api} look={look} busy={lookBusy} onBringBack={onBringBack} onClose={onCloseLook} />}
+      {!look && ai && <AiWorking variant="inline" label={ai.label} />}
+      {!look && <SaveBadge api={api} />}
+      {!look && <Versions api={api} onLook={onLook} opening={opening} />}
+      {!look && moves(p, w).map((m) => (
         <Button key={m.to} size="small" variant={m.main ? "contained" : "outlined"} disableElevation disabled={!!busy}
           onClick={() => (m.to === "review" && !p.reviewer ? setPicking(true) : m.note ? (setNote(""), setAsking(true)) : go(m.to))}
           sx={m.main ? (m.to === "approved" ? { ...btn, bgcolor: "#1b7a55", color: "#fff", "&:hover": { bgcolor: "#155c40" } } : mainBtn) : btn}>
@@ -249,7 +268,9 @@ function Bar({ api }: { api: StudioApi }) {
         </Button>
       ))}
       <Box sx={{ position: "absolute", left: 0, right: 0, bottom: -1 }}><AiLine on={!!ai} /></Box>
-      <PickReviewer api={api} open={picking} onClose={() => setPicking(false)} onPick={(u) => { setPicking(false); void go("review", undefined, u); }} />
+      {/* "Ask for review" with nobody to ask: the default reviewer picked (SARCLA 09.11.2026), a click picks another */}
+      <ReviewerPick open={picking} people={d.people} writer={p.writer} defaultReviewer={d.defaultReviewer ?? null}
+        onClose={() => setPicking(false)} onPick={(u) => { setPicking(false); void go("review", undefined, u); }} />
       <Dialog open={asking} onClose={() => setAsking(false)} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 700 }}>What should change?</DialogTitle>
         <DialogContent sx={{ pt: "8px !important" }}>
@@ -266,6 +287,28 @@ function Bar({ api }: { api: StudioApi }) {
 
 export default function PieceStudio({ pieceId }: { pieceId: number }) {
   const { api, error } = useStudio(pieceId);
+  // a version looked at, read-only (SARCLA 09.11.2026: Versions "not working correctly")
+  const [look, setLook] = useState<Look | null>(null);
+  const [opening, setOpening] = useState<number | null>(null);
+  const [lookBusy, setLookBusy] = useState(false);
+  const [lookErr, setLookErr] = useState<string | null>(null);
+  const openLook = async (v: VersionRow) => {
+    setOpening(v.id); setLookErr(null);
+    const r = await fetch(`/api/content/pieces/${pieceId}?version=${v.id}`).then((x) => x.json()).catch(() => ({ ok: false, error: "The hub did not answer." }));
+    setOpening(null);
+    if (r.ok) setLook({ v, doc: r.doc }); else setLookErr(r.error ?? "That version could not be opened.");
+  };
+  // what is there now is kept first (QA 09.11.2026), then the version becomes the to-do; the studio opens again on it
+  const bringBack = async () => {
+    if (!api || !look) return;
+    setLookBusy(true); setLookErr(null);
+    const name = versionName(look.v, { nameOf: (u) => api.data.people.find((p) => p.username === u)?.name ?? u, me: api.data.me }).title;
+    try {
+      await api.saveVersion(`Before bringing back “${name}”`.slice(0, 120));
+      if (await api.restore(look.v.id)) setLook(null);
+      else setLookErr("It was not brought back - try again.");
+    } finally { setLookBusy(false); }
+  };
   if (error) return <Box sx={{ p: 3 }}><Notice tone="bad">{error}</Notice></Box>;
   if (!api) {
     return (
@@ -277,11 +320,13 @@ export default function PieceStudio({ pieceId }: { pieceId: number }) {
   const Studio = STUDIOS[api.data.kind];
   return (
     <Box sx={{ minHeight: "100vh" }}>
-      <Bar api={api} />
+      <Bar api={api} look={look} lookBusy={lookBusy} opening={opening} onLook={(v) => void openLook(v)} onBringBack={() => void bringBack()} onCloseLook={() => setLook(null)} />
       {!api.data.access.canEdit && (
         <Box sx={{ px: 1.5, pt: 1.5 }}><Notice tone="warn">You can read this and comment on the project; changing it is for its editors.</Notice></Box>
       )}
-      <Studio api={api} />
+      {lookErr && <Box sx={{ px: 1.5, pt: 1.5 }}><Notice tone="bad">{lookErr}</Notice></Box>}
+      {/* the kind's studio opens again on a version brought back (epoch) or looked at - a studio's own state never keeps the old one */}
+      <Studio key={look ? `look-${look.v.id}` : `live-${api.epoch ?? 0}`} api={look ? lookApi(api, look.v, look.doc) : api} />
     </Box>
   );
 }

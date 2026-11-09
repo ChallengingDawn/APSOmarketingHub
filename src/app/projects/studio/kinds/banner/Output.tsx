@@ -154,7 +154,8 @@ export type BannerBusy = { part: PickPart | "all"; label: string; since: number 
 export function useBannerAi(api: StudioApi, doc: BannerDoc, set: (fn: (d: BannerDoc) => BannerDoc) => void) {
   const [busy, setBusy] = useState<BannerBusy | null>(null);
   const [variants, setVariants] = useState<Variant[]>([]);
-  const changes = useChanges<BannerDoc>(`banner-${api.data.piece.id}`, api.doc ? doc : undefined);
+  // a version looked at (read-only) leaves this browser's list of changes alone
+  const changes = useChanges<BannerDoc>(api.looking ? undefined : `banner-${api.data.piece.id}`, api.doc ? doc : undefined);
   const copy = async (part: PickPart | null, label: string, askText?: string): Promise<string | null> => {
     const before = doc;
     setBusy({ part: part ?? "all", label, since: Date.now() });

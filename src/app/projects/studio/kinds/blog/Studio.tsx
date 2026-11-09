@@ -208,7 +208,8 @@ export default function Studio({ api }: StudioProps) {
    *  Undo in this sitting and, as a version saved just before, for going back after a reload. */
   const lay = async (patch: Partial<BlogDoc>, text: string, lang?: string) => {
     const entry: StudioChange = { id: Date.now(), text, at: new Date().toISOString(), ...(lang ? { lang, from: docRef.current.language.toUpperCase() } : {}) };
-    await api.saveVersion(versionLabel(entry));
+    // kept quietly (09.11.2026): no line on the project's feed per AI change, the newest 20 kept, Versions names it
+    await api.keepVersion?.(versionLabel(entry));
     const cur = docRef.current;
     const keys = Object.keys(patch) as (keyof BlogDoc)[];
     befores.current.set(entry.id, Object.fromEntries(keys.map((k) => [k, cur[k]])) as Partial<BlogDoc>);

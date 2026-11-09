@@ -77,7 +77,8 @@ export function usePagePreview(api: StudioApi, d: PageDoc, lang: string, view: V
       timers.push(setTimeout(async () => {
         asked.current[side] = key;
         setBusy((b) => ({ ...b, [side]: true }));
-        const out = await fetch(`/api/content/studio/page/${pieceId}/preview?side=${side}&lang=${lang}${fresh ? "&fresh=1" : ""}`)
+        // a version looked at (Versions, 09.11.2026) is drawn from that version, not from the page as it is now
+        const out = await fetch(`/api/content/studio/page/${pieceId}/preview?side=${side}&lang=${lang}${fresh ? "&fresh=1" : ""}${api.looking ? `&version=${api.looking}` : ""}`)
           .then((r) => r.json() as Promise<PreviewOut>)
           .catch(() => ({ ok: false as const, error: "The hub did not answer - try again." }));
         if (asked.current[side] === key) setHeld((h) => ({ ...h, [side]: { key, out } }));
