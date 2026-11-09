@@ -41,9 +41,9 @@ export function HeatLegend() {
   );
 }
 
-export function ClicksBar({ data, error, loading, dev, onDev, env, path, onChanged }: {
+export function ClicksBar({ data, error, loading, dev, onDev, env, path, focus, onFocus, onChanged }: {
   data: ClicksData | null; error: string | null; loading: boolean; dev: ClickDev; onDev: (d: ClickDev) => void;
-  env: Env; path: string; onChanged: () => void;
+  env: Env; path: string; focus?: string | null; onFocus?: (s: string) => void; onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -95,7 +95,9 @@ export function ClicksBar({ data, error, loading, dev, onDev, env, path, onChang
       {heat && heat.list.length > 0 && (
         <Box sx={{ mt: 1, display: "grid", gap: 0.5, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "minmax(0,1fr) minmax(0,1fr)" } }}>
           {heat.list.slice(0, 6).map((i) => (
-            <Box key={i.s} title={i.s} sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+            <Box key={i.s} title={`${i.s} - show it on the page`} component="button" type="button" onClick={() => onFocus?.(i.s)}
+              sx={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 1, minWidth: 0, px: 0.5, py: 0.25, borderRadius: "4px",
+                bgcolor: focus === i.s ? "rgba(197,34,31,.08)" : "transparent", outline: focus === i.s ? "1px solid rgba(197,34,31,.45)" : "none", "&:hover": { bgcolor: "rgba(180,83,9,.08)" } }}>
               <Box sx={{ width: 10, height: 10, borderRadius: "2px", flex: "none", bgcolor: heatColor(i.n / Math.max(1, heat.max)) }} />
               <Typography sx={{ fontSize: "0.78rem", color: INK, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.label}</Typography>
               <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{full(i.n)} · {Math.round((i.n / Math.max(1, heat.total)) * 100)}%</Typography>

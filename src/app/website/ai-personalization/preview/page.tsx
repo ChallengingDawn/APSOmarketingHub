@@ -68,7 +68,7 @@ type Zoom = "fit" | "full";
 type Sync = { y: number; from: string; n: number };
 type View = "version" | "original" | "both";
 /** The click map's heat on the page as it is (the frame draws it): an item per element and its tenths. */
-type HeatMsg = { list: { s: string; n: number; c: number[] }[]; max: number };
+type HeatMsg = { list: { s: string; n: number; c: number[] }[]; max: number; focus: string | null };
 
 const API = "/api/website/ai-personalization/work";
 const since = (iso: string) => ago(Date.parse(iso) / 1000);
@@ -618,6 +618,7 @@ function ConvertPreview() {
   const [clicks, setClicks] = useState(sp.get("clicks") === "1");
   const [clickDev, setClickDev] = useState<ClickDev>("d");
   const [clickTick, setClickTick] = useState(0);
+  const [heatFocus, setHeatFocus] = useState<string | null>(null);
   // the clicks of the device the page is shown on (a phone's taps on the phone view); "Both" stays one click away
   useEffect(() => { setClickDev(device === "phone" ? "m" : "d"); }, [device]);
   const told = useRef(false);
@@ -641,7 +642,7 @@ function ConvertPreview() {
   const ch = useHeld<ClicksData>(clicks ? clicksUrl : null, [clicks, clicksUrl]);
   const clickData = ch.result?.state === "ok" ? ch.result.data : null;
   const clickErr = ch.result && ch.result.state !== "ok" ? (ch.result.state === "error" ? ch.result.error : "The hub could not read the clicks.") : null;
-  const heatMsg: HeatMsg | null = clicks && clickData?.heat?.list.length ? { list: clickData.heat.list.map((i) => ({ s: i.s, n: i.n, c: i.c })), max: clickData.heat.max } : null;
+  const heatMsg: HeatMsg | null = clicks && clickData?.heat?.list.length ? { list: clickData.heat.list.map((i) => ({ s: i.s, n: i.n, c: i.c })), max: clickData.heat.max, focus: heatFocus } : null;
 
   const ideas = d?.ideas ?? [];
   // the ideas in the order shown (dropped last, the best score first); numbered, the first the lead
@@ -846,6 +847,7 @@ function ConvertPreview() {
             </Box>
             {clicks && path && (
               <ClicksBar data={clickData} error={clickErr} loading={!ch.result || ch.stale} dev={clickDev} onDev={setClickDev} env={env} path={path}
+                focus={heatFocus} onFocus={(s) => setHeatFocus((f) => (f === s ? null : s))}
                 onChanged={() => setClickTick((n) => n + 1)} />
             )}
             {picked && (
