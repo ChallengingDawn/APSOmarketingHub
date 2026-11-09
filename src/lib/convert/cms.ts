@@ -24,6 +24,9 @@ import {
 } from "./cmsPage";
 import { magentoFetch } from "./magentoHttp";
 import { shopPage } from "./studio";
+import { magentoKeys } from "@/lib/doc/config";
+import { STORE_VIEWS, storeCodeOf } from "@/lib/content/studio/kinds/page/storeViews";
+import { checkConnection, type Check } from "@/lib/content/studio/kinds/page/magentoCheck";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS apsomh_convert_cms_backups (
@@ -58,19 +61,40 @@ function ensureCmsSchema(): Promise<void> {
 
 const CREDS_VAR: Record<Env, string> = { acc: "MAGENTO_CMS_ACC", prod: "MAGENTO_CMS_PROD" };
 const TOKEN_VAR: Record<Env, string> = { acc: "MAGENTO_CMS_ACC_TOKEN", prod: "MAGENTO_CMS_PROD_TOKEN" };
-type Auth = { kind: "oauth"; creds: OAuthCreds } | { kind: "bearer"; token: string };
-/** The way into one shop's Magento: the integration's four values (signed), else a Bearer token, else none. */
+type Auth = { kind: "oauth"; creds: OAuthCreds; from: "cms" | "order" } | { kind: "bearer"; token: string; from: "cms" };
+/** The flag that lets production's pages use the order connector's Magento integration (Content v6, 10.11.2026) - off
+ * unless set to 1: SARCLA decides. That integration needs Content > Elements > Pages in Magento first. */
+export const ORDER_KEYS_FLAG = "MAGENTO_CMS_PROD_FROM_ORDER_KEYS";
+/** The way into one shop's Magento: the integration's four values (signed), else a Bearer token, else - production only,
+ * with the flag on - the order connector's integration (src/lib/doc/config.ts, the same production shop), else none. */
 function auth(env: Env): Auth | null {
   const raw = (process.env[CREDS_VAR[env]] ?? "").trim();
   if (raw) {
-    try { const j = JSON.parse(raw); if (isCreds(j)) return { kind: "oauth", creds: j }; } catch { /* not JSON - try the token */ }
+    try { const j = JSON.parse(raw); if (isCreds(j)) return { kind: "oauth", creds: j, from: "cms" }; } catch { /* not JSON - try the token */ }
   }
   const t = (process.env[TOKEN_VAR[env]] ?? "").trim();
-  return t ? { kind: "bearer", token: t } : null;
+  if (t) return { kind: "bearer", token: t, from: "cms" };
+  if (env === "prod" && (process.env[ORDER_KEYS_FLAG] ?? "").trim() === "1") {
+    const k = magentoKeys();
+    const creds = { consumer_key: k.consumerKey, consumer_secret: k.consumerSecret, access_token: k.accessToken, access_token_secret: k.accessSecret };
+    // only when those keys are for the production shop itself
+    if (isCreds(creds) && k.base.replace(/\/+$/, "") === ENVS.prod.base) return { kind: "oauth", creds, from: "order" };
+  }
+  return null;
 }
-export function cmsKeys(): { acc: boolean; prod: boolean; missing: string[] } {
-  const acc = !!auth("acc"), prod = !!auth("prod");
-  return { acc, prod, missing: [!acc ? CREDS_VAR.acc : "", !prod ? CREDS_VAR.prod : ""].filter(Boolean) };
+export function cmsKeys(): { acc: boolean; prod: boolean; missing: string[]; from: Record<Env, "cms" | "order" | "none"> } {
+  const a = auth("acc"), p = auth("prod");
+  return {
+    acc: !!a, prod: !!p, missing: [!a ? CREDS_VAR.acc : "", !p ? CREDS_VAR.prod : ""].filter(Boolean),
+    from: { acc: a?.from ?? "none", prod: p?.from ?? "none" },
+  };
+}
+
+/** "Check the connection" (the last step): ONE read of Magento's CMS pages with the environment's key - never a write. */
+export async function cmsConnectionCheck(env: Env): Promise<Check> {
+  const a = auth(env);
+  const get = a ? (path: string) => connection(env)("GET", "all", path) : null;
+  return checkConnection(env, a?.from ?? "none", get);
 }
 export const CMS_OFF = "Writing to Magento needs the hub's Magento CMS integration for that shop (MAGENTO_CMS_ACC, then MAGENTO_CMS_PROD) - not set yet. Until then: the code for dotSource, or the winner kept on for everyone.";
 /** What a target without its key says, plainly (the page studio's last step - ./cmsPage.ts). */
@@ -253,7 +277,11 @@ export async function storeRefOf(env: Env, view: string): Promise<StoreRef | nul
   const held = REFS.get(key);
   if (held && Date.now() - held.at < (held.ref ? 24 : 1) * 3600_000) return held.ref;
   const page = await shopPage(env, `/${view}/`).catch(() => null);
-  const ref = page && page.status === 200 ? storeRefIn(page.html, view) : null;
+  const found = page && page.status === 200 ? storeRefIn(page.html, view) : null;
+  // the code the shop's list names for it (Content v6: "de-CH/eur" is switzerland_eur_de, never switzerland_chf_de) -
+  // a front page that says another is not this store view's
+  const want = storeCodeOf(view);
+  const ref = found && (!want || found.code === want) ? found : null;
   REFS.set(key, { at: Date.now(), ref });
   return ref;
 }
@@ -279,13 +307,12 @@ async function oursOf(pieceId: string, env: Env): Promise<Set<string>> {
   return new Set(r.rows.map((x) => x.page_id));
 }
 
-/** The other store views of the same language, read too: one Magento page may serve several (a write changes them all). */
-const SAME_LANGUAGE: Record<string, string[]> = {
-  de: ["de-CH", "de-DE", "de-AT", "de-INT"], fr: ["fr-CH", "fr-FR", "fr-INT"], it: ["it-CH", "it-IT", "it-INT"], en: ["en-INT"], nl: ["nl-NL", "nl-INT"], pl: ["pl-PL"],
-};
+/** The other store views of the same language, read too: one Magento page may serve several (a write changes them all) -
+ * every one the shop has (Content v6: the Swiss shop in EUR, the English store view of each country). */
+const sameLanguage = (lang: string) => STORE_VIEWS.filter((v) => v.lang === lang).map((v) => v.key);
 async function othersOf(env: Env, view: string): Promise<StoreRef[]> {
   const out: StoreRef[] = [];
-  for (const v of SAME_LANGUAGE[view.slice(0, 2)] ?? []) {
+  for (const v of sameLanguage(view.slice(0, 2))) {
     if (v === view) continue;
     const r = await storeRefOf(env, v);
     if (r) out.push(r);

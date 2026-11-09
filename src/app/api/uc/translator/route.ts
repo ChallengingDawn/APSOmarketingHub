@@ -1,6 +1,7 @@
 // APSO TRANSLATOR (src/lib/translator) - the Railway translator brought into the hub, SARCLA 08.11.2026.
-// GET: settings, the last run, every comment and reply it made (or would make in Preview), the figures by day and language,
-// DeepL's characters this period, the inboxes and the agents by name.
+// GET: settings, the last run, the figures by day (language, inbox, channel, agent, hour), how fast the comment came,
+// DeepL's characters this period, the inboxes and the agents by name; ?part=rows adds every comment and reply it made
+// (or would make in Preview), with the texts - the Conversations page.
 // PUT (admins): mode (off / preview / live), the inboxes it reads (null = all), replies with "!" (on / off).
 // POST (admins) {action: "run"}: look now.
 
@@ -12,12 +13,14 @@ import { pageState, runOnce, saveSettings, type Mode } from "@/lib/translator/en
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!access.canOpen("uc")) return NextResponse.json({ error: "No access" }, { status: 403 });
+  // ?part=rows: Conversations, with the texts; else the figures (Overview, Settings)
+  const part = req.nextUrl.searchParams.get("part") === "rows" ? "rows" : "overview";
   try {
-    return NextResponse.json({ configured: true, ok: true, data: { ...(await pageState()), admin: access.role === "admin" } });
+    return NextResponse.json({ configured: true, ok: true, data: { ...(await pageState(part)), admin: access.role === "admin" } });
   } catch (err) {
     return NextResponse.json({ configured: true, ok: false, ...describeIntegrationError(err) });
   }

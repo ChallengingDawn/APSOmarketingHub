@@ -13,7 +13,8 @@ import { ensureSharing, share, shareCandidates } from "@/lib/content/sharing";
 import { defaultReviewerOf } from "@/lib/content/people";
 import { isPieceStatus, stageOf, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
 import { CONTENT_BY_KEY } from "@/lib/content/contentTypes";
-import { contentTypeForPage, markerOf } from "@/lib/convert/handoff";
+import { markerOf } from "@/lib/convert/handoff";
+import { pieceKindFromConvert } from "@/lib/content/convertPiece";
 import { classify } from "@/lib/convert/model";
 
 export type Brief = {
@@ -174,13 +175,14 @@ export function pieceTitle(contentType: string | null, language: string | null):
  * (SARCLA 08.11.2026: "pages can come from AI & Personalization ... always trigger on the to-do").
  */
 async function pieceFromConvert(projectId: number): Promise<void> {
-  const r = await query<{ brief: string | null; created_by: string | null; has: boolean }>(
-    `SELECT p.brief, p.created_by, EXISTS (SELECT 1 FROM apsomh_content_pieces x WHERE x.project_id = p.id) AS has
+  const r = await query<{ brief: string | null; created_by: string | null; has: boolean; content_type: string | null }>(
+    `SELECT p.brief, p.created_by, p.content_type, EXISTS (SELECT 1 FROM apsomh_content_pieces x WHERE x.project_id = p.id) AS has
        FROM apsomh_content_projects p WHERE p.id = $1`, [projectId]);
   const row = r.rows[0];
   const page = row && !row.has ? markerOf(row.brief) : null;
   if (!page) return;
-  const kind = contentTypeForPage(page.path);
+  // the project's own type when it is one the board offers (a landing page, a banner ...), else the Page builder (./convertPiece.ts)
+  const kind = pieceKindFromConvert(row.content_type, page.path);
   // the store view's language, as the to-dos write it: de-CH -> DE
   const language = classify(page.path).store?.slice(0, 2).toUpperCase() || null;
   // its people as every new to-do's (SARCLA 09.11.2026): the owner who sent it, the reviewer Claudio (lib/content/people.ts)

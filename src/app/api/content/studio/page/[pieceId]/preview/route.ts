@@ -30,7 +30,8 @@ export async function GET(req: NextRequest, c: { params: Promise<{ pieceId: stri
   if (version > 0 && !stored) return fail("That version is not this to-do's.", 404);
   const side = sp.get("side") === "before" ? "before" : sp.get("side") === "shell" ? "shell" : "after";
   // a store view ("fr-CH") - or, from an older page, a language ("fr")
-  const lang = /^[a-z]{2}(-[A-Z]{2,3})?$/.test(sp.get("lang") ?? "") ? sp.get("lang") : null;
+  // the Swiss shop in EUR is a store view of its own: "de-CH/eur" (Content v6)
+  const lang = /^[a-z]{2}(-[A-Z]{2,3}(\/[a-z]{3})?)?$/.test(sp.get("lang") ?? "") ? sp.get("lang") : null;
   const out = await previewOf(stored?.doc ?? null, side, sp.get("fresh") === "1", lang);
   return NextResponse.json(out, { headers: { "Cache-Control": "no-store" } });
 }

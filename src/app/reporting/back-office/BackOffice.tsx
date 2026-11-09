@@ -113,6 +113,8 @@ import { TrendChart } from "@/app/charts/TrendChart";
 import { BarList } from "@/app/charts/BarList";
 import { DEEMPHASIS, SEQUENTIAL, SERIES } from "@/app/charts/palette";
 import { ChartFrame } from "@/app/charts/ChartFrame";
+import { MultiLine } from "@/app/charts/MultiLine";
+import { GLC, LATE_CATS, priorityOf, type OtdMain } from "@/lib/reporting/otdRules";
 import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 import { Sankey } from "@/app/charts/Sankey";
 import type { ArtInfo, BoRead, ChatRow } from "@/lib/reporting/boReport";
@@ -146,6 +148,9 @@ type Data = BoRead & {
   delivery?: DeliveryKept | null;
   /** OTD, the pass rate and the manual prices counted from the ERP's order lines (lib/reporting/boErpLines.ts) */
   erpLines?: ErpLinesKept | null;
+  /** OTD Reports' main views for the Back Office (lib/reporting/otdRules.ts otdMainOf): the OTD analysis file's categories,
+   *  the suppliers' impact, GLC, the date changes - eShop, by the first confirmed date's month */
+  otdMain?: OtdMain | null;
   /** KPI autonomy > Manual prices: the shop's prices against the ERP's, and how the read stands */
   prices?: PricesKept | null;
   pricesRead?: { computing: boolean; progress: string | null; error: string | null } | null;
@@ -1894,6 +1899,7 @@ const EL_MIN = 100, OTD_MIN = 30;
 const PASS_TARGET = 0.95;
 /** the period's complete months (the month to date while none is complete) */
 const elYms = (f: Frame) => f.yms.slice(f.from, Math.max(f.done, f.from + 1));
+const otdMonth = (ym: string) => `${MONTHS[Number(ym.slice(5, 7)) - 1]} ${ym.slice(2, 4)}`;
 const pcOf = (d: Data, mandant: string, yms: string[]) => priceSum(d.erpLines, mandant, yms);
 const manualAt = (p: PriceCounts) => (p[0] >= EL_MIN ? p[1] / p[0] : null);
 const autoAt = (p: PriceCounts) => (p[0] >= EL_MIN ? p[2] / p[0] : null);
@@ -2094,7 +2100,9 @@ function elCharts(): ChartDef[] {
    suppliers, open lines, every order source, the promised lead time; manual prices per profit centre, per article,
    per company owner - all from the same nightly summary (lib/reporting/boErpLines.ts, v2) ── */
 
-const supName = (x: string) => (x.length > 36 ? `${x.slice(0, 35)}…` : x);
+/** a supplier's name as shown - the lines whose article has no supplier are GLC's, cut to size and made in house (the OTD
+ *  analysis file's supplier "-", SARCLA 09.11.2026); the kept figures still say NO_SUPPLIER */
+const supName = (x: string) => { const y = x === NO_SUPPLIER ? GLC : x; return y.length > 36 ? `${y.slice(0, 35)}…` : y; };
 /** a share drawn from 20 lines on (an order source or a profit centre has fewer than the mandants) */
 const share20 = (n: number, of: number) => (of >= 20 ? n / of : null);
 const handOf = (p: PriceCounts) => share20(p[1], p[0]);
@@ -2215,6 +2223,61 @@ function el2Charts(): ChartDef[] {
         for (const x of p) for (const ym of ys) { const v = x.m[ym]; if (!v) continue; const c = t.get(x.pc || "?") ?? [0, 0]; c[0] += v[0]; c[1] += v[1]; t.set(x.pc || "?", c); }
         const rows = [...t].filter(([, v]) => v[1] > 0).sort((a, b) => b[1][1] - a[1][1]).map(([pc, v]) => ({ label: pc, value: v[1], secondary: `of ${int(v[0])} lines · ${pct(v[1] / v[0])} late` }));
         return <BarList rows={rows} format={(v) => int(v ?? 0)} labelWidth={120} emptyMessage="No late line in this period." />;
+      },
+    },
+
+    /* OTD - the OTD analysis file's main views, from OTD Reports (SARCLA 09.11.2026: "then bring to back office the main features") */
+    wide({
+      id: "otdCatsBo", page: "otd", title: "How late - the OTD analysis file's categories",
+      hint: ({ f }) => `${periodOf(f)} · each month's eShop lines by how many working days after the first confirmed date they reached the customer · the full analysis in Advanced reporting > OTD Reports`,
+      body: ({ f, d }) => {
+        const m = d.otdMain;
+        if (!m) return <ElNone what="this is not counted yet - it comes with the next morning run" />;
+        const ys = elYms(f).filter((ym) => m.months[ym]);
+        if (!ys.length) return <ElNone what="no month of this period is counted" />;
+        const colors = [SERIES[2], "#f7d9b5", "#f0b47a", "#e5873f", "#c45a1c", "#7d3410"];
+        return <StackedColumns ordinal data={ys.map((ym) => { const x = m.months[ym]; return Object.fromEntries([["x", otdMonth(ym)], ...LATE_CATS.map((_, c) => [`c${c}`, x.n ? x.cat[c] / x.n : null])]) as { x: string } & Record<string, number | null>; })}
+          parts={LATE_CATS.map((label, c) => ({ key: `c${c}`, label, color: colors[c] }))} format={pct} tickFormat={(v) => (v == null ? "" : `${Math.round(v * 100)}%`)} xFormat={(x) => x} height={260} />;
+      },
+    }),
+    {
+      id: "otdChangedBo", page: "otd", title: "Date changed after the first confirmation, or not",
+      hint: () => "the share on time of the eShop lines whose confirmed date moved, and of the others - OTD Reports > Orders & date changes",
+      body: ({ f, d }) => {
+        const m = d.otdMain;
+        if (!m) return <ElNone what="this is not counted yet - it comes with the next morning run" />;
+        const ys = elYms(f).filter((ym) => m.months[ym]);
+        const on = (t: number[] | undefined) => (t && t[0] ? (t[0] - t[1]) / t[0] : null);
+        return <MultiLine labels={ys.map(otdMonth)} series={[{ key: "c", label: "Date changed", values: ys.map((ym) => on(m.months[ym].changed[1])) }, { key: "n", label: "Never changed", values: ys.map((ym) => on(m.months[ym].changed[0])) }]}
+          format={pct} tickFormat={(v) => (v == null ? "" : `${Math.round(v * 100)}%`)} max={1} />;
+      },
+    },
+    {
+      id: "otdImpactBo", page: "otd", title: "Supplier impact - the 10 with the most late days",
+      hint: ({ f }) => `${periodOf(f)} · eShop lines, each article's main supplier, GLC the lines cut to size and made in house · impact index against the largest: Critical from 50, High from 20, Medium from 10 · the full ranking in OTD Reports > Suppliers`,
+      body: ({ f, d }) => {
+        const m = d.otdMain;
+        if (!m) return <ElNone what="this is not counted yet - it comes with the next morning run" />;
+        const t = new Map<string, [number, number, number]>();
+        for (const ym of elYms(f)) for (const [s, r] of Object.entries(m.sup[ym] ?? {})) { const x = t.get(s) ?? [0, 0, 0]; x[0] += r[0]; x[1] += r[1]; x[2] += r[2]; t.set(s, x); }
+        const rows = [...t].sort((a, b) => b[1][2] - a[1][2]).slice(0, 10);
+        const top = rows[0]?.[1][2] ?? 0;
+        return <BarList rows={rows.map(([s, r]) => ({ label: s === GLC ? "GLC" : supName(s.split(",")[0]), value: r[2], secondary: `${int(r[1])} late lines · ${pct(r[0] ? r[1] / r[0] : null)} late · ${priorityOf(top ? (100 * r[2]) / top : 0)}` }))}
+          format={(v) => int(v ?? 0)} labelWidth={200} emptyMessage="No late line in this period." />;
+      },
+    },
+    {
+      id: "otdGlcBo", page: "otd", title: "GLC against the suppliers",
+      hint: () => "the share on time of the eShop lines cut to size and made in house (no supplier), and of the lines bought in",
+      body: ({ f, d }) => {
+        const m = d.otdMain;
+        if (!m) return <ElNone what="this is not counted yet - it comes with the next morning run" />;
+        const ys = elYms(f).filter((ym) => m.months[ym]);
+        const g = ys.map((ym) => m.sup[ym]?.[GLC]);
+        return <MultiLine labels={ys.map(otdMonth)} series={[
+          { key: "g", label: "GLC (own cut & production)", values: g.map((x) => (x && x[0] ? (x[0] - x[1]) / x[0] : null)) },
+          { key: "s", label: "Bought from suppliers", values: ys.map((ym, i) => { const a = m.months[ym], x = g[i]; const n = a.n - (x?.[0] ?? 0), l = a.late - (x?.[1] ?? 0); return n ? (n - l) / n : null; }) },
+        ]} format={pct} tickFormat={(v) => (v == null ? "" : `${Math.round(v * 100)}%`)} max={1} />;
       },
     },
 
@@ -3137,9 +3200,9 @@ const TABS: Record<Slug, TabDef[]> = {
     { id: "online", label: "On time", title: "OTD online", note: "the eShop order lines shipped, counted from the ERP every night: on time when the shipment plus the ERP's transport time to the country reaches the first confirmed date · by the month of that date · the Back Office's typed figures beside them · the filters do not apply here", icon: <LocalShippingOutlinedIcon />, tint: "pink", unfiltered: true,
       charts: ["otdFigs", "otdAll", "otdStandard", "otdSpecial", "otdPushed", "otdMonths", "otdSources"] },
     { id: "pcs", label: "Profit centres", title: "OTD per profit centre", note: "standard and special articles, counted from the ERP · the filters do not apply here", icon: <ApartmentOutlinedIcon />, tint: "blue", unfiltered: true, charts: ["otdMinis", "otdPc"] },
-    { id: "late", label: "Late lines", title: "Where and how late", note: "the lines that arrived after their first confirmed date: per country, how late, and each one of the last 3 months · the filters do not apply here", icon: <EventRepeatOutlinedIcon />, tint: "amber", unfiltered: true, charts: ["otdCountry", "otdLate", "otdList"] },
+    { id: "late", label: "Late lines", title: "Where and how late", note: "the lines that arrived after their first confirmed date: per country, how late, and each one of the last 3 months · the filters do not apply here", icon: <EventRepeatOutlinedIcon />, tint: "amber", unfiltered: true, charts: ["otdCatsBo", "otdChangedBo", "otdCountry", "otdLate", "otdList"] },
     { id: "products", label: "Late products", title: "The products late most often", note: "the eShop lines shipped per article: the ones that most often arrive after their first confirmed date, with their supplier and profit centre · the filters do not apply here", icon: <InventoryOutlinedIcon />, tint: "amber", unfiltered: true, charts: ["lateProductsBar", "lateProductsPc", "lateProducts"] },
-    { id: "suppliers", label: "Suppliers", title: "OTD per supplier", note: "the eShop lines shipped, by each article's main supplier in the ERP: on time, who the late lines come from, the main ones month by month · the filters do not apply here", icon: <FactoryOutlinedIcon />, tint: "blue", unfiltered: true, charts: ["otdSupplier", "otdSupplierLate", "otdSupplierMonths"] },
+    { id: "suppliers", label: "Suppliers", title: "OTD per supplier", note: "the eShop lines shipped, by each article's main supplier in the ERP: on time, who the late lines come from, the main ones month by month · the filters do not apply here", icon: <FactoryOutlinedIcon />, tint: "blue", unfiltered: true, charts: ["otdImpactBo", "otdGlcBo", "otdSupplier", "otdSupplierLate", "otdSupplierMonths"] },
     { id: "open", label: "Open lines", title: "Open lines to act on", note: "the lines not shipped yet whose first confirmed date has passed or comes within 3 working days - every order source, as the morning file had them", icon: <PendingActionsOutlinedIcon />, tint: "pink", unfiltered: true, charts: ["openFigs", "openList"] },
     { id: "lead", label: "Lead time", title: "Promised lead time", note: "the working days from the order to the first confirmed date: what we promise, month by month and per profit centre · the filters do not apply here", icon: <HourglassEmptyOutlinedIcon />, tint: "green", unfiltered: true, charts: ["leadMonths", "leadBands", "leadPc"] },
     { id: "speed", label: "Delivery speed", title: "Delivery speed", note: "every delivery in the ERP's order file, read every night: the working days from the order to the shipment - the filters do not apply here", icon: <TimerOutlinedIcon />, tint: "green", unfiltered: true,

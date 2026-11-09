@@ -32,6 +32,8 @@ export function StackedColumns({
   height = 260,
   format = compact,
   xFormat = (x) => x,
+  tickFormat,
+  ordinal = false,
 }: {
   data: StackRow[];
   /** Bottom segment first. Four at most: the categorical palette is never cycled. */
@@ -39,8 +41,12 @@ export function StackedColumns({
   height?: number;
   format?: (v: number | null) => string;
   xFormat?: (x: string) => string;
+  /** the value axis' own short labels ("100%") where the readout is long ("100.0%") */
+  tickFormat?: (v: number | null) => string;
+  /** the parts are an order (late categories), each given its colour on one ramp - not identities - so more than four */
+  ordinal?: boolean;
 }) {
-  const shown = parts.slice(0, SERIES.length);
+  const shown = ordinal && parts.every((p) => p.color) ? parts : parts.slice(0, SERIES.length);
   const totals = data.map((d) => shown.reduce((a, p) => a + (typeof d[p.key] === "number" ? (d[p.key] as number) : 0), 0));
   const top = niceCeiling(Math.max(0, ...totals));
   // counts under 5 get whole ticks - quarters of 1 read "0, 0, 1, 1, 1" once formatted
@@ -64,7 +70,7 @@ export function StackedColumns({
             <YAxis
               domain={[0, top]}
               ticks={ticks}
-              tickFormatter={(v) => format(Number(v))}
+              tickFormatter={(v) => (tickFormat ?? format)(Number(v))}
               tick={{ fontSize: 12, fill: CHROME.label }}
               axisLine={false}
               tickLine={false}

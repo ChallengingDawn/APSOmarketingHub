@@ -72,7 +72,8 @@ export function applyElementEdit(view: PageDoc, p: Picked, e: ElementEdit): { ch
     editIn(target, e);
     const next = check({ ...c, html: tpl.innerHTML });
     if (typeof next === "string") return { error: next };
-    changes[p.frag.change] = next;
+    // its id, its module and its check stay with it (Content v6)
+    changes[p.frag.change] = { ...changes[p.frag.change], ...next } as Change;
     return { changes, label: `Edited change ${p.frag.change + 1}` };
   }
 

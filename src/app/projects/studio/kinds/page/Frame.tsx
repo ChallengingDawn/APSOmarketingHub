@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import { HAIRLINE } from "@/app/uc/report/ui";
 import { leftoversIn } from "@/lib/content/studio/kinds/page/model";
+import { lookOf, type Look } from "@/lib/content/studio/kinds/page/readable";
 import { headKey, sectionLevels, type Located } from "@/lib/content/studio/kinds/page/shopParts";
 
 export type Device = "desktop" | "mobile";
@@ -36,6 +37,24 @@ export type Picked = {
   editable: boolean;
   /** a page of the shop: the section it is in (its heading's words, "" = above the first heading) */
   section?: string;
+  /** how it looks on the page now - its ground, text colour, font, width (Content v6: what the AI is told) */
+  look?: Look;
+  /** a word or a line selected (inline): the block it stands in - what a replace takes the place of */
+  box?: { selector: string; outer: string; tag: string; look: Look } | null;
+};
+
+/** A place between two elements of a page of the shop, where the "+" adds one (Content v6, SARCLA point 9: "we should
+ * really be able to add elements"): the element it goes before or after, the words around it, how it looks there, a
+ * photo of the page near it, and where on the screen the "+" was. */
+export type AddPlace = {
+  selector: string; where: "before" | "after" | "prepend" | "append";
+  /** "Between Top-Produkte and the footer" - for the person */
+  label: string;
+  /** the words around the place - for the AI */
+  near: string;
+  look: Look | null;
+  img: { src: string; alt: string } | null;
+  pos: { top: number; left: number };
 };
 
 export type SelectOpts = {
@@ -57,6 +76,10 @@ export type SelectOpts = {
   onAdd?: (at: number, pos: { top: number; left: number }) => void;
   /** "+ Tile" / "+ Question" / "+ Link" in a block with items */
   onAddItem?: (list: string) => void;
+  /** a page of the shop: the "+" between its elements (Content v6) */
+  onAddEl?: (place: AddPlace) => void;
+  /** a page of the shop: the changes whose replaced element is shown again instead of their block ("Show the old one") */
+  oldShown?: number[];
 };
 
 /** A page of the shop's section headings as the outline cuts it (headings a change put in are not sections). */
@@ -108,7 +131,49 @@ const SELECT_CSS = `[data-apx-hover]{outline:2px solid rgba(36,89,209,.9)!import
 [data-apx-sel]{outline:2px solid #c22c6e!important;outline-offset:2px!important}
 [data-apx-editing]{outline:2px solid #c22c6e!important;outline-offset:4px!important;cursor:text!important;background:rgba(194,44,110,.05)!important;-webkit-user-modify:read-write}
 a,button,summary,label,[role=button],[data-apx-f],[data-apx-b]{pointer-events:auto!important}
-mark[data-apx-left]{background:#ffe1dc!important;color:#b3261e!important;outline:2px solid #d80901;outline-offset:1px;border-radius:2px;padding:0 2px}`;
+mark[data-apx-left]{background:#ffe1dc!important;color:#b3261e!important;outline:2px solid #d80901;outline-offset:1px;border-radius:2px;padding:0 2px}
+[data-apx-addel]{position:absolute;left:0;right:0;height:36px;margin-top:-18px;z-index:2147483000;pointer-events:auto!important;cursor:pointer}
+[data-apx-addel]::after{content:"";position:absolute;left:24px;right:24px;top:17px;height:2px;background:#c22c6e;opacity:0;transition:opacity .15s}
+[data-apx-addel]>b{position:absolute;left:50%;top:1px;width:34px;height:34px;margin-left:-17px;display:flex;align-items:center;justify-content:center;border-radius:7px;background:#c22c6e;color:#fff;font:600 26px/1 system-ui,"Segoe UI",sans-serif;box-shadow:0 6px 16px rgba(194,44,110,.35);opacity:0;transform:scale(.85);transition:opacity .15s,transform .15s;z-index:1}
+[data-apx-addel]>i{position:absolute;left:50%;top:6px;margin-left:24px;padding:4px 9px;border-radius:5px;background:#15223a;color:#fff;font:600 13px/1.2 system-ui,"Segoe UI",sans-serif;font-style:normal;white-space:nowrap;opacity:0;transition:opacity .15s;z-index:2;box-shadow:0 0 0 3px #fff}
+[data-apx-addel]:hover::after,[data-apx-addel]:hover>b,[data-apx-addel]:hover>i{opacity:1;transform:none}`;
+
+/* ── a page of the shop: its elements, and the places between them (Content v6) ─────────────────────── */
+
+const SKIP_TAGS = /^(SCRIPT|STYLE|LINK|INPUT|TEMPLATE|NOSCRIPT|META|BR)$/;
+/** The page's content blocks, as a person sees them: the CMS content's rows (a wrapper holding one block is looked into). */
+export function contentBlocks(d: Document): Element[] {
+  const win = d.defaultView;
+  if (!win) return [];
+  const shown = (el: Element) => !SKIP_TAGS.test(el.tagName) && !el.hasAttribute("data-apx-hid") && win.getComputedStyle(el).display !== "none" && el.getBoundingClientRect().height >= 24;
+  let root: Element | null = d.querySelector("#maincontent .column.main") ?? d.getElementById("maincontent");
+  if (!root) return [];
+  let kids = Array.from(root.children).filter(shown);
+  for (let n = 0; kids.length === 1 && n < 8; n++) { root = kids[0]; kids = Array.from(root.children).filter(shown); }
+  return kids;
+}
+const isOurs = (el: Element) => el.hasAttribute("data-apx-c") || el.hasAttribute("data-apso-v");
+const shortText = (el: Element | null) => ((el as HTMLElement | null)?.innerText ?? el?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 140);
+const nameOf = (el: Element | null) => { if (!el) return ""; const h = el.querySelector("h1,h2,h3,h4"); const t = shortText(h ?? el); return t.length > 40 ? `${t.slice(0, 38)}…` : t; };
+/** A photo of the page near a place (the shop's own, a real size) - for a "Text and picture" block. */
+function photoNear(els: (Element | null)[]): { src: string; alt: string } | null {
+  for (const el of els) {
+    for (const img of Array.from(el?.querySelectorAll("img") ?? []) as HTMLImageElement[]) {
+      const src = img.currentSrc || img.getAttribute("src") || "";
+      if (/^https:\/\/(www|acc)\.apsoparts\.com\/media\//.test(src) && !/\.svg(\?|$)/i.test(src)) return { src, alt: img.alt || nameOf(el) };
+    }
+  }
+  // a Page Builder tile shows its photo as a background (data-background-images)
+  for (const el of els) {
+    for (const b of Array.from(el?.querySelectorAll("[data-background-images]") ?? [])) {
+      try {
+        const src = String((JSON.parse(b.getAttribute("data-background-images") ?? "{}") as { desktop_image?: string }).desktop_image ?? "").replace(/\\\//g, "/");
+        if (/^https:\/\/(www|acc)\.apsoparts\.com\/media\//.test(src)) return { src, alt: nameOf(b) || nameOf(el) };
+      } catch { /* not JSON */ }
+    }
+  }
+  return null;
+}
 
 // the shop's body face (Open Sans) cannot come in from the shop either: the computer's own sans-serif stands in, never Times
 // (one regular face each: the browser draws the bold itself - a face said to be bold would draw thin)
@@ -116,7 +181,7 @@ const SHOP_FONT_STANDINS = ["Open Sans", "futura-pt"].map((f) => `@font-face{fon
 
 let fontHeld: Promise<string> | null = null;
 /** The brand's type (futura-pt's look-alike, as data: - the hub lets no font in from outside), once per window. */
-function brandFont(): Promise<string> {
+export function brandFont(): Promise<string> {
   fontHeld ??= fetch("/api/content/studio/banner/font").then((r) => (r.ok ? r.text() : ""))
     // the stand-ins first: a face declared later wins, so Jost (where the hub could load it) stands for futura-pt
     .then((css) => `${SHOP_FONT_STANDINS}\n${css ? `${css}\n${css.replace(/font-family:"Jost"/g, 'font-family:"futura-pt"')}` : ""}`)
@@ -290,6 +355,70 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
       href: el.closest("a")?.getAttribute("href") ?? undefined,
       editable: !isImg && !ins && !b && !!text && !el.querySelector("img,video,iframe,table") && !(f && /picture$|\.button$|^links\./.test(f) && !f.endsWith(".label")),
       section: sel.current?.mode === "element" && !ins ? sectionOf(el) : undefined,
+      ...(sel.current?.mode === "element" && !ins ? lookAndBox(el) : {}),
+    };
+  };
+
+  /** an element of a page of the shop: how it looks, and - a word or a line - the block it stands in (what a replace
+   * takes the place of: never a <div> inside a heading) */
+  const lookAndBox = (el: Element): Pick<Picked, "look" | "box"> => {
+    const win = el.ownerDocument.defaultView as (Window & typeof globalThis) | null;
+    if (!win) return {};
+    try {
+      const look = lookOf(el, win);
+      let b: Element = el;
+      const inline = (x: Element) => /^inline/.test(win.getComputedStyle(x).display) || /^(SPAN|A|B|STRONG|EM|I|SMALL|LABEL)$/.test(x.tagName);
+      while (b.parentElement && b.parentElement !== el.ownerDocument.body && b.parentElement.id !== "maincontent"
+        && (inline(b) || /^(H[1-6]|P|LI|DT|DD|FIGCAPTION|BUTTON|TD|TH)$/.test(b.parentElement.tagName) || /^(LI|TD|TH|DT|DD)$/.test(b.tagName))) b = b.parentElement;
+      if (b === el) return { look, box: null };
+      return { look, box: { selector: selectorOf(b), outer: cleanCopy(b).outerHTML.slice(0, 20_000), tag: b.tagName.toLowerCase(), look: lookOf(b, win) } };
+    } catch { return {}; }
+  };
+
+  /** the "+" between the page's elements (a page of the shop, Content v6): drawn over the page, at each place */
+  const drawAdds = (d: Document) => {
+    d.querySelectorAll("[data-apx-addel]").forEach((x) => x.remove());
+    const s = sel.current;
+    if (!s?.onAddEl || s.mode !== "element" || editing.current || !d.body) return;
+    const blocks = contentBlocks(d);
+    if (!blocks.length) return;
+    const sy = d.documentElement.scrollTop || d.body.scrollTop || 0;
+    const top = (el: Element) => el.getBoundingClientRect().top + sy;
+    const bottom = (el: Element) => el.getBoundingClientRect().bottom + sy;
+    if (d.defaultView?.getComputedStyle(d.body).position === "static") d.body.style.position = "relative";
+    const bodyTop = d.body.getBoundingClientRect().top + sy;
+    for (let k = 0; k <= blocks.length; k++) {
+      const prev = blocks[k - 1] ?? null, next = blocks[k] ?? null;
+      const y = prev && next ? (bottom(prev) + top(next)) / 2 : prev ? bottom(prev) + 8 : top(next!) - 8;
+      const plus = d.createElement("div");
+      plus.setAttribute("data-apx-addel", String(k));
+      plus.style.top = `${Math.round(y - bodyTop)}px`;
+      plus.innerHTML = "<b>+</b><i>Add an element here</i>";
+      (plus as HTMLElement & { __apx?: { prev: Element | null; next: Element | null } }).__apx = { prev, next };
+      d.body.appendChild(plus);
+    }
+  };
+  /** the place a "+" stands for, as a change can aim at it: before the next element of the page, else after the one before */
+  const placeOf = (plus: Element): Omit<AddPlace, "pos"> | null => {
+    const at = (plus as Element & { __apx?: { prev: Element | null; next: Element | null } }).__apx;
+    if (!at) return null;
+    const blocks = contentBlocks(plus.ownerDocument);
+    const i = at.next ? blocks.indexOf(at.next) : blocks.length;
+    const realAfter = blocks.slice(Math.max(0, i)).find((x) => !isOurs(x)) ?? null;
+    const realBefore = [...blocks.slice(0, Math.max(0, i))].reverse().find((x) => !isOurs(x)) ?? null;
+    // the next element of the page when it is the page's own; else the one before; else the nearest of the page's own
+    const nextIsReal = !!at.next && !isOurs(at.next);
+    const prevIsReal = !!at.prev && !isOurs(at.prev);
+    const anchor = nextIsReal ? at.next! : prevIsReal ? at.prev! : realAfter ?? realBefore;
+    if (!anchor) return null;
+    const where: AddPlace["where"] = nextIsReal || (!prevIsReal && anchor === realAfter) ? "before" : "after";
+    const win = plus.ownerDocument.defaultView as (Window & typeof globalThis) | null;
+    const label = at.prev && at.next ? `Between “${nameOf(at.prev)}” and “${nameOf(at.next)}”` : at.prev ? `After “${nameOf(at.prev)}”` : `Before “${nameOf(at.next)}”`;
+    return {
+      selector: selectorOf(anchor), where, label,
+      near: [at.prev ? `before it: ${shortText(at.prev)}` : "", at.next ? `after it: ${shortText(at.next)}` : ""].filter(Boolean).join(" | "),
+      look: win && anchor.parentElement ? lookOf(anchor.parentElement, win) : null,
+      img: photoNear([at.prev, at.next]),
     };
   };
 
@@ -332,9 +461,27 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
       }
     }
     if (!editing.current) markLeftovers(rootOf(d));
+    showOld(d);
     markSelected();
     measure();
+    drawAdds(d);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markSelected, measure]);
+
+  /** "Show the old one" (Content v6): a replace's hidden element shown again, its block hidden - in the preview only */
+  const showOld = (d: Document) => {
+    const on = new Set(sel.current?.oldShown ?? []);
+    d.querySelectorAll<HTMLElement>("[data-apx-hid]").forEach((el) => {
+      const ids = (el.getAttribute("data-apx-hid") ?? "").split(/\s+/).map(Number);
+      if (ids.some((n) => on.has(n))) { if (!el.hasAttribute("data-apx-shown")) { el.setAttribute("data-apx-shown", ""); el.style.removeProperty("display"); } }
+      else if (el.hasAttribute("data-apx-shown")) { el.removeAttribute("data-apx-shown"); el.style.setProperty("display", "none", "important"); }
+    });
+    d.querySelectorAll<HTMLElement>("[data-apx-c]").forEach((el) => {
+      if (el.tagName === "STYLE") return;
+      if (on.has(Number(el.getAttribute("data-apx-c")))) { el.setAttribute("data-apx-off", ""); el.style.setProperty("display", "none", "important"); }
+      else if (el.hasAttribute("data-apx-off")) { el.removeAttribute("data-apx-off"); el.style.removeProperty("display"); }
+    });
+  };
 
   /* ── editing words in place ─────────────────────────────────────────── */
 
@@ -388,6 +535,7 @@ ${SELECT_CSS}`;
       const unhov = () => { hov?.removeAttribute("data-apx-hover"); hov = null; };
       d.addEventListener("mouseover", (e) => {
         if (!sel.current || editing.current) return;
+        if ((e.target as Element).closest?.("[data-apx-addel]")) { unhov(); return; }
         const c = candidate(e.target);
         if (c === hov) return;
         unhov();
@@ -411,6 +559,17 @@ ${SELECT_CSS}`;
           const z = zoomRef.current;
           unhov();
           s.onAdd(Number(plus.getAttribute("data-apx-add")) || 1, { top: (fr?.top ?? 0) + r.top * z + 18, left: (fr?.left ?? 0) + (r.left + r.width / 2) * z });
+          return;
+        }
+        // the "+" between a shop page's elements (Content v6): what goes there is asked, nothing selected by the click
+        const addEl = (e.target as Element).closest?.("[data-apx-addel]");
+        if (addEl && s.onAddEl) {
+          const place = placeOf(addEl);
+          const r = addEl.getBoundingClientRect();
+          const fr = frame.current?.getBoundingClientRect();
+          const z = zoomRef.current;
+          unhov();
+          if (place) s.onAddEl({ ...place, pos: { top: (fr?.top ?? 0) + (r.top + r.height / 2) * z + 18, left: (fr?.left ?? 0) + (r.left + r.width / 2) * z } });
           return;
         }
         const more = (e.target as Element).closest?.("[data-apx-additem]");
@@ -445,7 +604,11 @@ ${SELECT_CSS}`;
       }, true);
       d.addEventListener("focusout", (e) => { if (editing.current && e.target === editing.current.el) endEdit(true); }, true);
       d.addEventListener("submit", (e) => e.preventDefault(), true);
-      if (d.body) { const ro = new ResizeObserver(() => measure()); ro.observe(d.body); }
+      if (d.body) {
+        let t: ReturnType<typeof setTimeout> | null = null;
+        const ro = new ResizeObserver(() => { measure(); if (t) clearTimeout(t); t = setTimeout(() => drawAdds(d), 160); });
+        ro.observe(d.body);
+      }
     }
     draw();
     // a page of the shop: where its changes landed, section by section (the outline's parts on the left)
@@ -487,6 +650,14 @@ ${SELECT_CSS}`;
   }, [shown, setup, measure]);
 
   useEffect(() => { draw(); }, [patch, draw]);
+  // "Show the old one" switched, the "+" offered or not: the page itself does not reload
+  const oldKey = (select?.oldShown ?? []).join(",");
+  const addsOn = !!select?.onAddEl;
+  useEffect(() => {
+    const d = docOf();
+    if (d?.body) { showOld(d); drawAdds(d); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oldKey, addsOn]);
   useEffect(() => { markSelected(); }, [select?.selected, markSelected, device, avail]);
   useEffect(() => {
     if (!select?.editNonce) return;

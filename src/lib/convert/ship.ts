@@ -329,13 +329,124 @@ export type CmsApplied = {
 
 const STYLE_BLOCK = /<style data-apso-version="[^"]*">[\s\S]*?<\/style>\n?/g;
 
+/* ── Content's publish: what a write put in, and takes out again (Content v6) ─────────────────── */
+// SARCLA 09.11.2026 (point 10): "when [the proposal] applies, hide the element and replace [it] for our high[-quality]
+// generated code". Two ways, by caller (applyToCms `replace`):
+//   "swap" (the default - AI testing & personalization's tested winners, src/lib/convert/cms.ts): exactly as before - the
+//          element replaced by the version's HTML, what was tested (versions.ts runtimeSource) is what is written.
+//   "keep" (Content's page publish, ./cmsPage.ts): the element SWAPPED for our block - no hidden copy left in the page (a
+//          hidden duplicate H1 or paragraph for search engines, a second element with the same id) - and its own HTML
+//          kept right beside the block in an HTML comment, base64 (whatever it holds - "--", "-->", "<!--", an inline
+//          script - can never break out of the comment). The blocks a write puts in (replace, insert) are marked with the
+//          write's tag (data-apx-block), the elements it hides (op hide) too (data-apx-hid). A write made again first takes
+//          its own earlier work out: each kept original put back from its comment exactly as it was (also when that
+//          replace is no longer in the list - an Undo), its other blocks removed, what it hid shown again - so a page
+//          written twice never holds two blocks. Among Page Builder's elements a block goes in as an HTML Code element
+//          (inside a row when it stands among rows); inside an HTML Code element as it is.
+// The studio's PREVIEW keeps the original hidden instead (./apply.ts), for "Show the old one".
+
+const HIDE_RULE = "display:none !important";
+
+/** UTF-8 base64, the same on the server and in a browser. */
+function toB64(s: string): string {
+  if (typeof Buffer !== "undefined") return Buffer.from(s, "utf8").toString("base64");
+  let bin = "";
+  for (const b of new TextEncoder().encode(s)) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+function fromB64(s: string): string {
+  if (typeof Buffer !== "undefined") return Buffer.from(s, "base64").toString("utf8");
+  return new TextDecoder().decode(Uint8Array.from(atob(s), (c) => c.charCodeAt(0)));
+}
+/** The comment a "keep" replace leaves beside its block: the element's own HTML, base64 - nothing in it ends the comment. */
+const keptComment = (original: string, tag: string) => `<!--apx-was ${toB64(tag)} ${toB64(original)}-->`;
+const KEPT = /<!--apx-was ([A-Za-z0-9+/=]*) ([A-Za-z0-9+/=]*)-->/g;
+
+/** The element's top-level elements marked as this write's block (a fragment with loose text is wrapped first). */
+function markBlock(html: string, tag: string): string {
+  const els = parse(html);
+  const tops = els.filter((e) => !e.parent);
+  const loose = tops.reduce((s, e) => s.replace(html.slice(e.start, e.end), ""), html).replace(/<!--[\s\S]*?-->/g, "").trim();
+  if (loose || !tops.length) return `<div data-apx-block="${escAttr(tag)}">${html}</div>`;
+  let out = html;
+  for (const e of [...tops].sort((a, b) => b.start - a.start)) {
+    const at = e.start + 1 + e.tag.length;
+    out = `${out.slice(0, at)} data-apx-block="${escAttr(tag)}"${out.slice(at)}`;
+  }
+  return out;
+}
+
+/** Page Builder's own element names: a block among them must be one of them (an HTML Code element). */
+const PB = (el: El | null) => el?.attrs.get("data-content-type")?.value ?? null;
+const PB_HOLDERS = new Set(["row", "column", "column-group", "column-line", "tabs", "tab-item"]);
+/** Where a block goes, as Magento's editor needs it: plain inside an HTML Code element or a page that is not Page Builder;
+ * an HTML Code element among Page Builder's elements; that inside a row among the page's rows. */
+function pbWrap(block: string, parent: El | null, pageBuilder: boolean, tag: string): string {
+  if (!pageBuilder) return block;
+  for (let p: El | null = parent; p; p = p.parent) if (PB(p) === "html" || PB(p) === "text") return block;
+  const holder = (() => { for (let p: El | null = parent; p; p = p.parent) { const t = PB(p); if (t) return t; } return null; })();
+  const element = `<div data-content-type="html" data-appearance="default" data-element="main" data-decoded="true" data-apx-block="${escAttr(tag)}">${block}</div>`;
+  if (holder && PB_HOLDERS.has(holder)) return element;
+  return `<div data-content-type="row" data-appearance="contained" data-element="main" data-apx-block="${escAttr(tag)}"><div data-enable-parallax="0" data-parallax-speed="0.5" data-background-images="{}" data-background-type="image" data-video-loop="true" data-video-play-only-visible="true" data-video-lazy-load="true" data-video-fallback-src="" data-element="inner">${element.replace(` data-apx-block="${escAttr(tag)}"`, "")}</div></div>`;
+}
+
+/** The content without what an earlier write with this tag put in: its blocks out, what it hid shown again as it was. */
+export function withoutOwnWork(content: string, tag: string): string {
+  let html = content;
+  // each element a "keep" replace swapped out: put back from its comment, in place of the block right after it
+  const mine = toB64(tag);
+  for (;;) {
+    const kept = [...html.matchAll(KEPT)].filter((m) => m[1] === mine);
+    if (!kept.length) break;
+    const m = kept[kept.length - 1];
+    const start = m.index ?? 0;
+    let end = start + m[0].length;
+    const els = parse(html);
+    for (;;) {
+      let p = end;
+      while (p < html.length && /\s/.test(html[p])) p++;
+      const next = els.find((e) => e.start === p && e.attrs.get("data-apx-block")?.value === tag);
+      if (!next) break;
+      end = next.end;
+    }
+    html = html.slice(0, start) + fromB64(m[2]) + html.slice(end);
+  }
+  // the blocks, from the last (offsets stay right); one inside another goes with it
+  for (;;) {
+    const blocks = parse(html).filter((e) => e.attrs.get("data-apx-block")?.value === tag);
+    if (!blocks.length) break;
+    const outer = blocks.filter((b) => !blocks.some((o) => o !== b && o.start <= b.start && b.end <= o.end));
+    for (const b of outer.sort((x, y) => y.start - x.start)) html = html.slice(0, b.start) + html.slice(b.end);
+  }
+  // what it hid: its style as it was, the mark gone
+  for (const el of parse(html).filter((e) => e.attrs.get("data-apx-hid")?.value === tag).sort((x, y) => y.start - x.start)) {
+    const st = el.attrs.get("style");
+    const mark = el.attrs.get("data-apx-hid")!;
+    const edits: { from: number; to: number; text: string }[] = [];
+    const markFrom = html.lastIndexOf("data-apx-hid", mark.start);
+    edits.push({ from: html[markFrom - 1] === " " ? markFrom - 1 : markFrom, to: mark.end + 1, text: "" });
+    if (st) {
+      const was = st.value.replace(/;?\s*display:none !important\s*;?\s*$/i, "").trim();
+      if (was) edits.push({ from: st.start, to: st.end, text: was });
+      else { const sFrom = html.lastIndexOf("style", st.start); edits.push({ from: html[sFrom - 1] === " " ? sFrom - 1 : sFrom, to: st.end + 1, text: "" }); }
+    }
+    for (const e of edits.sort((a, b) => b.from - a.from)) html = html.slice(0, e.from) + e.text + html.slice(e.to);
+  }
+  return html;
+}
+
 /**
  * The change list applied to a CMS page's content. CSS: one <style data-apso-version="test-N"> block at the top (an
  * earlier one from APSOconvert is replaced, never doubled). Element changes: spliced in where their selector points,
- * one after the other (each change reads the content as the one before left it).
+ * one after the other (each change reads the content as the one before left it). `replace`: "swap" (the default, as
+ * it always was) or "keep" (Content's publish: the original kept in a comment beside the block, a write made again
+ * first puts back what an earlier one changed - above).
  */
-export function applyToCms(content: string, changes: Change[], tag: string): CmsApplied {
+export function applyToCms(content: string, changes: Change[], tag: string, opts: { replace?: "swap" | "keep" } = {}): CmsApplied {
+  const keep = opts.replace === "keep";
   let html = content.replace(STYLE_BLOCK, "");
+  if (keep) html = withoutOwnWork(html, tag);
+  const pageBuilder = keep && /\bdata-content-type=/.test(html);
   const placed: CmsApplied["placed"] = [];
   const notPlaced: CmsApplied["notPlaced"] = [];
   changes.forEach((c, i) => {
@@ -351,15 +462,24 @@ export function applyToCms(content: string, changes: Change[], tag: string): Cms
       switch (c.op) {
         case "html": if (!isVoid) html = html.slice(0, el.openEnd) + c.html + html.slice(el.closeStart); break;
         case "text": if (!isVoid) html = html.slice(0, el.openEnd) + escText(c.text) + html.slice(el.closeStart); break;
-        case "replace": html = html.slice(0, el.start) + c.html + html.slice(el.end); break;
+        case "replace": {
+          if (!keep) { html = html.slice(0, el.start) + c.html + html.slice(el.end); break; }
+          // swapped for our block, marked; the element's own HTML kept in a comment right before it
+          html = html.slice(0, el.start) + keptComment(html.slice(el.start, el.end), tag) + pbWrap(markBlock(c.html, tag), el.parent, pageBuilder, tag) + html.slice(el.end);
+          break;
+        }
         case "insert": {
           const at = c.where === "before" ? el.start : c.where === "after" ? el.end : c.where === "prepend" ? el.openEnd : isVoid ? el.end : el.closeStart;
-          html = html.slice(0, at) + c.html + html.slice(at);
+          const parent = c.where === "before" || c.where === "after" || isVoid ? el.parent : el;
+          html = html.slice(0, at) + (keep ? pbWrap(markBlock(c.html, tag), parent, pageBuilder, tag) : c.html) + html.slice(at);
           break;
         }
         case "hide": {
           const cur = el.attrs.get("style")?.value ?? "";
-          html = setAttr(html, el, "style", `${cur.trim() ? `${cur.trim().replace(/;?$/, ";")} ` : ""}display:none !important`);
+          let h = setAttr(html, el, "style", `${cur.trim() ? `${cur.trim().replace(/;?$/, ";")} ` : ""}${HIDE_RULE}`);
+          // "keep": marked as this write's, so a write made again without it (Undo) shows the element again
+          if (keep) h = setAttr(h, parse(h).find((x) => x.start === el.start)!, "data-apx-hid", tag);
+          html = h;
           break;
         }
         case "attr": html = setAttr(html, el, c.name.toLowerCase(), c.value); break;

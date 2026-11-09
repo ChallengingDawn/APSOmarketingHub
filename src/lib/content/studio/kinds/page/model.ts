@@ -26,6 +26,7 @@
 //             view (./magento.ts; the backups are in apsomh_convert_cms_backups)
 
 import { classify, isEnv, isKind, type Env, type PageKind } from "../../../../convert/model";
+import { STORE_VIEWS, countryGroups, countryStore, shopOrder, storeKey, viewName, viewShort, type CountryGroup } from "./storeViews";
 import { describe, validateChanges, type Change } from "../../../../convert/versions";
 import { emptyFields, fieldStrings, filledCount, normalizeFields, type Fields, type Item } from "./fields";
 
@@ -82,7 +83,7 @@ export type LangVersion = {
   path: string;
   /** its store view - the key it is kept under */
   store: string;
-  changes: Change[];
+  changes: PageChange[];
   texts: TextSlot[];
   fields: Fields;
   outline: PageOutline | null;
@@ -93,7 +94,32 @@ export type LangVersion = {
   /** how it was made: copied from a store view of its language (no AI), translated by the AI, or neither (a page picked) */
   made: "copy" | "translate" | "";
   at: string;
+  /** the version of the page open in this store view (A, B, C - see PageVersion), and every version it has */
+  letter: string;
+  versions: PageVersion[];
 };
+
+/**
+ * ANOTHER VERSION OF THE SAME PAGE (SARCLA 09.11.2026: "it should also allow to create another version of the same", to
+ * A/B test). A page of the shop has version A - its change list - and may have B, C, D: each its own change list, made
+ * from the one open (a copy, changed on its own afterwards), named by letter as AI testing & personalization names an
+ * optimization's versions (src/lib/convert/studio.ts VERSION_LETTERS). The version OPEN is the store view's `changes` -
+ * everything that edits the page (the assistant, a click in the page, the gallery) edits it; switching to another letter
+ * keeps the open one's list under its letter and opens the other's. `versions` lists every letter once there are two (or
+ * one came from AI testing & personalization); the open one's own `changes` there are kept empty (they are the view's).
+ */
+export type PageVersion = {
+  letter: string;
+  changes: PageChange[];
+  texts: TextSlot[];
+  /** the letter it was copied from ("" = the first, or brought in) */
+  from: string;
+  at: string;
+  /** a version of an optimization of AI testing & personalization (apsomh_convert_versions): which one, its revision */
+  origin: { versionId: string; rev: number; summary: string } | null;
+};
+/** The letters a page's versions take, in order - AI testing & personalization's own (A first, at most four). */
+export const PAGE_LETTERS = ["A", "B", "C", "D"] as const;
 
 /** One write into Magento's CMS from the last step (./magento.ts). */
 export type MagentoRecord = {
@@ -115,6 +141,69 @@ export type Published = {
 export const WAY_LABEL: Record<Published["way"], string> = {
   everyone: "On for everyone on the shop", cms: "Written into the Magento page", dotsource: "Handed to dotSource as code",
 };
+
+/* ── Content v6: a change of a page of the shop (the shared interface) ── */
+//
+// SARCLA 09.11.2026 (his points 9 and 10): "we should really be able to add elements", and "IF we can change the current
+// element, the proposal when applied hides the element and replaces it by our high[-quality] generated code". An element
+// the hub adds or swaps on a page of the shop is a Change of the store view's `changes` (src/lib/convert/versions.ts):
+//   insert   { op: "insert", selector, where: before | after | prepend | append, html }  - a new block at a place
+//   replace  { op: "replace", selector, html }  - the element HIDDEN (kept, never deleted: Undo and "Show the old one"
+//            work) and the new block standing exactly where it was - in the preview (./apply.ts) and in what goes to
+//            Magento (src/lib/convert/ship.ts applyToCms, where a write made again first takes its own earlier work out)
+// The html of a block the hub makes is ONE self-contained element: its own <style> with every rule under one prefix class,
+// explicit colours and fonts, the shop's container width (./block.ts says it and checks it).
+// Beside the change, kept in the document only (the preview and Magento get the validated change without them):
+//   id       a stable name, so a change is found again when the list moves (a module opened again, the check's answer)
+//   module   the gallery's module it was made from, with its settings, so it opens again to be edited (builder B)
+//   off      the check after applying found the block wrong (text that cannot be read, a block that runs out of the
+//            page): it is KEPT, NOT APPLIED, with the reason in plain words - "Looks wrong - not applied: ..."
+
+/** The gallery's module a change was made from (Content v6, builder B): its type and its settings, opened again later. */
+export type ModuleRef = { type: string; settings: Record<string, unknown> };
+export type ChangeMeta = { id?: string; module?: ModuleRef; off?: string };
+/** A change as the page studio keeps it: the shop's change, with its id, its module and its check. */
+export type PageChange = Change & ChangeMeta;
+
+/** A new change's id: "c" + time + a little chance (the same in the browser and on the server). */
+export function changeId(at = Date.now()): string {
+  return `c${at.toString(36)}${Math.floor(Math.random() * 1296).toString(36).padStart(2, "0")}`;
+}
+
+/** A block put in place of an element of the page (the element hidden, kept), or at a place of it. */
+export function replaceChange(selector: string, html: string, o: { note?: string; module?: ModuleRef; id?: string } = {}): PageChange {
+  return { op: "replace", selector, html, ...(o.note ? { note: o.note.slice(0, 300) } : {}), id: o.id ?? changeId(), ...(o.module ? { module: o.module } : {}) };
+}
+export function insertChange(selector: string, where: "before" | "after" | "prepend" | "append", html: string, o: { note?: string; module?: ModuleRef; id?: string } = {}): PageChange {
+  return { op: "insert", selector, where, html, ...(o.note ? { note: o.note.slice(0, 300) } : {}), id: o.id ?? changeId(), ...(o.module ? { module: o.module } : {}) };
+}
+
+/** Is the change applied (not held back by the check)? */
+export const isLive = (c: unknown): boolean => !(c && typeof c === "object" && typeof (c as ChangeMeta).off === "string" && (c as ChangeMeta).off);
+
+/** The list with one change put in: in place of the change with its id, else in place of a replace of the same element,
+ * else at the end. Its id is kept (or given). */
+export function withChange(changes: PageChange[], c: PageChange): PageChange[] {
+  const next = { ...c, id: c.id || changeId() } as PageChange;
+  let i = c.id ? changes.findIndex((x) => x.id === c.id) : -1;
+  if (i < 0 && c.op === "replace") i = changes.findIndex((x) => x.op === "replace" && x.selector === c.selector);
+  if (i < 0) return [...changes, next];
+  return changes.map((x, k) => (k === i ? next : x));
+}
+
+/** A whole list written again (the AI's "the whole page"): a change that came back the same keeps its id and module; a
+ * replace or insert on the same place keeps its id and module too (it was rewritten); a new one gets an id. */
+export function carryMeta(old: PageChange[], next: Change[]): PageChange[] {
+  const core = (c: unknown) => { const { id: _i, module: _m, off: _o, ...rest } = (c ?? {}) as Record<string, unknown>; return JSON.stringify(rest); };
+  const used = new Set<number>();
+  const take = (pred: (c: PageChange) => boolean) => { const i = old.findIndex((c, k) => !used.has(k) && pred(c)); if (i >= 0) used.add(i); return i >= 0 ? old[i] : null; };
+  return next.map((c) => {
+    const same = take((o) => core(o) === core(c));
+    const place = same ?? ((c.op === "replace" || c.op === "insert") ? take((o) => o.op === c.op && (o as { selector?: string }).selector === c.selector && (o as { where?: string }).where === (c as { where?: string }).where) : null);
+    // one the check held back stays held back while it is the same
+    return { ...c, id: place?.id || changeId(), ...(place?.module ? { module: place.module } : {}), ...(same?.off ? { off: same.off } : {}) } as PageChange;
+  });
+}
 
 /** True when two change lists say the same - the order counts (a later change can build on an earlier one). */
 export function sameChangeList(a: unknown[], b: unknown[]): boolean {
@@ -151,18 +240,23 @@ export type PageDoc = {
   pageKind: PageKind | null;
   /** the first open has looked for an APSOconvert page in the project's brief */
   started: boolean;
-  /** the APSOconvert version the changes came from - with its test's figures when it won a test (lib/convert/winner.ts) */
-  origin: { versionId: string; rev: number; status: string; summary: string; idea: string; test: WinnerTest | null } | null;
+  /** the APSOconvert version the changes came from - with its test's figures when it won a test (lib/convert/winner.ts);
+   * `letter`: that version's letter in its optimization (A, B ...), "" when not known (a to-do started before 10.11.2026) */
+  origin: { versionId: string; rev: number; status: string; summary: string; idea: string; test: WinnerTest | null; letter: string } | null;
   /** a test's winner published from here (SARCLA 08.11.2026: "content publish should go to Content") */
   published: Published | null;
   /** an older new page: one block of HTML (kept so it still shows); new pages are `fields` */
   newPage: { title: string; urlKey: string; metaTitle: string; metaDescription: string; body: string };
   fields: Fields;
-  changes: Change[];
+  changes: PageChange[];
   texts: TextSlot[];
+  /** the version open (A, B ...) and every version the main store view has (PageVersion) */
+  letter: string;
+  versions: PageVersion[];
   langs: Record<string, LangVersion>;
   inserts: Insert[];
-  abTest: { enabled: boolean; split: number; goal: AbGoal; clickTarget: string; audience: AbAudience; notes: string; status: "draft" };
+  /** the test's plan; `a` and `b`: which two run - "page" (the page as it is) or a version's letter */
+  abTest: { enabled: boolean; split: number; goal: AbGoal; clickTarget: string; audience: AbAudience; notes: string; status: "draft"; a: string; b: string };
   publish: { mode: "paste" | "magento"; status: "draft" | "copied"; notes: string };
   /** what the last step wrote into Magento, newest first - one record per environment and store view */
   magento: MagentoRecord[];
@@ -181,14 +275,20 @@ export const MAIN_SELECTOR = "#maincontent .column.main";
 /* ── languages ────────────────────────────────────────────────────────── */
 
 // SARCLA 08.11.2026 (evening): "On the page builder: DE FR IT EN - we should have all locales: NL, PL". A page is published
-// in every language the shop has - its store views, read from APSOconvert's page index (the `stores` action); when the
-// index is empty, the shop's own list below (the locale home pages, src/lib/seo/hreflang.ts). Since 09.11.2026 one
-// version per STORE VIEW (below): in Magento each store view gets its own CMS page.
+// in every language the shop has. Since 09.11.2026 one version per STORE VIEW (below): in Magento each store view gets its
+// own CMS page. And that night: "store views are still missing - e.g. the international ones and the EUR versions of a
+// store" - the list is the shop's own now, all 25 as its country / language switcher has them, the Swiss shop in CHF AND
+// in EUR (./storeViews.ts); a store view the page index holds that the list lacks is added to it.
 
-/** The shop's store views when the page index has none yet (src/lib/seo/hreflang.ts LOCALE_HOMEPAGES). */
-export const SHOP_STORES = [
-  "de-CH", "de-DE", "de-AT", "de-INT", "fr-CH", "fr-FR", "fr-INT", "it-CH", "it-IT", "it-INT", "en-INT", "nl-NL", "nl-INT", "pl-PL",
-] as const;
+/** Every store view of the shop, in the shop's order: each language's own store view first among its own (de-CH, fr-CH,
+ * it-CH, en-INT, nl-NL, pl-PL), its EUR twin beside it. */
+export const SHOP_STORES: readonly string[] = (() => {
+  const keys = STORE_VIEWS.map((v) => v.key);
+  const home = ["de-CH", "fr-CH", "it-CH", "en-INT", "nl-NL", "pl-PL"];
+  const rank = (k: string) => { const h = home.indexOf(k); return h >= 0 ? 0 : countryStore(k) && home.includes(countryStore(k)!) ? 1 : 2; };
+  const langs = ["de", "fr", "it", "en", "nl", "pl"];
+  return [...keys].sort((a, b) => langs.indexOf(a.slice(0, 2)) - langs.indexOf(b.slice(0, 2)) || rank(a) - rank(b) || shopOrder(a) - shopOrder(b));
+})();
 /** The languages in the order the studio shows them (the page's own first). */
 export const LANG_ORDER = ["de", "fr", "it", "en", "nl", "pl"] as const;
 /** @deprecated the four the studio offered before 08.11.2026 - the shop's languages come from its store views now */
@@ -197,11 +297,15 @@ export const LANGS = ["de", "fr", "it", "en"] as const;
 const HOME_STORE: Record<string, string> = { de: "de-CH", fr: "fr-CH", it: "it-CH", en: "en-INT", nl: "nl-NL", pl: "pl-PL", es: "es-ES" };
 const LANGUAGE_NAME: Record<string, string> = { de: "German", fr: "French", it: "Italian", en: "English", nl: "Dutch", pl: "Polish", es: "Spanish" };
 
-/** A store view as the shop writes it, without its currency ("de-CH/eur" -> "de-CH"); null when it is not one. */
+/**
+ * A store view as the shop writes it - WITH its currency where the shop has two ("de-CH/eur" stays "de-CH/eur": the Swiss
+ * shop in EUR is its own store view in Magento, SARCLA 09.11.2026); null when it is not one. Until that night it dropped
+ * the currency and merged the two - `countryStore` still does, for what knows no currency (hreflang).
+ */
 export function baseStore(store: string | null | undefined): string | null {
-  const m = /^([a-z]{2})-([a-z]{2,3})(?:\/[a-z]{3})?$/i.exec(String(store ?? "").trim());
-  return m ? `${m[1].toLowerCase()}-${m[2].toUpperCase()}` : null;
+  return storeKey(store);
 }
+export { countryStore, viewName, viewShort };
 
 /** The store views of one language, as the shop has them: "fr" -> fr-CH, fr-FR, fr-INT. */
 export function storesOf(lang: string, stores: readonly string[] = SHOP_STORES): string[] {
@@ -216,10 +320,18 @@ export function storesOf(lang: string, stores: readonly string[] = SHOP_STORES):
  */
 export function storeForLanguage(lang: string | null | undefined, mainStore?: string | null, stores: readonly string[] = SHOP_STORES): string {
   const l = String(lang ?? "").slice(0, 2).toLowerCase() || "de";
-  const have = storesOf(l, stores.length ? stores : SHOP_STORES);
+  const have = storesOf(l, stores.length ? [...new Set([...stores, ...SHOP_STORES])] : SHOP_STORES);
   const country = /^[a-z]{2}-([a-z]{2,3})/i.exec(String(mainStore ?? ""))?.[1]?.toUpperCase() ?? "CH";
-  const want = [l === "en" ? "en-INT" : "", `${l}-${country}`, HOME_STORE[l] ?? "", `${l}-INT`].filter(Boolean);
+  // the main page's currency too: a page of the Swiss shop in EUR goes into fr-CH/eur, not fr-CH
+  const cur = storeKey(mainStore)?.split("/")[1];
+  const want = [l === "en" ? "en-INT" : "", cur ? `${l}-${country}/${cur}` : "", `${l}-${country}`, HOME_STORE[l] ?? "", `${l}-INT`].filter(Boolean);
   return want.find((s) => have.includes(s)) ?? have[0] ?? HOME_STORE[l] ?? `${l}-INT`;
+}
+
+/** The shop's store views: its own list (./storeViews.ts), and any other the page index holds. */
+export function shopList(stores: readonly string[] = []): string[] {
+  const extra = stores.map(baseStore).filter((k): k is string => !!k && !SHOP_STORES.includes(k));
+  return [...SHOP_STORES, ...new Set(extra)];
 }
 
 /** One language the page can be published in: its store view for this page, and every store view of it on the shop. */
@@ -227,7 +339,7 @@ export type LangOption = { lang: string; name: string; store: string; stores: st
 
 /** Every language the shop publishes in (from its store views), the page's own first - each with its store view. */
 export function shopLanguages(stores: readonly string[], mainStore: string): LangOption[] {
-  const list = stores.length ? stores : SHOP_STORES;
+  const list = shopList(stores);
   const main = langOfStore(mainStore);
   const langs = [...new Set(list.map(baseStore).filter((s): s is string => !!s).map((s) => s.slice(0, 2)))];
   if (!langs.includes(main)) langs.push(main);
@@ -296,7 +408,7 @@ export const viewsOf = (d: PageDoc): string[] => {
 export const langsOf = (d: PageDoc): string[] => [...new Set(viewsOf(d).map(langOfStore))];
 
 function emptyLang(d: PageDoc, key: string): LangVersion {
-  return { path: "", store: viewKey(d, key), changes: [], texts: [], fields: emptyFields(), outline: null, from: "", source: "", made: "", at: "" };
+  return { path: "", store: viewKey(d, key), changes: [], texts: [], fields: emptyFields(), outline: null, from: "", source: "", made: "", at: "", letter: "A", versions: [] };
 }
 
 /** One store view of the page as a whole page document (the main one is the document itself). A language works too. */
@@ -304,7 +416,10 @@ export function viewOf(d: PageDoc, key: string | null | undefined): PageDoc {
   const k = viewKey(d, key);
   if (k === mainView(d)) return d;
   const v = d.langs[k] ?? emptyLang(d, k);
-  return { ...d, path: v.path, store: k, changes: v.changes, texts: v.texts, fields: v.fields, outline: v.outline, newPage: { ...d.newPage, body: "" } };
+  return {
+    ...d, path: v.path, store: k, changes: v.changes, texts: v.texts, fields: v.fields, outline: v.outline, newPage: { ...d.newPage, body: "" },
+    letter: v.letter || "A", versions: v.versions ?? [],
+  };
 }
 
 /** The document with one store view's version put back: its own parts into its place; the shared parts (test, Magento's
@@ -313,7 +428,10 @@ export function withView(d: PageDoc, key: string | null | undefined, view: PageD
   const k = viewKey(d, key);
   if (k === mainView(d)) return { ...view, langs: d.langs };
   const old = d.langs[k] ?? emptyLang(d, k);
-  const next: LangVersion = { ...old, path: view.path, store: k, changes: view.changes, texts: view.texts, fields: view.fields, outline: view.outline };
+  const next: LangVersion = {
+    ...old, path: view.path, store: k, changes: view.changes, texts: view.texts, fields: view.fields, outline: view.outline,
+    letter: view.letter || "A", versions: view.versions ?? [],
+  };
   return { ...d, abTest: view.abTest, publish: view.publish, notes: view.notes, inserts: view.inserts, magento: view.magento, langs: { ...d.langs, [k]: next } };
 }
 
@@ -325,7 +443,10 @@ export function hashOf(s: string): string {
 }
 
 /** What a translation or a copy is made from: a store view's words and changes. */
-export const sourceHash = (d: PageDoc) => hashOf(JSON.stringify(d.source === "new" ? fieldStrings(d.fields) : [d.changes, d.texts]));
+export const sourceHash = (d: PageDoc) => hashOf(JSON.stringify(
+  d.source === "new" ? fieldStrings(d.fields)
+    // a page with versions: all of them, whichever is open (opening B is no change to copy or translate again)
+    : d.versions?.length ? versionList(d).map((v) => [v.letter, v.changes, v.texts]) : [d.changes, d.texts]));
 
 /** Has this view any content of its own? */
 export function hasContent(view: PageDoc): boolean {
@@ -355,7 +476,9 @@ export const langState = viewState;
 export function howToAdd(d: PageDoc, to: string): { how: "copy" | "translate"; from: string } {
   const k = baseStore(to) ?? viewKey(d, to);
   const same = viewsOf(d).filter((x) => x !== k && langOfStore(x) === langOfStore(k));
-  return same.length ? { how: "copy", from: same[0] } : { how: "translate", from: mainView(d) };
+  // the same store view in its other currency first (de-CH/eur from de-CH): the same page, the same words
+  const twin = same.find((x) => countryStore(x) === countryStore(k));
+  return same.length ? { how: "copy", from: twin ?? same[0] } : { how: "translate", from: mainView(d) };
 }
 
 const cloneOf = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -369,6 +492,8 @@ export function copyView(d: PageDoc, to: string, from: string, path = "", at = n
   const v: LangVersion = {
     path: d.source === "new" ? "" : path, store: k, changes: cloneOf(src.changes), texts: cloneOf(src.texts), fields: cloneOf(src.fields), outline: null,
     from: sourceHash(src), source: viewKey(d, from), made: "copy", at,
+    // its versions come along (B, C of the page there too), the same one open
+    letter: src.letter || "A", versions: cloneOf(src.versions ?? []),
   };
   return { ...d, langs: { ...d.langs, [k]: v } };
 }
@@ -382,22 +507,115 @@ export function dropView(d: PageDoc, key: string): PageDoc {
   return { ...d, langs };
 }
 
+/* ── versions of the page: A, B, C (see PageVersion) ─────────────────── */
+
+/** A store view's versions, each with its own change list (the open one's is the view's) - A alone when it has no other. */
+export function versionList(view: PageDoc): PageVersion[] {
+  const open = view.letter || "A";
+  if (!view.versions?.length) return [{ letter: open, changes: view.changes, texts: view.texts, from: "", at: "", origin: null }];
+  return view.versions.map((v) => (v.letter === open ? { ...v, changes: view.changes, texts: view.texts } : v));
+}
+/** The letters it has, in order. */
+export const lettersOf = (view: PageDoc): string[] => versionList(view).map((v) => v.letter);
+/** The next free letter, or null when it has all four. */
+export const nextPageLetter = (view: PageDoc): string | null => PAGE_LETTERS.find((l) => !lettersOf(view).includes(l)) ?? null;
+
+/** The store view with another version open: the open one's list kept under its letter, the other's laid in its place. */
+export function openVersion(view: PageDoc, letter: string): PageDoc {
+  const open = view.letter || "A";
+  if (letter === open || !lettersOf(view).includes(letter)) return view;
+  const all = versionList(view);
+  const to = all.find((v) => v.letter === letter)!;
+  return {
+    ...view, letter, changes: to.changes, texts: to.texts,
+    versions: all.map((v) => (v.letter === letter ? { ...v, changes: [], texts: [] } : v)),
+  };
+}
+
+/** A new version (the next letter), made as a COPY of the one open - and opened, to be changed on its own. */
+export function addVersion(view: PageDoc, at = new Date().toISOString()): PageDoc {
+  const letter = nextPageLetter(view);
+  if (!letter) return view;
+  const open = view.letter || "A";
+  const all = versionList(view).map((v) => (v.letter === open ? { ...v, changes: cloneOf(view.changes), texts: cloneOf(view.texts) } : v));
+  const made: PageVersion = { letter, changes: [], texts: [], from: open, at, origin: null };
+  return { ...view, letter, changes: cloneOf(view.changes), texts: cloneOf(view.texts), versions: [...all, made].sort((a, b) => a.letter.localeCompare(b.letter)) };
+}
+
+/** The store view without one version (never its last); the one open taken out opens the first left. The A/B test that
+ * ran it goes back to the page as it is against the first left. */
+export function dropVersion(view: PageDoc, letter: string): PageDoc {
+  const all = versionList(view);
+  if (all.length < 2 || !all.some((v) => v.letter === letter)) return view;
+  const base = (view.letter || "A") === letter ? openVersion(view, all.find((v) => v.letter !== letter)!.letter) : view;
+  const left = base.versions.filter((v) => v.letter !== letter);
+  const ab = base.abTest;
+  const fix = ab.a === letter || ab.b === letter ? { a: "page", b: base.letter } : {};
+  return { ...base, versions: left.length > 1 ? left : left.length === 1 && left[0].origin ? left : [], abTest: { ...ab, ...fix } };
+}
+
+/** A version of an optimization of AI testing & personalization, as its page gets it (src/lib/convert/studio.ts Version). */
+export type ConvertVersion = { id: string; ideaId: string; letter: string; rev: number; summary: string; changes: Change[]; updatedAt: string };
+
+/**
+ * The versions of the optimization a page was sent with, as the page's own versions - each under ITS letter (version B
+ * there is version B here), the one sent open (its list is the view's `changes`). One version alone: no list (its letter
+ * is the view's, its origin the document's).
+ */
+export function convertVersionsOf(all: ConvertVersion[], sent: { id: string; ideaId: string; letter: string }): PageVersion[] {
+  const out: PageVersion[] = [];
+  for (const v of [...all].filter((x) => x.ideaId === sent.ideaId).sort((a, b) => (a.letter || "A").localeCompare(b.letter || "A"))) {
+    const letter = v.letter || "A";
+    if (!isLetter(letter) || out.some((x) => x.letter === letter)) continue;
+    const open = v.id === sent.id;
+    out.push({ letter, changes: open ? [] : v.changes, texts: [], from: "", at: v.updatedAt, origin: { versionId: v.id, rev: v.rev, summary: v.summary.slice(0, 600) } });
+  }
+  return out.length > 1 ? out : [];
+}
+
+/** Does a to-do of this type open the page a marker names (a page of the shop it changes)? A landing page does not: it
+ * makes a NEW page, the marker's page is only context in its brief. */
+export const opensMarkerPage = (contentType: string | null | undefined): boolean => pageModesFor(contentType).includes("pick");
+
+/** The change list of one letter. */
+export const changesOfLetter = (view: PageDoc, letter: string): PageChange[] => versionList(view).find((v) => v.letter === letter)?.changes ?? [];
+
+/** "The page as it is" / "Version B" - one side of the A/B test. */
+export const sideName = (side: string) => (side === "page" ? "The page as it is" : `Version ${side}`);
+
+/** The A/B test in one line (SARCLA 09.11.2026: "too much information here"): "A/B test · Off", or what runs against what. */
+export function abLine(view: PageDoc): string {
+  const ab = view.abTest;
+  if (!ab.enabled) return "A/B test · Off";
+  const low = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+  return `A/B test · ${sideName(ab.b)} vs ${low(sideName(ab.a))}`;
+}
+
 /** The shop's store views grouped by language, the page's own language first, each group in the shop's order. */
 export type StoreGroup = { lang: string; name: string; stores: string[] };
 export function shopViews(stores: readonly string[], mainStore: string): StoreGroup[] {
-  const list = stores.length ? stores : SHOP_STORES;
+  const list = shopList(stores);
   return shopLanguages(list, mainStore).map((o) => {
     const own = o.lang === langOfStore(mainStore) ? [baseStore(mainStore) ?? o.store] : [];
     return { lang: o.lang, name: o.name, stores: sortViews([...new Set([...own, ...storesOf(o.lang, list)])], mainStore) };
   });
 }
 
-/** "de-CH · fr-CH · 2 of 14 store views" - the page's store views in one line. */
+/** "de-CH · fr-CH · 2 of 25 store views" - the page's store views in one line. */
 export function viewsLine(d: PageDoc, groups: StoreGroup[]): string {
   const made = viewsOf(d);
   const total = groups.reduce((n, g) => n + g.stores.length, 0);
   if (made.length < 2) return `Only ${made[0]} so far · ${total} store views on the shop`;
   return `${made.join(" · ")} · ${made.length} of ${total} store views`;
+}
+
+/**
+ * The shop's store views as Magento groups them - a country in a currency ("Switzerland · CHF", "Switzerland · EUR",
+ * "Germany · EUR" ...), each with its languages - for "+ Store view" (SARCLA 09.11.2026: the international ones and the
+ * EUR versions were missing). The page index's store views the list lacks come last; the page's own are always in.
+ */
+export function shopCountries(stores: readonly string[], d?: PageDoc | null): CountryGroup[] {
+  return countryGroups([...stores, ...(d ? [mainView(d), ...Object.keys(d.langs)] : [])]);
 }
 
 /* ── the document ─────────────────────────────────────────────────────── */
@@ -407,8 +625,8 @@ export function emptyPage(language?: string | null): PageDoc {
     v: 1, source: "pick", env: "prod", path: "", store: storeForLanguage(language), pageKind: null, started: false, origin: null, published: null,
     newPage: { title: "", urlKey: "", metaTitle: "", metaDescription: "", body: "" },
     fields: emptyFields(),
-    changes: [], texts: [], langs: {}, inserts: [],
-    abTest: { enabled: false, split: 50, goal: "add-to-cart", clickTarget: "", audience: "all", notes: "", status: "draft" },
+    changes: [], texts: [], letter: "A", versions: [], langs: {}, inserts: [],
+    abTest: { enabled: false, split: 50, goal: "add-to-cart", clickTarget: "", audience: "all", notes: "", status: "draft", a: "page", b: "A" },
     publish: { mode: "paste", status: "draft", notes: "" },
     magento: [],
     notes: "", outline: null, briefText: "",
@@ -428,7 +646,24 @@ function outlineOf(v: unknown): PageOutline | null {
 }
 const textsOf = (v: unknown): TextSlot[] => (Array.isArray(v) ? v.filter(isObj).map((t) => ({ id: str(t.id, 40), ask: str(t.ask, 400), text: str(t.text, 8000) })).filter((t) => t.id) : []);
 // a change keeps whatever shape it has while a person edits it - the preview and the exports validate
-const changesOf = (v: unknown): Change[] => (Array.isArray(v) ? (v.filter(isObj) as unknown as Change[]) : []);
+const changesOf = (v: unknown): PageChange[] => (Array.isArray(v) ? (v.filter(isObj) as unknown as PageChange[]) : []);
+
+const isLetter = (v: unknown): v is string => typeof v === "string" && (PAGE_LETTERS as readonly string[]).includes(v);
+/** A store view's versions as kept: each letter once, in order; the open one always among them once there are any. */
+function versionsOfRaw(v: unknown, open: string): PageVersion[] {
+  if (!Array.isArray(v)) return [];
+  const out: PageVersion[] = [];
+  for (const x of v.filter(isObj)) {
+    if (!isLetter(x.letter) || out.some((y) => y.letter === x.letter)) continue;
+    const o = isObj(x.origin) && typeof x.origin.versionId === "string" && x.origin.versionId
+      ? { versionId: str(x.origin.versionId, 40), rev: Number(x.origin.rev) || 1, summary: str(x.origin.summary, 600) } : null;
+    out.push({ letter: x.letter, changes: x.letter === open ? [] : changesOf(x.changes), texts: x.letter === open ? [] : textsOf(x.texts), from: isLetter(x.from) ? x.from : "", at: str(x.at, 40), origin: o });
+  }
+  if (out.length && !out.some((x) => x.letter === open)) out.push({ letter: open, changes: [], texts: [], from: "", at: "", origin: null });
+  return out.sort((a, b) => a.letter.localeCompare(b.letter));
+}
+/** The two a test runs: "page" (the page as it is) or a letter. */
+const sideOf = (v: unknown, dflt: string) => (v === "page" || isLetter(v) ? (v as string) : dflt);
 
 function insertsOf(v: unknown): Insert[] {
   if (!Array.isArray(v)) return [];
@@ -461,15 +696,24 @@ function langsOfRaw(v: unknown, mainStore: string): Record<string, LangVersion> 
     if (!s || !isObj(x)) continue;
     raw[s] = { ...(raw[s] ?? {}), ...x };
   }
+  // before 10.11.2026 a store view's currency was merged into it: a version kept under "de-CH" whose page is the Swiss
+  // shop's EUR one ("/de-CH/eur/...") is that store view's - moved there, unless it has its own already
+  for (const [s, x] of Object.entries(raw)) {
+    const own = /^\/([a-z]{2}-[A-Z]{2,3}\/[a-z]{3})\//.exec(str(x.path, 400))?.[1];
+    const k = own ? baseStore(own) : null;
+    if (k && k !== s && !raw[k] && baseStore(s) === countryStore(k)) { raw[k] = { ...x, store: k }; delete raw[s]; }
+  }
   for (const [s, x] of Object.entries(raw)) {
     if (s === main) continue;
     const from = str(x.from, 20);
+    const letter = isLetter(x.letter) ? x.letter : "A";
     out[s] = {
       path: str(x.path, 400), store: s, changes: changesOf(x.changes), texts: textsOf(x.texts),
       fields: normalizeFields(x.fields), outline: outlineOf(x.outline), from,
       source: baseStore(str(x.source, 20)) ?? "",
       made: x.made === "copy" || x.made === "translate" ? x.made : from ? "translate" : "",
       at: str(x.at, 40),
+      letter, versions: versionsOfRaw(x.versions, letter),
     };
   }
   return out;
@@ -496,7 +740,11 @@ export function pageDoc(raw: unknown, language?: string | null): PageDoc {
   const pub = isObj(d.publish) ? d.publish : {};
   const o = isObj(d.origin) ? d.origin : null;
   const split = Number(ab.split);
-  const store = str(d.store, 20) || e.store;
+  // the page's own store view, its currency kept: an older document picked on "/de-CH/eur/..." said "de-CH/eur" already
+  const store = baseStore(str(d.store, 20)) ?? (str(d.store, 20) || e.store);
+  const letter = isLetter(d.letter) ? d.letter : "A";
+  const versions = versionsOfRaw(d.versions, letter);
+  const letters = versions.length ? versions.map((x) => x.letter) : [letter];
   return {
     v: 1,
     source: SOURCES.includes(d.source as PageSource) ? (d.source as PageSource) : e.source,
@@ -505,12 +753,13 @@ export function pageDoc(raw: unknown, language?: string | null): PageDoc {
     store,
     pageKind: isKind(d.pageKind) ? d.pageKind : null,
     started: d.started === true,
-    origin: o ? { versionId: str(o.versionId, 40), rev: Number(o.rev) || 1, status: str(o.status, 20), summary: str(o.summary, 600), idea: str(o.idea, 200), test: winnerTestOf(o.test) } : null,
+    origin: o ? { versionId: str(o.versionId, 40), rev: Number(o.rev) || 1, status: str(o.status, 20), summary: str(o.summary, 600), idea: str(o.idea, 200), test: winnerTestOf(o.test), letter: isLetter(o.letter) ? o.letter : "" } : null,
     published: publishedOf(d.published),
     newPage: { title: str(np.title, 200), urlKey: str(np.urlKey, 200), metaTitle: str(np.metaTitle, 200), metaDescription: str(np.metaDescription, 400), body: str(np.body, 60_000) },
     fields: normalizeFields(d.fields),
     changes: changesOf(d.changes),
     texts: textsOf(d.texts),
+    letter, versions,
     langs: langsOfRaw(d.langs, store),
     inserts: insertsOf(d.inserts),
     abTest: {
@@ -521,6 +770,12 @@ export function pageDoc(raw: unknown, language?: string | null): PageDoc {
       audience: (["all", "new", "returning", "customers"] as AbAudience[]).includes(ab.audience as AbAudience) ? (ab.audience as AbAudience) : "all",
       notes: str(ab.notes, 2000),
       status: "draft",
+      // which two run: the page as it is against version A, unless another pair was picked (two different ones)
+      ...(() => {
+        const a = sideOf(ab.a, "page"), b = sideOf(ab.b, letter);
+        const ok = (x: string) => x === "page" || letters.includes(x);
+        return ok(a) && ok(b) && a !== b ? { a, b } : { a: "page", b: letter };
+      })(),
     },
     publish: { mode: pub.mode === "magento" ? "magento" : "paste", status: pub.status === "copied" ? "copied" : "draft", notes: str(pub.notes, 2000) },
     magento: magentoOf(d.magento),
@@ -585,6 +840,20 @@ export function counterpartIn(html: string, lang: string, mainStore: string, pre
     } catch { /* not an address */ }
   }
   return null;
+}
+
+/**
+ * An address of the shop as the same page in one store view: itself when it is there already; the same page under the
+ * store view's own prefix when only the currency differs ("/fr-CH/a-propos" in fr-CH/eur -> "/fr-CH/eur/a-propos" - the
+ * shop's hreflang links know no currency); null when it is another store view's.
+ */
+export function pathIn(path: string | null | undefined, store: string): string | null {
+  if (!path) return null;
+  const c = classify(path);
+  const k = baseStore(store);
+  if (!k || !c.store) return null;
+  if (baseStore(c.store) === k) return path;
+  return countryStore(c.store) === countryStore(k) ? `/${k}/${c.rest}` : null;
 }
 
 /** The page's hreflang links, by the store view their address is in ("/fr-INT/x" -> fr-INT). */
@@ -715,7 +984,8 @@ const VERSION_MAX = 80_000;
 export function finalChanges(doc: PageDoc): { changes: Change[]; problems: string[]; from: number[] } {
   const list: { c: unknown; from: number }[] = [];
   if (isLegacyBody(doc)) list.push({ c: bodyChange(doc), from: -1 });
-  doc.changes.forEach((c, i) => list.push({ c, from: i }));
+  // a change the check held back ("Looks wrong - not applied") stays out of the preview and of Magento
+  doc.changes.forEach((c, i) => { if (isLive(c)) list.push({ c, from: i }); });
   const changes: Change[] = [];
   const from: number[] = [];
   const problems: string[] = [];
@@ -831,7 +1101,9 @@ export function pageText(raw: unknown): string {
       : `${SOURCE_LABEL[v.source]}${lang ? ` (${lang.toUpperCase()})` : ""}: ${v.path ? shopUrl(v.env, v.path) : "(no page yet)"}`;
     const lines = [head];
     if (v.source === "new" && filledCount(v.fields)) lines.push(...fieldStrings(v.fields).map((x) => `${x.id}: ${x.text}`));
-    if (v.changes.length) lines.push("", "Changes:", ...v.changes.map((c, i) => `${i + 1}. ${changeLine(c)}`));
+    const others = v.source === "new" ? [] : versionList(v).filter((x) => x.letter !== (v.letter || "A"));
+    if (v.changes.length) lines.push("", `Changes${others.length ? ` (version ${v.letter || "A"})` : ""}:`, ...v.changes.map((c, i) => `${i + 1}. ${changeLine(c)}`));
+    for (const o of others) lines.push("", `Version ${o.letter}${o.from ? ` (made from ${o.from})` : ""}:`, ...o.changes.map((c, i) => `${i + 1}. ${changeLine(c)}`));
     const texts = v.texts.filter((t) => t.text.trim());
     if (texts.length) lines.push("", "Texts:", ...texts.map((t) => `- ${t.ask}\n${t.text}`));
     return lines;
@@ -840,7 +1112,7 @@ export function pageText(raw: unknown): string {
   // the first line stays "New page: ..." / "A page of the shop: ..." - the library reads it as the title
   if (d.origin?.summary) lines.splice(1, 0, d.origin.summary);
   for (const lang of Object.keys(d.langs)) { const v = viewOf(d, lang); if (hasContent(v) || v.path) lines.push("", ...one(v, lang)); }
-  if (d.abTest.enabled) lines.push("", `A/B test: ${d.abTest.split}% see the new version; goal ${AB_GOAL_LABEL[d.abTest.goal].toLowerCase()}; ${AB_AUDIENCE_LABEL[d.abTest.audience].toLowerCase()}.`);
+  if (d.abTest.enabled) lines.push("", `A/B test: ${sideName(d.abTest.a)} against ${sideName(d.abTest.b).toLowerCase()}, ${d.abTest.split}% see ${d.abTest.b === "page" ? "the page as it is" : `version ${d.abTest.b}`}; goal ${AB_GOAL_LABEL[d.abTest.goal].toLowerCase()}; ${AB_AUDIENCE_LABEL[d.abTest.audience].toLowerCase()}.`);
   if (d.notes.trim()) lines.push("", d.notes.trim());
   return lines.join("\n");
 }

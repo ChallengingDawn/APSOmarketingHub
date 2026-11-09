@@ -18,7 +18,6 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
-import ListSubheader from "@mui/material/ListSubheader";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Tooltip from "@mui/material/Tooltip";
@@ -27,6 +26,8 @@ import AddIcon from "@mui/icons-material/Add";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import CheckIcon from "@mui/icons-material/Check";
 import CloseIcon from "@mui/icons-material/Close";
+import DesktopWindowsOutlinedIcon from "@mui/icons-material/DesktopWindowsOutlined";
+import SmartphoneOutlinedIcon from "@mui/icons-material/SmartphoneOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -36,7 +37,7 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { fieldLabel } from "@/lib/content/studio/kinds/page/fields";
 import {
-  howToAdd, langName, leftoversOf, mainView, shopUrl, viewState, viewsOf, type LangState, type Leftover, type PageDoc, type StoreGroup,
+  howToAdd, langName, leftoversOf, mainView, shopUrl, viewName, viewShort, viewState, viewsOf, type LangState, type Leftover, type PageDoc, type StoreGroup,
 } from "@/lib/content/studio/kinds/page/model";
 import { ADD_CSS, renderNewPage } from "@/lib/content/studio/kinds/page/newpage";
 import { PART_NAME, partOfPath } from "@/lib/content/studio/kinds/page/outline";
@@ -45,8 +46,8 @@ import type { Located } from "@/lib/content/studio/kinds/page/shopParts";
 import { PINK, btn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { SHEEN_BG, sheen } from "./Fields";
-import { Frame, type Device, type Picked } from "./Frame";
-import { Choice } from "./ui";
+import { Frame, type AddPlace, type Device, type Picked } from "./Frame";
+import { StoreViewPicker } from "./StoreViewPicker";
 
 export type View = "before" | "after" | "both";
 type Side = "before" | "after";
@@ -79,7 +80,7 @@ export function usePagePreview(api: StudioApi, d: PageDoc, lang: string, view: V
         asked.current[side] = key;
         setBusy((b) => ({ ...b, [side]: true }));
         // a version looked at (Versions, 09.11.2026) is drawn from that version, not from the page as it is now
-        const out = await fetch(`/api/content/studio/page/${pieceId}/preview?side=${side}&lang=${lang}${fresh ? "&fresh=1" : ""}${api.looking ? `&version=${api.looking}` : ""}`)
+        const out = await fetch(`/api/content/studio/page/${pieceId}/preview?side=${side}&lang=${encodeURIComponent(lang)}${fresh ? "&fresh=1" : ""}${api.looking ? `&version=${api.looking}` : ""}`)
           .then((r) => r.json() as Promise<PreviewOut>)
           .catch(() => ({ ok: false as const, error: "The hub did not answer - try again." }));
         if (asked.current[side] === key) setHeld((h) => ({ ...h, [side]: { key, out } }));
@@ -109,7 +110,7 @@ export function useShell(api: StudioApi, d: PageDoc, fresh: number) {
     const key = `${d.store}|${fresh}`;
     if (shell?.key === key) return;
     let gone = false;
-    void fetch(`/api/content/studio/page/${pieceId}/preview?side=shell&lang=${lang}${fresh ? "&fresh=1" : ""}`)
+    void fetch(`/api/content/studio/page/${pieceId}/preview?side=shell&lang=${encodeURIComponent(lang)}${fresh ? "&fresh=1" : ""}`)
       .then((r) => r.json() as Promise<PreviewOut>)
       .catch(() => ({ ok: false as const, error: "The hub did not answer - try again." }))
       .then((out) => { if (!gone) setShell({ key, out }); });
@@ -151,66 +152,79 @@ export function viewNote(d: PageDoc, k: string, presence?: Record<string, Presen
   return `${add.how === "copy" ? `A copy of ${add.from} - no AI` : `The AI translates it from ${add.from}`}${off}`;
 }
 
-/** The page's store views as tabs, then "+ Store view" for every other store view of the shop, by language. */
+/** The page's store views as tabs, then one button for every other store view of the shop (by country and currency).
+ * The toolbar keeps ONE row at the middle pane's real width (Content v6, 560-700 px at 1480): three tabs at most - the one
+ * shown always among them - the others counted on the button ("+2"); the tabs scroll sideways when even that is too
+ * wide. A click on the button opens every store view, the made ones with their check marks. */
 export function LangSwitch({ d, lang, onLang, groups, presence }: { d: PageDoc; lang: string; onLang: (k: string) => void; groups: StoreGroup[]; presence: Record<string, Presence> }) {
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   const made = viewsOf(d);
   const all = made.includes(lang) ? made : [...made, lang];
-  // the toolbar keeps one row at 1480 px: four tabs at most for a new page, two for a page of the shop (its Before /
-  // After / Both take the room) - the others are in the menu, with their check marks
-  const MAX = d.source === "new" ? 4 : 2;
+  const MAX = 3;
   const tabs = all.length <= MAX ? all : all.slice(0, MAX).includes(lang) ? all.slice(0, MAX) : [...all.slice(0, MAX - 1), lang];
   const more = all.length - tabs.length;
   const total = groups.reduce((n, g) => n + g.stores.length, 0);
   const btnSx = (on: boolean, i: number, st: LangState | null) => ({
-    all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.5, px: 0.9, py: 0.55, fontSize: "0.76rem", fontWeight: 700, letterSpacing: ".02em", whiteSpace: "nowrap",
+    all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.4, px: 0.75, py: 0.45, fontSize: "0.74rem", fontWeight: 700, letterSpacing: ".02em", whiteSpace: "nowrap", flexShrink: 0,
     borderLeft: i ? `1px solid ${HAIRLINE}` : "none", color: on ? "#fff" : st === "empty" ? "#9aa5b8" : INK, bgcolor: on ? BLUE : "transparent",
     transition: "background-color .15s, color .15s",
     "&:hover": on ? {} : { bgcolor: "rgba(36,89,209,.07)" }, "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: -2 },
   });
   return (
-    <Box role="radiogroup" aria-label="Store view" sx={{ display: "inline-flex", flexShrink: 0, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "rgba(255,255,255,.85)" }}>
-      {tabs.map((k, i) => {
-        const on = k === lang;
-        const st = viewState(d, k);
+    <Box sx={{ display: "flex", alignItems: "stretch", flex: "0 1 auto", minWidth: 0, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "rgba(255,255,255,.85)" }}>
+      <Box role="radiogroup" aria-label="Store view" sx={{ display: "flex", minWidth: 0, overflowX: "auto", scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" } }}>
+        {tabs.map((k, i) => {
+          const on = k === lang;
+          const st = viewState(d, k);
+          return (
+            <Tooltip key={k} title={`${viewName(k)} · ${k} · ${STATE_NOTE[st]}`}>
+              <Box component="button" type="button" role="radio" aria-checked={on} onClick={() => onLang(k)} sx={btnSx(on, i, st)}>
+                {/* the Swiss shop in EUR: its currency small beside it */}
+                {k.split("/")[0].toUpperCase()}
+                {k.includes("/") && <Box component="span" aria-label={viewShort(k)} sx={{ fontSize: "0.6rem", fontWeight: 800, opacity: 0.85, ml: -0.1 }}>{k.split("/")[1].toUpperCase()}</Box>}
+                {st === "main" && <Box component="span" sx={{ width: 6, height: 6, borderRadius: "1px", bgcolor: on ? "#fff" : PINK }} />}
+                {st === "done" && <CheckIcon sx={{ fontSize: 13, color: on ? "#fff" : "#1b7a55" }} />}
+                {st === "stale" && <WarningAmberIcon sx={{ fontSize: 13, color: on ? "#fff" : AMBER }} />}
+              </Box>
+            </Tooltip>
+          );
+        })}
+      </Box>
+      <Tooltip title={`${more ? `${more} more of the page's store views, and ` : ""}every store view of the shop - ${made.length} of ${total} made`}>
+        <Box component="button" type="button" onClick={(e: React.MouseEvent<HTMLElement>) => setMenu(e.currentTarget)} aria-label={more ? `${more} more store views` : "Another store view"}
+          sx={{ ...btnSx(false, 1, null), color: more ? INK : MUTED, fontWeight: more ? 800 : 600 }}>
+          {more ? `+${more}` : <><AddIcon sx={{ fontSize: 15 }} />Store view</>}
+        </Box>
+      </Tooltip>
+      {/* every store view of the shop by country and currency, as Magento has them (./StoreViewPicker.tsx) */}
+      <StoreViewPicker anchor={menu} onClose={() => setMenu(null)} d={d} lang={lang} onPick={onLang} groups={groups} presence={presence} />
+    </Box>
+  );
+}
+
+/** A small squared segmented control for the toolbar: words or an icon per choice, one row, never wrapping. */
+function Seg<K extends string>({ value, onChange, options, label }: { value: K; onChange: (k: K) => void; label: string; options: { key: K; label?: string; icon?: React.ReactNode; tip: string }[] }) {
+  return (
+    <Box role="radiogroup" aria-label={label} sx={{ display: "inline-flex", flexShrink: 0, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "rgba(255,255,255,.85)" }}>
+      {options.map((o, i) => {
+        const on = value === o.key;
         return (
-          <Tooltip key={k} title={`${langName(k)} · ${k} · ${STATE_NOTE[st]}`}>
-            <Box component="button" type="button" role="radio" aria-checked={on} onClick={() => onLang(k)} sx={btnSx(on, i, st)}>
-              {k.toUpperCase()}
-              {st === "main" && <Box component="span" sx={{ width: 6, height: 6, borderRadius: "1px", bgcolor: on ? "#fff" : PINK }} />}
-              {st === "done" && <CheckIcon sx={{ fontSize: 14, color: on ? "#fff" : "#1b7a55" }} />}
-              {st === "stale" && <WarningAmberIcon sx={{ fontSize: 14, color: on ? "#fff" : AMBER }} />}
+          <Tooltip key={o.key} title={o.tip}>
+            <Box component="button" type="button" role="radio" aria-checked={on} aria-label={o.label ?? o.tip} onClick={() => onChange(o.key)} sx={{
+              all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", whiteSpace: "nowrap",
+              px: o.icon ? 0.6 : 0.85, py: o.icon ? 0.35 : 0.45, minWidth: o.icon ? 18 : 0, fontSize: "0.74rem", fontWeight: 650, lineHeight: 1.35,
+              borderLeft: i ? `1px solid ${HAIRLINE}` : "none", color: on ? "#fff" : INK, bgcolor: on ? BLUE : "transparent", transition: "background-color .12s, color .12s",
+              "&:hover": on ? {} : { bgcolor: "rgba(36,89,209,.07)", color: BLUE }, "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: -2 },
+            }}>
+              {o.icon ?? o.label}
             </Box>
           </Tooltip>
         );
       })}
-      <Tooltip title={`${made.length} of ${total} store views made - every store view of the shop, by language`}>
-        <Box component="button" type="button" onClick={(e: React.MouseEvent<HTMLElement>) => setMenu(e.currentTarget)} aria-label="Another store view" sx={{ ...btnSx(false, 1, null), color: MUTED, fontWeight: 600 }}>
-          <AddIcon sx={{ fontSize: 15 }} />Store view{more ? ` · ${more} more` : ""}
-        </Box>
-      </Tooltip>
-      <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)} slotProps={{ paper: { sx: { borderRadius: "8px", minWidth: 330, maxHeight: 520 } } }}>
-        {groups.flatMap((g) => [
-          <ListSubheader key={`h-${g.lang}`} sx={{ lineHeight: "30px", fontSize: "0.7rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED, bgcolor: "#fff" }}>{g.name}</ListSubheader>,
-          ...g.stores.map((k) => {
-            const st = viewState(d, k);
-            const isMadeHere = made.includes(k);
-            const off = d.source !== "new" && presence[k]?.exists === false;
-            return (
-              <MenuItem key={k} dense selected={k === lang} onClick={() => { setMenu(null); onLang(k); }} sx={{ gap: 1.25, py: 0.75 }}>
-                <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: off && !isMadeHere ? "#9aa5b8" : INK, width: 52, letterSpacing: ".02em" }}>{k.toUpperCase()}</Typography>
-                <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.76rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{viewNote(d, k, presence)}</Typography>
-                {st === "main" && <Box component="span" sx={{ width: 7, height: 7, borderRadius: "1px", bgcolor: PINK }} />}
-                {st === "done" && <CheckIcon sx={{ fontSize: 15, color: "#1b7a55" }} />}
-                {st === "stale" && <WarningAmberIcon sx={{ fontSize: 15, color: AMBER }} />}
-              </MenuItem>
-            );
-          }),
-        ])}
-      </Menu>
     </Box>
   );
 }
+
 /* ── the toolbar over the selected element ────────────────────────────── */
 
 /** A picture selected in the page: the slot's actions over it (the flow standard: Make another · Upload · Gallery · Remove). */
@@ -241,7 +255,7 @@ function SelBar({ label, canWords, onWords, onAi, onClose, pic }: { label: strin
 
 /* ── the stage ────────────────────────────────────────────────────────── */
 
-export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, onMap, seek, selLabel, picActs, onAct, adds }: {
+export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, workingLabel, onMap, seek, selLabel, picActs, onAct, adds, onAddEl, oldShown, strip }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void; view: View; onView: (v: View) => void;
   /** every store view of the shop, by language; for a page of the shop, whether it is there */
   groups: StoreGroup[]; presence: Record<string, Presence>;
@@ -253,8 +267,12 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   onEditWords: () => void; onAskAi: () => void; inserts: InsertOut[] | null; shell: PreviewOut | null;
   /** what the AI is writing now in a new page (blocks, fields) and the pictures being made - they shimmer */
   writing?: { blocks: string[]; fields: string[]; pictures: string[]; tuning?: string[] };
-  /** a page of the shop being changed by the AI: since when */
+  /** a page of the shop being changed by the AI: since when, and what it is doing ("Checking that it reads well") */
   working?: number | null;
+  workingLabel?: string | null;
+  /** a page of the shop: the "+" between its elements (Content v6) - and the replaced elements shown again ("Show the old one") */
+  onAddEl?: (place: AddPlace) => void;
+  oldShown?: number[];
   /** a page of the shop: where the preview found each change (the outline's parts), and a part to find and select */
   onMap?: (m: Located) => void;
   seek?: { nonce: number; heading: string } | null;
@@ -271,6 +289,8 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   children?: React.ReactNode;
   /** the side columns folded away, for a bigger page */
   fold?: { build: boolean; assist: boolean; onBuild: () => void; onAssist: () => void };
+  /** a slim row under the toolbar: the page's versions A / B / C (Content v6, ./Versions.tsx) */
+  strip?: React.ReactNode;
 }) {
   const [device, setDevice] = useState<Device>("desktop");
   const [zoom, setZoom] = useState<"fit" | "full">("fit");
@@ -296,6 +316,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   const selectOpts = {
     mode: (isNew ? "field" : "element") as "field" | "element",
     selected, onPick, onEdit, editNonce, reveal, onMap, seek, onAct, onAdd: adds?.onAdd, onAddItem: adds?.onAddItem,
+    onAddEl: working ? undefined : onAddEl, oldShown,
   };
   // a whole block says its number and name ("4 · Proof tiles" - the studio's selLabel), a field its own ("Tile 2 · title")
   const label = !selected ? "" : selLabel ? selLabel : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())
@@ -319,7 +340,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
           <Box sx={{ position: "relative", opacity: b ? 0.6 : 1, transition: "opacity .2s" }}>
             <Frame html={out.html} device={device} title={side === "before" ? "The page as it is" : "The page with its changes"}
               select={side === "after" ? selectOpts : undefined} toolbar={side === "after" ? toolbar : undefined} fit={fit || want.length === 2} />
-            {side === "after" && working && <Working since={working} />}
+            {side === "after" && working && <Working since={working} label={workingLabel} />}
           </Box>
         )}
       </Box>
@@ -328,16 +349,20 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
 
   return (
     <Box sx={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column", borderRadius: "18px", overflow: "hidden", bgcolor: "#eef1f6", border: `1px solid ${HAIRLINE}`, backgroundImage: "radial-gradient(rgba(21,34,58,.07) 1px, transparent 1px)", backgroundSize: "18px 18px" }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 1, flexWrap: "nowrap", minWidth: 0, borderBottom: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.6)", backdropFilter: "blur(6px)", flexShrink: 0 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1.25, py: 0.85, flexWrap: "nowrap", minWidth: 0, borderBottom: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.6)", backdropFilter: "blur(6px)", flexShrink: 0 }}>
         {fold && (
           <Tooltip title={fold.build ? "Show the build column" : "Fold the build column away"}>
             <IconButton size="small" onClick={fold.onBuild} aria-label="Fold the build column" sx={{ color: fold.build ? BLUE : MUTED }}><ViewSidebarOutlinedIcon sx={{ fontSize: 19, transform: "scaleX(-1)" }} /></IconButton>
           </Tooltip>
         )}
         <LangSwitch d={doc} lang={lang} onLang={onLang} groups={groups} presence={presence} />
-        <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, flexWrap: "nowrap", minWidth: 0 }}>
-        {views.length > 0 && !empty && <Choice value={view} onChange={onView} options={views} />}
-        {!empty && <Choice value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "mobile", label: "Phone" }]} />}
+        {/* one row at the middle pane's real width (560-700 px at 1480): compact controls; the store view tabs shrink and scroll */}
+        <Box sx={{ flex: "1 0 auto", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.75, flexWrap: "nowrap" }}>
+        {views.length > 0 && !empty && <Seg label="The page" value={view} onChange={onView} options={views.map((v) => ({ ...v, tip: v.key === "before" ? "The page as it is on the shop" : v.key === "after" ? "The page with its changes" : "Before and after, side by side" }))} />}
+        {!empty && <Seg label="Device" value={device} onChange={setDevice} options={[
+          { key: "desktop" as Device, icon: <DesktopWindowsOutlinedIcon sx={{ fontSize: 17 }} />, tip: "Desktop" },
+          { key: "mobile" as Device, icon: <SmartphoneOutlinedIcon sx={{ fontSize: 17 }} />, tip: "Phone" },
+        ]} />}
         <Tooltip title="More: zoom, read the page again, open it on the shop">
           <IconButton size="small" onClick={(e) => setMore(e.currentTarget)} aria-label="More" sx={{ color: MUTED }}><MoreHorizIcon sx={{ fontSize: 19 }} /></IconButton>
         </Tooltip>
@@ -364,6 +389,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
         )}
         </Box>
       </Box>
+      {strip}
       <Box data-stage-scroll sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {children}
         {empty ?? (
@@ -380,7 +406,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
               </Box>
             )}
             <Typography sx={{ fontSize: "0.74rem", color: MUTED, textAlign: "center", mb: 1.25 }}>
-              {d.store} · {langName(lang)}{isNew ? " · a new page" : ""} · click an element to select it, double-click to edit its words
+              {viewName(d.store)}{isNew ? " · a new page" : ""} · click an element to select it, double-click to edit its words
             </Typography>
             {isNew ? (
               !shell ? <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1.25, color: MUTED, py: 10 }}><CircularProgress size={16} /> Opening the store&apos;s page…</Box>
@@ -410,7 +436,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
 }
 
 /** The sheen over a page of the shop while the AI changes it, with how long it has been at it. */
-function Working({ since }: { since: number }) {
+function Working({ since, label }: { since: number; label?: string | null }) {
   const [, setTick] = useState(0);
   useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 1000); return () => clearInterval(t); }, []);
   const secs = Math.max(0, Math.round((Date.now() - since) / 1000));
@@ -418,7 +444,7 @@ function Working({ since }: { since: number }) {
     <Box sx={{ position: "absolute", inset: 0, pointerEvents: "none", borderRadius: "10px", backgroundImage: SHEEN_BG, backgroundSize: "260% 100%", animation: `${sheen} 1.6s linear infinite`, bgcolor: "rgba(255,255,255,.25)" }}>
       <Box sx={{ position: "sticky", top: 12, display: "flex", justifyContent: "center", pt: 1.5 }}>
         <Box sx={{ display: "inline-flex", alignItems: "center", gap: 1, bgcolor: "#15223a", color: "#fff", px: 1.5, py: 0.75, borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, boxShadow: "0 10px 26px rgba(21,34,58,.3)", fontVariantNumeric: "tabular-nums" }}>
-          <CircularProgress size={13} thickness={6} sx={{ color: "#fff" }} />The AI is changing the page · {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}
+          <CircularProgress size={13} thickness={6} sx={{ color: "#fff" }} />{label ? `${label}…` : "The AI is changing the page"} · {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}
         </Box>
       </Box>
     </Box>

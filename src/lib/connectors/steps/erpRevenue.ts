@@ -33,6 +33,8 @@ import {
 import { readErpWorkbook } from "./erpWorkbook";
 import { unpackFacts } from "./productFactsRules";
 import { saveErpLines } from "@/lib/reporting/boErpLinesStore";
+import { loadOtdHistory, saveOtdFromErp } from "@/lib/reporting/otdStore";
+import path from "node:path";
 import { query } from "@/lib/db/client";
 import { ownerNames } from "@/lib/integrations/erosion";
 import { SHEET_INVOICES, invoiceFacts, lineFacts } from "./orderFactsRules";
@@ -282,7 +284,12 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
     const ownerOf = customers.length ? await customerOwners(customers).catch(() => undefined) : undefined;
     try { out.erp_lines = { ...(await saveErpLines(wb.erpLines.lines, { supplierOf, ownerOf }, articleTexts)), rows: wb.erpLines.rows, kept: true, customers: customers.length }; }
     catch (e) { out.erp_lines = `not kept: ${(e as Error).message}`; }
+    // OTD Reports: the same lines by the OTD analysis file's rules (SARCLA 09.11.2026) - never the step's problem
+    try { out.otd = await saveOtdFromErp(wb.erpLines.lines, supplierOf); }
+    catch (e) { out.otd = `not kept: ${(e as Error).message}`; }
   }
+  // OTD Reports' history: the OTD analysis file's lines (otd_history.csv), when one was dropped beside the workbook
+  if (live) out.otd_history = await loadOtdHistory(path.dirname(opts.file)).catch((e: unknown) => `not read: ${(e as Error)?.message ?? e}`);
   // the order facts the sheets give (first confirmed date, special articles, the invoice) - order_sync writes them at night
   if (wb.erpLines || wb.invoices) {
     const byBase = wb.erpLines ? lineFacts(wb.erpLines.lines) : new Map(), byOrder = wb.invoices ? invoiceFacts(wb.invoices) : new Map();

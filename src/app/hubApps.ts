@@ -212,8 +212,17 @@ export const UC_SECTIONS: WebsiteSection[] = [
       { name: "Duplicates & merges", note: "The same request twice, another ticket on the same order - flagged on the ticket, merged by a click", href: "/uc/ticket-duplicates", icon: "copy", ...PURPLE },
       { name: "Certificates", note: "The Back Office's certificate requests: AVOR, the Back Office, the conformity experts - reminders and hand-overs", href: "/uc/certificates", icon: "verified", ...GREEN },
       { name: "Ticket value", note: "Each ticket's sales potential - shadow mode, side by side with the TICKET VALUE CALCULATION workflow", href: "/uc/ticket-value", icon: "tag", ...AMBER },
-      // the Railway translator brought into the hub (SARCLA 08.11.2026: "kill Railway and bring all to the hub")
-      { name: "APSO Translator", note: "Customers' chats and e-mails in English for the agent, replies in the customer's language - DeepL", href: "/uc/translator", icon: "globe", ...BLUE },
+    ],
+  },
+  {
+    // the Railway translator brought into the hub (SARCLA 08.11.2026: "kill Railway and bring all to the hub"), a main app of
+    // its own since 09.11.2026 (SARCLA: "this should come back on the level of UC's as a main app - more graphs as KPIs, much
+    // more by tabs, and the sub apps on the side panel")
+    slug: "apso-translator", name: "APSO Translator", line: "Customers' chats and e-mails in English for the agent, replies in their language", icon: "globe", ...BLUE,
+    pages: [
+      { name: "Overview", note: "What was translated: by day, language, inbox, agent and hour", href: "/uc/translator", icon: "bar", ...BLUE },
+      { name: "Conversations", note: "Every comment and reply it made, with the texts", href: "/uc/translator/conversations", icon: "chat", ...PURPLE },
+      { name: "Settings & help", note: "Live or Preview, the inboxes it reads, replies with !, the agents' commands", href: "/uc/translator/settings", icon: "tag", ...AMBER },
     ],
   },
   {

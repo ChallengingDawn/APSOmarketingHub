@@ -43,7 +43,9 @@ import { saveOps } from "../../store";
 import { projectBrief, projectHead } from "@/lib/content/workflow";
 import { markerOf } from "@/lib/convert/handoff";
 import { publishFromContent, winnerFor, type Winner } from "@/lib/convert/winner";
-import { KEY_WAITING, cmsKeys, cmsPageBackups, cmsPagePlans, cmsPageRestore, cmsPageWrite } from "@/lib/convert/cms";
+import { KEY_WAITING, cmsConnectionCheck, cmsKeys, cmsPageBackups, cmsPagePlans, cmsPageRestore, cmsPageWrite } from "@/lib/convert/cms";
+import { seoFieldsOf } from "@/lib/convert/cmsPage";
+import { connectionLine, type Check } from "./magentoCheck";
 import { gateOf } from "@/lib/convert/cmsPage";
 import { myAccess } from "@/lib/auth/appAccess";
 import { ENVS, classify, isKind, type Env } from "@/lib/convert/model";
@@ -53,14 +55,16 @@ import { LIMIT, blockOrder, fieldLabel, fieldStrings, getField, withFieldStrings
 import { FIELD_SCHEMA, FILL_SCHEMA, PART_LABEL, cleanFill, type Candidate, type Part } from "./fill";
 import { fitField, fitFields, limitOf } from "./fit";
 import {
-  baseStore, changeStrings, emptyPage, fillTexts, fromAi, isLegacyBody, langName, langOfStore, languageOfStore, leftoversIn, mainLang, mainView, pageDoc,
-  pageModesFor, pageSourceFix, pageText, placeholdersOf, shopUrl, sourceHash, textsFromAi, urlKeyOf, viewKey, viewOf, viewsOf, withChangeStrings,
-  type AiChange, type MagentoRecord, type PageDoc,
+  baseStore, changeId, changeLine, changeStrings, convertVersionsOf, emptyPage, opensMarkerPage, fillTexts, fromAi, hashOf, isLegacyBody, langName, langOfStore, languageOfStore, leftoversIn, mainLang, mainView, pageDoc,
+  pageModesFor, pageSourceFix, pageText, shopList, placeholdersOf, shopUrl, sourceHash, textsFromAi, urlKeyOf, viewKey, viewOf, viewsOf, withChangeStrings,
+  type AiChange, type MagentoRecord, type PageChange, type PageDoc,
 } from "./model";
+import { BLOCK_SCHEMA, BLOCK_SYSTEM, KIT_EXAMPLES, SHOP_TOKENS, blockAsk, blockChange, blockRules, cleanBlock, prefixIn, prefixOf, type BlockMode } from "./block";
 import { blockOfPath, blocksOf, itemOfPath } from "./outline";
 import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, presenceOf, previewOf, relinkOf } from "./shop";
-import { SOURCE_ORIGIN, type IdeaSource } from "@/lib/content/ideaOrigins";
 import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
+import { appBriefOf } from "./appBrief";
+import { moduleActions, moduleFillTask } from "./modules/server";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
@@ -150,20 +154,29 @@ const CHANGE_ITEM = {
 
 const REWRITE_SYSTEM = `You write the changes for one page of the shop: a list laid over the page in the browser after it
 loads - the same list runs the page's A/B test, so what is approved is what visitors get. Kinds of change: css (a
-stylesheet added), html (new inner HTML of an element), replace (an element replaced), insert (new HTML before, after,
-prepended or appended to an element), text (new text of an element), hide (an element hidden), attr (an attribute set).
+stylesheet added), html (new inner HTML of an element), replace (an element HIDDEN and your block put exactly in its
+place), insert (a new block before, after, prepended or appended to an element), text (new text of an element), hide
+(an element hidden), attr (an attribute set).
 
 How to write it:
-- Aim at selectors from the page's outline (ids first, then tag.class). Scope CSS to the page's own classes or yours;
-  never restyle body, html or the whole header.
+- Aim at selectors from the page's outline (ids first, then tag.class). Never restyle body, html or the whole header.
 - Few, clean changes that do what is asked, nothing else. Answer with the WHOLE list: keep every change the person did
   not ask to change, exactly as it is.
-- Class names you add start with "apx-". Every new block reads well on a phone (390 px wide): give it a mobile rule.
-- New HTML: no <script>, no on...= handlers, no javascript: links, no frames, no pictures from outside the shop.
+- To change how a part of the page looks or what it holds, REPLACE that element with one finished block (op replace) -
+  never a loose fragment inserted into a band whose colours you do not set (the night's failure: grey words added inside
+  the dark petrol title band - unreadable). A new part of the page is an insert of one finished block.
+- Every block you write (replace, insert) is built the kit's way - the rules below, with its own prefix class
+  "apx-<short name>" (apx-hero2, apx-facts ...).
 - Every word you put on the page is the final copy, written in the page's language - headings, paragraphs, buttons.
   The page's own facts are the ones to use.
 
+${blockRules("apx-<name>")}
+
 ${SHOP}
+
+${SHOP_TOKENS}
+
+${KIT_EXAMPLES}
 
 ${RULES}`;
 
@@ -196,11 +209,80 @@ THE PERSON ASKS: ${ask}`;
   },
   clean: (raw) => {
     const r = (raw ?? {}) as { summary?: string; changes?: AiChange[] };
-    const { changes, problems } = fromAi(r.changes);
+    const { changes: list, problems } = fromAi(r.changes);
+    // a block with its own stylesheet: its rules kept inside it, its root's own colour and font (./block.ts)
+    const changes = list.map((c) => {
+      if ((c.op !== "replace" && c.op !== "insert") || !/<style\b/i.test(c.html)) return c;
+      const prefix = prefixIn(c.html) ?? prefixOf(hashOf(c.html));
+      return { ...c, html: cleanBlock(c.html, prefix).html };
+    });
     const left = leftoversIn(changes.map((c) => JSON.stringify(c)).join(" "));
     return { summary: s(r.summary, 600), changes, problems, leftovers: left };
   },
 };
+
+/* ── block: one element of a page of the shop replaced, or a block added at a place (Content v6) ──────── */
+//
+// SARCLA 09.11.2026 (points 2, 9, 10). The AI designs ONE block the kit's way (./block.ts): for an element of the page
+// the block that takes its place (the element hidden, kept), at a place of the page a new block, for a block the hub
+// put there before that block written again. It is given the element's own HTML and how it looks on the page now (read
+// from the preview by the studio), the shop's tokens and two finished blocks. `block_fix`: the same block once more,
+// with what the check after applying saw wrong (text that cannot be read, a block that runs out of its place).
+
+const lookIn = (input: Record<string, unknown>) => s(input.look, 600);
+const groundOf = (look: string) => /ground (#[0-9a-f]{6})/i.exec(look)?.[1] ?? null;
+const modeIn = (input: Record<string, unknown>): BlockMode => (input.mode === "insert" ? "insert" : input.mode === "rework" ? "rework" : "replace");
+const idIn = (input: Record<string, unknown>) => { const v = s(input.id, 24); return /^c[a-z0-9]{4,22}$/.test(v) ? v : null; };
+
+/** The change a block is written again for: by its id, else by its number. */
+function baseChange(d: PageDoc, input: Record<string, unknown>): PageChange | null {
+  const id = idIn(input);
+  const byId = id ? d.changes.find((c) => c.id === id) : undefined;
+  const n = Number(input.change);
+  const c = byId ?? (Number.isInteger(n) && n >= 0 ? d.changes[n] : undefined);
+  return c && (c.op === "replace" || c.op === "insert") ? c : null;
+}
+
+function blockTask(fix: boolean): AiTask {
+  return {
+    label: fix ? "Fix the block" : "Design a block",
+    schema: BLOCK_SCHEMA,
+    system: `${BLOCK_SYSTEM}\n\n${RULES}`,
+    maxTokens: 12_000,
+    user: (ctx, raw, input) => {
+      const d = viewFor(ctx, raw, input);
+      const base = fix || modeIn(input) === "rework" ? baseChange(d, input) : null;
+      const mode: BlockMode = base ? "rework" : modeIn(input);
+      const id = base?.id ?? idIn(input) ?? "c0";
+      const others = d.changes.filter((c) => c !== base);
+      return `${context(ctx, d)}
+
+${pageBlock(d)}
+
+${others.length ? `THE PAGE'S OTHER CHANGES (they stay as they are): ${others.map((c, i) => `${i + 1}. ${changeLine(c)}`).join(" · ").slice(0, 2000)}` : ""}
+
+${blockAsk({
+    mode, prefix: base ? prefixIn((base as { html: string }).html) ?? prefixOf(id) : prefixOf(id),
+    selector: base ? (base as { selector: string }).selector : s(input.selector, 300), where: base?.op === "insert" ? base.where : s(input.where, 10),
+    html: base ? (base as { html: string }).html : s(input.html, 4000), look: lookIn(input), near: s(input.near, 600),
+    request: fix ? "Make it read well and fit its place - the words stay." : s(input.request, 2000) || "Make this part clearer and more useful for a buyer.",
+    language: langOf(d), problems: fix ? s(input.problems, 1500) || "It could not be read well." : undefined,
+  })}`;
+    },
+    clean: (raw, docRaw, ctx, input) => {
+      const d = viewFor(ctx, docRaw, input);
+      const base = fix || modeIn(input) === "rework" ? baseChange(d, input) : null;
+      const mode: BlockMode = base ? "rework" : modeIn(input);
+      const id = base?.id ?? idIn(input) ?? changeId();
+      const prefix = base ? prefixIn((base as { html: string }).html) ?? prefixOf(id) : prefixOf(id);
+      const r = blockChange(raw, {
+        id, mode, prefix, base, ground: groundOf(lookIn(input)), hadH1: input.hadH1 === true || (!!base && /<h1\b/i.test((base as { html: string }).html)),
+        selector: base ? (base as { selector: string }).selector : s(input.selector, 300), where: s(input.where, 10),
+      });
+      return { ...r, leftovers: r.change ? leftoversIn(JSON.stringify(r.change)) : [] };
+    },
+  };
+}
 
 /* ── fill: a new page's fields ────────────────────────────────────────── */
 
@@ -534,14 +616,10 @@ const englishAction: ServerAction = async (ctx, raw, input) => {
 // one of the apps carries that app as its source (lib/content/start.ts): SEO, AEO & LLM Optimizer, Search bar,
 // Personality, AI testing & personalization. With a brief from one of them the studio writes the new page on its own.
 
-const APP_SOURCES: IdeaSource[] = ["seo", "aeo", "search", "brand", "convert", "buyers"];
-
+// A project sent from AI testing & personalization (its brief carries the page's marker) is an app's brief too (./appBrief.ts).
 const brief: ServerAction = async (ctx) => {
   const { source } = await projectBrief(ctx.projectId).catch(() => ({ source: null as string | null }));
-  const app = source && (APP_SOURCES as string[]).includes(source) ? SOURCE_ORIGIN[source as IdeaSource].app : null;
-  const notes = (ctx.projectNotes ?? "").replace(/^\[idea [^\]]+\]\s*/gm, "").trim();
-  const text = [ctx.brief.goal, notes].map((x) => (x ?? "").trim()).filter(Boolean).join("\n").slice(0, 600);
-  return { source, app, text, auto: !!app && !!text };
+  return appBriefOf({ source, goal: ctx.brief.goal, notes: ctx.projectNotes });
 };
 
 /* ── actions ──────────────────────────────────────────────────────────── */
@@ -565,8 +643,9 @@ const start: ServerAction = async (ctx, raw, input) => {
   const mark = markerOf(brief);
   const path = mark ? cleanPath(mark.path) : null;
   let imported: { env: string; path: string; version: { rev: number; status: string; summary: string } | null } | null = null;
-  // a page from APSOconvert is taken over on the first open of an empty studio, or when asked again
-  if (mark && path && (again || (!d.path && !d.changes.length))) {
+  // a page from APSOconvert is taken over on the first open of an empty studio, or when asked again - by a to-do that
+  // changes a page of the shop; a landing page makes a NEW page, the marker's page being only context in its brief
+  if (mark && path && opensMarkerPage(ctx.piece.contentType) && (again || (!d.path && !d.changes.length))) {
     // a test's winner: exactly the change list that was tested, and its figures
     const won = mark.testId ? await winnerFor(mark.testId).catch(() => null) : null;
     if (won) {
@@ -596,13 +675,34 @@ const start: ServerAction = async (ctx, raw, input) => {
       { op: "set", path: ["path"], value: path },
       { op: "set", path: ["store"], value: c.store ?? d.store },
       { op: "set", path: ["pageKind"], value: c.kind },
-      { op: "set", path: ["origin"], value: v ? { versionId: v.id, rev: v.rev, status: v.status, summary: v.summary.slice(0, 600), idea: (idea?.title ?? "").slice(0, 200) } : null },
+      { op: "set", path: ["origin"], value: v ? { versionId: v.id, rev: v.rev, status: v.status, summary: v.summary.slice(0, 600), idea: (idea?.title ?? "").slice(0, 200), letter: v.letter || "A" } : null },
     );
-    if (v) ops.push({ op: "set", path: ["changes"], value: v.changes });
+    if (v) {
+      // every version of the optimization comes along under its own letter (A, B ...), the one it was sent with open
+      // (SARCLA 09.11.2026: "another version of the same page" - AI testing & personalization names them so)
+      const mine = convertVersionsOf(work?.versions ?? [], v);
+      ops.push({ op: "set", path: ["changes"], value: v.changes }, { op: "set", path: ["letter"], value: v.letter || "A" }, { op: "set", path: ["versions"], value: mine });
+    }
     imported = { env: mark.env, path, version: v ? { rev: v.rev, status: v.status, summary: v.summary } : null };
   }
   await write(ctx, ops);
   return { imported, marker: !!mark };
+};
+
+/**
+ * A page taken over from AI testing & personalization before its letter was kept (before 10.11.2026): the letter of the
+ * version it came with, read from that app and kept - so the studio says "version B" as that app does. Its other
+ * versions are listed (letter, revision, summary) for the studio to offer; nothing else of the page changes here.
+ */
+const convertLetter: ServerAction = async (ctx, raw) => {
+  const d = pageDoc(raw, ctx.piece.language);
+  if (!d.origin?.versionId || !d.path) return { letter: d.origin?.letter ?? "", others: [] };
+  const work = await pageWork(d.env, d.path).catch(() => null);
+  const v = work?.versions.find((x) => x.id === d.origin!.versionId) ?? null;
+  if (!v) return { letter: d.origin.letter, others: [] };
+  if (!d.origin.letter && ctx.canEdit) await write(ctx, [{ op: "set", path: ["origin", "letter"], value: v.letter || "A" }]);
+  const others = (work?.versions ?? []).filter((x) => x.ideaId === v.ideaId && x.id !== v.id).map((x) => ({ letter: x.letter || "A", rev: x.rev, summary: x.summary.slice(0, 200) }));
+  return { letter: v.letter || "A", others };
 };
 
 /** What the studio keeps of a winner: its version and the test's figures. */
@@ -705,7 +805,7 @@ const readOutline: ServerAction = async (ctx, raw, input) => {
 };
 
 /** The store view asked for ("fr-CH"; an older caller: a language, "fr"). */
-const langIn = (input: Record<string, unknown>) => (typeof input.lang === "string" && /^[a-z]{2}(-[A-Z]{2,3})?$/.test(input.lang) ? input.lang : null);
+const langIn = (input: Record<string, unknown>) => (typeof input.lang === "string" && /^[a-z]{2}(-[A-Z]{2,3}(\/[a-z]{3})?)?$/.test(input.lang) ? input.lang : null);
 const preview: ServerAction = async (_ctx, raw, input) =>
   previewOf(raw, input.side === "before" ? "before" : input.side === "shell" ? "shell" : "after", input.fresh === true, langIn(input));
 const paste: ServerAction = async (_ctx, raw, input) => pasteOf(raw, langIn(input), await shopStores());
@@ -736,7 +836,7 @@ const candidates: ServerAction = async (ctx, raw, input) => {
 const inserts: ServerAction = async (ctx, raw, input) => ({ inserts: await insertsOf(viewFor(ctx, raw, input)) });
 const relink: ServerAction = async (_ctx, raw, input) => relinkOf(raw, langIn(input) ?? "fr");
 /** For each store view of the shop: is this page of the shop there (the page index; its own address there)? */
-const views: ServerAction = async (ctx, raw) => ({ presence: await presenceOf(pageDoc(raw, ctx.piece.language), await shopStores()) });
+const views: ServerAction = async (ctx, raw) => ({ presence: await presenceOf(pageDoc(raw, ctx.piece.language), shopList(await shopStores())) });
 
 /* ── the last step: into Magento, by store view ───────────────────────── */
 
@@ -766,11 +866,34 @@ const magento: ServerAction = async (ctx, raw) => {
     views: views.map(({ want: _want, ...v }) => v),
     envs: (["acc", "prod"] as Env[]).map((env) => ({
       env, label: ENVS[env].label, base: ENVS[env].base, key: keys[env], waiting: keys[env] ? null : KEY_WAITING[env], why: gate(env), restoreWhy: gate(env, true),
+      // the connection in plain words (Content v6, SARCLA 09.11.2026: "the Magento connection is not working yet"), and
+      // the last check's answer while it is fresh
+      from: keys.from[env], connection: connectionLine(env, keys.from[env]).line, check: checkHeld(env, keys.from[env]),
     })),
     // what keeps this person from writing, whatever the target (the key is said per target)
     gate: { canEdit: ctx.canEdit, approved: ctx.piece.status === "approved" || ctx.piece.status === "live", grant, why: gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant, key: true, env: "acc" }) },
     backups,
   };
+};
+
+/* ── the connection checked (Content v6): ONE read, never a write ──────── */
+
+const CHECKS = new Map<Env, { check: Check; from: string }>();
+/** The last check of an environment while it is fresh (ten minutes) and made with the key it has now. */
+function checkHeld(env: Env, from: string): Check | null {
+  const h = CHECKS.get(env);
+  return h && h.from === from && Date.now() - Date.parse(h.check.at) < 10 * 60_000 ? h.check : null;
+}
+/** "Check the connection": one GET of Magento's CMS pages with the environment's key (src/lib/convert/cms.ts) - at most
+ * one a minute per environment, whoever asks; anyone in the project may ask (it reads nothing of the shop's pages). */
+const magentoCheck: ServerAction = async (_ctx, _raw, input) => {
+  const env = envIn(input);
+  const from = cmsKeys().from[env];
+  const held = CHECKS.get(env);
+  if (held && held.from === from && Date.now() - Date.parse(held.check.at) < 60_000) return { check: held.check };
+  const check = await cmsConnectionCheck(env);
+  if (check.state !== "no-key") CHECKS.set(env, { check, from });
+  return { check };
 };
 
 const magentoPlan: ServerAction = async (ctx, raw, input) => {
@@ -794,18 +917,23 @@ const magentoPublish: ServerAction = async (ctx, raw, input) => {
   if (!views.length) throw new Error("Pick the store views to write.");
   const results: { view: string; ok: boolean; action?: string; pageId?: string; error?: string }[] = [];
   const records: MagentoRecord[] = [];
+  const moved: Op[] = [];
   for (const v of views) {
     const m = await magentoOf(raw, v);
     if (!m.cms || !m.want || m.why || m.blocked) { results.push({ view: v, ok: false, error: m.why ?? m.blocked ?? "Not a CMS page." }); continue; }
     try {
       const w = await cmsPageWrite(String(ctx.pieceId), env, { view: v, want: m.want }, ctx.me.username);
       results.push({ view: v, ok: true, action: w.action, pageId: w.pageId });
-      records.push({ env, store: v, pageId: w.pageId, identifier: m.want.identifier, action: w.action, at: new Date().toISOString(), by: ctx.me.username, backupId: w.backupId, url: `${ENVS[env].base}/${v}/${m.want.identifier}` });
+      // a page of the shop given a new URL key: it is at its new address from now on (the studio follows it there)
+      const newKey = m.want.kind === "changes" ? seoFieldsOf(m.want.seo, m.want.identifier).identifier : undefined;
+      const identifier = newKey ?? m.want.identifier;
+      records.push({ env, store: v, pageId: w.pageId, identifier, action: w.action, at: new Date().toISOString(), by: ctx.me.username, backupId: w.backupId, url: `${ENVS[env].base}/${v}/${identifier}` });
+      if (newKey && env === doc.env) moved.push({ op: "set", path: at(doc, v, "path"), value: `/${v}/${newKey}` }, { op: "set", path: [...at(doc, v, "fields"), "seo", "urlKey"], value: "" });
     } catch (e) {
       results.push({ view: v, ok: false, error: (e as Error).message });
     }
   }
-  if (records.length) await write(ctx, [{ op: "set", path: ["magento"], value: [...records, ...doc.magento].slice(0, 40) }]);
+  if (records.length) await write(ctx, [{ op: "set", path: ["magento"], value: [...records, ...doc.magento].slice(0, 40) }, ...moved]);
   return { env, results, records };
 };
 
@@ -829,14 +957,21 @@ export const pageKind: KindDef = {
   empty: (ctx) => ({ ...emptyPage(ctx.piece.language), source: pageModesFor(ctx.piece.contentType)[0] }),
   toText: pageText,
   tasks: {
-    rewrite, ideas, texts, translate, seo, english,
+    rewrite, ideas, texts, translate, seo, english, block: blockTask(false), block_fix: blockTask(true),
     fill_all: fillTask("all"), fill_hero: fillTask("hero"), fill_intro: fillTask("intro"), fill_benefits: fillTask("benefits"),
     fill_sections: fillTask("sections"), fill_section: fillTask("section"), fill_links: fillTask("links"), fill_faq: fillTask("faq"),
     fill_cta: fillTask("cta"), fill_seo: fillTask("seo"), fill_field: fillField,
+    // the module gallery's "Fill with AI" (Content v6): the page as the AI sees it, then the candidates - ./modules/ai.ts
+    module_fill: moduleFillTask((ctx, raw, input) => { const d = viewFor(ctx, raw, input); return `${context(ctx, d)}
+
+${pageBlock(d).slice(0, 6000)}`; }),
   },
   actions: {
     start, winner, publish, stores, views, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, relink, ping: async () => ({ ok: true }),
     english: englishAction, brief,
-    magento, magento_plan: magentoPlan, magento_publish: magentoPublish, magento_restore: magentoRestore,
+    magento, magento_plan: magentoPlan, magento_publish: magentoPublish, magento_restore: magentoRestore, magento_check: magentoCheck,
+    convert_letter: convertLetter,
+    // the module gallery (Content v6): the shop's tree, categories, numbers, most viewed / bought - ./modules/server.ts
+    ...moduleActions,
   },
 };

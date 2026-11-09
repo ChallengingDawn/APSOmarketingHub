@@ -31,9 +31,9 @@ import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { KIND_LABEL } from "@/lib/convert/model";
 import type { Change } from "@/lib/convert/versions";
-import { filledCount } from "@/lib/content/studio/kinds/page/fields";
+import { LIMIT, filledCount } from "@/lib/content/studio/kinds/page/fields";
 import {
-  INSERT_WHERE_LABEL, SOURCE_LABEL, isLegacyBody, langName, mainView, pageModesFor, pageSourceFix, placeholdersOf, shopUrl, unwritten, viewState, viewsLine, viewsOf,
+  INSERT_WHERE_LABEL, SOURCE_LABEL, abLine, isLegacyBody, langName, mainView, pageModesFor, pageSourceFix, placeholdersOf, shopCountries, shopUrl, unwritten, viewName, viewShort, viewState, viewsLine, viewsOf,
   type PageDoc, type PageSource, type StoreGroup,
 } from "@/lib/content/studio/kinds/page/model";
 import { blocksOf } from "@/lib/content/studio/kinds/page/outline";
@@ -44,9 +44,10 @@ import type { StudioApi } from "../../useStudio";
 import { Changes } from "./Changes";
 import { ElementPane, type Selection } from "./Element";
 import type { FillRun, PictureCtl } from "./Fields";
-import { BlocksOutline, Row, RowList, ShopPartsOutline } from "./Outline";
+import { BlocksOutline, Row, RowList, ShopPartsOutline, type ChangeExtra } from "./Outline";
 import { ToMagento } from "./Publish";
 import { AbTest, Texts } from "./Sections";
+import { SeoPanel, type SeoProposal } from "./Seo";
 import { Chip, Choice, Hint } from "./ui";
 import { viewNote } from "./Stage";
 import { WinnerCard, WinnerPublish, useWinner } from "./Winner";
@@ -71,7 +72,7 @@ function PageCard({ d, onAnother, canEdit }: { d: PageDoc; onAnother: () => void
     <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", p: 1.5, bgcolor: "#fff", mb: 1.25 }}>
       <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", mb: 0.75, flexWrap: "wrap" }}>
         {d.pageKind && <Chip tint="slate">{KIND_LABEL[d.pageKind]}</Chip>}
-        <Chip tint="blue">{d.store}</Chip>
+        <Chip tint="blue">{viewShort(d.store)}</Chip>
         {d.env === "acc" && <Chip tint="amber">ACC</Chip>}
       </Box>
       {o?.h1[0] && <Typography sx={{ fontSize: "0.95rem", fontWeight: 650, color: INK, mb: 0.25 }}>{o.h1[0]}</Typography>}
@@ -108,11 +109,13 @@ function Inserts({ d, list, remove, canEdit }: { d: PageDoc; list: InsertOut[] |
 function StoreViews({ doc, lang, onLang, groups, presence }: { doc: PageDoc; lang: string; onLang: (k: string) => void; groups: StoreGroup[]; presence: Record<string, Presence> }) {
   const LABEL = { main: "The page's own", done: "Made", stale: "Out of date", empty: "Not made" } as const;
   const TINT = { main: "pink", done: "green", stale: "amber", empty: "slate" } as const;
+  // as Magento groups them (Content v6): a country in a currency - the Swiss shop in CHF and in EUR, the international one
+  const countries = shopCountries(groups.flatMap((g) => g.stores), doc);
   return (
     <Box>
-      {groups.map((g) => (
-        <Box key={g.lang} sx={{ mb: 0.75 }}>
-          <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED, px: 1, pt: 0.5, pb: 0.25 }}>{g.name}</Typography>
+      {countries.map((g) => (
+        <Box key={g.key} sx={{ mb: 0.75 }}>
+          <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED, px: 1, pt: 0.5, pb: 0.25 }}>{g.label}</Typography>
           {g.stores.map((k) => {
             const st = viewState(doc, k);
             const off = doc.source !== "new" && presence[k]?.exists === false && st === "empty";
@@ -121,7 +124,7 @@ function StoreViews({ doc, lang, onLang, groups, presence }: { doc: PageDoc; lan
                 all: "unset", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 1, width: "100%", cursor: "pointer", px: 1, py: 0.55, borderRadius: "6px",
                 bgcolor: k === lang ? "rgba(36,89,209,.07)" : "transparent", "&:hover": { bgcolor: "rgba(36,89,209,.05)" },
               }}>
-                <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: off ? "#9aa5b8" : INK, width: 50, letterSpacing: ".02em" }}>{k}</Typography>
+                <Typography title={viewName(k)} sx={{ fontSize: "0.78rem", fontWeight: 800, color: off ? "#9aa5b8" : INK, width: 50, flexShrink: 0, letterSpacing: ".02em" }}>{k.split("/")[0]}</Typography>
                 <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {doc.source !== "new" && st !== "main" && st !== "empty" && doc.langs[k]?.path ? `${doc.langs[k].path} · ${viewNote(doc, k)}` : viewNote(doc, k, presence)}
                 </Typography>
@@ -137,8 +140,10 @@ function StoreViews({ doc, lang, onLang, groups, presence }: { doc: PageDoc; lan
 }
 
 export function Build({ api, doc, d, lang, onLang, groups, presence, set, setView, hits, step, onStep, sel, setSel, fill, busy, canAi, onEditInPage, onAskAi, inserts, record, onPickPage, removeInsert,
-  open, onOpen, onOpenBlock, onSelectKey, onFocusPath, pictures, makingIn, since, shop, onAdd, onAddText, onRefine, appBrief }: {
+  open, onOpen, onOpenBlock, onSelectKey, onFocusPath, pictures, makingIn, since, shop, onAdd, onAddText, onRefine, appBrief, moduleSlot, onSeoPropose }: {
   api: StudioApi; doc: PageDoc; d: PageDoc;
+  /** the module gallery's way in (Content v6, ./modules/Actions.tsx): over the element selected, else over the page's parts */
+  moduleSlot?: React.ReactNode;
   /** the store view shown, and opening one (made at once as a copy when it is of a language the page has) */
   lang: string; onLang: (l: string) => void;
   /** every store view of the shop by language; for a page of the shop, whether it is there */
@@ -165,6 +170,8 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
   onRefine?: (path: string) => void;
   /** where the project came from - its app and brief (null while asked) */
   appBrief: AppBrief | null;
+  /** a page of the shop: the AI's search engine fields for the store view shown (Content v6) */
+  onSeoPropose: () => Promise<SeoProposal | string>;
   /** a field in focus here: selected in the preview */
   onFocusPath: (path: string) => void;
   pictures: PictureCtl; makingIn: (block: string) => number;
@@ -174,6 +181,8 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
   shop?: {
     parts: ShopPart[]; whole: number[]; elsewhere: number[]; busyPart: string | null;
     onOpen: (p: ShopPart | null) => void; onAsk: (p: ShopPart) => void; onRemove: (i: number) => void;
+    /** Content v6: "Show the old one" for a replace, "Show it anyway" for a change the check held back */
+    extra?: ChangeExtra;
     /** the part selected as a whole, and the part an element selected in the page is in */
     selPart: string | null; selIn: string | null;
   } | null;
@@ -229,7 +238,7 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
   /* ── the last step, as its own view ─────────────────────────────────── */
   if (step === "publish") {
     return (
-      <Pane pad={false} title={<Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>Build{lang !== main && <Chip tint="blue">{lang}</Chip>}</Box>}>
+      <Pane pad={false} title={<Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>Build{lang !== main && <Chip tint="blue">{viewShort(lang)}</Chip>}</Box>}>
         <Box sx={{ p: 2, animation: `${slideIn} .22s ease-out` }}>
           <Button size="small" startIcon={<ArrowBackIcon sx={{ fontSize: 17 }} />} onClick={() => onStep("page")} sx={{ ...btn, color: INK, px: 0.5, ml: -0.5, mb: 1.25 }}>The page</Button>
           <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: PINK }}>Last step</Typography>
@@ -250,9 +259,14 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
     return lost ? `${d.changes.length - lost} found on the page · ${lost} not found` : `All ${d.changes.length} found on the page`;
   })();
   const changed = shop ? shop.parts.filter((p) => p.changes.length).length : 0;
+  // the search engine fields (Content v6): set here for Magento, else what the page has on the shop
+  const seoSet = !!(d.fields.seo.title.trim() || d.fields.seo.description.trim() || d.fields.seo.urlKey.trim());
+  const seoNow = d.outline && d.outline.path === d.path ? d.outline : null;
+  const seoLine = seoSet ? `New for Magento · title ${d.fields.seo.title.trim().length || "as it is"}${d.fields.seo.title.trim() ? ` / ${LIMIT.seoTitle}` : ""}`
+    : seoNow ? `On the shop: title ${seoNow.title.length} / ${LIMIT.seoTitle} · description ${seoNow.description.length} / ${LIMIT.seoDescription}` : "Title, description, URL key";
   const selPane = sel ? (
-    <ElementPane api={api} view={d} setView={setView} sel={sel} onClose={() => setSel(null)} fill={fill} busy={busy} canAi={canAi}
-      onEditInPage={onEditInPage} onAskAi={onAskAi} inserts={inserts} record={record} />
+    <>{moduleSlot}<ElementPane api={api} view={d} setView={setView} sel={sel} onClose={() => setSel(null)} fill={fill} busy={busy} canAi={canAi}
+      onEditInPage={onEditInPage} onAskAi={onAskAi} inserts={inserts} record={record} /></>
   ) : null;
   const shopParts = !isNew && d.path && shop ? (
     <Box sx={{ mb: 2 }}>
@@ -263,9 +277,10 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
       ) : undefined}>
         The page{shop.parts.length ? ` · ${shop.parts.length} parts${changed ? ` · ${changed} changed` : ""}` : ""}
       </Kick>
+      {!sel && moduleSlot}
       {shop.parts.length ? (
         <ShopPartsOutline parts={shop.parts} whole={shop.whole} elsewhere={shop.elsewhere} changes={d.changes} hits={hits} open={open} onOpen={shop.onOpen}
-          busyPart={shop.busyPart} canEdit={canEdit} canAi={canAi} onAsk={shop.onAsk} onRemove={shop.onRemove}
+          busyPart={shop.busyPart} canEdit={canEdit} canAi={canAi} onAsk={shop.onAsk} onRemove={shop.onRemove} extra={shop.extra}
           selected={sel && shop.selIn && !shop.selPart ? { part: shop.selIn, node: selPane } : null} />
       ) : (
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, p: 1.5, borderRadius: "10px", border: `1px dashed ${HAIRLINE}`, color: MUTED, fontSize: "0.82rem" }}>
@@ -291,7 +306,10 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
           <Texts d={d} set={(v) => setView(v)} canEdit={canEdit} />
         </Row>
       )}
-      <Row id="test" title="A/B test" state="none" summary={d.abTest.enabled ? `On · ${d.abTest.split}% see the new version` : "Off"} open={open === "test"} onToggle={() => onOpen(open === "test" ? null : "test")}>
+      <Row id="seo" title="Search engines" state={seoSet ? "written" : "none"} summary={seoLine} open={open === "seo"} onToggle={() => onOpen(open === "seo" ? null : "seo")}>
+        <SeoPanel d={d} setView={setView} canEdit={canEdit} canAi={canAi} onPropose={onSeoPropose} />
+      </Row>
+      <Row id="test" title="A/B test" state="none" summary={abLine(d).replace("A/B test · ", "")} open={open === "test"} onToggle={() => onOpen(open === "test" ? null : "test")}>
         <AbTest d={d} set={(v) => setView(v)} canEdit={canEdit} />
       </Row>
     </>
@@ -326,7 +344,7 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
 
   return (
     <Pane pad={false}
-      title={<Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>Build{lang !== main && <Chip tint="blue">{lang}</Chip>}</Box>}
+      title={<Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>Build{lang !== main && <Chip tint="blue">{viewShort(lang)}</Chip>}</Box>}
       right={menuItems.length ? (
         <>
           <Tooltip title="More"><IconButton size="small" onClick={(e) => setMenu(e.currentTarget)} aria-label="More" sx={{ my: -0.5 }}><MoreHorizIcon sx={{ fontSize: 19 }} /></IconButton></Tooltip>
@@ -386,8 +404,8 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
           {!isWinner && doc.source === "convert" && doc.origin && lang === main && (
             <Box sx={{ mb: 1.25 }}>
               <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", mb: 0.5 }}>
-                <Chip tint={doc.origin.status === "approved" ? "green" : "amber"}>{doc.origin.status === "approved" ? "Approved version" : "Draft version"}</Chip>
-                <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>revision {doc.origin.rev}</Typography>
+                <Chip tint={doc.origin.status === "approved" ? "green" : "amber"}>{doc.origin.letter ? `Version ${doc.origin.letter}` : doc.origin.status === "approved" ? "Approved version" : "Draft version"}</Chip>
+                <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{doc.origin.letter ? `of AI testing & personalization · ${doc.origin.status === "approved" ? "approved" : "draft"} · ` : ""}revision {doc.origin.rev}</Typography>
               </Box>
               {doc.origin.idea && <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK }}>{doc.origin.idea}</Typography>}
               {doc.origin.summary && <Typography sx={{ fontSize: "0.82rem", color: MUTED, mt: 0.25 }}>{doc.origin.summary}</Typography>}
@@ -416,6 +434,7 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
               <BlocksOutline api={api} f={d.fields} set={(fields, label) => setView({ ...d, fields }, label)} store={d.store} canEdit={canEdit} canAi={canAi} fill={fill} busy={busy}
                 open={open} onOpen={onOpenBlock} focusPath={sel?.key.startsWith("f:") ? sel.key.slice(2) : null} selKey={sel?.key ?? null} onSelect={onSelectKey}
                 onFocusPath={onFocusPath} pictures={pictures} makingIn={makingIn} onAdd={onAdd} onAddText={onAddText} onRefine={onRefine} />
+              {!sel && moduleSlot}
               {sel?.key.startsWith("i:") && (
                 <Box sx={{ mt: 1.5 }}>
                   <RowList>
