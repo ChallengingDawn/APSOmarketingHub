@@ -92,7 +92,7 @@ export const MODULE_KINDS: ModuleKind[] = [
   },
   {
     type: "bento", name: "Product bento", note: "A big tile and the products beside it",
-    takes: "products", max: 6, min: 2, from: "home page version A (Calm drill-down)",
+    takes: "products", max: 7, min: 2, from: "home page version A (Calm drill-down)",
     layouts: [{ key: "left", label: "Big tile left" }, { key: "right", label: "Big tile right" }, { key: "wide", label: "Big tile + 6" }],
     fields: ["eyebrow", "title", "link", "feature"],
   },

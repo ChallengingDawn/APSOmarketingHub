@@ -18,12 +18,14 @@ import { aiCandidates, cardsForNumbers, cardsForPicks, categoryCard, shopCategor
 import type { TreeNode } from "./parse";
 import { MODULE_FILL_SCHEMA, MODULE_FILL_SYSTEM, candidatesIn, cleanPick, moduleFillUser } from "./ai";
 
-const STORE_RE = /^[a-z]{2}-[A-Z]{2,3}$/;
-/** The store view asked for, else the one shown ("lang"), else the page's own. */
+const STORE_RE = /^([a-z]{2}-[A-Z]{2,3})(\/[a-z]{3})?$/;
+/** The store view whose shop is read: the one asked for, else the one shown ("lang"), else the page's own - a store view
+ * in another currency ("de-CH/eur") reads its own language's (the same catalogue; the module writes its links there). */
 function storeIn(raw: unknown, input: Record<string, unknown>, language: string | null): string {
-  if (typeof input.store === "string" && STORE_RE.test(input.store)) return input.store;
+  const asked = typeof input.store === "string" ? STORE_RE.exec(input.store) : null;
+  if (asked) return asked[1];
   const d = viewOf(pageDoc(raw, language), typeof input.lang === "string" ? input.lang : null);
-  return STORE_RE.test(d.store) ? d.store : "de-CH";
+  return STORE_RE.exec(d.store)?.[1] ?? "de-CH";
 }
 const countIn = (input: Record<string, unknown>, max = 12) => Math.max(1, Math.min(max, Math.round(Number(input.count) || 6)));
 const urlIn = (input: Record<string, unknown>) => s(input.url, 400);

@@ -43,7 +43,7 @@ function countFor(m: ModuleRef): number {
   const s = m.settings;
   switch (m.type) {
     case "row": return s.layout === "grid4" ? 8 : s.layout === "grid" ? 10 : 8;
-    case "bento": return s.layout === "wide" ? 6 : 4;
+    case "bento": return (s.layout === "wide" ? 6 : 4) + (s.feature ? 0 : 1); // without a big tile of its own, the first product is it
     case "finder": return 5;
     case "mosaic": return s.layout === "4" ? 8 : s.layout === "2" ? 4 : 6;
     case "cards": return s.layout === "4" ? 4 : s.layout === "2" ? 2 : 3;

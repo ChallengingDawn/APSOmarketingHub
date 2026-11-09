@@ -256,3 +256,12 @@ test("a new page keeps its modules, each after a block; a module still lacking s
   assert.deepEqual(blockOrder(f), ["hero", "intro"], "the blocks' order is the blocks'");
   assert.equal(normalizeFields({ hero: { title: "x" } }).modules, undefined, "a page without modules has none");
 });
+
+test("a store view in another currency keeps its visitors there (the Swiss shop's EUR)", () => {
+  const m = filled("row");
+  m.settings.store = "de-CH/eur";
+  const html = renderModule(m);
+  assert.match(html, /href="\/de-CH\/eur\/11400101-/);
+  assert.match(html, /content:"Zum Produkt/);
+  assert.equal(href(`${B}/de-CH/x.html`), "/de-CH/x.html", "outside a drawing, links stay as they are");
+});

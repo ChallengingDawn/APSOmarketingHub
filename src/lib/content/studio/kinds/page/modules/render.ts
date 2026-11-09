@@ -84,7 +84,7 @@ const CARD_CAT = `@@ .am-pc.is-cat>i{margin-bottom:8px;background:var(--tile)}
 const BIG = `
 @@ .am-big{position:relative;display:flex;flex-direction:column;justify-content:flex-end;min-width:0;min-height:0;border-radius:18px;background:var(--tile);overflow:hidden;
   color:var(--ink)!important;box-shadow:0 12px 30px -22px rgba(27,58,75,.55)}
-@@ .am-big img{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;transition:transform .5s}
+@@ .am-big img{position:absolute;left:0;top:0;width:100%;height:calc(100% - 46px);object-fit:cover;transition:transform .5s}
 @@ .am-big.is-prod{background:#fff;box-shadow:0 12px 30px -22px rgba(27,58,75,.55),inset 0 0 0 1px #edf0f2}
 @@ .am-big.is-prod img{left:8%;top:4%;width:84%;height:72%;object-fit:contain;mix-blend-mode:multiply;filter:brightness(1.05) contrast(1.07)}
 @@ .am-big:hover img{transform:scale(1.04)}
@@ -109,7 +109,15 @@ function header(s: ModuleSettings, all = true): string {
 /** A link to the shop, written from the page's own host: the same module works on ACC and on the live shop (and in the
  * studio's preview, whose page carries the shop's address as its base). Pictures stay absolute on www - ACC lacks some
  * media files (the kit, 05.11). */
-export const href = (u: string) => esc(u.replace(/^https:\/\/(www|acc)\.apsoparts\.com(?=\/)/i, ""));
+export const href = (u: string) => {
+  const path = u.replace(/^https:\/\/(www|acc)\.apsoparts\.com(?=\/)/i, "");
+  // a store view in another currency (the Swiss shop's EUR: "de-CH/eur") keeps its visitors there: /de-CH/x -> /de-CH/eur/x
+  const cur = drawing.store && /^[a-z]{2}-[A-Z]{2,3}\/[a-z]{3}$/.test(drawing.store) ? drawing.store : null;
+  const base = cur ? cur.split("/")[0] : null;
+  return esc(cur && base && path.startsWith(`/${base}/`) && !path.startsWith(`/${cur}/`) ? `/${cur}${path.slice(base.length + 1)}` : path);
+};
+/** The store view of the module being drawn (moduleParts sets it - drawing is synchronous). */
+const drawing: { store: string | null } = { store: null };
 
 function pic(c: Card, o: Opts, lazy = true): string {
   if (!c.img) return "";
@@ -502,7 +510,9 @@ const DRAW: Record<ModuleRef["type"], (m: ModuleRef, o: Opts) => { html: string;
 export function moduleParts(m: ModuleRef, o: Opts = {}): { cls: string; css: string; html: string } {
   const cls = `apx-${m.settings.id}`;
   const w = wordsFor(m.settings.store);
-  const d = DRAW[m.type](m, o);
+  drawing.store = m.settings.store;
+  let d: { html: string; css: string };
+  try { d = DRAW[m.type](m, o); } finally { drawing.store = null; }
   const css = minifyCss(`${BASE}${d.css}`.replace(/%GOCAT%/g, cssStr(w.goCat)).replace(/%GO%/g, cssStr(w.go))).split("@@").join(`.${cls}`);
   return { cls, css, html: d.html };
 }

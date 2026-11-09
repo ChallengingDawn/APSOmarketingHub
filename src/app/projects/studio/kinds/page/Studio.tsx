@@ -932,7 +932,7 @@ export default function Studio({ api }: StudioProps) {
     <>
       <StudioPanes id="page" buildWidth={410} assistWidth={340} hideBuild={fold.build} hideAssist={fold.assist}
         build={modules.editing ? (
-          <ModulePanel ctl={modules} api={api} onBack={() => modules.edit(null)}
+          <ModulePanel key={modules.editing} ctl={modules} api={api} onBack={() => modules.edit(null)}
             pageCategory={d.pageKind === "category" && d.path ? { name: d.outline?.path === d.path ? d.outline.h1[0] ?? "This category" : "This category", url: `https://www.apsoparts.com${d.path}` } : null} />
         ) : <Build api={api} doc={doc} d={d} lang={lang} onLang={openView} groups={groups} presence={presence} set={setDoc} setView={setView} hits={hits} step={step} onStep={setStep}
           sel={sel} setSel={setSel} fill={fill} busy={busyHere} canAi={aiHere} onEditInPage={() => setEditNonce((n) => n + 1)} onAskAi={askAi}
