@@ -40,6 +40,9 @@ export function allowedHosts(env: NodeJS.ProcessEnv = process.env): Set<string> 
   // the shop's public pages, production and ACC, while SANDBOX_SHOP=read: APSOconvert's page index and live preview
   // read them (GET, no key - the sandbox holds no Magento key, so nothing there can change)
   if (env.SANDBOX_SHOP === "read") for (const h of ["www.apsoparts.com", "acc.apsoparts.com"]) hosts.add(h);
+  // DeepL while SANDBOX_DEEPL=on and a DeepL key is in .env.local: APSO Translator's Preview translates the inboxes'
+  // real messages (HubSpot writes stay held back, so nothing is posted)
+  if (env.SANDBOX_DEEPL === "on" && env.DEEPL_API_KEY) { hosts.add("api.deepl.com"); hosts.add("api-free.deepl.com"); }
   return hosts;
 }
 

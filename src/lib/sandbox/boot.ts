@@ -31,6 +31,7 @@ export const SANDBOX_JOBS: Record<string, Start> = {
   ticketDuplicates: async () => (await import("../ticketDuplicates/engine")).startTicketDuplicates(),
   ticketValue: async () => (await import("../ticketValue/engine")).startTicketValue(),
   chatTopics: async () => (await import("../chat/topics")).startChatTopics(),
+  translator: async () => (await import("../translator/engine")).startTranslator(),
 };
 
 export async function startSandbox(env: NodeJS.ProcessEnv = process.env): Promise<void> {
