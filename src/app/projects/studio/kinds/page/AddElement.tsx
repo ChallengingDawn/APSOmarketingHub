@@ -14,6 +14,7 @@ import Button from "@mui/material/Button";
 import Popover from "@mui/material/Popover";
 import Typography from "@mui/material/Typography";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import DashboardCustomizeOutlinedIcon from "@mui/icons-material/DashboardCustomizeOutlined";
 import VerticalSplitOutlinedIcon from "@mui/icons-material/VerticalSplitOutlined";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { textPictureBlock, prefixOf } from "@/lib/content/studio/kinds/page/block";
@@ -29,6 +30,8 @@ export type AddElementProps = {
   /** the AI asked for a block at this place */
   onAskAi: (request: string, place: AddPlace) => void;
   canAi: boolean;
+  /** the module gallery opened for this place (builder B, ./modules/Gallery.tsx) */
+  onGallery?: (place: AddPlace) => void;
 };
 
 /** The block "Text and picture" at a place: in the kit's way, a photo of the page beside the words. */
@@ -37,7 +40,7 @@ export function textPictureAt(place: AddPlace): PageChange {
   return insertChange(place.selector, place.where, textPictureBlock(prefixOf(id), place.img), { id, note: "Text and picture" });
 }
 
-export function AddElementMenu({ place, onClose, onInsert, onAskAi, canAi }: AddElementProps) {
+export function AddElementMenu({ place, onClose, onInsert, onAskAi, canAi, onGallery }: AddElementProps) {
   const [asking, setAsking] = useState(false);
   const [text, setText] = useState("");
   const input = useRef<HTMLTextAreaElement | null>(null);
@@ -68,6 +71,8 @@ export function AddElementMenu({ place, onClose, onInsert, onAskAi, canAi }: Add
           {choice({ key: "text-picture", name: "Text and picture", note: place?.img ? "A heading, words and a photo of this page" : "A heading and words, in the shop's look", Icon: VerticalSplitOutlinedIcon,
             onClick: () => { if (place) onInsert(textPictureAt(place), "Added text and picture"); onClose(); } })}
           {choice({ key: "ai", name: "Ask the AI for a block", note: "Say what it should show - designed for this place", Icon: AutoAwesomeOutlinedIcon, disabled: !canAi, onClick: () => setAsking(true) })}
+          {onGallery && choice({ key: "gallery", name: "A module from the gallery", note: "Bentos, product rows, mosaics, banners - filled from the shop", Icon: DashboardCustomizeOutlinedIcon,
+            onClick: () => { if (place) onGallery(place); onClose(); } })}
         </Box>
       ) : (
         <Box>

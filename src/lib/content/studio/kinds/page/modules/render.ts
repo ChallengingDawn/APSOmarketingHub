@@ -35,7 +35,7 @@ type Opts = {
 /* ── the shared parts: tokens, heading, cards, tiles ───────────────────── */
 
 const BASE = `
-@@{--red:#d80901;--red-d:#b00700;--pet:#274e64;--pet-d:#1b3a4b;--ink:#1d2326;--txt:#5e5e5e;--mute:#80878c;--line:#e5e8ea;--tile:#e8e9eb;
+@@{--red:#d80901;--red-d:#b00700;--pet:#274e64;--pet-d:#1b3a4b;--ink:#1d2326;--txt:#5e5e5e;--mute:#646b70;--line:#e5e8ea;--tile:#e8e9eb;
   --head:"futura-pt","Futura PT",Futura,Jost,Arial,sans-serif;display:block;box-sizing:border-box;width:100%;max-width:1170px;margin:28px auto;padding:0 10px;
   color:var(--txt);font:15px/1.55 Arial,system-ui,sans-serif;-webkit-font-smoothing:antialiased;text-align:left;clear:both}
 @@ *,@@ *::before,@@ *::after{box-sizing:border-box}
@@ -84,7 +84,7 @@ const CARD_CAT = `@@ .am-pc.is-cat>i{margin-bottom:8px;background:var(--tile)}
 const BIG = `
 @@ .am-big{position:relative;display:flex;flex-direction:column;justify-content:flex-end;min-width:0;min-height:0;border-radius:18px;background:var(--tile);overflow:hidden;
   color:var(--ink)!important;box-shadow:0 12px 30px -22px rgba(27,58,75,.55)}
-@@ .am-big img{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;transition:transform .5s}
+@@ .am-big img{position:absolute;left:0;top:0;width:100%;height:calc(100% - 46px);object-fit:cover;transition:transform .5s}
 @@ .am-big.is-prod{background:#fff;box-shadow:0 12px 30px -22px rgba(27,58,75,.55),inset 0 0 0 1px #edf0f2}
 @@ .am-big.is-prod img{left:8%;top:4%;width:84%;height:72%;object-fit:contain;mix-blend-mode:multiply;filter:brightness(1.05) contrast(1.07)}
 @@ .am-big:hover img{transform:scale(1.04)}
@@ -109,7 +109,15 @@ function header(s: ModuleSettings, all = true): string {
 /** A link to the shop, written from the page's own host: the same module works on ACC and on the live shop (and in the
  * studio's preview, whose page carries the shop's address as its base). Pictures stay absolute on www - ACC lacks some
  * media files (the kit, 05.11). */
-export const href = (u: string) => esc(u.replace(/^https:\/\/(www|acc)\.apsoparts\.com(?=\/)/i, ""));
+export const href = (u: string) => {
+  const path = u.replace(/^https:\/\/(www|acc)\.apsoparts\.com(?=\/)/i, "");
+  // a store view in another currency (the Swiss shop's EUR: "de-CH/eur") keeps its visitors there: /de-CH/x -> /de-CH/eur/x
+  const cur = drawing.store && /^[a-z]{2}-[A-Z]{2,3}\/[a-z]{3}$/.test(drawing.store) ? drawing.store : null;
+  const base = cur ? cur.split("/")[0] : null;
+  return esc(cur && base && path.startsWith(`/${base}/`) && !path.startsWith(`/${cur}/`) ? `/${cur}${path.slice(base.length + 1)}` : path);
+};
+/** The store view of the module being drawn (moduleParts sets it - drawing is synchronous). */
+const drawing: { store: string | null } = { store: null };
 
 function pic(c: Card, o: Opts, lazy = true): string {
   if (!c.img) return "";
@@ -117,10 +125,13 @@ function pic(c: Card, o: Opts, lazy = true): string {
   return `<img src="${esc(o.picture ? o.picture(src) : src)}" alt=""${lazy ? ' loading="lazy"' : ""}>`;
 }
 
+/** A product's name as a card writes it: a type number never breaks at its hyphen ("70.10-02"). */
+const nameOf = (n: string) => esc(n).replace(/(\d)-(?=\d)/g, "$1‑");
+
 /** The kit's finished card: photo, name in two lines, the shop's count; "Zum Produkt" takes the count's place on hover. */
 function card(c: Card, o: Opts, label = ""): string {
   return `<a class="am-pc${c.kind === "category" ? " is-cat" : ""}" href="${href(c.url)}"><i>${pic(c, o)}</i>${label ? `<small>${esc(label)}</small>` : ""}`
-    + `<b>${esc(c.name)}</b><em>${esc(c.meta)}</em></a>`;
+    + `<b>${nameOf(c.name)}</b><em>${esc(c.meta)}</em></a>`;
 }
 
 /** The big tile: a category's photo filling it (a product's on white), a white caption with its name and "Alle anzeigen". */
@@ -167,12 +178,12 @@ function finder(m: ModuleRef, o: Opts): { html: string; css: string } {
 @@ .am-fd:has(.am-it:not(:first-child):hover) .am-it:first-child:not(:hover) b{color:var(--ink)}
 @@ .am-fd:has(.am-it:not(:first-child):hover) .am-it:first-child:not(:hover)::after{border-color:#a3abb0}
 @@ .am-st{display:grid;min-width:0}
-@@ .am-pn{grid-area:1/1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,228px);gap:12px;visibility:hidden;transform:translateX(14px);
-  transition:visibility 0s .14s,transform .26s ease-out .14s}
+@@ .am-pn{grid-area:1/1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,228px);gap:12px;clip-path:inset(0 0 0 100%);
+  transition:clip-path .3s cubic-bezier(.2,.7,.2,1) .14s}
 @@ .am-pn>.am-big{grid-column:span 2;grid-row:span 2}
-@@ .am-pn:first-child{visibility:visible;transform:none}
-@@ .am-fd:has(.am-it:not(:first-child):is(:hover,:focus-visible),.am-pn:not(:first-child):hover) .am-pn:first-child{visibility:hidden;transform:translateX(14px)}
-${show.length ? `${show.join(",")}{visibility:visible;transform:none}` : ""}
+@@ .am-pn:first-child{clip-path:inset(-30px)}
+@@ .am-fd:has(.am-it:not(:first-child):is(:hover,:focus-visible),.am-pn:not(:first-child):hover) .am-pn:first-child{clip-path:inset(0 0 0 100%)}
+${show.length ? `${show.join(",")}{clip-path:inset(-30px)}` : ""}
 @media (max-width:1100px) and (min-width:901px){@@ .am-fd{grid-template-columns:${right ? "minmax(0,1fr) 240px" : "240px minmax(0,1fr)"};gap:14px}@@ .am-pn{grid-template-columns:minmax(0,1.2fr) repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,214px);gap:10px}@@ .am-pn>.am-big{grid-column:span 1;grid-row:span 2}@@ .am-it{gap:10px;padding:6px 10px 6px 6px}@@ .am-it b{font-size:14.5px}@@ .am-cap b{font-size:18px}}
 @media (max-width:900px){
 @@ .am-fd{grid-template-columns:minmax(0,1fr);gap:12px}
@@ -181,7 +192,7 @@ ${show.length ? `${show.join(",")}{visibility:visible;transform:none}` : ""}
 @@ .am-it::after{display:none}
 @@ .am-it img,@@ .am-it>span{width:30px;height:30px;border-radius:50%}
 @@ .am-it b{font-size:14px;white-space:nowrap}
-@@ .am-pn{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:230px;grid-auto-rows:auto;gap:10px;transform:none!important;transition:none}
+@@ .am-pn{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:230px;grid-auto-rows:auto;gap:10px;transition:none}
 @@ .am-pn:not(:first-child){display:none}
 @@ .am-pn>.am-big{grid-row:auto}
 @@ .am-pn .am-pc>i{flex:none;aspect-ratio:1/.78}
@@ -248,7 +259,7 @@ function mosaic(m: ModuleRef, o: Opts): { html: string; css: string } {
 @@ .am-zr:hover,@@ .am-zr:focus-visible{background:#f4f6f7}
 @@ .am-zr::after{content:"";width:6px;height:6px;border:solid var(--red);border-width:1.6px 1.6px 0 0;transform:rotate(45deg);opacity:0;transition:opacity .15s}
 @@ .am-zr:hover::after{opacity:1}
-@@ .am-zr b{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font:600 13.5px/1.2 var(--head);transition:color .15s}
+@@ .am-zr b{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;font:600 13.5px/1.2 var(--head);transition:color .15s}
 @@ .am-zr:hover b,@@ .am-zr:focus-visible b{color:var(--red)}
 @@ .am-zt{display:block;width:32px;height:32px;overflow:hidden;border-radius:8px;background:#fff;box-shadow:inset 0 0 0 1px #eef1f3}
 @@ .am-zt img{width:100%;height:100%;object-fit:contain;transform:scale(1.3)}
@@ -417,7 +428,7 @@ function textpic(m: ModuleRef, o: Opts): { html: string; css: string } {
   const p = s.feature;
   const css = `
 @@ .am-tp{display:grid;grid-template-columns:${p ? "minmax(0,1fr) minmax(0,1fr)" : "minmax(0,1fr)"};align-items:center;gap:44px}
-@@ .am-tt>p,@@ .am-tt .am-li{margin-top:12px!important;font-size:15.5px;line-height:1.6;color:var(--txt)}
+@@ .am-tt>p:not(.am-ey),@@ .am-tt .am-li{margin-top:12px!important;font-size:15.5px;line-height:1.6;color:var(--txt)}
 @@ .am-tt .am-ey{margin-top:0!important}
 @@ h2.am-th{font-size:clamp(23px,2.2vw,30px)!important;line-height:1.18!important}
 @@ .am-li li{position:relative;padding-left:20px}
@@ -499,7 +510,9 @@ const DRAW: Record<ModuleRef["type"], (m: ModuleRef, o: Opts) => { html: string;
 export function moduleParts(m: ModuleRef, o: Opts = {}): { cls: string; css: string; html: string } {
   const cls = `apx-${m.settings.id}`;
   const w = wordsFor(m.settings.store);
-  const d = DRAW[m.type](m, o);
+  drawing.store = m.settings.store;
+  let d: { html: string; css: string };
+  try { d = DRAW[m.type](m, o); } finally { drawing.store = null; }
   const css = minifyCss(`${BASE}${d.css}`.replace(/%GOCAT%/g, cssStr(w.goCat)).replace(/%GO%/g, cssStr(w.go))).split("@@").join(`.${cls}`);
   return { cls, css, html: d.html };
 }

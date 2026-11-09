@@ -64,8 +64,7 @@ import { blockOfPath, blocksOf, itemOfPath } from "./outline";
 import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, presenceOf, previewOf, relinkOf } from "./shop";
 import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
 import { appBriefOf } from "./appBrief";
-import { moduleFillTask } from "./modules/ai";
-import { moduleActions } from "./modules/server";
+import { moduleActions, moduleFillTask } from "./modules/server";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 

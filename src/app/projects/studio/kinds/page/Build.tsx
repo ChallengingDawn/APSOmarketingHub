@@ -140,8 +140,10 @@ function StoreViews({ doc, lang, onLang, groups, presence }: { doc: PageDoc; lan
 }
 
 export function Build({ api, doc, d, lang, onLang, groups, presence, set, setView, hits, step, onStep, sel, setSel, fill, busy, canAi, onEditInPage, onAskAi, inserts, record, onPickPage, removeInsert,
-  open, onOpen, onOpenBlock, onSelectKey, onFocusPath, pictures, makingIn, since, shop, onAdd, onAddText, onRefine, appBrief, onSeoPropose }: {
+  open, onOpen, onOpenBlock, onSelectKey, onFocusPath, pictures, makingIn, since, shop, onAdd, onAddText, onRefine, appBrief, moduleSlot, onSeoPropose }: {
   api: StudioApi; doc: PageDoc; d: PageDoc;
+  /** the module gallery's way in (Content v6, ./modules/Actions.tsx): over the element selected, else over the page's parts */
+  moduleSlot?: React.ReactNode;
   /** the store view shown, and opening one (made at once as a copy when it is of a language the page has) */
   lang: string; onLang: (l: string) => void;
   /** every store view of the shop by language; for a page of the shop, whether it is there */
@@ -263,8 +265,8 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
   const seoLine = seoSet ? `New for Magento · title ${d.fields.seo.title.trim().length || "as it is"}${d.fields.seo.title.trim() ? ` / ${LIMIT.seoTitle}` : ""}`
     : seoNow ? `On the shop: title ${seoNow.title.length} / ${LIMIT.seoTitle} · description ${seoNow.description.length} / ${LIMIT.seoDescription}` : "Title, description, URL key";
   const selPane = sel ? (
-    <ElementPane api={api} view={d} setView={setView} sel={sel} onClose={() => setSel(null)} fill={fill} busy={busy} canAi={canAi}
-      onEditInPage={onEditInPage} onAskAi={onAskAi} inserts={inserts} record={record} />
+    <>{moduleSlot}<ElementPane api={api} view={d} setView={setView} sel={sel} onClose={() => setSel(null)} fill={fill} busy={busy} canAi={canAi}
+      onEditInPage={onEditInPage} onAskAi={onAskAi} inserts={inserts} record={record} /></>
   ) : null;
   const shopParts = !isNew && d.path && shop ? (
     <Box sx={{ mb: 2 }}>
@@ -275,6 +277,7 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
       ) : undefined}>
         The page{shop.parts.length ? ` · ${shop.parts.length} parts${changed ? ` · ${changed} changed` : ""}` : ""}
       </Kick>
+      {!sel && moduleSlot}
       {shop.parts.length ? (
         <ShopPartsOutline parts={shop.parts} whole={shop.whole} elsewhere={shop.elsewhere} changes={d.changes} hits={hits} open={open} onOpen={shop.onOpen}
           busyPart={shop.busyPart} canEdit={canEdit} canAi={canAi} onAsk={shop.onAsk} onRemove={shop.onRemove} extra={shop.extra}
@@ -431,6 +434,7 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
               <BlocksOutline api={api} f={d.fields} set={(fields, label) => setView({ ...d, fields }, label)} store={d.store} canEdit={canEdit} canAi={canAi} fill={fill} busy={busy}
                 open={open} onOpen={onOpenBlock} focusPath={sel?.key.startsWith("f:") ? sel.key.slice(2) : null} selKey={sel?.key ?? null} onSelect={onSelectKey}
                 onFocusPath={onFocusPath} pictures={pictures} makingIn={makingIn} onAdd={onAdd} onAddText={onAddText} onRefine={onRefine} />
+              {!sel && moduleSlot}
               {sel?.key.startsWith("i:") && (
                 <Box sx={{ mt: 1.5 }}>
                   <RowList>

@@ -32,8 +32,17 @@ const pathOf = (url: string) => { try { return new URL(url, BASE).pathname; } ca
 const STORE_RE = /^[a-z]{2}-[A-Z]{2,3}$/;
 
 class ShopBusy extends Error {}
+/** At a person's pace: a read the shop has not answered before waits 0.4 s after the last one (its firewall answers a
+ * burst with 429) - a page read in the last ten minutes comes from APSOconvert's reader at once. */
+let lastRead = 0;
+async function pace(): Promise<void> {
+  const wait = lastRead + 400 - Date.now();
+  lastRead = Math.max(Date.now(), lastRead + 400);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+}
 async function readShop(path: string): Promise<string> {
   try {
+    await pace();
     const p = await shopPage(ENV, path);
     if (p.status === 429) throw new ShopBusy("The shop asks the hub to slow down - try again in a minute.");
     if (p.status !== 200) throw new Error(`The shop answered ${p.status} for ${path}.`);
@@ -147,7 +156,7 @@ export async function cardsForNumbers(text: string, store: string, max = 12): Pr
   for (const o of order) {
     if (seen.has(o.product) || cards.length >= max) continue;
     seen.add(o.product);
-    const r = await productCard(o.product, store);
+    const r = await productCard(o.product, store).catch((e) => ({ card: null, why: String((e as Error).message ?? e).slice(0, 160) }));
     if (r.card) cards.push(r.card);
     else missing.push({ number: o.number, why: r.why });
   }
