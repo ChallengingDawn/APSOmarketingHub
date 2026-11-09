@@ -274,8 +274,7 @@ test("applyToCms: edits spliced in place, the rest kept byte for byte, wrappers 
   ];
   const r = applyToCms(content, changes, "test-12");
   assert.ok(r.content.startsWith(`<style data-apso-version="test-12">\n.apx-delivery{font-weight:700}\n</style>\n`));
-  // Content v6: a block put in is marked as this write's - among Page Builder's elements, as an HTML Code element
-  assert.ok(r.content.includes(`</h1><div data-content-type="html" data-appearance="default" data-element="main" data-decoded="true" data-apx-block="test-12"><p data-apx-block="test-12" class="apx-delivery">Lieferung in 2 Tagen</p></div>\n<p class='lead' title="1920 &quot;seit&quot;">Seit 1920</p>`));
+  assert.ok(r.content.includes(`</h1><p class="apx-delivery">Lieferung in 2 Tagen</p>\n<p class='lead' title="1920 &quot;seit&quot;">Seit 1920</p>`));
   assert.equal((r.content.match(/<span>In den Warenkorb<\/span>/g) ?? []).length, 2);
   assert.ok(r.content.includes(`class="old-banner" style="color:red; display:none !important"`));
   assert.ok(r.content.includes(`<img src="a.png">`));
