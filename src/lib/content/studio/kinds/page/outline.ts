@@ -6,7 +6,7 @@
 // by the AI). A click opens that part alone and selects it in the preview. And "AI wrote the whole page ... It's not
 // generating photos": the picture slots the AI gave an idea for are listed here, to be made without another click.
 
-import { getField, type Fields, type Pic } from "./fields";
+import { blockOrder, getField, type Fields, type ListKey, type Pic } from "./fields";
 
 export const PART_KEYS = ["hero", "intro", "benefits", "sections", "links", "faq", "cta", "seo"] as const;
 export type PartKey = (typeof PART_KEYS)[number];
@@ -107,4 +107,110 @@ export function picturesToMake(f: Fields, run: string, id?: string | null, max =
 /** Every picture slot of the page, by path, with its picture - for the outline's "picture missing". */
 export function pictureSlots(f: Fields): { path: string; pic: Pic }[] {
   return [{ path: "hero.picture", pic: f.hero.picture }, ...f.sections.map((s) => ({ path: `sections.${s.id}.picture`, pic: s.picture }))];
+}
+
+/* ── each block its own row (Content v5, 09.11.2026) ─────────────────── */
+//
+// SARCLA 09.11.2026: "each block should be a section - for example block 4 should be subdivided". The map lists the page's
+// blocks one by one, in their order and numbered as on the page (Hero, Intro, the proof tiles, each text-and-picture
+// section, the links, the questions, the call to action), then the search engine fields. A block with items opens into
+// them: the tiles, the questions, the links - each its own row.
+
+export type BlockKind = "hero" | "intro" | "benefits" | "text" | "texts" | "links" | "faq" | "cta" | "seo";
+export const BLOCK_KIND_NAME: Record<BlockKind, string> = {
+  hero: "Hero", intro: "Intro", benefits: "Proof tiles", text: "Text and picture", texts: "Text and picture", links: "Links to the shop",
+  faq: "Questions", cta: "Call to action", seo: "Search engine fields",
+};
+/** What an item of a block is called ("Tile 3", "Question 2", "Link 1") and how the + says it. */
+export const ITEM_NAME: Partial<Record<ListKey, string>> = { benefits: "Tile", faq: "Question", links: "Link" };
+
+export type BlockInfo = {
+  /** its key in the order ("hero", "intro", "sections.ab12", "sections" = the empty slot, ..., "seo") */
+  key: string; kind: BlockKind;
+  /** its number on the page (the search engine fields: none) */
+  num: number | null;
+  name: string; line: string; count: number | null; state: PartState; missing: number;
+  /** its block in the preview (data-apx-b) - none for the search engine fields */
+  preview: string | null;
+  /** the list its items are in (tiles, links, questions) */
+  list: ListKey | null;
+};
+
+const kindOf = (key: string): BlockKind => (key.startsWith("sections.") ? "text" : key === "sections" ? "texts" : (key as BlockKind));
+/** A block's key as the preview names it (data-apx-b): the intro's block is "intro-block" ("intro" is its words). */
+export const previewOf = (key: string): string | null => (key === "seo" ? null : key === "intro" ? "intro-block" : key);
+
+/** Every block of the page in its order, numbered, with its state and a line of what it says - then the search engine fields. */
+export function blocksOf(f: Fields): BlockInfo[] {
+  const st = (written: boolean, started: boolean, missing = 0): PartState => (written ? (missing ? "picture" : "written") : started ? "partly" : "empty");
+  const h = f.hero;
+  const out: BlockInfo[] = blockOrder(f).map((key, i) => {
+    const kind = kindOf(key);
+    const base = { key, kind, num: i + 1, name: BLOCK_KIND_NAME[kind], preview: previewOf(key), list: null as ListKey | null, count: null as number | null, missing: 0 };
+    if (key === "hero") {
+      const missing = h.title.trim() && !h.picture.url ? 1 : 0;
+      return { ...base, missing, line: words(h.title) || words(h.sub), state: st(!!h.title.trim(), !!(h.eyebrow.trim() || h.sub.trim() || h.button.label.trim() || h.picture.url), missing) };
+    }
+    if (key === "intro") return { ...base, line: words(f.intro), state: st(!!f.intro.trim(), false) };
+    if (key === "benefits") {
+      return { ...base, list: "benefits", count: f.benefits.length || null, line: words(f.benefitsTitle) || join(f.benefits.map((b) => b.title)),
+        state: st(f.benefits.length > 0 && f.benefits.every((b) => b.title.trim()), f.benefits.length > 0 || !!f.benefitsTitle.trim()) };
+    }
+    if (kind === "text") {
+      const s = f.sections.find((x) => `sections.${x.id}` === key)!;
+      const done = !!(s.title.trim() && s.text.trim());
+      const missing = (s.title.trim() || s.text.trim()) && !s.picture.url ? 1 : 0;
+      return { ...base, missing, line: words(s.title) || words(s.text), state: st(done, !!(s.title.trim() || s.text.trim() || s.picture.url), missing) };
+    }
+    if (key === "sections") return { ...base, line: "", state: "empty" as PartState };
+    if (key === "links") {
+      return { ...base, list: "links", count: f.links.length || null, line: words(f.linksTitle) || join(f.links.map((l) => l.label)),
+        state: st(f.links.length > 0 && f.links.every((l) => l.label.trim() && l.url), f.links.length > 0) };
+    }
+    if (key === "faq") {
+      return { ...base, list: "faq", count: f.faq.length || null, line: words(f.faqTitle) || join(f.faq.map((q) => q.q)),
+        state: st(f.faq.length > 0 && f.faq.every((q) => q.q.trim() && q.a.trim()), f.faq.length > 0) };
+    }
+    return { ...base, line: words(f.cta.title) || words(f.cta.text), state: st(!!f.cta.title.trim(), !!(f.cta.text.trim() || f.cta.button.label.trim())) };
+  });
+  out.push({ key: "seo", kind: "seo", num: null, name: BLOCK_KIND_NAME.seo, preview: null, list: null, count: null, missing: 0, line: words(f.seo.title),
+    state: st(!!f.seo.title.trim() && !!f.seo.description.trim(), !!(f.seo.title.trim() || f.seo.description.trim())) });
+  return out;
+}
+
+export type ItemInfo = { key: string; id: string; name: string; line: string; state: PartState; sel: string };
+
+/** A block's items as rows: each tile, question or link - its name, a line of what it says, its state, its selection. */
+export function itemsOf(f: Fields, list: ListKey): ItemInfo[] {
+  const n = ITEM_NAME[list] ?? "Item";
+  const st = (a: string, b: string): PartState => (a.trim() && b.trim() ? "written" : a.trim() || b.trim() ? "partly" : "empty");
+  if (list === "benefits") return f.benefits.map((b, i) => ({ key: `benefits.${b.id}`, id: b.id, name: `${n} ${i + 1}`, line: words(b.title) || words(b.text), sel: `b:benefits.${b.id}`, state: st(b.title, b.text) }));
+  if (list === "faq") return f.faq.map((q, i) => ({ key: `faq.${q.id}`, id: q.id, name: `${n} ${i + 1}`, line: words(q.q), sel: `b:faq.${q.id}`, state: st(q.q, q.a) }));
+  if (list === "links") return f.links.map((l, i) => ({ key: `links.${l.id}`, id: l.id, name: `${n} ${i + 1}`, line: words(l.label) || l.url, sel: `f:links.${l.id}`, state: st(l.label, l.url) }));
+  return [];
+}
+
+/** The block a field or a block of the preview belongs to: "sections.ab12.text" -> "sections.ab12", "benefits.x.title" ->
+ * "benefits", "faqTitle" -> "faq", "intro-block" -> "intro", "seo.title" -> "seo". */
+export function blockOfPath(path: string | null | undefined): string | null {
+  const p = String(path ?? "").split(".");
+  if (p[0] === "sections") return p[1] ? `sections.${p[1]}` : "sections";
+  const k = p[0] === "benefitsTitle" ? "benefits" : p[0] === "linksTitle" ? "links" : p[0] === "faqTitle" ? "faq" : p[0] === "intro-block" ? "intro" : p[0];
+  return ["hero", "intro", "benefits", "links", "faq", "cta", "seo"].includes(k) ? k : null;
+}
+
+/** The item a path is in ("benefits.x.title" -> "benefits.x", "links.y" -> "links.y"), or null. */
+export function itemOfPath(path: string | null | undefined): string | null {
+  const p = String(path ?? "").split(".");
+  return (p[0] === "benefits" || p[0] === "faq" || p[0] === "links") && p[1] ? `${p[0]}.${p[1]}` : null;
+}
+
+/** The blocks of the map an AI run is writing (the studio's busy key) - they shimmer there and in the page. */
+export function busyBlocks(busy: string | null, f: Fields): string[] {
+  if (!busy) return [];
+  if (busy === "all") return [...blockOrder(f), "seo"];
+  if (busy === "sections") return blockOrder(f).filter((k) => k === "sections" || k.startsWith("sections."));
+  if (busy.startsWith("section:")) return [`sections.${busy.slice(8)}`];
+  if (busy.startsWith("field:")) { const b = blockOfPath(busy.slice(6)); return b ? [b] : []; }
+  return ["hero", "intro", "benefits", "links", "faq", "cta", "seo"].includes(busy) ? [busy] : [];
 }
