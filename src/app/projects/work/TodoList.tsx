@@ -341,14 +341,15 @@ function TodoRow({ p, w, ticket, takes, ticketsLoading, act, onTicket, onAskChan
 
   return (
     <Box id={`piece-${p.id}`} sx={{
-      py: 1.25, px: 1, mx: -1, borderTop: `1px solid ${HAIRLINE}`, display: "grid", gap: 0.9, borderRadius: "10px",
+      py: 1.25, px: 1, mx: -1, borderTop: `1px solid ${HAIRLINE}`, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.9, borderRadius: "10px",
       opacity: p.pending ? 0.55 : 1, transition: "background-color .25s ease, opacity .25s ease",
       "&:hover": { bgcolor: "rgba(255,255,255,.6)" }, "&:target": { bgcolor: "#fff7e8" },
       animation: "rowIn .3s ease", "@keyframes rowIn": { from: { opacity: 0, transform: "translateY(4px)" }, to: { opacity: 1, transform: "none" } },
     }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+      {/* a phone: the title takes its line, the next step and the menu go under it - always in reach */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: { xs: "wrap", sm: "nowrap" } }}>
         <KindTile kind={p.contentType} />
-        <Box sx={{ flex: "1 1 auto", minWidth: 0 }}>
+        <Box sx={{ flex: { xs: "1 1 calc(100% - 52px)", sm: "1 1 auto" }, minWidth: 0 }}>
           <InlineTitle value={p.title} canEdit={canEdit && !p.pending} size="0.95rem" weight={650} maxWidth="100%"
             onSave={(t) => act({ action: "piece-edit", pieceId: p.id, title: t }, (x) => ({ ...x, pieces: x.pieces.map((y) => (y.id === p.id ? { ...y, title: t } : y)) }))} />
           <Typography sx={{ fontSize: "0.76rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>

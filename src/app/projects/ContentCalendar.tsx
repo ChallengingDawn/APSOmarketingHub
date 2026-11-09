@@ -237,7 +237,7 @@ export default function ContentCalendar() {
         </Typography>
       </Box>
 
-      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", lg: "1fr 280px" }, alignItems: "start" }}>
+      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(0, 1fr) 280px" }, alignItems: "start" }}>
         <GlassCard sx={{ p: { xs: 1.25, sm: 1.5 } }}>
           {projects !== null && monthDays.length === 0 && (
             <Typography sx={{ fontSize: "0.84rem", color: MUTED, px: 0.5, pb: 1 }}>

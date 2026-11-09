@@ -293,12 +293,13 @@ export default function ContentBoard() {
       {!data && !err && <Typography sx={{ fontSize: "0.9rem", color: MUTED }}>Reading the projects…</Typography>}
 
       {data && view === "board" && (
-        <Box sx={{ overflowX: "auto", pb: 1 }}>
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(196px, 1fr))", gap: 1.5, minWidth: 1000 }}>
+        // a phone: the stages one under the other, the empty ones left out (five columns side by side need 1000 px)
+        <Box sx={{ overflowX: { xs: "visible", sm: "auto" }, pb: 1 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(5, minmax(196px, 1fr))" }, gap: 1.5, minWidth: { xs: 0, sm: 1000 } }}>
             {STAGES.map((s) => {
               const cards = shown.filter((p) => p.stage === s);
               return (
-                <Box key={s} sx={{ display: "flex", flexDirection: "column", gap: 1.25, p: 1.25, borderRadius: "18px", bgcolor: "rgba(255,255,255,.5)", border: "1px solid rgba(255,255,255,.8)", minHeight: 160 }}>
+                <Box key={s} sx={{ display: { xs: cards.length ? "flex" : "none", sm: "flex" }, flexDirection: "column", gap: 1.25, p: 1.25, borderRadius: "18px", bgcolor: "rgba(255,255,255,.5)", border: "1px solid rgba(255,255,255,.8)", minHeight: { xs: 0, sm: 160 } }}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 0.5 }}>
                     <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: STAGE_DOT[s] }} />
                     <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>{STAGE_LABEL[s]}</Typography>

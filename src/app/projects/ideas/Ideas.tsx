@@ -151,7 +151,8 @@ export default function Ideas() {
           {loading && <Box sx={{ display: "flex", alignItems: "center", gap: 1, color: MUTED, fontSize: "0.82rem" }}><CircularProgress size={14} /> Reading the apps…</Box>}
           <Button variant="contained" disableElevation startIcon={<AddIcon />} onClick={() => setAdding(true)} sx={{ ...mainBtn, px: 2 }}>Idea</Button>
         </Box>
-        <Box sx={{ mt: 1.5 }}>
+        {/* a phone: a long app name wraps inside its square instead of running out of the box */}
+        <Box sx={{ mt: 1.5, "& [role=radio]": { whiteSpace: { xs: "normal", sm: "nowrap" } } }}>
           <SquareChoice label="From" value={filter} onChange={setFilter}
             options={[{ key: "all", label: "Everywhere", count: Object.values(counts).reduce((a, b) => a + b, 0) }, ...(sources ?? []).map((s) => ({ key: s.key, label: s.label, count: counts[s.key] }))]} />
         </Box>

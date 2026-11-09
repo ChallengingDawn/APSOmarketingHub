@@ -84,8 +84,9 @@ export function shopPartsOf(outline: PageOutline | null, changes: Change[], loca
     cur.size++;
     if (!cur.summary && l.text && !/^\[(picture|field):/.test(l.text) && l.text.length > 2) cur.summary = words(l.text, 90);
   }
-  // a "top" with nothing worth showing is no part
+  // a "top" with nothing worth showing is no part; a page with no heading at all is one part, "The whole page"
   if (parts[0]?.id === "top" && !parts[0].summary) parts.shift();
+  if (parts.length === 1 && parts[0].id === "top") parts[0].name = "The whole page";
 
   const whole: number[] = [];
   const placed = new Set<number>();
