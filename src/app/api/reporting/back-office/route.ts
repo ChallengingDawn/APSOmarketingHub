@@ -24,6 +24,7 @@ import { T } from "@/lib/reporting/ticketsRules";
 import { inboundDetail } from "@/lib/reporting/boInbound";
 import { deliveryNow } from "@/lib/reporting/boDeliveryStore";
 import { erpLinesNow } from "@/lib/reporting/boErpLinesStore";
+import { otdMainNow } from "@/lib/reporting/otdStore";
 import { pricesState } from "@/lib/reporting/boPricesRead";
 import { TYPED, WORKBOOK_TYPED, checkTyped, inboundByMonth, typedKey, type Typed } from "@/lib/reporting/boReportRules";
 
@@ -85,9 +86,9 @@ export async function GET() {
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!PAGES.some((p) => level(access, p) !== "none")) return NextResponse.json({ error: "No access" }, { status: 403 });
   try {
-    const [st, hours, typed, inb, cos, owners, team, delivery, pr, erpLines] = await Promise.all([boReportNow(), kvGet<Record<string, number>>(HOURS), kvGet<Typed>(TYPED_KV), inbound(),
+    const [st, hours, typed, inb, cos, owners, team, delivery, pr, erpLines, otdMain] = await Promise.all([boReportNow(), kvGet<Record<string, number>>(HOURS), kvGet<Typed>(TYPED_KV), inbound(),
       kvGet<KeptCompanies>("boReport:companies"), ownerNames().catch(() => new Map<string, string>()), boTeam(), deliveryNow(),
-      pricesState().catch((e: unknown) => ({ computing: false, error: String((e as Error)?.message ?? e) })), erpLinesNow()]);
+      pricesState().catch((e: unknown) => ({ computing: false, error: String((e as Error)?.message ?? e) })), erpLinesNow(), otdMainNow()]);
     const answers = await surveys(new Date().getFullYear() - 1);
     // the names of the tickets' owners, and the facts of their companies the filters read
     const ids = new Set(st.months.flatMap((m) => m.rows?.dict ?? []));
@@ -97,7 +98,7 @@ export async function GET() {
     return NextResponse.json({
       state: { computing: st.counting, progress: st.progress, error: st.error, computedAt: st.generatedAt },
       // nothing kept yet: the page says it is counting; else the months there are, the rest named as pending
-      data: st.months.length ? { ...st, hours: hours ?? WORKBOOK_HOURS, typed: typed ?? WORKBOOK_TYPED, inbound: inb?.counts ?? null, inDetail: inb?.detail ?? null, names, companies: cos?.facts ?? {}, team, surveys: answers, delivery, erpLines,
+      data: st.months.length ? { ...st, hours: hours ?? WORKBOOK_HOURS, typed: typed ?? WORKBOOK_TYPED, inbound: inb?.counts ?? null, inDetail: inb?.detail ?? null, names, companies: cos?.facts ?? {}, team, surveys: answers, delivery, erpLines, otdMain,
         prices: "value" in pr ? pr.value ?? null : null, pricesRead: { computing: pr.computing, progress: "progress" in pr ? pr.progress ?? null : null, error: pr.error ?? null } } : null,
       canEdit: level(access, FIGURES) === "write", canEditTyped: Object.fromEntries(TYPED.map((s) => [s.id, level(access, SERIES_PAGE[s.id]) === "write"])),
     });
