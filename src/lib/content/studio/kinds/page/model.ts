@@ -82,7 +82,7 @@ export type LangVersion = {
   path: string;
   /** its store view - the key it is kept under */
   store: string;
-  changes: Change[];
+  changes: PageChange[];
   texts: TextSlot[];
   fields: Fields;
   outline: PageOutline | null;
@@ -115,6 +115,69 @@ export type Published = {
 export const WAY_LABEL: Record<Published["way"], string> = {
   everyone: "On for everyone on the shop", cms: "Written into the Magento page", dotsource: "Handed to dotSource as code",
 };
+
+/* ── Content v6: a change of a page of the shop (the shared interface) ── */
+//
+// SARCLA 09.11.2026 (his points 9 and 10): "we should really be able to add elements", and "IF we can change the current
+// element, the proposal when applied hides the element and replaces it by our high[-quality] generated code". An element
+// the hub adds or swaps on a page of the shop is a Change of the store view's `changes` (src/lib/convert/versions.ts):
+//   insert   { op: "insert", selector, where: before | after | prepend | append, html }  - a new block at a place
+//   replace  { op: "replace", selector, html }  - the element HIDDEN (kept, never deleted: Undo and "Show the old one"
+//            work) and the new block standing exactly where it was - in the preview (./apply.ts) and in what goes to
+//            Magento (src/lib/convert/ship.ts applyToCms, where a write made again first takes its own earlier work out)
+// The html of a block the hub makes is ONE self-contained element: its own <style> with every rule under one prefix class,
+// explicit colours and fonts, the shop's container width (./block.ts says it and checks it).
+// Beside the change, kept in the document only (the preview and Magento get the validated change without them):
+//   id       a stable name, so a change is found again when the list moves (a module opened again, the check's answer)
+//   module   the gallery's module it was made from, with its settings, so it opens again to be edited (builder B)
+//   off      the check after applying found the block wrong (text that cannot be read, a block that runs out of the
+//            page): it is KEPT, NOT APPLIED, with the reason in plain words - "Looks wrong - not applied: ..."
+
+/** The gallery's module a change was made from (Content v6, builder B): its type and its settings, opened again later. */
+export type ModuleRef = { type: string; settings: Record<string, unknown> };
+export type ChangeMeta = { id?: string; module?: ModuleRef; off?: string };
+/** A change as the page studio keeps it: the shop's change, with its id, its module and its check. */
+export type PageChange = Change & ChangeMeta;
+
+/** A new change's id: "c" + time + a little chance (the same in the browser and on the server). */
+export function changeId(at = Date.now()): string {
+  return `c${at.toString(36)}${Math.floor(Math.random() * 1296).toString(36).padStart(2, "0")}`;
+}
+
+/** A block put in place of an element of the page (the element hidden, kept), or at a place of it. */
+export function replaceChange(selector: string, html: string, o: { note?: string; module?: ModuleRef; id?: string } = {}): PageChange {
+  return { op: "replace", selector, html, ...(o.note ? { note: o.note.slice(0, 300) } : {}), id: o.id ?? changeId(), ...(o.module ? { module: o.module } : {}) };
+}
+export function insertChange(selector: string, where: "before" | "after" | "prepend" | "append", html: string, o: { note?: string; module?: ModuleRef; id?: string } = {}): PageChange {
+  return { op: "insert", selector, where, html, ...(o.note ? { note: o.note.slice(0, 300) } : {}), id: o.id ?? changeId(), ...(o.module ? { module: o.module } : {}) };
+}
+
+/** Is the change applied (not held back by the check)? */
+export const isLive = (c: unknown): boolean => !(c && typeof c === "object" && typeof (c as ChangeMeta).off === "string" && (c as ChangeMeta).off);
+
+/** The list with one change put in: in place of the change with its id, else in place of a replace of the same element,
+ * else at the end. Its id is kept (or given). */
+export function withChange(changes: PageChange[], c: PageChange): PageChange[] {
+  const next = { ...c, id: c.id || changeId() } as PageChange;
+  let i = c.id ? changes.findIndex((x) => x.id === c.id) : -1;
+  if (i < 0 && c.op === "replace") i = changes.findIndex((x) => x.op === "replace" && x.selector === c.selector);
+  if (i < 0) return [...changes, next];
+  return changes.map((x, k) => (k === i ? next : x));
+}
+
+/** A whole list written again (the AI's "the whole page"): a change that came back the same keeps its id and module; a
+ * replace or insert on the same place keeps its id and module too (it was rewritten); a new one gets an id. */
+export function carryMeta(old: PageChange[], next: Change[]): PageChange[] {
+  const core = (c: unknown) => { const { id: _i, module: _m, off: _o, ...rest } = (c ?? {}) as Record<string, unknown>; return JSON.stringify(rest); };
+  const used = new Set<number>();
+  const take = (pred: (c: PageChange) => boolean) => { const i = old.findIndex((c, k) => !used.has(k) && pred(c)); if (i >= 0) used.add(i); return i >= 0 ? old[i] : null; };
+  return next.map((c) => {
+    const same = take((o) => core(o) === core(c));
+    const place = same ?? ((c.op === "replace" || c.op === "insert") ? take((o) => o.op === c.op && (o as { selector?: string }).selector === c.selector && (o as { where?: string }).where === (c as { where?: string }).where) : null);
+    // one the check held back stays held back while it is the same
+    return { ...c, id: place?.id || changeId(), ...(place?.module ? { module: place.module } : {}), ...(same?.off ? { off: same.off } : {}) } as PageChange;
+  });
+}
 
 /** True when two change lists say the same - the order counts (a later change can build on an earlier one). */
 export function sameChangeList(a: unknown[], b: unknown[]): boolean {
@@ -158,7 +221,7 @@ export type PageDoc = {
   /** an older new page: one block of HTML (kept so it still shows); new pages are `fields` */
   newPage: { title: string; urlKey: string; metaTitle: string; metaDescription: string; body: string };
   fields: Fields;
-  changes: Change[];
+  changes: PageChange[];
   texts: TextSlot[];
   langs: Record<string, LangVersion>;
   inserts: Insert[];
@@ -428,7 +491,7 @@ function outlineOf(v: unknown): PageOutline | null {
 }
 const textsOf = (v: unknown): TextSlot[] => (Array.isArray(v) ? v.filter(isObj).map((t) => ({ id: str(t.id, 40), ask: str(t.ask, 400), text: str(t.text, 8000) })).filter((t) => t.id) : []);
 // a change keeps whatever shape it has while a person edits it - the preview and the exports validate
-const changesOf = (v: unknown): Change[] => (Array.isArray(v) ? (v.filter(isObj) as unknown as Change[]) : []);
+const changesOf = (v: unknown): PageChange[] => (Array.isArray(v) ? (v.filter(isObj) as unknown as PageChange[]) : []);
 
 function insertsOf(v: unknown): Insert[] {
   if (!Array.isArray(v)) return [];
@@ -715,7 +778,8 @@ const VERSION_MAX = 80_000;
 export function finalChanges(doc: PageDoc): { changes: Change[]; problems: string[]; from: number[] } {
   const list: { c: unknown; from: number }[] = [];
   if (isLegacyBody(doc)) list.push({ c: bodyChange(doc), from: -1 });
-  doc.changes.forEach((c, i) => list.push({ c, from: i }));
+  // a change the check held back ("Looks wrong - not applied") stays out of the preview and of Magento
+  doc.changes.forEach((c, i) => { if (isLive(c)) list.push({ c, from: i }); });
   const changes: Change[] = [];
   const from: number[] = [];
   const problems: string[] = [];
