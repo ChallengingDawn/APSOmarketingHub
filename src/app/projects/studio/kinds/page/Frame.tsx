@@ -51,6 +51,8 @@ export type SelectOpts = {
   onMap?: (m: Located) => void;
   /** a section of a page of the shop opened in the outline: found here by its heading, selected and scrolled to */
   seek?: { nonce: number; heading: string } | null;
+  /** a picture slot's own buttons in a new page ("Make it", "Upload"): its field and which */
+  onAct?: (path: string, act: string) => void;
 };
 
 /** A page of the shop's section headings as the outline cuts it (headings a change put in are not sections). */
@@ -400,6 +402,10 @@ ${SELECT_CSS}`;
         const c = candidate(e.target);
         unhov();
         s.onPick(c ? pickedOf(c) : null);
+        // a picture slot's button: the slot is selected, and its action runs
+        const act = (e.target as Element).closest?.("[data-apx-act]");
+        const slot = act?.closest("[data-apx-f]");
+        if (act && slot && s.onAct) s.onAct(slot.getAttribute("data-apx-f") ?? "", act.getAttribute("data-apx-act") ?? "");
       }, true);
       d.addEventListener("dblclick", (e) => {
         const s = sel.current;

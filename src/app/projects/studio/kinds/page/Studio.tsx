@@ -25,7 +25,7 @@ import { BLOCK_OF, PART_KEYS, PART_NAME, busyOf, partOfPath, picturesToMake, typ
 import { headKey, shopPartsOf, type Located, type ShopPart } from "@/lib/content/studio/kinds/page/shopParts";
 import type { Change } from "@/lib/convert/versions";
 import { StudioPanes, type QuickAsk } from "../../parts";
-import { makePicture } from "../../pictures";
+import { makePicture, uploadPicture } from "../../pictures";
 import type { StudioProps } from "../../registry";
 import { Assistant, type Entry, type Idea, type SeoCard } from "./Assistant";
 import { Build, type Step } from "./Build";
@@ -254,10 +254,45 @@ export default function Studio({ api }: StudioProps) {
     await Promise.all(Array.from({ length: Math.min(AT_ONCE, jobs.length) }, worker));
   };
 
+  const [gallery, setGallery] = useState<{ path: string; nonce: number } | null>(null);
   const pictures: PictureCtl = {
     making: (path) => making[slotKey(lang, path)] ?? null,
     make: (path, idea) => { void makeOne(langRef.current, { path, idea, aspect: "3:2" }, true); },
-    imagesOn,
+    imagesOn, gallery,
+  };
+
+  /* ── a picture slot in the page: Make it / Make another · Upload · Gallery · Remove (the flow standard) ── */
+
+  const upInput = useRef<HTMLInputElement | null>(null);
+  const upTo = useRef<{ path: string; lang: string } | null>(null);
+  const setPic = (forLang: string, path: string, next: Partial<Pic>, label: string) => {
+    const cur = docRef.current;
+    const v = viewOf(cur, forLang);
+    const pic = getField(v.fields, path) as Pic | undefined;
+    if (!pic) return;
+    record(label, cur);
+    api.setDoc(withView(cur, forLang, { ...v, fields: setField(v.fields, path, { ...pic, ...next }) }));
+  };
+  const askUpload = (path: string) => { upTo.current = { path, lang: langRef.current }; upInput.current?.click(); };
+  const onUploadFile = async (f: File | undefined) => {
+    const to = upTo.current;
+    if (!f || !to) return;
+    const r = await uploadPicture(f, { projectId: api.data.piece.projectId, pieceId: api.data.piece.id });
+    if (!r.ok) { window.alert(r.error); return; }
+    const pic = getField(viewOf(docRef.current, to.lang).fields, to.path) as Pic | undefined;
+    setPic(to.lang, to.path, { url: r.picture.url, alt: pic?.alt || f.name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").slice(0, 120) }, "Put a picture in");
+  };
+  const openGallery = (path: string) => {
+    const part = partOfPath(path);
+    if (fold.build) toggleFold("build");
+    if (part) setOpen(part);
+    setGallery((g) => ({ path, nonce: (g?.nonce ?? 0) + 1 }));
+  };
+  const onAct = (path: string, act: string) => {
+    const pic = getField(viewOf(docRef.current, langRef.current).fields, path) as Pic | undefined;
+    if (!pic || !canEdit) return;
+    if (act === "make" && pic.idea.trim() && canAi) pictures.make(path, pic.idea);
+    if (act === "upload") askUpload(path);
   };
   const makingPaths = Object.entries(making).filter(([k, m]) => m.state === "making" && k.startsWith(`${lang}|`)).map(([k]) => k.slice(lang.length + 1));
   const makingIn = (part: PartKey) => makingPaths.filter((p) => partOfPath(p) === part).length;
@@ -407,6 +442,12 @@ export default function Studio({ api }: StudioProps) {
   /* ── the quick asks ──────────────────────────────────────────────────── */
 
   const others = offered.map((o) => o.lang).filter((l) => l !== main);
+  /** a part of a new page written by the AI (its block in the page: "hero", "intro-block", "sections.<id>" ...) */
+  const fillBlock = (block: string, request?: string) => {
+    if (block.startsWith("sections.")) return fill("section", { id: block.split(".")[1], request });
+    const part = ({ hero: "hero", "intro-block": "intro", benefits: "benefits", sections: "sections", links: "links", faq: "faq", cta: "cta" } as Record<string, Part>)[block.split(".")[0]];
+    return part ? fill(part, { request }) : fill("all", { request });
+  };
   const scope = sel?.picked ?? null;
   const wholePart = sel?.key.startsWith("b:") ? partOfPath(sel.key.slice(2)) : null;
   const scopeLabel = !sel ? null : wholePart && !sel.key.slice(2).includes(".") ? PART_NAME[wholePart]
@@ -414,11 +455,22 @@ export default function Studio({ api }: StudioProps) {
   const fieldPath = sel?.key.startsWith("f:") ? sel.key.slice(2) : null;
   const blockPart = sel?.key.startsWith("b:") ? sel.key.slice(2) : null;
   const pictureField = !!fieldPath && /picture$|\.button$|^links\.[^.]+$/.test(fieldPath);
+  const picPath = fieldPath && /(^|\.)picture$/.test(fieldPath) ? fieldPath : null;
+  const selPic = picPath ? (getField(d.fields, picPath) as Pic | undefined) : undefined;
+  const picActs = picPath && selPic && canEdit && !makingPaths.includes(picPath) ? {
+    has: !!selPic.url, canMake: canAi && imagesOn !== false && !!selPic.idea.trim(),
+    onMake: () => pictures.make(picPath, selPic.idea), onUpload: () => askUpload(picPath), onGallery: () => openGallery(picPath),
+    onRemove: () => setPic(lang, picPath, { url: "" }, "Took the picture out"),
+  } : null;
   const againAsk: QuickAsk[] = lang === main ? [] : [{ label: `Translate it from ${langName(main)} again`, run: () => translate(lang) }];
 
   const quick: QuickAsk[] = sel && !sel.key.startsWith("i:") ? (
     isNew ? (
-      blockPart ? [{ label: "Write this part", run: () => (blockPart.startsWith("sections.") ? fill("section", { id: blockPart.split(".")[1] }) : fill(({ hero: "hero", "intro-block": "intro", benefits: "benefits", sections: "sections", links: "links", faq: "faq", cta: "cta" } as Record<string, Part>)[blockPart.split(".")[0]] ?? "all")) }]
+      blockPart ? [
+        { label: "Write this part", run: () => fillBlock(blockPart) },
+        { label: "Make it shorter", run: () => fillBlock(blockPart, "Make this part shorter and easier to scan, same meaning.") },
+        { label: "Make it more convincing", run: () => fillBlock(blockPart, "Make this part more convincing for a buyer - concrete benefits, no hype.") },
+      ]
         : fieldPath && !pictureField ? [
           { label: "Write it again", run: () => fill("field", { id: fieldPath }) },
           { label: "Make it shorter", run: () => fill("field", { id: fieldPath, request: "Make it shorter, same meaning." }) },
@@ -467,7 +519,8 @@ export default function Studio({ api }: StudioProps) {
     if (sel && !sel.key.startsWith("i:")) {
       if (isNew) {
         if (fieldPath && !pictureField) return fill("field", { id: fieldPath, request: text });
-        if (blockPart) return blockPart.startsWith("sections.") ? fill("section", { id: blockPart.split(".")[1], request: text }) : fill("all", { request: `${text} (for ${fieldLabel(d.fields, blockPart)} only - keep the rest as it is)` });
+        // a part selected: that part alone is written - never the whole page (only it shimmers, the rest stays)
+        if (blockPart) return fillBlock(blockPart, text);
         return fill("all", { request: text });
       }
       return rewrite(text, scope);
@@ -517,7 +570,7 @@ export default function Studio({ api }: StudioProps) {
 
   const after = preview.held.after?.out;
   const hits = after?.ok ? after.hits : null;
-  const placeholder = sel ? (selPart ? "What should change in this part?" : "What should change in this element?") : isNew ? "What should the page say or do?" : "What should change on this page?";
+  const placeholder = sel ? (selPart || (wholePart && !sel.key.slice(2).includes(".")) ? "What should change in this part?" : "What should change in this element?") : isNew ? "What should the page say or do?" : "What should change on this page?";
   // what the AI does shows in its own language only; elsewhere its buttons wait until it is done
   const busyHere = busy && busyLang === lang ? busy : null;
   const aiHere = canAi && !(busy && busyLang !== lang);
@@ -540,7 +593,10 @@ export default function Studio({ api }: StudioProps) {
         inserts={inserts} shell={shell} onFix={(left) => void fixLeftovers(left)} empty={empty}
         writing={{ blocks: marks.blocks, fields: marks.fields, pictures: makingPaths }} working={busyHere === "rewrite" ? since : null}
         onMap={isNew ? undefined : setLocated} seek={seek} selLabel={selPart && sel?.picked ? selPart.name : null}
-        fold={{ ...fold, onBuild: () => toggleFold("build"), onAssist: () => toggleFold("assist") }} />}
+        picActs={picActs} onAct={isNew ? onAct : undefined}
+        fold={{ ...fold, onBuild: () => toggleFold("build"), onAssist: () => toggleFold("assist") }}>
+        <input ref={upInput} type="file" hidden accept="image/png,image/jpeg,image/webp" onChange={(e) => { void onUploadFile(e.target.files?.[0]); e.target.value = ""; }} />
+      </Stage>}
       assist={<Assistant quick={quick} onAsk={onAsk} enabled={canAi} context={scopeLabel} contextKind={selPart && sel?.picked ? "This part only" : wholePart ? "This part only" : undefined} onClearContext={() => setSel(null)} history={history} onUndo={(e) => void undo(e)}
         ideas={ideas} onIdea={(i) => void rewrite(`${i.title}: ${i.change}`)} seo={seo} lang={lang} inputRef={askRef} placeholder={placeholder}
         translate={lang === main ? { doc, offered, busy, onTranslate: (l) => translate(l) } : null}

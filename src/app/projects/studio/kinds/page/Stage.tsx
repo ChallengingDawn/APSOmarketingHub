@@ -38,6 +38,7 @@ import {
   langName, langState, langsOf, leftoversOf, shopUrl, type LangOption, type LangState, type Leftover, type PageDoc,
 } from "@/lib/content/studio/kinds/page/model";
 import { renderNewPage } from "@/lib/content/studio/kinds/page/newpage";
+import { PART_NAME, partOfPath } from "@/lib/content/studio/kinds/page/outline";
 import type { InsertOut, PreviewOut } from "@/lib/content/studio/kinds/page/shop";
 import type { Located } from "@/lib/content/studio/kinds/page/shopParts";
 import { PINK, btn } from "../../parts";
@@ -184,14 +185,24 @@ export function LangSwitch({ d, lang, onLang, offered }: { d: PageDoc; lang: str
 
 /* ── the toolbar over the selected element ────────────────────────────── */
 
-function SelBar({ label, canWords, onWords, onAi, onClose }: { label: string; canWords: boolean; onWords: () => void; onAi: () => void; onClose: () => void }) {
+/** A picture selected in the page: the slot's actions over it (the flow standard: Make another · Upload · Gallery · Remove). */
+export type PicActs = { has: boolean; canMake: boolean; onMake: () => void; onUpload: () => void; onGallery: () => void; onRemove: () => void };
+
+function SelBar({ label, canWords, onWords, onAi, onClose, pic }: { label: string; canWords: boolean; onWords: () => void; onAi: () => void; onClose: () => void; pic?: PicActs | null }) {
   const b = { ...btn, color: "#fff", minWidth: 0, px: 1, py: 0.25, fontSize: "0.76rem", borderRadius: "5px", "&:hover": { bgcolor: "rgba(255,255,255,.12)" } };
   return (
     <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, bgcolor: "#15223a", color: "#fff", borderRadius: "7px", px: 0.5, py: 0.4, boxShadow: "0 10px 26px rgba(21,34,58,.32)" }}
       onMouseDown={(e) => e.preventDefault()}>
       <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, px: 0.75, maxWidth: 200, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "rgba(255,255,255,.8)" }}>{label}</Typography>
       {canWords && <Button size="small" onClick={onWords} startIcon={<EditOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>Edit words</Button>}
-      <Button size="small" onClick={onAi} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>Ask AI</Button>
+      {pic ? (
+        <>
+          {pic.canMake && <Button size="small" onClick={pic.onMake} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>{pic.has ? "Make another" : "Make it"}</Button>}
+          <Button size="small" onClick={pic.onUpload} sx={b}>Upload</Button>
+          <Button size="small" onClick={pic.onGallery} sx={b}>Gallery</Button>
+          {pic.has && <Button size="small" onClick={pic.onRemove} sx={b}>Remove</Button>}
+        </>
+      ) : <Button size="small" onClick={onAi} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>Ask AI</Button>}
       <IconButton size="small" onClick={onClose} aria-label="Unselect" sx={{ color: "rgba(255,255,255,.7)", p: 0.4 }}><CloseIcon sx={{ fontSize: 15 }} /></IconButton>
     </Box>
   );
@@ -199,7 +210,7 @@ function SelBar({ label, canWords, onWords, onAi, onClose }: { label: string; ca
 
 /* ── the stage ────────────────────────────────────────────────────────── */
 
-export function Stage({ api, doc, d, lang, onLang, offered, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, onMap, seek, selLabel }: {
+export function Stage({ api, doc, d, lang, onLang, offered, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, onMap, seek, selLabel, picActs, onAct }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void; offered: LangOption[]; view: View; onView: (v: View) => void;
   preview: ReturnType<typeof usePagePreview>; selected: string | null; picked: Picked | null;
   onPick: (p: Picked | null) => void; onEdit: (p: Picked, v: { text: string; inner: string; outer: string }) => void;
@@ -216,6 +227,9 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
   seek?: { nonce: number; heading: string } | null;
   /** the selection's name when it is a part of the page (not just an element) */
   selLabel?: string | null;
+  /** a picture selected: its actions over it; a slot's own buttons in the page ("Make it", "Upload") */
+  picActs?: PicActs | null;
+  onAct?: (path: string, act: string) => void;
   onFix: (left: Leftover[]) => void;
   /** what shows in place of the page (the page list, a language still to make) */
   empty?: React.ReactNode;
@@ -246,12 +260,14 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
 
   const selectOpts = {
     mode: (isNew ? "field" : "element") as "field" | "element",
-    selected, onPick, onEdit, editNonce, reveal, onMap, seek,
+    selected, onPick, onEdit, editNonce, reveal, onMap, seek, onAct,
   };
-  const label = !selected ? "" : selLabel ? selLabel : selected === "b:sections" ? "Sections" : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())
+  // a whole part opened on the left says its name ("Benefits"), a field its own ("Benefit 2 · title")
+  const wholeBlock = selected?.startsWith("b:") && !selected.slice(2).includes(".") ? partOfPath(selected.slice(2)) : null;
+  const label = !selected ? "" : selLabel ? selLabel : wholeBlock ? PART_NAME[wholeBlock] : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())
     : selected.startsWith("i:") ? "Banner" : picked ? `<${picked.tag}>${picked.text ? ` ${picked.text.slice(0, 28)}` : ""}` : "";
   const canWords = !!selected && (selected.startsWith("f:") ? !/picture$|\.button$|^f:links\./.test(selected) || selected.endsWith(".label") : !!picked?.editable);
-  const toolbar = selected ? <SelBar label={label} canWords={canWords} onWords={onEditWords} onAi={onAskAi} onClose={() => onPick(null)} /> : undefined;
+  const toolbar = selected ? <SelBar label={label} canWords={canWords} onWords={onEditWords} onAi={onAskAi} onClose={() => onPick(null)} pic={picActs} /> : undefined;
 
   const frameOf = (side: Side, h: Held, b: boolean, tag?: string) => {
     const out = h?.out;
@@ -380,7 +396,18 @@ const BUSY_CSS = `[data-apx-busy]{position:relative!important}
 [data-apx-busy]::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:5;border-radius:inherit;background:linear-gradient(100deg,rgba(255,255,255,0) 25%,rgba(194,44,110,.16) 42%,rgba(255,255,255,.8) 50%,rgba(36,89,209,.14) 58%,rgba(255,255,255,0) 75%);background-size:260% 100%;animation:apx-sheen 1.5s linear infinite}
 section[data-apx-busy]::before{content:"Writing…";position:absolute;top:16px;right:20px;z-index:6;font:600 19px/1 system-ui,"Segoe UI",sans-serif;letter-spacing:.02em;color:#fff;background:#c22c6e;padding:10px 16px;border-radius:6px;box-shadow:0 8px 20px rgba(194,44,110,.3)}
 [data-apx-making]{background:linear-gradient(100deg,#e9edf1 25%,#f8e9f0 45%,#ffffff 50%,#e7edf9 55%,#e9edf1 75%)!important;background-size:260% 100%!important;animation:apx-sheen 1.4s linear infinite;border:1.5px solid rgba(194,44,110,.35)!important;color:#c22c6e!important;font-weight:600!important}
-@keyframes apx-sheen{from{background-position:140% 0}to{background-position:-140% 0}}`;
+@keyframes apx-sheen{from{background-position:140% 0}to{background-position:-140% 0}}
+.apx-np-pic-empty{position:relative}
+.apx-np-pic-empty[data-apx-making]>span{font-size:21px!important}
+.apx-np-slot{display:flex;flex-direction:column;align-items:center;gap:20px;max-width:560px}
+.apx-np-idea{font:400 19px/1.45 system-ui,"Segoe UI",sans-serif;color:#8a96a3}
+.apx-np-acts{display:flex;gap:12px}
+.apx-np-acts b{font:600 21px/1 system-ui,"Segoe UI",sans-serif;padding:15px 26px;border-radius:8px;cursor:pointer;border:1px solid #cfd6de;background:#fff;color:#15223a}
+.apx-np-acts b[data-apx-act=make]{background:#c22c6e;border-color:#c22c6e;color:#fff}
+.apx-np-acts b:hover{filter:brightness(.95)}
+.apx-np-bar{position:absolute;left:18%;right:18%;bottom:22%;height:6px;border-radius:2px;background:rgba(194,44,110,.15);overflow:hidden}
+.apx-np-bar::after{content:"";position:absolute;top:0;bottom:0;width:35%;background:#c22c6e;border-radius:2px;animation:apx-bar 1.3s ease-in-out infinite}
+@keyframes apx-bar{from{left:-35%}to{left:100%}}`;
 
 /** What the middle shows for a language whose page is not made yet - and, while it is translated, the page coming. */
 export function LangEmpty({ d, lang, main, store, busy, since, canAi, onTranslate, onFind, onPick, finding }: {

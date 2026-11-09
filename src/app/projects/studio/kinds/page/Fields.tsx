@@ -52,6 +52,8 @@ export type PictureCtl = {
   make: (path: string, idea: string) => void;
   /** null while the hub has not said yet */
   imagesOn: boolean | null;
+  /** "Gallery" asked over a picture in the page: that slot's gallery opens here */
+  gallery?: { path: string; nonce: number } | null;
 };
 
 export const sheen = keyframes`from { background-position: 140% 0; } to { background-position: -140% 0; }`;
@@ -114,6 +116,8 @@ export function PictureSlot({ api, pic, set, disabled, aspect = "3:2", path, ctl
   api: StudioApi; pic: Pic; set: (p: Pic) => void; disabled?: boolean; aspect?: PictureAspect; path?: string; ctl?: PictureCtl;
 }) {
   const [open, setOpen] = useState(false);
+  const askedGallery = ctl?.gallery && ctl.gallery.path === path ? ctl.gallery.nonce : 0;
+  useEffect(() => { if (askedGallery) setOpen(true); }, [askedGallery]);
   const [up, setUp] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const file = useRef<HTMLInputElement | null>(null);
@@ -157,7 +161,7 @@ export function PictureSlot({ api, pic, set, disabled, aspect = "3:2", path, ctl
                 </Button>
               )}
               <Button size="small" disabled={disabled || up !== null} onClick={() => file.current?.click()} startIcon={<FileUploadOutlinedIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, px: 0.75, color: INK }}>Upload</Button>
-              <Button size="small" disabled={disabled} onClick={() => setOpen((x) => !x)} sx={{ ...btn, px: 0.75, color: INK }}>{open ? "Close" : "More"}</Button>
+              <Button size="small" disabled={disabled} onClick={() => setOpen((x) => !x)} sx={{ ...btn, px: 0.75, color: INK }}>{open ? "Close the gallery" : "Gallery"}</Button>
               {pic.url && <Button size="small" disabled={disabled} onClick={() => set({ ...pic, url: "" })} sx={{ ...btn, px: 0.75, color: MUTED }}>Remove</Button>}
             </Box>
           )}
@@ -169,7 +173,7 @@ export function PictureSlot({ api, pic, set, disabled, aspect = "3:2", path, ctl
       <Collapse in={open} timeout={200} unmountOnExit>
         <Box sx={{ mt: 1, p: 1.25, border: `1px solid ${HAIRLINE}`, borderRadius: "8px", bgcolor: "#fff" }}>
           <PicturePanel projectId={api.data.piece.projectId} pieceId={api.data.piece.id} me={api.data.me} aspect={aspect} suggestion={pic.idea} columns={3}
-            tabs={["make", "project", "mine"]} start={pic.idea ? "make" : "project"}
+            tabs={["project", "mine", "make"]} start="project"
             onPick={(p) => { set({ ...pic, url: p.url, alt: pic.alt || p.prompt?.slice(0, 120) || "" }); setOpen(false); }} />
         </Box>
       </Collapse>
