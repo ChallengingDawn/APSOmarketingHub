@@ -59,9 +59,11 @@ export default function CreateOptimization() {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const held = useHeld<{ candidates: CandidateView[] }>(TESTS_API, []);
+  const held = useHeld<{ candidates: CandidateView[]; tests: { id: string; name: string; status: string }[] }>(TESTS_API, []);
   const r = held.result;
   const cands = useMemo(() => (r?.state === "ok" ? r.data.candidates : []), [r]);
+  // an approved version that already has a draft test is not offered again: say where it is
+  const drafts = useMemo(() => (r?.state === "ok" ? (r.data.tests ?? []).filter((t) => t.status === "draft") : []), [r]);
   const c = cands.find((x) => x.versionId === sel) ?? null;
 
   const pick = (x: CandidateView) => { setSel(x.versionId); setName(x.title); setPages([]); setEnv(x.env); setErr(null); };
@@ -92,9 +94,15 @@ export default function CreateOptimization() {
 
         <GlassCard>
           <CardTitle icon={<ScienceOutlinedIcon />} tint="purple" title="2 · Which version?" note="The versions approved in the Preview that have no test yet" />
-          {cands.length === 0 && (
+          {cands.length === 0 && r?.state === "ok" && (
             <Typography sx={{ fontSize: "0.86rem", color: MUTED, mt: 1.25 }}>
               No approved version waits - approve an optimization in <Box component={Link} href="/website/ai-personalization/insights" sx={{ color: ACCENT, fontWeight: 600 }}>Insights</Box>, then its version in the Preview.
+              {drafts.length > 0 && <>
+                {" "}{drafts.length === 1 ? "One is made already and waits to be started: " : `${drafts.length} are made already and wait to be started: `}
+                {drafts.slice(0, 3).map((t, k) => (
+                  <span key={t.id}>{k > 0 ? ", " : ""}<Box component={Link} href={`/website/ai-personalization/tests/${t.id}`} sx={{ color: ACCENT, fontWeight: 600 }}>{t.name}</Box></span>
+                ))}.
+              </>}
             </Typography>
           )}
           <Box sx={{ display: "grid", gap: 1.25, mt: 1.5, gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>

@@ -809,30 +809,37 @@ function ConvertPreview() {
             <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap", mb: 1.5 }}>
               <SquareChoice<View> label="Show" value={version ? view : "original"} onChange={setView}
                 options={version ? [{ key: "version", label: "The optimization" }, { key: "original", label: "The page as it is" }, { key: "both", label: "Side by side" }] : [{ key: "original", label: "The page as it is" }]} />
-              <SquareChoice<Device> label="On" value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "phone", label: "Phone" }]} />
-              {device === "desktop" && <SquareChoice<Zoom> label="Size" value={zoom} onChange={setZoom} options={[{ key: "fit", label: "Fit" }, { key: "full", label: "Actual size" }]} />}
+              <SquareChoice<Device> value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "phone", label: "Phone" }]} />
+              {device === "desktop" && <SquareChoice<Zoom> value={zoom} onChange={setZoom} options={[{ key: "fit", label: "Fit" }, { key: "full", label: "Actual size" }]} />}
               <Box sx={{ flex: 1 }} />
-              <Tooltip title="Where people click on this page - counted by the shop, only with the visitor's statistics consent">
-                <Button size="small" variant={clicks ? "contained" : "outlined"} color="warning" disableElevation
-                  onClick={() => { if (!clicks && view === "version") setView("original"); setClicks(!clicks); }} startIcon={<TouchAppOutlinedIcon sx={{ fontSize: 17 }} />}
-                  sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{clicks ? "Clicks shown" : "Clicks"}</Button>
+              <Tooltip title="Read the page from the shop again">
+                <IconButton size="small" onClick={() => setFresh((n) => n + 1)} aria-label="Read again"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
               </Tooltip>
+            </Box>
+            {/* what is drawn over the page: a row of its own, so the controls above never wrap into it */}
+            <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap", mb: 1.5, mt: -0.5 }}>
+              <Typography component="span" sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".04em", mr: 0.5 }}>On the page</Typography>
               {ideas.some((i) => i.target && i.status !== "dropped") && (
                 <Tooltip title="Each optimization's block marked on the page with its number - point at one to see its block">
-                  <Button size="small" variant={showSpots ? "contained" : "outlined"} disableElevation onClick={() => setShowSpots((x) => !x)} startIcon={<TipsAndUpdatesOutlinedIcon sx={{ fontSize: 17 }} />}
-                    sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{showSpots ? "Optimizations on the page" : "Show them on the page"}</Button>
+                  <Button size="small" variant={showSpots && !clicks ? "contained" : "outlined"} disableElevation onClick={() => { if (clicks) { setClicks(false); setShowSpots(true); } else setShowSpots((x) => !x); }} startIcon={<TipsAndUpdatesOutlinedIcon sx={{ fontSize: 17 }} />}
+                    sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Optimizations</Button>
                 </Tooltip>
               )}
               {version && (
-                <Button size="small" variant={marks ? "contained" : "outlined"} disableElevation onClick={() => setMarks((x) => !x)} startIcon={<HighlightAltOutlinedIcon sx={{ fontSize: 17 }} />}
-                  sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{marks ? "Changes shown" : "Show the changes"}</Button>
+                <Tooltip title="The version's changes outlined">
+                  <Button size="small" variant={marks ? "contained" : "outlined"} disableElevation onClick={() => setMarks((x) => !x)} startIcon={<HighlightAltOutlinedIcon sx={{ fontSize: 17 }} />}
+                    sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Changes</Button>
+                </Tooltip>
               )}
+              <Tooltip title="Where people click on this page - counted by the shop, only with the visitor's statistics consent">
+                <Button size="small" variant={clicks ? "contained" : "outlined"} color="warning" disableElevation
+                  onClick={() => { if (!clicks && view === "version") setView("original"); setClicks(!clicks); }} startIcon={<TouchAppOutlinedIcon sx={{ fontSize: 17 }} />}
+                  sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Clicks</Button>
+              </Tooltip>
+              <Box sx={{ flex: 1 }} />
               <Tooltip title="Click an element in the page to ask the AI to change it">
                 <Button size="small" variant={pick ? "contained" : "outlined"} color="secondary" disableElevation onClick={() => setPick((x) => !x)} startIcon={<AdsClickOutlinedIcon sx={{ fontSize: 17 }} />}
                   sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>{pick ? "Click an element…" : "Pick an element"}</Button>
-              </Tooltip>
-              <Tooltip title="Read the page from the shop again">
-                <IconButton size="small" onClick={() => setFresh((n) => n + 1)} aria-label="Read again"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
               </Tooltip>
             </Box>
             {clicks && path && (
