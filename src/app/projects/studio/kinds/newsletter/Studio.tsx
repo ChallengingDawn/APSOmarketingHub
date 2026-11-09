@@ -232,7 +232,8 @@ export default function Studio({ api }: StudioProps) {
       ] : []
     : [
         {
-          label: blank ? "Write it all from the brief" : "Write it all again",
+          // the same words as the start card and the map (the flow standard)
+          label: blank ? "Write the whole newsletter with AI" : "Write it all again",
           run: async () => {
             if (!isBlank(docRef.current) && !window.confirm("Write the whole newsletter again? Its words are replaced - Undo brings them back; pictures stay.")) return null;
             return draft("");
@@ -446,7 +447,7 @@ export default function Studio({ api }: StudioProps) {
           overlay={overlay}
           rich={(k) => { const b = docRef.current.blocks.find((x) => x.id === k.split(":")[0]); return k.endsWith(":text") && b && (b.kind === "hero" || b.kind === "article" || b.kind === "text") ? "blocks" : null; }}
           linkSearch={linkSearch} linkBase="https://www.apsoparts.com"
-          label={drag ? undefined : (k) => nameOf(docRef.current, k)} onAskAi={enabled ? () => askRef.current?.focus() : undefined} />
+          label={drag ? undefined : (k) => nameOf(docRef.current, k)} onAskAi={enabled && onAsk ? () => askRef.current?.focus() : undefined} />
       </Box>
     </Pane>
   );
@@ -478,7 +479,7 @@ export default function Studio({ api }: StudioProps) {
       <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>What are you making?</Typography>
       <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>A newsletter from the project&apos;s brief - in</Typography>
       <SquareChoice value={d.language.toUpperCase()} onChange={(l: string) => set({ ...docRef.current, language: l })} options={LANGS.map((l) => ({ key: l.key, label: l.key }))} />
-      <Button fullWidth variant="contained" disableElevation disabled={!enabled} startIcon={<AutoAwesomeOutlinedIcon />} onClick={() => void draft("")} sx={{ ...mainBtn, mt: 1.25, minHeight: 38, height: "auto", py: 0.75, whiteSpace: "normal", lineHeight: 1.25 }}>Write the newsletter with AI</Button>
+      <Button fullWidth variant="contained" disableElevation disabled={!enabled} startIcon={<AutoAwesomeOutlinedIcon />} onClick={() => void draft("")} sx={{ ...mainBtn, mt: 1.25, minHeight: 38, height: "auto", py: 0.75, whiteSpace: "normal", lineHeight: 1.25 }}>Write the whole newsletter with AI</Button>
       <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.75, mt: 1 }}>
         <Button size="small" startIcon={<MarkEmailReadOutlinedIcon sx={{ fontSize: 16 }} />} onClick={() => setOurs(true)} sx={{ ...toolBtn, height: 32 }}>One of ours</Button>
         <Button size="small" startIcon={<DashboardCustomizeOutlinedIcon sx={{ fontSize: 16 }} />} onClick={(e) => setLayouts(e.currentTarget)} sx={{ ...toolBtn, height: 32 }}>A layout</Button>

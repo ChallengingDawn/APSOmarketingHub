@@ -116,7 +116,7 @@ export function OurEmails({ api, open, onClose, onStart, onLearn, language }: {
               <Box key={g.key} sx={{ minWidth: 0, p: 1.25, borderRadius: "10px", border: `1px solid ${g.variants.some((v) => v.id === showing?.id) ? "#2459d1" : HAIRLINE}`, bgcolor: "#fff" }}>
                 <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{day(g.date)}{g.kind !== "campaign" ? ` · ${g.kind === "survey" ? "survey" : "service e-mail"}` : ""}</Typography>
                 <Typography sx={{ fontSize: "0.9rem", fontWeight: 650, color: INK, lineHeight: 1.3, mb: 0.75 }}>{g.label}</Typography>
-                <Box sx={{ display: "grid", gap: 0.4 }}>
+                <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.4 }}>
                   {g.variants.filter((v) => lang === "ALL" || v.language === lang || g.variants.length === 1).map((v) => (
                     <Box key={v.id} sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 0.5, py: 0.25, borderRadius: "6px", bgcolor: showing?.id === v.id ? "rgba(36,89,209,.07)" : "transparent" }}>
                       <Checkbox size="small" checked={isPicked(v)} onChange={() => toggle(v)} sx={{ p: 0.25 }} inputProps={{ "aria-label": `Pick ${v.language} ${v.subject}` }} />

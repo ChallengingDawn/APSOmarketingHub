@@ -154,9 +154,9 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
   /* ── the last step, as its own view ── */
   if (step === "out") {
     return (
-      <Pane title="Blocks" pad={false}>
+      <Pane title="Build" pad={false}>
         <Box sx={{ p: 2 }}>
-          <Button size="small" startIcon={<ArrowBackIcon sx={{ fontSize: 17 }} />} onClick={() => setStep("blocks")} sx={{ ...btn, color: INK, px: 0.5, ml: -0.5, mb: 1.25 }}>Blocks</Button>
+          <Button size="small" startIcon={<ArrowBackIcon sx={{ fontSize: 17 }} />} onClick={() => setStep("blocks")} sx={{ ...btn, color: INK, px: 0.5, ml: -0.5, mb: 1.25 }}>The e-mail</Button>
           <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: PINK }}>Last step</Typography>
           <Typography sx={{ fontSize: "1.05rem", fontWeight: 750, color: INK, mb: 1.5, letterSpacing: "-0.01em" }}>Send it out</Typography>
           {out}
@@ -172,12 +172,12 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
     </Box>
   );
   return (
-    <Pane title="Blocks" right={canEdit ? (
+    <Pane title="Build" right={canEdit ? (
       <Button size="small" onClick={(e) => setStart(e.currentTarget)} endIcon={<KeyboardArrowDownIcon sx={{ fontSize: "17px !important" }} />} sx={linkBtn} aria-haspopup="menu">Start from…</Button>
     ) : undefined} pad={false}>
       <Menu anchorEl={start} open={!!start} onClose={() => setStart(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}
         slotProps={{ paper: { sx: { borderRadius: "8px", width: 300 } } }}>
-        {onWrite && <MenuItem sx={{ whiteSpace: "normal" }} disabled={!!busy} onClick={() => { setStart(null); onWrite(); }}>{item(<AutoAwesomeOutlinedIcon sx={{ fontSize: 18 }} />, d.blocks.some((b) => b.kind !== "header" && b.kind !== "footer" && stateOf(b).state === "done") ? "Write it all again with AI" : "Write it with AI", "From the project's brief - Undo brings this one back")}</MenuItem>}
+        {onWrite && <MenuItem sx={{ whiteSpace: "normal" }} disabled={!!busy} onClick={() => { setStart(null); onWrite(); }}>{item(<AutoAwesomeOutlinedIcon sx={{ fontSize: 18 }} />, d.blocks.some((b) => b.kind !== "header" && b.kind !== "footer" && stateOf(b).state === "done") ? "Write it all again" : "Write the whole newsletter with AI", "From the project's brief - Undo brings this one back")}</MenuItem>}
         {onOurs && <MenuItem sx={{ whiteSpace: "normal" }} onClick={() => { setStart(null); onOurs(); }}>{item(<MarkEmailReadOutlinedIcon sx={{ fontSize: 18 }} />, "One of our e-mails…", "Its stories, pictures and buttons, as it went out")}</MenuItem>}
         <MenuItem sx={{ whiteSpace: "normal" }} onClick={(e) => { setLayouts(start ?? e.currentTarget); setStart(null); }}>{item(<DashboardCustomizeOutlinedIcon sx={{ fontSize: 18 }} />, "A layout…", "The blocks of a layout - the words written stay")}</MenuItem>
       </Menu>
@@ -286,7 +286,7 @@ export function BlockTools({ b, set, disabled, where, picked, patch, onMaking }:
         <PictureSlot url={b.imageUrl} alt={b.imageAlt} aspect={aspect} suggestion={pictureIdea(b)} disabled={disabled} startOpen={picked === `${b.id}:image` || !b.imageUrl} {...where}
           onMaking={(on) => onMaking?.(on ? `${b.id}:image` : null)}
           onPick={(p) => { const f = { imageUrl: p.url, imageAlt: b.imageAlt || (b.kind === "hero" ? b.headline : b.kind === "article" ? b.title : ""), imagePrompt: p.prompt ?? ("imagePrompt" in b ? b.imagePrompt : "") } as Partial<Block>; if (patch) patch(b.id, f); else set({ ...b, ...f } as Block); }}
-          onAlt={(alt) => set({ ...b, imageAlt: alt } as Block)} onRemove={() => set({ ...b, imageUrl: "" } as Block)} altLabel="What it shows (inboxes that hide pictures show this)" />
+          onAlt={(alt) => set({ ...b, imageAlt: alt } as Block)} onRemove={() => set({ ...b, imageUrl: "" } as Block)} altLabel="What it shows (if pictures are off)" />
       </Box>
     );
   };
