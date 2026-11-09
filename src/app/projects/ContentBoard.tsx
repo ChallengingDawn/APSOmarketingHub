@@ -118,10 +118,11 @@ function ProjectCard({ p, names, i = 0, onDelete, me, canEdit }: { p: BoardProje
     }}>
     {onDelete && <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}><DeleteButton onClick={onDelete} title={p.title} /></Box>}
     <Box component={Link} href={`/projects/${p.id}`} sx={{ display: "flex", flexDirection: "column", gap: 1.1, textDecoration: "none", color: INK, borderRadius: "8px", "&:focus-visible": { outline: `2px solid ${PINK}`, outlineOffset: 3 } }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minHeight: 21 }}>
+      <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.75, minHeight: 21, pr: onDelete ? 4 : 0 }}>
         {source && <Chip tint="purple">{source}</Chip>}
         {p.dueDate && (
-          <Typography sx={{ ml: "auto", mr: onDelete ? 4 : 0, fontSize: "0.76rem", fontWeight: 600, color: dueSoon(p.dueDate) && p.stage !== "live" ? "#c5221f" : MUTED }}>
+          // the day never breaks over lines next to a long origin tag (09.11.2026: "Due / 3 / Dec" in a narrow column)
+          <Typography sx={{ ml: "auto", whiteSpace: "nowrap", fontSize: "0.76rem", fontWeight: 600, color: dueSoon(p.dueDate) && p.stage !== "live" ? "#c5221f" : MUTED }}>
             {p.stage === "live" ? "Live" : `Due ${dayLabel(p.dueDate)}`}
           </Typography>
         )}
