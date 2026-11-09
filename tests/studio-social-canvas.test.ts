@@ -262,3 +262,18 @@ test("the AI's operations applied: words changed, the logo in its corner, a fram
   assert.ok(!placed.nodes.some((n) => n.text === head.text));
   assert.ok(placed.nodes.some((n) => n.kind === "image" && !n.src?.includes("logo")));
 });
+
+test("key words: what follows a key run with no space is glued to it (09.11.2026: a comma drawn as 'size ,')", () => {
+  const m = estimateMeasure(40);
+  const words = layoutRich("Your *exact size*, ordered online", { width: 5000, fontSize: 40, measure: m }).lines[0].words;
+  assert.deepEqual(words.map((w) => w.t), ["Your", "exact", "size", ",", "ordered", "online"]);
+  assert.equal(words[3].key, false);
+  assert.equal(words[3].x, words[2].x + words[2].w, "the comma sits right after the key word, no space");
+  // a space after the run still starts a new word, with its space
+  const spaced = layoutRich("Your *exact size* , ordered", { width: 5000, fontSize: 40, measure: m }).lines[0].words;
+  assert.ok(spaced[3].x > spaced[2].x + spaced[2].w);
+  // a key run inside a word stays one word: "*APSO*parts"
+  const inner = layoutRich("*APSO*parts shop", { width: 5000, fontSize: 40, measure: m }).lines[0].words;
+  assert.equal(inner[1].t, "parts");
+  assert.equal(inner[1].x, inner[0].x + inner[0].w);
+});

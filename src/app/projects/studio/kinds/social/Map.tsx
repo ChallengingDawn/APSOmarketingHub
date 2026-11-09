@@ -29,6 +29,7 @@ import { plainText } from "@/lib/editor/richText";
 import { STATUS_LABEL } from "@/lib/content/pieceRules";
 import { MAX_PAGES, clonePage, insertPage, movePage, pageId, pageIn, pageWords, removePage, sizeOf } from "@/lib/content/studio/kinds/social/design";
 import { templateByKey } from "@/lib/content/studio/kinds/social/templates";
+import { enabled } from "@/lib/content/studio/kinds/social/model";
 import { dayLabel } from "../../../work/ui";
 import { LastStep, MapRow, PictureSlot, shimmerSx, useClock, type PartState } from "../../standard";
 import { PINK } from "../../parts";
@@ -39,6 +40,9 @@ import ExportMenu from "./ExportMenu";
 import type { StudioCtx } from "./Studio";
 
 /* ── the elements ── */
+
+const COLOUR_NAMES: Record<string, string> = { "#D80901": "APSOparts red", "#274E64": "Petrol", "#16303F": "Dark petrol", "#FFFFFF": "White", "#000000": "Black", "#16202A": "Ink", "#F4F6F8": "Light grey", "#DDE5EB": "Mist" };
+const colourName = (c: string | undefined) => (c ? COLOUR_NAMES[c.toUpperCase()] ?? c : "");
 
 export function elementName(n: DesignNode, headlineId: string | null): string {
   if (n.kind === "text") return n.id === headlineId ? "Headline" : "Text";
@@ -55,7 +59,7 @@ function elementLine(n: DesignNode): string {
   if (isLogoNode(n)) return "APSOparts";
   if (n.kind === "image") return "The picture is in";
   if (isEmptyFrame(n)) return "No picture yet - make or upload one";
-  if (n.kind === "rect" || n.kind === "ellipse") return n.fill ?? "";
+  if (n.kind === "rect" || n.kind === "ellipse") return colourName(n.fill);
   return "";
 }
 /** The id of the page's headline (its biggest words). */
@@ -81,6 +85,8 @@ function HostSlot({ host }: { host: HTMLElement | null }) {
       "& .MuiCard-root": { border: "0 !important", borderRadius: "0 !important", m: "0 !important", boxShadow: "none !important", bgcolor: "transparent !important", position: "static !important", width: "auto !important", maxWidth: "none !important", transform: "none !important" },
       "& .MuiCard-root > .MuiBox-root": { maxHeight: "none !important" },
       "& .MuiButton-root": { textTransform: "none", borderRadius: "6px" },
+      // the words themselves are edited on the post (double-click, the key words red) - not again here in raw form
+      "& .MuiTextField-root:has([data-testid=edit-text-field])": { display: "none" },
       "& .MuiCard-root > .MuiBox-root:first-of-type > .MuiTypography-root:first-of-type": { flex: "1 1 calc(100% - 32px)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
     }} />
   );
@@ -97,7 +103,8 @@ export default function PostMap({ ctx, host, onPublish, onGallery }: {
   const [shape, setShape] = useState<"one" | "carousel">(d.pages.length > 1 ? "carousel" : "one");
   const nodes = ctx.live?.nodes ?? [];
   const headlineId = headlineIdOf(nodes);
-  const openId = ctx.selection.find((id) => nodes.some((n) => n.id === id)) ?? null;
+  // a group (a text and its red dash) opens at its words, as the canvas's label and the assistant name it
+  const openId = ctx.selection.find((id) => nodes.some((n) => n.id === id && n.kind === "text")) ?? ctx.selection.find((id) => nodes.some((n) => n.id === id)) ?? null;
   const rows = useRef<Record<string, HTMLDivElement | null>>({});
   const scroller = useRef<HTMLDivElement>(null);
   const page = d.pages[ctx.pageIx];
@@ -139,6 +146,11 @@ export default function PostMap({ ctx, host, onPublish, onGallery }: {
   // the elements in reading order: top to bottom, left to right
   const ordered = [...nodes].sort((a, b) => a.y - b.y || a.x - b.x);
   const p = ctx.api.data.piece;
+  // the last step in one line: the approval, the day, the captions written
+  const nets = enabled(ctx.doc);
+  const captions = nets.filter((n) => ctx.doc.networks[n].text.trim()).length;
+  const approval = p.status === "review" ? "Awaiting validation" : p.status === "changes" ? "Changes asked" : STATUS_LABEL[p.status] ?? "To do";
+  const lastSub = `${approval} · ${p.dueDate ? dayLabel(p.dueDate) : "no day yet"} · ${nets.length ? `${captions} of ${nets.length} captions` : "no network yet"}`;
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -231,8 +243,7 @@ export default function PostMap({ ctx, host, onPublish, onGallery }: {
 
       {/* the last step, always in reach */}
       <Box sx={{ flexShrink: 0, borderTop: `1px solid ${T.line}`, p: 1.25, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1, bgcolor: "#fff" }}>
-        <LastStep name="Publish" onClick={onPublish}
-          sub={`${STATUS_LABEL[p.status] ?? "To do"} · ${p.dueDate ? `on the calendar ${dayLabel(p.dueDate)}` : "not on the calendar yet"} · captions per network`} />
+        <LastStep name="Publish" onClick={onPublish} sub={lastSub} />
         <ExportMenu ctx={ctx} />
       </Box>
 

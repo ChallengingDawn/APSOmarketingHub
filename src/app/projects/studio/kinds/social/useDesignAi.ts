@@ -15,6 +15,7 @@ import type { DesignNode } from "@/lib/design-document";
 import { plainText } from "@/lib/editor/richText";
 import { aspectFor, planOps, scrimFor, type DesignAnswer } from "@/lib/content/studio/kinds/social/canvasAi";
 import { LOGOS, pageFrom, setPageDoc, type SocialDesign } from "@/lib/content/studio/kinds/social/design";
+import { loadImage } from "@/app/editor/designRender";
 import { makePicture, uploadPicture, type Picture } from "../../pictures";
 import { fillFrame } from "./actions";
 import type { StudioCtx } from "./Studio";
@@ -102,7 +103,7 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
     if (!c.canEdit) return "Only the project's editors can change the design.";
     const run = (gen.current += 1);
     const pageId = c.doc.design.pages[c.pageIx]?.id ?? "";
-    setWorking({ label: scope ? `Changing ${scope.name.toLowerCase()}` : "Writing the post", ids: scope ? [scope.id] : "all", pageId, since: Date.now() });
+    setWorking({ label: scope ? `Changing the ${scope.name.toLowerCase()}` : "Writing the post", ids: scope ? [scope.id] : "all", pageId, since: Date.now() });
     const snapshot = c.doc.design;
     const said = scope
       ? `Work only on the selected object ${scope.id} (${scope.name}${scope.text ? `: "${scope.text.slice(0, 160)}"` : ""}); leave the rest as it is. ${q.trim()}`
@@ -123,6 +124,8 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
       now.reload();
     } else if (plan.doc) {
       now.canvas.current?.load(plan.doc);
+      // the element worked on stays selected - the next ask goes on with it
+      if (scope && plan.doc.nodes.some((n) => n.id === scope.id)) now.canvas.current?.select([scope.id]);
     }
     if (plan.format && plan.format !== now.fmt) { const f = plan.format; setTimeout(() => ctxRef.current?.goFormat(f), 80); }
     const changed = !!(plan.doc || plan.pages || plan.format || plan.pictures.length);
@@ -140,6 +143,9 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
       const res = await makePicture(job.prompt, job.aspect, { projectId: now.api.data.piece.projectId, pieceId: now.api.data.piece.id });
       if (run !== gen.current) return;
       if (!res.ok) { failed = res.error; return; }
+      // in the browser before it goes in: the frame never shows empty while the picture travels (09.11.2026)
+      await loadImage(res.picture.url);
+      if (run !== gen.current) return;
       const pid = job.page !== undefined ? pageIds[job.page] : currentId;
       put(pid, job.into, res.picture.url, res.picture.width && res.picture.height ? { w: res.picture.width, h: res.picture.height } : undefined);
     }));
@@ -175,6 +181,7 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
     const c = ctxRef.current;
     if (!c) return;
     const pageId = c.doc.design.pages[c.pageIx]?.id ?? "";
+    await loadImage(pic.url);
     const before = c.doc.design;
     put(pageId, { node: id }, pic.url, pic.width && pic.height ? { w: pic.width, h: pic.height } : undefined);
     record(label, before, undefined, label.startsWith("Picture made") ? "ai" : "you");
@@ -192,10 +199,10 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
     setMaking((m) => ({ ...m, [id]: Date.now() }));
     setWorking((w) => w ?? { label: "Making the picture", ids: [id], pageId, since: Date.now() });
     const res = await makePicture(prompt, aspectFor(n.width ?? 1, n.height ?? 1), { projectId: c.api.data.piece.projectId, pieceId: c.api.data.piece.id });
+    if (res.ok) await landIn(id, res.picture, "Picture made for the frame");
     setMaking((m) => { const x = { ...m }; delete x[id]; return x; });
     setWorking((w) => (w && w.ids !== "all" && w.ids.length === 1 && w.ids[0] === id ? null : w));
-    if (!res.ok) { setSlotError((m) => ({ ...m, [id]: res.error })); return; }
-    await landIn(id, res.picture, "Picture made for the frame");
+    if (!res.ok) setSlotError((m) => ({ ...m, [id]: res.error }));
   }, [ctxRef, ideaFor, landIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const uploadFor = useCallback(async (id: string, file: File) => {
@@ -204,9 +211,9 @@ export function useDesignAi(ctxRef: React.MutableRefObject<StudioCtx | null>) {
     clearError(id);
     setMaking((m) => ({ ...m, [id]: Date.now() }));
     const r = await uploadPicture(file, { projectId: c.api.data.piece.projectId, pieceId: c.api.data.piece.id });
+    if (r.ok) await landIn(id, r.picture, "Picture uploaded into the frame");
     setMaking((m) => { const x = { ...m }; delete x[id]; return x; });
-    if (!r.ok) { setSlotError((m) => ({ ...m, [id]: r.error })); return; }
-    await landIn(id, r.picture, "Picture uploaded into the frame");
+    if (!r.ok) setSlotError((m) => ({ ...m, [id]: r.error }));
   }, [ctxRef, landIn]);
 
   const pickFor = useCallback(async (id: string, p: Picture) => { clearError(id); await landIn(id, p, "Picture from the gallery"); }, [landIn]);

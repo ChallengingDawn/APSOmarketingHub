@@ -9,7 +9,7 @@ import { reflow, sizeLabel } from "@/lib/editor/resize";
 import { cutoutBackdrop, cutoutVerdict, fitWithin } from "@/lib/editor/cutout";
 import { describeStyle, readStyle, styleFor, type Style } from "@/lib/editor/styleClipboard";
 import { parseSeries, parseTable } from "@/lib/editor/dataShapes";
-import { hasKeyWords } from "@/lib/editor/richText";
+import { hasKeyWords, plainText, spans } from "@/lib/editor/richText";
 import { ChartNode, TableNode } from "./DataNodes";
 import { FUTURA_STACK, RichText } from "./richKonva";
 
@@ -1835,7 +1835,7 @@ export default function EditorCanvas({
   };
 
   /* ── inline text editing (double-click / Enter) ── */
-  const inlineTaRef = useRef<HTMLTextAreaElement | null>(null);
+  const inlineTaRef = useRef<HTMLElement | null>(null);
   const editTextInline = useCallback(
     (node: NodeSpec) => {
       const stage = stageRef.current;
@@ -1849,10 +1849,45 @@ export default function EditorCanvas({
       const konvaNode = stage.findOne<Konva.Text>(`#${node.id}`);
       const fs = (node.fontSize ?? 24) * scale;
       const boxW = ((node.width ?? konvaNode?.width() ?? 320) + (node.fontSize ?? 24) * 0.3) * scale;
-      const ta = document.createElement("textarea");
+      // the words as the reader sees them: the key words red while typing, never the *stars* (flow standard 09.11.2026
+      // §2) - an editable box built from the same runs the canvas draws, written back to stars on commit. Ctrl+B makes
+      // the selected words key words, or plain again.
+      const keyColour = node.keyFill ?? "#D80901";
+      const ta = document.createElement("div") as HTMLDivElement & { value: string };
+      ta.contentEditable = "true";
+      ta.setAttribute("role", "textbox");
+      ta.setAttribute("aria-multiline", "true");
+      ta.setAttribute("aria-label", "The words - Ctrl+B makes the selected words red");
+      const keySpan = (t: string) => {
+        const s = document.createElement("span");
+        s.dataset.key = "1";
+        s.style.color = keyColour;
+        s.textContent = t;
+        return s;
+      };
+      for (const run of spans(node.text ?? "")) ta.appendChild(run.key ? keySpan(run.t) : document.createTextNode(run.t));
+      /** The box's words with their stars again. */
+      const readBack = (root: Node): string => {
+        let out = "";
+        root.childNodes.forEach((c) => {
+          if (c.nodeType === Node.TEXT_NODE) { out += c.nodeValue ?? ""; return; }
+          if (c.nodeName === "BR") { out += "\n"; return; }
+          if (!(c instanceof HTMLElement)) return;
+          const inner = readBack(c);
+          if (c.dataset.key) {
+            out += inner.split("\n").map((part) => {
+              const m = /^(\s*)([\s\S]*?)(\s*)$/.exec(part);
+              return m && m[2] ? `${m[1]}*${m[2].replace(/\*/g, "")}*${m[3]}` : part;
+            }).join("\n");
+          } else if (c.nodeName === "DIV" || c.nodeName === "P") out += (out && !out.endsWith("\n") ? "\n" : "") + inner;
+          else out += inner;
+        });
+        return out;
+      };
+      Object.defineProperty(ta, "value", { get: () => readBack(ta).replace(/\n$/, ""), configurable: true });
       inlineTaRef.current = ta;
       document.body.appendChild(ta);
-      ta.value = node.text ?? "";
+      Object.assign(ta.style, { whiteSpace: "pre-wrap", overflowWrap: "break-word", cursor: "text" });
       Object.assign(ta.style, {
         position: "fixed",
         top: `${rect.top + node.y * scale}px`,
@@ -1879,13 +1914,43 @@ export default function EditorCanvas({
         overflow: "hidden",
         outline: "none",
       });
-      const grow = () => {
-        ta.style.height = "auto";
-        ta.style.height = `${ta.scrollHeight}px`;
-      };
-      grow();
+      const grow = () => { /* the box grows with its words by itself */ };
       ta.focus();
-      ta.select();
+      {
+        const range = document.createRange();
+        range.selectNodeContents(ta);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      }
+      /** Ctrl+B: the selected words become key words, or plain again when they already are. */
+      const toggleKey = () => {
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount) return;
+        const range = sel.getRangeAt(0);
+        if (range.collapsed || !ta.contains(range.commonAncestorContainer)) return;
+        const anc = range.commonAncestorContainer;
+        const inKey = (anc instanceof HTMLElement ? anc : anc.parentElement)?.closest("[data-key]");
+        if (inKey && inKey !== ta) {
+          inKey.replaceWith(document.createTextNode(inKey.textContent ?? ""));
+          ta.normalize();
+          return;
+        }
+        const words = range.toString();
+        range.deleteContents();
+        const s = keySpan(words);
+        range.insertNode(s);
+        ta.querySelectorAll("[data-key]").forEach((k) => { if (!k.textContent) k.remove(); });
+        sel.removeAllRanges();
+        const after = document.createRange();
+        after.selectNodeContents(s);
+        sel.addRange(after);
+      };
+      ta.addEventListener("paste", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        document.execCommand("insertText", false, ev.clipboardData?.getData("text/plain") ?? "");
+      });
       const close = () => {
         ta.removeEventListener("blur", commitEdit);
         ta.remove();
@@ -1907,6 +1972,16 @@ export default function EditorCanvas({
         if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) {
           ev.preventDefault();
           commitEdit();
+          return;
+        }
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          document.execCommand("insertLineBreak");
+          return;
+        }
+        if ((ev.key === "b" || ev.key === "B") && (ev.metaKey || ev.ctrlKey)) {
+          ev.preventDefault();
+          toggleKey();
         }
       });
     },
@@ -1929,7 +2004,7 @@ export default function EditorCanvas({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "TEXTAREA" || tag === "INPUT") return;
+      if (tag === "TEXTAREA" || tag === "INPUT" || (e.target as HTMLElement)?.isContentEditable) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
       if (mod && key === "z") {
@@ -2282,7 +2357,7 @@ export default function EditorCanvas({
     kind === "text" ? <TitleIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : kind === "image" ? <ImageOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : kind === "table" ? <TableChartOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : kind === "chart" ? <BarChartIcon sx={{ fontSize: 14, color: "#5b6470" }} /> : <CategoryOutlinedIcon sx={{ fontSize: 14, color: "#5b6470" }} />;
 
   const baseLayerLabel = (n: NodeSpec) =>
-    n.kind === "text" ? (n.text || "Text").slice(0, 26) : n.kind === "image" ? (brandLogoKey(n.src) ? "APSOparts logo" : "Image") : n.kind === "scrim" ? "Scrim" : n.kind === "ellipse" ? "Ellipse" : n.kind === "arrow" ? "Arrow" : n.kind === "table" ? `Table · ${Math.max(0, (n.rows?.length ?? 1) - 1)} rows` : n.kind === "chart" ? `Chart · ${n.series?.length ?? 0} values` : "Shape";
+    n.kind === "text" ? (plainText(n.text) || "Text").slice(0, 26) : n.kind === "image" ? (brandLogoKey(n.src) ? "APSOparts logo" : "Image") : n.kind === "scrim" ? "Scrim" : n.kind === "ellipse" ? "Ellipse" : n.kind === "arrow" ? "Arrow" : n.kind === "table" ? `Table · ${Math.max(0, (n.rows?.length ?? 1) - 1)} rows` : n.kind === "chart" ? `Chart · ${n.series?.length ?? 0} values` : "Shape";
 
   /** Grouped rows say so. A group nobody can see is one somebody breaks. */
   const layerLabel = (n: NodeSpec) =>

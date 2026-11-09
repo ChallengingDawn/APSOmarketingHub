@@ -34,16 +34,24 @@ export function spans(text: string): Span[] {
   return out;
 }
 
+/** A word, or the piece of one that follows a key run with no space between ("*size*," - the comma is glued on). */
+type Piece = Span & { glue?: boolean };
+
 /** Each paragraph's words, each carrying whether it is a key word (a key run of three words is three key words). */
-function paragraphs(text: string, upper: boolean): Span[][] {
-  const paras: Span[][] = [[]];
+function paragraphs(text: string, upper: boolean): Piece[][] {
+  const paras: Piece[][] = [[]];
+  // the run before ended inside a word: what follows without a space belongs to that word (09.11.2026: "Your *exact
+  // size*, ordered online" drew "size ," - the comma with a space before it)
+  let touching = false;
   for (const s of spans(text)) {
     const parts = s.t.split("\n");
     parts.forEach((part, i) => {
-      if (i > 0) paras.push([]);
-      for (const w of part.split(/[ \t]+/)) {
-        if (w) paras[paras.length - 1].push({ t: upper ? w.toUpperCase() : w, key: s.key });
-      }
+      if (i > 0) { paras.push([]); touching = false; }
+      const para = paras[paras.length - 1];
+      part.split(/[ \t]+/).forEach((w, j) => {
+        if (w) para.push({ t: upper ? w.toUpperCase() : w, key: s.key, ...(j === 0 && touching && para.length ? { glue: true } : {}) });
+      });
+      touching = part.length > 0 && !/[ \t]$/.test(part);
     });
   }
   return paras;
@@ -66,6 +74,8 @@ export function layoutRich(text: string, o: {
     let x = 0;
     for (const sp of para) {
       const w = wOf(sp.t);
+      // a glued piece sits right after the word it belongs to, on its line, with no space
+      if (sp.glue && cur.length) { cur.push({ t: sp.t, key: sp.key, w, x }); x += w; continue; }
       if (cur.length && x + space + w > o.width + 0.5) {
         lines.push({ words: cur, width: x });
         cur = []; x = 0;
