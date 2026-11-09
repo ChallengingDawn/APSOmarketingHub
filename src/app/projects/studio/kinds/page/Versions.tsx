@@ -78,7 +78,7 @@ export function VersionStrip({ view, docOrigin, canEdit, busy, onOpen, onAdd, on
       {ab.enabled && (
         <Tooltip title="The A/B test - set on the left, under A/B test">
           <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, flexShrink: 0, fontSize: "0.72rem", fontWeight: 700, color: "#c22c6e" }}>
-            <ScienceOutlinedIcon sx={{ fontSize: 15 }} />{ab.a === "page" ? "As it is" : ab.a} vs {ab.b === "page" ? "as it is" : ab.b}
+            <ScienceOutlinedIcon sx={{ fontSize: 15 }} />Test: {ab.b === "page" ? "as it is" : ab.b} vs {ab.a === "page" ? "as it is" : ab.a}
           </Box>
         </Tooltip>
       )}

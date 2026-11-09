@@ -104,12 +104,12 @@ export function SeoPanel({ d, setView, canEdit, canAi, onPropose }: {
         )}
       </Box>
       {err && <Typography sx={{ fontSize: "0.78rem", color: "#c5221f", mb: 1 }}>{err}</Typography>}
-      <Field label="Search engine title" value={seo.title} max={LIMIT.seoTitle} disabled={!canEdit} placeholder={o?.title || undefined}
+      <Field label="Search engine title" value={seo.title} max={LIMIT.seoTitle} disabled={!canEdit}
         helper={seo.title.trim() ? undefined : "Empty: the page's own stays"} onChange={(v) => set({ title: v })} />
-      <Field label="Description" value={seo.description} max={LIMIT.seoDescription} multiline rows={3} disabled={!canEdit} placeholder={o?.description || undefined}
+      <Field label="Description" value={seo.description} max={LIMIT.seoDescription} multiline rows={3} disabled={!canEdit}
         helper={seo.description.trim() ? undefined : "Empty: the page's own stays"} onChange={(v) => set({ description: v })} />
       {kind !== "home" && (
-        <Field label="URL key" value={seo.urlKey} disabled={!canEdit} placeholder={nowKey || undefined}
+        <Field label="URL key" value={seo.urlKey} disabled={!canEdit}
           helper={keyMoves ? "A new URL key moves the page: its old address stops working (Magento makes no redirect for a CMS page)" : `Empty: it stays ${nowKey || "as it is"}`}
           onChange={(v) => set({ urlKey: v })} />
       )}

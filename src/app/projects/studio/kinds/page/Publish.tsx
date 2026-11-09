@@ -33,7 +33,7 @@ import type { StudioApi } from "../../useStudio";
 import { Publish as HandOver } from "./Sections";
 import { Hint, mono } from "./ui";
 
-type EnvState = {
+export type EnvState = {
   env: Env; label: string; base: string; key: boolean; waiting: string | null; why: string | null; restoreWhy: string | null;
   /** where its key for pages comes from, the connection in plain words, the last check (Content v6) */
   from?: "cms" | "order" | "none"; connection?: string; check?: Check | null;
@@ -171,7 +171,7 @@ function HtmlOf({ api, view }: { api: StudioApi; view: string }) {
 /** The connection to Magento, per environment, in plain words (Content v6 - SARCLA 09.11.2026: "the Magento connection is
  * not working yet"): no key on the hub yet, a key not checked yet, connected, refused - and "Check the connection", ONE
  * read of Magento's CMS pages with that key, nothing written. */
-function Connection({ api, envs }: { api: StudioApi; envs: EnvState[] }) {
+export function Connection({ api, envs }: { api: StudioApi; envs: EnvState[] }) {
   const [checks, setChecks] = useState<Partial<Record<Env, Check>>>({});
   const [busy, setBusy] = useState<Env | null>(null);
   const check = async (env: Env) => {

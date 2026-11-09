@@ -176,7 +176,9 @@ export function LangSwitch({ d, lang, onLang, groups, presence }: { d: PageDoc; 
         return (
           <Tooltip key={k} title={`${viewName(k)} · ${k} · ${STATE_NOTE[st]}`}>
             <Box component="button" type="button" role="radio" aria-checked={on} onClick={() => onLang(k)} sx={btnSx(on, i, st)}>
-              {viewShort(k)}
+              {/* the Swiss shop in EUR: its currency small beside it, so the toolbar keeps one row (Content v6) */}
+              {k.split("/")[0].toUpperCase()}
+              {k.includes("/") && <Box component="span" aria-label={viewShort(k)} sx={{ fontSize: "0.6rem", fontWeight: 800, opacity: 0.8, ml: -0.25 }}>{k.split("/")[1].toUpperCase()}</Box>}
               {st === "main" && <Box component="span" sx={{ width: 6, height: 6, borderRadius: "1px", bgcolor: on ? "#fff" : PINK }} />}
               {st === "done" && <CheckIcon sx={{ fontSize: 14, color: on ? "#fff" : "#1b7a55" }} />}
               {st === "stale" && <WarningAmberIcon sx={{ fontSize: 14, color: on ? "#fff" : AMBER }} />}

@@ -73,7 +73,7 @@ export function AbTest({ d, set, canEdit }: { d: PageDoc; set: (next: PageDoc) =
                 options={[{ key: "page", label: "The page as it is" }, ...letters.filter((l) => l !== tested).map((l) => ({ key: l, label: `Version ${l}` }))]} /></Box>
             </>
           )}
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.25 }}>Visitors who see {sideName(ab.b).replace(/^The/, "the")}: <b style={{ color: INK }}>{ab.split}%</b></Typography>
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 0.25 }}>Visitors who see {sideName(ab.b).replace(/^./, (c) => c.toLowerCase())}: <b style={{ color: INK }}>{ab.split}%</b></Typography>
           <Slider value={ab.split} min={10} max={90} step={5} disabled={!canEdit} onChange={(_, v) => up({ split: v as number })}
             sx={{ color: PINK, mb: 1, mx: 1, width: "calc(100% - 16px)" }} />
           <Box sx={{ mb: 1 }}><Choice label="Decided by" value={ab.goal} onChange={(goal: AbGoal) => canEdit && up({ goal })} options={(Object.keys(AB_GOAL_LABEL) as AbGoal[]).map((k) => ({ key: k, label: AB_GOAL_LABEL[k] }))} /></Box>
