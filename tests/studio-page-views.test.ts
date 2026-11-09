@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  copyView, dropView, howToAdd, mainView, pageDoc, shopViews, sourceHash, viewKey, viewOf, viewState, viewsLine, viewsOf, withView,
+  alternatesByStore, copyView, dropView, howToAdd, mainView, pageDoc, shopViews, sourceHash, viewKey, viewOf, viewState, viewsLine, viewsOf, withView,
 } from "../src/lib/content/studio/kinds/page/model";
 
 // SARCLA 09.11.2026: "the locales are not all complete in Magento - we select by store view". A page's versions are by
@@ -116,4 +116,15 @@ test("the shop's store views by language, and the line that says how far the pag
   const two = copyView(withView(d, "fr-CH", { ...viewOf(d, "fr-CH"), fields: { ...d.fields, hero: { ...d.fields.hero, title: "Joints" } } }), "de-AT", "de-CH");
   assert.equal(viewsLine(two, groups), "de-CH · de-AT · fr-CH · 3 of 14 store views");
   assert.deepEqual(shopViews([], "fr-FR")[0], { lang: "fr", name: "French", stores: ["fr-CH", "fr-FR", "fr-INT"] }, "without the index: the shop's own list");
+});
+
+test("the page's hreflang links by the store view their address is in - what the shop says the page is called there", () => {
+  // as www.apsoparts.com/de-CH/ueber-uns writes them (09.11.2026): no de-DE, de-AT, de-INT - those are read from the index
+  const html = `<link rel="alternate" href="https://www.apsoparts.com/de-CH/ueber-uns" hreflang="de-CH" />
+<link rel="alternate" href="https://www.apsoparts.com/fr-CH/a-propos" hreflang="fr-CH" />
+<link rel="alternate" href="https://www.apsoparts.com/en-INT/about-us" hreflang="x-default" />
+<link rel="alternate" href="https://www.apsoparts.com/fr-INT/a-propos" hreflang="fr" />
+<link rel="stylesheet" href="https://www.apsoparts.com/static/x.css" />
+<link rel="alternate" href="https://elsewhere.com/nl-NL/x" hreflang="nl-NL" />`;
+  assert.deepEqual(alternatesByStore(html), { "de-CH": "/de-CH/ueber-uns", "fr-CH": "/fr-CH/a-propos", "en-INT": "/en-INT/about-us", "fr-INT": "/fr-INT/a-propos" });
 });

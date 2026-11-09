@@ -562,6 +562,23 @@ export function counterpartIn(html: string, lang: string, mainStore: string, pre
   return null;
 }
 
+/** The page's hreflang links, by the store view their address is in ("/fr-INT/x" -> fr-INT). */
+export function alternatesByStore(html: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
+    const tag = m[0];
+    if (!/\brel\s*=\s*["']?alternate/i.test(tag)) continue;
+    const href = /\bhref\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1];
+    if (!href) continue;
+    try {
+      const u = new URL(href.replace(/&amp;/g, "&"), "https://www.apsoparts.com");
+      const s = baseStore(u.pathname.split("/")[1]);
+      if (s && /^(www|acc)\.apsoparts\.com$/.test(u.hostname) && !out[s]) out[s] = u.pathname;
+    } catch { /* not an address */ }
+  }
+  return out;
+}
+
 /* ── the texts Content writes (an older version's placeholders) ───────── */
 
 /** <span class="apx-text" [data-key="t1"]>[Text from Content: what it must say]</span> - the placeholder a version leaves. */

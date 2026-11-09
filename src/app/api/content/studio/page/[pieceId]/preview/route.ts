@@ -1,8 +1,8 @@
-// A PAGE TO-DO'S PREVIEW, FOR EVERYONE IN THE PROJECT (08.11.2026): GET ?side=before|after|shell[&lang=fr][&fresh=1] answers the page as
+// A PAGE TO-DO'S PREVIEW, FOR EVERYONE IN THE PROJECT (08.11.2026): GET ?side=before|after|shell[&lang=fr-CH][&fresh=1] answers the page as
 // a still picture - the shop's page with the stored changes laid over it, as one HTML document in JSON (the studio shows
 // it in a srcDoc frame). A GET, so a reviewer who may only comment sees what they review: the studio's own POST route
 // is for editors. Built from the stored document, never from a body sent here (the hub's 8 KB limit). `lang` = one
-// language of the page; `shell` = the store's page a new page shows in (the studio draws the page into it as it is typed).
+// store view of the page; `shell` = the store's page a new page shows in (the studio draws the page into it as it is typed).
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guard";
 import { accessFor } from "@/lib/content/sharing";
@@ -26,7 +26,8 @@ export async function GET(req: NextRequest, c: { params: Promise<{ pieceId: stri
   const sp = req.nextUrl.searchParams;
   const stored = await readDoc(piece.id);
   const side = sp.get("side") === "before" ? "before" : sp.get("side") === "shell" ? "shell" : "after";
-  const lang = /^[a-z]{2}$/.test(sp.get("lang") ?? "") ? sp.get("lang") : null;
+  // a store view ("fr-CH") - or, from an older page, a language ("fr")
+  const lang = /^[a-z]{2}(-[A-Z]{2,3})?$/.test(sp.get("lang") ?? "") ? sp.get("lang") : null;
   const out = await previewOf(stored?.doc ?? null, side, sp.get("fresh") === "1", lang);
   return NextResponse.json(out, { headers: { "Cache-Control": "no-store" } });
 }

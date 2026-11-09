@@ -19,7 +19,7 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import UndoIcon from "@mui/icons-material/Undo";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
-import { langState, mainLang, type LangOption, type PageDoc } from "@/lib/content/studio/kinds/page/model";
+import { langOfStore, mainView, viewState, viewsLine, viewsOf, type PageDoc, type StoreGroup } from "@/lib/content/studio/kinds/page/model";
 import { AssistantPanel, PINK, btn, type QuickAsk } from "../../parts";
 import { Chip, useCopy } from "./ui";
 
@@ -29,28 +29,34 @@ export type SeoCard = { title: string; description: string; urlKey: string };
 
 const ago = (t: number) => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`; };
 
-/** "Translate the whole page into …": every other language the shop has, one squared row, each saying if it is made. */
-function TranslateRow({ doc, offered, busy, onTranslate, enabled }: { doc: PageDoc; offered: LangOption[]; busy: string | null; onTranslate: (l: string) => Promise<string | null>; enabled: boolean }) {
+/** "Translate the whole page into …": the store views of the shop's other languages, one squared row, each saying if it
+ * is made (SARCLA 09.11.2026: "we select by store view") - the page's store views made, else each language's own store
+ * view (FR-CH, IT-CH, EN-INT ...); the others of a language are copies of it, under "+ Store view" above the page. */
+function TranslateRow({ doc, groups, busy, onTranslate, enabled }: { doc: PageDoc; groups: StoreGroup[]; busy: string | null; onTranslate: (l: string) => Promise<string | null>; enabled: boolean }) {
   const [msg, setMsg] = useState<string | null>(null);
-  const main = mainLang(doc);
-  const list = offered.filter((o) => o.lang !== main);
+  const main = mainView(doc);
+  const made = viewsOf(doc);
+  const list = groups.filter((g) => g.lang !== langOfStore(main)).flatMap((g) => {
+    const have = g.stores.filter((s) => made.includes(s));
+    return (have.length ? have : g.stores.slice(0, 1)).map((store) => ({ store, name: g.name }));
+  });
   if (!list.length) return null;
   return (
     <Box sx={{ mt: 2 }}>
       <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>Translate the whole page into</Typography>
       <Box sx={{ display: "inline-flex", flexWrap: "wrap", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "#fff" }}>
         {list.map((o, i) => {
-          const st = langState(doc, o.lang);
-          const on = busy === `translate:${o.lang}`;
+          const st = viewState(doc, o.store);
+          const on = busy === `translate:${o.store}`;
           return (
-            <Tooltip key={o.lang} title={`${st === "empty" ? "Translate" : "Translate again"} into ${o.name} (${o.store})${st === "stale" ? " - out of date" : st === "done" ? " - made" : ""}`}>
-              <Box component="button" type="button" disabled={!enabled || !!busy} onClick={async () => { setMsg(null); setMsg(await onTranslate(o.lang)); }} sx={{
+            <Tooltip key={o.store} title={`${st === "empty" ? "Translate" : "Translate again"} into ${o.name} for ${o.store}${st === "stale" ? " - out of date" : st === "done" ? " - made" : ""}`}>
+              <Box component="button" type="button" disabled={!enabled || !!busy} onClick={async () => { setMsg(null); setMsg(await onTranslate(o.store)); }} sx={{
                 all: "unset", cursor: !enabled || busy ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 0.4, px: 1.1, py: 0.6, fontSize: "0.8rem", fontWeight: 700,
                 borderLeft: i ? `1px solid ${HAIRLINE}` : "none", color: !enabled ? "#b3bccb" : INK, transition: "background-color .12s",
                 "&:hover": !enabled || busy ? {} : { bgcolor: "rgba(194,44,110,.07)", color: PINK },
               }}>
                 {on ? <CircularProgress size={12} sx={{ color: PINK }} /> : null}
-                {o.lang.toUpperCase()}
+                {o.store.toUpperCase()}
                 {!on && st === "done" && <CheckIcon sx={{ fontSize: 13, color: "#1b7a55" }} />}
                 {!on && st === "stale" && <WarningAmberIcon sx={{ fontSize: 13, color: "#b7791f" }} />}
               </Box>
@@ -58,6 +64,7 @@ function TranslateRow({ doc, offered, busy, onTranslate, enabled }: { doc: PageD
           );
         })}
       </Box>
+      <Typography sx={{ mt: 0.75, fontSize: "0.74rem", color: MUTED }}>{viewsLine(doc, groups)}</Typography>
       {msg && <Typography sx={{ mt: 1, fontSize: "0.8rem", color: "#7f4f0b", bgcolor: "#fff8ec", p: 1, borderRadius: "8px" }}>{msg}</Typography>}
     </Box>
   );
@@ -72,15 +79,15 @@ export function Assistant({ quick, onAsk, enabled, context, contextKind, onClear
   ideas: Idea[]; onIdea: (i: Idea) => void;
   seo: SeoCard | null; onUseSeo: (s: SeoCard) => void;
   inputRef: React.Ref<HTMLTextAreaElement>; placeholder: string; lang: string;
-  /** the main language shown: translating the whole page into the shop's other languages */
-  translate: { doc: PageDoc; offered: LangOption[]; busy: string | null; onTranslate: (l: string) => Promise<string | null> } | null;
+  /** the main store view shown: translating the whole page into the store views of the shop's other languages */
+  translate: { doc: PageDoc; groups: StoreGroup[]; busy: string | null; onTranslate: (l: string) => Promise<string | null> } | null;
 }) {
   const { done, copy } = useCopy();
   const top = (
     <Box sx={{ mb: 1.5 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: context ? 1 : 0 }}>
         <Typography sx={{ fontSize: "0.76rem", color: MUTED, flex: 1 }}>Working on</Typography>
-        <Chip tint="blue">{lang.toUpperCase()}</Chip>
+        <Chip tint="blue">{lang}</Chip>
       </Box>
       {context ? (
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, p: 1, pl: 1.25, borderRadius: "8px", bgcolor: "rgba(194,44,110,.07)", border: "1px solid rgba(194,44,110,.25)" }}>
@@ -135,7 +142,7 @@ export function Assistant({ quick, onAsk, enabled, context, contextKind, onClear
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography sx={{ fontSize: "0.83rem", color: INK, fontWeight: 600, textDecoration: e.undone ? "line-through" : "none" }}>{e.label}</Typography>
                 {e.note && <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{e.note}</Typography>}
-                <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{e.lang.toUpperCase()} · {ago(e.at)}{e.undone ? " · undone" : ""}</Typography>
+                <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{e.lang} · {ago(e.at)}{e.undone ? " · undone" : ""}</Typography>
               </Box>
               {!e.undone && (
                 <Tooltip title="Put the page back as it was before this (and every later change)">

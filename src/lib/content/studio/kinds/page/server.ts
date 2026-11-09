@@ -13,8 +13,14 @@
 //   candidates the shop's category and product pages a new page may link to (the AI picks among them, never invents)
 //   inserts    the banners placed in the page, drawn
 //   relink     a translated new page's links moved to the same pages in its language (their hreflang links)
-//   paste      what to paste into Magento, and where - one language. Nothing is written to Magento: its client is
-//              read-only, with production keys shared with other jobs
+//   views      for each store view of the shop: is this page of the shop there (the page index)
+//   paste      what to paste into Magento, and where - one store view (the hand-over, for what the hub does not write)
+//   magento    the last step "To Magento" (SARCLA 09.11.2026: "The Magento publish should occur via the API ... update
+//              ACC and/or PROD"): each store view's page as Magento gets it, the keys, the gate, what was written
+//   magento_plan     what a write would do in each store view, read from ACC or production - nothing written
+//   magento_publish  the store views written into ACC or production - once the to-do is approved, by someone with
+//                    Edit on AI testing & personalization > Winners (the Ship grant), a backup of each page first
+//   magento_restore  a store view's page brought back as it was before this to-do's last write there
 //   ping       nothing - the studio waits on it so a big change goes in two steps (studio/doc.ts batches)
 //   winner     a test's winner (the brief's marker names the test): the tested change list, its figures, published yet,
 //              may this person publish (lib/convert/winner.ts)
@@ -37,18 +43,20 @@ import { saveOps } from "../../store";
 import { projectHead } from "@/lib/content/workflow";
 import { markerOf } from "@/lib/convert/handoff";
 import { publishFromContent, winnerFor, type Winner } from "@/lib/convert/winner";
+import { KEY_WAITING, cmsKeys, cmsPageBackups, cmsPagePlans, cmsPageRestore, cmsPageWrite } from "@/lib/convert/cms";
+import { gateOf } from "@/lib/convert/cmsPage";
 import { myAccess } from "@/lib/auth/appAccess";
-import { classify, isKind } from "@/lib/convert/model";
+import { ENVS, classify, isKind, type Env } from "@/lib/convert/model";
 import { pagesSummary } from "@/lib/convert/pages";
 import { cleanPath, pageWork } from "@/lib/convert/studio";
 import { LIMIT, fieldLabel, fieldStrings, getField, withFieldStrings, type Fields, type Item } from "./fields";
 import { FIELD_SCHEMA, FILL_SCHEMA, PART_LABEL, cleanFill, type Candidate, type Part } from "./fill";
 import { fitField, fitFields, limitOf } from "./fit";
 import {
-  changeStrings, emptyPage, fillTexts, fromAi, isLegacyBody, langName, languageOfStore, leftoversIn, mainLang, pageDoc, pageText,
-  placeholdersOf, shopUrl, sourceHash, textsFromAi, urlKeyOf, viewOf, withChangeStrings, type AiChange, type PageDoc,
+  baseStore, changeStrings, emptyPage, fillTexts, fromAi, isLegacyBody, langName, langOfStore, languageOfStore, leftoversIn, mainLang, mainView, pageDoc,
+  pageText, placeholdersOf, shopUrl, sourceHash, textsFromAi, urlKeyOf, viewKey, viewOf, viewsOf, withChangeStrings, type AiChange, type MagentoRecord, type PageDoc,
 } from "./model";
-import { convertPages, counterpartOf, findPages, insertsOf, outlineOf, pasteOf, previewOf, relinkOf } from "./shop";
+import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, presenceOf, previewOf, relinkOf } from "./shop";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
@@ -312,7 +320,8 @@ ${RULES}`,
     const doc = pageDoc(raw, ctx.piece.language);
     const to = s(input.to, 2).toLowerCase();
     const items = translateSource(doc);
-    return `TRANSLATE FROM ${langName(mainLang(doc))} INTO ${langName(to)} (store view ${s(input.store, 20) || "-"}).
+    const store = baseStore(s(input.store, 20)) ?? baseStore(s(input.to, 20));
+    return `TRANSLATE FROM ${langName(mainLang(doc))} INTO ${langName(to)} (store view ${store ?? "-"}).
 ${doc.source === "new" ? "A new page: also give its URL key in the new language." : "An existing page's changes: urlKey stays empty."}
 
 THE TEXTS (JSON):
@@ -578,8 +587,11 @@ const pages: ServerAction = async (_ctx, _raw, input) => {
 
 const convert: ServerAction = async () => ({ rows: await convertPages() });
 
-/** The path in the document where one language's part lives. */
-const at = (d: PageDoc, lang: string | null, key: string): (string | number)[] => (!lang || lang === mainLang(d) ? [key] : ["langs", lang, key]);
+/** The path in the document where one store view's part lives (a language names its version, as before). */
+const at = (d: PageDoc, lang: string | null, key: string): (string | number)[] => {
+  const k = viewKey(d, lang);
+  return k === mainView(d) ? [key] : ["langs", k, key];
+};
 
 const readOutline: ServerAction = async (ctx, raw, input) => {
   const doc = pageDoc(raw, ctx.piece.language);
@@ -596,12 +608,16 @@ const readOutline: ServerAction = async (ctx, raw, input) => {
   return { ok: true, title: r.outline.title, h1: r.outline.h1, lines: r.outline.lines.length };
 };
 
-const langIn = (input: Record<string, unknown>) => (typeof input.lang === "string" && /^[a-z]{2}$/.test(input.lang) ? input.lang : null);
+/** The store view asked for ("fr-CH"; an older caller: a language, "fr"). */
+const langIn = (input: Record<string, unknown>) => (typeof input.lang === "string" && /^[a-z]{2}(-[A-Z]{2,3})?$/.test(input.lang) ? input.lang : null);
 const preview: ServerAction = async (_ctx, raw, input) =>
   previewOf(raw, input.side === "before" ? "before" : input.side === "shell" ? "shell" : "after", input.fresh === true, langIn(input));
 const paste: ServerAction = async (_ctx, raw, input) => pasteOf(raw, langIn(input), await shopStores());
-const counterpart: ServerAction = async (_ctx, raw, input) =>
-  counterpartOf(raw, langIn(input) ?? "fr", typeof input.store === "string" && STORE_RE.test(input.store) ? input.store : null);
+const counterpart: ServerAction = async (_ctx, raw, input) => {
+  const key = langIn(input);
+  const store = typeof input.store === "string" && STORE_RE.test(input.store) ? input.store : baseStore(key);
+  return counterpartOf(raw, langOfStore(key ?? store ?? "fr"), store);
+};
 
 /** The category and product pages a new page may link to: the words of the brief and the page's title, in its store. */
 const candidates: ServerAction = async (ctx, raw, input) => {
@@ -623,6 +639,92 @@ const candidates: ServerAction = async (ctx, raw, input) => {
 
 const inserts: ServerAction = async (ctx, raw, input) => ({ inserts: await insertsOf(viewFor(ctx, raw, input)) });
 const relink: ServerAction = async (_ctx, raw, input) => relinkOf(raw, langIn(input) ?? "fr");
+/** For each store view of the shop: is this page of the shop there (the page index; its own address there)? */
+const views: ServerAction = async (ctx, raw) => ({ presence: await presenceOf(pageDoc(raw, ctx.piece.language), await shopStores()) });
+
+/* ── the last step: into Magento, by store view ───────────────────────── */
+
+// SARCLA 09.11.2026: "The Magento publish should occur via the API ... also be able to update ACC and/or PROD". The gate
+// is the one a test's winner has (publish, above): the to-do approved by its reviewer, and the person's Edit on
+// Website > AI testing & personalization > Winners - the hub's one grant for changing the shop. Each page is backed up
+// before it is written (src/lib/convert/cms.ts); "bring it back" writes the backup back.
+
+const envIn = (input: Record<string, unknown>): Env => (input.env === "prod" ? "prod" : "acc");
+/** The store views asked for - only the page's own versions. */
+function viewsIn(doc: PageDoc, input: Record<string, unknown>): string[] {
+  const have = viewsOf(doc);
+  const asked = Array.isArray(input.views) ? input.views.map((v) => baseStore(String(v))).filter((v): v is string => !!v) : have;
+  return have.filter((v) => asked.includes(v));
+}
+
+const magento: ServerAction = async (ctx, raw) => {
+  const doc = pageDoc(raw, ctx.piece.language);
+  const keys = cmsKeys();
+  const [views, grant, backups] = await Promise.all([
+    Promise.all(viewsOf(doc).map((v) => magentoOf(raw, v))),
+    mayShip(),
+    cmsPageBackups(String(ctx.pieceId)).catch(() => []),
+  ]);
+  const gate = (env: Env, restore = false) => gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant, key: keys[env], env, restore });
+  return {
+    views: views.map(({ want: _want, ...v }) => v),
+    envs: (["acc", "prod"] as Env[]).map((env) => ({
+      env, label: ENVS[env].label, base: ENVS[env].base, key: keys[env], waiting: keys[env] ? null : KEY_WAITING[env], why: gate(env), restoreWhy: gate(env, true),
+    })),
+    // what keeps this person from writing, whatever the target (the key is said per target)
+    gate: { canEdit: ctx.canEdit, approved: ctx.piece.status === "approved" || ctx.piece.status === "live", grant, why: gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant, key: true, env: "acc" }) },
+    backups,
+  };
+};
+
+const magentoPlan: ServerAction = async (ctx, raw, input) => {
+  const env = envIn(input);
+  if (!cmsKeys()[env]) return { env, plans: [], waiting: KEY_WAITING[env] };
+  const doc = pageDoc(raw, ctx.piece.language);
+  const items: { view: string; want: NonNullable<Awaited<ReturnType<typeof magentoOf>>["want"]> }[] = [];
+  for (const v of viewsIn(doc, input)) {
+    const m = await magentoOf(raw, v);
+    if (m.cms && m.want && !m.why) items.push({ view: v, want: m.want });
+  }
+  return { env, plans: await cmsPagePlans(String(ctx.pieceId), env, items), waiting: null };
+};
+
+const magentoPublish: ServerAction = async (ctx, raw, input) => {
+  const env = envIn(input);
+  const no = gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant: await mayShip(), key: cmsKeys()[env], env });
+  if (no) throw new Error(no);
+  const doc = pageDoc(raw, ctx.piece.language);
+  const views = viewsIn(doc, input);
+  if (!views.length) throw new Error("Pick the store views to write.");
+  const results: { view: string; ok: boolean; action?: string; pageId?: string; error?: string }[] = [];
+  const records: MagentoRecord[] = [];
+  for (const v of views) {
+    const m = await magentoOf(raw, v);
+    if (!m.cms || !m.want || m.why || m.blocked) { results.push({ view: v, ok: false, error: m.why ?? m.blocked ?? "Not a CMS page." }); continue; }
+    try {
+      const w = await cmsPageWrite(String(ctx.pieceId), env, { view: v, want: m.want }, ctx.me.username);
+      results.push({ view: v, ok: true, action: w.action, pageId: w.pageId });
+      records.push({ env, store: v, pageId: w.pageId, identifier: m.want.identifier, action: w.action, at: new Date().toISOString(), by: ctx.me.username, backupId: w.backupId, url: `${ENVS[env].base}/${v}/${m.want.identifier}` });
+    } catch (e) {
+      results.push({ view: v, ok: false, error: (e as Error).message });
+    }
+  }
+  if (records.length) await write(ctx, [{ op: "set", path: ["magento"], value: [...records, ...doc.magento].slice(0, 40) }]);
+  return { env, results, records };
+};
+
+const magentoRestore: ServerAction = async (ctx, raw, input) => {
+  const env = envIn(input);
+  const no = gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant: await mayShip(), key: cmsKeys()[env], env, restore: true });
+  if (no) throw new Error(no);
+  const view = baseStore(String(input.view ?? ""));
+  if (!view) throw new Error("Which store view?");
+  const doc = pageDoc(raw, ctx.piece.language);
+  const r = await cmsPageRestore(String(ctx.pieceId), env, view, ctx.me.username);
+  const record: MagentoRecord = { env, store: view, pageId: r.pageId, identifier: r.identifier, action: r.action, at: new Date().toISOString(), by: ctx.me.username, backupId: r.backupId, url: `${ENVS[env].base}/${view}/${r.identifier}` };
+  await write(ctx, [{ op: "set", path: ["magento"], value: [record, ...doc.magento].slice(0, 40) }]);
+  return { record };
+};
 
 export const pageKind: KindDef = {
   kind: "page",
@@ -636,6 +738,7 @@ export const pageKind: KindDef = {
     fill_cta: fillTask("cta"), fill_seo: fillTask("seo"), fill_field: fillField,
   },
   actions: {
-    start, winner, publish, stores, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, relink, ping: async () => ({ ok: true }),
+    start, winner, publish, stores, views, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, relink, ping: async () => ({ ok: true }),
+    magento, magento_plan: magentoPlan, magento_publish: magentoPublish, magento_restore: magentoRestore,
   },
 };
