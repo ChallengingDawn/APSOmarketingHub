@@ -46,6 +46,7 @@ import { InlineTitle } from "./InlineTitle";
 import { KINDS, KindTile, kindLabel } from "./kinds";
 import { pieceStep } from "@/lib/content/nextStep";
 import { Chip, PINK, PersonPick, StatusChip, dayLabel, dueSoon, postWork } from "./ui";
+import { ReviewerPick } from "./ReviewerPick";
 import type { Piece, Place, TodoTicket, Tickets, Work } from "./types";
 
 const btn = { textTransform: "none" as const, fontWeight: 600, borderRadius: "10px", whiteSpace: "nowrap" as const };
@@ -319,9 +320,11 @@ function PlanTicketDialog({ w, open, piece, ticket, place, act, onClose, onDone 
 
 /* ── one to-do ──────────────────────────────────────────────────────────────────────────────────────────────────── */
 
-function TodoRow({ p, w, ticket, takes, ticketsLoading, act, onTicket, onAskChanges }: {
+function TodoRow({ p, w, ticket, takes, ticketsLoading, act, onTicket, onAskChanges, onAskReview }: {
   p: Piece; w: Work; ticket: TodoTicket | undefined; takes: boolean | undefined; ticketsLoading: boolean; act: Act;
   onTicket: (p: Piece) => void; onAskChanges: (p: Piece) => void;
+  /** "Ask for review" with nobody to ask yet: who reviews it, the default reviewer picked (SARCLA 09.11.2026) */
+  onAskReview: (p: Piece) => void;
 }) {
   const canEdit = w.access.canEdit;
   const task = p.contentType === TASK_KIND;
@@ -329,7 +332,7 @@ function TodoRow({ p, w, ticket, takes, ticketsLoading, act, onTicket, onAskChan
   const set = (patch: Partial<Piece>, body: Record<string, unknown>) =>
     act({ action: "piece-edit", pieceId: p.id, ...body }, (x) => ({ ...x, pieces: x.pieces.map((y) => (y.id === p.id ? { ...y, ...patch } : y)) }));
   const move = (to: PieceStatus) => act({ action: "piece-move", pieceId: p.id, to }, (x) => ({ ...x, pieces: x.pieces.map((y) => (y.id === p.id ? { ...y, status: to } : y)) }));
-  const go = (m: ReturnType<typeof moves>[number]) => (m.note ? onAskChanges(p) : m.to === "review" && !p.reviewer ? void act({ action: "piece-move", pieceId: p.id, to: "review" }) : void move(m.to));
+  const go = (m: ReturnType<typeof moves>[number]) => (m.note ? onAskChanges(p) : m.to === "review" && !p.reviewer ? onAskReview(p) : void move(m.to));
   // ONE next step on the line, by where it stands and who is looking (lib/content/nextStep.ts): "Write it" / "Review it" /
   // "Make the changes" / "Publish it" open the studio, "Ask for review" / "Done" move it here; what someone else has to do
   // is said, not offered. The other moves the rules allow - and removing it - stay in its "…" menu.
@@ -429,19 +432,22 @@ function AddTodo({ w, act }: { w: Work; act: Act }) {
   const [kind, setKind] = useState(TASK_KIND);
   const [title, setTitle] = useState("");
   const [lang, setLang] = useState("DE");
-  const [who, setWho] = useState<string | null>(null);
+  // prefilled (SARCLA 09.11.2026): the owner is who adds it, the reviewer the default one - both changed here
+  const [who, setWho] = useState<string | null>(w.me);
+  const [reviewer, setReviewer] = useState<string | null>(w.defaultReviewer ?? null);
   const [due, setDue] = useState("");
   const ref = useRef<HTMLInputElement | null>(null);
   const k = KINDS.find((x) => x.key === kind) ?? KINDS[0];
+  const task = kind === TASK_KIND;
   const add = async () => {
     if (kind === TASK_KIND && !title.trim()) return ref.current?.focus();
     const temp: Piece = {
       id: -Date.now(), projectId: w.project.id, contentType: kind, language: k.language ? lang : null, title: title.trim() || `${k.label}${k.language ? ` · ${lang}` : ""}`,
-      writer: who, reviewer: null, status: "todo", dueDate: due || null, versions: 0, lastVersionAt: null, lastVersionBy: null, taskId: null, pending: true,
+      writer: who, reviewer: task ? null : reviewer, status: "todo", dueDate: due || null, versions: 0, lastVersionAt: null, lastVersionBy: null, taskId: null, pending: true,
     };
     setTitle(""); setDue("");
     ref.current?.focus();
-    await act({ action: "piece-add", contentType: kind, title: title.trim(), language: k.language ? lang : null, writer: who, dueDate: due || null },
+    await act({ action: "piece-add", contentType: kind, title: title.trim(), language: k.language ? lang : null, writer: who, reviewer: task ? null : reviewer, dueDate: due || null },
       (x) => ({ ...x, pieces: [...x.pieces, temp] }));
   };
   return (
@@ -457,6 +463,7 @@ function AddTodo({ w, act }: { w: Work; act: Act }) {
         </TextField>
       )}
       <PersonPick label="Owner" value={who} onChange={setWho} people={w.people} width={170} />
+      {!task && <PersonPick label="Reviewer" value={reviewer} onChange={setReviewer} people={w.people} width={170} />}
       <TextField size="small" type="date" label="Due" value={due} onChange={(e) => setDue(e.target.value)} slotProps={{ inputLabel: { shrink: true } }} sx={{ ...field, width: 150 }} />
       <Button variant="contained" disableElevation startIcon={<AddIcon />} onClick={add} sx={mainBtn}>Add</Button>
     </Box>
@@ -467,6 +474,7 @@ export default function TodoList({ w, t, act, onTicketChanged }: { w: Work; t: T
   const [ticketFor, setTicketFor] = useState<Piece | null>(null);
   const [planOpen, setPlanOpen] = useState(false);
   const [asking, setAsking] = useState<Piece | null>(null);
+  const [reviewFor, setReviewFor] = useState<Piece | null>(null);
   const [note, setNote] = useState("");
   const open = w.pieces.filter((p) => p.status !== "live").length;
   const place = w.place ?? t?.place ?? null;
@@ -480,12 +488,19 @@ export default function TodoList({ w, t, act, onTicketChanged }: { w: Work; t: T
         {w.pieces.length === 0 && <Typography sx={{ fontSize: "0.88rem", color: MUTED, py: 1 }}>No to-do yet. Add the pieces this project puts out - a page, a post, the newsletter - and the actions around them.</Typography>}
         {w.pieces.map((p) => (
           <TodoRow key={p.id} p={p} w={w} ticket={t?.tickets[p.id]} takes={t?.takes[p.id]} ticketsLoading={!t && !p.pending}
-            act={act} onTicket={setTicketFor} onAskChanges={(x) => { setNote(""); setAsking(x); }} />
+            act={act} onTicket={setTicketFor} onAskChanges={(x) => { setNote(""); setAsking(x); }} onAskReview={setReviewFor} />
         ))}
       </Box>
       {w.access.canEdit && <AddTodo w={w} act={act} />}
       <PlanTicketDialog w={w} open={!!ticketFor || planOpen} piece={ticketFor} ticket={ticketFor ? t?.tickets[ticketFor.id] : undefined} place={place} act={act}
         onClose={() => { setTicketFor(null); setPlanOpen(false); }} onDone={() => { setTicketFor(null); setPlanOpen(false); onTicketChanged(); }} />
+      <ReviewerPick open={!!reviewFor} people={w.people} writer={reviewFor?.writer ?? null} defaultReviewer={w.defaultReviewer ?? null}
+        onClose={() => setReviewFor(null)}
+        onPick={(u) => {
+          const p = reviewFor!;
+          setReviewFor(null);
+          void act({ action: "piece-move", pieceId: p.id, to: "review", reviewer: u }, (x) => ({ ...x, pieces: x.pieces.map((y) => (y.id === p.id ? { ...y, status: "review", reviewer: u } : y)) }));
+        }} />
       <Dialog open={!!asking} onClose={() => setAsking(null)} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 700 }}>What should change in {asking?.title}?</DialogTitle>
         <DialogContent sx={{ pt: "8px !important" }}>

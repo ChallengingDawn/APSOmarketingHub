@@ -6,6 +6,8 @@
 // src/app/Sidebar.tsx); `place` is the page or the tab inside it where the idea is to be found; `href` opens that place.
 // A name changed in a menu is changed here too - tests/content-ideas.test.ts holds the two together for the names it can.
 
+import { PAGE_BUILDER } from "./contentTypes";
+
 export type IdeaSource = "team" | "convert" | "buyers" | "aeo" | "seo" | "search" | "chat" | "brand";
 
 export type Origin = { app: string; place: string | null; href: string | null };
@@ -29,6 +31,26 @@ export const PLACE_ORIGIN = {
   seoQuickWin: { app: "SEO", place: "Quick wins", href: "/seo/quick-wins" },
   seoDecay: { app: "SEO", place: "Decay", href: "/seo/decay" },
 } satisfies Record<string, Origin>;
+
+/**
+ * The type an idea of an app makes (SARCLA 09.11.2026: "Page refresh becomes only Page builder" - the editor for the
+ * webshop's own pages, where the optimization lands). An idea that changes a page ALREADY on the shop makes a Page
+ * builder: AI testing & personalization's Insights (a change on one page) and What stops buyers (its problem pages),
+ * SEO's Decay (a page losing clicks), AEO's "update this content" and its product pages. A page the shop does not have
+ * yet is an SEO landing page.
+ *   aeo  `action` / `contentType` as HubSpot's recommendation says them (UPDATE_CONTENT, CREATE_CONTENT; BLOG_POST...)
+ *   seo  `seo` = which list of the work queue it is on
+ */
+export function ideaKind(source: IdeaSource, hint: { action?: string | null; contentType?: string | null; seo?: "quick-win" | "decay" | string } = {}): string | null {
+  switch (source) {
+    case "convert": case "buyers": return PAGE_BUILDER;
+    case "seo": return hint.seo === "decay" ? PAGE_BUILDER : "landing-page";
+    case "aeo":
+      if (hint.action === "UPDATE_CONTENT" || /PRODUCT/i.test(hint.contentType ?? "")) return PAGE_BUILDER;
+      return /BLOG/i.test(hint.contentType ?? "") ? "blog-article" : "landing-page";
+    default: return null;
+  }
+}
 
 /** "AI testing & personalization · Insights" - one line, the way a card and a filter say it. */
 export const originLabel = (o: Pick<Origin, "app" | "place">) => (o.place ? `${o.app} · ${o.place}` : o.app);

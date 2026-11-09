@@ -6,10 +6,13 @@
 // ai-tickets, ai-fill) as the plan's own windows do.
 // Behind the project's own access (src/lib/content/sharing.ts): owner and editors change it, commenters comment - and a
 // piece's reviewer decides on it whatever their role.
+// A to-do added without its people gets them (SARCLA 09.11.2026): the owner = who adds it, the reviewer = Claudio
+// (lib/content/people.ts) - GET says who that is (defaultReviewer), for the forms and the "Who reviews it?" picker.
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guard";
 import { accessFor, membersOf, share, shareCandidates } from "@/lib/content/sharing";
+import { defaultReviewerOf, newTodoPeople } from "@/lib/content/people";
 import { addComment } from "@/lib/content/projects";
 import {
   addEvent, addPiece, cleanBrief, followSoleTodo, getPiece, listEvents, projectBrief, projectHead, removePiece, setBrief, setPlanItem,
@@ -80,7 +83,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     ok: true, me: me.username, isAdmin: me.role === "admin", access,
     project: head.project, comments: head.comments, pieces, events, brief: brief.brief, source: brief.source,
     stage: stageOf(pieces.map((p) => p.status)), members, place,
-    people: candidates.map((p) => ({ username: p.username, name: p.name })),
+    people: candidates.map((p) => ({ username: p.username, name: p.name })), defaultReviewer: defaultReviewerOf(candidates),
   });
 }
 
@@ -207,7 +210,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     let before: { writer: string | null; reviewer: string | null } = { writer: null, reviewer: null };
     if (action === "piece-add") {
       if (fields.contentType === TASK_KIND && !fields.title) return fail("A to-do needs a few words.");
-      const made = await addPiece({ projectId: id, ...fields, language: fields.contentType === TASK_KIND ? null : fields.language, title: fields.title || null, by: me.username });
+      // not said = prefilled: the owner is who adds it, the reviewer the default one (an action none)
+      const people = newTodoPeople({
+        kind: fields.contentType ?? TASK_KIND, me: me.username, defaultReviewer: defaultReviewerOf(await shareCandidates()), task: TASK_KIND,
+        writer: b.writer === undefined ? undefined : fields.writer, reviewer: b.reviewer === undefined ? undefined : fields.reviewer,
+      });
+      const made = await addPiece({ projectId: id, ...fields, ...people, language: fields.contentType === TASK_KIND ? null : fields.language, title: fields.title || null, by: me.username });
       await addEvent(id, made.id, me.username, "piece", { piece: made.title });
       // its sub-action, at once
       piece = (await syncPieceTasks(id, me.username)).find((x) => x.id === made.id) ?? made;

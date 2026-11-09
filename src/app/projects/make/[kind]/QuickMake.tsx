@@ -23,7 +23,7 @@ import { KindTile } from "../../work/kinds";
 import { PINK } from "../../studio/parts";
 import { MAKE_KINDS } from "../makeKinds";
 
-type Setup = { ok: boolean; error?: string; me: string; canStart: boolean; languages: { code: string; label: string }[] };
+type Setup = { ok: boolean; error?: string; me: string; canStart: boolean; languages: { code: string; label: string }[]; people?: { username: string; name: string }[]; defaultReviewer?: string | null };
 
 const LANG_KEY = "content:make-language";
 
@@ -35,6 +35,8 @@ export default function QuickMake({ kind }: { kind: string }) {
   const [lang, setLang] = useState("DE");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const reviewerName = setup?.defaultReviewer && setup.defaultReviewer !== setup.me ? setup.people?.find((p) => p.username === setup.defaultReviewer)?.name ?? null : null;
+  const who = setup?.defaultReviewer === setup?.me && setup?.me ? "you as its owner and its reviewer" : reviewerName ? `you as its owner and ${reviewerName} as its reviewer` : "you as its owner";
 
   useEffect(() => {
     try { const l = window.localStorage.getItem(LANG_KEY); if (l) setLang(l); } catch { /* no storage */ }
@@ -47,12 +49,13 @@ export default function QuickMake({ kind }: { kind: string }) {
     setBusy(true); setErr(null);
     try { window.localStorage.setItem(LANG_KEY, lang); } catch { /* fine */ }
     // unnamed, it is "Untitled video" until it is named in its studio - where the project takes the name too
-    const name = title.trim() || `Untitled ${k.noun}`;
+    const name = title.trim() || k.untitled || `Untitled ${k.noun}`;
     const r = await fetch("/api/content/projects/start", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "start", title: name, goal: "", audience: "", message: "", ideas: [], planItem: null, tickets: false,
-        lines: [{ contentType: kind, title: name, language: lang, writer: setup.me, reviewer: null, dueDate: null }],
+        // owner = the person, reviewer = Claudio (SARCLA 09.11.2026) - changed from the studio's bar
+        lines: [{ contentType: kind, title: name, language: lang, writer: setup.me, reviewer: setup.defaultReviewer ?? null, dueDate: null }],
       }),
     }).then((x) => x.json()).catch(() => ({ ok: false, error: "The hub did not answer." }));
     const piece = Array.isArray(r.pieceIds) ? r.pieceIds[0] : null;
@@ -71,13 +74,13 @@ export default function QuickMake({ kind }: { kind: string }) {
             <KindTile kind={kind} size={52} />
             <Box sx={{ minWidth: 0 }}>
               <Typography component="h1" sx={{ fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontSize: { xs: "1.45rem", md: "1.7rem" }, fontWeight: 600, letterSpacing: "-0.02em", color: INK, lineHeight: 1.2 }}>
-                New {k.noun}
+                {k.heading ?? `New ${k.noun}`}
               </Typography>
               <Typography sx={{ fontSize: "0.9rem", color: MUTED, mt: 0.25 }}>{k.blurb}</Typography>
             </Box>
           </Box>
 
-          <TextField autoFocus fullWidth label="What is it about?" placeholder={k.example} value={title}
+          <TextField autoFocus fullWidth label={k.ask ?? "What is it about?"} placeholder={k.example} value={title}
             onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void start(); }}
             helperText="Optional - you can name it later in the studio." disabled={busy}
             slotProps={{ inputLabel: { shrink: true } }}
@@ -93,7 +96,7 @@ export default function QuickMake({ kind }: { kind: string }) {
               {busy ? "Opening the studio…" : "Start"}
             </Button>
             <Typography sx={{ fontSize: "0.82rem", color: MUTED, flex: "1 1 260px" }}>
-              It opens in its studio at once, with you as its owner. Its day, reviewer, plan and ticket can all come later.
+              It opens in its studio at once, with {who}. Its day, plan and ticket can all come later.
             </Typography>
           </Box>
           {err && <Typography sx={{ fontSize: "0.86rem", color: "#c5221f" }}>{err}</Typography>}

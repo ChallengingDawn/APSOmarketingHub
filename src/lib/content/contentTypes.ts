@@ -52,6 +52,8 @@ export type Surface = "document" | "canvas";
 export type ContentType = {
   key: string;
   label: string;
+  /** Names it had before, so a project named after an old tile ("Untitled page refresh") still finds its type. */
+  aliases?: string[];
   surface: Surface;
   /** Only for canvas types: which artboard, so none of them defaults to LinkedIn. */
   canvasPreset?: "linkedin" | "square" | "story" | "wide";
@@ -73,7 +75,7 @@ export const CONTENT_TYPES: ContentType[] = [
     key: "landing-page",
     label: "SEO landing page",
     surface: "document",
-    blurb: "A page built to own one query — promise, proof, and what we can actually do.",
+    blurb: "A new page for the shop, built to own one search - promise, proof, and what we can actually do.",
     group: "Pages",
     channel: "seo",
     format: "markdown",
@@ -225,12 +227,17 @@ export const CONTENT_TYPES: ContentType[] = [
       "No superlatives that cannot be substantiated — no 'best', no 'leading'.",
     ],
   },
+  // "Page refresh" became the Page builder (SARCLA 09.11.2026: "copy this editor and idea to a new category, which is
+  // webshop pages - the ones where we should lead optimization ... or Page refresh becomes only Page builder"): the type for
+  // a page that is ALREADY on the webshop - pick it, change it, test it, publish it. It opens the page studio on a page of
+  // the shop. The key stays "page-refresh", so every project made before opens in it.
   {
     key: "page-refresh",
-    label: "Page refresh",
+    label: "Page builder",
+    aliases: ["Page refresh"],
     surface: "document",
-    blurb: "What to add to a page that is losing clicks — written as edits, not a rewrite.",
-    group: "Fixes",
+    blurb: "Change a page that is already on the webshop - pick it, change it with its live preview, test it, publish it.",
+    group: "Pages",
     channel: "seo",
     format: "markdown",
     seoNeeds: "page",
@@ -268,8 +275,9 @@ export const CONTENT_TYPES: ContentType[] = [
  * SEO landing page - it also comes from the SEO app; no product page copy for the moment; blog article; LinkedIn post
  * becomes only "Social post" - its networks and formats are chosen when it is published; newsletter; and the others
  * after; the consolidation brief out). The others stay defined, so a to-do made before keeps its name and its studio.
+ * The Page builder sits beside the SEO landing page (09.11.2026): a new page, or a page already on the webshop.
  */
-export const OFFERED_KEYS = ["landing-page", "blog-article", "social-post", "newsletter", "banner", "video", "search-ad", "page-refresh"] as const;
+export const OFFERED_KEYS = ["landing-page", "page-refresh", "blog-article", "social-post", "newsletter", "banner", "video", "search-ad"] as const;
 export const OFFERED_CONTENT_TYPES: ContentType[] = OFFERED_KEYS.map((k) => CONTENT_TYPES.find((t) => t.key === k)).filter((t): t is ContentType => !!t);
 
 export const CONTENT_BY_KEY: Record<string, ContentType> = Object.fromEntries(
@@ -289,9 +297,22 @@ export const CONTENT_BY_KEY: Record<string, ContentType> = Object.fromEntries(
  */
 export function inferContentType(title: string): string | null {
   const t = title.toLowerCase();
-  const byLength = [...CONTENT_TYPES].sort((a, b) => b.label.length - a.label.length);
-  return byLength.find((x) => t.includes(x.label.toLowerCase()))?.key ?? null;
+  const names = CONTENT_TYPES.flatMap((x) => [x.label, ...(x.aliases ?? [])].map((name) => ({ key: x.key, name: name.toLowerCase() })));
+  return names.sort((a, b) => b.name.length - a.name.length).find((x) => t.includes(x.name))?.key ?? null;
 }
+
+/**
+ * THE PAGE BUILDER (SARCLA 09.11.2026: "Page refresh becomes only Page builder"): the type for a page that is already on
+ * the webshop - where an optimization lands. AI testing & personalization's hand-offs and every idea that changes an
+ * existing page make one; it opens the page studio on a page of the shop, the shop page picker first.
+ */
+export const PAGE_BUILDER = "page-refresh";
+
+/** The types that work on a page already on the webshop (a product page's copy, made before, opens the same way). */
+export const EXISTING_PAGE_TYPES: readonly string[] = [PAGE_BUILDER, "product-page"];
+
+/** True for a type that changes a page of the shop rather than making a new one. */
+export const changesShopPage = (contentType: string | null | undefined): boolean => !!contentType && EXISTING_PAGE_TYPES.includes(contentType);
 
 export const CONTENT_GROUPS = ["Pages", "Posts", "Campaigns", "Fixes"] as const;
 

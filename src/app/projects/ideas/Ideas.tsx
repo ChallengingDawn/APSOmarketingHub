@@ -336,7 +336,8 @@ function NewIdea({ open, me, onClose, onSaved, onProject, onChooseKinds }: {
       body: JSON.stringify({
         action: "start", title: idea.title, goal: idea.why, audience: "", message: "", planItem: null, tickets: false,
         ideas: [{ key, source: "team", title: idea.title, why: idea.why.slice(0, 380) }],
-        lines: idea.kinds.map((k) => ({ contentType: k, title: idea.title, language: "DE", writer: me, reviewer: null, dueDate: null })),
+        // the reviewer not said: the hub gives the default one (SARCLA 09.11.2026: "the reviewer is Claudio")
+        lines: idea.kinds.map((k) => ({ contentType: k, title: idea.title, language: "DE", writer: me, dueDate: null })),
       }),
     }).then((x) => x.json()).catch(() => ({ ok: false, error: "The hub did not answer." }));
     if (!r.ok) { setBusy(null); setErr(`The idea is kept; the project was not made: ${r.error ?? "no answer"}`); return; }

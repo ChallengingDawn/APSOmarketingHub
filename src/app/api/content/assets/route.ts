@@ -1,6 +1,7 @@
 // THE HUB'S PICTURES (08.11.2026) - lib/content/assets.ts.
 //   GET  ?scope=mine|project|logos|all [&project=<id>] [&before=<id>]   the gallery, newest first
 //   POST generate        { prompt, aspect?, overlaySpace?, projectId?, pieceId? }  a picture from a few words
+//   POST refine          { url, ask, aspect?, projectId?, pieceId? }           the same picture with one change (fine-tune)
 //   POST upload-start    { }                                                   -> a token for the parts
 //   POST upload-part     { token, n, data }                                    one part (base64, < 6000 chars)
 //   POST upload-finish   { token, parts, kind?, name?, projectId?, pieceId? }  joined, checked, kept
@@ -13,7 +14,7 @@ import { requireUser } from "@/lib/auth/guard";
 import { keepAlive } from "@/lib/http/keepAlive";
 import { accessFor } from "@/lib/content/sharing";
 import {
-  addUploadPart, ASPECTS, finishUpload, generatePicture, imagesReady, listAssets, newUploadToken, pictureUsage, removeAsset,
+  addUploadPart, ASPECTS, finishUpload, generatePicture, imagesReady, listAssets, newUploadToken, pictureUsage, refinePicture, removeAsset,
   type Aspect, type AssetKind,
 } from "@/lib/content/assets";
 
@@ -63,6 +64,14 @@ export async function POST(req: NextRequest) {
       // the Pro model can take a minute: kept alive past the load balancer's 60 s
       return keepAlive(async () => {
         const r = await generatePicture({ prompt: String(b.prompt ?? ""), aspect, overlaySpace: b.overlaySpace === true, projectId, pieceId, by: me.username });
+        return r.ok ? NextResponse.json({ ok: true, asset: r.asset }) : fail(r.error, 502);
+      });
+    }
+    // a picture fine-tuned: the same picture with one change (Content v5) - the image model sees the picture as it is
+    if (action === "refine") {
+      const aspect = (ASPECTS as readonly string[]).includes(String(b.aspect)) ? (b.aspect as Aspect) : "3:2";
+      return keepAlive(async () => {
+        const r = await refinePicture({ url: String(b.url ?? ""), ask: String(b.ask ?? ""), aspect, projectId, pieceId, by: me.username });
         return r.ok ? NextResponse.json({ ok: true, asset: r.asset }) : fail(r.error, 502);
       });
     }

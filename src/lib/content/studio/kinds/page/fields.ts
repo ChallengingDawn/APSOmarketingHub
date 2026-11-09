@@ -45,6 +45,9 @@ export type Fields = {
   cta: { title: string; text: string; button: Btn };
   seo: { title: string; description: string; urlKey: string };
   looks: Record<string, Look>;
+  /** the blocks in their order on the page (Content v5, 09.11.2026 - ./fields.ts blockOrder); unset = the order every
+   * page had before: hero, intro, tiles, the sections, links, questions, call to action */
+  order?: string[];
 };
 
 export const LIST_KEYS = ["benefits", "sections", "links", "faq"] as const;
@@ -140,6 +143,7 @@ export function normalizeFields(raw: unknown): Fields {
     cta: { title: str(c.title, 200), text: str(c.text, 800), button: btn(c.button) },
     seo: { title: str(s.title, 200), description: str(s.description, 400), urlKey: str(s.urlKey, 200) },
     looks,
+    ...(Array.isArray(d.order) && d.order.length ? { order: d.order.filter((k): k is string => typeof k === "string" && /^[\w.]{1,40}$/.test(k)).slice(0, 40) } : {}),
   };
 }
 
@@ -202,7 +206,7 @@ export function fieldKind(path: string): FieldKind {
 export function fieldLabel(f: Fields, path: string): string {
   const p = path.split(".");
   const NAMES: Record<string, string> = {
-    hero: "Hero", intro: "Intro", benefitsTitle: "Benefits · heading", benefits: "Benefit", sections: "Section", linksTitle: "Links · heading",
+    hero: "Hero", intro: "Intro", benefitsTitle: "Proof tiles · heading", benefits: "Tile", sections: "Section", linksTitle: "Links · heading",
     links: "Link", faqTitle: "Questions · heading", faq: "Question", cta: "Call to action", seo: "Search engines",
   };
   const PART: Record<string, string> = {
@@ -289,4 +293,138 @@ export function moveItem(f: Fields, key: ListKey, id: string, by: -1 | 1): Field
 export function removeItem(f: Fields, key: ListKey, id: string): Fields {
   const looks = Object.fromEntries(Object.entries(f.looks).filter(([k]) => !k.startsWith(`${key}.${id}`)));
   return { ...f, [key]: (f[key] as { id: string }[]).filter((x) => x.id !== id), looks } as Fields;
+}
+/** An item put at a place in its list (dragged there). */
+export function moveItemTo(f: Fields, key: ListKey, id: string, to: number): Fields {
+  const items = [...(f[key] as { id: string }[])];
+  const i = items.findIndex((x) => x.id === id);
+  if (i < 0) return f;
+  const [it] = items.splice(i, 1);
+  items.splice(Math.max(0, Math.min(items.length, to)), 0, it);
+  return { ...f, [key]: items } as Fields;
+}
+
+/* ── the blocks and their order on the page (Content v5, 09.11.2026) ───── */
+//
+// SARCLA 09.11.2026: "each block should be a section" and "I should be able to add more elements by + next to sections, or
+// in the photo". A page is its blocks in an order: the hero first (always), then any of intro, proof tiles, links,
+// questions, call to action - once each - and as many text-and-picture sections as it needs, each its own block
+// ("sections.<id>"). "sections" alone is the empty slot where sections go while the page has none (a page from before
+// shows it there). A page saved before the order existed keeps exactly the order it had (DEFAULT_ORDER).
+
+export const SINGLE_BLOCKS = ["intro", "benefits", "links", "faq", "cta"] as const;
+export type SingleBlock = (typeof SINGLE_BLOCKS)[number];
+/** What the + adds: a text-and-picture section, or one of the single blocks (moved there when the page has it). */
+export type NewBlock = "text" | SingleBlock;
+export const DEFAULT_ORDER = ["hero", "intro", "benefits", "sections", "links", "faq", "cta"] as const;
+
+const isSingle = (k: string): k is SingleBlock => (SINGLE_BLOCKS as readonly string[]).includes(k);
+
+/** The page's blocks in their order: the stored order put right - unknown and gone blocks out, sections not placed yet
+ * in (where the empty slot was, else after the last section, else before the links), the hero first. */
+export function blockOrder(f: Fields): string[] {
+  const raw = Array.isArray(f.order) && f.order.length ? f.order : [...DEFAULT_ORDER];
+  const ids = new Set(f.sections.map((s) => s.id));
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const k of raw) {
+    if (seen.has(k)) continue;
+    if (!(k === "hero" || k === "sections" || isSingle(k) || (k.startsWith("sections.") && ids.has(k.slice(9))))) continue;
+    seen.add(k);
+    out.push(k);
+  }
+  const missing = f.sections.map((s) => `sections.${s.id}`).filter((k) => !seen.has(k));
+  if (missing.length) {
+    let at = out.indexOf("sections");
+    if (at < 0) {
+      let last = -1;
+      out.forEach((k, i) => { if (k.startsWith("sections.")) last = i; });
+      at = last >= 0 ? last + 1 : -1;
+    }
+    if (at < 0) { const next = out.findIndex((k) => k === "links" || k === "faq" || k === "cta"); at = next >= 0 ? next : out.length; }
+    out.splice(at, 0, ...missing);
+  }
+  if (f.sections.length) { const p = out.indexOf("sections"); if (p >= 0) out.splice(p, 1); }
+  const h = out.indexOf("hero");
+  if (h > 0) out.splice(h, 1);
+  if (h !== 0) out.unshift("hero");
+  return out;
+}
+
+/** The fields with this order kept - the sections' list put in the same order (their numbers follow the page). */
+export function withOrder(f: Fields, order: string[]): Fields {
+  const at = (id: string) => { const i = order.indexOf(`sections.${id}`); return i < 0 ? 1e6 : i; };
+  const sections = [...f.sections].sort((a, b) => at(a.id) - at(b.id));
+  return { ...f, sections, order: blockOrder({ ...f, sections, order }) };
+}
+
+/** A block added at a place of the order (1 = right after the hero): a new section, or a single block - moved there when
+ * the page has it already. Its key comes back, to select it. */
+export function addBlock(f: Fields, kind: NewBlock, at: number): { fields: Fields; key: string } {
+  const order = blockOrder(f);
+  const pos = Math.max(1, Math.min(order.length, Math.round(at)));
+  if (kind === "text") {
+    const before = order.slice(0, pos).reverse().find((k) => k.startsWith("sections."));
+    const prev = before ? f.sections.find((s) => `sections.${s.id}` === before) : undefined;
+    const r = addItem(f, "sections");
+    const side: Section["side"] = prev ? (prev.side === "right" ? "left" : "right") : "right";
+    const fields = setField(r.fields, `sections.${r.id}.side`, side);
+    const key = `sections.${r.id}`;
+    const slot = order.indexOf("sections");
+    const next = order.filter((k) => k !== "sections");
+    next.splice(slot >= 0 && slot < pos ? pos - 1 : pos, 0, key);
+    return { fields: withOrder(fields, next), key };
+  }
+  const cur = order.indexOf(kind);
+  const next = order.filter((k) => k !== kind);
+  next.splice(cur >= 0 && cur < pos ? pos - 1 : pos, 0, kind);
+  return { fields: withOrder(f, next), key: kind };
+}
+
+/** A block moved by one place (never above the hero). */
+export function moveBlock(f: Fields, key: string, by: -1 | 1): Fields {
+  const order = blockOrder(f);
+  const i = order.indexOf(key);
+  const j = i + by;
+  if (i < 1 || j < 1 || j >= order.length) return f;
+  [order[i], order[j]] = [order[j], order[i]];
+  return withOrder(f, order);
+}
+
+/** A block put at a place (dragged there): `to` is its index in the order after the move. */
+export function moveBlockTo(f: Fields, key: string, to: number): Fields {
+  const order = blockOrder(f);
+  const i = order.indexOf(key);
+  if (i < 1) return f;
+  order.splice(i, 1);
+  order.splice(Math.max(1, Math.min(order.length, to)), 0, key);
+  return withOrder(f, order);
+}
+
+/** A block taken out of the page, its words with it (Undo brings them back). The hero stays. */
+export function removeBlock(f: Fields, key: string): Fields {
+  const order = blockOrder(f).filter((k) => k !== key);
+  if (key === "hero") return f;
+  const drop = (...prefixes: string[]) => Object.fromEntries(Object.entries(f.looks).filter(([k]) => !prefixes.some((p) => k === p || k.startsWith(`${p}.`))));
+  let out: Fields = f;
+  if (key.startsWith("sections.")) out = removeItem(f, "sections", key.slice(9));
+  else if (key === "intro") out = { ...f, intro: "", looks: drop("intro", "intro-block") };
+  else if (key === "benefits") out = { ...f, benefits: [], benefitsTitle: "", looks: drop("benefits", "benefitsTitle") };
+  else if (key === "links") out = { ...f, links: [], linksTitle: "", looks: drop("links", "linksTitle") };
+  else if (key === "faq") out = { ...f, faq: [], faqTitle: "", looks: drop("faq", "faqTitle") };
+  else if (key === "cta") out = { ...f, cta: { title: "", text: "", button: emptyBtn() }, looks: drop("cta") };
+  return withOrder(out, order);
+}
+
+/** The words the AI wrote for blocks the page does not have, left out - a block taken out stays out ("Write it all
+ * again" writes the page as it is now). `order` = the page's order before the AI wrote. */
+export function onlyOnPage(f: Fields, order: string[]): Fields {
+  const out: Fields = { ...f };
+  if (!order.includes("intro")) out.intro = "";
+  if (!order.includes("benefits")) { out.benefits = []; out.benefitsTitle = ""; }
+  if (!order.includes("links")) { out.links = []; out.linksTitle = ""; }
+  if (!order.includes("faq")) { out.faq = []; out.faqTitle = ""; }
+  if (!order.includes("cta")) out.cta = { title: "", text: "", button: emptyBtn() };
+  if (!order.some((k) => k === "sections" || k.startsWith("sections."))) out.sections = [];
+  return out;
 }

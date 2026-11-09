@@ -1,10 +1,10 @@
 "use client";
 // The kinds of to-do a content project holds (SARCLA 08.11.2026: "for me a piece is a to-do"; "each type of content
 // should be different"): every content type has its own face here - glyph and colour - and a plain action has one too.
+// The Page builder (09.11.2026, the type for a page already on the webshop) has blocks for a glyph, beside the landing page.
 
 import AdsClickOutlinedIcon from "@mui/icons-material/AdsClickOutlined";
 import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
-import AutorenewOutlinedIcon from "@mui/icons-material/AutorenewOutlined";
 import ChecklistOutlinedIcon from "@mui/icons-material/ChecklistOutlined";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
@@ -12,6 +12,7 @@ import MergeTypeOutlinedIcon from "@mui/icons-material/MergeTypeOutlined";
 import MovieOutlinedIcon from "@mui/icons-material/MovieOutlined";
 import ShareOutlinedIcon from "@mui/icons-material/ShareOutlined";
 import ViewDayOutlinedIcon from "@mui/icons-material/ViewDayOutlined";
+import ViewQuiltOutlinedIcon from "@mui/icons-material/ViewQuiltOutlined";
 import WebOutlinedIcon from "@mui/icons-material/WebOutlined";
 
 import { TINT, type Tint } from "@/app/uc/report/ui";
@@ -20,7 +21,7 @@ import { TASK_KIND } from "@/lib/content/pieceRules";
 
 const GLYPH: Record<string, React.ElementType> = {
   [TASK_KIND]: ChecklistOutlinedIcon, "landing-page": WebOutlinedIcon, "product-page": Inventory2OutlinedIcon,
-  "page-refresh": AutorenewOutlinedIcon, "blog-article": ArticleOutlinedIcon, "linkedin-post": ShareOutlinedIcon,
+  "page-refresh": ViewQuiltOutlinedIcon, "blog-article": ArticleOutlinedIcon, "linkedin-post": ShareOutlinedIcon,
   "social-post": ShareOutlinedIcon, newsletter: MailOutlineIcon, "search-ad": AdsClickOutlinedIcon,
   "consolidation-brief": MergeTypeOutlinedIcon, banner: ViewDayOutlinedIcon, video: MovieOutlinedIcon,
 };

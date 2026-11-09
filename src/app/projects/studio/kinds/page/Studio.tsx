@@ -7,31 +7,42 @@
 // last step (Magento, or Publish for a test's winner) pinned at its foot; the page itself in the middle - in the
 // language chosen, as the shop will show it, every element selectable and its words editable in place - and the
 // assistant on the right, for the whole page or the element selected, every change it makes listed with an Undo. A page
-// is published in every language the shop has (SARCLA that evening: "we should have all locales: NL, PL"): each is its own
-// version, made by translating the whole page and then changed as it needs.
+// is published by STORE VIEW (SARCLA 09.11.2026: "the locales are not all complete in Magento - we select by store
+// view"): each store view is its own version - a copy of a store view of the same language (no AI), or a translation -
+// then changed as it needs. `lang` below is the store view shown ("fr-CH"), the key of its version.
 //
 // When the AI writes, the parts it writes shimmer in the outline and in the page from the moment of the click; once it
 // wrote, the pictures it had an idea for are made, a few side by side, each landing in its slot (SARCLA: "AI wrote the
 // whole page ... It's not generating photos").
+//
+// Content v5 (SARCLA 09.11.2026): a new page is its blocks in an order - each its own row in the map, numbered as on the
+// page, a block with items opening into them; a "+" in the map or between two blocks of the page adds one there; a
+// picture selected is fine-tuned by the assistant (the same picture, one thing changed); "What does it say? (in
+// English)" reads a part in English without changing it; and the page writes itself only when the project came with an
+// app's brief - otherwise the start card asks what page is wanted.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fieldLabel, getField, setField, type Pic } from "@/lib/content/studio/kinds/page/fields";
+import {
+  addBlock, addItem, blockOrder, fieldLabel, filledCount, getField, onlyOnPage, setField, type ListKey, type NewBlock, type Pic,
+} from "@/lib/content/studio/kinds/page/fields";
 import { PART_LABEL, mergeField, mergeFill, type Candidate, type FillAnswer, type Part } from "@/lib/content/studio/kinds/page/fill";
 import {
-  emptyPage, isLegacyBody, langName, mainLang, pageDoc, shopLanguages, sourceHash, storeForLanguage, viewOf, withView,
-  type LangOption, type LangVersion, type Leftover, type PageDoc,
+  baseStore, copyView, emptyPage, howToAdd, isLegacyBody, langName, langOfStore, mainView, pageDoc, shopLanguages, shopViews, sourceHash, storeForLanguage,
+  viewOf, viewsOf, withView, type LangOption, type LangVersion, type Leftover, type PageDoc,
 } from "@/lib/content/studio/kinds/page/model";
-import { BLOCK_OF, PART_KEYS, PART_NAME, busyOf, partOfPath, picturesToMake, type PartKey, type PictureJob } from "@/lib/content/studio/kinds/page/outline";
+import { ITEM_NAME, PICTURE_ASPECT, blockOfPath, blocksOf, busyOf, previewOf, picturesToMake, type PictureJob } from "@/lib/content/studio/kinds/page/outline";
+import type { Presence } from "@/lib/content/studio/kinds/page/shop";
 import { headKey, shopPartsOf, type Located, type ShopPart } from "@/lib/content/studio/kinds/page/shopParts";
 import type { Change } from "@/lib/convert/versions";
 import { StudioPanes, type QuickAsk } from "../../parts";
-import { makePicture, uploadPicture } from "../../pictures";
+import { PICTURE_TUNES, makePicture, refinePicture, uploadPicture } from "../../pictures";
 import type { StudioProps } from "../../registry";
-import { Assistant, type Entry, type Idea, type SeoCard } from "./Assistant";
-import { Build, type Step } from "./Build";
+import { AddBlockMenu, type AddAt } from "./AddBlock";
+import { Assistant, type Entry, type Idea, type Said, type SeoCard } from "./Assistant";
+import { Build, type AppBrief, type Step } from "./Build";
 import { applyElementEdit } from "./edits";
 import type { Selection } from "./Element";
-import type { FillRun, Making, PictureCtl } from "./Fields";
+import { fillOfBlock, type FillRun, type Making, type PictureCtl } from "./Fields";
 import type { Picked } from "./Frame";
 import { PagePicker, type Picked as PickedPage } from "./PagePicker";
 import { setDocSafely } from "./safeSet";
@@ -51,7 +62,8 @@ export default function Studio({ api }: StudioProps) {
   docRef.current = doc;
   const canEdit = api.data.access.canEdit;
   const canAi = api.data.ai && canEdit;
-  const main = mainLang(doc);
+  // the page's own store view, and the one shown (a version's key: "de-CH", "fr-CH")
+  const main = mainView(doc);
   const [lang, setLangState] = useState(main);
   const langRef = useRef(lang);
   langRef.current = lang;
@@ -106,10 +118,26 @@ export default function Studio({ api }: StudioProps) {
   const offered: LangOption[] = useMemo(() => shopLanguages(stores, doc.store), [stores, doc.store]);
   const offeredRef = useRef(offered);
   offeredRef.current = offered;
-  const storeFor = (l: string) => offeredRef.current.find((o) => o.lang === l)?.store ?? storeForLanguage(l, docRef.current.store, stores);
+  /** every store view of the shop, by language */
+  const groups = useMemo(() => shopViews(stores, doc.store), [stores, doc.store]);
+  /** a store view as asked (a store view, or a language: its store view for this page) */
+  const storeFor = (l: string) => baseStore(l) ?? offeredRef.current.find((o) => o.lang === l)?.store ?? storeForLanguage(l, docRef.current.store, stores);
 
-  // the main language follows the page (a page picked in fr-CH makes French the main one)
-  useEffect(() => { if (!offered.some((o) => o.lang === lang)) setLangState(main); }, [main, offered, lang]);
+  // the main store view follows the page (a page picked in fr-CH makes fr-CH the main one)
+  const mainWas = useRef(main);
+  useEffect(() => { if (mainWas.current !== main) { mainWas.current = main; setLangState(main); } }, [main]);
+
+  // a page of the shop: in which store views it is on the shop (the page index) - "+ Store view" says so
+  const [presence, setPresence] = useState<Record<string, Presence>>({});
+  const presenceRef = useRef(presence);
+  presenceRef.current = presence;
+  useEffect(() => {
+    if (doc.source === "new" || !doc.path) { setPresence({}); return; }
+    let gone = false;
+    void api.act<{ presence: Record<string, Presence> }>("views").then((r) => { if (!gone && r.ok) setPresence(r.result.presence); });
+    return () => { gone = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.source, doc.path, doc.env]);
 
   // the first open: the brief kept for the AI; a landing page starts as a new page; a page from AI testing taken over
   const started = useRef(false);
@@ -143,13 +171,38 @@ export default function Studio({ api }: StudioProps) {
   /* ── what is selected: the outline and the page say the same ─────────── */
 
   const setLang = (l: string) => { setLangState(l); setSelState(null); setSelPart(null); setLocated(null); setPicking(false); setStep("page"); if (open === "selected") setOpen(null); };
+  /** A store view opened - from the tabs, "+ Store view" or the left. One the page does not have yet, of a language it has,
+   * is made at once as a COPY of that store view's words (no AI): its own version from then on. Another language waits
+   * in the middle for its translation. */
+  const openView = (key: string) => {
+    const cur = docRef.current;
+    const k = baseStore(key) ?? storeFor(key);
+    if (k === mainView(cur) || viewsOf(cur).includes(k) || !canEdit) { setLang(k); return; }
+    const add = howToAdd(cur, k);
+    const there = presenceRef.current[k];
+    // a page of the shop is copied onto its own page in that store view - when the shop has it there
+    if (add.how === "copy" && (cur.source === "new" || there?.path)) {
+      record(`Copied ${add.from} into ${k}`, cur);
+      api.setDoc(copyView(cur, k, add.from, cur.source === "new" ? "" : there?.path ?? ""));
+    }
+    setLang(k);
+  };
+  /** The store view shown made again as a copy of the one it was copied from (its own changes dropped). */
+  const copyAgain = (k: string) => {
+    const cur = docRef.current;
+    const from = cur.langs[k]?.source || howToAdd(cur, k).from;
+    record(`Copied ${from} into ${k} again`, cur);
+    api.setDoc(copyView(cur, k, from, cur.source === "new" ? "" : cur.langs[k]?.path || presenceRef.current[k]?.path || ""));
+    return Promise.resolve(null);
+  };
   const setSel = (s: Selection | null) => { setSelState(s); if (!s) setSelPart(null); if (!s && open === "selected") setOpen(null); };
   /** a click in the page: its part opens on the left (a new page), or the element selected (a page of the shop) */
   const onPick = (p: Picked | null) => {
     if (!p) { setSel(null); return; }
     setSelState({ key: p.key, picked: p });
     setStep("page");
-    if (p.key.startsWith("f:") || p.key.startsWith("b:")) { const part = partOfPath(p.key.slice(2)); if (part) setOpen(part); return; }
+    // a click in a new page: its block opens in the map (an item of it too - Content v5)
+    if (p.key.startsWith("f:") || p.key.startsWith("b:")) { const block = blockOfPath(p.key.slice(2)); if (block) setOpen(block); return; }
     // a part opened on the left, now found in the page: it stays open, the part itself selected
     if (seeking.current) { setOpen(`part:${seeking.current}`); seeking.current = null; return; }
     // a click in a page of the shop: the part it is in opens, the element at its top
@@ -167,12 +220,21 @@ export default function Studio({ api }: StudioProps) {
     seeking.current = p.id;
     setSeek((x) => ({ nonce: (x?.nonce ?? 0) + 1, heading: p.heading }));
   };
-  /** a part opened on the left: selected in the page, which scrolls to it */
-  const onOpenPart = (part: PartKey | null) => {
-    setOpen(part);
-    const block = part ? BLOCK_OF[part] : null;
-    if (part && block) { setSelState({ key: `b:${block}`, picked: null }); setReveal((n) => n + 1); }
+  /** a block opened in the map: selected in the page, which scrolls to it (the search engine fields are not on it) */
+  const onOpenBlock = (block: string | null) => {
+    setOpen(block);
+    const pv = block ? previewOf(block) : null;
+    if (block && pv) { setSelState({ key: `b:${pv}`, picked: null }); setReveal((n) => n + 1); }
     else setSelState(null);
+  };
+  /** an item of a block (a tile, a question, a link) clicked in the map: selected in the page; null = its block again */
+  const onSelectKey = (key: string | null) => {
+    if (!key) { onOpenBlock(open); return; }
+    setSelState({ key, picked: null });
+    const block = blockOfPath(key.slice(2));
+    if (block) setOpen(block);
+    setStep("page");
+    setReveal((n) => n + 1);
   };
   /** a field in focus on the left: selected in the page */
   const onFocusPath = (path: string) => {
@@ -182,7 +244,7 @@ export default function Studio({ api }: StudioProps) {
     setReveal((n) => n + 1);
   };
   const onOpenRow = (row: string | null) => {
-    if ((PART_KEYS as readonly string[]).includes(row ?? "")) { onOpenPart(row as PartKey); return; }
+    if (row && isNew && blockOfPath(row) === row) { onOpenBlock(row); return; }
     setOpen(row);
   };
   const askAi = () => { if (fold.assist) toggleFold("assist"); setTimeout(() => askRef.current?.focus(), 60); };
@@ -283,10 +345,46 @@ export default function Studio({ api }: StudioProps) {
     setPic(to.lang, to.path, { url: r.picture.url, alt: pic?.alt || f.name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").slice(0, 120) }, "Put a picture in");
   };
   const openGallery = (path: string) => {
-    const part = partOfPath(path);
+    const block = blockOfPath(path);
     if (fold.build) toggleFold("build");
-    if (part) setOpen(part);
+    if (block) setOpen(block);
     setGallery((g) => ({ path, nonce: (g?.nonce ?? 0) + 1 }));
+  };
+
+  /* ── a picture fine-tuned (SARCLA 09.11.2026: "Ask AI under a photo should give you the option to fine-tune the
+   *    photo"): the same picture with one change - the image model is given the picture as it is. Its slot shows it
+   *    being made, the new one takes its place, the old stays in the gallery and "Changes made here" has the Undo ── */
+  const refine = async (path: string, ask: string): Promise<string | null> => {
+    const forLang = langRef.current;
+    const pic = getField(viewOf(docRef.current, forLang).fields, path) as Pic | undefined;
+    if (!pic) return "That picture is gone.";
+    if (!pic.url) return "There is no picture there yet - make one first, then fine-tune it.";
+    if (imagesOn === false) return "Pictures cannot be made on this hub - its image model is not set up.";
+    const key = slotKey(forLang, path);
+    if (makingRef.current[key]?.state === "making") return "That picture is being made already.";
+    setMaking((m) => ({ ...m, [key]: { state: "making", label: "Fine-tuning the picture…" } }));
+    const r = await refinePicture(pic.url, ask, PICTURE_ASPECT, { projectId: api.data.piece.projectId, pieceId: api.data.piece.id });
+    if (!r.ok) { setMaking((m) => { const n = { ...m }; delete n[key]; return n; }); return r.error; }
+    api.setDoc((raw: unknown) => {
+      const cur = pageDoc(raw, api.data.piece.language);
+      const v = viewOf(cur, forLang);
+      const now = getField(v.fields, path) as Pic | undefined;
+      // the person put another picture there meanwhile: theirs stays (the new one is in the gallery)
+      if (!now || now.url !== pic.url) return raw;
+      const whose = path === "hero.picture" ? "the hero's picture" : `the picture of ${fieldLabel(v.fields, path).replace(/ · picture$/, "").toLowerCase()}`;
+      record(`AI fine-tuned ${whose}`, cur, "ai", ask.length > 110 ? `${ask.slice(0, 108)}…` : ask);
+      return withView(cur, forLang, { ...v, fields: setField(v.fields, path, { ...now, url: r.picture.url }) });
+    });
+    setMaking((m) => { const n = { ...m }; delete n[key]; return n; });
+    return null;
+  };
+  /** "Fine-tune" asked on a picture (its slot, the bar over it): it is selected, the assistant offers its asks */
+  const askRefine = (path: string) => {
+    setSelState({ key: `f:${path}`, picked: null });
+    const block = blockOfPath(path);
+    if (block) setOpen(block);
+    setReveal((n) => n + 1);
+    askAi();
   };
   const onAct = (path: string, act: string) => {
     const pic = getField(viewOf(docRef.current, langRef.current).fields, path) as Pic | undefined;
@@ -295,7 +393,8 @@ export default function Studio({ api }: StudioProps) {
     if (act === "upload") askUpload(path);
   };
   const makingPaths = Object.entries(making).filter(([k, m]) => m.state === "making" && k.startsWith(`${lang}|`)).map(([k]) => k.slice(lang.length + 1));
-  const makingIn = (part: PartKey) => makingPaths.filter((p) => partOfPath(p) === part).length;
+  const tuningPaths = Object.entries(making).filter(([k, m]) => m.state === "making" && m.label?.startsWith("Fine") && k.startsWith(`${lang}|`)).map(([k]) => k.slice(lang.length + 1));
+  const makingIn = (block: string) => makingPaths.filter((p) => blockOfPath(p) === block).length;
 
   /* ── the AI ──────────────────────────────────────────────────────────── */
 
@@ -324,7 +423,9 @@ export default function Studio({ api }: StudioProps) {
       const r = await api.ai<{ answer: FillAnswer; leftovers: string[] }>(`fill_${part}`, { lang: forLang, id: opts.id ?? null, request: opts.request ?? null, candidates: cands });
       if (!r.ok) return r.error;
       if (!Object.keys(r.result.answer).length) return "Nothing came back - ask again.";
-      await applyView((cur) => ({ ...cur, fields: mergeFill(cur.fields, r.result.answer, opts.id) }), `AI wrote ${PART_LABEL[part as Part]}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
+      // the whole page written: only the blocks the page has (a block taken out stays out - Content v5)
+      await applyView((cur) => ({ ...cur, fields: part === "all" ? onlyOnPage(mergeFill(cur.fields, r.result.answer, opts.id), blockOrder(cur.fields)) : mergeFill(cur.fields, r.result.answer, opts.id) }),
+        `AI wrote ${PART_LABEL[part as Part]}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
       wrote = true;
       return checkNote(r.result.leftovers);
     } finally {
@@ -372,43 +473,44 @@ export default function Studio({ api }: StudioProps) {
     } finally { setBusy(null); setBusyPart(null); }
   };
 
-  const translate = async (to: string): Promise<string | null> => {
+  const translate = async (target: string): Promise<string | null> => {
     if (!canAi) return "The AI is not set up on this hub.";
     const cur0 = docRef.current;
-    const from = mainLang(cur0);
-    if (to === from) return `${langName(to)} is the page's own language.`;
+    const from = mainView(cur0);
+    // the store view it goes in (a language asked: its store view for this page)
+    const to = storeFor(target);
+    if (to === from) return `${to} is the page's own store view.`;
+    if (langOfStore(to) === langOfStore(from)) { openView(to); return `${to} is the page's own language - it is made as a copy of ${howToAdd(cur0, to).from}, no AI.`; }
     setLangState(to);
     setSelState(null);
     setStep("page");
     setBusy(`translate:${to}`, to);
     try {
       let path = "";
-      let store = storeFor(to);
       if (cur0.source !== "new") {
-        path = cur0.langs[to]?.path ?? "";
+        path = cur0.langs[to]?.path || presenceRef.current[to]?.path || "";
         if (!path) {
-          const c = await api.act<{ ok: boolean; path: string | null; store: string | null; error?: string }>("counterpart", { lang: to, store });
+          const c = await api.act<{ ok: boolean; path: string | null; store: string | null; error?: string }>("counterpart", { lang: to, store: to });
           if (!c.ok) return c.error;
           if (!c.result.ok) return c.result.error ?? "The page could not be read.";
-          if (!c.result.path) { setPicking(true); return `The shop's ${langName(to)} page could not be found by itself - pick it in the middle, then translate again.`; }
+          if (!c.result.path || baseStore(c.result.path.split("/")[1]) !== to) { setPicking(true); return `The shop's page in ${to} could not be found by itself - pick it in the middle, then translate again.`; }
           path = c.result.path;
         }
-        store = path.split("/")[1] || store;
       }
-      const r = await api.ai<Translated>("translate", { to, store });
+      const r = await api.ai<Translated>("translate", { to, store: to });
       if (!r.ok) return r.error;
       const latest = docRef.current;
       const old = latest.langs[to];
       const lv: LangVersion = {
-        path, store, texts: [], outline: old?.path === path ? old.outline : null, from: r.result.from || sourceHash(latest), at: new Date().toISOString(),
-        changes: r.result.changes ?? old?.changes ?? [], fields: r.result.fields ?? old?.fields ?? emptyPage().fields,
+        path, store: to, texts: [], outline: old?.path === path ? old.outline : null, from: r.result.from || sourceHash(latest), source: mainView(latest), made: "translate",
+        at: new Date().toISOString(), changes: r.result.changes ?? old?.changes ?? [], fields: r.result.fields ?? old?.fields ?? emptyPage().fields,
       };
-      record(`Translated the page into ${langName(to)}`, latest, "ai", r.result.missing ? `${r.result.missing} text${r.result.missing === 1 ? "" : "s"} came back untranslated - check them` : undefined);
+      record(`Translated the page into ${to}`, latest, "ai", r.result.missing ? `${r.result.missing} text${r.result.missing === 1 ? "" : "s"} came back untranslated - check them` : undefined);
       await setDocSafely(api, latest, { ...latest, langs: { ...latest.langs, [to]: lv } });
       setLangState(to);
       setSelState(null);
       setPicking(false);
-      // a new page's links to the shop: the same pages in this language
+      // a new page's links to the shop: the same pages in this store view's language
       let relinked = "";
       if (latest.source === "new") {
         const rl = await api.act<{ map: Record<string, string>; missing: string[] }>("relink", { lang: to });
@@ -420,9 +522,9 @@ export default function Studio({ api }: StudioProps) {
           const fields = { ...v.fields, hero: { ...v.fields.hero, button: { ...v.fields.hero.button, url: fx(v.fields.hero.button.url) } }, cta: { ...v.fields.cta, button: { ...v.fields.cta.button, url: fx(v.fields.cta.button.url) } }, links: v.fields.links.map((l) => ({ ...l, url: fx(l.url) })) };
           await setDocSafely(api, cur, withView(cur, to, { ...v, fields }));
         }
-        if (rl.ok && rl.result.missing.length) relinked = ` ${rl.result.missing.length} link${rl.result.missing.length === 1 ? " has" : "s have"} no ${langName(to)} page on the shop and still point${rl.result.missing.length === 1 ? "s" : ""} to the ${langName(from)} one.`;
+        if (rl.ok && rl.result.missing.length) relinked = ` ${rl.result.missing.length} link${rl.result.missing.length === 1 ? " has" : "s have"} no ${langName(to)} page on the shop and still point${rl.result.missing.length === 1 ? "s" : ""} to the ${from} one.`;
       }
-      return [r.result.problems.length ? r.result.problems.join("; ") : null, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || `The ${langName(to)} page is made (${store}) - its links go to the shop's ${langName(to)} pages. Change what you like; it is its own page.${relinked}`;
+      return [r.result.problems.length ? r.result.problems.join("; ") : null, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || `The ${to} page is made - its links go to the shop's ${langName(to)} pages. Change what you like; it is its own page.${relinked}`;
     } finally { setBusy(null); }
   };
 
@@ -441,16 +543,69 @@ export default function Studio({ api }: StudioProps) {
 
   /* ── the quick asks ──────────────────────────────────────────────────── */
 
-  const others = offered.map((o) => o.lang).filter((l) => l !== main);
-  /** a part of a new page written by the AI (its block in the page: "hero", "intro-block", "sections.<id>" ...) */
+  const others = offered.map((o) => o.lang).filter((l) => l !== langOfStore(main));
+  /** a block of a new page written by the AI alone ("hero", "intro-block", "sections.<id>", an item's block...) */
   const fillBlock = (block: string, request?: string) => {
-    if (block.startsWith("sections.")) return fill("section", { id: block.split(".")[1], request });
-    const part = ({ hero: "hero", "intro-block": "intro", benefits: "benefits", sections: "sections", links: "links", faq: "faq", cta: "cta" } as Record<string, Part>)[block.split(".")[0]];
-    return part ? fill(part, { request }) : fill("all", { request });
+    const run = fillOfBlock(blockOfPath(block) ?? block);
+    return run ? fill(run.part, { id: run.id, request }) : fill("all", { request });
   };
+
+  /* ── blocks added, moved, taken out (Content v5: "add more elements by + next to sections, or in the photo") ── */
+
+  const [addWhere, setAddWhere] = useState<AddAt | null>(null);
+  /** a block added at a place of the page: it lands there, selected, its fields open */
+  const addBlockAt = (kind: NewBlock, at: number) => {
+    const cur = viewOf(docRef.current, langRef.current);
+    const had = blockOrder(cur.fields).includes(kind);
+    const r = addBlock(cur.fields, kind, at);
+    const name = blocksOf(r.fields).find((b) => b.key === r.key);
+    setView({ ...cur, fields: r.fields }, `${had ? "Moved" : "Added"} ${name ? `${name.name.toLowerCase()} (block ${name.num})` : "a block"}`);
+    if (fold.build) toggleFold("build");
+    setTimeout(() => onOpenBlock(r.key), 30);
+  };
+  /** "+ Tile" / "+ Question" / "+ Link" in the page: one more, selected, its fields open */
+  const addItemTo = (list: string) => {
+    if (list !== "benefits" && list !== "faq" && list !== "links") return;
+    const cur = viewOf(docRef.current, langRef.current);
+    const r = addItem(cur.fields, list as ListKey);
+    setView({ ...cur, fields: r.fields }, `Added ${(ITEM_NAME[list as ListKey] ?? "an item").toLowerCase()}`);
+    if (fold.build) toggleFold("build");
+    setTimeout(() => onSelectKey(list === "links" ? `f:links.${r.id}` : `b:${list}.${r.id}`), 30);
+  };
+
+  /* ── what it says, in English (SARCLA 09.11.2026: "Ask: translate to English, if I want to understand what is
+   *    written") - read only: the page does not change, nothing goes into "Changes made here" ── */
+
+  const [said, setSaid] = useState<Said | null>(null);
+  useEffect(() => { setSaid(null); }, [sel?.key, lang]);
+  const english = async (): Promise<string | null> => {
+    const s0 = sel;
+    const input: Record<string, unknown> = { lang: langRef.current };
+    let scopeName = "The whole page";
+    if (s0?.key.startsWith("f:")) { input.path = s0.key.slice(2); scopeName = fieldLabel(d.fields, s0.key.slice(2)); }
+    else if (s0?.key.startsWith("b:")) { input.block = s0.key.slice(2); scopeName = scopeLabel ?? "This block"; }
+    else if (s0?.picked) { input.text = s0.picked.text.slice(0, 3000); input.label = scopeLabel ?? "The element"; scopeName = scopeLabel ?? "The element"; }
+    else if (!isNew) await ensureOutline(langRef.current);
+    const viaDeepl = await api.act<{ items: { label: string; text: string }[] | null; by?: string }>("english", input);
+    let items = viaDeepl.ok ? viaDeepl.result.items : null;
+    if (!items) {
+      const r = await api.ai<{ items: { label: string; text: string }[] }>("english", input);
+      if (!r.ok) return r.error;
+      items = r.result.items;
+    }
+    if (!items.length) return "There are no words there yet.";
+    setSaid({ scope: scopeName, items });
+    return null;
+  };
+
+  /* ── the selection, as the assistant says it ──────────────────────────── */
+
   const scope = sel?.picked ?? null;
-  const wholePart = sel?.key.startsWith("b:") ? partOfPath(sel.key.slice(2)) : null;
-  const scopeLabel = !sel ? null : wholePart && !sel.key.slice(2).includes(".") ? PART_NAME[wholePart]
+  const blockKey = sel?.key.startsWith("b:") ? blockOfPath(sel.key.slice(2)) : null;
+  const blockInfo = blockKey ? blocksOf(d.fields).find((b) => b.key === blockKey) ?? null : null;
+  // a whole block selected (not one of its items): "4 · Proof tiles"
+  const wholeBlock = blockInfo && sel && previewOf(blockInfo.key) === sel.key.slice(2) ? blockInfo : null;
+  const scopeLabel = !sel ? null : wholeBlock ? `${wholeBlock.num} · ${wholeBlock.name}`
     : sel.key.startsWith("f:") || sel.key.startsWith("b:") ? fieldLabel(d.fields, sel.key.slice(2)) : sel.key.startsWith("i:") ? "A banner" : selPart ? selPart.name : scope ? `<${scope.tag}> ${scope.text.slice(0, 60)}` : null;
   const fieldPath = sel?.key.startsWith("f:") ? sel.key.slice(2) : null;
   const blockPart = sel?.key.startsWith("b:") ? sel.key.slice(2) : null;
@@ -461,35 +616,51 @@ export default function Studio({ api }: StudioProps) {
     has: !!selPic.url, canMake: canAi && imagesOn !== false && !!selPic.idea.trim(),
     onMake: () => pictures.make(picPath, selPic.idea), onUpload: () => askUpload(picPath), onGallery: () => openGallery(picPath),
     onRemove: () => setPic(lang, picPath, { url: "" }, "Took the picture out"),
+    onRefine: canAi && imagesOn !== false && selPic.url ? () => askRefine(picPath) : undefined,
   } : null;
-  const againAsk: QuickAsk[] = lang === main ? [] : [{ label: `Translate it from ${langName(main)} again`, run: () => translate(lang) }];
+  const made = doc.langs[lang]?.made;
+  const againAsk: QuickAsk[] = lang === main ? [] : made === "copy"
+    ? [{ label: `Copy it from ${doc.langs[lang]?.source || main} again`, run: () => (window.confirm(`Copy ${doc.langs[lang]?.source || main} into ${lang} again? What was changed in ${lang} goes (it stays in the version history).`) ? copyAgain(lang) : Promise.resolve(null)) }]
+    : [{ label: `Translate it from ${main} again`, run: () => translate(lang) }];
+  // to READ it, in English - wherever the page is not English (the page does not change)
+  const englishAsk: QuickAsk[] = langOfStore(lang) === "en" ? [] : [{ label: "What does it say? (in English)", run: english }];
+
+  // a picture selected: its fine-tunes - the same picture, one thing changed (never a new one)
+  const pictureAsks: QuickAsk[] = picPath && selPic ? (selPic.url ? PICTURE_TUNES.map((t) => ({ label: t.label, run: () => refine(picPath, t.ask) }))
+    : selPic.idea.trim() ? [{ label: "Make the picture from its idea", run: async () => { pictures.make(picPath, selPic.idea); return null; } }] : []) : [];
 
   const quick: QuickAsk[] = sel && !sel.key.startsWith("i:") ? (
     isNew ? (
-      blockPart ? [
-        { label: "Write this part", run: () => fillBlock(blockPart) },
-        { label: "Make it shorter", run: () => fillBlock(blockPart, "Make this part shorter and easier to scan, same meaning.") },
-        { label: "Make it more convincing", run: () => fillBlock(blockPart, "Make this part more convincing for a buyer - concrete benefits, no hype.") },
-      ]
+      picPath ? pictureAsks
+        : blockPart ? [
+          { label: "Write this block", run: () => fillBlock(blockPart) },
+          { label: "Make it shorter", run: () => fillBlock(blockPart, "Make this block shorter and easier to scan, same meaning.") },
+          { label: "Make it more convincing", run: () => fillBlock(blockPart, "Make this block more convincing for a buyer - concrete benefits, no hype.") },
+          ...englishAsk,
+        ]
         : fieldPath && !pictureField ? [
           { label: "Write it again", run: () => fill("field", { id: fieldPath }) },
           { label: "Make it shorter", run: () => fill("field", { id: fieldPath, request: "Make it shorter, same meaning." }) },
           { label: "Make it more convincing", run: () => fill("field", { id: fieldPath, request: "Make it more convincing for a buyer - concrete benefits, no hype." }) },
-        ] : []
+          ...englishAsk,
+        ] : englishAsk
     ) : scope && selPart ? [
       { label: "Make this part more convincing", run: () => rewrite(`Make this part of the page ("${selPart.name}") more convincing for a buyer: clearer benefits, in the page's own facts. Keep its structure.`, scope) },
       { label: "Make it shorter", run: () => rewrite("Make this part's words shorter and easier to scan, same meaning.", scope) },
       { label: "Make it stand out", run: () => rewrite("Make this part stand out more on the page, in the shop's look (petrol, a small red accent).", scope) },
+      ...englishAsk,
     ] : scope ? [
       { label: "Rewrite this element", run: () => rewrite("Rewrite this element's words: clearer and more useful for a buyer.", scope) },
       { label: "Make it shorter", run: () => rewrite("Make this element's words shorter, same meaning.", scope) },
       { label: "Make it stand out", run: () => rewrite("Make this element stand out more on the page, in the shop's look (petrol, a small red accent).", scope) },
+      ...englishAsk,
     ] : []
   ) : isNew ? [
     { label: isLegacyBody(d) ? "Move the draft into the fields" : "Write the whole page", run: () => fill("all", isLegacyBody(d) ? { request: "Move the earlier draft into the fields: final words everywhere, no placeholders." } : undefined) },
     { label: "Make it more convincing", run: () => fill("all", { request: "Make every part more convincing for a buyer: concrete benefits, the reasons to order here, no hype. Keep the structure." }) },
     { label: "Make it shorter", run: () => fill("all", { request: "Make the whole page shorter and easier to scan: fewer words, the same structure." }) },
     { label: "Search engine fields", run: () => fill("seo") },
+    ...(filledCount(d.fields) ? englishAsk : []),
     ...againAsk,
   ] : [
     { label: "Ideas for this page", run: async () => {
@@ -512,12 +683,20 @@ export default function Studio({ api }: StudioProps) {
       setSeo(s);
       return null;
     } },
+    ...(d.path ? englishAsk : []),
     ...againAsk,
   ];
 
   const onAsk = async (text: string): Promise<string | null> => {
     if (sel && !sel.key.startsWith("i:")) {
       if (isNew) {
+        // a picture selected: the ask changes THIS picture (or, with none there yet, says what it should show)
+        if (picPath && selPic) {
+          if (selPic.url) return refine(picPath, text);
+          setPic(lang, picPath, { idea: text }, "Wrote the picture's idea");
+          pictures.make(picPath, text);
+          return null;
+        }
         if (fieldPath && !pictureField) return fill("field", { id: fieldPath, request: text });
         // a part selected: that part alone is written - never the whole page (only it shimmers, the rest stays)
         if (blockPart) return fillBlock(blockPart, text);
@@ -532,17 +711,37 @@ export default function Studio({ api }: StudioProps) {
     return isNew ? fill("all", { request: text }) : rewrite(text);
   };
 
+  /* ── written by itself only from an app's brief (SARCLA 09.11.2026: "if the project was created via an SEO brief,
+   *    writing the page should be by default; otherwise the user should prompt each page he wants") ── */
+
+  const [appBrief, setAppBrief] = useState<AppBrief | null>(null);
+  const autoAsked = useRef(false);
+  const emptyNew = isNew && filledCount(d.fields) === 0 && !isLegacyBody(d);
+  useEffect(() => {
+    if (autoAsked.current || !doc.started || !emptyNew || lang !== main) return;
+    autoAsked.current = true;
+    void api.act<AppBrief>("brief").then((r) => {
+      if (!r.ok) return;
+      setAppBrief(r.result);
+      // an app's brief: the page is written at once, the blocks shimmering - once, and only while it is still empty
+      if (r.result.auto && canAi && filledCount(viewOf(docRef.current, mainView(docRef.current)).fields) === 0) void fill("all");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.started, emptyNew, lang, main]);
+
   /* ── the page picked, and the middle ─────────────────────────────────── */
 
   const onPicked = (p: PickedPage) => {
     const cur = docRef.current;
-    if (lang === mainLang(cur)) {
+    if (lang === mainView(cur)) {
       const store = p.store ?? cur.store;
       setDoc({ ...cur, env: p.env, path: p.path, store, pageKind: p.kind, outline: null, source: cur.source === "new" ? "pick" : cur.source }, cur.path ? "Picked another page" : undefined);
-      setLangState(store.slice(0, 2).toLowerCase());
+      setLangState(baseStore(store) ?? store);
     } else {
-      const v = viewOf(cur, lang);
-      setView({ ...v, path: p.path, store: p.store ?? v.store, outline: null }, `Picked the ${langName(lang)} page`);
+      const add = howToAdd(cur, lang);
+      // a store view of the page's own language: its changes start as a copy, on the page picked there
+      if (!cur.langs[lang] && add.how === "copy") { record(`Copied ${add.from} into ${lang}`, cur); api.setDoc(copyView(cur, lang, add.from, p.path)); }
+      else { const v = viewOf(cur, lang); setView({ ...v, path: p.path, outline: null }, `Picked the ${lang} page`); }
     }
     setPicking(false);
   };
@@ -550,57 +749,70 @@ export default function Studio({ api }: StudioProps) {
 
   const findCounterpart = async () => {
     setFinding(true);
-    const c = await api.act<{ ok: boolean; path: string | null; error?: string }>("counterpart", { lang, store: storeFor(lang) });
+    const there = presenceRef.current[lang]?.path;
+    const c = there ? null : await api.act<{ ok: boolean; path: string | null; error?: string }>("counterpart", { lang, store: lang });
     setFinding(false);
-    if (c.ok && c.result.ok && c.result.path) { const v = viewOf(docRef.current, lang); setView({ ...v, path: c.result.path, store: c.result.path.split("/")[1] || v.store }, `Found the ${langName(lang)} page`); }
+    const path = there ?? (c?.ok && c.result.ok && c.result.path && baseStore(c.result.path.split("/")[1]) === lang ? c.result.path : null);
+    if (path) { const v = viewOf(docRef.current, lang); setView({ ...v, path }, `Found the ${lang} page`); }
     else setPicking(true);
   };
 
   const translating = busy === `translate:${lang}`;
   const langEmpty = lang !== main && (isNew ? !d.fields.hero.title && !d.fields.intro && !d.fields.sections.length : !d.path || !d.changes.length);
   const needsPage = !isNew && lang === main && !d.path;
+  const addHow = lang !== main ? howToAdd(doc, lang) : null;
+  const notOnShop = !isNew && lang !== main && !d.path && presence[lang]?.exists === false;
   const empty = picking || needsPage ? (
-    <PagePicker api={api} store={lang === main ? d.store || "de-CH" : storeFor(lang)} lockStore={lang !== main} current={d.path}
-      title={lang === main ? undefined : `Which is the ${langName(lang)} page?`} onPick={onPicked} onClose={d.path || lang !== main ? () => setPicking(false) : undefined} />
+    <PagePicker api={api} store={lang === main ? d.store || "de-CH" : lang} lockStore={lang !== main} current={d.path}
+      title={lang === main ? undefined : `Which is the ${lang} page?`} onPick={onPicked} onClose={d.path || lang !== main ? () => setPicking(false) : undefined} />
   ) : langEmpty ? (
-    <LangEmpty d={d} lang={lang} main={main} store={storeFor(lang)} busy={translating} since={translating ? since : null} canAi={canAi}
+    <LangEmpty d={d} lang={lang} main={main} store={lang} busy={translating} since={translating ? since : null} canAi={canAi}
       onTranslate={() => void translate(lang).then((m) => { if (m && !/is made/.test(m)) window.alert(m); })}
+      onCopy={addHow?.how === "copy" && canEdit ? { from: addHow.from, run: () => openView(lang) } : null} notOnShop={notOnShop}
       onFind={!isNew && !d.path ? () => void findCounterpart() : undefined} finding={finding} />
   ) : undefined;
 
   const after = preview.held.after?.out;
   const hits = after?.ok ? after.hits : null;
-  const placeholder = sel ? (selPart || (wholePart && !sel.key.slice(2).includes(".")) ? "What should change in this part?" : "What should change in this element?") : isNew ? "What should the page say or do?" : "What should change on this page?";
+  const placeholder = picPath ? (selPic?.url ? "What should change in the picture?" : "What should the picture show?")
+    : sel ? (selPart || wholeBlock ? "What should change in this block?" : "What should change in this element?") : isNew ? "What should the page say or do?" : "What should change on this page?";
   // what the AI does shows in its own language only; elsewhere its buttons wait until it is done
   const busyHere = busy && busyLang === lang ? busy : null;
   const aiHere = canAi && !(busy && busyLang !== lang);
   const marks = busyOf(busyHere, d.fields);
+  const contextKind = picPath ? "This picture only" : selPart && sel?.picked ? "This part only" : wholeBlock ? "This block only" : undefined;
 
   return (
-    <StudioPanes id="page" buildWidth={410} assistWidth={340} hideBuild={fold.build} hideAssist={fold.assist}
-      build={<Build api={api} doc={doc} d={d} lang={lang} onLang={setLang} set={setDoc} setView={setView} hits={hits} step={step} onStep={setStep}
-        sel={sel} setSel={setSel} fill={fill} busy={busyHere} canAi={aiHere} onEditInPage={() => setEditNonce((n) => n + 1)} onAskAi={askAi}
-        inserts={inserts} record={(label) => record(label)} onPickPage={() => setPicking(true)} removeInsert={removeInsert}
-        offered={offered} open={open} onOpen={onOpenRow} onOpenPart={onOpenPart} onFocusPath={onFocusPath} pictures={pictures} makingIn={makingIn} since={busyHere ? since : null}
-        shop={shop ? {
-          ...shop, busyPart: busyHere ? busyPart : null, onOpen: onOpenShopPart, selPart: selPart?.id ?? null,
-          selIn: sel?.picked && !selPart ? partOfSection(sel.picked.section)?.id ?? null : null,
-          onAsk: (p) => { onOpenShopPart(p); askAi(); },
-          onRemove: (i) => setView({ ...d, changes: d.changes.filter((_, k) => k !== i) }, `Took change ${i + 1} out`),
-        } : null} />}
-      preview={<Stage api={api} doc={doc} d={d} lang={lang} onLang={setLang} offered={offered} view={view} onView={setViewMode} preview={preview} selected={sel?.key ?? null} picked={sel?.picked ?? null}
-        onPick={onPick} onEdit={onEdit} editNonce={editNonce} reveal={reveal} onEditWords={() => setEditNonce((n) => n + 1)} onAskAi={askAi}
-        inserts={inserts} shell={shell} onFix={(left) => void fixLeftovers(left)} empty={empty}
-        writing={{ blocks: marks.blocks, fields: marks.fields, pictures: makingPaths }} working={busyHere === "rewrite" ? since : null}
-        onMap={isNew ? undefined : setLocated} seek={seek} selLabel={selPart && sel?.picked ? selPart.name : null}
-        picActs={picActs} onAct={isNew ? onAct : undefined}
-        fold={{ ...fold, onBuild: () => toggleFold("build"), onAssist: () => toggleFold("assist") }}>
-        <input ref={upInput} type="file" hidden accept="image/png,image/jpeg,image/webp" onChange={(e) => { void onUploadFile(e.target.files?.[0]); e.target.value = ""; }} />
-      </Stage>}
-      assist={<Assistant quick={quick} onAsk={onAsk} enabled={canAi} context={scopeLabel} contextKind={selPart && sel?.picked ? "This part only" : wholePart ? "This part only" : undefined} onClearContext={() => setSel(null)} history={history} onUndo={(e) => void undo(e)}
-        ideas={ideas} onIdea={(i) => void rewrite(`${i.title}: ${i.change}`)} seo={seo} lang={lang} inputRef={askRef} placeholder={placeholder}
-        translate={lang === main ? { doc, offered, busy, onTranslate: (l) => translate(l) } : null}
-        onUseSeo={(s) => { setView({ ...d, fields: { ...d.fields, seo: { title: s.title, description: s.description, urlKey: s.urlKey } } }, "Kept the search engine fields"); setSeo(null); }} />}
-    />
+    <>
+      <StudioPanes id="page" buildWidth={410} assistWidth={340} hideBuild={fold.build} hideAssist={fold.assist}
+        build={<Build api={api} doc={doc} d={d} lang={lang} onLang={openView} groups={groups} presence={presence} set={setDoc} setView={setView} hits={hits} step={step} onStep={setStep}
+          sel={sel} setSel={setSel} fill={fill} busy={busyHere} canAi={aiHere} onEditInPage={() => setEditNonce((n) => n + 1)} onAskAi={askAi}
+          inserts={inserts} record={(label) => record(label)} onPickPage={() => setPicking(true)} removeInsert={removeInsert}
+          open={open} onOpen={onOpenRow} onOpenBlock={onOpenBlock} onSelectKey={onSelectKey} onFocusPath={onFocusPath} pictures={pictures} makingIn={makingIn} since={busyHere ? since : null}
+          onAdd={(at, el) => setAddWhere({ at, anchor: el })} onAddText={(at) => addBlockAt("text", at)} onRefine={canAi ? askRefine : undefined} appBrief={appBrief}
+          shop={shop ? {
+            ...shop, busyPart: busyHere ? busyPart : null, onOpen: onOpenShopPart, selPart: selPart?.id ?? null,
+            selIn: sel?.picked && !selPart ? partOfSection(sel.picked.section)?.id ?? null : null,
+            onAsk: (p) => { onOpenShopPart(p); askAi(); },
+            onRemove: (i) => setView({ ...d, changes: d.changes.filter((_, k) => k !== i) }, `Took change ${i + 1} out`),
+          } : null} />}
+        preview={<Stage api={api} doc={doc} d={d} lang={lang} onLang={openView} groups={groups} presence={presence} view={view} onView={setViewMode} preview={preview} selected={sel?.key ?? null} picked={sel?.picked ?? null}
+          onPick={onPick} onEdit={onEdit} editNonce={editNonce} reveal={reveal} onEditWords={() => setEditNonce((n) => n + 1)} onAskAi={askAi}
+          inserts={inserts} shell={shell} onFix={(left) => void fixLeftovers(left)} empty={empty}
+          writing={{ blocks: marks.blocks, fields: marks.fields, pictures: makingPaths, tuning: tuningPaths }} working={busyHere === "rewrite" ? since : null}
+          onMap={isNew ? undefined : setLocated} seek={seek} selLabel={selPart && sel?.picked ? selPart.name : wholeBlock ? `${wholeBlock.num} · ${wholeBlock.name}` : null}
+          picActs={picActs} onAct={isNew ? onAct : undefined}
+          adds={isNew && canEdit ? { onAdd: (at, pos) => setAddWhere({ at, pos }), onAddItem: addItemTo } : undefined}
+          fold={{ ...fold, onBuild: () => toggleFold("build"), onAssist: () => toggleFold("assist") }}>
+          <input ref={upInput} type="file" hidden accept="image/png,image/jpeg,image/webp" onChange={(e) => { void onUploadFile(e.target.files?.[0]); e.target.value = ""; }} />
+        </Stage>}
+        assist={<Assistant quick={quick} onAsk={onAsk} enabled={canAi} context={scopeLabel} contextKind={contextKind} onClearContext={() => setSel(null)} history={history} onUndo={(e) => void undo(e)}
+          ideas={ideas} onIdea={(i) => void rewrite(`${i.title}: ${i.change}`)} seo={seo} lang={lang} inputRef={askRef} placeholder={placeholder}
+          said={said} onCloseSaid={() => setSaid(null)}
+          translate={lang === main ? { doc, groups, busy, onTranslate: (l) => translate(l) } : null}
+          onUseSeo={(s) => { setView({ ...d, fields: { ...d.fields, seo: { title: s.title, description: s.description, urlKey: s.urlKey } } }, "Kept the search engine fields"); setSeo(null); }} />}
+      />
+      <AddBlockMenu where={addWhere} onClose={() => setAddWhere(null)} onPick={addBlockAt} onPage={blockOrder(d.fields)} />
+    </>
   );
 }

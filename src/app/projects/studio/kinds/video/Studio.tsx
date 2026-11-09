@@ -253,7 +253,8 @@ export default function Studio({ api }: StudioProps) {
   useEffect(() => { if (onFilm && open !== onFilm.index) setOnFilm(null); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the AI: its answer is applied at once and played; every change is listed with an Undo
-  const changes = useChanges<VideoDoc>(`video-${api.data.piece.id}`, raw ? doc : undefined);
+  // a version looked at (read-only) leaves this browser's list of changes alone
+  const changes = useChanges<VideoDoc>(api.looking ? undefined : `video-${api.data.piece.id}`, raw ? doc : undefined);
   const [busy, setBusy] = useState<Busy | null>(null);
   const ask = useRef<HTMLTextAreaElement | null>(null);
   const runAi = async (task: string, label: string, input: Record<string, unknown> = {}, after?: () => void): Promise<string | null> => {

@@ -9,7 +9,7 @@
 // it is (data-apx-b="sections.ab12"), so a click in the preview selects it; an empty part shows as a quiet dashed slot
 // to click. Nothing of that reaches Magento.
 
-import type { BlockBg, ButtonLook, Fields, Look, Pic } from "./fields";
+import { blockOrder, type BlockBg, type ButtonLook, type Fields, type Look, type Pic } from "./fields";
 
 export type InsertHtml = { id: string; where: "top" | "after-intro" | "bottom"; html: string; label?: string };
 export type RenderOpts = {
@@ -20,7 +20,9 @@ export type RenderOpts = {
   link?: (url: string) => string;
   /** the preview only (`marks`): what the AI is writing now - those blocks and fields shimmer - and the pictures being
    * made (SARCLA 08.11.2026: "an AI animation as soon as it starts working") */
-  busy?: { blocks?: string[]; fields?: string[]; pictures?: string[] };
+  busy?: { blocks?: string[]; fields?: string[]; pictures?: string[]; tuning?: string[] };
+  /** the preview only (`marks`), for someone who may change the page: the "+" between blocks and in a block with items */
+  adds?: boolean;
 };
 
 export const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -46,6 +48,7 @@ export function renderNewPage(f: Fields, o: RenderOpts = {}): { css: string; htm
   const busyB = new Set(m ? o.busy?.blocks ?? [] : []);
   const busyF = new Set(m ? o.busy?.fields ?? [] : []);
   const making = new Set(m ? o.busy?.pictures ?? [] : []);
+  const tuning = new Set(m ? o.busy?.tuning ?? [] : []);
   const fa = (path: string) => (m ? ` data-apx-f="${esc(path)}"${busyF.has(path) ? " data-apx-busy" : ""}` : "");
   const ba = (path: string) => (m ? ` data-apx-b="${esc(path)}"${busyB.has(path) ? " data-apx-busy" : ""}` : "");
   const textCls = (path: string, base: string) => {
@@ -68,73 +71,113 @@ export function renderNewPage(f: Fields, o: RenderOpts = {}): { css: string; htm
     // the studio's slot (the flow standard, 09.11.2026): empty - the idea in small grey words, "Make it" and "Upload";
     // being made - "Making the picture…" over a moving bar (the studio's marks only, never in Magento's copy)
     if (!p.url && making.has(path)) return `<div class="apx-np-pic apx-np-pic-empty"${fa(path)} data-apx-making><span>Making the picture…</span><i class="apx-np-bar"></i></div>`;
+    // a picture there being made again or fine-tuned (Content v5): it stays in view, veiled, the bar moving over it
+    if (p.url && (making.has(path) || tuning.has(path))) return `<div class="apx-np-pic"${fa(path)} data-apx-making-over><img src="${esc(pic(p.url))}" alt="${esc(p.alt)}" loading="lazy"><span class="apx-np-veil">${tuning.has(path) ? "Fine-tuning the picture…" : "Making a new picture…"}</span><i class="apx-np-bar"></i></div>`;
     if (!p.url) return m ? `<div class="apx-np-pic apx-np-pic-empty"${fa(path)}><span class="apx-np-slot"><span class="apx-np-idea">${esc(p.idea.trim() ? `Idea: ${p.idea.trim().slice(0, 160)}${p.idea.trim().length > 160 ? "…" : ""}` : hint)}</span><span class="apx-np-acts">${p.idea.trim() ? `<b data-apx-act="make">Make it</b>` : ""}<b data-apx-act="upload">Upload</b></span></span></div>` : "";
     return `<div class="apx-np-pic"${fa(path)}><img src="${esc(pic(p.url))}" alt="${esc(p.alt)}" loading="lazy"></div>`;
   };
   const inserts = (where: InsertHtml["where"]) => (o.inserts ?? []).filter((x) => x.where === where)
     .map((x) => `<div class="apx-np-ins"${m ? ` data-apx-insert="${esc(x.id)}"` : ""}>${x.html}</div>`).join("");
+  // the studio's "+" (Content v5: SARCLA "add more elements by + next to sections, or in the photo"): between two blocks
+  // a + that shows on hover ("Add a block here"), and in a block with items "+ Tile" / "+ Link" / "+ Question"
+  const adds = m && !!o.adds;
+  const addItem = (list: string, label: string, tag = "div") => (adds ? `<${tag} class="apx-np-additem" data-apx-additem="${list}">+ ${label}</${tag}>` : "");
 
-  const parts: string[] = [];
-  parts.push(inserts("top"));
-
-  // the hero
   const h = f.hero;
-  const heroPic = picture("hero.picture", h.picture, "Hero picture - upload one, or let the AI write this part");
-  const heroHasPic = !!h.picture.url || m;
-  parts.push(`<section class="apx-np-blk apx-np-hero apx-np-bg-${bgOf("hero")}${heroHasPic ? "" : " apx-np-hero-solo"}"${ba("hero")}><div class="apx-np-in">
+  const c = f.cta;
+  const links = f.links.filter((l) => l.label.trim() || m);
+  const secIndex = new Map(f.sections.map((s, i) => [s.id, i]));
+  const block = (key: string): string => {
+    // the hero
+    if (key === "hero") {
+      const heroPic = picture("hero.picture", h.picture, "Hero picture - upload one, or let the AI write this part");
+      const heroHasPic = !!h.picture.url || m;
+      return `<section class="apx-np-blk apx-np-hero apx-np-bg-${bgOf("hero")}${heroHasPic ? "" : " apx-np-hero-solo"}"${ba("hero")}><div class="apx-np-in">
 <div class="apx-np-hero-t">${h.eyebrow.trim() ? `<div class="${textCls("hero.eyebrow", "apx-np-eb")}"${fa("hero.eyebrow")}>${esc(h.eyebrow.trim())}</div>` : m ? slot("hero.eyebrow", "Small line above the title", "div") : ""}
 ${one("hero.title", "h1", "apx-np-h1", h.title, "The page's title (its H1)")}
 ${many("hero.sub", "apx-np-sub", h.sub, "One or two lines under the title")}
 ${button("hero.button", h.button, "A button")}</div>
-${heroHasPic ? heroPic : ""}</div></section>`);
-
-  // the intro
-  if (f.intro.trim() || m) parts.push(`<section class="apx-np-blk apx-np-intro apx-np-bg-${bgOf("intro-block")}"${ba("intro-block")}><div class="apx-np-in">${many("intro", "apx-np-lead", f.intro, "An intro paragraph: what the visitor finds on this page")}</div></section>`);
-  parts.push(inserts("after-intro"));
-
-  // the benefits
-  if (f.benefits.length) {
-    parts.push(`<section class="apx-np-blk apx-np-bens apx-np-bg-${bgOf("benefits")}"${ba("benefits")}><div class="apx-np-in">
+${heroHasPic ? heroPic : ""}</div></section>`;
+    }
+    // the intro
+    if (key === "intro") {
+      return f.intro.trim() || m ? `<section class="apx-np-blk apx-np-intro apx-np-bg-${bgOf("intro-block")}"${ba("intro-block")}><div class="apx-np-in">${many("intro", "apx-np-lead", f.intro, "An intro paragraph: what the visitor finds on this page")}</div></section>` : "";
+    }
+    // the proof tiles
+    if (key === "benefits") {
+      if (f.benefits.length) {
+        return `<section class="apx-np-blk apx-np-bens apx-np-bg-${bgOf("benefits")}"${ba("benefits")}><div class="apx-np-in">
 ${f.benefitsTitle.trim() ? one("benefitsTitle", "h2", "apx-np-h2", f.benefitsTitle, "") : m ? slot("benefitsTitle", "A heading for the benefits") : ""}
-<div class="apx-np-grid">${f.benefits.map((b) => `<div class="apx-np-card"${ba(`benefits.${b.id}`)}>${one(`benefits.${b.id}.title`, "h3", "apx-np-h3", b.title, "Benefit")}${many(`benefits.${b.id}.text`, "apx-np-p", b.text, "What it means for the buyer")}</div>`).join("")}</div></div></section>`);
-  } else if (m) parts.push(`<section class="apx-np-blk apx-np-bg-white"${ba("benefits")}><div class="apx-np-in">${slot("benefits", "Benefits - three or four cards")}</div></section>`);
-
-  // the sections: text and a picture
-  f.sections.forEach((s, i) => {
-    const side = s.side;
-    const bg = bgOf(`sections.${s.id}`, i % 2 ? "grey" : "white");
-    const hasPic = !!s.picture.url || m;
-    parts.push(`<section class="apx-np-blk apx-np-sec apx-np-bg-${bg}${side === "left" ? " is-left" : ""}${hasPic ? "" : " is-solo"}"${ba(`sections.${s.id}`)}><div class="apx-np-in">
+<div class="apx-np-grid">${f.benefits.map((b) => `<div class="apx-np-card"${ba(`benefits.${b.id}`)}>${one(`benefits.${b.id}.title`, "h3", "apx-np-h3", b.title, "Benefit")}${many(`benefits.${b.id}.text`, "apx-np-p", b.text, "What it means for the buyer")}</div>`).join("")}${f.benefits.length < 8 ? addItem("benefits", "Tile") : ""}</div></div></section>`;
+      }
+      return m ? `<section class="apx-np-blk apx-np-bg-white"${ba("benefits")}><div class="apx-np-in">${slot("benefits", "Benefits - three or four cards")}</div></section>` : "";
+    }
+    // a section: text and a picture
+    if (key.startsWith("sections.")) {
+      const i = secIndex.get(key.slice(9)) ?? 0;
+      const s = f.sections[i];
+      const side = s.side;
+      const bg = bgOf(`sections.${s.id}`, i % 2 ? "grey" : "white");
+      const hasPic = !!s.picture.url || m;
+      return `<section class="apx-np-blk apx-np-sec apx-np-bg-${bg}${side === "left" ? " is-left" : ""}${hasPic ? "" : " is-solo"}"${ba(`sections.${s.id}`)}><div class="apx-np-in">
 <div class="apx-np-sec-t">${one(`sections.${s.id}.title`, "h2", "apx-np-h2", s.title, "Section heading")}${many(`sections.${s.id}.text`, "apx-np-p", s.text, "The section's text")}</div>
-${hasPic ? picture(`sections.${s.id}.picture`, s.picture, "Picture - upload one, or let the AI write this part") : ""}</div></section>`);
-  });
-  if (!f.sections.length && m) parts.push(`<section class="apx-np-blk apx-np-bg-white"${ba("sections")}><div class="apx-np-in">${slot("sections", "Sections - text with a picture")}</div></section>`);
-
-  // the links to products and categories
-  const links = f.links.filter((l) => l.label.trim() || m);
-  if (links.length) {
-    parts.push(`<section class="apx-np-blk apx-np-links apx-np-bg-${bgOf("links")}"${ba("links")}><div class="apx-np-in">
+${hasPic ? picture(`sections.${s.id}.picture`, s.picture, "Picture - upload one, or let the AI write this part") : ""}</div></section>`;
+    }
+    if (key === "sections") return m ? `<section class="apx-np-blk apx-np-bg-white"${ba("sections")}><div class="apx-np-in">${slot("sections", "Sections - text with a picture")}</div></section>` : "";
+    // the links to products and categories
+    if (key === "links") {
+      if (links.length) {
+        return `<section class="apx-np-blk apx-np-links apx-np-bg-${bgOf("links")}"${ba("links")}><div class="apx-np-in">
 ${f.linksTitle.trim() ? one("linksTitle", "h2", "apx-np-h2", f.linksTitle, "") : m ? slot("linksTitle", "A heading for the links") : ""}
-<div class="apx-np-lgrid">${links.map((l) => `<a class="apx-np-link" href="${esc(l.url ? link(l.url) : "#")}"${fa(`links.${l.id}`)}><span><b>${esc(l.label.trim() || "A page of the shop")}</b>${l.note.trim() ? `<small>${esc(l.note.trim())}</small>` : ""}</span>${ARROW}</a>`).join("")}</div></div></section>`);
-  } else if (m) parts.push(`<section class="apx-np-blk apx-np-bg-white"${ba("links")}><div class="apx-np-in">${slot("links", "Links to products and categories of the shop")}</div></section>`);
-
-  // the questions
-  if (f.faq.length) {
-    parts.push(`<section class="apx-np-blk apx-np-faq apx-np-bg-${bgOf("faq")}"${ba("faq")}><div class="apx-np-in apx-np-narrow">
+<div class="apx-np-lgrid">${links.map((l) => `<a class="apx-np-link" href="${esc(l.url ? link(l.url) : "#")}"${fa(`links.${l.id}`)}><span><b>${esc(l.label.trim() || "A page of the shop")}</b>${l.note.trim() ? `<small>${esc(l.note.trim())}</small>` : ""}</span>${ARROW}</a>`).join("")}${f.links.length < 16 ? addItem("links", "Link") : ""}</div></div></section>`;
+      }
+      return m ? `<section class="apx-np-blk apx-np-bg-white"${ba("links")}><div class="apx-np-in">${slot("links", "Links to products and categories of the shop")}</div></section>` : "";
+    }
+    // the questions
+    if (key === "faq") {
+      if (f.faq.length) {
+        return `<section class="apx-np-blk apx-np-faq apx-np-bg-${bgOf("faq")}"${ba("faq")}><div class="apx-np-in apx-np-narrow">
 ${f.faqTitle.trim() ? one("faqTitle", "h2", "apx-np-h2", f.faqTitle, "") : m ? slot("faqTitle", "A heading for the questions") : ""}
-${f.faq.map((q) => `<details class="apx-np-q"${m ? " open" : ""}${ba(`faq.${q.id}`)}><summary${fa(`faq.${q.id}.q`)}>${esc(q.q.trim() || (m ? "A question" : ""))}</summary>${many(`faq.${q.id}.a`, "apx-np-a", q.a, "Its answer")}</details>`).join("")}</div></section>`);
-  } else if (m) parts.push(`<section class="apx-np-blk apx-np-bg-white"${ba("faq")}><div class="apx-np-in">${slot("faq", "Questions and answers")}</div></section>`);
+${f.faq.map((q) => `<details class="apx-np-q"${m ? " open" : ""}${ba(`faq.${q.id}`)}><summary${fa(`faq.${q.id}.q`)}>${esc(q.q.trim() || (m ? "A question" : ""))}</summary>${many(`faq.${q.id}.a`, "apx-np-a", q.a, "Its answer")}</details>`).join("")}${f.faq.length < 14 ? addItem("faq", "Question") : ""}</div></section>`;
+      }
+      return m ? `<section class="apx-np-blk apx-np-bg-white"${ba("faq")}><div class="apx-np-in">${slot("faq", "Questions and answers")}</div></section>` : "";
+    }
+    // the call to action
+    if (key === "cta") {
+      return c.title.trim() || c.text.trim() || c.button.label.trim() || m ? `<section class="apx-np-blk apx-np-cta apx-np-bg-${bgOf("cta")}"${ba("cta")}><div class="apx-np-in apx-np-narrow">
+${one("cta.title", "h2", "apx-np-h2", c.title, "The call to action")}${many("cta.text", "apx-np-p", c.text, "One line that makes the next step clear")}${button("cta.button", c.button, "Its button")}</div></section>` : "";
+    }
+    return "";
+  };
 
-  // the call to action
-  const c = f.cta;
-  if (c.title.trim() || c.text.trim() || c.button.label.trim() || m) {
-    parts.push(`<section class="apx-np-blk apx-np-cta apx-np-bg-${bgOf("cta")}"${ba("cta")}><div class="apx-np-in apx-np-narrow">
-${one("cta.title", "h2", "apx-np-h2", c.title, "The call to action")}${many("cta.text", "apx-np-p", c.text, "One line that makes the next step clear")}${button("cta.button", c.button, "Its button")}</div></section>`);
-  }
+  const order = blockOrder(f);
+  const parts: string[] = [];
+  parts.push(inserts("top"));
+  order.forEach((key, i) => {
+    parts.push(block(key));
+    // a banner placed "after the intro" stays after it (after the hero when the page has no intro)
+    if (key === "intro" || (key === "hero" && !order.includes("intro"))) parts.push(inserts("after-intro"));
+    if (adds) parts.push(`<div class="apx-np-add" data-apx-add="${i + 1}" title="Add a block here"><b>+</b></div>`);
+  });
   parts.push(inserts("bottom"));
 
   return { css: NEW_PAGE_CSS, html: `<div class="apx-np">\n${parts.filter(Boolean).join("\n")}\n</div>` };
 }
+
+/** The studio's own look for its "+" in the page (the preview only, never in Magento's copy). */
+export const ADD_CSS = `.apx-np-add{position:relative;height:0;z-index:8;pointer-events:auto!important}
+.apx-np-add::before{content:"";position:absolute;left:0;right:0;top:-18px;height:36px}
+.apx-np-add::after{content:"";position:absolute;left:32px;right:32px;top:-1px;height:2px;background:#c22c6e;opacity:0;transition:opacity .15s}
+.apx-np-add>b{position:absolute;left:50%;top:-17px;width:34px;height:34px;margin-left:-17px;display:flex;align-items:center;justify-content:center;border-radius:7px;background:#c22c6e;color:#fff;font:600 26px/1 system-ui,"Segoe UI",sans-serif;box-shadow:0 6px 16px rgba(194,44,110,.35);opacity:0;transform:scale(.85);transition:opacity .15s,transform .15s;cursor:pointer;z-index:2}
+.apx-np-add:hover::after,.apx-np-add:hover>b{opacity:1}
+.apx-np-add:hover>b{transform:none}
+.apx-np-additem{display:flex;align-items:center;justify-content:center;min-height:64px;padding:14px 18px;border:1.5px dashed #c3ccd4;border-radius:14px;color:#7d8b95;font:600 17px/1.2 system-ui,"Segoe UI",sans-serif;cursor:pointer;pointer-events:auto!important;background:rgba(255,255,255,.4);transition:border-color .15s,color .15s,background-color .15s}
+.apx-np-additem:hover{border-color:#c22c6e;color:#c22c6e;background:rgba(194,44,110,.05)}
+.apx-np-faq .apx-np-additem{margin-top:18px;min-height:52px}
+[data-apx-making-over] img{opacity:.5;filter:saturate(.6) blur(1px)}
+[data-apx-making-over]::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(100deg,rgba(255,255,255,0) 25%,rgba(194,44,110,.18) 42%,rgba(255,255,255,.7) 50%,rgba(36,89,209,.14) 58%,rgba(255,255,255,0) 75%);background-size:260% 100%;animation:apx-sheen 1.4s linear infinite}
+.apx-np-veil{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);z-index:2;padding:12px 18px;border-radius:7px;background:#c22c6e;color:#fff;font:600 19px/1.2 system-ui,"Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 8px 20px rgba(194,44,110,.3)}
+[data-apx-making-over] .apx-np-bar{z-index:2;background:rgba(255,255,255,.6)}`;
 
 /** The page's stylesheet - one per page, every rule under .apx-np. */
 export const NEW_PAGE_CSS = `.apx-np{--red:#d80901;--red-d:#b00701;--petrol:#274e64;--petrol-d:#1b3a4b;--ink:#1d2326;--text:#4a5459;--muted:#66727a;--line:#e1e7ea;--grey:#f2f4f5;--sand:#f7f2ea;--head:futura-pt,Jost,"Helvetica Neue",Arial,sans-serif;font:400 16px/1.65 var(--head);color:var(--text);-webkit-font-smoothing:antialiased;text-align:left}

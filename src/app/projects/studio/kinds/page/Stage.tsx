@@ -4,8 +4,8 @@
 // Shown from ..." setting: "this makes no sense" - gone: a new page simply shows inside its store's own page, an
 // existing page as the shop has it.
 //
-//   languages   the languages made, each saying whether it is up to date, and "+ Language" for every other language the
-//               shop has (SARCLA 08.11.2026: "we should have all locales: NL, PL") - never a row of twelve buttons
+//   store views the page's store views made, each saying whether it is up to date, and "+ Store view" for every other
+//               store view of the shop by language (SARCLA 09.11.2026: "we select by store view") - never a row of 14
 //   AI at work  the blocks the AI is writing shimmer in the page, a picture being made says so in its slot; a page of the
 //               shop being changed is veiled with the same sheen (SARCLA: "an AI animation as soon as it starts working")
 //   select      hover outlines, a click selects (the left pane shows it), a double-click edits the words in place
@@ -18,6 +18,7 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
+import ListSubheader from "@mui/material/ListSubheader";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Tooltip from "@mui/material/Tooltip";
@@ -35,11 +36,11 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { fieldLabel } from "@/lib/content/studio/kinds/page/fields";
 import {
-  langName, langState, langsOf, leftoversOf, shopUrl, type LangOption, type LangState, type Leftover, type PageDoc,
+  howToAdd, langName, leftoversOf, mainView, shopUrl, viewState, viewsOf, type LangState, type Leftover, type PageDoc, type StoreGroup,
 } from "@/lib/content/studio/kinds/page/model";
-import { renderNewPage } from "@/lib/content/studio/kinds/page/newpage";
+import { ADD_CSS, renderNewPage } from "@/lib/content/studio/kinds/page/newpage";
 import { PART_NAME, partOfPath } from "@/lib/content/studio/kinds/page/outline";
-import type { InsertOut, PreviewOut } from "@/lib/content/studio/kinds/page/shop";
+import type { InsertOut, Presence, PreviewOut } from "@/lib/content/studio/kinds/page/shop";
 import type { Located } from "@/lib/content/studio/kinds/page/shopParts";
 import { PINK, btn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
@@ -77,7 +78,8 @@ export function usePagePreview(api: StudioApi, d: PageDoc, lang: string, view: V
       timers.push(setTimeout(async () => {
         asked.current[side] = key;
         setBusy((b) => ({ ...b, [side]: true }));
-        const out = await fetch(`/api/content/studio/page/${pieceId}/preview?side=${side}&lang=${lang}${fresh ? "&fresh=1" : ""}`)
+        // a version looked at (Versions, 09.11.2026) is drawn from that version, not from the page as it is now
+        const out = await fetch(`/api/content/studio/page/${pieceId}/preview?side=${side}&lang=${lang}${fresh ? "&fresh=1" : ""}${api.looking ? `&version=${api.looking}` : ""}`)
           .then((r) => r.json() as Promise<PreviewOut>)
           .catch(() => ({ ok: false as const, error: "The hub did not answer - try again." }));
         if (asked.current[side] === key) setHeld((h) => ({ ...h, [side]: { key, out } }));
@@ -100,7 +102,8 @@ export function useShell(api: StudioApi, d: PageDoc, fresh: number) {
   const [inserts, setInserts] = useState<InsertOut[] | null>(null);
   const pieceId = api.data.piece.id;
   const isNew = d.source === "new";
-  const lang = d.store.slice(0, 2).toLowerCase();
+  // the store view shown (its version's key)
+  const lang = d.store;
   useEffect(() => {
     if (!isNew) return;
     const key = `${d.store}|${fresh}`;
@@ -124,34 +127,56 @@ export function useShell(api: StudioApi, d: PageDoc, fresh: number) {
   return { shell: shell?.out ?? null, inserts };
 }
 
-/* ── the language choice ──────────────────────────────────────────────── */
+/* ── the store view choice ────────────────────────────────────────────── */
+
+// SARCLA 09.11.2026: "the locales are not all complete in Magento - we select by store view". The tabs are the page's
+// store views (its own first); "+ Store view" lists every store view of the shop by language - for a page of the shop
+// whether the page is there at all - and what picking one does: a copy of the same language (no AI), or a translation.
 
 const STATE_NOTE: Record<LangState, string> = {
-  main: "The page's own language", done: "Made", stale: "Out of date - the main language changed since it was translated", empty: "Not made yet",
+  main: "The page's own store view", done: "Made", stale: "Out of date - the store view it was made from changed since", empty: "Not made yet",
 };
 
-/** The languages made (and the one shown), then "+ Language" for every other language the shop publishes in. */
-export function LangSwitch({ d, lang, onLang, offered }: { d: PageDoc; lang: string; onLang: (l: string) => void; offered: LangOption[] }) {
+/** What a store view is or would be, in a few words ("Copied from de-CH", "The AI translates it"). */
+export function viewNote(d: PageDoc, k: string, presence?: Record<string, Presence>): string {
+  const st = viewState(d, k);
+  const v = d.langs[k];
+  const off = d.source !== "new" && presence?.[k]?.exists === false ? ` · not on the shop in ${k}` : "";
+  if (st === "main") return "The page's own store view";
+  if (st !== "empty" && v) {
+    const how = v.made === "copy" ? `Copied from ${v.source || mainView(d)}` : v.made === "translate" ? `Translated from ${v.source || mainView(d)}` : "Its own page";
+    return `${how}${st === "stale" ? " · out of date" : ""}${off}`;
+  }
+  const add = howToAdd(d, k);
+  return `${add.how === "copy" ? `A copy of ${add.from} - no AI` : `The AI translates it from ${add.from}`}${off}`;
+}
+
+/** The page's store views as tabs, then "+ Store view" for every other store view of the shop, by language. */
+export function LangSwitch({ d, lang, onLang, groups, presence }: { d: PageDoc; lang: string; onLang: (k: string) => void; groups: StoreGroup[]; presence: Record<string, Presence> }) {
   const [menu, setMenu] = useState<HTMLElement | null>(null);
-  const made = langsOf(d);
-  const shown = made.includes(lang) ? made : [...made, lang];
-  const rest = offered.filter((o) => !shown.includes(o.lang));
+  const made = viewsOf(d);
+  const all = made.includes(lang) ? made : [...made, lang];
+  // the toolbar keeps one row at 1480 px: four tabs at most for a new page, two for a page of the shop (its Before /
+  // After / Both take the room) - the others are in the menu, with their check marks
+  const MAX = d.source === "new" ? 4 : 2;
+  const tabs = all.length <= MAX ? all : all.slice(0, MAX).includes(lang) ? all.slice(0, MAX) : [...all.slice(0, MAX - 1), lang];
+  const more = all.length - tabs.length;
+  const total = groups.reduce((n, g) => n + g.stores.length, 0);
   const btnSx = (on: boolean, i: number, st: LangState | null) => ({
-    all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.5, px: 1.1, py: 0.55, fontSize: "0.8rem", fontWeight: 700,
+    all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.5, px: 0.9, py: 0.55, fontSize: "0.76rem", fontWeight: 700, letterSpacing: ".02em", whiteSpace: "nowrap",
     borderLeft: i ? `1px solid ${HAIRLINE}` : "none", color: on ? "#fff" : st === "empty" ? "#9aa5b8" : INK, bgcolor: on ? BLUE : "transparent",
     transition: "background-color .15s, color .15s",
     "&:hover": on ? {} : { bgcolor: "rgba(36,89,209,.07)" }, "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: -2 },
   });
   return (
-    <Box role="radiogroup" aria-label="Language" sx={{ display: "inline-flex", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "rgba(255,255,255,.85)" }}>
-      {shown.map((l, i) => {
-        const on = l === lang;
-        const st = langState(d, l);
-        const store = i === 0 ? d.store : d.langs[l]?.store || offered.find((o) => o.lang === l)?.store || "";
+    <Box role="radiogroup" aria-label="Store view" sx={{ display: "inline-flex", flexShrink: 0, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "rgba(255,255,255,.85)" }}>
+      {tabs.map((k, i) => {
+        const on = k === lang;
+        const st = viewState(d, k);
         return (
-          <Tooltip key={l} title={`${langName(l)} · ${store} · ${STATE_NOTE[st]}`}>
-            <Box component="button" type="button" role="radio" aria-checked={on} onClick={() => onLang(l)} sx={btnSx(on, i, st)}>
-              {l.toUpperCase()}
+          <Tooltip key={k} title={`${langName(k)} · ${k} · ${STATE_NOTE[st]}`}>
+            <Box component="button" type="button" role="radio" aria-checked={on} onClick={() => onLang(k)} sx={btnSx(on, i, st)}>
+              {k.toUpperCase()}
               {st === "main" && <Box component="span" sx={{ width: 6, height: 6, borderRadius: "1px", bgcolor: on ? "#fff" : PINK }} />}
               {st === "done" && <CheckIcon sx={{ fontSize: 14, color: on ? "#fff" : "#1b7a55" }} />}
               {st === "stale" && <WarningAmberIcon sx={{ fontSize: 14, color: on ? "#fff" : AMBER }} />}
@@ -159,34 +184,39 @@ export function LangSwitch({ d, lang, onLang, offered }: { d: PageDoc; lang: str
           </Tooltip>
         );
       })}
-      {rest.length > 0 && (
-        <>
-          <Tooltip title={`${rest.length} more language${rest.length === 1 ? "" : "s"} on the shop`}>
-            <Box component="button" type="button" onClick={(e: React.MouseEvent<HTMLElement>) => setMenu(e.currentTarget)} aria-label="Another language" sx={{ ...btnSx(false, 1, null), color: MUTED, fontWeight: 600 }}>
-              <AddIcon sx={{ fontSize: 15 }} />Language
-            </Box>
-          </Tooltip>
-          <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)} slotProps={{ paper: { sx: { borderRadius: "8px", minWidth: 260 } } }}>
-            {rest.map((o) => (
-              <MenuItem key={o.lang} dense onClick={() => { setMenu(null); onLang(o.lang); }} sx={{ gap: 1.25, py: 0.9 }}>
-                <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: INK, width: 22 }}>{o.lang.toUpperCase()}</Typography>
-                <Box sx={{ flex: 1 }}>
-                  <Typography sx={{ fontSize: "0.86rem", color: INK, lineHeight: 1.25 }}>{o.name}</Typography>
-                  <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{o.stores.join(", ")} · not made yet</Typography>
-                </Box>
+      <Tooltip title={`${made.length} of ${total} store views made - every store view of the shop, by language`}>
+        <Box component="button" type="button" onClick={(e: React.MouseEvent<HTMLElement>) => setMenu(e.currentTarget)} aria-label="Another store view" sx={{ ...btnSx(false, 1, null), color: MUTED, fontWeight: 600 }}>
+          <AddIcon sx={{ fontSize: 15 }} />Store view{more ? ` · ${more} more` : ""}
+        </Box>
+      </Tooltip>
+      <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)} slotProps={{ paper: { sx: { borderRadius: "8px", minWidth: 330, maxHeight: 520 } } }}>
+        {groups.flatMap((g) => [
+          <ListSubheader key={`h-${g.lang}`} sx={{ lineHeight: "30px", fontSize: "0.7rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED, bgcolor: "#fff" }}>{g.name}</ListSubheader>,
+          ...g.stores.map((k) => {
+            const st = viewState(d, k);
+            const isMadeHere = made.includes(k);
+            const off = d.source !== "new" && presence[k]?.exists === false;
+            return (
+              <MenuItem key={k} dense selected={k === lang} onClick={() => { setMenu(null); onLang(k); }} sx={{ gap: 1.25, py: 0.75 }}>
+                <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: off && !isMadeHere ? "#9aa5b8" : INK, width: 52, letterSpacing: ".02em" }}>{k.toUpperCase()}</Typography>
+                <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.76rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{viewNote(d, k, presence)}</Typography>
+                {st === "main" && <Box component="span" sx={{ width: 7, height: 7, borderRadius: "1px", bgcolor: PINK }} />}
+                {st === "done" && <CheckIcon sx={{ fontSize: 15, color: "#1b7a55" }} />}
+                {st === "stale" && <WarningAmberIcon sx={{ fontSize: 15, color: AMBER }} />}
               </MenuItem>
-            ))}
-          </Menu>
-        </>
-      )}
+            );
+          }),
+        ])}
+      </Menu>
     </Box>
   );
 }
-
 /* ── the toolbar over the selected element ────────────────────────────── */
 
 /** A picture selected in the page: the slot's actions over it (the flow standard: Make another · Upload · Gallery · Remove). */
-export type PicActs = { has: boolean; canMake: boolean; onMake: () => void; onUpload: () => void; onGallery: () => void; onRemove: () => void };
+export type PicActs = { has: boolean; canMake: boolean; onMake: () => void; onUpload: () => void; onGallery: () => void; onRemove: () => void;
+  /** "Fine-tune with AI": the same picture with one change, asked in the assistant (Content v5) */
+  onRefine?: () => void };
 
 function SelBar({ label, canWords, onWords, onAi, onClose, pic }: { label: string; canWords: boolean; onWords: () => void; onAi: () => void; onClose: () => void; pic?: PicActs | null }) {
   const b = { ...btn, color: "#fff", minWidth: 0, px: 1, py: 0.25, fontSize: "0.76rem", borderRadius: "5px", "&:hover": { bgcolor: "rgba(255,255,255,.12)" } };
@@ -197,7 +227,8 @@ function SelBar({ label, canWords, onWords, onAi, onClose, pic }: { label: strin
       {canWords && <Button size="small" onClick={onWords} startIcon={<EditOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>Edit words</Button>}
       {pic ? (
         <>
-          {pic.canMake && <Button size="small" onClick={pic.onMake} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>{pic.has ? "Make another" : "Make it"}</Button>}
+          {pic.onRefine && <Button size="small" onClick={pic.onRefine} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>Fine-tune with AI</Button>}
+          {pic.canMake && <Button size="small" onClick={pic.onMake} startIcon={pic.onRefine ? undefined : <AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>{pic.has ? "Make another" : "Make it"}</Button>}
           <Button size="small" onClick={pic.onUpload} sx={b}>Upload</Button>
           <Button size="small" onClick={pic.onGallery} sx={b}>Gallery</Button>
           {pic.has && <Button size="small" onClick={pic.onRemove} sx={b}>Remove</Button>}
@@ -210,8 +241,10 @@ function SelBar({ label, canWords, onWords, onAi, onClose, pic }: { label: strin
 
 /* ── the stage ────────────────────────────────────────────────────────── */
 
-export function Stage({ api, doc, d, lang, onLang, offered, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, onMap, seek, selLabel, picActs, onAct }: {
-  api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void; offered: LangOption[]; view: View; onView: (v: View) => void;
+export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, onMap, seek, selLabel, picActs, onAct, adds }: {
+  api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void; view: View; onView: (v: View) => void;
+  /** every store view of the shop, by language; for a page of the shop, whether it is there */
+  groups: StoreGroup[]; presence: Record<string, Presence>;
   preview: ReturnType<typeof usePagePreview>; selected: string | null; picked: Picked | null;
   onPick: (p: Picked | null) => void; onEdit: (p: Picked, v: { text: string; inner: string; outer: string }) => void;
   editNonce: number;
@@ -219,7 +252,7 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
   reveal: number;
   onEditWords: () => void; onAskAi: () => void; inserts: InsertOut[] | null; shell: PreviewOut | null;
   /** what the AI is writing now in a new page (blocks, fields) and the pictures being made - they shimmer */
-  writing?: { blocks: string[]; fields: string[]; pictures: string[] };
+  writing?: { blocks: string[]; fields: string[]; pictures: string[]; tuning?: string[] };
   /** a page of the shop being changed by the AI: since when */
   working?: number | null;
   /** a page of the shop: where the preview found each change (the outline's parts), and a part to find and select */
@@ -230,6 +263,8 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
   /** a picture selected: its actions over it; a slot's own buttons in the page ("Make it", "Upload") */
   picActs?: PicActs | null;
   onAct?: (path: string, act: string) => void;
+  /** a new page someone may change: the "+" between its blocks ("Add a block here") and in a block with items (Content v5) */
+  adds?: { onAdd: (at: number, pos: { top: number; left: number }) => void; onAddItem: (list: string) => void };
   onFix: (left: Leftover[]) => void;
   /** what shows in place of the page (the page list, a language still to make) */
   empty?: React.ReactNode;
@@ -253,18 +288,17 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
   // a new page, drawn here from its fields as they are typed
   const patch = useMemo(() => {
     if (!isNew) return undefined;
-    const r = renderNewPage(d.fields, { marks: true, busy: writing, inserts: (inserts ?? []).filter((x) => x.ok).map((x) => ({ id: x.id, where: x.where, html: x.html })) });
-    return `<style>${r.css}\n${BUSY_CSS}</style>${r.html}`;
+    const r = renderNewPage(d.fields, { marks: true, adds: !!adds, busy: writing, inserts: (inserts ?? []).filter((x) => x.ok).map((x) => ({ id: x.id, where: x.where, html: x.html })) });
+    return `<style>${r.css}\n${BUSY_CSS}\n${ADD_CSS}</style>${r.html}`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNew, d.fields, inserts, JSON.stringify(writing ?? null)]);
+  }, [isNew, d.fields, inserts, JSON.stringify(writing ?? null), !!adds]);
 
   const selectOpts = {
     mode: (isNew ? "field" : "element") as "field" | "element",
-    selected, onPick, onEdit, editNonce, reveal, onMap, seek, onAct,
+    selected, onPick, onEdit, editNonce, reveal, onMap, seek, onAct, onAdd: adds?.onAdd, onAddItem: adds?.onAddItem,
   };
-  // a whole part opened on the left says its name ("Benefits"), a field its own ("Benefit 2 · title")
-  const wholeBlock = selected?.startsWith("b:") && !selected.slice(2).includes(".") ? partOfPath(selected.slice(2)) : null;
-  const label = !selected ? "" : selLabel ? selLabel : wholeBlock ? PART_NAME[wholeBlock] : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())
+  // a whole block says its number and name ("4 · Proof tiles" - the studio's selLabel), a field its own ("Tile 2 · title")
+  const label = !selected ? "" : selLabel ? selLabel : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())
     : selected.startsWith("i:") ? "Banner" : picked ? `<${picked.tag}>${picked.text ? ` ${picked.text.slice(0, 28)}` : ""}` : "";
   const canWords = !!selected && (selected.startsWith("f:") ? !/picture$|\.button$|^f:links\./.test(selected) || selected.endsWith(".label") : !!picked?.editable);
   const toolbar = selected ? <SelBar label={label} canWords={canWords} onWords={onEditWords} onAi={onAskAi} onClose={() => onPick(null)} pic={picActs} /> : undefined;
@@ -300,7 +334,7 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
             <IconButton size="small" onClick={fold.onBuild} aria-label="Fold the build column" sx={{ color: fold.build ? BLUE : MUTED }}><ViewSidebarOutlinedIcon sx={{ fontSize: 19, transform: "scaleX(-1)" }} /></IconButton>
           </Tooltip>
         )}
-        <LangSwitch d={doc} lang={lang} onLang={onLang} offered={offered} />
+        <LangSwitch d={doc} lang={lang} onLang={onLang} groups={groups} presence={presence} />
         <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, flexWrap: "nowrap", minWidth: 0 }}>
         {views.length > 0 && !empty && <Choice value={view} onChange={onView} options={views} />}
         {!empty && <Choice value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "mobile", label: "Phone" }]} />}
@@ -346,7 +380,7 @@ export function Stage({ api, doc, d, lang, onLang, offered, view, onView, previe
               </Box>
             )}
             <Typography sx={{ fontSize: "0.74rem", color: MUTED, textAlign: "center", mb: 1.25 }}>
-              {langName(lang)} · {isNew ? `a new page in ${d.store}` : d.store} · click an element to select it, double-click to edit its words
+              {d.store} · {langName(lang)}{isNew ? " · a new page" : ""} · click an element to select it, double-click to edit its words
             </Typography>
             {isNew ? (
               !shell ? <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1.25, color: MUTED, py: 10 }}><CircularProgress size={16} /> Opening the store&apos;s page…</Box>
@@ -409,21 +443,52 @@ section[data-apx-busy]::before{content:"Writing…";position:absolute;top:16px;r
 .apx-np-bar::after{content:"";position:absolute;top:0;bottom:0;width:35%;background:#c22c6e;border-radius:2px;animation:apx-bar 1.3s ease-in-out infinite}
 @keyframes apx-bar{from{left:-35%}to{left:100%}}`;
 
-/** What the middle shows for a language whose page is not made yet - and, while it is translated, the page coming. */
-export function LangEmpty({ d, lang, main, store, busy, since, canAi, onTranslate, onFind, onPick, finding }: {
+/** What the middle shows for a store view whose page is not made yet - and, while it is translated, the page coming.
+ * A store view of the page's own language is made by a copy (no AI); for a page of the shop, its page there is picked. */
+export function LangEmpty({ d, lang, main, store, busy, since, canAi, onTranslate, onFind, onPick, finding, onCopy, notOnShop }: {
   d: PageDoc; lang: string; main: string; store: string; busy: boolean; since?: number | null; canAi: boolean; onTranslate: () => void; onFind?: () => void; onPick?: React.ReactNode; finding?: boolean;
+  /** a store view of a language the page has: made as a copy of `copyFrom`, no AI */
+  onCopy?: { from: string; run: () => void } | null;
+  /** the page index says the page is not on the shop in this store view */
+  notOnShop?: boolean;
 }) {
   const isNew = d.source === "new";
+  if (onCopy && !busy) {
+    return (
+      <Box sx={{ maxWidth: 640, mx: "auto", textAlign: "center", py: 8, px: 2 }}>
+        <Typography sx={{ fontSize: "1.25rem", fontWeight: 750, color: INK, mb: 0.75 }}>{notOnShop ? `This page is not on the shop in ${store}` : `The ${store} page is not made yet`}</Typography>
+        <Typography sx={{ fontSize: "0.9rem", color: MUTED, mb: 2.5 }}>
+          {isNew
+            ? `It starts as a copy of ${onCopy.from} - the same words and pictures, no AI - and is its own page in ${store} from then on: change what ${store} needs.`
+            : notOnShop
+              ? `The shop's index has no such page in ${store} - Magento's store views are not all complete. Pick the ${store} page if it has another address; its changes then start as a copy of ${onCopy.from}.`
+              : `The changes made in ${onCopy.from} are copied onto the ${store} page - no AI - and are its own from then on.`}
+        </Typography>
+        <Box sx={{ display: "flex", gap: 1, justifyContent: "center", flexWrap: "wrap" }}>
+          {!(notOnShop && !isNew) && (
+            <Button variant="contained" disableElevation onClick={onCopy.run}
+              sx={{ ...btn, bgcolor: PINK, borderRadius: "8px", height: 44, px: 2.5, "&:hover": { bgcolor: "#a3245c" } }}>
+              {`Copy ${onCopy.from} into ${store}`}
+            </Button>
+          )}
+          {onFind && <Button variant="outlined" disabled={finding} onClick={onFind} sx={{ ...btn, borderRadius: "8px", height: 44, borderColor: HAIRLINE, color: INK }}>{finding ? "Looking…" : `Pick the ${store} page`}</Button>}
+        </Box>
+        {onPick}
+      </Box>
+    );
+  }
   const [, setTick] = useState(0);
   useEffect(() => { if (!busy) return; const t = setInterval(() => setTick((x) => x + 1), 1000); return () => clearInterval(t); }, [busy]);
   const secs = since ? Math.max(0, Math.round((Date.now() - since) / 1000)) : 0;
   return (
     <Box sx={{ maxWidth: 640, mx: "auto", textAlign: "center", py: 8, px: 2 }}>
-      <Typography sx={{ fontSize: "1.25rem", fontWeight: 750, color: INK, mb: 0.75 }}>{busy ? `Translating the page into ${langName(lang)}` : `The ${langName(lang)} page is not made yet`}</Typography>
+      <Typography sx={{ fontSize: "1.25rem", fontWeight: 750, color: INK, mb: 0.75 }}>{busy ? `Translating the page into ${langName(lang)} (${store})` : notOnShop ? `This page is not on the shop in ${store}` : `The ${store} page is not made yet`}</Typography>
       <Typography sx={{ fontSize: "0.9rem", color: MUTED, mb: 2.5 }}>
         {isNew
-          ? `It will be its own page in ${store}, with its own words and address. Translate the ${langName(main)} page into it - the structure and pictures stay, every word is translated - then change what you like.`
-          : `The shop's ${langName(lang)} page is its own page, with its own address (${store}). The changes made in ${langName(main)} are translated onto it - the same structure, the words in ${langName(lang)}.`}
+          ? `It will be its own page in ${store}, with its own words and address. Translate the ${main} page into ${langName(lang)} - the structure and pictures stay, every word is translated - then change what you like.`
+          : notOnShop
+            ? `The shop's index has no such page in ${store} - Magento's store views are not all complete. Pick the ${store} page if it has another address, then translate the changes made in ${main} onto it.`
+            : `The shop's page in ${store} is its own page, with its own address. The changes made in ${main} are translated onto it - the same structure, the words in ${langName(lang)}.`}
       </Typography>
       {busy ? (
         <Box sx={{ textAlign: "left", maxWidth: 520, mx: "auto" }}>
@@ -438,9 +503,9 @@ export function LangEmpty({ d, lang, main, store, busy, since, canAi, onTranslat
         <Box sx={{ display: "flex", gap: 1, justifyContent: "center", flexWrap: "wrap" }}>
           <Button variant="contained" disableElevation disabled={!canAi} onClick={onTranslate} startIcon={<AutoAwesomeOutlinedIcon />}
             sx={{ ...btn, bgcolor: PINK, borderRadius: "8px", height: 44, px: 2.5, "&:hover": { bgcolor: "#a3245c" } }}>
-            {`Translate the whole page into ${langName(lang)}`}
+            {`Translate the whole page into ${store}`}
           </Button>
-          {onFind && <Button variant="outlined" disabled={finding} onClick={onFind} sx={{ ...btn, borderRadius: "8px", height: 44, borderColor: HAIRLINE, color: INK }}>{finding ? "Looking…" : `Find the ${langName(lang)} page`}</Button>}
+          {onFind && <Button variant="outlined" disabled={finding} onClick={onFind} sx={{ ...btn, borderRadius: "8px", height: 44, borderColor: HAIRLINE, color: INK }}>{finding ? "Looking…" : notOnShop ? `Pick the ${store} page` : `Find the ${store} page`}</Button>}
         </Box>
       )}
       {onPick}

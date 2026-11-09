@@ -193,11 +193,15 @@ export function citedSites(runs: AeoRun[], from: string, to: string, model?: str
   return { sites, read };
 }
 
-/** The Content Studio type a recommendation is best made as. */
+/**
+ * The Content Studio type a recommendation is best made as. A page already on the shop - one to update, or a product
+ * page (the shop has them all) - is the Page builder, "page-refresh" (SARCLA 09.11.2026: "Page refresh becomes only Page
+ * builder"); a new page is an SEO landing page; the rest an article.
+ */
 export function contentTypeFor(r: AeoRecommendation): string | null {
   if (r.action === "UPDATE_CONTENT") return "page-refresh";
   if (r.action !== "CREATE_CONTENT") return null;
-  if (/PRODUCT/i.test(r.contentType ?? "")) return "product-page";
+  if (/PRODUCT/i.test(r.contentType ?? "")) return "page-refresh";
   if (/LANDING|COMPARISON|COMMERCIAL/i.test(r.contentType ?? "")) return "landing-page";
   return "blog-article";
 }

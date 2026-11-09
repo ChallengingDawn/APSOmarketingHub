@@ -21,6 +21,8 @@ export type Work = {
   project: { id: number; title: string; brief: string | null; createdBy: string | null; contentType: string | null; dueDate: string | null };
   comments: CommentRow[]; pieces: Piece[]; events: EventRow[]; brief: Brief; source: string | null; stage: Stage;
   members: Member[]; place: Place | null; people: PersonOpt[];
+  /** who reviews a new to-do unless someone else is picked (SARCLA 09.11.2026: "the reviewer is Claudio") */
+  defaultReviewer?: string | null;
 };
 
 export type TodoTicket = { id: string; subject: string; stageLabel: string; open: boolean; url: string };
