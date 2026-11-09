@@ -2,23 +2,19 @@
 
 // Website > Journeys - the pieces its pages share: a kind of page as a coloured square and its name (the same colour on
 // every page, src/lib/journeys/model.ts KIND_COLOR), the flow through the shop drawn as ribbons whose width is the
-// visits, one page's two sides, and a funnel of steps with the biggest drop said in red. Drawn in SVG by hand: the
-// layout numbers come from the model (tested), the drawing is here.
+// visits, and a funnel of steps with the biggest drop said in red (the signed-in customers' one). Drawn in SVG by hand:
+// the layout numbers come from the model (tested), the drawing is here. The choices the pages share: ./controls.tsx.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import { full } from "@/app/charts/format";
-import { flowHref, useInConvert } from "@/app/website/ai-personalization/base";
 import { FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TRACK } from "@/app/uc/report/ui";
 import {
   KIND_COLOR, KIND_NAME, KIND_ON, layoutFlow, ribbonPath,
-  type Drop, type FlowGraph, type FlowKind, type FlowSide, type FunnelStep, type JKind, type PageFlow,
+  type Drop, type FlowGraph, type FlowKind, type FunnelStep, type JKind,
 } from "@/lib/journeys/model";
 
-export const pageFlowHref = (path: string) => `/website/journeys/page?path=${encodeURIComponent(path)}`;
-export const PROBLEMS_HREF = "/website/ai-personalization/problems";
 
 /** A share as people read it: "34%", "4.2%", "<0.1%". */
 export const pct = (r: number | null | undefined) => {
@@ -28,7 +24,6 @@ export const pct = (r: number | null | undefined) => {
 };
 const ORDINAL = ["Way in", "2nd page", "3rd page", "4th page", "5th page", "6th page", "7th page"];
 
-const SIDE_COLOR: Record<FlowSide["kind"], string> = { ...KIND_COLOR, site: "#7d8aa3", none: "#b5bdca" };
 
 /** A kind of page: its colour as a small square, and its name. */
 export function KindTag({ kind, label, strong }: { kind: FlowKind; label?: string; strong?: boolean }) {
@@ -206,142 +201,6 @@ export function JourneyFlowChart({ flow, selected, onPick }: { flow: FlowGraph; 
         )}
         <TipBox tip={tip} width={width} />
       </Box>
-    </Box>
-  );
-}
-
-/* ── one page's two sides ─────────────────────────────────────────────── */
-
-const SIDE_W = 230;
-
-function short(s: string, n: number) {
-  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
-}
-
-/**
- * One page in the middle, where its visitors came from on the left, where they went next on the right (and how many
- * left). A shop page on either side opens its own flow.
- */
-export function PageFlowChart({ flow, onOpen }: { flow: PageFlow; onOpen: (path: string) => void }) {
-  const [box, width] = useWidth<HTMLDivElement>();
-  const [tip, setTip] = useState<Tip | null>(null);
-  const [hover, setHover] = useState<string | null>(null);
-
-  const L = useMemo(() => {
-    if (width <= 0) return null;
-    const right: FlowSide[] = [...flow.to, ...(flow.left > 0 ? [{ key: "left", label: "Left the shop", kind: "left" as const, path: null, views: flow.left }] : [])];
-    const inSum = flow.from.reduce((a, x) => a + x.views, 0);
-    const outSum = right.reduce((a, x) => a + x.views, 0);
-    const centre = Math.max(inSum, outSum, 1);
-    const CORE = 280;
-    const k = CORE / centre;
-    const slot = (v: number) => Math.max(v * k, 3);
-    const place = (items: FlowSide[]) => {
-      let y = 0;
-      return items.map((it) => {
-        const h = slot(it.views);
-        const at = y;
-        y += Math.max(h, 16) + 10;
-        return { ...it, y: at, h, room: Math.max(h, 16) };
-      }).map((n, _, all) => ({ ...n, total: all.length ? all[all.length - 1].y + all[all.length - 1].room : 0 }));
-    };
-    const lp = place(flow.from), rp = place(right);
-    const sideH = Math.max(lp[0]?.total ?? 0, rp[0]?.total ?? 0);
-    const H = Math.max(CORE, sideH) + HEAD + 12;
-    const off = (t: number) => HEAD + (H - HEAD - 12 - t) / 2;
-    const lo = off(lp[0]?.total ?? 0), ro = off(rp[0]?.total ?? 0);
-    const cx = width / 2 - NODE_W / 2;
-    const ch = centre * k, cy = HEAD + (H - HEAD - 12 - ch) / 2;
-    const xl = SIDE_W, xr = width - SIDE_W - NODE_W;
-    let inAt = cy, outAt = cy;
-    const left = lp.map((n) => { const s = { ...n, y: n.y + lo + (n.room - n.h) / 2, x: xl, ty: inAt, w: n.views * k }; inAt += n.views * k; return s; });
-    const rightN = rp.map((n) => { const s = { ...n, y: n.y + ro + (n.room - n.h) / 2, x: xr, sy: outAt, w: n.views * k }; outAt += n.views * k; return s; });
-    return { left, right: rightN, cx, cy, ch, H, centre };
-  }, [flow, width]);
-
-  const box2 = useRef<HTMLDivElement | null>(null);
-  const at = (e: React.MouseEvent) => {
-    const r = box2.current?.getBoundingClientRect();
-    return r ? { x: e.clientX - r.left, y: e.clientY - r.top } : { x: 0, y: 0 };
-  };
-  const show = (side: "in" | "out", it: FlowSide, e: React.MouseEvent) => {
-    setHover(`${side}:${it.key}`);
-    setTip({
-      ...at(e), head: side === "in" ? `From ${it.label}` : it.kind === "left" ? "Left the shop after this page" : `Next: ${it.label}`,
-      value: `${full(it.views)} views`, note: `${pct(it.views / (L?.centre || 1))} of this page's ${side === "in" ? "visits in" : "visits on"}`,
-      hint: it.path ? "Click to see that page's flow" : undefined,
-    });
-  };
-  const lit = (id: string) => !hover || hover === id;
-
-  return (
-    <Box ref={box} sx={{ width: "100%", minWidth: 0 }}>
-      <Box ref={box2} onMouseLeave={() => { setHover(null); setTip(null); }} sx={{ position: "relative", width: "100%", height: L?.H ?? 320 }}>
-        {L && (
-          <svg width={width} height={L.H} role="img" aria-label={`Where the visitors of ${flow.path} came from and where they went next`} style={{ display: "block" }}>
-            <text x={SIDE_W + NODE_W} y={14} textAnchor="end" style={{ fontSize: 11, fontWeight: 700, fill: FAINT, letterSpacing: "0.05em", textTransform: "uppercase" }}>Came from</text>
-            <text x={width / 2} y={14} textAnchor="middle" style={{ fontSize: 11, fontWeight: 700, fill: FAINT, letterSpacing: "0.05em", textTransform: "uppercase" }}>This page</text>
-            <text x={width - SIDE_W - NODE_W} y={14} textAnchor="start" style={{ fontSize: 11, fontWeight: 700, fill: FAINT, letterSpacing: "0.05em", textTransform: "uppercase" }}>Went next</text>
-            {L.left.map((n) => (
-              <path key={`l${n.key}`} d={ribbonPath(n.x + NODE_W, n.y + (n.h - n.w) / 2, L.cx, n.ty, n.w)} fill={SIDE_COLOR[n.kind]}
-                fillOpacity={hover ? (lit(`in:${n.key}`) ? 0.6 : 0.08) : 0.32} onMouseEnter={(e) => show("in", n, e)} onMouseMove={(e) => show("in", n, e)} />
-            ))}
-            {L.right.map((n) => (
-              <path key={`r${n.key}`} d={ribbonPath(L.cx + NODE_W, n.sy, n.x, n.y + (n.h - n.w) / 2, n.w)} fill={SIDE_COLOR[n.kind]}
-                fillOpacity={hover ? (lit(`out:${n.key}`) ? 0.6 : 0.08) : n.kind === "left" ? 0.28 : 0.32} onMouseEnter={(e) => show("out", n, e)} onMouseMove={(e) => show("out", n, e)} />
-            ))}
-            <rect x={L.cx} y={L.cy} width={NODE_W} height={Math.max(2, L.ch)} rx={3} fill={KIND_COLOR[flow.kind]} />
-            {[...L.left.map((n) => ({ n, side: "in" as const })), ...L.right.map((n) => ({ n, side: "out" as const }))].map(({ n, side }) => {
-              const open = n.path;
-              const id = `${side}:${n.key}`;
-              const tx = side === "in" ? n.x - 8 : n.x + NODE_W + 8;
-              return (
-                <g key={id} role={open ? "link" : undefined} tabIndex={open ? 0 : undefined} aria-label={`${n.label}: ${full(n.views)} views`}
-                  style={{ cursor: open ? "pointer" : "default", outline: "none" }}
-                  onMouseEnter={(e) => show(side, n, e)} onMouseMove={(e) => show(side, n, e)}
-                  onClick={() => { if (open) onOpen(open); }}
-                  onKeyDown={(e) => { if (open && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onOpen(open); } }}>
-                  <rect x={n.x - 4} y={n.y - 2} width={NODE_W + 8} height={Math.max(n.h + 4, 14)} fill="transparent" />
-                  <rect x={n.x} y={n.y} width={NODE_W} height={n.h} rx={3} fill={SIDE_COLOR[n.kind]} opacity={lit(id) ? 1 : 0.35} />
-                  <text x={tx} y={n.y + n.h / 2} dy="0.35em" textAnchor={side === "in" ? "end" : "start"} style={{ fontSize: 12, opacity: lit(id) ? 1 : 0.4 }}>
-                    <tspan style={{ fill: n.kind === "left" ? MUTED : INK, fontWeight: 600, textDecoration: open ? "underline" : "none", textDecorationColor: HAIRLINE }}>{short(n.label, 26)}</tspan>
-                    <tspan dx={5} style={{ fill: MUTED, fontVariantNumeric: "tabular-nums" }}>{full(n.views)}</tspan>
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
-        )}
-        <TipBox tip={tip} width={width} />
-      </Box>
-    </Box>
-  );
-}
-
-/** One side of a page's flow as a list: a bar per row, the exact views, a shop page opening its own flow. */
-export function SideList({ items, total, empty }: { items: FlowSide[]; total: number; empty: string }) {
-  const inConvert = useInConvert();
-  if (!items.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{empty}</Typography>;
-  const max = Math.max(1, ...items.map((x) => x.views));
-  return (
-    <Box sx={{ display: "grid", gap: 1 }}>
-      {items.map((it) => (
-        <Box key={it.key} sx={{ display: "grid", gap: 0.4, minWidth: 0 }}>
-          <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, minWidth: 0 }}>
-            <Box aria-hidden sx={{ width: 9, height: 9, borderRadius: "2px", bgcolor: SIDE_COLOR[it.kind], flexShrink: 0, alignSelf: "center" }} />
-            {it.path
-              ? <Box component={Link} href={flowHref(inConvert, it.path)} title={it.path} sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, textDecoration: "none", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", "&:hover": { color: "#2459d1", textDecoration: "underline" } }}>{it.label}</Box>
-              : <Typography component="span" sx={{ fontSize: "0.84rem", fontWeight: 600, color: it.kind === "left" ? MUTED : INK, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.label}</Typography>}
-            <Typography component="span" sx={{ ml: "auto", fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
-              <Box component="span" sx={{ color: INK, fontWeight: 700 }}>{full(it.views)}</Box> · {pct(it.views / Math.max(1, total))}
-            </Typography>
-          </Box>
-          {it.path && <Typography sx={{ fontSize: "0.72rem", color: FAINT, ml: "17px", mt: -0.4, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.path}</Typography>}
-          <Box sx={{ height: 6, borderRadius: 99, bgcolor: TRACK, overflow: "hidden", ml: "17px" }}>
-            <Box sx={{ height: "100%", width: `${(it.views / max) * 100}%`, bgcolor: SIDE_COLOR[it.kind], borderRadius: 99, opacity: 0.85 }} />
-          </Box>
-        </Box>
-      ))}
     </Box>
   );
 }

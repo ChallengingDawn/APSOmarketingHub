@@ -1,230 +1,348 @@
 "use client";
 
-// Website > Journeys > PAGE FLOW: one page of the shop - where its visitors came from (other shop pages, other sites,
-// no page before) and where they went next, or that they left (src/lib/journeys/read.ts buildPageFlow, from Google
-// Analytics' page-to-page steps on that page alone). A shop page on either side opens its own flow; the page itself
-// opens in APSOconvert's Preview and Problems. Without a page: the most viewed ones to start from, or any address.
+// Website > Journeys > PAGE FLOW, reviewed (SARCLA 09.11.2026: "Pages flow navigation is not clear, page flow need to
+// be completely reviewed"). One way to use it: FIND a page (the search over APSOconvert's page index, the period's most
+// viewed and problem pages offered first), see it in the MIDDLE - its picture and its numbers - with where its visitors
+// CAME FROM on the left (the pages before, the other sites, no page before) and where they WENT NEXT on the right (the
+// next pages, the cart, or they left the shop). A click on any page beside it MOVES there; the pages walked stay above as
+// a trail with Back. The page in the middle opens in the Preview, to its optimizations, to its click map, or as a funnel
+// step. From Google Analytics' page-to-page steps on that page alone (src/lib/journeys/read.ts buildPageFlow).
 
 import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Button from "@mui/material/Button";
-import TextField from "@mui/material/TextField";
 import CircularProgress from "@mui/material/CircularProgress";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined";
-import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
-import LoginOutlinedIcon from "@mui/icons-material/LoginOutlined";
-import EastOutlinedIcon from "@mui/icons-material/EastOutlined";
-import LogoutOutlinedIcon from "@mui/icons-material/LogoutOutlined";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import WestOutlinedIcon from "@mui/icons-material/WestOutlined";
-import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
+import EastOutlinedIcon from "@mui/icons-material/EastOutlined";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import AutoFixHighOutlinedIcon from "@mui/icons-material/AutoFixHighOutlined";
+import AdsClickOutlinedIcon from "@mui/icons-material/AdsClickOutlined";
+import FilterAltOutlinedIcon from "@mui/icons-material/FilterAltOutlined";
+import TrendingUpOutlinedIcon from "@mui/icons-material/TrendingUpOutlined";
+import ReportProblemOutlinedIcon from "@mui/icons-material/ReportProblemOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import { ACCENT, CardTitle, FAINT, GlassCard, INK, KpiTile, MUTED, Notice, clip } from "@/app/uc/report/ui";
+import { ACCENT, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, Notice, RED, TRACK } from "@/app/uc/report/ui";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { previewHref } from "@/app/website/ai-personalization/Flow";
-import { JKINDS, KIND_NAME, type TopPage } from "@/lib/journeys/model";
+import { PageShot } from "@/app/website/ai-personalization/PageShot";
+import { journeysBase, useInConvert } from "@/app/website/ai-personalization/base";
+import { JKINDS, KIND_COLOR, journeyKind, pageName, pathKey, type FlowSide, type JKind, type TopPage } from "@/lib/journeys/model";
 import type { JourneysData, PageFlowData } from "@/lib/journeys/read";
-import { KindTag, PROBLEMS_HREF, PageFlowChart, SideList, pct } from "../parts";
-import { flowHref, journeysBase, useInConvert } from "@/app/website/ai-personalization/base";
+import { KindTag, pct } from "../parts";
+import { ChoiceBar, PageSearch, jqs, toPath, useJQuery, type JQuery, type PageHit } from "../controls";
 
-const linkSx = { color: ACCENT, fontWeight: 700, textDecoration: "none", "&:hover": { textDecoration: "underline" } } as const;
+const btnSx = { borderRadius: "6px", textTransform: "none", fontWeight: 700, boxShadow: "none", whiteSpace: "nowrap", justifyContent: "flex-start" } as const;
+const SIDE_COLOR: Record<FlowSide["kind"], string> = { ...KIND_COLOR, site: "#7d8aa3", none: "#b5bdca" };
+const MAX_TRAIL = 8;
 
-/** What someone typed or pasted, as a path of the shop: the whole address or the path, without query or anchor. */
-function toPath(raw: string): string | null {
-  const s = raw.trim();
-  if (!s) return null;
-  try {
-    const p = /^https?:\/\//i.test(s) ? new URL(s).pathname : s.split(/[?#]/)[0];
-    const path = p.startsWith("/") ? p : `/${p}`;
-    return path.length <= 300 && !/\s/.test(path) ? path : null;
-  } catch {
-    return null;
-  }
-}
+type Problem = { path: string; name: string; views: number; missed: number; reasons: string[] };
 
-function PathBox({ initial }: { initial: string }) {
-  const router = useRouter();
-  const inConvert = useInConvert();
-  const [q, setQ] = useState(initial);
-  const path = toPath(q);
-  const go = () => { if (path) router.push(flowHref(inConvert, path)); };
-  return (
-    <Box sx={{ display: "flex", gap: 1, alignItems: "center", minWidth: 0 }}>
-      <TextField size="small" fullWidth value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") go(); }}
-        placeholder="/de-CH/dichtungstechnik.html - or paste the whole address" inputProps={{ "aria-label": "A page of the shop", maxLength: 400 }}
-        sx={{ "& .MuiOutlinedInput-root": { borderRadius: "6px", bgcolor: "rgba(255,255,255,.8)", fontSize: "0.88rem" } }} />
-      <Button variant="contained" size="small" onClick={go} disabled={!path} startIcon={<SearchOutlinedIcon />} sx={{ borderRadius: "6px", textTransform: "none", boxShadow: "none", whiteSpace: "nowrap" }}>Show</Button>
-    </Box>
-  );
-}
-
-/** No page asked yet: the most viewed pages of the period to start from. */
-function Start() {
+/** The period's most viewed pages and APSOconvert's problem pages - what to start from. */
+function useSuggestions(store: string | null, device: string | null) {
   const { window: win } = useReportingWindow();
-  const url = `/api/website/journeys?from=${win.from}&to=${win.to}`;
-  const held = useHeld<JourneysData>(url, [url]);
-  const r = held.result;
-  const inConvert = useInConvert();
+  const jUrl = `/api/website/journeys?from=${win.from}&to=${win.to}${store ? `&store=${store}` : ""}${device ? `&device=${device}` : ""}`;
+  const j = useHeld<JourneysData>(jUrl, [jUrl]);
+  const pUrl = `/api/website/ai-personalization/problems?from=${win.from}&to=${win.to}`;
+  const p = useHeld<{ pages: Problem[] }>(pUrl, [pUrl]);
   const top = useMemo(() => {
-    if (r?.state !== "ok") return [] as TopPage[];
-    return JKINDS.flatMap((k) => r.data.pages[k] ?? []).sort((a, b) => b.views - a.views).slice(0, 16);
-  }, [r]);
+    if (j.result?.state !== "ok") return [] as TopPage[];
+    return JKINDS.flatMap((k) => j.result!.state === "ok" ? j.result!.data.pages[k] ?? [] : []).sort((a, b) => b.views - a.views).slice(0, 10);
+  }, [j.result]);
+  const problems = useMemo(() => {
+    if (p.result?.state !== "ok") return [] as Problem[];
+    return (p.result.data.pages ?? []).filter((x) => x.reasons?.length && (!store || x.path.startsWith(`/${store}/`)))
+      .sort((a, b) => (b.missed ?? 0) - (a.missed ?? 0)).slice(0, 8);
+  }, [p.result, store]);
+  return { j, p, top, problems, stores: j.result?.state === "ok" ? j.result.data.stores : null };
+}
+
+function StartList({ title, icon, rows, onOpen, empty }: { title: string; icon: React.ReactNode; rows: { path: string; name: string; note: string }[]; onOpen: (p: string) => void; empty: string }) {
   return (
-    <GlassCard>
-      <CardTitle icon={<CompareArrowsOutlinedIcon />} tint="purple" title="Which page?" note="Any page of the shop - or start from the most viewed ones of the period" />
-      <Box sx={{ display: "grid", gap: 2 }}>
-        <PathBox initial="" />
-        {r === null && <LoadingPanel label="Reading the most viewed pages…" />}
-        {r?.state === "not-configured" && <NotConnectedPanel source="Google Analytics" missing={r.missing} />}
-        {r?.state === "error" && <Notice tone="bad">Google Analytics did not answer: {r.error}</Notice>}
-        {r?.state === "ok" && (
-          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, columnGap: 3, rowGap: 0.25 }}>
-            {top.map((p) => (
-              <Box key={p.path} component={Link} href={flowHref(inConvert, p.path)} sx={{
-                display: "flex", alignItems: "center", gap: 1.25, py: 0.9, px: 1, borderRadius: "8px", textDecoration: "none", color: INK, minWidth: 0,
-                "&:hover": { bgcolor: "rgba(36,89,209,.06)" },
-              }}>
-                <KindTag kind={p.kind} label="" />
-                <Box sx={{ minWidth: 0, flex: 1 }}>
-                  <Typography sx={{ ...clip(9999), fontSize: "0.86rem", fontWeight: 600 }}>{p.name}</Typography>
-                  <Typography sx={{ ...clip(9999), fontSize: "0.74rem", color: MUTED }}>{p.path}</Typography>
-                </Box>
-                <Typography sx={{ fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{full(p.views)} views</Typography>
-              </Box>
-            ))}
+    <GlassCard sx={{ height: "100%", boxSizing: "border-box" }}>
+      <CardTitle icon={icon} tint={title.startsWith("Problem") ? "pink" : "blue"} title={title} />
+      {rows.length === 0 && <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>{empty}</Typography>}
+      <Box sx={{ display: "grid" }}>
+        {rows.map((x) => (
+          <Box key={x.path} component="button" type="button" onClick={() => onOpen(x.path)} sx={{
+            all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 1.25, py: 1, px: 1, borderRadius: "8px", minWidth: 0,
+            borderTop: `1px solid ${HAIRLINE}`, "&:hover": { bgcolor: "rgba(36,89,209,.06)" }, "&:focus-visible": { outline: `2px solid ${ACCENT}` },
+          }}>
+            <Box aria-hidden sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: KIND_COLOR[journeyKind(x.path)], flexShrink: 0 }} />
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography sx={{ fontSize: "0.88rem", fontWeight: 650, color: INK, overflowWrap: "anywhere" }}>{x.name}</Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: MUTED, overflowWrap: "anywhere" }}>{x.path}</Typography>
+            </Box>
+            <Typography sx={{ fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{x.note}</Typography>
+            <ChevronRightIcon sx={{ fontSize: 18, color: FAINT }} />
           </Box>
-        )}
+        ))}
       </Box>
     </GlassCard>
   );
 }
 
-function Flow({ path }: { path: string }) {
-  const router = useRouter();
+/** One page beside the page in the middle: its colour, name, address, views, a bar - a click moves there. */
+function Neighbour({ it, total, onOpen }: { it: FlowSide; total: number; onOpen: (p: string) => void }) {
+  const can = !!it.path;
+  const share = it.views / Math.max(1, total);
+  const inner = (
+    <>
+      <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", minWidth: 0 }}>
+        <Box aria-hidden sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: SIDE_COLOR[it.kind], flexShrink: 0, mt: "5px" }} />
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography sx={{ fontSize: "0.88rem", fontWeight: 650, color: it.kind === "left" ? MUTED : INK, lineHeight: 1.35, overflowWrap: "anywhere" }}>{it.label}</Typography>
+          {it.path && <Typography sx={{ fontSize: "0.72rem", color: FAINT, overflowWrap: "anywhere" }}>{it.path}</Typography>}
+        </Box>
+        <Box sx={{ textAlign: "right", flexShrink: 0 }}>
+          <Typography sx={{ fontSize: "0.9rem", fontWeight: 750, color: INK, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{pct(share)}</Typography>
+          <Typography sx={{ fontSize: "0.72rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{full(it.views)}</Typography>
+        </Box>
+        {can && <ChevronRightIcon sx={{ fontSize: 18, color: ACCENT, mt: "1px", flexShrink: 0 }} />}
+      </Box>
+      <Box sx={{ height: 6, borderRadius: "3px", bgcolor: TRACK, overflow: "hidden", ml: "18px", mt: 0.6 }}>
+        <Box sx={{ height: "100%", width: `${Math.min(1, share) * 100}%`, bgcolor: SIDE_COLOR[it.kind], opacity: 0.85 }} />
+      </Box>
+    </>
+  );
+  const box = { display: "block", width: "100%", boxSizing: "border-box", px: 1.25, py: 1, borderRadius: "8px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.7)" } as const;
+  return can
+    ? <Box component="button" type="button" onClick={() => onOpen(it.path!)} title={`Move to ${it.label}`} sx={{ all: "unset", cursor: "pointer", ...box, "&:hover": { borderColor: ACCENT, bgcolor: "rgba(36,89,209,.05)" }, "&:focus-visible": { outline: `2px solid ${ACCENT}` } }}>{inner}</Box>
+    : <Box sx={box}>{inner}</Box>;
+}
+
+function Side({ title, icon, groups, total, onOpen, empty }: {
+  title: string; icon: React.ReactNode; groups: { head: string; items: FlowSide[] }[]; total: number; onOpen: (p: string) => void; empty: string;
+}) {
+  const any = groups.some((g) => g.items.length);
+  return (
+    <GlassCard sx={{ height: "100%", boxSizing: "border-box", p: { xs: 2, md: 2.25 } }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+        {icon}
+        <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>{title}</Typography>
+        <Typography sx={{ fontSize: "0.8rem", color: MUTED, ml: "auto", fontVariantNumeric: "tabular-nums" }}>{full(total)} views</Typography>
+      </Box>
+      {!any && <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>{empty}</Typography>}
+      <Box sx={{ display: "grid", gap: 1.75 }}>
+        {groups.filter((g) => g.items.length).map((g) => (
+          <Box key={g.head} sx={{ display: "grid", gap: 0.75 }}>
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: ".05em" }}>{g.head}</Typography>
+            {g.items.map((it) => <Neighbour key={it.key} it={it} total={total} onOpen={onOpen} />)}
+          </Box>
+        ))}
+      </Box>
+    </GlassCard>
+  );
+}
+
+function Stat({ label, value, note, tone }: { label: string; value: string; note?: string; tone?: string }) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: ".04em" }}>{label}</Typography>
+      <Typography sx={{ fontSize: "1.35rem", fontWeight: 750, color: tone ?? INK, letterSpacing: "-0.02em", lineHeight: 1.15, fontVariantNumeric: "tabular-nums" }}>{value}</Typography>
+      {note && <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.35 }}>{note}</Typography>}
+    </Box>
+  );
+}
+
+function Middle({ path, data, jb, q }: { path: string; data: PageFlowData | null; jb: string; q: JQuery }) {
   const inConvert = useInConvert();
+  const flow = data?.flow ?? null;
+  const kind: JKind = flow?.kind ?? journeyKind(path);
+  const steps = flow ? Math.max(0, flow.views - flow.again) : 0;
+  const went = flow ? flow.to.reduce((a, x) => a + x.views, 0) : 0;
+  const funnel = `${jb}/funnel${jqs(q, { step: ["in", `page:${path}`, "cart", "order"] })}`;
+  return (
+    <GlassCard sx={{ height: "100%", boxSizing: "border-box", p: { xs: 2, md: 2.25 }, borderTop: `3px solid ${KIND_COLOR[kind]}` }}>
+      <Box sx={{ display: "grid", gap: 1.5 }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+            <KindTag kind={kind} />
+            {flow?.store && <Typography component="span" sx={{ fontSize: "0.76rem", color: MUTED, fontWeight: 600 }}>{flow.store}</Typography>}
+          </Box>
+          <Typography sx={{ fontSize: "1.2rem", fontWeight: 750, color: INK, lineHeight: 1.25, mt: 0.5, overflowWrap: "anywhere" }}>{flow?.name ?? pageName(path)}</Typography>
+          <Typography sx={{ fontSize: "0.76rem", color: MUTED, overflowWrap: "anywhere" }}>{path}</Typography>
+        </Box>
+        <Box component={Link} href={previewHref("prod", path)} title="Open it in the Preview" sx={{ display: "block", borderRadius: "10px", overflow: "hidden", border: `1px solid ${HAIRLINE}` }}>
+          <PageShot env="prod" path={path} ratio={0.62} label={flow?.name ?? path} />
+        </Box>
+        {data && flow && (
+          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1.5 }}>
+            <Stat label="Views" value={full(data.page?.views ?? flow.views)} note={data.page ? `${full(data.page.sessions)} visits · ${full(data.page.addToCarts)} put in the cart here` : undefined} />
+            <Stat label="Came in here" value={full(data.landing.sessions)}
+              note={data.landing.sessions ? `${pct(data.landing.carts / data.landing.sessions)} to the cart · ${pct(data.landing.orders / data.landing.sessions)} ordered` : "no visit started here"} />
+            <Stat label="Went on in the shop" value={steps ? pct(Math.min(1, went / steps)) : "—"} tone={GREEN} note={`${full(went)} next pages`} />
+            <Stat label="Left the shop here" value={steps ? pct(flow.left / steps) : "—"} tone={RED} note={`${full(flow.left)} views with no next page`} />
+          </Box>
+        )}
+        <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
+          <Button size="small" variant="contained" disableElevation component={Link} href={previewHref("prod", path)} startIcon={<VisibilityOutlinedIcon />} sx={btnSx}>Preview</Button>
+          <Button size="small" variant="outlined" component={Link} href={`${previewHref("prod", path)}&ask=1`} startIcon={<AutoFixHighOutlinedIcon />} sx={btnSx}>Find optimizations</Button>
+          <Button size="small" variant="outlined" component={Link} href={`${previewHref("prod", path)}&clicks=1`} startIcon={<AdsClickOutlinedIcon />} sx={btnSx}>Click map</Button>
+          <Button size="small" variant="outlined" component={Link} href={funnel} startIcon={<FilterAltOutlinedIcon />} sx={btnSx}>As a funnel step</Button>
+        </Box>
+        {!inConvert && <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>Preview, optimizations and the click map open in APSOconvert.</Typography>}
+      </Box>
+    </GlassCard>
+  );
+}
+
+type Suggestions = ReturnType<typeof useSuggestions>;
+
+function Flow({ path, via, sug }: { path: string; via: string[]; sug: Suggestions }) {
+  const router = useRouter();
+  const jb = journeysBase(useInConvert());
+  const { q, set } = useJQuery();
   const { window: win } = useReportingWindow();
   const [tick, setTick] = useState(0);
-  const url = `/api/website/journeys/page?path=${encodeURIComponent(path)}&from=${win.from}&to=${win.to}&n=${tick}`;
+  const url = `/api/website/journeys/page?path=${encodeURIComponent(path)}&from=${win.from}&to=${win.to}${q.device ? `&device=${q.device}` : ""}&n=${tick}`;
   const held = useHeld<PageFlowData>(url, [url]);
   const r = held.result;
+  const go = (to: string, trail: string[]) => router.push(`${jb}/page${jqs(q, { path: to, via: trail.slice(-MAX_TRAIL) })}`, { scroll: false });
+  const move = (to: string) => { if (pathKey(to) !== pathKey(path)) go(to, [...via, path]); };
+  const suggest: PageHit[] = [
+    ...sug.top.map((p) => ({ path: p.path, name: p.name, note: `${full(p.views)} views` })),
+    ...sug.problems.map((p) => ({ path: p.path, name: p.name, note: "problem page" })),
+  ];
 
-  const head = (
-    <PageHeader
-      title="Page flow"
-      subtitle="Where one page's visitors came from, and where they went next"
-      rightSlot={
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <WindowPicker />
-          {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
-          <Tooltip title="Ask again">
-            <IconButton size="small" onClick={() => setTick((n) => n + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
-          </Tooltip>
-        </Box>
-      }
-    />
-  );
-
-  let body: React.ReactNode;
-  if (r === null) body = <LoadingPanel label="Reading this page's steps from Google Analytics…" />;
-  else if (r.state === "not-configured") body = <NotConnectedPanel source="Google Analytics" missing={r.missing} />;
-  else if (r.state === "error") body = <UpstreamPanel source="Google Analytics" error={r.error} status={r.status} onRetry={() => setTick((n) => n + 1)} />;
-  else {
-    const { flow, page, landing } = r.data;
-    const steps = Math.max(0, flow.views - flow.again);
-    const went = flow.to.reduce((a, x) => a + x.views, 0);
-    const views = page?.views ?? flow.views;
-    body = (
-      <>
-        {r.data.truncated && <Notice tone="warn">Google Analytics gave the most viewed steps only - the rarest ones are missing.</Notice>}
-        {flow.views === 0 && <Notice tone="warn">Google Analytics has no view of this page in this period - check the address, or choose a longer period.</Notice>}
-
-        <Grid container spacing={2}>
-          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<VisibilityOutlinedIcon />} tint="blue" label="Views" value={full(views)}
-            note={page ? `${full(page.sessions)} visits · ${full(page.addToCarts)} put in the cart on it` : undefined} /></Grid>
-          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<LoginOutlinedIcon />} tint="purple" label="Came in here" value={full(landing.sessions)}
-            note={landing.sessions ? `${pct(landing.carts / landing.sessions)} of them put something in the cart, ${pct(landing.orders / landing.sessions)} ordered` : "no visit started on this page"} /></Grid>
-          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<EastOutlinedIcon />} tint="green" label="Went on in the shop" value={steps ? pct(Math.min(1, went / steps)) : "—"}
-            note={`${full(went)} next pages after it`} /></Grid>
-          <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<LogoutOutlinedIcon />} tint="amber" label="Left here" value={steps ? pct(flow.left / steps) : "—"}
-            note={`${full(flow.left)} views with no next page`} /></Grid>
-        </Grid>
-
-        {flow.views > 0 && (
-          <GlassCard sx={{ display: { xs: "none", md: "block" } }}>
-            <CardTitle icon={<CompareArrowsOutlinedIcon />} tint="purple" title="Came from, went next"
-              note="Built from page-to-page steps: each view of this page and the page before it, each page after it with this one before. A shop page opens its own flow." />
-            <PageFlowChart flow={flow} onOpen={(p) => router.push(flowHref(inConvert, p))} />
-          </GlassCard>
-        )}
-
-        {flow.views > 0 && (
-          <Grid container spacing={2.5}>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <GlassCard sx={{ height: "100%", boxSizing: "border-box" }}>
-                <CardTitle icon={<WestOutlinedIcon />} tint="blue" title="Came from" note={`The page before, for ${full(steps)} views${flow.again ? ` - ${full(flow.again)} more were this page again (a reload, a filter)` : ""}`} />
-                <SideList items={flow.from} total={steps} empty="No view of this page in this period." />
-              </GlassCard>
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <GlassCard sx={{ height: "100%", boxSizing: "border-box" }}>
-                <CardTitle icon={<EastOutlinedIcon />} tint="green" title="Went next" note="The next page in the shop - or none: they left" />
-                <SideList items={[...flow.to, ...(flow.left > 0 ? [{ key: "left", label: "Left the shop", kind: "left" as const, path: null, views: flow.left }] : [])]}
-                  total={Math.max(steps, went)} empty="No next page recorded." />
-              </GlassCard>
-            </Grid>
-          </Grid>
-        )}
-      </>
-    );
-  }
+  let sides: React.ReactNode = null;
+  if (r === null) sides = <LoadingPanel label="Reading this page's steps from Google Analytics…" />;
+  else if (r.state === "not-configured") sides = <NotConnectedPanel source="Google Analytics" missing={r.missing} />;
+  else if (r.state === "error") sides = <UpstreamPanel source="Google Analytics" error={r.error} status={r.status} onRetry={() => setTick((n) => n + 1)} />;
+  const d = r?.state === "ok" ? r.data : null;
+  const flow = d?.flow ?? null;
+  const steps = flow ? Math.max(0, flow.views - flow.again) : 0;
+  const went = flow ? flow.to.reduce((a, x) => a + x.views, 0) : 0;
 
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-      {head}
-      <GlassCard sx={{ py: { xs: 1.75, md: 2 } }}>
-        <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1.5, rowGap: 1, minWidth: 0 }}>
-          <KindTag kind={r?.state === "ok" ? r.data.flow.kind : "other"} label={r?.state === "ok" ? KIND_NAME[r.data.flow.kind] : "Page"} strong />
-          <Box sx={{ minWidth: 0, flex: "1 1 260px" }}>
-            <Typography sx={{ ...clip(9999), fontSize: "0.98rem", fontWeight: 600, color: INK }}>{r?.state === "ok" ? r.data.flow.name : path}</Typography>
-            <Typography sx={{ ...clip(9999), fontSize: "0.78rem", color: MUTED }} title={path}>{path}</Typography>
+      <PageHeader title="Page flow" subtitle="Where a page's visitors came from and went next - click a page beside it to move there"
+        rightSlot={
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <WindowPicker />
+            {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
+            <Tooltip title="Ask again">
+              <IconButton size="small" onClick={() => setTick((n) => n + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton>
+            </Tooltip>
           </Box>
-          <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", fontSize: "0.84rem" }}>
-            <Box component={Link} href={previewHref("prod", path)} sx={linkSx}>Preview</Box>
-            {inConvert && <Box component={Link} href={`${previewHref("prod", path)}&clicks=1`} sx={linkSx}>Clicks</Box>}
-            <Box component={Link} href={PROBLEMS_HREF} sx={linkSx}>Problem pages</Box>
-            <Box component={Link} href={journeysBase(inConvert)} sx={linkSx}>Main journeys</Box>
-          </Box>
-        </Box>
-        <Box sx={{ mt: 1.5 }}><PathBox key={path} initial={path} /></Box>
+        } />
+
+      <GlassCard sx={{ py: { xs: 1.75, md: 2 }, display: "grid", gap: 1.5 }}>
+        <PageSearch store={q.store} suggest={suggest} onPick={move} placeholder="Another page: a name, a product number, or paste its address" />
+        <ChoiceBar q={q} set={set} stores={sug.stores} />
       </GlassCard>
-      {body}
+
+      {/* the trail: the pages walked, Back */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", rowGap: 0.75, minWidth: 0 }}>
+        <Button size="small" variant="outlined" startIcon={<ArrowBackIcon />} disabled={!via.length}
+          onClick={() => go(via[via.length - 1], via.slice(0, -1))} sx={{ ...btnSx, bgcolor: "rgba(255,255,255,.8)" }}>Back</Button>
+        <Typography component="span" sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".04em", ml: 0.5 }}>Your walk</Typography>
+        {via.map((p, i) => (
+          <Box key={`${i}:${p}`} component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
+            <Box component="button" type="button" onClick={() => go(p, via.slice(0, i))} title={p} sx={{
+              all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.6, px: 0.9, py: 0.35, borderRadius: "4px",
+              border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.75)", fontSize: "0.8rem", fontWeight: 600, color: INK, overflowWrap: "anywhere",
+              "&:hover": { borderColor: ACCENT, color: ACCENT },
+            }}>
+              <Box aria-hidden component="span" sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: KIND_COLOR[journeyKind(p)], flexShrink: 0 }} />{pageName(p)}
+            </Box>
+            <ChevronRightIcon sx={{ fontSize: 16, color: FAINT }} />
+          </Box>
+        ))}
+        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, px: 0.9, py: 0.35, borderRadius: "4px", bgcolor: INK, color: "#fff", fontSize: "0.8rem", fontWeight: 700, overflowWrap: "anywhere" }}>
+          <Box aria-hidden component="span" sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: KIND_COLOR[journeyKind(path)], flexShrink: 0 }} />{flow?.name ?? pageName(path)}
+        </Box>
+      </Box>
+
+      {d?.truncated && <Notice tone="warn">Google Analytics gave the most viewed steps only - the rarest ones are missing.</Notice>}
+      {flow && flow.views === 0 && <Notice tone="warn">Google Analytics has no view of this page in this period{q.device ? " on this device" : ""} - check the address, or choose a longer period.</Notice>}
+
+      <Grid container spacing={2.5}>
+        <Grid size={{ xs: 12, lg: 4 }} order={{ xs: 2, lg: 1 }}>
+          {flow ? (
+            <Side title="Came from" icon={<WestOutlinedIcon sx={{ color: "#2459d1" }} />} total={steps} onOpen={move} empty="No view of this page in this period."
+              groups={[
+                { head: "The page before", items: flow.from.filter((x) => x.key.startsWith("page:")) },
+                { head: "Came in from outside", items: flow.from.filter((x) => !x.key.startsWith("page:")) },
+              ]} />
+          ) : sides}
+        </Grid>
+        <Grid size={{ xs: 12, lg: 4 }} order={{ xs: 1, lg: 2 }}>
+          <Middle path={path} data={d} jb={jb} q={q} />
+        </Grid>
+        <Grid size={{ xs: 12, lg: 4 }} order={{ xs: 3, lg: 3 }}>
+          {flow && (
+            <Side title="Went next" icon={<EastOutlinedIcon sx={{ color: GREEN }} />} total={Math.max(steps, went)} onOpen={move} empty="No next page recorded."
+              groups={[
+                { head: "The next page", items: flow.to },
+                { head: "Or", items: flow.left > 0 ? [{ key: "left", label: "Left the shop", kind: "left" as const, path: null, views: flow.left }] : [] },
+              ]} />
+          )}
+        </Grid>
+      </Grid>
+
       <Typography sx={{ fontSize: "0.76rem", color: FAINT }}>
-        Google Analytics sees the visitors who accepted statistics cookies. &quot;Left&quot; is a view no next page follows: they closed the tab, went to another site, or the next page was not recorded.
+        Visitors who accepted statistics cookies. &quot;Left the shop&quot;: no next page followed - they closed the tab or went to another site.
+      </Typography>
+    </Box>
+  );
+}
+
+/** No page chosen yet: the search, and the pages to start from. */
+function Start({ sug }: { sug: Suggestions }) {
+  const router = useRouter();
+  const jb = journeysBase(useInConvert());
+  const { q, set } = useJQuery();
+  const open = (p: string) => router.push(`${jb}/page${jqs(q, { path: p })}`);
+  const loading = sug.j.result === null;
+  return (
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
+      <PageHeader title="Page flow" subtitle="Pick a page: where its visitors came from, where they went next - then walk on from page to page" rightSlot={<WindowPicker />} />
+      <GlassCard sx={{ display: "grid", gap: 1.5 }}>
+        <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK }}>Which page?</Typography>
+        <PageSearch autoFocus store={q.store} onPick={open}
+          suggest={[...sug.top.map((p) => ({ path: p.path, name: p.name, note: `${full(p.views)} views` })), ...sug.problems.map((p) => ({ path: p.path, name: p.name, note: "problem page" }))]} />
+        <ChoiceBar q={q} set={set} stores={sug.stores} />
+      </GlassCard>
+      {sug.j.result?.state === "not-configured" && <NotConnectedPanel source="Google Analytics" missing={sug.j.result.missing} />}
+      <Grid container spacing={2.5}>
+        <Grid size={{ xs: 12, lg: 6 }}>
+          <StartList title="The most viewed pages" icon={<TrendingUpOutlinedIcon />} onOpen={open}
+            rows={sug.top.map((p) => ({ path: p.path, name: p.name, note: `${full(p.views)} views` }))}
+            empty={loading ? "Reading the most viewed pages…" : sug.j.result?.state === "error" ? `Google Analytics did not answer: ${sug.j.result.error}` : "No page was viewed in this period."} />
+        </Grid>
+        <Grid size={{ xs: 12, lg: 6 }}>
+          <StartList title="Problem pages" icon={<ReportProblemOutlinedIcon />} onOpen={open}
+            rows={sug.problems.map((p) => ({ path: p.path, name: p.name, note: `${full(p.views)} views` }))}
+            empty={sug.p.result === null ? "Reading APSOconvert's problem pages…" : sug.p.result.state === "error" ? `The problem pages did not answer: ${sug.p.result.error}` : `No problem page in this period${q.store ? ` in ${q.store}` : ""}.`} />
+        </Grid>
+      </Grid>
+      <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+        Or start from <Box component={Link} href={`${jb}${jqs(q)}`} sx={{ color: ACCENT, fontWeight: 700, textDecoration: "none" }}>the main journeys</Box>.
       </Typography>
     </Box>
   );
 }
 
 function PageFlowInner() {
-  const sp = useSearchParams();
-  const inConvert = useInConvert();
+  const { sp, q } = useJQuery();
+  // read once for the page, not again at every move
+  const sug = useSuggestions(q.store, q.device);
   const path = toPath(sp.get("path") ?? "");
-  if (path) return <Flow key={path} path={path} />;
-  return (
-    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-      <PageHeader title="Page flow" subtitle="Where one page's visitors came from, and where they went next" rightSlot={<WindowPicker />} />
-      <Start />
-    </Box>
-  );
+  const via = sp.getAll("via").map((v) => toPath(v)).filter((v): v is string => !!v).slice(-MAX_TRAIL);
+  if (path) return <Flow key={path} path={path} via={via} sug={sug} />;
+  return <Start sug={sug} />;
 }
 
 export default function PageFlowPage() {
