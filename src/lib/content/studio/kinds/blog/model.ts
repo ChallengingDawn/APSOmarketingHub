@@ -5,6 +5,7 @@
 // of it: the post (/<store>/blog/<slug>), the blog's home that lists every post (/<store>/blog), and a page per topic
 // (/<store>/blog/tag/<tag>) - each as a CMS page to paste, never written to Magento from here.
 
+import { changesOf, type StudioChange } from "./changes";
 /** A picture in the post: its address (the hub's or the shop's), what it shows, a line under it, and the words it was or
  *  will be made from (the AI proposes them; "Make it" in the studio starts from them). */
 export type BlogPicture = { url: string; alt: string; caption: string; prompt: string };
@@ -39,6 +40,8 @@ export type BlogDoc = {
   /** the store view the post is published in: "de-CH" */
   store: string;
   notes: string;
+  /** "Changes made here": the assistant's changes, kept with the post (Content v4 - never a picture or the text itself) */
+  changes?: StudioChange[];
 };
 
 export const LIMITS = { title: 110, metaTitle: 60, metaDescription: 155, excerpt: 300, tags: 8 };
@@ -163,6 +166,7 @@ export function blogDoc(raw: unknown, defaults: { language?: string | null; auth
     language: lang,
     store: str(d.store, 20) || storeOf(lang),
     notes: str(d.notes, 4000),
+    changes: changesOf(d.changes),
   };
 }
 
