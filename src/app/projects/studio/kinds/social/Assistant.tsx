@@ -21,7 +21,12 @@ import { elementName, headlineIdOf } from "./Map";
 import { isEmptyFrame, isPictureNode, type Scope } from "./useDesignAi";
 import type { StudioCtx } from "./Studio";
 
-const ago = (t: number) => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`; };
+const ago = (iso: string) => {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const s = Math.round((Date.now() - t) / 1000);
+  return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+};
 
 /** What the assistant works on: the one selected element, or nothing (the whole post). */
 export function scopeOf(ctx: StudioCtx): { scope: Scope; node: DesignNode | null } {
@@ -85,20 +90,20 @@ export default function Assistant({ ctx, inputRef }: { ctx: StudioCtx; inputRef:
     <AssistantPanel quick={quick} enabled={enabled} top={top} inputRef={inputRef}
       onAsk={(text) => ai.ask(text, scope)}
       placeholder={scope ? `What should change in the ${scope.name.toLowerCase()}? (Ctrl+Enter)` : "What should change on the post? A carousel about a service, a photo as the background, the story format… (Ctrl+Enter)"}>
-      {ai.history.length > 0 && (
+      {ctx.doc.log.length > 0 && (
         <Box sx={{ mt: 2.5 }}>
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: T.ink3, mb: 0.75 }}>Changes made here</Typography>
-          {ai.history.map((e) => (
+          {ctx.doc.log.map((e) => (
             <Box key={e.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", py: 0.9, borderTop: `1px solid ${T.line}`, opacity: e.undone ? 0.45 : 1 }}>
               <Box sx={{ mt: 0.6, width: 7, height: 7, borderRadius: "2px", bgcolor: e.by === "ai" ? PINK : "#2459d1", flexShrink: 0 }} />
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography sx={{ fontSize: "0.83rem", color: T.ink, fontWeight: 600, textDecoration: e.undone ? "line-through" : "none" }}>{e.label}</Typography>
                 {e.note && <Typography sx={{ fontSize: "0.76rem", color: T.ink3 }}>{e.note}</Typography>}
-                <Typography sx={{ fontSize: "0.7rem", color: T.ink3 }}>{ago(e.at)}{e.undone ? " · undone" : ""}</Typography>
+                <Typography sx={{ fontSize: "0.7rem", color: T.ink3 }}>{ago(e.at)}{e.undone ? " · undone" : !ai.canUndo(e) ? " · to go back: Versions, top right" : ""}</Typography>
               </Box>
-              {!e.undone && ctx.canEdit && (
+              {ai.canUndo(e) && ctx.canEdit && (
                 <Tooltip title="Put the post back as it was before this (and every later change)">
-                  <Button size="small" onClick={() => ai.undo(e)} startIcon={<UndoIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, color: T.ink, minWidth: 0, px: 1 }}>Undo</Button>
+                  <Button size="small" onClick={() => void ai.undo(e)} startIcon={<UndoIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, color: T.ink, minWidth: 0, px: 1 }}>Undo</Button>
                 </Tooltip>
               )}
             </Box>

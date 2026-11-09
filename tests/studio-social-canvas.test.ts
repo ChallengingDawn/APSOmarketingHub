@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { estimateMeasure, hasKeyWords, layoutRich, lineStart, plainText, spans } from "../src/lib/editor/richText";
+import { freeBand, placeLabel } from "../src/lib/content/studio/kinds/social/place";
+import { pictureCache } from "../src/lib/content/shopPictureCache";
+import { PH_INK, PH_MUTE, PLACEHOLDER_WORDS, greyPlaceholders, hasOwnWords, isPlaceholder, realColours } from "../src/lib/content/studio/kinds/social/start";
 import {
   FORMATS, adaptDoc, blankDoc, clonePage, designText, emptyDesign, insertPage, isInlinePicture, movePage, normalizeDesign, pageFrom, pageIn,
   removePage, setPageDoc, sizeOf, withFormat, withoutFormat, type SocialDesign,
@@ -276,4 +279,56 @@ test("key words: what follows a key run with no space is glued to it (09.11.2026
   const inner = layoutRich("*APSO*parts shop", { width: 5000, fontSize: 40, measure: m }).lines[0].words;
   assert.equal(inner[1].t, "parts");
   assert.equal(inner[1].x, inner[0].x + inner[0].w);
+});
+
+test("placing: the selection's label covers no other element, and new frames go in free space (09.11.2026)", () => {
+  const sel = { x: 100, y: 200, w: 400, h: 120 };
+  // free above: the label goes above, left
+  assert.deepEqual(placeLabel(sel, [], null, 170, 1000, 800), { x: 100, y: 168 });
+  // an element right above (an eyebrow): the label goes below
+  const eyebrow = { x: 100, y: 160, w: 300, h: 30 };
+  assert.deepEqual(placeLabel(sel, [eyebrow], null, 170, 1000, 800), { x: 100, y: 326 });
+  // above and below taken: inside the top-right corner
+  const under = { x: 90, y: 325, w: 500, h: 60 };
+  assert.deepEqual(placeLabel(sel, [eyebrow, under], null, 170, 1000, 800), { x: 326, y: 204 });
+  // a background over half the board does not count
+  const board = { x: 0, y: 0, w: 1000, h: 800 };
+  assert.deepEqual(placeLabel(sel, [{ x: 0, y: 0, w: 1000, h: 800 }], board, 170, 1000, 800), { x: 100, y: 168 });
+  // the tallest free stretch between the words
+  const band = freeBand([{ x: 80, y: 80, w: 900, h: 300 }, { x: 80, y: 800, w: 300, h: 100 }], 1080, 1080, 80, 150);
+  assert.deepEqual(band, { y: 380, h: 420 });
+  assert.equal(freeBand([{ x: 80, y: 80, w: 500, h: 450 }, { x: 80, y: 560, w: 500, h: 440 }], 1080, 1080, 80, 150), null);
+});
+
+test("a new post starts clean: placeholders in grey, real colours once written, the start card until own words (09.11.2026)", () => {
+  const head = { id: "h", kind: "text" as const, x: 0, y: 0, width: 900, text: String(PLACEHOLDER_WORDS.headline), fill: "#1D2A33", fontSize: 90 };
+  const body = { id: "b", kind: "text" as const, x: 0, y: 200, width: 900, text: String(PLACEHOLDER_WORDS.body), fill: "#5C6670", fontSize: 32 };
+  const cta = { id: "c", kind: "text" as const, x: 0, y: 900, width: 300, text: String(PLACEHOLDER_WORDS.cta), fill: "#FFFFFF", fontSize: 30 };
+  const grey = greyPlaceholders([head, body, cta]);
+  assert.deepEqual(grey.map((n) => n.fill), [PH_INK, PH_MUTE, "#FFFFFF"]);
+  assert.equal(isPlaceholder(head.text), true);
+  assert.equal(isPlaceholder("Food-grade seals"), false);
+  assert.equal(hasOwnWords([grey]), false);
+  assert.equal(realColours(grey), null, "placeholders keep their grey");
+  const written = grey.map((n) => (n.id === "h" ? { ...n, text: "Food-grade *seals*" } : n));
+  assert.equal(hasOwnWords([written]), true);
+  const real = realColours(written)!;
+  assert.deepEqual(real.map((n) => n.fill), ["#1D2A33", PH_MUTE, "#FFFFFF"]);
+});
+
+test("the shop's pictures are kept once fetched: the oldest go first, none older than its time (09.11.2026)", () => {
+  let t = 1000;
+  const c = pictureCache({ maxItems: 2, maxBytes: 10, ttlMs: 100, now: () => t });
+  c.put("a", new Uint8Array(4), "image/jpeg");
+  c.put("b", new Uint8Array(4), "image/jpeg");
+  assert.ok(c.get("a"), "a is there");
+  c.put("c", new Uint8Array(4), "image/jpeg");
+  // a was used last, so b (the oldest use) went
+  assert.equal(c.get("b"), null);
+  assert.ok(c.get("a") && c.get("c"));
+  assert.equal(c.size, 2);
+  c.put("big", new Uint8Array(11), "image/jpeg");
+  assert.equal(c.get("big"), null, "over the byte cap: not kept");
+  t += 101;
+  assert.equal(c.get("a"), null, "too old: asked again");
 });

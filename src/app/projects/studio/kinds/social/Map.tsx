@@ -30,6 +30,7 @@ import { STATUS_LABEL } from "@/lib/content/pieceRules";
 import { MAX_PAGES, clonePage, insertPage, movePage, pageId, pageIn, pageWords, removePage, sizeOf } from "@/lib/content/studio/kinds/social/design";
 import { templateByKey } from "@/lib/content/studio/kinds/social/templates";
 import { enabled } from "@/lib/content/studio/kinds/social/model";
+import { hasOwnWords, isPlaceholder } from "@/lib/content/studio/kinds/social/start";
 import { dayLabel } from "../../../work/ui";
 import { LastStep, MapRow, PictureSlot, shimmerSx, useClock, type PartState } from "../../standard";
 import { PINK } from "../../parts";
@@ -64,7 +65,7 @@ export function elementName(n: DesignNode, headlineId: string | null): string {
   return n.kind.charAt(0).toUpperCase() + n.kind.slice(1);
 }
 function elementLine(n: DesignNode): string {
-  if (n.kind === "text") return plainText(n.text).replace(/\s+/g, " ").trim() || "No words yet";
+  if (n.kind === "text") return isPlaceholder(n.text) ? "Not written yet - double-click it on the post" : plainText(n.text).replace(/\s+/g, " ").trim();
   if (isLogoNode(n)) return "APSOparts";
   if (n.kind === "image") return "The picture is in";
   if (isEmptyFrame(n)) return "No picture yet - make or upload one";
@@ -126,18 +127,21 @@ export default function PostMap({ ctx, host, onPublish, onGallery }: {
   }, [openId]);
 
   const words = page ? (ctx.live ? pageWords(ctx.live) : pageWords(pageIn(d, page, ctx.fmt))) : [];
-  const fresh = d.pages.length <= 1 && !!FRESH_HEADLINE && words.join(" | ").includes(FRESH_HEADLINE) && !ai.history.length;
+  // the start card stays until the post has words of its own (placeholders are not words); an older post that still
+  // shows the spotlight template's own words counts as new too, until its first change
+  const pagesNodes = d.pages.map((pg, i) => (i === ctx.pageIx && ctx.live ? ctx.live : pageIn(d, pg, ctx.fmt)).nodes);
+  const fresh = !hasOwnWords(pagesNodes) || (d.pages.length <= 1 && !!FRESH_HEADLINE && words.join(" | ").includes(FRESH_HEADLINE) && !ctx.doc.log.length);
 
   const writeAll = (kind: "one" | "carousel") => ai.ask(kind === "carousel"
     ? "Make a carousel of 5 pages from the project's brief: a cover, then one idea per page, the last page points to the shop. Keep the shop's own photos where they fit; no new pictures."
-    : "Write this post's design from the project's brief: the words of this page (the small line above, the headline, the line under it, the button) in our manner. Keep the layout. If the photo does not fit the topic, put a fitting new photo in its frame.",
+    : "Write this post from the project's brief: lay this page out again with the spotlight template (op template), with real words in our manner for its small line, headline, sentence and button - none of the placeholders stay - and a prompt for a fitting photo for its picture.",
   null, kind === "carousel" ? "Wrote the whole post as a carousel" : "Wrote the whole post");
 
   const stateOf = (n: DesignNode): PartState => {
     if (ai.making[n.id]) return "working";
     if (working && (working.ids === "all" ? n.kind === "text" : working.ids.includes(n.id))) return "working";
     if (isEmptyFrame(n)) return "picture";
-    if (n.kind === "text") return plainText(n.text).trim() ? "written" : "empty";
+    if (n.kind === "text") return isPlaceholder(n.text) ? "empty" : "written";
     return "written";
   };
   const patch = (id: string, p: Partial<DesignNode>) => ctx.canvas.current?.commit((all) => all.map((n) => (n.id === id ? { ...n, ...p } : n)));

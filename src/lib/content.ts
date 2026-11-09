@@ -158,6 +158,8 @@ export async function listContent(filter: ContentFilter = {}): Promise<ContentIt
     params.push(filter.status);
     where.push(`status = $${params.length}`);
   }
+  // a studio's automatic versions (kept before an AI change, 09.11.2026) are not content to review
+  where.push(`(label IS NULL OR label NOT LIKE 'Before the AI:%')`);
   const limit = Math.min(Math.max(Math.trunc(filter.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
   params.push(limit);
   const r = await query<ListRow>(

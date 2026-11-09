@@ -15,7 +15,7 @@ import { addEvent, getPiece, projectBrief, projectHead } from "@/lib/content/wor
 import { cleanOps } from "@/lib/content/studio/doc";
 import { studioKindOf } from "@/lib/content/studio/kinds";
 import { KIND_DEFS } from "@/lib/content/studio/registry";
-import { docOrNew, readDoc, saveOps, saveVersion, studioVersions } from "@/lib/content/studio/store";
+import { AUTO_VERSION, docOrNew, pruneAutoVersions, readDoc, saveOps, saveVersion, studioVersions } from "@/lib/content/studio/store";
 import type { StudioCtx } from "@/lib/content/studio/contract";
 import { describeIntegrationError } from "@/lib/integrations/status";
 import { keepAlive } from "@/lib/http/keepAlive";
@@ -96,12 +96,17 @@ export async function POST(req: NextRequest, c: { params: Promise<{ pieceId: str
       if (r.ok) await addEvent(o.piece.projectId, o.piece.id, o.me.username, "version-restored", { piece: o.piece.title, label: v.label });
       return r.ok ? NextResponse.json({ ok: true, rev: r.rev, doc: r.doc }) : fail(r.error);
     }
-    const label = typeof b.label === "string" && b.label.trim() ? b.label.trim().slice(0, 120) : null;
+    const quiet = b.quiet === true;
+    const asked = typeof b.label === "string" && b.label.trim() ? b.label.trim().slice(0, 120) : null;
+    // an automatic version (before an AI change) always carries its mark - the Content Library leaves it out
+    const label = quiet ? (asked?.startsWith(AUTO_VERSION) ? asked : `${AUTO_VERSION} ${asked ?? "a change"}`.slice(0, 120)) : asked;
     const id = await saveVersion({
       projectId: o.piece.projectId, pieceId: o.piece.id, contentType: o.piece.contentType, language: o.piece.language, label,
       title: o.piece.title, text: o.def.toText(stored.doc), doc: stored.doc, channel: o.def.channel, by: o.me.username,
     });
-    await addEvent(o.piece.projectId, o.piece.id, o.me.username, "version", { piece: o.piece.title, label });
+    // a studio's automatic version (before an AI change) stays off the project's feed; a piece keeps its newest 20
+    if (quiet) await pruneAutoVersions(o.piece.id);
+    else await addEvent(o.piece.projectId, o.piece.id, o.me.username, "version", { piece: o.piece.title, label });
     return NextResponse.json({ ok: true, id });
   }
 

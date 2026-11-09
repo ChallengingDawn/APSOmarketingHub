@@ -60,6 +60,13 @@ export const NETWORK_FORMATS: Record<Network, FormatKey[]> = {
 
 /** Where it went out, and who said so (nothing is posted from the hub - "mark as published"). */
 export type Published = { at: string; by: string };
+/**
+ * One line of the studio's "Changes made here" (09.11.2026: it survives a reload). Small on purpose - the words, when,
+ * who, and the version kept just before an AI change (its Undo after a reload); never a picture, never the design.
+ */
+export type LogEntry = { id: number; label: string; note: string; at: string; by: "ai" | "you"; versionId: number | null; undone: boolean };
+export const MAX_LOG = 20;
+
 export type SocialDoc = {
   v: 2;
   networks: Record<Network, NetworkPost>;
@@ -75,6 +82,8 @@ export type SocialDoc = {
   /** Per network, the formats it is posted in. */
   formats: Record<Network, FormatKey[]>;
   published: Published | null;
+  /** "Changes made here", newest first (at most MAX_LOG). */
+  log: LogEntry[];
 };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -126,6 +135,7 @@ export function emptySocial(o: { contentType?: string | null; dueDate?: string |
     design: emptyDesign(),
     formats: { linkedin: ["square"], instagram: ["square"], facebook: ["square"] },
     published: null,
+    log: [],
   };
 }
 
@@ -160,6 +170,15 @@ export function normalizeSocial(raw: unknown): SocialDoc {
     schedule: { date: /^\d{4}-\d{2}-\d{2}$/.test(str(s.date)) ? str(s.date) : "", time: /^\d{2}:\d{2}$/.test(str(s.time)) ? str(s.time) : "" },
     notes: str(d.notes, 20000),
     ...designParts(d),
+    log: Array.isArray(d.log) ? d.log.filter(isObj).slice(0, MAX_LOG).map((e) => ({
+      id: Number.isFinite(Number(e.id)) ? Number(e.id) : 0,
+      label: str(e.label, 90),
+      note: str(e.note, 240),
+      at: str(e.at, 40),
+      by: e.by === "you" ? "you" as const : "ai" as const,
+      versionId: Number.isInteger(e.versionId) ? (e.versionId as number) : null,
+      undone: e.undone === true,
+    })).filter((e) => e.id && e.label) : [],
   };
 }
 

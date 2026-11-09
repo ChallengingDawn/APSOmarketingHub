@@ -18,6 +18,7 @@ import { PINK } from "../../parts";
 import { EmptyActions, PictureActions, shimmerSx, useClock } from "../../standard";
 import { elementName, headlineIdOf } from "./Map";
 import { isEmptyFrame, isPictureNode } from "./useDesignAi";
+import { placeLabel } from "@/lib/content/studio/kinds/social/place";
 import type { StudioCtx } from "./Studio";
 
 type R = { x: number; y: number; w: number; h: number };
@@ -45,10 +46,14 @@ export default function Overlay({ ctx, onAskAi, onGallery }: { ctx: StudioCtx; o
   const frames = nodes.filter((n) => isEmptyFrame(n) && !n.hidden);
   const workingIds = working ? (working.ids === "all" ? nodes.filter((n) => n.kind === "text" || isEmptyFrame(n)).map((n) => n.id) : working.ids) : [];
   const makingIds = Object.keys(ai.making).filter((id) => nodes.some((n) => n.id === id));
-  const ids = [...new Set([...(sel ? [sel.id] : []), ...frames.map((f) => f.id), ...workingIds, ...makingIds])];
+  // with a selection: every other element too, so its label can sit where it covers none of them
+  const others = sel ? nodes.filter((n) => !n.hidden && n.kind !== "scrim" && !ctx.selection.includes(n.id)).map((n) => n.id) : [];
+  const ids = [...new Set([...(sel ? [sel.id] : []), ...frames.map((f) => f.id), ...workingIds, ...makingIds, ...others])];
   const want = useRef(ids);
   want.current = ids;
   const [rects, setRects] = useState<Record<string, R>>({});
+  const [board, setBoard] = useState<R | null>(null);
+  const labelRef = useRef<HTMLDivElement>(null);
 
   // follow the canvas: zoom, drag and resize move the boxes
   useEffect(() => {
@@ -64,8 +69,10 @@ export default function Overlay({ ctx, onAskAi, onGallery }: { ctx: StudioCtx; o
           const r = c.rectOf(id);
           if (r) next[id] = { x: Math.round(r.left - o.left), y: Math.round(r.top - o.top), w: Math.round(r.width), h: Math.round(r.height) };
         }
-        const k = JSON.stringify(next);
-        if (k !== last) { last = k; setRects(next); }
+        const br = c.boardRect();
+        const bd = br ? { x: Math.round(br.left - o.left), y: Math.round(br.top - o.top), w: Math.round(br.width), h: Math.round(br.height) } : null;
+        const k = JSON.stringify([next, bd]);
+        if (k !== last) { last = k; setRects(next); setBoard(bd); }
       }
       raf = requestAnimationFrame(loop);
     };
@@ -75,7 +82,7 @@ export default function Overlay({ ctx, onAskAi, onGallery }: { ctx: StudioCtx; o
 
   const headlineId = headlineIdOf(nodes);
   const sr = sel ? rects[sel.id] : null;
-  const labelBelow = sr ? sr.y < 40 : false;
+  const label = sr ? placeLabel(sr, others.map((id) => rects[id]).filter((r): r is R => !!r), board, labelRef.current?.offsetWidth ?? 170, box.current?.clientWidth ?? 9999, box.current?.clientHeight ?? 9999) : null;
 
   return (
     <Box ref={box} aria-hidden={false} sx={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 4, overflow: "hidden" }}>
@@ -116,7 +123,7 @@ export default function Overlay({ ctx, onAskAi, onGallery }: { ctx: StudioCtx; o
 
       {/* the selected element: its label, and a picture's actions */}
       {sel && sr && (
-        <Box sx={{ position: "absolute", left: Math.max(4, sr.x), top: labelBelow ? sr.y + sr.h + 8 : sr.y - 34, display: "inline-flex", alignItems: "center", gap: 0.25, height: 26, pl: 1, pr: 0.25, borderRadius: "6px", bgcolor: "#16202a", color: "#fff", boxShadow: "0 6px 16px -8px rgba(0,0,0,.5)", pointerEvents: "auto", whiteSpace: "nowrap" }}>
+        <Box ref={labelRef} sx={{ position: "absolute", left: label?.x ?? sr.x, top: label?.y ?? sr.y - 32, display: "inline-flex", alignItems: "center", gap: 0.25, height: 26, pl: 1, pr: 0.25, borderRadius: "6px", bgcolor: "#16202a", color: "#fff", boxShadow: "0 6px 16px -8px rgba(0,0,0,.5)", pointerEvents: "auto", whiteSpace: "nowrap" }}>
           <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: "#fff", pr: 0.5 }}>{elementName(sel, headlineId)}</Typography>
           {ctx.canEdit && ctx.api.data.ai && (
             <Box component="button" type="button" onClick={onAskAi} sx={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.4, px: 0.75, height: 22, borderRadius: "4px", fontSize: "0.74rem", fontWeight: 700, color: "#ffc2dc", borderLeft: "1px solid rgba(255,255,255,.18)", "&:hover": { bgcolor: "rgba(255,255,255,.12)" }, "& svg": { fontSize: 14 } }}>

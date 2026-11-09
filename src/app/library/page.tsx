@@ -10,8 +10,7 @@ import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
-import Tabs from "@mui/material/Tabs";
-import Tab from "@mui/material/Tab";
+import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import Skeleton from "@mui/material/Skeleton";
 import Tooltip from "@mui/material/Tooltip";
 import ToggleButton from "@mui/material/ToggleButton";
@@ -559,10 +558,10 @@ function LibraryWorkspace() {
     viewing !== null && !outsideWindow && !visibleIds.includes(viewing.id);
 
   return (
-    <Box sx={{ p: 1 }}>
+    <Box sx={{ px: { xs: 2, sm: 2.5, md: 3, lg: 4 }, py: { xs: 2.5, md: 3.5 } }}>
       <PageHeader
         title="Content Library"
-        subtitle="Review, approve and publish generated content"
+        subtitle="Every text the hub wrote and every version kept in a studio - review, approve, publish"
         rightSlot={
           <Button
             onClick={() => load()}
@@ -575,57 +574,6 @@ function LibraryWorkspace() {
         }
       />
 
-      {/* Status pipeline */}
-      <Tabs
-        value={statusTab}
-        onChange={(_, v: StatusTab) => setStatusTab(v)}
-        variant="scrollable"
-        scrollButtons="auto"
-        sx={{
-          minHeight: 40,
-          borderBottom: "1px solid #e3e6ea",
-          mb: 2,
-          "& .MuiTab-root": {
-            textTransform: "none",
-            fontWeight: 600,
-            fontSize: 13,
-            minHeight: 40,
-            py: 0,
-            color: "#5b6470",
-          },
-          "& .Mui-selected": { color: "#ed1b2f" },
-          "& .MuiTabs-indicator": { backgroundColor: "#ed1b2f", height: 2 },
-        }}
-      >
-        {(["all", ...STATUS_ORDER] as StatusTab[]).map((s) => (
-          <Tab
-            key={s}
-            value={s}
-            label={
-              <Box sx={{ display: "flex", alignItems: "center", gap: 0.85 }}>
-                {s === "all" ? "All" : STATUS_THEME[s].label}
-                <Box
-                  sx={{
-                    minWidth: 20,
-                    px: 0.6,
-                    height: 18,
-                    borderRadius: 1,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 10.5,
-                    fontWeight: 700,
-                    bgcolor: s === "all" ? "#eef0f3" : STATUS_THEME[s].bg,
-                    color: s === "all" ? "#5b6470" : STATUS_THEME[s].fg,
-                  }}
-                >
-                  {counts[s]}
-                </Box>
-              </Box>
-            }
-          />
-        ))}
-      </Tabs>
 
       {/* Filter bar */}
       <Paper
@@ -642,6 +590,12 @@ function LibraryWorkspace() {
           flexWrap: "wrap",
         }}
       >
+        {/* the status, squared, with how many are in each (09.11.2026, the studios' flow standard) */}
+        <SquareChoice<StatusTab>
+          value={statusTab}
+          onChange={setStatusTab}
+          options={(["all", ...STATUS_ORDER] as StatusTab[]).map((st) => ({ key: st, label: st === "all" ? "All" : STATUS_THEME[st].label, count: counts[st] }))}
+        />
         <TextField
           size="small"
           value={searchInput}
@@ -853,17 +807,17 @@ function LibraryWorkspace() {
         <StateBlock
           icon={<PhotoLibraryOutlinedIcon />}
           title="Nothing in the library yet"
-          body="Generate your first piece in Create Studio — drafts land here with their visuals ready to review."
+          body="The texts the hub writes and the versions you keep in a studio land here, ready to review."
           action={
             <Button
               component={Link}
-              href="/create"
+              href="/projects/new"
               variant="contained"
               disableElevation
               startIcon={<AutoAwesomeIcon />}
-              sx={{ textTransform: "none", fontWeight: 700, bgcolor: "#ed1b2f", "&:hover": { bgcolor: "#d81528" } }}
+              sx={{ textTransform: "none", fontWeight: 700, borderRadius: "8px", bgcolor: "#c22c6e", "&:hover": { bgcolor: "#a3245c" } }}
             >
-              Open Create Studio
+              New project
             </Button>
           }
         />
@@ -1024,10 +978,10 @@ export default function LibraryPage() {
   return (
     <Suspense
       fallback={
-        <Box sx={{ p: 1 }}>
+        <Box sx={{ px: { xs: 2, sm: 2.5, md: 3, lg: 4 }, py: { xs: 2.5, md: 3.5 } }}>
           <PageHeader
             title="Content Library"
-            subtitle="Review, approve and publish generated content"
+            subtitle="Every text the hub wrote and every version kept in a studio - review, approve, publish"
           />
           <Box
             sx={{

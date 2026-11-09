@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getOptionalUser } from "@/lib/auth/guard";
+import { shopPictures } from "@/lib/content/shopPictureCache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,10 +27,16 @@ export async function GET(req: NextRequest) {
   if (!(await getOptionalUser())) return NextResponse.json({ ok: false, error: "Sign in again." }, { status: 401 });
   let url = shopUrl(req.nextUrl.searchParams.get("u"));
   if (!url) return NextResponse.json({ ok: false, error: "Only the shop's pictures (www.apsoparts.com) can be used here." }, { status: 400 });
+  // fetched once, kept (09.11.2026: a slow shop left a post's photo an empty frame)
+  const asked = url.toString();
+  const kept = shopPictures.get(asked);
+  if (kept) return new NextResponse(Buffer.from(kept.bytes), { headers: { "Content-Type": kept.type, "Content-Length": String(kept.bytes.length), "Cache-Control": "private, max-age=86400" } });
   try {
     // redirects followed by hand, each one checked - a redirect may not lead out of the shop
     for (let hop = 0; hop < 4; hop++) {
-      const r = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(10000), headers: { Accept: "image/*" } });
+      // the shop gets 20 s, and a second try when it does not answer
+      const once = () => fetch(url!, { redirect: "manual", signal: AbortSignal.timeout(20000), headers: { Accept: "image/*" } });
+      const r = await once().catch(() => once());
       if (r.status >= 300 && r.status < 400) {
         const next = shopUrl(r.headers.get("location") ? new URL(r.headers.get("location")!, url).toString() : null);
         if (!next) return NextResponse.json({ ok: false, error: "The picture moved outside the shop." }, { status: 400 });
@@ -43,6 +50,7 @@ export async function GET(req: NextRequest) {
       if (declared > MAX_BYTES) return NextResponse.json({ ok: false, error: "That picture is too heavy (over 8 MB)." }, { status: 413 });
       const bytes = Buffer.from(await r.arrayBuffer());
       if (bytes.length > MAX_BYTES) return NextResponse.json({ ok: false, error: "That picture is too heavy (over 8 MB)." }, { status: 413 });
+      shopPictures.put(asked, bytes, type);
       return new NextResponse(bytes, { headers: { "Content-Type": type, "Content-Length": String(bytes.length), "Cache-Control": "private, max-age=86400" } });
     }
     return NextResponse.json({ ok: false, error: "The picture kept moving." }, { status: 508 });

@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default function PicturesPage() {
   return (
     <Box sx={{ px: { xs: 2, sm: 2.5, md: 3, lg: 4 }, py: { xs: 2.5, md: 3.5 } }}>
-      <PageHeader title="Pictures" subtitle="Every picture made or uploaded in the hub - make a new one, upload, or take one into your work" />
+      <PageHeader title="Pictures" subtitle="Every picture made or uploaded in the hub - a click shows it large and where it is used" />
       <Gallery />
     </Box>
   );

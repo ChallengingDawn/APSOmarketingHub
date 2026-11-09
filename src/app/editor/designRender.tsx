@@ -46,13 +46,20 @@ export function loadImage(src: string): Promise<HTMLImageElement | null> {
   let p = images.get(src);
   if (!p) {
     p = new Promise((ok) => {
-      const el = new window.Image();
-      el.crossOrigin = "anonymous";
-      // a picture that does not come within 20 s is drawn without (the page is not held back by it)
-      const t = setTimeout(() => ok(null), 20000);
-      el.onload = () => { clearTimeout(t); ok(el); };
-      el.onerror = () => { clearTimeout(t); ok(null); };
-      el.src = src;
+      // a picture that does not come within 40 s is drawn without (the page is not held back by it); one that fails is
+      // asked for once more; one that comes late is kept, so the next drawing has it (09.11.2026)
+      let done = false;
+      const t = setTimeout(() => { done = true; ok(null); }, 40000);
+      const tryLoad = (again: boolean) => {
+        const el = new window.Image();
+        el.crossOrigin = "anonymous";
+        el.onload = () => {
+          if (!done) { done = true; clearTimeout(t); ok(el); } else images.set(src, Promise.resolve(el));
+        };
+        el.onerror = () => { if (again && !done) setTimeout(() => tryLoad(false), 3000); else if (!done) { done = true; clearTimeout(t); ok(null); } };
+        el.src = src;
+      };
+      tryLoad(true);
     });
     images.set(src, p);
     void p.then((x) => { if (!x) images.delete(src); });
