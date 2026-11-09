@@ -31,8 +31,10 @@ import {
   type CompanyValues, type FoundCompany, type KpiProps, type KpiRows,
 } from "./erpRules";
 import { readErpWorkbook } from "./erpWorkbook";
-import { SHEET_ERP_LINES } from "../../reporting/boErpLines";
+import { unpackFacts } from "./productFactsRules";
 import { saveErpLines } from "@/lib/reporting/boErpLinesStore";
+import { query } from "@/lib/db/client";
+import { ownerNames } from "@/lib/integrations/erosion";
 import { SHEET_INVOICES, invoiceFacts, lineFacts } from "./orderFactsRules";
 import { saveErpFacts } from "./orderFactsStore";
 import { loadProductIds, productFactsRun } from "./productFacts";
@@ -269,10 +271,16 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
   };
   if (!data.size) throw new Error(`${wb.file}: no customer carries a figure - an empty or unfinished export, nothing written`);
   // the Back Office's KPIs from the "KPI LINES" sheet (pass rate, manual prices, OTD) - kept before HubSpot, never its problem
-  if (!wb.erpLines) out.erp_lines = wb.sheets.some((s) => s.trim().toUpperCase() === SHEET_ERP_LINES) ? "sheet without the expected header" : "no KPI LINES sheet";
+  if (!wb.erpLines) out.erp_lines = wb.kpiSheets.lines ? "sheet without the expected header" : "no order-lines sheet";
   else if (!live) out.erp_lines = { lines: wb.erpLines.lines.length, rows: wb.erpLines.rows, kept: false };
   else {
-    try { out.erp_lines = { ...(await saveErpLines(wb.erpLines.lines)), rows: wb.erpLines.rows, kept: true }; }
+    // each article's main supplier from the articles sheet of the same workbook (OTD per supplier), and - once the
+    // lines carry the customer - each customer's company owner in HubSpot (the manual prices per owner)
+    const arts = wb.articles;
+    const supplierOf = arts ? (a: string) => unpackFacts(arts.get(a) ?? "").main_supplier : undefined;
+    const customers = [...new Set(wb.erpLines.lines.map((l) => l.customer ?? "").filter(Boolean))];
+    const ownerOf = customers.length ? await customerOwners(customers).catch(() => undefined) : undefined;
+    try { out.erp_lines = { ...(await saveErpLines(wb.erpLines.lines, { supplierOf, ownerOf })), rows: wb.erpLines.rows, kept: true, customers: customers.length }; }
     catch (e) { out.erp_lines = `not kept: ${(e as Error).message}`; }
   }
   // the order facts the sheets give (first confirmed date, special articles, the invoice) - order_sync writes them at night
@@ -361,4 +369,21 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
   errors.push(...co.errors);
   if (errors.length) out.errors = errors.slice(0, 10);
   return { ...out, seconds: Math.round((Date.now() - t0) / 1000) };
+}
+
+/** Each customer (CustomerNumberUnique, "100-12345") -> its company's owner in HubSpot, by name: the revenue step's own
+ *  customer -> company map (apsomh_cx_un2id), the companies' owner read 100 a call, the owners' names. */
+async function customerOwners(customers: string[]): Promise<(customer: string) => string | undefined> {
+  const r = await query<{ un: string; company_id: string }>("SELECT un, company_id FROM apsomh_cx_un2id WHERE un = ANY($1::text[])", [customers]);
+  const companyOf = new Map(r.rows.map((x) => [x.un, String(x.company_id)]));
+  const ids = [...new Set(companyOf.values())];
+  const ownerOfCompany = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const j = await hubspotFetchJson<{ results?: { id: string | number; properties?: Record<string, string | null> }[] }>({
+      path: "/crm/v3/objects/companies/batch/read", method: "POST", body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["hubspot_owner_id"] },
+    });
+    for (const o of j.results ?? []) { const own = o.properties?.hubspot_owner_id; if (own) ownerOfCompany.set(String(o.id), own); }
+  }
+  const names = await ownerNames();
+  return (c) => { const co = companyOf.get(c); const own = co ? ownerOfCompany.get(co) : undefined; return own ? names.get(own) ?? own : undefined; };
 }

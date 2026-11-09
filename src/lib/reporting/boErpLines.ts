@@ -16,13 +16,20 @@
 //   Sep 80.7/80.8), no parameter fitted - the transport table is the ERP's.
 // Pure: the sheet reader is ../connectors/steps/erpWorkbook.ts, the store ./boErpLinesStore.ts.
 
-export const ERP_LINES_VERSION = 1;
+export const ERP_LINES_VERSION = 2;
 /** the sheet's name in the morning workbook - matched without case or spaces around it */
 export const SHEET_ERP_LINES = "KPI LINES";
 export const KV_ERP_LINES = "boReport:erpLines";
 /** the late lines kept for the list: the first date within this many days */
 export const LATE_DAYS = 92;
 export const LATE_KEEP = 200;
+/** the open lines for the action list: overdue, or due within this many working days (SARCLA 09.11.2026) */
+export const OPEN_DUE_WD = 3;
+export const OPEN_KEEP = 300;
+/** the suppliers kept by name (the most lines); the others are summed as one */
+export const SUPPLIER_KEEP = 40;
+export const OTHER_SUPPLIERS = "Other suppliers";
+export const NO_SUPPLIER = "No supplier known";
 
 /** The ERP's transport time per delivery country, in working days ("Transportation times from GLC by country",
  *  Performis, 07.11.2026 - the column "Transportation Time (days)"). */
@@ -71,6 +78,8 @@ export type ErpLine = {
   line: string; lineType: string; price: string; firstDay: string; confDay: string; article: string; artType: string; pc: string;
   /** the quantity ordered and shipped (the order facts' shipment status) */
   qty?: number; shipped?: number;
+  /** the customer (CustomerNumberUnique, "100-12345") when the sheet carries it - for the price changes per owner */
+  customer?: string;
 };
 
 type Cell = string | number | boolean | Date | { v: number } | null | undefined;
@@ -97,6 +106,7 @@ const COLS = {
   company: "Company", order: "Order", source: "OrderSource", orderDay: "OrderDate", status: "OrderStatus", shipDay: "ShipmentDate",
   country: "ShippedToCountry", line: "Line", lineType: "LineType", price: "PriceSource", firstDay: "ShippingDateInitial",
   confDay: "ShippingDateConfirmed", article: "Article", artType: "ArticleType", pc: "ProfitCenter", qty: "OrderQty", shipped: "ShippedQty",
+  customer: "Customer",
 } as const;
 type Key = keyof typeof COLS;
 const norm = (s: string) => s.replace(/^\[|\]$/g, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
@@ -125,6 +135,7 @@ export class ErpLinesSheet {
       shipDay: dayOf(get("shipDay")), country: text(get("country")), line: text(get("line")), lineType: text(get("lineType")),
       price: text(get("price")), firstDay: dayOf(get("firstDay")), confDay: dayOf(get("confDay")), article: text(get("article")),
       artType: text(get("artType")), pc: text(get("pc")), qty: Number(text(get("qty"))) || 0, shipped: Number(text(get("shipped"))) || 0,
+      ...(this.at!.customer != null ? { customer: text(get("customer")) } : {}),
     };
     this.lines.set(`${order}|${l.line}`, l);
   }
@@ -144,8 +155,20 @@ export type OtdCounts = [number, number, number];
 /** how late, in working days after the line could have arrived: 1, 2, 3, 4-5, 6-10, more */
 export const LATE_BANDS = ["1 working day", "2 working days", "3 working days", "4-5 working days", "6-10 working days", "More than 10"];
 const lateBand = (wd: number) => (wd <= 3 ? wd - 1 : wd <= 5 ? 3 : wd <= 10 ? 4 : 5);
-/** [order, article, country, first date, shipped, working days late, "S"|"P", profit centre, mandant] */
-export type LateRow = [string, string, string, string, string, number, string, string, string];
+/** [order, article, country, first date, shipped, working days late, "S"|"P", profit centre, mandant, supplier?] */
+export type LateRow = [string, string, string, string, string, number, string, string, string, string?];
+/** [order, article, country, first date, confirmed date now, ordered, shipped, working days overdue (minus: due in),
+ *  "S"|"P", profit centre, mandant, order source, supplier] */
+export type OpenRow = [string, string, string, string, string, number, number, number, string, string, string, string, string];
+/** the promised lead time: working days from the order to the first confirmed date */
+export const LEAD_BANDS = ["0-2 working days", "3-5 working days", "6-10 working days", "11-20 working days", "More than 20"];
+const leadBand = (wd: number) => (wd <= 2 ? 0 : wd <= 5 ? 1 : wd <= 10 ? 2 : wd <= 20 ? 3 : 4);
+/** [lines, working days summed, then the lines per LEAD_BANDS] */
+export type LeadCounts = number[];
+/** [article, lines priced by hand, all its lines, profit centre, the last day priced by hand, supplier, "S"|"P"] */
+export type ManualArticleRow = [string, number, number, string, string, string, string];
+/** [order, article, order day, profit centre, mandant, "S"|"P", supplier] */
+export type ManualRow = [string, string, string, string, string, string, string];
 
 export type ErpLinesKept = {
   v: number; at: string;
@@ -164,56 +187,141 @@ export type ErpLinesKept = {
   /** a sample of the latest lines on time (the 6th field: working days to spare), for the page that shows how it is counted */
   okRows?: LateRow[];
   lines: number; skipped: Record<string, number>;
+  // since v2 (SARCLA 09.11.2026: suppliers, open lines, every order source, lead time; manual prices per profit centre,
+  // per article, per owner) - absent from a summary kept before, the page then leaves those graphs out
+  /** EVERY order source (eShop, manually entered ...): yyyy-mm ordered -> source -> price counts */
+  srcPrice?: Record<string, Record<string, PriceCounts>>;
+  /** every order source: yyyy-mm of the first date -> source -> [lines, on time, pushed later] */
+  srcOtd?: Record<string, Record<string, OtdCounts>>;
+  /** eShop: yyyy-mm ordered -> "S|DT" -> price counts */
+  pcPrice?: Record<string, Record<string, PriceCounts>>;
+  /** eShop: yyyy-mm ordered -> profit centre -> lead time counts */
+  lead?: Record<string, Record<string, LeadCounts>>;
+  /** eShop: yyyy-mm of the first date -> supplier -> [lines, on time] */
+  supplier?: Record<string, Record<string, [number, number]>>;
+  /** every source: the lines not shipped yet whose first date has passed or comes within OPEN_DUE_WD working days */
+  open?: { rows: OpenRow[]; overdue: number; due: number; day: string };
+  /** eShop, the last LATE_DAYS days: the articles priced by hand most */
+  manualArticles?: ManualArticleRow[];
+  /** eShop, the latest lines priced by hand */
+  manualRows?: ManualRow[];
+  /** eShop: yyyy-mm ordered -> the customer's company owner -> price counts (when the sheet carries the customer) */
+  ownerPrice?: Record<string, Record<string, PriceCounts>>;
 };
 
-/** eShop order lines of mandant 100 or 110 - the Back Office's KPIs are the web orders' */
-const counted = (l: ErpLine) => l.source === "eShop" && l.lineType === "Order" && (l.company === "100" || l.company === "110");
+/** What the summary may know beside the lines: each article's main supplier, each customer's company owner. */
+export type ErpLinesContext = { supplierOf?: (article: string) => string | undefined; ownerOf?: (customer: string) => string | undefined };
+
+const bumpPrice = (p: PriceCounts, price: string): boolean => {
+  if (price === "manually") { p[0]++; p[1]++; return true; }
+  if (price === "automatically") { p[0]++; p[2]++; return true; }
+  if (price === "calculated") { p[0]++; p[3]++; return true; }
+  return false;
+};
 
 /** Is the line on time: shipped, plus the transport time to its country, by its first confirmed date. */
 export function onTime(l: Pick<ErpLine, "shipDay" | "firstDay" | "country">): boolean {
   return addWd(l.shipDay, transitOf(l.country)) <= l.firstDay;
 }
 
-export function summarizeErpLines(lines: Iterable<ErpLine>, today: string): ErpLinesKept {
-  const k: ErpLinesKept = { v: ERP_LINES_VERSION, at: new Date().toISOString(), from: "", to: "", price: {}, otd: {}, country: {}, late: {}, lateRows: [], lines: 0, skipped: {} };
+export function summarizeErpLines(lines: Iterable<ErpLine>, today: string, ctx: ErpLinesContext = {}): ErpLinesKept {
+  const k: ErpLinesKept = {
+    v: ERP_LINES_VERSION, at: new Date().toISOString(), from: "", to: "", price: {}, otd: {}, country: {}, late: {}, lateRows: [], lines: 0, skipped: {},
+    srcPrice: {}, srcOtd: {}, pcPrice: {}, lead: {}, supplier: {}, ownerPrice: {},
+  };
   const skip = (why: string) => { k.skipped[why] = (k.skipped[why] ?? 0) + 1; };
-  const lateFrom = iso(ms(today) - LATE_DAYS * DAY);
-  const late: LateRow[] = [], ok: LateRow[] = [];
+  const lateFrom = iso(ms(today) - LATE_DAYS * DAY), dueBy = addWd(today, OPEN_DUE_WD);
+  const late: LateRow[] = [], ok: LateRow[] = [], open: OpenRow[] = [], manual: ManualRow[] = [];
+  let overdue = 0, due = 0;
+  const arts = new Map<string, { hand: number; all: number; pc: string; last: string; st: string }>();
   for (const l of lines) {
     k.lines++;
     const ym = l.orderDay.slice(0, 7);
     if (ym) { if (!k.from || ym < k.from) k.from = ym; if (ym > k.to) k.to = ym; }
-    if (!counted(l)) { skip(l.source !== "eShop" ? "not eShop" : l.lineType !== "Order" ? "not an order line" : "another mandant"); continue; }
+    if (l.lineType !== "Order") { skip("not an order line"); continue; }
+    if (l.company !== "100" && l.company !== "110") { skip("another mandant"); continue; }
+    const src = l.source || "No source";
+    const st = l.artType === "Standard" ? "S" : l.artType === "Special" ? "P" : "";
+    const sup = ctx.supplierOf?.(l.article) || "";
+    // every order source: the price, by the month ordered, service articles out
+    if (ym && l.artType !== "Service") bumpPrice(((k.srcPrice![ym] ??= {})[src] ??= [0, 0, 0, 0]), l.price);
+    // every order source: the lines not shipped yet, overdue or due soon (the action list)
+    if (st && l.firstDay && l.status !== "invoiced" && !/cancel/i.test(l.status) && (l.qty ?? 0) > (l.shipped ?? 0) && l.firstDay <= dueBy) {
+      const wd = l.firstDay < today ? wdAfter(l.firstDay, today) : -wdAfter(today, l.firstDay);
+      if (l.firstDay < today) overdue++; else due++;
+      open.push([l.order, l.article, l.country, l.firstDay, l.confDay, l.qty ?? 0, l.shipped ?? 0, wd, st, l.pc, l.company, src, sup]);
+    }
+    // every order source: OTD of the lines shipped
+    const shipped = !!st && l.status === "invoiced" && !!l.shipDay && !!l.firstDay;
+    if (shipped) {
+      const so = ((k.srcOtd![l.firstDay.slice(0, 7)] ??= {})[src] ??= [0, 0, 0]);
+      so[0]++; if (onTime(l)) so[1]++; if (l.confDay && l.confDay > l.firstDay) so[2]++;
+    }
+    if (l.source !== "eShop") { skip("not eShop"); continue; }
     // pass rate and manual prices: by the month ordered, service articles out
     if (ym && l.artType !== "Service") {
-      const p = ((k.price[l.company] ??= {})[ym] ??= [0, 0, 0, 0]);
-      if (l.price === "manually") { p[0]++; p[1]++; }
-      else if (l.price === "automatically") { p[0]++; p[2]++; }
-      else if (l.price === "calculated") { p[0]++; p[3]++; }
-      else skip("no price source");
+      if (!bumpPrice(((k.price[l.company] ??= {})[ym] ??= [0, 0, 0, 0]), l.price)) skip("no price source");
+      if (st) bumpPrice(((k.pcPrice![ym] ??= {})[`${st}|${l.pc || "?"}`] ??= [0, 0, 0, 0]), l.price);
+      const owner = l.customer ? ctx.ownerOf?.(l.customer) : undefined;
+      if (l.customer) bumpPrice(((k.ownerPrice![ym] ??= {})[owner || "No owner known"] ??= [0, 0, 0, 0]), l.price);
+      if (l.orderDay >= lateFrom && l.orderDay <= today) {
+        const a = arts.get(l.article) ?? { hand: 0, all: 0, pc: l.pc, last: "", st };
+        a.all++;
+        if (l.price === "manually") {
+          a.hand++; if (l.orderDay > a.last) a.last = l.orderDay;
+          manual.push([l.order, l.article, l.orderDay, l.pc, l.company, st, sup]);
+        }
+        arts.set(l.article, a);
+      }
+    }
+    // the promised lead time: from the order to the first confirmed date
+    if (ym && st && l.firstDay && !/cancel/i.test(l.status)) {
+      const wd = wdAfter(l.orderDay, l.firstDay);
+      const c = ((k.lead![ym] ??= {})[l.pc || "?"] ??= [0, 0, 0, 0, 0, 0, 0]);
+      c[0]++; c[1] += wd; c[2 + leadBand(wd)]++;
     }
     // OTD: shipped (invoiced) standard and special lines with a first date, by the month of that date
-    if (l.artType !== "Standard" && l.artType !== "Special") continue;
+    if (!st) continue;
     if (l.status !== "invoiced" || !l.shipDay) { skip("not shipped yet"); continue; }
     if (!l.firstDay) { skip("no first date"); continue; }
     const fm = l.firstDay.slice(0, 7);
     const isOk = onTime(l), pushed = !!l.confDay && l.confDay > l.firstDay;
-    const g = `${l.artType === "Standard" ? "S" : "P"}|${l.pc || "?"}`;
+    const g = `${st}|${l.pc || "?"}`;
     const o = (((k.otd[l.company] ??= {})[fm] ??= {})[g] ??= [0, 0, 0]);
     o[0]++; if (isOk) o[1]++; if (pushed) o[2]++;
     const c = ((k.country[fm] ??= {})[l.country || "Unknown"] ??= [0, 0]);
     c[0]++; if (isOk) c[1]++;
+    const su = ((k.supplier![fm] ??= {})[sup || NO_SUPPLIER] ??= [0, 0]);
+    su[0]++; if (isOk) su[1]++;
     const arrives = addWd(l.shipDay, transitOf(l.country));
-    if (isOk && l.firstDay >= lateFrom && l.firstDay <= today) ok.push([l.order, l.article, l.country, l.firstDay, l.shipDay, wdAfter(arrives, l.firstDay), l.artType === "Standard" ? "S" : "P", l.pc, l.company]);
+    if (isOk && l.firstDay >= lateFrom && l.firstDay <= today) ok.push([l.order, l.article, l.country, l.firstDay, l.shipDay, wdAfter(arrives, l.firstDay), st, l.pc, l.company, sup]);
     if (!isOk) {
       const wd = Math.max(1, wdAfter(l.firstDay, arrives));
       (k.late[fm] ??= [0, 0, 0, 0, 0, 0])[lateBand(wd)]++;
       // the list: lines whose first date has passed - a later one is late only on its way, not yet arrived
-      if (l.firstDay >= lateFrom && l.firstDay <= today) late.push([l.order, l.article, l.country, l.firstDay, l.shipDay, wd, l.artType === "Standard" ? "S" : "P", l.pc, l.company]);
+      if (l.firstDay >= lateFrom && l.firstDay <= today) late.push([l.order, l.article, l.country, l.firstDay, l.shipDay, wd, st, l.pc, l.company, sup]);
     }
   }
   k.lateRows = late.sort((a, b) => (b[3] > a[3] ? 1 : b[3] < a[3] ? -1 : b[5] - a[5])).slice(0, LATE_KEEP);
   k.okRows = ok.sort((a, b) => (b[3] > a[3] ? 1 : b[3] < a[3] ? -1 : 0)).slice(0, 30);
+  // the open lines: the most overdue first
+  k.open = { rows: open.sort((a, b) => b[7] - a[7] || (a[3] < b[3] ? -1 : 1)).slice(0, OPEN_KEEP), overdue, due, day: today };
+  // the articles priced by hand most (at least twice), the latest lines priced by hand
+  k.manualArticles = [...arts].filter(([, a]) => a.hand >= 2).sort((x, y) => y[1].hand - x[1].hand || y[1].all - x[1].all).slice(0, 60)
+    .map(([art, a]) => [art, a.hand, a.all, a.pc, a.last, ctx.supplierOf?.(art) || "", a.st]);
+  k.manualRows = manual.sort((a, b) => (b[2] > a[2] ? 1 : b[2] < a[2] ? -1 : 0)).slice(0, 40);
+  // the suppliers: the SUPPLIER_KEEP with the most lines by name, the others as one
+  const tot = new Map<string, number>();
+  for (const m of Object.values(k.supplier!)) for (const [s, v] of Object.entries(m)) tot.set(s, (tot.get(s) ?? 0) + v[0]);
+  const keep = new Set([...tot].filter(([s]) => s !== NO_SUPPLIER).sort((a, b) => b[1] - a[1]).slice(0, SUPPLIER_KEEP).map(([s]) => s));
+  for (const m of Object.values(k.supplier!)) {
+    for (const [s, v] of Object.entries(m)) {
+      if (s === NO_SUPPLIER || keep.has(s)) continue;
+      const o = (m[OTHER_SUPPLIERS] ??= [0, 0]); o[0] += v[0]; o[1] += v[1];
+      delete m[s];
+    }
+  }
+  if (!Object.keys(k.ownerPrice!).length) delete k.ownerPrice;
   return k;
 }
 
@@ -240,3 +348,25 @@ export function otdSum(k: ErpLinesKept | null | undefined, yms: string[], pick: 
   return t;
 }
 export const rate = (n: number, of: number) => (of > 0 ? n / of : null);
+
+/** price counts summed: one key of a month -> key -> counts map, over months */
+export function priceOf(m: Record<string, Record<string, PriceCounts>> | undefined, yms: string[], key: string | ((k: string) => boolean)): PriceCounts {
+  const t: PriceCounts = [0, 0, 0, 0];
+  for (const ym of yms) for (const [k, p] of Object.entries(m?.[ym] ?? {})) {
+    if (typeof key === "string" ? k !== key : !key(k)) continue;
+    for (let i = 0; i < 4; i++) t[i] += p[i];
+  }
+  return t;
+}
+/** [lines, on time] (or [lines, on time, pushed]) summed for one key over months */
+export function pairOf(m: Record<string, Record<string, number[]>> | undefined, yms: string[], key: string): number[] {
+  const t = [0, 0, 0];
+  for (const ym of yms) { const v = m?.[ym]?.[key]; if (v) v.forEach((x, i) => { t[i] += x; }); }
+  return t;
+}
+/** the keys a month -> key map holds over these months, the most lines first */
+export function keysOf(m: Record<string, Record<string, number[]>> | undefined, yms: string[]): string[] {
+  const t = new Map<string, number>();
+  for (const ym of yms) for (const [k, v] of Object.entries(m?.[ym] ?? {})) t.set(k, (t.get(k) ?? 0) + v[0]);
+  return [...t].sort((a, b) => b[1] - a[1]).map(([k]) => k);
+}
