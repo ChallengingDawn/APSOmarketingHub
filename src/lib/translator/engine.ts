@@ -24,6 +24,7 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { deeplConfigured, translate, usage } from "./deepl";
+import railway from "./railway-history.json";
 import { COMMENT, base, cleanForTranslation, customerOf, isInternal, messageText, parseCommand, sameText, stripHtml, targetOf, toRichText, type RawMessage } from "./text";
 
 const LOCK = 4_107_271;
@@ -79,6 +80,8 @@ export type Day = {
   convs?: number;
   /** customer messages already in English (nothing to translate), failures */
   english?: number; failed?: number;
+  /** a day of the Railway translator, before the hub (its translation log, counted - SARCLA 09.11.2026: history "do it") */
+  src?: "railway";
 };
 export type RunInfo = { at: string; seconds: number; threads: number; translated: number; replies: number; live: boolean; error?: string };
 
@@ -475,7 +478,8 @@ export async function pageState(part: "overview" | "rows" = "overview") {
   const [settings, last, rows, days, inboxes, use] = await Promise.all([
     getSettings(), kvGet<RunInfo>(KV.last), kvGet<Row[]>(KV.rows), kvGet<Record<string, Day>>(KV.days), inboxNames(), deeplConfigured() ? usage() : Promise.resolve(null),
   ]);
-  const all = rows ?? [], byDay = days ?? {};
+  // the Railway translator's days first, the hub's over them (they never overlap: Railway stopped before the hub started)
+  const all = rows ?? [], byDay: Record<string, Day> = { ...(railway.days as Record<string, Day>), ...(days ?? {}) };
   const list = part === "rows" ? all.slice(0, 500) : [];
   const agents = await agentNames([...list.map((r) => r.agent ?? ""), ...Object.values(byDay).flatMap((d) => Object.keys(d.agents ?? {}))].filter(Boolean));
   return {
