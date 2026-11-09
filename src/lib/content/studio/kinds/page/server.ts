@@ -64,6 +64,8 @@ import { blockOfPath, blocksOf, itemOfPath } from "./outline";
 import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, presenceOf, previewOf, relinkOf } from "./shop";
 import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
 import { appBriefOf } from "./appBrief";
+import { moduleFillTask } from "./modules/ai";
+import { moduleActions } from "./modules/server";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
@@ -960,11 +962,17 @@ export const pageKind: KindDef = {
     fill_all: fillTask("all"), fill_hero: fillTask("hero"), fill_intro: fillTask("intro"), fill_benefits: fillTask("benefits"),
     fill_sections: fillTask("sections"), fill_section: fillTask("section"), fill_links: fillTask("links"), fill_faq: fillTask("faq"),
     fill_cta: fillTask("cta"), fill_seo: fillTask("seo"), fill_field: fillField,
+    // the module gallery's "Fill with AI" (Content v6): the page as the AI sees it, then the candidates - ./modules/ai.ts
+    module_fill: moduleFillTask((ctx, raw, input) => { const d = viewFor(ctx, raw, input); return `${context(ctx, d)}
+
+${pageBlock(d).slice(0, 6000)}`; }),
   },
   actions: {
     start, winner, publish, stores, views, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, relink, ping: async () => ({ ok: true }),
     english: englishAction, brief,
     magento, magento_plan: magentoPlan, magento_publish: magentoPublish, magento_restore: magentoRestore, magento_check: magentoCheck,
     convert_letter: convertLetter,
+    // the module gallery (Content v6): the shop's tree, categories, numbers, most viewed / bought - ./modules/server.ts
+    ...moduleActions,
   },
 };

@@ -110,7 +110,7 @@ export type LangVersion = {
  */
 export type PageVersion = {
   letter: string;
-  changes: Change[];
+  changes: PageChange[];
   texts: TextSlot[];
   /** the letter it was copied from ("" = the first, or brought in) */
   from: string;
@@ -578,7 +578,7 @@ export function convertVersionsOf(all: ConvertVersion[], sent: { id: string; ide
 export const opensMarkerPage = (contentType: string | null | undefined): boolean => pageModesFor(contentType).includes("pick");
 
 /** The change list of one letter. */
-export const changesOfLetter = (view: PageDoc, letter: string): Change[] => versionList(view).find((v) => v.letter === letter)?.changes ?? [];
+export const changesOfLetter = (view: PageDoc, letter: string): PageChange[] => versionList(view).find((v) => v.letter === letter)?.changes ?? [];
 
 /** "The page as it is" / "Version B" - one side of the A/B test. */
 export const sideName = (side: string) => (side === "page" ? "The page as it is" : `Version ${side}`);
