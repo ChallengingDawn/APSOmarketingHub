@@ -135,7 +135,7 @@ mark[data-apx-left]{background:#ffe1dc!important;color:#b3261e!important;outline
 [data-apx-addel]{position:absolute;left:0;right:0;height:36px;margin-top:-18px;z-index:2147483000;pointer-events:auto!important;cursor:pointer}
 [data-apx-addel]::after{content:"";position:absolute;left:24px;right:24px;top:17px;height:2px;background:#c22c6e;opacity:0;transition:opacity .15s}
 [data-apx-addel]>b{position:absolute;left:50%;top:1px;width:34px;height:34px;margin-left:-17px;display:flex;align-items:center;justify-content:center;border-radius:7px;background:#c22c6e;color:#fff;font:600 26px/1 system-ui,"Segoe UI",sans-serif;box-shadow:0 6px 16px rgba(194,44,110,.35);opacity:0;transform:scale(.85);transition:opacity .15s,transform .15s;z-index:1}
-[data-apx-addel]>i{position:absolute;left:50%;top:6px;margin-left:24px;padding:4px 9px;border-radius:5px;background:#15223a;color:#fff;font:600 13px/1.2 system-ui,"Segoe UI",sans-serif;font-style:normal;white-space:nowrap;opacity:0;transition:opacity .15s}
+[data-apx-addel]>i{position:absolute;left:50%;top:6px;margin-left:24px;padding:4px 9px;border-radius:5px;background:#15223a;color:#fff;font:600 13px/1.2 system-ui,"Segoe UI",sans-serif;font-style:normal;white-space:nowrap;opacity:0;transition:opacity .15s;z-index:2;box-shadow:0 0 0 3px #fff}
 [data-apx-addel]:hover::after,[data-apx-addel]:hover>b,[data-apx-addel]:hover>i{opacity:1;transform:none}`;
 
 /* ── a page of the shop: its elements, and the places between them (Content v6) ─────────────────────── */
@@ -161,6 +161,15 @@ function photoNear(els: (Element | null)[]): { src: string; alt: string } | null
     for (const img of Array.from(el?.querySelectorAll("img") ?? []) as HTMLImageElement[]) {
       const src = img.currentSrc || img.getAttribute("src") || "";
       if (/^https:\/\/(www|acc)\.apsoparts\.com\/media\//.test(src) && !/\.svg(\?|$)/i.test(src)) return { src, alt: img.alt || nameOf(el) };
+    }
+  }
+  // a Page Builder tile shows its photo as a background (data-background-images)
+  for (const el of els) {
+    for (const b of Array.from(el?.querySelectorAll("[data-background-images]") ?? [])) {
+      try {
+        const src = String((JSON.parse(b.getAttribute("data-background-images") ?? "{}") as { desktop_image?: string }).desktop_image ?? "").replace(/\\\//g, "/");
+        if (/^https:\/\/(www|acc)\.apsoparts\.com\/media\//.test(src)) return { src, alt: nameOf(b) || nameOf(el) };
+      } catch { /* not JSON */ }
     }
   }
   return null;
