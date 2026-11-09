@@ -228,15 +228,27 @@ export function BlocksOutline({ api, f, set, store, canEdit, canAi, fill, busy, 
 
 /* ── a page of the shop: its own sections ─────────────────────────────── */
 
+/** Content v6: a replace's "Show the old one" (the preview only), and "Show it anyway" for a change the check held back. */
+export type ChangeExtra = { oldShown: number[]; onOld: (i: number) => void; onKeep: (i: number) => void };
+
 /** One change, as a line under its part: its number, what it does, whether the preview found it, and Remove. */
-function ChangeItem({ i, c, hit, canEdit, onRemove }: { i: number; c: Change; hit: ChangeHit | undefined; canEdit: boolean; onRemove: (i: number) => void }) {
-  const lost = hit?.state === "missing";
+function ChangeItem({ i, c, hit, canEdit, onRemove, extra }: { i: number; c: Change; hit: ChangeHit | undefined; canEdit: boolean; onRemove: (i: number) => void; extra?: ChangeExtra }) {
+  const off = (c as { off?: string }).off;
+  const lost = !off && hit?.state === "missing";
+  const link = { all: "unset", cursor: "pointer", fontSize: "0.74rem", fontWeight: 650, color: PINK, "&:hover": { textDecoration: "underline" } } as const;
   return (
     <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, py: 0.75, borderTop: `1px solid ${HAIRLINE}` }}>
       <Typography sx={{ fontSize: "0.74rem", color: MUTED, width: 16, pt: 0.15, textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{i + 1}</Typography>
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.35, wordBreak: "break-word" }}>{changeLine(c)}</Typography>
+        <Typography sx={{ fontSize: "0.82rem", color: off ? MUTED : INK, lineHeight: 1.35, wordBreak: "break-word", textDecoration: off ? "line-through" : "none" }}>{changeLine(c)}</Typography>
         {lost && <Typography sx={{ fontSize: "0.72rem", color: AMBER, fontWeight: 600 }}>Not found on the page</Typography>}
+        {off && <Typography sx={{ fontSize: "0.74rem", color: "#c5221f", fontWeight: 600, lineHeight: 1.35, mt: 0.25 }}>{/^Looks wrong/.test(off) ? off : `Not applied: ${off}`}</Typography>}
+        {extra && (off || c.op === "replace") && (
+          <Box sx={{ display: "flex", gap: 1.5, mt: 0.4 }}>
+            {off && canEdit && <Box component="button" type="button" onClick={() => extra.onKeep(i)} sx={link}>Show it anyway</Box>}
+            {!off && c.op === "replace" && <Box component="button" type="button" onClick={() => extra.onOld(i)} sx={link}>{extra.oldShown.includes(i) ? "Show the new block" : "Show the old one"}</Box>}
+          </Box>
+        )}
       </Box>
       {canEdit && (
         <Tooltip title="Take this change out">
@@ -253,7 +265,7 @@ function ChangeItem({ i, c, hit, canEdit, onRemove }: { i: number; c: Change; hi
  * AI), a line of what it says and its changes. A click opens one and selects it in the page, which scrolls there; a click
  * in the page opens the part it is in, with the element selected at its top.
  */
-export function ShopPartsOutline({ parts, whole, elsewhere, changes, hits, open, onOpen, busyPart, canEdit, canAi, onAsk, onRemove, selected }: {
+export function ShopPartsOutline({ parts, whole, elsewhere, changes, hits, open, onOpen, busyPart, canEdit, canAi, onAsk, onRemove, selected, extra }: {
   parts: ShopPart[]; whole: number[]; elsewhere: number[]; changes: Change[]; hits: ChangeHit[] | null;
   open: string | null; onOpen: (p: ShopPart | null) => void;
   /** the part the AI is changing ("page": all of them) */
@@ -262,6 +274,7 @@ export function ShopPartsOutline({ parts, whole, elsewhere, changes, hits, open,
   onAsk: (p: ShopPart) => void; onRemove: (i: number) => void;
   /** the element selected in the page, shown at the top of the part it is in */
   selected: { part: string | null; node: React.ReactNode } | null;
+  extra?: ChangeExtra;
 }) {
   const hitOf = (i: number) => hits?.find((h) => h.index === i);
   const across = [...whole, ...elsewhere];
@@ -278,7 +291,7 @@ export function ShopPartsOutline({ parts, whole, elsewhere, changes, hits, open,
         open={isOpen} onToggle={() => onOpen(isOpen ? null : p)} onAi={canEdit ? () => onAsk(p) : undefined} aiLabel="Change this part with AI" canAi={canAi && !busyPart}>
         {here && <Box sx={{ mb: 1.25, p: 1.25, borderRadius: "8px", border: "1px solid rgba(194,44,110,.25)", bgcolor: "rgba(194,44,110,.04)" }}>{here}</Box>}
         {p.summary && !here && <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 1, lineHeight: 1.4 }}>{p.tag !== "top" ? `${p.tag.toUpperCase()} · ` : ""}{p.summary}</Typography>}
-        {n > 0 ? p.changes.map((i) => <ChangeItem key={i} i={i} c={changes[i]} hit={hitOf(i)} canEdit={canEdit} onRemove={onRemove} />)
+        {n > 0 ? p.changes.map((i) => <ChangeItem key={i} i={i} c={changes[i]} hit={hitOf(i)} canEdit={canEdit} onRemove={onRemove} extra={extra} />)
           : <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No change here yet. Ask the AI on the right - it works on this part alone - or double-click its words in the page.</Typography>}
         {canEdit && (
           <Box component="button" type="button" disabled={!canAi || !!busyPart} onClick={() => onAsk(p)} sx={{
@@ -297,7 +310,7 @@ export function ShopPartsOutline({ parts, whole, elsewhere, changes, hits, open,
       {across.length > 0 && (
         <Row id="part:across" title="Across the page" count={across.length} state={busyPart === "page" ? "busy" : "written"} summary={whole.length ? "Its look (styles), and changes not in one part" : "Changes not in one part"}
           open={open === "part:across"} onToggle={() => onOpen(open === "part:across" ? null : { id: "across", name: "Across the page", tag: "top", selector: "", heading: "", summary: "", size: 0, changes: across })}>
-          {across.map((i) => <ChangeItem key={i} i={i} c={changes[i]} hit={hitOf(i)} canEdit={canEdit} onRemove={onRemove} />)}
+          {across.map((i) => <ChangeItem key={i} i={i} c={changes[i]} hit={hitOf(i)} canEdit={canEdit} onRemove={onRemove} extra={extra} />)}
         </Row>
       )}
     </RowList>

@@ -44,7 +44,7 @@ import type { Located } from "@/lib/content/studio/kinds/page/shopParts";
 import { PINK, btn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { SHEEN_BG, sheen } from "./Fields";
-import { Frame, type Device, type Picked } from "./Frame";
+import { Frame, type AddPlace, type Device, type Picked } from "./Frame";
 import { Choice } from "./ui";
 import { StoreViewPicker } from "./StoreViewPicker";
 
@@ -226,7 +226,7 @@ function SelBar({ label, canWords, onWords, onAi, onClose, pic }: { label: strin
 
 /* ── the stage ────────────────────────────────────────────────────────── */
 
-export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, onMap, seek, selLabel, picActs, onAct, adds, strip }: {
+export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, workingLabel, onMap, seek, selLabel, picActs, onAct, adds, onAddEl, oldShown, strip }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void; view: View; onView: (v: View) => void;
   /** every store view of the shop, by language; for a page of the shop, whether it is there */
   groups: StoreGroup[]; presence: Record<string, Presence>;
@@ -238,8 +238,12 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   onEditWords: () => void; onAskAi: () => void; inserts: InsertOut[] | null; shell: PreviewOut | null;
   /** what the AI is writing now in a new page (blocks, fields) and the pictures being made - they shimmer */
   writing?: { blocks: string[]; fields: string[]; pictures: string[]; tuning?: string[] };
-  /** a page of the shop being changed by the AI: since when */
+  /** a page of the shop being changed by the AI: since when, and what it is doing ("Checking that it reads well") */
   working?: number | null;
+  workingLabel?: string | null;
+  /** a page of the shop: the "+" between its elements (Content v6) - and the replaced elements shown again ("Show the old one") */
+  onAddEl?: (place: AddPlace) => void;
+  oldShown?: number[];
   /** a page of the shop: where the preview found each change (the outline's parts), and a part to find and select */
   onMap?: (m: Located) => void;
   seek?: { nonce: number; heading: string } | null;
@@ -283,6 +287,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   const selectOpts = {
     mode: (isNew ? "field" : "element") as "field" | "element",
     selected, onPick, onEdit, editNonce, reveal, onMap, seek, onAct, onAdd: adds?.onAdd, onAddItem: adds?.onAddItem,
+    onAddEl: working ? undefined : onAddEl, oldShown,
   };
   // a whole block says its number and name ("4 · Proof tiles" - the studio's selLabel), a field its own ("Tile 2 · title")
   const label = !selected ? "" : selLabel ? selLabel : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())
@@ -306,7 +311,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
           <Box sx={{ position: "relative", opacity: b ? 0.6 : 1, transition: "opacity .2s" }}>
             <Frame html={out.html} device={device} title={side === "before" ? "The page as it is" : "The page with its changes"}
               select={side === "after" ? selectOpts : undefined} toolbar={side === "after" ? toolbar : undefined} fit={fit || want.length === 2} />
-            {side === "after" && working && <Working since={working} />}
+            {side === "after" && working && <Working since={working} label={workingLabel} />}
           </Box>
         )}
       </Box>
@@ -398,7 +403,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
 }
 
 /** The sheen over a page of the shop while the AI changes it, with how long it has been at it. */
-function Working({ since }: { since: number }) {
+function Working({ since, label }: { since: number; label?: string | null }) {
   const [, setTick] = useState(0);
   useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 1000); return () => clearInterval(t); }, []);
   const secs = Math.max(0, Math.round((Date.now() - since) / 1000));
@@ -406,7 +411,7 @@ function Working({ since }: { since: number }) {
     <Box sx={{ position: "absolute", inset: 0, pointerEvents: "none", borderRadius: "10px", backgroundImage: SHEEN_BG, backgroundSize: "260% 100%", animation: `${sheen} 1.6s linear infinite`, bgcolor: "rgba(255,255,255,.25)" }}>
       <Box sx={{ position: "sticky", top: 12, display: "flex", justifyContent: "center", pt: 1.5 }}>
         <Box sx={{ display: "inline-flex", alignItems: "center", gap: 1, bgcolor: "#15223a", color: "#fff", px: 1.5, py: 0.75, borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, boxShadow: "0 10px 26px rgba(21,34,58,.3)", fontVariantNumeric: "tabular-nums" }}>
-          <CircularProgress size={13} thickness={6} sx={{ color: "#fff" }} />The AI is changing the page · {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}
+          <CircularProgress size={13} thickness={6} sx={{ color: "#fff" }} />{label ? `${label}…` : "The AI is changing the page"} · {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}
         </Box>
       </Box>
     </Box>

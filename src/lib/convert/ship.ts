@@ -329,13 +329,81 @@ export type CmsApplied = {
 
 const STYLE_BLOCK = /<style data-apso-version="[^"]*">[\s\S]*?<\/style>\n?/g;
 
+/* ── what a write put in, and takes out again (Content v6) ───────────── */
+// SARCLA 09.11.2026 (point 10): "when [the proposal] applies, hide the element and replace [it] for our high[-quality]
+// generated code". A replace HIDES the page's element - kept, never deleted - and puts the block where it stood; the
+// blocks a write puts in (replace, insert) are marked with the write's tag (data-apx-block), the elements it hid too
+// (data-apx-hid). A write made again first takes its own earlier work out - its blocks removed, what it hid shown as it
+// was - so a page written twice never holds two blocks, and a change taken out (Undo) brings the page's element back.
+// In a Page Builder page a block put among Page Builder's elements goes in as an HTML Code element (inside a row when
+// it stands among rows), so Magento's editor keeps it as one element; inside an HTML Code element it goes in as it is.
+
+const HIDE_RULE = "display:none !important";
+
+/** The element's top-level elements marked as this write's block (a fragment with loose text is wrapped first). */
+function markBlock(html: string, tag: string): string {
+  const els = parse(html);
+  const tops = els.filter((e) => !e.parent);
+  const loose = tops.reduce((s, e) => s.replace(html.slice(e.start, e.end), ""), html).replace(/<!--[\s\S]*?-->/g, "").trim();
+  if (loose || !tops.length) return `<div data-apx-block="${escAttr(tag)}">${html}</div>`;
+  let out = html;
+  for (const e of [...tops].sort((a, b) => b.start - a.start)) {
+    const at = e.start + 1 + e.tag.length;
+    out = `${out.slice(0, at)} data-apx-block="${escAttr(tag)}"${out.slice(at)}`;
+  }
+  return out;
+}
+
+/** Page Builder's own element names: a block among them must be one of them (an HTML Code element). */
+const PB = (el: El | null) => el?.attrs.get("data-content-type")?.value ?? null;
+const PB_HOLDERS = new Set(["row", "column", "column-group", "column-line", "tabs", "tab-item"]);
+/** Where a block goes, as Magento's editor needs it: plain inside an HTML Code element or a page that is not Page Builder;
+ * an HTML Code element among Page Builder's elements; that inside a row among the page's rows. */
+function pbWrap(block: string, parent: El | null, pageBuilder: boolean, tag: string): string {
+  if (!pageBuilder) return block;
+  for (let p: El | null = parent; p; p = p.parent) if (PB(p) === "html" || PB(p) === "text") return block;
+  const holder = (() => { for (let p: El | null = parent; p; p = p.parent) { const t = PB(p); if (t) return t; } return null; })();
+  const element = `<div data-content-type="html" data-appearance="default" data-element="main" data-decoded="true" data-apx-block="${escAttr(tag)}">${block}</div>`;
+  if (holder && PB_HOLDERS.has(holder)) return element;
+  return `<div data-content-type="row" data-appearance="contained" data-element="main" data-apx-block="${escAttr(tag)}"><div data-enable-parallax="0" data-parallax-speed="0.5" data-background-images="{}" data-background-type="image" data-video-loop="true" data-video-play-only-visible="true" data-video-lazy-load="true" data-video-fallback-src="" data-element="inner">${element.replace(` data-apx-block="${escAttr(tag)}"`, "")}</div></div>`;
+}
+
+/** The content without what an earlier write with this tag put in: its blocks out, what it hid shown again as it was. */
+export function withoutOwnWork(content: string, tag: string): string {
+  let html = content;
+  // the blocks, from the last (offsets stay right); one inside another goes with it
+  for (;;) {
+    const blocks = parse(html).filter((e) => e.attrs.get("data-apx-block")?.value === tag);
+    if (!blocks.length) break;
+    const outer = blocks.filter((b) => !blocks.some((o) => o !== b && o.start <= b.start && b.end <= o.end));
+    for (const b of outer.sort((x, y) => y.start - x.start)) html = html.slice(0, b.start) + html.slice(b.end);
+  }
+  // what it hid: its style as it was, the mark gone
+  for (const el of parse(html).filter((e) => e.attrs.get("data-apx-hid")?.value === tag).sort((x, y) => y.start - x.start)) {
+    const st = el.attrs.get("style");
+    const mark = el.attrs.get("data-apx-hid")!;
+    const edits: { from: number; to: number; text: string }[] = [];
+    const markFrom = html.lastIndexOf("data-apx-hid", mark.start);
+    edits.push({ from: html[markFrom - 1] === " " ? markFrom - 1 : markFrom, to: mark.end + 1, text: "" });
+    if (st) {
+      const was = st.value.replace(/;?\s*display:none !important\s*;?\s*$/i, "").trim();
+      if (was) edits.push({ from: st.start, to: st.end, text: was });
+      else { const sFrom = html.lastIndexOf("style", st.start); edits.push({ from: html[sFrom - 1] === " " ? sFrom - 1 : sFrom, to: st.end + 1, text: "" }); }
+    }
+    for (const e of edits.sort((a, b) => b.from - a.from)) html = html.slice(0, e.from) + e.text + html.slice(e.to);
+  }
+  return html;
+}
+
 /**
  * The change list applied to a CMS page's content. CSS: one <style data-apso-version="test-N"> block at the top (an
  * earlier one from APSOconvert is replaced, never doubled). Element changes: spliced in where their selector points,
- * one after the other (each change reads the content as the one before left it).
+ * one after the other (each change reads the content as the one before left it). A replace hides the element (kept) and
+ * puts the block where it stood; what a write with this tag put in before is taken out first (above).
  */
 export function applyToCms(content: string, changes: Change[], tag: string): CmsApplied {
-  let html = content.replace(STYLE_BLOCK, "");
+  let html = withoutOwnWork(content.replace(STYLE_BLOCK, ""), tag);
+  const pageBuilder = /\bdata-content-type=/.test(html);
   const placed: CmsApplied["placed"] = [];
   const notPlaced: CmsApplied["notPlaced"] = [];
   changes.forEach((c, i) => {
@@ -351,15 +419,27 @@ export function applyToCms(content: string, changes: Change[], tag: string): Cms
       switch (c.op) {
         case "html": if (!isVoid) html = html.slice(0, el.openEnd) + c.html + html.slice(el.closeStart); break;
         case "text": if (!isVoid) html = html.slice(0, el.openEnd) + escText(c.text) + html.slice(el.closeStart); break;
-        case "replace": html = html.slice(0, el.start) + c.html + html.slice(el.end); break;
+        case "replace": {
+          // the element hidden and marked (kept), the block - marked - right before it, in its place
+          const cur = el.attrs.get("style")?.value ?? "";
+          let h = setAttr(html, el, "style", `${cur.trim() ? `${cur.trim().replace(/;?$/, ";")} ` : ""}${HIDE_RULE}`);
+          const again = parse(h).find((x) => x.start === el.start)!;
+          h = setAttr(h, again, "data-apx-hid", tag);
+          html = h.slice(0, el.start) + pbWrap(markBlock(c.html, tag), el.parent, pageBuilder, tag) + h.slice(el.start);
+          break;
+        }
         case "insert": {
           const at = c.where === "before" ? el.start : c.where === "after" ? el.end : c.where === "prepend" ? el.openEnd : isVoid ? el.end : el.closeStart;
-          html = html.slice(0, at) + c.html + html.slice(at);
+          const parent = c.where === "before" || c.where === "after" || isVoid ? el.parent : el;
+          html = html.slice(0, at) + pbWrap(markBlock(c.html, tag), parent, pageBuilder, tag) + html.slice(at);
           break;
         }
         case "hide": {
+          // marked as this write's, so a write made again without it (Undo) shows the element again
           const cur = el.attrs.get("style")?.value ?? "";
-          html = setAttr(html, el, "style", `${cur.trim() ? `${cur.trim().replace(/;?$/, ";")} ` : ""}display:none !important`);
+          let h = setAttr(html, el, "style", `${cur.trim() ? `${cur.trim().replace(/;?$/, ";")} ` : ""}${HIDE_RULE}`);
+          h = setAttr(h, parse(h).find((x) => x.start === el.start)!, "data-apx-hid", tag);
+          html = h;
           break;
         }
         case "attr": html = setAttr(html, el, c.name.toLowerCase(), c.value); break;

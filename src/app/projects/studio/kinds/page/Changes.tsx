@@ -126,6 +126,7 @@ export function Changes({ changes, set, hits, canEdit }: { changes: Change[]; se
                 {state && <Typography sx={{ fontSize: "0.72rem", color: state.color, fontWeight: 600 }}>{state.text}{h && h.count > 1 ? ` · ${h.count}` : ""}</Typography>}
               </Box>
               <Typography sx={{ fontSize: "0.85rem", color: INK, mt: 0.4, wordBreak: "break-word" }}>{changeLine(c)}</Typography>
+              {(c as { off?: string }).off && <Typography sx={{ fontSize: "0.74rem", color: "#c5221f", fontWeight: 600, mt: 0.25 }}>{(c as { off?: string }).off}</Typography>}
             </Box>
             {canEdit && (
               <Box sx={{ display: "flex", flexShrink: 0 }}>
@@ -140,7 +141,12 @@ export function Changes({ changes, set, hits, canEdit }: { changes: Change[]; se
       })}
       {canEdit && <Button startIcon={<AddIcon />} onClick={() => setEditing("new")} sx={{ ...btn, mt: 1, color: INK }}>Add a change</Button>}
       <Editor open={editing !== null} change={current} onClose={() => setEditing(null)}
-        onSave={(c) => { if (editing === "new") set([...changes, c]); else if (typeof editing === "number") set(changes.map((x, k) => (k === editing ? c : x))); setEditing(null); }} />
+        onSave={(c) => {
+          if (editing === "new") set([...changes, c]);
+          // edited by hand: its id and module stay with it (Content v6)
+          else if (typeof editing === "number") set(changes.map((x, k) => { const m = x as { id?: string; module?: unknown }; return k === editing ? ({ ...c, ...(m.id ? { id: m.id } : {}), ...(m.module ? { module: m.module } : {}) } as Change) : x; }));
+          setEditing(null);
+        }} />
     </Box>
   );
 }
