@@ -15,6 +15,7 @@
 // (`brainTerms`) and marks the others, so a feature the brand dropped is not put in a film by mistake.
 // Left out on purpose: the chemical compatibility table (its films carry a liability line; never name its source).
 
+import { photoByKey } from "../banner/brand";
 import type { SceneKind } from "./model";
 
 export type FeatureKey =
@@ -40,7 +41,7 @@ export type Feature = {
   figure?: string;
   /** The scene kinds that tell it best, the best first. */
   scenes: SceneKind[];
-  /** A shop photo that suits it (banner/brand.ts SHOP_PHOTOS key), when it has one. */
+  /** The shop photo its scenes show (banner/brand.ts SHOP_PHOTOS key - the shop's own 1000 px technology photos). */
   photo?: string;
   /** Words the brand brain must still carry for the feature to count as confirmed. */
   brainTerms: string[];
@@ -53,7 +54,7 @@ export const FEATURES: Feature[] = [
   //   a large one" and "there is no small-order surcharge if you only need two"
   {
     key: "no-surcharge", name: "No surcharge for small orders", claim: "No surcharge for small orders",
-    proof: "A two-position order gets the same treatment as a large one.", icon: "box",
+    proof: "A two-position order gets the same treatment as a large one.", icon: "box", photo: "orings",
     facts: ["No surcharge for small orders", "A two-position order gets the same treatment as a large one", "No small-order surcharge if you only need two"],
     numbers: [], scenes: ["compare", "feature", "claim"], brainTerms: ["surcharge"],
   },
@@ -62,7 +63,7 @@ export const FEATURES: Feature[] = [
   //   newsletterExamples "Stock and lead times are visible in the shop before you order"
   {
     key: "realtime", name: "Real-time prices, delivery times and availability", claim: "Real-time prices, delivery times and availability",
-    proof: "Stock and lead times are visible before you order.", icon: "clock",
+    proof: "Stock and lead times are visible before you order.", icon: "clock", photo: "sensors",
     facts: ["Prices, delivery times and availability in real time", "Stock and lead times are visible in the shop before you order"],
     numbers: [], scenes: ["feature", "words", "steps"], brainTerms: ["real-time", "real time"],
   },
@@ -81,7 +82,7 @@ export const FEATURES: Feature[] = [
   //   "A thirty-line reorder becomes a two-minute review: check stock, confirm, done."
   {
     key: "quickorder", name: "Quickorder", claim: "Fast ordering with Quickorder",
-    proof: "Your part list as a CSV - every position lands in the cart.", icon: "quick",
+    proof: "Your part list as a CSV - every position lands in the cart.", icon: "quick", photo: "drive",
     facts: ["Quickorder takes your part list as a CSV", "Every position lands in the cart with quantities", "A thirty-line reorder becomes a two-minute review: check stock, confirm, done"],
     numbers: ["30", "2"], scenes: ["compare", "steps", "feature"], brainTerms: ["quickorder"],
   },
@@ -90,7 +91,7 @@ export const FEATURES: Feature[] = [
   //   'connects to' or 'integrates with' a procurement system"
   {
     key: "directup", name: "DirectUP order upload", claim: "Upload your PDF order",
-    proof: "Upload an Excel or PDF order - the articles land in the cart.", icon: "upload",
+    proof: "Upload an Excel or PDF order - the articles land in the cart.", icon: "upload", photo: "fluid",
     facts: ["DirectUP: upload an Excel or PDF order", "The articles land in the cart", "Never say it connects to or integrates with a procurement system"],
     numbers: [], scenes: ["steps", "feature"], brainTerms: ["directup"],
   },
@@ -98,7 +99,7 @@ export const FEATURES: Feature[] = [
   //   across Europe"; positioningGuard "48/72h EU delivery"; paidAds "48/72h delivery across Europe"
   {
     key: "delivery", name: "48/72h delivery across Europe", claim: "48/72h delivery across Europe",
-    proof: "In-stock items ship in 48/72h across Europe.", icon: "truck",
+    proof: "In-stock items ship in 48/72h across Europe.", icon: "truck", photo: "antivibration",
     facts: ["In-stock items ship in 48/72h across Europe"], numbers: ["48/72h", "48/72"], figure: "delivery across *Europe*", scenes: ["number", "feature"], brainTerms: ["48/72"],
   },
   // [brain] positioningGuard.apsoparts "100K+ products"; paidAds "100,000+ products"; newsletterExamples "100,000+
@@ -113,14 +114,14 @@ export const FEATURES: Feature[] = [
   //   "Our support answers 1:1 by live chat and email, in seven languages."
   {
     key: "support", name: "1:1 support in 7 languages", claim: "1:1 support in 7 languages",
-    proof: "Our support answers 1:1 by live chat and e-mail.", icon: "chat",
+    proof: "Our support answers 1:1 by live chat and e-mail.", icon: "chat", photo: "sensors",
     facts: ["Our support answers 1:1 by live chat and email, in seven languages"], numbers: ["7", "1:1"], figure: "languages - *1:1* support", scenes: ["number", "feature"], brainTerms: ["7 languages", "seven languages"],
   },
   // [home] TOOLS en ("3D CAD File Download", "Download 3D models for your articles"); [brain] messagingPillars "Ease:
   //   ... 3D files"
   {
     key: "cad3d", name: "3D CAD files", claim: "3D models for your articles",
-    proof: "Download the 3D CAD file of an article for your design.", icon: "cube",
+    proof: "Download the 3D CAD file of an article for your design.", icon: "cube", photo: "plastics",
     facts: ["3D CAD file download", "Download 3D models for your articles"], numbers: [], scenes: ["feature", "product"], brainTerms: ["3d"],
   },
   // [home] TOOLS en ("O-Ring Expert", "Find the best O-ring for your static or dynamic application"); EN.SEO_TEXT "find
@@ -134,14 +135,14 @@ export const FEATURES: Feature[] = [
   //   with track & trace on the shipment"
   {
     key: "track", name: "Track & trace", claim: "Track & trace on every shipment",
-    proof: "The confirmation lands in your inbox, with track & trace.", icon: "pin",
+    proof: "The confirmation lands in your inbox, with track & trace.", icon: "pin", photo: "fluid",
     facts: ["The confirmation lands in your inbox, with track & trace on the shipment"], numbers: [], scenes: ["feature"], brainTerms: ["track & trace"],
   },
   // [brain] goldExamples.paidAds[1] "17,000 customers trust APSOparts for fast, in-stock delivery of seals, plastics,
   //   fluid and drive parts."
   {
     key: "customers", name: "17,000 customers", claim: "17,000 customers trust APSOparts",
-    proof: "For fast, in-stock delivery of seals, plastics, fluid and drive parts.", icon: "user",
+    proof: "For fast, in-stock delivery of seals, plastics, fluid and drive parts.", icon: "user", photo: "sealing",
     facts: ["17,000 customers trust APSOparts for fast, in-stock delivery of seals, plastics, fluid and drive parts"],
     numbers: ["17,000", "17'000", "17.000", "17 000"], figure: "customers *trust* APSOparts", scenes: ["number"], brainTerms: ["17,000"],
   },
@@ -182,3 +183,9 @@ export function featuresBrief(keys: FeatureKey[]): string {
     ].join("\n");
   }).join("\n");
 }
+
+/**
+ * The picture a feature scene shows when none was picked (09.11.2026; a feature scene never shows an icon in a disc any
+ * more): the shop's own photo for the feature - 1000 px square, sharp on the film's card in every format.
+ */
+export const featurePhoto = (k: FeatureKey | null | undefined): string => photoByKey((k && FEATURE[k]?.photo) || "sealing")?.url ?? "";

@@ -148,16 +148,19 @@ export const Button: React.FC<{ text: string; h: number; fs: number; pulse?: num
  */
 export const Part: React.FC<{ part: PartKey; base: string; cx: number; cy: number; r: number; x?: number; y?: number; squash?: number; tilt?: number; turn?: number; opacity?: number }> = ({ part, base, cx, cy, r, x = 0, y = 0, squash = 0, tilt = 0, turn = 0, opacity = 1 }) => {
   const P = PART[part] ?? PART[DEFAULT_PART];
-  const h = 2 * r;
+  // never taller than its own pixels (09.11.2026: the shop's part photos are 500 px - soft when shown large); it still
+  // stands on the same floor
+  const h = Math.min(2 * r, P.px);
   const w = h * P.ratio;
+  const top = cy + r - h;
   const sx = 1 + 0.1 * squash;
   const sy = 1 - 0.12 * squash;
-  const lift = clamp(y / (r * 2.2));
+  const lift = clamp(y / (h * 1.1));
   const sw = w * 1.15;
   return (
     <>
-      <div style={{ position: "absolute", left: cx - sw / 2 + w * 0.16 + x, top: cy + r - r * 0.09, width: sw, height: r * 0.2, borderRadius: "50%", background: "radial-gradient(closest-side, rgba(29,42,51,.30), rgba(29,42,51,.10) 60%, rgba(29,42,51,0))", transform: `scale(${(1 - 0.5 * lift).toFixed(3)})`, opacity: opacity * (1 - 0.65 * lift) }} />
-      <div style={{ position: "absolute", left: cx - w / 2 + x, top: cy - r - y, width: w, height: h, transformOrigin: "50% 100%", transform: `perspective(${(h * 4).toFixed(0)}px) rotate(${tilt.toFixed(2)}deg) rotateY(${turn.toFixed(2)}deg) scale(${sx.toFixed(3)}, ${sy.toFixed(3)})`, opacity }}>
+      <div style={{ position: "absolute", left: cx - sw / 2 + w * 0.16 + x, top: cy + r - h * 0.045, width: sw, height: h * 0.1, borderRadius: "50%", background: "radial-gradient(closest-side, rgba(29,42,51,.30), rgba(29,42,51,.10) 60%, rgba(29,42,51,0))", transform: `scale(${(1 - 0.5 * lift).toFixed(3)})`, opacity: opacity * (1 - 0.65 * lift) }} />
+      <div style={{ position: "absolute", left: cx - w / 2 + x, top: top - y, width: w, height: h, transformOrigin: "50% 100%", transform: `perspective(${(h * 4).toFixed(0)}px) rotate(${tilt.toFixed(2)}deg) rotateY(${turn.toFixed(2)}deg) scale(${sx.toFixed(3)}, ${sy.toFixed(3)})`, opacity }}>
         <Img src={asset(base, P.cut)} alt={P.name} style={{ display: "block", width: "100%", height: "100%", objectFit: "contain" }} />
       </div>
     </>

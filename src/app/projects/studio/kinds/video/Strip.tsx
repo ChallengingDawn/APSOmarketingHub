@@ -18,6 +18,7 @@ import { LAYOUTS } from "@/lib/content/studio/kinds/video/film/layout";
 import { FPS } from "@/lib/content/studio/kinds/video/engine/timeline";
 import { plain } from "@/lib/content/studio/kinds/video/engine/text";
 import { KIND_INFO, MAX_SCENES, SCENE_KINDS, type Issue, type SceneKind, type Segment, type VideoDoc } from "@/lib/content/studio/kinds/video/model";
+import { PINK } from "../../parts";
 import { SEL } from "./ui";
 
 const H_MAX = 74;
@@ -86,8 +87,8 @@ export default function Strip({ film, segs, selected, playing, frame, issues, di
             <Tooltip title={words || (end ? "The end card" : "No words yet")} enterDelay={500} placement="top">
               <Box component="button" type="button" onClick={() => onSelect(i)} aria-pressed={on} aria-label={end ? "The end card" : `Scene ${i + 1}`} sx={{
                 all: "unset", boxSizing: "border-box", display: "block", cursor: end || disabled ? "pointer" : "grab", position: "relative", borderRadius: "6px", overflow: "hidden",
-                outline: on ? `2px solid ${SEL}` : `1px solid ${HAIRLINE}`, outlineOffset: on ? 1 : 0, boxShadow: on ? "0 6px 16px rgba(36,89,209,.18)" : "0 1px 2px rgba(31,45,78,.06)",
-                "&:hover": { outline: `2px solid ${on ? SEL : "#9fb3c0"}` }, "&:focus-visible": { outline: `2px solid ${SEL}` },
+                outline: on ? `2px solid ${PINK}` : `1px solid ${HAIRLINE}`, outlineOffset: on ? 1 : 0, boxShadow: on ? "0 6px 16px rgba(194,44,110,.22)" : "0 1px 2px rgba(31,45,78,.06)",
+                "&:hover": { outline: `2px solid ${on ? PINK : "#9fb3c0"}` }, "&:focus-visible": { outline: `2px solid ${SEL}` },
               }}>
                 <Thumb film={film} frame={holdFrame(s)} w={w} />
                 {live && <Box sx={{ position: "absolute", left: 0, bottom: 0, height: 3, width: `${progress * 100}%`, bgcolor: "#d80901" }} />}
@@ -95,7 +96,7 @@ export default function Strip({ film, segs, selected, playing, frame, issues, di
               </Box>
             </Tooltip>
             <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.5, mt: 0.5, minWidth: 0 }}>
-              <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: on ? SEL : INK, whiteSpace: "nowrap" }}>{end ? "End" : i + 1}</Typography>
+              <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: on ? PINK : INK, whiteSpace: "nowrap" }}>{end ? "End" : i + 1}</Typography>
               <Typography sx={{ fontSize: "0.7rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontVariantNumeric: "tabular-nums" }}>
                 {end ? "" : `${KIND_INFO[s.kind as SceneKind].label} · `}{(s.dur / FPS).toFixed(0)} s
               </Typography>

@@ -1,33 +1,35 @@
 "use client";
 // A PART OF THE BANNER, CHANGED WHERE IT IS (08.11.2026, Content v3; SARCLA: "banner also" - the editing was "very
-// confusing", like the newsletter's). A click on the headline, the small line over it, the line, the button, the
-// picture, its label or the background opens a small card right there, with only what that part needs:
+// confusing", like the newsletter's; 09.11.2026 the flow standard). A click on a part - its row in the map on the left, or
+// the part on the banner - opens its fields under its row in the map, with only what that part needs:
 //   words      the text, counted against this place's room; where the banner is used in several places, "Everywhere"
 //              (the banner's words) or "Only here" (shorter words for this place alone)
 //   headline   + the endings that take turns on the shop, where a place moves
 //   button     + where it goes
-//   picture    the shop's photos, or one made or uploaded (the hub's picture panel); one, or several in turn
+//   picture    the standard's picture slot: Make it / Upload / Gallery (the shop's photos, ours) / Remove; or several in turn
 //   background the newsletter band's colours
 // Every change shows on the banner as it is typed and saves on its own.
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
-import CloseIcon from "@mui/icons-material/Close";
 
-import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
+import { MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { isHubPicture, photoLabel, SHOP_PHOTOS } from "@/lib/content/studio/kinds/banner/brand";
 import { PRESET, THEMES, THEME_KEYS, sizesOf, type BannerDoc, type OwnWords, type Picture, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
 import type { PickPart } from "@/lib/content/studio/kinds/banner/render";
 import { btn, field } from "../../parts";
 import { PicturePanel, type Picture as HubPicture, type PictureAspect } from "../../pictures";
+import { PictureSlot } from "../video/map";
 import { ChipsInput, Hint, PhotoPicker, Swatches } from "./ui";
 
 export type Set = (fn: (d: BannerDoc) => BannerDoc) => void;
+
+/** A place's name inside a sentence: "the home band" - a name with a capital inside ("LinkedIn card") stays as it is written. */
+export const inLine = (name: string) => (/[A-Z]/.test(name.slice(1)) ? name : name.charAt(0).toLowerCase() + name.slice(1));
 
 export const PART_NAME: Record<PickPart, string> = {
   eyebrow: "Small line over the headline", headline: "Headline", line: "Line", button: "Button", picture: "Picture", label: "Label on the picture", background: "Background",
@@ -59,14 +61,14 @@ function Words({ doc, set, k, f, canEdit }: { doc: BannerDoc; set: Set; k: Prese
     <Box>
       <TextField autoFocus fullWidth size="small" multiline={f === "line"} minRows={f === "line" ? 2 : undefined} value={value} disabled={!canEdit} placeholder={PLACEHOLDER[f]}
         onChange={(e) => change(f === "line" ? e.target.value : e.target.value.replace(/\n/g, " "))} sx={field}
-        helperText={max != null ? <Box component="span" sx={{ display: "flex", justifyContent: "flex-end" }}><span style={{ color: over ? "#c5221f" : MUTED, fontWeight: over ? 700 : 500 }}>{over ? `${value.length - max} too many for the ${PRESET[k].short.toLowerCase()}` : `${value.length} / ${max}`}</span></Box> : undefined} />
+        helperText={max != null ? <Box component="span" sx={{ display: "flex", justifyContent: "flex-end" }}><span style={{ color: over ? "#c5221f" : MUTED, fontWeight: over ? 700 : 500 }}>{over ? `${value.length - max} too many for the ${inLine(PRESET[k].short)}` : `${value.length} / ${max}`}</span></Box> : undefined} />
       {many && (
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.75, flexWrap: "wrap" }}>
           <SquareChoice<string> value={only ? "here" : "all"} onChange={(v) => {
             if (!canEdit) return;
             if (v === "here" && !only) setOwn(CONTENT_OF[f](doc) || " ");
             if (v === "all" && only) set((d) => ({ ...d, own: { ...d.own, [k]: { ...(d.own[k] ?? EMPTY_OWN), [f]: "" } } }));
-          }} options={[{ key: "all", label: "Everywhere" }, { key: "here", label: `Only the ${PRESET[k].short.toLowerCase()}` }]} />
+          }} options={[{ key: "all", label: "Everywhere" }, { key: "here", label: `Only the ${inLine(PRESET[k].short)}` }]} />
         </Box>
       )}
     </Box>
@@ -119,38 +121,44 @@ function PictureEditor({ doc, set, canEdit, projectId, pieceId, me }: { doc: Ban
           ))}
         </Box>
       )}
-      <SquareChoice value={from} onChange={setFrom} options={[{ key: "shop", label: "The shop's photos" }, { key: "hub", label: "Make or upload" }]} />
-      {from === "shop" ? (
-        <PhotoPicker multi={many} lang={lang} selected={many ? c.photos.map((p) => p.url) : [c.image.url]} onPick={(p) => canEdit && (many
-          ? set((d) => {
-            const has = d.content.photos.some((x) => x.url === p.url);
-            const photos = has ? d.content.photos.filter((x) => x.url !== p.url) : [...d.content.photos, { url: p.url, alt: "", label: photoLabel(p, lang) }];
-            return { ...d, content: { ...d.content, photos: photos.length >= 2 ? photos : d.content.photos } };
-          })
-          : setImage({ url: p.url, alt: "", label: photoLabel(p, lang) }))} />
+      {many ? (
+        <>
+          <SquareChoice value={from} onChange={setFrom} options={[{ key: "shop", label: "The shop's photos" }, { key: "hub", label: "Ours" }]} />
+          {from === "shop" ? (
+            <PhotoPicker multi lang={lang} selected={c.photos.map((p) => p.url)} onPick={(p) => canEdit && set((d) => {
+              const has = d.content.photos.some((x) => x.url === p.url);
+              const photos = has ? d.content.photos.filter((x) => x.url !== p.url) : [...d.content.photos, { url: p.url, alt: "", label: photoLabel(p, lang) }];
+              return { ...d, content: { ...d.content, photos: photos.length >= 2 ? photos : d.content.photos } };
+            })} />
+          ) : (
+            <PicturePanel key={suggestion ? "s" : "e"} onPick={pickHub} projectId={projectId} pieceId={pieceId} me={me} aspect={aspect} suggestion={suggestion} columns={3} />
+          )}
+        </>
       ) : (
-        <PicturePanel key={suggestion ? "s" : "e"} onPick={pickHub} projectId={projectId} pieceId={pieceId} me={me} aspect={aspect} suggestion={suggestion} columns={3} />
-      )}
-      {!many && c.image.url && (
-        <Box><Button size="small" disabled={!canEdit} onClick={() => setImage({ url: "", alt: "", label: "" })} sx={{ ...btn, color: MUTED, px: 0.5 }}>No picture</Button></Box>
+        <PictureSlot url={c.image.url || null} idea={suggestion} aspect={aspect} where={{ projectId, pieceId }} disabled={!canEdit}
+          onSet={(url, name) => canEdit && setImage({ url, alt: "", label: name && !/\.(png|jpe?g|webp|gif)$/i.test(name) ? name.slice(0, 40) : c.image.label })}
+          onRemove={c.image.url ? () => canEdit && setImage({ url: "", alt: "", label: "" }) : undefined} removeLabel="No picture"
+          gallery={(
+            <Box sx={{ display: "grid", gap: 1 }}>
+              <Hint>The shop&apos;s photos</Hint>
+              <PhotoPicker lang={lang} selected={[c.image.url]} onPick={(p) => canEdit && setImage({ url: p.url, alt: "", label: photoLabel(p, lang) })} />
+              <Hint>Ours</Hint>
+              <PicturePanel onPick={pickHub} projectId={projectId} pieceId={pieceId} me={me} aspect={aspect} tabs={["mine", "project"]} start="project" columns={3} />
+            </Box>
+          )} />
       )}
     </Box>
   );
 }
 
-/** The card that opens on a part of the banner. */
-export default function Editor({ doc, set, k, part, canEdit, projectId, pieceId, me, onClose }: {
-  doc: BannerDoc; set: Set; k: PresetKey; part: PickPart; canEdit: boolean; projectId: number; pieceId: number; me: string; onClose: () => void;
+/** A part's fields, under its row in the map (09.11.2026, the flow standard: the left opens the part that is selected). */
+export default function PartFields({ doc, set, k, part, canEdit, projectId, pieceId, me }: {
+  doc: BannerDoc; set: Set; k: PresetKey; part: PickPart; canEdit: boolean; projectId: number; pieceId: number; me: string;
 }) {
   const c = doc.content;
   const anyMotion = sizesOf(doc).some((x) => PRESET[x].motion);
   return (
-    <Box data-part-editor={part} onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } }}
-      sx={{ width: "100%", boxSizing: "border-box", bgcolor: "#fff", borderRadius: "10px", border: `1px solid ${HAIRLINE}`, boxShadow: "0 14px 40px rgba(31,45,78,.16)", p: 1.75 }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.25 }}>
-        <Typography sx={{ flex: 1, fontSize: "0.82rem", fontWeight: 700, color: INK }}>{PART_NAME[part]}</Typography>
-        <IconButton size="small" onClick={onClose} aria-label="Close"><CloseIcon sx={{ fontSize: 17 }} /></IconButton>
-      </Box>
+    <Box data-part-editor={part}>
       {(part === "eyebrow" || part === "line") && <Words doc={doc} set={set} k={k} f={part} canEdit={canEdit} />}
       {part === "headline" && (
         <>
