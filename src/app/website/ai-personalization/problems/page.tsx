@@ -312,7 +312,7 @@ function PageCard({ p, selected, onSelect, work }: { p: Row; selected: boolean; 
     <WideCard selected={selected}
       picture={
         <Box component={Link} href={previewHref("prod", p.path)} title="Open it in Preview" sx={{ position: "relative", display: "block", height: "100%", "&:hover .apx-open": { opacity: 1 } }}>
-          <PageShot env="prod" path={p.path} ratio={0.9} label={p.name || p.path} />
+          <PageShot env="prod" path={p.path} ratio={1.3} label={p.name || p.path} />
           <Box className="apx-open" sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", bgcolor: "rgba(21,34,58,.38)", opacity: 0, transition: "opacity .15s" }}>
             <Box sx={{ px: 1.5, py: 0.6, borderRadius: "6px", bgcolor: "#fff", color: ACCENT, fontSize: "0.82rem", fontWeight: 700 }}>Open in Preview</Box>
           </Box>

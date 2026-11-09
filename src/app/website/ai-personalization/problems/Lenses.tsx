@@ -100,7 +100,7 @@ function SeoCard({ r, name }: { r: SeoRow; name: string | null }) {
   const low = r.typical !== null && r.ctr < r.typical / 2;
   return (
     <WideCard
-      picture={<Box component={Link} href={previewHref("prod", r.path)} sx={{ display: "block" }} title="Open it in Preview"><PageShot env="prod" path={r.path} ratio={0.9} label={name ?? r.path} /></Box>}
+      picture={<Box component={Link} href={previewHref("prod", r.path)} sx={{ display: "block" }} title="Open it in Preview"><PageShot env="prod" path={r.path} ratio={1.3} label={name ?? r.path} /></Box>}
       chips={<><Chip tint="purple">SEO</Chip><Chip tint="slate">{KIND_LABEL[r.kind as PageKind]}</Chip></>}>
       <Box sx={{ minWidth: 0 }}>
         <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK, lineHeight: 1.3, overflowWrap: "anywhere" }}>{name ?? r.path}</Typography>
@@ -176,7 +176,7 @@ function BlockCard({ b, views, signups }: { b: ShopBlock; views: number | null; 
   const rate = nl && signups && views ? perThousand(signups.total, views) : null;
   return (
     <WideCard
-      picture={<Box component={Link} href={`${previewHref("prod", b.page)}&block=${b.key}`} sx={{ display: "block" }} title="Open it in Preview"><PageShot env="prod" path={b.page} ratio={0.9} label={b.name} focus={b.focus} /></Box>}
+      picture={<Box component={Link} href={`${previewHref("prod", b.page)}&block=${b.key}`} sx={{ display: "block" }} title="Open it in Preview"><PageShot env="prod" path={b.page} ratio={1.3} label={b.name} focus={b.focus} /></Box>}
       chips={<><Chip tint="amber">Block</Chip><Chip tint="slate">{b.where === "every" ? "Every page" : "Home page"}</Chip></>}>
       <Box sx={{ minWidth: 0 }}>
         <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>{b.name}</Typography>
@@ -187,8 +187,8 @@ function BlockCard({ b, views, signups }: { b: ShopBlock; views: number | null; 
         <Stat k={b.where === "every" ? "Views, all pages" : "Home page views"} v={views === null ? "–" : full(views)} sub="Google Analytics" />
         {nl
           ? <Stat k="Sign-ups" v={signups ? full(signups.total) : "–"} sub={signups?.error ? "HubSpot did not say" : signups ? `${signups.forms.length} newsletter forms` : "reading HubSpot…"} />
-          : <Stat k="Clicks on it" v="–" sub="the click map counts once the shop's gateway runs" />}
-        {nl ? <Stat k="Per 1,000 views" v={rate === null ? "–" : rate.toFixed(2)} sub="sign-ups" /> : <Stat k="Shown on" v={b.where === "every" ? "every page" : "the home page"} sub="de-CH, each language its own" />}
+          : <Stat k="Clicks on it" v="–" sub="after the gateway deploy" />}
+        {nl ? <Stat k="Per 1,000 views" v={rate === null ? "–" : rate.toFixed(2)} sub="sign-ups" /> : <Stat k="Where" v="Home" sub="de-CH page" />}
       </Box>
       <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap", mt: 0.25 }}>
         <Button size="small" variant="contained" disableElevation component={Link} href={`${previewHref("prod", b.page)}&block=${b.key}&ask=1`} sx={btn}>Find optimizations</Button>

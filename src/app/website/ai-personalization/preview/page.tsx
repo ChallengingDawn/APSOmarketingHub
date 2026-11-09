@@ -402,6 +402,42 @@ function OwnIdea({ onAdd }: { onAdd: (title: string, change: string) => Promise<
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// FRAMES THAT COST LITTLE - a frame running the shop's scripts has an opaque origin, so it shares no browser cache and
+// asks the hub for ~100 files each time; the hub's WAF locks an address out at 2,000 requests in 5 minutes. So
+// BEFORE is the page's still picture (no script, shared cache) at the same block, and the gallery's live frames load
+// only when they come on screen, 4 at most.
+
+function StillBefore({ env, path, focus, label }: { env: Env; path: string; focus: string | null; label: string }) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.75 }}>
+        <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".04em" }}>{label}</Typography>
+      </Box>
+      <Box sx={{ borderRadius: "12px", overflow: "hidden", border: `1px solid ${HAIRLINE}`, boxShadow: "0 10px 30px rgba(21,34,58,.08)", bgcolor: "#fff" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.25, height: 34, bgcolor: "#f1f3f6", borderBottom: `1px solid ${HAIRLINE}` }}>
+          <Box sx={{ display: "flex", gap: 0.6 }}>{["#ff5f57", "#febc2e", "#28c840"].map((c) => <Box key={c} sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: c, opacity: 0.85 }} />)}</Box>
+          <Typography sx={{ fontSize: "0.72rem", color: MUTED, ...clip(900) }}>{path}</Typography>
+        </Box>
+        <PageShot env={env} path={path} ratio={1.25} label={label} focus={focus} />
+      </Box>
+    </Box>
+  );
+}
+
+function OnScreen({ children, h }: { children: React.ReactNode; h: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { setOn(true); io.disconnect(); } }, { rootMargin: "80px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return <Box ref={ref} sx={{ minHeight: h, minWidth: 0 }}>{on ? children : null}</Box>;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // WHAT CHANGES - a version's changes from the page as it is, each in words, whole (never cut), with whether it found its
 // place on the page; a click scrolls both frames to it
 
@@ -727,25 +763,26 @@ function ConvertPreview() {
     const frames = pg.status !== 200 ? null : gallery ? (
       // every version side by side, each at its block - pick one to work on it
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(2, minmax(0,1fr))", xl: "repeat(3, minmax(0,1fr))" } }}>
-        <Box sx={{ minWidth: 0 }}>
-          <Frame src={base} device={device} zoom="fit" name="before" sync={null} pick={false} marks={false} goto={block ? { sel: block.selector, n: goN } : beforeGoto} tall={420} address={pg.url ?? path} label="Before · the page as it is" onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />
-        </Box>
-        {withVersions.flatMap((i) => (versionsOf.get(i.id) ?? []).map((v) => (
+        <StillBefore env={env} path={path} focus={block?.focus ?? beforeGoto?.sel ?? null} label="Before · the page as it is" />
+        {withVersions.flatMap((i) => (versionsOf.get(i.id) ?? []).map((v) => ({ i, v }))).slice(0, 4).map(({ i, v }) => (
           <Box key={v.id} sx={{ minWidth: 0, cursor: "pointer", borderRadius: "12px", "&:hover": { boxShadow: `0 0 0 2px ${ACCENT}` } }} onClick={() => { setCompare(false); select(i.id, v.letter); }}>
-            <Frame src={srcOf(v)} device={device} zoom="fit" name={`g${v.id}`} sync={null} pick={false} marks={false} goto={{ sel: block?.selector ?? i.target ?? "[data-apso-c],[data-apso-v]", n: goN }} tall={420}
-              address={pg.url ?? path} label={`${numberOf.get(i.id) ?? ""} · ${i.title} · Version ${v.letter}`} onMsg={() => {}} onRetry={() => setFresh((n) => n + 1)} />
+            <OnScreen h={470}>
+              <Frame src={srcOf(v)} device={device} zoom="fit" name={`g${v.id}`} sync={null} pick={false} marks={false} goto={{ sel: block?.selector ?? i.target ?? "[data-apso-c],[data-apso-v]", n: goN }} tall={420}
+                address={pg.url ?? path} label={`${numberOf.get(i.id) ?? ""} · ${i.title} · Version ${v.letter}`} onMsg={() => {}} onRetry={() => setFresh((n) => n + 1)} />
+            </OnScreen>
           </Box>
-        )))}
+        ))}
       </Box>
     ) : (
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: shown === "both" ? { xs: "minmax(0,1fr)", lg: "minmax(0,1fr) minmax(0,1fr)" } : "minmax(0,1fr)" }}>
-        {shown !== "after" && (
-          <Frame src={base} device={device} zoom={zoom} name="before" sync={shown === "both" ? sync : null} pick={pick} marks={false}
+        {shown === "both" && <StillBefore env={env} path={path} focus={goSel ?? idea?.target ?? firstSel ?? block?.focus ?? null} label="Before · the page as it is" />}
+        {(shown === "before" || shown === "page") && (
+          <Frame src={base} device={device} zoom={zoom} name="before" sync={null} pick={pick} marks={false}
             spots={idea || clicks ? null : spots} heat={shown === "page" ? heatMsg : null} goto={beforeGoto}
             address={pg.url ?? path} label={idea ? "Before · the page as it is" : "The page as it is"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />
         )}
         {version && shown !== "before" && shown !== "page" && (
-          <Frame src={srcOf(version, rev)} device={device} zoom={zoom} name="after" sync={shown === "both" ? sync : null} pick={pick} marks={marks} goto={afterGoto}
+          <Frame src={srcOf(version, rev)} device={device} zoom={zoom} name="after" sync={null} pick={pick} marks={marks} goto={afterGoto}
             address={pg.url ?? path} label={`After · Version ${version.letter} · revision ${rev ?? version.rev}`} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />
         )}
       </Box>
