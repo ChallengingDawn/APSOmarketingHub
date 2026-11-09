@@ -1,35 +1,40 @@
 "use client";
-// THE BLOG STUDIO'S OUTLINE (Content v3, 08.11.2026 - SARCLA: "the editing is really not yet fully clear"). The map of the
-// post on the left, top to bottom as the page shows it: each part with its state (written, still to do, to look at). A
-// click brings the part into view in the preview and picks it - its words are edited there, the assistant works on it.
-// Sections are added, moved and removed here. Under the page, what is not on it: what Google shows, the way to the shop
-// (Magento), more posts, the team's notes - one opened at a time.
+// THE BLOG STUDIO'S MAP (Content v3, 08.11.2026 - SARCLA: "the editing is really not yet fully clear"; Content v4, 09.11.2026:
+// the flow standard of all six studios). The left of the studio, top to bottom as the page shows it:
+//   start       nothing written yet: "What are you making?" (its language), ONE pink "Write the whole post with AI", or
+//               open a part and write it yourself; once written, "Write it all again" in the header
+//   the parts   each with its state (written ●, empty ○, picture missing ▣, being written: it shimmers), its name, one line
+//               of what it holds, a chevron. A click picks the part in the page (and scrolls there) and opens ITS fields
+//               under its row - one open at a time. Sections are added, moved and removed here.
+//   around it   what is not on the page: what Google shows, notes for the team - opened under their row like a part
+//   last step   pinned at the foot: "LAST STEP · Publish" opens its own view here, "<- The post" goes back
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
+import Collapse from "@mui/material/Collapse";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
-import { LIMITS, postPath, slugify, type BlogCard, type BlogDoc } from "@/lib/content/studio/kinds/blog/model";
+import { LIMITS, postPath, postWarnings, slugify, type BlogCard, type BlogDoc } from "@/lib/content/studio/kinds/blog/model";
 import { moveSection, outlineOf, sectionOf, type PartState } from "@/lib/content/studio/kinds/blog/parts";
 import { serp } from "@/lib/content/studio/kinds/blog/render";
-import { Field, PINK, Pane } from "../../parts";
+import { Field, PINK, Pane, btn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { Publish } from "./Publish";
 import { BLUE, toolBtn } from "./ui";
 
-const DOT: Record<PartState, string> = { done: "#1b7a55", todo: "#c3ccd1", warn: AMBER };
-
-/** Where a picked part shows in the outline: its row's key (a section's parts all show on its row). */
+/** Where a picked part shows in the map: its row's key (a section's parts all show on its row). */
 export function rowOf(key: string | null): string | null {
   if (!key) return null;
   const s = sectionOf(key);
@@ -42,7 +47,19 @@ export function rowOf(key: string | null): string | null {
   return key;
 }
 
-type Around = "google" | "publish" | "notes" | null;
+/** A part's state, as every studio's map shows it: written ●, empty ○, a picture missing ▣, being written (it shimmers). */
+export function StateMark({ state, picture, busy }: { state: PartState; picture?: boolean; busy?: boolean }) {
+  const size = 9;
+  if (busy) {
+    return <Box aria-label="Being written" sx={{
+      width: size + 1, height: size + 1, borderRadius: "50%", flexShrink: 0, background: `linear-gradient(110deg, ${PINK}, #f3b5cf, ${PINK})`, backgroundSize: "200% 100%",
+      animation: "xmark 1s linear infinite", "@keyframes xmark": { "0%": { backgroundPosition: "100% 0", opacity: 0.6 }, "50%": { opacity: 1 }, "100%": { backgroundPosition: "-100% 0", opacity: 0.6 } },
+    }} />;
+  }
+  const color = state === "done" ? "#1b7a55" : state === "warn" ? AMBER : "#9aa5ad";
+  if (picture && state !== "done") return <Box aria-label="Picture missing" sx={{ width: size, height: size, flexShrink: 0, borderRadius: "2px", border: `1.5px solid ${color}`, boxShadow: `inset 0 0 0 1.5px #fff, inset 0 0 0 3px ${color}` }} />;
+  return <Box aria-label={state === "done" ? "Written" : state === "warn" ? "To look at" : "Empty"} sx={{ width: size, height: size, flexShrink: 0, borderRadius: "50%", ...(state === "todo" ? { border: `1.5px solid ${color}` } : { bgcolor: color }) }} />;
+}
 
 function Google({ api, d, set, canEdit }: { api: StudioApi; d: BlogDoc; set: (d: BlogDoc) => void; canEdit: boolean }) {
   const s = serp(d);
@@ -75,47 +92,94 @@ function Google({ api, d, set, canEdit }: { api: StudioApi; d: BlogDoc; set: (d:
   );
 }
 
-export function Outline({ api, d, set, sel, onPick, onAddSection, cards }: {
-  api: StudioApi; d: BlogDoc; set: (d: BlogDoc) => void; sel: string | null; onPick: (key: string) => void;
+const Kick = ({ children }: { children: React.ReactNode }) => (
+  <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED, px: 1, pt: 1.5, pb: 0.5 }}>{children}</Typography>
+);
+
+/** A row of the map: its mark, its name, one line of what it holds, a chevron; its fields open under it. */
+function Row({ active, onClick, mark, num, label, detail, warn, tools, children, indent = false }: {
+  active: boolean; onClick: () => void; mark: React.ReactNode; num?: number; label: string; detail: string; warn?: boolean; tools?: React.ReactNode; children?: React.ReactNode; indent?: boolean;
+}) {
+  return (
+    <Box>
+      <Box role="button" tabIndex={0} aria-expanded={active} onClick={onClick} onKeyDown={(e) => { if (e.key === "Enter") onClick(); }}
+        sx={{
+          display: "flex", alignItems: "center", gap: 1, pl: indent ? 2.25 : 1, pr: 0.5, py: 0.75, borderRadius: "6px", cursor: "pointer", position: "relative",
+          bgcolor: active ? "rgba(194,44,110,.07)" : "transparent", "&:hover": { bgcolor: active ? "rgba(194,44,110,.09)" : "rgba(21,34,58,.04)" },
+          "&:hover .tools": { opacity: 1, pointerEvents: "auto" }, "&:focus-visible": { outline: `2px solid ${PINK}` },
+        }}>
+        {num !== undefined && <Typography sx={{ width: 14, flexShrink: 0, fontSize: "0.72rem", fontWeight: 700, color: active ? PINK : MUTED, fontVariantNumeric: "tabular-nums" }}>{num}</Typography>}
+        {mark}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: "0.85rem", fontWeight: active ? 700 : 600, color: INK, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</Typography>
+          <Typography sx={{ fontSize: "0.74rem", color: warn ? AMBER : MUTED, lineHeight: 1.35, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{detail}</Typography>
+        </Box>
+        <KeyboardArrowDownIcon sx={{ fontSize: 18, color: active ? PINK : "#a7b0bb", flexShrink: 0, transform: active ? "rotate(180deg)" : "none", transition: "transform .18s" }} />
+        {tools}
+      </Box>
+      <Collapse in={active && !!children} timeout={200} unmountOnExit>
+        <Box sx={{ ml: indent ? 2.25 : 0.5, mr: 0.25, mt: 0.5, mb: 1.25, p: 1.25, borderRadius: "8px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>{children}</Box>
+      </Collapse>
+    </Box>
+  );
+}
+
+export function Outline({ api, d, set, sel, onPick, onAddSection, cards, fields, start, onWriteAll, busy }: {
+  api: StudioApi; d: BlogDoc; set: (d: BlogDoc) => void; sel: string | null; onPick: (key: string | null) => void;
   onAddSection: () => void; cards: BlogCard[] | null;
+  /** the picked part's own fields (its picture, its topics, where its button goes...) - under its row */
+  fields?: React.ReactNode;
+  /** the start card, while nothing is written */
+  start?: React.ReactNode;
+  /** "Write it all again" in the header, once something is written */
+  onWriteAll?: () => void;
+  /** the row being written by the assistant ("all": the whole post) */
+  busy?: string | null;
 }) {
   const canEdit = api.data.access.canEdit;
-  const [around, setAround] = useState<Around>(null);
+  const [around, setAround] = useState<"google" | "notes" | null>(null);
+  const [step, setStep] = useState<"map" | "publish">("map");
   const rows = outlineOf(d);
   const on = rowOf(sel);
+  const busyRow = busy === "all" ? "all" : rowOf(busy ?? null);
   const n = d.sections.length;
   const meta = `Title ${(d.metaTitle || d.title).length}/${LIMITS.metaTitle} · description ${d.metaDescription ? `${d.metaDescription.length}/${LIMITS.metaDescription}` : "none yet"}`;
-  const AROUND: { key: Exclude<Around, null>; label: string; short: string; detail: string }[] = [
-    { key: "google", label: "What Google shows", short: "Google", detail: meta },
-    { key: "publish", label: "Publish on the shop", short: "Publish", detail: "The pages for Magento, and more posts" },
-    { key: "notes", label: "Notes for the team", short: "Notes", detail: d.notes.trim() ? d.notes.trim().slice(0, 60) : "No notes yet" },
-  ];
+  const warnings = postWarnings(d);
 
+  /* ── the last step, as its own view ── */
+  if (step === "publish") {
+    return (
+      <Pane title="Build" pad={false}>
+        <Box sx={{ p: 2 }}>
+          <Button size="small" startIcon={<ArrowBackIcon sx={{ fontSize: 17 }} />} onClick={() => setStep("map")} sx={{ ...btn, color: INK, px: 0.5, ml: -0.5, mb: 1.25 }}>The post</Button>
+          <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: PINK }}>Last step</Typography>
+          <Typography sx={{ fontSize: "1.05rem", fontWeight: 750, color: INK, mb: 1.5, letterSpacing: "-0.01em" }}>Publish on the shop</Typography>
+          <Publish api={api} d={d} cards={cards} />
+        </Box>
+      </Pane>
+    );
+  }
+
+  const linkBtn = { ...btn, minWidth: 0, px: 0.75, py: 0.1, fontSize: "0.74rem", color: PINK, letterSpacing: 0, textTransform: "none" as const, "& .MuiButton-startIcon": { mr: 0.4 } };
   return (
-    <Pane title="Outline" pad={false}>
+    <Pane title="Build" pad={false} right={onWriteAll ? (
+      <Tooltip title="The assistant writes the whole post again from the brief - Undo brings this one back">
+        <Button size="small" onClick={onWriteAll} disabled={busy !== null && busy !== undefined} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: "14px !important" }} />} sx={linkBtn}>Write it all again</Button>
+      </Tooltip>
+    ) : undefined}>
       <Box sx={{ p: 1.25 }}>
+        {start}
         {rows.map((r) => {
           const isSec = !!r.section;
           const i = isSec ? d.sections.findIndex((s) => s.id === r.section) : -1;
           const active = on === r.key;
           return (
             <Box key={r.key}>
-              <Box role="button" tabIndex={0} onClick={() => onPick(r.key)} onKeyDown={(e) => { if (e.key === "Enter") onPick(r.key); }}
-                sx={{
-                  display: "flex", alignItems: "flex-start", gap: 1, pl: isSec ? 2.25 : 1, pr: 0.5, py: 0.75, borderRadius: "6px", cursor: "pointer", position: "relative",
-                  bgcolor: active ? "rgba(36,89,209,.08)" : "transparent", "&:hover": { bgcolor: active ? "rgba(36,89,209,.1)" : "rgba(21,34,58,.04)" },
-                  "&:hover .tools": { opacity: 1, pointerEvents: "auto" }, "&:focus-visible": { outline: `2px solid ${BLUE}` },
-                }}>
-                {isSec
-                  ? <Typography sx={{ width: 16, flexShrink: 0, fontSize: "0.72rem", fontWeight: 700, color: active ? BLUE : MUTED, mt: "2px", fontVariantNumeric: "tabular-nums" }}>{i + 1}</Typography>
-                  : null}
-                <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: DOT[r.state], flexShrink: 0, mt: "6px" }} />
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography sx={{ fontSize: "0.85rem", fontWeight: active ? 700 : 600, color: active ? BLUE : INK, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: isSec ? 1 : 2, WebkitBoxOrient: "vertical" }}>{r.label}</Typography>
-                  <Typography sx={{ fontSize: "0.74rem", color: r.state === "warn" ? AMBER : MUTED, lineHeight: 1.35, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.detail}</Typography>
-                </Box>
-                {isSec && canEdit && (
-                  <Box className="tools" onClick={(e) => e.stopPropagation()} sx={{ position: "absolute", right: 4, top: 4, display: "flex", borderRadius: "6px", bgcolor: "#fff", boxShadow: "0 1px 4px rgba(31,45,78,.14)", opacity: 0, transition: "opacity .12s", pointerEvents: "none" }}>
+              <Row active={active} onClick={() => onPick(active ? null : r.key)} indent={isSec} num={isSec ? i + 1 : undefined}
+                mark={<StateMark state={r.state} picture={r.key === "hero"} busy={busyRow === "all" || busyRow === r.key} />}
+                label={r.label} detail={r.detail} warn={r.state === "warn"}
+                tools={isSec && canEdit ? (
+                  <Box className="tools" onClick={(e) => e.stopPropagation()} sx={{ position: "absolute", right: 26, top: 4, display: "flex", borderRadius: "6px", bgcolor: "#fff", boxShadow: "0 1px 4px rgba(31,45,78,.14)", opacity: 0, transition: "opacity .12s", pointerEvents: "none" }}>
                     <Tooltip title="Up"><span><IconButton size="small" disabled={i === 0} onClick={() => set(moveSection(d, r.section!, -1))} aria-label="Move the section up"><ArrowUpwardIcon sx={{ fontSize: 15 }} /></IconButton></span></Tooltip>
                     <Tooltip title="Down"><span><IconButton size="small" disabled={i === n - 1} onClick={() => set(moveSection(d, r.section!, 1))} aria-label="Move the section down"><ArrowDownwardIcon sx={{ fontSize: 15 }} /></IconButton></span></Tooltip>
                     <Tooltip title="Remove the section">
@@ -125,48 +189,40 @@ export function Outline({ api, d, set, sel, onPick, onAddSection, cards }: {
                       </IconButton>
                     </Tooltip>
                   </Box>
-                )}
-              </Box>
+                ) : undefined}>
+                {active ? fields : null}
+              </Row>
               {/* a new section goes after the last one */}
-              {isSec && i === n - 1 && canEdit && (
-                <Button size="small" startIcon={<AddIcon sx={{ fontSize: 16 }} />} onClick={onAddSection} sx={{ ...toolBtn, border: "none", color: BLUE, ml: 2.5, my: 0.25, "&:hover": { bgcolor: "rgba(36,89,209,.06)", color: BLUE } }}>Add a section</Button>
-              )}
-              {r.key === "hero" && n === 0 && canEdit && (
-                <Button size="small" startIcon={<AddIcon sx={{ fontSize: 16 }} />} onClick={onAddSection} sx={{ ...toolBtn, border: "none", color: BLUE, ml: 1.5, my: 0.25, "&:hover": { bgcolor: "rgba(36,89,209,.06)", color: BLUE } }}>Add a section</Button>
+              {((isSec && i === n - 1) || (r.key === "hero" && n === 0)) && canEdit && (
+                <Button size="small" startIcon={<AddIcon sx={{ fontSize: 16 }} />} onClick={onAddSection} sx={{ ...toolBtn, border: "none", color: BLUE, ml: isSec ? 2.5 : 1.5, my: 0.25, "&:hover": { bgcolor: "rgba(36,89,209,.06)", color: BLUE } }}>Add a section</Button>
               )}
             </Box>
           );
         })}
+
+        <Kick>Around the post</Kick>
+        <Row active={around === "google"} onClick={() => setAround((a) => (a === "google" ? null : "google"))} mark={<StateMark state={d.metaTitle && d.metaDescription ? "done" : "todo"} />}
+          label="What Google shows" detail={meta}>
+          <Google api={api} d={d} set={set} canEdit={canEdit} />
+        </Row>
+        <Row active={around === "notes"} onClick={() => setAround((a) => (a === "notes" ? null : "notes"))} mark={<StateMark state={d.notes.trim() ? "done" : "todo"} />}
+          label="Notes for the team" detail={d.notes.trim() ? d.notes.trim().slice(0, 60) : "No notes yet"}>
+          <Field label="For the team" value={d.notes} multiline rows={3} disabled={!canEdit} onChange={(v) => set({ ...d, notes: v })} />
+        </Row>
       </Box>
 
-      {/* what is not on the page, at the foot of the column however long the post: one opened at a time, above its row */}
-      <Box sx={{ position: "sticky", bottom: 0, zIndex: 2, borderTop: `1px solid ${HAIRLINE}`, px: 1.25, pt: 0.75, pb: 1, bgcolor: "rgba(250,251,252,.97)", backdropFilter: "blur(6px)" }}>
-        {around && (
-          <Box sx={{ px: 0.5, pt: 0.75, pb: 1.25, maxHeight: "58vh", overflowY: "auto" }}>
-            <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-              <Typography sx={{ flex: 1, fontSize: "0.9rem", fontWeight: 700, color: INK }}>{AROUND.find((a) => a.key === around)?.label}</Typography>
-              <IconButton size="small" aria-label="Close" onClick={() => setAround(null)}><KeyboardArrowDownIcon sx={{ fontSize: 18 }} /></IconButton>
-            </Box>
-            {around === "google" && <Google api={api} d={d} set={set} canEdit={canEdit} />}
-            {around === "publish" && <Publish api={api} d={d} cards={cards} />}
-            {around === "notes" && <Field label="For the team" value={d.notes} multiline rows={3} disabled={!canEdit} onChange={(v) => set({ ...d, notes: v })} />}
+      {/* the last step, always in view at the foot of the column */}
+      <Box sx={{ position: "sticky", bottom: 0, zIndex: 2, px: 1.5, py: 1.25, borderTop: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.94)", backdropFilter: "blur(6px)" }}>
+        <Typography sx={{ fontSize: "0.74rem", color: warnings.length ? AMBER : MUTED, mb: 0.75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {!n ? "Nothing written yet" : warnings.length ? `${warnings.length} thing${warnings.length === 1 ? "" : "s"} to look at before it goes live` : "Ready for the shop"}
+        </Typography>
+        <Button fullWidth variant="contained" disableElevation onClick={() => setStep("publish")} endIcon={<ArrowForwardIcon sx={{ fontSize: 18 }} />}
+          sx={{ ...btn, height: 40, borderRadius: "8px", bgcolor: "#15223a", color: "#fff", justifyContent: "space-between", px: 1.75, "&:hover": { bgcolor: "#24344f" } }}>
+          <Box component="span" sx={{ display: "inline-flex", alignItems: "baseline", gap: 1 }}>
+            <Box component="span" sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "rgba(255,255,255,.6)" }}>Last step</Box>
+            Publish
           </Box>
-        )}
-        <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED, px: 0.5, pb: 0.5 }}>Around the post</Typography>
-        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 0.5 }}>
-          {AROUND.map((a) => {
-            const isOn = around === a.key;
-            return (
-              <Tooltip key={a.key} title={a.detail} describeChild>
-                <Box component="button" type="button" onClick={() => setAround(isOn ? null : a.key)} sx={{
-                  all: "unset", cursor: "pointer", boxSizing: "border-box", textAlign: "center", py: 0.75, px: 0.5, borderRadius: "4px", fontSize: "0.78rem", fontWeight: 600,
-                  border: `1px solid ${isOn ? BLUE : HAIRLINE}`, bgcolor: isOn ? BLUE : "#fff", color: isOn ? "#fff" : INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                  "&:hover": isOn ? {} : { borderColor: BLUE, color: BLUE }, "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: 1 },
-                }}>{a.short}</Box>
-              </Tooltip>
-            );
-          })}
-        </Box>
+        </Button>
       </Box>
     </Pane>
   );
