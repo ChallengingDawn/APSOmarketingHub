@@ -16,7 +16,7 @@
 // nothing blinks and the scroll stays. Overlay: controls drawn over the page at a part's place (the newsletter's block
 // tools).
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
@@ -28,6 +28,7 @@ import FormatBoldIcon from "@mui/icons-material/FormatBold";
 import LinkIcon from "@mui/icons-material/Link";
 import { HAIRLINE } from "@/app/uc/report/ui";
 import { htmlToMarks, type RichMode } from "@/lib/content/studio/kinds/blog/richEdit";
+import { placeLabel, type Box as Area } from "@/lib/content/studio/kinds/social/place";
 
 export type Device = "desktop" | "mobile";
 export type Rect = { left: number; top: number; width: number; height: number };
@@ -42,6 +43,8 @@ a[data-ed],a [data-ed],[data-ed] a{pointer-events:auto!important}
 @keyframes xbusy{0%,100%{outline:2px solid rgba(194,44,110,.2);outline-offset:3px}50%{outline:2px solid rgba(194,44,110,.85);outline-offset:6px}}`;
 
 const MARKED = "[data-ed],[data-pic],[data-sel]";
+/** the label over the picked part: its height */
+const LABEL_H = 28;
 const keyOf = (el: Element) => el.getAttribute("data-ed") ?? el.getAttribute("data-pic") ?? el.getAttribute("data-sel");
 const norm = (t: string) => t.replace(/ /g, " ").replace(/\s+/g, " ").trim();
 
@@ -105,6 +108,13 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
   const [height, setHeight] = useState(900);
   const [tick, setTick] = useState(0);
   const w = device === "mobile" ? 390 : width;
+  /** the label over the picked part: its real width, for its place */
+  const labelRef = useRef<HTMLDivElement | null>(null);
+  const [labelW, setLabelW] = useState(220);
+  useLayoutEffect(() => {
+    const lw = labelRef.current?.offsetWidth;
+    if (lw && Math.abs(lw - labelW) > 2) setLabelW(lw);
+  });
 
   // the latest of everything, for the listeners on the page (set once per document)
   const props = useRef({ texts, oneLine, onSelect, onCommit, readOnly, selected, rich, redMarks });
@@ -373,6 +383,50 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
   const selEl = selected && label ? (() => { const dd = doc(); return dd ? marked(dd, selected)[0] ?? null : null; })() : null;
   const selName = selected && label ? label(selected) : null;
   const selBox = selEl && selName ? (() => { const r = selEl.getBoundingClientRect(); return { left: r.left * zoom, top: r.top * zoom, width: r.width * zoom }; })() : null;
+  // the label's place by the social studio's rule (lib/content/studio/kinds/social/place.ts): above the part if that
+  // covers nothing, else below, else inside its corner - never over the title, a heading or the block above (QA
+  // 09.11.2026). What it must not cover is the other parts' WORDS, line by line (a title's short last line leaves room
+  // beside it) and their pictures; a part holding others counts by them. Before going inside the part: its bottom-right
+  // corner after a short last line, then above or below over the edge of a picture (never over words).
+  const labelAt = selEl && selBox ? (() => {
+    const dd = doc();
+    if (!dd) return null;
+    const box = (r: DOMRect): Area => ({ x: r.left * zoom, y: r.top * zoom, w: r.width * zoom, h: r.height * zoom });
+    const near = (b: Area, s: Area) => b.w > 0 && b.h > 0 && b.y < s.y + s.h + 80 && b.y + b.h > s.y - 80;
+    // the words line by line (each text's own boxes - not its paragraph's full width), and every picture whole
+    const inkOf = (el: HTMLElement): Area[] => {
+      if (el.hasAttribute("data-pic") || !(el.textContent ?? "").trim()) return [box(el.getBoundingClientRect())];
+      const out: Area[] = [...el.querySelectorAll("img")].map((i) => box(i.getBoundingClientRect()));
+      const walk = dd.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const r = dd.createRange();
+      for (let t = walk.nextNode(); t; t = walk.nextNode()) {
+        if (!(t.textContent ?? "").trim()) continue;
+        r.selectNodeContents(t);
+        out.push(...[...r.getClientRects()].map(box));
+      }
+      return out;
+    };
+    const sel = box(selEl.getBoundingClientRect());
+    const others: Area[] = [];
+    const words: Area[] = [];
+    dd.querySelectorAll<HTMLElement>(MARKED).forEach((el) => {
+      if (el === selEl || el.contains(selEl) || selEl.contains(el) || el.querySelector(MARKED)) return;
+      if (!near(box(el.getBoundingClientRect()), sel)) return;
+      const ink = inkOf(el).filter((b) => near(b, sel));
+      others.push(...ink);
+      if (!el.hasAttribute("data-pic")) words.push(...ink);
+    });
+    const outside = (a: { y: number }) => a.y >= sel.y + sel.h || a.y + LABEL_H <= sel.y;
+    const at = placeLabel(sel, others, null, labelW, w * zoom, height * zoom, LABEL_H, 6);
+    if (outside(at)) return at;
+    const own = inkOf(selEl);
+    const x = Math.max(4, Math.min(w * zoom - labelW - 4, sel.x + sel.w - labelW - 4));
+    const y = sel.y + sel.h - LABEL_H - 4;
+    const hit = (b: Area) => x < b.x + b.w && b.x < x + labelW && y < b.y + b.h && b.y < y + LABEL_H;
+    if (y > sel.y && !own.some(hit) && !others.some(hit)) return { x, y };
+    const overPicture = placeLabel(sel, words, null, labelW, w * zoom, height * zoom, LABEL_H, 6);
+    return outside(overPicture) ? overPicture : at;
+  })() : null;
   const richOn = !!edKey && !!editing.current?.mode;
 
   /** "Link" in the label: the words picked (or the link the caret is in) get an address, or lose theirs. */
@@ -441,7 +495,7 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
         </Box>
         {overlay && <Box data-x-overlay="" sx={{ position: "absolute", left: 0, top: 0, width: w * zoom, height: height * zoom, pointerEvents: "none" }}>{overlay({ rect, zoom, tick })}</Box>}
         {selBox && selName && (
-          <SelLabel name={selName} left={Math.max(0, Math.min(selBox.left, w * zoom - 430))} top={Math.max(-34, selBox.top - 34)}
+          <SelLabel boxRef={labelRef} name={selName} left={labelAt?.x ?? Math.max(0, Math.min(selBox.left, w * zoom - 430))} top={labelAt?.y ?? Math.max(-34, selBox.top - 34)}
             rich={richOn} red={!!redMarks} onBold={() => { doc()?.execCommand("bold"); }} onRed={() => { const dd = doc(); if (dd) toggleRed(dd); }}
             onLink={startLink} linkOn={!!linking}
             onAi={onAskAi} onClose={() => { if (hold.current) finishLink(null); if (editing.current) end(true); onSelect(null); }} />
@@ -483,13 +537,13 @@ function toggleRed(d: Document) {
 
 /** The small dark label over the picked part (the flow standard): its name, Ask AI, x - and while its words are edited
  *  as they look, Bold and Red. Mouse-down keeps the focus (and the words picked) in the page. */
-function SelLabel({ name, left, top, rich, red, onBold, onRed, onLink, linkOn, onAi, onClose }: {
-  name: string; left: number; top: number; rich: boolean; red: boolean; onBold: () => void; onRed: () => void; onLink: () => void; linkOn: boolean; onAi?: () => void; onClose: () => void;
+function SelLabel({ boxRef, name, left, top, rich, red, onBold, onRed, onLink, linkOn, onAi, onClose }: {
+  boxRef?: React.Ref<HTMLDivElement>; name: string; left: number; top: number; rich: boolean; red: boolean; onBold: () => void; onRed: () => void; onLink: () => void; linkOn: boolean; onAi?: () => void; onClose: () => void;
 }) {
   const b = { textTransform: "none" as const, fontWeight: 600, color: "#fff", minWidth: 0, px: 0.9, py: 0.2, fontSize: "0.74rem", borderRadius: "4px", lineHeight: 1.6, whiteSpace: "nowrap" as const, "&:hover": { bgcolor: "rgba(255,255,255,.14)" } };
   return (
-    <Box onMouseDown={(e) => e.preventDefault()} sx={{
-      position: "absolute", left, top, zIndex: 4, display: "inline-flex", alignItems: "center", gap: 0.25, height: 28, px: 0.5,
+    <Box ref={boxRef} onMouseDown={(e) => e.preventDefault()} sx={{
+      position: "absolute", left, top, zIndex: 4, display: "inline-flex", alignItems: "center", gap: 0.25, height: LABEL_H, px: 0.5, width: "max-content",
       bgcolor: "#15223a", color: "#fff", borderRadius: "6px", boxShadow: "0 8px 22px rgba(21,34,58,.3)", pointerEvents: "auto", maxWidth: 430,
     }}>
       <Box component="span" sx={{ fontSize: "0.74rem", fontWeight: 700, px: 0.75, color: "rgba(255,255,255,.82)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150 }}>{name}</Box>
