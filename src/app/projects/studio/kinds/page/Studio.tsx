@@ -497,9 +497,15 @@ export default function Studio({ api }: StudioProps) {
 
   /** The latest history entry gets the check's verdict (shown red under it in "Changes made here"). */
   const warnLast = (warn: string) => setHistory((h) => (h.length ? [{ ...h[0], warn }, ...h.slice(1)] : h));
+  /** The document as the studio last set it - the newest, even before React has drawn it (setDoc's own latest). */
+  const latestDoc = (): PageDoc => {
+    let raw: unknown = api.doc;
+    api.setDoc((r: unknown) => { raw = r; return r; });
+    return pageDoc(raw, api.data.piece.language);
+  };
   /** One change of a store view set (its html, its hold) - without a new history entry: the entry is the AI's ask. */
   const setChange = async (forLang: string, id: string, make: (c: PageChange) => PageChange) => {
-    const cur = docRef.current;
+    const cur = latestDoc();
     const v = viewOf(cur, forLang);
     if (!v.changes.some((c) => c.id === id)) return;
     await setDocSafely(api, cur, withView(cur, forLang, { ...v, changes: v.changes.map((c) => (c.id === id ? make(c) : c)) }));
@@ -512,7 +518,7 @@ export default function Studio({ api }: StudioProps) {
    */
   const checkAndPlace = async (id: string, forLang: string, o: { fix: boolean; first?: string[]; look?: string }): Promise<string | null> => {
     setWorkNote("Checking that it reads well");
-    const look = async () => checkChange({ pieceId: api.data.piece.id, lang: forLang, view: viewOf(docRef.current, forLang), id });
+    const look = async () => checkChange({ pieceId: api.data.piece.id, lang: forLang, view: viewOf(latestDoc(), forLang), id });
     let seen = await look();
     let problems = [...(o.first ?? []), ...seen.problems.map((p) => p.why)];
     if (problems.length && o.fix) {

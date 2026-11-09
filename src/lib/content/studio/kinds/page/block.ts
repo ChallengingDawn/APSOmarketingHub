@@ -208,8 +208,9 @@ export function scopeCss(css: string, prefix: string): { css: string; moved: num
 
 /** The declarations of the root's own rule(s) ".prefix{...}". */
 function rootDecls(css: string, prefix: string): string {
-  const re = new RegExp(`(^|[},])\\s*\\.${prefix.replace(/[-]/g, "\\-")}\\s*(?:,[^{]*)?\\{([^}]*)\\}`, "g");
-  return [...css.matchAll(re)].map((m) => m[2]).join(";");
+  // the "}" before a rule is looked at, not taken - so the rule right after a matched one is found too
+  const re = new RegExp(`(?<=^|[},])\\s*\\.${prefix.replace(/[-]/g, "\\-")}\\s*(?:,[^{]*)?\\{([^}]*)\\}`, "g");
+  return [...css.matchAll(re)].map((m) => m[1]).join(";");
 }
 
 const SHOP_IMG = /^(https:\/\/(www|acc)\.apsoparts\.com\/|\/media\/|\/static\/|\/api\/content\/picture\/|\{\{media )/i;
