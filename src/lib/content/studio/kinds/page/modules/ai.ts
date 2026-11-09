@@ -7,7 +7,6 @@
 // them for the page's subject, in an order. A number it was not shown is dropped. It may also write the block's small
 // line and title in the page's language - no prices, no discounts, no claims.
 
-import type { AiTask, StudioCtx } from "../../../contract";
 import { kindOf, isModuleType } from "./model";
 
 export type Candidate = { number: string; name: string; views: number; bought: number; from: string };
@@ -73,17 +72,4 @@ THE BLOCK: ${kindOf(type).name} - it shows ${count} products.${str(input.ask, 40
 
 CANDIDATES (number · name · page views · articles bought online, last months · where it comes from):
 ${cands.map((c) => `${c.number} · ${c.name} · ${c.views} views · ${c.bought} bought · ${c.from}`).join("\n") || "(none)"}`;
-}
-
-/** The AI task, given how the page studio says the page (its context and outline). */
-export function moduleFillTask(page: (ctx: StudioCtx, raw: unknown, input: Record<string, unknown>) => string): AiTask {
-  return {
-    label: "Fill a block with products",
-    schema: MODULE_FILL_SCHEMA,
-    system: MODULE_FILL_SYSTEM,
-    effort: "low",
-    maxTokens: 1500,
-    user: (ctx, raw, input) => moduleFillUser(page(ctx, raw, input), input),
-    clean: (raw, _doc, _ctx, input) => cleanPick(raw, candidatesIn(input.candidates), Math.max(1, Math.min(12, Number(input.count) || 5))),
-  };
 }

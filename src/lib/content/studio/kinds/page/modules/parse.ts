@@ -99,7 +99,8 @@ export function findNode(tree: TreeNode[], url: string): TreeNode | null {
  */
 export function tilePhotos(html: string, base = "https://www.apsoparts.com"): Record<string, string> {
   const out: Record<string, string> = {};
-  const re = /<a\b([^>]*\bhref\s*=\s*["'][^"']+["'][^>]*)>([\s\S]{0,900}?)<\/a>/gi;
+  // a Page Builder banner's link holds its wrapper, overlay and words - a few thousand characters
+  const re = /<a\b([^>]*\bhref\s*=\s*["'][^"']+["'][^>]*)>([\s\S]{0,4000}?)<\/a>/gi;
   for (const m of html.matchAll(re)) {
     const u = shopUrlOf(attr(`<a ${m[1]}>`, "href"), base);
     if (!u || out[u]) continue;
@@ -177,7 +178,7 @@ export function parseProduct(html: string, url: string): Card | null {
   if (!name || !u) return null;
   // its own article count is the headline of its articles' table ("702 Artikel") - the "product-item-article-count" lines
   // on the page are the related products'
-  const cnt = /class\s*=\s*"articles"[^>]*>[\s\S]{0,400}?class\s*=\s*"product__section__headline[^"]*"[^>]*>([^<]*)</i.exec(html)?.[1] ?? "";
+  const cnt = /class\s*=\s*"articles"[^>]*>[\s\S]{0,400}?<h2\b[^>]*class\s*=\s*"product__section__headline[^"]*"[^>]*>([^<]*)</i.exec(html)?.[1] ?? "";
   return { kind: "product", name, url: u, img, meta: /^\s*\d/.test(cnt) ? countOf(cnt) : "", number: productOfUrl(u), children: [] };
 }
 

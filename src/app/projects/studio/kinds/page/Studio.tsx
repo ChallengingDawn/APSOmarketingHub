@@ -47,6 +47,11 @@ import type { Picked } from "./Frame";
 import { PagePicker, type Picked as PickedPage } from "./PagePicker";
 import { setDocSafely } from "./safeSet";
 import { LangEmpty, Stage, usePagePreview, useShell, type View } from "./Stage";
+import { ModuleActions } from "./modules/Actions";
+import { ModuleGallery } from "./modules/Gallery";
+import { ModulePanel } from "./modules/Panel";
+import { useModules } from "./modules/useModules";
+import { moduleOfChange } from "@/lib/content/studio/kinds/page/modules/model";
 
 type Rewrite = { summary: string; changes: Change[]; problems: string[]; leftovers: string[] };
 type Translated = { fields?: PageDoc["fields"]; changes?: Change[]; from: string; missing: number; leftovers: string[]; problems: string[] };
@@ -161,6 +166,9 @@ export default function Studio({ api }: StudioProps) {
     record(label, cur, "ai", note);
     await setDocSafely(api, cur, next);
   };
+  // the module gallery (Content v6, SARCLA 09.11.2026 points 7-9): a module is a change of the store view shown, its panel
+  // takes the Build pane while it is edited (./modules/*)
+  const modules = useModules({ view: () => viewOf(docRef.current, langRef.current), put: (next, label) => setView(next, label), store: lang, canEdit });
   const undo = async (e: Entry) => {
     const cur = docRef.current;
     await setDocSafely(api, cur, e.before);
@@ -170,7 +178,7 @@ export default function Studio({ api }: StudioProps) {
 
   /* ── what is selected: the outline and the page say the same ─────────── */
 
-  const setLang = (l: string) => { setLangState(l); setSelState(null); setSelPart(null); setLocated(null); setPicking(false); setStep("page"); if (open === "selected") setOpen(null); };
+  const setLang = (l: string) => { modules.edit(null); setLangState(l); setSelState(null); setSelPart(null); setLocated(null); setPicking(false); setStep("page"); if (open === "selected") setOpen(null); };
   /** A store view opened - from the tabs, "+ Store view" or the left. One the page does not have yet, of a language it has,
    * is made at once as a COPY of that store view's words (no AI): its own version from then on. Another language waits
    * in the middle for its translation. */
@@ -200,6 +208,8 @@ export default function Studio({ api }: StudioProps) {
   const onPick = (p: Picked | null) => {
     if (!p) { setSel(null); return; }
     setSelState({ key: p.key, picked: p });
+    // a click inside a module of the gallery opens its settings (Content v6)
+    if (p.frag) { const c = viewOf(docRef.current, langRef.current).changes[p.frag.change]; if (c?.id && moduleOfChange(c)) { modules.edit(c.id); return; } }
     setStep("page");
     // a click in a new page: its block opens in the map (an item of it too - Content v5)
     if (p.key.startsWith("f:") || p.key.startsWith("b:")) { const block = blockOfPath(p.key.slice(2)); if (block) setOpen(block); return; }
@@ -785,11 +795,15 @@ export default function Studio({ api }: StudioProps) {
   return (
     <>
       <StudioPanes id="page" buildWidth={410} assistWidth={340} hideBuild={fold.build} hideAssist={fold.assist}
-        build={<Build api={api} doc={doc} d={d} lang={lang} onLang={openView} groups={groups} presence={presence} set={setDoc} setView={setView} hits={hits} step={step} onStep={setStep}
+        build={modules.editing && !isNew ? (
+          <ModulePanel ctl={modules} api={api} onBack={() => modules.edit(null)}
+            pageCategory={d.pageKind === "category" && d.path ? { name: d.outline?.path === d.path ? d.outline.h1[0] ?? "This category" : "This category", url: `https://www.apsoparts.com${d.path}` } : null} />
+        ) : <Build api={api} doc={doc} d={d} lang={lang} onLang={openView} groups={groups} presence={presence} set={setDoc} setView={setView} hits={hits} step={step} onStep={setStep}
           sel={sel} setSel={setSel} fill={fill} busy={busyHere} canAi={aiHere} onEditInPage={() => setEditNonce((n) => n + 1)} onAskAi={askAi}
           inserts={inserts} record={(label) => record(label)} onPickPage={() => setPicking(true)} removeInsert={removeInsert}
           open={open} onOpen={onOpenRow} onOpenBlock={onOpenBlock} onSelectKey={onSelectKey} onFocusPath={onFocusPath} pictures={pictures} makingIn={makingIn} since={busyHere ? since : null}
           onAdd={(at, el) => setAddWhere({ at, anchor: el })} onAddText={(at) => addBlockAt("text", at)} onRefine={canAi ? askRefine : undefined} appBrief={appBrief}
+          moduleSlot={!isNew && d.path ? <ModuleActions ctl={modules} d={d} picked={sel?.picked ?? null} /> : null}
           shop={shop ? {
             ...shop, busyPart: busyHere ? busyPart : null, onOpen: onOpenShopPart, selPart: selPart?.id ?? null,
             selIn: sel?.picked && !selPart ? partOfSection(sel.picked.section)?.id ?? null : null,
@@ -813,6 +827,7 @@ export default function Studio({ api }: StudioProps) {
           onUseSeo={(s) => { setView({ ...d, fields: { ...d.fields, seo: { title: s.title, description: s.description, urlKey: s.urlKey } } }, "Kept the search engine fields"); setSeo(null); }} />}
       />
       <AddBlockMenu where={addWhere} onClose={() => setAddWhere(null)} onPick={addBlockAt} onPage={blockOrder(d.fields)} />
+      <ModuleGallery ctl={modules} />
     </>
   );
 }

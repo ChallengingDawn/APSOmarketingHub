@@ -10,12 +10,13 @@
 //   module_candidates  what "Fill with AI" may pick from; module_picks: its picks as cards
 // AI task (registered by ../server.ts): module_fill - ./ai.ts
 
-import type { ServerAction } from "../../../contract";
+import type { AiTask, ServerAction, StudioCtx } from "../../../contract";
 import { s } from "../../../contract";
 import { pageDoc, viewOf } from "../model";
 import type { Card } from "./model";
 import { aiCandidates, cardsForNumbers, cardsForPicks, categoryCard, shopCategory, shopTree, topCards } from "./source";
 import type { TreeNode } from "./parse";
+import { MODULE_FILL_SCHEMA, MODULE_FILL_SYSTEM, candidatesIn, cleanPick, moduleFillUser } from "./ai";
 
 const STORE_RE = /^[a-z]{2}-[A-Z]{2,3}$/;
 /** The store view asked for, else the one shown ("lang"), else the page's own. */
@@ -93,3 +94,16 @@ export const moduleActions: Record<string, ServerAction> = {
   module_tree: moduleTree, module_category: moduleCategory, module_branch: moduleBranch, module_numbers: moduleNumbers,
   module_top: moduleTop, module_candidates: moduleCandidates, module_picks: modulePicks,
 };
+
+/** "Fill with AI" as a task of the page studio, given how it says the page (its context and outline) - ./ai.ts. */
+export function moduleFillTask(page: (ctx: StudioCtx, raw: unknown, input: Record<string, unknown>) => string): AiTask {
+  return {
+    label: "Fill a block with products",
+    schema: MODULE_FILL_SCHEMA,
+    system: MODULE_FILL_SYSTEM,
+    effort: "low",
+    maxTokens: 1500,
+    user: (ctx, raw, input) => moduleFillUser(page(ctx, raw, input), input),
+    clean: (raw, _doc, _ctx, input) => cleanPick(raw, candidatesIn(input.candidates), Math.max(1, Math.min(12, Number(input.count) || 5))),
+  };
+}

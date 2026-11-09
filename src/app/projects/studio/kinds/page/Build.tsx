@@ -137,8 +137,10 @@ function StoreViews({ doc, lang, onLang, groups, presence }: { doc: PageDoc; lan
 }
 
 export function Build({ api, doc, d, lang, onLang, groups, presence, set, setView, hits, step, onStep, sel, setSel, fill, busy, canAi, onEditInPage, onAskAi, inserts, record, onPickPage, removeInsert,
-  open, onOpen, onOpenBlock, onSelectKey, onFocusPath, pictures, makingIn, since, shop, onAdd, onAddText, onRefine, appBrief }: {
+  open, onOpen, onOpenBlock, onSelectKey, onFocusPath, pictures, makingIn, since, shop, onAdd, onAddText, onRefine, appBrief, moduleSlot }: {
   api: StudioApi; doc: PageDoc; d: PageDoc;
+  /** the module gallery's way in (Content v6, ./modules/Actions.tsx): over the element selected, else over the page's parts */
+  moduleSlot?: React.ReactNode;
   /** the store view shown, and opening one (made at once as a copy when it is of a language the page has) */
   lang: string; onLang: (l: string) => void;
   /** every store view of the shop by language; for a page of the shop, whether it is there */
@@ -251,8 +253,8 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
   })();
   const changed = shop ? shop.parts.filter((p) => p.changes.length).length : 0;
   const selPane = sel ? (
-    <ElementPane api={api} view={d} setView={setView} sel={sel} onClose={() => setSel(null)} fill={fill} busy={busy} canAi={canAi}
-      onEditInPage={onEditInPage} onAskAi={onAskAi} inserts={inserts} record={record} />
+    <>{moduleSlot}<ElementPane api={api} view={d} setView={setView} sel={sel} onClose={() => setSel(null)} fill={fill} busy={busy} canAi={canAi}
+      onEditInPage={onEditInPage} onAskAi={onAskAi} inserts={inserts} record={record} /></>
   ) : null;
   const shopParts = !isNew && d.path && shop ? (
     <Box sx={{ mb: 2 }}>
@@ -263,6 +265,7 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
       ) : undefined}>
         The page{shop.parts.length ? ` · ${shop.parts.length} parts${changed ? ` · ${changed} changed` : ""}` : ""}
       </Kick>
+      {!sel && moduleSlot}
       {shop.parts.length ? (
         <ShopPartsOutline parts={shop.parts} whole={shop.whole} elsewhere={shop.elsewhere} changes={d.changes} hits={hits} open={open} onOpen={shop.onOpen}
           busyPart={shop.busyPart} canEdit={canEdit} canAi={canAi} onAsk={shop.onAsk} onRemove={shop.onRemove}
