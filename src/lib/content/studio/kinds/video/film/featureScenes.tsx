@@ -1,8 +1,8 @@
 // THE SCENES FOR A FEATURE (08.11.2026; SARCLA: "the video should also play with our features"). In the team's motion
 // style, beside the library in scenes.tsx:
 //   feature  the feature's icon tile springs in and its icon draws on, its name slides in on a red bar, the claim rises
-//            word by word, the proof comes out of a blur; beside it its picture spins in on a card - or, without one,
-//            the icon big in a turning ring
+//            word by word, the proof comes out of a blur; beside it its picture spins in on a card - the one picked,
+//            else the shop's own photo for the feature (09.11.2026: no more icon in a turning disc)
 //   number   one true figure: a plain number counts up to its value and lands on the beat (the camera kicks), any other
 //            ("48/72h") slams in out of a blur; what it is rises under it with a red line, the proof after
 //   compare  before / after: the old way on a quiet card, crossed out with a red line on the beat; then the APSOparts
@@ -13,7 +13,7 @@ import { backOut, clamp, EASE, EASE_IO, lerp, p, SNAP, spring } from "../engine/
 import { drop } from "../engine/physics";
 import { BAR, BEAT, FPS } from "../engine/timeline";
 import { fitBlock, fitFs, lineW, plain, type Block } from "../engine/text";
-import { FEATURE } from "../features";
+import { FEATURE, featurePhoto } from "../features";
 import type { SceneProps } from "./scenes";
 import { card, Colored, GhostRing, Gloss, Kicker, Rise, Unblur } from "./parts";
 import { Icon } from "./icons";
@@ -58,15 +58,14 @@ export const FeatureScene: React.FC<SceneProps> = ({ s, L, dur }) => {
   const claimAt = 12;
   const words = claim.lines.reduce((n, l) => n + l.length, 0);
   const proofAt = claimAt + words * 3 + 10;
-  // the picture card spins in from the right; without one, the icon big in its turning ring
+  // the picture card spins in from the right
   const C = F.card;
   const c = spring({ frame: f - 6, fps: FPS, config: { damping: 14, stiffness: 110, mass: 1 } });
   const turn = 5 * Math.sin((f - 24) / 30) * p(f, 22, 24);
-  const G = F.big;
-  const g = spring({ frame: f - 8, fps: FPS, config: { damping: 11, stiffness: 120, mass: 1 } });
+  // its picture: the one picked, else the shop's own photo for the feature - never an icon in a disc (09.11.2026)
+  const photo = s.image || featurePhoto(s.feature);
   return (
     <>
-      {!s.image && <GhostRing cx={G.cx} cy={G.cy} r={G.r * 1.25} f={f} opacity={p(f, 0, 30) * 0.9} />}
       <Camera z={1 + 0.04 * EASE_IO(u)} ry={lerp(-2.5, 2.5, EASE_IO(u))}>
         <div style={{ position: "absolute", left: F.icon.x, top: F.icon.y, width: tile, height: tile, borderRadius: tile * 0.24, background: B.red, display: "grid", placeItems: "center",
           boxShadow: `0 ${tile * 0.18}px ${tile * 0.4}px -${tile * 0.16}px rgba(216,9,1,.55)`, opacity: clamp(k * 3), transformOrigin: "50% 60%",
@@ -78,20 +77,12 @@ export const FeatureScene: React.FC<SceneProps> = ({ s, L, dur }) => {
           <Rise block={claim} lh={lh} t={(i) => p(f, claimAt + i * 3, 16, SNAP)} />
           {proofBlock && <div style={{ marginTop: pfs * 0.8 }}><Unblur block={proofBlock} lh={1.22} color={B.mute} t={(i) => p(f, proofAt + i * 2, 12)} /></div>}
         </div>
-        {s.image ? (
-          <div style={{ position: "absolute", left: C.x, top: C.y, width: C.w, height: C.h, perspective: 1600 }}>
-            <div style={{ ...card, position: "absolute", inset: 0, overflow: "hidden", opacity: clamp(c * 4), transformOrigin: "50% 60%",
-              transform: `translateX(${((1 - c) * L.W * 0.28).toFixed(1)}px) rotateY(${((1 - c) * 60 + turn).toFixed(2)}deg)` }}>
-              <Img src={s.image} alt="" onError={(e) => { e.currentTarget.style.opacity = "0"; }} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", transform: `scale(${(1.08 - 0.06 * EASE(u)).toFixed(4)})` }} />
-            </div>
+        <div style={{ position: "absolute", left: C.x, top: C.y, width: C.w, height: C.h, perspective: 1600 }}>
+          <div style={{ ...card, position: "absolute", inset: 0, overflow: "hidden", opacity: clamp(c * 4), transformOrigin: "50% 60%",
+            transform: `translateX(${((1 - c) * L.W * 0.28).toFixed(1)}px) rotateY(${((1 - c) * 60 + turn).toFixed(2)}deg)` }}>
+            <Img src={photo} alt="" onError={(e) => { e.currentTarget.style.opacity = "0"; }} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", transform: `scale(${(1.08 - 0.06 * EASE(u)).toFixed(4)})` }} />
           </div>
-        ) : (
-          <div style={{ position: "absolute", left: G.cx - G.r, top: G.cy - G.r, width: G.r * 2, height: G.r * 2, borderRadius: "50%", background: "radial-gradient(circle at 35% 30%, #ffffff, #eef2f5 70%)",
-            boxShadow: "0 30px 60px -30px rgba(29,42,51,.35), inset 0 0 0 1px rgba(39,78,100,.08)", display: "grid", placeItems: "center", opacity: clamp(g * 3),
-            transform: `scale(${lerp(0.6, 1, g).toFixed(4)}) rotate(${((1 - g) * 20).toFixed(2)}deg)` }}>
-            <Icon name={icon} size={G.r * 1.05} color={B.petrol} stroke={1.25} t={p(f, 14, 30, EASE)} />
-          </div>
-        )}
+        </div>
       </Camera>
       {dur > BAR && <Gloss f={f} at={BAR + 2} strength={0.4} />}
     </>

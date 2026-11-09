@@ -1,14 +1,14 @@
 "use client";
 // THE BANNER'S STAGE (08.11.2026, Content v3; SARCLA tonight: "banner also" - the editing "very confusing"; this
 // morning: "the banner can be in multiple places", "we should be able to push it inside a page visually").
-// The banner in the middle, at its real size in the place it is for, and nothing else in the way:
-//   the places    a row of squared choices on top - each place the banner is used in, "In a page", "All places";
-//                 "+ Place" adds one (the shop's bands and slot, a newsletter header, LinkedIn, Instagram, ads)
+// The banner in the middle, at its real size in the place it is for, and nothing else in the way (09.11.2026, the
+// flow standard: the places, its parts and "Get it" are on the map, left - Map.tsx):
+//   the bar       the place shown and its size; Desktop / Phone and the language top right
 //   the banner    the shop's places run live in a frame exactly as pasted (the word changes, the photos crossfade,
 //                 desktop or phone); the others drawn as their PNG will be. A click on a part of it - the headline,
-//                 the line, the button, the picture, its label, the background - opens that part's card right under
-//                 the banner, pointing at it (Editor.tsx), so the banner stays whole and every part clickable; empty
-//                 words show greyed until written
+//                 the line, the button, the picture, its label, the background - selects it: a pink outline and a small
+//                 dark label under it, "<Part> · Ask AI · ×", and its fields open in the map; empty words show greyed
+//                 until written; while the AI writes, the banner shimmers with the clock
 //   under it      what to look at before it goes out, for this place
 //   In a page     the page to-do it was put in, with the banner in its place (Place.tsx)
 // Gone from the first studio: the build column of fields beside the banner, the sheet of "words here", checks and files
@@ -20,7 +20,11 @@ import Button from "@mui/material/Button";
 import ListSubheader from "@mui/material/ListSubheader";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
+import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
+import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import CloseIcon from "@mui/icons-material/Close";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import CheckIcon from "@mui/icons-material/Check";
 import TouchAppOutlinedIcon from "@mui/icons-material/TouchAppOutlined";
@@ -32,8 +36,9 @@ import { placeChecks, placeState } from "@/lib/content/studio/kinds/banner/check
 import { GROUPS, PRESET, PRESETS, isBand, sizeLabel, sizesOf, togglePlace, wordsFor, type BannerDoc, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
 import { pasteBlock, pickCss, previewDoc, previewSwap, stillMarkup, stillSheet, type PickPart } from "@/lib/content/studio/kinds/banner/render";
 import { Pane, btn, type Device } from "../../parts";
-import Editor, { type Set } from "./Editor";
-import { CheckLines, GetIt, usePng } from "./Output";
+import { PART_NAME, type Set } from "./Editor";
+import { CheckLines, type BannerBusy, type usePng } from "./Output";
+import { shimmer, useClock } from "../video/map";
 import { InPage, PageBar, type Pages } from "./Place";
 import { Scaled, useWidth } from "./ui";
 
@@ -208,13 +213,13 @@ function Overview({ doc, prefix, open, avail }: { doc: BannerDoc; prefix: string
 
 /* ── the places: the row on top, "+ Place" ── */
 
-function AddPlace({ doc, set, canEdit, onAdded }: { doc: BannerDoc; set: Set; canEdit: boolean; onAdded: (k: PresetKey) => void }) {
+export function AddPlace({ doc, set, canEdit, onAdded }: { doc: BannerDoc; set: Set; canEdit: boolean; onAdded: (k: PresetKey) => void }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const made = sizesOf(doc);
   return (
     <>
       <Button size="small" disabled={!canEdit} onClick={(e) => setAnchor(e.currentTarget)} startIcon={<AddRoundedIcon sx={{ fontSize: 17 }} />}
-        sx={{ ...btn, color: INK, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", borderRadius: "6px", py: 0.35, flexShrink: 0 }}>Place</Button>
+        sx={{ ...btn, color: INK, py: 0.35, flexShrink: 0 }}>Add a place</Button>
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} slotProps={{ paper: { sx: { width: 300, borderRadius: "10px", maxHeight: 520 } } }}>
         {GROUPS.flatMap((g) => [
           <ListSubheader key={`h-${g.key}`} sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED, lineHeight: "30px" }}>{g.label}</ListSubheader>,
@@ -241,10 +246,15 @@ function AddPlace({ doc, set, canEdit, onAdded }: { doc: BannerDoc; set: Set; ca
 
 /* ── the stage ── */
 
-export default function Stage({ doc, set, prefix, view, setView, font, fontFailed, title, canEdit, pages, pageId, setPageId, saved, pieceId, projectId, me, api, pick, setPick, language }: {
+export default function Stage({ doc, set, prefix, view, setView, font, fontFailed, title, canEdit, pages, pageId, setPageId, saved, pieceId, projectId, api, pick, setPick, language, busy, onAskAi, png }: {
   doc: BannerDoc; set: Set; prefix: string; view: View; setView: (v: View) => void; font: string | null; fontFailed: boolean; title: string; canEdit: boolean;
   pages: Pages; pageId: number | null; setPageId: (id: number) => void; saved: boolean; pieceId: number; projectId: number; me: string;
   api: Parameters<typeof PageBar>[0]["api"]; pick: PickPart | null; setPick: (p: PickPart | null) => void; language: React.ReactNode;
+  /** the AI at work on the banner (its words shimmer, with the clock) */
+  busy: BannerBusy | null;
+  /** "Ask AI" on the selection's label: the cursor into the assistant */
+  onAskAi: () => void;
+  png: ReturnType<typeof usePng>;
 }) {
   const [box, width] = useWidth<HTMLDivElement>();
   const [device, setDevice] = useState<Device>("desktop");
@@ -259,12 +269,11 @@ export default function Stage({ doc, set, prefix, view, setView, font, fontFaile
     const m = stillMarkup(shown.doc, k, prefix);
     return { css: m.css, html: fade(m.html, shown.ph) };
   }, [shown, k, prefix, live]);
-  const png = usePng(doc, prefix, title, font);
+  const clock = useClock(busy?.since ?? null);
   const avail = Math.max(240, width - 48);
   const phone = live && device === "mobile";
   const frameWidth = phone ? 390 : k && isBand(k) ? 1280 : p?.w ?? 1200;
   const current: View = k ?? (view === "pages" ? "pages" : "all");
-  const placedN = pages.placed.reduce((n, x) => n + x.mine.length, 0);
   const checks = useMemo(() => (k ? placeChecks(doc, k) : []), [doc, k]);
 
   // where the part that is open sits, so its card opens right under the banner below it - never over the banner, so
@@ -275,7 +284,7 @@ export default function Stage({ doc, set, prefix, view, setView, font, fontFaile
   const dock = useRef<HTMLDivElement | null>(null);
   const rect = useRef<Hit["rect"]>(null);
   const [notch, setNotch] = useState({ left: 0, arrow: 40 });
-  const edW = pick === "picture" ? 440 : 360;
+  const edW = 240;
   const partRect = useCallback((): DOMRect | null => {
     if (live && frame.current && rect.current) {
       const f = frame.current.getBoundingClientRect();
@@ -308,26 +317,17 @@ export default function Stage({ doc, set, prefix, view, setView, font, fontFaile
   // a new place, a new view: nothing open
   useEffect(() => { setPick(null); }, [current]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const places = (
-    <SquareChoice<string> value={current} onChange={(v) => setView(v as View)} options={[
-      ...made.map((x) => ({ key: x, label: PRESET[x].short })),
-      { key: "pages", label: "In a page", count: placedN || undefined },
-      ...(made.length > 1 ? [{ key: "all", label: "All places", count: made.length }] : []),
-    ]} />
-  );
-
   return (
     <Pane tone="stage" pad={false}>
       <Box sx={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2, py: 1.1, borderBottom: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.6)", flexShrink: 0, flexWrap: "wrap" }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: "1 1 auto", minWidth: 0, flexWrap: "wrap" }}>
-            {places}
-            <AddPlace doc={doc} set={set} canEdit={canEdit} onAdded={(x) => setView(x)} />
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2, py: 1.1, borderBottom: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.6)", flexShrink: 0, minHeight: 50, boxSizing: "border-box" }}>
+          <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flex: "1 1 0", minWidth: 0, overflow: "hidden" }}>
+            <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, whiteSpace: "nowrap" }}>{p ? p.label : current === "pages" ? "In a page" : "All places"}</Typography>
+            {p && <Typography sx={{ fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{sizeLabel(p)} · {p.note}</Typography>}
           </Box>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
             {live && k && <SquareChoice<Device> value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "mobile", label: "Phone" }]} />}
             {language}
-            <GetIt doc={doc} k={k} prefix={prefix} title={title} png={png} />
           </Box>
         </Box>
         <Box sx={{ flex: 1, minHeight: 0 }}>
@@ -349,12 +349,19 @@ export default function Stage({ doc, set, prefix, view, setView, font, fontFaile
                 <Overview doc={doc} prefix={prefix} open={(x) => setView(x)} avail={avail} />
               ) : (
                 <>
-                  <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, mb: 2, flexWrap: "wrap" }}>
-                    <Typography sx={{ fontSize: "1.02rem", fontWeight: 700, color: INK }}>{p.label}</Typography>
-                    <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{sizeLabel(p)} · {p.note}{live && p.motion && (doc.content.rotatingWords.length > 1 || doc.content.photos.length > 1) ? " · it changes every 2.6 s while on screen" : ""}</Typography>
-                  </Box>
+                  {live && p.motion && (doc.content.rotatingWords.length > 1 || doc.content.photos.length > 1) && (
+                    <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 1.25, textAlign: "center" }}>On the shop it changes every 2.6 s while on screen.</Typography>
+                  )}
                   <Box ref={col}>
-                    <Box sx={{ display: "flex", justifyContent: "center" }}>
+                    <Box sx={{ display: "flex", justifyContent: "center", position: "relative" }}>
+                      {busy && (
+                        // the AI at work on the banner: its words shimmer, with what it does and the clock
+                        <Box aria-live="polite" sx={{ position: "absolute", inset: 0, zIndex: 2, pointerEvents: "none", borderRadius: "10px", ...shimmer, display: "flex", justifyContent: "center", alignItems: "flex-start" }}>
+                          <Box sx={{ mt: -1.5, px: 1.5, py: 0.6, borderRadius: "6px", bgcolor: "rgba(21,34,58,.88)", color: "#fff", fontSize: "0.8rem", fontWeight: 650, display: "inline-flex", alignItems: "center", gap: 1, fontVariantNumeric: "tabular-nums", boxShadow: "0 8px 24px rgba(21,34,58,.25)" }}>
+                            <CircularProgress size={13} sx={{ color: "#fff" }} />{busy.part === "all" ? "Writing the banner" : busy.label} · {clock}
+                          </Box>
+                        </Box>
+                      )}
                       {live ? (
                         <LiveFrame key={`${k}-${phone ? "p" : "d"}`} block={block} width={frameWidth} font={font ?? ""} avail={avail} phone={phone} prefix={prefix} picked={pick} onHit={onHit} frameRef={frame} />
                       ) : still && (
@@ -362,16 +369,22 @@ export default function Stage({ doc, set, prefix, view, setView, font, fontFaile
                       )}
                     </Box>
                     {pick && (
-                      <Box ref={dock} sx={{ position: "relative", mt: 1.5, ml: `${notch.left}px`, width: edW, maxWidth: "100%", scrollMarginBottom: "24px" }}>
-                        <Box sx={{ position: "absolute", top: -6, left: notch.arrow - 6, width: 12, height: 12, bgcolor: "#fff", borderLeft: `1px solid ${HAIRLINE}`, borderTop: `1px solid ${HAIRLINE}`, transform: "rotate(45deg)", zIndex: 1 }} />
-                        <Editor key={`${k}-${pick}`} doc={doc} set={set} k={k} part={pick} canEdit={canEdit} projectId={projectId} pieceId={pieceId} me={me} onClose={() => setPick(null)} />
+                      <Box ref={dock} sx={{ position: "relative", mt: 1.25, ml: `${notch.left}px`, width: "fit-content", maxWidth: "100%", scrollMarginBottom: "24px" }}>
+                        <Box sx={{ position: "absolute", top: -5, left: Math.min(notch.arrow, 30) - 5, width: 10, height: 10, bgcolor: "#15223a", transform: "rotate(45deg)" }} />
+                        <Box sx={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 0.25, pl: 1.25, pr: 0.25, py: 0.25, borderRadius: "6px", bgcolor: "#15223a", color: "#fff", boxShadow: "0 6px 18px rgba(21,34,58,.25)" }}>
+                          <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: "#fff", mr: 0.5, whiteSpace: "nowrap" }}>{PART_NAME[pick]}</Typography>
+                          {["eyebrow", "headline", "line", "button"].includes(pick) && canEdit && (
+                            <Button size="small" onClick={onAskAi} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={{ ...btn, color: "#f7b6cf", fontSize: "0.74rem", py: 0, px: 0.75, minWidth: 0 }}>Ask AI</Button>
+                          )}
+                          <IconButton size="small" onClick={() => setPick(null)} aria-label="Let go of it" sx={{ color: "rgba(255,255,255,.75)", p: 0.4 }}><CloseIcon sx={{ fontSize: 15 }} /></IconButton>
+                        </Box>
                       </Box>
                     )}
                   </Box>
                   <Box sx={{ maxWidth: 720, mx: "auto", mt: 2.5 }}>
                     {!pick && (
                       <Typography sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.75, fontSize: "0.8rem", color: MUTED, mb: 1.5 }}>
-                        <TouchAppOutlinedIcon sx={{ fontSize: 17 }} />Click the words, the button, the picture or the background on the banner to change them.
+                        <TouchAppOutlinedIcon sx={{ fontSize: 17 }} />Click a part of the banner - or its row on the left - to change it.
                       </Typography>
                     )}
                     <Box sx={{ bgcolor: "rgba(255,255,255,.8)", border: `1px solid ${HAIRLINE}`, borderRadius: "8px", px: 2, py: 1.25 }}>

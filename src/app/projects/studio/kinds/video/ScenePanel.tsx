@@ -16,7 +16,7 @@ import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownR
 
 import { AMBER, HAIRLINE, INK, MUTED, RED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
-import { FEATURE } from "@/lib/content/studio/kinds/video/features";
+import { FEATURE, featurePhoto } from "@/lib/content/studio/kinds/video/features";
 import { BAR, FPS } from "@/lib/content/studio/kinds/video/engine/timeline";
 import {
   END_FIELDS, KIND_INFO, SCENE_KINDS,
@@ -26,6 +26,7 @@ import { DEFAULT_PART, partOf, type PartKey } from "@/lib/content/studio/kinds/v
 import { btn } from "../../parts";
 import { PicturePanel } from "../../pictures";
 import { PhotoPicker } from "../banner/ui";
+import { PictureSlot } from "./map";
 import { Head, LineIcon, PartPicker, WordField } from "./ui";
 
 export type PicWhere = { projectId: number; pieceId: number; me: string };
@@ -73,40 +74,42 @@ function LookMenu({ kind, onPick, disabled }: { kind: SceneKind; onPick: (k: Sce
   );
 }
 
-/** What a scene shows: one of our parts, or a photo (the shop's, or one made or uploaded in the hub). */
+/**
+ * What a scene shows (09.11.2026, the flow standard's picture slot): a title, one of our parts; a product, one of our
+ * parts or a photo; a feature, its photo - the one picked, else the shop's own photo for the feature (never an icon in a
+ * disc). A photo is made, uploaded or picked from the gallery (the shop's photos, ours) right here.
+ */
 function Shows({ s, patch, disabled, where, lang }: { s: Scene; patch: (p: Partial<Scene>) => void; disabled: boolean; where: PicWhere; lang: string }) {
   const info = KIND_INFO[s.kind];
   const canPart = !!info.shape;
   const canPhoto = !!info.image;
-  const [from, setFrom] = useState<"part" | "shop" | "hub">(canPart && !s.image ? "part" : "shop");
+  const [from, setFrom] = useState<"part" | "photo">(canPart && !s.image ? "part" : "photo");
   const words = [s.copy.kicker, s.copy.line1].filter(Boolean).join(" - ").replace(/\*/g, "");
+  const idea = `${words ? `${words}. ` : ""}Industrial components, real, calm light, for an APSOparts film.`;
   const setPart = (k: PartKey | null) => patch({ part: k ?? undefined, shape: k ? (k === "shaft-seal" ? "seal" : "oring") : "none", image: undefined });
-  const tabs = [
-    ...(canPart ? [{ key: "part" as const, label: "Our parts" }] : []),
-    ...(canPhoto ? [{ key: "shop" as const, label: "The shop's photos" }, { key: "hub" as const, label: "Make or upload" }] : []),
-  ];
-  if (!tabs.length) return null;
-  const tab = tabs.some((t) => t.key === from) ? from : tabs[0].key;
+  if (!canPart && !canPhoto) return null;
+  const fallback = s.kind === "feature" ? featurePhoto(s.feature) : "";
+  const gallery = (
+    <Box>
+      <Head mt={0}>The shop&apos;s photos</Head>
+      <PhotoPicker lang={lang} selected={s.image ? [s.image] : []} onPick={(p) => !disabled && patch({ image: p.url })} />
+      <Head>Ours</Head>
+      <PicturePanel onPick={(p) => !disabled && patch({ image: p.url })} projectId={where.projectId} pieceId={where.pieceId} me={where.me} aspect={s.kind === "feature" ? "4:5" : "1:1"} tabs={["mine", "project"]} start="project" columns={3} />
+    </Box>
+  );
+  const slot = (
+    <PictureSlot url={s.image || fallback || null} idea={idea} aspect={s.kind === "feature" ? "4:5" : "1:1"} where={where} disabled={disabled} gallery={gallery}
+      onSet={(url) => patch({ image: url })}
+      onRemove={s.image && s.image !== fallback ? () => patch({ image: undefined }) : undefined} removeLabel={s.kind === "feature" ? "Back to the shop's photo" : "Remove"}
+      note={(!s.image || s.image === fallback) && s.feature ? <>The shop&apos;s own photo for <b>{FEATURE[s.feature].name}</b>.</> : undefined} />
+  );
+  const tab = canPart && canPhoto ? from : canPart ? "part" : "photo";
   return (
     <>
-      <Head right={s.image && canPhoto ? <Button size="small" disabled={disabled} onClick={() => patch({ image: undefined, ...(canPart ? { part: partOf(s) ?? DEFAULT_PART } : {}) })} sx={{ ...btn, color: MUTED, py: 0, minWidth: 0, fontSize: "0.74rem" }}>{canPart ? "Back to a part" : "No photo"}</Button> : undefined}>
-        What it shows
-      </Head>
-      {s.image && (
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={s.image} alt="" style={{ width: 72, height: 50, objectFit: "cover", borderRadius: 4, border: `1px solid ${HAIRLINE}` }} />
-          <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{s.kind === "feature" ? "On its card, beside the words" : "On its card"}</Typography>
-        </Box>
-      )}
-      {tabs.length > 1 && <Box sx={{ mb: 1 }}><SquareChoice value={tab} onChange={setFrom} options={tabs} /></Box>}
+      <Head>{canPart && !canPhoto ? "The part" : "What it shows"}</Head>
+      {canPart && canPhoto && <Box sx={{ mb: 1 }}><SquareChoice value={tab} onChange={setFrom} options={[{ key: "part", label: "One of our parts" }, { key: "photo", label: "A photo" }]} /></Box>}
       {tab === "part" && <PartPicker value={s.image ? null : partOf(s)} onChange={setPart} disabled={disabled} none={s.kind !== "product"} />}
-      {tab === "shop" && <PhotoPicker lang={lang} selected={s.image ? [s.image] : []} onPick={(p) => !disabled && patch({ image: p.url })} />}
-      {tab === "hub" && (
-        <PicturePanel onPick={(p) => !disabled && patch({ image: p.url })} projectId={where.projectId} pieceId={where.pieceId} me={where.me} aspect={s.kind === "feature" ? "4:5" : "1:1"}
-          suggestion={words ? `${words}. Industrial components, real, calm light, for an APSOparts film.` : ""} columns={3} />
-      )}
-      {!s.image && s.kind === "feature" && <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 0.75 }}>No photo: the feature&apos;s icon shows big, in its turning disc.</Typography>}
+      {tab === "photo" && slot}
     </>
   );
 }
@@ -132,7 +135,7 @@ export function ScenePanel({ doc, i, issues, edit, disabled, where, onShow, onRe
   return (
     <Box>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
-        <Typography sx={{ flex: 1, fontSize: "0.95rem", fontWeight: 700, color: INK }}>Scene {i + 1}</Typography>
+        <Typography sx={{ flex: 1, fontSize: "0.72rem", color: MUTED }}>{KIND_INFO[s.kind].blurb}</Typography>
         <LookMenu kind={s.kind} onPick={setKind} disabled={disabled} />
       </Box>
       {s.feature && (

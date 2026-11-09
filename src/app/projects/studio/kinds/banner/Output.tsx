@@ -1,6 +1,7 @@
 "use client";
 // WHAT THE BANNER GIVES, AND THE AI BESIDE IT (08.11.2026; Content v3 - SARCLA: "banner also" - the editing "very
-// confusing"). "Get it" on the stage's bar: for the place shown, the paste block for Magento (copy it, or as a page)
+// confusing"; 09.11.2026 the flow standard: "Get it" is the map's pinned last step, every AI change is listed with an
+// Undo, a part's ask changes that part only). "Get it": for the place shown, the paste block for Magento (copy it, or as a page)
 // and the picture at its real size and sharp (2x); every picture at once where there are several. What to look at
 // before it goes out, as lines under the banner. And the assistant, which works on the part of the banner that is open
 // ("Shorter", "Another one") or on the words of every place. Nothing is sent to Magento or anywhere else from here.
@@ -9,28 +10,25 @@ import { useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
-import Divider from "@mui/material/Divider";
-import Menu from "@mui/material/Menu";
-import MenuItem from "@mui/material/MenuItem";
 import Typography from "@mui/material/Typography";
 import CheckIcon from "@mui/icons-material/Check";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import DownloadIcon from "@mui/icons-material/Download";
 import ErrorOutlineRoundedIcon from "@mui/icons-material/ErrorOutlineRounded";
-import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
-import UndoIcon from "@mui/icons-material/Undo";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { isHubPicture } from "@/lib/content/studio/kinds/banner/brand";
-import { picturesOf, type Check } from "@/lib/content/studio/kinds/banner/checks";
+import { picturesOf, placeChecks, type Check } from "@/lib/content/studio/kinds/banner/checks";
 import { PRESET, sizesOf, type BannerDoc, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
 import { htmlFile, pasteBlock, stillMarkup, type PickPart } from "@/lib/content/studio/kinds/banner/render";
-import type { CopyAnswer, Variant } from "@/lib/content/studio/kinds/banner/ai";
+import { applyCopy, type CopyAnswer, type Variant } from "@/lib/content/studio/kinds/banner/ai";
 import { AssistantPanel, PINK, btn, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { PART_NAME } from "./Editor";
 import { download, fileName, htmlToPng } from "./png";
+import { ChangesList, StepView, WorkingOn, useChanges, type Change } from "../video/map";
 
 async function pngOf(d: BannerDoc, k: PresetKey, prefix: string, scale: number, font: string) {
   const p = PRESET[k];
@@ -82,51 +80,112 @@ const copyText = async (t: string) => {
   }
 };
 
-/** "Get it": what the place shown gives - the paste block, the PNGs - and every picture at once. */
-export function GetIt({ doc, k, prefix, title, png }: { doc: BannerDoc; k: PresetKey | null; prefix: string; title: string; png: ReturnType<typeof usePng> }) {
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const [done, setDone] = useState(false);
-  const p = k ? PRESET[k] : null;
-  const pictures = sizesOf(doc).filter((x) => PRESET[x].h);
+/* ── the last step's own view ─────────────────────────────────────────────────────────────────────────────────── */
+
+/** "Get it" in the map's last step: what the place shown gives - the paste block, the PNGs - and every picture at once. */
+export function GetItView({ doc, k, prefix, title, png, onBack, onPlace }: {
+  doc: BannerDoc; k: PresetKey | null; prefix: string; title: string; png: ReturnType<typeof usePng>; onBack: () => void; onPlace: (k: PresetKey) => void;
+}) {
+  const [done, setDone] = useState<string | null>(null);
+  const made = sizesOf(doc);
+  const shown = k ?? made[0];
+  const p = PRESET[shown];
+  const pictures = made.filter((x) => PRESET[x].h);
   const hubPic = picturesOf(doc).find(isHubPicture);
-  const block = () => (k ? pasteBlock(doc, k, prefix, title, { origin: window.location.origin }) : "");
-  const close = () => setAnchor(null);
-  const item = { fontSize: "0.86rem", gap: 1.25, py: 0.9, whiteSpace: "normal", lineHeight: 1.35 };
+  const block = () => pasteBlock(doc, shown, prefix, title, { origin: window.location.origin });
+  const checks = placeChecks(doc, shown);
+  const stop = checks.some((c) => c.level === "stop");
+  const row = { ...btn, justifyContent: "flex-start", textAlign: "left" as const, whiteSpace: "normal" as const, lineHeight: 1.3, borderColor: HAIRLINE, color: INK, bgcolor: "#fff", py: 1, px: 1.5, borderRadius: "8px", "&:hover": { borderColor: PINK, bgcolor: "#fff" } };
+  const main = { ...mainBtn, borderRadius: "8px", minHeight: 42, whiteSpace: "normal" as const, lineHeight: 1.25 };
+  const flash = (t: string) => { setDone(t); setTimeout(() => setDone(null), 1600); };
   return (
-    <>
-      <Button size="small" variant="contained" disableElevation onClick={(e) => setAnchor(e.currentTarget)} disabled={!!png.busy}
-        startIcon={png.busy ? <CircularProgress size={14} color="inherit" /> : done ? <CheckIcon sx={{ fontSize: 17 }} /> : <DownloadIcon sx={{ fontSize: 17 }} />}
-        endIcon={<KeyboardArrowDownRoundedIcon sx={{ fontSize: 18 }} />} sx={{ ...mainBtn, borderRadius: "6px", py: 0.4 }}>
-        {done ? "Copied" : "Get it"}
-      </Button>
-      <Menu anchorEl={anchor} open={!!anchor} onClose={close} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}
-        slotProps={{ paper: { sx: { width: 300, borderRadius: "10px" } } }}>
-        {p && k && (
-          <Typography sx={{ px: 2, pt: 0.75, pb: 0.5, fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED }}>{p.label}</Typography>
+    <StepView back="The banner" onBack={onBack} name="Get it">
+      {made.length > 1 && (
+        <Box sx={{ mb: 1.5 }}>
+          <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>For the place</Typography>
+          <SquareChoice<string> value={shown} onChange={(v) => onPlace(v as PresetKey)} options={made.map((x) => ({ key: x, label: PRESET[x].short }))} />
+        </Box>
+      )}
+      <Typography sx={{ fontSize: "0.84rem", color: INK, fontWeight: 650 }}>{p.label}</Typography>
+      <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 1.25 }}>{p.h ? `${p.w} × ${p.h}` : `up to ${p.w} wide`} · {p.out === "html" ? "a paste block for Magento" : "a picture"}</Typography>
+      <Box sx={{ mb: 1.5, p: 1.25, borderRadius: "8px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff" }}>
+        <CheckLines items={checks} ok={`Ready for the ${p.short.toLowerCase()}.`} />
+      </Box>
+      <Box sx={{ display: "grid", gap: 0.75 }}>
+        {p.out === "html" && (
+          <>
+            <Button variant="contained" disableElevation disabled={stop} onClick={async () => { await copyText(block()); flash("copy"); }}
+              startIcon={done === "copy" ? <CheckIcon sx={{ fontSize: 17 }} /> : <ContentCopyIcon sx={{ fontSize: 17 }} />} sx={main}>
+              {done === "copy" ? "Copied" : "Copy the paste block for Magento"}
+            </Button>
+            <Button variant="outlined" disabled={stop} onClick={() => download(htmlFile(block(), title), fileName(title, `-${shown}.html`))} sx={row}>The paste block as a page (HTML)</Button>
+          </>
         )}
-        {p && k && p.out === "html" && [
-          <MenuItem key="copy" sx={item} onClick={async () => { await copyText(block()); close(); setDone(true); setTimeout(() => setDone(false), 1600); }}>Copy the paste block for Magento</MenuItem>,
-          <MenuItem key="html" sx={item} onClick={() => { download(htmlFile(block(), title), fileName(title, `-${k}.html`)); close(); }}>The paste block as a page (HTML)</MenuItem>,
-        ]}
-        {p && k && p.h && [
-          <MenuItem key="png1" sx={item} onClick={() => { close(); void png.run([k], 1, `${k}1`); }}>PNG, {p.w} × {p.h}</MenuItem>,
-          <MenuItem key="png2" sx={item} onClick={() => { close(); void png.run([k], 2, `${k}2`); }}>PNG, sharp on fine screens (2×)</MenuItem>,
-        ]}
-        {pictures.length > 1 && [
-          <Divider key="d1" />,
-          <MenuItem key="all" sx={item} onClick={() => { close(); void png.run(pictures, 1, "all"); }}>Every picture of the banner · {pictures.length} PNG</MenuItem>,
-        ]}
-        {hubPic && p?.out === "html" && [
-          <Divider key="d2" />,
-          <MenuItem key="pic" sx={item} component="a" href={hubPic} download onClick={close}>The picture, for the shop&apos;s media</MenuItem>,
-        ]}
-        <Typography sx={{ px: 2, pt: 1, pb: 0.75, fontSize: "0.72rem", color: MUTED, whiteSpace: "normal", lineHeight: 1.45 }}>
-          {p?.out === "html" ? "Magento's Page Builder: one row without padding, one HTML Code element, the whole block. Nothing goes to Magento from here - paste it in, on ACC first." : "Made in your browser, from what you see."}
-        </Typography>
-      </Menu>
-    </>
+        {p.h && (
+          <>
+            <Button variant={p.out === "html" ? "outlined" : "contained"} disableElevation disabled={stop || !!png.busy} onClick={() => void png.run([shown], 2, `${shown}2`)}
+              startIcon={png.busy === `${shown}2` ? <CircularProgress size={14} color="inherit" /> : <DownloadIcon sx={{ fontSize: 17 }} />}
+              sx={p.out === "html" ? row : main}>PNG, sharp on fine screens ({p.w * 2} × {p.h * 2})</Button>
+            <Button variant="outlined" disabled={stop || !!png.busy} onClick={() => void png.run([shown], 1, `${shown}1`)}
+              startIcon={png.busy === `${shown}1` ? <CircularProgress size={14} /> : undefined} sx={row}>PNG, {p.w} × {p.h}</Button>
+          </>
+        )}
+        {pictures.length > 1 && (
+          <Button variant="outlined" disabled={!!png.busy} onClick={() => void png.run(pictures, 1, "all")} startIcon={png.busy === "all" ? <CircularProgress size={14} /> : undefined} sx={row}>
+            Every picture of the banner · {pictures.length} PNG
+          </Button>
+        )}
+        {hubPic && p.out === "html" && <Button variant="outlined" component="a" href={hubPic} download sx={row}>The picture, for the shop&apos;s media</Button>}
+      </Box>
+      {stop && <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 1 }}>Fix what is in red first - it cannot go out like this.</Typography>}
+      {png.note && <Typography sx={{ mt: 1, fontSize: "0.8rem", color: "#7f4f0b" }}>{png.note}</Typography>}
+      <Typography sx={{ mt: 1.5, fontSize: "0.74rem", color: MUTED, lineHeight: 1.5 }}>
+        {p.out === "html" ? "Magento's Page Builder: one row without padding, one HTML Code element, the whole block. Nothing goes to Magento from here - paste it in, on ACC first." : "Made in your browser, from what you see."}
+      </Typography>
+    </StepView>
   );
 }
+
+/* ── the AI on the banner ─────────────────────────────────────────────────────────────────────────────────────── */
+
+export type BannerBusy = { part: PickPart | "all"; label: string; since: number };
+
+/** The banner's AI: every word, or one part's; other headlines to pick from; each change listed with an Undo. */
+export function useBannerAi(api: StudioApi, doc: BannerDoc, set: (fn: (d: BannerDoc) => BannerDoc) => void) {
+  const [busy, setBusy] = useState<BannerBusy | null>(null);
+  const [variants, setVariants] = useState<Variant[]>([]);
+  const changes = useChanges<BannerDoc>();
+  const copy = async (part: PickPart | null, label: string, askText?: string): Promise<string | null> => {
+    const before = doc;
+    setBusy({ part: part ?? "all", label, since: Date.now() });
+    try {
+      const r = await api.ai<CopyAnswer>("copy", askText ? { ask: askText } : {});
+      if (!r.ok) return r.error;
+      const next = applyCopy(before, r.result, part);
+      if (JSON.stringify(next.content) === JSON.stringify(before.content) && JSON.stringify(next.own) === JSON.stringify(before.own)) return "The words came back as they were.";
+      set((d) => applyCopy(d, r.result, part));
+      changes.record(label, before);
+      return null;
+    } finally { setBusy(null); }
+  };
+  const headlines = async (): Promise<string | null> => {
+    setBusy({ part: "headline", label: "Finding headlines", since: Date.now() });
+    try {
+      const r = await api.ai<{ headlines: Variant[] }>("variants");
+      if (!r.ok) return r.error;
+      setVariants(r.result.headlines);
+      return r.result.headlines.length ? null : "No headline came back - try again.";
+    } finally { setBusy(null); }
+  };
+  const pickVariant = (v: Variant) => {
+    changes.record(`Headline: "${v.headline}"`, doc);
+    setVariants([]);
+    set((d) => ({ ...d, content: { ...d.content, headline: v.headline } }));
+  };
+  const undo = (e: Change<BannerDoc>) => { const b = changes.undo(e); set(() => b); };
+  return { busy, copy, headlines, variants, pickVariant, changes: changes.list, undo };
+}
+export type BannerAi = ReturnType<typeof useBannerAi>;
 
 const ASK_FOR: Partial<Record<PickPart, { shorter: string; another: string }>> = {
   eyebrow: { shorter: "Make only the small line over the headline (the eyebrow) shorter. Keep everything else word for word.", another: "Write another small line over the headline (the eyebrow). Keep everything else word for word." },
@@ -135,55 +194,33 @@ const ASK_FOR: Partial<Record<PickPart, { shorter: string; another: string }>> =
   button: { shorter: "Make only the button's words shorter. Keep everything else word for word.", another: "Write other words for the button - one to three, an action. Keep everything else word for word." },
 };
 
-/** The AI beside the banner: on the part that is open, or on the words of every place; other headlines to pick from. */
-export function BannerAssistant({ api, doc, set, pick, setPick }: { api: StudioApi; doc: BannerDoc; set: (fn: (d: BannerDoc) => BannerDoc) => void; pick: PickPart | null; setPick: (p: PickPart | null) => void }) {
-  const [variants, setVariants] = useState<Variant[]>([]);
-  const [undo, setUndo] = useState<BannerDoc | null>(null);
+/** The AI beside the banner: on the part selected, or on every word; other headlines to pick from; the changes made. */
+export function BannerAssistant({ api, doc, ai, pick, setPick, inputRef }: {
+  api: StudioApi; doc: BannerDoc; ai: BannerAi; pick: PickPart | null; setPick: (p: PickPart | null) => void; inputRef: React.Ref<HTMLTextAreaElement>;
+}) {
   const enabled = api.data.ai && api.data.access.canEdit;
   const n = sizesOf(doc).length;
   const asks = pick ? ASK_FOR[pick] : undefined;
-  const apply = (a: CopyAnswer) => {
-    setUndo(doc);
-    set((d) => ({
-      ...d,
-      content: { ...d.content, eyebrow: a.content.eyebrow, headline: a.content.headline, rotatingWords: a.content.rotatingWords, line: a.content.line, button: { ...d.content.button, label: a.content.button } },
-      own: a.own,
-    }));
-  };
-  const copy = async (ask?: string): Promise<string | null> => {
-    const r = await api.ai<CopyAnswer>("copy", ask ? { ask } : {});
-    if (!r.ok) return r.error;
-    apply(r.result);
-    return null;
-  };
-  const headlines = async () => {
-    const r = await api.ai<{ headlines: Variant[] }>("variants");
-    if (!r.ok) return r.error;
-    setVariants(r.result.headlines);
-    return r.result.headlines.length ? null : "No headline came back - try again.";
-  };
-  const forPart = (text: string) => (pick && asks ? `About the ${PART_NAME[pick].toLowerCase()} only: ${text} Keep everything else word for word.` : text);
+  const name = pick ? PART_NAME[pick] : "";
+  const forPart = (text: string) => (pick && asks ? `About the ${name.toLowerCase()} only: ${text} Keep everything else word for word.` : text);
   return (
-    <AssistantPanel enabled={enabled} placeholder={asks ? `The ${PART_NAME[pick!].toLowerCase()} in your words - e.g. for buyers in food plants` : "Shorter, for buyers in food plants…"}
-      onAsk={(text) => copy(forPart(text))}
-      top={asks ? (
-        <Box sx={{ mb: 1.5 }}>
-          <Typography sx={{ fontSize: "0.72rem", color: MUTED, mb: 0.5 }}>Working on</Typography>
-          <SquareChoice<string> value="part" onChange={(v) => { if (v === "all") setPick(null); }} options={[{ key: "part", label: PART_NAME[pick!] }, { key: "all", label: "Every word" }]} />
-        </Box>
-      ) : undefined}
+    <AssistantPanel enabled={enabled} inputRef={inputRef}
+      placeholder={asks ? `What should change in the ${name.toLowerCase()}? E.g. for buyers in food plants` : "What should change? E.g. shorter, for buyers in food plants"}
+      onAsk={(text) => ai.copy(asks ? pick : null, asks ? `${name}: "${text.slice(0, 50)}"` : `Every word: "${text.slice(0, 50)}"`, forPart(text))}
+      top={<WorkingOn selection={pick ? name : null} whole="The whole banner" hint="click a part of it to work on it alone" onClear={() => setPick(null)} />}
       quick={asks ? [
-        { label: "Shorter", run: () => copy(asks.shorter) },
-        pick === "headline" ? { label: "Three other headlines", run: headlines } : { label: "Another one", run: () => copy(asks.another) },
-      ] : [
-        { label: n > 1 ? `Write the words for the ${n} places` : "Write the words", run: () => copy() },
-        { label: "Three other headlines", run: headlines },
+        { label: "Shorter", run: () => ai.copy(pick, `${name}: shorter`, asks.shorter) },
+        pick === "headline" ? { label: "Three other headlines", run: ai.headlines } : { label: "Another one", run: () => ai.copy(pick, `${name}: another one`, asks.another) },
+      ] : pick ? [] : [
+        { label: n > 1 ? `Write every word, for the ${n} places` : "Write every word", run: () => ai.copy(null, "Every word written") },
+        { label: "Three other headlines", run: ai.headlines },
       ]}>
-      {variants.length > 0 && (
+      {pick && !asks && <Typography sx={{ mt: 1.5, fontSize: "0.8rem", color: MUTED }}>The AI writes words; change the {name.toLowerCase()} on the left, or let it go to ask about every word.</Typography>}
+      {ai.variants.length > 0 && (
         <Box sx={{ mt: 2, display: "grid", gap: 1 }}>
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED }}>Pick one</Typography>
-          {variants.map((v, i) => (
-            <Box key={i} component="button" type="button" disabled={!enabled} onClick={() => { setUndo(doc); set((d) => ({ ...d, content: { ...d.content, headline: v.headline } })); }} sx={{
+          {ai.variants.map((v, i) => (
+            <Box key={i} component="button" type="button" disabled={!enabled} onClick={() => ai.pickVariant(v)} sx={{
               all: "unset", cursor: "pointer", p: 1.25, borderRadius: "8px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff",
               "&:hover": { borderColor: PINK }, "&:focus-visible": { outline: `2px solid ${PINK}` },
             }}>
@@ -193,11 +230,7 @@ export function BannerAssistant({ api, doc, set, pick, setPick }: { api: StudioA
           ))}
         </Box>
       )}
-      {undo && (
-        <Button size="small" startIcon={<UndoIcon sx={{ fontSize: 17 }} />} onClick={() => { const u = undo; setUndo(null); set(() => u); }} sx={{ ...btn, mt: 1.5, color: MUTED }}>
-          Undo the AI&apos;s change
-        </Button>
-      )}
+      <ChangesList list={ai.changes} what="banner" onUndo={ai.undo} />
     </AssistantPanel>
   );
 }

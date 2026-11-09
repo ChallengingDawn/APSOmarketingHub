@@ -1,28 +1,29 @@
 "use client";
-// THE FILM AS A WHOLE (08.11.2026, Content v3; SARCLA: "button is not fit" - the button read "Make the film from No
-// surcharge for small order" and its text ran out of it). What the film is about is picked from our features as cards
-// (each with its icon and its line of proof, from the brand brain and the shop - never invented), then how long it is
-// and its format as squared choices, then ONE button that always says the same short thing: "Make the film".
+// THE FILM'S SETTINGS (08.11.2026, Content v3; 09.11.2026 the flow standard). What the film is about - our features as
+// cards, each with its icon and its line of proof, from the brand brain and the shop, never invented - and how long it
+// is. In the empty studio they are the start card ("What are you making?") over ONE pink "Make the whole film with AI";
+// once the film is made they are the map's first row, "What it is about". The format sits over the film itself (16:9 /
+// 9:16 / 1:1, top right of the middle), the button that ran out of its text is gone (SARCLA 08.11.2026: "button is not
+// fit").
 
 import Box from "@mui/material/Box";
-import Button from "@mui/material/Button";
-import CircularProgress from "@mui/material/CircularProgress";
 import Typography from "@mui/material/Typography";
-import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 
 import { AMBER, MUTED, RED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
-import { FEATURES, type FeatureKey } from "@/lib/content/studio/kinds/video/features";
-import { FORMAT_INFO, FORMATS, LENGTHS, type FilmLength, type Format, type Issue } from "@/lib/content/studio/kinds/video/model";
-import { btn, mainBtn } from "../../parts";
+import { FEATURE, FEATURES, type FeatureKey } from "@/lib/content/studio/kinds/video/features";
+import { LENGTHS, type FilmLength, type Issue } from "@/lib/content/studio/kinds/video/model";
 import { Head, LineIcon, Tile } from "./ui";
 
 export const MAX_PICK = 3;
 
-export default function FilmPanel({ picked, onPick, confirmed, length, onLength, format, onFormat, disabled, aiReady, busy, hasScenes, onMake, onAdd, issues }: {
+/** The film's settings in a line: its features and its length. */
+export const filmLine = (picked: FeatureKey[], length: FilmLength) =>
+  `${picked.length ? picked.map((k) => FEATURE[k].name).join(" · ") : "No feature picked"} · ${length} s`;
+
+export default function FilmPanel({ picked, onPick, confirmed, length, onLength, disabled, issues }: {
   picked: FeatureKey[]; onPick: (keys: FeatureKey[]) => void; confirmed: FeatureKey[] | null;
-  length: FilmLength; onLength: (n: FilmLength) => void; format: Format; onFormat: (f: Format) => void;
-  disabled: boolean; aiReady: boolean; busy: boolean; hasScenes: boolean; onMake: () => void; onAdd: () => void; issues: Issue[];
+  length: FilmLength; onLength: (n: FilmLength) => void; disabled: boolean; issues?: Issue[];
 }) {
   const toggle = (k: FeatureKey) => onPick(picked.includes(k) ? picked.filter((x) => x !== k) : [...picked, k].slice(0, MAX_PICK));
   return (
@@ -52,21 +53,7 @@ export default function FilmPanel({ picked, onPick, confirmed, length, onLength,
       <Head>How long</Head>
       <SquareChoice<string> value={String(length)} onChange={(v) => onLength(Number(v) as FilmLength)} options={LENGTHS.map((n) => ({ key: String(n), label: `${n} s`, disabled }))} />
 
-      <Head>Format</Head>
-      <SquareChoice<Format> value={format} onChange={onFormat} options={FORMATS.map((f) => ({ key: f, label: FORMAT_INFO[f].label, disabled }))} />
-      <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 0.6 }}>{FORMAT_INFO[format].use}</Typography>
-
-      <Button fullWidth variant="contained" disableElevation disabled={disabled || busy || !aiReady} onClick={onMake}
-        startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeOutlinedIcon sx={{ fontSize: 17 }} />} sx={{ ...mainBtn, mt: 2.5, py: 1 }}>
-        {busy ? "Making the film…" : hasScenes ? "Make it again" : "Make the film"}
-      </Button>
-      {!aiReady && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.75 }}>The AI is not set up on this hub - add the scenes yourself.</Typography>}
-      {picked.length > 0 && (
-        <Button fullWidth size="small" disabled={disabled} onClick={onAdd} sx={{ ...btn, mt: 0.75, color: MUTED, whiteSpace: "normal", lineHeight: 1.3 }}>Add them as scenes to write myself</Button>
-      )}
-      {hasScenes && !busy && <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 0.5, textAlign: "center" }}>Making it again replaces the scenes - one click brings them back.</Typography>}
-
-      {issues.length > 0 && (
+      {!!issues?.length && (
         <Box sx={{ mt: 2, display: "grid", gap: 0.5 }}>
           {issues.map((x, i) => <Typography key={i} sx={{ fontSize: "0.76rem", lineHeight: 1.4, color: x.level === "stop" ? RED : AMBER }}>{x.text}</Typography>)}
         </Box>

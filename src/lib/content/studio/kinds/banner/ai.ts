@@ -108,3 +108,33 @@ export function sizesBrief(d: BannerDoc): string {
     return `- ${k} (${p.label}${p.h ? `, ${p.w}x${p.h}` : ", full width"}${k === roomiest(d) ? ", the most room - the banner's own words" : ""}): ${parts.join(", ")} characters`;
   }).join("\n");
 }
+
+/** The parts of the banner whose words the AI writes. */
+export type WordPart = "eyebrow" | "headline" | "line" | "button";
+const EMPTY_OWN: OwnWords = { eyebrow: "", headline: "", line: "", button: "" };
+
+/**
+ * The AI's words laid on the banner (09.11.2026; the flow standard: a part's ask changes that part only): all of them,
+ * or - for one part - that part's words alone (the banner's and each place's own), everything else as it is now. The
+ * headline brings its changing endings with it.
+ */
+export function applyCopy(d: BannerDoc, a: CopyAnswer, part: string | null): BannerDoc {
+  const f = part === "eyebrow" || part === "headline" || part === "line" || part === "button" ? (part as WordPart) : null;
+  if (!f) {
+    return {
+      ...d,
+      content: { ...d.content, eyebrow: a.content.eyebrow, headline: a.content.headline, rotatingWords: a.content.rotatingWords, line: a.content.line, button: { ...d.content.button, label: a.content.button } },
+      own: a.own,
+    };
+  }
+  const content = f === "button"
+    ? { ...d.content, button: { ...d.content.button, label: a.content.button } }
+    : { ...d.content, [f]: a.content[f], ...(f === "headline" ? { rotatingWords: a.content.rotatingWords } : {}) };
+  const own: BannerDoc["own"] = {};
+  const keys = new Set([...Object.keys(d.own), ...Object.keys(a.own)] as PresetKey[]);
+  for (const k of keys) {
+    const next = { ...(d.own[k] ?? EMPTY_OWN), [f]: a.own[k]?.[f] ?? "" };
+    if (next.eyebrow || next.headline || next.line || next.button) own[k] = next;
+  }
+  return { ...d, content, own };
+}
