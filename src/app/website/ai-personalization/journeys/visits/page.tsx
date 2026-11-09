@@ -22,6 +22,7 @@ import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
 import LinearProgress from "@mui/material/LinearProgress";
 import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -32,18 +33,14 @@ import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
-import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import SlideshowOutlinedIcon from "@mui/icons-material/SlideshowOutlined";
-import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
-import TaskAltOutlinedIcon from "@mui/icons-material/TaskAltOutlined";
-import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
 import WrongLocationOutlinedIcon from "@mui/icons-material/WrongLocationOutlined";
 import PageHeader from "@/app/PageHeader";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
-import { ACCENT, CardTitle, FAINT, GlassCard, HAIRLINE, INK, KpiTile, MUTED, Notice } from "@/app/uc/report/ui";
+import { ACCENT, CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, Notice } from "@/app/uc/report/ui";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { Chip } from "@/app/website/ai-personalization/Tag";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
@@ -300,25 +297,22 @@ function ListView() {
     const visits = d.rows.reduce((n, x) => n + x.visits, 0);
     body = (
       <>
-        <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "repeat(2, minmax(0,1fr))", lg: "repeat(4, minmax(0,1fr))" } }}>
-          <KpiTile icon={<GroupsOutlinedIcon />} tint="blue" label="Customers seen" value={full(d.rows.length)} note={`${full(d.rows.filter((x) => reachAtLeast(x.reach, "product")).length)} of them opened products`} />
-          <KpiTile icon={<SlideshowOutlinedIcon />} tint="purple" label="Visits" value={full(visits)} note="30 minutes apart = a new visit" />
-          <KpiTile icon={<ShoppingCartOutlinedIcon />} tint="amber" label="Cart, no order" value={full(count("cart"))} note="customers who filled a cart and did not order" />
-          <KpiTile icon={<TaskAltOutlinedIcon />} tint="green" label="Ordered" value={full(count("order"))} note="customers with an order in a visit" />
-        </Box>
-
-        <PeriodCard d={d} from={win.from} to={win.to} />
-
+        {/* simpler (SARCLA 09.11.2026: "improve also the visit navigation, I like it more but still more simple"): the
+            customers first, their figures in one line, the AI's reading of the period under them */}
         <GlassCard sx={{ p: { xs: 1.5, md: 2.5 } }}>
-          <CardTitle icon={<StorefrontOutlinedIcon />} tint="blue" title="Customers and their visits" note="The latest first - open one to play their visits back"
+          <CardTitle icon={<StorefrontOutlinedIcon />} tint="blue" title={`${full(d.rows.length)} customers · ${full(visits)} visits`}
+            note={`${full(count("cart"))} filled a cart and did not order · ${full(count("order"))} ordered · open one to play their visits back`}
             right={<SourceTags sources={d.sources} />} />
           <Box sx={{ display: "grid", gap: 1.25, mb: 1.5 }}>
             <SquareChoice<Reach | "all"> label="Got to" value={reach} onChange={setReach}
               options={[{ key: "all", label: "All", count: d.rows.length }, ...[...REACHES].reverse().map((k) => ({ key: k, label: REACH_LABEL[k], count: count(k), disabled: count(k) === 0 }))]} />
             <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
               {stores.length > 1 && (
-                <SquareChoice<string> label="Store view" value={store} onChange={setStore}
-                  options={[{ key: "all", label: "All" }, ...stores.map((s) => ({ key: s, label: s, count: d.rows.filter((x) => x.store === s).length }))]} />
+                <TextField select size="small" label="Store view" value={store} onChange={(e) => setStore(e.target.value)}
+                  sx={{ minWidth: 170, "& .MuiOutlinedInput-root": { borderRadius: "6px", bgcolor: "rgba(255,255,255,.8)", fontSize: "0.86rem" } }}>
+                  <MenuItem value="all">All store views</MenuItem>
+                  {stores.map((x) => <MenuItem key={x} value={x}>{x} · {d.rows.filter((r) => r.store === x).length}</MenuItem>)}
+                </TextField>
               )}
               <TextField size="small" placeholder="Company, number or person" value={q} onChange={(e) => setQ(e.target.value)}
                 InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18, color: FAINT }} /></InputAdornment> }}
@@ -336,6 +330,8 @@ function ListView() {
             </Box>
           )}
         </GlassCard>
+
+        <PeriodCard d={d} from={win.from} to={win.to} />
       </>
     );
   }
@@ -484,12 +480,17 @@ function CustomerView({ id, visitId }: { id: string; visitId: string | null }) {
                 {c.owner && <Chip tint="green">{c.owner}</Chip>}
                 {d.logins !== null && <Chip tint="slate">{plural(d.logins, "sign-in")} in the period</Chip>}
               </Box>
+              <Typography sx={{ fontSize: "0.86rem", color: INK, fontWeight: 600 }}>
+                {plural(d.visits.length, "visit")}{d.visits[0] ? ` (last ${when(d.visits[0].start)})` : ""} · {durWords(time)} on the shop · {plural(articles, "article")} opened · {plural(carts, "visit")} to the cart · {plural(orders, "order")}
+              </Typography>
               <SourceTags sources={d.sources} />
             </Box>
             <Button component="a" href={hsCompany(d.id)} target="_blank" rel="noreferrer" size="small" variant="outlined" endIcon={<OpenInNewRoundedIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, fontWeight: 600 }}>Open in HubSpot</Button>
           </Box>
           {withVisits.length > 0 && (
-            <Box sx={{ mt: 2, display: "grid", gap: 1, gridTemplateColumns: { xs: "minmax(0,1fr)", sm: "repeat(2, minmax(0,1fr))", lg: "repeat(4, minmax(0,1fr))" } }}>
+            <Box component="details" sx={{ mt: 1.5, "& summary": { cursor: "pointer", fontSize: "0.82rem", fontWeight: 700, color: ACCENT } }}>
+            <summary>{withVisits.length} {withVisits.length === 1 ? "person" : "people"} who visited</summary>
+            <Box sx={{ mt: 1, display: "grid", gap: 1, gridTemplateColumns: { xs: "minmax(0,1fr)", sm: "repeat(2, minmax(0,1fr))", lg: "repeat(4, minmax(0,1fr))" } }}>
               {withVisits.slice(0, 8).map((x) => (
                 <Box key={x.id} sx={{ p: 1, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.8)", minWidth: 0 }}>
                   <Typography sx={{ ...strong, fontSize: "0.84rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.name}</Typography>
@@ -499,15 +500,9 @@ function CustomerView({ id, visitId }: { id: string; visitId: string | null }) {
                 </Box>
               ))}
             </Box>
+            </Box>
           )}
         </GlassCard>
-
-        <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "repeat(2, minmax(0,1fr))", lg: "repeat(4, minmax(0,1fr))" } }}>
-          <KpiTile icon={<SlideshowOutlinedIcon />} tint="purple" label="Visits" value={full(d.visits.length)} note={d.visits[0] ? `last ${when(d.visits[0].start)}` : "none in the period"} />
-          <KpiTile icon={<ScheduleOutlinedIcon />} tint="blue" label="Time on the shop" value={durWords(time)} note="first to last step of each visit" />
-          <KpiTile icon={<Inventory2OutlinedIcon />} tint="slate" label="Articles opened" value={full(articles)} note={d.shopViews !== null ? `${full(d.shopViews)} article views counted by the shop` : "from the shop's record"} />
-          <KpiTile icon={<ShoppingCartOutlinedIcon />} tint={orders ? "green" : "amber"} label="Reached the cart" value={full(carts)} note={`${plural(orders, "visit")} with an order`} />
-        </Box>
 
         {d.visits.length === 0 ? (
           <GlassCard sx={{ textAlign: "center", py: 5 }}>
