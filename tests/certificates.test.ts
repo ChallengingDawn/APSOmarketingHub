@@ -61,6 +61,18 @@ test("Back Office: rotation on Article received, then 3 days before delivery at 
   assert.deepEqual(names(base({ startedAt: Date.parse("2026-10-28T14:14:00Z"), due: "2026-12-02" })), ["bo3days", ...CHAIN]);
 });
 
+test("EC 1935/2004 put into Certificates before it was started (no action ever set): AVOR first, never straight to the Back Office", () => {
+  const c = WORKFLOW_OFF_AT + D;
+  const ec = base({ certs: ["FDA", "EC 1935/2004"], createdAt: c, startedAt: c + 30_000, due: "2026-12-02" });
+  assert.equal(phaseOf(ec)!.phase, "start");
+  assert.deepEqual(names(ec), ["start-avor"]);
+  assert.equal(merge(ec, owed(ec, new Set(), c + H), () => "X", DEFAULT_PEOPLE).props.actions_for_certificates, ACT.avor);
+  // an action once set (emptied since), a merge, or FDA only: as before
+  assert.equal(phaseOf({ ...ec, actionsAt: c + H, actionsBy: "INTEGRATION" })!.phase, "backOffice");
+  assert.equal(phaseOf({ ...ec, mergedAt: c + H })!.phase, "merged");
+  assert.equal(phaseOf({ ...ec, certs: ["FDA"] })!.phase, "backOffice");
+});
+
 test("the expert: rotation and owner; delivery day 05:00; late 48 h after; 96 h; a week; 15 days to Rose", () => {
   const c = Date.parse("2026-11-02T12:40:00Z");
   const f = base({ actions: ACT.expert, actionsAt: c, due: "2026-11-05" });

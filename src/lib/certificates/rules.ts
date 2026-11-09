@@ -320,6 +320,10 @@ export function phaseOf(f: Facts): { phase: Phase; anchor: number } | null {
   if (f.actions === ACT.sent && f.actionsAt !== null) return f.actionsBefore === ACT.expert ? { phase: "sent", anchor: f.actionsAt } : null;
   if (f.actions) return null;
   // no action yet: started by the process (it went to Certificates), or a new request to start
+  // ... but an EC 1935/2004 request put into Certificates before it was started (no action ever set) still goes to AVOR
+  // first, as its start does - before, it went straight to "Create the certificate" and the ticket card never showed the
+  // mail to AVOR (SARCLA 09.11.2026: "a 1935 with FDA don't show avor mail")
+  if (f.startedAt !== null && f.certs.includes(EC1935) && f.actionsAt === null && f.mergedAt === null) return { phase: "start", anchor: f.createdAt };
   if (f.startedAt !== null) return { phase: "backOffice", anchor: f.startedAt };
   if (f.certs.length && f.category === CATEGORY && f.stage !== STAGE.certificates) return { phase: "start", anchor: f.createdAt };
   return null;
