@@ -19,7 +19,8 @@ test("a failing work and a non-JSON answer still arrive as JSON with ok: false",
   const thrown = keepAlive(async () => { throw new Error("HubSpot did not answer"); }, 1000);
   assert.deepEqual(await thrown.json(), { ok: false, error: "HubSpot did not answer" });
   const html = keepAlive(async () => new Response("<html>bad gateway</html>", { status: 502 }), 1000);
-  assert.deepEqual(await html.json(), { ok: false, error: "<html>bad gateway</html>" });
+  // never a page of HTML or a bare status in front of a person (SARCLA 10.11.2026: "The hub answered 200.")
+  assert.deepEqual(await html.json(), { ok: false, error: "The hub is restarting or busy - try again in a minute." });
   const refused = keepAlive(async () => Response.json({ ok: false, error: "Not allowed" }, { status: 403 }), 1000);
   assert.deepEqual(await refused.json(), { ok: false, error: "Not allowed" });
 });

@@ -241,8 +241,8 @@ test("a new URL key another page of the store view has is refused before anythin
 /* ── point 11: the connection, in plain words, checked by ONE read ────── */
 
 test("each environment's connection before any check, in plain words", () => {
-  assert.equal(connectionLine("acc", "none").line, "No key on the hub yet");
-  assert.equal(connectionLine("prod", "none").line, "No key for pages yet");
+  assert.equal(connectionLine("acc", "none").line, "No key yet");
+  assert.equal(connectionLine("prod", "none").line, "No key yet");
   assert.equal(connectionLine("prod", "order").state, "key");
   assert.equal(connectionLine("acc", "cms").line, "Key set - not checked yet");
 });
@@ -256,13 +256,13 @@ test("the check makes one GET of the CMS pages and says what Magento's answer me
   assert.equal(ok.pages, 191);
   const right = verdictOf("prod", 401, JSON.stringify({ message: "The consumer isn't authorized to access %resources.", parameters: { resources: "Magento_Cms::page" } }));
   assert.equal(right.state, "no-right");
-  assert.equal(right.line, "Refused - the integration lacks Content > Pages");
+  assert.equal(right.line, "Refused - the integration may not read pages");
   const wrong = verdictOf("prod", 401, JSON.stringify({ message: "The signature is invalid. Verify and try again." }));
   assert.equal(wrong.state, "refused");
   assert.equal(verdictOf("acc", 503, "<html>down</html>").state, "unreachable");
   const none = await checkConnection("acc", "none", null);
   assert.equal(none.state, "no-key");
-  assert.equal(none.line, "No key on the hub yet");
+  assert.equal(none.line, "No key yet");
   const down = await checkConnection("acc", "cms", async () => { throw new Error("ECONNRESET"); });
   assert.equal(down.state, "unreachable");
 });
