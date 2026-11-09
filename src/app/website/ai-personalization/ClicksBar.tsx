@@ -41,9 +41,9 @@ export function HeatLegend() {
   );
 }
 
-export function ClicksBar({ data, error, loading, dev, onDev, env, path, focus, onFocus, onChanged }: {
+export function ClicksBar({ data, error, loading, dev, onDev, env, path, focus, onFocus, missing = [], onChanged }: {
   data: ClicksData | null; error: string | null; loading: boolean; dev: ClickDev; onDev: (d: ClickDev) => void;
-  env: Env; path: string; focus?: string | null; onFocus?: (s: string) => void; onChanged: () => void;
+  env: Env; path: string; focus?: string | null; onFocus?: (s: string) => void; missing?: string[]; onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -99,14 +99,19 @@ export function ClicksBar({ data, error, loading, dev, onDev, env, path, focus, 
               sx={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 1, minWidth: 0, px: 0.5, py: 0.25, borderRadius: "4px",
                 bgcolor: focus === i.s ? "rgba(197,34,31,.08)" : "transparent", outline: focus === i.s ? "1px solid rgba(197,34,31,.45)" : "none", "&:hover": { bgcolor: "rgba(180,83,9,.08)" } }}>
               <Box sx={{ width: 10, height: 10, borderRadius: "2px", flex: "none", bgcolor: heatColor(i.n / Math.max(1, heat.max)) }} />
-              <Typography sx={{ fontSize: "0.78rem", color: INK, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.label}</Typography>
+              <Typography sx={{ fontSize: "0.78rem", color: missing.includes(i.s) ? MUTED : INK, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {i.label}{missing.includes(i.s) ? " · not on the page as drawn" : ""}
+              </Typography>
               <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{full(i.n)} · {Math.round((i.n / Math.max(1, heat.total)) * 100)}%</Typography>
             </Box>
           ))}
         </Box>
       )}
       <Box sx={{ mt: 0.75, display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
-        <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>Drawn on the page as it is - the clicks were made there.</Typography>
+        <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>
+          Drawn on the page as it is - the clicks were made there.
+          {heat && missing.length > 0 && ` ${missing.length} of the ${Math.min(heat.list.length, 40)} clicked elements are not on the page as drawn (a menu that opens on a click, or the page changed since).`}
+        </Typography>
         {heat && heat.list.length > 0 && <HeatLegend />}
       </Box>
     </Box>
