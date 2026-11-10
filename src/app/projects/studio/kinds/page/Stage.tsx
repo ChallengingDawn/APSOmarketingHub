@@ -261,7 +261,7 @@ function SelBar({ label, canWords, onWords, onAi, onClose, pic }: { label: strin
 
 /* ── the stage ────────────────────────────────────────────────────────── */
 
-export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, workingLabel, onMap, seek, selLabel, picActs, onAct, adds, onAddEl, oldShown, strip, plan, bar, popup, blocks }: {
+export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, workingLabel, onMap, seek, selLabel, picActs, onAct, adds, onAddEl, oldShown, strip, plan, bar, popup, blocks, toTop }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void; view: View; onView: (v: View) => void;
   /** every store view of the shop, by language; for a page of the shop, whether it is there */
   groups: StoreGroup[]; presence: Record<string, Presence>;
@@ -306,8 +306,18 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   popup?: { node: React.ReactNode; at: "below" | "side"; width?: number; id?: string } | null;
   /** the Build list's ways into the page: the blocks found, a row to find, the block around the selection, a double-click */
   blocks?: Pick<SelectOpts, "onBlocks" | "seekRow" | "selectedBlock" | "onEditStart" | "resize">;
+  /** Content v11: the whole page written again - the stage shows it from its top (a number that changes each time) */
+  toTop?: number;
 }) {
   const [device, setDevice] = useState<Device>("desktop");
+  // the whole page written again (Content v11, SARCLA 10.11.2026: "page regenerate after all regeneration of page"): the
+  // new page from its top, wherever the stage was scrolled to
+  const scroller = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!toTop) return;
+    const t = setTimeout(() => scroller.current?.scrollTo({ top: 0, behavior: "smooth" }), 80);
+    return () => clearTimeout(t);
+  }, [toTop]);
   const [zoom, setZoom] = useState<"fit" | "full">("fit");
   // the toolbar keeps one row at 1480 px (SARCLA's night list): the rarer tools in a "More" menu
   const [more, setMore] = useState<HTMLElement | null>(null);
@@ -405,7 +415,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
         </Box>
       </Box>
       {strip}
-      <Box data-stage-scroll sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+      <Box ref={scroller} data-stage-scroll sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {children}
         {empty ?? (
           <Box sx={{ p: { xs: 1.5, md: 2.5 } }}>

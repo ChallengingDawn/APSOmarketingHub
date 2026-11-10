@@ -375,6 +375,8 @@ export type CleanCtx = {
   store?: string;
   /** the page's language ("de") - a module's words in another are left out */
   lang?: string;
+  /** Content v11: may a plan bring this module (the fill rules can fill it - ./fillable.ts)? Unset: every module. */
+  plannable?: (id: string) => boolean;
 };
 
 const WHERE = ["before", "after"] as const;
@@ -451,6 +453,8 @@ export function cleanPlan(raw: unknown, ctx: CleanCtx): Plan {
     const asked = str(x.module, 60);
     let id = doing === "block" ? "" : doing === "words" && at.kind === "module" ? at.module : moduleIdOf(asked);
     if (doing !== "block" && !id) { problems.push(`"${asked || "(no id)"}" is not a module of the library - that step was left out.`); continue; }
+    // a module the fill rules cannot fill is never brought (Content v11) - new words for one already there stay possible
+    if ((doing === "add" || doing === "replace") && id && ctx.plannable && !ctx.plannable(id)) { problems.push(`"${libModule(id)?.name ?? id}" is not one the AI can fill - that step was left out.`); continue; }
     let where: "before" | "after" | "" = (WHERE as readonly string[]).includes(String(x.where)) ? (x.where as "before" | "after") : "";
     // the part holding the page's H1 keeps it: a module goes after it instead of in its place
     if (doing === "replace" && at.kind === "page" && at.h1) { doing = "add"; where = "after"; said.push(`${at.id} holds the page's title (its H1) - the module goes after it, the title stays`); }
@@ -503,7 +507,7 @@ export function cleanPlan(raw: unknown, ctx: CleanCtx): Plan {
       const gap = full(id, words, layout, extras);
       if (gap) {
         // one of its kind that THESE words fill (not its own sample words)
-        const alt = library().find((o2) => o2.id !== id && o2.category === lib.category && !shopFilled(o2) && !ownPoints(o2.id) && listsFrom(o2.id, words) && !full(o2.id, words, "", []) && !!full(o2.id, emptyWords(), "", []));
+        const alt = library().find((o2) => o2.id !== id && o2.category === lib.category && (!ctx.plannable || ctx.plannable(o2.id)) && !shopFilled(o2) && !ownPoints(o2.id) && listsFrom(o2.id, words) && !full(o2.id, words, "", []) && !!full(o2.id, emptyWords(), "", []));
         if (!alt) { problems.push(`"${lib.name}" left out: ${lowerFirst(gap)} - it came back without them.`); continue; }
         said.push(`"${lib.name}" could not be filled (${lowerFirst(gap)}) - "${alt.name}" in its place`);
         id = alt.id; layout = ""; extras.length = 0;

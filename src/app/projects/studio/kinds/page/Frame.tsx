@@ -24,6 +24,8 @@ import { ResizeLayer, type ResizeSpec } from "./Resize";
 
 export type Device = "desktop" | "mobile";
 export const DEVICE_WIDTH: Record<Device, number> = { desktop: 1280, mobile: 390 };
+/** The frame's least height (a page shorter than this shows in a frame this tall). */
+const MIN_HEIGHT = 400;
 
 export type Picked = {
   /** "f:<field path>" (a new page's field) · "b:<part>" (a block) · "i:<insert id>" (a banner) · "e:<selector>" */
@@ -400,10 +402,22 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
   }, []);
 
   const docOf = () => frame.current?.contentDocument ?? null;
+  /**
+   * The page's own height. The shop's page fills the window it is shown in (its .page-wrapper is min-height:100vh), and
+   * the frame's window is the frame itself - so a page that got SHORTER kept the frame at its old height, the shop's
+   * footer at its foot and white in between (Content v11, SARCLA 10.11.2026: after "Write it all again" the middle stayed
+   * blank, 21.png). It is read in a window of the least height for a moment (nothing is painted in between), then the
+   * frame takes the height of what the page holds.
+   */
   const measure = useCallback(() => {
     const d = docOf();
-    if (!d?.documentElement) return;
-    setHeight(Math.min(30_000, Math.max(400, d.documentElement.scrollHeight)));
+    const f = frame.current;
+    if (!d?.documentElement || !f) return;
+    const was = f.style.height;
+    f.style.height = `${MIN_HEIGHT}px`;
+    const h = d.documentElement.scrollHeight;
+    f.style.height = was;
+    setHeight(Math.min(30_000, Math.max(MIN_HEIGHT, h)));
   }, []);
 
   /** what a click on this target selects - a field, a block, a banner, or (an existing page) the element itself */

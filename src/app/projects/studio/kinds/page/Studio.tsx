@@ -45,7 +45,7 @@ import { appBriefOf, pageHasContent, startLine, writesItself, type StartState } 
 import { PART_LABEL, mergeField, mergeFill, type Candidate, type FillAnswer, type Part } from "@/lib/content/studio/kinds/page/fill";
 import {
   MAIN_SELECTOR, addVersion, baseStore, carryMeta, changeId, copyView, dropVersion, pathIn, emptyPage, howToAdd, isLegacyBody, langName, langOfStore, leadOf, mainView, nextPageLetter, openVersion, pageDoc, shopLanguages, shopViews, sourceHash, storeForLanguage, tickStore, versionOfStore,
-  viewOf, viewsOf, withChange, withView, type LangOption, type LangVersion, type Leftover, type PageChange, type PageDoc,
+  storesOfView, viewOf, viewsOf, withChange, withView, type LangOption, type LangVersion, type Leftover, type PageChange, type PageDoc,
 } from "@/lib/content/studio/kinds/page/model";
 import { lookLine, problemsLine } from "@/lib/content/studio/kinds/page/readable";
 import { PICTURE_ASPECT, blockOfPath, blocksOf, busyBlocks, busyOf, previewOf, picturesToMake, type PictureJob } from "@/lib/content/studio/kinds/page/outline";
@@ -63,7 +63,8 @@ import { Build, type AppBrief, type Step } from "./Build";
 import { BlockList, type RowAct } from "./BlockList";
 import { applyElementEdit, lookCss, lookOf as elementLook, type ElementEdit } from "./edits";
 import { InsertPanel, type Selection } from "./Element";
-import { BlockSettingsPop, ButtonPop, EditBar, PicturePop, PopCard, ShopBlockPop, TextPop, cleanRich } from "./pops";
+import { AskPop, BlockSettingsPop, ButtonPop, EditBar, PicturePop, PopCard, ShopBlockPop, TextPop, cleanRich, type BlockAiAnswer } from "./pops";
+import { useModuleAi } from "./modules/useModuleAi";
 import { SwitchList } from "./Switch";
 import { useEdit } from "./useEdit";
 import { buttonLookOfField, fieldButtonPatchOf, groundOfField } from "@/lib/content/studio/kinds/page/style";
@@ -79,7 +80,7 @@ import { ModulesTab } from "./modules/ModulesTab";
 import { SideTabs } from "./modules/SideTabs";
 import { ModulePanel } from "./modules/Panel";
 import { moduleChangeOf, modulePending, useModules, type Place } from "./modules/useModules";
-import { MODULES, moduleDef } from "@/lib/content/studio/kinds/page/modules/registry";
+import { MODULES } from "@/lib/content/studio/kinds/page/modules/registry";
 import { kindOf, moduleGap, moduleOfChange } from "@/lib/content/studio/kinds/page/modules/model";
 import AddIcon from "@mui/icons-material/Add";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
@@ -121,7 +122,10 @@ let entryId = 0;
 
 /** A popup open at the selection (Content v8): a text's editor, a picture's, or a block's settings (its row's key); Content
  * v10: the modules a block can become ("switch", its row's key). */
-type Pop = { kind: "text" | "picture" | "settings" | "switch"; key: string };
+type Pop = { kind: "text" | "picture" | "settings" | "switch" | "ask"; key: string };
+
+/** A module's settings and the modules a block can become: as wide as a module of products' (Content v10, v11). */
+const MODULE_POP_WIDTH = 620;
 
 /** Pictures made side by side, at most. */
 const AT_ONCE = 3;
@@ -173,6 +177,8 @@ export default function Studio({ api }: StudioProps) {
   const [workNote, setWorkNote] = useState<string | null>(null);
   const [oldShown, setOldShown] = useState<number[]>([]);
   const [addPlace, setAddPlace] = useState<AddPlace | null>(null);
+  // Content v11: the whole page written again - the stage shows it from its top
+  const [toTop, setToTop] = useState(0);
   const preview = usePagePreview(api, d, lang, view);
   const { shell, inserts } = useShell(api, d, preview.fresh);
   /** the page's blocks, one row each (Content v8) */
@@ -259,8 +265,13 @@ export default function Studio({ api }: StudioProps) {
 
   /* ── the document, a language at a time, with a record of what changed ── */
 
-  const record = (label: string, before: PageDoc = docRef.current, by: "ai" | "you" = "you", note?: string, change?: string) =>
-    setHistory((h) => [{ id: ++entryId, label, note, at: Date.now(), lang: langRef.current, before, undone: false, by, ...(change ? { change } : {}) }, ...h].slice(0, 40));
+  // every line of "Changes made here" by its number, so an ask can take back exactly what it did (Content v11)
+  const entries = useRef(new Map<number, Entry>());
+  const record = (label: string, before: PageDoc = docRef.current, by: "ai" | "you" = "you", note?: string, change?: string) => {
+    const e: Entry = { id: ++entryId, label, note, at: Date.now(), lang: langRef.current, before, undone: false, by, ...(change ? { change } : {}) };
+    entries.current.set(e.id, e);
+    setHistory((h) => [e, ...h].slice(0, 40));
+  };
   const setDoc = (next: PageDoc, label?: string) => { if (label) record(label); api.setDoc(next); };
   const setView = (next: PageDoc, label?: string) => { if (label) record(label); api.setDoc(withView(docRef.current, langRef.current, next)); };
   /** an AI answer laid over the document as it is NOW (the person may have typed while it wrote) */
@@ -281,6 +292,14 @@ export default function Studio({ api }: StudioProps) {
     setHistory((h) => h.map((x) => (x.at >= e.at ? { ...x, undone: true } : x)));
     setSelState(null);
   };
+  /** what was done since a line of "Changes made here" (its number) taken back - an ask's Undo */
+  const undoSince = (mark: number) => {
+    const first = [...entries.current.values()].filter((e) => e.id > mark).sort((a, b) => a.id - b.id)[0];
+    if (first) void undo(first);
+  };
+  // "Fill it with AI" for one module (Content v11, SARCLA 10.11.2026: "I can't see launch the AI to fill me the block"):
+  // its settings' button, "Ask AI" on it, and the pass after "Write it all again" - ./modules/useModuleAi.ts
+  const moduleAi = useModuleAi({ api, lang: () => langRef.current, record: (label, before, note) => record(label, before, "ai", note), busy: (k, t) => modules.setBusy(k, t) });
   // Content v10 (SARCLA 10.11.2026 points 2-5): a text's and a button's look, a block changed into another module, a drag in
   // the preview resizing inside a block (./useEdit.tsx)
   const tools = useEdit({
@@ -668,6 +687,7 @@ export default function Studio({ api }: StudioProps) {
     let wrote = false;
     // the modules the whole-page write put on the page (Content v8), filled once the words are saved
     let placed: { id: string; step: NewPageModule }[] = [];
+    let composed = false;
     try {
       if (part === "field") {
         const path = opts.id ?? "";
@@ -682,6 +702,7 @@ export default function Studio({ api }: StudioProps) {
       const compose = part === "all" && (!opts.request || /^THE PAGE THE PERSON WANTS:/.test(opts.request) || filledCount(viewOf(docRef.current, forLang).fields) === 0);
       // an empty page (Content v9, SARCLA 10.11.2026: "it should by default start empty ... the block and number of
       // blocks are decided by the AI on the first prompt"): the AI decides its blocks and modules
+      composed = compose;
       const decide = compose && !blockOrder(viewOf(docRef.current, forLang).fields).length;
       const r = await api.ai<{ answer: FillAnswer; leftovers: string[]; modules?: NewPageModule[]; problems?: string[] }>(compose ? "fill_page" : `fill_${part}`, { lang: forLang, id: opts.id ?? null, request: opts.request ?? null, candidates: cands, ...(compose ? { decide } : {}) });
       if (!r.ok) return r.error;
@@ -699,6 +720,7 @@ export default function Studio({ api }: StudioProps) {
         return { ...cur, fields: c.fields };
       }, `AI wrote ${PART_LABEL[part as Part]}${compose && full.kept.length ? ` with ${full.kept.length} module${full.kept.length === 1 ? "" : "s"}` : ""}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
       wrote = true;
+      if (part === "all") setToTop((n) => n + 1);
       const out = [...(r.result.problems ?? []), ...full.left];
       const left = out.length ? `Left out: ${out.slice(0, 2).join(" ")}` : null;
       return [left, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || null;
@@ -706,8 +728,10 @@ export default function Studio({ api }: StudioProps) {
       setBusy(null);
       // its pictures, made without another click - once the words are saved
       if (wrote && (part === "all" || part === "hero" || part === "sections" || part === "section")) setTimeout(() => void autoPictures(forLang, part, opts.id), 50);
-      // its modules, filled from the shop in front of the person (Content v8)
-      if (wrote && placed.length) void npModules.fillAll(forLang, placed);
+      // its modules, filled from the shop in front of the person (Content v8) - then every module of the page still lacking
+      // something filled by the AI, or taken out (Content v11: no module "Not on the page yet" after an AI write)
+      if (wrote && composed) void npModules.fillAll(forLang, placed).then(() => moduleAi.fillLeft(forLang));
+      else if (wrote && placed.length) void npModules.fillAll(forLang, placed);
     }
   };
 
@@ -1016,6 +1040,35 @@ export default function Studio({ api }: StudioProps) {
     return run ? fill(run.part, { id: run.id, request }) : fill("all", { request });
   };
 
+  /**
+   * "Ask AI" on ONE block, applied to it at once (Content v11, SARCLA 10.11.2026: "ask the AI on block should display the
+   * inbox there like a pop and really apply the change on block level"; "Fill it with AI" is the same with no question): a
+   * module - its settings filled by the AI from the page (./modules/useModuleAi.ts, the `module_words` task); a new page's
+   * own block - written again (fill); a page of the shop's block - the plan aimed at it, one step applied at once. Says what
+   * it did, and its Undo takes back exactly that.
+   */
+  const askBlock = async (rowKey: string, request: string): Promise<BlockAiAnswer> => {
+    const r = rowsRef.current.find((x) => x.key === rowKey);
+    if (!r) return { ok: false, text: "That block is not on the page any more.", undo: null };
+    if (!canAi) return { ok: false, text: "The AI is not set up on this hub.", undo: null };
+    const mark = entryId;
+    let text: string;
+    let ok = true;
+    if (r.module) {
+      const out = await moduleAi.fill(isModuleKey(r.key) ? r.key : r.changeId ?? "", request);
+      text = out.text; ok = out.ok;
+    } else if (isNew) {
+      const m = await fillBlock(r.key, request || undefined);
+      text = m ?? (request ? "Done - the block is written again as you asked." : "The block is written from the page.");
+    } else {
+      const p = sel?.picked ?? null;
+      const m = await plan.ask("part", request || `Make this part of the page ("${r.name}") more convincing for a buyer: clearer benefits, the right products at hand, in the page's own facts.`, p ? scopeOf(p) : {});
+      text = m ?? "Done - the change is on the page.";
+    }
+    const made = entryId > mark;
+    return { ok: ok && made, text, undo: made ? () => undoSince(mark) : null };
+  };
+
   /* ── blocks added, moved, taken out (Content v5: "add more elements by + next to sections, or in the photo") ── */
 
   const [addWhere, setAddWhere] = useState<AddAt | null>(null);
@@ -1118,6 +1171,12 @@ export default function Studio({ api }: StudioProps) {
           { label: "Make it more convincing", run: () => fillBlock(blockPart, "Make this block more convincing for a buyer - concrete benefits, no hype.") },
           ...englishAsk,
         ]
+        : sel.key.startsWith("np:") && selRow ? [
+          // a module (Content v11): the AI fills its settings from the page - the same as its settings' button
+          { label: selRow.note ? "Fill it with AI" : "Write it again with AI", run: async () => (await askBlock(selRow.key, "")).text },
+          { label: "Make it shorter", run: async () => (await askBlock(selRow.key, "Make its words shorter and easier to scan, same meaning.")).text },
+          ...englishAsk,
+        ]
         : fieldPath && !pictureField ? [
           { label: "Write it again", run: () => fill("field", { id: fieldPath }) },
           { label: "Make it shorter", run: () => fill("field", { id: fieldPath, request: "Make it shorter, same meaning." }) },
@@ -1184,7 +1243,8 @@ export default function Studio({ api }: StudioProps) {
         if (blockPart) return fillBlock(blockPart, text);
         // a module's text (Content v8): those words written again; a module: its settings fill it
         if (sel.key.startsWith("nt:") && sel.picked) { const r = await aiWords(sel.picked, text, sel.picked.text); return r.error ?? (r.text ? putWords(sel.picked, r.text) : null); }
-        if (sel.key.startsWith("np:")) { if (selRow) openSettings(selRow); return "A module is filled in its settings, beside it in the page - its words by a click on them."; }
+        // a module (Content v11): the AI fills it - its settings - from the page and the ask
+        if (sel.key.startsWith("np:") && selRow) return (await askBlock(selRow.key, text)).text;
         return fill("all", { request: text });
       }
       // a block, or a module the hub put: a plan; one element: the block that takes its place
@@ -1410,7 +1470,8 @@ export default function Studio({ api }: StudioProps) {
   const rowMenu = (r: BlockRow): RowAct[] => {
     const acts: RowAct[] = [
       { key: "settings", label: "Settings", icon: <TuneIcon />, run: () => openSettings(r) },
-      { key: "ai", label: "Ask AI about it", icon: <AutoAwesomeOutlinedIcon />, run: () => { selectRow(r); askAi(); }, disabled: !aiHere },
+      // Content v11 (SARCLA: "ask the AI on block should display the inbox there like a pop"): its question box, at it
+      { key: "ai", label: "Ask AI about it", icon: <AutoAwesomeOutlinedIcon />, run: () => selectRow(r, { kind: "ask", key: r.key }), disabled: !aiHere },
     ];
     if (!canEdit) return acts;
     // Content v10 (point 4): the modules of the same kind it can become
@@ -1437,6 +1498,8 @@ export default function Studio({ api }: StudioProps) {
     for (const r of rows) { const n = makingIn(r.key); if (n) rowBusy[r.key] = n === 1 ? "Making the picture…" : `Making ${n} pictures…`; }
   }
   for (const [k, v] of Object.entries(modules.busy)) rowBusy[isModuleKey(k) ? k : `c:${k}`] = v;
+  // a new page's module the AI or the shop fills from its settings: its block says so on the page too (Content v11)
+  const npBusy = Object.fromEntries(Object.entries(modules.busy).filter(([k]) => isModuleKey(k)).map(([k, v]) => [k.slice(3), v]));
 
   /* the bar over the selection */
   const popOfSel: Pop | null = !sel ? null : sel.picked ? popFor(sel.picked)
@@ -1449,10 +1512,12 @@ export default function Studio({ api }: StudioProps) {
       onBlock={selRow && !wholeRow ? () => selectRow(selRow) : undefined}
       edit={popOfSel && pop?.key !== popOfSel.key && canEdit ? { label: popOfSel.kind === "picture" ? "Picture" : popOfSel.kind === "settings" ? "Settings" : "Edit text", run: () => openPop(popOfSel) } : null}
       onSettings={selRow && !(pop?.kind === "settings" && pop.key === selRow.key) ? () => openSettings(selRow) : undefined}
-      onAi={aiHere ? askAi : undefined} onClose={() => onPick(null)} />
+      onAi={aiHere ? (selRow ? () => openPop({ kind: "ask", key: selRow.key }) : askAi) : undefined} onClose={() => onPick(null)} />
   ) : undefined;
 
   /* the popup at the selection */
+  // every store view the page goes to (Content v11: a link as each of them sends its visitor)
+  const pageStores = [...new Set(viewsOf(doc).flatMap((v) => storesOfView(doc, v)))];
   const pageCategory = d.pageKind === "category" && d.path ? { name: d.outline?.path === d.path ? d.outline.h1[0] ?? "This category" : "This category", url: `https://www.apsoparts.com${d.path}` } : null;
   const popup0 = ((): { node: React.ReactNode; at: "below" | "side"; width?: number } | null => {
     if (!pop) return null;
@@ -1477,8 +1542,8 @@ export default function Studio({ api }: StudioProps) {
       if (kind === "button") {
         // Content v10 (point 3): its words, its page, its style, colour, size, arrow and tab
         const b = (getField(d.fields, path) ?? { label: "", url: "" }) as { label: string; url: string };
-        return { at: "below", width: 430, node: (
-          <ButtonPop key={k} kicker={kick} label={b.label} max={LIMIT.button} onLabel={(v) => setFieldText(`${path}.label`, v)} url={b.url} onUrl={(v) => setFieldText(`${path}.url`, v)}
+        return { at: "below", width: MODULE_POP_WIDTH, node: (
+          <ButtonPop key={k} kicker={kick} label={b.label} max={LIMIT.button} onLabel={(v) => setFieldText(`${path}.label`, v)} url={b.url} onUrl={(v) => setFieldText(`${path}.url`, v)} stores={pageStores}
             api={api} store={d.store} look={buttonLookOfField(d.fields.looks[path])} grounds={groundOfField(d.fields, path)} fallback="red" canEdit={canEdit}
             onLook={(next, label) => { const cur = viewOf(docRef.current, langRef.current); setView({ ...cur, fields: setLook(cur.fields, path, fieldButtonPatchOf(next)) }, label); }}
             ai={aiHere ? (ask) => aiField(`${path}.label`, ask) : null} onClose={closePop} />
@@ -1505,8 +1570,8 @@ export default function Studio({ api }: StudioProps) {
       // Content v10 (point 3): a module's button clicked on the page - its words, page and look
       const modBtn = inMod ? tools.moduleButton(p) : null;
       if (modBtn) {
-        return { at: "below", width: 430, node: (
-          <ButtonPop key={k} kicker={kick} {...modBtn} api={api} store={d.store} canEdit={canEdit} onClose={closePop} ai={aiHere ? (ask, now) => aiWords(p, ask, now) : null} />
+        return { at: "below", width: MODULE_POP_WIDTH, node: (
+          <ButtonPop key={k} kicker={kick} {...modBtn} api={api} store={d.store} canEdit={canEdit} onClose={closePop} ai={aiHere ? (ask, now) => aiWords(p, ask, now) : null} stores={pageStores} />
         ) };
       }
       return { at: "below", width: 420, node: (
@@ -1563,14 +1628,25 @@ export default function Studio({ api }: StudioProps) {
         </PopCard>
       ) };
     }
+    // Content v11: "Ask AI" on a block, at the block - its answer applied to the block at once, with its Undo
+    if (pop.kind === "ask") {
+      const r = rows.find((x) => x.key === k);
+      if (!r) return null;
+      return { at: "side", width: 460, node: (
+        <AskPop key={k} kicker={`Block ${r.num} · ${r.name}${r.module ? " · module" : ""}`} title="Ask AI about this block"
+          empty={r.module ? (r.note ? "Fill it with AI" : "Write it again with AI") : isNew ? (r.state === "written" ? "Write it again with AI" : "Write it with AI") : "Make it more convincing"}
+          quick={[{ label: "Make it shorter", ask: "Make its words shorter and easier to scan, same meaning." }, { label: "More convincing", ask: "Make it more convincing for a buyer - concrete benefits from the page, no hype." }]}
+          onAsk={(t) => askBlock(r.key, t)} onClose={closePop} />
+      ) };
+    }
     // Content v10 (point 4): "Change it into another module" - the compatible modules, each with its thumbnail
     if (pop.kind === "switch") {
       const r = rows.find((x) => x.key === k);
       const o = r ? tools.optionsFor(r) : null;
       if (!r || !o) return null;
-      return { at: "side", width: 440, node: (
+      return { at: "side", width: MODULE_POP_WIDTH, node: (
         <PopCard kicker={`Block ${r.num} · ${r.name}`} title="Change it into another module" onClose={closePop} maxBody="min(66vh, 620px)">
-          <SwitchList options={o.options} keeps={o.keeps} disabled={!canEdit} first={8} onPick={(t) => tools.switchRow(r, t)} />
+          <SwitchList options={o.options} keeps={o.keeps} disabled={!canEdit} first={9} columns={3} onPick={(t) => tools.switchRow(r, t)} />
         </PopCard>
       ) };
     }
@@ -1578,11 +1654,10 @@ export default function Studio({ api }: StudioProps) {
       const r = rows.find((x) => x.key === k);
       if (!r) return null;
       if (r.module) {
-        // a module of products or categories is a technical one: wider, so each one's number and link show (Content v10,
-        // SARCLA point 9: "product bento since more technical put it wider so we can also see the link")
-        const items = moduleDef(r.module.type)?.takes;
-        return { at: "side", width: items === "products" || items === "categories" ? 620 : 420, node: (
-          <ModulePanel key={modules.editing ?? k} ctl={modules} api={api} onBack={closePop} pageCategory={pageCategory} pop={{ num: r.num }}
+        // every module's settings as wide as a module of products' (Content v10: 620 px, so each one's number and link
+        // show) - Content v11, SARCLA 10.11.2026: "make the popup wider like the product"
+        return { at: "side", width: MODULE_POP_WIDTH, node: (
+          <ModulePanel key={modules.editing ?? k} ctl={modules} api={api} onBack={closePop} pageCategory={pageCategory} pop={{ num: r.num }} ai={aiHere ? { run: () => askBlock(r.key, "") } : null} stores={pageStores}
             onSwitch={canEdit ? (t) => tools.switchRow(r, t) : undefined} top={tools.switchedBar(r.key)} />
         ) };
       }
@@ -1640,7 +1715,7 @@ export default function Studio({ api }: StudioProps) {
         preview={<Stage api={api} doc={doc} d={d} lang={lang} onLang={openView} groups={groups} presence={presence} view={view} onView={setViewMode} preview={preview} selected={sel?.key ?? null} picked={sel?.picked ?? null}
           onPick={onPick} onEdit={onEdit} editNonce={editNonce} reveal={reveal} onEditWords={() => setEditNonce((n) => n + 1)} onAskAi={askAi}
           inserts={inserts} shell={shell} onFix={(left) => void fixLeftovers(left)} empty={empty}
-          writing={{ blocks: marks.blocks, fields: marks.fields, pictures: makingPaths, tuning: tuningPaths, modules: npModules.busyFor(lang), moduleWhy: npModules.whyFor(lang) }} working={busyHere === "rewrite" ? since : null} workingLabel={busyHere === "rewrite" ? workNote : null}
+          writing={{ blocks: marks.blocks, fields: marks.fields, pictures: makingPaths, tuning: tuningPaths, modules: { ...npModules.busyFor(lang), ...npBusy }, moduleWhy: npModules.whyFor(lang) }} working={busyHere === "rewrite" ? since : null} workingLabel={busyHere === "rewrite" ? workNote : null}
           oldShown={oldShown} onAddEl={!isNew && d.path && canEdit ? setAddPlace : undefined}
           plan={isNew ? undefined : {
             // the AI's steps and the library's modules, drawn in the page at once (Content v7, points 6 and 13)
@@ -1648,7 +1723,7 @@ export default function Studio({ api }: StudioProps) {
             flash: (modules.flash?.nonce ?? 0) > (plan.flash?.nonce ?? 0) ? modules.flash : plan.flash,
             onShown: (f, why) => (f.key?.startsWith("mod:") ? modules.onShown(f.key, why) : plan.onShown(f, why)),
           }}
-          onAct={isNew ? onAct : undefined} bar={bar} popup={popup}
+          onAct={isNew ? onAct : undefined} bar={bar} popup={popup} toTop={toTop}
           blocks={{ onBlocks: !isNew && d.path ? setFound : undefined, seekRow, selectedBlock, onEditStart: () => openPop(null), resize: tools.resizeFor(sel?.key ?? null, selRowKey, wholeRow) }}
           strip={!isNew && d.path && !empty ? <VersionStrip view={d} docOrigin={lang === main ? doc.origin : null} canEdit={canEdit} busy={!!busy} onOpen={(l) => void openLetter(l)} onAdd={() => void addLetter()} onDrop={(l) => void dropLetter(l)} /> : undefined}
           adds={isNew && canEdit ? { onAdd: (at, pos) => setAddWhere({ at, pos }), onAddItem: addItemTo } : undefined}

@@ -13,12 +13,15 @@ import Typography from "@mui/material/Typography";
 import UndoIcon from "@mui/icons-material/Undo";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { thumbOf } from "@/lib/content/studio/kinds/page/modules/registry";
-import { categoryName, type SwitchOption } from "@/lib/content/studio/kinds/page/modules/switch";
+import { categoryName, switchTypes, type SwitchOption } from "@/lib/content/studio/kinds/page/modules/switch";
+import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { PINK } from "../../parts";
 
 const AMBER = "#a96a12";
 
-/** The compatible modules, as thumbnails: a click makes the block that module. `first`: how many show before "Show all". */
+/** The compatible modules, as thumbnails: a click makes the block that module. `first`: how many show before "Show all".
+ * Content v11 (SARCLA 10.11.2026: "put a type on modules replacement"): their types on top, squared - All, then each
+ * category of the library they come from (its own first), each with how many. */
 export function SwitchList({ options, keeps, onPick, disabled, first = 6, columns = 2 }: {
   options: SwitchOption[];
   /** what is kept, in words ("its questions") */
@@ -29,13 +32,18 @@ export function SwitchList({ options, keeps, onPick, disabled, first = 6, column
   columns?: number;
 }) {
   const [all, setAll] = useState(false);
+  const [type, setType] = useState("all");
   if (!options.length) return <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No other module of the library holds this kind of content.</Typography>;
-  const shown = all ? options : options.slice(0, first);
+  const types = switchTypes(options);
+  const typed = type === "all" || !types.some((t) => t.key === type) ? options : options.filter((o) => o.def.category === type);
+  // one type picked: all of it at once
+  const shown = all || typed !== options ? typed : typed.slice(0, first);
   return (
     <Box>
       <Typography sx={{ fontSize: "0.76rem", color: MUTED, lineHeight: 1.45, mb: 1 }}>
         {options.length} module{options.length === 1 ? "" : "s"} of the same kind - it keeps {keeps}, only the look changes. Undo brings the old one back.
       </Typography>
+      {types.length > 0 && <Box sx={{ mb: 1.25 }}><SquareChoice value={type} onChange={(k) => { setType(k); setAll(false); }} options={types} label="Type" /></Box>}
       <Box sx={{ display: "grid", gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gap: 1 }}>
         {shown.map((o) => (
           <Tooltip key={o.def.id} title={o.def.note} placement="top" describeChild>
@@ -60,7 +68,7 @@ export function SwitchList({ options, keeps, onPick, disabled, first = 6, column
           </Tooltip>
         ))}
       </Box>
-      {options.length > first && (
+      {typed === options && options.length > first && (
         <Button size="small" onClick={() => setAll((x) => !x)} sx={{ textTransform: "none", fontWeight: 650, fontSize: "0.78rem", color: PINK, px: 0.5, mt: 0.75 }}>
           {all ? "Show fewer" : `Show all ${options.length}`}
         </Button>

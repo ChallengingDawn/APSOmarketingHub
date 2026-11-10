@@ -45,6 +45,9 @@ import TuneIcon from "@mui/icons-material/Tune";
 import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
+import { linkInStores } from "@/lib/content/studio/kinds/page/links";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   SPLITS, addItem, getField, moveItem, removeItem, setField, setLook,
   type BlockBg, type Fields, type ListKey, type Look, type Pic, type TextAlign, type TextSize,
@@ -395,10 +398,12 @@ export type ButtonPopProps = {
   ai?: ((ask: string, now: string) => Promise<{ text?: string; error?: string }>) | null;
   onClose: () => void;
   hint?: React.ReactNode;
+  /** Content v11: every store view the page goes to - the link as each of them sends its visitor */
+  stores?: string[];
 };
 
 /** A button, clicked on the page or opened from its block's settings: its words, its page, then its look. */
-export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, onUrl, api, store, look, onLook, grounds, fallback, arrowDefault = true, canEdit, ai, onClose, hint }: ButtonPopProps) {
+export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, onUrl, api, store, look, onLook, grounds, fallback, arrowDefault = true, canEdit, ai, onClose, hint, stores }: ButtonPopProps) {
   const [draft, setDraft] = useState(label);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -437,6 +442,7 @@ export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, 
         sx={{ ...field, "& .MuiInputBase-root": { fontSize: "0.9rem" } }} />
       <Box sx={{ mt: 1.75 }}>
         <LinkInput api={api} store={store} value={url} disabled={!canEdit} label="Its page of the shop" onChange={onUrl} />
+        {stores && stores.length > 1 && <StoreLinks url={url} stores={stores} />}
       </Box>
       {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: -0.5, mb: 1, lineHeight: 1.4 }}>{hint}</Typography>}
       {canEdit && <ButtonLookBox value={look} onChange={onLook} grounds={grounds} fallback={fallback} arrowDefault={arrowDefault} />}
@@ -807,6 +813,106 @@ export function EditBar({ block, label, onBlock, edit, onSettings, onAi, onClose
       {onSettings && <Tooltip title="The block's settings"><Button size="small" onClick={onSettings} startIcon={<TuneIcon sx={{ fontSize: 15 }} />} sx={b}>Settings</Button></Tooltip>}
       {onAi && <Button size="small" onClick={onAi} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>Ask AI</Button>}
       <IconButton size="small" onClick={onClose} aria-label="Unselect" sx={{ color: "rgba(255,255,255,.7)", p: 0.4 }}><CloseIcon sx={{ fontSize: 15 }} /></IconButton>
+    </Box>
+  );
+}
+
+/* ── "Ask AI" on a block, right at it (Content v11) ───────────────────── */
+
+/** What the AI did for a block - said in the popup, with the Undo of what it did. */
+export type BlockAiAnswer = { ok: boolean; text: string; undo: (() => void) | null };
+
+/**
+ * "Ask AI" on a block, AT the block (SARCLA 10.11.2026: "ask the AI on block should display the inbox there like a pop and
+ * really apply the change on block level"): a question box beside the block; the answer is applied to the block at once
+ * (a module's settings, a block's words), it says what it did, and Undo takes it back. With no question it fills the
+ * block from the page ("Fill it with AI" - the module's settings button runs the same).
+ */
+export function AskPop({ kicker, title, empty, quick, onAsk, onClose }: {
+  kicker: React.ReactNode; title: string;
+  /** the button's words with no question ("Fill it with AI", "Write it again with AI") */
+  empty: string;
+  /** one-click asks ("Make it shorter") */
+  quick?: { label: string; ask: string }[];
+  onAsk: (request: string) => Promise<BlockAiAnswer>;
+  onClose: () => void;
+}) {
+  const [ask, setAsk] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [said, setSaid] = useState<BlockAiAnswer | null>(null);
+  const box = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => { const t = setTimeout(() => box.current?.focus(), 60); return () => clearTimeout(t); }, []);
+  const run = async (text: string, label: string) => {
+    if (busy) return;
+    setBusy(label);
+    setSaid(null);
+    try { setSaid(await onAsk(text.trim())); setAsk(""); } finally { setBusy(null); }
+  };
+  return (
+    <PopCard kicker={kicker} title={title} onClose={onClose} maxBody="min(60vh, 520px)">
+      <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "8px", bgcolor: "#fff", px: 1.25, py: 0.75, "&:focus-within": { borderColor: PINK, boxShadow: "0 0 0 3px rgba(194,44,110,.12)" } }}>
+        <InputBase inputRef={box} fullWidth multiline minRows={2} maxRows={6} value={ask} disabled={!!busy} placeholder="What should change in this block? Leave it empty to fill it from the page."
+          onChange={(e) => setAsk(e.target.value.slice(0, 1500))}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void run(ask, ask.trim() ? "Asking…" : empty); } }}
+          sx={{ fontSize: "0.86rem", lineHeight: 1.45, color: INK }} />
+      </Box>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 1, flexWrap: "wrap" }}>
+        <Button variant="contained" disableElevation disabled={!!busy} onClick={() => void run(ask, ask.trim() ? "Asking…" : empty)}
+          startIcon={busy ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />}
+          sx={{ ...mainBtn, bgcolor: PINK, borderRadius: "7px", px: 1.75, py: 0.5, fontSize: "0.82rem", "&:hover": { bgcolor: "#a3245c" }, "&.Mui-disabled": busy ? { bgcolor: PINK, color: "#fff", opacity: 0.85 } : {} }}>
+          {busy ?? (ask.trim() ? "Ask" : empty)}
+        </Button>
+        {!busy && !ask.trim() && (quick ?? []).map((q) => (
+          <Button key={q.label} size="small" onClick={() => void run(q.ask, `${q.label}…`)} sx={{ ...quiet, border: `1px solid ${HAIRLINE}` }}>{q.label}</Button>
+        ))}
+      </Box>
+      {said && (
+        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mt: 1.25, pt: 1, borderTop: `1px solid ${HAIRLINE}` }}>
+          <Typography sx={{ flex: 1, fontSize: "0.8rem", lineHeight: 1.45, color: said.ok ? INK : "#a96a12" }}>{said.text}</Typography>
+          {said.undo && <Button size="small" onClick={() => { said.undo?.(); setSaid({ ok: true, text: "Taken back - the block is as it was.", undo: null }); }} sx={{ ...quiet, color: PINK, border: `1px solid ${HAIRLINE}`, flexShrink: 0 }}>Undo</Button>}
+        </Box>
+      )}
+      <Typography sx={{ mt: 1, fontSize: "0.72rem", color: MUTED, lineHeight: 1.4 }}>Applied to this block only, at once. The assistant on the right works on the whole page.</Typography>
+    </PopCard>
+  );
+}
+
+/* ── a link in every store view the page goes to (Content v11) ────────── */
+
+/**
+ * The link as each store view the page goes to sends its visitor (SARCLA 10.11.2026: "this should also get all the links
+ * from all the locales in a dropdown"): folded under the link, "In every store view (9)"; each row its store view and its
+ * address there - opened on the shop by a click - or, in another language, said: that language's page sets its own.
+ */
+export function StoreLinks({ url, stores }: { url: string; stores: string[] }) {
+  const [open, setOpen] = useState(false);
+  const rows = linkInStores(url, stores);
+  if (!url.trim() || rows.length < 2) return null;
+  const moved = rows.filter((r) => r.moved).length;
+  return (
+    <Box sx={{ mt: -0.25, mb: 1 }}>
+      <Button size="small" onClick={() => setOpen((x) => !x)} endIcon={<ExpandMoreIcon sx={{ fontSize: 17, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />}
+        sx={{ ...btn, px: 0.5, fontSize: "0.78rem", color: open ? PINK : MUTED }}>
+        In every store view ({rows.length}){moved < rows.length ? ` · ${rows.length - moved} in another language` : ""}
+      </Button>
+      {open && (
+        <Box role="list" sx={{ mt: 0.5, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", maxHeight: 240, overflowY: "auto" }}>
+          {rows.map((r, i) => (
+            <Box key={r.store} role="listitem" sx={{ display: "grid", gridTemplateColumns: "84px minmax(0,1fr) 22px", alignItems: "center", gap: 1, px: 1, py: 0.55, borderTop: i ? `1px solid ${HAIRLINE}` : "none", bgcolor: "#fff" }}>
+              <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{r.store}</Typography>
+              {r.moved ? (
+                <Typography component="a" href={`https://www.apsoparts.com${r.path.startsWith("/") ? r.path : `/${r.path}`}`} target="_blank" rel="noreferrer" title={`Open ${r.path} on the shop`}
+                  sx={{ minWidth: 0, fontSize: "0.72rem", color: MUTED, fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: "none", "&:hover": { color: PINK } }}>
+                  {r.path}
+                </Typography>
+              ) : (
+                <Typography sx={{ minWidth: 0, fontSize: "0.72rem", color: "#a96a12" }}>Another language - its own page sets this link (translate the page)</Typography>
+              )}
+              {r.moved ? <OpenInNewIcon sx={{ fontSize: 13, color: MUTED }} /> : <span />}
+            </Box>
+          ))}
+        </Box>
+      )}
     </Box>
   );
 }
