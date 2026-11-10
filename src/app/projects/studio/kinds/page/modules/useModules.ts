@@ -116,7 +116,7 @@ export function modulePending(changes: PageChange[], served: { changes: PageChan
     if (off) {
       if (!isWait(off) && !busy[c.id]) continue;
       const gap = moduleGap(m);
-      out.push({ key: `mod:${c.id}`, selector: sel, where, html: renderSkeleton(m, { busy: busy[c.id] ?? null, reason: gap ? `${gap} - on the left.` : off }) });
+      out.push({ key: `mod:${c.id}`, selector: sel, where, html: renderSkeleton(m, { busy: busy[c.id] ?? null, reason: gap ? `${gap} - in its settings (click it).` : off }) });
       continue;
     }
     const html = (c as { html?: string }).html ?? "";

@@ -179,7 +179,7 @@ ${one("cta.title", "h2", "apx-np-h2", c.title, "The call to action")}${many("cta
       // one that still lacks something: its skeleton in the preview with the reason (Content v7, SARCLA point 6: "added a
       // module didn't appear" - never nothing), nothing in Magento's copy
       const gap = moduleGap(x.module);
-      if (gap) return m ? `<div data-apx-mod="${esc(x.id)}" class="apx-np-in">${renderSkeleton(x.module, { reason: `${gap} - on the left.` })}</div>` : "";
+      if (gap) return m ? `<div data-apx-mod="${esc(x.id)}" class="apx-np-in">${renderSkeleton(x.module, { reason: `${gap} - in its settings (click it).` })}</div>` : "";
       const h = renderModule(x.module, o.picture ? { picture: o.picture } : {});
       return m ? `<div data-apx-mod="${esc(x.id)}">${h}</div>` : h;
     }).join("\n");

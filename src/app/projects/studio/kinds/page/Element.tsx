@@ -290,7 +290,7 @@ function ElementPanel({ api, view, setChanges, picked, onEditInPage }: {
 
 /* ── a banner placed in the page ──────────────────────────────────────── */
 
-function InsertPanel({ view, setView, id, inserts, record }: { view: PageDoc; setView: (v: PageDoc) => void; id: string; inserts: InsertOut[] | null; record: (label: string) => void }) {
+export function InsertPanel({ view, setView, id, inserts, record }: { view: PageDoc; setView: (v: PageDoc) => void; id: string; inserts: InsertOut[] | null; record: (label: string) => void }) {
   const ins = view.inserts.find((x) => x.id === id);
   const out = inserts?.find((x) => x.id === id);
   if (!ins) return <Hint mt={0}>This banner is no longer in the page.</Hint>;

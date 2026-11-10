@@ -50,7 +50,7 @@ const words = (s: string, n = 70) => { const t = s.replace(/\s+/g, " ").trim(); 
 /* ── a new page ───────────────────────────────────────────────────────── */
 
 const NP = "np:";
-export const isModuleKey = (key: string | null | undefined): key is string => !!key && key.startsWith(NP);
+export const isModuleKey = (key: string | null | undefined): boolean => !!key && key.startsWith(NP);
 export const moduleKeyOf = (id: string) => `${NP}${id}`;
 
 function blockRow(b: BlockInfo): Omit<BlockRow, "num"> {
