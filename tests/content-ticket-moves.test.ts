@@ -97,6 +97,15 @@ test("the other status changes move the ticket forward as before, never back", (
   assert.equal(status("changes", "6161845476"), null);
 });
 
+test("changes asked on a piece in review: from Waiting on APSO back to In Progress - the writer's again", () => {
+  const changes = (stage: string | null) => pieceMove(PIPE, { stage, due: null }, { status: "changes", was: "review", dueDate: null, changed: { status: true } }, TODAY, FORM);
+  const m = changes("6161845476");
+  assert.equal(m?.to?.label, "In Progress");
+  assert.equal(m?.why, "changes");
+  assert.equal(changes("s-ready"), null, "planned at Ready to roll: it stays");
+  assert.equal(changes("s-live"), null);
+});
+
 test("opened again after it was live: the one move back, as a person asked it", () => {
   const m = pieceMove(PIPE, { stage: "s-live", due: TODAY }, { status: "writing", was: "live", dueDate: null, changed: { status: true } }, TODAY, FORM);
   assert.equal(m?.to?.label, "In Progress");

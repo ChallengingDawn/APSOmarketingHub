@@ -40,7 +40,9 @@ test("who may move a piece", () => {
 
 test("who gets a mail - never the person who did it", () => {
   const p = piece("writing");
-  assert.deepEqual(mailsFor({ kind: "status", to: "review" }, p, "carl", "anna"), [{ username: "bert", kind: "review" }]);
+  // the reviewer gets no mail: asked to review, or named reviewer (SARCLA 10.11.2026) - they find it in the hub
+  assert.deepEqual(mailsFor({ kind: "status", to: "review" }, p, "carl", "anna"), []);
+  assert.deepEqual(mailsFor({ kind: "assign", role: "reviewer", username: "bert" }, p, "carl", "anna"), []);
   assert.deepEqual(mailsFor({ kind: "status", to: "approved" }, p, "carl", "bert"), [{ username: "anna", kind: "approved" }]);
   assert.deepEqual(mailsFor({ kind: "status", to: "changes" }, p, "carl", "bert"), [{ username: "anna", kind: "changes" }]);
   assert.deepEqual(mailsFor({ kind: "status", to: "live" }, p, "carl", "anna"), [{ username: "carl", kind: "live" }]);

@@ -84,9 +84,10 @@ export type MailTo = { username: string; kind: MailKind };
 
 /**
  * Who hears about it by mail. Never the person who did it; nobody twice for one event.
- *   assigned writer -> "please write it"; assigned reviewer -> "you will review it"
- *   to review       -> the reviewer
- *   approved/changes-> the writer
+ *   assigned writer -> "please write it"
+ *   assigned reviewer, to review -> nobody: the reviewer finds it in the hub (SARCLA 10.11.2026: "ask for review - don't
+ *                      send a mail to the reviewer, and back to the user when asked for changes or approved")
+ *   approved/changes-> the writer - it is theirs again
  *   live            -> the writer and the project's owner
  */
 export function mailsFor(e: PieceEvent, piece: PieceRef, owner: string | null, actor: string): MailTo[] {
@@ -94,8 +95,7 @@ export function mailsFor(e: PieceEvent, piece: PieceRef, owner: string | null, a
   const add = (u: string | null, kind: MailKind) => {
     if (u && u !== actor && !out.some((m) => m.username === u)) out.push({ username: u, kind });
   };
-  if (e.kind === "assign") add(e.username, e.role === "writer" ? "write" : "review_assigned");
-  else if (e.to === "review") add(piece.reviewer, "review");
+  if (e.kind === "assign") { if (e.role === "writer") add(e.username, "write"); }
   else if (e.to === "approved") add(piece.writer, "approved");
   else if (e.to === "changes") add(piece.writer, "changes");
   else if (e.to === "live") { add(piece.writer, "live"); add(owner, "live"); }

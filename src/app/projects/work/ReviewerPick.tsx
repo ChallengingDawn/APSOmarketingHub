@@ -33,7 +33,7 @@ export function ReviewerPick({ open, people, writer, defaultReviewer, onClose, o
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
       <DialogTitle sx={{ fontWeight: 700, pb: 0.5 }}>Who reviews it?</DialogTitle>
       <DialogContent>
-        <Typography sx={{ fontSize: "0.82rem", color: MUTED, mb: 1.5 }}>They get a mail with the link, and approve it or send it back with a note.</Typography>
+        <Typography sx={{ fontSize: "0.82rem", color: MUTED, mb: 1.5 }}>They find it in the hub (no mail), and approve it or send it back with a note - then it is yours again.</Typography>
         <Box role="radiogroup" aria-label="Reviewer" sx={{ display: "grid", gap: 0.75, maxHeight: 340, overflowY: "auto", p: 0.25 }}>
           {list.map((x) => {
             const on = picked === x.username;

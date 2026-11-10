@@ -223,7 +223,7 @@ function People({ api, onError }: { api: StudioApi; onError: (e: string | null) 
         <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".05em" }}>Who does it</Typography>
         <PersonPick label="Owner" value={p.writer} onChange={(u) => void set({ writer: u })} people={d.people} disabled={!d.access.canEdit} width={258} />
         <PersonPick label="Reviewer" value={p.reviewer} onChange={(u) => void set({ reviewer: u })} people={d.people} disabled={!d.access.canEdit} width={258} />
-        <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Each gets a mail when it is theirs: the owner now, the reviewer when you ask for review.</Typography>
+        <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>The owner gets a mail when it is theirs - now, and again when the reviewer approves it or asks for changes. The reviewer finds it in the hub, without a mail.</Typography>
       </Popover>
     </>
   );

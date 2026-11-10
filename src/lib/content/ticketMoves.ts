@@ -11,7 +11,8 @@
 // it (a ticket kept as Maintaining Internally, or Killed, stays). The stages are found by their NAME in the pipeline as
 // HubSpot answers it. They change the sub-action; the plan's two-way sync takes them on to the ticket - one writer
 // (actionPlanHubspot.ts), as a sub-action ticked done already did. The piece's other status changes move it as before
-// (pieceRules.STATUS_STAGE), forward only too - except a piece opened again after it was live: a person taking it back.
+// (pieceRules.STATUS_STAGE), forward only too - except a piece opened again after it was live (a person taking it back),
+// and changes asked on a piece in review: from Waiting on APSO back to In Progress, the writer's again (Content v11).
 //
 // Pure: no database, no HubSpot - the pipeline and the ticket's stage come in, the move goes out
 // (tests/content-ticket-moves.test.ts).
@@ -83,7 +84,7 @@ export type PieceChange = {
   changed: { status?: boolean; due?: boolean };
 };
 
-export type Why = "planned" | "live" | "status" | "reopened";
+export type Why = "planned" | "live" | "status" | "reopened" | "changes";
 /** The sub-action's move: its stage (null = it stays) and the fields that go with it (the go-live date). */
 export type SubMove = { to: PipeStage | null; why: Why; fields: { due?: string; start?: string } };
 
@@ -112,6 +113,11 @@ export function pieceMove(stages: readonly PipeStage[], now: { stage: string | n
     const mapped = stages.find((s) => s.value === STATUS_STAGE[c.status]) ?? null;
     // opened again after it was live: a person takes it back - the one move backwards
     if (c.was === "live") return mapped && mapped.value !== now.stage ? { to: mapped, why: "reopened", fields: {} } : null;
+    // changes asked by its reviewer: back to the writer - from Waiting on APSO to In Progress (SARCLA 10.11.2026: "back to
+    // the user when asked for changes"); a ticket elsewhere (planned at Ready to roll, past it) stays
+    if (c.status === "changes" && c.was === "review") {
+      return mapped && now.stage === STATUS_STAGE.review && mapped.value !== now.stage ? { to: mapped, why: "changes", fields: {} } : null;
+    }
     const to = forward(stages, now.stage, mapped);
     if (to) return { to, why: "status", fields: {} };
   }
@@ -130,7 +136,7 @@ export function moveLine(m: SubMove, x: { ticketId: string | null; taskId: numbe
   const what = [m.to ? `-> ${m.to.label}` : "", m.fields.due ? `go-live date ${m.fields.due}` : ""].filter(Boolean).join(", ");
   const why = m.why === "planned" ? `planned ${short(x.dueDate)}`
     : m.why === "live" ? `live${m.fields.due ? ` ${short(m.fields.due)}` : ""}`
-      : m.why === "reopened" ? `opened again, ${x.status}` : x.status;
+      : m.why === "reopened" ? `opened again, ${x.status}` : m.why === "changes" ? "changes asked" : x.status;
   return `[content] ${who} ${what} (piece ${x.pieceId} ${why})`;
 }
 

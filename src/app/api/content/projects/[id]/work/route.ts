@@ -153,7 +153,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (!found) return fail("That to-do is not in this project.", 404);
     if (!isPieceStatus(b.to)) return fail("Which status?");
     const to = b.to;
-    // "Ask for review" names its reviewer in the same click (08.11.2026): they get one mail, "please review", not two
+    // "Ask for review" names its reviewer in the same click (08.11.2026) - no mail to the reviewer since Content v11
     const named = to === "review" && access.canEdit && typeof b.reviewer === "string" && b.reviewer ? b.reviewer.slice(0, 255) : null;
     const piece = named ? { ...found, reviewer: named } : found;
     const mover = { username: me.username, canEdit: access.canEdit, lead };
