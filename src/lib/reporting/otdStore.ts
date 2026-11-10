@@ -62,7 +62,7 @@ export async function otdLinesNow(): Promise<LineStore | null> {
 /** the morning lines -> the "erp" cube; nothing kept when no line qualifies */
 export async function saveOtdFromErp(lines: ErpLine[], ctx: OtdErpContext = {}): Promise<Record<string, unknown>> {
   const { lines: otd, skipped, exactDays, dated } = fromErpLines(lines, transitOf, ctx.supplierOf, ctx.planningOf, ctx.customerDaysOf, ctx.fileDateOf,
-    ctx.infoOf ? (a) => ctx.infoOf!(a)?.g : undefined);
+    ctx.infoOf ? (a) => ctx.infoOf!(a)?.g : undefined, ctx.glcOf);
   const k = buildOtdCube(otd, "erp", zurichToday());
   k.dated = dated;
   for (const [w, n] of Object.entries(skipped)) k.skipped[w] = (k.skipped[w] ?? 0) + n;

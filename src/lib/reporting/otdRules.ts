@@ -70,6 +70,13 @@ export const DELIVERY_ASKED = ["Single delivery asked", "Several deliveries aske
 /** "More deliveries than initialy confirmed ?" */
 export const DELIVERIES = ["As many deliveries as confirmed", "More deliveries than confirmed"];
 export const PLANNED = ["Planned article", "Not planned", "Not known"];
+/** the lead times measured on each line, in working days (SARCLA 10.11.2026: "Lead time and transport time needs complete rework") */
+export const LEAD_MEASURES = ["Promised: order to first confirmed date", "Processing: order to shipment", "Transport: shipment to the customer", "Real: order to the customer"];
+export const LEAD_BUCKETS = ["0-1 days", "2-3 days", "4-5 days", "6-10 days", "11-20 days", "21-40 days", "Over 40 days"];
+export const leadBucket = (d: number) => (d <= 1 ? 0 : d <= 3 ? 1 : d <= 5 ? 2 : d <= 10 ? 3 : d <= 20 ? 4 : d <= 40 ? 5 : 6);
+/** GLC's lines by what DirectCut did with the order (its middleware's pipeline: sawNeeded) - the shop's DirectCut orders since
+ *  autumn 2026; the other GLC lines (cut and made in house before, or outside DirectCut) the third */
+export const GLC_KINDS = ["Leftover - a whole piece off the shelf", "Cut to size on the saw (C2S)", "Other in-house cut & production"];
 export const COMMENT = ["No customer comment", "Customer comment on the order"];
 /** the supplier of the lines whose article has none - cut to size and made in house */
 export const GLC = "GLC (own cut & production)";
@@ -80,6 +87,26 @@ export const OTHER = "Other suppliers";
 export const ARTICLE_KEEP = 300;
 /** a supplier's priority by its impact index (the file's "Supplier Impact Rank", column L) */
 export const priorityOf = (index: number) => (index >= 50 ? "Critical" : index >= 20 ? "High" : index >= 10 ? "Medium" : "Low");
+
+/** an ERP order as both sides spell it: its main number ("A26.654679.001" and "A26.654679" are one order) */
+export const mainOrder = (o: string) => o.trim().replace(/^([A-Za-z]\d+\.\d+)\.\d+$/, "$1");
+
+/** The pipeline's lines -> each order's kind: cut on the saw when any of its lines needs the saw (DirectCut sends such an
+ *  order wholly to the saw), a leftover when every line is a whole piece off the shelf; an order whose lines say neither is
+ *  not known. */
+export function kindsOf(p: { stages?: Record<string, { erpNo?: string | null; sawNeeded?: boolean | null }[]> }): Record<string, "L" | "C"> {
+  const saw = new Map<string, boolean | null>();
+  for (const lines of Object.values(p.stages ?? {})) for (const l of lines ?? []) {
+    if (!l.erpNo) continue;
+    const o = mainOrder(l.erpNo), was = saw.get(o);
+    if (l.sawNeeded === true) saw.set(o, true);
+    else if (l.sawNeeded === false && was !== true) saw.set(o, false);
+    else if (was === undefined) saw.set(o, null);
+  }
+  const out: Record<string, "L" | "C"> = {};
+  for (const [o, v] of saw) if (v !== null) out[o] = v ? "C" : "L";
+  return out;
+}
 
 /* ── one line ─────────────────────────────────────────────────────────────────────── */
 
@@ -97,6 +124,8 @@ export type OtdLine = {
   planned?: string; group?: string; comment?: boolean;
   /** the customer (CustomerNumberUnique), the customer's wish date, the main supplier's replenishment time in days */
   customer?: string; wishDay?: string; replen?: number;
+  /** a GLC line of a DirectCut order: "L" a leftover off the shelf, "C" cut on the saw */
+  glc?: "L" | "C";
 };
 
 /* ── the slices: a month, a mandant, a source, standard/special, a profit centre ──── */
@@ -129,12 +158,21 @@ export type Slice = {
   replen?: Trio[];
   sup: Record<string, SupRow>;
   group: Record<string, Trio>;
+  /** (since 11.11.2026, absent in older cubes) working days from the order to the shipment, summed over lead[0]'s lines */
+  proc?: number;
+  /** LEAD_MEASURES x LEAD_BUCKETS: the lines per lead-time band */
+  dist?: number[][];
+  /** GLC's lines per GLC_KINDS, and per kind [lines, order to shipment, order to the customer] */
+  glc?: Trio[]; glcLead?: number[][];
+  /** per PLANNED: [lines, promised lead, real lead, more than 10 days late] */
+  plannedLead?: number[][];
 };
 const trios = (k: number): Trio[] => Array.from({ length: k }, () => [0, 0, 0]);
 export const emptySlice = (): Slice => ({
   n: 0, late: 0, days: 0, signed: 0, over10: 0, cat: Array(6).fill(0), catDays: Array(6).fill(0), change: trios(7), changed: trios(2),
   pos: trios(4), shape: trios(8), more: trios(2), lead: [0, 0, 0, 0], planned: trios(3), comment: trios(2), wish: [0, 0, 0], wishLater: 0, replen: trios(2),
-  sup: {}, group: {},
+  sup: {}, group: {}, proc: 0, dist: Array.from({ length: 4 }, () => Array(7).fill(0)), glc: trios(3), glcLead: Array.from({ length: 3 }, () => [0, 0, 0]),
+  plannedLead: Array.from({ length: 3 }, () => [0, 0, 0, 0]),
 });
 /** a slice's key: month | mandant | source ("e" eShop, "m" the others) | "S"/"P"/"" | profit centre */
 export const sliceKey = (ym: string, company: string, src: string, st: string, pc: string) => `${ym}|${company}|${src}|${st}|${pc}`;
@@ -142,6 +180,8 @@ export const keyParts = (k: string) => { const [ym, company, src, st, pc] = k.sp
 export const srcOf = (source: string) => (/^e-?shop$/i.test(source.trim()) ? "e" : "m");
 
 export type OtdArticle = { a: string; pc: string; st: string; sup: string; group?: string; text?: string;
+  /** planned in the ERP: "J" / "N" (since 11.11.2026) */
+  pl?: string;
   /** promised month -> [lines, late, positive late days] */
   m: Record<string, Trio> };
 /** a customer with late lines: its number, its company and the company's owner in HubSpot (added when kept) */
@@ -215,6 +255,7 @@ export function buildOtdCube(lines: OtdLine[], from: string, today: string): Otd
     const sup = l.supplier || GLC, supKey = kept.has(sup) ? sup : OTHER;
     const promisedLead = networkdays(l.orderDay || l.firstDay, l.firstDay), realLead = networkdays(l.orderDay || l.atCustomer, l.atCustomer);
     const transport = l.shipDay ? Math.max(0, networkdays(l.shipDay, l.atCustomer) - 1) : 0;
+    const proc = l.shipDay && l.orderDay ? Math.max(0, networkdays(l.orderDay, l.shipDay) - 1) : 0;
     const fm = l.firstDay.slice(0, 7), dm = l.atCustomer.slice(0, 7);
     if (!first || fm < first) first = fm;
     if (!last || fm > last) last = fm;
@@ -226,6 +267,17 @@ export function buildOtdCube(lines: OtdLine[], from: string, today: string): Otd
       add(s.change[changeCat(ch)], late, d); add(s.changed[ch !== 0 ? 1 : 0], late, d);
       add(s.pos[p], late, d); add(s.shape[p * 2 + several], late, d); add(s.more[more], late, d);
       s.lead[0]++; s.lead[1] += promisedLead; s.lead[2] += realLead; s.lead[3] += transport;
+      s.proc = (s.proc ?? 0) + proc;
+      const dist = (s.dist ??= Array.from({ length: 4 }, () => Array(7).fill(0)));
+      dist[0][leadBucket(promisedLead)]++; dist[1][leadBucket(proc)]++; dist[2][leadBucket(transport)]++; dist[3][leadBucket(realLead)]++;
+      if (!l.supplier) {
+        const g = l.glc === "L" ? 0 : l.glc === "C" ? 1 : 2;
+        add((s.glc ??= trios(3))[g], late, d);
+        const gl = (s.glcLead ??= Array.from({ length: 3 }, () => [0, 0, 0]))[g];
+        gl[0]++; gl[1] += proc; gl[2] += realLead;
+      }
+      const pi = l.planned === "J" ? 0 : l.planned === "N" ? 1 : 2, pll = (s.plannedLead ??= Array.from({ length: 3 }, () => [0, 0, 0, 0]))[pi];
+      pll[0]++; pll[1] += promisedLead; pll[2] += realLead; if (d > 10) pll[3]++;
       add(s.planned[l.planned === "J" ? 0 : l.planned === "N" ? 1 : 2], late, d);
       add(s.comment[l.comment ? 1 : 0], late, d);
       const r = (s.sup[supKey] ??= newSup());
@@ -248,7 +300,7 @@ export function buildOtdCube(lines: OtdLine[], from: string, today: string): Otd
       custs.set(l.customer, x);
     }
     if (l.article) {
-      const a = arts.get(l.article) ?? { a: l.article, pc: l.pc, st: l.st, sup, group: l.group, m: {}, late: 0 };
+      const a = arts.get(l.article) ?? { a: l.article, pc: l.pc, st: l.st, sup, group: l.group, ...(l.planned ? { pl: l.planned } : {}), m: {}, late: 0 };
       const t = (a.m[fm] ??= [0, 0, 0]);
       t[0]++; if (late) { t[1]++; t[2] += d; a.late++; }
       arts.set(l.article, a);
@@ -292,6 +344,12 @@ export function sumSlices(slices: Slice[]): Slice {
       for (let i = 0; i < 12; i++) x[i] = i === 4 ? Math.max(x[4], r[4]) : x[i] + (r[i] ?? 0);
     }
     for (const [k, r] of Object.entries(s.group)) { const x = (t.group[k] ??= [0, 0, 0]); x[0] += r[0]; x[1] += r[1]; x[2] += r[2]; }
+    // the parts since 11.11.2026 - older cubes carry none
+    t.proc = (t.proc ?? 0) + (s.proc ?? 0);
+    if (s.dist) for (let i = 0; i < 4; i++) for (let j = 0; j < 7; j++) t.dist![i][j] += s.dist[i]?.[j] ?? 0;
+    if (s.glc) addTrios(t.glc!, s.glc);
+    if (s.glcLead) for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) t.glcLead![i][j] += s.glcLead[i]?.[j] ?? 0;
+    if (s.plannedLead) for (let i = 0; i < 3; i++) for (let j = 0; j < 4; j++) t.plannedLead![i][j] += s.plannedLead[i]?.[j] ?? 0;
   }
   return t;
 }
@@ -384,6 +442,8 @@ export function fromErpLines<L extends { company: string; order: string; line: s
   fileDateOf?: (key: string) => string | undefined,
   /** article -> its product group (the nightly article master's MainGroupName, otdArticles.ts) */
   groupOf?: (article: string) => string | undefined,
+  /** an order DirectCut handled -> "L" a leftover off the shelf, "C" cut on the saw (otdDirectCut.ts) */
+  glcOf?: (order: string) => "L" | "C" | undefined,
 ): { lines: OtdLine[]; skipped: Record<string, number>; exactDays: number; dated: Dated } {
   const dated: Dated = { own: 0, file: 0, mode: 0, customer: 0, country: 0 };
   const out: OtdLine[] = [], skipped: Record<string, number> = {};
@@ -412,14 +472,15 @@ export function fromErpLines<L extends { company: string; order: string; line: s
       dated[why]++;
       atCustomer = addWorkdays(l.shipDay, days);
     }
-    const plan = planningOf?.(l.article), group = groupOf?.(l.article);
+    const plan = planningOf?.(l.article), group = groupOf?.(l.article), supplier = supplierOf?.(l.article) ?? "";
+    const glc = supplier ? undefined : glcOf?.(l.order);
     out.push({
       company: l.company, order: l.order, line: l.line, source: l.source, orderDay: l.orderDay, firstDay: l.firstDay, confDay: l.confDay,
       shipDay: l.shipDay, atCustomer, article: l.article, st, pc: l.pc,
-      supplier: supplierOf?.(l.article) ?? "",
+      supplier,
       ...(l.customer ? { customer: l.customer } : {}), ...(l.wishDay ? { wishDay: l.wishDay } : {}),
       ...(plan ? { planned: plan[0] === "J" ? "J" : plan[0] === "N" ? "N" : "", replen: plan[1] } : {}),
-      ...(group ? { group } : {}),
+      ...(group ? { group } : {}), ...(glc ? { glc } : {}),
     });
   }
   return { lines: out, skipped, exactDays: dated.own, dated };

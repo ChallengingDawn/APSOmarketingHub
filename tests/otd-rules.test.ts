@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  GLC, OTHER, addWorkdays, buildOtdCube, changeCat, dateChange, fromErpLines, impactRank, keysFor, lateCat, lateDays, mergeCubes, monthly,
+  GLC, OTHER, addWorkdays, buildOtdCube, changeCat, dateChange, fromErpLines, impactRank, keysFor, kindsOf, lateCat, lateDays, leadBucket, mainOrder, mergeCubes, monthly,
   networkdays, onTimeShare, parseHistory, positionCat, priorityOf, sumSlices, type OtdLine,
 } from "../src/lib/reporting/otdRules";
 
@@ -219,4 +219,56 @@ test("otd: the ERP's dates of the OTD analysis file (otd_dates.csv) - after the 
   ], transitOf, undefined, undefined, (c) => (c === "100-7" ? 3 : undefined), (k) => days.get(k));
   assert.deepEqual(r.lines.map((l) => l.atCustomer), ["2026-10-09", "2026-10-07", "2026-10-08", "2026-10-13", "2026-10-07"]);
   assert.deepEqual(r.dated, { own: 1, file: 2, mode: 0, customer: 2, country: 0, fileUntil: "2026-10-13" });
+});
+
+test("otd: lead time bands, processing, GLC as leftover / cut to size / the rest, planned articles' lead (11.11.2026)", () => {
+  const lines = [
+    // bought in, planned: ordered Mon 2 Mar, first date Tue 10 Mar (6 wd), shipped Mon 9 Mar (5 wd), at the customer Tue 10 Mar
+    L({ order: "A26.000001.001", planned: "J" }),
+    // GLC, a DirectCut leftover, late 2 working days
+    L({ order: "A26.000002.001", supplier: "", glc: "L", atCustomer: "2026-03-12" }),
+    // GLC cut on the saw, on time
+    L({ order: "A26.000003.001", supplier: "", glc: "C" }),
+    // GLC outside DirectCut
+    L({ order: "A26.000004.001", supplier: "", planned: "N" }),
+  ];
+  const k = buildOtdCube(lines, "erp", "2026-11-10");
+  const s = sumSlices(Object.values(k.promised.slices));
+  assert.equal(s.n, 4);
+  assert.deepEqual(s.glc, [[1, 1, 2], [1, 0, 0], [1, 0, 0]]);
+  // processing: order to shipment, 5 working days each
+  assert.equal(s.proc, 20);
+  assert.deepEqual(s.glcLead!.map((r) => r[0]), [1, 1, 1]);
+  assert.equal(s.glcLead![0][1], 5);
+  // the bands: promised 6 wd -> "6-10 days" (3), processing 5 -> "4-5 days" (2), transport 1 -> "0-1" (0)
+  assert.equal(leadBucket(6), 3); assert.equal(leadBucket(5), 2); assert.equal(leadBucket(41), 6);
+  assert.equal(s.dist![0][3], 4);
+  assert.equal(s.dist![1][2], 4);
+  assert.equal(s.dist![2][0] + s.dist![2][1], 4);
+  // planned: one line planned, one not, two not known
+  assert.deepEqual(s.plannedLead!.map((r) => r[0]), [1, 1, 2]);
+  // the articles keep the planning flag
+  assert.equal(k.articles[0].pl, "J"); // one article on every line here: its first line's planning
+  // a cube kept before these parts sums without them
+  const old = { ...Object.values(k.promised.slices)[0] } as Record<string, unknown>;
+  delete old.dist; delete old.glc; delete old.glcLead; delete old.plannedLead; delete old.proc;
+  const t = sumSlices([old as never]);
+  assert.equal(t.proc, 0);
+  assert.deepEqual(t.glc, [[0, 0, 0], [0, 0, 0], [0, 0, 0]]);
+});
+
+test("otd: DirectCut's orders - cut on the saw when any line needs it, a leftover when none does; the ERP lines take the kind of GLC lines only", () => {
+  const kinds = kindsOf({ stages: {
+    "cut-done": [{ erpNo: "A26.000010.001", sawNeeded: false }, { erpNo: "A26.000010.001", sawNeeded: true }, { erpNo: "A26.000011", sawNeeded: false }],
+    closed: [{ erpNo: "A26.000012.002", sawNeeded: null }, { erpNo: null, sawNeeded: true }],
+  } });
+  assert.deepEqual(kinds, { "A26.000010": "C", "A26.000011": "L" });
+  const base = { company: "100", line: "10", source: "eShop", orderDay: "2026-03-02", status: "invoiced", shipDay: "2026-03-09", country: "Switzerland",
+    lineType: "Order", firstDay: "2026-03-10", confDay: "2026-03-10", artType: "Special", pc: "KT" };
+  const r = fromErpLines([{ ...base, order: "A26.000011.001", article: "GLC-ART" }, { ...base, order: "A26.000011.002", article: "BOUGHT" }],
+    () => 1, (a) => (a === "BOUGHT" ? "Röchling" : undefined), undefined, undefined, undefined, (a) => (a === "GLC-ART" ? "POM-C" : undefined), (o) => kinds[mainOrder(o)]);
+  assert.equal(r.lines[0].glc, "L");
+  assert.equal(r.lines[0].group, "POM-C");
+  assert.equal(r.lines[1].glc, undefined);
+  assert.equal(r.lines[1].supplier, "Röchling");
 });

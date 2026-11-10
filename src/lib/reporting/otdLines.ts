@@ -59,7 +59,7 @@ export function buildLineStore(lines: OtdLine[], today: string, opts: {
     if (!(l.customer in names)) { const n = opts.namesOf?.(l.customer); names[l.customer] = [n?.name ?? "", n?.owner ?? ""]; }
     const ai = art.of(l.article);
     if (!(l.article in info)) { const x = opts.infoOf?.(l.article); info[l.article] = [x?.t ?? "", x?.s ?? "", x?.p ?? ""]; }
-    const kind = l.supplier ? undefined : opts.glcOf?.(l.order);
+    const kind = l.supplier ? undefined : l.glc ?? opts.glcOf?.(l.order);
     rows.push([ci, l.order, l.line, ai, l.company === "110" ? 1 : 0, srcOf(l.source) === "e" ? 0 : 1, l.st === "P" ? 1 : 0, pc.of(l.pc),
       l.supplier ? sup.of(l.supplier) : -1, l.group ? grp.of(l.group) : -1, l.planned === "J" ? 0 : l.planned === "N" ? 1 : 2,
       kind === "L" ? 1 : kind === "C" ? 2 : 0,
