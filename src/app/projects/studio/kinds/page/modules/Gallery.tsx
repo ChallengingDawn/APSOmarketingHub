@@ -37,8 +37,8 @@ export function ModuleGallery({ ctl }: { ctl: ModulesCtl }) {
         <IconButton size="small" onClick={ctl.closeGallery} aria-label="Close"><CloseIcon fontSize="small" /></IconButton>
       </Box>
       <Box sx={{ overflowY: "auto", p: 2.5, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 1.5, bgcolor: "#f6f7f9" }}>
-        {ORDER.map((t) => MODULE_KINDS.find((k) => k.type === t)!).map((k) => (
-          <Box key={k.type} component="button" type="button" data-module={k.type} onClick={() => ctl.pick(k.type)} sx={{
+        {ORDER.map((t) => MODULE_KINDS.find((k) => k.id === t)!).map((k) => (
+          <Box key={k.id} component="button" type="button" data-module={k.id} onClick={() => ctl.pick(k.id)} sx={{
             all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", flexDirection: "column", borderRadius: "8px", overflow: "hidden",
             bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, transition: "border-color .12s, box-shadow .15s, transform .15s",
             "&:hover": { borderColor: PINK, boxShadow: "0 12px 28px -14px rgba(21,34,58,.35)", transform: "translateY(-1px)" },
@@ -46,7 +46,7 @@ export function ModuleGallery({ ctl }: { ctl: ModulesCtl }) {
           }}>
             <Box sx={{ position: "relative", aspectRatio: "16 / 9", bgcolor: "#fff", borderBottom: `1px solid ${HAIRLINE}`, display: "grid", placeItems: "center", overflow: "hidden", px: 1 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`/content/modules/${k.type}.webp`} alt={`${k.name}, as it looks on the shop`} loading="lazy"
+              <img src={`/content/modules/${k.id}.webp`} alt={`${k.name}, as it looks on the shop`} loading="lazy"
                 style={{ display: "block", maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
             </Box>
             <Box sx={{ p: 1.25, pt: 1 }}>
