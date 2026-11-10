@@ -394,7 +394,9 @@ export default function Studio({ api }: StudioProps) {
       if (kind === "picture") return { kind: "picture", key: k };
       return kind === "block" || kind === "item" ? null : { kind: "text", key: k };
     }
-    if (k.startsWith("nt:")) return p.editable ? { kind: "text", key: k } : { kind: "settings", key: moduleKeyOf(k.split(":")[1]) };
+    // a module's words: their setting's popup - words that are none of its settings (a product's name, the shop's) open its
+    // settings, where its products are chosen, never a box that cannot keep them (Content v12)
+    if (k.startsWith("nt:")) return p.editable && tools.moduleField(p) ? { kind: "text", key: k } : { kind: "settings", key: moduleKeyOf(k.split(":")[1]) };
     if (k.startsWith("np:")) return { kind: "settings", key: k };
     if (k.startsWith("i:")) return { kind: "settings", key: k };
     if (k.startsWith("e:")) {
@@ -402,6 +404,7 @@ export default function Studio({ api }: StudioProps) {
       const mod = c?.id && moduleOfChange(c) ? `c:${c.id}` : null;
       // a module's picture comes from its products or its settings: those open
       if (p.tag === "img" && p.src) return mod ? { kind: "settings", key: mod } : { kind: "picture", key: k };
+      if (p.editable && mod && !tools.moduleField(p)) return { kind: "settings", key: mod };
       if (p.editable) return { kind: "text", key: k };
       // the module itself (not one of its texts): its settings
       if (mod) return { kind: "settings", key: mod };
@@ -479,7 +482,7 @@ export default function Studio({ api }: StudioProps) {
       const id = p.key.split(":")[1];
       const pm = (cur.fields.modules ?? []).find((m) => m.id === id);
       if (!pm) return "That module is not on the page any more.";
-      const r = moduleWordsEdit(pm.module, p.text, text);
+      const r = moduleWordsEdit(pm.module, p.text, text, p.href ?? null);
       if (!r) return "These words come from the shop (a product's or a category's name) - the module's settings choose its products.";
       setView({ ...cur, fields: { ...cur.fields, modules: (cur.fields.modules ?? []).map((m) => (m.id === id ? { ...m, module: r.module } : m)) } }, `Changed the ${kindOf(pm.module.type).name.toLowerCase()}'s words`);
       return null;
@@ -487,7 +490,7 @@ export default function Studio({ api }: StudioProps) {
     const mc = p.frag ? cur.changes[p.frag.change] : undefined;
     const mod = mc ? moduleOfChange(mc) : null;
     if (mc && mod) {
-      const r = moduleWordsEdit(mod, p.text, text);
+      const r = moduleWordsEdit(mod, p.text, text, p.href ?? null);
       if (!r) return "These words come from the shop (a product's or a category's name) - the module's settings choose its products.";
       setView({ ...cur, changes: cur.changes.map((c) => (c === mc ? moduleChangeOf(c, r.module) : c)) }, `Changed the ${kindOf(mod.type).name.toLowerCase()}'s words`);
       return null;
@@ -1569,13 +1572,15 @@ export default function Studio({ api }: StudioProps) {
       const richOk = !inMod && !heading && /^(p|div|li|td|dd|blockquote|figcaption|span)$/.test(p.tag);
       // Content v10 (point 3): a module's button clicked on the page - its words, page and look
       const modBtn = inMod ? tools.moduleButton(p) : null;
+      // the setting the words are (Content v12): its name over the box, its own words in it - never the page's capitals
+      const modHit = inMod ? tools.moduleField(p) : null;
       if (modBtn) {
         return { at: "below", width: MODULE_POP_WIDTH, node: (
           <ButtonPop key={k} kicker={kick} {...modBtn} api={api} store={d.store} canEdit={canEdit} onClose={closePop} ai={aiHere ? (ask, now) => aiWords(p, ask, now) : null} stores={pageStores} />
         ) };
       }
       return { at: "below", width: 420, node: (
-        <TextPop key={k} kicker={kick} title={inMod ? "The module's words" : inHeading ? "Heading" : heading ? "Words" : "Text"} value={p.text} multiline={!heading}
+        <TextPop key={k} kicker={kick} title={modHit ? modHit.label : inMod ? "The module's words" : inHeading ? "Heading" : heading ? "Words" : "Text"} value={modHit ? modHit.words : p.text} multiline={!heading}
           rich={richOk ? p.inner : null} canEdit={canEdit} live={false} onClose={closePop}
           // Content v10 (point 2): its look - a page of the shop's own element (its look change), a module's words (its settings)
           textLook={inMod ? tools.moduleTextLook(p) : tools.elementLook(p)}
@@ -1584,7 +1589,7 @@ export default function Studio({ api }: StudioProps) {
           onDone={(text, html, href) => {
             if (href) elEdit(p, { kind: "attr", name: "href", value: href });
             // nothing changed (the box gives back the element's words as it cleans them): nothing written
-            if (text === p.text && (html === undefined || html === cleanRich(p.inner))) { closePop(); return; }
+            if (text === (modHit ? modHit.words : p.text) && (html === undefined || html === cleanRich(p.inner))) { closePop(); return; }
             const err = putWords(p, text, html && /<(?!br\b)[a-z]/i.test(html) ? html : undefined);
             if (err) { window.alert(err); return; }
             closePop();

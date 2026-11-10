@@ -388,10 +388,13 @@ export type ButtonPopProps = {
   kicker: string; title?: string;
   /** its words, and what puts them on the page (as they are typed) */
   label: string; max: number; onLabel: (v: string) => void;
-  /** its page of the shop (the shop's page search) */
-  url: string; onUrl: (v: string) => void;
+  /** its page of the shop (the shop's page search) - none for a tile's button: it leads to its tile's own page (`leads`) */
+  url?: string; onUrl?: (v: string) => void;
+  /** Content v12: where a button without a page of its own leads (a tile's "Alle anzeigen") */
+  leads?: React.ReactNode;
   api: StudioApi; store: string;
-  look: BtnLook; onLook: (next: BtnLook, label: string) => void;
+  /** its look - none for a tile's button (it keeps the module's) */
+  look?: BtnLook; onLook?: (next: BtnLook, label: string) => void;
   /** the ground it stands on ([] = not known), its colour while none is chosen, its arrow while not set */
   grounds: string[]; fallback: string; arrowDefault?: boolean;
   canEdit: boolean;
@@ -403,7 +406,7 @@ export type ButtonPopProps = {
 };
 
 /** A button, clicked on the page or opened from its block's settings: its words, its page, then its look. */
-export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, onUrl, api, store, look, onLook, grounds, fallback, arrowDefault = true, canEdit, ai, onClose, hint, stores }: ButtonPopProps) {
+export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, onUrl, leads, api, store, look, onLook, grounds, fallback, arrowDefault = true, canEdit, ai, onClose, hint, stores }: ButtonPopProps) {
   const [draft, setDraft] = useState(label);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -440,12 +443,14 @@ export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, 
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); flush(); } }}
         helperText={<Box component="span" sx={{ color: over ? RED : MUTED, fontWeight: over ? 700 : 500 }}>{over ? `${draft.length - max} too many` : `${draft.length} / ${max}`}</Box>}
         sx={{ ...field, "& .MuiInputBase-root": { fontSize: "0.9rem" } }} />
-      <Box sx={{ mt: 1.75 }}>
-        <LinkInput api={api} store={store} value={url} disabled={!canEdit} label="Its page of the shop" onChange={onUrl} />
-        {stores && stores.length > 1 && <StoreLinks url={url} stores={stores} />}
-      </Box>
+      {onUrl ? (
+        <Box sx={{ mt: 1.75 }}>
+          <LinkInput api={api} store={store} value={url ?? ""} disabled={!canEdit} label="Its page of the shop" onChange={onUrl} />
+          {stores && stores.length > 1 && <StoreLinks url={url ?? ""} stores={stores} />}
+        </Box>
+      ) : leads ? <Typography component="div" sx={{ fontSize: "0.78rem", color: INK, mt: 1.25, mb: 1, lineHeight: 1.45 }}>{leads}</Typography> : null}
       {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: -0.5, mb: 1, lineHeight: 1.4 }}>{hint}</Typography>}
-      {canEdit && <ButtonLookBox value={look} onChange={onLook} grounds={grounds} fallback={fallback} arrowDefault={arrowDefault} />}
+      {canEdit && look && onLook && <ButtonLookBox value={look} onChange={onLook} grounds={grounds} fallback={fallback} arrowDefault={arrowDefault} />}
       {msg && <Typography sx={{ fontSize: "0.78rem", color: AMBER, mt: 0.75 }}>{msg}</Typography>}
       {canEdit && ai && <AskAi run={(a) => void askAi(a)} busy={busy} placeholder="Ask AI for the button's words…" />}
     </PopCard>

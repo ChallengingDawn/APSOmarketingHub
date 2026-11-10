@@ -13,6 +13,7 @@
 import { BASE, cssStr, drawing, minifyCss, wordsFor } from "./kit";
 import { LIBRARY } from "./library";
 import { withLooks } from "./looks";
+import { tileOverrides } from "./tilewords";
 import type { CategoryId, FieldSpec, ModuleDef, ModuleRef, ModuleSettings, Need, Opts } from "./types";
 
 export type { CategoryId, FieldSpec, ModuleDef, Need } from "./types";
@@ -119,11 +120,13 @@ export function needsLine(d: ModuleDef): string {
 export function drawModule(m: ModuleRef, o: Opts = {}): { cls: string; css: string; html: string } {
   const cls = `apx-${m.settings.id}`;
   const d = moduleDef(m.type);
+  // its own words on its tiles' buttons (Content v12, SARCLA 10.11.2026: "on some bento I cannot edit the button") - ./tilewords.ts
+  drawing.words = tileOverrides(m.settings.extra);
   const w = wordsFor(m.settings.store);
   // its links in the store view of the page it is drawn in (Content v10, point 9: "the link should lead to correct locale")
   drawing.store = o.store || m.settings.store;
   let r: { html: string; css: string };
-  try { r = d ? d.render(m, o) : { html: "", css: "" }; } finally { drawing.store = null; }
+  try { r = d ? d.render(m, o) : { html: "", css: "" }; } finally { drawing.store = null; drawing.words = null; }
   // what a person changed on it (Content v10: its words' and buttons' looks, its questions open or closed, its split)
   if (d) r = withLooks(m, r);
   const css = minifyCss(`${BASE}${r.css}`.replace(/%GOCAT%/g, cssStr(w.goCat)).replace(/%GO%/g, cssStr(w.go))).split("@@").join(`.${cls}`);
