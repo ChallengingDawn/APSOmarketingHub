@@ -42,27 +42,46 @@ const FRAMES = ['iframe[title="The page with its changes"]', 'iframe[title="The 
 
 const asData = (b: Blob) => new Promise<string>((ok, bad) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => bad(r.error); r.readAsDataURL(b); });
 const seen = new Map<string, Promise<string | null>>();
-/** A shop picture through the hub (the shop sends no CORS), as data: - null when it does not come. */
-function viaHub(url: string): Promise<string | null> {
-  let p = seen.get(url);
+/** A shop picture through the hub (the shop sends no CORS), as data: - null when it does not come. `base`: the page's own
+ * address (the preview's <base> is the shop's page), so "/media/..." is the shop's picture, not the hub's. */
+function viaHub(url: string, base: string): Promise<string | null> {
+  let p = seen.get(`${base}|${url}`);
   if (!p) {
     p = (async () => {
       try {
-        const u = new URL(url, location.href);
+        const u = new URL(url, base);
         const own = u.origin === location.origin;
         if (!own && !/(^|\.)apsoparts\.com$/i.test(u.hostname)) return null;
         const r = await fetch(own ? u.toString() : `/api/content/studio/banner/picture?u=${encodeURIComponent(u.toString())}`);
         return r.ok ? await asData(await r.blob()) : null;
       } catch { return null; }
     })();
-    seen.set(url, p);
+    seen.set(`${base}|${url}`, p);
   }
   return p;
 }
 const URL_IN_CSS = /url\(["']?(https?:[^"')]+)["']?\)/g;
 
+/** An SVG picture given the size it is shown at (an SVG without its own size is drawn cut, or not at all): its root gets
+ * that width and height, and a viewBox from the size it had, so it scales into it. */
+function sizedSvg(data: string, w: number, h: number): string {
+  if (!w || !h) return data;
+  try {
+    const comma = data.indexOf(",");
+    const head = data.slice(0, comma);
+    const body = data.slice(comma + 1);
+    const text = /;base64/i.test(head) ? new TextDecoder().decode(Uint8Array.from(atob(body), (c) => c.charCodeAt(0))) : decodeURIComponent(body);
+    const fixed = text.replace(/<svg\b([^>]*)>/i, (_m, attrs: string) => {
+      const num = (k: string) => Number((new RegExp(`\\b${k}=["']?([\\d.]+)`, "i").exec(attrs) ?? [])[1]);
+      const vb = /\bviewBox=/i.test(attrs) ? "" : Number.isFinite(num("width")) && Number.isFinite(num("height")) ? ` viewBox="0 0 ${num("width")} ${num("height")}"` : "";
+      return `<svg${attrs.replace(/\s(width|height)=("[^"]*"|'[^']*'|[^\s>]+)/gi, "")} width="${w}" height="${h}"${vb}>`;
+    });
+    return `data:image/svg+xml;base64,${btoa(String.fromCharCode(...new TextEncoder().encode(fixed)))}`;
+  } catch { return data; }
+}
+
 /** The clone html2canvas draws from, made fit to be drawn: no studio marks, the shop's pictures as data:. */
-async function prepare(doc: Document) {
+async function prepare(doc: Document, base: string) {
   doc.querySelectorAll("[data-apx-addel]").forEach((el) => el.remove());
   doc.querySelectorAll("[data-apx-sel],[data-apx-hover],[data-apx-editing]").forEach((el) => { el.removeAttribute("data-apx-sel"); el.removeAttribute("data-apx-hover"); el.removeAttribute("data-apx-editing"); });
   doc.querySelectorAll("mark[data-apx-left]").forEach((m) => m.replaceWith(...Array.from(m.childNodes)));
@@ -71,8 +90,9 @@ async function prepare(doc: Document) {
     const src = img.getAttribute("data-src") || img.getAttribute("data-original") || img.currentSrc || img.getAttribute("src") || "";
     img.removeAttribute("srcset"); img.removeAttribute("loading");
     if (!src || src.startsWith("data:")) return;
-    const d = await viaHub(src);
-    if (d) img.setAttribute("src", d); else img.style.visibility = "hidden";
+    const d = await viaHub(src, base);
+    if (!d) { img.style.visibility = "hidden"; return; }
+    img.setAttribute("src", d.startsWith("data:image/svg") ? sizedSvg(d, img.clientWidth, img.clientHeight) : d);
   }));
   // background pictures written on the elements themselves (the shop's banners, our blocks)
   const win = doc.defaultView;
@@ -83,7 +103,7 @@ async function prepare(doc: Document) {
     const urls = [...bg.matchAll(URL_IN_CSS)].map((m) => m[1]);
     if (!urls.length) return;
     let next = bg;
-    for (const u of urls) { const d = await viaHub(u); next = next.replace(u, d ?? ""); }
+    for (const u of urls) { const d = await viaHub(u, base); next = next.replace(u, d ?? ""); }
     el.style.backgroundImage = next;
   }));
 }
@@ -97,10 +117,16 @@ async function pagePng(stem: string): Promise<string | null> {
   const height = Math.min(Math.round(doc.documentElement.scrollHeight), 16000);
   let html2canvas: typeof import("html2canvas").default;
   try { html2canvas = (await import("html2canvas")).default; } catch { return "The picture could not be made in this browser - the HTML is in the same menu."; }
+  // the canvas is the PAGE's: its words are drawn in the shop's own fonts, which the page has loaded (a canvas of the hub's
+  // own page would draw them in a fallback font, the words running into each other)
+  const base = doc.createElement("canvas");
+  base.width = width; base.height = height;
+  base.style.width = `${width}px`; base.style.height = `${height}px`;
+  await doc.fonts?.ready;
   const canvas = await html2canvas(doc.documentElement, {
-    backgroundColor: "#ffffff", scale: 1, useCORS: false, allowTaint: false, logging: false, imageTimeout: 20000,
+    canvas: base, backgroundColor: "#ffffff", scale: 1, useCORS: false, allowTaint: false, logging: false, imageTimeout: 20000,
     width, height, windowWidth: width, windowHeight: height, x: 0, y: 0, scrollX: 0, scrollY: 0,
-    onclone: (clone) => prepare(clone),
+    onclone: (clone) => prepare(clone, doc.baseURI),
   });
   const blob = await new Promise<Blob | null>((ok) => { try { canvas.toBlob(ok, "image/png"); } catch { ok(null); } });
   if (!blob) return "The picture could not be made - a picture of another site was in the way. The HTML is in the same menu.";
