@@ -124,7 +124,12 @@ function dated(m: ModuleRef, o: Opts) {
   const day = (t: string) => { const y = /^(.*?\.)\s*(\d{4})$/.exec(t); return y ? `<b>${esc(y[1])}<i>${esc(y[2])}</i></b>` : `<b>${esc(t)}</b>`; };
   // no dates yet: the campaign's name stands in the block (its small line), never an invented date
   const name = !from && !to ? s.eyebrow.trim() : "";
-  const block = from || to ? `<div class="am-dk">${from ? day(from) : ""}${from && to ? `<small>${esc(until)}</small>` : ""}${to ? day(to) : ""}</div>` : name ? `<div class="am-dk is-name"><b>${esc(name)}</b></div>` : "";
+  // one date alone says what it is: "until 27.11. 2026", "from 16.11." (Content v11 - a lone end date read as a bare date)
+  const lang = s.store.slice(0, 2);
+  const UNTIL: Record<string, string> = { de: "bis", fr: "jusqu'au", it: "fino al", nl: "tot", pl: "do", cs: "do", en: "until" };
+  const FROM: Record<string, string> = { de: "ab", fr: "dès le", it: "dal", nl: "vanaf", pl: "od", cs: "od", en: "from" };
+  const lone = from && !to ? FROM[lang] ?? FROM.en : !from && to ? UNTIL[lang] ?? UNTIL.en : "";
+  const block = from || to ? `<div class="am-dk">${lone ? `<small>${esc(lone)}</small>` : ""}${from ? day(from) : ""}${from && to ? `<small>${esc(until)}</small>` : ""}${to ? day(to) : ""}</div>` : name ? `<div class="am-dk is-name"><b>${esc(name)}</b></div>` : "";
   return {
     css,
     html: `<div class="am-da${block ? "" : " is-bare"}">${block}<div class="am-dw">${name ? "" : ey(s.eyebrow)}<h2 class="am-dh">${marked(s.title.trim())}</h2>${s.text.trim() ? `<p class="am-dx">${esc(s.text.trim())}</p>` : ""}${button(s.link, "am-btn")}</div>`

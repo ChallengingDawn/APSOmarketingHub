@@ -30,3 +30,12 @@ test("no module's sample or default words promise stock or a delivery time, in a
   }
   assert.deepEqual([...new Set(bad)].slice(0, 20), []);
 });
+
+// Content v11: a campaign with one date says what the date is - "until 27.11. 2026", never a bare date
+test("a dated campaign with its end date alone says 'until' in the page's language", () => {
+  const m = (store: string, extra: Record<string, string>) => normalizeModule({ type: "campaign-date", settings: { ...newModule("campaign-date", store, "t9").settings, title: "Kalrez", extra } })!;
+  assert.match(textOf(renderModule(m("en-INT", { to: "27.11.2026" }))), /until 27\.11\. 2026/);
+  assert.match(textOf(renderModule(m("de-CH", { to: "27.11.2026" }))), /bis 27\.11\. 2026/);
+  assert.match(textOf(renderModule(m("fr-CH", { from: "16.11." }))), /dès le 16\.11\./);
+  assert.doesNotMatch(textOf(renderModule(m("en-INT", { from: "16.11.", to: "06.12.2026" }))), /until|from/, "two dates: the word between them only");
+});
