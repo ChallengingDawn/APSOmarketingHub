@@ -202,5 +202,22 @@ export function familyName(f: Family): string {
   return { products: "Product showcases", "categories-subs": "Category modules", "categories-products": "Category modules", questions: "Questions & answers", story: "Text and picture", points: "Lists of points", figures: "Figures", sections: "Headed sections", table: "Tables", words: "Calls to action" }[f];
 }
 
+/* ── the gallery by type (Content v11, SARCLA 10.11.2026: "put a type on modules replacement where 7-8 modules to replace
+ *    a product by other") ── */
+
+/** The types the modules a block can become fall into - the library's categories, in the order the list has them (its
+ * own first), each with how many - and "All". Only when they fall into two or more. */
+export function switchTypes(options: SwitchOption[]): { key: string; label: string; count: number }[] {
+  const seen: string[] = [];
+  for (const o of options) if (!seen.includes(o.def.category)) seen.push(o.def.category);
+  if (seen.length < 2) return [];
+  return [{ key: "all", label: "All", count: options.length }, ...seen.map((c) => ({ key: c, label: TYPE_NAME[c] ?? categoryOf(c)?.name ?? c, count: options.filter((o) => o.def.category === c).length }))];
+}
+/** A category's name, short enough for the gallery's row of types. */
+const TYPE_NAME: Record<string, string> = {
+  heroes: "Heroes", showcases: "Showcases", bentos: "Bentos", navigation: "Categories", campaigns: "Campaigns & banners", trust: "Trust",
+  stories: "Stories", technical: "Technical", tools: "Tools", help: "Help & FAQ", cta: "Calls to action", industries: "Industries", references: "Brands", media: "Media",
+};
+
 /** The category a module is in, by name (for the list's small line). */
 export const categoryName = (d: ModuleDef) => categoryOf(d.category)?.name ?? "";

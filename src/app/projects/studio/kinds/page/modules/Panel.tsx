@@ -61,8 +61,14 @@ const GREEN = "#1e7d4f";
 const AMBER = "#a96a12";
 const FILLING = "Filling it from the shop…";
 
-export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top }: {
+/** What the AI did for a module, said under its button - with the Undo of what it did. */
+export type AiAnswer = { ok: boolean; text: string; undo: (() => void) | null };
+
+export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top, ai }: {
   ctl: ModulesCtl; api: StudioApi; onBack: () => void;
+  /** Content v11 (SARCLA 10.11.2026: "I can't see launch the AI to fill me the block"): "Fill it with AI" at the top - the
+   * same as "Ask AI" on the module with no question (the studio's askBlock) */
+  ai?: { run: () => Promise<AiAnswer> } | null;
   /** Content v10 (point 4): the module made another of its family (the studio keeps the Undo) - else the library's own swap */
   onSwitch?: (type: string) => void;
   /** shown first in the panel (the bar over a module just switched) */
@@ -86,6 +92,8 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
   const [ask, setAsk] = useState("");
   const [picking, setPicking] = useState<"within" | "picture" | null>(null);
   const [gallery, setGallery] = useState(false);
+  const [aiSaid, setAiSaid] = useState<AiAnswer | null>(null);
+  const [aiRunning, setAiRunning] = useState(false);
   const key = ctl.editing ?? "";
 
   // the module as the document has it (an Undo, another person) when nothing is waiting to be saved
@@ -152,6 +160,15 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
   }
   const gap = moduleGap(m);
   const kb = Math.round(html.length / 100) / 10;
+  // the AI at work on it (its button, or "Ask AI" on the page): what it does now
+  const aiBusy = aiRunning || (key ? /with AI|from the shop/.test(ctl.busy[key] ?? "") && !busy : false);
+  const runAi = async () => {
+    if (!ai || aiBusy) return;
+    flush();
+    setAiRunning(true);
+    setAiSaid(null);
+    try { setAiSaid(await ai.run()); } finally { setAiRunning(false); }
+  };
   const lost = key ? ctl.lost[key] : "";
 
   /** items put in, light enough for one element, with where they came from */
@@ -295,6 +312,25 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
     <PanelFrame onBack={() => { flush(); onBack(); }} title={k.name} kicker={categoryOf(k.category)?.name ?? "Module"} pop={pop}
       right={ctl.canEdit ? <Tooltip title={cur?.replace ? "Take the module out - the page's element shows again" : "Take the module out of the page"}><IconButton size="small" onClick={() => { flush(); ctl.remove(); }}><DeleteOutlineIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip> : null}>
       {top}
+      {ai && ctl.canEdit && (
+        <Box sx={{ mb: 1.5 }}>
+          <Button fullWidth variant="contained" disableElevation disabled={aiBusy || !api.data.ai} onClick={() => void runAi()}
+            startIcon={aiBusy ? <CircularProgress size={15} sx={{ color: "#fff" }} /> : <AutoAwesomeOutlinedIcon sx={{ fontSize: 18 }} />}
+            sx={{ ...mainBtn, bgcolor: PINK, borderRadius: "8px", height: 40, fontSize: "0.88rem", "&:hover": { bgcolor: "#a3245c" }, "&.Mui-disabled": { bgcolor: aiBusy ? PINK : undefined, color: aiBusy ? "#fff" : undefined, opacity: aiBusy ? 0.85 : undefined } }}>
+            {aiBusy ? (ctl.busy[key] || "Filling it with AI…") : gap ? "Fill it with AI" : "Write it again with AI"}
+          </Button>
+          {aiSaid ? (
+            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mt: 0.75 }}>
+              <Typography sx={{ flex: 1, fontSize: "0.78rem", lineHeight: 1.45, color: aiSaid.ok ? MUTED : AMBER }}>{aiSaid.text}</Typography>
+              {aiSaid.undo && <Button size="small" onClick={() => { aiSaid.undo?.(); setAiSaid(null); }} sx={{ ...btn, px: 1, minWidth: 0, color: PINK, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", flexShrink: 0 }}>Undo</Button>}
+            </Box>
+          ) : !aiBusy && (
+            <Typography sx={{ mt: 0.6, fontSize: "0.74rem", color: MUTED, lineHeight: 1.4 }}>
+              From the page: its subject, its other blocks, the brief{k.takes !== "none" ? ", and its products from the shop" : ""} - no price, stock promise or date the page does not give.
+            </Typography>
+          )}
+        </Box>
+      )}
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mb: 1.5 }}>
         {busy ? <CircularProgress size={12} sx={{ color: PINK, mt: 0.4, flexShrink: 0 }} /> : <Box sx={{ width: 8, height: 8, mt: 0.65, borderRadius: "2px", bgcolor: status.tone, flexShrink: 0 }} />}
         <Typography sx={{ fontSize: "0.8rem", color: status.tone, fontWeight: 600, flex: 1, lineHeight: 1.4 }}>{status.text}</Typography>
@@ -399,7 +435,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
       {ctl.canEdit && compatible.length > 0 && family && (
         <>
           <Label>Change it into another module</Label>
-          <SwitchList options={compatible} keeps={FAMILY_WORDS[family]} onPick={(id) => { flush(); if (onSwitch) onSwitch(id); else ctl.swapType(id); }} />
+          <SwitchList options={compatible} keeps={FAMILY_WORDS[family]} columns={pop ? 3 : 2} first={pop ? 9 : 6} onPick={(id) => { flush(); if (onSwitch) onSwitch(id); else ctl.swapType(id); }} />
         </>
       )}
       <Hint mt={1.5}>{k.from ? `From the ${k.from}. ` : ""}One element of the page with its own style - the shop&apos;s colours, font and width, finished on phones.</Hint>

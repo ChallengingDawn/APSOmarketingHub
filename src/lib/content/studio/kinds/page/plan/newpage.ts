@@ -24,6 +24,7 @@ import { moduleDef } from "../modules/registry";
 import type { ModuleRef } from "../modules/types";
 import { emptyWords, fullGap, isTeaser, library, libraryText, libModule, listsFrom, makeModule, moduleIdOf, withWords, type LibModule, type PlanWords } from "./library";
 import { buttonSays, fillIn, looksEnglish, safeWords, wordsIn, type CleanCtx, type FillSpec } from "./plan";
+import { aiCanFill, isPlannable } from "./fillable";
 
 const BASE = "https://www.apsoparts.com";
 
@@ -32,7 +33,9 @@ const BASE = "https://www.apsoparts.com";
 /** Library categories a new page does not take: its hero is its own (the page's H1), and it has no campaign, customer
  * quote, brand wall or video of its own to show. By the registry's category ids - never a module's name. */
 export const NEWPAGE_SKIP_CATEGORIES = ["heroes", "campaigns", "references", "media"] as const;
-export const newPageLibrary = (lib: LibModule[] = library()): LibModule[] => lib.filter((m) => !(NEWPAGE_SKIP_CATEGORIES as readonly string[]).includes(m.category));
+/** Content v11: and only the modules the fill rules can fill (./fillable.ts) - a module the AI cannot fill is never
+ * offered, so never picked (a table of figures, the shop's quote pictures). */
+export const newPageLibrary = (lib: LibModule[] = library()): LibModule[] => lib.filter((m) => !(NEWPAGE_SKIP_CATEGORIES as readonly string[]).includes(m.category) && isPlannable(m.id));
 
 /** The blocks a module stands after (or takes the place of), as the AI names them. */
 export const MODULE_AT = ["hero", "intro", "benefits", "section 1", "section 2", "section 3", "section 4", "section 5", "section 6", "links", "faq", "cta"] as const;
@@ -301,7 +304,7 @@ export function cleanNewPageModules(raw: unknown, ctx: NewPageCtx): { modules: N
     const asked = str(x0.module, 60);
     const id = moduleIdOf(asked);
     if (!id) { problems.push(`"${asked || "(no id)"}" is not a module of the library - left out.`); continue; }
-    if (!ids.has(id)) { problems.push(`"${libModule(id)?.name ?? id}" is not one a new page takes (its hero is its own; no campaign, quote or video) - left out.`); continue; }
+    if (!ids.has(id)) { problems.push(isPlannable(id) ? `"${libModule(id)?.name ?? id}" is not one a new page takes (its hero is its own; no campaign, quote or video) - left out.` : `"${libModule(id)?.name ?? id}" is not one the AI can fill - left out.`); continue; }
     if (taken.has(id)) { problems.push(`"${libModule(id)?.name ?? id}" came twice - the second was left out.`); continue; }
     const atRaw = str(x0.at, 20).toLowerCase().replace(/^sections?\s*(\d)$/, "section $1");
     const at = (MODULE_AT as readonly string[]).includes(atRaw) ? (atRaw as ModuleAt) : null;
@@ -345,13 +348,15 @@ export function cleanNewPageModules(raw: unknown, ctx: NewPageCtx): { modules: N
     let useExtras = extras;
     if (!needsShop(id)) {
       const store = ctx.store ?? "de-CH";
-      const gap = gapWith({ module: id, words, link, link2, extras, layout }, store);
+      // Content v11: a module the fill rules cannot fill in this store view is never kept, whatever came back with it
+      const cannot = !aiCanFill(id, store);
+      const gap = gapWith({ module: id, words, link, link2, extras, layout }, store) || (cannot ? "It cannot be filled in this store view" : "");
       if (gap) {
         // one of the same kind that THESE words fill (not its own sample words)
-        const alt = lib.find((o) => o.id !== id && o.category === m.category && !taken.has(o.id) && !needsShop(o.id) && !ownPointsField(o.id) && listsFrom(o.id, words)
+        const alt = lib.find((o) => o.id !== id && o.category === m.category && !taken.has(o.id) && !needsShop(o.id) && !ownPointsField(o.id) && listsFrom(o.id, words) && aiCanFill(o.id, store)
           && !gapWith({ module: o.id, words, link, link2, extras: [], layout: "" }, store)
           && !!gapWith({ module: o.id, words: emptyWords(), link: "", link2: "", extras: [], layout: "" }, store));
-        if (!alt) { problems.push(`"${m.name}" left out: ${lowerFirst(gap)} - it came back without them.`); continue; }
+        if (!alt) { problems.push(cannot ? `"${m.name}" left out: it cannot be filled in ${store}.` : `"${m.name}" left out: ${lowerFirst(gap)} - it came back without them.`); continue; }
         said.push(`"${m.name}" could not be filled (${lowerFirst(gap)}) - "${alt.name}" in its place`);
         use = alt; useExtras = []; layout = "";
       }

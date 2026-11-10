@@ -16,6 +16,7 @@ import { readBrain } from "@/lib/brain";
 import { fillModule, readStore, treeFor } from "./fill";
 import { mapText, pageLinks, pageMap, partOfSelection, type PagePart } from "./places";
 import { PLAN_SCHEMA, cleanPlan, pageWords, placeNow, planSystem, planUser, type FillHow, type PlanMode, type StepDo, type StepPlace } from "./plan";
+import { isPlannable, plannableLibrary } from "./fillable";
 
 const MODES: PlanMode[] = ["ideas", "convincing", "part", "ask"];
 const modeIn = (input: Record<string, unknown>): PlanMode => MODES.find((m) => m === input.mode) ?? "ask";
@@ -66,7 +67,8 @@ export function planTask(context: (ctx: StudioCtx, d: PageDoc) => string): AiTas
   return {
     label: "Plan the page",
     schema: PLAN_SCHEMA,
-    system: planSystem(),
+    // Content v11: only the modules the fill rules can fill are offered (./fillable.ts)
+    system: planSystem(plannableLibrary()),
     maxTokens: 9000,
     effort: "medium",
     user: async (ctx, raw, input) => {
@@ -92,7 +94,7 @@ The page's H1 (above its content - it stays as it is): ${o.h1.join(" | ") || "-"
       const plan = cleanPlan(raw, {
         parts: p.parts, container: p.container, categories: p.tree.map((t) => t.url), links: pageLinks(p.html, p.d.store).map((l) => l.url),
         linkNames: Object.fromEntries([...p.tree.map((t) => [t.url, t.name]), ...pageLinks(p.html, p.d.store).map((l) => [l.url, l.text])]), pageUrl: shopUrl("prod", p.d.path), pageKind: c.kind,
-        pageText: `${pageWords(p.parts)} ${facts}`, newId: () => changeId(), lang: p.d.store.slice(0, 2), store: p.d.store,
+        pageText: `${pageWords(p.parts)} ${facts}`, newId: () => changeId(), lang: p.d.store.slice(0, 2), store: p.d.store, plannable: isPlannable,
       });
       // the parts the steps aim at, for the studio's lines and its "+" (small: ids, headings, selectors)
       const used = new Set(plan.steps.map((x) => x.at));

@@ -203,8 +203,10 @@ ${one("cta.title", "h2", "apx-np-h2", c.title, "The call to action")}${many("cta
       // Content v8 (point 5): a module the AI put on the new page fills in front of the person - its skeleton moving with
       // what is happening ("Filling it from the shop…"), or why it could not fill
       const filling = m ? o.busy?.modules?.[x.id] : undefined;
-      if (filling) return `<div data-apx-mod="${esc(x.id)}" class="apx-np-in">${renderSkeleton(x.module, { busy: filling })}</div>`;
       const gap = moduleGap(x.module);
+      // Content v11: a module the AI writes again stays in view, veiled and moving, until its new words land
+      if (filling && !gap) return `<div data-apx-mod="${esc(x.id)}" data-apx-busy>${renderModule(x.module, { ...(o.picture ? { picture: o.picture } : {}), ...(o.store ? { store: o.store } : {}) })}</div>`;
+      if (filling) return `<div data-apx-mod="${esc(x.id)}" class="apx-np-in">${renderSkeleton(x.module, { busy: filling })}</div>`;
       if (gap) return m ? `<div data-apx-mod="${esc(x.id)}" class="apx-np-in">${renderSkeleton(x.module, { reason: o.busy?.moduleWhy?.[x.id] ?? `${gap} - in its settings (click it).` })}</div>` : "";
       const h = renderModule(x.module, { ...(o.picture ? { picture: o.picture } : {}), ...(o.store ? { store: o.store } : {}) });
       return m ? `<div data-apx-mod="${esc(x.id)}">${h}</div>` : h;

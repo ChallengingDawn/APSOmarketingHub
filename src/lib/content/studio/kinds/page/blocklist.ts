@@ -67,7 +67,7 @@ function moduleRow(m: PageModule): Omit<BlockRow, "num"> {
   const n = m.module.settings.items.length;
   const what = k.takes === "products" ? `${n} product${n === 1 ? "" : "s"}` : k.takes === "categories" ? `${n} categor${n === 1 ? "y" : "ies"}` : "";
   return {
-    key: moduleKeyOf(m.id), kind: "module", name: k.name, line: words(m.module.settings.title) || what || k.note || "",
+    key: moduleKeyOf(m.id), kind: "module", name: k.name, line: words(m.module.settings.title.replace(/==/g, "")) || what || k.note || "",
     state: gap ? "partly" : "written", note: gap, module: { type: k.id, name: k.name }, movable: true, copyable: true,
   };
 }

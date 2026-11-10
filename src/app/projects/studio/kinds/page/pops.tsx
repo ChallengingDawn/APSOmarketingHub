@@ -810,3 +810,63 @@ export function EditBar({ block, label, onBlock, edit, onSettings, onAi, onClose
     </Box>
   );
 }
+
+/* ── "Ask AI" on a block, right at it (Content v11) ───────────────────── */
+
+/** What the AI did for a block - said in the popup, with the Undo of what it did. */
+export type BlockAiAnswer = { ok: boolean; text: string; undo: (() => void) | null };
+
+/**
+ * "Ask AI" on a block, AT the block (SARCLA 10.11.2026: "ask the AI on block should display the inbox there like a pop and
+ * really apply the change on block level"): a question box beside the block; the answer is applied to the block at once
+ * (a module's settings, a block's words), it says what it did, and Undo takes it back. With no question it fills the
+ * block from the page ("Fill it with AI" - the module's settings button runs the same).
+ */
+export function AskPop({ kicker, title, empty, quick, onAsk, onClose }: {
+  kicker: React.ReactNode; title: string;
+  /** the button's words with no question ("Fill it with AI", "Write it again with AI") */
+  empty: string;
+  /** one-click asks ("Make it shorter") */
+  quick?: { label: string; ask: string }[];
+  onAsk: (request: string) => Promise<BlockAiAnswer>;
+  onClose: () => void;
+}) {
+  const [ask, setAsk] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [said, setSaid] = useState<BlockAiAnswer | null>(null);
+  const box = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => { const t = setTimeout(() => box.current?.focus(), 60); return () => clearTimeout(t); }, []);
+  const run = async (text: string, label: string) => {
+    if (busy) return;
+    setBusy(label);
+    setSaid(null);
+    try { setSaid(await onAsk(text.trim())); setAsk(""); } finally { setBusy(null); }
+  };
+  return (
+    <PopCard kicker={kicker} title={title} onClose={onClose} maxBody="min(60vh, 520px)">
+      <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "8px", bgcolor: "#fff", px: 1.25, py: 0.75, "&:focus-within": { borderColor: PINK, boxShadow: "0 0 0 3px rgba(194,44,110,.12)" } }}>
+        <InputBase inputRef={box} fullWidth multiline minRows={2} maxRows={6} value={ask} disabled={!!busy} placeholder="What should change in this block? Leave it empty to fill it from the page."
+          onChange={(e) => setAsk(e.target.value.slice(0, 1500))}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void run(ask, ask.trim() ? "Asking…" : empty); } }}
+          sx={{ fontSize: "0.86rem", lineHeight: 1.45, color: INK }} />
+      </Box>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 1, flexWrap: "wrap" }}>
+        <Button variant="contained" disableElevation disabled={!!busy} onClick={() => void run(ask, ask.trim() ? "Asking…" : empty)}
+          startIcon={busy ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />}
+          sx={{ ...mainBtn, bgcolor: PINK, borderRadius: "7px", px: 1.75, py: 0.5, fontSize: "0.82rem", "&:hover": { bgcolor: "#a3245c" }, "&.Mui-disabled": busy ? { bgcolor: PINK, color: "#fff", opacity: 0.85 } : {} }}>
+          {busy ?? (ask.trim() ? "Ask" : empty)}
+        </Button>
+        {!busy && !ask.trim() && (quick ?? []).map((q) => (
+          <Button key={q.label} size="small" onClick={() => void run(q.ask, `${q.label}…`)} sx={{ ...quiet, border: `1px solid ${HAIRLINE}` }}>{q.label}</Button>
+        ))}
+      </Box>
+      {said && (
+        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mt: 1.25, pt: 1, borderTop: `1px solid ${HAIRLINE}` }}>
+          <Typography sx={{ flex: 1, fontSize: "0.8rem", lineHeight: 1.45, color: said.ok ? INK : "#a96a12" }}>{said.text}</Typography>
+          {said.undo && <Button size="small" onClick={() => { said.undo?.(); setSaid({ ok: true, text: "Taken back - the block is as it was.", undo: null }); }} sx={{ ...quiet, color: PINK, border: `1px solid ${HAIRLINE}`, flexShrink: 0 }}>Undo</Button>}
+        </Box>
+      )}
+      <Typography sx={{ mt: 1, fontSize: "0.72rem", color: MUTED, lineHeight: 1.4 }}>Applied to this block only, at once. The assistant on the right works on the whole page.</Typography>
+    </PopCard>
+  );
+}

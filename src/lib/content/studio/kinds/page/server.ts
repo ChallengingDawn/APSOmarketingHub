@@ -64,7 +64,7 @@ import { blockOfPath, blocksOf, itemOfPath } from "./outline";
 import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, presenceOf, previewOf, readShopPage, relinkOf } from "./shop";
 import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
 import { appBriefOf } from "./appBrief";
-import { moduleActions, moduleFillTask } from "./modules/server";
+import { moduleActions, moduleFillTask, moduleWordsTask } from "./modules/server";
 import { planActions, planTask } from "./plan/server";
 import { findsOnPage } from "./plan/places";
 import { envFilter, publishTargets, targetWhy } from "./env";
@@ -1146,6 +1146,8 @@ export const pageKind: KindDef = {
     module_fill: moduleFillTask((ctx, raw, input) => { const d = viewFor(ctx, raw, input); return `${context(ctx, d)}
 
 ${pageBlock(d).slice(0, 6000)}`; }),
+    // Content v11: "Fill it with AI" for one module - its settings' button and the chip's "Ask AI" (./modules/words.ts)
+    module_words: moduleWordsTask(context, RULES),
   },
   actions: {
     start, winner, publish, stores, views, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, relink, ping: async () => ({ ok: true }),
