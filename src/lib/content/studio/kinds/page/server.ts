@@ -73,7 +73,7 @@ import { planActions, planTask } from "./plan/server";
 import { findsOnPage } from "./plan/places";
 import { envFilter, publishTargets, targetWhy } from "./env";
 import { runningOn } from "./abState";
-import { NEWPAGE_SCHEMA, cleanNewPageModules, factKeys, factsBlock, guardFill, newPageAddresses, newPageSystem, newPageUser, ownPoints, subjectOf } from "./plan/newpage";
+import { NEWPAGE_SCHEMA, cleanNewPageModules, factKeys, factsBlock, guardFill, guardText, newPageAddresses, newPageSystem, newPageUser, ownPoints, subjectOf } from "./plan/newpage";
 import { readStore, treeFor } from "./plan/fill";
 import { categoryFacts, type CategoryFacts } from "./modules/source";
 import { readBrain } from "@/lib/brain";
@@ -502,9 +502,12 @@ ${s(input.text, 3000) || "(empty)"}
 
 THE PERSON ASKS: ${s(input.request, 1500) || "Write it again: clearer and more useful for a buyer."}`;
   },
-  clean: (raw) => {
-    const text = s((raw as { text?: unknown })?.text, 3000).replace(/^["“„'«]+|["”“'»]+$/g, "").trim();
-    return { text, leftovers: leftoversIn(text) };
+  clean: (raw, _doc, _ctx, input) => {
+    const said: string[] = [];
+    // the shop's word rules on ONE text too (Content v12: the Kalrez hero said "both in stock in our standard assortment" -
+    // a stock promise came in by this road, the only AI text the rules did not read)
+    const text = guardText(s((raw as { text?: unknown })?.text, 3000).replace(/^["“„'«]+|["”“'»]+$/g, "").trim(), s(input.text, 3000), said, "");
+    return { text, leftovers: leftoversIn(text), ...(said.length ? { note: said.join("; ") } : {}) };
   },
 };
 
