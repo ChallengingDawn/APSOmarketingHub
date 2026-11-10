@@ -247,8 +247,10 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 const NEVER: RegExp[] = [
   /\d+([.,]\d+)?\s*%/, /\b(CHF|EUR|USD|PLN)\b|€|\$/i,
   /\b(rabatt|discount|remise|sconto|korting|rabat|reduziert|reduced|soldes|saldi|sale)\b/i,
-  /\b(ab lager|auf lager|lagernd|lagerhaltig|sofort lieferbar|in stock|en stock|disponible en stock|disponibile a magazzino|pronta consegna|op voorraad|na stanie)\b/i,
-  /\b(in|within|innerhalb( von)?|en|entro|binnen|w ciągu)\s+\d+\s*(h\b|std|stunden|hours?|tage[n]?|days?|jours?|giorni|dagen|dni|werktage[n]?|business days)/i,
+  /\b(ab lager|auf lager|lagernd|lagerhaltig|lagerartikel|lagerware|vorrätig|sofort lieferbar|in stock|en stock|disponible en stock|disponibile a magazzino|pronta consegna|op voorraad|na stanie)\b/i,
+  // "in 24 h", "innert 2 Tagen" - and (Content v8, a real write of 10.11.2026) "in 48/72 h"
+  /\b(in|within|innerhalb( von)?|innert|en|entro|binnen|w ciągu)\s+\d+(\s*[/-]\s*\d+)?\s*(h\b|std|stunden|hours?|tage[n]?|days?|jours?|giorni|dagen|dni|werktage[n]?|business days)/i,
+  /\b\d+\s*[/-]\s*\d+\s*(h|std|stunden|hours?)\b/i,
   /\bchemours\b/i,
 ];
 /** Certificates and approvals: only when the page itself names them. */

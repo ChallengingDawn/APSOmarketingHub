@@ -22,8 +22,8 @@ import { blockOrder, removeBlock, type Fields, type PageModule } from "../fields
 import { FILL_SCHEMA, type FillAnswer } from "../fill";
 import { moduleDef } from "../modules/registry";
 import type { ModuleRef } from "../modules/types";
-import { library, libraryText, libModule, makeModule, moduleIdOf, withWords, emptyWords, type LibModule, type PlanWords } from "./library";
-import { WORDS_SCHEMA, buttonSays, fillIn, looksEnglish, safeWords, wordsIn, type CleanCtx, type FillSpec } from "./plan";
+import { library, libraryText, libModule, makeModule, moduleIdOf, withWords, type LibModule, type PlanWords } from "./library";
+import { buttonSays, fillIn, looksEnglish, safeWords, wordsIn, type CleanCtx, type FillSpec } from "./plan";
 
 const BASE = "https://www.apsoparts.com";
 
@@ -46,36 +46,43 @@ const blockName = (at: string) => BLOCK_NAME[at] ?? (/^section (\d)$/.test(at) ?
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
-const FILL_SPEC_SCHEMA = {
-  type: "object", additionalProperties: false, required: ["how", "category", "numbers", "count"],
-  properties: {
-    how: { type: "string", enum: ["category", "technologies", "viewed", "bought", "none"] },
-    category: { type: "string", description: "An address from THE SHOP'S CATEGORIES or THE SHOP'S PAGES YOU MAY LINK (a category), or ''" },
-    numbers: { type: "string", description: "Always ''" },
-    count: { type: "integer" },
-  },
-};
-
+// The module's part of the answer is FLAT on purpose: the whole-page write's schema (the text blocks and the modules) is
+// one grammar for the model, and a nested one was refused as too large (10.11.2026: "The compiled grammar is too large").
+// One list `items` carries a module's points (title + text) or its questions (title = the question, text = the answer).
 export const MODULES_SCHEMA = {
   type: "array",
   description: "2 to 4 modules of THE LIBRARY among the page's text blocks",
   items: {
     type: "object", additionalProperties: false,
-    required: ["module", "at", "how", "layout", "why", "words", "extras", "link", "link2", "fill"],
+    required: ["module", "at", "how", "why", "eyebrow", "title", "text", "button", "link", "items", "fill", "category", "count"],
     properties: {
       module: { type: "string", description: "The module's id from THE LIBRARY, exactly as listed" },
-      at: { type: "string", enum: [...MODULE_AT], description: "The page's block it stands after (how=after) or takes the place of (how=instead)" },
+      at: { type: "string", description: `The page's block it stands after (how=after) or takes the place of (how=instead): ${MODULE_AT.join(" | ")}` },
       how: { type: "string", enum: ["after", "instead"] },
-      layout: { type: "string", description: "One of the module's layouts, or ''" },
       why: { type: "string", description: "Why, in ENGLISH, under 10 words" },
-      words: WORDS_SCHEMA,
-      extras: { type: "array", items: { type: "object", additionalProperties: false, required: ["key", "value"], properties: { key: { type: "string" }, value: { type: "string" } } } },
+      eyebrow: { type: "string" }, title: { type: "string" }, text: { type: "string" },
+      button: { type: "string", description: "The button's words, '' when it has no fitting address" },
       link: { type: "string", description: "The button's address: from THE SHOP'S CATEGORIES or THE SHOP'S PAGES YOU MAY LINK - where its words say it goes; else ''" },
-      link2: { type: "string", description: "The second button's address (the same lists), else ''" },
-      fill: FILL_SPEC_SCHEMA,
+      items: { type: "array", description: "Its points (title + text), or its questions (title = the question, text = the answer); [] when it takes neither", items: { type: "object", additionalProperties: false, required: ["title", "text"], properties: { title: { type: "string" }, text: { type: "string" } } } },
+      fill: { type: "string", description: "How the hub fills it: category | technologies | bought | viewed | none" },
+      category: { type: "string", description: "fill=category (or bought / viewed within it): a category's address from the lists; else ''" },
+      count: { type: "integer", description: "How many items it shows (its range in THE LIBRARY); 0 for none" },
     },
   },
 };
+
+/** A module as the flat answer gives it, in the plan's shape (words, link, fill) - so the plan's checks apply as they are. */
+function planShape(x: Record<string, unknown>, m: LibModule): Record<string, unknown> {
+  const items = (Array.isArray(x.items) ? x.items : []).filter(isObj).map((i) => ({ title: str(i.title, 300), text: str(i.text, 1200) }));
+  const takesFaq = m.words.some((w) => w.key === "faq");
+  const takesPoints = m.words.some((w) => w.key === "points");
+  const words = {
+    eyebrow: x.eyebrow, title: x.title, text: x.text, button: x.button, button2: "",
+    points: takesPoints && !takesFaq ? items : takesPoints && takesFaq ? items.filter((i) => !/\?\s*$/.test(i.title)) : [],
+    faq: takesFaq ? items.filter((i) => !takesPoints || /\?\s*$/.test(i.title)).map((i) => ({ q: i.title, a: i.text })) : [],
+  };
+  return { ...x, words, extras: [], link2: "", fill: { how: str(x.fill, 20), category: str(x.category, 400), numbers: "", count: x.count } };
+}
 
 const ALL = FILL_SCHEMA.all as { type: string; additionalProperties: boolean; required: string[]; properties: Record<string, unknown> };
 /** The whole-page write with its modules: the text blocks of the fill (../fill.ts FILL_SCHEMA.all) and `modules`. */
@@ -89,16 +96,14 @@ export function newPageExample(lib: LibModule[] = newPageLibrary()): string {
   const tool = pick((m) => m.category === "tools" && m.takes === "none" && m.words.some((w) => w.key === "button"));
   const faq = pick((m) => m.takes === "none" && m.words.some((w) => w.key === "faq") && !m.words.some((w) => w.key === "points"));
   const cta = pick((m) => m.category === "cta" && m.takes === "none" && m.words.some((w) => w.key === "button2"));
-  const w = (o: Partial<PlanWords>) => JSON.stringify({ ...emptyWords(), ...o });
-  const none = `{"how":"none","category":"","numbers":"","count":0}`;
-  const step = (o: { module: string; at: string; how: string; why: string; words: string; fill: string; link?: string }) =>
-    `{"module":"${o.module}","at":"${o.at}","how":"${o.how}","layout":"","why":"${o.why}","words":${o.words},"extras":[],"link":"${o.link ?? ""}","link2":"","fill":${o.fill}}`;
+  const step = (o: { module: string; at: string; how: string; why: string; title: string; text?: string; eyebrow?: string; button?: string; link?: string; items?: { title: string; text: string }[]; fill?: string; category?: string; count?: number }) =>
+    JSON.stringify({ module: o.module, at: o.at, how: o.how, why: o.why, eyebrow: o.eyebrow ?? "", title: o.title, text: o.text ?? "", button: o.button ?? "", link: o.link ?? "", items: o.items ?? [], fill: o.fill ?? "none", category: o.category ?? "", count: o.count ?? 0 });
   const cat = `${BASE}/de-CH/dichtungstechnik/o-ringe-x-ringe.html`;
   const steps: string[] = [];
-  if (prod) steps.push(step({ module: prod.id, at: "intro", how: "after", why: "The subject's products, ready to order", words: w({ eyebrow: "Sortiment", title: "O-Ringe für Lebensmittelanlagen", button: "Alle O-Ringe" }), fill: `{"how":"category","category":"${cat}","numbers":"","count":${Math.min(prod.max, 6)}}`, link: cat }));
-  if (tool) steps.push(step({ module: tool.id, at: "section 2", how: "after", why: "The shop's own tool for this choice", words: w({ title: "Den passenden O-Ring finden", text: "Werkstoff, Mass und Härte in wenigen Schritten auswählen." }), fill: none }));
-  if (faq) steps.push(step({ module: faq.id, at: "faq", how: "instead", why: "Buyers' questions, answered from the brief", words: w({ title: "Häufige Fragen", faq: [{ q: "Welche Werkstoffe gibt es?", a: "EPDM, FKM und Silikon - je nach Medium und Temperatur." }] }), fill: none }));
-  if (cta) steps.push(step({ module: cta.id, at: "cta", how: "instead", why: "One clear next step at the end", words: w({ title: "Passende Dichtung gesucht?", text: "Unser Team hilft bei der Auswahl.", button: "Kontakt" }), fill: none }));
+  if (prod) steps.push(step({ module: prod.id, at: "intro", how: "after", why: "The subject's products, ready to order", eyebrow: "Sortiment", title: "O-Ringe für Lebensmittelanlagen", button: "Alle O-Ringe", link: cat, fill: "category", category: cat, count: Math.min(prod.max, 6) }));
+  if (tool) steps.push(step({ module: tool.id, at: "section 2", how: "after", why: "The shop's own tool for this choice", title: "Den passenden O-Ring finden", text: "Werkstoff, Mass und Härte in wenigen Schritten auswählen." }));
+  if (faq) steps.push(step({ module: faq.id, at: "faq", how: "instead", why: "Buyers' questions, answered from the brief", title: "Häufige Fragen", items: [{ title: "Welche Werkstoffe gibt es?", text: "EPDM, FKM und Silikon - je nach Medium und Temperatur." }] }));
+  if (cta) steps.push(step({ module: cta.id, at: "cta", how: "instead", why: "One clear next step at the end", title: "Passende Dichtung gesucht?", text: "Unser Team hilft bei der Auswahl.", button: "Kontakt" }));
   if (!steps.length) return "";
   return `AN EXAMPLE of "modules" (a new page "O-Ringe für die Lebensmittelindustrie", store view de-CH, German) - its questions and its call to action are modules, so the faq and cta fields stay empty:
 [${steps.join(",")}]`;
@@ -122,7 +127,8 @@ from the brief, the brand facts and the shop's pages listed: no prices, no disco
 promise ("ab Lager", "sofort lieferbar", "in 24 h"), no certificate or approval nobody named, no figures you were not
 given, never the name "Chemours". A button says where it goes and its "link" goes exactly there (an address from the
 lists below); a button with no fitting address gets no words. A module whose points are the shop's own (its tools, each
-with its page) keeps them: give it no points. A word the module does not take stays "", a list it does not take stays [].
+with its page) keeps them: give it no items. Its points - or its questions (title = the question, text = the answer) - go in
+"items". A word the module does not take stays "", a list it does not take stays [].
 "why" is ENGLISH, under 10 words.
 "fill" - how the hub fills a module's products or categories: "category" (that category's products; for a module of
 categories its subcategories), "technologies" (the shop's main technologies), "bought" / "viewed" (most bought / most
@@ -134,14 +140,31 @@ ${libraryText(lib)}
 ${newPageExample(lib)}`;
 }
 
+/** Does a module carry the shop's own points (each with its page or its picture) - those it keeps, by the registry's
+ * settings schema? */
+const ownPointsField = (id: string) => {
+  const pf = moduleDef(id)?.fields.find((f) => f.kind === "points") as { links?: boolean; pictures?: boolean } | undefined;
+  return !!pf && !!(pf.links || pf.pictures);
+};
+/** The modules that keep their own points in this store view, and those points' titles - so their words fit them
+ * (10.11.2026: a tools module's line named tools its own tiles did not show). */
+export function ownPoints(store: string, lib: LibModule[] = newPageLibrary()): { id: string; titles: string[] }[] {
+  return lib.filter((m) => ownPointsField(m.id)).map((m) => ({ id: m.id, titles: (makeModule(m.id, store)?.settings.points ?? []).map((p) => p.title).filter(Boolean) })).filter((x) => x.titles.length);
+}
+
 /** The question's part for the modules: the shop's categories, the pages a button may go to, the language. */
 export function newPageUser(a: { tree: { name: string; url: string; depth: number }[]; candidates: { url: string; name: string; kind: string }[]; language: string; store: string }): string {
   const tree = a.tree.length ? a.tree.slice(0, 120).map((t) => `${"  ".repeat(t.depth)}${t.url} · ${t.name}`).join("\n") : "(not read - fill with \"bought\" or \"viewed\", or a category from the pages below)";
+  const own = ownPoints(a.store.split("/")[0]);
   return `THE SHOP'S CATEGORIES (for a module's "fill" and its buttons: address · name):
 ${tree}
 
 A MODULE'S BUTTONS AND FILL MAY ALSO USE THE SHOP'S PAGES YOU MAY LINK above (their address as listed).
-
+${own.length ? `
+THE MODULES THAT SHOW THE SHOP'S OWN POINTS (each with its page) - they keep them: their "items" stay [], their words
+must fit exactly these:
+${own.map((x) => `"${x.id}": ${x.titles.join(" · ")}`).join("\n")}
+` : ""}
 WRITE THE MODULES' WORDS IN: ${a.language} (store view ${a.store}). Each "why": English.
 Compose the page: its text blocks (the fields) and 2 to 4 modules of the library among them.`;
 }
@@ -180,6 +203,8 @@ export type NewPageCtx = {
   pageText: string;
   /** the page's language ("de") */
   lang: string;
+  /** the store view ("de-CH") - a module's own points are its store view's */
+  store?: string;
   lib?: LibModule[];
 };
 
@@ -206,25 +231,28 @@ export function cleanNewPageModules(raw: unknown, ctx: NewPageCtx): { modules: N
   const taken = new Set<string>();
   const instead = new Set<string>();
   const planCtx = { parts: [], container: "", categories: ctx.categories, links: ctx.links, linkNames: ctx.linkNames, pageUrl: "", pageKind: "new", pageText: ctx.pageText, newId: () => "", lang: ctx.lang } satisfies CleanCtx;
-  for (const x of (Array.isArray(raw) ? raw : []).filter(isObj).slice(0, 8)) {
+  for (const x0 of (Array.isArray(raw) ? raw : []).filter(isObj).slice(0, 8)) {
     if (out.length >= MAX_MODULES) { problems.push(`More than ${MAX_MODULES} modules came back - the first ${MAX_MODULES} were kept.`); break; }
-    const asked = str(x.module, 60);
+    const asked = str(x0.module, 60);
     const id = moduleIdOf(asked);
     if (!id) { problems.push(`"${asked || "(no id)"}" is not a module of the library - left out.`); continue; }
     if (!ids.has(id)) { problems.push(`"${libModule(id)?.name ?? id}" is not one a new page takes (its hero is its own; no campaign, quote or video) - left out.`); continue; }
     if (taken.has(id)) { problems.push(`"${libModule(id)?.name ?? id}" came twice - the second was left out.`); continue; }
-    const at = (MODULE_AT as readonly string[]).includes(str(x.at, 20)) ? (str(x.at, 20) as ModuleAt) : null;
-    if (!at) { problems.push(`A module aimed at "${str(x.at, 20)}", which is not a block of the page - left out.`); continue; }
+    const atRaw = str(x0.at, 20).toLowerCase().replace(/^sections?\s*(\d)$/, "section $1");
+    const at = (MODULE_AT as readonly string[]).includes(atRaw) ? (atRaw as ModuleAt) : null;
+    if (!at) { problems.push(`A module aimed at "${str(x0.at, 20)}", which is not a block of the page - left out.`); continue; }
+    const m = libModule(id)!;
+    // the flat answer (or a plan-shaped one) in the plan's shape
+    const x = isObj(x0.words) ? x0 : planShape(x0, m);
     const said: string[] = [];
     let how: "after" | "instead" = x.how === "instead" ? "instead" : "after";
     if (how === "instead" && !INSTEAD_OK.has(at)) { how = "after"; said.push(`${blockName(at)} stays (${at === "hero" ? "it holds the page's title" : "a section is not replaced"}) - the module goes after it`); }
     if (how === "instead" && instead.has(at)) { how = "after"; said.push(`${blockName(at)} was replaced already - the module goes after it`); }
-    const m = libModule(id)!;
     const words = wordsIn(x.words, ctx.pageText, said, ctx.lang);
     // a module whose points are the shop's own (each with its page or its picture) keeps them: words by index would put
     // one tool's name on another's link
-    const pf = moduleDef(id)?.fields.find((f) => f.kind === "points") as { links?: boolean; pictures?: boolean } | undefined;
-    if (pf && (pf.links || pf.pictures) && words.points.length) { words.points = []; said.push("its own points kept (each has its page)"); }
+    // (a store view where the module has none of its own: the AI's points stand, without pages)
+    if (ownPointsField(id) && words.points.length && (makeModule(id, ctx.store ?? "de-CH")?.settings.points.length ?? 0) > 0) { words.points = []; said.push("its own points kept (each has its page)"); }
     const extras = (Array.isArray(x.extras) ? x.extras : []).filter(isObj).map((e) => ({ key: str(e.key, 30), value: safeWords(str(e.value, 120), ctx.pageText, said) })).filter((e) => e.key && e.value && m.extras.some((s) => s.key === e.key)).slice(0, 8);
     const okLink = (v: unknown) => { const u = whole(str(v, 400)); return u && ctx.links.includes(u) ? u : ""; };
     let link = okLink(x.link);
@@ -353,7 +381,8 @@ export function guardFill(a: FillAnswer, pageText: string, lang: string): { answ
   const out: FillAnswer = { ...a };
   if (a.hero) out.hero = { ...a.hero, eyebrow: g(a.hero.eyebrow), title: g(a.hero.title), sub: g(a.hero.sub), button: { ...a.hero.button, label: g(a.hero.button.label) }, pictureAlt: g(a.hero.pictureAlt) };
   if (a.intro !== undefined) out.intro = g(a.intro);
-  if (a.benefits) out.benefits = { title: g(a.benefits.title), items: a.benefits.items.map((b) => ({ title: g(b.title), text: g(b.text) })).filter((b) => b.title || b.text) };
+  // a tile whose words were all left out goes whole (never a heading over nothing)
+  if (a.benefits) out.benefits = { title: g(a.benefits.title), items: a.benefits.items.map((b) => ({ title: g(b.title), text: g(b.text), had: !!b.text.trim() })).filter((b) => b.title && (b.text || !b.had)).map(({ had: _h, ...b }) => b) };
   if (a.sections) out.sections = { items: a.sections.items.map((s) => ({ ...s, title: g(s.title), text: g(s.text), pictureAlt: g(s.pictureAlt) })).filter((s) => s.title || s.text) };
   if (a.section) out.section = { ...a.section, title: g(a.section.title), text: g(a.section.text), pictureAlt: g(a.section.pictureAlt) };
   if (a.links) out.links = { title: g(a.links.title), items: a.links.items.map((l) => ({ ...l, label: g(l.label), note: g(l.note) })).filter((l) => l.label) };

@@ -69,7 +69,7 @@ import { planActions, planTask } from "./plan/server";
 import { findsOnPage } from "./plan/places";
 import { envFilter, publishTargets, targetWhy } from "./env";
 import { runningOn } from "./abState";
-import { NEWPAGE_SCHEMA, cleanNewPageModules, guardFill, newPageAddresses, newPageSystem, newPageUser } from "./plan/newpage";
+import { NEWPAGE_SCHEMA, cleanNewPageModules, guardFill, newPageAddresses, newPageSystem, newPageUser, ownPoints } from "./plan/newpage";
 import { treeFor } from "./plan/fill";
 import { readBrain } from "@/lib/brain";
 import { listTests } from "@/lib/convert/tests";
@@ -391,12 +391,14 @@ const fillPage: AiTask = {
     const d = viewFor(ctx, docRaw, input);
     const cands = candidatesOf(input);
     const base = cleanFill(raw, cands);
-    const pageText = await newPageFacts(ctx, d, input);
+    // what a word may name: the brief, the brand facts, the shop's pages - and the shop's own points the library's
+    // modules show (a norm such as ISO 3601 is the shop's own words there)
+    const pageText = `${await newPageFacts(ctx, d, input)} ${ownPoints(d.store.split("/")[0]).flatMap((x) => x.titles).join(" ")}`;
     const lang = d.store.slice(0, 2);
     // the text blocks' words under the shop's word rules too
     const g = guardFill(base.answer, pageText, lang);
     const tree = await treeFor(d.store).catch(() => []);
-    const mods = cleanNewPageModules((raw as { modules?: unknown } | null)?.modules, { ...newPageAddresses(tree, cands), pageText, lang });
+    const mods = cleanNewPageModules((raw as { modules?: unknown } | null)?.modules, { ...newPageAddresses(tree, cands), pageText, lang, store: d.store.split("/")[0] });
     return { answer: g.answer, leftovers: base.leftovers, modules: mods.modules, problems: [...g.problems, ...mods.problems].slice(0, 10) };
   },
 };

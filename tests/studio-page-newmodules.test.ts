@@ -6,7 +6,7 @@ import { renderNewPage } from "../src/lib/content/studio/kinds/page/newpage";
 import { library } from "../src/lib/content/studio/kinds/page/plan/library";
 import {
   MAX_MODULES, NEWPAGE_SCHEMA, NEWPAGE_SKIP_CATEGORIES, blockKeyOf, cleanNewPageModules, composeModules, guardFill, guardText, isAiModule, needsShop,
-  newPageAddresses, newPageExample, newPageLibrary, newPageSystem, newPageUser, type NewPageCtx, type NewPageModule,
+  newPageAddresses, newPageExample, newPageLibrary, newPageSystem, newPageUser, ownPoints, type NewPageCtx, type NewPageModule,
 } from "../src/lib/content/studio/kinds/page/plan/newpage";
 
 // Content v8 (SARCLA 10.11.2026, point 5): "When the AI is generating a new page it should also generate the modules".
@@ -87,6 +87,29 @@ test("a module whose points are the shop's own pages keeps them; a button that g
   assert.equal(r.modules[1].link, "");
 });
 
+test("the answer's flat shape (one grammar the model takes) read into the plan's: points or questions from `items`", () => {
+  const flat = (o: Record<string, unknown>) => ({ at: "intro", how: "after", why: "Helps", eyebrow: "", title: "", text: "", button: "", link: "", items: [], fill: "none", category: "", count: 0, ...o });
+  const r = cleanNewPageModules([
+    flat({ module: prod.id, at: "Section 1", title: "FKM O-Ringe", button: "Alle FKM O-Ringe", link: cands[0].url, fill: "bought", category: cands[0].url, count: 5 }),
+    flat({ module: faq.id, at: "faq", how: "instead", title: "Häufige Fragen", items: [{ title: "Wofür eignet sich FKM?", text: "Für Öle und Kraftstoffe." }] }),
+  ], ctx);
+  assert.equal(r.modules[0].at, "section 1");
+  assert.deepEqual(r.modules[0].fill, { how: "bought", category: FKM, numbers: "", count: 5 });
+  assert.equal(r.modules[0].words.title, "FKM O-Ringe");
+  assert.deepEqual(r.modules[1].words.faq, [{ q: "Wofür eignet sich FKM?", a: "Für Öle und Kraftstoffe." }]);
+  assert.deepEqual(r.modules[1].words.points, []);
+});
+
+test("the modules that keep the shop's own points are named with those points - their words must fit them", () => {
+  const own = ownPoints("de-CH");
+  assert.ok(own.length > 0);
+  const t = own.find((x) => x.id === lib.find((m) => m.category === "tools" && own.some((o) => o.id === m.id))?.id)!;
+  assert.ok(t.titles.length > 0);
+  const user = newPageUser({ tree, candidates: cands, language: "German", store: "de-CH" });
+  assert.match(user, /THE MODULES THAT SHOW THE SHOP'S OWN POINTS/);
+  assert.ok(user.includes(`"${t.id}": ${t.titles.join(" · ")}`));
+});
+
 test(`at most ${MAX_MODULES} modules`, () => {
   const ids = lib.filter((m) => m.takes === "none").slice(0, 6).map((m) => m.id);
   const r = cleanNewPageModules(ids.map((id) => step({ module: id, at: "intro", words: words({ title: "Titel für den Block" }) })), ctx);
@@ -165,6 +188,10 @@ test("the text blocks' words under the shop's rules - a list stays a list", () =
   assert.equal(guardText("Sofort ab Lager lieferbar. Für Öle und Kraftstoffe.\n\n- Beständig gegen Öl\n- Nur 4.50 CHF pro Stück\n- Hohe Temperaturen", "", said, "de"),
     "Für Öle und Kraftstoffe.\n\n- Beständig gegen Öl\n- Hohe Temperaturen");
   assert.equal(said.length, 2);
+  // a real write's tile (10.11.2026): a stock and delivery-time promise, slash and all
+  assert.equal(guardText("Lagerartikel in 48/72 h europaweit, kein Mindermengenzuschlag.", "", [], "de"), "");
+  assert.equal(guardText("Lieferung 24/48h in die Schweiz.", "", [], "de"), "");
+  assert.equal(guardText("Härten von 70 bis 90 Shore A, Masse nach Tabelle.", "", [], "de"), "Härten von 70 bis 90 Shore A, Masse nach Tabelle.");
   const g = guardFill({
     hero: { eyebrow: "", title: "O-Ringe aus FKM", sub: "Jetzt 20% Rabatt auf FKM.", button: { label: "Zum Shop", url: "" }, pictureIdea: "", pictureAlt: "" },
     faq: { title: "Fragen", items: [{ q: "Ist FKM FDA-konform?", a: "Ja, FDA-konform." }, { q: "Was ist FKM?", a: "Ein Fluorkautschuk von Chemours." }, { q: "Wofür?", a: "Für Öle." }] },
