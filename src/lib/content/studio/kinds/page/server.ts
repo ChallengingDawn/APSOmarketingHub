@@ -722,17 +722,19 @@ const englishAction: ServerAction = async (ctx, raw, input) => {
   }
 };
 
-/* ── where the project came from: written by itself only from an app's brief (Content v5) ──── */
+/* ── where the project came from: written by itself only from an idea's brief (Content v5, v9) ──── */
 //
 // SARCLA 09.11.2026: "write the new page with AI: it depends - if the project was created via an SEO brief, writing the
-// page should be by default; otherwise the user should prompt each page he wants". A project started from an idea of
-// one of the apps carries that app as its source (lib/content/start.ts): SEO, AEO & LLM Optimizer, Search bar,
-// Personality, AI testing & personalization. With a brief from one of them the studio writes the new page on its own.
+// page should be by default; otherwise the user should prompt each page he wants". A project started from ideas carries
+// them in its notes and its first idea's app as its source (lib/content/start.ts). With an idea's brief the studio writes
+// the new page on its own; without one it opens empty.
 
 // A project sent from AI testing & personalization (its brief carries the page's marker) is an app's brief too (./appBrief.ts).
+// Content v9 (SARCLA 10.11.2026: "new page should be empty and then we start to build, only not when they come from
+// ideas"): it writes itself when its to-do came from ANY idea of the Ideas board (Own ideas too) - ./appBrief.ts says the rule.
 const brief: ServerAction = async (ctx) => {
   const { source } = await projectBrief(ctx.projectId).catch(() => ({ source: null as string | null }));
-  return appBriefOf({ source, goal: ctx.brief.goal, notes: ctx.projectNotes });
+  return appBriefOf({ source, goal: ctx.brief.goal, notes: ctx.projectNotes, title: ctx.projectTitle });
 };
 
 /* ── actions ──────────────────────────────────────────────────────────── */

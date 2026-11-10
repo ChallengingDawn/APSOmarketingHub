@@ -38,6 +38,7 @@ import {
   type BlockRow, type FoundBlock,
 } from "@/lib/content/studio/kinds/page/blocklist";
 import { limitOf } from "@/lib/content/studio/kinds/page/fit";
+import { appBriefOf, pageHasContent, startLine, writesItself, type StartState } from "@/lib/content/studio/kinds/page/appBrief";
 import { PART_LABEL, mergeField, mergeFill, type Candidate, type FillAnswer, type Part } from "@/lib/content/studio/kinds/page/fill";
 import {
   MAIN_SELECTOR, addVersion, baseStore, carryMeta, changeId, copyView, dropVersion, pathIn, emptyPage, howToAdd, isLegacyBody, langName, langOfStore, mainView, nextPageLetter, openVersion, pageDoc, shopLanguages, shopViews, sourceHash, storeForLanguage,
@@ -1155,23 +1156,50 @@ export default function Studio({ api }: StudioProps) {
     return plan.ask("ask", text);
   };
 
-  /* ── written by itself only from an app's brief (SARCLA 09.11.2026: "if the project was created via an SEO brief,
-   *    writing the page should be by default; otherwise the user should prompt each page he wants") ── */
+  /* ── written by itself only from an idea's brief (SARCLA 09.11.2026: "if the project was created via an SEO brief,
+   *    writing the page should be by default; otherwise the user should prompt each page he wants"; 10.11.2026: "new
+   *    page should be empty and then we start to build, only not when they come from ideas") - the rule in
+   *    lib/content/studio/kinds/page/appBrief.ts: an idea's to-do writes itself while the page has nothing on it; any
+   *    other opens empty, the start card offering "Write it with AI" and "Start empty and add blocks" ── */
 
   const [appBrief, setAppBrief] = useState<AppBrief | null>(null);
+  // what the project's link says before the server answers (and for someone who may only read: no action for them)
+  const projectNotes = api.data.project?.brief ?? null;
+  const localBrief = useMemo(() => appBriefOf({ source: null, goal: api.data.brief?.goal ?? null, notes: projectNotes, title: api.data.project?.title ?? null }),
+    [projectNotes, api.data.brief?.goal, api.data.project?.title]);
+  const briefNow = appBrief ?? localBrief;
+  /** the page written by itself in this open: under way, then done (with what fill said when nothing landed) */
+  const [autoRun, setAutoRun] = useState<{ done: boolean; error: string | null } | null>(null);
   const autoAsked = useRef(false);
-  const emptyNew = isNew && filledCount(d.fields) === 0 && !isLegacyBody(d);
+  const emptyNew = isNew && !pageHasContent(d);
   useEffect(() => {
-    if (autoAsked.current || !doc.started || !emptyNew || lang !== main) return;
+    if (autoAsked.current || !canEdit || !doc.started || !emptyNew || lang !== main) return;
     autoAsked.current = true;
     void api.act<AppBrief>("brief").then((r) => {
       if (!r.ok) return;
       setAppBrief(r.result);
-      // an app's brief: the page is written at once, the blocks shimmering - once, and only while it is still empty
-      if (r.result.auto && canAi && filledCount(viewOf(docRef.current, mainView(docRef.current)).fields) === 0) void fill("all");
+      // an idea's to-do: the page is written at once, the blocks shimmering - once, and only while nothing is on it
+      if (!canAi || !writesItself(r.result, pageHasContent(viewOf(docRef.current, mainView(docRef.current))))) return;
+      setAutoRun({ done: false, error: null });
+      void fill("all").then((m) => setAutoRun({ done: true, error: m }), (e: unknown) => setAutoRun({ done: true, error: e instanceof Error ? e.message : String(e) }));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc.started, emptyNew, lang, main]);
+  }, [canEdit, doc.started, emptyNew, lang, main]);
+  // where the start card stands, and its one line: why the page is empty, or why it wrote itself
+  const startState: StartState = !briefNow.idea ? "empty"
+    : autoRun ? (!autoRun.done ? "writing" : pageHasContent(viewOf(doc, main)) ? "wrote" : "failed")
+    : !api.data.ai ? "noAi" : !canEdit ? "readOnly" : briefNow.auto ? "writing" : "empty";
+  // "Start empty and add blocks": the card put away (kept for this to-do, on this browser), the blocks' menu open at once
+  const emptyKey = `page-studio:start-empty:${api.data.piece.id}`;
+  const [startedEmpty, setStartedEmpty] = useState(false);
+  useEffect(() => { try { setStartedEmpty(window.localStorage.getItem(emptyKey) === "1"); } catch { /* no storage */ } }, [emptyKey]);
+  const startEmpty = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    setStartedEmpty(true);
+    try { window.localStorage.setItem(emptyKey, "1"); } catch { /* no storage */ }
+    setAddWhere({ at: 1, pos: { top: Math.round(r.top), left: Math.round(r.left + r.width / 2) } });
+  };
+  const start = { state: startState, line: startLine(briefNow, startState, autoRun?.error ?? null), startedEmpty, onStartEmpty: startEmpty };
 
   /* ── the A/B test: in the top bar, set up in the last step (Content v8, SARCLA 10.11.2026 point 6: "A/B testing should
    *    be on top header - if I click activate then I can set it on the last step") - ../../abBar.tsx ── */
@@ -1525,7 +1553,7 @@ export default function Studio({ api }: StudioProps) {
         // the left: the page's blocks only (Content v8) - a module's settings, a block's look, a text's words open on the page
         build={<Build api={api} doc={doc} d={d} lang={lang} onLang={openView} groups={groups} presence={presence} set={setDoc} setView={setView} hits={hits} step={step} onStep={setStep}
           fill={fill} busy={busyHere} canAi={aiHere} inserts={inserts} onPickPage={() => setPicking(true)} removeInsert={removeInsert}
-          open={open} onOpen={setOpen} pictures={pictures} since={busyHere ? since : null} appBrief={appBrief} onSeoPropose={seoPropose}
+          open={open} onOpen={setOpen} pictures={pictures} since={busyHere ? since : null} appBrief={briefNow} start={start} onSeoPropose={seoPropose}
           blocks={blockList} blocksTitle={`The page · ${rows.length} block${rows.length === 1 ? "" : "s"}`} blocksRight={blocksRight}
           readyLine={isNew ? `${rows.filter((r) => r.state === "written" || r.state === "picture").length} of ${rows.length} blocks ready${rows.some((r) => r.note) ? ` · ${rows.filter((r) => r.note).length} need${rows.filter((r) => r.note).length === 1 ? "s" : ""} something` : ""}` : undefined}
           abPart={abOn ? <AbLastStep d={d} set={(v) => setView(v)} canEdit={canEdit} running={abRunning} lit={abLit} /> : null} />}

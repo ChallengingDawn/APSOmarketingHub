@@ -15,7 +15,8 @@ import { useWorking, whileWorking, type Working } from "./working";
 export type StudioData = {
   ok: boolean; error?: string; kind: StudioKind; me: string; isAdmin: boolean;
   access: { role: string; canEdit: boolean; canComment: boolean; canShare: boolean };
-  project: { id: number; title: string; createdBy: string | null; dueDate: string | null } | null;
+  /** `brief`: the project's notes as written (its ideas' lines "[idea seo:12] ...", a marker) */
+  project: { id: number; title: string; createdBy: string | null; dueDate: string | null; brief?: string | null } | null;
   brief: Brief; piece: Piece; doc: unknown; rev: number; updatedBy: string | null; updatedAt: string;
   versions: { id: number; label: string | null; by: string | null; at: string }[];
   people: PersonOpt[]; ai: boolean; tasks: { key: string; label: string }[];
