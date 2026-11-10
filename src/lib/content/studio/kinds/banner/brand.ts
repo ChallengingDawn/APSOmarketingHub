@@ -105,6 +105,9 @@ const DISCOUNT_WORDS = "(off|rabatt|discount|sale|save|sparen|remise|réduction|
  * The brand's two hard rules, read in a text: a discount value never appears (not even "up to 20%"), and Chemours is
  * never named. Each finding is a short sentence for the studio to show; [] = clean.
  */
+/** A stock or delivery promise, in the shop's languages. */
+export const STOCK_WORDS = /\b(ab lager|auf lager|lagernd|lagerhaltig|sofort lieferbar|in stock|en stock|disponible en stock|disponibile a magazzino|pronta consegna|op voorraad|na stanie)\b/i;
+
 export function brandFlags(text: string): string[] {
   const t = String(text ?? "");
   const out: string[] = [];
@@ -113,5 +116,9 @@ export function brandFlags(text: string): string[] {
   if (m) out.push(`No discount values on our pieces - take out "${m[0].trim()}".`);
   else if (/\d+\s?%/.test(t) && new RegExp(DISCOUNT_WORDS, "i").test(t)) out.push("A percentage next to a discount word reads as a discount value - check it.");
   if (/chemours/i.test(t)) out.push("Never name Chemours.");
+  // no stock or delivery promise either (SARCLA's rule: never stock or delivery times without real data; "ab Lager" came
+  // back in a banner's sample words, 10.11.2026)
+  const stock = STOCK_WORDS.exec(t);
+  if (stock) out.push(`No stock or delivery promises on our pieces - take out "${stock[0].trim()}".`);
   return out;
 }

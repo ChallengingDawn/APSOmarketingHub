@@ -247,7 +247,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 const NEVER: RegExp[] = [
   /\d+([.,]\d+)?\s*%/, /\b(CHF|EUR|USD|PLN)\b|€|\$/i,
   /\b(rabatt|discount|remise|sconto|korting|rabat|reduziert|reduced|soldes|saldi|sale)\b/i,
-  /\b(auf lager|lagernd|in stock|en stock|disponibile a magazzino|op voorraad|na stanie)\b/i,
+  /\b(ab lager|auf lager|lagernd|lagerhaltig|sofort lieferbar|in stock|en stock|disponible en stock|disponibile a magazzino|pronta consegna|op voorraad|na stanie)\b/i,
   /\b(in|within|innerhalb( von)?|en|entro|binnen|w ciągu)\s+\d+\s*(h\b|std|stunden|hours?|tage[n]?|days?|jours?|giorni|dagen|dni|werktage[n]?|business days)/i,
   /\bchemours\b/i,
 ];
