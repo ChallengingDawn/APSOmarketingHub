@@ -3,7 +3,7 @@
 // that fill the form are in scrollToSaleRules.ts.
 
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
-import { S2S_FIELDS, S2S_PIPELINE, nextRoadmapId, ticketProperties, type S2sField } from "./scrollToSaleRules";
+import { S2S_FIELDS, S2S_PIPELINE, nextRoadmapId, ticketDue, ticketProperties, type S2sField } from "./scrollToSaleRules";
 
 type Opt = { value: string; label: string };
 type Page<T> = { results?: T[]; paging?: { next?: { after?: string } } };
@@ -115,9 +115,11 @@ export async function createTicket(values: Record<string, string | null | undefi
   }
 }
 
-export type S2sTicket = { id: string; subject: string; stage: string; stageLabel: string; open: boolean; owner: string; ownerName: string; roadmapId: string; created: string; url: string };
+export type S2sTicket = { id: string; subject: string; stage: string; stageLabel: string; open: boolean; owner: string; ownerName: string; roadmapId: string; created: string; url: string;
+  /** its Go-live date, else its Planned date (YYYY-MM-DD), "" when none */
+  due: string };
 
-const TICKET_PROPS = ["subject", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id", "mkt_roadmap_id", "createdate"];
+const TICKET_PROPS = ["subject", "hs_pipeline", "hs_pipeline_stage", "hubspot_owner_id", "mkt_roadmap_id", "createdate", "mkt_golive_date", "mkt_planned_date"];
 async function shape(list: Ticket[]): Promise<S2sTicket[]> {
   const form = await s2sForm().catch(() => null);
   const stage = new Map((form?.stages ?? []).map((s) => [s.value, s]));
@@ -128,7 +130,7 @@ async function shape(list: Ticket[]): Promise<S2sTicket[]> {
       id: String(t.id), subject: p.subject ?? "", stage: p.hs_pipeline_stage ?? "", stageLabel: stage.get(p.hs_pipeline_stage ?? "")?.label ?? "",
       open: stage.get(p.hs_pipeline_stage ?? "")?.open ?? true,
       owner: p.hubspot_owner_id ?? "", ownerName: owner.get(p.hubspot_owner_id ?? "") ?? "", roadmapId: p.mkt_roadmap_id ?? "",
-      created: p.createdate ?? "", url: ticketUrl(String(t.id)),
+      created: p.createdate ?? "", url: ticketUrl(String(t.id)), due: ticketDue(p),
     };
   });
 }

@@ -26,4 +26,6 @@ export type Work = {
 };
 
 export type TodoTicket = { id: string; subject: string; stageLabel: string; open: boolean; url: string };
-export type Tickets = { tickets: Record<number, TodoTicket>; takes: Record<number, boolean>; place: Place | null; error: string | null };
+export type Tickets = { tickets: Record<number, TodoTicket>; takes: Record<number, boolean>; place: Place | null; error: string | null;
+  /** to-dos whose due date was just copied from their ticket - the page reads the to-dos again */
+  filled?: number };

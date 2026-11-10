@@ -19,7 +19,7 @@ import { createTicket, ownerOf, readTickets, s2sForm, searchTickets, ticketUrl, 
 import { PLAN_FIELDS, missingRequired } from "@/lib/reporting/scrollToSaleRules";
 import { hubPublicUrl } from "@/lib/content/shareMail";
 import { STATUS_STAGE, statusOfStage, type PieceStatus } from "@/lib/content/pieceRules";
-import { addPieceForTask, listPieces, setPieceTask, type Piece } from "@/lib/content/workflow";
+import { addPieceForTask, listPieces, setPieceTask, updatePiece, type Piece } from "@/lib/content/workflow";
 
 export const todoTile = (projectId: number) => `content:${projectId}`;
 
@@ -284,7 +284,7 @@ export async function pushPieceToTask(projectId: number, p: { taskId: number | n
 }
 
 /** The tickets of the project's to-dos, read from HubSpot - asked for after the page is drawn, never before. */
-export async function piecesTickets(projectId: number): Promise<{ tickets: Record<number, TodoTicket>; takes: Record<number, boolean>; place: PlanPlace | null; error: string | null }> {
+export async function piecesTickets(projectId: number): Promise<{ tickets: Record<number, TodoTicket>; takes: Record<number, boolean>; place: PlanPlace | null; error: string | null; filled: number }> {
   const tile = todoTile(projectId);
   const [pieces, links, action, tasks] = await Promise.all([listPieces(projectId), ticketsOf(tile), planActionOf(projectId), tasksOf(tile)]);
   let read: S2sTicket[] = [];
@@ -294,6 +294,7 @@ export async function piecesTickets(projectId: number): Promise<{ tickets: Recor
   }
   const tickets: Record<number, TodoTicket> = {};
   const takes: Record<number, boolean> = {};
+  let filled = 0;
   for (const p of pieces) {
     const t = tasks.find((x) => x.id === p.taskId);
     takes[p.id] = !!action && takesTicket(action, t?.ownerName ?? null);
@@ -301,8 +302,15 @@ export async function piecesTickets(projectId: number): Promise<{ tickets: Recor
     if (!l) continue;
     const tk = read.find((x) => x.id === l.ticketId);
     tickets[p.id] = { id: l.ticketId, subject: tk?.subject ?? `Ticket ${l.ticketId}`, stageLabel: tk?.stageLabel ?? "", open: tk?.open ?? true, url: tk?.url ?? ticketUrl(l.ticketId) };
+    // no due date yet: the ticket's (its Go-live date, else its Planned date) - copied once, a date someone set is never
+    // overwritten (SARCLA 10.11.2026: "due date should be copied from the ticket if there is one")
+    if (!p.dueDate && tk?.due) {
+      await updatePiece(p.id, { dueDate: tk.due });
+      if (t && !t.due) await updateTask(t.id, { due: tk.due });
+      filled++;
+    }
   }
-  return { tickets, takes, place: action ? await placeOf(action) : null, error };
+  return { tickets, takes, place: action ? await placeOf(action) : null, error, filled };
 }
 
 /** Why a piece's to-do takes no ticket, in words for the page, or null when it may take one. */

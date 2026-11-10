@@ -238,8 +238,8 @@ export default function ProjectWorkspace({ id }: { id: number }) {
   }, [id]);
   const loadTickets = useCallback(async () => {
     const j = await fetch(`/api/content/projects/${id}/work?tickets`).then((r) => r.json()).catch(() => null);
-    if (j?.ok) setT(j as Tickets); else setT({ tickets: {}, takes: {}, place: null, error: j?.error ?? "HubSpot did not answer." });
-  }, [id]);
+    if (j?.ok) { setT(j as Tickets); if ((j as Tickets).filled) void load(); } else setT({ tickets: {}, takes: {}, place: null, error: j?.error ?? "HubSpot did not answer." });
+  }, [id, load]);
   useEffect(() => { void load().then(loadTickets); }, [load, loadTickets]);
 
   // a change shows at once (optimistic), is saved, and the page reads itself again quietly behind it
