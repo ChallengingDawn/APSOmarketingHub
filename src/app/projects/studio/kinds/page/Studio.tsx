@@ -173,6 +173,8 @@ export default function Studio({ api }: StudioProps) {
   const [workNote, setWorkNote] = useState<string | null>(null);
   const [oldShown, setOldShown] = useState<number[]>([]);
   const [addPlace, setAddPlace] = useState<AddPlace | null>(null);
+  // Content v11: the whole page written again - the stage shows it from its top
+  const [toTop, setToTop] = useState(0);
   const preview = usePagePreview(api, d, lang, view);
   const { shell, inserts } = useShell(api, d, preview.fresh);
   /** the page's blocks, one row each (Content v8) */
@@ -699,6 +701,7 @@ export default function Studio({ api }: StudioProps) {
         return { ...cur, fields: c.fields };
       }, `AI wrote ${PART_LABEL[part as Part]}${compose && full.kept.length ? ` with ${full.kept.length} module${full.kept.length === 1 ? "" : "s"}` : ""}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
       wrote = true;
+      if (part === "all") setToTop((n) => n + 1);
       const out = [...(r.result.problems ?? []), ...full.left];
       const left = out.length ? `Left out: ${out.slice(0, 2).join(" ")}` : null;
       return [left, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || null;
@@ -1648,7 +1651,7 @@ export default function Studio({ api }: StudioProps) {
             flash: (modules.flash?.nonce ?? 0) > (plan.flash?.nonce ?? 0) ? modules.flash : plan.flash,
             onShown: (f, why) => (f.key?.startsWith("mod:") ? modules.onShown(f.key, why) : plan.onShown(f, why)),
           }}
-          onAct={isNew ? onAct : undefined} bar={bar} popup={popup}
+          onAct={isNew ? onAct : undefined} bar={bar} popup={popup} toTop={toTop}
           blocks={{ onBlocks: !isNew && d.path ? setFound : undefined, seekRow, selectedBlock, onEditStart: () => openPop(null), resize: tools.resizeFor(sel?.key ?? null, selRowKey, wholeRow) }}
           strip={!isNew && d.path && !empty ? <VersionStrip view={d} docOrigin={lang === main ? doc.origin : null} canEdit={canEdit} busy={!!busy} onOpen={(l) => void openLetter(l)} onAdd={() => void addLetter()} onDrop={(l) => void dropLetter(l)} /> : undefined}
           adds={isNew && canEdit ? { onAdd: (at, pos) => setAddWhere({ at, pos }), onAddItem: addItemTo } : undefined}
