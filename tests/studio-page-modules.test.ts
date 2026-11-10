@@ -234,7 +234,7 @@ test("Fill with AI keeps only the numbers it was shown, once each, at most as ma
 
 /* ── a new page: its modules after its blocks ─────────────────────────── */
 
-test("a new page keeps its modules, each after a block; a module still lacking something is a slot in the preview, absent in Magento", () => {
+test("a new page keeps its modules, each after a block; a module still lacking something is its skeleton in the preview, absent in Magento", () => {
   const f = normalizeFields({
     hero: { title: "O-Ringe" }, intro: "Kurz.", order: ["hero", "intro"],
     modules: [
@@ -251,7 +251,9 @@ test("a new page keeps its modules, each after a block; a module still lacking s
   // after the intro block, the row; the empty one at the top only as a slot; one whose block is gone at the end
   assert.ok(magento.indexOf('data-apx-module="row"') > magento.indexOf("Kurz."));
   assert.equal((magento.match(/data-apx-module="row"/g) ?? []).length, 1, "the empty row is not in Magento's copy");
-  assert.match(preview, /data-apx-mod="cd34" class="apx-np-in"><span class="apx-np-slot">Product row - fill it with products first/);
+  // Content v7 (point 6): never nothing - its skeleton, in its own shape, with the reason
+  assert.match(preview, /data-apx-mod="cd34" class="apx-np-in"><div class="apx-mempty" data-apx-module="row" data-apx-wait="1">/);
+  assert.ok(preview.includes("Product row<small>Fill it with products first - on the left.</small>"), "the reason in plain words");
   assert.ok(magento.lastIndexOf('data-apx-module="usp"') > magento.indexOf('data-apx-module="row"'));
   assert.doesNotMatch(magento, /data-apx-mod=/, "the studio's marks stay out of Magento");
   assert.deepEqual(blockOrder(f), ["hero", "intro"], "the blocks' order is the blocks'");

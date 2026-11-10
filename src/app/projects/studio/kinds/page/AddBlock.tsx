@@ -32,7 +32,7 @@ export type AddAt = { at: number; anchor?: HTMLElement | null; pos?: { top: numb
 /** The squared menu of blocks. `onPage` = the blocks the page has (a single one is moved, not added twice). */
 export function AddBlockMenu({ where, onClose, onPick, onPage, onGallery }: {
   where: AddAt | null; onClose: () => void; onPick: (kind: NewBlock, at: number) => void; onPage: string[];
-  /** the module gallery opened for this place (Content v6, ./modules/Gallery.tsx) */
+  /** the library opened for this place - the side bar's Modules tab since Content v7 (./modules/ModulesTab.tsx) */
   onGallery?: (at: number) => void;
 }) {
   const open = !!where && (!!where.anchor || !!where.pos);

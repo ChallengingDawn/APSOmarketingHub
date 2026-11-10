@@ -104,7 +104,7 @@ function TranslateRow({ doc, groups, busy, onTranslate, enabled }: { doc: PageDo
   );
 }
 
-export function Assistant({ quick, onAsk, enabled, context, contextKind, onClearContext, history, onUndo, ideas, onIdea, seo, onUseSeo, inputRef, placeholder, lang, translate, said, onCloseSaid, plan }: {
+export function Assistant({ quick, onAsk, enabled, context, contextKind, onClearContext, history, onUndo, ideas, onIdea, seo, onUseSeo, inputRef, placeholder, lang, translate, said, onCloseSaid, plan, bare }: {
   quick: QuickAsk[]; onAsk: (text: string) => Promise<string | null>; enabled: boolean;
   context: string | null; onClearContext: () => void;
   /** what the selection is: "This element only" (the default), "This part only" */
@@ -119,6 +119,8 @@ export function Assistant({ quick, onAsk, enabled, context, contextKind, onClear
   said?: Said | null; onCloseSaid?: () => void;
   /** the AI's plan of modules (Content v7, ./plan/PlanCard.tsx) */
   plan?: React.ReactNode;
+  /** inside the side bar's tabs (Content v7, builder B: "Assistant | Modules") - no frame of its own */
+  bare?: boolean;
 }) {
   const { done, copy } = useCopy();
   const top = (
@@ -142,7 +144,7 @@ export function Assistant({ quick, onAsk, enabled, context, contextKind, onClear
     </Box>
   );
   return (
-    <AssistantPanel quick={quick} enabled={enabled} onAsk={onAsk} placeholder={placeholder} top={top} inputRef={inputRef}>
+    <AssistantPanel quick={quick} enabled={enabled} onAsk={onAsk} placeholder={placeholder} top={top} inputRef={inputRef} bare={bare}>
       {plan}
       {said && <SaidCard said={said} onClose={() => onCloseSaid?.()} />}
       {translate && !context && <TranslateRow {...translate} enabled={enabled} />}

@@ -10,8 +10,8 @@
 // to click. Nothing of that reaches Magento.
 
 import { blockOrder, type BlockBg, type ButtonLook, type Fields, type Look, type Pic } from "./fields";
-import { kindOf as moduleKind, moduleGap } from "./modules/model";
-import { renderModule } from "./modules/render";
+import { moduleGap } from "./modules/model";
+import { renderModule, renderSkeleton } from "./modules/render";
 
 export type InsertHtml = { id: string; where: "top" | "after-intro" | "bottom"; html: string; label?: string };
 export type RenderOpts = {
@@ -158,9 +158,10 @@ ${one("cta.title", "h2", "apx-np-h2", c.title, "The call to action")}${many("cta
   const mods = f.modules ?? [];
   const modsAfter = (key: string) => mods.filter((x) => (key === "~end" ? x.after && !order.includes(x.after) : x.after === key))
     .map((x) => {
-      // one that still lacks something: a quiet slot in the preview, nothing in Magento's copy
+      // one that still lacks something: its skeleton in the preview with the reason (Content v7, SARCLA point 6: "added a
+      // module didn't appear" - never nothing), nothing in Magento's copy
       const gap = moduleGap(x.module);
-      if (gap) return m ? `<div data-apx-mod="${esc(x.id)}" class="apx-np-in"><span class="apx-np-slot">${esc(moduleKind(x.module.type).name)} - ${esc(gap.toLowerCase())} (on the left)</span></div>` : "";
+      if (gap) return m ? `<div data-apx-mod="${esc(x.id)}" class="apx-np-in">${renderSkeleton(x.module, { reason: `${gap} - on the left.` })}</div>` : "";
       const h = renderModule(x.module, o.picture ? { picture: o.picture } : {});
       return m ? `<div data-apx-mod="${esc(x.id)}">${h}</div>` : h;
     }).join("\n");

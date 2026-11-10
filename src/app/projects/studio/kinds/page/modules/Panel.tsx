@@ -1,9 +1,17 @@
 "use client";
-// A MODULE'S SETTINGS, in the Build pane (Content v6, SARCLA 09.11.2026 points 7 and 8). The module stays in view in the
-// middle; here: what fills it - its products or categories, from the shop's own tree ("by hierarchy, like the home page
-// bento"), the most viewed or most bought, pasted product or article numbers, or "Fill with AI" (it picks among those,
-// never a product of its own) - then its words, its picture, its layout. Every change is drawn at once into the module's
-// change (./useModules.ts), so the preview shows it; "Changes made here" on the right has the Undo.
+// A MODULE'S SETTINGS, in the Build pane (Content v6, SARCLA 09.11.2026 points 7 and 8; Content v7, 10.11.2026 points 1, 6).
+// The module stays in view in the middle; here: what fills it - its products or categories, from the shop's own tree ("by
+// hierarchy, like the home page bento"), the most viewed or most bought, pasted product or article numbers, or "Fill with
+// AI" (it picks among those, never a product of its own) - then its fields, drawn from the module's own SETTINGS SCHEMA
+// in the library (../../../../../lib/content/studio/kinds/page/modules/registry.ts: words, buttons, its picture, its
+// points, questions, a table, its own short settings), its layout, and the other looks of its category it can become.
+//
+// Why here and not in the right side bar's Modules tab: the tab is the LIBRARY (pick, then the next one), this is the
+// module ON THE PAGE - the flow standard's left pane is where a part of the page opens with its fields, and both are needed
+// at once (the library stays open on the right while a module just added is filled and worded on the left).
+//
+// Every change is drawn at once into the module's change (./useModules.ts), so the preview shows it; while it fills, its
+// skeleton in the page says so (point 6: "added a module didn't appear").
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -21,12 +29,13 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import CloseIcon from "@mui/icons-material/Close";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
-import {
-  ICONS, kindOf, moduleGap, normalizeModule, shopAddress, wordsFor, type Card, type ModuleRef, type ModuleSettings,
-} from "@/lib/content/studio/kinds/page/modules/model";
-import { MODULE_MAX, renderModule } from "@/lib/content/studio/kinds/page/modules/render";
-import { hasField } from "@/lib/content/studio/kinds/page/modules/registry";
+import { ICON_LABEL } from "@/lib/content/studio/kinds/page/modules/kit";
+import { ICONS, kindOf, moduleGap, normalizeModule, shopAddress, wordsFor, type Card, type ModuleRef, type ModuleSettings, type Point } from "@/lib/content/studio/kinds/page/modules/model";
+import { MODULE_MAX, fitModule, renderModule } from "@/lib/content/studio/kinds/page/modules/render";
+import { categoryOf, countFor, modulesIn, thumbOf } from "@/lib/content/studio/kinds/page/modules/registry";
+import type { FieldSpec, ModuleDef } from "@/lib/content/studio/kinds/page/modules/types";
 import { Field, Label, PINK, btn, field, mainBtn } from "../../../parts";
+import { PictureDialog } from "../../../pictures";
 import type { StudioApi } from "../../../useStudio";
 import { Choice, Hint } from "../ui";
 import type { ModulesCtl } from "./useModules";
@@ -38,30 +47,7 @@ type CategoryOut = { name: string; url: string; img: string; count: string; subs
 
 const GREEN = "#1e7d4f";
 const AMBER = "#a96a12";
-
-/** How many items a module takes when it is filled (its layout may want fewer or more). */
-function countFor(m: ModuleRef): number {
-  const s = m.settings;
-  switch (m.type) {
-    case "row": return s.layout === "grid4" ? 8 : s.layout === "grid" ? 10 : 8;
-    case "bento": return (s.layout === "wide" ? 6 : 4) + (s.feature ? 0 : 1); // without a big tile of its own, the first product is it
-    case "finder": return 5;
-    case "mosaic": return s.layout === "4" ? 8 : s.layout === "2" ? 4 : 6;
-    case "cards": return s.layout === "4" ? 4 : s.layout === "2" ? 2 : 3;
-    default: return 6;
-  }
-}
-
-/** The module made light enough for one element of the page (a version takes 20 KB per element): the last items out. */
-function fitWeight(m: ModuleRef): { m: ModuleRef; dropped: number } {
-  let cur = m;
-  let dropped = 0;
-  while (renderModule(cur).length > MODULE_MAX && cur.settings.items.length > 1) {
-    cur = { ...cur, settings: { ...cur.settings, items: cur.settings.items.slice(0, -1) } };
-    dropped++;
-  }
-  return { m: cur, dropped };
-}
+const FILLING = "Filling it from the shop…";
 
 export function ModulePanel({ ctl, api, onBack, pageCategory }: {
   ctl: ModulesCtl; api: StudioApi; onBack: () => void;
@@ -80,7 +66,9 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
   const [within, setWithin] = useState<{ name: string; url: string } | null>(pageCategory);
   const [numbers, setNumbers] = useState("");
   const [ask, setAsk] = useState("");
-  const [picking, setPicking] = useState<"fill" | "within" | "picture" | null>(null);
+  const [picking, setPicking] = useState<"within" | "picture" | null>(null);
+  const [gallery, setGallery] = useState(false);
+  const key = ctl.editing ?? "";
 
   // the module as the document has it (an Undo, another person) when nothing is waiting to be saved
   const docKey = JSON.stringify(cur?.module ?? null);
@@ -108,15 +96,28 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
   };
   const set = (patch: Partial<ModuleSettings>, label?: string, now = false) => { const c = mRef.current; if (c) change({ ...c, settings: { ...c.settings, ...patch } }, label, now); };
 
-  // a module just added fills itself where it can (the page's own category, else the shop's most bought / its technologies)
+  /* ── filling ─────────────────────────────────────────────────────────── */
+
+  // what fills it shows in the page too: its skeleton moves with the same words
+  const run = async (label: string, f: () => Promise<string | null>) => {
+    setBusy(label);
+    setMsg(null);
+    if (key) ctl.setBusy(key, label);
+    try { const e = await f(); if (e) setMsg({ tone: "warn", text: e }); } finally { setBusy(null); if (key) ctl.setBusy(key, null); }
+  };
+
+  // a module just added (or switched to one that takes other items) fills itself where it can: the page's own category,
+  // else the shop's most bought / its technologies - its skeleton fills in front of the person
   const autoRan = useRef<string | null>(null);
   useEffect(() => {
-    if (!m || !ctl.autoFill || ctl.autoFill !== ctl.editing || autoRan.current === ctl.autoFill) return;
+    if (!ctl.autoFill) { autoRan.current = null; return; }
+    if (!m || ctl.autoFill !== ctl.editing || autoRan.current === ctl.autoFill) return;
     autoRan.current = ctl.autoFill;
     ctl.clearAutoFill();
     const k = kindOf(m.type);
     if (k.takes === "products") void (pageCategory ? fillCategory({ name: pageCategory.name, url: pageCategory.url }) : fillTop("bought"));
     else if (k.takes === "categories") void fillBranch(pageCategory ? { name: pageCategory.name, url: pageCategory.url } : null);
+    else if (key) ctl.setBusy(key, null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctl.autoFill, ctl.editing, m?.type]);
 
@@ -126,36 +127,31 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
   const html = useMemo(() => (m ? renderModule(m) : ""), [m]);
   if (!m || !s || !k) {
     return (
-      <PanelFrame onBack={onBack} title="Module">
+      <PanelFrame onBack={onBack} title="Module" kicker="">
         <Hint mt={0}>This module is no longer on the page (an Undo took it out).</Hint>
       </PanelFrame>
     );
   }
   const gap = moduleGap(m);
   const kb = Math.round(html.length / 100) / 10;
+  const lost = key ? ctl.lost[key] : "";
 
-  /* ── filling ─────────────────────────────────────────────────────────── */
-
-  const run = async (label: string, f: () => Promise<string | null>) => {
-    setBusy(label);
-    setMsg(null);
-    try { const e = await f(); if (e) setMsg({ tone: "warn", text: e }); } finally { setBusy(null); }
-  };
   /** items put in, light enough for one element, with where they came from */
   const fillWith = (items: Card[], fill: ModuleSettings["fill"], patch: Partial<ModuleSettings>, label: string, note: string, missing: Missing[] = []) => {
     const c = mRef.current;
     if (!c) return;
     // what is read is the store view shown: the module is its own from then on (its links, its interface words)
-    const r = fitWeight({ ...c, settings: { ...c.settings, ...patch, items, fill, store: ctl.store } });
+    const r = fitModule({ ...c, settings: { ...c.settings, ...patch, items, fill, store: ctl.store } });
     change(normalizeModule(r.m) ?? r.m, label, true);
     setMsg({ tone: missing.length ? "warn" : "ok", text: `${note}${r.dropped ? ` ${r.dropped} left out - one element of the page takes 20 KB.` : ""}`, missing });
   };
   const now = () => new Date().toISOString();
+  const want = () => countFor(kindOf(mRef.current!.type), mRef.current!.settings);
 
-  const fillTop = (how: "viewed" | "bought") => run(how === "viewed" ? "Finding the most viewed…" : "Finding the most bought…", async () => {
-    const r = await api.act<{ cards: Card[]; note: string }>("module_top", { store: ctl.store, how, count: countFor(mRef.current!), url: within?.url ?? "" });
-    if (!r.ok) return r.error;
-    if (!r.result.cards.length) return "No product came back - try another category, or fill it another way.";
+  const fillTop = (how: "viewed" | "bought") => run(how === "viewed" ? "Finding the most viewed…" : FILLING, async () => {
+    const r = await api.act<{ cards: Card[]; note: string }>("module_top", { store: ctl.store, how, count: want(), url: within?.url ?? "" });
+    if (!r.ok) return `It could not be filled from the shop: ${r.error} Pick a category below, or paste product numbers.`;
+    if (!r.result.cards.length) return "No product came back - pick a category below, or paste product numbers.";
     fillWith(r.result.cards, { how, category: within?.url ?? "", numbers: "", ask: "", at: now(), missing: [] }, {}, `Filled the ${k.name.toLowerCase()} with the most ${how}`, r.result.note);
     return null;
   });
@@ -163,30 +159,31 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
   /** products of one category (a row, a bento) - the bento's big tile is the category itself */
   const fillCategory = (node: { name: string; url: string }) => run(`Reading ${node.name} on the shop…`, async () => {
     const r = await api.act<{ category: CategoryOut }>("module_category", { store: ctl.store, url: node.url });
-    if (!r.ok) return r.error;
+    if (!r.ok) return `${r.error} Pick another category, or paste product numbers.`;
     const c = r.result.category;
     const list = c.products.length ? c.products : c.subs;
-    if (!list.length) return `${c.name || node.name} shows no products or subcategories on the shop.`;
+    if (!list.length) return `${c.name || node.name} shows no products or subcategories on the shop - pick another one.`;
     const cur0 = mRef.current!;
+    const k0 = kindOf(cur0.type);
     const patch: Partial<ModuleSettings> = {
       title: cur0.settings.title || c.name, link: { label: cur0.settings.link.label || w.all, url: c.url },
-      ...(cur0.type === "bento" ? { feature: { kind: "category", name: c.name, url: c.url, img: c.img || c.subs[0]?.img || "", meta: c.count, number: "", children: [] } } : {}),
+      ...(k0.fields.some((f) => f.kind === "feature") && !cur0.settings.feature ? { feature: { kind: "category", name: c.name, url: c.url, img: c.img || c.subs[0]?.img || "", meta: c.count, number: "", children: [] } } : {}),
     };
-    fillWith(list.slice(0, countFor(cur0)), { how: "category", category: c.url, numbers: "", ask: "", at: now(), missing: [] }, patch,
-      `Filled the ${k.name.toLowerCase()} from ${c.name}`, `${c.name}: its first ${Math.min(list.length, countFor(cur0))} ${c.products.length ? "products" : "subcategories"} as the shop lists them.`);
+    fillWith(list.slice(0, want()), { how: "category", category: c.url, numbers: "", ask: "", at: now(), missing: [] }, patch,
+      `Filled the ${k.name.toLowerCase()} from ${c.name}`, `${c.name}: its first ${Math.min(list.length, want())} ${c.products.length ? "products" : "subcategories"} as the shop lists them.`);
     setWithin({ name: c.name, url: c.url });
     return null;
   });
 
   /** a category's subcategories, each with its products or subcategories (a finder, a mosaic, category cards); none = the
    * shop's technologies */
-  const fillBranch = (node: { name: string; url: string } | null) => run(`Reading ${node ? node.name : "the shop's technologies"} on the shop…`, async () => {
+  const fillBranch = (node: { name: string; url: string } | null) => run(node ? `Reading ${node.name} on the shop…` : FILLING, async () => {
     const cur0 = mRef.current!;
     const r = await api.act<{ cards: Card[]; missing?: string[]; more?: number; note?: string }>("module_branch", {
-      store: ctl.store, url: node?.url ?? "", kids: cur0.type === "finder" ? "products" : "subs", count: countFor(cur0),
+      store: ctl.store, url: node?.url ?? "", kids: kindOf(cur0.type).kids === "products" ? "products" : "subs", count: want(),
     });
-    if (!r.ok) return r.error;
-    if (!r.result.cards.length) return r.result.note ?? "No category came back.";
+    if (!r.ok) return `It could not be filled from the shop: ${r.error} Pick a category below.`;
+    if (!r.result.cards.length) return r.result.note ?? "No category came back - pick another one below.";
     fillWith(r.result.cards, { how: "category", category: node?.url ?? "", numbers: "", ask: "", at: now(), missing: [] },
       { title: cur0.settings.title || (node ? node.name : ""), link: { label: cur0.settings.link.label || w.all, url: node?.url ?? cur0.settings.link.url } },
       `Filled the ${k.name.toLowerCase()} from ${node ? node.name : "the shop's technologies"}`,
@@ -207,7 +204,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
     const c = await api.act<{ candidates: unknown[] }>("module_candidates", { store: ctl.store, url: within?.url ?? "" });
     if (!c.ok) return c.error;
     if (!c.result.candidates.length) return "There is nothing to choose from yet - the views and orders are not read. Fill it from a category instead.";
-    const count = countFor(mRef.current!);
+    const count = want();
     const r = await api.ai<{ picks: string[]; eyebrow: string; title: string; why: string }>("module_fill", {
       lang: ctl.store, type: mRef.current!.type, count, ask: ask.trim(), category: within?.name ?? "", candidates: c.result.candidates,
     });
@@ -222,7 +219,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
     return null;
   });
 
-  /** a picture for the big tile / the banner: a category's photo */
+  /** a picture: a category's photo */
   const pictureFrom = (node: { name: string; url: string }) => run(`Reading ${node.name} on the shop…`, async () => {
     const r = await api.act<{ category: CategoryOut }>("module_category", { store: ctl.store, url: node.url });
     if (!r.ok) return r.error;
@@ -233,8 +230,8 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
     return null;
   });
 
-  /** a module made in another store view (a page copied or translated): the same products, as THIS store view's shop
-   * has them (their names in its language, its addresses) - looked up by their numbers */
+  /** a module made in another store view (a page copied or translated): the same products, as THIS store view's shop has
+   * them (their names in its language, its addresses) - looked up by their numbers */
   const otherStore = s.store !== ctl.store ? s.store : null;
   const refillHere = () => run(`Finding the same products in ${ctl.store}…`, async () => {
     const cur0 = mRef.current!;
@@ -248,7 +245,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
     fillWith(cards, cur0.settings.fill ? { ...cur0.settings.fill, at: now() } : null,
       { store: ctl.store, feature, link: { label: cur0.settings.link.label, url: "" } },
       `Filled the ${k.name.toLowerCase()} for ${ctl.store}`,
-      `The same products as the ${ctl.store} shop has them.${cur0.settings.feature && !featureIsProduct ? " Its big tile was a category of " + otherStore + " - pick one of " + ctl.store + "." : ""} Its link at the top goes nowhere until you give it a ${ctl.store} page.`, r.result.missing);
+      `The same products as the ${ctl.store} shop has them.${cur0.settings.feature && !featureIsProduct ? " Its picture was a category of " + otherStore + " - pick one of " + ctl.store + "." : ""} Its link at the top goes nowhere until you give it a ${ctl.store} page.`, r.result.missing);
     return null;
   });
 
@@ -267,16 +264,18 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
     ? [{ key: "category", label: "From a category" }, { key: "bought", label: "Most bought" }, { key: "viewed", label: "Most viewed" }, { key: "numbers", label: "By number" }, { key: "ai", label: "Fill with AI" }]
     : k.takes === "categories" ? [{ key: "category", label: "From a category" }] : [];
   const shown = way ?? (ways[0]?.key ?? null);
+  const status = busy ? { tone: PINK, text: busy } : lost ? { tone: "#c5221f", text: `Not on the page: ${lost.charAt(0).toLowerCase()}${lost.slice(1)}` }
+    : gap ? { tone: AMBER, text: `Not on the page yet - ${gap.charAt(0).toLowerCase()}${gap.slice(1)}. It shows as a grey outline until then.` }
+    : { tone: GREEN, text: cur?.replace ? "On the page, in place of the element it replaces" : "On the page" };
+  const siblings = modulesIn(k.category).filter((d) => d.id !== k.id && d.takes === k.takes && (k.takes !== "categories" || d.kids === k.kids));
 
   return (
-    <PanelFrame onBack={() => { flush(); onBack(); }} title={k.name}
+    <PanelFrame onBack={() => { flush(); onBack(); }} title={k.name} kicker={categoryOf(k.category)?.name ?? "Module"}
       right={ctl.canEdit ? <Tooltip title={cur?.replace ? "Take the module out - the page's element shows again" : "Take the module out of the page"}><IconButton size="small" onClick={() => { flush(); ctl.remove(); }}><DeleteOutlineIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip> : null}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
-        <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: gap ? AMBER : GREEN, flexShrink: 0 }} />
-        <Typography sx={{ fontSize: "0.8rem", color: gap ? AMBER : GREEN, fontWeight: 600, flex: 1 }}>
-          {gap ? `Not on the page yet - ${gap.toLowerCase()}` : cur?.replace ? "On the page, in place of the element it replaces" : "On the page"}
-        </Typography>
-        <Typography sx={{ fontSize: "0.72rem", color: html.length > MODULE_MAX ? "#c5221f" : MUTED, fontVariantNumeric: "tabular-nums" }} title="One element of the page takes 20 KB at most">{kb} of 20 KB</Typography>
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mb: 1.5 }}>
+        {busy ? <CircularProgress size={12} sx={{ color: PINK, mt: 0.4, flexShrink: 0 }} /> : <Box sx={{ width: 8, height: 8, mt: 0.65, borderRadius: "2px", bgcolor: status.tone, flexShrink: 0 }} />}
+        <Typography sx={{ fontSize: "0.8rem", color: status.tone, fontWeight: 600, flex: 1, lineHeight: 1.4 }}>{status.text}</Typography>
+        <Typography sx={{ fontSize: "0.72rem", color: html.length > MODULE_MAX ? "#c5221f" : MUTED, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }} title="One element of the page takes 20 KB at most">{kb} of 20 KB</Typography>
       </Box>
       {otherStore && ctl.canEdit && (
         <Box sx={{ mb: 1.5, p: 1.25, borderRadius: "6px", border: `1px solid ${AMBER}55`, bgcolor: "#fdf8ef" }}>
@@ -303,7 +302,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
               <Box sx={{ mt: 1, p: 1.25, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", bgcolor: "#fbfcfd" }}>
                 {shown === "category" && (
                   <CategoryPicker api={api} store={ctl.store} busy={!!busy} allowRoot={k.takes === "categories"}
-                    hint={k.takes === "products" ? "Pick a category: its products fill the module, the shop's own order." : m.type === "finder" ? "Pick a category: its subcategories become the menu, each with its products." : "Pick a category: its subcategories fill the module, each with its own."}
+                    hint={k.takes === "products" ? "Pick a category: its products fill the module, the shop's own order." : k.kids === "products" ? "Pick a category: its subcategories become the menu, each with its products." : "Pick a category: its subcategories fill the module, each with its own."}
                     onUse={(n) => (n ? (k.takes === "products" ? fillCategory(n) : fillBranch(n)) : fillBranch(null))} />
                 )}
                 {(shown === "bought" || shown === "viewed") && (
@@ -351,60 +350,113 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
         </>
       )}
 
-      {(hasField(k, "eyebrow") || hasField(k, "title") || hasField(k, "text")) && (
-        <>
-          <Label>Words</Label>
-          {hasField(k, "eyebrow") && <Field label="Small line above" value={s.eyebrow} max={40} onChange={(v) => set({ eyebrow: v }, "Changed the small line")} disabled={!ctl.canEdit} />}
-          {hasField(k, "title") && <Field label={m.type === "banner" || m.type === "textpic" || m.type === "cta" ? "Headline" : "Title"} value={s.title} max={90} onChange={(v) => set({ title: v }, "Changed the title")} disabled={!ctl.canEdit}
-            helper={m.type === "banner" || m.type === "textpic" || m.type === "cta" ? "==word== shows a word in the shop's red" : undefined} />}
-          {hasField(k, "text") && <Field label={m.type === "textpic" ? "Text (a blank line = a new paragraph, - a list)" : "Line under it"} value={s.text} multiline rows={m.type === "textpic" ? 5 : 2} max={m.type === "textpic" ? 900 : 240} onChange={(v) => set({ text: v }, "Changed the text")} disabled={!ctl.canEdit} />}
-        </>
-      )}
-      {hasField(k, "link") && (
-        <>
-          <Label>{m.type === "banner" || m.type === "textpic" || m.type === "cta" ? "Button" : "Link at the top right"}</Label>
-          <LinkFields value={s.link} onChange={(link) => set({ link }, "Changed the link")} disabled={!ctl.canEdit} />
-          {hasField(k, "link2") && <LinkFields value={s.link2} onChange={(link2) => set({ link2 }, "Changed the second button")} disabled={!ctl.canEdit} second />}
-        </>
-      )}
-      {hasField(k, "feature") && (
-        <>
-          <Label>{m.type === "bento" ? "The big tile" : "Picture"}</Label>
-          <Box sx={{ display: "flex", gap: 1.25, alignItems: "center" }}>
-            <Box sx={{ width: 72, height: 54, borderRadius: "6px", overflow: "hidden", bgcolor: "#eef1f3", border: `1px solid ${HAIRLINE}`, flexShrink: 0 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              {s.feature?.img ? <img src={s.feature.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : null}
-            </Box>
-            <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: INK }} noWrap>{s.feature?.name || (m.type === "bento" ? "Its first product, until you pick one" : "None yet")}</Typography>
-              {ctl.canEdit && (
-                <Box sx={{ display: "flex", gap: 0.5, mt: 0.25 }}>
-                  <Button size="small" onClick={() => setPicking(picking === "picture" ? null : "picture")} sx={{ ...btn, px: 0.75, color: PINK }}>A category&apos;s photo</Button>
-                  {s.feature && <Button size="small" onClick={() => set({ feature: null }, "Took the picture out", true)} sx={{ ...btn, px: 0.75, color: MUTED }}>Remove</Button>}
-                </Box>
-              )}
-            </Box>
-          </Box>
-          {picking === "picture" && <Box sx={{ mt: 1 }}><CategoryPicker api={api} store={ctl.store} busy={!!busy} useLabel="Its photo" onUse={(n) => { if (n) void pictureFrom(n); setPicking(null); }} /></Box>}
-        </>
-      )}
-      {hasField(k, "points") && <PointsEditor points={s.points} canEdit={ctl.canEdit} onChange={(points, label) => set({ points }, label)} />}
-      {hasField(k, "faq") && <FaqEditor faq={s.faq} canEdit={ctl.canEdit} onChange={(faq, label) => set({ faq }, label)} />}
+      <Fields def={k} m={m} set={set} canEdit={ctl.canEdit} store={ctl.store}
+        onCategoryPhoto={() => setPicking(picking === "picture" ? null : "picture")} onGallery={() => setGallery(true)} />
+      {picking === "picture" && <Box sx={{ mt: 1 }}><CategoryPicker api={api} store={ctl.store} busy={!!busy} useLabel="Its photo" onUse={(n) => { if (n) void pictureFrom(n); setPicking(null); }} /></Box>}
 
-      <Label>Layout</Label>
-      <Choice value={s.layout} onChange={(layout) => {
-        const c = mRef.current!;
-        const r = fitWeight({ ...c, settings: { ...c.settings, layout } });
-        change(r.m, "Changed the layout", true);
-      }} options={k.layouts.map((l) => ({ key: l.key, label: l.label, disabled: !ctl.canEdit }))} />
-      <Hint mt={1.5}>From the {k.from}. One element of the page with its own style - the shop&apos;s colours, font and width, finished on phones.</Hint>
+      {k.layouts.length > 1 && (
+        <>
+          <Label>Layout</Label>
+          <Choice value={s.layout} onChange={(layout) => {
+            const c = mRef.current!;
+            const r = fitModule({ ...c, settings: { ...c.settings, layout } });
+            change(r.m, "Changed the layout", true);
+          }} options={k.layouts.map((l) => ({ key: l.key, label: l.label, disabled: !ctl.canEdit }))} />
+        </>
+      )}
+
+      {ctl.canEdit && siblings.length > 0 && (
+        <>
+          <Label>Other looks in {categoryOf(k.category)?.name ?? "its category"}</Label>
+          <Hint mt={0}>The same words and {k.takes === "none" ? "picture" : k.takes}, another module.</Hint>
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 0.75, mt: 0.75 }}>
+            {siblings.slice(0, 9).map((d) => (
+              <Tooltip key={d.id} title={d.name}>
+                <Box component="button" type="button" onClick={() => { flush(); ctl.swapType(d.id); }} aria-label={`Make it a ${d.name}`} sx={{
+                  all: "unset", cursor: "pointer", borderRadius: "6px", overflow: "hidden", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", aspectRatio: "16 / 10",
+                  display: "grid", placeItems: "center", "&:hover": { borderColor: PINK }, "&:focus-visible": { outline: `2px solid ${PINK}`, outlineOffset: 1 },
+                }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={thumbOf(d.id)} alt="" loading="lazy" style={{ display: "block", maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                </Box>
+              </Tooltip>
+            ))}
+          </Box>
+        </>
+      )}
+      <Hint mt={1.5}>{k.from ? `From the ${k.from}. ` : ""}One element of the page with its own style - the shop&apos;s colours, font and width, finished on phones.</Hint>
+      <PictureDialog open={gallery} onClose={() => setGallery(false)} title="A picture for the module" projectId={api.data.piece.projectId} pieceId={api.data.piece.id}
+        tabs={["upload", "mine", "project", "make"]} start="mine" aspect="16:9"
+        onPick={(p) => set({ feature: { kind: "category", name: s.feature?.name || s.title || "Bild", url: s.feature?.url || s.link.url || `https://www.apsoparts.com/${ctl.store.split("/")[0]}/`, img: p.url, meta: "", number: "", children: [] } }, "Changed the picture", true)} />
     </PanelFrame>
   );
 }
 
+/* ── the module's fields, drawn from its settings schema ──────────────── */
+
+function Fields({ def, m, set, canEdit, store, onCategoryPhoto, onGallery }: {
+  def: ModuleDef; m: ModuleRef; set: (patch: Partial<ModuleSettings>, label?: string, now?: boolean) => void; canEdit: boolean; store: string;
+  onCategoryPhoto: () => void; onGallery: () => void;
+}) {
+  const s = m.settings;
+  const words = def.fields.filter((f) => f.kind === "eyebrow" || f.kind === "title" || f.kind === "text");
+  const out: React.ReactNode[] = [];
+  if (words.length) {
+    out.push(<Label key="wl">Words</Label>);
+    for (const f of words) {
+      if (f.kind !== "eyebrow" && f.kind !== "title" && f.kind !== "text") continue;
+      const value = s[f.kind];
+      const max = f.max ?? (f.kind === "eyebrow" ? 40 : f.kind === "title" ? 90 : 240);
+      out.push(<Field key={f.kind} label={f.label ?? (f.kind === "eyebrow" ? "Small line above" : f.kind === "title" ? "Title" : "Line under it")} value={value} max={max}
+        multiline={(f.rows ?? 1) > 1} rows={f.rows} disabled={!canEdit} onChange={(v) => set({ [f.kind]: v } as Partial<ModuleSettings>, `Changed the ${f.kind === "eyebrow" ? "small line" : f.kind}`)}
+        helper={f.hint ?? (f.red ? "==word== shows a word in the shop's red" : undefined)} />);
+    }
+  }
+  for (const f of def.fields) {
+    if (f.kind === "link" || f.kind === "link2") {
+      out.push(<Label key={`${f.kind}l`}>{f.label ?? (f.kind === "link" ? "Button" : "Second button")}</Label>);
+      out.push(<LinkFields key={f.kind} value={s[f.kind]} disabled={!canEdit} second={f.kind === "link2"} onChange={(v) => set({ [f.kind]: v } as Partial<ModuleSettings>, f.kind === "link" ? "Changed the link" : "Changed the second button")} />);
+    }
+    if (f.kind === "feature") {
+      out.push(<Label key="fl">{f.label ?? "Picture"}</Label>);
+      out.push(
+        <Box key="f" sx={{ display: "flex", gap: 1.25, alignItems: "center" }}>
+          <Box sx={{ width: 72, height: 54, borderRadius: "6px", overflow: "hidden", bgcolor: "#eef1f3", border: `1px solid ${HAIRLINE}`, flexShrink: 0 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {s.feature?.img ? <img src={s.feature.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : null}
+          </Box>
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: INK }} noWrap>{s.feature?.name || f.hint || "None yet"}</Typography>
+            {canEdit && (
+              <Box sx={{ display: "flex", gap: 0.5, mt: 0.25, flexWrap: "wrap" }}>
+                <Button size="small" onClick={onCategoryPhoto} sx={{ ...btn, px: 0.75, color: PINK }}>A category&apos;s photo</Button>
+                <Button size="small" onClick={onGallery} sx={{ ...btn, px: 0.75, color: PINK }}>From the pictures</Button>
+                {s.feature && <Button size="small" onClick={() => set({ feature: null }, "Took the picture out", true)} sx={{ ...btn, px: 0.75, color: MUTED }}>Remove</Button>}
+              </Box>
+            )}
+          </Box>
+        </Box>,
+      );
+    }
+    if (f.kind === "points") out.push(<PointsEditor key="p" spec={f} points={s.points} canEdit={canEdit} onChange={(points, label) => set({ points }, label)} />);
+    if (f.kind === "faq") out.push(<FaqEditor key="q" faq={s.faq} max={f.max ?? 12} label={f.label ?? "Questions"} canEdit={canEdit} onChange={(faq, label) => set({ faq }, label)} />);
+    if (f.kind === "table") out.push(<TableEditor key="t" spec={f} table={s.table} canEdit={canEdit} onChange={(table, label) => set({ table }, label)} />);
+    if (f.kind === "extra") {
+      const v = s.extra[f.key] ?? "";
+      const put = (val: string) => set({ extra: { ...s.extra, [f.key]: val } }, `Changed ${f.label.toLowerCase()}`, !!f.options);
+      out.push(<Label key={`x${f.key}l`}>{f.label}</Label>);
+      out.push(f.options
+        ? <Choice key={`x${f.key}`} value={v || f.options[0]?.key || ""} onChange={put} options={f.options.map((o) => ({ ...o, disabled: !canEdit }))} />
+        : <Field key={`x${f.key}`} label={f.label} value={v} max={f.max ?? 60} disabled={!canEdit} onChange={put} helper={f.hint} />);
+    }
+  }
+  void store;
+  return <>{out}</>;
+}
+
 /* ── the pieces ────────────────────────────────────────────────────────── */
 
-function PanelFrame({ onBack, title, right, children }: { onBack: () => void; title: string; right?: React.ReactNode; children: React.ReactNode }) {
+function PanelFrame({ onBack, title, kicker, right, children }: { onBack: () => void; title: string; kicker: string; right?: React.ReactNode; children: React.ReactNode }) {
   return (
     <Box sx={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column", borderRadius: "18px", overflow: "hidden", bgcolor: "rgba(255,255,255,.82)", border: "1px solid rgba(255,255,255,.9)", boxShadow: "0 1px 2px rgba(31,45,78,.04), 0 12px 32px rgba(31,45,78,.07)" }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1, py: 0.75, borderBottom: `1px solid ${HAIRLINE}` }}>
@@ -413,7 +465,7 @@ function PanelFrame({ onBack, title, right, children }: { onBack: () => void; ti
         {right}
       </Box>
       <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", p: 2 }}>
-        <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: MUTED }}>Module</Typography>
+        <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: MUTED }}>Module{kicker ? ` · ${kicker}` : ""}</Typography>
         <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK, mb: 1 }}>{title}</Typography>
         {children}
       </Box>
@@ -535,35 +587,39 @@ function LinkFields({ value, onChange, disabled, second }: { value: { label: str
   );
 }
 
-const ICON_LABEL: Record<string, string> = { box: "Box", clock: "Clock", cut: "Cut", quick: "Fast", truck: "Delivery", check: "Check", upload: "Upload", cube: "3D", flask: "Lab", book: "Guide", expert: "Expert", star: "Star" };
-
-function PointsEditor({ points, canEdit, onChange }: { points: ModuleSettings["points"]; canEdit: boolean; onChange: (p: ModuleSettings["points"], label: string) => void }) {
+function PointsEditor({ spec, points, canEdit, onChange }: { spec: Extract<FieldSpec, { kind: "points" }>; points: Point[]; canEdit: boolean; onChange: (p: Point[], label: string) => void }) {
+  const max = spec.max ?? 6;
+  const t = spec.item?.title ?? "Bold words";
+  const x = spec.item?.text ?? "The rest";
+  const put = (i: number, patch: Partial<Point>, label: string) => onChange(points.map((p, k) => (k === i ? { ...p, ...patch } : p)), label);
   return (
     <>
-      <Label>Promises</Label>
-      <Hint mt={0}>The shop&apos;s own promises - a promise the shop does not make is never written here.</Hint>
+      <Label>{spec.label ?? "Points"}</Label>
+      {spec.hint && <Hint mt={0}>{spec.hint}</Hint>}
       {points.map((p, i) => (
         <Box key={i} sx={{ mt: 1, p: 1, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", bgcolor: "#fff" }}>
           <Box sx={{ display: "flex", gap: 1 }}>
-            <TextField size="small" label="Bold words" value={p.title} disabled={!canEdit} onChange={(e) => onChange(points.map((x, k) => (k === i ? { ...x, title: e.target.value.slice(0, 40) } : x)), "Changed a promise")} sx={{ ...field, flex: 1 }} />
-            {canEdit && <IconButton size="small" onClick={() => onChange(points.filter((_, k) => k !== i), "Took a promise out")} aria-label="Take it out"><CloseIcon sx={{ fontSize: 16 }} /></IconButton>}
+            <TextField size="small" label={t} value={p.title} disabled={!canEdit} onChange={(e) => put(i, { title: e.target.value.slice(0, 80) }, "Changed a point")} sx={{ ...field, flex: 1 }} />
+            {canEdit && <IconButton size="small" onClick={() => onChange(points.filter((_, k) => k !== i), "Took a point out")} aria-label="Take it out"><CloseIcon sx={{ fontSize: 16 }} /></IconButton>}
           </Box>
-          <TextField fullWidth size="small" label="The rest" value={p.text} disabled={!canEdit} onChange={(e) => onChange(points.map((x, k) => (k === i ? { ...x, text: e.target.value.slice(0, 80) } : x)), "Changed a promise")} sx={{ ...field, mt: 1 }} />
-          <Box sx={{ mt: 1 }}>
-            <Choice value={p.icon} onChange={(icon) => onChange(points.map((x, k) => (k === i ? { ...x, icon } : x)), "Changed an icon")}
-              options={ICONS.map((ic) => ({ key: ic, label: ICON_LABEL[ic] ?? ic, disabled: !canEdit }))} />
-          </Box>
+          {x && <TextField fullWidth size="small" label={x} value={p.text} disabled={!canEdit} multiline={p.text.length > 50} onChange={(e) => put(i, { text: e.target.value.slice(0, 240) }, "Changed a point")} sx={{ ...field, mt: 1 }} />}
+          {spec.links && <TextField fullWidth size="small" label="A page of the shop" value={p.url ?? ""} disabled={!canEdit} onChange={(e) => { const u = shopAddress(e.target.value); if (u || !e.target.value.trim()) put(i, { url: u }, "Changed a point's link"); }} sx={{ ...field, mt: 1 }} />}
+          {spec.icons && (
+            <Box sx={{ mt: 1 }}>
+              <Choice value={p.icon} onChange={(icon) => put(i, { icon }, "Changed an icon")} options={ICONS.map((ic) => ({ key: ic, label: ICON_LABEL[ic] ?? ic, disabled: !canEdit }))} />
+            </Box>
+          )}
         </Box>
       ))}
-      {canEdit && points.length < 6 && <Button size="small" onClick={() => onChange([...points, { title: "", text: "", icon: "check" }], "Added a promise")} sx={{ ...btn, mt: 1, color: PINK }}>+ A promise</Button>}
+      {canEdit && points.length < max && <Button size="small" onClick={() => onChange([...points, { title: "", text: "", icon: "check" }], "Added a point")} sx={{ ...btn, mt: 1, color: PINK }}>+ {t}</Button>}
     </>
   );
 }
 
-function FaqEditor({ faq, canEdit, onChange }: { faq: ModuleSettings["faq"]; canEdit: boolean; onChange: (f: ModuleSettings["faq"], label: string) => void }) {
+function FaqEditor({ faq, max, label, canEdit, onChange }: { faq: ModuleSettings["faq"]; max: number; label: string; canEdit: boolean; onChange: (f: ModuleSettings["faq"], label: string) => void }) {
   return (
     <>
-      <Label>Questions</Label>
+      <Label>{label}</Label>
       {faq.map((x, i) => (
         <Box key={i} sx={{ mt: i ? 1 : 0, p: 1, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", bgcolor: "#fff" }}>
           <Box sx={{ display: "flex", gap: 1 }}>
@@ -573,7 +629,31 @@ function FaqEditor({ faq, canEdit, onChange }: { faq: ModuleSettings["faq"]; can
           <TextField size="small" fullWidth multiline minRows={2} label="Answer" value={x.a} disabled={!canEdit} onChange={(e) => onChange(faq.map((y, k) => (k === i ? { ...y, a: e.target.value.slice(0, 1200) } : y)), "Changed an answer")} sx={{ ...field, mt: 1 }} />
         </Box>
       ))}
-      {canEdit && faq.length < 12 && <Button size="small" onClick={() => onChange([...faq, { q: "", a: "" }], "Added a question")} sx={{ ...btn, mt: 1, color: PINK }}>+ A question</Button>}
+      {canEdit && faq.length < max && <Button size="small" onClick={() => onChange([...faq, { q: "", a: "" }], "Added a question")} sx={{ ...btn, mt: 1, color: PINK }}>+ A question</Button>}
+    </>
+  );
+}
+
+function TableEditor({ spec, table, canEdit, onChange }: { spec: Extract<FieldSpec, { kind: "table" }>; table: string[][]; canEdit: boolean; onChange: (t: string[][], label: string) => void }) {
+  const cols = Math.max(2, Math.min(8, spec.cols ?? (table[0]?.length || 3)));
+  const rows = table.length ? table : [Array.from({ length: cols }, () => "")];
+  const put = (r: number, c: number, v: string) => onChange(rows.map((row, i) => (i === r ? Array.from({ length: cols }, (_, j) => (j === c ? v.slice(0, 200) : row[j] ?? "")) : row)), "Changed the table");
+  return (
+    <>
+      <Label>{spec.label ?? "Table"}</Label>
+      <Hint mt={0}>The first row is the head.</Hint>
+      <Box sx={{ mt: 0.75, display: "grid", gap: 0.5 }}>
+        {rows.map((row, r) => (
+          <Box key={r} sx={{ display: "grid", gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr)) 28px`, gap: 0.5, alignItems: "center" }}>
+            {Array.from({ length: cols }, (_, c) => (
+              <TextField key={c} size="small" value={row[c] ?? ""} disabled={!canEdit} onChange={(e) => put(r, c, e.target.value)}
+                sx={{ ...field, "& input": { fontSize: "0.78rem", fontWeight: r === 0 ? 700 : 400, py: 0.6, px: 0.75 } }} />
+            ))}
+            {canEdit && r > 0 ? <IconButton size="small" onClick={() => onChange(rows.filter((_, i) => i !== r), "Took a row out")} aria-label="Take the row out"><CloseIcon sx={{ fontSize: 14 }} /></IconButton> : <span />}
+          </Box>
+        ))}
+      </Box>
+      {canEdit && rows.length < (spec.maxRows ?? 20) && <Button size="small" onClick={() => onChange([...rows, Array.from({ length: cols }, () => "")], "Added a row")} sx={{ ...btn, mt: 1, color: PINK }}>+ A row</Button>}
     </>
   );
 }

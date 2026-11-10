@@ -53,10 +53,12 @@ import { LangEmpty, Stage, usePagePreview, useShell, type View } from "./Stage";
 import type { SeoProposal } from "./Seo";
 import { VersionStrip } from "./Versions";
 import { ModuleActions } from "./modules/Actions";
-import { ModuleGallery } from "./modules/Gallery";
+import { ModulesTab } from "./modules/ModulesTab";
+import { SideTabs } from "./modules/SideTabs";
 import { ModulePanel } from "./modules/Panel";
-import { useModules } from "./modules/useModules";
-import { moduleOfChange } from "@/lib/content/studio/kinds/page/modules/model";
+import { modulePending, useModules } from "./modules/useModules";
+import { MODULES } from "@/lib/content/studio/kinds/page/modules/registry";
+import { moduleGap, moduleOfChange } from "@/lib/content/studio/kinds/page/modules/model";
 import { looksEnglish } from "@/lib/content/studio/kinds/page/plan/plan";
 import { PlanCard } from "./plan/PlanCard";
 import { servedOf, usePlan } from "./plan/usePlan";
@@ -228,7 +230,9 @@ export default function Studio({ api }: StudioProps) {
   };
   // the module gallery (Content v6, SARCLA 09.11.2026 points 7-9): a module is a change of the store view shown, its panel
   // takes the Build pane while it is edited (./modules/*)
-  const modules = useModules({ view: () => viewOf(docRef.current, langRef.current), put: (next, label) => setView(next, label), store: lang, canEdit });
+  // Content v7 (SARCLA 10.11.2026 points 3, 6): the library is the right side bar's Modules tab; a module added shows in the
+  // page at once (its skeleton while it fills - modulePending below)
+  const modules = useModules({ view: () => viewOf(docRef.current, langRef.current), put: (next, label) => setView(next, label), store: lang, canEdit, unfold: () => { if (fold.assist) toggleFold("assist"); } });
   const undo = async (e: Entry) => {
     const cur = docRef.current;
     await setDocSafely(api, cur, e.before);
@@ -661,12 +665,16 @@ export default function Studio({ api }: StudioProps) {
     const cur = viewOf(docRef.current, langRef.current);
     const c = cur.changes[i];
     if (!c?.off) return;
+    // a module still lacking what it needs is never shown empty: its settings open, to fill it (Content v7)
+    const m = moduleOfChange(c);
+    if (m && moduleGap(m) && c.id) { modules.edit(c.id); return; }
     const { off: _o, ...rest } = c;
     setView({ ...cur, changes: cur.changes.map((x, k) => (k === i ? (rest as PageChange) : x)) }, `Applied change ${i + 1} anyway`);
   };
   /* ── the AI builds with modules (Content v7, SARCLA 10.11.2026 points 5, 13): a plan of steps, each shown at once ── */
 
   const served = useMemo(() => servedOf(preview.held.after), [preview.held.after]);
+  const modPending = useMemo(() => (isNew ? [] : modulePending(d.changes, served, modules.busy)), [isNew, d.changes, served, modules.busy]);
   const plan = usePlan({
     api, lang: () => langRef.current, view: (l) => viewOf(latestDoc(), l),
     put: (l, make, label, note) => applyView(make, label, note, l),
@@ -1066,7 +1074,12 @@ export default function Studio({ api }: StudioProps) {
           inserts={inserts} shell={shell} onFix={(left) => void fixLeftovers(left)} empty={empty}
           writing={{ blocks: marks.blocks, fields: marks.fields, pictures: makingPaths, tuning: tuningPaths }} working={busyHere === "rewrite" ? since : null} workingLabel={busyHere === "rewrite" ? workNote : null}
           oldShown={oldShown} onAddEl={!isNew && d.path && canEdit ? setAddPlace : undefined}
-          plan={isNew ? undefined : { pending: plan.pending, flash: plan.flash, onShown: plan.onShown }}
+          plan={isNew ? undefined : {
+            // the AI's steps and the library's modules, drawn in the page at once (Content v7, points 6 and 13)
+            pending: [...plan.pending, ...modPending],
+            flash: (modules.flash?.nonce ?? 0) > (plan.flash?.nonce ?? 0) ? modules.flash : plan.flash,
+            onShown: (f, why) => (f.key?.startsWith("mod:") ? modules.onShown(f.key, why) : plan.onShown(f, why)),
+          }}
           onMap={isNew ? undefined : setLocated} seek={seek} selLabel={selPart && sel?.picked ? selPart.name : wholeBlock ? `${wholeBlock.num} · ${wholeBlock.name}` : null}
           picActs={picActs} onAct={isNew ? onAct : undefined}
           strip={!isNew && d.path && !empty ? <VersionStrip view={d} docOrigin={lang === main ? doc.origin : null} canEdit={canEdit} busy={!!busy} onOpen={(l) => void openLetter(l)} onAdd={() => void addLetter()} onDrop={(l) => void dropLetter(l)} /> : undefined}
@@ -1074,20 +1087,21 @@ export default function Studio({ api }: StudioProps) {
           fold={{ ...fold, onBuild: () => toggleFold("build"), onAssist: () => toggleFold("assist") }}>
           <input ref={upInput} type="file" hidden accept="image/png,image/jpeg,image/webp" onChange={(e) => { void onUploadFile(e.target.files?.[0]); e.target.value = ""; }} />
         </Stage>}
-        assist={<Assistant quick={quick} onAsk={onAsk} enabled={canAi} context={scopeLabel} contextKind={contextKind} onClearContext={() => setSel(null)} history={history} onUndo={(e) => void undo(e)}
+        assist={<SideTabs nonce={modules.tabNonce} count={MODULES.length}
+          modules={<ModulesTab ctl={modules} d={d} picked={sel?.picked ?? null} openBlock={isNew ? (open && !open.startsWith("part:") ? open : null) : null} />}
+          assistant={<Assistant bare quick={quick} onAsk={onAsk} enabled={canAi} context={scopeLabel} contextKind={contextKind} onClearContext={() => setSel(null)} history={history} onUndo={(e) => void undo(e)}
           ideas={ideas} onIdea={(i) => void rewrite(`${i.title}: ${i.change}`)} seo={seo} lang={lang} inputRef={askRef} placeholder={placeholder}
           said={said} onCloseSaid={() => setSaid(null)}
           plan={isNew ? null : <PlanCard ctl={plan} enabled={aiHere} />}
           translate={lang === main ? { doc, groups, busy, onTranslate: (l) => translate(l) } : null}
           // a page of the shop keeps its URL key: a new one moves the page - it is taken on the left, on purpose (Content v6)
-          onUseSeo={(s) => { setView({ ...d, fields: { ...d.fields, seo: { title: s.title, description: s.description, urlKey: isNew ? s.urlKey : d.fields.seo.urlKey } } }, "Kept the search engine fields"); setSeo(null); if (!isNew) setOpen("seo"); }} />}
+          onUseSeo={(s) => { setView({ ...d, fields: { ...d.fields, seo: { title: s.title, description: s.description, urlKey: isNew ? s.urlKey : d.fields.seo.urlKey } } }, "Kept the search engine fields"); setSeo(null); if (!isNew) setOpen("seo"); }} />} />}
       />
       <AddBlockMenu where={addWhere} onClose={() => setAddWhere(null)} onPick={addBlockAt} onPage={blockOrder(d.fields)}
         onGallery={canEdit ? (at) => modules.openGallery({ how: "block", after: blockOrder(d.fields)[at - 1] ?? "", label: `block ${at}` }) : undefined} />
       <AddElementMenu place={addPlace} onClose={() => setAddPlace(null)} onInsert={insertAt} canAi={aiHere}
         onAskAi={(text, place) => { void designBlock(text, { place }).then((m) => { if (m) window.alert(m); }); }}
         onGallery={(place) => modules.openGallery({ how: "insert", selector: place.selector, where: place.where, label: place.label })} />
-      <ModuleGallery ctl={modules} />
     </>
   );
 }
