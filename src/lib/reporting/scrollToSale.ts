@@ -145,6 +145,16 @@ export async function readTickets(ids: string[]): Promise<S2sTicket[]> {
   return shape(j.results ?? []);
 }
 
+/**
+ * A ticket of the pipeline to another of its stages, in HubSpot at once (SARCLA 10.11.2026: "on clicking the ticket I should
+ * be able to move it from stage"). Only a stage of the pipeline is sent; HubSpot's refusal is thrown as it came.
+ */
+export async function moveTicket(id: string, stage: string): Promise<void> {
+  if (!/^\d+$/.test(id)) throw new Error("That is not a ticket's number.");
+  if (!(await s2sForm()).stages.some((s) => s.value === stage)) throw new Error("That is not a stage of From Scroll to Sale.");
+  await hubspotFetchJson({ path: `/crm/v3/objects/tickets/${id}`, method: "PATCH", body: { properties: { hs_pipeline_stage: stage } } });
+}
+
 /** One ticket of the pipeline with every field of the form - to fill what is made from it. Null when it is not there. */
 export async function ticketFields(id: string): Promise<Record<string, string> | null> {
   const props = [...new Set([...S2S_FIELDS.map((f) => f.name), "hs_pipeline"])];

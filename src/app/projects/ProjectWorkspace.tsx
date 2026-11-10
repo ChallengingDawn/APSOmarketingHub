@@ -36,9 +36,9 @@ import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { STAGES, STAGE_LABEL, STATUS_LABEL, stageOf, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
 import ShareDialog from "./ShareDialog";
 import { DeleteProject, canDelete } from "./DeleteProject";
-import TodoList, { type Act } from "./work/TodoList";
+import TodoList, { type Act, type MoveTicket } from "./work/TodoList";
 import { Chip, Face, Faces, PINK, STAGE_DOT, StageChip, dayLabel, postWork } from "./work/ui";
-import type { Brief, EventRow, PersonOpt, Tickets, Work } from "./work/types";
+import type { Brief, EventRow, PersonOpt, TicketMovedRow, Tickets, TodoTicket, Work } from "./work/types";
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const btn = { textTransform: "none" as const, fontWeight: 600, borderRadius: "10px", whiteSpace: "nowrap" as const };
@@ -57,6 +57,10 @@ function eventLine(e: EventRow, name: (u: string) => string): string | null {
     case "brief": return "changed the brief";
     case "place": return d.planItem ? "placed the project in the action plan" : "took the project out of the action plan";
     case "ticket": return `${d.made ? "made" : "linked"} the ticket of ${s("piece") || "a to-do"}`;
+    // moved by hand on its chip, or by the hub with its piece (SARCLA 10.11.2026)
+    case "ticket-stage": return d.auto === "planned"
+      ? `planned ${s("piece") || "a to-do"}${s("day") ? ` for ${dayLabel(s("day"))}` : ""} - its ticket went to ${s("stage")}`
+      : d.auto ? `moved the ticket of ${s("piece") || "a to-do"} to ${s("stage")} with it` : `moved the ticket of ${s("piece") || "a to-do"} to ${s("stage")}`;
     case "todo": return `added the to-do “${s("todo")}”`;
     case "todo-done": return `ticked off “${s("todo")}”`;
     case "deleted": return "deleted the project";
@@ -242,16 +246,38 @@ export default function ProjectWorkspace({ id }: { id: number }) {
   }, [id, load]);
   useEffect(() => { void load().then(loadTickets); }, [load, loadTickets]);
 
+  // a to-do's ticket on its chip: one put down at once, whatever then comes
+  const putTicket = useCallback((pieceId: number, x: TodoTicket) => setT((cur) => (cur ? { ...cur, tickets: { ...cur.tickets, [pieceId]: x } } : cur)), []);
+  // a ticket the hub moved with its piece (planned -> Ready to roll, live -> Live) shows on its chip with the save's answer -
+  // the tickets are not read again for it: HubSpot gets the move a few seconds later, from the plan's sync
+  const showMoved = useCallback((m: unknown) => {
+    const x = m as TicketMovedRow | null | undefined;
+    if (!x || typeof x !== "object" || typeof x.pieceId !== "number") return;
+    setT((cur) => (cur?.tickets[x.pieceId] ? { ...cur, tickets: { ...cur.tickets, [x.pieceId]: { ...cur.tickets[x.pieceId], stage: x.stage, stageLabel: x.stageLabel, open: x.open } } } : cur));
+  }, []);
+
   // a change shows at once (optimistic), is saved, and the page reads itself again quietly behind it
   const act: Act = useCallback(async (body, optimistic) => {
     if (optimistic) setW((cur) => (cur ? (() => { const next = optimistic(cur); return { ...next, stage: stageOf(next.pieces.map((p) => p.status)) }; })() : cur));
     const r = await postWork(id, body);
     setErr(r.ok ? null : r.error ?? "That did not save.");
+    if (r.ok && r.moved) showMoved(r.moved);
     await load();
     const a = String(body.action ?? "");
     if (a.startsWith("ticket") || a === "place" || a === "piece-add" || a === "piece-remove" || (a === "piece-edit" && "writer" in body)) void loadTickets();
     return r;
-  }, [id, load, loadTickets]);
+  }, [id, load, loadTickets, showMoved]);
+
+  // a stage picked on a ticket's chip (SARCLA 10.11.2026: "on clicking the ticket I should be able to move it from stage"):
+  // on the chip at once, HubSpot asked behind it; refused, the chip goes back and says why
+  const moveTicket: MoveTicket = useCallback(async (p, before, to) => {
+    putTicket(p.id, { ...before, stage: to.value, stageLabel: to.label, open: to.open ?? before.open });
+    const r = await postWork(id, { action: "ticket-stage", pieceId: p.id, stage: to.value });
+    if (!r.ok) { putTicket(p.id, before); return r.error ?? "HubSpot did not move the ticket."; }
+    if (r.ticket && typeof r.ticket === "object") putTicket(p.id, r.ticket as TodoTicket);
+    void load();
+    return null;
+  }, [id, load, putTicket]);
 
   const names = useMemo(() => {
     const m: Record<string, string> = {};
@@ -351,7 +377,7 @@ export default function ProjectWorkspace({ id }: { id: number }) {
 
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2.25, alignItems: "flex-start" }}>
         <Box sx={{ flex: "999 1 620px", minWidth: 0, display: "grid", gap: 2.25 }}>
-          <TodoList w={w} t={t} act={act} onTicketChanged={() => void loadTickets()} />
+          <TodoList w={w} t={t} act={act} onTicketChanged={() => void loadTickets()} onMoveTicket={moveTicket} />
           <BriefCard w={w} act={act} />
         </Box>
         <Box sx={{ flex: "1 1 340px", minWidth: 0, position: { lg: "sticky" }, top: { lg: 16 } }}>

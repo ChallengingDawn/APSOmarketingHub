@@ -47,13 +47,16 @@ import { KINDS, KindTile, kindLabel } from "./kinds";
 import { pieceStep } from "@/lib/content/nextStep";
 import { Chip, PINK, PersonPick, StatusChip, dayLabel, dueSoon, postWork } from "./ui";
 import { ReviewerPick } from "./ReviewerPick";
-import type { Piece, Place, TodoTicket, Tickets, Work } from "./types";
+import { TicketChip } from "./TicketMenu";
+import type { Piece, Place, TicketStage, TodoTicket, Tickets, Work } from "./types";
 
 const btn = { textTransform: "none" as const, fontWeight: 600, borderRadius: "10px", whiteSpace: "nowrap" as const };
 const mainBtn = { ...btn, bgcolor: PINK, "&:hover": { bgcolor: "#a3245c" } };
 const when = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 export type Act = (body: Record<string, unknown>, optimistic?: (w: Work) => Work) => Promise<{ ok: boolean; error?: string; [k: string]: unknown }>;
+/** A to-do's ticket to another stage, shown at once: null when HubSpot took it, else what it said (the chip is put back). */
+export type MoveTicket = (p: Piece, before: TodoTicket, to: TicketStage) => Promise<string | null>;
 
 /** The moves this person may make on a to-do now - only what the rules allow them. */
 export function moves(p: Piece, w: Pick<Work, "me" | "access" | "isAdmin" | "project">): { to: PieceStatus; label: string; main?: boolean; note?: boolean }[] {
@@ -320,9 +323,9 @@ function PlanTicketDialog({ w, open, piece, ticket, place, act, onClose, onDone 
 
 /* ── one to-do ──────────────────────────────────────────────────────────────────────────────────────────────────── */
 
-function TodoRow({ p, w, ticket, takes, ticketsLoading, act, onTicket, onAskChanges, onAskReview }: {
-  p: Piece; w: Work; ticket: TodoTicket | undefined; takes: boolean | undefined; ticketsLoading: boolean; act: Act;
-  onTicket: (p: Piece) => void; onAskChanges: (p: Piece) => void;
+function TodoRow({ p, w, ticket, takes, ticketsLoading, stages, act, onTicket, onMoveTicket, onAskChanges, onAskReview }: {
+  p: Piece; w: Work; ticket: TodoTicket | undefined; takes: boolean | undefined; ticketsLoading: boolean; stages: TicketStage[]; act: Act;
+  onTicket: (p: Piece) => void; onMoveTicket: MoveTicket; onAskChanges: (p: Piece) => void;
   /** "Ask for review" with nobody to ask yet: who reviews it, the default reviewer picked (SARCLA 09.11.2026) */
   onAskReview: (p: Piece) => void;
 }) {
@@ -408,15 +411,19 @@ function TodoRow({ p, w, ticket, takes, ticketsLoading, act, onTicket, onAskChan
             {p.dueDate && <>{" · "}Due <b style={{ color: INK }}>{dayLabel(p.dueDate)}</b></>}
           </Typography>
         )}
-        {/* plan & ticket - one control (SARCLA 08.11.2026: "linking to the action plan and the ticket should be the same") */}
+        {/* plan & ticket - one control (SARCLA 08.11.2026: "linking to the action plan and the ticket should be the same"); a
+            line with its ticket: a click on it moves it from stage to stage (10.11.2026), "Plan & ticket…" is in its menu */}
         {ticketsLoading ? <Skeleton variant="rounded" width={150} height={32} sx={{ borderRadius: "6px" }} />
-          : (
-            <Tooltip title={ticket ? `Ticket #${ticket.id} in From Scroll to Sale${w.place ? ` - under "${w.place.title}"` : ""}` : !w.place ? "Place the project in the action plan, then this line takes its ticket" : takes ? "Link this line's ticket, or make one - the AI suggests" : "Under this action only a Digital Growth person's line takes a ticket"}>
+          : ticket ? (
+            <TicketChip ticket={ticket} stages={stages} canEdit={canEdit} disabled={p.pending} under={w.place?.title}
+              onMove={(s) => onMoveTicket(p, ticket, s)} onPlan={() => onTicket(p)} />
+          ) : (
+            <Tooltip title={!w.place ? "Place the project in the action plan, then this line takes its ticket" : takes ? "Link this line's ticket, or make one - the AI suggests" : "Under this action only a Digital Growth person's line takes a ticket"}>
               <span>
-                <Button size="small" variant="outlined" disabled={p.pending || (!canEdit && !ticket)} onClick={() => onTicket(p)}
+                <Button size="small" variant="outlined" disabled={p.pending || !canEdit} onClick={() => onTicket(p)}
                   startIcon={<ConfirmationNumberOutlinedIcon sx={{ fontSize: 17 }} />}
-                  sx={{ ...btn, borderRadius: "6px", borderStyle: ticket ? "solid" : "dashed", ...(ticket ? { color: "#1b7a55", borderColor: "#bfe3d2", bgcolor: "#f1faf5" } : { color: MUTED, borderColor: HAIRLINE }) }}>
-                  {ticket ? `#${ticket.id} · ${ticket.stageLabel || "ticket"}` : "Plan & ticket"}
+                  sx={{ ...btn, borderRadius: "6px", borderStyle: "dashed", color: MUTED, borderColor: HAIRLINE }}>
+                  Plan &amp; ticket
                 </Button>
               </span>
             </Tooltip>
@@ -470,7 +477,7 @@ function AddTodo({ w, act }: { w: Work; act: Act }) {
   );
 }
 
-export default function TodoList({ w, t, act, onTicketChanged }: { w: Work; t: Tickets | null; act: Act; onTicketChanged: () => void }) {
+export default function TodoList({ w, t, act, onTicketChanged, onMoveTicket }: { w: Work; t: Tickets | null; act: Act; onTicketChanged: () => void; onMoveTicket: MoveTicket }) {
   const [ticketFor, setTicketFor] = useState<Piece | null>(null);
   const [planOpen, setPlanOpen] = useState(false);
   const [asking, setAsking] = useState<Piece | null>(null);
@@ -487,8 +494,8 @@ export default function TodoList({ w, t, act, onTicketChanged }: { w: Work; t: T
       <Box sx={{ mt: 1.5 }}>
         {w.pieces.length === 0 && <Typography sx={{ fontSize: "0.88rem", color: MUTED, py: 1 }}>No to-do yet. Add the pieces this project puts out - a page, a post, the newsletter - and the actions around them.</Typography>}
         {w.pieces.map((p) => (
-          <TodoRow key={p.id} p={p} w={w} ticket={t?.tickets[p.id]} takes={t?.takes[p.id]} ticketsLoading={!t && !p.pending}
-            act={act} onTicket={setTicketFor} onAskChanges={(x) => { setNote(""); setAsking(x); }} onAskReview={setReviewFor} />
+          <TodoRow key={p.id} p={p} w={w} ticket={t?.tickets[p.id]} takes={t?.takes[p.id]} ticketsLoading={!t && !p.pending} stages={t?.stages ?? []}
+            act={act} onTicket={setTicketFor} onMoveTicket={onMoveTicket} onAskChanges={(x) => { setNote(""); setAsking(x); }} onAskReview={setReviewFor} />
         ))}
       </Box>
       {w.access.canEdit && <AddTodo w={w} act={act} />}
