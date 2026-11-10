@@ -2,9 +2,11 @@
 // THE PAGE STUDIO'S LEFT PANE (08.11.2026; reworked that evening - SARCLA: "The UX and the Build on the left: can we
 // improve it to be more fluid, subdivided"). The way through it, top to bottom:
 //   start      only while the page is empty: what it is (a new page | a page of the shop) and, for a new page, "What page
-//              do you want?" - a box and "Write the page with AI" (Content v5: written by itself only when the project
-//              came with an app's brief, SEO and the others) - gone once the page has words; then "Write it all again"
-//              stays small in the map's header (the choice stays in the menu, top right)
+//              do you want?" - one line saying why it is empty, a box, "Write it with AI" and "Start empty and add
+//              blocks" (Content v9, SARCLA 10.11.2026: "new page should be empty and then we start to build, only not
+//              when they come from ideas" - an idea's to-do writes itself, the card saying so while it writes:
+//              lib/content/studio/kinds/page/appBrief.ts) - gone once the page has anything on it; then "Write it all
+//              again" stays small in the map's header (the choice stays in the menu, top right)
 //   outline    the page's parts in one short list, each with its state; a click opens that part alone and selects it in
 //              the preview (./Outline.tsx). A page of the shop: its card, the element selected, its changes, its texts,
 //              the A/B test. Then the banners in it, its languages, the notes
@@ -28,6 +30,7 @@ import MenuItem from "@mui/material/MenuItem";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { keyframes } from "@mui/material/styles";
+import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
@@ -36,7 +39,8 @@ import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { KIND_LABEL } from "@/lib/convert/model";
 import type { Change } from "@/lib/convert/versions";
-import { LIMIT, filledCount } from "@/lib/content/studio/kinds/page/fields";
+import { LIMIT } from "@/lib/content/studio/kinds/page/fields";
+import { pageHasContent, type AppBriefOut, type StartState } from "@/lib/content/studio/kinds/page/appBrief";
 import {
   INSERT_WHERE_LABEL, SOURCE_LABEL, isLegacyBody, langName, mainView, pageModesFor, pageSourceFix, placeholdersOf, shopCountries, shopUrl, unwritten, viewName, viewShort, viewState, viewsLine, viewsOf,
   type PageDoc, type PageSource, type StoreGroup,
@@ -56,8 +60,11 @@ import { viewNote } from "./Stage";
 import { WinnerCard, WinnerPublish, useWinner } from "./Winner";
 
 export type Step = "page" | "publish";
-/** Where the project came from (Content v5): an app's brief writes the page by itself; an own idea asks first. */
-export type AppBrief = { source: string | null; app: string | null; text: string; auto: boolean };
+/** Where the project came from (Content v5, v9): an idea's brief writes the page by itself; any other to-do opens empty. */
+export type AppBrief = AppBriefOut;
+/** The start card's state and its one line (why the page is empty, or why it wrote itself), and "Start empty and add
+ * blocks" - the card put away, the blocks' menu open (Content v9, SARCLA 10.11.2026). */
+export type StartCard = { state: StartState; line: string; startedEmpty: boolean; onStartEmpty: (el: HTMLElement) => void };
 
 const slideIn = keyframes`from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; }`;
 const fadeIn = keyframes`from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; }`;
@@ -143,7 +150,7 @@ function StoreViews({ doc, lang, onLang, groups, presence }: { doc: PageDoc; lan
 }
 
 export function Build({ api, doc, d, lang, onLang, groups, presence, set, setView, hits, step, onStep, fill, busy, canAi, inserts, onPickPage, removeInsert,
-  open, onOpen, pictures, since, appBrief, onSeoPropose, blocks, blocksTitle, blocksRight, readyLine, abPart }: {
+  open, onOpen, pictures, since, appBrief, start, onSeoPropose, blocks, blocksTitle, blocksRight, readyLine, abPart }: {
   api: StudioApi; doc: PageDoc; d: PageDoc;
   /** Content v8: the page's blocks (./BlockList.tsx) - its title and what stands right of it ("Write it all again") */
   blocks: React.ReactNode; blocksTitle: string; blocksRight?: React.ReactNode;
@@ -164,8 +171,10 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
   inserts: InsertOut[] | null; onPickPage: () => void; removeInsert: (id: string) => void;
   /** the page-level row open ("changes", "texts", "seo", "test", "banners", "languages", "notes") */
   open: string | null; onOpen: (row: string | null) => void;
-  /** where the project came from - its app and brief (null while asked) */
+  /** where the project came from - its idea, its app and brief (null while asked) */
   appBrief: AppBrief | null;
+  /** a new page's start card: its state and line, "Start empty and add blocks" (Content v9) */
+  start?: StartCard;
   /** a page of the shop: the AI's search engine fields for the store view shown (Content v6) */
   onSeoPropose: () => Promise<SeoProposal | string>;
   pictures: PictureCtl;
@@ -197,9 +206,12 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
     if (across && source !== "new") onPickPage();
   };
 
-  const empty = isNew ? filledCount(d.fields) === 0 && !isLegacyBody(d) : !d.path;
-  const atStart = lang === main && empty && busy !== "all";
+  // a new page is empty while nothing is on it (Content v9: a module, a picture, a banner count too)
+  const empty = isNew ? !pageHasContent(d) : !d.path;
   const writingAll = busy === "all";
+  // an idea's to-do writing itself: the card says so from the first moment and stays while it writes (Content v9)
+  const autoWriting = isNew && start?.state === "writing";
+  const atStart = lang === main && empty && (busy !== "all" || autoWriting) && !(isNew && start?.startedEmpty);
   const [, setTick] = useState(0);
   // the clock while the whole page is written (about a minute)
   useEffect(() => {
@@ -329,26 +341,45 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
           {/* the start: what the page is - only while it is empty */}
           {atStart && (
             <Box sx={{ mb: 2, p: 1.75, borderRadius: "12px", border: "1px solid rgba(194,44,110,.22)", background: "linear-gradient(135deg, rgba(194,44,110,.06), rgba(36,89,209,.05))", animation: `${fadeIn} .25s ease-out` }}>
-              <Typography sx={{ fontSize: "0.95rem", fontWeight: 750, color: INK, mb: 1 }}>{isNew ? "What page do you want?" : sources.length > 1 ? "What are you making?" : SOURCE_LABEL[doc.source]}</Typography>
-              {sources.length > 1 && <Box sx={{ mb: 1.5 }}><Choice value={doc.source} onChange={changeSource} options={sources} /></Box>}
+              <Typography sx={{ fontSize: "0.95rem", fontWeight: 750, color: INK, mb: isNew && start ? 0.25 : 1 }}>{isNew ? (autoWriting ? "The page writes itself" : "What page do you want?") : sources.length > 1 ? "What are you making?" : SOURCE_LABEL[doc.source]}</Typography>
+              {/* why it is empty, or why it writes itself - one short line (Content v9, SARCLA 10.11.2026) */}
+              {isNew && start && <Typography data-start-line={start.state} sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.4, mb: 1.25 }}>{start.line}</Typography>}
+              {sources.length > 1 && !autoWriting && <Box sx={{ mb: 1.5 }}><Choice value={doc.source} onChange={changeSource} options={sources} /></Box>}
               {isNew ? (
                 <>
-                  {/* an app's brief: the page is written from it (by itself, at the first open); an own idea: say what page */}
+                  {/* an idea's brief: the page is written from it (by itself, at the first open); no idea: say what page */}
                   {fromApp && appBrief && (
                     <Box sx={{ mb: 1.25, p: 1.25, borderRadius: "8px", bgcolor: "rgba(255,255,255,.75)", border: `1px solid ${HAIRLINE}` }}>
-                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED }}>The brief from {appBrief.app}</Typography>
-                      <Typography sx={{ fontSize: "0.82rem", color: INK, mt: 0.25, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{appBrief.text}</Typography>
+                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED }}>{appBrief.idea ? `The idea's brief · ${appBrief.app}` : `The brief from ${appBrief.app}`}</Typography>
+                      <Typography sx={{ fontSize: "0.82rem", color: INK, mt: 0.25, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden", whiteSpace: "pre-line" }}>{appBrief.text}</Typography>
                     </Box>
                   )}
-                  <TextField fullWidth multiline minRows={fromApp ? 2 : 3} maxRows={8} size="small" value={want} disabled={!canEdit} onChange={(e) => setWant(e.target.value)}
-                    placeholder={fromApp ? "Anything to add? (optional)" : "What it is about, for whom, and the words people search - e.g. O-rings for food machines, for maintenance buyers; \"fda o-ring\", \"food grade seal\""}
-                    sx={{ ...field, mb: 1, "& .MuiInputBase-root": { bgcolor: "#fff" } }}
-                    onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && canStart && canAi && !busy) void fill("all", want.trim() ? { request: `THE PAGE THE PERSON WANTS: ${want.trim()}` } : undefined); }} />
-                  <Button fullWidth variant="contained" disableElevation disabled={!canAi || !canEdit || !!busy || !canStart} onClick={() => void fill("all", want.trim() ? { request: `THE PAGE THE PERSON WANTS: ${want.trim()}` } : undefined)}
-                    startIcon={<AutoAwesomeOutlinedIcon />} sx={{ ...mainBtn, borderRadius: "8px", height: 42 }}>
-                    Write the page with AI
-                  </Button>
-                  <Hint mt={0.75}>{canStart ? `In ${langName(lang)}, final words, its pictures made. ` : "Say what the page is for first. "}Or open a block below and write it yourself.</Hint>
+                  {autoWriting ? (
+                    <>
+                      <Typography sx={{ fontSize: "0.8rem", color: PINK, fontWeight: 700, display: "flex", alignItems: "center", gap: 0.75, fontVariantNumeric: "tabular-nums" }}>
+                        <CircularProgress size={13} thickness={6} sx={{ color: PINK }} />{clock} · about a minute
+                      </Typography>
+                      <Hint mt={0.5}>The page fills in as it is written; its pictures and modules come after.</Hint>
+                    </>
+                  ) : (
+                    <>
+                      <TextField fullWidth multiline minRows={fromApp ? 2 : 3} maxRows={8} size="small" value={want} disabled={!canEdit} onChange={(e) => setWant(e.target.value)}
+                        placeholder={fromApp ? "Anything to add? (optional)" : "What it is about, for whom, and the words people search - e.g. O-rings for food machines, for maintenance buyers; \"fda o-ring\", \"food grade seal\""}
+                        sx={{ ...field, mb: 1, "& .MuiInputBase-root": { bgcolor: "#fff" } }}
+                        onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && canStart && canAi && !busy) void fill("all", want.trim() ? { request: `THE PAGE THE PERSON WANTS: ${want.trim()}` } : undefined); }} />
+                      <Button fullWidth variant="contained" disableElevation disabled={!canAi || !canEdit || !!busy || !canStart} onClick={() => void fill("all", want.trim() ? { request: `THE PAGE THE PERSON WANTS: ${want.trim()}` } : undefined)}
+                        startIcon={<AutoAwesomeOutlinedIcon />} sx={{ ...mainBtn, borderRadius: "8px", height: 42 }}>
+                        Write it with AI
+                      </Button>
+                      {start && (
+                        <Button fullWidth variant="outlined" disabled={!canEdit || !!busy} onClick={(e) => start.onStartEmpty(e.currentTarget)}
+                          startIcon={<AddIcon />} sx={{ ...btn, mt: 0.75, height: 38, borderRadius: "8px", color: INK, borderColor: HAIRLINE, bgcolor: "#fff", "&:hover": { borderColor: PINK, bgcolor: "#fff" } }}>
+                          Start empty and add blocks
+                        </Button>
+                      )}
+                      <Hint mt={0.75}>{canStart ? `With AI: in ${langName(lang)}, final words, its pictures and modules made.` : "With AI: say what the page is for first."} Empty: you add the blocks and write them on the page.</Hint>
+                    </>
+                  )}
                 </>
               ) : (
                 <Hint mt={0}>Pick the page in the middle: search the shop&apos;s pages, or paste its address. It opens there as the shop shows it, ready to change.</Hint>
@@ -386,9 +417,15 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
                   <Hint>It still shows in the preview. &quot;Write it all with AI&quot; moves its good parts into the parts below - final words, no placeholders.</Hint>
                 </Box>
               )}
-              {writingAll && (
+              {writingAll && !(atStart && autoWriting) && (
                 <Typography sx={{ fontSize: "0.76rem", color: PINK, fontWeight: 700, display: "flex", alignItems: "center", gap: 0.75, fontVariantNumeric: "tabular-nums", mb: 0.75 }}>
                   <CircularProgress size={12} thickness={6} sx={{ color: PINK }} />Writing the page · {clock}
+                </Typography>
+              )}
+              {/* written by itself from its idea in this open: said once, quietly, over the blocks (Content v9) */}
+              {!atStart && lang === main && start?.state === "wrote" && (
+                <Typography data-start-line="wrote" sx={{ fontSize: "0.78rem", color: MUTED, display: "flex", alignItems: "center", gap: 0.75, mb: 1 }}>
+                  <AutoAwesomeOutlinedIcon sx={{ fontSize: 15, color: PINK }} />{start.line}
                 </Typography>
               )}
             </>

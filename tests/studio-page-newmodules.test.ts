@@ -6,7 +6,7 @@ import { renderNewPage } from "../src/lib/content/studio/kinds/page/newpage";
 import { categoryDescription } from "../src/lib/content/studio/kinds/page/modules/parse";
 import { library } from "../src/lib/content/studio/kinds/page/plan/library";
 import {
-  MAX_MODULES, NEWPAGE_SCHEMA, NEWPAGE_SKIP_CATEGORIES, blockKeyOf, cleanNewPageModules, composeModules, guardFill, guardText, isAiModule, needsShop,
+  MAX_MODULES, NEWPAGE_SCHEMA, NEWPAGE_SKIP_CATEGORIES, blockKeyOf, cleanNewPageModules, composeModules, gapWith, guardFill, guardText, isAiModule, needsShop,
   factKeys, factsBlock, figuresIn, figuresOut, newPageAddresses, newPageExample, newPageLibrary, newPageSystem, newPageUser, ownPoints, subjectOf, unsourced, type NewPageCtx, type NewPageModule,
 } from "../src/lib/content/studio/kinds/page/plan/newpage";
 
@@ -112,8 +112,11 @@ test("the modules that keep the shop's own points are named with those points - 
 });
 
 test(`at most ${MAX_MODULES} modules`, () => {
-  const ids = lib.filter((m) => m.takes === "none").slice(0, 6).map((m) => m.id);
-  const r = cleanNewPageModules(ids.map((id) => step({ module: id, at: "intro", words: words({ title: "Titel für den Block" }) })), ctx);
+  // (Content v9: modules that are FULL with these words - one that is not is left out on its own)
+  const w = words({ title: "Titel für den Block", points: [{ title: "Erstens", text: "Eins." }, { title: "Zweitens", text: "Zwei." }, { title: "Drittens", text: "Drei." }] });
+  const ids = lib.filter((m) => !needsShop(m.id) && !gapWith({ module: m.id, words: w as never, link: "", link2: "", extras: [], layout: "" }, "de-CH")).slice(0, MAX_MODULES + 2).map((m) => m.id);
+  assert.ok(ids.length > MAX_MODULES);
+  const r = cleanNewPageModules(ids.map((id) => step({ module: id, at: "intro", words: w })), ctx);
   assert.equal(r.modules.length, MAX_MODULES);
 });
 
@@ -269,8 +272,12 @@ test("the text blocks and the modules carry only the figures the facts give", ()
   assert.equal(g.answer.hero?.sub, "Für Öl und Hitze bis +200 °C.");
   assert.deepEqual(g.answer.benefits?.items.map((b) => b.title), ["Normmasse"]);
   assert.ok(g.problems.some((p) => /"250 bar" left out/.test(p)));
-  const r = cleanNewPageModules([step({ module: cta.id, at: "cta", how: "instead", words: words({ title: "FKM bis 300 °C", text: "Hitzebeständig - bis rund 300 °C. Fragen Sie uns." }) })], { ...ctx, facts });
-  assert.equal(r.modules[0].words.title, "");
+  const r = cleanNewPageModules([step({ module: cta.id, at: "cta", how: "instead", words: words({ title: "FKM für hohe Hitze", text: "Hitzebeständig - bis rund 300 °C. Fragen Sie uns." }) })], { ...ctx, facts });
+  assert.equal(r.modules[0].words.title, "FKM für hohe Hitze");
   assert.equal(r.modules[0].words.text, "Hitzebeständig. Fragen Sie uns.");
   assert.ok(r.modules[0].problems.some((p) => /"300 °C" left out/.test(p)));
+  // its headline was only the figure: taken out, the module is not full - left out, never on the page half-filled (v9)
+  const bare = cleanNewPageModules([step({ module: cta.id, at: "cta", how: "instead", words: words({ title: "FKM bis 300 °C", text: "Fragen Sie uns." }) })], { ...ctx, facts });
+  assert.equal(bare.modules.length, 0);
+  assert.ok(bare.problems.some((p) => /left out: give it a headline/.test(p)));
 });

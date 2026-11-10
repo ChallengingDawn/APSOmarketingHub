@@ -342,10 +342,24 @@ export const DEFAULT_ORDER = ["hero", "intro", "benefits", "sections", "links", 
 
 const isSingle = (k: string): k is SingleBlock => (SINGLE_BLOCKS as readonly string[]).includes(k);
 
+/** Has a block of the page anything in it (words, a picture, an item)? The search engine fields and the modules are not
+ * blocks. A page without an order of its own and without any of this has NO blocks (Content v9). */
+export function blocksHaveWords(f: Fields): boolean {
+  const h = f.hero;
+  return [h.eyebrow, h.title, h.sub, h.button.label, h.picture.url, f.intro, f.benefitsTitle, f.linksTitle, f.faqTitle, f.cta.title, f.cta.text, f.cta.button.label].some((x) => x.trim())
+    || !!(f.benefits.length || f.sections.length || f.links.length || f.faq.length);
+}
+
 /** The page's blocks in their order: the stored order put right - unknown and gone blocks out, sections not placed yet
- * in (where the empty slot was, else after the last section, else before the links), the hero first. */
+ * in (where the empty slot was, else after the last section, else before the links), the hero first.
+ * Content v9 (SARCLA 10.11.2026: "it should by default start empty ... the block and number of blocks are decided by the
+ * AI on the first prompt"): a page with no order of its own and nothing in its blocks has none - no fixed skeleton; the
+ * first block added brings the hero (its title is the page's H1). A page written before, without an order of its own,
+ * keeps the order every page had: hero, intro, tiles, the sections, links, questions, call to action. */
 export function blockOrder(f: Fields): string[] {
-  const raw = Array.isArray(f.order) && f.order.length ? f.order : [...DEFAULT_ORDER];
+  const own = Array.isArray(f.order) && f.order.length ? f.order : null;
+  if (!own && !blocksHaveWords(f)) return [];
+  const raw = own ?? [...DEFAULT_ORDER];
   const ids = new Set(f.sections.map((s) => s.id));
   const seen = new Set<string>();
   const out: string[] = [];
@@ -371,6 +385,27 @@ export function blockOrder(f: Fields): string[] {
   if (h > 0) out.splice(h, 1);
   if (h !== 0) out.unshift("hero");
   return out;
+}
+
+/** The blocks the AI wrote on an empty page (Content v9: "the block and number of blocks are decided by the AI on the
+ * first prompt"): the hero (its title is the page's H1), then every block it gave words, in the usual order - a block it
+ * left empty is not on the page. */
+export function writtenOrder(f: Fields): string[] {
+  const out = ["hero"];
+  if (f.intro.trim()) out.push("intro");
+  if (f.benefits.some((b) => b.title.trim() || b.text.trim())) out.push("benefits");
+  for (const s of f.sections) if (s.title.trim() || s.text.trim()) out.push(`sections.${s.id}`);
+  if (f.links.some((l) => l.label.trim() && l.url.trim())) out.push("links");
+  if (f.faq.some((q) => q.q.trim() && q.a.trim())) out.push("faq");
+  if (f.cta.title.trim() || f.cta.text.trim()) out.push("cta");
+  return out;
+}
+
+/** An empty page as the AI wrote it: exactly the blocks it gave words, in their order - nothing else (Content v9). */
+export function asWritten(f: Fields): Fields {
+  const order = writtenOrder(f);
+  const kept = onlyOnPage(f, order);
+  return withOrder({ ...kept, sections: kept.sections.filter((s) => order.includes(`sections.${s.id}`)) }, order);
 }
 
 /** The fields with this order kept - the sections' list put in the same order (their numbers follow the page). */

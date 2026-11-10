@@ -26,7 +26,8 @@ test("a page from before keeps its order: hero, intro, tiles, its sections, link
   const { f, s1, s2 } = page();
   assert.equal(f.order, undefined);
   assert.deepEqual(blockOrder(f), ["hero", "intro", "benefits", `sections.${s1}`, `sections.${s2}`, "links", "faq", "cta"]);
-  assert.deepEqual(blockOrder(emptyFields()), [...DEFAULT_ORDER], "an empty page: the sections' empty slot where they go");
+  // Content v9 (SARCLA 10.11.2026: "it should by default start empty"): an empty page has no blocks - no fixed skeleton
+  assert.deepEqual(blockOrder(emptyFields()), [], "an empty page: no blocks");
   // drawn exactly as with the order spelled out - and the same as before the order existed (no + in Magento's copy)
   const spelled = { ...f, order: [...DEFAULT_ORDER] };
   assert.equal(renderNewPage(spelled).html, renderNewPage(f).html);
@@ -56,7 +57,7 @@ test("a block added at a place: a new section there, a single block moved there"
   const moved = addBlock(f, "faq", 1);
   assert.deepEqual(blockOrder(moved.fields).slice(0, 3), ["hero", "faq", "intro"], "the questions moved up under the hero");
   const first = addBlock(emptyFields(), "text", 3);
-  assert.deepEqual(blockOrder(first.fields), ["hero", "intro", "benefits", first.key, "links", "faq", "cta"], "the empty slot gives way to the first section");
+  assert.deepEqual(blockOrder(first.fields), ["hero", first.key], "an empty page (Content v9): its first block, with the hero (the page's H1)");
   assert.equal(addBlock(f, "cta", 0).fields.order?.[0], "hero", "never above the hero");
 });
 

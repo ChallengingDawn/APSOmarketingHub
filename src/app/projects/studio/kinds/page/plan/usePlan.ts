@@ -21,7 +21,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { StudioApi } from "../../../useStudio";
 import { withChange, type PageChange, type PageDoc } from "@/lib/content/studio/kinds/page/model";
 import type { ChangeHit } from "@/lib/content/studio/kinds/page/shop";
-import { drawModule, fitModuleOf, libModule, makeModule, moduleGapOf, readModule, skeletonOf, withWords } from "@/lib/content/studio/kinds/page/plan/library";
+import { drawModule, fitModuleOf, fullGap, makeModule, moduleGapOf, readModule, skeletonOf, withWords } from "@/lib/content/studio/kinds/page/plan/library";
+import { fillTries, needsShop as shopModule } from "@/lib/content/studio/kinds/page/plan/newpage";
 import { stepChange, withFill, type Plan, type PlanMode, type PlanStep } from "@/lib/content/studio/kinds/page/plan/plan";
 import type { PagePart } from "@/lib/content/studio/kinds/page/plan/places";
 import type { Card, ModuleRef } from "@/lib/content/studio/kinds/page/modules/types";
@@ -118,21 +119,41 @@ export function usePlan(o: {
     let html = "";
     const m1 = step.do === "block" ? null : moduleOf(step, base);
     if (step.do !== "block" && !m1) { const why = `"${step.module}" is not in the module library any more.`; setState(step.id, { state: "failed", why }); return why; }
-    const lib = m1 ? libModule(m1.type) : null;
-    const needsShop = step.do !== "words" && step.do !== "block" && !!lib && (lib.takes !== "none" || lib.needs.includes("picture"));
+    const needsShop = step.do !== "words" && step.do !== "block" && !!m1 && shopModule(m1.type);
     setState(step.id, { state: needsShop ? "filling" : "placing" });
     // 1. at once: its skeleton (or the block, the module with its new words) at its place, scrolled to and lit
     show(step, step.do === "block" ? step.html : needsShop ? skeletonOf(m1!, FILLING) : drawModule(m1!), true);
     // 2. its place found again on the page as it is now (an earlier step may stand before it), and - a module of the
-    //    shop's products, categories or pictures - filled from the shop
-    const r = await ref.current.api.act<{ items: Card[]; feature: Card | null; note: string; missing: string[]; place: PlanStep["place"] | null; placeWhy: string }>("plan_fill", {
-      lang: forLang, module: m1?.type ?? "", shop: needsShop, fill: step.fill, count: step.fill.count, target: step.target, do: step.do, where: step.where,
-      // the plan's steps already on the page: one planned after the same part goes after them (the plan's order kept)
-      earlier: placed.current.filter((id) => id !== step.id),
-    });
+    //    shop's products, categories, pictures or teasers - filled from the shop, FULL (Content v10, SARCLA 10.11.2026:
+    //    a "Three teasers" came back empty): the AI's own fill, then the other ways (lib .../plan/newpage.ts fillTries:
+    //    most bought, most viewed, a module of products in place of one of categories, the shop's technologies); none
+    //    fills it: the step is left out, said - never a "not on the page yet" module from the AI
+    type Filled = { items: Card[]; feature: Card | null; note: string; missing: string[]; place: PlanStep["place"] | null; placeWhy: string };
+    const tries = needsShop ? fillTries(step) : [{ module: step.module, fill: step.fill, layout: step.layout, why: "" }];
+    let r: { ok: true; result: Filled } | { ok: false; error: string } = { ok: false, error: "" };
+    let filled: ModuleRef | null = null;
+    let lack = "";
+    for (const t of tries) {
+      const mt = t.module === m1?.type ? m1 : moduleOf({ ...step, module: t.module, layout: t.layout }, base);
+      r = await ref.current.api.act<Filled>("plan_fill", {
+        lang: forLang, module: mt?.type ?? "", shop: needsShop, fill: t.fill, count: t.fill.count, target: step.target, do: step.do, where: step.where,
+        // the plan's steps already on the page: one planned after the same part goes after them (the plan's order kept)
+        earlier: placed.current.filter((id) => id !== step.id),
+      });
+      if (!r.ok || !r.result.place || !needsShop || !mt) break;
+      const m2 = withFill(mt, r.result, t.fill);
+      lack = fullGap(m2);
+      if (!lack) { filled = m2; step = { ...step, module: t.module, layout: t.layout, fill: t.fill }; break; }
+    }
     if (!r.ok) {
-      const why = needsShop ? `It could not be filled from the shop: ${r.error}` : r.error;
-      if (m1 && needsShop) show(step, skeletonOf(m1, why, false)); else unshow(step.id);
+      const why = needsShop ? `Left out: it could not be filled from the shop (${r.error.replace(/[.\s]+$/, "")}).` : r.error;
+      unshow(step.id);
+      setState(step.id, { state: "failed", why });
+      return why;
+    }
+    if (needsShop && r.result.place && !filled) {
+      const why = `Left out: the shop could not fill it${lack ? ` (${lack.charAt(0).toLowerCase()}${lack.slice(1).replace(/[.\s]+$/, "")})` : ""}.`;
+      unshow(step.id);
       setState(step.id, { state: "failed", why });
       return why;
     }
@@ -149,12 +170,13 @@ export function usePlan(o: {
       html = step.html;
       show(step, html);
     } else {
-      let m2 = m1!;
-      if (needsShop) m2 = withFill(m1!, r.result, step.fill);
-      const gap = moduleGapOf(m2);
+      const m2 = filled ?? m1!;
+      // a module the plan ADDS is full or not added (the plan's check kept full ones; checked again here); new words for
+      // a module already on the page keep what it has
+      const gap = step.do === "words" ? moduleGapOf(m2) : fullGap(m2);
       if (gap) {
-        const why = `Not on the page: ${gap.charAt(0).toLowerCase()}${gap.slice(1)}${/[.!?]$/.test(gap) ? "" : "."}`;
-        show(step, skeletonOf(m2, why, false));
+        const why = `Left out: ${gap.charAt(0).toLowerCase()}${gap.slice(1).replace(/[.\s]+$/, "")}.`;
+        unshow(step.id);
         setState(step.id, { state: "failed", why });
         return why;
       }

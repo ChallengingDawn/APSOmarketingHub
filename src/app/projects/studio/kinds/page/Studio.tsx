@@ -19,7 +19,9 @@
 // page, a block with items opening into them; a "+" in the map or between two blocks of the page adds one there; a
 // picture selected is fine-tuned by the assistant (the same picture, one thing changed); "What does it say? (in
 // English)" reads a part in English without changing it; and the page writes itself only when the project came with an
-// app's brief - otherwise the start card asks what page is wanted.
+// app's brief - otherwise the start card asks what page is wanted. Content v9 (SARCLA 10.11.2026: "new page should be
+// empty and then we start to build, only not when they come from ideas"): it writes itself only when its to-do came from
+// an idea (any source) and nothing is on it - lib/content/studio/kinds/page/appBrief.ts.
 //
 // Content v8 (SARCLA 10.11.2026, points 1-4: "the text editor should come as a popup when clicking the text itself", "on
 // the left side leave only the blocks", "consider pages' blocks as existing blocks and allow block settings", "a module
@@ -31,13 +33,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  LIMIT, addBlock, addItem, blockOrder, fieldKind, fieldLabel, filledCount, getField, onlyOnPage, setField, setLook, type ListKey, type Look, type NewBlock, type Pic,
+  LIMIT, addBlock, addItem, asWritten, blockOrder, fieldKind, fieldLabel, filledCount, getField, onlyOnPage, setField, setLook, type ListKey, type Look, type NewBlock, type Pic,
 } from "@/lib/content/studio/kinds/page/fields";
 import {
   duplicateRow, isModuleKey, moduleKeyOf, moduleWordsEdit, moveRow, moveRowBy, newPageRows, removeRow, rowOfSelection, selectionOfRow, shopRowOf, shopRows,
   type BlockRow, type FoundBlock,
 } from "@/lib/content/studio/kinds/page/blocklist";
 import { limitOf } from "@/lib/content/studio/kinds/page/fit";
+import { appBriefOf, pageHasContent, startLine, writesItself, type StartState } from "@/lib/content/studio/kinds/page/appBrief";
 import { PART_LABEL, mergeField, mergeFill, type Candidate, type FillAnswer, type Part } from "@/lib/content/studio/kinds/page/fill";
 import {
   MAIN_SELECTOR, addVersion, baseStore, carryMeta, changeId, copyView, dropVersion, pathIn, emptyPage, howToAdd, isLegacyBody, langName, langOfStore, mainView, nextPageLetter, openVersion, pageDoc, shopLanguages, shopViews, sourceHash, storeForLanguage,
@@ -74,6 +77,7 @@ import { ModulePanel } from "./modules/Panel";
 import { moduleChangeOf, modulePending, useModules, type Place } from "./modules/useModules";
 import { MODULES } from "@/lib/content/studio/kinds/page/modules/registry";
 import { kindOf, moduleGap, moduleOfChange } from "@/lib/content/studio/kinds/page/modules/model";
+import AddIcon from "@mui/icons-material/Add";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
@@ -83,6 +87,7 @@ import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import TuneIcon from "@mui/icons-material/Tune";
 import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import { looksEnglish } from "@/lib/content/studio/kinds/page/plan/plan";
@@ -91,7 +96,7 @@ import { servedOf, usePlan } from "./plan/usePlan";
 import { AbLastStep } from "./Sections";
 import { useAbBar } from "../../abBar";
 import { abApplies, abLineOf, abStateOf, activateAb, type AbRunning } from "@/lib/content/studio/kinds/page/abState";
-import type { NewPageModule } from "@/lib/content/studio/kinds/page/plan/newpage";
+import { fullOnly, type NewPageModule } from "@/lib/content/studio/kinds/page/plan/newpage";
 import { useNewPageModules } from "./plan/useNewPageModules";
 
 type Rewrite = { summary: string; changes: Change[]; problems: string[]; leftovers: string[] };
@@ -654,19 +659,27 @@ export default function Studio({ api }: StudioProps) {
       const cands = part === "all" || part === "links" || part === "hero" || part === "cta" ? await candidates() : [];
       // the whole page written (Content v8, point 5): with its modules - unless the ask only reworks the words
       const compose = part === "all" && (!opts.request || /^THE PAGE THE PERSON WANTS:/.test(opts.request) || filledCount(viewOf(docRef.current, forLang).fields) === 0);
-      const r = await api.ai<{ answer: FillAnswer; leftovers: string[]; modules?: NewPageModule[]; problems?: string[] }>(compose ? "fill_page" : `fill_${part}`, { lang: forLang, id: opts.id ?? null, request: opts.request ?? null, candidates: cands });
+      // an empty page (Content v9, SARCLA 10.11.2026: "it should by default start empty ... the block and number of
+      // blocks are decided by the AI on the first prompt"): the AI decides its blocks and modules
+      const decide = compose && !blockOrder(viewOf(docRef.current, forLang).fields).length;
+      const r = await api.ai<{ answer: FillAnswer; leftovers: string[]; modules?: NewPageModule[]; problems?: string[] }>(compose ? "fill_page" : `fill_${part}`, { lang: forLang, id: opts.id ?? null, request: opts.request ?? null, candidates: cands, ...(compose ? { decide } : {}) });
       if (!r.ok) return r.error;
       if (!Object.keys(r.result.answer).length) return "Nothing came back - ask again.";
-      // the whole page written: only the blocks the page has (a block taken out stays out - Content v5)
+      // a module of words that is not full is not put on the page (Content v9) - the server kept full ones; checked again
+      const full = fullOnly(r.result.modules ?? [], forLang);
+      // the whole page written: only the blocks the page has (a block taken out stays out - Content v5); an empty page:
+      // exactly the blocks the AI wrote (Content v9)
       await applyView((cur) => {
-        const fields = part === "all" ? onlyOnPage(mergeFill(cur.fields, r.result.answer, opts.id), blockOrder(cur.fields)) : mergeFill(cur.fields, r.result.answer, opts.id);
-        if (!compose || !r.result.modules?.length) return { ...cur, fields };
-        const c = npModules.place(fields, r.result.modules, forLang);
+        const merged = mergeFill(cur.fields, r.result.answer, opts.id);
+        const fields = part !== "all" ? merged : decide && !blockOrder(cur.fields).length ? asWritten(merged) : onlyOnPage(merged, blockOrder(cur.fields));
+        if (!compose || !full.kept.length) return { ...cur, fields };
+        const c = npModules.place(fields, full.kept, forLang);
         placed = c.placed;
         return { ...cur, fields: c.fields };
-      }, `AI wrote ${PART_LABEL[part as Part]}${compose && r.result.modules?.length ? ` with ${r.result.modules.length} module${r.result.modules.length === 1 ? "" : "s"}` : ""}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
+      }, `AI wrote ${PART_LABEL[part as Part]}${compose && full.kept.length ? ` with ${full.kept.length} module${full.kept.length === 1 ? "" : "s"}` : ""}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
       wrote = true;
-      const left = (r.result.problems ?? []).length ? `Left out: ${(r.result.problems ?? []).slice(0, 2).join(" ")}` : null;
+      const out = [...(r.result.problems ?? []), ...full.left];
+      const left = out.length ? `Left out: ${out.slice(0, 2).join(" ")}` : null;
       return [left, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || null;
     } finally {
       setBusy(null);
@@ -1155,23 +1168,55 @@ export default function Studio({ api }: StudioProps) {
     return plan.ask("ask", text);
   };
 
-  /* ── written by itself only from an app's brief (SARCLA 09.11.2026: "if the project was created via an SEO brief,
-   *    writing the page should be by default; otherwise the user should prompt each page he wants") ── */
+  /* ── written by itself only from an idea's brief (SARCLA 09.11.2026: "if the project was created via an SEO brief,
+   *    writing the page should be by default; otherwise the user should prompt each page he wants"; 10.11.2026: "new
+   *    page should be empty and then we start to build, only not when they come from ideas") - the rule in
+   *    lib/content/studio/kinds/page/appBrief.ts: an idea's to-do writes itself while the page has nothing on it; any
+   *    other opens empty, the start card offering "Write it with AI" and "Start empty and add blocks" ── */
 
   const [appBrief, setAppBrief] = useState<AppBrief | null>(null);
+  // what the project's link says before the server answers (and for someone who may only read: no action for them)
+  const projectNotes = api.data.project?.brief ?? null;
+  const localBrief = useMemo(() => appBriefOf({ source: null, goal: api.data.brief?.goal ?? null, notes: projectNotes, title: api.data.project?.title ?? null }),
+    [projectNotes, api.data.brief?.goal, api.data.project?.title]);
+  const briefNow = appBrief ?? localBrief;
+  /** the page written by itself in this open: under way, then done (with what fill said when nothing landed) */
+  const [autoRun, setAutoRun] = useState<{ done: boolean; error: string | null } | null>(null);
+  // "Start empty and add blocks": the card put away (kept for this to-do, on this browser), the blocks' menu open at once
+  const emptyKey = `page-studio:start-empty:${api.data.piece.id}`;
+  const [startedEmpty, setStartedEmpty] = useState(false);
   const autoAsked = useRef(false);
-  const emptyNew = isNew && filledCount(d.fields) === 0 && !isLegacyBody(d);
+  const emptyNew = isNew && !pageHasContent(d);
   useEffect(() => {
-    if (autoAsked.current || !doc.started || !emptyNew || lang !== main) return;
+    if (autoAsked.current || !canEdit || !doc.started || !emptyNew || lang !== main) return;
     autoAsked.current = true;
     void api.act<AppBrief>("brief").then((r) => {
-      if (!r.ok) return;
+      // the brief could not be read: an idea's page says so and offers its buttons (never a card waiting for nothing)
+      if (!r.ok) { setAutoRun({ done: true, error: r.error }); return; }
       setAppBrief(r.result);
-      // an app's brief: the page is written at once, the blocks shimmering - once, and only while it is still empty
-      if (r.result.auto && canAi && filledCount(viewOf(docRef.current, mainView(docRef.current)).fields) === 0) void fill("all");
+      // started empty on purpose here before: it stays the person's
+      let chose = false;
+      try { chose = window.localStorage.getItem(emptyKey) === "1"; } catch { /* no storage */ }
+      // an idea's to-do: the page is written at once, the blocks shimmering - once, and only while nothing is on it
+      if (!canAi || chose || !writesItself(r.result, pageHasContent(viewOf(docRef.current, mainView(docRef.current))))) { setAutoRun(null); return; }
+      setAutoRun({ done: false, error: null });
+      void fill("all").then((m) => setAutoRun({ done: true, error: m }), (e: unknown) => setAutoRun({ done: true, error: e instanceof Error ? e.message : String(e) }));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc.started, emptyNew, lang, main]);
+  }, [canEdit, doc.started, emptyNew, lang, main]);
+  // where the start card stands, and its one line: why the page is empty, or why it wrote itself (an idea's page says
+  // "writes itself" from the first moment - until the brief's answer, then while it writes)
+  const startState: StartState = !briefNow.idea ? "empty"
+    : autoRun ? (!autoRun.done ? "writing" : pageHasContent(viewOf(doc, main)) ? "wrote" : "failed")
+    : !api.data.ai ? "noAi" : !canEdit ? "readOnly" : briefNow.auto && !appBrief && !startedEmpty ? "writing" : "empty";
+  useEffect(() => { try { setStartedEmpty(window.localStorage.getItem(emptyKey) === "1"); } catch { /* no storage */ } }, [emptyKey]);
+  const startEmpty = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    setStartedEmpty(true);
+    try { window.localStorage.setItem(emptyKey, "1"); } catch { /* no storage */ }
+    setAddWhere({ at: 1, pos: { top: Math.round(r.top), left: Math.round(r.left + r.width / 2) } });
+  };
+  const start = { state: startState, line: startLine(briefNow, startState, autoRun?.error ?? null), startedEmpty, onStartEmpty: startEmpty };
 
   /* ── the A/B test: in the top bar, set up in the last step (Content v8, SARCLA 10.11.2026 point 6: "A/B testing should
    *    be on top header - if I click activate then I can set it on the last step") - ../../abBar.tsx ── */
@@ -1512,7 +1557,10 @@ export default function Studio({ api }: StudioProps) {
   const blockList = (
     <BlockList rows={rows} selected={selRowKey} busy={rowBusy} canEdit={canEdit} onSelect={(r) => selectRow(r)} onSettings={openSettings} menu={rowMenu}
       onMove={isNew && canEdit ? moveTo : undefined} onAdd={canEdit ? addAt : undefined}
-      empty={<><CircularProgress size={13} /> Reading the page&apos;s blocks…</>} />
+      // a new page with no block yet (Content v9): its first one added here - or, while the AI writes it, it says so
+      empty={!isNew ? <><CircularProgress size={13} /> Reading the page&apos;s blocks…</>
+        : busyHere === "all" ? <><CircularProgress size={13} sx={{ color: PINK }} /> The AI is choosing the page&apos;s blocks…</>
+          : <><Box component="span" sx={{ flex: 1 }}>No blocks yet - the page is empty.</Box>{canEdit && <Button size="small" startIcon={<AddIcon sx={{ fontSize: 16 }} />} onClick={(e) => addAt(0, e.currentTarget)} sx={{ ...btn, color: PINK, px: 1, py: 0.25, fontSize: "0.8rem", flexShrink: 0 }}>Add a block</Button>}</>} />
   );
   const blocksRight = isNew && canEdit && busyHere !== "all" && (filledCount(d.fields) > 0 || isLegacyBody(d)) ? (
     <Button size="small" disabled={!aiHere || !!busyHere} onClick={() => void fill("all")} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />}
@@ -1525,7 +1573,7 @@ export default function Studio({ api }: StudioProps) {
         // the left: the page's blocks only (Content v8) - a module's settings, a block's look, a text's words open on the page
         build={<Build api={api} doc={doc} d={d} lang={lang} onLang={openView} groups={groups} presence={presence} set={setDoc} setView={setView} hits={hits} step={step} onStep={setStep}
           fill={fill} busy={busyHere} canAi={aiHere} inserts={inserts} onPickPage={() => setPicking(true)} removeInsert={removeInsert}
-          open={open} onOpen={setOpen} pictures={pictures} since={busyHere ? since : null} appBrief={appBrief} onSeoPropose={seoPropose}
+          open={open} onOpen={setOpen} pictures={pictures} since={busyHere ? since : null} appBrief={briefNow} start={start} onSeoPropose={seoPropose}
           blocks={blockList} blocksTitle={`The page · ${rows.length} block${rows.length === 1 ? "" : "s"}`} blocksRight={blocksRight}
           readyLine={isNew ? `${rows.filter((r) => r.state === "written" || r.state === "picture").length} of ${rows.length} blocks ready${rows.some((r) => r.note) ? ` · ${rows.filter((r) => r.note).length} need${rows.filter((r) => r.note).length === 1 ? "s" : ""} something` : ""}` : undefined}
           abPart={abOn ? <AbLastStep d={d} set={(v) => setView(v)} canEdit={canEdit} running={abRunning} lit={abLit} /> : null} />}
