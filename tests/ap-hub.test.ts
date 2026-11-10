@@ -3,6 +3,27 @@ import { test } from "node:test";
 import { asCross, crossHiddenApi, crossUserMaySend, homeFor, mfaRequired } from "../src/lib/auth/access";
 import { accessAt, levelsOf } from "../src/lib/auth/tree";
 import { SealingSheet, buOf, isSealingHeader, materialOf, monthOf, noCompound, priorities, sumBy, type CompoundCustomer } from "../src/lib/apHub/sealingRules";
+import { inviteContent, whatTheySee } from "../src/lib/auth/inviteMailRules";
+
+test("invitation mail: the way in, never a password or a link that signs in", () => {
+  const c = inviteContent(
+    { fullName: "Anna Muster", email: "anna.muster@angst-pfister.com", signInWith: "anna.muster@angst-pfister.com", role: "user", cross: "user" },
+    { fullName: "Kim Admin", email: "kim.admin@apsoparts.com" },
+  );
+  assert.equal(c.subject, "Your access to the Angst+Pfister hub");
+  assert.match(c.intro, /^Hello Anna, Kim Admin has opened the Angst\+Pfister hub to you\./);
+  const rows = Object.fromEntries(c.rows);
+  assert.equal(rows["Sign in with"], "anna.muster@angst-pfister.com");
+  assert.equal(rows["You will see"], "The Angst+Pfister hub, and the APSOparts hub to look at.");
+  assert.ok(rows["Second factor"], "a cross-user always carries a second factor");
+  assert.ok(!JSON.stringify(c).match(/password:|\/invite\//i), "no password, no invitation token");
+  // a user of the APSOparts hub alone: no second factor asked, the APSOhub named
+  const u = inviteContent({ fullName: "Bo", email: "b@x.ch", signInWith: "b@x.ch", role: "user", cross: null }, { fullName: "Admin", email: null });
+  assert.equal(u.subject, "Your access to the APSOhub");
+  assert.ok(!Object.fromEntries(u.rows)["Second factor"]);
+  assert.equal(u.footer, "Admin added you to the hub.");
+  assert.equal(whatTheySee("admin", "admin"), "The Angst+Pfister hub and the APSOparts hub, as an admin of both.");
+});
 
 test("cross access: the mark as stored", () => {
   assert.equal(asCross("user"), "user");

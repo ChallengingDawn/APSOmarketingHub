@@ -63,9 +63,11 @@ export async function POST(req: NextRequest) {
   if (reason) return NextResponse.json({ ok: false, error: reason }, { status: 400 });
 
   await ensureSchema();
+  // awaiting_setup off too: an account with its password chosen is no longer one the sign-in page lets the next
+  // person to type its address set up (src/app/api/auth/claim)
   await query(
     `UPDATE apsomh_users
-        SET password_hash = $1, must_change_password = FALSE, updated_at = NOW()
+        SET password_hash = $1, must_change_password = FALSE, awaiting_setup = FALSE, updated_at = NOW()
       WHERE id = $2`,
     [await hashPassword(parsed.data.password), invite.userId],
   );

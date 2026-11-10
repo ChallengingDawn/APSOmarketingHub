@@ -32,6 +32,7 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import KeyOutlinedIcon from "@mui/icons-material/KeyOutlined";
 import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
 import FormControlLabel from "@mui/material/FormControlLabel";
+import Checkbox from "@mui/material/Checkbox";
 import Radio from "@mui/material/Radio";
 import RadioGroup from "@mui/material/RadioGroup";
 import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
@@ -111,9 +112,15 @@ export default function PeopleAccess() {
   const [note, setNote] = useState<string | null>(null);
   const [invite, setInvite] = useState<{
     fullName: string; username: string; email: string; role: Role;
+    /** the Angst+Pfister hub's mark, chosen in the same list as the role (SARCLA 10.11.2026: "can I select the role directly") */
+    cross: Cross | null;
     how: "self" | "password"; password: string;
+    /** the hub mails them the way in (SARCLA 10.11.2026: "are we sending a mail here?") */
+    mail: boolean;
     /** Once created and told how to get in: the address they sign in with. */
     createdAs: string | null; busy: boolean;
+    /** where the invitation went, or why it did not */
+    mailed?: string | null; mailError?: string | null;
   } | null>(null);
 
   const load = useCallback(() => {
@@ -269,8 +276,8 @@ export default function PeopleAccess() {
               <Button
                 size="small" variant="contained" startIcon={<PersonAddAlt1Icon />}
                 onClick={() => setInvite({
-                  fullName: "", username: "", email: "", role: "user",
-                  how: "self", password: newPassword(), createdAs: null, busy: false,
+                  fullName: "", username: "", email: "", role: "user", cross: null,
+                  how: "self", password: newPassword(), mail: true, createdAs: null, busy: false,
                 })}
                 sx={{ textTransform: "none", borderRadius: "12px", flexShrink: 0 }}
               >
@@ -610,11 +617,19 @@ export default function PeopleAccess() {
         <DialogContent>
           {invite?.createdAs ? (
             <>
-              <Typography sx={{ fontSize: "0.86rem", color: MUTED, mb: 1.5 }}>
-                Tell them to go to the hub and sign in with this address. It will ask them to choose a
-                password, because the account has never been signed into — so nobody, including you, ever
-                knows it.
-              </Typography>
+              {invite.mailed ? (
+                <Typography sx={{ fontSize: "0.86rem", color: MUTED, mb: 1.5 }}>
+                  The invitation went to <b>{invite.mailed}</b>: the hub&apos;s address and this one to sign in with.
+                  The hub asks them to choose a password the first time, so nobody, including you, ever knows it.
+                </Typography>
+              ) : (
+                <Typography sx={{ fontSize: "0.86rem", color: MUTED, mb: 1.5 }}>
+                  {invite.mailError ? `The mail could not be sent (${invite.mailError}). ` : ""}
+                  Tell them to go to the hub and sign in with this address. It will ask them to choose a
+                  password, because the account has never been signed into — so nobody, including you, ever
+                  knows it.
+                </Typography>
+              )}
               <Box sx={{
                 fontFamily: "ui-monospace, 'IBM Plex Mono', monospace", fontSize: "0.86rem",
                 p: 1.5, borderRadius: "12px", bgcolor: "#f3f5f8", border: `1px solid ${HAIRLINE}`,
@@ -630,14 +645,29 @@ export default function PeopleAccess() {
                 helperText="What they type to sign in. Letters, digits, . _ @ + -" />
               <TextField size="small" label="Email" type="email" value={invite.email}
                 onChange={(e) => setInvite({ ...invite, email: e.target.value })} />
-              <Select size="small" value={invite.role}
-                onChange={(e) => setInvite({ ...invite, role: e.target.value as Role })}>
+              {/* the role and the Angst+Pfister hub's mark in one list: a cross-admin is an admin, a cross-user a user */}
+              <Select size="small" value={invite.cross ? `x-${invite.cross}` : invite.role} aria-label="Access"
+                onChange={(e) => {
+                  const v = String(e.target.value);
+                  if (v === "x-user" || v === "x-admin") {
+                    const cross: Cross = v === "x-admin" ? "admin" : "user";
+                    setInvite({ ...invite, cross, role: cross === "admin" ? "admin" : "user" });
+                  } else setInvite({ ...invite, cross: null, role: v as Role });
+                }}>
                 {ROLES.map((r) => (
                   <MenuItem key={r} value={r} sx={{ fontSize: "0.85rem" }}>{ROLE_LABEL[r]}</MenuItem>
                 ))}
+                {(["user", "admin"] as const).map((c, i) => (
+                  <MenuItem key={c} value={`x-${c}`}
+                    sx={{ fontSize: "0.85rem", ...(i === 0 ? { borderTop: `1px solid ${HAIRLINE}`, mt: 0.5 } : {}) }}>
+                    Angst+Pfister {CROSS_LABEL[c].toLowerCase()}
+                  </MenuItem>
+                ))}
               </Select>
               <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: -1 }}>
-                {ROLE_NOTE[invite.role]}{invite.role === "user" ? " Anything beyond the Datatracker you give them after." : ""}
+                {invite.cross
+                  ? `${CROSS_NOTE[invite.cross]} A second factor is asked at the first sign-in.`
+                  : `${ROLE_NOTE[invite.role]}${invite.role === "user" ? " Anything beyond the Datatracker you give them after." : ""}`}
               </Typography>
 
               <RadioGroup value={invite.how}
@@ -661,10 +691,19 @@ export default function PeopleAccess() {
                   </Typography>
                 </Box>
               ) : (
-                <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
-                  The right choice for an admin: they go to the hub, type this address, and are asked to choose
-                  a password. One you have seen is one the audit log cannot tell apart from theirs.
-                </Typography>
+                <>
+                  <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>
+                    The right choice for an admin: they go to the hub, type this address, and are asked to choose
+                    a password. One you have seen is one the audit log cannot tell apart from theirs.
+                  </Typography>
+                  {/* the way in by mail: the hub's address and theirs - no link that signs anybody in */}
+                  <FormControlLabel sx={{ mt: -0.5 }}
+                    control={<Checkbox size="small" checked={invite.mail && !!invite.email.trim()} disabled={!invite.email.trim()}
+                      onChange={(e) => setInvite({ ...invite, mail: e.target.checked })} />}
+                    label={<Typography sx={{ fontSize: "0.86rem" }}>
+                      {invite.email.trim() ? "Send them the invitation by mail" : "Send them the invitation by mail (add their email)"}
+                    </Typography>} />
+                </>
               )}
             </Box>
           ) : null}
@@ -693,8 +732,9 @@ export default function PeopleAccess() {
                         username: invite.username.trim(),
                         email: invite.email.trim() || undefined,
                         role: invite.role,
+                        ...(invite.cross ? { cross: invite.cross } : {}),
                         ...(invite.how === "self"
-                          ? { setupByUser: true }
+                          ? { setupByUser: true, sendMail: invite.mail && !!invite.email.trim() }
                           : { initialPassword: invite.password }),
                       }),
                     });
@@ -704,7 +744,10 @@ export default function PeopleAccess() {
                       // Not a link. The address they sign in with, which is all
                       // they need: the door asks for a password when it sees an
                       // account that has never been used.
-                      setInvite({ ...invite, busy: false, createdAs: invite.email.trim() || invite.username.trim() });
+                      setInvite({
+                        ...invite, busy: false, createdAs: invite.email.trim() || invite.username.trim(),
+                        mailed: (j?.mailed as string | null) ?? null, mailError: (j?.mailError as string | null) ?? null,
+                      });
                     } else {
                       setInvite(null);
                       setNote("Account created. Give them the password you just saw.");

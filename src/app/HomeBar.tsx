@@ -150,8 +150,9 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
   const reads = APP_KEYS.filter((k) => openFor(k)).length <= 1;
   // the Action plan's own pages, admins only, carry their own (SARCLA 02.11.2026: "only admins have access to it, show it
   // for everyone on the page"; 04.11.2026: "bring Home to first position")
-  // the two hubs, for the people of Angst+Pfister and the admins (access.ts Cross): a switch beside the name
-  const twoHubs = myCross !== null || role === "admin";
+  // the two hubs, for the people of Angst+Pfister only - cross-user or cross-admin (access.ts Cross), never an admin
+  // without the mark (SARCLA 10.11.2026 on Bernd seeing it: "only cross people"); a preview follows the person previewed
+  const twoHubs = (viewed ? viewed.cross ?? null : myCross) !== null;
   const home = hub === "ap" ? AP_HUB_HOME : "/";
   const NAV = hub === "ap" ? [
     { name: "Home", href: AP_HUB_HOME, icon: <HomeIcon />, show: true },
@@ -175,6 +176,37 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
     { name: "Settings", href: "/settings", icon: <SettingsOutlinedIcon />, show: true },
   ].filter((n) => n.show);
 
+  // the switch between the two hubs: inside the bar, on the left of its lower line, the search and the face on the right
+  // (SARCLA 10.11.2026: "take the toggle out of there" - beside the logo it pushed the menu and the search)
+  const hubSwitch = (
+    <Box role="group" aria-label="Hub" sx={{
+      display: "flex", p: 0.4, gap: 0.4, borderRadius: "14px",
+      bgcolor: "rgba(21,34,58,.05)", border: "1px solid rgba(21,34,58,.06)",
+    }}>
+      {([["ap", "Angst+Pfister", AP_HUB_HOME], ["apsoparts", "APSOparts", "/"]] as const).map(([k, label, href]) => {
+        const lit = hub === k;
+        return (
+          <Box key={k} component={Link} href={href} aria-current={lit ? "page" : undefined} sx={{
+            px: 1.4, py: 0.7, borderRadius: "11px", textDecoration: "none", whiteSpace: "nowrap",
+            fontSize: "0.82rem", fontWeight: 650, letterSpacing: "-0.01em",
+            color: lit ? INK : MUTED, bgcolor: lit ? "#fff" : "transparent",
+            boxShadow: lit ? "0 1px 2px rgba(31,45,78,.08), 0 4px 10px rgba(31,45,78,.06)" : "none",
+            transition: "background-color .18s ease, color .18s ease", ...focusRing,
+            "&:hover": { color: INK },
+            "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+          }}>{label}</Box>
+        );
+      })}
+    </Box>
+  );
+  // the lower line: the switch on its left for the two hubs' people; anybody else keeps the one line as before
+  const line2 = (right: React.ReactNode) => twoHubs ? (
+    <Box sx={{ flexBasis: "100%", display: "flex", alignItems: "center", gap: { xs: 1.5, md: 2 }, flexWrap: "wrap" }}>
+      {hubSwitch}
+      {right}
+    </Box>
+  ) : right;
+
   return (
     <Box sx={{
       ...glass, borderRadius: "22px", px: { xs: 2, md: 2.5 }, py: 1.5,
@@ -186,28 +218,6 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
       <Box component={Link} href={home} sx={{ textDecoration: "none", display: "grid", lineHeight: 1, ...focusRing }}>
         <Wordmark size={26} />
       </Box>
-
-      {twoHubs && (
-        <Box role="group" aria-label="Hub" sx={{
-          display: "flex", p: 0.4, gap: 0.4, borderRadius: "14px",
-          bgcolor: "rgba(21,34,58,.05)", border: "1px solid rgba(21,34,58,.06)",
-        }}>
-          {([["ap", "Angst+Pfister", AP_HUB_HOME], ["apsoparts", "APSOparts", "/"]] as const).map(([k, label, href]) => {
-            const lit = hub === k;
-            return (
-              <Box key={k} component={Link} href={href} aria-current={lit ? "page" : undefined} sx={{
-                px: 1.4, py: 0.7, borderRadius: "11px", textDecoration: "none", whiteSpace: "nowrap",
-                fontSize: "0.82rem", fontWeight: 650, letterSpacing: "-0.01em",
-                color: lit ? INK : MUTED, bgcolor: lit ? "#fff" : "transparent",
-                boxShadow: lit ? "0 1px 2px rgba(31,45,78,.08), 0 4px 10px rgba(31,45,78,.06)" : "none",
-                transition: "background-color .18s ease, color .18s ease", ...focusRing,
-                "&:hover": { color: INK },
-                "@media (prefers-reduced-motion: reduce)": { transition: "none" },
-              }}>{label}</Box>
-            );
-          })}
-        </Box>
-      )}
 
       <Box sx={{ display: { xs: "none", md: "flex" }, alignItems: "center", gap: 0.4 }}>
         {NAV.map((n) => {
@@ -227,7 +237,7 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
         })}
       </Box>
 
-      <Box ref={boxRef} sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 1.5, position: "relative" }}>
+      {line2(<Box ref={boxRef} sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 1.5, position: "relative" }}>
         <Box sx={{
           display: searchShown ? { xs: "none", sm: "flex" } : "none", alignItems: "center", gap: 1,
           width: { sm: 220, lg: 320 }, px: 1.75, py: 1, borderRadius: "14px",
@@ -303,7 +313,7 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
           <AvatarFace size={38} photo={face.photo} iconId={face.iconId} initials={initials}
             fallback={<AccountCircleIcon sx={{ fontSize: 24 }} />} />
         </Box>
-      </Box>
+      </Box>)}
     </Box>
   );
 }
