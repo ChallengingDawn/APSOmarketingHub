@@ -208,7 +208,7 @@ function preview(m: ModuleRef, o: Opts) {
 @@ .am-vl{display:flex;flex-direction:column;justify-content:center;min-width:0}
 @@ .am-vi{position:relative;display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:baseline;gap:14px;padding:13px 40px 13px 6px;border-bottom:1px solid #e6eaed;color:var(--ink)!important;transition:padding .25s,color .15s}
 @@ .am-vl>li:first-child .am-vi{border-top:1px solid #e6eaed}
-@@ .am-vn{font:600 13px/1 var(--head);color:#9aa6ad;font-variant-numeric:tabular-nums;transition:color .15s}
+@@ .am-vn{font:600 13px/1 var(--head);color:#6b757b;font-variant-numeric:tabular-nums;transition:color .15s}
 @@ .am-vi b{font:600 clamp(19px,1.9vw,25px)/1.15 var(--head);letter-spacing:-.01em;transition:color .15s}
 @@ .am-vi em{font:500 12.5px/1 var(--head);font-style:normal;color:var(--mute);white-space:nowrap}
 @@ .am-vi::after{content:"";position:absolute;right:12px;top:50%;width:8px;height:8px;margin-top:-4px;border:solid var(--red);border-width:2px 2px 0 0;transform:rotate(45deg) translate(-6px,6px);opacity:0;transition:opacity .2s,transform .25s}
@@ -217,7 +217,7 @@ function preview(m: ModuleRef, o: Opts) {
 @@ .am-vi:is(:hover,:focus-visible)::after{opacity:1;transform:rotate(45deg)}
 @@ .am-pv:not(:has(.am-vi:is(:hover,:focus-visible))) .am-vl>li:first-child .am-vi b{color:var(--red)}
 @@ .am-vs{position:relative;display:grid;min-height:420px}
-@@ .am-vp{grid-area:1/1;position:relative;border-radius:24px;overflow:hidden;background:var(--tile);isolation:isolate;clip-path:inset(0 0 0 100% round 24px);transition:clip-path .45s cubic-bezier(.2,.7,.2,1) .1s}
+@@ .am-vp{grid-area:1/1;position:relative;border-radius:24px;overflow:hidden;background:#1b3a4b;isolation:isolate;clip-path:inset(0 0 0 100% round 24px);transition:clip-path .45s cubic-bezier(.2,.7,.2,1) .1s}
 @@ .am-vp:first-child{clip-path:inset(0 round 24px)}
 @@ .am-pv:has(.am-vl>li:not(:first-child)>a:is(:hover,:focus-visible)) .am-vp:first-child{clip-path:inset(0 0 0 100% round 24px)}
 ${show.length ? `${show.join(",")}{clip-path:inset(0 round 24px)}` : ""}

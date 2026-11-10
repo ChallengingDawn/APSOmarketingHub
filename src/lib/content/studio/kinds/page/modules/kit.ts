@@ -112,7 +112,7 @@ export function button(l: { label: string; url: string }, cls: string): string {
 /* ── the shared rules: tokens, heading, cards, tiles ───────────────────── */
 
 export const BASE = `
-@@{--red:#d80901;--red-d:#b00700;--pet:#274e64;--pet-d:#1b3a4b;--ink:#1d2326;--txt:#5e5e5e;--mute:#646b70;--line:#e5e8ea;--tile:#e8e9eb;
+@@{--red:#d80901;--red-d:#b00700;--pet:#274e64;--pet-d:#1b3a4b;--ink:#1d2326;--txt:#5e5e5e;--mute:#5b6267;--line:#e5e8ea;--tile:#e8e9eb;
   --head:"futura-pt","Futura PT",Futura,Jost,Arial,sans-serif;display:block;box-sizing:border-box;width:100%;max-width:1170px;margin:28px auto;padding:0 10px;
   color:var(--txt);font:15px/1.55 Arial,system-ui,sans-serif;-webkit-font-smoothing:antialiased;text-align:left;clear:both}
 @@ *,@@ ::before,@@ ::after{box-sizing:border-box}

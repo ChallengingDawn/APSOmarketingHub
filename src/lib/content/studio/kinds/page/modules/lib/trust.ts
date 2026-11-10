@@ -193,13 +193,13 @@ function band(m: ModuleRef) {
 @@ .am-pt .am-ey{color:#cddbe3;margin-bottom:6px!important}
 @@ .am-pt .am-ey::before{background:#fff}
 @@ h2.am-ph{color:#fff!important;font-size:21px!important;line-height:1.2!important}
-@@ .am-ph .am-red{color:#ff6a5f}
+@@ .am-ph .am-red{color:#ffc2bc}
 @@ .am-pi{display:grid;grid-template-columns:46px minmax(0,1fr);align-items:center;gap:13px;padding:6px 20px;min-width:0}
 @@ .am-pi+.am-pi,@@ .am-pt+.am-pi{border-left:1px solid rgba(255,255,255,.16)}
 @@ .am-pi svg{display:block;width:46px;height:46px;padding:11px;border-radius:50%;color:#fff;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.45);transition:background .2s,box-shadow .2s}
 @@ .am-pi:hover svg{background:var(--red);box-shadow:inset 0 0 0 1.5px var(--red)}
 @@ .am-pi b{display:block;font:600 15.5px/1.2 var(--head);color:#fff}
-@@ .am-pi span{display:block;margin-top:2px;font:500 13px/1.35 var(--head);color:#b9ccd7}
+@@ .am-pi span{display:block;margin-top:2px;font:500 13px/1.35 var(--head);color:#d3e0e7}
 @media (max-width:1100px) and (min-width:901px){@@ .am-pb{grid-template-columns:repeat(${Math.max(1, list.length)},minmax(0,1fr))}@@ .am-pt{display:none}@@ .am-pi{grid-template-columns:38px minmax(0,1fr);gap:10px;padding:6px 14px}@@ .am-pi svg{width:38px;height:38px;padding:9px}@@ .am-pi b{font-size:14.5px}}
 @media (max-width:900px){
 @@ .am-pb{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 0;padding:20px 6px;border-radius:18px}
@@ -254,7 +254,7 @@ function help(m: ModuleRef) {
   const s = m.settings;
   const list = pts(s, 3);
   const css = `${BUTTONS}
-@@ .am-hl{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:24px 40px;align-items:center;padding:34px 36px;border-radius:26px;background:linear-gradient(150deg,#eef4f7 0%,#e2ebf0 100%)}
+@@ .am-hl{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:24px 40px;align-items:center;padding:34px 36px;border-radius:26px;background:linear-gradient(150deg,#f4f7f9 0%,#edf1f3 100%)}
 @@ h2.am-hh{font-size:clamp(25px,2.5vw,35px)!important;line-height:1.12!important}
 @@ .am-hx{margin-top:12px!important;font-size:16px;line-height:1.6;color:var(--txt)}
 @@ .am-hl .am-btn{margin-top:22px}
