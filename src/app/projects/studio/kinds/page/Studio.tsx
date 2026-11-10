@@ -59,7 +59,7 @@ import { Build, type AppBrief, type Step } from "./Build";
 import { BlockList, type RowAct } from "./BlockList";
 import { applyElementEdit, lookCss, lookOf as elementLook, type ElementEdit } from "./edits";
 import { InsertPanel, type Selection } from "./Element";
-import { BlockSettingsPop, EditBar, PicturePop, PopCard, ShopBlockPop, TextPop } from "./pops";
+import { BlockSettingsPop, EditBar, PicturePop, PopCard, ShopBlockPop, TextPop, cleanRich } from "./pops";
 import { fillOfBlock, type FillRun, type Making, type PictureCtl } from "./Fields";
 import type { AddPlace, Picked } from "./Frame";
 import { checkChange } from "./guard";
@@ -161,7 +161,8 @@ export default function Studio({ api }: StudioProps) {
   const preview = usePagePreview(api, d, lang, view);
   const { shell, inserts } = useShell(api, d, preview.fresh);
   /** the page's blocks, one row each (Content v8) */
-  const rows = useMemo(() => (isNew ? newPageRows(d.fields) : d.path ? shopRows(found, d.changes) : []), [isNew, d.fields, d.path, found, d.changes]);
+  // a page of the shop: once its frame has read its blocks (until then the list says it is reading them)
+  const rows = useMemo(() => (isNew ? newPageRows(d.fields) : d.path && found.length ? shopRows(found, d.changes) : []), [isNew, d.fields, d.path, found, d.changes]);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
 
@@ -1156,6 +1157,7 @@ export default function Studio({ api }: StudioProps) {
 
   const onPicked = (p: PickedPage) => {
     const cur = docRef.current;
+    setFound([]); setSelState(null); openPop(null);
     if (lang === mainView(cur)) {
       const store = p.store ?? cur.store;
       setDoc({ ...cur, env: p.env, path: p.path, store, pageKind: p.kind, outline: null, source: cur.source === "new" ? "pick" : cur.source }, cur.path ? "Picked another page" : undefined);
@@ -1384,7 +1386,8 @@ export default function Studio({ api }: StudioProps) {
           href={!inMod && p.tag === "a" ? p.href ?? "" : null}
           onDone={(text, html, href) => {
             if (href) elEdit(p, { kind: "attr", name: "href", value: href });
-            if (text === p.text && (html === undefined || html === p.inner)) { closePop(); return; }
+            // nothing changed (the box gives back the element's words as it cleans them): nothing written
+            if (text === p.text && (html === undefined || html === cleanRich(p.inner))) { closePop(); return; }
             const err = putWords(p, text, html && /<(?!br\b)[a-z]/i.test(html) ? html : undefined);
             if (err) { window.alert(err); return; }
             closePop();
